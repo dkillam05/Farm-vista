@@ -1,0 +1,1527 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FarmVista • Expenditures – Add</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3B7E46" />
+
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+
+  <!-- Kept for future / compatibility (not used directly here) -->
+  <script defer src="/Farm-vista/js/ocr-tesseract.js"></script>
+
+  <style>
+    .section {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--surface);
+      box-shadow: var(--shadow, 0 8px 20px rgba(0, 0, 0, .08));
+    }
+    .section-head {
+      display: grid;
+      grid-template-columns: 36px 1fr;
+      gap: 12px;
+      align-items: center;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(90deg, rgba(47, 108, 60, .12), transparent);
+    }
+    .section-head .icon {
+      width: 24px;
+      height: 24px;
+      color: #2F6C3C;
+      display: grid;
+      place-items: center;
+    }
+    .section-body {
+      padding: 16px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .grid-2 {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: 1fr 1fr;
+    }
+    .grid-3 {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    @media (max-width: 880px) {
+      .grid-2,
+      .grid-3 {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .field label {
+      display: block;
+      font-weight: 800;
+      margin: 0 0 6px 0;
+    }
+    .field label .req {
+      color: #b3261e;
+      margin-left: 3px;
+    }
+    .input,
+    .select,
+    .textarea {
+      width: 100%;
+      font: inherit;
+      font-size: 16px;
+      color: var(--text);
+      background: var(--card-surface, var(--surface));
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      outline: none;
+    }
+    .textarea {
+      min-height: 96px;
+      resize: vertical;
+    }
+
+    .rc-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    /* only bottom button row should be centered */
+    .rc-actions-bottom {
+      justify-content: center;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 140px;
+      padding: 12px 16px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--card-surface, var(--surface));
+      font-weight: 800;
+      color: var(--text);
+      cursor: pointer;
+    }
+    .btn-primary {
+      border-color: transparent;
+      background: #2F6C3C;
+      color: #fff;
+    }
+    .linklike {
+      border: 0;
+      background: none;
+      color: var(--accent, #2F6C3C);
+      font-weight: 700;
+      cursor: pointer;
+      padding: 0;
+    }
+
+    #preview[hidden] {
+      display: none !important;
+    }
+    .thumb {
+      width: 120px;
+      height: 120px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      display: grid;
+      place-items: center;
+      background: #f6f7f6;
+    }
+    .thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .help {
+      font-size: 13px;
+      color: var(--muted, #67706B);
+    }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 72px);
+      transform: translateX(-50%);
+      background: #2F6C3C;
+      color: #fff;
+      padding: 10px 14px;
+      border-radius: 10px;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, .25);
+      z-index: 99999;
+      display: none;
+    }
+    .toast.show {
+      display: block;
+      animation: fadeout 2.8s forwards;
+    }
+    @keyframes fadeout {
+      0% { opacity: 1 }
+      85% { opacity: 1 }
+      100% { opacity: 0 }
+    }
+
+    .page {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: clamp(14px, 3vw, 22px);
+      padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--ftr-h, 42px) + 96px) !important;
+    }
+    .page-title { margin: 0 0 8px 0; }
+    .page-sub {
+      margin: 0 0 14px 0;
+      color: var(--muted, #67706B);
+    }
+
+    /* Camera modal + vertical framing box (mobile-deposit style) */
+    .camera-modal[hidden] {
+      display: none !important;
+    }
+    .camera-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 99990;
+      display: grid;
+      place-items: center;
+    }
+    .camera-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.65);
+    }
+    .camera-shell {
+      position: relative;
+      width: min(100vw, 480px);
+      max-height: 90vh;
+      border-radius: 18px;
+      overflow: hidden;
+      background: #000;
+      display: flex;
+      flex-direction: column;
+    }
+    .camera-header {
+      padding: 8px 12px;
+      color: #fff;
+      font-weight: 700;
+      font-size: 15px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: linear-gradient(90deg, rgba(0,0,0,.9), rgba(0,0,0,.5));
+      z-index: 2;
+    }
+    .camera-header button {
+      border: 0;
+      background: none;
+      color: #fff;
+      font-size: 14px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .camera-body {
+      position: relative;
+      flex: 1;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+    #cameraVideo {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .camera-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .camera-frame {
+      width: 70%;
+      max-width: 320px;
+      aspect-ratio: 2 / 3; /* vertical for receipts */
+      border-radius: 12px;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4);
+      border: 2px solid rgba(255, 255, 255, 0.9);
+      transition: border-color .25s ease, box-shadow .25s ease;
+    }
+    .camera-frame.stable {
+      border-color: #7CFC7C;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
+    }
+    .camera-hints {
+      position: absolute;
+      bottom: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      text-align: center;
+      color: #f1f1f1;
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.65);
+      max-width: 90%;
+    }
+    .camera-footer {
+      padding: 8px 12px 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: #fff;
+      font-size: 13px;
+      background: linear-gradient(0deg, rgba(0,0,0,.9), rgba(0,0,0,.5));
+      gap: 8px;
+    }
+    .camera-footer-left {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-width: 60%;
+    }
+    .torch-toggle {
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      padding: 4px 10px;
+      background: rgba(0, 0, 0, 0.4);
+      color: #fff;
+      cursor: pointer;
+      font-size: 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .torch-toggle[hidden] {
+      display: none;
+    }
+    .torch-toggle.active {
+      background: #2F6C3C;
+      border-color: #2F6C3C;
+    }
+    .torch-note {
+      font-size: 11px;
+      opacity: .85;
+    }
+    .camera-footer-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .camera-capture-btn {
+      width: 54px;
+      height: 54px;
+      border-radius: 50%;
+      border: 3px solid #fff;
+      background: transparent;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      position: relative;
+    }
+    .camera-capture-btn::before {
+      content: "";
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: #fff;
+    }
+    .camera-cancel {
+      border: 0;
+      background: none;
+      color: #fff;
+      font-size: 12px;
+      cursor: pointer;
+      padding: 4px 6px;
+    }
+
+    /* OCR processing overlay */
+    .ocr-overlay[hidden] {
+      display: none !important;
+    }
+    .ocr-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 99995;
+      display: grid;
+      place-items: center;
+    }
+    .ocr-overlay-backdrop {
+      position: absolute;
+      inset: 0;
+      backdrop-filter: blur(3px);
+      background: rgba(0, 0, 0, 0.25);
+    }
+    .ocr-overlay-box {
+      position: relative;
+      padding: 16px 22px;
+      border-radius: 14px;
+      background: rgba(25, 25, 25, 0.94);
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      min-width: 220px;
+    }
+    .ocr-spinner {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      border: 3px solid rgba(255, 255, 255, 0.25);
+      border-top-color: #fff;
+      animation: ocr-spin 0.8s linear infinite;
+    }
+    @keyframes ocr-spin {
+      to { transform: rotate(360deg); }
+    }
+    .ocr-overlay-text {
+      font-size: 14px;
+      font-weight: 600;
+      text-align: center;
+    }
+  </style>
+
+  <script>
+    (function () {
+      if (!customElements.get('fv-shell')) {
+        const s = document.createElement('script');
+        s.src = '/Farm-vista/js/fv-shell.js';
+        s.defer = true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+</head>
+<body>
+  <fv-shell>
+    <div class="page container">
+      <h1 class="page-title">New Expenditure</h1>
+      <p class="page-sub">
+        Take a photo or import your receipt and we’ll read it automatically.
+        You can edit any field before saving.
+      </p>
+
+      <section class="section">
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">
+            <!-- Tabler (MIT) receipt icon -->
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+              <path d="M5 4h14v16l-2 -1l-2 1l-2 -1l-2 1l-2 -1l-2 1z" />
+              <path d="M14 8h-4M14 12h-4" />
+            </svg>
+          </div>
+          <div>
+            <strong>Receipt</strong>
+            <div class="help">Choose one: Take Photo or Import. OCR will auto-run (cloud-based).</div>
+          </div>
+        </header>
+
+        <div class="section-body">
+          <!-- Camera / import -->
+          <div class="rc-actions">
+            <button id="btnTake" class="btn" type="button">Take Photo</button>
+            <button id="btnImport" class="btn" type="button">Import</button>
+            <button id="btnReplace" class="linklike" type="button" hidden>Replace</button>
+          </div>
+
+          <div id="preview" hidden>
+            <div id="thumb" class="thumb" aria-live="polite"></div>
+            <div id="ocrStatus" class="help"></div>
+          </div>
+
+          <!-- hidden inputs (fallbacks) -->
+          <input id="camInput" type="file" accept="image/*,.pdf" capture="environment" hidden>
+          <input id="fileInput" type="file" accept="image/*,.pdf" hidden>
+
+          <!-- Row 1: Submitted By + Submitted Date -->
+          <div class="grid-2">
+            <div class="field">
+              <label for="whoSel">Submitted By<span class="req">*</span></label>
+              <!-- Plain select so dropdown stays anchored -->
+              <select id="whoSel" class="select">
+                <option value="">Loading employees…</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="submitted">Submitted Date<span class="req">*</span></label>
+              <input id="submitted" class="input" type="date">
+            </div>
+          </div>
+
+          <!-- Row 2: Payment Method + Category -->
+          <div class="grid-2">
+            <div class="field">
+              <label for="paymethod">Payment Method<span class="req">*</span></label>
+              <select id="paymethod" class="select">
+                <option value="">—</option>
+                <option value="reimb">Out-of-pocket (reimburse)</option>
+                <option value="card">Company card</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="category">Category<span class="req">*</span></label>
+              <select id="category" class="select">
+                <option value="">—</option>
+                <option>Fuel</option>
+                <option>Repairs/Parts</option>
+                <option>Supplies</option>
+                <option>Meals</option>
+                <option>Lodging</option>
+                <option>Fees/Tolls</option>
+                <option>Other</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Row 3: Merchant + Total + Receipt Date -->
+          <div class="grid-3">
+            <div class="field">
+              <label for="merchant">Merchant<span class="req">*</span></label>
+              <input id="merchant" class="input" placeholder="Store / vendor">
+            </div>
+            <div class="field">
+              <label for="total">Total (USD)<span class="req">*</span></label>
+              <input id="total" class="input" inputmode="decimal" placeholder="$0.00">
+            </div>
+            <div class="field">
+              <label for="rdate">Receipt Date<span class="req">*</span></label>
+              <input id="rdate" class="input" type="date">
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="project">Project/Field (optional)</label>
+            <input id="project" class="input" placeholder="Project, field, or tag">
+          </div>
+
+          <div class="field">
+            <label for="notes">Notes (optional)</label>
+            <textarea id="notes" class="textarea" placeholder="Anything helpful for accounting…"></textarea>
+          </div>
+
+          <!-- Bottom Clear / Save centered -->
+          <div class="rc-actions rc-actions-bottom">
+            <button id="btnClear" class="btn" type="button">Clear</button>
+            <button id="btnSave" class="btn btn-primary" type="button">Save</button>
+          </div>
+
+          <!-- Centered Cancel underneath -->
+          <div class="rc-actions rc-actions-bottom" style="margin-top:6px;">
+            <button id="btnCancel" class="btn" type="button">Cancel</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <!-- Camera modal (mobile-deposit style) -->
+  <div id="cameraModal" class="camera-modal" hidden>
+    <div class="camera-backdrop"></div>
+    <div class="camera-shell" role="dialog" aria-modal="true" aria-labelledby="cameraTitle">
+      <div class="camera-header">
+        <span id="cameraTitle">Align receipt inside the box</span>
+        <button type="button" id="cameraCloseTop">Close</button>
+      </div>
+      <div class="camera-body">
+        <video id="cameraVideo" autoplay playsinline muted></video>
+        <div class="camera-overlay">
+          <div id="cameraFrame" class="camera-frame"></div>
+        </div>
+        <div class="camera-hints">
+          Use rear camera, keep the receipt centered and hold steady. The box will glow when ready.
+        </div>
+      </div>
+      <div class="camera-footer">
+        <div class="camera-footer-left">
+          <button id="torchToggle" class="torch-toggle" type="button" hidden>
+            🔦 <span id="torchLabel">Flashlight</span>
+          </button>
+          <div id="torchNote" class="torch-note"></div>
+        </div>
+        <div class="camera-footer-right">
+          <button id="cameraCancel" class="camera-cancel" type="button">Cancel</button>
+          <button id="cameraCapture" class="camera-capture-btn" type="button" aria-label="Capture photo"></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- OCR processing overlay -->
+  <div id="ocrOverlay" class="ocr-overlay" hidden>
+    <div class="ocr-overlay-backdrop"></div>
+    <div class="ocr-overlay-box">
+      <div class="ocr-spinner"></div>
+      <div class="ocr-overlay-text">Processing receipt…</div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+
+  <!-- Main logic: modular Firebase (same style as grain bag put-down) -->
+  <script type="module">
+    import {
+      ready,
+      getAuth,
+      getFirestore,
+      collection,
+      addDoc,
+      getDocs,
+      serverTimestamp,
+      // new: storage + update helpers
+      getStorage,
+      ref,
+      uploadBytes,
+      getDownloadURL,
+      updateDoc
+    } from '/Farm-vista/js/firebase-init.js';
+
+    (async () => {
+      "use strict";
+
+      await ready;
+      const auth    = getAuth();
+      const db      = getFirestore();
+      const storage = getStorage();
+
+      const OCR_URL = "https://fv-ocr-300398089669.us-central1.run.app/fvOcr";
+
+      const $ = id => document.getElementById(id);
+      const todayISO = () =>
+        new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
+          .toISOString().slice(0, 10);
+
+      const whoSel   = $("whoSel"),
+            submitted = $("submitted"),
+            merchant  = $("merchant"),
+            rdate     = $("rdate"),
+            category  = $("category"),
+            total     = $("total"),
+            paymethod = $("paymethod"),
+            project   = $("project"),
+            notes     = $("notes");
+
+      submitted.value = todayISO();
+
+      /* Keep track of the receipt file so we can upload it on Save */
+      let receiptFileForStorage = null;
+      let receiptFileOriginalName = "";
+
+      /* USD formatting */
+      const usdFmt = new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD"
+      });
+      const parseUSD = str => {
+        if (!str) return "";
+        const n = Number(String(str).replace(/[^0-9.-]/g, ""));
+        return isFinite(n) ? n : "";
+      };
+      total.addEventListener("blur", e => {
+        const v = parseUSD(e.target.value);
+        e.target.value = v === "" ? "" : usdFmt.format(v);
+      });
+
+      /* Submitted By — plain select, default to logged-in user if possible */
+      async function loadEmployeesCombo() {
+        try {
+          const snap = await getDocs(collection(db, 'employees'));
+          const list = [];
+          snap.forEach(d => {
+            const x = d.data() || {};
+            list.push({
+              id: d.id,
+              name: x.name || x.displayName || x.fullName || x.employeeName || x.email || d.id,
+              email: (x.email || d.id || "").toLowerCase()
+            });
+          });
+          list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
+          whoSel.innerHTML = "";
+          whoSel.appendChild(new Option("— Select —", ""));
+
+          list.forEach(emp => {
+            const opt = new Option(emp.name, emp.email || emp.id);
+            whoSel.appendChild(opt);
+          });
+
+          const meEmail = (auth.currentUser?.email || "").toLowerCase();
+          let chosen = null;
+          if (meEmail) {
+            chosen = list.find(e => (e.email || "").toLowerCase() === meEmail) || null;
+          }
+
+          if (chosen) {
+            whoSel.value = chosen.email || chosen.id;
+          } else if (list.length) {
+            const first = list[0];
+            whoSel.value = first.email || first.id;
+          }
+        } catch (err) {
+          console.warn("Failed to load employees for Submitted By:", err);
+          const meName  = auth.currentUser?.displayName || auth.currentUser?.email || "Unknown user";
+          const meEmail = (auth.currentUser?.email || "").toLowerCase();
+          whoSel.innerHTML = "";
+          whoSel.appendChild(new Option(meName, meEmail || meName));
+        }
+      }
+
+      function getSubmittedByName() {
+        if (!whoSel) return "";
+        const opt = whoSel.options[whoSel.selectedIndex];
+        if (opt && opt.text) return opt.text.trim();
+        return whoSel.value || "";
+      }
+      function getSubmittedByEmail() {
+        if (!whoSel) return "";
+        return (whoSel.value || "").trim();
+      }
+
+      /* ======= OCR overlay helpers (min 2 seconds visible) ======= */
+      const ocrOverlay = $("ocrOverlay");
+      let ocrOverlayStartedAt = 0;
+
+      function showOcrOverlay() {
+        ocrOverlayStartedAt = Date.now();
+        ocrOverlay.hidden = false;
+      }
+      function hideOcrOverlay() {
+        const elapsed = Date.now() - ocrOverlayStartedAt;
+        const remaining = Math.max(0, 2000 - elapsed);
+        setTimeout(() => {
+          ocrOverlay.hidden = true;
+        }, remaining);
+      }
+
+      /* ======= Receipt capture + image normalization (HEIC → JPEG, resize) ======= */
+
+      const btnTake    = $("btnTake"),
+            btnImport  = $("btnImport"),
+            btnReplace = $("btnReplace");
+      const camInput   = $("camInput"),
+            fileInput  = $("fileInput");
+      const preview    = $("preview"),
+            thumb      = $("thumb"),
+            ocrStatus  = $("ocrStatus");
+
+      // Camera modal elements
+      const cameraModal    = $("cameraModal");
+      const cameraVideo    = $("cameraVideo");
+      const cameraFrame    = $("cameraFrame");
+      const cameraCloseTop = $("cameraCloseTop");
+      const cameraCancel   = $("cameraCancel");
+      const cameraCapture  = $("cameraCapture");
+      const torchToggle    = $("torchToggle");
+      const torchLabel     = $("torchLabel");
+      const torchNote      = $("torchNote");
+
+      let camStream = null;
+      let camTrack  = null;
+      let torchOn   = false;
+
+      function readFileAsDataURL(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(file);
+        });
+      }
+
+      function loadImage(src) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = err => reject(err);
+          img.src = src;
+        });
+      }
+
+      async function prepareImageForOcr(rawFile) {
+        if (!rawFile) return null;
+
+        const name = rawFile.name || "receipt";
+        const type = rawFile.type || "";
+        const lowerName = name.toLowerCase();
+
+        const isPdf = type === "application/pdf" || /\.pdf$/i.test(lowerName);
+        if (isPdf) {
+          return rawFile;
+        }
+
+        const isImage = type.startsWith("image/");
+        if (!isImage) {
+          return rawFile;
+        }
+
+        const isHeic =
+          type === "image/heic" ||
+          type === "image/heif" ||
+          /\.heic$/i.test(lowerName) ||
+          /\.heif$/i.test(lowerName);
+
+        try {
+          const dataUrl = await readFileAsDataURL(rawFile);
+          const img = await loadImage(dataUrl);
+          const srcW = img.naturalWidth || img.width;
+          const srcH = img.naturalHeight || img.height;
+
+          const longest = Math.max(srcW, srcH);
+          if (longest < 900) {
+            console.warn("Receipt image is quite small for OCR:", srcW, "x", srcH);
+          }
+
+          const MAX_SIDE = 2200;
+          let scale = 1;
+          if (longest > MAX_SIDE) {
+            scale = MAX_SIDE / longest;
+          }
+          const dstW = Math.round(srcW * scale);
+          const dstH = Math.round(srcH * scale);
+
+          const canvas = document.createElement("canvas");
+          canvas.width = dstW;
+          canvas.height = dstH;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, dstW, dstH);
+
+          // simple brightness sanity check
+          try {
+            const sz = 80;
+            const sx = Math.max(0, (dstW - sz) / 2);
+            const sy = Math.max(0, (dstH - sz) / 2);
+            const patch = ctx.getImageData(sx, sy, Math.min(sz, dstW), Math.min(sz, dstH));
+            let sum = 0;
+            const data = patch.data;
+            for (let i = 0; i < data.length; i += 4) {
+              const r = data[i], g = data[i+1], b = data[i+2];
+              const lum = 0.299*r + 0.587*g + 0.114*b;
+              sum += lum;
+            }
+            const avg = sum / (data.length / 4);
+            if (avg < 40) {
+              console.warn("Image looks very dark; OCR may struggle (avg brightness:", avg, ")");
+            } else if (avg > 230) {
+              console.warn("Image looks very bright; OCR may struggle (avg brightness:", avg, ")");
+            }
+          } catch (_) {}
+
+          const blob = await new Promise((resolve, reject) => {
+            canvas.toBlob(
+              b => b ? resolve(b) : reject(new Error("JPEG encode failed")),
+              "image/jpeg",
+              0.9
+            );
+          });
+
+          const safeName = name.replace(/\.[^.]+$/, "") + ".jpg";
+          return new File([blob], safeName, { type: "image/jpeg" });
+
+        } catch (err) {
+          console.warn("prepareImageForOcr failed, sending raw file:", err);
+          return rawFile;
+        }
+      }
+
+      async function openCameraModal() {
+        torchOn = false;
+        if (camStream) {
+          stopCameraStream();
+        }
+        torchToggle.hidden = true;
+        torchNote.textContent = "";
+        cameraFrame.classList.remove("stable");
+
+        cameraModal.hidden = false;
+
+        try {
+          camStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: { ideal: "environment" },
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            },
+            audio: false
+          });
+        } catch (err) {
+          cameraModal.hidden = true;
+          throw err;
+        }
+
+        cameraVideo.srcObject = camStream;
+        camTrack = camStream.getVideoTracks()[0] || null;
+
+        try {
+          const caps = camTrack && camTrack.getCapabilities ? camTrack.getCapabilities() : null;
+          if (caps && "torch" in caps) {
+            torchToggle.hidden = false;
+            torchOn = false;
+            torchLabel.textContent = "Flashlight";
+            torchNote.textContent = "";
+          } else {
+            torchToggle.hidden = true;
+            torchNote.textContent = "Flashlight control isn’t available on this device/browser.";
+          }
+        } catch (e) {
+          torchToggle.hidden = true;
+          torchNote.textContent = "Flashlight control isn’t available here.";
+        }
+
+        // Simple: always glow after ~1.2s so user sees it "ready"
+        setTimeout(() => {
+          if (!cameraModal.hidden) {
+            cameraFrame.classList.add("stable");
+          }
+        }, 1200);
+      }
+
+      function stopCameraStream() {
+        if (camStream) {
+          camStream.getTracks().forEach(t => t.stop());
+        }
+        camStream = null;
+        camTrack = null;
+        torchOn = false;
+        cameraVideo.srcObject = null;
+      }
+
+      async function toggleTorch() {
+        if (!camTrack) return;
+        try {
+          const caps = camTrack.getCapabilities ? camTrack.getCapabilities() : null;
+          if (!caps || !("torch" in caps)) {
+            torchNote.textContent = "Flashlight not supported on this device.";
+            return;
+          }
+          torchOn = !torchOn;
+          await camTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
+          torchToggle.classList.toggle("active", torchOn);
+          torchLabel.textContent = torchOn ? "Flashlight (On)" : "Flashlight";
+        } catch (e) {
+          console.warn("Torch toggle failed:", e);
+          torchNote.textContent = "Could not control flashlight. Your device may not allow it from the browser.";
+          torchOn = false;
+          torchToggle.classList.remove("active");
+        }
+      }
+
+      function closeCameraModal() {
+        stopCameraStream();
+        cameraModal.hidden = true;
+        cameraFrame.classList.remove("stable");
+      }
+
+      async function captureFromCamera() {
+        if (!camStream || !cameraVideo.videoWidth || !cameraVideo.videoHeight) {
+          return;
+        }
+        try {
+          const canvas = document.createElement("canvas");
+          const vw = cameraVideo.videoWidth;
+          const vh = cameraVideo.videoHeight;
+
+          const aspect = 2 / 3; // vertical slice for receipts
+          let ch = vh * 0.8;
+          let cw = ch * aspect;
+          if (cw > vw) {
+            cw = vw * 0.8;
+            ch = cw / aspect;
+          }
+          const cx = (vw - cw) / 2;
+          const cy = (vh - ch) / 2;
+
+          canvas.width = cw;
+          canvas.height = ch;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(cameraVideo, cx, cy, cw, ch, 0, 0, cw, ch);
+
+          const blob = await new Promise((resolve, reject) => {
+            canvas.toBlob(
+              b => b ? resolve(b) : reject(new Error("Capture failed")),
+              "image/jpeg",
+              0.9
+            );
+          });
+
+          const capturedFile = new File([blob], "receipt-camera.jpg", { type: "image/jpeg" });
+          closeCameraModal();
+          await handleFiles([capturedFile]);
+        } catch (err) {
+          console.error("Camera capture failed:", err);
+          closeCameraModal();
+        }
+      }
+
+      torchToggle.addEventListener("click", toggleTorch);
+      cameraCloseTop.addEventListener("click", closeCameraModal);
+      cameraCancel.addEventListener("click", closeCameraModal);
+      cameraCapture.addEventListener("click", captureFromCamera);
+
+      btnTake.addEventListener("click", () => {
+        if (navigator.mediaDevices?.getUserMedia) {
+          openCameraModal().catch(err => {
+            console.warn("Camera modal failed, falling back to input:", err);
+            camInput.click();
+          });
+        } else {
+          camInput.click();
+        }
+      });
+      btnImport.addEventListener("click", () => fileInput.click());
+      btnReplace.addEventListener("click", () => fileInput.click());
+
+      camInput.addEventListener("change", () => { handleFiles(camInput.files); });
+      fileInput.addEventListener("change", () => { handleFiles(fileInput.files); });
+
+      async function handleFiles(list) {
+        if (!list || !list.length) return;
+        const rawFile = list[0];
+
+        const fileForOcr = await prepareImageForOcr(rawFile);
+
+        // Remember this so we can upload it when the user taps Save
+        receiptFileForStorage = fileForOcr || rawFile;
+        receiptFileOriginalName = rawFile && rawFile.name
+          ? rawFile.name
+          : (receiptFileForStorage && receiptFileForStorage.name) || "receipt";
+
+        const previewFile = receiptFileForStorage;
+        thumb.innerHTML = "";
+        if ((previewFile.type || "").startsWith("image/")) {
+          const img = document.createElement("img");
+          img.alt = previewFile.name;
+          img.src = URL.createObjectURL(previewFile);
+          thumb.appendChild(img);
+        } else {
+          const div = document.createElement("div");
+          div.textContent = previewFile.name;
+          thumb.appendChild(div);
+        }
+
+        preview.hidden = false;
+        btnReplace.hidden = false;
+
+        await runCloudOCR(fileForOcr);
+      }
+
+      function parseLines(text) {
+        return (text || "")
+          .split(/\r?\n/)
+          .map(l => l.trim())
+          .filter(Boolean);
+      }
+
+      function pickVendor(fields, text) {
+        const f = fields || {};
+        const structuredVendor =
+          f["supplier_name"] ||
+          f["merchant_name"] ||
+          f["vendor_name"];
+        if (structuredVendor) return structuredVendor;
+
+        const lines = parseLines(text);
+        const skipWords = [
+          "invoice", "invoice n", "receipt", "paid on",
+          "payment method", "amount due", "total",
+          "thanks for your business", "thank you for your business",
+          "customer's address", "customer address", "designation",
+          "unit price", "quantity", "balance due"
+        ];
+        for (const line of lines) {
+          const low = line.toLowerCase();
+          if (skipWords.some(w => low.includes(w))) continue;
+          if (/^\d/.test(line)) continue;
+          return line;
+        }
+        return "";
+      }
+
+      /* ==== IMPROVED DATE PICKER (supports month names like "Nov 25 2025") ==== */
+      function pickDate(fields, text) {
+        const f = fields || {};
+        const structured = (f["receipt_date"] || f["invoice_date"] || f["date"] || "").trim();
+
+        // 1) If backend gave us a clean date string, normalize it.
+        if (structured) {
+          // ISO already
+          if (/^\d{4}-\d{2}-\d{2}/.test(structured)) {
+            return structured.slice(0, 10);
+          }
+          // Numeric formats like 11/25/25 or 11-25-2025
+          if (/^\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}/.test(structured)) {
+            const normalized = structured.replace(/-/g, "/");
+            const parts = normalized.split(/[\/]/);
+            if (parts.length === 3) {
+              const [mRaw, dRaw, yRaw] = parts;
+              const m = mRaw.padStart(2, "0");
+              const d = dRaw.padStart(2, "0");
+              let y = yRaw;
+              if (y.length === 2) y = "20" + y;
+              return `${y}-${m}-${d}`;
+            }
+          }
+        }
+
+        const lines = parseLines(text || "");
+
+        // 2) Numeric-only formats from OCR text.
+        const datePatterns = [
+          /\b\d{4}-\d{2}-\d{2}\b/,        // 2025-12-05
+          /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/,// 12/5/25 or 12/05/2025
+          /\b\d{1,2}-\d{1,2}-\d{2,4}\b/   // 12-5-25 or 12-05-2025
+        ];
+        for (const line of lines) {
+          for (const r of datePatterns) {
+            const m = line.match(r);
+            if (m) {
+              const raw = m[0];
+              if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+              const normalized = raw.replace(/-/g, "/");
+              const parts = normalized.split("/");
+              if (parts.length === 3) {
+                const [a, b, c] = parts;
+                if (a.length === 4) {
+                  // yyyy/mm/dd
+                  return [a, b.padStart(2, "0"), c.padStart(2, "0")].join("-");
+                } else {
+                  // mm/dd/yy or mm/dd/yyyy
+                  const year = c.length === 2 ? "20" + c : c;
+                  return [year, a.padStart(2, "0"), b.padStart(2, "0")].join("-");
+                }
+              }
+            }
+          }
+        }
+
+        // 3) Month-name based formats (e.g. "Nov 25 2025 10:37 AM").
+        const monthMap = {
+          jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+          jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12
+        };
+        const monthNameRegex =
+          /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,)?\s+(\d{2,4})/i;
+
+        function extractMonthNameDate(source) {
+          const match = monthNameRegex.exec(source);
+          if (!match) return "";
+          const monthKey = match[1].slice(0, 3).toLowerCase();
+          const monthNum = monthMap[monthKey];
+          if (!monthNum) return "";
+          const dayRaw = match[2];
+          let yearRaw = match[3];
+          if (yearRaw.length === 2) yearRaw = "20" + yearRaw;
+          const mm = String(monthNum).padStart(2, "0");
+          const dd = dayRaw.padStart(2, "0");
+          return `${yearRaw}-${mm}-${dd}`;
+        }
+
+        // Try line by line first (often the date is all on one line).
+        for (const line of lines) {
+          const iso = extractMonthNameDate(line);
+          if (iso) return iso;
+        }
+
+        // As a fallback, try the whole document text in case OCR broke lines oddly.
+        const wholeIso = extractMonthNameDate(text || "");
+        if (wholeIso) return wholeIso;
+
+        return "";
+      }
+
+      function pickTotals(fields, text) {
+        const f = fields || {};
+        let totalField = (f["total_amount"] || "").trim();
+        let taxField   = (f["tax_amount"] || "").trim();
+        let currency   = (f["currency"] || f["currency_code"] || "").toUpperCase();
+
+        const lines = parseLines(text);
+        const moneyRegex = /(\d+(?:[.,]\d{2})?)/;
+
+        const moneyCandidates = [];
+        for (let i = 0; i < lines.length; i++) {
+          const l = lines[i];
+          if (/[€$]|usd|eur|gbp/i.test(l)) {
+            const m = l.match(moneyRegex);
+            if (m) {
+              const val = parseFloat(m[1].replace(",", "."));
+              if (!isNaN(val)) {
+                moneyCandidates.push({
+                  value: val,
+                  raw: m[1],
+                  line: l.toLowerCase(),
+                  idx: i
+                });
+              }
+            }
+          }
+        }
+        const maxCandidate = moneyCandidates.reduce(
+          (max, c) => c.value > max ? c.value : max,
+          0
+        );
+
+        let textTotal = null;
+        for (let i = 0; i < lines.length; i++) {
+          const l = lines[i].toLowerCase();
+          if (
+            l.includes("amount due") ||
+            l.includes("balance due") ||
+            l === "total" ||
+            l.startsWith("total ")
+          ) {
+            const windowLines = [lines[i], lines[i + 1], lines[i + 2]];
+            for (const wl of windowLines) {
+              if (!wl) continue;
+              if (!/[€$]|usd|eur|gbp/i.test(wl)) continue;
+              const m = wl.match(moneyRegex);
+              if (m) {
+                const v = parseFloat(m[1].replace(",", "."));
+                if (!isNaN(v)) {
+                  textTotal = { num: v, raw: m[1] };
+                  break;
+                }
+              }
+            }
+            if (textTotal) break;
+          }
+        }
+
+        let chosenTotal = "";
+        if (totalField) {
+          const parsed = parseFloat(totalField.replace(",", "."));
+          if (!isNaN(parsed) && parsed > 0) {
+            if (!maxCandidate || parsed >= maxCandidate * 0.5) {
+              chosenTotal = totalField;
+            }
+          }
+        }
+        if (!chosenTotal && textTotal) {
+          chosenTotal = textTotal.raw;
+        }
+
+        let chosenTax = taxField;
+        if (!chosenTax) {
+          for (const line of lines) {
+            if (!/tax|vat/i.test(line)) continue;
+            if (!/[€$]|usd|eur|gbp/i.test(line)) continue;
+            const m = line.match(moneyRegex);
+            if (m) {
+              chosenTax = m[1];
+              break;
+            }
+          }
+        }
+
+        if (!currency) {
+          for (const c of moneyCandidates) {
+            if (/usd|\$/i.test(c.line)) { currency = "USD"; break; }
+            if (/eur|€/.test(c.line))   { currency = "EUR"; break; }
+            if (/gbp|£/i.test(c.line))  { currency = "GBP"; break; }
+          }
+        }
+
+        return { total: chosenTotal, tax: chosenTax, currency };
+      }
+
+      function guessCategoryFromText(text) {
+        if (/diesel|gas|fuel|pump/i.test(text)) return "Fuel";
+        if (/hotel|motel|inn|lodging/i.test(text)) return "Lodging";
+        if (/restaurant|cafe|food|meal/i.test(text)) return "Meals";
+        if (/toll|fee/i.test(text)) return "Fees/Tolls";
+        if (/parts|repair|service/i.test(text)) return "Repairs/Parts";
+        if (/supply|supplies/i.test(text)) return "Supplies";
+        return "";
+      }
+
+      function pickPaymentMethod(fields, text) {
+        const f = fields || {};
+        const val = (f["payment_type"] || "").toLowerCase();
+        const source = (val || text.toLowerCase());
+        if (/visa|mastercard|amex|american express|discover|card|credit|debit/i.test(source)) {
+          return "card";
+        }
+        if (/cash|reimburse/i.test(source)) {
+          return "reimb";
+        }
+        return "";
+      }
+
+      async function runCloudOCR(fileForOcr) {
+        const f = fileForOcr;
+        if (!f) {
+          ocrStatus.textContent = "No file to send to OCR.";
+          return;
+        }
+
+        ocrStatus.textContent = "Uploading to cloud OCR…";
+        showOcrOverlay();
+
+        try {
+          const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(reader.error);
+            reader.onload = () => {
+              const res = String(reader.result || "");
+              const parts = res.split(",");
+              resolve(parts.length > 1 ? parts[1] : "");
+            };
+            reader.readAsDataURL(f);
+          });
+
+          if (!base64) {
+            ocrStatus.textContent = "Could not read file. Fill in manually.";
+            hideOcrOverlay();
+            return;
+          }
+
+          ocrStatus.textContent = "Processing receipt in cloud…";
+
+          const resp = await fetch(OCR_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              mode: "receipt",
+              content: base64,
+              mimeType: f.type || "application/pdf"
+            })
+          });
+
+          if (!resp.ok) {
+            const txt = await resp.text();
+            console.error("OCR HTTP error:", resp.status, txt);
+            ocrStatus.textContent = "OCR error from server. You can fill in manually.";
+            hideOcrOverlay();
+            return;
+          }
+
+          const json = await resp.json();
+          if (!json.ok) {
+            console.error("OCR logical error:", json);
+            ocrStatus.textContent = "OCR could not read that receipt. Fill in manually.";
+            hideOcrOverlay();
+            return;
+          }
+
+          const fields = json.fields || {};
+          const docText = (json.document && json.document.text) || "";
+
+          ocrStatus.textContent = "Auto-filling from receipt…";
+
+          try {
+            const vendor  = pickVendor(fields, docText);
+            const date    = pickDate(fields, docText);
+            const totals  = pickTotals(fields, docText);
+            const cat     = guessCategoryFromText(docText);
+            const pay     = pickPaymentMethod(fields, docText);
+
+            if (!merchant.value && vendor) {
+              merchant.value = vendor.slice(0, 64);
+            }
+
+            if (!rdate.value && date) {
+              rdate.value = date;
+            }
+
+            if (!total.value && totals.total) {
+              const num = parseFloat(String(totals.total).replace(",", "."));
+              if (!isNaN(num) && num > 0) {
+                total.value = usdFmt.format(num);
+              }
+            }
+
+            if (!paymethod.value && pay) {
+              paymethod.value = pay;
+            }
+
+            if (!category.value && cat) {
+              for (let i = 0; i < category.options.length; i++) {
+                if (category.options[i].text === cat) {
+                  category.selectedIndex = i;
+                  break;
+                }
+              }
+            }
+
+            ocrStatus.textContent = "Auto-filled from receipt. Review and save.";
+          } catch (parseErr) {
+            console.warn("Parse from OCR failed:", parseErr);
+            ocrStatus.textContent = "Read text, but could not parse details. Fill in manually.";
+          }
+        } catch (e) {
+          console.error("Cloud OCR failed:", e);
+          ocrStatus.textContent = "OCR failed. You can fill in manually.";
+        } finally {
+          hideOcrOverlay();
+        }
+      }
+
+      function showToast(msg = "Saved.") {
+        const t = $("toast");
+        t.textContent = msg;
+        t.classList.remove("show");
+        void t.offsetWidth;
+        t.classList.add("show");
+      }
+
+      function buildReceiptPath(docId, file) {
+        const safeId = String(docId || "unknown");
+        const name = (file && file.name) || "receipt";
+        const extMatch = name.match(/\.([a-z0-9]+)$/i);
+        let ext = extMatch ? extMatch[1].toLowerCase() : "";
+        const type = (file && file.type) || "";
+
+        if (!ext) {
+          if (type === "application/pdf") ext = "pdf";
+          else if (/jpe?g$/i.test(type))  ext = "jpg";
+          else if (/png$/i.test(type))    ext = "png";
+          else if (/heic|heif/i.test(type)) ext = "heic";
+          else ext = "bin";
+        }
+
+        return `expenditures/${safeId}/receipt-original.${ext}`;
+      }
+
+      // Save: upload receipt image (if any), write doc, toast, then go back
+      $("btnSave").addEventListener("click", async () => {
+        const submittedByName  = getSubmittedByName();
+        const submittedByEmail = getSubmittedByEmail();
+
+        if (!submittedByName.trim()) {
+          alert("Submitted By is required.");
+          return;
+        }
+        if (!submitted.value) {
+          alert("Submitted Date is required.");
+          return;
+        }
+        if (!paymethod.value) {
+          alert("Payment Method is required.");
+          return;
+        }
+        if (!category.value) {
+          alert("Category is required.");
+          return;
+        }
+        if (!merchant.value.trim()) {
+          alert("Merchant is required.");
+          return;
+        }
+        if (!rdate.value) {
+          alert("Receipt Date is required.");
+          return;
+        }
+        const totalNum = parseUSD(total.value);
+        if (totalNum === "") {
+          alert("Total amount is required.");
+          return;
+        }
+
+        const payload = {
+          who: submittedByName,
+          submittedBy: {
+            name: submittedByName,
+            email: submittedByEmail || null
+          },
+          submitted: submitted.value || todayISO(),
+          merchant: merchant.value.trim(),
+          rdate: rdate.value,
+          category: category.value,
+          total: totalNum,
+          paymethod: paymethod.value,
+          project: project.value.trim(),
+          notes: notes.value.trim(),
+          status: "Submitted",
+          t: Date.now()
+        };
+
+        try {
+          // First create the Firestore doc
+          const docRef = await addDoc(collection(db, "expenditures"), {
+            ...payload,
+            createdAt: serverTimestamp()
+          });
+
+          // If we have a receipt image/PDF, upload it and attach metadata
+          if (receiptFileForStorage) {
+            try {
+              const path = buildReceiptPath(docRef.id, receiptFileForStorage);
+              const meta = {
+                contentType: receiptFileForStorage.type || "application/octet-stream"
+              };
+              const storageRef = ref(storage, path);
+              await uploadBytes(storageRef, receiptFileForStorage, meta);
+              const url = await getDownloadURL(storageRef);
+
+              await updateDoc(docRef, {
+                receiptImage: {
+                  url,
+                  path,
+                  contentType: receiptFileForStorage.type || null,
+                  fileName: receiptFileForStorage.name || receiptFileOriginalName || null,
+                  size: typeof receiptFileForStorage.size === "number"
+                    ? receiptFileForStorage.size
+                    : null
+                }
+              });
+            } catch (uploadErr) {
+              console.warn("Failed to upload / attach receipt image:", uploadErr);
+              // Don't block save if only the image upload failed.
+            }
+          }
+
+          showToast("Saved.");
+          setTimeout(() => {
+            window.history.back();
+          }, 700);
+        } catch (e) {
+          console.error(e);
+          showToast("Saved locally.");
+          // stay on page so user can decide what to do when offline/failure
+        }
+      });
+
+      // Clear: full page refresh to reset everything
+      $("btnClear").addEventListener("click", () => {
+        window.location.reload();
+      });
+
+      // Cancel: just go back to previous page
+      $("btnCancel").addEventListener("click", () => {
+        window.history.back();
+      });
+
+      // Load employees for Submitted By
+      await loadEmployeesCombo();
+
+      // ===== Quick-camera auto-open support (?src=quick-camera) =====
+      try {
+        const url = new URL(window.location.href);
+        const srcParam = (url.searchParams.get('src') || '').toLowerCase();
+        if (srcParam === 'quick-camera') {
+          // small delay so listeners are fully wired
+          setTimeout(() => {
+            const btnTakeNow = document.getElementById('btnTake');
+            if (btnTakeNow) btnTakeNow.click();
+          }, 200);
+        }
+      } catch (err) {
+        console.warn('quick-camera param handling failed:', err);
+      }
+
+    })();
+  </script>
+</body>
+</html>

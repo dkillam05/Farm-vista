@@ -1,0 +1,1436 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FarmVista • Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+  <meta name="theme-color" content="#3B7E46" />
+
+  <!-- IMPORTANT: make all relative URLs resolve under /Farm-vista/ -->
+  <base href="/Farm-vista/">
+
+  <!-- Standard includes (relative to <base>) -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="assets/icons/icon-192.png" />
+  <link rel="stylesheet" href="assets/css/theme.css?v=PV1" />
+  <link rel="stylesheet" href="assets/css/app.css?v=PV1" />
+
+  <!-- Firebase config + FVData (needed to read messages from Firestore) -->
+  <script src="js/firebase-config.js"></script>
+  <script src="js/fv-data.js"></script>
+
+  <!-- Shared grain capacity helpers (corn → other crops) -->
+  <script src="js/grain-capacity.js?v=PV1"></script>
+
+  <!-- Load core first (theme + App API), then the shell -->
+  <script src="js/core.js?v=PV1"></script>
+  <script src="js/fv-shell.js?v=PV1" defer></script>
+
+  <style>
+    body{
+      background:var(--app-bg,var(--surface));
+      min-height:100vh;
+    }
+    .page{
+      max-width:1100px;
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;
+    }
+    .page-title{
+      margin:0 0 8px 0;
+    }
+    .section{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+    }
+    .section-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+    }
+    .section-head .icon{
+      width:24px;
+      height:24px;
+      color:#2F6C3C;
+      display:grid;
+      place-items:center;
+    }
+    .section-body{
+      padding:16px;
+      display:grid;
+      gap:10px;
+    }
+    .msg{
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:12px;
+      background:var(--card-surface,var(--surface));
+    }
+    .msg .title{
+      font-weight:800;
+      margin:0 0 4px 0;
+    }
+    .chips{
+      display:flex;
+      gap:6px;
+      flex-wrap:wrap;
+      margin-top:6px;
+    }
+    .chip{
+      font-size:12px;
+      border:1px solid var(--border);
+      border-radius:999px;
+      padding:4px 8px;
+      color:var(--muted,#67706B);
+      background:var(--surface);
+    }
+    .empty{
+      color:var(--muted,#67706B);
+    }
+
+    /* =======================
+       Dashboard KPI card
+       ======================= */
+    .dash-kpi{
+      display:block;
+      margin:12px 0 18px 0;
+      padding:14px 16px;
+      border-radius:14px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      box-shadow:0 8px 18px rgba(0,0,0,0.06);
+      text-decoration:none;
+      color:inherit;
+      transition:transform 0.08s ease, box-shadow 0.08s ease, border-color 0.08s ease;
+    }
+    .dash-kpi:hover{
+      transform:translateY(-1px);
+      box-shadow:0 12px 24px rgba(0,0,0,0.10);
+      border-color:rgba(59,126,70,0.55);
+    }
+    .dash-kpi-main{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:16px;
+      flex-wrap:wrap;
+    }
+    .dash-kpi-text{
+      flex:1 1 180px;
+      min-width:0;
+    }
+    .dash-kpi-label{
+      font-size:13px;
+      letter-spacing:.06em;
+      text-transform:uppercase;
+      font-weight:600;
+      color:var(--muted,#67706B);
+      margin-bottom:4px;
+    }
+    .dash-kpi-title{
+      font-size:15px;
+      font-weight:600;
+    }
+    .dash-kpi-count{
+      min-width:52px;
+      min-height:52px;
+      height:52px;
+      line-height:1;
+      border-radius:999px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:22px;
+      font-weight:700;
+      border:1px solid rgba(59,126,70,0.4);
+      background:rgba(59,126,70,0.10);
+    }
+    .dash-kpi-sub{
+      margin-top:6px;
+      font-size:12px;
+      color:var(--muted,#67706B);
+    }
+    .dash-kpi-empty .dash-kpi-count{
+      border-color:rgba(0,0,0,0.12);
+      background:rgba(0,0,0,0.02);
+      color:var(--muted,#67706B);
+    }
+
+    /* =======================
+       Weather card + modal
+       ======================= */
+    #fv-weather{
+      max-width:1100px;
+      margin:6px auto 14px auto;
+    }
+    .fv-weather-card{
+      border-radius:14px;
+      border:1px solid var(--border,#d1d5db);
+      background:var(--card-surface,var(--surface));
+      box-shadow:0 8px 18px rgba(0,0,0,0.06);
+      padding:10px 14px 12px;
+      cursor:pointer;
+    }
+    .fv-weather-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+      margin-bottom:6px;
+    }
+    .fv-weather-title{
+      font-weight:600;
+      font-size:13px;
+      letter-spacing:.06em;
+      text-transform:uppercase;
+    }
+    .fv-weather-meta{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+      font-size:11px;
+      color:var(--muted,#67706B);
+    }
+    .fv-weather-refresh{
+      border-radius:999px;
+      border:1px solid var(--border,#d1d5db);
+      background:var(--surface,#fff0);
+      padding:4px 8px;
+      font-size:12px;
+      cursor:pointer;
+      color:inherit;
+    }
+    .fv-weather-refresh:hover{
+      border-color:rgba(59,126,70,0.55);
+    }
+    .fv-weather-body{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    .fv-weather-main{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .fv-weather-temp-block{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+      min-width:0;
+    }
+    .fv-weather-temp{
+      font-size:1.8rem;
+      font-weight:600;
+    }
+    .fv-weather-desc{
+      font-size:0.9rem;
+    }
+    .fv-weather-feels,
+    .fv-weather-humidity{
+      font-size:0.8rem;
+      color:var(--muted,#67706B);
+    }
+    .fv-weather-icon-block{
+      flex:0 0 auto;
+    }
+    .fv-weather-icon{
+      width:48px;
+      height:48px;
+      display:block;
+    }
+    .fv-weather-rain-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+      margin-top:4px;
+    }
+    .fv-weather-rain-pill{
+      padding:4px 8px;
+      border-radius:999px;
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      font-size:11px;
+      display:flex;
+      flex-wrap:wrap;
+      gap:4px;
+    }
+    .fv-weather-label{
+      font-weight:500;
+    }
+    .fv-weather-value{
+      font-variant-numeric:tabular-nums;
+    }
+
+    /* ---------- Weather modal overlay & card ---------- */
+    .fv-weather-modal{
+      position:fixed;
+      inset:0; /* cover entire viewport */
+      background:rgba(15,23,42,0.45);
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      /* keep modal visually between header & footer */
+      padding-top:calc(var(--hdr-h,56px) + 16px);
+      padding-bottom:calc(var(--ftr-h,42px) + env(safe-area-inset-bottom,0px) + 16px);
+      padding-left:16px;
+      padding-right:16px;
+      /* overlay itself no longer scrolls; only inner card scrolls */
+      overflow:hidden;
+      z-index:9999;
+    }
+    .fv-weather-modal[hidden]{
+      display:none!important;
+    }
+
+    .fv-weather-modal-inner{
+      position:relative;
+      width:100%;
+      max-width:900px;
+      /* max height constrained by header/footer space */
+      max-height:calc(
+        100vh - var(--hdr-h,56px) - var(--ftr-h,42px) - env(safe-area-inset-bottom,0px) - 32px
+      );
+      margin:auto;
+      border-radius:18px;
+      border:1px solid var(--border,#d1d5db);
+      background:var(--surface,#fff);
+      box-shadow:0 18px 40px rgba(0,0,0,0.3);
+      padding:16px 16px 18px;
+      overflow:auto;  /* internal scrolling */
+      /* hide scrollbar so we don't get the ugly side bar */
+      -ms-overflow-style:none;  /* IE/Edge */
+      scrollbar-width:none;     /* Firefox */
+    }
+    .fv-weather-modal-inner::-webkit-scrollbar{
+      width:0;
+      height:0;
+    }
+
+    .fv-weather-modal-close{
+      position:absolute;
+      top:10px;
+      right:10px;
+      width:28px;
+      height:28px;
+      border-radius:999px;
+      border:1px solid var(--border,#d1d5db);
+      background:var(--surface,#fff);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+      font-size:16px;
+      line-height:1;
+      color:inherit;
+    }
+    .fv-weather-modal-title{
+      font-size:15px;
+      font-weight:600;
+      margin:0 0 10px 0;
+    }
+
+    /* ---------- modal content layout ---------- */
+    .fv-weather-modal-card{
+      cursor:auto;
+      box-shadow:none;
+      border:none;
+      padding:0;
+    }
+    .fv-weather-modal-head{
+      margin-bottom:10px;
+    }
+    .fv-weather-modal-body-inner{
+      display:flex;
+      flex-direction:column;
+      gap:14px;
+    }
+    .fv-weather-modal-section{
+      border-radius:12px;
+      border:1px solid var(--border,#e5e7eb);
+      padding:10px 12px 12px;
+      background:var(--card-surface,var(--surface));
+    }
+    .fv-weather-modal-subtitle{
+      margin:0 0 6px 0;
+      font-size:13px;
+      font-weight:600;
+      letter-spacing:.05em;
+      text-transform:uppercase;
+      color:var(--muted,#67706B);
+    }
+    .fv-weather-rain-summary{
+      margin-top:6px;
+      font-size:0.82rem;
+      color:var(--muted,#67706B);
+    }
+
+    /* ---------- forecast list ---------- */
+    .fv-forecast-list{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+    }
+    .fv-forecast-row{
+      display:grid;
+      grid-template-columns:90px 1fr 110px;
+      align-items:center;
+      gap:8px;
+      padding:6px 0;
+      border-bottom:1px dashed rgba(148,163,184,0.4);
+      font-size:12px;
+    }
+    .fv-forecast-row:last-child{
+      border-bottom:none;
+    }
+    .fv-forecast-day{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+    }
+    .fv-forecast-dow{
+      font-weight:600;
+    }
+    .fv-forecast-date{
+      color:var(--muted,#67706B);
+      font-size:11px;
+    }
+    .fv-forecast-temps{
+      display:flex;
+      align-items:center;
+      gap:6px;
+      font-variant-numeric:tabular-nums;
+    }
+    .fv-forecast-temps .hi{
+      font-weight:600;
+    }
+    .fv-forecast-temps .lo{
+      color:var(--muted,#67706B);
+    }
+    .fv-forecast-rain{
+      display:flex;
+      justify-content:flex-end;
+      gap:6px;
+      font-variant-numeric:tabular-nums;
+    }
+    .fv-forecast-rain .amt{
+      font-weight:500;
+    }
+    .fv-forecast-rain .prob{
+      color:var(--muted,#67706B);
+    }
+
+    /* ---------- rainfall chart ---------- */
+    .fv-rain-chart{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      font-size:12px;
+    }
+    .fv-rain-row{
+      display:grid;
+      grid-template-columns:50px 1fr 52px;
+      align-items:center;
+      gap:6px;
+    }
+    .fv-rain-label{
+      font-weight:500;
+    }
+    .fv-rain-bar-wrap{
+      position:relative;
+      height:8px;
+      border-radius:999px;
+      background:var(--border);
+      opacity:0.4;
+      overflow:hidden;
+    }
+    .fv-rain-bar{
+      position:absolute;
+      inset:0;
+      width:0;
+      border-radius:999px;
+      background:#2F6C3C;
+    }
+    .fv-rain-value{
+      text-align:right;
+      font-variant-numeric:tabular-nums;
+    }
+    .fv-rain-chart-empty{
+      font-size:12px;
+      color:var(--muted,#67706B);
+    }
+
+    @media (max-width:600px){
+      .fv-forecast-row{
+        grid-template-columns:80px 1fr 90px;
+      }
+      .fv-rain-row{
+        grid-template-columns:45px 1fr 48px;
+      }
+    }
+
+    /* ============================
+       FarmVista Copilot (AI box)
+       ============================ */
+    .ai-section .section-head strong{
+      display:block;
+    }
+    .ai-section .section-head .sub{
+      font-size:12px;
+      color:var(--muted,#67706B);
+      margin-top:2px;
+    }
+    .ai-body{
+      display:grid;
+      gap:12px;
+      grid-template-rows:minmax(220px, 320px) auto;
+    }
+    .ai-log{
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:10px;
+      background:var(--card-surface,var(--surface));
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      overflow:auto;
+      max-height:320px;
+      font-size:13px;
+    }
+    .ai-empty{
+      color:var(--muted,#67706B);
+      font-size:13px;
+    }
+    .ai-msg{
+      border-radius:10px;
+      padding:8px 10px;
+      line-height:1.35;
+      white-space:pre-wrap;
+      word-break:break-word;
+      font-size:13px;
+    }
+    .ai-msg-user{
+      align-self:flex-end;
+      background:rgba(59,126,70,0.12);
+      border:1px solid rgba(59,126,70,0.25);
+    }
+    .ai-msg-assistant{
+      align-self:flex-start;
+      background:var(--surface);
+      border:1px solid var(--border);
+    }
+    .ai-msg-meta{
+      font-size:11px;
+      color:var(--muted,#67706B);
+      margin-bottom:2px;
+      opacity:0.85;
+    }
+
+    .ai-form{
+      display:grid;
+      gap:6px;
+    }
+
+    /* Mic inside textarea */
+    .ai-input-wrap{
+      position:relative;
+      display:block;
+    }
+    .ai-input{
+      width:100%;
+      resize:none;
+      border-radius:16px;
+      border:1px solid var(--border);
+      padding:10px 42px 10px 12px;
+      min-height:32px;
+      max-height:96px;
+      font:inherit;
+      background:var(--surface);
+      color:inherit;
+      line-height:1.35;
+      font-size:13px;
+    }
+    .ai-input:focus{
+      outline:2px solid rgba(59,126,70,0.4);
+      outline-offset:1px;
+    }
+    .ai-mic{
+      position:absolute;
+      right:10px;
+      top:50%;
+      transform:translateY(-50%);
+      width:24px;
+      height:24px;
+      border:none;
+      background:transparent;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+      outline:none;
+      color:var(--muted,#67706B);
+      padding:0;
+    }
+    .ai-mic-icon{
+      width:18px;
+      height:18px;
+      display:block;
+      stroke:currentColor;
+      stroke-width:1.8;
+      stroke-linecap:round;
+      stroke-linejoin:round;
+      fill:none;
+    }
+    .ai-mic:hover:not([disabled]){
+      transform:translateY(-50%) scale(1.05);
+    }
+    .ai-mic[disabled]{
+      opacity:0.5;
+      cursor:default;
+    }
+    .ai-mic.recording{
+      color:#cc3030;
+    }
+
+    .ai-actions{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+    .ai-send{
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:#3B7E46;
+      padding:8px 16px;
+      font-size:14px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+      color:#fff;
+      min-height:36px;
+      outline:none;
+    }
+    .ai-send[disabled]{
+      opacity:0.5;
+      cursor:default;
+    }
+    .ai-hint{
+      font-size:12px;
+      color:var(--muted,#67706B);
+    }
+    .ai-status{
+      font-size:12px;
+      color:var(--muted,#67706B);
+      flex:1;
+      text-align:right;
+    }
+  </style>
+</head>
+<body>
+  <fv-shell>
+    <div class="page container">
+      <h1 class="page-title">Dashboard</h1>
+
+      <!-- ======================
+           Weather (above board)
+           ====================== -->
+      <div id="fv-weather" aria-label="Weather"></div>
+
+      <!-- =======================
+           Message Board (existing)
+           ======================= -->
+      <section class="section" aria-label="Message Board">
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">📢</div>
+          <div><strong>Message Board</strong></div>
+        </header>
+        <div class="section-body" id="board">
+          <div class="msg empty">No messages at this time.</div>
+        </div>
+      </section>
+
+      <!-- =====================================
+           KPI: Work orders needing approval
+           ===================================== -->
+      <a
+        href="pages/crop-production/field-maintenance/maintenance-approve.html"
+        class="dash-kpi dash-kpi-empty"
+        id="wo-approve-kpi"
+      >
+        <div class="dash-kpi-main">
+          <div class="dash-kpi-text">
+            <div class="dash-kpi-label">Field Maintenance Work Orders</div>
+            <div class="dash-kpi-title">
+              Needing approval before work can begin
+            </div>
+          </div>
+          <div class="dash-kpi-count" id="wo-approve-count">–</div>
+        </div>
+        <div class="dash-kpi-sub" id="wo-approve-sub">
+          Checking for pending approvals…
+        </div>
+      </a>
+
+      <!-- =====================================
+           KPI: Field boundary fixes needed
+           ===================================== -->
+      <a
+        href="pages/reports/reports-boundary-requests.html"
+        class="dash-kpi dash-kpi-empty"
+        id="boundary-kpi"
+      >
+        <div class="dash-kpi-main">
+          <div class="dash-kpi-text">
+            <div class="dash-kpi-label">Field Boundaries</div>
+            <div class="dash-kpi-title">
+              Needing map corrections
+            </div>
+          </div>
+          <div class="dash-kpi-count" id="boundary-kpi-count">–</div>
+        </div>
+        <div class="dash-kpi-sub" id="boundary-kpi-sub">
+          Checking for open boundary requests…
+        </div>
+      </a>
+
+      <!-- =====================================
+           KPI: Grain bag inventory on hand
+           ===================================== -->
+      <a
+        href="pages/reports/reports-grain-bag-inventory.html"
+        class="dash-kpi dash-kpi-empty"
+        id="bag-kpi"
+      >
+        <div class="dash-kpi-main">
+          <div class="dash-kpi-text">
+            <div class="dash-kpi-label">Grain Bag Inventory</div>
+            <div class="dash-kpi-title">
+              Bags remaining in sheds
+            </div>
+          </div>
+          <div class="dash-kpi-count" id="bag-kpi-count">–</div>
+        </div>
+
+        <div class="dash-kpi-sub" id="bag-kpi-sub">
+          Summing bags and bushels on hand…
+        </div>
+      </a>
+
+      <!-- ============================
+           FarmVista Copilot (AI Box)
+           ============================ -->
+      <section class="section ai-section" aria-label="FarmVista Copilot">
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">🤖</div>
+          <div>
+            <strong>FarmVista Copilot (beta)</strong>
+            <div class="sub">Ask questions about your fields, equipment, work orders, and more.</div>
+          </div>
+        </header>
+        <div class="section-body ai-body">
+          <div id="ai-chat-log" class="ai-log" aria-live="polite">
+            <div class="ai-empty">
+              Start by asking something like:<br>
+              • "Show me pending field maintenance for today."<br>
+              • "Summarize all grain bags at Farm 02."<br>
+              • "Draft a report for yesterday’s combine work orders."
+            </div>
+          </div>
+
+          <form id="ai-chat-form" class="ai-form" autocomplete="off">
+            <div class="ai-input-wrap">
+              <textarea
+                id="ai-input"
+                class="ai-input"
+                rows="1"
+                placeholder="Ask FarmVista Copilot..."
+              ></textarea>
+              <button type="button" id="ai-mic" class="ai-mic" aria-label="Start voice dictation">
+                <svg class="ai-mic-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 5a2.5 2.5 0 0 1 2.5 2.5v4a2.5 2.5 0 0 1-5 0v-4A2.5 2.5 0 0 1 12 5z" />
+                  <path d="M9.75 11.5v.5a2.25 2.25 0 0 0 4.5 0v-.5" />
+                  <path d="M8 11.5v.5a4 4 0 0 0 8 0v-.5" />
+                  <path d="M12 15.5v3" />
+                  <path d="M9.5 18.5h5" />
+                </svg>
+              </button>
+            </div>
+
+            <div class="ai-actions">
+              <button type="submit" id="ai-send" class="ai-send" aria-label="Send question">
+                Send
+              </button>
+              <div class="ai-status" id="ai-status" aria-live="polite"></div>
+            </div>
+
+            <div class="ai-hint">
+              Connected to your FarmVista AI backend. Early beta – answers may be generic for now.
+            </div>
+          </form>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <!-- Weather detail modal -->
+  <div
+    id="fv-weather-modal"
+    class="fv-weather-modal"
+    role="presentation"
+    hidden
+  >
+    <div
+      class="fv-weather-modal-inner"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="fv-weather-modal-title"
+    >
+      <button
+        type="button"
+        id="fv-weather-modal-close"
+        class="fv-weather-modal-close"
+        aria-label="Close weather details"
+      >
+        ×
+      </button>
+      <h2 id="fv-weather-modal-title" class="fv-weather-modal-title">Weather details</h2>
+      <div id="fv-weather-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- ==========================
+       WEATHER module (Google + Open-Meteo)
+       ========================== -->
+  <script src="js/fv-weather.js?v=PV1"></script>
+  <script>
+  (function(){
+    "use strict";
+
+    document.addEventListener("DOMContentLoaded", function(){
+      // Compact weather card above Message Board
+      if (window.FVWeather && typeof FVWeather.initWeatherModule === "function") {
+        FVWeather.initWeatherModule({
+          googleApiKey: "AIzaSyD5qLrXZch_rM4sVXmBrpGDH3Zp7RgfVHc",
+          lat: 39.5656,          // Divernon
+          lon: -89.6573,
+          unitsSystem: "IMPERIAL",
+          selector: "#fv-weather",
+          showOpenMeteo: true,
+          mode: "card",
+          locationLabel: "Divernon, Illinois"
+        });
+      } else {
+        console.warn("[dashboard] FVWeather module not found.");
+      }
+
+      const shell     = document.getElementById("fv-weather");
+      const modal     = document.getElementById("fv-weather-modal");
+      const modalBody = document.getElementById("fv-weather-modal-body");
+      const closeBtn  = document.getElementById("fv-weather-modal-close");
+
+      if (!shell || !modal || !modalBody || !closeBtn) return;
+
+      function openModal(){
+        modal.removeAttribute("hidden");
+        document.body.style.overflow = "hidden";
+
+        if (window.FVWeather && typeof FVWeather.initWeatherModule === "function") {
+          FVWeather.initWeatherModule({
+            googleApiKey: "AIzaSyD5qLrXZch_rM4sVXmBrpGDH3Zp7RgfVHc",
+            lat: 39.5656,
+            lon: -89.6573,
+            unitsSystem: "IMPERIAL",
+            selector: "#fv-weather-modal-body",
+            showOpenMeteo: true,
+            mode: "modal",
+            locationLabel: "Divernon, Illinois"
+          });
+        } else {
+          modalBody.innerHTML = shell.innerHTML;
+        }
+      }
+
+      function closeModal(){
+        modal.setAttribute("hidden","hidden");
+        document.body.style.overflow = "";
+      }
+
+      // Click on the card opens modal (ignore refresh button)
+      shell.addEventListener("click", function(evt){
+        if (evt.target.closest(".fv-weather-refresh")) return;
+        if (shell.querySelector(".fv-weather-card")) {
+          openModal();
+        }
+      });
+
+      closeBtn.addEventListener("click", closeModal);
+
+      modal.addEventListener("click", function(evt){
+        if (evt.target === modal) closeModal();
+      });
+
+      document.addEventListener("keydown", function(evt){
+        if (evt.key === "Escape") closeModal();
+      });
+    });
+  })();
+  </script>
+
+  <!-- ==========================
+       Message Board JS (existing)
+       ========================== -->
+  <script>
+  (function(){
+    "use strict";
+
+    const COL = "messageBoard";
+    const FALLBACK_KEYS = [
+      "df_message_board_fallback",
+      "df_message_board",
+      "fv_message_board_v1"
+    ];
+    const box = document.getElementById("board");
+
+    const toMs = (v)=>{
+      if (v == null || v === "") return null;
+      if (typeof v === "number") return v;
+      const t = Date.parse(v);
+      return Number.isFinite(t) ? t : null;
+    };
+    const tsToMs = (t)=>{
+      if (t && typeof t === "object" && typeof t.seconds === "number") return t.seconds*1000;
+      if (typeof t === "number") return t;
+      return null;
+    };
+    const fmtDate = (ms)=>{
+      try{
+        return new Date(ms).toLocaleString(undefined, {
+          month:"short", day:"numeric", hour:"numeric", minute:"2-digit"
+        });
+      }catch{ return ""; }
+    };
+
+    async function loadFromFirestore(){
+      if (!window.FVData || typeof FVData.list !== "function") return null;
+      try{
+        await FVData.ready();
+        const arr = await FVData.list(COL, { limit: 200, mine: false });
+        return Array.isArray(arr) ? arr.map(d => ({
+          id: d.id,
+          title: (d.title||"").toString(),
+          body: (d.body||"").toString(),
+          pinned: !!d.pinned,
+          authorName: (d.authorName||"").toString(),
+          createdAt: tsToMs(d.createdAt) || Date.now(),
+          expiresAt: toMs(d.expiresAt)
+        })) : [];
+      }catch(e){
+        console.warn("[dashboard] Firestore read failed, falling back:", e);
+        return null;
+      }
+    }
+
+    function loadFromLocal(){
+      for (const k of FALLBACK_KEYS){
+        try{
+          const raw = localStorage.getItem(k);
+          if (!raw) continue;
+          const arr = JSON.parse(raw);
+          if (Array.isArray(arr) && arr.length){
+            return arr.map(m => ({
+              id: m.id || String(Math.random()),
+              title: (m.title||"").toString(),
+              body: (m.body || m.text || "").toString(),
+              pinned: !!m.pinned,
+              authorName: (m.authorName||"").toString(),
+              createdAt: toMs(m.createdAt) || Date.now(),
+              expiresAt: toMs(m.expiresAt)
+            }));
+          }
+        }catch{}
+      }
+      return [];
+    }
+
+    function render(list){
+      const now = Date.now();
+      const active = (list||[]).filter(m => !m.expiresAt || m.expiresAt > now);
+
+      active.sort((a,b)=> (b.pinned - a.pinned) || ((b.createdAt||0) - (a.createdAt||0)));
+
+      if (!active.length){
+        box.innerHTML = '<div class="msg empty">No messages at this time.</div>';
+        return;
+      }
+
+      box.innerHTML = "";
+      active.forEach(m=>{
+        const el = document.createElement("div");
+        el.className = "msg";
+        el.innerHTML = `
+          ${m.title ? `<div class="title">${m.title}</div>` : ``}
+          <div class="body" style="white-space:pre-wrap">${m.body}</div>
+          <div class="chips">
+            ${m.authorName ? `<span class="chip">Post By: ${m.authorName}</span>` : ``}
+            ${m.createdAt ? `<span class="chip">Date Posted: ${fmtDate(m.createdAt)}</span>` : ``}
+          </div>
+        `;
+        box.appendChild(el);
+      });
+    }
+
+    async function refresh(){
+      const fs = await loadFromFirestore();
+      if (fs) { render(fs); return; }
+      render(loadFromLocal());
+    }
+
+    refresh();
+    document.addEventListener("visibilitychange", ()=>{
+      if(document.visibilityState==="visible") refresh();
+    });
+
+  })();
+  </script>
+
+  <!-- ===========================================
+       Work order approval KPI JS (dashboard)
+       =========================================== -->
+  <script>
+  (function(){
+    "use strict";
+
+    const kpiEl   = document.getElementById("wo-approve-kpi");
+    const countEl = document.getElementById("wo-approve-count");
+    const subEl   = document.getElementById("wo-approve-sub");
+
+    if (!kpiEl || !countEl || !subEl) return;
+
+    function applyState(count){
+      const n = Number(count) || 0;
+      countEl.textContent = n.toString();
+
+      if (!n){
+        kpiEl.classList.add("dash-kpi-empty");
+        subEl.textContent = "All caught up — no approvals needed.";
+      }else{
+        kpiEl.classList.remove("dash-kpi-empty");
+        subEl.textContent = n === 1
+          ? "work order waiting for your approval."
+          : "work orders waiting for your approval.";
+      }
+    }
+
+    async function loadPending(){
+      try{
+        if (!window.FVData || typeof FVData.getWhere !== "function"){
+          console.warn("[dashboard] FVData.getWhere not available for KPI.");
+          applyState(0);
+          return;
+        }
+
+        await FVData.ready();
+
+        const docs = await FVData.getWhere(
+          "fieldMaintenance",
+          "status",
+          "==",
+          "needs approved",
+          { limit: 500 }
+        ) || [];
+
+        applyState(docs.length);
+      }catch(err){
+        console.warn("[dashboard] failed to load work-order approvals:", err);
+        applyState(0);
+      }
+    }
+
+    loadPending();
+    document.addEventListener("visibilitychange", ()=>{
+      if (document.visibilityState === "visible") loadPending();
+    });
+  })();
+  </script>
+
+  <!-- ===========================================
+       Field boundary requests KPI JS (dashboard)
+       (direct Firestore, not FVData)
+       =========================================== -->
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection,
+      getDocs
+    } from '/Farm-vista/js/firebase-init.js';
+
+    (async function(){
+      "use strict";
+
+      const kpiEl   = document.getElementById("boundary-kpi");
+      const countEl = document.getElementById("boundary-kpi-count");
+      const subEl   = document.getElementById("boundary-kpi-sub");
+
+      if (!kpiEl || !countEl || !subEl) return;
+
+      function applyState(count){
+        const n = Number(count) || 0;
+        countEl.textContent = n.toString();
+
+        if (!n){
+          kpiEl.classList.add("dash-kpi-empty");
+          subEl.textContent = "No field boundary fixes pending.";
+        }else{
+          kpiEl.classList.remove("dash-kpi-empty");
+          subEl.textContent = n === 1
+            ? "boundary fix request awaiting review."
+            : "boundary fix requests awaiting review.";
+        }
+      }
+
+      async function loadBoundaryRequests(){
+        try{
+          await ready;
+          const db = getFirestore();
+          const colRef = collection(db, 'boundary_requests');
+          const snap = await getDocs(colRef);
+
+          let openCount = 0;
+
+          snap.forEach(docSnap => {
+            const d = docSnap.data() || {};
+            const raw = (d.status || "").toString().trim();
+            const normalized = raw.replace(/\.+$/,"").toLowerCase(); // strip trailing dots
+            if (normalized === "open") {
+              openCount += 1;
+            }
+          });
+
+          applyState(openCount);
+        }catch(err){
+          console.warn("[dashboard] failed to load boundary KPI:", err);
+          applyState(0);
+        }
+      }
+
+      await loadBoundaryRequests();
+      document.addEventListener("visibilitychange", ()=>{
+        if (document.visibilityState === "visible") loadBoundaryRequests();
+      });
+    })();
+  </script>
+
+  <!-- ===========================================
+       Grain bag inventory KPI JS (dashboard)
+       Uses FVGrainCapacity to convert corn-capacity → crop bu
+       =========================================== -->
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection,
+      getDocs
+    } from '/Farm-vista/js/firebase-init.js';
+
+    (async function(){
+      "use strict";
+
+      const kpiEl   = document.getElementById("bag-kpi");
+      const countEl = document.getElementById("bag-kpi-count");
+      const subEl   = document.getElementById("bag-kpi-sub");
+
+      if (!kpiEl || !countEl || !subEl) return;
+
+      const fmtInt = (n) => {
+        const v = Number(n) || 0;
+        return v.toLocaleString();
+      };
+
+      function applyState(totalBags, skuCount, totalBu){
+        const bags = Number(totalBags) || 0;
+        const skus = Number(skuCount) || 0;
+        const bu   = Number(totalBu)   || 0;
+
+        countEl.textContent = bags.toString();
+
+        if (!bags){
+          kpiEl.classList.add("dash-kpi-empty");
+          subEl.textContent = "No grain bags on hand in inventory.";
+        }else{
+          kpiEl.classList.remove("dash-kpi-empty");
+          const skuLabel = skus === 1 ? "SKU" : "SKUs";
+
+          if (bu > 0){
+            subEl.textContent =
+              `≈ ${fmtInt(bu)} bu on hand across ${fmtInt(bags)} bags and ${skus || 1} ${skuLabel}.`;
+          }else{
+            subEl.textContent =
+              `Total bags on hand across ${skus || 1} ${skuLabel}.`;
+          }
+        }
+      }
+
+      async function loadBagInventory(){
+        try{
+          await ready;
+          const db = getFirestore();
+          const colRef = collection(db, 'inventoryGrainBagMovements');
+          const snap = await getDocs(colRef);
+
+          let totalBags = 0;
+          let skuCount  = 0;
+          let totalBu   = 0;  // crop-equivalent bushels based on corn capacity
+
+          snap.forEach(docSnap => {
+            const d = docSnap.data() || {};
+
+            // 1) Bags on hand (bag count), same as before.
+            let bags = (d.onHand != null)
+              ? Number(d.onHand)
+              : (d.qty != null ? Number(d.qty) : 0);
+            if (!Number.isFinite(bags) || bags <= 0) {
+              return;
+            }
+
+            totalBags += bags;
+            skuCount  += 1;
+
+            // 2) Rated corn capacity per bag (any of these fields will work).
+            let perBagCornBu = 0;
+            if (d.cornBuPerBag != null) perBagCornBu = Number(d.cornBuPerBag);
+            else if (d.bagCornBu != null) perBagCornBu = Number(d.bagCornBu);
+            else if (d.bushelsPerBag != null) perBagCornBu = Number(d.bushelsPerBag);
+            else if (d.capacityCornBu != null) perBagCornBu = Number(d.capacityCornBu);
+
+            if (!Number.isFinite(perBagCornBu) || perBagCornBu <= 0) {
+              return;
+            }
+
+            const ratedCornTotal = bags * perBagCornBu;
+
+            // 3) Crop type (for conversion). Default to corn if not present.
+            const crop =
+              (d.crop || d.cropType || "corn").toString().trim().toLowerCase() || "corn";
+
+            // 4) Use FVGrainCapacity if available; otherwise treat as corn bu.
+            let effBu = ratedCornTotal;
+            try{
+              if (window.FVGrainCapacity && typeof FVGrainCapacity.capacityForCrop === "function") {
+                effBu = FVGrainCapacity.capacityForCrop(ratedCornTotal, crop, { round:false });
+              }
+            }catch(e){
+              console.warn("[dashboard] FVGrainCapacity error:", e);
+            }
+
+            if (Number.isFinite(effBu) && effBu > 0) {
+              totalBu += effBu;
+            }
+          });
+
+          applyState(totalBags, skuCount, totalBu);
+        }catch(err){
+          console.warn("[dashboard] failed to load grain-bag inventory KPI:", err);
+          applyState(0, 0, 0);
+        }
+      }
+
+      await loadBagInventory();
+      document.addEventListener("visibilitychange", ()=>{
+        if (document.visibilityState === "visible") loadBagInventory();
+      });
+    })();
+  </script>
+
+  <!-- ==========================
+       FarmVista Copilot JS (AI UI)
+       ========================== -->
+  <script>
+  (function(){
+    "use strict";
+
+    const logEl   = document.getElementById("ai-chat-log");
+    const formEl  = document.getElementById("ai-chat-form");
+    const inputEl = document.getElementById("ai-input");
+    const micEl   = document.getElementById("ai-mic");
+    const sendEl  = document.getElementById("ai-send");
+    const statusEl= document.getElementById("ai-status");
+
+    if (!logEl || !formEl || !inputEl || !micEl || !sendEl) return;
+
+    let isThinking = false;
+
+    function clearEmptyState(){
+      const empty = logEl.querySelector(".ai-empty");
+      if (empty) empty.remove();
+    }
+
+    function appendMessage(role, text){
+      clearEmptyState();
+      const wrap = document.createElement("div");
+      wrap.className = "ai-msg " + (role === "user" ? "ai-msg-user" : "ai-msg-assistant");
+      const who = role === "user" ? "You" : "Copilot";
+      wrap.innerHTML = `
+        <div class="ai-msg-meta">${who}</div>
+        <div>${text.replace(/</g, "&lt;")}</div>
+      `;
+      logEl.appendChild(wrap);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function setStatus(msg){
+      statusEl.textContent = msg || "";
+    }
+
+    function setThinking(on){
+      isThinking = !!on;
+      sendEl.disabled = isThinking;
+      inputEl.disabled = isThinking;
+      micEl.disabled = isThinking;
+      setStatus(isThinking ? "Thinking…" : "");
+    }
+
+    async function callAssistant(prompt){
+      const endpoint = "https://chatbot-api-300398089669.us-central1.run.app/chat";
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: prompt })
+      });
+
+      if (!res.ok){
+        throw new Error("API error " + res.status);
+      }
+
+      const data = await res.json();
+      return data && data.reply ? data.reply.toString() : "(No response)";
+    }
+
+    formEl.addEventListener("submit", async (evt)=>{
+      evt.preventDefault();
+      if (isThinking) return;
+
+      const text = (inputEl.value || "").trim();
+      if (!text) return;
+
+      appendMessage("user", text);
+      inputEl.value = "";
+      inputEl.style.height = "auto";
+
+      setThinking(true);
+      try{
+        const reply = await callAssistant(text);
+        appendMessage("assistant", reply || "(No response)");
+      }catch(e){
+        console.warn("[copilot] error:", e);
+        appendMessage("assistant", "Sorry, I couldn't process that request right now.");
+      }finally{
+        setThinking(false);
+      }
+    });
+
+    inputEl.addEventListener("input", ()=>{
+      inputEl.style.height = "auto";
+      inputEl.style.height = Math.min(inputEl.scrollHeight, 96) + "px";
+    });
+
+    inputEl.addEventListener("keydown", (evt)=>{
+      if (evt.key === "Enter" && !evt.shiftKey){
+        evt.preventDefault();
+        if (!isThinking){
+          if (typeof formEl.requestSubmit === "function"){
+            formEl.requestSubmit();
+          }else{
+            formEl.dispatchEvent(new Event("submit", { cancelable:true, bubbles:true }));
+          }
+        }
+      }
+    });
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition = null;
+    let isRecording = false;
+
+    if (SpeechRecognition){
+      recognition = new SpeechRecognition();
+      recognition.lang = "en-US";
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      recognition.addEventListener("start", ()=>{
+        isRecording = true;
+        micEl.classList.add("recording");
+        setStatus("Listening…");
+      });
+
+      recognition.addEventListener("end", ()=>{
+        isRecording = false;
+        micEl.classList.remove("recording");
+        if (!isThinking) setStatus("");
+      });
+
+      recognition.addEventListener("result", (event)=>{
+        const result = event.results && event.results[0] && event.results[0][0];
+        const text = result ? result.transcript : "";
+        if (text){
+          const existing = inputEl.value.trim();
+          inputEl.value = existing ? (existing + " " + text) : text;
+          inputEl.dispatchEvent(new Event("input"));
+          inputEl.focus();
+        }
+      });
+
+      micEl.addEventListener("click", ()=>{
+        if (isThinking) return;
+        if (isRecording){
+          recognition.stop();
+          return;
+        }
+        try{
+          recognition.start();
+        }catch(e){
+          console.warn("[copilot] recognition error:", e);
+        }
+      });
+    }else{
+      micEl.disabled = true;
+      setStatus("Voice dictation not supported in this browser.");
+    }
+  })();
+  </script>
+
+  <!-- One-time SW reset for path change -->
+  <script>
+  (async () => {
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+        await navigator.serviceWorker.register('serviceworker.js?rev=PV1');
+        if (navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage('SKIP_WAITING');
+        }
+      }
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+    } catch (e) { console.warn(e); }
+  })();
+  </script>
+</body>
+</html>

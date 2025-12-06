@@ -1,0 +1,1163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • My Expenditures</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- ===========================
+       ABSOLUTE PATHS (REQUIRED)
+       =========================== -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
+  <!-- Theme + base app styles -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Ensure fv-shell (global header/footer/menu) -->
+  <script>
+    (function () {
+      if (!customElements.get('fv-shell')) {
+        const s = document.createElement('script');
+        s.src = '/Farm-vista/js/fv-shell.js';
+        s.defer = true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <style>
+    :root{
+      --card-max:1100px;
+      --page-bottom-gap:96px;
+      --accent:#2F6C3C;
+    }
+    body{
+      background:var(--app-bg,var(--surface));
+    }
+
+    .wrap{
+      max-width:var(--card-max);
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
+    }
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+      margin-bottom:18px;
+    }
+    .hero-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+    }
+    .hero-head .icon{
+      width:24px;
+      height:24px;
+      color:#2F6C3C;
+      display:grid;
+      place-items:center;
+      font-size:20px;
+    }
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+    .muted{
+      color:var(--muted,#67706B);
+      margin:2px 0 0;
+      font-size:14px;
+    }
+    .hero-body{
+      padding:10px 16px 14px;
+      font-size:14px;
+    }
+
+    .chip-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      margin-top:4px;
+    }
+    .chip{
+      padding:4px 10px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface-alt,var(--surface)));
+      font-size:12px;
+      color:var(--muted,#67706B);
+      white-space:nowrap;
+    }
+
+    /* Reuse add-page field/input/select look */
+    .field label{
+      display:block;
+      font-weight:800;
+      margin:0 0 6px 0;
+      font-size:13px;
+    }
+    .field label .req{
+      color:#b3261e;
+      margin-left:3px;
+    }
+    .input,
+    .select,
+    .textarea{
+      width:100%;
+      font:inherit;
+      font-size:16px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:8px 10px;
+      outline:none;
+    }
+    .textarea{
+      min-height:96px;
+      resize:vertical;
+    }
+
+    /* Filters + list live OUTSIDE hero now */
+    .exp-section{
+      border-radius:14px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.06));
+      padding:12px 14px 14px;
+      display:grid;
+      gap:10px 0;
+    }
+
+    .exp-filters{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+    }
+    .exp-filter-group{
+      min-width:130px;
+      flex:1 1 130px;
+    }
+    .exp-filters-spacer{
+      flex:1 1 auto;
+    }
+    .exp-stats{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+      justify-content:flex-end;
+      align-items:center;
+      font-size:12px;
+      color:var(--muted,#67706B);
+    }
+    .exp-stat-pill{
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:var(--surface-alt,var(--surface));
+      padding:3px 8px;
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+    }
+    .exp-stat-pill strong{
+      font-weight:600;
+      color:var(--text,#111827);
+    }
+
+    .exp-list-card{
+      border-radius:10px;
+      border:1px solid var(--border-soft,#E5E7EB);
+      background:var(--surface-alt,var(--surface));
+      overflow:hidden;
+    }
+    .exp-table-wrap{
+      width:100%;
+      overflow-x:auto;
+    }
+    table.exp-table{
+      width:100%;
+      border-collapse:collapse;
+      font-size:13px;
+    }
+    .exp-table thead{
+      background:var(--table-head-bg,#F3F4F6);
+    }
+    .exp-table th,
+    .exp-table td{
+      padding:8px 10px;
+      text-align:left;
+      white-space:nowrap;
+      border-bottom:1px solid var(--border-soft,#E5E7EB);
+    }
+    .exp-table th{
+      font-size:11px;
+      text-transform:uppercase;
+      letter-spacing:.05em;
+      color:var(--muted,#67706B);
+    }
+    .exp-table tbody tr:hover{
+      background:var(--hover-bg,#F9FAFB);
+    }
+    .exp-amount{
+      text-align:right;
+      font-variant-numeric:tabular-nums;
+      font-weight:600;
+    }
+    .exp-actions{
+      display:flex;
+      gap:6px;
+      justify-content:flex-end;
+    }
+
+    .exp-status-pill{
+      border-radius:999px;
+      padding:3px 8px;
+      font-size:11px;
+      border:1px solid rgba(16,185,129,.5);
+      background:rgba(16,185,129,.08);
+      color:#065F46;
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+    }
+    .exp-status-pill.pending{
+      border-color:rgba(234,179,8,.7);
+      background:rgba(234,179,8,.12);
+      color:#92400E;
+    }
+    .exp-status-pill.flagged{
+      border-color:rgba(251,146,60,.7);
+      background:rgba(251,146,60,.12);
+      color:#9A3412;
+    }
+    .exp-status-pill.rejected{
+      border-color:rgba(239,68,68,.7);
+      background:rgba(239,68,68,.12);
+      color:#991B1B;
+    }
+
+    .btn-chip{
+      border-radius:999px;
+      padding:4px 8px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      font-size:11px;
+      cursor:pointer;
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+    }
+    .btn-chip-primary{
+      border-color:rgba(16,185,129,.5);
+      background:rgba(16,185,129,.06);
+      font-weight:500;
+    }
+
+    .exp-empty{
+      padding:18px 14px 20px;
+      text-align:center;
+      font-size:13px;
+      color:var(--muted,#67706B);
+    }
+    .exp-empty strong{
+      display:block;
+      margin-bottom:4px;
+      color:var(--text,#111827);
+    }
+
+    .exp-mobile-list{
+      display:none;
+      padding:10px 10px 12px;
+    }
+    .exp-mobile-item{
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      padding:8px 9px;
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+    }
+    .exp-mobile-row1{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:8px;
+      font-size:13px;
+    }
+    .exp-mobile-merchant{
+      font-weight:600;
+      color:var(--text,#111827);
+    }
+    .exp-mobile-amount{
+      font-weight:700;
+      font-variant-numeric:tabular-nums;
+    }
+    .exp-mobile-row2,
+    .exp-mobile-row3{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:8px;
+      font-size:12px;
+      color:var(--muted,#67706B);
+    }
+    .exp-mobile-actions{
+      display:flex;
+      justify-content:flex-end;
+      gap:6px;
+      margin-top:4px;
+    }
+
+    @media (max-width:820px){
+      .exp-table-wrap{display:none;}
+      .exp-mobile-list{display:block;}
+    }
+    @media (min-width:821px){
+      .exp-mobile-list{display:none;}
+    }
+
+    .exp-modal-backdrop{
+      position:fixed;
+      inset:0;
+      z-index:1200;
+      background:rgba(15,23,42,.55);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      padding:16px;
+    }
+    .exp-modal-backdrop.show{
+      display:flex;
+    }
+    .exp-modal{
+      max-width:520px;
+      width:100%;
+      max-height:90vh;
+      background:var(--surface);
+      border-radius:14px;
+      box-shadow:0 22px 60px rgba(0,0,0,.4);
+      display:flex;
+      flex-direction:column;
+      overflow:hidden;
+    }
+    .exp-modal-header{
+      padding:10px 14px;
+      border-bottom:1px solid var(--border);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+    }
+    .exp-modal-title{
+      font-size:15px;
+      font-weight:600;
+    }
+    .exp-modal-body{
+      padding:12px 14px 14px;
+      font-size:13px;
+      overflow-y:auto;
+    }
+    .exp-modal-footer{
+      padding:8px 14px 10px;
+      border-top:1px solid var(--border);
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+    }
+
+    .exp-form-grid{
+      display:grid;
+      grid-template-columns:minmax(0,1fr);
+      gap:8px 10px;
+    }
+    @media (min-width:640px){
+      .exp-form-grid.cols-2{
+        grid-template-columns:repeat(2,minmax(0,1fr));
+      }
+    }
+
+    .btn{
+      border-radius:12px;
+      padding:8px 14px;
+      border:1px solid var(--border);
+      font-size:13px;
+      cursor:pointer;
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      background:var(--card-surface,var(--surface));
+      font-weight:800;
+      color:var(--text);
+    }
+    .btn-primary{
+      border-color:transparent;
+      background:#2F6C3C;
+      color:#fff;
+    }
+    .btn-secondary{
+      background:var(--surface-alt,var(--surface));
+      border-color:var(--border);
+      color:var(--text,#111827);
+    }
+    .btn-danger{
+      background:#F87171;
+      border-color:#DC2626;
+      color:#FEF2F2;
+    }
+    .btn-ghost{
+      border-color:transparent;
+      background:transparent;
+      color:var(--text,#111827);
+    }
+
+    .exp-meta{
+      margin-top:6px;
+      font-size:11px;
+      color:var(--muted,#67706B);
+    }
+    .exp-chip-note{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:3px 7px;
+      border-radius:999px;
+      border:1px solid rgba(250,204,21,.8);
+      background:rgba(250,204,21,.12);
+      color:#8b6b00;
+      font-size:11px;
+      margin-top:4px;
+    }
+  </style>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <!-- HERO ONLY HOLDS TITLE / SUMMARY NOW -->
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">💸</div>
+          <div>
+            <h1>My Expenditures</h1>
+            <p class="muted">
+              Review, filter, edit, or delete your own expense submissions from the last three years.
+            </p>
+          </div>
+        </header>
+        <div class="hero-body">
+          <div class="chip-row">
+            <span class="chip">Only my records</span>
+            <span class="chip">3-year history</span>
+            <span class="chip">Edit or soft delete</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- FILTERS + LIST OUTSIDE HERO -->
+      <section class="exp-section">
+        <!-- Filters row -->
+        <div class="exp-filters">
+          <div class="exp-filter-group field">
+            <label for="filter-year">Year</label>
+            <select id="filter-year" class="select">
+              <!-- JS -->
+            </select>
+          </div>
+
+          <div class="exp-filter-group field">
+            <label for="filter-month">Month</label>
+            <select id="filter-month" class="select">
+              <!-- JS -->
+            </select>
+          </div>
+
+          <div class="exp-filter-group field">
+            <label for="filter-category">Category</label>
+            <select id="filter-category" class="select">
+              <!-- JS -->
+            </select>
+          </div>
+
+          <div class="exp-filters-spacer"></div>
+
+          <div class="exp-stats">
+            <div class="exp-stat-pill">
+              <span>Showing</span>
+              <strong id="stat-count">0</strong>
+              <span>records</span>
+            </div>
+            <div class="exp-stat-pill">
+              <span>Total</span>
+              <strong id="stat-total">$0.00</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- List card -->
+        <div class="exp-list-card" aria-label="Expenditure list">
+          <div class="exp-table-wrap">
+            <table class="exp-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Merchant</th>
+                  <th>Category</th>
+                  <th>Payment</th>
+                  <th>Project</th>
+                  <th>Status</th>
+                  <th class="exp-amount">Amount</th>
+                  <th style="width:1%;text-align:right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="exp-table-body">
+                <!-- JS -->
+              </tbody>
+            </table>
+          </div>
+
+          <div class="exp-mobile-list" id="exp-mobile-list">
+            <!-- JS -->
+          </div>
+
+          <div class="exp-empty" id="exp-empty-state" hidden>
+            <strong>No expenditures match your filters.</strong>
+            <div>Adjust year, month, or category, or submit a new receipt on the expense form.</div>
+            <div class="exp-chip-note">
+              Note: Only your own submissions from the last three years are shown here.
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <!-- Core JS only (NO fv-combo on this page) -->
+  <script src="/Farm-vista/js/core.js"></script>
+
+  <!-- View modal -->
+  <div class="exp-modal-backdrop" id="exp-view-backdrop" aria-hidden="true">
+    <div class="exp-modal" role="dialog" aria-modal="true" aria-labelledby="exp-view-title">
+      <div class="exp-modal-header">
+        <div class="exp-modal-title" id="exp-view-title">View Expenditure</div>
+        <button class="btn btn-ghost" type="button" data-exp-close-view>&times;</button>
+      </div>
+      <div class="exp-modal-body">
+        <div class="exp-form-grid cols-2" id="exp-view-fields"></div>
+        <div class="exp-meta" id="exp-view-meta"></div>
+      </div>
+      <div class="exp-modal-footer">
+        <button class="btn btn-secondary" type="button" data-exp-close-view>Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit modal -->
+  <div class="exp-modal-backdrop" id="exp-edit-backdrop" aria-hidden="true">
+    <div class="exp-modal" role="dialog" aria-modal="true" aria-labelledby="exp-edit-title">
+      <div class="exp-modal-header">
+        <div class="exp-modal-title" id="exp-edit-title">Edit Expenditure</div>
+        <button class="btn btn-ghost" type="button" data-exp-close-edit>&times;</button>
+      </div>
+      <div class="exp-modal-body">
+        <form id="exp-edit-form">
+          <input type="hidden" id="exp-edit-id" />
+
+          <div class="exp-form-grid cols-2">
+            <div class="field">
+              <label for="edit-merchant">Merchant<span class="req">*</span></label>
+              <input id="edit-merchant" class="input" type="text" autocomplete="off" required />
+            </div>
+
+            <div class="field">
+              <label for="edit-total">Total<span class="req">*</span></label>
+              <input id="edit-total" class="input" type="number" step="0.01" min="0" autocomplete="off" required />
+            </div>
+
+            <div class="field">
+              <label for="edit-category">Category<span class="req">*</span></label>
+              <select id="edit-category" class="select" required>
+                <!-- populated same as filter -->
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="edit-paymethod">Payment method<span class="req">*</span></label>
+              <select id="edit-paymethod" class="select" required>
+                <option value="">Select payment</option>
+                <option value="card">Card</option>
+                <option value="cash">Cash</option>
+                <option value="check">Check</option>
+                <option value="ach">ACH</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="edit-rdate">Receipt date<span class="req">*</span></label>
+              <input id="edit-rdate" class="input" type="date" required />
+            </div>
+
+            <div class="field">
+              <label for="edit-submitted">Submitted date<span class="req">*</span></label>
+              <input id="edit-submitted" class="input" type="date" required />
+            </div>
+
+            <div class="field">
+              <label for="edit-project">Project / Field</label>
+              <input id="edit-project" class="input" type="text" autocomplete="off" />
+            </div>
+
+            <div class="field">
+              <label for="edit-status">Status<span class="req">*</span></label>
+              <select id="edit-status" class="select" required>
+                <option value="Submitted">Submitted</option>
+                <option value="Approved">Approved</option>
+                <option value="Paid">Paid</option>
+                <option value="Flagged">Flagged</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field" style="margin-top:8px;">
+            <label for="edit-notes">Notes</label>
+            <textarea id="edit-notes" class="textarea"></textarea>
+          </div>
+
+          <div class="exp-meta" id="exp-edit-meta"></div>
+        </form>
+      </div>
+      <div class="exp-modal-footer">
+        <button class="btn btn-secondary" type="button" data-exp-close-edit>Cancel</button>
+        <button class="btn btn-danger" type="button" id="exp-delete-btn">Delete</button>
+        <button class="btn btn-primary" type="button" id="exp-save-btn">Save changes</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function(){
+      'use strict';
+
+      const THREE_YEARS_MS = 3*365*24*60*60*1000;
+
+      let allExpenditures = [];
+      let filtered = [];
+      let currentUserEmailLower = null;
+
+      const yearSelect = document.getElementById('filter-year');
+      const monthSelect = document.getElementById('filter-month');
+      const categorySelect = document.getElementById('filter-category');
+
+      const statCount = document.getElementById('stat-count');
+      const statTotal = document.getElementById('stat-total');
+
+      const tableBody = document.getElementById('exp-table-body');
+      const mobileList = document.getElementById('exp-mobile-list');
+      const emptyState = document.getElementById('exp-empty-state');
+
+      const viewBackdrop = document.getElementById('exp-view-backdrop');
+      const viewFields = document.getElementById('exp-view-fields');
+      const viewMeta = document.getElementById('exp-view-meta');
+      const closeViewBtns = document.querySelectorAll('[data-exp-close-view]');
+
+      const editBackdrop = document.getElementById('exp-edit-backdrop');
+      const closeEditBtns = document.querySelectorAll('[data-exp-close-edit]');
+      const editForm = document.getElementById('exp-edit-form');
+      const editIdInput = document.getElementById('exp-edit-id');
+      const editMerchant = document.getElementById('edit-merchant');
+      const editTotal = document.getElementById('edit-total');
+      const editCategory = document.getElementById('edit-category');
+      const editPaymethod = document.getElementById('edit-paymethod');
+      const editRdate = document.getElementById('edit-rdate');
+      const editSubmitted = document.getElementById('edit-submitted');
+      const editProject = document.getElementById('edit-project');
+      const editStatus = document.getElementById('edit-status');
+      const editNotes = document.getElementById('edit-notes');
+      const editMeta = document.getElementById('exp-edit-meta');
+      const btnSave = document.getElementById('exp-save-btn');
+      const btnDelete = document.getElementById('exp-delete-btn');
+
+      const monthNames = [
+        'All months',
+        'January','February','March','April','May','June',
+        'July','August','September','October','November','December'
+      ];
+
+      function formatCurrency(n){
+        if(isNaN(n)) return '$0.00';
+        return n.toLocaleString('en-US',{style:'currency',currency:'USD'});
+      }
+      function parseDateSafe(str){
+        if(!str) return null;
+        const d = new Date(str);
+        return isNaN(d.getTime()) ? null : d;
+      }
+      function threeYearCutoff(){
+        return new Date(Date.now() - THREE_YEARS_MS);
+      }
+      function getRefDate(doc){
+        if(doc.createdAt instanceof Date) return doc.createdAt;
+        if(typeof doc.t === 'number') return new Date(doc.t);
+        if(doc.submitted) return parseDateSafe(doc.submitted);
+        return null;
+      }
+      function formatDisplayDate(doc){
+        if(doc.submitted) return doc.submitted;
+        if(doc.rdate) return doc.rdate;
+        const d = getRefDate(doc);
+        return d ? d.toISOString().slice(0,10) : '';
+      }
+      function getYear(doc){
+        const d = getRefDate(doc);
+        return d ? d.getFullYear() : null;
+      }
+      function getMonth(doc){
+        const d = getRefDate(doc);
+        return d ? (d.getMonth()+1) : null;
+      }
+      function getCategory(doc){
+        return doc.category || '';
+      }
+      function getSubmitEmailLower(doc){
+        const email = doc.submittedBy && doc.submittedBy.email;
+        return email ? email.toLowerCase() : null;
+      }
+      function statusClass(status){
+        if(!status) return '';
+        const s = String(status).toLowerCase();
+        if(s === 'flagged') return 'flagged';
+        if(s === 'rejected' || s === 'denied') return 'rejected';
+        return '';
+      }
+
+      function filterToUserAndWindow(docs){
+        const cutoff = threeYearCutoff();
+        return docs.filter(doc=>{
+          if(currentUserEmailLower){
+            const docEmail = getSubmitEmailLower(doc);
+            if(!docEmail || docEmail !== currentUserEmailLower) return false;
+          }
+          const d = getRefDate(doc);
+          if(!d || d < cutoff) return false;
+          if(doc.isDeleted) return false;
+          return true;
+        });
+      }
+
+      function buildFilterOptions(){
+        const years = new Set();
+        const cats = new Set();
+        allExpenditures.forEach(doc=>{
+          const y = getYear(doc);
+          if(y) years.add(y);
+          const c = getCategory(doc);
+          if(c) cats.add(c);
+        });
+
+        yearSelect.innerHTML='';
+        const optAll=document.createElement('option');
+        optAll.value='all';
+        optAll.textContent='All years';
+        yearSelect.appendChild(optAll);
+        Array.from(years).sort((a,b)=>b-a).forEach(y=>{
+          const o=document.createElement('option');
+          o.value=String(y);
+          o.textContent=String(y);
+          yearSelect.appendChild(o);
+        });
+
+        monthSelect.innerHTML='';
+        monthNames.forEach((label,idx)=>{
+          const o=document.createElement('option');
+          o.value = idx===0 ? 'all' : String(idx);
+          o.textContent = label;
+          monthSelect.appendChild(o);
+        });
+
+        categorySelect.innerHTML='';
+        const cAll=document.createElement('option');
+        cAll.value='all';
+        cAll.textContent='All categories';
+        categorySelect.appendChild(cAll);
+        Array.from(cats).sort((a,b)=>a.localeCompare(b)).forEach(c=>{
+          const o=document.createElement('option');
+          o.value=c;
+          o.textContent=c;
+          categorySelect.appendChild(o);
+        });
+
+        // sync edit-category options too
+        editCategory.innerHTML='';
+        const eAll=document.createElement('option');
+        eAll.value='';
+        eAll.textContent='Select category';
+        editCategory.appendChild(eAll);
+        Array.from(cats).sort((a,b)=>a.localeCompare(b)).forEach(c=>{
+          const o=document.createElement('option');
+          o.value=c;
+          o.textContent=c;
+          editCategory.appendChild(o);
+        });
+      }
+
+      function applyFilters(){
+        const yearVal = yearSelect.value || 'all';
+        const monthVal = monthSelect.value || 'all';
+        const categoryVal = categorySelect.value || 'all';
+
+        filtered = allExpenditures.filter(doc=>{
+          const y = getYear(doc);
+          const m = getMonth(doc);
+          const c = getCategory(doc);
+
+          if(yearVal !== 'all' && y !== Number(yearVal)) return false;
+          if(monthVal !== 'all' && m !== Number(monthVal)) return false;
+          if(categoryVal !== 'all' && c !== categoryVal) return false;
+          return true;
+        });
+
+        renderList();
+      }
+
+      function renderList(){
+        statCount.textContent = String(filtered.length);
+        const total = filtered.reduce((sum,d)=>sum+(Number(d.total)||0),0);
+        statTotal.textContent = formatCurrency(total);
+
+        tableBody.innerHTML='';
+        mobileList.innerHTML='';
+
+        if(!filtered.length){
+          emptyState.hidden=false;
+          return;
+        }
+        emptyState.hidden=true;
+
+        filtered.forEach(doc=>{
+          const tr=document.createElement('tr');
+
+          const tdDate=document.createElement('td');
+          tdDate.textContent = formatDisplayDate(doc);
+          tr.appendChild(tdDate);
+
+          const tdMerch=document.createElement('td');
+          tdMerch.textContent = doc.merchant || '';
+          tr.appendChild(tdMerch);
+
+          const tdCat=document.createElement('td');
+          tdCat.textContent = doc.category || '';
+          tr.appendChild(tdCat);
+
+          const tdPay=document.createElement('td');
+          tdPay.textContent = doc.paymethod || '';
+          tr.appendChild(tdPay);
+
+          const tdProj=document.createElement('td');
+          tdProj.textContent = doc.project || '';
+          tr.appendChild(tdProj);
+
+          const tdStatus=document.createElement('td');
+          const stSpan=document.createElement('span');
+          const st = doc.status || 'Submitted';
+          stSpan.className='exp-status-pill '+statusClass(st);
+          stSpan.textContent=st;
+          tdStatus.appendChild(stSpan);
+          tr.appendChild(tdStatus);
+
+          const tdAmt=document.createElement('td');
+          tdAmt.className='exp-amount';
+          tdAmt.textContent = formatCurrency(Number(doc.total)||0);
+          tr.appendChild(tdAmt);
+
+          const tdActions=document.createElement('td');
+          tdActions.style.textAlign='right';
+          const actDiv=document.createElement('div');
+          actDiv.className='exp-actions';
+
+          const btnView=document.createElement('button');
+          btnView.type='button';
+          btnView.className='btn-chip';
+          btnView.textContent='View';
+          btnView.addEventListener('click',()=>openView(doc));
+
+          const btnEdit=document.createElement('button');
+          btnEdit.type='button';
+          btnEdit.className='btn-chip btn-chip-primary';
+          btnEdit.textContent='Edit';
+          btnEdit.addEventListener('click',()=>openEdit(doc));
+
+          actDiv.appendChild(btnView);
+          actDiv.appendChild(btnEdit);
+          tdActions.appendChild(actDiv);
+          tr.appendChild(tdActions);
+
+          tableBody.appendChild(tr);
+
+          const card=document.createElement('div');
+          card.className='exp-mobile-item';
+
+          const row1=document.createElement('div');
+          row1.className='exp-mobile-row1';
+          const mEl=document.createElement('div');
+          mEl.className='exp-mobile-merchant';
+          mEl.textContent=doc.merchant || '';
+          const aEl=document.createElement('div');
+          aEl.className='exp-mobile-amount';
+          aEl.textContent=formatCurrency(Number(doc.total)||0);
+          row1.appendChild(mEl);
+          row1.appendChild(aEl);
+
+          const row2=document.createElement('div');
+          row2.className='exp-mobile-row2';
+          const dEl=document.createElement('div');
+          dEl.textContent=formatDisplayDate(doc);
+          const cEl=document.createElement('div');
+          cEl.textContent=doc.category || '';
+          row2.appendChild(dEl);
+          row2.appendChild(cEl);
+
+          const row3=document.createElement('div');
+          row3.className='exp-mobile-row3';
+          const pEl=document.createElement('div');
+          pEl.textContent=doc.project || '';
+          const sEl=document.createElement('div');
+          const sSpan=document.createElement('span');
+          const st2 = doc.status || 'Submitted';
+          sSpan.className='exp-status-pill '+statusClass(st2);
+          sSpan.textContent=st2;
+          sEl.appendChild(sSpan);
+          row3.appendChild(pEl);
+          row3.appendChild(sEl);
+
+          const actRow=document.createElement('div');
+          actRow.className='exp-mobile-actions';
+          const mView=document.createElement('button');
+          mView.type='button';
+          mView.className='btn-chip';
+          mView.textContent='View';
+          mView.addEventListener('click',()=>openView(doc));
+          const mEdit=document.createElement('button');
+          mEdit.type='button';
+          mEdit.className='btn-chip btn-chip-primary';
+          mEdit.textContent='Edit';
+          mEdit.addEventListener('click',()=>openEdit(doc));
+          actRow.appendChild(mView);
+          actRow.appendChild(mEdit);
+
+          card.appendChild(row1);
+          card.appendChild(row2);
+          card.appendChild(row3);
+          card.appendChild(actRow);
+
+          mobileList.appendChild(card);
+        });
+      }
+
+      function openView(doc){
+        viewFields.innerHTML='';
+        const addRow=(label,value)=>{
+          const wrap=document.createElement('div');
+          wrap.className='field';
+          const lab=document.createElement('label');
+          lab.textContent=label;
+          const div=document.createElement('div');
+          div.textContent=value || '';
+          div.style.fontSize='13px';
+          div.style.color='var(--text,#111827)';
+          wrap.appendChild(lab);
+          wrap.appendChild(div);
+          viewFields.appendChild(wrap);
+        };
+
+        addRow('Merchant',doc.merchant);
+        addRow('Total',formatCurrency(Number(doc.total)||0));
+        addRow('Category',doc.category);
+        addRow('Payment method',doc.paymethod);
+        addRow('Project / Field',doc.project);
+        addRow('Status',doc.status || 'Submitted');
+        addRow('Receipt date',doc.rdate);
+        addRow('Submitted date',doc.submitted);
+
+        if((doc.notes||'').trim()){
+          addRow('Notes',doc.notes);
+        }
+
+        const who = doc.who || (doc.submittedBy && doc.submittedBy.name) || '';
+        const email = doc.submittedBy && doc.submittedBy.email;
+        const d = getRefDate(doc);
+        const local = d ? d.toLocaleString() : '';
+        const bits=[];
+        if(who) bits.push('Submitted by '+who);
+        if(email) bits.push('('+email+')');
+        if(local) bits.push('on '+local);
+        viewMeta.textContent = bits.join(' ').trim();
+
+        viewBackdrop.classList.add('show');
+        viewBackdrop.setAttribute('aria-hidden','false');
+      }
+      function closeView(){
+        viewBackdrop.classList.remove('show');
+        viewBackdrop.setAttribute('aria-hidden','true');
+      }
+
+      function openEdit(doc){
+        editIdInput.value = doc.id || '';
+        editMerchant.value = doc.merchant || '';
+        editTotal.value = doc.total!=null ? String(doc.total) : '';
+        editProject.value = doc.project || '';
+        editNotes.value = doc.notes || '';
+        editRdate.value = doc.rdate || '';
+        editSubmitted.value = doc.submitted || '';
+        editStatus.value = doc.status || 'Submitted';
+        editCategory.value = doc.category || '';
+        editPaymethod.value = doc.paymethod || '';
+
+        const who = doc.who || (doc.submittedBy && doc.submittedBy.name) || '';
+        const email = doc.submittedBy && doc.submittedBy.email;
+        const d = getRefDate(doc);
+        const local = d ? d.toLocaleString() : '';
+        const bits=[];
+        if(who) bits.push('Submitted by '+who);
+        if(email) bits.push('('+email+')');
+        if(local) bits.push(' on '+local);
+        editMeta.textContent = bits.join(' ').trim();
+
+        editBackdrop.classList.add('show');
+        editBackdrop.setAttribute('aria-hidden','false');
+      }
+      function closeEdit(){
+        editBackdrop.classList.remove('show');
+        editBackdrop.setAttribute('aria-hidden','true');
+      }
+
+      async function handleSave(){
+        if(!editForm.reportValidity()) return;
+
+        const id = editIdInput.value;
+        const idx = allExpenditures.findIndex(d=>d.id===id);
+        if(idx === -1){
+          console.warn('Expenditure not found in local state for save');
+          return;
+        }
+
+        const updated = {
+          ...allExpenditures[idx],
+          merchant: editMerchant.value.trim(),
+          total: Number(editTotal.value || 0),
+          category: editCategory.value || '',
+          paymethod: editPaymethod.value || '',
+          project: editProject.value.trim() || '',
+          status: editStatus.value || 'Submitted',
+          rdate: editRdate.value || '',
+          submitted: editSubmitted.value || '',
+          notes: editNotes.value.trim()
+        };
+
+        // TODO: wire to Firestore / FVData.update('expenditures', id, updated)
+        console.log('TODO: save expenditure', id, updated);
+
+        allExpenditures[idx] = updated;
+        applyFilters();
+        closeEdit();
+      }
+
+      async function handleDelete(){
+        const id = editIdInput.value;
+        if(!id) return;
+        if(!confirm('Delete this expenditure? This will hide it from your list.')) return;
+
+        const idx = allExpenditures.findIndex(d=>d.id===id);
+        if(idx === -1){
+          console.warn('Expenditure not found in local state for delete');
+          return;
+        }
+
+        const updated = {
+          ...allExpenditures[idx],
+          isDeleted:true,
+          deletedAt:new Date()
+        };
+
+        // TODO: wire to Firestore / FVData.update('expenditures', id, { isDeleted:true, deletedAt: serverTimestamp() })
+        console.log('TODO: soft-delete expenditure', id);
+
+        allExpenditures[idx] = updated;
+        allExpenditures = filterToUserAndWindow(allExpenditures);
+        buildFilterOptions();
+        applyFilters();
+        closeEdit();
+      }
+
+      function attachEvents(){
+        yearSelect.addEventListener('change',applyFilters);
+        monthSelect.addEventListener('change',applyFilters);
+        categorySelect.addEventListener('change',applyFilters);
+
+        closeViewBtns.forEach(btn=>btn.addEventListener('click',closeView));
+        viewBackdrop.addEventListener('click',e=>{
+          if(e.target===viewBackdrop) closeView();
+        });
+
+        closeEditBtns.forEach(btn=>btn.addEventListener('click',closeEdit));
+        editBackdrop.addEventListener('click',e=>{
+          if(e.target===editBackdrop) closeEdit();
+        });
+
+        btnSave.addEventListener('click',handleSave);
+        btnDelete.addEventListener('click',handleDelete);
+      }
+
+      async function loadExpendituresForCurrentUser(){
+        // TODO: replace with real Firestore / FVData call.
+        console.warn('TODO: implement loadExpendituresForCurrentUser()');
+        return [];
+      }
+
+      async function resolveCurrentUserEmail(){
+        try{
+          if(window.FVAuth && window.FVAuth.currentUser){
+            const u = window.FVAuth.currentUser;
+            if(u && u.email) return u.email.toLowerCase();
+          }
+          if(window.FVAuth && typeof window.FVAuth.getCurrentUser === 'function'){
+            const u = await window.FVAuth.getCurrentUser();
+            if(u && u.email) return u.email.toLowerCase();
+          }
+        }catch(err){
+          console.error('Error getting current user:',err);
+        }
+        return null;
+      }
+
+      async function init(){
+        attachEvents();
+        currentUserEmailLower = await resolveCurrentUserEmail();
+
+        allExpenditures = await loadExpendituresForCurrentUser();
+        allExpenditures = filterToUserAndWindow(allExpenditures);
+
+        buildFilterOptions();
+        applyFilters();
+      }
+
+      document.addEventListener('DOMContentLoaded',init);
+    })();
+  </script>
+</body>
+</html>

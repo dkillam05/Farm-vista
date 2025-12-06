@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>FarmVista - Combine Yield</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#3B7E46">
+  <link rel="manifest" href="../../manifest.webmanifest">
+  <link rel="stylesheet" href="../../assets/css/theme.css">
+  <link rel="stylesheet" href="../../assets/css/app.css">
+  <script defer src="../../js/theme-boot.js"></script>
+  <script defer src="../../js/fv-shell.js"></script>
+  <style>
+    :root{
+      --page-bottom-gap: 96px;
+      --card-max: 940px;
+      --accent: #2F6C3C;
+    }
+    html{-webkit-text-size-adjust:100%}
+    body{ background: var(--app-bg, var(--surface)); }
+
+    .wrap{
+      max-width: var(--card-max);
+      margin: 0 auto;
+      padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+    }
+
+    .calc-card{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+      margin-bottom: var(--page-bottom-gap);
+    }
+
+    .card-head{
+      display:flex; align-items:center; gap:12px; padding:14px 16px;
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      border-bottom:1px solid var(--border);
+    }
+    .card-head .icon{ width:28px;height:28px;color:var(--accent); }
+    .card-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2; }
+    .muted{ color:var(--muted,#67706B); }
+
+    form{ padding:16px; display:grid; gap:14px; }
+    .grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    @media (max-width:760px){ .grid{ grid-template-columns:1fr; } }
+
+    label{ display:block; font-weight:600; margin-bottom:6px; }
+    .ctrl{
+      display:flex; align-items:center; gap:8px;
+      border:1px solid var(--border); background:var(--card-surface,var(--surface));
+      border-radius:10px; padding:10px 12px;
+    }
+    input,select,button{ font-size:16px; } /* prevent iOS zoom */
+    .ctrl input,.ctrl select{ width:100%; border:0; outline:0; background:transparent; color:var(--text); }
+    .unit{ font-size:12px; color:var(--muted); white-space:nowrap; }
+    .hidden{ display:none !important; }
+
+    .actions{ display:flex; gap:10px; justify-content:flex-end; padding:0 16px 16px; }
+    .btn{ appearance:none; border:1px solid var(--border); background:var(--surface);
+      padding:10px 14px; border-radius:10px; font-weight:700; cursor:pointer; color:var(--text) !important; }
+    .btn-primary{ background:var(--accent); color:#fff !important; border-color:var(--accent); }
+
+    .results{ padding:0 16px 16px; }
+    .result-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    @media (max-width:760px){ .result-grid{ grid-template-columns:1fr; } }
+    .tile{ border:1px solid var(--border); border-radius:12px; padding:12px;
+      background: linear-gradient(180deg, rgba(47,108,60,.06), transparent 55%); }
+    .tile h3{ margin:0 0 8px; font-size:16px; }
+    .kv{ display:grid; grid-template-columns:1fr auto; gap:6px 12px; align-items:baseline; }
+    .kv .val{ font-weight:800; }
+
+    .hist{ padding:16px; border-top:1px dashed var(--border); }
+    .hlist{ display:grid; gap:8px; }
+    .hitem{ display:flex; gap:10px; align-items:center; justify-content:space-between;
+      padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--card-surface,var(--surface)); }
+    .hsummary{ font-weight:700; }
+
+    /* Centered modal */
+    .modal{ position:fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,.42);
+      z-index:9999; transition:opacity .15s; opacity:0; }
+    .modal[open]{ display:grid; opacity:1; }
+    .dialog{ width:min(760px,92vw); max-height:85vh; display:flex; flex-direction:column; background:var(--surface); color:var(--text);
+      border-radius:14px; border:1px solid var(--border); box-shadow:0 16px 36px rgba(0,0,0,.28); }
+    .dialog-head{ padding:12px 14px; border-bottom:1px solid var(--border);
+      display:flex; justify-content:space-between; align-items:center; }
+    .dialog-body{ padding:14px; overflow:auto; flex:1 1 auto; min-height:0; -webkit-overflow-scrolling:touch; }
+    .closex{ border:1px solid var(--border); background:var(--surface); border-radius:10px;
+      padding:8px 12px; cursor:pointer; font-weight:700; color:var(--text) !important; }
+    html.no-scroll, body.no-scroll{ overflow:hidden; }
+  </style>
+</head>
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <div class="calc-card">
+        <div class="card-head">
+          <div class="icon" aria-hidden="true">
+            <!-- Ear of corn (stroke-only) -->
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3c3 2 3.8 5.7 3.2 9.3-.6 3.7-2.9 6.9-7.2 8.7 1.4-2.9 1.4-5.9.5-8.7C7.7 9.1 9.3 5.7 12 3z"/>
+              <path d="M9 9c2 0 3 .8 3 2M8.5 12.5c1.6-.2 3 .3 3.7 1.5M8 15.5c1.6-.2 2.8.2 3.4 1.3"/>
+              <path d="M14 7c2.6.6 4.6 2.6 5.5 5.2-2.7-.6-5 .1-6.7 1.8"/>
+              <path d="M6.2 20.6c.8-3.4-.2-6.7-2.7-9.6 3.6.4 6.2 2.1 7.7 4.6"/>
+            </svg>
+          </div>
+          <div>
+            <h1>Combine Yield</h1>
+            <div class="muted">Enter cut <strong>Length</strong> and pick the <strong>Cut Width</strong>. Area is computed automatically. Add wet weight & moisture, then calculate.</div>
+          </div>
+        </div>
+
+        <!-- FORM -->
+        <form id="frm" novalidate autocomplete="off">
+          <div class="grid">
+            <div>
+              <label for="crop">Crop</label>
+              <div class="ctrl">
+                <select id="crop">
+                  <option value="corn">Corn (TW 56, Std 15.5%)</option>
+                  <option value="soy">Soybeans (TW 60, Std 13.0%)</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label for="mode">Shrink Mode</label>
+              <div class="ctrl">
+                <select id="mode">
+                  <option value="both" selected>Compare Both</option>
+                  <option value="true">True Only</option>
+                  <option value="elev">Elevator Only</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label for="len">Cut Length</label>
+              <div class="ctrl">
+                <input id="len" type="text" inputmode="decimal" placeholder="e.g. 600">
+                <span class="unit">ft</span>
+              </div>
+            </div>
+
+            <div>
+              <label for="wid">Cut Width</label>
+              <div class="ctrl">
+                <!-- dropdown as requested -->
+                <select id="wid">
+                  <option value="30">30 ft</option>
+                  <option value="35">35 ft</option>
+                  <option value="40">40 ft</option>
+                  <option value="45">45 ft</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Read-only computed area -->
+            <div>
+              <label for="acRO">Area (computed)</label>
+              <div class="ctrl">
+                <input id="acRO" type="text" disabled placeholder="0.000">
+                <span class="unit">ac</span>
+              </div>
+            </div>
+            <div></div>
+
+            <div>
+              <label for="wt">Wet Weight</label>
+              <div class="ctrl">
+                <input id="wt" type="text" inputmode="numeric" placeholder="e.g. 20,000">
+                <span class="unit">lb</span>
+              </div>
+            </div>
+
+            <div>
+              <label for="start">Start Moisture</label>
+              <div class="ctrl">
+                <input id="start" type="text" inputmode="decimal" placeholder="e.g. 16.5" maxlength="4">
+                <span class="unit">%</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button type="button" class="btn" id="clearInputs">Clear</button>
+            <button type="submit" class="btn btn-primary" id="doCalc">Calculate</button>
+          </div>
+        </form>
+
+        <!-- RESULTS -->
+        <div class="results" id="results" hidden>
+          <div class="result-grid">
+            <div class="tile" id="trueTile">
+              <h3>True Shrink Yield</h3>
+              <div class="kv">
+                <div>Yield</div>  <div class="val" id="trueY">- bu/ac</div>
+                <div>Bushels</div> <div class="val" id="trueBu">- bu</div>
+              </div>
+            </div>
+            <div class="tile" id="elevTile">
+              <h3>Elevator Shrink Yield</h3>
+              <div class="kv">
+                <div>Yield</div>  <div class="val" id="elevY">- bu/ac</div>
+                <div>Bushels</div> <div class="val" id="elevBu">- bu</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- HISTORY -->
+        <section class="hist">
+          <div style="display:flex;align-items:center;gap:10px">
+            <h2 style="flex:1">Previous Calculations</h2>
+            <button class="btn" id="clearHist" type="button" style="padding:6px 10px;">Clear</button>
+          </div>
+          <div class="hlist" id="hlist"></div>
+          <div class="muted" id="nohist">No previous combine yield calculations.</div>
+        </section>
+      </div>
+    </div>
+  </fv-shell>
+
+  <!-- DETAILS MODAL -->
+  <div class="modal" id="modal" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
+      <div class="dialog-head">
+        <h3 id="mdTitle">Combine Yield — Details</h3>
+        <button class="closex" id="mdClose" type="button">Back</button>
+      </div>
+      <div class="dialog-body" id="mdBody"></div>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    "use strict";
+    if(window.__FV_COMBINE_RO_V1__) return; window.__FV_COMBINE_RO_V1__=true;
+
+    var SQFT_PER_ACRE=43560;
+    var CORN_STD=15.5, CORN_TW=56, CORN_SLOPE=(21.0/(29.0-15.5)), CORN_CAP_M=40.0, CORN_CAP_SH=CORN_SLOPE*(CORN_CAP_M-CORN_STD);
+    var SOY_STD=13.0, SOY_TW=60;
+
+    function $(id){ return document.getElementById(id); }
+    function num(v){ return parseFloat(String(v).replace(/,/g,"")); }
+    function fmt(n,d){ if(d===void 0) d=2; return Number(n).toLocaleString(undefined,{maximumFractionDigits:d}); }
+
+    var cropEl=$("crop"), modeEl=$("mode"), len=$("len"), wid=$("wid"), acRO=$("acRO"), wt=$("wt"), start=$("start");
+    var results=$("results"), trueTile=$("trueTile"), elevTile=$("elevTile");
+    var trueY=$("trueY"), trueBu=$("trueBu"), elevY=$("elevY"), elevBu=$("elevBu");
+
+    // compute area from length × width and show read-only
+    function computeArea(){
+      var L=num(len.value), W=parseFloat(wid.value);
+      var A=(L>0 && W>0) ? (L*W)/SQFT_PER_ACRE : NaN;
+      acRO.value = isFinite(A) ? fmt(A,3) : "";
+      return isFinite(A) ? A : null;
+    }
+    len.addEventListener("input", computeArea);
+    wid.addEventListener("change", computeArea);
+
+    // format helpers
+    [len].forEach(function(i){ i.addEventListener("blur", function(){ var v=i.value.replace(/[^0-9.]/g,""); i.value=v?fmt(parseFloat(v),2):""; }); });
+    wt.addEventListener("blur", function(){ var raw=wt.value.replace(/[^0-9]/g,""); wt.value=raw?Number(raw).toLocaleString():""; });
+
+    // Moisture: force XX.X
+    start.addEventListener("input", function(){
+      var s=start.value.replace(/[^\d.]/g,""); var parts=s.split(".");
+      var a=(parts[0]||"").slice(0,2); var b=(parts[1]||"").slice(0,1);
+      start.value=a+(b!=="" ? "."+b : (s.indexOf(".")>-1 ? "." : ""));
+    });
+    start.addEventListener("blur", function(){
+      var s=start.value; if(!s) return;
+      var m=s.match(/^(\d{1,2})(?:\.(\d))?$/); if(!m){ start.value=""; return; }
+      var ip=m[1]; if(ip.length===1) ip="0"+ip; start.value=ip+"."+(m[2]?m[2]:"0");
+    });
+
+    function elevPct(crop, m){
+      if(crop!=="corn") return Math.max(0, (m-SOY_STD)*1.5); // simple soy placeholder
+      if(m<=CORN_STD) return 0; var used=Math.min(m, CORN_CAP_M); var pct=CORN_SLOPE*(used-CORN_STD); return Math.min(pct, CORN_CAP_SH);
+    }
+
+    function calc(){
+      var crop=cropEl.value, mode=modeEl.value;
+      var area = computeArea();
+      if(!(area>0)) { alert("Enter cut length and choose a cut width."); return null; }
+
+      var Wt=Number(wt.value.replace(/,/g,"")); var M=parseFloat(start.value);
+      if(!(Wt>0 && M>0)) { alert("Enter wet weight and moisture."); return null; }
+
+      var std = (crop==="corn"?CORN_STD:SOY_STD), tw=(crop==="corn"?CORN_TW:SOY_TW);
+
+      var trueWt = Wt * ((100 - M)/(100 - std));
+      var trueBushels = trueWt / tw;
+      var trueYield = trueBushels / area;
+
+      var ePct = elevPct(crop, M);
+      var eWt = Wt * (1 - ePct/100);
+      var eBushels = eWt / tw;
+      var eYield = eBushels / area;
+
+      return { t:Date.now(), crop:crop, mode:mode, area:area, len:num(len.value), wid:parseFloat(wid.value),
+               wt:Wt, m:M, trueY:trueYield, trueBu:trueBushels, elevY:eYield, elevBu:eBushels };
+    }
+
+    function show(o){
+      if(!o){ results.hidden=true; return; }
+      trueY.textContent = fmt(o.trueY,2)+" bu/ac"; trueBu.textContent = fmt(o.trueBu,2)+" bu";
+      elevY.textContent = fmt(o.elevY,2)+" bu/ac"; elevBu.textContent = fmt(o.elevBu,2)+" bu";
+      trueTile.style.display = (o.mode==="true") ? "block" : (o.mode==="elev" ? "none" : "block");
+      elevTile.style.display = (o.mode==="elev") ? "block" : (o.mode==="true" ? "none" : "block");
+      results.hidden=false; if(wt.value && wt.value.indexOf(",")===-1){ wt.dispatchEvent(new Event("blur")); }
+    }
+
+    /* History + modal */
+    var LS_KEY="fv_calc_combine_history_v4", hlist=$("hlist"), nohist=$("nohist");
+    function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
+    function save(a){ localStorage.setItem(LS_KEY, JSON.stringify(a.slice(0,10))); }
+
+    function summary(it){
+      return (it.crop==="corn"?"Corn":"Soy")+" "
+        + fmt(it.area,3)+" ac ("+fmt(it.len,0)+" ft × "+fmt(it.wid,0)+" ft), "
+        + fmt(it.wt,0)+" lb @ "+fmt(it.m,1)+"% → T "+fmt(it.trueY,1)+" / E "+fmt(it.elevY,1)+" bu/ac";
+    }
+
+    function renderHist(){
+      var h=load(); hlist.innerHTML=""; if(!h.length){ nohist.hidden=false; return; } nohist.hidden=true;
+      h.forEach(function(it,idx){
+        var row=document.createElement("div"); row.className="hitem";
+        row.innerHTML='<div class="hsummary">'+summary(it)+'</div><button class="btn" data-idx="'+idx+'" type="button" style="padding:6px 10px;">Details</button>';
+        hlist.appendChild(row);
+      });
+      hlist.querySelectorAll("button[data-idx]").forEach(function(b){
+        b.addEventListener("click", function(){ var i=parseInt(b.getAttribute("data-idx"),10); openModal(load()[i], b); });
+      });
+    }
+
+    var modal=$("modal"), mdBody=$("mdBody"), mdClose=$("mdClose"); var lastOpener=null, trapHandler=null;
+    function openModal(it, opener){
+      lastOpener=opener||null;
+      mdBody.innerHTML = '<div class="kv">'
+        +'<div>When</div><div>'+new Date(it.t).toLocaleString()+'</div>'
+        +'<div>Crop</div><div>'+(it.crop==="corn"?"Corn":"Soybeans")+'</div>'
+        +'<div>Area</div><div>'+fmt(it.area,3)+' ac</div>'
+        +'<div>Cut</div><div>'+fmt(it.len,0)+' ft × '+fmt(it.wid,0)+' ft</div>'
+        +'<div>Wet Weight</div><div>'+fmt(it.wt,0)+' lb</div>'
+        +'<div>Moisture</div><div>'+fmt(it.m,1)+'%</div>'
+        +'<div>True Yield</div><div>'+fmt(it.trueY,2)+' bu/ac ('+fmt(it.trueBu,2)+' bu)</div>'
+        +'<div>Elevator Yield</div><div>'+fmt(it.elevY,2)+' bu/ac ('+fmt(it.elevBu,2)+' bu)</div>'
+        +'</div>';
+      modal.setAttribute("open",""); modal.setAttribute("aria-hidden","false");
+      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll"); mdClose.focus(); trapFocus(modal);
+    }
+    function closeModal(){ modal.removeAttribute("open"); modal.setAttribute("aria-hidden","true"); document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll"); releaseFocus(modal); if(lastOpener) lastOpener.focus(); }
+    mdClose.addEventListener("click", closeModal); modal.addEventListener("click", function(e){ if(e.target===modal) closeModal(); });
+    document.addEventListener("keydown", function(e){ if(modal.hasAttribute("open") && e.key==="Escape") closeModal(); });
+
+    function trapFocus(root){
+      var focusables=[].slice.call(root.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')).filter(function(el){return !el.disabled && el.offsetParent!==null;});
+      if(!focusables.length) return; var first=focusables[0], last=focusables[focusables.length-1];
+      trapHandler=function(e){ if(e.key!=="Tab")return; if(e.shiftKey && document.activeElement===first){e.preventDefault(); last.focus();} else if(!e.shiftKey && document.activeElement===last){e.preventDefault(); first.focus();}};
+      root.addEventListener("keydown", trapHandler);
+    }
+    function releaseFocus(root){ if(trapHandler){ root.removeEventListener("keydown", trapHandler); trapHandler=null; } }
+
+    $("frm").addEventListener("submit", function(ev){
+      ev.preventDefault();
+      var out=calc(); if(out){ show(out); var h=load(); h.unshift(out); save(h); renderHist(); }
+    });
+    $("clearInputs").addEventListener("click", function(){
+      [len, wt, start].forEach(function(i){ if(i) i.value=""; }); computeArea(); results.hidden=true;
+    });
+    $("clearHist").addEventListener("click", function(){ localStorage.removeItem(LS_KEY); renderHist(); });
+
+    // boot
+    computeArea(); renderHist();
+  })();
+  </script>
+</body>
+</html>

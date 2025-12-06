@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Equipment Lookup</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- ABSOLUTE PATHS -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <script defer src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Ensure fv-shell -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <!-- Firebase CONFIG FIRST -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+
+  <style>
+    :root{ --card-max:1100px; }
+    html,body{ max-width:100vw; overflow-x:hidden; }
+    body{ background:var(--app-bg, var(--bg)); color:var(--text); }
+
+    .page{
+      max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;
+    }
+    .title{ margin:0 0 4px; font-size:clamp(22px,3.6vw,32px); line-height:1.1; }
+    .sub{ margin:0 10px 12px 0; color:var(--muted,#6f7772); }
+
+    /* Search row */
+    .bar{ display:flex; gap:10px; align-items:center; }
+    .search{
+      display:flex; align-items:center; gap:10px; border:1px solid var(--border);
+      border-radius:12px; background:var(--surface); padding:10px 12px; flex:1 1 auto;
+    }
+    .search input{ flex:1; background:transparent; border:0; outline:none; font:inherit; color:var(--text); }
+
+    /* Filter icon button */
+    .icon-btn{
+      display:inline-flex; align-items:center; justify-content:center;
+      width:42px; height:42px;
+      border:1px solid var(--border); border-radius:12px;
+      background:var(--surface); color:var(--text);
+      cursor:pointer;
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.06));
+    }
+    .icon-btn:active{ transform:translateY(1px); }
+    .icon-btn svg{ display:block }
+
+    /* Popover – lowered z-index so header/footer win */
+    .popover{
+      position:absolute;
+      z-index:5;
+      min-width:220px;
+      border:1px solid var(--border); border-radius:14px;
+      background:var(--card-surface, var(--surface)); color:var(--text);
+      box-shadow:0 18px 40px rgba(0,0,0,.28);
+      padding:10px;
+    }
+    .popover header{ font-weight:800; margin:4px 2px 8px; color:var(--muted); }
+    .opt{
+      display:flex; align-items:center; gap:10px;
+      padding:8px 10px; border-radius:10px; cursor:pointer;
+    }
+    .opt:hover{ background:var(--surface-2, rgba(127,127,127,.08)); }
+    .opt input{ accent-color:var(--brand-green,#3B7E46); }
+
+    .count{ margin:6px 0 10px; color:var(--muted,#6f7772); font-weight:700; }
+
+    /* Cards */
+    .group{ margin:14px 0; }
+    .group h3{ margin:0 0 8px; color:var(--muted); font-weight:800; letter-spacing:.02em; }
+    .card{
+      border:1px solid var(--border);
+      border-radius:16px;
+      background:var(--surface);
+      color:var(--text);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      padding:14px 16px; display:flex; align-items:center; justify-content:space-between; gap:12px;
+      cursor:pointer;
+    }
+    .card:hover{ transform:translateY(-1px); box-shadow:0 12px 28px rgba(0,0,0,.12); }
+    .card-title{ font-weight:800; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+    .badge{
+      display:inline-flex; align-items:center; gap:6px;
+      padding:6px 10px; border-radius:999px; font-weight:800; font-size:12px;
+      border:1px solid var(--border); background:var(--surface);
+      color:var(--muted);
+    }
+    .badge.arch{ border-color:rgba(200,80,80,.35); color:rgba(200,80,80,.9); }
+
+    .btn-mini{
+      display:inline-flex; align-items:center; gap:6px;
+      padding:8px 12px; border-radius:12px; font-weight:800; border:1px solid var(--border);
+      background:var(--surface); color:var(--text); cursor:pointer; text-decoration:none;
+      white-space:nowrap;
+    }
+    .btn-mini.primary{ border-color:transparent; background:var(--brand-green,#3B7E46); color:#fff; }
+    .btn-mini[disabled]{ opacity:.55; pointer-events:none; }
+
+    /* Toast */
+    .toast{
+      position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom,0px) + 18px);
+      transform:translateX(-50%); background:var(--surface); color:var(--text);
+      border:1px solid var(--border); border-radius:12px; padding:10px 14px;
+      box-shadow:0 10px 24px rgba(0,0,0,.18); z-index:9999; font-weight:800;
+    }
+
+    /* Detail modal */
+    dialog.sheet{
+      width:min(740px, 92vw);
+      border:1px solid var(--border);
+      border-radius:16px;
+      padding:0;
+      background:var(--card-surface, var(--surface));
+      color:var(--text);
+      box-shadow:0 18px 40px rgba(0,0,0,.45);
+    }
+    .sheet::backdrop{ background:rgba(0,0,0,.55); }
+    .sheet header{
+      padding:14px 16px; border-bottom:1px solid var(--border);
+      display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;
+      background:var(--card-surface, var(--surface));
+      color:var(--text);
+    }
+    .sheet .body{
+      padding:14px 16px; max-height:70vh; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch;
+      background:var(--card-surface, var(--surface));
+    }
+    .kv{ display:grid; grid-template-columns:180px 1fr; gap:8px 12px; }
+    @media(max-width:700px){ .kv{ grid-template-columns:1fr } .kv div{ padding:2px 0 } }
+    .k{ font-weight:800; color:var(--brand-green,#3B7E46); }
+    .v{ color:var(--text); }
+
+    .qrbox{
+      margin-top:14px; padding:14px; border:1px solid var(--border); border-radius:12px;
+      display:grid; place-items:center; gap:10px; background:var(--surface);
+    }
+    .qrbox h4{ margin:0; font-size:16px; color:var(--text); }
+    .qrbox img{
+      display:block; width:min(220px, 70%); height:auto; image-rendering:crisp-edges; border-radius:8px;
+      border:1px solid var(--border); background:#fff;
+    }
+    .qrnote{ margin:0; color:var(--muted); font-size:13px; }
+
+    .sheet footer{
+      padding:12px 16px; border-top:1px solid var(--border);
+      display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap;
+      background:var(--card-surface, var(--surface)); color:var(--text);
+    }
+    .btn{
+      display:inline-flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:12px;
+      background:var(--surface); color:var(--text); padding:10px 14px; font-weight:800; cursor:pointer; text-decoration:none;
+    }
+    .btn[disabled], .btn.disabled{ opacity:.55; pointer-events:none; }
+    .btn-primary{ border-color:transparent; background:var(--brand-green,#3B7E46); color:#fff; }
+  </style>
+</head>
+<body>
+  <fv-shell>
+    <div class="page">
+      <h1 id="pageTitle" class="title">Equipment Lookup</h1>
+      <p id="subtitle" class="sub">Showing Active only. Search by make, model, serial, or year.</p>
+
+      <div class="bar">
+        <!-- Search -->
+        <div class="search">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M21 21l-4.2-4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/></svg>
+          <input id="q" type="search" placeholder="Search" autocomplete="off"/>
+        </div>
+
+        <!-- Compact filter button -->
+        <button id="filterBtn" class="icon-btn" aria-label="Filters" aria-haspopup="true" aria-expanded="false">
+          <!-- funnel icon -->
+          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 5h18l-7 8v5l-4 2v-7L3 5z" fill="currentColor"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Popover (hidden by default) -->
+      <div id="filterPop" class="popover" hidden>
+        <header>Status</header>
+        <label class="opt">
+          <input type="radio" name="statusMode" value="active" checked/>
+          <span>Active</span>
+        </label>
+        <label class="opt">
+          <input type="radio" name="statusMode" value="archived"/>
+          <span>Archived</span>
+        </label>
+        <label class="opt">
+          <input type="radio" name="statusMode" value="all"/>
+          <span>All</span>
+        </label>
+      </div>
+
+      <p id="count" class="count">0 entries</p>
+      <div id="list"></div>
+    </div>
+  </fv-shell>
+
+  <!-- Detail modal -->
+  <dialog id="detail" class="sheet" aria-modal="true">
+    <header>
+      <strong id="dTitle">Details</strong>
+      <button id="dClose" class="btn" type="button">Close</button>
+    </header>
+    <div class="body">
+      <div class="kv" id="dKV"></div>
+
+      <!-- QR preview -->
+      <div id="qrSection" class="qrbox" hidden>
+        <h4>Equipment QR</h4>
+        <img id="qrImg" alt="Equipment QR"/>
+        <p id="qrLbl" class="qrnote"></p>
+      </div>
+    </div>
+    <footer>
+      <button id="btnPrintQR" class="btn" type="button" disabled>Reprint QR</button>
+      <a id="openHub" class="btn btn-primary disabled" href="#" aria-disabled="true">Open Hub</a>
+      <button id="dClose2" class="btn" type="button">Close</button>
+    </footer>
+  </dialog>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore, collection, query, where, onSnapshot, doc, updateDoc
+    } from '/Farm-vista/js/firebase-init.js';
+
+    const $ = sel => document.querySelector(sel);
+    const list = $('#list');
+    const countEl = $('#count');
+    const qInput = $('#q');
+    const subtitle = $('#subtitle');
+    const pageTitleEl = $('#pageTitle');
+
+    // Read type from ?type= (default tractor)
+    const qs = new URLSearchParams(location.search);
+    const TYPE = (qs.get('type') || 'tractor').toLowerCase();
+
+    const TYPE_LABELS = {
+      tractor:     { sing:'Tractor',        plural:'Tractors' },
+      combine:     { sing:'Combine',        plural:'Combines' },
+      sprayer:     { sing:'Sprayer',        plural:'Sprayers' },
+      implement:   { sing:'Implement',      plural:'Implements' },
+      fertilizer:  { sing:'Fertilizer',     plural:'Fertilizer Equipment' },
+      truck:       { sing:'Truck',          plural:'Trucks' },
+      trailer:     { sing:'Trailer',        plural:'Trailers' },
+      construction:{ sing:'Construction',   plural:'Construction Equipment' },
+      starfire:    { sing:'StarFire',       plural:'StarFire Receivers' }
+    };
+
+    function getTypeMeta(type){
+      const meta = TYPE_LABELS[type] || {};
+      const proper = type ? type.charAt(0).toUpperCase()+type.slice(1) : 'Equipment';
+      return {
+        type,
+        sing: meta.sing   || proper,
+        plural: meta.plural || (proper.endsWith('s') ? proper : proper+'s')
+      };
+    }
+    const TYPE_META = getTypeMeta(TYPE);
+
+    // Set page title + H1 dynamically
+    document.title = `FarmVista • ${TYPE_META.plural}`;
+    if (pageTitleEl){
+      pageTitleEl.textContent = `${TYPE_META.sing} Lookup`;
+    }
+
+    // Filter popover elements
+    const filterBtn = $('#filterBtn');
+    const filterPop = $('#filterPop');
+
+    let DATA = [];
+    let unsub = null;
+    let mode = 'active'; // 'active' | 'archived' | 'all'
+
+    // Helpers
+    const last6 = v => String(v||'').slice(-6);
+    const safe = v => (v==null ? '' : String(v));
+
+    function normStatus(d){
+      const s = String((d && d.status != null ? d.status : '')||'').toLowerCase().trim();
+      if (s === 'archived' || s === 'inactive') return 'archived';
+      if (d && d.active === false) return 'archived';
+      return 'active';
+    }
+    const isArchived = d => normStatus(d) === 'archived';
+
+    const mmText = d => [safe(d.makeName), safe(d.modelName)].filter(Boolean).join(' ').trim();
+    const displayLine = d => {
+      const mm = mmText(d);
+      const ls = last6(d.serial);
+      const fallback = `(${TYPE_META.sing.toLowerCase()})`;
+      return mm ? (ls ? `${mm} — #${ls}` : mm) : (ls ? `#${ls}` : fallback);
+    };
+    const titleFor = d => {
+      const mm = mmText(d);
+      const ls = last6(d.serial);
+      const fallback = `(${TYPE_META.sing})`;
+      return mm ? (ls ? `${mm} (#${ls})` : mm) : (d.name || fallback);
+    };
+
+    // ID-only Hub URL builder (no token)
+    const hubUrl = (id) =>
+      `${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}`;
+
+    function attach(){
+      if (unsub) return;
+      const db = getFirestore();
+      const qref = query(collection(db,'equipment'), where('type','==', TYPE));
+      unsub = onSnapshot(qref, (snap)=>{
+        const out = [];
+        snap.forEach(docSnap=>{
+          const d = docSnap.data() || {};
+          out.push({ id: docSnap.id, ...d });
+        });
+        out.sort((a,b)=> displayLine(a).localeCompare(displayLine(b)));
+        DATA = out;
+        render();
+      }, (err)=> console.error(`${TYPE_META.plural} listener error:`, err));
+    }
+    function detach(){ if (unsub){ try{ unsub(); }catch{}; unsub = null; } }
+
+    function render(){
+      const q = (qInput.value || '').toLowerCase().trim();
+
+      // filter by status
+      const statusFiltered = DATA.filter(d=>{
+        if (mode === 'all') return true;
+        return mode === 'archived' ? isArchived(d) : !isArchived(d);
+      });
+
+      // filter by search blob
+      const rows = statusFiltered.filter(d=>{
+        if (!q) return true;
+        const blob = [
+          displayLine(d), d.makeName, d.modelName, d.serial, d.year, d.notes
+        ].map(x=>String(x||'').toLowerCase()).join(' ');
+        return blob.includes(q);
+      });
+
+      subtitle.textContent =
+        mode === 'all'
+          ? `Showing Active + Archived. Search by make, model, serial, or year.`
+        : mode === 'archived'
+          ? `Showing Archived only. Search by make, model, serial, or year.`
+          : `Showing Active only. Search by make, model, serial, or year.`;
+
+      countEl.textContent = `${rows.length}/${statusFiltered.length} entries (${mode})`;
+      list.innerHTML = '';
+
+      if(!rows.length){
+        const p = document.createElement('p');
+        p.className='sub'; p.textContent='No matches.';
+        list.appendChild(p);
+        return;
+      }
+
+      // Group A-Z by first letter of display line
+      const by = {};
+      rows.forEach(d=>{
+        const name = displayLine(d);
+        const k = (name || '?').charAt(0).toUpperCase();
+        (by[k] ||= []).push(d);
+      });
+
+      Object.keys(by).sort().forEach(letter=>{
+        const wrap = document.createElement('div'); wrap.className='group';
+        const h = document.createElement('h3'); h.textContent = letter; wrap.appendChild(h);
+        by[letter].forEach(d=>{
+          const card = document.createElement('div'); card.className='card'; card.setAttribute('role','button');
+
+          const left = document.createElement('div'); left.style.display='flex';
+          left.style.alignItems='center'; left.style.gap='10px'; left.style.minWidth='0';
+
+          const title = document.createElement('div'); title.className='card-title'; title.textContent = displayLine(d);
+          title.style.minWidth='0';
+
+          left.append(title);
+
+          const right = document.createElement('div'); right.style.display='flex'; right.style.gap='8px'; right.style.alignItems='center';
+
+          if (isArchived(d)) {
+            const badge = document.createElement('span');
+            badge.className='badge arch';
+            badge.textContent='Archived';
+            right.append(badge);
+          }
+
+          card.append(left, right);
+          card.addEventListener('click', ()=> openDetail(d));
+          wrap.appendChild(card);
+        });
+        list.appendChild(wrap);
+      });
+    }
+
+    // Detail modal
+    const dlg = document.getElementById('detail');
+    const dTitle = document.getElementById('dTitle');
+    const dKV = document.getElementById('dKV');
+    const btnHub = document.getElementById('openHub');
+
+    btnHub.addEventListener('click', (e)=>{
+      const href = btnHub.getAttribute('href') || '';
+      if (!href.includes('id=')){
+        e.preventDefault();
+      }
+    });
+
+    const btnPrintQR = document.getElementById('btnPrintQR');
+    const qrSection = document.getElementById('qrSection');
+    const qrImg = document.getElementById('qrImg');
+    const qrLbl = document.getElementById('qrLbl');
+
+    const close = ()=> { try{ dlg.close(); }catch{ dlg.removeAttribute('open'); } };
+    document.getElementById('dClose').addEventListener('click', close);
+    document.getElementById('dClose2').addEventListener('click', close);
+
+    const has = v => !(v===undefined || v===null || v==='');
+    function addRow(k, v){
+      if(!has(v)) return;
+      const K = document.createElement('div'); K.className='k'; K.textContent = k;
+      const V = document.createElement('div'); V.className='v'; V.textContent = String(v);
+      dKV.append(K,V);
+    }
+
+    function getQrUrl(d){
+      try{
+        if (!d || !d.qr) return '';
+        const img = d.qr.image;
+        if (!img) return '';
+        if (typeof img === 'string') return img;
+        if (typeof img.url === 'string') return img.url;
+        return '';
+      }catch{ return ''; }
+    }
+
+    function openDetail(d){
+      btnHub.classList.add('disabled');
+      btnHub.setAttribute('aria-disabled','true');
+      btnHub.setAttribute('href','#');
+
+      dTitle.textContent = titleFor(d);
+      dKV.innerHTML = '';
+      addRow('Type', TYPE_META.sing);
+      addRow('Make', d.makeName);
+      addRow('Model', d.modelName);
+      addRow('Year', d.year);
+      const ls = last6(d.serial); if(ls) addRow('Serial (last 6)', ls);
+
+      if (has(d.engineHours))     addRow('Engine Hours', d.engineHours);
+      if (has(d.separatorHours))  addRow('Separator Hours', d.separatorHours);
+      if (has(d.boomWidthFt))     addRow('Boom Width (ft)', d.boomWidthFt);
+      if (has(d.tankSizeGal))     addRow('Tank Size (gal)', d.tankSizeGal);
+      if (has(d.odometerMiles))   addRow('Odometer (miles)', d.odometerMiles);
+      if (has(d.licensePlate))    addRow('License Plate #', d.licensePlate);
+      if (has(d.unitNumber))      addRow('Unit #', d.unitNumber);
+      if (has(d.trailerType))     addRow('Trailer Type', d.trailerType);
+      if (has(d.gvwrLb))          addRow('GVWR (lb)', d.gvwrLb);
+      if (has(d.starfireSerial))  addRow('StarFire Serial #', d.starfireSerial);
+      if (has(d.activationLevel)) addRow('Activation Level', d.activationLevel);
+      if (has(d.firmwareVersion)) addRow('Firmware Version', d.firmwareVersion);
+
+      addRow('Notes', d.notes);
+
+      btnHub.href = hubUrl(d.id);
+      btnHub.classList.remove('disabled');
+      btnHub.removeAttribute('aria-disabled');
+
+      const url = getQrUrl(d);
+      const labelText = [safe(d.modelName)].filter(Boolean).join(' ') + (ls ? ` - #${ls}` : '');
+      if (url){
+        const bust = (url.includes('?') ? '&' : '?') + '_=' + Date.now();
+        qrImg.src = url + bust;
+        qrImg.alt = `QR for ${labelText || TYPE_META.sing}`;
+        qrLbl.textContent = labelText || TYPE_META.sing;
+        qrSection.hidden = false;
+        btnPrintQR.disabled = false;
+        btnPrintQR.onclick = ()=> printQR(url, labelText || TYPE_META.sing);
+      } else {
+        qrImg.removeAttribute('src');
+        qrLbl.textContent = 'No QR image saved for this equipment.';
+        qrSection.hidden = false;
+        btnPrintQR.disabled = true;
+        btnPrintQR.onclick = null;
+      }
+
+      try{ dlg.showModal(); }catch{ dlg.setAttribute('open',''); }
+    }
+
+    async function quickUnarchive(d){
+      const name = titleFor(d);
+      if (!confirm(`Unarchive “${name}”?`)) return;
+      try{
+        const db = getFirestore();
+        await updateDoc(doc(db,'equipment', d.id), { status:'active', active:true });
+        toast(`Unarchived: ${name}`);
+      }catch(err){
+        console.error('Unarchive failed', err);
+        toast('Unarchive failed. Check console.');
+      }
+    }
+
+    let toastT=null;
+    function toast(msg){
+      if (toastT) { clearTimeout(toastT); toastT=null; }
+      let t = document.querySelector('.toast');
+      if (!t){
+        t = document.createElement('div'); t.className='toast';
+        document.body.appendChild(t);
+      }
+      t.textContent = msg;
+      t.style.opacity='1';
+      toastT = setTimeout(()=>{ t.style.transition='opacity .25s'; t.style.opacity='0'; }, 1800);
+    }
+
+    /* Filter popover logic */
+    function openPop(){
+      if (!filterPop.hidden) return;
+      const r = filterBtn.getBoundingClientRect();
+      filterPop.style.top = `${r.bottom + window.scrollY + 8}px`;
+      const maxLeft = window.scrollX + document.documentElement.clientWidth - 12 - 220;
+      const desiredLeft = r.right + window.scrollX - 220;
+      filterPop.style.left = `${Math.max(12, Math.min(maxLeft, desiredLeft))}px`;
+      filterPop.hidden = false;
+      filterBtn.setAttribute('aria-expanded','true');
+    }
+    function closePop(){
+      if (filterPop.hidden) return;
+      filterPop.hidden = true;
+      filterBtn.setAttribute('aria-expanded','false');
+    }
+    filterBtn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      if (filterPop.hidden) openPop(); else closePop();
+    });
+    document.addEventListener('click', (e)=>{
+      if (!filterPop.hidden && !filterPop.contains(e.target) && e.target !== filterBtn) closePop();
+    });
+    window.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closePop(); });
+
+    // Close on scroll so it can’t ride up with content
+    window.addEventListener('scroll', () => {
+      if (!filterPop.hidden) closePop();
+    }, { passive: true });
+
+    filterPop.addEventListener('change', (e)=>{
+      if (e.target && e.target.name === 'statusMode') {
+        mode = e.target.value;
+        render();
+        closePop();
+      }
+    });
+
+    function syncRadios(){
+      const r = filterPop.querySelector(`input[name="statusMode"][value="${mode}"]`);
+      if (r) r.checked = true;
+    }
+
+    // UPDATED FOR 50mm x 25mm LABEL WITH 24mm QR LEFT, MODEL + LAST6 RIGHT
+    function printQR(url, labelText){
+      const w = window.open('', '_blank');
+      if (!w) return;
+
+      // Parse labelText into model + last6 (expects "Model - #123456")
+      let model = labelText || '';
+      let serial6 = '';
+      if (labelText) {
+        const m = labelText.match(/^(.*?)(?:\s*-\s*#(\w+))?$/);
+        if (m) {
+          model = (m[1] || '').trim();
+          serial6 = (m[2] || '').trim();
+        }
+      }
+
+      const html = `<!doctype html><html><head><meta charset="utf-8"/>
+<title>QR Label</title><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<style>
+  /* Physical label: 50mm x 25mm, no margins */
+  @page { size: 50mm 25mm; margin: 0; }
+  html, body {
+    margin:0; padding:0;
+    width:50mm; height:25mm;
+    background:#fff;
+  }
+  #wrap{
+    width:50mm; height:25mm;
+    margin:0;
+    display:flex;
+    align-items:center;
+    justify-content:flex-start;
+    padding-left:2mm;
+    padding-right:2mm;
+    box-sizing:border-box;
+    transform:translateZ(0);
+  }
+  #card{
+    width:100%; height:100%;
+    display:flex;
+    flex-direction:row;
+    align-items:center;
+    justify-content:flex-start;
+  }
+  #qri{
+    width:24mm;
+    height:24mm;
+    display:block;
+    image-rendering:pixelated;
+    background:#fff;
+    margin-right:3mm;
+  }
+  #text{
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    align-items:flex-start;
+    max-width:calc(50mm - 24mm - 7mm); /* label width - QR width - margins */
+    overflow:hidden;
+  }
+  #model{
+    font:700 4mm system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.1;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  #serial{
+    font:600 3.2mm system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.1;
+    margin-top:1mm;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  @media print {
+    html, body {
+      -webkit-print-color-adjust:exact;
+      print-color-adjust:exact;
+    }
+    *, *:before, *:after { box-shadow:none !important; }
+    #wrap, #card { break-inside:avoid; page-break-inside:avoid; }
+  }
+</style>
+</head><body>
+  <div id="wrap">
+    <div id="card">
+      <img id="qri" src="${url}" alt="QR"/>
+      <div id="text">
+        <div id="model">${model || ''}</div>
+        <div id="serial">${serial6 ? ('#' + serial6) : ''}</div>
+      </div>
+    </div>
+  </div>
+<script>
+  const img = document.getElementById('qri');
+  function doPrint(){ try{ window.focus(); window.print(); }catch(e){} }
+  if (img.complete) { setTimeout(doPrint, 0); }
+  else { img.addEventListener('load', ()=> setTimeout(doPrint, 0), {once:true}); }
+  window.addEventListener('afterprint', ()=> { try{ window.close(); }catch(e){} });
+  setTimeout(()=>{ try{ window.close(); }catch(e){} }, 4000);
+<\/script>
+</body></html>`;
+
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+    }
+
+    function resume(){ if (!unsub) attach(); }
+
+    (async()=>{
+      await ready;
+      attach();
+      syncRadios();
+      qInput.addEventListener('input', render);
+      window.addEventListener('pageshow', resume);
+      document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') resume(); });
+      window.addEventListener('focus', resume);
+      window.addEventListener('pagehide', ()=>{ detach(); });
+    })();
+  </script>
+</body>
+</html>
