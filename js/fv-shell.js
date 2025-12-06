@@ -13,6 +13,11 @@
   const AUTH_MAX_MS = 5000;
   const MENU_MAX_MS = 3000;
 
+  // Figure out whether we're in beta (/Farm-vista/beta/...) or live (/Farm-vista/...)
+  const FV_ROOT = location.pathname.startsWith('/Farm-vista/beta/')
+    ? '/Farm-vista/beta'
+    : '/Farm-vista';
+
   const tpl = document.createElement('template');
   tpl.innerHTML = `
   <style>
@@ -476,8 +481,8 @@
       this._cameraReceiptBtn = r.querySelector('.js-camera-receipt');
       this._cameraCloseBtn   = r.querySelector('.js-camera-close');
 
-      // Beta detection: only show badge on Farm-vista-beta origin
-      const isBeta = location.pathname.startsWith('/Farm-vista-beta/');
+      // Beta detection: show badge only when running under /Farm-vista/beta/...
+      const isBeta = (FV_ROOT === '/Farm-vista/beta');
       if (isBeta && this._betaBadge) {
         this._betaBadge.hidden = false;
       }
@@ -871,7 +876,14 @@
 
       const mkLink = (item, depth=0) => {
         const a = document.createElement('a');
-        a.href = item.href || '#';
+
+        // Normalize href: if it starts with /Farm-vista/, remap it to FV_ROOT
+        let href = item.href || '#';
+        if (href.startsWith('/Farm-vista/')) {
+          href = FV_ROOT + href.substring('/Farm-vista'.length);
+        }
+        a.href = href;
+
         a.innerHTML = `<span>${item.icon||''}</span> ${item.label}`;
         a.style.paddingLeft = pad(depth);
         const mode = item.activeMatch || 'starts-with';
