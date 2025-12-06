@@ -383,7 +383,6 @@
     async function loadCompanyHeader(){
       if(STATE.company) return STATE.company;
       try{
-        // For now fall back to defaults; you can wire actual company doc later
         STATE.company = {
           name: 'Dowson Farms',
           address: 'Divernon, IL',
@@ -1020,7 +1019,8 @@
       doc.write(html);
       doc.close();
 
-      setTimeout(() => {
+      // 🔄 NEW: wait for all images in the iframe to finish loading before printing
+      const tryPrint = () => {
         try{
           win.focus();
           win.print();
@@ -1028,7 +1028,34 @@
           console.warn('[expenses-report] iframe print failed, falling back to window.print()', err);
           window.print();
         }
-      }, 400);
+      };
+
+      const imgs = Array.from(doc.images || []);
+      if(!imgs.length){
+        // No images – quick print
+        setTimeout(tryPrint, 200);
+      }else{
+        let loaded = 0;
+        const markDone = () => {
+          loaded++;
+          if(loaded >= imgs.length){
+            // slight delay so layout can settle
+            setTimeout(tryPrint, 150);
+          }
+        };
+
+        imgs.forEach(img => {
+          if(img.complete){
+            markDone();
+          }else{
+            img.addEventListener('load', markDone, { once:true });
+            img.addEventListener('error', markDone, { once:true });
+          }
+        });
+
+        // Fallback: if something hangs, still print after 5s
+        setTimeout(tryPrint, 5000);
+      }
     }
 
     /* ======================
@@ -1060,8 +1087,7 @@
       if(modal){
         modal.classList.remove('is-open');
       }
-      // NOTE: we do NOT clear STATE.selectedYear/Month here anymore
-      // so they stay valid when we go to print.
+      // keep STATE.selectedYear/Month so printMonth can use them
     }
 
     /* ======================
@@ -1107,14 +1133,12 @@
         const monthNum = parseInt(monthStr,10);
         if(!yearNum || !monthNum) return;
 
-        // Instead of printing directly, open the chooser modal
         openReportModal(yearNum, monthNum);
       }
 
       function handleModalClick(evt){
         const target = evt.target;
 
-        // Close if backdrop click (but not when clicking inside the card)
         if(target.hasAttribute('data-report-modal')){
           closeReportModal();
           return;
@@ -1122,7 +1146,6 @@
 
         const typeBtn = target.closest('[data-report-type]');
         if(typeBtn){
-          // Grab current selection BEFORE closing modal
           const yearNum = STATE.selectedYear;
           const monthNum = STATE.selectedMonth;
 
