@@ -1,5 +1,12 @@
-/* FarmVista SW — robust 404-friendly fetch (PROJECT scope) */
-const SCOPE_PREFIX = "/Farm-vista/";
+/* FarmVista SW — robust 404-friendly fetch (auto scope) */
+
+/* ---- Auto-detect SCOPE_PREFIX from where this SW is served ---- */
+/* Example:
+     /Farm-vista/serviceworker.js      → /Farm-vista/
+     /Farm-vista-beta/serviceworker.js → /Farm-vista-beta/
+*/
+const SCOPE_PREFIX = self.location.pathname.replace(/serviceworker\.js$/, "");
+
 
 /* ---- Versioning ---- */
 async function readVersionNumber() {
@@ -40,6 +47,7 @@ async function fetchAndPut(cache, url){
   } catch {}
 }
 
+
 /* ---- Install / Activate ---- */
 self.addEventListener("install", (e)=>{
   e.waitUntil((async()=>{
@@ -59,6 +67,7 @@ self.addEventListener("activate", (e)=>{
     await self.clients.claim(); // control all open tabs
   })());
 });
+
 
 /* ---- Fetch rules ---- */
 self.addEventListener("fetch", (e)=>{
@@ -86,6 +95,7 @@ self.addEventListener("fetch", (e)=>{
   }
 });
 
+
 /* ---- Strategies ---- */
 async function networkFirstAllow404(request){
   const { CACHE_STATIC } = await makeNames();
@@ -101,6 +111,7 @@ async function networkFirstAllow404(request){
   } catch {
     const cached = await cache.match(request); if (cached) return cached;
   }
+
   // Offline fallback to dashboard shell if available
   const fallback = await caches.match(`${SCOPE_PREFIX}dashboard/index.html`);
   return fallback || new Response("Offline", { status: 503, headers:{ "Content-Type":"text/plain" }});
@@ -127,6 +138,7 @@ async function staleWhileRevalidateAllow404(request){
   const stat = await (await caches.open(CACHE_STATIC)).match(request);
   return stat || new Response("Offline", { status: 503, headers:{ "Content-Type":"text/plain" }});
 }
+
 
 /* ---- Messages (optional helpers) ---- */
 self.addEventListener('message', async (e)=>{
