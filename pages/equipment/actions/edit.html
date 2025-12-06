@@ -1,0 +1,918 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Edit Tractors</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- ABSOLUTE PATHS -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <script defer src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Ensure fv-shell -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <!-- Firebase CONFIG FIRST -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+
+  <style>
+    :root{
+      --card-max:1100px;
+      --page-bottom-gap:96px;
+      --brand: var(--green,#3B7E46);
+      --ctl-h:48px; --ctl-pad-x:12px; --ctl-pad-y:12px; --ctl-radius:10px;
+    }
+    html,body{ max-width:100vw; overflow-x:hidden; }
+    body{ background:var(--app-bg, var(--bg)); color:var(--text); scrollbar-gutter:stable; }
+
+    .page{
+      max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
+    }
+    .title{ margin:0 0 4px; font-size:clamp(22px,3.6vw,32px); line-height:1.1; }
+    .sub{ margin:0 0 18px; color:var(--muted,#6f7772); }
+
+    .bar{ display:flex; gap:10px; align-items:center; }
+    .search{
+      display:flex; align-items:center; gap:10px; border:1px solid var(--border);
+      border-radius:12px; background:var(--surface); padding:10px 12px; flex:1 1 auto;
+    }
+    .search input{ flex:1; background:transparent; border:0; outline:none; font:inherit; color:var(--text); }
+
+    .icon-btn{
+      display:inline-flex; align-items:center; justify-content:center;
+      width:42px; height:42px;
+      border:1px solid var(--border); border-radius:12px;
+      background:var(--surface); color:var(--text);
+      cursor:pointer;
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.06));
+    }
+    .icon-btn:active{ transform:translateY(1px); }
+    .icon-btn svg{ display:block }
+
+    .popover{
+      position:absolute; z-index:1000; min-width:220px;
+      border:1px solid var(--border); border-radius:14px;
+      background:var(--card-surface, var(--surface)); color:var(--text);
+      box-shadow:0 18px 40px rgba(0,0,0,.28);
+      padding:10px;
+    }
+    .popover header{ font-weight:800; margin:4px 2px 8px; color:var(--muted); }
+    .opt{ display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:10px; cursor:pointer; }
+    .opt:hover{ background:var(--surface-2, rgba(127,127,127,.08)); }
+    .opt input{ accent-color:var(--brand-green,#3B7E46); }
+
+    .count{ margin:10px 0; color:var(--muted,#6f7772); font-weight:700; }
+    .group{ margin:14px 0; }
+    .group h3{ margin:0 0 8px; color:var(--muted); font-weight:800; letter-spacing:.02em; }
+    .card{
+      border:1px solid var(--border); border-radius:16px; background:var(--surface);
+      color:var(--text); box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      padding:14px 16px; display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer;
+    }
+    .card:hover{ transform:translateY(-1px); box-shadow:0 12px 28px rgba(0,0,0,.12); }
+    .card-title{ font-weight:800; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .badge{ font-size:12px; padding:4px 8px; border:1px solid var(--border); border-radius:999px; color:var(--muted); }
+
+    dialog.sheet{
+      width:min(760px, 92vw); border:1px solid var(--border); border-radius:14px;
+      padding:0; background:var(--card-surface,var(--surface)); color:var(--text);
+      box-shadow:0 18px 40px rgba(0,0,0,.45);
+    }
+    .sheet::backdrop{ background:rgba(0,0,0,.55); }
+    .sheet header{
+      padding:14px 16px; border-bottom:1px solid var(--border);
+      display:flex; justify-content:space-between; align-items:center; gap:10px;
+    }
+    .sheet .body{
+      padding:14px 16px; max-height:70vh;
+      overflow-y:auto; overflow-x:hidden;
+      -webkit-overflow-scrolling:touch;
+      touch-action: pan-y; overscroll-behavior: contain;
+    }
+    .sheet footer{
+      padding:12px 16px; border-top:1px solid var(--border);
+      display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap;
+    }
+
+    .kv{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    @media(max-width:700px){ .kv{ grid-template-columns:1fr } }
+    label{ display:block; font-size:13px; color:var(--muted); margin:0 0 6px; }
+
+    .input,.textarea{
+      width:100%; font:inherit; color:inherit; background:var(--card-surface,var(--surface));
+      border:1px solid var(--border); border-radius:var(--ctl-radius);
+      padding:var(--ctl-pad-y) var(--ctl-pad-x); height:var(--ctl-h); line-height:calc(var(--ctl-h) - 2px);
+    }
+    .textarea{ min-height:110px; height:auto; line-height:1.35; resize:vertical; }
+    .tip{ font-size:12px; color:var(--muted); margin-top:6px; }
+
+    /* File input styling (keeps text readable if/when file inputs are added here) */
+    input[type="file"].input{
+      height:auto;
+      line-height:normal;
+      padding:8px 12px;
+      color:var(--text) !important;
+      -webkit-text-fill-color:var(--text) !important; /* iOS Safari */
+    }
+    input[type="file"].input::-webkit-file-upload-button{
+      color:#111111 !important;
+      -webkit-text-fill-color:#111111 !important;
+      background-color:#ffffff;
+    }
+
+    .btn{ display:inline-flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:12px;
+      background:var(--surface); color:var(--text)!important; padding:10px 14px; font-weight:800; cursor:pointer; text-decoration:none; }
+    .btn[disabled]{ opacity:.55; pointer-events:none; }
+    .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
+    .btn-warn{ background:var(--brand-gold,#D0C542); color:#2b2b2b; border-color:var(--brand-gold,#D0C542); }
+    .btn-danger{ background:#B3261E; color:#fff; border-color:#B3261E; }
+
+    .dd{position:relative}
+    .dd-btn{
+      width:100%; text-align:left; padding:12px; padding-right:40px; height:var(--ctl-h);
+      border:1px solid var(--border); border-radius:10px; background:var(--card-surface,var(--surface));
+      font:inherit; color:var(--text)!important; display:flex; align-items:center; appearance:none; -webkit-appearance:none;
+      -webkit-text-fill-color: var(--text) !important;
+    }
+    .dd-btn::after{
+      content:""; position:absolute; right:12px; top:50%; transform:translateY(-50%);
+      width:18px; height:18px; pointer-events:none; opacity:.7;
+      background:no-repeat center/18px 18px url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%2367706B' d='M7.41 8.58L12 13.17l4.59-4.59L18 10l-6 6-6-6z'/></svg>");
+    }
+    .dd-list{position:absolute;z-index:40;top:calc(100% + 4px);left:0;right:0;max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface);box-shadow:0 4px 12px rgba(0,0,0,.1);display:none}
+    .dd.open .dd-list{display:block}
+    .dd-list input{width:100%;box-sizing:border-box;padding:10px 12px;border:none;border-bottom:1px solid var(--border);font:inherit;outline:none;background:var(--surface)}
+    .dd-list ul{list-style:none;margin:0;padding:0;max-height:220px;overflow-y:auto}
+    .dd-list li{padding:10px 12px;cursor:pointer}
+    .dd-list li:hover{background:#f0f1f0}
+    .dd-btn[disabled]{opacity:.6;cursor:not-allowed}
+
+    .combo{ position:relative; }
+    .combo-trigger{ width:100%; text-align:left; }
+    .combo-trigger.select{
+      position:relative; display:flex; align-items:center; height:var(--ctl-h);
+      border:1px solid var(--border); border-radius:10px; background:var(--card-surface,var(--surface));
+      padding:var(--ctl-pad-y) var(--ctl-pad-x); color:var(--text)!important; appearance:none; -webkit-appearance:none; -webkit-text-fill-color:var(--text)!important;
+    }
+    .combo-trigger.select::after{
+      content:""; position:absolute; right:12px; top:50%; width:8px; height:8px; transform:translateY(-50%) rotate(45deg);
+      border-right:2px solid currentColor; border-bottom:2px solid currentColor; opacity:.75; pointer-events:none;
+    }
+    .combo-panel{
+      position:absolute; left:0; right:0; z-index:1000; margin-top:6px; padding:6px;
+      background:var(--surface); border:1px solid var(--border); border-radius:12px;
+      box-shadow:0 12px 26px rgba(0,0,0,.18);
+      --row-h: 36px; max-height: calc(var(--row-h) * 5 + 12px); overflow:auto;
+    }
+    .combo-item{
+      display:block; width:100%; text-align:left; font:inherit; color:var(--text);
+      background:transparent; border:none; border-radius:10px; padding:10px 12px; height:var(--row-h); cursor:pointer;
+    }
+    .combo-item:hover, .combo-item:focus{ background:var(--hover, rgba(0,0,0,.06)); outline:none; }
+    .combo-hidden{ display:none !important; }
+  </style>
+</head>
+<body>
+  <fv-shell>
+    <div class="page">
+      <h1 class="title">Edit Tractors</h1>
+      <p id="subline" class="sub">Showing Active only. Search by make, model, serial, or year.</p>
+
+      <!-- SEARCH + FILTER -->
+      <div class="bar">
+        <div class="search">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M21 21l-4.2-4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/></svg>
+          <input id="q" type="search" placeholder="Search" autocomplete="off"/>
+        </div>
+
+        <button id="filterBtn" class="icon-btn" aria-label="Filters" aria-haspopup="true" aria-expanded="false">
+          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 5h18l-7 8v5l-4 2v-7L3 5z" fill="currentColor"/>
+          </svg>
+        </button>
+      </div>
+
+      <div id="filterPop" class="popover" hidden>
+        <header>Status</header>
+        <label class="opt"><input type="radio" name="statusMode" value="active" checked/><span>Active</span></label>
+        <label class="opt"><input type="radio" name="statusMode" value="archived"/><span>Archived</span></label>
+        <label class="opt"><input type="radio" name="statusMode" value="all"/><span>All</span></label>
+      </div>
+
+      <p id="count" class="count">0 entries</p>
+      <div id="list"></div>
+    </div>
+  </fv-shell>
+
+  <!-- EDIT MODAL -->
+  <dialog id="edit" class="sheet" aria-modal="true">
+    <header>
+      <strong id="eTitle">Edit Equipment</strong>
+      <div style="display:flex; gap:8px; align-items:center">
+        <button id="eClose" class="btn" type="button">Close</button>
+      </div>
+    </header>
+
+    <div class="body">
+      <div class="kv">
+        <div>
+          <label>Make</label>
+          <input type="hidden" id="mkId"/>
+          <div id="ddMake" class="dd">
+            <button type="button" id="ddMakeBtn" class="dd-btn">— Loading… —</button>
+            <div class="dd-list">
+              <input type="text" id="ddMakeSearch" placeholder="Search make…">
+              <ul id="ddMakeList"></ul>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label>Model</label>
+          <input type="hidden" id="mdId"/>
+          <div id="ddModel" class="dd">
+            <button type="button" id="ddModelBtn" class="dd-btn" disabled>— Select a Make first —</button>
+            <div class="dd-list">
+              <input type="text" id="ddModelSearch" placeholder="Search model…" disabled>
+              <ul id="ddModelList"></ul>
+            </div>
+          </div>
+          <div class="tip">Models filter by the selected make.</div>
+        </div>
+
+        <div>
+          <label for="yr">Year</label>
+          <div class="combo" id="yearCombo">
+            <button type="button" id="yearTrigger" class="select combo-trigger" aria-haspopup="listbox" aria-expanded="false">— Select —</button>
+            <div id="yearPanel" class="combo-panel combo-hidden" role="listbox" aria-label="Year"></div>
+            <select id="yr" aria-hidden="true" style="display:none"></select>
+          </div>
+        </div>
+
+        <div>
+          <label for="sn">Serial (full)</label>
+          <input id="sn" class="input" placeholder="Full serial"/>
+          <div class="tip">Last 6 auto: <strong id="sn6">—</strong></div>
+        </div>
+
+        <div>
+          <label for="st">Status</label>
+          <select id="st" class="input" style="height:var(--ctl-h)">
+            <option value="Active">Active</option>
+            <option value="Archived">Archived</option>
+            <option value="Out of Service">Out of Service</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="hrs">Engine Hours</label>
+          <input id="hrs" type="number" inputmode="numeric" min="0" step="1" class="input" placeholder="0"/>
+        </div>
+
+        <div style="grid-column:1/-1">
+          <label for="notes">Notes</label>
+          <textarea id="notes" class="textarea" placeholder="Append a quick note… (replaces text notes field)"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <button id="archiveBtn" class="btn btn-warn" type="button">Archive</button>
+      <button id="deleteBtn" class="btn btn-danger" type="button">Delete</button>
+      <button id="saveBtn" class="btn btn-primary" type="button">Save Changes</button>
+    </footer>
+  </dialog>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore, collection, doc, getDoc, getDocs, query, where, orderBy, onSnapshot,
+      setDoc, updateDoc, serverTimestamp, limit
+    } from '/Farm-vista/js/firebase-init.js';
+
+    const $ = s => document.querySelector(s);
+
+    /*
+    ===================================================================
+    TYPE RESOLUTION — handle singular + plural for all 9 categories
+    ===================================================================
+    */
+    const qs = new URLSearchParams(location.search);
+    const RAW_TYPE = (qs.get('type') || 'tractors').toLowerCase();
+
+    // Map any incoming type to a canonical key used in TYPE_MAP
+    const TYPE_NORMALIZE = {
+      // Tractors
+      tractor: 'tractors',
+      tractors: 'tractors',
+
+      // Combines
+      combine: 'combines',
+      combines: 'combines',
+
+      // Implements
+      implement: 'implements',
+      implements: 'implements',
+
+      // Sprayers
+      sprayer: 'sprayers',
+      sprayers: 'sprayers',
+
+      // Fertilizer equipment
+      fertilizer: 'fertilizer',
+      'fertilizer-equipment': 'fertilizer',
+      'fertilizer equipment': 'fertilizer',
+
+      // Construction
+      construction: 'construction',
+
+      // Trucks
+      truck: 'trucks',
+      trucks: 'trucks',
+
+      // Trailers
+      trailer: 'trailers',
+      trailers: 'trailers',
+
+      // StarFire / Technology
+      starfire: 'starfire',
+      'starfire-technology': 'starfire',
+      'starfire / technology': 'starfire',
+      technology: 'starfire'
+    };
+
+    const TYPE_KEY = TYPE_NORMALIZE[RAW_TYPE] || RAW_TYPE;
+
+    // Canonical noun mapping (keys are the canonical TYPE_KEY values)
+    const TYPE_MAP = {
+      tractors:      { singular:'tractor',      plural:'Tractors' },
+      combines:      { singular:'combine',      plural:'Combines' },
+      implements:    { singular:'implement',    plural:'Implements' },
+      sprayers:      { singular:'sprayer',      plural:'Sprayers' },
+      fertilizer:    { singular:'fertilizer',   plural:'Fertilizer Equipment' },
+      construction:  { singular:'construction', plural:'Construction' },
+      trucks:        { singular:'truck',        plural:'Trucks' },
+      trailers:      { singular:'trailer',      plural:'Trailers' },
+      starfire:      { singular:'starfire',     plural:'StarFire / Technology' }
+    };
+
+    const TYPE_INFO     = TYPE_MAP[TYPE_KEY] || TYPE_MAP['tractors'];
+    const TYPE_SINGULAR = TYPE_INFO.singular;                // tractor, combine, sprayer, etc.
+    const TITLE_PLURAL  = TYPE_INFO.plural;                  // Tractors, Combines, Fertilizer Equipment, etc.
+    const TYPE_LABEL    = TYPE_INFO.plural.replace(/s$/,''); // Tractor, Combine, Implement, etc.
+    const MODAL_TITLE   = `Edit ${TYPE_LABEL}`;              // Edit Tractor, Edit Combine, etc.
+
+    /*
+    ===================================================================
+    FILTER SYSTEM
+    ===================================================================
+    */
+    const subEl = $('#subline');
+    const filterBtn = $('#filterBtn');
+    const filterPop = $('#filterPop');
+    let mode = 'active';
+
+    function openPop(){
+      if (!filterPop.hidden) return;
+      const r = filterBtn.getBoundingClientRect();
+      filterPop.style.top = `${r.bottom + window.scrollY + 8}px`;
+      const maxLeft = window.scrollX + document.documentElement.clientWidth - 12 - 220;
+      const desiredLeft = r.right + window.scrollX - 220;
+      filterPop.style.left = `${Math.max(12, Math.min(maxLeft, desiredLeft))}px`;
+      filterPop.hidden = false;
+      filterBtn.setAttribute('aria-expanded','true');
+    }
+    function closePop(){
+      if (!filterPop.hidden){
+        filterPop.hidden = true;
+        filterBtn.setAttribute('aria-expanded','false');
+      }
+    }
+    filterBtn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      filterPop.hidden ? openPop() : closePop();
+    });
+    document.addEventListener('click', (e)=>{
+      if (!filterPop.hidden && !filterPop.contains(e.target) && e.target !== filterBtn) closePop();
+    });
+    window.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closePop(); });
+    filterPop.addEventListener('change', (e)=>{
+      if (e.target && e.target.name === 'statusMode') {
+        mode = e.target.value;
+        render();
+        closePop();
+      }
+    });
+    function syncRadios(){
+      const r = filterPop.querySelector(`input[name="statusMode"][value="${mode}"]`);
+      if (r) r.checked = true;
+    }
+
+    /*
+    ===================================================================
+    LIST, SNAPSHOTS, RENDERING
+    ===================================================================
+    */
+    const list = $('#list'), countEl = $('#count'), qInput = $('#q');
+    let DATA = [], unsub=null;
+
+    const last6 = v => String(v||'').slice(-6);
+    const safe = v => (v==null ? '' : String(v));
+
+    function normStatus(d){
+      const s = String((d && d.status != null ? d.status : '')||'').toLowerCase().trim();
+      if (s === 'archived' || s === 'inactive') return 'archived';
+      if (d && d.active === false) return 'archived';
+      return 'active';
+    }
+    const isArchived = d => normStatus(d) === 'archived';
+    const mmText = d => [safe(d.makeName), safe(d.modelName)].filter(Boolean).join(' ').trim();
+    const displayLine = d => {
+      const mm = mmText(d), ls = last6(d.serial);
+      return mm ? (ls ? `${mm} — #${ls}` : mm) : (ls ? `#${ls}` : `(${TYPE_SINGULAR})`);
+    };
+    const titleFor = d => {
+      const mm = mmText(d), ls = last6(d.serial);
+      return mm ? (ls ? `${mm} (#${ls})` : mm) : (d.name || `(${TYPE_SINGULAR})`);
+    };
+
+    function looksLikeType(d){
+      const v = String(d?.type ?? '').toLowerCase();
+      return v === TYPE_SINGULAR || v === TYPE_SINGULAR + 's';
+    }
+
+    function attach(){
+      if (unsub) return;
+      const db = getFirestore();
+
+      try{
+        const qEq = query(collection(db,'equipment'), where('type','==', TYPE_SINGULAR));
+        unsub = onSnapshot(qEq, snapHandler, errHandler);
+      }catch{
+        try{
+          const qIn = query(collection(db,'equipment'), where('type','in', [TYPE_SINGULAR, TYPE_SINGULAR+'s']));
+          unsub = onSnapshot(qIn, snapHandler, errHandler);
+        }catch{
+          unsub = onSnapshot(collection(db,'equipment'), (snap)=>{
+            const out=[]; snap.forEach(s=>{
+              const d=s.data()||{};
+              if (looksLikeType(d)) out.push({ id:s.id, ...d });
+            });
+            finishRows(out);
+          }, errHandler);
+        }
+      }
+    }
+
+    function snapHandler(snap){
+      const out=[]; snap.forEach(s=>{ const d=s.data()||{}; out.push({ id:s.id, ...d }); });
+      finishRows(out);
+    }
+    function errHandler(err){
+      console.error('equip attach error', err);
+      alert(`Error loading ${TITLE_PLURAL.toLowerCase()}.`);
+    }
+    function finishRows(rows){
+      rows.sort((a,b)=>displayLine(a).localeCompare(displayLine(b)));
+      DATA = rows; render();
+    }
+    function detach(){
+      if (unsub){
+        try{unsub();}catch{}
+        unsub=null;
+      }
+    }
+
+    function render(){
+      const q=(qInput.value||'').toLowerCase().trim();
+
+      subEl.textContent =
+        mode === 'all' ? 'Showing Active + Archived. Search by make, model, serial, or year.'
+        : mode === 'archived' ? 'Showing Archived only. Search by make, model, serial, or year.'
+        : 'Showing Active only. Search by make, model, serial, or year.';
+
+      const filtered = DATA.filter(d=> mode==='all' ? true : (mode==='archived' ? isArchived(d) : !isArchived(d)));
+
+      const rows = filtered.filter(d=>{
+        if (!q) return true;
+        const blob=[displayLine(d), d.makeName, d.modelName, d.serial, d.year, d.notes, d.status]
+          .map(x=>String(x||'').toLowerCase()).join(' ');
+        return blob.includes(q);
+      });
+
+      countEl.textContent = `${rows.length} entries`;
+      list.innerHTML='';
+      if(!rows.length){
+        const p=document.createElement('p');
+        p.className='sub';
+        p.textContent='No matches.';
+        list.appendChild(p);
+        return;
+      }
+
+      const by={};
+      rows.forEach(d=>{
+        const k=(displayLine(d)||'?').charAt(0).toUpperCase();
+        by[k] = by[k] || [];
+        by[k].push(d);
+      });
+
+      Object.keys(by).sort().forEach(letter=>{
+        const wrap=document.createElement('div'); wrap.className='group';
+        const h=document.createElement('h3'); h.textContent=letter; wrap.appendChild(h);
+
+        by[letter].forEach(d=>{
+          const card=document.createElement('div'); card.className='card'; card.setAttribute('role','button');
+          const ttl=document.createElement('div'); ttl.className='card-title'; ttl.textContent=displayLine(d);
+
+          let badge=null;
+          if (isArchived(d)){
+            badge=document.createElement('span');
+            badge.className='badge';
+            badge.textContent='Archived';
+          }
+
+          card.appendChild(ttl);
+          if (badge) card.appendChild(badge);
+
+          card.addEventListener('click',()=>openEditor(d.id));
+          wrap.appendChild(card);
+        });
+
+        list.appendChild(wrap);
+      });
+    }
+    qInput.addEventListener('input', render);
+
+    /*
+    ===================================================================
+    MODAL + FORM LOGIC
+    ===================================================================
+    */
+    const dlg = $('#edit'), eTitle=$('#eTitle'), eClose=$('#eClose');
+    const f = {
+      mkId: $('#mkId'), mdId: $('#mdId'), yr: $('#yr'),
+      sn: $('#sn'), sn6: $('#sn6'),
+      st: $('#st'), hrs: $('#hrs'), notes: $('#notes')
+    };
+    const saveBtn=$('#saveBtn'), archiveBtn=$('#archiveBtn'), deleteBtn=$('#deleteBtn');
+
+    function openModal(){ try{ dlg.showModal(); }catch{ dlg.setAttribute('open',''); } }
+    function closeModal(){ try{ dlg.close(); }catch{ dlg.removeAttribute('open'); } }
+    eClose.addEventListener('click', closeModal);
+
+    function wireDropdownOpenClose(root){
+      const btn = root.querySelector(".dd-btn");
+      btn.addEventListener("click",()=>{
+        document.querySelectorAll(".dd").forEach(d=>{ if(d!==root) d.classList.remove("open"); });
+        if(btn.disabled) return;
+        root.classList.toggle("open");
+        const inp = root.querySelector(".dd-list input");
+        if(root.classList.contains("open") && inp){ setTimeout(()=>inp.focus(), 60); }
+      });
+    }
+    document.addEventListener("click",(e)=>{
+      if(!e.target.closest(".dd")){
+        document.querySelectorAll(".dd").forEach(d=>d.classList.remove("open"));
+      }
+    });
+    function setupSearch(inputEl, listEl){
+      inputEl.addEventListener("input", ()=>{
+        const term=inputEl.value.toLowerCase();
+        listEl.querySelectorAll("li").forEach(li=>{
+          li.style.display = li.textContent.toLowerCase().includes(term) ? "" : "none";
+        });
+      });
+    }
+    function buildList(listEl, items, onPick){
+      listEl.innerHTML="";
+      items.forEach(([val,label])=>{
+        const li=document.createElement("li");
+        li.textContent=label; li.dataset.value=val;
+        li.onclick=()=>onPick(val,label);
+        listEl.appendChild(li);
+      });
+    }
+
+    function buildYearOptions(){
+      const sel=f.yr; const now=new Date().getFullYear();
+      sel.innerHTML='<option value="">— Select —</option>';
+      for(let y=now+1; y>=now-40; y--){
+        const o=document.createElement('option');
+        o.value=String(y); o.textContent=String(y);
+        sel.appendChild(o);
+      }
+      const panel=$("#yearPanel"), trigger=$("#yearTrigger");
+      panel.innerHTML="";
+      [...sel.options].forEach(opt=>{
+        const btn=document.createElement('button');
+        btn.type='button'; btn.className='combo-item'; btn.role='option';
+        btn.dataset.val=opt.value; btn.textContent=opt.textContent;
+        btn.addEventListener('click', ()=>{
+          sel.value = opt.value;
+          trigger.textContent = opt.value ? opt.textContent : "— Select —";
+          closeYearPanel();
+        });
+        panel.appendChild(btn);
+      });
+    }
+    function openYearPanel(){
+      $("#yearPanel").classList.remove('combo-hidden');
+      $("#yearTrigger").setAttribute('aria-expanded','true');
+      document.addEventListener('click', onDocClickClose, { once:true });
+      document.addEventListener('keydown', onEscClose);
+    }
+    function closeYearPanel(){
+      $("#yearPanel").classList.add('combo-hidden');
+      $("#yearTrigger").setAttribute('aria-expanded','false');
+      document.removeEventListener('keydown', onEscClose);
+    }
+    function onDocClickClose(e){
+      if(!$("#yearCombo").contains(e.target)) closeYearPanel();
+      else document.addEventListener('click', onDocClickClose, { once:true });
+    }
+    function onEscClose(e){ if(e.key==='Escape') closeYearPanel(); }
+    $("#yearTrigger").addEventListener('click', ()=>{
+      const open = $("#yearTrigger").getAttribute('aria-expanded') === 'true';
+      if(open) closeYearPanel(); else openYearPanel();
+    });
+
+    let MAKES=[], MODELS=[];
+    const ddMake = { root: $("#ddMake"), btn: $("#ddMakeBtn"), search: $("#ddMakeSearch"), list: $("#ddMakeList") };
+    const ddModel= { root: $("#ddModel"), btn: $("#ddModelBtn"), search: $("#ddModelSearch"), list: $("#ddModelList") };
+    wireDropdownOpenClose(ddMake.root); wireDropdownOpenClose(ddModel.root);
+    setupSearch(ddMake.search, ddMake.list); setupSearch(ddModel.search, ddModel.list);
+
+    async function loadMakes(){
+      const db = getFirestore();
+      try{
+        const qs = await getDocs(query(collection(db,'equipment-makes'), orderBy('name')));
+        MAKES=[];
+        qs.forEach(s=>{
+          const d=s.data()||{};
+          if(d.archived) return;
+          MAKES.push({id:s.id, name:d.name||d.make||''});
+        });
+      }catch(e){ console.error('loadMakes',e); MAKES=[]; }
+    }
+    async function loadModels(){
+      const db = getFirestore();
+      try{
+        const qs = await getDocs(query(collection(db,'equipment-models'), orderBy('name')));
+        MODELS=[];
+        qs.forEach(s=>{
+          const d=s.data()||{};
+          if(d.archived) return;
+          MODELS.push({id:s.id, name:d.name||d.model||'', makeId:d.makeId||'', makeName:d.makeName||d.make||''});
+        });
+      }catch(e){ console.error('loadModels',e); MODELS=[]; }
+    }
+    function refreshMakeSelect(preferIdOrName=''){
+      const items = MAKES.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(m=>[m.id, m.name]);
+      buildList(ddMake.list, items, (val,label)=> setMake(val,label));
+      const byId = MAKES.find(m=>m.id===preferIdOrName);
+      const byNm = MAKES.find(m=>m.name===preferIdOrName);
+      if(byId){ setMake(byId.id, byId.name); }
+      else if(byNm){ setMake(byNm.id, byNm.name); }
+      else {
+        ddMake.btn.textContent="— Select —";
+        f.mkId.value="";
+      }
+    }
+    function filteredModels(){
+      const mkId=f.mkId.value;
+      if(!mkId) return [];
+      return MODELS.filter(m=>m.makeId===mkId);
+    }
+    function refreshModelSelect(preferIdOrName=''){
+      const items = filteredModels().slice().sort((a,b)=>a.name.localeCompare(b.name)).map(m=>[m.id, m.name]);
+      buildList(ddModel.list, items, (val,label)=> setModel(val,label));
+      ddModel.btn.disabled = !items.length;
+      ddModel.search.disabled = !items.length;
+      if(!items.length){
+        ddModel.btn.textContent="— Select a Make first —";
+        f.mdId.value="";
+        return;
+      }
+      const byId = MODELS.find(m=>m.id===preferIdOrName);
+      const byNm = MODELS.find(m=>m.name===preferIdOrName && m.makeId===f.mkId.value);
+      if(byId && byId.makeId===f.mkId.value){ setModel(byId.id, byId.name); }
+      else if(byNm){ setModel(byNm.id, byNm.name); }
+      else {
+        ddModel.btn.textContent="— Select —";
+        f.mdId.value="";
+      }
+    }
+    function setMake(id,label){
+      f.mkId.value=id||"";
+      ddMake.btn.textContent=id?label:"— Select —";
+      ddMake.root.classList.remove("open");
+      refreshModelSelect('');
+    }
+    function setModel(id,label){
+      f.mdId.value=id||"";
+      ddModel.btn.textContent=id?label:"— Select —";
+      ddModel.root.classList.remove("open");
+    }
+
+    function getHoursFromDoc(d){
+      const cands = [d.engineHours, d.hours, d.engine_hour, d.hourMeter, d.hrs];
+      for (const v of cands){
+        if (v !== undefined && v !== null && !Number.isNaN(Number(v))) return Number(v);
+      }
+      return 0;
+    }
+
+    let currentId=null, deleteClean=false;
+
+    async function openEditor(id){
+      currentId=id;
+      deleteClean=false;
+      const db=getFirestore();
+
+      if(!MAKES.length) await loadMakes();
+      if(!MODELS.length) await loadModels();
+      buildYearOptions();
+
+      const snap=await getDoc(doc(db,'equipment',id));
+      if(!snap.exists()){
+        alert(`${TYPE_SINGULAR} not found`);
+        return;
+      }
+      const d=snap.data()||{};
+
+      refreshMakeSelect(d.makeId || d.makeName || '');
+      refreshModelSelect(d.modelId || d.modelName || '');
+
+      f.yr.value = d.year ? String(d.year) : '';
+      $("#yearTrigger").textContent = f.yr.value ? String(d.year) : '— Select —';
+
+      f.sn.value = d.serial || '';
+      f.sn6.textContent = (d.serial ? String(d.serial).slice(-6) : '—');
+      f.st.value = d.status || 'Active';
+
+      const normalizedStatus = d.status || 'Active';
+      if (normalizedStatus === 'Archived') {
+        archiveBtn.textContent = 'Unarchive';
+      } else {
+        archiveBtn.textContent = 'Archive';
+      }
+
+      f.notes.value = d.notes || '';
+      f.hrs.value = getHoursFromDoc(d);
+
+      dependencyGuard(id).then(ok=>{ deleteClean=ok; }).catch(()=>{ deleteClean=false; });
+      f.sn.oninput = ()=> (f.sn6.textContent = (f.sn.value||'').slice(-6) || '—');
+
+      // Modal heading uses singular type (Edit Tractor, Edit Combine, etc.)
+      eTitle.textContent = MODAL_TITLE;
+
+      openModal();
+    }
+
+    async function dependencyGuard(equipmentId){
+      const db = getFirestore();
+      const checks = [
+        ['equipmentLogs','equipmentId'],
+        ['maintenance','equipmentId'],
+        ['usage','equipmentId'],
+        ['qrScans','equipmentId'],
+      ].map(async ([c,field])=>{
+        try{
+          const qs = await getDocs(query(collection(db,c), where(field,'==', equipmentId), limit(1)));
+          return qs.size===0;
+        }catch(_){ return false; }
+      });
+      const rs = await Promise.all(checks);
+      return rs.every(Boolean);
+    }
+
+    function collectPatch(){
+      const makeName = (MAKES.find(m=>m.id===f.mkId.value)?.name) || '';
+      const modelName = (MODELS.find(m=>m.id===f.mdId.value)?.name) || '';
+      return {
+        makeId: f.mkId.value || null,
+        modelId: f.mdId.value || null,
+        makeName, modelName,
+        year: f.yr.value ? Number(f.yr.value) : null,
+        serial: (f.sn.value||'').trim(),
+        status: f.st.value || 'Active',
+        engineHours: Number(f.hrs.value||0),
+        notes: (f.notes.value||'').trim(),
+        updatedAt: serverTimestamp()
+      };
+    }
+    function validate(p){
+      if(!p.makeId) return 'Make is required.';
+      if(!p.modelId) return 'Model is required.';
+      if(!p.year) return 'Year is required.';
+      if(!p.serial || p.serial.length<3) return 'Serial looks short.';
+      if(p.engineHours<0) return 'Engine hours cannot be negative.';
+      return '';
+    }
+
+    async function saveEdits(){
+      if(!currentId) return;
+      const db = getFirestore();
+      const patch = collectPatch();
+      const err = validate(patch);
+      if(err){
+        alert(err);
+        return;
+      }
+
+      try{
+        await setDoc(doc(db,'equipment',currentId), patch, { merge:true });
+        alert('Saved ✓');
+        closeModal();
+      }catch(e){
+        console.error(e);
+        alert('Save failed by Firestore rules.');
+      }
+    }
+    async function toggleArchive(){
+      if(!currentId) return;
+      const db=getFirestore();
+      try{
+        const snap=await getDoc(doc(db,'equipment',currentId));
+        if(!snap.exists()) return;
+        const now=snap.data()||{};
+        const next=(now.status==='Archived')?'Active':'Archived';
+        await updateDoc(doc(db,'equipment',currentId), { status: next, updatedAt: serverTimestamp() });
+        alert(next==='Archived'?'Archived ✓':'Restored ✓');
+        closeModal();
+      }catch(e){
+        console.error(e);
+        alert('Archive/Unarchive failed.');
+      }
+    }
+    async function doDelete(){
+      if(!currentId) return;
+      if(!deleteClean){
+        alert(`This ${TYPE_SINGULAR} is referenced by other data. Delete is blocked. Use Archive instead.`);
+        return;
+      }
+      if(!confirm('Delete permanently?')) return;
+      const db=getFirestore();
+      try{
+        const { deleteDoc } = await import('/Farm-vista/js/firebase-init.js');
+        await deleteDoc(doc(db,'equipment',currentId));
+        alert('Deleted ✓');
+        closeModal();
+      }catch(e){
+        console.error(e);
+        alert('Delete failed by Firestore rules.');
+      }
+    }
+
+    saveBtn.addEventListener('click', saveEdits);
+    archiveBtn.addEventListener('click', toggleArchive);
+    deleteBtn.addEventListener('click', doDelete);
+
+    ddMake.list.addEventListener('click', ()=> refreshModelSelect(''));
+
+    /*
+    ===================================================================
+    DYNAMIC PAGE TITLE & HEADER
+    ===================================================================
+    */
+    function updateHeader(){
+      const pageTitle = document.querySelector('.title');
+      if(pageTitle) pageTitle.textContent = `Edit ${TITLE_PLURAL}`;
+      document.title = `FarmVista • Edit ${TITLE_PLURAL}`;
+    }
+
+    function resume(){ if(!unsub) attach(); }
+
+    (async()=>{
+      await ready;
+
+      updateHeader();
+      await Promise.all([loadMakes(), loadModels()]);
+      buildYearOptions();
+      attach();
+      syncRadios();
+
+      window.addEventListener('pageshow', resume);
+      document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') resume(); });
+      window.addEventListener('focus', resume);
+      window.addEventListener('pagehide', ()=>{ detach(); });
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Remove from Grain Bin Inventory</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- Absolute paths -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
+  <!-- Theme + base -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Ensure fv-shell -->
+  <script>(function(){if(!customElements.get('fv-shell')){const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);}})();</script>
+
+  <style>
+    :root{
+      --card-max:1100px;
+      --page-bottom-gap:96px;
+      --accent:#2F6C3C;
+
+      /* Match combo template tokens */
+      --combo-btn-radius:10px;
+      --combo-gap:4px;
+    }
+
+    body{ background:var(--app-bg,var(--surface)); }
+    .wrap{
+      max-width:var(--card-max);
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
+    }
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+      margin-bottom:var(--page-bottom-gap);
+    }
+    .hero-head{
+      display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
+      padding:14px 16px;border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+    }
+    .hero-head .icon{width:24px;height:24px;color:var(--accent);display:grid;place-items:center}
+    .hero-head h1{margin:0;font-size:clamp(20px,3.2vw,26px);line-height:1.2}
+    .muted{color:var(--muted,#67706B)}
+    .body{padding:16px;display:grid;gap:14px}
+
+    .row{display:grid;gap:10px;grid-template-columns:1fr 1fr}
+    @media (max-width:880px){.row{grid-template-columns:1fr}}
+
+    .field label{display:block;font-weight:800;margin:0 0 6px}
+
+    /* Inputs + Selects (tight + rounded) */
+    .input,
+    .select{
+      width:100%;
+      font:inherit;
+      font-size:16px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius);
+      padding:10px 12px;
+      outline:none;
+      line-height:1.2;
+      min-height:40px;
+    }
+
+    .select{
+      -webkit-appearance:none;
+      -moz-appearance:none;
+      appearance:none;
+      position:relative;
+      background-image:
+        url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="14" height="8" viewBox="0 0 14 8"><path d="M1 1l6 6 6-6" fill="none" stroke="%2367706B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+      background-repeat:no-repeat;
+      background-position:right 12px center;
+      background-size:14px 8px;
+      padding-right:40px;
+      cursor:pointer;
+    }
+    .select::-ms-expand{display:none;}
+
+    .input:focus, .select:focus{
+      border-color: color-mix(in srgb, var(--accent), #000 15%);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent), transparent 70%);
+    }
+    .input:hover, .select:hover{
+      border-color: color-mix(in srgb, var(--border), #000 20%);
+    }
+
+    .help{font-size:13px;color:var(--muted,#67706B);margin-top:6px}
+
+    .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:6px}
+    .btn{
+      display:inline-flex;align-items:center;justify-content:center;min-width:160px;
+      padding:12px 16px;border-radius:12px;border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));font-weight:800;color:var(--text)!important;cursor:pointer
+    }
+    .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff!important}
+    .btn[disabled]{opacity:.5;cursor:not-allowed}
+
+    .invalid{ color:#b00020 !important; border-color:#b00020 !important; }
+
+    .toast{
+      position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
+      background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none
+    }
+    .toast.show{display:block;animation:fadeout 2.2s forwards}
+    @keyframes fadeout{0%{opacity:1}70%{opacity:1}100%{opacity:0}}
+    .error{color:#b00020;font-weight:700}
+  </style>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">➖</div>
+          <div>
+            <h1>Remove from Grain Bin Inventory</h1>
+            <p class="muted">Sites & bins are filtered to only those with grain on hand.</p>
+          </div>
+        </header>
+
+        <div class="body">
+          <div class="row">
+            <div class="field">
+              <label for="site">Grain Bin Site</label>
+              <select id="site" class="select"><option value="">— Loading… —</option></select>
+              <div id="siteHelp" class="help">0 sites</div>
+            </div>
+
+            <div class="field">
+              <label for="bin">Bin</label>
+              <select id="bin" class="select" disabled><option value="">Select a site first…</option></select>
+              <div id="binHelp" class="help">—</div>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label for="submittedBy">Submitted By</label>
+              <select id="submittedBy" class="select">
+                <option value="">— Loading employees… —</option>
+              </select>
+              <div id="submittedByHelp" class="help">—</div>
+            </div>
+            <div class="field">
+              <label for="date">Date</label>
+              <input id="date" class="input" type="date"/>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label for="bushels">Bushels to remove</label>
+              <input id="bushels" class="input" type="number" inputmode="decimal" placeholder="e.g. 980"/>
+              <div id="capHelp" class="help">On hand: —</div>
+            </div>
+            <div class="field">
+              <label for="note">Note (optional)</label>
+              <input id="note" class="input" placeholder="Destination, ticket #, hauler, etc." />
+            </div>
+          </div>
+
+          <div id="err" class="help error" hidden></div>
+
+          <div class="actions">
+            <button id="btnSave" class="btn btn-primary" type="button" disabled>Mark Picked Up</button>
+            <a class="btn" href="/Farm-vista/pages/grain/grain-bins.html">Cancel</a>
+          </div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+
+  <script type="module">
+    import {
+      ready, getFirestore, getAuth,
+      collection, getDocs, doc, getDoc, setDoc, addDoc,
+      serverTimestamp, query, orderBy
+    } from '/Farm-vista/js/firebase-init.js';
+
+    const $=id=>document.getElementById(id);
+    const esc=s=>String(s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));
+    function toast(msg="Saved.", ms=2200){ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"), ms); }
+
+    let SITES=[]; let CURRENT_SITE=null; let CURRENT_BIN_INDEX=-1;
+    const todayISO=()=>new Date().toISOString().slice(0,10);
+
+    function getSelectedEmployee(){
+      const sel = $("submittedBy");
+      const uid = sel.value || null;               // your employees doc id may be the email
+      const name = sel.options[sel.selectedIndex]?.textContent || null;
+      return { uid, name };
+    }
+
+    async function loadEmployees(db, auth){
+      const sel = $("submittedBy");
+      const help = $("submittedByHelp");
+      sel.disabled = true;
+      if (help) help.textContent = "Loading…";
+
+      const cu = auth.currentUser || {};
+      const curUid   = cu.uid || "";
+      const curEmail = (cu.email || "").toLowerCase();
+      const curName  = (cu.displayName || "Dane Killam").trim();
+
+      let list = [];
+
+      try {
+        // 1) Unordered /employees (safest)
+        try{
+          const snap = await getDocs(collection(db, "employees"));
+          snap.forEach(d=>{
+            const v = d.data()||{};
+            const name  = (v.fullName || v.displayName || v.name || "").toString().trim();
+            const email = (v.email || d.id || "").toString().toLowerCase();
+            if (name) list.push({ id:d.id, email, name });
+          });
+        }catch(e){ console.warn("employees unordered failed:", e); }
+
+        // 2) If empty, orderBy fullName
+        if(!list.length){
+          try{
+            const snap2 = await getDocs(query(collection(db,"employees"), orderBy("fullName")));
+            snap2.forEach(d=>{
+              const v = d.data()||{};
+              const name  = (v.fullName || v.displayName || v.name || "").toString().trim();
+              const email = (v.email || d.id || "").toString().toLowerCase();
+              if (name) list.push({ id:d.id, email, name });
+            });
+          }catch(e){ console.warn("employees orderBy(fullName) failed:", e); }
+        }
+
+        // 3) Fallback: /accountRoles
+        if(!list.length){
+          try{
+            const snap3 = await getDocs(collection(db, "accountRoles"));
+            snap3.forEach(d=>{
+              const v = d.data()||{};
+              const name  = (v.fullName || v.displayName || v.name || "").toString().trim();
+              const email = (v.email || d.id || "").toString().toLowerCase();
+              if (name) list.push({ id:d.id, email, name });
+            });
+          }catch(e){ console.warn("accountRoles read failed:", e); }
+        }
+      } finally {
+        // Always ensure current user appears & is defaulted
+        const found = list.find(e =>
+          e.id.toLowerCase() === curEmail ||
+          e.email === curEmail ||
+          e.name === curName
+        );
+        if (!found && (curEmail || curUid || curName)) {
+          list.unshift({ id: curEmail || curUid || "unknown", email: curEmail, name: curName });
+        }
+
+        // Sort + render
+        list.sort((a,b)=>a.name.localeCompare(b.name));
+        sel.innerHTML = list.map(e =>
+          `<option value="${esc(e.id)}">${esc(e.name)}</option>`
+        ).join("") || `<option value="${esc(curEmail || curUid || "unknown")}">${esc(curName)}</option>`;
+
+        // ✅ Auto-select current user (email → name → first)
+        const match = list.find(e =>
+          e.id.toLowerCase() === curEmail ||
+          e.email === curEmail ||
+          e.name === curName
+        );
+        if (match) {
+          sel.value = match.id;
+        } else if (sel.options.length) {
+          sel.selectedIndex = 0;
+        }
+
+        sel.disabled = false;
+        if (help) help.textContent = `${sel.options.length} option${sel.options.length===1?"":"s"}`;
+      }
+    }
+
+    function updateOnHandHelp(){
+      const capEl=$("capHelp"), save=$("btnSave");
+      if(!CURRENT_SITE || CURRENT_BIN_INDEX<0){
+        capEl.textContent="On hand: —";
+        $("bushels").classList.remove('invalid');
+        save.disabled=true;
+        return;
+      }
+      const on = Number(CURRENT_SITE.bins[CURRENT_BIN_INDEX]?.onHand||0);
+      const remove = parseFloat($("bushels").value||"0");
+      const over = remove > on;
+      capEl.textContent = `On hand: ${on.toLocaleString()}`;
+      $("bushels").classList.toggle('invalid', over);
+      save.disabled = over || !(remove>0) || $("site").value==="" || !(CURRENT_BIN_INDEX>=0);
+    }
+
+    async function loadSites(db){
+      const snap=await getDocs(query(collection(db,'binSites'), orderBy('name')));
+      const withGrain=[];
+      snap.forEach(d=>{
+        const v=d.data()||{}; const bins=Array.isArray(v.bins)?v.bins:[];
+        if(bins.some(b=>Number(b?.onHand||0)>0)) withGrain.push({ id:d.id, name:String(v.name||'Unnamed'), bins });
+      });
+      withGrain.sort((a,b)=>a.name.localeCompare(b.name));
+      SITES=withGrain;
+      $("site").innerHTML='<option value="">— Select —</option>'+SITES.map(s=>`<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+      $("site").disabled=false; $("siteHelp").textContent=`${SITES.length} site${SITES.length===1?'':'s'} with grain`;
+    }
+
+    function loadBinsFor(siteId){
+      CURRENT_SITE=SITES.find(s=>s.id===siteId)||null;
+      const sel=$("bin"), help=$("binHelp"); CURRENT_BIN_INDEX=-1;
+      if(!CURRENT_SITE){ sel.innerHTML='<option value="">Select a site first…</option>'; sel.disabled=true; help.textContent='—'; updateOnHandHelp(); return; }
+      const items=(CURRENT_SITE.bins||[]).map((b,i)=>({b,i})).filter(x=>Number(x.b.onHand||0)>0);
+      sel.innerHTML='<option value="">— Select —</option>'+items.map(({b,i})=>{
+        const on=+b.onHand||0, num=b.num ?? (i+1);
+        return `<option value="${i}">Bin #${num} — On hand: ${on.toLocaleString()}</option>`;
+      }).join('');
+      sel.disabled=false; help.textContent=`${items.length} bin${items.length===1?'':'s'} with grain`;
+      if(items.length===1){ sel.value=String(items[0].i); CURRENT_BIN_INDEX=items[0].i; }
+      updateOnHandHelp();
+    }
+
+    async function saveRemove(db, auth){
+      $("err").hidden=true;
+
+      const siteId=$("site").value;
+      const binIdx=parseInt($("bin").value,10);
+      const bushels=parseFloat($("bushels").value);
+      if(!siteId || !(binIdx>=0) || !(bushels>0)){ alert("Complete all fields."); return; }
+
+      const { uid:submittedByUid, name:submittedByName } = getSelectedEmployee();
+
+      try{
+        const siteRef=doc(db,'binSites',siteId);
+        const snap=await getDoc(siteRef);
+        if(!snap.exists()) throw new Error("Site not found.");
+
+        const data=snap.data()||{};
+        const bins=Array.isArray(data.bins)?[...data.bins]:[];
+        const bin=bins[binIdx]||{};
+        const on=Number(bin.onHand||0);
+        if(bushels>on){ $("bushels").classList.add('invalid'); $("err").hidden=false; $("err").textContent="Cannot remove more than on-hand."; return; }
+
+        const after = on - bushels;
+        bins[binIdx] = {
+          ...bin,
+          onHand: after,
+          lastUpdatedBy: submittedByName || (auth.currentUser?.displayName || 'Dane Killam'),
+          lastUpdatedUid: submittedByUid || (auth.currentUser?.uid || null),
+          lastUpdatedMs: Date.now()
+        };
+
+        await setDoc(siteRef, { bins }, { merge:true });
+
+        await addDoc(collection(db,'binMovements'), {
+          siteId, siteName: CURRENT_SITE?.name || null,
+          binIndex: binIdx, binNum: bin.num ?? (binIdx+1),
+          direction:'out',
+          bushels,
+          note: ($("note").value||"").trim() || null,
+          submittedBy: submittedByName || (auth.currentUser?.displayName || 'Dane Killam'),
+          submittedByUid: submittedByUid || (auth.currentUser?.uid || null),
+          dateISO: $("date").value || null,
+          createdAt: serverTimestamp()
+        });
+
+        toast("Removed from inventory");
+        setTimeout(()=>location.reload(),700);
+
+      }catch(err){
+        console.error(err);
+        $("err").hidden=false; $("err").textContent=err.message||"Save failed.";
+        toast("Save failed",2200);
+      }
+    }
+
+    (async()=>{
+      await ready;
+      const db=getFirestore(); const auth=getAuth();
+
+      $("date").value = todayISO();
+
+      await Promise.all([
+        loadSites(db),
+        loadEmployees(db, auth)
+      ]);
+
+      $("site").addEventListener("change", e=> loadBinsFor(e.target.value));
+      $("bin").addEventListener("change", e=> { CURRENT_BIN_INDEX=parseInt(e.target.value,10); updateOnHandHelp(); });
+      $("bushels").addEventListener("input", updateOnHandHelp);
+      $("btnSave").addEventListener("click", ()=> saveRemove(db, auth));
+    })();
+  </script>
+</body>
+</html>

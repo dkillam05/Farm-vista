@@ -1,0 +1,609 @@
+<!-- =====================================================================
+/Farm-vista/pages/equipment/actions/hub.html  (FULL FILE)
+Rev: 2025-11-24c
+Update:
+ • Add Combine-only "Calculators" section with quick links to:
+    - Combine Grain Loss
+    - Combine Yield Check
+    - Combine Yield Calibration
+===================================================================== -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Equipment Hub</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- ABSOLUTE PATHS -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
+  <!-- Connection warmups -->
+  <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://www.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+
+  <!-- Theme + app CSS -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- IMPORTANT: match tractors — load Firebase CONFIG first -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+
+  <!-- Ensure fv-shell -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true; document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <style>
+    :root{ --card-max:900px; --brand:var(--green,#3B7E46); }
+    body{ background:var(--app-bg,var(--surface)); margin:0; }
+
+    /* kill blue links in dark mode */
+    .wrap, .wrap * { -webkit-tap-highlight-color: transparent; }
+    .wrap a, .wrap a:visited, .wrap a:active, .wrap a:hover { color:inherit; text-decoration:none; }
+    .btn { color:var(--ink-1,#0f1a13); }
+    :root[data-theme="dark"] .btn { color:var(--ink-1,#eaece9); }
+    .btn-primary { color:#fff; }
+
+    .wrap{
+      max-width:var(--card-max);
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px)+72px)!important;
+    }
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+      margin:8px 0 18px;
+    }
+    .hero-head{
+      padding:14px 16px;
+      border-bottom:1px solid var(--border);
+      background:color-mix(in srgb,var(--brand) 12%, transparent);
+    }
+    .hero-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); }
+    .muted{ color:var(--muted,#67706B) }
+    .body{ padding:16px; display:grid; gap:18px }
+    .card{
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:var(--surface);
+      padding:14px;
+      display:grid;
+      gap:8px
+    }
+    .meta{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+    }
+    .chip{
+      font-size:12px;
+      border:1px solid var(--border);
+      border-radius:999px;
+      padding:6px 10px;
+      background:var(--surface)
+    }
+    .actions{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:12px
+    }
+    @media (max-width:640px){
+      .actions{ grid-template-columns:1fr }
+    }
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-height:52px;
+      font-weight:800;
+      border-radius:14px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      text-decoration:none
+    }
+    .btn-primary{
+      background:var(--brand);
+      border-color:transparent
+    }
+
+    .actions-return{
+      margin-top:26px; /* extra separation between main actions and return buttons */
+    }
+
+    .state{
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:var(--surface);
+      padding:22px;
+      display:grid;
+      gap:12px;
+      justify-items:center;
+      text-align:center;
+    }
+    .state .emo{ font-size:44px; line-height:1; filter:grayscale(.05); }
+    .state h2{ margin:0; font-size:20px; font-weight:900; }
+    .state p{ margin:0; color:var(--muted,#67706B); max-width:520px; }
+    [hidden]{ display:none !important; }
+  </style>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap" id="content" hidden>
+      <section class="hero">
+        <header class="hero-head">
+          <h1 id="pageTitle">Equipment Hub</h1>
+          <p class="muted" id="status" hidden></p>
+        </header>
+
+        <div class="body">
+          <!-- Main equipment card -->
+          <div class="card" id="eqCard" hidden>
+            <h2 id="eqName" style="margin:0"></h2>
+            <div class="meta">
+              <!-- We keep only SN + metric chips visible; the others stay unused/hidden -->
+              <span id="eqSerial" class="chip" hidden></span>
+              <span id="eqMetric" class="chip" hidden></span>
+            </div>
+          </div>
+
+          <!-- Primary actions: dynamic per type -->
+          <div class="actions" id="fnLinks" hidden>
+            <a id="linkReq"    class="btn" href="#">Submit Service Request</a>
+            <a id="linkMetric" class="btn" href="#">Update Engine Hours</a>
+            <a id="linkMaint"  class="btn" href="#">Service Records</a>
+            <a id="linkPre"    class="btn" href="#">Pre-Season Checklist</a>
+          </div>
+
+          <!-- Combine-only calculators -->
+          <div class="card" id="combineCalcs" hidden>
+            <div>
+              <h3 style="margin:0 0 4px;font-size:16px;font-weight:800;">Calculators</h3>
+              <p class="muted" style="margin:0 0 8px;font-size:13px;">
+                Quick access to grain loss, yield checks, and yield calibration for this combine.
+              </p>
+            </div>
+            <div class="actions">
+              <a id="linkCalcLoss"        class="btn" href="#">Combine Grain Loss</a>
+              <a id="linkCalcYieldCheck"  class="btn" href="#">Combine Yield Check</a>
+              <a id="linkCalcYieldCal"    class="btn" href="#">Combine Yield Calibration</a>
+            </div>
+          </div>
+
+          <!-- Archived state -->
+          <div id="archivedCard" class="state" hidden>
+            <div class="emo">📦</div>
+            <h2>This equipment is archived</h2>
+            <p id="archivedMsg">This item isn’t available for new entries at this time.</p>
+            <div class="actions">
+              <a class="btn btn-primary" href="/Farm-vista/pages/qr-scan.html">Rescan</a>
+            </div>
+          </div>
+
+          <!-- Timeout state -->
+          <div id="timeoutCard" class="state" hidden>
+            <div class="emo">⏱️</div>
+            <h2>Timed out</h2>
+            <p>It’s taking longer than expected to load this equipment.</p>
+            <div class="actions">
+              <a class="btn btn-primary" href="/Farm-vista/pages/qr-scan.html">Rescan</a>
+              <a class="btn" href="/Farm-vista/index.html">Return to Home</a>
+            </div>
+          </div>
+
+          <!-- Return buttons: separated row -->
+          <div class="actions actions-return" id="returnActions">
+            <a id="btnReturnOrigin" class="btn" href="#">Return</a>
+            <a id="btnReturnHome"   class="btn" href="/Farm-vista/index.html">Return to Home</a>
+          </div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <script type="module">
+    import {
+      ready, getFirestore, doc, getDoc, getAuth, onAuthStateChanged
+    } from '/Farm-vista/js/firebase-init.js';
+
+    const $ = id => document.getElementById(id);
+
+    // --- Query params
+    const qs  = new URLSearchParams(location.search);
+    const id  = qs.get('id')   || '';
+    const from = (qs.get('from') || '').toLowerCase();
+    console.info('[hub] start; id=', id, 'from=', from);
+
+    // --- Type configuration: display names + metrics + buttons
+    const HUB_CONFIG = {
+      tractor: {
+        display: 'Tractor',
+        metricField: 'engineHours',
+        metricSuffix: 'hrs',
+        updateLabel: 'Update Engine Hours',
+        hasPreSeason: true
+      },
+      combine: {
+        display: 'Combine',
+        metricField: 'engineHours',
+        metricSuffix: 'hrs',
+        updateLabel: 'Update Engine Hours',
+        hasPreSeason: true
+      },
+      sprayer: {
+        display: 'Sprayer',
+        metricField: 'engineHours',
+        metricSuffix: 'hrs',
+        updateLabel: 'Update Engine Hours',
+        hasPreSeason: true
+      },
+      fertilizer: {
+        display: 'Fertilizer Equipment',
+        metricField: 'engineHours',
+        metricSuffix: 'hrs',
+        updateLabel: 'Update Engine Hours',
+        hasPreSeason: true
+      },
+      construction: {
+        display: 'Construction',
+        metricField: 'engineHours',
+        metricSuffix: 'hrs',
+        updateLabel: 'Update Engine Hours',
+        hasPreSeason: false
+      },
+      truck: {
+        display: 'Truck',
+        metricField: 'odometer',
+        metricSuffix: 'mi',
+        updateLabel: 'Update Odometer',
+        hasPreSeason: false
+      },
+      trailer: {
+        display: 'Trailer',
+        metricField: 'odometer',
+        metricSuffix: 'mi',
+        updateLabel: 'Update Odometer',
+        hasPreSeason: false
+      },
+      implement: {
+        display: 'Implement',
+        metricField: null,
+        metricSuffix: '',
+        updateLabel: 'Update Usage',
+        hasPreSeason: false
+      },
+      starfire: {
+        display: 'StarFire',
+        metricField: null,
+        metricSuffix: '',
+        updateLabel: 'Update Location',   // label only; href handled below
+        hasPreSeason: false
+      },
+      technology: {
+        display: 'Technology',
+        metricField: null,
+        metricSuffix: '',
+        updateLabel: 'Update Usage',
+        hasPreSeason: false
+      },
+      equipment: {
+        display: 'Equipment',
+        metricField: 'engineHours',
+        metricSuffix: 'hrs',
+        updateLabel: 'Update Usage',
+        hasPreSeason: false
+      }
+    };
+
+    // Where to send "Return to X" when coming from a list/lookup
+    const FROM_MAP = {
+      tractors: {
+        label: 'Return to Tractors',
+        href: '/Farm-vista/pages/equipment/equipment-tractors.html'
+      },
+      combines: {
+        label: 'Return to Combines',
+        href: '/Farm-vista/pages/equipment/equipment-combines.html'
+      },
+      trucks: {
+        label: 'Return to Trucks',
+        href: '/Farm-vista/pages/equipment/equipment-trucks.html'
+      },
+      trailers: {
+        label: 'Return to Trailers',
+        href: '/Farm-vista/pages/equipment/equipment-trailers.html'
+      },
+      implements: {
+        label: 'Return to Implements',
+        href: '/Farm-vista/pages/equipment/equipment-implements.html'
+      },
+      sprayers: {
+        label: 'Return to Sprayers',
+        href: '/Farm-vista/pages/equipment/equipment-sprayers.html'
+      },
+      construction: {
+        label: 'Return to Construction Equipment',
+        href: '/Farm-vista/pages/equipment/equipment-construction.html'
+      },
+      starfire: {
+        label: 'Return to StarFire',
+        href: '/Farm-vista/pages/equipment/equipment-starfire.html'
+      },
+      // fallback for any generic equipment lookup page
+      lookup: {
+        label: 'Return to Equipment',
+        href: '/Farm-vista/pages/equipment/actions/lookup.html'
+      },
+      scanner: {
+        label: 'Return to Scanner',
+        href: '/Farm-vista/pages/qr-scan.html'
+      }
+    };
+
+    // --- Helpers
+    const last6 = v => String(v || '').slice(-6);
+    const setText = (id, val, opts = {}) => {
+      const el = $(id); if(!el) return;
+      if(!val){
+        if(opts.hideIfEmpty) el.hidden = true;
+        else el.textContent = '';
+        return;
+      }
+      el.textContent = val;
+      if(opts.unhide) el.hidden = false;
+    };
+    function showContent(){ $('content').hidden = false; }
+
+    function setupReturnButtons(typeKey){
+      const btnOrigin = $('btnReturnOrigin');
+      const btnHome   = $('btnReturnHome');
+      const wrap      = $('returnActions');
+      if(!btnOrigin || !btnHome || !wrap) return;
+
+      let cfg = null;
+
+      if(from && FROM_MAP[from]) {
+        cfg = FROM_MAP[from];
+      } else {
+        // Fallback: infer from equipment type if we didn't get a from=
+        switch(typeKey){
+          case 'tractor':   cfg = FROM_MAP.tractors; break;
+          case 'combine':   cfg = FROM_MAP.combines; break;
+          case 'truck':     cfg = FROM_MAP.trucks; break;
+          case 'trailer':   cfg = FROM_MAP.trailers; break;
+          case 'implement': cfg = FROM_MAP.implements; break;
+          case 'sprayer':   cfg = FROM_MAP.sprayers; break;
+          case 'construction': cfg = FROM_MAP.construction; break;
+          case 'starfire':  cfg = FROM_MAP.starfire; break;
+          default: cfg = FROM_MAP.lookup; break;
+        }
+      }
+
+      if(cfg){
+        btnOrigin.textContent = cfg.label;
+        btnOrigin.href        = cfg.href;
+        btnOrigin.hidden      = false;
+      }else{
+        // If we truly have nowhere sensible to go, hide the origin button
+        btnOrigin.hidden = true;
+      }
+
+      // Always keep Return to Home
+      btnHome.href   = '/Farm-vista/index.html';
+      btnHome.hidden = false;
+      wrap.hidden    = false;
+    }
+
+    // --- Watchdog (content-only since fv-shell handles splash)
+    const TIMEOUT_MS = 22000;
+    let finished=false;
+    const watchdog=setTimeout(()=>{
+      if(finished) return;
+      showContent();
+      $('timeoutCard').hidden=false;
+      $('status').textContent='Timed out waiting for data.'; $('status').hidden=false;
+      console.warn('[hub] watchdog fired');
+    },TIMEOUT_MS);
+
+    // --- Wait for REAL user (not just an auth event). Cap at ~3s.
+    async function userReady(maxMs=3000){
+      const auth = getAuth();
+      if (auth.currentUser) { console.info('[hub] userReady: currentUser present'); return; }
+      const first = new Promise(res=>{
+        const off = onAuthStateChanged(auth, (u)=>{ try{off();}catch{} res(u); }, { onlyOnce:true });
+      });
+      let u = await first;
+      if (u) { console.info('[hub] userReady: got user from first event'); return; }
+      const t0 = Date.now();
+      while(!auth.currentUser && (Date.now()-t0) < maxMs){
+        await new Promise(r=>setTimeout(r,120));
+      }
+      console.info('[hub] userReady: final user=', !!auth.currentUser);
+    }
+
+    // --- Gentle retry
+    async function getDocWithRetry(ref){
+      try {
+        console.info('[hub] getDoc attempt #1');
+        return await getDoc(ref);
+      }catch(e){
+        console.warn('[hub] getDoc failed #1; retrying...', e?.code||e);
+        await new Promise(r=>setTimeout(r, 600));
+        console.info('[hub] getDoc attempt #2');
+        return await getDoc(ref);
+      }
+    }
+
+    // --- Single-run guard
+    let runId = 0;
+    async function init(){
+      const my = ++runId;
+      await ready;
+      await userReady();
+      if (my !== runId) return;
+
+      if(!id){
+        clearTimeout(watchdog); finished=true; showContent();
+        $('status').textContent='No equipment id provided.'; $('status').hidden=false;
+        console.warn('[hub] no id');
+        return;
+      }
+
+      const db=getFirestore();
+      let snap;
+      try{
+        const ref = doc(db,'equipment',id);
+        snap = await getDocWithRetry(ref);
+      }catch(e){
+        console.error('[hub] getDoc error', e);
+        clearTimeout(watchdog); finished=true; showContent();
+        $('status').textContent='Error loading hub.'; $('status').hidden=false;
+        return;
+      }
+      if (my !== runId) return;
+
+      clearTimeout(watchdog); finished=true; showContent();
+
+      if(!snap.exists()){
+        $('status').textContent='Not found.'; $('status').hidden=false;
+        console.warn('[hub] snap not exists for id', id);
+        return;
+      }
+
+      const d = snap.data() || {}; d.id = id;
+      const typeKey = String(d.type || 'equipment').toLowerCase();
+      const cfg = HUB_CONFIG[typeKey] || HUB_CONFIG.equipment;
+
+      console.info('[hub] loaded doc', { id, type:d.type, make:d.makeName, model:d.modelName });
+
+      // Title and header (singular, per config)
+      const hubTitle = `${cfg.display} Hub`;
+      setText('pageTitle', hubTitle);
+      document.title = `FarmVista • ${hubTitle}`;
+
+      // Main hero title: Make + Model + (#last6)
+      const mm = [d.makeName, d.modelName].filter(Boolean).join(' ');
+      const ls = last6(d.serial);
+      const title = mm ? `${mm}${ls ? ` (#${ls})` : ''}` : (d.name || `Unit ${id.slice(0,6)}`);
+      setText('eqName', title);
+
+      // SN chip
+      if(ls){
+        setText('eqSerial', `SN #${ls}`, { unhide:true });
+      }
+
+      // Metric chip (engine hours / odometer etc.)
+      if(cfg.metricField && d[cfg.metricField] != null){
+        const v = d[cfg.metricField];
+        const suf = cfg.metricSuffix ? ` ${cfg.metricSuffix}` : '';
+        setText('eqMetric', `${v}${suf}`, { unhide:true });
+      }
+
+      $('eqCard').hidden = false;
+
+      const calcCard = $('combineCalcs');
+
+      // Archived state vs links
+      const isArchived = (String(d.status||'').toLowerCase() === 'archived') || (d.archived === true);
+      if(isArchived){
+        const name = mm || 'This unit';
+        $('archivedMsg').textContent = `“${name}${ls ? ' • SN …'+ls : ''}” is archived and not available for new entries.`;
+        $('archivedCard').hidden = false;
+        if (calcCard) calcCard.hidden = true; // no calculators for archived units
+        // Keep primary fnLinks hidden when archived
+      }else{
+        // Configure button labels & visibility
+        setText('linkReq', 'Submit Service Request');
+        $('linkReq').hidden = false;
+
+        // Defaults for most types
+        if(cfg.updateLabel){
+          setText('linkMetric', cfg.updateLabel);
+          $('linkMetric').hidden = false;
+        }else{
+          $('linkMetric').hidden = true;
+        }
+        $('linkMaint').hidden = false;
+        $('linkPre').hidden   = !cfg.hasPreSeason;
+
+        // Default hrefs (can be wired later per type)
+        $('linkReq').href    = '#';
+        $('linkMetric').href = '#';
+        $('linkMaint').href  = '#';
+        $('linkPre').href    = '#';
+
+        // --- StarFire special case: only "Submit Service Request" + "Update Location"
+        if(typeKey === 'starfire'){
+          // Middle button becomes Update Location with real link
+          setText('linkMetric', 'Update Location');
+          $('linkMetric').hidden = false;
+          $('linkMetric').href =
+            `/Farm-vista/pages/equipment/actions/starfire-location.html?id=${encodeURIComponent(id)}`;
+
+          // Hide Service Records & Pre-Season for StarFire
+          $('linkMaint').hidden = true;
+          $('linkPre').hidden   = true;
+
+          if (calcCard) calcCard.hidden = true; // calculators not relevant for StarFire
+        } else {
+          // --- Combine-only Calculators wiring
+          if (typeKey === 'combine' && calcCard) {
+            const lossLink   = $('linkCalcLoss');
+            const checkLink  = $('linkCalcYieldCheck');
+            const calibLink  = $('linkCalcYieldCal');
+            const basePath   = '/Farm-vista/pages/calculators';
+
+            if (lossLink) {
+              lossLink.href =
+                `${basePath}/calc-combine-grain-loss.html?equipmentId=${encodeURIComponent(id)}`;
+            }
+            if (checkLink) {
+              checkLink.href =
+                `${basePath}/calc-combine-yield.html?equipmentId=${encodeURIComponent(id)}`;
+            }
+            if (calibLink) {
+              calibLink.href =
+                `${basePath}/calc-combine-yield-calibration.html?equipmentId=${encodeURIComponent(id)}`;
+            }
+
+            calcCard.hidden = false;
+          } else if (calcCard) {
+            calcCard.hidden = true;
+          }
+        }
+
+        $('fnLinks').hidden = false;
+      }
+
+      // Set up "Return to X" buttons
+      setupReturnButtons(typeKey);
+    }
+
+    init().catch(e=>{
+      console.error('[hub] init fatal', e);
+      clearTimeout(watchdog); finished=true; showContent();
+      $('status').textContent='Error loading hub.'; $('status').hidden=false;
+    });
+
+    // Re-run on true resumes (bfcache return / tab re-focus)
+    window.addEventListener('pageshow', (e)=>{ if(e.persisted) init(); });
+    document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') init(); });
+  </script>
+</body>
+</html>

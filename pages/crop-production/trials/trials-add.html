@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Add Field Trial</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- ===========================
+       ABSOLUTE PATHS (REQUIRED)
+       =========================== -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
+  <!-- Theme + base app styles -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Ensure fv-shell (global header/footer/menu) -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <!-- ===========================
+       PAGE CSS
+       =========================== -->
+  <style>
+    :root{
+      --card-max:1100px;
+      --page-bottom-gap:96px;
+      --accent:#2F6C3C;
+    }
+    body{ background:var(--app-bg,var(--surface)); }
+
+    .wrap{
+      max-width:var(--card-max);
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
+    }
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+      margin-bottom:var(--page-bottom-gap);
+    }
+    .hero-head{
+      display:grid;
+      grid-template-columns:auto 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+    }
+    .hero-head-title{
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+    }
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+    .muted{color:var(--muted,#67706B)}
+
+    .hero-head-actions{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      justify-content:flex-end;
+    }
+
+    .body{
+      padding:16px;
+      display:grid;
+      gap:14px;
+    }
+
+    .row{
+      display:grid;
+      gap:10px;
+      grid-template-columns:1fr 1fr;
+    }
+    @media (max-width:880px){
+      .row{grid-template-columns:1fr;}
+    }
+
+    .field{position:relative;}
+    .field label{
+      display:block;
+      font-weight:800;
+      margin:0 0 6px;
+    }
+    .input,.select,.textarea{
+      width:100%;
+      font:inherit;
+      font-size:16px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:12px;
+      outline:none;
+    }
+    .textarea{
+      min-height:110px;
+      resize:vertical;
+    }
+    .help{
+      font-size:13px;
+      color:var(--muted,#67706B);
+      margin-top:6px;
+    }
+
+    .actions{
+      display:flex;
+      gap:12px;
+      flex-wrap:wrap;
+      align-items:center;
+      margin-top:10px;
+      justify-content:flex-start;
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:150px;
+      padding:11px 16px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      font-weight:800;
+      color:var(--text)!important;
+      cursor:pointer;
+      text-decoration:none;
+    }
+    .btn-primary{
+      border-color:transparent;
+      background:#2F6C3C;
+      color:#fff!important;
+    }
+    .btn-ghost{
+      background:transparent;
+    }
+
+    .toast{
+      position:fixed;
+      left:50%;
+      bottom:calc(env(safe-area-inset-bottom,0px) + 72px);
+      transform:translateX(-50%);
+      background:#2F6C3C;
+      color:#fff;
+      padding:10px 14px;
+      border-radius:10px;
+      box-shadow:0 6px 20px rgba(0,0,0,.25);
+      z-index:99999;
+      display:none;
+    }
+    .toast.show{
+      display:block;
+      animation:fadeout 5s forwards;
+    }
+    @keyframes fadeout{
+      0%{opacity:1}
+      85%{opacity:1}
+      100%{opacity:0}
+    }
+
+    .error{
+      color:#b00020;
+      font-weight:700;
+    }
+
+    .hidden{
+      display:none!important;
+    }
+
+    /* Seed trial type modal */
+    .seed-type-modal-backdrop{
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,.45);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:99998;
+    }
+    .seed-type-modal-backdrop.show{
+      display:flex;
+    }
+    .seed-type-modal{
+      background:var(--surface);
+      border-radius:16px;
+      border:1px solid var(--border);
+      max-width:420px;
+      width:90%;
+      padding:18px 18px 14px;
+      box-shadow:var(--shadow,0 16px 40px rgba(0,0,0,.35));
+    }
+    .seed-type-modal h2{
+      margin:0 0 8px;
+      font-size:1.05rem;
+    }
+    .seed-type-modal p{
+      margin:0 0 12px;
+      font-size:0.9rem;
+      color:var(--muted,#67706B);
+    }
+    .seed-type-options{
+      display:grid;
+      gap:8px;
+      margin-bottom:10px;
+    }
+    .seed-type-option{
+      display:flex;
+      gap:8px;
+      align-items:flex-start;
+      padding:8px 9px;
+      border-radius:10px;
+      border:1px solid var(--border-subtle,rgba(0,0,0,0.06));
+      background:var(--card-surface,var(--surface));
+    }
+    .seed-type-option input[type="radio"]{
+      margin-top:2px;
+    }
+    .seed-type-option-label{
+      font-size:0.92rem;
+    }
+    .seed-type-modal-actions{
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+      margin-top:6px;
+    }
+    .seed-type-error{
+      margin-top:4px;
+      font-size:0.8rem;
+      color:#b00020;
+    }
+  </style>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="hero-head-title">
+            <h1>🧪New Field Trial</h1>
+            <p class="muted">Start by defining what this trial is for. You’ll add fields and yield data later.</p>
+          </div>
+          <div class="hero-head-actions">
+            <!-- (empty – back button moved into body) -->
+          </div>
+        </header>
+
+        <div class="body">
+          <!-- Back to Trials button (now above Crop Year) -->
+          <div class="field">
+            <a href="/Farm-vista/pages/crop-production/trials.html"
+               class="btn btn-ghost"
+               id="btnBackTop">
+              ← Back to Trials
+            </a>
+          </div>
+
+          <!-- Hidden seed trial type (Two products vs Multiple Hybrid) -->
+          <input type="hidden" id="seedTrialType" value=""/>
+
+          <!-- Row 1: Crop year + crop -->
+          <div class="row">
+            <div class="field">
+              <label for="cropYear">Crop Year</label>
+              <select id="cropYear" class="select">
+                <option value="">— Select year —</option>
+              </select>
+              <div class="help">Includes last year, current year, and two years ahead.</div>
+            </div>
+
+            <div class="field">
+              <label for="crop">Crop</label>
+              <select id="crop" class="select">
+                <option value="">— Select crop —</option>
+                <option value="Corn">Corn</option>
+                <option value="Soybeans">Soybeans</option>
+                <option value="Wheat">Wheat</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Row 2: Trial type + operation task -->
+          <div class="row">
+            <div class="field">
+              <label for="trialType">Trial Type</label>
+              <select id="trialType" class="select">
+                <option value="">— Select trial type —</option>
+                <option value="Seed Varieties">Seed Varieties</option>
+                <option value="Seed Treatments">Seed Treatments</option>
+                <option value="Biologics">Biologics</option>
+                <option value="Nitrogen">Nitrogen</option>
+                <option value="Tillage">Tillage</option>
+                <option value="Fungicides">Fungicides</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="operationTask">Operation Task</label>
+              <select id="operationTask" class="select">
+                <option value="">— Select operation —</option>
+                <option value="Planting">Planting</option>
+                <option value="Spraying">Spraying</option>
+                <option value="Aerial Application">Aerial Application</option>
+                <option value="Tillage">Tillage</option>
+                <option value="Fertilizer Application">Fertilizer Application</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Trial name -->
+          <div class="field">
+            <label for="trialName">Trial Name</label>
+            <input id="trialName" class="input" placeholder="Example: 2025 Corn N Rate Study – Farm 1716"/>
+          </div>
+
+          <!-- Row 3: Treatment product + check -->
+          <div class="row" id="rowTreatmentCheck">
+            <div class="field">
+              <label for="treatmentProduct">Treatment Product</label>
+              <input id="treatmentProduct" class="input" placeholder="Type treatment or product name"/>
+              <div class="help">Later this can link to Products. For now, just type it in.</div>
+            </div>
+
+            <div class="field">
+              <label for="check">Check</label>
+              <input id="check" class="input" placeholder="Type the check (e.g., untreated, standard program)"/>
+            </div>
+          </div>
+
+          <!-- Notes -->
+          <div class="field">
+            <label for="notes">Trial Notes</label>
+            <textarea id="notes" class="textarea" placeholder="Any setup details, goals, or reminders."></textarea>
+          </div>
+
+          <!-- Files -->
+          <div class="field">
+            <label for="files">Photos and Files</label>
+            <input id="files" class="input" type="file"
+                   accept="image/*,.jpg,.jpeg,.png,.heic,.pdf"
+                   multiple>
+            <div class="help">
+              Attach screenshots, PDFs, or photos (layout maps, plans, etc.).
+            </div>
+          </div>
+
+          <div id="err" class="help error" hidden></div>
+
+          <!-- Bottom actions -->
+          <div class="actions">
+            <button id="btnClear" class="btn" type="button">Cancel</button>
+            <button id="btnSave" class="btn btn-primary" type="button">Save Trial</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <!-- Toast -->
+  <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+
+  <!-- Seed Type Modal -->
+  <div id="seedTypeModal" class="seed-type-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="seedTypeTitle">
+    <div class="seed-type-modal">
+      <h2 id="seedTypeTitle">What type of seed trial is this?</h2>
+      <p>Choose how this Seed Varieties trial is structured. We’ll use this later on the edit pages.</p>
+      <div class="seed-type-options">
+        <label class="seed-type-option">
+          <input type="radio" name="seedTrialChoice" value="Two products compared">
+          <div class="seed-type-option-label">
+            Two products compared
+          </div>
+        </label>
+        <label class="seed-type-option">
+          <input type="radio" name="seedTrialChoice" value="Multiple Hybrid Trial">
+          <div class="seed-type-option-label">
+            Multiple Hybrid Trial
+          </div>
+        </label>
+      </div>
+      <div id="seedTypeError" class="seed-type-error" hidden></div>
+      <div class="seed-type-modal-actions">
+        <button type="button" class="btn btn-ghost" id="seedTypeCancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="seedTypeConfirm">Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===========================
+       FIREBASE WIRING
+       =========================== -->
+  <script type="module">
+    import {
+      ready,
+      getFirestore, getAuth,
+      collection, addDoc, doc, updateDoc,
+      serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
+
+    const $ = id => document.getElementById(id);
+    const PORTAL_URL = '/Farm-vista/pages/crop-production/trials.html';
+
+    function showToast(msg="Saved.", ms=5000){
+      const t = $("toast");
+      t.textContent = msg;
+      t.classList.remove("show");
+      void t.offsetWidth;
+      t.classList.add("show");
+      setTimeout(()=>t.classList.remove("show"), ms);
+    }
+
+    function goPortal(){
+      window.location.href = PORTAL_URL;
+    }
+
+    async function loadStorageFns(){
+      const m = await import('/Farm-vista/js/firebase-init.js');
+      const fns = {
+        getStorage: m.getStorage,
+        ref: m.ref,
+        uploadBytes: m.uploadBytes,
+        getDownloadURL: m.getDownloadURL
+      };
+      if (fns.getStorage && fns.ref && fns.uploadBytes && fns.getDownloadURL) return fns;
+      throw new Error('Storage exports missing in /js/firebase-init.js');
+    }
+
+    function buildYearOptions(){
+      const sel = $("cropYear");
+      const now = new Date();
+      const y = now.getFullYear();
+      const years = [y-1, y, y+1, y+2]; // last year, current year, two years ahead
+      sel.innerHTML = '<option value="">— Select year —</option>' +
+        years.map(v => `<option value="${v}">${v}</option>`).join('');
+      sel.value = String(y);
+    }
+
+    function applySeedTrialTypeUI(){
+      const trialType = $("trialType").value;
+      const seedType = $("seedTrialType").value;
+      const rowTC = $("rowTreatmentCheck");
+
+      if (trialType === "Seed Varieties" && seedType === "Multiple Hybrid Trial"){
+        // Hide treatment/check for multiple hybrid trials
+        rowTC.classList.add("hidden");
+        $("treatmentProduct").value = "";
+        $("check").value = "";
+      } else {
+        // All other cases: show the row
+        rowTC.classList.remove("hidden");
+      }
+    }
+
+    function openSeedTypeModal(){
+      const backdrop = $("seedTypeModal");
+      if (!backdrop) return;
+      backdrop.classList.add("show");
+      // Clear previous error
+      const err = $("seedTypeError");
+      if (err){
+        err.textContent = "";
+        err.hidden = true;
+      }
+      // Reset radios
+      const radios = document.querySelectorAll('input[name="seedTrialChoice"]');
+      radios.forEach(r => { r.checked = false; });
+      // Focus first radio if available
+      if (radios[0]) radios[0].focus();
+    }
+
+    function closeSeedTypeModal(){
+      const backdrop = $("seedTypeModal");
+      if (!backdrop) return;
+      backdrop.classList.remove("show");
+    }
+
+    async function handleSave(db, auth){
+      $("err").hidden = true;
+      $("err").textContent = "";
+
+      const cropYear       = $("cropYear").value;
+      const crop           = $("crop").value;
+      const trialType      = $("trialType").value;
+      const seedTrialType  = $("seedTrialType").value;
+      const operationTask  = $("operationTask").value;
+      const trialName      = $("trialName").value.trim();
+      const treatmentProd  = $("treatmentProduct").value.trim();
+      const check          = $("check").value.trim();
+      const notes          = $("notes").value.trim();
+      const filesInput     = $("files");
+      const files          = Array.from(filesInput.files || []);
+
+      if (!cropYear){
+        alert("Please select a crop year."); return;
+      }
+      if (!crop){
+        alert("Please select a crop."); return;
+      }
+      if (!trialType){
+        alert("Please select a trial type."); return;
+      }
+      if (trialType === "Seed Varieties" && !seedTrialType){
+        alert("Please choose the seed trial type (Two products compared vs Multiple Hybrid Trial).");
+        return;
+      }
+      if (!operationTask){
+        alert("Please select an operation task."); return;
+      }
+      if (!trialName){
+        alert("Please enter a trial name."); return;
+      }
+
+      const user = auth.currentUser || null;
+      const baseDoc = {
+        cropYear: Number(cropYear),
+        crop,
+        trialType,
+        operationTask,
+        trialName,
+        treatmentProduct: treatmentProd || null,
+        check: check || null,
+        notes: notes || null,
+        status: 'pending',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+
+      // Only set seedTrialType for Seed Varieties
+      if (trialType === "Seed Varieties"){
+        baseDoc.seedTrialType = seedTrialType || null;
+      }
+
+      if (user){
+        baseDoc.createdByUid = user.uid;
+        baseDoc.createdByEmail = user.email || null;
+        baseDoc.createdByName = user.displayName || null;
+      }
+
+      let ref;
+      try{
+        // Collection name: fieldTrials (top-level header for trials)
+        ref = await addDoc(collection(db, 'fieldTrials'), baseDoc);
+      }catch(err){
+        console.error(err);
+        $("err").hidden = false;
+        $("err").textContent = `Failed to save trial: ${err.message}`;
+        return;
+      }
+
+      if (files.length){
+        try{
+          const { getStorage, ref:stRef, uploadBytes, getDownloadURL } = await loadStorageFns();
+          const st = getStorage();
+          const out = [];
+
+          for (const f of files){
+            const safe = (Date.now() + '-' + f.name).replace(/[^\w.\-]+/g,'_');
+            const path = `fieldTrials/${ref.id}/${safe}`;
+            const r = stRef(st, path);
+            await uploadBytes(r, f, { contentType: f.type || 'application/octet-stream' });
+            const url = await getDownloadURL(r);
+            out.push({ name: f.name, url, path });
+          }
+
+          await updateDoc(doc(db, 'fieldTrials', ref.id), {
+            files: out,
+            updatedAt: serverTimestamp()
+          });
+        }catch(stErr){
+          console.error(stErr);
+          $("err").hidden = false;
+          $("err").textContent = `Trial saved, but file upload failed: ${stErr.message}`;
+        }
+      }
+
+      showToast("Field trial saved.");
+      setTimeout(goPortal, 600);
+    }
+
+    (async ()=>{
+      const ctx  = await ready;
+      const db   = getFirestore();
+      const auth = getAuth();
+
+      console.log("✅ Field Trial Add • Firebase ready:", ctx.mode, auth.currentUser?.email || '(anon)');
+
+      buildYearOptions();
+
+      // Seed type modal buttons
+      const cancelBtn  = $("seedTypeCancel");
+      const confirmBtn = $("seedTypeConfirm");
+
+      if (cancelBtn){
+        cancelBtn.addEventListener("click", ()=>{
+          // Reset type + hidden value and close modal
+          $("trialType").value = "";
+          $("seedTrialType").value = "";
+          applySeedTrialTypeUI();
+          closeSeedTypeModal();
+        });
+      }
+
+      if (confirmBtn){
+        confirmBtn.addEventListener("click", ()=>{
+          const choice = document.querySelector('input[name="seedTrialChoice"]:checked');
+          const err = $("seedTypeError");
+          if (!choice){
+            if (err){
+              err.textContent = "Please choose an option.";
+              err.hidden = false;
+            }
+            return;
+          }
+          if (err){
+            err.textContent = "";
+            err.hidden = true;
+          }
+          $("seedTrialType").value = choice.value;
+          closeSeedTypeModal();
+          applySeedTrialTypeUI();
+        });
+      }
+
+      // Trial type change handler
+      $("trialType").addEventListener("change", (e)=>{
+        const val = e.target.value;
+        if (val === "Seed Varieties"){
+          // If no seed trial type chosen yet, ask the question
+          if (!$("seedTrialType").value){
+            openSeedTypeModal();
+          } else {
+            applySeedTrialTypeUI();
+          }
+        } else {
+          // Any non-seed-varieties trial clears this extra flag
+          $("seedTrialType").value = "";
+          applySeedTrialTypeUI();
+        }
+      });
+
+      $("btnSave").addEventListener("click", () => handleSave(db, auth));
+      $("btnClear").addEventListener("click", () => goPortal());
+
+      $("btnBackTop").addEventListener("click", (e)=>{
+        e.preventDefault();
+        goPortal();
+      });
+
+      window.addEventListener('online', () => showToast("Back online — syncing…", 4000));
+      window.addEventListener('offline', () => showToast("Currently offline — using saved data", 4000));
+
+      // Initial UI state
+      applySeedTrialTypeUI();
+    })();
+  </script>
+</body>
+</html>

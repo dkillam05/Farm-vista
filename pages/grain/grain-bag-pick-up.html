@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Pick Up Bag</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- Absolute paths (required) -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
+  <!-- Theme + app CSS -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Ensure fv-shell -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <style>
+    /* ======================
+       FV Combo — Global Vars (from your template)
+       ====================== */
+    :root{
+      --combo-gap: 4px;             /* tight vertical gap under trigger */
+      --combo-radius: 12px;         /* panel rounding */
+      --combo-btn-radius: 10px;     /* trigger/search rounding */
+      --combo-shadow: 0 12px 26px rgba(0,0,0,.18);
+      --combo-item-pad: 10px 8px;
+      --combo-max-h: 50vh;
+
+      --card-max:1100px;
+      --page-bottom-gap:96px;
+      --accent:#2F6C3C;
+    }
+
+    body{ background:var(--app-bg,var(--surface)); }
+
+    .wrap{
+      max-width:var(--card-max);
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
+    }
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:visible;
+      margin-bottom:var(--page-bottom-gap);
+    }
+    .hero-head{
+      display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:center;
+      padding:14px 16px; border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+    }
+    .hero-head .icon{ width:24px; height:24px; color:var(--accent); display:grid; place-items:center }
+    .hero-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2 }
+    .muted{ color:var(--muted,#67706B) }
+
+    .body{ padding:16px; display:grid; gap:14px }
+    .row{ display:grid; gap:10px; grid-template-columns:1fr 1fr }
+    @media (max-width:880px){ .row{ grid-template-columns:1fr } }
+
+    /* Match FV look-and-feel (from template) */
+    .field{ position:relative }
+    .field label{ display:block; font-weight:800; margin:0 0 6px }
+
+    .input,.textarea,.buttonish{
+      width:100%; font:inherit; font-size:16px; color:var(--text);
+      background:var(--card-surface,var(--surface)); border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius); padding:12px; outline:none;
+    }
+    .textarea{ min-height:110px; resize:vertical }
+    .buttonish{ cursor:pointer; text-align:left; position:relative; padding-right:42px }
+    .buttonish.has-caret::after{
+      content:""; position:absolute; right:14px; top:50%; width:0; height:0;
+      border-left:6px solid transparent; border-right:6px solid transparent;
+      border-top:7px solid var(--muted,#67706B); transform:translateY(-50%); pointer-events:none;
+    }
+
+    .help{ font-size:13px; color:var(--muted,#67706B); margin-top:6px }
+    .error{ color:#b00020; font-weight:700 }
+
+    .actions{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:6px }
+    .btn{
+      display:inline-flex; align-items:center; justify-content:center; min-width:160px;
+      padding:12px 16px; border-radius:12px; border:1px solid var(--border);
+      background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text)!important; cursor:pointer;
+    }
+    .btn[disabled]{ opacity:.6; cursor:not-allowed }
+    .btn-primary{ border-color:transparent; background:#2F6C3C; color:#fff!important }
+
+    /* ======================
+       Combo core styles (from template)
+       ====================== */
+    .combo{ position:relative }
+
+    /* anchor so panel hugs the button width */
+    .combo .combo-anchor{
+      position:relative; display:inline-block; width:100%;
+    }
+
+    .combo-panel{
+      position:absolute; left:0; right:0; top:calc(100% + var(--combo-gap));
+      background:var(--surface); border:1px solid var(--border); border-radius:var(--combo-radius);
+      box-shadow:var(--combo-shadow); z-index:9999; padding:8px; display:none;
+    }
+    .combo-panel.show{ display:block }
+    .combo-panel .search{ padding:4px 2px 8px }
+    .combo-panel .search input{
+      width:100%; padding:10px; border:1px solid var(--border); border-radius:var(--combo-btn-radius)
+    }
+    .combo-panel .list{ max-height:var(--combo-max-h); overflow:auto; border-top:1px solid var(--border) }
+    .combo-item{ padding:var(--combo-item-pad); border-bottom:1px solid var(--border); cursor:pointer }
+    .combo-item:hover{ background:rgba(0,0,0,.04) }
+    .combo-item:last-child{ border-bottom:none }
+    .combo-empty{ padding:var(--combo-item-pad); color:#67706B }
+
+    .cards{ display:grid; grid-template-columns:1fr; gap:12px }
+    .card{
+      border:1px solid var(--border); border-radius:12px; background:var(--surface);
+      padding:12px; display:grid; gap:10px
+    }
+    .kvs{ display:flex; flex-wrap:wrap; gap:10px }
+    .kv{ background:var(--card-surface,var(--surface)); border:1px dashed var(--border); border-radius:10px; padding:8px 10px }
+
+    .toast{
+      position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom,0px) + 72px);
+      transform:translateX(-50%);
+      background:#2F6C3C; color:#fff; padding:10px 14px; border-radius:10px;
+      box-shadow:0 6px 20px rgba(0,0,0,.25); z-index:99999; display:none
+    }
+    .toast.show{ display:block; animation:fadeout 5s forwards }
+    @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+
+    /* Centered modal keeps fv-shell visible */
+    .modal{ position:fixed; inset:0; display:none; place-items:center; z-index:10000; }
+    .modal.show{ display:grid; }
+    .modal::before{ content:""; position:absolute; inset:0; background:rgba(0,0,0,.38); }
+    .modal .panel{
+      position:relative; z-index:1; width:min(860px,92vw); max-height:86vh; overflow:auto;
+      background:var(--surface); border:1px solid var(--border); border-radius:16px; box-shadow:0 18px 50px rgba(0,0,0,.28);
+      padding:16px;
+    }
+    .modal h3{ margin:0 0 4px }
+    .grid-2{display:grid;gap:10px;grid-template-columns:1fr 1fr}
+    @media (max-width:880px){.grid-2{grid-template-columns:1fr}}
+    .row-mini{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end}
+    @media (max-width:640px){.row-mini{grid-template-columns:1fr}}
+    .inline-help{ font-size:13px; color:#67706B; }
+  </style>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🧲</div>
+          <div>
+            <h1>Pick Up Bag</h1>
+            <p class="muted">Only shows fields with open bags for the selected crop year.</p>
+          </div>
+        </header>
+
+        <div class="body">
+          <!-- Match Put Bag Down: FIELD (left) • YEAR (right) -->
+          <div class="row">
+            <!-- Field (searchable, filtered to open) -->
+            <div class="field combo" id="fieldCombo">
+              <label for="fieldBtn">Field</label>
+              <div class="combo-anchor">
+                <button id="fieldBtn" class="buttonish has-caret" type="button">— Select field —</button>
+                <div class="combo-panel" id="fieldPanel" role="listbox" aria-label="Field list">
+                  <div class="search"><input id="fieldSearch" type="search" placeholder="Search fields…"/></div>
+                  <div class="list" id="fieldList"></div>
+                </div>
+              </div>
+              <div id="fieldHelp" class="help">—</div>
+            </div>
+
+            <!-- Crop Year (non-search) -->
+            <div class="field combo" id="yearCombo">
+              <label for="yearBtn">Crop Year</label>
+              <div class="combo-anchor">
+                <button id="yearBtn" class="buttonish has-caret" type="button">— Select —</button>
+                <div class="combo-panel" id="yearPanel" role="listbox" aria-label="Year list">
+                  <div class="list" id="yearList"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Crop filter appears after field chosen -->
+          <div class="row" id="cropRow" hidden>
+            <div class="field combo" id="cropCombo">
+              <label for="cropBtn">Crop Type</label>
+              <div class="combo-anchor">
+                <button id="cropBtn" class="buttonish has-caret" type="button">— Select —</button>
+                <div class="combo-panel" id="cropPanel" role="listbox" aria-label="Crop list">
+                  <div class="list" id="cropList"></div>
+                </div>
+              </div>
+            </div>
+            <div class="field">
+              <label>&nbsp;</label>
+              <div id="summary" class="kv">—</div>
+            </div>
+          </div>
+
+          <!-- Open bags list -->
+          <div class="field">
+            <label>Open Bags in Field</label>
+            <div id="listHelp" class="help">Choose Field, then adjust Year if needed.</div>
+            <div id="bagList" class="cards"></div>
+          </div>
+
+          <!-- One action button for entire list -->
+          <div class="actions" id="bulkActions" hidden>
+            <button id="openPickup" class="btn btn-primary" type="button">Pick Up</button>
+            <button id="btnCancelTop" class="btn" type="button">Cancel</button>
+          </div>
+
+          <div id="pageErr" class="help error" hidden></div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <!-- Centered MODAL for pickup -->
+  <div id="pickupModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="pickupTitle">
+    <div class="panel">
+      <h3 id="pickupTitle">Complete Pickup</h3>
+      <div id="pickupMeta" class="help" style="margin-bottom:6px"></div>
+
+      <div class="grid-2" style="margin-bottom:8px">
+        <div class="field combo" id="empCombo">
+          <label>Employee (required)</label>
+          <div class="combo-anchor">
+            <button id="empBtn" class="buttonish has-caret" type="button">— Select —</button>
+            <div class="combo-panel" role="listbox" aria-label="Employee list">
+              <div class="list" id="empList"></div>
+            </div>
+          </div>
+          <div id="empHelp" class="help">Defaults to current user if listed.</div>
+        </div>
+        <div class="field">
+          <label for="sheetDate">Pickup Date</label>
+          <input id="sheetDate" class="input" type="date"/>
+        </div>
+      </div>
+
+      <!-- Consolidated totals -->
+      <div class="row-mini" style="margin-bottom:8px">
+        <div class="field">
+          <label id="fullLbl">Full picked up</label>
+          <input id="fullTake" class="input" type="number" min="0" step="1" value="0"/>
+        </div>
+        <div class="field">
+          <label id="partLbl">Partial picked up</label>
+          <input id="partTake" class="input" type="number" min="0" step="1" value="0"/>
+        </div>
+      </div>
+      <div class="inline-help" id="totalsHelp">—</div>
+
+      <div class="field" style="margin-top:10px">
+        <label for="sheetNotes">Notes</label>
+        <textarea id="sheetNotes" class="textarea" placeholder="Optional"></textarea>
+      </div>
+
+      <div class="field">
+        <label for="sheetFiles">Optional Photos</label>
+        <input id="sheetFiles" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
+      </div>
+
+      <div id="sheetErr" class="help error" hidden></div>
+
+      <div class="actions" style="margin-top:8px">
+        <button id="cancelPickup" class="btn" type="button">Cancel</button>
+        <button id="confirmPickup" class="btn btn-primary" type="button">Mark Picked Up</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+
+  <!-- Firebase (modular) -->
+  <script type="module">
+    import {
+      ready, getFirestore, getAuth,
+      collection, getDocs, addDoc, doc, updateDoc,
+      serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
+
+    // Lazy Storage for photos
+    async function loadStorageFns(){
+      const m = await import('/Farm-vista/js/firebase-init.js');
+      return { getStorage:m.getStorage, ref:m.ref, uploadBytes:m.uploadBytes, getDownloadURL:m.getDownloadURL };
+    }
+
+    /* Utils */
+    const $ = id => document.getElementById(id);
+    const esc = s => String(s??"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+    const toast = (msg="Saved.", ms=4200)=>{ const t=$("toast"); t.textContent=msg; t.classList.remove("show"); void t.offsetWidth; t.classList.add("show"); setTimeout(()=>t.classList.remove('show'),ms); };
+    const todayISO = ()=>{ const d=new Date(); const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; };
+    const toNum = v => (v===undefined||v===null||v==="") ? NaN : Number(v);
+    const yearOf = (row)=>{
+      const cy = toNum(row.cropYear);
+      if(!Number.isNaN(cy)) return cy;
+      const dp = row.datePlaced;
+      if(typeof dp==="string" && /^\d{4}-\d{2}-\d{2}$/.test(dp)) return Number(dp.slice(0,4));
+      return null;
+    };
+    const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
+    const scrollTop = ()=> window.scrollTo({top:0, behavior:'smooth'});
+
+    /* State */
+    let YEAR = new Date().getFullYear();
+    let EMPLOYEES = [];
+    let FIELDS_INDEX = [];
+    // Map: fieldId -> { id,name, crops: { 'Corn':[rows], 'Soybeans':[rows], ... } }
+    let OPEN_INDEX = new Map();
+    let CHOSEN_FIELD = null;
+    let CHOSEN_CROP = null;
+
+    /* One-open-at-a-time management (from template behavior) */
+    function closeAllCombos(except=null){
+      document.querySelectorAll('.combo-panel.show').forEach(p=>{ if(p!==except) p.classList.remove('show'); });
+    }
+    document.addEventListener('click', ()=> closeAllCombos());
+    document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeAllCombos(); $("pickupModal").classList.remove('show'); } });
+
+    /* Reusable combo */
+    function makeCombo({ btn, panel, list, items=[], searchable=false, formatter=x=>String(x?.label??x), onPick }){
+      // prevent outside-close while clicking inside the panel
+      panel.addEventListener('click', e=> e.stopPropagation());
+      panel.addEventListener('mousedown', e=> e.stopPropagation());
+
+      function render(q=""){
+        const qq=(q||"").toLowerCase();
+        list.innerHTML = (items||[])
+          .filter(x=>!qq || formatter(x).toLowerCase().includes(qq))
+          .map(x=>`<div class="combo-item" data-id="${String(x.id)}">${esc(formatter(x))}</div>`)
+          .join('') || `<div class="combo-empty">(no matches)</div>`;
+      }
+      function open(){
+        closeAllCombos(panel);
+        panel.classList.add('show');
+        render("");
+        if(searchable){
+          const inp = panel.querySelector('input');
+          if(inp){ inp.value=""; inp.focus(); }
+        }
+      }
+      function close(){ panel.classList.remove('show'); }
+
+      btn.addEventListener('click', e=>{
+        e.stopPropagation();
+        panel.classList.contains('show') ? close() : open();
+      });
+
+      // mousedown so it fires before document click
+      list.addEventListener('mousedown', e=>{
+        const row = e.target.closest('.combo-item'); if(!row) return;
+        const id  = row.dataset.id;
+        const it  = (items||[]).find(x=>String(x.id)===id);
+        if(!it) return;
+        onPick?.(it);
+        close();
+      });
+
+      if(searchable){
+        const s = panel.querySelector('input');
+        if(s){ s.addEventListener('input', e=> render(e.target.value)); }
+      }
+
+      return { setItems(arr){ items = Array.isArray(arr)?arr:[]; render(""); }, open, close };
+    }
+
+    /* Format helpers */
+    const skuText = r => `${r.bagSku?.brand||'Bag'} — ${r.bagSku?.sizeFeet||'?'} ft`;
+    const countsText = r => `${Number(r.counts?.full||0)} full, ${Number(r.counts?.partial||0)} partial`;
+    const consolidated = (rows)=>{
+      let full=0, partial=0;
+      rows.forEach(r=>{ full += Number(r.counts?.full||0); partial += Number(r.counts?.partial||0); });
+      return {full, partial, entries:rows.length};
+    };
+
+    /* Data loads */
+    async function loadEmployees(db, auth){
+      const list=[];
+      try{
+        const snap = await getDocs(collection(db,'employees'));
+        snap.forEach(d=>{
+          const x=d.data()||{};
+          list.push({ id:d.id, name:x.name||x.displayName||x.fullName||x.email||d.id, email:x.email||d.id });
+        });
+      }catch(e){ console.warn("employees load:", e); }
+      list.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+      EMPLOYEES = list;
+      empCombo.setItems(list);
+
+      const me = (getAuth().currentUser?.email||"").toLowerCase();
+      const mine = EMPLOYEES.find(e=> (e.email||"").toLowerCase()===me ) || EMPLOYEES[0];
+      if(mine){ $("empBtn").textContent=mine.name; $("empBtn").dataset.value=mine.id; }
+    }
+
+    async function loadFields(db){
+      const arr=[];
+      try{
+        const snap = await getDocs(collection(db,'fields'));
+        snap.forEach(d=>{
+          const x=d.data()||{};
+          const name=String(x.name||"").trim();
+          if(name) arr.push({id:d.id, name});
+        });
+      }catch(e){ console.warn("fields load:", e); }
+      arr.sort((a,b)=>a.name.localeCompare(b.name));
+      FIELDS_INDEX = arr;
+    }
+
+    async function buildOpenIndexForYear(db){
+      OPEN_INDEX.clear();
+      $("fieldHelp").textContent = "Loading…";
+      try{
+        const snap = await getDocs(collection(db,'grain_bag_events'));
+        snap.forEach(d=>{
+          const x = d.data()||{};
+          const isPut = (x.type === 'putDown');
+          const open = !x.status || x.status!=='pickedUp';
+          if(!isPut || !open) return;
+
+          const yr = yearOf(x);
+          if(yr===null || Number(yr)!==Number(YEAR)) return;
+
+          const fid = x.field?.id; if(!fid) return;
+          const name = (FIELDS_INDEX.find(f=>f.id===fid)?.name) || x.field?.name || fid;
+          const crop = x.cropType || x.crop || 'Unknown';
+          const row = { id:d.id, ...x };
+
+          if(!OPEN_INDEX.has(fid)) OPEN_INDEX.set(fid, { id:fid, name, crops:{} });
+          const bucket = OPEN_INDEX.get(fid).crops;
+          (bucket[crop] ||= []).push(row);
+        });
+
+        for(const [fid, obj] of [...OPEN_INDEX.entries()]){
+          const hasAny = Object.values(obj.crops).some(arr => (arr||[]).length>0);
+          if(!hasAny) OPEN_INDEX.delete(fid);
+        }
+        $("fieldHelp").textContent = `${OPEN_INDEX.size} field(s) with open bags in ${YEAR}`;
+      }catch(err){
+        console.error("buildOpenIndexForYear error:", err);
+        $("fieldHelp").textContent = `0 field(s) (load error)`;
+      }
+      fieldCombo.setItems( [...OPEN_INDEX.values()]
+        .sort((a,b)=>(a.name||"").localeCompare(b.name||""))
+        .map(f=>({id:f.id,name:f.name})) );
+    }
+
+    const cropsForField = fid => {
+      const obj = OPEN_INDEX.get(fid);
+      return obj ? Object.keys(obj.crops).sort() : [];
+    };
+    function rowsForCurrent(){
+      if(!CHOSEN_FIELD) return [];
+      const obj = OPEN_INDEX.get(CHOSEN_FIELD.id);
+      if(!obj) return [];
+      if(!CHOSEN_CROP) return Object.values(obj.crops).flat();
+      return obj.crops[CHOSEN_CROP] || [];
+    }
+
+    /* Combos */
+    const nowY = new Date().getFullYear();
+    const YEAR_ITEMS = [nowY-1, nowY, nowY+1].map(v=>({id:String(v), value:v, label:String(v)}));
+
+    const yearCombo = makeCombo({
+      btn:  $("yearBtn"),
+      panel:$("yearPanel"),
+      list: $("yearList"),
+      items: YEAR_ITEMS,
+      searchable: false,
+      formatter: x => x.label,
+      onPick: async (it)=>{
+        YEAR = Number(it.value);
+        $("yearBtn").textContent = it.label;
+        CHOSEN_FIELD = null; CHOSEN_CROP=null;
+        $("fieldBtn").textContent="— Select field —";
+        $("summary").textContent="—"; $("cropRow").hidden=true;
+        $("bagList").innerHTML=""; $("listHelp").textContent="Choose Field.";
+        $("bulkActions").hidden = true;
+        await buildOpenIndexForYear(db);
+      }
+    });
+
+    const fieldCombo = makeCombo({
+      btn:  $("fieldBtn"),
+      panel:$("fieldPanel"),
+      list: $("fieldList"),
+      items: [],
+      searchable: true,
+      formatter: x => x.name,
+      onPick: async (it)=>{
+        CHOSEN_FIELD = it;
+        $("fieldBtn").textContent = it.name;
+
+        const crops = cropsForField(it.id).map(c=>({id:c,label:c,value:c}));
+        cropCombo.setItems(crops);
+        if(crops.length){
+          CHOSEN_CROP = crops[0].value;
+          $("cropBtn").textContent = crops[0].label;
+          $("cropRow").hidden = false;
+        }else{
+          CHOSEN_CROP = null;
+          $("cropRow").hidden = true;
+        }
+        await renderOpenBags();
+      }
+    });
+
+    const cropCombo = makeCombo({
+      btn:  $("cropBtn"),
+      panel:$("cropPanel"),
+      list: $("cropList"),
+      items: [],
+      searchable: false,
+      formatter: x => x.label,
+      onPick: async (it)=>{
+        CHOSEN_CROP = it.value;
+        $("cropBtn").textContent = it.label;
+        await renderOpenBags();
+      }
+    });
+
+    // Employee combo (modal)
+    const empCombo = makeCombo({
+      btn:  $("empBtn"),
+      panel:$("empBtn").nextElementSibling, // panel is the next sibling inside combo-anchor
+      list: $("empList"),
+      items: [],
+      searchable: false,
+      formatter: x => x.name,
+      onPick: it => { $("empBtn").textContent = it.name; $("empBtn").dataset.value = it.id; }
+    });
+
+    /* Render list */
+    async function renderOpenBags(){
+      $("bagList").innerHTML = "";
+      $("bulkActions").hidden = true;
+      if(!CHOSEN_FIELD){ $("listHelp").textContent="Choose Field."; return; }
+
+      const rows = rowsForCurrent();
+      if(!rows.length){
+        $("listHelp").textContent = "No open bags.";
+        $("summary").textContent = "—";
+        $("bagList").innerHTML = `<div class="card">No open bags for <b>${esc(CHOSEN_FIELD.name)}</b>${CHOSEN_CROP?` • ${esc(CHOSEN_CROP)}`:''} in ${esc(String(YEAR))}.</div>`;
+        return;
+      }
+
+      rows.sort((a,b)=>(Number(b.priority||0)-Number(a.priority||0)) || String(a.datePlaced||"").localeCompare(String(b.datePlaced||"")));
+
+      const sum = consolidated(rows);
+      $("summary").innerHTML = `<b>Total:</b> ${sum.full} full, ${sum.partial} partial • ${sum.entries} open entr${sum.entries===1?'y':'ies'}`;
+      $("listHelp").textContent = `${rows.length} open bag entr${rows.length===1?'y':'ies'}`;
+
+      $("bagList").innerHTML = rows.map(r=>{
+        return `
+          <div class="card">
+            <div class="kvs">
+              <span class="kv"><b>Placed:</b> ${esc(r.datePlaced||'—')}</span>
+              <span class="kv"><b>SKU:</b> ${esc(skuText(r))}</span>
+              <span class="kv"><b>Count:</b> ${esc(countsText(r))}</span>
+              <span class="kv"><b>Priority:</b> ${Number(r.priority||0)}</span>
+              <span class="kv"><b>Crop:</b> ${esc(r.cropType||r.crop||'—')}</span>
+            </div>
+            <div class="help">By: ${esc(r.submittedBy?.name || r.submittedBy?.email || 'Unknown')}</div>
+          </div>
+        `;
+      }).join('');
+
+      $("bulkActions").hidden = false;
+    }
+
+    /* Modal */
+    function openPickupModal(){
+      const rows = rowsForCurrent();
+      if(!rows.length) return;
+
+      const sum = consolidated(rows);
+      const maxFull = Number(sum.full||0);
+      const maxPart = Number(sum.partial||0);
+
+      $("sheetErr").hidden = true;
+      $("sheetNotes").value = "";
+      $("sheetFiles").value = "";
+      $("sheetDate").value = todayISO();
+
+      $("pickupMeta").innerHTML = `Field: <b>${esc(CHOSEN_FIELD?.name||'')}</b>${CHOSEN_CROP?` • Crop: <b>${esc(CHOSEN_CROP)}</b>`:''} • Year: <b>${esc(String(YEAR))}</b>`;
+      $("fullLbl").textContent = `Full picked up (0–${maxFull})`;
+      $("partLbl").textContent = `Partial picked up (0–${maxPart})`;
+      $("fullTake").value = "0"; $("fullTake").max = String(maxFull);
+      $("partTake").value = "0"; $("partTake").max = String(maxPart);
+      $("totalsHelp").textContent = `${maxFull} full and ${maxPart} partial available across ${rows.length} entr${rows.length===1?'y':'ies'}.`;
+
+      $("pickupModal").classList.add('show');
+    }
+    function closePickupModal(){ $("pickupModal").classList.remove('show'); }
+
+    // Distribute totals across rows (oldest placed first)
+    function distribute(rows, takeFull, takePart){
+      const sorted = [...rows].sort((a,b)=> String(a.datePlaced||"").localeCompare(String(b.datePlaced||"")));
+      const plan = [];
+      let f = takeFull|0, p = takePart|0;
+      for(const r of sorted){
+        const haveF = Number(r.counts?.full||0);
+        const haveP = Number(r.counts?.partial||0);
+        const useF = Math.min(haveF, Math.max(0,f));
+        f -= useF;
+        const useP = Math.min(haveP, Math.max(0,p));
+        p -= useP;
+        if(useF>0 || useP>0){
+          plan.push({ id:r.id, useFull:useF, usePart:useP, leftFull:haveF-useF, leftPart:haveP-useP, row:r });
+        }
+        if(f<=0 && p<=0) break;
+      }
+      return plan;
+    }
+
+    async function savePickup(db, auth){
+      const btn = $("confirmPickup");
+      btn.disabled = true;
+      $("sheetErr").hidden = true;
+
+      try{
+        const empId = $("empBtn")?.dataset.value || "";
+        if(!empId) throw new Error("Please choose an employee.");
+        const me = auth.currentUser;
+        const emp = EMPLOYEES.find(e=>e.id===empId) || {};
+        const who = {
+          employeeId: empId,
+          name: emp.name || me?.displayName || me?.email || "Unknown",
+          email: emp.email || me?.email || null
+        };
+        const when = $("sheetDate").value || todayISO();
+        const note = $("sheetNotes").value.trim();
+
+        const rows = rowsForCurrent();
+        const sum = consolidated(rows);
+        const wantFull = clamp(Number($("fullTake").value||0), 0, Number(sum.full||0));
+        const wantPart = clamp(Number($("partTake").value||0), 0, Number(sum.partial||0));
+        if(wantFull===0 && wantPart===0) throw new Error("Enter a pickup amount.");
+
+        const plan = distribute(rows, wantFull, wantPart);
+        if(!plan.length) throw new Error("Nothing to pick with those amounts.");
+
+        // Optional photos
+        let uploaded = [];
+        const files = Array.from(($("sheetFiles").files||[]));
+        if(files.length){
+          const { getStorage, ref:stRef, uploadBytes, getDownloadURL } = await loadStorageFns();
+          const st = getStorage();
+          for(const f of files){
+            const safe=(Date.now()+'-'+f.name).replace(/[^\w.\-]+/g,'_');
+            const path=`grain_bag_events/bulkPickup/${safe}`;
+            const r = stRef(st,path);
+            await uploadBytes(r, f, {contentType:f.type||'application/octet-stream'});
+            const url=await getDownloadURL(r);
+            uploaded.push({name:f.name, url, path});
+          }
+        }
+
+        // Create batch pickUp event
+        const ev = {
+          type:'pickUp',
+          field:{ id:CHOSEN_FIELD.id, name:CHOSEN_FIELD.name },
+          cropYear: YEAR,
+          crop: CHOSEN_CROP || null,
+          countsPicked:{ full:wantFull, partial:wantPart },
+          appliedTo: plan.map(p=>({refPutDownId:p.id, takeFull:p.useFull, takePartial:p.usePart})),
+          notes: note,
+          pickedUpDate: when,
+          pickedUpBy: who,
+          ...(uploaded.length ? { files: uploaded } : {}),
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        };
+
+        await addDoc(collection(db,'grain_bag_events'), ev);
+
+        // Update each source row
+        for(const p of plan){
+          const statusDone = (p.leftFull===0 && p.leftPart===0) ? 'pickedUp' : null;
+          const patch = {
+            'counts.full': p.leftFull,
+            'counts.partial': p.leftPart,
+            updatedAt: serverTimestamp()
+          };
+          if(statusDone){
+            patch.status='pickedUp';
+            patch.pickedUpAt=when;
+            patch.pickedUpBy=who;
+          }
+          await updateDoc(doc(db,'grain_bag_events', p.id), patch);
+        }
+
+        // Success UX
+        closePickupModal();
+        await buildOpenIndexForYear(db);
+
+        CHOSEN_FIELD=null; CHOSEN_CROP=null;
+        $("fieldBtn").textContent="— Select field —";
+        $("cropRow").hidden=true; $("summary").textContent="—";
+        $("bagList").innerHTML=""; $("listHelp").textContent="Choose Field.";
+        $("bulkActions").hidden = true;
+        scrollTop();
+        toast("Pickup saved.");
+      }catch(err){
+        $("sheetErr").textContent = err.message || String(err);
+        $("sheetErr").hidden = false;
+      }finally{
+        btn.disabled = false;
+      }
+    }
+
+    /* Boot */
+    let db, auth;
+    (async()=>{
+      await ready;
+      db = getFirestore(); auth = getAuth();
+
+      // Default year and items
+      YEAR = new Date().getFullYear();
+      $("yearBtn").textContent = String(YEAR);
+      yearCombo.setItems([YEAR-1, YEAR, YEAR+1].map(v=>({id:String(v), value:v, label:String(v)})));
+
+      await Promise.all([ loadEmployees(db, auth), loadFields(db) ]);
+      await buildOpenIndexForYear(db);
+      $("listHelp").textContent = "Choose Field.";
+
+      // Actions
+      $("openPickup").addEventListener('click', openPickupModal);
+      $("cancelPickup").addEventListener('click', closePickupModal);
+      $("confirmPickup").addEventListener('click', ()=> savePickup(db, auth));
+
+      // NEW: Top Cancel to go back to previous page
+      const cancelTop = document.getElementById("btnCancelTop");
+      if(cancelTop){ cancelTop.addEventListener("click", ()=> window.history.back()); }
+
+      // Network hints
+      window.addEventListener('online', ()=> toast("Back online — syncing…", 3000));
+      window.addEventListener('offline',()=> toast("Currently offline — using saved data", 3000));
+    })();
+  </script>
+</body>
+</html>

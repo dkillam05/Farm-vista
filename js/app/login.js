@@ -1,154 +1,121 @@
-/**
- * FarmVista — login.js
- * Handles email/password authentication using the firebase-init bridge. The
- * module keeps the previous login behaviour (email memo + forgot password)
- * while automatically provisioning stub accounts when Firebase config is
- * missing.
- */
+// /Farm-vista/js/app/login.js
+// Works under <base href="/Farm-vista/">
 
 import {
   ready,
   getAuth,
-  onAuthStateChanged,
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
   sendPasswordResetEmail,
-  setPersistence,
-  browserLocalPersistence,
+  // onAuthStateChanged,   // ❌ not needed for auto-nav anymore
   isStub
-} from '../firebase-init.js';
-import { ensureUserProfile } from './user-profile.js';
+} from '../firebase-init.js'; // base-relative import
 
-const form = document.getElementById('loginForm');
-if (!form) {
-  console.warn('[FV] login form not found');
-} else {
-  const emailInput = document.getElementById('email');
-  const passwordInput = document.getElementById('password');
-  const errBox = document.getElementById('errBox');
-  const signInBtn = document.getElementById('signIn');
-  const forgotLink = document.getElementById('forgot');
+const els = {
+  form: document.getElementById('loginForm'),
+  email: document.getElementById('email'),
+  password: document.getElementById('password'),
+  err: document.getElementById('errBox'),
+  forgot: document.getElementById('forgot')
+};
+
+function showErr(msg){
+  if (!els.err) return;
+  els.err.textContent = msg || '';
+}
+
+// App home (resolves under the <base href="/Farm-vista/">)
+const DEFAULT_HOME = 'index.html';
+
+function resolveUnderBase(pathLike){
+  try {
+    const u = new URL(pathLike, document.baseURI || location.href);
+    // Return path+search+hash (base-relative)
+    return u.pathname + (u.search || '') + (u.hash || '');
+  } catch {
+    return pathLike;
+  }
+}
+
+function nextUrl() {
   const qs = new URLSearchParams(location.search);
-  const nextUrl = qs.get('next');
-  const defaultRedirect = '/Farm-vista/dashboard/';
+  const hint = (qs.get('next') || '').trim();
+  const target = hint || DEFAULT_HOME;
+  return resolveUnderBase(target);
+}
 
-  let authInstance = null;
-  let listenerBound = false;
+(async function boot(){
+  let ctx, auth;
 
-  const redirect = () => {
-    const target = (typeof nextUrl === 'string' && nextUrl.startsWith('/Farm-vista/')) ? nextUrl : defaultRedirect;
-    location.replace(target);
-  };
+  try {
+    await import('../firebase-init.js');
+    ctx = await ready;
+    auth = ctx && ctx.auth ? ctx.auth : getAuth(ctx && ctx.app);
+  } catch (e) {
+    console.warn('[Login] firebase-init load failed:', e);
+    showErr('Unable to initialize authentication.');
+    return;
+  }
 
-  const resetError = () => {
-    if (errBox) {
-      errBox.textContent = '';
-      errBox.style.color = '';
-    }
-  };
+  // ❗️IMPORTANT: DO NOT auto-redirect if already signed in.
+  // This keeps the login page truly public and prevents any bounce.
 
-  const showError = (message) => {
-    if (!errBox) return;
-    errBox.style.color = '';
-    errBox.textContent = message || '';
-  };
+  // Submit handler — this is the ONLY place we navigate away.
+  els.form?.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    showErr('');
 
-  const showMessage = (message) => {
-    if (!errBox) return;
-    errBox.style.color = '#2F6C3C';
-    errBox.textContent = message || '';
-  };
+    const email = (els.email?.value || '').trim();
+    const pass  = els.password?.value || '';
 
-  const setBusy = (busy) => {
-    if (!signInBtn) return;
-    signInBtn.disabled = busy;
-    signInBtn.textContent = busy ? 'Signing in…' : 'Sign In';
-  };
-
-  const ensureAuth = async () => {
-    if (authInstance) return authInstance;
-    const { app } = await ready;
-    authInstance = getAuth(app);
-    if (!authInstance) throw new Error('Authentication unavailable');
-    try {
-      const persistence = browserLocalPersistence();
-      if (persistence) await setPersistence(authInstance, persistence);
-    } catch (err) {
-      console.warn('[FV] persistence setup failed:', err);
-    }
-    if (!listenerBound) {
-      onAuthStateChanged(authInstance, (user) => { if (user) redirect(); });
-      listenerBound = true;
-    }
-    return authInstance;
-  };
-
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    resetError();
-    const email = (emailInput?.value || '').trim();
-    const password = passwordInput?.value || '';
-    if (!email || !password) {
-      showError('Enter email and password.');
+    if (!email || !pass) {
+      showErr('Enter your email and password.');
       return;
     }
-    setBusy(true);
+
+    try { localStorage.setItem('fv_last_email', email); } catch {}
+
+    // Stub/offline: treat as success
+    if (ctx && isStub && isStub()) {
+      location.replace(nextUrl());
+      return;
+    }
+
     try {
-      const auth = await ensureAuth();
-      let credential;
-      try {
-        credential = await signInWithEmailAndPassword(auth, email, password);
-      } catch (err) {
-        if (isStub() && err && err.code === 'auth/user-not-found') {
-          credential = await createUserWithEmailAndPassword(auth, email, password, { displayName: email.split('@')[0] });
-        } else {
-          throw err;
-        }
-      }
-      if (credential && credential.user) {
-        await ensureUserProfile(credential.user);
-        try { localStorage.setItem('fv_last_email', email); } catch {}
-        redirect();
-      }
+      await signInWithEmailAndPassword(auth, email, pass);
+      location.replace(nextUrl());
     } catch (err) {
-      console.warn('[FV] sign-in error:', err);
-      const code = err?.code || '';
-      if (code.includes('wrong-password') || code.includes('invalid-credential')) {
-        showError('Wrong email or password.');
-      } else if (code.includes('user-not-found')) {
-        showError('No account found for this email.');
-      } else if (code.includes('too-many-requests')) {
-        showError('Too many attempts. Try again later.');
-      } else if (code.includes('invalid-email')) {
-        showError('Enter a valid email address.');
-      } else {
-        showError('Sign-in failed.');
-      }
-    } finally {
-      setBusy(false);
+      console.warn('[Login] sign-in error:', err);
+      const code = (err && err.code) || '';
+      let msg = 'Sign in failed. Please check your email and password.';
+      if (code === 'auth/invalid-email') msg = 'That email address looks invalid.';
+      else if (code === 'auth/user-disabled') msg = 'This account has been disabled.';
+      else if (code === 'auth/user-not-found' || code === 'auth/wrong-password') msg = 'Incorrect email or password.';
+      else if (code === 'auth/too-many-requests') msg = 'Too many attempts. Please try again later.';
+      showErr(msg);
     }
   });
 
-  if (forgotLink) {
-    forgotLink.addEventListener('click', async (event) => {
-      event.preventDefault();
-      resetError();
-      const email = (emailInput?.value || '').trim();
-      if (!email) {
-        showError('Enter your email first, then tap “Forgot password?”.');
-        return;
-      }
-      try {
-        const auth = await ensureAuth();
-        await sendPasswordResetEmail(auth, email);
-        showMessage('Reset link sent (if the email exists).');
-        setTimeout(() => resetError(), 4500);
-      } catch (err) {
-        console.warn('[FV] reset email failed:', err);
-        showError('Unable to send reset email.');
-      }
-    });
-  }
+  // Forgot password handler
+  els.forgot?.addEventListener('click', async (e)=>{
+    e.preventDefault();
+    showErr('');
+    const email = (els.email?.value || '').trim();
+    if (!email) {
+      showErr('Enter your email above, then tap “Forgot password?”.');
+      return;
+    }
 
-  ensureAuth().catch((err) => console.warn('[FV] auth bootstrap failed:', err));
-}
+    if (ctx && isStub && isStub()) {
+      showErr('Password reset is unavailable in offline mode.');
+      return;
+    }
+
+    try {
+      await sendPasswordResetEmail(auth, email);
+      showErr('Reset link sent if the email exists.');
+    } catch (err) {
+      console.warn('[Login] reset error:', err);
+      showErr('Could not send reset link. Please try again later.');
+    }
+  });
+})();

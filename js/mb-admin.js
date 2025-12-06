@@ -1,15 +1,20 @@
-/* /js/mb-admin.js — Message Board Admin (localStorage only)
-   Storage key: "df_message_board"
-   Message shape:
-   { id: string, title?: string, body: string, pinned?: boolean,
-     createdAt: number, expiresAt?: number|null, authorName?: string }
+/* /js/mb-admin.js — Message Board Admin (FVData + Firestore; LS fallback)
+   Collection: "messageBoard"
+   Doc shape:
+   {
+     title?: string, body: string, pinned?: boolean,
+     expiresAt?: number|null, authorName?: string,
+     // FVData stamps: uid, createdAt, updatedAt
+   }
 */
 (function () {
-  const LS_KEY = 'df_message_board';
+  'use strict';
 
-  // DOM helpers
+  const COL = 'messageBoard';
+  const LS_KEY = 'df_message_board_fallback';
+
+  // ---------- DOM ----------
   const $ = (s, r=document) => r.querySelector(s);
-  const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
   const ui = {
     title:   $('#title'),
     author:  $('#author'),
@@ -17,35 +22,22 @@
     expires: $('#expires'),
     pinned:  $('#pinned'),
     saveBtn: $('#saveBtn'),
-    exportBtn: $('#exportBtn'),         // may be null (we removed Import/Export from Tools)
-    importFile: $('#importFile'),       // may be null
     purgeExpiredBtn: $('#purgeExpiredBtn'),
     clearAllBtn: $('#clearAllBtn'),
     list:    $('#list'),
     counts:  $('#counts'),
   };
 
-  // State
+  // ---------- State ----------
   let editingId = null;
+  let useLS = false; // flips to true if FVData not ready
 
-  // Utils
-  const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+  // ---------- Utils ----------
+  const uidLocal = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
   const now = () => Date.now();
 
-  const load = () => {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      const arr = raw ? JSON.parse(raw) : [];
-      return Array.isArray(arr) ? arr : [];
-    } catch { return []; }
-  };
-
-  const save = (arr) => {
-    localStorage.setItem(LS_KEY, JSON.stringify(arr));
-  };
-
   const toMs = (v) => {
-    if (!v) return null;
+    if (v == null || v === '') return null;
     if (typeof v === 'number') return v;
     const t = Date.parse(v);
     return Number.isFinite(t) ? t : null;
@@ -61,76 +53,99 @@
     } catch { return ''; }
   };
 
-  const normalize = (m) => ({
-    id: m.id || uid(),
-    title: (m.title || '').toString().trim(),
-    body: (m.body || '').toString().trim(),
-    pinned: !!m.pinned,
-    createdAt: toMs(m.createdAt) ?? now(),
-    expiresAt: toMs(m.expiresAt),
-    authorName: (m.authorName || '').toString().trim(),
-  });
-
-  // ---- Expiry helpers (validation + min for picker) ----
   function toLocalDatetimeValue(d){
     const p = (n)=> String(n).padStart(2,'0');
     return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
   }
   function setExpiresMin(){
-    if (!ui.expires) return;
     try {
       const oneMinuteAhead = new Date(Date.now() + 60_000);
-      ui.expires.min = toLocalDatetimeValue(oneMinuteAhead);
+      if (ui.expires) ui.expires.min = toLocalDatetimeValue(oneMinuteAhead);
     } catch {}
   }
 
-  // CRUD
-  function upsert(msg) {
-    const n = normalize(msg);
-    const list = load();
-    const i = list.findIndex(x => x.id === n.id);
-    if (i === -1) list.push(n); else list[i] = n;
-    save(list);
-    render();
-    return n.id;
+  // ---------- LocalStorage fallback ----------
+  const lsLoad = () => {
+    try { const raw = localStorage.getItem(LS_KEY); const arr = raw ? JSON.parse(raw) : []; return Array.isArray(arr)?arr:[]; }
+    catch { return []; }
+  };
+  const lsSave = (arr) => localStorage.setItem(LS_KEY, JSON.stringify(arr));
+  const lsUpsert = (msg) => {
+    const list = lsLoad();
+    const i = list.findIndex(x => x.id === msg.id);
+    if (i === -1) list.push(msg); else list[i] = msg;
+    lsSave(list);
+  };
+  const lsRemove = (id) => lsSave(lsLoad().filter(x=>x.id!==id));
+  const lsClearAll = () => localStorage.removeItem(LS_KEY);
+
+  // ---------- Data layer (FVData first) ----------
+  async function dlReady() {
+    try { await FVData.ready(); }
+    catch { /* ignore */ }
+    useLS = !window.FVData || typeof FVData.add !== 'function';
   }
 
-  function remove(id) {
-    const list = load().filter(x => x.id !== id);
-    save(list);
-    render();
+  async function dlListAll() {
+    if (useLS) return lsLoad();
+
+    // By default FVData.list() filters to current uid; for message board we usually want all.
+    const items = await FVData.list(COL, { limit: 500, mine: false });
+    // Normalize IDs on reads
+    return (items || []).map(x => ({ id:x.id, ...(x || {}) }));
   }
 
-  function purgeExpired() {
-    const t = now();
-    const list = load().filter(x => !x.expiresAt || x.expiresAt > t);
-    save(list);
-    render();
+  async function dlGet(id) {
+    if (useLS) return lsLoad().find(x=>x.id===id) || null;
+    const doc = await FVData.getDocData(`${COL}/${id}`);
+    return doc ? ({ id, ...doc }) : null;
   }
 
-  function clearAll() {
-    localStorage.removeItem(LS_KEY);
-    render();
-  }
-
-  // UI handlers
-  function onSave() {
-    const msg = {
-      id: editingId || null,
-      title: ui.title?.value || '',
-      body: ui.body?.value || '',
-      pinned: !!ui.pinned?.checked,
-      createdAt: editingId ? undefined : now(),
-      expiresAt: ui.expires?.value ? Date.parse(ui.expires.value) : null,
-      authorName: ui.author?.value || '',
-    };
-
-    if (!msg.body.trim()) {
-      alert('Message body is required.');
-      return;
+  async function dlUpsert(msg) {
+    if (useLS) {
+      if (!msg.id) msg.id = uidLocal();
+      lsUpsert(msg);
+      return msg.id;
     }
+    if (msg.id) {
+      const { id, ...rest } = msg;
+      await FVData.update(COL, id, rest);
+      return id;
+    } else {
+      const saved = await FVData.add(COL, msg);
+      return saved?.id || null;
+    }
+  }
 
-    // Validate expiry >= 1 minute in the future (if provided)
+  async function dlRemove(id) {
+    if (useLS) { lsRemove(id); return; }
+    await FVData.remove(COL, id);
+  }
+
+  async function dlClearAll() {
+    if (useLS) { lsClearAll(); return; }
+    // delete all docs owned by you (or everyone if you're owner/admin; FV rules will gate)
+    const items = await dlListAll();
+    for (const m of items) { try { await dlRemove(m.id); } catch {} }
+  }
+
+  // ---------- UI handlers ----------
+  function clearForm() {
+    if (ui.title) ui.title.value = '';
+    if (ui.author) ui.author.value = '';
+    if (ui.body) ui.body.value = '';
+    if (ui.expires) ui.expires.value = '';
+    if (ui.pinned) ui.pinned.checked = false;
+    setExpiresMin();
+    editingId = null;
+    if (ui.saveBtn) ui.saveBtn.textContent = 'Save Message';
+  }
+
+  async function onSave() {
+    const body = (ui.body?.value || '').trim();
+    if (!body) { alert('Message body is required.'); return; }
+
+    // Validate expiry >= +1 minute (if provided)
     if (ui.expires && ui.expires.value) {
       const expMs = Date.parse(ui.expires.value);
       if (!Number.isFinite(expMs)) {
@@ -138,7 +153,7 @@
         ui.expires.reportValidity();
         return;
       }
-      const minAllowed = Date.now() + 60_000; // 1 minute
+      const minAllowed = Date.now() + 60_000;
       if (expMs < minAllowed) {
         ui.expires.setCustomValidity('Expiry must be at least 1 minute in the future.');
         ui.expires.reportValidity();
@@ -147,19 +162,26 @@
       ui.expires.setCustomValidity('');
     }
 
-    const id = upsert(msg);
-    editingId = null;
-    if (ui.saveBtn) ui.saveBtn.textContent = 'Save Message';
-    clearForm();
-  }
+    const msg = {
+      id: editingId || null,
+      title: (ui.title?.value || '').toString().trim(),
+      body,
+      pinned: !!ui.pinned?.checked,
+      expiresAt: ui.expires?.value ? Date.parse(ui.expires.value) : null,
+      authorName: (ui.author?.value || '').toString().trim(),
+    };
 
-  function clearForm() {
-    if (ui.title) ui.title.value = '';
-    if (ui.author) ui.author.value = '';
-    if (ui.body) ui.body.value = '';
-    if (ui.expires) ui.expires.value = '';
-    if (ui.pinned) ui.pinned.checked = false;
-    setExpiresMin();
+    try {
+      const id = await dlUpsert(msg);
+      editingId = null;
+      if (ui.saveBtn) ui.saveBtn.textContent = 'Save Message';
+      clearForm();
+      await render();
+      try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
+    } catch (e) {
+      console.error(e);
+      alert('Save failed. Check permissions or network.');
+    }
   }
 
   function editItem(m) {
@@ -168,42 +190,60 @@
     if (ui.author) ui.author.value = m.authorName || '';
     if (ui.body) ui.body.value = m.body || '';
     if (ui.pinned) ui.pinned.checked = !!m.pinned;
-    if (ui.expires) {
-      ui.expires.value = m.expiresAt ? toLocalDatetimeValue(new Date(m.expiresAt)) : '';
-      setExpiresMin();
-    }
+    if (ui.expires) ui.expires.value = m.expiresAt ? toLocalDatetimeValue(new Date(m.expiresAt)) : '';
+    setExpiresMin();
     if (ui.saveBtn) ui.saveBtn.textContent = 'Update Message';
     try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
   }
 
-  // Render list
-  function render() {
+  async function onPurgeExpired() {
     const t = now();
-    const list = load().map(normalize);
+    const list = await dlListAll();
+    const expired = list.filter(m => m.expiresAt && m.expiresAt <= t);
+    for (const m of expired) {
+      try { await dlRemove(m.id); } catch {}
+    }
+    await render();
+  }
 
-    // Sort: pinned first, then newest
-    list.sort((a, b) => {
-      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-      return (b.createdAt || 0) - (a.createdAt || 0);
-    });
+  async function onClearAll() {
+    if (!confirm('Clear ALL messages? This cannot be undone.')) return;
+    await dlClearAll();
+    await render();
+  }
+
+  // ---------- Render ----------
+  async function render() {
+    const t = now();
+    const list = (await dlListAll()).map(m => ({
+      id: m.id || uidLocal(),
+      title: (m.title || '').toString(),
+      body: (m.body || '').toString(),
+      pinned: !!m.pinned,
+      createdAt: (typeof m.createdAt === 'object' && typeof m.createdAt.seconds === 'number')
+        ? (m.createdAt.seconds * 1000)
+        : (typeof m.createdAt === 'number' ? m.createdAt : t),
+      expiresAt: toMs(m.expiresAt),
+      authorName: (m.authorName || '').toString(),
+    }));
+
+    // Sort: pinned first, then newest by createdAt
+    list.sort((a,b)=> (b.pinned - a.pinned) || ((b.createdAt||0) - (a.createdAt||0)));
 
     const active = list.filter(m => !m.expiresAt || m.expiresAt > t);
     const expired = list.filter(m => m.expiresAt && m.expiresAt <= t);
-
     if (ui.counts) ui.counts.textContent = `${active.length} active · ${expired.length} expired`;
 
     if (!ui.list) return;
     ui.list.innerHTML = '';
+
     for (const m of list) {
       const isExpired = !!(m.expiresAt && m.expiresAt <= t);
-
       const el = document.createElement('div');
       el.className = 'item';
       el.innerHTML = `
         <div class="item-header">
-          <div>
-            <div style="font-weight:700">${m.title || '(Untitled)'}</div>
-          </div>
+          <div><div style="font-weight:700">${m.title || '(Untitled)'}</div></div>
           <div class="chips">
             ${m.pinned ? `<span class="chip">Pinned</span>` : ``}
             ${m.expiresAt ? `<span class="chip">Expires ${fmtDateTime(m.expiresAt)}</span>` : `<span class="chip">No expiry</span>`}
@@ -221,63 +261,31 @@
         </div>
       `;
 
-      // Actions
       el.querySelector('[data-act="edit"]').addEventListener('click', () => editItem(m));
-      el.querySelector('[data-act="togglePin"]').addEventListener('click', () => {
+      el.querySelector('[data-act="togglePin"]').addEventListener('click', async () => {
         m.pinned = !m.pinned;
-        upsert(m);
+        try { await dlUpsert(m); await render(); } catch {}
       });
-      el.querySelector('[data-act="delete"]').addEventListener('click', () => {
-        if (confirm('Delete this message?')) remove(m.id);
+      el.querySelector('[data-act="delete"]').addEventListener('click', async () => {
+        if (!confirm('Delete this message?')) return;
+        try { await dlRemove(m.id); await render(); } catch {}
       });
 
       ui.list.appendChild(el);
     }
   }
 
-  // Import/Export (optional; only if buttons are present)
-  function onExport() {
-    const data = JSON.stringify(load(), null, 2);
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'dowson-message-board.json';
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
-  }
+  // ---------- Init ----------
+  (async function init(){
+    await dlReady();
+    // Wire events
+    if (ui.saveBtn) ui.saveBtn.addEventListener('click', onSave);
+    if (ui.purgeExpiredBtn) ui.purgeExpiredBtn.addEventListener('click', onPurgeExpired);
+    if (ui.clearAllBtn) ui.clearAllBtn.addEventListener('click', onClearAll);
 
-  function onImport(e) {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const arr = JSON.parse(reader.result || '[]');
-        if (!Array.isArray(arr)) throw new Error('Invalid JSON: expected an array');
-        save(arr);
-        render();
-        alert('Messages imported.');
-      } catch (err) {
-        alert('Import failed: ' + err.message);
-      } finally {
-        e.target.value = '';
-      }
-    };
-    reader.readAsText(f);
-  }
+    setExpiresMin();
+    if (ui.expires) ui.expires.addEventListener('focus', setExpiresMin);
 
-  // Wire up events
-  if (ui.saveBtn) ui.saveBtn.addEventListener('click', onSave);
-  if (ui.exportBtn) ui.exportBtn.addEventListener('click', onExport);
-  if (ui.importFile) ui.importFile.addEventListener('change', onImport);
-  if (ui.purgeExpiredBtn) ui.purgeExpiredBtn.addEventListener('click', purgeExpired);
-  if (ui.clearAllBtn) ui.clearAllBtn.addEventListener('click', () => {
-    if (confirm('Clear ALL messages? This cannot be undone.')) clearAll();
-  });
-
-  // Initialize min guard for expiry and initial paint
-  setExpiresMin();
-  if (ui.expires) ui.expires.addEventListener('focus', setExpiresMin);
-
-  render();
+    await render();
+  })();
 })();

@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Standard Combo Template</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- (Optional) App theme if you’re dropping this into a real page -->
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <style>
+    /* ======================
+       FV Combo — Global Vars
+       ====================== */
+    :root{
+      --combo-gap: 4px;             /* tight vertical gap under trigger */
+      --combo-radius: 12px;         /* panel rounding */
+      --combo-btn-radius: 10px;     /* trigger/search rounding */
+      --combo-shadow: 0 12px 26px rgba(0,0,0,.18);
+      --combo-item-pad: 10px 8px;
+      --combo-max-h: 50vh;
+    }
+
+    /* Match FV look-and-feel (uses existing theme tokens if present) */
+    .field{ position:relative }
+    .field label{ display:block; font-weight:800; margin:0 0 6px }
+
+    .input,.buttonish{
+      width:100%; font:inherit; font-size:16px; color:var(--text);
+      background:var(--card-surface,var(--surface)); border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius); padding:12px; outline:none;
+    }
+    .buttonish{ cursor:pointer; text-align:left; position:relative; padding-right:42px }
+    .buttonish.has-caret::after{
+      content:""; position:absolute; right:14px; top:50%; width:0; height:0;
+      border-left:6px solid transparent; border-right:6px solid transparent;
+      border-top:7px solid var(--muted,#67706B); transform:translateY(-50%); pointer-events:none;
+    }
+
+    /* ======================
+       Combo core styles
+       ====================== */
+    .combo{ position:relative }
+
+    /* NEW: anchor so panel hugs the button, not the stretched grid cell */
+    .combo .combo-anchor{
+      position:relative; display:inline-block; width:100%;
+    }
+
+    .combo-panel{
+      position:absolute; left:0; right:0; top:calc(100% + var(--combo-gap));
+      background:var(--surface); border:1px solid var(--border); border-radius:var(--combo-radius);
+      box-shadow:var(--combo-shadow); z-index:9999; padding:8px; display:none;
+    }
+    .combo-panel.show{ display:block }
+    .combo-panel .search{ padding:4px 2px 8px }
+    .combo-panel .search input{
+      width:100%; padding:10px; border:1px solid var(--border); border-radius:var(--combo-btn-radius)
+    }
+    .combo-panel .list{ max-height:var(--combo-max-h); overflow:auto; border-top:1px solid var(--border) }
+    .combo-item{ padding:var(--combo-item-pad); border-bottom:1px solid var(--border); cursor:pointer }
+    .combo-item:hover{ background:rgba(0,0,0,.04) }
+    .combo-item:last-child{ border-bottom:none }
+    .combo-empty{ padding:var(--combo-item-pad); color:#67706B }
+  </style>
+</head>
+<body>
+
+  <!-- ======================
+       Example usage — SEARCHABLE
+       ====================== -->
+  <div class="field combo" id="exampleCombo">
+    <label for="exampleBtn">Field</label>
+    <div class="combo-anchor">
+      <button id="exampleBtn" class="buttonish has-caret" type="button">— Select field —</button>
+      <div class="combo-panel" id="examplePanel" role="listbox" aria-label="Field list">
+        <div class="search"><input id="exampleSearch" type="search" placeholder="Search fields…"/></div>
+        <div class="list" id="exampleList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================
+       Example usage — NON-SEARCH
+       ====================== -->
+  <div class="field combo" id="yearCombo" style="margin-top:16px">
+    <label for="yearBtn">Crop Year</label>
+    <div class="combo-anchor">
+      <button id="yearBtn" class="buttonish has-caret" type="button">— Select —</button>
+      <div class="combo-panel" id="yearPanel" role="listbox" aria-label="Year list">
+        <div class="list" id="yearList"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    /* ================
+       Minimal utilities
+       ================ */
+    const $  = sel => document.querySelector(sel);
+    const $$ = sel => Array.from(document.querySelectorAll(sel));
+
+    /* =========================================
+       One-open-at-a-time combo panel management
+       ========================================= */
+    function closeAllCombos(except=null){
+      $$('.combo-panel.show').forEach(p=>{ if(p!==except) p.classList.remove('show'); });
+    }
+    // Close on outside click / Esc
+    document.addEventListener('click', ()=> closeAllCombos());
+    document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
+
+    /* =========================
+       Reusable combo constructor
+       ========================= */
+    function makeCombo({ btn, panel, list, items=[], searchable=false, formatter=x=>String(x?.label??x), onPick }){
+      // Prevent outside-click closer when interacting in the panel
+      panel.addEventListener('click', e=> e.stopPropagation());
+      panel.addEventListener('mousedown', e=> e.stopPropagation()); // extra safety
+
+      function render(q=""){
+        const qq=(q||"").toLowerCase();
+        list.innerHTML = (items||[])
+          .filter(x=>!qq || formatter(x).toLowerCase().includes(qq))
+          .map(x=>`<div class="combo-item" data-id="${String(x.id)}">${formatter(x)}</div>`)
+          .join('') || `<div class="combo-empty">(no matches)</div>`;
+      }
+      function open(){
+        closeAllCombos(panel);
+        panel.classList.add('show');
+        render("");
+        if(searchable){
+          const inp = panel.querySelector('input');
+          if(inp){ inp.value=""; inp.focus(); }
+        }
+      }
+      function close(){ panel.classList.remove('show'); }
+
+      btn.addEventListener('click', e=>{
+        e.stopPropagation();
+        panel.classList.contains('show') ? close() : open();
+      });
+
+      // Use mousedown so selection fires before any bubbling document click
+      list.addEventListener('mousedown', e=>{
+        const row = e.target.closest('.combo-item'); if(!row) return;
+        const id  = row.dataset.id;
+        const it  = (items||[]).find(x=>String(x.id)===id);
+        if(!it) return;
+        onPick?.(it);
+        close();
+      });
+
+      if(searchable){
+        const s = panel.querySelector('input');
+        if(s){ s.addEventListener('input', e=> render(e.target.value)); }
+      }
+
+      return {
+        setItems(arr){ items = Array.isArray(arr)? arr : []; render(""); },
+        open, close
+      };
+    }
+
+    /* ======================
+       Example wiring (local)
+       ====================== */
+
+    // Fields (searchable)
+    const fieldCombo = makeCombo({
+      btn:  $('#exampleBtn'),
+      panel:$('#examplePanel'),
+      list: $('#exampleList'),
+      items: [],                 // fill from Firestore in real pages
+      searchable: true,
+      formatter: x => x.name,
+      onPick: it => { $('#exampleBtn').textContent = it.name; }
+    });
+
+    // Years (non-search)
+    const y = new Date().getFullYear();
+    const years = [y-1, y, y+1].map(v=>({ id:String(v), label:String(v), value:v }));
+    const yearCombo = makeCombo({
+      btn:  $('#yearBtn'),
+      panel:$('#yearPanel'),
+      list: $('#yearList'),
+      items: years,
+      searchable: false,
+      formatter: x => x.label,
+      onPick: it => { $('#yearBtn').textContent = it.label; }
+    });
+    $('#yearBtn').textContent = String(y);
+
+    // Demo data for fields (replace with Firestore in real pages)
+    const demoFields = [
+      {id:'f1', name:'1716 • JC Rice'},
+      {id:'f2', name:'1726 • McKay West'},
+      {id:'f3', name:'1743 • Lehman Tallula'}
+    ].sort((a,b)=>a.name.localeCompare(b.name));
+    fieldCombo.setItems(demoFields);
+
+    /* ======================
+       Firestore example hook
+       ======================
+       // In real pages:
+       import { getFirestore, collection, getDocs, query, orderBy } from '/Farm-vista/js/firebase-init.js';
+       const db = getFirestore();
+       const snap = await getDocs(query(collection(db,'fields'), orderBy('name')));
+       const arr = [];
+       snap.forEach(d => { const x=d.data()||{}; if(x.name) arr.push({id:d.id, name:String(x.name)}) });
+       arr.sort((a,b)=>a.name.localeCompare(b.name));
+       fieldCombo.setItems(arr);
+    */
+  </script>
+</body>
+</html>

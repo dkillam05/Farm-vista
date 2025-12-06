@@ -1,18 +1,17 @@
-/**
+/** 
  * FarmVista — firebase-init.js
+ * v2.3.1 — adds Firebase Storage exports + FV_HAS_STORAGE
  *
- * Rebuilt to provide a single entry point for Firebase Authentication and
- * Cloud Firestore. When a Firebase configuration is available the real SDK is
- * loaded from the official CDN; otherwise we fall back to a secure local
- * emulation that mirrors authentication and data APIs using encrypted values
- * persisted in localStorage. This lets the rest of the app interact with a
- * consistent interface regardless of connectivity or deployment state.
+ * - v2.2.0 (prior): global RefreshBus + soft refresh handler (`fv:refresh`)
+ * - v2.3.0: initial Storage (getStorage/ref/uploadBytes/getDownloadURL)
+ * - v2.3.1: also export uploadBytesResumable + deleteObject for parity with fv-data.js
  */
 
 const CDN_BASE = 'https://www.gstatic.com/firebasejs/10.12.5/';
 const CDN_APP = `${CDN_BASE}firebase-app.js`;
 const CDN_AUTH = `${CDN_BASE}firebase-auth.js`;
 const CDN_STORE = `${CDN_BASE}firebase-firestore.js`;
+const CDN_STORAGE = `${CDN_BASE}firebase-storage.js`;
 
 const STUB_USER_KEY = 'fv:stub:user';
 const STUB_ACCOUNT_KEY = 'fv:stub:accounts';
@@ -88,7 +87,7 @@ const digestText = async (text) => {
       return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
     }
   } catch {}
-  // Fallback hash (non-cryptographic but deterministic)
+  // Fallback hash
   let hash = 0;
   for (let i = 0; i < text.length; i++) {
     hash = (hash << 5) - hash + text.charCodeAt(i);
@@ -346,6 +345,7 @@ let auth = stubAuth;
 let firestore = stubFirestore;
 let authModule = null;
 let storeModule = null;
+let storageModule = null;
 export let mode = 'stub';
 
 let onAuthStateChangedImpl = (instance, cb) => stubSubscribe(instance || auth, cb);
@@ -414,8 +414,12 @@ const addDocImpl = async (ref, data) => {
   return docRef;
 };
 
+// SAFE deleteDoc – works in stub and Firebase mode
 const deleteDocImpl = async (ref) => {
-  if (storeModule) return storeModule.deleteDoc(ref);
+  if (storeModule && typeof storeModule.deleteDoc === 'function') {
+    return storeModule.deleteDoc(ref);
+  }
+  // fallback: stub mode or older Firestore – just delete from stub store
   stubDeleteDoc(ref.path);
 };
 
@@ -482,6 +486,21 @@ const updateWindowUser = (user) => {
   catch (err) { console.warn('[FV] dispatch fv:user failed:', err); }
 };
 
+/* ----------------------------- Refresh Bus -------------------------------- */
+
+export const RefreshBus = {
+  _fns: new Set(),
+  register(fn){
+    if (typeof fn === 'function') this._fns.add(fn);
+    return ()=> this._fns.delete(fn);
+  },
+  async runAll(){
+    for (const fn of Array.from(this._fns)) {
+      try { await fn(); } catch (e) { console.warn('[FV] refresh fn failed', e); }
+    }
+  }
+};
+
 ensureStubGlobals();
 onAuthStateChangedImpl(auth, (user) => updateWindowUser(user));
 
@@ -490,18 +509,21 @@ export const ready = (async () => {
   if (!cfg) {
     mode = 'stub';
     ensureStubGlobals();
+    window.FV_HAS_STORAGE = false;
     return { app, auth, firestore, mode };
   }
 
   try {
-    const [{ initializeApp }, authMod, storeMod] = await Promise.all([
+    const [{ initializeApp }, authMod, storeMod, storageMod] = await Promise.all([
       import(CDN_APP),
       import(CDN_AUTH),
-      import(CDN_STORE)
+      import(CDN_STORE),
+      import(CDN_STORAGE)
     ]);
 
     authModule = authMod;
     storeModule = storeMod;
+    storageModule = storageMod;
 
     app = initializeApp(cfg);
     auth = authMod.getAuth(app);
@@ -513,7 +535,7 @@ export const ready = (async () => {
     onIdTokenChangedImpl = (instance, cb) => authMod.onIdTokenChanged(instance || auth, cb);
     signOutImpl = (instance) => authMod.signOut(instance || auth);
     signInWithEmailAndPasswordImpl = (instance, email, password) => authMod.signInWithEmailAndPassword(instance || auth, email, password);
-        createUserWithEmailAndPasswordImpl = async (instance, email, password, opts) => {
+    createUserWithEmailAndPasswordImpl = async (instance, email, password, opts) => {
       const authInstance = instance || auth;
       const cred = await authMod.createUserWithEmailAndPassword(authInstance, email, password);
       if (opts && opts.displayName) {
@@ -535,6 +557,8 @@ export const ready = (async () => {
     window.firebaseFirestore = firestore;
     window.fvSignOut = () => authMod.signOut(auth);
 
+    window.FV_HAS_STORAGE = !!storageModule;
+
     onAuthStateChangedImpl(auth, (user) => updateWindowUser(user));
 
     return { app, auth, firestore, mode };
@@ -546,10 +570,32 @@ export const ready = (async () => {
     mode = 'stub';
     authModule = null;
     storeModule = null;
+    storageModule = null;
     ensureStubGlobals();
+    window.FV_HAS_STORAGE = false;
     return { app, auth, firestore, mode };
   }
 })();
+
+/* ------------------------ Global PTR event handler ------------------------ */
+async function _softRefreshNow(){
+  try {
+    if (mode === 'firebase' && storeModule && firestore) {
+      try { await storeModule.enableNetwork(firestore); } catch {}
+      try { await storeModule.disableNetwork(firestore); } catch {}
+      try { await storeModule.enableNetwork(firestore); } catch {}
+    }
+  } catch (e) {
+    console.warn('[FV] refresh network nudge failed', e);
+  }
+
+  try { await RefreshBus.runAll(); } catch {}
+  try { document.dispatchEvent(new CustomEvent('fv:refreshed')); } catch {}
+}
+
+document.addEventListener('fv:refresh', () => { _softRefreshNow(); });
+
+/* ------------------------------ Public API -------------------------------- */
 
 export const getApp = () => app;
 export const getAuth = (appInstance) => getAuthImpl(appInstance);
@@ -580,5 +626,29 @@ export const orderBy = (...args) => orderByImpl(...args);
 export const limit = (...args) => limitImpl(...args);
 export const setStubUser = (user, password) => stubAuth._setUser(user, password);
 export const getStubUser = () => stubAuth.currentUser;
+
+/* ------ Storage API exports (complete) ------ */
+export const getStorage = (appInstance) => (storageModule ? storageModule.getStorage(appInstance || app) : null);
+export const ref = (...args) => {
+  if (!storageModule) throw new Error('Storage not loaded');
+  return storageModule.ref(...args);
+};
+export const storageRef = ref;
+export const uploadBytes = (...args) => {
+  if (!storageModule) return Promise.reject(new Error('Storage not loaded'));
+  return storageModule.uploadBytes(...args);
+};
+export const uploadBytesResumable = (...args) => {
+  if (!storageModule) return Promise.reject(new Error('Storage not loaded'));
+  return storageModule.uploadBytesResumable(...args);
+};
+export const getDownloadURL = (...args) => {
+  if (!storageModule) return Promise.reject(new Error('Storage not loaded'));
+  return storageModule.getDownloadURL(...args);
+};
+export const deleteObject = (...args) => {
+  if (!storageModule) return Promise.reject(new Error('Storage not loaded'));
+  return storageModule.deleteObject(...args);
+};
 
 window.__FV_USER = stubAuth.currentUser || null;

@@ -17,6 +17,13 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
+  <!-- Firebase + FVData (Firestore unified helpers) -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+  <script src="/Farm-vista/js/fv-data.js"></script>
+
+  <!-- Ensure shell -->
+  <script>(function(){ if(!customElements.get('fv-shell')){ const s=document.createElement('script'); s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);} })();</script>
+
   <style>
     .page { padding-block: 10px 24px; }
     .page-title { margin:12px 0 4px 0; line-height:1.15; color:var(--text); }
@@ -66,19 +73,9 @@
     .muted { color:var(--muted,#8a928c); font-size:13px; }
 
     /* Tools layout */
-    .tools-row {
-      display:flex;
-      flex-wrap:wrap;
-      gap:12px;
-      justify-content:flex-start;
-    }
-    .tools-row .btn {
-      flex:1 1 0;
-      text-align:center;
-    }
-    @media (max-width:480px){
-      .tools-row .btn{ min-width:130px; font-size:14px; }
-    }
+    .tools-row { display:flex; flex-wrap:wrap; gap:12px; justify-content:flex-start; }
+    .tools-row .btn { flex:1 1 0; text-align:center; }
+    @media (max-width:480px){ .tools-row .btn{ min-width:130px; font-size:14px; } }
   </style>
 </head>
 <body>
@@ -135,7 +132,6 @@
       <section class="card" aria-labelledby="h-tools">
         <h2 id="h-tools" class="page-title" style="font-size:18px; margin-bottom:10px;">Tools</h2>
         <div class="tools-row">
-          <!-- CHANGED: removed broom emoji -->
           <button id="purgeExpiredBtn" class="btn btn-danger" type="button">Remove Expired</button>
           <button id="clearAllBtn" class="btn btn-ghost" type="button">🗑️ Clear All</button>
         </div>
@@ -152,47 +148,8 @@
     </div>
   </fv-shell>
 
-  <!-- Bootloader -->
-  <script>
-    (function () {
-      const urlRev = new URL(location.href).searchParams.get('rev');
-      const REV = urlRev || String(Date.now());
-      const files = [
-        '/Farm-vista/js/version.js',
-        '/Farm-vista/js/core.js',
-        '/Farm-vista/js/fv-shell.js'
-      ];
-      (async function loadSeq() {
-        for (const src of files) {
-          await new Promise((resolve, reject) => {
-            const s = document.createElement('script');
-            s.src = src + '?rev=' + REV;
-            s.async = false;
-            s.onload = resolve;
-            s.onerror = () => reject(new Error('Failed to load ' + s.src));
-            document.body.appendChild(s);
-          });
-        }
-        const s = document.createElement('script');
-        s.src = '/Farm-vista/js/mb-admin.js' + '?rev=' + REV;
-        s.async = false;
-        s.onerror = () => {
-          const shell = document.querySelector('fv-shell');
-          const toast = shell && shell.shadowRoot && shell.shadowRoot.querySelector('.js-toast');
-          if (toast) {
-            toast.textContent = 'Message module failed to load. Please refresh.';
-            toast.classList.add('show');
-            setTimeout(()=> toast.classList.remove('show'), 2600);
-          } else {
-            alert('Message module failed to load. Please refresh.');
-          }
-          ['saveBtn','purgeExpiredBtn','clearAllBtn','title','author','body','expires','pinned']
-            .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = true; });
-        };
-        document.body.appendChild(s);
-      })().catch(err => console.error('Bootloader failed:', err));
-    })();
-  </script>
+  <!-- Module -->
+  <script src="/Farm-vista/js/mb-admin.js"></script>
 
   <noscript>
     <div class="container"><div class="card">JavaScript is required for Message Board.</div></div>

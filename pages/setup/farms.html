@@ -1,4 +1,6 @@
-<!doctype html><html lang="en"><head>
+<!doctype html>
+<html lang="en">
+<head>
   <meta charset="utf-8"/>
   <title>FarmVista • Setup → Farms</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
@@ -12,11 +14,18 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
+  <!-- FVData helpers (Firestore + Storage unified) -->
+  <script src="/Farm-vista/js/fv-data.js"></script>
+
   <style>
     .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
     .page-title{margin:0 0 8px 0;}
     .page-sub{margin:0 0 14px 0;color:var(--muted,#67706B);}
+
+    .alert{display:none;margin:0 0 12px 0;border:1px solid #c62828;background:#fdecea;color:#8a1c1c;
+      border-radius:12px;padding:12px 14px;font-weight:700}
+    .alert.show{display:block}
 
     .section{border:1px solid var(--border);border-radius:14px;background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;}
@@ -65,16 +74,24 @@
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
   </style>
 
+  <!-- Ensure fv-shell -->
   <script>(function(){
     if(!customElements.get('fv-shell')){
       const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
     }
   })();</script>
-</head><body>
+
+  <!-- Firebase config FIRST (match app load order) -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+</head>
+<body>
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Farms</h1>
       <p class="page-sub">Simple farm categories for organizing your operation.</p>
+
+      <!-- visible error when reads are blocked or fail -->
+      <div id="alert" class="alert" role="alert"></div>
 
       <section class="section">
         <header class="section-head">
@@ -97,7 +114,7 @@
 
         <div class="list-head">
           <div class="list-title">Farms</div>
-          <!-- (Intentionally no 'Clear All' button) -->
+          <button id="reload" class="btn btn-quiet" type="button">Reload</button>
         </div>
         <div id="list" class="list">
           <div class="muted">No farms yet.</div>
@@ -136,45 +153,109 @@
     </div>
   </div>
 
-  <script>
-  (function(){
-    "use strict";
+  <!-- Data logic -->
+  <script type="module">
+    import {
+      ready,
+      getFirestore, collection, doc, getDocs, deleteDoc
+    } from '/Farm-vista/js/firebase-init.js';
+
+    /* --------------------- tiny utils --------------------- */
     const $ = id => document.getElementById(id);
     const toast = $("toast");
-    const LS_KEY = "fv_setup_farms_v1";
+    const alertBox = $("alert");
+    const showToast = (msg="Successfully saved.")=>{
+      toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show");
+    };
+    const showAlert = (msg)=>{
+      alertBox.textContent = msg;
+      alertBox.classList.add('show');
+      clearTimeout(showAlert._t);
+      showAlert._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
+    };
+    const escapeHTML = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 
-    let editId = null; // current item open in modal
+    let db = null;
+    let editId = null;
+    let rows = [];
 
-    /* ===== Storage ===== */
-    function loadAll(){
-      try{ const a = JSON.parse(localStorage.getItem(LS_KEY)||"[]"); return Array.isArray(a)?a:[]; }
-      catch(e){ return []; }
+    /* --------------------- Auth ready guard --------------------- */
+    async function waitForAuthReady(timeoutMs=5000){
+      try{
+        if (!window.firebaseAuth || !window.firebaseAuth.onAuthStateChanged) return;
+        if (typeof window.firebaseAuth.currentUser !== 'undefined' && window.firebaseAuth.currentUser !== null) return;
+        await new Promise((resolve)=> {
+          let done=false;
+          const t=setTimeout(()=>{ if(!done) resolve(); }, timeoutMs);
+          window.firebaseAuth.onAuthStateChanged(()=>{ if(!done){ done=true; clearTimeout(t); resolve(); } });
+        });
+      }catch{}
     }
-    function saveAll(a){ localStorage.setItem(LS_KEY, JSON.stringify(a)); }
 
-    /* ===== Utils ===== */
-    function escapeHTML(s){ return String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
-    function showToast(msg="Successfully saved."){
-      toast.textContent = msg;
-      toast.classList.remove("show"); void toast.offsetWidth;
-      toast.classList.add("show");
+    /* --------------------- Firestore helpers (reads) --------------------- */
+    const col = ()=> collection(db, 'farms');
+
+    async function loadFarms(){
+      try{
+        // simple collection read; we’ll sort client-side A→Z
+        const snap = await getDocs(col());
+        const out = [];
+        snap.forEach(d=>{
+          const v = d.data()||{};
+          out.push({
+            id: d.id,
+            name: String(v.name||'').trim(),
+            status: v.status==='archived' ? 'archived' : 'active',
+            used: !!v.used,
+            t: typeof v.t==='number' ? v.t : (v.t && v.t.toMillis ? v.t.toMillis() : 0),
+            updatedAt: v.updatedAt && v.updatedAt.toMillis ? v.updatedAt.toMillis() : undefined
+          });
+        });
+        rows = out;
+        render();
+      }catch(err){
+        console.error('Farms read failed:', err);
+        showAlert((err && err.message) ? err.message : 'Unable to load farms.');
+        rows = [];
+        render();
+      }
     }
 
-    /* ===== Render list ===== */
+    /* --------------------- FVData-backed writes --------------------- */
+    async function addFarm(name){
+      const payload = {
+        name: String(name||'').trim(),
+        status: 'active',
+        used: false,
+        t: Date.now()
+      };
+      await FVData.addDocWithMeta('farms', payload);
+    }
+
+    async function updateFarm(id, patch){
+      if(!id) return;
+      await FVData.updateDocWithMeta(`farms/${id}`, { ...patch });
+    }
+
+    async function removeFarm(id){
+      if(!id) return;
+      // delete via modular API (FVData doesn’t expose delete)
+      await deleteDoc(doc(db,'farms', id));
+    }
+
+    /* --------------------- UI: list + modal --------------------- */
+    const listBox = $("list");
     function render(){
-      const box = $("list");
-      const arr = loadAll();
-      if(!arr.length){ box.innerHTML = '<div class="muted">No farms yet.</div>'; return; }
-      // active first, archived after
-      arr.sort((a,b)=>{
-        const sa = a.status==="archived", sb = b.status==="archived";
-        return (sa-sb) || (b.t-a.t);
+      if(!rows.length){ listBox.innerHTML = '<div class="muted">No farms yet.</div>'; return; }
+      // A → Z by name (case-insensitive)
+      const arr = rows.slice().sort((a,b)=>{
+        return a.name.localeCompare(b.name, undefined, { sensitivity:'base' });
       });
-      box.innerHTML = "";
+      listBox.innerHTML = '';
       arr.forEach(it=>{
-        const div = document.createElement("div");
-        div.className = "item";
-        const status = it.status==="archived" ? '<span class="pill">Archived</span>' : '';
+        const div = document.createElement('div');
+        div.className = 'item';
+        const status = it.status==='archived' ? '<span class="pill">Archived</span>' : '';
         div.innerHTML = `
           <div style="display:flex;align-items:center;gap:8px;">
             <div class="name">${escapeHTML(it.name)}</div>
@@ -182,108 +263,114 @@
           </div>
           <button class="view" type="button">View / Edit</button>
         `;
-        div.querySelector(".view").addEventListener("click", ()=> openEdit(it.id));
-        box.appendChild(div);
+        div.querySelector('.view').addEventListener('click', ()=> openEdit(it.id));
+        listBox.appendChild(div);
       });
     }
 
-    /* ===== Add / Save new ===== */
-    $("save").addEventListener("click", ()=>{
-      const name = $("farmName").value.trim();
-      if(!name){ alert("Please enter a farm name."); return; }
-      const arr = loadAll();
-      const item = {
-        id: String(Date.now()) + Math.random().toString(36).slice(2,7),
-        name,
-        status: "active", // 'active' | 'archived'
-        used: false,      // placeholder; set true when referenced elsewhere
-        t: Date.now()
-      };
-      arr.unshift(item);
-      saveAll(arr);
-      showToast("Successfully saved.");
-      $("farmName").value = "";
-      render();
-      window.scrollTo({top:0, behavior:"smooth"});
-    });
-    $("clear").addEventListener("click", ()=>{ $("farmName").value=""; });
-
-    /* ===== Modal (View/Edit/Archive/Delete) ===== */
     const modal = $("modal"), mdClose = $("mdClose"), mdSave = $("mdSave"), mdArchive = $("mdArchive"), mdDelete = $("mdDelete");
+
+    function openModal(){ modal.setAttribute('open',''); modal.setAttribute('aria-hidden','false'); $("editName").focus(); }
+    function closeModal(){ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId = null; }
+
     function openEdit(id){
-      const arr = loadAll();
-      const it = arr.find(x=>x.id===id);
+      const it = rows.find(r=>r.id===id);
       if(!it) return;
       editId = id;
-      $("editName").value = it.name;
-      // status/used pills
-      $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
-      $("usedPill").style.display = it.used ? "inline-block" : "none";
-      // button labels/states
-      mdArchive.textContent = it.status==="archived" ? "Unarchive" : "Archive";
+      $("editName").value = it.name || '';
+      $("statusPill").textContent = it.status==='archived' ? 'Archived' : 'Active';
+      $("usedPill").style.display = it.used ? 'inline-block' : 'none';
+      mdArchive.textContent = it.status==='archived' ? 'Unarchive' : 'Archive';
       mdDelete.disabled = !!it.used;
       mdDelete.title = it.used ? "This farm is in use and cannot be deleted. Archive instead." : "Delete this farm";
       openModal();
     }
-    function openModal(){
-      modal.setAttribute("open",""); modal.setAttribute("aria-hidden","false");
-      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
-      $("editName").focus();
-    }
-    function closeModal(){
-      modal.removeAttribute("open"); modal.setAttribute("aria-hidden","true");
-      document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
-      editId = null;
-    }
-    mdClose.addEventListener("click", closeModal);
-    modal.addEventListener("click", e=>{ if(e.target===modal) closeModal(); });
-    document.addEventListener("keydown", e=>{ if(e.key==="Escape" && modal.hasAttribute("open")) closeModal(); });
 
-    mdSave.addEventListener("click", ()=>{
+    mdClose.addEventListener('click', closeModal);
+    modal.addEventListener('click', e=>{ if(e.target===modal) closeModal(); });
+    document.addEventListener('keydown', e=>{ if(e.key==='Escape' && modal.hasAttribute('open')) closeModal(); });
+
+    /* --------------------- Actions --------------------- */
+    $("save").addEventListener("click", async ()=>{
+      const name = $("farmName").value.trim();
+      if(!name){ alert("Please enter a farm name."); return; }
+      try{
+        await FVData.ready();
+        await waitForAuthReady();
+        await addFarm(name);
+        $("farmName").value = "";
+        showToast("Successfully saved.");
+        await loadFarms();
+        window.scrollTo({top:0,behavior:"smooth"});
+      }catch(err){
+        console.error(err);
+        showAlert("Save failed: " + (err?.message||err));
+      }
+    });
+
+    $("clear").addEventListener("click", ()=>{ $("farmName").value=""; });
+    $("reload").addEventListener("click", async ()=>{ await loadFarms(); });
+
+    mdSave.addEventListener("click", async ()=>{
       const name = $("editName").value.trim();
       if(!name){ alert("Please enter a farm name."); return; }
-      const arr = loadAll();
-      const idx = arr.findIndex(x=>x.id===editId);
-      if(idx>=0){ arr[idx] = {...arr[idx], name, updatedAt: Date.now()}; saveAll(arr); }
-      render();
-      showToast("Changes saved.");
-      closeModal();
+      try{
+        await FVData.ready();
+        await waitForAuthReady();
+        await updateFarm(editId, { name });
+        showToast("Changes saved.");
+        await loadFarms();
+        closeModal();
+      }catch(err){
+        console.error(err);
+        showAlert("Update failed: " + (err?.message||err));
+      }
     });
 
-    mdArchive.addEventListener("click", ()=>{
-      const arr = loadAll();
-      const idx = arr.findIndex(x=>x.id===editId);
-      if(idx<0) return;
-      const cur = arr[idx];
-      const nextStatus = cur.status==="archived" ? "active" : "archived";
-      arr[idx] = {...cur, status: nextStatus, updatedAt: Date.now()};
-      saveAll(arr);
-      render();
-      showToast(nextStatus==="archived" ? "Farm archived." : "Farm unarchived.");
-      // keep modal open and update its controls
-      $("statusPill").textContent = nextStatus==="archived" ? "Archived" : "Active";
-      mdArchive.textContent = nextStatus==="archived" ? "Unarchive" : "Archive";
+    mdArchive.addEventListener("click", async ()=>{
+      try{
+        const it = rows.find(r=>r.id===editId);
+        if(!it) return;
+        const nextStatus = it.status==='archived' ? 'active' : 'archived';
+        await FVData.ready();
+        await waitForAuthReady();
+        await updateFarm(editId, { status: nextStatus });
+        $("statusPill").textContent = nextStatus==='archived' ? 'Archived' : 'Active';
+        mdArchive.textContent = nextStatus==='archived' ? 'Unarchive' : 'Archive';
+        showToast(nextStatus==='archived' ? "Farm archived." : "Farm unarchived.");
+        await loadFarms();
+      }catch(err){
+        console.error(err);
+        showAlert("Archive toggle failed: " + (err?.message||err));
+      }
     });
 
-    mdDelete.addEventListener("click", ()=>{
-      const arr = loadAll();
-      const idx = arr.findIndex(x=>x.id===editId);
-      if(idx<0) return;
-      const cur = arr[idx];
-      if(cur.used){
-        alert("This farm is in use and cannot be deleted. Archive instead.");
-        return;
-        }
-      if(!confirm(`Delete farm "${cur.name}"? This cannot be undone.`)) return;
-      arr.splice(idx,1);
-      saveAll(arr);
-      render();
-      showToast("Farm deleted.");
-      closeModal();
+    mdDelete.addEventListener("click", async ()=>{
+      try{
+        const it = rows.find(r=>r.id===editId);
+        if(!it) return;
+        if(it.used){ alert("This farm is in use and cannot be deleted. Archive instead."); return; }
+        if(!confirm(`Delete farm "${it.name}"? This cannot be undone.`)) return;
+        await ready; db = getFirestore(); await waitForAuthReady();
+        await removeFarm(editId);
+        showToast("Farm deleted.");
+        await loadFarms();
+        closeModal();
+      }catch(err){
+        console.error(err);
+        showAlert("Delete failed: " + (err?.message||err));
+      }
     });
 
-    /* init */
-    render();
-  })();
+    /* --------------------- Boot --------------------- */
+    (async function boot(){
+      try{
+        await ready; db = getFirestore(); await waitForAuthReady();
+      }catch(e){ console.warn('Firebase not ready:', e); }
+      await loadFarms();
+    })();
   </script>
-</body></html>
+
+  <script nomodule>(function(){ /* no-op */ })();</script>
+</body>
+</html>

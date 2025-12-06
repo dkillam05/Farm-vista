@@ -1,5 +1,5 @@
 /* ==========================================================
-   FarmVista — Core (theme + version) v3.1
+   FarmVista — Core (theme + version) v3.1.1
    - Applies saved theme ASAP (prevents flash)
    - Keeps "system" synced with OS changes
    - Exposes App API used by fv-shell.js
@@ -17,7 +17,8 @@
   function applyThemeColorFromCSS(){
     try{
       const cs = getComputedStyle(html);
-      const headerBg = cs.getPropertyValue('--header-bg').trim() || '#3B7E46';
+      // Prefer a token if present, fallback to brand green
+      const headerBg = cs.getPropertyValue('--header-bg').trim() || cs.getPropertyValue('--green').trim() || '#3B7E46';
       ensureThemeMeta().setAttribute('content', headerBg);
     }catch{}
   }

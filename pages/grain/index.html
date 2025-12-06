@@ -19,7 +19,10 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/dashboard.css" />
 
-  <!-- ✅ Load core + shell EARLY -->
+  <!-- Corn-capacity → crop bushel helper (global FVGrainCapacity) -->
+  <script src="/Farm-vista/js/grain-capacity.js"></script>
+
+  <!-- Core + shell -->
   <script src="/Farm-vista/js/version.js" defer></script>
   <script src="/Farm-vista/js/core.js" defer></script>
   <script src="/Farm-vista/js/fv-shell.js" defer></script>
@@ -31,26 +34,78 @@
       border:1px solid var(--border); border-radius:14px;
       box-shadow:var(--shadow); padding:16px; margin:20px 0 0;
       display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;
+      transition:box-shadow 0.16s ease, border-color 0.16s ease, transform 0.12s ease;
     }
-    .sum-title{ width:100%; font-weight:900; font-size:18px; margin:2px 0 8px 0; }
-    .muted{ color:var(--muted,#87908a); }
-    .big{ font-weight:900; font-size:clamp(22px,4.8vw,32px); line-height:1.15; }
 
-    .selectors{display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap}
-    .selectors > div{min-width:160px}
-    .selectors label{ font-weight:700; color:var(--muted,#87908a); }
-    select.select{
-      appearance:none; border:1px solid var(--border); background:var(--surface);
-      padding:8px 12px; border-radius:10px; font-weight:700; color:var(--text);
-      width:100%;
+    .sum-title{
+      width:100%; font-weight:900; font-size:18px; margin:2px 0 8px 0;
     }
-    input.fv-input{ width:100%; } /* ensure full-width alignment in selectors */
+    .muted{ color:var(--muted,#87908a); }
+    .big{
+      font-weight:900;
+      font-size:clamp(22px,4.8vw,32px);
+      line-height:1.15;
+    }
+
+    .selectors{
+      display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap;
+    }
+    .selectors > div{ min-width:160px; }
+    .selectors label{
+      font-weight:700; color:var(--muted,#87908a);
+    }
+    select.select{
+      appearance:none;
+      border:1px solid var(--border);
+      background:var(--surface);
+      padding:8px 12px;
+      border-radius:10px;
+      font-weight:700;
+      color:var(--text);
+      width:100%;
+      background-image:
+        url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="14" height="8" viewBox="0 0 14 8"><path d="M1 1l6 6 6-6" fill="none" stroke="%2367706B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+      background-repeat:no-repeat;
+      background-position:right 10px center;
+      background-size:14px 8px;
+      padding-right:36px;
+    }
+    input.fv-input{ width:100%; }
 
     .metrics{
       display:flex; align-items:center; gap:24px; flex-wrap:wrap;
     }
     .metric{
       display:flex; flex-direction:column; gap:6px; min-width:200px;
+    }
+
+    /* Center the overview card */
+    .page .card{
+      max-width:780px;
+      margin-left:auto;
+      margin-right:auto;
+    }
+
+    /* View report button following app theme (no blue, no emoji) */
+    .btn-report{
+      margin-top:8px;
+      padding:8px 14px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:var(--surface-2, rgba(255,255,255,0.06));
+      font-size:14px;
+      font-weight:700;
+      color:var(--text);
+      cursor:pointer;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      transition:0.15s ease;
+    }
+    .btn-report:hover{
+      border-color:var(--accent,#3B7E46);
+      background:rgba(59,126,70,0.12);
+      box-shadow:var(--shadow-soft,var(--shadow));
     }
   </style>
 </head>
@@ -71,7 +126,7 @@
         and stay on top of what’s stored, what’s hauled, and what’s sold.
       </p>
 
-      <div class="card" style="max-width:780px;">
+      <div class="card">
         <h2 class="card-title">Overview</h2>
         <ul class="list">
           <li>🛢️&nbsp; Track on-farm inventory by bin and bag</li>
@@ -85,95 +140,82 @@
       <!-- ===========================
            SUMMARY 1: GRAIN BIN INVENTORY
            =========================== -->
-      <section class="sum-card" aria-label="Grain Bin Inventory summary">
+      <section
+        class="sum-card"
+        aria-label="Grain Bin Inventory summary"
+      >
         <div class="sum-title">Grain Bin Inventory</div>
 
         <div class="selectors" role="group" aria-label="Bin selectors">
           <div>
             <label for="bin-crop">Crop</label><br/>
             <select id="bin-crop" class="select" aria-label="Select crop for bin summary">
-              <option value="corn" selected>Corn</option>
+              <option value="all" selected>All Crops</option>
+              <option value="corn">Corn</option>
               <option value="soybeans">Soybeans</option>
-            </select>
-          </div>
-          <div>
-            <label for="bin-year">Crop Year</label><br/>
-            <select id="bin-year" class="select" aria-label="Select crop year for bin summary">
-              <option value="2025" selected>2025</option>
-              <option value="2024">2024</option>
             </select>
           </div>
         </div>
 
         <div class="metrics">
           <div class="metric">
-            <div class="muted">Current Bushels</div>
+            <div class="muted">Current Bushels On Hand</div>
             <div id="bin-bushels" class="big">— bu</div>
           </div>
         </div>
+
+        <button
+          type="button"
+          class="btn-report"
+          data-report-link="/Farm-vista/pages/reports/reports-grainbin-inventory.html"
+        >
+          <span>View Full Report</span>
+        </button>
       </section>
 
       <!-- ===========================
-           SUMMARY 2: GRAIN BAG INVENTORY
+           SUMMARY 2: GRAIN BAG INVENTORY (FIELD GRAIN)
            =========================== -->
-      <section class="sum-card" aria-label="Grain Bag Inventory summary">
-        <div class="sum-title">Grain Bag Inventory</div>
+      <section
+        class="sum-card"
+        aria-label="Grain Bag Inventory summary"
+      >
+        <div class="sum-title">Grain Bag Inventory (grain in field bags)</div>
 
         <div class="selectors" role="group" aria-label="Bag selectors">
           <div>
             <label for="bag-crop">Crop</label><br/>
             <select id="bag-crop" class="select" aria-label="Select crop for bag summary">
-              <option value="corn" selected>Corn</option>
+              <option value="all" selected>All Crops</option>
+              <option value="corn">Corn</option>
               <option value="soybeans">Soybeans</option>
-            </select>
-          </div>
-          <div>
-            <label for="bag-year">Crop Year</label><br/>
-            <select id="bag-year" class="select" aria-label="Select crop year for bag summary">
-              <option value="2025" selected>2025</option>
-              <option value="2024">2024</option>
             </select>
           </div>
         </div>
 
         <div class="metrics">
           <div class="metric">
-            <div class="muted">Bag Count</div>
+            <div class="muted">Bag Count (full + partial, in fields)</div>
             <div id="bag-count" class="big">—</div>
           </div>
           <div class="metric">
-            <div class="muted">Estimated Bushels</div>
+            <div class="muted">Total Bushels In Field Bags</div>
             <div id="bag-bushels" class="big">— bu</div>
           </div>
         </div>
+
+        <button
+          type="button"
+          class="btn-report"
+          data-report-link="/Farm-vista/pages/reports/reports-grainbags-downinventory.html"
+        >
+          <span>View Full Report</span>
+        </button>
       </section>
 
-      <!-- ===========================
-           SUMMARY 3: GRAIN CONTRACTS
-           =========================== -->
+      <!-- Contracts / Tickets placeholders -->
       <section class="sum-card" aria-label="Grain Contracts summary">
         <div class="sum-title">Grain Contracts</div>
-
-        <div class="selectors" role="group" aria-label="Contracts selectors">
-          <div>
-            <label for="con-crop">Crop</label><br/>
-            <select id="con-crop" class="select" aria-label="Select crop for contracts summary">
-              <option value="corn" selected>Corn</option>
-              <option value="soybeans">Soybeans</option>
-            </select>
-          </div>
-          <div>
-            <label for="con-month">Month</label><br/>
-            <select id="con-month" class="select" aria-label="Select delivery month for contracts summary">
-              <option value="Dec" selected>Dec</option>
-              <option value="Jan">Jan</option>
-              <option value="Feb">Feb</option>
-              <option value="Mar">Mar</option>
-              <option value="Apr">Apr</option>
-            </select>
-          </div>
-        </div>
-
         <div class="metrics">
           <div class="metric">
             <div class="muted">Bushels Hauled</div>
@@ -186,31 +228,8 @@
         </div>
       </section>
 
-      <!-- ===========================
-           SUMMARY 4: GRAIN TICKETS
-           (UPDATED: custom date range instead of Daily/Weekly/Monthly)
-           =========================== -->
       <section class="sum-card" aria-label="Grain Tickets summary">
         <div class="sum-title">Grain Tickets</div>
-
-        <div class="selectors" role="group" aria-label="Tickets selectors">
-          <div>
-            <label for="tix-crop">Crop</label><br/>
-            <select id="tix-crop" class="select" aria-label="Select crop for tickets summary">
-              <option value="corn" selected>Corn</option>
-              <option value="soybeans">Soybeans</option>
-            </select>
-          </div>
-          <div>
-            <label for="tix-start">Start Date</label><br/>
-            <input id="tix-start" type="date" class="fv-input" aria-label="Start date for tickets summary" />
-          </div>
-          <div>
-            <label for="tix-end">End Date</label><br/>
-            <input id="tix-end" type="date" class="fv-input" aria-label="End date for tickets summary" />
-          </div>
-        </div>
-
         <div class="metrics">
           <div class="metric">
             <div class="muted">Total Bushels</div>
@@ -233,83 +252,226 @@
     </div>
   </fv-shell>
 
-  <!-- Placeholder wiring (swap with real data later) -->
-  <script>
-    (function(){
-      /* ================= BINS ================= */
-      const binSelCrop = document.getElementById('bin-crop');
-      const binSelYear = document.getElementById('bin-year');
-      const binBushels = document.getElementById('bin-bushels');
-      const totalsByBin = {
-        corn:     { "2025": { bushels: "—" }, "2024": { bushels: "—" } },
-        soybeans: { "2025": { bushels: "—" }, "2024": { bushels: "—" } }
-      };
-      function renderBins(){
-        const c = binSelCrop.value, y = binSelYear.value;
-        const rec = (totalsByBin[c] && totalsByBin[c][y]) || { bushels: "—" };
-        binBushels.textContent = rec.bushels + " bu";
-      }
-      binSelCrop.addEventListener('change', renderBins);
-      binSelYear.addEventListener('change', renderBins);
-      renderBins();
+  <!-- 🔌 LIVE WIRING: BINS + FIELD BAGS (FULL + PARTIAL) -->
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection,
+      getDocs
+    } from '/Farm-vista/js/firebase-init.js';
 
-      /* ================= BAGS ================= */
-      const bagSelCrop = document.getElementById('bag-crop');
-      const bagSelYear = document.getElementById('bag-year');
-      const bagCount   = document.getElementById('bag-count');
-      const bagBushels = document.getElementById('bag-bushels');
-      const totalsByBag = {
-        corn:     { "2025": { count: "—", estBushels: "—" }, "2024": { count: "—", estBushels: "—" } },
-        soybeans: { "2025": { count: "—", estBushels: "—" }, "2024": { count: "—", estBushels: "—" } }
-      };
-      function renderBags(){
-        const c = bagSelCrop.value, y = bagSelYear.value;
-        const rec = (totalsByBag[c] && totalsByBag[c][y]) || { count: "—", estBushels: "—" };
-        bagCount.textContent   = rec.count;
-        bagBushels.textContent = rec.estBushels + (String(rec.estBushels).trim() ? " bu" : "");
-      }
-      bagSelCrop.addEventListener('change', renderBags);
-      bagSelYear.addEventListener('change', renderBags);
-      renderBags();
+    const num = (v) => {
+      if (typeof v === 'number') return isFinite(v) ? v : null;
+      if (v === null || v === undefined || v === '') return null;
+      const n = parseFloat(v);
+      return isFinite(n) ? n : null;
+    };
+    const fmtInt = (v) => {
+      const n = num(v);
+      if (n === null) return '—';
+      return Math.round(n).toLocaleString('en-US');
+    };
+    const norm = (s) => (s || '').toString().trim().toLowerCase();
 
-      /* ================= CONTRACTS ================= */
-      const conSelCrop   = document.getElementById('con-crop');
-      const conSelMonth  = document.getElementById('con-month');
-      const conHauled    = document.getElementById('con-hauled');
-      const conRemaining = document.getElementById('con-remaining');
-      const totalsByContract = {
-        corn:     { "Dec": { hauled:"—", remaining:"—" }, "Jan": { hauled:"—", remaining:"—" }, "Feb": { hauled:"—", remaining:"—" }, "Mar": { hauled:"—", remaining:"—" }, "Apr": { hauled:"—", remaining:"—" } },
-        soybeans: { "Dec": { hauled:"—", remaining:"—" }, "Jan": { hauled:"—", remaining:"—" }, "Feb": { hauled:"—", remaining:"—" }, "Mar": { hauled:"—", remaining:"—" }, "Apr": { hauled:"—", remaining:"—" } }
-      };
-      function renderContracts(){
-        const c = conSelCrop.value, m = conSelMonth.value;
-        const rec = (totalsByContract[c] && totalsByContract[c][m]) || { hauled:"—", remaining:"—" };
-        conHauled.textContent    = rec.hauled + (String(rec.hauled).trim() ? " bu" : "");
-        conRemaining.textContent = rec.remaining + (String(rec.remaining).trim() ? " bu" : "");
+    (async () => {
+      await ready;
+      const db = getFirestore();
+      if (!db) {
+        console.warn('[grain] no Firestore handle');
+        return;
       }
-      conSelCrop.addEventListener('change', renderContracts);
-      conSelMonth.addEventListener('change', renderContracts);
-      renderContracts();
 
-      /* ================= TICKETS (custom date range) ================= */
-      const tixSelCrop   = document.getElementById('tix-crop');
-      const tixStart     = document.getElementById('tix-start');
-      const tixEnd       = document.getElementById('tix-end');
-      const tixBushels   = document.getElementById('tix-bushels');
-      const tixAvgDamage = document.getElementById('tix-avg-damage');
-      const tixAvgFM     = document.getElementById('tix-avg-fm');
-      const tixAvgMoist  = document.getElementById('tix-avg-moisture');
+      // ----- DOM -----
+      const binBushelsEl = document.getElementById('bin-bushels');
+      const binSelCrop   = document.getElementById('bin-crop');
 
-      // placeholder: totalsByTickets[crop][start|end] would be computed later
-      function renderTickets(){
-        // For now just show placeholders; later compute from ticket data filtered by [start,end].
-        tixBushels.textContent   = "— bu";
-        tixAvgDamage.textContent = "— %";
-        tixAvgFM.textContent     = "— %";
-        tixAvgMoist.textContent  = "— %";
+      const bagCountEl   = document.getElementById('bag-count');
+      const bagBushelsEl = document.getElementById('bag-bushels');
+      const bagSelCrop   = document.getElementById('bag-crop');
+
+      // View report buttons (ONLY these navigate)
+      const reportButtons = document.querySelectorAll('.btn-report[data-report-link]');
+      reportButtons.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const href = btn.getAttribute('data-report-link');
+          if (href) window.location.href = href;
+        });
+      });
+
+      // ====== BINS: sum onHand with optional crop filter (running total, all years) ======
+      async function loadBinSummary() {
+        if (!binBushelsEl) return;
+        binBushelsEl.textContent = '… bu';
+
+        const cropFilter = norm(binSelCrop.value);   // "all" | "corn" | "soybeans"
+
+        try {
+          const snap = await getDocs(collection(db, 'binSites'));
+          let total = 0;
+
+          snap.forEach(docSnap => {
+            const d = docSnap.data() || {};
+            const bins = Array.isArray(d.bins) ? d.bins : [];
+            bins.forEach(b => {
+              let on = num(b && b.onHand);
+              if (!on || on <= 0) return;
+
+              const bCrop = norm(b && b.lastCropType);
+              if (cropFilter && cropFilter !== 'all' && bCrop && bCrop !== cropFilter) return;
+
+              total += on;
+            });
+          });
+
+          binBushelsEl.textContent = total ? `${fmtInt(total)} bu` : '— bu';
+        } catch (err) {
+          console.error('[grain] bin summary error', err);
+          binBushelsEl.textContent = '— bu';
+        }
       }
-      [tixSelCrop, tixStart, tixEnd].forEach(el => el.addEventListener('change', renderTickets));
-      renderTickets();
+
+      // ====== FIELD BAGS: full + partial bags (running totals, all years) ======
+      async function loadBagSummary() {
+        if (!bagCountEl || !bagBushelsEl) return;
+        bagCountEl.textContent   = '…';
+        bagBushelsEl.textContent = '… bu';
+
+        const cropFilter = norm(bagSelCrop.value);   // "all" | "corn" | "soybeans"
+
+        try {
+          // 1) productId -> { buPerBag (rated corn bu), lengthFt }
+          const prodSnap = await getDocs(collection(db, 'productsGrainBags'));
+          const productMeta = {};
+          prodSnap.forEach(ds => {
+            const d = ds.data() || {};
+            const bu  = num(d.bushels);                    // rated CORN bu per bag
+            const len = num(d.lengthFt ?? d.sizeFeet);     // physical length ft
+            if (!bu || !len) return;
+            productMeta[ds.id] = { buPerBag: bu, lengthFt: len };
+          });
+
+          // 2) inventoryId -> { buPerBag, lengthFt } via productRef
+          const invSnap = await getDocs(collection(db, 'inventoryGrainBagMovements'));
+          const invMeta = {};
+          invSnap.forEach(ds => {
+            const d = ds.data() || {};
+            let ref = d.productRef;
+            let prodId = null;
+            if (typeof ref === 'string') {
+              const parts = ref.split('/');
+              prodId = parts[parts.length - 1];
+            } else if (ref && typeof ref === 'object' && ref.id) {
+              prodId = ref.id;
+            }
+            const prod = prodId ? productMeta[prodId] : null;
+            if (prod) {
+              // prefer product lengthFt, fall back to inventory lengthFt
+              const len = prod.lengthFt || num(d.lengthFt ?? d.sizeFeet);
+              invMeta[ds.id] = {
+                buPerBag: prod.buPerBag,   // CORN bu per bag
+                lengthFt: len
+              };
+            }
+          });
+
+          // 3) events: grain_bag_events
+          const evSnap = await getDocs(collection(db, 'grain_bag_events'));
+          if (evSnap.empty) {
+            bagCountEl.textContent   = '—';
+            bagBushelsEl.textContent = '— bu';
+            return;
+          }
+
+          let totalBags = 0; // physical bags: full + partials
+          let totalBu   = 0; // crop-adjusted bushels, using FVGrainCapacity
+
+          evSnap.forEach(ds => {
+            const d = ds.data() || {};
+
+            // --- crop filter only (no year filter) ---
+            const evCrop = norm(d.cropType || d.crop || '');
+            if (cropFilter && cropFilter !== 'all' && evCrop && evCrop !== cropFilter) return;
+
+            const counts = d.counts || {};
+            const full = num(
+              counts.full != null ? counts.full : d.full
+            ) || 0;
+
+            // partialFeet: array of lengths (ft), each entry = one partial bag
+            let partialFeetList = [];
+            const pfRaw = counts.partialFeet;
+            if (Array.isArray(pfRaw)) {
+              pfRaw.forEach(v => {
+                const n = num(v);
+                if (n && n > 0) partialFeetList.push(n);
+              });
+            } else {
+              const n = num(pfRaw);
+              if (n && n > 0) partialFeetList.push(n);
+            }
+
+            const partialBagCount = partialFeetList.length;
+
+            if (!full && !partialBagCount) return;
+
+            // update physical bag count
+            totalBags += full + partialBagCount;
+
+            // look up per-bag corn capacity + length from inventory id
+            const bagSku = d.bagSku || {};
+            const invId  = bagSku.id || d.bagSkuId;
+            const meta   = invId ? invMeta[invId] : null;
+
+            if (meta && meta.buPerBag && meta.lengthFt) {
+              const buPerBag = meta.buPerBag;      // rated CORN bu per full bag
+              const lengthFt = meta.lengthFt;
+              const buPerFt  = buPerBag / lengthFt;
+
+              // First compute rated CORN bushels for this event
+              let ratedCornBu = 0;
+              if (full > 0) {
+                ratedCornBu += full * buPerBag;
+              }
+              if (partialFeetList.length) {
+                const totalPartialFt = partialFeetList.reduce((sum, ft) => sum + ft, 0);
+                ratedCornBu += totalPartialFt * buPerFt;
+              }
+
+              // Then convert corn capacity → crop bushels using FVGrainCapacity
+              let eventBu = ratedCornBu;
+              try {
+                if (window.FVGrainCapacity && typeof FVGrainCapacity.capacityForCrop === 'function') {
+                  const cropId = evCrop || 'corn';
+                  eventBu = FVGrainCapacity.capacityForCrop(ratedCornBu, cropId, { round:false });
+                }
+              } catch (e) {
+                console.warn('[grain] FVGrainCapacity error:', e);
+              }
+
+              if (eventBu && eventBu > 0) {
+                totalBu += eventBu;
+              }
+            }
+          });
+
+          bagCountEl.textContent   = totalBags ? fmtInt(totalBags) : '—';
+          bagBushelsEl.textContent = totalBu   ? `${fmtInt(totalBu)} bu` : '— bu';
+        } catch (err) {
+          console.error('[grain] bag summary error', err);
+          bagCountEl.textContent   = '—';
+          bagBushelsEl.textContent = '— bu';
+        }
+      }
+
+      // wire events
+      binSelCrop.addEventListener('change', loadBinSummary);
+      bagSelCrop.addEventListener('change', loadBagSummary);
+
+      // initial load
+      loadBinSummary();
+      loadBagSummary();
     })();
   </script>
 

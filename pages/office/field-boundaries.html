@@ -4,173 +4,457 @@
   <meta charset="utf-8">
   <title>FarmVista • Field Boundary Fix Request</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#3B7E46">
+  <meta name="theme-color" content="#3B7E46"/>
 
-  <!-- Absolute paths -->
-  <link rel="manifest" href="/Farm-vista/manifest.webmanifest">
-  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png">
-  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png">
+  <!-- Standard includes (ABSOLUTE paths) -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- Early boot + shell -->
-  <script defer src="/Farm-vista/js/theme-boot.js"></script>
-  <script defer src="/Farm-vista/js/fv-shell.js"></script>
-
-  <!-- Global CSS -->
-  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css">
-  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css">
+  <!-- Ensure fv-shell -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
 
   <style>
     :root{
-      --card-max: 1100px;
-      --page-bottom-gap: 96px;
+      --card-max:1100px;
+      --page-bottom-gap:96px;
       --accent:#2F6C3C;
-      --hero-icon-col: 36px;     /* match calculators */
-      --hero-icon-size: 24px;    /* match calculators */
+      --hero-icon-col:36px;
+      --hero-icon-size:24px;
+
+      /* FV Combo vars */
+      --combo-gap:4px;
+      --combo-radius:12px;
+      --combo-btn-radius:10px;
+      --combo-shadow:0 12px 26px rgba(0,0,0,.18);
+      --combo-item-pad:10px 8px;
+      --combo-max-h:50vh;
     }
-    html{-webkit-text-size-adjust:100%}
-    body{ background: var(--app-bg, var(--surface)); }
+
+    body{ background:var(--app-bg,var(--surface)); }
 
     .wrap{
-      max-width: var(--card-max);
-      margin: 0 auto;
-      padding: clamp(14px,3vw,22px);
-      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+      max-width:var(--card-max);
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px)+var(--ftr-h,42px)+var(--page-bottom-gap))!important;
     }
 
-    /* Hero card */
     .hero{
       border:1px solid var(--border);
       border-radius:14px;
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
       overflow:hidden;
-      margin-bottom: var(--page-bottom-gap);
+      margin-bottom:var(--page-bottom-gap);
     }
-    /* === MATCH GRAIN SHRINK HEADER LAYOUT === */
+
     .hero-head{
       display:grid;
-      grid-template-columns: var(--hero-icon-col) 1fr;  /* fixed icon column */
+      grid-template-columns:var(--hero-icon-col) 1fr;
       gap:12px;
-      align-items:center;                               /* center vertically */
+      align-items:center;
       padding:14px 16px;
-      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      background:linear-gradient(90deg,rgba(47,108,60,.12),transparent);
       border-bottom:1px solid var(--border);
     }
+
     .hero-head .icon{
       width:var(--hero-icon-size);
       height:var(--hero-icon-size);
       color:var(--accent);
-      margin-top:0;                                     /* no offset */
-      display:grid; place-items:center;
+      display:grid;
+      place-items:center;
     }
-    .hero-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2; }
+
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+
     .muted{ color:var(--muted,#67706B); }
 
-    .body{ padding:16px; display:grid; gap:14px; }
+    .body{
+      padding:16px;
+      display:grid;
+      gap:14px;
+    }
 
-    /* Responsive form rows */
-    .row{ display:grid; gap:10px; grid-template-columns: 1fr 1fr; }
-    .row-3{ grid-template-columns: 1fr 1fr 1fr; }
-    .row-4{ grid-template-columns: 1fr 1fr 1fr 1fr; }
-    @media (max-width:880px){ .row, .row-3, .row-4 { grid-template-columns: 1fr; } }
+    .row{
+      display:grid;
+      gap:10px;
+      grid-template-columns:1fr 1fr;
+    }
+    @media (max-width:880px){
+      .row{ grid-template-columns:1fr; }
+    }
 
-    .field label{ display:block; font-weight:800; margin:0 0 6px 0; }
-    .input, .select, .textarea{
-      width:100%; font:inherit; font-size:16px;
+    .field{ position:relative; }
+    .field label{
+      display:block;
+      font-weight:800;
+      margin:0 0 6px;
+    }
+
+    .input,
+    .select,
+    .textarea,
+    .buttonish{
+      width:100%;
+      font:inherit;
+      font-size:16px;
       color:var(--text);
       background:var(--card-surface,var(--surface));
       border:1px solid var(--border);
       border-radius:10px;
-      padding:12px 12px;
+      padding:12px;
       outline:none;
     }
-    .textarea{ min-height:110px; resize:vertical; }
 
-    .help{ font-size:13px; color:var(--muted,#67706B); margin-top:6px; }
+    .buttonish{
+      cursor:pointer;
+      text-align:left;
+      position:relative;
+      padding-right:42px;
+      border-radius:var(--combo-btn-radius);
+    }
 
-    /* Buttons */
-    .actions{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:6px; }
+    .buttonish.has-caret::after{
+      content:"";
+      position:absolute;
+      right:14px;
+      top:50%;
+      width:0;
+      height:0;
+      border-left:6px solid transparent;
+      border-right:6px solid transparent;
+      border-top:7px solid var(--muted,#67706B);
+      transform:translateY(-50%);
+      pointer-events:none;
+    }
+
+    .textarea{
+      min-height:110px;
+      resize:vertical;
+    }
+
+    .help{
+      font-size:13px;
+      color:var(--muted,#67706B);
+      margin-top:6px;
+    }
+
+    .actions{
+      display:flex;
+      gap:12px;
+      flex-wrap:wrap;
+      align-items:center;
+      margin-top:6px;
+    }
+
     .btn{
-      display:inline-flex; align-items:center; justify-content:center;
-      min-width:160px; padding:12px 16px; border-radius:12px;
-      border:1px solid var(--border); background:var(--card-surface,var(--surface));
-      font-weight:800; color:var(--text) !important; text-decoration:none; cursor:pointer; user-select:none;
-    }
-    .btn-primary{ border-color:transparent; background:#2F6C3C; color:#fff !important; }
-
-    /* Inline panels */
-    .panel{
-      border:1px solid var(--border); border-radius:12px; padding:12px; background:var(--card-surface,var(--surface));
-    }
-    .panel h3{ margin:0 0 8px 0; font-size:16px; }
-
-    /* Open-for-field list */
-    .open-list{ display:grid; gap:10px; }
-    .open-item{
-      border:1px solid var(--border); border-radius:10px; padding:10px;
-      display:grid; gap:6px; background:var(--surface);
-    }
-    .open-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
-    .badge{
-      display:inline-block; font-size:12px; font-weight:800; padding:4px 8px; border-radius:999px;
-      color:#114; background:rgba(47,108,60,.12); border:1px solid var(--border);
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:160px;
+      padding:12px 16px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      font-weight:800;
+      color:var(--text)!important;
+      cursor:pointer;
     }
 
-    /* Thumbs */
-    .thumbs{ display:flex; gap:10px; flex-wrap:wrap; }
+    .btn-primary{
+      border-color:transparent;
+      background:#2F6C3C;
+      color:#fff!important;
+    }
+
+    .error{
+      color:#b00020;
+      font-weight:700;
+    }
+
+    /* Combo core */
+    .combo{ position:relative; }
+    .combo .combo-anchor{
+      position:relative;
+      display:inline-block;
+      width:100%;
+    }
+    .combo-panel{
+      position:absolute;
+      left:0;
+      right:0;
+      top:calc(100% + var(--combo-gap));
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:var(--combo-radius);
+      box-shadow:var(--combo-shadow);
+      z-index:9999;
+      padding:8px;
+      display:none;
+    }
+    .combo-panel.show{ display:block; }
+    .combo-panel .search{
+      padding:4px 2px 8px;
+    }
+    .combo-panel .search input{
+      width:100%;
+      padding:10px;
+      border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius);
+      font:inherit;
+      font-size:14px;
+    }
+    .combo-panel .list{
+      max-height:var(--combo-max-h);
+      overflow:auto;
+      border-top:1px solid var(--border);
+    }
+    .combo-item{
+      padding:var(--combo-item-pad);
+      border-bottom:1px solid var(--border);
+      cursor:pointer;
+      font-size:14px;
+    }
+    .combo-item:hover{
+      background:rgba(0,0,0,.04);
+    }
+    .combo-item:last-child{
+      border-bottom:none;
+    }
+    .combo-empty{
+      padding:var(--combo-item-pad);
+      color:#67706B;
+      font-size:14px;
+    }
+
+    /* Thumbs + annotate */
+    .thumbs{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+    }
     .thumb{
-      width:92px; height:92px; border:1px solid var(--border); border-radius:10px; overflow:hidden; display:grid; place-items:center; background:#f6f7f6;
+      width:92px;
+      height:92px;
+      border:1px solid var(--border);
+      border-radius:10px;
+      overflow:hidden;
+      display:grid;
+      place-items:center;
+      background:#f6f7f6;
       position:relative;
     }
-    .thumb img{ width:100%; height:100%; object-fit:cover; }
-    .thumb button{
-      position:absolute; inset:auto 6px 6px auto; font-size:12px; padding:4px 6px; border-radius:8px;
-      border:1px solid var(--border); background:var(--surface); cursor:pointer;
+    .thumb img{
+      width:100%;
+      height:100%;
+      object-fit:cover;
+    }
+    .thumb .tools{
+      position:absolute;
+      inset:auto 6px 6px 6px;
+      display:flex;
+      gap:6px;
+    }
+    .thumb .tools button{
+      font-size:12px;
+      padding:4px 6px;
+      border-radius:8px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      cursor:pointer;
     }
 
-    /* History */
-    .hist-head{ display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-top:1px solid var(--border); }
-    .hist-title{ font-size:clamp(18px, 2.6vw, 22px); font-weight:800; }
-    .hist-clear{ border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:8px 12px; font-weight:700; cursor:pointer; color:var(--text) !important; }
-    .hist{ padding:14px 16px; display:grid; gap:12px; }
-    .hist-item{
-      border:1px solid var(--border); border-radius:12px; padding:12px; background:var(--card-surface,var(--surface));
-      display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+    /* Modal (Annotate & View) */
+    .modal{
+      position:fixed;
+      inset:0;
+      display:none;
+      place-items:center;
+      background:rgba(0,0,0,.42);
+      z-index:9999;
+      transition:opacity .15s;
+      opacity:0;
     }
-    .hist-item .hline{ font-weight:800; }
-    .hist-item .view{ border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:8px 12px; font-weight:700; cursor:pointer; color:var(--text) !important; }
-
-    /* Modal */
-    .modal{ position:fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,.42);
-      z-index:9999; transition:opacity .15s; opacity:0; }
-    .modal[open]{ display:grid; opacity:1; }
-    .dialog{ width:min(760px,92vw); max-height:85vh; display:flex; flex-direction:column; background:var(--surface); color:var(--text);
-      border-radius:14px; border:1px solid var(--border); box-shadow:0 16px 36px rgba(0,0,0,.28); }
-    .dialog-head{ padding:12px 14px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
-    .dialog-body{ padding:14px; overflow:auto; flex:1 1 auto; min-height:0; -webkit-overflow-scrolling:touch; }
+    .modal[open]{
+      display:grid;
+      opacity:1;
+    }
+    .dialog{
+      width:min(880px,94vw);
+      max-height:88vh;
+      display:flex;
+      flex-direction:column;
+      background:var(--surface);
+      color:var(--text);
+      border-radius:14px;
+      border:1px solid var(--border);
+      box-shadow:0 16px 36px rgba(0,0,0,.28);
+    }
+    .dialog-head{
+      padding:12px 14px;
+      border-bottom:1px solid var(--border);
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .dialog-body{
+      padding:12px;
+      overflow:auto;
+      flex:1 1 auto;
+      min-height:0;
+      -webkit-overflow-scrolling:touch;
+    }
+    .dialog-foot{
+      display:flex;
+      gap:8px;
+      justify-content:space-between;
+      align-items:center;
+      padding:12px 14px;
+      border-top:1px solid var(--border);
+      flex-wrap:wrap;
+    }
     .closex{
-      border:1px solid var(--border); background:var(--surface); border-radius:10px;
-      padding:8px 12px; cursor:pointer; font-weight:700; color:var(--text) !important;
+      border:1px solid var(--border);
+      background:var(--surface);
+      border-radius:10px;
+      padding:8px 12px;
+      cursor:pointer;
+      font-weight:700;
+      color:var(--text)!important;
     }
-    .kv{ display:grid; grid-template-columns:1fr auto; gap:8px 12px; align-items:baseline; }
-    .kv .val{ font-weight:800; }
+    .toolrow{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+    .toolrow .btn{
+      min-width:auto;
+      padding:8px 10px;
+    }
+    .toolrow label{
+      font-size:13px;
+    }
+    .chip{
+      border:1px solid var(--border);
+      border-radius:999px;
+      padding:6px 10px;
+      font-weight:700;
+      background:var(--surface);
+      cursor:pointer;
+      user-select:none;
+    }
+    .chip.active{
+      background:#2F6C3C;
+      color:#fff;
+      border-color:#2F6C3C;
+    }
 
-    html.no-scroll, body.no-scroll{ overflow:hidden; }
+    /* Work orders list */
+    .wo-list{
+      padding:14px;
+      display:grid;
+      gap:10px;
+    }
+    .wo-item{
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:10px;
+      background:var(--card-surface,var(--surface));
+      cursor:pointer;
+    }
+    .wo-item:active{
+      transform:scale(.995);
+    }
+    .wo-head{
+      display:flex;
+      gap:8px;
+      align-items:center;
+      justify-content:space-between;
+      flex-wrap:wrap;
+    }
+    .pill{
+      font-size:12px;
+      border:1px solid var(--border);
+      padding:4px 8px;
+      border-radius:999px;
+      background:var(--surface);
+      color:var(--muted,#67706B);
+    }
 
-    .note{ font-size:13px; padding:8px 10px; border-radius:10px; border:1px dashed var(--border); background:linear-gradient(180deg, rgba(47,108,60,.06), transparent); }
+    /* View modal photos */
+    .vm-photos{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      margin-top:8px;
+    }
+    .vm-photos a{
+      display:block;
+      border:1px solid var(--border);
+      border-radius:10px;
+      overflow:hidden;
+      background:#f6f7f6;
+    }
+    .vm-photos img{
+      width:96px;
+      height:96px;
+      object-fit:cover;
+      display:block;
+    }
+
+    /* Simple toast for this page */
+    #fv-toast{
+      position:fixed;
+      left:50%;
+      bottom:24px;
+      transform:translate(-50%,12px);
+      background:#2F6C3C;
+      color:#fff;
+      padding:10px 16px;
+      border-radius:999px;
+      font-size:14px;
+      box-shadow:0 10px 24px rgba(0,0,0,.25);
+      opacity:0;
+      pointer-events:none;
+      transition:opacity .18s ease, transform .18s ease;
+      z-index:10000;
+      white-space:nowrap;
+    }
+    #fv-toast.show{
+      opacity:1;
+      transform:translate(-50%,0);
+    }
   </style>
 </head>
 <body>
   <fv-shell>
     <div class="wrap">
+      <!-- Main request form -->
       <section class="hero">
         <header class="hero-head">
           <div class="icon" aria-hidden="true">
-            <!-- Tabler Icons (MIT) – device-desktop-cog (inline) -->
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-                 width="24" height="24" fill="none" stroke="currentColor"
-                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <rect x="3" y="4" width="18" height="12" rx="2"/>
               <path d="M7 20h10M9 16v4M15 16v4"/>
               <circle cx="17.5" cy="9.5" r="2"/>
@@ -178,481 +462,977 @@
             </svg>
           </div>
           <div>
-            <h1 id="title">Field Boundary Fix Request</h1>
-            <p id="subtitle" class="muted">Pick a field, mark Interior or Exterior, describe what’s off, and attach photos if helpful.</p>
+            <h1>Field Boundary Fix Request</h1>
+            <p class="muted">Pick a farm and field, mark Interior or Exterior, describe what’s off, and attach up to 3 annotated photos.</p>
           </div>
         </header>
 
-        <div id="form" class="body">
-          <!-- Row 1 -->
+        <div class="body">
+          <!-- Row 1: Farm + Field (both searchable combos) -->
           <div class="row">
-            <div class="field">
-              <label for="fieldName">Field</label>
-              <select id="fieldName" class="select"
-                      data-field="field" data-label="Field" data-summary="1">
-                <option value="">— Select field —</option>
-              </select>
-              <div class="help">Fields load from Setup (if available). Start typing to jump.</div>
+            <!-- Farm combo -->
+            <div class="field combo">
+              <label for="farmBtn">Farm</label>
+              <div class="combo-anchor">
+                <button id="farmBtn" class="buttonish has-caret" type="button">— Select farm —</button>
+                <div class="combo-panel" id="farmPanel" role="listbox" aria-label="Farm list">
+                  <div class="search">
+                    <input id="farmSearch" type="search" placeholder="Search farms…">
+                  </div>
+                  <div class="list" id="farmList"></div>
+                </div>
+              </div>
+              <div class="help" id="farmHelp">0 farms</div>
+              <!-- hidden data fields -->
+              <input type="hidden" id="farmId" data-field="farmId">
+              <input type="hidden" id="farmName" data-field="farm">
             </div>
 
+            <!-- Field combo -->
+            <div class="field combo">
+              <label for="fieldBtn">Field</label>
+              <div class="combo-anchor">
+                <button id="fieldBtn" class="buttonish has-caret" type="button">— Select field —</button>
+                <div class="combo-panel" id="fieldPanel" role="listbox" aria-label="Field list">
+                  <div class="search">
+                    <input id="fieldSearch" type="search" placeholder="Search fields…">
+                  </div>
+                  <div class="list" id="fieldList"></div>
+                </div>
+              </div>
+              <div class="help" id="fieldHelp">0 fields</div>
+              <!-- hidden data fields -->
+              <input type="hidden" id="fieldId" data-field="fieldId">
+              <input type="hidden" id="fieldNameHidden" data-field="field">
+            </div>
+          </div>
+
+          <!-- Row 2: Boundary Type + Scope -->
+          <div class="row">
             <div class="field">
               <label for="boundaryType">Boundary Type</label>
-              <select id="boundaryType" class="select"
-                      data-field="boundaryType" data-label="Boundary Type" data-summary="2">
+              <select id="boundaryType" class="select" data-field="boundaryType" data-label="Boundary Type">
                 <option value="">—</option>
                 <option>Exterior</option>
                 <option>Interior</option>
               </select>
             </div>
-          </div>
 
-          <!-- Row 2 -->
-          <div class="row">
             <div class="field">
               <label for="scope">Scope</label>
-              <select id="scope" class="select"
-                      data-field="scope" data-label="Scope" data-summary="3">
+              <select id="scope" class="select" data-field="scope" data-label="Scope">
                 <option value="">—</option>
                 <option>Small section</option>
                 <option>Entire field</option>
               </select>
             </div>
-
-            <div class="field">
-              <label for="when">Date</label>
-              <input id="when" type="date" class="input"
-                     data-field="when" data-label="Date">
-            </div>
           </div>
 
-          <!-- Row 3 -->
+          <!-- Row 3: Date + Submitted By -->
           <div class="row">
             <div class="field">
-              <label for="submittedBy">Submitted By</label>
-              <input id="submittedBy" class="input" placeholder="Your name"
-                     data-field="submittedBy" data-label="Submitted By">
+              <label for="when">Date</label>
+              <input id="when" type="date" class="input" data-field="when" data-label="Date">
             </div>
+
             <div class="field">
-              <label for="contact">Contact (optional)</label>
-              <input id="contact" class="input" placeholder="Phone or email"
-                     data-field="contact" data-label="Contact">
+              <label for="submittedBy">Submitted By</label>
+              <select id="submittedBy" class="select" data-field="submittedBy" data-label="Submitted By"></select>
+              <div class="help">Defaults to the currently signed-in user.</div>
             </div>
           </div>
 
           <!-- Notes -->
           <div class="field">
             <label for="notes">Notes</label>
-            <textarea id="notes" class="textarea" placeholder="Describe what’s wrong and where (e.g., NW corner 50–80 ft too wide)"
-                      data-field="notes" data-label="Notes"></textarea>
+            <textarea id="notes" class="textarea" placeholder="Describe what’s wrong and where (e.g., NW corner 50–80 ft too wide)" data-field="notes" data-label="Notes"></textarea>
           </div>
 
           <!-- Photos -->
           <div class="field">
-            <label for="photos">Photos (optional)</label>
-            <input id="photos" class="input" type="file" accept="image/*" multiple capture="environment">
+            <label for="photos">Photos (up to 3)</label>
+            <!-- No 'capture' attribute so iOS shows Camera, Photo Library, and Files -->
+            <input id="photos" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic" multiple>
             <div id="thumbs" class="thumbs" aria-live="polite"></div>
-            <div id="photoNote" class="help"></div>
-          </div>
-
-          <!-- Open requests for this field -->
-          <div id="openPanel" class="panel" hidden>
-            <h3>Open requests already on <span id="openFieldLabel"></span></h3>
-            <div id="openList" class="open-list"></div>
-            <div id="openNone" class="muted">No other open requests for this field.</div>
+            <div id="photoNote" class="help">You can draw arrows, write notes, or freehand markups before submitting.</div>
           </div>
 
           <!-- Actions -->
           <div class="actions">
-            <button id="clear" class="btn" type="button">Clear Inputs</button>
+            <button id="cancel" class="btn" type="button">Cancel</button>
             <button id="primary" class="btn btn-primary" type="button">Submit Request</button>
           </div>
 
-          <!-- Submission note -->
-          <div id="summary" class="panel note" hidden></div>
+          <div id="err" class="help error" hidden></div>
         </div>
+      </section>
 
-        <!-- History -->
-        <div class="hist-head">
-          <div class="hist-title" id="histTitle">Recent Requests</div>
-          <button id="clearHist" class="hist-clear" type="button">Clear Local History</button>
-        </div>
-        <div id="history" class="hist">
-          <div class="muted">No recent requests.</div>
+      <!-- Active work orders for the chosen field -->
+      <section id="woHero" class="hero" hidden>
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🧾</div>
+          <div>
+            <h1 id="woTitle">Active Work Orders</h1>
+            <p class="muted" id="woSub">Open requests for this field.</p>
+          </div>
+        </header>
+        <div id="woList" class="wo-list">
+          <div class="muted">No active work orders.</div>
         </div>
       </section>
     </div>
   </fv-shell>
 
-  <!-- Modal -->
+  <!-- Modal (Annotate) -->
   <div id="modal" class="modal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
       <div class="dialog-head">
-        <h3 id="mdTitle">Details</h3>
+        <h3 id="mdTitle">Annotate Photo</h3>
+        <div class="toolrow">
+          <span id="tool-pen"    class="chip active">Pen</span>
+          <span id="tool-arrow"  class="chip">Arrow</span>
+          <span id="tool-text"   class="chip">Text</span>
+          <label>Size <input id="tool-size" type="range" min="2" max="16" value="4" style="vertical-align:middle"></label>
+          <label>Color <input id="tool-color" type="color" value="#ff0000" style="vertical-align:middle"></label>
+        </div>
         <button class="closex" id="mdClose" type="button">Back</button>
       </div>
       <div class="dialog-body" id="mdBody"></div>
+      <div class="dialog-foot" id="mdFoot">
+        <div class="toolrow">
+          <button class="btn" id="mdUndo" type="button">Undo</button>
+          <button class="btn" id="mdReset" type="button">Clear</button>
+        </div>
+        <div class="toolrow">
+          <button class="btn btn-primary" id="mdSave" type="button">Save Annotation</button>
+        </div>
+      </div>
     </div>
   </div>
 
-  <script>
-  (function(){
-    "use strict";
+  <!-- Modal (READ-ONLY view of an existing work order) -->
+  <div id="viewModal" class="modal" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="vmTitle">
+      <div class="dialog-head">
+        <h3 id="vmTitle">Work Order</h3>
+        <button class="closex" id="vmClose" type="button">Back</button>
+      </div>
+      <div class="dialog-body" id="vmBody">
+        <!-- filled dynamically -->
+      </div>
+      <div class="dialog-foot">
+        <div class="muted">View only</div>
+      </div>
+    </div>
+  </div>
 
-    const firebase = window.firebase || {};
+  <!-- Toast container -->
+  <div id="fv-toast" role="status" aria-live="polite"></div>
 
-    /* ===== CONFIG ===== */
-    const STORAGE_KEY_LOCAL  = "df_boundary_requests_local_v1";
-    const HISTORY_TITLE_LOCAL = "Recent Requests (this device)";
-    const HISTORY_TITLE_FS    = "Recent Requests";
-    const MAX_HIST_LOCAL = 20;
+  <script type="module">
+    import {
+      ready,
+      getFirestore, getAuth,
+      collection, getDocs, addDoc, updateDoc, doc, getDoc, serverTimestamp,
+      query, where, orderBy
+    } from '/Farm-vista/js/firebase-init.js';
 
-    const FS_COLLECTION = "boundary_requests";
-    const FS_STORAGE_FOLDER = "boundary-photos";
+    const REDIRECT_URL = '/Farm-vista/pages/office/index.html';
 
-    /* ===== Shortcuts ===== */
+    /* ===== Helpers ===== */
     const $ = id => document.getElementById(id);
+    const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
     const todayISO = ()=> new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
-    const escapeHTML = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
-    const fmtDate = (iso)=> iso ? new Date(iso).toLocaleDateString() : "";
+    const titleCase = s => String(s||"").toLowerCase().split(/[\s._-]+/).filter(Boolean).map(w=>w[0].toUpperCase()+w.slice(1)).join(" ");
+    const safeName = name => (Date.now()+"-"+String(name||"image")).replace(/[^\w.\-]+/g,"_");
+    const fmtDate = (ts)=> {
+      const d = ts?.toDate ? ts.toDate() : (ts ? new Date(ts) : null);
+      return d ? d.toLocaleDateString() : "";
+    };
 
-    // Firebase detection
-    const HAS_FS = !!(firebase && typeof firebase.firestore === "function");
-    const HAS_STG = !!(firebase && typeof firebase.storage === "function");
-    const db  = HAS_FS ? firebase.firestore() : null;
-    const stg = HAS_STG ? firebase.storage() : null;
+    function showToast(msg){
+      const el = $("fv-toast");
+      if(!el) return;
+      el.textContent = msg;
+      el.classList.add("show");
+      setTimeout(()=> el.classList.remove("show"), 1100);
+    }
 
-    // UI elements
-    const fieldSel = $("fieldName");
+    /* Combo helpers */
+    function closeAllCombos(except=null){
+      document.querySelectorAll('.combo-panel.show').forEach(p=>{
+        if(p!==except) p.classList.remove('show');
+      });
+    }
+    document.addEventListener('click', ()=> closeAllCombos());
+    document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
+
+    function makeCombo({ btn, panel, list, items=[], searchable=false, formatter=x=>String(x?.label??x), onPick }){
+      if(!btn || !panel || !list) return { setItems(){}, open(){}, close(){} };
+
+      panel.addEventListener('click', e=> e.stopPropagation());
+      panel.addEventListener('mousedown', e=> e.stopPropagation());
+
+      function render(q=""){
+        const qq=(q||"").toLowerCase();
+        list.innerHTML = (items||[])
+          .filter(x=>!qq || formatter(x).toLowerCase().includes(qq))
+          .map(x=>`<div class="combo-item" data-id="${String(x.id)}">${formatter(x)}</div>`)
+          .join('') || `<div class="combo-empty">(no matches)</div>`;
+      }
+      function open(){
+        closeAllCombos(panel);
+        panel.classList.add('show');
+        render("");
+        if(searchable){
+          const inp = panel.querySelector('input');
+          if(inp){ inp.value=""; inp.focus(); }
+        }
+      }
+      function close(){ panel.classList.remove('show'); }
+
+      btn.addEventListener('click', e=>{
+        e.stopPropagation();
+        panel.classList.contains('show') ? close() : open();
+      });
+
+      list.addEventListener('mousedown', e=>{
+        const row = e.target.closest('.combo-item'); if(!row) return;
+        const id  = row.dataset.id;
+        const it  = (items||[]).find(x=>String(x.id)===id);
+        if(!it) return;
+        onPick?.(it);
+        close();
+      });
+
+      if(searchable){
+        const s = panel.querySelector('input');
+        if(s){ s.addEventListener('input', e=> render(e.target.value)); }
+      }
+
+      return {
+        setItems(arr){
+          items = Array.isArray(arr) ? arr : [];
+          render("");
+        },
+        open,
+        close
+      };
+    }
+
+    /* UI refs */
+    const farmHelp = $("farmHelp");
+    const fieldHelp = $("fieldHelp");
+    const submittedBySel = $("submittedBy");
+    const when = $("when");
     const boundaryType = $("boundaryType");
     const scope = $("scope");
-    const when = $("when");
-    const submittedBy = $("submittedBy");
-    const contact = $("contact");
     const notes = $("notes");
     const photos = $("photos");
     const thumbs = $("thumbs");
     const photoNote = $("photoNote");
-    const openPanel = $("openPanel");
-    const openFieldLabel = $("openFieldLabel");
-    const openList = $("openList");
-    const openNone = $("openNone");
-    const summary = $("summary");
+    const errBox = $("err");
+    const woHero = $("woHero");
+    const woTitle = $("woTitle");
+    const woSub = $("woSub");
+    const woList = $("woList");
+    const farmIdInput = $("farmId");
+    const farmNameInput = $("farmName");
+    const fieldIdInput = $("fieldId");
+    const fieldNameHidden = $("fieldNameHidden");
 
-    function prefillUser(){
-      try{
-        if(window.__FV_USER && window.__FV_USER.displayName){
-          submittedBy.value = window.__FV_USER.displayName;
-          return;
-        }
-        if(firebase && typeof firebase.auth === 'function' && firebase.auth().currentUser){
-          const u = firebase.auth().currentUser;
-          submittedBy.value = u.displayName || u.email || submittedBy.value;
-          return;
-        }
-        const saved = localStorage.getItem("df_user_name");
-        if(saved) submittedBy.value = saved;
-      }catch(e){}
+    when.value = todayISO();
+
+    let dbInstance = null;
+    let farmCombo = null;
+    let fieldCombo = null;
+    let allFarms = [];
+    let allFields = [];
+    let currentFieldId = "";
+    let currentFieldLabel = "";
+
+    /* ===== Current user ===== */
+    async function currentUser(){
+      const auth = getAuth();
+      const u = auth.currentUser;
+      if (u) return {
+        name: u.displayName || titleCase(String(u.email||"").replace(/@.*/,"").replace(/\./g," ")),
+        email: u.email||""
+      };
+      return {name:"",email:""};
     }
 
-    function saveUserHint(){
-      const name = submittedBy.value.trim();
-      if(name) localStorage.setItem("df_user_name", name);
+    /* ===== Employees / Submitted By ===== */
+    function empName(d){
+      const full = (d.fullName||"").trim();
+      if(full) return full;
+      const fn=(d.firstName||"").trim(), ln=(d.lastName||"").trim();
+      if(fn||ln) return (fn+" "+ln).trim();
+      if(d.displayName) return d.displayName;
+      if(d.name) return d.name;
+      return (d.email||"").replace(/@.*/,"");
     }
 
-    async function loadFields(){
-      let arr = [];
+    async function loadEmployees(db){
+      const me = await currentUser();
+      let emps = [];
       try{
-        if(window.DF && Array.isArray(window.DF.fields)){
-          arr = window.DF.fields.map(x => typeof x==="string" ? x : (x.name||"")).filter(Boolean);
-        }
-      }catch(e){}
+        const snap = await getDocs(collection(db, 'employees'));
+        snap.forEach(doc=>{
+          const d = doc.data()||{};
+          const nm = empName(d);
+          if(nm) emps.push({ name:nm, email:d.email||"" });
+        });
+      }catch(_){}
 
-      if(!arr.length){
-        try{
-          const raw = localStorage.getItem("df_fields");
-          if(raw){
-            const tmp = JSON.parse(raw);
-            if(Array.isArray(tmp)) arr = tmp.map(x => typeof x==="string" ? x : (x.name||"")).filter(Boolean);
-          }
-        }catch(e){}
+      const norm = s => String(s||"").trim().toLowerCase();
+      const hasMe = emps.some(e => (e.email && norm(e.email)===norm(me.email)) || norm(e.name)===norm(me.name));
+      if(!hasMe && (me.name || me.email)){
+        emps.unshift({
+          name: me.name || titleCase(String(me.email||"").replace(/@.*/,"").replace(/\./g," ")),
+          email: me.email||""
+        });
       }
 
-      if(!arr.length){
-        try{
-          const res = await fetch("/Farm-vista/assets/data/fields.json",{cache:"no-store"});
-          if(res.ok){
-            const tmp = await res.json();
-            if(Array.isArray(tmp)) arr = tmp.map(x => typeof x==="string" ? x : (x.name||"")).filter(Boolean);
-          }
-        }catch(e){}
-      }
+      emps = emps.filter(x=>x.name).sort((a,b)=>a.name.localeCompare(b.name));
+      submittedBySel.innerHTML = emps.map(e=>
+        `<option value="${esc(e.name)}" data-email="${esc(e.email)}">${esc(e.name)}</option>`
+      ).join("");
 
-      arr = Array.from(new Set(arr)).sort((a,b)=>a.localeCompare(b));
-      fieldSel.innerHTML = '<option value="">— Select field —</option>' + arr.map(n=>`<option>${escapeHTML(n)}</option>`).join("");
+      let idx = emps.findIndex(e => norm(e.email)===norm(me.email));
+      if (idx<0) idx = emps.findIndex(e => norm(e.name)===norm(me.name));
+      if (idx>=0) submittedBySel.selectedIndex = idx;
     }
 
-    /* Photos */
+    /* ===== Farms & Fields (combos) ===== */
+    function initCombos(){
+      farmCombo = makeCombo({
+        btn: $("farmBtn"),
+        panel: $("farmPanel"),
+        list: $("farmList"),
+        items: [],
+        searchable: true,
+        formatter: x => x.name,
+        onPick: farm => {
+          farmIdInput.value = farm.id;
+          farmNameInput.value = farm.name;
+          $("farmBtn").textContent = farm.name || "— Select farm —";
+
+          // Filter fields to this farm
+          applyFarmFilter(farm.id);
+
+          // Clear current field selection
+          currentFieldId = "";
+          currentFieldLabel = "";
+          fieldIdInput.value = "";
+          fieldNameHidden.value = "";
+          $("fieldBtn").textContent = "— Select field —";
+
+          // Clear active list
+          woHero.hidden = true;
+          woList.innerHTML = '<div class="muted">No active work orders.</div>';
+        }
+      });
+
+      fieldCombo = makeCombo({
+        btn: $("fieldBtn"),
+        panel: $("fieldPanel"),
+        list: $("fieldList"),
+        items: [],
+        searchable: true,
+        formatter: x => x.name,
+        onPick: field => {
+          currentFieldId = field.id;
+          currentFieldLabel = field.name || "";
+          fieldIdInput.value = field.id;
+          fieldNameHidden.value = field.name || "";
+          $("fieldBtn").textContent = field.name || "— Select field —";
+
+          // If field has farm info, sync farm selection WITHOUT clearing a good existing choice
+          if (field.farmId || field.farmName){
+            // Try to match against loaded farms
+            let matchedFarm = null;
+            if (field.farmId){
+              matchedFarm = allFarms.find(f => String(f.id) === String(field.farmId));
+            }
+            if (!matchedFarm && field.farmName){
+              matchedFarm = allFarms.find(f => String(f.name) === String(field.farmName));
+            }
+
+            if (matchedFarm){
+              // Use canonical farm from farms collection
+              farmIdInput.value = matchedFarm.id;
+              farmNameInput.value = matchedFarm.name;
+              $("farmBtn").textContent = matchedFarm.name || "— Select farm —";
+            } else if (!farmIdInput.value && !farmNameInput.value){
+              // Only fall back to raw field values if NO farm has been chosen yet
+              farmIdInput.value = field.farmId || "";
+              farmNameInput.value = field.farmName || "";
+              if (field.farmName){
+                $("farmBtn").textContent = field.farmName;
+              }
+              // If there is no farmName, leave the button text alone instead of clearing it
+            }
+          }
+
+          if(dbInstance && currentFieldId){
+            renderActiveWorkOrders(dbInstance, currentFieldId, currentFieldLabel);
+          }
+        }
+      });
+    }
+
+    function applyFarmFilter(farmId){
+      let arr = allFields;
+      if(farmId){
+        arr = allFields.filter(f => (f.farmId || "") === farmId);
+      }
+      if(fieldCombo) fieldCombo.setItems(arr);
+      if(fieldHelp){
+        if(farmId){
+          fieldHelp.textContent = `${arr.length} fields in farm`;
+        }else{
+          fieldHelp.textContent = `${arr.length} fields`;
+        }
+      }
+    }
+
+    async function loadFarmsAndFields(db){
+      // Farms
+      if(farmHelp) farmHelp.textContent = "Loading…";
+      try{
+        const snap = await getDocs(collection(db,'farms'));
+        const items = [];
+        snap.forEach(d=>{
+          const data = d.data() || {};
+          const name = String(data.name||"").trim();
+          if(name) items.push({ id:d.id, name });
+        });
+        items.sort((a,b)=>a.name.localeCompare(b.name));
+        allFarms = items;
+        if(farmCombo) farmCombo.setItems(allFarms);
+        if(farmHelp) farmHelp.textContent = `${allFarms.length} farms`;
+      }catch(e){
+        console.error(e);
+        if(farmHelp) farmHelp.textContent = "0 farms";
+      }
+
+      // Fields
+      if(fieldHelp) fieldHelp.textContent = "Loading…";
+      try{
+        const snap = await getDocs(collection(db,'fields'));
+        const items = [];
+        snap.forEach(d=>{
+          const data = d.data() || {};
+          const name = String(data.name||"").trim();
+          if(!name) return;
+          const farmId = String(data.farmId || data.farm || "").trim();
+          const farmName = String(data.farmName || data.farm || "").trim();
+          items.push({ id:d.id, name, farmId, farmName });
+        });
+        items.sort((a,b)=>a.name.localeCompare(b.name));
+        allFields = items;
+        if(fieldCombo) fieldCombo.setItems(allFields);
+        if(fieldHelp) fieldHelp.textContent = `${allFields.length} fields`;
+      }catch(e){
+        console.error(e);
+        if(fieldHelp) fieldHelp.textContent = "0 fields";
+      }
+    }
+
+    /* ===== Photos & Annotations ===== */
     let selectedFiles = [];
+
     photos.addEventListener("change", ()=>{
-      selectedFiles = Array.from(photos.files||[]);
+      const list = Array.from(photos.files||[]);
+      selectedFiles = (selectedFiles || []).concat(list).slice(0,3);
       renderThumbs();
-      photoNote.textContent = HAS_STG ? "Photos will upload with the request." : "Preview only (no cloud upload available). The request will submit without photos.";
+      photoNote.textContent = selectedFiles.length >= 3
+        ? "Max 3 photos attached."
+        : "You can draw arrows, write notes, or freehand markups before submitting.";
     });
+
     function renderThumbs(){
       thumbs.innerHTML = "";
       selectedFiles.forEach((file, idx)=>{
         const div = document.createElement("div");
-        div.className = "thumb";
+        div.className="thumb";
         const img = document.createElement("img");
-        img.alt = file.name;
-        img.src = URL.createObjectURL(file);
-        const rm = document.createElement("button");
-        rm.type = "button";
-        rm.textContent = "Remove";
-        rm.addEventListener("click", ()=>{
-          selectedFiles.splice(idx,1);
-          renderThumbs();
-        });
+        img.alt=file.name;
+        img.src=URL.createObjectURL(file);
+        const tools = document.createElement("div");
+        tools.className="tools";
+        const btnAnn = document.createElement("button");
+        btnAnn.textContent="Annotate";
+        const btnRm  = document.createElement("button");
+        btnRm.textContent="Remove";
+        btnAnn.addEventListener("click", ()=> openAnnotate(idx));
+        btnRm.addEventListener("click", ()=>{ selectedFiles.splice(idx,1); renderThumbs(); });
+        tools.appendChild(btnAnn);
+        tools.appendChild(btnRm);
         div.appendChild(img);
-        div.appendChild(rm);
+        div.appendChild(tools);
         thumbs.appendChild(div);
       });
     }
 
-    /* Collect + Validate */
-    const FIELDS = Array.from(document.querySelectorAll("[data-field]"));
-    function collect(){
-      const o = {};
-      FIELDS.forEach(el => o[el.dataset.field] = el.value);
-      o.status = "Open";
-      o.t = Date.now();
-      o.timestampISO = new Date(o.t).toISOString();
-      return o;
+    // Annotate modal state
+    const modal = $("modal"), mdBody=$("mdBody"), mdClose=$("mdClose");
+    const toolPen = $("tool-pen"), toolArrow=$("tool-arrow"), toolText=$("tool-text");
+    const toolSize = $("tool-size"), toolColor=$("tool-color");
+    const mdUndo=$("mdUndo"), mdReset=$("mdReset"), mdSave=$("mdSave");
+
+    let ann = {
+      canvas:null, ctx:null, img:null, idx:null,
+      tool:"pen", drawing:false, start:null,
+      undoStack:[], dpr: 1
+    };
+
+    function setTool(which){
+      ann.tool = which;
+      [toolPen,toolArrow,toolText].forEach(el=>el.classList.remove('active'));
+      if(which==="pen") toolPen.classList.add('active');
+      if(which==="arrow") toolArrow.classList.add('active');
+      if(which==="text") toolText.classList.add('active');
     }
-    function validate(o){
-      if(!o.field) return "Please select a field.";
-      if(!o.boundaryType) return "Please choose Interior or Exterior.";
-      if(!o.scope) return "Please choose Small section or Entire field.";
-      if(!o.submittedBy || !o.submittedBy.trim()) return "Please enter who is submitting this.";
-      if(!o.when) return "Please set the date.";
-      return "";
+    toolPen.addEventListener("click", ()=> setTool("pen"));
+    toolArrow.addEventListener("click", ()=> setTool("arrow"));
+    toolText.addEventListener("click", ()=> setTool("text"));
+
+    function openAnnotate(idx){
+      const file = selectedFiles[idx]; if(!file) return;
+      ann.idx=idx;
+      mdBody.innerHTML = `<canvas id="annCvs" style="max-width:100%;touch-action:none;display:block;margin:auto"></canvas>`;
+      const cvs = $("annCvs");
+      ann.canvas=cvs; ann.ctx=cvs.getContext("2d");
+      ann.undoStack.length=0;
+
+      const img = new Image(); ann.img=img;
+      img.onload = ()=>{
+        const maxW = Math.min(820, window.innerWidth*0.9);
+        const scale = Math.min(1, maxW / img.width);
+        const cssW = Math.round(img.width * scale);
+        const cssH = Math.round(img.height * scale);
+        const dpr = window.devicePixelRatio || 1; ann.dpr = dpr;
+        cvs.style.width = cssW+"px";
+        cvs.style.height = cssH+"px";
+        cvs.width = Math.round(cssW * dpr);
+        cvs.height= Math.round(cssH * dpr);
+        ann.ctx.setTransform(dpr,0,0,dpr,0,0);
+        ann.ctx.drawImage(img,0,0,cssW,cssH);
+        pushUndo();
+      };
+      img.src = URL.createObjectURL(file);
+
+      wireDrawHandlers(cvs);
+      openModal("Annotate Photo");
     }
 
-    /* Local history */
-    function loadLocal(){
-      try{ const arr = JSON.parse(localStorage.getItem(STORAGE_KEY_LOCAL)||"[]"); return Array.isArray(arr)?arr:[]; }
-      catch(e){ return []; }
+    function pushUndo(){
+      try{
+        const w = ann.canvas.width/ann.dpr, h = ann.canvas.height/ann.dpr;
+        const snap = ann.ctx.getImageData(0,0,w,h);
+        ann.undoStack.push(snap);
+        if(ann.undoStack.length>30) ann.undoStack.shift();
+      }catch(_){}
     }
-    function saveLocal(arr){ localStorage.setItem(STORAGE_KEY_LOCAL, JSON.stringify(arr.slice(0,MAX_HIST_LOCAL))); }
-
-    /* Firestore */
-    async function fsAddRequest(obj){
-      const ref = await db.collection(FS_COLLECTION).add({
-        ...obj,
-        createdAt: (firebase.firestore && firebase.firestore.FieldValue && firebase.firestore.FieldValue.serverTimestamp) ? firebase.firestore.FieldValue.serverTimestamp() : null
-      });
-      return ref.id;
-    }
-    async function fsUpdate(id, patch){ await db.collection(FS_COLLECTION).doc(id).update(patch); }
-    async function fsQueryOpenByField(fieldName){
-      const snap = await db.collection(FS_COLLECTION)
-        .where("field","==", fieldName)
-        .where("status","==","Open")
-        .orderBy("timestampISO","desc")
-        .limit(25).get();
-      return snap.docs.map(d=>({id:d.id, ...d.data()}));
-    }
-    async function fsRecent(limit=20){
-      const snap = await db.collection(FS_COLLECTION)
-        .orderBy("timestampISO","desc").limit(limit).get();
-      return snap.docs.map(d=>({id:d.id, ...d.data()}));
-    }
-    async function stgUploadMany(docId, files){
-      if(!files.length) return [];
-      const urls=[];
-      for(const f of files){
-        const safeName = (Date.now()+"-"+f.name).replace(/[^\w.\-]+/g,"_");
-        const ref = stg.ref().child(`boundary-photos/${docId}/${safeName}`);
-        await ref.put(f);
-        const url = await ref.getDownloadURL();
-        urls.push({name:f.name, url});
+    function restoreLast(){
+      if(!ann.undoStack.length) return;
+      const last = ann.undoStack.pop();
+      if(last){
+        ann.ctx.setTransform(ann.dpr,0,0,ann.dpr,0,0);
+        ann.ctx.putImageData(last,0,0);
       }
-      return urls;
     }
-
-    /* Open-for-field */
-    async function refreshOpenForField(){
-      const fieldName = fieldSel.value;
-      if(!fieldName){ openPanel.hidden = true; return; }
-      openFieldLabel.textContent = fieldName;
-
-      let items = [];
-      if(HAS_FS){
-        try{ items = await fsQueryOpenByField(fieldName); }
-        catch(e){ console.warn("FS open-by-field failed:", e); items = []; }
-      }else{
-        const all = loadLocal();
-        items = all.filter(x => x.field===fieldName && x.status==="Open");
+    mdUndo.addEventListener("click", restoreLast);
+    mdReset.addEventListener("click", ()=>{
+      if(ann.img && ann.canvas){
+        const w = ann.canvas.width/ann.dpr, h = ann.canvas.height/ann.dpr;
+        ann.ctx.setTransform(ann.dpr,0,0,ann.dpr,0,0);
+        ann.ctx.clearRect(0,0,w,h);
+        ann.ctx.drawImage(ann.img,0,0,w,h);
+        ann.undoStack.length=0;
+        pushUndo();
       }
+    });
+    mdSave.addEventListener("click", ()=>{
+      if(!ann.canvas || ann.idx==null) return;
+      ann.canvas.toBlob(b=>{
+        if(!b) return;
+        const orig = selectedFiles[ann.idx];
+        const ext = (orig?.name||"image").replace(/^.*(\.\w+)$/,'$1') || ".png";
+        const named = new File(
+          [b],
+          (orig?.name?.replace(/\.\w+$/,'')||"annotated") + "-annotated"+ext,
+          { type: "image/png" }
+        );
+        selectedFiles.splice(ann.idx,1,named);
+        renderThumbs();
+        closeModal();
+      }, "image/png", 0.92);
+    });
 
-      openList.innerHTML = "";
-      if(!items.length){
-        openNone.hidden = false;
-      }else{
-        openNone.hidden = true;
-        items.forEach(it=>{
-          const div = document.createElement("div");
-          div.className = "open-item";
-          const head = document.createElement("div");
-          head.className = "open-head";
-          head.innerHTML = `<div><strong>${escapeHTML(it.boundaryType||"-")}</strong> • ${escapeHTML(it.scope||"-")}</div>
-                            <span class="badge">${escapeHTML(it.status||"Open")}</span>`;
-          const meta = document.createElement("div");
-          meta.className = "muted";
-          meta.textContent = `${fmtDate(it.when)} • ${it.submittedBy||"Unknown"}`;
-          const txt = document.createElement("div");
-          txt.textContent = it.notes || "(no notes)";
-          div.appendChild(head);
-          div.appendChild(meta);
-          div.appendChild(txt);
-          openList.appendChild(div);
-        });
-      }
-      openPanel.hidden = false;
-    }
-    fieldSel.addEventListener("change", refreshOpenForField);
-
-    /* History render */
-    function summaryLine(o){
-      const parts = [];
-      if(o.field) parts.push(o.field);
-      if(o.boundaryType) parts.push(o.boundaryType);
-      if(o.when) parts.push(new Date(o.when).toLocaleDateString());
-      return parts.join(" • ");
-    }
-    async function renderHistory(){
-      const box = $("history");
-      $("histTitle").textContent = HAS_FS ? "Recent Requests" : "Recent Requests (this device)";
-      let items = [];
-      if(HAS_FS){
-        try{ items = await fsRecent(20); }
-        catch(e){ console.warn("FS recent failed:", e); items = []; }
-      } else {
-        items = loadLocal();
-      }
-      if(!items.length){ box.innerHTML = '<div class="muted">No recent requests.</div>'; return; }
-      box.innerHTML = "";
-      items.forEach((it)=>{
-        const div = document.createElement("div");
-        div.className = "hist-item";
-        const line = summaryLine(it) || "(untitled)";
-        div.innerHTML = `<div class="hline">${escapeHTML(line)}</div>
-                         <button class="view" type="button">View</button>`;
-        div.querySelector(".view").addEventListener("click", ()=> openDetail(it));
-        box.appendChild(div);
-      });
-    }
-
-    /* Modal */
-    const modal = $("modal"), mdBody=$("mdBody"), mdClose=$("mdClose"); let lastFocus=null;
-    function openDetail(it){
-      $("mdTitle").textContent = "Request Details";
-      const rows = [
-        ["Field", it.field],
-        ["Boundary Type", it.boundaryType],
-        ["Scope", it.scope],
-        ["Date", it.when ? new Date(it.when).toLocaleDateString() : ""],
-        ["Submitted By", it.submittedBy],
-        ["Contact", it.contact],
-        ["Status", it.status||"Open"],
-        ["Notes", it.notes]
-      ].map(([k,v])=>`<div>${escapeHTML(k)}</div><div class="val">${escapeHTML(v||"")}</div>`).join("");
-      const photosBlock = Array.isArray(it.photos) && it.photos.length
-        ? `<div style="grid-column:1/-1"><div class="thumbs">${
-            it.photos.map(p=>`<a href="${escapeHTML(p.url||"#")}" target="_blank" class="thumb" title="${escapeHTML(p.name||"photo")}">${p.url?`<img src="${escapeHTML(p.url)}" alt="">`:"<span>No URL</span>"}</a>`).join("")
-          }</div></div>` : "";
-      mdBody.innerHTML = `<div class="kv">${rows}${photosBlock}</div>`;
+    function openModal(title){
+      $("mdTitle").textContent = title || "Details";
       modal.setAttribute("open",""); modal.setAttribute("aria-hidden","false");
-      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
-      lastFocus=document.activeElement; mdClose.focus();
+      document.documentElement.classList.add("no-scroll");
+      document.body.classList.add("no-scroll");
     }
     function closeModal(){
       modal.removeAttribute("open"); modal.setAttribute("aria-hidden","true");
-      document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
-      if(lastFocus && lastFocus.focus) lastFocus.focus();
+      mdBody.innerHTML = "";
+      ann={canvas:null,ctx:null,img:null,idx:null,tool:"pen",drawing:false,start:null,undoStack:[],dpr:1};
+      document.documentElement.classList.remove("no-scroll");
+      document.body.classList.remove("no-scroll");
     }
     mdClose.addEventListener("click", closeModal);
     modal.addEventListener("click", e=>{ if(e.target===modal) closeModal(); });
     document.addEventListener("keydown", e=>{ if(e.key==="Escape" && modal.hasAttribute("open")) closeModal(); });
 
-    /* Submit */
+    function wireDrawHandlers(cvs){
+      const ctx = ann.ctx;
+
+      const getPos = e=>{
+        const r=cvs.getBoundingClientRect();
+        const c = e.touches?.[0] || e;
+        return { x: (c.clientX - r.left), y: (c.clientY - r.top) };
+      };
+
+      const strokeStyle = ()=> {
+        ctx.lineWidth = Number(toolSize.value)||4;
+        ctx.strokeStyle = toolColor.value || "#ff0000";
+        ctx.fillStyle = toolColor.value || "#ff0000";
+        ctx.lineJoin = "round"; ctx.lineCap = "round";
+      };
+
+      const start = e=>{
+        e.preventDefault();
+        strokeStyle();
+        const p=getPos(e);
+        ann.drawing=true; ann.start=p;
+        if(ann.tool==="pen"){
+          ctx.beginPath(); ctx.moveTo(p.x, p.y);
+        }
+      };
+      const move = e=>{
+        if(!ann.drawing) return;
+        e.preventDefault();
+        const p=getPos(e);
+        if(ann.tool==="pen"){
+          ctx.lineTo(p.x, p.y); ctx.stroke();
+        }
+      };
+      const end = e=>{
+        if(!ann.drawing) return;
+        ann.drawing=false;
+        const pStart = ann.start;
+        const pEnd = e ? getPos(e) : pStart;
+        if(ann.tool==="arrow" && pStart && pEnd){
+          drawArrow(ctx, pStart, pEnd, Number(toolSize.value)||4, toolColor.value||"#ff0000");
+        }
+        if(ann.tool==="text" && pStart){
+          const txt = prompt("Enter note text:");
+          if(txt){
+            ctx.font = `bold ${Math.max(12,(Number(toolSize.value)||4)*4)}px system-ui,-apple-system,Segoe UI,Roboto,Arial`;
+            ctx.fillText(txt, pStart.x+4, pStart.y+4);
+          }
+        }
+        pushUndo();
+      };
+
+      cvs.addEventListener("mousedown", start);
+      cvs.addEventListener("mousemove", move);
+      window.addEventListener("mouseup", end);
+      cvs.addEventListener("touchstart", start, {passive:false});
+      cvs.addEventListener("touchmove", move, {passive:false});
+      window.addEventListener("touchend", end);
+    }
+
+    function drawArrow(ctx, p, q, width, color){
+      const headLen = Math.max(8, width*4);
+      const angle = Math.atan2(q.y - p.y, q.x - p.x);
+      ctx.save();
+      ctx.strokeStyle = color; ctx.fillStyle = color;
+      ctx.lineWidth = width; ctx.lineJoin="round"; ctx.lineCap="round";
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(q.x, q.y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(q.x, q.y);
+      ctx.lineTo(
+        q.x - headLen * Math.cos(angle - Math.PI/6),
+        q.y - headLen * Math.sin(angle - Math.PI/6)
+      );
+      ctx.lineTo(
+        q.x - headLen * Math.cos(angle + Math.PI/6),
+        q.y - headLen * Math.sin(angle + Math.PI/6)
+      );
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    /* ===== Lazy Storage loader ===== */
+    async function loadStorageFns(){
+      try{
+        const m = await import('/Farm-vista/js/firebase-init.js');
+        const fns = {
+          getStorage:m.getStorage,
+          ref:m.ref,
+          uploadBytes:m.uploadBytes,
+          getDownloadURL:m.getDownloadURL
+        };
+        if (fns.getStorage && fns.ref && fns.uploadBytes && fns.getDownloadURL) return fns;
+      }catch(_){}
+      throw new Error('Storage functions are not exported by /Farm-vista/js/firebase-init.js. Please export getStorage, ref, uploadBytes, getDownloadURL.');
+    }
+
+    /* ===== Collect / validate / save ===== */
+    const DATA_FIELDS = () => Array.from(document.querySelectorAll("[data-field]"));
+
+    function collect(){
+      const o={};
+      DATA_FIELDS().forEach(el=> o[el.dataset.field]=el.value);
+
+      const sbOpt = submittedBySel.options[submittedBySel.selectedIndex];
+      o.submittedByEmail = (sbOpt?.dataset?.email || "").trim();
+      o.status="Open";
+      o.t=Date.now();
+      o.timestampISO=new Date(o.t).toISOString();
+      return o;
+    }
+
+    function validate(o){
+      if(!o.farmId || !o.farm) return "Please select a farm.";
+      if(!o.fieldId || !o.field) return "Please select a field.";
+      if(!o.boundaryType) return "Please choose Interior or Exterior.";
+      if(!o.scope) return "Please choose Small section or Entire field.";
+      if(!o.submittedBy || !o.submittedBy.trim()) return "Please choose who is submitting this.";
+      if(!o.when) return "Please set the date.";
+      return "";
+    }
+
+    async function saveRequest(db, obj){
+      const ref = await addDoc(collection(db, 'boundary_requests'), {
+        ...obj,
+        createdAt: serverTimestamp()
+      });
+      return ref.id;
+    }
+
+    async function uploadPhotosLazy(docId, files){
+      if(!files || !files.length) return [];
+      const { getStorage, ref, uploadBytes, getDownloadURL } = await loadStorageFns();
+      const st = getStorage();
+      const out = [];
+      for (const f of files){
+        const safe = safeName(f.name);
+        const path = `boundary-requests/${docId}/${safe}`;
+        const r = ref(st, path);
+        await uploadBytes(r, f, { contentType: f.type || 'image/png' });
+        const url = await getDownloadURL(r);
+        out.push({ name: f.name, url, path });
+      }
+      return out;
+    }
+
     $("primary").addEventListener("click", async ()=>{
       const o = collect();
       const err = validate(o);
-      if(err){ alert(err); return; }
-
-      saveUserHint();
-      if(!o.when) o.when = todayISO();
-
-      $("summary").hidden = false;
-      $("summary").textContent = "Submitting…";
-
+      if(err){
+        alert(err);
+        return;
+      }
       try{
-        let id = null;
-        if(HAS_FS){
-          id = await fsAddRequest(o);
-          let uploaded = [];
-          if(HAS_STG && selectedFiles.length){
-            uploaded = await stgUploadMany(id, selectedFiles);
-          }
-          if(uploaded.length){
-            await fsUpdate(id, { photos: uploaded });
-            o.photos = uploaded;
+        const db = dbInstance || getFirestore();
+        const id = await saveRequest(db, o);
+
+        if (selectedFiles.length){
+          try{
+            const uploaded = await uploadPhotosLazy(id, selectedFiles);
+            if (uploaded.length){
+              await updateDoc(doc(db,'boundary_requests',id), {
+                photos: uploaded,
+                updatedAt: serverTimestamp()
+              });
+            }
+          }catch(stErr){
+            console.error(stErr);
+            alert("Saved request, but photo upload failed:\n\n" + (stErr?.message||stErr));
           }
         }
-        const rec = loadLocal();
-        rec.unshift({ ...o, id: id || ("local-"+o.t) });
-        saveLocal(rec);
 
-        $("summary").innerHTML = `<strong>Submitted:</strong> ${escapeHTML((o.field||"") + (o.boundaryType? " • "+o.boundaryType : "") + (o.when? " • "+new Date(o.when).toLocaleDateString() : ""))}`;
-        $("fieldName").selectedIndex = 0;
-        $("boundaryType").selectedIndex = 0;
-        $("scope").selectedIndex = 0;
-        $("when").value = todayISO();
-        $("notes").value = "";
-        $("photos").value = "";
-        selectedFiles = [];
-        renderThumbs();
-        await renderHistory();
-        await refreshOpenForField();
-        window.scrollTo({top:0, behavior:"smooth"});
+        showToast("Boundary request saved");
+        setTimeout(()=>{ window.location.href = REDIRECT_URL; }, 1100);
       }catch(e){
         console.error(e);
-        alert("Sorry, something went wrong saving the request.");
-        $("summary").hidden = true;
+        alert("Save failed: " + e.message);
       }
     });
 
-    $("clear").addEventListener("click", ()=>{
-      $("fieldName").selectedIndex = 0;
-      $("boundaryType").selectedIndex = 0;
-      $("scope").selectedIndex = 0;
-      $("when").value = todayISO();
-      $("notes").value = "";
-      $("photos").value = "";
-      selectedFiles = [];
-      renderThumbs();
-      $("openPanel").hidden = true;
-      $("summary").hidden = true;
+    $("cancel").addEventListener("click", ()=>{
+      window.location.href = REDIRECT_URL;
     });
 
-    (async function init(){
-      $("when").value = todayISO();
-      prefillUser();
-      await loadFields();
-      await renderHistory();
+    /* ===== Active Work Orders (per field) ===== */
+    async function renderActiveWorkOrders(db, fieldId, fieldNameLabel){
+      if(!fieldId){
+        woHero.hidden=true;
+        return;
+      }
+      try{
+        const qy = query(
+          collection(db,'boundary_requests'),
+          where('fieldId','==',fieldId),
+          orderBy('createdAt','desc')
+        );
+        const snap = await getDocs(qy);
+        const items = [];
+        snap.forEach(s=>{
+          const d = s.data()||{};
+          const status = String(d.status||'Open');
+          if(status.toLowerCase() !== 'closed'){
+            items.push({ id:s.id, ...d });
+          }
+        });
+
+        const label = fieldNameLabel || 'Selected Field';
+        woTitle.textContent = `Active Work Orders — ${label}`;
+        woSub.textContent = items.length
+          ? `${items.length} open request${items.length===1?'':'s'} for this field.`
+          : 'No open requests for this field.';
+        woHero.hidden = false;
+
+        if(!items.length){
+          woList.innerHTML = '<div class="muted">No active work orders.</div>';
+          return;
+        }
+
+        woList.innerHTML = "";
+        items.forEach(it=>{
+          const li = document.createElement('div');
+          li.className = 'wo-item';
+          li.setAttribute('role','button');
+          li.setAttribute('tabindex','0');
+          li.dataset.id = it.id;
+
+          const whenTxt = fmtDate(it.createdAt) || it.when || '';
+          li.innerHTML = `
+            <div class="wo-head">
+              <strong>${esc(it.boundaryType||'—')}</strong>
+              <span class="pill">${esc(whenTxt)}</span>
+              <span class="pill">${esc(it.status||'Open')}</span>
+            </div>
+            <div class="muted" style="margin-top:6px">
+              Submitted by ${esc(it.submittedBy||'Unknown')}${it.submittedByEmail?` • ${esc(it.submittedByEmail)}`:""}
+            </div>
+            ${it.notes? `<div style="margin-top:6px">${esc(it.notes)}</div>` : ''}
+          `;
+          li.addEventListener('click', ()=> openWorkOrderView(db, it.id, label));
+          li.addEventListener('keydown', (e)=>{
+            if(e.key==='Enter' || e.key===' '){
+              e.preventDefault();
+              openWorkOrderView(db, it.id, label);
+            }
+          });
+          woList.appendChild(li);
+        });
+      }catch(e){
+        console.error(e);
+        woHero.hidden = false;
+        woTitle.textContent = "Active Work Orders";
+        woSub.textContent = "Open requests for this field.";
+        woList.innerHTML = `<div class="muted">Unable to load work orders: ${esc(e.message)}</div>`;
+      }
+    }
+
+    /* ===== View (read-only) modal for an existing request ===== */
+    const viewModal = $("viewModal"), vmClose = $("vmClose"), vmBody = $("vmBody"), vmTitle = $("vmTitle");
+
+    function openView(){
+      viewModal.setAttribute("open",""); viewModal.setAttribute("aria-hidden","false");
+      document.documentElement.classList.add("no-scroll");
+      document.body.classList.add("no-scroll");
+    }
+    function closeView(){
+      viewModal.removeAttribute("open"); viewModal.setAttribute("aria-hidden","true");
+      vmBody.innerHTML="";
+      document.documentElement.classList.remove("no-scroll");
+      document.body.classList.remove("no-scroll");
+    }
+    vmClose.addEventListener("click", closeView);
+    viewModal.addEventListener("click", e=>{ if(e.target===viewModal) closeView(); });
+    document.addEventListener("keydown", e=>{
+      if(e.key==="Escape" && viewModal.hasAttribute("open")) closeView();
+    });
+
+    async function openWorkOrderView(db, id, fieldNameLabel){
+      try{
+        const ref = doc(db, 'boundary_requests', id);
+        const snap = await getDoc(ref);
+        if(!snap.exists()){ return; }
+        const it = snap.data() || {};
+        const whenTxt = fmtDate(it.createdAt) || it.when || '';
+        vmTitle.textContent = `Work Order — ${fieldNameLabel || it.field || ''}`;
+
+        const photos = Array.isArray(it.photos) ? it.photos : [];
+        const photoHTML = photos.length
+          ? `<div class="vm-photos">` + photos.map(p=>{
+              const url = esc(p.url || "");
+              const nm  = esc(p.name || "photo");
+              return `<a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="${nm}"/></a>`;
+            }).join("") + `</div>`
+          : `<div class="muted">No photos attached.</div>`;
+
+        vmBody.innerHTML = `
+          <div class="row" style="margin-bottom:8px">
+            <div class="field">
+              <label>Status</label>
+              <div class="pill">${esc(it.status||'Open')}</div>
+            </div>
+            <div class="field">
+              <label>Date</label>
+              <div class="pill">${esc(whenTxt)}</div>
+            </div>
+          </div>
+
+          <div class="field" style="margin-bottom:8px">
+            <label>Boundary Type</label>
+            <div><strong>${esc(it.boundaryType||'—')}</strong></div>
+          </div>
+
+          <div class="field" style="margin-bottom:8px">
+            <label>Submitted By</label>
+            <div>${esc(it.submittedBy||'Unknown')}${it.submittedByEmail?` • ${esc(it.submittedByEmail)}`:""}</div>
+          </div>
+
+          ${it.notes ? `
+          <div class="field" style="margin-bottom:8px">
+            <label>Notes</label>
+            <div>${esc(it.notes)}</div>
+          </div>` : ''}
+
+          <div class="field">
+            <label>Photos</label>
+            ${photoHTML}
+            <div class="help" style="margin-top:6px">Tap a thumbnail to open the full image in a new tab.</div>
+          </div>
+        `;
+        openView();
+      }catch(e){
+        alert("Unable to open work order: " + (e?.message||e));
+      }
+    }
+
+    /* ===== Boot ===== */
+    (async function(){
+      await ready;
+      dbInstance = getFirestore();
+      initCombos();
+      await loadFarmsAndFields(dbInstance);
+      await loadEmployees(dbInstance);
     })();
-  })();
   </script>
 </body>
 </html>
