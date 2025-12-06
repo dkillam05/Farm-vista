@@ -1,8 +1,8 @@
 /* /Farm-vista/js/fv-shell.js */
-/* FarmVista Shell — v5.10.20  (Mobile Quick Camera – Side Rail • working camera • Strong PTR Contract)
+/* FarmVista Shell — v5.10.21  (Mobile Quick Camera – Side Rail • Camera Popup • Strong PTR Contract)
    - Mobile-only right-edge handle with “QR Scanner” and “Camera”.
    - QR Scanner => /Farm-vista/pages/qr-scan.html (override via <html data-scan-url>).
-   - Camera => native via hidden input (override via <html data-camera-url>).
+   - Camera => FarmVista popup with Receipt Scan (navigates to Expenditures Add quick-camera).
    - PTR: Top-zone only, auth/context revalidation, page & data hooks, begin/end events.
 */
 (function () {
@@ -53,7 +53,15 @@
     ::slotted(.container){ max-width:980px; margin:0 auto; }
 
     .scrim{ position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .2s; z-index:1100; }
-    :host(.drawer-open) .scrim, :host(.top-open) .scrim{ opacity:1; pointer-events:auto; }
+    :host(.drawer-open) .scrim,
+    :host(.top-open) .scrim{ opacity:1; pointer-events:auto; }
+    :host(.camera-open) .scrim{
+      opacity:1;
+      pointer-events:auto;
+      background:color-mix(in srgb,#000 40%, transparent);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
 
     .drawer{ position:fixed; top:0; bottom:0; left:0; width:min(84vw, 320px);
       background: var(--surface); color: var(--text); box-shadow: var(--shadow);
@@ -130,6 +138,119 @@
     .qc-item:hover{ background:color-mix(in srgb, var(--green) 10%, transparent); }
     .qc-ico{ width:20px; height:20px; display:grid; place-items:center; opacity:.95; }
     .qc-sep{ height:1px; background:var(--border,#e6e9e6); margin:4px 6px; border-radius:1px; }
+
+    /* Camera popup (Receipt / Grain Ticket) */
+    .camera-modal{
+      position:fixed;
+      inset:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      z-index:1500;
+      pointer-events:none;
+      opacity:0;
+      transition:opacity .22s ease;
+    }
+    .camera-card{
+      width:min(360px, 90vw);
+      background:linear-gradient(135deg, #FFFFFF, #F3F4F6);
+      border-radius:18px;
+      border:1px solid rgba(0,0,0,.06);
+      box-shadow:0 18px 44px rgba(0,0,0,.30);
+      padding:18px 18px 16px;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+      transform:translateY(8px);
+      transition:transform .22s ease, box-shadow .22s ease;
+    }
+    :host(.camera-open) .camera-modal{
+      opacity:1;
+      pointer-events:auto;
+    }
+    :host(.camera-open) .camera-card{
+      transform:translateY(0);
+      box-shadow:0 22px 52px rgba(0,0,0,.34);
+    }
+    .camera-title{
+      font-weight:800;
+      font-size:17px;
+      color:#111827;
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+    .camera-title span.emoji{
+      font-size:20px;
+    }
+    .camera-sub{
+      margin:0;
+      font-size:13px;
+      color:#6B7280;
+    }
+    .camera-actions{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      margin-top:4px;
+    }
+    .camera-btn{
+      appearance:none;
+      border-radius:14px;
+      padding:10px 12px;
+      border:1px solid transparent;
+      background:#fff;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      width:100%;
+      text-align:left;
+      font:600 14px/1.2 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      cursor:pointer;
+    }
+    .camera-btn.primary{
+      background:linear-gradient(135deg, #3B7E46, #2F6C3C);
+      color:#fff;
+      border-color:rgba(0,0,0,.12);
+      box-shadow:0 10px 26px rgba(59,126,70,.55);
+    }
+    .camera-btn.primary .hint{
+      color:color-mix(in srgb,#fff 82%, transparent);
+    }
+    .camera-btn.secondary{
+      background:#E5E7EB;
+      color:#6B7280;
+      border-color:rgba(17,24,39,.06);
+    }
+    .camera-btn.secondary.disabled{
+      opacity:.65;
+      cursor:default;
+    }
+    .camera-btn .icon{
+      width:26px;
+      height:26px;
+      display:grid;
+      place-items:center;
+      font-size:18px;
+    }
+    .camera-btn .text{
+      flex:1 1 auto;
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+    }
+    .camera-btn .label{
+      font-weight:700;
+      font-size:14px;
+    }
+    .camera-btn .hint{
+      font-weight:500;
+      font-size:12px;
+    }
+    .camera-btn .chevron{
+      font-size:18px;
+      opacity:.85;
+    }
   </style>
 
   <header class="hdr" part="header">
@@ -225,6 +346,34 @@
     </div>
   </div>
 
+  <!-- Camera popup (Receipt / Grain Ticket) -->
+  <div class="camera-modal js-camera-modal" role="dialog" aria-modal="true" aria-labelledby="cameraModalTitle">
+    <div class="camera-card">
+      <div class="camera-title">
+        <span class="emoji">✨</span>
+        <span id="cameraModalTitle">Quick Capture</span>
+      </div>
+      <p class="camera-sub">Choose what you’re scanning today.</p>
+      <div class="camera-actions">
+        <button class="camera-btn primary js-camera-receipt">
+          <span class="icon">📷</span>
+          <span class="text">
+            <span class="label">Receipt Scan</span>
+            <span class="hint">Open expense capture</span>
+          </span>
+          <span class="chevron">›</span>
+        </button>
+        <button class="camera-btn secondary disabled" disabled aria-disabled="true">
+          <span class="icon">🧾</span>
+          <span class="text">
+            <span class="label">Grain Ticket</span>
+            <span class="hint">Coming soon</span>
+          </span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast js-toast" role="status" aria-live="polite"></div>
   `;
 
@@ -270,12 +419,21 @@
       this._qcScan   = r.querySelector('.js-qc-scan');
       this._qcCamera = r.querySelector('.js-qc-camera');
 
+      /* Camera popup refs */
+      this._cameraModal      = r.querySelector('.js-camera-modal');
+      this._cameraReceiptBtn = r.querySelector('.js-camera-receipt');
+
       if (this._boot) this._boot.hidden = false;
 
       this._btnMenu.addEventListener('click', ()=> { this.toggleTop(false); this.toggleDrawer(true); });
-      this._scrim.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(false); this._qcToggle(false); });
-      this._btnAccount.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(); this._qcToggle(false); });
-      document.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ this.toggleDrawer(false); this.toggleTop(false); this._qcToggle(false); } });
+      this._scrim.addEventListener('click', ()=> {
+        this.toggleDrawer(false);
+        this.toggleTop(false);
+        this._qcToggle(false);
+        this._closeCameraModal();
+      });
+      this._btnAccount.addEventListener('click', ()=> { this.toggleDrawer(false); this.toggleTop(); this._qcToggle(false); this._closeCameraModal(); });
+      document.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ this.toggleDrawer(false); this.toggleTop(false); this._qcToggle(false); this._closeCameraModal(); } });
 
       r.querySelectorAll('.js-theme').forEach(btn=> btn.addEventListener('click', ()=> this.setTheme(btn.dataset.mode)));
       document.addEventListener('fv:theme', (e)=> this._syncThemeChips(e.detail.mode));
@@ -292,6 +450,16 @@
 
       /* QC init */
       this._initQuickCamera();
+
+      /* Camera popup – Receipt Scan navigation */
+      if (this._cameraReceiptBtn) {
+        this._cameraReceiptBtn.addEventListener('click', (e)=>{
+          e.preventDefault();
+          const target = '/Farm-vista/pages/expenses/expenditures/expenditures-add.html?src=quick-camera';
+          this._closeCameraModal();
+          location.href = target;
+        });
+      }
     }
 
     _isIOSStandalone(){
@@ -730,6 +898,7 @@
       document.body.style.width = '100%';
       document.body.style.overflow = 'hidden';
     }
+
     _setScrollLock(on){
       const iosStandalone = this._isIOSStandalone();
       const html = document.documentElement;
@@ -747,6 +916,7 @@
           html.style.overflow = 'hidden';
         }
         this.classList.add('ui-locked');
+        this._scrollLocked = true;
         this._ptrDisabled = true;
       } else if (!on && this._scrollLocked){
         document.body.style.position = '';
@@ -763,21 +933,47 @@
         }
         window.scrollTo(0, this._scrollY || 0);
         this.classList.remove('ui-locked');
+        this._scrollLocked = false;
         setTimeout(()=> { this._ptrDisabled = false; }, 150);
       }
+    }
+
+    _syncScrollLock(){
+      const anyOpen = this.classList.contains('drawer-open') ||
+                      this.classList.contains('top-open') ||
+                      this.classList.contains('camera-open');
+      this._setScrollLock(anyOpen);
     }
 
     toggleDrawer(open){
       const wasOpen = this.classList.contains('drawer-open');
       const on = (open===undefined) ? !wasOpen : open;
       this.classList.toggle('drawer-open', on);
-      this._setScrollLock(on || this.classList.contains('top-open'));
+      this._syncScrollLock();
       if (wasOpen && !on) { this._collapseAllNavGroups(); }
     }
+
     toggleTop(open){
       const on = (open===undefined) ? !this.classList.contains('top-open') : open;
       this.classList.toggle('top-open', on);
-      this._setScrollLock(on || this.classList.contains('drawer-open'));
+      this._syncScrollLock();
+    }
+
+    _openCameraModal(){
+      if (!this._cameraModal) return;
+      this.classList.add('camera-open');
+      this._syncScrollLock();
+      const btn = this._cameraReceiptBtn;
+      if (btn && typeof btn.focus === 'function') {
+        setTimeout(()=> btn.focus(), 20);
+      }
+    }
+
+    _closeCameraModal(){
+      if (!this._cameraModal) return;
+      if (!this.classList.contains('camera-open')) return;
+      this.classList.remove('camera-open');
+      this._syncScrollLock();
     }
 
     _syncThemeChips(mode){
@@ -1040,7 +1236,7 @@
       // Open actions
       const html = document.documentElement;
       const scanURL   = html.getAttribute('data-scan-url')   || '/Farm-vista/pages/qr-scan.html';
-      const cameraURL = html.getAttribute('data-camera-url') || '';
+      const cameraURL = html.getAttribute('data-camera-url') || ''; // reserved; side rail now uses popup
 
       if (this._qcScan) this._qcScan.addEventListener('click', (e)=>{
         e.preventDefault();
@@ -1054,13 +1250,9 @@
         e.preventDefault();
         e.stopPropagation();
 
-        // IMPORTANT ORDER: trigger camera first (keep synchronous user gesture), THEN close rail
-        if (cameraURL) {
-          location.href = cameraURL;
-        } else {
-          this._openNativeCamera();
-        }
+        // New behavior: open FarmVista-styled popup instead of camera directly
         this._qcToggle(false);
+        this._openCameraModal();
       });
     }
 
@@ -1069,7 +1261,7 @@
       this._qcRail.setAttribute('aria-expanded', String(!!on));
     }
 
-    // Native camera via hidden input (must be in DOM and not display:none when clicked)
+    // Native camera via hidden input (kept for global 'fv:open:camera' compatibility)
     _openNativeCamera(){
       try{
         const input = document.createElement('input');
