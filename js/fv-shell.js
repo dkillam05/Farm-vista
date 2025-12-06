@@ -1,8 +1,9 @@
 /* /Farm-vista/js/fv-shell.js */
-/* FarmVista Shell — v5.10.21  (Mobile Quick Camera – Side Rail • Camera Popup • Strong PTR Contract)
+/* FarmVista Shell — v5.10.22  (Mobile Quick Camera – Side Rail • Camera Popup with Close • Strong PTR Contract)
    - Mobile-only right-edge handle with “QR Scanner” and “Camera”.
    - QR Scanner => /Farm-vista/pages/qr-scan.html (override via <html data-scan-url>).
    - Camera => FarmVista popup with Receipt Scan (navigates to Expenditures Add quick-camera).
+   - Expenditures Add page (src=quick-camera) is responsible for auto-opening its own camera workflow.
    - PTR: Top-zone only, auth/context revalidation, page & data hooks, begin/end events.
 */
 (function () {
@@ -172,6 +173,13 @@
       transform:translateY(0);
       box-shadow:0 22px 52px rgba(0,0,0,.34);
     }
+
+    .camera-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:8px;
+    }
     .camera-title{
       font-weight:800;
       font-size:17px;
@@ -184,15 +192,33 @@
       font-size:20px;
     }
     .camera-sub{
-      margin:0;
+      margin:4px 0 0;
       font-size:13px;
       color:#6B7280;
     }
+    .camera-close{
+      border:none;
+      background:transparent;
+      color:#6B7280;
+      width:28px;
+      height:28px;
+      border-radius:999px;
+      display:grid;
+      place-items:center;
+      font-size:18px;
+      cursor:pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .camera-close:focus-visible{
+      outline:2px solid var(--green);
+      outline-offset:2px;
+    }
+
     .camera-actions{
       display:flex;
       flex-direction:column;
       gap:8px;
-      margin-top:4px;
+      margin-top:10px;
     }
     .camera-btn{
       appearance:none;
@@ -349,11 +375,19 @@
   <!-- Camera popup (Receipt / Grain Ticket) -->
   <div class="camera-modal js-camera-modal" role="dialog" aria-modal="true" aria-labelledby="cameraModalTitle">
     <div class="camera-card">
-      <div class="camera-title">
-        <span class="emoji">✨</span>
-        <span id="cameraModalTitle">Quick Capture</span>
+      <div class="camera-head">
+        <div>
+          <div class="camera-title">
+            <span class="emoji">✨</span>
+            <span id="cameraModalTitle">Quick Capture</span>
+          </div>
+          <p class="camera-sub">Choose what you’re scanning today.</p>
+        </div>
+        <button class="camera-close js-camera-close" type="button" aria-label="Close">
+          ×
+        </button>
       </div>
-      <p class="camera-sub">Choose what you’re scanning today.</p>
+
       <div class="camera-actions">
         <button class="camera-btn primary js-camera-receipt">
           <span class="icon">📷</span>
@@ -422,6 +456,7 @@
       /* Camera popup refs */
       this._cameraModal      = r.querySelector('.js-camera-modal');
       this._cameraReceiptBtn = r.querySelector('.js-camera-receipt');
+      this._cameraCloseBtn   = r.querySelector('.js-camera-close');
 
       if (this._boot) this._boot.hidden = false;
 
@@ -455,9 +490,19 @@
       if (this._cameraReceiptBtn) {
         this._cameraReceiptBtn.addEventListener('click', (e)=>{
           e.preventDefault();
+          // Navigate to Expenditures Add in quick-camera mode.
+          // That page is responsible for auto-opening its own camera workflow.
           const target = '/Farm-vista/pages/expenses/expenditures/expenditures-add.html?src=quick-camera';
           this._closeCameraModal();
           location.href = target;
+        });
+      }
+
+      /* Camera popup – Close X */
+      if (this._cameraCloseBtn) {
+        this._cameraCloseBtn.addEventListener('click', (e)=>{
+          e.preventDefault();
+          this._closeCameraModal();
         });
       }
     }
