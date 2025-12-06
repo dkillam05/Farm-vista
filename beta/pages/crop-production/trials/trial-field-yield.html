@@ -1,0 +1,2999 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FarmVista • Trial Field Yields</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3B7E46" />
+
+  <!-- ABSOLUTE PATHS -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+  <!-- Swipe styles for shared helper -->
+  <link rel="stylesheet" href="/Farm-vista/assets/css/swipe-list.css" />
+
+  <!-- fv-combo (search-in-dropdown engine) – no longer used for varieties, but safe to keep -->
+  <script src="/Farm-vista/js/fv-combo.js"></script>
+
+  <style>
+    :root{
+      --card-max: 900px;
+      --page-bottom-gap: 72px;
+      --accent: #2F6C3C;
+
+      /* for dd-style dropdowns */
+      --ctl-h: 48px;
+      --ctl-radius: 10px;
+    }
+
+    html{-webkit-text-size-adjust:100%}
+    body{
+      background: var(--app-bg,var(--surface));
+      overflow-x:hidden;
+    }
+
+    .wrap{
+      max-width: var(--card-max);
+      margin: 0 auto;
+      padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+      box-sizing:border-box;
+      display:grid;
+      gap:16px;
+    }
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:18px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 12px 28px rgba(0,0,0,.12));
+      overflow:visible;
+    }
+
+    .hero-head{
+      display:flex;
+      align-items:flex-start;
+      gap:12px;
+      padding:14px 16px;
+      border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+    }
+
+    .hero-head .icon{
+      width:24px;
+      height:24px;
+      color:var(--accent);
+      display:grid;
+      place-items:center;
+      margin-top:2px;
+    }
+
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+
+    .muted{ color:var(--muted,#67706B); }
+
+    .body{
+      padding:16px;
+      display:grid;
+      gap:14px;
+    }
+
+    .top-row{
+      display:flex;
+      flex-wrap:wrap;
+      align-items:flex-start;
+      justify-content:flex-start;
+      gap:10px 16px;
+    }
+
+    .trial-summary{
+      display:grid;
+      gap:4px;
+      font-size:0.9rem;
+    }
+
+    .trial-summary-title{
+      font-weight:800;
+      font-size:1rem;
+    }
+
+    .trial-summary-line{
+      font-size:0.85rem;
+      color:var(--muted,#67706B);
+    }
+
+    .top-row-actions-left{
+      display:flex;
+      justify-content:flex-start;
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:140px;
+      padding:11px 16px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      font-weight:800;
+      font-size:0.95rem;
+      text-decoration:none;
+      cursor:pointer;
+      user-select:none;
+      color:var(--text)!important;
+      gap:6px;
+    }
+    .btn-primary{
+      border-color:transparent;
+      background:#2F6C3C;
+      color:#fff!important;
+    }
+    .btn-quiet{
+      min-width:auto;
+      padding-inline:10px;
+    }
+    .btn[disabled]{
+      opacity:.6;
+      cursor:not-allowed;
+    }
+    .btn-small{
+      padding:6px 10px;
+      min-width:auto;
+      font-size:0.8rem;
+      border-radius:999px;
+    }
+
+    .error-box{
+      border:1px solid #b3261e;
+      background:#fff;
+      color:#b3261e;
+      border-radius:10px;
+      padding:10px 12px;
+      display:none;
+      font-size:0.85rem;
+    }
+    .error-box.show{
+      display:block;
+    }
+
+    .fields-hero{
+      border:1px solid var(--border);
+      border-radius:18px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 10px 22px rgba(0,0,0,.08));
+      overflow:hidden;
+    }
+
+    .fields-head{
+      padding:12px 16px;
+      border-bottom:1px solid var(--border);
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+    }
+    .fields-head h2{
+      margin:0;
+      font-size:1rem;
+    }
+    .fields-body{
+      padding:14px 16px 16px;
+      display:grid;
+      gap:12px;
+    }
+
+    .field-list-label{
+      font-size:0.78rem;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      color:var(--muted,#67706B);
+      margin-bottom:4px;
+    }
+
+    .field-list-empty{
+      font-size:0.9rem;
+      color:var(--muted,#67706B);
+    }
+
+    .field-card{
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      padding:9px 10px;
+      display:grid;
+      gap:4px;
+      font-size:0.9rem;
+    }
+
+    .field-card-top{
+      display:flex;
+      justify-content:space-between;
+      gap:8px;
+      align-items:flex-start;
+    }
+    .field-card-title{
+      font-weight:700;
+    }
+    .field-card-sub{
+      font-size:0.82rem;
+      color:var(--muted,#67706B);
+    }
+    .field-card-note{
+      font-size:0.83rem;
+      color:var(--muted,#67706B);
+    }
+
+    /* Desktop actions; hidden on phones */
+    .field-card-actions{
+      display:flex;
+      gap:6px;
+    }
+    @media (max-width:720px){
+      .field-card-actions{
+        display:none !important;
+      }
+    }
+
+    .fields-hint{
+      font-size:0.78rem;
+      color:var(--muted,#67706B);
+      margin-top:4px;
+    }
+
+    .toast{
+      position:fixed;
+      left:50%;
+      bottom:calc(env(safe-area-inset-bottom,0px) + 72px);
+      transform:translateX(-50%);
+      background:#2F6C3C;
+      color:#fff;
+      padding:10px 14px;
+      border-radius:10px;
+      box-shadow:0 6px 20px rgba(0,0,0,.25);
+      z-index:99999;
+      display:none;
+      white-space:nowrap;
+      max-width:92vw;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      font-size:0.85rem;
+    }
+    .toast.show{
+      display:block;
+      animation:fadeout 3.2s forwards;
+    }
+    @keyframes fadeout{
+      0%{opacity:1}
+      85%{opacity:1}
+      100%{opacity:0}
+    }
+
+    /* Modal */
+    .modal-backdrop{
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,.4);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      z-index:9999;
+    }
+    .modal-backdrop.hidden{
+      display:none;
+    }
+    .modal{
+      max-width:720px;
+      width:96vw;
+      background:var(--surface);
+      border-radius:16px;
+      box-shadow:0 18px 45px rgba(0,0,0,.28);
+      border:1px solid var(--border);
+      display:flex;
+      flex-direction:column;
+      overflow:hidden;
+    }
+    .modal-header{
+      padding:12px 16px;
+      border-bottom:1px solid var(--border);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+    }
+    .modal-header h3{
+      margin:0;
+      font-size:1rem;
+    }
+    .modal-close{
+      border:none;
+      background:transparent;
+      color:var(--muted,#67706B);
+      font-size:0;
+      line-height:1;
+      cursor:pointer;
+      padding:4px;
+      border-radius:999px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .modal-close svg{
+      width:18px;
+      height:18px;
+      display:block;
+    }
+
+    .modal-body{
+      padding:14px 16px 10px;
+      font-size:0.9rem;
+      display:grid;
+      gap:10px;
+      max-height:78vh;
+      overflow-y:auto;
+    }
+    .modal-footer{
+      padding:10px 16px 12px;
+      border-top:1px solid var(--border);
+      display:flex;
+      justify-content:flex-end;
+      gap:10px;
+    }
+
+    .yield-summary{
+      display:grid;
+      gap:4px;
+    }
+
+    .yield-summary .muted{
+      font-size:0.82rem;
+    }
+
+    .btn-inline{
+      min-width:auto;
+      font-size:0.85rem;
+      padding:7px 12px;
+      border-radius:999px;
+    }
+
+    .block-type-dialog{
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      padding:10px 12px;
+      display:grid;
+      gap:6px;
+      font-size:0.88rem;
+    }
+    .block-type-dialog.hidden{
+      display:none;
+    }
+    .block-type-dialog label{
+      display:flex;
+      align-items:center;
+      gap:6px;
+      cursor:pointer;
+    }
+    .block-type-dialog input[type="radio"]{
+      accent-color:var(--accent);
+    }
+    .block-type-actions{
+      margin-top:4px;
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+    }
+
+    .yield-block-card{
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      padding:10px 12px;
+      display:grid;
+      gap:10px;
+      font-size:0.88rem;
+    }
+    .yield-block-head{
+      display:flex;
+      justify-content:space-between;
+      gap:8px;
+      align-items:flex-start;
+    }
+    .yield-block-title{
+      font-weight:700;
+    }
+    .yield-block-sub{
+      font-size:0.8rem;
+      color:var(--muted,#67706B);
+    }
+    .yield-block-remove{
+      border:none;
+      background:transparent;
+      color:var(--muted,#67706B);
+      font-size:0;
+      line-height:1;
+      cursor:pointer;
+      padding:4px;
+      border-radius:999px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .yield-block-remove svg{
+      width:18px;
+      height:18px;
+      display:block;
+    }
+
+    .yield-block-grid{
+      display:grid;
+      grid-template-columns:repeat(3, minmax(0,1fr));
+      gap:8px;
+      align-items:flex-end;
+    }
+
+    .yield-block-grid-4{
+      display:grid;
+      grid-template-columns:repeat(4, minmax(0,1fr));
+      gap:8px;
+      align-items:flex-end;
+    }
+
+    @media (max-width:640px){
+      .yield-block-grid{
+        grid-template-columns:1fr;
+      }
+      .yield-block-grid-4{
+        grid-template-columns:repeat(2, minmax(0,1fr));
+      }
+    }
+
+    .yield-block-two-col{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0,1fr));
+      gap:10px;
+      align-items:stretch;
+    }
+    @media (max-width:640px){
+      .yield-block-two-col{
+        grid-template-columns:1fr;
+      }
+    }
+
+    .yield-subcard{
+      border-radius:10px;
+      border:1px dashed var(--border);
+      padding:8px 10px;
+      display:grid;
+      gap:6px;
+    }
+    .yield-subcard-title{
+      font-size:0.8rem;
+      font-weight:700;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      color:var(--muted,#67706B);
+    }
+
+    .field-mini{
+      display:flex;
+      flex-direction:column;
+      gap:3px;
+    }
+    .field-mini span{
+      font-size:0.8rem;
+      font-weight:600;
+    }
+    .input{
+      width:100%;
+      font:inherit;
+      font-size:0.9rem;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:9px;
+      padding:8px 10px;
+      outline:none;
+      box-sizing:border-box;
+    }
+    .input:focus{
+      box-shadow:0 0 0 1px rgba(47,108,60,.28);
+      border-color:var(--accent);
+    }
+    .input-error{
+      border-color:#b3261e !important;
+      box-shadow:0 0 0 1px rgba(179,38,30,.3);
+      background:rgba(179,38,30,.03);
+    }
+
+    .yield-block-footer{
+      display:flex;
+      flex-wrap:wrap;
+      justify-content:space-between;
+      gap:6px;
+      font-size:0.8rem;
+      align-items:center;
+    }
+    .yield-block-yield{
+      font-weight:600;
+    }
+    .yield-block-error{
+      color:#b3261e;
+    }
+
+    .yield-empty{
+      font-size:0.82rem;
+      color:var(--muted,#67706B);
+    }
+
+    /* --- Additional Info section per block --- */
+    .yield-block-extra-wrapper{
+      margin-top:6px;
+      display:grid;
+      gap:6px;
+    }
+    .yield-block-extra-toggle{
+      justify-self:flex-start;
+    }
+    .yield-block-extra{
+      border-radius:10px;
+      border:1px dashed var(--border);
+      padding:8px 10px;
+      display:none;
+      gap:8px;
+    }
+    .yield-block-extra-grid{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0,1fr));
+      gap:8px;
+    }
+    @media (max-width:640px){
+      .yield-block-extra-grid{
+        grid-template-columns:1fr;
+      }
+    }
+    .yield-block-extra-label{
+      font-size:0.8rem;
+      font-weight:600;
+    }
+
+    /* Notes section */
+    .yield-block-notes{
+      margin-top:4px;
+      display:grid;
+      gap:4px;
+    }
+    .yield-block-notes-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+    }
+    .yield-block-notes-label{
+      font-size:0.8rem;
+      font-weight:600;
+    }
+    .yield-block-notes-dictation{
+      position:relative;
+    }
+    .yield-block-notes-textarea{
+      width:100%;
+      min-height:60px;
+      resize:vertical;
+      font:inherit;
+      font-size:0.9rem;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:9px;
+      padding:8px 10px;
+      padding-right:48px;
+      box-sizing:border-box;
+      outline:none;
+    }
+    .yield-block-notes-textarea:focus{
+      box-shadow:0 0 0 1px rgba(47,108,60,.28);
+      border-color:var(--accent);
+    }
+
+    /* Dictation mic button – square with rounded corners */
+    .mic-btn{
+      position:absolute;
+      right:10px;
+      bottom:10px;
+      width:36px;
+      height:36px;
+      border-radius:10px !important;
+      border:1px solid var(--border);
+      background:var(--surface-strong, var(--surface));
+      display:grid;
+      place-items:center;
+      cursor:pointer;
+      color:var(--muted,#67706B);
+    }
+    .mic-btn[disabled]{
+      opacity:.6;
+      cursor:not-allowed;
+    }
+    .mic-btn.mic-active{
+      background:#2F6C3C;
+      color:#fff;
+      border-color:#2F6C3C;
+    }
+    .mic-svg{
+      width:18px;
+      height:18px;
+      display:block;
+    }
+
+    /* Attachments section */
+    .yield-block-attachments{
+      margin-top:8px;
+      padding-top:8px;
+      border-top:1px dashed var(--border);
+      display:grid;
+      gap:6px;
+    }
+    .yield-block-att-title{
+      font-size:0.78rem;
+      font-weight:700;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      color:var(--muted,#67706B);
+    }
+    .yield-block-att-list{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+    }
+    .yield-block-att-pill{
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:3px 8px;
+      font-size:0.75rem;
+      background:var(--surface-soft,var(--surface));
+      max-width:180px;
+      white-space:nowrap;
+      text-overflow:ellipsis;
+      overflow:hidden;
+    }
+    .yield-block-att-actions{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+      align-items:center;
+    }
+    .yield-block-att-hint{
+      font-size:0.75rem;
+      color:var(--muted,#67706B);
+    }
+    .yield-block-thumb{
+      width:52px;
+      height:52px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      overflow:hidden;
+      flex-shrink:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:var(--surface-soft,var(--surface));
+      cursor:pointer;
+    }
+    .yield-block-thumb img{
+      width:100%;
+      height:100%;
+      object-fit:cover;
+      display:block;
+    }
+    .yield-block-att-item{
+      display:flex;
+      align-items:center;
+      gap:6px;
+      max-width:220px;
+    }
+    .yield-block-att-item-label{
+      font-size:0.75rem;
+      white-space:nowrap;
+      text-overflow:ellipsis;
+      overflow:hidden;
+    }
+    .yield-block-att-delete{
+      border:none;
+      background:transparent;
+      padding:2px;
+      margin-left:2px;
+      cursor:pointer;
+      border-radius:999px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:0;
+      color:var(--muted,#67706B);
+    }
+    .yield-block-att-delete svg{
+      width:14px;
+      height:14px;
+      display:block;
+    }
+
+    /* Image lightbox */
+    .img-lightbox{
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,.75);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:10000;
+    }
+    .img-lightbox.show{
+      display:flex;
+    }
+    .img-lightbox-inner{
+      max-width:96vw;
+      max-height:90vh;
+    }
+    .img-lightbox-inner img{
+      max-width:100%;
+      max-height:100%;
+      display:block;
+      border-radius:12px;
+      box-shadow:0 18px 45px rgba(0,0,0,.5);
+      background:#000;
+    }
+
+    /* === Custom dd dropdowns (mirroring Make/Model) for varieties === */
+    .dd{position:relative;}
+    .dd-btn{
+      width:100%;
+      text-align:left;
+      padding:12px;
+      padding-right:40px;
+      border:1px solid var(--border);
+      border-radius:var(--ctl-radius,10px);
+      background:var(--card-surface,var(--surface));
+      font:inherit;
+      font-size:0.9rem;
+      color:var(--text);
+      cursor:pointer;
+      appearance:none;
+      position:relative;
+      height:var(--ctl-h,48px);
+      line-height:calc(var(--ctl-h,48px) - 2px);
+      display:flex;
+      align-items:center;
+    }
+    .dd-btn::after{
+      content:"";
+      position:absolute;
+      right:12px;
+      top:50%;
+      transform:translateY(-50%);
+      width:18px;
+      height:18px;
+      pointer-events:none;
+      opacity:.7;
+      background:no-repeat center/18px 18px
+        url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%2367706B' d='M7.41 8.58L12 13.17l4.59-4.59L18 10l-6 6-6-6z'/></svg>");
+    }
+    .dd-list{
+      position:absolute;
+      z-index:40;
+      top:calc(100% + 4px);
+      left:0;
+      right:0;
+      max-height:260px;
+      overflow:auto;
+      border:1px solid var(--border);
+      border-radius:10px;
+      background:var(--surface);
+      box-shadow:0 4px 12px rgba(0,0,0,.1);
+      display:none;
+    }
+    .dd.open .dd-list{display:block;}
+    .dd-list input.dd-search{
+      width:100%;
+      box-sizing:border-box;
+      padding:10px 12px;
+      border:none;
+      border-bottom:1px solid var(--border);
+      font:inherit;
+      font-size:0.9rem;
+      outline:none;
+      background:var(--surface);
+    }
+    .dd-list ul.dd-options{
+      list-style:none;
+      margin:0;
+      padding:0;
+      max-height:220px;
+      overflow-y:auto;
+    }
+    .dd-list ul.dd-options li{
+      padding:10px 12px;
+      cursor:pointer;
+      font-size:0.9rem;
+    }
+    .dd-list ul.dd-options li:hover{
+      background:#f0f1f0;
+    }
+    .dd-btn[disabled]{opacity:.6;cursor:not-allowed;}
+  </style>
+
+  <!-- Lazy-load fv-shell if needed -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore, getAuth,
+      collection, getDocs, getDoc, doc,
+      deleteDoc, setDoc, updateDoc,
+      getStorage, ref, uploadBytes, getDownloadURL,
+      query, where
+    } from '/Farm-vista/js/firebase-init.js';
+
+    import { NAV_MENU } from '/Farm-vista/js/menu.js';
+    import {
+      calcTrueYield,
+      normalizeCropKind
+    } from '/Farm-vista/js/fv-yield-math.js';
+
+    import { initSwipeList } from '/Farm-vista/js/fv-swipe-list.js';
+
+    const CONFIG = {
+      COLLECTION_TRIALS: 'fieldTrials',
+      RETURN_URL: '/Farm-vista/pages/crop-production/trials/trials-edit.html'
+    };
+
+    const STRIP_WIDTH_OPTIONS = [15,20,25,30,35,40,45,50];
+    const MAX_ATTACH_PER_BLOCK = 5;
+
+    const STATE = {
+      db: null,
+      user: null,
+      trialId: null,
+      fieldDocId: null,
+      trial: null,
+      fields: [],
+      selectedField: null,
+      yieldData: {},
+      varieties: []
+    };
+
+    const $ = (sel, root=document) => root.querySelector(sel);
+
+    let toastEl, errBox;
+    let trialNameMain, trialCropMain, trialTypeLine, trialTreatmentLine, fieldCountLine;
+    let fieldListEl;
+    let modalBackdrop, modalTitleEl, modalBodyEl;
+    let yieldSummaryEl, yieldBlocksWrap, addBlockBtn;
+    let blockTypeDialog, blockTypeConfirmBtn, blockTypeCancelBtn;
+    let imgLightbox, imgLightboxImg;
+
+    function getQueryParam(name){
+      const params = new URLSearchParams(window.location.search);
+      return params.get(name) || null;
+    }
+
+    function showToast(msg="Saved.", ms=3200){
+      if(!toastEl) return;
+      toastEl.textContent = msg;
+      toastEl.classList.remove('show');
+      void toastEl.offsetWidth;
+      toastEl.classList.add('show');
+      setTimeout(()=>toastEl.classList.remove('show'), ms);
+    }
+
+    function showError(msg){
+      if(!errBox) return;
+      if(msg){
+        errBox.textContent = msg;
+        errBox.classList.add('show');
+      }else{
+        errBox.textContent = '';
+        errBox.classList.remove('show');
+      }
+    }
+
+    async function waitForAuthReady(){
+      const auth = getAuth();
+      let tries = 40;
+      return await new Promise(resolve => {
+        const int = setInterval(() => {
+          if(auth.currentUser){
+            clearInterval(int);
+            resolve(auth.currentUser);
+          }
+          if(--tries <= 0){
+            clearInterval(int);
+            resolve(null);
+          }
+        }, 100);
+      });
+    }
+
+    function getDefaultStripWidthFt(){
+      const cropKind = normalizeCropKind(STATE.trial?.crop);
+      if(cropKind === 'soy') return 40;
+      return 30;
+    }
+
+    function getBlockStoragePath(trialId, fieldId, blockDocId, fileName){
+      return `trialUploads/${trialId}/${fieldId}/${blockDocId}/${fileName}`;
+    }
+
+    function showImageLightbox(url, altText){
+      if(!imgLightbox || !imgLightboxImg) return;
+      imgLightboxImg.src = url;
+      imgLightboxImg.alt = altText || 'Attachment image';
+      imgLightbox.classList.add('show');
+    }
+
+    function hideImageLightbox(){
+      if(!imgLightbox || !imgLightboxImg) return;
+      imgLightbox.classList.remove('show');
+      imgLightboxImg.src = '';
+      imgLightboxImg.alt = '';
+    }
+
+    async function loadTrial(){
+      if(!STATE.trialId) return;
+      try{
+        const refDoc = doc(STATE.db, CONFIG.COLLECTION_TRIALS, STATE.trialId);
+        const snap = await getDoc(refDoc);
+        if(!snap.exists()){
+          showError("This trial could not be found. It may have been deleted.");
+          return;
+        }
+        const t = snap.data() || {};
+        STATE.trial = t;
+
+        if(trialNameMain) trialNameMain.textContent = t.trialName || "Field Trial";
+        if(trialCropMain){
+          const bits=[];
+          if(t.cropYear!=null) bits.push(t.cropYear);
+          if(t.crop) bits.push(t.crop);
+          trialCropMain.textContent = bits.join(" • ") || "—";
+        }
+        if(trialTypeLine){
+          const parts=[];
+          if(t.trialType) parts.push(`Type: ${t.trialType}`);
+          if(t.operationTask) parts.push(`Operation: ${t.operationTask}`);
+          trialTypeLine.textContent = parts.join("  |  ") || "";
+        }
+        if(trialTreatmentLine){
+          const parts=[];
+          if(t.treatmentProduct) parts.push(`Treatment: ${t.treatmentProduct}`);
+          if(t.check) parts.push(`Check: ${t.check}`);
+          trialTreatmentLine.textContent = parts.join("  |  ") || "";
+        }
+      }catch(err){
+        console.error("Error loading trial:", err);
+        showError("Unable to load trial details.");
+      }
+    }
+
+    // Build label pieces for Brand-Variety-Trait system
+    function buildVarietyDisplay(v){
+      if(!v) return 'Select variety…';
+      const parts = [];
+      if(v.brand)   parts.push(v.brand);
+      if(v.variety) parts.push(v.variety);
+      if(v.trait)   parts.push(v.trait);
+      if(!parts.length && v.label) return v.label;
+      return parts.join(' • ') || 'Seed variety';
+    }
+
+    async function loadVarietiesForTrialCrop(){
+      if(!STATE.db || !STATE.trial) return;
+
+      const cropKind = normalizeCropKind(STATE.trial.crop);
+      if(!cropKind) return;
+
+      try{
+        const baseRef = collection(STATE.db, 'productsSeed');
+
+        // Determine Firestore crop value
+        let cropValue = null;
+        if(cropKind === 'corn') cropValue = 'corn';
+        else if(cropKind === 'soy') cropValue = 'soybean';
+
+        // Build query
+        let qRef;
+        if(cropValue){
+          qRef = query(
+            baseRef,
+            where('crop', '==', cropValue),
+            where('status', '==', 'active')
+          );
+        } else {
+          qRef = query(
+            baseRef,
+            where('status', '==', 'active')
+          );
+        }
+
+        // Pull varieties
+        const snap = await getDocs(qRef);
+        const rows = [];
+
+        snap.forEach(d => {
+          const data = d.data() || {};
+
+          const brand    = data.brand    || '';
+          const variety  = data.variety  || data.productName || data.name || '';
+          const maturity = data.maturity || '';
+          const trait    = data.trait    || data.traitLabel || '';
+
+          const labelParts = [];
+          if(brand)    labelParts.push(brand);
+          if(variety)  labelParts.push(variety);
+          if(maturity) labelParts.push(maturity);
+          if(trait)    labelParts.push(trait);
+
+          const label = labelParts.join(' • ') || variety || 'Seed variety';
+
+          rows.push({
+            id: d.id,
+            label,
+            brand,
+            variety,
+            trait,
+            cropKind
+          });
+        });
+
+        // 🔥 SORT ALPHABETICALLY BY LABEL
+        rows.sort((a, b) => a.label.localeCompare(b.label));
+
+        // Save to state
+        STATE.varieties = rows;
+
+      } catch(err){
+        console.error('Error loading varieties for trial crop:', err);
+      }
+    }
+
+    async function loadFields(){
+      if(!STATE.trialId) return;
+      try{
+        const path = `${CONFIG.COLLECTION_TRIALS}/${STATE.trialId}/fields`;
+        const snap = await getDocs(collection(STATE.db, path));
+        const rows = [];
+        snap.forEach(d => {
+          const data = d.data() || {};
+          rows.push({
+            docId: d.id,
+            farmName: data.farmName || 'Unknown farm',
+            fieldName: data.fieldName || 'Unknown field',
+            tillable: data.tillable != null ? Number(data.tillable) : null,
+            trialAcres: data.trialAcres != null ? Number(data.trialAcres) : null,
+            notes: data.notes || ''
+          });
+        });
+        STATE.fields = rows;
+        renderFieldList();
+      }catch(err){
+        console.error("Error loading trial fields:", err);
+        showError("Unable to load fields for this trial.");
+      }
+    }
+
+    async function loadAllYieldBlocks(){
+      if(!STATE.trialId || !STATE.fields.length) return;
+      try{
+        for(const row of STATE.fields){
+          const path = `${CONFIG.COLLECTION_TRIALS}/${STATE.trialId}/fields/${row.docId}/yieldBlocks`;
+          const snap = await getDocs(collection(STATE.db, path));
+          if(snap.empty) continue;
+          const blocks = [];
+          snap.forEach(ds => {
+            const d = ds.data() || {};
+            const check = d.check || {};
+            const trial = d.trial || {};
+            const attRaw = Array.isArray(d.attachments) ? d.attachments : [];
+            const attachments = attRaw.map(a => ({
+              name: a.name || 'file',
+              url: a.url || null,
+              contentType: a.contentType || null
+            }));
+            blocks.push({
+              id: ds.id,
+              type: d.blockType || 'combine',
+              check: {
+                acres: check.acres != null ? String(check.acres) : '',
+                moisture: check.moisture != null ? String(check.moisture) : '',
+                poundsRaw: check.pounds != null ? String(check.pounds) : '',
+                yieldBuAc: check.yieldBuAc != null ? Number(check.yieldBuAc) : null,
+                lengthFt: check.lengthFt != null ? String(check.lengthFt) : '',
+                widthFt: check.widthFt != null ? String(check.widthFt) : ''
+              },
+              trial: {
+                acres: trial.acres != null ? String(trial.acres) : '',
+                moisture: trial.moisture != null ? String(trial.moisture) : '',
+                poundsRaw: trial.pounds != null ? String(trial.pounds) : '',
+                yieldBuAc: trial.yieldBuAc != null ? Number(trial.yieldBuAc) : null,
+                lengthFt: trial.lengthFt != null ? String(trial.lengthFt) : '',
+                widthFt: trial.widthFt != null ? String(trial.widthFt) : ''
+              },
+              plantDate: d.plantDate || '',
+              harvestDate: d.harvestDate || '',
+              combineCount: d.combineCount != null ? String(d.combineCount) : '',
+              checkVarietyId: d.checkVarietyId || '',
+              checkVarietyName: d.checkVarietyName || '',
+              trialVarietyId: d.trialVarietyId || '',
+              trialVarietyName: d.trialVarietyName || '',
+              notes: d.notes || '',
+              attachments
+            });
+          });
+          if(blocks.length){
+            STATE.yieldData[row.docId] = blocks;
+          }
+        }
+      }catch(err){
+        console.error("Error loading yield blocks:", err);
+      }
+    }
+
+    function formatPounds(digits){
+      if(!digits) return '';
+      return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    }
+
+    // --- Shared helper: validate Plant vs Harvest dates for a block ---
+    function validateBlockDates(block){
+      if(!block) return { ok: true };
+      const { plantDate, harvestDate } = block;
+      if(!plantDate || !harvestDate) return { ok: true }; // only one date → no rule
+
+      const p = new Date(plantDate);
+      const h = new Date(harvestDate);
+      if(isNaN(p.getTime()) || isNaN(h.getTime())) return { ok: true };
+
+      const diffMs = h.getTime() - p.getTime();
+      const diffDays = diffMs / (1000 * 60 * 60 * 24);
+
+      if(diffDays < 75){
+        return {
+          ok: false,
+          message: 'Harvest Date must be at least 75 days after Plant Date.'
+        };
+      }
+      return { ok: true };
+    }
+
+    function recalcCombine(block, card){
+      const cropKind = normalizeCropKind(STATE.trial?.crop);
+      const stdOverride =
+        cropKind === 'corn' ? 15 :
+        cropKind === 'soy'  ? 13 :
+        undefined;
+
+      const yields = { check: null, trial: null };
+      const errors = [];
+
+      ['check','trial'].forEach(side => {
+        const data = block[side] || {};
+        const label = side === 'check' ? 'Check' : 'Trial';
+
+        let acresInput = null;
+        let moistInput = null;
+        let poundsInput = null;
+
+        if(card){
+          acresInput  = card.querySelector(`[data-role="${side}-acres"]`);
+          moistInput  = card.querySelector(`[data-role="${side}-moisture"]`);
+          poundsInput = card.querySelector(`[data-role="${side}-pounds"]`);
+          [acresInput, moistInput, poundsInput].forEach(el=>{
+            if(el) el.classList.remove('input-error');
+          });
+        }
+
+        const acres    = data.acres !== '' && data.acres != null ? Number(data.acres) : NaN;
+        const moisture = data.moisture !== '' && data.moisture != null ? Number(data.moisture) : NaN;
+        const pounds   = data.poundsRaw ? Number(data.poundsRaw) : NaN;
+
+        // reset yield before recalculation
+        data.yieldBuAc = null;
+
+        // if nothing entered on this side, skip quietly
+        if(!acres && !moisture && !pounds){
+          return;
+        }
+
+        // require all three
+        if(!acres || !moisture || !pounds){
+          errors.push(`${label}: enter acres, moisture, and pounds.`);
+          return;
+        }
+
+        if(acres <= 0){
+          errors.push(`${label}: acres must be greater than 0.`);
+          if(acresInput) acresInput.classList.add('input-error');
+        }
+        if(moisture < 5 || moisture > 40){
+          errors.push(`${label}: moisture must be between 5% and 40%.`);
+          if(moistInput) moistInput.classList.add('input-error');
+        }
+        if(pounds <= 0){
+          errors.push(`${label}: pounds of grain must be greater than 0.`);
+          if(poundsInput) poundsInput.classList.add('input-error');
+        }
+
+        if(errors.length) return;
+
+        const res = calcTrueYield({
+          cropKind,
+          wetWeightLbs: pounds,
+          wetMoisturePct: moisture,
+          acres,
+          stdMoistOverride: stdOverride
+        });
+
+        if(!res){
+          errors.push(`${label}: unable to compute yield.`);
+          return;
+        }
+
+        const yld = res.yieldBuAc;
+        data.yieldBuAc = yld;
+        yields[side] = yld;
+
+        if(cropKind === 'corn' && (yld < 50 || yld > 400)){
+          errors.push(`${label}: yield seems out of range for corn (50–400 bu/ac).`);
+        }else if(cropKind === 'soy' && (yld < 20 || yld > 150)){
+          errors.push(`${label}: yield seems out of range for soybeans (20–150 bu/ac).`);
+        }
+      });
+
+      // --- Per-block acres guardrail vs field trialAcres ---
+      if (STATE && STATE.selectedField && STATE.selectedField.trialAcres != null) {
+        const capRaw = Number(STATE.selectedField.trialAcres);
+        if (Number.isFinite(capRaw) && capRaw > 0) {
+          const checkAcresRaw = block.check && block.check.acres !== '' && block.check.acres != null
+            ? Number(block.check.acres)
+            : 0;
+          const trialAcresRaw = block.trial && block.trial.acres !== '' && block.trial.acres != null
+            ? Number(block.trial.acres)
+            : 0;
+
+          const checkAcres = Number.isFinite(checkAcresRaw) ? checkAcresRaw : 0;
+          const trialAcresVal = Number.isFinite(trialAcresRaw) ? trialAcresRaw : 0;
+          const totalBlockAcres = checkAcres + trialAcresVal;
+
+          if (Number.isFinite(totalBlockAcres) && totalBlockAcres > capRaw) {
+            // highlight both acres inputs
+            if (card) {
+              const checkAcresInput = card.querySelector('[data-role="check-acres"]');
+              const trialAcresInput = card.querySelector('[data-role="trial-acres"]');
+              [checkAcresInput, trialAcresInput].forEach(el => {
+                if (el) el.classList.add('input-error');
+              });
+            }
+
+            // clear yields in the model
+            if (block.check) block.check.yieldBuAc = null;
+            if (block.trial) block.trial.yieldBuAc = null;
+
+            // clear yields in this recalculation run
+            yields.check = null;
+            yields.trial = null;
+
+            errors.push(
+              `Total acres for this block exceed the field’s trial acres (${capRaw.toFixed(2)} ac).`
+            );
+          }
+        }
+      }
+
+      // --- NEW: Plant vs Harvest date rule per block ---
+      const dateCheck = validateBlockDates(block);
+      if(!dateCheck.ok){
+        errors.push(dateCheck.message);
+      }
+
+      // === Update UI text for this block ===
+      if(card){
+        const yieldTextEl = card.querySelector('[data-role="yieldText"]');
+        const errorTextEl = card.querySelector('[data-role="errorText"]');
+
+        if(yieldTextEl){
+          let txt = '';
+          if(yields.check == null && yields.trial == null){
+            txt = 'Enter acres, moisture, and pounds for Check and/or Trial.';
+          }else{
+            const parts = [];
+            if(yields.check != null) parts.push(`Check: ${yields.check.toFixed(1)} bu/ac`);
+            if(yields.trial != null) parts.push(`Trial: ${yields.trial.toFixed(1)} bu/ac`);
+            if(yields.check != null && yields.trial != null){
+              const diff = yields.trial - yields.check;
+              const sign = diff >= 0 ? '+' : '−';
+              parts.push(`Diff: ${sign}${Math.abs(diff).toFixed(1)} bu/ac`);
+            }
+            txt = parts.join('  |  ');
+          }
+          yieldTextEl.textContent = txt;
+        }
+        if(errorTextEl){
+          errorTextEl.textContent = errors.join(' ');
+        }
+      }
+
+      return { yields, errors };
+    }
+
+    function recalcWeight(block, card){
+      const cropKind = normalizeCropKind(STATE.trial?.crop);
+      const stdOverride =
+        cropKind === 'corn' ? 15 :
+        cropKind === 'soy'  ? 13 :
+        undefined;
+
+      const yields = { check: null, trial: null };
+      const errors = [];
+
+      ['check','trial'].forEach(side => {
+        const data = block[side] || {};
+        const label = side === 'check' ? 'Check' : 'Trial';
+
+        let lenInput = null;
+        let widthInput = null;
+        let moistInput = null;
+        let poundsInput = null;
+
+        if(card){
+          lenInput    = card.querySelector(`[data-role="${side}-length"]`);
+          widthInput  = card.querySelector(`[data-role="${side}-width"]`);
+          moistInput  = card.querySelector(`[data-role="${side}-moisture"]`);
+          poundsInput = card.querySelector(`[data-role="${side}-pounds"]`);
+          [lenInput, widthInput, moistInput, poundsInput].forEach(el=>{
+            if(el) el.classList.remove('input-error');
+          });
+        }
+
+        const lengthFt = data.lengthFt !== '' && data.lengthFt != null ? Number(data.lengthFt) : NaN;
+        const widthFt  = data.widthFt  !== '' && data.widthFt  != null ? Number(data.widthFt)  : NaN;
+        const moisture = data.moisture !== '' && data.moisture != null ? Number(data.moisture) : NaN;
+        const pounds   = data.poundsRaw ? Number(data.poundsRaw) : NaN;
+
+        data.yieldBuAc = null;
+
+        if(!lengthFt && !widthFt && !moisture && !pounds){
+          return;
+        }
+
+        if(!lengthFt || !widthFt || !moisture || !pounds){
+          errors.push(`${label}: enter length, width, moisture, and pounds.`);
+          return;
+        }
+
+        if(lengthFt <= 0){
+          errors.push(`${label}: length must be greater than 0 ft.`);
+          if(lenInput) lenInput.classList.add('input-error');
+        }
+        if(widthFt <= 0){
+          errors.push(`${label}: width must be greater than 0 ft.`);
+          if(widthInput) widthInput.classList.add('input-error');
+        }
+        if(moisture < 5 || moisture > 40){
+          errors.push(`${label}: moisture must be between 5% and 40%.`);
+          if(moistInput) moistInput.classList.add('input-error');
+        }
+        if(pounds <= 0){
+          errors.push(`${label}: pounds of grain must be greater than 0.`);
+          if(poundsInput) poundsInput.classList.add('input-error');
+        }
+
+        if(errors.length) return;
+
+        const acres = (lengthFt * widthFt) / 43560;
+
+        if(acres <= 0){
+          errors.push(`${label}: computed acres must be greater than 0.`);
+          if(lenInput) lenInput.classList.add('input-error');
+          if(widthInput) widthInput.classList.add('input-error');
+          return;
+        }
+
+        const res = calcTrueYield({
+          cropKind,
+          wetWeightLbs: pounds,
+          wetMoisturePct: moisture,
+          acres,
+          stdMoistOverride: stdOverride
+        });
+
+        if(!res){
+          errors.push(`${label}: unable to compute yield.`);
+          return;
+        }
+
+        const yld = res.yieldBuAc;
+        data.yieldBuAc = yld;
+        yields[side] = yld;
+
+        if(cropKind === 'corn' && (yld < 50 || yld > 400)){
+          errors.push(`${label}: yield seems out of range for corn (50–400 bu/ac).`);
+        }else if(cropKind === 'soy' && (yld < 20 || yld > 150)){
+          errors.push(`${label}: yield seems out of range for soybeans (20–150 bu/ac).`);
+        }
+      });
+
+      // --- NEW: Plant vs Harvest date rule per block ---
+      const dateCheck = validateBlockDates(block);
+      if(!dateCheck.ok){
+        errors.push(dateCheck.message);
+      }
+
+      if(card){
+        const yieldTextEl = card.querySelector('[data-role="yieldText"]');
+        const errorTextEl = card.querySelector('[data-role="errorText"]');
+
+        if(yieldTextEl){
+          let txt = '';
+          if(yields.check == null && yields.trial == null){
+            txt = 'Enter length, width, moisture, and pounds for Check and/or Trial.';
+          }else{
+            const parts = [];
+            if(yields.check != null) parts.push(`Check: ${yields.check.toFixed(1)} bu/ac`);
+            if(yields.trial != null) parts.push(`Trial: ${yields.trial.toFixed(1)} bu/ac`);
+            if(yields.check != null && yields.trial != null){
+              const diff = yields.trial - yields.check;
+              const sign = diff >= 0 ? '+' : '−';
+              parts.push(`Diff: ${sign}${Math.abs(diff).toFixed(1)} bu/ac`);
+            }
+            txt = parts.join('  |  ');
+          }
+          yieldTextEl.textContent = txt;
+        }
+        if(errorTextEl){
+          errorTextEl.textContent = errors.join(' ');
+        }
+      }
+
+      return { yields, errors };
+    }
+
+    function getFieldYieldSummary(fieldDocId){
+      const blocks = STATE.yieldData[fieldDocId] || [];
+      if(!blocks.length) return '';
+
+      const lines = [];
+      blocks.forEach((block, idx)=>{
+        const c = block.check?.yieldBuAc;
+        const t = block.trial?.yieldBuAc;
+        if(c == null && t == null) return;
+
+        const parts = [];
+        if(c != null) parts.push(`Check ${c.toFixed(1)} bu/ac`);
+        if(t != null) parts.push(`Trial ${t.toFixed(1)} bu/ac`);
+        if(c != null && t != null){
+          const diff = t - c;
+          const sign = diff >= 0 ? '+' : '−';
+          parts.push(`Diff ${sign}${Math.abs(diff).toFixed(1)} bu/ac`);
+        }
+        lines.push(`Block ${idx+1}: ${parts.join(' • ')}`);
+      });
+
+      return lines.join('<br>');
+    }
+
+    function isTouchPointer(){
+      return window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    }
+
+    function applySwipeToFieldList(){
+      if(!fieldListEl) return;
+      if(!isTouchPointer()) return;
+
+      try{
+        initSwipeList(fieldListEl, {
+          itemSelector: '.fv-swipe-item',
+          leftAction: {
+            label: 'Add Yield',
+            onAction: (itemEl) => {
+              const docId = itemEl.dataset.docId;
+              if(!docId) return;
+              const row = STATE.fields.find(f => f.docId === docId);
+              if(row) openYieldModal(row);
+            }
+          }
+        });
+      }catch(err){
+        console.error('applySwipeToFieldList error:', err);
+      }
+    }
+
+    function renderFieldList(){
+      if(!fieldListEl) return;
+      fieldListEl.innerHTML = '';
+
+      if(fieldCountLine){
+        const c = STATE.fields.length;
+        fieldCountLine.textContent = c ? `${c} field${c===1?'':'s'} in this trial` : "No fields in this trial yet";
+      }
+
+      if(!STATE.fields.length){
+        fieldListEl.innerHTML =
+          `<div class="field-list-empty">No fields are attached to this trial yet. Use the Add Field screen first, then come back here to enter yields.</div>`;
+        return;
+      }
+
+      const label = document.createElement('div');
+      label.className = 'field-list-label';
+      label.textContent = 'Fields in this trial';
+      fieldListEl.appendChild(label);
+
+      const sorted = [...STATE.fields].sort((a,b)=>{
+        const A = ((a.farmName || '') + ' ' + (a.fieldName || '')).toLowerCase();
+        const B = ((b.farmName || '') + ' ' + (b.fieldName || '')).toLowerCase();
+        if(A < B) return -1;
+        if(A > B) return 1;
+        return 0;
+      });
+
+      sorted.forEach((row) => {
+        const blocks = STATE.yieldData[row.docId] || [];
+        const blockCount = blocks.length;
+
+        const item = document.createElement('div');
+        item.className = 'fv-swipe-item';
+        item.dataset.docId = row.docId;
+
+        const div = document.createElement('div');
+        div.className = 'field-card';
+
+        const acresText = row.trialAcres != null ? `${row.trialAcres.toFixed(2)} ac` : '—';
+        const summaryHtml = getFieldYieldSummary(row.docId);
+
+        div.innerHTML = `
+  <div class="field-card-top">
+    <div>
+      <div class="field-card-title">${row.farmName} • ${row.fieldName}</div>
+      <div class="field-card-sub">
+        Trial acres: <strong>${acresText}</strong>
+        ${row.tillable != null ? ` (Max tillable: ${row.tillable})` : ''}
+      </div>
+      ${blockCount
+        ? `<div class="field-card-sub">${blockCount} trial block${blockCount===1?'':'s'} added</div>`
+        : ''
+      }
+      ${summaryHtml
+        ? `<div class="field-card-note">${summaryHtml}</div>`
+        : ''
+      }
+    </div>
+    <div class="field-card-actions">
+      <button type="button" class="btn btn-small" data-role="open-yield">View / Add Yield</button>
+    </div>
+  </div>
+  ${row.notes ? `<div class="field-card-note">${row.notes}</div>` : ''}
+`;
+
+        const btn = div.querySelector('[data-role="open-yield"]');
+        if(btn){
+          btn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            openYieldModal(row);
+          });
+        }
+
+        item.appendChild(div);
+        fieldListEl.appendChild(item);
+      });
+
+      applySwipeToFieldList();
+    }
+
+    function serializeAttachmentsForFirestore(block){
+      if(!Array.isArray(block.attachments)) return [];
+      return block.attachments.map(att => ({
+        name: att.name || 'file',
+        url: att.url || null,
+        contentType: att.contentType || null
+      }));
+    }
+
+    function renderAttachments(block, card){
+      block.attachments = block.attachments || [];
+      const listEl = card.querySelector('[data-role="attList"]');
+      const inputEl = card.querySelector('[data-role="attInput"]');
+
+      if(!listEl || !inputEl) return;
+
+      function renderList(){
+        listEl.innerHTML = '';
+        if(!block.attachments.length){
+          const span = document.createElement('span');
+          span.className = 'yield-block-att-hint';
+          span.textContent = 'No attachments yet.';
+          listEl.appendChild(span);
+          return;
+        }
+
+        block.attachments.forEach((att, idx) => {
+          const isImageThumb = att.url && att.contentType && att.contentType.startsWith('image/');
+
+          const wrapper = document.createElement('div');
+          wrapper.className = 'yield-block-att-item';
+
+          if(isImageThumb){
+            const thumb = document.createElement('div');
+            thumb.className = 'yield-block-thumb';
+            const img = document.createElement('img');
+            img.src = att.url;
+            img.alt = att.name || 'image';
+            thumb.appendChild(img);
+
+            thumb.addEventListener('click', (ev)=>{
+              ev.stopPropagation();
+              showImageLightbox(att.url, att.name || 'Attachment image');
+            });
+
+            wrapper.appendChild(thumb);
+
+            const labelSpan = document.createElement('span');
+            labelSpan.className = 'yield-block-att-item-label';
+            labelSpan.textContent = att.name || 'image';
+            wrapper.appendChild(labelSpan);
+          }else{
+            const pill = document.createElement('div');
+            pill.className = 'yield-block-att-pill';
+            pill.textContent = att.name || 'file';
+
+            const labelSpan = document.createElement('span');
+            labelSpan.className = 'yield-block-att-item-label';
+            labelSpan.textContent = att.name || 'file';
+
+            wrapper.appendChild(pill);
+          }
+
+          const delBtn = document.createElement('button');
+          delBtn.type = 'button';
+          delBtn.className = 'yield-block-att-delete';
+          delBtn.setAttribute('aria-label', 'Remove attachment');
+          delBtn.innerHTML = `
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4.22 4.22a.75.75 0 0 1 1.06 0L8 6.94l2.72-2.72a.75.75 0 1 1 1.06 1.06L9.06 8l2.72 2.72a.75.75 0 0 1-1.06 1.06L8 9.06l-2.72 2.72a.75.75 0 0 1-1.06-1.06L6.94 8 4.22 5.28a.75.75 0 0 1 0-1.06z"></path>
+            </svg>
+          `;
+          delBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            block.attachments.splice(idx, 1);
+            renderList();
+            showToast('Attachment removed.');
+          });
+
+          wrapper.appendChild(delBtn);
+          listEl.appendChild(wrapper);
+        });
+      }
+
+      inputEl.addEventListener('change', e => {
+        const files = Array.from(e.target.files || []);
+        if(!files.length) return;
+
+        const room = MAX_ATTACH_PER_BLOCK - block.attachments.length;
+        if(room <= 0){
+          showToast(`Max ${MAX_ATTACH_PER_BLOCK} attachments per block.`);
+          e.target.value = '';
+          return;
+        }
+
+        const toAdd = files.slice(0, room);
+        toAdd.forEach(f => {
+          block.attachments.push({
+            name: f.name,
+            file: f,
+            contentType: f.type || null,
+            url: null
+          });
+        });
+
+        if(files.length > room){
+          showToast(`Only ${room} more attachment(s) allowed (max ${MAX_ATTACH_PER_BLOCK} per block).`);
+        }
+
+        e.target.value = '';
+        renderList();
+      });
+
+      renderList();
+    }
+
+    // Dictation mic
+    function makeInlineMic(btnEl, taEl){
+      if(!btnEl || !taEl) return;
+
+      const ok = ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window);
+      if(!ok){
+        btnEl.style.display = 'none';
+        return;
+      }
+
+      const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const rec = new Rec();
+      rec.lang = 'en-US';
+      rec.interimResults = true;
+      rec.continuous = false;
+
+      let active = false;
+      let baseText = '';
+
+      const setMic = (on) => {
+        btnEl.classList.toggle('mic-active', on);
+        btnEl.setAttribute('aria-label', on ? 'Stop dictation' : 'Dictate notes');
+      };
+
+      btnEl.addEventListener('click', () => {
+        if(!active){
+          baseText = taEl.value ? (taEl.value + ' ') : '';
+          try{
+            rec.start();
+            active = true;
+            setMic(true);
+          }catch(err){}
+        }else{
+          try{
+            rec.stop();
+            rec.abort();
+          }catch(err){}
+          active = false;
+          setMic(false);
+        }
+      });
+
+      rec.onresult = (ev) => {
+        let txt = '';
+        for(let i = ev.resultIndex; i < ev.results.length; i++){
+          txt += ev.results[i][0].transcript;
+        }
+        taEl.value = baseText + txt;
+        taEl.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+
+      rec.onend = () => {
+        active = false;
+        setMic(false);
+      };
+
+      rec.onerror = () => {
+        active = false;
+        setMic(false);
+      };
+    }
+
+    function renderNotes(block, card, notesId, micId){
+      block.notes = block.notes || '';
+      const ta = card.querySelector(`#${notesId}`);
+      const micBtn = card.querySelector(`#${micId}`);
+      if(ta){
+        ta.value = block.notes;
+        ta.addEventListener('input', e => {
+          block.notes = e.target.value;
+        });
+      }
+      if(micBtn && ta){
+        makeInlineMic(micBtn, ta);
+      }
+    }
+
+    async function markVarietyUsed(varietyId){
+      if(!varietyId || !STATE.db) return;
+      try{
+        const refDoc = doc(STATE.db, 'productsSeed', varietyId);
+        await updateDoc(refDoc, { used: true });
+      }catch(err){
+        console.error('Error marking variety used:', err);
+      }
+    }
+
+    // ===== Helper functions for dd dropdowns (mirroring Make/Model) =====
+    function wireDropdownOpenClose(root){
+      const btn = root.querySelector(".dd-btn");
+      if(!btn) return;
+      btn.addEventListener("click",()=>{
+        document.querySelectorAll(".dd").forEach(d=>{ if(d!==root) d.classList.remove("open"); });
+        if(btn.disabled) return;
+        root.classList.toggle("open");
+        const inp = root.querySelector(".dd-search");
+        if(root.classList.contains("open") && inp){
+          setTimeout(()=>inp.focus(), 60);
+        }
+      });
+    }
+
+    document.addEventListener("click",(e)=>{
+      if(!e.target.closest(".dd")){
+        document.querySelectorAll(".dd").forEach(d=>d.classList.remove("open"));
+      }
+    });
+
+    function setupDdSearch(inputEl, listEl){
+      if(!inputEl || !listEl) return;
+      inputEl.addEventListener("input", ()=>{
+        const term = inputEl.value.toLowerCase();
+        listEl.querySelectorAll("li").forEach(li=>{
+          li.style.display = li.textContent.toLowerCase().includes(term) ? "" : "none";
+        });
+      });
+    }
+
+    function buildDdList(listEl, items, onPick){
+      if(!listEl) return;
+      listEl.innerHTML = "";
+      items.forEach(([val,label,meta])=>{
+        const li = document.createElement("li");
+        li.textContent = label;
+        li.dataset.value = val;
+        li.onclick = ()=>onPick(val,label,meta);
+        listEl.appendChild(li);
+      });
+    }
+
+    function wireExtraBlockFields(block, card){
+      const toggleBtn = card.querySelector('[data-role="extra-toggle"]');
+      const panel = card.querySelector('[data-role="extra-panel"]');
+      if(toggleBtn && panel){
+        toggleBtn.addEventListener('click', () => {
+          const isHidden = panel.style.display === 'none' || panel.style.display === '';
+          panel.style.display = isHidden ? 'grid' : 'none';
+        });
+      }
+
+      const plantInput = card.querySelector('[data-role="plantDate"]');
+      const harvestInput = card.querySelector('[data-role="harvestDate"]');
+      if(plantInput){
+        plantInput.value = block.plantDate || '';
+        plantInput.addEventListener('change', e => {
+          block.plantDate = e.target.value;
+          if(block.type === 'combine'){
+            recalcCombine(block, card);
+          }else if(block.type === 'weight'){
+            recalcWeight(block, card);
+          }
+        });
+      }
+      if(harvestInput){
+        harvestInput.value = block.harvestDate || '';
+        harvestInput.addEventListener('change', e => {
+          block.harvestDate = e.target.value;
+          if(block.type === 'combine'){
+            recalcCombine(block, card);
+          }else if(block.type === 'weight'){
+            recalcWeight(block, card);
+          }
+        });
+      }
+
+      const combinesInput = card.querySelector('[data-role="combineCount"]');
+      if(combinesInput){
+        combinesInput.value = block.combineCount || '';
+        combinesInput.addEventListener('input', e => {
+          const v = e.target.value.replace(/[^0-9]/g,'');
+          block.combineCount = v;
+          e.target.value = v;
+        });
+      }
+
+      // dd wiring for varieties (Check / Trial)
+      const wireVarietyDd = (roleBase, idKey, nameKey) => {
+        const ddRoot = card.querySelector(`[data-role="${roleBase}-dd"]`);
+        if(!ddRoot) return;
+
+        const btn = ddRoot.querySelector('.dd-btn');
+        const searchInput = ddRoot.querySelector('.dd-search');
+        const listEl = ddRoot.querySelector('.dd-options');
+
+        const items = (STATE.varieties || []).map(v => {
+          const label = buildVarietyDisplay(v);
+          return [v.id, label, v];
+        });
+
+        buildDdList(listEl, items, async (val,label,meta)=>{
+          block[idKey] = val || '';
+          block[nameKey] = label || '';
+          btn.textContent = label || 'Select variety…';
+          ddRoot.classList.remove('open');
+          if(val){
+            await markVarietyUsed(val);
+          }
+        });
+
+        setupDdSearch(searchInput, listEl);
+        wireDropdownOpenClose(ddRoot);
+
+        // Initialize button label if existing value
+        if(block[idKey]){
+          const existing = (STATE.varieties || []).find(v => v.id === block[idKey]);
+          const lbl = existing ? buildVarietyDisplay(existing) : (block[nameKey] || 'Select variety…');
+          btn.textContent = lbl;
+        }else if(block[nameKey]){
+          btn.textContent = block[nameKey];
+        }else{
+          btn.textContent = 'Select variety…';
+        }
+      };
+
+      wireVarietyDd('check-variety', 'checkVarietyId', 'checkVarietyName');
+      wireVarietyDd('trial-variety', 'trialVarietyId', 'trialVarietyName');
+
+      const hasExtra =
+        block.plantDate ||
+        block.harvestDate ||
+        (block.combineCount && block.combineCount !== '0') ||
+        block.checkVarietyId ||
+        block.trialVarietyId;
+
+      if(hasExtra && panel){
+        panel.style.display = 'grid';
+      }
+    }
+
+    function renderBlocksForField(fieldRow){
+      if(!yieldBlocksWrap) return;
+      const key = fieldRow.docId;
+      const blocks = STATE.yieldData[key] || [];
+
+      yieldBlocksWrap.innerHTML = '';
+
+      if(!blocks.length){
+        const p = document.createElement('p');
+        p.className = 'yield-empty';
+        p.textContent = 'No trial blocks added yet. Use “Add Trial Block” to start capturing yield data for this field.';
+        yieldBlocksWrap.appendChild(p);
+        return;
+      }
+
+      blocks.forEach((block, idx)=>{
+        const card = document.createElement('div');
+        card.className = 'yield-block-card';
+
+        block.plantDate = block.plantDate || '';
+        block.harvestDate = block.harvestDate || '';
+        block.combineCount = block.combineCount || '';
+        block.checkVarietyId = block.checkVarietyId || '';
+        block.checkVarietyName = block.checkVarietyName || '';
+        block.trialVarietyId = block.trialVarietyId || '';
+        block.trialVarietyName = block.trialVarietyName || '';
+
+        const notesId = `notes-${fieldRow.docId}-${idx}`;
+        const micId   = `mic-notes-${fieldRow.docId}-${idx}`;
+
+        const hasExtra =
+          block.plantDate ||
+          block.harvestDate ||
+          (block.combineCount && block.combineCount !== '0') ||
+          block.checkVarietyId ||
+          block.trialVarietyId;
+
+        if(block.type === 'combine'){
+          block.check = block.check || { acres:'', moisture:'', poundsRaw:'', yieldBuAc:null };
+          block.trial = block.trial || { acres:'', moisture:'', poundsRaw:'', yieldBuAc:null };
+          block.attachments = block.attachments || [];
+          block.notes = block.notes || '';
+
+          const check = block.check;
+          const trial = block.trial;
+
+          card.innerHTML = `
+            <div class="yield-block-head">
+              <div>
+                <div class="yield-block-title">Block ${idx+1} – Combine Yield Data</div>
+                <div class="yield-block-sub">
+                  Each block tracks both Check and Trial passes for this field.
+                </div>
+              </div>
+              <button type="button" class="yield-block-remove" aria-label="Remove block">
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M4.22 4.22a.75.75 0 0 1 1.06 0L8 6.94l2.72-2.72a.75.75 0 1 1 1.06 1.06L9.06 8l2.72 2.72a.75.75 0 0 1-1.06 1.06L8 9.06l-2.72 2.72a.75.75 0 0 1-1.06-1.06L6.94 8 4.22 5.28a.75.75 0 0 1 0-1.06z"></path>
+                </svg>
+              </button>
+            </div>
+            <div class="yield-block-two-col">
+              <div class="yield-subcard">
+                <div class="yield-subcard-title">Check</div>
+                <div class="yield-block-grid">
+                  <label class="field-mini">
+                    <span>Acres</span>
+                    <input type="text" inputmode="decimal" class="input" data-role="check-acres"
+                      value="${check.acres ?? ''}" />
+                  </label>
+                  <label class="field-mini">
+                    <span>Moisture %</span>
+                    <input type="text" inputmode="decimal" class="input" data-role="check-moisture"
+                      value="${check.moisture ?? ''}" />
+                  </label>
+                  <label class="field-mini">
+                    <span>Weight (Lbs)</span>
+                    <input type="text" inputmode="numeric" class="input" data-role="check-pounds"
+                      value="${formatPounds(check.poundsRaw || '')}" />
+                  </label>
+                </div>
+              </div>
+
+              <div class="yield-subcard">
+                <div class="yield-subcard-title">Trial</div>
+                <div class="yield-block-grid">
+                  <label class="field-mini">
+                    <span>Acres</span>
+                    <input type="text" inputmode="decimal" class="input" data-role="trial-acres"
+                      value="${trial.acres ?? ''}" />
+                  </label>
+                  <label class="field-mini">
+                    <span>Moisture %</span>
+                    <input type="text" inputmode="decimal" class="input" data-role="trial-moisture"
+                      value="${trial.moisture ?? ''}" />
+                  </label>
+                  <label class="field-mini">
+                    <span>Weight (Lbs)</span>
+                    <input type="text" inputmode="numeric" class="input" data-role="trial-pounds"
+                      value="${formatPounds(trial.poundsRaw || '')}" />
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="yield-block-footer">
+              <span class="yield-block-yield" data-role="yieldText"></span>
+              <span class="yield-block-error" data-role="errorText"></span>
+            </div>
+
+            <div class="yield-block-extra-wrapper">
+              <button type="button"
+                      class="btn btn-primary btn-inline yield-block-extra-toggle"
+                      data-role="extra-toggle">
+                Additional Information Required
+              </button>
+              <div class="yield-block-extra"
+                   data-role="extra-panel"
+                   style="${hasExtra ? 'display:grid;' : 'display:none;'}">
+                <div class="yield-block-extra-grid">
+                  <!-- Row 1: Plant | Harvest -->
+                  <label class="field-mini">
+                    <span class="yield-block-extra-label">Plant Date</span>
+                    <input type="date"
+                           class="input"
+                           data-role="plantDate" />
+                  </label>
+                  <label class="field-mini">
+                    <span class="yield-block-extra-label">Harvest Date</span>
+                    <input type="date"
+                           class="input"
+                           data-role="harvestDate" />
+                  </label>
+                  <!-- Row 2: Check Variety | Trial Variety -->
+                  <div class="field-mini">
+                    <span class="yield-block-extra-label">Check Variety</span>
+                    <div class="dd dd-variety" data-role="check-variety-dd">
+                      <button type="button" class="dd-btn">Select variety…</button>
+                      <div class="dd-list">
+                        <input type="text" class="dd-search" placeholder="Search variety…">
+                        <ul class="dd-options"></ul>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="field-mini">
+                    <span class="yield-block-extra-label">Trial Variety</span>
+                    <div class="dd dd-variety" data-role="trial-variety-dd">
+                      <button type="button" class="dd-btn">Select variety…</button>
+                      <div class="dd-list">
+                        <input type="text" class="dd-search" placeholder="Search variety…">
+                        <ul class="dd-options"></ul>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Row 3: Number of Combines (full width) -->
+                  <label class="field-mini" style="grid-column:1 / -1;">
+                    <span class="yield-block-extra-label">Number of Combines in Trial</span>
+                    <input type="text"
+                           inputmode="numeric"
+                           class="input"
+                           data-role="combineCount"
+                           placeholder="e.g. 1, 2" />
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div class="yield-block-notes">
+              <div class="yield-block-notes-head">
+                <span class="yield-block-notes-label">Block Notes</span>
+              </div>
+              <div class="yield-block-notes-dictation">
+                <textarea id="${notesId}" class="yield-block-notes-textarea" placeholder="Notes about this block…"></textarea>
+                <button id="${micId}" type="button" class="mic-btn" aria-label="Dictate notes">
+                  <svg class="mic-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H9v2h6v-2h-2v-3.08A7 7 0 0 0 19 11h-2z"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="yield-block-attachments">
+              <div class="yield-block-att-title">Attachments (max ${MAX_ATTACH_PER_BLOCK} per block)</div>
+              <div class="yield-block-att-list" data-role="attList"></div>
+              <div class="yield-block-att-actions">
+                <label class="btn btn-small btn-inline">
+                  + Add Files
+                  <input type="file" data-role="attInput" multiple accept="image/*,application/pdf" style="display:none" />
+                </label>
+                <span class="yield-block-att-hint">Images show as thumbnails, PDFs and others show as labels.</span>
+              </div>
+            </div>
+          `;
+
+          yieldBlocksWrap.appendChild(card);
+
+          const removeBtn = card.querySelector('.yield-block-remove');
+          if(removeBtn){
+            removeBtn.addEventListener('click', (ev)=>{
+              ev.stopPropagation();
+              removeTrialBlock(fieldRow, idx);
+            });
+          }
+
+          const wireDecimal = (role, sideKey, prop) => {
+            const el = card.querySelector(`[data-role="${role}"]`);
+            if(!el) return;
+            el.addEventListener('input', e => {
+              let v = e.target.value;
+              v = v.replace(/[^0-9.]/g,'');
+              const parts = v.split('.');
+              if(parts.length > 2){
+                v = parts[0] + '.' + parts.slice(1).join('');
+              }
+              if(v.includes('.')){
+                const [intPart, fracRaw=''] = v.split('.');
+                const frac = fracRaw.slice(0, 1);
+                v = frac === '' ? intPart + '.' : intPart + '.' + frac;
+              }
+              block[sideKey][prop] = v;
+              e.target.value = v;
+              recalcCombine(block, card);
+              renderFieldList();
+            });
+          };
+
+          const wirePounds = (role, sideKey) => {
+            const el = card.querySelector(`[data-role="${role}"]`);
+            if(!el) return;
+            el.addEventListener('input', e => {
+              const digits = e.target.value.replace(/[^\d]/g,'');
+              block[sideKey].poundsRaw = digits;
+              e.target.value = formatPounds(digits);
+              recalcCombine(block, card);
+              renderFieldList();
+            });
+          };
+
+          wireDecimal('check-acres', 'check', 'acres');
+          wireDecimal('check-moisture', 'check', 'moisture');
+          wireDecimal('trial-acres', 'trial', 'acres');
+          wireDecimal('trial-moisture', 'trial', 'moisture');
+          wirePounds('check-pounds', 'check');
+          wirePounds('trial-pounds', 'trial');
+
+          recalcCombine(block, card);
+          renderNotes(block, card, notesId, micId);
+          renderAttachments(block, card);
+          wireExtraBlockFields(block, card);
+
+        }else if(block.type === 'weight'){
+          const defaultWidth = String(getDefaultStripWidthFt());
+
+          block.check = block.check || {
+            lengthFt: '',
+            widthFt: defaultWidth,
+            moisture: '',
+            poundsRaw: '',
+            yieldBuAc: null
+          };
+          block.trial = block.trial || {
+            lengthFt: '',
+            widthFt: defaultWidth,
+            moisture: '',
+            poundsRaw: '',
+            yieldBuAc: null
+          };
+          block.attachments = block.attachments || [];
+          block.notes = block.notes || '';
+
+          const check = block.check;
+          const trial = block.trial;
+
+          if(!check.widthFt) check.widthFt = defaultWidth;
+          if(!trial.widthFt) trial.widthFt = defaultWidth;
+
+          const buildWidthOptions = (selectedVal) => {
+            const sel = String(selectedVal ?? defaultWidth);
+            return STRIP_WIDTH_OPTIONS.map(w => {
+              const wStr = String(w);
+              const selAttr = wStr === sel ? 'selected' : '';
+              return `<option value="${wStr}" ${selAttr}>${wStr}</option>`;
+            }).join('');
+          };
+
+          card.innerHTML = `
+            <div class="yield-block-head">
+              <div>
+                <div class="yield-block-title">Block ${idx+1} – Weight Data (Strip)</div>
+                <div class="yield-block-sub">
+                  Use strip length (ft) and header width to compute acres for Check vs Trial passes.
+                </div>
+              </div>
+              <button type="button" class="yield-block-remove" aria-label="Remove block">
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M4.22 4.22a.75.75 0 0 1 1.06 0L8 6.94l2.72-2.72a.75.75 0 1 1 1.06 1.06L9.06 8l2.72 2.72a.75.75 0 0 1-1.06 1.06L8 9.06l-2.72 2.72a.75.75 0 0 1-1.06-1.06L6.94 8 4.22 5.28a.75.75 0 0 1 0-1.06z"></path>
+                </svg>
+              </button>
+            </div>
+            <div class="yield-block-two-col">
+              <div class="yield-subcard">
+                <div class="yield-subcard-title">Check</div>
+                <div class="yield-block-grid-4">
+                  <label class="field-mini">
+                    <span>Length (ft)</span>
+                    <input type="text" inputmode="numeric" class="input" data-role="check-length"
+                      value="${check.lengthFt ?? ''}" />
+                  </label>
+                  <label class="field-mini">
+                    <span>Width (ft)</span>
+                    <select class="input" data-role="check-width">
+                      ${buildWidthOptions(check.widthFt)}
+                    </select>
+                  </label>
+                  <label class="field-mini">
+                    <span>Moisture %</span>
+                    <input type="text" inputmode="decimal" class="input" data-role="check-moisture"
+                      value="${check.moisture ?? ''}" />
+                  </label>
+                  <label class="field-mini">
+                    <span>Weight (Lbs)</span>
+                    <input type="text" inputmode="numeric" class="input" data-role="check-pounds"
+                      value="${formatPounds(check.poundsRaw || '')}" />
+                  </label>
+                </div>
+              </div>
+
+              <div class="yield-subcard">
+                <div class="yield-subcard-title">Trial</div>
+                <div class="yield-block-grid-4">
+                  <label class="field-mini">
+                    <span>Length (ft)</span>
+                    <input type="text" inputmode="numeric" class="input" data-role="trial-length"
+                      value="${trial.lengthFt ?? ''}" />
+                  </label>
+                  <label class="field-mini">
+                    <span>Width (ft)</span>
+                    <select class="input" data-role="trial-width">
+                      ${buildWidthOptions(trial.widthFt)}
+                    </select>
+                  </label>
+                  <label class="field-mini">
+                    <span>Moisture %</span>
+                    <input type="text" inputmode="decimal" class="input" data-role="trial-moisture"
+                      value="${trial.moisture ?? ''}" />
+                  </label>
+                  <label class="field-mini">
+                    <span>Weight (Lbs)</span>
+                    <input type="text" inputmode="numeric" class="input" data-role="trial-pounds"
+                      value="${formatPounds(trial.poundsRaw || '')}" />
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="yield-block-footer">
+              <span class="yield-block-yield" data-role="yieldText"></span>
+              <span class="yield-block-error" data-role="errorText"></span>
+            </div>
+
+            <div class="yield-block-extra-wrapper">
+              <button type="button"
+                      class="btn btn-primary btn-inline yield-block-extra-toggle"
+                      data-role="extra-toggle">
+                Additional Information Required
+              </button>
+              <div class="yield-block-extra"
+                   data-role="extra-panel"
+                   style="${hasExtra ? 'display:grid;' : 'display:none;'}">
+                <div class="yield-block-extra-grid">
+                  <!-- Row 1: Plant | Harvest -->
+                  <label class="field-mini">
+                    <span class="yield-block-extra-label">Plant Date</span>
+                    <input type="date"
+                           class="input"
+                           data-role="plantDate" />
+                  </label>
+                  <label class="field-mini">
+                    <span class="yield-block-extra-label">Harvest Date</span>
+                    <input type="date"
+                           class="input"
+                           data-role="harvestDate" />
+                  </label>
+                  <!-- Row 2: Check Variety | Trial Variety -->
+                  <div class="field-mini">
+                    <span class="yield-block-extra-label">Check Variety</span>
+                    <div class="dd dd-variety" data-role="check-variety-dd">
+                      <button type="button" class="dd-btn">Select variety…</button>
+                      <div class="dd-list">
+                        <input type="text" class="dd-search" placeholder="Search variety…">
+                        <ul class="dd-options"></ul>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="field-mini">
+                    <span class="yield-block-extra-label">Trial Variety</span>
+                    <div class="dd dd-variety" data-role="trial-variety-dd">
+                      <button type="button" class="dd-btn">Select variety…</button>
+                      <div class="dd-list">
+                        <input type="text" class="dd-search" placeholder="Search variety…">
+                        <ul class="dd-options"></ul>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Row 3: Number of Combines (full width) -->
+                  <label class="field-mini" style="grid-column:1 / -1;">
+                    <span class="yield-block-extra-label">Number of Combines in Trial</span>
+                    <input type="text"
+                           inputmode="numeric"
+                           class="input"
+                           data-role="combineCount"
+                           placeholder="e.g. 1, 2" />
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div class="yield-block-notes">
+              <div class="yield-block-notes-head">
+                <span class="yield-block-notes-label">Block Notes</span>
+              </div>
+              <div class="yield-block-notes-dictation">
+                <textarea id="${notesId}" class="yield-block-notes-textarea" placeholder="Notes about this block…"></textarea>
+                <button id="${micId}" type="button" class="mic-btn" aria-label="Dictate notes">
+                  <svg class="mic-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H9v2h6v-2h-2v-3.08A7 7 0 0 0 19 11h-2z"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="yield-block-attachments">
+              <div class="yield-block-att-title">Attachments (max ${MAX_ATTACH_PER_BLOCK} per block)</div>
+              <div class="yield-block-att-list" data-role="attList"></div>
+              <div class="yield-block-att-actions">
+                <label class="btn btn-small btn-inline">
+                  + Add Files
+                  <input type="file" data-role="attInput" multiple accept="image/*,application/pdf" style="display:none" />
+                </label>
+                <span class="yield-block-att-hint">Images show as thumbnails, PDFs and others show as labels.</span>
+              </div>
+            </div>
+          `;
+
+          yieldBlocksWrap.appendChild(card);
+
+          const removeBtn = card.querySelector('.yield-block-remove');
+          if(removeBtn){
+            removeBtn.addEventListener('click', (ev)=>{
+              ev.stopPropagation();
+              removeTrialBlock(fieldRow, idx);
+            });
+          }
+
+          const wireInteger = (role, sideKey, prop) => {
+            const el = card.querySelector(`[data-role="${role}"]`);
+            if(!el) return;
+            el.addEventListener('input', e => {
+              let v = e.target.value.replace(/[^0-9]/g,'');
+              block[sideKey][prop] = v;
+              e.target.value = v;
+              recalcWeight(block, card);
+              renderFieldList();
+            });
+          };
+
+          const wireWidthSelect = (role, sideKey) => {
+            const el = card.querySelector(`[data-role="${role}"]`);
+            if(!el) return;
+            el.addEventListener('change', e => {
+              block[sideKey].widthFt = e.target.value;
+              recalcWeight(block, card);
+              renderFieldList();
+            });
+          };
+
+          const wireDecimalW = (role, sideKey, prop) => {
+            const el = card.querySelector(`[data-role="${role}"]`);
+            if(!el) return;
+            el.addEventListener('input', e => {
+              let v = e.target.value;
+              v = v.replace(/[^0-9.]/g,'');
+              const parts = v.split('.');
+              if(parts.length > 2){
+                v = parts[0] + '.' + parts.slice(1).join('');
+              }
+              if(v.includes('.')){
+                const [intPart, fracRaw=''] = v.split('.');
+                const frac = fracRaw.slice(0, 1);
+                v = frac === '' ? intPart + '.' : intPart + '.' + frac;
+              }
+              block[sideKey][prop] = v;
+              e.target.value = v;
+              recalcWeight(block, card);
+              renderFieldList();
+            });
+          };
+
+          const wirePoundsW = (role, sideKey) => {
+            const el = card.querySelector(`[data-role="${role}"]`);
+            if(!el) return;
+            el.addEventListener('input', e => {
+              const digits = e.target.value.replace(/[^\d]/g,'');
+              block[sideKey].poundsRaw = digits;
+              e.target.value = formatPounds(digits);
+              recalcWeight(block, card);
+              renderFieldList();
+            });
+          };
+
+          wireInteger('check-length', 'check', 'lengthFt');
+          wireWidthSelect('check-width', 'check');
+          wireDecimalW('check-moisture', 'check', 'moisture');
+          wirePoundsW('check-pounds', 'check');
+
+          wireInteger('trial-length', 'trial', 'lengthFt');
+          wireWidthSelect('trial-width', 'trial');
+          wireDecimalW('trial-moisture', 'trial', 'moisture');
+          wirePoundsW('trial-pounds', 'trial');
+
+          recalcWeight(block, card);
+          renderNotes(block, card, notesId, micId);
+          renderAttachments(block, card);
+          wireExtraBlockFields(block, card);
+        }
+      });
+    }
+
+    function removeTrialBlock(fieldRow, idx){
+      const key = fieldRow.docId;
+      const arr = STATE.yieldData[key];
+      if(!arr || !arr[idx]) return;
+      arr.splice(idx,1);
+      renderBlocksForField(fieldRow);
+      renderFieldList();
+    }
+
+    function openYieldModal(row){
+      if(!modalBackdrop || !modalTitleEl || !yieldSummaryEl) return;
+      STATE.selectedField = row || null;
+
+      const trialName = STATE.trial?.trialName || 'Field Trial';
+      modalTitleEl.textContent = row
+        ? `${row.fieldName} • Yield Entry`
+        : 'Yield Entry';
+
+      const parts = [];
+      parts.push(`<strong>Trial:</strong> ${trialName}`);
+      parts.push(`<strong>Field:</strong> ${row.farmName} • ${row.fieldName}`);
+      if(row.trialAcres != null){
+        parts.push(`<strong>Trial acres:</strong> ${row.trialAcres.toFixed(2)} ac`);
+      }
+      if(row.tillable != null){
+        parts.push(`<strong>Field tillable:</strong> ${row.tillable} ac`);
+      }
+
+      yieldSummaryEl.innerHTML = `
+        <div>${parts.join('<br>')}</div>
+        <div class="muted">
+          Add one or more trial blocks for this field. Each block can be based on <strong>Combine Yield Data</strong>
+          or <strong>Weight Data</strong>, with Check vs Trial passes, notes, attachments, and additional required info.
+        </div>
+      `;
+
+      const key = row.docId;
+      if(!STATE.yieldData[key]){
+        STATE.yieldData[key] = [];
+      }
+      renderBlocksForField(row);
+
+      modalBackdrop.classList.remove('hidden');
+    }
+
+    function closeYieldModal(){
+      if(!modalBackdrop) return;
+      modalBackdrop.classList.add('hidden');
+      STATE.selectedField = null;
+    }
+
+    function showBlockTypeDialog(){
+      if(!blockTypeDialog || !STATE.selectedField) return;
+      blockTypeDialog.classList.remove('hidden');
+    }
+
+    function hideBlockTypeDialog(){
+      if(!blockTypeDialog) return;
+      blockTypeDialog.classList.add('hidden');
+    }
+
+    function addTrialBlockOfType(type){
+      if(!STATE.selectedField) return;
+      const key = STATE.selectedField.docId;
+      if(!STATE.yieldData[key]){
+        STATE.yieldData[key] = [];
+      }
+
+      const defaultWidth = String(getDefaultStripWidthFt());
+
+      const baseExtra = {
+        plantDate: '',
+        harvestDate: '',
+        combineCount: '',
+        checkVarietyId: '',
+        checkVarietyName: '',
+        trialVarietyId: '',
+        trialVarietyName: '',
+        notes: '',
+        attachments: []
+      };
+
+      if(type === 'weight'){
+        STATE.yieldData[key].push({
+          id: 'local-' + Date.now() + '-' + Math.random().toString(16).slice(2),
+          type: 'weight',
+          check: {
+            lengthFt: '',
+            widthFt: defaultWidth,
+            moisture: '',
+            poundsRaw: '',
+            yieldBuAc: null
+          },
+          trial: {
+            lengthFt: '',
+            widthFt: defaultWidth,
+            moisture: '',
+            poundsRaw: '',
+            yieldBuAc: null
+          },
+          ...baseExtra
+        });
+      }else{
+        STATE.yieldData[key].push({
+          id: 'local-' + Date.now() + '-' + Math.random().toString(16).slice(2),
+          type: 'combine',
+          check: {
+            acres: '',
+            moisture: '',
+            poundsRaw: '',
+            yieldBuAc: null
+          },
+          trial: {
+            acres: '',
+            moisture: '',
+            poundsRaw: '',
+            yieldBuAc: null
+          },
+          ...baseExtra
+        });
+      }
+
+      renderBlocksForField(STATE.selectedField);
+      renderFieldList();
+    }
+
+    function validateBlocksForField(fieldId){
+      const blocks = STATE.yieldData[fieldId] || [];
+
+      // allow zero blocks – save() will clear the Firestore collection
+      if(!blocks.length){
+        return true;
+      }
+
+      let ok = true;
+      let hasYieldError = false;
+      let hasDateError = false;
+
+      for (const block of blocks) {
+        const c = block.check || {};
+        const t = block.trial || {};
+
+        if (block.type === 'combine') {
+          const hasC = c.acres && c.moisture && c.poundsRaw && typeof c.yieldBuAc === 'number';
+          const hasT = t.acres && t.moisture && t.poundsRaw && typeof t.yieldBuAc === 'number';
+          if (!(hasC && hasT)) {
+            ok = false;
+            hasYieldError = true;
+            break;
+          }
+        } else if (block.type === 'weight') {
+          const hasC = c.lengthFt && c.widthFt && c.moisture && c.poundsRaw && typeof c.yieldBuAc === 'number';
+          const hasT = t.lengthFt && t.widthFt && t.moisture && t.poundsRaw && typeof t.yieldBuAc === 'number';
+          if (!(hasC && hasT)) {
+            ok = false;
+            hasYieldError = true;
+            break;
+          }
+        }
+
+        const dateCheck = validateBlockDates(block);
+        if(!dateCheck.ok){
+          ok = false;
+          hasDateError = true;
+          break;
+        }
+      }
+
+      if (!ok) {
+        if (hasDateError) {
+          showError('Harvest Date must be at least 75 days after Plant Date for any block where both dates are filled in. Fix the red errors inside each block and try again.');
+        } else if (hasYieldError) {
+          showError('Each trial block must have valid data for both Check and Trial before saving. Either complete or remove any incomplete blocks.');
+        }
+      }
+
+      return ok;
+    }
+
+    async function uploadNewAttachmentsForBlock(fieldId, block, blockDocId){
+      const storage = getStorage();
+      block.attachments = block.attachments || [];
+      const uploads = [];
+
+      for(const att of block.attachments){
+        if(att.file){
+          const safeName = att.name || att.file.name || 'file';
+          const path = getBlockStoragePath(STATE.trialId, fieldId, blockDocId, safeName);
+          const fileRef = ref(storage, path);
+          const fileObj = att.file;
+          uploads.push(
+            uploadBytes(fileRef, fileObj).then(snap =>
+              getDownloadURL(snap.ref).then(url => {
+                att.url = url;
+                att.contentType = fileObj.type || null;
+                delete att.file;
+              })
+            )
+          );
+        }
+      }
+
+      if(uploads.length){
+        await Promise.all(uploads);
+      }
+    }
+
+    async function saveYieldForSelectedField(){
+      if(!STATE.selectedField || !STATE.db || !STATE.trialId) return false;
+      const fieldId = STATE.selectedField.docId;
+      const key = fieldId;
+      const blocks = STATE.yieldData[key] || [];
+
+      if(!validateBlocksForField(fieldId)){
+        return false;
+      }
+
+      try{
+        showError('');
+        const colPath = `${CONFIG.COLLECTION_TRIALS}/${STATE.trialId}/fields/${fieldId}/yieldBlocks`;
+        const colRef = collection(STATE.db, colPath);
+
+        const existing = await getDocs(colRef);
+        const dels = [];
+        existing.forEach(ds => {
+          dels.push(deleteDoc(ds.ref));
+        });
+        if(dels.length){
+          await Promise.all(dels);
+        }
+
+        const writes = [];
+        for(let index = 0; index < blocks.length; index++){
+          const block = blocks[index];
+          const blockDocRef = doc(colRef);
+          const blockDocId  = blockDocRef.id;
+
+          await uploadNewAttachmentsForBlock(fieldId, block, blockDocId);
+
+          const check = block.check || {};
+          const trial = block.trial || {};
+
+          const data = {
+            blockType: block.type || 'combine',
+            order: index,
+            check: {
+              acres: check.acres ? Number(check.acres) : null,
+              moisture: check.moisture ? Number(check.moisture) : null,
+              pounds: check.poundsRaw ? Number(check.poundsRaw) : null,
+              yieldBuAc: check.yieldBuAc != null ? Number(check.yieldBuAc) : null,
+              lengthFt: check.lengthFt ? Number(check.lengthFt) : null,
+              widthFt: check.widthFt ? Number(check.widthFt) : null
+            },
+            trial: {
+              acres: trial.acres ? Number(trial.acres) : null,
+              moisture: trial.moisture ? Number(trial.moisture) : null,
+              pounds: trial.poundsRaw ? Number(trial.poundsRaw) : null,
+              yieldBuAc: trial.yieldBuAc != null ? Number(trial.yieldBuAc) : null,
+              lengthFt: trial.lengthFt ? Number(trial.lengthFt) : null,
+              widthFt: trial.widthFt ? Number(trial.widthFt) : null
+            },
+            plantDate: block.plantDate || null,
+            harvestDate: block.harvestDate || null,
+            combineCount: block.combineCount ? Number(block.combineCount) : null,
+            checkVarietyId: block.checkVarietyId || null,
+            checkVarietyName: block.checkVarietyName || null,
+            trialVarietyId: block.trialVarietyId || null,
+            trialVarietyName: block.trialVarietyName || null,
+            notes: block.notes || '',
+            attachments: serializeAttachmentsForFirestore(block)
+          };
+
+          writes.push(setDoc(blockDocRef, data));
+        }
+
+        if(writes.length){
+          await Promise.all(writes);
+        }
+
+        showToast('Yield data saved for this field.');
+        renderFieldList();
+        return true;
+      }catch(err){
+        console.error('Error saving yield data:', err);
+        if(err && (err.code === 'permission-denied' || err.code === 7)){
+          showError('Firestore rules are blocking writes to yield data (permission denied). Your blocks stay on this page but are not saved in the cloud yet.');
+        }else{
+          showError('Unable to save yield data. Please try again.');
+        }
+        return false;
+      }
+    }
+
+    (async function boot(){
+      await ready;
+
+      toastEl       = $('#toast');
+      errBox        = $('#errBox');
+      trialNameMain = $('#trialNameMain');
+      trialCropMain = $('#trialCropMain');
+      trialTypeLine = $('#trialTypeLine');
+      trialTreatmentLine = $('#trialTreatmentLine');
+      fieldCountLine = $('#trialFieldCount');
+      fieldListEl   = $('#trialFieldList');
+
+      modalBackdrop = $('#yieldModalBackdrop');
+      modalTitleEl  = $('#yieldModalTitle');
+      modalBodyEl   = $('#yieldModalBody');
+      yieldSummaryEl = $('#yieldSummary');
+      yieldBlocksWrap = $('#yieldBlocksWrap');
+      addBlockBtn = $('#btnAddTrialBlock');
+
+      blockTypeDialog = $('#blockTypeDialog');
+      blockTypeConfirmBtn = $('#btnBlockTypeConfirm');
+      blockTypeCancelBtn  = $('#btnBlockTypeCancel');
+
+      imgLightbox = $('#imgLightbox');
+      imgLightboxImg = $('#imgLightboxImg');
+
+      const btnBack = $('#btnBack');
+      const btnModalOk = $('#btnYieldOk');
+      const btnModalClose = $('#btnYieldClose');
+
+      if(btnBack){
+        btnBack.addEventListener('click', () => {
+          window.location.href = CONFIG.RETURN_URL;
+        });
+      }
+      if(btnModalOk){
+        btnModalOk.addEventListener('click', async () => {
+          const ok = await saveYieldForSelectedField();
+          if(ok){
+            closeYieldModal();
+          }
+        });
+      }
+      if(btnModalClose){
+        btnModalClose.addEventListener('click', () => {
+          closeYieldModal();
+        });
+      }
+      if(modalBackdrop){
+        modalBackdrop.addEventListener('click', (e)=>{
+          if(e.target === modalBackdrop){
+            closeYieldModal();
+          }
+        });
+      }
+      document.addEventListener('keydown', (e)=>{
+        if(e.key === 'Escape'){
+          hideImageLightbox();
+          closeYieldModal();
+        }
+      });
+
+      if(imgLightbox){
+        imgLightbox.addEventListener('click', (e)=>{
+          if(e.target === imgLightbox){
+            hideImageLightbox();
+          }
+        });
+      }
+
+      if(addBlockBtn){
+        addBlockBtn.addEventListener('click', showBlockTypeDialog);
+      }
+      if(blockTypeCancelBtn){
+        blockTypeCancelBtn.addEventListener('click', hideBlockTypeDialog);
+      }
+      if(blockTypeConfirmBtn){
+        blockTypeConfirmBtn.addEventListener('click', ()=>{
+          if(!STATE.selectedField) return;
+          const choice = modalBodyEl.querySelector('input[name="blockType"]:checked');
+          const type = choice ? choice.value : 'combine';
+          addTrialBlockOfType(type);
+          hideBlockTypeDialog();
+        });
+      }
+
+      const shell = document.querySelector('fv-shell');
+      if(shell && NAV_MENU){
+        shell.nav = NAV_MENU;
+      }
+
+      STATE.trialId   = getQueryParam('trialId');
+      STATE.fieldDocId = getQueryParam('fieldDocId');
+
+      if(!STATE.trialId){
+        showError("Missing trialId in URL. Open this page from the Trials screen.");
+        return;
+      }
+
+      STATE.user = await waitForAuthReady();
+      if(!STATE.user){
+        showError("User is not signed in. Please log in again.");
+        return;
+      }
+
+      STATE.db = getFirestore();
+
+      await loadTrial();
+      await loadVarietiesForTrialCrop();
+      await loadFields();
+      await loadAllYieldBlocks();
+      renderFieldList();
+
+      if(STATE.fieldDocId && STATE.fields.length){
+        const row = STATE.fields.find(f => f.docId === STATE.fieldDocId);
+        if(row){
+          openYieldModal(row);
+        }
+      }
+    })();
+  </script>
+
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🧪</div>
+          <div>
+            <h1>Trial Field Yields</h1>
+            <p class="muted">
+              Review the fields in this trial and add yield data by field. This page dries corn to 15% and soybeans
+              to 13%, supports combine or strip-weight blocks, compares Check vs Trial, lets you dictate notes,
+              attach photos/PDFs, and capture additional required info per block.
+            </p>
+          </div>
+        </header>
+
+        <div class="body">
+          <div id="errBox" class="error-box"></div>
+
+          <div class="top-row-actions-left">
+            <button id="btnBack" type="button" class="btn btn-quiet">
+              ← Back to Trials
+            </button>
+          </div>
+
+          <div class="top-row">
+            <div class="trial-summary">
+              <div class="trial-summary-title" id="trialNameMain">Loading trial…</div>
+              <div class="trial-summary-line">
+                <strong>Crop:</strong> <span id="trialCropMain">—</span>
+              </div>
+              <div class="trial-summary-line" id="trialTypeLine"></div>
+              <div class="trial-summary-line" id="trialTreatmentLine"></div>
+              <div class="trial-summary-line" id="trialFieldCount"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="fields-hero">
+        <header class="fields-head">
+          <h2>Fields in this trial</h2>
+        </header>
+        <div class="fields-body">
+          <div id="trialFieldList"></div>
+          <div class="fields-hint">
+            On a phone, swipe right on a field card to add yield. On desktop, use the “View / Add Yield” button.
+          </div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <!-- Yield modal -->
+  <div id="yieldModalBackdrop" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="yieldModalTitle">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="yieldModalTitle">Yield Entry</h3>
+        <button id="btnYieldClose" type="button" class="modal-close" aria-label="Close without saving">
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M4.22 4.22a.75.75 0 0 1 1.06 0L8 6.94l2.72-2.72a.75.75 0 1 1 1.06 1.06L9.06 8l2.72 2.72a.75.75 0 0 1-1.06 1.06L8 9.06l-2.72 2.72a.75.75 0 0 1-1.06-1.06L6.94 8 4.22 5.28a.75.75 0 0 1 0-1.06z"></path>
+          </svg>
+        </button>
+      </div>
+      <div id="yieldModalBody" class="modal-body">
+        <div id="yieldSummary" class="yield-summary"></div>
+
+        <div class="block-type-dialog hidden" id="blockTypeDialog">
+          <div><strong>What type of trial block is this?</strong></div>
+          <label>
+            <input type="radio" name="blockType" value="combine" checked />
+            Combine Yield Data
+          </label>
+          <label>
+            <input type="radio" name="blockType" value="weight" />
+            Weight Data
+          </label>
+          <div class="block-type-actions">
+            <button id="btnBlockTypeCancel" type="button" class="btn btn-quiet btn-inline">Cancel</button>
+            <button id="btnBlockTypeConfirm" type="button" class="btn btn-primary btn-inline">Add Block</button>
+          </div>
+        </div>
+
+        <button id="btnAddTrialBlock" type="button" class="btn btn-primary btn-inline">
+          + Add Trial Block
+        </button>
+
+        <div id="yieldBlocksWrap"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="btnYieldOk" type="button" class="btn btn-primary">Save &amp; Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Image lightbox -->
+  <div id="imgLightbox" class="img-lightbox" role="dialog" aria-modal="true">
+    <div class="img-lightbox-inner">
+      <img id="imgLightboxImg" alt="Attachment image" />
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+</body>
+</html>

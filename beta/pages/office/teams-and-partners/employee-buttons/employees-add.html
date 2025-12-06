@@ -1,0 +1,622 @@
+<!doctype html><html lang="en"><head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Add Employee</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- Standard includes -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <style>
+    .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
+    .page-title{margin:0 0 8px 0;}
+    .page-sub{margin:0 0 14px 0;color:var(--muted,#67706B);}
+
+    .section{border:1px solid var(--border);border-radius:14px;background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;margin-bottom:16px;}
+    .section-head{display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
+      padding:14px 16px;border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);}
+    .section-head .icon{width:24px;height:24px;color:#2F6C3C;display:grid;place-items:center;}
+    .section-body{padding:16px;display:grid;gap:14px;}
+
+    .grid2{display:grid;gap:12px;grid-template-columns:1fr 1fr}
+    @media(max-width:720px){.grid2{grid-template-columns:1fr}}
+
+    .field label{display:block;font-weight:800;margin:0 0 6px 0;}
+    .field label .req{color:#C13B3B;margin-left:2px;font-weight:700;}
+    .input{width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);border-radius:10px;padding:12px;outline:none;}
+
+    .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    .btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;
+      border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
+    .btn[disabled]{opacity:.5;pointer-events:none}
+    .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
+    .btn-accent{border-color:#2F6C3C;background:#E7F1EA;color:#2F6C3C;width:100%;font-size:17px;font-weight:800;margin-top:8px;}
+    .btn-quiet{min-width:auto;padding:8px 12px}
+
+    /* Overrides UI */
+    .ovr-legend{display:flex;flex-wrap:wrap;gap:10px;align-items:center;color:var(--muted,#5d655f);font-size:14px}
+    .ovr-legend b{color:var(--text)}
+    .ovr-wrap{border:1px dashed var(--border);border-radius:12px;padding:10px}
+    .ovr-empty{padding:8px 4px;color:var(--muted,#6b746d)}
+
+    details.ovr-group{border:1px solid var(--border);border-radius:12px;margin:10px 0;background:var(--card-surface,var(--surface));overflow:hidden}
+    summary.ovr-summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;cursor:pointer}
+    summary.ovr-summary::-webkit-details-marker{display:none}
+    .ovr-name{font-weight:800}
+    .pill{border:1px solid var(--border);padding:6px 10px;border-radius:999px;font-size:12px;font-weight:800;user-select:none}
+    .pill.enabled{background:#203a26;color:#bfe3c6;border-color:#315b3c}
+    .pill.disabled{background:#3a2020;color:#f2c0c0;border-color:#5b3131}
+
+    .ovr-cap-row{display:grid;grid-template-columns:1fr 160px;gap:10px;align-items:center;padding:10px 12px;border-top:1px solid var(--border)}
+    .ovr-key{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;word-break:break-all}
+    .ovr-select{width:100%;border:1px solid var(--border);border-radius:10px;padding:10px;background:var(--surface);font-weight:700}
+
+    /* Neutralize iOS yellow autofill */
+    input:-webkit-autofill, input:-webkit-autofill:focus, textarea:-webkit-autofill, select:-webkit-autofill{
+      -webkit-text-fill-color: var(--text)!important;
+      box-shadow:0 0 0 44px var(--card-surface,var(--surface)) inset!important;
+      caret-color: var(--text);
+      transition: background-color 9999s ease-in-out 0s;
+    }
+
+    /* Toast */
+    .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
+      background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
+    .toast.show{display:block;animation:fadeout 2.8s forwards;}
+    @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+  </style>
+
+  <!-- Ensure fv-shell -->
+  <script>(function(){
+    if(!customElements.get('fv-shell')){
+      const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
+    }
+  })();</script>
+
+  <!-- Firebase config FIRST -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+</head><body>
+  <fv-shell>
+    <div class="page container">
+      <h1 class="page-title">Add Employee</h1>
+      <p class="page-sub">Create a new employee/partner record. You can edit these later from the team list.</p>
+
+      <!-- Card 1: Employee Details -->
+      <section class="section">
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">👤</div>
+          <div><strong>Employee Details</strong></div>
+        </header>
+        <div class="section-body">
+          <div class="grid2">
+            <div class="field">
+              <label for="first">First Name<span class="req">*</span></label>
+              <input id="first" class="input" type="text" autocomplete="given-name" required />
+            </div>
+            <div class="field">
+              <label for="last">Last Name<span class="req">*</span></label>
+              <input id="last" class="input" type="text" autocomplete="family-name" required />
+            </div>
+          </div>
+
+          <div class="grid2">
+            <div class="field">
+              <label for="email">Email<span class="req">*</span></label>
+              <input id="email" class="input" type="email" autocomplete="email" placeholder="you@farm.com" required />
+            </div>
+            <div class="field">
+              <label for="phone">Mobile</label>
+              <input id="phone" class="input" type="tel" autocomplete="tel" placeholder="(555) 555-5555" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="role">Role / Title</label>
+            <input id="role" class="input" type="text" placeholder="Operator, Agronomy, Office…" />
+          </div>
+
+          <div class="field">
+            <label for="start">Start Date</label>
+            <input id="start" class="input" type="date" />
+          </div>
+
+          <div class="grid2">
+            <div class="field">
+              <label for="status">Status</label>
+              <select id="status" class="input">
+                <option selected>Active</option>
+                <option>On Leave</option>
+                <option>Inactive</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="perm">Permission Group</label>
+              <select id="perm" class="input"><option>Loading…</option></select>
+            </div>
+          </div>
+
+          <div class="field" style="min-width:0">
+            <label for="notes">Notes</label>
+            <textarea id="notes" class="input" rows="3" placeholder="Certifications, endorsements, PTO notes, etc."></textarea>
+          </div>
+
+          <button id="saveInvite" class="btn btn-accent" type="button">Save &amp; Invite</button>
+          <div class="actions">
+            <button id="clear" class="btn" type="button">Clear</button>
+            <button id="save" class="btn btn-primary" type="button">Save</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Card 2: Overrides -->
+      <section class="section">
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">🛡️</div>
+          <div><strong>Overrides (Optional)</strong></div>
+        </header>
+
+        <div class="section-body">
+          <div class="ovr-legend">
+            <span>Defaults follow the selected <b>Permission Group</b> from Firestore (<code>accountRoles</code> ➜ <code>perms</code>). Tap a section’s <b>Enabled/Disabled</b> pill to force the whole section on/off for this employee. Individual items can still be tweaked below.</span>
+          </div>
+
+          <div class="ovr-wrap" id="overridesWrap">
+            <div class="ovr-empty">Choose a Permission Group to load capabilities.</div>
+          </div>
+
+          <div class="ovr-toolbar">
+            <button id="ovrExpand" class="btn btn-quiet" type="button">Expand All</button>
+            <button id="ovrCollapse" class="btn btn-quiet" type="button">Collapse All</button>
+            <button id="ovrClear" class="btn btn-quiet" type="button">Clear Overrides</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <div id="toast" class="toast" role="status" aria-live="polite">Successfully saved.</div>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore, getDoc, setDoc, doc,
+      collection, getDocs, query, orderBy, where,
+      serverTimestamp,
+      getAuth, sendPasswordResetEmail
+    } from '/Farm-vista/js/firebase-init.js';
+
+    // Live navigation: we’ll index groups, subgroups, and links from this.
+    import NAV_MENU from '/Farm-vista/js/menu.js';
+
+    /* --------------------- tiny utils --------------------- */
+    const $ = id => document.getElementById(id);
+    const toast = $("toast");
+    let busy = false, lastInviteAt = 0;
+
+    const showToast = (msg="Successfully saved.")=>{
+      toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show");
+    };
+    const setBusy = (on)=>{
+      busy=!!on;
+      ["save","saveInvite","clear","ovrClear","ovrExpand","ovrCollapse","perm"].forEach(id=>{const b=$(id);if(b)b.disabled=on;});
+    };
+    const digitsOnly=s=>String(s||'').replace(/\D+/g,'');
+    const formatUSPhone=raw=>{
+      const d=digitsOnly(raw); const core=(d.length===11&&d.startsWith('1'))?d.slice(1):d;
+      return core.length===10?`(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}`:String(raw||'').trim();
+    };
+    $("phone").addEventListener("blur",e=>e.target.value=formatUSPhone(e.target.value));
+    const emailKey=e=>(String(e||"").trim().toLowerCase());
+    const fk=(g,k)=>`${g}|${k}`;
+    const triToBool= t => t==='allow' ? true : t==='deny' ? false : undefined;
+
+    /* --------------------- NAV indexer --------------------- */
+    // Build:
+    // - TOP_GROUPS: { TopLabel -> [capIds] }
+    // - CAP_TO_TOP: { capId -> TopLabel }
+    // - CONTAINERS: { containerId (top group id OR subgroup id) -> [capIds under it] }
+    // - CAP_SET: Set of leaf cap ids (link ids)
+    const TOP_GROUPS = {};
+    const CAP_TO_TOP = {};
+    const CONTAINERS = {};
+    const CAP_SET = new Set();
+    const CONTAINER_IDS = new Set(); // includes top group ids + subgroup ids
+
+    (function buildIndexes(){
+      if(!NAV_MENU || !Array.isArray(NAV_MENU.items)) return;
+
+      function collectLinks(nodes, acc){
+        nodes.forEach(n=>{
+          if(n.type==='group' && Array.isArray(n.children)){
+            collectLinks(n.children, acc);
+          }else if(n.type==='link'){
+            acc.push(n.id);
+          }
+        });
+      }
+
+      NAV_MENU.items.forEach(top=>{
+        if(top.type!=='group') return;
+        const topLabel = top.label || top.id || 'General';
+        const topId = top.id;
+        const allUnderTop = [];
+        collectLinks([top], allUnderTop);
+
+        CONTAINERS[topId] = allUnderTop.slice();
+        CONTAINER_IDS.add(topId);
+
+        TOP_GROUPS[topLabel] = allUnderTop.slice();
+        allUnderTop.forEach(id=>{
+          CAP_TO_TOP[id]=topLabel;
+          CAP_SET.add(id);
+        });
+
+        // subgroups
+        (top.children||[]).forEach(ch=>{
+          if(ch.type==='group'){
+            const arr=[]; collectLinks([ch], arr);
+            CONTAINERS[ch.id]=arr.slice();
+            CONTAINER_IDS.add(ch.id);
+          }
+        });
+      });
+    })();
+
+    /* --------------------- role → baseline --------------------- */
+    let currentRoleName = null;
+    let baseGroups = {};     // {TopLabel:{capId:boolean}}
+    let overrideState = {};  // {"TopLabel|capId": 'inherit'|'allow'|'deny'}
+
+    // Extract boolean from a perms entry (boolean or {on:boolean})
+    function valToBool(v){
+      if (typeof v === 'boolean') return v;
+      if (v && typeof v.on === 'boolean') return v.on;
+      return undefined;
+    }
+
+    // Build baseline from roleDoc.perms (container defaults + explicit caps)
+    function buildBaselineFromPerms(perms){
+      // 1) start all false
+      const out = {};
+      Object.keys(TOP_GROUPS).forEach(t=>{
+        out[t]={};
+        TOP_GROUPS[t].forEach(capId=>{ out[t][capId]=false; });
+      });
+
+      if(!perms || typeof perms!=='object') return out;
+
+      // 2) apply container defaults (top group ids or subgroup ids)
+      Object.keys(perms).forEach(key=>{
+        const vb = valToBool(perms[key]);
+        if (vb === undefined) return;
+        if (CONTAINER_IDS.has(key)){
+          const caps = CONTAINERS[key]||[];
+          caps.forEach(capId=>{
+            const top = CAP_TO_TOP[capId]; if(!top) return;
+            // only set default if still false — explicit leaf will still override later
+            out[top][capId] = vb;
+          });
+        }
+      });
+
+      // 3) apply explicit leaf permissions (cap ids)
+      Object.keys(perms).forEach(key=>{
+        const vb = valToBool(perms[key]);
+        if (vb === undefined) return;
+        if (CAP_SET.has(key)){
+          const top = CAP_TO_TOP[key]; if(!top) return;
+          out[top][key] = vb; // explicit beats container default
+        }
+      });
+
+      return out;
+    }
+
+    function effectiveCap(g,k){
+      const tri = overrideState[fk(g,k)];
+      if(tri==='allow') return true;
+      if(tri==='deny')  return false;
+      return !!(baseGroups[g] && baseGroups[g][k]);
+    }
+
+    function computeGroupState(g){
+      const caps = baseGroups[g]||{};
+      const keys = Object.keys(caps);
+      let t=0,f=0;
+      keys.forEach(k=>{ effectiveCap(g,k)?t++:f++; });
+      return { total:keys.length, trueCount:t, falseCount:f };
+    }
+
+    function setGroupOverrides(g, mode){
+      const caps = baseGroups[g]||{};
+      Object.keys(caps).forEach(k=>{
+        const key=fk(g,k);
+        if(mode==='allow-all') overrideState[key]='allow';
+        else if(mode==='deny-all') overrideState[key]='deny';
+        else overrideState[key]='inherit';
+      });
+      document.querySelectorAll(`select.ovr-select[data-group="${CSS.escape(g)}"]`).forEach(sel=>{
+        const cap=sel.getAttribute('data-cap');
+        const tri=overrideState[fk(g,cap)]||'inherit';
+        sel.value=tri;
+        const base = baseGroups[g][cap];
+        sel.querySelector('option[value="inherit"]').textContent = `Inherit (${base ? 'Allow' : 'Deny'})`;
+      });
+      updateGroupPill(g);
+    }
+
+    function updateGroupPill(g){
+      const pill = document.querySelector(`.pill[data-group="${CSS.escape(g)}"]`);
+      if(!pill) return;
+      const { total, trueCount, falseCount } = computeGroupState(g);
+      if(total===0){ pill.className='pill disabled'; pill.textContent='Disabled'; return; }
+      if(trueCount===total){ pill.className='pill enabled'; pill.textContent='Enabled'; }
+      else if(falseCount===total){ pill.className='pill disabled'; pill.textContent='Disabled'; }
+      else { pill.className='pill'; pill.textContent='Mixed'; }
+    }
+
+    function renderOverrides(){
+      const wrap=$("overridesWrap");
+      wrap.innerHTML="";
+      const gnames=Object.keys(baseGroups||{}).sort((a,b)=>a.localeCompare(b));
+      if(!gnames.length){
+        const d=document.createElement('div'); d.className='ovr-empty'; d.textContent='No capabilities found for this group.'; wrap.appendChild(d); return;
+      }
+      gnames.forEach(gname=>{
+        const details=document.createElement('details'); details.className='ovr-group';
+        const summary=document.createElement('summary'); summary.className='ovr-summary';
+
+        const left=document.createElement('div'); left.className='ovr-name'; left.textContent=gname;
+        const pill=document.createElement('span'); pill.className='pill'; pill.setAttribute('data-group', gname);
+        summary.appendChild(left); summary.appendChild(pill);
+        details.appendChild(summary);
+
+        pill.addEventListener('click',(e)=>{
+          e.preventDefault(); e.stopPropagation();
+          const s = computeGroupState(gname);
+          if(s.trueCount===s.total) setGroupOverrides(gname,'deny-all');
+          else if(s.falseCount===s.total) setGroupOverrides(gname,'allow-all');
+          else setGroupOverrides(gname,'allow-all');
+        });
+
+        const keys=Object.keys(baseGroups[gname]||{}).sort((a,b)=>a.localeCompare(b));
+        keys.forEach(k=>{
+          const row=document.createElement('div'); row.className='ovr-cap-row';
+          const kd=document.createElement('div'); kd.className='ovr-key'; kd.textContent=k;
+
+          const right=document.createElement('div');
+          const sel=document.createElement('select');
+          sel.className='ovr-select';
+          sel.setAttribute('data-group', gname);
+          sel.setAttribute('data-cap', k);
+
+          const base = baseGroups[gname][k];
+          sel.innerHTML = `
+            <option value="inherit">Inherit (${base ? 'Allow' : 'Deny'})</option>
+            <option value="allow">Allow</option>
+            <option value="deny">Deny</option>
+          `;
+          overrideState[fk(gname,k)] = 'inherit';
+          sel.value = 'inherit';
+
+          sel.addEventListener('change', e=>{
+            overrideState[fk(gname,k)] = e.target.value;
+            updateGroupPill(gname);
+          });
+
+          right.appendChild(sel); row.appendChild(kd); row.appendChild(right);
+          details.appendChild(row);
+        });
+
+        wrap.appendChild(details);
+        updateGroupPill(gname);
+      });
+    }
+
+    function collectOverridesForSave(){
+      const out={};
+      Object.keys(overrideState).forEach(key=>{
+        const tri=overrideState[key];
+        if(tri!=='inherit'){
+          const [g,k]=key.split('|');
+          out[`${g}.${k}`]=triToBool(tri);
+        }
+      });
+      return out;
+    }
+
+    function clearOverridesUI(){
+      Object.keys(overrideState).forEach(k=>overrideState[k]='inherit');
+      document.querySelectorAll('select.ovr-select').forEach(sel=>sel.value='inherit');
+      Object.keys(baseGroups).forEach(g=>updateGroupPill(g));
+    }
+
+    $("ovrExpand").addEventListener("click", ()=> { document.querySelectorAll('details.ovr-group').forEach(d=>d.open=true); });
+    $("ovrCollapse").addEventListener("click", ()=> { document.querySelectorAll('details.ovr-group').forEach(d=>d.open=false); });
+    $("ovrClear").addEventListener("click", ()=>{ if(busy) return; clearOverridesUI(); showToast("Overrides cleared."); });
+
+    /* --------------------- roles dropdown --------------------- */
+    async function fetchRoleDocByName(name){
+      const db=getFirestore();
+      const qRef=query(collection(db,'accountRoles'), where('name','==',name));
+      const snap=await getDocs(qRef);
+      let docData=null;
+      snap.forEach(d=>{ docData = d.data()||null; });
+      return docData;
+    }
+
+    async function populatePermissionGroups(){
+      const sel = $("perm");
+      try{
+        const { mode } = await ready;
+        if(mode!=='firebase'){
+          sel.innerHTML = '<option selected>Standard</option>';
+          currentRoleName = 'Standard';
+          baseGroups = buildBaselineFromPerms(null);
+          overrideState = {};
+          renderOverrides();
+          return;
+        }
+
+        const db = getFirestore();
+        const snap = await getDocs(query(collection(db, 'accountRoles'), orderBy('name')));
+        const roles = [];
+        snap.forEach(d=>{
+          const data=d.data()||{}; const name=(data.name||data.title||'').trim();
+          if(name) roles.push(name);
+        });
+
+        if(!roles.length){
+          sel.innerHTML = '<option selected>Standard</option>';
+          currentRoleName='Standard';
+          baseGroups = buildBaselineFromPerms(null);
+          overrideState = {};
+          renderOverrides();
+        }else{
+          sel.innerHTML = roles.map((r,i)=>`<option ${i===0?'selected':''}>${r}</option>`).join('');
+          currentRoleName = roles[0];
+          const roleDoc = await fetchRoleDocByName(currentRoleName);
+          baseGroups = buildBaselineFromPerms(roleDoc?.perms||roleDoc?.permissions||null);
+          overrideState = {};
+          renderOverrides();
+        }
+
+        sel.addEventListener('change', async (e)=>{
+          if (busy) return;
+          setBusy(true);
+          try{
+            currentRoleName = e.target.value || null;
+            const roleDoc = currentRoleName ? await fetchRoleDocByName(currentRoleName) : null;
+            baseGroups = buildBaselineFromPerms(roleDoc?.perms||roleDoc?.permissions||null);
+            overrideState = {};
+            renderOverrides();
+          }catch(err){
+            console.error('Failed to load role:', err);
+            baseGroups = buildBaselineFromPerms(null);
+            overrideState = {};
+            renderOverrides();
+          }finally{ setBusy(false); }
+        });
+
+      }catch(err){
+        console.error('Roles load failed:', err);
+        sel.innerHTML = '<option selected>Standard</option>';
+        currentRoleName='Standard';
+        baseGroups = buildBaselineFromPerms(null);
+        overrideState = {};
+        renderOverrides();
+      }
+    }
+
+    /* --------------------- save/invite flow --------------------- */
+    function collectAndValidate(){
+      const first=$("first"), last=$("last"), email=$("email");
+      if(!first.checkValidity()){first.reportValidity();return null;}
+      if(!last.checkValidity()){last.reportValidity();return null;}
+      if(!email.checkValidity()){email.reportValidity();return null;}
+      return {
+        first:first.value.trim(),
+        last:last.value.trim(),
+        email:email.value.trim(),
+        phone:formatUSPhone($("phone").value),
+        role:$("role").value.trim(),
+        start:$("start").value,
+        status:$("status").value,
+        perm:$("perm").value,
+        notes:$("notes").value.trim(),
+        overrides: collectOverridesForSave()
+      };
+    }
+
+    async function upsertEmployee(vals){
+      const db=getFirestore();
+      const fullName=`${vals.first} ${vals.last}`.trim();
+      const payload={
+        firstName:vals.first,lastName:vals.last,fullName,
+        email:vals.email,phone:vals.phone,role:vals.role,type:'Employee',
+        startDate:vals.start||null,status:vals.status,
+        permissionGroup:vals.perm || currentRoleName || null,
+        notes:vals.notes,
+        search:[fullName.toLowerCase(), vals.first.toLowerCase(), vals.last.toLowerCase(), vals.email.toLowerCase()].filter(Boolean),
+        active:vals.status==="Active",
+        overrides: vals.overrides && Object.keys(vals.overrides).length ? vals.overrides : {},
+        updatedAt:serverTimestamp()
+      };
+      const id=emailKey(vals.email);
+      const ref=doc(db,"employees",id);
+      const snap=await getDoc(ref);
+      if(!snap.exists()) payload.createdAt=serverTimestamp();
+      await setDoc(ref,payload,{merge:true});
+      return { id, ref, created: !snap.exists() };
+    }
+
+    async function ensureAuthUser(email,displayName){
+      if(!email)throw new Error("Missing email for Auth user");
+      const CDN_BASE='https://www.gstatic.com/firebasejs/10.12.5/';
+      const[{initializeApp},authMod]=await Promise.all([
+        import(CDN_BASE+'firebase-app.js'),
+        import(CDN_BASE+'firebase-auth.js')
+      ]);
+      const cfg=window.FV_FIREBASE_CONFIG; if(!cfg)throw new Error("Firebase config missing.");
+      const secondaryApp=initializeApp(cfg,'fv-admin');
+      const secondaryAuth=authMod.getAuth(secondaryApp);
+      try{await authMod.setPersistence(secondaryAuth,authMod.inMemoryPersistence);}catch{}
+      const tmpPass=(()=>{const arr=new Uint8Array(24);crypto.getRandomValues(arr);return btoa(String.fromCharCode(...arr)).replace(/[^a-zA-Z0-9]/g,'').slice(0,20);})();
+      try{
+        await authMod.createUserWithEmailAndPassword(secondaryAuth,email,tmpPass);
+        if(displayName){try{await authMod.updateProfile(secondaryAuth.currentUser,{displayName});}catch{}}
+      }catch(e){ if(!e || e.code!=='auth/email-already-in-use') throw e; }
+      finally{ try{await authMod.signOut(secondaryAuth);}catch{} }
+    }
+
+    $("clear").addEventListener("click",()=>{ if(busy) return;
+      ["first","last","email","phone","role","start","notes"].forEach(id=>{const el=$(id);if(el)el.value="";});
+      $("status").selectedIndex=0;
+      const permSel=$("perm"); if(permSel && permSel.options.length){ permSel.selectedIndex=0; permSel.dispatchEvent(new Event('change')); }
+      clearOverridesUI(); showToast("Form cleared.");
+    });
+
+    $("save").addEventListener("click",async()=>{
+      if(busy)return; const vals=collectAndValidate(); if(!vals) return;
+      try{ setBusy(true); await ready; await upsertEmployee(vals);
+        showToast("Employee saved."); window.scrollTo({top:0,behavior:"smooth"}); }
+      catch(err){ console.error(err); alert("Save failed.\n\n"+(err?.message||err)); }
+      finally{ setBusy(false); }
+    });
+
+    $("saveInvite").addEventListener("click",async()=>{
+      if(busy)return;
+      const now=Date.now(); if(now-lastInviteAt<3000) return; lastInviteAt=now;
+      const vals=collectAndValidate(); if(!vals) return;
+      try{
+        setBusy(true);
+        const { mode } = await ready;
+        if(mode!=='firebase'){ alert("Email not sent: Firebase is in stub mode."); return; }
+        await upsertEmployee(vals);
+        const displayName = `${vals.first} ${vals.last}`.trim();
+        await ensureAuthUser(vals.email, displayName);
+        await sendPasswordResetEmail(getAuth(), vals.email);
+        showToast("Saved & invite sent."); window.scrollTo({top:0,behavior:"smooth"});
+      }catch(err){
+        console.error(err);
+        const code=err?.code||"";
+        if(code==="auth/invalid-continue-uri"||code==="auth/unauthorized-continue-uri"){
+          alert("Invite failed due to domain settings.\nAdd your domain under Firebase Auth → Settings → Authorized domains.");
+        }else{ alert("Invite failed.\n\n"+(err?.message||err)); }
+      }finally{ setBusy(false); }
+    });
+
+    // Init
+    populatePermissionGroups();
+    ready.then(({mode})=>console.log('[FV] mode:', mode));
+  </script>
+</body></html>

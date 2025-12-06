@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Debug — Perms & Context</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- Standard includes (ABSOLUTE PATHS) -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- User context ONLY (read-only) -->
+  <script src="/Farm-vista/js/app/user-context.js"></script>
+
+  <style>
+    .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
+    .k{font:600 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:#2F6C3C; letter-spacing:.04em;}
+    .mono{font:600 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break:break-all;}
+    .card{border:1px solid var(--border); border-radius:12px; background:var(--surface);
+      padding:14px; box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.06)); margin:12px 0;}
+    .row{display:grid; grid-template-columns:160px 1fr; gap:12px; align-items:start; margin:8px 0;}
+    .pill{display:inline-block; border:1px solid var(--border); border-radius:999px; padding:6px 10px; font-weight:700; margin:0 8px 8px 0;}
+    .ok{background:#E7F1EA; color:#2F6C3C; border-color:#cfe3d5;}
+    .warn{background:#fff3cd; color:#7a5a00; border-color:#f5e2a5;}
+    .bad{background:#fde2e2; color:#8b2626; border-color:#f1c1c1;}
+    pre{margin:0; white-space:pre-wrap; word-break:break-word;}
+  </style>
+
+  <!-- Ensure <fv-shell> present -->
+  <script>(function(){
+    if(!customElements.get('fv-shell')){
+      const s=document.createElement('script'); s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);
+    }
+  })();</script>
+</head>
+<body>
+  <fv-shell>
+    <div class="page container">
+      <h1>Debug — Permissions & Context</h1>
+      <p class="muted">Read-only dump of <code>FVUserContext</code>. This page does not modify Auth, Firestore, or caches.</p>
+
+      <div id="status" class="card">Loading…</div>
+
+      <div class="card">
+        <div class="row"><div class="k">Mode</div>        <div id="mode">—</div></div>
+        <div class="row"><div class="k">Email</div>       <div id="email">—</div></div>
+        <div class="row"><div class="k">UID</div>         <div id="uid" class="mono">—</div></div>
+        <div class="row"><div class="k">Display Name</div><div id="name">—</div></div>
+        <div class="row"><div class="k">Role Name</div>   <div id="role">—</div></div>
+        <div class="row"><div class="k">Updated</div>     <div id="updated">—</div></div>
+      </div>
+
+      <div class="card">
+        <div class="k">Allowed Menu IDs</div>
+        <div id="allowed" style="margin-top:8px"></div>
+      </div>
+
+      <div class="card">
+        <div class="k">Raw Context JSON</div>
+        <pre id="raw" class="mono" style="margin-top:8px"></pre>
+      </div>
+    </div>
+  </fv-shell>
+
+  <script>
+    (async function(){
+      const $ = id => document.getElementById(id);
+      const wantAlways = new Set(['home']); // enforce Home visible in debug expectations
+
+      function pill(text, cls){ const span=document.createElement('span'); span.className='pill '+(cls||''); span.textContent=text; return span; }
+
+      try{
+        // Use cached immediately if present to avoid any auth flicker
+        const cached = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get();
+        if (cached) $('status').textContent = 'Loaded from cache (instant).';
+
+        const ctx = await window.FVUserContext.ready();
+        $('mode').textContent    = ctx.mode || 'unknown';
+        $('email').textContent   = ctx.email || '—';
+        $('uid').textContent     = ctx.uid || '—';
+        $('name').textContent    = ctx.displayName || '—';
+        $('role').textContent    = ctx.roleName || '—';
+        $('updated').textContent = ctx.updatedAt || '—';
+
+        // Allowed list
+        const box = $('allowed'); box.innerHTML = '';
+        const allowed = Array.isArray(ctx.allowedIds) ? ctx.allowedIds.slice().sort() : [];
+        if (!allowed.length) {
+          box.appendChild(pill('None', 'bad'));
+        } else {
+          allowed.forEach(id => box.appendChild(pill(id, wantAlways.has(id) ? 'ok' : '')));
+        }
+        if (!allowed.includes('home')) {
+          box.appendChild(pill('home (MISSING)', 'warn'));
+        }
+
+        // Raw
+        $('raw').textContent = JSON.stringify(ctx, null, 2);
+
+        // Status banner
+        const problems = [];
+        if (!ctx.email) problems.push('No auth email detected.');
+        if (!allowed.length) problems.push('No allowedIds returned.');
+        if (!allowed.includes('home')) problems.push('Home not included; menu will hide everything except hard-coded items.');
+
+        $('status').innerHTML = problems.length
+          ? `<div class="pill bad">Issues</div> ${problems.join(' ')}`
+          : `<div class="pill ok">OK</div> Context looks healthy.`;
+
+      }catch(e){
+        $('status').innerHTML = '<div class="pill bad">Error</div> Failed to read FVUserContext.';
+        $('raw').textContent = String(e && (e.stack || e.message) || e);
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>FarmVista • Office → Vehicle Registration</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#3B7E46">
+
+  <!-- ABSOLUTE paths for consistency -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css">
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css">
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+
+  <!-- Ensure fv-shell -->
+  <script>(function(){
+    if(!customElements.get('fv-shell')){
+      const s=document.createElement('script');
+      s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);
+    }
+  })();</script>
+
+  <style>
+    :root{
+      --card-max: 1100px;
+      --page-bottom-gap: 96px;
+      --accent: #2F6C3C;
+      --hero-icon-col: 36px;
+      --hero-icon-size: 24px;
+    }
+    html{-webkit-text-size-adjust:100%}
+    body{ background: var(--app-bg, var(--surface)); }
+
+    .wrap{
+      max-width: var(--card-max);
+      margin: 0 auto;
+      padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+    }
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+      margin-bottom: var(--page-bottom-gap);
+    }
+    .hero-head{
+      display:grid;
+      grid-template-columns: var(--hero-icon-col) 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      border-bottom:1px solid var(--border);
+    }
+    .hero-head .icon{
+      width:var(--hero-icon-size);
+      height:var(--hero-icon-size);
+      color:var(--accent);
+      display:grid;
+      place-items:center;
+    }
+    .hero-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2; }
+    .muted{ color:var(--muted,#67706B); }
+
+    .body{ padding:16px; display:grid; gap:14px; }
+    .row{ display:grid; gap:10px; grid-template-columns: 1fr 1fr; }
+    .row-3{ grid-template-columns: 1fr 1fr 1fr; }
+    .row-4{ grid-template-columns: 1fr 1fr 1fr 1fr; }
+    @media (max-width:880px){ .row, .row-3, .row-4 { grid-template-columns: 1fr; } }
+
+    .field label{ display:block; font-weight:800; margin:0 0 6px 0; }
+    .input, .select, .textarea{
+      width:100%; font:inherit; font-size:16px; color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:12px 12px;
+      outline:none;
+    }
+    .textarea{ min-height:88px; resize:vertical; }
+
+    .actions{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:6px; }
+    .btn{
+      display:inline-flex; align-items:center; justify-content:center;
+      min-width:160px; padding:12px 16px; border-radius:12px; border:1px solid var(--border);
+      font-weight:800; text-decoration:none; cursor:pointer; user-select:none;
+      color:var(--text) !important; background:var(--card-surface,var(--surface));
+    }
+    .btn-primary{ border-color:transparent; background:#2F6C3C; color:#fff !important; }
+
+    .summary{
+      border:1px solid var(--border); border-radius:12px; padding:14px;
+      background:linear-gradient(180deg, rgba(47,108,60,.06), transparent);
+    }
+
+    .hist-head{ display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-top:1px solid var(--border); }
+    .hist-title{ font-size:clamp(18px, 2.6vw, 22px); font-weight:800; }
+    .hist{ padding:14px 16px; display:grid; gap:12px; }
+    .hist-item{
+      border:1px solid var(--border); border-radius:12px; padding:12px; background:var(--card-surface,var(--surface));
+      display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+    }
+    .hist-item .hline{ font-weight:800; }
+    .hist-item .view{ border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:8px 12px; font-weight:700; cursor:pointer; color:var(--text) !important; }
+
+    .toast{
+      position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom,0px) + 72px); transform:translateX(-50%);
+      background:#2F6C3C; color:#fff; padding:10px 14px; border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,.25); z-index:99999; display:none;
+    }
+    .toast.show{ display:block; animation:fadeout 3.2s forwards; }
+    @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+
+    .modal{ position:fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,.42);
+      z-index:9999; transition:opacity .15s; opacity:0; }
+    .modal[open]{ display:grid; opacity:1; }
+    .dialog{ width:min(760px,92vw); max-height:85vh; display:flex; flex-direction:column; background:var(--surface); color:var(--text);
+      border-radius:14px; border:1px solid var(--border); box-shadow:0 16px 36px rgba(0,0,0,.28); }
+    .dialog-head{ padding:12px 14px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+    .dialog-body{ padding:14px; overflow:auto; flex:1 1 auto; min-height:0; -webkit-overflow-scrolling:touch; }
+    .closex{ border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:8px 12px; cursor:pointer; font-weight:700; color:var(--text) !important; }
+    .kv{ display:grid; grid-template-columns:1fr auto; gap:8px 12px; align-items:baseline; }
+    .kv .val{ font-weight:800; }
+
+    html.no-scroll, body.no-scroll{ overflow:hidden; }
+  </style>
+</head>
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none"
+                 stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="5" width="18" height="14" rx="2"/>
+              <path d="M7 9h4M15 9h2M7 15h10"/>
+            </svg>
+          </div>
+          <div>
+            <h1>Vehicle Registration</h1>
+            <p class="muted">Choose a type, pick a truck or trailer asset from Firestore, or enter details manually, then save. History shows the latest registrations.</p>
+          </div>
+        </header>
+
+        <div class="body">
+          <!-- Asset selection (Type first, then filtered assets) -->
+          <div class="row">
+            <div class="field">
+              <label for="type">Type</label>
+              <select id="type" class="select" disabled>
+                <option value="">Select type…</option>
+                <option value="truck">Truck</option>
+                <option value="trailer">Trailer</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="asset">Asset (filtered by type)</label>
+              <select id="asset" class="select" disabled>
+                <option value="">Select asset…</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Identity -->
+          <div class="row-4">
+            <div class="field">
+              <label for="unit">Unit ID / Nickname</label>
+              <input id="unit" class="input" placeholder="e.g., Pete 579 #12">
+            </div>
+            <div class="field">
+              <label for="year">Year</label>
+              <input id="year" class="input" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="e.g., 2021">
+            </div>
+            <div class="field">
+              <label for="make">Make</label>
+              <input id="make" class="input" placeholder="e.g., Peterbilt">
+            </div>
+            <div class="field">
+              <label for="model">Model</label>
+              <input id="model" class="input" placeholder="e.g., 579">
+            </div>
+          </div>
+
+          <!-- VIN / Plate -->
+          <div class="row-3">
+            <div class="field">
+              <label for="vin">VIN</label>
+              <input id="vin" class="input" maxlength="17" placeholder="17 chars" style="text-transform:uppercase">
+            </div>
+            <div class="field">
+              <label for="plate">Plate #</label>
+              <input id="plate" class="input" placeholder="e.g., 123 456">
+            </div>
+            <div class="field">
+              <label for="state">State</label>
+              <select id="state" class="select"></select>
+            </div>
+          </div>
+
+          <!-- Registration specifics -->
+          <div class="row-3">
+            <div class="field">
+              <label for="regtype">Registration Type</label>
+              <select id="regtype" class="select">
+                <option value="farm">Farm</option>
+                <option value="apportioned">Apportioned (IRP)</option>
+                <option value="commercial">Commercial</option>
+                <option value="trailer">Trailer</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="gvwr">GVWR</label>
+              <input id="gvwr" class="input" inputmode="numeric" placeholder="e.g., 80,000">
+            </div>
+            <div class="field">
+              <label for="exp">Expiration</label>
+              <input id="exp" class="input" type="date">
+            </div>
+          </div>
+
+          <!-- Insurance -->
+          <div class="row-3">
+            <div class="field">
+              <label for="carrier">Insurance Carrier</label>
+              <input id="carrier" class="input" placeholder="e.g., Farm Bureau">
+            </div>
+            <div class="field">
+              <label for="policy">Policy #</label>
+              <input id="policy" class="input" placeholder="e.g., ABC-123456">
+            </div>
+            <div class="field">
+              <label for="iexp">Policy Expiration</label>
+              <input id="iexp" class="input" type="date">
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="notes">Notes</label>
+            <textarea id="notes" class="textarea" placeholder="Permits, IFTA, DOT, etc."></textarea>
+          </div>
+
+          <div class="actions">
+            <button id="clear" class="btn" type="button">Clear Inputs</button>
+            <button id="save" class="btn btn-primary" type="button">Save Registration</button>
+          </div>
+
+          <div id="summary" class="summary" hidden></div>
+        </div>
+
+        <!-- History -->
+        <div class="hist-head">
+          <div class="hist-title">Previous Registrations</div>
+        </div>
+        <div id="history" class="hist">
+          <div class="muted">No previous registrations.</div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <!-- Toast -->
+  <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+
+  <!-- Modal -->
+  <div id="modal" class="modal" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
+      <div class="dialog-head">
+        <h3 id="mdTitle">Registration Details</h3>
+        <button class="closex" id="mdClose" type="button">Back</button>
+      </div>
+      <div class="dialog-body" id="mdBody"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection, getDocs, addDoc,
+      query, orderBy, serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
+
+    const $ = id => document.getElementById(id);
+    const toast = $("toast");
+
+    const COLL = "vehicleRegistrations";
+    const MAX_RET = 50;
+
+    let DB = null;
+    let ALL_ASSETS = [];
+
+    const STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"];
+    (function fillStates(){
+      const sel = $("state");
+      sel.innerHTML = '<option value="">—</option>' + STATES.map(s=>`<option value="${s}">${s}</option>`).join("");
+    })();
+
+    const esc = s => String(s||"").replace(/[&<>"']/g, m=>({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+    })[m]);
+    const fmtComma = v => {
+      if(v==null || v==="") return "";
+      const n = Number(String(v).replace(/,/g,"").trim());
+      return isFinite(n) ? n.toLocaleString() : "";
+    };
+
+    const showToast = (msg="Saved.")=>{
+      toast.textContent = msg;
+      toast.classList.remove("show");
+      void toast.offsetWidth;
+      toast.classList.add("show");
+    };
+
+    async function loadAssets(){
+      if(!DB) DB = getFirestore();
+
+      let rows = [];
+      try{
+        const snap = await getDocs(collection(DB, "equipment"));
+        snap.forEach(docSnap => {
+          const d = docSnap.data() || {};
+          rows.push({ id: docSnap.id, ...d });
+        });
+      }catch(e){
+        console.warn("equipment load error:", e);
+        ALL_ASSETS = [];
+        $("type").disabled = false;  // allow manual type if equipment fails
+        return;
+      }
+
+      const assets = [];
+      rows.forEach(o=>{
+        if(!o) return;
+
+        // type: "truck", "trailer", etc.
+        const rawField = (o.type || o.Type || o.equipType || "");
+        const rawType = String(rawField).toLowerCase().trim();
+        if(!rawType) return;
+
+        let t = "";
+        if(rawType.startsWith("truck")){
+          t = "truck";
+        }else if(rawType.startsWith("trailer")){
+          t = "trailer";
+        }else{
+          return;
+        }
+
+        const status = o.status ? String(o.status).toLowerCase() : "";
+        if(status && status !== "active") return;
+
+        const make = o.makeName || o.make || "";
+        const model = o.modelName || o.model || "";
+        const vinRaw = o.serial || o.vin || "";
+
+        assets.push({
+          id: o.id || o.uid || o.unit || o.serial || `${t}_${Math.random().toString(36).slice(2)}`,
+          type: t,
+          unit: String(o.unit || o.nickname || o.name || vinRaw || "").trim(),
+          year: o.year || "",
+          make,
+          model,
+          vin: String(vinRaw).toUpperCase().slice(0,17),
+          plate: o.plate || "",
+          state: (o.state||"").toUpperCase()
+        });
+      });
+
+      ALL_ASSETS = assets;
+      $("type").disabled = false;
+      applyAssetFilter();
+    }
+
+    function applyAssetFilter(){
+      const sel = $("asset");
+      const type = $("type").value;
+      const prev = sel.value;
+
+      sel.innerHTML = '<option value="">Select asset…</option>';
+
+      if(type !== "truck" && type !== "trailer"){
+        sel.disabled = true;
+        return;
+      }
+
+      sel.disabled = false;
+
+      const filtered = (ALL_ASSETS || []).filter(a =>
+        String(a.type || "").toLowerCase() === type
+      );
+
+      filtered.forEach(a=>{
+        const mm = `${a.make||""} ${a.model||""}`.trim();
+        const vin6 = (a.vin || "").slice(-6);
+        const labelLeft = mm || (type==="truck" ? "Truck" : "Trailer");
+        const labelRight = vin6 || (a.unit || "").trim() || "No VIN";
+        const label = `${labelLeft} • ${labelRight}`;
+        const opt = document.createElement("option");
+        opt.value = a.id;
+        opt.textContent = label;
+        opt.dataset.payload = JSON.stringify(a);
+        sel.appendChild(opt);
+      });
+
+      if(prev && filtered.some(a => a.id === prev)){
+        sel.value = prev;
+      }else{
+        sel.value = "";
+      }
+    }
+
+    $("asset").addEventListener("change", function(){
+      const opt = this.selectedOptions[0];
+      if(!opt || !opt.dataset.payload) return;
+      const a = JSON.parse(opt.dataset.payload);
+
+      if(a.type){
+        const tNorm = String(a.type).toLowerCase();
+        if($("type").value !== tNorm){
+          $("type").value = tNorm;
+          applyAssetFilter();
+          $("asset").value = a.id;
+        }
+      }
+
+      $("unit").value = a.unit || "";
+      $("year").value = a.year || "";
+      $("make").value = a.make || "";
+      $("model").value = a.model || "";
+      $("vin").value = (a.vin||"").toUpperCase().slice(0,17);
+      $("plate").value = a.plate || "";
+      $("state").value = (a.state||"").toUpperCase();
+    });
+
+    $("type").addEventListener("change", () => {
+      applyAssetFilter();
+      if($("type").value === "" || $("type").value === "other"){
+        $("asset").value = "";
+        $("asset").disabled = true;
+      }
+    });
+
+    function collect(){
+      return {
+        t: Date.now(),
+        assetId: $("asset").value || "",
+        unit: $("unit").value.trim(),
+        type: $("type").value,
+        year: $("year").value.trim(),
+        make: $("make").value.trim(),
+        model: $("model").value.trim(),
+        vin: $("vin").value.trim().toUpperCase().slice(0,17),
+        plate: $("plate").value.trim(),
+        state: $("state").value.trim().toUpperCase(),
+        regtype: $("regtype").value,
+        gvwr: $("gvwr").value.replace(/,/g,"").trim(),
+        exp: $("exp").value,
+        carrier: $("carrier").value.trim(),
+        policy: $("policy").value.trim(),
+        iexp: $("iexp").value,
+        notes: $("notes").value.trim()
+      };
+    }
+
+    function validate(it){
+      const hasId = it.unit || (it.year && it.make);
+      if(!hasId) return "Enter at least Unit or Year + Make.";
+      if(!it.vin && !it.plate) return "Enter VIN or Plate #.";
+      if(!it.exp) return "Choose an expiration date.";
+      return "";
+    }
+
+    function showSummary(it){
+      const el = $("summary");
+      const line = [
+        it.unit || `${it.year||""} ${it.make||""} ${it.model||""}`.trim(),
+        (it.plate ? `• ${it.state||""} ${it.plate}` : ""),
+        (it.exp ? `• Expires ${new Date(it.exp).toLocaleDateString()}` : "")
+      ].join(" ").replace(/\s+/g," ").trim();
+      el.innerHTML = `<strong>Saved:</strong> ${esc(line)}`;
+      el.hidden = false;
+    }
+
+    async function saveRegistration(it){
+      if(!DB) DB = getFirestore();
+      await addDoc(collection(DB, COLL), { ...it, createdAt: serverTimestamp() });
+    }
+
+    function lineForHist(it){
+      return [
+        it.unit || (it.year && it.make ? `${it.year} ${it.make} ${it.model||""}`.trim() : "Unit"),
+        (it.plate ? `• ${it.state || ""} ${it.plate}`.trim() : ""),
+        (it.exp ? `• Expires ${new Date(it.exp).toLocaleDateString()}` : "")
+      ].join(" ").replace(/\s+/g," ").trim();
+    }
+
+    async function renderHistory(){
+      const box = $("history");
+      if(!DB) DB = getFirestore();
+      try{
+        const qy = query(collection(DB, COLL), orderBy("t", "desc"));
+        const snap = await getDocs(qy);
+        const items = [];
+        snap.forEach(docSnap=>{
+          const d = docSnap.data()||{};
+          items.push({ id: docSnap.id, ...d });
+        });
+        const rows = items.sort((a,b)=> (b.t||0) - (a.t||0)).slice(0, MAX_RET);
+
+        if(!rows.length){
+          box.innerHTML = '<div class="muted">No previous registrations.</div>';
+          return;
+        }
+        box.innerHTML = "";
+        rows.forEach(it=>{
+          const div = document.createElement("div");
+          div.className = "hist-item";
+          div.innerHTML = `<div class="hline">${esc(lineForHist(it))}</div><button class="view" type="button">View</button>`;
+          div.querySelector(".view").addEventListener("click", ()=> openDetail(it));
+          box.appendChild(div);
+        });
+      }catch(e){
+        console.error("History load failed:", e);
+        box.innerHTML = `<div class="muted">Unable to load history.</div>`;
+      }
+    }
+
+    // Modal
+    const modal = $("modal"), mdBody=$("mdBody"), mdClose=$("mdClose");
+    let lastFocus=null;
+    function openDetail(it){
+      $("mdTitle").textContent = (it.unit || `${it.year||""} ${it.make||""} ${it.model||""}`).trim() || "Registration Details";
+      mdBody.innerHTML =
+        `<div class="kv">
+          <div>Type</div><div class="val">${esc(it.type||"")}</div>
+          <div>Unit</div><div class="val">${esc(it.unit||"")}</div>
+          <div>Year</div><div class="val">${esc(it.year||"")}</div>
+          <div>Make</div><div class="val">${esc(it.make||"")}</div>
+          <div>Model</div><div class="val">${esc(it.model||"")}</div>
+          <div>VIN</div><div class="val">${esc(it.vin||"")}</div>
+          <div>Plate</div><div class="val">${esc((it.state?it.state+" ":"") + (it.plate||""))}</div>
+          <div>Reg Type</div><div class="val">${esc((it.regtype||"").toUpperCase())}</div>
+          <div>GVWR</div><div class="val">${esc(fmtComma(it.gvwr))} ${it.gvwr? 'lb':''}</div>
+          <div>Expiration</div><div class="val">${it.exp? new Date(it.exp).toLocaleDateString():""}</div>
+          <div>Insurance</div><div class="val">${esc(it.carrier||"")}</div>
+          <div>Policy #</div><div class="val">${esc(it.policy||"")}</div>
+          <div>Policy Exp.</div><div class="val">${it.iexp? new Date(it.iexp).toLocaleDateString():""}</div>
+          ${it.notes ? `<div>Notes</div><div class="val">${esc(it.notes)}</div>` : ""}
+        </div>`;
+      modal.setAttribute("open","");
+      modal.setAttribute("aria-hidden","false");
+      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
+      lastFocus=document.activeElement; mdClose.focus();
+    }
+    function closeModal(){
+      modal.removeAttribute("open"); modal.setAttribute("aria-hidden","true");
+      document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
+      if(lastFocus && lastFocus.focus) lastFocus.focus();
+    }
+    mdClose.addEventListener("click", closeModal);
+    modal.addEventListener("click", e=>{ if(e.target===modal) closeModal(); });
+    document.addEventListener("keydown", e=>{ if(e.key==="Escape" && modal.hasAttribute("open")) closeModal(); });
+
+    // Inputs hygiene
+    $("gvwr").addEventListener("blur", ()=>{ $("gvwr").value = fmtComma($("gvwr").value); });
+    $("vin").addEventListener("input", e=>{ e.target.value = e.target.value.toUpperCase().slice(0,17); });
+
+    // Save / Clear
+    $("save").addEventListener("click", async ()=>{
+      const it = collect();
+      const err = validate(it);
+      if(err){ alert(err); return; }
+      try{
+        await saveRegistration(it);
+        showToast("Registration saved.");
+        showSummary(it);
+        await renderHistory();
+        window.scrollTo({top:0, behavior:"smooth"});
+      }catch(e){
+        console.error(e);
+        alert("Save failed: " + (e?.message || e));
+      }
+    });
+
+    $("clear").addEventListener("click", ()=>{
+      ["asset","unit","type","year","make","model","vin","plate","state","regtype","gvwr","exp","carrier","policy","iexp","notes"].forEach(id=>{
+        const el=$(id); if(!el) return;
+        if(el.tagName==="SELECT") el.selectedIndex = 0; else el.value = "";
+      });
+      $("asset").disabled = true;
+      $("summary").hidden = true;
+    });
+
+    // Boot
+    (async function boot(){
+      await ready;
+      DB = getFirestore();
+      try{ await loadAssets(); }catch(e){ console.warn(e); }
+      await renderHistory();
+    })();
+  </script>
+</body>
+</html>

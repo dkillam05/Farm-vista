@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Directory</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- PWA + theme (relative from /pages/office/teams-and-partners/) -->
+  <link rel="manifest" href="../../../manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="../../../assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="../../../assets/icons/icon-192.png"/>
+  <script defer src="../../../js/theme-boot.js"></script>
+  <link rel="stylesheet" href="../../../assets/css/theme.css"/>
+  <link rel="stylesheet" href="../../../assets/css/app.css"/>
+
+  <!-- Ensure shell -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='../../../js/fv-shell.js'; s.defer=true; document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <!-- Firebase CONFIG FIRST -->
+  <script src="../../../js/firebase-config.js"></script>
+
+  <style>
+    :root{
+      --card-max:1100px;
+      --chip-bg:#e7f1ea;
+      --chip-text:#2F6C3C;
+    }
+    body{ background:var(--app-bg,var(--surface)); }
+
+    .page{max-width:var(--card-max);margin:0 auto;padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
+
+    .title{margin:0 0 4px 0;font-size:clamp(22px,3.6vw,32px);line-height:1.1;}
+    .sub{margin:0 0 18px 0;color:var(--muted,#6f7772);}
+    .muted{color:var(--muted,#6f7772)}
+
+    /* Search */
+    .search{display:flex;align-items:center;gap:10px;border:1px solid var(--border);
+      border-radius:12px;background:var(--surface);padding:10px 12px;}
+    .search input{flex:1;background:transparent;border:0;outline:none;font:inherit}
+
+    /* Filters */
+    .filters-row{display:flex;gap:10px;align-items:center;margin:10px 0 18px}
+    .btn{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:12px;
+      background:var(--surface);color:var(--text);padding:10px 14px;font-weight:800;cursor:pointer;}
+    .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
+
+    .filters{position:relative}
+    .menu{position:absolute;top:calc(100% + 8px);left:0;min-width:240px;background:var(--surface);
+      border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow,0 10px 28px rgba(0,0,0,.18));
+      padding:10px;z-index:10;display:none}
+    .menu.open{display:block}
+    .menu .line{display:flex;align-items:center;gap:10px;padding:8px;border-radius:10px}
+    .menu .line:hover{background:var(--card-surface,var(--surface-alt,#f4f6f4))}
+    .menu label{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
+    .menu .apply{margin-top:8px;display:flex;gap:8px;justify-content:flex-end}
+
+    /* Count */
+    .count{margin:0 0 10px 0;color:var(--muted,#6f7772);font-weight:700}
+
+    /* Card list */
+    .group{margin:14px 0}
+    .group h3{margin:0 0 8px 0;color:#2F6C3C}
+    .card{border:1px solid var(--border);border-radius:16px;background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));padding:12px 14px;display:grid;gap:6px;cursor:pointer}
+    .card:hover{transform:translateY(-1px);box-shadow:0 12px 28px rgba(0,0,0,.12)}
+    .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .badges{display:flex;gap:8px;flex-wrap:wrap}
+    .badge{padding:4px 10px;border-radius:999px;font-size:13px;font-weight:800}
+    .badge.green{background:#e7f1ea;color:#2F6C3C}
+    .badge.gray{background:#eef0ee;color:#3d4741}
+
+    /* Modal (read-only sheet) */
+    dialog.sheet{width:min(740px, 92vw);border:1px solid var(--border);border-radius:16px;padding:0;background:var(--surface);
+      box-shadow:0 18px 40px rgba(0,0,0,.28);}
+    .sheet::backdrop{background:rgba(0,0,0,.35)}
+    .sheet header{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+    .sheet .body{padding:14px 16px}
+    .kv{display:grid;grid-template-columns:180px 1fr;gap:8px 12px}
+    @media(max-width:700px){ .kv{grid-template-columns:1fr} .kv div{padding:2px 0} }
+    .k{font-weight:800;color:#2F6C3C}
+    .v{color:var(--text)}
+    .sheet footer{padding:12px 16px;border-top:1px solid var(--border);display:flex;justify-content:flex-end}
+  </style>
+</head>
+<body>
+  <fv-shell>
+    <div class="page">
+      <h1 class="title">Directory</h1>
+      <p class="sub">A concise people index—employees, vendors, and subcontractors—so you can quickly find contacts and view full details.</p>
+
+      <!-- Search -->
+      <div class="search">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M21 21l-4.2-4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/></svg>
+        <input id="q" type="search" placeholder="Search" autocomplete="off"/>
+      </div>
+
+      <!-- Filters (under the search) -->
+      <div class="filters-row">
+        <div class="filters">
+          <button id="btnFilters" class="btn" type="button" aria-expanded="false" aria-controls="menuFilters">Filters</button>
+          <div id="menuFilters" class="menu" role="menu" aria-labelledby="btnFilters">
+            <div class="line"><label><input id="fEmployees" type="checkbox" checked> Employees</label></div>
+            <div class="line"><label><input id="fVendors" type="checkbox" checked> Vendors</label></div>
+            <div class="line"><label><input id="fSubs" type="checkbox" checked> Subcontractors</label></div>
+            <div class="apply">
+              <button id="applyFilters" class="btn btn-primary" type="button">Apply</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p id="count" class="count">0 entries</p>
+      <div id="list"></div>
+    </div>
+  </fv-shell>
+
+  <!-- Detail modal -->
+  <dialog id="detail" class="sheet" aria-modal="true">
+    <header>
+      <strong id="dTitle">Details</strong>
+      <button id="dClose" class="btn" type="button">Close</button>
+    </header>
+    <div class="body">
+      <div class="kv" id="dKV"></div>
+    </div>
+    <footer>
+      <button id="dClose2" class="btn" type="button">Close</button>
+    </footer>
+  </dialog>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore, collection, getDocs, query
+    } from '../../../js/firebase-init.js';
+
+    const $ = sel => document.querySelector(sel);
+    const list = $('#list');
+    const countEl = $('#count');
+    const qInput = $('#q');
+
+    // Filter state (active-only is implicit)
+    let filters = { employees:true, vendors:true, subs:true };
+
+    // Menu wiring
+    const menu = $('#menuFilters'), btn = $('#btnFilters');
+    btn.addEventListener('click', ()=>{
+      const open = !menu.classList.contains('open');
+      menu.classList.toggle('open', open);
+      btn.setAttribute('aria-expanded', String(open));
+    });
+    $('#applyFilters').addEventListener('click', ()=>{
+      filters = {
+        employees: $('#fEmployees').checked,
+        vendors: $('#fVendors').checked,
+        subs: $('#fSubs').checked
+      };
+      menu.classList.remove('open');
+      btn.setAttribute('aria-expanded','false');
+      render();
+    });
+    document.addEventListener('click', (e)=>{
+      if(!menu.contains(e.target) && e.target !== btn) menu.classList.remove('open');
+    });
+
+    // Data cache
+    let DATA = []; // unified list with type field
+
+    // Load all three collections
+    async function loadAll(){
+      await ready;
+      const db = getFirestore();
+      const pulls = [
+        { type:'Employee',       col:'employees'      },
+        { type:'Vendor',         col:'vendors'        },
+        { type:'Subcontractor',  col:'subcontractors' }
+      ];
+
+      const results = [];
+      for (const p of pulls){
+        try{
+          const qref = query(collection(db, p.col));
+          const snap = await getDocs(qref);
+          snap.forEach(docSnap=>{
+            const d = docSnap.data() || {};
+            // Only include active
+            const status = String(d.status || (d.active ? 'Active' : 'Inactive'));
+            const isActive = (status.toLowerCase()==='active') || !!d.active;
+            if (!isActive) return;
+
+            results.push({
+              id: docSnap.id,
+              _type: p.type,
+              name: String(d.fullName || d.name || d.company || '').trim(),
+              role: String(d.role || d.title || d.service || '').trim(),
+              company: String(d.company || '').trim(),
+              email: String(d.email || d.contactEmail || '').trim(),
+              phone: String(d.phone || d.contactPhone || '').trim(),
+              status: 'Active',
+              group: String(d.permissionGroup || d.group || '').trim() || 'Standard',
+              raw: d
+            });
+          });
+        }catch(err){
+          console.error('Load failed for', p.col, err);
+        }
+      }
+      DATA = results.sort((a,b)=>a.name.localeCompare(b.name));
+      render();
+    }
+
+    function render(){
+      const q = (qInput.value || '').toLowerCase().trim();
+
+      const okType = (t)=>(
+        (t==='Employee' && filters.employees) ||
+        (t==='Vendor' && filters.vendors) ||
+        (t==='Subcontractor' && filters.subs)
+      );
+
+      const rows = DATA.filter(r=>{
+        if (!okType(r._type)) return false;
+        if (!q) return true;
+        const blob = [r.name, r.role, r.company, r.email, r.phone, r._type, r.group].join(' ').toLowerCase();
+        return blob.includes(q);
+      });
+
+      countEl.textContent = `${rows.length}/${DATA.length} entries`;
+      list.innerHTML = '';
+
+      if(!rows.length){
+        const p = document.createElement('p');
+        p.className='muted'; p.textContent='No matches.';
+        list.appendChild(p);
+        return;
+      }
+
+      // Group A-Z
+      const by = {};
+      rows.forEach(r=>{
+        const k = (r.name || r.company || '?').charAt(0).toUpperCase();
+        (by[k] ||= []).push(r);
+      });
+
+      Object.keys(by).sort().forEach(letter=>{
+        const wrap = document.createElement('div'); wrap.className='group';
+        const h = document.createElement('h3'); h.textContent = letter; wrap.appendChild(h);
+        by[letter].forEach(r=>{
+          const card = document.createElement('div'); card.className='card'; card.setAttribute('role','button');
+          const title = document.createElement('div'); title.style.fontWeight='800'; title.textContent = r.name || r.company || '(no name)';
+          const badges = document.createElement('div'); badges.className='badges';
+          badges.innerHTML = `
+            <span class="badge gray">${r._type}</span>
+            <span class="badge gray">${r.group}</span>
+            <span class="badge green">Active</span>
+          `;
+          const email = r.email ? `<div class="row muted">✉️ ${r.email}</div>` : '';
+          const phone = r.phone ? `<div class="row muted">📞 ${r.phone}</div>` : '';
+          const role = r.role ? `<div class="row muted">${r.role}</div>` : '';
+
+          card.innerHTML = '';
+          card.append(title, badges);
+          if(role) card.insertAdjacentHTML('beforeend', role);
+          ifemail: if(email) card.insertAdjacentHTML('beforeend', email);
+          if(phone) card.insertAdjacentHTML('beforeend', phone);
+
+          card.addEventListener('click', ()=> openDetail(r));
+          wrap.appendChild(card);
+        });
+        list.appendChild(wrap);
+      });
+    }
+
+    // Detail modal (no edit, view only)
+    const dlg = document.getElementById('detail');
+    const dTitle = document.getElementById('dTitle');
+    const dKV = document.getElementById('dKV');
+    const close = ()=> dlg.close();
+    document.getElementById('dClose').addEventListener('click', close);
+    document.getElementById('dClose2').addEventListener('click', close);
+
+    // helpers
+    const has = v => !(v===undefined || v===null || v==='');
+    function addRow(k, v){
+      if(!has(v)) return;
+      const K = document.createElement('div'); K.className='k'; K.textContent = k;
+      const V = document.createElement('div'); V.className='v'; V.textContent = String(v);
+      dKV.append(K,V);
+    }
+
+    function openDetail(r){
+      dTitle.textContent = (r.name || r.company || 'Details');
+      const d = r.raw || {};
+      dKV.innerHTML = '';
+
+      // Always-on top meta
+      addRow('Type', r._type);
+      addRow('Status', 'Active');
+      addRow('Permission Group', r.group);
+
+      if (r._type === 'Employee'){
+        addRow('Full Name', d.fullName || r.name);
+        addRow('Role / Title', d.role || r.role);
+        addRow('Email', d.email || r.email);
+        addRow('Phone', d.phone || r.phone);
+        addRow('Start Date', d.startDate);
+        addRow('Notes', d.notes);
+      } else if (r._type === 'Vendor' || r._type === 'Subcontractor'){
+        addRow('Company', d.company || r.company);
+        addRow('Contact Name', d.fullName || d.contactName || r.name);
+        addRow('Role / Service', d.title || d.service || r.role);
+        addRow('Email', d.email || r.email);
+        addRow('Phone', d.phone || r.phone);
+        addRow('Notes', d.notes);
+        const anyAddr = has(d.address)||has(d.addr)||has(d.city)||has(d.state)||has(d.zip)||has(d.postal);
+        if(anyAddr){
+          addRow('Address', d.address || d.addr);
+          addRow('City', d.city);
+          addRow('State', d.state);
+          addRow('Zip', d.zip || d.postal);
+        }
+      }
+
+      try{ dlg.showModal(); }catch{ dlg.setAttribute('open',''); }
+    }
+
+    qInput.addEventListener('input', render);
+
+    // Kickoff
+    loadAll();
+  </script>
+</body>
+</html>

@@ -1,0 +1,1363 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FarmVista • Grain Bag Inventory Report</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3B7E46" />
+
+  <!-- ABSOLUTE PATHS -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+
+  <style>
+    :root{
+      --card-max: 1200px;
+      --page-bottom-gap: 72px;
+      --accent: #2F6C3C;
+    }
+
+    body{
+      background: var(--app-bg, var(--surface));
+    }
+
+    .wrap{
+      max-width: var(--card-max);
+      margin: 0 auto;
+      padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+      box-sizing:border-box;
+    }
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+    }
+    .hero-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      border-bottom:1px solid var(--border);
+    }
+    .hero-head .icon{
+      width:24px;
+      height:24px;
+      color:var(--accent);
+      display:grid;
+      place-items:center;
+    }
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+    .muted{ color:var(--muted,#67706B); }
+
+    .body{
+      padding:16px;
+      display:grid;
+      gap:14px;
+    }
+
+    /* Toolbar + back / print buttons */
+    .toolbar{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+      justify-content:space-between;
+    }
+    .toolbar-left{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:120px;
+      padding:10px 14px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      font-weight:800;
+      text-decoration:none;
+      cursor:pointer;
+      user-select:none;
+      color:var(--text) !important;
+      background:var(--card-surface,var(--surface));
+      font-size:0.9rem;
+      gap:6px;
+    }
+    .btn-quiet{
+      min-width:auto;
+      padding-inline:10px;
+    }
+    .btn-primary{
+      border-color:transparent;
+      background:#2F6C3C;
+      color:#fff !important;
+    }
+
+    .page-header-meta{
+      font-size:0.9rem;
+      opacity:0.8;
+    }
+
+    /* Filters */
+    .filters{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:flex-end;
+      margin-top:4px;
+    }
+    .filter-field{
+      display:flex;
+      flex-direction:column;
+      gap:3px;
+      min-width:150px;
+      flex:1 1 160px;
+      font-size:0.8rem;
+    }
+    .filter-label{
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      opacity:0.78;
+    }
+    .filter-input,
+    .filter-select{
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:6px 10px;
+      font-size:0.9rem;
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+      min-height:32px;
+    }
+    .filter-input::placeholder{
+      color:var(--muted,#9CA3AF);
+    }
+
+    /* Inventory list cards */
+    .wo-list {
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      margin-top:8px;
+    }
+
+    .wo-empty {
+      padding:14px 16px;
+      border-radius:12px;
+      border:1px dashed var(--border);
+      background:var(--card-surface, var(--surface));
+      font-size:0.95rem;
+      opacity:0.9;
+    }
+
+    .wo-card {
+      position:relative;
+      border-radius:10px;
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
+      padding:12px 14px 10px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      cursor:pointer;
+      transition:transform .06s, box-shadow .12s, border-color .12s, background .12s;
+    }
+    .wo-card:active {
+      transform:scale(.995);
+      box-shadow:var(--shadow);
+    }
+
+    .wo-row-top {
+      display:flex;
+      align-items:flex-start;
+      gap:10px;
+    }
+
+    .wo-main {
+      flex:1 1 auto;
+      min-width:0;
+    }
+
+    .wo-title {
+      font-weight:700;
+      font-size:0.98rem;
+      line-height:1.3;
+    }
+
+    .wo-sub {
+      font-size:0.86rem;
+      opacity:0.9;
+      margin-top:2px;
+    }
+
+    .wo-meta {
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 10px;
+      margin-top:4px;
+      font-size:0.8rem;
+      opacity:0.85;
+    }
+
+    .wo-meta span {
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 7px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+
+    .wo-meta-label {
+      font-weight:600;
+    }
+
+    /* Detail panel */
+    .wo-detail-panel {
+      margin-top:10px;
+      border-radius:10px;
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
+      padding:14px 16px 12px;
+      display:none;
+      flex-direction:column;
+      gap:8px;
+    }
+
+    .wo-detail-header {
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:10px;
+    }
+
+    .wo-detail-title {
+      font-weight:700;
+      font-size:1rem;
+    }
+
+    .wo-detail-close {
+      border:none;
+      outline:none;
+      border-radius:999px;
+      padding:4px 9px;
+      font-size:0.8rem;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      cursor:pointer;
+    }
+
+    .wo-detail-grid {
+      display:grid;
+      grid-template-columns:minmax(0,1fr);
+      gap:6px 16px;
+      font-size:0.9rem;
+      margin-top:4px;
+    }
+    @media (min-width:700px) {
+      .wo-detail-grid {
+        grid-template-columns:repeat(2, minmax(0,1fr));
+      }
+    }
+
+    .wo-detail-item-label {
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:1px;
+    }
+
+    .wo-detail-item-value {
+      font-size:0.92rem;
+    }
+
+    .wo-detail-notes {
+      margin-top:8px;
+      padding-top:8px;
+      border-top:1px solid var(--border);
+      font-size:0.92rem;
+      white-space:pre-wrap;
+    }
+
+    .wo-detail-notes-label {
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:2px;
+    }
+
+    .wo-detail-notes-body {
+      margin-top:2px;
+    }
+
+    .wo-detail-footer {
+      margin-top:10px;
+      font-size:0.8rem;
+      opacity:0.8;
+    }
+
+    .wo-detail-pill {
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 8px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      font-size:0.8rem;
+      margin-left:6px;
+    }
+
+    /* Bottom print button */
+    .bottom-actions{
+      margin-top:16px;
+      display:flex;
+      justify-content:flex-end;
+    }
+
+    /* Hidden iframe for print */
+    #fv-print-frame{
+      position:fixed;
+      right:0;
+      bottom:0;
+      width:0;
+      height:0;
+      border:0;
+      visibility:hidden;
+    }
+  </style>
+
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection, getDocs,
+      doc, getDoc
+    } from '/Farm-vista/js/firebase-init.js';
+
+    import { NAV_MENU } from '/Farm-vista/js/menu.js';
+
+    const CONFIG = {
+      COLLECTION_PATH: 'inventoryGrainBagMovements',
+      COMPANY_DOC_PATH: ['company','main']
+    };
+
+    const $  = (sel, root=document) => root.querySelector(sel);
+    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+    const STATE = {
+      items: [],
+      filteredItems: null,
+      selectedId: null,
+      db: null,
+      company: null,
+      brands: new Set(),
+      sizes: new Map() // key -> label
+    };
+
+    function formatDate(d){
+      if(!d) return '';
+      try{
+        return d.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});
+      }catch{ return ''; }
+    }
+
+    function formatDateTime(d){
+      if(!d) return '';
+      try{
+        return d.toLocaleString();
+      }catch{ return ''; }
+    }
+
+    function escapeHtml(str){
+      return String(str || '').replace(/[&<>"']/g, m => (
+        { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]
+      ));
+    }
+
+    function getWorkingItems(){
+      return (STATE.filteredItems && STATE.filteredItems.length) ? STATE.filteredItems : STATE.items;
+    }
+
+    function updateMeta(){
+      const metaEl = $('#invMeta');
+      if(!metaEl) return;
+
+      const items = getWorkingItems();
+      if(!items.length){
+        metaEl.textContent = 'No unused grain bags on hand';
+        return;
+      }
+
+      let totalOnHand = 0;
+      items.forEach(it => {
+        totalOnHand += Number(it.data.onHand || 0);
+      });
+
+      metaEl.textContent = `${items.length} style${items.length === 1 ? '' : 's'} • ${totalOnHand} bag${totalOnHand === 1 ? '' : 's'} on hand`;
+    }
+
+    function renderList(){
+      const listEl  = $('.wo-list');
+      const emptyEl = $('.wo-empty');
+
+      listEl.innerHTML = '';
+
+      const items = getWorkingItems();
+
+      if(!items.length){
+        emptyEl.style.display = 'block';
+        emptyEl.textContent = 'No unused grain bags are currently on hand in inventory.';
+        updateMeta();
+        return;
+      }
+
+      emptyEl.style.display = 'none';
+
+      for(const item of items){
+        const d = item.data;
+        const brand = d.brand || 'Unknown brand';
+        const sizeLabel = d._sizeLabel || 'Size not set';
+        const thickness = d.thicknessMil ? `${d.thicknessMil} mil` : '';
+        const location = d.location || 'Location not set';
+        const onHand = Number(d.onHand || 0);
+        const qty = Number(d.qty || 0);
+        const used = Math.max(0, qty - onHand);
+        const status = d.status || '';
+
+        const card = document.createElement('article');
+        card.className = 'wo-card';
+        card.dataset.id = item.id;
+
+        card.innerHTML = `
+          <div class="wo-row-top">
+            <div class="wo-main">
+              <div class="wo-title">
+                ${escapeHtml(brand)} · <span>${escapeHtml(sizeLabel)}</span>
+              </div>
+              <div class="wo-sub">
+                Location: ${escapeHtml(location)}
+                ${thickness ? ` · ${escapeHtml(thickness)}` : ''}
+              </div>
+              <div class="wo-meta">
+                <span><span class="wo-meta-label">On hand</span> ${onHand}</span>
+                ${qty ? `<span><span class="wo-meta-label">Ordered</span> ${qty}</span>` : ''}
+                ${used ? `<span><span class="wo-meta-label">Used</span> ${used}</span>` : ''}
+                ${status ? `<span><span class="wo-meta-label">Status</span> ${escapeHtml(status)}</span>` : ''}
+              </div>
+            </div>
+          </div>
+        `;
+
+        card.addEventListener('click', () => {
+          STATE.selectedId = item.id;
+          renderDetails();
+        });
+
+        listEl.appendChild(card);
+      }
+
+      updateMeta();
+    }
+
+    function clearDetails(){
+      const panel = $('.wo-detail-panel');
+      panel.style.display = 'none';
+      panel.dataset.id = '';
+      $('.wo-detail-title', panel).textContent = 'Grain Bag Details';
+      $('.wo-detail-grid', panel).innerHTML = '';
+      $('.wo-detail-notes-body', panel).textContent = '';
+      $('.wo-detail-footer', panel).innerHTML = '';
+    }
+
+    function renderDetails(){
+      const panel = $('.wo-detail-panel');
+      const item = STATE.items.find(x => x.id === STATE.selectedId);
+      if(!item){
+        clearDetails();
+        return;
+      }
+
+      const d = item.data;
+      const brand = d.brand || 'Unknown brand';
+      const sizeLabel = d._sizeLabel || 'Size not set';
+      const thickness = d.thicknessMil ? `${d.thicknessMil} mil` : 'Not specified';
+      const location = d.location || 'Not specified';
+      const onHand = Number(d.onHand || 0);
+      const qty = Number(d.qty || 0);
+      const used = Math.max(0, qty - onHand);
+      const status = d.status || 'Unknown';
+      const createdAt = d._createdAtDate || null;
+      const updatedAt = d._updatedAtDate || null;
+      const createdStr = formatDateTime(createdAt);
+      const updatedStr = formatDateTime(updatedAt);
+      const note = d.note || '';
+      const productRef = d.productRef || '';
+
+      panel.dataset.id = item.id;
+      $('.wo-detail-title', panel).textContent = `${brand} · ${sizeLabel}`;
+
+      const grid = $('.wo-detail-grid', panel);
+      grid.innerHTML = `
+        <div>
+          <div class="wo-detail-item-label">Brand</div>
+          <div class="wo-detail-item-value">${escapeHtml(brand)}</div>
+        </div>
+        <div>
+          <div class="wo-detail-item-label">Bag Size</div>
+          <div class="wo-detail-item-value">${escapeHtml(sizeLabel)}</div>
+        </div>
+        <div>
+          <div class="wo-detail-item-label">Thickness</div>
+          <div class="wo-detail-item-value">${escapeHtml(thickness)}</div>
+        </div>
+        <div>
+          <div class="wo-detail-item-label">Location</div>
+          <div class="wo-detail-item-value">${escapeHtml(location)}</div>
+        </div>
+        <div>
+          <div class="wo-detail-item-label">On Hand</div>
+          <div class="wo-detail-item-value">${onHand}</div>
+        </div>
+        <div>
+          <div class="wo-detail-item-label">Original Qty</div>
+          <div class="wo-detail-item-value">${qty || 'Not set'}</div>
+        </div>
+        <div>
+          <div class="wo-detail-item-label">Used / Depleted</div>
+          <div class="wo-detail-item-value">${used}</div>
+        </div>
+        <div>
+          <div class="wo-detail-item-label">Product Ref</div>
+          <div class="wo-detail-item-value">${escapeHtml(productRef || 'Not linked')}</div>
+        </div>
+        <div>
+          <div class="wo-detail-item-label">Created</div>
+          <div class="wo-detail-item-value">${createdStr || 'Unknown'}</div>
+        </div>
+        <div>
+          <div class="wo-detail-item-label">Last Updated</div>
+          <div class="wo-detail-item-value">${updatedStr || 'Unknown'}</div>
+        </div>
+      `;
+
+      $('.wo-detail-notes-body', panel).textContent = note || 'No notes recorded for this inventory line.';
+
+      const footer = $('.wo-detail-footer', panel);
+      footer.innerHTML = `
+        Current status:
+        <span class="wo-detail-pill">${escapeHtml(status)}</span>
+      `;
+
+      panel.style.display = 'flex';
+    }
+
+    async function loadInventory(){
+      const db = STATE.db;
+      const ref = collection(db, CONFIG.COLLECTION_PATH);
+
+      try{
+        const snap = await getDocs(ref);
+        const items = [];
+
+        snap.forEach(docSnap => {
+          const data = docSnap.data() || {};
+          const onHandRaw = data.onHand;
+          const onHand = Number(onHandRaw ?? 0);
+          if(!Number.isFinite(onHand) || onHand <= 0){
+            // Only care about unused bags still in shed
+            return;
+          }
+
+          const qty = Number(data.qty ?? 0);
+          const diameter = Number(data.diameterFt ?? data.diameterFT ?? data.diameter ?? 0);
+          const lengthFt = Number(data.lengthFt ?? data.sizeFeet ?? data.length ?? 0);
+          const sizeKey = `${diameter || 'NA'}x${lengthFt || 'NA'}`;
+          const sizeLabelParts = [];
+          if(diameter) sizeLabelParts.push(`${diameter}'`);
+          if(lengthFt) sizeLabelParts.push(`${lengthFt}'`);
+          const sizeLabel = sizeLabelParts.length ? sizeLabelParts.join(' × ') : 'Size not set';
+
+          // Created / updated dates (support Firestore Timestamp, ISO strings, or millis)
+          let createdDate = null;
+          let updatedDate = null;
+
+          const c = data.createdAt;
+          if(c){
+            if(c.toDate) createdDate = c.toDate();
+            else if(typeof c === 'string') createdDate = new Date(c);
+            else if(typeof c.seconds === 'number') createdDate = new Date(c.seconds * 1000);
+            else if(typeof c === 'number') createdDate = new Date(c);
+          }
+
+          const u = data.updatedAt;
+          if(u){
+            if(u.toDate) updatedDate = u.toDate();
+            else if(typeof u === 'string') updatedDate = new Date(u);
+            else if(typeof u.seconds === 'number') updatedDate = new Date(u.seconds * 1000);
+            else if(typeof u === 'number') updatedDate = new Date(u);
+          }
+
+          const enriched = {
+            ...data,
+            onHand,
+            qty,
+            _sizeKey: sizeKey,
+            _sizeLabel: sizeLabel,
+            _createdAtDate: createdDate,
+            _updatedAtDate: updatedDate
+          };
+
+          items.push({ id: docSnap.id, data: enriched });
+
+          if(enriched.brand) STATE.brands.add(enriched.brand);
+          STATE.sizes.set(sizeKey, sizeLabel);
+        });
+
+        // Sort by brand then diameter then length
+        items.sort((a,b)=>{
+          const da = a.data;
+          const dbb = b.data;
+          const brandCmp = (da.brand || '').localeCompare(dbb.brand || '');
+          if(brandCmp !== 0) return brandCmp;
+          const diaDiff = (da.diameterFt || da.diameter || 0) - (dbb.diameterFt || dbb.diameter || 0);
+          if(diaDiff !== 0) return diaDiff;
+          return (da.lengthFt || da.sizeFeet || 0) - (dbb.lengthFt || dbb.sizeFeet || 0);
+        });
+
+        STATE.items = items;
+      }catch(err){
+        console.error('Error loading inventoryGrainBagMovements:', err);
+        const emptyEl = $('.wo-empty');
+        emptyEl.style.display = 'block';
+        emptyEl.textContent = 'Error loading grain bag inventory. Check console or Firestore rules.';
+        const metaEl = $('#invMeta');
+        if(metaEl) metaEl.textContent = 'Error loading inventory';
+      }
+    }
+
+    function populateFilters(){
+      const brandSel = $('#filterBrand');
+      const sizeSel  = $('#filterSize');
+      if(brandSel){
+        brandSel.innerHTML = '<option value="all">All brands</option>';
+        Array.from(STATE.brands).sort((a,b)=> String(a).localeCompare(String(b))).forEach(brand=>{
+          const opt = document.createElement('option');
+          opt.value = brand;
+          opt.textContent = brand;
+          brandSel.appendChild(opt);
+        });
+      }
+      if(sizeSel){
+        sizeSel.innerHTML = '<option value="all">All sizes</option>';
+        Array.from(STATE.sizes.entries())
+          .sort((a,b)=> a[1].localeCompare(b[1]))
+          .forEach(([key,label])=>{
+            const opt = document.createElement('option');
+            opt.value = key;
+            opt.textContent = label;
+            sizeSel.appendChild(opt);
+          });
+      }
+    }
+
+    function applyFilters(){
+      const brandSel = $('#filterBrand');
+      const sizeSel  = $('#filterSize');
+      const searchEl = $('#filterSearch');
+
+      const brandFilter = (brandSel?.value || 'all');
+      const sizeFilter  = (sizeSel?.value || 'all');
+      const q           = (searchEl?.value || '').trim().toLowerCase();
+
+      const filtered = STATE.items.filter(it => {
+        const d = it.data;
+
+        if(brandFilter !== 'all' && (d.brand || '') !== brandFilter){
+          return false;
+        }
+
+        if(sizeFilter !== 'all' && d._sizeKey !== sizeFilter){
+          return false;
+        }
+
+        if(q){
+          const hay = [
+            d.brand,
+            d._sizeLabel,
+            d.location,
+            d.status,
+            d.note,
+            d.productRef
+          ].join(' ').toLowerCase();
+          if(!hay.includes(q)) return false;
+        }
+
+        return true;
+      });
+
+      STATE.filteredItems = filtered;
+      renderList();
+    }
+
+    function summarizeFilters(){
+      const brandSel = $('#filterBrand');
+      const sizeSel  = $('#filterSize');
+      const searchEl = $('#filterSearch');
+
+      let brandLabel = 'All brands';
+      if(brandSel && brandSel.value !== 'all'){
+        brandLabel = brandSel.value;
+      }
+
+      let sizeLabel = 'All sizes';
+      if(sizeSel && sizeSel.value !== 'all'){
+        sizeLabel = STATE.sizes.get(sizeSel.value) || 'Selected size';
+      }
+
+      const searchVal = (searchEl?.value || '').trim();
+      const searchLabel = searchVal ? `Search: "${searchVal}"` : 'No text filter';
+
+      return `${brandLabel} • ${sizeLabel} • ${searchLabel}`;
+    }
+
+    async function loadCompanyHeader(){
+      if (STATE.company) return STATE.company;
+      try{
+        const [col,id] = CONFIG.COMPANY_DOC_PATH;
+        const ref = doc(STATE.db, col, id);
+        const snap = await getDoc(ref);
+        const d = snap.exists() ? (snap.data() || {}) : {};
+        const name = d.name || '';
+        const address = [
+          d.addressStreet || '',
+          [d.addressCity, d.addressState].filter(Boolean).join(', '),
+          d.addressZip || ''
+        ].filter(Boolean).join(' · ');
+        const phone = d.phone || '';
+        const email = d.email || '';
+        STATE.company = { name, address, phone, email };
+      }catch(e){
+        console.warn('[grain-bag-report] failed to load company header', e);
+        STATE.company = { name:'', address:'', phone:'', email:'' };
+      }
+      return STATE.company;
+    }
+
+    async function handlePrintClick(){
+      const items = getWorkingItems();
+      if (!items.length){
+        alert('No grain bag inventory lines match the current filters to print.');
+        return;
+      }
+
+      const company = await loadCompanyHeader();
+      const now = new Date();
+      const runStr = formatDateTime(now);
+      const runDateOnly = formatDate(now);
+      const filterSummary = summarizeFilters();
+
+      let totalOnHand = 0;
+      let totalQty = 0;
+      items.forEach(it => {
+        totalOnHand += Number(it.data.onHand || 0);
+        totalQty    += Number(it.data.qty || 0);
+      });
+      const totalUsed = Math.max(0, totalQty - totalOnHand);
+      const totalStyles = items.length;
+
+      const html = buildPrintHtml({
+        company,
+        runStr,
+        runDateOnly,
+        filterSummary,
+        totalStyles,
+        totalOnHand,
+        totalQty,
+        totalUsed,
+        items
+      });
+
+      // Print via hidden iframe, no new tab
+      let iframe = document.getElementById('fv-print-frame');
+      if (!iframe){
+        iframe = document.createElement('iframe');
+        iframe.id = 'fv-print-frame';
+        document.body.appendChild(iframe);
+      }
+
+      const win = iframe.contentWindow || iframe.contentDocument;
+      const doc = iframe.contentDocument || iframe.contentWindow.document;
+
+      doc.open();
+      doc.write(html);
+      doc.close();
+
+      setTimeout(() => {
+        try{
+          win.focus();
+          win.print();
+        }catch(err){
+          console.warn('[grain-bag-report] iframe print failed, falling back to window.print()', err);
+          window.print();
+        }
+      }, 400);
+    }
+
+    function buildPrintHtml({
+      company,
+      runStr,
+      runDateOnly,
+      filterSummary,
+      totalStyles,
+      totalOnHand,
+      totalQty,
+      totalUsed,
+      items
+    }){
+      return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Grain Bag Inventory Report</title>
+  <style>
+    :root{
+      --fv-green:#3B7E46;
+      --fv-border:#D1D5DB;
+      --fv-text:#111827;
+      --fv-muted:#6B7280;
+      --fv-bg:#F3F4F6;
+    }
+    *{box-sizing:border-box;}
+    html,body{
+      margin:0;
+      padding:0;
+      font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      color:var(--fv-text);
+      background:var(--fv-bg);
+    }
+    body{
+      display:flex;
+      justify-content:center;
+      padding:24px 12px;
+    }
+    .page{
+      width:100%;
+      max-width:900px;
+      background:#fff;
+      border-radius:12px;
+      box-shadow:0 10px 30px rgba(15,23,42,0.15);
+      padding:24px 28px 28px;
+    }
+    .report-header{
+      display:grid;
+      grid-template-columns:auto 1fr auto;
+      gap:16px;
+      align-items:center;
+      border-bottom:2px solid var(--fv-green);
+      padding-bottom:14px;
+      margin-bottom:18px;
+    }
+    .report-logo{
+      width:64px;
+      height:64px;
+      border-radius:16px;
+      border:1px solid var(--fv-border);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:26px;
+      font-weight:800;
+      color:#fff;
+      background:radial-gradient(circle at 30% 0%, #4CAF50, var(--fv-green));
+    }
+    .report-logo span{letter-spacing:0.02em;}
+    .company-block{min-width:0;}
+    .company-name{
+      font-size:18px;
+      font-weight:800;
+      margin:0 0 2px;
+    }
+    .company-line{
+      font-size:12px;
+      color:var(--fv-muted);
+      margin:0;
+    }
+    .report-meta-top{
+      text-align:right;
+      font-size:11px;
+      color:var(--fv-muted);
+    }
+    .report-meta-top strong{color:var(--fv-text);}
+    .report-title-block{margin-bottom:16px;}
+    .report-title{
+      font-size:20px;
+      font-weight:800;
+      margin:4px 0 4px;
+      letter-spacing:0.02em;
+      text-transform:uppercase;
+    }
+    .report-subtitle{
+      font-size:13px;
+      color:var(--fv-muted);
+      margin:0;
+    }
+    .report-summary-strip{
+      margin-top:12px;
+      padding:8px 10px;
+      border-radius:10px;
+      background:linear-gradient(90deg, rgba(59,126,70,0.08), transparent);
+      border:1px solid rgba(59,126,70,0.20);
+      font-size:11px;
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 16px;
+    }
+    .summary-pill{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      white-space:nowrap;
+    }
+    .summary-label{
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      font-weight:600;
+      font-size:10px;
+      color:var(--fv-muted);
+    }
+    .summary-value{
+      font-weight:600;
+      font-size:11px;
+    }
+    .section{margin-top:18px;}
+    .section-heading-row{
+      display:flex;
+      align-items:baseline;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:6px;
+    }
+    .section-title-main{
+      font-size:15px;
+      font-weight:700;
+      letter-spacing:0.03em;
+      text-transform:uppercase;
+    }
+    .section-note{
+      font-size:11px;
+      color:var(--fv-muted);
+    }
+    .kpi-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      margin-top:6px;
+    }
+    .kpi-card{
+      flex:1 1 140px;
+      border-radius:10px;
+      border:1px solid var(--fv-border);
+      padding:8px 10px;
+      background:linear-gradient(135deg, rgba(59,126,70,0.06), #ffffff);
+    }
+    .kpi-label{
+      font-size:10px;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      color:var(--fv-muted);
+      margin-bottom:2px;
+    }
+    .kpi-value{
+      font-size:16px;
+      font-weight:800;
+    }
+    .kpi-footnote{
+      font-size:10px;
+      color:var(--fv-muted);
+      margin-top:2px;
+    }
+    .section-title{
+      font-size:13px;
+      text-transform:uppercase;
+      letter-spacing:0.12em;
+      color:var(--fv-muted);
+      margin:0 0 4px;
+    }
+    .section-body{
+      font-size:12px;
+      line-height:1.5;
+    }
+    .table-wrap{
+      margin-top:4px;
+      border-radius:10px;
+      border:1px solid var(--fv-border);
+      overflow:hidden;
+    }
+    table{
+      width:100%;
+      border-collapse:collapse;
+      font-size:11px;
+    }
+    thead{
+      background:#F9FAFB;
+    }
+    th, td{
+      padding:6px 8px;
+      border-bottom:1px solid #E5E7EB;
+      text-align:left;
+      vertical-align:top;
+    }
+    th{
+      font-weight:700;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      font-size:10px;
+      color:#4B5563;
+      border-bottom:1px solid #D1D5DB;
+    }
+    tr:nth-child(even) td{
+      background:#F9FAFB;
+    }
+    .cell-right{text-align:right;}
+    .notes{white-space:pre-wrap;}
+    .report-footer{
+      margin-top:18px;
+      padding-top:8px;
+      border-top:1px solid var(--fv-border);
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      font-size:10px;
+      color:var(--fv-muted);
+    }
+    .footer-left{max-width:60%;}
+    .footer-right{text-align:right;}
+    @media print{
+      html,body{background:#fff;padding:0;}
+      body{box-shadow:none;}
+      .page{
+        max-width:none;
+        border-radius:0;
+        box-shadow:none;
+        padding:12mm 14mm;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="report-header">
+      <div class="report-logo">
+        <span>DF</span>
+      </div>
+      <div class="company-block">
+        <p class="company-name">${escapeHtml(company.name || '')}</p>
+        <p class="company-line">
+          ${company.address ? escapeHtml(company.address) + '<br>' : ''}
+          ${company.phone ? 'Phone: ' + escapeHtml(company.phone) : ''}${company.phone && company.email ? ' · ' : ''}
+          ${company.email ? 'Email: ' + escapeHtml(company.email) : ''}
+        </p>
+      </div>
+      <div class="report-meta-top">
+        <div><strong>Grain Bag Inventory</strong></div>
+        <div>Generated: ${escapeHtml(runStr)}</div>
+        <div>Prepared by: ${escapeHtml(company.name || 'FarmVista')}</div>
+      </div>
+    </header>
+
+    <section class="report-title-block">
+      <h1 class="report-title">Grain Bag Inventory (Unused Bags)</h1>
+      <p class="report-subtitle">Snapshot of unopened grain bags currently in sheds, grouped by brand and size.</p>
+
+      <div class="report-summary-strip">
+        <div class="summary-pill">
+          <span class="summary-label">Filters</span>
+          <span class="summary-value">${escapeHtml(filterSummary)}</span>
+        </div>
+        <div class="summary-pill">
+          <span class="summary-label">Styles</span>
+          <span class="summary-value">${totalStyles}</span>
+        </div>
+        <div class="summary-pill">
+          <span class="summary-label">Bags On Hand</span>
+          <span class="summary-value">${totalOnHand}</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-heading-row">
+        <div class="section-title-main">Key Metrics</div>
+        <div class="section-note">Snapshot at the time of report generation.</div>
+      </div>
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-label">Total Styles</div>
+          <div class="kpi-value">${totalStyles}</div>
+          <div class="kpi-footnote">Distinct brand / size combinations</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Total Bags On Hand</div>
+          <div class="kpi-value">${totalOnHand}</div>
+          <div class="kpi-footnote">Unopened bags currently in sheds</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Original Quantity</div>
+          <div class="kpi-value">${totalQty || 'N/A'}</div>
+          <div class="kpi-footnote">Sum of original purchase quantities</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Bags Used</div>
+          <div class="kpi-value">${totalUsed || 0}</div>
+          <div class="kpi-footnote">Original minus bags on hand</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Inventory Detail</h2>
+      <div class="section-body">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:18%">Brand</th>
+                <th style="width:18%">Size</th>
+                <th style="width:10%">Thickness</th>
+                <th style="width:18%">Location</th>
+                <th style="width:9%">On Hand</th>
+                <th style="width:9%">Ordered</th>
+                <th style="width:9%">Used</th>
+                <th style="width:9%">Status</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${items.map(it => {
+                const d = it.data;
+                const brand = d.brand || '';
+                const sizeLabel = d._sizeLabel || '';
+                const thickness = d.thicknessMil ? d.thicknessMil + ' mil' : '';
+                const location = d.location || '';
+                const onHand = Number(d.onHand || 0);
+                const qty = Number(d.qty || 0);
+                const used = Math.max(0, qty - onHand);
+                const status = d.status || '';
+                const note = d.note || '';
+                return `
+                  <tr>
+                    <td>${escapeHtml(brand)}</td>
+                    <td>${escapeHtml(sizeLabel)}</td>
+                    <td>${escapeHtml(thickness)}</td>
+                    <td>${escapeHtml(location)}</td>
+                    <td class="cell-right">${onHand}</td>
+                    <td class="cell-right">${qty || ''}</td>
+                    <td class="cell-right">${used || ''}</td>
+                    <td>${escapeHtml(status)}</td>
+                    <td class="notes">${escapeHtml(note)}</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <footer class="report-footer">
+      <div class="footer-left">
+        Internal use only. Counts represent unopened bags with onHand &gt; 0 in inventoryGrainBagMovements at the time this report was generated.
+      </div>
+      <div class="footer-right">
+        FarmVista • Grain Bag Inventory • ${escapeHtml(runDateOnly || '')}
+      </div>
+    </footer>
+  </div>
+</body>
+</html>`;
+    }
+
+    (async function boot(){
+      await ready;
+      STATE.db = getFirestore();
+
+      const shell = document.querySelector('fv-shell');
+      if (shell) shell.nav = NAV_MENU;
+
+      const backBtn = document.getElementById('btnBack');
+      if(backBtn){
+        backBtn.addEventListener('click', () => {
+          location.href = '/Farm-vista/pages/reports/reports-predefined.html';
+        });
+      }
+
+      $('#woDetailClose').addEventListener('click', () => {
+        STATE.selectedId = null;
+        clearDetails();
+      });
+
+      await loadInventory();
+      populateFilters();
+
+      const brandSel = $('#filterBrand');
+      const sizeSel  = $('#filterSize');
+      const searchEl = $('#filterSearch');
+      const clearBtn = $('#filterClear');
+
+      if(brandSel) brandSel.addEventListener('change', applyFilters);
+      if(sizeSel)  sizeSel.addEventListener('change', applyFilters);
+      if(searchEl) searchEl.addEventListener('input', applyFilters);
+      if(clearBtn){
+        clearBtn.addEventListener('click', () => {
+          if(brandSel) brandSel.value = 'all';
+          if(sizeSel)  sizeSel.value  = 'all';
+          if(searchEl) searchEl.value = '';
+          applyFilters();
+        });
+      }
+
+      applyFilters();
+
+      const printTop = $('#btnPrint');
+      const printBottom = $('#btnPrintBottom');
+      if (printTop)    printTop.addEventListener('click', handlePrintClick);
+      if (printBottom) printBottom.addEventListener('click', handlePrintClick);
+    })();
+  </script>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">👝</div>
+          <div>
+            <h1>Grain Bag Inventory (Unused)</h1>
+            <p class="muted">
+              View how many unopened grain bags are still sitting in sheds, by brand and size. Data comes
+              from <code>inventoryGrainBagMovements</code> where <code>onHand &gt; 0</code>.
+            </p>
+          </div>
+        </header>
+
+        <div class="body">
+          <div class="toolbar">
+            <div class="toolbar-left">
+              <button id="btnBack" type="button" class="btn btn-quiet">
+                ← Back to Reports
+              </button>
+              <button id="btnPrint" type="button" class="btn btn-primary">
+                Print / Save PDF
+              </button>
+            </div>
+            <div class="page-header-meta" id="invMeta">
+              Loading grain bag inventory…
+            </div>
+          </div>
+
+          <div class="filters">
+            <div class="filter-field">
+              <label class="filter-label" for="filterBrand">Brand</label>
+              <select id="filterBrand" class="filter-select">
+                <option value="all">All brands</option>
+              </select>
+            </div>
+
+            <div class="filter-field">
+              <label class="filter-label" for="filterSize">Size</label>
+              <select id="filterSize" class="filter-select">
+                <option value="all">All sizes</option>
+              </select>
+            </div>
+
+            <div class="filter-field">
+              <label class="filter-label" for="filterSearch">Search</label>
+              <input
+                id="filterSearch"
+                class="filter-input"
+                type="search"
+                placeholder="Search brand, location, notes…"
+              />
+            </div>
+
+            <button id="filterClear" type="button" class="btn btn-quiet">
+              Clear filters
+            </button>
+          </div>
+
+          <section aria-label="Grain bag inventory list">
+            <div class="wo-empty">
+              Loading grain bag inventory…
+            </div>
+            <div class="wo-list"></div>
+          </section>
+
+          <section class="wo-detail-panel" aria-label="Grain bag inventory details">
+            <div class="wo-detail-header">
+              <div class="wo-detail-title">Grain Bag Details</div>
+              <button type="button" id="woDetailClose" class="wo-detail-close">
+                Close
+              </button>
+            </div>
+
+            <div class="wo-detail-grid">
+              <!-- filled by JS -->
+            </div>
+
+            <div class="wo-detail-notes">
+              <div class="wo-detail-notes-label">Notes</div>
+              <div class="wo-detail-notes-body"></div>
+            </div>
+
+            <div class="wo-detail-footer">
+              <!-- status pill by JS -->
+            </div>
+          </section>
+
+          <div class="bottom-actions">
+            <button id="btnPrintBottom" type="button" class="btn btn-primary">
+              Print / Save PDF
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Hidden iframe used for print so we don't open a new tab -->
+    <iframe id="fv-print-frame"></iframe>
+  </fv-shell>
+</body>
+</html>

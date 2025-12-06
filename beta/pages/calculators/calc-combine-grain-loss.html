@@ -1,0 +1,404 @@
+<!doctype html><html lang="en"><head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Combine Grain Loss (Corn/Soybeans)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- Standard includes -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <style>
+    :root{ --accent:#2F6C3C; --card-max:1100px }
+    body{ background: var(--app-bg, var(--surface)); }
+    .page{max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
+    .page-title{margin:0 0 8px 0;}
+    .page-sub{margin:0 0 14px 0; color:var(--muted,#67706B);}
+    .muted{ color:var(--muted,#67706B); }
+
+    .hero{border:1px solid var(--border); border-radius:14px; background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08)); overflow:hidden;}
+    .hero-head{display:flex; gap:12px; align-items:flex-start; padding:14px 16px;
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      border-bottom:1px solid var(--border);}
+    .hero-head .icon{width:28px;height:28px;color:var(--accent);margin-top:2px;}
+    .hero-head h1{margin:0;font-size:clamp(20px,3.2vw,26px);line-height:1.2;}
+    .body{padding:16px; display:grid; gap:14px;}
+
+    .row{display:grid; gap:10px; grid-template-columns:1fr 1fr;}
+    .row-3{display:grid; gap:10px; grid-template-columns:1fr 1fr 1fr;}
+    @media (max-width:880px){ .row,.row-3{ grid-template-columns:1fr; } }
+
+    .field label{display:block; font-weight:800; margin:0 0 6px 0;}
+    .input,.select,.textarea{width:100%; font:inherit; font-size:16px; color:var(--text);
+      background:var(--card-surface,var(--surface)); border:1px solid var(--border);
+      border-radius:10px; padding:12px; outline:none;}
+    .radio-row{display:flex; gap:12px; flex-wrap:wrap;}
+    .hint{font-size:13px; color:var(--muted,#67706B)}
+
+    .card{border:1px solid var(--border); border-radius:12px; background:var(--card-surface,var(--surface)); padding:12px;}
+    .card h3{margin:0 0 8px 0; font-size:16px;}
+    .card .small{font-size:13px; color:var(--muted,#67706B);}
+
+    .actions{display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:6px;}
+    .btn{display:inline-flex; align-items:center; justify-content:center; min-width:148px; padding:12px 16px;
+      border-radius:12px; border:1px solid var(--border); background:var(--card-surface,var(--surface));
+      font-weight:800; color:var(--text); cursor:pointer;}
+    .btn-primary{border-color:transparent; background:#2F6C3C; color:#fff;}
+
+    .summary{border:1px solid var(--border); border-radius:12px; padding:14px;
+      background:linear-gradient(180deg, rgba(47,108,60,.06), transparent);}
+
+    /* History */
+    .hist-head{display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-top:1px solid var(--border);}
+    .hist-title{font-size:clamp(18px, 2.6vw, 22px); font-weight:800;}
+    .hist-clear{border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:8px 12px; font-weight:700; cursor:pointer; color:var(--text) !important;}
+    .hist{padding:14px 16px; display:grid; gap:12px;}
+    .hist-item{border:1px solid var(--border); border-radius:12px; padding:12px; background:var(--card-surface,var(--surface));
+      display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;}
+    .hist-item .view{border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:8px 12px; font-weight:700; cursor:pointer; color:var(--text) !important;}
+
+    /* Modal */
+    .modal{ position:fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,.42);
+      z-index:9999; transition:opacity .15s; opacity:0; }
+    .modal[open]{ display:grid; opacity:1; }
+    .dialog{ width:min(760px,92vw); max-height:85vh; display:flex; flex-direction:column; background:var(--surface); color:var(--text);
+      border-radius:14px; border:1px solid var(--border); box-shadow:0 16px 36px rgba(0,0,0,.28); }
+    .dialog-head{ padding:12px 14px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+    .dialog-body{ padding:14px; overflow:auto; flex:1 1 auto; min-height:0; -webkit-overflow-scrolling:touch; }
+    .closex{border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:8px 12px; cursor:pointer; font-weight:700; color:var(--text) !important;}
+    .kv{ display:grid; grid-template-columns:1fr auto; gap:8px 12px; align-items:baseline; }
+    .kv .val{ font-weight:800; }
+  </style>
+
+  <script>(function(){
+    if(!customElements.get('fv-shell')){
+      const s=document.createElement('script'); s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);
+    }
+  })();</script>
+</head><body>
+  <fv-shell>
+    <div class="page container">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🌾</div>
+          <div>
+            <h1>Combine Grain Loss</h1>
+            <p class="muted">Estimate loss for <strong>Corn</strong> or <strong>Soybeans</strong> using either kernel count (2×2 ft plot) or hula-hoop weight. Enter your field’s average yield to see % loss.</p>
+          </div>
+        </header>
+
+        <div class="body" id="form">
+          <!-- Crop + method -->
+          <div class="row">
+            <div class="field">
+              <label for="crop">Crop</label>
+              <select id="crop" class="select">
+                <option value="corn">Corn</option>
+                <option value="soy">Soybeans</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Method</label>
+              <div class="radio-row">
+                <label><input type="radio" name="method" value="count" checked> Kernel count (2×2 ft)</label>
+                <label><input type="radio" name="method" value="weight"> Weight (hula-hoop)</label>
+              </div>
+              <div class="hint">Rules of thumb: Corn ~ <strong>2 kernels/ft² = 1 bu/ac</strong>; Soybeans ~ <strong>4 beans/ft² = 1 bu/ac</strong>.</div>
+            </div>
+          </div>
+
+          <!-- COUNT method -->
+          <div id="card-count" class="card">
+            <h3>Kernel count method</h3>
+            <div class="small">Count loose kernels inside a 2×2 ft square (total area = 4 ft²).</div>
+            <div class="row">
+              <div class="field">
+                <label for="kernels">Kernels/Beans counted (in 4 ft²)</label>
+                <input id="kernels" class="input" inputmode="numeric" placeholder="e.g., 12">
+              </div>
+              <div class="field">
+                <label for="avgYield1">Average field yield (bu/ac)</label>
+                <input id="avgYield1" class="input" inputmode="decimal" placeholder="optional, e.g., 220">
+              </div>
+            </div>
+          </div>
+
+          <!-- WEIGHT method -->
+          <div id="card-weight" class="card" hidden>
+            <h3>Weight method (hula-hoop)</h3>
+            <div class="small">Toss a hoop, gather all loose kernels/beans inside, <em>weigh</em> them, and note grain moisture. We’ll compute area from the hoop diameter.</div>
+            <div class="row-3">
+              <div class="field">
+                <label for="hoopDia">Hoop diameter (inches)</label>
+                <input id="hoopDia" class="input" inputmode="decimal" placeholder="e.g., 30">
+              </div>
+              <div class="field">
+                <label for="wAmount">Weight</label>
+                <div style="display:flex;gap:8px">
+                  <input id="wAmount" class="input" inputmode="decimal" placeholder="e.g., 120">
+                  <select id="wUnit" class="select" style="max-width:140px">
+                    <option value="g">g</option>
+                    <option value="oz">oz</option>
+                    <option value="lb">lb</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field">
+                <label for="moist">Grain moisture (%)</label>
+                <input id="moist" class="input" inputmode="decimal" placeholder="e.g., 18">
+              </div>
+            </div>
+            <div class="row">
+              <div class="field">
+                <label for="avgYield2">Average field yield (bu/ac)</label>
+                <input id="avgYield2" class="input" inputmode="decimal" placeholder="optional">
+              </div>
+              <div class="field">
+                <label>Computed hoop area</label>
+                <input id="areaOut" class="input" disabled value="—">
+              </div>
+            </div>
+            <div class="hint">Corn normalized to 15.5% moisture (56 lb/bu). Soybeans normalized to 13% moisture (60 lb/bu).</div>
+          </div>
+
+          <!-- Actions -->
+          <div class="actions">
+            <button id="clear" class="btn" type="button">Clear</button>
+            <button id="run" class="btn btn-primary" type="button">Calculate</button>
+          </div>
+
+          <!-- Result -->
+          <div id="summary" class="summary" hidden></div>
+        </div>
+
+        <!-- History -->
+        <div class="hist-head">
+          <div class="hist-title">Previous Calculations</div>
+          <button id="clearHist" class="hist-clear" type="button">Clear History</button>
+        </div>
+        <div id="history" class="hist">
+          <div class="muted">No previous calculations.</div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <!-- Modal -->
+  <div id="modal" class="modal" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
+      <div class="dialog-head">
+        <h3 id="mdTitle">Details</h3>
+        <button class="closex" id="mdClose" type="button">Back</button>
+      </div>
+      <div class="dialog-body" id="mdBody"></div>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    "use strict";
+    const $=id=>document.getElementById(id);
+    const round=(n,d=2)=> (isFinite(n)? Number(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d}):"—");
+    const toNum = v => { const n = Number(String(v||"").replace(/[^0-9.]/g,"")); return isFinite(n)?n:NaN; };
+
+    /* ====== Constants (rule-of-thumb + standards)
+       Corn: 2 kernels/ft² ≈ 1 bu/ac
+       Soybean: 4 beans/ft² ≈ 1 bu/ac
+       Corn test weight: 56 lb/bu at 15.5% moisture
+       Soy test weight: 60 lb/bu at 13% moisture
+    ====== */
+    const COUNT_CONST = { corn: 2, soy: 4 }; // kernels per ft² per bu/ac
+    const STD = { corn: { mc: 15.5, tw: 56 }, soy: { mc: 13.0, tw: 60 } };
+    const SQFT_PER_AC = 43560;
+
+    /* ====== Method toggling ====== */
+    const methodRadios = Array.from(document.querySelectorAll('input[name="method"]'));
+    function syncMethod(){
+      const m = methodRadios.find(r=>r.checked)?.value || "count";
+      $("card-count").hidden = (m!=="count");
+      $("card-weight").hidden = (m!=="weight");
+    }
+    methodRadios.forEach(r=> r.addEventListener("change", syncMethod));
+    syncMethod();
+
+    /* ====== Hoop area helper ====== */
+    function hoopAreaFt2(diaIn){
+      if(!isFinite(diaIn) || diaIn<=0) return NaN;
+      const r_ft = (diaIn/2)/12;
+      return Math.PI * r_ft * r_ft;
+    }
+    $("hoopDia").addEventListener("input", ()=>{
+      const a = hoopAreaFt2(toNum($("hoopDia").value));
+      $("areaOut").value = isFinite(a) ? round(a,3)+" ft²" : "—";
+    });
+
+    /* ====== History ====== */
+    const LS_KEY = "fv_calc_combine_loss_v1";
+    const MAX_HIST = 10;
+
+    function loadHist(){
+      try{ const arr = JSON.parse(localStorage.getItem(LS_KEY)||"[]"); return Array.isArray(arr)?arr:[]; }
+      catch(e){ return []; }
+    }
+    function saveHist(arr){
+      localStorage.setItem(LS_KEY, JSON.stringify(arr.slice(0,MAX_HIST)));
+    }
+    function renderHist(){
+      const box = $("history");
+      const h = loadHist();
+      if(!h.length){ box.innerHTML = '<div class="muted">No previous calculations.</div>'; return; }
+      box.innerHTML = "";
+      h.forEach(it=>{
+        const div = document.createElement("div");
+        div.className = "hist-item";
+        const line = `${it.crop==="corn"?"Corn":"Soy"} • ${it.method==="count"?"Count":"Weight"} • ${round(it.loss_bu_ac,2)} bu/ac${isFinite(it.loss_pct)?` • ${round(it.loss_pct,2)}%`:''}`;
+        div.innerHTML = `<div class="hline">${line}</div>
+                         <button class="view" type="button">View</button>`;
+        div.querySelector(".view").addEventListener("click", ()=> openDetail(it));
+        box.appendChild(div);
+      });
+    }
+
+    /* ===== Modal ===== */
+    const modal=$("modal"), mdBody=$("mdBody"), mdClose=$("mdClose");
+    let lastFocus=null;
+    function openDetail(it){
+      $("mdTitle").textContent = "Calculation Details";
+      const rows = [
+        ["Crop", it.crop==="corn"?"Corn":"Soybeans"],
+        ["Method", it.method==="count"?"Kernel count (4 ft²)":"Weight (hoop)"],
+        ...(it.method==="count" ? [
+          ["Kernels/beans (4 ft²)", it.kernels],
+          ["Rule of thumb", `${COUNT_CONST[it.crop]} per ft² = 1 bu/ac`]
+        ]:[
+          ["Hoop diameter (in)", it.hoop_dia_in],
+          ["Hoop area (ft²)", round(it.area_ft2,3)],
+          ["Weight (wet, lb)", round(it.wet_lb,3)],
+          ["Moisture (%)", round(it.moist,1)],
+          ["Adj. to std moisture", `${STD[it.crop].mc}%`]
+        ]),
+        ["Loss (bu/ac)", round(it.loss_bu_ac,2)],
+        ["Avg field yield (bu/ac)", isFinite(it.avg_yield)?round(it.avg_yield,1):"—"],
+        ["Loss (% of yield)", isFinite(it.loss_pct)?round(it.loss_pct,2)+"%":"—"],
+        ["Timestamp", new Date(it.t).toLocaleString()]
+      ];
+      mdBody.innerHTML = `<div class="kv">${rows.map(r=>`<div>${r[0]}</div><div class="val">${r[1]}</div>`).join("")}</div>`;
+      modal.setAttribute("open",""); modal.setAttribute("aria-hidden","false");
+      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
+      lastFocus=document.activeElement; mdClose.focus();
+    }
+    function closeModal(){
+      modal.removeAttribute("open"); modal.setAttribute("aria-hidden","true");
+      document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
+      if(lastFocus && lastFocus.focus) lastFocus.focus();
+    }
+    mdClose.addEventListener("click", closeModal);
+    modal.addEventListener("click", e=>{ if(e.target===modal) closeModal(); });
+    document.addEventListener("keydown", e=>{ if(e.key==="Escape" && modal.hasAttribute("open")) closeModal(); });
+
+    /* ====== Compute helpers ====== */
+    function fromCount(crop, kernelsIn4ft2){
+      const perFt2 = COUNT_CONST[crop];
+      if(!isFinite(kernelsIn4ft2) || kernelsIn4ft2<0) return NaN;
+      // loss bu/ac = kernels_in_plot / (perFt2 * area_ft2) with area 4 ft²
+      return kernelsIn4ft2 / (perFt2 * 4);
+    }
+
+    function toPounds(w, unit){
+      if(!isFinite(w) || w<0) return NaN;
+      if(unit==="lb") return w;
+      if(unit==="oz") return w/16;
+      if(unit==="g")  return w*0.00220462262185; // g -> lb
+      return NaN;
+    }
+
+    function adjustToStdMoist(wet_lb, measured_mc, std_mc){
+      if(!isFinite(wet_lb)||!isFinite(measured_mc)) return NaN;
+      const DM = 1 - (measured_mc/100);
+      const DMstd = 1 - (std_mc/100);
+      if(DM<=0 || DMstd<=0) return NaN;
+      // Equivalent weight at standard moisture (lb)
+      return wet_lb * (DM/DMstd);
+    }
+
+    function fromWeight(crop, hoopDiaIn, wetWeight, unit, moisturePct){
+      const area = hoopAreaFt2(hoopDiaIn);
+      if(!isFinite(area) || area<=0) return { bu_ac: NaN, area_ft2: NaN, wet_lb: NaN, adj_lb: NaN };
+      const wet_lb = toPounds(wetWeight, unit);
+      const adj_lb = adjustToStdMoist(wet_lb, moisturePct, STD[crop].mc);
+      if(!isFinite(adj_lb)) return { bu_ac: NaN, area_ft2: area, wet_lb, adj_lb: NaN };
+      const lb_per_sqft = adj_lb / area;
+      const lb_per_ac = lb_per_sqft * SQFT_PER_AC;
+      const bu_ac = lb_per_ac / STD[crop].tw;
+      return { bu_ac, area_ft2: area, wet_lb, adj_lb };
+    }
+
+    /* ====== Run / Save ====== */
+    function runCalc(){
+      const crop = $("crop").value; // 'corn' | 'soy'
+      const method = methodRadios.find(r=>r.checked)?.value || "count";
+
+      let loss_bu_ac = NaN, avg_yield = NaN, extra={};
+
+      if(method==="count"){
+        const k = toNum($("kernels").value);
+        loss_bu_ac = fromCount(crop, k);
+        avg_yield = toNum($("avgYield1").value);
+        extra = { kernels:k };
+      }else{
+        const dia = toNum($("hoopDia").value);
+        const w = toNum($("wAmount").value);
+        const unit = $("wUnit").value;
+        const m = toNum($("moist").value);
+        const out = fromWeight(crop, dia, w, unit, m);
+        loss_bu_ac = out.bu_ac;
+        avg_yield = toNum($("avgYield2").value);
+        extra = { hoop_dia_in:dia, area_ft2:out.area_ft2, wet_lb:out.wet_lb, moist:m };
+        // update visible area
+        $("areaOut").value = isFinite(out.area_ft2) ? round(out.area_ft2,3)+" ft²" : "—";
+      }
+
+      const loss_pct = isFinite(avg_yield) && avg_yield>0 && isFinite(loss_bu_ac) ? (loss_bu_ac/avg_yield*100) : NaN;
+
+      // Summary
+      const cropLabel = crop==="corn"?"Corn":"Soybeans";
+      const methodLabel = method==="count"?"Kernel count (4 ft²)":"Weight (hoop)";
+      const sum = `<strong>Result:</strong> ${cropLabel} • ${methodLabel} → <strong>${round(loss_bu_ac,2)} bu/ac</strong>${isFinite(loss_pct)?` • ${round(loss_pct,2)}% of yield`:''}`;
+      $("summary").innerHTML = sum;
+      $("summary").hidden = false;
+
+      // Save history
+      const it = {
+        t: Date.now(),
+        crop, method, loss_bu_ac, loss_pct, avg_yield,
+        ...extra
+      };
+      const h = loadHist(); h.unshift(it); saveHist(h); renderHist();
+      window.scrollTo({top:0, behavior:"smooth"});
+    }
+
+    $("run").addEventListener("click", runCalc);
+
+    $("clear").addEventListener("click", ()=>{
+      ["kernels","avgYield1","hoopDia","wAmount","moist","avgYield2"].forEach(id=>{ const el=$(id); if(el) el.value=""; });
+      $("areaOut").value="—";
+      $("summary").hidden = true;
+    });
+
+    $("clearHist").addEventListener("click", ()=>{
+      if(!confirm("Clear previous calculations?")) return;
+      saveHist([]); renderHist();
+    });
+
+    // Defaults
+    $("hoopDia").value = 30; $("areaOut").value = (Math.PI*(1.25**2)).toFixed(3)+" ft²"; // 30 in
+    renderHist();
+  })();
+  </script>
+</body></html>

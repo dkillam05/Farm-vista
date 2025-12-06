@@ -1,0 +1,2381 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FarmVista • Active Field Maintenance Work Orders</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3B7E46" />
+
+  <!-- ABSOLUTE PATHS -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+
+  <style>
+    :root{
+      --card-max: 1200px;
+      --page-bottom-gap: 96px;
+      --accent: #2F6C3C;
+    }
+
+    html{-webkit-text-size-adjust:100%}
+    body{
+      background: var(--app-bg, var(--surface));
+      overflow-x:hidden;
+    }
+
+    .wrap{
+      max-width: var(--card-max);
+      margin: 0 auto;
+      padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+      box-sizing:border-box;
+      display:grid;
+      gap:16px;
+    }
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+    }
+
+    .hero-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      border-bottom:1px solid var(--border);
+    }
+
+    .hero-head .icon{
+      width:24px;
+      height:24px;
+      color:var(--accent);
+      display:grid;
+      place-items:center;
+    }
+
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+
+    .muted{ color:var(--muted,#67706B); }
+
+    .body{
+      padding:16px;
+      display:grid;
+      gap:14px;
+    }
+
+    .toolbar{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+      justify-content:space-between;
+    }
+
+    .toolbar-left{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+    }
+
+    .toolbar-right{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+      font-size:0.9rem;
+      opacity:0.8;
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:120px;
+      padding:10px 14px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      font-weight:800;
+      text-decoration:none;
+      cursor:pointer;
+      user-select:none;
+      color:var(--text) !important;
+      background:var(--card-surface,var(--surface));
+      font-size:0.9rem;
+      gap:6px;
+    }
+
+    .btn-quiet{
+      min-width:auto;
+      padding-inline:10px;
+    }
+
+    /* Work-order list */
+
+    .wo-list {
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      margin-top:8px;
+    }
+
+    .wo-empty {
+      padding:14px 16px;
+      border-radius:12px;
+      border:1px dashed var(--border);
+      background:var(--card-surface, var(--surface));
+      font-size:0.95rem;
+      opacity:0.9;
+    }
+
+    .wo-card {
+      position:relative;
+      border-radius:14px;
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
+      padding:12px 14px 48px; /* room for Start/Continue button */
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      transition:transform .06s, box-shadow .12s, border-color .12s, background .12s;
+      cursor:pointer;
+    }
+
+    .wo-card:active {
+      transform:scale(.995);
+      box-shadow:var(--shadow);
+    }
+
+    .wo-row-top {
+      display:flex;
+      align-items:flex-start;
+      gap:10px;
+    }
+
+    .wo-main {
+      flex:1 1 auto;
+      min-width:0;
+      padding-right:110px; /* old desktop spacing, harmless now */
+    }
+
+    .wo-title {
+      font-weight:700;
+      font-size:0.98rem;
+      line-height:1.3;
+    }
+
+    .wo-sub {
+      font-size:0.86rem;
+      opacity:0.9;
+      margin-top:2px;
+    }
+
+    .wo-meta {
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 10px;
+      margin-top:4px;
+      font-size:0.8rem;
+      opacity:0.85;
+    }
+
+    .wo-meta span {
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 7px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+
+    .wo-meta-label {
+      font-weight:600;
+    }
+
+    .wo-bottom-row {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      font-size:0.78rem;
+      opacity:0.8;
+      margin-top:4px;
+      flex-wrap:wrap;
+    }
+
+    .wo-status-chip {
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 8px;
+      border-radius:999px;
+      font-size:0.78rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+
+    /* Start / Continue Job button – lower right corner */
+    .wo-card-actions{
+      position:absolute;
+      right:12px;
+      bottom:10px;
+      display:flex;
+      gap:8px;
+      align-items:center;
+    }
+
+    .wo-start-btn{
+      border-radius:999px;
+      border:1px solid var(--accent);
+      padding:5px 12px;
+      font-size:0.78rem;
+      font-weight:700;
+      background:var(--surface-strong, var(--surface));
+      cursor:pointer;
+      white-space:nowrap;
+      color:var(--accent);
+    }
+
+    .wo-start-btn:hover{
+      background:color-mix(in srgb, var(--surface) 70%, var(--accent) 30%);
+    }
+
+    /* Detail panel */
+    .wo-detail-panel {
+      margin-top:10px;
+      border-radius:10px;
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
+      padding:14px 16px 12px;
+      display:none;
+      flex-direction:column;
+      gap:8px;
+    }
+
+    .wo-detail-header {
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:10px;
+    }
+
+    .wo-detail-title {
+      font-weight:700;
+      font-size:1rem;
+    }
+
+    .wo-detail-close {
+      border:none;
+      border-radius:999px;
+      padding:4px 9px;
+      font-size:0.8rem;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      cursor:pointer;
+      color:var(--text);
+    }
+
+    .wo-detail-grid {
+      display:grid;
+      grid-template-columns:minmax(0,1fr);
+      gap:6px 16px;
+      font-size:0.9rem;
+      margin-top:4px;
+    }
+
+    @media (min-width:700px) {
+      .wo-detail-grid {
+        grid-template-columns:repeat(2, minmax(0,1fr));
+      }
+    }
+
+    .wo-detail-item-label {
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:1px;
+    }
+
+    .wo-detail-item-value {
+      font-size:0.92rem;
+    }
+
+    .wo-detail-notes {
+      margin-top:8px;
+      padding-top:8px;
+      border-top:1px solid var(--border);
+      font-size:0.92rem;
+      white-space:pre-wrap;
+    }
+
+    .wo-detail-notes-label {
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:2px;
+    }
+
+    .wo-detail-notes-body {
+      margin-top:2px;
+    }
+
+    .wo-detail-attachments{
+      margin-top:8px;
+      padding-top:8px;
+      border-top:1px solid var(--border);
+      font-size:0.9rem;
+    }
+
+    .wo-detail-attachments-label{
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:4px;
+    }
+
+    .wo-attachments-grid{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+
+    .wo-attachment-item{
+      display:flex;
+      align-items:flex-start;
+      gap:8px;
+    }
+
+    .wo-attachment-thumb{
+      width:64px;
+      height:64px;
+      border-radius:10px;
+      overflow:hidden;
+      border:1px solid var(--border);
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:0.8rem;
+      cursor:pointer;
+    }
+
+    .wo-attachment-thumb img{
+      width:100%;
+      height:100%;
+      object-fit:cover;
+      display:block;
+    }
+
+    .wo-attachment-meta{
+      min-width:0;
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+    }
+
+    .wo-attachment-name{
+      font-size:0.9rem;
+      font-weight:600;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    .wo-attachment-link{
+      font-size:0.8rem;
+      cursor:pointer;
+      border:none;
+      background:transparent;
+      padding:0;
+      text-align:left;
+      color:var(--accent);
+    }
+
+    .wo-attachment-empty{
+      font-size:0.86rem;
+      opacity:0.8;
+    }
+
+    .wo-detail-footer {
+      margin-top:10px;
+      font-size:0.8rem;
+      opacity:0.8;
+    }
+
+    .wo-detail-pill {
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 8px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      font-size:0.8rem;
+      margin-left:6px;
+    }
+
+    #woDetailMapShell{
+      margin-top:10px;
+    }
+
+    /* Photo viewer modal */
+    .photo-modal{
+      position:fixed;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:100000;
+    }
+    .photo-modal.show{
+      display:flex;
+    }
+    .photo-backdrop{
+      position:absolute;
+      inset:0;
+      background:rgba(0,0,0,.6);
+    }
+    .photo-sheet{
+      position:relative;
+      max-width:90vw;
+      max-height:90vh;
+      background:var(--surface);
+      border-radius:14px;
+      border:1px solid var(--border);
+      box-shadow:0 20px 40px rgba(0,0,0,.4);
+      padding:8px 10px 10px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      z-index:1;
+    }
+    .photo-close-row{
+      display:flex;
+      justify-content:flex-end;
+      margin-bottom:4px;
+    }
+    .photo-close-btn{
+      border:none;
+      border-radius:999px;
+      padding:4px 10px;
+      font-size:0.85rem;
+      cursor:pointer;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      color:var(--text);
+    }
+    .photo-img-wrap{
+      border-radius:12px;
+      overflow:hidden;
+      background:#000;
+      max-width:calc(90vw - 20px);
+      max-height:calc(80vh - 40px);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .photo-img-wrap img{
+      max-width:100%;
+      max-height:100%;
+      display:block;
+    }
+
+    /* Start / Continue Job modal */
+    .job-modal{
+      position:fixed;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:100010;
+    }
+    .job-modal.show{
+      display:flex;
+    }
+    .job-backdrop{
+      position:absolute;
+      inset:0;
+      background:rgba(0,0,0,.55);
+    }
+    .job-sheet{
+      position:relative;
+      max-width:min(520px, 94vw);
+      max-height:90vh;
+      background:var(--surface);
+      border-radius:16px;
+      border:1px solid var(--border);
+      box-shadow:0 20px 40px rgba(0,0,0,.4);
+      padding:14px 16px 16px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      z-index:1;
+      overflow-y:auto;
+      overflow-x:hidden;
+      -ms-overflow-style:none;
+      scrollbar-width:none;
+    }
+    .job-sheet::-webkit-scrollbar{
+      display:none;
+    }
+
+    .job-header{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:10px;
+    }
+    .job-title{
+      font-size:1.05rem;
+      font-weight:700;
+    }
+    .job-close-btn{
+      border:none;
+      border-radius:999px;
+      width:32px;
+      height:32px;
+      padding:4px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      color:var(--text);
+    }
+    .job-close-btn svg{
+      width:16px;
+      height:16px;
+      display:block;
+    }
+    .job-subtitle{
+      font-size:0.86rem;
+      opacity:0.9;
+    }
+    .job-form{
+      display:grid;
+      gap:10px;
+      margin-top:4px;
+      font-size:0.9rem;
+    }
+    .job-field{
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+    }
+    .job-label{
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.75;
+    }
+    .job-input,
+    .job-textarea,
+    .job-select{
+      border-radius:10px;
+      border:1px solid var(--border);
+      padding:7px 9px;
+      font:inherit;
+      background:var(--surface);
+      resize:vertical;
+      min-height:38px;
+      width:100%;
+      box-sizing:border-box;
+      color:var(--text);
+    }
+    .job-textarea{
+      min-height:80px;
+      padding-right:52px;
+    }
+    .job-range-row{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      align-items:flex-start;
+    }
+    .job-actions{
+      margin-top:4px;
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+    }
+    .job-btn{
+      border-radius:12px;
+      border:1px solid var(--border);
+      padding:8px 14px;
+      font-size:0.9rem;
+      font-weight:700;
+      background:var(--surface);
+      cursor:pointer;
+      color:var(--text);
+    }
+    .job-btn-primary{
+      background:var(--accent);
+      border-color:var(--accent);
+      color:#fff;
+    }
+    .job-btn-primary:disabled{
+      opacity:0.6;
+      cursor:default;
+    }
+    .job-note-hint{
+      font-size:0.8rem;
+      opacity:0.75;
+    }
+
+    /* Crew dropdown with checkboxes */
+    .job-crew-wrap{
+      position:relative;
+      width:100%;
+    }
+    .job-crew-btn{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      cursor:pointer;
+      text-align:left;
+      background:var(--surface);
+      color:var(--text);
+    }
+    .job-crew-btn::after{
+      content:"";
+      width:0;
+      height:0;
+      border-left:6px solid transparent;
+      border-right:6px solid transparent;
+      border-top:7px solid var(--muted,#67706B);
+      margin-left:8px;
+    }
+    .job-crew-panel{
+      position:absolute;
+      left:0;
+      right:0;
+      top:calc(100% + 4px);
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      box-shadow:0 12px 26px rgba(0,0,0,.18);
+      padding:6px 8px;
+      z-index:100020;
+      display:none;
+    }
+    .job-crew-panel.show{
+      display:block;
+    }
+    .job-crew-list{
+      max-height:180px;
+      overflow:auto;
+    }
+    .job-crew-item{
+      display:flex;
+      align-items:center;
+      gap:6px;
+      margin-bottom:4px;
+      font-size:0.9rem;
+    }
+    .job-crew-item input[type="checkbox"]{
+      accent-color:var(--accent);
+    }
+
+    /* Mic button – square like Add page, grey by default */
+    .ta-wrap{
+      position:relative;
+    }
+    .mic-btn{
+      position:absolute;
+      right:10px;
+      bottom:10px;
+      width:36px;
+      height:36px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      display:grid;
+      place-items:center;
+      cursor:pointer;
+      color:var(--muted,#67706B);
+    }
+    .mic-btn[disabled]{
+      opacity:.6;
+      cursor:not-allowed;
+    }
+    .mic-svg{
+      width:18px;
+      height:18px;
+      display:block;
+    }
+    .mic-btn svg{
+      fill:currentColor !important;
+    }
+    .mic-btn.mic-active,
+    .mic-active{
+      background:#2F6C3C;
+      color:#fff;
+      border-color:#2F6C3C;
+    }
+
+    /* if some global .mic-btn is still circular in app.css, this wins */
+    .job-modal .ta-wrap .mic-btn{
+      width:36px !important;
+      height:36px !important;
+      border-radius:10px !important;
+      border:1px solid var(--border) !important;
+      background:var(--surface) !important;
+      display:grid !important;
+      place-items:center !important;
+      padding:0 !important;
+    }
+
+    /* Date range picker styles */
+    .calendar-popover {
+      margin-top: 10px;
+      background: #ffffff;
+      border-radius: 10px;
+      border: 1px solid #d0d5dd;
+      box-shadow: 0 16px 40px rgba(15, 23, 42, 0.2);
+      color: #111827;
+      width: 100%;
+      max-width: 100%;
+      max-height: none;
+      display:flex;
+      flex-direction:column;
+    }
+
+    .cal-header {
+      display: flex;
+      align-items: center;
+      justify-content:space-between;
+      padding: 8px 10px;
+      background: #f3f4f6;
+      border-radius: 10px 10px 0 0;
+      font-size: 0.85rem;
+    }
+
+    .cal-title {
+      font-size: 0.8rem;
+      color: #6b7280;
+      margin-bottom:2px;
+    }
+
+    .cal-controls {
+      display:flex;
+      align-items:center;
+      gap:6px;
+    }
+
+    .cal-select {
+      background: #ffffff;
+      border: 1px solid #d0d5dd;
+      border-radius: 6px;
+      color: #111827;
+      padding: 2px 6px;
+      font-size: 0.8rem;
+    }
+
+    .cal-nav-btn {
+      display:none;
+    }
+
+    .cal-close-btn {
+      border: none;
+      background: transparent;
+      color: #6b7280;
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 999px;
+      font-size: 1rem;
+      margin-left: 4px;
+    }
+
+    .cal-close-btn:hover {
+      background: #e5e7eb;
+      color: #111827;
+    }
+
+    .cal-body {
+      padding: 6px 10px 8px;
+      flex: 0 0 auto;
+      max-height: none;
+      overflow-y: visible;
+    }
+
+    .cal-weekdays,
+    .cal-days {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+      font-size: 0.75rem;
+    }
+
+    .cal-weekday {
+      text-align: center;
+      color: #6b7280;
+      padding: 4px 0;
+    }
+
+    .cal-day {
+      position: relative;
+      width: 100%;
+      padding: 6px 0;
+      text-align: center;
+      cursor: pointer;
+      border-radius: 16px;
+      z-index: 1;
+      color: #111827;
+      user-select: none;
+    }
+
+    .cal-day.other-month {
+      color: #9ca3af;
+    }
+
+    .cal-day:hover {
+      background: #e5e7eb;
+    }
+
+    .cal-day.in-range::before,
+    .cal-day.range-start::before,
+    .cal-day.range-end::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      margin: 0;
+      border-radius: 16px;
+      background: #2f6c3c;
+      opacity: 0.12;
+      z-index: -1;
+    }
+
+    .cal-day.range-start::before {
+      border-radius: 16px 0 0 16px;
+    }
+
+    .cal-day.range-end::before {
+      border-radius: 0 16px 16px 0;
+    }
+
+    .cal-day.single-day::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      margin: 0;
+      border-radius: 16px;
+      background: #2f6c3c;
+      opacity: 0.9;
+      z-index: -1;
+    }
+
+    .cal-day.single-day {
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    .cal-day.start-selected::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      margin: 0;
+      border-radius: 16px;
+      background: #2f6c3c;
+      opacity: 0.9;
+      z-index: -1;
+    }
+
+    .cal-day.start-selected {
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    .cal-day.range-start,
+    .cal-day.range-end,
+    .cal-day.in-range {
+      color: #0b1120;
+      font-weight: 600;
+    }
+
+    .cal-day.range-start,
+    .cal-day.range-end {
+      background: rgba(47, 108, 60, 0.12);
+    }
+
+    .cal-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 10px;
+      border-top: 1px solid #d0d5dd;
+      border-radius: 0 0 10px 10px;
+      font-size: 0.75rem;
+      color: #6b7280;
+    }
+
+    .cal-footer span {
+      opacity: 0.9;
+    }
+
+    .cal-footer-buttons {
+      display: flex;
+      gap: 6px;
+    }
+
+    .cal-btn {
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 0.75rem;
+      border: 1px solid #d0d5dd;
+      background: #ffffff;
+      color: #6b7280;
+      cursor: pointer;
+    }
+
+    .cal-btn:hover {
+      background: #e5e7eb;
+      color: #111827;
+    }
+
+    .cal-btn-primary {
+      border-color: #2f6c3c;
+      background: #2f6c3c;
+      color: #ffffff;
+    }
+
+    .cal-btn-primary:hover {
+      filter: brightness(1.05);
+    }
+
+    /* Job status modal – centered with radios */
+    .status-modal{
+      position:fixed;
+      inset:0;
+      display:none;
+      z-index:100030;
+      align-items:center;
+      justify-content:center;
+      padding:16px;
+    }
+    .status-modal.show{
+      display:flex;
+    }
+    .status-backdrop{
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,.55);
+      z-index:100029;
+    }
+    .status-sheet{
+      width:min(400px, 92vw);
+      background:var(--surface);
+      border-radius:16px;
+      border:1px solid var(--border);
+      box-shadow:0 20px 40px rgba(0,0,0,.35);
+      padding:18px 18px 16px;
+      display:flex;
+      flex-direction:column;
+      gap:14px;
+      z-index:100031;
+      overflow-y:visible;
+    }
+    .status-title{
+      font-size:1rem;
+      font-weight:700;
+      margin-bottom:2px;
+    }
+    .status-text{
+      font-size:0.9rem;
+      opacity:0.9;
+    }
+
+    .status-options{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    .status-option{
+      display:flex;
+      align-items:flex-start;
+      gap:8px;
+      padding:8px 10px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      cursor:pointer;
+    }
+    .status-option input[type="radio"]{
+      margin-top:3px;
+      accent-color:var(--accent);
+    }
+    .status-option-title{
+      font-size:0.9rem;
+      font-weight:600;
+    }
+    .status-option-sub{
+      display:block;
+      font-size:0.8rem;
+      opacity:0.8;
+      margin-top:2px;
+    }
+
+    .status-buttons{
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+      margin-top:4px;
+    }
+    .status-btn{
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:6px 12px;
+      font-size:0.85rem;
+      font-weight:700;
+      background:var(--surface);
+      cursor:pointer;
+      color:var(--text);
+    }
+    .status-btn-primary{
+      background:var(--accent);
+      border-color:var(--accent);
+      color:#fff;
+    }
+
+    /* MOBILE TILE SIMPLIFICATION */
+    @media (max-width:650px){
+      .wo-meta,
+      .wo-bottom-row {
+        display:none !important;
+      }
+
+      .wo-main{
+        padding-right:0 !important;
+      }
+
+      .wo-card{
+        padding:12px 14px 56px !important;
+      }
+
+      .wo-row-top{
+        flex-direction:column;
+        align-items:flex-start;
+        gap:6px;
+      }
+
+      .wo-card-actions{
+        right:14px;
+        bottom:10px;
+      }
+
+      .wo-start-btn{
+        min-width:130px;
+        font-size:0.84rem;
+        padding:7px 14px;
+      }
+    }
+
+    /* REMOVE BLUE TEXT / SAFARI DEFAULT LINK COLORS */
+
+    button,
+    input,
+    select,
+    textarea {
+      color: var(--text) !important;
+    }
+
+    a,
+    a:visited,
+    .job-crew-btn,
+    .job-modal button,
+    .job-modal .job-input,
+    .job-modal .job-label,
+    .job-modal .job-title,
+    .job-modal .job-subtitle,
+    .status-btn {
+      color: var(--text) !important;
+    }
+
+    .wo-start-btn {
+      color: var(--accent) !important;
+    }
+
+    .job-btn-primary,
+    .status-btn-primary {
+      color:#fff !important;
+    }
+
+    #jobRangeInput {
+      color: var(--text) !important;
+    }
+
+    button:focus,
+    input:focus,
+    select:focus,
+    textarea:focus {
+      outline: none !important;
+      border-color: var(--border) !important;
+      color: var(--text) !important;
+      box-shadow: none !important;
+    }
+
+    option {
+      color: var(--text) !important;
+    }
+
+    .job-actions button {
+      color: var(--text) !important;
+    }
+
+    ::-webkit-calendar-picker-indicator,
+    ::-webkit-inner-spin-button,
+    ::-webkit-clear-button {
+      filter: invert(0%) !important;
+    }
+  </style>
+
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <!-- Google Maps for detail location -->
+  <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY"></script>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection, query, where, getDocs,
+      doc, getDoc, setDoc, updateDoc, serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
+
+    import { NAV_MENU } from '/Farm-vista/js/menu.js';
+
+    const CONFIG = {
+      COLLECTION_PATH: 'fieldMaintenance',
+      STATUS_FIELD:    'status',
+      STATUS_PENDING:  'pending',
+      STATUS_INPROG:   'in progress',
+      STATUS_DONE:     'completed'
+    };
+
+    const STATE = {
+      db: null,
+      items: [],
+      selectedId: null,
+      jobForId: null,
+      employees: [],
+      pendingJobBase: null   // {crewSelections, notes, rangeText, newPhotoNames}
+    };
+
+    const $  = (sel, root=document) => root.querySelector(sel);
+
+    let detailMap = null;
+    let detailMarker = null;
+
+    let photoModal = null;
+    let photoModalImg = null;
+    let photoModalBackdrop = null;
+    let photoModalCloseBtn = null;
+
+    // Start Job modal refs
+    let jobModal = null;
+    let jobModalBackdrop = null;
+    let jobModalCloseBtn = null;
+    let jobForm = null;
+    let jobModalTitle = null;
+    let jobWoLabel = null;
+    let jobSubmittedByInput = null;
+    let jobStartDateInput = null; // reserved
+    let jobEndDateInput = null;
+    let jobCrewListEl = null;
+    let jobCrewBtn = null;
+    let jobCrewPanel = null;
+    let jobNotesInput = null;
+    let jobPhotosInput = null;
+    let jobCancelBtn = null;
+    let jobSaveBtn = null;
+    let jobRangeInputEl = null;
+
+    // Status popup modal refs
+    let jobStatusModal = null;
+    let jobStatusBackdrop = null;
+    let jobStatusCancelBtn = null;
+    let jobStatusSaveBtn = null;
+    let jobStatusChoiceInputs = null;
+
+    function getTime(ts){
+      if(!ts) return 0;
+      try{
+        if(ts.toMillis) return ts.toMillis();
+        if(ts.toDate)   return ts.toDate().getTime();
+        if(ts instanceof Date) return ts.getTime();
+        return new Date(ts).getTime() || 0;
+      }catch{
+        return 0;
+      }
+    }
+
+    function isImageUrl(url){
+      if(!url || typeof url !== 'string') return false;
+      const u = url.split('?')[0].toLowerCase();
+      return u.endsWith('.jpg') || u.endsWith('.jpeg') || u.endsWith('.png') || u.endsWith('.gif') || u.endsWith('.webp');
+    }
+
+    function openPhotoViewer(url){
+      if(!photoModal || !photoModalImg || !url) return;
+      photoModalImg.src = url;
+      photoModal.classList.add('show');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closePhotoViewer(){
+      if(!photoModal) return;
+      photoModal.classList.remove('show');
+      if(photoModalImg) photoModalImg.src = '';
+      document.body.style.overflow = '';
+    }
+
+    function clearDetails(){
+      const panel = $('.wo-detail-panel');
+      if(!panel) return;
+      panel.style.display = 'none';
+      panel.dataset.id = '';
+      const titleEl = $('.wo-detail-title', panel);
+      if(titleEl) titleEl.textContent = 'Work Order Details';
+      const grid = $('.wo-detail-grid', panel);
+      if(grid) grid.innerHTML = '';
+      const notesBody = $('.wo-detail-notes-body', panel);
+      if(notesBody) notesBody.textContent = '';
+      const footer = $('.wo-detail-footer', panel);
+      if(footer) footer.innerHTML = '';
+      const attGrid = $('#woDetailAttachments');
+      if(attGrid){
+        attGrid.innerHTML = '';
+      }
+    }
+
+    function renderDetails(){
+      const panel = $('.wo-detail-panel');
+      if(!panel) return;
+      const item = STATE.items.find(x => x.id === STATE.selectedId);
+      if(!item){
+        clearDetails();
+        return;
+      }
+
+      const data = item.data;
+      const field = data.fieldName || data.field || 'Field not set';
+      const farm  = data.farmName  || data.farm  || '';
+      const topic = data.topicLabel || data.topic || data.category || data.title || 'Maintenance';
+      const priority = data.priority ?? data.priorityLevel ?? null;
+      const equip = data.equipmentName || data.equipment || '';
+      const acres = data.acres || data.area || null;
+      const status = data[CONFIG.STATUS_FIELD] || '';
+      const photoCount = data.photoCount || 0;
+      const createdBy = (data.submittedBy && (data.submittedBy.name || data.submittedBy.email))
+                        || data.createdByName || data.createdBy || '';
+      const when = (data.createdAt && data.createdAt.toDate) ? data.createdAt.toDate()
+                 : (data.dateSubmitted && data.dateSubmitted.toDate) ? data.dateSubmitted.toDate()
+                 : (data.timestamp && data.timestamp.toDate) ? data.timestamp.toDate()
+                 : null;
+      const notes = data.notes || data.description || '';
+
+      panel.dataset.id = item.id;
+      const titleEl = $('.wo-detail-title', panel);
+      if(titleEl){
+        titleEl.textContent = farm ? `${field} · ${farm}` : field;
+      }
+
+      const grid = $('.wo-detail-grid', panel);
+      if(grid){
+        grid.innerHTML = `
+          <div>
+            <div class="wo-detail-item-label">Topic</div>
+            <div class="wo-detail-item-value">${topic}</div>
+          </div>
+          ${equip ? `
+          <div>
+            <div class="wo-detail-item-label">Equipment</div>
+            <div class="wo-detail-item-value">${equip}</div>
+          </div>` : ''}
+          ${priority !== null ? `
+          <div>
+            <div class="wo-detail-item-label">Priority</div>
+            <div class="wo-detail-item-value">${priority}</div>
+          </div>` : ''}
+          ${acres !== null ? `
+          <div>
+            <div class="wo-detail-item-label">Acres / Area</div>
+            <div class="wo-detail-item-value">${acres}</div>
+          </div>` : ''}
+          ${createdBy ? `
+          <div>
+            <div class="wo-detail-item-label">Submitted By</div>
+            <div class="wo-detail-item-value">${createdBy}</div>
+          </div>` : ''}
+          ${when ? `
+          <div>
+            <div class="wo-detail-item-label">Submitted</div>
+            <div class="wo-detail-item-value">${when.toLocaleString()}</div>
+          </div>` : ''}
+        `;
+      }
+
+      const notesBody = $('.wo-detail-notes-body', panel);
+      if(notesBody){
+        notesBody.textContent = notes || 'No additional notes recorded.';
+      }
+
+      const attachments = [];
+
+      if(Array.isArray(data.photoUrls)){
+        for(const url of data.photoUrls){
+          if(!url) continue;
+          attachments.push({
+            url,
+            name: 'Photo',
+            type: 'image'
+          });
+        }
+      }
+
+      if(Array.isArray(data.attachments)){
+        for(const a of data.attachments){
+          if(!a) continue;
+          attachments.push({
+            url: a.url || a.href || '',
+            name: a.name || a.fileName || 'Attachment',
+            type: a.type || a.mimeType || ''
+          });
+        }
+      }
+
+      if(Array.isArray(data.photos)){
+        for(const url of data.photos){
+          if(!url) continue;
+          attachments.push({
+            url,
+            name: 'Photo',
+            type: 'image'
+          });
+        }
+      }
+
+      if(Array.isArray(data.files)){
+        for(const f of data.files){
+          if(!f) continue;
+          attachments.push({
+            url: f.url || f.href || '',
+            name: f.name || f.fileName || 'File',
+            type: f.type || f.mimeType || ''
+          });
+        }
+      }
+
+      const attGrid = $('#woDetailAttachments');
+      if(attGrid){
+        attGrid.innerHTML = '';
+
+        if(attachments.length){
+          for(const att of attachments){
+            if(!att.url) continue;
+
+            const itemEl = document.createElement('div');
+            itemEl.className = 'wo-attachment-item';
+
+            const thumb = document.createElement('div');
+            thumb.className = 'wo-attachment-thumb';
+
+            if(att.type === 'image' || isImageUrl(att.url)){
+              const img = document.createElement('img');
+              img.src = att.url;
+              img.alt = att.name || 'Attachment';
+              thumb.appendChild(img);
+            }else{
+              thumb.textContent = 'FILE';
+            }
+
+            const meta = document.createElement('div');
+            meta.className = 'wo-attachment-meta';
+
+            const nameEl = document.createElement('div');
+            nameEl.className = 'wo-attachment-name';
+            nameEl.textContent = att.name || 'Attachment';
+
+            const linkEl = document.createElement('button');
+            linkEl.type = 'button';
+            linkEl.className = 'wo-attachment-link';
+            linkEl.textContent = 'View';
+
+            if(att.type === 'image' || isImageUrl(att.url)){
+              thumb.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                openPhotoViewer(att.url);
+              });
+              linkEl.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                openPhotoViewer(att.url);
+              });
+            }else{
+              linkEl.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                window.open(att.url, '_blank', 'noopener');
+              });
+            }
+
+            meta.appendChild(nameEl);
+            meta.appendChild(linkEl);
+
+            itemEl.appendChild(thumb);
+            itemEl.appendChild(meta);
+
+            attGrid.appendChild(itemEl);
+          }
+        } else if(photoCount > 0){
+          const info = document.createElement('div');
+          info.className = 'wo-attachment-empty';
+          info.textContent = 'This work order has photos saved, but no links are available.';
+          attGrid.appendChild(info);
+        } else {
+          const empty = document.createElement('div');
+          empty.className = 'wo-attachment-empty';
+          empty.textContent = 'No files or photos attached.';
+          attGrid.appendChild(empty);
+        }
+      }
+
+      const footer = $('.wo-detail-footer', panel);
+      if(footer){
+        footer.innerHTML = `
+          Current status:
+          <span class="wo-detail-pill">${status || 'unknown'}</span>
+        `;
+      }
+
+      const loc = data.location;
+      const mapShell = $('#woDetailMapShell');
+      if(
+        loc &&
+        typeof loc.lat === 'number' &&
+        typeof loc.lng === 'number' &&
+        window.google &&
+        window.google.maps
+      ){
+        mapShell.style.display = '';
+        const el = $('#woDetailMap');
+        const center = { lat: loc.lat, lng: loc.lng };
+
+        if(!detailMap){
+          detailMap = new google.maps.Map(el, {
+            center,
+            zoom: 18,
+            mapTypeId: 'satellite',
+            disableDefaultUI: true,
+            zoomControl: true
+          });
+          detailMarker = new google.maps.Marker({
+            position: center,
+            map: detailMap
+          });
+        }else{
+          detailMap.setCenter(center);
+          detailMap.setZoom(18);
+          detailMap.setMapTypeId('satellite');
+          if(!detailMarker){
+            detailMarker = new google.maps.Marker({
+              position: center,
+              map: detailMap
+            });
+          }else{
+            detailMarker.setPosition(center);
+          }
+        }
+      }else if(mapShell){
+        mapShell.style.display = 'none';
+      }
+
+      panel.style.display = 'flex';
+    }
+
+    function renderList(){
+      const listEl  = $('.wo-list');
+      const emptyEl = $('.wo-empty');
+      const countEl = $('#woCount');
+
+      listEl.innerHTML = '';
+
+      if(!STATE.items.length){
+        if(emptyEl) {
+          emptyEl.style.display = 'block';
+          emptyEl.textContent = 'No work orders are currently pending or in progress. Once work orders are approved and ready, they will appear here.';
+        }
+        if(countEl) countEl.textContent = '0 active work orders';
+        clearDetails();
+        return;
+      }
+
+      if(emptyEl){
+        emptyEl.style.display = 'none';
+      }
+
+      for(const item of STATE.items){
+        const data = item.data;
+        const id   = item.id;
+
+        const field = data.fieldName || data.field || 'Field not set';
+        const farm  = data.farmName  || data.farm  || '';
+        const topic = data.topicLabel || data.topic || data.category || data.title || 'Maintenance';
+        const priority = data.priority ?? data.priorityLevel ?? null;
+        const equip = data.equipmentName || data.equipment || '';
+        const createdBy = (data.submittedBy && (data.submittedBy.name || data.submittedBy.email))
+                          || data.createdByName || data.createdBy || '';
+        const ts = data.createdAt || data.dateSubmitted || data.timestamp || null;
+        const when = ts && ts.toDate ? ts.toDate() : (ts ? new Date(ts) : null);
+        const statusRaw = (data.status || '').toString() || 'unknown';
+
+        const friendlyStatus =
+          statusRaw.toLowerCase() === 'in progress' ? 'In Progress' :
+          statusRaw.toLowerCase() === 'pending'     ? 'Pending' :
+          statusRaw;
+
+        const card = document.createElement('article');
+        card.className = 'wo-card';
+        card.dataset.id = id;
+        card.dataset.status = statusRaw.toLowerCase();
+
+        card.innerHTML = `
+          <div class="wo-card-actions">
+            <button type="button" class="wo-start-btn">
+              ${friendlyStatus === 'In Progress' ? 'Continue Job' : 'Start Job'}
+            </button>
+          </div>
+          <div class="wo-row-top">
+            <div class="wo-main">
+              <div class="wo-title">
+                ${field ? `<span>${field}</span>` : 'Maintenance Work Order'}
+                ${farm ? ` · <span>${farm}</span>` : ''}
+              </div>
+              <div class="wo-sub">
+                ${topic}
+              </div>
+              <div class="wo-meta">
+                ${priority !== null ? `
+                  <span><span class="wo-meta-label">Priority</span> ${priority}</span>
+                ` : ''}
+                ${equip ? `
+                  <span><span class="wo-meta-label">Equip</span> ${equip}</span>
+                ` : ''}
+                ${createdBy ? `
+                  <span><span class="wo-meta-label">By</span> ${createdBy}</span>
+                ` : ''}
+              </div>
+            </div>
+          </div>
+
+          <div class="wo-bottom-row">
+            <div>
+              ${when ? `Created ${when.toLocaleDateString()} ${when.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}` : ''}
+            </div>
+            <div class="wo-status-chip">${friendlyStatus}</div>
+          </div>
+        `;
+
+        card.addEventListener('click', () => {
+          STATE.selectedId = id;
+          renderDetails();
+        });
+
+        const startBtn = card.querySelector('.wo-start-btn');
+        if(startBtn){
+          startBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            openJobModal(item);
+          });
+        }
+
+        listEl.appendChild(card);
+      }
+
+      if(countEl){
+        countEl.textContent = `${STATE.items.length} active work order${STATE.items.length === 1 ? '' : 's'}`;
+      }
+    }
+
+    async function loadActiveWorkOrders(){
+      const db  = STATE.db;
+      const ref = collection(db, CONFIG.COLLECTION_PATH);
+
+      try{
+        const qRef = query(
+          ref,
+          where(CONFIG.STATUS_FIELD, 'in', [CONFIG.STATUS_PENDING, CONFIG.STATUS_INPROG])
+        );
+        const snap = await getDocs(qRef);
+
+        const items = snap.docs.map(d => ({
+          id: d.id,
+          data: d.data()
+        }));
+
+        items.sort((a,b) => {
+          const ta = getTime(a.data.createdAt || a.data.dateSubmitted || a.data.timestamp);
+          const tb = getTime(b.data.createdAt || b.data.dateSubmitted || b.data.timestamp);
+          return tb - ta;
+        });
+
+        STATE.items = items;
+        renderList();
+      }catch(err){
+        console.error('Error loading active work orders:', err);
+        const emptyEl = $('.wo-empty');
+        const countEl = $('#woCount');
+        if(emptyEl){
+          emptyEl.textContent = 'Error loading work orders. Check console or Firestore indexes.';
+          emptyEl.style.display = 'block';
+        }
+        if(countEl) countEl.textContent = 'Error loading work orders';
+        clearDetails();
+      }
+    }
+
+    async function loadEmployees(){
+      try{
+        const db = STATE.db;
+        const ref = collection(db, 'employees');
+        const snap = await getDocs(ref);
+        STATE.employees = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        populateCrewList();
+      }catch(err){
+        console.error('Error loading employees for crew list:', err);
+        populateCrewList(true);
+      }
+    }
+
+    function populateCrewList(error=false){
+      if(!jobCrewListEl) return;
+      jobCrewListEl.innerHTML = '';
+
+      if(error){
+        const div = document.createElement('div');
+        div.className = 'job-note-hint';
+        div.textContent = 'Error loading employees.';
+        jobCrewListEl.appendChild(div);
+        return;
+      }
+
+      if(!STATE.employees.length){
+        const div = document.createElement('div');
+        div.className = 'job-note-hint';
+        div.textContent = 'No employees found.';
+        jobCrewListEl.appendChild(div);
+        return;
+      }
+
+      const sorted = [...STATE.employees].sort((a,b)=>{
+        const an = (a.fullName || a.name || `${a.firstName || ''} ${a.lastName || ''}`).trim().toLowerCase();
+        const bn = (b.fullName || b.name || `${b.firstName || ''} ${b.lastName || ''}`).trim().toLowerCase();
+        return an.localeCompare(bn);
+      });
+
+      for(const emp of sorted){
+        const displayName = (emp.fullName || emp.name || `${emp.firstName || ''} ${emp.lastName || ''}`).trim() || emp.id;
+
+        const label = document.createElement('label');
+        label.className = 'job-crew-item';
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = emp.id;
+        cb.dataset.name = displayName;
+
+        const span = document.createElement('span');
+        span.textContent = displayName;
+
+        label.appendChild(cb);
+        label.appendChild(span);
+        jobCrewListEl.appendChild(label);
+      }
+
+      updateCrewButtonLabel();
+    }
+
+    // ---------- crew dropdown UI ----------
+    function updateCrewButtonLabel(){
+      if(!jobCrewBtn || !jobCrewListEl) return;
+      const checked = Array.from(jobCrewListEl.querySelectorAll('input[type="checkbox"]:checked'));
+      if(!checked.length){
+        jobCrewBtn.textContent = 'Select crew…';
+      }else if(checked.length === 1){
+        jobCrewBtn.textContent = checked[0].dataset.name || '1 selected';
+      }else{
+        jobCrewBtn.textContent = `${checked.length} selected`;
+      }
+    }
+
+    function closeCrewPanel(){
+      if(jobCrewPanel) jobCrewPanel.classList.remove('show');
+    }
+
+    function setupCrewDropdown(){
+      if(!jobCrewBtn || !jobCrewPanel || !jobCrewListEl) return;
+
+      jobCrewBtn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        const open = jobCrewPanel.classList.contains('show');
+        if(open){
+          jobCrewPanel.classList.remove('show');
+        }else{
+          jobCrewPanel.classList.add('show');
+        }
+      });
+
+      jobCrewPanel.addEventListener('click', (e)=>e.stopPropagation());
+
+      document.addEventListener('click', ()=>closeCrewPanel());
+      document.addEventListener('keydown', (e)=>{
+        if(e.key === 'Escape') closeCrewPanel();
+      });
+
+      jobCrewListEl.addEventListener('change', updateCrewButtonLabel);
+    }
+
+    // ---------- Submitted-by from logged-in user ----------
+    function titleCase(s){
+      return String(s||"").replace(/\s+/g," ").trim().split(" ")
+        .filter(Boolean).map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(" ");
+    }
+    function nameFromEmail(email){
+      const local = String(email||"").split("@")[0]||"";
+      if(!local) return "";
+      if(/[._-]/.test(local)){
+        return titleCase(local.replace(/[0-9]+/g," ").split(/[._-]+/).join(" "));
+      }
+      const spaced = local.replace(/([a-z])([A-Z])/g,"$1 $2");
+      return titleCase(spaced || local);
+    }
+
+    function setJobSubmittedByNow(){
+      if(!jobSubmittedByInput) return false;
+      let label = "";
+
+      try{
+        const ctx = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get();
+        if(ctx){
+          if(ctx.displayName || ctx.email) label = ctx.displayName || ctx.email || "";
+        }
+      }catch{}
+
+      if(!label){
+        try{
+          const u = window.firebaseAuth && window.firebaseAuth.currentUser;
+          if(u){
+            label = u.displayName || u.email || "";
+          }
+        }catch{}
+      }
+
+      if(label && label.includes("@")) label = nameFromEmail(label);
+      label = titleCase(label || "");
+      if(label){
+        jobSubmittedByInput.value = label;
+        return true;
+      }
+      return false;
+    }
+
+    function setupJobSubmittedBy(){
+      let tries = 30;
+      const timer = setInterval(()=>{
+        if(setJobSubmittedByNow() || --tries<=0) clearInterval(timer);
+      }, 200);
+    }
+
+    // ===== Inline mic wiring for job notes (PWA-safe) =====
+    function makeInlineMic(btnEl, taEl){
+      if(!btnEl || !taEl) return;
+
+      const ok = ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window);
+      if(!ok){
+        btnEl.style.display = 'none';
+        return;
+      }
+
+      const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const rec = new Rec();
+      rec.lang = 'en-US';
+      rec.interimResults = true;
+      rec.continuous = false;
+
+      let active = false;
+      let baseText = '';
+
+      const setMic = (on) => {
+        btnEl.classList.toggle('mic-active', on);
+        btnEl.setAttribute('aria-label', on ? 'Stop dictation' : 'Dictate notes');
+      };
+
+      btnEl.addEventListener('click', () => {
+        if(!active){
+          baseText = taEl.value ? (taEl.value + ' ') : '';
+          try{
+            rec.start();
+            active = true;
+            setMic(true);
+          }catch(err){
+            // ignore double-start errors
+          }
+        }else{
+          try{
+            rec.stop();
+            rec.abort();
+          }catch(err){
+            // ignore
+          }
+          active = false;
+          setMic(false);
+        }
+      });
+
+      rec.onresult = (ev) => {
+        let txt = '';
+        for(let i = ev.resultIndex; i < ev.results.length; i++){
+          txt += ev.results[i][0].transcript;
+        }
+        taEl.value = baseText + txt;
+        // bubble input so any listeners pick it up
+        taEl.dispatchEvent(new Event('input', { bubbles:true }));
+      };
+
+      rec.onend = () => {
+        active = false;
+        setMic(false);
+      };
+
+      rec.onerror = () => {
+        active = false;
+        setMic(false);
+      };
+    }
+    // ===== End inline mic wiring =====
+
+    async function openJobModal(item){
+      if(!jobModal || !jobForm) return;
+
+      STATE.jobForId = item.id;
+
+      const data = item.data;
+      const statusRaw = (data.status || '').toString().toLowerCase();
+      const field = data.fieldName || data.field || 'Field not set';
+      const farm  = data.farmName  || data.farm  || '';
+
+      jobForm.reset();
+      STATE.pendingJobBase = null;
+
+      if(jobCrewListEl){
+        Array.from(jobCrewListEl.querySelectorAll('input[type="checkbox"]')).forEach(cb => cb.checked = false);
+      }
+      updateCrewButtonLabel();
+
+      if(jobRangeInputEl){
+        jobRangeInputEl.value = '';
+      }
+
+      if(jobWoLabel){
+        jobWoLabel.textContent = farm ? `${field} · ${farm}` : field;
+      }
+
+      if(jobModalTitle){
+        jobModalTitle.textContent = statusRaw === CONFIG.STATUS_INPROG ? 'Continue Job' : 'Start Job';
+      }
+
+      setJobSubmittedByNow();
+
+      try{
+        const jobRef = doc(STATE.db, 'fieldMaintenanceJobs', STATE.jobForId);
+        const snap = await getDoc(jobRef);
+        if(snap.exists()){
+          const jd = snap.data() || {};
+          if(jobRangeInputEl && jd.projectRange){
+            jobRangeInputEl.value = jd.projectRange;
+          }
+          if(jobNotesInput && jd.notes){
+            jobNotesInput.value = jd.notes;
+          }
+          if(jobCrewListEl && Array.isArray(jd.crew)){
+            const ids = new Set(jd.crew.map(c => c.id));
+            jobCrewListEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+              cb.checked = ids.has(cb.value);
+            });
+            updateCrewButtonLabel();
+          }
+        }
+      }catch(err){
+        console.error('Error loading existing job record:', err);
+      }
+
+      jobModal.classList.add('show');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeJobModal(){
+      if(!jobModal) return;
+      jobModal.classList.remove('show');
+      document.body.style.overflow = '';
+      STATE.jobForId = null;
+      closeCrewPanel();
+    }
+
+    function openJobStatusModal(){
+      if(!jobStatusModal) return;
+      jobStatusModal.classList.add('show');
+    }
+
+    function closeJobStatusModal(){
+      if(!jobStatusModal) return;
+      jobStatusModal.classList.remove('show');
+    }
+
+    async function saveJobWithStatus(jobStatus){
+      if(!STATE.jobForId || !STATE.pendingJobBase){
+        closeJobStatusModal();
+        return;
+      }
+
+      const { crewSelections, notes, rangeText, newPhotoNames } = STATE.pendingJobBase;
+      const submittedBy = jobSubmittedByInput ? jobSubmittedByInput.value.trim() : '';
+
+      try{
+        const jobRef = doc(STATE.db, 'fieldMaintenanceJobs', STATE.jobForId);
+        const prevSnap = await getDoc(jobRef);
+        const prev = prevSnap.exists() ? prevSnap.data() || {} : {};
+
+        const oldNames = Array.isArray(prev.photoFileNames) ? prev.photoFileNames : [];
+        const photoFileNames = [...oldNames, ...newPhotoNames];
+
+        const payload = {
+          workOrderId: STATE.jobForId,
+          submittedBy,
+          projectRange: rangeText,
+          crew:         crewSelections,
+          notes,
+          photoFileNames,
+          status: jobStatus,
+          updatedAt: serverTimestamp(),
+          createdAt: prev.createdAt || serverTimestamp()
+        };
+
+        await setDoc(jobRef, payload, { merge: true });
+
+        const woRef = doc(STATE.db, CONFIG.COLLECTION_PATH, STATE.jobForId);
+        await updateDoc(woRef, {
+          [CONFIG.STATUS_FIELD]: jobStatus,
+          updatedAt: serverTimestamp()
+        });
+
+        STATE.pendingJobBase = null;
+        closeJobStatusModal();
+        closeJobModal();
+        await loadActiveWorkOrders();
+      }catch(err){
+        console.error('Error saving job record:', err);
+        STATE.pendingJobBase = null;
+        closeJobStatusModal();
+        alert('Failed to save job. Check console / Firestore rules.');
+      }
+    }
+
+    async function handleJobSubmit(ev){
+      ev.preventDefault();
+      if(!STATE.jobForId) {
+        closeJobModal();
+        return;
+      }
+
+      const crewSelections = jobCrewListEl
+        ? Array.from(jobCrewListEl.querySelectorAll('input[type="checkbox"]:checked')).map(cb => ({
+            id: cb.value,
+            name: cb.dataset.name || ''
+          }))
+        : [];
+
+      const notes = jobNotesInput ? jobNotesInput.value.trim() : '';
+      const rangeText = jobRangeInputEl ? jobRangeInputEl.value : '';
+
+      const newPhotoNames = jobPhotosInput && jobPhotosInput.files
+        ? Array.from(jobPhotosInput.files).map(f => f.name)
+        : [];
+
+      STATE.pendingJobBase = { crewSelections, notes, rangeText, newPhotoNames };
+
+      openJobStatusModal();
+    }
+
+    (async function boot(){
+      await ready;
+      STATE.db = getFirestore();
+
+      const shell = document.querySelector('fv-shell');
+      if (shell) shell.nav = NAV_MENU;
+
+      const backBtn = document.getElementById('btnBack');
+      if(backBtn){
+        backBtn.addEventListener('click', () => {
+          location.href = '/Farm-vista/pages/crop-production/maintenance.html';
+        });
+      }
+
+      photoModal = $('#photoModal');
+      photoModalImg = $('#photoModalImg');
+      photoModalBackdrop = $('#photoModalBackdrop');
+      photoModalCloseBtn = $('#photoModalClose');
+
+      if(photoModalBackdrop){
+        photoModalBackdrop.addEventListener('click', closePhotoViewer);
+      }
+      if(photoModalCloseBtn){
+        photoModalCloseBtn.addEventListener('click', closePhotoViewer);
+      }
+      document.addEventListener('keydown', (ev)=>{
+        if(ev.key === 'Escape'){
+          if(jobStatusModal && jobStatusModal.classList.contains('show')){
+            closeJobStatusModal();
+          }else if(jobModal && jobModal.classList.contains('show')){
+            closeJobModal();
+          }else{
+            closePhotoViewer();
+          }
+        }
+      });
+
+      const closeDetailBtn = $('#woDetailClose');
+      if(closeDetailBtn){
+        closeDetailBtn.addEventListener('click', () => {
+          STATE.selectedId = null;
+          clearDetails();
+        });
+      }
+
+      jobModal = $('#jobModal');
+      jobModalBackdrop = $('#jobModalBackdrop');
+      jobModalCloseBtn = $('#jobModalClose');
+      jobForm = $('#jobForm');
+      jobModalTitle = $('#jobModalTitle');
+      jobWoLabel = $('#jobWoLabel');
+      jobSubmittedByInput = $('#jobSubmittedBy');
+      jobStartDateInput = $('#jobStartDate');
+      jobEndDateInput   = $('#jobEndDate');
+      jobCrewListEl     = $('#jobCrewList');
+      jobCrewBtn        = $('#jobCrewBtn');
+      jobCrewPanel      = $('#jobCrewPanel');
+      jobNotesInput     = $('#jobNotes');
+      jobPhotosInput    = $('#jobPhotos');
+      jobCancelBtn      = $('#jobCancel');
+      jobSaveBtn        = $('#jobSave');
+      jobRangeInputEl   = $('#jobRangeInput');
+
+      jobStatusModal       = $('#jobStatusModal');
+      jobStatusBackdrop    = $('#jobStatusBackdrop');
+      jobStatusCancelBtn   = $('#jobStatusCancel');
+      jobStatusSaveBtn     = $('#jobStatusSave');
+      jobStatusChoiceInputs = document.querySelectorAll('input[name="jobStatusChoice"]');
+
+      if(jobModalBackdrop){
+        jobModalBackdrop.addEventListener('click', closeJobModal);
+      }
+      if(jobModalCloseBtn){
+        jobModalCloseBtn.addEventListener('click', closeJobModal);
+      }
+      if(jobCancelBtn){
+        jobCancelBtn.addEventListener('click', (ev)=>{
+          ev.preventDefault();
+          closeJobModal();
+        });
+      }
+      if(jobForm){
+        jobForm.addEventListener('submit', handleJobSubmit);
+      }
+
+      if(jobStatusBackdrop){
+        jobStatusBackdrop.addEventListener('click', closeJobStatusModal);
+      }
+      if(jobStatusCancelBtn){
+        jobStatusCancelBtn.addEventListener('click', closeJobStatusModal);
+      }
+      if(jobStatusSaveBtn){
+        jobStatusSaveBtn.addEventListener('click', ()=>{
+          let choice = 'inProgress';
+          if(jobStatusChoiceInputs){
+            jobStatusChoiceInputs.forEach(input=>{
+              if(input.checked) choice = input.value;
+            });
+          }
+          const status = choice === 'completed'
+            ? CONFIG.STATUS_DONE
+            : CONFIG.STATUS_INPROG;
+          saveJobWithStatus(status);
+        });
+      }
+
+      // Wire inline dictation for job notes
+      const jobMicBtn = document.getElementById('jobMic');
+      if(jobMicBtn && jobNotesInput){
+        makeInlineMic(jobMicBtn, jobNotesInput);
+      }
+
+      setupCrewDropdown();
+      setupJobSubmittedBy();
+
+      await loadEmployees();
+      await loadActiveWorkOrders();
+    })();
+  </script>
+
+  <script src="/Farm-vista/js/fv-date-range-picker.js"></script>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🛠️</div>
+          <div>
+            <h1>Active Field Maintenance Work Orders</h1>
+            <p class="muted">
+              Shows all work orders that have passed approval and are currently
+              <strong>Pending</strong> or <strong>In Progress</strong>. Status values are read-only here.
+            </p>
+          </div>
+        </header>
+
+        <div class="body">
+          <div class="toolbar">
+            <div class="toolbar-left">
+              <button id="btnBack" type="button" class="btn btn-quiet">
+                ← Back to Work Orders
+              </button>
+            </div>
+            <div class="toolbar-right">
+              <span id="woCount">0 active work orders</span>
+            </div>
+          </div>
+
+          <section aria-label="Pending and in-progress work orders">
+            <div class="wo-empty">
+              No work orders are currently pending or in progress.
+              Once work orders are approved and ready to work, they will appear here.
+            </div>
+            <div class="wo-list"></div>
+          </section>
+
+          <section class="wo-detail-panel" aria-label="Work order details">
+            <div class="wo-detail-header">
+              <div class="wo-detail-title">Work Order Details</div>
+              <button type="button" id="woDetailClose" class="wo-detail-close">
+                Close
+              </button>
+            </div>
+
+            <div class="wo-detail-grid">
+              <!-- filled by JS -->
+            </div>
+
+            <div class="wo-detail-notes">
+              <div class="wo-detail-notes-label">Notes</div>
+              <div class="wo-detail-notes-body"></div>
+            </div>
+
+            <div class="wo-detail-attachments">
+              <div class="wo-detail-attachments-label">Files &amp; Photos</div>
+              <div class="wo-attachments-grid" id="woDetailAttachments">
+                <!-- filled by JS -->
+              </div>
+            </div>
+
+            <div class="wo-detail-footer">
+              <!-- status pill by JS -->
+            </div>
+
+            <div id="woDetailMapShell" style="display:none; margin-top:10px;">
+              <div id="woDetailMap" style="width:100%;height:220px;border-radius:12px;border:1px solid var(--border);overflow:hidden;"></div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <!-- Photo viewer modal -->
+  <div id="photoModal" class="photo-modal" role="dialog" aria-modal="true" aria-label="Work order photo">
+    <div id="photoModalBackdrop" class="photo-backdrop"></div>
+    <div class="photo-sheet">
+      <div class="photo-close-row">
+        <button id="photoModalClose" type="button" class="photo-close-btn">Close</button>
+      </div>
+      <div class="photo-img-wrap">
+        <img id="photoModalImg" src="" alt="Work order photo"/>
+      </div>
+    </div>
+  </div>
+
+  <!-- Start / Continue Job modal -->
+  <div id="jobModal" class="job-modal" role="dialog" aria-modal="true" aria-label="Job for work order">
+    <div id="jobModalBackdrop" class="job-backdrop"></div>
+    <div class="job-sheet">
+      <div class="job-header">
+        <div>
+          <div id="jobModalTitle" class="job-title">Start Job</div>
+          <div class="job-subtitle" id="jobWoLabel"></div>
+        </div>
+        <button id="jobModalClose" type="button" class="job-close-btn" aria-label="Close">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M18.3 5.71a1 1 0 0 0-1.41 0L12 10.59 7.11 5.7A1 1 0 1 0 5.7 7.11L10.59 12l-4.9 4.89a1 1 0 1 0 1.41 1.41L12 13.41l4.89 4.89a1 1 0 0 0 1.41-1.41L13.41 12l4.89-4.89a1 1 0 0 0 0-1.4z"/>
+          </svg>
+        </button>
+      </div>
+
+      <form id="jobForm" class="job-form">
+        <div class="job-field">
+          <label class="job-label" for="jobSubmittedBy">Submitted by</label>
+          <input id="jobSubmittedBy" class="job-input" type="text" readonly />
+        </div>
+
+        <div class="job-field">
+          <div class="job-label">Project dates</div>
+          <div class="job-range-row">
+            <input id="jobRangeInput" class="job-input" type="text" readonly placeholder="Select date range" />
+            <div id="calendarPopover" class="calendar-popover" style="display:none;">
+              <div class="cal-header">
+                <div>
+                  <div class="cal-title">Pick job start and end dates</div>
+                  <div class="cal-controls">
+                    <button type="button" class="cal-nav-btn" id="prevMonthBtn">&#9664;</button>
+                    <select id="monthSelect" class="cal-select"></select>
+                    <select id="yearSelect" class="cal-select"></select>
+                    <button type="button" class="cal-nav-btn" id="nextMonthBtn">&#9654;</button>
+                  </div>
+                </div>
+                <button type="button" class="cal-close-btn" id="closeCalBtn">&times;</button>
+              </div>
+              <div class="cal-body">
+                <div class="cal-weekdays">
+                  <div class="cal-weekday">Sun</div>
+                  <div class="cal-weekday">Mon</div>
+                  <div class="cal-weekday">Tue</div>
+                  <div class="cal-weekday">Wed</div>
+                  <div class="cal-weekday">Thu</div>
+                  <div class="cal-weekday">Fri</div>
+                  <div class="cal-weekday">Sat</div>
+                </div>
+                <div id="calDays" class="cal-days"></div>
+              </div>
+              <div class="cal-footer">
+                <span id="rangeSummary">No dates selected</span>
+                <div class="cal-footer-buttons">
+                  <button type="button" class="cal-btn" id="clearRangeBtn">Clear</button>
+                  <button type="button" class="cal-btn cal-btn-primary" id="applyRangeBtn">Apply</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="job-field">
+          <label class="job-label">Crew members</label>
+          <div class="job-crew-wrap">
+            <button id="jobCrewBtn" type="button" class="job-input job-crew-btn">
+              Select crew…
+            </button>
+            <div id="jobCrewPanel" class="job-crew-panel">
+              <div id="jobCrewList" class="job-crew-list">
+                <!-- checkboxes injected by JS -->
+              </div>
+            </div>
+          </div>
+          <div class="job-note-hint">
+            Select everyone who worked on this job.
+          </div>
+        </div>
+
+        <div class="job-field">
+          <label class="job-label" for="jobNotes">Notes from the field</label>
+          <div class="ta-wrap">
+            <textarea id="jobNotes" class="job-textarea" placeholder="Add notes about work being done..."></textarea>
+            <button id="jobMic" type="button" class="mic-btn" aria-label="Start dictation for notes">
+              <svg class="mic-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H9v2h6v-2h-2v-3.08A7 7 0 0 0 19 11h-2z"/>
+              </svg>
+            </button>
+          </div>
+          <div class="job-note-hint">
+            Your operators can add quick notes here while they are working.
+          </div>
+        </div>
+
+        <div class="job-field">
+          <label class="job-label" for="jobPhotos">Photos</label>
+          <input id="jobPhotos" class="job-input" type="file" accept="image/*" multiple />
+        </div>
+
+        <div class="job-actions">
+          <button id="jobCancel" type="button" class="job-btn">Cancel</button>
+          <button id="jobSave" type="submit" class="job-btn job-btn-primary">Save Job</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Job status modal -->
+  <div id="jobStatusModal" class="status-modal" role="dialog" aria-modal="true" aria-label="Set job status">
+    <div id="jobStatusBackdrop" class="status-backdrop"></div>
+    <div class="status-sheet">
+      <div class="status-title">Set Job Status</div>
+      <div class="status-text">
+        How do you want to mark this job?
+      </div>
+
+      <div class="status-options">
+        <label class="status-option">
+          <input type="radio" name="jobStatusChoice" value="inProgress" checked />
+          <span>
+            <span class="status-option-title">Still in progress</span>
+            <span class="status-option-sub">Keep this job active for the crew.</span>
+          </span>
+        </label>
+
+        <label class="status-option">
+          <input type="radio" name="jobStatusChoice" value="completed" />
+          <span>
+            <span class="status-option-title">Job completed</span>
+            <span class="status-option-sub">Mark this work order as finished.</span>
+          </span>
+        </label>
+      </div>
+
+      <div class="status-buttons">
+        <button id="jobStatusCancel" type="button" class="status-btn">Cancel</button>
+        <button id="jobStatusSave" type="button" class="status-btn status-btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
