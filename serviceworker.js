@@ -156,3 +156,97 @@ self.addEventListener('message', async (e)=>{
     return;
   }
 });
+
+
+/* ===================================================== */
+/*                 PUSH NOTIFICATIONS                    */
+/* ===================================================== */
+
+/**
+ * Expected push payload shape (JSON):
+ * {
+ *   "title": "FarmVista – New Boundary Request",
+ *   "body": "Assumption-Tville • 0111-JAM – Tap to review.",
+ *   "url": "/pages/reports/reports-boundary-requests.html"
+ * }
+ *
+ * - title: notification title
+ * - body:  main text
+ * - url:   in-app path to open when tapped (relative to SCOPE_PREFIX or absolute URL)
+ */
+
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    if (event.data) {
+      data = event.data.json();
+    }
+  } catch (err) {
+    // If payload isn't JSON, fall back to treating it as text
+    try {
+      data = { body: event.data && event.data.text ? event.data.text() : '' };
+    } catch {}
+  }
+
+  const title = data.title || 'FarmVista';
+  const body  = data.body  || 'You have a new notification.';
+  let url     = data.url   || `${SCOPE_PREFIX}`;
+
+  // If url is relative (starts with / but not full origin), keep it; otherwise prefix
+  try {
+    const u = new URL(url, self.location.origin);
+    if (!u.pathname.startsWith(SCOPE_PREFIX)) {
+      // If backend just sends "/pages/..." we prefix with scope
+      url = `${SCOPE_PREFIX.replace(/\/$/,'')}${u.pathname}`;
+      if (u.search) url += u.search;
+      if (u.hash)   url += u.hash;
+    } else {
+      url = u.pathname + u.search + u.hash;
+    }
+  } catch {
+    // If anything goes wrong, just fallback to app root
+    url = `${SCOPE_PREFIX}`;
+  }
+
+  const options = {
+    body,
+    icon: `${SCOPE_PREFIX}assets/icons/icon-192.png`,
+    badge: `${SCOPE_PREFIX}assets/icons/icon-192.png`,
+    data: { url }
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(title, options)
+  );
+});
+
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = (event.notification && event.notification.data && event.notification.data.url) ||
+                    `${SCOPE_PREFIX}`;
+
+  event.waitUntil((async () => {
+    const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+
+    // Try to focus an existing client that already has FarmVista open
+    for (const client of allClients) {
+      try {
+        const clientUrl = new URL(client.url);
+        if (clientUrl.origin === self.location.origin && clientUrl.pathname.startsWith(SCOPE_PREFIX)) {
+          await client.focus();
+          // Navigate that client if needed
+          if (targetUrl && clientUrl.pathname + clientUrl.search + clientUrl.hash !== targetUrl) {
+            client.navigate(targetUrl);
+          }
+          return;
+        }
+      } catch {
+        // ignore malformed URLs
+      }
+    }
+
+    // If no suitable client, open a new window
+    await self.clients.openWindow(targetUrl);
+  })());
+});
