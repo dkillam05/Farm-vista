@@ -124,7 +124,7 @@
         </form>
       </div>
 
-      <!-- Notifications card: will be hidden by JS if not mobile PWA -->
+      <!-- Notifications card: will be hidden by JS if not supported environment -->
       <div class="card" style="max-width:780px;" id="fv-notify-card">
         <h2 class="card-title">Notifications</h2>
         <div class="setting" id="fv-notify-setting">
@@ -244,14 +244,19 @@
       return 'other';
     }
 
-    // Detect if we're running as a mobile PWA (home-screen app)
+    // Detect if we're running as a mobile/tablet PWA (home-screen app), not desktop
     function isMobilePWA() {
       const ua = (navigator.userAgent || '').toLowerCase();
-      const isMobile = /iphone|ipad|ipod|android/.test(ua);
       const standaloneMedia =
         window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
       const iosStandalone = (window.navigator && window.navigator.standalone === true);
-      return isMobile && (standaloneMedia || iosStandalone);
+      const isStandalone = standaloneMedia || iosStandalone;
+
+      const isMobileUA = /iphone|ipad|ipod|android/.test(ua);
+      const hasTouch = navigator.maxTouchPoints && navigator.maxTouchPoints > 1;
+
+      // Standalone + (classic mobile UA OR touch device) → treat as phone/tablet PWA
+      return isStandalone && (isMobileUA || hasTouch);
     }
 
     function urlBase64ToUint8Array(base64String) {
@@ -474,23 +479,23 @@
           console.error(e);
         }
 
-        // Hide notifications section if not mobile PWA
         const notifyCard = document.getElementById('fv-notify-card');
         const toggle = $('fv-toggle-push');
 
+        // If not mobile/tablet PWA → hide notifications section, do not wire
         if (!isMobilePWA()) {
           if (notifyCard) notifyCard.style.display = 'none';
           if (toggle) toggle.checked = false;
-          return; // do NOT wire notifications on non-mobile-PWA
+          return;
         }
 
-        // Mobile PWA: sync and wire notifications
+        // Mobile/tablet PWA → sync + wire notifications
         await syncNotificationStateFromFirestore(user);
         wireNotificationToggle(user);
       });
     }
 
-    // Initial hide if not mobile PWA to avoid seeing the card on desktop
+    // Pre-hide on initial load if clearly not mobile PWA
     const preNotifyCard = document.getElementById('fv-notify-card');
     if (preNotifyCard && !isMobilePWA()) {
       preNotifyCard.style.display = 'none';
