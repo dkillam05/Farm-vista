@@ -149,15 +149,6 @@
       margin-top:4px;
     }
 
-    /* Status dropdown – inside hero */
-    .status-filter-wrap{
-      display:flex;
-      flex-direction:column;
-      gap:3px;
-      font-size:0.85rem;
-      max-width:260px;
-    }
-
     .status-filter-label{
       font-size:0.78rem;
       text-transform:uppercase;
@@ -174,37 +165,174 @@
       font-size:0.9rem;
     }
 
-    .status-filter-buttons{
-      display:flex;
-      flex-wrap:wrap;
-      gap:6px;
-    }
-
-    .status-chip{
-      border-radius:999px;
-      border:1px solid var(--border);
-      padding:5px 10px;
-      font-size:0.8rem;
-      background:var(--card-surface, var(--surface));
-      cursor:pointer;
-      text-transform:uppercase;
-      letter-spacing:0.06em;
-      opacity:0.85;
-    }
-
-    .status-chip.active{
-      background:var(--accent);
-      border-color:var(--accent);
-      color:#fff;
-      opacity:1;
-    }
-
     .year-filter-wrap{
       display:flex;
       flex-direction:column;
       gap:3px;
       font-size:0.85rem;
       max-width:180px;
+    }
+
+    /* New: Equipment Lookup–style filter button + popover */
+
+    .filter-status-group{
+      position:relative;
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+    }
+
+    .filter-button{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:8px 12px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      font-size:0.85rem;
+      cursor:pointer;
+      box-shadow:var(--shadow-soft,0 2px 6px rgba(0,0,0,.06));
+      transition:background .12s, box-shadow .12s, transform .06s, border-color .12s;
+    }
+
+    .filter-button:hover{
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      box-shadow:var(--shadow,0 6px 16px rgba(0,0,0,.12));
+    }
+
+    .filter-button:active{
+      transform:scale(.99);
+      box-shadow:var(--shadow,0 3px 10px rgba(0,0,0,.16));
+    }
+
+    .filter-icon{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:20px;
+      height:20px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 60%, var(--border) 40%);
+      color:var(--accent);
+      flex-shrink:0;
+    }
+
+    .filter-icon svg{
+      width:14px;
+      height:14px;
+      display:block;
+    }
+
+    .filter-text{
+      display:flex;
+      flex-direction:column;
+      align-items:flex-start;
+      gap:1px;
+      text-align:left;
+    }
+
+    .filter-label{
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      font-size:0.7rem;
+      opacity:0.7;
+    }
+
+    .filter-value{
+      font-weight:600;
+      font-size:0.85rem;
+    }
+
+    .filter-popover{
+      position:absolute;
+      top:110%;
+      left:0;
+      min-width:230px;
+      border-radius:14px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      box-shadow:0 14px 30px rgba(0,0,0,.18);
+      padding:10px 12px 10px;
+      z-index:1000;
+      display:none;
+    }
+
+    .filter-popover.is-open{
+      display:block;
+    }
+
+    .filter-popover-header{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      margin-bottom:6px;
+    }
+
+    .filter-popover-title{
+      font-size:0.78rem;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      opacity:0.75;
+    }
+
+    .filter-popover-body{
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+      margin-bottom:4px;
+    }
+
+    .filter-option{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      font-size:0.9rem;
+      cursor:pointer;
+      padding:4px 2px;
+    }
+
+    .filter-option input[type="checkbox"]{
+      width:16px;
+      height:16px;
+      accent-color:var(--accent);
+      flex-shrink:0;
+    }
+
+    .filter-popover-footer{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      margin-top:4px;
+      font-size:0.78rem;
+      gap:8px;
+    }
+
+    .filter-reset{
+      border:none;
+      background:none;
+      padding:0;
+      cursor:pointer;
+      text-decoration:underline;
+      text-underline-offset:2px;
+      opacity:0.7;
+    }
+
+    .filter-reset:hover{
+      opacity:1;
+    }
+
+    .filter-done{
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:4px 10px;
+      background:var(--card-surface,var(--surface));
+      cursor:pointer;
+      font-size:0.8rem;
+    }
+
+    .filter-done:hover{
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
     }
 
     /* Trial list */
@@ -860,7 +988,11 @@
             statuses = arr.map(s => String(s).toLowerCase());
           }
         }
-        STATE.filterStatuses = new Set(statuses);
+        let set = new Set(statuses);
+        if(set.has(CONFIG.STATUS_ALL) && set.size > 1){
+          set = new Set([CONFIG.STATUS_ALL]);
+        }
+        STATE.filterStatuses = set;
 
         const rawYear = localStorage.getItem(STORAGE_KEYS.YEAR);
         STATE.filterYear = rawYear ? String(rawYear) : 'all';
@@ -878,21 +1010,6 @@
       }catch{
         // ignore
       }
-    }
-
-    function syncStatusButtonsFromState(){
-      const buttons = $$('#statusFilterButtons .status-chip');
-      if(!buttons.length) return;
-      const active = STATE.filterStatuses || new Set([CONFIG.STATUS_ALL]);
-      const hasAll = active.has(CONFIG.STATUS_ALL);
-      buttons.forEach(btn => {
-        const code = (btn.dataset.status || '').toLowerCase();
-        if(hasAll){
-          btn.classList.toggle('active', code === CONFIG.STATUS_ALL);
-        }else{
-          btn.classList.toggle('active', active.has(code));
-        }
-      });
     }
 
     function populateYearFilter(){
@@ -1139,32 +1256,137 @@
       renderList();
     }
 
-    function handleStatusChipClick(event){
-      const btn = event.target.closest('.status-chip');
-      if(!btn) return;
-      const code = (btn.dataset.status || '').toLowerCase();
-      if(!code) return;
+    // === New: sync Equipment Lookup–style status filter UI ===
+    function syncStatusFilterUI(){
+      const statuses = STATE.filterStatuses || new Set([CONFIG.STATUS_ALL]);
+      const hasAll = statuses.has(CONFIG.STATUS_ALL);
+      const popover = document.getElementById('statusFilterPopover');
+      const summaryEl = document.getElementById('statusFilterSummary');
 
-      let next = new Set(STATE.filterStatuses || [CONFIG.STATUS_ALL]);
+      if(popover){
+        const checkboxes = popover.querySelectorAll('input[type="checkbox"][data-status]');
+        checkboxes.forEach(cb => {
+          const code = (cb.dataset.status || '').toLowerCase();
+          if(!code) return;
+          if(hasAll){
+            cb.checked = (code === CONFIG.STATUS_ALL);
+          }else{
+            cb.checked = statuses.has(code);
+          }
+        });
+      }
 
-      if(code === CONFIG.STATUS_ALL){
-        next = new Set([CONFIG.STATUS_ALL]);
-      }else{
-        next.delete(CONFIG.STATUS_ALL);
-        if(next.has(code)){
-          next.delete(code);
-        }else{
-          next.add(code);
+      if(summaryEl){
+        let label = 'All';
+        if(!hasAll){
+          const vals = Array.from(statuses).map(getStatusLabel);
+          if(vals.length === 1){
+            label = vals[0];
+          }else if(vals.length === 2){
+            label = vals.join(', ');
+          }else if(vals.length > 2){
+            label = `${vals.length} selected`;
+          }
         }
-        if(next.size === 0){
-          next.add(CONFIG.STATUS_ALL);
+        summaryEl.textContent = label;
+      }
+    }
+
+    function initStatusFilter(){
+      const btn = document.getElementById('statusFilterButton');
+      const pop = document.getElementById('statusFilterPopover');
+      if(!btn || !pop) return;
+
+      function openPop(){
+        pop.classList.add('is-open');
+        btn.setAttribute('aria-expanded','true');
+      }
+      function closePop(){
+        pop.classList.remove('is-open');
+        btn.setAttribute('aria-expanded','false');
+      }
+      function togglePop(){
+        if(pop.classList.contains('is-open')){
+          closePop();
+        }else{
+          openPop();
         }
       }
 
-      STATE.filterStatuses = next;
-      syncStatusButtonsFromState();
-      saveFilterPrefs();
-      applyFilters();
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        togglePop();
+      });
+
+      pop.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+
+      document.addEventListener('click', () => {
+        if(pop.classList.contains('is-open')){
+          closePop();
+        }
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if(e.key === 'Escape'){
+          closePop();
+        }
+      });
+
+      const checkboxes = pop.querySelectorAll('input[type="checkbox"][data-status]');
+      checkboxes.forEach(cb => {
+        cb.addEventListener('change', () => {
+          const code = (cb.dataset.status || '').toLowerCase();
+          if(!code) return;
+
+          let next = new Set(STATE.filterStatuses || [CONFIG.STATUS_ALL]);
+
+          if(code === CONFIG.STATUS_ALL){
+            if(cb.checked){
+              next = new Set([CONFIG.STATUS_ALL]);
+            }else{
+              // Keep at least one option; don't allow unchecking All with nothing else
+              cb.checked = true;
+              return;
+            }
+          }else{
+            next.delete(CONFIG.STATUS_ALL);
+            if(cb.checked){
+              next.add(code);
+            }else{
+              next.delete(code);
+            }
+            if(next.size === 0){
+              next.add(CONFIG.STATUS_ALL);
+            }
+          }
+
+          STATE.filterStatuses = next;
+          syncStatusFilterUI();
+          saveFilterPrefs();
+          applyFilters();
+        });
+      });
+
+      const resetBtn = document.getElementById('statusFilterReset');
+      if(resetBtn){
+        resetBtn.addEventListener('click', () => {
+          STATE.filterStatuses = new Set([CONFIG.STATUS_ALL]);
+          syncStatusFilterUI();
+          saveFilterPrefs();
+          applyFilters();
+        });
+      }
+
+      const doneBtn = document.getElementById('statusFilterDone');
+      if(doneBtn){
+        doneBtn.addEventListener('click', () => {
+          closePop();
+        });
+      }
+
+      syncStatusFilterUI();
     }
 
     // Apply stats to a given trial card DOM node
@@ -1589,55 +1811,55 @@
       const grid = $('.trial-detail-grid', panel);
       if(grid){
         grid.innerHTML = `
-          ${(cropYear !== null || crop) ? `
+          ${(cropYear !== null || crop) ? \`
           <div>
             <div class="trial-detail-item-label">Crop Year / Crop</div>
             <div class="trial-detail-item-value">
-              ${cropYear !== null ? escapeHtml(cropYear) : ''}${cropYear && crop ? ' • ' : ''}${escapeHtml(crop)}
+              \${cropYear !== null ? escapeHtml(cropYear) : ''}\${cropYear && crop ? ' • ' : ''}\${escapeHtml(crop)}
             </div>
-          </div>` : ''}
+          </div>\` : ''}
 
-          ${trialType ? `
+          \${trialType ? \`
           <div>
             <div class="trial-detail-item-label">Trial Type</div>
-            <div class="trial-detail-item-value">${escapeHtml(trialType)}</div>
-          </div>` : ''}
+            <div class="trial-detail-item-value">\${escapeHtml(trialType)}</div>
+          </div>\` : ''}
 
-          ${operationTask ? `
+          \${operationTask ? \`
           <div>
             <div class="trial-detail-item-label">Operation</div>
-            <div class="trial-detail-item-value">${escapeHtml(operationTask)}</div>
-          </div>` : ''}
+            <div class="trial-detail-item-value">\${escapeHtml(operationTask)}</div>
+          </div>\` : ''}
 
-          ${treatment ? `
+          \${treatment ? \`
           <div>
             <div class="trial-detail-item-label">Treatment Product</div>
-            <div class="trial-detail-item-value">${escapeHtml(treatment)}</div>
-          </div>` : ''}
+            <div class="trial-detail-item-value">\${escapeHtml(treatment)}</div>
+          </div>\` : ''}
 
-          ${check ? `
+          \${check ? \`
           <div>
             <div class="trial-detail-item-label">Check</div>
-            <div class="trial-detail-item-value">${escapeHtml(check)}</div>
-          </div>` : ''}
+            <div class="trial-detail-item-value">\${escapeHtml(check)}</div>
+          </div>\` : ''}
 
-          ${createdBy ? `
+          \${createdBy ? \`
           <div>
             <div class="trial-detail-item-label">Created By</div>
-            <div class="trial-detail-item-value">${escapeHtml(createdBy)}</div>
-          </div>` : ''}
+            <div class="trial-detail-item-value">\${escapeHtml(createdBy)}</div>
+          </div>\` : ''}
 
-          ${when ? `
+          \${when ? \`
           <div>
             <div class="trial-detail-item-label">Created</div>
-            <div class="trial-detail-item-value">${when.toLocaleString()}</div>
-          </div>` : ''}
+            <div class="trial-detail-item-value">\${when.toLocaleString()}</div>
+          </div>\` : ''}
 
-          ${status ? `
+          \${status ? \`
           <div>
             <div class="trial-detail-item-label">Status</div>
-            <div class="trial-detail-item-value">${escapeHtml(getStatusLabel(status))}</div>
-          </div>` : ''}
+            <div class="trial-detail-item-value">\${escapeHtml(getStatusLabel(status))}</div>
+          </div>\` : ''}
         `;
       }
 
@@ -2600,11 +2822,8 @@
         fileCloseBtn.addEventListener('click', closeFileViewer);
       }
 
-      const statusButtonsWrap = document.getElementById('statusFilterButtons');
-      if(statusButtonsWrap){
-        statusButtonsWrap.addEventListener('click', handleStatusChipClick);
-        syncStatusButtonsFromState();
-      }
+      // New: init Equipment Lookup–style status filter (multi-select)
+      initStatusFilter();
 
       const yearSelect = $('#trialYearFilter');
       if(yearSelect){
@@ -2673,13 +2892,61 @@
           </div>
 
           <div class="filters-row">
-            <div class="status-filter-wrap">
-              <div class="status-filter-label">Status</div>
-              <div class="status-filter-buttons" id="statusFilterButtons">
-                <button type="button" class="status-chip" data-status="all">All</button>
-                <button type="button" class="status-chip" data-status="pending">Pending</button>
-                <button type="button" class="status-chip" data-status="active">Active</button>
-                <button type="button" class="status-chip" data-status="completed">Completed</button>
+            <!-- New: Equipment Lookup–style Status filter (multi-select) -->
+            <div class="filter-status-group">
+              <button
+                type="button"
+                id="statusFilterButton"
+                class="filter-button"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+              >
+                <span class="filter-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 4h16v2.2L14 12v6l-4 2v-8L4 6.2V4z" fill="currentColor"/>
+                  </svg>
+                </span>
+                <span class="filter-text">
+                  <span class="filter-label">Status</span>
+                  <span class="filter-value" id="statusFilterSummary">All</span>
+                </span>
+              </button>
+
+              <div
+                class="filter-popover"
+                id="statusFilterPopover"
+                role="dialog"
+                aria-label="Filter by status"
+              >
+                <div class="filter-popover-header">
+                  <span class="filter-popover-title">Status</span>
+                </div>
+                <div class="filter-popover-body">
+                  <label class="filter-option">
+                    <input type="checkbox" data-status="all" value="all">
+                    <span>All</span>
+                  </label>
+                  <label class="filter-option">
+                    <input type="checkbox" data-status="pending" value="pending">
+                    <span>Pending</span>
+                  </label>
+                  <label class="filter-option">
+                    <input type="checkbox" data-status="active" value="active">
+                    <span>Active</span>
+                  </label>
+                  <label class="filter-option">
+                    <input type="checkbox" data-status="completed" value="completed">
+                    <span>Completed</span>
+                  </label>
+                </div>
+                <div class="filter-popover-footer">
+                  <button type="button" class="filter-reset" id="statusFilterReset">
+                    Reset
+                  </button>
+                  <button type="button" class="filter-done" id="statusFilterDone">
+                    Done
+                  </button>
+                </div>
               </div>
             </div>
 
