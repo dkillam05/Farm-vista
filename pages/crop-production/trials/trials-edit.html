@@ -140,14 +140,22 @@
       box-sizing:border-box;
     }
 
+    /* Status + year filters row */
+    .filters-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:12px;
+      align-items:flex-end;
+      margin-top:4px;
+    }
+
     /* Status dropdown – inside hero */
     .status-filter-wrap{
       display:flex;
       flex-direction:column;
       gap:3px;
       font-size:0.85rem;
-      margin-top:4px;
-      max-width:220px;
+      max-width:260px;
     }
 
     .status-filter-label{
@@ -164,6 +172,39 @@
       border:1px solid var(--border);
       background:var(--card-surface, var(--surface));
       font-size:0.9rem;
+    }
+
+    .status-filter-buttons{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+    }
+
+    .status-chip{
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:5px 10px;
+      font-size:0.8rem;
+      background:var(--card-surface, var(--surface));
+      cursor:pointer;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.85;
+    }
+
+    .status-chip.active{
+      background:var(--accent);
+      border-color:var(--accent);
+      color:#fff;
+      opacity:1;
+    }
+
+    .year-filter-wrap{
+      display:flex;
+      flex-direction:column;
+      gap:3px;
+      font-size:0.85rem;
+      max-width:180px;
     }
 
     /* Trial list */
@@ -772,14 +813,19 @@
       ADD_YIELD_MH_URL: '/Farm-vista/pages/crop-production/trials/trial-field-yield-mh.html'
     };
 
+    const STORAGE_KEYS = {
+      STATUSES: 'fv_trialAddField_statuses',
+      YEAR: 'fv_trialAddField_year'
+    };
+
     const STATE = {
       db: null,
       allItems: [],
       items: [],
       selectedId: null,
-      filterStatus: null,
+      filterStatuses: new Set([CONFIG.STATUS_ALL]),
+      filterYear: 'all',
       loaded: false,
-      pendingFilter: null,
       isLoading: false,
       retryCount: 0,
       // MH trials: trialId -> boolean (true = has field, false = no field)
@@ -803,6 +849,71 @@
 
     const $  = (sel, root=document) => root.querySelector(sel);
     const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+    function loadFilterPrefs(){
+      try{
+        const rawStatuses = localStorage.getItem(STORAGE_KEYS.STATUSES);
+        let statuses = [CONFIG.STATUS_ALL];
+        if(rawStatuses){
+          const arr = JSON.parse(rawStatuses);
+          if(Array.isArray(arr) && arr.length){
+            statuses = arr.map(s => String(s).toLowerCase());
+          }
+        }
+        STATE.filterStatuses = new Set(statuses);
+
+        const rawYear = localStorage.getItem(STORAGE_KEYS.YEAR);
+        STATE.filterYear = rawYear ? String(rawYear) : 'all';
+      }catch{
+        STATE.filterStatuses = new Set([CONFIG.STATUS_ALL]);
+        STATE.filterYear = 'all';
+      }
+    }
+
+    function saveFilterPrefs(){
+      try{
+        const statuses = Array.from(STATE.filterStatuses || []);
+        localStorage.setItem(STORAGE_KEYS.STATUSES, JSON.stringify(statuses));
+        localStorage.setItem(STORAGE_KEYS.YEAR, STATE.filterYear || 'all');
+      }catch{
+        // ignore
+      }
+    }
+
+    function syncStatusButtonsFromState(){
+      const buttons = $$('#statusFilterButtons .status-chip');
+      if(!buttons.length) return;
+      const active = STATE.filterStatuses || new Set([CONFIG.STATUS_ALL]);
+      const hasAll = active.has(CONFIG.STATUS_ALL);
+      buttons.forEach(btn => {
+        const code = (btn.dataset.status || '').toLowerCase();
+        if(hasAll){
+          btn.classList.toggle('active', code === CONFIG.STATUS_ALL);
+        }else{
+          btn.classList.toggle('active', active.has(code));
+        }
+      });
+    }
+
+    function populateYearFilter(){
+      const yearSelect = $('#trialYearFilter');
+      if(!yearSelect) return;
+      const years = STATE.optionLists?.cropYears || [];
+      const current = STATE.filterYear || 'all';
+
+      let html = '<option value="all">All years</option>';
+      years.forEach(y => {
+        if(y === null || y === undefined) return;
+        const val = String(y);
+        const sel = (String(current) === val) ? ' selected' : '';
+        html += `<option value="${val}"${sel}>${val}</option>`;
+      });
+      yearSelect.innerHTML = html;
+
+      if(window.FVCombo && typeof window.FVCombo.upgrade === 'function'){
+        window.FVCombo.upgrade(yearSelect.parentNode);
+      }
+    }
 
     function fmtNumber(value, decimals){
       const n = Number(value);
@@ -986,6 +1097,74 @@
       const isMh = isMultiHybridTrialData(data);
       const base = isMh ? CONFIG.ADD_YIELD_MH_URL : CONFIG.ADD_YIELD_URL;
       return `${base}?trialId=${encodeURIComponent(trialId)}`;
+    }
+
+    function applyFilters(){
+      const emptyEl = $('.trial-empty');
+      const countEl = $('#trialCount');
+
+      if(!STATE.loaded){
+        if(emptyEl){
+          emptyEl.style.display = 'block';
+          emptyEl.textContent = 'Loading trials...';
+        }
+        if(countEl){
+          countEl.textContent = 'Loading trials...';
+        }
+        clearDetails();
+        return;
+      }
+
+      const statuses = STATE.filterStatuses || new Set([CONFIG.STATUS_ALL]);
+      const yearFilter = STATE.filterYear || 'all';
+
+      let filtered = STATE.allItems.slice();
+
+      if(!statuses.has(CONFIG.STATUS_ALL)){
+        filtered = filtered.filter(item => {
+          const s = (item.data[CONFIG.STATUS_FIELD] || CONFIG.STATUS_PENDING).toString().toLowerCase();
+          return statuses.has(s);
+        });
+      }
+
+      if(yearFilter !== 'all'){
+        filtered = filtered.filter(item => {
+          const cy = item.data.cropYear ?? null;
+          return cy != null && String(cy) === String(yearFilter);
+        });
+      }
+
+      STATE.items = filtered;
+      clearDetails();
+      renderList();
+    }
+
+    function handleStatusChipClick(event){
+      const btn = event.target.closest('.status-chip');
+      if(!btn) return;
+      const code = (btn.dataset.status || '').toLowerCase();
+      if(!code) return;
+
+      let next = new Set(STATE.filterStatuses || [CONFIG.STATUS_ALL]);
+
+      if(code === CONFIG.STATUS_ALL){
+        next = new Set([CONFIG.STATUS_ALL]);
+      }else{
+        next.delete(CONFIG.STATUS_ALL);
+        if(next.has(code)){
+          next.delete(code);
+        }else{
+          next.add(code);
+        }
+        if(next.size === 0){
+          next.add(CONFIG.STATUS_ALL);
+        }
+      }
+
+      STATE.filterStatuses = next;
+      syncStatusButtonsFromState();
+      saveFilterPrefs();
+      applyFilters();
     }
 
     // Apply stats to a given trial card DOM node
@@ -1812,9 +1991,8 @@
 
         // Refresh Firestore-derived lists as a fallback
         rebuildOptionLists();
-
-        const currentFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
-        applyFilter(currentFilter);
+        populateYearFilter();
+        applyFilters();
 
         showToast('Trial setup updated.');
       }catch(err){
@@ -1949,29 +2127,30 @@
 
       listEl.innerHTML = '';
 
-      const statusCode  = STATE.filterStatus || CONFIG.STATUS_ALL;
+      const statuses = STATE.filterStatuses || new Set([CONFIG.STATUS_ALL]);
+      const yearFilter = STATE.filterYear || 'all';
+      const isAllStatuses = statuses.has(CONFIG.STATUS_ALL);
+      const isAllYears = yearFilter === 'all';
+      const usingFilters = !(isAllStatuses && isAllYears);
 
-      let labelLower = '';
-      if(statusCode === CONFIG.STATUS_ALL){
-        labelLower = 'trials';
-      }else{
-        const statusLabel = getStatusLabel(statusCode);
-        labelLower  = statusLabel ? statusLabel.toLowerCase() : 'pending';
+      let labelLower = 'trials';
+      if(!isAllStatuses && statuses.size === 1){
+        const single = Array.from(statuses)[0];
+        const statusLabel = getStatusLabel(single);
+        if(statusLabel){
+          labelLower = `${statusLabel.toLowerCase()} trials`;
+        }
       }
 
       if(!STATE.items.length){
         if(emptyEl) {
           emptyEl.style.display = 'block';
-          emptyEl.textContent = statusCode === CONFIG.STATUS_ALL
-            ? 'No trials right now.'
-            : `No ${labelLower} trials right now.`;
+          emptyEl.textContent = usingFilters
+            ? 'No trials match your filters.'
+            : 'No trials right now.';
         }
         if(countEl){
-          if(statusCode === CONFIG.STATUS_ALL){
-            countEl.textContent = '0 trials';
-          }else{
-            countEl.textContent = `0 ${labelLower} trials`;
-          }
+          countEl.textContent = '0 trials';
         }
         clearDetails();
         return;
@@ -2101,59 +2280,15 @@
 
       const countEl2 = $('#trialCount');
       if(countEl2){
-        if(statusCode === CONFIG.STATUS_ALL){
-          countEl2.textContent = `${STATE.items.length} trial${STATE.items.length === 1 ? '' : 's'}`;
+        const total = STATE.items.length;
+        if(usingFilters){
+          countEl2.textContent = `${total} filtered trial${total === 1 ? '' : 's'}`;
         }else{
-          countEl2.textContent = `${STATE.items.length} ${labelLower} trial${STATE.items.length === 1 ? '' : 's'}`;
+          countEl2.textContent = `${total} trial${total === 1 ? '' : 's'}`;
         }
       }
 
       setupMobileSwipe(listEl);
-    }
-
-    function applyFilter(statusCode){
-      const raw = statusCode || CONFIG.STATUS_ALL;
-      const status = String(raw).toLowerCase();
-
-      STATE.filterStatus = status;
-
-      const sel = $('#trialStatusFilter');
-      if(sel && sel.value !== status){
-        sel.value = status;
-      }
-
-      if(!STATE.loaded){
-        STATE.pendingFilter = status;
-
-        const emptyEl = $('.trial-empty');
-        const countEl = $('#trialCount');
-        const listEl  = $('.trial-list');
-
-        if(listEl) listEl.innerHTML = '';
-        if(emptyEl){
-          emptyEl.style.display = 'block';
-          emptyEl.textContent = 'Loading trials...';
-        }
-        if(countEl){
-          countEl.textContent = 'Loading trials...';
-        }
-        clearDetails();
-        return;
-      }
-
-      let filtered;
-      if(status === CONFIG.STATUS_ALL){
-        filtered = STATE.allItems.slice();
-      }else{
-        filtered = STATE.allItems.filter(item => {
-          const s = (item.data[CONFIG.STATUS_FIELD] || CONFIG.STATUS_PENDING).toString().toLowerCase();
-          return s === status;
-        });
-      }
-
-      STATE.items = filtered;
-      clearDetails();
-      renderList();
     }
 
     async function loadAllTrials(){
@@ -2206,10 +2341,8 @@
         STATE.retryCount = 0;
 
         rebuildOptionLists();
-
-        const desired = STATE.pendingFilter || STATE.filterStatus || CONFIG.STATUS_ALL;
-        STATE.pendingFilter = null;
-        applyFilter(desired);
+        populateYearFilter();
+        applyFilters();
       }catch(err){
         console.error('Error loading trials:', err);
 
@@ -2230,7 +2363,6 @@
           STATE.retryCount++;
           setTimeout(() => {
             STATE.loaded = false;
-            STATE.pendingFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
             loadAllTrials();
           }, 1500);
         }
@@ -2265,8 +2397,7 @@
           itemFiltered.data[CONFIG.STATUS_FIELD] = CONFIG.STATUS_COMPLETED;
         }
 
-        const currentFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
-        applyFilter(currentFilter);
+        applyFilters();
 
         showToast('Trial marked as completed.');
       }catch(err){
@@ -2343,7 +2474,7 @@
         STATE.items = STATE.items.filter(x => x.id !== id);
         STATE.selectedId = null;
 
-        applyFilter(STATE.filterStatus || CONFIG.STATUS_ALL);
+        applyFilters();
         clearDetails();
         showToast('Trial deleted.');
       }catch(err){
@@ -2358,9 +2489,7 @@
     (async function boot(){
       await ready;
       STATE.db = getFirestore();
-      STATE.filterStatus = CONFIG.STATUS_ALL;
       STATE.loaded = false;
-      STATE.pendingFilter = null;
       STATE.retryCount = 0;
       STATE.mhHasFieldByTrial = {};
       STATE.trialStats = {};
@@ -2372,6 +2501,8 @@
         trialTypes: [],
         operationTasks: []
       };
+
+      loadFilterPrefs();
 
       const shell = document.querySelector('fv-shell');
       if (shell) shell.nav = NAV_MENU;
@@ -2469,12 +2600,19 @@
         fileCloseBtn.addEventListener('click', closeFileViewer);
       }
 
-      const statusSelect = $('#trialStatusFilter');
-      if(statusSelect){
-        statusSelect.value = CONFIG.STATUS_ALL;
-        statusSelect.addEventListener('change', () => {
-          const val = (statusSelect.value || CONFIG.STATUS_ALL).toLowerCase();
-          applyFilter(val);
+      const statusButtonsWrap = document.getElementById('statusFilterButtons');
+      if(statusButtonsWrap){
+        statusButtonsWrap.addEventListener('click', handleStatusChipClick);
+        syncStatusButtonsFromState();
+      }
+
+      const yearSelect = $('#trialYearFilter');
+      if(yearSelect){
+        yearSelect.addEventListener('change', () => {
+          const val = yearSelect.value || 'all';
+          STATE.filterYear = val;
+          saveFilterPrefs();
+          applyFilters();
         });
       }
 
@@ -2482,14 +2620,13 @@
       if(emptyEl){
         emptyEl.addEventListener('click', () => {
           if(!STATE.db || STATE.isLoading) return;
-          STATE.pendingFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
           loadAllTrials();
         });
       }
 
       await loadAllTrials();
 
-      // Ensure fv-combo upgrades the top Status filter combo and any others on initial load
+      // Ensure fv-combo upgrades any selects on initial load
       if (window.FVCombo && typeof window.FVCombo.upgrade === 'function') {
         window.FVCombo.upgrade(document);
       }
@@ -2497,14 +2634,12 @@
 
     window.addEventListener('focus', () => {
       if(!STATE.db) return;
-      STATE.pendingFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
       loadAllTrials();
     });
 
     window.addEventListener('pageshow', (event) => {
       if(!STATE.db) return;
       if(event.persisted){
-        STATE.pendingFilter = STATE.filterStatus || CONFIG.STATUS_ALL;
         loadAllTrials();
       }
     });
@@ -2537,19 +2672,27 @@
             </div>
           </div>
 
-          <div class="status-filter-wrap">
-            <label for="trialStatusFilter" class="status-filter-label">Status</label>
-            <!-- TOP FILTER: fv-combo -->
-            <select
-              id="trialStatusFilter"
-              class="select status-filter-select"
-              data-fv-combo
-            >
-              <option value="all">All</option>
-              <option value="pending">Pending</option>
-              <option value="active">Active</option>
-              <option value="completed">Completed</option>
-            </select>
+          <div class="filters-row">
+            <div class="status-filter-wrap">
+              <div class="status-filter-label">Status</div>
+              <div class="status-filter-buttons" id="statusFilterButtons">
+                <button type="button" class="status-chip" data-status="all">All</button>
+                <button type="button" class="status-chip" data-status="pending">Pending</button>
+                <button type="button" class="status-chip" data-status="active">Active</button>
+                <button type="button" class="status-chip" data-status="completed">Completed</button>
+              </div>
+            </div>
+
+            <div class="year-filter-wrap">
+              <label for="trialYearFilter" class="status-filter-label">Year</label>
+              <select
+                id="trialYearFilter"
+                class="select status-filter-select"
+                data-fv-combo
+              >
+                <option value="all">All years</option>
+              </select>
+            </div>
           </div>
 
           <section aria-label="Field trials">
