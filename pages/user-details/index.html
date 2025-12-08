@@ -124,7 +124,8 @@
         </form>
       </div>
 
-      <div class="card" style="max-width:780px;">
+      <!-- Notifications card: will be hidden by JS if not mobile PWA -->
+      <div class="card" style="max-width:780px;" id="fv-notify-card">
         <h2 class="card-title">Notifications</h2>
         <div class="setting" id="fv-notify-setting">
           <div class="left">
@@ -187,9 +188,7 @@
       getFirestore, doc, getDoc, setDoc, serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
-    // Placeholder – replace with your real VAPID public key when ready.
     const VAPID_PUBLIC_KEY = "BAWo6Rtrmew1Z5B5MYluhTxKa8-NufKpjKiQP7BHMM1As1hpsR_VFPTGYEXwkW6n-VnDZWgRvENWYeGiQHRWANA";
-
     const DEVICE_KEY = 'fv:device:id';
 
     const $ = id => document.getElementById(id);
@@ -245,6 +244,16 @@
       return 'other';
     }
 
+    // Detect if we're running as a mobile PWA (home-screen app)
+    function isMobilePWA() {
+      const ua = (navigator.userAgent || '').toLowerCase();
+      const isMobile = /iphone|ipad|ipod|android/.test(ua);
+      const standaloneMedia =
+        window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+      const iosStandalone = (window.navigator && window.navigator.standalone === true);
+      return isMobile && (standaloneMedia || iosStandalone);
+    }
+
     function urlBase64ToUint8Array(base64String) {
       const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
       const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -259,7 +268,6 @@
     async function getSWRegistration() {
       if (!('serviceWorker' in navigator)) return null;
       try {
-        // most of the time, the app already registered SW
         const reg = await navigator.serviceWorker.ready;
         return reg;
       } catch {
@@ -317,8 +325,8 @@
         }
       } catch (e) {
         console.error('[FV] Failed to load notification state:', e);
-        // fallback: off
-        $('fv-toggle-push').checked = false;
+        const cb = $('fv-toggle-push');
+        if (cb) cb.checked = false;
       }
     }
 
@@ -401,7 +409,6 @@
           }, { merge: true });
         }
 
-        // Optional: unsubscribe from push at browser level
         try {
           if ('serviceWorker' in navigator) {
             const reg = await navigator.serviceWorker.ready;
@@ -467,10 +474,26 @@
           console.error(e);
         }
 
-        // Now sync and wire the notification toggle for this user
+        // Hide notifications section if not mobile PWA
+        const notifyCard = document.getElementById('fv-notify-card');
+        const toggle = $('fv-toggle-push');
+
+        if (!isMobilePWA()) {
+          if (notifyCard) notifyCard.style.display = 'none';
+          if (toggle) toggle.checked = false;
+          return; // do NOT wire notifications on non-mobile-PWA
+        }
+
+        // Mobile PWA: sync and wire notifications
         await syncNotificationStateFromFirestore(user);
         wireNotificationToggle(user);
       });
+    }
+
+    // Initial hide if not mobile PWA to avoid seeing the card on desktop
+    const preNotifyCard = document.getElementById('fv-notify-card');
+    if (preNotifyCard && !isMobilePWA()) {
+      preNotifyCard.style.display = 'none';
     }
 
     loadUser();
