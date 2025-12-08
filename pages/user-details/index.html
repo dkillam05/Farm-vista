@@ -124,7 +124,7 @@
         </form>
       </div>
 
-      <!-- Notifications card: will be hidden by JS if not supported environment -->
+      <!-- Notifications card: hidden by JS if device/browser doesn't support push -->
       <div class="card" style="max-width:780px;" id="fv-notify-card">
         <h2 class="card-title">Notifications</h2>
         <div class="setting" id="fv-notify-setting">
@@ -142,7 +142,7 @@
         </div>
       </div>
 
-      <div class="card" style="max-width:780px;">
+      <div class="card" style="max-width:780px%;">
         <h2 class="card-title">Visibility</h2>
         <ul class="list">
           <li>👤 Your name and role appear on activity logs and assignments.</li>
@@ -259,6 +259,14 @@
       return isStandalone && (isMobileUA || hasTouch);
     }
 
+    // True web-push support check
+    function isPushSupported() {
+      if (typeof Notification === 'undefined') return false;
+      if (!('serviceWorker' in navigator)) return false;
+      if (!('PushManager' in window)) return false;
+      return true;
+    }
+
     function urlBase64ToUint8Array(base64String) {
       const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
       const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -311,7 +319,7 @@
         checkbox.checked = false;
         return;
       }
-      if (typeof Notification === 'undefined') {
+      if (!isPushSupported()) {
         checkbox.checked = false;
         return;
       }
@@ -345,9 +353,9 @@
           alert('You must be signed in to enable notifications.');
           return;
         }
-        if (typeof Notification === 'undefined') {
+        if (!isPushSupported()) {
           checkbox.checked = false;
-          alert('Notifications are not supported on this device.');
+          alert('Push notifications are not supported on this device or browser yet.');
           return;
         }
 
@@ -482,22 +490,22 @@
         const notifyCard = document.getElementById('fv-notify-card');
         const toggle = $('fv-toggle-push');
 
-        // If not mobile/tablet PWA → hide notifications section, do not wire
-        if (!isMobilePWA()) {
+        // If not mobile/tablet PWA OR push unsupported → hide notifications section
+        if (!isMobilePWA() || !isPushSupported()) {
           if (notifyCard) notifyCard.style.display = 'none';
           if (toggle) toggle.checked = false;
           return;
         }
 
-        // Mobile/tablet PWA → sync + wire notifications
+        // Mobile/tablet PWA with push support → sync + wire notifications
         await syncNotificationStateFromFirestore(user);
         wireNotificationToggle(user);
       });
     }
 
-    // Pre-hide on initial load if clearly not mobile PWA
+    // Pre-hide on initial load if clearly not mobile PWA or push not supported
     const preNotifyCard = document.getElementById('fv-notify-card');
-    if (preNotifyCard && !isMobilePWA()) {
+    if (preNotifyCard && (!isMobilePWA() || !isPushSupported())) {
       preNotifyCard.style.display = 'none';
     }
 
