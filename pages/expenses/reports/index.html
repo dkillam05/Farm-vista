@@ -376,6 +376,20 @@
       return `${fmt(start)} – ${fmt(end)}`;
     }
 
+    function payMethodLabel(code){
+      if(!code) return '';
+      switch(String(code).toLowerCase()){
+        case 'reimb':
+        case 'reimbursement':
+          return 'Reimbursement';
+        case 'card':
+        case 'company card':
+          return 'Company Card';
+        default:
+          return code;
+      }
+    }
+
     /* ======================
        Company header
        ====================== */
@@ -475,11 +489,12 @@
       expenses,
       totals,
       purposeLabel,
-      employeeName
+      employeeName,
+      filterSummary
     }){
       const label = monthLabel(year, monthNum);
       const range = monthDateRange(year, monthNum);
-      const filterSummary = `All expenditures for ${label}`;
+      const filterSummaryText = filterSummary || `All expenditures for ${label}`;
       const receipts = [];
 
       expenses.forEach(e => {
@@ -530,7 +545,7 @@
               <td>${escapeHtml(formatDateYMD(e.ymd))}</td>
               <td>${escapeHtml(e.merchant)}</td>
               <td>${escapeHtml(e.category)}</td>
-              <td>${escapeHtml(e.paymethod)}</td>
+              <td>${escapeHtml(payMethodLabel(e.paymethod))}</td>
               <td class="cell-right">${escapeHtml(formatCurrency(e.total))}</td>
               <td>${escapeHtml(e.notes)}</td>
             </tr>
@@ -538,7 +553,7 @@
         : `
           <tr>
             <td colspan="6" class="cell-center cell-muted">
-              No expenditures recorded for this month.
+              No expenditures were recorded for this month for this purpose.
             </td>
           </tr>`;
 
@@ -845,7 +860,7 @@
         </div>
         <div class="summary-pill">
           <span class="summary-label">Filters</span>
-          <span class="summary-value">${escapeHtml(filterSummary)}</span>
+          <span class="summary-value">${escapeHtml(filterSummaryText)}</span>
         </div>
         <div class="summary-pill">
           <span class="summary-label">Purpose</span>
@@ -892,7 +907,7 @@
         <p>${
           expenses.length
             ? 'Detailed list of recorded expenditures for ' + escapeHtml(label) + '.'
-            : 'No expenditures were recorded for ' + escapeHtml(label) + '.'
+            : 'No expenditures were recorded for ' + escapeHtml(label) + ' for this purpose.'
         }</p>
 
         <div class="table-wrap">
@@ -935,20 +950,33 @@
        ====================== */
 
     async function printMonth(yearNum, monthNum, options = {}){
-      const { purposeLabel = 'General Expenses' } = options;
+      const {
+        purposeLabel = 'General Expenses',
+        filterType = null
+      } = options;
 
       if(!STATE.loaded){
         alert('Expenses are still loading. Please try again in a moment.');
         return;
       }
 
-      const monthExpenses = STATE.expenditures.filter(e => e.year === yearNum && e.month === monthNum);
-      console.log('[expenses-report] month filter', { yearNum, monthNum, monthExpenses });
+      const allMonthExpenses = STATE.expenditures.filter(e => e.year === yearNum && e.month === monthNum);
+      console.log('[expenses-report] all month expenses', { yearNum, monthNum, allMonthExpenses });
+
+      let monthExpenses = allMonthExpenses;
+      if(filterType === 'reimb'){
+        monthExpenses = allMonthExpenses.filter(e => String(e.paymethod).toLowerCase() === 'reimb');
+      }else if(filterType === 'card'){
+        monthExpenses = allMonthExpenses.filter(e => String(e.paymethod).toLowerCase() === 'card');
+      }
+
+      console.log('[expenses-report] filtered month expenses', { filterType, monthExpenses });
 
       const company = await loadCompanyHeader();
       const now = new Date();
       const runStr = now.toLocaleString();
       const runDateOnly = now.toLocaleDateString();
+      const label = monthLabel(yearNum, monthNum);
 
       let totalSpend = 0;
       const catTotals = new Map();
@@ -986,6 +1014,15 @@
         }
       }
 
+      let filterSummary = '';
+      if(filterType === 'reimb'){
+        filterSummary = `Personal reimbursement expenditures for ${label}`;
+      }else if(filterType === 'card'){
+        filterSummary = `Company card expenditures for ${label}`;
+      }else{
+        filterSummary = `All expenditures for ${label}`;
+      }
+
       const totals = {
         recordCount: monthExpenses.length,
         totalSpendFormatted: formatCurrency(totalSpend),
@@ -1002,7 +1039,8 @@
         expenses: monthExpenses,
         totals,
         purposeLabel,
-        employeeName
+        employeeName,
+        filterSummary
       });
 
       let iframe = document.getElementById('fv-print-frame');
@@ -1019,7 +1057,7 @@
       doc.write(html);
       doc.close();
 
-      // 🔄 NEW: wait for all images in the iframe to finish loading before printing
+      // Wait for all images in the iframe to finish loading before printing
       const tryPrint = () => {
         try{
           win.focus();
@@ -1032,14 +1070,12 @@
 
       const imgs = Array.from(doc.images || []);
       if(!imgs.length){
-        // No images – quick print
         setTimeout(tryPrint, 200);
       }else{
         let loaded = 0;
         const markDone = () => {
           loaded++;
           if(loaded >= imgs.length){
-            // slight delay so layout can settle
             setTimeout(tryPrint, 150);
           }
         };
@@ -1152,14 +1188,18 @@
           if(yearNum && monthNum){
             const type = typeBtn.getAttribute('data-report-type');
             let purposeLabel = 'General Expenses';
+            let filterType = null;
+
             if(type === 'reimbursement'){
               purposeLabel = 'Personal Reimbursement';
+              filterType = 'reimb';
             }else if(type === 'company-card'){
               purposeLabel = 'Company Card';
+              filterType = 'card';
             }
 
             closeReportModal();
-            printMonth(yearNum, monthNum, { purposeLabel });
+            printMonth(yearNum, monthNum, { purposeLabel, filterType });
           }
           return;
         }
