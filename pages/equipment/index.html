@@ -216,9 +216,8 @@
 
   <!-- ===========================================
        Equipment Service KPI JS
-       - Counts service requests needing approval
-       - Counts open work "orders" (pending + in progress)
-       - All from equipmentServiceRequests
+       - Needs approval: equipmentServiceRequests (status == "needs approved")
+       - Open WOs: equipmentWorkOrders (status == "pending" OR "in_progress")
        =========================================== -->
   <script type="module">
     import {
@@ -230,10 +229,10 @@
       where
     } from '/Farm-vista/js/firebase-init.js';
 
-    const kpiEl   = document.getElementById('equip-service-kpi');
-    const reqEl   = document.getElementById('equip-count-requests');
-    const woEl    = document.getElementById('equip-count-workorders');
-    const subEl   = document.getElementById('equip-service-sub');
+    const kpiEl = document.getElementById('equip-service-kpi');
+    const reqEl = document.getElementById('equip-count-requests');
+    const woEl  = document.getElementById('equip-count-workorders');
+    const subEl = document.getElementById('equip-service-sub');
 
     if (kpiEl && reqEl && woEl && subEl) {
       function applyState(requestCount, workOrderCount) {
@@ -273,10 +272,8 @@
           await ready;
           const db = getFirestore();
 
-          // Root-level collection for service requests
+          // 1) Requests needing approval (equipmentServiceRequests)
           const reqRef = collection(db, 'equipmentServiceRequests');
-
-          // 1) Requests needing approval (status == "needs approved")
           const needsApprovalSnap = await getDocs(
             query(reqRef, where('status', '==', 'needs approved'))
           );
@@ -284,17 +281,18 @@
             ? needsApprovalSnap.size
             : 0;
 
-          // 2) "Open work orders": status == "pending" OR "in progress"
+          // 2) Open work orders (equipmentWorkOrders)
+          const woRef = collection(db, 'equipmentWorkOrders');
           const [pendingSnap, inProgSnap] = await Promise.all([
-            getDocs(query(reqRef, where('status', '==', 'pending'))),
-            getDocs(query(reqRef, where('status', '==', 'in progress')))
+            getDocs(query(woRef, where('status', '==', 'pending'))),
+            getDocs(query(woRef, where('status', '==', 'in_progress')))
           ]);
 
-          const ids = new Set();
-          pendingSnap.forEach(doc => { if (doc && doc.id) ids.add(doc.id); });
-          inProgSnap.forEach(doc => { if (doc && doc.id) ids.add(doc.id); });
+          const pendingCount = typeof pendingSnap.size === 'number' ? pendingSnap.size : 0;
+          const inProgCount  = typeof inProgSnap.size === 'number' ? inProgSnap.size  : 0;
+          const workOrderCount = pendingCount + inProgCount;
 
-          applyState(requestCount, ids.size);
+          applyState(requestCount, workOrderCount);
         } catch (err) {
           console.warn('[equipment] failed to load service KPI:', err);
           applyState(0, 0);
