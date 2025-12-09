@@ -18,6 +18,99 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/dashboard.css" />
+
+  <style>
+    /* Dashboard-style KPI badge (same as Crop Production / Field Trials) */
+    .dash-kpi{
+      display:block;
+      margin:12px 0 18px 0;
+      padding:14px 16px;
+      border-radius:14px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      box-shadow:0 8px 18px rgba(0,0,0,0.06);
+      text-decoration:none;
+      color:inherit;
+      transition:transform 0.08s ease, box-shadow 0.08s ease, border-color 0.08s ease;
+    }
+    .dash-kpi:hover{
+      transform:translateY(-1px);
+      box-shadow:0 12px 24px rgba(0,0,0,0.10);
+      border-color:rgba(59,126,70,0.55);
+    }
+    .dash-kpi-main{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+    }
+    .dash-kpi-text{
+      flex:1 1 auto;
+      min-width:0;
+    }
+    .dash-kpi-label{
+      font-size:13px;
+      letter-spacing:.06em;
+      text-transform:uppercase;
+      font-weight:600;
+      color:var(--muted,#67706B);
+      margin-bottom:4px;
+    }
+    .dash-kpi-title,
+    .dash-kpi-title-secondary{
+      font-size:15px;
+      font-weight:600;
+      color:var(--text,#1d211f);
+    }
+    .dash-kpi-row{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      margin-top:6px;
+    }
+    .dash-kpi-row + .dash-kpi-row{
+      margin-top:10px;
+    }
+    .dash-kpi-count{
+      min-width:52px;
+      min-height:52px;
+      border-radius:999px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:22px;
+      font-weight:700;
+      border:1px solid rgba(59,126,70,0.4);
+      background:rgba(59,126,70,0.10);
+      color:var(--text,#1d211f);
+    }
+    .dash-kpi-count-secondary{
+      /* reuse base size */
+    }
+    .dash-kpi-sub{
+      margin-top:6px;
+      font-size:12px;
+      color:var(--muted,#67706B);
+    }
+    .dash-kpi-empty .dash-kpi-count,
+    .dash-kpi-empty .dash-kpi-count-secondary{
+      border-color:rgba(0,0,0,0.12);
+      background:rgba(0,0,0,0.02);
+      color:var(--muted,#67706B);
+    }
+    .dash-kpi-count-link{
+      text-decoration:none;
+      display:inline-flex;
+      color:inherit;
+    }
+    .dash-kpi-count-link:visited{
+      color:inherit;
+    }
+    .dash-kpi-count-link:focus-visible{
+      outline:2px solid var(--accent,#3B7E46);
+      outline-offset:2px;
+    }
+  </style>
 </head>
 <body>
   <fv-shell>
@@ -33,6 +126,53 @@
         Use the sidebar to navigate to <em>Tractors</em>, <em>Sprayers</em>, <em>Combines</em>, <em>Implements</em>, and other categories.  
         Record maintenance, assign equipment to operators, and manage uptime across the farm season.
       </p>
+
+      <!-- ============================
+           KPI: Equipment Service + Work Orders
+           Mirrors Field Trials layout (two circles)
+           ============================ -->
+      <div
+        class="dash-kpi dash-kpi-empty"
+        id="equip-service-kpi"
+      >
+        <div class="dash-kpi-main">
+          <div class="dash-kpi-text">
+            <div class="dash-kpi-label">Equipment Service</div>
+
+            <!-- Row 1: Service requests needing approval -->
+            <div class="dash-kpi-row">
+              <div class="dash-kpi-title">
+                Service requests needing approval
+              </div>
+              <a
+                href="/Farm-vista/pages/equipment/service-requests.html"
+                class="dash-kpi-count-link"
+                aria-label="View equipment service requests needing approval"
+              >
+                <div class="dash-kpi-count" id="equip-count-requests">–</div>
+              </a>
+            </div>
+
+            <!-- Row 2: Open work orders (pending & in progress) -->
+            <div class="dash-kpi-row">
+              <div class="dash-kpi-title-secondary">
+                Open work orders (pending &amp; in progress)
+              </div>
+              <a
+                href="/Farm-vista/pages/equipment/service-work-orders.html"
+                class="dash-kpi-count-link"
+                aria-label="View open equipment work orders"
+              >
+                <div class="dash-kpi-count dash-kpi-count-secondary" id="equip-count-workorders">–</div>
+              </a>
+            </div>
+          </div>
+
+          <div class="dash-kpi-sub" id="equip-service-sub">
+            Checking equipment service requests and open work orders…
+          </div>
+        </div>
+      </div>
 
       <div class="card" style="max-width:780px; margin:0 auto;">
         <h2 class="card-title">Overview</h2>
@@ -72,6 +212,98 @@
         }
       })().catch(err => console.error('Bootloader failed:', err));
     })();
+  </script>
+
+  <!-- ===========================================
+       Equipment Service KPI JS
+       - Counts service requests needing approval
+       - Counts open work orders (pending + in progress)
+       =========================================== -->
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection,
+      getDocs,
+      query,
+      where
+    } from '/Farm-vista/js/firebase-init.js';
+
+    const kpiEl   = document.getElementById('equip-service-kpi');
+    const reqEl   = document.getElementById('equip-count-requests');
+    const woEl    = document.getElementById('equip-count-workorders');
+    const subEl   = document.getElementById('equip-service-sub');
+
+    if (kpiEl && reqEl && woEl && subEl) {
+      function applyState(requestCount, workOrderCount) {
+        const nReq = Number(requestCount) || 0;
+        const nWo  = Number(workOrderCount) || 0;
+
+        reqEl.textContent = nReq.toString();
+        woEl.textContent  = nWo.toString();
+
+        if (!nReq && !nWo) {
+          kpiEl.classList.add('dash-kpi-empty');
+          subEl.textContent = 'No service requests needing approval or open work orders.';
+        } else {
+          kpiEl.classList.remove('dash-kpi-empty');
+
+          const parts = [];
+          if (nReq) {
+            parts.push(
+              nReq === 1
+                ? '1 service request needing approval'
+                : nReq + ' service requests needing approval'
+            );
+          }
+          if (nWo) {
+            parts.push(
+              nWo === 1
+                ? '1 open work order (pending or in progress)'
+                : nWo + ' open work orders (pending or in progress)'
+            );
+          }
+          subEl.textContent = parts.join(' • ');
+        }
+      }
+
+      async function loadEquipmentServiceKpi() {
+        try {
+          await ready;
+          const db = getFirestore();
+
+          // Service requests needing approval (status == "pending")
+          const reqRef   = collection(db, 'equipmentServiceRequests');
+          const reqQuery = query(reqRef, where('status', '==', 'pending'));
+          const reqSnap  = await getDocs(reqQuery);
+          const requestCount = typeof reqSnap.size === 'number' ? reqSnap.size : 0;
+
+          // Work orders with status "pending" or "in progress"
+          const woRef = collection(db, 'equipmentWorkOrders');
+          const [woPendingSnap, woInProgSnap] = await Promise.all([
+            getDocs(query(woRef, where('status', '==', 'pending'))),
+            getDocs(query(woRef, where('status', '==', 'in progress')))
+          ]);
+
+          const ids = new Set();
+          woPendingSnap.forEach(doc => { if (doc && doc.id) ids.add(doc.id); });
+          woInProgSnap.forEach(doc => { if (doc && doc.id) ids.add(doc.id); });
+
+          applyState(requestCount, ids.size);
+        } catch (err) {
+          console.warn('[equipment] failed to load service KPI:', err);
+          applyState(0, 0);
+        }
+      }
+
+      loadEquipmentServiceKpi();
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          loadEquipmentServiceKpi();
+        }
+      });
+    }
   </script>
 
   <noscript>
