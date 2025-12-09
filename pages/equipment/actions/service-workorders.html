@@ -1,1 +1,1966 @@
-.gitkeep
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FarmVista • Equipment Service Work Orders</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3B7E46" />
+
+  <!-- ABSOLUTE PATHS -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+
+  <style>
+    :root{
+      --card-max: 1200px;
+      --page-bottom-gap: 96px;
+      --accent: #2F6C3C;
+    }
+
+    html{-webkit-text-size-adjust:100%}
+    body{
+      background: var(--app-bg, var(--surface));
+      margin:0;
+      overflow-x:hidden;
+    }
+
+    .wrap{
+      max-width: var(--card-max);
+      margin: 0 auto;
+      padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+      box-sizing:border-box;
+      display:grid;
+      gap:16px;
+    }
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+    }
+
+    .hero-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      border-bottom:1px solid var(--border);
+    }
+
+    .hero-head .icon{
+      width:24px;
+      height:24px;
+      color:var(--accent);
+      display:grid;
+      place-items:center;
+    }
+
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+
+    .muted{ color:var(--muted,#67706B); }
+
+    .body{
+      padding:16px;
+      display:grid;
+      gap:14px;
+    }
+
+    /* Toolbar + filters */
+    .toolbar{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+      justify-content:space-between;
+    }
+
+    .toolbar-left{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+    }
+
+    .toolbar-right{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+      font-size:0.9rem;
+      opacity:0.9;
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:120px;
+      padding:10px 14px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      font-weight:800;
+      text-decoration:none;
+      cursor:pointer;
+      user-select:none;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      font-size:0.9rem;
+      gap:6px;
+    }
+
+    .btn-quiet{
+      min-width:auto;
+      padding-inline:10px;
+    }
+
+    .filter-group{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:flex-end;
+    }
+
+    .filter-field{
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+      font-size:0.8rem;
+    }
+
+    .filter-field label{
+      font-weight:700;
+      text-transform:uppercase;
+      letter-spacing:0.05em;
+      opacity:0.8;
+    }
+
+    .filter-select{
+      min-width:140px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      padding:6px 10px;
+      background:var(--card-surface,var(--surface));
+      font:inherit;
+      font-size:0.85rem;
+      color:var(--text);
+    }
+
+    .count-pill{
+      padding:4px 10px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      font-size:0.8rem;
+      white-space:nowrap;
+    }
+
+    /* Work order list */
+    .wo-list {
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      margin-top:8px;
+    }
+
+    .wo-empty {
+      padding:14px 16px;
+      border-radius:12px;
+      border:1px dashed var(--border);
+      background:var(--card-surface, var(--surface));
+      font-size:0.95rem;
+      opacity:0.9;
+    }
+
+    .wo-card {
+      position:relative;
+      border-radius:12px;
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
+      padding:12px 14px 12px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      transition:transform .06s, box-shadow .12s, border-color .12s, background .12s;
+      cursor:pointer;
+    }
+
+    .wo-card:active {
+      transform:scale(.995);
+      box-shadow:var(--shadow);
+    }
+
+    .wo-row-top {
+      display:flex;
+      align-items:flex-start;
+      gap:10px;
+    }
+
+    .wo-main {
+      flex:1 1 auto;
+      min-width:0;
+    }
+
+    .wo-title {
+      font-weight:700;
+      font-size:0.98rem;
+      line-height:1.3;
+    }
+
+    .wo-sub {
+      font-size:0.86rem;
+      opacity:0.9;
+      margin-top:2px;
+    }
+
+    .wo-meta {
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 10px;
+      margin-top:4px;
+      font-size:0.8rem;
+      opacity:0.85;
+    }
+
+    .wo-meta span {
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 7px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+
+    .wo-meta-label {
+      font-weight:600;
+    }
+
+    .wo-bottom-row {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      font-size:0.78rem;
+      opacity:0.8;
+      margin-top:4px;
+      flex-wrap:wrap;
+    }
+
+    .wo-status-chip {
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 8px;
+      border-radius:999px;
+      font-size:0.78rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+
+    /* Detail panel */
+    .wo-detail-panel {
+      margin-top:10px;
+      border-radius:12px;
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
+      padding:14px 16px 12px;
+      display:none;
+      flex-direction:column;
+      gap:10px;
+    }
+
+    .wo-detail-header {
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:10px;
+    }
+
+    .wo-detail-title {
+      font-weight:700;
+      font-size:1rem;
+    }
+
+    .wo-detail-subtitle{
+      font-size:0.85rem;
+      opacity:0.8;
+    }
+
+    .wo-detail-close {
+      border:none;
+      border-radius:999px;
+      padding:4px 9px;
+      font-size:0.8rem;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      cursor:pointer;
+      color:var(--text);
+    }
+
+    .wo-detail-grid {
+      display:grid;
+      grid-template-columns:minmax(0,1fr);
+      gap:6px 16px;
+      font-size:0.9rem;
+      margin-top:4px;
+    }
+
+    @media (min-width:700px) {
+      .wo-detail-grid {
+        grid-template-columns:repeat(2, minmax(0,1fr));
+      }
+    }
+
+    .wo-detail-item-label {
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:1px;
+    }
+
+    .wo-detail-item-value {
+      font-size:0.92rem;
+    }
+
+    /* Line items list */
+    .lineitems-section{
+      margin-top:8px;
+      border-top:1px solid var(--border);
+      padding-top:8px;
+    }
+
+    .lineitems-header{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:8px;
+      margin-bottom:4px;
+      flex-wrap:wrap;
+    }
+
+    .section-title{
+      font-size:0.9rem;
+      font-weight:700;
+    }
+
+    .lineitems-list{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+    }
+
+    .lineitem-card{
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:var(--surface-soft,var(--surface));
+      padding:8px 10px;
+      display:grid;
+      grid-template-columns:auto minmax(0,1fr);
+      gap:8px;
+      align-items:flex-start;
+    }
+
+    .lineitem-left{
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap:6px;
+      padding-top:2px;
+    }
+
+    .lineitem-right{
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+    }
+
+    .lineitem-title{
+      font-size:0.9rem;
+      font-weight:600;
+    }
+
+    .lineitem-meta{
+      font-size:0.8rem;
+      opacity:0.8;
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 10px;
+    }
+
+    .lineitem-notes{
+      font-size:0.85rem;
+      margin-top:2px;
+      white-space:pre-wrap;
+    }
+
+    .lineitem-parts{
+      font-size:0.8rem;
+      opacity:0.8;
+      margin-top:2px;
+    }
+
+    .pill-small{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 7px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      font-size:0.75rem;
+      text-transform:uppercase;
+      letter-spacing:0.05em;
+    }
+
+    /* round completion control */
+    .lineitem-radio{
+      width:20px;
+      height:20px;
+      border-radius:50%;
+      border:2px solid var(--border);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+      position:relative;
+    }
+    .lineitem-radio-inner{
+      width:10px;
+      height:10px;
+      border-radius:50%;
+      background:var(--accent);
+      opacity:0;
+      transition:opacity .12s;
+    }
+    .lineitem-radio[data-complete="true"]{
+      border-color:var(--accent);
+      background:color-mix(in srgb, var(--accent) 12%, transparent);
+    }
+    .lineitem-radio[data-complete="true"] .lineitem-radio-inner{
+      opacity:1;
+    }
+    .lineitem-radio input{
+      position:absolute;
+      inset:0;
+      opacity:0;
+      cursor:pointer;
+      margin:0;
+    }
+
+    .lineitem-assign{
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+      margin-top:4px;
+      font-size:0.8rem;
+    }
+
+    .lineitem-assign-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+      align-items:center;
+    }
+
+    .lineitem-select{
+      border-radius:10px;
+      border:1px solid var(--border);
+      padding:4px 8px;
+      font:inherit;
+      font-size:0.8rem;
+      background:var(--surface);
+      color:var(--text);
+      min-width:160px;
+    }
+
+    .lineitem-date{
+      font-size:0.8rem;
+      opacity:0.8;
+    }
+
+    .lineitem-save-msg{
+      font-size:0.75rem;
+      opacity:0.8;
+    }
+
+    /* Add line item form */
+    .addline-card{
+      margin-top:8px;
+      border-radius:10px;
+      border:1px dashed var(--border);
+      background:var(--surface-soft,var(--surface));
+      padding:10px 11px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+    }
+
+    .addline-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+    }
+
+    .addline-select,
+    .addline-input{
+      border-radius:10px;
+      border:1px solid var(--border);
+      padding:6px 8px;
+      font:inherit;
+      font-size:0.85rem;
+      background:var(--surface);
+      color:var(--text);
+      min-width:150px;
+      flex:1 1 0;
+    }
+
+    .addline-notes{
+      border-radius:10px;
+      border:1px solid var(--border);
+      padding:6px 8px;
+      font:inherit;
+      font-size:0.85rem;
+      background:var(--surface);
+      color:var(--text);
+      resize:vertical;
+      min-height:60px;
+      width:100%;
+      box-sizing:border-box;
+    }
+
+    .addline-actions{
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+      margin-top:4px;
+    }
+
+    .addline-btn{
+      border-radius:10px;
+      border:1px solid var(--border);
+      padding:6px 12px;
+      font-size:0.85rem;
+      font-weight:700;
+      background:var(--surface);
+      cursor:pointer;
+      color:var(--text);
+    }
+
+    .addline-btn-primary{
+      background:var(--accent);
+      border-color:var(--accent);
+      color:#fff;
+    }
+
+    /* Summary notes + mic */
+    .summary-section{
+      margin-top:10px;
+      border-top:1px solid var(--border);
+      padding-top:8px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+    }
+
+    .summary-label{
+      font-size:0.9rem;
+      font-weight:700;
+    }
+
+    .summary-helper{
+      font-size:0.8rem;
+      opacity:0.8;
+    }
+
+    .ta-wrap{
+      position:relative;
+    }
+
+    .summary-textarea{
+      width:100%;
+      min-height:90px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      padding:8px 8px;
+      padding-right:52px;
+      font:inherit;
+      font-size:0.9rem;
+      background:var(--surface);
+      color:var(--text);
+      resize:vertical;
+      box-sizing:border-box;
+    }
+
+    .mic-btn{
+      position:absolute;
+      right:10px;
+      bottom:10px;
+      width:36px;
+      height:36px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      display:grid;
+      place-items:center;
+      cursor:pointer;
+      color:var(--muted,#67706B);
+    }
+    .mic-btn[disabled]{
+      opacity:.6;
+      cursor:not-allowed;
+    }
+    .mic-svg{
+      width:18px;
+      height:18px;
+      display:block;
+    }
+    .mic-btn svg{
+      fill:currentColor !important;
+    }
+    .mic-btn.mic-active{
+      background:#2F6C3C;
+      color:#fff;
+      border-color:#2F6C3C;
+    }
+
+    .summary-actions{
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+    }
+
+    .summary-save-msg{
+      font-size:0.78rem;
+      opacity:0.8;
+      align-self:flex-start;
+    }
+
+    /* Completion meter + WO complete */
+    .wo-completion-section{
+      margin-top:10px;
+      border-top:1px solid var(--border);
+      padding-top:8px;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+
+    .completion-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+    }
+
+    .field-block{
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+      font-size:0.8rem;
+    }
+    .field-block label{
+      font-weight:700;
+      text-transform:uppercase;
+      letter-spacing:0.05em;
+      opacity:0.85;
+    }
+    .field-block input{
+      border-radius:10px;
+      border:1px solid var(--border);
+      padding:6px 10px;
+      font:inherit;
+      font-size:0.9rem;
+      background:var(--surface);
+      color:var(--text);
+      min-width:140px;
+    }
+
+    .wo-completion-buttons{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+
+    .btn-complete{
+      border-radius:10px;
+      border:1px solid var(--accent);
+      padding:8px 14px;
+      font-size:0.9rem;
+      font-weight:700;
+      background:var(--accent);
+      color:#fff;
+      cursor:pointer;
+    }
+
+    .btn-reopen{
+      border-radius:10px;
+      border:1px solid var(--border);
+      padding:7px 12px;
+      font-size:0.85rem;
+      font-weight:700;
+      background:var(--surface);
+      color:var(--text);
+      cursor:pointer;
+    }
+
+    .wo-status-summary{
+      font-size:0.8rem;
+      opacity:0.85;
+    }
+
+    .error-text{
+      color:#B3261E;
+      font-size:0.8rem;
+    }
+
+    /* MOBILE simplification */
+    @media (max-width:650px){
+      .wo-meta {
+        display:none !important;
+      }
+      .wo-card{
+        padding:10px 12px;
+      }
+      .wo-title{
+        font-size:0.95rem;
+      }
+      .filter-group{
+        flex-direction:column;
+        align-items:flex-start;
+      }
+    }
+
+    /* Remove Safari blue text & focus outlines */
+    button,
+    input,
+    select,
+    textarea {
+      color: var(--text) !important;
+    }
+
+    a,
+    a:visited {
+      color: var(--text) !important;
+      text-decoration:none;
+    }
+
+    button:focus,
+    input:focus,
+    select:focus,
+    textarea:focus {
+      outline: none !important;
+      border-color: var(--border) !important;
+      box-shadow: none !important;
+    }
+
+    option {
+      color: var(--text) !important;
+    }
+  </style>
+
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection, query, getDocs,
+      doc, updateDoc, serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
+
+    import { NAV_MENU } from '/Farm-vista/js/menu.js';
+
+    const CONFIG = {
+      COLLECTION_PATH: 'equipmentWorkOrders',
+      STATUS_FIELD:    'status',
+      STATUS_PENDING:  'pending',
+      STATUS_COMPLETED:'completed'
+    };
+
+    const STATE = {
+      db: null,
+      items: [],           // [{id,data}]
+      employees: [],       // [{id,name}]
+      selectedId: null,
+      filters: {
+        status: 'all',
+        type: 'all'
+      },
+      savingLineItem: false,
+      savingSummary: false,
+      completionError: ''
+    };
+
+    const $  = (sel, root=document) => root.querySelector(sel);
+    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+    function getTime(ts){
+      if(!ts) return 0;
+      try{
+        if(ts.toMillis) return ts.toMillis();
+        if(ts.toDate)   return ts.toDate().getTime();
+        if(ts instanceof Date) return ts.getTime();
+        return new Date(ts).getTime() || 0;
+      }catch{
+        return 0;
+      }
+    }
+
+    function tsToDate(ts){
+      if(!ts) return null;
+      try{
+        if(ts.toDate) return ts.toDate();
+        if(ts instanceof Date) return ts;
+        const d = new Date(ts);
+        return Number.isNaN(d.getTime()) ? null : d;
+      }catch{
+        return null;
+      }
+    }
+
+    function formatDateTime(ts){
+      const d = tsToDate(ts);
+      if(!d) return '';
+      return d.toLocaleString([], { year:'numeric', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+    }
+
+    function formatDate(ts){
+      const d = tsToDate(ts);
+      if(!d) return '';
+      return d.toLocaleDateString([], { year:'numeric', month:'short', day:'2-digit' });
+    }
+
+    function titleCase(s){
+      return String(s||"").replace(/\s+/g," ").trim().split(" ")
+        .filter(Boolean).map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(" ");
+    }
+
+    function nameFromEmail(email){
+      const local = String(email||"").split("@")[0]||"";
+      if(!local) return "";
+      if(/[._-]/.test(local)){
+        return titleCase(local.replace(/[0-9]+/g," ").split(/[._-]+/).join(" "));
+      }
+      const spaced = local.replace(/([a-z])([A-Z])/g,"$1 $2");
+      return titleCase(spaced || local);
+    }
+
+    function loadFiltersFromStorage(){
+      try{
+        const s = localStorage.getItem('fv:eqWO:statusFilter');
+        const t = localStorage.getItem('fv:eqWO:typeFilter');
+        if(s) STATE.filters.status = s;
+        if(t) STATE.filters.type   = t;
+      }catch{}
+    }
+
+    function saveFiltersToStorage(){
+      try{
+        localStorage.setItem('fv:eqWO:statusFilter', STATE.filters.status);
+        localStorage.setItem('fv:eqWO:typeFilter',   STATE.filters.type);
+      }catch{}
+    }
+
+    function mapStatusLabel(s){
+      const v = (s||'').toString().toLowerCase();
+      if(v === 'pending') return 'Pending';
+      if(v === 'completed') return 'Completed';
+      return s || 'Unknown';
+    }
+
+    function deriveMeterInfo(wo){
+      const type = (wo.equipmentType || '').toLowerCase();
+      // Prefer stored meterType if present:
+      if(wo.meterType){
+        return {
+          meterType: wo.meterType,
+          meterLabel: wo.meterLabel || (wo.meterType === 'odometerMiles' ? 'Odometer (mi)' : 'Engine Hours')
+        };
+      }
+      // Fallback by equipmentType
+      if(type === 'truck'){
+        return { meterType:'odometerMiles', meterLabel:'Odometer (mi)' };
+      }
+      if(type === 'tractor' || type === 'sprayer' || type === 'combine'){
+        return { meterType:'engineHours', meterLabel:'Engine Hours' };
+      }
+      return { meterType:null, meterLabel:null };
+    }
+
+    function isEquipmentActive(wo){
+      const status = (wo.equipmentStatus || wo.equipment_state || '').toString().toLowerCase();
+      if(status && status === 'archived') return false;
+      if(wo.isEquipmentActive === false) return false;
+      return true; // default assume active
+    }
+
+    function applyFilters(items){
+      const statusFilter = STATE.filters.status;
+      const typeFilter   = STATE.filters.type;
+
+      return items.filter(item=>{
+        const d = item.data;
+        if(!isEquipmentActive(d)) return false;
+
+        const s = (d[CONFIG.STATUS_FIELD] || '').toString().toLowerCase();
+        if(statusFilter === 'pending' && s !== 'pending') return false;
+        if(statusFilter === 'completed' && s !== 'completed') return false;
+
+        const t = (d.equipmentType || '').toString().toLowerCase();
+        if(typeFilter !== 'all' && t !== typeFilter) return false;
+
+        return true;
+      });
+    }
+
+    async function loadEmployees(){
+      try{
+        const ref = collection(STATE.db, 'employees');
+        const snap = await getDocs(ref);
+        const employees = snap.docs.map(d=>{
+          const data = d.data() || {};
+          const id = d.id;
+          const full = data.fullName || `${data.firstName || ''} ${data.lastName || ''}`.trim() || id;
+          return {
+            id,
+            name: full,
+            active: data.active !== false,
+            status: (data.status || '').toString(),
+            type: (data.type || '').toString()
+          };
+        }).filter(e=>{
+          const isEmp = e.type.toLowerCase() === 'employee';
+          const isActiveFlag = e.active;
+          const isStatusActive = e.status.toLowerCase() === 'active' || !e.status;
+          return isEmp && isActiveFlag && isStatusActive;
+        }).sort((a,b)=>a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+
+        STATE.employees = employees;
+      }catch(err){
+        console.error('Error loading employees:', err);
+        STATE.employees = [];
+      }
+    }
+
+    async function loadWorkOrders(){
+      const db  = STATE.db;
+      const ref = collection(db, CONFIG.COLLECTION_PATH);
+
+      try{
+        const snap = await getDocs(query(ref));
+        const items = snap.docs.map(d => ({
+          id: d.id,
+          data: d.data()
+        }));
+
+        items.sort((a,b) => {
+          const ta = getTime(a.data.createdAt || a.data.updatedAt);
+          const tb = getTime(b.data.createdAt || b.data.updatedAt);
+          return tb - ta;
+        });
+
+        STATE.items = items;
+        renderList();
+      }catch(err){
+        console.error('Error loading equipment work orders:', err);
+        const emptyEl = $('.wo-empty');
+        if(emptyEl){
+          emptyEl.textContent = 'Error loading work orders. Check console or Firestore indexes.';
+          emptyEl.style.display = 'block';
+        }
+        const countEl = $('#woCount');
+        if(countEl) countEl.textContent = 'Error loading work orders';
+      }
+    }
+
+    function renderList(){
+      const listEl  = $('.wo-list');
+      const emptyEl = $('.wo-empty');
+      const countEl = $('#woCount');
+
+      listEl.innerHTML = '';
+
+      const filtered = applyFilters(STATE.items);
+
+      if(!filtered.length){
+        if(emptyEl){
+          emptyEl.style.display = 'block';
+          emptyEl.textContent = 'No equipment service work orders match the current filters.';
+        }
+        if(countEl) countEl.textContent = '0 work orders';
+        clearDetails();
+        return;
+      }
+
+      if(emptyEl) emptyEl.style.display = 'none';
+
+      filtered.forEach(item=>{
+        const d  = item.data;
+        const id = item.id;
+
+        const equipName = d.equipmentName || 'Equipment (unknown)';
+        const typeLabel = d.equipmentType ? String(d.equipmentType).charAt(0).toUpperCase() + String(d.equipmentType).slice(1) : '';
+        const serial6   = d.equipmentSerialLast6 ? `SN …${d.equipmentSerialLast6}` : '';
+        const statusRaw = (d[CONFIG.STATUS_FIELD] || '').toString().toLowerCase();
+        const statusLabel = mapStatusLabel(statusRaw);
+
+        const lineItems = Array.isArray(d.lineItems) ? d.lineItems : [];
+        const totalItems = lineItems.length;
+        const completedCount = lineItems.filter(li => li.completed === true).length;
+        const openCount = totalItems - completedCount;
+
+        const created = d.createdAt || null;
+        const updated = d.updatedAt || created || null;
+
+        const card = document.createElement('article');
+        card.className = 'wo-card';
+        card.dataset.id = id;
+
+        card.innerHTML = `
+          <div class="wo-row-top">
+            <div class="wo-main">
+              <div class="wo-title">
+                ${equipName}
+              </div>
+              <div class="wo-sub">
+                ${typeLabel || ''} ${serial6 ? `• ${serial6}` : ''}
+              </div>
+              <div class="wo-meta">
+                <span><span class="wo-meta-label">Status</span> ${statusLabel}</span>
+                <span><span class="wo-meta-label">Items</span> ${totalItems || 0} total</span>
+                <span><span class="wo-meta-label">Open</span> ${openCount}</span>
+              </div>
+            </div>
+          </div>
+          <div class="wo-bottom-row">
+            <div>
+              ${updated ? `Last updated ${formatDateTime(updated)}` : ''}
+            </div>
+            <div class="wo-status-chip">${statusLabel}</div>
+          </div>
+        `;
+
+        card.addEventListener('click', () => {
+          STATE.selectedId = id;
+          renderDetails();
+        });
+
+        listEl.appendChild(card);
+      });
+
+      if(countEl){
+        const n = filtered.length;
+        countEl.textContent = `${n} work order${n===1?'':'s'}`;
+      }
+    }
+
+    function clearDetails(){
+      const panel = $('.wo-detail-panel');
+      if(!panel) return;
+      panel.style.display = 'none';
+      panel.dataset.id = '';
+      const grid = $('.wo-detail-grid', panel);
+      if(grid) grid.innerHTML = '';
+      const subtitle = $('.wo-detail-subtitle', panel);
+      if(subtitle) subtitle.textContent = '';
+      const liList = $('.lineitems-list', panel);
+      if(liList) liList.innerHTML = '';
+      const addTopic = $('#addLineTopic');
+      if(addTopic) addTopic.value = '';
+      const addOther = $('#addLineTopicOther');
+      if(addOther) addOther.value = '';
+      const addNotes = $('#addLineNotes');
+      if(addNotes) addNotes.value = '';
+      const addParts = $('#addLineParts');
+      if(addParts) addParts.value = '';
+      const summaryEl = $('#summaryNotes');
+      if(summaryEl) summaryEl.value = '';
+      const meterInput = $('#woCompletionMeter');
+      if(meterInput) meterInput.value = '';
+      const meterLabel = $('#woCompletionMeterLabel');
+      if(meterLabel) meterLabel.textContent = '';
+      const statusSummary = $('#woStatusSummary');
+      if(statusSummary) statusSummary.textContent = '';
+      const errorEl = $('#woCompletionError');
+      if(errorEl) errorEl.textContent = '';
+    }
+
+    function renderDetails(){
+      const panel = $('.wo-detail-panel');
+      if(!panel) return;
+
+      const item = STATE.items.find(x => x.id === STATE.selectedId);
+      if(!item){
+        clearDetails();
+        return;
+      }
+
+      const d = item.data;
+      panel.dataset.id = item.id;
+
+      const titleEl = $('.wo-detail-title', panel);
+      if(titleEl){
+        titleEl.textContent = d.equipmentName || 'Equipment Service Work Order';
+      }
+
+      const subtitle = $('.wo-detail-subtitle', panel);
+      if(subtitle){
+        const typeLabel = d.equipmentType ? String(d.equipmentType).charAt(0).toUpperCase() + String(d.equipmentType).slice(1) : '';
+        const serial6 = d.equipmentSerialLast6 ? ` • SN …${d.equipmentSerialLast6}` : '';
+        subtitle.textContent = [typeLabel, serial6].filter(Boolean).join('');
+      }
+
+      const grid = $('.wo-detail-grid', panel);
+      if(grid){
+        const statusRaw = (d[CONFIG.STATUS_FIELD] || '').toString().toLowerCase();
+        const statusLabel = mapStatusLabel(statusRaw);
+        const created = d.createdAt || null;
+        const updated = d.updatedAt || null;
+        const completedAt = d.completedAt || null;
+        const lineItems = Array.isArray(d.lineItems) ? d.lineItems : [];
+        const totalItems = lineItems.length;
+        const completedCount = lineItems.filter(li => li.completed === true).length;
+        const openCount = totalItems - completedCount;
+
+        grid.innerHTML = `
+          <div>
+            <div class="wo-detail-item-label">Status</div>
+            <div class="wo-detail-item-value">${statusLabel}</div>
+          </div>
+          <div>
+            <div class="wo-detail-item-label">Items</div>
+            <div class="wo-detail-item-value">${totalItems} total • ${openCount} open</div>
+          </div>
+          <div>
+            <div class="wo-detail-item-label">Created</div>
+            <div class="wo-detail-item-value">${created ? formatDateTime(created) : ''}</div>
+          </div>
+          <div>
+            <div class="wo-detail-item-label">Last Updated</div>
+            <div class="wo-detail-item-value">${updated ? formatDateTime(updated) : ''}</div>
+          </div>
+          <div>
+            <div class="wo-detail-item-label">Completed At</div>
+            <div class="wo-detail-item-value">${completedAt ? formatDateTime(completedAt) : '—'}</div>
+          </div>
+        `;
+      }
+
+      renderLineItems(panel, item);
+      renderSummary(panel, item);
+      renderCompletionSection(panel, item);
+
+      panel.style.display = 'flex';
+    }
+
+    function renderLineItems(panel, item){
+      const d = item.data;
+      const listEl = $('.lineitems-list', panel);
+      if(!listEl) return;
+
+      listEl.innerHTML = '';
+
+      const lineItems = Array.isArray(d.lineItems) ? d.lineItems : [];
+      if(!lineItems.length){
+        listEl.innerHTML = `<div class="wo-attachment-empty">No service line items yet. Add items below.</div>`;
+        return;
+      }
+
+      lineItems.forEach((li, idx)=>{
+        const origin = li.origin || (li.serviceRequestId ? 'request' : 'manual');
+        const topic = li.serviceTopic || '(No topic)';
+        const topicOther = li.serviceTopicOther || '';
+        const notes = li.notes || '';
+        const parts = li.partsNeeded || '';
+        const submitted = li.submittedByName || '';
+        const completed = li.completed === true;
+        const completedById = li.completedByEmployeeId || '';
+        const completedByName = li.completedByEmployeeName || '';
+        const completedAt = li.completedAt || null;
+
+        const card = document.createElement('div');
+        card.className = 'lineitem-card';
+        card.dataset.index = idx.toString();
+
+        const originLabel = origin === 'request' ? 'From Request' : 'Manual';
+
+        card.innerHTML = `
+          <div class="lineitem-left">
+            <div class="lineitem-radio" data-complete="${completed ? 'true':'false'}">
+              <div class="lineitem-radio-inner"></div>
+              <input type="checkbox" aria-label="Mark line item complete">
+            </div>
+            <div class="pill-small">${originLabel}</div>
+          </div>
+          <div class="lineitem-right">
+            <div class="lineitem-title">
+              ${topicOther && topic === 'other' ? topicOther : topic}
+            </div>
+            <div class="lineitem-meta">
+              ${submitted ? `<span>Submitted by ${submitted}</span>` : ''}
+            </div>
+            ${notes ? `<div class="lineitem-notes">${notes}</div>` : ''}
+            ${parts ? `<div class="lineitem-parts">Parts: ${parts}</div>` : ''}
+            <div class="lineitem-assign">
+              <div class="lineitem-assign-row">
+                <span>Completed by</span>
+                <select class="lineitem-select">
+                  <option value="">Select employee…</option>
+                </select>
+                <span class="lineitem-date">
+                  ${completedAt ? `on ${formatDate(completedAt)}` : ''}
+                </span>
+              </div>
+              <div class="lineitem-save-msg"></div>
+            </div>
+          </div>
+        `;
+
+        const radio = card.querySelector('.lineitem-radio');
+        const checkbox = card.querySelector('input[type="checkbox"]');
+        const select = card.querySelector('.lineitem-select');
+        const saveMsg = card.querySelector('.lineitem-save-msg');
+
+        // Populate employee dropdown
+        STATE.employees.forEach(emp=>{
+          const opt = document.createElement('option');
+          opt.value = emp.id;
+          opt.textContent = emp.name;
+          select.appendChild(opt);
+        });
+        if(completedById){
+          select.value = completedById;
+        }
+
+        function updateRadioVisual(state){
+          radio.dataset.complete = state ? 'true':'false';
+          if(!state){
+            // if uncompleted, we do not clear select here; user might re-complete quickly
+          }
+        }
+
+        function showSaveMsg(msg){
+          if(!saveMsg) return;
+          saveMsg.textContent = msg || '';
+          if(msg){
+            setTimeout(()=>{ if(saveMsg.textContent === msg) saveMsg.textContent = ''; }, 2200);
+          }
+        }
+
+        async function saveLineItem(newCompleted, newEmpId){
+          if(STATE.savingLineItem) return;
+          STATE.savingLineItem = true;
+          showSaveMsg('Saving…');
+
+          try{
+            const emp = STATE.employees.find(e => e.id === newEmpId);
+            const empName = emp ? emp.name : '';
+
+            const woRef = doc(STATE.db, CONFIG.COLLECTION_PATH, item.id);
+            const oldLines = Array.isArray(item.data.lineItems) ? item.data.lineItems : [];
+            const newLines = oldLines.map((row, i)=>{
+              if(i !== idx) return row;
+              const updated = { ...row };
+
+              updated.completed = newCompleted;
+              if(newCompleted){
+                updated.completedByEmployeeId = newEmpId || null;
+                updated.completedByEmployeeName = empName || null;
+                updated.completedAt = serverTimestamp();
+              }else{
+                updated.completedByEmployeeId = null;
+                updated.completedByEmployeeName = null;
+                updated.completedAt = null;
+              }
+              return updated;
+            });
+
+            await updateDoc(woRef, {
+              lineItems: newLines,
+              updatedAt: serverTimestamp()
+            });
+
+            // Update local state
+            item.data.lineItems = newLines;
+            STATE.savingLineItem = false;
+            showSaveMsg('Saved');
+            renderDetails(); // refresh panel to show updated dates
+          }catch(err){
+            console.error('Error updating line item completion:', err);
+            STATE.savingLineItem = false;
+            showSaveMsg('Save failed');
+            alert('Could not save line item. Check network / Firestore rules.');
+            // revert checkbox state
+            checkbox.checked = li.completed === true;
+            updateRadioVisual(li.completed === true);
+          }
+        }
+
+        radio.addEventListener('click', (ev)=>{
+          ev.stopPropagation();
+          checkbox.click();
+        });
+
+        checkbox.addEventListener('change', async (ev)=>{
+          ev.stopPropagation();
+          const wantCompleted = checkbox.checked;
+          const empId = select.value;
+
+          if(wantCompleted && !empId){
+            alert('Choose who completed this line item.');
+            checkbox.checked = false;
+            updateRadioVisual(false);
+            return;
+          }
+          updateRadioVisual(wantCompleted);
+          await saveLineItem(wantCompleted, empId);
+        });
+
+        select.addEventListener('change', async (ev)=>{
+          ev.stopPropagation();
+          const empId = select.value;
+          const isCompleted = (radio.dataset.complete === 'true');
+          if(isCompleted && !empId){
+            alert('Choose who completed this line item.');
+            return;
+          }
+          if(isCompleted){
+            await saveLineItem(true, empId);
+          }
+        });
+
+        listEl.appendChild(card);
+      });
+    }
+
+    function renderSummary(panel, item){
+      const d = item.data;
+      const summaryEl = $('#summaryNotes');
+      if(summaryEl){
+        summaryEl.value = d.summaryNotes || '';
+      }
+      const saveMsg = $('#summarySaveMsg');
+      if(saveMsg) saveMsg.textContent = '';
+    }
+
+    function renderCompletionSection(panel, item){
+      const d = item.data;
+      const statusRaw = (d[CONFIG.STATUS_FIELD] || '').toString().toLowerCase();
+      const section = $('.wo-completion-section', panel);
+      if(!section) return;
+
+      const { meterType, meterLabel } = deriveMeterInfo(d);
+      const lineItems = Array.isArray(d.lineItems) ? d.lineItems : [];
+      const allCompleted = lineItems.length > 0 && lineItems.every(li => li.completed === true);
+
+      const isCompleted = statusRaw === CONFIG.STATUS_COMPLETED;
+
+      const meterBlock = $('#woCompletionMeterBlock');
+      const meterInput = $('#woCompletionMeter');
+      const meterLabelEl = $('#woCompletionMeterLabel');
+      const statusSummary = $('#woStatusSummary');
+      const errorEl = $('#woCompletionError');
+
+      if(meterBlock){
+        if(meterType){
+          meterBlock.style.display = '';
+          if(meterLabelEl) meterLabelEl.textContent = meterLabel || 'Meter Reading';
+          if(meterInput){
+            meterInput.value = (d.completionMeter != null) ? String(d.completionMeter) : '';
+          }
+        }else{
+          meterBlock.style.display = 'none';
+          if(meterInput) meterInput.value = '';
+        }
+      }
+
+      if(statusSummary){
+        statusSummary.textContent = isCompleted
+          ? 'Work order is completed.'
+          : 'Work order is still open. All line items must be completed before closing.';
+      }
+      if(errorEl) errorEl.textContent = '';
+
+      const completeBtn = $('#btnCompleteWO');
+      const reopenBtn   = $('#btnReopenWO');
+
+      if(completeBtn){
+        completeBtn.disabled = isCompleted;
+        completeBtn.textContent = 'Mark Work Order Completed';
+      }
+      if(reopenBtn){
+        reopenBtn.style.display = isCompleted ? 'inline-flex' : 'none';
+      }
+
+      completeBtn?.addEventListener('click', async (ev)=>{
+        ev.preventDefault();
+        await handleCompleteWorkOrder(item);
+      });
+
+      reopenBtn?.addEventListener('click', async (ev)=>{
+        ev.preventDefault();
+        await handleReopenWorkOrder(item);
+      });
+    }
+
+    async function handleCompleteWorkOrder(item){
+      const panel = $('.wo-detail-panel');
+      const errorEl = $('#woCompletionError');
+      const summaryEl = $('#summaryNotes');
+      const meterInput = $('#woCompletionMeter');
+      const { meterType } = deriveMeterInfo(item.data);
+
+      if(errorEl) errorEl.textContent = '';
+
+      const lineItems = Array.isArray(item.data.lineItems) ? item.data.lineItems : [];
+      const allCompleted = lineItems.length > 0 && lineItems.every(li => li.completed === true);
+
+      if(!allCompleted){
+        if(errorEl) errorEl.textContent = 'All line items must be completed before closing this work order.';
+        alert('All service line items must be completed before closing this work order.');
+        return;
+      }
+
+      const summaryVal = summaryEl ? summaryEl.value.trim() : '';
+      if(!summaryVal){
+        const ok = window.confirm('No summary added — continue without summary?');
+        if(!ok) return;
+      }
+
+      let meterVal = null;
+      if(meterType && meterInput){
+        const raw = meterInput.value.trim();
+        if(!raw){
+          if(errorEl) errorEl.textContent = 'Enter a final meter reading to complete this work order.';
+          meterInput.focus();
+          return;
+        }
+        const num = Number(raw);
+        if(!Number.isFinite(num)){
+          if(errorEl) errorEl.textContent = 'Meter reading must be a valid number.';
+          meterInput.focus();
+          return;
+        }
+        meterVal = num;
+      }
+
+      try{
+        const woRef = doc(STATE.db, CONFIG.COLLECTION_PATH, item.id);
+        const payload = {
+          [CONFIG.STATUS_FIELD]: CONFIG.STATUS_COMPLETED,
+          completedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          summaryNotes: summaryVal || null
+        };
+        if(meterType){
+          payload.completionMeter = meterVal;
+        }
+
+        await updateDoc(woRef, payload);
+
+        // Update local state
+        item.data[CONFIG.STATUS_FIELD] = CONFIG.STATUS_COMPLETED;
+        item.data.completedAt = new Date();
+        item.data.summaryNotes = summaryVal || null;
+        if(meterType){
+          item.data.completionMeter = meterVal;
+        }
+
+        await loadWorkOrders();
+        STATE.selectedId = item.id;
+        renderDetails();
+      }catch(err){
+        console.error('Error completing work order:', err);
+        if(errorEl) errorEl.textContent = 'Failed to complete work order. Check console / Firestore rules.';
+        alert('Failed to complete work order. Check console / Firestore rules.');
+      }
+    }
+
+    async function handleReopenWorkOrder(item){
+      const confirmReopen = window.confirm('Reopen this work order? This will set status back to Pending.');
+      if(!confirmReopen) return;
+
+      try{
+        const woRef = doc(STATE.db, CONFIG.COLLECTION_PATH, item.id);
+        await updateDoc(woRef, {
+          [CONFIG.STATUS_FIELD]: CONFIG.STATUS_PENDING,
+          completedAt: null,
+          completionMeter: null,
+          updatedAt: serverTimestamp()
+        });
+
+        item.data[CONFIG.STATUS_FIELD] = CONFIG.STATUS_PENDING;
+        item.data.completedAt = null;
+        item.data.completionMeter = null;
+
+        await loadWorkOrders();
+        STATE.selectedId = item.id;
+        renderDetails();
+      }catch(err){
+        console.error('Error reopening work order:', err);
+        alert('Failed to reopen work order.');
+      }
+    }
+
+    async function handleAddLineItem(ev){
+      ev.preventDefault();
+      const panel = $('.wo-detail-panel');
+      if(!panel) return;
+      const woId = panel.dataset.id;
+      if(!woId) return;
+
+      const item = STATE.items.find(x => x.id === woId);
+      if(!item) return;
+
+      const topicSel = $('#addLineTopic');
+      const topicOtherInput = $('#addLineTopicOther');
+      const notesInput = $('#addLineNotes');
+      const partsInput = $('#addLineParts');
+
+      const topic = topicSel ? topicSel.value.trim() : '';
+      const topicOther = topicOtherInput ? topicOtherInput.value.trim() : '';
+      const notes = notesInput ? notesInput.value.trim() : '';
+      const parts = partsInput ? partsInput.value.trim() : '';
+
+      if(!topic){
+        alert('Select a topic for the new service line.');
+        topicSel?.focus();
+        return;
+      }
+      if(topic === 'other' && !topicOther){
+        alert('Enter a description for “Other” topic.');
+        topicOtherInput?.focus();
+        return;
+      }
+      if(!notes){
+        alert('Enter notes for the new service line.');
+        notesInput?.focus();
+        return;
+      }
+
+      // Submitted-by name = current user (from context / auth)
+      let submittedByName = '';
+      try{
+        const ctx = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get();
+        if(ctx){
+          submittedByName = ctx.displayName || ctx.email || '';
+        }
+      }catch{}
+      if(!submittedByName){
+        try{
+          const u = window.firebaseAuth && window.firebaseAuth.currentUser;
+          if(u){
+            submittedByName = u.displayName || u.email || '';
+          }
+        }catch{}
+      }
+      if(submittedByName && submittedByName.includes('@')){
+        submittedByName = nameFromEmail(submittedByName);
+      }
+      submittedByName = submittedByName || 'Technician';
+
+      const oldLines = Array.isArray(item.data.lineItems) ? item.data.lineItems : [];
+      const newLine = {
+        serviceRequestId: null,
+        origin: 'manual',
+        serviceTopic: topic,
+        serviceTopicOther: topic === 'other' && topicOther ? topicOther : null,
+        notes,
+        partsNeeded: parts || null,
+        submittedByName,
+        completed: false,
+        completedByEmployeeId: null,
+        completedByEmployeeName: null,
+        completedAt: null
+      };
+
+      try{
+        const woRef = doc(STATE.db, CONFIG.COLLECTION_PATH, woId);
+        const newLines = [...oldLines, newLine];
+
+        await updateDoc(woRef, {
+          lineItems: newLines,
+          updatedAt: serverTimestamp()
+        });
+
+        item.data.lineItems = newLines;
+
+        // clear form
+        if(topicSel) topicSel.value = '';
+        if(topicOtherInput) topicOtherInput.value = '';
+        if(notesInput) notesInput.value = '';
+        if(partsInput) partsInput.value = '';
+
+        renderDetails();
+      }catch(err){
+        console.error('Error adding line item:', err);
+        alert('Failed to add service line. Check console / Firestore rules.');
+      }
+    }
+
+    function setupAddLineForm(){
+      const topicSel = $('#addLineTopic');
+      const topicOtherBlock = $('#addLineTopicOtherBlock');
+      const form = $('#addLineForm');
+
+      if(topicSel && topicOtherBlock){
+        const onChange = ()=>{
+          const v = topicSel.value;
+          topicOtherBlock.style.display = (v === 'other') ? '' : 'none';
+        };
+        topicSel.addEventListener('change', onChange);
+        onChange();
+      }
+
+      if(form){
+        form.addEventListener('submit', handleAddLineItem);
+      }
+    }
+
+    function setupSummaryMic(){
+      const btn = $('#summaryMic');
+      const ta  = $('#summaryNotes');
+      if(!btn || !ta) return;
+
+      const ok = ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window);
+      if(!ok){
+        btn.style.display = 'none';
+        return;
+      }
+
+      const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const rec = new Rec();
+      rec.lang = 'en-US';
+      rec.interimResults = true;
+      rec.continuous = false;
+
+      let active = false;
+      let baseText = '';
+
+      const setMic = (on)=>{
+        btn.classList.toggle('mic-active', on);
+        btn.setAttribute('aria-label', on ? 'Stop dictation' : 'Dictate summary');
+      };
+
+      btn.addEventListener('click', ()=>{
+        if(!active){
+          baseText = ta.value ? (ta.value + ' ') : '';
+          try{
+            rec.start();
+            active = true;
+            setMic(true);
+          }catch{}
+        }else{
+          try{
+            rec.stop();
+            rec.abort();
+          }catch{}
+          active = false;
+          setMic(false);
+        }
+      });
+
+      rec.onresult = (ev)=>{
+        let txt = '';
+        for(let i=ev.resultIndex; i<ev.results.length; i++){
+          txt += ev.results[i][0].transcript;
+        }
+        ta.value = baseText + txt;
+        ta.dispatchEvent(new Event('input', { bubbles:true }));
+      };
+
+      rec.onend = ()=>{
+        active = false;
+        setMic(false);
+      };
+
+      rec.onerror = ()=>{
+        active = false;
+        setMic(false);
+      };
+    }
+
+    async function saveSummary(){
+      const panel = $('.wo-detail-panel');
+      const summaryEl = $('#summaryNotes');
+      const saveMsg = $('#summarySaveMsg');
+      if(!panel || !summaryEl) return;
+      const woId = panel.dataset.id;
+      if(!woId) return;
+
+      const val = summaryEl.value.trim();
+      if(saveMsg){
+        saveMsg.textContent = 'Saving…';
+      }
+
+      try{
+        const woRef = doc(STATE.db, CONFIG.COLLECTION_PATH, woId);
+        await updateDoc(woRef, {
+          summaryNotes: val || null,
+          updatedAt: serverTimestamp()
+        });
+
+        const item = STATE.items.find(x => x.id === woId);
+        if(item){
+          item.data.summaryNotes = val || null;
+        }
+        if(saveMsg){
+          saveMsg.textContent = 'Saved';
+          setTimeout(()=>{ if(saveMsg.textContent === 'Saved') saveMsg.textContent = ''; }, 2000);
+        }
+      }catch(err){
+        console.error('Error saving summary notes:', err);
+        if(saveMsg) saveMsg.textContent = 'Save failed';
+        alert('Failed to save summary. Check console / Firestore rules.');
+      }
+    }
+
+    function setupSummarySave(){
+      const btn = $('#summarySaveBtn');
+      if(btn){
+        btn.addEventListener('click', (ev)=>{
+          ev.preventDefault();
+          saveSummary();
+        });
+      }
+    }
+
+    function setupFiltersUI(){
+      const statusSel = $('#filterStatus');
+      const typeSel   = $('#filterType');
+
+      if(statusSel){
+        statusSel.value = STATE.filters.status;
+        statusSel.addEventListener('change', ()=>{
+          STATE.filters.status = statusSel.value || 'all';
+          saveFiltersToStorage();
+          renderList();
+        });
+      }
+
+      if(typeSel){
+        typeSel.value = STATE.filters.type;
+        typeSel.addEventListener('change', ()=>{
+          STATE.filters.type = typeSel.value || 'all';
+          saveFiltersToStorage();
+          renderList();
+        });
+      }
+    }
+
+    (async function boot(){
+      await ready;
+      STATE.db = getFirestore();
+
+      const shell = document.querySelector('fv-shell');
+      if (shell) shell.nav = NAV_MENU;
+
+      const backBtn = document.getElementById('btnBack');
+      if(backBtn){
+        backBtn.addEventListener('click', () => {
+          location.href = '/Farm-vista/pages/equipment/maintenance-index.html';
+        });
+      }
+
+      const closeDetailBtn = $('#woDetailClose');
+      if(closeDetailBtn){
+        closeDetailBtn.addEventListener('click', (ev)=>{
+          ev.preventDefault();
+          STATE.selectedId = null;
+          clearDetails();
+        });
+      }
+
+      loadFiltersFromStorage();
+      setupFiltersUI();
+      setupAddLineForm();
+      setupSummaryMic();
+      setupSummarySave();
+
+      await loadEmployees();
+      await loadWorkOrders();
+    })();
+  </script>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🛠️</div>
+          <div>
+            <h1>Equipment Service Work Orders</h1>
+            <p class="muted">
+              View and manage service work orders for active equipment. Each work order can contain multiple
+              service line items. Complete line items by assigning who did the work, then close the work order
+              with a final meter reading and optional summary.
+            </p>
+          </div>
+        </header>
+
+        <div class="body">
+          <div class="toolbar">
+            <div class="toolbar-left">
+              <button id="btnBack" type="button" class="btn btn-quiet">
+                ← Back to Equipment Maintenance
+              </button>
+            </div>
+            <div class="toolbar-right">
+              <div class="filter-group">
+                <div class="filter-field">
+                  <label for="filterStatus">Status</label>
+                  <select id="filterStatus" class="filter-select">
+                    <option value="all">All</option>
+                    <option value="pending">Pending</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                </div>
+                <div class="filter-field">
+                  <label for="filterType">Equipment Type</label>
+                  <select id="filterType" class="filter-select">
+                    <option value="all">All types</option>
+                    <option value="tractor">Tractor</option>
+                    <option value="combine">Combine</option>
+                    <option value="sprayer">Sprayer</option>
+                    <option value="truck">Truck</option>
+                    <option value="trailer">Trailer</option>
+                    <option value="implement">Implement</option>
+                    <option value="starfire">Starfire</option>
+                    <option value="construction">Construction</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <span id="woCount" class="count-pill">0 work orders</span>
+              </div>
+            </div>
+          </div>
+
+          <section aria-label="Equipment work orders">
+            <div class="wo-empty">
+              No equipment service work orders match the current filters.
+            </div>
+            <div class="wo-list"></div>
+          </section>
+
+          <section class="wo-detail-panel" aria-label="Work order details">
+            <div class="wo-detail-header">
+              <div>
+                <div class="wo-detail-title">Work Order Details</div>
+                <div class="wo-detail-subtitle"></div>
+              </div>
+              <button type="button" id="woDetailClose" class="wo-detail-close">
+                Close
+              </button>
+            </div>
+
+            <div class="wo-detail-grid">
+              <!-- filled by JS -->
+            </div>
+
+            <!-- Line items -->
+            <div class="lineitems-section">
+              <div class="lineitems-header">
+                <div class="section-title">Service Line Items</div>
+              </div>
+              <div class="lineitems-list">
+                <!-- filled by JS -->
+              </div>
+
+              <!-- Add manual service line item -->
+              <form id="addLineForm" class="addline-card">
+                <div class="section-title">Add Service Line Item</div>
+                <div class="addline-row">
+                  <select id="addLineTopic" class="addline-select">
+                    <option value="">Select topic…</option>
+                    <option value="engine">Engine / Powertrain</option>
+                    <option value="hydraulics">Hydraulics</option>
+                    <option value="electrical">Electrical / Wiring</option>
+                    <option value="driveline">Driveline / Transmission</option>
+                    <option value="tires_tracks">Tires / Tracks / Undercarriage</option>
+                    <option value="precision">Precision / GPS / StarFire</option>
+                    <option value="cab_controls">Cab Controls / Displays</option>
+                    <option value="leaks">Leaks / Fluids</option>
+                    <option value="scheduled_service">Scheduled Service / Oil Change</option>
+                    <option value="inspection">Pre-Season Inspection</option>
+                    <option value="other">Other (describe)</option>
+                  </select>
+                  <div id="addLineTopicOtherBlock" style="display:none;flex:1 1 0;">
+                    <input id="addLineTopicOther" class="addline-input" type="text" placeholder="Other topic…" />
+                  </div>
+                </div>
+                <textarea id="addLineNotes" class="addline-notes" placeholder="Notes about this service task…"></textarea>
+                <input id="addLineParts" class="addline-input" type="text" placeholder="Parts needed (optional)…" />
+                <div class="addline-actions">
+                  <button type="submit" class="addline-btn addline-btn-primary">Add Line Item</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Summary of work performed -->
+            <div class="summary-section">
+              <div class="summary-label">Summary of Work Performed</div>
+              <div class="summary-helper">
+                Optional overall summary of what was done on this work order. Not required,
+                but we’ll ask before closing if it’s empty.
+              </div>
+              <div class="ta-wrap">
+                <textarea id="summaryNotes" class="summary-textarea" placeholder="Example: Replaced air filter, topped off hydraulic oil, adjusted boom valves…"></textarea>
+                <button id="summaryMic" type="button" class="mic-btn" aria-label="Dictate summary">
+                  <svg class="mic-svg" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H9v2h6v-2h-2v-3.08A7 7 0 0 0 19 11h-2z"/>
+                  </svg>
+                </button>
+              </div>
+              <div class="summary-actions">
+                <button id="summarySaveBtn" type="button" class="btn btn-quiet" style="font-size:0.8rem;min-width:auto;">Save Summary</button>
+                <span id="summarySaveMsg" class="summary-save-msg"></span>
+              </div>
+            </div>
+
+            <!-- WO completion -->
+            <div class="wo-completion-section">
+              <div class="wo-status-summary" id="woStatusSummary"></div>
+              <div class="completion-row">
+                <div class="field-block" id="woCompletionMeterBlock" style="display:none;">
+                  <label id="woCompletionMeterLabel" for="woCompletionMeter">Meter Reading</label>
+                  <input id="woCompletionMeter" type="number" step="any" inputmode="decimal" placeholder="Enter final reading" />
+                </div>
+                <div class="wo-completion-buttons">
+                  <button id="btnCompleteWO" type="button" class="btn-complete">Mark Work Order Completed</button>
+                  <button id="btnReopenWO" type="button" class="btn-reopen" style="display:none;">Reopen Work Order</button>
+                </div>
+              </div>
+              <div id="woCompletionError" class="error-text"></div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+</body>
+</html>
+
