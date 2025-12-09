@@ -177,7 +177,7 @@ export const NAV_MENU = {
           id: 'eq-maint-workorders',
           icon: '🧰',
           label: 'Maintenance Work Orders',
-          href: '/Farm-vista/docs/cooming-soon.html',
+          href: '/Farm-vista/pages/equipment/actions/service-approve.html',
           activeMatch: 'starts-with'
         },
         {
