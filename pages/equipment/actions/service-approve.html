@@ -1,1 +1,1221 @@
-.gitkeep
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FarmVista • Approve Equipment Service Requests</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3B7E46" />
+
+  <!-- ABSOLUTE PATHS -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+
+  <style>
+    :root{
+      --card-max: 1200px;
+      --page-bottom-gap: 72px;
+      --accent: #2F6C3C;
+    }
+
+    body{
+      background: var(--app-bg, var(--surface));
+    }
+
+    .wrap{
+      max-width: var(--card-max);
+      margin: 0 auto;
+      padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+      box-sizing:border-box;
+    }
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+    }
+    .hero-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      border-bottom:1px solid var(--border);
+    }
+    .hero-head .icon{
+      width:24px;
+      height:24px;
+      color:var(--accent);
+      display:grid;
+      place-items:center;
+    }
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+    .muted{ color:var(--muted,#67706B); }
+
+    .body{
+      padding:16px;
+      display:grid;
+      gap:14px;
+    }
+
+    /* Toolbar + back button */
+    .toolbar{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+      justify-content:space-between;
+    }
+    .toolbar-left{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:120px;
+      padding:10px 14px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      font-weight:800;
+      text-decoration:none;
+      cursor:pointer;
+      user-select:none;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      font-size:0.9rem;
+      gap:6px;
+    }
+    .btn-quiet{
+      min-width:auto;
+      padding-inline:10px;
+    }
+
+    .page-header-meta{
+      font-size:0.9rem;
+      opacity:0.8;
+    }
+
+    /* Request list cards */
+    .req-list {
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      margin-top:8px;
+    }
+
+    .req-empty {
+      padding:14px 16px;
+      border-radius:12px;
+      border:1px dashed var(--border);
+      background:var(--card-surface, var(--surface));
+      font-size:0.95rem;
+      opacity:0.9;
+    }
+
+    .req-card {
+      position:relative;
+      border-radius:10px;
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
+      padding:12px 14px 10px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      cursor:pointer;
+      transition:transform .06s, box-shadow .12s, border-color .12s, background .12s;
+    }
+    .req-card:active {
+      transform:scale(.995);
+      box-shadow:var(--shadow);
+    }
+
+    .req-row-top {
+      display:flex;
+      align-items:flex-start;
+      gap:10px;
+    }
+
+    .req-main {
+      flex:1 1 auto;
+      min-width:0;
+    }
+
+    .req-title {
+      font-weight:700;
+      font-size:0.98rem;
+      line-height:1.3;
+    }
+
+    .req-sub {
+      font-size:0.86rem;
+      opacity:0.9;
+      margin-top:2px;
+    }
+
+    .req-meta {
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 10px;
+      margin-top:4px;
+      font-size:0.8rem;
+      opacity:0.85;
+    }
+
+    .req-meta span {
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 7px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+
+    .req-meta-label {
+      font-weight:600;
+    }
+
+    /* Pill toggle */
+    .req-toggle-wrap {
+      flex:0 0 auto;
+      display:flex;
+      flex-direction:column;
+      align-items:flex-end;
+      gap:4px;
+      padding-left:4px;
+    }
+
+    .pill-label {
+      font-size:0.76rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.8;
+    }
+
+    .pill-toggle {
+      position:relative;
+      width:46px;
+      height:26px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--border) 70%, var(--surface) 30%);
+      border:1px solid var(--border);
+      display:inline-flex;
+      align-items:center;
+      padding:2px;
+      box-sizing:border-box;
+      transition:background .16s, border-color .16s;
+    }
+
+    .pill-toggle-thumb {
+      position:relative;
+      width:20px;
+      height:20px;
+      border-radius:10px;
+      background:var(--card-surface, #fff);
+      box-shadow:0 1px 2px rgba(0,0,0,.35);
+      transform:translateX(0);
+      transition:transform .16s;
+    }
+
+    .pill-toggle[data-on="true"] {
+      background:var(--accent, var(--green, #3B7E46));
+      border-color:var(--accent, var(--green, #3B7E46));
+    }
+
+    .pill-toggle[data-on="true"] .pill-toggle-thumb {
+      transform:translateX(18px);
+    }
+
+    .pill-toggle-input {
+      position:absolute;
+      inset:0;
+      opacity:0;
+      cursor:pointer;
+    }
+
+    /* Detail panel */
+    .req-detail-panel {
+      margin-top:10px;
+      border-radius:10px;
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
+      padding:14px 16px 12px;
+      display:none;
+      flex-direction:column;
+      gap:8px;
+    }
+
+    .req-detail-header {
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:10px;
+    }
+
+    .req-detail-title {
+      font-weight:700;
+      font-size:1rem;
+    }
+
+    .req-detail-close {
+      border:none;
+      outline:none;
+      border-radius:999px;
+      padding:4px 9px;
+      font-size:0.8rem;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      cursor:pointer;
+    }
+
+    .req-detail-grid {
+      display:grid;
+      grid-template-columns:minmax(0,1fr);
+      gap:6px 16px;
+      font-size:0.9rem;
+      margin-top:4px;
+    }
+    @media (min-width:700px) {
+      .req-detail-grid {
+        grid-template-columns:repeat(2, minmax(0,1fr));
+      }
+    }
+
+    .req-detail-item-label {
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:1px;
+    }
+
+    .req-detail-item-value {
+      font-size:0.92rem;
+    }
+
+    .req-detail-notes {
+      margin-top:8px;
+      padding-top:8px;
+      border-top:1px solid var(--border);
+      font-size:0.92rem;
+      white-space:pre-wrap;
+    }
+
+    .req-detail-notes-label {
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:2px;
+    }
+
+    .req-detail-notes-body {
+      margin-top:2px;
+    }
+
+    /* Attachments section */
+    .req-detail-attachments{
+      margin-top:8px;
+      padding-top:8px;
+      border-top:1px solid var(--border);
+      font-size:0.9rem;
+    }
+
+    .req-detail-attachments-label{
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:4px;
+    }
+
+    .req-attachments-grid{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+
+    .req-attachment-item{
+      display:flex;
+      align-items:flex-start;
+      gap:8px;
+    }
+
+    .req-attachment-thumb{
+      width:64px;
+      height:64px;
+      border-radius:10px;
+      overflow:hidden;
+      border:1px solid var(--border);
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:0.8rem;
+      cursor:pointer;
+    }
+
+    .req-attachment-thumb img{
+      width:100%;
+      height:100%;
+      object-fit:cover;
+      display:block;
+    }
+
+    .req-attachment-meta{
+      min-width:0;
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+    }
+
+    .req-attachment-name{
+      font-size:0.9rem;
+      font-weight:600;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    .req-attachment-link{
+      font-size:0.8rem;
+      cursor:pointer;
+      border:none;
+      background:transparent;
+      padding:0;
+      text-align:left;
+      color:var(--accent);
+    }
+
+    .req-attachment-empty{
+      font-size:0.86rem;
+      opacity:0.8;
+    }
+
+    .req-detail-footer {
+      margin-top:10px;
+      font-size:0.8rem;
+      opacity:0.8;
+    }
+
+    .req-detail-pill {
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 8px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      font-size:0.8rem;
+      margin-left:6px;
+    }
+
+    /* Footer row with delete (lower right) */
+    .req-detail-actions{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin-top:4px;
+    }
+
+    .req-delete-btn{
+      flex:0 0 auto;
+      width:38px;
+      height:38px;
+      border-radius:999px;
+      border:1px solid #C53A3A;
+      background:color-mix(in srgb, #C53A3A 8%, var(--surface) 92%);
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+      padding:0;
+    }
+    .req-delete-btn svg{
+      width:20px;
+      height:20px;
+      display:block;
+      color:#C53A3A;
+    }
+    .req-delete-btn:active{
+      transform:scale(.96);
+    }
+
+    /* Photo viewer modal */
+    .photo-modal{
+      position:fixed;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:100000;
+    }
+    .photo-modal.show{
+      display:flex;
+    }
+    .photo-backdrop{
+      position:absolute;
+      inset:0;
+      background:rgba(0,0,0,.6);
+    }
+    .photo-sheet{
+      position:relative;
+      max-width:90vw;
+      max-height:90vh;
+      background:var(--surface);
+      border-radius:14px;
+      border:1px solid var(--border);
+      box-shadow:0 20px 40px rgba(0,0,0,.4);
+      padding:8px 10px 10px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      z-index:1;
+    }
+    .photo-close-row{
+      display:flex;
+      justify-content:flex-end;
+      margin-bottom:4px;
+    }
+    .photo-close-btn{
+      border:none;
+      border-radius:999px;
+      padding:4px 10px;
+      font-size:0.85rem;
+      cursor:pointer;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      color:var(--text);
+    }
+    .photo-img-wrap{
+      border-radius:12px;
+      overflow:hidden;
+      background:#000;
+      max-width:calc(90vw - 20px);
+      max-height:calc(80vh - 40px);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .photo-img-wrap img{
+      max-width:100%;
+      max-height:100%;
+      display:block;
+    }
+
+    /* Delete confirm modal */
+    .confirm-modal{
+      position:fixed;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:100001;
+    }
+    .confirm-modal.show{
+      display:flex;
+    }
+    .confirm-backdrop{
+      position:absolute;
+      inset:0;
+      background:rgba(0,0,0,.45);
+    }
+    .confirm-sheet{
+      position:relative;
+      z-index:1;
+      width: min(420px, 92vw);
+      border-radius:16px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      box-shadow:0 18px 42px rgba(0,0,0,.45);
+      padding:16px 18px 14px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .confirm-sheet h2{
+      margin:0;
+      font-size:1rem;
+    }
+    .confirm-sheet p{
+      margin:4px 0 0;
+      font-size:0.9rem;
+      color:var(--muted,#67706B);
+    }
+    .confirm-actions{
+      margin-top:14px;
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+    }
+    .btn-confirm-cancel,
+    .btn-confirm-delete{
+      border-radius:999px;
+      padding:7px 14px;
+      font-size:0.9rem;
+      cursor:pointer;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+    }
+    .btn-confirm-cancel{
+      font-weight:600;
+    }
+    .btn-confirm-delete{
+      border-color:#C53A3A;
+      background:color-mix(in srgb, #C53A3A 9%, var(--surface) 91%);
+      color:#C53A3A;
+      font-weight:700;
+    }
+  </style>
+
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection, query, where, getDocs,
+      updateDoc, doc, deleteDoc
+    } from '/Farm-vista/js/firebase-init.js';
+
+    import { NAV_MENU } from '/Farm-vista/js/menu.js';
+
+    const CONFIG = {
+      COLLECTION_PATH: 'equipmentServiceRequests',
+      STATUS_FIELD:   'status',
+      NEEDS_APPROVAL_STATUS: 'needs approved',
+      PENDING_STATUS: 'pending'
+    };
+
+    const $  = (sel, root=document) => root.querySelector(sel);
+    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+    const STATE = {
+      items: [],
+      selectedId: null,
+      db: null
+    };
+
+    let photoModal = null;
+    let photoModalImg = null;
+    let photoModalBackdrop = null;
+    let photoModalCloseBtn = null;
+
+    let deleteModal = null;
+    let deleteModalBackdrop = null;
+    let deleteModalCancelBtn = null;
+    let deleteModalConfirmBtn = null;
+    let deleteTargetId = null;
+
+    function getTime(ts){
+      if(!ts) return 0;
+      try{
+        if(ts.toMillis) return ts.toMillis();
+        if(ts.toDate) return ts.toDate().getTime();
+        if(ts instanceof Date) return ts.getTime();
+        return new Date(ts).getTime() || 0;
+      }catch{
+        return 0;
+      }
+    }
+
+    function isImageUrl(url){
+      if(!url || typeof url !== 'string') return false;
+      const u = url.split('?')[0].toLowerCase();
+      return u.endsWith('.jpg') || u.endsWith('.jpeg') ||
+             u.endsWith('.png') || u.endsWith('.gif') ||
+             u.endsWith('.webp');
+    }
+
+    function mapTopic(code, other){
+      if(code === 'other' && other) return other;
+      switch(code){
+        case 'engine': return 'Engine / Powertrain';
+        case 'hydraulics': return 'Hydraulics';
+        case 'electrical': return 'Electrical / Wiring';
+        case 'driveline': return 'Driveline / Transmission';
+        case 'tires_tracks': return 'Tires / Tracks / Undercarriage';
+        case 'precision': return 'Precision / GPS / StarFire';
+        case 'cab_controls': return 'Cab Controls / Displays';
+        case 'leaks': return 'Leaks / Fluids';
+        case 'scheduled_service': return 'Scheduled Service / Oil Change';
+        case 'inspection': return 'Pre-Season Inspection';
+        default: return code || 'Service Request';
+      }
+    }
+
+    function openPhotoViewer(url){
+      if(!photoModal || !photoModalImg || !url) return;
+      photoModalImg.src = url;
+      photoModal.classList.add('show');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closePhotoViewer(){
+      if(!photoModal) return;
+      photoModal.classList.remove('show');
+      if(photoModalImg) photoModalImg.src = '';
+      if(!deleteModal || !deleteModal.classList.contains('show')){
+        document.body.style.overflow = '';
+      }
+    }
+
+    function openDeleteModal(){
+      const panel = $('.req-detail-panel');
+      if(!panel) return;
+      const id = panel.dataset.id;
+      if(!id) return;
+      deleteTargetId = id;
+      if(deleteModal){
+        deleteModal.classList.add('show');
+        document.body.style.overflow = 'hidden';
+      }
+    }
+
+    function closeDeleteModal(){
+      if(deleteModal){
+        deleteModal.classList.remove('show');
+      }
+      deleteTargetId = null;
+      if(!photoModal || !photoModal.classList.contains('show')){
+        document.body.style.overflow = '';
+      }
+    }
+
+    async function confirmDelete(){
+      if(!deleteTargetId || !STATE.db) return;
+      const id = deleteTargetId;
+      try{
+        await deleteDoc(doc(STATE.db, CONFIG.COLLECTION_PATH, id));
+
+        STATE.items = STATE.items.filter(x => x.id !== id);
+        if(STATE.selectedId === id){
+          STATE.selectedId = null;
+          clearDetails();
+        }
+        renderList();
+      }catch(err){
+        console.error('Failed to delete service request:', err);
+        alert('Could not delete service request. Please try again.');
+      }finally{
+        closeDeleteModal();
+      }
+    }
+
+    function renderList(){
+      const listEl  = $('.req-list');
+      const emptyEl = $('.req-empty');
+      const countEl = $('#reqCount');
+
+      listEl.innerHTML = '';
+
+      if(!STATE.items.length){
+        emptyEl.style.display = 'block';
+        emptyEl.textContent = 'No service requests currently have status “needs approved”. New requests will appear here automatically.';
+        if(countEl) countEl.textContent = '0 needing approval';
+        return;
+      }
+
+      emptyEl.style.display = 'block';
+      emptyEl.textContent = 'Slide the toggle to mark each service request as Pending. They will drop from this list as you approve them.';
+      emptyEl.style.marginBottom = '4px';
+      if(countEl) countEl.textContent = `${STATE.items.length} needing approval`;
+
+      for(const item of STATE.items){
+        const d  = item.data;
+        const id = item.id;
+
+        const equipName = d.equipmentName || 'Equipment (unknown)';
+        const typeLabel = d.equipmentType ? String(d.equipmentType).charAt(0).toUpperCase() + String(d.equipmentType).slice(1) : '';
+        const serial6   = d.equipmentSerialLast6 || '';
+        const topic     = mapTopic(d.serviceTopic, d.serviceTopicOther);
+        const submittedBy = (d.submittedBy && (d.submittedBy.name || d.submittedBy.email)) || '';
+        const requested = d.requestedDate || (d.createdAt && d.createdAt.toDate ? d.createdAt.toDate().toLocaleDateString() : '');
+        const partsFlag = d.partsNeeded ? 'Parts listed' : '';
+        const attCount  = d.attachmentCount || (Array.isArray(d.attachmentUrls) ? d.attachmentUrls.length : 0);
+
+        const card = document.createElement('article');
+        card.className = 'req-card';
+        card.dataset.id = id;
+
+        card.innerHTML = `
+          <div class="req-row-top">
+            <div class="req-main">
+              <div class="req-title">
+                ${equipName}
+                ${typeLabel ? ` · ${typeLabel}` : ''}
+                ${serial6 ? ` · SN …${serial6}` : ''}
+              </div>
+              <div class="req-sub">
+                ${topic}
+              </div>
+              <div class="req-meta">
+                ${submittedBy ? `
+                  <span><span class="req-meta-label">By</span> ${submittedBy}</span>
+                ` : ''}
+                ${requested ? `
+                  <span><span class="req-meta-label">Requested</span> ${requested}</span>
+                ` : ''}
+                ${partsFlag ? `
+                  <span>${partsFlag}</span>
+                ` : ''}
+                ${attCount ? `
+                  <span><span class="req-meta-label">Files</span> ${attCount}</span>
+                ` : ''}
+              </div>
+            </div>
+
+            <div class="req-toggle-wrap">
+              <div class="pill-label">Pending</div>
+              <div class="pill-toggle" data-on="false">
+                <div class="pill-toggle-thumb"></div>
+                <input class="pill-toggle-input" type="checkbox" aria-label="Mark service request as pending" />
+              </div>
+            </div>
+          </div>
+        `;
+
+        // Card click → show details
+        card.addEventListener('click', () => {
+          STATE.selectedId = id;
+          renderDetails();
+        });
+
+        // Prevent card click when toggling
+        const input = $('.pill-toggle-input', card);
+        input.addEventListener('click', (ev) => ev.stopPropagation());
+        input.addEventListener('change', async (ev) => {
+          ev.stopPropagation();
+          const on = ev.target.checked;
+          const pill = ev.target.closest('.pill-toggle');
+          pill.dataset.on = on ? 'true' : 'false';
+
+          if(on){
+            try{
+              await updateDoc(doc(STATE.db, CONFIG.COLLECTION_PATH, id), {
+                [CONFIG.STATUS_FIELD]: CONFIG.PENDING_STATUS
+              });
+              STATE.items = STATE.items.filter(x => x.id !== id);
+              if(STATE.selectedId === id){
+                STATE.selectedId = null;
+                clearDetails();
+              }
+              renderList();
+            }catch(err){
+              console.error('Failed to update status:', err);
+              pill.dataset.on = 'false';
+              ev.target.checked = false;
+              alert('Could not update service request status. Please try again.');
+            }
+          }
+        });
+
+        listEl.appendChild(card);
+      }
+    }
+
+    function clearDetails(){
+      const panel = $('.req-detail-panel');
+      panel.style.display = 'none';
+      panel.dataset.id = '';
+      $('.req-detail-title', panel).textContent = 'Service Request Details';
+      $('.req-detail-grid', panel).innerHTML = '';
+      $('.req-detail-notes-body', panel).textContent = '';
+      $('.req-detail-footer', panel).innerHTML = '';
+      const attGrid = $('#reqDetailAttachments');
+      if(attGrid) attGrid.innerHTML = '';
+    }
+
+    function renderDetails(){
+      const panel = $('.req-detail-panel');
+      const item = STATE.items.find(x => x.id === STATE.selectedId);
+      if(!item){
+        clearDetails();
+        return;
+      }
+
+      const d = item.data;
+
+      const equipName = d.equipmentName || 'Equipment (unknown)';
+      const typeLabel = d.equipmentType ? String(d.equipmentType).charAt(0).toUpperCase() + String(d.equipmentType).slice(1) : '';
+      const makeModel = [d.equipmentMake, d.equipmentModel].filter(Boolean).join(' ');
+      const serial6   = d.equipmentSerialLast6 || '';
+      const topic     = mapTopic(d.serviceTopic, d.serviceTopicOther);
+      const parts     = d.partsNeeded || '';
+      const submittedBy = (d.submittedBy && (d.submittedBy.name || d.submittedBy.email)) || '';
+      const when = (d.createdAt && d.createdAt.toDate) ? d.createdAt.toDate()
+                 : null;
+      const requested = d.requestedDate || (when ? when.toLocaleDateString() : '');
+      const status = d[CONFIG.STATUS_FIELD] || '';
+      const notes  = d.notes || '';
+
+      panel.dataset.id = item.id;
+      $('.req-detail-title', panel).textContent = equipName;
+
+      const grid = $('.req-detail-grid', panel);
+      grid.innerHTML = `
+        <div>
+          <div class="req-detail-item-label">Equipment</div>
+          <div class="req-detail-item-value">${equipName}</div>
+        </div>
+        ${makeModel ? `
+        <div>
+          <div class="req-detail-item-label">Make / Model</div>
+          <div class="req-detail-item-value">${makeModel}</div>
+        </div>` : ''}
+        ${typeLabel ? `
+        <div>
+          <div class="req-detail-item-label">Type</div>
+          <div class="req-detail-item-value">${typeLabel}</div>
+        </div>` : ''}
+        ${serial6 ? `
+        <div>
+          <div class="req-detail-item-label">Serial</div>
+          <div class="req-detail-item-value">…${serial6}</div>
+        </div>` : ''}
+        <div>
+          <div class="req-detail-item-label">Topic</div>
+          <div class="req-detail-item-value">${topic}</div>
+        </div>
+        ${parts ? `
+        <div>
+          <div class="req-detail-item-label">Parts Needed</div>
+          <div class="req-detail-item-value">${parts}</div>
+        </div>` : ''}
+        ${submittedBy ? `
+        <div>
+          <div class="req-detail-item-label">Submitted By</div>
+          <div class="req-detail-item-value">${submittedBy}</div>
+        </div>` : ''}
+        ${requested ? `
+        <div>
+          <div class="req-detail-item-label">Requested</div>
+          <div class="req-detail-item-value">${requested}</div>
+        </div>` : ''}
+      `;
+
+      $('.req-detail-notes-body', panel).textContent = notes || 'No additional notes recorded.';
+
+      /* Attachments */
+      const attGrid = $('#reqDetailAttachments');
+      if(attGrid){
+        attGrid.innerHTML = '';
+
+        const attachments = [];
+        if(Array.isArray(d.attachmentUrls)){
+          for(const url of d.attachmentUrls){
+            if(!url) continue;
+            attachments.push({
+              url,
+              name: 'Attachment',
+              type: isImageUrl(url) ? 'image' : 'file'
+            });
+          }
+        }
+
+        const attCount = d.attachmentCount || attachments.length || 0;
+
+        if(attachments.length){
+          for(const att of attachments){
+            const itemEl = document.createElement('div');
+            itemEl.className = 'req-attachment-item';
+
+            const thumb = document.createElement('div');
+            thumb.className = 'req-attachment-thumb';
+
+            if(att.type === 'image'){
+              const img = document.createElement('img');
+              img.src = att.url;
+              img.alt = att.name || 'Attachment';
+              thumb.appendChild(img);
+            }else{
+              thumb.textContent = 'FILE';
+            }
+
+            const meta = document.createElement('div');
+            meta.className = 'req-attachment-meta';
+
+            const nameEl = document.createElement('div');
+            nameEl.className = 'req-attachment-name';
+            nameEl.textContent = att.name || 'Attachment';
+
+            const linkEl = document.createElement('button');
+            linkEl.type = 'button';
+            linkEl.className = 'req-attachment-link';
+            linkEl.textContent = 'View';
+
+            if(att.type === 'image'){
+              thumb.addEventListener('click', (ev)=>{
+                ev.stopPropagation();
+                openPhotoViewer(att.url);
+              });
+              linkEl.addEventListener('click', (ev)=>{
+                ev.stopPropagation();
+                openPhotoViewer(att.url);
+              });
+            }else{
+              linkEl.addEventListener('click', (ev)=>{
+                ev.stopPropagation();
+                window.open(att.url, '_blank', 'noopener');
+              });
+            }
+
+            meta.appendChild(nameEl);
+            meta.appendChild(linkEl);
+            itemEl.appendChild(thumb);
+            itemEl.appendChild(meta);
+            attGrid.appendChild(itemEl);
+          }
+        }else if(attCount > 0){
+          const info = document.createElement('div');
+          info.className = 'req-attachment-empty';
+          info.textContent = 'This request has attachments, but no links are available.';
+          attGrid.appendChild(info);
+        }else{
+          const empty = document.createElement('div');
+          empty.className = 'req-attachment-empty';
+          empty.textContent = 'No files or photos attached.';
+          attGrid.appendChild(empty);
+        }
+      }
+
+      const footer = $('.req-detail-footer', panel);
+      footer.innerHTML = `
+        Current status:
+        <span class="req-detail-pill">${status || 'unknown'}</span>
+      `;
+
+      panel.style.display = 'flex';
+    }
+
+    async function loadRequests(){
+      const db = STATE.db;
+      const ref = collection(db, CONFIG.COLLECTION_PATH);
+
+      try{
+        const q = query(ref, where(CONFIG.STATUS_FIELD, '==', CONFIG.NEEDS_APPROVAL_STATUS));
+        const snap = await getDocs(q);
+
+        const items = snap.docs.map(d => ({
+          id: d.id,
+          data: d.data()
+        }));
+
+        items.sort((a,b) => {
+          const ta = getTime(a.data.createdAt || a.data.requestedDate);
+          const tb = getTime(b.data.createdAt || b.data.requestedDate);
+          return tb - ta;
+        });
+
+        STATE.items = items;
+        renderList();
+      }catch(err){
+        console.error('Error loading service requests needing approval:', err);
+        const emptyEl = $('.req-empty');
+        emptyEl.textContent = 'Error loading service requests. Check console or Firestore indexes.';
+        emptyEl.style.display = 'block';
+        const countEl = $('#reqCount');
+        if(countEl) countEl.textContent = 'Error loading requests';
+      }
+    }
+
+    (async function boot(){
+      await ready;
+      STATE.db = getFirestore();
+
+      const shell = document.querySelector('fv-shell');
+      if (shell) shell.nav = NAV_MENU;
+
+      const backBtn = document.getElementById('btnBack');
+      if(backBtn){
+        backBtn.addEventListener('click', () => {
+          location.href = '/Farm-vista/pages/equipment/index.html';
+        });
+      }
+
+      /* Photo modal wiring */
+      photoModal = $('#photoModal');
+      photoModalImg = $('#photoModalImg');
+      photoModalBackdrop = $('#photoModalBackdrop');
+      photoModalCloseBtn = $('#photoModalClose');
+
+      if(photoModalBackdrop){
+        photoModalBackdrop.addEventListener('click', closePhotoViewer);
+      }
+      if(photoModalCloseBtn){
+        photoModalCloseBtn.addEventListener('click', closePhotoViewer);
+      }
+
+      /* Delete confirm modal */
+      deleteModal = $('#deleteModal');
+      deleteModalBackdrop = $('#deleteModalBackdrop');
+      deleteModalCancelBtn = $('#deleteModalCancel');
+      deleteModalConfirmBtn = $('#deleteModalConfirm');
+
+      if(deleteModalBackdrop){
+        deleteModalBackdrop.addEventListener('click', closeDeleteModal);
+      }
+      if(deleteModalCancelBtn){
+        deleteModalCancelBtn.addEventListener('click', closeDeleteModal);
+      }
+      if(deleteModalConfirmBtn){
+        deleteModalConfirmBtn.addEventListener('click', confirmDelete);
+      }
+
+      document.addEventListener('keydown', (ev)=>{
+        if(ev.key === 'Escape'){
+          if(photoModal && photoModal.classList.contains('show')){
+            closePhotoViewer();
+          }else if(deleteModal && deleteModal.classList.contains('show')){
+            closeDeleteModal();
+          }
+        }
+      });
+
+      await loadRequests();
+
+      const closeBtn = $('#reqDetailClose');
+      closeBtn.addEventListener('click', () => {
+        STATE.selectedId = null;
+        clearDetails();
+      });
+
+      const deleteBtn = $('#reqDeleteBtn');
+      if(deleteBtn){
+        deleteBtn.addEventListener('click', openDeleteModal);
+      }
+    })();
+  </script>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🛠️</div>
+          <div>
+            <h1>Approve Equipment Service Requests</h1>
+            <p class="muted">
+              Review service requests saved with status “needs approved”. Slide the toggle to mark each as
+              <strong>Pending</strong> – they’ll drop from this list as you approve them.
+            </p>
+          </div>
+        </header>
+
+        <div class="body">
+          <div class="toolbar">
+            <div class="toolbar-left">
+              <button id="btnBack" type="button" class="btn btn-quiet">
+                ← Back to Equipment
+              </button>
+            </div>
+            <div class="page-header-meta" id="reqCount">
+              0 needing approval
+            </div>
+          </div>
+
+          <section aria-label="Service requests needing approval">
+            <div class="req-empty">
+              No service requests currently have status “needs approved”.
+              New requests that require your approval will appear here automatically.
+            </div>
+            <div class="req-list"></div>
+          </section>
+
+          <section class="req-detail-panel" aria-label="Service request details">
+            <div class="req-detail-header">
+              <div class="req-detail-title">Service Request Details</div>
+              <button type="button" id="reqDetailClose" class="req-detail-close">
+                Close
+              </button>
+            </div>
+
+            <div class="req-detail-grid">
+              <!-- filled by JS -->
+            </div>
+
+            <div class="req-detail-notes">
+              <div class="req-detail-notes-label">Notes for shop</div>
+              <div class="req-detail-notes-body"></div>
+            </div>
+
+            <div class="req-detail-attachments">
+              <div class="req-detail-attachments-label">Files &amp; Photos</div>
+              <div class="req-attachments-grid" id="reqDetailAttachments">
+                <!-- filled by JS -->
+              </div>
+            </div>
+
+            <div class="req-detail-actions">
+              <div class="req-detail-footer">
+                <!-- status pill by JS -->
+              </div>
+              <!-- Lower right red trash can -->
+              <button type="button" id="reqDeleteBtn" class="req-delete-btn" title="Delete this service request">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M9 3h6a1 1 0 0 1 .96.73L16.78 5H20a1 1 0 1 1 0 2h-1.07l-.8 11.2A3 3 0 0 1 15.15 21h-6.3a3 3 0 0 1-2.98-2.8L5.07 7H4a1 1 0 0 1 0-2h3.22l.82-1.27A1 1 0 0 1 9 3Zm5.15 16a1 1 0 0 0 .99-.93L15.9 7H8.1l.76 11.07a1 1 0 0 0 1 .93h4.29Z"/>
+                </svg>
+              </button>
+            </div>
+          </section>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <!-- Photo viewer modal -->
+  <div id="photoModal" class="photo-modal" role="dialog" aria-modal="true" aria-label="Service request photo">
+    <div id="photoModalBackdrop" class="photo-backdrop"></div>
+    <div class="photo-sheet">
+      <div class="photo-close-row">
+        <button id="photoModalClose" type="button" class="photo-close-btn">Close</button>
+      </div>
+      <div class="photo-img-wrap">
+        <img id="photoModalImg" src="" alt="Service request photo"/>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete confirmation modal -->
+  <div id="deleteModal" class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="deleteModalTitle">
+    <div id="deleteModalBackdrop" class="confirm-backdrop"></div>
+    <div class="confirm-sheet">
+      <h2 id="deleteModalTitle">Delete service request?</h2>
+      <p>
+        This will permanently remove this service request from Equipment Service Requests.
+        This action cannot be undone.
+      </p>
+      <div class="confirm-actions">
+        <button type="button" id="deleteModalCancel" class="btn-confirm-cancel">Cancel</button>
+        <button type="button" id="deleteModalConfirm" class="btn-confirm-delete">Delete</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+
