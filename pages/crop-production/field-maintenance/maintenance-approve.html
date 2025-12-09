@@ -425,6 +425,38 @@
       margin-left:6px;
     }
 
+    /* Footer + delete button row */
+    .wo-detail-actions{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin-top:4px;
+    }
+
+    .wo-delete-btn{
+      flex:0 0 auto;
+      width:38px;
+      height:38px;
+      border-radius:999px;
+      border:1px solid #C53A3A;
+      background:color-mix(in srgb, #C53A3A 8%, var(--surface) 92%);
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+      padding:0;
+    }
+    .wo-delete-btn svg{
+      width:20px;
+      height:20px;
+      display:block;
+      color:#C53A3A;
+    }
+    .wo-delete-btn:active{
+      transform:scale(.96);
+    }
+
     /* Photo viewer modal */
     .photo-modal{
       position:fixed;
@@ -485,6 +517,70 @@
       max-height:100%;
       display:block;
     }
+
+    /* Delete confirm modal */
+    .confirm-modal{
+      position:fixed;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:100001;
+    }
+    .confirm-modal.show{
+      display:flex;
+    }
+    .confirm-backdrop{
+      position:absolute;
+      inset:0;
+      background:rgba(0,0,0,.45);
+    }
+    .confirm-sheet{
+      position:relative;
+      z-index:1;
+      width: min(420px, 92vw);
+      border-radius:16px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      box-shadow:0 18px 42px rgba(0,0,0,.45);
+      padding:16px 18px 14px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .confirm-sheet h2{
+      margin:0;
+      font-size:1rem;
+    }
+    .confirm-sheet p{
+      margin:4px 0 0;
+      font-size:0.9rem;
+      color:var(--muted,#67706B);
+    }
+    .confirm-actions{
+      margin-top:14px;
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+    }
+    .btn-confirm-cancel,
+    .btn-confirm-delete{
+      border-radius:999px;
+      padding:7px 14px;
+      font-size:0.9rem;
+      cursor:pointer;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+    }
+    .btn-confirm-cancel{
+      font-weight:600;
+    }
+    .btn-confirm-delete{
+      border-color:#C53A3A;
+      background:color-mix(in srgb, #C53A3A 9%, var(--surface) 91%);
+      color:#C53A3A;
+      font-weight:700;
+    }
   </style>
 
   <script>
@@ -505,7 +601,7 @@
     import {
       ready,
       getFirestore,
-      collection, query, where, getDocs, updateDoc, doc
+      collection, query, where, getDocs, updateDoc, doc, deleteDoc
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -533,6 +629,12 @@
     let photoModalImg = null;
     let photoModalBackdrop = null;
     let photoModalCloseBtn = null;
+
+    let deleteModal = null;
+    let deleteModalBackdrop = null;
+    let deleteModalCancelBtn = null;
+    let deleteModalConfirmBtn = null;
+    let deleteTargetId = null;
 
     function getTime(ts){
       if(!ts) return 0;
@@ -564,6 +666,49 @@
       photoModal.classList.remove('show');
       if(photoModalImg) photoModalImg.src = '';
       document.body.style.overflow = '';
+    }
+
+    function openDeleteModal(){
+      const panel = $('.wo-detail-panel');
+      if(!panel) return;
+      const id = panel.dataset.id;
+      if(!id) return;
+      deleteTargetId = id;
+      if(deleteModal){
+        deleteModal.classList.add('show');
+        document.body.style.overflow = 'hidden';
+      }
+    }
+
+    function closeDeleteModal(){
+      if(deleteModal){
+        deleteModal.classList.remove('show');
+      }
+      deleteTargetId = null;
+      // Only re-enable scroll if photo modal isn't open
+      if(!photoModal || !photoModal.classList.contains('show')){
+        document.body.style.overflow = '';
+      }
+    }
+
+    async function confirmDelete(){
+      if(!deleteTargetId || !STATE.db) return;
+      const id = deleteTargetId;
+      try{
+        await deleteDoc(doc(STATE.db, CONFIG.COLLECTION_PATH, id));
+
+        STATE.items = STATE.items.filter(x => x.id !== id);
+        if(STATE.selectedId === id){
+          STATE.selectedId = null;
+          clearDetails();
+        }
+        renderList();
+      }catch(err){
+        console.error('Failed to delete work order:', err);
+        alert('Could not delete work order. Please try again.');
+      }finally{
+        closeDeleteModal();
+      }
     }
 
     function renderList(){
@@ -990,8 +1135,29 @@
         photoModalCloseBtn.addEventListener('click', closePhotoViewer);
       }
       document.addEventListener('keydown', (ev)=>{
-        if(ev.key === 'Escape') closePhotoViewer();
+        if(ev.key === 'Escape'){
+          if(photoModal && photoModal.classList.contains('show')){
+            closePhotoViewer();
+          }else if(deleteModal && deleteModal.classList.contains('show')){
+            closeDeleteModal();
+          }
+        }
       });
+
+      deleteModal = $('#deleteModal');
+      deleteModalBackdrop = $('#deleteModalBackdrop');
+      deleteModalCancelBtn = $('#deleteModalCancel');
+      deleteModalConfirmBtn = $('#deleteModalConfirm');
+
+      if(deleteModalBackdrop){
+        deleteModalBackdrop.addEventListener('click', closeDeleteModal);
+      }
+      if(deleteModalCancelBtn){
+        deleteModalCancelBtn.addEventListener('click', closeDeleteModal);
+      }
+      if(deleteModalConfirmBtn){
+        deleteModalConfirmBtn.addEventListener('click', confirmDelete);
+      }
 
       await loadWorkOrders();
 
@@ -1000,6 +1166,11 @@
         STATE.selectedId = null;
         clearDetails();
       });
+
+      const deleteBtn = $('#woDeleteBtn');
+      if(deleteBtn){
+        deleteBtn.addEventListener('click', openDeleteModal);
+      }
     })();
   </script>
 </head>
@@ -1063,8 +1234,15 @@
               </div>
             </div>
 
-            <div class="wo-detail-footer">
-              <!-- status pill by JS -->
+            <div class="wo-detail-actions">
+              <div class="wo-detail-footer">
+                <!-- status pill by JS -->
+              </div>
+              <button type="button" id="woDeleteBtn" class="wo-delete-btn" title="Delete this work order">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M9 3h6a1 1 0 0 1 .96.73L16.78 5H20a1 1 0 1 1 0 2h-1.07l-.8 11.2A3 3 0 0 1 15.15 21h-6.3a3 3 0 0 1-2.98-2.8L5.07 7H4a1 1 0 0 1 0-2h3.22l.82-1.27A1 1 0 0 1 9 3Zm5.15 16a1 1 0 0 0 .99-.93L15.9 7H8.1l.76 11.07a1 1 0 0 0 1 .93h4.29Z"/>
+                </svg>
+              </button>
             </div>
 
             <div id="woDetailMapShell" style="display:none; margin-top:10px;">
@@ -1085,6 +1263,22 @@
       </div>
       <div class="photo-img-wrap">
         <img id="photoModalImg" src="" alt="Work order photo"/>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete confirmation modal -->
+  <div id="deleteModal" class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="deleteModalTitle">
+    <div id="deleteModalBackdrop" class="confirm-backdrop"></div>
+    <div class="confirm-sheet">
+      <h2 id="deleteModalTitle">Delete work order?</h2>
+      <p>
+        This will permanently remove this work order approval request from Field Maintenance.
+        This action cannot be undone.
+      </p>
+      <div class="confirm-actions">
+        <button type="button" id="deleteModalCancel" class="btn-confirm-cancel">Cancel</button>
+        <button type="button" id="deleteModalConfirm" class="btn-confirm-delete">Delete</button>
       </div>
     </div>
   </div>
