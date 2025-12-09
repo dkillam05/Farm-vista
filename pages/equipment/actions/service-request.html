@@ -273,6 +273,56 @@
     }
     .error.show{ display:block; }
 
+    /* file input + thumbs */
+    input[type="file"].file-input{
+      width:100%;
+      padding:8px 10px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      font-size:0.9rem;
+      color:var(--text);
+    }
+    input[type="file"].file-input::file-selector-button{
+      border:none;
+      border-radius:999px;
+      padding:4px 12px;
+      margin-right:10px;
+      background:var(--surface);
+      color:var(--text);
+      font-size:0.85rem;
+      cursor:pointer;
+    }
+    .thumbs{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      margin-top:6px;
+    }
+    .thumb{
+      width:72px;
+      height:72px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      display:grid;
+      place-items:center;
+      overflow:hidden;
+      font-size:11px;
+      text-align:center;
+      padding:4px;
+    }
+    .thumb img{
+      max-width:100%;
+      max-height:100%;
+      display:block;
+    }
+    .muted-line{
+      font-size:13px;
+      color:var(--muted,#67706B);
+      margin-top:4px;
+    }
+
     [hidden]{ display:none !important; }
 
     /* kill blue links/highlights */
@@ -312,7 +362,7 @@
 
           <!-- Main form -->
           <form class="form-card" id="serviceForm" novalidate>
-            <!-- Submitted by / Date row (copied pattern) -->
+            <!-- Submitted by / Date row -->
             <div class="row-two">
               <div class="form-row">
                 <div class="fm-row-label">Submitted by</div>
@@ -368,7 +418,7 @@
                 placeholder="Example: Rear axle vibration, cab door seal, etc.">
             </div>
 
-            <!-- Notes (copied mic / ta-wrap pattern) -->
+            <!-- Notes + mic -->
             <div class="form-row">
               <label for="notes">
                 Notes for shop
@@ -399,11 +449,19 @@
                 placeholder="Filter kits, bearings, hoses, tires/tracks, DEF sensor, etc. List part numbers if you have them."></textarea>
             </div>
 
-            <!-- Photos (coming later) -->
+            <!-- Photos & files -->
             <div class="form-row">
-              <label>Photos & files (coming soon)</label>
+              <label for="attachments">Photos & files</label>
+              <input
+                id="attachments"
+                class="file-input"
+                type="file"
+                multiple
+                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt">
+              <div id="thumbs" class="thumbs" aria-hidden="true"></div>
+              <div id="fileHint" class="muted-line" aria-hidden="true"></div>
               <p class="helper">
-                We’ll add photo/file uploads here later. For now, give a clear description in the notes if a photo would help.
+                Attach photos of warning lights, leaks, wear points, or upload related documents (inspection reports, service quotes, etc.).
               </p>
             </div>
 
@@ -416,7 +474,7 @@
             <!-- Success message -->
             <div class="success-card" id="successCard" hidden>
               <h2>Service request submitted</h2>
-              <p>
+              <p id="successMsg">
                 Your request has been saved and will show up in the service approval queue.
                 You’ll be returned to the equipment hub in a moment.
               </p>
@@ -435,7 +493,12 @@
       addDoc,
       serverTimestamp,
       doc,
-      getDoc
+      getDoc,
+      getStorage,
+      ref,
+      uploadBytes,
+      getDownloadURL,
+      updateDoc
     } from '/Farm-vista/js/firebase-init.js';
 
     const $ = id => document.getElementById(id);
@@ -595,6 +658,97 @@
       wireMic("mic", "notes");
     }
 
+    /* ---------------- Files: preview + upload ---------------- */
+
+    function setupFiles(){
+      const inp    = $("attachments");
+      const thumbs = $("thumbs");
+      const hint   = $("fileHint");
+      if(!inp) return;
+
+      inp.addEventListener("change", ()=>{
+        const files = Array.from(inp.files || []);
+        thumbs.innerHTML = "";
+        if(!files.length){
+          thumbs.setAttribute("aria-hidden","true");
+          hint.textContent = "";
+          hint.setAttribute("aria-hidden","true");
+          return;
+        }
+
+        files.forEach(f=>{
+          const wrap = document.createElement("div");
+          wrap.className = "thumb";
+
+          if(f.type && f.type.startsWith("image/")){
+            const img = document.createElement("img");
+            img.alt = f.name;
+            wrap.appendChild(img);
+            const reader = new FileReader();
+            reader.onload = e=>{ img.src = e.target.result; };
+            reader.readAsDataURL(f);
+          }else{
+            wrap.textContent = (f.name || "file").split(".").pop().toUpperCase();
+          }
+          thumbs.appendChild(wrap);
+        });
+
+        thumbs.removeAttribute("aria-hidden");
+        hint.textContent = files.length === 1 ? "1 file selected" : `${files.length} files selected`;
+        hint.removeAttribute("aria-hidden");
+      });
+    }
+
+    async function uploadRequestFiles(docId){
+      const input = $("attachments");
+      const files = Array.from(input?.files || []);
+      if(!files.length){
+        return { urls: [], count: 0 };
+      }
+
+      // Storage optional – follow same pattern as maintenance
+      if(!window.FV_HAS_STORAGE){
+        console.warn("[svc-req] Storage flag FV_HAS_STORAGE is false; skipping uploads.");
+        return { urls: [], count: files.length };
+      }
+
+      const storage = getStorage();
+      if(!storage){
+        console.warn("[svc-req] getStorage() returned null; skipping uploads.");
+        return { urls: [], count: files.length };
+      }
+
+      const urls = [];
+      let index = 0;
+
+      for(const file of files){
+        try{
+          const cleanName = (file.name || "file").replace(/\s+/g,"-");
+          const path = `equipmentServiceRequests/${docId}/${Date.now()}-${index}-${cleanName}`;
+          const fileRef = ref(storage, path);
+          await uploadBytes(fileRef, file);
+          const url = await getDownloadURL(fileRef);
+          urls.push(url);
+          index++;
+        }catch(err){
+          console.error("[svc-req] single file upload failed", err);
+        }
+      }
+
+      try{
+        const refDoc = doc(DB, "equipmentServiceRequests", docId);
+        await updateDoc(refDoc, {
+          attachmentUrls: urls,
+          attachmentCount: urls.length,
+          updatedAt: serverTimestamp()
+        });
+      }catch(err){
+        console.error("[svc-req] updateDoc with attachment URLs failed", err);
+      }
+
+      return { urls, count: urls.length };
+    }
+
     /* ------------------ equipment load ------------------ */
 
     async function loadEquipment(){
@@ -678,6 +832,7 @@
       const notesEl   = $('notes');
       const partsEl   = $('partsNeeded');
       const success   = $('successCard');
+      const successMsg= $('successMsg');
 
       btnCancel.addEventListener('click', (evt)=>{
         evt.preventDefault();
@@ -719,6 +874,9 @@
           const now = new Date();
           const requestedDate = formatLocalDate(now);
 
+          const fileInput = $("attachments");
+          const rawCount  = fileInput && fileInput.files ? fileInput.files.length : 0;
+
           const payload = {
             equipmentId: equipmentMeta?.id || equipmentId || null,
             equipmentName: equipmentMeta?.title || null,
@@ -734,6 +892,7 @@
 
             status: 'needs approved',
             requestedDate,
+            attachmentCount: rawCount, // will be corrected after upload
             createdAt: serverTimestamp(),
             submittedBy: {
               uid: $('submittedUid').value || null,
@@ -742,12 +901,31 @@
             }
           };
 
-          await addDoc(collection(DB,'equipmentServiceRequests'), payload);
+          const docRef = await addDoc(collection(DB,'equipmentServiceRequests'), payload);
+
+          let uploadInfo = null;
+          try{
+            uploadInfo = await uploadRequestFiles(docRef.id);
+          }catch(e){
+            console.error('[svc-req] attachment upload failed', e);
+          }
+
+          let extra = '';
+          if(uploadInfo && uploadInfo.count){
+            extra = uploadInfo.count === 1
+              ? ' 1 attachment uploaded.'
+              : ` ${uploadInfo.count} attachments uploaded.`;
+          }else if(rawCount && (!uploadInfo || !uploadInfo.count)){
+            extra = ' Attachments not uploaded (Storage unavailable).';
+          }
 
           setStatus('Service request submitted.', '✅');
+          successMsg.textContent =
+            'Your request has been saved and will show up in the service approval queue.' + extra +
+            ' You’ll be returned to the equipment hub in a moment.';
           success.hidden = false;
 
-          setTimeout(()=>{ goBackToHub(); }, 1200);
+          setTimeout(()=>{ goBackToHub(); }, 1500);
         }catch(e){
           console.error('[svc-req] submit error', e);
           showErr('Error submitting request. Check your connection and try again.');
@@ -767,6 +945,7 @@
       setupAuth();
       setupDate();
       setupMic();
+      setupFiles();
       setupTopicOther();
 
       const eqMeta = await loadEquipment();
