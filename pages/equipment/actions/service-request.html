@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- IMPORTANT: Firebase CONFIG (needed or equipment load fails) -->
+  <!-- IMPORTANT: Firebase CONFIG (same pattern as hub) -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
 
   <!-- Ensure fv-shell -->
@@ -165,26 +165,37 @@
       display:grid;
       gap:6px;
     }
-    .notes-toolbar{
-      display:flex;
-      align-items:center;
-      justify-content:flex-end;
-      gap:8px;
+    .notes-shell{
+      position:relative;
     }
-    .icon-btn{
-      border-radius:999px;
+    .notes-shell textarea{
+      padding-right:46px; /* room for mic button */
+    }
+    .dictation-btn{
+      position:absolute;
+      right:8px;
+      bottom:8px;
+      width:32px;
+      height:32px;
+      border-radius:8px;
       border:1px solid var(--border);
-      background:var(--surface);
-      padding:6px 12px;
+      background:var(--surface-soft,var(--surface));
       display:inline-flex;
       align-items:center;
-      gap:6px;
-      font-size:12px;
+      justify-content:center;
       cursor:pointer;
+      padding:0;
+      outline:none;
     }
-    .icon-btn svg{
+    .dictation-btn svg{
       width:16px;
       height:16px;
+      display:block;
+      fill:currentColor;
+    }
+    .dictation-btn:disabled{
+      opacity:.5;
+      cursor:default;
     }
 
     .actions{
@@ -209,6 +220,7 @@
       background:var(--card-surface,var(--surface));
       text-decoration:none;
       cursor:pointer;
+      color:inherit;
     }
     .btn-primary{
       background:var(--brand);
@@ -334,7 +346,7 @@
             <div class="form-row" id="topicOtherRow" hidden>
               <label for="serviceTopicOther">If “Other”, what’s the main topic?</label>
               <input id="serviceTopicOther" type="text" maxlength="120"
-                     placeholder="Example: Rear axle vibration, cab door seal, etc."/>
+                     placeholder="Example: Rear axle vibration, cab door seal, etc.">
             </div>
 
             <!-- Notes + dictation -->
@@ -343,16 +355,15 @@
                 Notes for shop
                 <span class="req-badge">Required</span>
               </label>
-              <div class="notes-toolbar">
-                <button type="button" class="icon-btn" id="btnDictate">
+              <div class="notes-shell">
+                <textarea id="notes" required
+                  placeholder="Describe the issue, when it happens, any warning lights, and how urgent it is."></textarea>
+                <button type="button" class="dictation-btn" id="btnDictate" aria-label="Dictate notes">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a1 1 0 0 1 2 0 7 7 0 0 1-6 6.93V20h2a1 1 0 1 1 0 2H9a1 1 0 1 1 0-2h2v-2.07A7 7 0 0 1 5 11a1 1 0 0 1 2 0 5 5 0 0 0 10 0z"/>
                   </svg>
-                  <span id="dictateLabel">Dictate</span>
                 </button>
               </div>
-              <textarea id="notes" required
-                        placeholder="Describe the issue, when it happens, any warning lights, and how urgent it is."></textarea>
               <p class="helper">
                 Example: “Rattle in front right at 1,800–2,000 RPM under load, no codes, started 12/3 after chisel.”
               </p>
@@ -362,7 +373,7 @@
             <div class="form-row">
               <label for="partsNeeded">Parts needed (if known)</label>
               <textarea id="partsNeeded"
-                        placeholder="Filter kits, bearings, hoses, tires/tracks, DEF sensor, etc. List part numbers if you have them."></textarea>
+                placeholder="Filter kits, bearings, hoses, tires/tracks, DEF sensor, etc. List part numbers if you have them."></textarea>
             </div>
 
             <!-- Coming-soon: attachments (photos/files) -->
@@ -448,20 +459,18 @@
       }
     }
 
-    // --- Dictation support
+    // --- Dictation support (mic in textarea corner)
     let recognizer = null;
     let dictating  = false;
 
     function setupDictation(){
-      const btn = $('btnDictate');
-      const label = $('dictateLabel');
+      const btn   = $('btnDictate');
       const notes = $('notes');
-      if(!btn || !label || !notes) return;
+      if(!btn || !notes) return;
 
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if(!SpeechRecognition){
         btn.disabled = true;
-        label.textContent = 'Dictation not supported';
         return;
       }
 
@@ -481,12 +490,10 @@
       };
       recognizer.onend = ()=>{
         dictating = false;
-        label.textContent = 'Dictate';
         btn.disabled = false;
       };
       recognizer.onerror = ()=>{
         dictating = false;
-        label.textContent = 'Dictate';
         btn.disabled = false;
       };
 
@@ -497,13 +504,11 @@
         }
         try{
           dictating = true;
-          label.textContent = 'Listening…';
           btn.disabled = true;
           recognizer.start();
         }catch(e){
           console.warn('dictation error', e);
           dictating = false;
-          label.textContent = 'Dictate';
           btn.disabled = false;
         }
       });
@@ -551,25 +556,36 @@
       const elBy   = $('submittedByDisplay');
       const elDate = $('submittedDateDisplay');
 
-      // Date for display
       const now = new Date();
       const displayDate = now.toLocaleDateString('en-US', {
         year:'numeric', month:'short', day:'numeric'
       });
       if(elDate) elDate.textContent = displayDate;
 
-      // User (async)
       userReady().then(user=>{
         if(!elBy) return;
         if(user){
-          const name = user.displayName || user.email || 'Current user';
+          const name = user.displayName || user.email || 'FarmVista User';
           elBy.textContent = name;
         }else{
-          elBy.textContent = 'Unknown user';
+          elBy.textContent = 'FarmVista User';
         }
       }).catch(()=>{
-        if(elBy) elBy.textContent = 'Unknown user';
+        if(elBy) elBy.textContent = 'FarmVista User';
       });
+    }
+
+    // --- Gentle retry, matching hub.html
+    async function getDocWithRetry(ref){
+      try {
+        console.info('[svc-req] getDoc attempt #1');
+        return await getDoc(ref);
+      }catch(e){
+        console.warn('[svc-req] getDoc failed #1; retrying…', e?.code || e);
+        await new Promise(r=>setTimeout(r,600));
+        console.info('[svc-req] getDoc attempt #2');
+        return await getDoc(ref);
+      }
     }
 
     async function loadEquipment(){
@@ -582,12 +598,13 @@
 
       try{
         const ref  = doc(db,'equipment',equipmentId);
-        const snap = await getDoc(ref);
+        const snap = await getDocWithRetry(ref);
         showContent();
 
         if(!snap.exists()){
           setStatus('Equipment record not found. Check the QR or link and try again.', '⚠️');
           $('subtitle').textContent = 'Equipment not found.';
+          console.warn('[svc-req] equipment not found', equipmentId);
           return null;
         }
 
@@ -611,7 +628,7 @@
 
         return { id: equipmentId, data: d, title, serialLast6: ls };
       }catch(e){
-        console.error('loadEquipment error', e);
+        console.error('[svc-req] loadEquipment error', e);
         showContent();
         setStatus('Error loading equipment. Try re-opening from the QR scan or lookup.', '⚠️');
         $('subtitle').textContent = 'Error loading equipment.';
@@ -685,7 +702,7 @@
             partsNeeded: parts || null,
 
             status: 'Pending',
-            requestedDate,              // local date string for humans/filters
+            requestedDate,
             createdAt: serverTimestamp(),
             createdByUid,
             createdByEmail,
@@ -697,10 +714,9 @@
           setStatus('Service request submitted.', '✅');
           success.hidden = false;
 
-          // Small delay, then go back to hub
           setTimeout(()=>{ goBackToHub(); }, 1300);
         }catch(e){
-          console.error('submit service request error', e);
+          console.error('[svc-req] submit error', e);
           setStatus('Error submitting request. Check your connection and try again.', '⚠️');
         }finally{
           btnSubmit.disabled = false;
@@ -719,12 +735,11 @@
     }
 
     init().catch(e=>{
-      console.error('service-request init error', e);
+      console.error('[svc-req] init fatal', e);
       showContent();
       setStatus('Unexpected error loading page.', '⚠️');
     });
 
-    // Handle bfcache resume gently
     window.addEventListener('pageshow', (e)=>{ if(e.persisted) init(); });
   </script>
 </body>
