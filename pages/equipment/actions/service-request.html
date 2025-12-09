@@ -14,6 +14,9 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
+  <!-- IMPORTANT: Firebase CONFIG (needed or equipment load fails) -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+
   <!-- Ensure fv-shell -->
   <script>
     (function(){
@@ -109,6 +112,16 @@
       font-size:13px;
       font-weight:700;
     }
+    .inline-two{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:12px;
+    }
+    @media(max-width:640px){
+      .inline-two{
+        grid-template-columns:1fr;
+      }
+    }
     .req-badge{
       font-size:11px;
       font-weight:700;
@@ -135,6 +148,17 @@
     .helper{
       font-size:12px;
       color:var(--muted,#67706B);
+    }
+
+    .readonly-field{
+      border-radius:10px;
+      border:1px solid var(--border);
+      padding:8px 10px;
+      font-size:14px;
+      background:var(--surface-soft,var(--surface));
+      min-height:40px;
+      display:flex;
+      align-items:center;
     }
 
     .notes-row{
@@ -269,6 +293,18 @@
 
           <!-- Main form -->
           <form class="form-card" id="serviceForm" novalidate>
+            <!-- Submitted by + Date row -->
+            <div class="form-row inline-two">
+              <div class="form-row">
+                <label>Submitted by</label>
+                <div class="readonly-field" id="submittedByDisplay">Loading…</div>
+              </div>
+              <div class="form-row">
+                <label>Date</label>
+                <div class="readonly-field" id="submittedDateDisplay">Loading…</div>
+              </div>
+            </div>
+
             <!-- Service topic -->
             <div class="form-row">
               <label for="serviceTopic">
@@ -381,6 +417,8 @@
     const db   = getFirestore();
     const auth = getAuth();
 
+    let cachedUser = null;
+
     function showContent(){ $('content').hidden = false; }
 
     function setStatus(msg, icon='ℹ️'){
@@ -410,7 +448,7 @@
       }
     }
 
-    // --- Dictation support (simple speech-to-text for notes)
+    // --- Dictation support
     let recognizer = null;
     let dictating  = false;
 
@@ -485,7 +523,11 @@
     }
 
     async function userReady(maxMs=3000){
-      if(auth.currentUser) return auth.currentUser;
+      if(cachedUser) return cachedUser;
+      if(auth.currentUser){
+        cachedUser = auth.currentUser;
+        return cachedUser;
+      }
       const first = new Promise(res=>{
         const off = onAuthStateChanged(auth, (u)=>{
           try{ off(); }catch{}
@@ -493,12 +535,41 @@
         }, { onlyOnce:true });
       });
       let u = await first;
-      if(u) return u;
+      if(u){
+        cachedUser = u;
+        return cachedUser;
+      }
       const t0 = Date.now();
       while(!auth.currentUser && (Date.now()-t0) < maxMs){
         await new Promise(r=>setTimeout(r,120));
       }
-      return auth.currentUser || null;
+      cachedUser = auth.currentUser || null;
+      return cachedUser;
+    }
+
+    function fillSubmittedByAndDate(){
+      const elBy   = $('submittedByDisplay');
+      const elDate = $('submittedDateDisplay');
+
+      // Date for display
+      const now = new Date();
+      const displayDate = now.toLocaleDateString('en-US', {
+        year:'numeric', month:'short', day:'numeric'
+      });
+      if(elDate) elDate.textContent = displayDate;
+
+      // User (async)
+      userReady().then(user=>{
+        if(!elBy) return;
+        if(user){
+          const name = user.displayName || user.email || 'Current user';
+          elBy.textContent = name;
+        }else{
+          elBy.textContent = 'Unknown user';
+        }
+      }).catch(()=>{
+        if(elBy) elBy.textContent = 'Unknown user';
+      });
     }
 
     async function loadEquipment(){
@@ -597,6 +668,9 @@
           const createdByEmail = user?.email || null;
           const createdByName  = user?.displayName || null;
 
+          const now = new Date();
+          const requestedDate = now.toISOString().slice(0,10); // YYYY-MM-DD
+
           const payload = {
             equipmentId: equipmentMeta?.id || equipmentId || null,
             equipmentName: equipmentMeta?.title || null,
@@ -611,6 +685,7 @@
             partsNeeded: parts || null,
 
             status: 'Pending',
+            requestedDate,              // local date string for humans/filters
             createdAt: serverTimestamp(),
             createdByUid,
             createdByEmail,
@@ -638,6 +713,7 @@
       await ready;
       setupDictation();
       setupTopicOther();
+      fillSubmittedByAndDate();
       const eq = await loadEquipment();
       setupForm(eq);
     }
