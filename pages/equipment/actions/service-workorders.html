@@ -80,6 +80,8 @@
 
     /* Toolbar + filters */
     .toolbar{
+      position:relative;
+      z-index:5; /* ensure filters & native dropdowns appear above cards */
       display:flex;
       flex-wrap:wrap;
       gap:10px;
@@ -809,13 +811,10 @@
         status: 'all',
         type: 'all'
       },
-      savingLineItem: false,
-      savingSummary: false,
-      completionError: ''
+      savingLineItem: false
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
-    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 
     function getTime(ts){
       if(!ts) return 0;
@@ -869,12 +868,28 @@
     }
 
     function loadFiltersFromStorage(){
+      const allowedStatus = new Set(['all','pending','completed']);
+      const allowedTypes  = new Set(['all','tractor','combine','sprayer','truck','trailer','implement','starfire','construction','other']);
+
       try{
         const s = localStorage.getItem('fv:eqWO:statusFilter');
         const t = localStorage.getItem('fv:eqWO:typeFilter');
-        if(s) STATE.filters.status = s;
-        if(t) STATE.filters.type   = t;
-      }catch{}
+
+        if(s && allowedStatus.has(s)){
+          STATE.filters.status = s;
+        }else{
+          STATE.filters.status = 'all';
+        }
+
+        if(t && allowedTypes.has(t)){
+          STATE.filters.type = t;
+        }else{
+          STATE.filters.type = 'all';
+        }
+      }catch{
+        STATE.filters.status = 'all';
+        STATE.filters.type   = 'all';
+      }
     }
 
     function saveFiltersToStorage(){
@@ -893,14 +908,12 @@
 
     function deriveMeterInfo(wo){
       const type = (wo.equipmentType || '').toLowerCase();
-      // Prefer stored meterType if present:
       if(wo.meterType){
         return {
           meterType: wo.meterType,
           meterLabel: wo.meterLabel || (wo.meterType === 'odometerMiles' ? 'Odometer (mi)' : 'Engine Hours')
         };
       }
-      // Fallback by equipmentType
       if(type === 'truck'){
         return { meterType:'odometerMiles', meterLabel:'Odometer (mi)' };
       }
@@ -914,7 +927,7 @@
       const status = (wo.equipmentStatus || wo.equipment_state || '').toString().toLowerCase();
       if(status && status === 'archived') return false;
       if(wo.isEquipmentActive === false) return false;
-      return true; // default assume active
+      return true;
     }
 
     function applyFilters(items){
@@ -992,7 +1005,7 @@
           emptyEl.style.display = 'block';
         }
         const countEl = $('#woCount');
-        if(countEl) countEl.textContent = 'Error loading work orders';
+        if(countEl) countEl.textContent = 'Error';
       }
     }
 
@@ -1244,7 +1257,6 @@
         const select = card.querySelector('.lineitem-select');
         const saveMsg = card.querySelector('.lineitem-save-msg');
 
-        // Populate employee dropdown
         STATE.employees.forEach(emp=>{
           const opt = document.createElement('option');
           opt.value = emp.id;
@@ -1257,9 +1269,6 @@
 
         function updateRadioVisual(state){
           radio.dataset.complete = state ? 'true':'false';
-          if(!state){
-            // if uncompleted, we do not clear select here; user might re-complete quickly
-          }
         }
 
         function showSaveMsg(msg){
@@ -1303,17 +1312,15 @@
               updatedAt: serverTimestamp()
             });
 
-            // Update local state
             item.data.lineItems = newLines;
             STATE.savingLineItem = false;
             showSaveMsg('Saved');
-            renderDetails(); // refresh panel to show updated dates
+            renderDetails();
           }catch(err){
             console.error('Error updating line item completion:', err);
             STATE.savingLineItem = false;
             showSaveMsg('Save failed');
             alert('Could not save line item. Check network / Firestore rules.');
-            // revert checkbox state
             checkbox.checked = li.completed === true;
             updateRadioVisual(li.completed === true);
           }
@@ -1369,13 +1376,8 @@
     function renderCompletionSection(panel, item){
       const d = item.data;
       const statusRaw = (d[CONFIG.STATUS_FIELD] || '').toString().toLowerCase();
-      const section = $('.wo-completion-section', panel);
-      if(!section) return;
-
       const { meterType, meterLabel } = deriveMeterInfo(d);
       const lineItems = Array.isArray(d.lineItems) ? d.lineItems : [];
-      const allCompleted = lineItems.length > 0 && lineItems.every(li => li.completed === true);
-
       const isCompleted = statusRaw === CONFIG.STATUS_COMPLETED;
 
       const meterBlock = $('#woCompletionMeterBlock');
@@ -1481,7 +1483,6 @@
 
         await updateDoc(woRef, payload);
 
-        // Update local state
         item.data[CONFIG.STATUS_FIELD] = CONFIG.STATUS_COMPLETED;
         item.data.completedAt = new Date();
         item.data.summaryNotes = summaryVal || null;
@@ -1561,7 +1562,6 @@
         return;
       }
 
-      // Submitted-by name = current user (from context / auth)
       let submittedByName = '';
       try{
         const ctx = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get();
@@ -1608,7 +1608,6 @@
 
         item.data.lineItems = newLines;
 
-        // clear form
         if(topicSel) topicSel.value = '';
         if(topicOtherInput) topicOtherInput.value = '';
         if(notesInput) notesInput.value = '';
@@ -1963,4 +1962,3 @@
   </fv-shell>
 </body>
 </html>
-
