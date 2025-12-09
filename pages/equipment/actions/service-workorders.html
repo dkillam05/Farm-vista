@@ -2111,132 +2111,140 @@
     }
 
     async function handleAttachmentsChange(ev){
-      const input = ev.target;
-      const files = Array.from(input.files || []);
-      if(!files.length) return;
+  const input = ev.target;
+  const files = Array.from(input.files || []);
+  if (!files.length) return;
 
-      const panel = $('.wo-detail-panel');
-      if(!panel) return;
-      const woId = panel.dataset.id;
-      if(!woId) return;
+  const panel = $('.wo-detail-panel');
+  if (!panel) return;
+  const woId = panel.dataset.id;
+  if (!woId) return;
 
-      const item = STATE.items.find(x => x.id === woId);
-      if(!item) return;
+  const item = STATE.items.find(x => x.id === woId);
+  if (!item) return;
 
-      const hintEl = $('#woAttachmentsHint');
-      if(hintEl) hintEl.textContent = 'Uploading…';
+  const hintEl = $('#woAttachmentsHint');
+  if (hintEl) hintEl.textContent = 'Uploading…';
 
-      try{
-        const storage = getStorage();
-        const db = STATE.db;
-        const woRef = doc(db, CONFIG.COLLECTION_PATH, woId);
+  try {
+    const storage = getStorage();
+    const db = STATE.db;
+    const woRef = doc(db, CONFIG.COLLECTION_PATH, woId);
 
-        const existing = Array.isArray(item.data.attachments) ? item.data.attachments : [];
-        const newAttachments = [];
+    const existing = Array.isArray(item.data.attachments)
+      ? item.data.attachments
+      : [];
 
-        let idx = 0;
-        for(const file of files){
-          const safeName = (file.name || 'file').replace(/\s+/g,'-');
-          const path = `equipmentWorkOrders/${woId}/${Date.now()}-${idx}-${safeName}`;
-          const fileRef = ref(storage, path);
-          await uploadBytes(fileRef, file);
-          const url = await getDownloadURL(fileRef);
-          newAttachments.push({
-            url,
-            name: file.name || 'Attachment',
-            contentType: file.type || null
-          });
-          idx++;
-        }
+    const newAttachments = [];
 
-        const allAttachments = [...existing, ...newAttachments];
+    let idx = 0;
+    for (const file of files) {
+      const safeName = (file.name || 'file').replace(/\s+/g, '-');
+      const path = `equipmentWorkOrders/${woId}/${Date.now()}-${idx}-${safeName}`;
+      const fileRef = ref(storage, path);
 
-        await updateDoc(woRef, {
-          attachments: allAttachments,
-          attachmentCount: allAttachments.length,
-          updatedAt: serverTimestamp()
-        });
+      await uploadBytes(fileRef, file);
+      const url = await getDownloadURL(fileRef);
 
-        item.data.attachments = allAttachments;
-        item.data.attachmentCount = allAttachments.length;
+      newAttachments.push({
+        url,
+        name: file.name || 'Attachment',
+        contentType: file.type || null
+      });
 
-        if(hintEl){
-          hintEl.textContent = `${allAttachments.length} attachment${allAttachments.length===1?'':'s'} on this work order.`;
-        }
-
-        renderAttachments(panel, item);
-        input.value = '';
-      }catch(err){
-        console.error('Error uploading attachments:', err);
-        alert('Failed to upload attachments. Check console / Storage rules.');
-        if(hintEl) hintEl.textContent = 'Upload failed';
-      }
+      idx++;
     }
 
-    function setupAttachmentsUI(){
-      const input = $('#woFiles');
-      if(input){
-        input.addEventListener('change', handleAttachmentsChange);
-      }
+    const allAttachments = [...existing, ...newAttachments];
+
+    await updateDoc(woRef, {
+      attachments: allAttachments,
+      attachmentCount: allAttachments.length,
+      updatedAt: serverTimestamp()
+    });
+
+    item.data.attachments = allAttachments;
+    item.data.attachmentCount = allAttachments.length;
+
+    if (hintEl) {
+      hintEl.textContent = `${allAttachments.length} attachment${allAttachments.length === 1 ? '' : 's'} on this work order.`;
     }
 
-    function setupFiltersUI(){
-      const statusSel = $('#filterStatus');
-      const typeSel   = $('#filterType');
+    renderAttachments(panel, item);
+    input.value = '';
 
-      if(statusSel){
-        statusSel.value = STATE.filters.status;
-        statusSel.addEventListener('change', ()=>{
-          STATE.filters.status = statusSel.value || 'all';
-          saveFiltersToStorage();
-          renderList();
-        });
-      }
+  } catch (err) {
+    console.error('Error uploading attachments:', err);
+    alert('Failed to upload attachments. Check console / Storage rules.');
+    if (hintEl) hintEl.textContent = 'Upload failed';
+  }
+}
 
-      if(typeSel){
-        typeSel.value = STATE.filters.type;
-        typeSel.addEventListener('change', ()=>{
-          STATE.filters.type = typeSel.value || 'all';
-          saveFiltersToStorage();
-          renderList();
-        });
-      }
-    }
+function setupAttachmentsUI(){
+  const input = $('#woFiles');
+  if (input) {
+    input.addEventListener('change', handleAttachmentsChange);
+  }
+}
 
-    (async function boot(){
-      await ready;
-      STATE.db = getFirestore();
+function setupFiltersUI(){
+  const statusSel = $('#filterStatus');
+  const typeSel   = $('#filterType');
 
-      const shell = document.querySelector('fv-shell');
-      if (shell) shell.nav = NAV_MENU;
+  if (statusSel) {
+    statusSel.value = STATE.filters.status;
+    statusSel.addEventListener('change', ()=>{
+      STATE.filters.status = statusSel.value || 'all';
+      saveFiltersToStorage();
+      renderList();
+    });
+  }
 
-      const backBtn = document.getElementById('btnBack');
-      if(backBtn){
-        backBtn.addEventListener('click', () => {
-          location.href = '/Farm-vista/pages/equipment/maintenance-index.html';
-        });
-      }
+  if (typeSel) {
+    typeSel.value = STATE.filters.type;
+    typeSel.addEventListener('change', ()=>{
+      STATE.filters.type = typeSel.value || 'all';
+      saveFiltersToStorage();
+      renderList();
+    });
+  }
+}
 
-      const closeDetailBtn = $('#woDetailClose');
-      if(closeDetailBtn){
-        closeDetailBtn.addEventListener('click', (ev)=>{
-          ev.preventDefault();
-          STATE.selectedId = null;
-          clearDetails();
-        });
-      }
+(async function boot(){
+  await ready;
+  STATE.db = getFirestore();
 
-      loadFiltersFromStorage();
-      setupFiltersUI();
-      setupAddLineForm();
-      setupSummaryMic();
-      setupSummarySave();
-      setupAttachmentsUI();
-      setupLineItemModal();
+  const shell = document.querySelector('fv-shell');
+  if (shell) shell.nav = NAV_MENU;
 
-      await loadEmployees();
-      await loadWorkOrders();
-    })();
+  const backBtn = document.getElementById('btnBack');
+  if (backBtn) {
+    backBtn.addEventListener('click', () => {
+      location.href = '/Farm-vista/pages/equipment/maintenance-index.html';
+    });
+  }
+
+  const closeDetailBtn = $('#woDetailClose');
+  if (closeDetailBtn) {
+    closeDetailBtn.addEventListener('click', (ev)=>{
+      ev.preventDefault();
+      STATE.selectedId = null;
+      clearDetails();
+    });
+  }
+
+  loadFiltersFromStorage();
+  setupFiltersUI();
+  setupAddLineForm();
+  setupSummaryMic();
+  setupSummarySave();
+  setupAttachmentsUI();
+  setupLineItemModal();
+
+  await loadEmployees();
+  await loadWorkOrders();
+})();
+
   </script>
 </head>
 
