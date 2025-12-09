@@ -385,8 +385,10 @@ Usage (from any page):
         'Activation Level',
         [
           { value: 'rtk',   label: 'RTK' },
+          { value: 'sfrtk',   label: 'SF-RTK' },
           { value: 'sf3',   label: 'SF3' },
           { value: 'sf2',   label: 'SF2' },
+          { value: 'sf1',   label: 'SF1' },
           { value: 'waas',  label: 'WAAS' },
           { value: 'none',  label: 'None' },
           { value: 'other', label: 'Other' }
