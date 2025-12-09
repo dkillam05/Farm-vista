@@ -689,6 +689,17 @@
       text-transform:uppercase;
       letter-spacing:0.05em;
       opacity:0.85;
+      display:flex;
+      align-items:center;
+      gap:4px;
+    }
+    .field-required{
+      color:#B3261E;
+      font-weight:900;
+    }
+    .field-hint{
+      font-size:0.78rem;
+      opacity:0.75;
     }
     .field-block input{
       border-radius:10px;
@@ -912,6 +923,16 @@
     option {
       color: var(--text) !important;
     }
+
+    /* Remove up/down arrows on number fields (meter) */
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    input[type="number"] {
+      -moz-appearance: textfield;
+    }
   </style>
 
   <script>
@@ -1056,6 +1077,35 @@
         return { meterType:'engineHours', meterLabel:'Engine Hours' };
       }
       return { meterType:null, meterLabel:null };
+    }
+
+    // Find the last recorded meter for this equipment (never let it go backwards)
+    function getLastMeterForEquipment(currentItem){
+      if(!currentItem) return null;
+      const d = currentItem.data || {};
+      const equipId = d.equipmentId || d.equipmentDocId || null;
+      const equipName = d.equipmentName || null;
+
+      let max = null;
+
+      STATE.items.forEach(it => {
+        const dd = it.data || {};
+        // Skip if we can't match equipment
+        let sameEquip = false;
+        if(equipId){
+          sameEquip = (dd.equipmentId === equipId || dd.equipmentDocId === equipId);
+        } else if(equipName){
+          sameEquip = (dd.equipmentName === equipName);
+        }
+        if(!sameEquip) return;
+
+        const m = typeof dd.completionMeter === 'number' ? dd.completionMeter : null;
+        if(m != null && (max === null || m > max)){
+          max = m;
+        }
+      });
+
+      return max;
     }
 
     function isEquipmentActive(wo){
@@ -1209,7 +1259,7 @@
             </div>
             <div class="wo-status-chip">${statusLabel}</div>
           </div>
-        `;
+       `;
 
         card.addEventListener('click', () => {
           STATE.selectedId = id;
@@ -1248,8 +1298,15 @@
       if(summaryEl) summaryEl.value = '';
       const meterInput = $('#woCompletionMeter');
       if(meterInput) meterInput.value = '';
-      const meterLabel = $('#woCompletionMeterLabel');
-      if(meterLabel) meterLabel.textContent = '';
+      const meterLabelText = $('#woCompletionMeterLabelText');
+      if(meterLabelText) meterLabelText.textContent = 'Meter Reading';
+      const meterReq = $('#woCompletionMeterRequired');
+      if(meterReq) meterReq.style.display = 'none';
+      const meterHint = $('#woCompletionMeterHint');
+      if(meterHint){
+        meterHint.textContent = '';
+        delete meterHint.dataset.lastMeter;
+      }
       const statusSummary = $('#woStatusSummary');
       if(statusSummary) statusSummary.textContent = '';
       const errorEl = $('#woCompletionError');
@@ -1485,20 +1542,46 @@
 
       const meterBlock = $('#woCompletionMeterBlock');
       const meterInput = $('#woCompletionMeter');
-      const meterLabelEl = $('#woCompletionMeterLabel');
+      const meterLabelText = $('#woCompletionMeterLabelText');
+      const meterReq = $('#woCompletionMeterRequired');
+      const meterHint = $('#woCompletionMeterHint');
       const statusSummary = $('#woStatusSummary');
       const errorEl = $('#woCompletionError');
 
       if(meterBlock){
         if(meterType){
           meterBlock.style.display = '';
-          if(meterLabelEl) meterLabelEl.textContent = meterLabel || 'Meter Reading';
+          if(meterLabelText) meterLabelText.textContent = meterLabel || 'Meter Reading';
+          if(meterReq) meterReq.style.display = 'inline';
+          // Find last recorded meter for this equipment
+          const lastMeter = getLastMeterForEquipment(item);
+          if(meterHint){
+            if(lastMeter != null){
+              const rounded = Math.round(lastMeter * 10) / 10;
+              meterHint.textContent = `Last recorded reading: ${rounded.toFixed(1)}`;
+              meterHint.dataset.lastMeter = String(rounded);
+            }else{
+              meterHint.textContent = '';
+              delete meterHint.dataset.lastMeter;
+            }
+          }
           if(meterInput){
-            meterInput.value = (d.completionMeter != null) ? String(d.completionMeter) : '';
+            if(d.completionMeter != null && !Number.isNaN(Number(d.completionMeter))){
+              const rounded = Math.round(Number(d.completionMeter) * 10) / 10;
+              meterInput.value = String(rounded.toFixed(1));
+            }else{
+              meterInput.value = '';
+            }
           }
         }else{
           meterBlock.style.display = 'none';
           if(meterInput) meterInput.value = '';
+          if(meterLabelText) meterLabelText.textContent = 'Meter Reading';
+          if(meterReq) meterReq.style.display = 'none';
+          if(meterHint){
+            meterHint.textContent = '';
+            delete meterHint.dataset.lastMeter;
+          }
         }
       }
 
@@ -1532,12 +1615,34 @@
           await handleReopenWorkOrder(item);
         };
       }
+
+      // Enforce one decimal max on the meter input
+      if(meterInput){
+        meterInput.placeholder = ''; // no helper text in box
+        meterInput.step = '0.1';
+        meterInput.addEventListener('input', ()=>{
+          let v = meterInput.value || '';
+          // keep only digits and dot
+          v = v.replace(/[^\d.]/g,'');
+          const parts = v.split('.');
+          if(parts.length > 2){
+            v = parts[0] + '.' + parts.slice(1).join('');
+          }
+          const p2 = v.split('.');
+          if(p2[1] && p2[1].length > 1){
+            p2[1] = p2[1].slice(0,1);
+            v = p2.join('.');
+          }
+          meterInput.value = v;
+        }, { once:true });
+      }
     }
 
     async function handleCompleteWorkOrder(item){
       const errorEl = $('#woCompletionError');
       const summaryEl = $('#summaryNotes');
       const meterInput = $('#woCompletionMeter');
+      const meterHint = $('#woCompletionMeterHint');
       const { meterType } = deriveMeterInfo(item.data);
 
       if(errorEl) errorEl.textContent = '';
@@ -1559,26 +1664,47 @@
 
       let meterVal = null;
       if(meterType && meterInput){
-        const raw = meterInput.value.trim();
+        const raw = (meterInput.value || '').trim();
         if(!raw){
           if(errorEl) errorEl.textContent = 'Enter a final meter reading to complete this work order.';
           meterInput.focus();
           return;
         }
-        const num = Number(raw);
-        if(!Number.isFinite(num)){
+        const numRaw = Number(raw);
+        if(!Number.isFinite(numRaw)){
           if(errorEl) errorEl.textContent = 'Meter reading must be a valid number.';
           meterInput.focus();
           return;
         }
+        // round to 1 decimal
+        const num = Math.round(numRaw * 10) / 10;
+
+        // Enforce never going backwards
+        let lastMeter = null;
+        if(meterHint && meterHint.dataset.lastMeter){
+          const parsed = Number(meterHint.dataset.lastMeter);
+          if(Number.isFinite(parsed)) lastMeter = parsed;
+        }else{
+          lastMeter = getLastMeterForEquipment(item);
+        }
+
+        if(lastMeter != null && num < lastMeter){
+          if(errorEl) errorEl.textContent = `Meter reading cannot be less than last recorded reading (${lastMeter.toFixed(1)}).`;
+          alert(`Meter reading cannot be less than last recorded reading (${lastMeter.toFixed(1)}).`);
+          meterInput.focus();
+          return;
+        }
+
         meterVal = num;
+        // normalize value displayed
+        meterInput.value = num.toFixed(1);
       }
 
       try{
         const woRef = doc(STATE.db, CONFIG.COLLECTION_PATH, item.id);
         const payload = {
           [CONFIG.STATUS_FIELD]: CONFIG.STATUS_COMPLETED,
-          completedAt: serverTimestamp(),   // top-level is fine
+          completedAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
           summaryNotes: summaryVal || null
         };
@@ -2031,7 +2157,7 @@
         const empName = emp ? emp.name : '';
 
         const oldLines = Array.isArray(item.data.lineItems) ? item.data.lineItems : [];
-        const now = new Date();   // use client Date inside array (serverTimestamp not allowed)
+        const now = new Date();
 
         const newLines = oldLines.map((row, i)=>{
           if(i !== index) return row;
@@ -2040,7 +2166,7 @@
           if(wantCompleted){
             updated.completedByEmployeeId = empId || null;
             updated.completedByEmployeeName = empName || null;
-            updated.completedAt = now;   // <- changed here
+            updated.completedAt = now;
           }else{
             updated.completedByEmployeeId = null;
             updated.completedByEmployeeName = null;
@@ -2333,8 +2459,12 @@
               <div class="wo-status-summary" id="woStatusSummary"></div>
               <div class="completion-row">
                 <div class="field-block" id="woCompletionMeterBlock" style="display:none;">
-                  <label id="woCompletionMeterLabel" for="woCompletionMeter">Meter Reading</label>
-                  <input id="woCompletionMeter" type="number" step="any" inputmode="decimal" placeholder="Enter final reading" />
+                  <label id="woCompletionMeterLabel" for="woCompletionMeter">
+                    <span id="woCompletionMeterLabelText">Meter Reading</span>
+                    <span id="woCompletionMeterRequired" class="field-required" style="display:none;">*</span>
+                  </label>
+                  <input id="woCompletionMeter" type="number" step="0.1" inputmode="decimal" />
+                  <div id="woCompletionMeterHint" class="field-hint"></div>
                 </div>
                 <div class="wo-completion-buttons">
                   <button id="btnCompleteWO" type="button" class="btn-complete">Mark Work Order Completed</button>
