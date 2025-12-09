@@ -43,7 +43,7 @@
       border-radius:14px;
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      overflow:hidden;
+      overflow:visible; /* allow dropdowns to show outside */
     }
 
     .hero-head{
@@ -131,8 +131,9 @@
     .filter-group{
       display:flex;
       flex-wrap:wrap;
-      gap:8px;
+      gap:10px;
       align-items:flex-end;
+      max-width:100%;
     }
 
     .filter-field{
@@ -140,6 +141,7 @@
       flex-direction:column;
       gap:4px;
       font-size:0.8rem;
+      min-width:160px;
     }
 
     .filter-field label{
@@ -150,7 +152,7 @@
     }
 
     .filter-select{
-      min-width:140px;
+      width:100%;
       border-radius:10px;
       border:1px solid var(--border);
       padding:6px 10px;
@@ -633,10 +635,11 @@
     .mic-btn svg{
       fill:currentColor !important;
     }
+    /* keep mic neutral even when active */
     .mic-btn.mic-active{
-      background:#2F6C3C;
-      color:#fff;
-      border-color:#2F6C3C;
+      background:var(--surface);
+      color:var(--muted,#67706B);
+      border-color:var(--border);
     }
 
     .summary-actions{
@@ -649,6 +652,103 @@
       font-size:0.78rem;
       opacity:0.8;
       align-self:flex-start;
+    }
+
+    /* WO attachments */
+    .attachments-section{
+      margin-top:10px;
+      border-top:1px solid var(--border);
+      padding-top:8px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+    }
+
+    .attachments-label{
+      font-size:0.9rem;
+      font-weight:700;
+    }
+
+    .attachments-helper{
+      font-size:0.8rem;
+      opacity:0.8;
+    }
+
+    .attach-input{
+      border-radius:10px;
+      border:1px solid var(--border);
+      padding:6px 8px;
+      font:inherit;
+      font-size:0.85rem;
+      background:var(--surface);
+      color:var(--text);
+      width:100%;
+      box-sizing:border-box;
+    }
+
+    .attachments-grid{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      margin-top:4px;
+    }
+
+    .attachment-item{
+      display:flex;
+      align-items:flex-start;
+      gap:8px;
+      font-size:0.85rem;
+    }
+
+    .attachment-thumb{
+      width:52px;
+      height:52px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      overflow:hidden;
+      font-size:0.8rem;
+    }
+
+    .attachment-thumb img{
+      width:100%;
+      height:100%;
+      object-fit:cover;
+      display:block;
+    }
+
+    .attachment-body{
+      flex:1 1 auto;
+      min-width:0;
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+    }
+
+    .attachment-name{
+      font-weight:600;
+      font-size:0.85rem;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    .attachment-link{
+      border:none;
+      background:transparent;
+      padding:0;
+      font-size:0.8rem;
+      cursor:pointer;
+      text-align:left;
+      color:var(--accent);
+    }
+
+    .attachment-empty{
+      font-size:0.8rem;
+      opacity:0.8;
     }
 
     /* Completion meter + WO complete */
@@ -790,7 +890,8 @@
       ready,
       getFirestore,
       collection, query, getDocs,
-      doc, updateDoc, serverTimestamp
+      doc, updateDoc, serverTimestamp,
+      getStorage, ref, uploadBytes, getDownloadURL
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -799,6 +900,7 @@
       COLLECTION_PATH: 'equipmentWorkOrders',
       STATUS_FIELD:    'status',
       STATUS_PENDING:  'pending',
+      STATUS_INPROG:   'in_progress',
       STATUS_COMPLETED:'completed'
     };
 
@@ -868,7 +970,7 @@
     }
 
     function loadFiltersFromStorage(){
-      const allowedStatus = new Set(['all','pending','completed']);
+      const allowedStatus = new Set(['all','pending','completed','in_progress']);
       const allowedTypes  = new Set(['all','tractor','combine','sprayer','truck','trailer','implement','starfire','construction','other']);
 
       try{
@@ -901,8 +1003,9 @@
 
     function mapStatusLabel(s){
       const v = (s||'').toString().toLowerCase();
-      if(v === 'pending') return 'Pending';
-      if(v === 'completed') return 'Completed';
+      if(v === 'pending')     return 'Pending';
+      if(v === 'in_progress') return 'In Progress';
+      if(v === 'completed')   return 'Completed';
       return s || 'Unknown';
     }
 
@@ -941,6 +1044,7 @@
         const s = (d[CONFIG.STATUS_FIELD] || '').toString().toLowerCase();
         if(statusFilter === 'pending' && s !== 'pending') return false;
         if(statusFilter === 'completed' && s !== 'completed') return false;
+        if(statusFilter === 'in_progress' && s !== 'in_progress') return false;
 
         const t = (d.equipmentType || '').toString().toLowerCase();
         if(typeFilter !== 'all' && t !== typeFilter) return false;
@@ -1119,6 +1223,12 @@
       if(statusSummary) statusSummary.textContent = '';
       const errorEl = $('#woCompletionError');
       if(errorEl) errorEl.textContent = '';
+      const attGrid = $('#woAttachmentsList');
+      if(attGrid) attGrid.innerHTML = '';
+      const attHint = $('#woAttachmentsHint');
+      if(attHint) attHint.textContent = '';
+      const attachInput = $('#woFiles');
+      if(attachInput) attachInput.value = '';
     }
 
     function renderDetails(){
@@ -1184,6 +1294,7 @@
 
       renderLineItems(panel, item);
       renderSummary(panel, item);
+      renderAttachments(panel, item);
       renderCompletionSection(panel, item);
 
       panel.style.display = 'flex';
@@ -1198,7 +1309,7 @@
 
       const lineItems = Array.isArray(d.lineItems) ? d.lineItems : [];
       if(!lineItems.length){
-        listEl.innerHTML = `<div class="wo-attachment-empty">No service line items yet. Add items below.</div>`;
+        listEl.innerHTML = `<div class="attachment-empty">No service line items yet. Add items below.</div>`;
         return;
       }
 
@@ -1211,7 +1322,6 @@
         const submitted = li.submittedByName || '';
         const completed = li.completed === true;
         const completedById = li.completedByEmployeeId || '';
-        const completedByName = li.completedByEmployeeName || '';
         const completedAt = li.completedAt || null;
 
         const card = document.createElement('div');
@@ -1234,6 +1344,7 @@
             </div>
             <div class="lineitem-meta">
               ${submitted ? `<span>Submitted by ${submitted}</span>` : ''}
+              ${completedAt ? `<span>Completed on ${formatDate(completedAt)}</span>` : ''}
             </div>
             ${notes ? `<div class="lineitem-notes">${notes}</div>` : ''}
             ${parts ? `<div class="lineitem-parts">Parts: ${parts}</div>` : ''}
@@ -1243,9 +1354,6 @@
                 <select class="lineitem-select">
                   <option value="">Select employee…</option>
                 </select>
-                <span class="lineitem-date">
-                  ${completedAt ? `on ${formatDate(completedAt)}` : ''}
-                </span>
               </div>
               <div class="lineitem-save-msg"></div>
             </div>
@@ -1307,15 +1415,31 @@
               return updated;
             });
 
+            // derive new WO status based on line items
+            const anyCompleted = newLines.some(li => li.completed === true);
+            const anyOpen      = newLines.some(li => li.completed !== true);
+            let newStatus = item.data[CONFIG.STATUS_FIELD] || CONFIG.STATUS_PENDING;
+
+            if(anyCompleted && anyOpen){
+              newStatus = CONFIG.STATUS_INPROG;
+            }else if(!anyCompleted && anyOpen){
+              newStatus = CONFIG.STATUS_PENDING;
+            }
+            // If all completed, keep whatever status is until user explicitly clicks "complete WO"
+
             await updateDoc(woRef, {
               lineItems: newLines,
+              [CONFIG.STATUS_FIELD]: newStatus,
               updatedAt: serverTimestamp()
             });
 
             item.data.lineItems = newLines;
+            item.data[CONFIG.STATUS_FIELD] = newStatus;
+
             STATE.savingLineItem = false;
             showSaveMsg('Saved');
             renderDetails();
+            renderList(); // refresh list badges
           }catch(err){
             console.error('Error updating line item completion:', err);
             STATE.savingLineItem = false;
@@ -1373,6 +1497,75 @@
       if(saveMsg) saveMsg.textContent = '';
     }
 
+    function renderAttachments(panel, item){
+      const d = item.data;
+      const listEl = $('#woAttachmentsList');
+      const hintEl = $('#woAttachmentsHint');
+      if(!listEl) return;
+
+      listEl.innerHTML = '';
+      if(hintEl) hintEl.textContent = '';
+
+      const attachments = Array.isArray(d.attachments) ? d.attachments : [];
+      const count = d.attachmentCount || attachments.length || 0;
+
+      if(!attachments.length && !count){
+        listEl.innerHTML = `<div class="attachment-empty">No files or photos attached yet.</div>`;
+        return;
+      }
+
+      if(!attachments.length && count){
+        listEl.innerHTML = `<div class="attachment-empty">This work order has ${count} attachment${count===1?'':'s'}, but no links are stored.</div>`;
+        return;
+      }
+
+      attachments.forEach(att=>{
+        if(!att || !att.url) return;
+        const isImage = att.contentType?.startsWith('image/') || /\.(png|jpe?g|gif|webp)$/i.test(att.url.split('?')[0]||'');
+
+        const row = document.createElement('div');
+        row.className = 'attachment-item';
+
+        const thumb = document.createElement('div');
+        thumb.className = 'attachment-thumb';
+        if(isImage){
+          const img = document.createElement('img');
+          img.src = att.url;
+          img.alt = att.name || 'Attachment';
+          thumb.appendChild(img);
+        }else{
+          thumb.textContent = 'FILE';
+        }
+
+        const body = document.createElement('div');
+        body.className = 'attachment-body';
+        const nameEl = document.createElement('div');
+        nameEl.className = 'attachment-name';
+        nameEl.textContent = att.name || 'Attachment';
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'attachment-link';
+        btn.textContent = 'View';
+
+        btn.addEventListener('click', ev=>{
+          ev.stopPropagation();
+          window.open(att.url, '_blank', 'noopener');
+        });
+
+        body.appendChild(nameEl);
+        body.appendChild(btn);
+
+        row.appendChild(thumb);
+        row.appendChild(body);
+        listEl.appendChild(row);
+      });
+
+      if(hintEl){
+        hintEl.textContent = `${attachments.length} attachment${attachments.length===1?'':'s'} on this work order.`;
+      }
+    }
+
     function renderCompletionSection(panel, item){
       const d = item.data;
       const statusRaw = (d[CONFIG.STATUS_FIELD] || '').toString().toLowerCase();
@@ -1400,9 +1593,14 @@
       }
 
       if(statusSummary){
-        statusSummary.textContent = isCompleted
-          ? 'Work order is completed.'
-          : 'Work order is still open. All line items must be completed before closing.';
+        if(isCompleted){
+          statusSummary.textContent = 'Work order is completed.';
+        }else{
+          const totalItems = lineItems.length;
+          const completedCount = lineItems.filter(li => li.completed === true).length;
+          const openCount = totalItems - completedCount;
+          statusSummary.textContent = `Line items: ${completedCount} completed, ${openCount} open. All must be completed before closing the work order.`;
+        }
       }
       if(errorEl) errorEl.textContent = '';
 
@@ -1429,7 +1627,6 @@
     }
 
     async function handleCompleteWorkOrder(item){
-      const panel = $('.wo-detail-panel');
       const errorEl = $('#woCompletionError');
       const summaryEl = $('#summaryNotes');
       const meterInput = $('#woCompletionMeter');
@@ -1603,10 +1800,12 @@
 
         await updateDoc(woRef, {
           lineItems: newLines,
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
+          [CONFIG.STATUS_FIELD]: CONFIG.STATUS_PENDING
         });
 
         item.data.lineItems = newLines;
+        item.data[CONFIG.STATUS_FIELD] = CONFIG.STATUS_PENDING;
 
         if(topicSel) topicSel.value = '';
         if(topicOtherInput) topicOtherInput.value = '';
@@ -1614,6 +1813,7 @@
         if(partsInput) partsInput.value = '';
 
         renderDetails();
+        renderList();
       }catch(err){
         console.error('Error adding line item:', err);
         alert('Failed to add service line. Check console / Firestore rules.');
@@ -1747,6 +1947,76 @@
       }
     }
 
+    async function handleAttachmentsChange(ev){
+      const input = ev.target;
+      const files = Array.from(input.files || []);
+      if(!files.length) return;
+
+      const panel = $('.wo-detail-panel');
+      if(!panel) return;
+      const woId = panel.dataset.id;
+      if(!woId) return;
+
+      const item = STATE.items.find(x => x.id === woId);
+      if(!item) return;
+
+      const hintEl = $('#woAttachmentsHint');
+      if(hintEl) hintEl.textContent = 'Uploading…';
+
+      try{
+        const storage = getStorage();
+        const db = STATE.db;
+        const woRef = doc(db, CONFIG.COLLECTION_PATH, woId);
+
+        const existing = Array.isArray(item.data.attachments) ? item.data.attachments : [];
+        const newAttachments = [];
+
+        let idx = 0;
+        for(const file of files){
+          const safeName = (file.name || 'file').replace(/\s+/g,'-');
+          const path = `equipmentWorkOrders/${woId}/${Date.now()}-${idx}-${safeName}`;
+          const fileRef = ref(storage, path);
+          await uploadBytes(fileRef, file);
+          const url = await getDownloadURL(fileRef);
+          newAttachments.push({
+            url,
+            name: file.name || 'Attachment',
+            contentType: file.type || null
+          });
+          idx++;
+        }
+
+        const allAttachments = [...existing, ...newAttachments];
+
+        await updateDoc(woRef, {
+          attachments: allAttachments,
+          attachmentCount: allAttachments.length,
+          updatedAt: serverTimestamp()
+        });
+
+        item.data.attachments = allAttachments;
+        item.data.attachmentCount = allAttachments.length;
+
+        if(hintEl){
+          hintEl.textContent = `${allAttachments.length} attachment${allAttachments.length===1?'':'s'} on this work order.`;
+        }
+
+        renderAttachments(panel, item);
+        input.value = '';
+      }catch(err){
+        console.error('Error uploading attachments:', err);
+        alert('Failed to upload attachments. Check console / Storage rules.');
+        if(hintEl) hintEl.textContent = 'Upload failed';
+      }
+    }
+
+    function setupAttachmentsUI(){
+      const input = $('#woFiles');
+      if(input){
+        input.addEventListener('change', handleAttachmentsChange);
+      }
+    }
+
     function setupFiltersUI(){
       const statusSel = $('#filterStatus');
       const typeSel   = $('#filterType');
@@ -1798,6 +2068,7 @@
       setupAddLineForm();
       setupSummaryMic();
       setupSummarySave();
+      setupAttachmentsUI();
 
       await loadEmployees();
       await loadWorkOrders();
@@ -1835,6 +2106,7 @@
                   <select id="filterStatus" class="filter-select">
                     <option value="all">All</option>
                     <option value="pending">Pending</option>
+                    <option value="in_progress">In Progress</option>
                     <option value="completed">Completed</option>
                   </select>
                 </div>
@@ -1937,6 +2209,19 @@
               <div class="summary-actions">
                 <button id="summarySaveBtn" type="button" class="btn btn-quiet" style="font-size:0.8rem;min-width:auto;">Save Summary</button>
                 <span id="summarySaveMsg" class="summary-save-msg"></span>
+              </div>
+            </div>
+
+            <!-- WO attachments -->
+            <div class="attachments-section">
+              <div class="attachments-label">Work Order Attachments</div>
+              <div class="attachments-helper">
+                Upload photos, PDFs, or other files related to this work order. These stay with the WO, not individual line items.
+              </div>
+              <input id="woFiles" class="attach-input" type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt" />
+              <div id="woAttachmentsHint" class="attachments-helper"></div>
+              <div id="woAttachmentsList" class="attachments-grid">
+                <!-- filled by JS -->
               </div>
             </div>
 
