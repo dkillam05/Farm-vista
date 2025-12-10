@@ -224,10 +224,16 @@
       const { collection, query, where, limit, getDocs } = b.fns;
       const q = query(collection(b.db, colPath), where(field, op, value), limit(lim));
       const snap = await getDocs(q);
-      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      return snap.docs.map(d => {
+        const data = d.data() || {};
+        return { ...data, id: d.id }; // ensure doc ID always wins
+      });
     } else {
       const snap = await b.db.collection(colPath).where(field, op, value).limit(lim).get();
-      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      return snap.docs.map(d => {
+        const data = d.data() || {};
+        return { ...data, id: d.id }; // ensure doc ID always wins
+      });
     }
   }
 
