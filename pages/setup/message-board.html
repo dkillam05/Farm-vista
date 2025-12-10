@@ -22,7 +22,16 @@
   <script src="/Farm-vista/js/fv-data.js"></script>
 
   <!-- Ensure shell -->
-  <script>(function(){ if(!customElements.get('fv-shell')){ const s=document.createElement('script'); s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);} })();</script>
+  <script>
+    (function(){
+      if (!customElements.get('fv-shell')) {
+        const s = document.createElement('script');
+        s.src = '/Farm-vista/js/fv-shell.js';
+        s.defer = true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
 
   <style>
     .page { padding-block: 10px 24px; }
@@ -69,13 +78,13 @@
     .chip { display:inline-block; padding:4px 8px; font-size:12px; border-radius:999px; border:1px solid var(--border); background:var(--bg); color:var(--text); }
     .actions button { border:1px solid var(--border); background:var(--bg); color:var(--text); padding:8px 10px; border-radius:8px; cursor:pointer; }
     .actions .danger { background:#a33; color:#fff; border-color:#a33; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
     .muted { color:var(--muted,#8a928c); font-size:13px; }
 
-    /* Tools layout */
     .tools-row { display:flex; flex-wrap:wrap; gap:12px; justify-content:flex-start; }
     .tools-row .btn { flex:1 1 0; text-align:center; }
-    @media (max-width:480px){ .tools-row .btn{ min-width:130px; font-size:14px; } }
+    @media (max-width:480px){
+      .tools-row .btn{ min-width:130px; font-size:14px; }
+    }
   </style>
 </head>
 <body>
@@ -120,10 +129,7 @@
 
           <div class="row">
             <button id="saveBtn" class="btn btn-primary" type="button">Save Message</button>
-            <button class="btn btn-ghost" type="button"
-              onclick="(function(){['title','author','body','expires'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});document.getElementById('pinned').checked=false;})();">
-              Clear
-            </button>
+            <button id="clearBtn" class="btn btn-ghost" type="button">Clear</button>
           </div>
         </div>
       </section>
@@ -148,8 +154,259 @@
     </div>
   </fv-shell>
 
-  <!-- Module -->
-  <script src="/Farm-vista/js/mb-admin.js"></script>
+  <!-- Inline module logic -->
+  <script>
+  (function(){
+    "use strict";
+
+    const COL = "messageBoard";
+
+    const $ = (sel) => document.querySelector(sel);
+    const ui = {
+      title:   $("#title"),
+      author:  $("#author"),
+      body:    $("#body"),
+      expires: $("#expires"),
+      pinned:  $("#pinned"),
+      saveBtn: $("#saveBtn"),
+      clearBtn: $("#clearBtn"),
+      purgeExpiredBtn: $("#purgeExpiredBtn"),
+      clearAllBtn: $("#clearAllBtn"),
+      list:    $("#list"),
+      counts:  $("#counts")
+    };
+
+    let editingId = null;
+
+    const now = () => Date.now();
+
+    const toMs = (v)=>{
+      if (!v) return null;
+      if (typeof v === "number") return v;
+      const t = Date.parse(v);
+      return Number.isFinite(t) ? t : null;
+    };
+
+    const fmtDateTime = (ms)=>{
+      if (!ms) return "";
+      try {
+        return new Date(ms).toLocaleString(undefined, {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit"
+        });
+      } catch {
+        return "";
+      }
+    };
+
+    function toLocalDatetimeValue(d){
+      const p = (n)=>String(n).padStart(2,"0");
+      return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+    }
+
+    function setExpiresMin(){
+      try {
+        const d = new Date(Date.now() + 60000);
+        ui.expires.min = toLocalDatetimeValue(d);
+      } catch {}
+    }
+
+    async function loadAll(){
+      await FVData.ready();
+      return await FVData.list(COL, { limit: 500, mine:false });
+    }
+
+    async function saveMessage(msg){
+      await FVData.ready();
+      if (msg.id){
+        await FVData.update(COL, msg.id, msg);
+        return msg.id;
+      }
+      const saved = await FVData.add(COL, msg);
+      return saved && saved.id;
+    }
+
+    async function deleteMessage(id){
+      await FVData.ready();
+      return await FVData.remove(COL, id);
+    }
+
+    async function deleteExpired(){
+      const t = now();
+      const all = await loadAll();
+      const expired = all.filter(m => m.expiresAt && m.expiresAt <= t);
+      for (const m of expired){
+        try { await deleteMessage(m.id); } catch(e) {}
+      }
+    }
+
+    async function deleteAll(){
+      const all = await loadAll();
+      for (const m of all){
+        try { await deleteMessage(m.id); } catch(e) {}
+      }
+    }
+
+    function clearForm(){
+      ui.title.value = "";
+      ui.author.value = "";
+      ui.body.value = "";
+      ui.expires.value = "";
+      ui.pinned.checked = false;
+      editingId = null;
+      ui.saveBtn.textContent = "Save Message";
+      setExpiresMin();
+    }
+
+    async function onSave(){
+      const body = ui.body.value.trim();
+      if (!body){
+        alert("Message body is required.");
+        return;
+      }
+
+      const expMs = ui.expires.value ? Date.parse(ui.expires.value) : null;
+      if (expMs && expMs < Date.now() + 60000){
+        alert("Expiry must be at least 1 minute in the future.");
+        return;
+      }
+
+      const msg = {
+        id: editingId || null,
+        title: ui.title.value.trim(),
+        body,
+        pinned: ui.pinned.checked,
+        authorName: ui.author.value.trim(),
+        expiresAt: expMs || null
+      };
+
+      try {
+        await saveMessage(msg);
+        clearForm();
+        await render();
+        window.scrollTo({ top:0, behavior:"smooth" });
+      } catch (e) {
+        alert("Save failed.");
+      }
+    }
+
+    function editItem(m){
+      editingId = m.id;
+      ui.title.value = m.title || "";
+      ui.author.value = m.authorName || "";
+      ui.body.value = m.body || "";
+      ui.pinned.checked = !!m.pinned;
+      ui.expires.value = m.expiresAt ? toLocalDatetimeValue(new Date(m.expiresAt)) : "";
+      ui.saveBtn.textContent = "Update Message";
+      setExpiresMin();
+      window.scrollTo({ top:0, behavior:"smooth" });
+    }
+
+    async function render(){
+      const t = now();
+      let raw = [];
+      try {
+        raw = await loadAll();
+      } catch {
+        raw = [];
+      }
+
+      const list = raw.map(m => ({
+        id: m.id,
+        title: m.title || "",
+        body: m.body || "",
+        pinned: !!m.pinned,
+        authorName: m.authorName || "",
+        createdAt: (m.createdAt && m.createdAt.seconds ? m.createdAt.seconds*1000 : m.createdAt || t),
+        expiresAt: toMs(m.expiresAt)
+      }));
+
+      list.sort((a,b)=> (b.pinned - a.pinned) || (b.createdAt - a.createdAt));
+
+      const active = list.filter(m => !m.expiresAt || m.expiresAt > t);
+      const expired = list.filter(m => m.expiresAt && m.expiresAt <= t);
+
+      ui.counts.textContent = `${active.length} active · ${expired.length} expired`;
+
+      ui.list.innerHTML = "";
+      for (const m of list){
+        const el = document.createElement("div");
+        el.className = "item";
+
+        const expiredBadge = m.expiresAt && m.expiresAt <= t
+          ? `<span class="chip" style="background:#ffe9e9;border-color:#ffc7c7">Expired</span>`
+          : ``;
+
+        el.innerHTML = `
+          <div class="item-header">
+            <div><strong>${m.title || "(Untitled)"}</strong></div>
+            <div class="chips">
+              ${m.pinned ? `<span class="chip">Pinned</span>` : ""}
+              ${m.expiresAt ? `<span class="chip">Expires ${fmtDateTime(m.expiresAt)}</span>` : `<span class="chip">No expiry</span>`}
+              ${expiredBadge}
+            </div>
+          </div>
+
+          <div style="margin-top:6px; white-space:pre-wrap">${m.body}</div>
+
+          <div class="muted" style="margin-top:6px">
+            Posted ${fmtDateTime(m.createdAt)}
+            ${m.authorName ? `· by ${m.authorName}` : ""}
+          </div>
+
+          <div class="actions" style="margin-top:10px">
+            <button data-act="edit">Edit</button>
+            <button data-act="togglePin">${m.pinned ? "Unpin" : "Pin"}</button>
+            <button data-act="delete" class="danger">Delete</button>
+          </div>
+        `;
+
+        el.querySelector("[data-act='edit']").onclick = ()=> editItem(m);
+
+        el.querySelector("[data-act='togglePin']").onclick = async ()=>{
+          m.pinned = !m.pinned;
+          try {
+            await saveMessage(m);
+            await render();
+          } catch {}
+        };
+
+        el.querySelector("[data-act='delete']").onclick = async ()=>{
+          if (!confirm("Delete this message?")) return;
+          try {
+            await deleteMessage(m.id);
+            await render();
+          } catch {
+            alert("Delete failed.");
+          }
+        };
+
+        ui.list.appendChild(el);
+      }
+    }
+
+    (async function init(){
+      try { await FVData.ready(); } catch (e) { alert("Unable to load FVData."); return; }
+
+      ui.saveBtn.addEventListener("click", onSave);
+      ui.clearBtn.addEventListener("click", clearForm);
+      ui.purgeExpiredBtn.addEventListener("click", async ()=>{
+        await deleteExpired();
+        await render();
+      });
+      ui.clearAllBtn.addEventListener("click", async ()=>{
+        if (!confirm("Delete ALL messages?")) return;
+        await deleteAll();
+        await render();
+      });
+
+      setExpiresMin();
+      await render();
+    })();
+  })();
+  </script>
 
   <noscript>
     <div class="container"><div class="card">JavaScript is required for Message Board.</div></div>
