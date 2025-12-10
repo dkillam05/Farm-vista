@@ -1,4 +1,4 @@
-/* /js/mb-admin.js — Message Board Admin (FVData + Firestore; LS fallback)
+/* /js/mb-admin.js — Message Board Admin (Firestore-first; FVData fallback; LS fallback)
    Collection: "messageBoard"
    Doc shape:
    {
@@ -30,7 +30,24 @@
 
   // ---------- State ----------
   let editingId = null;
-  let useLS = false; // flips to true if FVData not ready
+  let useLS = false; // flips to true if no Firestore / FVData
+
+  // Try to grab Firestore db (firebase-config.js should set this)
+  let db = null;
+  try {
+    if (window.db) {
+      db = window.db;
+    } else if (window.firebase && firebase.firestore) {
+      db = firebase.firestore();
+    }
+  } catch (e) {
+    db = null;
+  }
+
+  // If we have Firestore, we will NOT use LocalStorage unless absolutely needed
+  if (!db && !window.FVData) {
+    useLS = true;
+  }
 
   // ---------- Utils ----------
   const uidLocal = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -95,123 +112,197 @@
 
   const lsClearAll = () => localStorage.removeItem(LS_KEY);
 
-  // ---------- Data layer (FVData first) ----------
+  // ---------- Data layer ----------
   async function dlReady() {
-    try {
-      if (window.FVData && typeof FVData.ready === 'function') {
+    // If we already have db, nothing special to do.
+    if (db) return;
+
+    // If no db but FVData exists, we can at least wait for it.
+    if (window.FVData && typeof FVData.ready === 'function') {
+      try {
         await FVData.ready();
+      } catch {
+        /* ignore */
       }
-    } catch {
-      /* ignore */
     }
 
-    // useLS if FVData is missing or doesn't have the basic methods
-    useLS = !window.FVData || typeof FVData.add !== 'function';
+    // Decide if LS fallback is needed
+    if (!db && !window.FVData) {
+      useLS = true;
+    }
   }
 
+  // LIST
   async function dlListAll() {
+    // 1) Firestore direct (preferred)
+    if (db) {
+      const snap = await db.collection(COL).get();
+      const out = [];
+      snap.forEach((doc) => {
+        const data = doc.data() || {};
+        out.push({
+          id: doc.id,
+          ...data,
+        });
+      });
+      return out;
+    }
+
+    // 2) FVData.list as backup
+    if (window.FVData && typeof FVData.list === 'function') {
+      const items = await FVData.list(COL, { limit: 500, mine: false });
+      return (items || []).map((x) => ({
+        id: x.id,
+        ...(x || {}),
+      }));
+    }
+
+    // 3) LocalStorage fallback
     if (useLS) return lsLoad();
 
-    // By default FVData.list() filters to current uid; for message board we usually want all.
-    const items = await FVData.list(COL, { limit: 500, mine: false });
-    // Normalize IDs on reads
-    return (items || []).map((x) => ({ id: x.id, ...(x || {}) }));
+    return [];
   }
 
+  // GET
   async function dlGet(id) {
+    if (!id) return null;
+
+    if (db) {
+      const doc = await db.collection(COL).doc(id).get();
+      if (!doc.exists) return null;
+      return { id: doc.id, ...(doc.data() || {}) };
+    }
+
+    if (window.FVData && typeof FVData.getDocData === 'function') {
+      const doc = await FVData.getDocData(`${COL}/${id}`);
+      return doc ? { id, ...doc } : null;
+    }
+
     if (useLS) return lsLoad().find((x) => x.id === id) || null;
-    if (!window.FVData || typeof FVData.getDocData !== 'function') return null;
-    const doc = await FVData.getDocData(`${COL}/${id}`);
-    return doc ? { id, ...doc } : null;
+
+    return null;
   }
 
+  // UPSERT
   async function dlUpsert(msg) {
+    // Firestore first
+    if (db) {
+      const data = {
+        title: msg.title || '',
+        body: msg.body || '',
+        pinned: !!msg.pinned,
+        expiresAt: msg.expiresAt ?? null,
+        authorName: msg.authorName || '',
+      };
+
+      if (msg.id) {
+        // Update
+        await db.collection(COL).doc(msg.id).set(
+          {
+            ...data,
+            updatedAt: Date.now(),
+          },
+          { merge: true }
+        );
+        return msg.id;
+      } else {
+        // Create
+        const createdAt = Date.now();
+        const ref = await db.collection(COL).add({
+          ...data,
+          createdAt,
+          updatedAt: createdAt,
+        });
+        return ref.id;
+      }
+    }
+
+    // FVData backup
+    if (window.FVData) {
+      if (msg.id) {
+        const { id, ...rest } = msg;
+        await FVData.update(COL, id, rest);
+        return id;
+      } else {
+        const saved = await FVData.add(COL, msg);
+        return saved?.id || null;
+      }
+    }
+
+    // LocalStorage fallback
     if (useLS) {
       if (!msg.id) msg.id = uidLocal();
       lsUpsert(msg);
       return msg.id;
     }
 
-    if (!window.FVData) {
-      throw new Error('FVData not available for upsert');
-    }
-
-    if (msg.id) {
-      const { id, ...rest } = msg;
-      await FVData.update(COL, id, rest);
-      return id;
-    } else {
-      const saved = await FVData.add(COL, msg);
-      return saved?.id || null;
-    }
+    throw new Error('No data layer available for upsert');
   }
 
+  // REMOVE (DELETE)
   async function dlRemove(id) {
     if (!id) return;
 
+    // Firestore direct delete — this is the important part for you
+    if (db) {
+      await db.collection(COL).doc(id).delete();
+      return;
+    }
+
+    // FVData delete fallback
+    if (window.FVData) {
+      if (typeof FVData.deleteDoc === 'function') {
+        await FVData.deleteDoc(`${COL}/${id}`);
+        return;
+      }
+      if (typeof FVData.remove === 'function') {
+        await FVData.remove(COL, id);
+        return;
+      }
+    }
+
+    // LocalStorage fallback
     if (useLS) {
       lsRemove(id);
       return;
     }
 
-    // Firestore / FVData path
-    try {
-      if (window.FVData) {
-        // Preferred: FVData.remove(collection, id)
-        if (typeof FVData.remove === 'function') {
-          await FVData.remove(COL, id);
-          return;
-        }
-
-        // Alternate: FVData.deleteDoc("collection/id")
-        if (typeof FVData.deleteDoc === 'function') {
-          await FVData.deleteDoc(`${COL}/${id}`);
-          return;
-        }
-      }
-
-      // Fallback: raw Firestore
-      if (window.db && typeof db.collection === 'function') {
-        await db.collection(COL).doc(id).delete();
-        return;
-      }
-
-      throw new Error('No delete implementation available for messageBoard');
-    } catch (err) {
-      console.error('MessageBoard delete failed for id:', id, err);
-      throw err;
-    }
+    throw new Error('No delete path available for messageBoard');
   }
 
+  // CLEAR ALL
   async function dlClearAll() {
-    if (useLS) {
-      lsClearAll();
+    // Firestore batch delete
+    if (db) {
+      const snap = await db.collection(COL).get();
+      if (!snap.empty) {
+        const batch = db.batch();
+        snap.forEach((doc) => batch.delete(doc.ref));
+        await batch.commit();
+      }
       return;
     }
 
-    // Prefer batch deletion via Firestore if available
-    try {
-      if (window.db && typeof db.collection === 'function') {
-        const snap = await db.collection(COL).get();
-        if (!snap.empty) {
-          const batch = db.batch();
-          snap.forEach((doc) => batch.delete(doc.ref));
-          await batch.commit();
-        }
-        return;
+    // FVData fallback — delete each one
+    if (window.FVData) {
+      const items = await dlListAll();
+      for (const m of items) {
+        if (!m.id) continue;
+        try {
+          if (typeof FVData.deleteDoc === 'function') {
+            await FVData.deleteDoc(`${COL}/${m.id}`);
+          } else if (typeof FVData.remove === 'function') {
+            await FVData.remove(COL, m.id);
+          }
+        } catch {}
       }
-    } catch (err) {
-      console.error('MessageBoard clearAll via db failed, falling back to per-doc delete', err);
+      return;
     }
 
-    // Fallback: per-doc delete via dlRemove / FVData
-    const items = await dlListAll();
-    for (const m of items) {
-      try {
-        if (m.id) await dlRemove(m.id);
-      } catch (err) {
-        console.error('MessageBoard clearAll: failed to delete', m.id, err);
-      }
+    // LocalStorage fallback
+    if (useLS) {
+      lsClearAll();
+      return;
     }
   }
 
@@ -261,7 +352,7 @@
     };
 
     try {
-      const id = await dlUpsert(msg);
+      await dlUpsert(msg);
       editingId = null;
       if (ui.saveBtn) ui.saveBtn.textContent = 'Save Message';
       clearForm();
@@ -296,9 +387,7 @@
     for (const m of expired) {
       try {
         await dlRemove(m.id);
-      } catch (err) {
-        console.error('MessageBoard purgeExpired: failed to delete', m.id, err);
-      }
+      } catch {}
     }
     await render();
   }
@@ -319,20 +408,22 @@
     const t = now();
     const rawList = await dlListAll();
 
-    const list = rawList.map((m) => ({
-      id: m.id || uidLocal(),
-      title: (m.title || '').toString(),
-      body: (m.body || '').toString(),
-      pinned: !!m.pinned,
-      createdAt:
-        typeof m.createdAt === 'object' && typeof m.createdAt.seconds === 'number'
-          ? m.createdAt.seconds * 1000
-          : typeof m.createdAt === 'number'
-          ? m.createdAt
-          : t,
-      expiresAt: toMs(m.expiresAt),
-      authorName: (m.authorName || '').toString(),
-    }));
+    const list = rawList
+      .filter((m) => m && m.id) // ensure we only work with real Firestore docs
+      .map((m) => ({
+        id: m.id,
+        title: (m.title || '').toString(),
+        body: (m.body || '').toString(),
+        pinned: !!m.pinned,
+        createdAt:
+          typeof m.createdAt === 'object' && typeof m.createdAt.seconds === 'number'
+            ? m.createdAt.seconds * 1000
+            : typeof m.createdAt === 'number'
+            ? m.createdAt
+            : t,
+        expiresAt: toMs(m.expiresAt),
+        authorName: (m.authorName || '').toString(),
+      }));
 
     // Sort: pinned first, then newest by createdAt
     list.sort((a, b) => b.pinned - a.pinned || (b.createdAt || 0) - (a.createdAt || 0));
@@ -375,19 +466,18 @@
         try {
           await dlUpsert(m);
           await render();
-        } catch (err) {
-          console.error('MessageBoard togglePin failed', err);
-        }
+        } catch {}
       });
 
       el.querySelector('[data-act="delete"]').addEventListener('click', async () => {
         if (!confirm('Delete this message?')) return;
         try {
           await dlRemove(m.id);
+          // Optimistic UI: remove immediately so you see it disappear on phone
+          el.remove();
           await render();
-        } catch (err) {
-          console.error('MessageBoard delete handler failed', err);
-          alert('Unable to delete message. Please check console for details.');
+        } catch {
+          alert('Unable to delete message.');
         }
       });
 
