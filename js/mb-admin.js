@@ -1,6 +1,6 @@
 /* FarmVista • Message Board Admin (simple FVData version)
    Collection: "messageBoard"
-   Features: list, add, edit, pin/unpin, delete, remove expired, clear all
+   Uses FVData so Dashboard + Admin stay in sync.
 */
 (function () {
   "use strict";
@@ -65,24 +65,27 @@
   function setExpiresMin() {
     try {
       const d = new Date(Date.now() + 60000);
-      ui.expires.min = toLocalDatetimeValue(d);
+      if (ui.expires) ui.expires.min = toLocalDatetimeValue(d);
     } catch {}
   }
 
-  // ---------- FVData basic helpers ----------
+  // ---------- FVData helpers ----------
   async function loadAll() {
     await FVData.ready();
     return await FVData.list(COL, { limit: 500, mine: false });
   }
 
-  async function saveMessage(msg) {
+  async function saveMessagePatch(id, fields) {
     await FVData.ready();
-    if (msg.id) {
-      await FVData.update(COL, msg.id, msg);
-      return msg.id;
+    if (id) {
+      // update existing
+      await FVData.update(COL, id, fields);
+      return id;
+    } else {
+      // create new
+      const saved = await FVData.add(COL, fields);
+      return saved && saved.id;
     }
-    const saved = await FVData.add(COL, msg);
-    return saved && saved.id;
   }
 
   async function deleteMessage(id) {
@@ -95,61 +98,52 @@
     const all = await loadAll();
     const expired = all.filter((m) => m.expiresAt && m.expiresAt <= t);
     for (const m of expired) {
-      try {
-        await deleteMessage(m.id);
-      } catch (e) {
-        // ignore
-      }
+      try { await deleteMessage(m.id); } catch (e) {}
     }
   }
 
   async function deleteAll() {
     const all = await loadAll();
     for (const m of all) {
-      try {
-        await deleteMessage(m.id);
-      } catch (e) {
-        // ignore
-      }
+      try { await deleteMessage(m.id); } catch (e) {}
     }
   }
 
   // ---------- Form ----------
   function clearForm() {
-    ui.title.value = "";
-    ui.author.value = "";
-    ui.body.value = "";
-    ui.expires.value = "";
-    ui.pinned.checked = false;
+    if (ui.title) ui.title.value = "";
+    if (ui.author) ui.author.value = "";
+    if (ui.body) ui.body.value = "";
+    if (ui.expires) ui.expires.value = "";
+    if (ui.pinned) ui.pinned.checked = false;
     editingId = null;
-    ui.saveBtn.textContent = "Save Message";
+    if (ui.saveBtn) ui.saveBtn.textContent = "Save Message";
     setExpiresMin();
   }
 
   async function onSave() {
-    const body = (ui.body.value || "").trim();
+    const body = (ui.body && ui.body.value || "").trim();
     if (!body) {
       alert("Message body is required.");
       return;
     }
 
-    const expMs = ui.expires.value ? Date.parse(ui.expires.value) : null;
+    const expMs = ui.expires && ui.expires.value ? Date.parse(ui.expires.value) : null;
     if (expMs && expMs < Date.now() + 60000) {
       alert("Expiry must be at least 1 minute in the future.");
       return;
     }
 
-    const msg = {
-      id: editingId || null,
-      title: (ui.title.value || "").trim(),
+    const fields = {
+      title: (ui.title && ui.title.value || "").trim(),
       body,
-      authorName: (ui.author.value || "").trim(),
-      pinned: !!ui.pinned.checked,
+      authorName: (ui.author && ui.author.value || "").trim(),
+      pinned: !!(ui.pinned && ui.pinned.checked),
       expiresAt: expMs || null,
     };
 
     try {
-      await saveMessage(msg);
+      await saveMessagePatch(editingId, fields);
       clearForm();
       await render();
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -160,14 +154,16 @@
 
   function editItem(m) {
     editingId = m.id;
-    ui.title.value = m.title || "";
-    ui.author.value = m.authorName || "";
-    ui.body.value = m.body || "";
-    ui.pinned.checked = !!m.pinned;
-    ui.expires.value = m.expiresAt
-      ? toLocalDatetimeValue(new Date(m.expiresAt))
-      : "";
-    ui.saveBtn.textContent = "Update Message";
+    if (ui.title) ui.title.value = m.title || "";
+    if (ui.author) ui.author.value = m.authorName || "";
+    if (ui.body) ui.body.value = m.body || "";
+    if (ui.pinned) ui.pinned.checked = !!m.pinned;
+    if (ui.expires) {
+      ui.expires.value = m.expiresAt
+        ? toLocalDatetimeValue(new Date(m.expiresAt))
+        : "";
+    }
+    if (ui.saveBtn) ui.saveBtn.textContent = "Update Message";
     setExpiresMin();
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -196,7 +192,6 @@
       expiresAt: toMs(m.expiresAt),
     }));
 
-    // sort: pinned first, newest first
     list.sort(
       (a, b) => (b.pinned - a.pinned) || (b.createdAt - a.createdAt)
     );
@@ -204,8 +199,11 @@
     const active = list.filter((m) => !m.expiresAt || m.expiresAt > t);
     const expired = list.filter((m) => m.expiresAt && m.expiresAt <= t);
 
-    ui.counts.textContent = `${active.length} active · ${expired.length} expired`;
+    if (ui.counts) {
+      ui.counts.textContent = `${active.length} active · ${expired.length} expired`;
+    }
 
+    if (!ui.list) return;
     ui.list.innerHTML = "";
 
     for (const m of list) {
@@ -250,11 +248,10 @@
     }
   }
 
-  // ---------- Event delegation for buttons ----------
+  // ---------- Event delegation ----------
   async function onListClick(evt) {
     const btn = evt.target.closest("button[data-act]");
     if (!btn) return;
-
     const item = btn.closest(".item");
     if (!item) return;
 
@@ -265,13 +262,11 @@
     }
 
     const act = btn.dataset.act;
-
-    // Find the in-memory model from the latest render
     const t = now();
     const raw = await loadAll();
     const m = raw.find((x) => x.id === id);
     if (!m) {
-      alert("Message not found in Firestore.");
+      alert("Message not found.");
       await render();
       return;
     }
@@ -295,9 +290,15 @@
     }
 
     if (act === "togglePin") {
-      msg.pinned = !msg.pinned;
+      const fields = {
+        title: msg.title,
+        body: msg.body,
+        authorName: msg.authorName,
+        pinned: !msg.pinned,
+        expiresAt: msg.expiresAt,
+      };
       try {
-        await saveMessage(msg);
+        await saveMessagePatch(msg.id, fields);
         await render();
       } catch (e) {
         alert("Pin/unpin failed: " + (e && e.message ? e.message : String(e)));
@@ -309,7 +310,6 @@
       if (!confirm("Delete this message?")) return;
       try {
         await deleteMessage(msg.id);
-        alert("Message deleted.");
         await render();
       } catch (e) {
         alert("Delete failed: " + (e && e.message ? e.message : String(e)));
