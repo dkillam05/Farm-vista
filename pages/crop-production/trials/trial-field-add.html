@@ -317,7 +317,7 @@
       box-shadow:var(--combo-shadow);
       padding:8px;
       display:none;
-      z-index:10;
+      z-index:9999; /* ensure dropdown is above cards */
     }
     .combo-panel.show{
       display:block;
@@ -620,7 +620,7 @@
     import {
       ready,
       getFirestore, getAuth,
-      collection, getDocs, getDoc, doc, deleteDoc, onSnapshot
+      collection, getDocs, getDoc, doc, deleteDoc, onSnapshot, addDoc
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -1605,6 +1605,7 @@
       try{
         const trialId = STATE.trialId;
         const basePath = `${CONFIG.COLLECTION_TRIALS}/${trialId}/fields`;
+        const fieldsCollRef = collection(STATE.db, CONFIG.COLLECTION_TRIALS, trialId, 'fields');
 
         diag('saveAllFields.start', {
           trialId,
@@ -1614,8 +1615,7 @@
           orgId: STATE.orgId
         });
 
-        await FVData.ready();
-
+        // Write each pending field doc directly to the subcollection
         for(const row of STATE.pendingFields){
           const payload = {
             farmId: row.farm.id,
@@ -1626,10 +1626,14 @@
             trialAcres: row.acres!=null?row.acres:null,
             notes: row.notes || null
           };
-          diag('saveAllFields.addDoc', { basePath, payload });
-          await FVData.addDocWithMeta(basePath, payload);
+          diag('saveAllFields.addDoc', {
+            path: basePath,
+            payload
+          });
+          await addDoc(fieldsCollRef, payload);
         }
 
+        // Mark the trial Active using FVData (top-level doc, same behavior as before)
         diag('saveAllFields.updateTrial', { path: `${CONFIG.COLLECTION_TRIALS}/${trialId}` });
         await FVData.updateDocWithMeta(
           `${CONFIG.COLLECTION_TRIALS}/${trialId}`,
