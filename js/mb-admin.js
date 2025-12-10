@@ -1,6 +1,5 @@
-/* FarmVista • Message Board Admin (FVData version – clean + reliable)
+/* FarmVista • Message Board Admin (FVData version with delete error popup)
    Collection: "messageBoard"
-   Uses ONLY FVData so the Dashboard and Admin stay in sync.
 */
 (function () {
   "use strict";
@@ -21,6 +20,11 @@
     list:    $("#list"),
     counts:  $("#counts")
   };
+
+  if (!window.FVData) {
+    alert("FVData is not loaded. Message Board admin cannot function.");
+    return;
+  }
 
   let editingId = null;
 
@@ -82,14 +86,14 @@
     const all = await loadAll();
     const expired = all.filter(m => m.expiresAt && m.expiresAt <= t);
     for (const m of expired){
-      await deleteMessage(m.id);
+      try { await deleteMessage(m.id); } catch(e) {}
     }
   }
 
   async function deleteAll(){
     const all = await loadAll();
     for (const m of all){
-      await deleteMessage(m.id);
+      try { await deleteMessage(m.id); } catch(e) {}
     }
   }
 
@@ -127,10 +131,14 @@
       expiresAt: expMs || null
     };
 
-    await saveMessage(msg);
-    clearForm();
-    await render();
-    window.scrollTo({ top:0, behavior:"smooth" });
+    try {
+      await saveMessage(msg);
+      clearForm();
+      await render();
+      window.scrollTo({ top:0, behavior:"smooth" });
+    } catch (e) {
+      alert("Save failed: " + (e && e.message ? e.message : String(e)));
+    }
   }
 
   function editItem(m){
@@ -148,7 +156,13 @@
   // ---------- Render ----------
   async function render(){
     const t = now();
-    const raw = await loadAll();
+    let raw = [];
+    try {
+      raw = await loadAll();
+    } catch (e) {
+      alert("Failed to load messages: " + (e && e.message ? e.message : String(e)));
+      raw = [];
+    }
 
     const list = raw.map(m => ({
       id: m.id,
@@ -160,7 +174,6 @@
       expiresAt: toMs(m.expiresAt)
     }));
 
-    // Sort pinned, then newest
     list.sort((a,b)=> (b.pinned - a.pinned) || (b.createdAt - a.createdAt));
 
     const active = list.filter(m => !m.expiresAt || m.expiresAt > t);
@@ -205,14 +218,22 @@
 
       el.querySelector("[data-act='togglePin']").onclick = async ()=>{
         m.pinned = !m.pinned;
-        await saveMessage(m);
-        await render();
+        try {
+          await saveMessage(m);
+          await render();
+        } catch (e) {
+          alert("Pin/unpin failed: " + (e && e.message ? e.message : String(e)));
+        }
       };
 
       el.querySelector("[data-act='delete']").onclick = async ()=>{
         if (!confirm("Delete this message?")) return;
-        await deleteMessage(m.id);
-        await render();
+        try {
+          await deleteMessage(m.id);
+          await render();
+        } catch (e) {
+          alert("Delete failed: " + (e && e.message ? e.message : String(e)));
+        }
       };
 
       ui.list.appendChild(el);
@@ -221,10 +242,32 @@
 
   // ---------- Init ----------
   (async function init(){
-    await FVData.ready();
+    try {
+      await FVData.ready();
+    } catch (e) {
+      alert("FVData not ready: " + (e && e.message ? e.message : String(e)));
+      return;
+    }
+
     ui.saveBtn.onclick = onSave;
-    ui.purgeExpiredBtn.onclick = async ()=>{ await deleteExpired(); await render(); };
-    ui.clearAllBtn.onclick = async ()=>{ if (confirm("Delete ALL messages?")){ await deleteAll(); await render(); } };
+    ui.purgeExpiredBtn.onclick = async ()=>{
+      try {
+        await deleteExpired();
+        await render();
+      } catch (e) {
+        alert("Remove expired failed: " + (e && e.message ? e.message : String(e)));
+      }
+    };
+    ui.clearAllBtn.onclick = async ()=>{
+      if (!confirm("Delete ALL messages?")) return;
+      try {
+        await deleteAll();
+        await render();
+      } catch (e) {
+        alert("Clear all failed: " + (e && e.message ? e.message : String(e)));
+      }
+    };
+
     setExpiresMin();
     await render();
   })();
