@@ -201,6 +201,33 @@
       font-size:0.94rem;
     }
 
+    /* Grouped KPI tiles (weighted/simple/wins) */
+    .stat-pill-group{
+      min-width:180px;
+    }
+    .stat-lines{
+      margin-top:2px;
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+    }
+    .stat-line{
+      display:flex;
+      justify-content:space-between;
+      align-items:baseline;
+      gap:8px;
+    }
+    .stat-line-label{
+      font-size:0.74rem;
+      opacity:0.8;
+    }
+    .stat-line-value{
+      font-size:0.84rem;
+      font-weight:600;
+      text-align:right;
+      white-space:nowrap;
+    }
+
     /* AI summary card */
     .ai-card{
       border-radius:12px;
@@ -941,9 +968,15 @@
         tillableAll: 0,
         checkAcresAll: 0,
         trialAcresAll: 0,
-        checkAvgAll: null,
-        trialAvgAll: null,
-        advantageAll: null
+        checkAvgAll: null,        // weighted check bu/ac
+        trialAvgAll: null,        // weighted trial bu/ac
+        advantageAll: null,       // weighted advantage
+        simpleCheckAvg: null,     // simple (unweighted) check
+        simpleTrialAvg: null,     // simple (unweighted) trial
+        simpleAdvantage: null,    // simple advantage
+        wins: 0,
+        losses: 0,
+        winRate: null
       },
       company: null
     };
@@ -1119,24 +1152,44 @@
       return { checkAc, trialAc, checkAvg, trialAvg, advantage };
     }
 
+    /**
+     * Overall totals + new KPIs:
+     * - Weighted averages (existing)
+     * - Simple (unweighted) averages
+     * - Wins / losses / winRate
+     */
     function computeTotalsFromFields(fields = []) {
-      let tillableAll = 0;
+      let tillableAll   = 0;
+
+      // Weighted sums (existing)
       let checkAcresAll = 0;
       let trialAcresAll = 0;
-      let checkBuAll = 0;
-      let trialBuAll = 0;
+      let checkBuAll    = 0;
+      let trialBuAll    = 0;
+
+      // Simple (unweighted) averages
+      let simpleCheckSum = 0;
+      let simpleTrialSum = 0;
+      let simpleCount    = 0;
+
+      // Wins / losses
+      let wins   = 0;
+      let losses = 0;
 
       for (const f of fields) {
-        const d = f.data || {};
+        const d     = f.data  || {};
         const stats = f.stats || {};
 
-        tillableAll += typeof d.tillable === 'number' ? d.tillable : 0;
+        if (typeof d.tillable === 'number') {
+          tillableAll += d.tillable;
+        }
 
-        const cAc = typeof stats.checkAc === 'number' ? stats.checkAc : 0;
-        const tAc = typeof stats.trialAc === 'number' ? stats.trialAc : 0;
-        const cAvg = typeof stats.checkAvg === 'number' ? stats.checkAvg : null;
-        const tAvg = typeof stats.trialAvg === 'number' ? stats.trialAvg : null;
+        const cAc  = typeof stats.checkAc === 'number' ? stats.checkAc : 0;
+        const tAc  = typeof stats.trialAc === 'number' ? stats.trialAc : 0;
+        const cAvg = (typeof stats.checkAvg === 'number') ? stats.checkAvg : null;
+        const tAvg = (typeof stats.trialAvg === 'number') ? stats.trialAvg : null;
 
+        // Weighted
         checkAcresAll += cAc;
         trialAcresAll += tAc;
 
@@ -1146,11 +1199,38 @@
         if (tAc > 0 && tAvg !== null) {
           trialBuAll += tAvg * tAc;
         }
+
+        // Simple (unweighted) + wins / losses
+        if (cAvg !== null && tAvg !== null) {
+          simpleCheckSum += cAvg;
+          simpleTrialSum += tAvg;
+          simpleCount    += 1;
+
+          if (tAvg > cAvg) wins += 1;
+          else             losses += 1; // ties count as losses
+        }
       }
 
+      // Weighted (acre-weighted) averages
       const checkAvgAll = checkAcresAll > 0 ? (checkBuAll / checkAcresAll) : null;
       const trialAvgAll = trialAcresAll > 0 ? (trialBuAll / trialAcresAll) : null;
-      const advantageAll = (checkAvgAll !== null && trialAvgAll !== null) ? (trialAvgAll - checkAvgAll) : null;
+      const advantageAll =
+        (checkAvgAll !== null && trialAvgAll !== null)
+          ? (trialAvgAll - checkAvgAll)
+          : null;
+
+      // Simple (unweighted) averages across fields
+      const simpleCheckAvg =
+        simpleCount > 0 ? (simpleCheckSum / simpleCount) : null;
+      const simpleTrialAvg =
+        simpleCount > 0 ? (simpleTrialSum / simpleCount) : null;
+      const simpleAdvantage =
+        (simpleCheckAvg !== null && simpleTrialAvg !== null)
+          ? (simpleTrialAvg - simpleCheckAvg)
+          : null;
+
+      const totalDecisions = wins + losses;
+      const winRate = totalDecisions > 0 ? (wins / totalDecisions) : null;
 
       return {
         fieldCount: fields.length,
@@ -1159,7 +1239,13 @@
         trialAcresAll,
         checkAvgAll,
         trialAvgAll,
-        advantageAll
+        advantageAll,
+        simpleCheckAvg,
+        simpleTrialAvg,
+        simpleAdvantage,
+        wins,
+        losses,
+        winRate
       };
     }
 
@@ -1298,7 +1384,13 @@
         trialAcresAll: 0,
         checkAvgAll: null,
         trialAvgAll: null,
-        advantageAll: null
+        advantageAll: null,
+        simpleCheckAvg: null,
+        simpleTrialAvg: null,
+        simpleAdvantage: null,
+        wins: 0,
+        losses: 0,
+        winRate: null
       };
 
       if (els.title) els.title.textContent = 'Field Trial Yield Summary';
@@ -1418,6 +1510,7 @@
         }
       }
 
+      // Meta line (fields, farms, acres)
       if (els.metaLine) {
         const parts = [];
         const fieldCount = fieldsForMeta.length;
@@ -1436,42 +1529,127 @@
           : 'No fields included in summary. Turn fields back on using the checkboxes.';
       }
 
-      const top = [];
-      top.push({ label: 'Fields in summary', value: s.fieldCount || 0 });
-      top.push({
-        label: 'Trial acres (with yield)',
-        value: s.trialAcresAll ? formatNumber(s.trialAcresAll, {decimals:0}) : '–'
-      });
-      top.push({
-        label: 'Tillable acres covered',
-        value: s.tillableAll ? formatNumber(s.tillableAll, {decimals:0}) : '–'
-      });
-      top.push({
-        label: 'Check weighted bu/ac',
-        value: s.checkAvgAll !== null ? formatNumber(s.checkAvgAll, {decimals:1}) : '–'
-      });
-      top.push({
-        label: 'Treatment weighted bu/ac',
-        value: s.trialAvgAll !== null ? formatNumber(s.trialAvgAll, {decimals:1}) : '–'
-      });
-      top.push({
-        label: 'Treatment advantage',
-        value: s.advantageAll !== null
-          ? `${s.advantageAll >= 0 ? '+' : ''}${formatNumber(s.advantageAll, {decimals:1})} bu/ac`
-          : '–'
-      });
+      // ---------- KPI values ----------
 
+      // Weighted (existing)
+      const weightedCheckText =
+        s.checkAvgAll !== null
+          ? `${formatNumber(s.checkAvgAll, {decimals:1})} bu/ac`
+          : '–';
+      const weightedTrialText =
+        s.trialAvgAll !== null
+          ? `${formatNumber(s.trialAvgAll, {decimals:1})} bu/ac`
+          : '–';
+      const weightedAdvText =
+        s.advantageAll !== null
+          ? `${s.advantageAll >= 0 ? '+' : ''}${formatNumber(s.advantageAll, {decimals:1})} bu/ac`
+          : '–';
+
+      // Simple (unweighted)
+      const simpleCheckText =
+        s.simpleCheckAvg !== null
+          ? `${formatNumber(s.simpleCheckAvg, {decimals:1})} bu/ac`
+          : '–';
+      const simpleTrialText =
+        s.simpleTrialAvg !== null
+          ? `${formatNumber(s.simpleTrialAvg, {decimals:1})} bu/ac`
+          : '–';
+      const simpleAdvText =
+        s.simpleAdvantage !== null
+          ? `${s.simpleAdvantage >= 0 ? '+' : ''}${formatNumber(s.simpleAdvantage, {decimals:1})} bu/ac`
+          : '–';
+
+      // Wins / losses
+      const wins   = s.wins   || 0;
+      const losses = s.losses || 0;
+      const totalDecisions = wins + losses;
+      const winRateText = (typeof s.winRate === 'number' && !Number.isNaN(s.winRate) && totalDecisions > 0)
+        ? `${formatNumber(s.winRate * 100, {decimals:0})}%`
+        : '–';
+
+      const winsText   = formatInt(wins);
+      const lossesText = formatInt(losses);
+
+      // ---------- Build KPI tiles ----------
       if (els.topStats) {
-        els.topStats.innerHTML = top.map(stat => `
+        els.topStats.innerHTML = `
           <div class="stat-pill">
-            <div class="stat-label">${stat.label}</div>
-            <div class="stat-value">${stat.value}</div>
+            <div class="stat-label">Fields in summary</div>
+            <div class="stat-value">${formatInt(s.fieldCount || 0)}</div>
           </div>
-        `).join('');
+          <div class="stat-pill">
+            <div class="stat-label">Trial acres (with yield)</div>
+            <div class="stat-value">${
+              s.trialAcresAll
+                ? formatNumber(s.trialAcresAll, {decimals:0})
+                : '–'
+            }</div>
+          </div>
+          <div class="stat-pill">
+            <div class="stat-label">Tillable acres covered</div>
+            <div class="stat-value">${
+              s.tillableAll
+                ? formatNumber(s.tillableAll, {decimals:0})
+                : '–'
+            }</div>
+          </div>
+          <div class="stat-pill stat-pill-group">
+            <div class="stat-label">Weighted averages</div>
+            <div class="stat-lines">
+              <div class="stat-line">
+                <span class="stat-line-label">Check</span>
+                <span class="stat-line-value">${weightedCheckText}</span>
+              </div>
+              <div class="stat-line">
+                <span class="stat-line-label">Treatment</span>
+                <span class="stat-line-value">${weightedTrialText}</span>
+              </div>
+              <div class="stat-line">
+                <span class="stat-line-label">Advantage</span>
+                <span class="stat-line-value">${weightedAdvText}</span>
+              </div>
+            </div>
+          </div>
+          <div class="stat-pill stat-pill-group">
+            <div class="stat-label">Simple averages</div>
+            <div class="stat-lines">
+              <div class="stat-line">
+                <span class="stat-line-label">Check</span>
+                <span class="stat-line-value">${simpleCheckText}</span>
+              </div>
+              <div class="stat-line">
+                <span class="stat-line-label">Treatment</span>
+                <span class="stat-line-value">${simpleTrialText}</span>
+              </div>
+              <div class="stat-line">
+                <span class="stat-line-label">Advantage</span>
+                <span class="stat-line-value">${simpleAdvText}</span>
+              </div>
+            </div>
+          </div>
+          <div class="stat-pill stat-pill-group">
+            <div class="stat-label">Wins / Losses</div>
+            <div class="stat-lines">
+              <div class="stat-line">
+                <span class="stat-line-label">Wins</span>
+                <span class="stat-line-value">${winsText}</span>
+              </div>
+              <div class="stat-line">
+                <span class="stat-line-label">Losses</span>
+                <span class="stat-line-value">${lossesText}</span>
+              </div>
+              <div class="stat-line">
+                <span class="stat-line-label">Win rate</span>
+                <span class="stat-line-value">${winRateText}</span>
+              </div>
+            </div>
+          </div>
+        `;
       }
 
+      // Totals card (keep existing style / metrics; weighted only)
       if (els.totalsCard) els.totalsCard.style.display = 'block';
-      if (els.totFields)     els.totFields.textContent = s.fieldCount || 0;
+      if (els.totFields)     els.totFields.textContent     = s.fieldCount || 0;
       if (els.totTillable)   els.totTillable.textContent   = s.tillableAll ? formatNumber(s.tillableAll, {decimals:1}) : '–';
       if (els.totTrialAcres) els.totTrialAcres.textContent = s.trialAcresAll ? formatNumber(s.trialAcresAll, {decimals:1}) : '–';
       if (els.totCheckAvg)   els.totCheckAvg.textContent   = s.checkAvgAll !== null ? formatNumber(s.checkAvgAll, {decimals:1}) : '–';
@@ -2757,164 +2935,4 @@
             <div id="empty-state" class="wo-empty" style="display:none;">
               No trial is selected. Choose a crop year and trial above.
             </div>
-            <div id="error-state" class="error-msg" style="display:none;"></div>
-          </section>
-
-          <section id="totals-card" class="totals-card" style="display:none;" aria-label="Overall trial totals">
-            <div class="totals-row">
-              <div class="totals-label">Overall Trial Totals (included fields only)</div>
-              <div class="totals-metrics">
-                <div class="totals-metric">
-                  <span>Fields in summary</span>
-                  <span id="tot-fields">–</span>
-                </div>
-                <div class="totals-metric">
-                  <span>Tillable acres (included fields)</span>
-                  <span id="tot-tillable">–</span>
-                </div>
-                <div class="totals-metric">
-                  <span>Trial acres (with yield)</span>
-                  <span id="tot-trial-acres">–</span>
-                </div>
-                <div class="totals-metric">
-                  <span>Check weighted bu/ac</span>
-                  <span id="tot-check-avg">–</span>
-                </div>
-                <div class="totals-metric">
-                  <span>Treatment weighted bu/ac</span>
-                  <span id="tot-trial-avg">–</span>
-                </div>
-                <div class="totals-metric">
-                  <span>Treatment advantage (bu/ac)</span>
-                  <span id="tot-adv">–</span>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <div class="bottom-actions">
-            <button id="btnPrintBottom" type="button" class="btn btn-primary">
-              Print / Save PDF
-            </button>
-          </div>
-        </div>
-      </section>
-    </div>
-  </fv-shell>
-
-  <!-- Field detail modal -->
-  <div id="field-modal-backdrop" class="modal-backdrop modal-hidden" aria-hidden="true">
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="field-modal-title">
-      <div class="modal-head">
-        <div class="modal-title-row">
-          <div>
-            <div id="field-modal-title" class="modal-title">Field details</div>
-            <div id="field-modal-sub" class="modal-sub"></div>
-          </div>
-          <button
-            type="button"
-            class="modal-close-btn"
-            id="field-modal-close"
-            aria-label="Close">
-            ×
-          </button>
-        </div>
-      </div>
-
-      <div class="modal-body">
-        <section>
-          <div class="modal-section-title">Summary</div>
-          <div class="modal-summary-grid" id="field-modal-summary"></div>
-        </section>
-
-        <section>
-          <div class="modal-section-title">Yield blocks</div>
-
-          <div class="blocks-table-wrap desktop-only">
-            <table class="blocks-table">
-              <thead>
-                <tr>
-                  <th>Block</th>
-                  <th>Type</th>
-                  <th class="numeric">Check bu/ac</th>
-                  <th class="numeric">Trial bu/ac</th>
-                  <th class="numeric">Check acres</th>
-                  <th class="numeric">Trial acres</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody id="field-modal-blocks-body">
-              </tbody>
-            </table>
-          </div>
-
-          <div id="field-modal-blocks-cards" class="mobile-only block-card-list">
-          </div>
-        </section>
-
-        <section>
-          <div class="modal-section-title">Files &amp; photos</div>
-          <div id="field-modal-files" class="thumb-grid"></div>
-        </section>
-      </div>
-    </div>
-  </div>
-
-  <!-- Photo viewer modal -->
-  <div id="photo-viewer-backdrop" class="modal-backdrop modal-hidden" aria-hidden="true">
-    <div class="modal photo-modal" role="dialog" aria-modal="true" aria-labelledby="photo-viewer-caption">
-      <div class="modal-head">
-        <div class="modal-title-row">
-          <div id="photo-viewer-caption" class="modal-title">File preview</div>
-          <button
-            type="button"
-            class="modal-close-btn"
-            id="photo-viewer-close"
-            aria-label="Close image viewer">
-            ×
-          </button>
-        </div>
-      </div>
-      <div class="modal-body photo-modal-body">
-        <img id="photo-viewer-img" src="" alt="Trial file preview" />
-      </div>
-    </div>
-  </div>
-
-  <!-- Print-type chooser modal -->
-  <div id="print-modal-backdrop" class="modal-backdrop modal-hidden" aria-hidden="true">
-    <div class="modal print-modal" role="dialog" aria-modal="true" aria-labelledby="print-modal-title">
-      <div class="modal-head print-modal-head">
-        <div class="modal-title-row">
-          <div>
-            <div id="print-modal-title" class="print-modal-title">Choose report type</div>
-            <div class="print-modal-sub">
-              How do you want to print this trial?
-            </div>
-          </div>
-          <button type="button" class="modal-close-btn" id="printModalClose" aria-label="Close">
-            ×
-          </button>
-        </div>
-      </div>
-      <div class="print-modal-body">
-        <p class="print-modal-note">
-          Summary reports match your other FarmVista PDF reports and show trial-wide stats with a farm / field table.
-          Detailed reports will drill into block-level data and notes.
-        </p>
-        <div class="print-modal-buttons">
-          <button id="printSummaryBtn" type="button" class="btn btn-primary print-modal-btn">
-            Summary report
-          </button>
-          <button id="printDetailedBtn" type="button" class="btn btn-quiet print-modal-btn">
-            Detailed report
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Hidden iframe used for printing -->
-  <iframe id="fv-print-frame"></iframe>
-</body>
-</html>
+            <div id="error-state" class="error-msg" style="display:none
