@@ -104,7 +104,7 @@
       <h1 class="page-title">Account Roles</h1>
       <p class="page-sub">Choose a <strong>role</strong> and adjust what it can see. Parent switches cascade down; open a child to override it.</p>
 
-      <!-- Shared permissions hero card -->
+      <!-- Shared permissions hero + matrix (fv-perms-hero.js) -->
       <fv-perms-hero id="permsHero"></fv-perms-hero>
 
       <!-- Role header -->
@@ -129,7 +129,7 @@
 
           <div class="actions">
             <button id="saveRole" class="btn btn-primary" type="button">Save Role</button>
-            <!-- Delete is now handled inside fv-perms-hero -->
+            <!-- Delete is handled inside fv-perms-hero -->
           </div>
         </div>
       </section>
@@ -174,8 +174,34 @@
       /* ====== STATE ====== */
       let MODE = 'stub'; // 'firebase' or 'stub'
       let currentRoleId = "";
-      let roleDraft = { id:"", name:"", perms:{} }; // { [id]: boolean }
+      // perms: { [id]: {view,add,edit,delete} }
+      let roleDraft = { id:"", name:"", perms:{} };
       let NAV = null, IDX = null;
+
+      /* ====== PERM NORMALIZERS (4-flag) ====== */
+      function normalizePermEntry(v){
+        if (typeof v === 'boolean') {
+          return { view: v, add: false, edit: false, delete: false };
+        }
+        if (v && typeof v.on === 'boolean' && !('view' in v)) {
+          return { view: !!v.on, add: false, edit: false, delete: false };
+        }
+        return {
+          view: !!(v && v.view),
+          add: !!(v && v.add),
+          edit: !!(v && v.edit),
+          delete: !!(v && v.delete)
+        };
+      }
+
+      function normalizePermMap(map){
+        const out = {};
+        Object.keys(map || {}).forEach(k=>{
+          if (k === 'home') return;
+          out[k] = normalizePermEntry(map[k]);
+        });
+        return out;
+      }
 
       /* ====== UI HELPERS ====== */
       function showToast(msg="Saved."){ 
@@ -221,7 +247,12 @@
           name,
           perms: roleDraft.perms || {},
           navMenu: navMenu || undefined,
-          onDeleteRole: currentRoleId ? handleDeleteRole : null
+          onDeleteRole: currentRoleId ? handleDeleteRole : null,
+          // When pills in fv-perms-hero change, update our draft perms + tree
+          onPermsChange: (updatedPerms) => {
+            roleDraft.perms = normalizePermMap(updatedPerms || {});
+            renderTree();
+          }
         };
 
         hero.config = cfg;
@@ -249,14 +280,24 @@
         return { byParent, CAP_SET, CONTAINER_IDS };
       }
 
+      // Tree uses "Enabled" = view-flag
       function ensurePermRaw(nodeId){
-        const v = roleDraft.perms[nodeId];
-        if (typeof v === 'boolean') return v;
-        if (v && typeof v.on === 'boolean') return !!v.on;
-        roleDraft.perms[nodeId] = false;
-        return false;
+        const map = roleDraft.perms || {};
+        if (!map[nodeId]) {
+          map[nodeId] = { view:false, add:false, edit:false, delete:false };
+        } else {
+          map[nodeId] = normalizePermEntry(map[nodeId]);
+        }
+        roleDraft.perms = map;
+        return !!map[nodeId].view;
       }
-      function setPerm(nodeId, value){ roleDraft.perms[nodeId] = !!value; }
+
+      function setPerm(nodeId, value){
+        const map = roleDraft.perms || {};
+        map[nodeId] = normalizePermEntry(map[nodeId]);
+        map[nodeId].view = !!value;
+        roleDraft.perms = map;
+      }
 
       /* ====== TREE RENDER ====== */
       function renderTree(){
@@ -368,30 +409,37 @@
         const out = [];
         snap.forEach(docSnap=>{
           const d = docSnap.data() || {};
-          out.push({ id: docSnap.id, name: d.name || "(unnamed)", perms: d.perms || {}, t: d.updatedAt || d.createdAt || 0 });
+          out.push({
+            id: docSnap.id,
+            name: d.name || "(unnamed)",
+            perms: d.perms || {},
+            t: d.updatedAt || d.createdAt || 0
+          });
         });
         return out;
       }
+
       async function saveRoleFS(id, name, perms){
         const db = getFirestore();
-        const clean = {};
-        Object.keys(perms||{}).forEach(k=>{
-          if (k==="home") return;
-          const v = perms[k];
-          clean[k] = (typeof v === 'boolean') ? v : !!(v && v.on);
-        });
+        const clean = normalizePermMap(perms || {});
         if(id){
           await setDoc(doc(db, COLLECTION, id), {
-            name, perms: clean, updatedAt: serverTimestamp()
+            name,
+            perms: clean,
+            updatedAt: serverTimestamp()
           }, { merge:true });
           return id;
         }else{
           const ref = await addDoc(collection(db, COLLECTION), {
-            name, perms: clean, createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+            name,
+            perms: clean,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
           });
           return ref.id;
         }
       }
+
       async function deleteRoleFS(id){
         const db = getFirestore();
         await deleteDoc(doc(db, COLLECTION, id));
@@ -401,24 +449,27 @@
       async function loadRoles(){
         return MODE==='firebase' ? await loadRolesFS() : loadLS();
       }
+
       async function saveRole(name, perms){
         if(!name) throw new Error("Missing role name");
+        const normalized = normalizePermMap(perms || {});
         if(MODE==='firebase'){
-          return await saveRoleFS(currentRoleId, name, perms);
+          return await saveRoleFS(currentRoleId, name, normalized);
         } else {
           const all = loadLS();
           if(currentRoleId){
             const i = all.findIndex(r=>r.id===currentRoleId);
-            if(i>=0) all[i] = { id: currentRoleId, name, perms, t: Date.now() };
+            if(i>=0) all[i] = { id: currentRoleId, name, perms: normalized, t: Date.now() };
           }else{
             const id = uid();
-            all.unshift({ id, name, perms, t: Date.now() });
+            all.unshift({ id, name, perms: normalized, t: Date.now() });
             currentRoleId = id;
           }
           saveLS(all);
           return currentRoleId;
         }
       }
+
       async function deleteRole(){
         if(!currentRoleId) return;
         if(MODE==='firebase'){ await deleteRoleFS(currentRoleId); }
@@ -483,12 +534,7 @@
           return;
         }
         currentRoleId = r.id;
-        const perms = {};
-        Object.keys(r.perms||{}).forEach(k=>{
-          if (k==="home") return;
-          const v=r.perms[k]; 
-          perms[k]=(typeof v==='boolean')?v:!!(v&&v.on);
-        });
+        const perms = normalizePermMap(r.perms || {});
         roleDraft = { id:r.id, name:r.name, perms };
         $("roleName").value = r.name || "";
         showRoleNameField(false); // editing existing: hide name box
