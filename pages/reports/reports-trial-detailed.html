@@ -725,96 +725,140 @@
     /* ---------- build MULTI-FIELD, MULTI-BLOCK print HTML ---------- */
 
     function buildDetailedPrintHtml({ company, runStr, runDateOnly, fields }) {
-      const t = STATE.trialDoc || {};
-      const allFields = Array.isArray(fields) && fields.length ? fields : [];
+  const t = STATE.trialDoc || {};
+  const allFields = Array.isArray(fields) && fields.length ? fields : [];
 
-      // recompute totals using only selected fields
-      let fieldCount = allFields.length;
-      let tillableAll = 0;
-      let checkAcresAll = 0;
-      let trialAcresAll = 0;
-      let checkBuAll = 0;
-      let trialBuAll = 0;
+  // Recompute totals using only selected fields
+  let fieldCount = allFields.length;
+  let tillableAll = 0;
+  let checkAcresAll = 0;
+  let trialAcresAll = 0;
+  let checkBuAll = 0;
+  let trialBuAll = 0;
 
-      for (const f of allFields) {
-        const d = f.data || {};
-        const s = f.stats || {};
-        if (typeof d.tillable === 'number') tillableAll += d.tillable;
+  // NEW: simple averages + wins/losses (match summary logic)
+  let simpleCount = 0;
+  let simpleCheckSum = 0;
+  let simpleTrialSum = 0;
+  let wins = 0;
+  let losses = 0;
 
-        if (s.checkAc > 0 && s.checkAvg !== null) {
-          checkAcresAll += s.checkAc;
-          checkBuAll += s.checkAc * s.checkAvg;
-        }
-        if (s.trialAc > 0 && s.trialAvg !== null) {
-          trialAcresAll += s.trialAc;
-          trialBuAll += s.trialAc * s.trialAvg;
-        }
+  for (const f of allFields) {
+    const d = f.data || {};
+    const s = f.stats || {};
+
+    if (typeof d.tillable === 'number') tillableAll += d.tillable;
+
+    // Weighted (acres-based) pieces
+    if (s.checkAc > 0 && typeof s.checkAvg === 'number') {
+      checkAcresAll += s.checkAc;
+      checkBuAll += s.checkAc * s.checkAvg;
+    }
+    if (s.trialAc > 0 && typeof s.trialAvg === 'number') {
+      trialAcresAll += s.trialAc;
+      trialBuAll += s.trialAc * s.trialAvg;
+    }
+
+    // Simple avg + wins/losses only if both sides exist
+    if (typeof s.checkAvg === 'number' && typeof s.trialAvg === 'number') {
+      simpleCount += 1;
+      simpleCheckSum += s.checkAvg;
+      simpleTrialSum += s.trialAvg;
+
+      if (s.trialAvg > s.checkAvg) {
+        wins += 1;
+      } else {
+        // ties count as losses by design
+        losses += 1;
       }
+    }
+  }
 
-      const checkAvgAll = checkAcresAll > 0 ? (checkBuAll / checkAcresAll) : null;
-      const trialAvgAll = trialAcresAll > 0 ? (trialBuAll / trialAcresAll) : null;
-      const advantageAll = (checkAvgAll !== null && trialAvgAll !== null)
-        ? (trialAvgAll - checkAvgAll)
-        : null;
+  const checkAvgAll = checkAcresAll > 0 ? (checkBuAll / checkAcresAll) : null;
+  const trialAvgAll = trialAcresAll > 0 ? (trialBuAll / trialAcresAll) : null;
+  const advantageAll =
+    (checkAvgAll !== null && trialAvgAll !== null) ? (trialAvgAll - checkAvgAll) : null;
 
-      const totals = {
-        fieldCount,
-        tillableAll,
-        checkAcresAll,
-        trialAcresAll,
-        checkAvgAll,
-        trialAvgAll,
-        advantageAll
-      };
+  const checkAvgSimple = simpleCount > 0 ? (simpleCheckSum / simpleCount) : null;
+  const trialAvgSimple  = simpleCount > 0 ? (simpleTrialSum / simpleCount) : null;
+  const advantageSimple =
+    (checkAvgSimple !== null && trialAvgSimple !== null)
+      ? (trialAvgSimple - checkAvgSimple)
+      : null;
 
-      // Build field summary rows
-      const fieldRowsHtml = allFields.map(f => {
-        const d = f.data || {};
-        const s = f.stats || {};
-        const farmName = d.farmName || 'Unknown farm';
-        const fieldName = d.fieldName || '(Unnamed field)';
-        const trialAc = typeof d.trialAcres === 'number'
-          ? formatDecimal(d.trialAcres,1)
-          : '–';
-        const tillable = typeof d.tillable === 'number'
-          ? formatDecimal(d.tillable,1)
-          : '–';
-        const checkAvg = s.checkAvg !== null ? formatDecimal(s.checkAvg,1) : '–';
-        const trialAvg = s.trialAvg !== null ? formatDecimal(s.trialAvg,1) : '–';
-        const advText = s.advantage !== null
-          ? (s.advantage >= 0 ? '+' : '') + formatDecimal(s.advantage,1)
-          : '–';
+  const totalWL = wins + losses;
+  const winRate = totalWL > 0 ? wins / totalWL : null;
 
-        return `
-          <tr>
-            <td>
-              ${escapeHtml(fieldName)}<br>
-              <span class="muted-small">${escapeHtml(farmName)}</span>
-            </td>
-            <td class="cell-right">
-              ${
-                [
-                  trialAc !== '–' ? trialAc + ' trial ac' : '',
-                  tillable !== '–' ? tillable + ' tillable' : ''
-                ].filter(Boolean).join(' / ') || '–'
-              }
-            </td>
-            <td class="cell-right">${checkAvg}</td>
-            <td class="cell-right">${trialAvg}</td>
-            <td class="cell-right">${advText}</td>
-          </tr>
-        `;
-      }).join('') || `
-        <tr><td colspan="5">No fields selected.</td></tr>
-      `;
+  const totals = {
+    fieldCount,
+    tillableAll,
+    checkAcresAll,
+    trialAcresAll,
+    checkAvgAll,
+    trialAvgAll,
+    advantageAll,
+    // explicit weighted (same as *_All)
+    checkAvgWeighted: checkAvgAll,
+    trialAvgWeighted: trialAvgAll,
+    advantageWeighted: advantageAll,
+    // simple
+    checkAvgSimple,
+    trialAvgSimple,
+    advantageSimple,
+    // wins / losses
+    wins,
+    losses,
+    winRate
+  };
 
-      // New: pull product names from the trial document
-      const checkProductName = (t.checkProduct || t.check || '').toString();
-      const trialProductName = (t.trialProduct || t.treatmentProduct || '').toString();
+  // Build field summary rows
+  const fieldRowsHtml = allFields.map(f => {
+    const d = f.data || {};
+    const s = f.stats || {};
+    const farmName = d.farmName || 'Unknown farm';
+    const fieldName = d.fieldName || '(Unnamed field)';
+    const trialAc = typeof d.trialAcres === 'number'
+      ? formatDecimal(d.trialAcres,1)
+      : '–';
+    const tillable = typeof d.tillable === 'number'
+      ? formatDecimal(d.tillable,1)
+      : '–';
+    const checkAvg = s.checkAvg !== null ? formatDecimal(s.checkAvg,1) : '–';
+    const trialAvg = s.trialAvg !== null ? formatDecimal(s.trialAvg,1) : '–';
+    const advText = s.advantage !== null
+      ? (s.advantage >= 0 ? '+' : '') + formatDecimal(s.advantage,1)
+      : '–';
 
-      /* ---------- PAGE 1: TRIAL SUMMARY COVER ---------- */
+    return `
+      <tr>
+        <td>
+          ${escapeHtml(fieldName)}<br>
+          <span class="muted-small">${escapeHtml(farmName)}</span>
+        </td>
+        <td class="cell-right">
+          ${
+            [
+              trialAc !== '–' ? trialAc + ' trial ac' : '',
+              tillable !== '–' ? tillable + ' tillable' : ''
+            ].filter(Boolean).join(' / ') || '–'
+          }
+        </td>
+        <td class="cell-right">${checkAvg}</td>
+        <td class="cell-right">${trialAvg}</td>
+        <td class="cell-right">${advText}</td>
+      </tr>
+    `;
+  }).join('') || `
+    <tr><td colspan="5">No fields selected.</td></tr>
+  `;
 
-      const coverHtml = `
+  // Product names
+  const checkProductName = (t.checkProduct || t.check || '').toString();
+  const trialProductName = (t.trialProduct || t.treatmentProduct || '').toString();
+
+  /* ---------- PAGE 1: TRIAL SUMMARY COVER ---------- */
+
+  const coverHtml = `
 <section class="page">
   <div class="page-inner">
     <header class="report-header">
@@ -859,33 +903,97 @@
     }
 
     <div class="summary-strip">
-      <div class="summary-pill">
-        <span class="summary-label">Fields in packet</span>
-        <span class="summary-value">${formatInt(totals.fieldCount || 0)}</span>
+      <!-- Row 1: counts & acres -->
+      <div class="summary-row">
+        <div class="summary-pill">
+          <span class="summary-label">Fields in packet</span>
+          <span class="summary-value">${formatInt(totals.fieldCount || 0)}</span>
+        </div>
+        <div class="summary-pill">
+          <span class="summary-label">Trial acres</span>
+          <span class="summary-value">${totals.trialAcresAll ? formatInt(totals.trialAcresAll) + ' ac' : 'n/a'}</span>
+        </div>
+        <div class="summary-pill">
+          <span class="summary-label">Tillable acres</span>
+          <span class="summary-value">${totals.tillableAll ? formatInt(totals.tillableAll) + ' ac' : 'n/a'}</span>
+        </div>
       </div>
-      <div class="summary-pill">
-        <span class="summary-label">Tillable acres</span>
-        <span class="summary-value">${totals.tillableAll ? formatInt(totals.tillableAll) + ' ac' : 'n/a'}</span>
-      </div>
-      <div class="summary-pill">
-        <span class="summary-label">Trial acres</span>
-        <span class="summary-value">${totals.trialAcresAll ? formatInt(totals.trialAcresAll) + ' ac' : 'n/a'}</span>
-      </div>
-      <div class="summary-pill">
-        <span class="summary-label">Check</span>
-        <span class="summary-value">${totals.checkAvgAll !== null ? formatDecimal(totals.checkAvgAll,1) + ' bu/ac' : 'n/a'}</span>
-      </div>
-      <div class="summary-pill">
-        <span class="summary-label">Treatment</span>
-        <span class="summary-value">${totals.trialAvgAll !== null ? formatDecimal(totals.trialAvgAll,1) + ' bu/ac' : 'n/a'}</span>
-      </div>
-      <div class="summary-pill">
-        <span class="summary-label">Advantage</span>
-        <span class="summary-value">${
-          totals.advantageAll !== null
-            ? (totals.advantageAll >= 0 ? '+' : '') + formatDecimal(totals.advantageAll,1) + ' bu/ac'
-            : 'n/a'
-        }</span>
+
+      <!-- Row 2: wins/losses + averages -->
+      <div class="summary-row">
+        <div class="summary-pill">
+          <span class="summary-label">Wins / losses</span>
+          <div class="summary-group-rows">
+            <div class="summary-group-row summary-divider-soft">
+              <span class="summary-group-label">Wins</span>
+              <span class="summary-group-value">${formatInt(totals.wins || 0)}</span>
+            </div>
+            <div class="summary-group-row summary-divider-soft">
+              <span class="summary-group-label">Losses</span>
+              <span class="summary-group-value">${formatInt(totals.losses || 0)}</span>
+            </div>
+            <div class="summary-group-row">
+              <span class="summary-group-label">Win rate</span>
+              <span class="summary-group-value">${
+                totals.winRate !== null && !Number.isNaN(totals.winRate)
+                  ? (totals.winRate * 100).toFixed(0) + '%'
+                  : 'n/a'
+              }</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="summary-pill">
+          <span class="summary-label">Weighted averages</span>
+          <div class="summary-group-rows">
+            <div class="summary-group-row summary-divider-soft">
+              <span class="summary-group-label">Check</span>
+              <span class="summary-group-value">${
+                totals.checkAvgWeighted !== null ? formatDecimal(totals.checkAvgWeighted,1) + ' bu/ac' : 'n/a'
+              }</span>
+            </div>
+            <div class="summary-group-row summary-divider-soft">
+              <span class="summary-group-label">Treatment</span>
+              <span class="summary-group-value">${
+                totals.trialAvgWeighted !== null ? formatDecimal(totals.trialAvgWeighted,1) + ' bu/ac' : 'n/a'
+              }</span>
+            </div>
+            <div class="summary-group-row">
+              <span class="summary-group-label">Advantage</span>
+              <span class="summary-group-value">${
+                totals.advantageWeighted !== null
+                  ? (totals.advantageWeighted >= 0 ? '+' : '') + formatDecimal(totals.advantageWeighted,1) + ' bu/ac'
+                  : 'n/a'
+              }</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="summary-pill">
+          <span class="summary-label">Simple averages</span>
+          <div class="summary-group-rows">
+            <div class="summary-group-row summary-divider-soft">
+              <span class="summary-group-label">Check</span>
+              <span class="summary-group-value">${
+                totals.checkAvgSimple !== null ? formatDecimal(totals.checkAvgSimple,1) + ' bu/ac' : 'n/a'
+              }</span>
+            </div>
+            <div class="summary-group-row summary-divider-soft">
+              <span class="summary-group-label">Treatment</span>
+              <span class="summary-group-value">${
+                totals.trialAvgSimple !== null ? formatDecimal(totals.trialAvgSimple,1) + ' bu/ac' : 'n/a'
+              }</span>
+            </div>
+            <div class="summary-group-row">
+              <span class="summary-group-label">Avg advantage</span>
+              <span class="summary-group-value">${
+                totals.advantageSimple !== null
+                  ? (totals.advantageSimple >= 0 ? '+' : '') + formatDecimal(totals.advantageSimple,1) + ' bu/ac'
+                  : 'n/a'
+              }</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -920,95 +1028,95 @@
   </div>
 </section>`;
 
-      /* ---------- BLOCK PAGES ---------- */
+  /* ---------- BLOCK PAGES (unchanged from your version) ---------- */
 
-      const blockPages = [];
+  const blockPages = [];
 
-      for (const field of allFields) {
-        const d = field.data || {};
-        const s = field.stats || {};
+  for (const field of allFields) {
+    const d = field.data || {};
+    const s = field.stats || {};
 
-        const farmName = d.farmName || 'Unknown farm';
-        const fieldName = d.fieldName || '(Unnamed field)';
+    const farmName = d.farmName || 'Unknown farm';
+    const fieldName = d.fieldName || '(Unnamed field)';
 
-        const blocks = Array.isArray(field.blocks) ? field.blocks : [];
-        if (!blocks.length) continue;
+    const blocks = Array.isArray(field.blocks) ? field.blocks : [];
+    if (!blocks.length) continue;
 
-        blocks.forEach((block, idx) => {
-          const c = block.check || {};
-          const tr = block.trial || {};
+    blocks.forEach((block, idx) => {
+      const c = block.check || {};
+      const tr = block.trial || {};
 
-          const images = [];
-          if (Array.isArray(block.attachments)) {
-            for (const att of block.attachments) {
-              if (!att || typeof att !== 'object' || !att.url) continue;
-              const ct = (att.contentType || '').toString().toLowerCase();
-              const isImage = ct ? ct.startsWith('image/') : true;
-              if (!isImage) continue;
-              images.push(att);
-              if (images.length >= 4) break;
-            }
-          }
+      const images = [];
+      if (Array.isArray(block.attachments)) {
+        for (const att of block.attachments) {
+          if (!att || typeof att !== 'object' || !att.url) continue;
+          const ct = (att.contentType || '').toString().toLowerCase();
+          const isImage = ct ? ct.startsWith('image/') : true;
+          if (!isImage) continue;
+          images.push(att);
+          if (images.length >= 4) break;
+        }
+      }
 
-          const plantDateStr   = formatDate(block.plantDate);
-          const harvestDateStr = formatDate(block.harvestDate);
-          const combineCount   = (block.combineCount !== undefined && block.combineCount !== null)
-            ? String(block.combineCount)
-            : '';
+      const plantDateStr   = formatDate(block.plantDate);
+      const harvestDateStr = formatDate(block.harvestDate);
+      const combineCount   = (block.combineCount !== undefined && block.combineCount !== null)
+        ? String(block.combineCount)
+        : '';
 
-          const checkVariety = (block.checkVarietyName || '').toString();
-          const trialVariety = (block.trialVarietyName || '').toString();
+      const checkVariety = (block.checkVarietyName || '').toString();
+      const trialVariety = (block.trialVarietyName || '').toString();
 
-          const checkMoist = typeof c.moisture === 'number' ? formatDecimal(c.moisture,1) + ' %' : '';
-          const trialMoist = typeof tr.moisture === 'number' ? formatDecimal(tr.moisture,1) + ' %' : '';
-          const checkLbs   = typeof c.pounds === 'number' ? formatInt(c.pounds) + ' lb' : '';
-          const trialLbs   = typeof tr.pounds === 'number' ? formatInt(tr.pounds) + ' lb' : '';
+      const checkMoist = typeof c.moisture === 'number' ? formatDecimal(c.moisture,1) + ' %' : '';
+      const trialMoist = typeof tr.moisture === 'number' ? formatDecimal(tr.moisture,1) + ' %' : '';
+      const checkLbs   = typeof c.pounds === 'number' ? formatInt(c.pounds) + ' lb' : '';
+      const trialLbs   = typeof tr.pounds === 'number' ? formatInt(tr.pounds) + ' lb' : '';
 
-          const notes = (block.notes || '').toString().trim();
+      const notes = (block.notes || '').toString().trim();
 
-          const checkBu    = typeof c.yieldBuAc === 'number' ? formatDecimal(c.yieldBuAc,1) : '';
-          const trialBu    = typeof tr.yieldBuAc === 'number' ? formatDecimal(tr.yieldBuAc,1) : '';
-          const checkAcres = typeof c.acres === 'number' ? formatDecimal(c.acres,2) : '';
-          const trialAcres = typeof tr.acres === 'number' ? formatDecimal(tr.acres,2) : '';
+      const checkBu    = typeof c.yieldBuAc === 'number' ? formatDecimal(c.yieldBuAc,1) : '';
+      const trialBu    = typeof tr.yieldBuAc === 'number' ? formatDecimal(tr.yieldBuAc,1) : '';
+      const checkAcres = typeof c.acres === 'number' ? formatDecimal(c.acres,2) : '';
+      const trialAcres = typeof tr.acres === 'number' ? formatDecimal(tr.acres,2) : '';
 
-          let blockAdvVal = null;
-          if (typeof c.yieldBuAc === 'number' && typeof tr.yieldBuAc === 'number') {
-            blockAdvVal = tr.yieldBuAc - c.yieldBuAc;
-          }
-          const blockAdvText = blockAdvVal !== null
-            ? (blockAdvVal >= 0 ? '+' : '') + formatDecimal(blockAdvVal,1)
-            : '';
+      let blockAdvVal = null;
+      if (typeof c.yieldBuAc === 'number' && typeof tr.yieldBuAc === 'number') {
+        blockAdvVal = tr.yieldBuAc - c.yieldBuAc;
+      }
+      const blockAdvText = blockAdvVal !== null
+        ? (blockAdvVal >= 0 ? '+' : '') + formatDecimal(blockAdvVal,1)
+        : '';
 
-          const imageRows = [];
-          if (images.length){
-            const row1 = images.slice(0, 2);
-            const row2 = images.slice(2, 4);
-            if (row1.length) imageRows.push(row1);
-            if (row2.length) imageRows.push(row2);
-          }
+      const imageRows = [];
+      if (images.length){
+        const row1 = images.slice(0, 2);
+        const row2 = images.slice(2, 4);
+        if (row1.length) imageRows.push(row1);
+        if (row2.length) imageRows.push(row2);
+      }
 
-          const gridHtml = imageRows.length
-            ? imageRows.map(row => `
-              <div class="photo-row">
-                ${row.map(att => {
-                  const url  = escapeHtml(att.url || '');
-                  const name = escapeHtml(att.name || '');
-                  return `
-                    <figure class="photo-fig">
-                      <img src="${url}" alt="${name || 'Block image'}" class="photo-img" />
-                      ${name ? `<figcaption class="photo-caption">${name}</figcaption>` : ''}
-                    </figure>
-                  `;
-                }).join('')}
-              </div>
-            `).join('')
-            : '<p class="section-sub">No images are attached to this block yet.</p>';
+      const gridHtml = imageRows.length
+        ? imageRows.map(row => `
+          <div class="photo-row">
+            ${row.map(att => {
+              const url  = escapeHtml(att.url || '');
+              const name = escapeHtml(att.name || '');
+              return `
+                <figure class="photo-fig">
+                  <img src="${url}" alt="${name || 'Block image'}" class="photo-img" />
+                  ${name ? `<figcaption class="photo-caption">${name}</figcaption>` : ''}
+                </figure>
+              `;
+            }).join('')}
+          </div>
+        `).join('')
+        : '<p class="section-sub">No images are attached to this block yet.</p>';
 
-          const blockNumber = idx + 1;
-          const blockLabel = block.blockLabel || block.blockName || `Block ${blockNumber}`;
-          const blockTypeLabel = block.blockType || 'combine';
+      const blockNumber = idx + 1;
+      const blockLabel = block.blockLabel || block.blockName || `Block ${blockNumber}`;
+      const blockTypeLabel = block.blockType || 'combine';
 
-          const blockPageHtml = `
+      const blockPageHtml = `
 <section class="page">
   <div class="page-inner page-inner-block">
     <div class="block-main">
@@ -1033,7 +1141,7 @@
             <span class="value">${
               s.advantage !== null
                 ? (s.advantage >= 0 ? '+' : '') + formatDecimal(s.advantage,1) + ' bu/ac'
-            : 'n/a'
+              : 'n/a'
             }</span>
           </div>
         </div>
@@ -1139,13 +1247,13 @@
   </div>
 </section>`;
 
-          blockPages.push(blockPageHtml);
-        });
-      }
+      blockPages.push(blockPageHtml);
+    });
+  }
 
-      const allPagesHtml = [coverHtml].concat(blockPages).join('');
+  const allPagesHtml = [coverHtml].concat(blockPages).join('');
 
-      return `<!doctype html>
+  return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -1257,10 +1365,11 @@
       margin:0 0 8px;
     }
 
+    /* Summary tiles (3 + 3 layout, centered, with grouped rows) */
     .summary-strip{
       display:flex;
-      flex-wrap:wrap;
-      gap:6px 12px;
+      flex-direction:column;
+      gap:6px;
       margin-top:4px;
       padding:6px 8px;
       border-radius:9px;
@@ -1268,11 +1377,22 @@
       border:1px solid rgba(59,126,70,0.2);
       font-size:10px;
     }
-    .summary-pill{
-      display:inline-flex;
+    .summary-row{
+      display:flex;
       flex-wrap:nowrap;
-      align-items:center;
-      gap:4px;
+      justify-content:center;
+      gap:8px;
+    }
+    .summary-pill{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+      min-width:0;
+      flex:1 1 0;
+      padding:4px 8px;
+      border-radius:7px;
+      border:1px solid color-mix(in srgb, var(--fv-border) 70%, transparent);
+      background:color-mix(in srgb, #FFFFFF 92%, var(--fv-border) 8%);
     }
     .summary-label{
       text-transform:uppercase;
@@ -1282,6 +1402,29 @@
     }
     .summary-value{
       font-weight:600;
+    }
+    .summary-group-rows{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+      font-size:9px;
+    }
+    .summary-group-row{
+      display:flex;
+      justify-content:space-between;
+      gap:4px;
+    }
+    .summary-divider-soft{
+      border-bottom:1px solid color-mix(in srgb, var(--fv-border) 55%, transparent);
+      padding-bottom:2px;
+      margin-bottom:2px;
+    }
+    .summary-group-label{
+      color:#6B7280;
+    }
+    .summary-group-value{
+      font-weight:600;
+      white-space:nowrap;
     }
 
     .section{
@@ -1481,7 +1624,7 @@
   ${allPagesHtml}
 </body>
 </html>`;
-    }
+}
 
     /* ---------- wait for all images before printing (desktop) ---------- */
     function waitForImages(doc){
