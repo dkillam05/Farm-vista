@@ -1535,7 +1535,7 @@
           : 'No fields included in summary. Turn fields back on using the checkboxes.';
       }
 
-      // Format helpers
+      // Format helpers for on-screen KPIs
       const wCheck = s.checkAvgWeighted !== null ? formatNumber(s.checkAvgWeighted, {decimals:1}) + ' bu/ac' : '–';
       const wTrial = s.trialAvgWeighted !== null ? formatNumber(s.trialAvgWeighted, {decimals:1}) + ' bu/ac' : '–';
       const wAdv = s.advantageWeighted !== null
@@ -2248,6 +2248,38 @@
       const checkProductName = (t.checkProduct || t.check || '').toString();
       const trialProductName = (t.trialProduct || t.treatmentProduct || '').toString();
 
+      // Mirror new KPI groupings from on-screen tiles
+      const fieldsInSummary = s.fieldCount || 0;
+      const trialAcText = s.trialAcresAll ? formatInt(s.trialAcresAll) + ' ac' : 'n/a';
+      const tillableText = s.tillableAll ? formatInt(s.tillableAll) + ' ac' : 'n/a';
+
+      const wCheck = s.checkAvgWeighted !== null
+        ? formatDecimal(s.checkAvgWeighted,1) + ' bu/ac'
+        : 'n/a';
+      const wTrial = s.trialAvgWeighted !== null
+        ? formatDecimal(s.trialAvgWeighted,1) + ' bu/ac'
+        : 'n/a';
+      const wAdv = s.advantageWeighted !== null
+        ? (s.advantageWeighted >= 0 ? '+' : '') + formatDecimal(s.advantageWeighted,1) + ' bu/ac'
+        : 'n/a';
+
+      const simpleCheck = s.checkAvgSimple !== null
+        ? formatDecimal(s.checkAvgSimple,1) + ' bu/ac'
+        : 'n/a';
+      const simpleTrial = s.trialAvgSimple !== null
+        ? formatDecimal(s.trialAvgSimple,1) + ' bu/ac'
+        : 'n/a';
+      const simpleAdv = s.advantageSimple !== null
+        ? (s.advantageSimple >= 0 ? '+' : '') + formatDecimal(s.advantageSimple,1) + ' bu/ac'
+        : 'n/a';
+
+      const wins = s.wins || 0;
+      const losses = s.losses || 0;
+      const wlTotal = wins + losses;
+      const winRateStr = s.winRate !== null && wlTotal > 0
+        ? (s.winRate * 100).toFixed(0) + '%'
+        : 'n/a';
+
       return `<!doctype html>
 <html>
 <head>
@@ -2342,7 +2374,7 @@
     .summary-strip{
       display:flex;
       flex-wrap:wrap;
-      gap:6px 14px;
+      gap:6px 12px;
       margin-top:4px;
       padding:8px 10px;
       border-radius:10px;
@@ -2352,8 +2384,9 @@
     }
     .summary-pill{
       display:inline-flex;
-      align-items:center;
-      gap:4px;
+      flex-direction:column;
+      gap:2px;
+      min-width:90px;
     }
     .summary-label{
       text-transform:uppercase;
@@ -2363,6 +2396,28 @@
     }
     .summary-value{
       font-weight:600;
+    }
+    /* Grouped KPI styling for PDF summary */
+    .summary-pill-group{
+      min-width:180px;
+    }
+    .summary-group-rows{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+      font-size:10px;
+    }
+    .summary-group-row{
+      display:flex;
+      justify-content:space-between;
+      gap:6px;
+    }
+    .summary-group-label{
+      color:var(--fv-muted);
+    }
+    .summary-group-value{
+      font-weight:600;
+      white-space:nowrap;
     }
     .section{
       margin-top:16px;
@@ -2481,33 +2536,75 @@
     }
 
     <div class="summary-strip">
+      <!-- Core counts -->
       <div class="summary-pill">
         <span class="summary-label">Fields</span>
-        <span class="summary-value">${formatInt(s.fieldCount || 0)}</span>
+        <span class="summary-value">${formatInt(fieldsInSummary)}</span>
       </div>
       <div class="summary-pill">
         <span class="summary-label">Trial acres</span>
-        <span class="summary-value">${s.trialAcresAll ? formatInt(s.trialAcresAll) + ' ac' : 'n/a'}</span>
+        <span class="summary-value">${escapeHtml(trialAcText)}</span>
       </div>
       <div class="summary-pill">
         <span class="summary-label">Tillable acres</span>
-        <span class="summary-value">${s.tillableAll ? formatInt(s.tillableAll) + ' ac' : 'n/a'}</span>
+        <span class="summary-value">${escapeHtml(tillableText)}</span>
       </div>
-      <div class="summary-pill">
-        <span class="summary-label">Check</span>
-        <span class="summary-value">${s.checkAvgAll !== null ? formatDecimal(s.checkAvgAll,1) + ' bu/ac' : 'n/a'}</span>
+
+      <!-- Weighted averages group -->
+      <div class="summary-pill summary-pill-group">
+        <span class="summary-label">Weighted averages</span>
+        <div class="summary-group-rows">
+          <div class="summary-group-row">
+            <span class="summary-group-label">Check</span>
+            <span class="summary-group-value">${escapeHtml(wCheck)}</span>
+          </div>
+          <div class="summary-group-row">
+            <span class="summary-group-label">Treatment</span>
+            <span class="summary-group-value">${escapeHtml(wTrial)}</span>
+          </div>
+          <div class="summary-group-row">
+            <span class="summary-group-label">Advantage</span>
+            <span class="summary-group-value">${escapeHtml(wAdv)}</span>
+          </div>
+        </div>
       </div>
-      <div class="summary-pill">
-        <span class="summary-label">Treatment</span>
-        <span class="summary-value">${s.trialAvgAll !== null ? formatDecimal(s.trialAvgAll,1) + ' bu/ac' : 'n/a'}</span>
+
+      <!-- Simple averages group -->
+      <div class="summary-pill summary-pill-group">
+        <span class="summary-label">Simple averages</span>
+        <div class="summary-group-rows">
+          <div class="summary-group-row">
+            <span class="summary-group-label">Check</span>
+            <span class="summary-group-value">${escapeHtml(simpleCheck)}</span>
+          </div>
+          <div class="summary-group-row">
+            <span class="summary-group-label">Treatment</span>
+            <span class="summary-group-value">${escapeHtml(simpleTrial)}</span>
+          </div>
+          <div class="summary-group-row">
+            <span class="summary-group-label">Avg advantage</span>
+            <span class="summary-group-value">${escapeHtml(simpleAdv)}</span>
+          </div>
+        </div>
       </div>
-      <div class="summary-pill">
-        <span class="summary-label">Advantage</span>
-        <span class="summary-value">${
-          s.advantageAll !== null
-            ? (s.advantageAll >= 0 ? '+' : '') + formatDecimal(s.advantageAll,1) + ' bu/ac'
-            : 'n/a'
-        }</span>
+
+      <!-- Wins / losses group -->
+      <div class="summary-pill summary-pill-group">
+        <span class="summary-label">Wins / losses</span>
+        <div class="summary-group-rows">
+          <div class="summary-group-row">
+            <span class="summary-group-label">Wins</span>
+            <span class="summary-group-value">${formatInt(wins)}</span>
+          </div>
+          <div class="summary-group-row">
+            <span class="summary-group-label">Losses</span>
+            <span class="summary-group-value">${formatInt(losses)}</span>
+          </div>
+          <div class="summary-group-row">
+            <span class="summary-group-label">Win rate</span>
+            <span class="summary-group-value">${escapeHtml(winRateStr)}</span>
+          </div>
+        </div>
       </div>
     </div>
 
