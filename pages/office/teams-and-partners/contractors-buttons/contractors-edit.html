@@ -1,4 +1,6 @@
-<!doctype html><html lang="en"><head>
+<!doctype html>
+<html lang="en">
+<head>
   <meta charset="utf-8"/>
   <title>FarmVista • Edit Contractor</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
@@ -48,24 +50,6 @@
       box-shadow:0 0 0 44px var(--card-surface,var(--surface)) inset!important;
     }
 
-    /* Overrides UI (identical to Add) */
-    .ovr-legend{display:flex;flex-wrap:wrap;gap:10px;align-items:center;color:var(--muted,#5d655f);font-size:14px}
-    .ovr-legend b{color:var(--text)}
-    .ovr-wrap{border:1px dashed var(--border);border-radius:12px;padding:10px}
-    .ovr-empty{padding:8px 4px;color:var(--muted,#6b746d)}
-
-    details.ovr-group{border:1px solid var(--border);border-radius:12px;margin:10px 0;background:var(--card-surface,var(--surface));overflow:hidden}
-    summary.ovr-summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;cursor:pointer}
-    summary.ovr-summary::-webkit-details-marker{display:none}
-    .ovr-name{font-weight:800}
-    .pill{border:1px solid var(--border);padding:6px 10px;border-radius:999px;font-size:12px;font-weight:800;user-select:none}
-    .pill.enabled{background:#203a26;color:#bfe3c6;border-color:#315b3c}
-    .pill.disabled{background:#3a2020;color:#f2c0c0;border-color:#5b3131}
-
-    .ovr-cap-row{display:grid;grid-template-columns:1fr 160px;gap:10px;align-items:center;padding:10px 12px;border-top:1px solid var(--border)}
-    .ovr-key{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;word-break:break-all}
-    .ovr-select{width:100%;border:1px solid var(--border);border-radius:10px;padding:10px;background:var(--surface);font-weight:700}
-
     /* Toast */
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
@@ -82,7 +66,8 @@
 
   <!-- Firebase config FIRST -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
-</head><body>
+</head>
+<body>
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Edit Contractor</h1>
@@ -145,7 +130,9 @@
           <div class="grid2">
             <div class="field">
               <label for="status">Status</label>
-              <select id="status" class="input"><option>Active</option><option>On Hold</option><option>Inactive</option></select>
+              <select id="status" class="input">
+                <option>Active</option><option>On Hold</option><option>Inactive</option>
+              </select>
             </div>
             <div class="field">
               <label for="perm">Permission Group</label>
@@ -165,29 +152,8 @@
         </div>
       </section>
 
-      <!-- Card 2: Overrides (identical behavior to Add) -->
-      <section class="section" id="ovrSection" hidden>
-        <header class="section-head">
-          <div class="icon" aria-hidden="true">🛡️</div>
-          <div><strong>Overrides (Optional)</strong></div>
-        </header>
-
-        <div class="section-body">
-          <div class="ovr-legend">
-            <span>Defaults follow the selected <b>Permission Group</b> from Firestore (<code>accountRoles</code> ➜ <code>perms</code>). Tap a section’s <b>Enabled/Disabled</b> pill to force the whole section on/off for this contractor. Individual items can still be tweaked below.</span>
-          </div>
-
-          <div class="ovr-wrap" id="overridesWrap">
-            <div class="ovr-empty">Load a contractor to view capabilities.</div>
-          </div>
-
-          <div class="ovr-toolbar" style="display:flex;gap:10px;margin-top:8px">
-            <button id="ovrExpand" class="btn btn-quiet" type="button">Expand All</button>
-            <button id="ovrCollapse" class="btn btn-quiet" type="button">Collapse All</button>
-            <button id="ovrClear" class="btn btn-quiet" type="button">Clear Overrides</button>
-          </div>
-        </div>
-      </section>
+      <!-- Permissions Hero (contractor overrides via pills, same pattern as Edit Employee/Vendor) -->
+      <fv-perms-hero id="permsHero" style="display:none;"></fv-perms-hero>
     </div>
   </fv-shell>
 
@@ -195,6 +161,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite">Successfully saved.</div>
 
   <script type="module">
+    import '/Farm-vista/js/fv-perms-hero.js';
     import {
       ready,
       getFirestore, doc, getDoc, setDoc,
@@ -203,265 +170,127 @@
       getAuth, sendPasswordResetEmail
     } from '/Farm-vista/js/firebase-init.js';
 
-    // Use live navigation to shape capability ids (same as Add)
     import NAV_MENU from '/Farm-vista/js/menu.js';
 
-    /* --------------------- tiny utils --------------------- */
     const $ = id=>document.getElementById(id);
     const toast = $("toast");
-    let loaded=false, busy=false, lastInviteAt=0;
-    let rolesLoaded=false, currentRoleName=null;
-    let currentDocId=null;
 
-    const showToast = (m="Saved.")=>{ toast.textContent=m; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show"); };
-    const setBusy = on => { busy=!!on; ["save","saveInvite","btnLoad","ovrClear","ovrExpand","ovrCollapse","perm"].forEach(id=>{const b=$(id); if(b) b.disabled=on;}); };
+    let loaded=false, busy=false, lastInviteAt=0, currentDocId=null;
+    let rolesLoaded=false, currentRoleName=null;
+    let contractorData = null;
+
+    let basePerms4 = {};      // id -> {view,add,edit,delete} from selected role
+    let effectivePerms4 = {}; // id -> {view,add,edit,delete} after contractor overrides
+
+    const showToast = (m="Saved.")=>{
+      toast.textContent=m;
+      toast.classList.remove("show");
+      void toast.offsetWidth;
+      toast.classList.add("show");
+    };
+    const setBusy = on => {
+      busy=!!on;
+      ["save","saveInvite","btnLoad","perm"].forEach(id=>{const b=$(id); if(b) b.disabled=on;});
+    };
 
     const digitsOnly=s=>String(s||'').replace(/\D+/g,'');
-    const formatUSPhone=raw=>{const d=digitsOnly(raw); const core=(d.length===11&&d.startsWith('1'))?d.slice(1):d; return core.length===10?`(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}`:String(raw||'').trim();}
+    const formatUSPhone=raw=>{
+      const d=digitsOnly(raw);
+      const core=(d.length===11&&d.startsWith('1'))?d.slice(1):d;
+      return core.length===10?`(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}`:String(raw||'').trim();
+    };
     $("phone").addEventListener("blur",e=>e.target.value=formatUSPhone(e.target.value));
     const emailKey=e=>String(e||'').trim().toLowerCase();
-    const fk=(g,k)=>`${g}|${k}`;
-    const triToBool= t => t==='allow' ? true : t==='deny' ? false : undefined;
 
-    /* --------------------- NAV indexer --------------------- */
-    const TOP_GROUPS = {};
-    const CAP_TO_TOP = {};
-    const CONTAINERS = {};
-    const CAP_SET = new Set();
-    const CONTAINER_IDS = new Set();
-
-    (function buildIndexes(){
-      if(!NAV_MENU || !Array.isArray(NAV_MENU.items)) return;
-
-      function collectLinks(nodes, acc){
-        nodes.forEach(n=>{
-          if(n.type==='group' && Array.isArray(n.children)){
-            collectLinks(n.children, acc);
-          }else if(n.type==='link'){
-            acc.push(n.id);
-          }
-        });
+    function normalizeEntry(v){
+      if (typeof v === 'boolean') {
+        return { view: v, add: false, edit: false, delete: false };
       }
-
-      NAV_MENU.items.forEach(top=>{
-        if(top.type!=='group') return;
-        const topLabel = top.label || top.id || 'General';
-        const topId = top.id;
-        const allUnderTop = [];
-        collectLinks([top], allUnderTop);
-
-        CONTAINERS[topId] = allUnderTop.slice();
-        CONTAINER_IDS.add(topId);
-
-        TOP_GROUPS[topLabel] = allUnderTop.slice();
-        allUnderTop.forEach(id=>{
-          CAP_TO_TOP[id]=topLabel;
-          CAP_SET.add(id);
-        });
-
-        // subgroup containers
-        (top.children||[]).forEach(ch=>{
-          if(ch.type==='group'){
-            const arr=[]; collectLinks([ch], arr);
-            CONTAINERS[ch.id]=arr.slice();
-            CONTAINER_IDS.add(ch.id);
-          }
-        });
-      });
-    })();
-
-    /* --------------------- role → baseline --------------------- */
-    let baseGroups = {};     // {TopLabel:{capId:boolean}}
-    let overrideState = {};  // {"TopLabel|capId": 'inherit'|'allow'|'deny'}
-
-    function valToBool(v){
-      if (typeof v === 'boolean') return v;
-      if (v && typeof v.on === 'boolean') return v.on;
-      return undefined;
+      if (v && typeof v.on === 'boolean' && !('view' in v)) {
+        return { view: !!v.on, add: false, edit: false, delete: false };
+      }
+      return {
+        view: !!(v && v.view),
+        add: !!(v && v.add),
+        edit: !!(v && v.edit),
+        delete: !!(v && v.delete)
+      };
     }
 
-    function buildBaselineFromPerms(perms){
+    function deepClone(obj){
+      return JSON.parse(JSON.stringify(obj || {}));
+    }
+
+    function rebuildEffectiveFromRole(rolePermsRaw){
       const out = {};
-      Object.keys(TOP_GROUPS).forEach(t=>{
-        out[t]={}; TOP_GROUPS[t].forEach(capId=>out[t][capId]=false);
-      });
-      if(!perms || typeof perms!=='object') return out;
-
-      // container defaults
-      Object.keys(perms).forEach(key=>{
-        const vb = valToBool(perms[key]);
-        if (vb === undefined) return;
-        if (CONTAINER_IDS.has(key)){
-          (CONTAINERS[key]||[]).forEach(capId=>{
-            const top = CAP_TO_TOP[capId]; if(!top) return;
-            out[top][capId] = vb;
-          });
-        }
-      });
-
-      // explicit leaves
-      Object.keys(perms).forEach(key=>{
-        const vb = valToBool(perms[key]);
-        if (vb === undefined) return;
-        if (CAP_SET.has(key)){
-          const top = CAP_TO_TOP[key]; if(!top) return;
-          out[top][key] = vb;
-        }
-      });
-
-      return out;
-    }
-
-    function effectiveCap(g,k){
-      const tri = overrideState[fk(g,k)];
-      if(tri==='allow') return true;
-      if(tri==='deny')  return false;
-      return !!(baseGroups[g] && baseGroups[g][k]);
-    }
-
-    function computeGroupState(g){
-      const caps = baseGroups[g]||{};
-      const keys = Object.keys(caps);
-      let t=0,f=0;
-      keys.forEach(k=>{ effectiveCap(g,k)?t++:f++; });
-      return { total:keys.length, trueCount:t, falseCount:f };
-    }
-
-    function setGroupOverrides(g, mode){
-      const caps = baseGroups[g]||{};
-      Object.keys(caps).forEach(k=>{
-        const key=fk(g,k);
-        if(mode==='allow-all') overrideState[key]='allow';
-        else if(mode==='deny-all') overrideState[key]='deny';
-        else overrideState[key]='inherit';
-      });
-      document.querySelectorAll(`select.ovr-select[data-group="${CSS.escape(g)}"]`).forEach(sel=>{
-        const cap=sel.getAttribute('data-cap');
-        const tri=overrideState[fk(g,cap)]||'inherit';
-        sel.value=tri;
-        const base = baseGroups[g][cap];
-        sel.querySelector('option[value="inherit"]').textContent = `Inherit (${base ? 'Allow' : 'Deny'})`;
-      });
-      updateGroupPill(g);
-    }
-
-    function updateGroupPill(g){
-      const pill = document.querySelector(`.pill[data-group="${CSS.escape(g)}"]`);
-      if(!pill) return;
-      const { total, trueCount, falseCount } = computeGroupState(g);
-      if(total===0){ pill.className='pill disabled'; pill.textContent='Disabled'; return; }
-      if(trueCount===total){ pill.className='pill enabled'; pill.textContent='Enabled'; }
-      else if(falseCount===total){ pill.className='pill disabled'; pill.textContent='Disabled'; }
-      else { pill.className='pill'; pill.textContent='Mixed'; }
-    }
-
-    function renderOverrides(){
-      const wrap=$("overridesWrap");
-      wrap.innerHTML="";
-      const gnames=Object.keys(baseGroups||{}).sort((a,b)=>a.localeCompare(b));
-      if(!gnames.length){
-        const d=document.createElement('div'); d.className='ovr-empty'; d.textContent='No capabilities found for this group.'; wrap.appendChild(d); return;
-      }
-      gnames.forEach(gname=>{
-        const details=document.createElement('details'); details.className='ovr-group';
-        const summary=document.createElement('summary'); summary.className='ovr-summary';
-
-        const left=document.createElement('div'); left.className='ovr-name'; left.textContent=gname;
-        const pill=document.createElement('span'); pill.className='pill'; pill.setAttribute('data-group', gname);
-        summary.appendChild(left); summary.appendChild(pill);
-        details.appendChild(summary);
-
-        pill.addEventListener('click',(e)=>{
-          e.preventDefault(); e.stopPropagation();
-          const s = computeGroupState(gname);
-          if(s.trueCount===s.total) setGroupOverrides(gname,'deny-all');
-          else if(s.falseCount===s.total) setGroupOverrides(gname,'allow-all');
-          else setGroupOverrides(gname,'allow-all');
-        });
-
-        const keys=Object.keys(baseGroups[gname]||{}).sort((a,b)=>a.localeCompare(b));
-        keys.forEach(k=>{
-          const row=document.createElement('div'); row.className='ovr-cap-row';
-          const kd=document.createElement('div'); kd.className='ovr-key'; kd.textContent=k;
-
-          const right=document.createElement('div');
-          const sel=document.createElement('select');
-          sel.className='ovr-select';
-          sel.setAttribute('data-group', gname);
-          sel.setAttribute('data-cap', k);
-
-          const base = baseGroups[gname][k];
-          sel.innerHTML = `
-            <option value="inherit">Inherit (${base ? 'Allow' : 'Deny'})</option>
-            <option value="allow">Allow</option>
-            <option value="deny">Deny</option>
-          `;
-          // default inherit (will be updated by applyEmployeeOverridesToUI if needed)
-          overrideState[fk(gname,k)] = overrideState[fk(gname,k)] || 'inherit';
-          sel.value = overrideState[fk(gname,k)];
-
-          sel.addEventListener('change', e=>{
-            overrideState[fk(gname,k)] = e.target.value;
-            updateGroupPill(gname);
-          });
-
-          right.appendChild(sel); row.appendChild(kd); row.appendChild(right);
-          details.appendChild(row);
-        });
-
-        wrap.appendChild(details);
-        updateGroupPill(gname);
-      });
-    }
-
-    function applyOverridesToUI(map){
-      // map: { "Group.capId": true|false }
-      overrideState = overrideState || {};
-      if (map && typeof map==='object'){
-        Object.keys(map).forEach(path=>{
-          const [g,cap] = path.split('.');
-          if (!g || !cap) return;
-          if (baseGroups[g] && (cap in baseGroups[g])){
-            overrideState[fk(g,cap)] = (map[path]===true)?'allow':(map[path]===false)?'deny':'inherit';
-          }
-        });
-      }
-      // Refresh selects and inherit labels
-      document.querySelectorAll('select.ovr-select').forEach(sel=>{
-        const g=sel.getAttribute('data-group'), cap=sel.getAttribute('data-cap');
-        const tri=overrideState[fk(g,cap)]||'inherit';
-        sel.value=tri;
-        const base = baseGroups[g]?.[cap];
-        const opt = sel.querySelector('option[value="inherit"]');
-        if(opt) opt.textContent = `Inherit (${base ? 'Allow' : 'Deny'})`;
-      });
-      // Update section pills
-      Object.keys(baseGroups).forEach(g=>updateGroupPill(g));
-    }
-
-    function collectOverridesForSave(){
-      const out={};
-      Object.keys(overrideState).forEach(key=>{
-        const tri=overrideState[key];
-        if(tri!=='inherit'){
-          const [g,k]=key.split('|');
-          out[`${g}.${k}`]=triToBool(tri);
-        }
+      if (!rolePermsRaw || typeof rolePermsRaw !== 'object') return out;
+      Object.keys(rolePermsRaw).forEach(id=>{
+        if (id === 'home') return;
+        out[id] = normalizeEntry(rolePermsRaw[id]);
       });
       return out;
     }
 
-    function clearOverridesUI(){
-      Object.keys(overrideState).forEach(k=>overrideState[k]='inherit');
-      document.querySelectorAll('select.ovr-select').forEach(sel=>sel.value='inherit');
-      Object.keys(baseGroups).forEach(g=>updateGroupPill(g));
+    function applyOverridesFromContractorData(overrides){
+      if (!overrides || typeof overrides !== 'object') return;
+      Object.entries(overrides).forEach(([key, val])=>{
+        if (typeof val !== 'boolean') return;
+        const leafId = key.includes('.') ? key.split('.').pop() : key;
+        if (effectivePerms4[leafId]){
+          const entry = normalizeEntry(effectivePerms4[leafId]);
+          entry.view = val;
+          effectivePerms4[leafId] = entry;
+        }
+      });
     }
 
-    $("ovrExpand").addEventListener("click", ()=> { document.querySelectorAll('details.ovr-group').forEach(d=>d.open=true); });
-    $("ovrCollapse").addEventListener("click", ()=> { document.querySelectorAll('details.ovr-group').forEach(d=>d.open=false); });
-    $("ovrClear").addEventListener("click", ()=>{ if(busy) return; clearOverridesUI(); showToast("Overrides cleared."); });
+    function collectViewOverrides(){
+      const overrides = {};
+      const base = basePerms4 || {};
+      const eff  = effectivePerms4 || {};
+      Object.keys(eff).forEach(id=>{
+        const baseEntry = normalizeEntry(base[id] || false);
+        const effEntry  = normalizeEntry(eff[id] || false);
+        if (baseEntry.view !== effEntry.view){
+          overrides[id] = !!effEntry.view;
+        }
+      });
+      return overrides;
+    }
 
-    /* --------------------- roles dropdown --------------------- */
+    function updateHero(){
+      const hero = $("permsHero");
+      if (!hero) return;
+
+      if (!loaded || !currentRoleName){
+        hero.style.display = 'none';
+        return;
+      }
+
+      const company = $("company")?.value.trim() || "";
+      const contact = $("contact")?.value.trim() || "";
+      const email   = $("email")?.value.trim() || "";
+      const name = company || contact || email || "Contractor";
+
+      hero.style.display = '';
+
+      hero.config = {
+        mode: 'employee', // reuse employee label style
+        name,
+        baseRoleName: currentRoleName,
+        perms: effectivePerms4,
+        navMenu: NAV_MENU,
+        onPermsChange: (updatedPerms) => {
+          effectivePerms4 = deepClone(updatedPerms || {});
+        },
+        onResetOverrides: () => {
+          effectivePerms4 = deepClone(basePerms4 || {});
+          updateHero();
+          showToast("Overrides reset to role defaults.");
+        }
+      };
+    }
+
     async function fetchRoleDocByName(name){
       const db=getFirestore();
       const qRef=query(collection(db,'accountRoles'), where('name','==',name));
@@ -476,7 +305,7 @@
       try{
         const { mode } = await ready;
         if(mode!=='firebase'){
-          sel.innerHTML = '<option selected>Standard</option>';
+          sel.innerHTML = '<option value="Standard" selected>Standard</option>';
           rolesLoaded = true;
           return;
         }
@@ -488,31 +317,49 @@
           if(name) roles.push(name);
         });
         if(roles.length===0){
-          sel.innerHTML = '<option selected>Standard</option>';
+          sel.innerHTML = '<option value="Standard" selected>Standard</option>';
         }else{
-          sel.innerHTML = roles.map((r,i)=>`<option ${i===0?'selected':''}>${r}</option>`).join('');
+          sel.innerHTML = '<option value="">Select Permission Group…</option>' +
+            roles.map((r)=>`<option value="${r}">${r}</option>`).join('');
         }
         rolesLoaded = true;
 
-        // Changing the role after load should rebuild baseline but keep current overrides map
         sel.addEventListener('change', async (e)=>{
-          if (!loaded) return;           // only when a contractor is loaded
+          if (!loaded) return;
           if (busy) return;
+          const val = e.target.value || "";
+          if (!val){
+            currentRoleName = null;
+            basePerms4={};
+            effectivePerms4={};
+            updateHero();
+            return;
+          }
           setBusy(true);
           try{
-            currentRoleName = e.target.value || null;
-            const roleDoc = currentRoleName ? await fetchRoleDocByName(currentRoleName) : null;
-            baseGroups = buildBaselineFromPerms(roleDoc?.perms||roleDoc?.permissions||null);
-            renderOverrides();
-            applyOverridesToUI(collectOverridesForSave()); // reapply currently chosen tri-states
+            currentRoleName = val;
+            const roleDoc = await fetchRoleDocByName(currentRoleName);
+            const rawPerms = (roleDoc && (roleDoc.perms || roleDoc.permissions)) || {};
+            basePerms4 = rebuildEffectiveFromRole(rawPerms);
+            effectivePerms4 = deepClone(basePerms4);
+            if (contractorData && contractorData.overrides){
+              applyOverridesFromContractorData(contractorData.overrides);
+            }
+            updateHero();
           }catch(err){
             console.error('Failed to load role:', err);
-          }finally{ setBusy(false); }
+            currentRoleName = null;
+            basePerms4={};
+            effectivePerms4={};
+            updateHero();
+          }finally{
+            setBusy(false);
+          }
         });
 
       }catch(err){
         console.error('Roles load failed:', err);
-        $("perm").innerHTML = '<option selected>Standard</option>';
+        $("perm").innerHTML = '<option value="Standard" selected>Standard</option>';
         rolesLoaded = true;
       }
     }
@@ -533,65 +380,90 @@
       if(value){ sel.value = value; }
     }
 
-    /* --------------------- load + bind --------------------- */
     $("btnLoad").addEventListener('click', async ()=>{
-      const key=emailKey($("lookupEmail").value); if(!key){ $("lookupEmail").reportValidity(); return; }
-      const db=getFirestore(); const ref=doc(db,'subcontractors',key); const snap=await getDoc(ref);
+      const key=emailKey($("lookupEmail").value);
+      if(!key){ $("lookupEmail").reportValidity(); return; }
+      const db=getFirestore();
+      const ref=doc(db,'subcontractors',key);
+      const snap=await getDoc(ref);
       if(!snap.exists()){ alert('Contractor not found.'); return; }
       const d=snap.data()||{};
       currentDocId = key;
+      contractorData = d;
+      loaded = true;
 
-      // Bind fields
-      $("company").value=d.company||''; $("contact").value=d.contactName||''; $("phone").value=d.phone||'';
-      $("email").value=d.email||''; $("service").value=d.service||''; $("status").value=d.status||'Active';
+      $("company").value=d.company||'';
+      $("contact").value=d.contactName||'';
+      $("phone").value=d.phone||'';
+      $("email").value=d.email||'';
+      $("service").value=d.service||'';
+      $("status").value=d.status||'Active';
       $("notes").value=d.notes||'';
-      ensurePermSelected(d.permissionGroup || 'Standard');
 
-      // Show cards
+      const permVal = d.permissionGroup || 'Standard';
+      ensurePermSelected(permVal);
+
       $("editCard").hidden=false;
-      $("ovrSection").hidden=false;
-      loaded=true;
 
-      // Build baseline + render overrides
       setBusy(true);
       try{
         currentRoleName = $("perm").value || null;
-        const roleDoc = currentRoleName ? await fetchRoleDocByName(currentRoleName) : null;
-        baseGroups = buildBaselineFromPerms(roleDoc?.perms||roleDoc?.permissions||null);
-        overrideState = {};         // start clean
-        renderOverrides();          // baseline
-        applyOverridesToUI(d.overrides || {}); // layer in saved overrides
+        if (!currentRoleName && permVal) currentRoleName = permVal;
+
+        if (currentRoleName){
+          const roleDoc = await fetchRoleDocByName(currentRoleName);
+          const rawPerms = (roleDoc && (roleDoc.perms || roleDoc.permissions)) || {};
+          basePerms4 = rebuildEffectiveFromRole(rawPerms);
+          effectivePerms4 = deepClone(basePerms4);
+          applyOverridesFromContractorData(d.overrides || {});
+        }else{
+          basePerms4={};
+          effectivePerms4={};
+        }
+        updateHero();
       }catch(err){
         console.error('Failed to load role/overrides:', err);
-        baseGroups = buildBaselineFromPerms(null);
-        renderOverrides();
+        currentRoleName=null;
+        basePerms4={};
+        effectivePerms4={};
+        updateHero();
       }finally{
         setBusy(false);
         window.scrollTo({top:document.getElementById('editCard').offsetTop-80, behavior:'smooth'});
       }
     });
 
-    /* --------------------- save --------------------- */
     async function upsertContractor(v){
       const db=getFirestore();
       const id=emailKey(v.email);
       const ref=doc(db,'subcontractors',id);
       const snap=await getDoc(ref);
-      await setDoc(ref,{
-        company:v.company, contactName:v.contact, email:v.email, phone:v.phone, service:v.service,
-        status:v.status, permissionGroup:v.perm, notes:v.notes, type:'Subcontractor',
+      const payload={
+        company:v.company,
+        contactName:v.contact,
+        email:v.email,
+        phone:v.phone,
+        service:v.service,
+        status:v.status,
+        permissionGroup:v.perm || currentRoleName || 'Standard',
+        notes:v.notes,
+        type:'Subcontractor',
         active:v.status==='Active',
         overrides: v.overrides && Object.keys(v.overrides).length ? v.overrides : {},
         search:[(v.company||'').toLowerCase(), (v.contact||'').toLowerCase(), (v.email||'').toLowerCase()].filter(Boolean),
-        updatedAt:serverTimestamp(), ...(snap.exists()?{}:{createdAt:serverTimestamp()})
-      },{merge:true});
+        updatedAt:serverTimestamp()
+      };
+      if(!snap.exists()) payload.createdAt=serverTimestamp();
+      await setDoc(ref,payload,{merge:true});
       currentDocId = id;
+      contractorData = payload;
     }
 
     function collectAndValidate(){
-      if(!$("company").checkValidity() || !$("email").checkValidity()){
-        $("company").reportValidity(); $("email").reportValidity(); return null;
-      }
+      const companyEl = $("company");
+      const emailEl   = $("email");
+      if(!companyEl.checkValidity()){ companyEl.reportValidity(); return null; }
+      if(!emailEl.checkValidity()){ emailEl.reportValidity(); return null; }
       return {
         company:$("company").value.trim(),
         contact:$("contact").value.trim(),
@@ -601,7 +473,7 @@
         status:$("status").value,
         perm:$("perm").value,
         notes:$("notes").value.trim(),
-        overrides: collectOverridesForSave()
+        overrides: collectViewOverrides()
       };
     }
 
@@ -609,9 +481,12 @@
       if(!loaded){ alert('Load a contractor first.'); return; }
       const vals=collectAndValidate(); if(!vals) return;
       try{
-        setBusy(true); await ready; await upsertContractor(vals);
+        setBusy(true);
+        await ready;
+        await upsertContractor(vals);
         if(invite){
-          const {mode}=await ready; if(mode==='firebase'){
+          const {mode}=await ready;
+          if(mode==='firebase'){
             try{ await sendPasswordResetEmail(getAuth(), vals.email); }catch(e){ console.warn(e); }
           }
           showToast('Saved & invite sent.');
@@ -619,8 +494,11 @@
           showToast('Contractor saved.');
         }
         window.scrollTo({top:0,behavior:'smooth'});
-      }catch(e){ alert('Save failed.\n\n'+(e?.message||e)); }
-      finally{ setBusy(false); }
+      }catch(e){
+        alert('Save failed.\n\n'+(e?.message||e));
+      }finally{
+        setBusy(false);
+      }
     }
 
     $("save").addEventListener('click', ()=>save(false));
@@ -629,4 +507,5 @@
       save(true);
     });
   </script>
-</body></html>
+</body>
+</html>
