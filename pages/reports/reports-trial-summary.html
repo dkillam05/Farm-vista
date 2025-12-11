@@ -2249,7 +2249,7 @@
 
     /* ---------- print: build summary PDF ---------- */
 
-        function buildPrintHtml({ company, runStr, runDateOnly, fields, totals }) {
+            function buildPrintHtml({ company, runStr, runDateOnly, fields, totals }) {
       const t = STATE.trialDoc || {};
       const s = totals || STATE.totals || {};
       const fieldList = Array.isArray(fields) && fields.length ? fields : getActiveFields();
@@ -2265,37 +2265,41 @@
       const checkProductName = (t.checkProduct || t.check || '').toString();
       const trialProductName = (t.trialProduct || t.treatmentProduct || '').toString();
 
-      // Same numbers as on-screen tiles
+      // ⚙ Numbers to match on-screen KPIs
       const fieldsInSummary = s.fieldCount || 0;
-      const trialAcText = s.trialAcresAll ? formatInt(s.trialAcresAll) + ' ac' : 'n/a';
-      const tillableText = s.tillableAll ? formatInt(s.tillableAll) + ' ac' : 'n/a';
+      const trialAcText = s.trialAcresAll
+        ? formatDecimal(s.trialAcresAll, 0) + ' ac'
+        : '–';
+      const tillableText = s.tillableAll
+        ? formatDecimal(s.tillableAll, 0) + ' ac'
+        : '–';
 
       const wCheck = s.checkAvgWeighted !== null
         ? formatDecimal(s.checkAvgWeighted,1) + ' bu/ac'
-        : 'n/a';
+        : '–';
       const wTrial = s.trialAvgWeighted !== null
         ? formatDecimal(s.trialAvgWeighted,1) + ' bu/ac'
-        : 'n/a';
+        : '–';
       const wAdv = s.advantageWeighted !== null
         ? (s.advantageWeighted >= 0 ? '+' : '') + formatDecimal(s.advantageWeighted,1) + ' bu/ac'
-        : 'n/a';
+        : '–';
 
       const simpleCheck = s.checkAvgSimple !== null
         ? formatDecimal(s.checkAvgSimple,1) + ' bu/ac'
-        : 'n/a';
+        : '–';
       const simpleTrial = s.trialAvgSimple !== null
         ? formatDecimal(s.trialAvgSimple,1) + ' bu/ac'
-        : 'n/a';
+        : '–';
       const simpleAdv = s.advantageSimple !== null
         ? (s.advantageSimple >= 0 ? '+' : '') + formatDecimal(s.advantageSimple,1) + ' bu/ac'
-        : 'n/a';
+        : '–';
 
       const wins = s.wins || 0;
       const losses = s.losses || 0;
       const wlTotal = wins + losses;
       const winRateStr = s.winRate !== null && wlTotal > 0
         ? (s.winRate * 100).toFixed(0) + '%'
-        : 'n/a';
+        : '–';
 
       return `<!doctype html>
 <html>
@@ -2405,6 +2409,7 @@
       display:flex;
       flex-wrap:wrap;
       gap:6px 12px;
+      justify-content:center;        /* horizontally center row content */
     }
     .summary-pill{
       display:inline-flex;
@@ -2424,8 +2429,8 @@
 
     /* Grouped KPI styling for PDF summary */
     .summary-pill-group{
-      min-width:180px;
-      padding:4px 6px;
+      min-width:200px;
+      padding:4px 8px;
       border-radius:8px;
       border:1px solid color-mix(in srgb, var(--fv-border) 70%, transparent);
       background:color-mix(in srgb, #FFFFFF 90%, var(--fv-border) 10%);
@@ -2456,23 +2461,14 @@
 
     .section{
       margin-top:16px;
+    }
+
+    .farm-block{
       page-break-inside:avoid;
+      break-inside:avoid-page;
+      margin-bottom:8px;
     }
-    .section-title{
-      font-size:14px;
-      font-weight:700;
-      margin:0 0 4px;
-    }
-    .section-sub{
-      font-size:11px;
-      color:var(--fv-muted);
-      margin:0 0 6px;
-    }
-    .farm-title{
-      font-size:12px;
-      font-weight:600;
-      margin:8px 0 2px;
-    }
+
     .table-wrap{
       border-radius:10px;
       border:1px solid var(--fv-border);
@@ -2483,6 +2479,7 @@
       width:100%;
       border-collapse:collapse;
       font-size:11px;
+      page-break-inside:auto;
     }
     thead{
       background:#F9FAFB;
@@ -2500,6 +2497,10 @@
       font-size:10px;
       color:#4B5563;
       border-bottom:1px solid #D1D5DB;
+    }
+    tr{
+      page-break-inside:avoid;
+      page-break-after:auto;
     }
     tr:nth-child(even) td{
       background:#F9FAFB;
@@ -2574,15 +2575,15 @@
       <!-- TOP ROW: core counts + wins/losses -->
       <div class="summary-row">
         <div class="summary-pill">
-          <span class="summary-label">Fields</span>
+          <span class="summary-label">Fields in summary</span>
           <span class="summary-value">${formatInt(fieldsInSummary)}</span>
         </div>
         <div class="summary-pill">
-          <span class="summary-label">Trial acres</span>
+          <span class="summary-label">Trial acres (with yield)</span>
           <span class="summary-value">${escapeHtml(trialAcText)}</span>
         </div>
         <div class="summary-pill">
-          <span class="summary-label">Tillable acres</span>
+          <span class="summary-label">Tillable acres covered</span>
           <span class="summary-value">${escapeHtml(tillableText)}</span>
         </div>
 
@@ -2655,7 +2656,7 @@
           const st = f.stats || {};
           const adv = typeof st.advantage === 'number'
             ? (st.advantage >= 0 ? '+' : '') + formatDecimal(st.advantage,1) + ' bu/ac'
-            : 'n/a';
+            : '–';
           const acParts = [];
           if (d.trialAcres != null) acParts.push(formatDecimal(d.trialAcres,1) + ' trial ac');
           if (d.tillable != null) acParts.push(formatDecimal(d.tillable,1) + ' tillable');
@@ -2704,6 +2705,7 @@
 </body>
 </html>`;
     }
+
 
 
     // UPDATED: use Cloud PDF helper if available, fallback to iframe + print
