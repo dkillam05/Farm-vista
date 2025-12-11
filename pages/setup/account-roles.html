@@ -40,12 +40,32 @@
     .input,.select{width:100%;font:inherit;font-size:16px;color:var(--text);
       background:var(--card-surface,var(--surface));border:1px solid var(--border);
       border-radius:10px;padding:10px;outline:none;}
+
     .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:128px;padding:9px 12px;border-radius:12px;
       border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
-    .btn-danger{border-color:#b3261e;color:#b3261e;background:var(--surface);}
     .btn-quiet{min-width:auto;padding:6px 10px}
+
+    /* Trash icon button: smaller and pushed to far right */
+    #deleteRole{
+      margin-left:auto;
+      min-width:auto;
+      padding:6px 8px;
+      border-radius:999px;
+      border:1px solid #b3261e;
+      background:var(--surface);
+      color:#b3261e;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+    }
+    #deleteRole svg{
+      width:18px;
+      height:18px;
+      display:block;
+    }
 
     /* Permissions tree — compact for phones */
     .tree{border:1px solid var(--border);border-radius:12px;padding:8px;background:var(--card-surface,var(--surface));}
@@ -102,7 +122,7 @@
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Account Roles</h1>
-      <p class="page-sub">Turn menus <strong>on or off</strong>. Parent switches cascade to children. Open a child to override it.</p>
+      <p class="page-sub">Choose a <strong>role</strong> and adjust what it can see. Parent switches cascade down; open a child to override it.</p>
 
       <!-- Role header -->
       <section class="section">
@@ -115,21 +135,24 @@
             <div class="field">
               <label for="rolePicker">Existing Roles</label>
               <select id="rolePicker" class="select">
-                <option value="">— New role —</option>
+                <option value="">Add New Role</option>
               </select>
             </div>
-            <div class="field">
+            <div class="field" id="roleNameField">
               <label for="roleName">Role Name</label>
               <input id="roleName" class="input" placeholder="e.g., Seasonal Operator">
             </div>
           </div>
 
           <div class="actions">
-            <button id="newRole" class="btn" type="button">New</button>
             <button id="saveRole" class="btn btn-primary" type="button">Save Role</button>
-            <button id="deleteRole" class="btn btn-danger" type="button">Delete Role</button>
+            <button id="deleteRole" class="btn btn-danger" type="button" aria-label="Delete Role">
+              <!-- Red SVG trash can -->
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="currentColor" d="M9 3a1 1 0 0 0-.94.66L7.38 5H5a1 1 0 1 0 0 2h1v11a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V7h1a1 1 0 1 0 0-2h-2.38l-.68-1.34A1 1 0 0 0 15 3H9zm1.28 4.22a1 1 0 0 1 1.42.06L12 7.63l.3-.35a1 1 0 1 1 1.52 1.3L13.41 10l.41.48a1 1 0 0 1-1.52 1.3L12 11.37l-.3.41a1 1 0 1 1-1.6-1.2l.49-.6-.49-.59a1 1 0 0 1 .18-1.4zM10 15a1 1 0 0 1 2 0v2a1 1 0 1 1-2 0v-2zm4-1a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 1-1z"/>
+              </svg>
+            </button>
           </div>
-          <!-- Helper text intentionally removed -->
         </div>
       </section>
 
@@ -176,14 +199,32 @@
       let NAV = null, IDX = null;
 
       /* ====== UI HELPERS ====== */
-      function showToast(msg="Saved."){ toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show"); }
+      function showToast(msg="Saved."){ 
+        toast.textContent = msg; 
+        toast.classList.remove("show"); 
+        void toast.offsetWidth; 
+        toast.classList.add("show"); 
+      }
 
       const LS_KEY = "fv:roles:v1";
       const uid = () => String(Date.now()) + Math.random().toString(36).slice(2,7);
-      const loadLS = () => { try{ const a=JSON.parse(localStorage.getItem(LS_KEY)||"[]"); return Array.isArray(a)?a:[]; }catch{ return []; } };
+      const loadLS = () => { 
+        try{ 
+          const a=JSON.parse(localStorage.getItem(LS_KEY)||"[]"); 
+          return Array.isArray(a)?a:[]; 
+        }catch{ 
+          return []; 
+        } 
+      };
       const saveLS = (arr) => localStorage.setItem(LS_KEY, JSON.stringify(arr));
 
       function getMenu(){ return window.FV_NAV_MENU || { items: [] }; }
+
+      function showRoleNameField(show){
+        const box = $("roleNameField");
+        if(!box) return;
+        box.style.display = show ? "" : "none";
+      }
 
       /* ====== NAV INDEX ====== */
       function buildIndex(menu){
@@ -219,7 +260,10 @@
       function renderTree(){
         const tree = $("tree");
         NAV = getMenu();
-        if(!NAV || !Array.isArray(NAV.items)){ tree.textContent="Menu not available."; return; }
+        if(!NAV || !Array.isArray(NAV.items)){ 
+          tree.textContent="Menu not available."; 
+          return; 
+        }
         IDX = buildIndex(NAV);
         const { byParent } = IDX;
 
@@ -228,13 +272,16 @@
           while(stack.length){
             const n = stack.pop();
             setPerm(n.id, value);
-            if(n.type==="group"){ (byParent[n.id]||[]).forEach(c=>stack.push(c)); }
+            if(n.type==="group"){ 
+              (byParent[n.id]||[]).forEach(c=>stack.push(c)); 
+            }
           }
         }
 
         function makeSwitch(label, node, isGroup){
           const btn = document.createElement("button");
-          btn.type = "button"; btn.className="switch";
+          btn.type = "button"; 
+          btn.className="switch";
           const state = !!ensurePermRaw(node.id);
           btn.dataset.on = String(state);
           btn.setAttribute("role","switch");
@@ -260,7 +307,9 @@
           const sum = document.createElement("summary");
           const line = document.createElement("div");
           line.className = "sum-line indent-"+Math.min(node.depth,4);
-          const label = document.createElement("div"); label.className="label"; label.textContent=node.label;
+          const label = document.createElement("div"); 
+          label.className="label"; 
+          label.textContent=node.label;
           line.appendChild(label);
           sum.appendChild(line);
           const right = document.createElement("div");
@@ -287,7 +336,9 @@
           const sum = document.createElement("summary");
           const line = document.createElement("div");
           line.className = "sum-line indent-"+Math.min(node.depth+1,4);
-          const label = document.createElement("div"); label.className="label"; label.textContent=node.label;
+          const label = document.createElement("div"); 
+          label.className="label"; 
+          label.textContent=node.label;
           line.appendChild(label);
           sum.appendChild(line);
           const right = document.createElement("div");
@@ -373,34 +424,92 @@
       function populateRolePickerFromArray(arr){
         const sel = $("rolePicker");
         const keep = sel.value;
-        sel.innerHTML = '<option value="">— New role —</option>';
+        sel.innerHTML = "";
+
+        // Add New Role option (sentinel "")
+        const addOpt = document.createElement("option");
+        addOpt.value = "";
+        addOpt.textContent = "Add New Role";
+        sel.appendChild(addOpt);
+
         (arr||[]).forEach(r=>{
           const o=document.createElement("option");
-          o.value=r.id; o.textContent=r.name||"(unnamed)";
+          o.value=r.id; 
+          o.textContent=r.name||"(unnamed)";
           sel.appendChild(o);
         });
-        if(keep && arr.some(r=>r.id===keep)) sel.value = keep;
+
+        if(keep && arr.some(r=>r.id===keep)){
+          sel.value = keep;
+        } else if((arr||[]).length > 0){
+          sel.value = arr[0].id; // default to first existing role
+        } else {
+          sel.value = "";
+        }
+
+        // If we're in Add New Role mode, show the name field; otherwise hide.
+        if(sel.value === ""){
+          showRoleNameField(true);
+        }else{
+          showRoleNameField(false);
+        }
       }
+
       function newDraft(){
         currentRoleId = "";
         roleDraft = { id:"", name:"", perms:{} };
         $("roleName").value = "";
         $("rolePicker").value = "";
+        showRoleNameField(true);
+        renderTree();
+      }
+
+      async function loadRoleIntoDraft(id){
+        if(!id){
+          newDraft();
+          return;
+        }
+        const all = await loadRoles();
+        const r = all.find(x=>x.id===id);
+        if(!r){
+          newDraft(); 
+          return;
+        }
+        currentRoleId = r.id;
+        const perms = {};
+        Object.keys(r.perms||{}).forEach(k=>{
+          if (k==="home") return;
+          const v=r.perms[k]; 
+          perms[k]=(typeof v==='boolean')?v:!!(v&&v.on);
+        });
+        roleDraft = { id:r.id, name:r.name, perms };
+        $("roleName").value = r.name || "";
+        showRoleNameField(false); // editing existing: hide name box per your request
         renderTree();
       }
 
       /* ====== EVENTS ====== */
-      $("newRole").addEventListener("click", newDraft);
 
       $("saveRole").addEventListener("click", async ()=>{
+        const isNew = $("rolePicker").value === "";
         const name = $("roleName").value.trim();
-        if(!name){ alert("Please enter a role name."); return; }
+
+        if(isNew){
+          if(!name){ 
+            alert("Please enter a role name for the new role."); 
+            return; 
+          }
+        }
+
+        // For existing roles, keep their current name even though the box is hidden.
         try{
-          const id = await saveRole(name, roleDraft.perms);
+          const finalName = isNew ? name : (roleDraft.name || $("roleName").value.trim() || "(unnamed)");
+          const id = await saveRole(finalName, roleDraft.perms);
           currentRoleId = id;
           const all = await loadRoles();
           populateRolePickerFromArray(all);
           $("rolePicker").value = id;
+          showRoleNameField(false);
           showToast(MODE==='firebase' ? "Saved to Firestore." : "Saved locally (stub mode).");
         }catch(err){
           console.error(err);
@@ -409,14 +518,27 @@
       });
 
       $("deleteRole").addEventListener("click", async ()=>{
-        if(!currentRoleId){ alert("No role selected."); return; }
-        const name = $("roleName").value || "(unnamed)";
+        if(!currentRoleId){ 
+          alert("No role selected."); 
+          return; 
+        }
+        const name = roleDraft.name || $("roleName").value || "(unnamed)";
         if(!confirm(`Delete role "${name}"? This cannot be undone.`)) return;
         try{
           await deleteRole();
           const all = await loadRoles();
           populateRolePickerFromArray(all);
-          newDraft();
+
+          if((all||[]).length > 0){
+            // After delete, default back to first existing role
+            const first = all[0];
+            $("rolePicker").value = first.id;
+            await loadRoleIntoDraft(first.id);
+          }else{
+            // No roles left → Add New Role mode
+            newDraft();
+          }
+
           showToast(MODE==='firebase' ? "Role deleted from Firestore." : "Role deleted locally.");
         }catch(err){
           console.error(err);
@@ -426,23 +548,20 @@
 
       $("rolePicker").addEventListener("change", async ()=>{
         const id = $("rolePicker").value;
-        if(!id){ newDraft(); return; }
-        const all = await loadRoles();
-        const r = all.find(x=>x.id===id);
-        if(!r){ newDraft(); return; }
-        currentRoleId = r.id;
-        const perms = {};
-        Object.keys(r.perms||{}).forEach(k=>{
-          if (k==="home") return;
-          const v=r.perms[k]; perms[k]=(typeof v==='boolean')?v:!!(v&&v.on);
-        });
-        roleDraft = { id:r.id, name:r.name, perms };
-        $("roleName").value = r.name || "";
-        renderTree();
+        if(!id){
+          // Add New Role mode
+          newDraft();
+          return;
+        }
+        await loadRoleIntoDraft(id);
       });
 
-      $("expandAll").addEventListener("click", ()=>{ document.querySelectorAll("#tree details").forEach(d=>d.open=true); });
-      $("collapseAll").addEventListener("click", ()=>{ document.querySelectorAll("#tree details").forEach(d=>d.open=false); });
+      $("expandAll").addEventListener("click", ()=>{
+        document.querySelectorAll("#tree details").forEach(d=>d.open=true);
+      });
+      $("collapseAll").addEventListener("click", ()=>{
+        document.querySelectorAll("#tree details").forEach(d=>d.open=false);
+      });
 
       /* ====== LIVE SYNC (Firestore) ====== */
       function liveBind(){
@@ -471,13 +590,23 @@
 
         const roles = await loadRoles();
         populateRolePickerFromArray(roles);
-        newDraft();
+
+        // On first load: default to first existing role so you can "look at roles and adjust"
+        if((roles||[]).length > 0){
+          const first = roles[0];
+          $("rolePicker").value = first.id;
+          await loadRoleIntoDraft(first.id);
+        }else{
+          // No roles yet → Add New Role mode
+          newDraft();
+        }
 
         liveBind();
       }
 
-      if(window.FV_NAV_MENU){ init(); }
-      else{
+      if(window.FV_NAV_MENU){ 
+        init(); 
+      } else{
         window.addEventListener('fv:menu-ready', init, { once:true });
         setTimeout(()=>{ if(window.FV_NAV_MENU) init(); }, 300);
       }
