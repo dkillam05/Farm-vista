@@ -1,4 +1,6 @@
-<!doctype html><html lang="en"><head>
+<!doctype html>
+<html lang="en">
+<head>
   <meta charset="utf-8"/>
   <title>FarmVista • Add Employee</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
@@ -60,6 +62,11 @@
     .ovr-key{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;word-break:break-all}
     .ovr-select{width:100%;border:1px solid var(--border);border-radius:10px;padding:10px;background:var(--surface);font-weight:700}
 
+    .ovr-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
+
+    /* Hide perms hero until a permission group is chosen */
+    #permsHero{display:none;}
+
     /* Neutralize iOS yellow autofill */
     input:-webkit-autofill, input:-webkit-autofill:focus, textarea:-webkit-autofill, select:-webkit-autofill{
       -webkit-text-fill-color: var(--text)!important;
@@ -84,7 +91,8 @@
 
   <!-- Firebase config FIRST -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
-</head><body>
+</head>
+<body>
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Add Employee</h1>
@@ -140,7 +148,9 @@
             </div>
             <div class="field">
               <label for="perm">Permission Group</label>
-              <select id="perm" class="input"><option>Loading…</option></select>
+              <select id="perm" class="input">
+                <option value="">Select Permission Group…</option>
+              </select>
             </div>
           </div>
 
@@ -165,6 +175,9 @@
         </header>
 
         <div class="section-body">
+          <!-- Shared Permissions Hero (employee mode) -->
+          <fv-perms-hero id="permsHero"></fv-perms-hero>
+
           <div class="ovr-legend">
             <span>Defaults follow the selected <b>Permission Group</b> from Firestore (<code>accountRoles</code> ➜ <code>perms</code>). Tap a section’s <b>Enabled/Disabled</b> pill to force the whole section on/off for this employee. Individual items can still be tweaked below.</span>
           </div>
@@ -186,6 +199,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite">Successfully saved.</div>
 
   <script type="module">
+    import '/Farm-vista/js/fv-perms-hero.js';
     import {
       ready,
       getFirestore, getDoc, setDoc, doc,
@@ -273,6 +287,7 @@
 
     /* --------------------- role → baseline --------------------- */
     let currentRoleName = null;
+    let currentRolePerms = null; // raw perms object from accountRoles
     let baseGroups = {};     // {TopLabel:{capId:boolean}}
     let overrideState = {};  // {"TopLabel|capId": 'inherit'|'allow'|'deny'}
 
@@ -364,13 +379,65 @@
       else { pill.className='pill'; pill.textContent='Mixed'; }
     }
 
+    /* --------------------- HERO SYNC (employee mode) --------------------- */
+    function updateHero(){
+      const hero = $("permsHero");
+      if(!hero) return;
+
+      const toolbar = document.querySelector('.ovr-toolbar');
+      if(toolbar) toolbar.style.display = currentRoleName ? 'flex' : 'none';
+
+      // No permission group selected yet → hide hero completely
+      if(!currentRoleName){
+        hero.style.display = 'none';
+        return;
+      }
+
+      const first = $("first")?.value.trim() || "";
+      const last  = $("last")?.value.trim()  || "";
+      const email = $("email")?.value.trim() || "";
+      const name = (first || last) ? `${first} ${last}`.trim() : (email || "Employee");
+
+      hero.style.display = '';
+
+      hero.config = {
+        mode: 'employee',
+        name,
+        baseRoleName: currentRoleName,
+        perms: currentRolePerms || {},
+        navMenu: NAV_MENU,
+        onResetOverrides: () => {
+          clearOverridesUI();
+          showToast("Overrides cleared.");
+        }
+      };
+    }
+
+    /* --------------------- Overrides render --------------------- */
     function renderOverrides(){
       const wrap=$("overridesWrap");
       wrap.innerHTML="";
+
+      const toolbar = document.querySelector('.ovr-toolbar');
+      if(toolbar) toolbar.style.display = currentRoleName ? 'flex' : 'none';
+
+      // No permission group selected yet
+      if(!currentRoleName){
+        const d=document.createElement('div');
+        d.className='ovr-empty';
+        d.textContent='Choose a Permission Group to load capabilities.';
+        wrap.appendChild(d);
+        updateHero();
+        return;
+      }
+
       const gnames=Object.keys(baseGroups||{}).sort((a,b)=>a.localeCompare(b));
       if(!gnames.length){
-        const d=document.createElement('div'); d.className='ovr-empty'; d.textContent='No capabilities found for this group.'; wrap.appendChild(d); return;
+        const d=document.createElement('div'); d.className='ovr-empty'; d.textContent='No capabilities found for this group.'; wrap.appendChild(d);
+        updateHero();
+        return;
       }
+
       gnames.forEach(gname=>{
         const details=document.createElement('details'); details.className='ovr-group';
         const summary=document.createElement('summary'); summary.className='ovr-summary';
@@ -420,6 +487,8 @@
         wrap.appendChild(details);
         updateGroupPill(gname);
       });
+
+      updateHero();
     }
 
     function collectOverridesForSave(){
@@ -438,6 +507,7 @@
       Object.keys(overrideState).forEach(k=>overrideState[k]='inherit');
       document.querySelectorAll('select.ovr-select').forEach(sel=>sel.value='inherit');
       Object.keys(baseGroups).forEach(g=>updateGroupPill(g));
+      updateHero();
     }
 
     $("ovrExpand").addEventListener("click", ()=> { document.querySelectorAll('details.ovr-group').forEach(d=>d.open=true); });
@@ -459,8 +529,10 @@
       try{
         const { mode } = await ready;
         if(mode!=='firebase'){
-          sel.innerHTML = '<option selected>Standard</option>';
+          // Stub mode: simple Standard group preselected
+          sel.innerHTML = '<option value="Standard" selected>Standard</option>';
           currentRoleName = 'Standard';
+          currentRolePerms = null;
           baseGroups = buildBaselineFromPerms(null);
           overrideState = {};
           renderOverrides();
@@ -476,32 +548,49 @@
         });
 
         if(!roles.length){
-          sel.innerHTML = '<option selected>Standard</option>';
-          currentRoleName='Standard';
-          baseGroups = buildBaselineFromPerms(null);
+          // No roles defined yet → nothing to pick
+          sel.innerHTML = '<option value="">No Permission Groups Found</option>';
+          currentRoleName = null;
+          currentRolePerms = null;
+          baseGroups = {};
           overrideState = {};
           renderOverrides();
         }else{
-          sel.innerHTML = roles.map((r,i)=>`<option ${i===0?'selected':''}>${r}</option>`).join('');
-          currentRoleName = roles[0];
-          const roleDoc = await fetchRoleDocByName(currentRoleName);
-          baseGroups = buildBaselineFromPerms(roleDoc?.perms||roleDoc?.permissions||null);
+          // Placeholder + role names; nothing selected by default
+          sel.innerHTML = '<option value="">Select Permission Group…</option>' +
+            roles.map(r=>`<option value="${r}">${r}</option>`).join('');
+          currentRoleName = null;
+          currentRolePerms = null;
+          baseGroups = {};
           overrideState = {};
           renderOverrides();
         }
 
         sel.addEventListener('change', async (e)=>{
           if (busy) return;
+          const val = e.target.value || "";
+          if(!val){
+            currentRoleName = null;
+            currentRolePerms = null;
+            baseGroups = {};
+            overrideState = {};
+            renderOverrides();
+            return;
+          }
+
           setBusy(true);
           try{
-            currentRoleName = e.target.value || null;
-            const roleDoc = currentRoleName ? await fetchRoleDocByName(currentRoleName) : null;
-            baseGroups = buildBaselineFromPerms(roleDoc?.perms||roleDoc?.permissions||null);
+            currentRoleName = val;
+            const roleDoc = await fetchRoleDocByName(currentRoleName);
+            currentRolePerms = roleDoc?.perms || roleDoc?.permissions || {};
+            baseGroups = buildBaselineFromPerms(currentRolePerms);
             overrideState = {};
             renderOverrides();
           }catch(err){
             console.error('Failed to load role:', err);
-            baseGroups = buildBaselineFromPerms(null);
+            currentRoleName = null;
+            currentRolePerms = null;
+            baseGroups = {};
             overrideState = {};
             renderOverrides();
           }finally{ setBusy(false); }
@@ -509,9 +598,10 @@
 
       }catch(err){
         console.error('Roles load failed:', err);
-        sel.innerHTML = '<option selected>Standard</option>';
-        currentRoleName='Standard';
-        baseGroups = buildBaselineFromPerms(null);
+        sel.innerHTML = '<option value="">Select Permission Group…</option>';
+        currentRoleName=null;
+        currentRolePerms = null;
+        baseGroups = {};
         overrideState = {};
         renderOverrides();
       }
@@ -581,8 +671,13 @@
     $("clear").addEventListener("click",()=>{ if(busy) return;
       ["first","last","email","phone","role","start","notes"].forEach(id=>{const el=$(id);if(el)el.value="";});
       $("status").selectedIndex=0;
-      const permSel=$("perm"); if(permSel && permSel.options.length){ permSel.selectedIndex=0; permSel.dispatchEvent(new Event('change')); }
-      clearOverridesUI(); showToast("Form cleared.");
+      const permSel=$("perm"); if(permSel){ permSel.value=""; }
+      currentRoleName = null;
+      currentRolePerms = null;
+      baseGroups = {};
+      overrideState = {};
+      renderOverrides();
+      showToast("Form cleared.");
     });
 
     $("save").addEventListener("click",async()=>{
@@ -619,4 +714,5 @@
     populatePermissionGroups();
     ready.then(({mode})=>console.log('[FV] mode:', mode));
   </script>
-</body></html>
+</body>
+</html>
