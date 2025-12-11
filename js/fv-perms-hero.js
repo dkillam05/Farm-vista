@@ -23,7 +23,7 @@
 //  • Each main menu (group) is collapsible (default: collapsed).
 //  • Each group has an "All" pill to toggle all 4 actions on/off for itself + all children.
 //  • Toggling a group's View/Add/Edit/Delete pill cascades to all children.
-//  • Leaf menu items toggle only themselves.
+//  • Leaf menu items now have their own expand/collapse so their pills stay hidden until needed.
 //  • Extra Features are in their own collapsible group with simple On/Off pills.
 //
 
@@ -97,7 +97,7 @@ class FVPermsHero extends HTMLElement {
   constructor() {
     super();
     this._config = {
-      mode: 'role',         // 'role' | 'employee'
+      mode: 'role',
       name: '',
       baseRoleName: null,
       perms: {},
@@ -108,13 +108,14 @@ class FVPermsHero extends HTMLElement {
     this._root = this; // no shadow; share theme CSS
     this._hasRendered = false;
 
-    // Keep track of which groups are expanded; default: all collapsed.
+    // Which groups (Equipment, Grain, etc.) are expanded
     this._openGroups = new Set();
+    // Which leaf rows (sub menus like eq-tractors, eq-trucks) are expanded
+    this._openRows = new Set();
     this._navIndex = { byParent: {}, byId: {} };
   }
 
   set config(cfg) {
-    // Clone config, and clone perms map so we don't mutate caller's object directly.
     const merged = Object.assign({}, this._config, cfg || {});
     const srcPerms = merged.perms || {};
     const normalizedPerms = {};
@@ -289,6 +290,15 @@ class FVPermsHero extends HTMLElement {
     this.render();
   }
 
+  _toggleRowOpen(rowId) {
+    if (this._openRows.has(rowId)) {
+      this._openRows.delete(rowId);
+    } else {
+      this._openRows.add(rowId);
+    }
+    this.render();
+  }
+
   /* ---------- Nested matrix helpers ---------- */
 
   _buildMenuTreeHtml() {
@@ -394,7 +404,30 @@ class FVPermsHero extends HTMLElement {
     const p = this._getPerm(id);
 
     const rowType = isGroupRow ? 'group' : 'leaf';
+
+    // Groups: always show pills.
+    // Leaves: collapsed by default; open only if _openRows has id.
+    const isLeaf = !isGroupRow;
+    const isOpenRow = !isLeaf || this._openRows.has(id);
+    const rowStateClass = isOpenRow ? 'perm-row-open' : 'perm-row-closed';
+
     const indentClass = `perm-row-label-depth-${Math.min(depth, 3)}`;
+
+    let labelInner;
+    if (isGroupRow) {
+      // Group row label is simple text, group is already collapsible at header level.
+      labelInner = `<span class="perm-row-label-text">${node.label}</span>`;
+    } else {
+      // Leaf row: clickable label with its own chevron to expand/collapse pills.
+      labelInner = `
+        <button type="button"
+                class="perm-row-toggle"
+                data-row-toggle="${id}">
+          <span class="row-chevron">${isOpenRow ? '▾' : '▸'}</span>
+          <span class="perm-row-label-text">${node.label}</span>
+        </button>
+      `;
+    }
 
     const makePill = (action, isOn, text) => {
       const activeClass = isOn ? 'perm-pill-on' : 'perm-pill-off';
@@ -410,9 +443,9 @@ class FVPermsHero extends HTMLElement {
     };
 
     return `
-      <div class="perm-row" data-perm-row="${id}">
+      <div class="perm-row ${rowStateClass}" data-perm-row="${id}">
         <div class="perm-row-label ${indentClass}">
-          ${node.label}
+          ${labelInner}
         </div>
         <div class="perm-row-pills">
           ${makePill('view',   p.view,   'View')}
@@ -435,7 +468,7 @@ class FVPermsHero extends HTMLElement {
     return `
       <div class="perm-row" data-cap-row="${id}">
         <div class="perm-row-label perm-row-label-depth-0">
-          ${label}
+          <span class="perm-row-label-text">${label}</span>
         </div>
         <div class="perm-row-pills">
           <button type="button"
@@ -624,9 +657,6 @@ class FVPermsHero extends HTMLElement {
           padding: 6px 8px;
           background: rgba(0,0,0,0.02);
         }
-        .perm-group-header-simple {
-          justify-content: space-between;
-        }
         .perm-group-chevron {
           border-radius: 999px;
           border: 1px solid rgba(0,0,0,0.12);
@@ -680,11 +710,36 @@ class FVPermsHero extends HTMLElement {
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
+          display: flex;
+          align-items: center;
         }
         .perm-row-label-depth-0 { padding-left: 0; }
         .perm-row-label-depth-1 { padding-left: 10px; }
         .perm-row-label-depth-2 { padding-left: 20px; }
         .perm-row-label-depth-3 { padding-left: 30px; }
+
+        .perm-row-toggle {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          border: none;
+          background: transparent;
+          padding: 0;
+          margin: 0;
+          font: inherit;
+          color: inherit;
+          cursor: pointer;
+        }
+        .row-chevron {
+          font-size: 11px;
+          opacity: 0.8;
+        }
+        .perm-row-label-text {
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
         .perm-row-pills {
           display: flex;
           justify-content: flex-start;
@@ -714,6 +769,10 @@ class FVPermsHero extends HTMLElement {
         }
         .perm-pill-all {
           min-width: 52px;
+        }
+
+        .perm-row-closed .perm-row-pills {
+          display: none;
         }
 
         .perm-group-closed .perm-group-body {
@@ -845,8 +904,8 @@ class FVPermsHero extends HTMLElement {
               Menu Permissions
             </div>
             <div class="perm-matrix-sub">
-              Expand a menu, then use the pills to control <strong>View, Add, Edit, Delete</strong>.
-              The group and “All” controls cascade to all sub-menus. Extra Features use simple On/Off.
+              Expand a menu, then expand a sub-menu if you need to change its actions.
+              Group controls and “All” cascade to sub-menus. Extra Features use simple On/Off.
             </div>
           </div>
           <div class="perm-matrix-body">
@@ -915,6 +974,17 @@ class FVPermsHero extends HTMLElement {
         e.preventDefault();
         e.stopPropagation();
         this._toggleCapability(id);
+      });
+    });
+
+    // Wire up row expand/collapse for leaf rows (sub menus)
+    this._root.querySelectorAll('[data-row-toggle]').forEach(btn => {
+      const id = btn.getAttribute('data-row-toggle');
+      if (!id) return;
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this._toggleRowOpen(id);
       });
     });
   }
