@@ -130,10 +130,12 @@ const __fvBoot = (function(){
 
 /* ===============================  Auth Guard  =============================== */
 /*
- RULES:
+ RULES (relaxed):
   - Login page is PUBLIC.
-  - Other pages require Auth. We wait briefly for hydration before redirect.
-  - Optional Firestore-gating toggles below.
+  - Other pages require Auth, but:
+      • We trust FVUserContext's "session locker" to smooth over transient nulls.
+      • We only redirect to login when there is NO auth user AND NO user-context uid.
+  - Optional Firestore-gating toggles below (still off by default).
   - In stub/dev, we allow by default to prevent bounce-loops.
 */
 (function(){
@@ -157,6 +159,15 @@ const __fvBoot = (function(){
     return cur.startsWith('/Farm-vista/pages/login/');
   };
 
+  const getUserContextSnapshot = () => {
+    try {
+      if (window.FVUserContext && typeof window.FVUserContext.get === 'function') {
+        return window.FVUserContext.get();
+      }
+    } catch {}
+    return null;
+  };
+
   const gotoLogin = (reason) => {
     const here = location.pathname + location.search + location.hash;
     const url = new URL('/Farm-vista/pages/login/index.html', location.origin);
@@ -166,7 +177,7 @@ const __fvBoot = (function(){
     if (!samePath(location.href, dest)) location.replace(dest);
   };
 
-  const waitForAuthHydration = async (mod, auth, ms=1600) => {
+  const waitForAuthHydration = async (mod, auth, ms=3000) => {
     return new Promise((resolve) => {
       let settled = false;
       const done = (u)=>{ if(!settled){ settled=true; resolve(u); } };
@@ -189,18 +200,45 @@ const __fvBoot = (function(){
       const isStub = (mod.isStub && mod.isStub()) || false;
       const auth = (ctx && ctx.auth) || window.firebaseAuth || null;
 
+      // In stub/dev, never bounce
       if (isStub && ALLOW_STUB_MODE) return;
-      if (!auth) { gotoLogin('no-auth'); return; }
 
+      // If we can't even get an auth instance, only bounce if there's also no user-context
+      if (!auth) {
+        const uc = getUserContextSnapshot();
+        if (uc && uc.uid) {
+          console.warn('[FV] Auth guard: no auth instance, but user-context has uid — allowing page.');
+          return;
+        }
+        gotoLogin('no-auth');
+        return;
+      }
+
+      // Make sure persistence is local, but don't die if it fails
       try {
         if (mod.setPersistence && mod.browserLocalPersistence) {
           await mod.setPersistence(auth, mod.browserLocalPersistence());
         }
-      } catch (e) { console.warn('[FV] setPersistence failed:', e); }
+      } catch (e) {
+        console.warn('[FV] setPersistence failed:', e);
+      }
 
-      const user = await waitForAuthHydration(mod, auth, 1600);
-      if (!user) { gotoLogin('unauthorized'); return; }
+      const user = await waitForAuthHydration(mod, auth, 3000);
 
+      if (!user) {
+        // No auth user — trust FVUserContext "session locker" before bouncing
+        const uc = getUserContextSnapshot();
+        if (uc && uc.uid) {
+          // We treat this as an in-progress refresh / transient null; stay on page.
+          console.warn('[FV] Auth guard: no live user, but user-context has uid — treating as signed-in.');
+          return;
+        }
+        // Truly no auth and no session context → redirect to login
+        gotoLogin('unauthorized');
+        return;
+      }
+
+      // At this point we have an auth user; optional Firestore gating
       if (!REQUIRE_FIRESTORE_USER_DOC && !TREAT_MISSING_DOC_AS_DENY) return;
 
       try {
@@ -234,8 +272,15 @@ const __fvBoot = (function(){
         }
       }
     } catch (e) {
-      console.warn('[FV] auth-guard error:', e);
-      if (!isLoginPath()) gotoLogin('guard-error');
+      console.warn('[FV] auth-guard error (non-fatal, using soft behavior):', e);
+      // On guard errors now, prefer to stay on page if we have any user-context hint
+      if (isLoginPath()) return;
+      const uc = getUserContextSnapshot();
+      if (uc && uc.uid) {
+        console.warn('[FV] Auth guard: error occurred, but user-context has uid — not redirecting.');
+        return;
+      }
+      gotoLogin('guard-error');
     }
   };
 
@@ -270,6 +315,7 @@ const __fvBoot = (function(){
       content:""; position:absolute; right:14px; top:50%; width:0; height:0;
       border-left:6px solid transparent; border-right:6px solid transparent;
       border-top:7px solid var(--muted,#67706B); transform:translateY(-50%);
+
       pointer-events:none;
     }
     .fv-combo{ position:relative }
