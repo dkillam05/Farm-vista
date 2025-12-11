@@ -142,8 +142,10 @@
     return best;
   }
 
+  // UPDATED to understand new {view,add,edit,delete} permission objects
   function valToBool(v){
     if (typeof v === 'boolean') return v;
+    if (v && typeof v.view === 'boolean') return v.view;
     if (v && typeof v.on === 'boolean') return v.on;
     return undefined;
   }
@@ -274,7 +276,6 @@
     // If we truly have no user:
     if (mode !== 'firebase' || !liveUser || !liveUser.email){
       if (_ctx) {
-        // Session Locker: reuse LKG instead of emitting a null/permissive mid-session
         debug('No live user; reusing LKG session context');
         return { ..._ctx, updatedAt: nowIso() };
       }
@@ -337,7 +338,6 @@
   async function refresh({ force=false } = {}){
     if (_inflight && !force) return _inflight;
     _inflight = (async ()=>{
-      // Build with timeout; on timeout/error, reuse LKG
       let ctx = null;
       try {
         ctx = await buildContextWithTimeout();
@@ -349,9 +349,7 @@
       } catch (e) {
         debug('refresh build error; using LKG', e);
       }
-      // Fallback to LKG without emitting null
       if (_ctx) { _inflight = null; return _ctx; }
-      // Cold start w/o LKG: allow permissive (if configured)
       const m = await importMenu().catch(()=>null);
       const idx = buildNavIndexes(m||{items:[]});
       if (PERMISSIVE_WHEN_NO_LKG){
@@ -372,7 +370,6 @@
   async function ready(){ if (_ctx) return _ctx; return await refresh(); }
   function onChange(fn){ if (typeof fn==='function') _listeners.add(fn); return ()=>_listeners.delete(fn); }
   function clear(){
-    // Explicit session reset only (Logout/Manual). This is the only path that nulls context.
     if (_authUnsub) { try { _authUnsub(); } catch {} _authUnsub = null; }
     cacheSet(null);
   }
@@ -387,17 +384,14 @@
       const auth = (mod.getAuth && mod.getAuth()) || window.firebaseAuth || null;
       if (!auth) return;
 
-      // Prefer onIdTokenChanged (fires on refresh); fallback to onAuthStateChanged
       const watchFn = (mod.onIdTokenChanged || mod.onAuthStateChanged);
       if (!watchFn) return;
 
-      if (_authUnsub) return; // already watching
+      if (_authUnsub) return;
 
       _authUnsub = watchFn(auth, async (_userOrNull)=>{
-        // Debounce to avoid brief "null" emissions during token refresh
         clearTimeout(_debounceTimer);
         _debounceTimer = setTimeout(async ()=>{
-          // Rebuild the context in the background; Session Locker ensures we won't emit null
           await refresh({ force:true }).catch(()=>{});
         }, AUTH_DEBOUNCE_MS);
       });
@@ -406,7 +400,6 @@
     }
   })();
 
-  // seed from cache & lazy build (Session Locker: never emit null on failure)
   _ctx = lsGet(STORAGE_KEY);
   if (!_ctx) { refresh().catch(()=>{}); } else { notify(); }
 })();
