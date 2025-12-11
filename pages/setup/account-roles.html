@@ -79,7 +79,7 @@
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
   </style>
 
-  <!-- Mirror NAV so tree is built from your live menu -->
+  <!-- Mirror NAV so tree / hero both use your live menu -->
   <script type="module">
     import NAV_MENU from '/Farm-vista/js/menu.js';
     window.FV_NAV_MENU = NAV_MENU;
@@ -90,7 +90,10 @@
   <script>
     (function(){
       if(!customElements.get('fv-shell')){
-        const s=document.createElement('script');s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
       }
     })();
   </script>
@@ -102,7 +105,11 @@
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Account Roles</h1>
-      <p class="page-sub">Choose a <strong>role</strong> and adjust what it can see. Parent switches cascade down; open a child to override it.</p>
+      <p class="page-sub">
+        Choose a <strong>role</strong> and adjust what it can see and do.
+        The hero card + matrix controls <strong>View, Add, Edit, Delete</strong>.
+        The tree below is a quick “view on/off” switch by menu.
+      </p>
 
       <!-- Shared permissions hero + matrix (fv-perms-hero.js) -->
       <fv-perms-hero id="permsHero"></fv-perms-hero>
@@ -134,11 +141,11 @@
         </div>
       </section>
 
-      <!-- Permissions tree -->
+      <!-- Permissions tree (View toggle only) -->
       <section class="section">
         <header class="section-head">
           <div class="icon" aria-hidden="true">🔒</div>
-          <div><strong>Permissions</strong></div>
+          <div><strong>Permissions (View Only Toggle)</strong></div>
         </header>
         <div class="section-body">
           <div class="actions">
@@ -176,7 +183,8 @@
       let currentRoleId = "";
       // perms: { [id]: {view,add,edit,delete} }
       let roleDraft = { id:"", name:"", perms:{} };
-      let NAV = null, IDX = null;
+      let NAV = null;
+      let IDX = null;
 
       /* ====== PERM NORMALIZERS (4-flag) ====== */
       function normalizePermEntry(v){
@@ -242,46 +250,46 @@
 
         const navMenu = getMenu();
 
-        const cfg = {
+        hero.config = {
           mode: 'role',
           name,
           perms: roleDraft.perms || {},
           navMenu: navMenu || undefined,
           onDeleteRole: currentRoleId ? handleDeleteRole : null,
-          // When pills in fv-perms-hero change, update our draft perms + tree
           onPermsChange: (updatedPerms) => {
+            // updatedPerms is coming from fv-perms-hero; normalize and re-render tree
             roleDraft.perms = normalizePermMap(updatedPerms || {});
             renderTree();
           }
         };
-
-        hero.config = cfg;
       }
 
-      /* ====== NAV INDEX ====== */
+      /* ====== NAV INDEX (for tree) ====== */
       function buildIndex(menu){
-        const CAP_SET = new Set();
-        const CONTAINER_IDS = new Set();
         const byParent = {};
         function walk(items, depth=0, parent="__ROOT__"){
           (items || []).forEach(it=>{
             if(!it || !it.id) return;
             if(it.id === "home") return;
-            const node = { id: it.id, type: it.type, label: it.label || it.id, depth, parent };
+            const node = {
+              id: it.id,
+              type: it.type || 'item',
+              label: it.label || it.id,
+              depth,
+              parent
+            };
             (byParent[parent]||(byParent[parent]=[])).push(node);
-            if(it.type==="group"){ CONTAINER_IDS.add(it.id); }
-            else { CAP_SET.add(it.id); }
-            if(Array.isArray(it.children)&&it.children.length){
+            if(Array.isArray(it.children) && it.children.length){
               walk(it.children, depth+1, it.id);
             }
           });
         }
-        walk(menu.items||[]);
-        return { byParent, CAP_SET, CONTAINER_IDS };
+        walk(menu.items || []);
+        return { byParent };
       }
 
       // Tree uses "Enabled" = view-flag
-      function ensurePermRaw(nodeId){
+      function ensurePermView(nodeId){
         const map = roleDraft.perms || {};
         if (!map[nodeId]) {
           map[nodeId] = { view:false, add:false, edit:false, delete:false };
@@ -292,7 +300,7 @@
         return !!map[nodeId].view;
       }
 
-      function setPerm(nodeId, value){
+      function setPermView(nodeId, value){
         const map = roleDraft.perms || {};
         map[nodeId] = normalizePermEntry(map[nodeId]);
         map[nodeId].view = !!value;
@@ -314,9 +322,9 @@
           const stack = (byParent[parentId]||[]).slice();
           while(stack.length){
             const n = stack.pop();
-            setPerm(n.id, value);
-            if(n.type==="group"){ 
-              (byParent[n.id]||[]).forEach(c=>stack.push(c)); 
+            setPermView(n.id, value);
+            if (byParent[n.id] && byParent[n.id].length){
+              (byParent[n.id]||[]).forEach(c=>stack.push(c));
             }
           }
         }
@@ -325,15 +333,15 @@
           const btn = document.createElement("button");
           btn.type = "button"; 
           btn.className="switch";
-          const state = !!ensurePermRaw(node.id);
+          const state = !!ensurePermView(node.id);
           btn.dataset.on = String(state);
           btn.setAttribute("role","switch");
           btn.setAttribute("aria-checked", String(state));
           btn.innerHTML = `<span class="tiny">${label}</span>`;
           btn.addEventListener("click", (e)=>{
             e.stopPropagation();
-            const next = !ensurePermRaw(node.id);
-            setPerm(node.id, next);
+            const next = !ensurePermView(node.id);
+            setPermView(node.id, next);
             btn.dataset.on = String(next);
             btn.setAttribute("aria-checked", String(next));
             if(isGroup){
@@ -503,7 +511,6 @@
           sel.value = "";
         }
 
-        // If we're in Add New Role mode, show the name field; otherwise hide.
         if(sel.value === ""){
           showRoleNameField(true);
         }else{
@@ -537,7 +544,7 @@
         const perms = normalizePermMap(r.perms || {});
         roleDraft = { id:r.id, name:r.name, perms };
         $("roleName").value = r.name || "";
-        showRoleNameField(false); // editing existing: hide name box
+        showRoleNameField(false);
         renderTree();
       }
 
@@ -555,12 +562,10 @@
           populateRolePickerFromArray(all);
 
           if((all||[]).length > 0){
-            // After delete, default back to first existing role
             const first = all[0];
             $("rolePicker").value = first.id;
             await loadRoleIntoDraft(first.id);
           }else{
-            // No roles left → Add New Role mode
             newDraft();
           }
 
@@ -577,11 +582,9 @@
         const isNew = $("rolePicker").value === "";
         const name = $("roleName").value.trim();
 
-        if(isNew){
-          if(!name){ 
-            alert("Please enter a role name for the new role."); 
-            return; 
-          }
+        if(isNew && !name){
+          alert("Please enter a role name for the new role.");
+          return;
         }
 
         try{
@@ -604,7 +607,6 @@
       $("rolePicker").addEventListener("change", async ()=>{
         const id = $("rolePicker").value;
         if(!id){
-          // Add New Role mode
           newDraft();
           return;
         }
@@ -614,6 +616,7 @@
       $("expandAll").addEventListener("click", ()=>{
         document.querySelectorAll("#tree details").forEach(d=>d.open=true);
       });
+
       $("collapseAll").addEventListener("click", ()=>{
         document.querySelectorAll("#tree details").forEach(d=>d.open=false);
       });
@@ -628,11 +631,18 @@
             const arr=[];
             snap.forEach(docSnap=>{
               const d=docSnap.data()||{};
-              arr.push({ id: docSnap.id, name: d.name||"(unnamed)", perms: d.perms||{}, t: d.updatedAt||d.createdAt||0 });
+              arr.push({
+                id: docSnap.id,
+                name: d.name||"(unnamed)",
+                perms: d.perms||{},
+                t: d.updatedAt||d.createdAt||0
+              });
             });
             populateRolePickerFromArray(arr);
           });
-        }catch(e){ /* non-fatal */ }
+        }catch(e){
+          // non-fatal
+        }
       }
 
       /* ====== INIT ====== */
@@ -646,13 +656,11 @@
         const roles = await loadRoles();
         populateRolePickerFromArray(roles);
 
-        // On first load: default to first existing role so you can "look at roles and adjust"
         if((roles||[]).length > 0){
           const first = roles[0];
           $("rolePicker").value = first.id;
           await loadRoleIntoDraft(first.id);
         }else{
-          // No roles yet → Add New Role mode
           newDraft();
         }
 
