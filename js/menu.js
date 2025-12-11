@@ -1,5 +1,10 @@
 /* /Farm-vista/js/menu.js — FarmVista navigation config (ROOT-ABSOLUTE HREFs)
    All hrefs begin with /Farm-vista/ so links work from ANY page depth.
+
+   Permissions:
+   - Each item may declare `perm: 'feature-key'`.
+   - If `perm` is omitted, the item is always visible.
+   - Later, ui-nav will filter items with `FV.can(item.perm)`.
 */
 
 export const NAV_MENU = {
@@ -19,6 +24,7 @@ export const NAV_MENU = {
     {
       type: 'link',
       id: 'home',
+      // Home is always visible → no perm key
       icon: '🏠',
       label: 'Home',
       href: '/Farm-vista/index.html',
@@ -29,6 +35,7 @@ export const NAV_MENU = {
     {
       type: 'group',
       id: 'crop',
+      perm: 'crop',
       icon: '🌱',
       label: 'Crop Production',
       href: '/Farm-vista/pages/crop-production/index.html',
@@ -39,6 +46,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'crop-weather',
+          perm: 'crop-weather',
           icon: '⛅',
           label: 'Weather',
           href: '/Farm-vista/pages/crop-production/field-weather.html',
@@ -49,6 +57,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'crop-maint',
+          perm: 'crop-maint',
           icon: '🛠️',
           label: 'Field Maintenance',
           href: '/Farm-vista/pages/crop-production/maintenance.html',
@@ -59,6 +68,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'crop-trials',
+          perm: 'crop-trials',
           icon: '🧬',
           label: 'Trials',
           href: '/Farm-vista/pages/crop-production/trials.html',
@@ -69,6 +79,7 @@ export const NAV_MENU = {
         {
           type: 'group',
           id: 'crop-operational-records',
+          perm: 'crop-operational-records',
           icon: '📋',
           label: 'Operational Records',
           // no href → expand-only
@@ -78,6 +89,7 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'crop-planting',
+              perm: 'crop-planting',
               icon: '🌱',
               label: 'Planting',
               href: '/Farm-vista/pages/crop-production/planting.html',
@@ -86,6 +98,7 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'crop-spraying',
+              perm: 'crop-spraying',
               icon: '💦',
               label: 'Spraying',
               href: '/Farm-vista/pages/crop-production/spraying.html',
@@ -94,6 +107,7 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'crop-aerial',
+              perm: 'crop-aerial',
               icon: '🚁',
               label: 'Aerial Applications',
               href: '/Farm-vista/pages/crop-production/aerial.html',
@@ -102,6 +116,7 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'crop-fertilizer',
+              perm: 'crop-fertilizer',
               icon: '🧂',
               label: 'Fertilizer',
               href: '/Farm-vista/pages/crop-production/fertilizer.html',
@@ -110,6 +125,7 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'crop-harvest',
+              perm: 'crop-harvest',
               icon: '🌾',
               label: 'Harvest',
               href: '/Farm-vista/pages/crop-production/harvest.html',
@@ -124,6 +140,7 @@ export const NAV_MENU = {
     {
       type: 'group',
       id: 'grain',
+      perm: 'grain',
       icon: '🌾',
       label: 'Grain',
       href: '/Farm-vista/pages/grain/index.html',
@@ -133,6 +150,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'grain-bins',
+          perm: 'grain-bins',
           icon: '🛢️',
           label: 'Grain Bin Inventory',
           href: '/Farm-vista/pages/grain/grain-bins.html'
@@ -140,6 +158,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'grain-bags',
+          perm: 'grain-bags',
           icon: '👝',
           label: 'Grain Bag Inventory',
           href: '/Farm-vista/pages/grain/grain-bags.html'
@@ -147,6 +166,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'grain-tix',
+          perm: 'grain-tix',
           icon: '🎟️',
           label: 'Grain Tickets (OCR)',
           href: '/Farm-vista/pages/grain/grain-ticket-ocr.html'
@@ -154,6 +174,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'grain-ctr',
+          perm: 'grain-ctr',
           icon: '📄',
           label: 'Grain Contracts',
           href: '/Farm-vista/pages/grain/grain-contracts.html'
@@ -165,6 +186,7 @@ export const NAV_MENU = {
     {
       type: 'group',
       id: 'equipment',
+      perm: 'equipment',
       icon: '🚜',
       label: 'Equipment',
       href: '/Farm-vista/pages/equipment/index.html',
@@ -175,6 +197,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'eq-maint-workorders',
+          perm: 'eq-maint-workorders',
           icon: '🧰',
           label: 'Maintenance Work Orders',
           href: '/Farm-vista/pages/equipment/maintenance-index.html',
@@ -183,6 +206,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'eq-maint-records',
+          perm: 'eq-maint-records',
           icon: '📚',
           label: 'Maintenance Records',
           href: '/Farm-vista/docs/cooming-soon.html',
@@ -193,6 +217,7 @@ export const NAV_MENU = {
         {
           type: 'group',
           id: 'eq-inventory',
+          perm: 'eq-inventory',
           icon: '📦',
           label: 'Equipment Inventory',
           // no href → expand-only
@@ -202,6 +227,7 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'eq-tractors',
+              perm: 'eq-tractors',
               icon: '🚜',
               label: 'Tractors',
               href: '/Farm-vista/pages/equipment/equipment-tractors.html'
@@ -209,6 +235,7 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'eq-combines',
+              perm: 'eq-combines',
               icon: '🌾',
               label: 'Combines',
               href: '/Farm-vista/pages/equipment/equipment-combines.html'
@@ -216,6 +243,7 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'eq-implements',
+              perm: 'eq-implements',
               icon: '⚙️',
               label: 'Implements',
               href: '/Farm-vista/pages/equipment/equipment-implements.html'
@@ -223,6 +251,7 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'eq-sprayers',
+              perm: 'eq-sprayers',
               icon: '💦',
               label: 'Sprayers',
               href: '/Farm-vista/pages/equipment/equipment-sprayers.html'
@@ -230,6 +259,7 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'eq-fertilizer',
+              perm: 'eq-fertilizer',
               icon: '🧂',
               label: 'Fertilizer Equipment',
               href: '/Farm-vista/pages/equipment/equipment-fertilizer.html'
@@ -237,6 +267,7 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'eq-construction',
+              perm: 'eq-construction',
               icon: '🏗️',
               label: 'Construction',
               href: '/Farm-vista/pages/equipment/equipment-construction.html'
@@ -244,6 +275,7 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'eq-trucks',
+              perm: 'eq-trucks',
               icon: '🚚',
               label: 'Trucks',
               href: '/Farm-vista/pages/equipment/equipment-trucks.html'
@@ -251,6 +283,7 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'eq-trailers',
+              perm: 'eq-trailers',
               icon: '🚛',
               label: 'Trailers',
               href: '/Farm-vista/pages/equipment/equipment-trailers.html'
@@ -258,6 +291,7 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'eq-starfire',
+              perm: 'eq-starfire',
               icon: '🛰️',
               label: 'StarFire / Technology',
               href: '/Farm-vista/pages/equipment/equipment-starfire.html'
@@ -271,6 +305,7 @@ export const NAV_MENU = {
     {
       type: 'group',
       id: 'office',
+      perm: 'office',
       icon: '🏢',
       label: 'Office',
       // no href → expand-only
@@ -281,6 +316,7 @@ export const NAV_MENU = {
         {
           type: 'group',
           id: 'office-teams',
+          perm: 'office-teams',
           icon: '👥',
           label: 'Teams & Partners',
           // no href → expand-only
@@ -290,6 +326,7 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'teams-employees',
+              perm: 'teams-employees',
               icon: '👤',
               label: 'Employees',
               href: '/Farm-vista/pages/office/teams-and-partners/employees.html'
@@ -297,6 +334,7 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'teams-sub-contractors',
+              perm: 'teams-sub-contractors',
               icon: '🧰',
               label: 'Sub-Contractors',
               href: '/Farm-vista/pages/office/teams-and-partners/sub-contractors.html'
@@ -304,6 +342,7 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'teams-vendors',
+              perm: 'teams-vendors',
               icon: '🏪',
               label: 'Vendors',
               href: '/Farm-vista/pages/office/teams-and-partners/vendors.html'
@@ -311,6 +350,7 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'teams-dictionary',
+              perm: 'teams-dictionary',
               icon: '📖',
               label: 'Dictionary',
               href: '/Farm-vista/pages/office/teams-and-partners/dictionary.html'
@@ -321,6 +361,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'office-vehicle-registration',
+          perm: 'office-vehicle-registration',
           icon: '🚗',
           label: 'Vehicle Registration',
           href: '/Farm-vista/pages/office/vehicle-registration.html',
@@ -329,6 +370,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'office-field-boundaries',
+          perm: 'office-field-boundaries',
           icon: '🗺️',
           label: 'Field Boundaries',
           href: '/Farm-vista/pages/office/field-boundaries.html',
@@ -341,6 +383,7 @@ export const NAV_MENU = {
     {
       type: 'group',
       id: 'inventory',
+      perm: 'inventory',
       icon: '📦',
       label: 'Inventory',
       // no href → expand-only
@@ -350,6 +393,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'inv-grain-bags',
+          perm: 'inv-grain-bags',
           icon: '👝',
           label: 'Grain Bag Inventory',
           href: '/Farm-vista/pages/inventory/grain-bags.html',
@@ -358,6 +402,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'inv-manual-removal',
+          perm: 'inv-manual-removal',
           icon: '➖',
           label: 'Inventory Manual Adjustment',
           href: '/Farm-vista/pages/inventory/manual-removal.html',
@@ -370,6 +415,7 @@ export const NAV_MENU = {
     {
       type: 'group',
       id: 'expenses',
+      perm: 'expenses',
       icon: '💵',
       label: 'Expenses',
       // no href → expand-only
@@ -379,6 +425,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'exp-expenditures',
+          perm: 'exp-expenditures',
           icon: '🧾',
           label: 'Expenditures',
           href: '/Farm-vista/pages/expenses/expenditures.html',
@@ -388,6 +435,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'exp-reports',
+          perm: 'exp-reports',
           icon: '📑',
           label: 'Reports',
           href: '/Farm-vista/pages/expenses/reports/index.html',
@@ -400,6 +448,7 @@ export const NAV_MENU = {
     {
       type: 'group',
       id: 'calculators',
+      perm: 'calculators',
       icon: '🔢',
       label: 'Calculators',
       // no href → expand-only
@@ -409,6 +458,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'calc-area',
+          perm: 'calc-area',
           icon: '📐',
           label: 'Area',
           href: '/Farm-vista/pages/calculators/calc-area.html'
@@ -416,6 +466,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'calc-bin',
+          perm: 'calc-bin',
           icon: '🛢️',
           label: 'Grain Bin',
           href: '/Farm-vista/pages/calculators/calc-grain-bin.html'
@@ -423,6 +474,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'calc-shrink',
+          perm: 'calc-shrink',
           icon: '📉',
           label: 'Grain Shrink',
           href: '/Farm-vista/pages/calculators/calc-grain-shrink.html'
@@ -430,6 +482,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'calc-combine-loss',
+          perm: 'calc-combine-loss',
           icon: '🌾',
           label: 'Combine Grain Loss',
           href: '/Farm-vista/pages/calculators/calc-combine-grain-loss.html'
@@ -437,6 +490,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'calc-combine-yld',
+          perm: 'calc-combine-yld',
           icon: '✅',
           label: 'Combine Yield Check',
           href: '/Farm-vista/pages/calculators/calc-combine-yield.html'
@@ -444,6 +498,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'calc-combine-calibration',
+          perm: 'calc-combine-calibration',
           icon: '⚖️',
           label: 'Combine Yield Calibration',
           href: '/Farm-vista/pages/calculators/calc-combine-yield-calibration.html',
@@ -452,6 +507,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'calc-chem-mix',
+          perm: 'calc-chem-mix',
           icon: '🧪',
           label: 'Chemical Mix',
           href: '/Farm-vista/pages/calculators/calc-chemical-mix.html'
@@ -459,6 +515,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'calc-trial-ylds',
+          perm: 'calc-trial-ylds',
           icon: '🧬',
           label: 'Trial Yields',
           href: '/Farm-vista/pages/calculators/calc-trial-yields.html'
@@ -470,6 +527,7 @@ export const NAV_MENU = {
     {
       type: 'group',
       id: 'reports',
+      perm: 'reports',
       icon: '📑',
       label: 'Reports',
       // no href → expand-only
@@ -479,6 +537,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'reports-predef',
+          perm: 'reports-predef',
           icon: '📚',
           label: 'Predefined Reports',
           href: '/Farm-vista/pages/reports/reports-predefined.html',
@@ -491,6 +550,7 @@ export const NAV_MENU = {
     {
       type: 'group',
       id: 'setup',
+      perm: 'setup',
       icon: '⚙️',
       label: 'Setup',
       // no href → expand-only
@@ -501,6 +561,7 @@ export const NAV_MENU = {
         {
           type: 'group',
           id: 'setup-products',
+          perm: 'setup-products',
           icon: '🗂️',
           label: 'Products',
           // no href → expand-only
@@ -510,6 +571,7 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'setup-prod-seed',
+              perm: 'setup-prod-seed',
               icon: '🌱',
               label: 'Seed',
               href: '/Farm-vista/pages/setup/products/seed.html',
@@ -518,6 +580,7 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'setup-prod-chemical',
+              perm: 'setup-prod-chemical',
               icon: '🧪',
               label: 'Chemical',
               href: '/Farm-vista/pages/setup/products/chemical.html',
@@ -526,6 +589,7 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'setup-prod-fertilizer',
+              perm: 'setup-prod-fertilizer',
               icon: '🧂',
               label: 'Fertilizer',
               href: '/Farm-vista/pages/setup/products/fertilizer.html',
@@ -534,6 +598,7 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'setup-prod-grainbags',
+              perm: 'setup-prod-grainbags',
               icon: '👝',
               label: 'Grain Bags',
               href: '/Farm-vista/pages/setup/products/grain-bags.html',
@@ -546,6 +611,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'setup-import-templates',
+          perm: 'setup-import-templates',
           icon: '📥',
           label: 'Import Templates',
           href: '/Farm-vista/pages/setup/import-templates.html',
@@ -555,6 +621,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'setup-message-board',
+          perm: 'setup-message-board',
           icon: '📢',
           label: 'Message Board',
           href: '/Farm-vista/pages/setup/message-board.html',
@@ -564,6 +631,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'setup-farms',
+          perm: 'setup-farms',
           icon: '🏷️',
           label: 'Farms',
           href: '/Farm-vista/pages/setup/farms.html',
@@ -572,6 +640,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'setup-fields',
+          perm: 'setup-fields',
           icon: '🗺️',
           label: 'Fields',
           href: '/Farm-vista/pages/setup/fields.html',
@@ -581,6 +650,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'setup-grain-sites',
+          perm: 'setup-grain-sites',
           label: 'Grain Bin Sites',
           icon: `
             <svg viewBox="0 0 24 24" aria-hidden="true"
@@ -599,6 +669,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'setup-rtk-towers',
+          perm: 'setup-rtk-towers',
           icon: '🛰️',
           label: 'RTK Tower Information',
           href: '/Farm-vista/pages/setup/rtk-tower-information.html',
@@ -607,6 +678,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'setup-company',
+          perm: 'setup-company',
           label: 'Company Details',
           icon: '🏢',
           href: '/Farm-vista/pages/setup/company-details.html',
@@ -615,6 +687,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'setup-roles',
+          perm: 'setup-roles',
           label: 'Account Roles',
           icon: '👥',
           href: '/Farm-vista/pages/setup/account-roles.html',
