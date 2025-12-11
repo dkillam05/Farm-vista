@@ -6,6 +6,7 @@
    - Debounced auth watchers (onIdTokenChanged/onAuthStateChanged) to ignore transient "null" during refresh.
    - Last-Known-Good (LKG) reuse: on network/auth hiccups, we keep the prior context instead of emitting blanks.
    - No behavioral change to your permissive key-mapping logic and ACL computation.
+   - NEW: exposes role/employee/perms/effectivePerms so the permission engine in theme-boot.js can use them.
 */
 
 (function () {
@@ -205,6 +206,26 @@
     return allowed;
   }
 
+  // NEW: merge role perms + employee overrides into a single effectivePerms map
+  function mergePermsWithOverrides(perms, overrides){
+    const result = {};
+    if (perms && typeof perms === 'object'){
+      Object.keys(perms).forEach(key=>{
+        result[key] = perms[key];
+      });
+    }
+    if (overrides && typeof overrides === 'object'){
+      Object.keys(overrides).forEach(key=>{
+        const v = overrides[key];
+        if (typeof v === 'boolean' || (v && typeof v === 'object')){
+          // overrides win
+          result[key] = v;
+        }
+      });
+    }
+    return result;
+  }
+
   /* ------------------------- Firestore data fetchers ------------------------- */
   async function fetchPersonRecord(mod, userEmail) {
     const db = mod.getFirestore();
@@ -264,7 +285,20 @@
       if (PERMISSIVE_WHEN_NO_LKG){
         const ids = Array.from(idx.CAP_SET);
         if (idx.HOME_ID) ids.unshift(idx.HOME_ID);
-        return { mode:'unknown', uid:null, email:null, displayName:null, profile:null, roleName:'Standard', allowedIds:ids, updatedAt:nowIso() };
+        return {
+          mode:'unknown',
+          uid:null,
+          email:null,
+          displayName:null,
+          profile:null,
+          roleName:'Standard',
+          role: null,
+          employee: null,
+          perms:{},
+          effectivePerms:{},
+          allowedIds:ids,
+          updatedAt:nowIso()
+        };
       }
       return null; // rare: login page context
     }
@@ -282,7 +316,20 @@
       if (PERMISSIVE_WHEN_NO_LKG){
         const ids = Array.from(idx.CAP_SET);
         if (idx.HOME_ID) ids.unshift(idx.HOME_ID);
-        return { mode, uid:liveUser?.uid||null, email:liveUser?.email||null, displayName:liveUser?.displayName||liveUser?.email||null, profile:null, roleName:'Standard', allowedIds:ids, updatedAt:nowIso() };
+        return {
+          mode,
+          uid:liveUser?.uid||null,
+          email:liveUser?.email||null,
+          displayName:liveUser?.displayName||liveUser?.email||null,
+          profile:null,
+          roleName:'Standard',
+          role:null,
+          employee:null,
+          perms:{},
+          effectivePerms:{},
+          allowedIds:ids,
+          updatedAt:nowIso()
+        };
       }
       return null;
     }
@@ -292,12 +339,18 @@
     const emp = person?.data || {};
     const roleName = emp.permissionGroup || 'Standard';
     const roleDoc  = await fetchRoleDocByName(mod, roleName);
+
+    // Raw perms as stored on the role doc
     const perms    = roleDoc?.perms || roleDoc?.permissions || null;
 
+    // Nav ACL (existing behavior)
     const base    = baselineFromPerms(perms, idx);
     const allow   = applyOverrides(base, emp.overrides || {}, idx);
 
     if (idx.HOME_ID) allow.add(idx.HOME_ID);
+
+    // NEW: merge into effectivePerms (role perms + employee overrides on same keys)
+    const effectivePerms = mergePermsWithOverrides(perms || {}, emp.overrides || {});
 
     let displayName = liveUser.displayName || '';
     if (!displayName){
@@ -307,6 +360,14 @@
       displayName = full || liveUser.email;
     }
 
+    const roleOut = roleDoc
+      ? { ...roleDoc, name: roleName }
+      : { name: roleName, perms: perms || {} };
+
+    const employeeOut = emp
+      ? { ...emp, id: person ? person.id : null, coll: person ? person.coll : null }
+      : null;
+
     const out = {
       mode:'firebase',
       uid:liveUser.uid||null,
@@ -314,6 +375,10 @@
       displayName,
       profile: emp ? { ...emp, type: person ? person.coll.slice(0,-1) : null } : null,
       roleName,
+      role: roleOut,
+      employee: employeeOut,
+      perms: perms || {},
+      effectivePerms,
       allowedIds: Array.from(allow),
       updatedAt: nowIso()
     };
@@ -355,7 +420,20 @@
       if (PERMISSIVE_WHEN_NO_LKG){
         const ids = Array.from(idx.CAP_SET);
         if (idx.HOME_ID) ids.unshift(idx.HOME_ID);
-        const cold = { mode:'unknown', uid:null, email:null, displayName:null, profile:null, roleName:'Standard', allowedIds:ids, updatedAt:nowIso() };
+        const cold = {
+          mode:'unknown',
+          uid:null,
+          email:null,
+          displayName:null,
+          profile:null,
+          roleName:'Standard',
+          role:null,
+          employee:null,
+          perms:{},
+          effectivePerms:{},
+          allowedIds:ids,
+          updatedAt:nowIso()
+        };
         cacheSet(cold);
         _inflight = null;
         return cold;
