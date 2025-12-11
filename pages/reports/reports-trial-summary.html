@@ -2249,7 +2249,7 @@
 
     /* ---------- print: build summary PDF ---------- */
 
-    function buildPrintHtml({ company, runStr, runDateOnly, fields, totals }) {
+        function buildPrintHtml({ company, runStr, runDateOnly, fields, totals }) {
       const t = STATE.trialDoc || {};
       const s = totals || STATE.totals || {};
       const fieldList = Array.isArray(fields) && fields.length ? fields : getActiveFields();
@@ -2265,7 +2265,7 @@
       const checkProductName = (t.checkProduct || t.check || '').toString();
       const trialProductName = (t.trialProduct || t.treatmentProduct || '').toString();
 
-      // Mirror new KPI groupings from on-screen tiles
+      // Same numbers as on-screen tiles
       const fieldsInSummary = s.fieldCount || 0;
       const trialAcText = s.trialAcresAll ? formatInt(s.trialAcresAll) + ' ac' : 'n/a';
       const tillableText = s.tillableAll ? formatInt(s.tillableAll) + ' ac' : 'n/a';
@@ -2388,16 +2388,23 @@
       color:#374151;
       margin:0 0 10px;
     }
+
+    /* Summary tiles container */
     .summary-strip{
       display:flex;
-      flex-wrap:wrap;
-      gap:6px 12px;
+      flex-direction:column;         /* two stacked rows */
+      gap:6px;
       margin-top:4px;
       padding:8px 10px;
       border-radius:10px;
       background:linear-gradient(90deg, rgba(59,126,70,0.08), transparent);
       border:1px solid rgba(59,126,70,0.2);
       font-size:11px;
+    }
+    .summary-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 12px;
     }
     .summary-pill{
       display:inline-flex;
@@ -2414,9 +2421,14 @@
     .summary-value{
       font-weight:600;
     }
+
     /* Grouped KPI styling for PDF summary */
     .summary-pill-group{
       min-width:180px;
+      padding:4px 6px;
+      border-radius:8px;
+      border:1px solid color-mix(in srgb, var(--fv-border) 70%, transparent);
+      background:color-mix(in srgb, #FFFFFF 90%, var(--fv-border) 10%);
     }
     .summary-group-rows{
       display:flex;
@@ -2429,6 +2441,11 @@
       justify-content:space-between;
       gap:6px;
     }
+    .summary-divider-soft{
+      border-bottom:1px solid color-mix(in srgb, var(--fv-border) 55%, transparent);
+      padding-bottom:2px;
+      margin-bottom:2px;
+    }
     .summary-group-label{
       color:var(--fv-muted);
     }
@@ -2436,6 +2453,7 @@
       font-weight:600;
       white-space:nowrap;
     }
+
     .section{
       margin-top:16px;
       page-break-inside:avoid;
@@ -2553,73 +2571,75 @@
     }
 
     <div class="summary-strip">
-      <!-- Core counts -->
-      <div class="summary-pill">
-        <span class="summary-label">Fields</span>
-        <span class="summary-value">${formatInt(fieldsInSummary)}</span>
-      </div>
-      <div class="summary-pill">
-        <span class="summary-label">Trial acres</span>
-        <span class="summary-value">${escapeHtml(trialAcText)}</span>
-      </div>
-      <div class="summary-pill">
-        <span class="summary-label">Tillable acres</span>
-        <span class="summary-value">${escapeHtml(tillableText)}</span>
-      </div>
+      <!-- TOP ROW: core counts + wins/losses -->
+      <div class="summary-row">
+        <div class="summary-pill">
+          <span class="summary-label">Fields</span>
+          <span class="summary-value">${formatInt(fieldsInSummary)}</span>
+        </div>
+        <div class="summary-pill">
+          <span class="summary-label">Trial acres</span>
+          <span class="summary-value">${escapeHtml(trialAcText)}</span>
+        </div>
+        <div class="summary-pill">
+          <span class="summary-label">Tillable acres</span>
+          <span class="summary-value">${escapeHtml(tillableText)}</span>
+        </div>
 
-      <!-- Weighted averages group -->
-      <div class="summary-pill summary-pill-group">
-        <span class="summary-label">Weighted averages</span>
-        <div class="summary-group-rows">
-          <div class="summary-group-row">
-            <span class="summary-group-label">Check</span>
-            <span class="summary-group-value">${escapeHtml(wCheck)}</span>
-          </div>
-          <div class="summary-group-row">
-            <span class="summary-group-label">Treatment</span>
-            <span class="summary-group-value">${escapeHtml(wTrial)}</span>
-          </div>
-          <div class="summary-group-row">
-            <span class="summary-group-label">Advantage</span>
-            <span class="summary-group-value">${escapeHtml(wAdv)}</span>
+        <div class="summary-pill summary-pill-group">
+          <span class="summary-label">Wins / losses</span>
+          <div class="summary-group-rows">
+            <div class="summary-group-row summary-divider-soft">
+              <span class="summary-group-label">Wins</span>
+              <span class="summary-group-value">${formatInt(wins)}</span>
+            </div>
+            <div class="summary-group-row summary-divider-soft">
+              <span class="summary-group-label">Losses</span>
+              <span class="summary-group-value">${formatInt(losses)}</span>
+            </div>
+            <div class="summary-group-row">
+              <span class="summary-group-label">Win rate</span>
+              <span class="summary-group-value">${escapeHtml(winRateStr)}</span>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- Simple averages group -->
-      <div class="summary-pill summary-pill-group">
-        <span class="summary-label">Simple averages</span>
-        <div class="summary-group-rows">
-          <div class="summary-group-row">
-            <span class="summary-group-label">Check</span>
-            <span class="summary-group-value">${escapeHtml(simpleCheck)}</span>
-          </div>
-          <div class="summary-group-row">
-            <span class="summary-group-label">Treatment</span>
-            <span class="summary-group-value">${escapeHtml(simpleTrial)}</span>
-          </div>
-          <div class="summary-group-row">
-            <span class="summary-group-label">Avg advantage</span>
-            <span class="summary-group-value">${escapeHtml(simpleAdv)}</span>
+      <!-- BOTTOM ROW: weighted + simple averages -->
+      <div class="summary-row">
+        <div class="summary-pill summary-pill-group">
+          <span class="summary-label">Weighted averages</span>
+          <div class="summary-group-rows">
+            <div class="summary-group-row summary-divider-soft">
+              <span class="summary-group-label">Check</span>
+              <span class="summary-group-value">${escapeHtml(wCheck)}</span>
+            </div>
+            <div class="summary-group-row summary-divider-soft">
+              <span class="summary-group-label">Treatment</span>
+              <span class="summary-group-value">${escapeHtml(wTrial)}</span>
+            </div>
+            <div class="summary-group-row">
+              <span class="summary-group-label">Advantage</span>
+              <span class="summary-group-value">${escapeHtml(wAdv)}</span>
+            </div>
           </div>
         </div>
-      </div>
 
-      <!-- Wins / losses group -->
-      <div class="summary-pill summary-pill-group">
-        <span class="summary-label">Wins / losses</span>
-        <div class="summary-group-rows">
-          <div class="summary-group-row">
-            <span class="summary-group-label">Wins</span>
-            <span class="summary-group-value">${formatInt(wins)}</span>
-          </div>
-          <div class="summary-group-row">
-            <span class="summary-group-label">Losses</span>
-            <span class="summary-group-value">${formatInt(losses)}</span>
-          </div>
-          <div class="summary-group-row">
-            <span class="summary-group-label">Win rate</span>
-            <span class="summary-group-value">${escapeHtml(winRateStr)}</span>
+        <div class="summary-pill summary-pill-group">
+          <span class="summary-label">Simple averages</span>
+          <div class="summary-group-rows">
+            <div class="summary-group-row summary-divider-soft">
+              <span class="summary-group-label">Check</span>
+              <span class="summary-group-value">${escapeHtml(simpleCheck)}</span>
+            </div>
+            <div class="summary-group-row summary-divider-soft">
+              <span class="summary-group-label">Treatment</span>
+              <span class="summary-group-value">${escapeHtml(simpleTrial)}</span>
+            </div>
+            <div class="summary-group-row">
+              <span class="summary-group-label">Avg advantage</span>
+              <span class="summary-group-value">${escapeHtml(simpleAdv)}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -2684,6 +2704,7 @@
 </body>
 </html>`;
     }
+
 
     // UPDATED: use Cloud PDF helper if available, fallback to iframe + print
     async function runSummaryPrint(){
