@@ -291,6 +291,163 @@ const __fvBoot = (function(){
   }
 })();
 
+/* =====================  Permission Engine + data-perm Hiding  ===================== */
+/* Dynamic, menu-driven, role + override aware.
+   - Builds window.FV_PERMS from FVUserContext (role perms + employee overrides).
+   - Exposes FV.can(featureKey) for JS.
+   - Auto-hides any element with [data-perm="feature-key"] using the merged perms.
+*/
+(function(){
+  try{
+    function ensureFV(){
+      window.FV = window.FV || {};
+      return window.FV;
+    }
+
+    function normalizePermDict(src, out){
+      if (!src || typeof src !== 'object') return;
+      Object.keys(src).forEach((key)=>{
+        var val = src[key];
+        if (val && typeof val === 'object' && 'on' in val) {
+          // { on: true|false }
+          if (val.on === true) {
+            out[key] = true;
+          } else if (val.on === false) {
+            out[key] = false;
+          }
+        } else if (typeof val === 'boolean') {
+          out[key] = val;
+        }
+      });
+    }
+
+    function applyPermVisibility(root){
+      var fv = ensureFV();
+      var perms = window.FV_PERMS || {};
+      var scope = root || document;
+      try{
+        scope.querySelectorAll('[data-perm]').forEach(function(el){
+          var key = el.getAttribute('data-perm') || '';
+          if (!key) return;
+          var allowed = fv.can ? !!fv.can(key) : !!perms[key];
+          if (!allowed) {
+            el.setAttribute('hidden', 'hidden');
+            el.classList.add('fv-perm-hidden');
+          } else {
+            el.removeAttribute('hidden');
+            el.classList.remove('fv-perm-hidden');
+          }
+        });
+      } catch(e){
+        console.warn('[FV] applyPermVisibility error:', e);
+      }
+    }
+
+    function extractCoreUser(ctx){
+      if (!ctx || typeof ctx !== 'object') return ctx;
+      // Some implementations may wrap as { user, role, employee, perms, effectivePerms }
+      if (ctx.user && typeof ctx.user === 'object' && (ctx.role || ctx.employee || ctx.effectivePerms || ctx.perms)) {
+        // Merge wrapper into a shallow object so downstream code can see role/employee too
+        return Object.assign({}, ctx, ctx.user);
+      }
+      return ctx;
+    }
+
+    function updatePermsFromContext(rawCtx){
+      var fv = ensureFV();
+      var ctx = extractCoreUser(rawCtx);
+      var map = {};
+
+      if (ctx && typeof ctx === 'object') {
+        // Preferred: fully merged effective perms
+        if (ctx.effectivePerms) {
+          normalizePermDict(ctx.effectivePerms, map);
+        }
+        // Fallback: top-level perms on user
+        if (ctx.perms) {
+          normalizePermDict(ctx.perms, map);
+        }
+        // Fallback: role perms
+        if (ctx.role && ctx.role.perms) {
+          normalizePermDict(ctx.role.perms, map);
+        }
+        // Employee-level overrides (perms or overrides)
+        if (ctx.employee) {
+          if (ctx.employee.perms) {
+            normalizePermDict(ctx.employee.perms, map);
+          }
+          if (ctx.employee.overrides) {
+            // overrides should win last
+            normalizePermDict(ctx.employee.overrides, map);
+          }
+        }
+      }
+
+      window.FV_PERMS = map;
+      fv.perms = map;
+      applyPermVisibility(document);
+    }
+
+    var fv = ensureFV();
+
+    if (typeof fv.can !== 'function') {
+      fv.can = function(featureKey){
+        if (!featureKey) return false;
+        var perms = window.FV_PERMS || {};
+        return !!perms[featureKey];
+      };
+    }
+
+    if (typeof fv.getPerms !== 'function') {
+      fv.getPerms = function(){
+        return Object.assign({}, window.FV_PERMS || {});
+      };
+    }
+
+    if (typeof fv.applyPermVisibility !== 'function') {
+      fv.applyPermVisibility = applyPermVisibility;
+    }
+
+    // React whenever user-context fires
+    document.addEventListener('fv:user-ready', function(ev){
+      try{
+        var data = ev && ev.detail && ev.detail.data;
+        updatePermsFromContext(data);
+      } catch(e){
+        console.warn('[FV] fv:user-ready → perm update failed:', e);
+      }
+    });
+
+    // Also try once on DOM load using whatever FVUserContext has cached
+    function initFromCachedContext(){
+      try{
+        if (window.FVUserContext && typeof window.FVUserContext.get === 'function') {
+          var cached = window.FVUserContext.get();
+          if (cached) {
+            updatePermsFromContext(cached);
+            return;
+          }
+        }
+        // If no context yet, at least apply visibility (will just hide nothing if no data-perm)
+        applyPermVisibility(document);
+      } catch(e){
+        console.warn('[FV] perm-init from cache failed:', e);
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function(){
+        initFromCachedContext();
+      }, { once:true });
+    } else {
+      initFromCachedContext();
+    }
+
+  } catch(e){
+    console.warn('[FV] permission-engine error:', e);
+  }
+})();
+
 /* =======================  GLOBAL COMBO UPGRADER (INLINE)  ======================= */
 /* Converts EVERY <select> (except data-fv-native="true") into the same
    "buttonish + floating panel" combo used on your working page. No page edits. */
@@ -315,7 +472,6 @@ const __fvBoot = (function(){
       content:""; position:absolute; right:14px; top:50%; width:0; height:0;
       border-left:6px solid transparent; border-right:6px solid transparent;
       border-top:7px solid var(--muted,#67706B); transform:translateY(-50%);
-
       pointer-events:none;
     }
     .fv-combo{ position:relative }
