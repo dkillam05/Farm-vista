@@ -2275,61 +2275,61 @@
       }
     }
 
-    /* ---------- print: build summary PDF ---------- */
+       /* ---------- print: build summary PDF ---------- */
 
-            function buildPrintHtml({ company, runStr, runDateOnly, fields, totals }) {
-  const t = STATE.trialDoc || {};
-  const s = totals || STATE.totals || {};
-  const fieldList = Array.isArray(fields) && fields.length ? fields : getActiveFields();
+    function buildPrintHtml({ company, runStr, runDateOnly, fields, totals }) {
+      const t = STATE.trialDoc || {};
+      const s = totals || STATE.totals || {};
+      const fieldList = Array.isArray(fields) && fields.length ? fields : getActiveFields();
 
-  const farmMap = new Map();
-  fieldList.forEach(f => {
-    const name = f.data.farmName || 'Unknown farm';
-    if (!farmMap.has(name)) farmMap.set(name, []);
-    farmMap.get(name).push(f);
-  });
-  const farmEntries = Array.from(farmMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
+      const farmMap = new Map();
+      fieldList.forEach(f => {
+        const name = f.data.farmName || 'Unknown farm';
+        if (!farmMap.has(name)) farmMap.set(name, []);
+        farmMap.get(name).push(f);
+      });
+      const farmEntries = Array.from(farmMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
 
-  const checkProductName = (t.checkProduct || t.check || '').toString();
-  const trialProductName = (t.trialProduct || t.treatmentProduct || '').toString();
+      const checkProductName = (t.checkProduct || t.check || '').toString();
+      const trialProductName = (t.trialProduct || t.treatmentProduct || '').toString();
 
-  // ⚙ Numbers to match on-screen KPIs
-  const fieldsInSummary = s.fieldCount || 0;
-  const trialAcText = s.trialAcresAll
-    ? formatDecimal(s.trialAcresAll, 0) + ' ac'
-    : '–';
-  const tillableText = s.tillableAll
-    ? formatDecimal(s.tillableAll, 0) + ' ac'
-    : '–';
+      // Numbers to match on-screen KPIs
+      const fieldsInSummary = s.fieldCount || 0;
+      const trialAcText = s.trialAcresAll
+        ? formatDecimal(s.trialAcresAll, 0) + ' ac'
+        : '–';
+      const tillableText = s.tillableAll
+        ? formatDecimal(s.tillableAll, 0) + ' ac'
+        : '–';
 
-  const wCheck = s.checkAvgWeighted !== null
-    ? formatDecimal(s.checkAvgWeighted,1) + ' bu/ac'
-    : '–';
-  const wTrial = s.trialAvgWeighted !== null
-    ? formatDecimal(s.trialAvgWeighted,1) + ' bu/ac'
-    : '–';
-  const wAdv = s.advantageWeighted !== null
-    ? (s.advantageWeighted >= 0 ? '+' : '') + formatDecimal(s.advantageWeighted,1) + ' bu/ac'
-    : '–';
+      const wCheck = s.checkAvgWeighted !== null
+        ? formatDecimal(s.checkAvgWeighted,1) + ' bu/ac'
+        : '–';
+      const wTrial = s.trialAvgWeighted !== null
+        ? formatDecimal(s.trialAvgWeighted,1) + ' bu/ac'
+        : '–';
+      const wAdv = s.advantageWeighted !== null
+        ? (s.advantageWeighted >= 0 ? '+' : '') + formatDecimal(s.advantageWeighted,1) + ' bu/ac'
+        : '–';
 
-  const simpleCheck = s.checkAvgSimple !== null
-    ? formatDecimal(s.checkAvgSimple,1) + ' bu/ac'
-    : '–';
-  const simpleTrial = s.trialAvgSimple !== null
-    ? formatDecimal(s.trialAvgSimple,1) + ' bu/ac'
-    : '–';
-  const simpleAdv = s.advantageSimple !== null
-    ? (s.advantageSimple >= 0 ? '+' : '') + formatDecimal(s.advantageSimple,1) + ' bu/ac'
-    : '–';
+      const simpleCheck = s.checkAvgSimple !== null
+        ? formatDecimal(s.checkAvgSimple,1) + ' bu/ac'
+        : '–';
+      const simpleTrial = s.trialAvgSimple !== null
+        ? formatDecimal(s.trialAvgSimple,1) + ' bu/ac'
+        : '–';
+      const simpleAdv = s.advantageSimple !== null
+        ? (s.advantageSimple >= 0 ? '+' : '') + formatDecimal(s.advantageSimple,1) + ' bu/ac'
+        : '–';
 
-  const wins = s.wins || 0;
-  const losses = s.losses || 0;
-  const wlTotal = wins + losses;
-  const winRateStr = s.winRate !== null && wlTotal > 0
-    ? (s.winRate * 100).toFixed(0) + '%'
-    : '–';
+      const wins = s.wins || 0;
+      const losses = s.losses || 0;
+      const wlTotal = wins + losses;
+      const winRateStr = s.winRate !== null && wlTotal > 0
+        ? (s.winRate * 100).toFixed(0) + '%'
+        : '–';
 
-  return `<!doctype html>
+      return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -2421,7 +2421,7 @@
       margin:0 0 10px;
     }
 
-        /* Summary tiles container */
+    /* Summary tiles (PDF) */
     .summary-strip{
       display:flex;
       flex-direction:column;
@@ -2433,25 +2433,29 @@
       border:1px solid rgba(59,126,70,0.2);
       font-size:11px;
     }
+
     .summary-row{
       display:flex;
-      flex-wrap:nowrap;      /* force all tiles in this row to stay on one line */
+      flex-wrap:wrap;          /* allow wrap on narrow screens */
       justify-content:center;
-      gap:10px;              /* slight spacing between tiles */
+      gap:8px;
+      width:100%;
     }
 
-
-    /* Base tile style — ALL tiles (including fields/trial/tillable) */
     .summary-pill{
       display:flex;
       flex-direction:column;
       gap:2px;
-      min-width:120px;
+      min-width:0;
+      flex:1 1 0;              /* share row space evenly */
+      max-width:260px;         /* keeps tiles from getting too wide */
       padding:4px 8px;
       border-radius:8px;
       border:1px solid color-mix(in srgb, var(--fv-border) 70%, transparent);
       background:color-mix(in srgb, #FFFFFF 90%, var(--fv-border) 10%);
+      box-sizing:border-box;
     }
+
     .summary-label{
       text-transform:uppercase;
       letter-spacing:.08em;
@@ -2462,9 +2466,10 @@
       font-weight:600;
     }
 
-    /* Grouped KPI tiles (wins + averages) */
     .summary-pill-group{
-      min-width:200px;
+      min-width:0;
+      flex:1 1 0;
+      max-width:260px;
     }
     .summary-group-rows{
       display:flex;
@@ -2475,7 +2480,8 @@
     .summary-group-row{
       display:flex;
       justify-content:space-between;
-      gap:6px;
+      gap:4px;
+      flex-wrap:wrap;          /* allow label/value to wrap instead of pushing width */
     }
     .summary-divider-soft{
       border-bottom:1px solid color-mix(in srgb, var(--fv-border) 55%, transparent);
@@ -2487,7 +2493,7 @@
     }
     .summary-group-value{
       font-weight:600;
-      white-space:nowrap;
+      white-space:normal;      /* CRITICAL: let long values wrap */
     }
 
     .section{
@@ -2735,7 +2741,8 @@
   </div>
 </body>
 </html>`;
-}
+    }
+
 
 
 
