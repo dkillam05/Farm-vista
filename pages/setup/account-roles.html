@@ -47,26 +47,6 @@
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
     .btn-quiet{min-width:auto;padding:6px 10px}
 
-    /* Trash icon button: smaller and pushed to far right */
-    #deleteRole{
-      margin-left:auto;
-      min-width:auto;
-      padding:6px 8px;
-      border-radius:999px;
-      border:1px solid #b3261e;
-      background:var(--surface);
-      color:#b3261e;
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      cursor:pointer;
-    }
-    #deleteRole svg{
-      width:18px;
-      height:18px;
-      display:block;
-    }
-
     /* Permissions tree — compact for phones */
     .tree{border:1px solid var(--border);border-radius:12px;padding:8px;background:var(--card-surface,var(--surface));}
     details.node{border:1px solid var(--border);border-radius:10px;background:var(--surface);margin:6px 0;}
@@ -124,6 +104,9 @@
       <h1 class="page-title">Account Roles</h1>
       <p class="page-sub">Choose a <strong>role</strong> and adjust what it can see. Parent switches cascade down; open a child to override it.</p>
 
+      <!-- Shared permissions hero card -->
+      <fv-perms-hero id="permsHero"></fv-perms-hero>
+
       <!-- Role header -->
       <section class="section">
         <header class="section-head">
@@ -146,12 +129,7 @@
 
           <div class="actions">
             <button id="saveRole" class="btn btn-primary" type="button">Save Role</button>
-            <button id="deleteRole" class="btn btn-danger" type="button" aria-label="Delete Role">
-              <!-- Red SVG trash can -->
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path fill="currentColor" d="M9 3a1 1 0 0 0-.94.66L7.38 5H5a1 1 0 1 0 0 2h1v11a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V7h1a1 1 0 1 0 0-2h-2.38l-.68-1.34A1 1 0 0 0 15 3H9zm1.28 4.22a1 1 0 0 1 1.42.06L12 7.63l.3-.35a1 1 0 1 1 1.52 1.3L13.41 10l.41.48a1 1 0 0 1-1.52 1.3L12 11.37l-.3.41a1 1 0 1 1-1.6-1.2l.49-.6-.49-.59a1 1 0 0 1 .18-1.4zM10 15a1 1 0 0 1 2 0v2a1 1 0 1 1-2 0v-2zm4-1a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 1-1z"/>
-              </svg>
-            </button>
+            <!-- Delete is now handled inside fv-perms-hero -->
           </div>
         </div>
       </section>
@@ -178,6 +156,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
   <script type="module">
+    import '/Farm-vista/js/fv-perms-hero.js';
     import {
       ready,
       getFirestore, collection, getDocs, addDoc, setDoc, deleteDoc, doc,
@@ -226,13 +205,36 @@
         box.style.display = show ? "" : "none";
       }
 
+      /* ====== HERO SYNC ====== */
+      function updateHero(){
+        const hero = $("permsHero");
+        if(!hero) return;
+
+        const nameFromDraft = roleDraft.name || "";
+        const nameFromInput = $("roleName") ? $("roleName").value.trim() : "";
+        const name = nameFromDraft || nameFromInput || (currentRoleId ? "(unnamed)" : "New Role");
+
+        const navMenu = getMenu();
+
+        const cfg = {
+          mode: 'role',
+          name,
+          perms: roleDraft.perms || {},
+          navMenu: navMenu || undefined,
+          onDeleteRole: currentRoleId ? handleDeleteRole : null
+        };
+
+        hero.config = cfg;
+      }
+
       /* ====== NAV INDEX ====== */
       function buildIndex(menu){
         const CAP_SET = new Set();
         const CONTAINER_IDS = new Set();
         const byParent = {};
         function walk(items, depth=0, parent="__ROOT__"){
-          items.forEach(it=>{
+          (items || []).forEach(it=>{
+            if(!it || !it.id) return;
             if(it.id === "home") return;
             const node = { id: it.id, type: it.type, label: it.label || it.id, depth, parent };
             (byParent[parent]||(byParent[parent]=[])).push(node);
@@ -297,6 +299,7 @@
               cascade(node.id, next);
               renderTree();
             }
+            updateHero();
           });
           return btn;
         }
@@ -353,6 +356,8 @@
         (byParent["__ROOT__"]||[]).forEach(n=>{
           tree.appendChild(n.type==="group" ? renderGroup(n) : renderLeaf(n));
         });
+
+        updateHero();
       }
 
       /* ====== FIRESTORE BACKEND ====== */
@@ -453,6 +458,8 @@
         }else{
           showRoleNameField(false);
         }
+
+        updateHero();
       }
 
       function newDraft(){
@@ -484,40 +491,12 @@
         });
         roleDraft = { id:r.id, name:r.name, perms };
         $("roleName").value = r.name || "";
-        showRoleNameField(false); // editing existing: hide name box per your request
+        showRoleNameField(false); // editing existing: hide name box
         renderTree();
       }
 
-      /* ====== EVENTS ====== */
-
-      $("saveRole").addEventListener("click", async ()=>{
-        const isNew = $("rolePicker").value === "";
-        const name = $("roleName").value.trim();
-
-        if(isNew){
-          if(!name){ 
-            alert("Please enter a role name for the new role."); 
-            return; 
-          }
-        }
-
-        // For existing roles, keep their current name even though the box is hidden.
-        try{
-          const finalName = isNew ? name : (roleDraft.name || $("roleName").value.trim() || "(unnamed)");
-          const id = await saveRole(finalName, roleDraft.perms);
-          currentRoleId = id;
-          const all = await loadRoles();
-          populateRolePickerFromArray(all);
-          $("rolePicker").value = id;
-          showRoleNameField(false);
-          showToast(MODE==='firebase' ? "Saved to Firestore." : "Saved locally (stub mode).");
-        }catch(err){
-          console.error(err);
-          alert("Save failed.\n\n" + (err?.message || err));
-        }
-      });
-
-      $("deleteRole").addEventListener("click", async ()=>{
+      /* ====== DELETE HANDLER (used by hero) ====== */
+      async function handleDeleteRole(){
         if(!currentRoleId){ 
           alert("No role selected."); 
           return; 
@@ -543,6 +522,36 @@
         }catch(err){
           console.error(err);
           alert("Delete failed.\n\n" + (err?.message || err));
+        }
+      }
+
+      /* ====== EVENTS ====== */
+
+      $("saveRole").addEventListener("click", async ()=>{
+        const isNew = $("rolePicker").value === "";
+        const name = $("roleName").value.trim();
+
+        if(isNew){
+          if(!name){ 
+            alert("Please enter a role name for the new role."); 
+            return; 
+          }
+        }
+
+        try{
+          const finalName = isNew ? name : (roleDraft.name || $("roleName").value.trim() || "(unnamed)");
+          roleDraft.name = finalName;
+          const id = await saveRole(finalName, roleDraft.perms);
+          currentRoleId = id;
+          const all = await loadRoles();
+          populateRolePickerFromArray(all);
+          $("rolePicker").value = id;
+          showRoleNameField(false);
+          updateHero();
+          showToast(MODE==='firebase' ? "Saved to Firestore." : "Saved locally (stub mode).");
+        }catch(err){
+          console.error(err);
+          alert("Save failed.\n\n" + (err?.message || err));
         }
       });
 
