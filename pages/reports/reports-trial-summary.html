@@ -2248,6 +2248,38 @@
       const checkProductName = (t.checkProduct || t.check || '').toString();
       const trialProductName = (t.trialProduct || t.treatmentProduct || '').toString();
 
+      // KPI values matching on-screen groupings
+      const fieldsInSummary = (s.fieldCount != null ? s.fieldCount : fieldList.length) || 0;
+      const trialAcresStr   = s.trialAcresAll ? formatDecimal(s.trialAcresAll, 0) + ' ac' : 'n/a';
+      const tillableStr     = s.tillableAll   ? formatDecimal(s.tillableAll, 0)   + ' ac' : 'n/a';
+
+      const wCheckStr = (s.checkAvgWeighted !== null && s.checkAvgWeighted !== undefined)
+        ? formatDecimal(s.checkAvgWeighted, 1) + ' bu/ac'
+        : 'n/a';
+      const wTrialStr = (s.trialAvgWeighted !== null && s.trialAvgWeighted !== undefined)
+        ? formatDecimal(s.trialAvgWeighted, 1) + ' bu/ac'
+        : 'n/a';
+      const wAdvStr = (s.advantageWeighted !== null && s.advantageWeighted !== undefined)
+        ? (s.advantageWeighted >= 0 ? '+' : '') + formatDecimal(s.advantageWeighted, 1) + ' bu/ac'
+        : 'n/a';
+
+      const simpleCheckStr = (s.checkAvgSimple !== null && s.checkAvgSimple !== undefined)
+        ? formatDecimal(s.checkAvgSimple, 1) + ' bu/ac'
+        : 'n/a';
+      const simpleTrialStr = (s.trialAvgSimple !== null && s.trialAvgSimple !== undefined)
+        ? formatDecimal(s.trialAvgSimple, 1) + ' bu/ac'
+        : 'n/a';
+      const simpleAdvStr = (s.advantageSimple !== null && s.advantageSimple !== undefined)
+        ? (s.advantageSimple >= 0 ? '+' : '') + formatDecimal(s.advantageSimple, 1) + ' bu/ac'
+        : 'n/a';
+
+      const wins = s.wins || 0;
+      const losses = s.losses || 0;
+      const wlTotal = wins + losses;
+      const winRateStr = (s.winRate !== null && s.winRate !== undefined && wlTotal > 0)
+        ? (s.winRate * 100).toFixed(0) + '%'
+        : 'n/a';
+
       return `<!doctype html>
 <html>
 <head>
@@ -2339,31 +2371,47 @@
       color:#374151;
       margin:0 0 10px;
     }
-    .summary-strip{
+
+    /* KPI group grid to mirror on-screen layout */
+    .summary-grid{
       display:flex;
       flex-wrap:wrap;
-      gap:6px 14px;
-      margin-top:4px;
-      padding:8px 10px;
+      gap:8px;
+      margin-top:6px;
+    }
+    .summary-card{
       border-radius:10px;
-      background:linear-gradient(90deg, rgba(59,126,70,0.08), transparent);
-      border:1px solid rgba(59,126,70,0.2);
+      border:1px solid rgba(209,213,219,0.9);
+      background:linear-gradient(135deg, rgba(59,126,70,0.06), #FFFFFF);
+      padding:6px 9px;
+      min-width:170px;
       font-size:11px;
     }
-    .summary-pill{
-      display:inline-flex;
-      align-items:center;
+    .summary-card-title{
+      font-size:10px;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      color:var(--fv-muted);
+      margin-bottom:3px;
+    }
+    .summary-card-rows{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+    }
+    .summary-row{
+      display:flex;
+      justify-content:space-between;
       gap:4px;
     }
-    .summary-label{
-      text-transform:uppercase;
-      letter-spacing:.08em;
-      font-size:10px;
+    .summary-row-label{
       color:var(--fv-muted);
     }
-    .summary-value{
+    .summary-row-value{
       font-weight:600;
+      white-space:nowrap;
     }
+
     .section{
       margin-top:16px;
       page-break-inside:avoid;
@@ -2480,34 +2528,78 @@
         : ''
     }
 
-    <div class="summary-strip">
-      <div class="summary-pill">
-        <span class="summary-label">Fields</span>
-        <span class="summary-value">${formatInt(s.fieldCount || 0)}</span>
+    <!-- KPI groups to match on-screen tiles -->
+    <div class="summary-grid">
+      <div class="summary-card">
+        <div class="summary-card-title">Core counts</div>
+        <div class="summary-card-rows">
+          <div class="summary-row">
+            <span class="summary-row-label">Fields in summary</span>
+            <span class="summary-row-value">${formatInt(fieldsInSummary)}</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-row-label">Trial acres (with yield)</span>
+            <span class="summary-row-value">${trialAcresStr}</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-row-label">Tillable acres covered</span>
+            <span class="summary-row-value">${tillableStr}</span>
+          </div>
+        </div>
       </div>
-      <div class="summary-pill">
-        <span class="summary-label">Trial acres</span>
-        <span class="summary-value">${s.trialAcresAll ? formatInt(s.trialAcresAll) + ' ac' : 'n/a'}</span>
+
+      <div class="summary-card">
+        <div class="summary-card-title">Weighted averages</div>
+        <div class="summary-card-rows">
+          <div class="summary-row">
+            <span class="summary-row-label">Check</span>
+            <span class="summary-row-value">${wCheckStr}</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-row-label">Treatment</span>
+            <span class="summary-row-value">${wTrialStr}</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-row-label">Advantage</span>
+            <span class="summary-row-value">${wAdvStr}</span>
+          </div>
+        </div>
       </div>
-      <div class="summary-pill">
-        <span class="summary-label">Tillable acres</span>
-        <span class="summary-value">${s.tillableAll ? formatInt(s.tillableAll) + ' ac' : 'n/a'}</span>
+
+      <div class="summary-card">
+        <div class="summary-card-title">Simple averages</div>
+        <div class="summary-card-rows">
+          <div class="summary-row">
+            <span class="summary-row-label">Check</span>
+            <span class="summary-row-value">${simpleCheckStr}</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-row-label">Treatment</span>
+            <span class="summary-row-value">${simpleTrialStr}</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-row-label">Avg advantage</span>
+            <span class="summary-row-value">${simpleAdvStr}</span>
+          </div>
+        </div>
       </div>
-      <div class="summary-pill">
-        <span class="summary-label">Check</span>
-        <span class="summary-value">${s.checkAvgAll !== null ? formatDecimal(s.checkAvgAll,1) + ' bu/ac' : 'n/a'}</span>
-      </div>
-      <div class="summary-pill">
-        <span class="summary-label">Treatment</span>
-        <span class="summary-value">${s.trialAvgAll !== null ? formatDecimal(s.trialAvgAll,1) + ' bu/ac' : 'n/a'}</span>
-      </div>
-      <div class="summary-pill">
-        <span class="summary-label">Advantage</span>
-        <span class="summary-value">${
-          s.advantageAll !== null
-            ? (s.advantageAll >= 0 ? '+' : '') + formatDecimal(s.advantageAll,1) + ' bu/ac'
-            : 'n/a'
-        }</span>
+
+      <div class="summary-card">
+        <div class="summary-card-title">Wins / losses</div>
+        <div class="summary-card-rows">
+          <div class="summary-row">
+            <span class="summary-row-label">Wins</span>
+            <span class="summary-row-value">${formatInt(wins)}</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-row-label">Losses</span>
+            <span class="summary-row-value">${formatInt(losses)}</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-row-label">Win rate</span>
+            <span class="summary-row-value">${winRateStr}</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -2720,386 +2812,4 @@
         els.printModalClose.addEventListener('click', closePrintModal);
       }
       if (els.printModalBackdrop){
-        els.printModalBackdrop.addEventListener('click', (evt) => {
-          if (evt.target === els.printModalBackdrop) closePrintModal();
-        });
-      }
-      if (els.printSummaryBtn){
-        els.printSummaryBtn.addEventListener('click', async () => {
-          closePrintModal();
-          await runSummaryPrint();
-        });
-      }
-      if (els.printDetailedBtn){
-        els.printDetailedBtn.addEventListener('click', () => {
-          closePrintModal();
-
-          if (!STATE.trialId) {
-            alert('Select a trial first, then choose Detailed report.');
-            return;
-          }
-
-          const url = `/Farm-vista/pages/reports/reports-trial-detailed.html?trialId=${encodeURIComponent(STATE.trialId)}`;
-          window.location.href = url;
-        });
-      }
-
-      document.addEventListener('keydown', (evt) => {
-        if (evt.key === 'Escape') {
-          if (els.photoViewerBackdrop && !els.photoViewerBackdrop.classList.contains('modal-hidden')) {
-            closePhotoViewer();
-            return;
-          }
-          if (els.modalBackdrop && !els.modalBackdrop.classList.contains('modal-hidden')) {
-            closeFieldModal();
-            return;
-          }
-          if (els.printModalBackdrop && !els.printModalBackdrop.classList.contains('modal-hidden')) {
-            closePrintModal();
-          }
-        }
-      });
-
-      if (els.filterYear) {
-        els.filterYear.addEventListener('change', () => {
-          STATE.selectedYear = els.filterYear.value || 'all';
-          populateTrialFilter();
-          clearTrialView();
-        });
-      }
-
-      if (els.filterTrial) {
-        els.filterTrial.addEventListener('change', async () => {
-          const id = els.filterTrial.value || '';
-          STATE.trialId = id || null;
-          if (!STATE.trialId) {
-            clearTrialView();
-            return;
-          }
-          try{
-            if (els.errorState){
-              els.errorState.style.display = 'none';
-              els.errorState.textContent = '';
-            }
-            if (els.metaLine) els.metaLine.textContent = 'Loading trial summary…';
-            await loadTrialData(STATE.trialId);
-            refreshSummaryFromSelection();
-          }catch(err){
-            console.error('Error loading selected trial:', err);
-            clearTrialView();
-            if (els.errorState){
-              els.errorState.style.display = 'block';
-              els.errorState.textContent = 'Error loading the selected trial. Check console or Firestore rules.';
-            }
-          }
-        });
-      }
-
-      if (els.filterClear) {
-        els.filterClear.addEventListener('click', () => {
-          STATE.selectedYear = 'all';
-          STATE.trialId = null;
-          if (els.filterYear) els.filterYear.value = 'all';
-          populateTrialFilter();
-          if (els.filterTrial) els.filterTrial.value = '';
-          clearTrialView();
-        });
-      }
-    }
-
-    /* ---------- boot ---------- */
-
-    async function boot(){
-      await ready;
-      STATE.db = getFirestore();
-
-      const shell = document.querySelector('fv-shell');
-      if (shell) shell.nav = NAV_MENU;
-
-      wireDom();
-      wireBasicEvents();
-      clearTrialView();
-
-      try{
-        await loadTrialList();
-        populateYearFilter();
-        populateTrialFilter();
-
-        const fromUrl = getTrialIdFromUrl();
-        if (fromUrl) {
-          const match = STATE.trials.find(t => t.id === fromUrl);
-          if (match) {
-            const yr = match.data.cropYear;
-            if (yr !== undefined && yr !== null) {
-              STATE.selectedYear = String(yr);
-              if (els.filterYear) els.filterYear.value = STATE.selectedYear;
-              populateTrialFilter();
-            }
-            STATE.trialId = fromUrl;
-            if (els.filterTrial) els.filterTrial.value = fromUrl;
-            if (els.metaLine) els.metaLine.textContent = 'Loading trial from link…';
-            await loadTrialData(fromUrl);
-            refreshSummaryFromSelection();
-          }
-        }
-
-        if (!STATE.trialId && els.metaLine){
-          els.metaLine.textContent = STATE.trials.length
-            ? 'Choose a crop year and trial to view yield summary.'
-            : 'No active or completed trials are available yet.';
-        }
-      }catch(err){
-        console.error('Error loading trial list:', err);
-        if (els.errorState){
-          els.errorState.style.display = 'block';
-          els.errorState.textContent = 'Error loading trials. Check console or Firestore rules.';
-        }
-        if (els.metaLine) els.metaLine.textContent = 'Error loading trial list';
-      }
-    }
-
-    boot().catch(console.error);
-  </script>
-</head>
-
-<body>
-  <fv-shell>
-    <div class="wrap">
-      <section class="hero">
-        <header class="hero-head">
-          <div class="icon" aria-hidden="true">🧪</div>
-          <div>
-            <h1 id="pageTitle">Field Trial Yield Summary</h1>
-            <p id="pageSubtitle" class="muted">
-              Choose a crop year and trial to view yield performance by field.
-            </p>
-            <p id="heroProducts" class="muted hero-products"></p>
-          </div>
-        </header>
-
-        <div class="body">
-          <div class="toolbar">
-            <div class="toolbar-left">
-              <button id="btnBack" type="button" class="btn btn-quiet">
-                ← Back to Reports
-              </button>
-              <button id="btnPrint" type="button" class="btn btn-primary">
-                Print / Save PDF
-              </button>
-            </div>
-            <div class="page-header-meta" id="reportMeta">
-              Loading trial list…
-            </div>
-          </div>
-
-          <div class="filters" aria-label="Trial filters">
-            <div class="filters-row">
-              <div class="filter-field">
-                <label class="filter-label" for="filterCropYear">Crop Year</label>
-                <select id="filterCropYear" class="filter-select">
-                  <option value="all">All years</option>
-                </select>
-              </div>
-
-              <div class="filter-field filter-field--grow">
-                <label class="filter-label" for="filterTrial">Trial</label>
-                <select id="filterTrial" class="filter-select">
-                  <option value="">Select a trial…</option>
-                </select>
-              </div>
-
-              <button id="filterClear" type="button" class="btn btn-quiet">
-                Clear
-              </button>
-            </div>
-          </div>
-
-          <section aria-label="Trial overview stats">
-            <div id="top-stats" class="stats-grid" aria-live="polite"></div>
-          </section>
-
-          <section class="ai-card" aria-label="AI summary of this trial" aria-live="polite">
-            <div class="ai-card-title">
-              <span>Trial Story</span>
-              <span class="ai-chip">AI Summary</span>
-            </div>
-            <div id="ai-summary" class="ai-summary-body">
-              <div class="ai-summary-note">Select a trial above to generate a written summary of how the treatment performed.</div>
-            </div>
-          </section>
-
-          <section class="farm-fields-block" aria-label="Fields in this trial">
-            <div class="farm-fields-title">Farms &amp; fields in this trial</div>
-
-            <div class="desktop-only">
-              <div id="farms-container"></div>
-            </div>
-
-            <div class="mobile-only">
-              <div id="farms-mobile-container" class="field-card-list"></div>
-            </div>
-
-            <div id="empty-state" class="wo-empty" style="display:none;">
-              No trial is selected. Choose a crop year and trial above.
-            </div>
-            <div id="error-state" class="error-msg" style="display:none;"></div>
-          </section>
-
-          <section id="totals-card" class="totals-card" style="display:none;" aria-label="Overall trial totals">
-            <div class="totals-row">
-              <div class="totals-label">Overall Trial Totals (included fields only)</div>
-              <div class="totals-metrics">
-                <div class="totals-metric">
-                  <span>Fields in summary</span>
-                  <span id="tot-fields">–</span>
-                </div>
-                <div class="totals-metric">
-                  <span>Tillable acres (included fields)</span>
-                  <span id="tot-tillable">–</span>
-                </div>
-                <div class="totals-metric">
-                  <span>Trial acres (with yield)</span>
-                  <span id="tot-trial-acres">–</span>
-                </div>
-                <div class="totals-metric">
-                  <span>Check weighted bu/ac</span>
-                  <span id="tot-check-avg">–</span>
-                </div>
-                <div class="totals-metric">
-                  <span>Treatment weighted bu/ac</span>
-                  <span id="tot-trial-avg">–</span>
-                </div>
-                <div class="totals-metric">
-                  <span>Treatment advantage (bu/ac)</span>
-                  <span id="tot-adv">–</span>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <div class="bottom-actions">
-            <button id="btnPrintBottom" type="button" class="btn btn-primary">
-              Print / Save PDF
-            </button>
-          </div>
-        </div>
-      </section>
-    </div>
-  </fv-shell>
-
-  <!-- Field detail modal -->
-  <div id="field-modal-backdrop" class="modal-backdrop modal-hidden" aria-hidden="true">
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="field-modal-title">
-      <div class="modal-head">
-        <div class="modal-title-row">
-          <div>
-            <div id="field-modal-title" class="modal-title">Field details</div>
-            <div id="field-modal-sub" class="modal-sub"></div>
-          </div>
-          <button
-            type="button"
-            class="modal-close-btn"
-            id="field-modal-close"
-            aria-label="Close">
-            ×
-          </button>
-        </div>
-      </div>
-
-      <div class="modal-body">
-        <section>
-          <div class="modal-section-title">Summary</div>
-          <div class="modal-summary-grid" id="field-modal-summary"></div>
-        </section>
-
-        <section>
-          <div class="modal-section-title">Yield blocks</div>
-
-          <div class="blocks-table-wrap desktop-only">
-            <table class="blocks-table">
-              <thead>
-                <tr>
-                  <th>Block</th>
-                  <th>Type</th>
-                  <th class="numeric">Check bu/ac</th>
-                  <th class="numeric">Trial bu/ac</th>
-                  <th class="numeric">Check acres</th>
-                  <th class="numeric">Trial acres</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody id="field-modal-blocks-body">
-              </tbody>
-            </table>
-          </div>
-
-          <div id="field-modal-blocks-cards" class="mobile-only block-card-list">
-          </div>
-        </section>
-
-        <section>
-          <div class="modal-section-title">Files &amp; photos</div>
-          <div id="field-modal-files" class="thumb-grid"></div>
-        </section>
-      </div>
-    </div>
-  </div>
-
-  <!-- Photo viewer modal -->
-  <div id="photo-viewer-backdrop" class="modal-backdrop modal-hidden" aria-hidden="true">
-    <div class="modal photo-modal" role="dialog" aria-modal="true" aria-labelledby="photo-viewer-caption">
-      <div class="modal-head">
-        <div class="modal-title-row">
-          <div id="photo-viewer-caption" class="modal-title">File preview</div>
-          <button
-            type="button"
-            class="modal-close-btn"
-            id="photo-viewer-close"
-            aria-label="Close image viewer">
-            ×
-          </button>
-        </div>
-      </div>
-      <div class="modal-body photo-modal-body">
-        <img id="photo-viewer-img" src="" alt="Trial file preview" />
-      </div>
-    </div>
-  </div>
-
-  <!-- Print-type chooser modal -->
-  <div id="print-modal-backdrop" class="modal-backdrop modal-hidden" aria-hidden="true">
-    <div class="modal print-modal" role="dialog" aria-modal="true" aria-labelledby="print-modal-title">
-      <div class="modal-head print-modal-head">
-        <div class="modal-title-row">
-          <div>
-            <div id="print-modal-title" class="print-modal-title">Choose report type</div>
-            <div class="print-modal-sub">
-              How do you want to print this trial?
-            </div>
-          </div>
-          <button type="button" class="modal-close-btn" id="printModalClose" aria-label="Close">
-            ×
-          </button>
-        </div>
-      </div>
-      <div class="print-modal-body">
-        <p class="print-modal-note">
-          Summary reports match your other FarmVista PDF reports and show trial-wide stats with a farm / field table.
-          Detailed reports will drill into block-level data and notes.
-        </p>
-        <div class="print-modal-buttons">
-          <button id="printSummaryBtn" type="button" class="btn btn-primary print-modal-btn">
-            Summary report
-          </button>
-          <button id="printDetailedBtn" type="button" class="btn btn-quiet print-modal-btn">
-            Detailed report
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Hidden iframe used for printing -->
-  <iframe id="fv-print-frame"></iframe>
-</body>
-</html>
+        els.printModalBackdrop
