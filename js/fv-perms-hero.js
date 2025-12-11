@@ -1,5 +1,5 @@
 // /Farm-vista/js/fv-perms-hero.js
-// Shared Permissions Panel (Hero + Matrix) for:
+// Shared Permissions Panel (Hero + Nested Matrix) for:
 //  • Account Roles
 //  • Employee Overrides
 //
@@ -8,23 +8,22 @@
 //
 //   const panel = document.querySelector('fv-perms-hero');
 //   panel.config = {
-//     mode: 'role', // 'role' or 'employee'
-//     name: 'Manager',             // title line
-//     baseRoleName: null,          // or 'Manager' when mode==='employee'
-//     perms: rolePermsObject,      // { [id]: {view,add,edit,delete} or legacy bool/{on} }
-//     navMenu: NAV_MENU_OPTIONAL,  // usually omit; falls back to menu.js
-//
-//     // Callbacks:
+//     mode: 'role',             // 'role' or 'employee'
+//     name: 'Manager',          // title line
+//     baseRoleName: null,       // or 'Manager' when mode==='employee'
+//     perms: rolePermsObject,   // { [id]: {view,add,edit,delete} or legacy bool/{on} }
+//     // Optional:
 //     onPermsChange: (perms) => { ...save to Firestore... },
 //     onDeleteRole: () => { ... },
 //     onResetOverrides: () => { ... } // for employee mode only
 //   };
 //
-// Notes:
-//  • This helper is 100% self-contained: it renders the hero + the permissions matrix.
-//  • It reads NAV_MENU so it stays in sync when you add/move items.
-//  • New menu items default to all false (view/add/edit/delete = false).
-//  • Legacy perms (bool / {on:true}) are treated as: {view:true, add:false, edit:false, delete:false}.
+// This helper is 100% self-contained: hero + nested, collapsible menu permissions.
+//  • Reads NAV_MENU so sub-menus are properly nested under main menus.
+//  • Each group can be expanded/collapsed (default: collapsed).
+//  • Each group has an "All" pill to toggle all 4 actions on/off for itself + all children.
+//  • Toggling a group's View/Add/Edit/Delete pill cascades to all children.
+//  • Leaf menu items toggle only themselves.
 //
 
 import NAV_MENU from '/Farm-vista/js/menu.js';
@@ -36,21 +35,36 @@ const CAPABILITIES = [
   { id: 'cap-kpi-field-maint', label: 'Field Maintenance KPI Cards' },
 ];
 
-// Normalize a permission entry for summary counts.
-// For menus we treat "view" as "enabled".
-function normalizePerm(perms, key) {
+// For summary: treat "view" as enabled.
+function normalizePermForSummary(perms, key) {
   if (!perms) return false;
   const v = perms[key];
   if (!v) return false;
   if (typeof v === 'boolean') return v;
   if (typeof v.view === 'boolean') return !!v.view;
   if (typeof v.on === 'boolean') return !!v.on;
-  return false; // default OFF
+  return false;
+}
+
+// Normalize any perm entry into 4-flag shape.
+function normalizeEntry(v) {
+  if (typeof v === 'boolean') {
+    return { view: v, add: false, edit: false, delete: false };
+  }
+  if (v && typeof v.on === 'boolean' && !('view' in v)) {
+    return { view: !!v.on, add: false, edit: false, delete: false };
+  }
+  return {
+    view: !!(v && v.view),
+    add: !!(v && v.add),
+    edit: !!(v && v.edit),
+    delete: !!(v && v.delete)
+  };
 }
 
 function buildNavIndex(menu) {
   const byParent = {};
-  const allNodes = [];
+  const byId = {};
 
   function walk(items, depth = 0, parent = '__ROOT__') {
     (items || []).forEach(it => {
@@ -66,7 +80,7 @@ function buildNavIndex(menu) {
       };
 
       (byParent[parent] || (byParent[parent] = [])).push(node);
-      allNodes.push(node);
+      byId[it.id] = node;
 
       if (Array.isArray(it.children) && it.children.length) {
         walk(it.children, depth + 1, it.id);
@@ -75,7 +89,7 @@ function buildNavIndex(menu) {
   }
 
   walk(menu?.items || []);
-  return { byParent, allNodes };
+  return { byParent, byId };
 }
 
 class FVPermsHero extends HTMLElement {
@@ -86,18 +100,29 @@ class FVPermsHero extends HTMLElement {
       name: '',
       baseRoleName: null,
       perms: {},
-      navMenu: null,
       onPermsChange: null,
       onDeleteRole: null,
       onResetOverrides: null
     };
     this._root = this; // no shadow; share theme CSS
+    this._hasRendered = false;
+
+    // Keep track of which groups are expanded; default: all collapsed.
+    this._openGroups = new Set();
+    this._navIndex = { byParent: {}, byId: {} };
   }
 
   set config(cfg) {
-    // Shallow clone config and perms so we keep an internal object we can edit
-    this._config = Object.assign({}, this._config, cfg || {});
-    this._config.perms = Object.assign({}, this._config.perms || {});
+    // Clone config, and clone perms map so we don't mutate caller's object directly.
+    const merged = Object.assign({}, this._config, cfg || {});
+    const srcPerms = merged.perms || {};
+    const normalizedPerms = {};
+    Object.keys(srcPerms).forEach(k => {
+      if (k === 'home') return;
+      normalizedPerms[k] = normalizeEntry(srcPerms[k]);
+    });
+    merged.perms = normalizedPerms;
+    this._config = merged;
     this.render();
   }
 
@@ -115,15 +140,18 @@ class FVPermsHero extends HTMLElement {
 
   _computeSummary() {
     const cfg = this._config;
-    const menu = cfg.navMenu || NAV_MENU || { items: [] };
+    const menu = NAV_MENU || { items: [] };
     const perms = cfg.perms || {};
 
-    const { allNodes } = buildNavIndex(menu);
+    const { byParent, byId } = buildNavIndex(menu);
+    this._navIndex = { byParent, byId };
+
+    const allNodes = Object.values(byId);
 
     const totalNav = allNodes.length;
     let enabledNav = 0;
     allNodes.forEach(n => {
-      if (normalizePerm(perms, n.id)) enabledNav++;
+      if (normalizePermForSummary(perms, n.id)) enabledNav++;
     });
 
     const totalCaps = CAPABILITIES.length;
@@ -132,7 +160,7 @@ class FVPermsHero extends HTMLElement {
     const enabledCapLabels = [];
 
     CAPABILITIES.forEach(cap => {
-      const on = normalizePerm(perms, cap.id);
+      const on = normalizePermForSummary(perms, cap.id);
       if (on) {
         enabledCaps++;
         enabledCapLabels.push(cap.label);
@@ -150,35 +178,118 @@ class FVPermsHero extends HTMLElement {
     };
   }
 
-  /* ---------- Matrix helpers ---------- */
+  /* ---------- Internal perm helpers ---------- */
 
-  _ensure4PermShape(perms, id) {
-    // Accept legacy shapes and normalize to {view,add,edit,delete}
-    const v = perms[id];
-    if (!v) {
-      return { view: false, add: false, edit: false, delete: false };
-    }
-    if (typeof v === 'boolean') {
-      return { view: v, add: false, edit: false, delete: false };
-    }
-    if (typeof v.on === 'boolean' && !('view' in v)) {
-      return { view: !!v.on, add: false, edit: false, delete: false };
-    }
-    return {
-      view: !!v.view,
-      add: !!v.add,
-      edit: !!v.edit,
-      delete: !!v.delete
-    };
+  _getPerm(id) {
+    const perms = this._config.perms || {};
+    perms[id] = normalizeEntry(perms[id]);
+    this._config.perms = perms;
+    return perms[id];
   }
 
-  _buildMatrixRowsHtml() {
-    const cfg = this._config;
-    const menu = cfg.navMenu || NAV_MENU || { items: [] };
-    const perms = cfg.perms || {};
-    const { allNodes } = buildNavIndex(menu);
+  _setPerm(id, entry) {
+    const perms = this._config.perms || {};
+    perms[id] = normalizeEntry(entry);
+    this._config.perms = perms;
+  }
 
-    if (!allNodes.length) {
+  _emitPermsChange() {
+    if (typeof this._config.onPermsChange === 'function') {
+      // Shallow clone outer map; inner entries are simple objects already normalized
+      const clone = Object.assign({}, this._config.perms || {});
+      this._config.onPermsChange(clone);
+    }
+  }
+
+  _walkGroupAndDescendants(groupId, fn) {
+    const { byParent } = this._navIndex || {};
+    if (!byParent) return;
+    const stack = [groupId];
+    while (stack.length) {
+      const id = stack.pop();
+      fn(id);
+      const children = byParent[id] || [];
+      children.forEach(child => {
+        stack.push(child.id);
+      });
+    }
+  }
+
+  _isGroupFullyAllOn(groupId) {
+    let allOn = true;
+    this._walkGroupAndDescendants(groupId, (id) => {
+      const p = this._getPerm(id);
+      if (!(p.view && p.add && p.edit && p.delete)) {
+        allOn = false;
+      }
+    });
+    return allOn;
+  }
+
+  _toggleGroupAll(groupId) {
+    const currentlyAll = this._isGroupFullyAllOn(groupId);
+    const next = !currentlyAll;
+
+    this._walkGroupAndDescendants(groupId, (id) => {
+      const p = this._getPerm(id);
+      p.view = next;
+      p.add = next;
+      p.edit = next;
+      p.delete = next;
+      this._setPerm(id, p);
+    });
+
+    this._emitPermsChange();
+    this.render();
+  }
+
+  _isGroupActionAllOn(groupId, action) {
+    let allOn = true;
+    this._walkGroupAndDescendants(groupId, (id) => {
+      const p = this._getPerm(id);
+      if (!p[action]) allOn = false;
+    });
+    return allOn;
+  }
+
+  _toggleGroupAction(groupId, action) {
+    const allOn = this._isGroupActionAllOn(groupId, action);
+    const next = !allOn;
+    this._walkGroupAndDescendants(groupId, (id) => {
+      const p = this._getPerm(id);
+      p[action] = next;
+      this._setPerm(id, p);
+    });
+    this._emitPermsChange();
+    this.render();
+  }
+
+  _toggleLeafAction(id, action) {
+    const p = this._getPerm(id);
+    p[action] = !p[action];
+    this._setPerm(id, p);
+    this._emitPermsChange();
+    this.render();
+  }
+
+  _toggleGroupOpen(groupId) {
+    if (this._openGroups.has(groupId)) {
+      this._openGroups.delete(groupId);
+    } else {
+      this._openGroups.add(groupId);
+    }
+    this.render();
+  }
+
+  /* ---------- Nested matrix helpers ---------- */
+
+  _buildMenuTreeHtml() {
+    const menu = NAV_MENU || { items: [] };
+    const { byParent, byId } = buildNavIndex(menu);
+    this._navIndex = { byParent, byId };
+
+    const roots = byParent['__ROOT__'] || [];
+    if (!roots.length) {
       return `
         <div class="perm-matrix-empty">
           No navigation menus configured. Once menus are added to NAV_MENU, they will appear here.
@@ -186,64 +297,125 @@ class FVPermsHero extends HTMLElement {
       `;
     }
 
-    // Simple sort: by depth, then label
-    const sorted = allNodes.slice().sort((a, b) => {
-      if (a.depth !== b.depth) return a.depth - b.depth;
-      return (a.label || '').localeCompare(b.label || '');
-    });
+    const renderGroupBlock = (node) => {
+      const isOpen = this._openGroups.has(node.id);
+      const openClass = isOpen ? 'perm-group-open' : 'perm-group-closed';
 
-    let rowsHtml = '';
-    sorted.forEach(node => {
-      const id = node.id;
-      const label = node.label;
-      const depth = node.depth || 0;
-      const p = this._ensure4PermShape(perms, id);
+      // Build group row (inside body) with 4 pills for the group itself
+      const groupRow = this._buildRowHtml(node, true);
 
-      const makePill = (action, isOn, text) => {
-        const activeClass = isOn ? 'perm-pill-on' : 'perm-pill-off';
-        return `
-          <button type="button"
-                  class="perm-pill ${activeClass}"
-                  data-perm-id="${id}"
-                  data-perm-action="${action}">
-            ${text}
-          </button>
-        `;
-      };
+      // Children
+      const children = byParent[node.id] || [];
+      let childrenHtml = '';
+      children.forEach(child => {
+        if (child.type === 'group') {
+          childrenHtml += renderGroupBlock(child);
+        } else {
+          childrenHtml += this._buildRowHtml(child, false);
+        }
+      });
 
-      rowsHtml += `
-        <div class="perm-row" data-perm-row="${id}">
-          <div class="perm-row-label" data-depth="${depth}">
-            ${label}
+      const hasChildren = children.length > 0;
+
+      const allOn = this._isGroupFullyAllOn(node.id);
+
+      return `
+        <div class="perm-group ${openClass}" data-group-id="${node.id}">
+          <div class="perm-group-header" data-group-toggle="${node.id}">
+            <button type="button" class="perm-group-chevron" aria-label="Toggle ${node.label}">
+              <span class="chevron">${isOpen ? '▾' : '▸'}</span>
+            </button>
+            <div class="perm-group-title">${node.label}</div>
+            <div class="perm-group-header-actions">
+              <button type="button"
+                      class="perm-pill perm-pill-all ${allOn ? 'perm-pill-on' : 'perm-pill-off'}"
+                      data-group-all="${node.id}">
+                All
+              </button>
+            </div>
           </div>
-          <div class="perm-row-pills">
-            ${makePill('view',   p.view,   'View')}
-            ${makePill('add',    p.add,    'Add')}
-            ${makePill('edit',   p.edit,   'Edit')}
-            ${makePill('delete', p.delete, 'Delete')}
+          <div class="perm-group-body">
+            ${groupRow}
+            ${hasChildren ? `<div class="perm-group-children">${childrenHtml}</div>` : ''}
           </div>
         </div>
       `;
+    };
+
+    let html = '';
+
+    roots.forEach(node => {
+      if (node.type === 'group') {
+        html += renderGroupBlock(node);
+      } else {
+        // Root-level leaf item
+        html += this._buildRowHtml(node, false);
+      }
     });
 
-    return rowsHtml;
-  }
-
-  _togglePerm(id, action) {
-    const cfg = this._config;
-    if (!cfg.perms) cfg.perms = {};
-    const current = this._ensure4PermShape(cfg.perms, id);
-    const newValue = !current[action];
-    current[action] = newValue;
-    cfg.perms[id] = current;
-
-    if (typeof cfg.onPermsChange === 'function') {
-      // Pass a shallow clone so callers don't accidentally mutate internals
-      cfg.onPermsChange(Object.assign({}, cfg.perms));
+    // Extra capabilities as a simple group at bottom
+    if (CAPABILITIES.length) {
+      let capsRows = '';
+      CAPABILITIES.forEach(cap => {
+        const fakeNode = {
+          id: cap.id,
+          label: cap.label,
+          depth: 0,
+          type: 'item'
+        };
+        capsRows += this._buildRowHtml(fakeNode, false);
+      });
+      html += `
+        <div class="perm-group perm-group-open" data-group-id="__CAPS__">
+          <div class="perm-group-header perm-group-header-simple">
+            <div class="perm-group-title">Extra Features</div>
+          </div>
+          <div class="perm-group-body">
+            <div class="perm-group-children">
+              ${capsRows}
+            </div>
+          </div>
+        </div>
+      `;
     }
 
-    // Re-render to reflect the new state
-    this.render();
+    return html;
+  }
+
+  _buildRowHtml(node, isGroupRow) {
+    const id = node.id;
+    const depth = node.depth || 0;
+    const p = this._getPerm(id);
+
+    const rowType = isGroupRow ? 'group' : 'leaf';
+    const indentClass = `perm-row-label-depth-${Math.min(depth, 3)}`;
+
+    const makePill = (action, isOn, text) => {
+      const activeClass = isOn ? 'perm-pill-on' : 'perm-pill-off';
+      return `
+        <button type="button"
+                class="perm-pill ${activeClass}"
+                data-perm-id="${id}"
+                data-perm-type="${rowType}"
+                data-perm-action="${action}">
+          ${text}
+        </button>
+      `;
+    };
+
+    return `
+      <div class="perm-row" data-perm-row="${id}">
+        <div class="perm-row-label ${indentClass}">
+          ${node.label}
+        </div>
+        <div class="perm-row-pills">
+          ${makePill('view',   p.view,   'View')}
+          ${makePill('add',    p.add,    'Add')}
+          ${makePill('edit',   p.edit,   'Edit')}
+          ${makePill('delete', p.delete, 'Delete')}
+        </div>
+      </div>
+    `;
   }
 
   /* ---------- Styles ---------- */
@@ -355,11 +527,6 @@ class FVPermsHero extends HTMLElement {
           min-height: 32px;
           gap: 6px;
         }
-        .perm-btn-primary {
-          background: #2F6C3C;
-          border-color: #2F6C3C;
-          color: #fff;
-        }
         .perm-btn-quiet {
           background: rgba(255,255,255,0.9);
         }
@@ -376,7 +543,7 @@ class FVPermsHero extends HTMLElement {
           display: block;
         }
 
-        /* ----- Matrix layout ----- */
+        /* ----- Matrix layout (nested) ----- */
         .perm-matrix-card {
           border-radius: 14px;
           border: 1px solid var(--border, #d0d4d0);
@@ -401,77 +568,94 @@ class FVPermsHero extends HTMLElement {
           font-size: 12px;
           color: var(--muted, #67706B);
         }
-        .perm-matrix {
-          margin-top: 6px;
-          border-radius: 10px;
-          border: 1px solid rgba(0,0,0,0.06);
-          overflow: hidden;
+        .perm-matrix-body {
+          margin-top: 4px;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
         }
-        .perm-matrix-head,
-        .perm-row {
-          display: grid;
-          grid-template-columns: minmax(0, 1.8fr) minmax(0, 2.2fr);
-          align-items: stretch;
-        }
-        @media (max-width: 720px){
-          .perm-matrix-head,
-          .perm-row {
-            grid-template-columns: 1.3fr 2.7fr;
-          }
-        }
-        .perm-matrix-head {
-          background: rgba(0,0,0,0.03);
-          border-bottom: 1px solid rgba(0,0,0,0.06);
-        }
-        .perm-col-label {
-          padding: 6px 8px;
-          font-size: 11px;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          font-weight: 700;
+
+        .perm-matrix-empty {
+          padding: 10px 8px;
+          font-size: 12px;
           color: var(--muted, #67706B);
         }
-        .perm-col-label-main {
-          border-right: 1px solid rgba(0,0,0,0.06);
-        }
-        .perm-col-label-actions {
-          display: flex;
-          justify-content: flex-start;
-          gap: 4px;
-          padding-right: 8px;
-        }
-        .perm-col-label-actions span {
-          flex: 1;
-          text-align: center;
-        }
-        .perm-row {
-          border-bottom: 1px solid rgba(0,0,0,0.04);
+
+        .perm-group {
+          border-radius: 10px;
+          border: 1px solid rgba(0,0,0,0.06);
           background: #fff;
+          overflow: hidden;
         }
-        .perm-row:last-child {
-          border-bottom: none;
-        }
-        .perm-row-label {
-          padding: 6px 8px;
-          font-size: 13px;
-          border-right: 1px solid rgba(0,0,0,0.06);
+        .perm-group-header {
           display: flex;
           align-items: center;
+          gap: 8px;
+          padding: 6px 8px;
+          background: rgba(0,0,0,0.02);
+        }
+        .perm-group-header-simple {
+          justify-content: space-between;
+        }
+        .perm-group-chevron {
+          border-radius: 999px;
+          border: 1px solid rgba(0,0,0,0.12);
+          background: #fff;
+          width: 26px;
+          height: 26px;
+          display: grid;
+          place-items: center;
+          padding: 0;
+          cursor: pointer;
+          font-size: 12px;
+        }
+        .perm-group-title {
+          font-weight: 800;
+          font-size: 13px;
+          flex: 1;
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
         }
-        .perm-row-label[data-depth="1"] {
-          padding-left: 16px;
+        .perm-group-header-actions {
+          display: flex;
+          align-items: center;
+          gap: 4px;
         }
-        .perm-row-label[data-depth="2"] {
-          padding-left: 24px;
+        .perm-group-body {
+          padding: 4px 6px 6px;
         }
-        .perm-row-label[data-depth="3"] {
-          padding-left: 32px;
+        .perm-group-children {
+          border-top: 1px solid rgba(0,0,0,0.04);
+          margin-top: 4px;
+          padding-top: 4px;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
         }
+
+        .perm-row {
+          display: grid;
+          grid-template-columns: minmax(0, 1.5fr) minmax(0, 2.3fr);
+          align-items: center;
+          padding: 3px 4px;
+        }
+        @media (max-width: 720px){
+          .perm-row {
+            grid-template-columns: 1.3fr 2.7fr;
+          }
+        }
+        .perm-row-label {
+          font-size: 13px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .perm-row-label-depth-0 { padding-left: 0; }
+        .perm-row-label-depth-1 { padding-left: 10px; }
+        .perm-row-label-depth-2 { padding-left: 20px; }
+        .perm-row-label-depth-3 { padding-left: 30px; }
         .perm-row-pills {
-          padding: 4px 6px;
           display: flex;
           justify-content: flex-start;
           gap: 4px;
@@ -498,10 +682,15 @@ class FVPermsHero extends HTMLElement {
           background: rgba(255,255,255,0.95);
           color: var(--muted, #67706B);
         }
-        .perm-matrix-empty {
-          padding: 10px 8px;
-          font-size: 12px;
-          color: var(--muted, #67706B);
+        .perm-pill-all {
+          min-width: 52px;
+        }
+
+        .perm-group-closed .perm-group-body {
+          display: none;
+        }
+        .perm-group-open .perm-group-body {
+          display: block;
         }
       </style>
     `;
@@ -590,7 +779,7 @@ class FVPermsHero extends HTMLElement {
       `
       : '';
 
-    const matrixRows = this._buildMatrixRowsHtml();
+    const matrixHtml = this._buildMenuTreeHtml();
 
     const html = `
       ${this._renderStyles()}
@@ -626,22 +815,12 @@ class FVPermsHero extends HTMLElement {
               Menu Permissions
             </div>
             <div class="perm-matrix-sub">
-              Toggle what this role/employee can <strong>View, Add, Edit, Delete</strong> for each menu.
+              Expand a menu, then use the pills to control <strong>View, Add, Edit, Delete</strong>.
+              The group and “All” controls cascade to all sub-menus.
             </div>
           </div>
-          <div class="perm-matrix">
-            <div class="perm-matrix-head">
-              <div class="perm-col-label perm-col-label-main">Menu</div>
-              <div class="perm-col-label">
-                <div class="perm-col-label-actions">
-                  <span>View</span>
-                  <span>Add</span>
-                  <span>Edit</span>
-                  <span>Delete</span>
-                </div>
-              </div>
-            </div>
-            ${matrixRows}
+          <div class="perm-matrix-body">
+            ${matrixHtml}
           </div>
         </div>
       </div>
@@ -649,7 +828,7 @@ class FVPermsHero extends HTMLElement {
 
     this._root.innerHTML = html;
 
-    // Wire up actions
+    // Wire up delete/reset
     const del = this._root.querySelector('[data-role="delete-role"]');
     if (del && typeof this._config.onDeleteRole === 'function') {
       del.addEventListener('click', () => {
@@ -663,12 +842,43 @@ class FVPermsHero extends HTMLElement {
       });
     }
 
-    const pills = this._root.querySelectorAll('.perm-pill');
-    pills.forEach(btn => {
+    // Wire up group expand/collapse
+    this._root.querySelectorAll('[data-group-toggle]').forEach(btn => {
+      const id = btn.getAttribute('data-group-toggle');
+      if (!id) return;
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this._toggleGroupOpen(id);
+      });
+    });
+
+    // Wire up group "All" pills
+    this._root.querySelectorAll('[data-group-all]').forEach(btn => {
+      const id = btn.getAttribute('data-group-all');
+      if (!id) return;
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this._toggleGroupAll(id);
+      });
+    });
+
+    // Wire up per-row pills
+    this._root.querySelectorAll('.perm-pill[data-perm-id]').forEach(btn => {
       const id = btn.getAttribute('data-perm-id');
       const action = btn.getAttribute('data-perm-action');
-      if (!id || !action) return;
-      btn.addEventListener('click', () => this._togglePerm(id, action));
+      const type = btn.getAttribute('data-perm-type');
+      if (!id || !action || !type) return;
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (type === 'group') {
+          this._toggleGroupAction(id, action);
+        } else {
+          this._toggleLeafAction(id, action);
+        }
+      });
     });
   }
 }
