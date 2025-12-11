@@ -177,8 +177,8 @@
         </div>
       </section>
 
-      <!-- Shared Permissions Hero (employee mode) – BELOW details -->
-      <fv-perms-hero id="permsHero"></fv-perms-hero>
+      <!-- Shared Permissions Hero (employee mode) – BELOW details, hidden until employee selected -->
+      <fv-perms-hero id="permsHero" style="display:none;"></fv-perms-hero>
     </div>
   </fv-shell>
 
@@ -277,15 +277,16 @@
       const hero = $("permsHero");
       if (!hero) return;
 
+      // Hide completely until an employee is selected
+      if (!sel || !currentRoleName){
+        hero.style.display = 'none';
+        return;
+      }
+
       const first = $("first")?.value.trim() || "";
       const last  = $("last")?.value.trim()  || "";
       const email = $("email")?.value.trim() || "";
       const name = (first || last) ? `${first} ${last}`.trim() : (email || "Employee");
-
-      if (!currentRoleName){
-        hero.style.display = 'none';
-        return;
-      }
 
       hero.style.display = '';
 
@@ -371,6 +372,12 @@
             const rawPerms = (roleDoc && (roleDoc.perms || roleDoc.permissions)) || {};
             basePerms4 = rebuildEffectiveFromRole(rawPerms);
             effectivePerms4 = deepClone(basePerms4);
+
+            // If we already have an employee selected, re-apply their overrides
+            if (sel && sel.data && sel.data.overrides){
+              applyOverridesFromEmployeeData(sel.data.overrides);
+            }
+
             updateHero();
           }catch(err){
             console.error('Failed to load role:', err);
