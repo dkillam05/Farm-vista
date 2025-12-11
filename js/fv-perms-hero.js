@@ -20,10 +20,11 @@
 //
 // This helper is 100% self-contained: hero + nested, collapsible menu permissions.
 //  • Reads NAV_MENU so sub-menus are properly nested under main menus.
-//  • Each group can be expanded/collapsed (default: collapsed).
+//  • Each main menu (group) is collapsible (default: collapsed).
 //  • Each group has an "All" pill to toggle all 4 actions on/off for itself + all children.
 //  • Toggling a group's View/Add/Edit/Delete pill cascades to all children.
 //  • Leaf menu items toggle only themselves.
+//  • Extra Features are in their own collapsible group with simple On/Off pills.
 //
 
 import NAV_MENU from '/Farm-vista/js/menu.js';
@@ -195,7 +196,6 @@ class FVPermsHero extends HTMLElement {
 
   _emitPermsChange() {
     if (typeof this._config.onPermsChange === 'function') {
-      // Shallow clone outer map; inner entries are simple objects already normalized
       const clone = Object.assign({}, this._config.perms || {});
       this._config.onPermsChange(clone);
     }
@@ -272,6 +272,14 @@ class FVPermsHero extends HTMLElement {
     this.render();
   }
 
+  _toggleCapability(id) {
+    const p = this._getPerm(id);
+    p.view = !p.view; // simple On/Off via view flag
+    this._setPerm(id, p);
+    this._emitPermsChange();
+    this.render();
+  }
+
   _toggleGroupOpen(groupId) {
     if (this._openGroups.has(groupId)) {
       this._openGroups.delete(groupId);
@@ -289,7 +297,7 @@ class FVPermsHero extends HTMLElement {
     this._navIndex = { byParent, byId };
 
     const roots = byParent['__ROOT__'] || [];
-    if (!roots.length) {
+    if (!roots.length && !CAPABILITIES.length) {
       return `
         <div class="perm-matrix-empty">
           No navigation menus configured. Once menus are added to NAV_MENU, they will appear here.
@@ -301,10 +309,8 @@ class FVPermsHero extends HTMLElement {
       const isOpen = this._openGroups.has(node.id);
       const openClass = isOpen ? 'perm-group-open' : 'perm-group-closed';
 
-      // Build group row (inside body) with 4 pills for the group itself
       const groupRow = this._buildRowHtml(node, true);
 
-      // Children
       const children = byParent[node.id] || [];
       let childrenHtml = '';
       children.forEach(child => {
@@ -316,7 +322,6 @@ class FVPermsHero extends HTMLElement {
       });
 
       const hasChildren = children.length > 0;
-
       const allOn = this._isGroupFullyAllOn(node.id);
 
       return `
@@ -348,26 +353,27 @@ class FVPermsHero extends HTMLElement {
       if (node.type === 'group') {
         html += renderGroupBlock(node);
       } else {
-        // Root-level leaf item
         html += this._buildRowHtml(node, false);
       }
     });
 
-    // Extra capabilities as a simple group at bottom
+    // Extra capabilities as their own collapsible group with simple On/Off
     if (CAPABILITIES.length) {
+      const capsGroupId = '__CAPS__';
+      const isOpen = this._openGroups.has(capsGroupId);
+      const openClass = isOpen ? 'perm-group-open' : 'perm-group-closed';
+
       let capsRows = '';
       CAPABILITIES.forEach(cap => {
-        const fakeNode = {
-          id: cap.id,
-          label: cap.label,
-          depth: 0,
-          type: 'item'
-        };
-        capsRows += this._buildRowHtml(fakeNode, false);
+        capsRows += this._buildCapabilityRowHtml(cap);
       });
+
       html += `
-        <div class="perm-group perm-group-open" data-group-id="__CAPS__">
-          <div class="perm-group-header perm-group-header-simple">
+        <div class="perm-group ${openClass}" data-group-id="${capsGroupId}">
+          <div class="perm-group-header" data-group-toggle="${capsGroupId}">
+            <button type="button" class="perm-group-chevron" aria-label="Toggle Extra Features">
+              <span class="chevron">${isOpen ? '▾' : '▸'}</span>
+            </button>
             <div class="perm-group-title">Extra Features</div>
           </div>
           <div class="perm-group-body">
@@ -413,6 +419,30 @@ class FVPermsHero extends HTMLElement {
           ${makePill('add',    p.add,    'Add')}
           ${makePill('edit',   p.edit,   'Edit')}
           ${makePill('delete', p.delete, 'Delete')}
+        </div>
+      </div>
+    `;
+  }
+
+  _buildCapabilityRowHtml(cap) {
+    const id = cap.id;
+    const label = cap.label;
+    const p = this._getPerm(id);
+    const isOn = !!p.view;
+    const activeClass = isOn ? 'perm-pill-on' : 'perm-pill-off';
+    const text = isOn ? 'On' : 'Off';
+
+    return `
+      <div class="perm-row" data-cap-row="${id}">
+        <div class="perm-row-label perm-row-label-depth-0">
+          ${label}
+        </div>
+        <div class="perm-row-pills">
+          <button type="button"
+                  class="perm-pill ${activeClass}"
+                  data-cap-id="${id}">
+            ${text}
+          </button>
         </div>
       </div>
     `;
@@ -816,7 +846,7 @@ class FVPermsHero extends HTMLElement {
             </div>
             <div class="perm-matrix-sub">
               Expand a menu, then use the pills to control <strong>View, Add, Edit, Delete</strong>.
-              The group and “All” controls cascade to all sub-menus.
+              The group and “All” controls cascade to all sub-menus. Extra Features use simple On/Off.
             </div>
           </div>
           <div class="perm-matrix-body">
@@ -831,15 +861,11 @@ class FVPermsHero extends HTMLElement {
     // Wire up delete/reset
     const del = this._root.querySelector('[data-role="delete-role"]');
     if (del && typeof this._config.onDeleteRole === 'function') {
-      del.addEventListener('click', () => {
-        this._config.onDeleteRole();
-      });
+      del.addEventListener('click', () => this._config.onDeleteRole());
     }
     const reset = this._root.querySelector('[data-role="reset-overrides"]');
     if (reset && typeof this._config.onResetOverrides === 'function') {
-      reset.addEventListener('click', () => {
-        this._config.onResetOverrides();
-      });
+      reset.addEventListener('click', () => this._config.onResetOverrides());
     }
 
     // Wire up group expand/collapse
@@ -853,7 +879,7 @@ class FVPermsHero extends HTMLElement {
       });
     });
 
-    // Wire up group "All" pills
+    // Wire up group "All" pills (menus only)
     this._root.querySelectorAll('[data-group-all]').forEach(btn => {
       const id = btn.getAttribute('data-group-all');
       if (!id) return;
@@ -864,7 +890,7 @@ class FVPermsHero extends HTMLElement {
       });
     });
 
-    // Wire up per-row pills
+    // Wire up per-row pills for menus
     this._root.querySelectorAll('.perm-pill[data-perm-id]').forEach(btn => {
       const id = btn.getAttribute('data-perm-id');
       const action = btn.getAttribute('data-perm-action');
@@ -878,6 +904,17 @@ class FVPermsHero extends HTMLElement {
         } else {
           this._toggleLeafAction(id, action);
         }
+      });
+    });
+
+    // Wire up capability On/Off pills
+    this._root.querySelectorAll('[data-cap-id]').forEach(btn => {
+      const id = btn.getAttribute('data-cap-id');
+      if (!id) return;
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this._toggleCapability(id);
       });
     });
   }
