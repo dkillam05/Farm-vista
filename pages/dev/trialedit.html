@@ -128,7 +128,7 @@
       padding-inline:10px;
     }
 
-    /* Base select style */
+    /* Base select style (used instead of FVCombo on this page) */
     .select{
       width:100%;
       font:inherit;
@@ -137,11 +137,20 @@
       background:var(--card-surface,var(--surface));
       border:1px solid var(--border);
       border-radius:10px;
-      padding:12px;
+      padding:10px 12px;
       outline:none;
       box-sizing:border-box;
       position:relative;
-      z-index:5; /* keep native select tap target above hero/card stacking on iOS */
+      -webkit-appearance:none;
+      appearance:none;
+      background-image:
+        linear-gradient(45deg, transparent 50%, var(--muted,#67706B) 50%),
+        linear-gradient(135deg, var(--muted,#67706B) 50%, transparent 50%);
+      background-position:
+        calc(100% - 16px) 50%,
+        calc(100% - 11px) 50%;
+      background-size:5px 5px, 5px 5px;
+      background-repeat:no-repeat;
     }
 
     /* Filters row */
@@ -152,7 +161,7 @@
       align-items:flex-end;
       margin-top:4px;
       position:relative;
-      z-index:10; /* whole filters band floats above hero content for iOS quirks */
+      z-index:10;
     }
 
     .status-filter-label{
@@ -169,10 +178,8 @@
       font-size:0.85rem;
       max-width:180px;
       position:relative;
-      z-index:20; /* make year filter + combo panel top-most within hero */
+      z-index:20;
     }
-
-    /* Simple "dropdown" with multi-select panel */
 
     .status-filter-wrap{
       display:flex;
@@ -244,7 +251,7 @@
       background:var(--surface);
       box-shadow:0 14px 30px rgba(0,0,0,.18);
       padding:8px 10px 8px;
-      z-index:2000; /* above hero + detail panel */
+      z-index:2000;
       display:none;
       color:var(--text);
     }
@@ -268,7 +275,7 @@
       height:16px;
       flex-shrink:0;
       accent-color:var(--accent);
-      border-radius:50%; /* look more like radios but behave like checkboxes */
+      border-radius:50%;
     }
 
     .status-option span{
@@ -316,11 +323,6 @@
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
     }
 
-    /* Ensure FVCombo panels never hide behind hero on iOS/others */
-    .fv-combo-panel{
-      z-index:2500 !important;
-    }
-
     .trial-list{
       display:flex;
       flex-direction:column;
@@ -365,7 +367,7 @@
     .trial-main{
       flex:1 1 auto;
       min-width:0;
-      padding-right:160px; /* room for Add Fields + Add Yield buttons */
+      padding-right:160px;
     }
 
     .trial-title{
@@ -893,7 +895,7 @@
     })();
   </script>
 
-  <script src="/Farm-vista/js/fv-combo.js" defer></script>
+  <!-- NOTE: fv-combo.js intentionally NOT loaded on this page -->
 
   <script type="module">
     import {
@@ -953,9 +955,6 @@
     const $  = (sel, root=document) => root.querySelector(sel);
     const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 
-    // ---- iOS detection: we will disable FVCombo on iOS only ----
-    const IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent || '');
-
     function loadFilterPrefs(){
       try{
         const rawStatuses = localStorage.getItem(STORAGE_KEYS.STATUSES);
@@ -1004,11 +1003,6 @@
         html += `<option value="${val}"${sel}>${val}</option>`;
       });
       yearSelect.innerHTML = html;
-
-      // Only upgrade with FVCombo on non-iOS
-      if(!IS_IOS && window.FVCombo && typeof window.FVCombo.upgrade === 'function'){
-        window.FVCombo.upgrade(yearSelect.parentNode);
-      }
     }
 
     function fmtNumber(value, decimals){
@@ -1316,7 +1310,6 @@
             if(cb.checked){
               next = new Set([CONFIG.STATUS_ALL]);
             }else{
-              // can't uncheck All if nothing else selected
               if(next.size === 1){
                 cb.checked = true;
                 return;
@@ -1987,7 +1980,7 @@
       grid.innerHTML = `
         <div>
           <div class="trial-detail-item-label">Crop Year</div>
-          <select id="trialEditCropYear" class="select trial-edit-select" data-fv-combo>
+          <select id="trialEditCropYear" class="select trial-edit-select">
             <option value=""></option>
             ${cropYearOptions}
           </select>
@@ -1995,7 +1988,7 @@
 
         <div>
           <div class="trial-detail-item-label">Crop</div>
-          <select id="trialEditCrop" class="select trial-edit-select" data-fv-combo>
+          <select id="trialEditCrop" class="select trial-edit-select">
             <option value=""></option>
             ${cropOptions}
           </select>
@@ -2003,7 +1996,7 @@
 
         <div>
           <div class="trial-detail-item-label">Trial Type</div>
-          <select id="trialEditTrialType" class="select trial-edit-select" data-fv-combo>
+          <select id="trialEditTrialType" class="select trial-edit-select">
             <option value=""></option>
             ${trialTypeOptions}
           </select>
@@ -2011,7 +2004,7 @@
 
         <div>
           <div class="trial-detail-item-label">Operation</div>
-          <select id="trialEditOperation" class="select trial-edit-select" data-fv-combo>
+          <select id="trialEditOperation" class="select trial-edit-select">
             <option value=""></option>
             ${opOptions}
           </select>
@@ -2041,18 +2034,13 @@
 
         <div>
           <div class="trial-detail-item-label">Status</div>
-          <select id="trialEditStatusCombo" class="select trial-edit-select" data-fv-combo>
+          <select id="trialEditStatusCombo" class="select trial-edit-select">
             <option value="pending"${status === CONFIG.STATUS_PENDING ? ' selected' : ''}>Pending</option>
             <option value="active"${status === CONFIG.STATUS_ACTIVE ? ' selected' : ''}>Active</option>
             <option value="completed"${status === CONFIG.STATUS_COMPLETED ? ' selected' : ''}>Completed</option>
           </select>
         </div>
       `;
-
-      // Only upgrade edit-panel combos on non-iOS
-      if (!IS_IOS && window.FVCombo && typeof window.FVCombo.upgrade === 'function') {
-        window.FVCombo.upgrade(panel);
-      }
 
       const notesBody = $('.trial-detail-notes-body', panel);
       if(notesBody){
@@ -2632,7 +2620,7 @@
             try{
               await deleteDoc(mhStateRef);
             }catch(e){
-              // ignore – doc may not exist
+              // ignore
             }
 
             await deleteDoc(fieldDoc.ref);
@@ -2776,7 +2764,6 @@
         fileCloseBtn.addEventListener('click', closeFileViewer);
       }
 
-      // Status dropdown multi-select
       initStatusDropdown();
 
       const yearSelect = $('#trialYearFilter');
@@ -2798,11 +2785,6 @@
       }
 
       await loadAllTrials();
-
-      // Global FVCombo upgrade ONLY on non-iOS
-      if (!IS_IOS && window.FVCombo && typeof window.FVCombo.upgrade === 'function') {
-        window.FVCombo.upgrade(document);
-      }
     })();
 
     window.addEventListener('focus', () => {
@@ -2895,7 +2877,6 @@
               <select
                 id="trialYearFilter"
                 class="select"
-                data-fv-combo
               >
                 <option value="all">All years</option>
               </select>
