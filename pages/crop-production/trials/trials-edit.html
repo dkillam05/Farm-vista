@@ -45,7 +45,7 @@
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
       overflow:visible;
-      position:relative;   /* ensure filters stack above tiles */
+      position:relative;
       z-index:10;
     }
 
@@ -128,7 +128,6 @@
       padding-inline:10px;
     }
 
-    /* Base select style */
     .select{
       width:100%;
       font:inherit;
@@ -142,7 +141,6 @@
       box-sizing:border-box;
     }
 
-    /* Filters row */
     .filters-row{
       display:flex;
       flex-wrap:wrap;
@@ -165,8 +163,6 @@
       font-size:0.85rem;
       max-width:180px;
     }
-
-    /* Simple "dropdown" with multi-select panel */
 
     .status-filter-wrap{
       display:flex;
@@ -191,7 +187,7 @@
       cursor:pointer;
       box-shadow:var(--shadow-soft,0 2px 6px rgba(0,0,0,.06));
       text-align:left;
-      color:var(--text); /* explicitly kill blue */
+      color:var(--text);
     }
 
     .status-dropdown-trigger:hover{
@@ -231,7 +227,7 @@
       background:var(--surface);
       box-shadow:0 14px 30px rgba(0,0,0,.18);
       padding:8px 10px 8px;
-      z-index:2000;  /* above cards + fv-combo menu */
+      z-index:2000;
       display:none;
     }
 
@@ -253,7 +249,7 @@
       height:16px;
       flex-shrink:0;
       accent-color:var(--accent);
-      border-radius:50%; /* look more like radios but behave like checkboxes */
+      border-radius:50%;
     }
 
     .status-dropdown-footer{
@@ -272,7 +268,7 @@
       text-decoration:underline;
       text-underline-offset:2px;
       opacity:0.8;
-      color:var(--text); /* no blue */
+      color:var(--text);
     }
 
     .status-reset-btn:hover{
@@ -286,7 +282,7 @@
       background:var(--card-surface,var(--surface));
       cursor:pointer;
       font-size:0.8rem;
-      color:var(--text); /* no blue */
+      color:var(--text);
     }
 
     .status-done-btn:hover{
@@ -337,7 +333,7 @@
     .trial-main{
       flex:1 1 auto;
       min-width:0;
-      padding-right:160px; /* room for Add Fields + Add Yield buttons */
+      padding-right:160px;
     }
 
     .trial-title{
@@ -847,9 +843,7 @@
       }
     }
 
-    /* ---- Global overrides to kill blue + fix fv-combo z-index ---- */
-
-    /* Status filter: force theme text color everywhere */
+    /* Status filter text color override (this was fine) */
     .status-filter-wrap,
     .status-filter-wrap *,
     .status-dropdown-trigger,
@@ -857,18 +851,6 @@
     .status-dropdown-panel,
     .status-dropdown-panel * {
       color: var(--text) !important;
-    }
-
-    /* FV combo menus (Year, edit selects) must sit above cards */
-    .fv-combo,
-    .fv-combo * {
-      color: var(--text) !important;
-    }
-    .fv-combo-menu,
-    .fv-combo__menu,
-    .fv-combo-panel,
-    .fv-combo-menu ul {
-      z-index: 3000 !important;
     }
   </style>
 
@@ -954,6 +936,9 @@
           }
         }
         let set = new Set(statuses);
+        if(set.size === 0){
+          set = new Set([CONFIG.STATUS_ALL]);
+        }
         if(set.has(CONFIG.STATUS_ALL) && set.size > 1){
           set = new Set([CONFIG.STATUS_ALL]);
         }
@@ -981,7 +966,15 @@
       const yearSelect = $('#trialYearFilter');
       if(!yearSelect) return;
       const years = STATE.optionLists?.cropYears || [];
-      const current = STATE.filterYear || 'all';
+      let current = STATE.filterYear || 'all';
+
+      // If saved year no longer exists in list, fall back to "all"
+      const yearVals = years.map(y => String(y));
+      if (current !== 'all' && !yearVals.includes(String(current))) {
+        current = 'all';
+        STATE.filterYear = 'all';
+        saveFilterPrefs();
+      }
 
       let html = '<option value="all">All years</option>';
       years.forEach(y => {
@@ -991,7 +984,7 @@
         html += `<option value="${val}"${sel}>${val}</option>`;
       });
       yearSelect.innerHTML = html;
-      // Let fv-combo.js handle combo wiring on this select
+      // fv-combo.js MutationObserver will update the button label from these options
     }
 
     function fmtNumber(value, decimals){
@@ -1192,14 +1185,17 @@
       }
 
       const statuses = STATE.filterStatuses || new Set([CONFIG.STATUS_ALL]);
+      if(statuses.size === 0){
+        STATE.filterStatuses = new Set([CONFIG.STATUS_ALL]);
+      }
       const yearFilter = STATE.filterYear || 'all';
 
       let filtered = STATE.allItems.slice();
 
-      if(!statuses.has(CONFIG.STATUS_ALL)){
+      if(!STATE.filterStatuses.has(CONFIG.STATUS_ALL)){
         filtered = filtered.filter(item => {
           const s = (item.data[CONFIG.STATUS_FIELD] || CONFIG.STATUS_PENDING).toString().toLowerCase();
-          return statuses.has(s);
+          return STATE.filterStatuses.has(s);
         });
       }
 
@@ -1214,8 +1210,6 @@
       clearDetails();
       renderList();
     }
-
-    // ===== Simple status dropdown UI (multi-select) =====
 
     function syncStatusDropdownUI(){
       const statuses = STATE.filterStatuses || new Set([CONFIG.STATUS_ALL]);
@@ -1299,7 +1293,6 @@
             if(cb.checked){
               next = new Set([CONFIG.STATUS_ALL]);
             }else{
-              // can't uncheck All if nothing else selected
               if(next.size === 1){
                 cb.checked = true;
                 return;
@@ -1343,8 +1336,6 @@
 
       syncStatusDropdownUI();
     }
-
-    // ===== Stats / detail helpers =====
 
     function applyStatsToCard(card, stats){
       if(!card) return;
@@ -1849,26 +1840,26 @@
               name: raw.name || raw.path || 'Attachment'
             };
 
-              const thumbBtn = document.createElement('button');
-              thumbBtn.type = 'button';
-              thumbBtn.className = 'trial-attachment-thumb';
-              thumbBtn.title = att.name;
+            const thumbBtn = document.createElement('button');
+            thumbBtn.type = 'button';
+            thumbBtn.className = 'trial-attachment-thumb';
+            thumbBtn.title = att.name;
 
-              if(isImageUrl(att.url)){
-                const img = document.createElement('img');
-                img.src = att.url;
-                img.alt = att.name;
-                thumbBtn.appendChild(img);
-              }else{
-                thumbBtn.textContent = 'FILE';
-              }
+            if(isImageUrl(att.url)){
+              const img = document.createElement('img');
+              img.src = att.url;
+              img.alt = att.name;
+              thumbBtn.appendChild(img);
+            }else{
+              thumbBtn.textContent = 'FILE';
+            }
 
-              thumbBtn.addEventListener('click', (ev)=>{
-                ev.stopPropagation();
-                openFileViewer(att);
-              });
+            thumbBtn.addEventListener('click', (ev)=>{
+              ev.stopPropagation();
+              openFileViewer(att);
+            });
 
-              attGrid.appendChild(thumbBtn);
+            attGrid.appendChild(thumbBtn);
           });
         }else{
           const empty = document.createElement('div');
@@ -2436,13 +2427,12 @@
         listEl.appendChild(card);
       }
 
-      const countEl2 = $('#trialCount');
-      if(countEl2){
+      if(countEl){
         const total = STATE.items.length;
         if(usingFilters){
-          countEl2.textContent = `${total} filtered trial${total === 1 ? '' : 's'}`;
+          countEl.textContent = `${total} filtered trial${total === 1 ? '' : 's'}`;
         }else{
-          countEl2.textContent = `${total} trial${total === 1 ? '' : 's'}`;
+          countEl.textContent = `${total} trial${total === 1 ? '' : 's'}`;
         }
       }
 
@@ -2614,7 +2604,7 @@
             try{
               await deleteDoc(mhStateRef);
             }catch(e){
-              // ignore – doc may not exist
+              // ignore
             }
 
             await deleteDoc(fieldDoc.ref);
@@ -2758,7 +2748,6 @@
         fileCloseBtn.addEventListener('click', closeFileViewer);
       }
 
-      // Status dropdown multi-select
       initStatusDropdown();
 
       const yearSelect = $('#trialYearFilter');
@@ -2780,7 +2769,10 @@
       }
 
       await loadAllTrials();
-      // fv-combo.js handles upgrading the year select via data-fv-combo
+
+      if (window.FVCombo && typeof window.FVCombo.upgrade === 'function') {
+        window.FVCombo.upgrade(document);
+      }
     })();
 
     window.addEventListener('focus', () => {
