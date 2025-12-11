@@ -258,14 +258,65 @@
 
     .farm-group{
       margin-top:6px;
+      transition:opacity 0.15s ease, filter 0.15s ease, background-color 0.15s ease;
     }
+
+    /* Greyed / disabled farm tile */
+    .farm-group-disabled{
+      opacity:0.55;
+      filter:saturate(0.6);
+    }
+
     .farm-group-title{
       font-weight:600;
       font-size:0.9rem;
       margin:2px 0 4px;
     }
 
-    /* Desktop table layout (unchanged) */
+    .farm-group-header{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:8px;
+      margin-bottom:4px;
+    }
+
+    .farm-group-header-note{
+      font-size:0.76rem;
+      opacity:0.7;
+    }
+
+    .farm-toggle{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:3px 8px;
+      border-radius:999px;
+      border:1px solid var(--border-subtle,var(--border));
+      background:var(--card-surface,var(--surface));
+      font-size:0.72rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      cursor:pointer;
+      white-space:nowrap;
+    }
+    .farm-toggle-dot{
+      width:10px;
+      height:10px;
+      border-radius:999px;
+      background:var(--accent);
+    }
+    .farm-toggle-label{
+      opacity:0.9;
+    }
+    .farm-toggle.is-off .farm-toggle-dot{
+      background:#9CA3AF;
+    }
+    .farm-toggle.is-off .farm-toggle-label{
+      opacity:0.7;
+    }
+
+    /* Desktop table layout */
     .farm-table-wrap{
       border-radius:10px;
       border:1px solid var(--border);
@@ -892,7 +943,12 @@
       trials: [],       // [{id, data}]
       trialId: null,
       trialDoc: null,
-      fields: [],       // [{id, data, blocks, stats}]
+
+      // NEW: all vs active fields
+      fieldsAll: [],       // all fields from Firestore
+      fieldsActive: [],    // only farms that are currently "included"
+      disabledFarms: new Set(),
+
       selectedYear: 'all',
       totals: {
         fieldCount: 0,
@@ -1083,6 +1139,64 @@
       return { checkAc, trialAc, checkAvg, trialAvg, advantage };
     }
 
+    // NEW: shared totals calculator, used both at load time and when farms are toggled
+    function computeTotalsFromFields(fields = []){
+      let tillableAll = 0;
+      let checkAcresAll = 0;
+      let trialAcresAll = 0;
+      let checkBuAll = 0;
+      let trialBuAll = 0;
+
+      for (const f of fields) {
+        const data  = f.data  || {};
+        const stats = f.stats || {};
+
+        tillableAll += typeof data.tillable === 'number' ? data.tillable : 0;
+
+        const cAc = typeof stats.checkAc === 'number' ? stats.checkAc : 0;
+        const tAc = typeof stats.trialAc === 'number' ? stats.trialAc : 0;
+
+        checkAcresAll += cAc;
+        trialAcresAll += tAc;
+
+        if (cAc > 0 && stats.checkAvg !== null && stats.checkAvg !== undefined) {
+          checkBuAll += stats.checkAvg * cAc;
+        }
+        if (tAc > 0 && stats.trialAvg !== null && stats.trialAvg !== undefined) {
+          trialBuAll += stats.trialAvg * tAc;
+        }
+      }
+
+      const checkAvgAll = checkAcresAll > 0 ? (checkBuAll / checkAcresAll) : null;
+      const trialAvgAll = trialAcresAll > 0 ? (trialBuAll / trialAcresAll) : null;
+      const advantageAll = (checkAvgAll !== null && trialAvgAll !== null) ? (trialAvgAll - checkAvgAll) : null;
+
+      return {
+        fieldCount: fields.length,
+        tillableAll,
+        checkAcresAll,
+        trialAcresAll,
+        checkAvgAll,
+        trialAvgAll,
+        advantageAll
+      };
+    }
+
+    // NEW: recompute which fields are "active" based on excluded farms
+    function recomputeVisibleState(){
+      const all = STATE.fieldsAll || [];
+      const disabled = STATE.disabledFarms || new Set();
+
+      const active = all.filter(f => {
+        const d = f.data || {};
+        const key = (d.farmId || d.farmName || 'Unknown farm').toString();
+        return !disabled.has(key);
+      });
+
+      STATE.fieldsActive = active;
+      STATE.totals = computeTotalsFromFields(active);
+    }
+
     async function loadTrialList(){
       const colRef = collection(STATE.db, 'fieldTrials');
       const snap = await getDocs(colRef);
@@ -1211,7 +1325,9 @@
 
     function clearTrialView(){
       STATE.trialDoc = null;
-      STATE.fields = [];
+      STATE.fieldsAll = [];
+      STATE.fieldsActive = [];
+      STATE.disabledFarms = new Set();
       STATE.totals = {
         fieldCount: 0,
         tillableAll: 0,
@@ -1280,43 +1396,9 @@
         });
       }
 
-      STATE.fields = fieldRecords;
-
-      // Compute totals
-      let tillableAll = 0;
-      let checkAcresAll = 0;
-      let trialAcresAll = 0;
-      let checkBuAll = 0;
-      let trialBuAll = 0;
-
-      for (const f of STATE.fields) {
-        const { data, stats } = f;
-        tillableAll += typeof data.tillable === 'number' ? data.tillable : 0;
-
-        checkAcresAll += stats.checkAc;
-        trialAcresAll += stats.trialAc;
-
-        if (stats.checkAc > 0 && stats.checkAvg !== null) {
-          checkBuAll += stats.checkAvg * stats.checkAc;
-        }
-        if (stats.trialAc > 0 && stats.trialAvg !== null) {
-          trialBuAll += stats.trialAvg * stats.trialAc;
-        }
-      }
-
-      const checkAvgAll = checkAcresAll > 0 ? (checkBuAll / checkAcresAll) : null;
-      const trialAvgAll = trialAcresAll > 0 ? (trialBuAll / trialAcresAll) : null;
-      const advantageAll = (checkAvgAll !== null && trialAvgAll !== null) ? (trialAvgAll - checkAvgAll) : null;
-
-      STATE.totals = {
-        fieldCount: STATE.fields.length,
-        tillableAll,
-        checkAcresAll,
-        trialAcresAll,
-        checkAvgAll,
-        trialAvgAll,
-        advantageAll
-      };
+      STATE.fieldsAll = fieldRecords;
+      STATE.disabledFarms = new Set();  // reset farm toggles when switching trials
+      recomputeVisibleState();
     }
 
     /* ---------- render main page ---------- */
@@ -1324,6 +1406,9 @@
     function renderTop() {
       const t = STATE.trialDoc;
       if (!t) return;
+
+      const activeFields = STATE.fieldsActive || [];
+      const s = STATE.totals;
 
       if (els.title) els.title.textContent = t.trialName || 'Field Trial Yield Summary';
 
@@ -1347,19 +1432,19 @@
         }
       }
 
-      const s = STATE.totals;
-
       if (els.metaLine) {
         const parts = [];
         if (s.fieldCount) parts.push(`${s.fieldCount} field${s.fieldCount === 1 ? '' : 's'}`);
-        const farmSet = new Set(STATE.fields.map(f => f.data.farmId || f.data.farmName || ''));
+        const farmSet = new Set(
+          activeFields.map(f => (f.data && (f.data.farmId || f.data.farmName)) || '')
+        );
         const farmCount = Array.from(farmSet).filter(Boolean).length;
         if (farmCount) parts.push(`${farmCount} farm${farmCount === 1 ? '' : 's'}`);
         if (s.trialAcresAll) parts.push(`${formatNumber(s.trialAcresAll, {decimals:0})} trial acres with yield`);
         els.metaLine.textContent = parts.join(' • ') || 'Trial summary ready';
       }
 
-      // Top stat pills
+      // Top stat pills based on ACTIVE fields only
       const top = [];
 
       top.push({
@@ -1413,10 +1498,10 @@
     /* ---------- desktop: farm/field table ---------- */
 
     function renderFarmsAndFieldsTable() {
-      const fields = STATE.fields || [];
+      const fieldsAll = STATE.fieldsAll || [];
       if (!els.farmsContainer) return;
 
-      if (!fields.length) {
+      if (!fieldsAll.length) {
         els.farmsContainer.innerHTML = '';
         if (els.farmsMobileContainer) els.farmsMobileContainer.innerHTML = '';
         if (els.emptyState) {
@@ -1428,32 +1513,42 @@
       if (els.emptyState) els.emptyState.style.display = 'none';
 
       const byFarm = new Map();
-      for (const f of fields) {
-        const name = f.data.farmName || 'Unknown farm';
-        if (!byFarm.has(name)) byFarm.set(name, []);
-        byFarm.get(name).push(f);
+      for (const f of fieldsAll) {
+        const data = f.data || {};
+        const farmLabel = data.farmName || 'Unknown farm';
+        const farmKey = (data.farmId || farmLabel).toString();
+        if (!byFarm.has(farmKey)) byFarm.set(farmKey, { label: farmLabel, fields: [] });
+        byFarm.get(farmKey).fields.push(f);
       }
 
-      const farmNames = Array.from(byFarm.keys()).sort((a, b) => a.localeCompare(b));
+      const farmEntries = Array.from(byFarm.entries())
+        .sort((a, b) => a[1].label.localeCompare(b[1].label));
+
       const farmHtml = [];
 
-      for (const farmName of farmNames) {
-        const fList = byFarm.get(farmName) || [];
+      for (const [farmKey, info] of farmEntries) {
+        const fList = info.fields || [];
+        const farmName = info.label || farmKey;
         fList.sort((a, b) => {
-          const an = a.data.fieldName || '';
-          const bn = b.data.fieldName || '';
+          const an = (a.data && a.data.fieldName) || '';
+          const bn = (b.data && b.data.fieldName) || '';
           return an.localeCompare(bn);
         });
 
+        const disabled = STATE.disabledFarms && STATE.disabledFarms.has(farmKey);
+        const groupClass = disabled ? 'farm-group farm-group-disabled' : 'farm-group';
+        const toggleLabel = disabled ? 'Excluded' : 'Included';
+        const toggleOffClass = disabled ? 'is-off' : '';
+
         let rows = '';
         for (const f of fList) {
-          const d = f.data;
-          const s = f.stats;
+          const d = f.data || {};
+          const s = f.stats || {};
           const adv = s.advantage;
 
           let advClass = '';
           let advText = '–';
-          if (adv !== null) {
+          if (adv !== null && adv !== undefined) {
             advClass = adv >= 0 ? 'adv-pos' : 'adv-neg';
             advText = `${adv.toFixed(1)} bu/ac`;
           }
@@ -1467,18 +1562,28 @@
                   • ${formatNumber(d.tillable || 0, {decimals:1})} tillable
                 </div>
               </td>
-              <td class="numeric">${s.checkAvg !== null ? formatNumber(s.checkAvg, {decimals:1}) : '–'}</td>
-              <td class="numeric">${s.trialAvg !== null ? formatNumber(s.trialAvg, {decimals:1}) : '–'}</td>
+              <td class="numeric">${s.checkAvg !== null && s.checkAvg !== undefined ? formatNumber(s.checkAvg, {decimals:1}) : '–'}</td>
+              <td class="numeric">${s.trialAvg !== null && s.trialAvg !== undefined ? formatNumber(s.trialAvg, {decimals:1}) : '–'}</td>
               <td class="numeric ${advClass}">${advText}</td>
             </tr>
           `;
         }
 
         farmHtml.push(`
-          <div class="farm-group">
-            <div class="farm-group-title">${farmName}</div>
+          <div class="${groupClass}" data-farm-key="${escapeHtml(farmKey)}">
+            <div class="farm-group-header">
+              <div class="farm-group-title">${farmName}</div>
+              <button
+                type="button"
+                class="farm-toggle ${toggleOffClass}"
+                data-farm-key="${escapeHtml(farmKey)}"
+                aria-pressed="${disabled ? 'false' : 'true'}">
+                <span class="farm-toggle-dot"></span>
+                <span class="farm-toggle-label">${toggleLabel}</span>
+              </button>
+            </div>
             <div class="farm-table-wrap">
-              <table class="farm-table" data-farm="${farmName}">
+              <table class="farm-table">
                 <thead>
                   <tr>
                     <th style="width:40%">Field</th>
@@ -1498,10 +1603,11 @@
 
       els.farmsContainer.innerHTML = farmHtml.join('');
 
+      // Row click -> open field modal
       els.farmsContainer.querySelectorAll('tbody tr[data-field-id]').forEach(row => {
         row.addEventListener('click', () => {
           const id = row.getAttribute('data-field-id');
-          const field = STATE.fields.find(f => f.id === id);
+          const field = (STATE.fieldsAll || []).find(f => f.id === id);
           if (field) openFieldModal(field);
         });
       });
@@ -1510,46 +1616,56 @@
     /* ---------- mobile: stacked field cards ---------- */
 
     function renderFarmsAndFieldsMobile() {
-      const fields = STATE.fields || [];
+      const fieldsAll = STATE.fieldsAll || [];
       if (!els.farmsMobileContainer) return;
 
-      if (!fields.length) {
+      if (!fieldsAll.length) {
         els.farmsMobileContainer.innerHTML = '';
         return;
       }
 
       const byFarm = new Map();
-      for (const f of fields) {
-        const name = f.data.farmName || 'Unknown farm';
-        if (!byFarm.has(name)) byFarm.set(name, []);
-        byFarm.get(name).push(f);
+      for (const f of fieldsAll) {
+        const data = f.data || {};
+        const farmLabel = data.farmName || 'Unknown farm';
+        const farmKey = (data.farmId || farmLabel).toString();
+        if (!byFarm.has(farmKey)) byFarm.set(farmKey, { label: farmLabel, fields: [] });
+        byFarm.get(farmKey).fields.push(f);
       }
 
-      const farmNames = Array.from(byFarm.keys()).sort((a, b) => a.localeCompare(b));
+      const farmEntries = Array.from(byFarm.entries())
+        .sort((a, b) => a[1].label.localeCompare(b[1].label));
+
       const farmHtml = [];
 
-      for (const farmName of farmNames) {
-        const fList = byFarm.get(farmName) || [];
+      for (const [farmKey, info] of farmEntries) {
+        const fList = info.fields || [];
+        const farmName = info.label || farmKey;
         fList.sort((a, b) => {
-          const an = a.data.fieldName || '';
-          const bn = b.data.fieldName || '';
+          const an = (a.data && a.data.fieldName) || '';
+          const bn = (b.data && b.data.fieldName) || '';
           return an.localeCompare(bn);
         });
 
+        const disabled = STATE.disabledFarms && STATE.disabledFarms.has(farmKey);
+        const groupClass = disabled ? 'farm-mobile-group farm-group-disabled' : 'farm-mobile-group';
+        const toggleLabel = disabled ? 'Excluded' : 'Included';
+        const toggleOffClass = disabled ? 'is-off' : '';
+
         const cards = fList.map(f => {
-          const d = f.data;
+          const d = f.data || {};
           const s = f.stats || {};
           const adv = s.advantage;
 
           let advClass = '';
           let advText = '–';
-          if (adv !== null) {
+          if (adv !== null && adv !== undefined) {
             advClass = adv >= 0 ? 'adv-pos' : 'adv-neg';
             advText = `${formatNumber(adv, {decimals:1})} bu/ac`;
           }
 
-          const checkText = s.checkAvg !== null ? formatNumber(s.checkAvg, {decimals:1}) : '–';
-          const trialText = s.trialAvg !== null ? formatNumber(s.trialAvg, {decimals:1}) : '–';
+          const checkText = s.checkAvg !== null && s.checkAvg !== undefined ? formatNumber(s.checkAvg, {decimals:1}) : '–';
+          const trialText = s.trialAvg !== null && s.trialAvg !== undefined ? formatNumber(s.trialAvg, {decimals:1}) : '–';
 
           return `
             <div class="field-card" data-field-id="${f.id}">
@@ -1576,8 +1692,18 @@
         }).join('');
 
         farmHtml.push(`
-          <div class="farm-mobile-group">
-            <div class="farm-mobile-title">${farmName}</div>
+          <div class="${groupClass}" data-farm-key="${escapeHtml(farmKey)}">
+            <div class="farm-group-header">
+              <div class="farm-mobile-title">${farmName}</div>
+              <button
+                type="button"
+                class="farm-toggle ${toggleOffClass}"
+                data-farm-key="${escapeHtml(farmKey)}"
+                aria-pressed="${disabled ? 'false' : 'true'}">
+                <span class="farm-toggle-dot"></span>
+                <span class="farm-toggle-label">${toggleLabel}</span>
+              </button>
+            </div>
             ${cards}
           </div>
         `);
@@ -1588,7 +1714,7 @@
       els.farmsMobileContainer.querySelectorAll('.field-card[data-field-id]').forEach(card => {
         card.addEventListener('click', () => {
           const id = card.getAttribute('data-field-id');
-          const field = STATE.fields.find(f => f.id === id);
+          const field = (STATE.fieldsAll || []).find(f => f.id === id);
           if (field) openFieldModal(field);
         });
       });
@@ -1599,7 +1725,7 @@
     function openFieldModal(field) {
       if (!els.modalBackdrop) return;
 
-      const d = field.data;
+      const d = field.data || {};
       const s = field.stats || {};
       const blocks = Array.isArray(field.blocks) ? field.blocks : [];
 
@@ -1615,9 +1741,9 @@
       // Summary
       if (els.modalSummary) {
         const sumHtml = [
-          { label: 'Check weighted bu/ac', value: s.checkAvg !== null ? formatNumber(s.checkAvg, {decimals:1}) : '–' },
-          { label: 'Trial weighted bu/ac', value: s.trialAvg !== null ? formatNumber(s.trialAvg, {decimals:1}) : '–' },
-          { label: 'Treatment advantage', value: s.advantage !== null ? `${s.advantage >= 0 ? '+' : ''}${formatNumber(s.advantage, {decimals:1})} bu/ac` : '–' },
+          { label: 'Check weighted bu/ac', value: s.checkAvg !== null && s.checkAvg !== undefined ? formatNumber(s.checkAvg, {decimals:1}) : '–' },
+          { label: 'Trial weighted bu/ac', value: s.trialAvg !== null && s.trialAvg !== undefined ? formatNumber(s.trialAvg, {decimals:1}) : '–' },
+          { label: 'Treatment advantage', value: s.advantage !== null && s.advantage !== undefined ? `${s.advantage >= 0 ? '+' : ''}${formatNumber(s.advantage, {decimals:1})} bu/ac` : '–' },
           { label: 'Check acres (blocks)', value: s.checkAc ? formatNumber(s.checkAc, {decimals:1}) : '–' },
           { label: 'Trial acres (blocks)', value: s.trialAc ? formatNumber(s.trialAc, {decimals:1}) : '–' }
         ].map(item => `
@@ -1919,16 +2045,21 @@
     function buildPrintHtml({ company, runStr, runDateOnly }){
       const t = STATE.trialDoc || {};
       const s = STATE.totals || {};
-      const fields = STATE.fields || [];
+      const fields = (STATE.fieldsActive && STATE.fieldsActive.length)
+        ? STATE.fieldsActive
+        : (STATE.fieldsAll || []);
 
       // group fields by farm
       const farmMap = new Map();
       fields.forEach(f => {
-        const name = f.data.farmName || 'Unknown farm';
-        if (!farmMap.has(name)) farmMap.set(name, []);
-        farmMap.get(name).push(f);
+        const data = f.data || {};
+        const farmLabel = data.farmName || 'Unknown farm';
+        const farmKey = (data.farmId || farmLabel).toString();
+        if (!farmMap.has(farmKey)) farmMap.set(farmKey, { label: farmLabel, fields: [] });
+        farmMap.get(farmKey).fields.push(f);
       });
-      const farmEntries = Array.from(farmMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
+      const farmEntries = Array.from(farmMap.entries())
+        .sort((a,b)=>a[1].label.localeCompare(b[1].label));
 
       // New: pull Check Product / Trial Product
       const checkProductName = (t.checkProduct || t.check || '').toString();
@@ -2202,9 +2333,11 @@
       <h2 class="section-title">Detail by farm and field</h2>
       <p class="section-sub">Fields are grouped by farm, then listed alphabetically by field name.</p>
 
-      ${farmEntries.map(([farmName, fList]) => {
+      ${farmEntries.map(([farmKey, info]) => {
+        const fList = info.fields || [];
+        const farmName = info.label || farmKey;
         const rows = fList.map(f => {
-          const d = f.data;
+          const d = f.data || {};
           const st = f.stats || {};
           const adv = typeof st.advantage === 'number'
             ? (st.advantage >= 0 ? '+' : '') + formatDecimal(st.advantage,1) + ' bu/ac'
@@ -2218,8 +2351,8 @@
             <tr>
               <td>${escapeHtml(d.fieldName || '')}</td>
               <td>${escapeHtml(acresText || '')}</td>
-              <td class="cell-right">${st.checkAvg !== null ? formatDecimal(st.checkAvg,1) : ''}</td>
-              <td class="cell-right">${st.trialAvg !== null ? formatDecimal(st.trialAvg,1) : ''}</td>
+              <td class="cell-right">${st.checkAvg !== null && st.checkAvg !== undefined ? formatDecimal(st.checkAvg,1) : ''}</td>
+              <td class="cell-right">${st.trialAvg !== null && st.trialAvg !== undefined ? formatDecimal(st.trialAvg,1) : ''}</td>
               <td class="cell-right">${adv}</td>
             </tr>
           `;
@@ -2314,7 +2447,8 @@
       const payload = {
         trial: STATE.trialDoc,
         totals: STATE.totals,
-        fields: STATE.fields.map(f => ({
+        // Only feed ACTIVE fields to AI so it matches what you see on screen
+        fields: (STATE.fieldsActive || []).map(f => ({
           data: f.data,
           stats: f.stats
         }))
@@ -2421,6 +2555,7 @@
       if (els.filterYear) {
         els.filterYear.addEventListener('change', () => {
           STATE.selectedYear = els.filterYear.value || 'all';
+          STATE.trialId = null;
           populateTrialFilter();
           clearTrialView();
         });
@@ -2460,12 +2595,40 @@
         els.filterClear.addEventListener('click', () => {
           STATE.selectedYear = 'all';
           STATE.trialId = null;
+          STATE.fieldsAll = [];
+          STATE.fieldsActive = [];
+          STATE.disabledFarms = new Set();
           if (els.filterYear) els.filterYear.value = 'all';
           populateTrialFilter();
           if (els.filterTrial) els.filterTrial.value = '';
           clearTrialView();
         });
       }
+
+      // NEW: global farm toggle handler (desktop + mobile)
+      document.addEventListener('click', (evt) => {
+        const btn = evt.target.closest('.farm-toggle[data-farm-key]');
+        if (!btn) return;
+
+        const farmKey = btn.getAttribute('data-farm-key') || '';
+        if (!farmKey) return;
+
+        if (!STATE.disabledFarms) {
+          STATE.disabledFarms = new Set();
+        }
+
+        if (STATE.disabledFarms.has(farmKey)) {
+          STATE.disabledFarms.delete(farmKey);
+        } else {
+          STATE.disabledFarms.add(farmKey);
+        }
+
+        recomputeVisibleState();
+        renderTop();
+        renderFarmsAndFieldsTable();
+        renderFarmsAndFieldsMobile();
+        kickOffAiSummary();
+      });
     }
 
     /* ---------- boot ---------- */
@@ -2661,117 +2824,4 @@
 
   <!-- Field detail modal -->
   <div id="field-modal-backdrop" class="modal-backdrop modal-hidden" aria-hidden="true">
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="field-modal-title">
-      <div class="modal-head">
-        <div class="modal-title-row">
-          <div>
-            <div id="field-modal-title" class="modal-title">Field details</div>
-            <div id="field-modal-sub" class="modal-sub"></div>
-          </div>
-          <button
-            type="button"
-            class="modal-close-btn"
-            id="field-modal-close"
-            aria-label="Close">
-            ×
-          </button>
-        </div>
-      </div>
-
-      <div class="modal-body">
-        <section>
-          <div class="modal-section-title">Summary</div>
-          <div class="modal-summary-grid" id="field-modal-summary"></div>
-        </section>
-
-        <section>
-          <div class="modal-section-title">Yield blocks</div>
-
-          <div class="blocks-table-wrap desktop-only">
-            <table class="blocks-table">
-              <thead>
-                <tr>
-                  <th>Block</th>
-                  <th>Type</th>
-                  <th class="numeric">Check bu/ac</th>
-                  <th class="numeric">Trial bu/ac</th>
-                  <th class="numeric">Check acres</th>
-                  <th class="numeric">Trial acres</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody id="field-modal-blocks-body">
-              </tbody>
-            </table>
-          </div>
-
-          <div id="field-modal-blocks-cards" class="mobile-only block-card-list">
-          </div>
-        </section>
-
-        <section>
-          <div class="modal-section-title">Files &amp; photos</div>
-          <div id="field-modal-files" class="thumb-grid"></div>
-        </section>
-      </div>
-    </div>
-  </div>
-
-  <!-- Photo viewer modal -->
-  <div id="photo-viewer-backdrop" class="modal-backdrop modal-hidden" aria-hidden="true">
-    <div class="modal photo-modal" role="dialog" aria-modal="true" aria-labelledby="photo-viewer-caption">
-      <div class="modal-head">
-        <div class="modal-title-row">
-          <div id="photo-viewer-caption" class="modal-title">File preview</div>
-          <button
-            type="button"
-            class="modal-close-btn"
-            id="photo-viewer-close"
-            aria-label="Close image viewer">
-            ×
-          </button>
-        </div>
-      </div>
-      <div class="modal-body photo-modal-body">
-        <img id="photo-viewer-img" src="" alt="Trial file preview" />
-      </div>
-    </div>
-  </div>
-
-  <!-- Print-type chooser modal -->
-  <div id="print-modal-backdrop" class="modal-backdrop modal-hidden" aria-hidden="true">
-    <div class="modal print-modal" role="dialog" aria-modal="true" aria-labelledby="print-modal-title">
-      <div class="modal-head print-modal-head">
-        <div class="modal-title-row">
-          <div>
-            <div id="print-modal-title" class="print-modal-title">Choose report type</div>
-            <div class="print-modal-sub">
-              How do you want to print this trial?
-            </div>
-          </div>
-          <button type="button" class="modal-close-btn" id="printModalClose" aria-label="Close">
-            ×
-          </button>
-        </div>
-      </div>
-      <div class="print-modal-body">
-        <p class="print-modal-note">
-          Summary reports match your other FarmVista PDF reports and show trial-wide stats with a farm / field table.
-          Detailed reports will drill into block-level data and notes.
-        </p>
-        <div class="print-modal-buttons">
-          <button id="printSummaryBtn" type="button" class="btn btn-primary print-modal-btn">
-            Summary report
-          </button>
-          <button id="printDetailedBtn" type="button" class="btn btn-quiet print-modal-btn">
-            Detailed report
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Hidden iframe used for printing -->
-  <iframe id="fv-print-frame"></iframe>
-</body>
-</html>
+    <div class="modal" role="dialog" aria-modal="
