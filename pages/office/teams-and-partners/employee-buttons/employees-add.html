@@ -44,23 +44,32 @@
     .btn-accent{border-color:#2F6C3C;background:#E7F1EA;color:#2F6C3C;width:100%;font-size:17px;font-weight:800;margin-top:8px;}
     .btn-quiet{min-width:auto;padding:8px 12px}
 
-    /* Overrides UI */
+    /* Overrides legend */
     .ovr-legend{display:flex;flex-wrap:wrap;gap:10px;align-items:center;color:var(--muted,#5d655f);font-size:14px}
     .ovr-legend b{color:var(--text)}
-    .ovr-wrap{border:1px dashed var(--border);border-radius:12px;padding:10px}
-    .ovr-empty{padding:8px 4px;color:var(--muted,#6b746d)}
 
-    details.ovr-group{border:1px solid var(--border);border-radius:12px;margin:10px 0;background:var(--card-surface,var(--surface));overflow:hidden}
-    summary.ovr-summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;cursor:pointer}
-    summary.ovr-summary::-webkit-details-marker{display:none}
-    .ovr-name{font-weight:800}
-    .pill{border:1px solid var(--border);padding:6px 10px;border-radius:999px;font-size:12px;font-weight:800;user-select:none}
-    .pill.enabled{background:#203a26;color:#bfe3c6;border-color:#315b3c}
-    .pill.disabled{background:#3a2020;color:#f2c0c0;border-color:#5b3131}
+    /* Permissions tree — EXACT same style as Account Roles */
+    .tree{border:1px solid var(--border);border-radius:12px;padding:8px;background:var(--card-surface,var(--surface));}
+    details.node{border:1px solid var(--border);border-radius:10px;background:var(--surface);margin:6px 0;}
+    summary{cursor:pointer;padding:8px 10px;display:flex;align-items:center;gap:10px;list-style:none;}
+    summary::before{content:"▸";display:inline-block;transform:translateY(1px);transition:transform .15s ease;}
+    details[open] > summary::before{transform:rotate(90deg) translateY(0);}
+    .sum-line{display:flex;align-items:center;gap:10px;flex:1;min-height:0}
+    .indent-0{padding-left:0}
+    .indent-1{padding-left:10px}
+    .indent-2{padding-left:20px}
+    .indent-3{padding-left:30px}
+    .indent-4{padding-left:40px}
+    .label{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 
-    .ovr-cap-row{display:grid;grid-template-columns:1fr 160px;gap:10px;align-items:center;padding:10px 12px;border-top:1px solid var(--border)}
-    .ovr-key{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;word-break:break-all}
-    .ovr-select{width:100%;border:1px solid var(--border);border-radius:10px;padding:10px;background:var(--surface);font-weight:700}
+    .content{padding:6px 10px 10px}
+    .children{display:grid;gap:6px}
+
+    .switch-col{display:flex;gap:8px;flex-wrap:wrap;margin:0}
+    .switch{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:999px;padding:5px 10px;
+      font-weight:800;background:var(--surface);color:var(--text);cursor:pointer;user-select:none;min-height:30px}
+    .switch[data-on="true"]{background:#2F6C3C;color:#fff;border-color:#2F6C3C;}
+    .switch .tiny{font-size:12px;opacity:.92;font-weight:700}
 
     .ovr-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
 
@@ -95,7 +104,7 @@
       <h1 class="page-title">Add Employee</h1>
       <p class="page-sub">Create a new employee/partner record. You can edit these later from the team list.</p>
 
-      <!-- Shared Permissions Hero (employee mode) – SAME placement as Account Roles -->
+      <!-- Shared Permissions Hero (employee mode) – SAME component as Account Roles -->
       <fv-perms-hero id="permsHero"></fv-perms-hero>
 
       <!-- Card 1: Employee Details -->
@@ -176,18 +185,16 @@
 
         <div class="section-body">
           <div class="ovr-legend">
-            <span>Defaults follow the selected <b>Permission Group</b> from Firestore (<code>accountRoles</code> ➜ <code>perms</code>). Tap a section’s <b>Enabled/Disabled</b> pill to force the whole section on/off for this employee. Individual items can still be tweaked below.</span>
+            <span>Defaults follow the selected <b>Permission Group</b> from Firestore (<code>accountRoles</code> ➜ <code>perms</code>). Use the switches below to override permissions for this employee only.</span>
           </div>
 
-          <div class="ovr-wrap" id="overridesWrap">
-            <div class="ovr-empty">Choose a Permission Group to load capabilities.</div>
-          </div>
-
-          <div class="ovr-toolbar">
+          <div class="actions ovr-toolbar">
             <button id="ovrExpand" class="btn btn-quiet" type="button">Expand All</button>
             <button id="ovrCollapse" class="btn btn-quiet" type="button">Collapse All</button>
             <button id="ovrClear" class="btn btn-quiet" type="button">Clear Overrides</button>
           </div>
+
+          <div id="tree" class="tree" aria-live="polite"></div>
         </div>
       </section>
     </div>
@@ -205,7 +212,6 @@
       getAuth, sendPasswordResetEmail
     } from '/Farm-vista/js/firebase-init.js';
 
-    // Live navigation: we’ll index groups, subgroups, and links from this.
     import NAV_MENU from '/Farm-vista/js/menu.js';
 
     /* --------------------- tiny utils --------------------- */
@@ -227,166 +233,97 @@
     };
     $("phone").addEventListener("blur",e=>e.target.value=formatUSPhone(e.target.value));
     const emailKey=e=>(String(e||"").trim().toLowerCase());
-    const fk=(g,k)=>`${g}|${k}`;
-    const triToBool= t => t==='allow' ? true : t==='deny' ? false : undefined;
 
-    /* --------------------- NAV indexer --------------------- */
-    // Build:
-    // - TOP_GROUPS: { TopLabel -> [capIds] }
-    // - CAP_TO_TOP: { capId -> TopLabel }
-    // - CONTAINERS: { containerId (top group id OR subgroup id) -> [capIds under it] }
-    // - CAP_SET: Set of leaf cap ids (link ids)
-    const TOP_GROUPS = {};
-    const CAP_TO_TOP = {};
-    const CONTAINERS = {};
-    const CAP_SET = new Set();
-    const CONTAINER_IDS = new Set(); // includes top group ids + subgroup ids
+    /* --------------------- PERMISSIONS TREE (same as Account Roles) --------------------- */
 
-    (function buildIndexes(){
-      if(!NAV_MENU || !Array.isArray(NAV_MENU.items)) return;
+    const COLLECTION_ROLES = 'accountRoles';
 
-      function collectLinks(nodes, acc){
-        nodes.forEach(n=>{
-          if(n.type==='group' && Array.isArray(n.children)){
-            collectLinks(n.children, acc);
-          }else if(n.type==='link'){
-            acc.push(n.id);
+    let NAV = null, IDX = null;
+    let currentRoleName = null;
+    let rolePerms = {};          // cleaned base perms from role (id -> boolean)
+    let employeeOverrides = {};  // id -> boolean (only overrides)
+    let effectivePerms = {};     // merged (role + overrides) for hero
+
+    function getMenu(){ return NAV_MENU || { items: [] }; }
+
+    function buildIndex(menu){
+      const CAP_SET = new Set();
+      const CONTAINER_IDS = new Set();
+      const byParent = {};
+      function walk(items, depth=0, parent="__ROOT__"){
+        (items||[]).forEach(it=>{
+          if(!it || !it.id) return;
+          if(it.id==="home") return;
+          const node={ id:it.id, type:it.type, label:it.label||it.id, depth, parent };
+          (byParent[parent]||(byParent[parent]=[])).push(node);
+          if(it.type==="group"){ CONTAINER_IDS.add(it.id); }
+          else{ CAP_SET.add(it.id); }
+          if(Array.isArray(it.children)&&it.children.length){
+            walk(it.children, depth+1, it.id);
           }
         });
       }
+      walk(menu.items||[]);
+      return { byParent, CAP_SET, CONTAINER_IDS };
+    }
 
-      NAV_MENU.items.forEach(top=>{
-        if(top.type!=='group') return;
-        const topLabel = top.label || top.id || 'General';
-        const topId = top.id;
-        const allUnderTop = [];
-        collectLinks([top], allUnderTop);
-
-        CONTAINERS[topId] = allUnderTop.slice();
-        CONTAINER_IDS.add(topId);
-
-        TOP_GROUPS[topLabel] = allUnderTop.slice();
-        allUnderTop.forEach(id=>{
-          CAP_TO_TOP[id]=topLabel;
-          CAP_SET.add(id);
-        });
-
-        // subgroups
-        (top.children||[]).forEach(ch=>{
-          if(ch.type==='group'){
-            const arr=[]; collectLinks([ch], arr);
-            CONTAINERS[ch.id]=arr.slice();
-            CONTAINER_IDS.add(ch.id);
-          }
-        });
-      });
-    })();
-
-    /* --------------------- role → baseline --------------------- */
-    let currentRoleName = null;
-    let currentRolePerms = null; // raw perms object from accountRoles
-    let baseGroups = {};     // {TopLabel:{capId:boolean}}
-    let overrideState = {};  // {"TopLabel|capId": 'inherit'|'allow'|'deny'}
-
-    // Extract boolean from a perms entry (boolean or {on:boolean})
-    function valToBool(v){
-      if (typeof v === 'boolean') return v;
-      if (v && typeof v.on === 'boolean') return v.on;
+    function boolFromPerm(v){
+      if(typeof v==='boolean') return v;
+      if(v && typeof v.on==='boolean') return !!v.on;
       return undefined;
     }
 
-    // Build baseline from roleDoc.perms (container defaults + explicit caps)
-    function buildBaselineFromPerms(perms){
-      // 1) start all false
-      const out = {};
-      Object.keys(TOP_GROUPS).forEach(t=>{
-        out[t]={};
-        TOP_GROUPS[t].forEach(capId=>{ out[t][capId]=false; });
+    function cleanRolePerms(raw){
+      const clean={};
+      if(!raw || typeof raw!=='object') return clean;
+      Object.keys(raw).forEach(k=>{
+        if(k==="home") return;
+        const b=boolFromPerm(raw[k]);
+        if(typeof b==='boolean') clean[k]=b;
       });
+      return clean;
+    }
 
-      if(!perms || typeof perms!=='object') return out;
+    function defaultPermFor(id){
+      return !!rolePerms[id];
+    }
 
-      // 2) apply container defaults (top group ids or subgroup ids)
-      Object.keys(perms).forEach(key=>{
-        const vb = valToBool(perms[key]);
-        if (vb === undefined) return;
-        if (CONTAINER_IDS.has(key)){
-          const caps = CONTAINERS[key]||[];
-          caps.forEach(capId=>{
-            const top = CAP_TO_TOP[capId]; if(!top) return;
-            // only set default if still false — explicit leaf will still override later
-            out[top][capId] = vb;
-          });
+    function effectiveFor(id){
+      if(Object.prototype.hasOwnProperty.call(employeeOverrides,id)){
+        return !!employeeOverrides[id];
+      }
+      return defaultPermFor(id);
+    }
+
+    function setEffective(id, value){
+      const base = defaultPermFor(id);
+      if(value === base){
+        delete employeeOverrides[id]; // no override needed
+      }else{
+        employeeOverrides[id] = !!value;
+      }
+    }
+
+    function rebuildEffectiveMap(){
+      effectivePerms = {};
+      if(!IDX) return;
+      const { byParent } = IDX;
+      const stack=[...(byParent["__ROOT__"]||[])];
+      while(stack.length){
+        const n = stack.pop();
+        effectivePerms[n.id] = effectiveFor(n.id);
+        if(n.type==="group"){
+          (byParent[n.id]||[]).forEach(c=>stack.push(c));
         }
-      });
-
-      // 3) apply explicit leaf permissions (cap ids)
-      Object.keys(perms).forEach(key=>{
-        const vb = valToBool(perms[key]);
-        if (vb === undefined) return;
-        if (CAP_SET.has(key)){
-          const top = CAP_TO_TOP[key]; if(!top) return;
-          out[top][key] = vb; // explicit beats container default
-        }
-      });
-
-      return out;
+      }
     }
 
-    function effectiveCap(g,k){
-      const tri = overrideState[fk(g,k)];
-      if(tri==='allow') return true;
-      if(tri==='deny')  return false;
-      return !!(baseGroups[g] && baseGroups[g][k]);
-    }
-
-    function computeGroupState(g){
-      const caps = baseGroups[g]||{};
-      const keys = Object.keys(caps);
-      let t=0,f=0;
-      keys.forEach(k=>{ effectiveCap(g,k)?t++:f++; });
-      return { total:keys.length, trueCount:t, falseCount:f };
-    }
-
-    function setGroupOverrides(g, mode){
-      const caps = baseGroups[g]||{};
-      Object.keys(caps).forEach(k=>{
-        const key=fk(g,k);
-        if(mode==='allow-all') overrideState[key]='allow';
-        else if(mode==='deny-all') overrideState[key]='deny';
-        else overrideState[key]='inherit';
-      });
-      document.querySelectorAll(`select.ovr-select[data-group="${CSS.escape(g)}"]`).forEach(sel=>{
-        const cap=sel.getAttribute('data-cap');
-        const tri=overrideState[fk(g,cap)]||'inherit';
-        sel.value=tri;
-        const base = baseGroups[g][cap];
-        sel.querySelector('option[value="inherit"]').textContent = `Inherit (${base ? 'Allow' : 'Deny'})`;
-      });
-      updateGroupPill(g);
-    }
-
-    function updateGroupPill(g){
-      const pill = document.querySelector(`.pill[data-group="${CSS.escape(g)}"]`);
-      if(!pill) return;
-      const { total, trueCount, falseCount } = computeGroupState(g);
-      if(total===0){ pill.className='pill disabled'; pill.textContent='Disabled'; return; }
-      if(trueCount===total){ pill.className='pill enabled'; pill.textContent='Enabled'; }
-      else if(falseCount===total){ pill.className='pill disabled'; pill.textContent='Disabled'; }
-      else { pill.className='pill'; pill.textContent='Mixed'; }
-    }
-
-    /* --------------------- HERO SYNC (employee mode) --------------------- */
     function updateHero(){
       const hero = $("permsHero");
       if(!hero) return;
 
-      const toolbar = document.querySelector('.ovr-toolbar');
-      if(toolbar) toolbar.style.display = currentRoleName ? 'flex' : 'none';
-
-      // No permission group selected yet → hide hero completely
-      if(!currentRoleName){
-        hero.style.display = 'none';
+      if(!currentRoleName || !IDX){
+        hero.style.display='none';
         return;
       }
 
@@ -395,126 +332,157 @@
       const email = $("email")?.value.trim() || "";
       const name = (first || last) ? `${first} ${last}`.trim() : (email || "Employee");
 
-      hero.style.display = '';
+      rebuildEffectiveMap();
+      hero.style.display='';
 
       hero.config = {
         mode: 'employee',
         name,
         baseRoleName: currentRoleName,
-        perms: currentRolePerms || {},
+        perms: effectivePerms,
         navMenu: NAV_MENU,
         onResetOverrides: () => {
-          clearOverridesUI();
+          employeeOverrides = {};
+          renderTree();
           showToast("Overrides cleared.");
         }
       };
     }
 
-    /* --------------------- Overrides render --------------------- */
-    function renderOverrides(){
-      const wrap=$("overridesWrap");
-      wrap.innerHTML="";
-
-      const toolbar = document.querySelector('.ovr-toolbar');
-      if(toolbar) toolbar.style.display = currentRoleName ? 'flex' : 'none';
-
-      // No permission group selected yet
+    function renderTree(){
+      const tree = $("tree");
+      const toolbar = document.querySelector(".ovr-toolbar");
+      NAV = getMenu();
       if(!currentRoleName){
-        const d=document.createElement('div');
-        d.className='ovr-empty';
-        d.textContent='Choose a Permission Group to load capabilities.';
-        wrap.appendChild(d);
+        if(toolbar) toolbar.style.visibility='hidden';
+        tree.textContent = "Choose a Permission Group to load capabilities.";
         updateHero();
         return;
       }
-
-      const gnames=Object.keys(baseGroups||{}).sort((a,b)=>a.localeCompare(b));
-      if(!gnames.length){
-        const d=document.createElement('div'); d.className='ovr-empty'; d.textContent='No capabilities found for this group.'; wrap.appendChild(d);
+      if(!NAV || !Array.isArray(NAV.items)){
+        tree.textContent="Menu not available.";
         updateHero();
         return;
       }
+      if(toolbar) toolbar.style.visibility='visible';
 
-      gnames.forEach(gname=>{
-        const details=document.createElement('details'); details.className='ovr-group';
-        const summary=document.createElement('summary'); summary.className='ovr-summary';
+      IDX = buildIndex(NAV);
+      const { byParent } = IDX;
 
-        const left=document.createElement('div'); left.className='ovr-name'; left.textContent=gname;
-        const pill=document.createElement('span'); pill.className='pill'; pill.setAttribute('data-group', gname);
-        summary.appendChild(left); summary.appendChild(pill);
-        details.appendChild(summary);
+      function cascade(parentId, value){
+        const stack = (byParent[parentId]||[]).slice();
+        while(stack.length){
+          const n = stack.pop();
+          setEffective(n.id, value);
+          if(n.type==="group"){
+            (byParent[n.id]||[]).forEach(c=>stack.push(c));
+          }
+        }
+      }
 
-        pill.addEventListener('click',(e)=>{
-          e.preventDefault(); e.stopPropagation();
-          const s = computeGroupState(gname);
-          if(s.trueCount===s.total) setGroupOverrides(gname,'deny-all');
-          else if(s.falseCount===s.total) setGroupOverrides(gname,'allow-all');
-          else setGroupOverrides(gname,'allow-all');
+      function makeSwitch(label, node, isGroup){
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "switch";
+        const state = !!effectiveFor(node.id);
+        btn.dataset.on = String(state);
+        btn.setAttribute("role","switch");
+        btn.setAttribute("aria-checked", String(state));
+        btn.innerHTML = `<span class="tiny">${label}</span>`;
+        btn.addEventListener("click",(e)=>{
+          e.stopPropagation();
+          const next = !effectiveFor(node.id);
+          setEffective(node.id, next);
+          btn.dataset.on = String(next);
+          btn.setAttribute("aria-checked", String(next));
+          if(isGroup){
+            cascade(node.id, next);
+            renderTree();
+            return;
+          }
+          updateHero();
         });
+        return btn;
+      }
 
-        const keys=Object.keys(baseGroups[gname]||{}).sort((a,b)=>a.localeCompare(b));
-        keys.forEach(k=>{
-          const row=document.createElement('div'); row.className='ovr-cap-row';
-          const kd=document.createElement('div'); kd.className='ovr-key'; kd.textContent=k;
+      function renderGroup(node){
+        const d=document.createElement("details");
+        d.className="node";
+        const sum=document.createElement("summary");
+        const line=document.createElement("div");
+        line.className="sum-line indent-"+Math.min(node.depth,4);
+        const label=document.createElement("div");
+        label.className="label";
+        label.textContent=node.label;
+        line.appendChild(label);
+        sum.appendChild(line);
+        const right=document.createElement("div");
+        right.className="switch-col";
+        right.appendChild(makeSwitch("Enabled", node, true));
+        sum.appendChild(right);
+        d.appendChild(sum);
 
-          const right=document.createElement('div');
-          const sel=document.createElement('select');
-          sel.className='ovr-select';
-          sel.setAttribute('data-group', gname);
-          sel.setAttribute('data-cap', k);
-
-          const base = baseGroups[gname][k];
-          sel.innerHTML = `
-            <option value="inherit">Inherit (${base ? 'Allow' : 'Deny'})</option>
-            <option value="allow">Allow</option>
-            <option value="deny">Deny</option>
-          `;
-          overrideState[fk(gname,k)] = 'inherit';
-          sel.value = 'inherit';
-
-          sel.addEventListener('change', e=>{
-            overrideState[fk(gname,k)] = e.target.value;
-            updateGroupPill(gname);
-          });
-
-          right.appendChild(sel); row.appendChild(kd); row.appendChild(right);
-          details.appendChild(row);
+        const content=document.createElement("div");
+        content.className="content";
+        const kidsWrap=document.createElement("div");
+        kidsWrap.className="children";
+        (byParent[node.id]||[]).forEach(k=>{
+          kidsWrap.appendChild(k.type==="group" ? renderGroup(k) : renderLeaf(k));
         });
+        content.appendChild(kidsWrap);
+        d.appendChild(content);
+        return d;
+      }
 
-        wrap.appendChild(details);
-        updateGroupPill(gname);
+      function renderLeaf(node){
+        const d=document.createElement("details");
+        d.className="node";
+        const sum=document.createElement("summary");
+        const line=document.createElement("div");
+        line.className="sum-line indent-"+Math.min(node.depth+1,4);
+        const label=document.createElement("div");
+        label.className="label";
+        label.textContent=node.label;
+        line.appendChild(label);
+        sum.appendChild(line);
+        const right=document.createElement("div");
+        right.className="switch-col";
+        right.appendChild(makeSwitch("Enabled", node, false));
+        sum.appendChild(right);
+        d.appendChild(sum);
+        return d;
+      }
+
+      tree.innerHTML="";
+      (byParent["__ROOT__"]||[]).forEach(n=>{
+        tree.appendChild(n.type==="group" ? renderGroup(n) : renderLeaf(n));
       });
 
       updateHero();
     }
 
     function collectOverridesForSave(){
-      const out={};
-      Object.keys(overrideState).forEach(key=>{
-        const tri=overrideState[key];
-        if(tri!=='inherit'){
-          const [g,k]=key.split('|');
-          out[`${g}.${k}`]=triToBool(tri);
-        }
-      });
-      return out;
+      return employeeOverrides && Object.keys(employeeOverrides).length ? employeeOverrides : {};
     }
 
-    function clearOverridesUI(){
-      Object.keys(overrideState).forEach(k=>overrideState[k]='inherit');
-      document.querySelectorAll('select.ovr-select').forEach(sel=>sel.value='inherit');
-      Object.keys(baseGroups).forEach(g=>updateGroupPill(g));
-      updateHero();
-    }
+    /* --------------------- Expand/Collapse/Clear --------------------- */
+    $("ovrExpand").addEventListener("click",()=>{
+      document.querySelectorAll("#tree details").forEach(d=>d.open=true);
+    });
+    $("ovrCollapse").addEventListener("click",()=>{
+      document.querySelectorAll("#tree details").forEach(d=>d.open=false);
+    });
+    $("ovrClear").addEventListener("click",()=>{
+      if(busy) return;
+      employeeOverrides = {};
+      renderTree();
+      showToast("Overrides cleared.");
+    });
 
-    $("ovrExpand").addEventListener("click", ()=> { document.querySelectorAll('details.ovr-group').forEach(d=>d.open=true); });
-    $("ovrCollapse").addEventListener("click", ()=> { document.querySelectorAll('details.ovr-group').forEach(d=>d.open=false); });
-    $("ovrClear").addEventListener("click", ()=>{ if(busy) return; clearOverridesUI(); showToast("Overrides cleared."); });
-
-    /* --------------------- roles dropdown --------------------- */
+    /* --------------------- Roles dropdown --------------------- */
     async function fetchRoleDocByName(name){
       const db=getFirestore();
-      const qRef=query(collection(db,'accountRoles'), where('name','==',name));
+      const qRef=query(collection(db,COLLECTION_ROLES), where('name','==',name));
       const snap=await getDocs(qRef);
       let docData=null;
       snap.forEach(d=>{ docData = d.data()||null; });
@@ -526,81 +494,70 @@
       try{
         const { mode } = await ready;
         if(mode!=='firebase'){
-          // Stub mode: simple Standard group preselected
-          sel.innerHTML = '<option value="Standard" selected>Standard</option>';
-          currentRoleName = 'Standard';
-          currentRolePerms = null;
-          baseGroups = buildBaselineFromPerms(null);
-          overrideState = {};
-          renderOverrides();
+          sel.innerHTML='<option value="Standard" selected>Standard</option>';
+          currentRoleName='Standard';
+          rolePerms={};
+          employeeOverrides={};
+          renderTree();
           return;
         }
 
-        const db = getFirestore();
-        const snap = await getDocs(query(collection(db, 'accountRoles'), orderBy('name')));
-        const roles = [];
+        const db=getFirestore();
+        const snap=await getDocs(query(collection(db,COLLECTION_ROLES), orderBy('name')));
+        const roles=[];
         snap.forEach(d=>{
           const data=d.data()||{}; const name=(data.name||data.title||'').trim();
           if(name) roles.push(name);
         });
 
         if(!roles.length){
-          // No roles defined yet → nothing to pick
-          sel.innerHTML = '<option value="">No Permission Groups Found</option>';
-          currentRoleName = null;
-          currentRolePerms = null;
-          baseGroups = {};
-          overrideState = {};
-          renderOverrides();
+          sel.innerHTML='<option value="">No Permission Groups Found</option>';
+          currentRoleName=null;
+          rolePerms={};
+          employeeOverrides={};
+          renderTree();
         }else{
-          // Placeholder + role names; nothing selected by default
-          sel.innerHTML = '<option value="">Select Permission Group…</option>' +
+          sel.innerHTML='<option value="">Select Permission Group…</option>'+
             roles.map(r=>`<option value="${r}">${r}</option>`).join('');
-          currentRoleName = null;
-          currentRolePerms = null;
-          baseGroups = {};
-          overrideState = {};
-          renderOverrides();
+          currentRoleName=null;
+          rolePerms={};
+          employeeOverrides={};
+          renderTree();
         }
 
-        sel.addEventListener('change', async (e)=>{
-          if (busy) return;
+        sel.addEventListener("change", async e=>{
+          if(busy) return;
           const val = e.target.value || "";
           if(!val){
-            currentRoleName = null;
-            currentRolePerms = null;
-            baseGroups = {};
-            overrideState = {};
-            renderOverrides();
+            currentRoleName=null;
+            rolePerms={};
+            employeeOverrides={};
+            renderTree();
             return;
           }
-
           setBusy(true);
           try{
             currentRoleName = val;
             const roleDoc = await fetchRoleDocByName(currentRoleName);
-            currentRolePerms = roleDoc?.perms || roleDoc?.permissions || {};
-            baseGroups = buildBaselineFromPerms(currentRolePerms);
-            overrideState = {};
-            renderOverrides();
+            rolePerms = cleanRolePerms(roleDoc?.perms || roleDoc?.permissions || {});
+            employeeOverrides={};
+            renderTree();
           }catch(err){
-            console.error('Failed to load role:', err);
-            currentRoleName = null;
-            currentRolePerms = null;
-            baseGroups = {};
-            overrideState = {};
-            renderOverrides();
+            console.error("Failed to load role:", err);
+            currentRoleName=null;
+            rolePerms={};
+            employeeOverrides={};
+            renderTree();
           }finally{ setBusy(false); }
         });
 
       }catch(err){
-        console.error('Roles load failed:', err);
-        sel.innerHTML = '<option value="">Select Permission Group…</option>';
+        console.error("Roles load failed:", err);
+        sel.innerHTML='<option value="">Select Permission Group…</option>';
         currentRoleName=null;
-        currentRolePerms = null;
-        baseGroups = {};
-        overrideState = {};
-        renderOverrides();
+        rolePerms={};
+        employeeOverrides={};
+        renderTree();
       }
     }
 
@@ -635,7 +592,7 @@
         notes:vals.notes,
         search:[fullName.toLowerCase(), vals.first.toLowerCase(), vals.last.toLowerCase(), vals.email.toLowerCase()].filter(Boolean),
         active:vals.status==="Active",
-        overrides: vals.overrides && Object.keys(vals.overrides).length ? vals.overrides : {},
+        overrides: vals.overrides,
         updatedAt:serverTimestamp()
       };
       const id=emailKey(vals.email);
@@ -669,11 +626,10 @@
       ["first","last","email","phone","role","start","notes"].forEach(id=>{const el=$(id);if(el)el.value="";});
       $("status").selectedIndex=0;
       const permSel=$("perm"); if(permSel){ permSel.value=""; }
-      currentRoleName = null;
-      currentRolePerms = null;
-      baseGroups = {};
-      overrideState = {};
-      renderOverrides();
+      currentRoleName=null;
+      rolePerms={};
+      employeeOverrides={};
+      renderTree();
       showToast("Form cleared.");
     });
 
