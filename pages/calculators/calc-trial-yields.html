@@ -11,12 +11,19 @@
   <script defer src="../../js/theme-boot.js"></script>
   <script defer src="../../js/fv-shell.js"></script>
 
+  <!-- ✅ FV Combo (built-in search dropdown) -->
+  <script defer src="../../js/fv-combo.js"></script>
+
   <style>
     :root{
       --page-bottom-gap: 96px;
       --card-max: 940px;
       --accent: #2F6C3C;
       --ring: rgba(47,108,60,.20);
+
+      /* ✅ Make FV Combo corners “nice and rounded” */
+      --combo-radius: 14px;
+      --combo-btn-radius: 12px;
     }
     html{-webkit-text-size-adjust:100%}
     body{ background: var(--app-bg, var(--surface)); }
@@ -46,8 +53,7 @@
     .card-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2; }
     .muted{ color:var(--muted,#67706B); }
 
-    /* Top import bar */
-    .import-bar{ padding:16px; border-bottom:1px dashed var(--border); display:flex; gap:10px; flex-wrap:wrap; }
+    .import-bar{ padding:16px; border-bottom:1px dashed var(--border); display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
     .btn{
       appearance:none; border:1px solid var(--border); background:var(--surface);
       padding:10px 14px; border-radius:10px; font-weight:700; cursor:pointer;
@@ -55,8 +61,8 @@
     }
     .btn[disabled]{ opacity:.55; cursor:not-allowed; }
     .btn-primary{ background:var(--accent); color:#fff !important; border-color:var(--accent); }
+    .tiny-note{ font-size:12px; color:var(--muted,#67706B); }
 
-    /* Treatments */
     .tlist{ padding:16px; display:grid; gap:12px; }
     .trow{
       border:1px solid var(--border); border-radius:12px; background:var(--card-surface,var(--surface));
@@ -71,51 +77,20 @@
       border:1px solid var(--border); background:var(--surface);
       border-radius:10px; padding:10px 12px;
     }
-    input,select,button{ font-size:16px; } /* avoid iOS zoom */
+    input,select,button{ font-size:16px; }
     .ctrl input{ width:100%; border:0; outline:0; background:transparent; color:var(--text); }
-    .unit{ font-size:12px; color:var(--muted); white-space:nowrap; }
     .ctrl:focus-within{ border-color: rgba(47,108,60,.42); box-shadow: 0 0 0 4px var(--ring); }
 
-    /* ✅ Dropdowns: single-box */
+    /* fallback only (select will be hidden by fv-combo) */
     .select-box{
       width:100%;
-      appearance:none;
-      -webkit-appearance:none;
-      -moz-appearance:none;
       border:1px solid var(--border);
-      border-radius:10px;
-      padding:10px 42px 10px 12px;
+      border-radius:12px;
+      padding:10px 12px;
       background: var(--surface);
       color: var(--text);
       outline:none;
-      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6 6-6' fill='none' stroke='%2367706B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-      background-repeat:no-repeat;
-      background-position:right 12px center;
-      background-size:18px 18px;
     }
-    .select-box:focus{
-      border-color: rgba(47,108,60,.42);
-      box-shadow: 0 0 0 4px var(--ring);
-    }
-
-    /* Field picker (search + select) */
-    .field-picker{ display:grid; gap:8px; }
-    .field-search{
-      width:100%;
-      font:inherit;
-      font-size:16px;
-      color:var(--text);
-      background:var(--surface);
-      border:1px solid var(--border);
-      border-radius:10px;
-      padding:10px 12px;
-      outline:none;
-    }
-    .field-search:focus{
-      border-color: rgba(47,108,60,.42);
-      box-shadow: 0 0 0 4px var(--ring);
-    }
-    .tiny-note{ font-size:12px; color:var(--muted); margin-top:4px; }
 
     .yieldline{
       display:flex; gap:10px; align-items:center; justify-content:space-between;
@@ -145,7 +120,6 @@
     .closex{ border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:8px 12px; cursor:pointer; font-weight:700; color: var(--text) !important; }
     html.no-scroll, body.no-scroll{ overflow:hidden; }
 
-    /* Combine-yield mini form */
     .cg{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
     @media (max-width:760px){ .cg{ grid-template-columns:1fr; } }
     .result-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px; }
@@ -174,13 +148,12 @@
           </div>
         </div>
 
-        <!-- Import bar (disabled for now) -->
         <div class="import-bar">
           <button class="btn" id="impTake" type="button" disabled title="Disabled for now">Take Photo</button>
           <button class="btn" id="impPick" type="button" disabled title="Disabled for now">Import</button>
           <input id="impCam" type="file" accept="image/*,.pdf" capture="environment" hidden>
           <input id="impFile" type="file" accept="image/*,.pdf" hidden>
-          <div class="tiny-note">Import is disabled for now.</div>
+          <span class="tiny-note">Import is disabled for now.</span>
         </div>
 
         <div class="tlist" id="tlist"></div>
@@ -214,23 +187,7 @@
     </div>
   </fv-shell>
 
-  <!-- Import status modal (kept, but unused while disabled) -->
-  <div class="modal" id="impModal" aria-hidden="true">
-    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="impTitle">
-      <div class="dialog-head">
-        <h3 id="impTitle">Import Treatments</h3>
-        <div class="head-actions">
-          <button class="closex" id="impCancel" type="button">Cancel</button>
-          <button class="closex" id="impDone" type="button">Done</button>
-        </div>
-      </div>
-      <div class="dialog-body">
-        <div id="impStatus" class="muted">Reading…</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Combine Yield MODAL -->
+  <!-- Combine Yield MODAL (unchanged in this step) -->
   <div class="modal" id="cyModal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="cyTitle">
       <div class="dialog-head">
@@ -327,7 +284,7 @@
     </div>
   </div>
 
-  <!-- Trial details modal -->
+  <!-- Trial details modal (unchanged) -->
   <div class="modal" id="histModal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="hmTitle">
       <div class="dialog-head">
@@ -341,19 +298,15 @@
   <script type="module">
   (async function(){
     "use strict";
-    if(window.__FV_TRIALS_FULL_V5__) return; window.__FV_TRIALS_FULL_V5__=true;
+    if(window.__FV_TRIALS_FULL_V6__) return; window.__FV_TRIALS_FULL_V6__=true;
 
-    /* ---------- Helpers ---------- */
     const $ = (id) => document.getElementById(id);
     const num = (v) => parseFloat(String(v).replace(/,/g,""));
     const fmt = (n,d=2) => Number(n).toLocaleString(undefined,{maximumFractionDigits:d});
     const fmt0 = (n) => Number(n).toLocaleString();
 
-    /* ---------- Disable import buttons (done) ---------- */
-    // (Buttons already disabled in HTML)
-
     /* ---------- Load Fields (Firestore) ---------- */
-    let FIELDS = []; // [{id,name,county,state,tillable,status}]
+    let FIELDS = [];
     async function loadFields(){
       try{
         const fb = await import("../../js/firebase-init.js");
@@ -370,15 +323,8 @@
         const items = [];
         snap.forEach(docSnap => {
           const d = docSnap.data() || {};
-          if(String(d.status||"") !== "active") return; // only active
-          items.push({
-            id: docSnap.id,
-            name: d.name || "(Unnamed field)",
-            county: d.county || "",
-            state: d.state || "",
-            tillable: (typeof d.tillable === "number") ? d.tillable : null,
-            status: d.status || ""
-          });
+          if(String(d.status||"") !== "active") return;
+          items.push({ id: docSnap.id, name: d.name || "(Unnamed field)" });
         });
 
         items.sort((a,b)=> String(a.name).localeCompare(String(b.name)));
@@ -389,82 +335,32 @@
       }
     }
 
-    function fillFieldSelect(selectEl, searchValue){
-      const q = String(searchValue||"").trim().toLowerCase();
-      const current = selectEl.value || "";
-      selectEl.innerHTML = "";
-
+    function populateFieldSelect(sel, selectedId){
+      sel.innerHTML = "";
       const opt0 = document.createElement("option");
       opt0.value = "";
       opt0.textContent = "— Select Field —";
-      selectEl.appendChild(opt0);
+      sel.appendChild(opt0);
 
-      const list = (!q)
-        ? FIELDS
-        : FIELDS.filter(f => (f.name||"").toLowerCase().includes(q));
-
-      list.forEach(f=>{
+      FIELDS.forEach(f=>{
         const opt = document.createElement("option");
         opt.value = f.id;
         opt.textContent = f.name;
-        selectEl.appendChild(opt);
+        sel.appendChild(opt);
       });
 
-      // keep selection if still present
-      if(current) selectEl.value = current;
+      if(selectedId) sel.value = selectedId;
     }
 
-    function wireFieldPicker(rootRow){
-      const search = rootRow.querySelector('[data-k="fieldSearch"]');
-      const sel = rootRow.querySelector('[data-k="fieldSel"]');
-
-      // initial options
-      fillFieldSelect(sel, "");
-
-      // search filters options
-      search.addEventListener("input", ()=>{
-        fillFieldSelect(sel, search.value);
-      });
+    function upgradeComboForSelect(sel){
+      // fv-combo auto-upgrades on DOMContentLoaded, but we add rows later.
+      // This forces upgrade for newly created selects.
+      try{
+        if(window.FVCombo && typeof window.FVCombo.upgrade === "function"){
+          window.FVCombo.upgrade(sel.closest(".trow") || document);
+        }
+      }catch(e){}
     }
-
-    /* ---------- Modals shell ---------- */
-    const impModal=$("impModal"), cyModal=$("cyModal"), histModal=$("histModal");
-    let lastOpener=null, trapHandler=null;
-
-    function openModal(el, opener){
-      lastOpener = opener || null;
-      el.setAttribute("open",""); el.setAttribute("aria-hidden","false");
-      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
-      trapFocus(el);
-    }
-    function closeModal(el){
-      el.removeAttribute("open"); el.setAttribute("aria-hidden","true");
-      document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
-      releaseFocus(el); if(lastOpener && lastOpener.focus) lastOpener.focus();
-    }
-    function trapFocus(root){
-      const focusables=[...root.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')]
-        .filter(el=>!el.disabled && el.offsetParent!==null);
-      if(!focusables.length) return;
-      const first=focusables[0], last=focusables[focusables.length-1];
-      trapHandler=function(e){
-        if(e.key!=="Tab") return;
-        if(e.shiftKey && document.activeElement===first){ e.preventDefault(); last.focus(); }
-        else if(!e.shiftKey && document.activeElement===last){ e.preventDefault(); first.focus(); }
-      };
-      root.addEventListener("keydown", trapHandler);
-    }
-    function releaseFocus(root){
-      if(trapHandler){ root.removeEventListener("keydown", trapHandler); trapHandler=null; }
-    }
-
-    document.addEventListener("keydown", (e)=>{
-      if(e.key==="Escape"){
-        if(impModal && impModal.hasAttribute("open")) closeModal(impModal);
-        if(cyModal && cyModal.hasAttribute("open")) closeModal(cyModal);
-        if(histModal && histModal.hasAttribute("open")) closeModal(histModal);
-      }
-    });
 
     /* ---------- Treatments UI ---------- */
     const tlist=$("tlist");
@@ -480,10 +376,7 @@
         '<div class="grid2">'
       + '  <div>'
       + '    <label>Field</label>'
-      + '    <div class="field-picker">'
-      + '      <input data-k="fieldSearch" class="field-search" type="text" placeholder="Search fields…">'
-      + '      <select data-k="fieldSel" class="select-box"></select>'
-      + '    </div>'
+      + '    <select data-k="fieldSel" class="select-box" data-fv-combo data-fv-search="true" data-fv-placeholder="Search fields…"></select>'
       + '  </div>'
       + '  <div><label>Treatment</label><div class="ctrl"><input data-k="name" type="text" placeholder="Treatment name"></div></div>'
       + '</div>'
@@ -500,14 +393,18 @@
       + '<div style="display:flex;justify-content:flex-end;"><button type="button" class="rm">Remove Treatment</button></div>';
       tlist.appendChild(row);
 
-      // wire field picker + set selected field
-      wireFieldPicker(row);
-      if(fieldId) row.querySelector('[data-k="fieldSel"]').value = fieldId;
+      const sel = row.querySelector('[data-k="fieldSel"]');
+      populateFieldSelect(sel, fieldId || "");
+      upgradeComboForSelect(sel);
 
       if(name) row.querySelector('[data-k="name"]').value=name;
 
       row.querySelector(".rm").addEventListener("click", ()=>{ row.remove(); refreshSummary(); lockAdd(); });
       row.querySelector('[data-k="enter"]').addEventListener("click", ()=> openCY(row) );
+
+      // keep summary up to date if field changes
+      sel.addEventListener("change", refreshSummary);
+
       return row;
     }
 
@@ -545,14 +442,50 @@
       sumTile.hidden=false;
     }
 
-    /* ---------- Combine Yield mini-calculator (unchanged logic) ---------- */
+    /* ---------- Modals + Combine Yield (existing behavior kept) ---------- */
+    const cyModal=$("cyModal"), cyClose=$("cyClose"), histModal=$("histModal"), hmClose=$("hmClose"), hmBody=$("hmBody");
+    let lastOpener=null, trapHandler=null;
+
+    function openModal(el, opener){
+      lastOpener = opener || null;
+      el.setAttribute("open",""); el.setAttribute("aria-hidden","false");
+      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
+      trapFocus(el);
+    }
+    function closeModal(el){
+      el.removeAttribute("open"); el.setAttribute("aria-hidden","true");
+      document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
+      releaseFocus(el); if(lastOpener && lastOpener.focus) lastOpener.focus();
+    }
+    function trapFocus(root){
+      const focusables=[...root.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')]
+        .filter(el=>!el.disabled && el.offsetParent!==null);
+      if(!focusables.length) return;
+      const first=focusables[0], last=focusables[focusables.length-1];
+      trapHandler=function(e){
+        if(e.key!=="Tab") return;
+        if(e.shiftKey && document.activeElement===first){ e.preventDefault(); last.focus(); }
+        else if(!e.shiftKey && document.activeElement===last){ e.preventDefault(); first.focus(); }
+      };
+      root.addEventListener("keydown", trapHandler);
+    }
+    function releaseFocus(root){
+      if(trapHandler){ root.removeEventListener("keydown", trapHandler); trapHandler=null; }
+    }
+
+    document.addEventListener("keydown", (e)=>{
+      if(e.key==="Escape"){
+        if(cyModal && cyModal.hasAttribute("open")) closeModal(cyModal);
+        if(histModal && histModal.hasAttribute("open")) closeModal(histModal);
+      }
+    });
+
+    // Combine yield mini-calculator (unchanged logic)
     const SQFT_PER_ACRE=43560;
     const CORN_STD=15.5, CORN_TW=56, CORN_SLOPE=(21.0/(29.0-15.5)), CORN_CAP_M=40.0, CORN_CAP_SH=CORN_SLOPE*(CORN_CAP_M-CORN_STD);
     const SOY_STD=13.0, SOY_TW=60;
 
-    const cyClose=$("cyClose");
-    const cyCrop=$("cyCrop"), cyMode=$("cyMode"), cyLen=$("cyLen"), cyWid=$("cyWid"), cyAc=$("cyAc"),
-          cyWt=$("cyWt"), cyM=$("cyM");
+    const cyCrop=$("cyCrop"), cyLen=$("cyLen"), cyWid=$("cyWid"), cyAc=$("cyAc"), cyWt=$("cyWt"), cyM=$("cyM");
     const cyRes=$("cyRes"), tYield=$("tYield"), tBu=$("tBu"), eYield=$("eYield"), eBu=$("eBu");
     const cyCalc=$("cyCalc"), cyUseSel=$("cyUse"), cyUseBtn=$("cyUseBtn");
     let cyTargetRow=null;
@@ -606,7 +539,7 @@
       closeModal(cyModal);
     });
 
-    /* ---------- History ---------- */
+    // History (kept)
     const LS_KEY="fv_calc_trial_yields_history_v3";
     function loadH(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
     function saveH(a){ localStorage.setItem(LS_KEY, JSON.stringify(a.slice(0,10))); }
@@ -632,12 +565,12 @@
       [...hlist.querySelectorAll("button[data-idx]")].forEach(b=>{
         b.addEventListener("click", ()=>{
           const i=parseInt(b.getAttribute("data-idx"),10);
-          openHist(loadH()[i], b);
+          const rec=loadH()[i];
+          openHist(rec, b);
         });
       });
     }
 
-    const hmClose=$("hmClose"), hmBody=$("hmBody");
     function openHist(rec, opener){
       const ys=rec.items.map(x=>x.yield).filter(v=>v!=null);
       const avg = ys.length? (ys.reduce((a,b)=>a+b,0)/ys.length) : null;
@@ -661,28 +594,28 @@
           +'</div>';
       });
       html+='</div>';
+
       hmBody.innerHTML=html;
       openModal(histModal, opener);
     }
     hmClose.addEventListener("click", ()=> closeModal(histModal));
     histModal.addEventListener("click", (e)=>{ if(e.target===histModal) closeModal(histModal); });
 
-    /* ---------- Save & Clear History ---------- */
     saveBtn.addEventListener("click", ()=>{
       const items=getData();
       if(!items.length){ alert("Add at least one treatment."); return; }
       const rec={ t:Date.now(), items:items };
       const h=loadH(); h.unshift(rec); saveH(h); renderHist();
     });
+
     $("clearHist").addEventListener("click", ()=>{ localStorage.removeItem(LS_KEY); renderHist(); });
 
     /* ---------- Boot ---------- */
     await loadFields();
-    mkRow("", "", null);      // start with one row
+    mkRow("", "", null);
     lockAdd();
     refreshSummary();
     renderHist();
-
   })();
   </script>
 </body>
