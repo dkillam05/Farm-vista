@@ -219,7 +219,7 @@
       .wo-meta .wo-meta-val{ max-width:28ch; }
     }
 
-    /* ✅ RTK “boxed” mini-block (name + subline together) */
+    /* ✅ RTK “boxed” mini-block (grouped together, NOT bold) */
     .rtk-block{
       display:flex;
       flex-direction:column;
@@ -228,14 +228,14 @@
       max-width:min(62ch, 100%);
     }
     .rtk-block .rtk-name{
-      font-weight:800;
+      font-weight:600; /* not bold */
       white-space:nowrap;
       overflow:hidden;
       text-overflow:ellipsis;
       max-width:100%;
     }
     .rtk-block .rtk-sub{
-      font-weight:650;
+      font-weight:600; /* not bold */
       opacity:0.88;
       white-space:nowrap;
       overflow:hidden;
@@ -549,10 +549,7 @@
     }
 
     /* ===========================
-       ✅ RTK join that ALWAYS works
-       Problem you hit: some Firestore rules allow getDoc() but block getDocs() on a collection.
-       So we DO NOT read the whole rtk_towers collection.
-       We read ONLY the tower IDs referenced by boundary_requests (one-by-one getDoc).
+       RTK join (getDoc per tower id)
        =========================== */
 
     function coerceStr(v){
@@ -584,7 +581,6 @@
         try{
           const snap = await getDoc(doc(STATE.db, CONFIG.TOWERS_COLLECTION, towerId));
           if(!snap.exists()){
-            // keep placeholder so we stop re-fetching
             STATE.towersById.set(towerId, { id:towerId, name:'', networkId:'', frequencyMHz:'' });
             return;
           }
@@ -596,14 +592,12 @@
             frequencyMHz: coerceStr(d.frequencyMHz)
           });
         }catch(e){
-          // keep placeholder so we stop re-fetching
           STATE.towersById.set(towerId, { id:towerId, name:'', networkId:'', frequencyMHz:'' });
         }
       }));
     }
 
     function getRtkForRequest(d){
-      // 1) if request has snapshot object, use it
       if(d && typeof d === 'object' && d.rtk && typeof d.rtk === 'object'){
         const name = coerceStr(d.rtk.name);
         const networkId = coerceStr(d.rtk.networkId);
@@ -613,7 +607,6 @@
         }
       }
 
-      // 2) join from tower id
       const towerId = getTowerIdFromRequest(d);
       if(towerId && STATE.towersById.has(towerId)){
         const t = STATE.towersById.get(towerId);
@@ -625,7 +618,6 @@
         };
       }
 
-      // 3) fallback (still show tower id so you never see “Not set” when ID exists)
       return { name:'', networkId:'', frequencyMHz:'', towerId };
     }
 
@@ -815,12 +807,11 @@
         </div>
 
         <div style="grid-column:1 / -1;">
-          <div class="wo-detail-item-label">RTK Tower</div>
+          <div class="wo-detail-item-label">RTK</div>
           <div class="wo-detail-item-value">
-            <div style="display:flex; flex-direction:column; gap:2px;">
-              <div style="font-weight:850;">${escapeHtml(nameLine || (d.rtkTowerId ? `Tower ${d.rtkTowerId}` : 'Not set'))}</div>
-              ${subLine ? `<div style="opacity:.9; font-weight:650;">${escapeHtml(subLine)}</div>` : ``}
-            </div>
+            ${rtkHtmlBox({ name: nameLine, networkId: '', frequencyMHz: '' }).replace(/<\/span>\s*$/, '')}
+            ${subLine ? `<span class="rtk-sub" style="display:block">${escapeHtml(subLine)}</span>` : ``}
+            </span>
           </div>
         </div>
 
@@ -933,7 +924,7 @@
     }
 
     async function applyFilters(){
-      // ✅ ensure we have tower docs for whatever we're about to render
+      // ensure tower docs loaded for current view + filtered view
       await loadRtkTowersForItems(getWorkingItems());
 
       const statusSel = $('#filterStatus');
@@ -971,11 +962,9 @@
 
       STATE.filteredItems = filtered;
 
-      // ✅ ensure tower docs exist for filtered set too
       await loadRtkTowersForItems(STATE.filteredItems);
 
       renderList();
-      // if a detail is open, refresh it so RTK fills in immediately
       if(STATE.selectedId) renderDetails();
     }
 
@@ -1018,6 +1007,7 @@
 
     /* ===========================
        Print / PDF
+       (kept from your previous version; RTK is grouped as Name + subline, not bold)
        =========================== */
 
     function extractFieldNumber(field){
@@ -1093,7 +1083,6 @@
         return;
       }
 
-      // ✅ make sure tower docs are loaded before building HTML
       await loadRtkTowersForItems(items);
 
       const company = await loadCompanyHeader();
@@ -1322,10 +1311,10 @@
       font-size:11px;
     }
     .pair .kk{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--fv-muted);font-weight:800;margin-bottom:2px;}
-    .pair .vv{font-weight:700; color:#111827; line-height:1.25; word-break:break-word;}
+    .pair .vv{font-weight:600; color:#111827; line-height:1.25; word-break:break-word;} /* not bold */
     .rtkbox{grid-column:1 / -1;}
-    .rtkname{font-weight:900;}
-    .rtksub{font-weight:700;color:#111827;opacity:.88;margin-top:2px;}
+    .rtkname{font-weight:600;} /* not bold */
+    .rtksub{font-weight:600;color:#111827;opacity:.88;margin-top:2px;} /* not bold */
     .notes{
       grid-column:1 / -1;
       margin-top:2px;
