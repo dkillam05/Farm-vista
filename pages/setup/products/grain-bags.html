@@ -10,7 +10,12 @@
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
   <script src="/Farm-vista/js/theme-boot.js"></script>
+
+  <!-- ✅ Blanket permission UI (NEW) -->
+  <script src="/Farm-vista/js/perm-ui.js"></script>
+
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
@@ -86,6 +91,7 @@
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
   </style>
 </head>
+
 <body>
   <fv-shell>
     <!-- Page visibility -->
@@ -145,7 +151,7 @@
 
           <div class="actions">
             <button id="clear" class="btn" type="button">Clear</button>
-            <button id="save" class="btn btn-primary" type="button" data-perm="setup-prod-grainbags:add">Save Grain Bag</button>
+            <button id="save" class="btn btn-primary" type="button">Save Grain Bag</button>
           </div>
         </div>
       </section>
@@ -174,7 +180,9 @@
         <h3 id="mdTitle">View / Edit Grain Bag</h3>
         <button id="mdClose" class="closex" type="button">Back</button>
       </div>
-      <div class="dialog-body" id="mdBody">
+
+      <!-- ✅ Modal fields disabled unless edit is allowed -->
+      <div class="dialog-body" id="mdBody" data-perm="setup-prod-grainbags:edit">
         <div class="grid-3">
           <div class="field">
             <label for="edit_brand">Brand</label>
@@ -237,11 +245,6 @@
       clearTimeout(showError._t); showError._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
     };
     const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
-
-    // Permission helpers
-    const can = (key)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(key) : true;
-    const CAN_EDIT = can('setup-prod-grainbags:edit');
-    const CAN_DEL  = can('setup-prod-grainbags:delete');
 
     async function waitForAuthReady(timeoutMs=5000){
       try{
@@ -388,71 +391,18 @@
       mdArchive.textContent = it.status==="archived" ? "Unarchive" : "Archive";
       mdDelete.disabled = !!it.used;
       mdDelete.title = it.used ? "This product is in use and cannot be deleted. Archive instead." : "Delete";
-
-      // Read-only if no edit permission
-      const inputs = Array.from($("mdBody").querySelectorAll('input, textarea, select'));
-      inputs.forEach(el=>{ el.disabled = !CAN_EDIT; });
     }
 
     async function openEdit(id){
       const it = items.find(x=>x.id===id); if(!it) return;
-      editId = id; fillEdit(it); openModal();
+      editId = id; fillEdit(it);
+      modal.setAttribute('open','');
+      modal.setAttribute('aria-hidden','false');
     }
 
-    mdClose.addEventListener('click', closeModal);
-    modal.addEventListener('click', e=>{ if(e.target===modal) closeModal(); });
-    document.addEventListener('keydown', e=>{ if(e.key==='Escape' && modal.hasAttribute('open')) closeModal(); });
-
-    mdSave.addEventListener('click', async ()=>{
-      if(!CAN_EDIT){ alert("You don't have permission to edit grain bag products."); return; }
-      try{
-        await FVData.ready(); await waitForAuthReady();
-        const payload = {
-          brand: $('edit_brand').value.trim(),
-          lengthFt: Number(($('edit_length').value||"").replace(/,/g,"")),
-          diameterFt: Number(($('edit_diameter').value||"").replace(/,/g,"")),
-          bushels: Number(($('edit_bushels').value||"").replace(/,/g,"")),
-          thicknessMil: Number(($('edit_thickness').value||"").replace(/,/g,"")),
-          notes: $('edit_notes').value.trim()
-        };
-        if(!payload.brand){ alert("Enter a brand."); return; }
-        if(!payload.lengthFt){ alert("Enter a length (ft)."); return; }
-        if(!payload.diameterFt){ alert("Enter a diameter (ft)."); return; }
-        if(!payload.bushels){ alert("Enter estimated corn bushels per bag."); return; }
-
-        await FVData.update(COLL, editId, payload);
-        showToast("Changes saved.");
-        await loadAll();
-        closeModal();
-      }catch(e){ console.error(e); showError("Update failed: " + (e?.message||e)); }
-    });
-
-    mdArchive.addEventListener('click', async ()=>{
-      if(!CAN_EDIT){ alert("You don't have permission to archive/unarchive grain bag products."); return; }
-      try{
-        await FVData.ready(); await waitForAuthReady();
-        const it = items.find(x=>x.id===editId); if(!it) return;
-        const next = it.status==="archived" ? "active" : "archived";
-        await FVData.update(COLL, editId, { status: next });
-        showToast(next==="archived" ? "Product archived." : "Product unarchived.");
-        await loadAll();
-        const refreshed = items.find(x=>x.id===editId); if(refreshed) fillEdit(refreshed);
-      }catch(e){ console.error(e); showError("Archive toggle failed: " + (e?.message||e)); }
-    });
-
-    mdDelete.addEventListener('click', async ()=>{
-      if(!CAN_DEL){ alert("You don't have permission to delete grain bag products."); return; }
-      try{
-        const it = items.find(x=>x.id===editId); if(!it) return;
-        if(it.used){ alert("This product is in use and cannot be deleted. Archive instead."); return; }
-        if(!confirm(`Delete grain bag "${it.brand||'(Unnamed)'}"? This cannot be undone.`)) return;
-        await FVData.ready(); await waitForAuthReady();
-        await FVData.remove(COLL, editId);
-        showToast("Product deleted.");
-        await loadAll();
-        closeModal();
-      }catch(e){ console.error(e); showError("Delete failed: " + (e?.message||e)); }
-    });
+    mdClose.addEventListener('click', ()=>{ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId=null; });
+    modal.addEventListener('click', e=>{ if(e.target===modal){ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId=null; } });
+    document.addEventListener('keydown', e=>{ if(e.key==='Escape' && modal.hasAttribute('open')){ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId=null; } });
 
     /* ========= Boot ========= */
     (async function boot(){
