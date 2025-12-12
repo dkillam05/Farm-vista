@@ -453,7 +453,7 @@
               <label for="whoSel">Submitted By<span class="req">*</span></label>
               <!-- Plain select so dropdown stays anchored -->
               <select id="whoSel" class="select">
-                <option value="">Loading employees…</option>
+                <option value="">Loading…</option>
               </select>
             </div>
             <div class="field">
@@ -571,7 +571,7 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- Main logic: modular Firebase (same style as grain bag put-down) -->
+  <!-- Main logic: modular Firebase -->
   <script type="module">
     import {
       ready,
@@ -581,12 +581,15 @@
       addDoc,
       getDocs,
       serverTimestamp,
-      // new: storage + update helpers
+      // storage + update helpers
       getStorage,
       ref,
       uploadBytes,
       getDownloadURL,
-      updateDoc
+      updateDoc,
+      // added for faster "Submitted By"
+      doc,
+      getDoc
     } from '/Farm-vista/js/firebase-init.js';
 
     (async () => {
@@ -635,47 +638,127 @@
         e.target.value = v === "" ? "" : usdFmt.format(v);
       });
 
-      /* Submitted By — plain select, default to logged-in user if possible */
-      async function loadEmployeesCombo() {
-        try {
-          const snap = await getDocs(collection(db, 'employees'));
-          const list = [];
-          snap.forEach(d => {
-            const x = d.data() || {};
-            list.push({
-              id: d.id,
-              name: x.name || x.displayName || x.fullName || x.employeeName || x.email || d.id,
-              email: (x.email || d.id || "").toLowerCase()
-            });
-          });
-          list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      /* ---------- auth/user readiness (helps iOS) ---------- */
+      async function waitForUser(maxMs = 2500) {
+        const started = Date.now();
+        while (!auth.currentUser && (Date.now() - started) < maxMs) {
+          await new Promise(r => setTimeout(r, 60));
+        }
+        return auth.currentUser || null;
+      }
 
+      /* Submitted By — FAST + RELIABLE:
+         1) Show me instantly (no Firestore scan)
+         2) Use cached employee list instantly if available
+         3) Fetch only my doc (single read) to get correct name
+         4) Refresh full list in background, update cache
+      */
+      async function loadEmployeesCombo() {
+        const user = await waitForUser(2500);
+        const meEmail = (user?.email || "").toLowerCase().trim();
+        const meNameFallback = user?.displayName || user?.email || "Me";
+
+        const CACHE_KEY = "fv_employees_cache_v2";
+        const CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 12; // 12 hours
+
+        function setOptions(list, chosenValue) {
           whoSel.innerHTML = "";
           whoSel.appendChild(new Option("— Select —", ""));
-
-          list.forEach(emp => {
-            const opt = new Option(emp.name, emp.email || emp.id);
-            whoSel.appendChild(opt);
+          (list || []).forEach(emp => {
+            const value = (emp.email || emp.id || "").toLowerCase();
+            const label = emp.name || emp.email || emp.id || "Employee";
+            whoSel.appendChild(new Option(label, value));
           });
+          if (chosenValue) whoSel.value = chosenValue;
+        }
 
-          const meEmail = (auth.currentUser?.email || "").toLowerCase();
-          let chosen = null;
+        function normalizeEmp(did, data) {
+          const x = data || {};
+          const email = (x.email || did || "").toLowerCase();
+          return {
+            id: did,
+            email,
+            name: x.name || x.displayName || x.fullName || x.employeeName || email || did
+          };
+        }
+
+        function seedInstant() {
+          whoSel.innerHTML = "";
+          whoSel.appendChild(new Option("Loading employees…", ""));
           if (meEmail) {
-            chosen = list.find(e => (e.email || "").toLowerCase() === meEmail) || null;
+            whoSel.appendChild(new Option(meNameFallback, meEmail));
+            whoSel.value = meEmail;
           }
+        }
 
-          if (chosen) {
-            whoSel.value = chosen.email || chosen.id;
-          } else if (list.length) {
-            const first = list[0];
-            whoSel.value = first.email || first.id;
+        seedInstant();
+
+        // 1) Cached list (instant on repeat opens)
+        let cachedList = null;
+        try {
+          const raw = localStorage.getItem(CACHE_KEY);
+          if (raw) {
+            const cached = JSON.parse(raw);
+            const fresh = cached && Array.isArray(cached.list) &&
+              (Date.now() - (cached.t || 0) < CACHE_MAX_AGE_MS);
+            if (fresh) cachedList = cached.list;
           }
+        } catch (_) {}
+
+        if (cachedList && cachedList.length) {
+          const chosen = meEmail || (whoSel.value || "").toLowerCase() || cachedList[0].email;
+          setOptions(cachedList, chosen);
+        }
+
+        // 2) Single-doc read for ME (fast + gets correct name)
+        // Assumes employee doc id is email (common in your project). If not found, it just skips.
+        try {
+          if (meEmail) {
+            const meRef = doc(db, "employees", meEmail);
+            const meSnap = await getDoc(meRef);
+            if (meSnap.exists()) {
+              const me = normalizeEmp(meSnap.id, meSnap.data());
+              const list = Array.isArray(cachedList) ? [...cachedList] : [];
+              const idx = list.findIndex(e => (e.email || "").toLowerCase() === me.email);
+              if (idx >= 0) list[idx] = me; else list.unshift(me);
+              // de-dupe
+              const seen = new Set();
+              const deduped = list.filter(x => {
+                const k = (x.email || x.id || "").toLowerCase();
+                if (!k || seen.has(k)) return false;
+                seen.add(k);
+                return true;
+              });
+              setOptions(deduped, me.email);
+            }
+          }
+        } catch (e) {
+          // ignore (speed boost only)
+        }
+
+        // 3) Background refresh full list (authoritative)
+        try {
+          const snap = await getDocs(collection(db, "employees"));
+          const list = [];
+          snap.forEach(d => list.push(normalizeEmp(d.id, d.data())));
+          list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
+          let chosen = "";
+          if (meEmail && list.some(e => e.email === meEmail)) chosen = meEmail;
+          else chosen = (whoSel.value || "").toLowerCase();
+          if (!chosen && list.length) chosen = list[0].email;
+
+          setOptions(list, chosen);
+
+          try {
+            localStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), list }));
+          } catch (_) {}
         } catch (err) {
           console.warn("Failed to load employees for Submitted By:", err);
-          const meName  = auth.currentUser?.displayName || auth.currentUser?.email || "Unknown user";
-          const meEmail = (auth.currentUser?.email || "").toLowerCase();
-          whoSel.innerHTML = "";
-          whoSel.appendChild(new Option(meName, meEmail || meName));
+          // Keep whatever we already have (seed/cached) so user can still save.
+          if (!whoSel.value && meEmail) {
+            whoSel.value = meEmail;
+          }
         }
       }
 
@@ -767,12 +850,6 @@
           return rawFile;
         }
 
-        const isHeic =
-          type === "image/heic" ||
-          type === "image/heif" ||
-          /\.heic$/i.test(lowerName) ||
-          /\.heif$/i.test(lowerName);
-
         try {
           const dataUrl = await readFileAsDataURL(rawFile);
           const img = await loadImage(dataUrl);
@@ -780,15 +857,10 @@
           const srcH = img.naturalHeight || img.height;
 
           const longest = Math.max(srcW, srcH);
-          if (longest < 900) {
-            console.warn("Receipt image is quite small for OCR:", srcW, "x", srcH);
-          }
-
           const MAX_SIDE = 2200;
           let scale = 1;
-          if (longest > MAX_SIDE) {
-            scale = MAX_SIDE / longest;
-          }
+          if (longest > MAX_SIDE) scale = MAX_SIDE / longest;
+
           const dstW = Math.round(srcW * scale);
           const dstH = Math.round(srcH * scale);
 
@@ -797,27 +869,6 @@
           canvas.height = dstH;
           const ctx = canvas.getContext("2d");
           ctx.drawImage(img, 0, 0, dstW, dstH);
-
-          // simple brightness sanity check
-          try {
-            const sz = 80;
-            const sx = Math.max(0, (dstW - sz) / 2);
-            const sy = Math.max(0, (dstH - sz) / 2);
-            const patch = ctx.getImageData(sx, sy, Math.min(sz, dstW), Math.min(sz, dstH));
-            let sum = 0;
-            const data = patch.data;
-            for (let i = 0; i < data.length; i += 4) {
-              const r = data[i], g = data[i+1], b = data[i+2];
-              const lum = 0.299*r + 0.587*g + 0.114*b;
-              sum += lum;
-            }
-            const avg = sum / (data.length / 4);
-            if (avg < 40) {
-              console.warn("Image looks very dark; OCR may struggle (avg brightness:", avg, ")");
-            } else if (avg > 230) {
-              console.warn("Image looks very bright; OCR may struggle (avg brightness:", avg, ")");
-            }
-          } catch (_) {}
 
           const blob = await new Promise((resolve, reject) => {
             canvas.toBlob(
@@ -838,9 +889,7 @@
 
       async function openCameraModal() {
         torchOn = false;
-        if (camStream) {
-          stopCameraStream();
-        }
+        if (camStream) stopCameraStream();
         torchToggle.hidden = true;
         torchNote.textContent = "";
         cameraFrame.classList.remove("stable");
@@ -880,18 +929,13 @@
           torchNote.textContent = "Flashlight control isn’t available here.";
         }
 
-        // Simple: always glow after ~1.2s so user sees it "ready"
         setTimeout(() => {
-          if (!cameraModal.hidden) {
-            cameraFrame.classList.add("stable");
-          }
+          if (!cameraModal.hidden) cameraFrame.classList.add("stable");
         }, 1200);
       }
 
       function stopCameraStream() {
-        if (camStream) {
-          camStream.getTracks().forEach(t => t.stop());
-        }
+        if (camStream) camStream.getTracks().forEach(t => t.stop());
         camStream = null;
         camTrack = null;
         torchOn = false;
@@ -925,15 +969,13 @@
       }
 
       async function captureFromCamera() {
-        if (!camStream || !cameraVideo.videoWidth || !cameraVideo.videoHeight) {
-          return;
-        }
+        if (!camStream || !cameraVideo.videoWidth || !cameraVideo.videoHeight) return;
         try {
           const canvas = document.createElement("canvas");
           const vw = cameraVideo.videoWidth;
           const vh = cameraVideo.videoHeight;
 
-          const aspect = 2 / 3; // vertical slice for receipts
+          const aspect = 2 / 3;
           let ch = vh * 0.8;
           let cw = ch * aspect;
           if (cw > vw) {
@@ -992,7 +1034,6 @@
 
         const fileForOcr = await prepareImageForOcr(rawFile);
 
-        // Remember this so we can upload it when the user taps Save
         receiptFileForStorage = fileForOcr || rawFile;
         receiptFileOriginalName = rawFile && rawFile.name
           ? rawFile.name
@@ -1049,18 +1090,12 @@
         return "";
       }
 
-      /* ==== IMPROVED DATE PICKER (supports month names like "Nov 25 2025") ==== */
       function pickDate(fields, text) {
         const f = fields || {};
         const structured = (f["receipt_date"] || f["invoice_date"] || f["date"] || "").trim();
 
-        // 1) If backend gave us a clean date string, normalize it.
         if (structured) {
-          // ISO already
-          if (/^\d{4}-\d{2}-\d{2}/.test(structured)) {
-            return structured.slice(0, 10);
-          }
-          // Numeric formats like 11/25/25 or 11-25-2025
+          if (/^\d{4}-\d{2}-\d{2}/.test(structured)) return structured.slice(0, 10);
           if (/^\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}/.test(structured)) {
             const normalized = structured.replace(/-/g, "/");
             const parts = normalized.split(/[\/]/);
@@ -1076,12 +1111,10 @@
         }
 
         const lines = parseLines(text || "");
-
-        // 2) Numeric-only formats from OCR text.
         const datePatterns = [
-          /\b\d{4}-\d{2}-\d{2}\b/,        // 2025-12-05
-          /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/,// 12/5/25 or 12/05/2025
-          /\b\d{1,2}-\d{1,2}-\d{2,4}\b/   // 12-5-25 or 12-05-2025
+          /\b\d{4}-\d{2}-\d{2}\b/,
+          /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/,
+          /\b\d{1,2}-\d{1,2}-\d{2,4}\b/
         ];
         for (const line of lines) {
           for (const r of datePatterns) {
@@ -1093,24 +1126,15 @@
               const parts = normalized.split("/");
               if (parts.length === 3) {
                 const [a, b, c] = parts;
-                if (a.length === 4) {
-                  // yyyy/mm/dd
-                  return [a, b.padStart(2, "0"), c.padStart(2, "0")].join("-");
-                } else {
-                  // mm/dd/yy or mm/dd/yyyy
-                  const year = c.length === 2 ? "20" + c : c;
-                  return [year, a.padStart(2, "0"), b.padStart(2, "0")].join("-");
-                }
+                if (a.length === 4) return [a, b.padStart(2, "0"), c.padStart(2, "0")].join("-");
+                const year = c.length === 2 ? "20" + c : c;
+                return [year, a.padStart(2, "0"), b.padStart(2, "0")].join("-");
               }
             }
           }
         }
 
-        // 3) Month-name based formats (e.g. "Nov 25 2025 10:37 AM").
-        const monthMap = {
-          jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
-          jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12
-        };
+        const monthMap = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12 };
         const monthNameRegex =
           /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,)?\s+(\d{2,4})/i;
 
@@ -1128,13 +1152,10 @@
           return `${yearRaw}-${mm}-${dd}`;
         }
 
-        // Try line by line first (often the date is all on one line).
         for (const line of lines) {
           const iso = extractMonthNameDate(line);
           if (iso) return iso;
         }
-
-        // As a fallback, try the whole document text in case OCR broke lines oddly.
         const wholeIso = extractMonthNameDate(text || "");
         if (wholeIso) return wholeIso;
 
@@ -1168,20 +1189,12 @@
             }
           }
         }
-        const maxCandidate = moneyCandidates.reduce(
-          (max, c) => c.value > max ? c.value : max,
-          0
-        );
+        const maxCandidate = moneyCandidates.reduce((max, c) => c.value > max ? c.value : max, 0);
 
         let textTotal = null;
         for (let i = 0; i < lines.length; i++) {
           const l = lines[i].toLowerCase();
-          if (
-            l.includes("amount due") ||
-            l.includes("balance due") ||
-            l === "total" ||
-            l.startsWith("total ")
-          ) {
+          if (l.includes("amount due") || l.includes("balance due") || l === "total" || l.startsWith("total ")) {
             const windowLines = [lines[i], lines[i + 1], lines[i + 2]];
             for (const wl of windowLines) {
               if (!wl) continue;
@@ -1189,10 +1202,7 @@
               const m = wl.match(moneyRegex);
               if (m) {
                 const v = parseFloat(m[1].replace(",", "."));
-                if (!isNaN(v)) {
-                  textTotal = { num: v, raw: m[1] };
-                  break;
-                }
+                if (!isNaN(v)) { textTotal = { num: v, raw: m[1] }; break; }
               }
             }
             if (textTotal) break;
@@ -1203,14 +1213,10 @@
         if (totalField) {
           const parsed = parseFloat(totalField.replace(",", "."));
           if (!isNaN(parsed) && parsed > 0) {
-            if (!maxCandidate || parsed >= maxCandidate * 0.5) {
-              chosenTotal = totalField;
-            }
+            if (!maxCandidate || parsed >= maxCandidate * 0.5) chosenTotal = totalField;
           }
         }
-        if (!chosenTotal && textTotal) {
-          chosenTotal = textTotal.raw;
-        }
+        if (!chosenTotal && textTotal) chosenTotal = textTotal.raw;
 
         let chosenTax = taxField;
         if (!chosenTax) {
@@ -1218,10 +1224,7 @@
             if (!/tax|vat/i.test(line)) continue;
             if (!/[€$]|usd|eur|gbp/i.test(line)) continue;
             const m = line.match(moneyRegex);
-            if (m) {
-              chosenTax = m[1];
-              break;
-            }
+            if (m) { chosenTax = m[1]; break; }
           }
         }
 
@@ -1250,12 +1253,8 @@
         const f = fields || {};
         const val = (f["payment_type"] || "").toLowerCase();
         const source = (val || text.toLowerCase());
-        if (/visa|mastercard|amex|american express|discover|card|credit|debit/i.test(source)) {
-          return "card";
-        }
-        if (/cash|reimburse/i.test(source)) {
-          return "reimb";
-        }
+        if (/visa|mastercard|amex|american express|discover|card|credit|debit/i.test(source)) return "card";
+        if (/cash|reimburse/i.test(source)) return "reimb";
         return "";
       }
 
@@ -1327,31 +1326,19 @@
             const cat     = guessCategoryFromText(docText);
             const pay     = pickPaymentMethod(fields, docText);
 
-            if (!merchant.value && vendor) {
-              merchant.value = vendor.slice(0, 64);
-            }
-
-            if (!rdate.value && date) {
-              rdate.value = date;
-            }
+            if (!merchant.value && vendor) merchant.value = vendor.slice(0, 64);
+            if (!rdate.value && date) rdate.value = date;
 
             if (!total.value && totals.total) {
               const num = parseFloat(String(totals.total).replace(",", "."));
-              if (!isNaN(num) && num > 0) {
-                total.value = usdFmt.format(num);
-              }
+              if (!isNaN(num) && num > 0) total.value = usdFmt.format(num);
             }
 
-            if (!paymethod.value && pay) {
-              paymethod.value = pay;
-            }
+            if (!paymethod.value && pay) paymethod.value = pay;
 
             if (!category.value && cat) {
               for (let i = 0; i < category.options.length; i++) {
-                if (category.options[i].text === cat) {
-                  category.selectedIndex = i;
-                  break;
-                }
+                if (category.options[i].text === cat) { category.selectedIndex = i; break; }
               }
             }
 
@@ -1394,47 +1381,23 @@
         return `expenditures/${safeId}/receipt-original.${ext}`;
       }
 
-      // Save: upload receipt image (if any), write doc, toast, then go back
       $("btnSave").addEventListener("click", async () => {
         const submittedByName  = getSubmittedByName();
         const submittedByEmail = getSubmittedByEmail();
 
-        if (!submittedByName.trim()) {
-          alert("Submitted By is required.");
-          return;
-        }
-        if (!submitted.value) {
-          alert("Submitted Date is required.");
-          return;
-        }
-        if (!paymethod.value) {
-          alert("Payment Method is required.");
-          return;
-        }
-        if (!category.value) {
-          alert("Category is required.");
-          return;
-        }
-        if (!merchant.value.trim()) {
-          alert("Merchant is required.");
-          return;
-        }
-        if (!rdate.value) {
-          alert("Receipt Date is required.");
-          return;
-        }
+        if (!submittedByName.trim()) { alert("Submitted By is required."); return; }
+        if (!submitted.value) { alert("Submitted Date is required."); return; }
+        if (!paymethod.value) { alert("Payment Method is required."); return; }
+        if (!category.value) { alert("Category is required."); return; }
+        if (!merchant.value.trim()) { alert("Merchant is required."); return; }
+        if (!rdate.value) { alert("Receipt Date is required."); return; }
+
         const totalNum = parseUSD(total.value);
-        if (totalNum === "") {
-          alert("Total amount is required.");
-          return;
-        }
+        if (totalNum === "") { alert("Total amount is required."); return; }
 
         const payload = {
           who: submittedByName,
-          submittedBy: {
-            name: submittedByName,
-            email: submittedByEmail || null
-          },
+          submittedBy: { name: submittedByName, email: submittedByEmail || null },
           submitted: submitted.value || todayISO(),
           merchant: merchant.value.trim(),
           rdate: rdate.value,
@@ -1448,19 +1411,15 @@
         };
 
         try {
-          // First create the Firestore doc
           const docRef = await addDoc(collection(db, "expenditures"), {
             ...payload,
             createdAt: serverTimestamp()
           });
 
-          // If we have a receipt image/PDF, upload it and attach metadata
           if (receiptFileForStorage) {
             try {
               const path = buildReceiptPath(docRef.id, receiptFileForStorage);
-              const meta = {
-                contentType: receiptFileForStorage.type || "application/octet-stream"
-              };
+              const meta = { contentType: receiptFileForStorage.type || "application/octet-stream" };
               const storageRef = ref(storage, path);
               await uploadBytes(storageRef, receiptFileForStorage, meta);
               const url = await getDownloadURL(storageRef);
@@ -1471,39 +1430,26 @@
                   path,
                   contentType: receiptFileForStorage.type || null,
                   fileName: receiptFileForStorage.name || receiptFileOriginalName || null,
-                  size: typeof receiptFileForStorage.size === "number"
-                    ? receiptFileForStorage.size
-                    : null
+                  size: typeof receiptFileForStorage.size === "number" ? receiptFileForStorage.size : null
                 }
               });
             } catch (uploadErr) {
               console.warn("Failed to upload / attach receipt image:", uploadErr);
-              // Don't block save if only the image upload failed.
             }
           }
 
           showToast("Saved.");
-          setTimeout(() => {
-            window.history.back();
-          }, 700);
+          setTimeout(() => window.history.back(), 700);
         } catch (e) {
           console.error(e);
           showToast("Saved locally.");
-          // stay on page so user can decide what to do when offline/failure
         }
       });
 
-      // Clear: full page refresh to reset everything
-      $("btnClear").addEventListener("click", () => {
-        window.location.reload();
-      });
+      $("btnClear").addEventListener("click", () => window.location.reload());
+      $("btnCancel").addEventListener("click", () => window.history.back());
 
-      // Cancel: just go back to previous page
-      $("btnCancel").addEventListener("click", () => {
-        window.history.back();
-      });
-
-      // Load employees for Submitted By
+      // Load employees for Submitted By (now fast + cached + reliable on iOS)
       await loadEmployeesCombo();
 
       // ===== Quick-camera auto-open support (?src=quick-camera) =====
@@ -1511,7 +1457,6 @@
         const url = new URL(window.location.href);
         const srcParam = (url.searchParams.get('src') || '').toLowerCase();
         if (srcParam === 'quick-camera') {
-          // small delay so listeners are fully wired
           setTimeout(() => {
             const btnTakeNow = document.getElementById('btnTake');
             if (btnTakeNow) btnTakeNow.click();
