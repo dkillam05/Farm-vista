@@ -15,6 +15,7 @@
       --page-bottom-gap: 96px;
       --card-max: 940px;
       --accent: #2F6C3C;
+      --ring: rgba(47,108,60,.20);
     }
     html{-webkit-text-size-adjust:100%}
     body{ background: var(--app-bg, var(--surface)); }
@@ -49,15 +50,67 @@
     @media (max-width:760px){ .grid{ grid-template-columns:1fr; } }
 
     label{ display:block; font-weight:600; margin-bottom:6px; }
+
     .ctrl{
       display:flex; align-items:center; gap:8px;
       border:1px solid var(--border); background:var(--card-surface,var(--surface));
       border-radius:10px; padding:10px 12px;
     }
     input,select,button{ font-size:16px; } /* prevent iOS zoom */
-    .ctrl input,.ctrl select{ width:100%; border:0; outline:0; background:transparent; color:var(--text); }
+    .ctrl input{ width:100%; border:0; outline:0; background:transparent; color:var(--text); }
     .unit{ font-size:12px; color:var(--muted); white-space:nowrap; }
     .hidden{ display:none !important; }
+
+    /* Dropdowns: single-box (no “dropdown inside a bigger box”) */
+    .select-box{
+      width:100%;
+      appearance:none;
+      -webkit-appearance:none;
+      -moz-appearance:none;
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:10px 42px 10px 12px;
+      background: var(--card-surface,var(--surface));
+      color: var(--text);
+      outline:none;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6 6-6' fill='none' stroke='%2367706B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat:no-repeat;
+      background-position:right 12px center;
+      background-size:18px 18px;
+    }
+    .select-box:focus{
+      border-color: rgba(47,108,60,.42);
+      box-shadow: 0 0 0 4px var(--ring);
+    }
+
+    /* Shrink Mode label + helper icon (same as grain shrink) */
+    .label-row{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:6px;
+    }
+    .label-row label{ margin:0; font-weight:600; }
+    .help-btn{
+      appearance:none;
+      border:1px solid var(--border);
+      background:var(--surface);
+      border-radius:999px;
+      width:26px;
+      height:26px;
+      display:inline-grid;
+      place-items:center;
+      cursor:pointer;
+      color: var(--text) !important; /* no blue */
+      padding:0;
+    }
+    .help-btn:focus{
+      outline:none;
+      border-color: rgba(47,108,60,.42);
+      box-shadow: 0 0 0 4px var(--ring);
+    }
+    .help-btn svg{ width:16px; height:16px; }
 
     .actions{ display:flex; gap:10px; justify-content:flex-end; padding:0 16px 16px; }
     .btn{ appearance:none; border:1px solid var(--border); background:var(--surface);
@@ -79,18 +132,32 @@
       padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--card-surface,var(--surface)); }
     .hsummary{ font-weight:700; }
 
-    /* Centered modal */
+    /* Centered modals */
     .modal{ position:fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,.42);
       z-index:9999; transition:opacity .15s; opacity:0; }
     .modal[open]{ display:grid; opacity:1; }
     .dialog{ width:min(760px,92vw); max-height:85vh; display:flex; flex-direction:column; background:var(--surface); color:var(--text);
       border-radius:14px; border:1px solid var(--border); box-shadow:0 16px 36px rgba(0,0,0,.28); }
     .dialog-head{ padding:12px 14px; border-bottom:1px solid var(--border);
-      display:flex; justify-content:space-between; align-items:center; }
+      display:flex; justify-content:space-between; align-items:center; gap:10px; }
     .dialog-body{ padding:14px; overflow:auto; flex:1 1 auto; min-height:0; -webkit-overflow-scrolling:touch; }
     .closex{ border:1px solid var(--border); background:var(--surface); border-radius:10px;
       padding:8px 12px; cursor:pointer; font-weight:700; color:var(--text) !important; }
     html.no-scroll, body.no-scroll{ overflow:hidden; }
+
+    .help-note{ margin:0 0 10px; color:var(--muted); font-size:13px; line-height:1.35; }
+    .bul{ margin:8px 0 0; padding-left:18px; }
+    .bul li{ margin:8px 0; line-height:1.35; }
+    .k{
+      display:inline-block;
+      padding:1px 8px;
+      border:1px solid var(--border);
+      border-radius:999px;
+      background:var(--card-surface,var(--surface));
+      font-weight:700;
+      font-size:12px;
+      color:var(--text);
+    }
   </style>
 </head>
 <body>
@@ -118,23 +185,30 @@
           <div class="grid">
             <div>
               <label for="crop">Crop</label>
-              <div class="ctrl">
-                <select id="crop">
-                  <option value="corn">Corn (TW 56, Std 15.5%)</option>
-                  <option value="soy">Soybeans (TW 60, Std 13.0%)</option>
-                </select>
-              </div>
+              <!-- single-box dropdown -->
+              <select id="crop" class="select-box">
+                <option value="corn">Corn (TW 56, Std 15.5%)</option>
+                <option value="soy">Soybeans (TW 60, Std 13.0%)</option>
+              </select>
             </div>
 
             <div>
-              <label for="mode">Shrink Mode</label>
-              <div class="ctrl">
-                <select id="mode">
-                  <option value="both" selected>Compare Both</option>
-                  <option value="true">True Only</option>
-                  <option value="elev">Elevator Only</option>
-                </select>
+              <div class="label-row">
+                <label for="mode">Shrink Mode</label>
+                <button class="help-btn" id="modeHelp" type="button" aria-label="Help: Shrink Mode" title="What is Shrink Mode?">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4"></path>
+                    <path d="M12 17h.01"></path>
+                  </svg>
+                </button>
               </div>
+              <!-- single-box dropdown -->
+              <select id="mode" class="select-box">
+                <option value="both" selected>Compare Both</option>
+                <option value="true">True Only</option>
+                <option value="elev">Elevator Only</option>
+              </select>
             </div>
 
             <div>
@@ -147,15 +221,13 @@
 
             <div>
               <label for="wid">Cut Width</label>
-              <div class="ctrl">
-                <!-- dropdown as requested -->
-                <select id="wid">
-                  <option value="30">30 ft</option>
-                  <option value="35">35 ft</option>
-                  <option value="40">40 ft</option>
-                  <option value="45">45 ft</option>
-                </select>
-              </div>
+              <!-- single-box dropdown -->
+              <select id="wid" class="select-box">
+                <option value="30">30 ft</option>
+                <option value="35">35 ft</option>
+                <option value="40">40 ft</option>
+                <option value="45">45 ft</option>
+              </select>
             </div>
 
             <!-- Read-only computed area -->
@@ -235,14 +307,40 @@
     </div>
   </div>
 
+  <!-- HELP MODAL (Shrink Mode) -->
+  <div class="modal" id="helpModal" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+      <div class="dialog-head">
+        <h3 id="helpTitle">Shrink Mode — What it does</h3>
+        <button class="closex" id="helpClose" type="button">Back</button>
+      </div>
+      <div class="dialog-body" id="helpBody">
+        <p class="help-note">
+          Shrink Mode only changes what you <strong>see</strong>. The calculator always computes both methods.
+        </p>
+
+        <h4 style="margin:0 0 6px">Modes</h4>
+        <ul class="bul">
+          <li><strong>Compare Both</strong> — shows True Shrink and Elevator Shrink side-by-side.</li>
+          <li><strong>True Only</strong> — shows only the True Shrink tile.</li>
+          <li><strong>Elevator Only</strong> — shows only the Elevator Shrink tile.</li>
+        </ul>
+
+        <h4 style="margin:14px 0 6px">Rules used in this calculator</h4>
+        <ul class="bul" id="rulesList"></ul>
+      </div>
+    </div>
+  </div>
+
   <script>
   (function(){
     "use strict";
-    if(window.__FV_COMBINE_RO_V1__) return; window.__FV_COMBINE_RO_V1__=true;
+    if(window.__FV_COMBINE_RO_V2__) return; window.__FV_COMBINE_RO_V2__=true;
 
     var SQFT_PER_ACRE=43560;
     var CORN_STD=15.5, CORN_TW=56, CORN_SLOPE=(21.0/(29.0-15.5)), CORN_CAP_M=40.0, CORN_CAP_SH=CORN_SLOPE*(CORN_CAP_M-CORN_STD);
     var SOY_STD=13.0, SOY_TW=60;
+    var SOY_ELEV_PER_PT=1.5;
 
     function $(id){ return document.getElementById(id); }
     function num(v){ return parseFloat(String(v).replace(/,/g,"")); }
@@ -251,6 +349,78 @@
     var cropEl=$("crop"), modeEl=$("mode"), len=$("len"), wid=$("wid"), acRO=$("acRO"), wt=$("wt"), start=$("start");
     var results=$("results"), trueTile=$("trueTile"), elevTile=$("elevTile");
     var trueY=$("trueY"), trueBu=$("trueBu"), elevY=$("elevY"), elevBu=$("elevBu");
+
+    /* --- help modal wiring --- */
+    var helpModal=$("helpModal"), helpClose=$("helpClose"), helpBtn=$("modeHelp"), rulesList=$("rulesList");
+    var modal=$("modal"), mdBody=$("mdBody"), mdClose=$("mdClose");
+    var lastOpener=null, trapHandler=null;
+
+    function trapFocus(root){
+      var focusables=[].slice.call(root.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])'))
+        .filter(function(el){ return !el.disabled && el.offsetParent!==null; });
+      if(!focusables.length) return;
+      var first=focusables[0], last=focusables[focusables.length-1];
+      trapHandler=function(e){
+        if(e.key!=="Tab") return;
+        if(e.shiftKey && document.activeElement===first){ e.preventDefault(); last.focus(); }
+        else if(!e.shiftKey && document.activeElement===last){ e.preventDefault(); first.focus(); }
+      };
+      root.addEventListener("keydown", trapHandler);
+    }
+    function releaseFocus(root){ if(trapHandler){ root.removeEventListener("keydown", trapHandler); trapHandler=null; } }
+    function openAnyModal(root, focusEl){
+      root.setAttribute("open",""); root.setAttribute("aria-hidden","false");
+      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
+      if(focusEl) focusEl.focus(); trapFocus(root);
+    }
+    function closeAnyModal(root){
+      root.removeAttribute("open"); root.setAttribute("aria-hidden","true");
+      document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
+      releaseFocus(root); if(lastOpener) lastOpener.focus();
+    }
+
+    function buildRules(){
+      var crop = cropEl.value;
+      var std  = (crop==="corn") ? CORN_STD : SOY_STD;
+      var truePerPt = 100/(100-std); // constant per-point for true shrink given standard
+
+      rulesList.innerHTML = "";
+      if(crop==="corn"){
+        var li1=document.createElement("li");
+        li1.innerHTML = "<strong>Corn elevator shrink:</strong> linear from <span class='k'>15.5%</span> to <span class='k'>29%</span> equals <span class='k'>21%</span> shrink ⇒ <span class='k'>"+fmt(CORN_SLOPE,4)+"% per point</span>. Capped at <span class='k'>40%</span> moisture.";
+        rulesList.appendChild(li1);
+      } else {
+        var li2=document.createElement("li");
+        li2.innerHTML = "<strong>Soybean elevator shrink:</strong> simple per-point rule from <span class='k'>13.0%</span> standard at <span class='k'>"+fmt(SOY_ELEV_PER_PT,2)+"% per point</span> above standard.";
+        rulesList.appendChild(li2);
+      }
+
+      var li3=document.createElement("li");
+      li3.innerHTML =
+        "<strong>True shrink rate:</strong> based on standard moisture only: <span class='k'>"+fmt(truePerPt,4)+"% per point</span> above standard "
+        + "(corn std 15.5 → "+fmt(100/(100-CORN_STD),4)+"%/pt, soy std 13.0 → "+fmt(100/(100-SOY_STD),4)+"%/pt).";
+      rulesList.appendChild(li3);
+    }
+
+    function openHelp(){
+      lastOpener = helpBtn;
+      buildRules();
+      openAnyModal(helpModal, helpClose);
+    }
+    function closeHelp(){ closeAnyModal(helpModal); }
+
+    helpBtn.addEventListener("click", openHelp);
+    helpClose.addEventListener("click", closeHelp);
+    helpModal.addEventListener("click", function(e){ if(e.target===helpModal) closeHelp(); });
+
+    cropEl.addEventListener("change", function(){
+      if(helpModal.hasAttribute("open")) buildRules();
+    });
+
+    document.addEventListener("keydown", function(e){
+      if(helpModal.hasAttribute("open") && e.key==="Escape") closeHelp();
+      if(modal.hasAttribute("open") && e.key==="Escape") closeModal();
+    });
 
     // compute area from length × width and show read-only
     function computeArea(){
@@ -263,8 +433,16 @@
     wid.addEventListener("change", computeArea);
 
     // format helpers
-    [len].forEach(function(i){ i.addEventListener("blur", function(){ var v=i.value.replace(/[^0-9.]/g,""); i.value=v?fmt(parseFloat(v),2):""; }); });
-    wt.addEventListener("blur", function(){ var raw=wt.value.replace(/[^0-9]/g,""); wt.value=raw?Number(raw).toLocaleString():""; });
+    [len].forEach(function(i){
+      i.addEventListener("blur", function(){
+        var v=i.value.replace(/[^0-9.]/g,"");
+        i.value=v?fmt(parseFloat(v),2):"";
+      });
+    });
+    wt.addEventListener("blur", function(){
+      var raw=wt.value.replace(/[^0-9]/g,"");
+      wt.value=raw?Number(raw).toLocaleString():"";
+    });
 
     // Moisture: force XX.X
     start.addEventListener("input", function(){
@@ -279,8 +457,11 @@
     });
 
     function elevPct(crop, m){
-      if(crop!=="corn") return Math.max(0, (m-SOY_STD)*1.5); // simple soy placeholder
-      if(m<=CORN_STD) return 0; var used=Math.min(m, CORN_CAP_M); var pct=CORN_SLOPE*(used-CORN_STD); return Math.min(pct, CORN_CAP_SH);
+      if(crop!=="corn") return Math.max(0, (m-SOY_STD)*SOY_ELEV_PER_PT);
+      if(m<=CORN_STD) return 0;
+      var used=Math.min(m, CORN_CAP_M);
+      var pct=CORN_SLOPE*(used-CORN_STD);
+      return Math.min(pct, CORN_CAP_SH);
     }
 
     function calc(){
@@ -312,7 +493,8 @@
       elevY.textContent = fmt(o.elevY,2)+" bu/ac"; elevBu.textContent = fmt(o.elevBu,2)+" bu";
       trueTile.style.display = (o.mode==="true") ? "block" : (o.mode==="elev" ? "none" : "block");
       elevTile.style.display = (o.mode==="elev") ? "block" : (o.mode==="true" ? "none" : "block");
-      results.hidden=false; if(wt.value && wt.value.indexOf(",")===-1){ wt.dispatchEvent(new Event("blur")); }
+      results.hidden=false;
+      if(wt.value && wt.value.indexOf(",")===-1){ wt.dispatchEvent(new Event("blur")); }
     }
 
     /* History + modal */
@@ -338,9 +520,11 @@
       });
     }
 
-    var modal=$("modal"), mdBody=$("mdBody"), mdClose=$("mdClose"); var lastOpener=null, trapHandler=null;
+    var lastDetailsOpener=null;
+
     function openModal(it, opener){
-      lastOpener=opener||null;
+      lastDetailsOpener=opener||null;
+      lastOpener=lastDetailsOpener;
       mdBody.innerHTML = '<div class="kv">'
         +'<div>When</div><div>'+new Date(it.t).toLocaleString()+'</div>'
         +'<div>Crop</div><div>'+(it.crop==="corn"?"Corn":"Soybeans")+'</div>'
@@ -351,27 +535,25 @@
         +'<div>True Yield</div><div>'+fmt(it.trueY,2)+' bu/ac ('+fmt(it.trueBu,2)+' bu)</div>'
         +'<div>Elevator Yield</div><div>'+fmt(it.elevY,2)+' bu/ac ('+fmt(it.elevBu,2)+' bu)</div>'
         +'</div>';
-      modal.setAttribute("open",""); modal.setAttribute("aria-hidden","false");
-      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll"); mdClose.focus(); trapFocus(modal);
+      openAnyModal(modal, mdClose);
     }
-    function closeModal(){ modal.removeAttribute("open"); modal.setAttribute("aria-hidden","true"); document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll"); releaseFocus(modal); if(lastOpener) lastOpener.focus(); }
-    mdClose.addEventListener("click", closeModal); modal.addEventListener("click", function(e){ if(e.target===modal) closeModal(); });
-    document.addEventListener("keydown", function(e){ if(modal.hasAttribute("open") && e.key==="Escape") closeModal(); });
 
-    function trapFocus(root){
-      var focusables=[].slice.call(root.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')).filter(function(el){return !el.disabled && el.offsetParent!==null;});
-      if(!focusables.length) return; var first=focusables[0], last=focusables[focusables.length-1];
-      trapHandler=function(e){ if(e.key!=="Tab")return; if(e.shiftKey && document.activeElement===first){e.preventDefault(); last.focus();} else if(!e.shiftKey && document.activeElement===last){e.preventDefault(); first.focus();}};
-      root.addEventListener("keydown", trapHandler);
-    }
-    function releaseFocus(root){ if(trapHandler){ root.removeEventListener("keydown", trapHandler); trapHandler=null; } }
+    function closeModal(){ closeAnyModal(modal); }
+    mdClose.addEventListener("click", closeModal);
+    modal.addEventListener("click", function(e){ if(e.target===modal) closeModal(); });
 
     $("frm").addEventListener("submit", function(ev){
       ev.preventDefault();
-      var out=calc(); if(out){ show(out); var h=load(); h.unshift(out); save(h); renderHist(); }
+      var out=calc();
+      if(out){
+        show(out);
+        var h=load(); h.unshift(out); save(h); renderHist();
+      }
     });
+
     $("clearInputs").addEventListener("click", function(){
-      [len, wt, start].forEach(function(i){ if(i) i.value=""; }); computeArea(); results.hidden=true;
+      [len, wt, start].forEach(function(i){ if(i) i.value=""; });
+      computeArea(); results.hidden=true;
     });
     $("clearHist").addEventListener("click", function(){ localStorage.removeItem(LS_KEY); renderHist(); });
 
