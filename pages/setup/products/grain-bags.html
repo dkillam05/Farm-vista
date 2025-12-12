@@ -88,14 +88,15 @@
 </head>
 <body>
   <fv-shell>
-    <div class="page container">
+    <!-- Page visibility -->
+    <div class="page container" data-perm="setup-prod-grainbags:view">
       <h1 class="page-title">Grain Bag Setup</h1>
       <p class="page-sub">Add grain bag SKUs for inventory. Track brand, size, thickness, and estimated capacity in rated <strong>corn bushels</strong> per bag.</p>
 
       <div id="alert" class="alert" role="alert"></div>
 
-      <!-- Create form -->
-      <section class="section" aria-label="Add Grain Bag">
+      <!-- Create form (add permission) -->
+      <section class="section" aria-label="Add Grain Bag" data-perm="setup-prod-grainbags:add">
         <header class="section-head">
           <div class="icon" aria-hidden="true">
             <!-- bag icon -->
@@ -144,7 +145,7 @@
 
           <div class="actions">
             <button id="clear" class="btn" type="button">Clear</button>
-            <button id="save" class="btn btn-primary" type="button">Save Grain Bag</button>
+            <button id="save" class="btn btn-primary" type="button" data-perm="setup-prod-grainbags:add">Save Grain Bag</button>
           </div>
         </div>
       </section>
@@ -173,7 +174,7 @@
         <h3 id="mdTitle">View / Edit Grain Bag</h3>
         <button id="mdClose" class="closex" type="button">Back</button>
       </div>
-      <div class="dialog-body">
+      <div class="dialog-body" id="mdBody">
         <div class="grid-3">
           <div class="field">
             <label for="edit_brand">Brand</label>
@@ -213,10 +214,10 @@
 
       <div class="dialog-footer">
         <div class="left-btns">
-          <button id="mdArchive" class="btn btn-quiet" type="button">Archive</button>
-          <button id="mdDelete" class="btn btn-danger" type="button" title="Delete is disabled if the product is in use.">Delete</button>
+          <button id="mdArchive" class="btn btn-quiet" type="button" data-perm="setup-prod-grainbags:edit">Archive</button>
+          <button id="mdDelete" class="btn btn-danger" type="button" title="Delete is disabled if the product is in use." data-perm="setup-prod-grainbags:delete">Delete</button>
         </div>
-        <button id="mdSave" class="btn btn-primary" type="button">Save Changes</button>
+        <button id="mdSave" class="btn btn-primary" type="button" data-perm="setup-prod-grainbags:edit">Save Changes</button>
       </div>
     </div>
   </div>
@@ -236,6 +237,11 @@
       clearTimeout(showError._t); showError._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
     };
     const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+
+    // Permission helpers
+    const can = (key)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(key) : true;
+    const CAN_EDIT = can('setup-prod-grainbags:edit');
+    const CAN_DEL  = can('setup-prod-grainbags:delete');
 
     async function waitForAuthReady(timeoutMs=5000){
       try{
@@ -273,7 +279,7 @@
     }
     function clearCreate(){
       ["brand","length","diameter","bushels","thickness","notes"].forEach(id=>{
-        const el=$(id); if(!el) return; if(el.tagName==="SELECT") el.selectedIndex=0; else el.value="";
+        const el=$(id); if(!el) return; el.value="";
       });
     }
     $("clear").addEventListener("click", clearCreate);
@@ -294,7 +300,6 @@
       try{
         await FVData.ready(); await waitForAuthReady();
         const raw = await FVData.list(COLL, { limit: 5000 }) || [];
-        // normalize + sort (active first, then BRAND A→Z, then length desc as tie-breaker)
         items = (raw || []).map(r=>({
           id: r.id,
           brand: r.brand || "",
@@ -304,10 +309,11 @@
           thicknessMil: r.thicknessMil || 0,
           notes: r.notes || "",
           status: r.status || "active",
-          t: r.t || 0
+          t: r.t || 0,
+          used: !!r.used
         })).sort((a,b)=>{
           const sa = a.status==='archived', sb = b.status==='archived';
-          if (sa !== sb) return sa - sb; // active first
+          if (sa !== sb) return sa - sb;
           const s1 = (a.brand||"").localeCompare(b.brand||"", undefined, {sensitivity:'base'});
           if (s1) return s1;
           return (b.lengthFt||0) - (a.lengthFt||0);
@@ -382,6 +388,10 @@
       mdArchive.textContent = it.status==="archived" ? "Unarchive" : "Archive";
       mdDelete.disabled = !!it.used;
       mdDelete.title = it.used ? "This product is in use and cannot be deleted. Archive instead." : "Delete";
+
+      // Read-only if no edit permission
+      const inputs = Array.from($("mdBody").querySelectorAll('input, textarea, select'));
+      inputs.forEach(el=>{ el.disabled = !CAN_EDIT; });
     }
 
     async function openEdit(id){
@@ -394,6 +404,7 @@
     document.addEventListener('keydown', e=>{ if(e.key==='Escape' && modal.hasAttribute('open')) closeModal(); });
 
     mdSave.addEventListener('click', async ()=>{
+      if(!CAN_EDIT){ alert("You don't have permission to edit grain bag products."); return; }
       try{
         await FVData.ready(); await waitForAuthReady();
         const payload = {
@@ -417,6 +428,7 @@
     });
 
     mdArchive.addEventListener('click', async ()=>{
+      if(!CAN_EDIT){ alert("You don't have permission to archive/unarchive grain bag products."); return; }
       try{
         await FVData.ready(); await waitForAuthReady();
         const it = items.find(x=>x.id===editId); if(!it) return;
@@ -429,6 +441,7 @@
     });
 
     mdDelete.addEventListener('click', async ()=>{
+      if(!CAN_DEL){ alert("You don't have permission to delete grain bag products."); return; }
       try{
         const it = items.find(x=>x.id===editId); if(!it) return;
         if(it.used){ alert("This product is in use and cannot be deleted. Archive instead."); return; }
