@@ -26,6 +26,10 @@
 //  • Leaf menu items now have their own expand/collapse so their pills stay hidden until needed.
 //  • Extra Features are in their own collapsible group with simple On/Off pills.
 //
+// NEW:
+//  • Subtle indicator on each GROUP HEADER showing how many sub-items are enabled beneath it
+//    (so you can see “where the enabled stuff is” even while collapsed).
+//
 
 import NAV_MENU from '/Farm-vista/js/menu.js';
 
@@ -299,6 +303,33 @@ class FVPermsHero extends HTMLElement {
     this.render();
   }
 
+  /* ---------- NEW: group indicator helpers ---------- */
+
+  _isAnyActionOn(id) {
+    const p = this._getPerm(id);
+    return !!(p.view || p.add || p.edit || p.delete);
+  }
+
+  // Returns counts for descendants ONLY (excludes the groupId itself)
+  _descendantActionStats(groupId) {
+    const { byParent } = this._navIndex || {};
+    if (!byParent) return { total: 0, enabled: 0 };
+
+    let total = 0;
+    let enabled = 0;
+
+    const stack = [...(byParent[groupId] || []).map(n => n.id)];
+    while (stack.length) {
+      const id = stack.pop();
+      total++;
+      if (this._isAnyActionOn(id)) enabled++;
+      const kids = byParent[id] || [];
+      kids.forEach(k => stack.push(k.id));
+    }
+
+    return { total, enabled };
+  }
+
   /* ---------- Nested matrix helpers ---------- */
 
   _buildMenuTreeHtml() {
@@ -334,13 +365,28 @@ class FVPermsHero extends HTMLElement {
       const hasChildren = children.length > 0;
       const allOn = this._isGroupFullyAllOn(node.id);
 
+      // NEW: show a subtle “sub enabled” badge on the group header if anything beneath is enabled
+      const ds = this._descendantActionStats(node.id);
+      const showSubBadge = ds.total > 0 && ds.enabled > 0;
+      const subBadge = showSubBadge
+        ? `
+          <span class="perm-sub-indicator" title="${ds.enabled} sub-items enabled">
+            <span class="perm-sub-dot" aria-hidden="true"></span>
+            <span class="perm-sub-count">${ds.enabled}</span>
+          </span>
+        `
+        : '';
+
       return `
         <div class="perm-group ${openClass}" data-group-id="${node.id}">
           <div class="perm-group-header" data-group-toggle="${node.id}">
             <button type="button" class="perm-group-chevron" aria-label="Toggle ${node.label}">
               <span class="chevron">${isOpen ? '▾' : '▸'}</span>
             </button>
-            <div class="perm-group-title">${node.label}</div>
+            <div class="perm-group-title">
+              ${node.label}
+              ${subBadge}
+            </div>
             <div class="perm-group-header-actions">
               <button type="button"
                       class="perm-pill perm-pill-all ${allOn ? 'perm-pill-on' : 'perm-pill-off'}"
@@ -676,7 +722,39 @@ class FVPermsHero extends HTMLElement {
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          min-width: 0;
         }
+
+        /* NEW: subtle “has enabled sub-items” indicator */
+        .perm-sub-indicator{
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          border-radius: 999px;
+          padding: 2px 7px;
+          border: 1px solid rgba(0,0,0,0.10);
+          background: rgba(255,255,255,0.92);
+          color: var(--muted, #67706B);
+          font-weight: 800;
+          font-size: 11px;
+          line-height: 1;
+          flex: 0 0 auto;
+        }
+        .perm-sub-dot{
+          width: 6px;
+          height: 6px;
+          border-radius: 999px;
+          background: #2F6C3C;
+          opacity: 0.85;
+          display: inline-block;
+        }
+        .perm-sub-count{
+          letter-spacing: 0.2px;
+        }
+
         .perm-group-header-actions {
           display: flex;
           align-items: center;
