@@ -13,6 +13,10 @@
 
   <!-- Theme + base app styles -->
   <script src="/Farm-vista/js/theme-boot.js"></script>
+
+  <!-- ✅ Permission UI controller (NEW, global behavior) -->
+  <script src="/Farm-vista/js/perm-ui.js"></script>
+
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
@@ -97,7 +101,6 @@
     }
     .alert.show{display:block}
 
-    /* Dictionary list */
     .list{padding:4px 0 6px;display:grid;gap:10px;}
     .item{
       border:1px solid var(--border);
@@ -127,7 +130,6 @@
     }
     .pill-arch{border-color:#b3261e;color:#b3261e;}
 
-    /* Toast */
     .toast{
       position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px)+72px);
       transform:translateX(-50%);background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;
@@ -136,7 +138,6 @@
     .toast.show{display:block;animation:fadeout 3.5s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
 
-    /* EDIT SHEET – tractor-style */
     dialog.sheet{
       width:min(760px, 92vw); border:1px solid var(--border); border-radius:14px;
       padding:0; background:var(--card-surface,var(--surface)); color:var(--text);
@@ -188,14 +189,15 @@
 </head>
 <body>
   <fv-shell>
-    <div class="page">
+    <!-- Page visibility -->
+    <div class="page" data-perm="setup-prod-seed:view">
       <h1 class="title">Add Seed Product</h1>
       <p class="sub">Save seed products to <code>productsSeed</code> and see them in the dictionary below.</p>
 
       <div id="alert" class="alert" role="alert"></div>
 
-      <!-- CREATE SECTION -->
-      <section class="section" aria-label="Add Seed Product">
+      <!-- CREATE SECTION: add controls EVERYTHING inside (grey-out/disable via perm-ui.js) -->
+      <section class="section" aria-label="Add Seed Product" data-perm="setup-prod-seed:add">
         <header class="section-head">
           <div class="icon" aria-hidden="true">🌱</div>
           <div>
@@ -209,7 +211,6 @@
           <div class="grid-2">
             <div class="field">
               <label for="crop">Crop</label>
-              <!-- crop options are sorted A–Z -->
               <select id="crop" class="select">
                 <option value="">—</option>
                 <option value="corn">Corn</option>
@@ -218,8 +219,6 @@
             </div>
             <div class="field">
               <label for="brand">Brand</label>
-              <!-- values are LABEL STRINGS; these are what we store in Firestore -->
-              <!-- initial order is A–Z; script also uses the same sorted list for edit -->
               <select id="brand" class="select">
                 <option value="">—</option>
                 <option value="Asgrow">Asgrow</option>
@@ -250,7 +249,6 @@
             </div>
             <div class="field">
               <label for="traits">Trait System</label>
-              <!-- filled from TRAITS sorted A–Z -->
               <select id="traits" class="select">
                 <option value="">—</option>
               </select>
@@ -270,7 +268,7 @@
         </div>
       </section>
 
-      <!-- DICTIONARY SECTION -->
+      <!-- DICTIONARY SECTION: view only -->
       <section class="section" aria-label="Seed Dictionary">
         <header class="section-head">
           <div class="icon" aria-hidden="true">📚</div>
@@ -293,7 +291,9 @@
       <strong id="mdTitle">Edit Seed Product</strong>
       <button id="mdClose" class="btn" type="button">Close</button>
     </header>
-    <div class="body">
+
+    <!-- Edit fields should be disabled unless user has setup-prod-seed:edit -->
+    <div class="body" data-perm="setup-prod-seed:edit">
       <div class="kv">
         <div class="field">
           <label for="editCrop">Crop</label>
@@ -328,14 +328,17 @@
         </div>
       </div>
     </div>
-    <footer>
-      <!-- Bottom LEFT: Save -->
-      <button id="mdSave" class="btn btn-primary" type="button">Save</button>
 
-      <!-- Bottom RIGHT: Archive or Delete icon (never both) -->
+    <footer>
+      <!-- Save requires edit -->
+      <button id="mdSave" class="btn btn-primary" type="button" data-perm="setup-prod-seed:edit">Save</button>
+
       <div class="sheet-footer-right">
-        <button id="mdArchive" class="btn btn-quiet" type="button">Archive</button>
-        <button id="mdDelete" class="btn-icon" type="button" title="Delete seed" aria-label="Delete seed">
+        <!-- Archive requires edit -->
+        <button id="mdArchive" class="btn btn-quiet" type="button" data-perm="setup-prod-seed:edit">Archive</button>
+
+        <!-- Delete requires delete -->
+        <button id="mdDelete" class="btn-icon" type="button" title="Delete seed" aria-label="Delete seed" data-perm="setup-prod-seed:delete">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M9 3h6a1 1 0 0 1 .96.73L16.78 5H20a1 1 0 1 1 0 2h-1.06l-.9 12.07A2 2 0 0 1 16.05 21H7.95a2 2 0 0 1-1.99-1.93L5.06 7H4a1 1 0 0 1 0-2h3.22l.82-1.27A1 1 0 0 1 9 3Zm5.96 2L14.7 5H9.3L9.04 5h5.92ZM7.06 7l.88 12h8.12l.88-12H7.06Zm4.94 2a1 1 0 0 1 1 1v7a1 1 0 1 1-2 0v-7a1 1 0 0 1 1-1Zm-3 0a1 1 0 0 1 1 1v7a1 1 0 1 1-2 0v-7a1 1 0 0 1 1-1Zm6 0a1 1 0 0 1 1 1v7a1 1 0 1 1-2 0v-7a1 1 0 0 1 1-1Z" fill="#B3261E"/>
           </svg>
@@ -407,13 +410,11 @@
       alertBox._t = setTimeout(()=> alertBox.classList.remove('show'), 7000);
     };
 
-    // Always keep brands sorted A–Z
     const BRAND_VALUES = [
       "Asgrow","Becks","Brevant Seeds","Burrus Seed","Channel","DeKalb",
       "Generic","Hisoy","Merschman Seeds","NuTech","Pioneer","Wyffels Hybrids"
     ].sort((a,b)=>a.localeCompare(b,'en',{sensitivity:'base'}));
 
-    // Trait codes; we'll sort by label whenever we build options
     const TRAITS = {
       corn: [
         {v:"CLEAR",t:"CLEARFIELD (IMI)"},
@@ -502,21 +503,14 @@
 
     function buildCreatePayload(){
       const cropVal    = crop.value;
-      const brandVal   = brand.value.trim();
-      const varVal     = variety.value.trim();
-      const matVal     = maturity.value.trim();
-      const traitVal   = traits.value.trim();
-      const traitLabel = traits.selectedOptions?.[0]?.textContent || "";
-      const notesVal   = notes.value.trim();
-
       return {
         crop: cropVal,
-        brand: brandVal,
-        variety: varVal,
-        maturity: matVal,
-        trait: traitVal,
-        traitLabel,
-        notes: notesVal,
+        brand: brand.value.trim(),
+        variety: variety.value.trim(),
+        maturity: maturity.value.trim(),
+        trait: traits.value.trim(),
+        traitLabel: traits.selectedOptions?.[0]?.textContent || "",
+        notes: notes.value.trim(),
         cropCorn: cropVal === "corn",
         cropSoy:  cropVal === "soybean",
         status: "active",
@@ -526,20 +520,14 @@
       };
     }
 
-    // CLEAR button: hard reset via page reload so styled selects and native state are always in sync
-    $("clear").addEventListener("click", ()=>{
-      window.location.reload();
-    });
+    $("clear").addEventListener("click", ()=> window.location.reload());
 
-    // SAVE button: save to Firestore, then full reload so the form + combos reset cleanly
     $("save").addEventListener("click", async ()=>{
       const err = validateCreate();
       if(err){ alert(err); return; }
       try{
-        const payload = buildCreatePayload();
-        await addDoc(collection(db, "productsSeed"), payload);
+        await addDoc(collection(db, "productsSeed"), buildCreatePayload());
         showToast("Seed saved.");
-        // Force a fresh load so crop/brand dropdowns visually go back to "—"
         window.location.reload();
       }catch(e){
         console.error(e);
@@ -602,29 +590,17 @@
       }
     }
 
-    function openDialog(){
-      try{ dlg.showModal(); }catch{ dlg.setAttribute("open",""); }
-    }
-    function closeDialog(){
-      try{ dlg.close(); }catch{ dlg.removeAttribute("open"); }
-      current = null;
-    }
+    function openDialog(){ try{ dlg.showModal(); }catch{ dlg.setAttribute("open",""); } }
+    function closeDialog(){ try{ dlg.close(); }catch{ dlg.removeAttribute("open"); } current = null; }
 
-    // Build the edit dropdowns fresh, sorted A–Z, based on the doc.
     function buildEditCropSelect(selected){
       const val = (selected || "").toLowerCase();
       editCrop.innerHTML = "";
-      const opts = [
-        ["", "—"],
-        ["corn", "Corn"],
-        ["soybean", "Soybean"]
-      ];
-      opts.sort((a,b)=>a[1].localeCompare(b[1],'en',{sensitivity:'base'}));
+      const opts = [["","—"],["corn","Corn"],["soybean","Soybean"]];
       opts.forEach(([v,label])=>{
-        const o = document.createElement("option");
-        o.value = v;
-        o.textContent = label;
-        if(v && v.toLowerCase() === val) o.selected = true;
+        const o=document.createElement("option");
+        o.value=v; o.textContent=label;
+        if(v && v.toLowerCase()===val) o.selected=true;
         editCrop.appendChild(o);
       });
     }
@@ -632,14 +608,11 @@
     function buildEditBrandSelect(selected){
       const val = (selected || "").toLowerCase();
       editBrand.innerHTML = "";
-      const opts = [["", "—"]].concat(
-        BRAND_VALUES.slice().sort((a,b)=>a.localeCompare(b,'en',{sensitivity:'base'})).map(v=>[v,v])
-      );
+      const opts = [["","—"]].concat(BRAND_VALUES.map(v=>[v,v]));
       opts.forEach(([v,label])=>{
-        const o = document.createElement("option");
-        o.value = v;
-        o.textContent = label;
-        if(v && v.toLowerCase() === val) o.selected = true;
+        const o=document.createElement("option");
+        o.value=v; o.textContent=label;
+        if(v && v.toLowerCase()===val) o.selected=true;
         editBrand.appendChild(o);
       });
     }
@@ -647,14 +620,12 @@
     function buildEditTraitSelect(cropVal, selectedTrait){
       const val = (selectedTrait || "").toUpperCase();
       editTrait.innerHTML = "";
-      const list = (TRAITS[cropVal] || []).slice()
-        .sort((a,b)=>a.t.localeCompare(b.t,'en',{sensitivity:'base'}));
-      const opts = [["", "—"]].concat(list.map(t=>[t.v,t.t]));
+      const list = (TRAITS[cropVal] || []).slice().sort((a,b)=>a.t.localeCompare(b.t,'en',{sensitivity:'base'}));
+      const opts = [["","—"]].concat(list.map(t=>[t.v,t.t]));
       opts.forEach(([v,label])=>{
-        const o = document.createElement("option");
-        o.value = v;
-        o.textContent = label;
-        if(v && v.toUpperCase() === val) o.selected = true;
+        const o=document.createElement("option");
+        o.value=v; o.textContent=label;
+        if(v && v.toUpperCase()===val) o.selected=true;
         editTrait.appendChild(o);
       });
     }
@@ -662,18 +633,13 @@
     async function openEditor(id){
       try{
         const snap = await getDoc(doc(db, "productsSeed", id));
-        if(!snap.exists()){
-          alert("Seed not found."); return;
-        }
+        if(!snap.exists()){ alert("Seed not found."); return; }
         current = { id:snap.id, ...snap.data() };
 
         const cropVal = normalizeCrop(current);
-        const brandVal= current.brand || "";
-        const traitVal= current.trait || "";
-
         buildEditCropSelect(cropVal || current.crop || "");
-        buildEditBrandSelect(brandVal);
-        buildEditTraitSelect(cropVal || current.crop || "", traitVal);
+        buildEditBrandSelect(current.brand || "");
+        buildEditTraitSelect(cropVal || current.crop || "", current.trait || "");
 
         editVariety.value  = current.variety || "";
         editMaturity.value = current.maturity || "";
@@ -684,8 +650,7 @@
         statusPill.className   = "pill" + (st === "archived" ? " pill-arch" : "");
         mdArchive.textContent  = st === "archived" ? "Unarchive" : "Archive";
 
-        // Show either Archive or Delete icon based on `used`
-        const used = !!current.used; // true => hide delete, show archive
+        const used = !!current.used;
         if(used){
           mdArchive.style.display = "";
           mdDelete.style.display  = "none";
@@ -703,9 +668,7 @@
 
     mdClose.addEventListener("click", closeDialog);
     dlg.addEventListener("click", e=>{ if(e.target === dlg) closeDialog(); });
-    document.addEventListener("keydown", e=>{
-      if(e.key === "Escape" && dlg.hasAttribute("open")) closeDialog();
-    });
+    document.addEventListener("keydown", e=>{ if(e.key === "Escape" && dlg.hasAttribute("open")) closeDialog(); });
 
     mdSave.addEventListener("click", async ()=>{
       if(!current) return;
@@ -749,10 +712,7 @@
       if(!current) return;
       const next = current.status === "archived" ? "active" : "archived";
       try{
-        await setDoc(doc(db,"productsSeed",current.id),{
-          status: next,
-          updatedAt: serverTimestamp()
-        }, { merge:true });
+        await setDoc(doc(db,"productsSeed",current.id),{ status: next, updatedAt: serverTimestamp() }, { merge:true });
         showToast(next === "archived" ? "Product archived." : "Product unarchived.");
         closeDialog();
         await renderList();
