@@ -57,9 +57,11 @@
     }
   })();</script>
 </head>
+
 <body>
   <fv-shell>
-    <div class="page container">
+    <!-- Page visibility -->
+    <div class="page container" data-perm="setup-company:view">
       <h1 class="page-title">Company Details</h1>
 
       <section class="section">
@@ -68,7 +70,8 @@
           <div><strong>Organization Information</strong></div>
         </header>
 
-        <div class="section-body">
+        <!-- Entire form is EDIT-gated (grey out all controls for view-only) -->
+        <div class="section-body" data-perm="setup-company:edit">
           <div id="err" class="error"></div>
 
           <div class="grid">
@@ -125,7 +128,7 @@
               <div class="muted">These details may appear where organization info is shown.</div>
             </div>
 
-            <!-- Logo upload (single file, Ideas-style UI) -->
+            <!-- Logo upload -->
             <div class="field">
               <label for="logoFile">Logo upload (optional)</label>
               <input id="logoFile" class="input" type="file" accept="image/*"/>
@@ -138,7 +141,7 @@
 
             <div class="actions">
               <button id="clear" class="btn" type="button">Cancel</button>
-              <button id="save" class="btn btn-primary" type="button">Save</button>
+              <button id="save" class="btn btn-primary" type="button" data-perm="setup-company:edit">Save</button>
             </div>
           </div>
 
@@ -160,6 +163,9 @@
     (function(){
       "use strict";
       const $=(s)=>document.querySelector(s);
+
+      const canNow = (k)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(k) : true;
+
       const el={
         name:$('#farmName'),
         street:$('#addrStreet'), city:$('#addrCity'), state:$('#addrState'), zip:$('#addrZip'),
@@ -170,14 +176,11 @@
         err:$('#err'), toast:$('#toast'), saveStatus:$('#saveStatus')
       };
 
-      // --- Firestore doc + cache keys
       const REF=(db)=>doc(db,'company','main');
       const CACHE_KEY='fv_company_main';
 
-      // --- CID (Company ID) state
       let CID = null;
 
-      // Generate a short, url-safe CID (immutable once set)
       function genCID(){
         try {
           const raw = (self.crypto?.randomUUID?.() || String(Math.random()).slice(2) + String(Math.random()).slice(2))
@@ -188,7 +191,6 @@
         }
       }
 
-      // Ensure CID exists on company/main; cache in memory
       async function ensureCID(db){
         const r = REF(db);
         const snap = await getDoc(r);
@@ -205,13 +207,11 @@
         return CID;
       }
 
-      // Storage base uses CID once known; fall back to legacy "main" if not yet set
       const storageBase = ()=> `company/${CID || 'main'}/logo`;
 
       const showErr=(m)=>{ el.err.textContent=m||""; el.err.classList.toggle('show',!!m); };
       const showToast=(m="Saved.")=>{ el.toast.textContent=m; el.toast.classList.remove('show'); void el.toast.offsetWidth; el.toast.classList.add('show'); };
 
-      // Phone formatting
       const onlyDigits=(s)=>String(s||"").replace(/\D+/g,"");
       function fmtPhoneLive(v){
         let d=onlyDigits(v);
@@ -231,7 +231,6 @@
       const emailOk=(e)=>/^[^\s@]+@[^\s@]+\.[A-Za-z]{2,24}$/.test(String(e||"").trim());
       const zipOk=(z)=>/^(\d{5})(-\d{4})?$/.test(String(z||"").trim());
 
-      // Live formatting / normalization
       el.phone.addEventListener('input', ()=>{ el.phone.value = fmtPhoneLive(el.phone.value); });
       el.phone.addEventListener('blur',  ()=>{ el.phone.value = fmtPhoneFinal(el.phone.value); });
       el.email.addEventListener('blur', ()=>{ const v=normalizeEmail(el.email.value); el.email.value=v; if(v && !emailOk(v)) showErr('Please enter a valid email.'); else showErr(''); });
@@ -242,7 +241,6 @@
         if (typeof raw !== 'string') return '';
         const st = raw.trim().toUpperCase();
         if (!st) return '';
-        // Only use if it matches one of the options
         return el.state.querySelector(`option[value="${st}"]`) ? st : '';
       }
 
@@ -250,16 +248,12 @@
         el.name.value   = d?.name || "";
         el.street.value = d?.addressStreet || "";
         el.city.value   = d?.addressCity || "";
-
-        // *** KEY FIX: normalize and only set if it matches an option ***
         const st = normalizeStateValue(d?.addressState);
         el.state.value  = st;
-
         el.zip.value    = d?.addressZip || "";
         el.phone.value  = d?.phone ? fmtPhoneFinal(d.phone) : "";
         el.email.value  = d?.email || "";
 
-        // pick up CID if present (defensive)
         if (!CID && d?.cid) CID = d.cid;
 
         const logo = d?.logo;
@@ -276,6 +270,7 @@
           el.currentLogoThumb.innerHTML='';
         }
       }
+
       function readCore(){
         return { name:(el.name.value||"").trim(), phone:fmtPhoneFinal(el.phone.value||"") };
       }
@@ -283,7 +278,6 @@
         return {
           addressStreet:(el.street.value||"").trim(),
           addressCity:(el.city.value||"").trim(),
-          // *** KEY FIX: always save uppercase 2-letter code ***
           addressState:(el.state.value||"").trim().toUpperCase(),
           addressZip:(el.zip.value||"").trim(),
           email:normalizeEmail(el.email.value||"")
@@ -292,7 +286,6 @@
       function cacheWrite(d){ try{ localStorage.setItem(CACHE_KEY, JSON.stringify(d)); }catch{} }
       function cacheRead(){ try{ const s=localStorage.getItem(CACHE_KEY); return s? JSON.parse(s): null; }catch{ return null; } }
 
-      // Single-file preview (Ideas-style)
       el.logo?.addEventListener('change', ()=>{
         const files = Array.from(el.logo.files||[]);
         if (files.length > 1){ el.logo.value=''; files.length=0; }
@@ -346,30 +339,29 @@
       }
 
       async function save(){
+        if(!canNow('setup-company:edit')){
+          alert("You don't have permission to edit company details.");
+          return;
+        }
+
         try{
           showErr(""); el.saveStatus.textContent="";
 
-          // Validate core
           const core = readCore();
           if(!core.name || !core.phone){ showErr("Please fill required fields (Name, Phone)."); return; }
 
-          // Validate extras (if provided)
           const extras = readExtras();
           if (extras.email && !emailOk(extras.email)){ showErr('Please enter a valid email.'); return; }
           if (extras.addressZip && !zipOk(extras.addressZip)){ showErr('ZIP must be 12345 or 12345-6789.'); return; }
 
-          // Ensure CID before any writes that depend on it
           if (!CID) await ensureCID(db);
 
-          // Core
           await setDoc(REF(db), { ...core, cid: CID, updatedAt: serverTimestamp() }, { merge:true });
           el.saveStatus.innerHTML = `<span class="ok">Saved core fields (name, phone).</span>`;
 
-          // Extras (state now normalized)
           await setDoc(REF(db), { ...extras, updatedAt: serverTimestamp(), cid: CID }, { merge:true });
           el.saveStatus.innerHTML += ` <span class="ok">Saved extra fields.</span>`;
 
-          // Logo (single)
           const up = await uploadLogoAndUpdateDoc();
           if (!up.ok && up.note){ el.logoNote.textContent = up.note; el.logoNote.style.display='block'; }
           else { el.logoNote.style.display='none'; }
