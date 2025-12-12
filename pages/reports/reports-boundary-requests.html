@@ -479,16 +479,11 @@
       farmMap: new Map(),
 
       // RTK caches
-      towersById: new Map(),   // towerDocId -> { id, name, networkId, frequencyMHz }
-      fieldToTower: new Map()  // key(farm|field) -> { towerId? OR embedded fields }
+      towersById: new Map() // towerDocId -> { id, name, networkId, frequencyMHz }
     };
 
     function normalizeStatus(s){
       return String(s || '').trim().replace(/\.+$/,'').toLowerCase();
-    }
-    function normKey(s){ return String(s || '').trim().toLowerCase(); }
-    function makeFieldKey(farmIdOrName, fieldName){
-      return `${normKey(farmIdOrName)}|${normKey(fieldName)}`;
     }
 
     function formatDate(d){
@@ -523,33 +518,13 @@
     }
 
     /* ===========================
-       RTK: your structure
-       - name
-       - networkId
-       - frequencyMHz
+       ✅ RTK: the only thing we require now is rtkTowerId on the request
+       We'll join tower details at report time from rtk_towers.
        =========================== */
 
     function coerceStr(v){
       if(v == null) return '';
       return String(v).trim();
-    }
-
-    function pickTowerFromAnyShape(obj){
-      if(!obj || typeof obj !== 'object') return null;
-
-      // Prefer EXACT keys you gave
-      const name = obj.name ?? obj.towerName ?? obj.stationName ?? obj.label ?? '';
-      const networkId = obj.networkId ?? obj.networkID ?? obj.netId ?? obj.id ?? obj.towerId ?? obj.stationId ?? '';
-      const frequencyMHz = obj.frequencyMHz ?? obj.freqMHz ?? obj.frequency ?? obj.freq ?? obj.rtkFrequencyMHz ?? '';
-
-      const out = {
-        name: coerceStr(name),
-        networkId: coerceStr(networkId),
-        frequencyMHz: coerceStr(frequencyMHz)
-      };
-
-      if(!out.name && !out.networkId && !out.frequencyMHz) return null;
-      return out;
     }
 
     function fmtFreqMHz(freq){
@@ -558,123 +533,71 @@
       return `${s} MHz`;
     }
 
-    function buildRtkLabel(rtk){
-      if(!rtk) return '';
-      const name = rtk.name || '';
-      const net  = rtk.networkId || '';
-      const freq = rtk.frequencyMHz || '';
-      const bits = [];
-      if(name) bits.push(name);
-      if(net)  bits.push(String(net));
-      if(freq) bits.push(fmtFreqMHz(freq));
-      return bits.join(' • ');
+    function getTowerById(towerId){
+      const id = coerceStr(towerId);
+      if(!id) return null;
+      return STATE.towersById.get(id) || null;
     }
 
+    // ✅ Single source of truth for RTK display:
+    // - if request has rtk object, use it (legacy / snapshot)
+    // - else if request has rtkTowerId, look up tower
+    // - else blank
     function getRtkForRequest(d){
-      // 1) Directly on the request doc
-      const direct =
-        pickTowerFromAnyShape(d.rtkTower) ||
-        pickTowerFromAnyShape(d.rtk) ||
-        pickTowerFromAnyShape(d.tower);
-
-      if(direct){
-        return {
-          name: direct.name || '',
-          networkId: direct.networkId || '',
-          frequencyMHz: direct.frequencyMHz || ''
-        };
+      // legacy / snapshot support
+      if(d && typeof d === 'object' && d.rtk && typeof d.rtk === 'object'){
+        const name = coerceStr(d.rtk.name);
+        const networkId = coerceStr(d.rtk.networkId);
+        const frequencyMHz = coerceStr(d.rtk.frequencyMHz);
+        if(name || networkId || frequencyMHz){
+          return { name, networkId, frequencyMHz };
+        }
       }
 
-      // 2) Field mapping (farm|field) -> tower doc id or embedded object
-      const farmKey = d.farmId || d.farm || '';
-      const fieldKey = d.field || '';
-      const key = makeFieldKey(farmKey, fieldKey);
-
-      const mapped = STATE.fieldToTower.get(key);
-      if(mapped){
-        if(mapped.towerId && STATE.towersById.has(mapped.towerId)){
-          const t = STATE.towersById.get(mapped.towerId);
-          return {
-            name: t.name || mapped.name || '',
-            networkId: coerceStr(t.networkId || mapped.networkId || ''),
-            frequencyMHz: t.frequencyMHz || mapped.frequencyMHz || ''
-          };
-        }
+      const towerId = coerceStr(d?.rtkTowerId || d?.towerId || d?.rtkId || '');
+      const t = getTowerById(towerId);
+      if(t){
         return {
-          name: mapped.name || '',
-          networkId: mapped.networkId || '',
-          frequencyMHz: mapped.frequencyMHz || ''
+          name: coerceStr(t.name),
+          networkId: coerceStr(t.networkId),
+          frequencyMHz: coerceStr(t.frequencyMHz)
         };
       }
 
       return { name:'', networkId:'', frequencyMHz:'' };
     }
 
-    async function loadRtkLookups(){
-      const db = STATE.db;
+    function buildRtkLabel(rtk){
+      if(!rtk) return '';
+      const name = coerceStr(rtk.name);
+      const net  = coerceStr(rtk.networkId);
+      const freq = coerceStr(rtk.frequencyMHz);
+      const bits = [];
+      if(name) bits.push(name);
+      if(net)  bits.push(net);
+      if(freq) bits.push(fmtFreqMHz(freq));
+      return bits.join(' • ');
+    }
 
-      // Towers collection: docs like your JSON (name, networkId, frequencyMHz)
+    async function loadRtkTowers(){
+      // ✅ Load ALL towers once (your collection is small)
       try{
-        const tSnap = await getDocs(collection(db, CONFIG.TOWERS_COLLECTION));
+        const tSnap = await getDocs(collection(STATE.db, CONFIG.TOWERS_COLLECTION));
         STATE.towersById = new Map(
           tSnap.docs.map(s => {
             const d = s.data() || {};
-            const picked = pickTowerFromAnyShape(d) || { name:'', networkId:'', frequencyMHz:'' };
             const tower = {
               id: s.id,
-              name: coerceStr(picked.name || d.name || ''),
-              networkId: coerceStr(picked.networkId || d.networkId || ''),
-              frequencyMHz: coerceStr(picked.frequencyMHz || d.frequencyMHz || '')
+              name: coerceStr(d.name),
+              networkId: coerceStr(d.networkId),
+              frequencyMHz: coerceStr(d.frequencyMHz)
             };
             return [s.id, tower];
           })
         );
       }catch(e){
-        console.warn('[boundary-report] RTK towers lookup failed (ok if not set up yet):', e);
+        console.warn('[boundary-report] RTK towers load failed:', e);
         STATE.towersById = new Map();
-      }
-
-      // Fields -> Tower mapping
-      try{
-        const fSnap = await getDocs(collection(db, CONFIG.FIELDS_COLLECTION));
-        const map = new Map();
-
-        fSnap.docs.forEach(s => {
-          const d = s.data() || {};
-
-          const farmIdOrName = d.farmId || d.farm || d.farmName || '';
-          const fieldName = d.field || d.fieldName || d.name || d.label || '';
-          if(!farmIdOrName || !fieldName) return;
-
-          const key = makeFieldKey(farmIdOrName, fieldName);
-
-          // Prefer an id link to towers collection
-          const towerId =
-            d.rtkTowerId ?? d.towerId ?? d.rtkId ?? d.stationId ?? d.stationID ?? '';
-
-          // Or embedded shape
-          const embedded =
-            pickTowerFromAnyShape(d.rtkTower) ||
-            pickTowerFromAnyShape(d.tower) ||
-            pickTowerFromAnyShape(d.rtk) ||
-            null;
-
-          if(towerId){
-            map.set(key, { towerId: String(towerId).trim(), name:'', networkId:'', frequencyMHz:'' });
-          }else if(embedded){
-            map.set(key, {
-              towerId: '',
-              name: embedded.name || '',
-              networkId: embedded.networkId || '',
-              frequencyMHz: embedded.frequencyMHz || ''
-            });
-          }
-        });
-
-        STATE.fieldToTower = map;
-      }catch(e){
-        console.warn('[boundary-report] Fields lookup failed (ok if not set up yet):', e);
-        STATE.fieldToTower = new Map();
       }
     }
 
@@ -983,6 +906,8 @@
           const hay = [
             d.farm, d.field, d.scope, d.notes,
             d.submittedBy, d.submittedByEmail,
+            // ✅ include RTK tower id + details in search
+            d.rtkTowerId,
             rtk.name, rtk.networkId, rtk.frequencyMHz
           ].join(' ').toLowerCase();
           if(!hay.includes(q)) return false;
@@ -1032,7 +957,7 @@
     }
 
     /* ===========================
-       Print / PDF (improved layout)
+       Print / PDF
        =========================== */
 
     function extractFieldNumber(field){
@@ -1155,11 +1080,11 @@
       }
 
       const win = iframe.contentWindow || iframe.contentDocument;
-      const doc = iframe.contentDocument || iframe.contentWindow.document;
+      const docu = iframe.contentDocument || iframe.contentWindow.document;
 
-      doc.open();
-      doc.write(html);
-      doc.close();
+      docu.open();
+      docu.write(html);
+      docu.close();
 
       setTimeout(() => {
         try{ win.focus(); win.print(); }
@@ -1300,7 +1225,6 @@
       margin:0 0 10px;
     }
 
-    /* ✅ Print-friendly “cards” (no giant squished table) */
     .req-grid{
       display:grid;
       grid-template-columns:repeat(2, minmax(0,1fr));
@@ -1496,7 +1420,7 @@
 
                   <div class="pair" style="grid-column:1 / -1;">
                     <div class="kk">RTK</div>
-                    <div class="vv">${escapeHtml(rtkLabel || 'Not set')}</div>
+                    <div class="vv">${escapeHtml(rtkLabel || (d.rtkTowerId ? ('Tower ID: ' + d.rtkTowerId) : 'Not set'))}</div>
                   </div>
 
                   <div class="pair notes">
@@ -1604,8 +1528,8 @@
       await loadBoundaryRequests();
       populateFarmFilterFromItems();
 
-      // Load RTK lookups, then render with RTK labels
-      await loadRtkLookups();
+      // ✅ Load RTK towers and join by request.rtkTowerId
+      await loadRtkTowers();
 
       const statusSel = $('#filterStatus');
       const farmSel   = $('#filterFarm');
