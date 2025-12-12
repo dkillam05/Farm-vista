@@ -89,16 +89,18 @@
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
   </style>
 </head>
+
 <body>
   <fv-shell>
-    <div class="page container">
+    <!-- Page visibility: setup-prod-fertilizer.view -->
+    <div class="page container" data-perm="setup-prod-fertilizer:view">
       <h1 class="page-title">Fertilizer Setup</h1>
       <p class="page-sub">Add fertilizer products with analysis, source, units, and density to support purchasing and application reports.</p>
 
       <div id="alert" class="alert" role="alert"></div>
 
-      <!-- Create form -->
-      <section class="section">
+      <!-- Create form (add permission) -->
+      <section class="section" data-perm="setup-prod-fertilizer:add">
         <header class="section-head">
           <div class="icon" aria-hidden="true">
             <!-- leaf icon -->
@@ -192,12 +194,12 @@
 
           <div class="actions">
             <button id="clear" class="btn" type="button">Clear</button>
-            <button id="save" class="btn btn-primary" type="button">Save Fertilizer</button>
+            <button id="save" class="btn btn-primary" type="button" data-perm="setup-prod-fertilizer:add">Save Fertilizer</button>
           </div>
         </div>
       </section>
 
-      <!-- List -->
+      <!-- List (view permission via page container) -->
       <div class="list-head">
         <div class="list-title">Fertilizer Products</div>
         <div class="list-tools">
@@ -222,7 +224,7 @@
         <button id="mdClose" class="closex" type="button">Back</button>
       </div>
 
-      <div class="dialog-body">
+      <div class="dialog-body" id="mdBody">
         <div class="grid-3">
           <div class="field">
             <label for="edit_vendor">Vendor</label>
@@ -305,10 +307,10 @@
 
       <div class="dialog-footer">
         <div class="left-btns">
-          <button id="mdArchive" class="btn btn-quiet" type="button">Archive</button>
-          <button id="mdDelete" class="btn btn-danger" type="button">Delete</button>
+          <button id="mdArchive" class="btn btn-quiet" type="button" data-perm="setup-prod-fertilizer:edit">Archive</button>
+          <button id="mdDelete" class="btn btn-danger" type="button" data-perm="setup-prod-fertilizer:delete">Delete</button>
         </div>
-        <button id="mdSave" class="btn btn-primary" type="button">Save Changes</button>
+        <button id="mdSave" class="btn btn-primary" type="button" data-perm="setup-prod-fertilizer:edit">Save Changes</button>
       </div>
     </div>
   </div>
@@ -327,8 +329,12 @@
       clearTimeout(showError._t); showError._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
     };
     const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
-    const toNum = v => { const n = Number(String(v||"").replace(/,/g,"").trim()); return isFinite(n) ? n : 0; };
     const cap = s => s ? (s[0].toUpperCase()+s.slice(1)) : s;
+
+    // Permission helpers
+    const can = (key)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(key) : true;
+    const CAN_EDIT = can('setup-prod-fertilizer:edit');
+    const CAN_DEL  = can('setup-prod-fertilizer:delete');
 
     async function waitForAuthReady(timeoutMs=5000){
       try{
@@ -391,7 +397,6 @@
       try{
         await FVData.ready(); await waitForAuthReady();
         const raw = await FVData.list(COLL, { limit: 5000 }) || [];
-        // normalize + sort (active first, then source asc, then vendor asc)
         items = (raw || []).map(r=>({
           id: r.id,
           vendor: r.vendor || "",
@@ -486,6 +491,10 @@
       setVal('edit_notes', it.notes);
       $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
       mdArchive.textContent = it.status==="archived" ? "Unarchive" : "Archive";
+
+      // Read-only modal if no edit perm
+      const inputs = Array.from($("mdBody").querySelectorAll('input, select, textarea'));
+      inputs.forEach(el=>{ el.disabled = !CAN_EDIT; });
     }
 
     async function openEdit(id){
@@ -498,6 +507,7 @@
     document.addEventListener('keydown', e=>{ if(e.key==='Escape' && modal.hasAttribute('open')) closeModal(); });
 
     mdSave.addEventListener('click', async ()=>{
+      if(!CAN_EDIT){ alert("You don't have permission to edit fertilizer products."); return; }
       try{
         await FVData.ready(); await waitForAuthReady();
         const payload = {
@@ -514,7 +524,6 @@
           appliedUnit: $('edit_appliedUnit').value,
           notes: $('edit_notes').value.trim()
         };
-        // quick guard
         if(!payload.source){ alert("Choose a fertilizer source."); return; }
         if(!(payload.n||payload.p||payload.k)){ alert("Enter at least one N-P₂O₅-K₂O value."); return; }
 
@@ -526,6 +535,7 @@
     });
 
     mdArchive.addEventListener('click', async ()=>{
+      if(!CAN_EDIT){ alert("You don't have permission to archive/unarchive fertilizer products."); return; }
       try{
         await FVData.ready(); await waitForAuthReady();
         const it = items.find(x=>x.id===editId); if(!it) return;
@@ -533,12 +543,12 @@
         await FVData.update(COLL, editId, { status: next });
         showToast(next==="archived" ? "Product archived." : "Product unarchived.");
         await loadAll();
-        // keep modal open and reflect status
         const refreshed = items.find(x=>x.id===editId); if(refreshed) fillEdit(refreshed);
       }catch(e){ console.error(e); showError("Archive toggle failed: " + (e?.message||e)); }
     });
 
     mdDelete.addEventListener('click', async ()=>{
+      if(!CAN_DEL){ alert("You don't have permission to delete fertilizer products."); return; }
       try{
         const it = items.find(x=>x.id===editId); if(!it) return;
         if(!confirm(`Delete fertilizer "${it.source||'(Unnamed)'}"? This cannot be undone.`)) return;
