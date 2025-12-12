@@ -292,10 +292,14 @@ const __fvBoot = (function(){
 })();
 
 /* =====================  Permission Engine + data-perm Hiding  ===================== */
-/* Dynamic, menu-driven, role + override aware.
-   - Builds window.FV_PERMS from FVUserContext (role perms + employee overrides).
-   - Exposes FV.can(featureKey) for JS.
-   - Auto-hides any element with [data-perm="feature-key"] using the merged perms.
+/* Dynamic, role + override aware.
+   - Uses FVUserContext data: role, employee, perms, effectivePerms.
+   - Supports:
+        data-perm="crop-maint"       → any of view/add/edit/delete true
+        data-perm="crop-maint:add"   → requires crop-maint.add === true
+        data-perm="crop-maint:edit"  → requires crop-maint.edit === true
+        data-perm="crop-maint:delete"→ requires crop-maint.delete === true
+   - Falls back to coarse feature-level booleans when needed.
 */
 (function(){
   try{
@@ -304,32 +308,35 @@ const __fvBoot = (function(){
       return window.FV;
     }
 
-    function normalizePermDict(src, out){
-      if (!src || typeof src !== 'object') return;
-      Object.keys(src).forEach((key)=>{
-        var val = src[key];
-        if (val && typeof val === 'object' && 'on' in val) {
-          // { on: true|false }
-          if (val.on === true) {
-            out[key] = true;
-          } else if (val.on === false) {
-            out[key] = false;
+    function buildCoarsePerms(raw){
+      const out = {};
+      if (!raw || typeof raw !== 'object') return out;
+      Object.keys(raw).forEach((key)=>{
+        const v = raw[key];
+        if (typeof v === 'boolean') {
+          out[key] = v;
+        } else if (v && typeof v === 'object') {
+          // treat view/add/edit/delete/on; if any true, feature is "on"
+          let any = false;
+          if (v.view === true || v.add === true || v.edit === true || v.delete === true || v.on === true) {
+            any = true;
           }
-        } else if (typeof val === 'boolean') {
-          out[key] = val;
+          out[key] = any;
         }
       });
+      return out;
     }
 
     function applyPermVisibility(root){
-      var fv = ensureFV();
-      var perms = window.FV_PERMS || {};
-      var scope = root || document;
+      const fv = ensureFV();
+      const scope = root || document;
       try{
-        scope.querySelectorAll('[data-perm]').forEach(function(el){
-          var key = el.getAttribute('data-perm') || '';
+        const nodes = scope.querySelectorAll('[data-perm]');
+        nodes.forEach(function(el){
+          const key = el.getAttribute('data-perm') || '';
           if (!key) return;
-          var allowed = fv.can ? !!fv.can(key) : !!perms[key];
+
+          const allowed = fv.can ? !!fv.can(key) : true;
           if (!allowed) {
             el.setAttribute('hidden', 'hidden');
             el.classList.add('fv-perm-hidden');
@@ -347,60 +354,74 @@ const __fvBoot = (function(){
       if (!ctx || typeof ctx !== 'object') return ctx;
       // Some implementations may wrap as { user, role, employee, perms, effectivePerms }
       if (ctx.user && typeof ctx.user === 'object' && (ctx.role || ctx.employee || ctx.effectivePerms || ctx.perms)) {
-        // Merge wrapper into a shallow object so downstream code can see role/employee too
         return Object.assign({}, ctx, ctx.user);
       }
       return ctx;
     }
 
     function updatePermsFromContext(rawCtx){
-      var fv = ensureFV();
-      var ctx = extractCoreUser(rawCtx);
-      var map = {};
+      const fv = ensureFV();
+      const ctx = extractCoreUser(rawCtx) || {};
 
-      if (ctx && typeof ctx === 'object') {
-        // Preferred: fully merged effective perms
-        if (ctx.effectivePerms) {
-          normalizePermDict(ctx.effectivePerms, map);
-        }
-        // Fallback: top-level perms on user
-        if (ctx.perms) {
-          normalizePermDict(ctx.perms, map);
-        }
-        // Fallback: role perms
-        if (ctx.role && ctx.role.perms) {
-          normalizePermDict(ctx.role.perms, map);
-        }
-        // Employee-level overrides (perms or overrides)
-        if (ctx.employee) {
-          if (ctx.employee.perms) {
-            normalizePermDict(ctx.employee.perms, map);
-          }
-          if (ctx.employee.overrides) {
-            // overrides should win last
-            normalizePermDict(ctx.employee.overrides, map);
-          }
-        }
-      }
+      const rawPerms =
+        ctx.effectivePerms && typeof ctx.effectivePerms === 'object' ? ctx.effectivePerms :
+        ctx.perms && typeof ctx.perms === 'object' ? ctx.perms :
+        (ctx.role && typeof ctx.role.perms === 'object') ? ctx.role.perms :
+        {};
 
-      window.FV_PERMS = map;
-      fv.perms = map;
+      const coarse = buildCoarsePerms(rawPerms);
+
+      // Expose both:
+      window.FV_PERMS_RAW = rawPerms;
+      window.FV_PERMS = coarse;
+      fv.permsRaw = rawPerms;
+      fv.perms = coarse;
+
       applyPermVisibility(document);
     }
 
-    var fv = ensureFV();
+    const fv = ensureFV();
 
     if (typeof fv.can !== 'function') {
-      fv.can = function(featureKey){
-        if (!featureKey) return false;
-        var perms = window.FV_PERMS || {};
-        return !!perms[featureKey];
+      fv.can = function(featureOrKey){
+        if (!featureOrKey) return false;
+
+        const raw = window.FV_PERMS_RAW || null;
+        const coarse = window.FV_PERMS || null;
+
+        // If we have no perms yet, do NOT hide anything (optimistic)
+        if (!raw && !coarse) return true;
+
+        const str = String(featureOrKey);
+        const parts = str.split(':');
+        const feature = parts[0];
+        const action = parts.length > 1 ? parts[1] : null;
+
+        // If asking for a specific action: "feature:add" etc.
+        if (action && raw && raw[feature] && typeof raw[feature] === 'object') {
+          const v = raw[feature];
+          if (typeof v[action] === 'boolean') {
+            return v[action];
+          }
+        }
+
+        // Fallback: feature-level coarse boolean.
+        const featureKey = action ? feature : str;
+        if (coarse && typeof coarse[featureKey] === 'boolean') {
+          return coarse[featureKey];
+        }
+
+        // If we didn't find anything explicit, treat as false.
+        return false;
       };
     }
 
     if (typeof fv.getPerms !== 'function') {
       fv.getPerms = function(){
-        return Object.assign({}, window.FV_PERMS || {});
+        return {
+          raw: Object.assign({}, window.FV_PERMS_RAW || {}),
+          coarse: Object.assign({}, window.FV_PERMS || {})
+        };
       };
     }
 
@@ -411,8 +432,8 @@ const __fvBoot = (function(){
     // React whenever user-context fires
     document.addEventListener('fv:user-ready', function(ev){
       try{
-        var data = ev && ev.detail && ev.detail.data;
-        updatePermsFromContext(data);
+        const data = ev && ev.detail && ev.detail.data;
+        if (data) updatePermsFromContext(data);
       } catch(e){
         console.warn('[FV] fv:user-ready → perm update failed:', e);
       }
@@ -422,14 +443,13 @@ const __fvBoot = (function(){
     function initFromCachedContext(){
       try{
         if (window.FVUserContext && typeof window.FVUserContext.get === 'function') {
-          var cached = window.FVUserContext.get();
+          const cached = window.FVUserContext.get();
           if (cached) {
             updatePermsFromContext(cached);
             return;
           }
         }
-        // If no context yet, at least apply visibility (will just hide nothing if no data-perm)
-        applyPermVisibility(document);
+        // If no context yet, do NOT hide anything; we'll update when fv:user-ready fires.
       } catch(e){
         console.warn('[FV] perm-init from cache failed:', e);
       }
