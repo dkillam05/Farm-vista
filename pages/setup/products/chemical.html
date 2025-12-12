@@ -92,18 +92,17 @@
 
 <body>
   <fv-shell>
-    <!-- Page visibility: setup-prod-chemical.view -->
+    <!-- Page visibility -->
     <div class="page container" data-perm="setup-prod-chemical:view">
       <h1 class="page-title">Chemical Setup</h1>
       <p class="page-sub">Add crop-protection products (herbicides, fungicides, insecticides, adjuvants). Track crop fit, formulation, density, and labeled rates.</p>
 
       <div id="alert" class="alert" role="alert"></div>
 
-      <!-- Create form (add permission) -->
+      <!-- Create form (add permission → perm-ui greys out all controls inside if denied) -->
       <section class="section" data-perm="setup-prod-chemical:add">
         <header class="section-head">
           <div class="icon" aria-hidden="true">
-            <!-- beaker icon -->
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M10 6l1 0l0 7a4 4 0 1 1 -2 0l0 -7z" />
@@ -231,12 +230,12 @@
 
           <div class="actions">
             <button id="clear" class="btn" type="button">Clear</button>
-            <button id="save" class="btn btn-primary" type="button" data-perm="setup-prod-chemical:add">Save Chemical</button>
+            <button id="save" class="btn btn-primary" type="button">Save Chemical</button>
           </div>
         </div>
       </section>
 
-      <!-- List (view permission) -->
+      <!-- List -->
       <div class="list-head">
         <div class="list-title">Chemical Products</div>
         <div class="list-tools">
@@ -261,8 +260,8 @@
         <button id="mdClose" class="closex" type="button">Back</button>
       </div>
 
-      <div class="dialog-body" id="mdBody">
-        <!-- (inputs unchanged) -->
+      <!-- Modal fields disabled unless edit is allowed -->
+      <div class="dialog-body" id="mdBody" data-perm="setup-prod-chemical:edit">
         <div class="grid-3">
           <div class="field">
             <label for="edit_company">Company</label>
@@ -388,7 +387,6 @@
   </div>
 
   <script type="module">
-    /* ========= Helpers (match Fertilizer behavior) ========= */
     const $ = id => document.getElementById(id);
     const toast = $("toast"), alertBox = $("alert");
     const listBox = $("list"), countsEl = $("counts"), q = $("q");
@@ -403,10 +401,7 @@
     const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
     const cap = s => s ? (s[0].toUpperCase()+s.slice(1)) : s;
 
-    // Permission helpers (safe)
-    const can = (key)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(key) : true;
-    const CAN_EDIT = can('setup-prod-chemical:edit');
-    const CAN_DEL  = can('setup-prod-chemical:delete');
+    const canNow = (k)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(k) : true;
 
     async function waitForAuthReady(timeoutMs=5000){
       try{
@@ -419,10 +414,8 @@
       }catch{}
     }
 
-    /* ========= Collection ========= */
     const COLL = 'productsChemical';
 
-    /* ========= Create ========= */
     function validateCreate(){
       if(!$("product").value.trim()) return "Enter a product name.";
       if(!$("category").value) return "Choose a product category.";
@@ -458,7 +451,9 @@
       });
     }
     $("clear").addEventListener("click", clearCreate);
+
     $("save").addEventListener("click", async ()=>{
+      if(!canNow('setup-prod-chemical:add')) { alert("You don't have permission to add chemical products."); return; }
       const err=validateCreate(); if(err){ alert(err); return; }
       try{
         await FVData.ready(); await waitForAuthReady();
@@ -468,9 +463,7 @@
       }catch(e){ console.error(e); showError("Save failed: " + (e?.message||e)); }
     });
 
-    /* ========= List / Search ========= */
-    let items = [];   // raw list
-    let rows  = [];   // filtered
+    let items = [];
     async function loadAll(){
       try{
         await FVData.ready(); await waitForAuthReady();
@@ -494,7 +487,7 @@
           t: r.t || 0
         })).sort((a,b)=>{
           const sa = a.status==='archived', sb = b.status==='archived';
-          if (sa !== sb) return sa - sb; // active first
+          if (sa !== sb) return sa - sb;
           const s1 = (a.product||"").localeCompare(b.product||"", undefined, {sensitivity:'base'});
           if (s1) return s1;
           return (a.company||"").localeCompare(b.company||"", undefined, {sensitivity:'base'});
@@ -505,7 +498,7 @@
 
     function renderList(){
       const term = (q.value||"").trim().toLowerCase();
-      rows = items.filter(x=>{
+      const rows = items.filter(x=>{
         const hay = [x.company, x.product, x.category, x.cropfit, x.ai, x.moa, x.form, x.notes].join(" ").toLowerCase();
         return !term || hay.includes(term);
       });
@@ -537,7 +530,7 @@
             <div class="name">${esc(it.product || "(Unnamed)")}</div>
             ${pills}
           </div>
-          <button class="view" data-id="${esc(it.id)}" type="button">View / Edit</button>
+          <button class="view" data-id="${esc(it.id)}" type="button" data-perm="setup-prod-chemical:view">View / Edit</button>
         `;
         row.querySelector(".view").addEventListener("click", ()=> openEdit(it.id));
         listBox.appendChild(row);
@@ -546,13 +539,10 @@
 
     q.addEventListener("input", renderList);
     $("reload").addEventListener("click", loadAll);
-    window.addEventListener('online',  ()=> showToast("Back online — syncing…"));
-    window.addEventListener('offline', ()=> showToast("Currently offline — using saved data"));
 
-    /* ========= Edit Modal ========= */
-    let editId = null;
     const modal = $("modal");
     const mdClose = $("mdClose"), mdSave = $("mdSave"), mdDelete = $("mdDelete"), mdArchive = $("mdArchive");
+    let editId = null;
 
     function openModal(){ modal.setAttribute('open',''); modal.setAttribute('aria-hidden','false'); $("edit_product").focus(); }
     function closeModal(){ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId = null; }
@@ -580,17 +570,13 @@
       setVal('edit_notes', it.notes);
       $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
       mdArchive.textContent = it.status==="archived" ? "Unarchive" : "Archive";
-
-      // Make modal read-only if user can't edit
-      const inputs = Array.from($("mdBody").querySelectorAll('input, select, textarea'));
-      inputs.forEach(el=>{
-        el.disabled = !CAN_EDIT;
-      });
     }
 
     async function openEdit(id){
       const it = items.find(x=>x.id===id); if(!it) return;
-      editId = id; fillEdit(it); openModal();
+      editId = id;
+      fillEdit(it);
+      openModal();
     }
 
     mdClose.addEventListener('click', closeModal);
@@ -598,7 +584,7 @@
     document.addEventListener('keydown', e=>{ if(e.key==='Escape' && modal.hasAttribute('open')) closeModal(); });
 
     mdSave.addEventListener('click', async ()=>{
-      if(!CAN_EDIT){ alert("You don't have permission to edit chemical products."); return; }
+      if(!canNow('setup-prod-chemical:edit')) { alert("You don't have permission to edit chemical products."); return; }
       try{
         await FVData.ready(); await waitForAuthReady();
         const payload = {
@@ -632,7 +618,7 @@
     });
 
     mdArchive.addEventListener('click', async ()=>{
-      if(!CAN_EDIT){ alert("You don't have permission to archive/unarchive chemical products."); return; }
+      if(!canNow('setup-prod-chemical:edit')) { alert("You don't have permission to archive/unarchive chemical products."); return; }
       try{
         await FVData.ready(); await waitForAuthReady();
         const it = items.find(x=>x.id===editId); if(!it) return;
@@ -640,12 +626,12 @@
         await FVData.update(COLL, editId, { status: next });
         showToast(next==="archived" ? "Product archived." : "Product unarchived.");
         await loadAll();
-        const refreshed = items.find(x=>x.id===editId); if(refreshed) fillEdit(refreshed);
+        closeModal();
       }catch(e){ console.error(e); showError("Archive toggle failed: " + (e?.message||e)); }
     });
 
     mdDelete.addEventListener('click', async ()=>{
-      if(!CAN_DEL){ alert("You don't have permission to delete chemical products."); return; }
+      if(!canNow('setup-prod-chemical:delete')) { alert("You don't have permission to delete chemical products."); return; }
       try{
         const it = items.find(x=>x.id===editId); if(!it) return;
         if(!confirm(`Delete chemical "${it.product||'(Unnamed)'}"? This cannot be undone.`)) return;
@@ -657,7 +643,6 @@
       }catch(e){ console.error(e); showError("Delete failed: " + (e?.message||e)); }
     });
 
-    /* ========= Boot ========= */
     (async function boot(){
       try{
         if(!window.FVData) throw new Error("FVData not loaded");
