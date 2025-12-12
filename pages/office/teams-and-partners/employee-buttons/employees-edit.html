@@ -209,7 +209,11 @@
     const showToast = (m="Saved.")=>{ toast.textContent=m; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show"); };
     const setBusy = on => { busy=!!on; ["save","saveInvite","clear","perm"].forEach(id=>{const b=$(id); if(b) b.disabled=on;}); };
     const digitsOnly = s => String(s||'').replace(/\D+/g,'');
-    const formatUSPhone = raw => { const d=digitsOnly(raw); const core=(d.length===11&&d.startsWith('1'))?d.slice(1):d; return core.length===10?`(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}`:String(raw||'').trim(); };
+    const formatUSPhone = raw => {
+      const d=digitsOnly(raw);
+      const core=(d.length===11&&d.startsWith('1'))?d.slice(1):d;
+      return core.length===10?`(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}`:String(raw||'').trim();
+    };
     $("phone").addEventListener("blur", e => e.target.value = formatUSPhone(e.target.value));
 
     const COLLECTION_ROLES = 'accountRoles';
@@ -246,30 +250,64 @@
       return out;
     }
 
+    /* =========================
+       OVERRIDES (FIXED)
+       - load booleans OR objects
+       - save deltas for view/add/edit/delete
+    ========================= */
+
     function applyOverridesFromEmployeeData(empOverrides){
       if (!empOverrides || typeof empOverrides !== 'object') return;
+
       Object.entries(empOverrides).forEach(([key, val])=>{
-        if (typeof val !== 'boolean') return;
         const leafId = key.includes('.') ? key.split('.').pop() : key;
-        if (effectivePerms4[leafId]){
+
+        // allow overrides even if not present in role doc
+        if (!effectivePerms4[leafId]) {
+          effectivePerms4[leafId] = normalizeEntry(false);
+        }
+
+        // legacy boolean = view only
+        if (typeof val === 'boolean') {
           const entry = normalizeEntry(effectivePerms4[leafId]);
-          entry.view = val;
+          entry.view = !!val;
           effectivePerms4[leafId] = entry;
+          return;
+        }
+
+        // new object override
+        if (val && typeof val === 'object') {
+          const ov = normalizeEntry(val);
+          effectivePerms4[leafId] = {
+            view: ov.view,
+            add: ov.add,
+            edit: ov.edit,
+            delete: ov.delete
+          };
         }
       });
     }
 
-    function collectViewOverrides(){
+    function collectOverridesDelta(){
       const overrides = {};
       const base = basePerms4 || {};
       const eff  = effectivePerms4 || {};
-      Object.keys(eff).forEach(id=>{
-        const baseEntry = normalizeEntry(base[id] || false);
-        const effEntry  = normalizeEntry(eff[id] || false);
-        if (baseEntry.view !== effEntry.view){
-          overrides[id] = !!effEntry.view;
+      const ids = new Set([...Object.keys(base), ...Object.keys(eff)]);
+
+      ids.forEach((id)=>{
+        const b = normalizeEntry(base[id] || false);
+        const e = normalizeEntry(eff[id] || false);
+
+        if (
+          b.view !== e.view ||
+          b.add !== e.add ||
+          b.edit !== e.edit ||
+          b.delete !== e.delete
+        ){
+          overrides[id] = { view: !!e.view, add: !!e.add, edit: !!e.edit, delete: !!e.delete };
         }
       });
+
       return overrides;
     }
 
@@ -472,7 +510,7 @@
         phone:formatUSPhone($("phone").value), role:$("role").value.trim(),
         start:$("start").value, status:$("status").value,
         perm:$("perm").value, notes:$("notes").value.trim(),
-        overrides: collectViewOverrides()
+        overrides: collectOverridesDelta()
       };
     }
 
@@ -543,6 +581,7 @@
         const rawPerms = (roleDoc && (roleDoc.perms || roleDoc.permissions)) || {};
         basePerms4 = rebuildEffectiveFromRole(rawPerms);
         effectivePerms4 = deepClone(basePerms4);
+
         applyOverridesFromEmployeeData(item.data.overrides || {});
         updateHero();
       }catch(err){
