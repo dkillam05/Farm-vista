@@ -13,10 +13,14 @@
   const AUTH_MAX_MS = 5000;
   const MENU_MAX_MS = 3000;
 
-  // Figure out whether we're in beta (/Farm-vista/beta/...) or live (/Farm-vista/...)
+  // Figure out whether we're in beta (/Farm-vista/beta/...) or live (/Farm-vista/...).
   const FV_ROOT = location.pathname.startsWith('/Farm-vista/beta/')
     ? '/Farm-vista/beta'
     : '/Farm-vista';
+
+  // Capability IDs from fv-perms-hero.js
+  const CAP_QR     = 'cap-qr-scanner';
+  const CAP_CAMERA = 'cap-camera-popup';
 
   const tpl = document.createElement('template');
   tpl.innerHTML = `
@@ -142,6 +146,9 @@
       bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 75px);
       height:auto; z-index:1350; display:none; }
     @media (pointer:coarse) { .qc-rail{ display:block; } }
+
+    /* allow hard-hide regardless of pointer media */
+    .qc-rail[hidden]{ display:none !important; }
 
     .qc-handle{ position:absolute; right:0; bottom:0; width:30px; height:56px; border-top-left-radius:12px; border-bottom-left-radius:12px;
       display:grid; place-items:center; background:var(--green); color:#fff; border:1px solid color-mix(in srgb,#000 18%, transparent);
@@ -389,7 +396,7 @@
     </button>
     <div class="qc-panel js-qc-panel" role="menu" aria-label="Camera options">
       <a href="#" class="qc-item js-qc-scan" role="menuitem"><span class="qc-ico">▣</span><span>QR Scanner</span></a>
-      <div class="qc-sep" aria-hidden="true"></div>
+      <div class="qc-sep js-qc-sep" aria-hidden="true"></div>
       <a href="#" class="qc-item js-qc-camera" role="menuitem"><span class="qc-ico">📷</span><span>Camera</span></a>
     </div>
   </div>
@@ -449,6 +456,9 @@
       this._scrimTouchBlocker = (e)=>{ e.preventDefault(); e.stopPropagation(); };
 
       this._ptrDisabled = false;
+
+      // Quick Camera capability flags (from allowedIds)
+      this._qcCaps = { qr:false, camera:false };
     }
 
     connectedCallback(){
@@ -474,6 +484,7 @@
       this._qcHandle = r.querySelector('.js-qc-handle');
       this._qcPanel  = r.querySelector('.js-qc-panel');
       this._qcScan   = r.querySelector('.js-qc-scan');
+      this._qcSep    = r.querySelector('.js-qc-sep');
       this._qcCamera = r.querySelector('.js-qc-camera');
 
       /* Camera popup refs */
@@ -515,7 +526,7 @@
       /* QC init */
       this._initQuickCamera();
 
-      /* Camera popup – Receipt Scan behavior */
+      /* Camera popup – Receipt Scan behavior (leave as-is, only gated by capability before opening) */
       if (this._cameraReceiptBtn) {
         this._cameraReceiptBtn.addEventListener('click', (e)=>{
           e.preventDefault();
@@ -534,7 +545,6 @@
           }
 
           // Otherwise, navigate to Expenditures Add in quick-camera mode.
-          // The add page can look at ?src=quick-camera if we wire that up later.
           const target = '/Farm-vista/pages/expenses/expenditures/expenditures-add.html?src=quick-camera';
           location.href = target;
         });
@@ -574,6 +584,9 @@
       this._wireAuthLogout(this.shadowRoot);
       this._initConnectionStatus();
       this._watchUserContextForSwaps();
+
+      // Sync the QC rail visibility based on capabilities after we’re gated
+      this._syncQuickCameraCapabilities();
 
       if (this._boot) this._boot.hidden = true;
       sessionStorage.setItem('fv:boot:hydrated', '1');
@@ -650,6 +663,51 @@
         return !!u;
       }catch{ return false; }
     }
+
+    _getAllowedIds(){
+      try{
+        const ctx = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get();
+        const ids = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
+        return ids;
+      }catch{ return []; }
+    }
+
+    _syncQuickCameraCapabilities(){
+      // If neither capability is enabled, hide the entire side rail.
+      // If one is enabled, show rail and only show that item.
+      const ids = this._getAllowedIds();
+      const set = new Set(ids || []);
+      const qrOn = set.has(CAP_QR);
+      const camOn = set.has(CAP_CAMERA);
+
+      this._qcCaps = { qr: !!qrOn, camera: !!camOn };
+
+      if (!this._qcRail) return;
+
+      // Close any open QC panel if we’re changing visibility
+      this._qcToggle(false);
+
+      // If camera capability is off, also ensure popup is closed
+      if (!camOn) this._closeCameraModal();
+
+      // Hide rail completely if neither on
+      if (!qrOn && !camOn) {
+        this._qcRail.setAttribute('hidden', '');
+        return;
+      }
+
+      this._qcRail.removeAttribute('hidden');
+
+      // Show/hide items inside the rail
+      if (this._qcScan)   this._qcScan.style.display   = qrOn  ? '' : 'none';
+      if (this._qcCamera) this._qcCamera.style.display = camOn ? '' : 'none';
+
+      // Separator only when both exist
+      if (this._qcSep) {
+        this._qcSep.style.display = (qrOn && camOn) ? '' : 'none';
+      }
+    }
+
     _hasMenuLinks(){
       const nav = this._navEl;
       if (!nav) return false;
@@ -700,7 +758,12 @@
       const update = async ()=>{
         const { uid, roleHash } = this._currentUIDAndRoleHash();
         const changed = (!!uid && uid !== this._lastUID) || (!!roleHash && roleHash !== this._lastRoleHash);
-        if (!changed) return;
+        if (!changed) {
+          // Even if uid/roleHash didn’t change, allowedIds can be updated (role edits).
+          // Keep QC rail in sync.
+          this._syncQuickCameraCapabilities();
+          return;
+        }
 
         sessionStorage.removeItem('fv:boot:hydrated');
         if (this._boot) this._boot.hidden = false;
@@ -722,6 +785,10 @@
         if (!this._hasMenuLinks()) { this._kickToLogin('menu-timeout'); return; }
 
         this._setLogoutLabelNow();
+
+        // Re-sync QC rail after context swap
+        this._syncQuickCameraCapabilities();
+
         if (this._boot) this._boot.hidden = true;
         sessionStorage.setItem('fv:boot:hydrated', '1');
       };
@@ -859,6 +926,9 @@
 
       this._renderMenu(cfgToRender);
       this._menuPainted = true;
+
+      // Keep QC rail synced anytime menu is repainted (role edits often arrive together)
+      this._syncQuickCameraCapabilities();
     }
 
     _renderMenu(cfg){
@@ -1054,6 +1124,8 @@
     }
 
     _openCameraModal(){
+      // Only open if camera capability is enabled
+      if (!this._qcCaps || !this._qcCaps.camera) return;
       if (!this._cameraModal) return;
       this.classList.add('camera-open');
       this._syncScrollLock();
@@ -1309,19 +1381,24 @@
     _initQuickCamera(){
       if (!this._qcRail || !this._qcHandle) return;
 
+      // Start hidden until we know caps; we’ll show if CAP_QR or CAP_CAMERA is present
+      this._qcRail.setAttribute('hidden', '');
+
       // mobile only guard
       const isCoarse = window.matchMedia && window.matchMedia('(pointer:coarse)').matches;
-      if (!isCoarse) this._qcRail.style.display = 'none';
+      if (!isCoarse) this._qcRail.setAttribute('hidden', '');
 
       // Toggle panel
       this._qcHandle.addEventListener('click', (e)=>{
         e.preventDefault();
+        if (this._qcRail.hasAttribute('hidden')) return;
         const on = this._qcRail.getAttribute('aria-expanded') !== 'true';
         this._qcToggle(on);
       });
 
       // Close when tapping outside (use composedPath so shadow DOM clicks aren't mis-read)
       document.addEventListener('pointerdown', (e)=>{
+        if (!this._qcRail || this._qcRail.hasAttribute('hidden')) return;
         if (this._qcRail.getAttribute('aria-expanded') !== 'true') return;
         const path = e.composedPath ? e.composedPath() : [e.target];
         if (!path.includes(this._qcRail)) this._qcToggle(false);
@@ -1335,6 +1412,7 @@
       if (this._qcScan) this._qcScan.addEventListener('click', (e)=>{
         e.preventDefault();
         e.stopPropagation();
+        if (!this._qcCaps || !this._qcCaps.qr) return;
         if (scanURL) location.href = scanURL;
         else this.dispatchEvent(new CustomEvent('fv:open:qr', { bubbles:true, composed:true }));
         this._qcToggle(false);
@@ -1343,8 +1421,9 @@
       if (this._qcCamera) this._qcCamera.addEventListener('click', (e)=>{
         e.preventDefault();
         e.stopPropagation();
+        if (!this._qcCaps || !this._qcCaps.camera) return;
 
-        // New behavior: open FarmVista-styled popup instead of camera directly
+        // leave camera popup behavior alone when camera is enabled
         this._qcToggle(false);
         this._openCameraModal();
       });
@@ -1352,6 +1431,10 @@
 
     _qcToggle(on){
       if (!this._qcRail) return;
+      if (this._qcRail.hasAttribute('hidden')) {
+        this._qcRail.setAttribute('aria-expanded', 'false');
+        return;
+      }
       this._qcRail.setAttribute('aria-expanded', String(!!on));
     }
 
