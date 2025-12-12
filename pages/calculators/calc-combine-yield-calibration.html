@@ -52,7 +52,6 @@
 
     label{ display:block; font-weight:600; margin-bottom:6px; }
 
-    /* Inputs */
     .ctrl{
       display:flex; align-items:center; gap:8px;
       border:1px solid var(--border); background:var(--card-surface,var(--surface));
@@ -62,7 +61,7 @@
     .ctrl input{ width:100%; border:0; outline:0; background:transparent; color:var(--text); }
     .unit{ font-size:12px; color:var(--muted); white-space:nowrap; }
 
-    /* Dropdowns: single-box (no “dropdown inside a bigger box”) */
+    /* Dropdowns: single-box (no nested box) */
     .select-box{
       width:100%;
       appearance:none;
@@ -82,6 +81,12 @@
     .select-box:focus{
       border-color: rgba(47,108,60,.42);
       box-shadow: 0 0 0 4px var(--ring);
+    }
+
+    .note{
+      margin-top:6px;
+      font-size:12px;
+      color:var(--muted);
     }
 
     .actions{ display:flex; gap:10px; justify-content:flex-end; padding:0 16px 16px; flex-wrap:wrap; }
@@ -109,12 +114,6 @@
     }
     .hsummary{ font-weight:700; }
     .muted-sm{ color:var(--muted); font-size:12px; margin-top:2px; }
-
-    .note{
-      margin-top:6px;
-      font-size:12px;
-      color:var(--muted);
-    }
   </style>
 </head>
 
@@ -141,7 +140,6 @@
           <div class="grid">
             <div>
               <label for="combine">Combine</label>
-              <!-- single-box dropdown -->
               <select id="combine" class="select-box">
                 <option value="">Loading combines…</option>
               </select>
@@ -150,7 +148,6 @@
 
             <div>
               <label for="crop">Crop</label>
-              <!-- single-box dropdown -->
               <select id="crop" class="select-box">
                 <option value="corn">Corn</option>
                 <option value="soy">Soybeans</option>
@@ -209,77 +206,83 @@
   <script type="module">
     (function(){
       "use strict";
-      if(window.__FV_COMBINE_CALIB_V2__) return; window.__FV_COMBINE_CALIB_V2__=true;
+      if(window.__FV_COMBINE_CALIB_V3__) return; window.__FV_COMBINE_CALIB_V3__=true;
 
-      /* ---------- Helpers ---------- */
       const $ = id => document.getElementById(id);
       const fmt = (n, d=0) => Number(n).toLocaleString(undefined,{maximumFractionDigits:d});
-      const LS_KEY = "fv_calc_combine_calibration_history_v2";
+      const LS_KEY = "fv_calc_combine_calibration_history_v3";
 
       const combineSel = $("combine"), cropSel = $("crop");
       const cw = $("cw"), gw = $("gw");
       const res = $("res"), rStatus=$("rStatus"), rPct=$("rPct"), rCw=$("rCw"), rGw=$("rGw");
       const combineNote = $("combineNote");
 
-      /* ---------- Firestore: load active combines from equipment collection ---------- */
+      /* ---------- Firestore: load active combines from equipment collection ----------
+         Requirements:
+         - collection = equipment
+         - type == "combine"
+         - status == "active"
+
+         We ONLY require: getFirestore + collection + getDocs (matches your KPI fix pattern).
+         If query/where/orderBy exist, great — but we do NOT depend on them.
+      ------------------------------------------------------------------------------ */
       async function populateCombinesFromFirestore(){
-        // We intentionally do NOT hard-crash if Firebase isn’t available on this page.
-        // We show a note and leave the dropdown usable.
         let fb;
         try{
           fb = await import("../../js/firebase-init.js");
         }catch(e){
           combineSel.innerHTML = '<option value="">— Select Combine —</option>';
           combineNote.hidden = false;
-          combineNote.textContent = "Firebase not loaded on this page (missing ../../js/firebase-init.js). Combine list not available.";
+          combineNote.textContent = "Firebase not loaded on this page (missing ../../js/firebase-init.js).";
           return;
         }
 
-        const db = fb.db || (fb.getFirestore && fb.app ? fb.getFirestore(fb.app) : null);
-        const collection = fb.collection;
-        const getDocs = fb.getDocs;
-        const query = fb.query;
-        const where = fb.where;
-        const orderBy = fb.orderBy;
+        // Try the most common shapes of firebase-init exports
+        const getFirestore = fb.getFirestore || (fb.firestore && fb.firestore.getFirestore);
+        const collectionFn = fb.collection || (fb.firestore && fb.firestore.collection);
+        const getDocsFn = fb.getDocs || (fb.firestore && fb.firestore.getDocs);
 
-        if(!db || !collection || !getDocs || !query || !where){
+        // Some firebase-init files export `db` directly
+        const dbDirect = fb.db;
+
+        // Some export `app`
+        const app = fb.app;
+
+        let db = dbDirect || null;
+        if(!db && getFirestore && app){
+          try{ db = getFirestore(app); }catch(e){}
+        }
+
+        if(!db || !collectionFn || !getDocsFn){
           combineSel.innerHTML = '<option value="">— Select Combine —</option>';
           combineNote.hidden = false;
-          combineNote.textContent = "firebase-init.js loaded, but Firestore helpers weren’t found (db/query/where/getDocs).";
+          combineNote.textContent = "Firestore helpers not available from firebase-init.js (need db/getFirestore + collection + getDocs).";
           return;
         }
 
         combineSel.innerHTML = '<option value="">Loading…</option>';
+        combineNote.hidden = true;
+        combineNote.textContent = "";
 
         try{
-          // equipment where type == combine and status == active
-          const q = orderBy
-            ? query(collection(db, "equipment"),
-                    where("type","==","combine"),
-                    where("status","==","active"),
-                    orderBy("name"))
-            : query(collection(db, "equipment"),
-                    where("type","==","combine"),
-                    where("status","==","active"));
-
-          const snap = await getDocs(q);
+          // Fetch equipment collection (then filter locally to avoid needing query/where)
+          const snap = await getDocsFn(collectionFn(db, "equipment"));
 
           const items = [];
           snap.forEach(doc => {
             const d = doc.data() || {};
+            if(String(d.type||"") !== "combine") return;
+            if(String(d.status||"") !== "active") return;
+
             items.push({
               id: doc.id,
               name: d.name || (d.makeName && d.modelName ? `${d.makeName} ${d.modelName}${d.year ? ` (${d.year})` : ""}` : "Combine"),
-              makeName: d.makeName || "",
-              modelName: d.modelName || "",
-              year: d.year || "",
-              serial: d.serial || "",
-              status: d.status || "",
-              type: d.type || ""
+              serial: d.serial || ""
             });
           });
 
-          // Populate dropdown
+          items.sort((a,b)=> String(a.name).localeCompare(String(b.name)));
+
           combineSel.innerHTML = '<option value="">— Select Combine —</option>';
 
           if(!items.length){
@@ -300,9 +303,6 @@
             opt.dataset.serial = it.serial || "";
             combineSel.appendChild(opt);
           });
-
-          combineNote.hidden = true;
-          combineNote.textContent = "";
         }catch(err){
           console.error(err);
           combineSel.innerHTML = '<option value="">— Select Combine —</option>';
@@ -358,7 +358,6 @@
         const diff = cwv - gwv;               // positive: combine reads high
         const pct = Math.abs(diff) / gwv * 100;
         const status = diff===0 ? "MATCH" : (diff>0 ? "HIGH" : "LOW");
-
         return { cw: cwv, gw: gwv, pct, status };
       }
 
