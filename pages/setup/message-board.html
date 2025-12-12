@@ -87,14 +87,16 @@
     }
   </style>
 </head>
+
 <body>
   <fv-shell>
-    <div class="page container">
+    <!-- Page visibility -->
+    <div class="page container" data-perm="setup-message-board:view">
       <h1 class="page-title">Message Board</h1>
       <p class="page-sub">Create and manage notices that appear on the dashboard message hero. Messages can optionally expire and auto-remove.</p>
 
-      <!-- Composer -->
-      <section class="card" aria-labelledby="h-compose">
+      <!-- Composer (edit permission) -->
+      <section class="card" aria-labelledby="h-compose" data-perm="setup-message-board:edit">
         <h2 id="h-compose" class="page-title" style="font-size:18px; margin-bottom:10px;">Add / Edit Message</h2>
 
         <div class="form-grid">
@@ -128,34 +130,71 @@
           </div>
 
           <div class="row">
-            <button id="saveBtn" class="btn btn-primary" type="button">Save Message</button>
-            <button class="btn btn-ghost" type="button"
-              onclick="(function(){['title','author','body','expires'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});document.getElementById('pinned').checked=false;})();">
-              Clear
-            </button>
+            <button id="saveBtn" class="btn btn-primary" type="button" data-perm="setup-message-board:edit">Save Message</button>
+            <button id="clearBtn" class="btn btn-ghost" type="button" data-perm="setup-message-board:edit">Clear</button>
           </div>
         </div>
       </section>
 
-      <!-- Tools -->
-      <section class="card" aria-labelledby="h-tools">
+      <!-- Tools (edit permission) -->
+      <section class="card" aria-labelledby="h-tools" data-perm="setup-message-board:edit">
         <h2 id="h-tools" class="page-title" style="font-size:18px; margin-bottom:10px;">Tools</h2>
         <div class="tools-row">
-          <button id="purgeExpiredBtn" class="btn btn-danger" type="button">Remove Expired</button>
-          <button id="clearAllBtn" class="btn btn-ghost" type="button">🗑️ Clear All</button>
+          <button id="purgeExpiredBtn" class="btn btn-danger" type="button" data-perm="setup-message-board:edit">Remove Expired</button>
+          <button id="clearAllBtn" class="btn btn-ghost" type="button" data-perm="setup-message-board:edit">🗑️ Clear All</button>
         </div>
         <div class="muted" style="margin-top:8px;">
           <span id="counts">0 active · 0 expired</span>
         </div>
       </section>
 
-      <!-- List -->
+      <!-- List (view permission) -->
       <section class="card" aria-labelledby="h-list">
         <h2 id="h-list" class="page-title" style="font-size:18px; margin-bottom:10px;">Messages</h2>
         <div id="list"></div>
       </section>
     </div>
   </fv-shell>
+
+  <!-- Guard layer for view-only users (works even if mb-admin.js is unchanged) -->
+  <script>
+    (function(){
+      const canNow = (k)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(k) : true;
+      const CAN_EDIT = canNow('setup-message-board:edit');
+
+      // Replace old inline Clear handler with a safe one
+      const clear = () => {
+        ['title','author','body','expires'].forEach(id=>{
+          const el=document.getElementById(id);
+          if(el) el.value='';
+        });
+        const pin=document.getElementById('pinned');
+        if(pin) pin.checked=false;
+      };
+
+      const clearBtn = document.getElementById('clearBtn');
+      if(clearBtn){
+        clearBtn.addEventListener('click', (e)=>{
+          if(!CAN_EDIT){ e.preventDefault(); alert("You don't have permission to edit the message board."); return; }
+          clear();
+        }, true);
+      }
+
+      // Block key admin buttons if view-only
+      ['saveBtn','purgeExpiredBtn','clearAllBtn'].forEach(id=>{
+        const btn = document.getElementById(id);
+        if(!btn) return;
+        btn.addEventListener('click', (e)=>{
+          if(!CAN_EDIT){
+            e.preventDefault();
+            e.stopPropagation();
+            alert("You don't have permission to edit the message board.");
+            return false;
+          }
+        }, true);
+      });
+    })();
+  </script>
 
   <!-- Message Board logic -->
   <script src="/Farm-vista/js/mb-admin.js?v=MB3"></script>
