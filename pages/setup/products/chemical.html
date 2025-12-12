@@ -89,16 +89,18 @@
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
   </style>
 </head>
+
 <body>
   <fv-shell>
-    <div class="page container">
+    <!-- Page visibility: setup-prod-chemical.view -->
+    <div class="page container" data-perm="setup-prod-chemical:view">
       <h1 class="page-title">Chemical Setup</h1>
       <p class="page-sub">Add crop-protection products (herbicides, fungicides, insecticides, adjuvants). Track crop fit, formulation, density, and labeled rates.</p>
 
       <div id="alert" class="alert" role="alert"></div>
 
-      <!-- Create form -->
-      <section class="section">
+      <!-- Create form (add permission) -->
+      <section class="section" data-perm="setup-prod-chemical:add">
         <header class="section-head">
           <div class="icon" aria-hidden="true">
             <!-- beaker icon -->
@@ -229,12 +231,12 @@
 
           <div class="actions">
             <button id="clear" class="btn" type="button">Clear</button>
-            <button id="save" class="btn btn-primary" type="button">Save Chemical</button>
+            <button id="save" class="btn btn-primary" type="button" data-perm="setup-prod-chemical:add">Save Chemical</button>
           </div>
         </div>
       </section>
 
-      <!-- List -->
+      <!-- List (view permission) -->
       <div class="list-head">
         <div class="list-title">Chemical Products</div>
         <div class="list-tools">
@@ -259,7 +261,8 @@
         <button id="mdClose" class="closex" type="button">Back</button>
       </div>
 
-      <div class="dialog-body">
+      <div class="dialog-body" id="mdBody">
+        <!-- (inputs unchanged) -->
         <div class="grid-3">
           <div class="field">
             <label for="edit_company">Company</label>
@@ -376,10 +379,10 @@
 
       <div class="dialog-footer">
         <div class="left-btns">
-          <button id="mdArchive" class="btn btn-quiet" type="button">Archive</button>
-          <button id="mdDelete" class="btn btn-danger" type="button">Delete</button>
+          <button id="mdArchive" class="btn btn-quiet" type="button" data-perm="setup-prod-chemical:edit">Archive</button>
+          <button id="mdDelete" class="btn btn-danger" type="button" data-perm="setup-prod-chemical:delete">Delete</button>
         </div>
-        <button id="mdSave" class="btn btn-primary" type="button">Save Changes</button>
+        <button id="mdSave" class="btn btn-primary" type="button" data-perm="setup-prod-chemical:edit">Save Changes</button>
       </div>
     </div>
   </div>
@@ -399,6 +402,11 @@
     };
     const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
     const cap = s => s ? (s[0].toUpperCase()+s.slice(1)) : s;
+
+    // Permission helpers (safe)
+    const can = (key)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(key) : true;
+    const CAN_EDIT = can('setup-prod-chemical:edit');
+    const CAN_DEL  = can('setup-prod-chemical:delete');
 
     async function waitForAuthReady(timeoutMs=5000){
       try{
@@ -467,7 +475,6 @@
       try{
         await FVData.ready(); await waitForAuthReady();
         const raw = await FVData.list(COLL, { limit: 5000 }) || [];
-        // normalize + sort (active first, then product asc, then company asc)
         items = (raw || []).map(r=>({
           id: r.id,
           company: r.company || "",
@@ -573,6 +580,12 @@
       setVal('edit_notes', it.notes);
       $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
       mdArchive.textContent = it.status==="archived" ? "Unarchive" : "Archive";
+
+      // Make modal read-only if user can't edit
+      const inputs = Array.from($("mdBody").querySelectorAll('input, select, textarea'));
+      inputs.forEach(el=>{
+        el.disabled = !CAN_EDIT;
+      });
     }
 
     async function openEdit(id){
@@ -585,6 +598,7 @@
     document.addEventListener('keydown', e=>{ if(e.key==='Escape' && modal.hasAttribute('open')) closeModal(); });
 
     mdSave.addEventListener('click', async ()=>{
+      if(!CAN_EDIT){ alert("You don't have permission to edit chemical products."); return; }
       try{
         await FVData.ready(); await waitForAuthReady();
         const payload = {
@@ -618,6 +632,7 @@
     });
 
     mdArchive.addEventListener('click', async ()=>{
+      if(!CAN_EDIT){ alert("You don't have permission to archive/unarchive chemical products."); return; }
       try{
         await FVData.ready(); await waitForAuthReady();
         const it = items.find(x=>x.id===editId); if(!it) return;
@@ -630,6 +645,7 @@
     });
 
     mdDelete.addEventListener('click', async ()=>{
+      if(!CAN_DEL){ alert("You don't have permission to delete chemical products."); return; }
       try{
         const it = items.find(x=>x.id===editId); if(!it) return;
         if(!confirm(`Delete chemical "${it.product||'(Unnamed)'}"? This cannot be undone.`)) return;
