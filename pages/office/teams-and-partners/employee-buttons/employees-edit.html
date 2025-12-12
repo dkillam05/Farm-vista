@@ -218,6 +218,12 @@
     let basePerms4 = {};      // id -> {view,add,edit,delete} from selected role
     let effectivePerms4 = {}; // id -> {view,add,edit,delete} after employee overrides
 
+    // Capability ids + real drivers (same as Roles page)
+    const CAP_QR = 'cap-qr-scanner';
+    const CAP_CAMERA = 'cap-camera-popup';
+    const DRIVE_QR_BY = 'eq-maint-workorders';
+    const DRIVE_CAM_BY = 'exp-expenditures';
+
     function normalizeEntry(v){
       if (typeof v === 'boolean') {
         return { view: v, add: false, edit: false, delete: false };
@@ -247,10 +253,37 @@
       return out;
     }
 
+    // Ensure cap keys exist and match dependency truth (so they can be saved/used consistently)
+    function applyCapabilityDeps(permsMap){
+      const p = deepClone(permsMap || {});
+      Object.keys(p).forEach(k=>{
+        if (k === 'home') { delete p[k]; return; }
+        p[k] = normalizeEntry(p[k]);
+      });
+
+      const qrNeeded = !!(p[DRIVE_QR_BY] && p[DRIVE_QR_BY].add);
+      const camNeeded = !!(p[DRIVE_CAM_BY] && p[DRIVE_CAM_BY].add);
+
+      p[CAP_QR] = Object.assign(
+        { view:false, add:false, edit:false, delete:false },
+        normalizeEntry(p[CAP_QR] || false),
+        { view: !!qrNeeded }
+      );
+
+      p[CAP_CAMERA] = Object.assign(
+        { view:false, add:false, edit:false, delete:false },
+        normalizeEntry(p[CAP_CAMERA] || false),
+        { view: !!camNeeded }
+      );
+
+      return p;
+    }
+
     /* =========================
        OVERRIDES (FIXED)
        - load booleans OR objects
        - save deltas for view/add/edit/delete
+       - keep cap keys present (dependency-driven)
     ========================= */
 
     function applyOverridesFromEmployeeData(empOverrides){
@@ -283,6 +316,9 @@
           };
         }
       });
+
+      // After applying overrides, enforce cap deps again
+      effectivePerms4 = applyCapabilityDeps(effectivePerms4 || {});
     }
 
     function collectOverridesDelta(){
@@ -292,6 +328,8 @@
       const ids = new Set([...Object.keys(base), ...Object.keys(eff)]);
 
       ids.forEach((id)=>{
+        if (id === 'home') return;
+
         const b = normalizeEntry(base[id] || false);
         const e = normalizeEntry(eff[id] || false);
 
@@ -332,10 +370,12 @@
         perms: effectivePerms4,
         navMenu: NAV_MENU,
         onPermsChange: (updatedPerms) => {
-          effectivePerms4 = deepClone(updatedPerms || {});
+          // Keep effective perms valid + cap keys always present
+          effectivePerms4 = applyCapabilityDeps(deepClone(updatedPerms || {}));
         },
         onResetOverrides: () => {
           effectivePerms4 = deepClone(basePerms4 || {});
+          effectivePerms4 = applyCapabilityDeps(effectivePerms4 || {});
           updateHero();
           showToast("Overrides reset to role defaults.");
         }
@@ -405,12 +445,14 @@
             currentRoleName = val;
             const roleDoc = await fetchRoleDocByName(currentRoleName);
             const rawPerms = (roleDoc && (roleDoc.perms || roleDoc.permissions)) || {};
-            basePerms4 = rebuildEffectiveFromRole(rawPerms);
+            basePerms4 = applyCapabilityDeps(rebuildEffectiveFromRole(rawPerms));
             effectivePerms4 = deepClone(basePerms4);
 
             // If we already have an employee selected, re-apply their overrides
             if (sel && sel.data && sel.data.overrides){
               applyOverridesFromEmployeeData(sel.data.overrides);
+            } else {
+              effectivePerms4 = applyCapabilityDeps(effectivePerms4 || {});
             }
 
             updateHero();
@@ -502,6 +544,11 @@
       if(!first.checkValidity()){first.reportValidity();return null;}
       if(!last.checkValidity()){last.reportValidity();return null;}
       if(!email.checkValidity()){email.reportValidity();return null;}
+
+      // Ensure caps enforced before diff/save
+      basePerms4 = applyCapabilityDeps(basePerms4 || {});
+      effectivePerms4 = applyCapabilityDeps(effectivePerms4 || {});
+
       return {
         first:first.value.trim(), last:last.value.trim(), email:email.value.trim(),
         phone:formatUSPhone($("phone").value),
@@ -576,10 +623,11 @@
         currentRoleName = permVal;
         const roleDoc = currentRoleName ? await fetchRoleDocByName(currentRoleName) : null;
         const rawPerms = (roleDoc && (roleDoc.perms || roleDoc.permissions)) || {};
-        basePerms4 = rebuildEffectiveFromRole(rawPerms);
+        basePerms4 = applyCapabilityDeps(rebuildEffectiveFromRole(rawPerms));
         effectivePerms4 = deepClone(basePerms4);
 
         applyOverridesFromEmployeeData(item.data.overrides || {});
+        effectivePerms4 = applyCapabilityDeps(effectivePerms4 || {});
         updateHero();
       }catch(err){
         console.error('Failed to load role/overrides:', err);
