@@ -10,17 +10,17 @@
   <link rel="stylesheet" href="../../assets/css/app.css">
   <script defer src="../../js/theme-boot.js"></script>
   <script defer src="../../js/fv-shell.js"></script>
+
   <style>
     :root{
-      /* Cushion above fixed footer */
       --page-bottom-gap: 96px;
       --card-max: 940px;
       --accent: #2F6C3C;
+      --ring: rgba(47,108,60,.20);
     }
     html{-webkit-text-size-adjust:100%}
     body{ background: var(--app-bg, var(--surface)); }
 
-    /* The white scrolling area */
     .wrap{
       max-width: var(--card-max);
       margin: 0 auto;
@@ -34,7 +34,7 @@
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
       overflow:hidden;
-      margin-bottom: var(--page-bottom-gap); /* extra cushion at end */
+      margin-bottom: var(--page-bottom-gap);
     }
 
     .card-head{
@@ -57,20 +57,42 @@
       border-radius:10px; padding:10px 12px;
     }
     input,select,button{ font-size:16px; } /* prevent iOS zoom */
-    .ctrl input,.ctrl select{ width:100%; border:0; outline:0; background:transparent; color:var(--text); }
+    .ctrl input{ width:100%; border:0; outline:0; background:transparent; color:var(--text); }
     .unit{ font-size:12px; color:var(--muted); white-space:nowrap; }
     .hidden{ display:none !important; }
+
+    /* Dropdowns: make them a single box (no nested “box inside a box”) */
+    .select-box{
+      width:100%;
+      appearance:none;
+      -webkit-appearance:none;
+      -moz-appearance:none;
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:10px 42px 10px 12px;
+      background: var(--card-surface,var(--surface));
+      color: var(--text);
+      outline:none;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6 6-6' fill='none' stroke='%2367706B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat:no-repeat;
+      background-position:right 12px center;
+      background-size:18px 18px;
+    }
+    .select-box:focus{
+      border-color: rgba(47,108,60,.42);
+      box-shadow: 0 0 0 4px var(--ring);
+    }
 
     .actions{ display:flex; gap:10px; justify-content:flex-end; padding:0 16px 16px; }
     .btn{
       appearance:none; border:1px solid var(--border); background:var(--surface);
       padding:10px 14px; border-radius:10px; font-weight:700; cursor:pointer;
-      color: var(--text) !important;     /* <-- ensure NOT blue */
+      color: var(--text) !important;
     }
     .btn-primary{ background:var(--accent); color:#fff !important; border-color:var(--accent); }
     .btn-link{
       background:none; border:0; padding:0; text-decoration:underline; cursor:pointer;
-      color: var(--text) !important;     /* <-- ensure NOT blue */
+      color: var(--text) !important;
     }
 
     .results{ padding:0 16px 16px; }
@@ -100,11 +122,12 @@
     .dialog-body{ padding:14px; overflow:auto; flex:1 1 auto; min-height:0; -webkit-overflow-scrolling:touch; }
     .closex{
       border:1px solid var(--border); background:var(--surface); border-radius:10px;
-      padding:8px 12px; cursor:pointer; font-weight:700; color: var(--text) !important;  /* <-- ensure NOT blue */
+      padding:8px 12px; cursor:pointer; font-weight:700; color: var(--text) !important;
     }
     html.no-scroll, body.no-scroll{ overflow:hidden; }
   </style>
 </head>
+
 <body>
   <fv-shell>
     <div class="wrap">
@@ -117,7 +140,7 @@
           </div>
           <div>
             <h1>Grain Bin</h1>
-            <div class="muted">Enter bin size and top style, then Calculate. We’ll show ft³, bushels, and estimated weight. Last 10 are saved.</div>
+            <div class="muted">Choose crop, pick diameter or circumference, enter sidewall height and top style, then Calculate. We’ll show ft³, bushels, and estimated weight. Last 10 are saved.</div>
           </div>
         </div>
 
@@ -126,19 +149,35 @@
           <div class="grid">
             <div>
               <label for="crop">Crop</label>
-              <div class="ctrl">
-                <select id="crop">
-                  <option value="corn" selected>Corn (56 lb/bu, 1.244 ft³/bu)</option>
-                  <option value="soy">Soybeans (60 lb/bu, 1.25 ft³/bu)</option>
-                  <option value="wheat">Wheat (60 lb/bu, 1.244 ft³/bu)</option>
-                </select>
-              </div>
+              <!-- single dropdown box (no ctrl wrapper) -->
+              <select id="crop" class="select-box">
+                <option value="corn" selected>Corn (56 lb/bu, 1.244 ft³/bu)</option>
+                <option value="soy">Soybeans (60 lb/bu, 1.25 ft³/bu)</option>
+                <option value="wheat">Wheat (60 lb/bu, 1.244 ft³/bu)</option>
+              </select>
             </div>
 
             <div>
+              <label for="dimMode">Bin Input</label>
+              <!-- single dropdown box (no ctrl wrapper) -->
+              <select id="dimMode" class="select-box">
+                <option value="diam" selected>Diameter</option>
+                <option value="circ">Circumference</option>
+              </select>
+            </div>
+
+            <div data-pane="diam">
               <label for="diam">Diameter</label>
               <div class="ctrl">
                 <input id="diam" type="text" inputmode="decimal" placeholder="e.g. 48">
+                <span class="unit">ft</span>
+              </div>
+            </div>
+
+            <div data-pane="circ" class="hidden">
+              <label for="circ">Circumference</label>
+              <div class="ctrl">
+                <input id="circ" type="text" inputmode="decimal" placeholder="e.g. 151">
                 <span class="unit">ft</span>
               </div>
             </div>
@@ -153,12 +192,11 @@
 
             <div>
               <label for="top">Top</label>
-              <div class="ctrl">
-                <select id="top">
-                  <option value="peaked" selected>Peaked</option>
-                  <option value="level">Level</option>
-                </select>
-              </div>
+              <!-- single dropdown box (no ctrl wrapper) -->
+              <select id="top" class="select-box">
+                <option value="peaked" selected>Peaked</option>
+                <option value="level">Level</option>
+              </select>
             </div>
 
             <div data-peak>
@@ -215,43 +253,82 @@
   <script>
   (function(){
     "use strict";
-    if(window.__FV_BIN_V2__) return; window.__FV_BIN_V2__=true;
+    if(window.__FV_BIN_V3__) return; window.__FV_BIN_V3__=true;
 
     function $(id){ return document.getElementById(id); }
-    function nraw(s){ return parseFloat(String(s).replace(/,/g,"")); }
+    function nraw(s){ return parseFloat(String(s||"").replace(/,/g,"")); }
     function fmt(n,d){ if(d===void 0) d=2; return Number(n).toLocaleString(undefined,{maximumFractionDigits:d}); }
 
-    var cropEl=$("crop"), diamEl=$("diam"), sideEl=$("sideH"), topEl=$("top"), peakEl=$("peakH");
+    var cropEl=$("crop"),
+        dimModeEl=$("dimMode"),
+        diamEl=$("diam"),
+        circEl=$("circ"),
+        sideEl=$("sideH"),
+        topEl=$("top"),
+        peakEl=$("peakH");
+
     var results=$("results"), resFt3=$("resFt3"), resBu=$("resBu"), resLb=$("resLb");
     var peakGroup=document.querySelector("[data-peak]");
+    var dimPanes=[].slice.call(document.querySelectorAll("[data-pane]"));
 
     function setPeakVisible(){
       var isPeaked = topEl.value==="peaked";
       peakGroup.classList.toggle("hidden", !isPeaked);
     }
-    topEl.addEventListener("change", setPeakVisible); setPeakVisible();
+    topEl.addEventListener("change", setPeakVisible);
+    setPeakVisible();
+
+    function setDimMode(){
+      var v = dimModeEl.value;
+      dimPanes.forEach(function(p){ p.classList.add("hidden"); });
+      [].slice.call(document.querySelectorAll('[data-pane="'+v+'"]')).forEach(function(p){ p.classList.remove("hidden"); });
+    }
+    dimModeEl.addEventListener("change", function(){
+      setDimMode();
+      results.hidden = true;
+    });
+    setDimMode();
 
     // format with commas on blur
-    [diamEl,sideEl,peakEl].forEach(function(el){
+    [diamEl,circEl,sideEl,peakEl].forEach(function(el){
+      if(!el) return;
       el.addEventListener("blur", function(){
-        var s=el.value.replace(/[^0-9.]/g,"");
+        var s=String(el.value||"").replace(/[^0-9.]/g,"");
         if(!s){ el.value=""; return; }
         var v=parseFloat(s);
-        if(isFinite(v)) el.value = v >= 1000 ? fmt(v,2) : fmt(v,2);
+        if(isFinite(v)) el.value = fmt(v,2);
       });
     });
 
     function constants(){
       switch(cropEl.value){
-        case "soy":   return { lbsPerBu:60, ft3PerBu:1.25, name:"Soybeans" };
+        case "soy":   return { lbsPerBu:60, ft3PerBu:1.25,  name:"Soybeans" };
         case "wheat": return { lbsPerBu:60, ft3PerBu:1.244, name:"Wheat" };
         default:      return { lbsPerBu:56, ft3PerBu:1.244, name:"Corn" };
       }
     }
 
+    function getDiameter(){
+      if(dimModeEl.value==="diam"){
+        var D=nraw(diamEl.value);
+        if(!(D>0)) return null;
+        return D;
+      } else {
+        var C=nraw(circEl.value);
+        if(!(C>0)) return null;
+        // circumference = pi * diameter  => diameter = C / pi
+        return C / Math.PI;
+      }
+    }
+
     function calc(){
-      var D=nraw(diamEl.value), H=nraw(sideEl.value);
-      if(!(D>0 && H>0)){ alert("Enter diameter and sidewall height."); return null; }
+      var D = getDiameter();
+      var H = nraw(sideEl.value);
+      if(!(D>0 && H>0)){
+        alert("Enter " + (dimModeEl.value==="diam" ? "diameter" : "circumference") + " and sidewall height.");
+        return null;
+      }
+
       var peakH = topEl.value==="peaked" ? nraw(peakEl.value) : 0;
       if(topEl.value==="peaked" && !(peakH>0)){ alert("Enter peak height."); return null; }
 
@@ -264,7 +341,20 @@
       var bu = ft3 / K.ft3PerBu;
       var lb = bu * K.lbsPerBu;
 
-      return { t:Date.now(), crop:K.name, D:D, H:H, top:topEl.value, peak:peakH||0, ft3:ft3, bu:bu, lb:lb };
+      // store both entered values so modal/history can show what you used
+      var mode = dimModeEl.value;
+      var entered = mode==="diam" ? nraw(diamEl.value) : nraw(circEl.value);
+
+      return {
+        t:Date.now(),
+        crop:K.name,
+        mode:mode,        // "diam" | "circ"
+        entered:entered,  // the number the user typed
+        D:D, H:H,
+        top:topEl.value,
+        peak:peakH||0,
+        ft3:ft3, bu:bu, lb:lb
+      };
     }
 
     function show(o){
@@ -276,13 +366,16 @@
     }
 
     /* ------- History ------- */
-    var LS_KEY="fv_calc_grainbin_history_v2", hlist=$("hlist"), nohist=$("nohist");
+    var LS_KEY="fv_calc_grainbin_history_v3", hlist=$("hlist"), nohist=$("nohist");
     function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
     function save(a){ localStorage.setItem(LS_KEY, JSON.stringify(a.slice(0,10))); }
 
     function oneLine(o){
       var top = o.top==="peaked" ? (" +peak "+fmt(o.peak,0)+"ft") : "";
-      return o.crop+" D"+fmt(o.D,0)+"ft × "+fmt(o.H,0)+"ft"+top+" → "+fmt(o.bu,0)+" bu";
+      var dimTxt = (o.mode==="circ")
+        ? ("C"+fmt(o.entered,0)+"ft")
+        : ("D"+fmt(o.entered,0)+"ft");
+      return o.crop+" "+dimTxt+" × "+fmt(o.H,0)+"ft"+top+" → "+fmt(o.bu,0)+" bu";
     }
 
     function renderHist(){
@@ -301,12 +394,17 @@
     var modal=$("modal"), mdBody=$("mdBody"), mdClose=$("mdClose"); var lastOpener=null, trapHandler=null;
     function openModal(o, opener){
       lastOpener=opener||null;
+
       var topTxt = o.top==="peaked" ? "Peaked ("+fmt(o.peak,2)+" ft)" : "Level";
+      var dimTxt = o.mode==="circ"
+        ? ("Circumference: "+fmt(o.entered,2)+" ft (computed diameter "+fmt(o.D,2)+" ft)")
+        : ("Diameter: "+fmt(o.entered,2)+" ft");
+
       mdBody.innerHTML =
         '<div class="kv">'
         + '<div>When</div><div>'+new Date(o.t).toLocaleString()+'</div>'
         + '<div>Crop</div><div>'+o.crop+'</div>'
-        + '<div>Diameter</div><div>'+fmt(o.D,2)+' ft</div>'
+        + '<div>Bin Input</div><div>'+dimTxt+'</div>'
         + '<div>Sidewall Height</div><div>'+fmt(o.H,2)+' ft</div>'
         + '<div>Top</div><div>'+topTxt+'</div>'
         + '<div>Cubic Feet</div><div>'+fmt(o.ft3,2)+' ft³</div>'
@@ -346,10 +444,17 @@
     });
 
     $("clearBtn").addEventListener("click", function(){
-      [diamEl,sideEl,peakEl].forEach(function(i){ if(i) i.value=""; });
-      topEl.value="peaked"; setPeakVisible(); results.hidden=true;
+      [diamEl,circEl,sideEl,peakEl].forEach(function(i){ if(i) i.value=""; });
+      dimModeEl.value="diam";
+      topEl.value="peaked";
+      setDimMode();
+      setPeakVisible();
+      results.hidden=true;
     });
-    $("clearHist").addEventListener("click", function(){ localStorage.removeItem(LS_KEY); renderHist(); });
+
+    $("clearHist").addEventListener("click", function(){
+      localStorage.removeItem(LS_KEY); renderHist();
+    });
 
     renderHist();
   })();
