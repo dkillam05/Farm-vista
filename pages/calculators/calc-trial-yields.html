@@ -11,7 +11,7 @@
   <script defer src="../../js/theme-boot.js"></script>
   <script defer src="../../js/fv-shell.js"></script>
 
-  <!-- ✅ FV Combo (built-in search dropdown) -->
+  <!-- FV Combo -->
   <script defer src="../../js/fv-combo.js"></script>
 
   <style>
@@ -21,7 +21,7 @@
       --accent: #2F6C3C;
       --ring: rgba(47,108,60,.20);
 
-      /* ✅ Make FV Combo corners “nice and rounded” */
+      /* Nice rounded FV combo */
       --combo-radius: 14px;
       --combo-btn-radius: 12px;
     }
@@ -79,9 +79,10 @@
     }
     input,select,button{ font-size:16px; }
     .ctrl input{ width:100%; border:0; outline:0; background:transparent; color:var(--text); }
+    .unit{ font-size:12px; color:var(--muted); white-space:nowrap; }
     .ctrl:focus-within{ border-color: rgba(47,108,60,.42); box-shadow: 0 0 0 4px var(--ring); }
 
-    /* fallback only (select will be hidden by fv-combo) */
+    /* (fallback if a select doesn’t get upgraded) */
     .select-box{
       width:100%;
       border:1px solid var(--border);
@@ -151,8 +152,6 @@
         <div class="import-bar">
           <button class="btn" id="impTake" type="button" disabled title="Disabled for now">Take Photo</button>
           <button class="btn" id="impPick" type="button" disabled title="Disabled for now">Import</button>
-          <input id="impCam" type="file" accept="image/*,.pdf" capture="environment" hidden>
-          <input id="impFile" type="file" accept="image/*,.pdf" hidden>
           <span class="tiny-note">Import is disabled for now.</span>
         </div>
 
@@ -187,7 +186,7 @@
     </div>
   </fv-shell>
 
-  <!-- Combine Yield MODAL (unchanged in this step) -->
+  <!-- Combine Yield MODAL -->
   <div class="modal" id="cyModal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="cyTitle">
       <div class="dialog-head">
@@ -199,14 +198,16 @@
           <div class="cg">
             <div>
               <label>Crop</label>
-              <select id="cyCrop" class="select-box">
+              <!-- ✅ FV Combo -->
+              <select id="cyCrop" class="select-box" data-fv-combo data-fv-search="true" data-fv-placeholder="Search…">
                 <option value="corn">Corn (TW 56, Std 15.5%)</option>
                 <option value="soy">Soybeans (TW 60, Std 13.0%)</option>
               </select>
             </div>
             <div>
               <label>Mode</label>
-              <select id="cyMode" class="select-box">
+              <!-- ✅ FV Combo -->
+              <select id="cyMode" class="select-box" data-fv-combo>
                 <option value="true">True</option>
                 <option value="elev">Elevator</option>
                 <option value="both" selected>Compare</option>
@@ -222,7 +223,8 @@
             </div>
             <div>
               <label>Cut Width</label>
-              <select id="cyWid" class="select-box">
+              <!-- ✅ FV Combo -->
+              <select id="cyWid" class="select-box" data-fv-combo>
                 <option value="30">30 ft</option>
                 <option value="35">35 ft</option>
                 <option value="40" selected>40 ft</option>
@@ -270,13 +272,16 @@
 
           <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:12px;">
             <button type="button" class="btn" id="cyCalc">Calculate</button>
+
             <div style="display:flex; gap:8px; align-items:center;">
               <label for="cyUse" style="margin:0; font-weight:600;">Use</label>
-              <select id="cyUse" class="select-box" style="min-width:180px;">
+              <!-- ✅ FV Combo -->
+              <select id="cyUse" class="select-box" data-fv-combo style="min-width:180px;">
                 <option value="true">True Yield</option>
                 <option value="elev">Elevator Yield</option>
               </select>
             </div>
+
             <button type="button" class="btn btn-primary" id="cyUseBtn">Use This Yield</button>
           </div>
         </form>
@@ -298,24 +303,19 @@
   <script type="module">
   (async function(){
     "use strict";
-    if(window.__FV_TRIALS_FULL_V6__) return; window.__FV_TRIALS_FULL_V6__=true;
+    if(window.__FV_TRIALS_FULL_V7__) return; window.__FV_TRIALS_FULL_V7__=true;
 
     const $ = (id) => document.getElementById(id);
     const num = (v) => parseFloat(String(v).replace(/,/g,""));
     const fmt = (n,d=2) => Number(n).toLocaleString(undefined,{maximumFractionDigits:d});
     const fmt0 = (n) => Number(n).toLocaleString();
 
-    /* ---------- Load Fields (Firestore) ---------- */
     let FIELDS = [];
     async function loadFields(){
       try{
         const fb = await import("../../js/firebase-init.js");
         await fb.ready;
-
-        if(typeof fb.isStub === "function" && fb.isStub()){
-          console.warn("[FV] Trial Yields: stub mode, no Firestore fields.");
-          return;
-        }
+        if(typeof fb.isStub === "function" && fb.isStub()) return;
 
         const db = fb.getFirestore();
         const snap = await fb.getDocs(fb.collection(db, "fields"));
@@ -352,17 +352,14 @@
       if(selectedId) sel.value = selectedId;
     }
 
-    function upgradeComboForSelect(sel){
-      // fv-combo auto-upgrades on DOMContentLoaded, but we add rows later.
-      // This forces upgrade for newly created selects.
+    function upgradeCombos(root){
       try{
         if(window.FVCombo && typeof window.FVCombo.upgrade === "function"){
-          window.FVCombo.upgrade(sel.closest(".trow") || document);
+          window.FVCombo.upgrade(root || document);
         }
       }catch(e){}
     }
 
-    /* ---------- Treatments UI ---------- */
     const tlist=$("tlist");
     const addBtn=$("addTreatment"), clearBtn=$("clearTreatments");
     const sumTile=$("sumTile"), sumCount=$("sumCount"), sumAvg=$("sumAvg"), sumHL=$("sumHL");
@@ -381,7 +378,13 @@
       + '  <div><label>Treatment</label><div class="ctrl"><input data-k="name" type="text" placeholder="Treatment name"></div></div>'
       + '</div>'
       + '<div class="grid2">'
-      + '  <div><label>Type</label><select data-k="type" class="select-box"><option>Treated</option><option>Check</option></select></div>'
+      + '  <div><label>Type</label>'
+      + '    <!-- ✅ Type now uses FV Combo too -->'
+      + '    <select data-k="type" class="select-box" data-fv-combo>'
+      + '      <option value="Treated">Treated</option>'
+      + '      <option value="Check">Check</option>'
+      + '    </select>'
+      + '  </div>'
       + '  <div><label>Notes</label><div class="ctrl"><input data-k="notes" type="text" placeholder="Notes (optional)"></div></div>'
       + '</div>'
       + '<div class="yieldline">'
@@ -395,15 +398,17 @@
 
       const sel = row.querySelector('[data-k="fieldSel"]');
       populateFieldSelect(sel, fieldId || "");
-      upgradeComboForSelect(sel);
+
+      // upgrade combos for this row (field + type)
+      upgradeCombos(row);
 
       if(name) row.querySelector('[data-k="name"]').value=name;
 
       row.querySelector(".rm").addEventListener("click", ()=>{ row.remove(); refreshSummary(); lockAdd(); });
       row.querySelector('[data-k="enter"]').addEventListener("click", ()=> openCY(row) );
 
-      // keep summary up to date if field changes
       sel.addEventListener("change", refreshSummary);
+      row.querySelector('[data-k="type"]').addEventListener("change", refreshSummary);
 
       return row;
     }
@@ -442,8 +447,9 @@
       sumTile.hidden=false;
     }
 
-    /* ---------- Modals + Combine Yield (existing behavior kept) ---------- */
-    const cyModal=$("cyModal"), cyClose=$("cyClose"), histModal=$("histModal"), hmClose=$("hmClose"), hmBody=$("hmBody");
+    /* ---------- Modals + Combo upgrade-on-open ---------- */
+    const cyModal=$("cyModal"), cyClose=$("cyClose");
+    const histModal=$("histModal"), hmClose=$("hmClose"), hmBody=$("hmBody");
     let lastOpener=null, trapHandler=null;
 
     function openModal(el, opener){
@@ -451,6 +457,9 @@
       el.setAttribute("open",""); el.setAttribute("aria-hidden","false");
       document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
       trapFocus(el);
+
+      // ✅ Critical: upgrade FV combos AFTER modal is visible
+      upgradeCombos(el);
     }
     function closeModal(el){
       el.removeAttribute("open"); el.setAttribute("aria-hidden","true");
@@ -480,7 +489,7 @@
       }
     });
 
-    // Combine yield mini-calculator (unchanged logic)
+    /* ---------- Combine Yield mini-calculator (same logic) ---------- */
     const SQFT_PER_ACRE=43560;
     const CORN_STD=15.5, CORN_TW=56, CORN_SLOPE=(21.0/(29.0-15.5)), CORN_CAP_M=40.0, CORN_CAP_SH=CORN_SLOPE*(CORN_CAP_M-CORN_STD);
     const SOY_STD=13.0, SOY_TW=60;
@@ -539,7 +548,7 @@
       closeModal(cyModal);
     });
 
-    // History (kept)
+    /* ---------- History (kept) ---------- */
     const LS_KEY="fv_calc_trial_yields_history_v3";
     function loadH(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
     function saveH(a){ localStorage.setItem(LS_KEY, JSON.stringify(a.slice(0,10))); }
@@ -616,6 +625,10 @@
     lockAdd();
     refreshSummary();
     renderHist();
+
+    // ensure any combos that were visible at load get upgraded
+    upgradeCombos(document);
+
   })();
   </script>
 </body>
