@@ -194,17 +194,53 @@
 
     .wo-meta span{
       display:inline-flex;
-      align-items:center;
-      gap:4px;
+      align-items:flex-start;
+      gap:6px;
       padding:2px 7px;
       border-radius:999px;
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
       max-width:100%;
     }
-    .wo-meta span > span.wo-meta-label{ font-weight:700; }
-    .wo-meta .wo-meta-val{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:48ch; }
+    .wo-meta span > span.wo-meta-label{
+      font-weight:800;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      font-size:0.72rem;
+      opacity:0.85;
+      margin-top:1px;
+    }
+    .wo-meta .wo-meta-val{
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      max-width:48ch;
+    }
     @media (max-width:520px){
       .wo-meta .wo-meta-val{ max-width:28ch; }
+    }
+
+    /* ✅ RTK “boxed” mini-block (name + subline together) */
+    .rtk-block{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+      line-height:1.15;
+      max-width:min(62ch, 100%);
+    }
+    .rtk-block .rtk-name{
+      font-weight:800;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      max-width:100%;
+    }
+    .rtk-block .rtk-sub{
+      font-weight:650;
+      opacity:0.88;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      max-width:100%;
     }
 
     /* Detail panel */
@@ -462,9 +498,6 @@
     const CONFIG = {
       COLLECTION_PATH: 'boundary_requests',
       COMPANY_DOC_PATH: ['company','main'],
-
-      // RTK lookups
-      FIELDS_COLLECTION: 'fields',
       TOWERS_COLLECTION: 'rtk_towers'
     };
 
@@ -477,8 +510,6 @@
       db: null,
       company: null,
       farmMap: new Map(),
-
-      // RTK caches
       towersById: new Map() // towerDocId -> { id, name, networkId, frequencyMHz }
     };
 
@@ -518,8 +549,10 @@
     }
 
     /* ===========================
-       ✅ RTK: the only thing we require now is rtkTowerId on the request
-       We'll join tower details at report time from rtk_towers.
+       ✅ RTK join that ALWAYS works
+       Problem you hit: some Firestore rules allow getDoc() but block getDocs() on a collection.
+       So we DO NOT read the whole rtk_towers collection.
+       We read ONLY the tower IDs referenced by boundary_requests (one-by-one getDoc).
        =========================== */
 
     function coerceStr(v){
@@ -533,72 +566,92 @@
       return `${s} MHz`;
     }
 
-    function getTowerById(towerId){
-      const id = coerceStr(towerId);
-      if(!id) return null;
-      return STATE.towersById.get(id) || null;
+    function getTowerIdFromRequest(d){
+      return coerceStr(d?.rtkTowerId || d?.towerId || d?.rtkId || '');
     }
 
-    // ✅ Single source of truth for RTK display:
-    // - if request has rtk object, use it (legacy / snapshot)
-    // - else if request has rtkTowerId, look up tower
-    // - else blank
+    async function loadRtkTowersForItems(items){
+      const want = new Set();
+      (items || []).forEach(it => {
+        const id = getTowerIdFromRequest(it.data);
+        if(id) want.add(id);
+      });
+
+      const missing = Array.from(want).filter(id => !STATE.towersById.has(id));
+      if(!missing.length) return;
+
+      await Promise.allSettled(missing.map(async (towerId) => {
+        try{
+          const snap = await getDoc(doc(STATE.db, CONFIG.TOWERS_COLLECTION, towerId));
+          if(!snap.exists()){
+            // keep placeholder so we stop re-fetching
+            STATE.towersById.set(towerId, { id:towerId, name:'', networkId:'', frequencyMHz:'' });
+            return;
+          }
+          const d = snap.data() || {};
+          STATE.towersById.set(towerId, {
+            id: towerId,
+            name: coerceStr(d.name),
+            networkId: coerceStr(d.networkId),
+            frequencyMHz: coerceStr(d.frequencyMHz)
+          });
+        }catch(e){
+          // keep placeholder so we stop re-fetching
+          STATE.towersById.set(towerId, { id:towerId, name:'', networkId:'', frequencyMHz:'' });
+        }
+      }));
+    }
+
     function getRtkForRequest(d){
-      // legacy / snapshot support
+      // 1) if request has snapshot object, use it
       if(d && typeof d === 'object' && d.rtk && typeof d.rtk === 'object'){
         const name = coerceStr(d.rtk.name);
         const networkId = coerceStr(d.rtk.networkId);
         const frequencyMHz = coerceStr(d.rtk.frequencyMHz);
         if(name || networkId || frequencyMHz){
-          return { name, networkId, frequencyMHz };
+          return { name, networkId, frequencyMHz, towerId: getTowerIdFromRequest(d) };
         }
       }
 
-      const towerId = coerceStr(d?.rtkTowerId || d?.towerId || d?.rtkId || '');
-      const t = getTowerById(towerId);
-      if(t){
+      // 2) join from tower id
+      const towerId = getTowerIdFromRequest(d);
+      if(towerId && STATE.towersById.has(towerId)){
+        const t = STATE.towersById.get(towerId);
         return {
-          name: coerceStr(t.name),
-          networkId: coerceStr(t.networkId),
-          frequencyMHz: coerceStr(t.frequencyMHz)
+          name: coerceStr(t?.name),
+          networkId: coerceStr(t?.networkId),
+          frequencyMHz: coerceStr(t?.frequencyMHz),
+          towerId
         };
       }
 
-      return { name:'', networkId:'', frequencyMHz:'' };
+      // 3) fallback (still show tower id so you never see “Not set” when ID exists)
+      return { name:'', networkId:'', frequencyMHz:'', towerId };
     }
 
-    function buildRtkLabel(rtk){
-      if(!rtk) return '';
-      const name = coerceStr(rtk.name);
-      const net  = coerceStr(rtk.networkId);
-      const freq = coerceStr(rtk.frequencyMHz);
-      const bits = [];
-      if(name) bits.push(name);
-      if(net)  bits.push(net);
-      if(freq) bits.push(fmtFreqMHz(freq));
-      return bits.join(' • ');
+    function rtkLines(rtk){
+      const name = coerceStr(rtk?.name);
+      const net  = coerceStr(rtk?.networkId);
+      const freq = coerceStr(rtk?.frequencyMHz);
+
+      const nameLine = name || (rtk?.towerId ? `Tower ${rtk.towerId}` : '');
+      const subBits = [];
+      if(net) subBits.push(`Net ${net}`);
+      if(freq) subBits.push(fmtFreqMHz(freq));
+      const subLine = subBits.join(' • ');
+
+      return { nameLine, subLine };
     }
 
-    async function loadRtkTowers(){
-      // ✅ Load ALL towers once (your collection is small)
-      try{
-        const tSnap = await getDocs(collection(STATE.db, CONFIG.TOWERS_COLLECTION));
-        STATE.towersById = new Map(
-          tSnap.docs.map(s => {
-            const d = s.data() || {};
-            const tower = {
-              id: s.id,
-              name: coerceStr(d.name),
-              networkId: coerceStr(d.networkId),
-              frequencyMHz: coerceStr(d.frequencyMHz)
-            };
-            return [s.id, tower];
-          })
-        );
-      }catch(e){
-        console.warn('[boundary-report] RTK towers load failed:', e);
-        STATE.towersById = new Map();
-      }
+    function rtkHtmlBox(rtk){
+      const { nameLine, subLine } = rtkLines(rtk);
+      if(!nameLine && !subLine) return '';
+      return `
+        <span class="rtk-block">
+          <span class="rtk-name">${escapeHtml(nameLine || '')}</span>
+          ${subLine ? `<span class="rtk-sub">${escapeHtml(subLine)}</span>` : ``}
+        </span>
+      `;
     }
 
     /* ===========================
@@ -644,7 +697,7 @@
         const whenStr   = formatDate(createdAt);
 
         const rtk = getRtkForRequest(d);
-        const rtkLabel = buildRtkLabel(rtk);
+        const rtkBox = rtkHtmlBox(rtk);
 
         const card = document.createElement('article');
         card.className = 'wo-card';
@@ -664,7 +717,7 @@
                 ${status ? `<span><span class="wo-meta-label">Status</span> <span class="wo-meta-val">${escapeHtml(status)}</span></span>` : ''}
                 ${createdBy ? `<span><span class="wo-meta-label">By</span> <span class="wo-meta-val">${escapeHtml(createdBy)}</span></span>` : ''}
                 ${whenStr ? `<span><span class="wo-meta-label">Submitted</span> <span class="wo-meta-val">${escapeHtml(whenStr)}</span></span>` : ''}
-                ${rtkLabel ? `<span><span class="wo-meta-label">RTK</span> <span class="wo-meta-val">${escapeHtml(rtkLabel)}</span></span>` : ''}
+                ${rtkBox ? `<span><span class="wo-meta-label">RTK</span> ${rtkBox}</span>` : (d.rtkTowerId ? `<span><span class="wo-meta-label">RTK</span> <span class="wo-meta-val">${escapeHtml(d.rtkTowerId)}</span></span>` : '')}
               </div>
             </div>
           </div>
@@ -745,6 +798,7 @@
       const photos = Array.isArray(d.photos) ? d.photos.filter(p => p && (p.url || p.path)) : [];
 
       const rtk = getRtkForRequest(d);
+      const { nameLine, subLine } = rtkLines(rtk);
 
       panel.dataset.id = item.id;
       $('.wo-detail-title', panel).textContent = farm ? `${field} · ${farm}` : field;
@@ -760,17 +814,14 @@
           <div class="wo-detail-item-value">${escapeHtml(bType || 'Not specified')}</div>
         </div>
 
-        <div>
+        <div style="grid-column:1 / -1;">
           <div class="wo-detail-item-label">RTK Tower</div>
-          <div class="wo-detail-item-value">${escapeHtml(rtk.name || 'Not set')}</div>
-        </div>
-        <div>
-          <div class="wo-detail-item-label">Network ID</div>
-          <div class="wo-detail-item-value">${escapeHtml(rtk.networkId || '—')}</div>
-        </div>
-        <div>
-          <div class="wo-detail-item-label">Frequency</div>
-          <div class="wo-detail-item-value">${escapeHtml(rtk.frequencyMHz ? fmtFreqMHz(rtk.frequencyMHz) : '—')}</div>
+          <div class="wo-detail-item-value">
+            <div style="display:flex; flex-direction:column; gap:2px;">
+              <div style="font-weight:850;">${escapeHtml(nameLine || (d.rtkTowerId ? `Tower ${d.rtkTowerId}` : 'Not set'))}</div>
+              ${subLine ? `<div style="opacity:.9; font-weight:650;">${escapeHtml(subLine)}</div>` : ``}
+            </div>
+          </div>
         </div>
 
         <div>
@@ -881,7 +932,10 @@
       }
     }
 
-    function applyFilters(){
+    async function applyFilters(){
+      // ✅ ensure we have tower docs for whatever we're about to render
+      await loadRtkTowersForItems(getWorkingItems());
+
       const statusSel = $('#filterStatus');
       const farmSel   = $('#filterFarm');
       const searchEl  = $('#filterSearch');
@@ -903,12 +957,12 @@
 
         if(q){
           const rtk = getRtkForRequest(d);
+          const { nameLine, subLine } = rtkLines(rtk);
           const hay = [
             d.farm, d.field, d.scope, d.notes,
             d.submittedBy, d.submittedByEmail,
-            // ✅ include RTK tower id + details in search
             d.rtkTowerId,
-            rtk.name, rtk.networkId, rtk.frequencyMHz
+            nameLine, subLine
           ].join(' ').toLowerCase();
           if(!hay.includes(q)) return false;
         }
@@ -916,7 +970,13 @@
       });
 
       STATE.filteredItems = filtered;
+
+      // ✅ ensure tower docs exist for filtered set too
+      await loadRtkTowersForItems(STATE.filteredItems);
+
       renderList();
+      // if a detail is open, refresh it so RTK fills in immediately
+      if(STATE.selectedId) renderDetails();
     }
 
     function populateFarmFilterFromItems(){
@@ -1033,6 +1093,9 @@
         return;
       }
 
+      // ✅ make sure tower docs are loaded before building HTML
+      await loadRtkTowersForItems(items);
+
       const company = await loadCompanyHeader();
       const grouped = groupForPdf(items);
 
@@ -1104,7 +1167,6 @@
   <style>
     :root{
       --fv-green:#3B7E46;
-      --fv-green2:#2F6C3C;
       --fv-border:#D1D5DB;
       --fv-text:#111827;
       --fv-muted:#6B7280;
@@ -1118,11 +1180,7 @@
       color:var(--fv-text);
       background:var(--fv-bg);
     }
-    body{
-      display:flex;
-      justify-content:center;
-      padding:22px 12px;
-    }
+    body{ display:flex; justify-content:center; padding:22px 12px; }
     .page{
       width:100%;
       max-width:920px;
@@ -1170,7 +1228,6 @@
       color:var(--fv-muted);
       line-height:1.35;
     }
-
     .summary{
       margin-top:10px;
       padding:8px 10px;
@@ -1185,7 +1242,6 @@
     .pill{display:inline-flex; gap:6px; align-items:baseline; white-space:nowrap;}
     .k{font-size:10px; text-transform:uppercase; letter-spacing:0.10em; color:var(--fv-muted); font-weight:700;}
     .v{font-weight:700; color:var(--fv-text);}
-
     .kpis{
       margin-top:12px;
       display:grid;
@@ -1245,16 +1301,8 @@
       border-bottom:1px solid #EEF2F7;
       margin-bottom:8px;
     }
-    .req-field{
-      font-weight:950;
-      font-size:13px;
-      line-height:1.25;
-    }
-    .req-farm{
-      font-size:10.5px;
-      color:var(--fv-muted);
-      margin-top:2px;
-    }
+    .req-field{ font-weight:950; font-size:13px; line-height:1.25; }
+    .req-farm{ font-size:10.5px; color:var(--fv-muted); margin-top:2px; }
     .badge{
       font-size:10px;
       font-weight:900;
@@ -1275,6 +1323,9 @@
     }
     .pair .kk{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--fv-muted);font-weight:800;margin-bottom:2px;}
     .pair .vv{font-weight:700; color:#111827; line-height:1.25; word-break:break-word;}
+    .rtkbox{grid-column:1 / -1;}
+    .rtkname{font-weight:900;}
+    .rtksub{font-weight:700;color:#111827;opacity:.88;margin-top:2px;}
     .notes{
       grid-column:1 / -1;
       margin-top:2px;
@@ -1287,7 +1338,6 @@
       white-space:pre-wrap;
       line-height:1.28;
     }
-
     .footer{
       margin-top:16px;
       padding-top:10px;
@@ -1307,7 +1357,6 @@
       .kpis{grid-template-columns:1fr;}
       .meta{white-space:normal;}
     }
-
     @media print{
       html,body{background:#fff;padding:0;}
       body{box-shadow:none;}
@@ -1341,7 +1390,7 @@
     </header>
 
     <h1 class="title">Field Boundary Fix Requests</h1>
-    <p class="subtitle">Open and recent boundary correction requests grouped by farm and field, including RTK tower details (Name, Network ID, Frequency).</p>
+    <p class="subtitle">Open and recent boundary correction requests grouped by farm and field, including RTK tower details (Name • Network ID • Frequency).</p>
 
     <div class="summary">
       <div class="pill"><span class="k">Date range</span><span class="v">${escapeHtml(dateRange || 'All dates')}</span></div>
@@ -1383,8 +1432,10 @@
           ${arr.map(it => {
             const d = it.data;
             const created = d._createdAtDate || null;
+
             const rtk = getRtkForRequest(d);
-            const rtkLabel = buildRtkLabel(rtk);
+            const lines = rtkLines(rtk);
+
             const submitLine = (d.submittedBy || '') + (d.submittedByEmail ? ' · ' + d.submittedByEmail : '');
             const status = d.status || '';
             const field = d.field || '';
@@ -1418,9 +1469,12 @@
                     <div class="vv">${escapeHtml(submitLine || '—')}</div>
                   </div>
 
-                  <div class="pair" style="grid-column:1 / -1;">
+                  <div class="pair rtkbox">
                     <div class="kk">RTK</div>
-                    <div class="vv">${escapeHtml(rtkLabel || (d.rtkTowerId ? ('Tower ID: ' + d.rtkTowerId) : 'Not set'))}</div>
+                    <div class="vv">
+                      <div class="rtkname">${escapeHtml(lines.nameLine || (d.rtkTowerId ? ('Tower ' + d.rtkTowerId) : 'Not set'))}</div>
+                      ${lines.subLine ? `<div class="rtksub">${escapeHtml(lines.subLine)}</div>` : ``}
+                    </div>
                   </div>
 
                   <div class="pair notes">
@@ -1463,7 +1517,7 @@
         await updateDoc(ref, { status: 'Completed', updatedAt: new Date() });
         item.data.status = 'Completed';
         item.data.updatedAt = new Date();
-        applyFilters();
+        await applyFilters();
         renderDetails();
       }catch(err){
         console.error('Error marking boundary request completed:', err);
@@ -1485,7 +1539,7 @@
         STATE.items = STATE.items.filter(it => it.id !== STATE.selectedId);
         STATE.selectedId = null;
         clearDetails();
-        applyFilters();
+        await applyFilters();
       }catch(err){
         console.error('Error deleting boundary request:', err);
         alert('Could not delete this request. Check console for details.');
@@ -1528,17 +1582,14 @@
       await loadBoundaryRequests();
       populateFarmFilterFromItems();
 
-      // ✅ Load RTK towers and join by request.rtkTowerId
-      await loadRtkTowers();
-
       const statusSel = $('#filterStatus');
       const farmSel   = $('#filterFarm');
       const searchEl  = $('#filterSearch');
       const clearBtn  = $('#filterClear');
 
-      if(statusSel) statusSel.addEventListener('change', applyFilters);
-      if(farmSel)   farmSel.addEventListener('change', applyFilters);
-      if(searchEl)  searchEl.addEventListener('input', applyFilters);
+      if(statusSel) statusSel.addEventListener('change', () => applyFilters());
+      if(farmSel)   farmSel.addEventListener('change', () => applyFilters());
+      if(searchEl)  searchEl.addEventListener('input', () => applyFilters());
       if(clearBtn){
         clearBtn.addEventListener('click', () => {
           if(statusSel) statusSel.value = 'open';
@@ -1548,7 +1599,7 @@
         });
       }
 
-      applyFilters();
+      await applyFilters();
 
       const printTop = $('#btnPrint');
       const printBottom = $('#btnPrintBottom');
