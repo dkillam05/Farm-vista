@@ -60,7 +60,6 @@
     .ctrl input{ width:100%; border:0; outline:0; background:transparent; color:var(--text); }
     .unit{ font-size:12px; color:var(--muted); white-space:nowrap; }
 
-    /* Single-box dropdowns (no “dropdown inside a bigger box”) */
     .select-box{
       width:100%;
       appearance:none;
@@ -82,7 +81,6 @@
       box-shadow: 0 0 0 4px var(--ring);
     }
 
-    /* Shrink Mode label + helper icon */
     .label-row{
       display:flex;
       align-items:center;
@@ -101,7 +99,7 @@
       display:inline-grid;
       place-items:center;
       cursor:pointer;
-      color: var(--text) !important; /* no blue */
+      color: var(--text) !important;
       padding:0;
     }
     .help-btn:focus{
@@ -132,7 +130,7 @@
     .kv{ display:grid; grid-template-columns:1fr auto; gap:6px 12px; align-items:baseline; }
     .kv .val{ font-weight:800; }
 
-    .result-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .result-grid{ display:grid reminded: grid-template-columns:1fr 1fr; gap:12px; }
     @media (max-width:760px){ .result-grid{ grid-template-columns:1fr; } }
 
     .hist{ padding:16px; border-top:1px dashed var(--border); }
@@ -142,7 +140,6 @@
     .hsummary{ font-weight:700; }
     .muted-line{ font-size:12px; color:var(--muted); }
 
-    /* Centered modal (used for BOTH: details + help) */
     .modal{ position:fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,.42);
       z-index:9999; transition:opacity .15s; opacity:0; }
     .modal[open]{ display:grid; opacity:1; }
@@ -184,7 +181,6 @@
       <div class="calc-card">
         <div class="card-head">
           <div class="icon" aria-hidden="true">
-            <!-- balance scale icon -->
             <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <path d="M7 20h10M6 6l6-1 6 1M12 3v17"/>
               <path d="M9 12L6 6 3 12a3 3 0 0 0 6 0"/>
@@ -197,7 +193,6 @@
           </div>
         </div>
 
-        <!-- FORM -->
         <form id="frm" novalidate autocomplete="off">
           <div class="grid">
             <div>
@@ -229,7 +224,7 @@
             <div>
               <label for="wt">Wet Weight</label>
               <div class="ctrl">
-                <input id="wt" type="text" inputmode="numeric" placeholder="e.g. 20,000">
+                <input id="wt" type="text" inputmode="decimal" placeholder="e.g. 20,000">
                 <span class="unit">lb</span>
               </div>
             </div>
@@ -237,7 +232,7 @@
             <div>
               <label for="moist">Start Moisture</label>
               <div class="ctrl">
-                <input id="moist" type="text" inputmode="decimal" placeholder="e.g. 25.6" maxlength="4">
+                <input id="moist" type="text" inputmode="decimal" placeholder="e.g. 25.6">
                 <span class="unit">%</span>
               </div>
             </div>
@@ -249,7 +244,6 @@
           </div>
         </form>
 
-        <!-- RESULTS -->
         <div class="results" id="results" hidden>
           <div class="result-grid">
             <div class="tile" id="trueTile">
@@ -272,7 +266,6 @@
           <div class="muted" style="margin-top:8px">Elevator (corn): linear from 15.5% to 29% = 21% shrink (≈1.5556%/pt), capped at 40% moisture.</div>
         </div>
 
-        <!-- HISTORY -->
         <section class="hist">
           <div style="display:flex;align-items:center;gap:10px">
             <h2 style="flex:1">Previous Calculations</h2>
@@ -285,7 +278,6 @@
     </div>
   </fv-shell>
 
-  <!-- DETAILS MODAL (History View) -->
   <div class="modal" id="modal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
       <div class="dialog-head">
@@ -296,7 +288,6 @@
     </div>
   </div>
 
-  <!-- HELP MODAL (Shrink Mode) -->
   <div class="modal" id="helpModal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
       <div class="dialog-head">
@@ -324,15 +315,15 @@
   <script>
   (function(){
     "use strict";
-    if(window.__FV_SHRINK_V5__) return; window.__FV_SHRINK_V5__=true;
+    if(window.__FV_SHRINK_V6__) return; window.__FV_SHRINK_V6__=true;
 
-    /* --- constants --- */
-    var CORN_STD=15.5, CORN_TW=56, CORN_SLOPE=(21/(29-15.5)), CORN_CAP_M=40; // ≈1.5556%/pt
+    var CORN_STD=15.5, CORN_TW=56, CORN_SLOPE=(21/(29-15.5)), CORN_CAP_M=40;
     var SOY_STD =13.0, SOY_TW =60;
-    var SOY_ELEV_PER_PT = 1.5; // % per point above standard (for this calculator)
+    var SOY_ELEV_PER_PT = 1.5;
 
     function $(id){ return document.getElementById(id); }
     function fmt(n,d){ if(d===void 0) d=2; return Number(n).toLocaleString(undefined,{maximumFractionDigits:d}); }
+    function nraw(s){ return parseFloat(String(s||"").replace(/,/g,"")); }
 
     var cropEl=$("crop"), modeEl=$("mode"), wtEl=$("wt"), moistEl=$("moist");
     var results=$("results"),
@@ -340,10 +331,43 @@
         trueW=$("trueW"), trueS=$("trueS"), trueB=$("trueB"),
         elevW=$("elevW"), elevS=$("elevS"), elevB=$("elevB");
 
-    /* --- dropdown help modal --- */
+    /* ✅ Only numbers + max 2 decimals */
+    function restrict2(el, opts){
+      opts = opts || {};
+      var allowComma = !!opts.allowComma;
+
+      el.addEventListener("input", function(){
+        var s = String(el.value || "");
+        if(allowComma) s = s.replace(/,/g,"");
+        s = s.replace(/[^\d.]/g,"");
+
+        var parts = s.split(".");
+        if(parts.length > 2){
+          s = parts.shift() + "." + parts.join("");
+          parts = s.split(".");
+        }
+        if(parts.length === 2){
+          parts[1] = parts[1].slice(0,2);
+          s = parts[0] + "." + parts[1];
+        }
+        el.value = s;
+      });
+
+      el.addEventListener("blur", function(){
+        var v = nraw(el.value);
+        if(!isFinite(v)){ el.value=""; return; }
+        el.value = fmt(v, 2);
+      });
+    }
+
+    // Wet weight: numbers only, allow commas visually, max 2 decimals
+    restrict2(wtEl, { allowComma:true });
+    // Moisture: numbers only, max 2 decimals
+    restrict2(moistEl, { allowComma:false });
+
+    /* --- help modal wiring (unchanged) --- */
     var helpModal=$("helpModal"), helpClose=$("helpClose"), helpBtn=$("modeHelp");
     var rulesList=$("rulesList");
-
     var modal=$("modal"), mdBody=$("mdBody"), mdClose=$("mdClose");
     var lastOpener=null, trapHandler=null;
 
@@ -384,16 +408,7 @@
 
     function buildRules(){
       var crop = cropEl.value;
-
-      // True shrink is NOT a constant % per point; it varies with moisture because it's ratio-based.
-      // We'll show the local "% per point" at the current moisture (or a sensible example).
-      var m = parseFloat(moistEl.value);
-      if(!(m>0)) m = (crop==="corn") ? 25.0 : 15.0;
       var std = (crop==="corn") ? CORN_STD : SOY_STD;
-
-      // Local true-shrink slope at moisture m:
-      // trueShrink% = 100 * (1 - (100-m)/(100-std)) = 100 * (m-std)/(100-std)
-      // derivative w.r.t m = 100/(100-std) (% per point)
       var truePerPt = 100/(100-std);
 
       rulesList.innerHTML = "";
@@ -404,20 +419,14 @@
         rulesList.appendChild(li1);
       } else {
         var li2=document.createElement("li");
-        li2.innerHTML = "<strong>Soybean elevator shrink:</strong> simple per-point rule from <span class='k'>13.0%</span> standard at <span class='k'>1.5% per point</span> above standard.";
+        li2.innerHTML = "<strong>Soybean elevator shrink:</strong> simple per-point rule from <span class='k'>13.0%</span> standard at <span class='k'>"+fmt(SOY_ELEV_PER_PT,2)+"% per point</span> above standard.";
         rulesList.appendChild(li2);
       }
 
       var li3=document.createElement("li");
       li3.innerHTML =
-        "<strong>True shrink:</strong> ratio-based (not capped). The effective rate is constant for a given standard moisture: "
-        + "<span class='k'>"+fmt(truePerPt,4)+"% per point</span> above standard (computed from <span class='k'>100/(100−std)</span>)."
-        + " (Corn std 15.5 → ~"+fmt(100/(100-CORN_STD),4)+"%/pt, Soy std 13.0 → ~"+fmt(100/(100-SOY_STD),4)+"%/pt).";
+        "<strong>True shrink:</strong> ratio-based. Effective rate (given standard): <span class='k'>"+fmt(truePerPt,4)+"% per point</span> above standard.";
       rulesList.appendChild(li3);
-
-      var li4=document.createElement("li");
-      li4.innerHTML = "<strong>Mode display:</strong> Compare Both shows both tiles; True Only / Elevator Only hides the other tile (math still computed).";
-      rulesList.appendChild(li4);
     }
 
     function openHelp(){
@@ -436,31 +445,7 @@
       if(modal.hasAttribute("open") && e.key==="Escape") closeDetails();
     });
 
-    // keep help bullets accurate if crop changes while help is open
     cropEl.addEventListener("change", function(){
-      if(helpModal.hasAttribute("open")) buildRules();
-    });
-
-    // format wet weight with commas on blur
-    wtEl.addEventListener("blur", function(){
-      var raw = wtEl.value.replace(/[^0-9]/g,"");
-      wtEl.value = raw ? Number(raw).toLocaleString() : "";
-    });
-
-    // moisture input enforcement: always XX.X
-    moistEl.addEventListener("input", function(){
-      var s = moistEl.value.replace(/[^\d.]/g,"");
-      var p = s.split(".");
-      var a = (p[0]||"").slice(0,2);
-      var b = (p[1]||"").slice(0,1);
-      moistEl.value = a + (b!=="" ? "."+b : (s.indexOf(".")>-1 ? "." : ""));
-    });
-    moistEl.addEventListener("blur", function(){
-      var s = moistEl.value; if(!s) return;
-      var m = s.match(/^(\d{1,2})(?:\.(\d))?$/);
-      if(!m){ moistEl.value=""; return; }
-      var ip = m[1]; if(ip.length===1) ip="0"+ip;
-      moistEl.value = ip+"."+(m[2]?m[2]:"0");
       if(helpModal.hasAttribute("open")) buildRules();
     });
 
@@ -468,7 +453,7 @@
       return (crop==="corn") ? {std:CORN_STD, tw:CORN_TW} : {std:SOY_STD, tw:SOY_TW};
     }
     function elevPct(crop, m){
-      if(crop!=="corn"){ // soy rule in this calculator
+      if(crop!=="corn"){
         return m<=SOY_STD ? 0 : Math.max(0, (m - SOY_STD) * SOY_ELEV_PER_PT);
       }
       if(m<=CORN_STD) return 0;
@@ -477,7 +462,7 @@
     }
 
     function calc(){
-      var crop=cropEl.value, m=parseFloat(moistEl.value), w=parseFloat(wtEl.value.replace(/,/g,""));
+      var crop=cropEl.value, m=nraw(moistEl.value), w=nraw(wtEl.value);
       if(!(w>0)){ alert("Enter wet weight."); return null; }
       if(!(m>0)){ alert("Enter start moisture."); return null; }
 
@@ -507,22 +492,19 @@
       elevS.textContent = fmt(o.elevS,2)+" %";
       elevB.textContent = fmt(o.elevB,2)+" bu";
 
-      // respect mode
       trueTile.style.display = (o.mode==="true") ? "block" : (o.mode==="elev" ? "none" : "block");
       elevTile.style.display = (o.mode==="elev") ? "block" : (o.mode==="true" ? "none" : "block");
 
       results.hidden=false;
-      if(wtEl.value && wtEl.value.indexOf(",")===-1){ wtEl.dispatchEvent(new Event("blur")); }
     }
 
-    /* -------- History + details modal -------- */
     var LS_KEY="fv_calc_shrink_history_v2", hlist=$("hlist"), nohist=$("nohist");
     function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
     function save(a){ localStorage.setItem(LS_KEY, JSON.stringify(a.slice(0,10))); }
 
     function oneLine(o){
       var cropTxt = (o.crop==="corn"?"Corn":"Soy");
-      return cropTxt+" — "+fmt(o.w,0)+" lb @ "+fmt(o.m,1)+"% → "
+      return cropTxt+" — "+fmt(o.w,0)+" lb @ "+fmt(o.m,2)+"% → "
            + "T "+fmt(o.trueS,2)+"% / E "+fmt(o.elevS,2)+"%";
     }
 
@@ -538,23 +520,6 @@
       });
     }
 
-    function openAnyModal(root, focusEl){
-      root.setAttribute("open","");
-      root.setAttribute("aria-hidden","false");
-      document.documentElement.classList.add("no-scroll");
-      document.body.classList.add("no-scroll");
-      if(focusEl) focusEl.focus();
-      trapFocus(root);
-    }
-    function closeAnyModal(root){
-      root.removeAttribute("open");
-      root.setAttribute("aria-hidden","true");
-      document.documentElement.classList.remove("no-scroll");
-      document.body.classList.remove("no-scroll");
-      releaseFocus(root);
-      if(lastOpener) lastOpener.focus();
-    }
-
     function openModal(o, opener){
       lastOpener=opener||null;
       var cropTxt = (o.crop==="corn"?"Corn":"Soybeans");
@@ -562,22 +527,23 @@
         '<div class="kv">'
         + '<div>When</div><div>'+new Date(o.t).toLocaleString()+'</div>'
         + '<div>Crop</div><div>'+cropTxt+'</div>'
-        + '<div>Wet Weight</div><div>'+fmt(o.w,0)+' lb</div>'
-        + '<div>Start Moisture</div><div>'+fmt(o.m,1)+'%</div>'
+        + '<div>Wet Weight</div><div>'+fmt(o.w,2)+' lb</div>'
+        + '<div>Start Moisture</div><div>'+fmt(o.m,2)+'%</div>'
         + '<div>Standard Moisture</div><div>'+fmt(o.std,1)+'%</div>'
         + '<div>Test Weight</div><div>'+o.tw+' lb/bu</div>'
         + '<div>Mode</div><div>'+ (o.mode==="both"?"BOTH":o.mode.toUpperCase()) +'</div>'
         + '</div>'
         + '<hr style="margin:12px 0;border:0;border-top:1px solid var(--border)">'
         + '<div class="kv">'
-        +   '<div><strong>True Dry Weight</strong></div><div class="val">'+fmt(o.trueW,0)+' lb</div>'
+        +   '<div><strong>True Dry Weight</strong></div><div class="val">'+fmt(o.trueW,2)+' lb</div>'
         +   '<div><strong>True Shrink</strong></div><div class="val">'+fmt(o.trueS,2)+'%</div>'
         +   '<div><strong>True Bushels</strong></div><div class="val">'+fmt(o.trueB,2)+' bu</div>'
-        +   '<div><strong>Elevator Weight</strong></div><div class="val">'+fmt(o.elevW,0)+' lb</div>'
+        +   '<div><strong>Elevator Weight</strong></div><div class="val">'+fmt(o.elevW,2)+' lb</div>'
         +   '<div><strong>Elevator Shrink</strong></div><div class="val">'+fmt(o.elevS,2)+'%</div>'
         +   '<div><strong>Elevator Bushels</strong></div><div class="val">'+fmt(o.elevB,2)+' bu</div>'
         + '</div>';
 
+      lastOpener = opener || null;
       openAnyModal(modal, mdClose);
     }
 
@@ -586,7 +552,6 @@
     mdClose.addEventListener("click", closeDetails);
     modal.addEventListener("click", function(e){ if(e.target===modal) closeDetails(); });
 
-    // Submit
     $("frm").addEventListener("submit", function(ev){
       ev.preventDefault();
       var out=calc(); show(out);
@@ -596,7 +561,9 @@
     $("clearInputs").addEventListener("click", function(){
       wtEl.value=""; moistEl.value=""; results.hidden=true;
     });
-    $("clearHist").addEventListener("click", function(){ localStorage.removeItem(LS_KEY); renderHist(); });
+    $("clearHist").addEventListener("click", function(){
+      localStorage.removeItem(LS_KEY); renderHist();
+    });
 
     renderHist();
   })();
