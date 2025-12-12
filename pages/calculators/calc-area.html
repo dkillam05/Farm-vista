@@ -53,7 +53,7 @@
     .muted{ color:var(--muted,#67706B); }
     .sub{ margin-top:4px; font-size:13px; line-height:1.35; }
 
-    /* --- Form layout (cleaner + no “controls inside controls” look) --- */
+    /* --- Form layout (clean + simple) --- */
     form{ padding:16px; display:grid; gap:14px; }
 
     .section{
@@ -64,7 +64,7 @@
     }
     .section-title{
       display:flex; align-items:center; gap:10px;
-      font-weight:800;
+      font-weight:900;
       margin:0 0 10px;
     }
     .section-title .dot{
@@ -78,9 +78,7 @@
       grid-template-columns: repeat(12, 1fr);
       gap:12px;
     }
-    @media (max-width:760px){
-      .fields{ grid-template-columns: 1fr; }
-    }
+    @media (max-width:760px){ .fields{ grid-template-columns: 1fr; } }
 
     .field{
       grid-column: span 6;
@@ -98,16 +96,27 @@
       align-items:baseline;
       justify-content:space-between;
       gap:10px;
-      font-weight:800;
+      font-weight:900;
       margin:0;
     }
     .hint{
       font-size:12px;
       color:var(--muted,#67706B);
-      font-weight:600;
+      font-weight:700;
       white-space:nowrap;
     }
 
+    /* Single dropdown box for shape */
+    .shape-row{
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .shape-row .shape-label{
+      font-weight:900;
+      white-space:nowrap;
+      min-width: 72px;
+    }
     .control{
       display:flex;
       align-items:center;
@@ -116,6 +125,8 @@
       background: var(--surface);
       border-radius:12px;
       padding:10px 12px;
+      flex: 1;
+      min-width:0;
     }
 
     input, select, button{ font-size:16px; } /* stop iOS zoom */
@@ -131,7 +142,7 @@
     .unit{
       font-size:12px;
       color:var(--muted,#67706B);
-      font-weight:800;
+      font-weight:900;
       white-space:nowrap;
       padding-left:10px;
       border-left:1px solid var(--border);
@@ -157,7 +168,7 @@
       background:var(--surface);
       padding:10px 14px;
       border-radius:12px;
-      font-weight:800;
+      font-weight:900;
       cursor:pointer;
       color: var(--text) !important; /* ensure NOT blue */
     }
@@ -173,7 +184,7 @@
       text-decoration:underline;
       cursor:pointer;
       color: var(--text) !important; /* ensure NOT blue */
-      font-weight:800;
+      font-weight:900;
     }
 
     /* Results */
@@ -191,7 +202,7 @@
       gap:8px 12px;
       align-items:baseline;
     }
-    .kv .val{ font-weight:900; }
+    .kv .val{ font-weight:950; }
 
     /* History */
     .hist{ padding:16px; border-top:1px dashed var(--border); }
@@ -208,7 +219,7 @@
       border-radius:12px;
       background:var(--card-surface,var(--surface));
     }
-    .hsummary{ font-weight:900; }
+    .hsummary{ font-weight:950; }
     .muted-line{ font-size:12px; color:var(--muted,#67706B); }
 
     /* Modal */
@@ -248,7 +259,7 @@
       border-radius:12px;
       padding:8px 12px;
       cursor:pointer;
-      font-weight:900;
+      font-weight:950;
       color: var(--text) !important; /* ensure NOT blue */
     }
     .dialog-body{
@@ -276,32 +287,26 @@
           </div>
           <div>
             <h1>Area</h1>
-            <div class="muted sub">Pick a shape, enter dimensions, then Calculate. Results show ft² and acres. Last 10 are saved on this device.</div>
+            <div class="muted sub">Choose a shape, enter dimensions, then Calculate. Results show ft² and acres. Last 10 are saved on this device.</div>
           </div>
         </div>
 
         <!-- FORM -->
         <form id="frm" novalidate autocomplete="off">
-          <div class="section">
-            <div class="section-title"><span class="dot" aria-hidden="true"></span>Shape</div>
 
-            <div class="fields">
-              <div class="field wide">
-                <label for="shape">
-                  <span>Shape</span>
-                  <span class="hint">Choose one</span>
-                </label>
-                <div class="control">
-                  <select id="shape">
-                    <option value="rect" selected>Rectangle</option>
-                    <option value="circle">Circle</option>
-                    <option value="tri">Triangle</option>
-                  </select>
-                </div>
-              </div>
+          <!-- SHAPE: single dropdown box (no section card) -->
+          <div class="shape-row">
+            <div class="shape-label">Shape</div>
+            <div class="control" style="max-width: 420px;">
+              <select id="shape" aria-label="Shape">
+                <option value="rect" selected>Rectangle</option>
+                <option value="circle">Circle</option>
+                <option value="tri">Triangle</option>
+              </select>
             </div>
           </div>
 
+          <!-- DIMENSIONS: keep as section (you said this is fine) -->
           <div class="section">
             <div class="section-title"><span class="dot" aria-hidden="true"></span>Dimensions</div>
 
@@ -398,21 +403,17 @@
   <script>
   (function(){
     "use strict";
-    if(window.__FV_AREA_V3__) return; window.__FV_AREA_V3__=true;
+    if(window.__FV_AREA_V4__) return; window.__FV_AREA_V4__=true;
 
     var SQFT_PER_ACRE = 43560;
 
     function $(id){ return document.getElementById(id); }
 
     function cleanNumberString(s){
-      // allow digits, commas, and one decimal point
       s = String(s || "").trim();
       if(!s) return "";
-      // remove everything but digits, comma, dot
       s = s.replace(/[^0-9.,]/g, "");
-      // kill commas for parsing, keep dots
       s = s.replace(/,/g, "");
-      // if multiple dots, keep first
       var parts = s.split(".");
       if(parts.length > 2){
         s = parts.shift() + "." + parts.join("");
@@ -433,7 +434,6 @@
     }
 
     function fmtFixed(n, d){
-      // used when we want stable decimals (acres)
       return Number(n).toLocaleString(undefined, { maximumFractionDigits:d, minimumFractionDigits:d });
     }
 
@@ -451,18 +451,16 @@
       [].slice.call(document.querySelectorAll('[data-pane="'+v+'"]'))
         .forEach(function(p){ p.classList.remove("hidden"); });
 
-      // hide results when switching shapes (prevents “wrong-shape” summary confusion)
       results.hidden = true;
     }
     shapeEl.addEventListener("change", showPane);
     showPane();
 
-    // Input formatting: keep typing “raw-ish”; format nicely on blur
+    // Input formatting on blur
     [lenEl,widEl,radEl,baseEl,heightEl].forEach(function(el){
       if(!el) return;
 
       el.addEventListener("input", function(){
-        // lightweight guard: stop weird characters from building up
         var cleaned = cleanNumberString(el.value);
         if(el.value !== cleaned) el.value = cleaned;
       });
@@ -470,9 +468,6 @@
       el.addEventListener("blur", function(){
         var v = nraw(el.value);
         if(!isFinite(v)){ el.value=""; return; }
-
-        // Show commas, trim unnecessary trailing zeros
-        // Keep up to 2 decimals; if whole number, it will display as whole.
         el.value = fmt(v, 2);
       });
     });
@@ -494,7 +489,6 @@
         return { t: Date.now(), shape: shp, ft2: ft2, ac: ft2 / SQFT_PER_ACRE, L:null, W:null, R:R, B:null, H:null };
       }
 
-      // triangle
       var B=nraw(baseEl.value), H=nraw(heightEl.value);
       if(!(B>0 && H>0)){ alert("Enter base and height."); return null; }
       ft2 = 0.5 * B * H;
@@ -509,7 +503,7 @@
     }
 
     /* -------- History + modal -------- */
-    var LS_KEY="fv_calc_area_history_v3", hlist=$("hlist"), nohist=$("nohist");
+    var LS_KEY="fv_calc_area_history_v4", hlist=$("hlist"), nohist=$("nohist");
 
     function load(){
       try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }
@@ -639,7 +633,6 @@
       [lenEl,widEl,radEl,baseEl,heightEl].forEach(function(i){ if(i) i.value=""; });
       results.hidden=true;
 
-      // put cursor in the first visible input to make it feel snappy on mobile
       var v = shapeEl.value;
       var first = (v==="rect") ? lenEl : (v==="circle") ? radEl : baseEl;
       if(first && first.offsetParent!==null) first.focus();
