@@ -61,7 +61,6 @@
     .ctrl input{ width:100%; border:0; outline:0; background:transparent; color:var(--text); }
     .unit{ font-size:12px; color:var(--muted); white-space:nowrap; }
 
-    /* ✅ Fix: single-box dropdown styling (no “select inside a bigger box”) */
     .select-box{
       width:100%;
       appearance:none;
@@ -83,7 +82,6 @@
       box-shadow: 0 0 0 4px var(--ring);
     }
 
-    /* Product list */
     .prods{ display:grid; gap:10px; }
     .prow{
       border:1px solid var(--border); border-radius:10px; padding:10px; background:var(--card-surface,var(--surface));
@@ -129,7 +127,6 @@
     }
     .muted-line{ font-size:12px; color:var(--muted); }
 
-    /* Modal */
     .modal{ position:fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,.42);
       z-index:9999; transition:opacity .15s; opacity:0; }
     .modal[open]{ display:grid; opacity:1; }
@@ -151,7 +148,6 @@
       <div class="calc-card">
         <div class="card-head">
           <div class="icon" aria-hidden="true">
-            <!-- sprayer boom icon -->
             <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
               <path d="M3 16h18M5 16v-5h14v5M9 11v-3h6v3" />
               <circle cx="6" cy="18" r="1.2"/><circle cx="10" cy="18" r="1.2"/><circle cx="14" cy="18" r="1.2"/><circle cx="18" cy="18" r="1.2"/>
@@ -166,7 +162,6 @@
           </div>
         </div>
 
-        <!-- FORM -->
         <form id="frm" novalidate autocomplete="off">
           <div class="grid">
             <div>
@@ -203,7 +198,6 @@
           </div>
         </form>
 
-        <!-- RESULTS -->
         <div class="results" id="results" hidden>
           <div class="tile">
             <h3>Mix Summary</h3>
@@ -218,7 +212,6 @@
           </div>
         </div>
 
-        <!-- HISTORY -->
         <section class="hist">
           <div style="display:flex;align-items:center;gap:10px">
             <h2 style="flex:1">Previous Calculations</h2>
@@ -231,7 +224,6 @@
     </div>
   </fv-shell>
 
-  <!-- DETAILS MODAL -->
   <div class="modal" id="modal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
       <div class="dialog-head">
@@ -245,27 +237,53 @@
   <script>
   (function(){
     "use strict";
-    if(window.__FV_CHEM_MIX_V4__) return; window.__FV_CHEM_MIX_V4__=true;
+    if(window.__FV_CHEM_MIX_V5__) return; window.__FV_CHEM_MIX_V5__=true;
 
     var MAX_PRODS = 7;
-    var GAL_PER = { "oz":1/128, "pt":1/8, "qt":1/4, "gal":1, "lb":0, "ozd":0 }; // liquids convert; dry (lb, ozd) don't affect water
+    var GAL_PER = { "oz":1/128, "pt":1/8, "qt":1/4, "gal":1, "lb":0, "ozd":0 };
 
     function $(id){ return document.getElementById(id); }
-    function nraw(s){ return parseFloat(String(s).replace(/,/g,"")); }
+    function nraw(s){ return parseFloat(String(s||"").replace(/,/g,"")); }
     function fmt(n,d){ if(d===void 0) d=2; return Number(n).toLocaleString(undefined,{maximumFractionDigits:d}); }
 
     var areaEl=$("area"), tankEl=$("tank"), sprayEl=$("spray"), prodsEl=$("prods");
     var addBtn=$("addProd"), clearProdsBtn=$("clearProds"), clearInputsBtn=$("clearInputs");
     var results=$("results"), sumAc=$("sumAcres"), sumTk=$("sumTank"), sumPG=$("sumProdGal"), sumW=$("sumWater"), sumList=$("sumList");
 
-    // Format numbers with commas on blur
-    [areaEl,tankEl,sprayEl].forEach(function(el){
-      el.addEventListener("blur", function(){
-        var s=el.value.replace(/[^0-9.]/g,"");
-        if(!s){ el.value=""; return; }
-        var v=parseFloat(s); if(isFinite(v)) el.value = fmt(v,3);
+    /* ✅ Only numbers + max 2 decimals on all numeric fields (including dynamic product rates) */
+    function restrict2(el, opts){
+      if(!el) return;
+      opts = opts || {};
+      var allowComma = !!opts.allowComma;
+
+      el.addEventListener("input", function(){
+        var s = String(el.value || "");
+        if(allowComma) s = s.replace(/,/g,"");
+        s = s.replace(/[^\d.]/g,"");
+
+        var parts = s.split(".");
+        if(parts.length > 2){
+          s = parts.shift() + "." + parts.join("");
+          parts = s.split(".");
+        }
+        if(parts.length === 2){
+          parts[1] = parts[1].slice(0,2);
+          s = parts[0] + "." + parts[1];
+        }
+        el.value = s;
       });
-    });
+
+      el.addEventListener("blur", function(){
+        var v = nraw(el.value);
+        if(!isFinite(v)){ el.value=""; return; }
+        el.value = fmt(v, 2);
+      });
+    }
+
+    // Top inputs
+    restrict2(areaEl);
+    restrict2(tankEl);
+    restrict2(sprayEl);
 
     function makeRow(name, rate, unit){
       var row=document.createElement("div"); row.className="prow";
@@ -282,7 +300,13 @@
        + '</select></div>'
        +' <button type="button" class="rm">Remove</button>';
       prodsEl.appendChild(row);
+
       if(unit){ row.querySelector('[data-k="unit"]').value = unit; }
+
+      // ✅ Apply numeric restriction to the rate field
+      var rateEl = row.querySelector('[data-k="rate"]');
+      restrict2(rateEl);
+
       row.querySelector(".rm").addEventListener("click", function(){ row.remove(); updateAddLock(); });
       return row;
     }
@@ -318,8 +342,8 @@
       var area = nraw(areaEl.value), tank = nraw(tankEl.value);
       if(!(area>0 || tank>0)){ alert("Provide Field Area or Tank Size."); return null; }
 
-      if(!(area>0) && tank>0){ area = tank / spray; areaEl.value = fmt(area,3); }
-      if(area>0 && !(tank>0)){ tank = area * spray;  tankEl.value = fmt(tank,3); }
+      if(!(area>0) && tank>0){ area = tank / spray; areaEl.value = fmt(area,2); }
+      if(area>0 && !(tank>0)){ tank = area * spray;  tankEl.value = fmt(tank,2); }
 
       var prods = readRows();
       var totalProdGal = 0;
@@ -333,8 +357,8 @@
         totalProdGal += gal;
 
         var unitLabel = (p.unit==="ozd") ? "oz (dry)" : p.unit;
-        var txt = p.name + ": " + fmt(total,3) + " " + unitLabel;
-        if(gal>0){ txt += " ("+fmt(total * GAL_PER[p.unit],3)+" gal)"; }
+        var txt = p.name + ": " + fmt(total,2) + " " + unitLabel;
+        if(gal>0){ txt += " ("+fmt(total * GAL_PER[p.unit],2)+" gal)"; }
         lines.push(txt);
       });
 
@@ -345,23 +369,22 @@
 
     function show(o){
       if(!o){ results.hidden=true; return; }
-      sumAc.textContent = fmt(o.area,3)+" ac";
-      sumTk.textContent = fmt(o.tank,3)+" gal";
-      sumPG.textContent = fmt(o.prodGal,3)+" gal";
-      sumW.textContent  = fmt(o.water,3)+" gal";
+      sumAc.textContent = fmt(o.area,2)+" ac";
+      sumTk.textContent = fmt(o.tank,2)+" gal";
+      sumPG.textContent = fmt(o.prodGal,2)+" gal";
+      sumW.textContent  = fmt(o.water,2)+" gal";
       sumList.innerHTML = "";
       o.lines.forEach(function(s){ var li=document.createElement("li"); li.textContent=s; sumList.appendChild(li); });
       results.hidden=false;
     }
 
-    /* ---------- History ---------- */
     var LS_KEY="fv_calc_chemix_history_v3", hlist=$("hlist"), nohist=$("nohist");
     function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
     function save(a){ localStorage.setItem(LS_KEY, JSON.stringify(a.slice(0,10))); }
 
     function oneLine(o){
       var n = o.prods.length;
-      return fmt(o.area,2)+" ac @ "+fmt(o.spray,1)+" gpa → water "+fmt(o.water,0)+" gal ("+n+" prod)";
+      return fmt(o.area,2)+" ac @ "+fmt(o.spray,2)+" gpa → water "+fmt(o.water,0)+" gal ("+n+" prod)";
     }
 
     function renderHist(){
@@ -376,7 +399,6 @@
       });
     }
 
-    /* ---------- Modal ---------- */
     var modal=$("modal"), mdBody=$("mdBody"), mdClose=$("mdClose"); var lastOpener=null, trapHandler=null;
 
     function trapFocus(root){
@@ -394,18 +416,18 @@
       lastOpener=opener||null;
       var html='<div class="kv">'
         +'<div>When</div><div>'+new Date(o.t).toLocaleString()+'</div>'
-        +'<div>Acres</div><div>'+fmt(o.area,3)+' ac</div>'
-        +'<div>Spray Rate</div><div>'+fmt(o.spray,3)+' gpa</div>'
-        +'<div>Target Tank</div><div>'+fmt(o.tank,3)+' gal</div>'
-        +'<div>Total Product (liquid)</div><div>'+fmt(o.prodGal,3)+' gal</div>'
-        +'<div><strong>Water to Add</strong></div><div class="val"><strong>'+fmt(o.water,3)+' gal</strong></div>'
+        +'<div>Acres</div><div>'+fmt(o.area,2)+' ac</div>'
+        +'<div>Spray Rate</div><div>'+fmt(o.spray,2)+' gpa</div>'
+        +'<div>Target Tank</div><div>'+fmt(o.tank,2)+' gal</div>'
+        +'<div>Total Product (liquid)</div><div>'+fmt(o.prodGal,2)+' gal</div>'
+        +'<div><strong>Water to Add</strong></div><div class="val"><strong>'+fmt(o.water,2)+' gal</strong></div>'
         +'</div>'
         +'<hr style="margin:12px 0;border:0;border-top:1px solid var(--border)">'
         +'<div style="font-weight:700;margin-bottom:8px">Products</div>';
       html += '<ul style="margin:0 0 0 18px;padding:0;list-style:disc">';
       o.prods.forEach(function(p){
         var u=(p.unit==="ozd")?"oz (dry)":p.unit;
-        html+='<li>'+p.name+': '+fmt(p.rate*o.area,3)+' '+u+(GAL_PER[p.unit]>0?(' ('+fmt(p.rate*o.area*GAL_PER[p.unit],3)+' gal)'):'')+'</li>';
+        html+='<li>'+p.name+': '+fmt(p.rate*o.area,2)+' '+u+(GAL_PER[p.unit]>0?(' ('+fmt(p.rate*o.area*GAL_PER[p.unit],2)+' gal)'):'')+'</li>';
       });
       html+='</ul>';
       mdBody.innerHTML = html;
@@ -425,7 +447,6 @@
     modal.addEventListener("click", function(e){ if(e.target===modal) closeModal(); });
     document.addEventListener("keydown", function(e){ if(modal.hasAttribute("open") && e.key==="Escape") closeModal(); });
 
-    /* ---------- Submit ---------- */
     $("frm").addEventListener("submit", function(ev){
       ev.preventDefault();
       var out=compute(); show(out);
@@ -434,7 +455,6 @@
 
     $("clearHist").addEventListener("click", function(){ localStorage.removeItem(LS_KEY); renderHist(); });
 
-    // start with one empty row
     makeRow("", "", "oz"); updateAddLock(); renderHist();
   })();
   </script>
