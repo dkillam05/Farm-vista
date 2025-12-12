@@ -26,10 +26,13 @@
 //  • Leaf menu items now have their own expand/collapse so their pills stay hidden until needed.
 //  • Extra Features are in their own collapsible group with simple On/Off pills.
 //
-// NEW:
-//  • Subtle indicator on each GROUP HEADER showing how many sub-items are enabled beneath it
-//    (so you can see “where the enabled stuff is” even while collapsed).
+// Indicators:
+//  • GROUP HEADER shows how many sub-items are enabled beneath it (even while collapsed).
+//  • LEAF rows show a simple green dot when ANY action is enabled on that row (View/Add/Edit/Delete).
+//  • LEAF rows that have children also show a small count badge if deeper descendants are enabled.
 //
+// Admin protection:
+//  • Role named "Administrator" cannot be deleted (delete button hidden/disabled).
 
 import NAV_MENU from '/Farm-vista/js/menu.js';
 
@@ -303,31 +306,37 @@ class FVPermsHero extends HTMLElement {
     this.render();
   }
 
-  /* ---------- NEW: group indicator helpers ---------- */
+  /* ---------- Indicator helpers ---------- */
 
   _isAnyActionOn(id) {
     const p = this._getPerm(id);
     return !!(p.view || p.add || p.edit || p.delete);
   }
 
-  // Returns counts for descendants ONLY (excludes the groupId itself)
-  _descendantActionStats(groupId) {
+  // Returns counts for descendants ONLY (excludes the id itself)
+  _descendantActionStats(id) {
     const { byParent } = this._navIndex || {};
     if (!byParent) return { total: 0, enabled: 0 };
 
     let total = 0;
     let enabled = 0;
 
-    const stack = [...(byParent[groupId] || []).map(n => n.id)];
+    const stack = [...(byParent[id] || []).map(n => n.id)];
     while (stack.length) {
-      const id = stack.pop();
+      const cur = stack.pop();
       total++;
-      if (this._isAnyActionOn(id)) enabled++;
-      const kids = byParent[id] || [];
+      if (this._isAnyActionOn(cur)) enabled++;
+      const kids = byParent[cur] || [];
       kids.forEach(k => stack.push(k.id));
     }
 
     return { total, enabled };
+  }
+
+  _hasChildren(id) {
+    const { byParent } = this._navIndex || {};
+    const kids = (byParent && byParent[id]) ? byParent[id] : [];
+    return Array.isArray(kids) && kids.length > 0;
   }
 
   /* ---------- Nested matrix helpers ---------- */
@@ -365,7 +374,7 @@ class FVPermsHero extends HTMLElement {
       const hasChildren = children.length > 0;
       const allOn = this._isGroupFullyAllOn(node.id);
 
-      // NEW: show a subtle “sub enabled” badge on the group header if anything beneath is enabled
+      // Group header indicator (descendants enabled)
       const ds = this._descendantActionStats(node.id);
       const showSubBadge = ds.total > 0 && ds.enabled > 0;
       const subBadge = showSubBadge
@@ -457,20 +466,42 @@ class FVPermsHero extends HTMLElement {
     const isOpenRow = !isLeaf || this._openRows.has(id);
     const rowStateClass = isOpenRow ? 'perm-row-open' : 'perm-row-closed';
 
+    // mark group row inside body so we can style it (darker + underline, NOT larger)
+    const groupRowClass = isGroupRow ? 'perm-row-groupbase' : '';
+
     const indentClass = `perm-row-label-depth-${Math.min(depth, 3)}`;
+
+    // Leaf: simple green dot if ANY action enabled on that leaf (Weather, etc.)
+    const leafOnDot = (!isGroupRow && this._isAnyActionOn(id))
+      ? `<span class="perm-on-dot" aria-hidden="true"></span>`
+      : '';
+
+    // Leaf indicator (only if this leaf has children and something beneath it is enabled)
+    let deepBadge = '';
+    if (!isGroupRow && this._hasChildren(id)) {
+      const ds = this._descendantActionStats(id);
+      if (ds.total > 0 && ds.enabled > 0) {
+        deepBadge = `
+          <span class="perm-sub-indicator perm-sub-indicator-sm" title="${ds.enabled} deeper sub-items enabled">
+            <span class="perm-sub-dot" aria-hidden="true"></span>
+            <span class="perm-sub-count">${ds.enabled}</span>
+          </span>
+        `;
+      }
+    }
 
     let labelInner;
     if (isGroupRow) {
-      // Group row label is simple text, group is already collapsible at header level.
       labelInner = `<span class="perm-row-label-text">${node.label}</span>`;
     } else {
-      // Leaf row: clickable label with its own chevron to expand/collapse pills.
       labelInner = `
         <button type="button"
                 class="perm-row-toggle"
                 data-row-toggle="${id}">
           <span class="row-chevron">${isOpenRow ? '▾' : '▸'}</span>
           <span class="perm-row-label-text">${node.label}</span>
+          ${leafOnDot}
+          ${deepBadge}
         </button>
       `;
     }
@@ -489,7 +520,7 @@ class FVPermsHero extends HTMLElement {
     };
 
     return `
-      <div class="perm-row ${rowStateClass}" data-perm-row="${id}">
+      <div class="perm-row ${rowStateClass} ${groupRowClass}" data-perm-row="${id}">
         <div class="perm-row-label ${indentClass}">
           ${labelInner}
         </div>
@@ -728,7 +759,7 @@ class FVPermsHero extends HTMLElement {
           min-width: 0;
         }
 
-        /* NEW: subtle “has enabled sub-items” indicator */
+        /* Subtle “has enabled sub-items” indicator (group header + deep badge) */
         .perm-sub-indicator{
           display: inline-flex;
           align-items: center;
@@ -743,6 +774,11 @@ class FVPermsHero extends HTMLElement {
           line-height: 1;
           flex: 0 0 auto;
         }
+        .perm-sub-indicator-sm{
+          padding: 2px 6px;
+          font-size: 10.5px;
+          opacity: 0.95;
+        }
         .perm-sub-dot{
           width: 6px;
           height: 6px;
@@ -753,6 +789,18 @@ class FVPermsHero extends HTMLElement {
         }
         .perm-sub-count{
           letter-spacing: 0.2px;
+        }
+
+        /* NEW: simple “something on here” dot for leaf rows (Weather etc.) */
+        .perm-on-dot{
+          width: 7px;
+          height: 7px;
+          border-radius: 999px;
+          background: #2F6C3C;
+          opacity: 0.9;
+          display: inline-block;
+          flex: 0 0 auto;
+          margin-left: 6px;
         }
 
         .perm-group-header-actions {
@@ -784,7 +832,7 @@ class FVPermsHero extends HTMLElement {
           }
         }
         .perm-row-label {
-          font-size: 13px;
+          font-size: 13px; /* keep same size */
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -795,6 +843,15 @@ class FVPermsHero extends HTMLElement {
         .perm-row-label-depth-1 { padding-left: 10px; }
         .perm-row-label-depth-2 { padding-left: 20px; }
         .perm-row-label-depth-3 { padding-left: 30px; }
+
+        /* Group row inside body: NOT larger, just darker + underlined */
+        .perm-row-groupbase .perm-row-label-text{
+          font-weight: 900;
+          color: var(--text, #243024);
+          text-decoration: underline;
+          text-underline-offset: 2px;
+          text-decoration-thickness: 1px;
+        }
 
         .perm-row-toggle {
           display: inline-flex;
@@ -807,15 +864,18 @@ class FVPermsHero extends HTMLElement {
           font: inherit;
           color: inherit;
           cursor: pointer;
+          min-width: 0;
         }
         .row-chevron {
           font-size: 11px;
           opacity: 0.8;
+          flex: 0 0 auto;
         }
         .perm-row-label-text {
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
+          min-width: 0;
         }
 
         .perm-row-pills {
@@ -880,6 +940,12 @@ class FVPermsHero extends HTMLElement {
     const mode = cfg.mode === 'employee' ? 'employee' : 'role';
     const nameLabel = cfg.name || (mode === 'employee' ? 'Employee' : 'Role');
 
+    // Protect built-in Administrator role from deletion
+    const isProtectedRole = (
+      mode === 'role' &&
+      (cfg.name || '').toString().trim().toLowerCase() === 'administrator'
+    );
+
     const baseRoleLine = (mode === 'employee' && cfg.baseRoleName)
       ? `<div class="perm-subtitle">Base role: <strong>${cfg.baseRoleName}</strong></div>`
       : '';
@@ -928,7 +994,7 @@ class FVPermsHero extends HTMLElement {
       ? 'Employee-specific overrides on top of a base role.'
       : 'Base permissions for a group of employees. New menus and features start locked until enabled here.';
 
-    const deleteBtn = cfg.onDeleteRole
+    const deleteBtn = (!isProtectedRole && cfg.onDeleteRole)
       ? `
         <button type="button" class="perm-btn perm-btn-danger-icon" data-role="delete-role" title="Delete role">
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -997,7 +1063,7 @@ class FVPermsHero extends HTMLElement {
 
     // Wire up delete/reset
     const del = this._root.querySelector('[data-role="delete-role"]');
-    if (del && typeof this._config.onDeleteRole === 'function') {
+    if (!isProtectedRole && del && typeof this._config.onDeleteRole === 'function') {
       del.addEventListener('click', () => this._config.onDeleteRole());
     }
     const reset = this._root.querySelector('[data-role="reset-overrides"]');
