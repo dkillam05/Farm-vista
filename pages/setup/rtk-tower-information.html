@@ -128,7 +128,7 @@
     .closex{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:700;color:var(--text) !important;}
 
     .usage-scroll{
-      max-height:220px; /* ~10 rows on most screens */
+      max-height:220px;
       overflow-y:auto;
       margin-top:4px;
       padding-right:4px;
@@ -144,15 +144,17 @@
     }
   </style>
 </head>
+
 <body>
   <fv-shell>
-    <div class="page container">
+    <!-- Page visibility -->
+    <div class="page container" data-perm="setup-rtk-towers:view">
       <h1 class="page-title">RTK Tower Information</h1>
       <p class="page-sub">Enter a Tower Name, a 4-digit Network ID, and a Radio Frequency in MHz. Press Save to write to Firestore.</p>
 
       <div id="alert" class="alert" role="alert"></div>
 
-      <!-- === Create / Edit form === -->
+      <!-- Create form (ADD permission) -->
       <section class="section" aria-label="Add RTK Tower">
         <header class="section-head">
           <div class="icon" aria-hidden="true">🛰️</div>
@@ -162,7 +164,7 @@
           </div>
         </header>
 
-        <div class="section-body">
+        <div class="section-body" data-perm="setup-rtk-towers:add">
           <div class="grid-3">
             <div class="field">
               <label for="name">Tower Name</label>
@@ -187,7 +189,7 @@
         </div>
       </section>
 
-      <!-- === Dictionary hero === -->
+      <!-- Dictionary (VIEW permission) -->
       <section class="dict" aria-label="RTK Tower Dictionary">
         <div class="dict-head">
           <div class="dict-title">RTK Tower Dictionary</div>
@@ -203,7 +205,6 @@
     </div>
   </fv-shell>
 
-  <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
   <!-- Modal: View/Edit -->
@@ -213,7 +214,9 @@
         <h3 id="mdTitle">View / Edit RTK Tower</h3>
         <button id="mdClose" class="closex" type="button">Back</button>
       </div>
-      <div class="dialog-body">
+
+      <!-- Modal fields are EDIT permission -->
+      <div class="dialog-body" data-perm="setup-rtk-towers:edit">
         <div class="field">
           <label for="editName">Tower Name</label>
           <input id="editName" class="input" placeholder="Tower name">
@@ -235,20 +238,22 @@
           </div>
         </div>
       </div>
+
       <div class="dialog-footer">
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-          <button id="mdDelete" class="btn btn-danger" type="button">Delete</button>
+          <button id="mdDelete" class="btn btn-danger" type="button" data-perm="setup-rtk-towers:delete">Delete</button>
         </div>
-        <button id="mdSave" class="btn btn-primary" type="button">Save Changes</button>
+        <button id="mdSave" class="btn btn-primary" type="button" data-perm="setup-rtk-towers:edit">Save Changes</button>
       </div>
     </div>
   </div>
 
-  <!-- Page logic -->
   <script type="module">
     const $ = id => document.getElementById(id);
     const toast = $("toast"), alertBox = $("alert");
     const dictList = $("dictList"), q = $("q");
+
+    const canNow = (k)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(k) : true;
 
     const showToast = (msg="Saved.")=>{
       toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show");
@@ -304,7 +309,12 @@
     }
 
     $("clear").addEventListener("click", ()=>{ ["name","netid","freq"].forEach(id=>$(id).value=""); });
+
     $("save").addEventListener("click", async ()=>{
+      if(!canNow('setup-rtk-towers:add')){
+        alert("You don't have permission to add RTK towers.");
+        return;
+      }
       const err = validateCreate(); if(err){ alert(err); return; }
       try{
         await FVData.ready(); await waitForAuthReady();
@@ -316,7 +326,6 @@
       }catch(e){ console.error(e); showError("Save failed: " + (e?.message||e)); }
     });
 
-    // Query Firestore for fields that use a given tower id
     async function fieldsUsingTower(towerId){
       const names = new Set();
       try{
@@ -395,8 +404,8 @@
             <div>${escapeHTML(t.frequencyMHz)} MHz</div>
           </div>
           <div class="tower-row" style="gap:8px">
-            <button class="btn" data-act="edit">View / Edit</button>
-            <button class="btn btn-danger" data-act="delete"${t.inUse.length ? ' disabled' : ''}>Delete</button>
+            <button class="btn" data-act="edit" data-perm="setup-rtk-towers:view">View / Edit</button>
+            <button class="btn btn-danger" data-act="delete" data-perm="setup-rtk-towers:delete"${t.inUse.length ? ' disabled' : ''}>Delete</button>
           </div>
         `;
         card.querySelector('[data-act="edit"]').addEventListener('click', ()=> openEdit(t.id));
@@ -455,6 +464,10 @@
     document.addEventListener('keydown', e=>{ if(e.key==='Escape' && modal.hasAttribute('open')) closeModal(); });
 
     mdSave.addEventListener('click', async ()=>{
+      if(!canNow('setup-rtk-towers:edit')){
+        alert("You don't have permission to edit RTK towers.");
+        return;
+      }
       const name = $("editName").value.trim();
       const net  = $("editNet").value.trim();
       const freq = $("editFreq").value.trim();
@@ -463,9 +476,7 @@
       if(!/^\d{3}\.\d{5}$/.test(freq)){ alert('Frequency must match 450.12345 format.'); return; }
       try{
         await FVData.ready(); await waitForAuthReady();
-        await FVData.update('rtkTowers', editId, {
-          name, networkId: Number(net), frequencyMHz: freq
-        });
+        await FVData.update('rtkTowers', editId, { name, networkId: Number(net), frequencyMHz: freq });
         showToast('Changes saved.');
         await loadAll();
         closeModal();
@@ -473,6 +484,10 @@
     });
 
     async function tryDelete(id){
+      if(!canNow('setup-rtk-towers:delete')){
+        alert("You don't have permission to delete RTK towers.");
+        return;
+      }
       const t = towers.find(x=>x.id===id); if(!t) return;
       if(t.inUse && t.inUse.length){
         alert('This tower is assigned to fields and cannot be deleted.');
@@ -487,6 +502,11 @@
         closeModal();
       }catch(e){ console.error(e); showError('Delete failed: ' + (e?.message||e)); }
     }
+
+    mdDelete.addEventListener('click', async ()=>{
+      if(!editId) return;
+      await tryDelete(editId);
+    });
 
     (async function boot(){
       try{
