@@ -219,7 +219,8 @@
 <body>
   <!-- All content must live inside <fv-shell> -->
   <fv-shell>
-    <div class="wrap">
+    <!-- Page visibility gated by inv-manual-removal.view -->
+    <div class="wrap" data-perm="inv-manual-removal:view">
       <section class="hero">
         <header class="hero-head">
           <div class="icon" aria-hidden="true">⚠️</div>
@@ -302,7 +303,8 @@
 
           <div class="actions">
             <button id="btnClear" class="btn" type="button">Clear</button>
-            <button id="btnSave" class="btn btn-primary" type="button" disabled>
+            <!-- Save requires inv-manual-removal.delete -->
+            <button id="btnSave" class="btn btn-primary" type="button" disabled data-perm="inv-manual-removal:delete">
               Save manual removal
             </button>
           </div>
@@ -592,7 +594,6 @@
           const reason = $("#reason").value.trim();
           const userEmail = auth.currentUser?.email || "(unknown user)";
 
-          // <<< SHORTER CONFIRMATION (no scroll) >>>
           const summary =
             `Confirm MANUAL inventory REMOVAL.\n\n` +
             `Category: ${category.label}\n` +
@@ -724,7 +725,6 @@
           const baseCol = collection(db, 'inventoryGrainBagMovements');
           let snap;
           try{
-            // Prefer active records ordered by brand
             snap = await getDocs(query(baseCol, where('status','==','active'), orderBy('brand')));
           }catch(e){
             console.warn("Active/brand-ordered grain bag query failed, falling back:", e.message);
@@ -739,7 +739,6 @@
             const loc   = data.location;
             const onHand = Number(data.onHand ?? 0) || 0;
 
-            // Only show SKUs we actually have on hand
             if(onHand <= 0) return;
 
             const parts = [];
@@ -776,16 +775,5 @@
     })();
   </script>
 
-  <!-- ===========================
-       NOTES
-       ===========================
-       • Categories are built from menu.js → Setup › Products.
-       • Grain Bags category uses collection: inventoryGrainBagMovements
-         and adjusts the "onHand" field per document.
-       • Seed / Chemical / Fertilizer use their products collections and
-         will show 0 on-hand until you add inventory tracking for them.
-       • Manual removals never allow going below zero and require typing
-         “REMOVE” before Firestore is updated.
-  -->
 </body>
 </html>
