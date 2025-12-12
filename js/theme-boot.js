@@ -97,25 +97,27 @@ const __fvBoot = (function(){
         }
       }
 
-      // 4) USER CONTEXT: load and warm cached user/role/perms once per session.
-      //    - Emits 'fv:user-ready' quickly (from cache), then re-emits after refresh.
-      //    - Lets pages react immediately without waiting on Firestore every time.
+      // 4) USER CONTEXT warm
       try{
-        // Load the module once
         if (!window.__FV_USER_CONTEXT_LOADED__) {
           window.__FV_USER_CONTEXT_LOADED__ = true;
           await __fvBoot.loadScript('/Farm-vista/js/app/user-context.js', { type:'module', defer:true });
         }
 
-        // If the module exposes a "get" method, fire a quick event with whatever is cached.
+        // Load perm-ui globally ONCE (so you don't have to add it to every page)
+        if (!window.__FV_PERM_UI_SCRIPT_LOADED__) {
+          window.__FV_PERM_UI_SCRIPT_LOADED__ = true;
+          try { await __fvBoot.loadScript('/Farm-vista/js/perm-ui.js', { defer:true }); }
+          catch(e){ console.warn('[FV] perm-ui failed to load:', e); }
+        }
+
         if (window.FVUserContext && typeof window.FVUserContext.get === 'function') {
           const cached = window.FVUserContext.get();
           if (cached) __fvBoot.fire('fv:user-ready', { source:'cache', data: cached });
         }
 
-        // Kick a warm refresh; when done, notify again so UIs can update.
         if (window.FVUserContext && typeof window.FVUserContext.refresh === 'function') {
-          const data = await window.FVUserContext.refresh({ warm:true }); // warm: use cache first, then fetch
+          const data = await window.FVUserContext.refresh({ warm:true });
           __fvBoot.fire('fv:user-ready', { source:'refresh', data });
         }
       }catch(e){
@@ -129,15 +131,6 @@ const __fvBoot = (function(){
 })();
 
 /* ===============================  Auth Guard  =============================== */
-/*
- RULES (relaxed):
-  - Login page is PUBLIC.
-  - Other pages require Auth, but:
-      • We trust FVUserContext's "session locker" to smooth over transient nulls.
-      • We only redirect to login when there is NO auth user AND NO user-context uid.
-  - Optional Firestore-gating toggles below (still off by default).
-  - In stub/dev, we allow by default to prevent bounce-loops.
-*/
 (function(){
   const REQUIRE_FIRESTORE_USER_DOC = false;
   const TREAT_MISSING_DOC_AS_DENY  = false;
@@ -200,21 +193,15 @@ const __fvBoot = (function(){
       const isStub = (mod.isStub && mod.isStub()) || false;
       const auth = (ctx && ctx.auth) || window.firebaseAuth || null;
 
-      // In stub/dev, never bounce
       if (isStub && ALLOW_STUB_MODE) return;
 
-      // If we can't even get an auth instance, only bounce if there's also no user-context
       if (!auth) {
         const uc = getUserContextSnapshot();
-        if (uc && uc.uid) {
-          console.warn('[FV] Auth guard: no auth instance, but user-context has uid — allowing page.');
-          return;
-        }
+        if (uc && uc.uid) return;
         gotoLogin('no-auth');
         return;
       }
 
-      // Make sure persistence is local, but don't die if it fails
       try {
         if (mod.setPersistence && mod.browserLocalPersistence) {
           await mod.setPersistence(auth, mod.browserLocalPersistence());
@@ -226,19 +213,12 @@ const __fvBoot = (function(){
       const user = await waitForAuthHydration(mod, auth, 3000);
 
       if (!user) {
-        // No auth user — trust FVUserContext "session locker" before bouncing
         const uc = getUserContextSnapshot();
-        if (uc && uc.uid) {
-          // We treat this as an in-progress refresh / transient null; stay on page.
-          console.warn('[FV] Auth guard: no live user, but user-context has uid — treating as signed-in.');
-          return;
-        }
-        // Truly no auth and no session context → redirect to login
+        if (uc && uc.uid) return;
         gotoLogin('unauthorized');
         return;
       }
 
-      // At this point we have an auth user; optional Firestore gating
       if (!REQUIRE_FIRESTORE_USER_DOC && !TREAT_MISSING_DOC_AS_DENY) return;
 
       try {
@@ -272,14 +252,10 @@ const __fvBoot = (function(){
         }
       }
     } catch (e) {
-      console.warn('[FV] auth-guard error (non-fatal, using soft behavior):', e);
-      // On guard errors now, prefer to stay on page if we have any user-context hint
+      console.warn('[FV] auth-guard error (non-fatal):', e);
       if (isLoginPath()) return;
       const uc = getUserContextSnapshot();
-      if (uc && uc.uid) {
-        console.warn('[FV] Auth guard: error occurred, but user-context has uid — not redirecting.');
-        return;
-      }
+      if (uc && uc.uid) return;
       gotoLogin('guard-error');
     }
   };
@@ -291,68 +267,16 @@ const __fvBoot = (function(){
   }
 })();
 
-/* =====================  Permission Engine + data-perm Hiding  ===================== */
-/* Dynamic, role + override aware.
-   - Uses FVUserContext data: role, employee, perms, effectivePerms.
-   - Supports:
-        data-perm="crop-maint"       → any of view/add/edit/delete true
-        data-perm="crop-maint:add"   → requires crop-maint.add === true
-        data-perm="crop-maint:edit"  → requires crop-maint.edit === true
-        data-perm="crop-maint:delete"→ requires crop-maint.delete === true
-   - Falls back to coarse feature-level booleans when needed.
+/* =====================  Permission Engine (BRAIN ONLY — NO HIDE)  ===================== */
+/* Provides FV.can("key") and FV.can("key:action") using FVUserContext perms.
+   UI behavior (hide tiles / disable forms) is handled by /js/perm-ui.js.
 */
 (function(){
   try{
-    function ensureFV(){
-      window.FV = window.FV || {};
-      return window.FV;
-    }
-
-    function buildCoarsePerms(raw){
-      const out = {};
-      if (!raw || typeof raw !== 'object') return out;
-      Object.keys(raw).forEach((key)=>{
-        const v = raw[key];
-        if (typeof v === 'boolean') {
-          out[key] = v;
-        } else if (v && typeof v === 'object') {
-          // treat view/add/edit/delete/on; if any true, feature is "on"
-          let any = false;
-          if (v.view === true || v.add === true || v.edit === true || v.delete === true || v.on === true) {
-            any = true;
-          }
-          out[key] = any;
-        }
-      });
-      return out;
-    }
-
-    function applyPermVisibility(root){
-      const fv = ensureFV();
-      const scope = root || document;
-      try{
-        const nodes = scope.querySelectorAll('[data-perm]');
-        nodes.forEach(function(el){
-          const key = el.getAttribute('data-perm') || '';
-          if (!key) return;
-
-          const allowed = fv.can ? !!fv.can(key) : true;
-          if (!allowed) {
-            el.setAttribute('hidden', 'hidden');
-            el.classList.add('fv-perm-hidden');
-          } else {
-            el.removeAttribute('hidden');
-            el.classList.remove('fv-perm-hidden');
-          }
-        });
-      } catch(e){
-        console.warn('[FV] applyPermVisibility error:', e);
-      }
-    }
+    window.FV = window.FV || {};
 
     function extractCoreUser(ctx){
       if (!ctx || typeof ctx !== 'object') return ctx;
-      // Some implementations may wrap as { user, role, employee, perms, effectivePerms }
       if (ctx.user && typeof ctx.user === 'object' && (ctx.role || ctx.employee || ctx.effectivePerms || ctx.perms)) {
         return Object.assign({}, ctx, ctx.user);
       }
@@ -360,76 +284,47 @@ const __fvBoot = (function(){
     }
 
     function updatePermsFromContext(rawCtx){
-      const fv = ensureFV();
       const ctx = extractCoreUser(rawCtx) || {};
 
       const rawPerms =
-        ctx.effectivePerms && typeof ctx.effectivePerms === 'object' ? ctx.effectivePerms :
-        ctx.perms && typeof ctx.perms === 'object' ? ctx.perms :
+        (ctx.effectivePerms && typeof ctx.effectivePerms === 'object') ? ctx.effectivePerms :
+        (ctx.perms && typeof ctx.perms === 'object') ? ctx.perms :
         (ctx.role && typeof ctx.role.perms === 'object') ? ctx.role.perms :
         {};
 
-      const coarse = buildCoarsePerms(rawPerms);
-
-      // Expose both:
       window.FV_PERMS_RAW = rawPerms;
-      window.FV_PERMS = coarse;
-      fv.permsRaw = rawPerms;
-      fv.perms = coarse;
-
-      applyPermVisibility(document);
+      window.FV.permsRaw = rawPerms;
     }
 
-    const fv = ensureFV();
-
-    if (typeof fv.can !== 'function') {
-      fv.can = function(featureOrKey){
+    if (typeof window.FV.can !== 'function') {
+      window.FV.can = function(featureOrKey){
         if (!featureOrKey) return false;
 
         const raw = window.FV_PERMS_RAW || null;
-        const coarse = window.FV_PERMS || null;
 
-        // If we have no perms yet, do NOT hide anything (optimistic)
-        if (!raw && !coarse) return true;
+        // Fail-open until perms load; perm-ui re-applies on fv:user-ready
+        if (!raw) return true;
 
         const str = String(featureOrKey);
         const parts = str.split(':');
         const feature = parts[0];
         const action = parts.length > 1 ? parts[1] : null;
 
-        // If asking for a specific action: "feature:add" etc.
-        if (action && raw && raw[feature] && typeof raw[feature] === 'object') {
+        if (action) {
           const v = raw[feature];
-          if (typeof v[action] === 'boolean') {
-            return v[action];
-          }
+          if (v && typeof v === 'object' && typeof v[action] === 'boolean') return v[action];
+          return false;
         }
 
-        // Fallback: feature-level coarse boolean.
-        const featureKey = action ? feature : str;
-        if (coarse && typeof coarse[featureKey] === 'boolean') {
-          return coarse[featureKey];
+        const v = raw[str];
+        if (typeof v === 'boolean') return v;
+        if (v && typeof v === 'object') {
+          return (v.view === true || v.add === true || v.edit === true || v.delete === true || v.on === true);
         }
-
-        // If we didn't find anything explicit, treat as false.
         return false;
       };
     }
 
-    if (typeof fv.getPerms !== 'function') {
-      fv.getPerms = function(){
-        return {
-          raw: Object.assign({}, window.FV_PERMS_RAW || {}),
-          coarse: Object.assign({}, window.FV_PERMS || {})
-        };
-      };
-    }
-
-    if (typeof fv.applyPermVisibility !== 'function') {
-      fv.applyPermVisibility = applyPermVisibility;
-    }
-
-    // React whenever user-context fires
     document.addEventListener('fv:user-ready', function(ev){
       try{
         const data = ev && ev.detail && ev.detail.data;
@@ -439,41 +334,23 @@ const __fvBoot = (function(){
       }
     });
 
-    // Also try once on DOM load using whatever FVUserContext has cached
-    function initFromCachedContext(){
-      try{
-        if (window.FVUserContext && typeof window.FVUserContext.get === 'function') {
-          const cached = window.FVUserContext.get();
-          if (cached) {
-            updatePermsFromContext(cached);
-            return;
-          }
-        }
-        // If no context yet, do NOT hide anything; we'll update when fv:user-ready fires.
-      } catch(e){
-        console.warn('[FV] perm-init from cache failed:', e);
+    // init from cache if available
+    try{
+      if (window.FVUserContext && typeof window.FVUserContext.get === 'function') {
+        const cached = window.FVUserContext.get();
+        if (cached) updatePermsFromContext(cached);
       }
-    }
+    }catch(e){}
 
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', function(){
-        initFromCachedContext();
-      }, { once:true });
-    } else {
-      initFromCachedContext();
-    }
-
-  } catch(e){
+  }catch(e){
     console.warn('[FV] permission-engine error:', e);
   }
 })();
 
 /* =======================  GLOBAL COMBO UPGRADER (INLINE)  ======================= */
-/* Converts EVERY <select> (except data-fv-native="true") into the same
-   "buttonish + floating panel" combo used on your working page. No page edits. */
+/* (unchanged) */
 (function(){
   try{
-    // Minimal styles to mimic the good page
     const style = document.createElement('style');
     style.textContent = `
     :root{
@@ -523,7 +400,6 @@ const __fvBoot = (function(){
 
     function upgradeSelect(sel){
       if (sel._fvUpgraded || sel.matches('[data-fv-native="true"]')) return;
-      // Skip hidden or display:none containers to avoid layout jumps
       const cs = window.getComputedStyle(sel);
       if (cs.display === 'none' || cs.visibility === 'hidden') { return; }
 
@@ -531,7 +407,6 @@ const __fvBoot = (function(){
       const searchable = String(sel.dataset.fvSearch||'').toLowerCase()==='true';
       const placeholder = sel.getAttribute('placeholder') || (sel.options[0]?.text ?? '— Select —');
 
-      // Hide the real select but keep it in the DOM for forms and change events
       sel.style.position='absolute'; sel.style.opacity='0';
       sel.style.pointerEvents='none'; sel.style.width='0'; sel.style.height='0';
       sel.tabIndex = -1;
@@ -557,7 +432,6 @@ const __fvBoot = (function(){
       panel.appendChild(list);
       anchor.append(btn,panel);
 
-      // Insert combo before select; keep select inside for semantics
       sel.parentNode.insertBefore(field, sel);
       field.appendChild(anchor);
       field.appendChild(sel);
@@ -601,7 +475,6 @@ const __fvBoot = (function(){
       const curr = sel.options[sel.selectedIndex];
       btn.textContent = curr?.text || placeholder;
 
-      // Watch for dynamic option changes
       const mo = new MutationObserver(()=>{
         const old = sel.value;
         readItems(); render('');
@@ -610,7 +483,6 @@ const __fvBoot = (function(){
       });
       mo.observe(sel, { childList:true, subtree:true, attributes:true });
 
-      // Reflect disabled state
       function syncDisabled(){
         const dis = sel.disabled;
         btn.disabled = dis;
@@ -622,11 +494,9 @@ const __fvBoot = (function(){
     }
 
     function upgradeAll(root=document){
-      // Upgrade all selects except explicit opt-outs
       root.querySelectorAll('select:not([data-fv-native="true"])').forEach(upgradeSelect);
     }
 
-    // Run after DOM is ready (and again after microtask in case pages inject late)
     const run = ()=>{ try{ upgradeAll(); setTimeout(upgradeAll, 0); }catch(e){ console.warn('[FV] combo upgrade error:', e); } };
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', run, { once:true });
@@ -634,7 +504,6 @@ const __fvBoot = (function(){
       run();
     }
 
-    // Expose for manual re-upgrade if a page inserts selects later
     window.FVCombo = { upgradeAll, upgradeSelect };
   }catch(e){
     console.warn('[FV] inline combo upgrader failed:', e);
