@@ -37,14 +37,17 @@
       overflow:hidden;
       margin-bottom: var(--page-bottom-gap);
     }
+
+    /* ✅ Match the “better” calculator hero header style (icon + title + subtext) */
     .card-head{
-      display:flex; align-items:flex-start; gap:12px; padding:14px 16px;
+      display:flex; align-items:center; gap:12px; padding:14px 16px;
       background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
       border-bottom:1px solid var(--border);
     }
-    .card-head .icon{ width:28px; height:28px; color:var(--accent); margin-top:2px; }
+    .card-head .icon{ width:28px; height:28px; color:var(--accent); }
     .card-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2; }
     .muted{ color:var(--muted,#67706B); }
+    .sub{ margin-top:4px; font-size:13px; line-height:1.35; color:var(--muted,#67706B); }
 
     form{ padding:16px; display:grid; gap:12px; }
     .grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
@@ -61,7 +64,7 @@
     .ctrl input{ width:100%; border:0; outline:0; background:transparent; color:var(--text); }
     .unit{ font-size:12px; color:var(--muted); white-space:nowrap; }
 
-    /* Dropdowns: single-box (no nested box) */
+    /* Dropdowns: single-box */
     .select-box{
       width:100%;
       appearance:none;
@@ -124,6 +127,7 @@
       <div class="card">
         <div class="card-head">
           <div class="icon" aria-hidden="true">
+            <!-- Gear icon -->
             <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="3"></circle>
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 7.04 3.3l.06.06a1.65 1.65 0 0 0 1.82.33h0A1.65 1.65 0 0 0 10.42 2.2V2a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06A2 2 0 1 1 20.7 7.04l-.06.06a1.65 1.65 0 0 0-.33 1.82v0A1.65 1.65 0 0 0 21.8 10.42H22a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"></path>
@@ -131,7 +135,7 @@
           </div>
           <div>
             <h1>Combine Yield Calibration</h1>
-            <div class="muted">Pick a combine and crop, enter the monitor’s <strong>Combine Weight</strong> and the scale’s <strong>Grain Cart Weight</strong>. We’ll tell you if the monitor reads high/low and by what percent. Last 10 are saved locally.</div>
+            <div class="sub">Pick a combine and crop, enter the monitor’s <strong>Combine Weight</strong> and the scale’s <strong>Grain Cart Weight</strong>. We’ll tell you if the monitor reads high/low and by what percent. Last 10 are saved locally.</div>
           </div>
         </div>
 
@@ -156,7 +160,7 @@
             <div>
               <label for="cw">Combine Weight (monitor)</label>
               <div class="ctrl">
-                <input id="cw" type="text" inputmode="numeric" placeholder="e.g. 56,320">
+                <input id="cw" type="text" inputmode="numeric" placeholder="e.g. 56,320" autocomplete="off">
                 <span class="unit">lb</span>
               </div>
             </div>
@@ -164,7 +168,7 @@
             <div>
               <label for="gw">Grain Cart Weight (scale)</label>
               <div class="ctrl">
-                <input id="gw" type="text" inputmode="numeric" placeholder="e.g. 54,250">
+                <input id="gw" type="text" inputmode="numeric" placeholder="e.g. 54,250" autocomplete="off">
                 <span class="unit">lb</span>
               </div>
             </div>
@@ -203,16 +207,38 @@
   <script type="module">
     (function(){
       "use strict";
-      if(window.__FV_COMBINE_CALIB_V4__) return; window.__FV_COMBINE_CALIB_V4__=true;
+      if(window.__FV_COMBINE_CALIB_V5__) return; window.__FV_COMBINE_CALIB_V5__=true;
 
       const $ = id => document.getElementById(id);
       const fmt = (n, d=0) => Number(n).toLocaleString(undefined,{maximumFractionDigits:d});
-      const LS_KEY = "fv_calc_combine_calibration_history_v4";
+      const LS_KEY = "fv_calc_combine_calibration_history_v5";
 
       const combineSel = $("combine"), cropSel = $("crop");
       const cw = $("cw"), gw = $("gw");
       const res = $("res"), rStatus=$("rStatus"), rPct=$("rPct"), rCw=$("rCw"), rGw=$("rGw");
       const combineNote = $("combineNote");
+
+      function digitsOnly(el){
+        // allow only whole numbers while typing
+        el.addEventListener("input", ()=>{
+          const cleaned = (el.value || "").replace(/[^\d]/g,"");
+          if(el.value !== cleaned) el.value = cleaned;
+        });
+        // format with commas on blur
+        el.addEventListener("blur", ()=>{
+          const raw = (el.value||"").replace(/[^\d]/g,"");
+          el.value = raw ? Number(raw).toLocaleString() : "";
+        });
+      }
+      digitsOnly(cw);
+      digitsOnly(gw);
+
+      function last6Serial(serial){
+        const s = String(serial || "").replace(/\s+/g,"");
+        if(!s) return "";
+        const tail = s.length > 6 ? s.slice(-6) : s;
+        return tail;
+      }
 
       async function populateCombinesFromFirestore(){
         let fb;
@@ -225,10 +251,8 @@
           return;
         }
 
-        // ✅ Critical: wait for Firebase init to complete
         try { await fb.ready; } catch(e) {}
 
-        // If still in stub mode, you will NOT see Firestore equipment.
         if(typeof fb.isStub === "function" && fb.isStub()){
           combineSel.innerHTML = '<option value="">— Select Combine —</option>';
           combineNote.hidden = false;
@@ -249,7 +273,6 @@
         combineNote.textContent = "";
 
         try{
-          // Fetch all equipment, then filter locally
           const snap = await fb.getDocs(fb.collection(db, "equipment"));
 
           const items = [];
@@ -258,14 +281,22 @@
             if(String(d.type||"") !== "combine") return;
             if(String(d.status||"") !== "active") return;
 
+            const nameBase =
+              d.name ||
+              (d.makeName && d.modelName ? `${d.makeName} ${d.modelName}` : "Combine");
+
+            const sn6 = last6Serial(d.serial);
+            const label = sn6 ? `${nameBase} • ${sn6}` : nameBase;
+
             items.push({
               id: doc.id,
-              name: d.name || (d.makeName && d.modelName ? `${d.makeName} ${d.modelName}${d.year ? ` (${d.year})` : ""}` : "Combine"),
+              label,
+              nameBase,
               serial: d.serial || ""
             });
           });
 
-          items.sort((a,b)=> String(a.name).localeCompare(String(b.name)));
+          items.sort((a,b)=> String(a.label).localeCompare(String(b.label)));
 
           combineSel.innerHTML = '<option value="">— Select Combine —</option>';
 
@@ -283,7 +314,7 @@
           items.forEach(it => {
             const opt = document.createElement("option");
             opt.value = it.id;
-            opt.textContent = it.name;
+            opt.textContent = it.label;
             opt.dataset.serial = it.serial || "";
             combineSel.appendChild(opt);
           });
@@ -297,13 +328,6 @@
       }
 
       populateCombinesFromFirestore();
-
-      [cw, gw].forEach(inp=>{
-        inp.addEventListener("blur", ()=>{
-          const raw = inp.value.replace(/[^0-9]/g,"");
-          inp.value = raw ? Number(raw).toLocaleString() : "";
-        });
-      });
 
       function loadH(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
       function saveH(arr){ localStorage.setItem(LS_KEY, JSON.stringify(arr.slice(0,10))); }
@@ -336,6 +360,7 @@
         const cwv = Number((cw.value||"").replace(/,/g,""));
         const gwv = Number((gw.value||"").replace(/,/g,""));
         if(!(cwv>0 && gwv>0)){ alert("Enter both weights."); return null; }
+
         const diff = cwv - gwv;
         const pct = Math.abs(diff) / gwv * 100;
         const status = diff===0 ? "MATCH" : (diff>0 ? "HIGH" : "LOW");
