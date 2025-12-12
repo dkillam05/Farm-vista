@@ -84,13 +84,14 @@
   <!-- Firebase config FIRST (match app load order) -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
 </head>
+
 <body>
   <fv-shell>
-    <div class="page container">
+    <!-- Page visibility -->
+    <div class="page container" data-perm="setup-farms:view">
       <h1 class="page-title">Farms</h1>
       <p class="page-sub">Simple farm categories for organizing your operation.</p>
 
-      <!-- visible error when reads are blocked or fail -->
       <div id="alert" class="alert" role="alert"></div>
 
       <section class="section">
@@ -99,7 +100,8 @@
           <div><strong>Add Farm</strong></div>
         </header>
 
-        <div class="section-body">
+        <!-- Add form is add-gated (greyed out if add=false) -->
+        <div class="section-body" data-perm="setup-farms:add">
           <div class="row">
             <div class="field">
               <label for="farmName">Farm Name</label>
@@ -123,7 +125,6 @@
     </div>
   </fv-shell>
 
-  <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Successfully saved.</div>
 
   <!-- Modal: View/Edit -->
@@ -133,7 +134,9 @@
         <h3 id="mdTitle">View / Edit Farm</h3>
         <button id="mdClose" class="closex" type="button">Back</button>
       </div>
-      <div class="dialog-body">
+
+      <!-- Modal fields are edit-gated (greyed out if edit=false) -->
+      <div class="dialog-body" data-perm="setup-farms:edit">
         <div class="field">
           <label for="editName">Farm Name</label>
           <input id="editName" class="input" placeholder="Farm name">
@@ -143,24 +146,25 @@
           <span class="pill" id="usedPill" style="display:none">In use</span>
         </div>
       </div>
+
       <div class="dialog-footer">
         <div class="left-btns">
-          <button id="mdArchive" class="btn btn-quiet" type="button">Archive</button>
-          <button id="mdDelete" class="btn btn-danger" type="button" title="Delete is disabled if the farm is in use.">Delete</button>
+          <button id="mdArchive" class="btn btn-quiet" type="button" data-perm="setup-farms:edit">Archive</button>
+          <button id="mdDelete" class="btn btn-danger" type="button" title="Delete is disabled if the farm is in use." data-perm="setup-farms:delete">Delete</button>
         </div>
-        <button id="mdSave" class="btn btn-primary" type="button">Save Changes</button>
+        <button id="mdSave" class="btn btn-primary" type="button" data-perm="setup-farms:edit">Save Changes</button>
       </div>
     </div>
   </div>
 
-  <!-- Data logic -->
   <script type="module">
     import {
       ready,
       getFirestore, collection, doc, getDocs, deleteDoc
     } from '/Farm-vista/js/firebase-init.js';
 
-    /* --------------------- tiny utils --------------------- */
+    const canNow = (k)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(k) : true;
+
     const $ = id => document.getElementById(id);
     const toast = $("toast");
     const alertBox = $("alert");
@@ -179,7 +183,6 @@
     let editId = null;
     let rows = [];
 
-    /* --------------------- Auth ready guard --------------------- */
     async function waitForAuthReady(timeoutMs=5000){
       try{
         if (!window.firebaseAuth || !window.firebaseAuth.onAuthStateChanged) return;
@@ -192,12 +195,10 @@
       }catch{}
     }
 
-    /* --------------------- Firestore helpers (reads) --------------------- */
     const col = ()=> collection(db, 'farms');
 
     async function loadFarms(){
       try{
-        // simple collection read; we’ll sort client-side A→Z
         const snap = await getDocs(col());
         const out = [];
         snap.forEach(d=>{
@@ -221,36 +222,28 @@
       }
     }
 
-    /* --------------------- FVData-backed writes --------------------- */
     async function addFarm(name){
-      const payload = {
-        name: String(name||'').trim(),
-        status: 'active',
-        used: false,
-        t: Date.now()
-      };
+      if(!canNow('setup-farms:add')) throw new Error("no-permission:add");
+      const payload = { name: String(name||'').trim(), status: 'active', used: false, t: Date.now() };
       await FVData.addDocWithMeta('farms', payload);
     }
 
     async function updateFarm(id, patch){
+      if(!canNow('setup-farms:edit')) throw new Error("no-permission:edit");
       if(!id) return;
       await FVData.updateDocWithMeta(`farms/${id}`, { ...patch });
     }
 
     async function removeFarm(id){
+      if(!canNow('setup-farms:delete')) throw new Error("no-permission:delete");
       if(!id) return;
-      // delete via modular API (FVData doesn’t expose delete)
       await deleteDoc(doc(db,'farms', id));
     }
 
-    /* --------------------- UI: list + modal --------------------- */
     const listBox = $("list");
     function render(){
       if(!rows.length){ listBox.innerHTML = '<div class="muted">No farms yet.</div>'; return; }
-      // A → Z by name (case-insensitive)
-      const arr = rows.slice().sort((a,b)=>{
-        return a.name.localeCompare(b.name, undefined, { sensitivity:'base' });
-      });
+      const arr = rows.slice().sort((a,b)=> a.name.localeCompare(b.name, undefined, { sensitivity:'base' }));
       listBox.innerHTML = '';
       arr.forEach(it=>{
         const div = document.createElement('div');
@@ -261,7 +254,7 @@
             <div class="name">${escapeHTML(it.name)}</div>
             ${status}
           </div>
-          <button class="view" type="button">View / Edit</button>
+          <button class="view" type="button" data-perm="setup-farms:view">View / Edit</button>
         `;
         div.querySelector('.view').addEventListener('click', ()=> openEdit(it.id));
         listBox.appendChild(div);
@@ -290,13 +283,11 @@
     modal.addEventListener('click', e=>{ if(e.target===modal) closeModal(); });
     document.addEventListener('keydown', e=>{ if(e.key==='Escape' && modal.hasAttribute('open')) closeModal(); });
 
-    /* --------------------- Actions --------------------- */
     $("save").addEventListener("click", async ()=>{
-      const name = $("farmName").value.trim();
-      if(!name){ alert("Please enter a farm name."); return; }
       try{
-        await FVData.ready();
-        await waitForAuthReady();
+        const name = $("farmName").value.trim();
+        if(!name){ alert("Please enter a farm name."); return; }
+        await FVData.ready(); await waitForAuthReady();
         await addFarm(name);
         $("farmName").value = "";
         showToast("Successfully saved.");
@@ -304,7 +295,8 @@
         window.scrollTo({top:0,behavior:"smooth"});
       }catch(err){
         console.error(err);
-        showAlert("Save failed: " + (err?.message||err));
+        if(String(err?.message||err).includes('no-permission:add')) alert("You don't have permission to add farms.");
+        else showAlert("Save failed: " + (err?.message||err));
       }
     });
 
@@ -312,18 +304,18 @@
     $("reload").addEventListener("click", async ()=>{ await loadFarms(); });
 
     mdSave.addEventListener("click", async ()=>{
-      const name = $("editName").value.trim();
-      if(!name){ alert("Please enter a farm name."); return; }
       try{
-        await FVData.ready();
-        await waitForAuthReady();
+        const name = $("editName").value.trim();
+        if(!name){ alert("Please enter a farm name."); return; }
+        await FVData.ready(); await waitForAuthReady();
         await updateFarm(editId, { name });
         showToast("Changes saved.");
         await loadFarms();
         closeModal();
       }catch(err){
         console.error(err);
-        showAlert("Update failed: " + (err?.message||err));
+        if(String(err?.message||err).includes('no-permission:edit')) alert("You don't have permission to edit farms.");
+        else showAlert("Update failed: " + (err?.message||err));
       }
     });
 
@@ -332,8 +324,7 @@
         const it = rows.find(r=>r.id===editId);
         if(!it) return;
         const nextStatus = it.status==='archived' ? 'active' : 'archived';
-        await FVData.ready();
-        await waitForAuthReady();
+        await FVData.ready(); await waitForAuthReady();
         await updateFarm(editId, { status: nextStatus });
         $("statusPill").textContent = nextStatus==='archived' ? 'Archived' : 'Active';
         mdArchive.textContent = nextStatus==='archived' ? 'Unarchive' : 'Archive';
@@ -341,7 +332,8 @@
         await loadFarms();
       }catch(err){
         console.error(err);
-        showAlert("Archive toggle failed: " + (err?.message||err));
+        if(String(err?.message||err).includes('no-permission:edit')) alert("You don't have permission to archive/unarchive farms.");
+        else showAlert("Archive toggle failed: " + (err?.message||err));
       }
     });
 
@@ -358,11 +350,11 @@
         closeModal();
       }catch(err){
         console.error(err);
-        showAlert("Delete failed: " + (err?.message||err));
+        if(String(err?.message||err).includes('no-permission:delete')) alert("You don't have permission to delete farms.");
+        else showAlert("Delete failed: " + (err?.message||err));
       }
     });
 
-    /* --------------------- Boot --------------------- */
     (async function boot(){
       try{
         await ready; db = getFirestore(); await waitForAuthReady();
