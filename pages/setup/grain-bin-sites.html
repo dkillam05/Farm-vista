@@ -55,7 +55,7 @@
     /* Bins card */
     .bins-card{border:1px dashed var(--border);border-radius:12px;padding:12px;display:grid;gap:12px;background:var(--card-surface,var(--surface));}
     .bins-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
-    .bins-head-add{justify-content:flex-end;} /* add-form version */
+    .bins-head-add{justify-content:flex-end;}
     .bins-title{font-weight:800}
     .bins-title-wrap{display:flex;align-items:center;gap:8px;}
     .bin-row{display:grid;grid-template-columns:120px 1fr auto;gap:10px;align-items:center}
@@ -83,7 +83,7 @@
     .modal[open]{display:grid;opacity:1;}
     .dialog{width:min(760px,92vw);max-height:85vh;display:flex;flex-direction:column;background:var(--surface);color:var(--text);
       border-radius:14px;border:1px solid var(--border);box-shadow:0 16px 36px rgba(0,0,0,.28);}
-    .dialog-sm{width:min(480px,92vw);} /* smaller dialog for Add Bin */
+    .dialog-sm{width:min(480px,92vw);}
     .dialog-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
     .dialog-body{padding:14px;display:grid;gap:12px;overflow:auto}
     .dialog-footer{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;padding:12px 14px;border-top:1px solid var(--border)}
@@ -123,9 +123,11 @@
     }
   })();</script>
 </head>
+
 <body>
   <fv-shell>
-    <div class="page container">
+    <!-- Page visibility -->
+    <div class="page container" data-perm="setup-grain-sites:view">
       <h1 class="page-title">Grain Bin Sites</h1>
       <p class="page-sub">Create a site, add bins with <strong>rated corn bushel</strong> capacity, and we’ll total it up for you.</p>
 
@@ -140,7 +142,8 @@
           <div><strong>Add Bin Site</strong></div>
         </header>
 
-        <div class="section-body">
+        <!-- Add section is add-gated -->
+        <div class="section-body" data-perm="setup-grain-sites:add">
           <div id="err" class="error"></div>
 
           <div class="row">
@@ -156,7 +159,6 @@
 
           <div class="bins-card">
             <div class="bins-head bins-head-add">
-              <!-- Only Add Bin button on the right; no header text or pills -->
               <button id="addBin" class="btn" type="button">Add Bin</button>
             </div>
             <div id="bins"></div>
@@ -173,7 +175,6 @@
     </div>
   </fv-shell>
 
-  <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Successfully saved.</div>
 
   <!-- Modal: Add Bin (for NEW site form) -->
@@ -183,7 +184,7 @@
         <h3 id="binMdTitle">Add Bin</h3>
         <button id="binMdClose" class="closex" type="button">Back</button>
       </div>
-      <div class="dialog-body">
+      <div class="dialog-body" data-perm="setup-grain-sites:add">
         <div class="field">
           <label for="binBushels">Bushels</label>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -200,7 +201,7 @@
       </div>
       <div class="dialog-footer">
         <span></span>
-        <button id="binMdSave" class="btn btn-primary" type="button">Add Bin</button>
+        <button id="binMdSave" class="btn btn-primary" type="button" data-perm="setup-grain-sites:add">Add Bin</button>
       </div>
     </div>
   </div>
@@ -212,7 +213,9 @@
         <h3 id="mdTitle">View / Edit Bin Site</h3>
         <button id="mdClose" class="closex" type="button">Back</button>
       </div>
-      <div class="dialog-body">
+
+      <!-- Edit body is edit-gated -->
+      <div class="dialog-body" data-perm="setup-grain-sites:edit">
         <div class="field">
           <label for="editName">Site Name</label>
           <input id="editName" class="input" placeholder="Site name">
@@ -230,7 +233,7 @@
                 i
               </button>
             </div>
-            <button id="mdAddBin" class="btn" type="button">Add Bin</button>
+            <button id="mdAddBin" class="btn" type="button" data-perm="setup-grain-sites:edit">Add Bin</button>
           </div>
           <div id="mdBins"></div>
           <div class="totals">
@@ -244,12 +247,13 @@
           <span class="pill" id="usedPill" style="display:none">In use</span>
         </div>
       </div>
+
       <div class="dialog-footer">
         <div class="left-btns">
-          <button id="mdArchive" class="btn btn-quiet" type="button">Archive</button>
-          <button id="mdDelete" class="btn btn-danger" type="button" title="Delete is disabled if the site is in use.">Delete</button>
+          <button id="mdArchive" class="btn btn-quiet" type="button" data-perm="setup-grain-sites:edit">Archive</button>
+          <button id="mdDelete" class="btn btn-danger" type="button" title="Delete is disabled if the site is in use." data-perm="setup-grain-sites:delete">Delete</button>
         </div>
-        <button id="mdSave" class="btn btn-primary" type="button">Save Changes</button>
+        <button id="mdSave" class="btn btn-primary" type="button" data-perm="setup-grain-sites:edit">Save Changes</button>
       </div>
     </div>
   </div>
@@ -258,41 +262,38 @@
   (function(){
     "use strict";
 
+    const canNow = (k)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(k) : true;
+
     const $ = id => document.getElementById(id);
     const toast = $("toast");
     const errBox = $("err");
 
-    // Add form DOM
     const binsBox = $("bins");
     const addBtn = $("addBin"), saveBtn = $("save"), clearBtn = $("clear");
     const siteName = $("siteName");
 
-    // Add-bin modal DOM (for new site)
     const binModal = $("binModal"), binMdClose = $("binMdClose"), binMdSave = $("binMdSave");
     const binBushels = $("binBushels"), binMdTitle = $("binMdTitle");
 
-    // List + main View/Edit modal DOM
     const listBox = $("list");
     const modal = $("modal"), mdClose = $("mdClose"), mdSave = $("mdSave"), mdArchive = $("mdArchive"), mdDelete = $("mdDelete");
     const mdName = $("editName"), mdBinsBox = $("mdBins"), mdBinCountPill = $("mdBinCountPill"), mdBushelTotalPill = $("mdBushelTotalPill");
     const statusPill = $("statusPill"), usedPill = $("usedPill");
 
-    // State
-    let addBins = [];       // [{num, bushels}]
+    let addBins = [];
     let editId = null;
-    let mdBins = [];        // modal bins
-    let pendingBinNum = null; // for Add Bin (new site)
+    let mdBins = [];
+    let pendingBinNum = null;
     let editSiteHasGrain = false;
     let editSiteUsed = false;
-    let lockedBinNums = new Set(); // bins with grain on hand (cannot remove)
+    let lockedBinNums = new Set();
 
-    /* ========== Utils ========== */
     const showToast = (msg="Successfully saved.")=>{
       toast.textContent = msg;
       toast.classList.remove("show"); void toast.offsetWidth;
       toast.classList.add("show");
     };
-    const showErr = (msg)=>{ errBox.textContent = msg||""; errBox.classList.toggle("show", !!msg); };
+    const showErr = (msg)=>{ if(!errBox) return; errBox.textContent = msg||""; errBox.classList.toggle("show", !!msg); };
 
     const escapeHTML = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 
@@ -303,7 +304,6 @@
       return num.toLocaleString();
     };
 
-    // Format arbitrary numeric string with commas, preserving decimals
     const formatNumericString = (str)=>{
       if(str == null) return "";
       const clean = String(str).replace(/,/g,"").trim();
@@ -323,21 +323,19 @@
     const nextBinNumber = (list)=> list.length ? (Math.max(...list.map(b=>Number(b.num)||0)) + 1) : 1;
 
     function updateTotals(list, pills){
-      if(!pills || !pills.count || !pills.total) return; // no totals (e.g., add-form card)
+      if(!pills || !pills.count || !pills.total) return;
       const count = list.length;
       const total = list.reduce((s,b)=> s + toNum(b.bushels), 0);
       pills.count.textContent = `${count} ${count===1?'bin':'bins'}`;
       pills.total.textContent = `${fmtComma(total)} corn bu`;
     }
 
-    // Attach live-comma formatting to an input, updating a bin object + totals
     function attachCommaInput(el, binObj, list, pills){
       el.addEventListener("input", (e)=>{
         const input = e.target;
         const rawBefore = input.value;
         const cursorPos = input.selectionStart || 0;
 
-        // String without commas up to cursor (for caret math)
         const plainBeforeCursor = rawBefore.slice(0, cursorPos).replace(/,/g,"");
         const plainAll = rawBefore.replace(/,/g,"");
 
@@ -354,18 +352,12 @@
         const formatted = formatNumericString(plainAll);
         input.value = formatted;
 
-        // New caret position: keep same "distance from start" in the plain digits
         const digitsUpToCursor = plainBeforeCursor.length;
         let newPos = 0;
         let digitCount = 0;
         for(let i=0;i<formatted.length;i++){
-          if(/\d/.test(formatted[i])){
-            digitCount++;
-          }
-          if(digitCount >= digitsUpToCursor){
-            newPos = i+1;
-            break;
-          }
+          if(/\d/.test(formatted[i])) digitCount++;
+          if(digitCount >= digitsUpToCursor){ newPos = i+1; break; }
         }
         input.setSelectionRange(newPos,newPos);
 
@@ -394,6 +386,7 @@
           removeBtn.title = "This bin has grain on hand and cannot be removed.";
         }else{
           removeBtn.addEventListener("click", ()=>{
+            if(opts.requireEditPerm && !canNow('setup-grain-sites:edit')) return;
             list.splice(idx,1);
             renderBins(list, box, pills, opts);
           });
@@ -404,8 +397,11 @@
       updateTotals(list, pills);
     }
 
-    /* ========== Add-bin modal (new site form) ========== */
     function openBinModal(){
+      if(!canNow('setup-grain-sites:add')){
+        alert("You don't have permission to add bin sites.");
+        return;
+      }
       pendingBinNum = nextBinNumber(addBins);
       binMdTitle.textContent = `Add Bin ${pendingBinNum}`;
       binBushels.value = "";
@@ -426,10 +422,13 @@
       if(e.key==="Escape" && binModal.hasAttribute("open")) closeBinModal();
     });
 
-    // live commas in Add Bin modal
     attachCommaInput(binBushels, { bushels: 0 }, [], null);
 
     binMdSave.addEventListener("click", ()=>{
+      if(!canNow('setup-grain-sites:add')){
+        alert("You don't have permission to add bins.");
+        return;
+      }
       const buVal = binBushels.value;
       const bu = toNum(buVal);
       if(!bu || bu <= 0){
@@ -442,7 +441,6 @@
       closeBinModal();
     });
 
-    /* ========== Add form actions ========== */
     clearBtn.addEventListener("click", ()=>{
       siteName.value = "";
       addBins = [];
@@ -451,35 +449,24 @@
     });
 
     saveBtn.addEventListener("click", async ()=>{
+      if(!canNow('setup-grain-sites:add')){
+        alert("You don't have permission to add bin sites.");
+        return;
+      }
       const name = siteName.value.trim();
-      if(!name){
-        alert("Please enter a site name.");
-        return;
-      }
-      if(addBins.length === 0){
-        alert("Please add at least one bin before saving.");
-        return;
-      }
+      if(!name){ alert("Please enter a site name."); return; }
+      if(addBins.length === 0){ alert("Please add at least one bin before saving."); return; }
 
       const bins = addBins.map(b=>({ num: Number(b.num)||0, bushels: toNum(b.bushels) }));
       const set = new Set(); let dup=false;
       bins.forEach(b=>{ const k=String(b.num); if(set.has(k)) dup=true; set.add(k); });
-      if(dup){
-        alert("Duplicate bin numbers. Please adjust.");
-        return;
-      }
+      if(dup){ alert("Duplicate bin numbers. Please adjust."); return; }
 
       const total = bins.reduce((s,b)=> s + (b.bushels||0), 0);
 
       try{
         showErr("");
-        await FVData.add('binSites', {
-          name,
-          bins,
-          totalBushels: total,
-          status: 'active',
-          used: false
-        });
+        await FVData.add('binSites', { name, bins, totalBushels: total, status: 'active', used: false });
         showToast("Successfully saved.");
         siteName.value = "";
         addBins = [];
@@ -492,10 +479,8 @@
       }
     });
 
-    /* ========== List & main View/Edit modal (FVData) ========== */
     async function fetchSites(){
       const arr = await FVData.list('binSites', { limit: 500 });
-      // archived last, newest first
       arr.sort((a,b)=>{
         const sa = (a.status||'active')==='archived', sb = (b.status||'active')==='archived';
         const ta = a.updatedAt?.seconds || a.createdAt?.seconds || 0;
@@ -528,7 +513,7 @@
               ${pills}
             </div>
           </div>
-          <button class="view" type="button">View / Edit</button>
+          <button class="view" type="button" data-perm="setup-grain-sites:view">View / Edit</button>
         `;
         div.querySelector(".view").addEventListener("click", ()=> openEdit(it.id));
         listBox.appendChild(div);
@@ -542,28 +527,23 @@
         editId = id;
         mdName.value = it.name || "";
 
-        // set usage + grain rules
         editSiteUsed = !!it.used;
-        const totalOnHand = Number(it.totalOnHand || 0); // expected to be maintained by grain flows
+        const totalOnHand = Number(it.totalOnHand || 0);
         lockedBinNums = new Set();
         const rawBins = (it.bins||[]).map(b=>{
           const num = Number(b.num)||0;
           const bu = Number(b.bushels)||0;
-          const onHand = Number(b.onHand || 0); // expected field for per-bin grain on hand
-          if(onHand > 0){
-            lockedBinNums.add(String(num));
-          }
+          const onHand = Number(b.onHand || 0);
+          if(onHand > 0) lockedBinNums.add(String(num));
           return { num, bushels: bu, onHand };
         });
-        mdBins = rawBins.map(b=>({ num:b.num, bushels:b.bushels })); // editing bushels only here
+        mdBins = rawBins.map(b=>({ num:b.num, bushels:b.bushels }));
 
         editSiteHasGrain = (totalOnHand > 0) || (rawBins.some(b=> b.onHand > 0));
 
-        // status pills
         statusPill.textContent = (it.status==='archived') ? "Archived" : "Active";
         usedPill.style.display = it.used ? "inline-block" : "none";
 
-        // Button enable / disable based on rules
         if(editSiteHasGrain){
           mdArchive.disabled = true;
           mdArchive.title = "This site has grain on hand and cannot be archived. Move grain out of all bins first.";
@@ -571,13 +551,11 @@
           mdDelete.title = "This site has grain on hand and cannot be deleted.";
         }else{
           if(editSiteUsed){
-            // Has been used, no grain now: can archive, cannot delete
             mdArchive.disabled = false;
             mdArchive.title = "Archive this site.";
             mdDelete.disabled = true;
             mdDelete.title = "This site has been used and cannot be deleted. Archive instead.";
           }else{
-            // Never used, no grain: can delete, archive not needed
             mdArchive.disabled = true;
             mdArchive.title = "This site has never been used and does not need to be archived.";
             mdDelete.disabled = false;
@@ -586,7 +564,8 @@
         }
 
         renderBins(mdBins, mdBinsBox, {count:mdBinCountPill,total:mdBushelTotalPill}, {
-          lockedBinNums
+          lockedBinNums,
+          requireEditPerm: true
         });
         openModal();
       }catch(e){
@@ -613,36 +592,32 @@
     });
 
     $("mdAddBin").addEventListener("click", ()=>{
+      if(!canNow('setup-grain-sites:edit')){
+        alert("You don't have permission to edit bin sites.");
+        return;
+      }
       mdBins.push({ num: nextBinNumber(mdBins), bushels: 0 });
-      renderBins(mdBins, mdBinsBox, {count:mdBinCountPill,total:mdBushelTotalPill}, {
-        lockedBinNums
-      });
+      renderBins(mdBins, mdBinsBox, {count:mdBinCountPill,total:mdBushelTotalPill}, { lockedBinNums, requireEditPerm:true });
     });
 
     mdSave.addEventListener("click", async ()=>{
+      if(!canNow('setup-grain-sites:edit')){
+        alert("You don't have permission to edit bin sites.");
+        return;
+      }
       const name = mdName.value.trim();
-      if(!name){
-        alert("Please enter a site name.");
-        return;
-      }
-      if(mdBins.length === 0){
-        alert("Please keep at least one bin on the site.");
-        return;
-      }
+      if(!name){ alert("Please enter a site name."); return; }
+      if(mdBins.length === 0){ alert("Please keep at least one bin on the site."); return; }
+
       const bins = mdBins.map(b=>({ num:Number(b.num)||0, bushels: toNum(b.bushels) }));
       const used = new Set(); let dup=false;
       bins.forEach(b=>{ const k=String(b.num); if(used.has(k)) dup=true; used.add(k); });
-      if(dup){
-        alert("Duplicate bin numbers. Please adjust.");
-        return;
-      }
+      if(dup){ alert("Duplicate bin numbers. Please adjust."); return; }
 
       const total = bins.reduce((s,b)=> s + (b.bushels||0), 0);
 
       try{
-        await FVData.update('binSites', editId, {
-          name, bins, totalBushels: total
-        });
+        await FVData.update('binSites', editId, { name, bins, totalBushels: total });
         showToast("Changes saved.");
         await renderList();
         closeModal();
@@ -653,12 +628,15 @@
     });
 
     mdArchive.addEventListener("click", async ()=>{
+      if(!canNow('setup-grain-sites:edit')){
+        alert("You don't have permission to archive/unarchive bin sites.");
+        return;
+      }
       if(mdArchive.disabled) return;
       try{
         const cur = await FVData.getDocData(`binSites/${editId}`);
         if(!cur) return;
         const next = (cur.status==='archived') ? 'active' : 'archived';
-        // Only allow archive toggling if siteHasGrain is false; we already gate via disabled, but double-check:
         const totalOnHand = Number(cur.totalOnHand || 0);
         if(totalOnHand > 0){
           alert("This site has grain on hand and cannot be archived.");
@@ -676,6 +654,10 @@
     });
 
     mdDelete.addEventListener("click", async ()=>{
+      if(!canNow('setup-grain-sites:delete')){
+        alert("You don't have permission to delete bin sites.");
+        return;
+      }
       if(mdDelete.disabled) return;
       try{
         const cur = await FVData.getDocData(`binSites/${editId}`);
@@ -702,13 +684,8 @@
       }
     });
 
-    /* ========== Init ========== */
     (async ()=>{
-      try{
-        await FVData.ready(); // binds firebase-init or stub safely
-      }catch(e){
-        console.warn(e);
-      }
+      try{ await FVData.ready(); }catch(e){ console.warn(e); }
       renderBins(addBins, binsBox, null, {});
       await renderList();
     })();
