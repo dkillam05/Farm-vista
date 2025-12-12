@@ -228,6 +228,16 @@
       let currentRoleId = "";
       let roleDraft = { id:"", name:"", perms:{} };
 
+      /* ====== QC / CAP DEPENDENCIES (FIX: Always Persist cap-* keys) ====== */
+      const CAP_QR = 'cap-qr-scanner';
+      const CAP_CAMERA = 'cap-camera-popup';
+
+      // You said these are the only real drivers right now:
+      // - QR => Maintenance Work Orders Add
+      // - Camera => Expenditures Add
+      const DRIVE_QR_BY = 'eq-maint-workorders';
+      const DRIVE_CAM_BY = 'exp-expenditures';
+
       function normalizePermEntry(v){
         if (typeof v === 'boolean') {
           return { view: v, add: false, edit: false, delete: false };
@@ -250,6 +260,30 @@
           out[k] = normalizePermEntry(map[k]);
         });
         return out;
+      }
+
+      // ✅ Ensures the cap keys exist and are saved to Firestore every time.
+      // Also forces them to match your dependency truth.
+      function applyCapabilityDeps(map){
+        const perms = normalizePermMap(map || {});
+
+        const qrNeeded = !!(perms[DRIVE_QR_BY] && perms[DRIVE_QR_BY].add);
+        const camNeeded = !!(perms[DRIVE_CAM_BY] && perms[DRIVE_CAM_BY].add);
+
+        perms[CAP_QR] = Object.assign(
+          { view:false, add:false, edit:false, delete:false },
+          (perms[CAP_QR] || {}),
+          { view: !!qrNeeded }
+        );
+
+        perms[CAP_CAMERA] = Object.assign(
+          { view:false, add:false, edit:false, delete:false },
+          (perms[CAP_CAMERA] || {}),
+          (perms[CAP_CAMERA] || {}),
+          { view: !!camNeeded }
+        );
+
+        return perms;
       }
 
       function showToast(msg="Saved."){ 
@@ -297,7 +331,9 @@
           onPermsChange: (updatedPerms) => {
             // changing perms is an edit action
             if (!canNow('setup-roles:edit')) return;
-            roleDraft.perms = normalizePermMap(updatedPerms || {});
+
+            // ✅ Keep draft in a valid state (cap keys always exist)
+            roleDraft.perms = applyCapabilityDeps(updatedPerms || {});
           }
         };
       }
@@ -322,7 +358,10 @@
 
       async function saveRoleFS(id, name, perms){
         const db = getFirestore();
-        const clean = normalizePermMap(perms || {});
+
+        // ✅ Always apply deps right before persisting (guarantees Firestore has cap keys)
+        const clean = applyCapabilityDeps(perms || {});
+
         if(id){
           await setDoc(doc(db, COLLECTION, id), {
             name,
@@ -352,7 +391,10 @@
 
       async function saveRole(name, perms){
         if(!name) throw new Error("Missing role name");
-        const normalized = normalizePermMap(perms || {});
+
+        // ✅ Always apply deps before saving (both modes)
+        const normalized = applyCapabilityDeps(perms || {});
+
         if(MODE==='firebase'){
           return await saveRoleFS(currentRoleId, name, normalized);
         } else {
@@ -412,6 +454,9 @@
         $("roleName").value = "";
         $("rolePicker").value = "";
         showRoleNameField(true);
+
+        // Keep the perms valid even in "new role" mode
+        roleDraft.perms = applyCapabilityDeps(roleDraft.perms || {});
         updateHero();
       }
 
@@ -427,8 +472,11 @@
           return;
         }
         currentRoleId = r.id;
-        const perms = normalizePermMap(r.perms || {});
+
+        // ✅ Apply deps on load so missing cap keys get materialized immediately.
+        const perms = applyCapabilityDeps(r.perms || {});
         roleDraft = { id:r.id, name:r.name, perms };
+
         $("roleName").value = r.name || "";
         showRoleNameField(false);
         updateHero();
@@ -487,6 +535,9 @@
             : (roleDraft.name || $("roleName").value.trim() || "(unnamed)");
 
           roleDraft.name = finalName;
+
+          // ✅ Guarantee cap keys exist even if user never touched the hero
+          roleDraft.perms = applyCapabilityDeps(roleDraft.perms || {});
 
           const id = await saveRole(finalName, roleDraft.perms);
           currentRoleId = id;
