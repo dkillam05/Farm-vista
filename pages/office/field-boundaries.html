@@ -501,6 +501,13 @@
                 </div>
               </div>
               <div class="help" id="fieldHelp">0 fields</div>
+
+              <!-- ✅ hidden RTK fields (auto-filled in background after field pick) -->
+              <input type="hidden" id="rtkTowerIdHidden" data-field="rtkTowerId">
+              <input type="hidden" id="rtkTowerNameHidden" data-field="rtkTowerName">
+              <input type="hidden" id="rtkNetworkIdHidden" data-field="rtkNetworkId">
+              <input type="hidden" id="rtkFrequencyMHzHidden" data-field="rtkFrequencyMHz">
+
               <!-- hidden data fields -->
               <input type="hidden" id="fieldId" data-field="fieldId">
               <input type="hidden" id="fieldNameHidden" data-field="field">
@@ -639,23 +646,19 @@
 
     // New helper: go back to previous page instead of old dashboard
     function goBack(){
-      // Prefer real back navigation
-      if (window.history.length > 1) {
-        window.history.back();
-        return;
-      }
-      // Fallback to referrer if no history entry
-      if (document.referrer) {
-        window.location.href = document.referrer;
-        return;
-      }
-      // Final fallback: main app shell (NOT the old office dashboard)
+      if (window.history.length > 1) { window.history.back(); return; }
+      if (document.referrer) { window.location.href = document.referrer; return; }
       window.location.href = '/Farm-vista/index.html';
     }
 
     /* ===== Helpers ===== */
     const $ = id => document.getElementById(id);
-    const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+
+    // ✅ fixed escaping (your old mapping had a typo for ">")
+    const esc = s => String(s||"").replace(/[&<>"']/g, m=>({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+    }[m]));
+
     const todayISO = ()=> new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
     const titleCase = s => String(s||"").toLowerCase().split(/[\s._-]+/).filter(Boolean).map(w=>w[0].toUpperCase()+w.slice(1)).join(" ");
     const safeName = name => (Date.now()+"-"+String(name||"image")).replace(/[^\w.\-]+/g,"_");
@@ -745,7 +748,6 @@
     const photos = $("photos");
     const thumbs = $("thumbs");
     const photoNote = $("photoNote");
-    const errBox = $("err");
     const woHero = $("woHero");
     const woTitle = $("woTitle");
     const woSub = $("woSub");
@@ -754,6 +756,12 @@
     const farmNameInput = $("farmName");
     const fieldIdInput = $("fieldId");
     const fieldNameHidden = $("fieldNameHidden");
+
+    // ✅ RTK hidden inputs
+    const rtkTowerIdHidden = $("rtkTowerIdHidden");
+    const rtkTowerNameHidden = $("rtkTowerNameHidden");
+    const rtkNetworkIdHidden = $("rtkNetworkIdHidden");
+    const rtkFrequencyMHzHidden = $("rtkFrequencyMHzHidden");
 
     when.value = todayISO();
 
@@ -764,6 +772,82 @@
     let allFields = [];
     let currentFieldId = "";
     let currentFieldLabel = "";
+
+    // ✅ background RTK cache for current selection
+    let CURRENT_RTK = null; // { towerDocId, name, networkId, frequencyMHz }
+
+    /* ===== RTK helpers (your schema) ===== */
+    function fmtFreqMHz(v){
+      const s = String(v ?? "").trim();
+      return s ? `${s} MHz` : "";
+    }
+    function rtkLabel(rtk){
+      if(!rtk) return "";
+      const bits = [];
+      if(rtk.name) bits.push(rtk.name);
+      if(rtk.networkId != null && String(rtk.networkId).trim() !== "") bits.push(String(rtk.networkId).trim());
+      if(rtk.frequencyMHz) bits.push(fmtFreqMHz(rtk.frequencyMHz));
+      return bits.join(" • ");
+    }
+    function clearRtkHidden(){
+      CURRENT_RTK = null;
+      rtkTowerIdHidden.value = "";
+      rtkTowerNameHidden.value = "";
+      rtkNetworkIdHidden.value = "";
+      rtkFrequencyMHzHidden.value = "";
+    }
+
+    // ✅ Fetch field.rtkTowerId, then fetch rtk_towers doc and fill hidden fields
+    async function hydrateRtkForField(db, fieldId){
+      clearRtkHidden();
+      if(!db || !fieldId) return;
+
+      // show a subtle loading hint
+      if(fieldHelp){
+        const base = fieldHelp.textContent || "";
+        if(!base.toLowerCase().includes("rtk")) fieldHelp.textContent = base.replace(/\s*\(.*\)\s*$/,'');
+      }
+
+      try{
+        const fSnap = await getDoc(doc(db, "fields", fieldId));
+        if(!fSnap.exists()) return;
+
+        const f = fSnap.data() || {};
+        const towerDocId = String(f.rtkTowerId || "").trim();
+        if(!towerDocId){
+          // no tower assigned to field
+          return;
+        }
+
+        const tSnap = await getDoc(doc(db, "rtk_towers", towerDocId));
+        if(!tSnap.exists()){
+          // tower id exists but tower doc missing
+          rtkTowerIdHidden.value = towerDocId;
+          return;
+        }
+
+        const t = tSnap.data() || {};
+        const name = String(t.name || "").trim();
+        const networkId = (t.networkId != null) ? String(t.networkId).trim() : "";
+        const frequencyMHz = String(t.frequencyMHz || "").trim();
+
+        CURRENT_RTK = { towerDocId, name, networkId, frequencyMHz };
+
+        rtkTowerIdHidden.value = towerDocId;
+        rtkTowerNameHidden.value = name;
+        rtkNetworkIdHidden.value = networkId;
+        rtkFrequencyMHzHidden.value = frequencyMHz;
+
+        // Put RTK right in the field help line (nice + subtle)
+        if(fieldHelp){
+          const base = fieldHelp.textContent || "";
+          const label = rtkLabel(CURRENT_RTK);
+          fieldHelp.textContent = label ? `${base.replace(/\s*\|.*$/,'')} | RTK: ${label}` : base;
+        }
+      }catch(e){
+        console.warn("[boundary-request] RTK hydrate failed:", e);
+      }
+    }
 
     /* ===== Current user ===== */
     async function currentUser(){
@@ -842,6 +926,10 @@
           fieldNameHidden.value = "";
           $("fieldBtn").textContent = "— Select field —";
 
+          // ✅ clear RTK selection info too
+          clearRtkHidden();
+          if(fieldHelp) fieldHelp.textContent = `${(fieldCombo && fieldCombo._count) ? fieldCombo._count : (allFields||[]).length} fields`;
+
           // Clear active list
           woHero.hidden = true;
           woList.innerHTML = '<div class="muted">No active work orders.</div>';
@@ -855,7 +943,7 @@
         items: [],
         searchable: true,
         formatter: x => x.name,
-        onPick: field => {
+        onPick: async field => {
           currentFieldId = field.id;
           currentFieldLabel = field.name || "";
           fieldIdInput.value = field.id;
@@ -864,7 +952,6 @@
 
           // If field has farm info, sync farm selection WITHOUT clearing a good existing choice
           if (field.farmId || field.farmName){
-            // Try to match against loaded farms
             let matchedFarm = null;
             if (field.farmId){
               matchedFarm = allFarms.find(f => String(f.id) === String(field.farmId));
@@ -874,19 +961,21 @@
             }
 
             if (matchedFarm){
-              // Use canonical farm from farms collection
               farmIdInput.value = matchedFarm.id;
               farmNameInput.value = matchedFarm.name;
               $("farmBtn").textContent = matchedFarm.name || "— Select farm —";
             } else if (!farmIdInput.value && !farmNameInput.value){
-              // Only fall back to raw field values if NO farm has been chosen yet
               farmIdInput.value = field.farmId || "";
               farmNameInput.value = field.farmName || "";
               if (field.farmName){
                 $("farmBtn").textContent = field.farmName;
               }
-              // If there is no farmName, leave the button text alone instead of clearing it
             }
+          }
+
+          // ✅ background RTK hydrate (auto save into hidden inputs)
+          if(dbInstance && currentFieldId){
+            await hydrateRtkForField(dbInstance, currentFieldId);
           }
 
           if(dbInstance && currentFieldId){
@@ -901,13 +990,13 @@
       if(farmId){
         arr = allFields.filter(f => (f.farmId || "") === farmId);
       }
-      if(fieldCombo) fieldCombo.setItems(arr);
+      if(fieldCombo){
+        fieldCombo.setItems(arr);
+        // tiny internal count so farm pick handler can show something decent
+        fieldCombo._count = arr.length;
+      }
       if(fieldHelp){
-        if(farmId){
-          fieldHelp.textContent = `${arr.length} fields in farm`;
-        }else{
-          fieldHelp.textContent = `${arr.length} fields`;
-        }
+        fieldHelp.textContent = farmId ? `${arr.length} fields in farm` : `${arr.length} fields`;
       }
     }
 
@@ -1211,6 +1300,18 @@
 
       const sbOpt = submittedBySel.options[submittedBySel.selectedIndex];
       o.submittedByEmail = (sbOpt?.dataset?.email || "").trim();
+
+      // ✅ store RTK as a nice nested object AND flat keys (easy for reports)
+      if(CURRENT_RTK && (CURRENT_RTK.name || CURRENT_RTK.networkId || CURRENT_RTK.frequencyMHz)){
+        o.rtk = {
+          name: CURRENT_RTK.name || "",
+          networkId: CURRENT_RTK.networkId || "",
+          frequencyMHz: CURRENT_RTK.frequencyMHz || ""
+        };
+        // also keep rtkTowerId (doc id) already captured in hidden field
+        o.rtkTowerId = CURRENT_RTK.towerDocId || o.rtkTowerId || "";
+      }
+
       o.status="Open";
       o.t=Date.now();
       o.timestampISO=new Date(o.t).toISOString();
@@ -1278,7 +1379,6 @@
         }
 
         showToast("Boundary request saved");
-        // After toast, go back to previous page instead of old dashboard
         setTimeout(()=>{ goBack(); }, 1100);
       }catch(e){
         console.error(e);
@@ -1286,10 +1386,7 @@
       }
     });
 
-    $("cancel").addEventListener("click", ()=>{
-      // Cancel should also go back to wherever user came from
-      goBack();
-    });
+    $("cancel").addEventListener("click", ()=> goBack());
 
     /* ===== Active Work Orders (per field) ===== */
     async function renderActiveWorkOrders(db, fieldId, fieldNameLabel){
@@ -1334,6 +1431,8 @@
           li.dataset.id = it.id;
 
           const whenTxt = fmtDate(it.createdAt) || it.when || '';
+          const rtkLine = it?.rtk ? rtkLabel(it.rtk) : "";
+
           li.innerHTML = `
             <div class="wo-head">
               <strong>${esc(it.boundaryType||'—')}</strong>
@@ -1343,6 +1442,7 @@
             <div class="muted" style="margin-top:6px">
               Submitted by ${esc(it.submittedBy||'Unknown')}${it.submittedByEmail?` • ${esc(it.submittedByEmail)}`:""}
             </div>
+            ${rtkLine ? `<div class="muted" style="margin-top:6px">RTK: ${esc(rtkLine)}</div>` : ``}
             ${it.notes? `<div style="margin-top:6px">${esc(it.notes)}</div>` : ''}
           `;
           li.addEventListener('click', ()=> openWorkOrderView(db, it.id, label));
@@ -1401,6 +1501,8 @@
             }).join("") + `</div>`
           : `<div class="muted">No photos attached.</div>`;
 
+        const rtkLine = it?.rtk ? rtkLabel(it.rtk) : "";
+
         vmBody.innerHTML = `
           <div class="row" style="margin-bottom:8px">
             <div class="field">
@@ -1417,6 +1519,12 @@
             <label>Boundary Type</label>
             <div><strong>${esc(it.boundaryType||'—')}</strong></div>
           </div>
+
+          ${rtkLine ? `
+          <div class="field" style="margin-bottom:8px">
+            <label>RTK (Name • Network ID • Frequency)</label>
+            <div>${esc(rtkLine)}</div>
+          </div>` : ``}
 
           <div class="field" style="margin-bottom:8px">
             <label>Submitted By</label>
@@ -1448,6 +1556,7 @@
       initCombos();
       await loadFarmsAndFields(dbInstance);
       await loadEmployees(dbInstance);
+      clearRtkHidden();
     })();
   </script>
 </body>
