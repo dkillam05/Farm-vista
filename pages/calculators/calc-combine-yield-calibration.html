@@ -87,6 +87,7 @@
       margin-top:6px;
       font-size:12px;
       color:var(--muted);
+      line-height:1.35;
     }
 
     .actions{ display:flex; gap:10px; justify-content:flex-end; padding:0 16px 16px; flex-wrap:wrap; }
@@ -123,7 +124,6 @@
       <div class="card">
         <div class="card-head">
           <div class="icon" aria-hidden="true">
-            <!-- Gear icon -->
             <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="3"></circle>
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 7.04 3.3l.06.06a1.65 1.65 0 0 0 1.82.33h0A1.65 1.65 0 0 0 10.42 2.2V2a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06A2 2 0 1 1 20.7 7.04l-.06.06a1.65 1.65 0 0 0-.33 1.82v0A1.65 1.65 0 0 0 21.8 10.42H22a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"></path>
@@ -135,7 +135,6 @@
           </div>
         </div>
 
-        <!-- FORM -->
         <form id="frm" novalidate autocomplete="off">
           <div class="grid">
             <div>
@@ -177,7 +176,6 @@
           </div>
         </form>
 
-        <!-- RESULTS -->
         <div class="results" id="res" hidden>
           <div class="tile">
             <h3 style="margin:0 0 8px;">Result</h3>
@@ -190,7 +188,6 @@
           </div>
         </div>
 
-        <!-- HISTORY -->
         <section class="hist">
           <div style="display:flex;align-items:center;gap:10px">
             <h2 style="flex:1">Recent Calibrations</h2>
@@ -206,26 +203,17 @@
   <script type="module">
     (function(){
       "use strict";
-      if(window.__FV_COMBINE_CALIB_V3__) return; window.__FV_COMBINE_CALIB_V3__=true;
+      if(window.__FV_COMBINE_CALIB_V4__) return; window.__FV_COMBINE_CALIB_V4__=true;
 
       const $ = id => document.getElementById(id);
       const fmt = (n, d=0) => Number(n).toLocaleString(undefined,{maximumFractionDigits:d});
-      const LS_KEY = "fv_calc_combine_calibration_history_v3";
+      const LS_KEY = "fv_calc_combine_calibration_history_v4";
 
       const combineSel = $("combine"), cropSel = $("crop");
       const cw = $("cw"), gw = $("gw");
       const res = $("res"), rStatus=$("rStatus"), rPct=$("rPct"), rCw=$("rCw"), rGw=$("rGw");
       const combineNote = $("combineNote");
 
-      /* ---------- Firestore: load active combines from equipment collection ----------
-         Requirements:
-         - collection = equipment
-         - type == "combine"
-         - status == "active"
-
-         We ONLY require: getFirestore + collection + getDocs (matches your KPI fix pattern).
-         If query/where/orderBy exist, great — but we do NOT depend on them.
-      ------------------------------------------------------------------------------ */
       async function populateCombinesFromFirestore(){
         let fb;
         try{
@@ -233,30 +221,26 @@
         }catch(e){
           combineSel.innerHTML = '<option value="">— Select Combine —</option>';
           combineNote.hidden = false;
-          combineNote.textContent = "Firebase not loaded on this page (missing ../../js/firebase-init.js).";
+          combineNote.textContent = "firebase-init.js not found at ../../js/firebase-init.js";
           return;
         }
 
-        // Try the most common shapes of firebase-init exports
-        const getFirestore = fb.getFirestore || (fb.firestore && fb.firestore.getFirestore);
-        const collectionFn = fb.collection || (fb.firestore && fb.firestore.collection);
-        const getDocsFn = fb.getDocs || (fb.firestore && fb.firestore.getDocs);
+        // ✅ Critical: wait for Firebase init to complete
+        try { await fb.ready; } catch(e) {}
 
-        // Some firebase-init files export `db` directly
-        const dbDirect = fb.db;
-
-        // Some export `app`
-        const app = fb.app;
-
-        let db = dbDirect || null;
-        if(!db && getFirestore && app){
-          try{ db = getFirestore(app); }catch(e){}
-        }
-
-        if(!db || !collectionFn || !getDocsFn){
+        // If still in stub mode, you will NOT see Firestore equipment.
+        if(typeof fb.isStub === "function" && fb.isStub()){
           combineSel.innerHTML = '<option value="">— Select Combine —</option>';
           combineNote.hidden = false;
-          combineNote.textContent = "Firestore helpers not available from firebase-init.js (need db/getFirestore + collection + getDocs).";
+          combineNote.textContent = "App is running in STUB mode (no FV_FIREBASE_CONFIG), so equipment is coming from local stub storage, not Firestore.";
+          return;
+        }
+
+        const db = (typeof fb.getFirestore === "function") ? fb.getFirestore() : fb.firestore;
+        if(!db || typeof fb.collection !== "function" || typeof fb.getDocs !== "function"){
+          combineSel.innerHTML = '<option value="">— Select Combine —</option>';
+          combineNote.hidden = false;
+          combineNote.textContent = "Firestore helpers missing (need getFirestore/collection/getDocs exports).";
           return;
         }
 
@@ -265,8 +249,8 @@
         combineNote.textContent = "";
 
         try{
-          // Fetch equipment collection (then filter locally to avoid needing query/where)
-          const snap = await getDocsFn(collectionFn(db, "equipment"));
+          // Fetch all equipment, then filter locally
+          const snap = await fb.getDocs(fb.collection(db, "equipment"));
 
           const items = [];
           snap.forEach(doc => {
@@ -292,7 +276,7 @@
             combineSel.appendChild(opt);
 
             combineNote.hidden = false;
-            combineNote.textContent = "No equipment docs matched: type=combine and status=active.";
+            combineNote.textContent = "Equipment collection loaded, but none matched type=combine and status=active.";
             return;
           }
 
@@ -303,17 +287,17 @@
             opt.dataset.serial = it.serial || "";
             combineSel.appendChild(opt);
           });
+
         }catch(err){
           console.error(err);
           combineSel.innerHTML = '<option value="">— Select Combine —</option>';
           combineNote.hidden = false;
-          combineNote.textContent = "Couldn’t load combines from Firestore. Check console for details.";
+          combineNote.textContent = "Couldn’t load combines from Firestore (see console).";
         }
       }
 
       populateCombinesFromFirestore();
 
-      /* ---------- Input formatting ---------- */
       [cw, gw].forEach(inp=>{
         inp.addEventListener("blur", ()=>{
           const raw = inp.value.replace(/[^0-9]/g,"");
@@ -321,7 +305,6 @@
         });
       });
 
-      /* ---------- History ---------- */
       function loadH(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
       function saveH(arr){ localStorage.setItem(LS_KEY, JSON.stringify(arr.slice(0,10))); }
 
@@ -349,13 +332,11 @@
         renderHist();
       });
 
-      /* ---------- Calculation ---------- */
       function calc(){
         const cwv = Number((cw.value||"").replace(/,/g,""));
         const gwv = Number((gw.value||"").replace(/,/g,""));
         if(!(cwv>0 && gwv>0)){ alert("Enter both weights."); return null; }
-
-        const diff = cwv - gwv;               // positive: combine reads high
+        const diff = cwv - gwv;
         const pct = Math.abs(diff) / gwv * 100;
         const status = diff===0 ? "MATCH" : (diff>0 ? "HIGH" : "LOW");
         return { cw: cwv, gw: gwv, pct, status };
@@ -374,10 +355,7 @@
         ev.preventDefault();
 
         const combineId = combineSel.value || "";
-        if(!combineId){
-          alert("Select a combine.");
-          return;
-        }
+        if(!combineId){ alert("Select a combine."); return; }
 
         const out = calc();
         if(!out) return;
