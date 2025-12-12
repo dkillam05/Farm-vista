@@ -2843,151 +2843,161 @@
       window.FVAiReports.renderTrialSummary(els.aiSummary, payload);
     }
 
-    /* ---------- print modal + basic events ---------- */
+   /* ---------- print modal + basic events ---------- */
 
-    function openPrintModal(){
-      if (!STATE.trialDoc){
-        alert('Select a trial first, then choose Print / Save PDF.');
-        return;
-      }
-      if (!els.printModalBackdrop) return;
-      els.printModalBackdrop.classList.remove('modal-hidden');
-      els.printModalBackdrop.setAttribute('aria-hidden','false');
-    }
-
-    function closePrintModal(){
-      if (!els.printModalBackdrop) return;
-      els.printModalBackdrop.classList.add('modal-hidden');
-      els.printModalBackdrop.setAttribute('aria-hidden','true');
-    }
-
-    if (els.btnBack) {
-  els.btnBack.addEventListener('click', () => {
-    if (window.history.length > 1) {
-      window.history.back();
-    } else {
-      // Fallback if user landed here directly
-      location.href = '/Farm-vista/index.html';
-    }
-  });
+function openPrintModal(){
+  if (!STATE.trialDoc){
+    alert('Select a trial first, then choose Print / Save PDF.');
+    return;
+  }
+  if (!els.printModalBackdrop) return;
+  els.printModalBackdrop.classList.remove('modal-hidden');
+  els.printModalBackdrop.setAttribute('aria-hidden','false');
 }
 
+function closePrintModal(){
+  if (!els.printModalBackdrop) return;
+  els.printModalBackdrop.classList.add('modal-hidden');
+  els.printModalBackdrop.setAttribute('aria-hidden','true');
+}
 
-      if (els.btnPrint) {
-        els.btnPrint.addEventListener('click', openPrintModal);
+function wireBasicEvents() {
+  // Back (history-first, fallback to main index)
+  if (els.btnBack) {
+    els.btnBack.addEventListener('click', () => {
+      if (window.history.length > 1) {
+        window.history.back();
+      } else {
+        location.href = '/Farm-vista/index.html';
       }
-      if (els.btnPrintBottom) {
-        els.btnPrintBottom.addEventListener('click', openPrintModal);
-      }
+    });
+  }
 
-      if (els.modalClose) els.modalClose.addEventListener('click', closeFieldModal);
-      if (els.modalBackdrop) {
-        els.modalBackdrop.addEventListener('click', (evt) => {
-          if (evt.target === els.modalBackdrop) closeFieldModal();
-        });
-      }
+  // Print buttons → open chooser modal
+  if (els.btnPrint) {
+    els.btnPrint.addEventListener('click', openPrintModal);
+  }
+  if (els.btnPrintBottom) {
+    els.btnPrintBottom.addEventListener('click', openPrintModal);
+  }
 
-      if (els.photoViewerClose) {
-        els.photoViewerClose.addEventListener('click', closePhotoViewer);
-      }
-      if (els.photoViewerBackdrop) {
-        els.photoViewerBackdrop.addEventListener('click', (evt) => {
-          if (evt.target === els.photoViewerBackdrop) {
-            closePhotoViewer();
-          }
-        });
-      }
+  // Field detail modal close
+  if (els.modalClose) els.modalClose.addEventListener('click', closeFieldModal);
+  if (els.modalBackdrop) {
+    els.modalBackdrop.addEventListener('click', (evt) => {
+      if (evt.target === els.modalBackdrop) closeFieldModal();
+    });
+  }
 
-      if (els.printModalClose){
-        els.printModalClose.addEventListener('click', closePrintModal);
-      }
-      if (els.printModalBackdrop){
-        els.printModalBackdrop.addEventListener('click', (evt) => {
-          if (evt.target === els.printModalBackdrop) closePrintModal();
-        });
-      }
-      if (els.printSummaryBtn){
-        els.printSummaryBtn.addEventListener('click', async () => {
-          closePrintModal();
-          await runSummaryPrint();
-        });
-      }
-      if (els.printDetailedBtn){
-        els.printDetailedBtn.addEventListener('click', () => {
-          closePrintModal();
+  // Photo viewer close
+  if (els.photoViewerClose) {
+    els.photoViewerClose.addEventListener('click', closePhotoViewer);
+  }
+  if (els.photoViewerBackdrop) {
+    els.photoViewerBackdrop.addEventListener('click', (evt) => {
+      if (evt.target === els.photoViewerBackdrop) closePhotoViewer();
+    });
+  }
 
-          if (!STATE.trialId) {
-            alert('Select a trial first, then choose Detailed report.');
-            return;
-          }
+  // Print chooser modal close + actions
+  if (els.printModalClose){
+    els.printModalClose.addEventListener('click', closePrintModal);
+  }
+  if (els.printModalBackdrop){
+    els.printModalBackdrop.addEventListener('click', (evt) => {
+      if (evt.target === els.printModalBackdrop) closePrintModal();
+    });
+  }
+  if (els.printSummaryBtn){
+    els.printSummaryBtn.addEventListener('click', async () => {
+      closePrintModal();
+      await runSummaryPrint();
+    });
+  }
+  if (els.printDetailedBtn){
+    els.printDetailedBtn.addEventListener('click', () => {
+      closePrintModal();
 
-          const url = `/Farm-vista/pages/reports/reports-trial-detailed.html?trialId=${encodeURIComponent(STATE.trialId)}`;
-          window.location.href = url;
-        });
-      }
-
-      document.addEventListener('keydown', (evt) => {
-        if (evt.key === 'Escape') {
-          if (els.photoViewerBackdrop && !els.photoViewerBackdrop.classList.contains('modal-hidden')) {
-            closePhotoViewer();
-            return;
-          }
-          if (els.modalBackdrop && !els.modalBackdrop.classList.contains('modal-hidden')) {
-            closeFieldModal();
-            return;
-          }
-          if (els.printModalBackdrop && !els.printModalBackdrop.classList.contains('modal-hidden')) {
-            closePrintModal();
-          }
-        }
-      });
-
-      if (els.filterYear) {
-        els.filterYear.addEventListener('change', () => {
-          STATE.selectedYear = els.filterYear.value || 'all';
-          populateTrialFilter();
-          clearTrialView();
-        });
+      if (!STATE.trialId) {
+        alert('Select a trial first, then choose Detailed report.');
+        return;
       }
 
-      if (els.filterTrial) {
-        els.filterTrial.addEventListener('change', async () => {
-          const id = els.filterTrial.value || '';
-          STATE.trialId = id || null;
-          if (!STATE.trialId) {
-            clearTrialView();
-            return;
-          }
-          try{
-            if (els.errorState){
-              els.errorState.style.display = 'none';
-              els.errorState.textContent = '';
-            }
-            if (els.metaLine) els.metaLine.textContent = 'Loading trial summary…';
-            await loadTrialData(STATE.trialId);
-            refreshSummaryFromSelection();
-          }catch(err){
-            console.error('Error loading selected trial:', err);
-            clearTrialView();
-            if (els.errorState){
-              els.errorState.style.display = 'block';
-              els.errorState.textContent = 'Error loading the selected trial. Check console or Firestore rules.';
-            }
-          }
-        });
-      }
+      const url = `/Farm-vista/pages/reports/reports-trial-detailed.html?trialId=${encodeURIComponent(STATE.trialId)}`;
+      window.location.href = url;
+    });
+  }
 
-      if (els.filterClear) {
-        els.filterClear.addEventListener('click', () => {
-          STATE.selectedYear = 'all';
-          STATE.trialId = null;
-          if (els.filterYear) els.filterYear.value = 'all';
-          populateTrialFilter();
-          if (els.filterTrial) els.filterTrial.value = '';
-          clearTrialView();
-        });
+  // Esc key closes the top-most open modal
+  document.addEventListener('keydown', (evt) => {
+    if (evt.key === 'Escape') {
+      if (els.photoViewerBackdrop && !els.photoViewerBackdrop.classList.contains('modal-hidden')) {
+        closePhotoViewer();
+        return;
+      }
+      if (els.modalBackdrop && !els.modalBackdrop.classList.contains('modal-hidden')) {
+        closeFieldModal();
+        return;
+      }
+      if (els.printModalBackdrop && !els.printModalBackdrop.classList.contains('modal-hidden')) {
+        closePrintModal();
       }
     }
+  });
+
+  // Filters
+  if (els.filterYear) {
+    els.filterYear.addEventListener('change', () => {
+      STATE.selectedYear = els.filterYear.value || 'all';
+      populateTrialFilter();
+      clearTrialView();
+    });
+  }
+
+  if (els.filterTrial) {
+    els.filterTrial.addEventListener('change', async () => {
+      const id = els.filterTrial.value || '';
+      STATE.trialId = id || null;
+
+      if (!STATE.trialId) {
+        clearTrialView();
+        return;
+      }
+
+      try{
+        if (els.errorState){
+          els.errorState.style.display = 'none';
+          els.errorState.textContent = '';
+        }
+        if (els.metaLine) els.metaLine.textContent = 'Loading trial summary…';
+
+        await loadTrialData(STATE.trialId);
+        refreshSummaryFromSelection();
+      }catch(err){
+        console.error('Error loading selected trial:', err);
+        clearTrialView();
+        if (els.errorState){
+          els.errorState.style.display = 'block';
+          els.errorState.textContent = 'Error loading the selected trial. Check console or Firestore rules.';
+        }
+      }
+    });
+  }
+
+  if (els.filterClear) {
+    els.filterClear.addEventListener('click', () => {
+      STATE.selectedYear = 'all';
+      STATE.trialId = null;
+
+      if (els.filterYear) els.filterYear.value = 'all';
+      populateTrialFilter();
+
+      if (els.filterTrial) els.filterTrial.value = '';
+      clearTrialView();
+    });
+  }
+}
+
 
     /* ---------- boot ---------- */
 
