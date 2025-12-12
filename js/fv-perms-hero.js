@@ -34,10 +34,12 @@
 // Admin protection:
 //  • Role named "Administrator" cannot be deleted (delete button hidden/disabled).
 //
-// NEW (Auto Features):
+// NEW (Auto Features) — NARROWED TO REAL USE:
 //  • QR Scanner Pop-up + Camera Pop-up appear under Extra Features.
-//  • They auto turn ON iff any enabled menu/feature requires them, otherwise auto OFF.
-//  • The toggle button is disabled (locked) because these are dependency-driven.
+//  • They auto turn ON only for the *real* current use-cases:
+//      - QR Scanner Pop-up → ONLY when Equipment Add is allowed (Add permission).
+//      - Camera Pop-up (shell side pop-out) → ONLY when Expenses/Expenditures Add is allowed (Add permission).
+//  • The toggle is disabled (locked) because these are dependency-driven.
 
 import NAV_MENU from '/Farm-vista/js/menu.js';
 
@@ -49,34 +51,60 @@ const CAPABILITIES = [
   { id: 'cap-kpi-grain', label: 'Grain KPI Cards' },
   { id: 'cap-kpi-field-maint', label: 'Field Maintenance KPI Cards' },
 
-  // NEW: dependency-driven shell popups
+  // dependency-driven shell popups (locked)
   { id: 'cap-qr-scanner', label: 'QR Scanner Pop-up', auto: true },
   { id: 'cap-camera-popup', label: 'Camera Pop-up', auto: true },
 ];
 
 /*
-  Capability dependencies:
-  - Best path: set `requiresCaps: ['cap-camera-popup','cap-qr-scanner']` on NAV_MENU items.
-  - Fallback path: heuristic matching on menu item ids/labels for known capture flows.
+  Capability dependencies (NARROW / REAL USE ONLY)
+
+  You said:
+  - Camera toggle should ONLY control the shell side pop-out.
+  - QR is ONLY for Equipment Add (right now).
+  - Camera OCR is ONLY if you can ADD expenses (right now).
+
+  So we do NOT infer from broad menu names like “inventory”, “grain”, etc.
+  We only auto-enable from these “Add” permissions:
+    • Equipment Add -> cap-qr-scanner
+    • Expenses/Expenditures Add -> cap-camera-popup
+
+  Best path (optional later):
+    - put `requiresCaps` on NAV_MENU items.
+    - BUT for now this file enforces your current truth, even if menu.js has no requiresCaps.
 */
-const CAPABILITY_HEURISTICS = [
-  // Camera capture flows
-  {
-    capId: 'cap-camera-popup',
-    idPatterns: [
-      'expend', 'expense', 'receipt', 'ocr',
-      'boundary', 'field-boundary', 'photo', 'camera',
-      'grain-ticket', 'ticket-ocr'
-    ]
-  },
-  // QR scan flows
+const CAPABILITY_DEPENDENCY_RULES = [
   {
     capId: 'cap-qr-scanner',
-    idPatterns: [
-      'qr', 'scan', 'scanner',
-      'label', 'labels',
-      'inventory', 'assets'
-    ]
+    action: 'add',
+    // match only “equipment add” targets (id/label)
+    match: (node) => {
+      const hay = `${(node.id || '').toLowerCase()} ${(node.label || '').toLowerCase()}`;
+      return (
+        hay.includes('equipment') &&
+        (hay.includes(' add') || hay.includes('add ') || hay.includes('equipment-add') || hay.includes('equip add'))
+      ) || (
+        // common exact ids we’ve used/seen in FarmVista patterns
+        ['equipment-add','equip-add','eq-add','equipment_add'].includes((node.id || '').toLowerCase())
+      );
+    },
+    pretty: 'Equipment Add'
+  },
+  {
+    capId: 'cap-camera-popup',
+    action: 'add',
+    // match only “expenses/expenditures add” targets (id/label)
+    match: (node) => {
+      const hay = `${(node.id || '').toLowerCase()} ${(node.label || '').toLowerCase()}`;
+      const isExpense = hay.includes('expense') || hay.includes('expenditure');
+      const isAdd = hay.includes(' add') || hay.includes('add ') || hay.includes('-add') || hay.includes('_add');
+      if (isExpense && isAdd) return true;
+
+      // common exact ids
+      const id = (node.id || '').toLowerCase();
+      return ['expenses-add','expense-add','expenditures-add','expenditure-add','expenses_add','expenditures_add'].includes(id);
+    },
+    pretty: 'Expenses Add'
   }
 ];
 
@@ -109,7 +137,7 @@ function normalizeEntry(v) {
   };
 }
 
-/* -------------------- NAV index (now preserves requiresCaps) -------------------- */
+/* -------------------- NAV index (preserves requiresCaps) -------------------- */
 
 function buildNavIndex(menu) {
   const byParent = {};
@@ -126,7 +154,6 @@ function buildNavIndex(menu) {
         label: it.label || it.id,
         depth,
         parent,
-        // NEW: allow NAV_MENU items to declare required capabilities directly
         requiresCaps: Array.isArray(it.requiresCaps) ? it.requiresCaps.slice() : []
       };
 
@@ -160,9 +187,7 @@ class FVPermsHero extends HTMLElement {
     this._root = this; // no shadow; share theme CSS
     this._hasRendered = false;
 
-    // Which groups (Equipment, Grain, etc.) are expanded
     this._openGroups = new Set();
-    // Which leaf rows (sub menus like eq-tractors, eq-trucks) are expanded
     this._openRows = new Set();
     this._navIndex = { byParent: {}, byId: {} };
 
@@ -195,6 +220,12 @@ class FVPermsHero extends HTMLElement {
 
   /* ---------- Summary helpers ---------- */
 
+  _isActionEnabled(perms, id, action) {
+    if (!perms || !id) return false;
+    const p = normalizeEntry(perms[id]);
+    return !!p[action];
+  }
+
   _computeSummary() {
     const cfg = this._config;
     const menu = NAV_MENU || { items: [] };
@@ -208,7 +239,7 @@ class FVPermsHero extends HTMLElement {
     const totalNav = allNodes.length;
     let enabledNav = 0;
 
-    // Track which capabilities are *required* by any enabled menu entry
+    // Track which capabilities are *required* by current permissions
     const requiredCaps = new Set();
     const requiredBy = {}; // capId -> {count, examples[]}
 
@@ -223,21 +254,32 @@ class FVPermsHero extends HTMLElement {
       }
     };
 
+    // Count enabled menus (view-based) like before
     allNodes.forEach(n => {
       const on = normalizePermForSummary(perms, n.id);
-      if (on) {
-        enabledNav++;
+      if (on) enabledNav++;
+    });
 
-        // Direct declaration support from NAV_MENU (preferred)
-        (n.requiresCaps || []).forEach(capId => addReq(capId, n.label));
+    // 1) Direct declaration support from NAV_MENU (if you ever add requiresCaps there)
+    allNodes.forEach(n => {
+      const isOn = normalizePermForSummary(perms, n.id);
+      if (!isOn) return;
+      (n.requiresCaps || []).forEach(capId => addReq(capId, n.label));
+    });
 
-        // Heuristic fallback (id + label)
-        const hay = `${(n.id || '').toLowerCase()} ${(n.label || '').toLowerCase()}`;
-        CAPABILITY_HEURISTICS.forEach(rule => {
-          const hit = (rule.idPatterns || []).some(p => hay.includes(p));
-          if (hit) addReq(rule.capId, n.label);
-        });
-      }
+    // 2) NARROW dependency rules (Add-permission based)
+    allNodes.forEach(n => {
+      CAPABILITY_DEPENDENCY_RULES.forEach(rule => {
+        if (!rule || !rule.capId) return;
+        if (typeof rule.match !== 'function') return;
+
+        // Only trigger if the specific action (Add) is enabled for that menu node
+        if (!rule.match(n)) return;
+        const action = rule.action || 'add';
+        if (this._isActionEnabled(perms, n.id, action)) {
+          addReq(rule.capId, n.label || rule.pretty || n.id);
+        }
+      });
     });
 
     const totalCaps = CAPABILITIES.length;
@@ -652,17 +694,14 @@ class FVPermsHero extends HTMLElement {
     const req = (requiredBy && requiredBy[id]) ? requiredBy[id] : null;
     const hasNeed = !!(req && req.count > 0);
 
-    // Auto caps are locked and dependency-driven:
-    // - If needed -> On + locked
-    // - If not needed -> Off + locked
     const disabled = isAuto;
     const activeClass = isOn ? 'perm-pill-on' : 'perm-pill-off';
     const text = isAuto ? (hasNeed ? 'On' : 'Off') : (isOn ? 'On' : 'Off');
 
     const reqHint = isAuto
       ? (hasNeed
-          ? `<div class="cap-hint">Auto: required by ${req.count} enabled menu${req.count === 1 ? '' : 's'}${(req.examples && req.examples.length) ? ` (${req.examples.join(', ')})` : ''}.</div>`
-          : `<div class="cap-hint">Auto: not required by any enabled menus.</div>`
+          ? `<div class="cap-hint">Auto: required by ${req.count} enabled permission${req.count === 1 ? '' : 's'}${(req.examples && req.examples.length) ? ` (${req.examples.join(', ')})` : ''}.</div>`
+          : `<div class="cap-hint">Auto: not required by any enabled permissions.</div>`
         )
       : '';
 
@@ -920,7 +959,7 @@ class FVPermsHero extends HTMLElement {
           letter-spacing: 0.2px;
         }
 
-        /* NEW: simple “something on here” dot for leaf rows (Weather etc.) */
+        /* simple “something on here” dot for leaf rows */
         .perm-on-dot{
           width: 7px;
           height: 7px;
@@ -1225,7 +1264,7 @@ class FVPermsHero extends HTMLElement {
             <div class="perm-matrix-sub">
               Expand a menu, then expand a sub-menu if you need to change its actions.
               Group controls and “All” cascade to sub-menus. Extra Features use simple On/Off.
-              QR/Camera pop-ups auto-toggle based on enabled items that need them.
+              QR/Camera pop-ups are auto-locked and only enable for real current use-cases (Equipment Add / Expenses Add).
             </div>
           </div>
           <div class="perm-matrix-body">
