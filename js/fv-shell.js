@@ -7,27 +7,11 @@
                        otherwise, navigates to Expenditures Add (quick-camera mode).
        • Grain Ticket (Coming Soon) → disabled.
    - PTR: Top-zone only, auth/context revalidation, page & data hooks, begin/end events.
-
-   SAFE QC ACL (right-side drawer/rail):
-   - Uses capability IDs: cap-qr-scanner, cap-camera-popup (from perms hero).
-   - NEVER hides the rail until auth + FVUserContext are ready.
-   - After auth/context are ready:
-       • If neither cap is enabled => hide the rail
-       • If one is enabled => show rail and only show that item
-       • If both enabled => show rail and both items
-   - Seatbelt override:
-       ?qctest=1 -> force show rail + both items (for recovery/testing)
-       ?qctest=0 -> force hide rail
 */
 (function () {
   // ====== TUNABLES ======
   const AUTH_MAX_MS = 5000;
   const MENU_MAX_MS = 3000;
-
-  // Capability IDs (must match fv-perms-hero.js)
-  const CAP_QR = 'cap-qr-scanner';
-  const CAP_CAMERA = 'cap-camera-popup';
-  const QC_TEST_PARAM = 'qctest'; // 1=force show, 0=force hide
 
   // Figure out whether we're in beta (/Farm-vista/beta/...) or live (/Farm-vista/...)
   const FV_ROOT = location.pathname.startsWith('/Farm-vista/beta/')
@@ -405,7 +389,7 @@
     </button>
     <div class="qc-panel js-qc-panel" role="menu" aria-label="Camera options">
       <a href="#" class="qc-item js-qc-scan" role="menuitem"><span class="qc-ico">▣</span><span>QR Scanner</span></a>
-      <div class="qc-sep js-qc-sep" aria-hidden="true"></div>
+      <div class="qc-sep" aria-hidden="true"></div>
       <a href="#" class="qc-item js-qc-camera" role="menuitem"><span class="qc-ico">📷</span><span>Camera</span></a>
     </div>
   </div>
@@ -465,10 +449,6 @@
       this._scrimTouchBlocker = (e)=>{ e.preventDefault(); e.stopPropagation(); };
 
       this._ptrDisabled = false;
-
-      // SAFE QC ACL state
-      this._qcReady = false;              // becomes true only after auth + FVUserContext are ready
-      this._qcCaps = { qr:true, camera:true }; // permissive until ready (safe default)
     }
 
     connectedCallback(){
@@ -494,7 +474,6 @@
       this._qcHandle = r.querySelector('.js-qc-handle');
       this._qcPanel  = r.querySelector('.js-qc-panel');
       this._qcScan   = r.querySelector('.js-qc-scan');
-      this._qcSep    = r.querySelector('.js-qc-sep');
       this._qcCamera = r.querySelector('.js-qc-camera');
 
       /* Camera popup refs */
@@ -595,10 +574,6 @@
       this._wireAuthLogout(this.shadowRoot);
       this._initConnectionStatus();
       this._watchUserContextForSwaps();
-
-      // SAFE: only after auth + FVUserContext are ready, apply QC capability gating
-      this._qcReady = true;
-      this._syncQuickCameraACL('boot');
 
       if (this._boot) this._boot.hidden = true;
       sessionStorage.setItem('fv:boot:hydrated', '1');
@@ -725,13 +700,7 @@
       const update = async ()=>{
         const { uid, roleHash } = this._currentUIDAndRoleHash();
         const changed = (!!uid && uid !== this._lastUID) || (!!roleHash && roleHash !== this._lastRoleHash);
-
-        // SAFE: even if the hash didn’t change, allowedIds CAN change (role edits).
-        // Keep QC rail synced whenever context notifies.
-        if (!changed) {
-          if (this._qcReady) this._syncQuickCameraACL('ctx-ping');
-          return;
-        }
+        if (!changed) return;
 
         sessionStorage.removeItem('fv:boot:hydrated');
         if (this._boot) this._boot.hidden = false;
@@ -755,8 +724,6 @@
         this._setLogoutLabelNow();
         if (this._boot) this._boot.hidden = true;
         sessionStorage.setItem('fv:boot:hydrated', '1');
-
-        if (this._qcReady) this._syncQuickCameraACL('ctx-swap');
       };
 
       try { if (window.FVUserContext && typeof window.FVUserContext.onChange === 'function') window.FVUserContext.onChange(update); } catch {}
@@ -892,9 +859,6 @@
 
       this._renderMenu(cfgToRender);
       this._menuPainted = true;
-
-      // If we’re already in the ready state, repainting menu is a great time to re-sync QC caps too.
-      if (this._qcReady) this._syncQuickCameraACL('menu-repaint');
     }
 
     _renderMenu(cfg){
@@ -1091,10 +1055,6 @@
 
     _openCameraModal(){
       if (!this._cameraModal) return;
-
-      // SAFE: if QC ACL says camera is off, do nothing (don’t break anything else)
-      if (this._qcReady && !this._qcCaps.camera) return;
-
       this.classList.add('camera-open');
       this._syncScrollLock();
       const btn = this._cameraReceiptBtn;
@@ -1346,103 +1306,16 @@
     /* ============================== */
     /* Quick Camera interactions      */
     /* ============================== */
-
-    _getQCForce(){
-      try{
-        const url = new URL(location.href);
-        const v = url.searchParams.get(QC_TEST_PARAM);
-        if (v === '1') return 'show';
-        if (v === '0') return 'hide';
-        return null;
-      }catch{ return null; }
-    }
-
-    _getAllowedIds(){
-      try{
-        const ctx = window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get();
-        const ids = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
-        return ids;
-      }catch{ return []; }
-    }
-
-    _syncQuickCameraACL(reason){
-      if (!this._qcRail) return;
-
-      // If not mobile pointer, keep it hidden as before
-      const isCoarse = window.matchMedia && window.matchMedia('(pointer:coarse)').matches;
-      if (!isCoarse) {
-        this._qcRail.style.display = 'none';
-        return;
-      }
-
-      // Seatbelt override (recovery)
-      const force = this._getQCForce();
-      if (force === 'hide') {
-        this._qcToggle(false);
-        this._closeCameraModal();
-        this._qcRail.style.display = 'none';
-        return;
-      }
-      if (force === 'show') {
-        this._qcCaps = { qr:true, camera:true };
-        this._qcRail.style.display = 'block';
-        if (this._qcScan) this._qcScan.style.display = '';
-        if (this._qcCamera) this._qcCamera.style.display = '';
-        if (this._qcSep) this._qcSep.style.display = '';
-        return;
-      }
-
-      // SAFE: until we’re ready (auth + context), do NOT hide the rail.
-      if (!this._qcReady) {
-        this._qcCaps = { qr:true, camera:true };
-        this._qcRail.style.display = 'block';
-        if (this._qcScan) this._qcScan.style.display = '';
-        if (this._qcCamera) this._qcCamera.style.display = '';
-        if (this._qcSep) this._qcSep.style.display = '';
-        return;
-      }
-
-      // Now we are allowed to hide/show based on capabilities
-      const ids = this._getAllowedIds();
-      const set = new Set(ids || []);
-      const qrOn = set.has(CAP_QR);
-      const camOn = set.has(CAP_CAMERA);
-
-      this._qcCaps = { qr: !!qrOn, camera: !!camOn };
-
-      // Close the panel if we’re about to hide things
-      this._qcToggle(false);
-
-      if (!qrOn && !camOn) {
-        // If neither enabled, hide the whole rail
-        this._closeCameraModal();
-        this._qcRail.style.display = 'none';
-        return;
-      }
-
-      // Show rail
-      this._qcRail.style.display = 'block';
-
-      // Show only allowed items
-      if (this._qcScan) this._qcScan.style.display = qrOn ? '' : 'none';
-      if (this._qcCamera) this._qcCamera.style.display = camOn ? '' : 'none';
-      if (this._qcSep) this._qcSep.style.display = (qrOn && camOn) ? '' : 'none';
-    }
-
     _initQuickCamera(){
       if (!this._qcRail || !this._qcHandle) return;
 
-      // mobile only guard (kept)
+      // mobile only guard
       const isCoarse = window.matchMedia && window.matchMedia('(pointer:coarse)').matches;
       if (!isCoarse) this._qcRail.style.display = 'none';
 
       // Toggle panel
       this._qcHandle.addEventListener('click', (e)=>{
         e.preventDefault();
-
-        // If ACL hid the rail, do nothing
-        if (this._qcRail && this._qcRail.style.display === 'none') return;
-
         const on = this._qcRail.getAttribute('aria-expanded') !== 'true';
         this._qcToggle(on);
       });
@@ -1462,10 +1335,6 @@
       if (this._qcScan) this._qcScan.addEventListener('click', (e)=>{
         e.preventDefault();
         e.stopPropagation();
-
-        // If ready + QR not allowed, ignore
-        if (this._qcReady && !this._qcCaps.qr) return;
-
         if (scanURL) location.href = scanURL;
         else this.dispatchEvent(new CustomEvent('fv:open:qr', { bubbles:true, composed:true }));
         this._qcToggle(false);
@@ -1474,9 +1343,6 @@
       if (this._qcCamera) this._qcCamera.addEventListener('click', (e)=>{
         e.preventDefault();
         e.stopPropagation();
-
-        // If ready + Camera not allowed, ignore
-        if (this._qcReady && !this._qcCaps.camera) return;
 
         // New behavior: open FarmVista-styled popup instead of camera directly
         this._qcToggle(false);
