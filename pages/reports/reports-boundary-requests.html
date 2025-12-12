@@ -296,7 +296,7 @@
       font-size:0.92rem;
     }
 
-    /* NEW: photos section inside detail panel */
+    /* photos section inside detail panel */
     .wo-detail-photos{
       margin-top:8px;
       padding-top:8px;
@@ -379,7 +379,7 @@
       margin-left:6px;
     }
 
-    /* NEW: detail actions (mark completed + delete) */
+    /* detail actions (mark completed + delete) */
     .wo-detail-actions{
       margin-top:10px;
       display:flex;
@@ -439,7 +439,7 @@
       visibility:hidden;
     }
 
-    /* NEW: full-screen photo modal */
+    /* full-screen photo modal */
     .photo-modal-backdrop{
       position:fixed;
       inset:0;
@@ -526,7 +526,11 @@
 
     const CONFIG = {
       COLLECTION_PATH: 'boundary_requests',
-      COMPANY_DOC_PATH: ['company','main']
+      COMPANY_DOC_PATH: ['company','main'],
+
+      // ✅ RTK lookups (used to show Tower Name / ID / Frequency per field)
+      FIELDS_COLLECTION: 'fields',
+      TOWERS_COLLECTION: 'rtk_towers'
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
@@ -538,11 +542,23 @@
       selectedId: null,
       db: null,
       company: null,
-      farmMap: new Map()
+      farmMap: new Map(),
+
+      // ✅ RTK caches
+      towersById: new Map(),      // towerId -> { id, name, freq }
+      fieldToTower: new Map()     // key(farm|field) -> { towerId?, name?, freq? }
     };
 
     function normalizeStatus(s){
       return String(s || '').trim().replace(/\.+$/,'').toLowerCase();
+    }
+
+    function normKey(s){
+      return String(s || '').trim().toLowerCase();
+    }
+
+    function makeFieldKey(farmIdOrName, fieldName){
+      return `${normKey(farmIdOrName)}|${normKey(fieldName)}`;
     }
 
     function formatDate(d){
@@ -573,6 +589,144 @@
     function getWorkingItems(){
       return (STATE.filteredItems && STATE.filteredItems.length) ? STATE.filteredItems : STATE.items;
     }
+
+    function escapeHtml(str){
+      return String(str || '').replace(/[&<>"']/g, m => (
+        { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]
+      ));
+    }
+
+    /* ===========================
+       ✅ RTK helpers
+       =========================== */
+
+    function pickTowerFromAnyShape(obj){
+      if(!obj || typeof obj !== 'object') return null;
+
+      // accepted keys (we’ll normalize common variations)
+      const name =
+        obj.name ?? obj.towerName ?? obj.rtkTowerName ?? obj.stationName ?? obj.label ?? '';
+
+      const id =
+        obj.id ?? obj.towerId ?? obj.rtkTowerId ?? obj.stationId ?? obj.stationID ?? '';
+
+      const freq =
+        obj.freq ?? obj.frequency ?? obj.rtkFreq ?? obj.rtkFrequency ?? obj.radioFreq ?? '';
+
+      const out = {
+        name: String(name || '').trim(),
+        id: String(id || '').trim(),
+        freq: String(freq || '').trim()
+      };
+
+      if(!out.name && !out.id && !out.freq) return null;
+      return out;
+    }
+
+    function getRtkForRequest(d){
+      // 1) If the request already stores it, prefer that
+      const direct =
+        pickTowerFromAnyShape(d.rtkTower) ||
+        pickTowerFromAnyShape(d.rtk) ||
+        pickTowerFromAnyShape(d.tower);
+
+      if(direct){
+        return {
+          towerName: direct.name || '',
+          towerId: direct.id || '',
+          towerFreq: direct.freq || ''
+        };
+      }
+
+      // 2) Try to find via fields collection mapping
+      const farmKey = d.farmId || d.farm || '';
+      const fieldKey = d.field || '';
+      const key = makeFieldKey(farmKey, fieldKey);
+
+      const mapped = STATE.fieldToTower.get(key);
+      if(mapped){
+        // if mapped provides towerId, hydrate from towers cache
+        if(mapped.towerId && STATE.towersById.has(mapped.towerId)){
+          const t = STATE.towersById.get(mapped.towerId);
+          return {
+            towerName: t.name || mapped.name || '',
+            towerId: t.id || mapped.towerId || '',
+            towerFreq: t.freq || mapped.freq || ''
+          };
+        }
+        return {
+          towerName: mapped.name || '',
+          towerId: mapped.towerId || '',
+          towerFreq: mapped.freq || ''
+        };
+      }
+
+      // 3) No data
+      return { towerName:'', towerId:'', towerFreq:'' };
+    }
+
+    async function loadRtkLookups(){
+      const db = STATE.db;
+
+      // Towers
+      try{
+        const tSnap = await getDocs(collection(db, CONFIG.TOWERS_COLLECTION));
+        STATE.towersById = new Map(
+          tSnap.docs.map(s => {
+            const d = s.data() || {};
+            const picked = pickTowerFromAnyShape({ id: s.id, ...d }) || { id:s.id, name:'', freq:'' };
+            const tower = {
+              id: picked.id || s.id,
+              name: picked.name || d.name || d.label || '',
+              freq: picked.freq || d.freq || d.frequency || ''
+            };
+            return [String(tower.id), tower];
+          })
+        );
+      }catch(e){
+        console.warn('[boundary-report] RTK towers lookup failed (ok if not set up yet):', e);
+        STATE.towersById = new Map();
+      }
+
+      // Fields -> Tower mapping
+      try{
+        const fSnap = await getDocs(collection(db, CONFIG.FIELDS_COLLECTION));
+        const map = new Map();
+
+        fSnap.docs.forEach(s => {
+          const d = s.data() || {};
+
+          // Try common field naming keys
+          const farmIdOrName = d.farmId || d.farm || d.farmName || '';
+          const fieldName = d.field || d.fieldName || d.name || d.label || '';
+          if(!farmIdOrName || !fieldName) return;
+
+          const key = makeFieldKey(farmIdOrName, fieldName);
+
+          // Common tower keys on field docs
+          const towerId =
+            d.rtkTowerId ?? d.towerId ?? d.rtkId ?? d.stationId ?? d.stationID ?? '';
+
+          const embedded = pickTowerFromAnyShape(d.rtkTower) || pickTowerFromAnyShape(d.tower) || null;
+
+          // Store the best available mapping
+          if(towerId){
+            map.set(key, { towerId: String(towerId).trim(), name:'', freq:'' });
+          } else if(embedded){
+            map.set(key, { towerId: embedded.id || '', name: embedded.name || '', freq: embedded.freq || '' });
+          }
+        });
+
+        STATE.fieldToTower = map;
+      }catch(e){
+        console.warn('[boundary-report] Fields lookup failed (ok if not set up yet):', e);
+        STATE.fieldToTower = new Map();
+      }
+    }
+
+    /* ===========================
+       Rendering
+       =========================== */
 
     function renderList(){
       const listEl  = $('.wo-list');
@@ -612,6 +766,11 @@
         const createdAt = d._createdAtDate || null;
         const whenStr   = formatDate(createdAt);
 
+        const rtk = getRtkForRequest(d);
+        const rtkPill = (rtk.towerName || rtk.towerId || rtk.towerFreq)
+          ? `<span><span class="wo-meta-label">RTK</span> ${escapeHtml(rtk.towerName || rtk.towerId || 'Assigned')}${rtk.towerFreq ? ` · ${escapeHtml(rtk.towerFreq)}` : ''}</span>`
+          : '';
+
         const card = document.createElement('article');
         card.className = 'wo-card';
         card.dataset.id = item.id;
@@ -620,16 +779,17 @@
           <div class="wo-row-top">
             <div class="wo-main">
               <div class="wo-title">
-                ${field}${farm ? ` · <span>${farm}</span>` : ''}
+                ${escapeHtml(field)}${farm ? ` · <span>${escapeHtml(farm)}</span>` : ''}
               </div>
               <div class="wo-sub">
-                ${scope || 'Boundary correction requested'}
+                ${escapeHtml(scope || 'Boundary correction requested')}
               </div>
               <div class="wo-meta">
-                ${bType ? `<span><span class="wo-meta-label">Type</span> ${bType}</span>` : ''}
-                ${status ? `<span><span class="wo-meta-label">Status</span> ${status}</span>` : ''}
-                ${createdBy ? `<span><span class="wo-meta-label">By</span> ${createdBy}</span>` : ''}
-                ${whenStr ? `<span><span class="wo-meta-label">Submitted</span> ${whenStr}</span>` : ''}
+                ${bType ? `<span><span class="wo-meta-label">Type</span> ${escapeHtml(bType)}</span>` : ''}
+                ${status ? `<span><span class="wo-meta-label">Status</span> ${escapeHtml(status)}</span>` : ''}
+                ${createdBy ? `<span><span class="wo-meta-label">By</span> ${escapeHtml(createdBy)}</span>` : ''}
+                ${whenStr ? `<span><span class="wo-meta-label">Submitted</span> ${escapeHtml(whenStr)}</span>` : ''}
+                ${rtkPill}
               </div>
             </div>
           </div>
@@ -665,7 +825,6 @@
       }
     }
 
-    // ===== NEW: photo modal helpers =====
     function openPhotoModal(photo){
       const backdrop = $('#photoModal');
       const imgEl = $('#photoModalImg');
@@ -695,7 +854,6 @@
         capEl.textContent = '';
       }
     }
-    // ====================================
 
     function renderDetails(){
       const panel = $('.wo-detail-panel');
@@ -718,6 +876,8 @@
       const notes = d.notes || '';
       const photos = Array.isArray(d.photos) ? d.photos.filter(p => p && (p.url || p.path)) : [];
 
+      const rtk = getRtkForRequest(d);
+
       panel.dataset.id = item.id;
       $('.wo-detail-title', panel).textContent =
         farm ? `${field} · ${farm}` : field;
@@ -726,36 +886,47 @@
       grid.innerHTML = `
         <div>
           <div class="wo-detail-item-label">Scope</div>
-          <div class="wo-detail-item-value">${scope || 'Not specified'}</div>
+          <div class="wo-detail-item-value">${escapeHtml(scope || 'Not specified')}</div>
         </div>
         <div>
           <div class="wo-detail-item-label">Boundary Type</div>
-          <div class="wo-detail-item-value">${bType || 'Not specified'}</div>
+          <div class="wo-detail-item-value">${escapeHtml(bType || 'Not specified')}</div>
         </div>
+
+        <div>
+          <div class="wo-detail-item-label">RTK Tower</div>
+          <div class="wo-detail-item-value">${escapeHtml(rtk.towerName || 'Not set')}</div>
+        </div>
+        <div>
+          <div class="wo-detail-item-label">Tower ID</div>
+          <div class="wo-detail-item-value">${escapeHtml(rtk.towerId || '—')}</div>
+        </div>
+        <div>
+          <div class="wo-detail-item-label">Frequency</div>
+          <div class="wo-detail-item-value">${escapeHtml(rtk.towerFreq || '—')}</div>
+        </div>
+
         <div>
           <div class="wo-detail-item-label">Submitted By</div>
           <div class="wo-detail-item-value">
-            ${submittedBy || 'Unknown'}
-            ${submittedByEmail ? `<br><span style="opacity:.8">${submittedByEmail}</span>` : ''}
+            ${escapeHtml(submittedBy || 'Unknown')}
+            ${submittedByEmail ? `<br><span style="opacity:.8">${escapeHtml(submittedByEmail)}</span>` : ''}
           </div>
         </div>
         <div>
           <div class="wo-detail-item-label">Submitted</div>
-          <div class="wo-detail-item-value">${createdStr || 'Unknown'}</div>
+          <div class="wo-detail-item-value">${escapeHtml(createdStr || 'Unknown')}</div>
         </div>
       `;
 
-      // Notes
       $('.wo-detail-notes-body', panel).textContent = notes || 'No notes recorded for this request.';
 
-      // Status footer
       const footer = $('.wo-detail-footer', panel);
       footer.innerHTML = `
         Current status:
-        <span class="wo-detail-pill">${status || 'unknown'}</span>
+        <span class="wo-detail-pill">${escapeHtml(status || 'unknown')}</span>
       `;
 
-      // NEW: Mark Completed button state
       const markBtn = $('#btnMarkCompleted');
       if (markBtn){
         const isOpen = normalizeStatus(status) === 'open';
@@ -765,7 +936,6 @@
           : (status ? `Status: ${status}` : 'Mark completed');
       }
 
-      // NEW: Photos thumbnails
       const photosWrap = $('.wo-detail-photos', panel);
       const photosGrid = $('#woDetailPhotosGrid');
       if (photosWrap && photosGrid){
@@ -890,13 +1060,17 @@
         }
 
         if(q){
+          const rtk = getRtkForRequest(d);
           const hay = [
             d.farm,
             d.field,
             d.scope,
             d.notes,
             d.submittedBy,
-            d.submittedByEmail
+            d.submittedByEmail,
+            rtk.towerName,
+            rtk.towerId,
+            rtk.towerFreq
           ].join(' ').toLowerCase();
           if(!hay.includes(q)) return false;
         }
@@ -942,12 +1116,6 @@
         STATE.company = { name:'', address:'', phone:'', email:'' };
       }
       return STATE.company;
-    }
-
-    function escapeHtml(str){
-      return String(str || '').replace(/[&<>"']/g, m => (
-        { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]
-      ));
     }
 
     function extractFieldNumber(field){
@@ -1063,7 +1231,6 @@
         grouped
       });
 
-      // print via hidden iframe, no new tab
       let iframe = document.getElementById('fv-print-frame');
       if (!iframe){
         iframe = document.createElement('iframe');
@@ -1305,7 +1472,6 @@
     tr:nth-child(even) td{
       background:#F9FAFB;
     }
-    .cell-right{text-align:right;}
     .notes{white-space:pre-wrap;}
     .report-footer{
       margin-top:18px;
@@ -1410,11 +1576,14 @@
               <table>
                 <thead>
                   <tr>
-                    <th style="width:12%">Field</th>
-                    <th style="width:9%">Scope</th>
+                    <th style="width:11%">Field</th>
+                    <th style="width:10%">Scope</th>
                     <th style="width:9%">Type</th>
-                    <th style="width:9%">Status</th>
-                    <th style="width:18%">Submitted By</th>
+                    <th style="width:8%">Status</th>
+                    <th style="width:14%">RTK Tower</th>
+                    <th style="width:10%">Tower ID</th>
+                    <th style="width:10%">Freq</th>
+                    <th style="width:16%">Submitted By</th>
                     <th style="width:12%">Date</th>
                     <th>Notes</th>
                   </tr>
@@ -1424,12 +1593,16 @@
                     const d = it.data;
                     const created = d._createdAtDate || null;
                     const submitLine = (d.submittedBy || '') + (d.submittedByEmail ? ' · ' + d.submittedByEmail : '');
+                    const rtk = getRtkForRequest(d);
                     return `
                       <tr>
                         <td>${escapeHtml(d.field || '')}</td>
                         <td>${escapeHtml(d.scope || '')}</td>
                         <td>${escapeHtml(d.boundaryType || '')}</td>
                         <td>${escapeHtml(d.status || '')}</td>
+                        <td>${escapeHtml(rtk.towerName || '')}</td>
+                        <td>${escapeHtml(rtk.towerId || '')}</td>
+                        <td>${escapeHtml(rtk.towerFreq || '')}</td>
                         <td>${escapeHtml(submitLine || '')}</td>
                         <td>${escapeHtml(created ? formatDate(created) : '')}</td>
                         <td class="notes">${escapeHtml(d.notes || '')}</td>
@@ -1470,7 +1643,6 @@
       }
       const currentStatus = item.data.status || '';
       if (normalizeStatus(currentStatus) !== 'open'){
-        // Already not open; nothing to do
         return;
       }
 
@@ -1483,7 +1655,6 @@
         item.data.status = 'Completed';
         item.data.updatedAt = new Date();
 
-        // Re-apply filters + refresh list + details
         applyFilters();
         renderDetails();
       }catch(err){
@@ -1533,7 +1704,6 @@
         clearDetails();
       });
 
-      // NEW: detail actions
       const markBtn = $('#btnMarkCompleted');
       if (markBtn){
         markBtn.addEventListener('click', handleMarkCompleted);
@@ -1543,7 +1713,6 @@
         deleteBtn.addEventListener('click', handleDeleteRequest);
       }
 
-      // NEW: photo modal wiring
       const photoModal = $('#photoModal');
       const photoModalClose = $('#photoModalClose');
       if (photoModal && photoModalClose){
@@ -1560,8 +1729,12 @@
         });
       }
 
+      // Load requests first (so filters work even if RTK lookups aren't configured)
       await loadBoundaryRequests();
       populateFarmFilterFromItems();
+
+      // ✅ Then load RTK lookups and re-render so tower info appears
+      await loadRtkLookups();
 
       const statusSel = $('#filterStatus');
       const farmSel   = $('#filterFarm');
@@ -1642,7 +1815,7 @@
                 id="filterSearch"
                 class="filter-input"
                 type="search"
-                placeholder="Search field, notes, submitter…"
+                placeholder="Search field, notes, submitter, RTK…"
               />
             </div>
 
@@ -1670,7 +1843,6 @@
               <!-- filled by JS -->
             </div>
 
-            <!-- NEW: photos row -->
             <div class="wo-detail-photos">
               <div class="wo-detail-photos-label">Photos</div>
               <div class="wo-detail-photos-grid" id="woDetailPhotosGrid"></div>
@@ -1685,7 +1857,6 @@
               <!-- status pill by JS -->
             </div>
 
-            <!-- NEW: mark completed + delete actions -->
             <div class="wo-detail-actions">
               <div class="wo-detail-actions-left">
                 <button
@@ -1725,7 +1896,6 @@
       </section>
     </div>
 
-    <!-- NEW: image preview modal -->
     <div id="photoModal" class="photo-modal-backdrop" hidden>
       <div class="photo-modal" role="dialog" aria-modal="true" aria-label="Photo preview">
         <div class="photo-modal-header">
@@ -1739,7 +1909,6 @@
       </div>
     </div>
 
-    <!-- Hidden iframe used for print so we don't open a new tab -->
     <iframe id="fv-print-frame"></iframe>
   </fv-shell>
 </body>
