@@ -29,7 +29,8 @@
       padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
     }
 
-    .card{
+    /* ✅ Match Grain Bin: use calc-card (not card) */
+    .calc-card{
       border:1px solid var(--border);
       border-radius:14px;
       background:var(--surface);
@@ -38,7 +39,7 @@
       margin-bottom: var(--page-bottom-gap);
     }
 
-    /* ✅ Match the “better” calculator hero header style (icon + title + subtext) */
+    /* ✅ Match Grain Bin header */
     .card-head{
       display:flex; align-items:center; gap:12px; padding:14px 16px;
       background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
@@ -47,7 +48,6 @@
     .card-head .icon{ width:28px; height:28px; color:var(--accent); }
     .card-head h1{ margin:0; font-size:clamp(20px,3.2vw,26px); line-height:1.2; }
     .muted{ color:var(--muted,#67706B); }
-    .sub{ margin-top:4px; font-size:13px; line-height:1.35; color:var(--muted,#67706B); }
 
     form{ padding:16px; display:grid; gap:12px; }
     .grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
@@ -64,7 +64,6 @@
     .ctrl input{ width:100%; border:0; outline:0; background:transparent; color:var(--text); }
     .unit{ font-size:12px; color:var(--muted); white-space:nowrap; }
 
-    /* Dropdowns: single-box */
     .select-box{
       width:100%;
       appearance:none;
@@ -124,7 +123,7 @@
 <body>
   <fv-shell>
     <div class="wrap">
-      <div class="card">
+      <div class="calc-card">
         <div class="card-head">
           <div class="icon" aria-hidden="true">
             <!-- Gear icon -->
@@ -135,7 +134,7 @@
           </div>
           <div>
             <h1>Combine Yield Calibration</h1>
-            <div class="sub">Pick a combine and crop, enter the monitor’s <strong>Combine Weight</strong> and the scale’s <strong>Grain Cart Weight</strong>. We’ll tell you if the monitor reads high/low and by what percent. Last 10 are saved locally.</div>
+            <div class="muted">Pick a combine and crop, enter the monitor’s <strong>Combine Weight</strong> and the scale’s <strong>Grain Cart Weight</strong>. We’ll tell you if the monitor reads high/low and by what percent. Last 10 are saved locally.</div>
           </div>
         </div>
 
@@ -207,11 +206,11 @@
   <script type="module">
     (function(){
       "use strict";
-      if(window.__FV_COMBINE_CALIB_V5__) return; window.__FV_COMBINE_CALIB_V5__=true;
+      if(window.__FV_COMBINE_CALIB_V6__) return; window.__FV_COMBINE_CALIB_V6__=true;
 
       const $ = id => document.getElementById(id);
       const fmt = (n, d=0) => Number(n).toLocaleString(undefined,{maximumFractionDigits:d});
-      const LS_KEY = "fv_calc_combine_calibration_history_v5";
+      const LS_KEY = "fv_calc_combine_calibration_history_v6";
 
       const combineSel = $("combine"), cropSel = $("crop");
       const cw = $("cw"), gw = $("gw");
@@ -219,12 +218,10 @@
       const combineNote = $("combineNote");
 
       function digitsOnly(el){
-        // allow only whole numbers while typing
         el.addEventListener("input", ()=>{
           const cleaned = (el.value || "").replace(/[^\d]/g,"");
           if(el.value !== cleaned) el.value = cleaned;
         });
-        // format with commas on blur
         el.addEventListener("blur", ()=>{
           const raw = (el.value||"").replace(/[^\d]/g,"");
           el.value = raw ? Number(raw).toLocaleString() : "";
@@ -236,8 +233,12 @@
       function last6Serial(serial){
         const s = String(serial || "").replace(/\s+/g,"");
         if(!s) return "";
-        const tail = s.length > 6 ? s.slice(-6) : s;
-        return tail;
+        return (s.length > 6) ? s.slice(-6) : s;
+      }
+
+      function stripTrailingYear(name){
+        // removes " (2025)" at the end ONLY
+        return String(name || "").replace(/\s*\(\d{4}\)\s*$/, "");
       }
 
       async function populateCombinesFromFirestore(){
@@ -281,19 +282,15 @@
             if(String(d.type||"") !== "combine") return;
             if(String(d.status||"") !== "active") return;
 
-            const nameBase =
+            const rawName =
               d.name ||
               (d.makeName && d.modelName ? `${d.makeName} ${d.modelName}` : "Combine");
 
+            const nameBase = stripTrailingYear(rawName);
             const sn6 = last6Serial(d.serial);
             const label = sn6 ? `${nameBase} • ${sn6}` : nameBase;
 
-            items.push({
-              id: doc.id,
-              label,
-              nameBase,
-              serial: d.serial || ""
-            });
+            items.push({ id: doc.id, label, serial: d.serial || "" });
           });
 
           items.sort((a,b)=> String(a.label).localeCompare(String(b.label)));
