@@ -92,18 +92,17 @@
 
 <body>
   <fv-shell>
-    <!-- Page visibility: setup-prod-fertilizer.view -->
+    <!-- Page visibility -->
     <div class="page container" data-perm="setup-prod-fertilizer:view">
       <h1 class="page-title">Fertilizer Setup</h1>
       <p class="page-sub">Add fertilizer products with analysis, source, units, and density to support purchasing and application reports.</p>
 
       <div id="alert" class="alert" role="alert"></div>
 
-      <!-- Create form (add permission) -->
+      <!-- Create form (add permission → perm-ui will disable all inputs/buttons inside if denied) -->
       <section class="section" data-perm="setup-prod-fertilizer:add">
         <header class="section-head">
           <div class="icon" aria-hidden="true">
-            <!-- leaf icon -->
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 22s8-4 8-10a8 8 0 1 0 -16 0c0 6 8 10 8 10z"/><path d="M12 14v-8m-3 3l6 0"/>
@@ -194,12 +193,12 @@
 
           <div class="actions">
             <button id="clear" class="btn" type="button">Clear</button>
-            <button id="save" class="btn btn-primary" type="button" data-perm="setup-prod-fertilizer:add">Save Fertilizer</button>
+            <button id="save" class="btn btn-primary" type="button">Save Fertilizer</button>
           </div>
         </div>
       </section>
 
-      <!-- List (view permission via page container) -->
+      <!-- List -->
       <div class="list-head">
         <div class="list-title">Fertilizer Products</div>
         <div class="list-tools">
@@ -224,7 +223,8 @@
         <button id="mdClose" class="closex" type="button">Back</button>
       </div>
 
-      <div class="dialog-body" id="mdBody">
+      <!-- Modal fields (edit permission → perm-ui will disable everything inside if denied) -->
+      <div class="dialog-body" id="mdBody" data-perm="setup-prod-fertilizer:edit">
         <div class="grid-3">
           <div class="field">
             <label for="edit_vendor">Vendor</label>
@@ -316,7 +316,6 @@
   </div>
 
   <script type="module">
-    /* ========= Helpers ========= */
     const $ = id => document.getElementById(id);
     const toast = $("toast"), alertBox = $("alert");
     const listBox = $("list"), countsEl = $("counts"), q = $("q");
@@ -329,12 +328,8 @@
       clearTimeout(showError._t); showError._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
     };
     const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
-    const cap = s => s ? (s[0].toUpperCase()+s.slice(1)) : s;
 
-    // Permission helpers
-    const can = (key)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(key) : true;
-    const CAN_EDIT = can('setup-prod-fertilizer:edit');
-    const CAN_DEL  = can('setup-prod-fertilizer:delete');
+    const canNow = (k)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(k) : true;
 
     async function waitForAuthReady(timeoutMs=5000){
       try{
@@ -347,10 +342,8 @@
       }catch{}
     }
 
-    /* ========= FV Data (collection) ========= */
     const COLL = 'productsFertilizer';
 
-    /* ========= Create ========= */
     function validateCreate(){
       if(!$("source").value) return "Choose a fertilizer source.";
       if(!$("n").value && !$("p").value && !$("k").value) return "Enter at least one N-P₂O₅-K₂O value.";
@@ -380,7 +373,9 @@
       });
     }
     $("clear").addEventListener("click", clearCreate);
+
     $("save").addEventListener("click", async ()=>{
+      if(!canNow('setup-prod-fertilizer:add')) { alert("You don't have permission to add fertilizer products."); return; }
       const err=validateCreate(); if(err){ alert(err); return; }
       try{
         await FVData.ready(); await waitForAuthReady();
@@ -390,9 +385,7 @@
       }catch(e){ console.error(e); showError("Save failed: " + (e?.message||e)); }
     });
 
-    /* ========= List / Search ========= */
-    let items = [];   // raw list
-    let rows  = [];   // filtered
+    let items = [];
     async function loadAll(){
       try{
         await FVData.ready(); await waitForAuthReady();
@@ -411,7 +404,7 @@
           t: r.t || 0
         })).sort((a,b)=>{
           const sa = a.status==='archived', sb = b.status==='archived';
-          if (sa !== sb) return sa - sb; // active first
+          if (sa !== sb) return sa - sb;
           const s = a.source.localeCompare(b.source, undefined, {sensitivity:'base'});
           if (s) return s;
           return a.vendor.localeCompare(b.vendor, undefined, {sensitivity:'base'});
@@ -422,7 +415,7 @@
 
     function renderList(){
       const term = (q.value||"").trim().toLowerCase();
-      rows = items.filter(x=>{
+      const rows = items.filter(x=>{
         const hay = [x.vendor, x.source, x.form, x.notes].join(" ").toLowerCase();
         return !term || hay.includes(term);
       });
@@ -453,7 +446,7 @@
             <div class="name">${esc(it.source || "(Unnamed source)")}</div>
             ${pills}
           </div>
-          <button class="view" data-id="${esc(it.id)}" type="button">View / Edit</button>
+          <button class="view" data-id="${esc(it.id)}" type="button" data-perm="setup-prod-fertilizer:view">View / Edit</button>
         `;
         row.querySelector(".view").addEventListener("click", ()=> openEdit(it.id));
         listBox.appendChild(row);
@@ -462,16 +455,14 @@
 
     q.addEventListener("input", renderList);
     $("reload").addEventListener("click", loadAll);
-    window.addEventListener('online',  ()=> showToast("Back online — syncing…"));
-    window.addEventListener('offline', ()=> showToast("Currently offline — using saved data"));
 
-    /* ========= Edit Modal ========= */
-    let editId = null;
     const modal = $("modal");
     const mdClose = $("mdClose"), mdSave = $("mdSave"), mdDelete = $("mdDelete"), mdArchive = $("mdArchive");
 
     function openModal(){ modal.setAttribute('open',''); modal.setAttribute('aria-hidden','false'); $("edit_vendor").focus(); }
     function closeModal(){ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId = null; }
+
+    let editId = null;
 
     function setVal(id, v){ const el=$(id); if(el) el.value = v ?? ""; }
     function setSel(id, v){ const el=$(id); if(el){ el.value = v ?? ""; } }
@@ -491,15 +482,13 @@
       setVal('edit_notes', it.notes);
       $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
       mdArchive.textContent = it.status==="archived" ? "Unarchive" : "Archive";
-
-      // Read-only modal if no edit perm
-      const inputs = Array.from($("mdBody").querySelectorAll('input, select, textarea'));
-      inputs.forEach(el=>{ el.disabled = !CAN_EDIT; });
     }
 
     async function openEdit(id){
       const it = items.find(x=>x.id===id); if(!it) return;
-      editId = id; fillEdit(it); openModal();
+      editId = id;
+      fillEdit(it);
+      openModal();
     }
 
     mdClose.addEventListener('click', closeModal);
@@ -507,7 +496,7 @@
     document.addEventListener('keydown', e=>{ if(e.key==='Escape' && modal.hasAttribute('open')) closeModal(); });
 
     mdSave.addEventListener('click', async ()=>{
-      if(!CAN_EDIT){ alert("You don't have permission to edit fertilizer products."); return; }
+      if(!canNow('setup-prod-fertilizer:edit')) { alert("You don't have permission to edit fertilizer products."); return; }
       try{
         await FVData.ready(); await waitForAuthReady();
         const payload = {
@@ -535,7 +524,7 @@
     });
 
     mdArchive.addEventListener('click', async ()=>{
-      if(!CAN_EDIT){ alert("You don't have permission to archive/unarchive fertilizer products."); return; }
+      if(!canNow('setup-prod-fertilizer:edit')) { alert("You don't have permission to archive/unarchive fertilizer products."); return; }
       try{
         await FVData.ready(); await waitForAuthReady();
         const it = items.find(x=>x.id===editId); if(!it) return;
@@ -543,12 +532,12 @@
         await FVData.update(COLL, editId, { status: next });
         showToast(next==="archived" ? "Product archived." : "Product unarchived.");
         await loadAll();
-        const refreshed = items.find(x=>x.id===editId); if(refreshed) fillEdit(refreshed);
+        closeModal();
       }catch(e){ console.error(e); showError("Archive toggle failed: " + (e?.message||e)); }
     });
 
     mdDelete.addEventListener('click', async ()=>{
-      if(!CAN_DEL){ alert("You don't have permission to delete fertilizer products."); return; }
+      if(!canNow('setup-prod-fertilizer:delete')) { alert("You don't have permission to delete fertilizer products."); return; }
       try{
         const it = items.find(x=>x.id===editId); if(!it) return;
         if(!confirm(`Delete fertilizer "${it.source||'(Unnamed)'}"? This cannot be undone.`)) return;
@@ -560,7 +549,6 @@
       }catch(e){ console.error(e); showError("Delete failed: " + (e?.message||e)); }
     });
 
-    /* ========= Boot ========= */
     (async function boot(){
       try{
         if(!window.FVData) throw new Error("FVData not loaded");
