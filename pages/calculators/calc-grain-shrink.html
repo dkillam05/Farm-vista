@@ -163,17 +163,18 @@
       font-size:13px;
       line-height:1.35;
     }
-    .math{
+    .bul{ margin:8px 0 0; padding-left:18px; }
+    .bul li{ margin:8px 0; line-height:1.35; }
+    .k{
+      display:inline-block;
+      padding:1px 8px;
       border:1px solid var(--border);
+      border-radius:999px;
       background:var(--card-surface,var(--surface));
-      border-radius:12px;
-      padding:10px 12px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      font-size:13px;
-      overflow:auto;
+      font-weight:700;
+      font-size:12px;
+      color:var(--text);
     }
-    .bul{ margin:10px 0 0; padding-left:18px; }
-    .bul li{ margin:6px 0; }
   </style>
 </head>
 
@@ -201,7 +202,6 @@
           <div class="grid">
             <div>
               <label for="crop">Crop</label>
-              <!-- single-box dropdown -->
               <select id="crop" class="select-box">
                 <option value="corn" selected>Corn (Std 15.5%, TW 56)</option>
                 <option value="soy">Soybeans (Std 13.0%, TW 60)</option>
@@ -212,7 +212,6 @@
               <div class="label-row">
                 <label for="mode">Shrink Mode</label>
                 <button class="help-btn" id="modeHelp" type="button" aria-label="Help: Shrink Mode" title="What is Shrink Mode?">
-                  <!-- circle ? icon -->
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <circle cx="12" cy="12" r="10"></circle>
                     <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4"></path>
@@ -220,7 +219,6 @@
                   </svg>
                 </button>
               </div>
-              <!-- single-box dropdown -->
               <select id="mode" class="select-box">
                 <option value="both">Compare Both</option>
                 <option value="true">True Only</option>
@@ -307,34 +305,18 @@
       </div>
       <div class="dialog-body" id="helpBody">
         <p class="help-note">
-          Shrink Mode only changes what you <strong>see</strong>. The calculator always computes both methods so you can compare if needed.
+          Shrink Mode only changes what you <strong>see</strong>. The calculator always computes both methods.
         </p>
 
         <h4 style="margin:0 0 6px">Modes</h4>
         <ul class="bul">
           <li><strong>Compare Both</strong> — shows True Shrink and Elevator Shrink side-by-side.</li>
-          <li><strong>True Only</strong> — hides the Elevator tile and shows only the True Shrink results.</li>
-          <li><strong>Elevator Only</strong> — hides the True tile and shows only the Elevator Shrink results.</li>
+          <li><strong>True Only</strong> — shows only the True Shrink tile.</li>
+          <li><strong>Elevator Only</strong> — shows only the Elevator Shrink tile.</li>
         </ul>
 
-        <h4 style="margin:14px 0 6px">How the math is calculated</h4>
-
-        <div class="math" id="helpMath">
-True Shrink:
-  TrueDryWeight = WetWeight × (100 − StartMoisture) / (100 − StandardMoisture)
-  TrueShrink%   = 100 × (1 − TrueDryWeight / WetWeight)
-  Bushels       = TrueDryWeight / TestWeight
-
-Elevator Shrink:
-  ElevatorShrink% = (depends on crop + moisture rule)
-  ElevatorWeight  = WetWeight × (1 − ElevatorShrink%/100)
-  Bushels         = ElevatorWeight / TestWeight
-        </div>
-
-        <div class="muted" style="margin-top:10px;font-size:13px;line-height:1.35">
-          Corn elevator rule used here: linear from 15.5% to 29% moisture equals 21% shrink (≈1.5556% per point),
-          capped at 40% moisture. Soybeans use a simple per-point rule from 13.0% (1.5% per point) in this calculator.
-        </div>
+        <h4 style="margin:14px 0 6px">Rules used in this calculator</h4>
+        <ul class="bul" id="rulesList"></ul>
       </div>
     </div>
   </div>
@@ -342,14 +324,14 @@ Elevator Shrink:
   <script>
   (function(){
     "use strict";
-    if(window.__FV_SHRINK_V4__) return; window.__FV_SHRINK_V4__=true;
+    if(window.__FV_SHRINK_V5__) return; window.__FV_SHRINK_V5__=true;
 
     /* --- constants --- */
     var CORN_STD=15.5, CORN_TW=56, CORN_SLOPE=(21/(29-15.5)), CORN_CAP_M=40; // ≈1.5556%/pt
     var SOY_STD =13.0, SOY_TW =60;
+    var SOY_ELEV_PER_PT = 1.5; // % per point above standard (for this calculator)
 
     function $(id){ return document.getElementById(id); }
-    function num(s){ return parseFloat(String(s).replace(/,/g,"")); }
     function fmt(n,d){ if(d===void 0) d=2; return Number(n).toLocaleString(undefined,{maximumFractionDigits:d}); }
 
     var cropEl=$("crop"), modeEl=$("mode"), wtEl=$("wt"), moistEl=$("moist");
@@ -360,6 +342,7 @@ Elevator Shrink:
 
     /* --- dropdown help modal --- */
     var helpModal=$("helpModal"), helpClose=$("helpClose"), helpBtn=$("modeHelp");
+    var rulesList=$("rulesList");
 
     var modal=$("modal"), mdBody=$("mdBody"), mdClose=$("mdClose");
     var lastOpener=null, trapHandler=null;
@@ -399,8 +382,47 @@ Elevator Shrink:
       if(lastOpener) lastOpener.focus();
     }
 
+    function buildRules(){
+      var crop = cropEl.value;
+
+      // True shrink is NOT a constant % per point; it varies with moisture because it's ratio-based.
+      // We'll show the local "% per point" at the current moisture (or a sensible example).
+      var m = parseFloat(moistEl.value);
+      if(!(m>0)) m = (crop==="corn") ? 25.0 : 15.0;
+      var std = (crop==="corn") ? CORN_STD : SOY_STD;
+
+      // Local true-shrink slope at moisture m:
+      // trueShrink% = 100 * (1 - (100-m)/(100-std)) = 100 * (m-std)/(100-std)
+      // derivative w.r.t m = 100/(100-std) (% per point)
+      var truePerPt = 100/(100-std);
+
+      rulesList.innerHTML = "";
+
+      if(crop==="corn"){
+        var li1=document.createElement("li");
+        li1.innerHTML = "<strong>Corn elevator shrink:</strong> linear from <span class='k'>15.5%</span> to <span class='k'>29%</span> equals <span class='k'>21%</span> shrink ⇒ <span class='k'>"+fmt(CORN_SLOPE,4)+"% per point</span>. Capped at <span class='k'>40%</span> moisture.";
+        rulesList.appendChild(li1);
+      } else {
+        var li2=document.createElement("li");
+        li2.innerHTML = "<strong>Soybean elevator shrink:</strong> simple per-point rule from <span class='k'>13.0%</span> standard at <span class='k'>1.5% per point</span> above standard.";
+        rulesList.appendChild(li2);
+      }
+
+      var li3=document.createElement("li");
+      li3.innerHTML =
+        "<strong>True shrink:</strong> ratio-based (not capped). The effective rate is constant for a given standard moisture: "
+        + "<span class='k'>"+fmt(truePerPt,4)+"% per point</span> above standard (computed from <span class='k'>100/(100−std)</span>)."
+        + " (Corn std 15.5 → ~"+fmt(100/(100-CORN_STD),4)+"%/pt, Soy std 13.0 → ~"+fmt(100/(100-SOY_STD),4)+"%/pt).";
+      rulesList.appendChild(li3);
+
+      var li4=document.createElement("li");
+      li4.innerHTML = "<strong>Mode display:</strong> Compare Both shows both tiles; True Only / Elevator Only hides the other tile (math still computed).";
+      rulesList.appendChild(li4);
+    }
+
     function openHelp(){
       lastOpener = helpBtn;
+      buildRules();
       openAnyModal(helpModal, helpClose);
     }
     function closeHelp(){ closeAnyModal(helpModal); }
@@ -412,6 +434,11 @@ Elevator Shrink:
     document.addEventListener("keydown", function(e){
       if(helpModal.hasAttribute("open") && e.key==="Escape") closeHelp();
       if(modal.hasAttribute("open") && e.key==="Escape") closeDetails();
+    });
+
+    // keep help bullets accurate if crop changes while help is open
+    cropEl.addEventListener("change", function(){
+      if(helpModal.hasAttribute("open")) buildRules();
     });
 
     // format wet weight with commas on blur
@@ -434,14 +461,15 @@ Elevator Shrink:
       if(!m){ moistEl.value=""; return; }
       var ip = m[1]; if(ip.length===1) ip="0"+ip;
       moistEl.value = ip+"."+(m[2]?m[2]:"0");
+      if(helpModal.hasAttribute("open")) buildRules();
     });
 
     function cropStdTW(crop){
       return (crop==="corn") ? {std:CORN_STD, tw:CORN_TW} : {std:SOY_STD, tw:SOY_TW};
     }
     function elevPct(crop, m){
-      if(crop!=="corn"){ // soy rule in this calculator (simple per-point from 13.0)
-        return m<=SOY_STD ? 0 : Math.max(0, (m - SOY_STD) * 1.5);
+      if(crop!=="corn"){ // soy rule in this calculator
+        return m<=SOY_STD ? 0 : Math.max(0, (m - SOY_STD) * SOY_ELEV_PER_PT);
       }
       if(m<=CORN_STD) return 0;
       var used = Math.min(m, CORN_CAP_M);
@@ -508,6 +536,23 @@ Elevator Shrink:
       hlist.querySelectorAll("button[data-idx]").forEach(function(b){
         b.addEventListener("click", function(){ var i=parseInt(b.getAttribute("data-idx"),10); openModal(load()[i], b); });
       });
+    }
+
+    function openAnyModal(root, focusEl){
+      root.setAttribute("open","");
+      root.setAttribute("aria-hidden","false");
+      document.documentElement.classList.add("no-scroll");
+      document.body.classList.add("no-scroll");
+      if(focusEl) focusEl.focus();
+      trapFocus(root);
+    }
+    function closeAnyModal(root){
+      root.removeAttribute("open");
+      root.setAttribute("aria-hidden","true");
+      document.documentElement.classList.remove("no-scroll");
+      document.body.classList.remove("no-scroll");
+      releaseFocus(root);
+      if(lastOpener) lastOpener.focus();
     }
 
     function openModal(o, opener){
