@@ -17,6 +17,7 @@
       --page-bottom-gap: 96px;
       --card-max: 940px;
       --accent: #2F6C3C;
+      --ring: rgba(47,108,60,.20);
     }
     html{-webkit-text-size-adjust:100%}
     body{ background: var(--app-bg, var(--surface)); }
@@ -50,14 +51,38 @@
     @media (max-width:760px){ .grid{ grid-template-columns:1fr; } }
 
     label{ display:block; font-weight:600; margin-bottom:6px; }
+
+    /* Inputs */
     .ctrl{
       display:flex; align-items:center; gap:8px;
       border:1px solid var(--border); background:var(--card-surface,var(--surface));
       border-radius:10px; padding:10px 12px;
     }
     input,select,button{ font-size:16px; }
-    .ctrl input,.ctrl select{ width:100%; border:0; outline:0; background:transparent; color:var(--text); }
+    .ctrl input{ width:100%; border:0; outline:0; background:transparent; color:var(--text); }
     .unit{ font-size:12px; color:var(--muted); white-space:nowrap; }
+
+    /* Dropdowns: single-box (no “dropdown inside a bigger box”) */
+    .select-box{
+      width:100%;
+      appearance:none;
+      -webkit-appearance:none;
+      -moz-appearance:none;
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:10px 42px 10px 12px;
+      background: var(--card-surface,var(--surface));
+      color: var(--text);
+      outline:none;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6 6-6' fill='none' stroke='%2367706B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat:no-repeat;
+      background-position:right 12px center;
+      background-size:18px 18px;
+    }
+    .select-box:focus{
+      border-color: rgba(47,108,60,.42);
+      box-shadow: 0 0 0 4px var(--ring);
+    }
 
     .actions{ display:flex; gap:10px; justify-content:flex-end; padding:0 16px 16px; flex-wrap:wrap; }
     .btn{
@@ -79,12 +104,20 @@
     .hist{ padding:16px; border-top:1px dashed var(--border); }
     .hlist{ display:grid; gap:8px; }
     .hitem{
-      display:flex; gap:10px; align-items:center; justify-content:space-between;
+      display:flex; gap:10px; align-items:flex-start; justify-content:space-between;
       padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--card-surface,var(--surface));
     }
     .hsummary{ font-weight:700; }
+    .muted-sm{ color:var(--muted); font-size:12px; margin-top:2px; }
+
+    .note{
+      margin-top:6px;
+      font-size:12px;
+      color:var(--muted);
+    }
   </style>
 </head>
+
 <body>
   <fv-shell>
     <div class="wrap">
@@ -108,21 +141,20 @@
           <div class="grid">
             <div>
               <label for="combine">Combine</label>
-              <div class="ctrl">
-                <select id="combine">
-                  <option value="">— Select Combine —</option>
-                </select>
-              </div>
+              <!-- single-box dropdown -->
+              <select id="combine" class="select-box">
+                <option value="">Loading combines…</option>
+              </select>
+              <div class="note" id="combineNote" hidden></div>
             </div>
 
             <div>
               <label for="crop">Crop</label>
-              <div class="ctrl">
-                <select id="crop">
-                  <option value="corn">Corn</option>
-                  <option value="soy">Soybeans</option>
-                </select>
-              </div>
+              <!-- single-box dropdown -->
+              <select id="crop" class="select-box">
+                <option value="corn">Corn</option>
+                <option value="soy">Soybeans</option>
+              </select>
             </div>
 
             <div>
@@ -174,151 +206,208 @@
     </div>
   </fv-shell>
 
-  <script>
-  (function(){
-    "use strict";
-    if(window.__FV_COMBINE_CALIB_V1__) return; window.__FV_COMBINE_CALIB_V1__=true;
+  <script type="module">
+    (function(){
+      "use strict";
+      if(window.__FV_COMBINE_CALIB_V2__) return; window.__FV_COMBINE_CALIB_V2__=true;
 
-    /* ---------- Helpers ---------- */
-    const $ = id => document.getElementById(id);
-    const fmt = (n, d=0) => Number(n).toLocaleString(undefined,{maximumFractionDigits:d});
-    const num = v => parseFloat(String(v).replace(/,/g,""));
-    const LS_KEY = "fv_calc_combine_calibration_history_v1";
+      /* ---------- Helpers ---------- */
+      const $ = id => document.getElementById(id);
+      const fmt = (n, d=0) => Number(n).toLocaleString(undefined,{maximumFractionDigits:d});
+      const LS_KEY = "fv_calc_combine_calibration_history_v2";
 
-    const combineSel = $("combine"), cropSel = $("crop");
-    const cw = $("cw"), gw = $("gw");
-    const res = $("res"), rStatus=$("rStatus"), rPct=$("rPct"), rCw=$("rCw"), rGw=$("rGw");
+      const combineSel = $("combine"), cropSel = $("crop");
+      const cw = $("cw"), gw = $("gw");
+      const res = $("res"), rStatus=$("rStatus"), rPct=$("rPct"), rCw=$("rCw"), rGw=$("rGw");
+      const combineNote = $("combineNote");
 
-    /* ---------- Populate combines from any available source ---------- */
-    async function populateCombines(){
-      // Preferred: a global list/window helper you may wire later
-      let list = [];
-
-      // 1) App-provided helper
-      try {
-        if (window.FV && typeof window.FV.getCombines === "function") {
-          list = await window.FV.getCombines();
+      /* ---------- Firestore: load active combines from equipment collection ---------- */
+      async function populateCombinesFromFirestore(){
+        // We intentionally do NOT hard-crash if Firebase isn’t available on this page.
+        // We show a note and leave the dropdown usable.
+        let fb;
+        try{
+          fb = await import("../../js/firebase-init.js");
+        }catch(e){
+          combineSel.innerHTML = '<option value="">— Select Combine —</option>';
+          combineNote.hidden = false;
+          combineNote.textContent = "Firebase not loaded on this page (missing ../../js/firebase-init.js). Combine list not available.";
+          return;
         }
-      } catch(e){}
 
-      // 2) Global constant array
-      if (!list.length && Array.isArray(window.FV_COMBINES)) {
-        list = window.FV_COMBINES;
+        const db = fb.db || (fb.getFirestore && fb.app ? fb.getFirestore(fb.app) : null);
+        const collection = fb.collection;
+        const getDocs = fb.getDocs;
+        const query = fb.query;
+        const where = fb.where;
+        const orderBy = fb.orderBy;
+
+        if(!db || !collection || !getDocs || !query || !where){
+          combineSel.innerHTML = '<option value="">— Select Combine —</option>';
+          combineNote.hidden = false;
+          combineNote.textContent = "firebase-init.js loaded, but Firestore helpers weren’t found (db/query/where/getDocs).";
+          return;
+        }
+
+        combineSel.innerHTML = '<option value="">Loading…</option>';
+
+        try{
+          // equipment where type == combine and status == active
+          const q = orderBy
+            ? query(collection(db, "equipment"),
+                    where("type","==","combine"),
+                    where("status","==","active"),
+                    orderBy("name"))
+            : query(collection(db, "equipment"),
+                    where("type","==","combine"),
+                    where("status","==","active"));
+
+          const snap = await getDocs(q);
+
+          const items = [];
+          snap.forEach(doc => {
+            const d = doc.data() || {};
+            items.push({
+              id: doc.id,
+              name: d.name || (d.makeName && d.modelName ? `${d.makeName} ${d.modelName}${d.year ? ` (${d.year})` : ""}` : "Combine"),
+              makeName: d.makeName || "",
+              modelName: d.modelName || "",
+              year: d.year || "",
+              serial: d.serial || "",
+              status: d.status || "",
+              type: d.type || ""
+            });
+          });
+
+          // Populate dropdown
+          combineSel.innerHTML = '<option value="">— Select Combine —</option>';
+
+          if(!items.length){
+            const opt = document.createElement("option");
+            opt.value = "";
+            opt.textContent = "No active combines found";
+            combineSel.appendChild(opt);
+
+            combineNote.hidden = false;
+            combineNote.textContent = "No equipment docs matched: type=combine and status=active.";
+            return;
+          }
+
+          items.forEach(it => {
+            const opt = document.createElement("option");
+            opt.value = it.id;
+            opt.textContent = it.name;
+            opt.dataset.serial = it.serial || "";
+            combineSel.appendChild(opt);
+          });
+
+          combineNote.hidden = true;
+          combineNote.textContent = "";
+        }catch(err){
+          console.error(err);
+          combineSel.innerHTML = '<option value="">— Select Combine —</option>';
+          combineNote.hidden = false;
+          combineNote.textContent = "Couldn’t load combines from Firestore. Check console for details.";
+        }
       }
 
-      // 3) LocalStorage fallback (expect array of {model, serial})
-      if (!list.length) {
-        try {
-          const raw = localStorage.getItem("fv:equipment:combines");
-          const arr = raw ? JSON.parse(raw) : [];
-          if (Array.isArray(arr)) list = arr;
-        } catch(e){}
+      populateCombinesFromFirestore();
+
+      /* ---------- Input formatting ---------- */
+      [cw, gw].forEach(inp=>{
+        inp.addEventListener("blur", ()=>{
+          const raw = inp.value.replace(/[^0-9]/g,"");
+          inp.value = raw ? Number(raw).toLocaleString() : "";
+        });
+      });
+
+      /* ---------- History ---------- */
+      function loadH(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
+      function saveH(arr){ localStorage.setItem(LS_KEY, JSON.stringify(arr.slice(0,10))); }
+
+      function addHistRow(it){
+        const row = document.createElement("div"); row.className="hitem";
+        row.innerHTML = `
+          <div style="min-width:0">
+            <div class="hsummary">${it.combineLabel || "—"} • ${it.crop==="corn"?"Corn":"Soy"} — ${it.status} (${fmt(it.pct,2)}%)</div>
+            <div class="muted-sm">${fmt(it.cw,0)} lb vs ${fmt(it.gw,0)} lb • ${new Date(it.t).toLocaleString()}</div>
+          </div>
+        `;
+        $("hlist").appendChild(row);
       }
 
-      // If still nothing, leave placeholder only.
-      if (!list.length) return;
+      function renderHist(){
+        const h = loadH();
+        $("hlist").innerHTML = "";
+        if (!h.length){ $("nohist").hidden=false; return; }
+        $("nohist").hidden = true;
+        h.forEach(addHistRow);
+      }
 
-      // Build options: "Model • SN 1234"
-      list.forEach(it=>{
-        const model = (it.model || it.makeModel || "Combine").toString();
-        const sn = (it.serial || it.sn || "").toString();
-        const last4 = sn.slice(-4);
-        const opt = document.createElement("option");
-        opt.value = (it.id || sn || model); // value can be id/sn/model
-        opt.textContent = last4 ? `${model} • SN ${last4}` : model;
-        combineSel.appendChild(opt);
+      $("clearHist").addEventListener("click", ()=>{
+        localStorage.removeItem(LS_KEY);
+        renderHist();
       });
-    }
 
-    populateCombines();
+      /* ---------- Calculation ---------- */
+      function calc(){
+        const cwv = Number((cw.value||"").replace(/,/g,""));
+        const gwv = Number((gw.value||"").replace(/,/g,""));
+        if(!(cwv>0 && gwv>0)){ alert("Enter both weights."); return null; }
 
-    /* ---------- Input formatting ---------- */
-    [cw, gw].forEach(inp=>{
-      inp.addEventListener("blur", ()=>{
-        const raw = inp.value.replace(/[^0-9]/g,"");
-        inp.value = raw ? Number(raw).toLocaleString() : "";
+        const diff = cwv - gwv;               // positive: combine reads high
+        const pct = Math.abs(diff) / gwv * 100;
+        const status = diff===0 ? "MATCH" : (diff>0 ? "HIGH" : "LOW");
+
+        return { cw: cwv, gw: gwv, pct, status };
+      }
+
+      function show(o){
+        if(!o){ res.hidden = true; return; }
+        rStatus.textContent = o.status;
+        rPct.textContent = fmt(o.pct,2) + " %";
+        rCw.textContent = fmt(o.cw,0) + " lb";
+        rGw.textContent = fmt(o.gw,0) + " lb";
+        res.hidden = false;
+      }
+
+      $("frm").addEventListener("submit", (ev)=>{
+        ev.preventDefault();
+
+        const combineId = combineSel.value || "";
+        if(!combineId){
+          alert("Select a combine.");
+          return;
+        }
+
+        const out = calc();
+        if(!out) return;
+
+        const selOpt = combineSel.options[combineSel.selectedIndex];
+        const combineLabel = selOpt ? selOpt.textContent : "—";
+
+        const rec = {
+          t: Date.now(),
+          combineId,
+          combineLabel,
+          crop: cropSel.value,
+          cw: out.cw,
+          gw: out.gw,
+          pct: out.pct,
+          status: out.status
+        };
+
+        const h = loadH(); h.unshift(rec); saveH(h); renderHist();
+        show(out);
       });
-    });
 
-    /* ---------- History ---------- */
-    function loadH(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
-    function saveH(arr){ localStorage.setItem(LS_KEY, JSON.stringify(arr.slice(0,10))); }
-    function addHistRow(it, idx){
-      const row = document.createElement("div"); row.className="hitem";
-      const combineTxt = it.combineLabel || "—";
-      row.innerHTML = `
-        <div class="hsummary">${combineTxt} • ${it.crop==="corn"?"Corn":"Soy"} — ${it.status} (${fmt(it.pct,2)}%)</div>
-        <div class="muted">${fmt(it.cw,0)} lb vs ${fmt(it.gw,0)} lb • ${new Date(it.t).toLocaleString()}</div>
-      `;
-      $("hlist").appendChild(row);
-    }
-    function renderHist(){
-      const h = loadH();
-      $("hlist").innerHTML = "";
-      if (!h.length){ $("nohist").hidden=false; return; }
-      $("nohist").hidden = true;
-      h.forEach(addHistRow);
-    }
-    $("clearHist").addEventListener("click", ()=>{ localStorage.removeItem(LS_KEY); renderHist(); });
+      $("clearBtn").addEventListener("click", ()=>{
+        cw.value=""; gw.value="";
+        res.hidden = true;
+      });
 
-    /* ---------- Calculation ---------- */
-    function calc(){
-      const cwv = Number((cw.value||"").replace(/,/g,""));
-      const gwv = Number((gw.value||"").replace(/,/g,""));
-      if(!(cwv>0 && gwv>0)){ alert("Enter both weights."); return null; }
-
-      const diff = cwv - gwv;               // positive: combine reads high
-      const pct = Math.abs(diff) / gwv * 100;
-      const status = diff===0 ? "MATCH" : (diff>0 ? "HIGH" : "LOW");
-
-      return { cw: cwv, gw: gwv, pct, status };
-    }
-
-    function show(o){
-      if(!o){ res.hidden = true; return; }
-      rStatus.textContent = o.status;
-      rPct.textContent = fmt(o.pct,2) + " %";
-      rCw.textContent = fmt(o.cw,0) + " lb";
-      rGw.textContent = fmt(o.gw,0) + " lb";
-      res.hidden = false;
-    }
-
-    $("frm").addEventListener("submit", (ev)=>{
-      ev.preventDefault();
-      const out = calc(); if(!out) return;
-
-      // Build combine label for history
-      const selOpt = combineSel.options[combineSel.selectedIndex];
-      const combineLabel = selOpt ? selOpt.textContent : "—";
-      const rec = {
-        t: Date.now(),
-        combineId: combineSel.value || "",
-        combineLabel,
-        crop: cropSel.value,
-        cw: out.cw,
-        gw: out.gw,
-        pct: out.pct,
-        status: out.status
-      };
-
-      // Save to history (last 10)
-      const h = loadH(); h.unshift(rec); saveH(h); renderHist();
-
-      // Show results
-      show(out);
-
-      // (Future) persist to that combine’s profile if/when backend is wired:
-      // e.g., window.FV.saveCombineCalibration?.(rec)
-    });
-
-    $("clearBtn").addEventListener("click", ()=>{
-      cw.value=""; gw.value="";
-      res.hidden = true;
-    });
-
-    // Boot
-    renderHist();
-  })();
+      renderHist();
+    })();
   </script>
 </body>
 </html>
