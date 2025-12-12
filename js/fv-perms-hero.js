@@ -33,15 +33,54 @@
 //
 // Admin protection:
 //  • Role named "Administrator" cannot be deleted (delete button hidden/disabled).
+//
+// NEW (Auto Features):
+//  • QR Scanner Pop-up + Camera Pop-up appear under Extra Features.
+//  • They auto turn ON iff any enabled menu/feature requires them, otherwise auto OFF.
+//  • The toggle button is disabled (locked) because these are dependency-driven.
 
 import NAV_MENU from '/Farm-vista/js/menu.js';
+
+/* -------------------- Extra Feature (Capability) List -------------------- */
 
 const CAPABILITIES = [
   { id: 'cap-chatbot', label: 'AI Chatbot' },
   { id: 'cap-kpi-equipment', label: 'Equipment KPI Cards' },
   { id: 'cap-kpi-grain', label: 'Grain KPI Cards' },
   { id: 'cap-kpi-field-maint', label: 'Field Maintenance KPI Cards' },
+
+  // NEW: dependency-driven shell popups
+  { id: 'cap-qr-scanner', label: 'QR Scanner Pop-up', auto: true },
+  { id: 'cap-camera-popup', label: 'Camera Pop-up', auto: true },
 ];
+
+/*
+  Capability dependencies:
+  - Best path: set `requiresCaps: ['cap-camera-popup','cap-qr-scanner']` on NAV_MENU items.
+  - Fallback path: heuristic matching on menu item ids/labels for known capture flows.
+*/
+const CAPABILITY_HEURISTICS = [
+  // Camera capture flows
+  {
+    capId: 'cap-camera-popup',
+    idPatterns: [
+      'expend', 'expense', 'receipt', 'ocr',
+      'boundary', 'field-boundary', 'photo', 'camera',
+      'grain-ticket', 'ticket-ocr'
+    ]
+  },
+  // QR scan flows
+  {
+    capId: 'cap-qr-scanner',
+    idPatterns: [
+      'qr', 'scan', 'scanner',
+      'label', 'labels',
+      'inventory', 'assets'
+    ]
+  }
+];
+
+/* -------------------- Normalization -------------------- */
 
 // For summary: treat "view" as enabled.
 function normalizePermForSummary(perms, key) {
@@ -70,6 +109,8 @@ function normalizeEntry(v) {
   };
 }
 
+/* -------------------- NAV index (now preserves requiresCaps) -------------------- */
+
 function buildNavIndex(menu) {
   const byParent = {};
   const byId = {};
@@ -84,7 +125,9 @@ function buildNavIndex(menu) {
         type: it.type || 'item',
         label: it.label || it.id,
         depth,
-        parent
+        parent,
+        // NEW: allow NAV_MENU items to declare required capabilities directly
+        requiresCaps: Array.isArray(it.requiresCaps) ? it.requiresCaps.slice() : []
       };
 
       (byParent[parent] || (byParent[parent] = [])).push(node);
@@ -99,6 +142,8 @@ function buildNavIndex(menu) {
   walk(menu?.items || []);
   return { byParent, byId };
 }
+
+/* -------------------- Component -------------------- */
 
 class FVPermsHero extends HTMLElement {
   constructor() {
@@ -120,6 +165,9 @@ class FVPermsHero extends HTMLElement {
     // Which leaf rows (sub menus like eq-tractors, eq-trucks) are expanded
     this._openRows = new Set();
     this._navIndex = { byParent: {}, byId: {} };
+
+    // Prevent accidental recursion when auto-syncing capabilities
+    this._syncingAutoCaps = false;
   }
 
   set config(cfg) {
@@ -159,8 +207,37 @@ class FVPermsHero extends HTMLElement {
 
     const totalNav = allNodes.length;
     let enabledNav = 0;
+
+    // Track which capabilities are *required* by any enabled menu entry
+    const requiredCaps = new Set();
+    const requiredBy = {}; // capId -> {count, examples[]}
+
+    const addReq = (capId, exampleLabel) => {
+      requiredCaps.add(capId);
+      requiredBy[capId] = requiredBy[capId] || { count: 0, examples: [] };
+      requiredBy[capId].count++;
+      if (exampleLabel && requiredBy[capId].examples.length < 4) {
+        if (!requiredBy[capId].examples.includes(exampleLabel)) {
+          requiredBy[capId].examples.push(exampleLabel);
+        }
+      }
+    };
+
     allNodes.forEach(n => {
-      if (normalizePermForSummary(perms, n.id)) enabledNav++;
+      const on = normalizePermForSummary(perms, n.id);
+      if (on) {
+        enabledNav++;
+
+        // Direct declaration support from NAV_MENU (preferred)
+        (n.requiresCaps || []).forEach(capId => addReq(capId, n.label));
+
+        // Heuristic fallback (id + label)
+        const hay = `${(n.id || '').toLowerCase()} ${(n.label || '').toLowerCase()}`;
+        CAPABILITY_HEURISTICS.forEach(rule => {
+          const hit = (rule.idPatterns || []).some(p => hay.includes(p));
+          if (hit) addReq(rule.capId, n.label);
+        });
+      }
     });
 
     const totalCaps = CAPABILITIES.length;
@@ -183,7 +260,9 @@ class FVPermsHero extends HTMLElement {
       totalCaps,
       enabledCaps,
       chatbotEnabled,
-      enabledCapLabels
+      enabledCapLabels,
+      requiredCaps,
+      requiredBy
     };
   }
 
@@ -207,6 +286,31 @@ class FVPermsHero extends HTMLElement {
       const clone = Object.assign({}, this._config.perms || {});
       this._config.onPermsChange(clone);
     }
+  }
+
+  /* ---------- Auto-capabilities (QR + Camera) ---------- */
+
+  _syncAutoCapabilities(requiredCaps) {
+    if (this._syncingAutoCaps) return false;
+    this._syncingAutoCaps = true;
+
+    let changed = false;
+
+    CAPABILITIES.forEach(cap => {
+      if (!cap.auto) return;
+      const shouldBeOn = requiredCaps && requiredCaps.has(cap.id);
+      const p = this._getPerm(cap.id);
+      const wasOn = !!p.view;
+
+      if (wasOn !== shouldBeOn) {
+        p.view = !!shouldBeOn;
+        this._setPerm(cap.id, p);
+        changed = true;
+      }
+    });
+
+    this._syncingAutoCaps = false;
+    return changed;
   }
 
   _walkGroupAndDescendants(groupId, fn) {
@@ -281,6 +385,10 @@ class FVPermsHero extends HTMLElement {
   }
 
   _toggleCapability(id) {
+    // Auto capabilities are dependency-driven (locked)
+    const cap = CAPABILITIES.find(c => c.id === id);
+    if (cap && cap.auto) return;
+
     const p = this._getPerm(id);
     p.view = !p.view; // simple On/Off via view flag
     this._setPerm(id, p);
@@ -341,7 +449,7 @@ class FVPermsHero extends HTMLElement {
 
   /* ---------- Nested matrix helpers ---------- */
 
-  _buildMenuTreeHtml() {
+  _buildMenuTreeHtml(requiredBy) {
     const menu = NAV_MENU || { items: [] };
     const { byParent, byId } = buildNavIndex(menu);
     this._navIndex = { byParent, byId };
@@ -430,7 +538,7 @@ class FVPermsHero extends HTMLElement {
 
       let capsRows = '';
       CAPABILITIES.forEach(cap => {
-        capsRows += this._buildCapabilityRowHtml(cap);
+        capsRows += this._buildCapabilityRowHtml(cap, requiredBy);
       });
 
       html += `
@@ -534,23 +642,44 @@ class FVPermsHero extends HTMLElement {
     `;
   }
 
-  _buildCapabilityRowHtml(cap) {
+  _buildCapabilityRowHtml(cap, requiredBy) {
     const id = cap.id;
     const label = cap.label;
     const p = this._getPerm(id);
     const isOn = !!p.view;
+
+    const isAuto = !!cap.auto;
+    const req = (requiredBy && requiredBy[id]) ? requiredBy[id] : null;
+    const hasNeed = !!(req && req.count > 0);
+
+    // Auto caps are locked and dependency-driven:
+    // - If needed -> On + locked
+    // - If not needed -> Off + locked
+    const disabled = isAuto;
     const activeClass = isOn ? 'perm-pill-on' : 'perm-pill-off';
-    const text = isOn ? 'On' : 'Off';
+    const text = isAuto ? (hasNeed ? 'On' : 'Off') : (isOn ? 'On' : 'Off');
+
+    const reqHint = isAuto
+      ? (hasNeed
+          ? `<div class="cap-hint">Auto: required by ${req.count} enabled menu${req.count === 1 ? '' : 's'}${(req.examples && req.examples.length) ? ` (${req.examples.join(', ')})` : ''}.</div>`
+          : `<div class="cap-hint">Auto: not required by any enabled menus.</div>`
+        )
+      : '';
+
+    const lock = isAuto ? `<span class="cap-lock" title="Auto-managed">🔒</span>` : '';
 
     return `
-      <div class="perm-row" data-cap-row="${id}">
-        <div class="perm-row-label perm-row-label-depth-0">
+      <div class="perm-row cap-row ${isAuto ? 'cap-row-auto' : ''}" data-cap-row="${id}">
+        <div class="perm-row-label perm-row-label-depth-0 cap-label">
           <span class="perm-row-label-text">${label}</span>
+          ${lock}
+          ${reqHint}
         </div>
         <div class="perm-row-pills">
           <button type="button"
-                  class="perm-pill ${activeClass}"
-                  data-cap-id="${id}">
+                  class="perm-pill ${activeClass} ${disabled ? 'perm-pill-disabled' : ''}"
+                  data-cap-id="${id}"
+                  ${disabled ? 'disabled aria-disabled="true"' : ''}>
             ${text}
           </button>
         </div>
@@ -838,6 +967,7 @@ class FVPermsHero extends HTMLElement {
           text-overflow: ellipsis;
           display: flex;
           align-items: center;
+          min-width: 0;
         }
         .perm-row-label-depth-0 { padding-left: 0; }
         .perm-row-label-depth-1 { padding-left: 10px; }
@@ -865,6 +995,7 @@ class FVPermsHero extends HTMLElement {
           color: inherit;
           cursor: pointer;
           min-width: 0;
+          max-width: 100%;
         }
         .row-chevron {
           font-size: 11px;
@@ -909,6 +1040,11 @@ class FVPermsHero extends HTMLElement {
           min-width: 52px;
         }
 
+        .perm-pill-disabled{
+          cursor: not-allowed;
+          opacity: 0.85;
+        }
+
         .perm-row-closed .perm-row-pills {
           display: none;
         }
@@ -919,6 +1055,31 @@ class FVPermsHero extends HTMLElement {
         .perm-group-open .perm-group-body {
           display: block;
         }
+
+        /* Capability row extras */
+        .cap-row .cap-label{
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 2px;
+        }
+        .cap-row .perm-row-label-text{
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          max-width: 100%;
+        }
+        .cap-lock{
+          font-size: 12px;
+          opacity: 0.85;
+          flex: 0 0 auto;
+        }
+        .cap-hint{
+          font-size: 11px;
+          color: var(--muted, #67706B);
+          white-space: normal;
+          line-height: 1.25;
+        }
       </style>
     `;
   }
@@ -928,14 +1089,28 @@ class FVPermsHero extends HTMLElement {
   render() {
     this._hasRendered = true;
     const cfg = this._config;
+
+    // Build index + compute summary (includes requiredCaps/requiredBy)
+    let summary = this._computeSummary();
+
+    // Auto-sync dependency-driven capabilities (QR + Camera)
+    const changed = this._syncAutoCapabilities(summary.requiredCaps);
+    if (changed) {
+      // Recompute so badges + capability rows reflect the new state
+      summary = this._computeSummary();
+      // Emit once so Firestore saves the auto state
+      this._emitPermsChange();
+    }
+
     const {
       totalNav,
       enabledNav,
       totalCaps,
       enabledCaps,
       chatbotEnabled,
-      enabledCapLabels
-    } = this._computeSummary();
+      enabledCapLabels,
+      requiredBy
+    } = summary;
 
     const mode = cfg.mode === 'employee' ? 'employee' : 'role';
     const nameLabel = cfg.name || (mode === 'employee' ? 'Employee' : 'Role');
@@ -1012,7 +1187,7 @@ class FVPermsHero extends HTMLElement {
       `
       : '';
 
-    const matrixHtml = this._buildMenuTreeHtml();
+    const matrixHtml = this._buildMenuTreeHtml(requiredBy);
 
     const html = `
       ${this._renderStyles()}
@@ -1050,6 +1225,7 @@ class FVPermsHero extends HTMLElement {
             <div class="perm-matrix-sub">
               Expand a menu, then expand a sub-menu if you need to change its actions.
               Group controls and “All” cascade to sub-menus. Extra Features use simple On/Off.
+              QR/Camera pop-ups auto-toggle based on enabled items that need them.
             </div>
           </div>
           <div class="perm-matrix-body">
@@ -1110,7 +1286,7 @@ class FVPermsHero extends HTMLElement {
       });
     });
 
-    // Wire up capability On/Off pills
+    // Wire up capability On/Off pills (auto caps are locked in _toggleCapability)
     this._root.querySelectorAll('[data-cap-id]').forEach(btn => {
       const id = btn.getAttribute('data-cap-id');
       if (!id) return;
