@@ -153,16 +153,18 @@
   <!-- Firebase config FIRST -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
 </head>
+
 <body>
   <fv-shell>
-    <div class="page container">
+    <!-- Page visibility -->
+    <div class="page container" data-perm="setup-roles:view">
       <h1 class="page-title">Account Roles</h1>
       <p class="page-sub">
         Pick a role, adjust what it can do, then save.<br/>
         The card below controls <strong>View, Add, Edit, Delete</strong> for each menu.
       </p>
 
-      <!-- Role header (NOW AT TOP) -->
+      <!-- Role header -->
       <section class="section" style="margin-bottom:14px;">
         <header class="section-head">
           <div class="icon" aria-hidden="true">👥</div>
@@ -172,24 +174,28 @@
           <div class="row">
             <div class="field">
               <label for="rolePicker">Existing Roles</label>
+              <!-- allow view-only users to switch roles -->
               <select id="rolePicker" class="select">
                 <option value="">Add New Role</option>
               </select>
             </div>
-            <div class="field" id="roleNameField">
+
+            <!-- Role name is an edit action -->
+            <div class="field" id="roleNameField" data-perm="setup-roles:edit">
               <label for="roleName">Role Name</label>
               <input id="roleName" class="input" placeholder="e.g., Seasonal Operator">
             </div>
           </div>
 
           <div class="actions">
-            <button id="saveRole" class="btn btn-primary" type="button">Save Role</button>
-            <!-- Delete is handled inside fv-perms-hero -->
+            <!-- Save is an edit action -->
+            <button id="saveRole" class="btn btn-primary" type="button" data-perm="setup-roles:edit">Save Role</button>
+            <!-- Delete is handled inside fv-perms-hero (we will only expose handler if setup-roles:delete) -->
           </div>
         </div>
       </section>
 
-      <!-- Shared permissions hero + matrix (fv-perms-hero.js) -->
+      <!-- Shared permissions hero + matrix -->
       <fv-perms-hero id="permsHero"></fv-perms-hero>
     </div>
 
@@ -214,13 +220,14 @@
       /* ====== CONFIG ====== */
       const COLLECTION = 'accountRoles';
 
+      /* ====== PERM HELPERS ====== */
+      const canNow = (k)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(k) : true;
+
       /* ====== STATE ====== */
       let MODE = 'stub'; // 'firebase' or 'stub'
       let currentRoleId = "";
-      // perms: { [id]: {view,add,edit,delete} }
       let roleDraft = { id:"", name:"", perms:{} };
 
-      /* ====== PERM NORMALIZERS (4-flag) ====== */
       function normalizePermEntry(v){
         if (typeof v === 'boolean') {
           return { view: v, add: false, edit: false, delete: false };
@@ -245,7 +252,6 @@
         return out;
       }
 
-      /* ====== UI HELPERS ====== */
       function showToast(msg="Saved."){ 
         toast.textContent = msg; 
         toast.classList.remove("show"); 
@@ -280,12 +286,17 @@
         const nameFromInput = $("roleName") ? $("roleName").value.trim() : "";
         const name = nameFromDraft || nameFromInput || (currentRoleId ? "(unnamed)" : "New Role");
 
+        const canDelete = canNow('setup-roles:delete');
+
         hero.config = {
           mode: 'role',
           name,
           perms: roleDraft.perms || {},
-          onDeleteRole: currentRoleId ? handleDeleteRole : null,
+          // only show delete ability if user can delete roles
+          onDeleteRole: (currentRoleId && canDelete) ? handleDeleteRole : null,
           onPermsChange: (updatedPerms) => {
+            // changing perms is an edit action
+            if (!canNow('setup-roles:edit')) return;
             roleDraft.perms = normalizePermMap(updatedPerms || {});
           }
         };
@@ -335,7 +346,6 @@
         await deleteDoc(doc(db, COLLECTION, id));
       }
 
-      /* ====== STORAGE (FS or LS) ====== */
       async function loadRoles(){
         return MODE==='firebase' ? await loadRolesFS() : loadLS();
       }
@@ -372,7 +382,6 @@
         const keep = sel.value;
         sel.innerHTML = "";
 
-        // Add New Role option (sentinel "")
         const addOpt = document.createElement("option");
         addOpt.value = "";
         addOpt.textContent = "Add New Role";
@@ -388,17 +397,12 @@
         if(keep && arr.some(r=>r.id===keep)){
           sel.value = keep;
         } else if((arr||[]).length > 0){
-          sel.value = arr[0].id; // default to first existing role
+          sel.value = arr[0].id;
         } else {
           sel.value = "";
         }
 
-        if(sel.value === ""){
-          showRoleNameField(true);
-        }else{
-          showRoleNameField(false);
-        }
-
+        showRoleNameField(sel.value === "");
         updateHero();
       }
 
@@ -430,8 +434,12 @@
         updateHero();
       }
 
-      /* ====== DELETE HANDLER (used by hero) ====== */
+      /* ====== DELETE HANDLER ====== */
       async function handleDeleteRole(){
+        if(!canNow('setup-roles:delete')){
+          alert("You don't have permission to delete roles.");
+          return;
+        }
         if(!currentRoleId){ 
           alert("No role selected."); 
           return; 
@@ -459,8 +467,12 @@
       }
 
       /* ====== EVENTS ====== */
-
       $("saveRole").addEventListener("click", async ()=>{
+        if(!canNow('setup-roles:edit')){
+          alert("You don't have permission to edit roles.");
+          return;
+        }
+
         const isNew = $("rolePicker").value === "";
         const name = $("roleName").value.trim();
 
@@ -542,6 +554,11 @@
         }
 
         liveBind();
+
+        // When perms load, refresh hero delete visibility / edit guards
+        document.addEventListener('fv:user-ready', () => {
+          updateHero();
+        });
       }
 
       init();
