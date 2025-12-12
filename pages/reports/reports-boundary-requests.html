@@ -498,7 +498,10 @@
     const CONFIG = {
       COLLECTION_PATH: 'boundary_requests',
       COMPANY_DOC_PATH: ['company','main'],
-      TOWERS_COLLECTION: 'rtk_towers'
+
+      /* ✅ Your real collection is rtkTowers.
+         Keep BOTH so it still works if any old data lives in rtk_towers. */
+      TOWER_COLLECTIONS: ['rtkTowers','rtk_towers']
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
@@ -567,6 +570,24 @@
       return coerceStr(d?.rtkTowerId || d?.towerId || d?.rtkId || '');
     }
 
+    async function fetchTowerFromAnyCollection(towerId){
+      for (const colName of CONFIG.TOWER_COLLECTIONS){
+        try{
+          const snap = await getDoc(doc(STATE.db, colName, towerId));
+          if(snap.exists()){
+            const d = snap.data() || {};
+            return {
+              id: towerId,
+              name: coerceStr(d.name),
+              networkId: coerceStr(d.networkId),
+              frequencyMHz: coerceStr(d.frequencyMHz)
+            };
+          }
+        }catch(_){}
+      }
+      return { id:towerId, name:'', networkId:'', frequencyMHz:'' };
+    }
+
     async function loadRtkTowersForItems(items){
       const want = new Set();
       (items || []).forEach(it => {
@@ -578,22 +599,8 @@
       if(!missing.length) return;
 
       await Promise.allSettled(missing.map(async (towerId) => {
-        try{
-          const snap = await getDoc(doc(STATE.db, CONFIG.TOWERS_COLLECTION, towerId));
-          if(!snap.exists()){
-            STATE.towersById.set(towerId, { id:towerId, name:'', networkId:'', frequencyMHz:'' });
-            return;
-          }
-          const d = snap.data() || {};
-          STATE.towersById.set(towerId, {
-            id: towerId,
-            name: coerceStr(d.name),
-            networkId: coerceStr(d.networkId),
-            frequencyMHz: coerceStr(d.frequencyMHz)
-          });
-        }catch(e){
-          STATE.towersById.set(towerId, { id:towerId, name:'', networkId:'', frequencyMHz:'' });
-        }
+        const t = await fetchTowerFromAnyCollection(towerId);
+        STATE.towersById.set(towerId, t);
       }));
     }
 
@@ -809,8 +816,9 @@
         <div style="grid-column:1 / -1;">
           <div class="wo-detail-item-label">RTK</div>
           <div class="wo-detail-item-value">
-            ${rtkHtmlBox({ name: nameLine, networkId: '', frequencyMHz: '' }).replace(/<\/span>\s*$/, '')}
-            ${subLine ? `<span class="rtk-sub" style="display:block">${escapeHtml(subLine)}</span>` : ``}
+            <span class="rtk-block">
+              <span class="rtk-name">${escapeHtml(nameLine || (d.rtkTowerId ? ('Tower ' + d.rtkTowerId) : 'Not set'))}</span>
+              ${subLine ? `<span class="rtk-sub">${escapeHtml(subLine)}</span>` : ``}
             </span>
           </div>
         </div>
@@ -924,7 +932,6 @@
     }
 
     async function applyFilters(){
-      // ensure tower docs loaded for current view + filtered view
       await loadRtkTowersForItems(getWorkingItems());
 
       const statusSel = $('#filterStatus');
@@ -1006,8 +1013,7 @@
     }
 
     /* ===========================
-       Print / PDF
-       (kept from your previous version; RTK is grouped as Name + subline, not bold)
+       Print / PDF (UNCHANGED from your working file)
        =========================== */
 
     function extractFieldNumber(field){
