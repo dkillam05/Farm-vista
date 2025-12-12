@@ -189,6 +189,12 @@
     let basePerms4 = {};      // id -> {view,add,edit,delete} from selected role
     let effectivePerms4 = {}; // id -> {view,add,edit,delete} after employee overrides
 
+    // Cap IDs + drivers (must match your roles dependency truth)
+    const CAP_QR = 'cap-qr-scanner';
+    const CAP_CAMERA = 'cap-camera-popup';
+    const DRIVE_QR_BY = 'eq-maint-workorders';
+    const DRIVE_CAM_BY = 'exp-expenditures';
+
     function normalizeEntry(v){
       if (typeof v === 'boolean') {
         return { view: v, add: false, edit: false, delete: false };
@@ -218,17 +224,61 @@
       return out;
     }
 
-    function collectViewOverrides(){
+    // ✅ Critical: always materialize & force cap keys so employee draft never drops them.
+    function applyCapabilityDeps(permsMap){
+      const p = deepClone(permsMap || {});
+
+      // normalize everything to 4-flag shape
+      Object.keys(p).forEach(k=>{
+        if (k === 'home') { delete p[k]; return; }
+        p[k] = normalizeEntry(p[k]);
+      });
+
+      const qrNeeded = !!(p[DRIVE_QR_BY] && p[DRIVE_QR_BY].add);
+      const camNeeded = !!(p[DRIVE_CAM_BY] && p[DRIVE_CAM_BY].add);
+
+      p[CAP_QR] = Object.assign(
+        { view:false, add:false, edit:false, delete:false },
+        normalizeEntry(p[CAP_QR] || false),
+        { view: !!qrNeeded }
+      );
+
+      p[CAP_CAMERA] = Object.assign(
+        { view:false, add:false, edit:false, delete:false },
+        normalizeEntry(p[CAP_CAMERA] || false),
+        { view: !!camNeeded }
+      );
+
+      return p;
+    }
+
+    // ✅ Employee overrides now save full 4-action diffs (not just view)
+    function collectOverrides4(){
       const overrides = {};
       const base = basePerms4 || {};
       const eff  = effectivePerms4 || {};
-      Object.keys(eff).forEach(id=>{
-        const baseEntry = normalizeEntry(base[id] || false);
-        const effEntry  = normalizeEntry(eff[id] || false);
-        if (baseEntry.view !== effEntry.view){
-          overrides[id] = !!effEntry.view;
+
+      const ids = new Set([
+        ...Object.keys(base||{}),
+        ...Object.keys(eff||{})
+      ]);
+
+      ids.forEach(id=>{
+        if (id === 'home') return;
+        const b = normalizeEntry(base[id] || false);
+        const e = normalizeEntry(eff[id] || false);
+
+        const changed =
+          b.view !== e.view ||
+          b.add !== e.add ||
+          b.edit !== e.edit ||
+          b.delete !== e.delete;
+
+        if (changed){
+          overrides[id] = { view: e.view, add: e.add, edit: e.edit, delete: e.delete };
         }
       });
+
       return overrides;
     }
 
@@ -255,7 +305,8 @@
         perms: effectivePerms4,
         navMenu: NAV_MENU,
         onPermsChange: (updatedPerms) => {
-          effectivePerms4 = deepClone(updatedPerms || {});
+          // Keep draft valid + cap keys present
+          effectivePerms4 = applyCapabilityDeps(deepClone(updatedPerms || {}));
         },
         onResetOverrides: () => {
           effectivePerms4 = deepClone(basePerms4 || {});
@@ -326,7 +377,7 @@
             currentRoleName = val;
             const roleDoc = await fetchRoleDocByName(currentRoleName);
             const rawPerms = (roleDoc && (roleDoc.perms || roleDoc.permissions)) || {};
-            basePerms4 = rebuildEffectiveFromRole(rawPerms);
+            basePerms4 = applyCapabilityDeps(rebuildEffectiveFromRole(rawPerms));
             effectivePerms4 = deepClone(basePerms4);
             updateHero();
           }catch(err){
@@ -353,6 +404,11 @@
       if(!first.checkValidity()){first.reportValidity();return null;}
       if(!last.checkValidity()){last.reportValidity();return null;}
       if(!email.checkValidity()){email.reportValidity();return null;}
+
+      // Ensure the effective map has cap keys forced before diffing
+      effectivePerms4 = applyCapabilityDeps(effectivePerms4 || {});
+      basePerms4 = applyCapabilityDeps(basePerms4 || {});
+
       return {
         first:first.value.trim(),
         last:last.value.trim(),
@@ -362,7 +418,7 @@
         status:$("status").value,
         perm:$("perm").value,
         notes:$("notes").value.trim(),
-        overrides: collectViewOverrides()
+        overrides: collectOverrides4()
       };
     }
 
@@ -377,7 +433,7 @@
         notes:vals.notes,
         search:[fullName.toLowerCase(), vals.first.toLowerCase(), vals.last.toLowerCase(), vals.email.toLowerCase()].filter(Boolean),
         active:vals.status==="Active",
-        overrides: vals.overrides,
+        overrides: vals.overrides,   // ✅ now 4-action diffs
         updatedAt:serverTimestamp()
       };
       const id=emailKey(vals.email);
