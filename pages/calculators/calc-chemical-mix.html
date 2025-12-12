@@ -12,14 +12,14 @@
   <script defer src="../../js/fv-shell.js"></script>
   <style>
     :root{
-      --page-bottom-gap: 110px;         /* extra cushion above fixed footer */
+      --page-bottom-gap: 110px;
       --card-max: 940px;
       --accent: #2F6C3C;
+      --ring: rgba(47,108,60,.20);
     }
     html{-webkit-text-size-adjust:100%}
     body{ background: var(--app-bg, var(--surface)); }
 
-    /* Only the white app content scrolls (header/footer fixed by fv-shell) */
     .wrap{
       max-width: var(--card-max);
       margin: 0 auto;
@@ -51,14 +51,37 @@
     @media (max-width:760px){ .grid{ grid-template-columns:1fr; } }
 
     label{ display:block; font-weight:600; margin-bottom:6px; }
+
     .ctrl{
       display:flex; align-items:center; gap:8px;
       border:1px solid var(--border); background:var(--card-surface,var(--surface));
       border-radius:10px; padding:10px 12px;
     }
-    input,select,button{ font-size:16px; }              /* prevent iOS zoom */
-    .ctrl input,.ctrl select{ width:100%; border:0; outline:0; background:transparent; color:var(--text); }
+    input,select,button{ font-size:16px; } /* prevent iOS zoom */
+    .ctrl input{ width:100%; border:0; outline:0; background:transparent; color:var(--text); }
     .unit{ font-size:12px; color:var(--muted); white-space:nowrap; }
+
+    /* ✅ Fix: single-box dropdown styling (no “select inside a bigger box”) */
+    .select-box{
+      width:100%;
+      appearance:none;
+      -webkit-appearance:none;
+      -moz-appearance:none;
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:10px 42px 10px 12px;
+      background: var(--card-surface,var(--surface));
+      color: var(--text);
+      outline:none;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6 6-6' fill='none' stroke='%2367706B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat:no-repeat;
+      background-position:right 12px center;
+      background-size:18px 18px;
+    }
+    .select-box:focus{
+      border-color: rgba(47,108,60,.42);
+      box-shadow: 0 0 0 4px var(--ring);
+    }
 
     /* Product list */
     .prods{ display:grid; gap:10px; }
@@ -69,10 +92,9 @@
     @media (max-width:880px){ .prow{ grid-template-columns:1fr 1fr 1fr auto; } }
     .prow .rm{
       appearance:none; border:1px solid var(--border); background:var(--surface);
-      padding:8px 10px; border-radius:10px; font-weight:700; cursor:pointer; color:var(--text) !important; /* no blue */
+      padding:8px 10px; border-radius:10px; font-weight:700; cursor:pointer; color:var(--text) !important;
     }
 
-    /* Action buttons — equal size */
     .actions{
       padding:4px 16px 16px;
       display:grid; grid-template-columns:repeat(4, minmax(140px,1fr)); gap:10px;
@@ -103,7 +125,7 @@
     .hsummary{ font-weight:700; }
     .btn-link{
       background:none; border:0; padding:0; text-decoration:underline; cursor:pointer;
-      color: var(--text) !important;                 /* no blue */
+      color: var(--text) !important;
     }
     .muted-line{ font-size:12px; color:var(--muted); }
 
@@ -118,7 +140,7 @@
     .dialog-body{ padding:14px; overflow:auto; flex:1 1 auto; min-height:0; -webkit-overflow-scrolling:touch; }
     .closex{
       border:1px solid var(--border); background:var(--surface); border-radius:10px;
-      padding:8px 12px; cursor:pointer; font-weight:700; color: var(--text) !important; /* no blue */
+      padding:8px 12px; cursor:pointer; font-weight:700; color: var(--text) !important;
     }
     html.no-scroll, body.no-scroll{ overflow:hidden; }
   </style>
@@ -223,7 +245,7 @@
   <script>
   (function(){
     "use strict";
-    if(window.__FV_CHEM_MIX_V3__) return; window.__FV_CHEM_MIX_V3__=true;
+    if(window.__FV_CHEM_MIX_V4__) return; window.__FV_CHEM_MIX_V4__=true;
 
     var MAX_PRODS = 7;
     var GAL_PER = { "oz":1/128, "pt":1/8, "qt":1/4, "gal":1, "lb":0, "ozd":0 }; // liquids convert; dry (lb, ozd) don't affect water
@@ -231,7 +253,6 @@
     function $(id){ return document.getElementById(id); }
     function nraw(s){ return parseFloat(String(s).replace(/,/g,"")); }
     function fmt(n,d){ if(d===void 0) d=2; return Number(n).toLocaleString(undefined,{maximumFractionDigits:d}); }
-    function fmt0(n){ return Number(n).toLocaleString(); }
 
     var areaEl=$("area"), tankEl=$("tank"), sprayEl=$("spray"), prodsEl=$("prods");
     var addBtn=$("addProd"), clearProdsBtn=$("clearProds"), clearInputsBtn=$("clearInputs");
@@ -242,7 +263,7 @@
       el.addEventListener("blur", function(){
         var s=el.value.replace(/[^0-9.]/g,"");
         if(!s){ el.value=""; return; }
-        var v=parseFloat(s); if(isFinite(v)) el.value = v>=1000 ? fmt(v,3) : fmt(v,3);
+        var v=parseFloat(s); if(isFinite(v)) el.value = fmt(v,3);
       });
     });
 
@@ -251,7 +272,7 @@
       row.innerHTML =
         '<div class="ctrl"><input data-k="name" type="text" placeholder="Product name" value="'+(name||'')+'"></div>'
        +' <div class="ctrl"><input data-k="rate" type="text" inputmode="decimal" placeholder="Rate" value="'+(rate||'')+'"></div>'
-       +' <div class="ctrl"><select data-k="unit">'
+       +' <div><select class="select-box" data-k="unit">'
        +   '<option value="oz">oz/ac (liquid)</option>'
        +   '<option value="pt">pt/ac</option>'
        +   '<option value="qt">qt/ac</option>'
@@ -306,18 +327,18 @@
 
       prods.forEach(function(p){
         var perAc = p.rate;
-        var total = perAc * area;                          // total in entered unit
+        var total = perAc * area;
         var gal = 0;
         if(p.unit==="oz"||p.unit==="pt"||p.unit==="qt"||p.unit==="gal"){ gal = total * GAL_PER[p.unit]; }
         totalProdGal += gal;
 
-        var unitLabel = (p.unit==="ozd") ? "oz (dry)" : p.unit;   // nicer text for dry oz
+        var unitLabel = (p.unit==="ozd") ? "oz (dry)" : p.unit;
         var txt = p.name + ": " + fmt(total,3) + " " + unitLabel;
         if(gal>0){ txt += " ("+fmt(total * GAL_PER[p.unit],3)+" gal)"; }
         lines.push(txt);
       });
 
-      var water = Math.max(0, tank - totalProdGal); // dry does not reduce water
+      var water = Math.max(0, tank - totalProdGal);
 
       return { t:Date.now(), area:area, spray:spray, tank:tank, prodGal:totalProdGal, water:water, prods:prods, lines:lines };
     }
@@ -328,7 +349,8 @@
       sumTk.textContent = fmt(o.tank,3)+" gal";
       sumPG.textContent = fmt(o.prodGal,3)+" gal";
       sumW.textContent  = fmt(o.water,3)+" gal";
-      sumList.innerHTML = ""; o.lines.forEach(function(s){ var li=document.createElement("li"); li.textContent=s; sumList.appendChild(li); });
+      sumList.innerHTML = "";
+      o.lines.forEach(function(s){ var li=document.createElement("li"); li.textContent=s; sumList.appendChild(li); });
       results.hidden=false;
     }
 
@@ -338,7 +360,6 @@
     function save(a){ localStorage.setItem(LS_KEY, JSON.stringify(a.slice(0,10))); }
 
     function oneLine(o){
-      // keep it short
       var n = o.prods.length;
       return fmt(o.area,2)+" ac @ "+fmt(o.spray,1)+" gpa → water "+fmt(o.water,0)+" gal ("+n+" prod)";
     }
@@ -357,6 +378,18 @@
 
     /* ---------- Modal ---------- */
     var modal=$("modal"), mdBody=$("mdBody"), mdClose=$("mdClose"); var lastOpener=null, trapHandler=null;
+
+    function trapFocus(root){
+      var focusables=[].slice.call(root.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')).filter(function(el){return !el.disabled && el.offsetParent!==null;});
+      if(!focusables.length) return; var first=focusables[0], last=focusables[focusables.length-1];
+      trapHandler=function(e){ if(e.key!=="Tab")return;
+        if(e.shiftKey && document.activeElement===first){e.preventDefault(); last.focus();}
+        else if(!e.shiftKey && document.activeElement===last){e.preventDefault(); first.focus();}
+      };
+      root.addEventListener("keydown", trapHandler);
+    }
+    function releaseFocus(root){ if(trapHandler){ root.removeEventListener("keydown", trapHandler); trapHandler=null; } }
+
     function openModal(o, opener){
       lastOpener=opener||null;
       var html='<div class="kv">'
@@ -381,25 +414,16 @@
       document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
       mdClose.focus(); trapFocus(modal);
     }
+
     function closeModal(){
       modal.removeAttribute("open"); modal.setAttribute("aria-hidden","true");
       document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
       releaseFocus(modal); if(lastOpener) lastOpener.focus();
     }
+
     mdClose.addEventListener("click", closeModal);
     modal.addEventListener("click", function(e){ if(e.target===modal) closeModal(); });
     document.addEventListener("keydown", function(e){ if(modal.hasAttribute("open") && e.key==="Escape") closeModal(); });
-
-    function trapFocus(root){
-      var focusables=[].slice.call(root.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')).filter(function(el){return !el.disabled && el.offsetParent!==null;});
-      if(!focusables.length) return; var first=focusables[0], last=focusables[focusables.length-1];
-      trapHandler=function(e){ if(e.key!=="Tab")return;
-        if(e.shiftKey && document.activeElement===first){e.preventDefault(); last.focus();}
-        else if(!e.shiftKey && document.activeElement===last){e.preventDefault(); first.focus();}
-      };
-      root.addEventListener("keydown", trapHandler);
-    }
-    function releaseFocus(root){ if(trapHandler){ root.removeEventListener("keydown", trapHandler); trapHandler=null; } }
 
     /* ---------- Submit ---------- */
     $("frm").addEventListener("submit", function(ev){
@@ -410,7 +434,7 @@
 
     $("clearHist").addEventListener("click", function(){ localStorage.removeItem(LS_KEY); renderHist(); });
 
-    // start with one empty row for convenience
+    // start with one empty row
     makeRow("", "", "oz"); updateAddLock(); renderHist();
   })();
   </script>
