@@ -61,7 +61,6 @@
     .unit{ font-size:12px; color:var(--muted); white-space:nowrap; }
     .hidden{ display:none !important; }
 
-    /* Dropdowns: make them a single box (no nested “box inside a box”) */
     .select-box{
       width:100%;
       appearance:none;
@@ -111,7 +110,6 @@
     .hsummary{ font-weight:700; }
     .muted-line{ font-size:12px; color:var(--muted); }
 
-    /* Centered modal */
     .modal{ position:fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,.42);
       z-index:9999; transition:opacity .15s; opacity:0; }
     .modal[open]{ display:grid; opacity:1; }
@@ -144,12 +142,10 @@
           </div>
         </div>
 
-        <!-- FORM -->
         <form id="frm" novalidate autocomplete="off">
           <div class="grid">
             <div>
               <label for="crop">Crop</label>
-              <!-- single dropdown box (no ctrl wrapper) -->
               <select id="crop" class="select-box">
                 <option value="corn" selected>Corn (56 lb/bu, 1.244 ft³/bu)</option>
                 <option value="soy">Soybeans (60 lb/bu, 1.25 ft³/bu)</option>
@@ -159,7 +155,6 @@
 
             <div>
               <label for="dimMode">Bin Input</label>
-              <!-- single dropdown box (no ctrl wrapper) -->
               <select id="dimMode" class="select-box">
                 <option value="diam" selected>Diameter</option>
                 <option value="circ">Circumference</option>
@@ -192,7 +187,6 @@
 
             <div>
               <label for="top">Top</label>
-              <!-- single dropdown box (no ctrl wrapper) -->
               <select id="top" class="select-box">
                 <option value="peaked" selected>Peaked</option>
                 <option value="level">Level</option>
@@ -214,7 +208,6 @@
           </div>
         </form>
 
-        <!-- RESULTS -->
         <div class="results" id="results" hidden>
           <div class="tile">
             <h3>Capacity</h3>
@@ -226,7 +219,6 @@
           </div>
         </div>
 
-        <!-- HISTORY -->
         <section class="hist">
           <div style="display:flex;align-items:center;gap:10px">
             <h2 style="flex:1">Previous Calculations</h2>
@@ -239,7 +231,6 @@
     </div>
   </fv-shell>
 
-  <!-- DETAILS MODAL -->
   <div class="modal" id="modal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
       <div class="dialog-head">
@@ -253,7 +244,7 @@
   <script>
   (function(){
     "use strict";
-    if(window.__FV_BIN_V3__) return; window.__FV_BIN_V3__=true;
+    if(window.__FV_BIN_V4__) return; window.__FV_BIN_V4__=true;
 
     function $(id){ return document.getElementById(id); }
     function nraw(s){ return parseFloat(String(s||"").replace(/,/g,"")); }
@@ -289,16 +280,41 @@
     });
     setDimMode();
 
-    // format with commas on blur
-    [diamEl,circEl,sideEl,peakEl].forEach(function(el){
+    /* ✅ Only numbers + max 2 decimals while typing */
+    function restrict2(el){
       if(!el) return;
-      el.addEventListener("blur", function(){
-        var s=String(el.value||"").replace(/[^0-9.]/g,"");
-        if(!s){ el.value=""; return; }
-        var v=parseFloat(s);
-        if(isFinite(v)) el.value = fmt(v,2);
+
+      el.addEventListener("input", function(){
+        var s = String(el.value || "");
+
+        // strip all but digits and dot
+        s = s.replace(/[^\d.]/g, "");
+
+        // allow only one dot
+        var parts = s.split(".");
+        if(parts.length > 2){
+          s = parts.shift() + "." + parts.join("");
+          parts = s.split(".");
+        }
+
+        // clamp decimals to 2
+        if(parts.length === 2){
+          parts[1] = parts[1].slice(0,2);
+          s = parts[0] + "." + parts[1];
+        }
+
+        el.value = s;
       });
-    });
+
+      // format nicely on blur (commas + 0-2 decimals)
+      el.addEventListener("blur", function(){
+        var v = nraw(el.value);
+        if(!isFinite(v)){ el.value=""; return; }
+        el.value = fmt(v, 2);
+      });
+    }
+
+    [diamEl,circEl,sideEl,peakEl].forEach(restrict2);
 
     function constants(){
       switch(cropEl.value){
@@ -316,7 +332,6 @@
       } else {
         var C=nraw(circEl.value);
         if(!(C>0)) return null;
-        // circumference = pi * diameter  => diameter = C / pi
         return C / Math.PI;
       }
     }
@@ -341,15 +356,14 @@
       var bu = ft3 / K.ft3PerBu;
       var lb = bu * K.lbsPerBu;
 
-      // store both entered values so modal/history can show what you used
       var mode = dimModeEl.value;
       var entered = mode==="diam" ? nraw(diamEl.value) : nraw(circEl.value);
 
       return {
         t:Date.now(),
         crop:K.name,
-        mode:mode,        // "diam" | "circ"
-        entered:entered,  // the number the user typed
+        mode:mode,
+        entered:entered,
         D:D, H:H,
         top:topEl.value,
         peak:peakH||0,
@@ -365,16 +379,13 @@
       results.hidden=false;
     }
 
-    /* ------- History ------- */
     var LS_KEY="fv_calc_grainbin_history_v3", hlist=$("hlist"), nohist=$("nohist");
     function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
     function save(a){ localStorage.setItem(LS_KEY, JSON.stringify(a.slice(0,10))); }
 
     function oneLine(o){
       var top = o.top==="peaked" ? (" +peak "+fmt(o.peak,0)+"ft") : "";
-      var dimTxt = (o.mode==="circ")
-        ? ("C"+fmt(o.entered,0)+"ft")
-        : ("D"+fmt(o.entered,0)+"ft");
+      var dimTxt = (o.mode==="circ") ? ("C"+fmt(o.entered,0)+"ft") : ("D"+fmt(o.entered,0)+"ft");
       return o.crop+" "+dimTxt+" × "+fmt(o.H,0)+"ft"+top+" → "+fmt(o.bu,0)+" bu";
     }
 
@@ -390,7 +401,6 @@
       });
     }
 
-    /* ------- Modal ------- */
     var modal=$("modal"), mdBody=$("mdBody"), mdClose=$("mdClose"); var lastOpener=null, trapHandler=null;
     function openModal(o, opener){
       lastOpener=opener||null;
@@ -436,7 +446,6 @@
     }
     function releaseFocus(root){ if(trapHandler){ root.removeEventListener("keydown", trapHandler); trapHandler=null; } }
 
-    /* ------- Submit ------- */
     $("frm").addEventListener("submit", function(ev){
       ev.preventDefault();
       var out=calc(); show(out);
