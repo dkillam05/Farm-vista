@@ -122,7 +122,7 @@
       border-radius:14px;
       border:1px solid var(--border);
       box-shadow:0 16px 36px rgba(0,0,0,.28);
-      overflow:hidden; /* ✅ prevents horizontal scrollbars from child overflow */
+      overflow:hidden;
     }
     .dialog-head{
       padding:12px 14px;
@@ -135,7 +135,7 @@
     .dialog-body{
       padding:14px;
       overflow:auto;
-      overflow-x:hidden; /* ✅ remove horizontal scroll */
+      overflow-x:hidden;
       flex:1 1 auto;
       min-height:0;
       -webkit-overflow-scrolling:touch;
@@ -150,7 +150,6 @@
     .mini-tile{ border:1px solid var(--border); border-radius:12px; padding:10px; background:var(--surface); }
     .mini-tile h4{ margin:0 0 6px; font-size:14px; }
 
-    /* Help icon */
     .help-btn{
       appearance:none;
       border:1px solid var(--border);
@@ -255,7 +254,7 @@
         </div>
         <button class="closex" id="cyClose" type="button">Back</button>
       </div>
-      <div class="dialog-body">
+      <div class="dialog-body" id="cyBody">
         <form id="cyForm" novalidate autocomplete="off">
           <div class="cg">
             <div>
@@ -363,7 +362,7 @@
   <script type="module">
   (async function(){
     "use strict";
-    if(window.__FV_TRIALS_FULL_V9__) return; window.__FV_TRIALS_FULL_V9__=true;
+    if(window.__FV_TRIALS_FULL_V10__) return; window.__FV_TRIALS_FULL_V10__=true;
 
     const $ = (id) => document.getElementById(id);
     const num = (v) => parseFloat(String(v||"").replace(/,/g,""));
@@ -430,6 +429,8 @@
       el.setAttribute("open",""); el.setAttribute("aria-hidden","false");
       document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
       trapFocus(el);
+
+      // Ensure combos inside visible modal are upgraded
       upgradeCombos(el);
     }
     function closeModal(el){
@@ -460,6 +461,54 @@
         if(histModal && histModal.hasAttribute("open")) closeModal(histModal);
       }
     });
+
+    /* ---------- HARD FIX: force fv-combo panel under the clicked control inside cyModal ---------- */
+    function clamp(n,a,b){ return Math.max(a, Math.min(b, n)); }
+
+    function forcePlaceOpenComboPanels(anchorBtn){
+      const panel = document.querySelector(".fv-panel.show");
+      if(!panel || !anchorBtn) return;
+
+      const r = anchorBtn.getBoundingClientRect();
+      const vwW = window.innerWidth;
+      const vwH = window.innerHeight;
+      const gap = 6;
+
+      // Set width to anchor width (feels like rest of app)
+      const w = Math.max(180, Math.round(r.width));
+      panel.style.width = w + "px";
+
+      // Default below
+      let left = clamp(Math.round(r.left), 8, vwW - w - 8);
+      let top  = Math.round(r.bottom + gap);
+
+      // If it would run off bottom, try above
+      const ph = Math.round(panel.getBoundingClientRect().height || 240);
+      if(top + ph > vwH - 8){
+        const up = Math.round(r.top - gap - ph);
+        if(up >= 8) top = up;
+      }
+
+      panel.style.left = left + "px";
+      panel.style.top  = top + "px";
+    }
+
+    // Capture clicks inside cyModal: whenever a combo button is clicked, force-place panel.
+    cyModal.addEventListener("click", (e) => {
+      const btn = e.target.closest && e.target.closest(".fv-buttonish");
+      if(!btn) return;
+      // let fv-combo open its panel first, then reposition
+      setTimeout(() => forcePlaceOpenComboPanels(btn), 0);
+    }, true);
+
+    // If popup scrolls, keep the panel anchored as well
+    const cyBody = document.getElementById("cyBody");
+    if(cyBody){
+      cyBody.addEventListener("scroll", () => {
+        const openBtn = cyModal.querySelector(".fv-buttonish:focus") || null;
+        if(openBtn) forcePlaceOpenComboPanels(openBtn);
+      }, { passive:true });
+    }
 
     /* ---------- Treatments ---------- */
     const tlist=$("tlist");
@@ -546,14 +595,13 @@
       sumTile.hidden=false;
     }
 
-    /* ---------- Combine Yield popup (True only) ---------- */
+    /* ---------- Combine Yield popup ---------- */
     const cyClose=$("cyClose");
     const cyCrop=$("cyCrop"), cyWid=$("cyWid"), cyLen=$("cyLen"), cyAc=$("cyAc"), cyWt=$("cyWt"), cyM=$("cyM");
     const cyRes=$("cyRes"), tYield=$("tYield"), tBu=$("tBu");
     const cyCalc=$("cyCalc"), cyUseBtn=$("cyUseBtn");
     let cyTargetRow=null;
 
-    // numeric restrictions
     function restrictInt(el){
       el.addEventListener("input", ()=>{
         const s = String(el.value||"").replace(/[^\d]/g,"");
@@ -615,47 +663,38 @@
 
       return { trueY, trueBu };
     }
+
     function showCY(o){
-  if(!o){ 
-    cyRes.hidden = true; 
-    return; 
-  }
-  tYield.textContent = fmt(o.trueY, 2);
-  tBu.textContent    = fmt(o.trueBu, 2);
-  cyRes.hidden = false;
-}
+      if(!o){ cyRes.hidden=true; return; }
+      tYield.textContent=fmt(o.trueY,2);
+      tBu.textContent=fmt(o.trueBu,2);
+      cyRes.hidden=false;
+    }
 
-function openCY(treatmentRow){
-  cyTargetRow = treatmentRow;
-  calcArea();
+    function openCY(treatmentRow){
+      cyTargetRow = treatmentRow;
+      calcArea();
 
-  // Open modal FIRST so layout is real
-  openModal(cyModal, treatmentRow.querySelector('[data-k="enter"]'));
+      openModal(cyModal, treatmentRow.querySelector('[data-k="enter"]'));
 
-  // Re-upgrade combos INSIDE the modal AFTER it is visible
-  if (window.FVCombo && typeof window.FVCombo.upgrade === "function") {
-    window.FVCombo.upgrade(cyModal);
-  }
-}
+      // Ensure combos inside modal are upgraded now that it's visible
+      if (window.FVCombo && typeof window.FVCombo.upgrade === "function") {
+        window.FVCombo.upgrade(cyModal);
+      }
+    }
 
-cyClose.addEventListener("click", () => closeModal(cyModal));
-cyModal.addEventListener("click", (e) => { 
-  if(e.target === cyModal) closeModal(cyModal); 
-});
+    cyClose.addEventListener("click", () => closeModal(cyModal));
+    cyModal.addEventListener("click", (e) => { if(e.target === cyModal) closeModal(cyModal); });
 
-cyCalc.addEventListener("click", () => { 
-  const out = calcTrue(); 
-  showCY(out); 
-});
+    cyCalc.addEventListener("click", () => { const out = calcTrue(); showCY(out); });
 
-cyUseBtn.addEventListener("click", () => {
-  const out = calcTrue();
-  if(!out) return;
-  cyTargetRow.querySelector('[data-k="yield"]').textContent = fmt(out.trueY, 2) + " bu/ac";
-  refreshSummary();
-  closeModal(cyModal);
-});
-
+    cyUseBtn.addEventListener("click", () => {
+      const out = calcTrue();
+      if(!out) return;
+      cyTargetRow.querySelector('[data-k="yield"]').textContent = fmt(out.trueY,2) + " bu/ac";
+      refreshSummary();
+      closeModal(cyModal);
+    });
 
     /* Help */
     const cyHelpBtn=$("cyHelpBtn"), cyHelpClose=$("cyHelpClose");
@@ -663,7 +702,7 @@ cyUseBtn.addEventListener("click", () => {
     cyHelpClose.addEventListener("click", ()=> closeModal(cyHelpModal));
     cyHelpModal.addEventListener("click", (e)=>{ if(e.target===cyHelpModal) closeModal(cyHelpModal); });
 
-    /* ---------- History ---------- */
+    /* ---------- History (kept simple) ---------- */
     const hmClose=$("hmClose"), hmBody=$("hmBody");
     const LS_KEY="fv_calc_trial_yields_history_v3";
     function loadH(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
@@ -741,6 +780,7 @@ cyUseBtn.addEventListener("click", () => {
     refreshSummary();
     renderHist();
     upgradeCombos(document);
+
   })();
   </script>
 </body>
