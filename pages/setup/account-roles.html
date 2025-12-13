@@ -11,6 +11,10 @@
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
   <script src="/Farm-vista/js/theme-boot.js"></script>
+
+  <!-- ✅ Permission UI controller -->
+  <script src="/Farm-vista/js/perm-ui.js"></script>
+
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
@@ -150,7 +154,7 @@
     })();
   </script>
 
-  <!-- Firebase config FIRST -->
+  <!-- Firebase config -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
 </head>
 
@@ -174,13 +178,11 @@
           <div class="row">
             <div class="field">
               <label for="rolePicker">Existing Roles</label>
-              <!-- allow view-only users to switch roles -->
               <select id="rolePicker" class="select">
                 <option value="">Add New Role</option>
               </select>
             </div>
 
-            <!-- Role name is an edit action -->
             <div class="field" id="roleNameField" data-perm="setup-roles:edit">
               <label for="roleName">Role Name</label>
               <input id="roleName" class="input" placeholder="e.g., Seasonal Operator">
@@ -188,9 +190,7 @@
           </div>
 
           <div class="actions">
-            <!-- Save is an edit action -->
             <button id="saveRole" class="btn btn-primary" type="button" data-perm="setup-roles:edit">Save Role</button>
-            <!-- Delete is handled inside fv-perms-hero (we will only expose handler if setup-roles:delete) -->
           </div>
         </div>
       </section>
@@ -228,13 +228,19 @@
       let currentRoleId = "";
       let roleDraft = { id:"", name:"", perms:{} };
 
-      /* ====== QC / CAP DEPENDENCIES (FIX: Always Persist cap-* keys) ====== */
+      /* ====== LOCKED ROLE RULE ====== */
+      function isAdminRoleName(name){
+        return String(name||"").trim().toLowerCase() === "admin";
+      }
+      function isLockedRole(){
+        return isAdminRoleName(roleDraft.name || $("roleName")?.value || "");
+      }
+
+      /* ====== QC / CAP DEPENDENCIES ====== */
       const CAP_QR = 'cap-qr-scanner';
       const CAP_CAMERA = 'cap-camera-popup';
 
-      // You said these are the only real drivers right now:
-      // - QR => Maintenance Work Orders Add
-      // - Camera => Expenditures Add
+      // Drivers:
       const DRIVE_QR_BY = 'eq-maint-workorders';
       const DRIVE_CAM_BY = 'exp-expenditures';
 
@@ -262,12 +268,9 @@
         return out;
       }
 
-      // ✅ Ensures the cap keys exist and are saved to Firestore every time.
-      // Also forces them to match your dependency truth.
       function applyCapabilityDeps(map){
         const perms = normalizePermMap(map || {});
-
-        const qrNeeded = !!(perms[DRIVE_QR_BY] && perms[DRIVE_QR_BY].add);
+        const qrNeeded  = !!(perms[DRIVE_QR_BY] && perms[DRIVE_QR_BY].add);
         const camNeeded = !!(perms[DRIVE_CAM_BY] && perms[DRIVE_CAM_BY].add);
 
         perms[CAP_QR] = Object.assign(
@@ -278,7 +281,6 @@
 
         perms[CAP_CAMERA] = Object.assign(
           { view:false, add:false, edit:false, delete:false },
-          (perms[CAP_CAMERA] || {}),
           (perms[CAP_CAMERA] || {}),
           { view: !!camNeeded }
         );
@@ -321,18 +323,16 @@
         const name = nameFromDraft || nameFromInput || (currentRoleId ? "(unnamed)" : "New Role");
 
         const canDelete = canNow('setup-roles:delete');
+        const locked = isAdminRoleName(name);
 
         hero.config = {
           mode: 'role',
           name,
           perms: roleDraft.perms || {},
-          // only show delete ability if user can delete roles
-          onDeleteRole: (currentRoleId && canDelete) ? handleDeleteRole : null,
+          // ✅ never allow delete for Admin, even if user has setup-roles:delete
+          onDeleteRole: (currentRoleId && canDelete && !locked) ? handleDeleteRole : null,
           onPermsChange: (updatedPerms) => {
-            // changing perms is an edit action
             if (!canNow('setup-roles:edit')) return;
-
-            // ✅ Keep draft in a valid state (cap keys always exist)
             roleDraft.perms = applyCapabilityDeps(updatedPerms || {});
           }
         };
@@ -358,10 +358,7 @@
 
       async function saveRoleFS(id, name, perms){
         const db = getFirestore();
-
-        // ✅ Always apply deps right before persisting (guarantees Firestore has cap keys)
         const clean = applyCapabilityDeps(perms || {});
-
         if(id){
           await setDoc(doc(db, COLLECTION, id), {
             name,
@@ -391,10 +388,7 @@
 
       async function saveRole(name, perms){
         if(!name) throw new Error("Missing role name");
-
-        // ✅ Always apply deps before saving (both modes)
         const normalized = applyCapabilityDeps(perms || {});
-
         if(MODE==='firebase'){
           return await saveRoleFS(currentRoleId, name, normalized);
         } else {
@@ -414,6 +408,9 @@
 
       async function deleteRole(){
         if(!currentRoleId) return;
+        if(isLockedRole()){
+          throw new Error("Admin role cannot be deleted.");
+        }
         if(MODE==='firebase'){ await deleteRoleFS(currentRoleId); }
         else { saveLS(loadLS().filter(x=>x.id!==currentRoleId)); }
       }
@@ -455,25 +452,18 @@
         $("rolePicker").value = "";
         showRoleNameField(true);
 
-        // Keep the perms valid even in "new role" mode
         roleDraft.perms = applyCapabilityDeps(roleDraft.perms || {});
         updateHero();
       }
 
       async function loadRoleIntoDraft(id){
-        if(!id){
-          newDraft();
-          return;
-        }
+        if(!id){ newDraft(); return; }
+
         const all = await loadRoles();
         const r = all.find(x=>x.id===id);
-        if(!r){
-          newDraft(); 
-          return;
-        }
-        currentRoleId = r.id;
+        if(!r){ newDraft(); return; }
 
-        // ✅ Apply deps on load so missing cap keys get materialized immediately.
+        currentRoleId = r.id;
         const perms = applyCapabilityDeps(r.perms || {});
         roleDraft = { id:r.id, name:r.name, perms };
 
@@ -488,12 +478,19 @@
           alert("You don't have permission to delete roles.");
           return;
         }
-        if(!currentRoleId){ 
-          alert("No role selected."); 
-          return; 
+        if(!currentRoleId){
+          alert("No role selected.");
+          return;
         }
         const name = roleDraft.name || $("roleName").value || "(unnamed)";
+
+        if(isAdminRoleName(name)){
+          alert('The "Admin" role is locked and cannot be deleted.');
+          return;
+        }
+
         if(!confirm(`Delete role "${name}"? This cannot be undone.`)) return;
+
         try{
           await deleteRole();
           const all = await loadRoles();
@@ -535,8 +532,6 @@
             : (roleDraft.name || $("roleName").value.trim() || "(unnamed)");
 
           roleDraft.name = finalName;
-
-          // ✅ Guarantee cap keys exist even if user never touched the hero
           roleDraft.perms = applyCapabilityDeps(roleDraft.perms || {});
 
           const id = await saveRole(finalName, roleDraft.perms);
@@ -557,10 +552,7 @@
 
       $("rolePicker").addEventListener("change", async ()=>{
         const id = $("rolePicker").value;
-        if(!id){
-          newDraft();
-          return;
-        }
+        if(!id){ newDraft(); return; }
         await loadRoleIntoDraft(id);
       });
 
@@ -583,9 +575,7 @@
             });
             populateRolePickerFromArray(arr);
           });
-        }catch(e){
-          // non-fatal
-        }
+        }catch(e){}
       }
 
       /* ====== INIT ====== */
@@ -606,7 +596,6 @@
 
         liveBind();
 
-        // When perms load, refresh hero delete visibility / edit guards
         document.addEventListener('fv:user-ready', () => {
           updateHero();
         });
