@@ -112,6 +112,11 @@
     section[data-hide-for-now]{
       display:none !important;
     }
+
+    /* Permission hidden helper */
+    .perm-hidden{
+      display:none !important;
+    }
   </style>
 </head>
 <body>
@@ -144,10 +149,12 @@
 
       <!-- ===========================
            SUMMARY 1: GRAIN BIN INVENTORY
+           Gate: cap-kpi-grain
            =========================== -->
       <section
         class="sum-card"
         aria-label="Grain Bin Inventory summary"
+        id="grain-bins-summary"
       >
         <div class="sum-title">Grain Bin Inventory</div>
 
@@ -180,10 +187,12 @@
 
       <!-- ===========================
            SUMMARY 2: GRAIN BAG INVENTORY (FIELD GRAIN)
+           Gate: cap-kpi-grain
            =========================== -->
       <section
         class="sum-card"
         aria-label="Grain Bag Inventory summary"
+        id="grain-bags-summary"
       >
         <div class="sum-title">Grain Bag Inventory (grain in field bags)</div>
 
@@ -257,6 +266,221 @@
     </div>
   </fv-shell>
 
+  <!-- =========================================================
+       Grain Capability Permissions (Role + Employee Overrides)
+       Sources:
+         - employees/{lowercaseEmail} (permissionGroup + overrides)
+         - accountRoles (lookup by name == permissionGroup)
+       Gates:
+         - cap-kpi-grain => Bin + Bag summary cards (this page)
+       Outputs:
+         - window.FV_GRAIN_PERMS / window.FV_GRAIN_CAN
+         - dispatches "fv:grain-perms-ready" (detail: {permsKnown})
+       IMPORTANT:
+         - FAIL-OPEN: do NOT hide anything unless perms are successfully resolved
+     ========================================================= -->
+  <script type="module">
+    import {
+      ready,
+      getAuth,
+      onAuthStateChanged,
+      getFirestore,
+      doc,
+      getDoc,
+      collection,
+      getDocs,
+      query,
+      where
+    } from '/Farm-vista/js/firebase-init.js';
+
+    (function(){
+      "use strict";
+
+      const KEY_GRAIN_KPI = "cap-kpi-grain";
+
+      const els = {
+        bins: document.getElementById("grain-bins-summary"),
+        bags: document.getElementById("grain-bags-summary")
+      };
+
+      function hide(el){
+        if (!el) return;
+        el.classList.add("perm-hidden");
+        el.setAttribute("aria-hidden","true");
+      }
+      function show(el){
+        if (!el) return;
+        el.classList.remove("perm-hidden");
+        el.removeAttribute("aria-hidden");
+      }
+
+      function hasPermObj(p){
+        return p && typeof p === "object" && (
+          Object.prototype.hasOwnProperty.call(p,"view") ||
+          Object.prototype.hasOwnProperty.call(p,"add") ||
+          Object.prototype.hasOwnProperty.call(p,"edit") ||
+          Object.prototype.hasOwnProperty.call(p,"delete")
+        );
+      }
+
+      function canFromPermValue(val, action){
+        if (val == null) return false;
+        if (val === true) return true;
+        if (val === false) return false;
+
+        if (typeof val === "object"){
+          if (typeof val.on === "boolean") return !!val.on;
+
+          if (hasPermObj(val)){
+            const a = (action || "view").toLowerCase();
+            if (typeof val[a] === "boolean") return !!val[a];
+            return !!(val.view || val.add || val.edit || val.delete);
+          }
+        }
+        return false;
+      }
+
+      function makeCan(perms){
+        return function(key, action){
+          if (!key) return true;
+          return canFromPermValue(perms ? perms[key] : null, action || "view");
+        };
+      }
+
+      function deepClone(obj){
+        try { return JSON.parse(JSON.stringify(obj || {})); } catch { return {}; }
+      }
+
+      function mergePerms(base, overrides){
+        const out = deepClone(base || {});
+        const ov = (overrides && typeof overrides === "object") ? overrides : {};
+        for (const k of Object.keys(ov)){
+          out[k] = ov[k];
+        }
+        return out;
+      }
+
+      function extractEmployeeGroupAndOverrides(emp){
+        const e = emp || {};
+        const permissionGroup = (e.permissionGroup || "").toString().trim();
+
+        let overrides =
+          (e.overrides && e.overrides.perms && typeof e.overrides.perms === "object" ? e.overrides.perms : null) ||
+          (e.overrides && typeof e.overrides === "object" ? e.overrides : null) ||
+          (e.perms && typeof e.perms === "object" ? e.perms : null) ||
+          {};
+
+        return { permissionGroup, overrides };
+      }
+
+      async function readEmployeeByEmail(db, user){
+        const email = (user && user.email ? user.email.toString().trim().toLowerCase() : "");
+        if (!email) return null;
+        const ref = doc(db, "employees", email);
+        const snap = await getDoc(ref);
+        return snap.exists() ? (snap.data() || {}) : null;
+      }
+
+      async function readRolePermsByDocId(db, maybeId){
+        if (!maybeId) return null;
+        try{
+          const ref = doc(db, "accountRoles", maybeId);
+          const snap = await getDoc(ref);
+          if (!snap.exists()) return null;
+          const d = snap.data() || {};
+          return (d.perms && typeof d.perms === "object") ? d.perms : {};
+        }catch{
+          return null;
+        }
+      }
+
+      async function readRolePermsByName(db, roleName){
+        if (!roleName) return null;
+        try{
+          const qy = query(collection(db, "accountRoles"), where("name", "==", roleName));
+          const ss = await getDocs(qy);
+          let first = null;
+          ss.forEach(d => { if (!first) first = d; });
+          if (!first) return null;
+          const d = first.data() || {};
+          return (d.perms && typeof d.perms === "object") ? d.perms : {};
+        }catch{
+          return null;
+        }
+      }
+
+      function applyVisibility(perms, permsKnown){
+        if (!permsKnown){
+          // fail-open
+          show(els.bins);
+          show(els.bags);
+
+          window.FV_GRAIN_PERMS = null;
+          window.FV_GRAIN_CAN = null;
+
+          document.dispatchEvent(new CustomEvent("fv:grain-perms-ready", { detail:{ permsKnown:false } }));
+          return;
+        }
+
+        const can = makeCan(perms);
+
+        const ok = can(KEY_GRAIN_KPI, "view");
+
+        if (els.bins) ok ? show(els.bins) : hide(els.bins);
+        if (els.bags) ok ? show(els.bags) : hide(els.bags);
+
+        window.FV_GRAIN_PERMS = perms || {};
+        window.FV_GRAIN_CAN = can;
+
+        document.dispatchEvent(new CustomEvent("fv:grain-perms-ready", { detail:{ permsKnown:true } }));
+      }
+
+      async function init(){
+        await ready;
+
+        const auth = getAuth();
+        const db = getFirestore();
+
+        applyVisibility(null, false);
+
+        onAuthStateChanged(auth, async (user)=>{
+          try{
+            if (!user){
+              applyVisibility(null, false);
+              return;
+            }
+
+            const emp = await readEmployeeByEmail(db, user);
+            if (!emp){
+              console.warn("[grain] employees doc not found for:", user.email);
+              applyVisibility(null, false);
+              return;
+            }
+
+            const { permissionGroup, overrides } = extractEmployeeGroupAndOverrides(emp);
+
+            let basePerms = await readRolePermsByDocId(db, permissionGroup);
+            if (!basePerms) basePerms = await readRolePermsByName(db, permissionGroup);
+
+            if (!basePerms){
+              console.warn("[grain] accountRoles not found for permissionGroup:", permissionGroup);
+              applyVisibility(null, false);
+              return;
+            }
+
+            const merged = mergePerms(basePerms, overrides);
+            applyVisibility(merged, true);
+          }catch(err){
+            console.warn("[grain] perms resolver failed:", err);
+            applyVisibility(null, false);
+          }
+        });
+      }
+
+      init();
+    })();
+  </script>
+
   <!-- 🔌 LIVE WIRING: BINS + FIELD BAGS (FULL + PARTIAL) -->
   <script type="module">
     import {
@@ -279,6 +503,9 @@
     };
     const norm = (s) => (s || '').toString().trim().toLowerCase();
 
+    const isHidden = (el) =>
+      !el || el.classList.contains("perm-hidden") || el.getAttribute("aria-hidden") === "true";
+
     (async () => {
       await ready;
       const db = getFirestore();
@@ -288,6 +515,9 @@
       }
 
       // ----- DOM -----
+      const binsSection  = document.getElementById("grain-bins-summary");
+      const bagsSection  = document.getElementById("grain-bags-summary");
+
       const binBushelsEl = document.getElementById('bin-bushels');
       const binSelCrop   = document.getElementById('bin-crop');
 
@@ -307,7 +537,7 @@
 
       // ====== BINS: sum onHand with optional crop filter (running total, all years) ======
       async function loadBinSummary() {
-        if (!binBushelsEl) return;
+        if (!binBushelsEl || isHidden(binsSection)) return;
         binBushelsEl.textContent = '… bu';
 
         const cropFilter = norm(binSelCrop.value);   // "all" | "corn" | "soybeans"
@@ -339,7 +569,7 @@
 
       // ====== FIELD BAGS: full + partial bags (running totals, all years) ======
       async function loadBagSummary() {
-        if (!bagCountEl || !bagBushelsEl) return;
+        if (!bagCountEl || !bagBushelsEl || isHidden(bagsSection)) return;
         bagCountEl.textContent   = '…';
         bagBushelsEl.textContent = '… bu';
 
@@ -372,12 +602,8 @@
             }
             const prod = prodId ? productMeta[prodId] : null;
             if (prod) {
-              // prefer product lengthFt, fall back to inventory lengthFt
               const len = prod.lengthFt || num(d.lengthFt ?? d.sizeFeet);
-              invMeta[ds.id] = {
-                buPerBag: prod.buPerBag,   // CORN bu per bag
-                lengthFt: len
-              };
+              invMeta[ds.id] = { buPerBag: prod.buPerBag, lengthFt: len };
             }
           });
 
@@ -389,22 +615,18 @@
             return;
           }
 
-          let totalBags = 0; // physical bags: full + partials
-          let totalBu   = 0; // crop-adjusted bushels, using FVGrainCapacity
+          let totalBags = 0;
+          let totalBu   = 0;
 
           evSnap.forEach(ds => {
             const d = ds.data() || {};
 
-            // --- crop filter only (no year filter) ---
             const evCrop = norm(d.cropType || d.crop || '');
             if (cropFilter && cropFilter !== 'all' && evCrop && evCrop !== cropFilter) return;
 
             const counts = d.counts || {};
-            const full = num(
-              counts.full != null ? counts.full : d.full
-            ) || 0;
+            const full = num(counts.full != null ? counts.full : d.full) || 0;
 
-            // partialFeet: array of lengths (ft), each entry = one partial bag
             let partialFeetList = [];
             const pfRaw = counts.partialFeet;
             if (Array.isArray(pfRaw)) {
@@ -418,33 +640,26 @@
             }
 
             const partialBagCount = partialFeetList.length;
-
             if (!full && !partialBagCount) return;
 
-            // update physical bag count
             totalBags += full + partialBagCount;
 
-            // look up per-bag corn capacity + length from inventory id
             const bagSku = d.bagSku || {};
             const invId  = bagSku.id || d.bagSkuId;
             const meta   = invId ? invMeta[invId] : null;
 
             if (meta && meta.buPerBag && meta.lengthFt) {
-              const buPerBag = meta.buPerBag;      // rated CORN bu per full bag
+              const buPerBag = meta.buPerBag;
               const lengthFt = meta.lengthFt;
               const buPerFt  = buPerBag / lengthFt;
 
-              // First compute rated CORN bushels for this event
               let ratedCornBu = 0;
-              if (full > 0) {
-                ratedCornBu += full * buPerBag;
-              }
+              if (full > 0) ratedCornBu += full * buPerBag;
               if (partialFeetList.length) {
                 const totalPartialFt = partialFeetList.reduce((sum, ft) => sum + ft, 0);
                 ratedCornBu += totalPartialFt * buPerFt;
               }
 
-              // Then convert corn capacity → crop bushels using FVGrainCapacity
               let eventBu = ratedCornBu;
               try {
                 if (window.FVGrainCapacity && typeof FVGrainCapacity.capacityForCrop === 'function') {
@@ -455,9 +670,7 @@
                 console.warn('[grain] FVGrainCapacity error:', e);
               }
 
-              if (eventBu && eventBu > 0) {
-                totalBu += eventBu;
-              }
+              if (eventBu && eventBu > 0) totalBu += eventBu;
             }
           });
 
@@ -470,13 +683,20 @@
         }
       }
 
+      function refreshAll(){
+        loadBinSummary();
+        loadBagSummary();
+      }
+
       // wire events
       binSelCrop.addEventListener('change', loadBinSummary);
       bagSelCrop.addEventListener('change', loadBagSummary);
 
+      // re-run after perms resolve (if the cards were hidden, we skipped reads)
+      document.addEventListener('fv:grain-perms-ready', refreshAll);
+
       // initial load
-      loadBinSummary();
-      loadBagSummary();
+      refreshAll();
     })();
   </script>
 
