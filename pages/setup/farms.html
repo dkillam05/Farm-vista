@@ -11,11 +11,12 @@
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
   <script src="/Farm-vista/js/theme-boot.js"></script>
+
+  <!-- ✅ Permission UI controller -->
+  <script src="/Farm-vista/js/perm-ui.js"></script>
+
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
-
-  <!-- FVData helpers (Firestore + Storage unified) -->
-  <script src="/Farm-vista/js/fv-data.js"></script>
 
   <style>
     .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
@@ -81,7 +82,7 @@
     }
   })();</script>
 
-  <!-- Firebase config FIRST (match app load order) -->
+  <!-- Firebase config -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
 </head>
 
@@ -100,7 +101,7 @@
           <div><strong>Add Farm</strong></div>
         </header>
 
-        <!-- Add form is add-gated (greyed out if add=false) -->
+        <!-- Add form is add-gated -->
         <div class="section-body" data-perm="setup-farms:add">
           <div class="row">
             <div class="field">
@@ -135,7 +136,7 @@
         <button id="mdClose" class="closex" type="button">Back</button>
       </div>
 
-      <!-- Modal fields are edit-gated (greyed out if edit=false) -->
+      <!-- Modal fields are edit-gated -->
       <div class="dialog-body" data-perm="setup-farms:edit">
         <div class="field">
           <label for="editName">Farm Name</label>
@@ -160,7 +161,15 @@
   <script type="module">
     import {
       ready,
-      getFirestore, collection, doc, getDocs, deleteDoc
+      getFirestore,
+      collection,
+      addDoc,
+      getDocs,
+      getDoc,
+      setDoc,
+      deleteDoc,
+      doc,
+      serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
     const canNow = (k)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(k) : true;
@@ -168,38 +177,36 @@
     const $ = id => document.getElementById(id);
     const toast = $("toast");
     const alertBox = $("alert");
+
     const showToast = (msg="Successfully saved.")=>{
-      toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show");
+      toast.textContent = msg;
+      toast.classList.remove("show");
+      toast.style.display = 'block';
+      void toast.offsetWidth;
+      toast.classList.add("show");
+      setTimeout(()=>{ toast.classList.remove("show"); toast.style.display='none'; }, 2800);
     };
+
     const showAlert = (msg)=>{
       alertBox.textContent = msg;
       alertBox.classList.add('show');
       clearTimeout(showAlert._t);
       showAlert._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
     };
+
     const escapeHTML = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 
+    const COLL = 'farms';
+
     let db = null;
-    let editId = null;
     let rows = [];
+    let editId = null;
 
-    async function waitForAuthReady(timeoutMs=5000){
-      try{
-        if (!window.firebaseAuth || !window.firebaseAuth.onAuthStateChanged) return;
-        if (typeof window.firebaseAuth.currentUser !== 'undefined' && window.firebaseAuth.currentUser !== null) return;
-        await new Promise((resolve)=> {
-          let done=false;
-          const t=setTimeout(()=>{ if(!done) resolve(); }, timeoutMs);
-          window.firebaseAuth.onAuthStateChanged(()=>{ if(!done){ done=true; clearTimeout(t); resolve(); } });
-        });
-      }catch{}
-    }
-
-    const col = ()=> collection(db, 'farms');
+    const colRef = ()=> collection(db, COLL);
 
     async function loadFarms(){
       try{
-        const snap = await getDocs(col());
+        const snap = await getDocs(colRef());
         const out = [];
         snap.forEach(d=>{
           const v = d.data()||{};
@@ -208,8 +215,8 @@
             name: String(v.name||'').trim(),
             status: v.status==='archived' ? 'archived' : 'active',
             used: !!v.used,
-            t: typeof v.t==='number' ? v.t : (v.t && v.t.toMillis ? v.t.toMillis() : 0),
-            updatedAt: v.updatedAt && v.updatedAt.toMillis ? v.updatedAt.toMillis() : undefined
+            createdAt: v.createdAt,
+            updatedAt: v.updatedAt
           });
         });
         rows = out;
@@ -224,31 +231,52 @@
 
     async function addFarm(name){
       if(!canNow('setup-farms:add')) throw new Error("no-permission:add");
-      const payload = { name: String(name||'').trim(), status: 'active', used: false, t: Date.now() };
-      await FVData.addDocWithMeta('farms', payload);
+      const payload = {
+        name: String(name||'').trim(),
+        status: 'active',
+        used: false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+      await addDoc(colRef(), payload);
     }
 
     async function updateFarm(id, patch){
       if(!canNow('setup-farms:edit')) throw new Error("no-permission:edit");
       if(!id) return;
-      await FVData.updateDocWithMeta(`farms/${id}`, { ...patch });
+      await setDoc(doc(db, COLL, id), { ...patch, updatedAt: serverTimestamp() }, { merge:true });
     }
 
     async function removeFarm(id){
       if(!canNow('setup-farms:delete')) throw new Error("no-permission:delete");
       if(!id) return;
-      await deleteDoc(doc(db,'farms', id));
+
+      // Safety re-check: used farms cannot be deleted
+      const snap = await getDoc(doc(db, COLL, id));
+      if(snap.exists() && snap.data()?.used){
+        throw new Error("in-use");
+      }
+
+      await deleteDoc(doc(db, COLL, id));
     }
 
     const listBox = $("list");
+
     function render(){
-      if(!rows.length){ listBox.innerHTML = '<div class="muted">No farms yet.</div>'; return; }
-      const arr = rows.slice().sort((a,b)=> a.name.localeCompare(b.name, undefined, { sensitivity:'base' }));
+      if(!rows.length){
+        listBox.innerHTML = '<div class="muted">No farms yet.</div>';
+        return;
+      }
+
+      const arr = rows.slice().sort((a,b)=> (a.name||"").localeCompare(b.name||"", undefined, { sensitivity:'base' }));
       listBox.innerHTML = '';
+
       arr.forEach(it=>{
         const div = document.createElement('div');
         div.className = 'item';
+
         const status = it.status==='archived' ? '<span class="pill">Archived</span>' : '';
+
         div.innerHTML = `
           <div style="display:flex;align-items:center;gap:8px;">
             <div class="name">${escapeHTML(it.name)}</div>
@@ -256,6 +284,7 @@
           </div>
           <button class="view" type="button" data-perm="setup-farms:view">View / Edit</button>
         `;
+
         div.querySelector('.view').addEventListener('click', ()=> openEdit(it.id));
         listBox.appendChild(div);
       });
@@ -263,19 +292,30 @@
 
     const modal = $("modal"), mdClose = $("mdClose"), mdSave = $("mdSave"), mdArchive = $("mdArchive"), mdDelete = $("mdDelete");
 
-    function openModal(){ modal.setAttribute('open',''); modal.setAttribute('aria-hidden','false'); $("editName").focus(); }
-    function closeModal(){ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId = null; }
+    function openModal(){
+      modal.setAttribute('open','');
+      modal.setAttribute('aria-hidden','false');
+      $("editName").focus();
+    }
+    function closeModal(){
+      modal.removeAttribute('open');
+      modal.setAttribute('aria-hidden','true');
+      editId = null;
+    }
 
     function openEdit(id){
       const it = rows.find(r=>r.id===id);
       if(!it) return;
+
       editId = id;
       $("editName").value = it.name || '';
       $("statusPill").textContent = it.status==='archived' ? 'Archived' : 'Active';
       $("usedPill").style.display = it.used ? 'inline-block' : 'none';
+
       mdArchive.textContent = it.status==='archived' ? 'Unarchive' : 'Archive';
       mdDelete.disabled = !!it.used;
       mdDelete.title = it.used ? "This farm is in use and cannot be deleted. Archive instead." : "Delete this farm";
+
       openModal();
     }
 
@@ -287,7 +327,6 @@
       try{
         const name = $("farmName").value.trim();
         if(!name){ alert("Please enter a farm name."); return; }
-        await FVData.ready(); await waitForAuthReady();
         await addFarm(name);
         $("farmName").value = "";
         showToast("Successfully saved.");
@@ -307,7 +346,6 @@
       try{
         const name = $("editName").value.trim();
         if(!name){ alert("Please enter a farm name."); return; }
-        await FVData.ready(); await waitForAuthReady();
         await updateFarm(editId, { name });
         showToast("Changes saved.");
         await loadFarms();
@@ -323,11 +361,10 @@
       try{
         const it = rows.find(r=>r.id===editId);
         if(!it) return;
+
         const nextStatus = it.status==='archived' ? 'active' : 'archived';
-        await FVData.ready(); await waitForAuthReady();
         await updateFarm(editId, { status: nextStatus });
-        $("statusPill").textContent = nextStatus==='archived' ? 'Archived' : 'Active';
-        mdArchive.textContent = nextStatus==='archived' ? 'Unarchive' : 'Archive';
+
         showToast(nextStatus==='archived' ? "Farm archived." : "Farm unarchived.");
         await loadFarms();
       }catch(err){
@@ -341,24 +378,34 @@
       try{
         const it = rows.find(r=>r.id===editId);
         if(!it) return;
-        if(it.used){ alert("This farm is in use and cannot be deleted. Archive instead."); return; }
+
+        if(it.used){
+          alert("This farm is in use and cannot be deleted. Archive instead.");
+          return;
+        }
+
         if(!confirm(`Delete farm "${it.name}"? This cannot be undone.`)) return;
-        await ready; db = getFirestore(); await waitForAuthReady();
+
         await removeFarm(editId);
+
         showToast("Farm deleted.");
         await loadFarms();
         closeModal();
       }catch(err){
         console.error(err);
         if(String(err?.message||err).includes('no-permission:delete')) alert("You don't have permission to delete farms.");
+        else if(String(err?.message||err).includes('in-use')) alert("This farm is in use and cannot be deleted. Archive instead.");
         else showAlert("Delete failed: " + (err?.message||err));
       }
     });
 
     (async function boot(){
       try{
-        await ready; db = getFirestore(); await waitForAuthReady();
-      }catch(e){ console.warn('Firebase not ready:', e); }
+        await ready;
+        db = getFirestore();
+      }catch(e){
+        console.warn('Firebase not ready:', e);
+      }
       await loadFarms();
     })();
   </script>
