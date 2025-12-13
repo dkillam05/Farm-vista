@@ -349,10 +349,6 @@
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
-    // Option B:
-    // - Client ONLY updates the request status to "pending"
-    // - A Cloud Function should listen for that status transition and create/update equipmentWorkOrders
-
     const CONFIG_REQUESTS = {
       COLLECTION_PATH: 'equipmentServiceRequests',
       STATUS_FIELD:    'status',
@@ -413,7 +409,6 @@
         const snap = await getDocs(qRef);
 
         const items = snap.docs.map(d => ({ id: d.id, data: d.data() }));
-
         items.sort((a,b)=> getTime(b.data.createdAt) - getTime(a.data.createdAt));
 
         STATE.items = items;
@@ -487,7 +482,6 @@
           </div>
         `;
 
-        // card click → show detail
         card.addEventListener('click', (ev)=>{
           if(ev.target.closest('.pill-toggle')) return;
           STATE.selectedId = id;
@@ -513,7 +507,6 @@
           try{
             await approveRequestClientOnly(item);
 
-            // Remove from list after success
             STATE.items = STATE.items.filter(x => x.id !== id);
             if(STATE.selectedId === id){
               STATE.selectedId = null;
@@ -604,25 +597,23 @@
       panel.style.display = 'flex';
     }
 
-    // OPTION B: client only updates the request status
     async function approveRequestClientOnly(item){
       const db = STATE.db;
       const id = item.id;
 
       const reqRef = doc(db, CONFIG_REQUESTS.COLLECTION_PATH, id);
 
-      // Server-side automation should watch for:
-      // status: "needs approved" -> "pending"
-      // and then create/update equipmentWorkOrders accordingly.
       await updateDoc(reqRef, {
         [CONFIG_REQUESTS.STATUS_FIELD]: CONFIG_REQUESTS.PENDING_STATUS,
-        approvedAt: serverTimestamp(),   // optional but useful for triggers/audit
+        approvedAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
     }
 
     (async function boot(){
-      await ready;
+      // ✅ FIX: actually wait for firebase-init to finish auth setup
+      await ready();
+
       STATE.db = getFirestore();
 
       const shell = document.querySelector('fv-shell');
