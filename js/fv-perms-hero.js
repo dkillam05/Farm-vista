@@ -732,16 +732,37 @@ class FVPermsHero extends HTMLElement {
   _renderStyles() {
     return `
       <style>
+        /* Dark theme tokens (component-local) */
+        .perm-hero-panel{
+          --pv-text: var(--text, #E8F0EA);
+          --pv-muted: var(--muted, rgba(232,240,234,0.72));
+          --pv-border: var(--border, rgba(255,255,255,0.10));
+          --pv-border-strong: rgba(255,255,255,0.16);
+          --pv-surface: var(--surface, rgba(18,22,19,0.92));
+          --pv-surface-2: rgba(26,32,28,0.92);
+          --pv-surface-3: rgba(10,12,11,0.55);
+          --pv-chip: rgba(255,255,255,0.06);
+          --pv-chip-2: rgba(255,255,255,0.085);
+          --pv-raise: rgba(0,0,0,0.35);
+          --pv-accent: #2F6C3C;
+          --pv-danger: #b3261e;
+          color: var(--pv-text);
+        }
+
         .perm-hero-panel {
           display: flex;
           flex-direction: column;
           gap: 10px;
           margin: 0 0 12px 0;
         }
+
         .perm-hero {
           border-radius: 16px;
-          border: 1px solid var(--border, #d0d4d0);
-          background: linear-gradient(135deg, rgba(59,126,70,0.12), rgba(203,205,203,0.32));
+          border: 1px solid var(--pv-border);
+          background:
+            radial-gradient(1200px 260px at 10% -10%, rgba(47,108,60,0.38), rgba(0,0,0,0) 55%),
+            linear-gradient(135deg, rgba(10,12,11,0.78), rgba(26,32,28,0.92));
+          box-shadow: 0 10px 26px var(--pv-raise);
           padding: 12px 14px;
           display: grid;
           grid-template-columns: minmax(0,1.4fr) minmax(0,1.2fr);
@@ -754,6 +775,7 @@ class FVPermsHero extends HTMLElement {
             align-items: flex-start;
           }
         }
+
         .perm-main {
           display: flex;
           flex-direction: column;
@@ -772,9 +794,11 @@ class FVPermsHero extends HTMLElement {
           border-radius: 999px;
           display: grid;
           place-items: center;
-          background: #2F6C3C;
+          background: var(--pv-accent);
           color: #fff;
           font-size: 16px;
+          box-shadow: 0 6px 14px rgba(0,0,0,0.35);
+          border: 1px solid rgba(255,255,255,0.10);
         }
         .perm-title-text {
           font-weight: 800;
@@ -785,8 +809,9 @@ class FVPermsHero extends HTMLElement {
         }
         .perm-subtitle {
           font-size: 13px;
-          color: var(--muted, #67706B);
+          color: var(--pv-muted);
         }
+
         .perm-badges {
           display: flex;
           flex-wrap: wrap;
@@ -800,21 +825,22 @@ class FVPermsHero extends HTMLElement {
           border-radius: 999px;
           padding: 4px 8px;
           font-size: 12px;
-          font-weight: 700;
-          background: rgba(255,255,255,0.9);
-          color: var(--text, #243024);
-          border: 1px solid rgba(0,0,0,0.06);
+          font-weight: 800;
+          background: var(--pv-chip);
+          color: var(--pv-text);
+          border: 1px solid var(--pv-border);
         }
         .perm-badge-strong {
-          background: #2F6C3C;
+          background: rgba(47,108,60,0.95);
           color: #fff;
-          border-color: #2F6C3C;
+          border-color: rgba(47,108,60,0.95);
         }
         .perm-badge-warn {
-          background: #b3261e;
+          background: rgba(179,38,30,0.95);
           color: #fff;
-          border-color: #b3261e;
+          border-color: rgba(179,38,30,0.95);
         }
+
         .perm-right {
           display: flex;
           justify-content: flex-end;
@@ -827,24 +853,33 @@ class FVPermsHero extends HTMLElement {
           align-items: center;
           justify-content: center;
           border-radius: 999px;
-          border: 1px solid var(--border, #d0d4d0);
-          background: var(--surface, #f7f7f7);
+          border: 1px solid var(--pv-border);
+          background: var(--pv-chip);
+          color: var(--pv-text);
           padding: 6px 10px;
           font-size: 13px;
-          font-weight: 800;
+          font-weight: 900;
           cursor: pointer;
           min-height: 32px;
           gap: 6px;
         }
+        .perm-btn:hover { background: var(--pv-chip-2); }
+        .perm-btn:active { transform: translateY(0.5px); }
+
         .perm-btn-quiet {
-          background: rgba(255,255,255,0.9);
+          background: rgba(255,255,255,0.05);
         }
+
         .perm-btn-danger-icon {
-          border-color: #b3261e;
-          color: #b3261e;
-          background: rgba(255,255,255,0.96);
+          border-color: rgba(179,38,30,0.75);
+          color: #ffd7d5;
+          background: rgba(179,38,30,0.12);
           padding: 5px 8px;
           min-width: auto;
+        }
+        .perm-btn-danger-icon:hover{
+          background: rgba(179,38,30,0.18);
+          border-color: rgba(179,38,30,0.95);
         }
         .perm-btn-danger-icon svg {
           width: 18px;
@@ -855,8 +890,9 @@ class FVPermsHero extends HTMLElement {
         /* ----- Matrix layout (nested) ----- */
         .perm-matrix-card {
           border-radius: 14px;
-          border: 1px solid var(--border, #d0d4d0);
-          background: var(--surface, #fdfdfd);
+          border: 1px solid var(--pv-border);
+          background: linear-gradient(180deg, rgba(18,22,19,0.94), rgba(26,32,28,0.94));
+          box-shadow: 0 12px 30px rgba(0,0,0,0.32);
           padding: 10px 12px;
           display: flex;
           flex-direction: column;
@@ -870,12 +906,13 @@ class FVPermsHero extends HTMLElement {
           flex-wrap: wrap;
         }
         .perm-matrix-title {
-          font-weight: 800;
+          font-weight: 900;
           font-size: 14px;
+          color: var(--pv-text);
         }
         .perm-matrix-sub {
           font-size: 12px;
-          color: var(--muted, #67706B);
+          color: var(--pv-muted);
         }
         .perm-matrix-body {
           margin-top: 4px;
@@ -887,13 +924,13 @@ class FVPermsHero extends HTMLElement {
         .perm-matrix-empty {
           padding: 10px 8px;
           font-size: 12px;
-          color: var(--muted, #67706B);
+          color: var(--pv-muted);
         }
 
         .perm-group {
           border-radius: 10px;
-          border: 1px solid rgba(0,0,0,0.06);
-          background: #fff;
+          border: 1px solid var(--pv-border);
+          background: rgba(0,0,0,0.18);
           overflow: hidden;
         }
         .perm-group-header {
@@ -901,12 +938,14 @@ class FVPermsHero extends HTMLElement {
           align-items: center;
           gap: 8px;
           padding: 6px 8px;
-          background: rgba(0,0,0,0.02);
+          background: rgba(255,255,255,0.035);
+          border-bottom: 1px solid rgba(255,255,255,0.06);
         }
         .perm-group-chevron {
           border-radius: 999px;
-          border: 1px solid rgba(0,0,0,0.12);
-          background: #fff;
+          border: 1px solid var(--pv-border-strong);
+          background: rgba(255,255,255,0.04);
+          color: var(--pv-text);
           width: 26px;
           height: 26px;
           display: grid;
@@ -915,8 +954,9 @@ class FVPermsHero extends HTMLElement {
           cursor: pointer;
           font-size: 12px;
         }
+        .perm-group-chevron:hover { background: rgba(255,255,255,0.07); }
         .perm-group-title {
-          font-weight: 800;
+          font-weight: 900;
           font-size: 13px;
           flex: 1;
           white-space: nowrap;
@@ -926,6 +966,7 @@ class FVPermsHero extends HTMLElement {
           align-items: center;
           gap: 8px;
           min-width: 0;
+          color: var(--pv-text);
         }
 
         /* Subtle “has enabled sub-items” indicator (group header + deep badge) */
@@ -935,10 +976,10 @@ class FVPermsHero extends HTMLElement {
           gap: 6px;
           border-radius: 999px;
           padding: 2px 7px;
-          border: 1px solid rgba(0,0,0,0.10);
-          background: rgba(255,255,255,0.92);
-          color: var(--muted, #67706B);
-          font-weight: 800;
+          border: 1px solid rgba(255,255,255,0.12);
+          background: rgba(255,255,255,0.05);
+          color: var(--pv-muted);
+          font-weight: 900;
           font-size: 11px;
           line-height: 1;
           flex: 0 0 auto;
@@ -952,24 +993,23 @@ class FVPermsHero extends HTMLElement {
           width: 6px;
           height: 6px;
           border-radius: 999px;
-          background: #2F6C3C;
-          opacity: 0.85;
+          background: var(--pv-accent);
+          opacity: 0.9;
           display: inline-block;
         }
-        .perm-sub-count{
-          letter-spacing: 0.2px;
-        }
+        .perm-sub-count{ letter-spacing: 0.2px; }
 
-        /* NEW: simple “something on here” dot for leaf rows (Weather etc.) */
+        /* simple “something on here” dot for leaf rows (Weather etc.) */
         .perm-on-dot{
           width: 7px;
           height: 7px;
           border-radius: 999px;
-          background: #2F6C3C;
-          opacity: 0.9;
+          background: var(--pv-accent);
+          opacity: 0.95;
           display: inline-block;
           flex: 0 0 auto;
           margin-left: 6px;
+          box-shadow: 0 0 0 2px rgba(47,108,60,0.18);
         }
 
         .perm-group-header-actions {
@@ -977,11 +1017,9 @@ class FVPermsHero extends HTMLElement {
           align-items: center;
           gap: 4px;
         }
-        .perm-group-body {
-          padding: 4px 6px 6px;
-        }
+        .perm-group-body { padding: 4px 6px 6px; }
         .perm-group-children {
-          border-top: 1px solid rgba(0,0,0,0.04);
+          border-top: 1px solid rgba(255,255,255,0.07);
           margin-top: 4px;
           padding-top: 4px;
           display: flex;
@@ -996,9 +1034,7 @@ class FVPermsHero extends HTMLElement {
           padding: 3px 4px;
         }
         @media (max-width: 720px){
-          .perm-row {
-            grid-template-columns: 1.3fr 2.7fr;
-          }
+          .perm-row { grid-template-columns: 1.3fr 2.7fr; }
         }
         .perm-row-label {
           font-size: 13px; /* keep same size */
@@ -1008,6 +1044,7 @@ class FVPermsHero extends HTMLElement {
           display: flex;
           align-items: center;
           min-width: 0;
+          color: var(--pv-text);
         }
         .perm-row-label-depth-0 { padding-left: 0; }
         .perm-row-label-depth-1 { padding-left: 10px; }
@@ -1017,10 +1054,11 @@ class FVPermsHero extends HTMLElement {
         /* Group row inside body: NOT larger, just darker + underlined */
         .perm-row-groupbase .perm-row-label-text{
           font-weight: 900;
-          color: var(--text, #243024);
+          color: var(--pv-text);
           text-decoration: underline;
           text-underline-offset: 2px;
           text-decoration-thickness: 1px;
+          text-decoration-color: rgba(232,240,234,0.35);
         }
 
         .perm-row-toggle {
@@ -1039,8 +1077,9 @@ class FVPermsHero extends HTMLElement {
         }
         .row-chevron {
           font-size: 11px;
-          opacity: 0.8;
+          opacity: 0.85;
           flex: 0 0 auto;
+          color: rgba(232,240,234,0.85);
         }
         .perm-row-label-text {
           white-space: nowrap;
@@ -1058,43 +1097,42 @@ class FVPermsHero extends HTMLElement {
         }
         .perm-pill {
           border-radius: 999px;
-          border: 1px solid rgba(0,0,0,0.14);
+          border: 1px solid rgba(255,255,255,0.16);
           padding: 3px 8px;
           font-size: 11px;
-          font-weight: 700;
+          font-weight: 900;
           cursor: pointer;
           min-width: 48px;
           text-align: center;
-          background: #fafafa;
+          background: rgba(255,255,255,0.04);
+          color: var(--pv-text);
         }
+        .perm-pill:hover{ background: rgba(255,255,255,0.07); }
+        .perm-pill:active{ transform: translateY(0.5px); }
+
         .perm-pill-on {
-          background: #2F6C3C;
+          background: var(--pv-accent);
           color: #fff;
-          border-color: #2F6C3C;
+          border-color: rgba(47,108,60,0.95);
+          box-shadow: 0 6px 14px rgba(0,0,0,0.28);
         }
         .perm-pill-off {
-          background: rgba(255,255,255,0.95);
-          color: var(--muted, #67706B);
+          background: rgba(255,255,255,0.04);
+          color: var(--pv-muted);
+          border-color: rgba(255,255,255,0.14);
         }
-        .perm-pill-all {
-          min-width: 52px;
-        }
+        .perm-pill-all { min-width: 52px; }
 
         .perm-pill-disabled{
           cursor: not-allowed;
-          opacity: 0.85;
+          opacity: 0.78;
+          filter: grayscale(0.05);
         }
 
-        .perm-row-closed .perm-row-pills {
-          display: none;
-        }
+        .perm-row-closed .perm-row-pills { display: none; }
 
-        .perm-group-closed .perm-group-body {
-          display: none;
-        }
-        .perm-group-open .perm-group-body {
-          display: block;
-        }
+        .perm-group-closed .perm-group-body { display: none; }
+        .perm-group-open .perm-group-body { display: block; }
 
         /* Capability row extras */
         .cap-row .cap-label{
@@ -1111,12 +1149,12 @@ class FVPermsHero extends HTMLElement {
         }
         .cap-lock{
           font-size: 12px;
-          opacity: 0.85;
+          opacity: 0.9;
           flex: 0 0 auto;
         }
         .cap-hint{
           font-size: 11px;
-          color: var(--muted, #67706B);
+          color: var(--pv-muted);
           white-space: normal;
           line-height: 1.25;
         }
