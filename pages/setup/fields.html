@@ -15,6 +15,10 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
   <script src="/Farm-vista/js/theme-boot.js"></script>
+
+  <!-- ✅ Permission UI controller (makes data-perm actually work consistently) -->
+  <script src="/Farm-vista/js/perm-ui.js"></script>
+
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
@@ -294,6 +298,9 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       s.src='/Farm-vista/js/fv-shell.js';s.defer=true;document.head.appendChild(s);
     }
   })();</script>
+
+  <!-- ✅ Firebase config (consistent with rest of app) -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
 </head>
 
 <body>
@@ -671,6 +678,7 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
   <!-- Google Maps JS -->
   <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY"></script>
 
+  <!-- ===== Page logic ===== -->
   <script type="module">
   import {
     ready,
@@ -1122,7 +1130,6 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
     let ddState, ddCounty, ddEditState, ddEditCounty;
 
     async function openEdit(id){
-      // view-only can open; edits are blocked/disabled by perm-ui and click-guards
       editId = id;
       populateFarmSelects();
 
@@ -1697,6 +1704,7 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       });
     }
 
+    /* ===== import logic + filter popover + init ===== */
     const EXPECTED_HEADER = [
       "farmName","fieldName","state","county",
       "tillableAcres","helAcres","crpAcres","rtkTowerName"
@@ -1937,114 +1945,4 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       farmFilterPop.style.maxHeight = maxH + "px";
 
       farmFilterPop.hidden = false;
-      farmFilterBtn.setAttribute('aria-expanded','true');
-    }
-    function closeFarmPop(){
-      if(!farmFilterPop || farmFilterPop.hidden) return;
-      farmFilterPop.hidden = true;
-      farmFilterBtn.setAttribute('aria-expanded','false');
-    }
-    farmFilterBtn.addEventListener('click', (e)=>{
-      e.stopPropagation();
-      if(farmFilterPop.hidden) openFarmPop(); else closeFarmPop();
-    });
-    document.addEventListener('click', (e)=>{
-      if(!farmFilterPop.hidden && !farmFilterPop.contains(e.target) && e.target !== farmFilterBtn){
-        closeFarmPop();
-      }
-    });
-    window.addEventListener('keydown', (e)=>{ if(e.key==="Escape") closeFarmPop(); });
-
-    farmFilterPop.addEventListener('change', (e)=>{
-      if(e.target && e.target.name === 'farmFilterRadio'){
-        $("filterFarm").value = e.target.value;
-        renderList();
-        closeFarmPop();
-      }
-    });
-
-    (async ()=>{
-      wireNetToasts();
-      const ctx = await ready;
-      if(ctx.mode!=='firebase'){ alert("Firestore not available (stub mode)."); }
-      db = getFirestore();
-
-      await loadFarms();
-      populateFarmSelects();
-
-      await loadRTKTowers();
-      populateRTKSelect($("rtkSelect"));
-      populateRTKSelect($("editRtkSelect"));
-
-      buildStateDropdowns();
-      buildCountyDropdowns();
-
-      wireToggle($("helToggle"), $("hasHEL"), $("helAcreWrap"), $("helAcres"));
-      wireToggle($("crpToggle"), $("hasCRP"), $("crpAcreWrap"), $("crpAcres"));
-
-      wireToggle($("editHelToggle"), $("editHasHEL"), $("editHelAcreWrap"), $("editHelAcres"));
-      wireToggle($("editCrpToggle"), $("editHasCRP"), $("editCrpAcreWrap"), $("editCrpAcres"));
-
-      let defaultState = await getCompanyStateCode();
-      if(!defaultState) defaultState = "IL";
-      const stRec = STATES.find(([c])=>c===defaultState) || ["IL","Illinois"];
-
-      ddState.hidden.value = stRec[0];
-      ddState.btn.textContent = stRec[1];
-      await loadCountiesIntoDropdown(ddCounty, stRec[0]);
-
-      await renderList();
-
-      $("save").addEventListener("click", createField);
-      $("clear").addEventListener("click", ()=>{
-        $("fieldName").value = "";
-        $("tillable").value = "";
-        $("rtkSelect").value = "";
-
-        setToggle($("helToggle"), $("hasHEL"), false, $("helAcreWrap"), $("helAcres"));
-        setToggle($("crpToggle"), $("hasCRP"), false, $("crpAcreWrap"), $("crpAcres"));
-
-        ddState.hidden.value = stRec[0];
-        ddState.btn.textContent = stRec[1];
-        ddState.search.value = "";
-        ddState.root.classList.remove("open");
-
-        ddCounty.btn.textContent = "Select a county…";
-        ddCounty.btn.disabled = true; ddCounty.search.value = ""; ddCounty.search.disabled = true; ddCounty.list.innerHTML = "";
-        $("countySelect").value = "";
-
-        $("fieldLat").value = "";
-        $("fieldLng").value = "";
-        const lbl = $("fieldLocationLabel");
-        if(lbl) lbl.textContent = "No location set.";
-        fieldMapLatLng = null;
-        if(fieldMapMarker){
-          fieldMapMarker.setMap(null);
-          fieldMapMarker = null;
-        }
-      });
-
-      $("filterFarm").addEventListener("change", renderList);
-      if(fieldSearch){
-        fieldSearch.addEventListener("input", ()=>{ renderList(); });
-      }
-
-      if (hasStore && window.FVStore.subscribe){
-        try{
-          window.FVStore.subscribe('farms', ()=>{
-            FARMS_CACHE = (window.FVStore.getAll('farms')||[]).map(x=>({id:x.id, name:x.name, status:x.status||'active'}));
-            FARMS_MAP.clear(); FARMS_CACHE.forEach(f=>FARMS_MAP.set(f.id,f));
-            populateFarmSelects();
-          });
-          window.FVStore.subscribe('fields', ()=> renderList());
-        }catch{}
-      }
-
-      setupFieldLocationPicker();
-      setupEditFieldLocationPicker();
-    })();
-
-  })();
-  </script>
-</body>
-</html>
+      farm
