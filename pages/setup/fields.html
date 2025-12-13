@@ -35,6 +35,8 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       border:1px solid var(--border);border-radius:14px;background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;
     }
+    .section + .section{ margin-top:14px; } /* ✅ separate sections so the list is clearly at the bottom */
+
     .section-head{
       display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
       padding:14px 16px;border-bottom:1px solid var(--border);
@@ -310,6 +312,7 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       <h1 class="page-title">Fields</h1>
       <p class="page-sub">Assign fields to farms, track county and acres (tillable, HEL, CRP), and optionally set a GPS center.</p>
 
+      <!-- ✅ Add Field section (top) -->
       <section class="section">
         <header class="section-head">
           <div class="icon" aria-hidden="true">🗺️</div>
@@ -429,6 +432,14 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
             <button id="save" class="btn btn-primary" type="button">Save</button>
           </div>
         </div>
+      </section>
+
+      <!-- ✅ Fields List section (BOTTOM) -->
+      <section class="section">
+        <header class="section-head">
+          <div class="icon" aria-hidden="true">📋</div>
+          <div><strong>Fields</strong></div>
+        </header>
 
         <!-- Fields list header -->
         <div class="list-head">
@@ -1045,7 +1056,8 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
         fieldMapMarker = null;
       }
 
-      await renderList(); window.scrollTo({top:0, behavior:"smooth"});
+      await renderList();
+      window.scrollTo({top:0, behavior:"smooth"});
     }
 
     async function fetchFields(farmIdFilter=""){
@@ -1623,6 +1635,7 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       const btnSave   = $("editFieldLocationSave");
       const btnUse    = $("editFieldUseLocation");
       const btnClear  = $("editFieldLocationClear");
+      const btnCancel2 = $("editFieldLocationCancel");
 
       if(!btnMark || !modal) return;
 
@@ -1633,6 +1646,7 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       });
       if(btnClose)  btnClose.addEventListener("click", closeEditFieldLocationModal);
       if(btnCancel) btnCancel.addEventListener("click", closeEditFieldLocationModal);
+      if(btnCancel2) btnCancel2.addEventListener("click", closeEditFieldLocationModal);
 
       if(btnUse){
         btnUse.addEventListener("click", ()=>{
@@ -1945,4 +1959,111 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       farmFilterPop.style.maxHeight = maxH + "px";
 
       farmFilterPop.hidden = false;
-      farm
+      farmFilterBtn.setAttribute("aria-expanded","true");
+    }
+    function closeFarmPop(){
+      if(!farmFilterPop) return;
+      farmFilterPop.hidden = true;
+      farmFilterBtn.setAttribute("aria-expanded","false");
+    }
+
+    if(farmFilterBtn){
+      farmFilterBtn.addEventListener("click", (e)=>{
+        e.preventDefault();
+        e.stopPropagation();
+        if(farmFilterPop && !farmFilterPop.hidden) closeFarmPop();
+        else openFarmPop();
+      });
+    }
+
+    document.addEventListener("click",(e)=>{
+      if(!farmFilterPop) return;
+      if(farmFilterPop.hidden) return;
+      if(e.target.closest("#farmFilterPop")) return;
+      if(e.target.closest("#farmFilterBtn")) return;
+      closeFarmPop();
+    });
+
+    if(farmFilterPop){
+      farmFilterPop.addEventListener("change", async (e)=>{
+        const inp = e.target;
+        if(!(inp && inp.name==="farmFilterRadio")) return;
+        const filterSel = $("filterFarm");
+        if(filterSel) filterSel.value = inp.value || "";
+        closeFarmPop();
+        await renderList();
+      });
+    }
+
+    $("filterFarm").addEventListener("change", renderList);
+
+    $("save").addEventListener("click", createField);
+    $("clear").addEventListener("click", ()=>{
+      $("fieldName").value = "";
+      $("tillable").value = "";
+      $("rtkSelect").value = "";
+
+      setToggle($("helToggle"), $("hasHEL"), false, $("helAcreWrap"), $("helAcres"));
+      setToggle($("crpToggle"), $("hasCRP"), false, $("crpAcreWrap"), $("crpAcres"));
+
+      $("fieldLat").value = "";
+      $("fieldLng").value = "";
+      const locLabel = $("fieldLocationLabel");
+      if(locLabel) locLabel.textContent = "No location set.";
+      fieldMapLatLng = null;
+      if(fieldMapMarker){
+        fieldMapMarker.setMap(null);
+        fieldMapMarker = null;
+      }
+    });
+
+    if(fieldSearch){
+      fieldSearch.addEventListener("input", ()=> renderList());
+    }
+
+    async function init(){
+      await ready();
+      db = getFirestore();
+
+      wireNetToasts();
+
+      buildCountyDropdowns();
+      buildStateDropdowns();
+
+      wireToggle($("helToggle"), $("hasHEL"), $("helAcreWrap"), $("helAcres"));
+      wireToggle($("crpToggle"), $("hasCRP"), $("crpAcreWrap"), $("crpAcres"));
+
+      wireToggle($("editHelToggle"), $("editHasHEL"), $("editHelAcreWrap"), $("editHelAcres"));
+      wireToggle($("editCrpToggle"), $("editHasCRP"), $("editCrpAcreWrap"), $("editCrpAcres"));
+
+      await loadFarms();
+      populateFarmSelects();
+
+      await loadRTKTowers();
+      populateRTKSelect($("rtkSelect"), "");
+      populateRTKSelect($("editRtkSelect"), "");
+
+      // County dropdown default state:
+      const companyState = await getCompanyStateCode();
+      const initState = companyState || $("stateSelect").value || "IL";
+      $("stateSelect").value = initState;
+      const stRec = STATES.find(([c])=>c===initState);
+      if(stRec) $("ddStateBtn").textContent = stRec[1];
+
+      await loadCountiesIntoDropdown(ddCounty, initState, "");
+
+      setupFieldLocationPicker();
+      setupEditFieldLocationPicker();
+
+      await renderList();
+    }
+
+    init().catch(err=>{
+      console.error(err);
+      showToast("Error loading Fields page.", 6000);
+    });
+
+  })();
+  </script>
+</body>
+</html>
