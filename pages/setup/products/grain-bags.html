@@ -13,19 +13,22 @@
 
   <script src="/Farm-vista/js/theme-boot.js"></script>
 
-  <!-- ✅ Blanket permission UI (NEW) -->
+  <!-- ✅ Blanket permission UI -->
   <script src="/Farm-vista/js/perm-ui.js"></script>
 
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- FVData helpers (match Fertilizer ordering) -->
-  <script src="/Farm-vista/js/fv-data.js"></script>
+  <!-- Ensure fv-shell -->
+  <script>(function(){
+    if(!customElements.get('fv-shell')){
+      const s=document.createElement('script');
+      s.src='/Farm-vista/js/fv-shell.js'; s.defer=true;
+      document.head.appendChild(s);
+    }
+  })();</script>
 
-  <!-- Ensure fv-shell (match Fertilizer) -->
-  <script>(function(){ if(!customElements.get('fv-shell')){ const s=document.createElement('script'); s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);} })();</script>
-
-  <!-- Firebase config FIRST (after shell block, like Fertilizer file) -->
+  <!-- Firebase config -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
 
   <style>
@@ -44,6 +47,7 @@
       padding:14px 16px; border-bottom:1px solid var(--border);
       background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);}
     .section-head .icon{width:24px; height:24px; color:#2F6C3C; display:grid; place-items:center;}
+    .section-head .icon svg{width:22px;height:22px;display:block;}
     .section-body{padding:16px; display:grid; gap:14px;}
 
     .grid-2{display:grid; gap:10px; grid-template-columns:1fr 1fr;}
@@ -57,7 +61,7 @@
     .help{font-size:13px; color:var(--muted,#67706B);}
 
     .actions{display:flex; gap:12px; flex-wrap:wrap}
-    .btn{display:inline-flex; align-items:center; justify-content:center; min-width:148px; padding:12px 16px; border-radius:12px; border:1px solid var(--border); background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text); cursor:pointer;}
+    .btn{display:inline-flex; align-items:center; justify-content:center; min-width:148px; padding:12px 16px; border-radius:12px; border:1px solid var(--border); background:var(--card-surface,var(--surface)); font-weight:800; color:var(--text); cursor:pointer; text-decoration:none;}
     .btn-primary{border-color:transparent; background:#2F6C3C; color:#fff;}
     .btn-danger{border-color:#b3261e;color:#b3261e;background:var(--surface);}
     .btn-quiet{min-width:auto;padding:8px 12px}
@@ -71,6 +75,8 @@
     .item{border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--card-surface,var(--surface));
       display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
     .pill{font-size:12px;border:1px solid var(--border);padding:4px 8px;border-radius:999px;color:var(--muted,#67706B);background:var(--surface)}
+    .pill-arch{border-color:#b3261e;color:#b3261e;}
+    .pill-used{border-color:#2F6C3C;color:#2F6C3C;}
     .name{font-weight:800}
     .view{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;color:var(--text) !important;}
 
@@ -216,7 +222,7 @@
 
         <div class="field" id="statusRow" style="align-self:end">
           <span class="pill" id="statusPill">Active</span>
-          <span class="pill" id="usedPill" style="display:none">In use</span>
+          <span class="pill pill-used" id="usedPill" style="display:none">In use</span>
         </div>
       </div>
 
@@ -230,35 +236,51 @@
     </div>
   </div>
 
-  <!-- Page logic (Fertilizer-style FVData flow) -->
   <script type="module">
-    /* ========= Helpers (match Fertilizer behavior) ========= */
+    import {
+      ready,
+      getFirestore,
+      collection,
+      getDocs,
+      addDoc,
+      setDoc,
+      deleteDoc,
+      doc,
+      serverTimestamp,
+      getDoc
+    } from '/Farm-vista/js/firebase-init.js';
+
     const $ = id => document.getElementById(id);
     const toast = $("toast"), alertBox = $("alert");
     const listBox = $("list"), countsEl = $("counts"), q = $("q");
 
+    const COLL = 'productsGrainBags';
+    let db = null;
+
+    const canNow = (k)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(k) : true;
+
     const showToast = (msg="Saved.")=>{
-      toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show");
+      toast.textContent = msg;
+      toast.classList.remove("show");
+      toast.style.display = 'block';
+      void toast.offsetWidth;
+      toast.classList.add("show");
+      setTimeout(()=>{ toast.classList.remove("show"); toast.style.display='none'; }, 3600);
     };
     const showError = (msg)=>{
-      alertBox.textContent = msg; alertBox.classList.add('show');
-      clearTimeout(showError._t); showError._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
+      alertBox.textContent = msg;
+      alertBox.classList.add('show');
+      clearTimeout(showError._t);
+      showError._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
     };
     const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 
-    async function waitForAuthReady(timeoutMs=5000){
-      try{
-        if (!window.firebaseAuth || !window.firebaseAuth.onAuthStateChanged) return;
-        if (typeof window.firebaseAuth.currentUser !== 'undefined' && window.firebaseAuth.currentUser !== null) return;
-        await new Promise((resolve)=> {
-          let done=false; const t=setTimeout(()=>{ if(!done) resolve(); }, timeoutMs);
-          window.firebaseAuth.onAuthStateChanged(()=>{ if(!done){ done=true; clearTimeout(t); resolve(); } });
-        });
-      }catch{}
-    }
-
-    /* ========= Collection ========= */
-    const COLL = 'productsGrainBags';
+    const num = (v)=>{
+      const s = String(v ?? '').replace(/,/g,'').trim();
+      if(!s) return 0;
+      const n = Number(s);
+      return isFinite(n) ? n : 0;
+    };
 
     /* ========= Create ========= */
     function validateCreate(){
@@ -268,67 +290,99 @@
       if(!$("bushels").value.trim()) return "Enter estimated corn bushels per bag.";
       return "";
     }
+
     function newPayload(){
       return {
         brand: $("brand").value.trim(),
-        lengthFt: Number(($("length").value||"").replace(/,/g,"")),
-        diameterFt: Number(($("diameter").value||"").replace(/,/g,"")),
-        bushels: Number(($("bushels").value||"").replace(/,/g,"")),
-        thicknessMil: Number(($("thickness").value||"").replace(/,/g,"")),
+        lengthFt: num($("length").value),
+        diameterFt: num($("diameter").value),
+        bushels: num($("bushels").value),
+        thicknessMil: num($("thickness").value),
         notes: $("notes").value.trim(),
         status: "active",
-        t: Date.now()
+        used: false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
       };
     }
+
     function clearCreate(){
       ["brand","length","diameter","bushels","thickness","notes"].forEach(id=>{
         const el=$(id); if(!el) return; el.value="";
       });
     }
+
     $("clear").addEventListener("click", clearCreate);
+
     $("save").addEventListener("click", async ()=>{
-      const err=validateCreate(); if(err){ alert(err); return; }
+      if(!canNow('setup-prod-grainbags:add')){
+        alert("You don't have permission to add grain bags.");
+        return;
+      }
+      const err=validateCreate();
+      if(err){ alert(err); return; }
       try{
-        await FVData.ready(); await waitForAuthReady();
-        await FVData.add(COLL, newPayload());
-        clearCreate(); showToast("Grain bag saved.");
-        await loadAll(); window.scrollTo({top:0,behavior:"smooth"});
-      }catch(e){ console.error(e); showError("Save failed: " + (e?.message||e)); }
+        await addDoc(collection(db, COLL), newPayload());
+        clearCreate();
+        showToast("Grain bag saved.");
+        await loadAll();
+        window.scrollTo({top:0,behavior:"smooth"});
+      }catch(e){
+        console.error(e);
+        showError("Save failed: " + (e?.message||e));
+      }
     });
 
     /* ========= List / Search ========= */
-    let items = [];   // raw list
-    let rows  = [];   // filtered
+    let items = [];  // raw
+    let rows  = [];  // filtered
+
     async function loadAll(){
       try{
-        await FVData.ready(); await waitForAuthReady();
-        const raw = await FVData.list(COLL, { limit: 5000 }) || [];
-        items = (raw || []).map(r=>({
-          id: r.id,
-          brand: r.brand || "",
-          lengthFt: r.lengthFt || 0,
-          diameterFt: r.diameterFt || 0,
-          bushels: r.bushels || 0,
-          thicknessMil: r.thicknessMil || 0,
-          notes: r.notes || "",
-          status: r.status || "active",
-          t: r.t || 0,
-          used: !!r.used
-        })).sort((a,b)=>{
+        const snap = await getDocs(collection(db, COLL));
+        const raw = [];
+        snap.forEach(d=>{
+          const r = d.data() || {};
+          raw.push({
+            id: d.id,
+            brand: r.brand || "",
+            lengthFt: r.lengthFt || 0,
+            diameterFt: r.diameterFt || 0,
+            bushels: r.bushels || 0,
+            thicknessMil: r.thicknessMil || 0,
+            notes: r.notes || "",
+            status: r.status || "active",
+            used: !!r.used,
+            t: r.t || 0
+          });
+        });
+
+        items = raw.sort((a,b)=>{
           const sa = a.status==='archived', sb = b.status==='archived';
           if (sa !== sb) return sa - sb;
           const s1 = (a.brand||"").localeCompare(b.brand||"", undefined, {sensitivity:'base'});
           if (s1) return s1;
+          // bigger bags first within brand
           return (b.lengthFt||0) - (a.lengthFt||0);
         });
+
         renderList();
-      }catch(e){ console.error(e); showError("Load failed: " + (e?.message||e)); }
+      }catch(e){
+        console.error(e);
+        showError("Load failed: " + (e?.message||e));
+      }
     }
 
     function renderList(){
       const term = (q.value||"").trim().toLowerCase();
       rows = items.filter(x=>{
-        const hay = [x.brand, `${x.lengthFt}ft`, `${x.diameterFt}ft`, `${x.bushels}bu`, x.notes].join(" ").toLowerCase();
+        const hay = [
+          x.brand,
+          `${x.lengthFt}ft`,
+          `${x.diameterFt}ft`,
+          `${x.bushels}bu`,
+          x.notes
+        ].join(" ").toLowerCase();
         return !term || hay.includes(term);
       });
 
@@ -347,7 +401,8 @@
           it.diameterFt ? `<span class="pill">${esc(it.diameterFt)} ft Ø</span>` : "",
           it.bushels ? `<span class="pill">~${esc(it.bushels)} corn bu</span>` : "",
           it.thicknessMil ? `<span class="pill">${esc(it.thicknessMil)} mil</span>` : "",
-          it.status==="archived" ? `<span class="pill">Archived</span>` : ""
+          it.used ? `<span class="pill pill-used">In use</span>` : "",
+          it.status==="archived" ? `<span class="pill pill-arch">Archived</span>` : ""
         ].filter(Boolean).join(" ");
 
         const row = document.createElement("div");
@@ -357,7 +412,7 @@
             <div class="name">${esc(it.brand || "(Unnamed brand)")}</div>
             ${pills}
           </div>
-          <button class="view" data-id="${esc(it.id)}" type="button">View / Edit</button>
+          <button class="view" data-id="${esc(it.id)}" type="button" data-perm="setup-prod-grainbags:view">View / Edit</button>
         `;
         row.querySelector(".view").addEventListener("click", ()=> openEdit(it.id));
         listBox.appendChild(row);
@@ -366,51 +421,181 @@
 
     q.addEventListener("input", renderList);
     $("reload").addEventListener("click", loadAll);
-    window.addEventListener('online',  ()=> showToast("Back online — syncing…"));
-    window.addEventListener('offline', ()=> showToast("Currently offline — using saved data"));
 
     /* ========= Edit Modal ========= */
     let editId = null;
     const modal = $("modal");
     const mdClose = $("mdClose"), mdSave = $("mdSave"), mdDelete = $("mdDelete"), mdArchive = $("mdArchive");
+    const statusPill = $("statusPill"), usedPill = $("usedPill");
 
-    function openModal(){ modal.setAttribute('open',''); modal.setAttribute('aria-hidden','false'); $("edit_brand").focus(); }
-    function closeModal(){ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId = null; }
+    function openModal(){
+      modal.setAttribute('open','');
+      modal.setAttribute('aria-hidden','false');
+      $("edit_brand").focus();
+    }
+    function closeModal(){
+      modal.removeAttribute('open');
+      modal.setAttribute('aria-hidden','true');
+      editId = null;
+    }
 
-    function setVal(id, v){ const el=$(id); if(el) el.value = v ?? ""; }
+    function setVal(id, v){
+      const el=$(id);
+      if(el) el.value = (v ?? "");
+    }
 
     function fillEdit(it){
       setVal('edit_brand', it.brand);
-      setVal('edit_length', it.lengthFt);
-      setVal('edit_diameter', it.diameterFt);
-      setVal('edit_bushels', it.bushels);
-      setVal('edit_thickness', it.thicknessMil);
-      setVal('edit_notes', it.notes);
-      $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
-      $("usedPill").style.display = it.used ? "inline-block" : "none";
+      setVal('edit_length', it.lengthFt || "");
+      setVal('edit_diameter', it.diameterFt || "");
+      setVal('edit_bushels', it.bushels || "");
+      setVal('edit_thickness', it.thicknessMil || "");
+      setVal('edit_notes', it.notes || "");
+
+      statusPill.textContent = it.status==="archived" ? "Archived" : "Active";
+      statusPill.className = "pill" + (it.status==="archived" ? " pill-arch" : "");
+
+      usedPill.style.display = it.used ? "inline-block" : "none";
+
       mdArchive.textContent = it.status==="archived" ? "Unarchive" : "Archive";
       mdDelete.disabled = !!it.used;
       mdDelete.title = it.used ? "This product is in use and cannot be deleted. Archive instead." : "Delete";
     }
 
     async function openEdit(id){
-      const it = items.find(x=>x.id===id); if(!it) return;
-      editId = id; fillEdit(it);
-      modal.setAttribute('open','');
-      modal.setAttribute('aria-hidden','false');
+      // Always re-fetch, so permissions/used/status stay current
+      try{
+        const snap = await getDoc(doc(db, COLL, id));
+        if(!snap.exists()){ alert("Grain bag not found."); return; }
+        const r = snap.data() || {};
+        const it = {
+          id: snap.id,
+          brand: r.brand || "",
+          lengthFt: r.lengthFt || 0,
+          diameterFt: r.diameterFt || 0,
+          bushels: r.bushels || 0,
+          thicknessMil: r.thicknessMil || 0,
+          notes: r.notes || "",
+          status: r.status || "active",
+          used: !!r.used
+        };
+        editId = id;
+        fillEdit(it);
+        openModal();
+      }catch(e){
+        console.error(e);
+        showError("Load failed: " + (e?.message || e));
+      }
     }
 
-    mdClose.addEventListener('click', ()=>{ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId=null; });
-    modal.addEventListener('click', e=>{ if(e.target===modal){ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId=null; } });
-    document.addEventListener('keydown', e=>{ if(e.key==='Escape' && modal.hasAttribute('open')){ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId=null; } });
+    mdClose.addEventListener('click', closeModal);
+    modal.addEventListener('click', e=>{ if(e.target===modal) closeModal(); });
+    document.addEventListener('keydown', e=>{ if(e.key==='Escape' && modal.hasAttribute('open')) closeModal(); });
+
+    function validateEdit(){
+      if(!$("edit_brand").value.trim()) return "Enter a brand.";
+      if(!$("edit_length").value.trim()) return "Enter a length (ft).";
+      if(!$("edit_diameter").value.trim()) return "Enter a diameter (ft).";
+      if(!$("edit_bushels").value.trim()) return "Enter estimated corn bushels per bag.";
+      return "";
+    }
+
+    mdSave.addEventListener('click', async ()=>{
+      if(!canNow('setup-prod-grainbags:edit')){
+        alert("You don't have permission to edit grain bags.");
+        return;
+      }
+      if(!editId) return;
+
+      const err = validateEdit();
+      if(err){ alert(err); return; }
+
+      try{
+        await setDoc(doc(db, COLL, editId), {
+          brand: $("edit_brand").value.trim(),
+          lengthFt: num($("edit_length").value),
+          diameterFt: num($("edit_diameter").value),
+          bushels: num($("edit_bushels").value),
+          thicknessMil: num($("edit_thickness").value),
+          notes: $("edit_notes").value.trim(),
+          updatedAt: serverTimestamp()
+        }, { merge:true });
+
+        showToast("Changes saved.");
+        closeModal();
+        await loadAll();
+      }catch(e){
+        console.error(e);
+        showError("Update failed: " + (e?.message || e));
+      }
+    });
+
+    mdArchive.addEventListener('click', async ()=>{
+      if(!canNow('setup-prod-grainbags:edit')){
+        alert("You don't have permission to archive/unarchive grain bags.");
+        return;
+      }
+      if(!editId) return;
+
+      try{
+        const snap = await getDoc(doc(db, COLL, editId));
+        if(!snap.exists()){ alert("Grain bag not found."); return; }
+        const cur = snap.data() || {};
+        const next = (cur.status === "archived") ? "active" : "archived";
+
+        await setDoc(doc(db, COLL, editId), {
+          status: next,
+          updatedAt: serverTimestamp()
+        }, { merge:true });
+
+        showToast(next === "archived" ? "Archived." : "Unarchived.");
+        closeModal();
+        await loadAll();
+      }catch(e){
+        console.error(e);
+        showError("Archive failed: " + (e?.message || e));
+      }
+    });
+
+    mdDelete.addEventListener('click', async ()=>{
+      if(!canNow('setup-prod-grainbags:delete')){
+        alert("You don't have permission to delete grain bags.");
+        return;
+      }
+      if(!editId) return;
+
+      try{
+        const snap = await getDoc(doc(db, COLL, editId));
+        if(!snap.exists()){ alert("Grain bag not found."); return; }
+        const cur = snap.data() || {};
+        if(cur.used){
+          alert("This product is in use and cannot be deleted. Archive it instead.");
+          return;
+        }
+
+        const brand = String(cur.brand||"").trim() || "this grain bag";
+        if(!confirm(`Delete ${brand}? This cannot be undone.`)) return;
+
+        await deleteDoc(doc(db, COLL, editId));
+        showToast("Deleted.");
+        closeModal();
+        await loadAll();
+      }catch(e){
+        console.error(e);
+        showError("Delete failed: " + (e?.message || e));
+      }
+    });
 
     /* ========= Boot ========= */
     (async function boot(){
       try{
-        if(!window.FVData) throw new Error("FVData not loaded");
-        await FVData.ready(); await waitForAuthReady();
-      }catch(e){ console.warn(e); showError(e?.message || "FVData not loaded"); }
-      await loadAll();
+        await ready;
+        db = getFirestore();
+        await loadAll();
+      }catch(e){
+        console.error(e);
+        showError(e?.message || "Failed to initialize Firebase.");
+      }
     })();
   </script>
 
