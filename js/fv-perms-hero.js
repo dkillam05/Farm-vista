@@ -732,21 +732,80 @@ class FVPermsHero extends HTMLElement {
   _renderStyles() {
     return `
       <style>
-        /* Dark theme tokens (component-local) */
+        /*
+          IMPORTANT THEME FIX:
+          - This component must FOLLOW the app theme (light/dark/system),
+            not force dark colors.
+          - We do that by:
+            1) Using app CSS variables when present (--text, --muted, --border, --surface, --accent, etc.)
+            2) Providing reasonable LIGHT defaults
+            3) Overriding ONLY when the app explicitly sets dark theme (html/body/:root data-theme="dark")
+            4) Supporting "system" by honoring prefers-color-scheme when no explicit dark/light is set
+        */
+
+        /* Default = LIGHT (uses app vars if they exist) */
         .perm-hero-panel{
+          --pv-text: var(--text, #102014);
+          --pv-muted: var(--muted, rgba(16,32,20,0.68));
+          --pv-border: var(--border, rgba(16,32,20,0.14));
+          --pv-border-strong: rgba(16,32,20,0.18);
+
+          --pv-surface: var(--surface, rgba(255,255,255,0.92));
+          --pv-surface-2: rgba(255,255,255,0.98);
+          --pv-surface-3: rgba(0,0,0,0.03);
+
+          --pv-chip: rgba(0,0,0,0.04);
+          --pv-chip-2: rgba(0,0,0,0.06);
+          --pv-raise: rgba(0,0,0,0.10);
+
+          --pv-accent: var(--accent, #2F6C3C);
+          --pv-danger: var(--danger, #b3261e);
+
+          color: var(--pv-text);
+        }
+
+        /* Explicit DARK (when your app sets data-theme="dark") */
+        :root[data-theme="dark"] .perm-hero-panel,
+        html[data-theme="dark"] .perm-hero-panel,
+        body[data-theme="dark"] .perm-hero-panel{
           --pv-text: var(--text, #E8F0EA);
           --pv-muted: var(--muted, rgba(232,240,234,0.72));
           --pv-border: var(--border, rgba(255,255,255,0.10));
           --pv-border-strong: rgba(255,255,255,0.16);
+
           --pv-surface: var(--surface, rgba(18,22,19,0.92));
           --pv-surface-2: rgba(26,32,28,0.92);
           --pv-surface-3: rgba(10,12,11,0.55);
+
           --pv-chip: rgba(255,255,255,0.06);
           --pv-chip-2: rgba(255,255,255,0.085);
           --pv-raise: rgba(0,0,0,0.35);
-          --pv-accent: #2F6C3C;
-          --pv-danger: #b3261e;
-          color: var(--pv-text);
+
+          --pv-accent: var(--accent, #2F6C3C);
+          --pv-danger: var(--danger, #b3261e);
+        }
+
+        /* System theme support when app uses data-theme="system" (or sets nothing) */
+        @media (prefers-color-scheme: dark){
+          :root[data-theme="system"] .perm-hero-panel,
+          html[data-theme="system"] .perm-hero-panel,
+          body[data-theme="system"] .perm-hero-panel{
+            --pv-text: var(--text, #E8F0EA);
+            --pv-muted: var(--muted, rgba(232,240,234,0.72));
+            --pv-border: var(--border, rgba(255,255,255,0.10));
+            --pv-border-strong: rgba(255,255,255,0.16);
+
+            --pv-surface: var(--surface, rgba(18,22,19,0.92));
+            --pv-surface-2: rgba(26,32,28,0.92);
+            --pv-surface-3: rgba(10,12,11,0.55);
+
+            --pv-chip: rgba(255,255,255,0.06);
+            --pv-chip-2: rgba(255,255,255,0.085);
+            --pv-raise: rgba(0,0,0,0.35);
+
+            --pv-accent: var(--accent, #2F6C3C);
+            --pv-danger: var(--danger, #b3261e);
+          }
         }
 
         .perm-hero-panel {
@@ -760,8 +819,8 @@ class FVPermsHero extends HTMLElement {
           border-radius: 16px;
           border: 1px solid var(--pv-border);
           background:
-            radial-gradient(1200px 260px at 10% -10%, rgba(47,108,60,0.38), rgba(0,0,0,0) 55%),
-            linear-gradient(135deg, rgba(10,12,11,0.78), rgba(26,32,28,0.92));
+            radial-gradient(1200px 260px at 10% -10%, rgba(47,108,60,0.18), rgba(0,0,0,0) 55%),
+            linear-gradient(180deg, var(--pv-surface-2), var(--pv-surface));
           box-shadow: 0 10px 26px var(--pv-raise);
           padding: 12px 14px;
           display: grid;
@@ -797,8 +856,8 @@ class FVPermsHero extends HTMLElement {
           background: var(--pv-accent);
           color: #fff;
           font-size: 16px;
-          box-shadow: 0 6px 14px rgba(0,0,0,0.35);
-          border: 1px solid rgba(255,255,255,0.10);
+          box-shadow: 0 6px 14px var(--pv-raise);
+          border: 1px solid var(--pv-border);
         }
         .perm-title-text {
           font-weight: 800;
@@ -867,17 +926,35 @@ class FVPermsHero extends HTMLElement {
         .perm-btn:active { transform: translateY(0.5px); }
 
         .perm-btn-quiet {
+          background: rgba(0,0,0,0.03);
+        }
+        :root[data-theme="dark"] .perm-btn-quiet,
+        html[data-theme="dark"] .perm-btn-quiet,
+        body[data-theme="dark"] .perm-btn-quiet{
           background: rgba(255,255,255,0.05);
         }
 
         .perm-btn-danger-icon {
-          border-color: rgba(179,38,30,0.75);
-          color: #ffd7d5;
-          background: rgba(179,38,30,0.12);
+          border-color: rgba(179,38,30,0.55);
+          color: rgba(179,38,30,0.95);
+          background: rgba(179,38,30,0.08);
           padding: 5px 8px;
           min-width: auto;
         }
+        :root[data-theme="dark"] .perm-btn-danger-icon,
+        html[data-theme="dark"] .perm-btn-danger-icon,
+        body[data-theme="dark"] .perm-btn-danger-icon{
+          border-color: rgba(179,38,30,0.75);
+          color: #ffd7d5;
+          background: rgba(179,38,30,0.12);
+        }
         .perm-btn-danger-icon:hover{
+          background: rgba(179,38,30,0.12);
+          border-color: rgba(179,38,30,0.85);
+        }
+        :root[data-theme="dark"] .perm-btn-danger-icon:hover,
+        html[data-theme="dark"] .perm-btn-danger-icon:hover,
+        body[data-theme="dark"] .perm-btn-danger-icon:hover{
           background: rgba(179,38,30,0.18);
           border-color: rgba(179,38,30,0.95);
         }
@@ -891,8 +968,8 @@ class FVPermsHero extends HTMLElement {
         .perm-matrix-card {
           border-radius: 14px;
           border: 1px solid var(--pv-border);
-          background: linear-gradient(180deg, rgba(18,22,19,0.94), rgba(26,32,28,0.94));
-          box-shadow: 0 12px 30px rgba(0,0,0,0.32);
+          background: linear-gradient(180deg, var(--pv-surface-2), var(--pv-surface));
+          box-shadow: 0 12px 30px var(--pv-raise);
           padding: 10px 12px;
           display: flex;
           flex-direction: column;
@@ -930,7 +1007,7 @@ class FVPermsHero extends HTMLElement {
         .perm-group {
           border-radius: 10px;
           border: 1px solid var(--pv-border);
-          background: rgba(0,0,0,0.18);
+          background: var(--pv-surface-3);
           overflow: hidden;
         }
         .perm-group-header {
@@ -938,13 +1015,20 @@ class FVPermsHero extends HTMLElement {
           align-items: center;
           gap: 8px;
           padding: 6px 8px;
+          background: rgba(0,0,0,0.02);
+          border-bottom: 1px solid rgba(0,0,0,0.06);
+        }
+        :root[data-theme="dark"] .perm-group-header,
+        html[data-theme="dark"] .perm-group-header,
+        body[data-theme="dark"] .perm-group-header{
           background: rgba(255,255,255,0.035);
           border-bottom: 1px solid rgba(255,255,255,0.06);
         }
+
         .perm-group-chevron {
           border-radius: 999px;
           border: 1px solid var(--pv-border-strong);
-          background: rgba(255,255,255,0.04);
+          background: rgba(0,0,0,0.03);
           color: var(--pv-text);
           width: 26px;
           height: 26px;
@@ -954,7 +1038,18 @@ class FVPermsHero extends HTMLElement {
           cursor: pointer;
           font-size: 12px;
         }
-        .perm-group-chevron:hover { background: rgba(255,255,255,0.07); }
+        :root[data-theme="dark"] .perm-group-chevron,
+        html[data-theme="dark"] .perm-group-chevron,
+        body[data-theme="dark"] .perm-group-chevron{
+          background: rgba(255,255,255,0.04);
+        }
+        .perm-group-chevron:hover { background: rgba(0,0,0,0.06); }
+        :root[data-theme="dark"] .perm-group-chevron:hover,
+        html[data-theme="dark"] .perm-group-chevron:hover,
+        body[data-theme="dark"] .perm-group-chevron:hover{
+          background: rgba(255,255,255,0.07);
+        }
+
         .perm-group-title {
           font-weight: 900;
           font-size: 13px;
@@ -976,14 +1071,21 @@ class FVPermsHero extends HTMLElement {
           gap: 6px;
           border-radius: 999px;
           padding: 2px 7px;
-          border: 1px solid rgba(255,255,255,0.12);
-          background: rgba(255,255,255,0.05);
+          border: 1px solid rgba(0,0,0,0.10);
+          background: rgba(0,0,0,0.03);
           color: var(--pv-muted);
           font-weight: 900;
           font-size: 11px;
           line-height: 1;
           flex: 0 0 auto;
         }
+        :root[data-theme="dark"] .perm-sub-indicator,
+        html[data-theme="dark"] .perm-sub-indicator,
+        body[data-theme="dark"] .perm-sub-indicator{
+          border: 1px solid rgba(255,255,255,0.12);
+          background: rgba(255,255,255,0.05);
+        }
+
         .perm-sub-indicator-sm{
           padding: 2px 6px;
           font-size: 10.5px;
@@ -1009,7 +1111,7 @@ class FVPermsHero extends HTMLElement {
           display: inline-block;
           flex: 0 0 auto;
           margin-left: 6px;
-          box-shadow: 0 0 0 2px rgba(47,108,60,0.18);
+          box-shadow: 0 0 0 2px rgba(47,108,60,0.14);
         }
 
         .perm-group-header-actions {
@@ -1019,12 +1121,17 @@ class FVPermsHero extends HTMLElement {
         }
         .perm-group-body { padding: 4px 6px 6px; }
         .perm-group-children {
-          border-top: 1px solid rgba(255,255,255,0.07);
+          border-top: 1px solid rgba(0,0,0,0.06);
           margin-top: 4px;
           padding-top: 4px;
           display: flex;
           flex-direction: column;
           gap: 2px;
+        }
+        :root[data-theme="dark"] .perm-group-children,
+        html[data-theme="dark"] .perm-group-children,
+        body[data-theme="dark"] .perm-group-children{
+          border-top: 1px solid rgba(255,255,255,0.07);
         }
 
         .perm-row {
@@ -1058,6 +1165,11 @@ class FVPermsHero extends HTMLElement {
           text-decoration: underline;
           text-underline-offset: 2px;
           text-decoration-thickness: 1px;
+          text-decoration-color: rgba(16,32,20,0.28);
+        }
+        :root[data-theme="dark"] .perm-row-groupbase .perm-row-label-text,
+        html[data-theme="dark"] .perm-row-groupbase .perm-row-label-text,
+        body[data-theme="dark"] .perm-row-groupbase .perm-row-label-text{
           text-decoration-color: rgba(232,240,234,0.35);
         }
 
@@ -1079,7 +1191,7 @@ class FVPermsHero extends HTMLElement {
           font-size: 11px;
           opacity: 0.85;
           flex: 0 0 auto;
-          color: rgba(232,240,234,0.85);
+          color: var(--pv-muted);
         }
         .perm-row-label-text {
           white-space: nowrap;
@@ -1097,30 +1209,50 @@ class FVPermsHero extends HTMLElement {
         }
         .perm-pill {
           border-radius: 999px;
-          border: 1px solid rgba(255,255,255,0.16);
+          border: 1px solid rgba(0,0,0,0.14);
           padding: 3px 8px;
           font-size: 11px;
           font-weight: 900;
           cursor: pointer;
           min-width: 48px;
           text-align: center;
+          background: rgba(0,0,0,0.03);
+          color: var(--pv-text);
+        }
+        :root[data-theme="dark"] .perm-pill,
+        html[data-theme="dark"] .perm-pill,
+        body[data-theme="dark"] .perm-pill{
+          border: 1px solid rgba(255,255,255,0.16);
           background: rgba(255,255,255,0.04);
           color: var(--pv-text);
         }
-        .perm-pill:hover{ background: rgba(255,255,255,0.07); }
+
+        .perm-pill:hover{ background: rgba(0,0,0,0.06); }
+        :root[data-theme="dark"] .perm-pill:hover,
+        html[data-theme="dark"] .perm-pill:hover,
+        body[data-theme="dark"] .perm-pill:hover{
+          background: rgba(255,255,255,0.07);
+        }
         .perm-pill:active{ transform: translateY(0.5px); }
 
         .perm-pill-on {
           background: var(--pv-accent);
           color: #fff;
           border-color: rgba(47,108,60,0.95);
-          box-shadow: 0 6px 14px rgba(0,0,0,0.28);
+          box-shadow: 0 6px 14px rgba(0,0,0,0.18);
         }
         .perm-pill-off {
-          background: rgba(255,255,255,0.04);
+          background: rgba(0,0,0,0.03);
           color: var(--pv-muted);
+          border-color: rgba(0,0,0,0.12);
+        }
+        :root[data-theme="dark"] .perm-pill-off,
+        html[data-theme="dark"] .perm-pill-off,
+        body[data-theme="dark"] .perm-pill-off{
+          background: rgba(255,255,255,0.04);
           border-color: rgba(255,255,255,0.14);
         }
+
         .perm-pill-all { min-width: 52px; }
 
         .perm-pill-disabled{
