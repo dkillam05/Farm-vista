@@ -110,6 +110,11 @@
       outline:2px solid var(--accent,#3B7E46);
       outline-offset:2px;
     }
+
+    /* Permission hidden helper */
+    .perm-hidden{
+      display:none !important;
+    }
   </style>
 </head>
 <body>
@@ -119,17 +124,17 @@
 
       <!-- Overview description -->
       <p class="muted" style="margin:0 0 18px 0; color:var(--muted,#87908a);">
-        The Equipment module keeps your machinery organized—from tractors and sprayers to trucks and trailers.  
+        The Equipment module keeps your machinery organized—from tractors and sprayers to trucks and trailers.
         View, track, and maintain every asset in one place with details on service history, attachments, and performance notes.
       </p>
       <p class="muted" style="margin:0 0 22px 0; color:var(--muted,#87908a);">
-        Use the sidebar to navigate to <em>Tractors</em>, <em>Sprayers</em>, <em>Combines</em>, <em>Implements</em>, and other categories.  
+        Use the sidebar to navigate to <em>Tractors</em>, <em>Sprayers</em>, <em>Combines</em>, <em>Implements</em>, and other categories.
         Record maintenance, assign equipment to operators, and manage uptime across the farm season.
       </p>
 
       <!-- ============================
            KPI: Equipment Service + Work Orders
-           Mirrors Field Trials layout (two circles)
+           Gate: cap-kpi-equipment
            ============================ -->
       <div
         class="dash-kpi dash-kpi-empty"
@@ -187,6 +192,219 @@
     </div>
   </fv-shell>
 
+  <!-- =========================================================
+       Equipment Capability Permissions (Role + Employee Overrides)
+       Sources:
+         - employees/{lowercaseEmail} (permissionGroup + overrides)
+         - accountRoles (lookup by name == permissionGroup)
+       Outputs:
+         - window.FV_EQUIP_PERMS
+         - window.FV_EQUIP_CAN(key, action)
+         - dispatches "fv:equip-perms-ready" (detail: {permsKnown})
+       IMPORTANT:
+         - FAIL-OPEN: do NOT hide anything unless perms are successfully resolved
+     ========================================================= -->
+  <script type="module">
+    import {
+      ready,
+      getAuth,
+      onAuthStateChanged,
+      getFirestore,
+      doc,
+      getDoc,
+      collection,
+      getDocs,
+      query,
+      where
+    } from '/Farm-vista/js/firebase-init.js';
+
+    (function(){
+      "use strict";
+
+      const KEY_EQUIP_KPI = "cap-kpi-equipment";
+
+      const els = {
+        kpi: document.getElementById("equip-service-kpi")
+      };
+
+      function hide(el){
+        if (!el) return;
+        el.classList.add("perm-hidden");
+        el.setAttribute("aria-hidden","true");
+        el.setAttribute("tabindex","-1");
+      }
+      function show(el){
+        if (!el) return;
+        el.classList.remove("perm-hidden");
+        el.removeAttribute("aria-hidden");
+        el.removeAttribute("tabindex");
+      }
+
+      function hasPermObj(p){
+        return p && typeof p === "object" && (
+          Object.prototype.hasOwnProperty.call(p,"view") ||
+          Object.prototype.hasOwnProperty.call(p,"add") ||
+          Object.prototype.hasOwnProperty.call(p,"edit") ||
+          Object.prototype.hasOwnProperty.call(p,"delete")
+        );
+      }
+
+      function canFromPermValue(val, action){
+        if (val == null) return false;
+        if (val === true) return true;
+        if (val === false) return false;
+
+        if (typeof val === "object"){
+          if (typeof val.on === "boolean") return !!val.on;
+
+          if (hasPermObj(val)){
+            const a = (action || "view").toLowerCase();
+            if (typeof val[a] === "boolean") return !!val[a];
+            return !!(val.view || val.add || val.edit || val.delete);
+          }
+        }
+        return false;
+      }
+
+      function makeCan(perms){
+        return function(key, action){
+          if (!key) return true;
+          return canFromPermValue(perms ? perms[key] : null, action || "view");
+        };
+      }
+
+      function deepClone(obj){
+        try { return JSON.parse(JSON.stringify(obj || {})); } catch { return {}; }
+      }
+
+      function mergePerms(base, overrides){
+        const out = deepClone(base || {});
+        const ov = (overrides && typeof overrides === "object") ? overrides : {};
+        for (const k of Object.keys(ov)){
+          out[k] = ov[k];
+        }
+        return out;
+      }
+
+      function extractEmployeeGroupAndOverrides(emp){
+        const e = emp || {};
+        const permissionGroup = (e.permissionGroup || "").toString().trim();
+
+        let overrides =
+          (e.overrides && e.overrides.perms && typeof e.overrides.perms === "object" ? e.overrides.perms : null) ||
+          (e.overrides && typeof e.overrides === "object" ? e.overrides : null) ||
+          (e.perms && typeof e.perms === "object" ? e.perms : null) ||
+          {};
+
+        return { permissionGroup, overrides };
+      }
+
+      async function readEmployeeByEmail(db, user){
+        const email = (user && user.email ? user.email.toString().trim().toLowerCase() : "");
+        if (!email) return null;
+        const ref = doc(db, "employees", email);
+        const snap = await getDoc(ref);
+        return snap.exists() ? (snap.data() || {}) : null;
+      }
+
+      async function readRolePermsByDocId(db, maybeId){
+        if (!maybeId) return null;
+        try{
+          const ref = doc(db, "accountRoles", maybeId);
+          const snap = await getDoc(ref);
+          if (!snap.exists()) return null;
+          const d = snap.data() || {};
+          return (d.perms && typeof d.perms === "object") ? d.perms : {};
+        }catch{
+          return null;
+        }
+      }
+
+      async function readRolePermsByName(db, roleName){
+        if (!roleName) return null;
+        try{
+          const qy = query(collection(db, "accountRoles"), where("name", "==", roleName));
+          const ss = await getDocs(qy);
+          let first = null;
+          ss.forEach(d => { if (!first) first = d; });
+          if (!first) return null;
+          const d = first.data() || {};
+          return (d.perms && typeof d.perms === "object") ? d.perms : {};
+        }catch{
+          return null;
+        }
+      }
+
+      function applyVisibility(perms, permsKnown){
+        if (!permsKnown){
+          // fail-open
+          show(els.kpi);
+
+          window.FV_EQUIP_PERMS = null;
+          window.FV_EQUIP_CAN = null;
+
+          document.dispatchEvent(new CustomEvent("fv:equip-perms-ready", { detail:{ permsKnown:false } }));
+          return;
+        }
+
+        const can = makeCan(perms);
+
+        if (els.kpi){
+          if (!can(KEY_EQUIP_KPI, "view")) hide(els.kpi); else show(els.kpi);
+        }
+
+        window.FV_EQUIP_PERMS = perms || {};
+        window.FV_EQUIP_CAN = can;
+
+        document.dispatchEvent(new CustomEvent("fv:equip-perms-ready", { detail:{ permsKnown:true } }));
+      }
+
+      async function init(){
+        await ready;
+
+        const auth = getAuth();
+        const db = getFirestore();
+
+        applyVisibility(null, false);
+
+        onAuthStateChanged(auth, async (user)=>{
+          try{
+            if (!user){
+              applyVisibility(null, false);
+              return;
+            }
+
+            const emp = await readEmployeeByEmail(db, user);
+            if (!emp){
+              console.warn("[equipment] employees doc not found for:", user.email);
+              applyVisibility(null, false);
+              return;
+            }
+
+            const { permissionGroup, overrides } = extractEmployeeGroupAndOverrides(emp);
+
+            let basePerms = await readRolePermsByDocId(db, permissionGroup);
+            if (!basePerms) basePerms = await readRolePermsByName(db, permissionGroup);
+
+            if (!basePerms){
+              console.warn("[equipment] accountRoles not found for permissionGroup:", permissionGroup);
+              applyVisibility(null, false);
+              return;
+            }
+
+            const merged = mergePerms(basePerms, overrides);
+            applyVisibility(merged, true);
+          }catch(err){
+            console.warn("[equipment] perms resolver failed:", err);
+            applyVisibility(null, false);
+          }
+        });
+      }
+
+      init();
+    })();
+  </script>
+
   <!-- Bootloader (same pattern as your working pages) -->
   <script>
     (function () {
@@ -218,6 +436,7 @@
        Equipment Service KPI JS
        - Needs approval: equipmentServiceRequests (status == "needs approved")
        - Open WOs: equipmentWorkOrders (status == "pending" OR "in_progress")
+       - now skips reads if KPI is hidden
        =========================================== -->
   <script type="module">
     import {
@@ -233,6 +452,10 @@
     const reqEl = document.getElementById('equip-count-requests');
     const woEl  = document.getElementById('equip-count-workorders');
     const subEl = document.getElementById('equip-service-sub');
+
+    function isHidden(el){
+      return !el || el.classList.contains("perm-hidden") || el.getAttribute("aria-hidden") === "true";
+    }
 
     if (kpiEl && reqEl && woEl && subEl) {
       function applyState(requestCount, workOrderCount) {
@@ -269,10 +492,11 @@
 
       async function loadEquipmentServiceKpi() {
         try {
+          if (isHidden(kpiEl)) return;
+
           await ready;
           const db = getFirestore();
 
-          // 1) Requests needing approval (equipmentServiceRequests)
           const reqRef = collection(db, 'equipmentServiceRequests');
           const needsApprovalSnap = await getDocs(
             query(reqRef, where('status', '==', 'needs approved'))
@@ -281,7 +505,6 @@
             ? needsApprovalSnap.size
             : 0;
 
-          // 2) Open work orders (equipmentWorkOrders)
           const woRef = collection(db, 'equipmentWorkOrders');
           const [pendingSnap, inProgSnap] = await Promise.all([
             getDocs(query(woRef, where('status', '==', 'pending'))),
@@ -300,6 +523,7 @@
       }
 
       loadEquipmentServiceKpi();
+      document.addEventListener('fv:equip-perms-ready', () => loadEquipmentServiceKpi());
 
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
