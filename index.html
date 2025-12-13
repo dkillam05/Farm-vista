@@ -164,6 +164,10 @@
       background:rgba(0,0,0,0.02);
       color:var(--muted,#67706B);
     }
+    /* Hidden-by-permission (layout-safe) */
+    .perm-hidden{
+      display:none !important;
+    }
 
     /* =======================
        Weather card + modal
@@ -733,7 +737,7 @@
       <!-- ============================
            FarmVista Copilot (AI Box)
            ============================ -->
-      <section class="section ai-section" aria-label="FarmVista Copilot">
+      <section class="section ai-section" id="ai-section" aria-label="FarmVista Copilot">
         <header class="section-head">
           <div class="icon" aria-hidden="true">🤖</div>
           <div>
@@ -811,6 +815,226 @@
       <div id="fv-weather-modal-body"></div>
     </div>
   </div>
+
+  <!-- ===========================================
+       Permission gating for Dashboard items
+       - Uses NAV_MENU href→perm mapping
+       - Works with NEW perms objects {view,add,edit,delete}
+       - Also honors FV.can() if present
+       =========================================== -->
+  <script type="module">
+    import { NAV_MENU } from '/Farm-vista/js/menu.js';
+
+    (function(){
+      "use strict";
+
+      const normHref = (h)=>{
+        const s = (h||"").toString().trim();
+        if (!s) return "";
+        // normalize absolute + relative to the same shape
+        if (s.startsWith("http")) return s;
+        if (s.startsWith("/Farm-vista/")) return s;
+        if (s.startsWith("/")) return "/Farm-vista" + s;          // "/pages/..." → "/Farm-vista/pages/..."
+        return "/Farm-vista/" + s.replace(/^\.?\//,"");           // "pages/..." → "/Farm-vista/pages/..."
+      };
+
+      function flattenItems(items, out){
+        for (const it of (items||[])){
+          if (!it) continue;
+          if (Array.isArray(it.items)) flattenItems(it.items, out);
+          if (Array.isArray(it.children)) flattenItems(it.children, out);
+          if (Array.isArray(it.sub)) flattenItems(it.sub, out);
+          if (it.href) out.push(it);
+        }
+        return out;
+      }
+
+      const ALL_LINKS = flattenItems(NAV_MENU && NAV_MENU.items ? NAV_MENU.items : [], []);
+
+      function permForHref(href){
+        const target = normHref(href);
+        if (!target) return null;
+
+        // exact match first
+        for (const it of ALL_LINKS){
+          const hh = normHref(it.href);
+          if (hh && hh === target) return it.perm || null;
+        }
+
+        // fallback: ignore query/hash
+        const baseTarget = target.split("#")[0].split("?")[0];
+        for (const it of ALL_LINKS){
+          const hh = normHref(it.href).split("#")[0].split("?")[0];
+          if (hh && hh === baseTarget) return it.perm || null;
+        }
+
+        return null;
+      }
+
+      function hasPermObj(p){
+        return p && typeof p === "object" && (
+          Object.prototype.hasOwnProperty.call(p,"view") ||
+          Object.prototype.hasOwnProperty.call(p,"add") ||
+          Object.prototype.hasOwnProperty.call(p,"edit") ||
+          Object.prototype.hasOwnProperty.call(p,"delete")
+        );
+      }
+
+      function canFromPermValue(val, action){
+        // Supports:
+        //  - true/false
+        //  - { on:true }
+        //  - { view/add/edit/delete: true/false }  (NEW)
+        if (val == null) return false;
+        if (val === true) return true;
+        if (val === false) return false;
+
+        if (typeof val === "object"){
+          if (typeof val.on === "boolean") return !!val.on;
+          if (hasPermObj(val)){
+            const a = (action || "view").toLowerCase();
+            if (typeof val[a] === "boolean") return !!val[a];
+            // if action missing, treat any enabled permission as "on"
+            return !!(val.view || val.add || val.edit || val.delete);
+          }
+        }
+        return false;
+      }
+
+      function can(permKey, action){
+        if (!permKey) return true; // no perm means always visible
+
+        // Prefer FV.can if present (centralized rules)
+        try{
+          if (window.FV && typeof window.FV.can === "function"){
+            // Some builds support FV.can(key, action). Others are FV.can(key).
+            try{
+              const r2 = window.FV.can(permKey, action);
+              if (typeof r2 === "boolean") return r2;
+            }catch{}
+            const r1 = window.FV.can(permKey);
+            if (typeof r1 === "boolean") return r1;
+          }
+        }catch{}
+
+        // Fallback: read current permission tree if present
+        const perms =
+          (window.FV && (window.FV.perms || window.FV.permissions)) ||
+          window.FV_PERMS ||
+          null;
+
+        if (!perms || typeof perms !== "object") return true; // if perms not loaded yet, don't hard-hide
+
+        const val = perms[permKey];
+        return canFromPermValue(val, action || "view");
+      }
+
+      function hideEl(el){
+        if (!el) return;
+        el.classList.add("perm-hidden");
+        el.setAttribute("aria-hidden","true");
+        el.setAttribute("tabindex","-1");
+      }
+
+      function showEl(el){
+        if (!el) return;
+        el.classList.remove("perm-hidden");
+        el.removeAttribute("aria-hidden");
+        el.removeAttribute("tabindex");
+      }
+
+      async function waitForPerms(){
+        // Give core/FV time to load user + permissions (no hard dependency on a specific promise name)
+        const maxMs = 4000;
+        const start = Date.now();
+
+        while (Date.now() - start < maxMs){
+          // If FV.can exists, we can already evaluate.
+          if (window.FV && typeof window.FV.can === "function") return;
+
+          // Or if permission object is already present.
+          const perms =
+            (window.FV && (window.FV.perms || window.FV.permissions)) ||
+            window.FV_PERMS ||
+            null;
+          if (perms && typeof perms === "object") return;
+
+          await new Promise(r => setTimeout(r, 80));
+        }
+      }
+
+      async function applyDashboardGating(){
+        await waitForPerms();
+
+        // KPI tiles → map their hrefs to NAV_MENU perm keys automatically
+        const woKpi = document.getElementById("wo-approve-kpi");
+        const bdKpi = document.getElementById("boundary-kpi");
+        const bgKpi = document.getElementById("bag-kpi");
+        const aiSec = document.getElementById("ai-section");
+
+        const tiles = [woKpi, bdKpi, bgKpi].filter(Boolean);
+
+        tiles.forEach(tile=>{
+          const href = tile.getAttribute("href") || "";
+          const permKey = permForHref(href);
+          if (permKey) tile.dataset.perm = permKey;
+
+          // Gate by VIEW by default (navigation visibility)
+          if (permKey && !can(permKey, "view")){
+            hideEl(tile);
+          }else{
+            showEl(tile);
+          }
+        });
+
+        // Copilot: try to find a matching NAV_MENU item (if you have one),
+        // otherwise fall back to an explicit perm key if your perms tree has it.
+        // Priority:
+        //  1) NAV_MENU perm for reports-ai page (if it exists)
+        //  2) perm key 'ai-copilot' (if your perms tree uses it)
+        let aiPerm = null;
+
+        // Try common hrefs you may already have in the menu config
+        const aiCandidates = [
+          "pages/reports/reports-ai.html",
+          "pages/reports/reports-ai-history.html",
+          "pages/reports/reports-predefined.html"
+        ];
+        for (const h of aiCandidates){
+          const pk = permForHref(h);
+          if (pk){ aiPerm = pk; break; }
+        }
+        if (!aiPerm) aiPerm = "ai-copilot";
+
+        if (aiSec){
+          aiSec.dataset.perm = aiPerm;
+
+          // Copilot is effectively "view" to use UI
+          if (!can(aiPerm, "view")){
+            hideEl(aiSec);
+          }else{
+            showEl(aiSec);
+          }
+        }
+
+        // Let other scripts know gating is done (optional hook)
+        document.dispatchEvent(new CustomEvent("fv:dashboard-perms-ready"));
+      }
+
+      if (document.readyState === "loading"){
+        document.addEventListener("DOMContentLoaded", applyDashboardGating);
+      }else{
+        applyDashboardGating();
+      }
+
+      // Re-apply after returning to tab (roles/perms can refresh)
+      document.addEventListener("visibilitychange", ()=>{
+        if (document.visibilityState === "visible"){
+          applyDashboardGating();
+        }
+      });
+    })();
+  </script>
 
   <!-- ==========================
        WEATHER module (Google + Open-Meteo)
@@ -1009,6 +1233,7 @@
 
   <!-- ===========================================
        Work order approval KPI JS (dashboard)
+       - now respects permission gating (tile may be hidden)
        =========================================== -->
   <script>
   (function(){
@@ -1035,8 +1260,15 @@
       }
     }
 
+    function isHiddenByPerm(){
+      return kpiEl.classList.contains("perm-hidden") || kpiEl.getAttribute("aria-hidden") === "true";
+    }
+
     async function loadPending(){
       try{
+        // If the tile is not visible due to perms, do nothing (avoid extra reads)
+        if (isHiddenByPerm()) return;
+
         if (!window.FVData || typeof FVData.getWhere !== "function"){
           console.warn("[dashboard] FVData.getWhere not available for KPI.");
           applyState(0);
@@ -1060,7 +1292,10 @@
       }
     }
 
+    // Run once now, and again after permissions gating is applied
     loadPending();
+    document.addEventListener("fv:dashboard-perms-ready", loadPending);
+
     document.addEventListener("visibilitychange", ()=>{
       if (document.visibilityState === "visible") loadPending();
     });
@@ -1070,6 +1305,7 @@
   <!-- ===========================================
        Field boundary requests KPI JS (dashboard)
        (direct Firestore, not FVData)
+       - now respects permission gating (tile may be hidden)
        =========================================== -->
   <script type="module">
     import {
@@ -1103,8 +1339,14 @@
         }
       }
 
+      function isHiddenByPerm(){
+        return kpiEl.classList.contains("perm-hidden") || kpiEl.getAttribute("aria-hidden") === "true";
+      }
+
       async function loadBoundaryRequests(){
         try{
+          if (isHiddenByPerm()) return;
+
           await ready;
           const db = getFirestore();
           const colRef = collection(db, 'boundary_requests');
@@ -1129,6 +1371,8 @@
       }
 
       await loadBoundaryRequests();
+      document.addEventListener("fv:dashboard-perms-ready", loadBoundaryRequests);
+
       document.addEventListener("visibilitychange", ()=>{
         if (document.visibilityState === "visible") loadBoundaryRequests();
       });
@@ -1138,6 +1382,7 @@
   <!-- ===========================================
        Grain bag inventory KPI JS (dashboard)
        Uses FVGrainCapacity to convert corn-capacity → crop bu
+       - now respects permission gating (tile may be hidden)
        =========================================== -->
   <script type="module">
     import {
@@ -1185,8 +1430,14 @@
         }
       }
 
+      function isHiddenByPerm(){
+        return kpiEl.classList.contains("perm-hidden") || kpiEl.getAttribute("aria-hidden") === "true";
+      }
+
       async function loadBagInventory(){
         try{
+          if (isHiddenByPerm()) return;
+
           await ready;
           const db = getFirestore();
           const colRef = collection(db, 'inventoryGrainBagMovements');
@@ -1250,6 +1501,8 @@
       }
 
       await loadBagInventory();
+      document.addEventListener("fv:dashboard-perms-ready", loadBagInventory);
+
       document.addEventListener("visibilitychange", ()=>{
         if (document.visibilityState === "visible") loadBagInventory();
       });
@@ -1258,11 +1511,13 @@
 
   <!-- ==========================
        FarmVista Copilot JS (AI UI)
+       - now respects permission gating (section may be hidden)
        ========================== -->
   <script>
   (function(){
     "use strict";
 
+    const sectionEl = document.getElementById("ai-section");
     const logEl   = document.getElementById("ai-chat-log");
     const formEl  = document.getElementById("ai-chat-form");
     const inputEl = document.getElementById("ai-input");
@@ -1270,7 +1525,16 @@
     const sendEl  = document.getElementById("ai-send");
     const statusEl= document.getElementById("ai-status");
 
-    if (!logEl || !formEl || !inputEl || !micEl || !sendEl) return;
+    if (!sectionEl || !logEl || !formEl || !inputEl || !micEl || !sendEl) return;
+
+    function isHiddenByPerm(){
+      return sectionEl.classList.contains("perm-hidden") || sectionEl.getAttribute("aria-hidden") === "true";
+    }
+
+    // If user doesn't have access, don't wire anything up (prevents "toggle doesn't work" confusion)
+    if (isHiddenByPerm()){
+      return;
+    }
 
     let isThinking = false;
 
@@ -1323,6 +1587,9 @@
     formEl.addEventListener("submit", async (evt)=>{
       evt.preventDefault();
       if (isThinking) return;
+
+      // If perms changed while page is open (rare), bail gracefully
+      if (isHiddenByPerm()) return;
 
       const text = (inputEl.value || "").trim();
       if (!text) return;
