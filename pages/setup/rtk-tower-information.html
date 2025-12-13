@@ -11,6 +11,10 @@
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
   <script src="/Farm-vista/js/theme-boot.js"></script>
+
+  <!-- ✅ Permission UI controller (keep behavior consistent with Seed page) -->
+  <script src="/Farm-vista/js/perm-ui.js"></script>
+
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
@@ -23,10 +27,8 @@
     }
   })();</script>
 
-  <!-- Firebase config MUST load before FVData -->
+  <!-- Firebase config -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
-  <!-- FVData helpers -->
-  <script src="/Farm-vista/js/fv-data.js"></script>
 
   <style>
     .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
@@ -249,6 +251,22 @@
   </div>
 
   <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection,
+      addDoc,
+      getDocs,
+      query,
+      where,
+      limit,
+      doc,
+      getDoc,
+      setDoc,
+      deleteDoc,
+      serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
+
     const $ = id => document.getElementById(id);
     const toast = $("toast"), alertBox = $("alert");
     const dictList = $("dictList"), q = $("q");
@@ -256,37 +274,44 @@
     const canNow = (k)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(k) : true;
 
     const showToast = (msg="Saved.")=>{
-      toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show");
+      toast.textContent = msg;
+      toast.classList.remove("show");
+      toast.style.display = 'block';
+      void toast.offsetWidth;
+      toast.classList.add("show");
+      setTimeout(()=>{ toast.classList.remove("show"); toast.style.display='none'; }, 2800);
     };
     const showError = (msg)=>{
-      alertBox.textContent = msg; alertBox.classList.add('show');
-      clearTimeout(showError._t); showError._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
+      alertBox.textContent = msg;
+      alertBox.classList.add('show');
+      clearTimeout(showError._t);
+      showError._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
     };
 
     const escapeHTML = s => String(s||"").replace(/[&<>"']/g,
       m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])
     );
 
-    async function waitForAuthReady(timeoutMs=5000){
-      try{
-        if (!window.firebaseAuth || !window.firebaseAuth.onAuthStateChanged) return;
-        if (typeof window.firebaseAuth.currentUser !== 'undefined' && window.firebaseAuth.currentUser !== null) return;
-        await new Promise((resolve)=> {
-          let done=false; const t=setTimeout(()=>{ if(!done) resolve(); }, timeoutMs);
-          window.firebaseAuth.onAuthStateChanged(()=>{ if(!done){ done=true; clearTimeout(t); resolve(); } });
-        });
-      }catch{}
-    }
+    const pad4 = n => String(n||0).padStart(4,'0');
 
-    const pad4 = n => String(n).padStart(4,'0');
-
+    let db = null;
     let towers = [];
     let rows = [];
     let editId = null;
 
+    const COL = "rtkTowers";
+
     $("netid").addEventListener("input", e=>{ e.target.value = e.target.value.replace(/\D/g,"").slice(0,4); });
+    $("editNet").addEventListener("input", e=>{ e.target.value = e.target.value.replace(/\D/g,"").slice(0,4); });
+
     $("freq").addEventListener("blur", e=>{
-      const v = e.target.value.trim(); const m = v.match(/^(\d{3})\.(\d{1,5})$/);
+      const v = e.target.value.trim();
+      const m = v.match(/^(\d{3})\.(\d{1,5})$/);
+      if(m){ e.target.value = `${m[1]}.${(m[2]+"00000").slice(0,5)}`; }
+    });
+    $("editFreq").addEventListener("blur", e=>{
+      const v = e.target.value.trim();
+      const m = v.match(/^(\d{3})\.(\d{1,5})$/);
       if(m){ e.target.value = `${m[1]}.${(m[2]+"00000").slice(0,5)}`; }
     });
 
@@ -299,12 +324,14 @@
       if(!/^\d{3}\.\d{5}$/.test(freq)) return "Frequency must match 450.12345 format.";
       return "";
     }
+
     function newPayload(){
       return {
         name: $("name").value.trim(),
         networkId: Number($("netid").value.trim()),
         frequencyMHz: $("freq").value.trim(),
-        t: Date.now()
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
       };
     }
 
@@ -315,34 +342,43 @@
         alert("You don't have permission to add RTK towers.");
         return;
       }
-      const err = validateCreate(); if(err){ alert(err); return; }
+      const err = validateCreate();
+      if(err){ alert(err); return; }
       try{
-        await FVData.ready(); await waitForAuthReady();
-        await FVData.add("rtkTowers", newPayload());
+        await addDoc(collection(db, COL), newPayload());
         ["name","netid","freq"].forEach(id=>$(id).value="");
         showToast("RTK tower saved.");
         await loadAll();
         window.scrollTo({top:0,behavior:"smooth"});
-      }catch(e){ console.error(e); showError("Save failed: " + (e?.message||e)); }
+      }catch(e){
+        console.error(e);
+        showError("Save failed: " + (e?.message||e));
+      }
     });
 
     async function fieldsUsingTower(towerId){
       const names = new Set();
       try{
-        const [byTowerId, byLegacyId] = await Promise.all([
-          FVData.getWhere('fields','rtkTowerId','==', towerId, { limit: 5000 }),
-          FVData.getWhere('fields','rtkId','==', towerId, { limit: 5000 })
-        ]);
+        // Some roles may not have permission to read fields → treat as "unknown usage" (empty list)
+        const fieldsCol = collection(db, "fields");
 
-        (byTowerId || []).forEach(f=>{
+        const q1 = query(fieldsCol, where("rtkTowerId","==", towerId), limit(5000));
+        const q2 = query(fieldsCol, where("rtkId","==", towerId), limit(5000));
+
+        const [s1, s2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+
+        s1.forEach(d=>{
+          const f = d.data() || {};
           const nm = String(f.name || f.fieldName || '(Unnamed field)').trim();
           if(nm) names.add(nm);
         });
-        (byLegacyId || []).forEach(f=>{
+        s2.forEach(d=>{
+          const f = d.data() || {};
           const nm = String(f.name || f.fieldName || '(Unnamed field)').trim();
           if(nm) names.add(nm);
         });
       }catch(e){
+        // If permission denied on fields, we still want towers to show up
         console.warn('fieldsUsingTower failed for', towerId, e);
       }
       return Array.from(names).sort((a,b)=>a.localeCompare(b, undefined, {sensitivity:'base'}));
@@ -350,18 +386,23 @@
 
     async function loadAll(){
       try{
-        const towersRaw = await FVData.list('rtkTowers', { limit: 2000 }) || [];
+        const snap = await getDocs(collection(db, COL));
+        const base = [];
+        snap.forEach(d=>{
+          const t = d.data() || {};
+          base.push({
+            id: d.id,
+            name: String(t.name || '').trim(),
+            networkId: typeof t.networkId === 'number' ? t.networkId : parseInt(t.networkId, 10) || 0,
+            frequencyMHz: String(t.frequencyMHz || '').trim()
+          });
+        });
 
+        // Enrich with usage (never block dictionary rendering if fields are restricted)
         const enriched = await Promise.all(
-          (towersRaw || []).map(async t=>{
+          base.map(async t=>{
             const inUse = await fieldsUsingTower(t.id);
-            return {
-              id: t.id,
-              name: String(t.name || '').trim(),
-              networkId: typeof t.networkId === 'number' ? t.networkId : parseInt(t.networkId, 10) || 0,
-              frequencyMHz: String(t.frequencyMHz || '').trim(),
-              inUse
-            };
+            return { ...t, inUse };
           })
         );
 
@@ -377,9 +418,9 @@
       const term = (q.value||'').trim().toLowerCase();
       rows = towers.filter(t => {
         return !term ||
-          t.name.toLowerCase().includes(term) ||
-          String(t.networkId).includes(term) ||
-          t.frequencyMHz.toLowerCase().includes(term);
+          (t.name||'').toLowerCase().includes(term) ||
+          String(t.networkId||'').includes(term) ||
+          (t.frequencyMHz||'').toLowerCase().includes(term);
       });
 
       if(!rows.length){
@@ -391,9 +432,11 @@
       rows.forEach(t=>{
         const card = document.createElement('div');
         card.className = 'tower-card';
+
         const usageChip = t.inUse.length
           ? `<span class="chip">${t.inUse.length} field${t.inUse.length===1?'':'s'}</span>`
           : `<span class="chip">not in use</span>`;
+
         card.innerHTML = `
           <div class="tower-row">
             <div class="tower-name">${escapeHTML(t.name)}</div>
@@ -408,6 +451,7 @@
             <button class="btn btn-danger" data-act="delete" data-perm="setup-rtk-towers:delete"${t.inUse.length ? ' disabled' : ''}>Delete</button>
           </div>
         `;
+
         card.querySelector('[data-act="edit"]').addEventListener('click', ()=> openEdit(t.id));
         const delBtn = card.querySelector('[data-act="delete"]');
         if(!t.inUse.length){
@@ -436,8 +480,10 @@
     }
 
     function openEdit(id){
-      const t = towers.find(x=>x.id===id); if(!t) return;
+      const t = towers.find(x=>x.id===id);
+      if(!t) return;
       editId = id;
+
       $("editName").value = t.name || '';
       $("editNet").value  = pad4(t.networkId || 0);
       $("editFreq").value = t.frequencyMHz || '';
@@ -468,19 +514,31 @@
         alert("You don't have permission to edit RTK towers.");
         return;
       }
+      if(!editId) return;
+
       const name = $("editName").value.trim();
       const net  = $("editNet").value.trim();
       const freq = $("editFreq").value.trim();
+
       if(!name){ alert('Enter a tower name.'); return; }
       if(!/^\d{4}$/.test(net)){ alert('Network ID must be exactly 4 digits.'); return; }
       if(!/^\d{3}\.\d{5}$/.test(freq)){ alert('Frequency must match 450.12345 format.'); return; }
+
       try{
-        await FVData.ready(); await waitForAuthReady();
-        await FVData.update('rtkTowers', editId, { name, networkId: Number(net), frequencyMHz: freq });
+        await setDoc(doc(db, COL, editId), {
+          name,
+          networkId: Number(net),
+          frequencyMHz: freq,
+          updatedAt: serverTimestamp()
+        }, { merge:true });
+
         showToast('Changes saved.');
         await loadAll();
         closeModal();
-      }catch(e){ console.error(e); showError('Update failed: ' + (e?.message||e)); }
+      }catch(e){
+        console.error(e);
+        showError('Update failed: ' + (e?.message||e));
+      }
     });
 
     async function tryDelete(id){
@@ -488,19 +546,24 @@
         alert("You don't have permission to delete RTK towers.");
         return;
       }
-      const t = towers.find(x=>x.id===id); if(!t) return;
+      const t = towers.find(x=>x.id===id);
+      if(!t) return;
+
       if(t.inUse && t.inUse.length){
         alert('This tower is assigned to fields and cannot be deleted.');
         return;
       }
       if(!confirm(`Delete RTK tower "${t.name}"? This cannot be undone.`)) return;
+
       try{
-        await FVData.ready(); await waitForAuthReady();
-        await FVData.remove('rtkTowers', id);
+        await deleteDoc(doc(db, COL, id));
         showToast('Tower deleted.');
         await loadAll();
         closeModal();
-      }catch(e){ console.error(e); showError('Delete failed: ' + (e?.message||e)); }
+      }catch(e){
+        console.error(e);
+        showError('Delete failed: ' + (e?.message||e));
+      }
     }
 
     mdDelete.addEventListener('click', async ()=>{
@@ -510,10 +573,13 @@
 
     (async function boot(){
       try{
-        if(!window.FVData) throw new Error("FVData not loaded");
-        await FVData.ready(); await waitForAuthReady();
-      }catch(e){ console.warn(e); showError(e?.message || "FVData not loaded"); }
-      await loadAll();
+        await ready;
+        db = getFirestore();
+        await loadAll();
+      }catch(e){
+        console.error(e);
+        showError(e?.message || "Failed to initialize Firebase.");
+      }
     })();
   </script>
 
