@@ -219,6 +219,7 @@
 
       /* ====== CONFIG ====== */
       const COLLECTION = 'accountRoles';
+      const ROLE_INDEX = 'roleIndex'; // <-- automatic bridge for Firestore rules
 
       /* ====== PERM HELPERS ====== */
       const canNow = (k)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(k) : true;
@@ -234,6 +235,17 @@
       }
       function isLockedRole(){
         return isAdminRoleName(roleDraft.name || $("roleName")?.value || "");
+      }
+
+      /* ====== VALIDATION (roleIndex doc id must be safe) ====== */
+      function normalizeRoleName(name){
+        return String(name || "").trim();
+      }
+      function assertRoleNameSafe(name){
+        // Firestore doc IDs cannot contain "/" and should not be empty.
+        if(!name) throw new Error("Missing role name.");
+        if(name.includes("/")) throw new Error('Role name cannot contain "/".');
+        if(name.length > 80) throw new Error("Role name is too long (max 80 characters).");
       }
 
       /* ====== QC / CAP DEPENDENCIES ====== */
@@ -288,22 +300,22 @@
         return perms;
       }
 
-      function showToast(msg="Saved."){ 
-        toast.textContent = msg; 
-        toast.classList.remove("show"); 
-        void toast.offsetWidth; 
-        toast.classList.add("show"); 
+      function showToast(msg="Saved."){
+        toast.textContent = msg;
+        toast.classList.remove("show");
+        void toast.offsetWidth;
+        toast.classList.add("show");
       }
 
       const LS_KEY = "fv:roles:v1";
       const uid = () => String(Date.now()) + Math.random().toString(36).slice(2,7);
-      const loadLS = () => { 
-        try{ 
-          const a=JSON.parse(localStorage.getItem(LS_KEY)||"[]"); 
-          return Array.isArray(a)?a:[]; 
-        }catch{ 
-          return []; 
-        } 
+      const loadLS = () => {
+        try{
+          const a=JSON.parse(localStorage.getItem(LS_KEY)||"[]");
+          return Array.isArray(a)?a:[];
+        }catch{
+          return [];
+        }
       };
       const saveLS = (arr) => localStorage.setItem(LS_KEY, JSON.stringify(arr));
 
@@ -329,7 +341,6 @@
           mode: 'role',
           name,
           perms: roleDraft.perms || {},
-          // ✅ never allow delete for Admin, even if user has setup-roles:delete
           onDeleteRole: (currentRoleId && canDelete && !locked) ? handleDeleteRole : null,
           onPermsChange: (updatedPerms) => {
             if (!canNow('setup-roles:edit')) return;
@@ -356,30 +367,68 @@
         return out;
       }
 
+      // ⭐ KEY CHANGE: keep roleIndex in sync automatically
+      async function upsertRoleIndexFS(roleName, roleId){
+        const db = getFirestore();
+        const safeName = normalizeRoleName(roleName);
+        assertRoleNameSafe(safeName);
+
+        // roleIndex/{Role Name} -> { roleId, updatedAt }
+        await setDoc(doc(db, ROLE_INDEX, safeName), {
+          roleId: roleId,
+          updatedAt: serverTimestamp()
+        }, { merge:true });
+      }
+
+      async function deleteRoleIndexFS(roleName){
+        const db = getFirestore();
+        const safeName = normalizeRoleName(roleName);
+        if(!safeName) return;
+        if(safeName.includes("/")) return;
+        await deleteDoc(doc(db, ROLE_INDEX, safeName));
+      }
+
       async function saveRoleFS(id, name, perms){
         const db = getFirestore();
         const clean = applyCapabilityDeps(perms || {});
+        const safeName = normalizeRoleName(name);
+        assertRoleNameSafe(safeName);
+
+        // NOTE: Existing roles do NOT rename (roleNameField hidden).
+        // We keep the name stable so employees.permissionGroup stays valid.
+
         if(id){
           await setDoc(doc(db, COLLECTION, id), {
-            name,
+            name: safeName,
             perms: clean,
             updatedAt: serverTimestamp()
           }, { merge:true });
+
+          // Ensure roleIndex exists for this role name
+          await upsertRoleIndexFS(safeName, id);
+
           return id;
         }else{
           const ref = await addDoc(collection(db, COLLECTION), {
-            name,
+            name: safeName,
             perms: clean,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
           });
+
+          // Create roleIndex entry automatically
+          await upsertRoleIndexFS(safeName, ref.id);
+
           return ref.id;
         }
       }
 
-      async function deleteRoleFS(id){
+      async function deleteRoleFS(id, roleName){
         const db = getFirestore();
         await deleteDoc(doc(db, COLLECTION, id));
+
+        // Remove roleIndex entry (keeps rules clean)
+        await deleteRoleIndexFS(roleName);
       }
 
       async function loadRoles(){
@@ -411,8 +460,12 @@
         if(isLockedRole()){
           throw new Error("Admin role cannot be deleted.");
         }
-        if(MODE==='firebase'){ await deleteRoleFS(currentRoleId); }
-        else { saveLS(loadLS().filter(x=>x.id!==currentRoleId)); }
+        if(MODE==='firebase'){
+          const name = roleDraft.name || $("roleName").value || "";
+          await deleteRoleFS(currentRoleId, name);
+        } else {
+          saveLS(loadLS().filter(x=>x.id!==currentRoleId));
+        }
       }
 
       /* ====== ROLE PICKER ====== */
@@ -428,7 +481,7 @@
 
         (arr||[]).forEach(r=>{
           const o=document.createElement("option");
-          o.value=r.id; 
+          o.value=r.id;
           o.textContent=r.name||"(unnamed)";
           sel.appendChild(o);
         });
@@ -531,10 +584,14 @@
             ? name
             : (roleDraft.name || $("roleName").value.trim() || "(unnamed)");
 
-          roleDraft.name = finalName;
+          // enforce safe doc id for roleIndex
+          const safeName = normalizeRoleName(finalName);
+          assertRoleNameSafe(safeName);
+
+          roleDraft.name = safeName;
           roleDraft.perms = applyCapabilityDeps(roleDraft.perms || {});
 
-          const id = await saveRole(finalName, roleDraft.perms);
+          const id = await saveRole(safeName, roleDraft.perms);
           currentRoleId = id;
 
           const all = await loadRoles();
@@ -543,7 +600,7 @@
           $("rolePicker").value = id;
           showRoleNameField(false);
           updateHero();
-          showToast(MODE==='firebase' ? "Saved to Firestore." : "Saved locally (stub mode).");
+          showToast(MODE==='firebase' ? "Saved to Firestore (roleIndex updated automatically)." : "Saved locally (stub mode).");
         }catch(err){
           console.error(err);
           alert("Save failed.\n\n" + (err?.message || err));
