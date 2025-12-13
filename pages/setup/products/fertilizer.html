@@ -11,16 +11,23 @@
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
   <script src="/Farm-vista/js/theme-boot.js"></script>
+
+  <!-- ✅ Blanket permission UI -->
+  <script src="/Farm-vista/js/perm-ui.js"></script>
+
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- FVData helpers -->
-  <script src="/Farm-vista/js/fv-data.js"></script>
-
   <!-- Ensure fv-shell -->
-  <script>(function(){ if(!customElements.get('fv-shell')){ const s=document.createElement('script'); s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);} })();</script>
+  <script>(function(){
+    if(!customElements.get('fv-shell')){
+      const s=document.createElement('script');
+      s.src='/Farm-vista/js/fv-shell.js'; s.defer=true;
+      document.head.appendChild(s);
+    }
+  })();</script>
 
-  <!-- Firebase config FIRST -->
+  <!-- Firebase config -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
 
   <style>
@@ -39,6 +46,7 @@
       padding:14px 16px;border-bottom:1px solid var(--border);
       background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);}
     .section-head .icon{width:24px;height:24px;color:#2F6C3C;display:grid;place-items:center;}
+    .section-head .icon svg{width:22px;height:22px;display:block;}
     .section-body{padding:16px;display:grid;gap:14px;}
 
     .grid-2{display:grid;gap:10px;grid-template-columns:1fr 1fr;}
@@ -69,6 +77,7 @@
     .item{border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--card-surface,var(--surface));
       display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
     .pill{font-size:12px;border:1px solid var(--border);padding:4px 8px;border-radius:999px;color:var(--muted,#67706B);background:var(--surface)}
+    .pill-arch{border-color:#b3261e;color:#b3261e;}
     .name{font-weight:800}
     .view{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;color:var(--text) !important;}
 
@@ -99,7 +108,7 @@
 
       <div id="alert" class="alert" role="alert"></div>
 
-      <!-- Create form (add permission → perm-ui will disable all inputs/buttons inside if denied) -->
+      <!-- Create form (add permission) -->
       <section class="section" data-perm="setup-prod-fertilizer:add">
         <header class="section-head">
           <div class="icon" aria-hidden="true">
@@ -151,7 +160,7 @@
 
           <div class="grid-3">
             <div class="field">
-              <label for="n">Analysis N-P₂O₅-K₂O</label>
+              <label>Analysis N-P₂O₅-K₂O</label>
               <div class="grid-3">
                 <input id="n"  class="input" inputmode="decimal" placeholder="N %">
                 <input id="p"  class="input" inputmode="decimal" placeholder="P₂O₅ %">
@@ -223,7 +232,6 @@
         <button id="mdClose" class="closex" type="button">Back</button>
       </div>
 
-      <!-- Modal fields (edit permission → perm-ui will disable everything inside if denied) -->
       <div class="dialog-body" id="mdBody" data-perm="setup-prod-fertilizer:edit">
         <div class="grid-3">
           <div class="field">
@@ -316,101 +324,139 @@
   </div>
 
   <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection,
+      getDocs,
+      addDoc,
+      setDoc,
+      deleteDoc,
+      doc,
+      getDoc,
+      serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
+
     const $ = id => document.getElementById(id);
     const toast = $("toast"), alertBox = $("alert");
     const listBox = $("list"), countsEl = $("counts"), q = $("q");
 
+    const canNow = (k)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(k) : true;
+
     const showToast = (msg="Saved.")=>{
-      toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show");
+      toast.textContent = msg;
+      toast.classList.remove("show");
+      toast.style.display = 'block';
+      void toast.offsetWidth;
+      toast.classList.add("show");
+      setTimeout(()=>{ toast.classList.remove("show"); toast.style.display='none'; }, 3600);
     };
     const showError = (msg)=>{
-      alertBox.textContent = msg; alertBox.classList.add('show');
-      clearTimeout(showError._t); showError._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
+      alertBox.textContent = msg;
+      alertBox.classList.add('show');
+      clearTimeout(showError._t);
+      showError._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
     };
     const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 
-    const canNow = (k)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(k) : true;
-
-    async function waitForAuthReady(timeoutMs=5000){
-      try{
-        if (!window.firebaseAuth || !window.firebaseAuth.onAuthStateChanged) return;
-        if (typeof window.firebaseAuth.currentUser !== 'undefined' && window.firebaseAuth.currentUser !== null) return;
-        await new Promise((resolve)=> {
-          let done=false; const t=setTimeout(()=>{ if(!done) resolve(); }, timeoutMs);
-          window.firebaseAuth.onAuthStateChanged(()=>{ if(!done){ done=true; clearTimeout(t); resolve(); } });
-        });
-      }catch{}
-    }
-
     const COLL = 'productsFertilizer';
+    let db = null;
+
+    const trimNum = (v)=> String(v??"").trim();
 
     function validateCreate(){
       if(!$("source").value) return "Choose a fertilizer source.";
-      if(!$("n").value && !$("p").value && !$("k").value) return "Enter at least one N-P₂O₅-K₂O value.";
+      if(!trimNum($("n").value) && !trimNum($("p").value) && !trimNum($("k").value)) return "Enter at least one N-P₂O₅-K₂O value.";
       return "";
     }
-    function newPayload(){
+
+    function buildPayload(prefix=""){
+      const g = (id)=> $(prefix + id);
       return {
-        vendor: $("vendor").value.trim(),
-        source: $("source").value,
-        form: $("form").value,
-        n: $("n").value.trim(),
-        p: $("p").value.trim(),
-        k: $("k").value.trim(),
-        micros: $("micros").value.trim(),
-        density: $("density").value.trim(),
-        densUnit: $("densUnit").value,
-        purchaseUnit: $("purchaseUnit").value,
-        appliedUnit: $("appliedUnit").value,
-        notes: $("notes").value.trim(),
-        status: "active",
-        t: Date.now()
+        vendor: g("vendor").value.trim(),
+        source: g("source").value,
+        form: g("form").value,
+        n: g("n").value.trim(),
+        p: g("p").value.trim(),
+        k: g("k").value.trim(),
+        micros: g("micros").value.trim(),
+        density: g("density").value.trim(),
+        densUnit: g("densUnit").value,
+        purchaseUnit: g("purchaseUnit").value,
+        appliedUnit: g("appliedUnit").value,
+        notes: g("notes").value.trim()
       };
     }
+
+    function newPayload(){
+      return {
+        ...buildPayload(""),
+        status: "active",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+    }
+
     function clearCreate(){
       ["vendor","source","form","n","p","k","micros","density","densUnit","purchaseUnit","appliedUnit","notes"].forEach(id=>{
-        const el=$(id); if(!el) return; if(el.tagName==="SELECT") el.selectedIndex=0; else el.value="";
+        const el=$(id); if(!el) return;
+        if(el.tagName==="SELECT") el.selectedIndex=0;
+        else el.value="";
       });
     }
+
     $("clear").addEventListener("click", clearCreate);
 
     $("save").addEventListener("click", async ()=>{
       if(!canNow('setup-prod-fertilizer:add')) { alert("You don't have permission to add fertilizer products."); return; }
       const err=validateCreate(); if(err){ alert(err); return; }
       try{
-        await FVData.ready(); await waitForAuthReady();
-        await FVData.add(COLL, newPayload());
-        clearCreate(); showToast("Fertilizer saved.");
-        await loadAll(); window.scrollTo({top:0,behavior:"smooth"});
-      }catch(e){ console.error(e); showError("Save failed: " + (e?.message||e)); }
+        await addDoc(collection(db, COLL), newPayload());
+        clearCreate();
+        showToast("Fertilizer saved.");
+        await loadAll();
+        window.scrollTo({top:0,behavior:"smooth"});
+      }catch(e){
+        console.error(e);
+        showError("Save failed: " + (e?.message||e));
+      }
     });
 
     let items = [];
+
     async function loadAll(){
       try{
-        await FVData.ready(); await waitForAuthReady();
-        const raw = await FVData.list(COLL, { limit: 5000 }) || [];
-        items = (raw || []).map(r=>({
-          id: r.id,
-          vendor: r.vendor || "",
-          source: r.source || "",
-          form: r.form || "",
-          n: r.n || "", p: r.p || "", k: r.k || "",
-          micros: r.micros || "",
-          density: r.density || "", densUnit: r.densUnit || "",
-          purchaseUnit: r.purchaseUnit || "", appliedUnit: r.appliedUnit || "",
-          notes: r.notes || "",
-          status: r.status || "active",
-          t: r.t || 0
-        })).sort((a,b)=>{
+        const snap = await getDocs(collection(db, COLL));
+        const raw = [];
+        snap.forEach(d=>{
+          const r = d.data() || {};
+          raw.push({
+            id: d.id,
+            vendor: r.vendor || "",
+            source: r.source || "",
+            form: r.form || "",
+            n: r.n || "", p: r.p || "", k: r.k || "",
+            micros: r.micros || "",
+            density: r.density || "", densUnit: r.densUnit || "",
+            purchaseUnit: r.purchaseUnit || "", appliedUnit: r.appliedUnit || "",
+            notes: r.notes || "",
+            status: r.status || "active"
+          });
+        });
+
+        items = raw.sort((a,b)=>{
           const sa = a.status==='archived', sb = b.status==='archived';
           if (sa !== sb) return sa - sb;
-          const s = a.source.localeCompare(b.source, undefined, {sensitivity:'base'});
+          const s = (a.source||"").localeCompare(b.source||"", undefined, {sensitivity:'base'});
           if (s) return s;
-          return a.vendor.localeCompare(b.vendor, undefined, {sensitivity:'base'});
+          return (a.vendor||"").localeCompare(b.vendor||"", undefined, {sensitivity:'base'});
         });
+
         renderList();
-      }catch(e){ console.error(e); showError("Load failed: " + (e?.message||e)); }
+      }catch(e){
+        console.error(e);
+        showError("Load failed: " + (e?.message||e));
+      }
     }
 
     function renderList(){
@@ -432,11 +478,10 @@
       rows.forEach(it=>{
         const pills = [
           it.vendor ? `<span class="pill">${esc(it.vendor)}</span>` : "",
-          it.source ? `<span class="pill">${esc(it.source)}</span>` : "",
           it.form   ? `<span class="pill">${esc(it.form)}</span>` : "",
           (it.n||it.p||it.k) ? `<span class="pill">${esc([it.n||0,it.p||0,it.k||0].join("-"))}</span>` : "",
           it.density ? `<span class="pill">${esc(it.density)} ${esc(it.densUnit||"")}</span>` : "",
-          it.status==="archived" ? `<span class="pill">Archived</span>` : ""
+          it.status==="archived" ? `<span class="pill pill-arch">Archived</span>` : ""
         ].filter(Boolean).join(" ");
 
         const row = document.createElement("div");
@@ -453,19 +498,19 @@
       });
     }
 
-    q.addEventListener("input", renderList);
+    q.addEventListener("input", ()=> renderList());
     $("reload").addEventListener("click", loadAll);
 
     const modal = $("modal");
     const mdClose = $("mdClose"), mdSave = $("mdSave"), mdDelete = $("mdDelete"), mdArchive = $("mdArchive");
-
-    function openModal(){ modal.setAttribute('open',''); modal.setAttribute('aria-hidden','false'); $("edit_vendor").focus(); }
-    function closeModal(){ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId = null; }
-
+    const statusPill = $("statusPill");
     let editId = null;
 
+    function openModal(){ modal.setAttribute('open',''); modal.setAttribute('aria-hidden','false'); $("edit_vendor").focus(); }
+    function closeModal(){ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId=null; }
+
     function setVal(id, v){ const el=$(id); if(el) el.value = v ?? ""; }
-    function setSel(id, v){ const el=$(id); if(el){ el.value = v ?? ""; } }
+    function setSel(id, v){ const el=$(id); if(el) el.value = v ?? ""; }
 
     function fillEdit(it){
       setVal('edit_vendor', it.vendor);
@@ -480,81 +525,123 @@
       setSel('edit_purchaseUnit', it.purchaseUnit);
       setSel('edit_appliedUnit', it.appliedUnit);
       setVal('edit_notes', it.notes);
-      $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
+
+      statusPill.textContent = it.status==="archived" ? "Archived" : "Active";
+      statusPill.className = "pill" + (it.status==="archived" ? " pill-arch" : "");
       mdArchive.textContent = it.status==="archived" ? "Unarchive" : "Archive";
     }
 
     async function openEdit(id){
-      const it = items.find(x=>x.id===id); if(!it) return;
-      editId = id;
-      fillEdit(it);
-      openModal();
+      try{
+        const snap = await getDoc(doc(db, COLL, id));
+        if(!snap.exists()){ alert("Fertilizer not found."); return; }
+        const r = snap.data() || {};
+        const it = {
+          id: snap.id,
+          vendor: r.vendor || "",
+          source: r.source || "",
+          form: r.form || "Dry",
+          n: r.n || "", p: r.p || "", k: r.k || "",
+          micros: r.micros || "",
+          density: r.density || "", densUnit: r.densUnit || "lb/gal",
+          purchaseUnit: r.purchaseUnit || "ton",
+          appliedUnit: r.appliedUnit || "lb/ac",
+          notes: r.notes || "",
+          status: r.status || "active"
+        };
+        editId = id;
+        fillEdit(it);
+        openModal();
+      }catch(e){
+        console.error(e);
+        showError("Load failed: " + (e?.message||e));
+      }
     }
 
     mdClose.addEventListener('click', closeModal);
     modal.addEventListener('click', e=>{ if(e.target===modal) closeModal(); });
     document.addEventListener('keydown', e=>{ if(e.key==='Escape' && modal.hasAttribute('open')) closeModal(); });
 
+    function validateEdit(){
+      if(!$("edit_source").value) return "Choose a fertilizer source.";
+      if(!trimNum($("edit_n").value) && !trimNum($("edit_p").value) && !trimNum($("edit_k").value)) return "Enter at least one N-P₂O₅-K₂O value.";
+      return "";
+    }
+
     mdSave.addEventListener('click', async ()=>{
       if(!canNow('setup-prod-fertilizer:edit')) { alert("You don't have permission to edit fertilizer products."); return; }
-      try{
-        await FVData.ready(); await waitForAuthReady();
-        const payload = {
-          vendor: $('edit_vendor').value.trim(),
-          source: $('edit_source').value,
-          form: $('edit_form').value,
-          n: $('edit_n').value.trim(),
-          p: $('edit_p').value.trim(),
-          k: $('edit_k').value.trim(),
-          micros: $('edit_micros').value.trim(),
-          density: $('edit_density').value.trim(),
-          densUnit: $('edit_densUnit').value,
-          purchaseUnit: $('edit_purchaseUnit').value,
-          appliedUnit: $('edit_appliedUnit').value,
-          notes: $('edit_notes').value.trim()
-        };
-        if(!payload.source){ alert("Choose a fertilizer source."); return; }
-        if(!(payload.n||payload.p||payload.k)){ alert("Enter at least one N-P₂O₅-K₂O value."); return; }
+      if(!editId) return;
 
-        await FVData.update(COLL, editId, payload);
+      const err = validateEdit();
+      if(err){ alert(err); return; }
+
+      try{
+        await setDoc(doc(db, COLL, editId), {
+          ...buildPayload("edit_"),
+          updatedAt: serverTimestamp()
+        }, { merge:true });
+
         showToast("Changes saved.");
-        await loadAll();
         closeModal();
-      }catch(e){ console.error(e); showError("Update failed: " + (e?.message||e)); }
+        await loadAll();
+      }catch(e){
+        console.error(e);
+        showError("Update failed: " + (e?.message||e));
+      }
     });
 
     mdArchive.addEventListener('click', async ()=>{
       if(!canNow('setup-prod-fertilizer:edit')) { alert("You don't have permission to archive/unarchive fertilizer products."); return; }
+      if(!editId) return;
+
       try{
-        await FVData.ready(); await waitForAuthReady();
-        const it = items.find(x=>x.id===editId); if(!it) return;
-        const next = it.status==="archived" ? "active" : "archived";
-        await FVData.update(COLL, editId, { status: next });
+        const snap = await getDoc(doc(db, COLL, editId));
+        if(!snap.exists()){ alert("Fertilizer not found."); return; }
+        const cur = snap.data() || {};
+        const next = (cur.status === "archived") ? "active" : "archived";
+
+        await setDoc(doc(db, COLL, editId), { status: next, updatedAt: serverTimestamp() }, { merge:true });
+
         showToast(next==="archived" ? "Product archived." : "Product unarchived.");
-        await loadAll();
         closeModal();
-      }catch(e){ console.error(e); showError("Archive toggle failed: " + (e?.message||e)); }
+        await loadAll();
+      }catch(e){
+        console.error(e);
+        showError("Archive toggle failed: " + (e?.message||e));
+      }
     });
 
     mdDelete.addEventListener('click', async ()=>{
       if(!canNow('setup-prod-fertilizer:delete')) { alert("You don't have permission to delete fertilizer products."); return; }
+      if(!editId) return;
+
       try{
-        const it = items.find(x=>x.id===editId); if(!it) return;
-        if(!confirm(`Delete fertilizer "${it.source||'(Unnamed)'}"? This cannot be undone.`)) return;
-        await FVData.ready(); await waitForAuthReady();
-        await FVData.remove(COLL, editId);
+        const snap = await getDoc(doc(db, COLL, editId));
+        if(!snap.exists()){ alert("Fertilizer not found."); return; }
+        const cur = snap.data() || {};
+        const nm = String(cur.source || "(Unnamed)").trim();
+
+        if(!confirm(`Delete fertilizer "${nm}"? This cannot be undone.`)) return;
+
+        await deleteDoc(doc(db, COLL, editId));
         showToast("Product deleted.");
-        await loadAll();
         closeModal();
-      }catch(e){ console.error(e); showError("Delete failed: " + (e?.message||e)); }
+        await loadAll();
+      }catch(e){
+        console.error(e);
+        showError("Delete failed: " + (e?.message||e));
+      }
     });
 
     (async function boot(){
       try{
-        if(!window.FVData) throw new Error("FVData not loaded");
-        await FVData.ready(); await waitForAuthReady();
-      }catch(e){ console.warn(e); showError(e?.message || "FVData not loaded"); }
-      await loadAll();
+        await ready;
+        db = getFirestore();
+        await loadAll();
+      }catch(e){
+        console.error(e);
+        showError(e?.message || "Failed to initialize Firebase.");
+      }
     })();
   </script>
 
