@@ -132,6 +132,11 @@
       outline-offset:2px;
     }
 
+    /* Permission hidden helper */
+    .perm-hidden{
+      display:none !important;
+    }
+
     /* ===========================
        Trial Scorecard embed card
        =========================== */
@@ -236,6 +241,7 @@
 
       <!-- ============================
            KPI: Pending / In-Progress Field Maintenance
+           Gate: cap-kpi-field-maint
            ============================ -->
       <a
         href="field-maintenance/maintenance-active.html"
@@ -260,9 +266,7 @@
 
       <!-- ============================
            KPI: Active Field Trials
-           Two rows:
-           • Row 1: Active trials (circle links to trials edit)
-           • Row 2: Enrolled fields (circle links to report)
+           Gate: crop-trials (module access)
            ============================ -->
       <div
         class="dash-kpi dash-kpi-empty"
@@ -281,6 +285,7 @@
                 href="trials/trials-edit.html"
                 class="dash-kpi-count-link"
                 aria-label="View active trials"
+                id="trials-link-edit"
               >
                 <div class="dash-kpi-count" id="trials-count-trials">–</div>
               </a>
@@ -295,6 +300,7 @@
                 href="/Farm-vista/pages/reports/reports-field-activetrials.html"
                 class="dash-kpi-count-link"
                 aria-label="View report of fields in active trials"
+                id="trials-link-report"
               >
                 <div class="dash-kpi-count dash-kpi-count-secondary" id="trials-count-fields">–</div>
               </a>
@@ -309,6 +315,7 @@
 
       <!-- ============================
            Embedded Trial Scorecard
+           Gate: crop-trials (module access)
            ============================ -->
       <section class="card trial-scorecard-card" id="trial-scorecard-card">
         <div class="trial-scorecard-header">
@@ -325,10 +332,6 @@
             The embedded report defaults to the current year. Use the report’s own controls to pick which trial you want to review each time you open this page.
           </p>
           <div class="trial-scorecard-embed">
-            <!--
-              NOTE: If your scorecard report file is named differently,
-              update SCORECARD_PATH in the script at the bottom of the page.
-            -->
             <iframe
               id="trial-scorecard-frame"
               title="Hybrid &amp; treatment trial scorecard"
@@ -341,6 +344,266 @@
       </section>
     </div>
   </fv-shell>
+
+  <!-- =========================================================
+       Crop Production Capability Permissions (Role + Employee Overrides)
+       Sources:
+         - employees/{lowercaseEmail} (permissionGroup + overrides)
+         - accountRoles (lookup by name == permissionGroup)
+       Outputs:
+         - window.FV_CROP_PERMS  (merged perms object)
+         - window.FV_CROP_CAN(key, action) => boolean
+         - dispatches "fv:crop-perms-ready" (detail: {permsKnown})
+       IMPORTANT:
+         - FAIL-OPEN: do NOT hide anything unless perms are successfully resolved
+     ========================================================= -->
+  <script type="module">
+    import {
+      ready,
+      getAuth,
+      onAuthStateChanged,
+      getFirestore,
+      doc,
+      getDoc,
+      collection,
+      getDocs,
+      query,
+      where
+    } from '/Farm-vista/js/firebase-init.js';
+
+    (function(){
+      "use strict";
+
+      // What we gate on this page:
+      // 1) Field Maintenance KPI tile => cap-kpi-field-maint
+      // 2) Trials KPI + Scorecard => crop-trials (module access)
+      //
+      // NOTE: If later you want scorecard controlled by a different perm, just change KEY_SCORECARD below.
+      const KEYS = {
+        KPI_FIELD_MAINT: "cap-kpi-field-maint",
+        TRIALS: "crop-trials",
+        SCORECARD: "crop-trials"
+      };
+
+      const els = {
+        kpiFieldMaint: document.getElementById("wo-active-kpi"),
+        trialsCard:    document.getElementById("trials-kpi"),
+        trialsEdit:    document.getElementById("trials-link-edit"),
+        trialsReport:  document.getElementById("trials-link-report"),
+        scorecardCard: document.getElementById("trial-scorecard-card"),
+        scorecardFrame:document.getElementById("trial-scorecard-frame")
+      };
+
+      function hide(el){
+        if (!el) return;
+        el.classList.add("perm-hidden");
+        el.setAttribute("aria-hidden","true");
+        el.setAttribute("tabindex","-1");
+      }
+      function show(el){
+        if (!el) return;
+        el.classList.remove("perm-hidden");
+        el.removeAttribute("aria-hidden");
+        el.removeAttribute("tabindex");
+      }
+
+      function hasPermObj(p){
+        return p && typeof p === "object" && (
+          Object.prototype.hasOwnProperty.call(p,"view") ||
+          Object.prototype.hasOwnProperty.call(p,"add") ||
+          Object.prototype.hasOwnProperty.call(p,"edit") ||
+          Object.prototype.hasOwnProperty.call(p,"delete")
+        );
+      }
+
+      function canFromPermValue(val, action){
+        if (val == null) return false;
+        if (val === true) return true;
+        if (val === false) return false;
+
+        if (typeof val === "object"){
+          if (typeof val.on === "boolean") return !!val.on;
+
+          if (hasPermObj(val)){
+            const a = (action || "view").toLowerCase();
+            if (typeof val[a] === "boolean") return !!val[a];
+            return !!(val.view || val.add || val.edit || val.delete);
+          }
+        }
+        return false;
+      }
+
+      function makeCan(perms){
+        return function(key, action){
+          if (!key) return true;
+          return canFromPermValue(perms ? perms[key] : null, action || "view");
+        };
+      }
+
+      function deepClone(obj){
+        try { return JSON.parse(JSON.stringify(obj || {})); } catch { return {}; }
+      }
+
+      function mergePerms(base, overrides){
+        const out = deepClone(base || {});
+        const ov = (overrides && typeof overrides === "object") ? overrides : {};
+        for (const k of Object.keys(ov)){
+          out[k] = ov[k];
+        }
+        return out;
+      }
+
+      function extractEmployeeGroupAndOverrides(emp){
+        const e = emp || {};
+        const permissionGroup = (e.permissionGroup || "").toString().trim();
+
+        let overrides =
+          (e.overrides && e.overrides.perms && typeof e.overrides.perms === "object" ? e.overrides.perms : null) ||
+          (e.overrides && typeof e.overrides === "object" ? e.overrides : null) ||
+          (e.perms && typeof e.perms === "object" ? e.perms : null) ||
+          {};
+
+        return { permissionGroup, overrides };
+      }
+
+      async function readEmployeeByEmail(db, user){
+        const email = (user && user.email ? user.email.toString().trim().toLowerCase() : "");
+        if (!email) return null;
+        const ref = doc(db, "employees", email);
+        const snap = await getDoc(ref);
+        return snap.exists() ? (snap.data() || {}) : null;
+      }
+
+      async function readRolePermsByDocId(db, maybeId){
+        if (!maybeId) return null;
+        try{
+          const ref = doc(db, "accountRoles", maybeId);
+          const snap = await getDoc(ref);
+          if (!snap.exists()) return null;
+          const d = snap.data() || {};
+          return (d.perms && typeof d.perms === "object") ? d.perms : {};
+        }catch{
+          return null;
+        }
+      }
+
+      async function readRolePermsByName(db, roleName){
+        if (!roleName) return null;
+        try{
+          const qy = query(collection(db, "accountRoles"), where("name", "==", roleName));
+          const ss = await getDocs(qy);
+          let first = null;
+          ss.forEach(d => { if (!first) first = d; });
+          if (!first) return null;
+          const d = first.data() || {};
+          return (d.perms && typeof d.perms === "object") ? d.perms : {};
+        }catch{
+          return null;
+        }
+      }
+
+      // FAIL-OPEN unless permsKnown true
+      function applyVisibility(perms, permsKnown){
+        if (!permsKnown){
+          show(els.kpiFieldMaint);
+          show(els.trialsCard);
+          show(els.trialsEdit);
+          show(els.trialsReport);
+          show(els.scorecardCard);
+          // do not clear iframe here (prevents flicker)
+          window.FV_CROP_PERMS = null;
+          window.FV_CROP_CAN = null;
+          document.dispatchEvent(new CustomEvent("fv:crop-perms-ready", { detail:{ permsKnown:false } }));
+          return;
+        }
+
+        const can = makeCan(perms);
+
+        // Field Maintenance KPI tile
+        if (els.kpiFieldMaint){
+          if (!can(KEYS.KPI_FIELD_MAINT, "view")) hide(els.kpiFieldMaint); else show(els.kpiFieldMaint);
+        }
+
+        // Trials area (card + its links)
+        // We treat the whole card as controlled by crop-trials view.
+        if (els.trialsCard){
+          if (!can(KEYS.TRIALS, "view")){
+            hide(els.trialsCard);
+          }else{
+            show(els.trialsCard);
+          }
+        }
+
+        // If you ever want the two circles to have different perms, change keys here.
+        if (els.trialsEdit){
+          if (!can(KEYS.TRIALS, "view")) hide(els.trialsEdit); else show(els.trialsEdit);
+        }
+        if (els.trialsReport){
+          if (!can(KEYS.TRIALS, "view")) hide(els.trialsReport); else show(els.trialsReport);
+        }
+
+        // Scorecard card
+        if (els.scorecardCard){
+          if (!can(KEYS.SCORECARD, "view")){
+            hide(els.scorecardCard);
+            // optional: clear iframe to avoid loading a report user can't view
+            if (els.scorecardFrame) els.scorecardFrame.src = "";
+          }else{
+            show(els.scorecardCard);
+          }
+        }
+
+        window.FV_CROP_PERMS = perms || {};
+        window.FV_CROP_CAN = can;
+
+        document.dispatchEvent(new CustomEvent("fv:crop-perms-ready", { detail:{ permsKnown:true } }));
+      }
+
+      async function init(){
+        await ready;
+
+        const auth = getAuth();
+        const db = getFirestore();
+
+        applyVisibility(null, false); // fail-open start
+
+        onAuthStateChanged(auth, async (user)=>{
+          try{
+            if (!user){
+              applyVisibility(null, false);
+              return;
+            }
+
+            const emp = await readEmployeeByEmail(db, user);
+            if (!emp){
+              console.warn("[crop-production] employees doc not found for:", user.email);
+              applyVisibility(null, false);
+              return;
+            }
+
+            const { permissionGroup, overrides } = extractEmployeeGroupAndOverrides(emp);
+
+            let basePerms = await readRolePermsByDocId(db, permissionGroup);
+            if (!basePerms) basePerms = await readRolePermsByName(db, permissionGroup);
+
+            if (!basePerms){
+              console.warn("[crop-production] accountRoles not found for permissionGroup:", permissionGroup);
+              applyVisibility(null, false);
+              return;
+            }
+
+            const merged = mergePerms(basePerms, overrides);
+            applyVisibility(merged, true);
+          }catch(err){
+            console.warn("[crop-production] perms resolver failed:", err);
+            applyVisibility(null, false);
+          }
+        });
+      }
+
+      init();
+    })();
+  </script>
 
   <!-- Bootloader: identical order/paths as the working Setup page -->
   <script>
@@ -371,6 +634,7 @@
 
   <!-- ===========================================
        Field Maintenance KPI JS (pending + in progress)
+       - now respects gating (tile may be hidden)
        =========================================== -->
   <script>
     (function(){
@@ -381,6 +645,10 @@
       const subEl   = document.getElementById("wo-active-sub");
 
       if (!kpiEl || !countEl || !subEl) return;
+
+      function isHidden(){
+        return kpiEl.classList.contains("perm-hidden") || kpiEl.getAttribute("aria-hidden") === "true";
+      }
 
       function applyState(count){
         const n = Number(count) || 0;
@@ -399,6 +667,8 @@
 
       async function loadActive(){
         try{
+          if (isHidden()) return;
+
           if (!window.FVData || typeof FVData.getWhere !== "function"){
             console.warn("[crop-production] FVData.getWhere not available for KPI.");
             applyState(0);
@@ -409,9 +679,8 @@
             await FVData.ready();
           }
 
-          // Count docs where status == "pending" OR status == "in progress"
           const [pendingDocs, inProgDocs] = await Promise.all([
-            FVData.getWhere("fieldMaintenance", "status", "==", "pending",     { limit: 500 }) || [],
+            FVData.getWhere("fieldMaintenance", "status", "==", "pending",      { limit: 500 }) || [],
             FVData.getWhere("fieldMaintenance", "status", "==", "in progress", { limit: 500 }) || []
           ]);
 
@@ -427,6 +696,8 @@
       }
 
       loadActive();
+      document.addEventListener("fv:crop-perms-ready", () => loadActive());
+
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") loadActive();
       });
@@ -438,6 +709,7 @@
        - Counts active trials
        - Counts fields in those active trials
        - Feeds both circles
+       - now skips reads if card is hidden
        =========================================== -->
   <script type="module">
     import {
@@ -453,6 +725,10 @@
     const trialsEl     = document.getElementById("trials-count-trials");
     const fieldsEl     = document.getElementById("trials-count-fields");
     const subElTrials  = document.getElementById("trials-sub");
+
+    function isHidden(el){
+      return !el || el.classList.contains("perm-hidden") || el.getAttribute("aria-hidden") === "true";
+    }
 
     if (kpiEl && trialsEl && fieldsEl && subElTrials) {
       function applyState(trialCount, fieldCount){
@@ -473,30 +749,25 @@
 
       async function loadTrials(){
         try{
-          // Ensure Firebase is initialized
+          if (isHidden(kpiEl)) return;
+
           await ready;
           const db = getFirestore();
 
-          // Only count trials where status == "active"
           const trialsRef = collection(db, "fieldTrials");
           const q = query(trialsRef, where("status", "==", "active"));
           const snap = await getDocs(q);
 
           const trialCount = typeof snap.size === "number" ? snap.size : 0;
 
-          // If no active trials, we can short-circuit
           if (!trialCount){
             applyState(0, 0);
             return;
           }
 
-          // For each active trial, count enrolled fields from subcollection:
-          // fieldTrials/{trialId}/fields
           const trialIds = [];
           snap.forEach(docSnap => {
-            if (docSnap && docSnap.id) {
-              trialIds.push(docSnap.id);
-            }
+            if (docSnap && docSnap.id) trialIds.push(docSnap.id);
           });
 
           let fieldCount = 0;
@@ -521,6 +792,8 @@
       }
 
       loadTrials();
+      document.addEventListener("fv:crop-perms-ready", () => loadTrials());
+
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") loadTrials();
       });
@@ -530,20 +803,32 @@
   <!-- ===========================================
        Trial Scorecard iframe bootstrap
        - Sets src with current year by default
+       - now respects gating (card may be hidden)
        =========================================== -->
   <script>
     (function(){
+      const card  = document.getElementById('trial-scorecard-card');
       const frame = document.getElementById('trial-scorecard-frame');
-      if (!frame) return;
+      if (!card || !frame) return;
 
       const year = new Date().getFullYear();
-
-      // If your scorecard report file name/path is different,
-      // update this constant to match.
       const SCORECARD_PATH = '/Farm-vista/pages/reports/reports-mh-scoreboard.html';
-
       const url = SCORECARD_PATH + '?embed=1&year=' + encodeURIComponent(year);
-      frame.src = url;
+
+      function isHidden(){
+        return card.classList.contains("perm-hidden") || card.getAttribute("aria-hidden") === "true";
+      }
+
+      function apply(){
+        if (isHidden()){
+          frame.src = "";
+          return;
+        }
+        if (!frame.src) frame.src = url;
+      }
+
+      apply();
+      document.addEventListener("fv:crop-perms-ready", apply);
     })();
   </script>
 
@@ -556,7 +841,6 @@
 
       window.addEventListener('message', function(event){
         try{
-          // Only trust messages from our own origin
           if (event.origin !== window.location.origin) return;
           const data = event.data || {};
           if (data.type !== 'fv-scorecard-height') return;
@@ -567,7 +851,6 @@
           const h = Number(data.height) || 0;
           if (!h) return;
 
-          // add a little breathing room under the content
           frame.style.height = (h + 24) + 'px';
         }catch(err){
           console.warn('[crop-production] scorecard height listener failed', err);
