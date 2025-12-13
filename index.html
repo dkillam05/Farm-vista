@@ -755,251 +755,255 @@
   </script>
 
   <!-- =========================================================
-       Permissions resolver for Dashboard (Role + Employee Overrides)
-       Collections:
-         - accountRoles  (docs contain { name, perms })
-         - employees     (doc id often = lowercase email; contains role + overrides)
-       Output:
-         - window.FV_DASH_PERMS  (merged perms object)
-         - window.FV_DASH_CAN(key, action) => boolean
-         - dispatches "fv:dash-perms-ready"
-       ========================================================= -->
-  <script type="module">
-    import {
-      ready,
-      getAuth,
-      onAuthStateChanged,
-      getFirestore,
-      doc,
-      getDoc
-    } from '/Farm-vista/js/firebase-init.js';
+     Dashboard Capability Permissions (Role + Employee Overrides)
+     Sources:
+       - employees/{lowercaseEmail} (permissionGroup + overrides)
+       - accountRoles (lookup by name == permissionGroup)
+     Outputs:
+       - window.FV_DASH_PERMS  (merged perms object)
+       - window.FV_DASH_CAN(key, action) => boolean
+       - dispatches "fv:dash-perms-ready" (detail: {permsKnown})
+     IMPORTANT:
+       - FAIL-OPEN: do NOT hide anything unless perms are successfully resolved
+   ========================================================= -->
+<script type="module">
+  import {
+    ready,
+    getAuth,
+    onAuthStateChanged,
+    getFirestore,
+    doc,
+    getDoc,
+    collection,
+    getDocs,
+    query,
+    where
+  } from '/Farm-vista/js/firebase-init.js';
 
-    (function(){
-      "use strict";
+  (function(){
+    "use strict";
 
-      const CAP = {
-        CHATBOT: "cap-chatbot",
-        KPI_FIELD: "cap-kpi-field-maint",
-        KPI_GRAIN: "cap-kpi-grain",
-        KPI_EQUIP: "cap-kpi-equipment"
+    const CAP = {
+      CHATBOT:   "cap-chatbot",
+      KPI_FIELD: "cap-kpi-field-maint",
+      KPI_GRAIN: "cap-kpi-grain",
+      KPI_EQUIP: "cap-kpi-equipment"
+    };
+
+    const els = {
+      chatbot:    document.getElementById("ai-section"),
+      kpiWO:      document.getElementById("wo-approve-kpi"),
+      kpiBoundary:document.getElementById("boundary-kpi"),
+      kpiBag:     document.getElementById("bag-kpi")
+    };
+
+    function hide(el){
+      if (!el) return;
+      el.classList.add("perm-hidden");
+      el.setAttribute("aria-hidden","true");
+      el.setAttribute("tabindex","-1");
+    }
+    function show(el){
+      if (!el) return;
+      el.classList.remove("perm-hidden");
+      el.removeAttribute("aria-hidden");
+      el.removeAttribute("tabindex");
+    }
+
+    function hasPermObj(p){
+      return p && typeof p === "object" && (
+        Object.prototype.hasOwnProperty.call(p,"view") ||
+        Object.prototype.hasOwnProperty.call(p,"add") ||
+        Object.prototype.hasOwnProperty.call(p,"edit") ||
+        Object.prototype.hasOwnProperty.call(p,"delete")
+      );
+    }
+
+    function canFromPermValue(val, action){
+      if (val == null) return false;
+      if (val === true) return true;
+      if (val === false) return false;
+
+      if (typeof val === "object"){
+        if (typeof val.on === "boolean") return !!val.on;
+
+        if (hasPermObj(val)){
+          const a = (action || "view").toLowerCase();
+          if (typeof val[a] === "boolean") return !!val[a];
+          // if action missing, treat as ON if any permission is on
+          return !!(val.view || val.add || val.edit || val.delete);
+        }
+      }
+      return false;
+    }
+
+    function makeCan(perms){
+      return function(key, action){
+        if (!key) return true;
+        return canFromPermValue(perms ? perms[key] : null, action || "view");
       };
+    }
 
-      const els = {
-        chatbot: document.getElementById("ai-section"),
-        kpiWO: document.getElementById("wo-approve-kpi"),
-        kpiBoundary: document.getElementById("boundary-kpi"),
-        kpiBag: document.getElementById("bag-kpi")
-      };
+    function deepClone(obj){
+      try { return JSON.parse(JSON.stringify(obj || {})); } catch { return {}; }
+    }
 
-      function hide(el){
-        if (!el) return;
-        el.classList.add("perm-hidden");
-        el.setAttribute("aria-hidden","true");
-        el.setAttribute("tabindex","-1");
+    // Employee overrides win per-key (replaces that key’s object)
+    function mergePerms(base, overrides){
+      const out = deepClone(base || {});
+      const ov = (overrides && typeof overrides === "object") ? overrides : {};
+      for (const k of Object.keys(ov)){
+        out[k] = ov[k];
       }
-      function show(el){
-        if (!el) return;
-        el.classList.remove("perm-hidden");
-        el.removeAttribute("aria-hidden");
-        el.removeAttribute("tabindex");
+      return out;
+    }
+
+    function extractEmployeeGroupAndOverrides(emp){
+      const e = emp || {};
+      const permissionGroup = (e.permissionGroup || "").toString().trim(); // e.g. "Administrator", "Level 3"
+
+      // Overrides can be stored as:
+      // - overrides.perms
+      // - overrides
+      // - perms (some schemas)
+      let overrides =
+        (e.overrides && e.overrides.perms && typeof e.overrides.perms === "object" ? e.overrides.perms : null) ||
+        (e.overrides && typeof e.overrides === "object" ? e.overrides : null) ||
+        (e.perms && typeof e.perms === "object" ? e.perms : null) ||
+        {};
+
+      return { permissionGroup, overrides };
+    }
+
+    async function readEmployeeByEmail(db, user){
+      const email = (user && user.email ? user.email.toString().trim().toLowerCase() : "");
+      if (!email) return null;
+
+      // Your employees doc ids are lowercase emails
+      const ref = doc(db, "employees", email);
+      const snap = await getDoc(ref);
+      return snap.exists() ? (snap.data() || {}) : null;
+    }
+
+    async function readRolePermsByDocId(db, maybeId){
+      if (!maybeId) return null;
+      try{
+        const ref = doc(db, "accountRoles", maybeId);
+        const snap = await getDoc(ref);
+        if (!snap.exists()) return null;
+        const d = snap.data() || {};
+        return (d.perms && typeof d.perms === "object") ? d.perms : {};
+      }catch{
+        return null;
       }
+    }
 
-      function hasPermObj(p){
-        return p && typeof p === "object" && (
-          Object.prototype.hasOwnProperty.call(p,"view") ||
-          Object.prototype.hasOwnProperty.call(p,"add") ||
-          Object.prototype.hasOwnProperty.call(p,"edit") ||
-          Object.prototype.hasOwnProperty.call(p,"delete")
-        );
+    async function readRolePermsByName(db, roleName){
+      if (!roleName) return null;
+      try{
+        const qy = query(collection(db, "accountRoles"), where("name", "==", roleName));
+        const ss = await getDocs(qy);
+        let first = null;
+        ss.forEach(d => { if (!first) first = d; });
+
+        if (!first) return null;
+        const d = first.data() || {};
+        return (d.perms && typeof d.perms === "object") ? d.perms : {};
+      }catch{
+        return null;
       }
+    }
 
-      function canFromPermValue(val, action){
-        if (val == null) return false;
-        if (val === true) return true;
-        if (val === false) return false;
+    // FAIL-OPEN: unless permsKnown is true, do not hide anything.
+    function applyVisibility(perms, permsKnown){
+      if (!permsKnown){
+        show(els.chatbot);
+        show(els.kpiWO);
+        show(els.kpiBoundary);
+        show(els.kpiBag);
 
-        if (typeof val === "object"){
-          if (typeof val.on === "boolean") return !!val.on;
-          if (hasPermObj(val)){
-            const a = (action || "view").toLowerCase();
-            if (typeof val[a] === "boolean") return !!val[a];
-            // if action missing, consider "on" if ANY is enabled
-            return !!(val.view || val.add || val.edit || val.delete);
-          }
-        }
-        return false;
-      }
+        window.FV_DASH_PERMS = null;
+        window.FV_DASH_CAN = null;
 
-      function deepClone(obj){
-        try{ return JSON.parse(JSON.stringify(obj || {})); }catch{ return {}; }
-      }
-
-      // Merge override perms into base perms:
-      // - if override has a key, it replaces that key entirely
-      function mergePerms(base, override){
-        const out = deepClone(base || {});
-        const ov = override && typeof override === "object" ? override : {};
-        for (const k of Object.keys(ov)){
-          out[k] = ov[k];
-        }
-        return out;
-      }
-
-      function normalizeRoleRef(v){
-        if (v == null) return "";
-        if (typeof v === "string") return v.trim();
-        if (typeof v === "object"){
-          // allow {id}, {roleId}, {role}, {roleDocId}
-          return (v.id || v.roleId || v.role || v.roleDocId || "").toString().trim();
-        }
-        return "";
-      }
-
-      function extractEmployeeRoleAndOverrides(emp){
-        // Flexible field names so this works with your current schema:
-        const e = emp || {};
-
-        const roleId =
-          normalizeRoleRef(e.roleId) ||
-          normalizeRoleRef(e.role) ||
-          normalizeRoleRef(e.roleDocId) ||
-          normalizeRoleRef(e.accountRoleId) ||
-          normalizeRoleRef(e.accountRole) ||
-          normalizeRoleRef(e.roleRef) ||
-          normalizeRoleRef(e.roleRefId) ||
-          "";
-
-        // Overrides might live in:
-        // - e.perms (if you store merged perms here)
-        // - e.overrides.perms
-        // - e.permOverrides
-        // - e.overrides
-        let overrides =
-          (e.overrides && e.overrides.perms && typeof e.overrides.perms === "object" ? e.overrides.perms : null) ||
-          (e.permOverrides && typeof e.permOverrides === "object" ? e.permOverrides : null) ||
-          (e.permsOverride && typeof e.permsOverride === "object" ? e.permsOverride : null) ||
-          (e.permissionsOverride && typeof e.permissionsOverride === "object" ? e.permissionsOverride : null) ||
-          (e.overrides && typeof e.overrides === "object" && !e.overrides.perms ? e.overrides : null) ||
-          null;
-
-        // Some setups store employee perms directly as e.perms (full tree). If so, treat as overrides (highest priority).
-        if (!overrides && e.perms && typeof e.perms === "object"){
-          overrides = e.perms;
-        }
-
-        return { roleId, overrides: overrides || {} };
+        document.dispatchEvent(new CustomEvent("fv:dash-perms-ready", { detail:{ permsKnown:false } }));
+        return;
       }
 
-      async function readEmployeeDoc(db, user){
-        const email = (user && user.email ? user.email.toString().trim().toLowerCase() : "");
-        const uid = (user && user.uid ? user.uid.toString().trim() : "");
+      const can = makeCan(perms);
 
-        // Most common in your app: doc id == lowercase email
-        if (email){
-          try{
-            const ref = doc(db, "employees", email);
-            const snap = await getDoc(ref);
-            if (snap.exists()) return snap.data() || {};
-          }catch{}
-        }
-
-        // Fallbacks (in case you store by uid)
-        if (uid){
-          try{
-            const ref = doc(db, "employees", uid);
-            const snap = await getDoc(ref);
-            if (snap.exists()) return snap.data() || {};
-          }catch{}
-        }
-
-        return {};
+      // Chatbot capability
+      if (els.chatbot){
+        if (!can(CAP.CHATBOT, "view")) hide(els.chatbot); else show(els.chatbot);
       }
 
-      async function readRolePerms(db, roleId){
-        if (!roleId) return {};
+      // KPI capabilities
+      if (els.kpiWO){
+        if (!can(CAP.KPI_FIELD, "view")) hide(els.kpiWO); else show(els.kpiWO);
+      }
+      if (els.kpiBoundary){
+        if (!can(CAP.KPI_FIELD, "view")) hide(els.kpiBoundary); else show(els.kpiBoundary);
+      }
+      if (els.kpiBag){
+        if (!can(CAP.KPI_GRAIN, "view")) hide(els.kpiBag); else show(els.kpiBag);
+      }
+
+      window.FV_DASH_PERMS = perms || {};
+      window.FV_DASH_CAN = can;
+
+      document.dispatchEvent(new CustomEvent("fv:dash-perms-ready", { detail:{ permsKnown:true } }));
+    }
+
+    async function init(){
+      await ready;
+
+      const auth = getAuth();
+      const db = getFirestore();
+
+      // Start fail-open
+      applyVisibility(null, false);
+
+      onAuthStateChanged(auth, async (user)=>{
         try{
-          const ref = doc(db, "accountRoles", roleId);
-          const snap = await getDoc(ref);
-          if (!snap.exists()) return {};
-          const d = snap.data() || {};
-          return (d.perms && typeof d.perms === "object") ? d.perms : {};
-        }catch{
-          return {};
-        }
-      }
-
-      function makeCan(perms){
-        return function(key, action){
-          if (!key) return true;
-          return canFromPermValue(perms ? perms[key] : null, action || "view");
-        };
-      }
-
-      function applyVisibility(perms){
-        const can = makeCan(perms);
-
-        // Chatbot section (cap-chatbot)
-        if (els.chatbot){
-          if (!can(CAP.CHATBOT, "view")) hide(els.chatbot); else show(els.chatbot);
-        }
-
-        // KPI tiles:
-        // - WO approvals + Boundary fixes are both "field-maint KPI capability" right now
-        // - Grain bag inventory = grain KPI capability
-        if (els.kpiWO){
-          if (!can(CAP.KPI_FIELD, "view")) hide(els.kpiWO); else show(els.kpiWO);
-        }
-        if (els.kpiBoundary){
-          if (!can(CAP.KPI_FIELD, "view")) hide(els.kpiBoundary); else show(els.kpiBoundary);
-        }
-        if (els.kpiBag){
-          if (!can(CAP.KPI_GRAIN, "view")) hide(els.kpiBag); else show(els.kpiBag);
-        }
-
-        // expose for debugging
-        window.FV_DASH_PERMS = perms || {};
-        window.FV_DASH_CAN = can;
-
-        document.dispatchEvent(new CustomEvent("fv:dash-perms-ready"));
-      }
-
-      async function init(){
-        await ready;
-
-        const auth = getAuth();
-        const db = getFirestore();
-
-        onAuthStateChanged(auth, async (user)=>{
-          try{
-            if (!user){
-              // signed out → hide capabilities
-              applyVisibility({});
-              return;
-            }
-
-            // 1) Load employee doc (role + overrides)
-            const emp = await readEmployeeDoc(db, user);
-            const { roleId, overrides } = extractEmployeeRoleAndOverrides(emp);
-
-            // 2) Load base role perms from accountRoles
-            const basePerms = await readRolePerms(db, roleId);
-
-            // 3) Merge overrides (employee overrides win)
-            const merged = mergePerms(basePerms, overrides);
-
-            // 4) Apply
-            applyVisibility(merged);
-          }catch(err){
-            console.warn("[dashboard] perms resolver failed:", err);
-            // fail-open so you can still use the app while debugging
-            applyVisibility({});
+          if (!user){
+            // keep fail-open if signed out
+            applyVisibility(null, false);
+            return;
           }
-        });
-      }
 
-      init();
-    })();
-  </script>
+          const emp = await readEmployeeByEmail(db, user);
+          if (!emp){
+            console.warn("[dashboard] employees doc not found for user:", user.email);
+            applyVisibility(null, false);
+            return;
+          }
+
+          const { permissionGroup, overrides } = extractEmployeeGroupAndOverrides(emp);
+
+          // Some people might accidentally store a role doc id in permissionGroup,
+          // so we try docId first, then fallback to name lookup.
+          let basePerms = await readRolePermsByDocId(db, permissionGroup);
+          if (!basePerms) basePerms = await readRolePermsByName(db, permissionGroup);
+
+          if (!basePerms){
+            console.warn("[dashboard] accountRoles not found for permissionGroup:", permissionGroup);
+            applyVisibility(null, false);
+            return;
+          }
+
+          const merged = mergePerms(basePerms, overrides);
+
+          // Apply real gating
+          applyVisibility(merged, true);
+        }catch(err){
+          console.warn("[dashboard] perms resolver failed:", err);
+          applyVisibility(null, false);
+        }
+      });
+    }
+
+    init();
+  })();
+</script>
 
   <!-- ==========================
        Message Board JS (existing)
