@@ -7,11 +7,26 @@
                        otherwise, navigates to Expenditures Add (quick-camera mode).
        • Grain Ticket (Coming Soon) → disabled.
    - PTR: Top-zone only, auth/context revalidation, page & data hooks, begin/end events.
+
+   QC Capability Gate (SAFE):
+   - Uses cap ids: cap-qr-scanner, cap-camera-popup
+   - If neither is enabled => hide QC rail.
+   - If one is enabled => show QC rail and only that item.
+   - If both enabled => show both.
+   - Uses FVUserContext.allowedIds OR FVUserContext.get().perms (if present) to detect caps.
+   - Seatbelt override:
+       ?qctest=1  -> force show rail + both
+       ?qctest=0  -> force hide rail
 */
 (function () {
   // ====== TUNABLES ======
   const AUTH_MAX_MS = 5000;
   const MENU_MAX_MS = 3000;
+
+  // Capability ids
+  const CAP_QR = 'cap-qr-scanner';
+  const CAP_CAMERA = 'cap-camera-popup';
+  const QC_TEST_PARAM = 'qctest'; // 1 show, 0 hide
 
   // Figure out whether we're in beta (/Farm-vista/beta/...) or live (/Farm-vista/...)
   const FV_ROOT = location.pathname.startsWith('/Farm-vista/beta/')
@@ -389,7 +404,7 @@
     </button>
     <div class="qc-panel js-qc-panel" role="menu" aria-label="Camera options">
       <a href="#" class="qc-item js-qc-scan" role="menuitem"><span class="qc-ico">▣</span><span>QR Scanner</span></a>
-      <div class="qc-sep" aria-hidden="true"></div>
+      <div class="qc-sep js-qc-sep" aria-hidden="true"></div>
       <a href="#" class="qc-item js-qc-camera" role="menuitem"><span class="qc-ico">📷</span><span>Camera</span></a>
     </div>
   </div>
@@ -449,6 +464,9 @@
       this._scrimTouchBlocker = (e)=>{ e.preventDefault(); e.stopPropagation(); };
 
       this._ptrDisabled = false;
+
+      // QC caps (defaults: allow until context says otherwise)
+      this._qcCaps = { qr:true, camera:true };
     }
 
     connectedCallback(){
@@ -474,6 +492,7 @@
       this._qcHandle = r.querySelector('.js-qc-handle');
       this._qcPanel  = r.querySelector('.js-qc-panel');
       this._qcScan   = r.querySelector('.js-qc-scan');
+      this._qcSep    = r.querySelector('.js-qc-sep');
       this._qcCamera = r.querySelector('.js-qc-camera');
 
       /* Camera popup refs */
@@ -514,6 +533,7 @@
 
       /* QC init */
       this._initQuickCamera();
+      this._qcApplyFromContext('connect');
 
       /* Camera popup – Receipt Scan behavior */
       if (this._cameraReceiptBtn) {
@@ -534,7 +554,6 @@
           }
 
           // Otherwise, navigate to Expenditures Add in quick-camera mode.
-          // The add page can look at ?src=quick-camera if we wire that up later.
           const target = '/Farm-vista/pages/expenses/expenditures/expenditures-add.html?src=quick-camera';
           location.href = target;
         });
@@ -547,6 +566,105 @@
           this._closeCameraModal();
         });
       }
+    }
+
+    /* ----------------- QC helpers (SAFE) ----------------- */
+
+    _qcForceMode(){
+      try{
+        const u = new URL(location.href);
+        const v = u.searchParams.get(QC_TEST_PARAM);
+        if (v === '1') return 'show';
+        if (v === '0') return 'hide';
+      }catch{}
+      return null;
+    }
+
+    _getUserCtx(){
+      try{
+        return window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get();
+      }catch{ return null; }
+    }
+
+    _capEnabled(capId){
+      const ctx = this._getUserCtx();
+      if (!ctx) return false;
+
+      // 1) allowedIds list
+      try{
+        const ids = Array.isArray(ctx.allowedIds) ? ctx.allowedIds : [];
+        if (ids.includes(capId)) return true;
+      }catch{}
+
+      // 2) perms map (if your context exposes it)
+      try{
+        const perms = ctx.perms || ctx.permissions || null;
+        if (perms && typeof perms === 'object' && perms[capId]) {
+          const v = perms[capId];
+          if (typeof v === 'boolean') return v;
+          if (v && typeof v.view === 'boolean') return !!v.view;
+          if (v && typeof v.on === 'boolean') return !!v.on;
+        }
+      }catch{}
+
+      return false;
+    }
+
+    _qcApplyFromContext(reason){
+      if (!this._qcRail) return;
+
+      // mobile only guard
+      const isCoarse = window.matchMedia && window.matchMedia('(pointer:coarse)').matches;
+      if (!isCoarse){
+        this._qcRail.style.display = 'none';
+        return;
+      }
+
+      const force = this._qcForceMode();
+      if (force === 'hide'){
+        this._qcToggle(false);
+        this._closeCameraModal();
+        this._qcRail.style.display = 'none';
+        return;
+      }
+      if (force === 'show'){
+        this._qcCaps = { qr:true, camera:true };
+        this._qcRail.style.display = 'block';
+        if (this._qcScan) this._qcScan.style.display = '';
+        if (this._qcCamera) this._qcCamera.style.display = '';
+        if (this._qcSep) this._qcSep.style.display = '';
+        return;
+      }
+
+      const ctx = this._getUserCtx();
+      if (!ctx){
+        // no context yet -> keep visible (safe)
+        this._qcCaps = { qr:true, camera:true };
+        this._qcRail.style.display = 'block';
+        if (this._qcScan) this._qcScan.style.display = '';
+        if (this._qcCamera) this._qcCamera.style.display = '';
+        if (this._qcSep) this._qcSep.style.display = '';
+        return;
+      }
+
+      const qrOn = this._capEnabled(CAP_QR);
+      const camOn = this._capEnabled(CAP_CAMERA);
+
+      this._qcCaps = { qr: !!qrOn, camera: !!camOn };
+
+      // close open panel if items change
+      this._qcToggle(false);
+
+      if (!qrOn && !camOn){
+        this._closeCameraModal();
+        this._qcRail.style.display = 'none';
+        return;
+      }
+
+      this._qcRail.style.display = 'block';
+      if (this._qcScan) this._qcScan.style.display = qrOn ? '' : 'none';
+      if (this._qcCamera) this._qcCamera.style.display = camOn ? '' : 'none';
+      if (this._qcSep) this._qcSep.style.display = (qrOn && camOn) ? '' : 'none';
     }
 
     _isIOSStandalone(){
@@ -574,6 +692,9 @@
       this._wireAuthLogout(this.shadowRoot);
       this._initConnectionStatus();
       this._watchUserContextForSwaps();
+
+      // apply QC gating once auth/context should be available
+      this._qcApplyFromContext('boot');
 
       if (this._boot) this._boot.hidden = true;
       sessionStorage.setItem('fv:boot:hydrated', '1');
@@ -700,6 +821,10 @@
       const update = async ()=>{
         const { uid, roleHash } = this._currentUIDAndRoleHash();
         const changed = (!!uid && uid !== this._lastUID) || (!!roleHash && roleHash !== this._lastRoleHash);
+
+        // Always keep QC rail synced to current context
+        this._qcApplyFromContext(changed ? 'ctx-swap' : 'ctx-ping');
+
         if (!changed) return;
 
         sessionStorage.removeItem('fv:boot:hydrated');
@@ -1055,6 +1180,9 @@
 
     _openCameraModal(){
       if (!this._cameraModal) return;
+      // Gate by cap
+      if (!this._qcCaps.camera) return;
+
       this.classList.add('camera-open');
       this._syncScrollLock();
       const btn = this._cameraReceiptBtn;
@@ -1093,12 +1221,11 @@
       const spin = this._ptrSpin  = this.shadowRoot.querySelector('.js-spin');
       const dot  = this._ptrDot   = this.shadowRoot.querySelector('.js-dot');
 
-      // ---- Stronger rules to prevent "middle-of-screen" triggers ----
-      const THRESHOLD = 72;             // how far to pull to trigger
-      const MAX_ANGLE = 18;             // must be mostly vertical
-      const COOLDOWN  = 600;            // ms between allowed refreshes
-      const TOP_TOL   = 2;              // must be at scroll top (<=2px)
-      const START_ZONE_PX = 90;         // gesture must BEGIN within top zone (~header+gold)
+      const THRESHOLD = 72;
+      const MAX_ANGLE = 18;
+      const COOLDOWN  = 600;
+      const TOP_TOL   = 2;
+      const START_ZONE_PX = 90;
 
       let armed=false, pulling=false, startY=0, startX=0, deltaY=0, lastEnd=0;
 
@@ -1109,11 +1236,9 @@
       const hideBar = ()=>{ bar.classList.remove('show'); spin.hidden = true; dot.hidden = true; txt.textContent = 'Pull to refresh'; };
 
       const onStart = (x,y)=>{
-        // Only arm if: usable, at absolute top, cooldown met, and user starts in the "top zone"
         if (!canUse() || !atTop() || Date.now()-lastEnd<COOLDOWN || y > START_ZONE_PX){
           armed=false; return;
         }
-        // Avoid interfering with text inputs or draggable regions
         const active = document.activeElement;
         if (active && (active.tagName==='INPUT' || active.tagName==='TEXTAREA' || active.isContentEditable)) { armed=false; return; }
 
@@ -1123,14 +1248,13 @@
       const onMove  = (x,y,prevent)=>{
         if (!armed) return;
         const dy=y-startY, dx=x-startX, angle=Math.abs(Math.atan2(dx,dy)*(180/Math.PI));
-        // Must remain mostly vertical and downward; abort on upward or angled drags
         if (angle>MAX_ANGLE){ armed=false; pulling=false; hideBar(); return; }
         if (dy>0){ deltaY=dy; if(!pulling){pulling=true; showBar();} txt.textContent=(deltaY>=THRESHOLD)?'Release to refresh':'Pull to refresh'; prevent(); }
         else { armed=false; pulling=false; hideBar(); }
       };
 
       const revalidateAuthAndCtx = async()=>{
-        const deadline = Date.now() + 1500; // quick recheck, not the full gate
+        const deadline = Date.now() + 1500;
         while (Date.now() < deadline) {
           if (await this._isAuthed() && this._hasUserCtx()) return true;
           await this._sleep(80);
@@ -1139,12 +1263,10 @@
       };
 
       const runRefreshContract = async ()=>{
-        // Announce begin
         document.dispatchEvent(new CustomEvent('fv:refresh:begin'));
 
         let didSomething = false;
 
-        // Page hook (preferred)
         if (typeof window.FVRefresh === 'function') {
           try {
             await window.FVRefresh();
@@ -1154,7 +1276,6 @@
           }
         }
 
-        // Global data layer hook (optional)
         try {
           if (window.FVData && typeof window.FVData.refreshAll === 'function') {
             await window.FVData.refreshAll();
@@ -1164,13 +1285,10 @@
           console.error('[FV] FVData.refreshAll failed:', e);
         }
 
-        // Repaint menu (in case ACL/context changed)
         try { await this._initMenuFiltered(); } catch {}
 
-        // Announce end
         document.dispatchEvent(new CustomEvent('fv:refresh:end'));
 
-        // If no page/global hooks were available, fall back to a full reload
         if (!didSomething) {
           try {
             const url = new URL(location.href);
@@ -1192,21 +1310,17 @@
           (async ()=>{
             dot.hidden=true; spin.hidden=false; txt.textContent='Refreshing…';
 
-            // Legacy signal kept for compatibility
             document.dispatchEvent(new CustomEvent('fv:refresh'));
 
-            // Revalidate auth/context before asking pages to refetch
             const ok = await revalidateAuthAndCtx();
             if (ok) {
               await runRefreshContract();
             } else {
-              // If not ready, bounce to login to avoid silent failures
               this._toastMsg('Session not ready. Re-authenticating…', 1400);
               this._kickToLogin('ptr-auth');
               return;
             }
 
-            // UI settle time
             await new Promise(res=> setTimeout(res, 900));
             hideBar();
           })();
@@ -1215,7 +1329,6 @@
         }
       };
 
-      // Touch/pointer wiring (mobile-first)
       window.addEventListener('touchstart', (e)=>{ if(e.touches&&e.touches.length===1){const t=e.touches[0]; onStart(t.clientX,t.clientY);} }, { passive:true });
       window.addEventListener('touchmove',  (e)=>{ if(e.touches&&e.touches.length===1){const t=e.touches[0]; onMove(t.clientX,t.clientY, ()=>e.preventDefault());} }, { passive:false });
       window.addEventListener('touchend', onEnd, { passive:true });
@@ -1316,6 +1429,7 @@
       // Toggle panel
       this._qcHandle.addEventListener('click', (e)=>{
         e.preventDefault();
+        if (this._qcRail.style.display === 'none') return;
         const on = this._qcRail.getAttribute('aria-expanded') !== 'true';
         this._qcToggle(on);
       });
@@ -1330,11 +1444,11 @@
       // Open actions
       const html = document.documentElement;
       const scanURL   = html.getAttribute('data-scan-url')   || '/Farm-vista/pages/qr-scan.html';
-      const cameraURL = html.getAttribute('data-camera-url') || ''; // not used in this rail; popup instead
 
       if (this._qcScan) this._qcScan.addEventListener('click', (e)=>{
         e.preventDefault();
         e.stopPropagation();
+        if (!this._qcCaps.qr) return;
         if (scanURL) location.href = scanURL;
         else this.dispatchEvent(new CustomEvent('fv:open:qr', { bubbles:true, composed:true }));
         this._qcToggle(false);
@@ -1343,8 +1457,9 @@
       if (this._qcCamera) this._qcCamera.addEventListener('click', (e)=>{
         e.preventDefault();
         e.stopPropagation();
+        if (!this._qcCaps.camera) return;
 
-        // New behavior: open FarmVista-styled popup instead of camera directly
+        // Open FarmVista popup (existing behavior)
         this._qcToggle(false);
         this._openCameraModal();
       });
@@ -1363,7 +1478,6 @@
         input.accept = 'image/*';
         input.setAttribute('capture', 'environment'); // prefer rear
 
-        // off-screen but visible-to-browser
         input.style.position = 'fixed';
         input.style.left = '-9999px';
         input.style.top = '0';
@@ -1385,7 +1499,6 @@
           setTimeout(()=> input.remove(), 0);
         }, { once:true });
 
-        // synchronous to user click
         input.click();
       }catch{
         this._toastMsg('Unable to open camera.', 1800);
