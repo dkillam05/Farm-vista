@@ -11,13 +11,15 @@
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
   <script src="/Farm-vista/js/theme-boot.js"></script>
+
+  <!-- ✅ Permission UI controller -->
+  <script src="/Farm-vista/js/perm-ui.js"></script>
+
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- Firebase config FIRST; FVData will bind to it -->
+  <!-- Firebase config -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
-  <!-- New unified data layer -->
-  <script src="/Farm-vista/js/fv-data.js"></script>
 
   <style>
     .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px);
@@ -91,19 +93,9 @@
     .closex{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:700;color:var(--text) !important;}
 
     .info-ico{
-      border-radius:999px;
-      border:1px solid var(--border);
-      background:var(--surface);
-      width:28px;
-      height:28px;
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      font-size:14px;
-      font-weight:800;
-      cursor:pointer;
-      color:var(--muted,#67706B);
-      flex-shrink:0;
+      border-radius:999px;border:1px solid var(--border);background:var(--surface);
+      width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;
+      font-size:14px;font-weight:800;cursor:pointer;color:var(--muted,#67706B);flex-shrink:0;
     }
 
     /* Toast + error */
@@ -126,7 +118,6 @@
 
 <body>
   <fv-shell>
-    <!-- Page visibility -->
     <div class="page container" data-perm="setup-grain-sites:view">
       <h1 class="page-title">Grain Bin Sites</h1>
       <p class="page-sub">Create a site, add bins with <strong>rated corn bushel</strong> capacity, and we’ll total it up for you.</p>
@@ -142,7 +133,6 @@
           <div><strong>Add Bin Site</strong></div>
         </header>
 
-        <!-- Add section is add-gated -->
         <div class="section-body" data-perm="setup-grain-sites:add">
           <div id="err" class="error"></div>
 
@@ -177,7 +167,7 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Successfully saved.</div>
 
-  <!-- Modal: Add Bin (for NEW site form) -->
+  <!-- Modal: Add Bin -->
   <div id="binModal" class="modal" aria-hidden="true">
     <div class="dialog dialog-sm" role="dialog" aria-modal="true" aria-labelledby="binMdTitle">
       <div class="dialog-head">
@@ -206,7 +196,7 @@
     </div>
   </div>
 
-  <!-- Modal: View/Edit existing bin site -->
+  <!-- Modal: View/Edit -->
   <div id="modal" class="modal" aria-hidden="true">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
       <div class="dialog-head">
@@ -214,7 +204,6 @@
         <button id="mdClose" class="closex" type="button">Back</button>
       </div>
 
-      <!-- Edit body is edit-gated -->
       <div class="dialog-body" data-perm="setup-grain-sites:edit">
         <div class="field">
           <label for="editName">Site Name</label>
@@ -259,438 +248,492 @@
   </div>
 
   <script type="module">
-  (function(){
-    "use strict";
+    import {
+      ready,
+      getFirestore,
+      collection,
+      addDoc,
+      getDocs,
+      getDoc,
+      setDoc,
+      deleteDoc,
+      doc,
+      serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
 
-    const canNow = (k)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(k) : true;
+    (function(){
+      "use strict";
 
-    const $ = id => document.getElementById(id);
-    const toast = $("toast");
-    const errBox = $("err");
+      const canNow = (k)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(k) : true;
 
-    const binsBox = $("bins");
-    const addBtn = $("addBin"), saveBtn = $("save"), clearBtn = $("clear");
-    const siteName = $("siteName");
+      const $ = id => document.getElementById(id);
+      const toast = $("toast");
+      const errBox = $("err");
 
-    const binModal = $("binModal"), binMdClose = $("binMdClose"), binMdSave = $("binMdSave");
-    const binBushels = $("binBushels"), binMdTitle = $("binMdTitle");
+      const binsBox = $("bins");
+      const addBtn = $("addBin"), saveBtn = $("save"), clearBtn = $("clear");
+      const siteName = $("siteName");
 
-    const listBox = $("list");
-    const modal = $("modal"), mdClose = $("mdClose"), mdSave = $("mdSave"), mdArchive = $("mdArchive"), mdDelete = $("mdDelete");
-    const mdName = $("editName"), mdBinsBox = $("mdBins"), mdBinCountPill = $("mdBinCountPill"), mdBushelTotalPill = $("mdBushelTotalPill");
-    const statusPill = $("statusPill"), usedPill = $("usedPill");
+      const binModal = $("binModal"), binMdClose = $("binMdClose"), binMdSave = $("binMdSave");
+      const binBushels = $("binBushels"), binMdTitle = $("binMdTitle");
 
-    let addBins = [];
-    let editId = null;
-    let mdBins = [];
-    let pendingBinNum = null;
-    let editSiteHasGrain = false;
-    let editSiteUsed = false;
-    let lockedBinNums = new Set();
+      const listBox = $("list");
+      const modal = $("modal"), mdClose = $("mdClose"), mdSave = $("mdSave"), mdArchive = $("mdArchive"), mdDelete = $("mdDelete");
+      const mdName = $("editName"), mdBinsBox = $("mdBins"), mdBinCountPill = $("mdBinCountPill"), mdBushelTotalPill = $("mdBushelTotalPill");
+      const statusPill = $("statusPill"), usedPill = $("usedPill");
 
-    const showToast = (msg="Successfully saved.")=>{
-      toast.textContent = msg;
-      toast.classList.remove("show"); void toast.offsetWidth;
-      toast.classList.add("show");
-    };
-    const showErr = (msg)=>{ if(!errBox) return; errBox.textContent = msg||""; errBox.classList.toggle("show", !!msg); };
+      let db = null;
 
-    const escapeHTML = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+      let addBins = [];
+      let editId = null;
+      let mdBins = [];
+      let pendingBinNum = null;
+      let lockedBinNums = new Set();
 
-    const fmtComma = (n)=>{
-      if(n==null||n==="") return "";
-      const num = Number(String(n).replace(/,/g,""));
-      if(!isFinite(num)) return String(n);
-      return num.toLocaleString();
-    };
+      const COLL = 'binSites';
 
-    const formatNumericString = (str)=>{
-      if(str == null) return "";
-      const clean = String(str).replace(/,/g,"").trim();
-      if(clean === "") return "";
-      const parts = clean.split(".");
-      const intPart = parts[0].replace(/[^\d]/g,"");
-      const decPart = parts[1]?.replace(/[^\d]/g,"");
-      const intWithCommas = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-      return decPart ? `${intWithCommas}.${decPart}` : intWithCommas;
-    };
+      const showToast = (msg="Successfully saved.")=>{
+        toast.textContent = msg;
+        toast.classList.remove("show"); void toast.offsetWidth;
+        toast.style.display = 'block';
+        toast.classList.add("show");
+        setTimeout(()=>{ toast.classList.remove("show"); toast.style.display='none'; }, 2800);
+      };
+      const showErr = (msg)=>{ if(!errBox) return; errBox.textContent = msg||""; errBox.classList.toggle("show", !!msg); };
 
-    const toNum = (v)=> {
-      const n = Number(String(v||"").replace(/,/g,"").trim());
-      return isFinite(n) ? n : 0;
-    };
+      const escapeHTML = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 
-    const nextBinNumber = (list)=> list.length ? (Math.max(...list.map(b=>Number(b.num)||0)) + 1) : 1;
+      const fmtComma = (n)=>{
+        if(n==null||n==="") return "";
+        const num = Number(String(n).replace(/,/g,""));
+        if(!isFinite(num)) return String(n);
+        return num.toLocaleString();
+      };
 
-    function updateTotals(list, pills){
-      if(!pills || !pills.count || !pills.total) return;
-      const count = list.length;
-      const total = list.reduce((s,b)=> s + toNum(b.bushels), 0);
-      pills.count.textContent = `${count} ${count===1?'bin':'bins'}`;
-      pills.total.textContent = `${fmtComma(total)} corn bu`;
-    }
+      const formatNumericString = (str)=>{
+        if(str == null) return "";
+        const clean = String(str).replace(/,/g,"").trim();
+        if(clean === "") return "";
+        const parts = clean.split(".");
+        const intPart = parts[0].replace(/[^\d]/g,"");
+        const decPart = parts[1]?.replace(/[^\d]/g,"");
+        const intWithCommas = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+        return decPart ? `${intWithCommas}.${decPart}` : intWithCommas;
+      };
 
-    function attachCommaInput(el, binObj, list, pills){
-      el.addEventListener("input", (e)=>{
-        const input = e.target;
-        const rawBefore = input.value;
-        const cursorPos = input.selectionStart || 0;
+      const toNum = (v)=> {
+        const n = Number(String(v||"").replace(/,/g,"").trim());
+        return isFinite(n) ? n : 0;
+      };
 
-        const plainBeforeCursor = rawBefore.slice(0, cursorPos).replace(/,/g,"");
-        const plainAll = rawBefore.replace(/,/g,"");
+      const nextBinNumber = (list)=> list.length ? (Math.max(...list.map(b=>Number(b.num)||0)) + 1) : 1;
 
-        if(plainAll === ""){
-          binObj.bushels = 0;
-          input.value = "";
+      function updateTotals(list, pills){
+        if(!pills || !pills.count || !pills.total) return;
+        const count = list.length;
+        const total = list.reduce((s,b)=> s + toNum(b.bushels), 0);
+        pills.count.textContent = `${count} ${count===1?'bin':'bins'}`;
+        pills.total.textContent = `${fmtComma(total)} corn bu`;
+      }
+
+      function attachCommaInput(el, binObj, list, pills){
+        el.addEventListener("input", (e)=>{
+          const input = e.target;
+          const rawBefore = input.value;
+          const cursorPos = input.selectionStart || 0;
+
+          const plainBeforeCursor = rawBefore.slice(0, cursorPos).replace(/,/g,"");
+          const plainAll = rawBefore.replace(/,/g,"");
+
+          if(plainAll === ""){
+            binObj.bushels = 0;
+            input.value = "";
+            updateTotals(list, pills);
+            return;
+          }
+
+          const numeric = toNum(plainAll);
+          binObj.bushels = numeric;
+
+          const formatted = formatNumericString(plainAll);
+          input.value = formatted;
+
+          const digitsUpToCursor = plainBeforeCursor.length;
+          let newPos = 0;
+          let digitCount = 0;
+          for(let i=0;i<formatted.length;i++){
+            if(/\d/.test(formatted[i])) digitCount++;
+            if(digitCount >= digitsUpToCursor){ newPos = i+1; break; }
+          }
+          input.setSelectionRange(newPos,newPos);
+
           updateTotals(list, pills);
+        });
+      }
+
+      function renderBins(list, box, pills, opts={}){
+        const locked = opts.lockedBinNums || new Set();
+        box.innerHTML = "";
+        list.forEach((b, idx)=>{
+          const row = document.createElement("div");
+          row.className = "bin-row";
+          row.innerHTML = `
+            <div class="bin-num"><span class="badge">Bin ${escapeHTML(b.num)}</span></div>
+            <input class="input bu" placeholder="Bushels (corn bu)" inputmode="decimal" value="${escapeHTML(formatNumericString(b.bushels))}">
+            <button type="button" class="bin-remove">Remove</button>
+          `;
+          const bu = row.querySelector(".bu");
+          attachCommaInput(bu, b, list, pills);
+
+          const removeBtn = row.querySelector(".bin-remove");
+          const isLocked = locked.has(String(b.num));
+          if(isLocked){
+            removeBtn.disabled = true;
+            removeBtn.title = "This bin has grain on hand and cannot be removed.";
+          }else{
+            removeBtn.addEventListener("click", ()=>{
+              if(opts.requireEditPerm && !canNow('setup-grain-sites:edit')) return;
+              list.splice(idx,1);
+              renderBins(list, box, pills, opts);
+            });
+          }
+
+          box.appendChild(row);
+        });
+        updateTotals(list, pills);
+      }
+
+      function openBinModal(){
+        if(!canNow('setup-grain-sites:add')){
+          alert("You don't have permission to add bin sites.");
           return;
         }
+        pendingBinNum = nextBinNumber(addBins);
+        binMdTitle.textContent = `Add Bin ${pendingBinNum}`;
+        binBushels.value = "";
+        binModal.setAttribute("open",""); binModal.setAttribute("aria-hidden","false");
+        document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
+        setTimeout(()=> binBushels.focus(), 0);
+      }
+      function closeBinModal(){
+        binModal.removeAttribute("open"); binModal.setAttribute("aria-hidden","true");
+        document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
+        pendingBinNum = null;
+      }
 
-        const numeric = toNum(plainAll);
-        binObj.bushels = numeric;
-
-        const formatted = formatNumericString(plainAll);
-        input.value = formatted;
-
-        const digitsUpToCursor = plainBeforeCursor.length;
-        let newPos = 0;
-        let digitCount = 0;
-        for(let i=0;i<formatted.length;i++){
-          if(/\d/.test(formatted[i])) digitCount++;
-          if(digitCount >= digitsUpToCursor){ newPos = i+1; break; }
-        }
-        input.setSelectionRange(newPos,newPos);
-
-        updateTotals(list, pills);
+      addBtn.addEventListener("click", openBinModal);
+      binMdClose.addEventListener("click", closeBinModal);
+      binModal.addEventListener("click", e=>{ if(e.target===binModal) closeBinModal(); });
+      document.addEventListener("keydown", e=>{
+        if(e.key==="Escape" && binModal.hasAttribute("open")) closeBinModal();
       });
-    }
 
-    function renderBins(list, box, pills, opts={}){
-      const locked = opts.lockedBinNums || new Set();
-      box.innerHTML = "";
-      list.forEach((b, idx)=>{
-        const row = document.createElement("div");
-        row.className = "bin-row";
-        row.innerHTML = `
-          <div class="bin-num"><span class="badge">Bin ${escapeHTML(b.num)}</span></div>
-          <input class="input bu" placeholder="Bushels (corn bu)" inputmode="decimal" value="${escapeHTML(formatNumericString(b.bushels))}">
-          <button type="button" class="bin-remove">Remove</button>
-        `;
-        const bu = row.querySelector(".bu");
-        attachCommaInput(bu, b, list, pills);
-
-        const removeBtn = row.querySelector(".bin-remove");
-        const isLocked = locked.has(String(b.num));
-        if(isLocked){
-          removeBtn.disabled = true;
-          removeBtn.title = "This bin has grain on hand and cannot be removed.";
-        }else{
-          removeBtn.addEventListener("click", ()=>{
-            if(opts.requireEditPerm && !canNow('setup-grain-sites:edit')) return;
-            list.splice(idx,1);
-            renderBins(list, box, pills, opts);
-          });
+      binMdSave.addEventListener("click", ()=>{
+        if(!canNow('setup-grain-sites:add')){
+          alert("You don't have permission to add bins.");
+          return;
         }
-
-        box.appendChild(row);
+        const bu = toNum(binBushels.value);
+        if(!bu || bu <= 0){
+          alert("Please enter bushels for this bin.");
+          return;
+        }
+        const num = pendingBinNum || nextBinNumber(addBins);
+        addBins.push({ num, bushels: bu });
+        renderBins(addBins, binsBox, null, {});
+        closeBinModal();
       });
-      updateTotals(list, pills);
-    }
 
-    function openBinModal(){
-      if(!canNow('setup-grain-sites:add')){
-        alert("You don't have permission to add bin sites.");
-        return;
-      }
-      pendingBinNum = nextBinNumber(addBins);
-      binMdTitle.textContent = `Add Bin ${pendingBinNum}`;
-      binBushels.value = "";
-      binModal.setAttribute("open",""); binModal.setAttribute("aria-hidden","false");
-      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
-      setTimeout(()=> binBushels.focus(), 0);
-    }
-    function closeBinModal(){
-      binModal.removeAttribute("open"); binModal.setAttribute("aria-hidden","true");
-      document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
-      pendingBinNum = null;
-    }
-
-    addBtn.addEventListener("click", openBinModal);
-    binMdClose.addEventListener("click", closeBinModal);
-    binModal.addEventListener("click", e=>{ if(e.target===binModal) closeBinModal(); });
-    document.addEventListener("keydown", e=>{
-      if(e.key==="Escape" && binModal.hasAttribute("open")) closeBinModal();
-    });
-
-    attachCommaInput(binBushels, { bushels: 0 }, [], null);
-
-    binMdSave.addEventListener("click", ()=>{
-      if(!canNow('setup-grain-sites:add')){
-        alert("You don't have permission to add bins.");
-        return;
-      }
-      const buVal = binBushels.value;
-      const bu = toNum(buVal);
-      if(!bu || bu <= 0){
-        alert("Please enter bushels for this bin.");
-        return;
-      }
-      const num = pendingBinNum || nextBinNumber(addBins);
-      addBins.push({ num, bushels: bu });
-      renderBins(addBins, binsBox, null, {});
-      closeBinModal();
-    });
-
-    clearBtn.addEventListener("click", ()=>{
-      siteName.value = "";
-      addBins = [];
-      renderBins(addBins, binsBox, null, {});
-      showErr("");
-    });
-
-    saveBtn.addEventListener("click", async ()=>{
-      if(!canNow('setup-grain-sites:add')){
-        alert("You don't have permission to add bin sites.");
-        return;
-      }
-      const name = siteName.value.trim();
-      if(!name){ alert("Please enter a site name."); return; }
-      if(addBins.length === 0){ alert("Please add at least one bin before saving."); return; }
-
-      const bins = addBins.map(b=>({ num: Number(b.num)||0, bushels: toNum(b.bushels) }));
-      const set = new Set(); let dup=false;
-      bins.forEach(b=>{ const k=String(b.num); if(set.has(k)) dup=true; set.add(k); });
-      if(dup){ alert("Duplicate bin numbers. Please adjust."); return; }
-
-      const total = bins.reduce((s,b)=> s + (b.bushels||0), 0);
-
-      try{
-        showErr("");
-        await FVData.add('binSites', { name, bins, totalBushels: total, status: 'active', used: false });
-        showToast("Successfully saved.");
+      clearBtn.addEventListener("click", ()=>{
         siteName.value = "";
         addBins = [];
         renderBins(addBins, binsBox, null, {});
-        await renderList();
-        window.scrollTo({top:0, behavior:"smooth"});
-      }catch(e){
-        console.error(e);
-        showErr("Save failed. Check permissions or network.");
-      }
-    });
-
-    async function fetchSites(){
-      const arr = await FVData.list('binSites', { limit: 500 });
-      arr.sort((a,b)=>{
-        const sa = (a.status||'active')==='archived', sb = (b.status||'active')==='archived';
-        const ta = a.updatedAt?.seconds || a.createdAt?.seconds || 0;
-        const tb = b.updatedAt?.seconds || b.createdAt?.seconds || 0;
-        return (sa - sb) || (tb - ta);
+        showErr("");
       });
-      return arr;
-    }
 
-    async function renderList(){
-      const items = await fetchSites();
-      if(!items.length){
-        listBox.innerHTML = '<div class="muted">No bin sites yet.</div>';
-        return;
+      async function fetchSites(){
+        const snap = await getDocs(collection(db, COLL));
+        const arr = [];
+        snap.forEach(d=>{
+          const v = d.data()||{};
+          arr.push({ id:d.id, ...v });
+        });
+        arr.sort((a,b)=>{
+          const sa = (a.status||'active')==='archived', sb = (b.status||'active')==='archived';
+          const ta = a.updatedAt?.seconds || a.createdAt?.seconds || 0;
+          const tb = b.updatedAt?.seconds || b.createdAt?.seconds || 0;
+          return (sa - sb) || (tb - ta);
+        });
+        return arr;
       }
-      listBox.innerHTML = "";
-      items.forEach(it=>{
-        const div = document.createElement("div");
-        div.className = "item";
-        const binsCount = (it.bins||[]).length;
-        const pills = `
-          <span class="pill">${binsCount} ${binsCount===1?'bin':'bins'}</span>
-          <span class="pill">${fmtComma(it.totalBushels||0)} corn bu</span>
-          ${(it.status==='archived') ? `<span class="pill">Archived</span>` : ""}
-        `;
-        div.innerHTML = `
-          <div class="item-main">
-            <div class="name">${escapeHTML(it.name||'(Unnamed)')}</div>
-            <div class="item-meta">
-              ${pills}
+
+      async function renderList(){
+        const items = await fetchSites();
+        if(!items.length){
+          listBox.innerHTML = '<div class="muted">No bin sites yet.</div>';
+          return;
+        }
+        listBox.innerHTML = "";
+        items.forEach(it=>{
+          const div = document.createElement("div");
+          div.className = "item";
+          const binsCount = (it.bins||[]).length;
+          const pills = `
+            <span class="pill">${binsCount} ${binsCount===1?'bin':'bins'}</span>
+            <span class="pill">${fmtComma(it.totalBushels||0)} corn bu</span>
+            ${(it.status==='archived') ? `<span class="pill">Archived</span>` : ""}
+          `;
+          div.innerHTML = `
+            <div class="item-main">
+              <div class="name">${escapeHTML(it.name||'(Unnamed)')}</div>
+              <div class="item-meta">
+                ${pills}
+              </div>
             </div>
-          </div>
-          <button class="view" type="button" data-perm="setup-grain-sites:view">View / Edit</button>
-        `;
-        div.querySelector(".view").addEventListener("click", ()=> openEdit(it.id));
-        listBox.appendChild(div);
-      });
-    }
+            <button class="view" type="button" data-perm="setup-grain-sites:view">View / Edit</button>
+          `;
+          div.querySelector(".view").addEventListener("click", ()=> openEdit(it.id));
+          listBox.appendChild(div);
+        });
+      }
 
-    async function openEdit(id){
-      try{
-        const it = await FVData.getDocData(`binSites/${id}`);
-        if(!it) return;
-        editId = id;
-        mdName.value = it.name || "";
-
-        editSiteUsed = !!it.used;
-        const totalOnHand = Number(it.totalOnHand || 0);
+      function openModal(){
+        modal.setAttribute("open",""); modal.setAttribute("aria-hidden","false");
+        document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
+        setTimeout(()=> mdName.focus(), 0);
+      }
+      function closeModal(){
+        modal.removeAttribute("open"); modal.setAttribute("aria-hidden","true");
+        document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
+        editId = null;
         lockedBinNums = new Set();
-        const rawBins = (it.bins||[]).map(b=>{
-          const num = Number(b.num)||0;
-          const bu = Number(b.bushels)||0;
-          const onHand = Number(b.onHand || 0);
-          if(onHand > 0) lockedBinNums.add(String(num));
-          return { num, bushels: bu, onHand };
-        });
-        mdBins = rawBins.map(b=>({ num:b.num, bushels:b.bushels }));
+      }
+      mdClose.addEventListener("click", closeModal);
+      modal.addEventListener("click", e=>{ if(e.target===modal) closeModal(); });
+      document.addEventListener("keydown", e=>{
+        if(e.key==="Escape" && modal.hasAttribute("open")) closeModal();
+      });
 
-        editSiteHasGrain = (totalOnHand > 0) || (rawBins.some(b=> b.onHand > 0));
+      async function openEdit(id){
+        try{
+          const snap = await getDoc(doc(db, COLL, id));
+          if(!snap.exists()) return;
+          const it = snap.data()||{};
+          editId = id;
 
-        statusPill.textContent = (it.status==='archived') ? "Archived" : "Active";
-        usedPill.style.display = it.used ? "inline-block" : "none";
+          mdName.value = it.name || "";
 
-        if(editSiteHasGrain){
-          mdArchive.disabled = true;
-          mdArchive.title = "This site has grain on hand and cannot be archived. Move grain out of all bins first.";
-          mdDelete.disabled = true;
-          mdDelete.title = "This site has grain on hand and cannot be deleted.";
-        }else{
-          if(editSiteUsed){
-            mdArchive.disabled = false;
-            mdArchive.title = "Archive this site.";
-            mdDelete.disabled = true;
-            mdDelete.title = "This site has been used and cannot be deleted. Archive instead.";
-          }else{
+          const totalOnHand = Number(it.totalOnHand || 0);
+          lockedBinNums = new Set();
+
+          const rawBins = (it.bins||[]).map(b=>{
+            const num = Number(b.num)||0;
+            const bu = Number(b.bushels)||0;
+            const onHand = Number(b.onHand || 0);
+            if(onHand > 0) lockedBinNums.add(String(num));
+            return { num, bushels: bu, onHand };
+          });
+
+          mdBins = rawBins.map(b=>({ num:b.num, bushels:b.bushels }));
+
+          const hasGrain = (totalOnHand > 0) || rawBins.some(b=> b.onHand > 0);
+          const used = !!it.used;
+
+          statusPill.textContent = (it.status==='archived') ? "Archived" : "Active";
+          usedPill.style.display = used ? "inline-block" : "none";
+          mdArchive.textContent = (it.status==='archived') ? "Unarchive" : "Archive";
+
+          if(hasGrain){
             mdArchive.disabled = true;
-            mdArchive.title = "This site has never been used and does not need to be archived.";
-            mdDelete.disabled = false;
-            mdDelete.title = "Delete this unused site.";
+            mdArchive.title = "This site has grain on hand and cannot be archived. Move grain out of all bins first.";
+            mdDelete.disabled = true;
+            mdDelete.title = "This site has grain on hand and cannot be deleted.";
+          }else{
+            if(used){
+              mdArchive.disabled = false;
+              mdArchive.title = "Archive this site.";
+              mdDelete.disabled = true;
+              mdDelete.title = "This site has been used and cannot be deleted. Archive instead.";
+            }else{
+              mdArchive.disabled = true;
+              mdArchive.title = "This site has never been used and does not need to be archived.";
+              mdDelete.disabled = false;
+              mdDelete.title = "Delete this unused site.";
+            }
           }
+
+          renderBins(mdBins, mdBinsBox, {count:mdBinCountPill,total:mdBushelTotalPill}, {
+            lockedBinNums,
+            requireEditPerm: true
+          });
+
+          openModal();
+        }catch(e){
+          console.error(e);
+          showErr("Failed to open site.");
         }
-
-        renderBins(mdBins, mdBinsBox, {count:mdBinCountPill,total:mdBushelTotalPill}, {
-          lockedBinNums,
-          requireEditPerm: true
-        });
-        openModal();
-      }catch(e){
-        console.error(e);
-        showErr("Failed to open site.");
       }
-    }
 
-    function openModal(){
-      modal.setAttribute("open",""); modal.setAttribute("aria-hidden","false");
-      document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
-      setTimeout(()=> mdName.focus(), 0);
-    }
-    function closeModal(){
-      modal.removeAttribute("open"); modal.setAttribute("aria-hidden","true");
-      document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
-      editId = null;
-      lockedBinNums = new Set();
-    }
-    mdClose.addEventListener("click", closeModal);
-    modal.addEventListener("click", e=>{ if(e.target===modal) closeModal(); });
-    document.addEventListener("keydown", e=>{
-      if(e.key==="Escape" && modal.hasAttribute("open")) closeModal();
-    });
-
-    $("mdAddBin").addEventListener("click", ()=>{
-      if(!canNow('setup-grain-sites:edit')){
-        alert("You don't have permission to edit bin sites.");
-        return;
-      }
-      mdBins.push({ num: nextBinNumber(mdBins), bushels: 0 });
-      renderBins(mdBins, mdBinsBox, {count:mdBinCountPill,total:mdBushelTotalPill}, { lockedBinNums, requireEditPerm:true });
-    });
-
-    mdSave.addEventListener("click", async ()=>{
-      if(!canNow('setup-grain-sites:edit')){
-        alert("You don't have permission to edit bin sites.");
-        return;
-      }
-      const name = mdName.value.trim();
-      if(!name){ alert("Please enter a site name."); return; }
-      if(mdBins.length === 0){ alert("Please keep at least one bin on the site."); return; }
-
-      const bins = mdBins.map(b=>({ num:Number(b.num)||0, bushels: toNum(b.bushels) }));
-      const used = new Set(); let dup=false;
-      bins.forEach(b=>{ const k=String(b.num); if(used.has(k)) dup=true; used.add(k); });
-      if(dup){ alert("Duplicate bin numbers. Please adjust."); return; }
-
-      const total = bins.reduce((s,b)=> s + (b.bushels||0), 0);
-
-      try{
-        await FVData.update('binSites', editId, { name, bins, totalBushels: total });
-        showToast("Changes saved.");
-        await renderList();
-        closeModal();
-      }catch(e){
-        console.error(e);
-        showErr("Update failed.");
-      }
-    });
-
-    mdArchive.addEventListener("click", async ()=>{
-      if(!canNow('setup-grain-sites:edit')){
-        alert("You don't have permission to archive/unarchive bin sites.");
-        return;
-      }
-      if(mdArchive.disabled) return;
-      try{
-        const cur = await FVData.getDocData(`binSites/${editId}`);
-        if(!cur) return;
-        const next = (cur.status==='archived') ? 'active' : 'archived';
-        const totalOnHand = Number(cur.totalOnHand || 0);
-        if(totalOnHand > 0){
-          alert("This site has grain on hand and cannot be archived.");
+      $("mdAddBin").addEventListener("click", ()=>{
+        if(!canNow('setup-grain-sites:edit')){
+          alert("You don't have permission to edit bin sites.");
           return;
         }
-        await FVData.update('binSites', editId, { status: next });
-        showToast(next==='archived' ? "Site archived." : "Site unarchived.");
-        await renderList();
-        statusPill.textContent = (next==='archived') ? 'Archived' : 'Active';
-        mdArchive.textContent = (next==='archived') ? 'Unarchive' : 'Archive';
-      }catch(e){
-        console.error(e);
-        showErr("Archive toggle failed.");
-      }
-    });
+        mdBins.push({ num: nextBinNumber(mdBins), bushels: 0 });
+        renderBins(mdBins, mdBinsBox, {count:mdBinCountPill,total:mdBushelTotalPill}, { lockedBinNums, requireEditPerm:true });
+      });
 
-    mdDelete.addEventListener("click", async ()=>{
-      if(!canNow('setup-grain-sites:delete')){
-        alert("You don't have permission to delete bin sites.");
-        return;
-      }
-      if(mdDelete.disabled) return;
-      try{
-        const cur = await FVData.getDocData(`binSites/${editId}`);
-        if(!cur) return;
-
-        const totalOnHand = Number(cur.totalOnHand || 0);
-        if(totalOnHand > 0){
-          alert("This site has grain on hand and cannot be deleted.");
+      saveBtn.addEventListener("click", async ()=>{
+        if(!canNow('setup-grain-sites:add')){
+          alert("You don't have permission to add bin sites.");
           return;
         }
-        if(cur.used){
-          alert("This site has been used and cannot be deleted. Archive instead.");
+        const name = siteName.value.trim();
+        if(!name){ alert("Please enter a site name."); return; }
+        if(addBins.length === 0){ alert("Please add at least one bin before saving."); return; }
+
+        const bins = addBins.map(b=>({ num: Number(b.num)||0, bushels: toNum(b.bushels) }));
+        const set = new Set(); let dup=false;
+        bins.forEach(b=>{ const k=String(b.num); if(set.has(k)) dup=true; set.add(k); });
+        if(dup){ alert("Duplicate bin numbers. Please adjust."); return; }
+
+        const total = bins.reduce((s,b)=> s + (b.bushels||0), 0);
+
+        try{
+          showErr("");
+          await addDoc(collection(db, COLL), {
+            name,
+            bins,
+            totalBushels: total,
+            status: 'active',
+            used: false,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          });
+          showToast("Successfully saved.");
+          siteName.value = "";
+          addBins = [];
+          renderBins(addBins, binsBox, null, {});
+          await renderList();
+          window.scrollTo({top:0, behavior:"smooth"});
+        }catch(e){
+          console.error(e);
+          showErr("Save failed. Check permissions or network.");
+        }
+      });
+
+      mdSave.addEventListener("click", async ()=>{
+        if(!canNow('setup-grain-sites:edit')){
+          alert("You don't have permission to edit bin sites.");
+          return;
+        }
+        const name = mdName.value.trim();
+        if(!name){ alert("Please enter a site name."); return; }
+        if(mdBins.length === 0){ alert("Please keep at least one bin on the site."); return; }
+
+        const bins = mdBins.map(b=>({ num:Number(b.num)||0, bushels: toNum(b.bushels) }));
+        const usedNums = new Set(); let dup=false;
+        bins.forEach(b=>{ const k=String(b.num); if(usedNums.has(k)) dup=true; usedNums.add(k); });
+        if(dup){ alert("Duplicate bin numbers. Please adjust."); return; }
+
+        const total = bins.reduce((s,b)=> s + (b.bushels||0), 0);
+
+        try{
+          await setDoc(doc(db, COLL, editId), {
+            name,
+            bins,
+            totalBushels: total,
+            updatedAt: serverTimestamp()
+          }, { merge:true });
+          showToast("Changes saved.");
+          await renderList();
+          closeModal();
+        }catch(e){
+          console.error(e);
+          showErr("Update failed.");
+        }
+      });
+
+      mdArchive.addEventListener("click", async ()=>{
+        if(!canNow('setup-grain-sites:edit')){
+          alert("You don't have permission to archive/unarchive bin sites.");
+          return;
+        }
+        if(mdArchive.disabled) return;
+
+        try{
+          const snap = await getDoc(doc(db, COLL, editId));
+          if(!snap.exists()) return;
+          const cur = snap.data()||{};
+          const next = (cur.status==='archived') ? 'active' : 'archived';
+
+          const totalOnHand = Number(cur.totalOnHand || 0);
+          if(totalOnHand > 0){
+            alert("This site has grain on hand and cannot be archived.");
+            return;
+          }
+
+          await setDoc(doc(db, COLL, editId), { status: next, updatedAt: serverTimestamp() }, { merge:true });
+
+          showToast(next==='archived' ? "Site archived." : "Site unarchived.");
+          await renderList();
+          statusPill.textContent = (next==='archived') ? 'Archived' : 'Active';
+          mdArchive.textContent = (next==='archived') ? 'Unarchive' : 'Archive';
+        }catch(e){
+          console.error(e);
+          showErr("Archive toggle failed.");
+        }
+      });
+
+      mdDelete.addEventListener("click", async ()=>{
+        if(!canNow('setup-grain-sites:delete')){
+          alert("You don't have permission to delete bin sites.");
+          return;
+        }
+        if(mdDelete.disabled) return;
+
+        try{
+          const snap = await getDoc(doc(db, COLL, editId));
+          if(!snap.exists()) return;
+          const cur = snap.data()||{};
+
+          const totalOnHand = Number(cur.totalOnHand || 0);
+          if(totalOnHand > 0){
+            alert("This site has grain on hand and cannot be deleted.");
+            return;
+          }
+          if(cur.used){
+            alert("This site has been used and cannot be deleted. Archive instead.");
+            return;
+          }
+
+          if(!confirm(`Delete site "${cur.name||''}"? This cannot be undone.`)) return;
+
+          await deleteDoc(doc(db, COLL, editId));
+          showToast("Site deleted.");
+          await renderList();
+          closeModal();
+        }catch(e){
+          console.error(e);
+          showErr("Delete failed.");
+        }
+      });
+
+      (async ()=>{
+        try{
+          await ready;
+          db = getFirestore();
+        }catch(e){
+          console.warn(e);
+          showErr("Firebase not ready.");
           return;
         }
 
-        if(!confirm(`Delete site "${cur.name||''}"? This cannot be undone.`)) return;
-        await FVData.remove('binSites', editId);
-        showToast("Site deleted.");
+        renderBins(addBins, binsBox, null, {});
         await renderList();
-        closeModal();
-      }catch(e){
-        console.error(e);
-        showErr("Delete failed.");
-      }
-    });
+      })();
 
-    (async ()=>{
-      try{ await FVData.ready(); }catch(e){ console.warn(e); }
-      renderBins(addBins, binsBox, null, {});
-      await renderList();
     })();
-
-  })();
   </script>
 </body>
 </html>
