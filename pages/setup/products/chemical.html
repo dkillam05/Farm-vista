@@ -11,16 +11,23 @@
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
   <script src="/Farm-vista/js/theme-boot.js"></script>
+
+  <!-- ✅ Blanket permission UI -->
+  <script src="/Farm-vista/js/perm-ui.js"></script>
+
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- FVData helpers (match Fertilizer ordering) -->
-  <script src="/Farm-vista/js/fv-data.js"></script>
+  <!-- Ensure fv-shell -->
+  <script>(function(){
+    if(!customElements.get('fv-shell')){
+      const s=document.createElement('script');
+      s.src='/Farm-vista/js/fv-shell.js'; s.defer=true;
+      document.head.appendChild(s);
+    }
+  })();</script>
 
-  <!-- Ensure fv-shell (match Fertilizer) -->
-  <script>(function(){ if(!customElements.get('fv-shell')){ const s=document.createElement('script'); s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);} })();</script>
-
-  <!-- Firebase config FIRST (after shell block, like Fertilizer file) -->
+  <!-- Firebase config -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
 
   <style>
@@ -39,6 +46,7 @@
       padding:14px 16px;border-bottom:1px solid var(--border);
       background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);}
     .section-head .icon{width:24px;height:24px;color:#2F6C3C;display:grid;place-items:center;}
+    .section-head .icon svg{width:22px;height:22px;display:block;}
     .section-body{padding:16px;display:grid;gap:14px;}
 
     .grid-2{display:grid;gap:10px;grid-template-columns:1fr 1fr;}
@@ -69,6 +77,7 @@
     .item{border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--card-surface,var(--surface));
       display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
     .pill{font-size:12px;border:1px solid var(--border);padding:4px 8px;border-radius:999px;color:var(--muted,#67706B);background:var(--surface)}
+    .pill-arch{border-color:#b3261e;color:#b3261e;}
     .name{font-weight:800}
     .view{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;color:var(--text) !important;}
 
@@ -99,7 +108,7 @@
 
       <div id="alert" class="alert" role="alert"></div>
 
-      <!-- Create form (add permission → perm-ui greys out all controls inside if denied) -->
+      <!-- Create form -->
       <section class="section" data-perm="setup-prod-chemical:add">
         <header class="section-head">
           <div class="icon" aria-hidden="true">
@@ -260,7 +269,6 @@
         <button id="mdClose" class="closex" type="button">Back</button>
       </div>
 
-      <!-- Modal fields disabled unless edit is allowed -->
       <div class="dialog-body" id="mdBody" data-perm="setup-prod-chemical:edit">
         <div class="grid-3">
           <div class="field">
@@ -387,34 +395,44 @@
   </div>
 
   <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection,
+      getDocs,
+      addDoc,
+      setDoc,
+      deleteDoc,
+      doc,
+      getDoc,
+      serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
+
     const $ = id => document.getElementById(id);
     const toast = $("toast"), alertBox = $("alert");
     const listBox = $("list"), countsEl = $("counts"), q = $("q");
 
     const showToast = (msg="Saved.")=>{
-      toast.textContent = msg; toast.classList.remove("show"); void toast.offsetWidth; toast.classList.add("show");
+      toast.textContent = msg;
+      toast.classList.remove("show");
+      toast.style.display = 'block';
+      void toast.offsetWidth;
+      toast.classList.add("show");
+      setTimeout(()=>{ toast.classList.remove("show"); toast.style.display='none'; }, 3600);
     };
     const showError = (msg)=>{
       alertBox.textContent = msg; alertBox.classList.add('show');
       clearTimeout(showError._t); showError._t = setTimeout(()=> alertBox.classList.remove('show'), 8000);
     };
     const esc = s => String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
-    const cap = s => s ? (s[0].toUpperCase()+s.slice(1)) : s;
+    const cap = s => s ? (String(s)[0].toUpperCase()+String(s).slice(1)) : s;
 
     const canNow = (k)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(k) : true;
 
-    async function waitForAuthReady(timeoutMs=5000){
-      try{
-        if (!window.firebaseAuth || !window.firebaseAuth.onAuthStateChanged) return;
-        if (typeof window.firebaseAuth.currentUser !== 'undefined' && window.firebaseAuth.currentUser !== null) return;
-        await new Promise((resolve)=> {
-          let done=false; const t=setTimeout(()=>{ if(!done) resolve(); }, timeoutMs);
-          window.firebaseAuth.onAuthStateChanged(()=>{ if(!done){ done=true; clearTimeout(t); resolve(); } });
-        });
-      }catch{}
-    }
-
     const COLL = 'productsChemical';
+    let db = null;
+    let items = [];
+    let editId = null;
 
     function validateCreate(){
       if(!$("product").value.trim()) return "Enter a product name.";
@@ -422,78 +440,101 @@
       if(!$("cropfit").value) return "Select crop fit (Corn/Soybean/Both).";
       return "";
     }
-    function newPayload(){
+
+    function buildPayload(prefix=""){
+      const g = (id)=> $(prefix + id);
       return {
-        company: $("company").value.trim(),
-        product: $("product").value.trim(),
-        category: $("category").value,
-        cropfit: $("cropfit").value,
-        ai: $("ai").value.trim(),
-        moa: $("moa").value.trim(),
-        form: $("form").value,
-        density: $("density").value.trim(),
-        densUnit: $("densUnit").value,
-        carrier: $("carrier").value.trim(),
-        carrierUnit: $("carrierUnit").value,
-        rate: $("rate").value.trim(),
-        rateUnit: $("rateUnit").value,
-        rei: $("rei").value.trim(),
-        phi: $("phi").value.trim(),
-        rup: $("rup").value,
-        notes: $("notes").value.trim(),
-        status: "active",
-        t: Date.now()
+        company: g("company").value.trim(),
+        product: g("product").value.trim(),
+        category: g("category").value,
+        cropfit: g("cropfit").value,
+        ai: g("ai").value.trim(),
+        moa: g("moa").value.trim(),
+        form: g("form").value,
+        density: g("density").value.trim(),
+        densUnit: g("densUnit").value,
+        carrier: g("carrier").value.trim(),
+        carrierUnit: g("carrierUnit").value,
+        rate: g("rate").value.trim(),
+        rateUnit: g("rateUnit").value,
+        rei: g("rei").value.trim(),
+        phi: g("phi").value.trim(),
+        rup: g("rup").value,
+        notes: g("notes").value.trim()
       };
     }
+
+    function newPayload(){
+      return {
+        ...buildPayload(""),
+        status: "active",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+    }
+
     function clearCreate(){
       ["company","product","category","cropfit","ai","moa","form","density","densUnit","carrier","carrierUnit","rate","rateUnit","rei","phi","rup","notes"].forEach(id=>{
-        const el=$(id); if(!el) return; if(el.tagName==="SELECT") el.selectedIndex=0; else el.value="";
+        const el=$(id); if(!el) return;
+        if(el.tagName==="SELECT") el.selectedIndex=0; else el.value="";
       });
     }
+
     $("clear").addEventListener("click", clearCreate);
 
     $("save").addEventListener("click", async ()=>{
       if(!canNow('setup-prod-chemical:add')) { alert("You don't have permission to add chemical products."); return; }
       const err=validateCreate(); if(err){ alert(err); return; }
       try{
-        await FVData.ready(); await waitForAuthReady();
-        await FVData.add(COLL, newPayload());
-        clearCreate(); showToast("Chemical saved.");
-        await loadAll(); window.scrollTo({top:0,behavior:"smooth"});
-      }catch(e){ console.error(e); showError("Save failed: " + (e?.message||e)); }
+        await addDoc(collection(db, COLL), newPayload());
+        clearCreate();
+        showToast("Chemical saved.");
+        await loadAll();
+        window.scrollTo({top:0,behavior:"smooth"});
+      }catch(e){
+        console.error(e);
+        showError("Save failed: " + (e?.message||e));
+      }
     });
 
-    let items = [];
     async function loadAll(){
       try{
-        await FVData.ready(); await waitForAuthReady();
-        const raw = await FVData.list(COLL, { limit: 5000 }) || [];
-        items = (raw || []).map(r=>({
-          id: r.id,
-          company: r.company || "",
-          product: r.product || "",
-          category: r.category || "",
-          cropfit: r.cropfit || "",
-          ai: r.ai || "",
-          moa: r.moa || "",
-          form: r.form || "",
-          density: r.density || "", densUnit: r.densUnit || "",
-          carrier: r.carrier || "", carrierUnit: r.carrierUnit || "",
-          rate: r.rate || "", rateUnit: r.rateUnit || "",
-          rei: r.rei || "", phi: r.phi || "",
-          rup: r.rup || "",
-          notes: r.notes || "",
-          status: r.status || "active",
-          t: r.t || 0
-        })).sort((a,b)=>{
+        const snap = await getDocs(collection(db, COLL));
+        const raw = [];
+        snap.forEach(d=>{
+          const r = d.data() || {};
+          raw.push({
+            id: d.id,
+            company: r.company || "",
+            product: r.product || "",
+            category: r.category || "",
+            cropfit: r.cropfit || "",
+            ai: r.ai || "",
+            moa: r.moa || "",
+            form: r.form || "",
+            density: r.density || "", densUnit: r.densUnit || "",
+            carrier: r.carrier || "", carrierUnit: r.carrierUnit || "",
+            rate: r.rate || "", rateUnit: r.rateUnit || "",
+            rei: r.rei || "", phi: r.phi || "",
+            rup: r.rup || "",
+            notes: r.notes || "",
+            status: r.status || "active"
+          });
+        });
+
+        items = raw.sort((a,b)=>{
           const sa = a.status==='archived', sb = b.status==='archived';
           if (sa !== sb) return sa - sb;
           const s1 = (a.product||"").localeCompare(b.product||"", undefined, {sensitivity:'base'});
           if (s1) return s1;
           return (a.company||"").localeCompare(b.company||"", undefined, {sensitivity:'base'});
         });
+
         renderList();
-      }catch(e){ console.error(e); showError("Load failed: " + (e?.message||e)); }
+      }catch(e){
+        console.error(e);
+        showError("Load failed: " + (e?.message||e));
+      }
     }
 
     function renderList(){
@@ -520,7 +561,7 @@
           it.form ? `<span class="pill">${esc(it.form)}</span>` : "",
           it.rate ? `<span class="pill">${esc(it.rate)} ${esc(it.rateUnit||'')}</span>` : "",
           it.rup ? `<span class="pill">RUP: ${esc(cap(it.rup))}</span>` : "",
-          it.status==="archived" ? `<span class="pill">Archived</span>` : ""
+          it.status==="archived" ? `<span class="pill pill-arch">Archived</span>` : ""
         ].filter(Boolean).join(" ");
 
         const row = document.createElement("div");
@@ -530,25 +571,25 @@
             <div class="name">${esc(it.product || "(Unnamed)")}</div>
             ${pills}
           </div>
-          <button class="view" data-id="${esc(it.id)}" type="button" data-perm="setup-prod-chemical:view">View / Edit</button>
+          <button class="view" type="button" data-perm="setup-prod-chemical:view">View / Edit</button>
         `;
         row.querySelector(".view").addEventListener("click", ()=> openEdit(it.id));
         listBox.appendChild(row);
       });
     }
 
-    q.addEventListener("input", renderList);
+    q.addEventListener("input", ()=> renderList());
     $("reload").addEventListener("click", loadAll);
 
     const modal = $("modal");
     const mdClose = $("mdClose"), mdSave = $("mdSave"), mdDelete = $("mdDelete"), mdArchive = $("mdArchive");
-    let editId = null;
+    const statusPill = $("statusPill");
 
     function openModal(){ modal.setAttribute('open',''); modal.setAttribute('aria-hidden','false'); $("edit_product").focus(); }
-    function closeModal(){ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId = null; }
+    function closeModal(){ modal.removeAttribute('open'); modal.setAttribute('aria-hidden','true'); editId=null; }
 
     function setVal(id, v){ const el=$(id); if(el) el.value = v ?? ""; }
-    function setSel(id, v){ const el=$(id); if(el){ el.value = v ?? ""; } }
+    function setSel(id, v){ const el=$(id); if(el) el.value = v ?? ""; }
 
     function fillEdit(it){
       setVal('edit_company', it.company);
@@ -559,96 +600,137 @@
       setVal('edit_moa', it.moa);
       setSel('edit_form', it.form);
       setVal('edit_density', it.density);
-      setSel('edit_densUnit', it.densUnit);
+      setSel('edit_densUnit', it.densUnit || "lb/gal");
       setVal('edit_carrier', it.carrier);
-      setSel('edit_carrierUnit', it.carrierUnit);
+      setSel('edit_carrierUnit', it.carrierUnit || "gal/ac");
       setVal('edit_rate', it.rate);
-      setSel('edit_rateUnit', it.rateUnit);
+      setSel('edit_rateUnit', it.rateUnit || "oz/ac");
       setVal('edit_rei', it.rei);
       setVal('edit_phi', it.phi);
       setSel('edit_rup', it.rup);
       setVal('edit_notes', it.notes);
-      $("statusPill").textContent = it.status==="archived" ? "Archived" : "Active";
+
+      statusPill.textContent = it.status==="archived" ? "Archived" : "Active";
+      statusPill.className = "pill" + (it.status==="archived" ? " pill-arch" : "");
       mdArchive.textContent = it.status==="archived" ? "Unarchive" : "Archive";
     }
 
     async function openEdit(id){
-      const it = items.find(x=>x.id===id); if(!it) return;
-      editId = id;
-      fillEdit(it);
-      openModal();
+      try{
+        const snap = await getDoc(doc(db, COLL, id));
+        if(!snap.exists()){ alert("Chemical not found."); return; }
+        const r = snap.data() || {};
+        const it = {
+          id: snap.id,
+          company: r.company || "",
+          product: r.product || "",
+          category: r.category || "",
+          cropfit: r.cropfit || "",
+          ai: r.ai || "",
+          moa: r.moa || "",
+          form: r.form || "",
+          density: r.density || "", densUnit: r.densUnit || "",
+          carrier: r.carrier || "", carrierUnit: r.carrierUnit || "",
+          rate: r.rate || "", rateUnit: r.rateUnit || "",
+          rei: r.rei || "", phi: r.phi || "",
+          rup: r.rup || "",
+          notes: r.notes || "",
+          status: r.status || "active"
+        };
+        editId = id;
+        fillEdit(it);
+        openModal();
+      }catch(e){
+        console.error(e);
+        showError("Load failed: " + (e?.message||e));
+      }
     }
 
     mdClose.addEventListener('click', closeModal);
     modal.addEventListener('click', e=>{ if(e.target===modal) closeModal(); });
     document.addEventListener('keydown', e=>{ if(e.key==='Escape' && modal.hasAttribute('open')) closeModal(); });
 
+    function validateEdit(){
+      if(!$("edit_product").value.trim()) return "Enter a product name.";
+      if(!$("edit_category").value) return "Choose a product category.";
+      if(!$("edit_cropfit").value) return "Select crop fit (Corn/Soybean/Both).";
+      return "";
+    }
+
     mdSave.addEventListener('click', async ()=>{
       if(!canNow('setup-prod-chemical:edit')) { alert("You don't have permission to edit chemical products."); return; }
-      try{
-        await FVData.ready(); await waitForAuthReady();
-        const payload = {
-          company: $('edit_company').value.trim(),
-          product: $('edit_product').value.trim(),
-          category: $('edit_category').value,
-          cropfit: $('edit_cropfit').value,
-          ai: $('edit_ai').value.trim(),
-          moa: $('edit_moa').value.trim(),
-          form: $('edit_form').value,
-          density: $('edit_density').value.trim(),
-          densUnit: $('edit_densUnit').value,
-          carrier: $('edit_carrier').value.trim(),
-          carrierUnit: $('edit_carrierUnit').value,
-          rate: $('edit_rate').value.trim(),
-          rateUnit: $('edit_rateUnit').value,
-          rei: $('edit_rei').value.trim(),
-          phi: $('edit_phi').value.trim(),
-          rup: $('edit_rup').value,
-          notes: $('edit_notes').value.trim()
-        };
-        if(!payload.product){ alert("Enter a product name."); return; }
-        if(!payload.category){ alert("Choose a product category."); return; }
-        if(!payload.cropfit){ alert("Select crop fit (Corn/Soybean/Both)."); return; }
+      if(!editId) return;
 
-        await FVData.update(COLL, editId, payload);
+      const err = validateEdit();
+      if(err){ alert(err); return; }
+
+      try{
+        await setDoc(doc(db, COLL, editId), {
+          ...buildPayload("edit_"),
+          updatedAt: serverTimestamp()
+        }, { merge:true });
+
         showToast("Changes saved.");
-        await loadAll();
         closeModal();
-      }catch(e){ console.error(e); showError("Update failed: " + (e?.message||e)); }
+        await loadAll();
+      }catch(e){
+        console.error(e);
+        showError("Update failed: " + (e?.message||e));
+      }
     });
 
     mdArchive.addEventListener('click', async ()=>{
       if(!canNow('setup-prod-chemical:edit')) { alert("You don't have permission to archive/unarchive chemical products."); return; }
+      if(!editId) return;
+
       try{
-        await FVData.ready(); await waitForAuthReady();
-        const it = items.find(x=>x.id===editId); if(!it) return;
-        const next = it.status==="archived" ? "active" : "archived";
-        await FVData.update(COLL, editId, { status: next });
+        const snap = await getDoc(doc(db, COLL, editId));
+        if(!snap.exists()){ alert("Chemical not found."); return; }
+        const cur = snap.data() || {};
+        const next = (cur.status === "archived") ? "active" : "archived";
+
+        await setDoc(doc(db, COLL, editId), { status: next, updatedAt: serverTimestamp() }, { merge:true });
+
         showToast(next==="archived" ? "Product archived." : "Product unarchived.");
-        await loadAll();
         closeModal();
-      }catch(e){ console.error(e); showError("Archive toggle failed: " + (e?.message||e)); }
+        await loadAll();
+      }catch(e){
+        console.error(e);
+        showError("Archive toggle failed: " + (e?.message||e));
+      }
     });
 
     mdDelete.addEventListener('click', async ()=>{
       if(!canNow('setup-prod-chemical:delete')) { alert("You don't have permission to delete chemical products."); return; }
+      if(!editId) return;
+
       try{
-        const it = items.find(x=>x.id===editId); if(!it) return;
-        if(!confirm(`Delete chemical "${it.product||'(Unnamed)'}"? This cannot be undone.`)) return;
-        await FVData.ready(); await waitForAuthReady();
-        await FVData.remove(COLL, editId);
+        const snap = await getDoc(doc(db, COLL, editId));
+        if(!snap.exists()){ alert("Chemical not found."); return; }
+        const cur = snap.data() || {};
+        const nm = String(cur.product || "(Unnamed)").trim();
+
+        if(!confirm(`Delete chemical "${nm}"? This cannot be undone.`)) return;
+
+        await deleteDoc(doc(db, COLL, editId));
         showToast("Product deleted.");
-        await loadAll();
         closeModal();
-      }catch(e){ console.error(e); showError("Delete failed: " + (e?.message||e)); }
+        await loadAll();
+      }catch(e){
+        console.error(e);
+        showError("Delete failed: " + (e?.message||e));
+      }
     });
 
     (async function boot(){
       try{
-        if(!window.FVData) throw new Error("FVData not loaded");
-        await FVData.ready(); await waitForAuthReady();
-      }catch(e){ console.warn(e); showError(e?.message || "FVData not loaded"); }
-      await loadAll();
+        await ready;
+        db = getFirestore();
+        await loadAll();
+      }catch(e){
+        console.error(e);
+        showError(e?.message || "Failed to initialize Firebase.");
+      }
     })();
   </script>
 
