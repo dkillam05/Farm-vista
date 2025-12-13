@@ -1,5 +1,5 @@
 <!-- =====================================================================
-/Farm-vista/pages/settings-setup/ss-fields.html
+/Farm-vista/pages/setup/fields.html
 Fields setup – farms, counties, acres + optional GPS location (add + edit)
 ===================================================================== -->
 <!doctype html>
@@ -35,7 +35,7 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       border:1px solid var(--border);border-radius:14px;background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;
     }
-    .section + .section{ margin-top:14px; } /* ✅ separate sections so the list is clearly at the bottom */
+    .section + .section{ margin-top:14px; } /* ✅ list section clearly below add section */
 
     .section-head{
       display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
@@ -691,15 +691,32 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
 
   <!-- ===== Page logic ===== -->
   <script type="module">
-  import {
-    ready,
-    getFirestore, collection, query, orderBy,
-    getDocs, addDoc, doc, getDoc, updateDoc, deleteDoc,
-    serverTimestamp
-  } from '/Farm-vista/js/firebase-init.js';
+  // ✅ FIX: your /Farm-vista/js/firebase-init.js does NOT export a callable "ready()"
+  // (the screenshot shows: TypeError: ready is not a function).
+  // So we import the module as a namespace and safely call whatever "ready" equivalent exists.
+  import * as FB from '/Farm-vista/js/firebase-init.js';
 
   (function(){
     "use strict";
+
+    const readyFn =
+      (FB && typeof FB.ready === 'function') ? FB.ready :
+      (FB && typeof FB.init === 'function')  ? FB.init  :
+      (FB && typeof FB.initialize === 'function') ? FB.initialize :
+      (FB && typeof FB.ensureAuth === 'function') ? FB.ensureAuth :
+      (async ()=>{});
+
+    const getFirestore     = FB.getFirestore;
+    const collection       = FB.collection;
+    const query            = FB.query;
+    const orderBy          = FB.orderBy;
+    const getDocs          = FB.getDocs;
+    const addDoc           = FB.addDoc;
+    const doc              = FB.doc;
+    const getDoc           = FB.getDoc;
+    const updateDoc        = FB.updateDoc;
+    const deleteDoc        = FB.deleteDoc;
+    const serverTimestamp  = FB.serverTimestamp;
 
     const canNow = (k)=> (window.FV && typeof window.FV.can === 'function') ? window.FV.can(k) : true;
 
@@ -1283,7 +1300,7 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
         return;
       }
 
-      const ref = doc(db,'fields', editId);
+      const ref = doc(db, 'fields', editId);
       const snap = await getDoc(ref);
       if(!snap.exists()) return;
       const cur = snap.data()||{};
@@ -1631,11 +1648,10 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       const btnMark   = $("editBtnMarkLocation");
       const modal     = $("editFieldLocationModal");
       const btnClose  = $("editFieldLocationClose");
-      const btnCancel = $("editFieldLocationCancel");
       const btnSave   = $("editFieldLocationSave");
       const btnUse    = $("editFieldUseLocation");
       const btnClear  = $("editFieldLocationClear");
-      const btnCancel2 = $("editFieldLocationCancel");
+      const btnCancel = $("editFieldLocationCancel");
 
       if(!btnMark || !modal) return;
 
@@ -1646,7 +1662,6 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       });
       if(btnClose)  btnClose.addEventListener("click", closeEditFieldLocationModal);
       if(btnCancel) btnCancel.addEventListener("click", closeEditFieldLocationModal);
-      if(btnCancel2) btnCancel2.addEventListener("click", closeEditFieldLocationModal);
 
       if(btnUse){
         btnUse.addEventListener("click", ()=>{
@@ -1897,7 +1912,6 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
 
     const importModal = $("importModal");
     const impFile = $("impFile");
-    const impLog = $("impLog");
     const impRun = $("impRun");
 
     function openImportModal(){
@@ -1908,7 +1922,7 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       importModal.setAttribute("open",""); importModal.setAttribute("aria-hidden","false");
       document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
       impFile.value = "";
-      impLog.value = "";
+      $("impLog").value = "";
       impRun.disabled = true;
     }
     function closeImportModal(){
@@ -2022,7 +2036,7 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
     }
 
     async function init(){
-      await ready();
+      await readyFn();              // ✅ no more "ready is not a function"
       db = getFirestore();
 
       wireNetToasts();
