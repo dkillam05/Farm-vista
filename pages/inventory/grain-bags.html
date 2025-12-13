@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- ✅ CRITICAL: ensure FV_FIREBASE_CONFIG exists BEFORE firebase-init.js is imported -->
+  <!-- ✅ CRITICAL: ensure FV_FIREBASE_CONFIG exists BEFORE firebase-init.js resolves ready -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
 
   <style>
@@ -117,10 +117,8 @@
     </div>
   </fv-shell>
 
-  <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- Modular Firebase -->
   <script type="module">
     import {
       ready,
@@ -152,14 +150,7 @@
       let PRODUCTS = [];
       const P_MAP = new Map();
 
-      function bagLabel(p){
-        const d = (p.diameterFt!=null)? String(p.diameterFt).replace(/\.0$/,'') : '?';
-        const l = (p.lengthFt!=null)? String(p.lengthFt).replace(/\.0$/,'') : '?';
-        const brand = (p.brand && String(p.brand).trim()) ? String(p.brand).trim() : 'Unknown';
-        return `${brand} • ${d}' × ${l}'`;
-      }
-
-      function setSelectLoading(msg){
+      function setSelectOne(msg){
         const sel = $("bagSelect");
         sel.innerHTML = '';
         const o = document.createElement('option');
@@ -170,38 +161,31 @@
         sel.appendChild(o);
       }
 
-      async function loadProducts(){
-        PRODUCTS = [];
-        P_MAP.clear();
+      function bagLabel(p){
+        const d = (p.diameterFt!=null)? String(p.diameterFt).replace(/\.0$/,'') : '?';
+        const l = (p.lengthFt!=null)? String(p.lengthFt).replace(/\.0$/,'') : '?';
+        const brand = (p.brand && String(p.brand).trim()) ? String(p.brand).trim() : 'Unknown';
+        return `${brand} • ${d}' × ${l}'`;
+      }
 
-        // ✅ Safer: filter active in-query + stable ordering
-        // Note: Firestore may require an index for where(status)+orderBy(brand) depending on data;
-        // if it does, the console will show a direct index link.
-        const qs = await getDocs(query(
-          productsRef(),
-          where('status','==','active'),
-          orderBy('brand')
-        ));
+      function normalizeProductSnap(snap){
+        const d = snap.data()||{};
+        return {
+          id: snap.id,
+          brand: String(d.brand||'').trim(),
+          diameterFt: d.diameterFt ?? null,
+          lengthFt: d.lengthFt ?? null,
+          thicknessMil: d.thicknessMil ?? null,
+          status: (d.status || 'active')
+        };
+      }
 
-        qs.forEach(s=>{
-          const d = s.data()||{};
-          const it = {
-            id: s.id,
-            brand: String(d.brand||'').trim(),
-            diameterFt: d.diameterFt ?? null,
-            lengthFt: d.lengthFt ?? null,
-            thicknessMil: d.thicknessMil ?? null,
-            status: (d.status || 'active')
-          };
-          PRODUCTS.push(it);
-          P_MAP.set(it.id, it);
-        });
+      function isActive(p){
+        return String(p.status || '').toLowerCase() === 'active';
+      }
 
-        // Extra safety (in case older docs have status variants)
-        PRODUCTS = PRODUCTS.filter(p => String(p.status).toLowerCase() === 'active');
-
-        // sort brand -> diameter -> length (client-side final sort)
-        PRODUCTS.sort((a,b)=>{
+      function sortProducts(arr){
+        arr.sort((a,b)=>{
           const ba=(a.brand||'').toLowerCase(), bb=(b.brand||'').toLowerCase();
           if(ba!==bb) return ba<bb?-1:1;
           const da = Number(a.diameterFt||0), db = Number(b.diameterFt||0);
@@ -209,7 +193,10 @@
           const la = Number(a.lengthFt||0), lb = Number(b.lengthFt||0);
           return la-lb;
         });
+        return arr;
+      }
 
+      function renderProductSelect(){
         const sel = $("bagSelect");
         sel.innerHTML = '';
 
@@ -232,6 +219,33 @@
         });
       }
 
+      async function loadProductsNoIndex(){
+        PRODUCTS = [];
+        P_MAP.clear();
+
+        // ✅ Try orderBy only (no composite index)
+        try{
+          const qs = await getDocs(query(productsRef(), orderBy('brand')));
+          qs.forEach(s=>{
+            const it = normalizeProductSnap(s);
+            PRODUCTS.push(it); P_MAP.set(it.id, it);
+          });
+        }catch(err){
+          // Fallback: no orderBy at all
+          console.warn('[bags] orderBy(brand) failed, falling back to plain getDocs:', err);
+          const qs = await getDocs(productsRef());
+          qs.forEach(s=>{
+            const it = normalizeProductSnap(s);
+            PRODUCTS.push(it); P_MAP.set(it.id, it);
+          });
+        }
+
+        // Filter active locally (no index required)
+        PRODUCTS = PRODUCTS.filter(isActive);
+        sortProducts(PRODUCTS);
+        renderProductSelect();
+      }
+
       function validate(){
         const ok = $("bagSelect").value && toInt($("qty").value) >= 1;
         $("save").disabled = !ok;
@@ -240,6 +254,7 @@
 
       async function saveMovement(){
         if(!validate()){ alert("Pick a grain bag and enter a quantity ≥ 1."); return; }
+
         const id = $("bagSelect").value;
         const p = P_MAP.get(id);
         if(!p){ alert("Invalid bag selection."); return; }
@@ -252,13 +267,11 @@
 
         const productDocRef = doc(db, 'productsGrainBags', id);
 
-        // Look for existing inventory doc for this productRef
         const existingSnap = await getDocs(
           query(movesRef(), where('productRef', '==', productDocRef))
         );
 
         if (!existingSnap.empty) {
-          // Update existing running totals
           const exDoc = existingSnap.docs[0];
           const ex = exDoc.data() || {};
           const prevQty = Number(ex.qty || 0);
@@ -266,15 +279,12 @@
             (ex.onHand != null) ? Number(ex.onHand) :
             (ex.qty != null ? Number(ex.qty) : 0);
 
-          const newQtyTotal = prevQty + qty;
-          const newOnHand = prevOnHand + qty;
-
           await updateDoc(exDoc.ref, {
-            qty: newQtyTotal,
-            onHand: newOnHand,
+            qty: prevQty + qty,
+            onHand: prevOnHand + qty,
             location,
             note,
-            brand: (p.brand || null),
+            brand: p.brand || null,
             diameterFt: (p.diameterFt!=null)? Number(p.diameterFt) : null,
             lengthFt: (p.lengthFt!=null)? Number(p.lengthFt) : null,
             thicknessMil: (p.thicknessMil!=null)? Number(p.thicknessMil) : null,
@@ -283,8 +293,7 @@
           });
 
         } else {
-          // First time: create a new inventory doc for this SKU
-          const payload = {
+          await addDoc(movesRef(), {
             type: 'add',
             qty,
             onHand: qty,
@@ -298,9 +307,7 @@
             note,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
-          };
-
-          await addDoc(movesRef(), payload);
+          });
         }
 
         $("qty").value = "";
@@ -313,33 +320,29 @@
       }
 
       (async()=>{
-        setSelectLoading("Loading options…");
+        setSelectOne("Loading options…");
 
         const ctx = await ready; // ✅ ready is a Promise in your firebase-init.js
-
-        // ✅ HARD STOP if not live Firebase
         if(!ctx || ctx.mode !== 'firebase'){
-          alert("Firebase not available (stub mode). This page expects Firebase to be live.");
-          setSelectLoading("Firebase not available");
+          setSelectOne("Firebase not available");
           $("save").disabled = true;
+          showToast("Firebase not available.");
           return;
         }
 
         db = getFirestore();
 
         try{
-          await loadProducts();
+          await loadProductsNoIndex();
         }catch(err){
-          console.error(err);
-          // Common: missing index / permissions / offline
-          setSelectLoading("Could not load products");
+          console.error('[bags] failed to load products:', err);
+          setSelectOne("Could not load products");
           $("save").disabled = true;
-          alert("Could not load grain bag products. Check permissions / index / connection.");
+          showToast("Could not load products");
           return;
         }
 
         validate();
-
         $("bagSelect").addEventListener("change", validate);
         $("qty").addEventListener("input", validate);
         $("save").addEventListener("click", saveMovement);
