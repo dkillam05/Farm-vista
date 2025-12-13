@@ -275,21 +275,27 @@ const __fvBoot = (function(){
   try{
     window.FV = window.FV || {};
 
-    function extractCoreUser(ctx){
-      if (!ctx || typeof ctx !== 'object') return ctx;
-      if (ctx.user && typeof ctx.user === 'object' && (ctx.role || ctx.employee || ctx.effectivePerms || ctx.perms)) {
-        return Object.assign({}, ctx, ctx.user);
-      }
-      return ctx;
+    // NEW: always derive perms directly from FVUserContext (single source of truth)
+    function getPermsFromUserContext(){
+      try{
+        if (window.FVUserContext && typeof window.FVUserContext.get === 'function') {
+          const ctx = window.FVUserContext.get();
+          if (ctx && typeof ctx === 'object') {
+            if (ctx.effectivePerms && typeof ctx.effectivePerms === 'object') return ctx.effectivePerms;
+            if (ctx.perms && typeof ctx.perms === 'object') return ctx.perms;
+            if (ctx.role && ctx.role.perms && typeof ctx.role.perms === 'object') return ctx.role.perms;
+          }
+        }
+      } catch(e) {}
+      return null;
     }
 
     function updatePermsFromContext(rawCtx){
-      const ctx = extractCoreUser(rawCtx) || {};
-
+      const ctx = rawCtx && typeof rawCtx === 'object' ? rawCtx : {};
       const rawPerms =
         (ctx.effectivePerms && typeof ctx.effectivePerms === 'object') ? ctx.effectivePerms :
         (ctx.perms && typeof ctx.perms === 'object') ? ctx.perms :
-        (ctx.role && typeof ctx.role.perms === 'object') ? ctx.role.perms :
+        (ctx.role && ctx.role.perms && typeof ctx.role.perms === 'object') ? ctx.role.perms :
         {};
 
       window.FV_PERMS_RAW = rawPerms;
@@ -300,7 +306,8 @@ const __fvBoot = (function(){
       window.FV.can = function(featureOrKey){
         if (!featureOrKey) return false;
 
-        const raw = window.FV_PERMS_RAW || null;
+        // Prefer fresh perms from FVUserContext, fall back to cached FV_PERMS_RAW.
+        const raw = getPermsFromUserContext() || window.FV_PERMS_RAW || null;
 
         // Fail-open until perms load; perm-ui re-applies on fv:user-ready
         if (!raw) return true;
@@ -310,16 +317,16 @@ const __fvBoot = (function(){
         const feature = parts[0];
         const action = parts.length > 1 ? parts[1] : null;
 
+        const entry = raw[feature] ?? raw[str];
+
         if (action) {
-          const v = raw[feature];
-          if (v && typeof v === 'object' && typeof v[action] === 'boolean') return v[action];
+          if (entry && typeof entry === 'object' && typeof entry[action] === 'boolean') return entry[action];
           return false;
         }
 
-        const v = raw[str];
-        if (typeof v === 'boolean') return v;
-        if (v && typeof v === 'object') {
-          return (v.view === true || v.add === true || v.edit === true || v.delete === true || v.on === true);
+        if (typeof entry === 'boolean') return entry;
+        if (entry && typeof entry === 'object') {
+          return (entry.view === true || entry.add === true || entry.edit === true || entry.delete === true || entry.on === true);
         }
         return false;
       };
