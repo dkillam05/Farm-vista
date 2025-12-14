@@ -467,6 +467,10 @@
 
       // QC caps (defaults: allow until context says otherwise)
       this._qcCaps = { qr:true, camera:true };
+
+      // Soft retry timers
+      this._softMenuRetryTimer = null;
+      this._softNameRetryTimer = null;
     }
 
     connectedCallback(){
@@ -638,12 +642,10 @@
 
       const ctx = this._getUserCtx();
       if (!ctx){
-        // no context yet -> keep visible (safe)
-        this._qcCaps = { qr:true, camera:true };
-        this._qcRail.style.display = 'block';
-        if (this._qcScan) this._qcScan.style.display = '';
-        if (this._qcCamera) this._qcCamera.style.display = '';
-        if (this._qcSep) this._qcSep.style.display = '';
+        // ✅ safer boot behavior: hide rail until context arrives (prevents “everything shows” flicker)
+        this._qcToggle(false);
+        this._closeCameraModal();
+        this._qcRail.style.display = 'none';
         return;
       }
 
@@ -677,6 +679,10 @@
       return this._isIOSStandaloneFlag;
     }
 
+    /* =============================== */
+    /* Boot: phased, auth-only hard gate */
+    /* =============================== */
+
     async _bootSequence(){
       await this._loadScriptOnce('/Farm-vista/js/version.js').catch(()=>{});
       this._applyVersionToUI();
@@ -687,15 +693,19 @@
       await this._loadScriptOnce('/Farm-vista/js/app/user-context.js').catch(()=>{});
       await this._loadScriptOnce('/Farm-vista/js/menu-acl.js').catch(()=>{});
 
-      await this._authAndMenuGate();
+      // Phase A (hard): auth only
+      const authed = await this._requireAuthOnly();
+      if (!authed) {
+        this._kickToLogin('auth-timeout');
+        return;
+      }
 
+      // Wire the rest ASAP; do NOT block on context/menu readiness
       this._wireAuthLogout(this.shadowRoot);
       this._initConnectionStatus();
       this._watchUserContextForSwaps();
 
-      // apply QC gating once auth/context should be available
-      this._qcApplyFromContext('boot');
-
+      // Hide overlay as soon as auth is confirmed (menu/context can finish in background)
       if (this._boot) this._boot.hidden = true;
       sessionStorage.setItem('fv:boot:hydrated', '1');
 
@@ -708,35 +718,96 @@
 
       this._initPTR();
 
+      // Phase B/C (soft): wait for context; render menu when possible; keep retrying without redirect
+      this._softWaitForCtxAndMenu('boot');
+
+      // Post paint: repair only (no redirect)
       setTimeout(()=> this._postPaintSanity(), 300);
     }
 
-    async _authAndMenuGate(){
+    async _requireAuthOnly(){
       const deadline = Date.now() + AUTH_MAX_MS;
       while (Date.now() < deadline) {
-        if (await this._isAuthed() && this._hasUserCtx()) break;
+        if (await this._isAuthed()) return true;
         await this._sleep(120);
       }
-      if (!(await this._isAuthed()) || !this._hasUserCtx()) {
+      return !!(await this._isAuthed());
+    }
+
+    async _softWaitForCtxAndMenu(reason){
+      // If context already present, render now
+      if (this._hasUserCtx()){
+        try{
+          const { uid, roleHash } = this._currentUIDAndRoleHash();
+          this._lastUID = uid; this._lastRoleHash = roleHash;
+        }catch{}
+        try { await this._initMenuFiltered(); } catch {}
+        this._setLogoutLabelNow();
+        this._qcApplyFromContext(reason || 'ctx-ready');
+        return;
+      }
+
+      // Otherwise: soft loop (no redirect)
+      const deadline = Date.now() + Math.max(MENU_MAX_MS, 3000);
+      while (Date.now() < deadline) {
+        if (this._hasUserCtx()) break;
+        await this._sleep(150);
+      }
+
+      if (this._hasUserCtx()){
+        try{
+          const { uid, roleHash } = this._currentUIDAndRoleHash();
+          this._lastUID = uid; this._lastRoleHash = roleHash;
+        }catch{}
+        try { await this._initMenuFiltered(); } catch {}
+        this._setLogoutLabelNow();
+        this._qcApplyFromContext('ctx-ready');
+        return;
+      }
+
+      // Still no context: keep skeleton and schedule a retry; never kick to login for “slow”
+      this._scheduleMenuRetry(650, 'soft-ctx-wait');
+      this._scheduleNameRetry(650, 'soft-ctx-wait');
+      this._qcApplyFromContext('ctx-missing');
+    }
+
+    _scheduleMenuRetry(ms=650, why='retry'){
+      clearTimeout(this._softMenuRetryTimer);
+      this._softMenuRetryTimer = setTimeout(async ()=>{
+        // If auth is gone, *then* redirect
+        if (!(await this._isAuthed())) { this._kickToLogin('auth-missing'); return; }
+        try { await this._initMenuFiltered(); } catch {}
+        if (!this._hasMenuLinks() && !this._hasUserCtx()) {
+          // still not ready; try again
+          this._scheduleMenuRetry(900, 'retry-loop');
+        }
+      }, ms);
+    }
+
+    _scheduleNameRetry(ms=650, why='retry'){
+      clearTimeout(this._softNameRetryTimer);
+      this._softNameRetryTimer = setTimeout(async ()=>{
+        if (!(await this._isAuthed())) { this._kickToLogin('auth-missing'); return; }
+        this._setLogoutLabelNow();
+        const nameOK = (this._logoutLabel && this._logoutLabel.textContent && this._logoutLabel.textContent.trim() !== 'Logout');
+        if (!nameOK && !this._hasUserCtx()){
+          this._scheduleNameRetry(900, 'retry-loop');
+        }
+      }, ms);
+    }
+
+    async _authAndMenuGate(){
+      // Kept for compatibility if anything still calls it, but now:
+      // ✅ auth is the only hard gate
+      const ok = await this._requireAuthOnly();
+      if (!ok) {
         this._kickToLogin('auth-timeout');
         return Promise.reject('auth-timeout');
       }
-      const { uid, roleHash } = this._currentUIDAndRoleHash();
-      this._lastUID = uid; this._lastRoleHash = roleHash;
 
-      await this._initMenuFiltered();
-
-      const menuDeadline = Date.now() + MENU_MAX_MS;
-      while (Date.now() < menuDeadline) {
-        if (this._hasMenuLinks()) break;
-        await this._sleep(120);
-      }
-      if (!this._hasMenuLinks()) {
-        this._kickToLogin('menu-timeout');
-        return Promise.reject('menu-timeout');
-      }
-
-      this._setLogoutLabelNow();
+      // Soft: try to paint menu / name without redirects
+      this._softWaitForCtxAndMenu('legacy-gate');
+      return true;
     }
 
     _kickToLogin(reason){
@@ -825,7 +896,20 @@
         // Always keep QC rail synced to current context
         this._qcApplyFromContext(changed ? 'ctx-swap' : 'ctx-ping');
 
-        if (!changed) return;
+        // Soft behavior: if context is missing, just keep trying to render later
+        if (!this._hasUserCtx()){
+          this._scheduleMenuRetry(650, 'ctx-missing');
+          this._scheduleNameRetry(650, 'ctx-missing');
+          return;
+        }
+
+        if (!changed) {
+          // Still allow late menu/name repairs
+          if (!this._hasMenuLinks()) this._scheduleMenuRetry(450, 'menu-late');
+          const nameOK = (this._logoutLabel && this._logoutLabel.textContent && this._logoutLabel.textContent.trim() !== 'Logout');
+          if (!nameOK) this._scheduleNameRetry(450, 'name-late');
+          return;
+        }
 
         sessionStorage.removeItem('fv:boot:hydrated');
         if (this._boot) this._boot.hidden = false;
@@ -837,16 +921,11 @@
         this._lastRoleHash = roleHash;
         this._menuPainted = false;
 
-        await this._initMenuFiltered();
-
-        const menuDeadline = Date.now() + MENU_MAX_MS;
-        while (Date.now() < menuDeadline) {
-          if (this._hasMenuLinks()) break;
-          await this._sleep(120);
-        }
-        if (!this._hasMenuLinks()) { this._kickToLogin('menu-timeout'); return; }
-
+        // Render menu; no redirects if links aren't ready yet
+        try { await this._initMenuFiltered(); } catch {}
+        this._scheduleMenuRetry(450, 'ctx-swap');
         this._setLogoutLabelNow();
+
         if (this._boot) this._boot.hidden = true;
         sessionStorage.setItem('fv:boot:hydrated', '1');
       };
@@ -894,21 +973,31 @@
     }
 
     async _loadMenu(){
-      const url = location.origin + '/Farm-vista/js/menu.js?v=' + Date.now();
+      // ✅ stable import (no Date.now cache bust). Beta/live aware.
+      const primary = `${FV_ROOT}/js/menu.js`;
+      const fallback = `/Farm-vista/js/menu.js`;
+
       try{
-        const mod = await import(url);
+        const mod = await import(primary);
         return (mod && (mod.NAV_MENU || mod.default)) || null;
-      }catch(e){
+      }catch(e1){
         try{
-          await new Promise((res, rej)=>{
-            const s = document.createElement('script');
-            s.src = url; s.defer = true; s.onload = ()=> res(); s.onerror = (err)=> rej(err);
-            document.head.appendChild(s);
-          });
-          return (window && window.FV_MENU) || null;
-        }catch(err){
-          console.error('[FV] Unable to load menu:', err);
-          return null;
+          const mod2 = await import(fallback);
+          return (mod2 && (mod2.NAV_MENU || mod2.default)) || null;
+        }catch(e2){
+          // Final fallback: script tag (still stable URL)
+          const url = primary;
+          try{
+            await new Promise((res, rej)=>{
+              const s = document.createElement('script');
+              s.src = url; s.defer = true; s.onload = ()=> res(); s.onerror = (err)=> rej(err);
+              document.head.appendChild(s);
+            });
+            return (window && window.FV_MENU) || null;
+          }catch(err){
+            console.error('[FV] Unable to load menu:', err);
+            return null;
+          }
         }
       }
     }
@@ -1091,9 +1180,22 @@
     }
 
     _postPaintSanity(){
+      // ✅ repair-only (never redirect)
       const nameOK = (this._logoutLabel && this._logoutLabel.textContent && this._logoutLabel.textContent.trim() !== 'Logout');
       const menuOK = this._hasMenuLinks();
-      if (!nameOK || !menuOK) this._kickToLogin(!nameOK ? 'no-name' : 'no-menu');
+
+      if (!nameOK) {
+        this._setLogoutLabelNow();
+        this._scheduleNameRetry(650, 'postpaint');
+      }
+
+      if (!menuOK) {
+        // try to render now; if still not ready, retry later
+        (async ()=>{
+          try { await this._initMenuFiltered(); } catch {}
+          if (!this._hasMenuLinks()) this._scheduleMenuRetry(650, 'postpaint');
+        })();
+      }
     }
 
     _collapseAllNavGroups(){
@@ -1253,10 +1355,10 @@
         else { armed=false; pulling=false; hideBar(); }
       };
 
-      const revalidateAuthAndCtx = async()=>{
+      const revalidateAuthOnly = async()=>{
         const deadline = Date.now() + 1500;
         while (Date.now() < deadline) {
-          if (await this._isAuthed() && this._hasUserCtx()) return true;
+          if (await this._isAuthed()) return true;
           await this._sleep(80);
         }
         return false;
@@ -1285,7 +1387,9 @@
           console.error('[FV] FVData.refreshAll failed:', e);
         }
 
+        // Soft: try menu refresh; if still not ready, schedule retry (no login kick)
         try { await this._initMenuFiltered(); } catch {}
+        if (!this._hasMenuLinks()) this._scheduleMenuRetry(650, 'ptr');
 
         document.dispatchEvent(new CustomEvent('fv:refresh:end'));
 
@@ -1312,11 +1416,13 @@
 
             document.dispatchEvent(new CustomEvent('fv:refresh'));
 
-            const ok = await revalidateAuthAndCtx();
+            const ok = await revalidateAuthOnly();
             if (ok) {
               await runRefreshContract();
+              // Soft: context might still be late
+              this._softWaitForCtxAndMenu('ptr');
             } else {
-              this._toastMsg('Session not ready. Re-authenticating…', 1400);
+              this._toastMsg('Session expired. Re-authenticating…', 1400);
               this._kickToLogin('ptr-auth');
               return;
             }
