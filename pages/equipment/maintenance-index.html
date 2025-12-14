@@ -43,14 +43,34 @@
   </script>
 
   <script type="module">
-    import { ready } from '/Farm-vista/js/firebase-init.js';
-    import { NAV_MENU } from '/Farm-vista/js/menu.js';
+  import * as FVInit from '/Farm-vista/js/firebase-init.js';
+  import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
-    ready().then(() => {
-      const shell = document.querySelector('fv-shell');
-      if (shell) shell.nav = NAV_MENU;
-    });
-  </script>
+  // Accept multiple firebase-init patterns without crashing:
+  //  - export function ready() {}
+  //  - export default function ready() {}
+  //  - window.FV_READY = Promise
+  //  - side-effect only (no explicit ready)
+  const readyFn =
+    (typeof FVInit.ready === 'function' && FVInit.ready) ||
+    (typeof FVInit.default === 'function' && FVInit.default) ||
+    (window.FV && typeof window.FV.ready === 'function' && window.FV.ready) ||
+    (window.FV && typeof window.FV.whenReady === 'function' && window.FV.whenReady) ||
+    null;
+
+  const readyPromise =
+    readyFn ? Promise.resolve().then(() => readyFn()) :
+    (window.FV_READY && typeof window.FV_READY.then === 'function') ? window.FV_READY :
+    (window.FV && window.FV.readyPromise && typeof window.FV.readyPromise.then === 'function') ? window.FV.readyPromise :
+    Promise.resolve();
+
+  // Wait for shell element registration + firebase init (best-effort)
+  try { await customElements.whenDefined('fv-shell'); } catch(e) {}
+  try { await readyPromise; } catch(e) {}
+
+  const shell = document.querySelector('fv-shell');
+  if (shell) shell.nav = NAV_MENU;
+</script>
 </head>
 
 <body>
