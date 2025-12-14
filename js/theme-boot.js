@@ -275,15 +275,22 @@ const __fvBoot = (function(){
   try{
     window.FV = window.FV || {};
 
+    const isNonEmptyObject = (o) => !!(o && typeof o === 'object' && !Array.isArray(o) && Object.keys(o).length);
+
     // NEW: always derive perms directly from FVUserContext (single source of truth)
     function getPermsFromUserContext(){
       try{
         if (window.FVUserContext && typeof window.FVUserContext.get === 'function') {
           const ctx = window.FVUserContext.get();
           if (ctx && typeof ctx === 'object') {
-            if (ctx.effectivePerms && typeof ctx.effectivePerms === 'object') return ctx.effectivePerms;
-            if (ctx.perms && typeof ctx.perms === 'object') return ctx.perms;
-            if (ctx.role && ctx.role.perms && typeof ctx.role.perms === 'object') return ctx.role.perms;
+            const p =
+              (ctx.effectivePerms && typeof ctx.effectivePerms === 'object') ? ctx.effectivePerms :
+              (ctx.perms && typeof ctx.perms === 'object') ? ctx.perms :
+              (ctx.role && ctx.role.perms && typeof ctx.role.perms === 'object') ? ctx.role.perms :
+              null;
+
+            // KEY FIX: if perms is empty, treat as "not ready yet"
+            if (isNonEmptyObject(p)) return p;
           }
         }
       } catch(e) {}
@@ -296,10 +303,19 @@ const __fvBoot = (function(){
         (ctx.effectivePerms && typeof ctx.effectivePerms === 'object') ? ctx.effectivePerms :
         (ctx.perms && typeof ctx.perms === 'object') ? ctx.perms :
         (ctx.role && ctx.role.perms && typeof ctx.role.perms === 'object') ? ctx.role.perms :
-        {};
+        null;
+
+      // KEY FIX: do NOT overwrite good perms with empty/partial perms
+      if (!isNonEmptyObject(rawPerms)) return;
 
       window.FV_PERMS_RAW = rawPerms;
       window.FV.permsRaw = rawPerms;
+
+      // optional: a flag other code can use to know perms are real
+      window.FV.__permsReady = true;
+
+      // optional: helpful event for ui-nav/fv-shell to rebuild menu deterministically
+      try { document.dispatchEvent(new CustomEvent('fv:perms-ready', { detail: { perms: rawPerms }})); } catch {}
     }
 
     if (typeof window.FV.can !== 'function') {
@@ -307,9 +323,9 @@ const __fvBoot = (function(){
         if (!featureOrKey) return false;
 
         // Prefer fresh perms from FVUserContext, fall back to cached FV_PERMS_RAW.
-        const raw = getPermsFromUserContext() || window.FV_PERMS_RAW || null;
+        const raw = getPermsFromUserContext() || (isNonEmptyObject(window.FV_PERMS_RAW) ? window.FV_PERMS_RAW : null);
 
-        // Fail-open until perms load; perm-ui re-applies on fv:user-ready
+        // KEY FIX: Fail-open until perms are truly ready (prevents intermittent missing nav)
         if (!raw) return true;
 
         const str = String(featureOrKey);
@@ -341,7 +357,7 @@ const __fvBoot = (function(){
       }
     });
 
-    // init from cache if available
+    // init from cache if available (but won’t clobber perms unless it’s non-empty)
     try{
       if (window.FVUserContext && typeof window.FVUserContext.get === 'function') {
         const cached = window.FVUserContext.get();
@@ -353,6 +369,7 @@ const __fvBoot = (function(){
     console.warn('[FV] permission-engine error:', e);
   }
 })();
+
 
 /* =======================  GLOBAL COMBO UPGRADER (INLINE)  ======================= */
 /* (unchanged) */
