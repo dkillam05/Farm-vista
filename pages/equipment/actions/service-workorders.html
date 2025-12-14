@@ -186,6 +186,10 @@
       background:var(--card-surface, var(--surface));
       font-size:0.95rem;
       opacity:0.9;
+      user-select:none;
+    }
+    .wo-empty.clickable{
+      cursor:pointer;
     }
 
     .wo-card {
@@ -729,6 +733,11 @@
       cursor:pointer;
     }
 
+    .btn-complete[disabled]{
+      opacity:0.65;
+      cursor:default;
+    }
+
     .btn-reopen{
       border-radius:10px;
       border:1px solid var(--border);
@@ -975,10 +984,68 @@
         type: 'all'
       },
       currentLine: null,   // {woId, index}
-      savingLineItem: false
+      savingLineItem: false,
+      isLoadingWO: false,
+      isLoadingEmployees: false
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
+
+    // ---- tiny load UX helpers ----
+    function setEmpty(mode, text){
+      const emptyEl = $('.wo-empty');
+      if(!emptyEl) return;
+      emptyEl.classList.remove('clickable');
+      emptyEl.onclick = null;
+      emptyEl.style.display = 'block';
+      emptyEl.textContent = text || '';
+      if(mode === 'error'){
+        emptyEl.classList.add('clickable');
+      }
+    }
+
+    function hideEmpty(){
+      const emptyEl = $('.wo-empty');
+      if(emptyEl) emptyEl.style.display = 'none';
+    }
+
+    function setCountText(txt){
+      const countEl = $('#woCount');
+      if(countEl) countEl.textContent = txt;
+    }
+
+    // ---- retry + timeout (helps iPad cold starts) ----
+    function isRetryable(err){
+      const code = (err && err.code) ? String(err.code) : '';
+      return (
+        code.includes('unavailable') ||
+        code.includes('deadline-exceeded') ||
+        code.includes('resource-exhausted') ||
+        code.includes('cancelled') ||
+        code.includes('permission-denied')
+      );
+    }
+
+    function withTimeout(promise, ms, label='timeout'){
+      return Promise.race([
+        promise,
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error(label)), ms))
+      ]);
+    }
+
+    async function withRetry(fn, { tries=2, delayMs=350, timeoutMs=12000 } = {}){
+      let lastErr = null;
+      for(let i=0;i<tries;i++){
+        try{
+          return await withTimeout(fn(), timeoutMs, 'request-timeout');
+        }catch(err){
+          lastErr = err;
+          if(!isRetryable(err) || i === tries-1) throw err;
+          await new Promise(r=>setTimeout(r, delayMs));
+        }
+      }
+      throw lastErr;
+    }
 
     function getTime(ts){
       if(!ts) return 0;
@@ -1090,7 +1157,6 @@
 
       STATE.items.forEach(it => {
         const dd = it.data || {};
-        // Skip if we can't match equipment
         let sameEquip = false;
         if(equipId){
           sameEquip = (dd.equipmentId === equipId || dd.equipmentDocId === equipId);
@@ -1136,9 +1202,11 @@
     }
 
     async function loadEmployees(){
+      STATE.isLoadingEmployees = true;
       try{
         const ref = collection(STATE.db, 'employees');
-        const snap = await getDocs(ref);
+        const snap = await withRetry(() => getDocs(ref), { tries: 2, delayMs: 350, timeoutMs: 12000 });
+
         const employees = snap.docs.map(d=>{
           const data = d.data() || {};
           const id = d.id;
@@ -1161,14 +1229,24 @@
       }catch(err){
         console.error('Error loading employees:', err);
         STATE.employees = [];
+      }finally{
+        STATE.isLoadingEmployees = false;
       }
     }
 
     async function loadWorkOrders(){
-      const ref = collection(STATE.db, CONFIG.COLLECTION_PATH);
+      const refCol = collection(STATE.db, CONFIG.COLLECTION_PATH);
+
+      STATE.isLoadingWO = true;
+      setCountText('Loading…');
+      setEmpty('loading', 'Loading equipment service work orders…');
+      clearDetails();
 
       try{
-        const snap = await getDocs(query(ref));
+        // NOTE: still loads full collection (your original behavior),
+        // but with retry + timeout so iPad doesn’t “hang”.
+        const snap = await withRetry(() => getDocs(query(refCol)), { tries: 2, delayMs: 400, timeoutMs: 15000 });
+
         const items = snap.docs.map(d => ({
           id: d.id,
           data: d.data()
@@ -1181,39 +1259,45 @@
         });
 
         STATE.items = items;
+
         renderList();
       }catch(err){
         console.error('Error loading equipment work orders:', err);
+        STATE.items = [];
+
+        setCountText('Error');
+        setEmpty('error', 'Could not load work orders. Tap here to retry.');
         const emptyEl = $('.wo-empty');
         if(emptyEl){
-          emptyEl.textContent = 'Error loading work orders. Check console or Firestore indexes.';
-          emptyEl.style.display = 'block';
+          emptyEl.onclick = () => loadWorkOrders();
         }
-        const countEl = $('#woCount');
-        if(countEl) countEl.textContent = 'Error';
+      }finally{
+        STATE.isLoadingWO = false;
       }
     }
 
     function renderList(){
       const listEl  = $('.wo-list');
-      const emptyEl = $('.wo-empty');
       const countEl = $('#woCount');
+      if(!listEl) return;
 
       listEl.innerHTML = '';
+
+      if(STATE.isLoadingWO){
+        // keep loading message
+        return;
+      }
 
       const filtered = applyFilters(STATE.items);
 
       if(!filtered.length){
-        if(emptyEl){
-          emptyEl.style.display = 'block';
-          emptyEl.textContent = 'No equipment service work orders match the current filters.';
-        }
+        setEmpty('empty', 'No equipment service work orders match the current filters.');
         if(countEl) countEl.textContent = '0 work orders';
         clearDetails();
         return;
       }
 
-      if(emptyEl) emptyEl.style.display = 'none';
+      hideEmpty();
 
       filtered.forEach(item=>{
         const d  = item.data;
@@ -1488,7 +1572,7 @@
 
       attachments.forEach(att=>{
         if(!att || !att.url) return;
-        const isImage = att.contentType?.startsWith('image/') || /\.(png|jpe?g|gif|webp)$/i.test(att.url.split('?')[0]||'');
+        const isImage = att.contentType?.startsWith('image/') || /\.(png|jpe?g|gif|webp)$/i.test((att.url.split('?')[0]||''));
 
         const row = document.createElement('div');
         row.className = 'attachment-item';
@@ -1499,6 +1583,8 @@
           const img = document.createElement('img');
           img.src = att.url;
           img.alt = att.name || 'Attachment';
+          img.loading = 'lazy';
+          img.decoding = 'async';
           thumb.appendChild(img);
         }else{
           thumb.textContent = 'FILE';
@@ -1553,7 +1639,6 @@
           meterBlock.style.display = '';
           if(meterLabelText) meterLabelText.textContent = meterLabel || 'Meter Reading';
           if(meterReq) meterReq.style.display = 'inline';
-          // Find last recorded meter for this equipment
           const lastMeter = getLastMeterForEquipment(item);
           if(meterHint){
             if(lastMeter != null){
@@ -1616,13 +1701,11 @@
         };
       }
 
-      // Enforce one decimal max on the meter input
       if(meterInput){
-        meterInput.placeholder = ''; // no helper text in box
+        meterInput.placeholder = '';
         meterInput.step = '0.1';
         meterInput.addEventListener('input', ()=>{
           let v = meterInput.value || '';
-          // keep only digits and dot
           v = v.replace(/[^\d.]/g,'');
           const parts = v.split('.');
           if(parts.length > 2){
@@ -1676,10 +1759,8 @@
           meterInput.focus();
           return;
         }
-        // round to 1 decimal
         const num = Math.round(numRaw * 10) / 10;
 
-        // Enforce never going backwards
         let lastMeter = null;
         if(meterHint && meterHint.dataset.lastMeter){
           const parsed = Number(meterHint.dataset.lastMeter);
@@ -1696,8 +1777,13 @@
         }
 
         meterVal = num;
-        // normalize value displayed
         meterInput.value = num.toFixed(1);
+      }
+
+      const completeBtn = $('#btnCompleteWO');
+      if(completeBtn){
+        completeBtn.disabled = true;
+        completeBtn.textContent = 'Saving…';
       }
 
       try{
@@ -1712,7 +1798,7 @@
           payload.completionMeter = meterVal;
         }
 
-        await updateDoc(woRef, payload);
+        await withRetry(() => updateDoc(woRef, payload), { tries: 2, delayMs: 350, timeoutMs: 12000 });
 
         item.data[CONFIG.STATUS_FIELD] = CONFIG.STATUS_COMPLETED;
         item.data.completedAt = new Date();
@@ -1728,6 +1814,11 @@
         console.error('Error completing work order:', err);
         if(errorEl) errorEl.textContent = 'Failed to complete work order. Check console / Firestore rules.';
         alert('Failed to complete work order. Check console / Firestore rules.');
+      }finally{
+        if(completeBtn){
+          completeBtn.disabled = false;
+          completeBtn.textContent = 'Mark Work Order Completed';
+        }
       }
     }
 
@@ -1737,12 +1828,12 @@
 
       try{
         const woRef = doc(STATE.db, CONFIG.COLLECTION_PATH, item.id);
-        await updateDoc(woRef, {
+        await withRetry(() => updateDoc(woRef, {
           [CONFIG.STATUS_FIELD]: CONFIG.STATUS_PENDING,
           completedAt: null,
           completionMeter: null,
           updatedAt: serverTimestamp()
-        });
+        }), { tries: 2, delayMs: 350, timeoutMs: 12000 });
 
         item.data[CONFIG.STATUS_FIELD] = CONFIG.STATUS_PENDING;
         item.data.completedAt = null;
@@ -1828,15 +1919,21 @@
         completedAt: null
       };
 
+      const addBtn = document.querySelector('#addLineForm button[type="submit"]');
+      if(addBtn){
+        addBtn.disabled = true;
+        addBtn.textContent = 'Adding…';
+      }
+
       try{
         const woRef = doc(STATE.db, CONFIG.COLLECTION_PATH, woId);
         const newLines = [...oldLines, newLine];
 
-        await updateDoc(woRef, {
+        await withRetry(() => updateDoc(woRef, {
           lineItems: newLines,
           updatedAt: serverTimestamp(),
           [CONFIG.STATUS_FIELD]: CONFIG.STATUS_PENDING
-        });
+        }), { tries: 2, delayMs: 350, timeoutMs: 12000 });
 
         item.data.lineItems = newLines;
         item.data[CONFIG.STATUS_FIELD] = CONFIG.STATUS_PENDING;
@@ -1851,6 +1948,11 @@
       }catch(err){
         console.error('Error adding line item:', err);
         alert('Failed to add service line. Check console / Firestore rules.');
+      }finally{
+        if(addBtn){
+          addBtn.disabled = false;
+          addBtn.textContent = 'Add Line Item';
+        }
       }
     }
 
@@ -1951,10 +2053,10 @@
 
       try{
         const woRef = doc(STATE.db, CONFIG.COLLECTION_PATH, woId);
-        await updateDoc(woRef, {
+        await withRetry(() => updateDoc(woRef, {
           summaryNotes: val || null,
           updatedAt: serverTimestamp()
-        });
+        }), { tries: 2, delayMs: 350, timeoutMs: 12000 });
 
         const item = STATE.items.find(x => x.id === woId);
         if(item){
@@ -2014,6 +2116,8 @@
           const path = `equipmentWorkOrders/${woId}/${Date.now()}-${idx}-${safeName}`;
           const fileRef = ref(storage, path);
 
+          // Storage ops can be flaky on mobile too—no retry loop here (uploadBytes is big),
+          // but we DO update Firestore with retry afterwards.
           await uploadBytes(fileRef, file);
           const url = await getDownloadURL(fileRef);
 
@@ -2028,11 +2132,11 @@
 
         const allAttachments = [...existing, ...newAttachments];
 
-        await updateDoc(woRef, {
+        await withRetry(() => updateDoc(woRef, {
           attachments: allAttachments,
           attachmentCount: allAttachments.length,
           updatedAt: serverTimestamp()
-        });
+        }), { tries: 2, delayMs: 350, timeoutMs: 12000 });
 
         item.data.attachments = allAttachments;
         item.data.attachmentCount = allAttachments.length;
@@ -2105,12 +2209,26 @@
 
       if(empSelect){
         empSelect.innerHTML = '<option value="">Select employee…</option>';
-        STATE.employees.forEach(emp=>{
+
+        if(STATE.isLoadingEmployees){
           const opt = document.createElement('option');
-          opt.value = emp.id;
-          opt.textContent = emp.name;
+          opt.value = '';
+          opt.textContent = 'Loading employees…';
           empSelect.appendChild(opt);
-        });
+        }else if(!STATE.employees.length){
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = 'No employees available';
+          empSelect.appendChild(opt);
+        }else{
+          STATE.employees.forEach(emp=>{
+            const opt = document.createElement('option');
+            opt.value = emp.id;
+            opt.textContent = emp.name;
+            empSelect.appendChild(opt);
+          });
+        }
+
         if(li.completedByEmployeeId){
           empSelect.value = li.completedByEmployeeId;
         }
@@ -2139,6 +2257,7 @@
 
       const completedCheckbox = $('#liCompleted');
       const empSelect = $('#liEmployee');
+      const saveBtn = $('#liSave');
       if(!completedCheckbox || !empSelect) return;
 
       const wantCompleted = completedCheckbox.checked;
@@ -2151,6 +2270,11 @@
 
       const item = STATE.items.find(x => x.id === woId);
       if(!item) return;
+
+      if(saveBtn){
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving…';
+      }
 
       try{
         const emp = STATE.employees.find(e => e.id === empId);
@@ -2186,11 +2310,11 @@
         }
 
         const woRef = doc(STATE.db, CONFIG.COLLECTION_PATH, woId);
-        await updateDoc(woRef, {
+        await withRetry(() => updateDoc(woRef, {
           lineItems: newLines,
           [CONFIG.STATUS_FIELD]: newStatus,
           updatedAt: serverTimestamp()
-        });
+        }), { tries: 2, delayMs: 350, timeoutMs: 12000 });
 
         item.data.lineItems = newLines;
         item.data[CONFIG.STATUS_FIELD] = newStatus;
@@ -2202,6 +2326,11 @@
       }catch(err){
         console.error('Error saving line item from modal:', err);
         alert('Failed to save task. Check console / Firestore rules.');
+      }finally{
+        if(saveBtn){
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save';
+        }
       }
     }
 
@@ -2264,6 +2393,11 @@
     }
 
     (async function boot(){
+      // immediate visible state (prevents iPad “refresh spam”)
+      STATE.isLoadingWO = true;
+      setCountText('Loading…');
+      setEmpty('loading', 'Loading equipment service work orders…');
+
       await ready;
       STATE.db = getFirestore();
 
@@ -2298,10 +2432,13 @@
       setupAttachmentsUI();
       setupLineItemModal();
 
-      await loadEmployees();
-      await loadWorkOrders();
+      // Work orders first (page becomes usable), employees in parallel
+      STATE.isLoadingWO = false;
+      await Promise.allSettled([
+        loadWorkOrders(),
+        loadEmployees()
+      ]);
     })();
-
   </script>
 </head>
 
@@ -2361,7 +2498,7 @@
 
           <section aria-label="Equipment work orders">
             <div class="wo-empty">
-              No equipment service work orders match the current filters.
+              Loading equipment service work orders…
             </div>
             <div class="wo-list"></div>
           </section>
