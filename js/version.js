@@ -1,26 +1,31 @@
 /* =====================================================================
    FarmVista — version.js
    Single Source of Truth (SSOT) for version + tagline
-   SAFE to load multiple times (no redeclaration errors)
+   HARD-SAFE to load multiple times (no redeclaration errors)
 ===================================================================== */
 
 (function () {
+  'use strict';
+
   // HARD GUARD — if version already exists, do nothing
   if (window.FV_VERSION && window.FV_VERSION.number) return;
 
   // ---- EDIT THESE FOR RELEASES ONLY ----
-  const NUMBER  = "12.10.01";
-  const DATE    = "2025-12-10";
-  const TAGLINE = "Farm Data - Simplified";
+  window.FV_VERSION = {
+    number:  "12.10.01",
+    date:    "2025-12-10",
+    tagline: "Farm Data - Simplified"
+  };
   // -------------------------------------
 
-  window.FV_VERSION = { number: NUMBER, date: DATE, tagline: TAGLINE };
-
-  // Legacy shims
-  window.FarmVistaVersion = NUMBER;
-  window.FV_BUILD = NUMBER;
+  // Legacy shims (keep these stable)
+  window.FarmVistaVersion = window.FV_VERSION.number;
+  window.FV_BUILD = window.FV_VERSION.number;
 
   window.App = window.App || {};
-  window.App.getVersion = () => ({ number: NUMBER, date: DATE, tagline: TAGLINE });
+  window.App.getVersion = () => ({
+    number:  window.FV_VERSION.number,
+    date:    window.FV_VERSION.date,
+    tagline: window.FV_VERSION.tagline
+  });
 })();
-
