@@ -275,9 +275,50 @@ const __fvBoot = (function(){
   try{
     window.FV = window.FV || {};
 
-    const isNonEmptyObject = (o) => !!(o && typeof o === 'object' && !Array.isArray(o) && Object.keys(o).length);
+    const isNonEmptyObject = (o) =>
+      !!(o && typeof o === 'object' && !Array.isArray(o) && Object.keys(o).length);
 
-    // NEW: always derive perms directly from FVUserContext (single source of truth)
+    // Normalize common truthy/falsey values that may come from Firestore/UI.
+    const toBool = (v) => {
+      if (v === true) return true;
+      if (v === false) return false;
+      if (typeof v === 'string') {
+        const s = v.trim().toLowerCase();
+        if (s === 'true' || s === '1' || s === 'yes' || s === 'on') return true;
+        if (s === 'false' || s === '0' || s === 'no' || s === 'off') return false;
+      }
+      if (typeof v === 'number') return v === 1;
+      return false;
+    };
+
+    // One-off aliasing to make Field Boundaries behave like every other menu item.
+    // This prevents “one key drift” from hiding the whole feature.
+    const FEATURE_ALIASES = {
+      'office-field-boundaries': [
+        'office-field-boundaries',
+        'office-field-boundary',
+        'office-field-boundary-correction',
+        'field-boundaries',
+        'field-boundary',
+        'field-boundary-correction',
+        'field-boundary-fix',
+        'office-boundaries',
+        'office-field-boundary-fix',
+        'crop-field-boundary-correction'
+      ]
+    };
+
+    function normalizeKey(k){
+      const key = String(k || '').trim();
+      if (!key) return key;
+      // if we have an alias list, always normalize to the canonical key
+      for (const canonical in FEATURE_ALIASES) {
+        const list = FEATURE_ALIASES[canonical] || [];
+        if (canonical === key || list.includes(key)) return canonical;
+      }
+      return key;
+    }
+
     function getPermsFromUserContext(){
       try{
         if (window.FVUserContext && typeof window.FVUserContext.get === 'function') {
@@ -289,7 +330,7 @@ const __fvBoot = (function(){
               (ctx.role && ctx.role.perms && typeof ctx.role.perms === 'object') ? ctx.role.perms :
               null;
 
-            // KEY FIX: if perms is empty, treat as "not ready yet"
+            // if perms is empty, treat as "not ready yet"
             if (isNonEmptyObject(p)) return p;
           }
         }
@@ -305,44 +346,63 @@ const __fvBoot = (function(){
         (ctx.role && ctx.role.perms && typeof ctx.role.perms === 'object') ? ctx.role.perms :
         null;
 
-      // KEY FIX: do NOT overwrite good perms with empty/partial perms
+      // do NOT overwrite good perms with empty/partial perms
       if (!isNonEmptyObject(rawPerms)) return;
 
       window.FV_PERMS_RAW = rawPerms;
       window.FV.permsRaw = rawPerms;
 
-      // optional: a flag other code can use to know perms are real
       window.FV.__permsReady = true;
 
-      // optional: helpful event for ui-nav/fv-shell to rebuild menu deterministically
-      try { document.dispatchEvent(new CustomEvent('fv:perms-ready', { detail: { perms: rawPerms }})); } catch {}
+      try {
+        document.dispatchEvent(new CustomEvent('fv:perms-ready', { detail: { perms: rawPerms }}));
+      } catch {}
     }
 
     if (typeof window.FV.can !== 'function') {
       window.FV.can = function(featureOrKey){
         if (!featureOrKey) return false;
 
-        // Prefer fresh perms from FVUserContext, fall back to cached FV_PERMS_RAW.
         const raw = getPermsFromUserContext() || (isNonEmptyObject(window.FV_PERMS_RAW) ? window.FV_PERMS_RAW : null);
 
-        // KEY FIX: Fail-open until perms are truly ready (prevents intermittent missing nav)
+        // Fail-open until perms are truly ready (prevents intermittent missing nav)
         if (!raw) return true;
 
         const str = String(featureOrKey);
         const parts = str.split(':');
-        const feature = parts[0];
+        const feature = normalizeKey(parts[0]);
         const action = parts.length > 1 ? parts[1] : null;
 
-        const entry = raw[feature] ?? raw[str];
+        const aliasList = FEATURE_ALIASES[feature] || [feature];
+
+        // find the first matching entry across aliases
+        let entry = undefined;
+        for (const k of aliasList) {
+          if (raw && Object.prototype.hasOwnProperty.call(raw, k)) { entry = raw[k]; break; }
+          if (raw && Object.prototype.hasOwnProperty.call(raw, String(k))) { entry = raw[String(k)]; break; }
+        }
+        // fallback: original string lookup (legacy behavior)
+        if (entry === undefined) entry = raw[str];
 
         if (action) {
-          if (entry && typeof entry === 'object' && typeof entry[action] === 'boolean') return entry[action];
+          if (entry && typeof entry === 'object') {
+            const v = entry[action];
+            if (typeof v === 'boolean') return v;
+            return toBool(v);
+          }
           return false;
         }
 
         if (typeof entry === 'boolean') return entry;
         if (entry && typeof entry === 'object') {
-          return (entry.view === true || entry.add === true || entry.edit === true || entry.delete === true || entry.on === true);
+          // Treat any of these as “allowed”
+          if (typeof entry.on !== 'undefined') return toBool(entry.on);
+          return (
+            toBool(entry.view) ||
+            toBool(entry.add) ||
+            toBool(entry.edit) ||
+            toBool(entry.delete)
+          );
         }
         return false;
       };
