@@ -140,6 +140,12 @@
       background:var(--card-surface, var(--surface));
       font-size:0.95rem;
       opacity:0.9;
+      cursor:default;
+      user-select:none;
+    }
+
+    .wo-empty.clickable{
+      cursor:pointer;
     }
 
     .wo-card {
@@ -1087,7 +1093,6 @@
     }
 
     /* REMOVE BLUE TEXT / SAFARI DEFAULT LINK COLORS */
-
     button,
     input,
     select,
@@ -1156,8 +1161,7 @@
     })();
   </script>
 
-  <!-- Google Maps for detail location -->
-  <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY"></script>
+  <!-- NOTE: Google Maps is now lazy-loaded (only when a work order has a location and details are opened). -->
 
   <script type="module">
     import {
@@ -1183,7 +1187,9 @@
       selectedId: null,
       jobForId: null,
       employees: [],
-      pendingJobBase: null   // {crewSelections, notes, rangeText, newPhotoNames}
+      pendingJobBase: null,  // {crewSelections, notes, rangeText, newPhotoNames}
+      isLoadingWO: false,
+      isLoadingEmployees: false
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
@@ -1222,6 +1228,64 @@
     let jobStatusSaveBtn = null;
     let jobStatusChoiceInputs = null;
 
+    // ---------- tiny UX state helpers ----------
+    function setCountText(txt){
+      const el = $('#woCount');
+      if(el) el.textContent = txt;
+    }
+
+    function setEmptyState(mode, message){
+      const emptyEl = $('.wo-empty');
+      if(!emptyEl) return;
+
+      emptyEl.classList.remove('clickable');
+      emptyEl.onclick = null;
+
+      emptyEl.style.display = 'block';
+      emptyEl.textContent = message || '';
+
+      if(mode === 'loading'){
+        emptyEl.style.opacity = '0.85';
+      }else if(mode === 'error'){
+        emptyEl.style.opacity = '0.95';
+        emptyEl.classList.add('clickable');
+      }else{
+        emptyEl.style.opacity = '0.9';
+      }
+    }
+
+    function hideEmpty(){
+      const emptyEl = $('.wo-empty');
+      if(emptyEl) emptyEl.style.display = 'none';
+    }
+
+    // ---------- retry for mobile cold-start ----------
+    function isRetryable(err){
+      const code = (err && err.code) ? String(err.code) : '';
+      return (
+        code.includes('unavailable') ||
+        code.includes('deadline-exceeded') ||
+        code.includes('resource-exhausted') ||
+        code.includes('cancelled') ||
+        // iOS cold-start can hit this if auth is still settling
+        code.includes('permission-denied')
+      );
+    }
+
+    async function withRetry(fn, { tries = 2, delayMs = 320 } = {}){
+      let lastErr = null;
+      for(let i=0;i<tries;i++){
+        try{
+          return await fn();
+        }catch(err){
+          lastErr = err;
+          if(!isRetryable(err) || i === tries-1) throw err;
+          await new Promise(r => setTimeout(r, delayMs));
+        }
+      }
+      throw lastErr;
+    }
+
     function getTime(ts){
       if(!ts) return 0;
       try{
@@ -1254,6 +1318,25 @@
       document.body.style.overflow = '';
     }
 
+    // ---------- lazy-load Google Maps ----------
+    let mapsPromise = null;
+    function loadGoogleMapsOnce(){
+      if(window.google && window.google.maps) return Promise.resolve();
+      if(mapsPromise) return mapsPromise;
+
+      mapsPromise = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.async = true;
+        s.defer = true;
+        s.src = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY';
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error('Maps failed to load'));
+        document.head.appendChild(s);
+      });
+
+      return mapsPromise;
+    }
+
     function clearDetails(){
       const panel = $('.wo-detail-panel');
       if(!panel) return;
@@ -1268,14 +1351,15 @@
       const footer = $('.wo-detail-footer', panel);
       if(footer) footer.innerHTML = '';
       const attGrid = $('#woDetailAttachments');
-      if(attGrid){
-        attGrid.innerHTML = '';
-      }
+      if(attGrid) attGrid.innerHTML = '';
+      const mapShell = $('#woDetailMapShell');
+      if(mapShell) mapShell.style.display = 'none';
     }
 
-    function renderDetails(){
+    async function renderDetails(){
       const panel = $('.wo-detail-panel');
       if(!panel) return;
+
       const item = STATE.items.find(x => x.id === STATE.selectedId);
       if(!item){
         clearDetails();
@@ -1350,11 +1434,7 @@
       if(Array.isArray(data.photoUrls)){
         for(const url of data.photoUrls){
           if(!url) continue;
-          attachments.push({
-            url,
-            name: 'Photo',
-            type: 'image'
-          });
+          attachments.push({ url, name:'Photo', type:'image' });
         }
       }
 
@@ -1372,11 +1452,7 @@
       if(Array.isArray(data.photos)){
         for(const url of data.photos){
           if(!url) continue;
-          attachments.push({
-            url,
-            name: 'Photo',
-            type: 'image'
-          });
+          attachments.push({ url, name:'Photo', type:'image' });
         }
       }
 
@@ -1409,6 +1485,8 @@
               const img = document.createElement('img');
               img.src = att.url;
               img.alt = att.name || 'Attachment';
+              img.loading = 'lazy';
+              img.decoding = 'async';
               thumb.appendChild(img);
             }else{
               thumb.textContent = 'FILE';
@@ -1471,16 +1549,25 @@
         `;
       }
 
+      // Map support if location exists (lazy-load maps)
       const loc = data.location;
       const mapShell = $('#woDetailMapShell');
       if(
+        mapShell &&
         loc &&
         typeof loc.lat === 'number' &&
-        typeof loc.lng === 'number' &&
-        window.google &&
-        window.google.maps
+        typeof loc.lng === 'number'
       ){
         mapShell.style.display = '';
+        try{
+          await loadGoogleMapsOnce();
+        }catch(err){
+          console.warn('Maps unavailable:', err);
+          mapShell.style.display = 'none';
+          panel.style.display = 'flex';
+          return;
+        }
+
         const el = $('#woDetailMap');
         const center = { lat: loc.lat, lng: loc.lng };
 
@@ -1492,19 +1579,13 @@
             disableDefaultUI: true,
             zoomControl: true
           });
-          detailMarker = new google.maps.Marker({
-            position: center,
-            map: detailMap
-          });
+          detailMarker = new google.maps.Marker({ position:center, map:detailMap });
         }else{
           detailMap.setCenter(center);
           detailMap.setZoom(18);
           detailMap.setMapTypeId('satellite');
           if(!detailMarker){
-            detailMarker = new google.maps.Marker({
-              position: center,
-              map: detailMap
-            });
+            detailMarker = new google.maps.Marker({ position:center, map:detailMap });
           }else{
             detailMarker.setPosition(center);
           }
@@ -1518,24 +1599,26 @@
 
     function renderList(){
       const listEl  = $('.wo-list');
-      const emptyEl = $('.wo-empty');
       const countEl = $('#woCount');
+      if(!listEl) return;
 
       listEl.innerHTML = '';
 
+      if(STATE.isLoadingWO){
+        setCountText('Loading…');
+        setEmptyState('loading', 'Loading active work orders…');
+        clearDetails();
+        return;
+      }
+
       if(!STATE.items.length){
-        if(emptyEl) {
-          emptyEl.style.display = 'block';
-          emptyEl.textContent = 'No work orders are currently pending or in progress. Once work orders are approved and ready, they will appear here.';
-        }
+        setEmptyState('empty', 'No work orders are currently pending or in progress. Once work orders are approved and ready, they will appear here.');
         if(countEl) countEl.textContent = '0 active work orders';
         clearDetails();
         return;
       }
 
-      if(emptyEl){
-        emptyEl.style.display = 'none';
-      }
+      hideEmpty();
 
       for(const item of STATE.items){
         const data = item.data;
@@ -1621,6 +1704,11 @@
     }
 
     async function loadActiveWorkOrders(){
+      if(!STATE.db) return;
+
+      STATE.isLoadingWO = true;
+      renderList();
+
       const db  = STATE.db;
       const ref = collection(db, CONFIG.COLLECTION_PATH);
 
@@ -1629,7 +1717,8 @@
           ref,
           where(CONFIG.STATUS_FIELD, 'in', [CONFIG.STATUS_PENDING, CONFIG.STATUS_INPROG])
         );
-        const snap = await getDocs(qRef);
+
+        const snap = await withRetry(() => getDocs(qRef), { tries: 2, delayMs: 350 });
 
         const items = snap.docs.map(d => ({
           id: d.id,
@@ -1643,30 +1732,41 @@
         });
 
         STATE.items = items;
-        renderList();
       }catch(err){
         console.error('Error loading active work orders:', err);
+        STATE.items = [];
+
+        setCountText('Error loading work orders');
+
+        setEmptyState('error', 'Could not load work orders. Tap here to retry.');
         const emptyEl = $('.wo-empty');
-        const countEl = $('#woCount');
         if(emptyEl){
-          emptyEl.textContent = 'Error loading work orders. Check console or Firestore indexes.';
-          emptyEl.style.display = 'block';
+          emptyEl.onclick = () => loadActiveWorkOrders();
         }
-        if(countEl) countEl.textContent = 'Error loading work orders';
+
         clearDetails();
+      }finally{
+        STATE.isLoadingWO = false;
+        renderList();
       }
     }
 
     async function loadEmployees(){
+      if(!STATE.db) return;
+
+      STATE.isLoadingEmployees = true;
       try{
         const db = STATE.db;
         const ref = collection(db, 'employees');
-        const snap = await getDocs(ref);
+        // Employees load does not block page; but add a small retry for mobile as well
+        const snap = await withRetry(() => getDocs(ref), { tries: 2, delayMs: 350 });
         STATE.employees = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         populateCrewList();
       }catch(err){
         console.error('Error loading employees for crew list:', err);
         populateCrewList(true);
+      }finally{
+        STATE.isLoadingEmployees = false;
       }
     }
 
@@ -1861,7 +1961,6 @@
           txt += ev.results[i][0].transcript;
         }
         taEl.value = baseText + txt;
-        // bubble input so any listeners pick it up
         taEl.dispatchEvent(new Event('input', { bubbles:true }));
       };
 
@@ -1911,7 +2010,7 @@
 
       try{
         const jobRef = doc(STATE.db, 'fieldMaintenanceJobs', STATE.jobForId);
-        const snap = await getDoc(jobRef);
+        const snap = await withRetry(() => getDoc(jobRef), { tries: 2, delayMs: 350 });
         if(snap.exists()){
           const jd = snap.data() || {};
           if(jobRangeInputEl && jd.projectRange){
@@ -1963,9 +2062,15 @@
       const { crewSelections, notes, rangeText, newPhotoNames } = STATE.pendingJobBase;
       const submittedBy = jobSubmittedByInput ? jobSubmittedByInput.value.trim() : '';
 
+      const saveBtn = document.getElementById('jobSave');
+      if(saveBtn){
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving…';
+      }
+
       try{
         const jobRef = doc(STATE.db, 'fieldMaintenanceJobs', STATE.jobForId);
-        const prevSnap = await getDoc(jobRef);
+        const prevSnap = await withRetry(() => getDoc(jobRef), { tries: 2, delayMs: 350 });
         const prev = prevSnap.exists() ? prevSnap.data() || {} : {};
 
         const oldNames = Array.isArray(prev.photoFileNames) ? prev.photoFileNames : [];
@@ -1983,13 +2088,13 @@
           createdAt: prev.createdAt || serverTimestamp()
         };
 
-        await setDoc(jobRef, payload, { merge: true });
+        await withRetry(() => setDoc(jobRef, payload, { merge: true }), { tries: 2, delayMs: 350 });
 
         const woRef = doc(STATE.db, CONFIG.COLLECTION_PATH, STATE.jobForId);
-        await updateDoc(woRef, {
+        await withRetry(() => updateDoc(woRef, {
           [CONFIG.STATUS_FIELD]: jobStatus,
           updatedAt: serverTimestamp()
-        });
+        }), { tries: 2, delayMs: 350 });
 
         STATE.pendingJobBase = null;
         closeJobStatusModal();
@@ -2000,6 +2105,11 @@
         STATE.pendingJobBase = null;
         closeJobStatusModal();
         alert('Failed to save job. Check console / Firestore rules.');
+      }finally{
+        if(saveBtn){
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save Job';
+        }
       }
     }
 
@@ -2025,11 +2135,14 @@
         : [];
 
       STATE.pendingJobBase = { crewSelections, notes, rangeText, newPhotoNames };
-
       openJobStatusModal();
     }
 
     (async function boot(){
+      // Show immediate loading state (prevents “refresh spam” on iPad)
+      STATE.isLoadingWO = true;
+      renderList();
+
       await ready;
       STATE.db = getFirestore();
 
@@ -2144,8 +2257,11 @@
       setupCrewDropdown();
       setupJobSubmittedBy();
 
-      await loadEmployees();
-      await loadActiveWorkOrders();
+      // Parallelize: employees + work orders can load at the same time
+      await Promise.allSettled([
+        loadEmployees(),
+        loadActiveWorkOrders()
+      ]);
     })();
   </script>
 
@@ -2181,8 +2297,7 @@
 
           <section aria-label="Pending and in-progress work orders">
             <div class="wo-empty">
-              No work orders are currently pending or in progress.
-              Once work orders are approved and ready to work, they will appear here.
+              Loading active work orders…
             </div>
             <div class="wo-list"></div>
           </section>
