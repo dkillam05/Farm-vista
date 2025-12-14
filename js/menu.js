@@ -4,7 +4,7 @@
    Permissions:
    - Each item may declare `perm: 'feature-key'`.
    - If `perm` is omitted, the item is always visible.
-   - Later, ui-nav will filter items with `FV.can(item.perm)`.
+   - Later, nav UI will filter items with `FV.can(item.perm)`.
 */
 
 export const NAV_MENU = {
@@ -73,18 +73,6 @@ export const NAV_MENU = {
           label: 'Trials',
           href: '/Farm-vista/pages/crop-production/trials.html',
           activeMatch: 'exact'
-        },
-
-        // Field Boundary moved here (right under Trials)
-        // NOTE: we keep the existing perm key so roles don't break.
-        {
-          type: 'link',
-          id: 'crop-field-boundary-correction',
-          perm: 'office-field-boundaries',
-          icon: '🗺️',
-          label: 'Field Boundary Correction',
-          href: '/Farm-vista/pages/office/field-boundaries.html',
-          activeMatch: 'starts-with'
         },
 
         // Operational Records group for core operations — EXPAND ONLY
@@ -324,6 +312,18 @@ export const NAV_MENU = {
       collapsible: true,
       initialOpen: false,
       children: [
+        // ✅ Field Boundaries Correction (moved BACK under Office)
+        // NOTE: perm key unchanged so roles don't break.
+        {
+          type: 'link',
+          id: 'office-field-boundary-correction',
+          perm: 'office-field-boundaries',
+          icon: '🗺️',
+          label: 'Field Boundary Correction',
+          href: '/Farm-vista/pages/office/field-boundaries.html',
+          activeMatch: 'starts-with'
+        },
+
         // Teams & Partners – EXPAND ONLY
         {
           type: 'group',
@@ -379,8 +379,6 @@ export const NAV_MENU = {
           href: '/Farm-vista/pages/office/vehicle-registration.html',
           activeMatch: 'exact'
         }
-
-        // NOTE: Field Boundaries REMOVED from Office (moved under Crop Production)
       ]
     },
 
@@ -656,6 +654,7 @@ export const NAV_MENU = {
           type: 'link',
           id: 'setup-grain-sites',
           perm: 'setup-grain-sites',
+          permKey: 'setup-grain-sites',
           label: 'Grain Bin Sites',
           icon: `
             <svg viewBox="0 0 24 24" aria-hidden="true"
