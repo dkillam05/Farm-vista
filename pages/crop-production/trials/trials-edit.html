@@ -2585,76 +2585,169 @@
   if(!id || !STATE.db) return;
   if(STATE.isEditingSetup) return;
 
-  const ok = window.confirm('Delete this trial and ALL of its fields and yield blocks? This cannot be undone.');
-  if(!ok) return;
+  // Use the FarmVista "type YES" modal we added in the HTML
+  const modal    = document.getElementById('deleteConfirmModal');
+  const backdrop = document.getElementById('deleteBackdrop');
+  const closeBtn = document.getElementById('deleteModalClose');
+  const inputEl  = document.getElementById('deleteConfirmInput');
+  const cancelBtn= document.getElementById('deleteCancelBtn');
+  const confirmBtn=document.getElementById('deleteConfirmBtn');
 
-      const delBtn = $('#trialDeleteBtn');
-      if(delBtn){
-        delBtn.disabled = true;
-      }
+  // Fallback to confirm if modal isn't present for any reason
+  const hasModal = !!(modal && inputEl && cancelBtn && confirmBtn);
 
-      try{
-        const db = STATE.db;
+  const delBtn = $('#trialDeleteBtn');
 
-        const fieldsRef = collection(db, CONFIG.COLLECTION_TRIALS, id, 'fields');
-        const fieldsSnap = await getDocs(fieldsRef);
+  const lockTrashButton = () => {
+    if(delBtn) delBtn.disabled = true;
+  };
+  const unlockTrashButton = () => {
+    // If user lacks perm-ui will keep it disabled anyway; this just restores state for allowed users.
+    if(delBtn) delBtn.disabled = false;
+  };
 
-        await Promise.all(
-          fieldsSnap.docs.map(async (fieldDoc) => {
-            const fieldId = fieldDoc.id;
+  const doDelete = async () => {
+    lockTrashButton();
 
-            const blocksRef = collection(
-              db,
-              CONFIG.COLLECTION_TRIALS,
-              id,
-              'fields',
-              fieldId,
-              'yieldBlocks'
-            );
-            const blocksSnap = await getDocs(blocksRef);
-            await Promise.all(blocksSnap.docs.map(b => deleteDoc(b.ref)));
+    try{
+      const db = STATE.db;
 
-            const mhStateRef = doc(
-              db,
-              CONFIG.COLLECTION_TRIALS,
-              id,
-              'fields',
-              fieldId,
-              'multiHybrid',
-              'state'
-            );
-            try{
-              await deleteDoc(mhStateRef);
-            }catch(e){
-              // ignore
-            }
+      // Delete fields/*/yieldBlocks/* + multiHybrid/state + field doc
+      const fieldsRef = collection(db, CONFIG.COLLECTION_TRIALS, id, 'fields');
+      const fieldsSnap = await getDocs(fieldsRef);
 
-            await deleteDoc(fieldDoc.ref);
-          })
-        );
+      await Promise.all(
+        fieldsSnap.docs.map(async (fieldDoc) => {
+          const fieldId = fieldDoc.id;
 
-        const yieldsRef = collection(db, CONFIG.COLLECTION_TRIALS, id, 'yieldBlocks');
-        const yieldsSnap = await getDocs(yieldsRef);
-        await Promise.all(yieldsSnap.docs.map(d => deleteDoc(d.ref)));
+          const blocksRef = collection(
+            db,
+            CONFIG.COLLECTION_TRIALS,
+            id,
+            'fields',
+            fieldId,
+            'yieldBlocks'
+          );
+          const blocksSnap = await getDocs(blocksRef);
+          await Promise.all(blocksSnap.docs.map(b => deleteDoc(b.ref)));
 
-        const trialRef = doc(db, CONFIG.COLLECTION_TRIALS, id);
-        await deleteDoc(trialRef);
+          const mhStateRef = doc(
+            db,
+            CONFIG.COLLECTION_TRIALS,
+            id,
+            'fields',
+            fieldId,
+            'multiHybrid',
+            'state'
+          );
+          try{ await deleteDoc(mhStateRef); }catch(e){ /* ignore */ }
 
-        STATE.allItems = STATE.allItems.filter(x => x.id !== id);
-        STATE.items = STATE.items.filter(x => x.id !== id);
-        STATE.selectedId = null;
+          await deleteDoc(fieldDoc.ref);
+        })
+      );
 
-        applyFilters();
-        clearDetails();
-        showToast('Trial deleted.');
-      }catch(err){
-        console.error('Error deleting trial:', err);
-        showToast('Error deleting trial.');
-        if(delBtn){
-          delBtn.disabled = false;
-        }
-      }
+      // Extra safety: delete any yieldBlocks directly under the trial if present
+      const yieldsRef = collection(db, CONFIG.COLLECTION_TRIALS, id, 'yieldBlocks');
+      const yieldsSnap = await getDocs(yieldsRef);
+      await Promise.all(yieldsSnap.docs.map(d => deleteDoc(d.ref)));
+
+      // Delete the trial doc last
+      const trialRef = doc(db, CONFIG.COLLECTION_TRIALS, id);
+      await deleteDoc(trialRef);
+
+      // Update local state/UI
+      STATE.allItems = STATE.allItems.filter(x => x.id !== id);
+      STATE.items = STATE.items.filter(x => x.id !== id);
+      STATE.selectedId = null;
+
+      applyFilters();
+      clearDetails();
+      showToast('Trial deleted.');
+    }catch(err){
+      console.error('Error deleting trial:', err);
+      showToast('Error deleting trial.');
+      unlockTrashButton();
     }
+  };
+
+  // If modal missing, fall back to browser confirm
+  if(!hasModal){
+    const ok = window.confirm('Delete this trial and ALL of its fields and yield blocks? This cannot be undone.');
+    if(!ok) return;
+    await doDelete();
+    return;
+  }
+
+  // Modal open/close helpers
+  const openModal = () => {
+    inputEl.value = '';
+    confirmBtn.disabled = true;
+    modal.classList.add('show');
+    document.body.style.overflow = 'hidden';
+    setTimeout(()=>{ try{ inputEl.focus(); }catch{} }, 0);
+  };
+
+  const closeModal = () => {
+    modal.classList.remove('show');
+    document.body.style.overflow = '';
+  };
+
+  // Keep handlers local & clean (no stacking)
+  const onInput = () => {
+    confirmBtn.disabled = (inputEl.value || '').trim().toUpperCase() !== 'YES';
+  };
+
+  const onKeyDown = (e) => {
+    if(e.key === 'Escape'){
+      e.preventDefault();
+      cleanup();
+      closeModal();
+    } else if(e.key === 'Enter' && !confirmBtn.disabled){
+      e.preventDefault();
+      confirmBtn.click();
+    }
+  };
+
+  const cleanup = () => {
+    try{ inputEl.removeEventListener('input', onInput); }catch{}
+    try{ document.removeEventListener('keydown', onKeyDown, true); }catch{}
+    try{ backdrop && backdrop.removeEventListener('click', onCancel); }catch{}
+    try{ closeBtn && closeBtn.removeEventListener('click', onCancel); }catch{}
+    try{ cancelBtn.removeEventListener('click', onCancel); }catch{}
+    try{ confirmBtn.removeEventListener('click', onConfirm); }catch{}
+  };
+
+  const onCancel = () => {
+    cleanup();
+    closeModal();
+  };
+
+  const onConfirm = async () => {
+    // double-check permission right before deleting
+    if (!window.FV || typeof window.FV.can !== 'function' || !window.FV.can('crop-trials:delete')) {
+      showToast('You do not have permission to delete trials.');
+      cleanup();
+      closeModal();
+      return;
+    }
+
+    confirmBtn.disabled = true;
+    cleanup();
+    closeModal();
+    await doDelete();
+  };
+
+  // Wire up modal events
+  inputEl.addEventListener('input', onInput);
+  document.addEventListener('keydown', onKeyDown, true);
+  if(backdrop) backdrop.addEventListener('click', onCancel);
+  if(closeBtn) closeBtn.addEventListener('click', onCancel);
+  cancelBtn.addEventListener('click', onCancel);
+  confirmBtn.addEventListener('click', onConfirm);
+
+  // Show it
+  openModal();
+}
 
     (async function boot(){
       await ready;
@@ -2967,14 +3060,50 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <div id="fileModal" class="file-modal" role="dialog" aria-modal="true" aria-label="Trial attachment">
-    <div id="fileBackdrop" class="file-backdrop"></div>
-    <div class="file-sheet">
-      <div class="file-close-row">
-        <button id="fileModalClose" type="button" class="file-close-btn">Close</button>
+  <!-- File / Attachment Viewer Modal (existing) -->
+<div id="fileModal" class="file-modal" role="dialog" aria-modal="true" aria-label="Trial attachment">
+  <div id="fileBackdrop" class="file-backdrop"></div>
+  <div class="file-sheet">
+    <div class="file-close-row">
+      <button id="fileModalClose" type="button" class="file-close-btn">Close</button>
+    </div>
+    <div id="fileContentWrap" class="file-content-wrap"></div>
+  </div>
+</div>
+
+<!-- Delete Confirmation Modal (type YES) -->
+<div id="deleteConfirmModal" class="file-modal" role="dialog" aria-modal="true" aria-label="Delete trial confirmation">
+  <div id="deleteBackdrop" class="file-backdrop"></div>
+
+  <div class="file-sheet" style="max-width:460px">
+    <div class="file-close-row" style="justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div style="font-weight:900;font-size:1.05rem;line-height:1.2">Delete Trial</div>
+      <button id="deleteModalClose" type="button" class="file-close-btn">Close</button>
+    </div>
+
+    <div style="padding:2px 2px 6px">
+      <div class="muted" style="font-size:.92rem;line-height:1.35">
+        This will permanently delete the trial and all fields/yield data.
+        <br><b>Type YES</b> to confirm.
       </div>
-      <div id="fileContentWrap" class="file-content-wrap"></div>
+
+      <input
+        id="deleteConfirmInput"
+        type="text"
+        class="trial-edit-input"
+        placeholder="Type YES"
+        autocomplete="off"
+        spellcheck="false"
+        style="margin-top:10px"
+      />
+
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+        <button type="button" id="deleteCancelBtn" class="btn btn-quiet">Cancel</button>
+        <button type="button" id="deleteConfirmBtn" class="btn btn-complete" disabled>Delete</button>
+      </div>
     </div>
   </div>
+</div>
+
 </body>
 </html>
