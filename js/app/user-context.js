@@ -7,6 +7,12 @@
    - Last-Known-Good (LKG) reuse: on network/auth hiccups, we keep the prior context instead of emitting blanks.
    - No behavioral change to your permissive key-mapping logic and ACL computation.
    - NEW: exposes role/employee/perms/effectivePerms so the permission engine in theme-boot.js can use them.
+
+   PATCH (2025-12-14):
+   - Fix cross-module nav items moved between groups:
+     * Build PERM_TO_ID so perm keys can map to nav leaf ids.
+     * Prevent container-level keys (e.g., "crop") from auto-enabling links whose perm clearly belongs to another module.
+     * Allows boundary link to live under Crop Production UI but still be controlled by office-field-boundaries perm key.
 */
 
 (function () {
@@ -43,7 +49,7 @@
   async function importFirebase(){ return await import('/Farm-vista/js/firebase-init.js'); }
   async function importMenu(){ const m = await import('/Farm-vista/js/menu.js'); return (m && (m.NAV_MENU || m.default)) || null; }
 
-  /* ---------------------- NAV indexing (ids + labels) --------------------- */
+  /* ---------------------- NAV indexing (ids + labels + perm mapping) --------------------- */
   function buildNavIndexes(NAV_MENU){
     const CONTAINERS = new Map();   // containerId -> [leafIds]
     const CAP_SET    = new Set();   // leaf ids
@@ -53,12 +59,45 @@
     const HREF_TO_ID = new Map();   // href -> leafId
     const ID_TO_LABEL = new Map();  // id -> label (for debug)
 
-    const simplify = (s)=> String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
+    // NEW: perm mapping
+    const PERM_TO_ID = new Map();   // permKey -> leafId (first wins)
+    const ID_TO_PERM = new Map();   // leafId -> permKey (if present)
 
-    function collectLinks(nodes, acc){
+    const simplify = (s)=> String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
+    const normPerm = (s)=> String(s||'').trim();
+
+    // Decide whether a leaf should be considered "under" a container for container-wide toggles.
+    // Rule: if a leaf has a perm and it clearly belongs to another module, do NOT let the parent container toggle it.
+    // This prevents moving a link under Crop Production from making it controlled by "crop" container perms.
+    function leafBelongsToContainer(containerId, leaf){
+      const cid = String(containerId||'').trim();
+      if (!cid) return true;
+
+      const perm = normPerm(leaf && leaf.perm);
+      if (!perm) return true; // no perm declared → treat as belonging (legacy behavior)
+
+      // If perm is "crop" or starts "crop-" it belongs to crop. Same for other containers.
+      if (perm === cid) return true;
+      if (perm.startsWith(cid + '-')) return true;
+
+      // Otherwise, it looks cross-module: do NOT include it in container expansion.
+      return false;
+    }
+
+    function collectLinksForContainer(nodes, acc, containerId){
       (nodes||[]).forEach(n=>{
         if(n.type==='group' && Array.isArray(n.children)){
-          collectLinks(n.children, acc);
+          collectLinksForContainer(n.children, acc, containerId);
+        } else if(n.type==='link' && n.id){
+          if (leafBelongsToContainer(containerId, n)) acc.push(n);
+        }
+      });
+    }
+
+    function collectLinksAll(nodes, acc){
+      (nodes||[]).forEach(n=>{
+        if(n.type==='group' && Array.isArray(n.children)){
+          collectLinksAll(n.children, acc);
         } else if(n.type==='link' && n.id){
           acc.push(n);
         }
@@ -72,28 +111,41 @@
       CONT_BY_ID.set(contId, true);
       if(contLabel) CONT_BY_LABEL.set(contLabel, contId);
 
+      // Leaves that belong to this top container (for container-wide perms)
       const underTop = [];
-      collectLinks([top], underTop);
+      collectLinksForContainer([top], underTop, contId);
 
+      // Leaves under each child subgroup (for subgroup container perms)
       (top.children||[]).forEach(ch=>{
         if(ch.type==='group'){
           const sid = ch.id;
           const sl  = simplify(ch.label || ch.id || '');
           CONT_BY_ID.set(sid, true);
           if(sl) CONT_BY_LABEL.set(sl, sid);
-          const underSub = []; collectLinks([ch], underSub);
+          const underSub = [];
+          collectLinksForContainer([ch], underSub, sid);
           CONTAINERS.set(sid, underSub.map(x=>x.id));
         }
       });
 
       CONTAINERS.set(contId, underTop.map(x=>x.id));
 
-      underTop.forEach(link=>{
+      // All links under this top group (for leaf mapping, labels, href mapping, perm mapping)
+      const allUnderTop = [];
+      collectLinksAll([top], allUnderTop);
+
+      allUnderTop.forEach(link=>{
         CAP_SET.add(link.id);
         ID_TO_LABEL.set(link.id, link.label || link.id);
         if (link.href) HREF_TO_ID.set(link.href, link.id);
         const labKey = simplify(link.label || '');
         if (labKey && !CAP_LABELS.has(labKey)) CAP_LABELS.set(labKey, link.id);
+
+        const permKey = normPerm(link.perm);
+        if (permKey){
+          if (!PERM_TO_ID.has(permKey)) PERM_TO_ID.set(permKey, link.id);
+          if (!ID_TO_PERM.has(link.id)) ID_TO_PERM.set(link.id, permKey);
+        }
       });
     });
 
@@ -106,7 +158,11 @@
       if (CAP_LABELS.has(homeKey)) HOME_ID = CAP_LABELS.get(homeKey);
     }
 
-    return { CONTAINERS, CAP_SET, CAP_LABELS, CONT_BY_ID, CONT_BY_LABEL, HREF_TO_ID, HOME_ID, ID_TO_LABEL };
+    return {
+      CONTAINERS, CAP_SET, CAP_LABELS, CONT_BY_ID, CONT_BY_LABEL,
+      HREF_TO_ID, HOME_ID, ID_TO_LABEL,
+      PERM_TO_ID, ID_TO_PERM
+    };
   }
 
   /* ----------------------- key mapping (forgiving) ------------------------ */
@@ -128,11 +184,22 @@
   function mapLeafKey(raw, idx){
     if (!raw) return null;
     const id = normalize(raw);
+
+    // 0) Direct match to leaf id
     if (idx.CAP_SET.has(id)) return id;
 
+    // 1) NEW: perm key match → leaf id
+    try{
+      if (idx.PERM_TO_ID && idx.PERM_TO_ID.has(id)) return idx.PERM_TO_ID.get(id);
+      const dashy = simplifyKey(id);
+      if (idx.PERM_TO_ID && idx.PERM_TO_ID.has(dashy)) return idx.PERM_TO_ID.get(dashy);
+    }catch{}
+
+    // 2) label match
     const byLabel = idx.CAP_LABELS.get(simpleLabel(id));
     if (byLabel) return byLabel;
 
+    // 3) fuzzy match against ids
     let best = null;
     for (const candidate of idx.CAP_SET){
       if (candidate === id) return candidate;
@@ -170,8 +237,12 @@
     const unknownLeaves = [];
     Object.keys(perms).forEach(key=>{
       const on = valToBool(perms[key]); if (on===undefined) return;
+
+      // ✅ leaf mapping now understands BOTH leaf ids and perm keys
       const leaf = mapLeafKey(key, idx);
-      if (leaf) { base.all[leaf] = on; } else if (!idx.CONTAINERS.has(key)) {
+
+      if (leaf) { base.all[leaf] = on; }
+      else if (!idx.CONTAINERS.has(key)) {
         unknownLeaves.push(key);
       }
     });
@@ -194,13 +265,16 @@
       Object.entries(overrides).forEach(([path, v])=>{
         const bits = String(path).split('.');
         const rawLeaf = bits.length >= 2 ? bits.slice(1).join('.') : bits[0];
+
+        // ✅ overrides can reference leaf ids OR perm keys now
         const leaf = mapLeafKey(rawLeaf, idx);
+
         if (!leaf){ unknownOverrideLeaves.push(path); return; }
         if (v === true) allowed.add(leaf);
         else if (v === false) allowed.delete(leaf);
       });
       if (wantDebug && unknownOverrideLeaves.length){
-        debug('Unknown override keys (not matched to any menu id):', unknownOverrideLeaves);
+        debug('Unknown override keys (not matched to any menu id/perm):', unknownOverrideLeaves);
       }
     }
     return allowed;
@@ -343,7 +417,7 @@
     // Raw perms as stored on the role doc
     const perms    = roleDoc?.perms || roleDoc?.permissions || null;
 
-    // Nav ACL (existing behavior)
+    // Nav ACL (existing behavior, but leaf mapping now supports perm keys)
     const base    = baselineFromPerms(perms, idx);
     const allow   = applyOverrides(base, emp.overrides || {}, idx);
 
