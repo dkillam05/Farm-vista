@@ -440,6 +440,7 @@
             <span class="label">Grain Ticket</span>
             <span class="hint">Coming soon</span>
           </span>
+          <span class="chevron">›</span>
         </button>
       </div>
     </div>
@@ -1030,6 +1031,54 @@
       return (p === '/Farm-vista/' || p === '/Farm-vista/index.html');
     }
 
+    /* ============================================================
+       STRICT MENU SEATBELT:
+       - After FVMenuACL.filter(), prune any link whose id is NOT in allowedIds.
+       - Prevents “parent group allowed => all children show” bugs.
+       - Removes empty groups after pruning.
+       ============================================================ */
+    _strictPruneMenuByAllowedIds(cfg, allowedIds){
+      const set = new Set(Array.isArray(allowedIds) ? allowedIds : []);
+
+      const clone = (obj)=> {
+        try { return JSON.parse(JSON.stringify(obj)); } catch { return obj; }
+      };
+
+      const walkNodes = (nodes)=>{
+        const out = [];
+        (nodes||[]).forEach(it=>{
+          if (!it || typeof it !== 'object') return;
+
+          if (it.type === 'link'){
+            // Keep Home-ish links even if ID mismatch (home rescue is handled elsewhere too)
+            if (this._looksLikeHome(it)) { out.push(it); return; }
+
+            const id = (it.id || '').toString();
+            if (id && set.has(id)) out.push(it);
+            return;
+          }
+
+          if (it.type === 'group'){
+            const kids = walkNodes(it.children || []);
+            if (kids.length){
+              const g2 = clone(it);
+              g2.children = kids;
+              out.push(g2);
+            }
+            return;
+          }
+
+          // Unknown node types: drop to be safe
+        });
+        return out;
+      };
+
+      const base = cfg && cfg.items ? cfg : { items: [] };
+      const pruned = clone(base);
+      pruned.items = walkNodes(base.items || []);
+      return pruned;
+    }
+
     async _initMenuFiltered(){
       const NAV_MENU = await this._loadMenu();
       if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) return;
@@ -1044,8 +1093,11 @@
         ? window.FVMenuACL.filter(NAV_MENU, allowedIds)
         : NAV_MENU;
 
-      let cfgToRender = filtered;
-      let linkCount = this._countLinks(filtered);
+      // ✅ SEATBELT: ensure only explicitly-allowed link IDs render
+      const filteredStrict = this._strictPruneMenuByAllowedIds(filtered, allowedIds);
+
+      let cfgToRender = filteredStrict;
+      let linkCount = this._countLinks(filteredStrict);
 
       if (linkCount === 0 && allowedIds.length > 0) {
         const allLinks = this._collectAllLinks(NAV_MENU);
@@ -1056,7 +1108,7 @@
         cfgToRender = { items: rescued.map(l => ({ type:'link', id:l.id, label:l.label, href:l.href, icon:l.icon, activeMatch:l.activeMatch })) };
       } else {
         const alreadyHasHome = (()=>{
-          const links = this._collectAllLinks(filtered);
+          const links = this._collectAllLinks(filteredStrict);
           return links.some(l => this._looksLikeHome(l));
         })();
         if (!alreadyHasHome) {
@@ -1065,7 +1117,7 @@
           if (homeLink) {
             cfgToRender = {
               items: [{ type:'link', id:homeLink.id, label:homeLink.label, href:homeLink.href, icon:homeLink.icon, activeMatch:homeLink.activeMatch }]
-                     .concat(filtered.items||[])
+                     .concat((filteredStrict.items||[]))
             };
           }
         }
