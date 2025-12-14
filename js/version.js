@@ -14,22 +14,13 @@
   const TAGLINE = "Farm Data - Simplified";
   // -------------------------------------
 
-  // Primary canonical object
-  window.FV_VERSION = {
-    number: NUMBER,
-    date: DATE,
-    tagline: TAGLINE
-  };
+  window.FV_VERSION = { number: NUMBER, date: DATE, tagline: TAGLINE };
 
-  // Legacy shims (DO NOT REMOVE — older pages depend on these)
+  // Legacy shims
   window.FarmVistaVersion = NUMBER;
   window.FV_BUILD = NUMBER;
 
   window.App = window.App || {};
-  window.App.getVersion = () => ({
-    number: NUMBER,
-    date: DATE,
-    tagline: TAGLINE
-  });
-
+  window.App.getVersion = () => ({ number: NUMBER, date: DATE, tagline: TAGLINE });
 })();
+
