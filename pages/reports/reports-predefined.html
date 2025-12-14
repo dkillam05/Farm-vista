@@ -250,11 +250,13 @@
     </div>
   </fv-shell>
 
-  <!-- Bootloader -->
+  <!-- Bootloader (IMPORTANT: do NOT use Date.now() cache-busting by default on iOS/PWA back nav) -->
   <script>
     (function () {
+      // If you need to force-refresh assets, explicitly pass ?rev=YOUR_BUILD_TAG in the URL.
       const urlRev = new URL(location.href).searchParams.get('rev');
-      const REV = urlRev || String(Date.now());
+      const REV = urlRev || '';
+
       const files = [
         'js/version.js',
         'js/core.js',
@@ -262,11 +264,16 @@
         'js/fv-shell.js',
         'js/fv-hero.js'
       ];
+
+      // Prevent double-inject if something re-runs this script unexpectedly
+      if (window.__FV_REPORTS_BOOTED__) return;
+      window.__FV_REPORTS_BOOTED__ = true;
+
       (async function loadSeq() {
         for (const src of files) {
           await new Promise((resolve, reject) => {
             const s = document.createElement('script');
-            s.src = src + '?rev=' + REV;
+            s.src = REV ? (src + '?rev=' + encodeURIComponent(REV)) : src;
             s.async = false;
             s.onload = resolve;
             s.onerror = () => reject(new Error('Failed to load ' + s.src));
@@ -274,6 +281,12 @@
           });
         }
       })().catch(err => console.error('Bootloader failed:', err));
+
+      // Helpful signal for iOS bfcache behavior during debugging (safe to leave)
+      window.addEventListener('pageshow', (e) => {
+        // e.persisted === true means Safari restored from back/forward cache
+        // console.log('[FV] pageshow persisted=', !!e.persisted);
+      });
     })();
   </script>
 
