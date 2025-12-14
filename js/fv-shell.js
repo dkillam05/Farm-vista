@@ -1031,160 +1031,91 @@
       return (p === '/Farm-vista/' || p === '/Farm-vista/index.html');
     }
 
-    /* ============================================================
-   STRICT MENU SEATBELT:
-   - After FVMenuACL.filter(), prune any link whose id is NOT in allowedIds.
-   - Prevents “parent group allowed => all children show” bugs.
-   - Removes empty groups after pruning.
-   - HARDENED: allow by id OR perm OR permKey (so renames never break roles again)
-   ============================================================ */
-_strictPruneMenuByAllowedIds(cfg, allowedIds){
-  // Normalize to a fast lookup set (role can contain menu ids OR legacy perm keys OR future permKey)
-  const set = new Set(Array.isArray(allowedIds) ? allowedIds.map(x => String(x)) : []);
+        /* ============================================================
+       STRICT MENU SEATBELT:
+       - After FVMenuACL.filter(), prune any link whose id is NOT in allowedIds.
+       - Prevents “parent group allowed => all children show” bugs.
+       - Removes empty groups after pruning.
+       - HARDENED: allow by id OR perm OR permKey (so renames never break roles again)
+       ============================================================ */
 
-  const clone = (obj)=> {
-    try { return JSON.parse(JSON.stringify(obj)); } catch { return obj; }
-  };
+    _menuAllowed(item, set){
+      if (!item) return false;
 
-  const isAllowed = (item)=>{
-    if (!item) return false;
+      // Always keep Home-ish links even if ID mismatch (home rescue is handled elsewhere too)
+      if (this._looksLikeHome(item)) return true;
 
-    // Always keep Home-ish links even if ID mismatch (home rescue is handled elsewhere too)
-    if (this._looksLikeHome(item)) return true;
+      const id      = (item.id != null) ? String(item.id) : '';
+      const perm    = (item.perm != null) ? String(item.perm) : '';
+      const permKey = (item.permKey != null) ? String(item.permKey) : '';
 
-    const id = item.id != null ? String(item.id) : '';
-    const perm = item.perm != null ? String(item.perm) : '';
-    const permKey = item.permKey != null ? String(item.permKey) : '';
-
-    // ✅ allow if ANY of these exist in allowedIds
-    if (id && set.has(id)) return true;
-    if (perm && set.has(perm)) return true;
-    if (permKey && set.has(permKey)) return true;
-
-    return false;
-  };
-
-  const walkNodes = (nodes)=>{
-    const out = [];
-    (nodes||[]).forEach(it=>{
-      if (!it || typeof it !== 'object') return;
-
-      if (it.type === 'link'){
-        if (isAllowed(it)) {
-          out.push(it);
-        } else {
-          // Dev visibility: no more silent disappearance
-          try{
-            console.warn('[FV ACL] menu hidden:', it.label, 'id=', it.id, 'perm=', it.perm, 'permKey=', it.permKey);
-          }catch{}
-        }
-        return;
-      }
-
-      if (it.type === 'group'){
-        const kids = walkNodes(it.children || []);
-        if (kids.length){
-          const g2 = clone(it);
-          g2.children = kids;
-          out.push(g2);
-        }
-        return;
-      }
-
-      // Unknown node types: drop to be safe
-    });
-    return out;
-  };
-
-  const base = (cfg && cfg.items) ? cfg : { items: [] };
-  const pruned = clone(base);
-  pruned.items = walkNodes(base.items || []);
-  return pruned;
-}
-
-async _initMenuFiltered(){
-  const NAV_MENU = await this._loadMenu();
-  if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) return;
-
-  const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
-  const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
-
-  if (!this._menuPainted && allowedIds.length === 0) { this._paintSkeleton(); return; }
-  if (this._menuPainted && allowedIds.length === 0) return;
-
-  const filtered = (window.FVMenuACL && window.FVMenuACL.filter)
-    ? window.FVMenuACL.filter(NAV_MENU, allowedIds)
-    : NAV_MENU;
-
-  // ✅ SEATBELT (hardened): ensure only explicitly-allowed links render (by id OR perm OR permKey)
-  const filteredStrict = this._strictPruneMenuByAllowedIds(filtered, allowedIds);
-
-  let cfgToRender = filteredStrict;
-  let linkCount = this._countLinks(filteredStrict);
-
-  if (linkCount === 0 && allowedIds.length > 0) {
-    const allLinks = this._collectAllLinks(NAV_MENU);
-    const set = new Set(allowedIds.map(x => String(x)));
-
-    // ✅ HARDENED rescue: allow by id OR perm OR permKey
-    const rescued = allLinks.filter(l => {
-      if (this._looksLikeHome(l)) return true;
-      const id = l.id != null ? String(l.id) : '';
-      const perm = l.perm != null ? String(l.perm) : '';
-      const permKey = l.permKey != null ? String(l.permKey) : '';
       if (id && set.has(id)) return true;
       if (perm && set.has(perm)) return true;
       if (permKey && set.has(permKey)) return true;
+
       return false;
-    });
-
-    const homeLink = allLinks.find(l => this._looksLikeHome(l));
-    if (homeLink && !rescued.includes(homeLink)) rescued.unshift(homeLink);
-
-    cfgToRender = {
-      items: rescued.map(l => ({
-        type:'link',
-        id:l.id,
-        perm:l.perm,
-        permKey:l.permKey,
-        label:l.label,
-        href:l.href,
-        icon:l.icon,
-        activeMatch:l.activeMatch
-      }))
-    };
-  } else {
-    const alreadyHasHome = (()=> {
-      const links = this._collectAllLinks(filteredStrict);
-      return links.some(l => this._looksLikeHome(l));
-    })();
-
-    if (!alreadyHasHome) {
-      const allLinks = this._collectAllLinks(NAV_MENU);
-      const homeLink = allLinks.find(l => this._looksLikeHome(l));
-      if (homeLink) {
-        cfgToRender = {
-          items: [{
-            type:'link',
-            id:homeLink.id,
-            perm:homeLink.perm,
-            permKey:homeLink.permKey,
-            label:homeLink.label,
-            href:homeLink.href,
-            icon:homeLink.icon,
-            activeMatch:homeLink.activeMatch
-          }].concat((filteredStrict.items||[]))
-        };
-      }
     }
-  }
 
-  this._renderMenu(cfgToRender);
-  this._menuPainted = true;
-}
+    _strictPruneMenuByAllowedIds(cfg, allowedIds){
+      const set = new Set(Array.isArray(allowedIds) ? allowedIds.map(x => String(x)) : []);
 
+      const clone = (obj)=> {
+        try { return JSON.parse(JSON.stringify(obj)); } catch { return obj; }
+      };
 
-      // ✅ SEATBELT: ensure only explicitly-allowed link IDs render
+      const walkNodes = (nodes)=>{
+        const out = [];
+        (nodes||[]).forEach(it=>{
+          if (!it || typeof it !== 'object') return;
+
+          if (it.type === 'link'){
+            if (this._menuAllowed(it, set)) {
+              out.push(it);
+            } else {
+              // Dev visibility: no more silent disappearance
+              try{
+                console.warn('[FV ACL] menu hidden:', it.label, 'id=', it.id, 'perm=', it.perm, 'permKey=', it.permKey);
+              }catch{}
+            }
+            return;
+          }
+
+          if (it.type === 'group'){
+            const kids = walkNodes(it.children || []);
+            if (kids.length){
+              const g2 = clone(it);
+              g2.children = kids;
+              out.push(g2);
+            }
+            return;
+          }
+
+          // Unknown node types: drop to be safe
+        });
+        return out;
+      };
+
+      const base = (cfg && cfg.items) ? cfg : { items: [] };
+      const pruned = clone(base);
+      pruned.items = walkNodes(base.items || []);
+      return pruned;
+    }
+
+    async _initMenuFiltered(){
+      const NAV_MENU = await this._loadMenu();
+      if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) return;
+
+      const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
+      const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
+
+      if (!this._menuPainted && allowedIds.length === 0) { this._paintSkeleton(); return; }
+      if (this._menuPainted && allowedIds.length === 0) return;
+
+      const filtered = (window.FVMenuACL && window.FVMenuACL.filter)
+        ? window.FVMenuACL.filter(NAV_MENU, allowedIds)
+        : NAV_MENU;
+
+      // ✅ SEATBELT (hardened): ensure only explicitly-allowed links render (by id OR perm OR permKey)
       const filteredStrict = this._strictPruneMenuByAllowedIds(filtered, allowedIds);
 
       let cfgToRender = filteredStrict;
@@ -1192,23 +1123,47 @@ async _initMenuFiltered(){
 
       if (linkCount === 0 && allowedIds.length > 0) {
         const allLinks = this._collectAllLinks(NAV_MENU);
-        const set = new Set(allowedIds);
-        const rescued = allLinks.filter(l => set.has(l.id));
+        const set = new Set(allowedIds.map(x => String(x)));
+
+        // ✅ HARDENED rescue: allow by id OR perm OR permKey
+        const rescued = allLinks.filter(l => this._menuAllowed(l, set));
+
         const homeLink = allLinks.find(l => this._looksLikeHome(l));
         if (homeLink && !rescued.includes(homeLink)) rescued.unshift(homeLink);
-        cfgToRender = { items: rescued.map(l => ({ type:'link', id:l.id, label:l.label, href:l.href, icon:l.icon, activeMatch:l.activeMatch })) };
+
+        cfgToRender = {
+          items: rescued.map(l => ({
+            type:'link',
+            id:l.id,
+            perm:l.perm,
+            permKey:l.permKey,
+            label:l.label,
+            href:l.href,
+            icon:l.icon,
+            activeMatch:l.activeMatch
+          }))
+        };
       } else {
-        const alreadyHasHome = (()=>{
+        const alreadyHasHome = (()=> {
           const links = this._collectAllLinks(filteredStrict);
           return links.some(l => this._looksLikeHome(l));
         })();
+
         if (!alreadyHasHome) {
           const allLinks = this._collectAllLinks(NAV_MENU);
           const homeLink = allLinks.find(l => this._looksLikeHome(l));
           if (homeLink) {
             cfgToRender = {
-              items: [{ type:'link', id:homeLink.id, label:homeLink.label, href:homeLink.href, icon:homeLink.icon, activeMatch:homeLink.activeMatch }]
-                     .concat((filteredStrict.items||[]))
+              items: [{
+                type:'link',
+                id:homeLink.id,
+                perm:homeLink.perm,
+                permKey:homeLink.permKey,
+                label:homeLink.label,
+                href:homeLink.href,
+                icon:homeLink.icon,
+                activeMatch:homeLink.activeMatch
+              }].concat((filteredStrict.items||[]))
             };
           }
         }
@@ -1217,318 +1172,6 @@ async _initMenuFiltered(){
       this._renderMenu(cfgToRender);
       this._menuPainted = true;
     }
-
-    _renderMenu(cfg){
-      const nav = this._navEl; if (!nav) return;
-      nav.innerHTML = '';
-
-      const path = location.pathname;
-      const { uid, roleHash } = this._currentUIDAndRoleHash();
-      const stateKey = (cfg.options && cfg.options.stateKey) || this._navStateKeyFor(uid, roleHash) || 'fv:nav:groups';
-      this._navStateKey = stateKey;
-      let groupState = {};
-      try { groupState = JSON.parse(localStorage.getItem(stateKey) || '{}'); } catch {}
-
-      const pad = (depth)=> `${16 + (depth * 18)}px`;
-
-      const mkLink = (item, depth=0) => {
-        const a = document.createElement('a');
-
-        // Normalize href: if it starts with /Farm-vista/, remap it to FV_ROOT
-        let href = item.href || '#';
-        if (href.startsWith('/Farm-vista/')) {
-          href = FV_ROOT + href.substring('/Farm-vista'.length);
-        }
-        a.href = href;
-
-        a.innerHTML = `<span>${item.icon||''}</span> ${item.label}`;
-        a.style.paddingLeft = pad(depth);
-        const mode = item.activeMatch || 'starts-with';
-        const hrefPath = new URL(a.href, location.href).pathname;
-        if ((mode==='exact' && path === hrefPath) || (mode!=='exact' && item.href && path.startsWith(hrefPath))) {
-          a.setAttribute('aria-current', 'page');
-        }
-        return a;
-      };
-
-      const setOpen = (open, kids, btn) => {
-        kids.style.display = open ? 'block' : 'none';
-        btn.setAttribute('aria-expanded', String(open));
-        const chev = btn.firstElementChild;
-        if (chev) chev.style.transform = open ? 'rotate(90deg)' : 'rotate(0deg)';
-      };
-
-      const mkGroup = (g, depth=0) => {
-        const wrap = document.createElement('div'); wrap.className = 'nav-group';
-
-        const row = document.createElement('div');
-        row.style.display = 'flex';
-        row.style.alignItems = 'stretch';
-        row.style.borderBottom = '1px solid var(--border)';
-
-        const link = mkLink(g, depth);
-        link.style.flex = '1 1 auto';
-        link.style.borderRight = '1px solid var(--border)';
-        link.style.display = 'flex';
-        link.style.alignItems = 'center';
-
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.setAttribute('aria-label', 'Toggle ' + g.label);
-        btn.setAttribute('aria-expanded', 'false');
-        btn.style.width = '44px';
-        btn.style.height = '44px';
-        btn.style.display = 'grid';
-        btn.style.placeItems = 'center';
-        btn.style.background = 'transparent';
-        btn.style.border = '0';
-        btn.style.cursor = 'pointer';
-        btn.style.color = 'var(--text)';
-
-        const chev = document.createElement('span');
-        chev.textContent = '▶';
-        chev.style.display = 'inline-block';
-        chev.style.transition = 'transform .18s ease';
-        btn.appendChild(chev);
-
-        const kids = document.createElement('div');
-        kids.setAttribute('role','group');
-        kids.style.display = 'none';
-
-        (g.children || []).forEach(ch => {
-          if (ch.type === 'group' && ch.collapsible) kids.appendChild(mkGroup(ch, depth + 1));
-          else if (ch.type === 'link') kids.appendChild(mkLink(ch, depth + 1));
-        });
-
-        const open = !!(groupState[g.id] ?? g.initialOpen);
-        setOpen(open, kids, btn);
-
-        btn.addEventListener('click', (e)=>{
-          e.preventDefault();
-          const nowOpen = kids.style.display === 'none';
-          setOpen(nowOpen, kids, btn);
-          groupState[g.id] = nowOpen;
-          try { localStorage.setItem(stateKey, JSON.stringify(groupState)); } catch {}
-        });
-
-        row.appendChild(link); row.appendChild(btn);
-        wrap.appendChild(row); wrap.appendChild(kids);
-        return wrap;
-      };
-
-      (cfg.items || []).forEach(item=>{
-        if (item.type === 'group' && item.collapsible) nav.appendChild(mkGroup(item, 0));
-        else if (item.type === 'link') nav.appendChild(mkLink(item, 0));
-      });
-    }
-
-    _postPaintSanity(){
-      // ✅ repair-only (never redirect)
-      const nameOK = (this._logoutLabel && this._logoutLabel.textContent && this._logoutLabel.textContent.trim() !== 'Logout');
-      const menuOK = this._hasMenuLinks();
-
-      if (!nameOK) {
-        this._setLogoutLabelNow();
-        this._scheduleNameRetry(650, 'postpaint');
-      }
-
-      if (!menuOK) {
-        // try to render now; if still not ready, retry later
-        (async ()=>{
-          try { await this._initMenuFiltered(); } catch {}
-          if (!this._hasMenuLinks()) this._scheduleMenuRetry(650, 'postpaint');
-        })();
-      }
-    }
-
-    _collapseAllNavGroups(){
-      const nav = this._navEl;
-      if (!nav) return;
-      nav.querySelectorAll('div[role="group"]').forEach(kids=>{
-        kids.style.display = 'none';
-        const row = kids.previousElementSibling;
-        const btn = row && row.querySelector('button[aria-expanded]');
-        if (btn) btn.setAttribute('aria-expanded','false');
-      });
-      const key = this._navStateKey || 'fv:nav:groups';
-      try { localStorage.setItem(key, JSON.stringify({})); } catch {}
-    }
-
-    _applyBodyFixedStyles(){
-      document.body.style.position = 'fixed';
-      document.body.style.top = `-${this._scrollY}px`;
-      document.body.style.left = '0';
-      document.body.style.right = '0';
-      document.body.style.width = '100%';
-      document.body.style.overflow = 'hidden';
-    }
-
-    _setScrollLock(on){
-      const iosStandalone = this._isIOSStandalone();
-      const html = document.documentElement;
-      if (on && !this._scrollLocked){
-        this._scrollY = window.scrollY || html.scrollTop || 0;
-        if (iosStandalone){
-          this._applyBodyFixedStyles();
-          html.style.overflow = 'hidden';
-          html.style.height = '100%';
-          if (this._scrim) {
-            this._scrim.addEventListener('touchmove', this._scrimTouchBlocker, { passive:false });
-            this._scrim.addEventListener('wheel', this._scrimTouchBlocker, { passive:false });
-          }
-        } else {
-          html.style.overflow = 'hidden';
-        }
-        this.classList.add('ui-locked');
-        this._scrollLocked = true;
-        this._ptrDisabled = true;
-      } else if (!on && this._scrollLocked){
-        document.body.style.position = '';
-        document.body.style.top = '';
-        document.body.style.left = '';
-        document.body.style.right = '';
-        document.body.style.width = '';
-        document.body.style.overflow = '';
-        html.style.overflow = '';
-        html.style.height = '';
-        if (this._scrim) {
-          this._scrim.removeEventListener('touchmove', this._scrimTouchBlocker, { passive:false });
-          this._scrim.removeEventListener('wheel', this._scrimTouchBlocker, { passive:false });
-        }
-        window.scrollTo(0, this._scrollY || 0);
-        this.classList.remove('ui-locked');
-        this._scrollLocked = false;
-        setTimeout(()=> { this._ptrDisabled = false; }, 150);
-      }
-    }
-
-    _syncScrollLock(){
-      const anyOpen = this.classList.contains('drawer-open') ||
-                      this.classList.contains('top-open') ||
-                      this.classList.contains('camera-open');
-      this._setScrollLock(anyOpen);
-    }
-
-    toggleDrawer(open){
-      const wasOpen = this.classList.contains('drawer-open');
-      const on = (open===undefined) ? !wasOpen : open;
-      this.classList.toggle('drawer-open', on);
-      this._syncScrollLock();
-      if (wasOpen && !on) { this._collapseAllNavGroups(); }
-    }
-
-    toggleTop(open){
-      const on = (open===undefined) ? !this.classList.contains('top-open') : open;
-      this.classList.toggle('top-open', on);
-      this._syncScrollLock();
-    }
-
-    _openCameraModal(){
-      if (!this._cameraModal) return;
-      // Gate by cap
-      if (!this._qcCaps.camera) return;
-
-      this.classList.add('camera-open');
-      this._syncScrollLock();
-      const btn = this._cameraReceiptBtn;
-      if (btn && typeof btn.focus === 'function') {
-        setTimeout(()=> btn.focus(), 20);
-      }
-    }
-
-    _closeCameraModal(){
-      if (!this._cameraModal) return;
-      if (!this.classList.contains('camera-open')) return;
-      this.classList.remove('camera-open');
-      this._syncScrollLock();
-    }
-
-    _syncThemeChips(mode){
-      this.shadowRoot.querySelectorAll('.js-theme').forEach(b=> b.setAttribute('aria-pressed', String(b.dataset.mode===mode)));
-    }
-    setTheme(mode){
-      try{
-        if(window.App && App.setTheme){ App.setTheme(mode); }
-        else {
-          document.documentElement.setAttribute('data-theme', mode === 'system' ? 'auto' : mode);
-          document.documentElement.classList.toggle('dark',
-            mode==='dark' || (mode==='system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
-          );
-          localStorage.setItem('fv-theme', mode);
-        }
-      }catch{}
-      this._syncThemeChips(mode);
-    }
-
-    _initPTR(){
-      const bar  = this._ptr      = this.shadowRoot.querySelector('.js-ptr');
-      const txt  = this._ptrTxt   = this.shadowRoot.querySelector('.js-txt');
-      const spin = this._ptrSpin  = this.shadowRoot.querySelector('.js-spin');
-      const dot  = this._ptrDot   = this.shadowRoot.querySelector('.js-dot');
-
-      const THRESHOLD = 72;
-      const MAX_ANGLE = 18;
-      const COOLDOWN  = 600;
-      const TOP_TOL   = 2;
-      const START_ZONE_PX = 90;
-
-      let armed=false, pulling=false, startY=0, startX=0, deltaY=0, lastEnd=0;
-
-      const atTop  = ()=> (window.scrollY || 0) <= TOP_TOL;
-      const canUse = ()=> !this.classList.contains('drawer-open') && !this.classList.contains('top-open') && !this._ptrDisabled;
-
-      const showBar = ()=>{ bar.classList.add('show'); spin.hidden = true; dot.hidden = false; txt.textContent = 'Pull to refresh'; };
-      const hideBar = ()=>{ bar.classList.remove('show'); spin.hidden = true; dot.hidden = true; txt.textContent = 'Pull to refresh'; };
-
-      const onStart = (x,y)=>{
-        if (!canUse() || !atTop() || Date.now()-lastEnd<COOLDOWN || y > START_ZONE_PX){
-          armed=false; return;
-        }
-        const active = document.activeElement;
-        if (active && (active.tagName==='INPUT' || active.tagName==='TEXTAREA' || active.isContentEditable)) { armed=false; return; }
-
-        armed=true; pulling=false; startY=y; startX=x; deltaY=0;
-      };
-
-      const onMove  = (x,y,prevent)=>{
-        if (!armed) return;
-        const dy=y-startY, dx=x-startX, angle=Math.abs(Math.atan2(dx,dy)*(180/Math.PI));
-        if (angle>MAX_ANGLE){ armed=false; pulling=false; hideBar(); return; }
-        if (dy>0){ deltaY=dy; if(!pulling){pulling=true; showBar();} txt.textContent=(deltaY>=THRESHOLD)?'Release to refresh':'Pull to refresh'; prevent(); }
-        else { armed=false; pulling=false; hideBar(); }
-      };
-
-      const revalidateAuthOnly = async()=>{
-        const deadline = Date.now() + 1500;
-        while (Date.now() < deadline) {
-          if (await this._isAuthed()) return true;
-          await this._sleep(80);
-        }
-        return false;
-      };
-
-      const runRefreshContract = async ()=>{
-        document.dispatchEvent(new CustomEvent('fv:refresh:begin'));
-
-        let didSomething = false;
-
-        if (typeof window.FVRefresh === 'function') {
-          try {
-            await window.FVRefresh();
-            didSomething = true;
-          } catch(e){
-            console.error('[FV] FVRefresh failed:', e);
-          }
-        }
-
-        try {
-          if (window.FVData && typeof window.FVData.refreshAll === 'function') {
-            await window.FVData.refreshAll();
-            didSomething = true;
-          }
-        } catch(e){
-          console.error('[FV] FVData.refreshAll failed:', e);
-        }
 
         // Soft: try menu refresh; if still not ready, schedule retry (no login kick)
         try { await this._initMenuFiltered(); } catch {}
