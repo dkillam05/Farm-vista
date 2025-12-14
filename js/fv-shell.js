@@ -1032,66 +1032,157 @@
     }
 
     /* ============================================================
-       STRICT MENU SEATBELT:
-       - After FVMenuACL.filter(), prune any link whose id is NOT in allowedIds.
-       - Prevents “parent group allowed => all children show” bugs.
-       - Removes empty groups after pruning.
-       ============================================================ */
-    _strictPruneMenuByAllowedIds(cfg, allowedIds){
-      const set = new Set(Array.isArray(allowedIds) ? allowedIds : []);
+   STRICT MENU SEATBELT:
+   - After FVMenuACL.filter(), prune any link whose id is NOT in allowedIds.
+   - Prevents “parent group allowed => all children show” bugs.
+   - Removes empty groups after pruning.
+   - HARDENED: allow by id OR perm OR permKey (so renames never break roles again)
+   ============================================================ */
+_strictPruneMenuByAllowedIds(cfg, allowedIds){
+  // Normalize to a fast lookup set (role can contain menu ids OR legacy perm keys OR future permKey)
+  const set = new Set(Array.isArray(allowedIds) ? allowedIds.map(x => String(x)) : []);
 
-      const clone = (obj)=> {
-        try { return JSON.parse(JSON.stringify(obj)); } catch { return obj; }
-      };
+  const clone = (obj)=> {
+    try { return JSON.parse(JSON.stringify(obj)); } catch { return obj; }
+  };
 
-      const walkNodes = (nodes)=>{
-        const out = [];
-        (nodes||[]).forEach(it=>{
-          if (!it || typeof it !== 'object') return;
+  const isAllowed = (item)=>{
+    if (!item) return false;
 
-          if (it.type === 'link'){
-            // Keep Home-ish links even if ID mismatch (home rescue is handled elsewhere too)
-            if (this._looksLikeHome(it)) { out.push(it); return; }
+    // Always keep Home-ish links even if ID mismatch (home rescue is handled elsewhere too)
+    if (this._looksLikeHome(item)) return true;
 
-            const id = (it.id || '').toString();
-            if (id && set.has(id)) out.push(it);
-            return;
-          }
+    const id = item.id != null ? String(item.id) : '';
+    const perm = item.perm != null ? String(item.perm) : '';
+    const permKey = item.permKey != null ? String(item.permKey) : '';
 
-          if (it.type === 'group'){
-            const kids = walkNodes(it.children || []);
-            if (kids.length){
-              const g2 = clone(it);
-              g2.children = kids;
-              out.push(g2);
-            }
-            return;
-          }
+    // ✅ allow if ANY of these exist in allowedIds
+    if (id && set.has(id)) return true;
+    if (perm && set.has(perm)) return true;
+    if (permKey && set.has(permKey)) return true;
 
-          // Unknown node types: drop to be safe
-        });
-        return out;
-      };
+    return false;
+  };
 
-      const base = cfg && cfg.items ? cfg : { items: [] };
-      const pruned = clone(base);
-      pruned.items = walkNodes(base.items || []);
-      return pruned;
+  const walkNodes = (nodes)=>{
+    const out = [];
+    (nodes||[]).forEach(it=>{
+      if (!it || typeof it !== 'object') return;
+
+      if (it.type === 'link'){
+        if (isAllowed(it)) {
+          out.push(it);
+        } else {
+          // Dev visibility: no more silent disappearance
+          try{
+            console.warn('[FV ACL] menu hidden:', it.label, 'id=', it.id, 'perm=', it.perm, 'permKey=', it.permKey);
+          }catch{}
+        }
+        return;
+      }
+
+      if (it.type === 'group'){
+        const kids = walkNodes(it.children || []);
+        if (kids.length){
+          const g2 = clone(it);
+          g2.children = kids;
+          out.push(g2);
+        }
+        return;
+      }
+
+      // Unknown node types: drop to be safe
+    });
+    return out;
+  };
+
+  const base = (cfg && cfg.items) ? cfg : { items: [] };
+  const pruned = clone(base);
+  pruned.items = walkNodes(base.items || []);
+  return pruned;
+}
+
+async _initMenuFiltered(){
+  const NAV_MENU = await this._loadMenu();
+  if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) return;
+
+  const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
+  const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
+
+  if (!this._menuPainted && allowedIds.length === 0) { this._paintSkeleton(); return; }
+  if (this._menuPainted && allowedIds.length === 0) return;
+
+  const filtered = (window.FVMenuACL && window.FVMenuACL.filter)
+    ? window.FVMenuACL.filter(NAV_MENU, allowedIds)
+    : NAV_MENU;
+
+  // ✅ SEATBELT (hardened): ensure only explicitly-allowed links render (by id OR perm OR permKey)
+  const filteredStrict = this._strictPruneMenuByAllowedIds(filtered, allowedIds);
+
+  let cfgToRender = filteredStrict;
+  let linkCount = this._countLinks(filteredStrict);
+
+  if (linkCount === 0 && allowedIds.length > 0) {
+    const allLinks = this._collectAllLinks(NAV_MENU);
+    const set = new Set(allowedIds.map(x => String(x)));
+
+    // ✅ HARDENED rescue: allow by id OR perm OR permKey
+    const rescued = allLinks.filter(l => {
+      if (this._looksLikeHome(l)) return true;
+      const id = l.id != null ? String(l.id) : '';
+      const perm = l.perm != null ? String(l.perm) : '';
+      const permKey = l.permKey != null ? String(l.permKey) : '';
+      if (id && set.has(id)) return true;
+      if (perm && set.has(perm)) return true;
+      if (permKey && set.has(permKey)) return true;
+      return false;
+    });
+
+    const homeLink = allLinks.find(l => this._looksLikeHome(l));
+    if (homeLink && !rescued.includes(homeLink)) rescued.unshift(homeLink);
+
+    cfgToRender = {
+      items: rescued.map(l => ({
+        type:'link',
+        id:l.id,
+        perm:l.perm,
+        permKey:l.permKey,
+        label:l.label,
+        href:l.href,
+        icon:l.icon,
+        activeMatch:l.activeMatch
+      }))
+    };
+  } else {
+    const alreadyHasHome = (()=> {
+      const links = this._collectAllLinks(filteredStrict);
+      return links.some(l => this._looksLikeHome(l));
+    })();
+
+    if (!alreadyHasHome) {
+      const allLinks = this._collectAllLinks(NAV_MENU);
+      const homeLink = allLinks.find(l => this._looksLikeHome(l));
+      if (homeLink) {
+        cfgToRender = {
+          items: [{
+            type:'link',
+            id:homeLink.id,
+            perm:homeLink.perm,
+            permKey:homeLink.permKey,
+            label:homeLink.label,
+            href:homeLink.href,
+            icon:homeLink.icon,
+            activeMatch:homeLink.activeMatch
+          }].concat((filteredStrict.items||[]))
+        };
+      }
     }
+  }
 
-    async _initMenuFiltered(){
-      const NAV_MENU = await this._loadMenu();
-      if (!NAV_MENU || !Array.isArray(NAV_MENU.items)) return;
+  this._renderMenu(cfgToRender);
+  this._menuPainted = true;
+}
 
-      const ctx = (window.FVUserContext && window.FVUserContext.get && window.FVUserContext.get()) || null;
-      const allowedIds = (ctx && Array.isArray(ctx.allowedIds)) ? ctx.allowedIds : [];
-
-      if (!this._menuPainted && allowedIds.length === 0) { this._paintSkeleton(); return; }
-      if (this._menuPainted && allowedIds.length === 0) return;
-
-      const filtered = (window.FVMenuACL && window.FVMenuACL.filter)
-        ? window.FVMenuACL.filter(NAV_MENU, allowedIds)
-        : NAV_MENU;
 
       // ✅ SEATBELT: ensure only explicitly-allowed link IDs render
       const filteredStrict = this._strictPruneMenuByAllowedIds(filtered, allowedIds);
