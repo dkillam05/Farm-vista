@@ -1,23 +1,35 @@
-/* FarmVista — version.js (SSOT for version + tagline)
-   Bump these fields for each release. Everything else reads from here. */
+/* =====================================================================
+   FarmVista — version.js
+   Single Source of Truth (SSOT) for version + tagline
+   SAFE to load multiple times (no redeclaration errors)
+===================================================================== */
 
-const FV_NUMBER  = "12.10.01";                 // ← edit this when releasing
-const FV_DATE    = "2025-12-10";            // ← optional, informational
-const FV_TAGLINE = "Farm Data - Simplified";
+(function () {
+  // HARD GUARD — if version already exists, do nothing
+  if (window.FV_VERSION && window.FV_VERSION.number) return;
 
-/* ===== DO NOT EDIT BELOW ===== */
-window.FV_VERSION = {
-  number: FV_NUMBER,
-  date:   FV_DATE,
-  tagline: FV_TAGLINE
-};
+  // ---- EDIT THESE FOR RELEASES ONLY ----
+  const NUMBER  = "12.10.01";
+  const DATE    = "2025-12-10";
+  const TAGLINE = "Farm Data - Simplified";
+  // -------------------------------------
 
-/* Legacy shims so older code keeps working */
-window.FarmVistaVersion = FV_NUMBER;        // older pages that referenced this
-window.FV_BUILD = FV_NUMBER;                // legacy fallback
-window.App = window.App || {};
-window.App.getVersion = () => ({            // any code calling App.getVersion()
-  number: FV_NUMBER,
-  date:   FV_DATE,
-  tagline: FV_TAGLINE
-});
+  // Primary canonical object
+  window.FV_VERSION = {
+    number: NUMBER,
+    date: DATE,
+    tagline: TAGLINE
+  };
+
+  // Legacy shims (DO NOT REMOVE — older pages depend on these)
+  window.FarmVistaVersion = NUMBER;
+  window.FV_BUILD = NUMBER;
+
+  window.App = window.App || {};
+  window.App.getVersion = () => ({
+    number: NUMBER,
+    date: DATE,
+    tagline: TAGLINE
+  });
+
+})();
