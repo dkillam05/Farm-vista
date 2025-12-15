@@ -7,13 +7,12 @@
   <meta name="theme-color" content="#3B7E46"/>
 
   <script defer src="/Farm-vista/js/theme-boot.js"></script>
-  
 
   <!-- Absolute app paths -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
-  
+
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
@@ -74,12 +73,13 @@
     .input{width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
       border:1px solid var(--border);border-radius:10px;padding:12px;outline:none;}
 
+    /* Actions row — ALL buttons one row (wrap on mobile) */
     .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;
       border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
     .btn[disabled]{opacity:.5;pointer-events:none}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
-    .btn-accent{border-color:#2F6C3C;background:#E7F1EA;color:#2F6C3C;width:100%;font-size:17px;font-weight:800;margin-top:8px;}
+    .btn-accent{border-color:#2F6C3C;background:#E7F1EA;color:#2F6C3C;}
     .btn-quiet{min-width:auto;padding:8px 12px}
 
     /* Toast */
@@ -93,7 +93,7 @@
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Edit Employee</h1>
-      <p class="page-sub">Search your directory, select a name to load their details, then update and save. Use “Save &amp; Invite” to send/reset their login.</p>
+      <p class="page-sub">Search your directory, select a name to load their details, then update and save. Use “Save &amp; Invite / Resend Invite” to send/reset their login.</p>
 
       <div class="searchbar">
         <span class="ico">🔎</span>
@@ -168,11 +168,11 @@
             <textarea id="notes" class="input" rows="3" placeholder="Certifications, endorsements, PTO notes, etc."></textarea>
           </div>
 
-          <button id="saveInvite" class="btn btn-accent" type="button">Save &amp; Invite</button>
-
+          <!-- All buttons in a single row -->
           <div class="actions">
             <button id="clear" class="btn" type="button">Clear</button>
             <button id="save" class="btn btn-primary" type="button">Save</button>
+            <button id="saveInvite" class="btn btn-accent" type="button">Save &amp; Invite</button>
           </div>
         </div>
       </section>
@@ -200,6 +200,7 @@
     const resultsEl = $("results");
     const emptyEl = $("empty");
     const formSection = $("formSection");
+    const saveInviteBtn = $("saveInvite");
 
     let all = [], sel = null, statusFilter = 'all', busy = false, lastInviteAt = 0;
     let rolesLoaded = false;
@@ -347,6 +348,13 @@
       });
 
       return overrides;
+    }
+
+    function updateInviteButtonLabel(){
+      if (!saveInviteBtn) return;
+      const exists = !!(sel && sel.data && sel.data.email);
+      saveInviteBtn.textContent = exists ? 'Save & Resend Invite' : 'Save & Invite';
+      saveInviteBtn.setAttribute('aria-label', saveInviteBtn.textContent);
     }
 
     function updateHero(){
@@ -540,6 +548,7 @@
       basePerms4={};
       effectivePerms4={};
       updateHero();
+      updateInviteButtonLabel();
     }
 
     function collectAndValidate(){
@@ -592,6 +601,7 @@
       }
 
       try{ await window.FVUserContext?.refresh?.({force:true}); }catch{}
+      updateInviteButtonLabel();
       return newId;
     }
 
@@ -602,8 +612,14 @@
       const app=initializeApp(window.FV_FIREBASE_CONFIG,'fv-admin'); const a=authMod.getAuth(app);
       try{await authMod.setPersistence(a,authMod.inMemoryPersistence);}catch{}
       const tmp=(()=>{const u=new Uint8Array(24);crypto.getRandomValues(u);return btoa(String.fromCharCode(...u)).replace(/[^a-zA-Z0-9]/g,'').slice(0,20);})();
-      try{await authMod.createUserWithEmailAndPassword(a,email,tmp); if(displayName){try{await authMod.updateProfile(a.currentUser,{displayName})}catch{}}}
-      catch(e){ if(!e || e.code!=='auth/email-already-in-use') throw e; }
+      try{
+        await authMod.createUserWithEmailAndPassword(a,email,tmp);
+        if(displayName){try{await authMod.updateProfile(a.currentUser,{displayName})}catch{}}
+      }
+      catch(e){
+        // If the user already exists, that's fine (this is the resend-invite case)
+        if(!e || e.code!=='auth/email-already-in-use') throw e;
+      }
       finally{ try{await authMod.signOut(a);}catch{} }
     }
 
@@ -620,6 +636,8 @@
       ensurePermSelected(permVal);
 
       formSection.classList.add("show"); formSection.setAttribute('aria-hidden','false');
+
+      updateInviteButtonLabel();
 
       setBusy(true);
       try{
@@ -673,13 +691,21 @@
       if(busy || !sel) return;
       const now=Date.now(); if(now-lastInviteAt<3000) return; lastInviteAt=now;
       const vals=collectAndValidate(); if(!vals) return;
+
       try{
         setBusy(true);
         const {mode}=await ready;
         if(mode!=='firebase'){ alert("Email not sent: Firebase is in stub mode."); return; }
+
+        // Always save first, then (re)send invite
         await upsertEmployee(vals);
+
+        // If the Auth user already exists, ensureAuthUser will simply ignore that and continue
         await ensureAuthUser(vals.email, `${vals.first} ${vals.last}`.trim());
+
+        // Resend = password reset email (works whether user existed or was just created)
         await sendPasswordResetEmail(getAuth(), vals.email);
+
         showToast("Saved & invite sent.");
         window.scrollTo({top:0,behavior:"smooth"});
       }catch(err){
@@ -699,9 +725,10 @@
       await ready;
       const col = collection(getFirestore(),"employees");
       onSnapshot(col,(snap)=>{
-        all = snap.docs.map(d=>({id:d.id, data:d.data()||{}}));
+        all = snap.docs.map(d=>({id:d.id, data:d.data()||{}));
         renderList();
       });
+      updateInviteButtonLabel();
     }
     boot().catch(console.error);
   </script>
