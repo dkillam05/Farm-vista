@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FarmVista • Account Action</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3B7E46" />
+
+  <!-- FarmVista theme (match your app) -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+
+  <style>
+    .wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+    .card{ width:min(560px, 100%); background:var(--card); border:1px solid var(--line);
+      border-radius:18px; box-shadow:var(--shadow); padding:18px 18px 14px;
+    }
+    .title{ font-size:20px; font-weight:800; margin:0 0 10px; }
+    .muted{ color:var(--muted); margin:0 0 14px; line-height:1.35; }
+    .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    .field{ width:100%; }
+    input{
+      width:100%; padding:12px 12px; border-radius:12px;
+      border:1px solid var(--line); background:var(--bg); color:var(--text);
+      outline:none;
+    }
+    .btn{
+      appearance:none; border:0; border-radius:12px; padding:10px 12px;
+      font-weight:800; cursor:pointer;
+      background:var(--accent); color:var(--accentText);
+    }
+    .btn.secondary{
+      background:transparent; color:var(--text);
+      border:1px solid var(--line);
+    }
+    .msg{ margin-top:10px; padding:10px 12px; border-radius:12px; border:1px solid var(--line); }
+    .msg.ok{ background:rgba(59,126,70,.10); }
+    .msg.err{ background:rgba(180,50,50,.10); }
+    .small{ font-size:12px; color:var(--muted); margin-top:10px; }
+  </style>
+
+  <!-- Your config (must define FV_FIREBASE_CONFIG or similar) -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+</head>
+
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1 class="title" id="hTitle">Working…</h1>
+      <p class="muted" id="hDesc">Please wait.</p>
+
+      <div id="resetBox" style="display:none;">
+        <div class="field">
+          <label class="small" for="pw">New password</label>
+          <input id="pw" type="password" autocomplete="new-password" minlength="6" placeholder="Enter new password" />
+        </div>
+
+        <div class="field" style="margin-top:10px;">
+          <label class="small" for="pw2">Confirm new password</label>
+          <input id="pw2" type="password" autocomplete="new-password" minlength="6" placeholder="Re-enter new password" />
+        </div>
+
+        <div class="row" style="margin-top:12px;">
+          <button class="btn" id="btnSave">Save</button>
+          <a class="btn secondary" href="/Farm-vista/auth/index.html" style="text-decoration:none; display:inline-flex; align-items:center;">
+            Back to Login
+          </a>
+        </div>
+      </div>
+
+      <div id="status" class="msg" style="display:none;"></div>
+      <div class="small" id="smallNote" style="display:none;"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    // Firebase modular SDK (CDN)
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+    import {
+      getAuth,
+      applyActionCode,
+      verifyPasswordResetCode,
+      confirmPasswordReset
+    } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+
+    const $ = (id) => document.getElementById(id);
+
+    function showStatus(text, ok=true){
+      const el = $("status");
+      el.style.display = "block";
+      el.className = "msg " + (ok ? "ok" : "err");
+      el.textContent = text;
+    }
+
+    function setHeader(title, desc){
+      $("hTitle").textContent = title;
+      $("hDesc").textContent = desc || "";
+    }
+
+    function redirectSoon(){
+      $("smallNote").style.display = "block";
+      $("smallNote").textContent = "Redirecting to login…";
+      setTimeout(() => { window.location.href = "/Farm-vista/auth/index.html"; }, 1200);
+    }
+
+    function getParam(name){
+      const u = new URL(window.location.href);
+      return u.searchParams.get(name) || "";
+    }
+
+    // ---- Bootstrap Firebase ----
+    const cfg =
+      window.FV_FIREBASE_CONFIG ||
+      window.FIREBASE_CONFIG ||
+      window.firebaseConfig;
+
+    if (!cfg) {
+      setHeader("Configuration missing", "firebase-config.js did not provide config.");
+      showStatus("Missing Firebase config on this page.", false);
+      throw new Error("Missing Firebase config");
+    }
+
+    const app = initializeApp(cfg);
+    const auth = getAuth(app);
+
+    // ---- Handle action modes ----
+    const mode = getParam("mode");
+    const oobCode = getParam("oobCode");
+
+    if (!mode || !oobCode) {
+      setHeader("Invalid link", "This link is missing required parameters.");
+      showStatus("Try requesting a new email from the login screen.", false);
+      throw new Error("Missing mode/oobCode");
+    }
+
+    // EMAIL VERIFY
+    if (mode === "verifyEmail") {
+      setHeader("Verifying email…", "Please wait.");
+      try {
+        await applyActionCode(auth, oobCode);
+        setHeader("Email verified", "You can now log in to FarmVista.");
+        showStatus("Success. Your email address is verified.");
+        redirectSoon();
+      } catch (e) {
+        console.error(e);
+        setHeader("Verification failed", "This link may be expired or already used.");
+        showStatus(e?.message || "Unable to verify email.", false);
+      }
+    }
+
+    // PASSWORD RESET
+    else if (mode === "resetPassword") {
+      setHeader("Reset your password", "Enter a new password below.");
+
+      // Verify code first (shows user-friendly error if expired)
+      try {
+        await verifyPasswordResetCode(auth, oobCode);
+      } catch (e) {
+        console.error(e);
+        setHeader("Reset link invalid", "This link may be expired. Please request a new reset email.");
+        showStatus(e?.message || "Reset link invalid.", false);
+        throw e;
+      }
+
+      $("resetBox").style.display = "block";
+
+      $("btnSave").addEventListener("click", async () => {
+        const p1 = $("pw").value || "";
+        const p2 = $("pw2").value || "";
+
+        if (p1.length < 6) return showStatus("Password must be at least 6 characters.", false);
+        if (p1 !== p2) return showStatus("Passwords do not match.", false);
+
+        $("btnSave").disabled = true;
+        try {
+          await confirmPasswordReset(auth, oobCode, p1);
+          setHeader("Password updated", "You can now log in with your new password.");
+          showStatus("Success. Your password has been updated.");
+          $("resetBox").style.display = "none";
+          redirectSoon();
+        } catch (e) {
+          console.error(e);
+          showStatus(e?.message || "Unable to reset password.", false);
+          $("btnSave").disabled = false;
+        }
+      });
+    }
+
+    // OTHER MODES
+    else {
+      setHeader("Unsupported action", `Mode "${mode}" is not handled on this page yet.`);
+      showStatus("Please go back to login and try again.", false);
+    }
+  </script>
+</body>
+</html>
