@@ -621,7 +621,8 @@
     import {
       ready,
       getFirestore, getAuth,
-      collection, getDocs, getDoc, doc, deleteDoc, onSnapshot, addDoc
+      collection, getDocs, getDoc, doc, deleteDoc, onSnapshot, addDoc,
+      onAuthStateChanged
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -645,7 +646,6 @@
       trialId: null,
       trial: null,
       farms: [],
-
       fields: [],
       selectedFarm: null,
       selectedField: null,
@@ -691,40 +691,91 @@
       }
     }
 
-    async function waitForAuthReady() {
+    // --- MOBILE STABILITY HELPERS (iOS Safari) ----------------------------
+
+    async function safeReady(){
+      // Some builds export ready as a Promise, some as a function.
+      try{
+        if(typeof ready === 'function'){
+          await ready();
+        }else{
+          await ready;
+        }
+      }catch(err){
+        diag('ready.error', { message: err?.message || String(err) });
+        throw err;
+      }
+    }
+
+    function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
+
+    async function withRetry(fn, label='op', tries=3){
+      let lastErr = null;
+      for(let i=1;i<=tries;i++){
+        try{
+          return await fn(i);
+        }catch(err){
+          lastErr = err;
+          diag(`${label}.retry`, { attempt: i, code: err?.code, message: err?.message });
+          await sleep(350 * i);
+        }
+      }
+      throw lastErr;
+    }
+
+    async function waitForAuthReady(timeoutMs=8000){
       const auth = getAuth();
-      let tries = 40;
-      return await new Promise(resolve => {
-        const int = setInterval(() => {
-          if (auth.currentUser) {
-            clearInterval(int);
-            resolve(auth.currentUser);
-          }
-          if (--tries <= 0) {
-            clearInterval(int);
-            resolve(null);
-          }
-        }, 100);
+      return await new Promise(resolve=>{
+        let done = false;
+
+        const t = setTimeout(()=>{
+          if(done) return;
+          done = true;
+          try{ unsub && unsub(); }catch{}
+          resolve(auth.currentUser || null);
+        }, timeoutMs);
+
+        const unsub = onAuthStateChanged(auth, (user)=>{
+          if(done) return;
+          done = true;
+          clearTimeout(t);
+          try{ unsub && unsub(); }catch{}
+          resolve(user || null);
+        }, ()=>{
+          if(done) return;
+          done = true;
+          clearTimeout(t);
+          try{ unsub && unsub(); }catch{}
+          resolve(auth.currentUser || null);
+        });
       });
     }
 
-    async function waitForFVUser() {
-      let tries = 40;
-      return await new Promise(resolve => {
-        const int = setInterval(() => {
-          try{
-            const fv = window.FVUserContext?.get?.();
-            if(fv && fv.email){
-              clearInterval(int);
-              resolve(fv);
-            }
-          }catch{}
-          if(--tries <= 0){
-            clearInterval(int);
-            resolve(null);
+    async function waitForFVUser(timeoutMs=9000){
+      const start = Date.now();
+      while(Date.now() - start < timeoutMs){
+        try{
+          const fv = window.FVUserContext?.get?.();
+          if(fv && fv.email){
+            return fv;
           }
-        },100);
-      });
+          // If your context loader exposes any "refresh" hook, nudge it once on iOS.
+          if(window.FVUserContext?.refresh && (Date.now() - start) > 900){
+            try{ window.FVUserContext.refresh(); }catch{}
+          }
+        }catch{}
+        await sleep(120);
+      }
+      return null;
+    }
+
+    async function getDocsServerFirst(ref){
+      // On iOS, server-first reduces "empty until refresh" cases.
+      try{
+        return await getDocs(ref, { source: 'server' });
+      }catch(err){
+        return await getDocs(ref); // fallback (cache/default)
+      }
     }
 
     function showToast(msg="Saved.", ms=3200){
@@ -882,7 +933,8 @@
       try{
         diag('loadTrial.start', { trialId: STATE.trialId });
         const refDoc = doc(STATE.db, CONFIG.COLLECTION_TRIALS, STATE.trialId);
-        const snap = await getDoc(refDoc);
+        const snap = await withRetry(async()=> await getDoc(refDoc), 'loadTrial.getDoc', 2);
+
         if(!snap.exists()){
           showError("This trial could not be found. It may have been deleted.");
           diag('loadTrial.missing', {});
@@ -937,8 +989,10 @@
 
     async function loadFarmsAndFields(){
       const db=STATE.db;
+
+      // Farms
       try{
-        const farmSnap = await getDocs(collection(db, CONFIG.COLLECTION_FARMS));
+        const farmSnap = await withRetry(async()=> await getDocsServerFirst(collection(db, CONFIG.COLLECTION_FARMS)), 'loadFarms', 3);
         const farms=[];
         farmSnap.forEach(d=>{
           const data=d.data()||{};
@@ -953,8 +1007,10 @@
         diag('loadFarms.error', { code: err.code, message: err.message });
         STATE.farms=[];
       }
+
+      // Fields
       try{
-        const fieldSnap = await getDocs(collection(db, CONFIG.COLLECTION_FIELDS));
+        const fieldSnap = await withRetry(async()=> await getDocsServerFirst(collection(db, CONFIG.COLLECTION_FIELDS)), 'loadFields', 3);
         const fields=[];
         fieldSnap.forEach(d=>{
           const data=d.data()||{};
@@ -1029,8 +1085,34 @@
       }
     }
 
-    function resume(){
+    async function resume(reason='resume'){
+      // On iOS, app resume often needs a gentle re-hydrate.
+      diag('resume.start', {
+        reason,
+        farms: STATE.farms?.length || 0,
+        fields: STATE.fields?.length || 0,
+        hasListener: !!trialFieldsUnsub,
+        visible: document.visibilityState
+      });
+
       if(!STATE.db || !STATE.trialId) return;
+
+      // If auth dropped, try to recover (common after iOS resume)
+      if(!STATE.user){
+        STATE.user = await waitForAuthReady(5000);
+        diag('resume.auth', { hasUser: !!STATE.user });
+      }
+
+      // Re-load lists if they look empty (the “needs refresh” symptom)
+      if((STATE.farms?.length || 0) === 0 || (STATE.fields?.length || 0) === 0){
+        try{
+          await loadFarmsAndFields();
+          refreshFarmCombo();
+          refreshFieldComboForFarm(STATE.selectedFarm?.id || null);
+        }catch{}
+      }
+
+      // Listener
       if(!trialFieldsUnsub){
         attachTrialFieldsListener();
       }
@@ -1081,7 +1163,6 @@
           docId: row.docId
         });
         await deleteDoc(doc(STATE.db, CONFIG.COLLECTION_TRIALS, STATE.trialId, 'fields', row.docId));
-        // Snapshot listener will update STATE.existingFields and re-render
         showToast("Field removed from this trial.");
         diag('removeExistingField.success', {});
       }catch(err){
@@ -1222,7 +1303,7 @@
         }
 
         const targetCropYear = STATE.trial.cropYear;
-        const trialsSnap = await getDocs(collection(STATE.db, CONFIG.COLLECTION_TRIALS));
+        const trialsSnap = await getDocsServerFirst(collection(STATE.db, CONFIG.COLLECTION_TRIALS));
         const relevantTrials = [];
 
         trialsSnap.forEach(d=>{
@@ -1265,7 +1346,7 @@
 
         for(const t of relevantTrials){
           const path = `${CONFIG.COLLECTION_TRIALS}/${t.id}/fields`;
-          const fieldsSnap = await getDocs(collection(STATE.db, path));
+          const fieldsSnap = await getDocsServerFirst(collection(STATE.db, path));
           fieldsSnap.forEach(fd=>{
             const fdata = fd.data() || {};
             const fieldId = fdata.fieldId || null;
@@ -1315,27 +1396,22 @@
       }
 
       if(!isMH){
-        // Non-MH: everything behaves normally.
         if(addFieldFormEl) addFieldFormEl.classList.remove('is-locked');
         if(btnAddFieldEl) btnAddFieldEl.disabled = false;
         if(btnSaveFieldsEl) btnSaveFieldsEl.disabled = false;
         return;
       }
 
-      // MH trial logic: exactly one field at a time (saved OR pending)
       const hasPending = pendingCount > 0;
 
       if(totalCount >= 1){
-        // Lock the Add Field form (can't add a second field)
         if(addFieldFormEl) addFieldFormEl.classList.add('is-locked');
         if(btnAddFieldEl) btnAddFieldEl.disabled = true;
       }else{
-        // No fields at all yet — form fully open
         if(addFieldFormEl) addFieldFormEl.classList.remove('is-locked');
         if(btnAddFieldEl) btnAddFieldEl.disabled = false;
       }
 
-      // Save button: only enabled when there is something pending to save
       if(btnSaveFieldsEl){
         btnSaveFieldsEl.disabled = !hasPending;
       }
@@ -1443,7 +1519,6 @@
 
       applySwipeToLists();
 
-      // Re-evaluate MH guardrails every time the lists change
       updateMHGuardrails();
 
       if(overlapCheckTimer) clearTimeout(overlapCheckTimer);
@@ -1508,7 +1583,6 @@
       showError('');
       if(trialAcresInput) trialAcresInput.classList.remove('input-error');
 
-      // MH hard guard: never allow adding a 2nd field
       if(isMultiHybridTrial()){
         const totalCount = (STATE.existingFields || []).length + (STATE.pendingFields || []).length;
         if(totalCount >= 1){
@@ -1570,7 +1644,6 @@
       }
 
       const draft = { farm, field, acres, notes };
-
       actuallyAddPendingRow(draft);
     }
 
@@ -1588,7 +1661,6 @@
         return;
       }
 
-      // MH safety net: prevent saving if somehow more than one field exists+pending
       if(isMultiHybridTrial()){
         const existingCount = (STATE.existingFields || []).length;
         const pendingCount  = (STATE.pendingFields || []).length;
@@ -1616,7 +1688,6 @@
           orgId: STATE.orgId
         });
 
-        // Write each pending field doc directly to the subcollection
         for(const row of STATE.pendingFields){
           const payload = {
             farmId: row.farm.id,
@@ -1634,7 +1705,6 @@
           await addDoc(fieldsCollRef, payload);
         }
 
-        // Mark the trial Active using FVData (top-level doc, same behavior as before)
         diag('saveAllFields.updateTrial', { path: `${CONFIG.COLLECTION_TRIALS}/${trialId}` });
         await FVData.updateDocWithMeta(
           `${CONFIG.COLLECTION_TRIALS}/${trialId}`,
@@ -1658,7 +1728,7 @@
     }
 
     (async function boot(){
-      await ready;
+      await safeReady();
 
       toastEl=document.getElementById('toast');
       errorBox=document.getElementById('errBox');
@@ -1678,7 +1748,9 @@
       diag('boot.start', { href: window.location.href });
 
       STATE.auth = getAuth();
-      STATE.user = await waitForAuthReady();
+
+      // iOS fix: rely on onAuthStateChanged instead of polling currentUser
+      STATE.user = await waitForAuthReady(8000);
 
       if(STATE.user){
         diag('boot.user', { uid: STATE.user.uid, email: STATE.user.email });
@@ -1702,10 +1774,12 @@
         return;
       }
 
-      const fvUser = await waitForFVUser();
+      const fvUser = await waitForFVUser(9000);
       diag('boot.fvUser', fvUser || { missing:true });
       if(!fvUser){
         showError("Unable to load user info. Please refresh.");
+        // On iOS, sometimes a quick resume fixes this without full refresh
+        setTimeout(()=>{ resume('fvUser.missing.autoresume'); }, 600);
         return;
       }
 
@@ -1784,7 +1858,7 @@
           }
           const removeBtn = e.target.closest('button[data-pending-idx]');
           if(removeBtn){
-            const idx = Number(removeBtn.getAttribute('data-pending-idx'));
+            const idx = Number(removeBtn.dataset.pendingIdx ?? removeBtn.getAttribute('data-pending-idx'));
             if(!Number.isNaN(idx)) removePendingField(idx);
           }
         });
@@ -1799,7 +1873,6 @@
         });
       }
 
-      // mic wiring – same pattern as maintenance-add
       setupMic();
 
       farmCombo = makeCombo({
@@ -1850,7 +1923,6 @@
 
       try{
         await loadTrial();
-        // As soon as trial is known, update MH guardrails once (will re-run after lists render too)
         updateMHGuardrails();
         await loadFarmsAndFields();
       }catch(err){
@@ -1862,22 +1934,21 @@
       refreshFarmCombo();
       refreshFieldComboForFarm(null);
 
-      // Attach live listener for existing trial fields
       attachTrialFieldsListener();
 
-      // BFCache / visibility / focus handling similar to equipment page
+      // iOS resume helpers
       window.addEventListener('pageshow', () => {
-        resume();
+        resume('pageshow');
       });
 
       document.addEventListener('visibilitychange', () => {
         if(document.visibilityState === 'visible'){
-          resume();
+          resume('visibility.visible');
         }
       });
 
       window.addEventListener('focus', () => {
-        resume();
+        resume('focus');
       });
 
       window.addEventListener('pagehide', () => {
