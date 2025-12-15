@@ -605,23 +605,48 @@
       return newId;
     }
 
-    async function ensureAuthUser(email, displayName){
-      if(!email) throw new Error("Missing email for Auth user");
-      const CDN='https://www.gstatic.com/firebasejs/10.12.5/';
-      const [{initializeApp},authMod]=await Promise.all([import(CDN+'firebase-app.js'),import(CDN+'firebase-auth.js')]);
-      const app=initializeApp(window.FV_FIREBASE_CONFIG,'fv-admin'); const a=authMod.getAuth(app);
-      try{await authMod.setPersistence(a,authMod.inMemoryPersistence);}catch{}
-      const tmp=(()=>{const u=new Uint8Array(24);crypto.getRandomValues(u);return btoa(String.fromCharCode(...u)).replace(/[^a-zA-Z0-9]/g,'').slice(0,20);})();
-      try{
-        await authMod.createUserWithEmailAndPassword(a,email,tmp);
-        if(displayName){try{await authMod.updateProfile(a.currentUser,{displayName})}catch{}}
+    async function ensureAuthUser(email, displayName) {
+  if (!email) throw new Error("Missing email for Auth user");
+
+  const CDN = 'https://www.gstatic.com/firebasejs/10.12.5/';
+  const [{ initializeApp }, authMod] = await Promise.all([import(CDN + 'firebase-app.js'), import(CDN + 'firebase-auth.js')]);
+
+  const app = initializeApp(window.FV_FIREBASE_CONFIG, 'fv-admin');
+  const a = authMod.getAuth(app);
+
+  try {
+    // Check if the user already exists
+    const userMethods = await authMod.fetchSignInMethodsForEmail(a, email);
+
+    // If methods exist, that means the user is already in Auth
+    if (userMethods.length > 0) {
+      // User exists, send password reset (this is equivalent to "Resend Invite")
+      await sendPasswordResetEmail(a, email);
+      console.log("Password reset email sent.");
+    } else {
+      // User doesn't exist, create a new user
+      await authMod.createUserWithEmailAndPassword(a, email, 'temporary-password');
+      if (displayName) {
+        try {
+          await authMod.updateProfile(a.currentUser, { displayName });
+        } catch (e) {
+          console.error("Error updating display name:", e);
+        }
       }
-      catch(e){
-        // If the user already exists, that's fine (this is the resend-invite case)
-        if(!e || e.code!=='auth/email-already-in-use') throw e;
-      }
-      finally{ try{await authMod.signOut(a);}catch{} }
     }
+  } catch (e) {
+    console.error("Error handling auth:", e);
+    if (e.code !== 'auth/email-already-in-use') {
+      throw e;  // Rethrow if it's not the 'email already in use' error
+    }
+  } finally {
+    try {
+      await authMod.signOut(a);
+    } catch (err) {
+      console.error("Error signing out:", err);
+    }
+  }
+}
 
     async function loadIntoForm(item){
       sel={id:item.id,data:item.data};
