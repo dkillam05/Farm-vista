@@ -658,37 +658,48 @@
 
         await upsertEmployee(vals);
 
-        // Ensure auth user exists (but never errors for already-existing users)
-        await ensureAuthUser(vals.email, `${vals.first} ${vals.last}`.trim());
+       // Edit screen = RESEND ONLY (no account creation)
+await sendPasswordResetEmail(getAuth(), vals.email);
 
-        // Always send reset email as the "invite/resend"
-        await sendPasswordResetEmail(getAuth(), vals.email);
+showToast("Saved & invite resent.");
+window.scrollTo({ top: 0, behavior: "smooth" });
 
-        showToast("Saved & invite sent.");
-        window.scrollTo({top:0,behavior:"smooth"});
-      }catch(err){
-        console.error(err);
-        const code=err?.code||"";
-        if(code==="auth/invalid-continue-uri"||code==="auth/unauthorized-continue-uri"){
-          alert("Invite failed due to domain settings.\nAdd your site under Firebase Auth → Settings → Authorized domains.");
-        }else{
-          alert("Invite failed.\n\n"+(err?.message||err));
-        }
-      }finally{
-        setBusy(false);
-      }
-    });
+} catch (err) {
+  console.error(err);
+  const code = err?.code || "";
 
-    async function boot(){
-      await ready;
-      const col = collection(getFirestore(),"employees");
-      onSnapshot(col,(snap)=>{
-        all = snap.docs.map(d => ({ id: d.id, data: d.data() || {} }));
-        renderList();
-      });
-      updateInviteButtonLabel();
-    }
-    boot().catch(console.error);
+  if (code === "auth/user-not-found") {
+    alert(
+      "Resend failed.\n\nThis email does not have a login account yet.\n" +
+      "Create the employee from the New Employee flow first."
+    );
+  } else if (
+    code === "auth/invalid-continue-uri" ||
+    code === "auth/unauthorized-continue-uri"
+  ) {
+    alert(
+      "Invite failed due to domain settings.\n" +
+      "Add your site under Firebase Auth → Settings → Authorized domains."
+    );
+  } else {
+    alert("Invite failed.\n\n" + (err?.message || err));
+  }
+} finally {
+  setBusy(false);
+}
+});
+
+async function boot() {
+  await ready;
+  const col = collection(getFirestore(), "employees");
+  onSnapshot(col, (snap) => {
+    all = snap.docs.map(d => ({ id: d.id, data: d.data() || {} }));
+    renderList();
+  });
+  updateInviteButtonLabel();
+}
+boot().catch(console.error);
+
   </script>
 </body>
 </html>
