@@ -301,85 +301,87 @@ export const NAV_MENU = {
       ]
     },
 
-    /* ===== Office ===== */
+   /* ===== Office ===== */
+{
+  type: 'group',
+  id: 'office',
+  perm: 'office',
+  icon: '🏢',
+  label: 'Office',
+  collapsible: true,
+  initialOpen: false,
+  children: [
+
+    // Field Boundaries Correction
+    {
+      type: 'link',
+      id: 'office-field-boundary-correction',
+      perm: 'office-field-boundary-correction',
+      icon: '🗺️',
+      label: 'Field Boundary Correction',
+      href: '/Farm-vista/pages/office/field-boundaries.html',
+      activeMatch: 'starts-with'
+    },
+
+    // Vehicle Registration
+    {
+      type: 'link',
+      id: 'office-vehicle-registration',
+      perm: 'office-vehicle-registration',
+      icon: '🚗',
+      label: 'Vehicle Registration',
+      href: '/Farm-vista/pages/office/vehicle-registration.html',
+      activeMatch: 'exact'
+    },
+
+    // Teams & Partners (nested under Office)
     {
       type: 'group',
-      id: 'office',
-      perm: 'office',
-      icon: '🏢',
-      label: 'Office',
-      // no href → expand-only
+      id: 'office-teams',
+      perm: 'office-teams',
+      icon: '👥',
+      label: 'Teams & Partners',
       collapsible: true,
       initialOpen: false,
       children: [
-        // ✅ Field Boundaries Correction (moved BACK under Office)
-        // NOTE: perm key unchanged so roles don't break.
         {
           type: 'link',
-          id: 'office-field-boundary-correction',
-          perm: 'office-field-boundary-correction',
-          icon: '🗺️',
-          label: 'Field Boundary Correction',
-          href: '/Farm-vista/pages/office/field-boundaries.html',
-          activeMatch: 'starts-with'
+          id: 'teams-employees',
+          perm: 'teams-employees',
+          icon: '👤',
+          label: 'Employees',
+          href: '/Farm-vista/pages/office/teams-and-partners/employees.html'
         },
-
-         {
+        {
           type: 'link',
-          id: 'office-vehicle-registration',
-          perm: 'office-vehicle-registration',
-          icon: '🚗',
-          label: 'Vehicle Registration',
-          href: '/Farm-vista/pages/office/vehicle-registration.html',
-          activeMatch: 'exact'
+          id: 'teams-sub-contractors',
+          perm: 'teams-sub-contractors',
+          icon: '🧰',
+          label: 'Sub-Contractors',
+          href: '/Farm-vista/pages/office/teams-and-partners/sub-contractors.html'
+        },
+        {
+          type: 'link',
+          id: 'teams-vendors',
+          perm: 'teams-vendors',
+          icon: '🏪',
+          label: 'Vendors',
+          href: '/Farm-vista/pages/office/teams-and-partners/vendors.html'
+        },
+        {
+          type: 'link',
+          id: 'teams-dictionary',
+          perm: 'teams-dictionary',
+          icon: '📖',
+          label: 'Dictionary',
+          href: '/Farm-vista/pages/office/teams-and-partners/dictionary.html'
         }
-    },
+      ]
+    }
 
-        // Teams & Partners – EXPAND ONLY
-        {
-          type: 'group',
-          id: 'office-teams',
-          perm: 'office-teams',
-          icon: '👥',
-          label: 'Teams & Partners',
-          // no href → expand-only
-          collapsible: true,
-          initialOpen: false,
-          children: [
-            {
-              type: 'link',
-              id: 'teams-employees',
-              perm: 'teams-employees',
-              icon: '👤',
-              label: 'Employees',
-              href: '/Farm-vista/pages/office/teams-and-partners/employees.html'
-            },
-            {
-              type: 'link',
-              id: 'teams-sub-contractors',
-              perm: 'teams-sub-contractors',
-              icon: '🧰',
-              label: 'Sub-Contractors',
-              href: '/Farm-vista/pages/office/teams-and-partners/sub-contractors.html'
-            },
-            {
-              type: 'link',
-              id: 'teams-vendors',
-              perm: 'teams-vendors',
-              icon: '🏪',
-              label: 'Vendors',
-              href: '/Farm-vista/pages/office/teams-and-partners/vendors.html'
-            },
-            {
-              type: 'link',
-              id: 'teams-dictionary',
-              perm: 'teams-dictionary',
-              icon: '📖',
-              label: 'Dictionary',
-              href: '/Farm-vista/pages/office/teams-and-partners/dictionary.html'
-            }]
-           ]
-        },
+  ]
+},
+
 
 
     /* ===== Inventory ===== */
