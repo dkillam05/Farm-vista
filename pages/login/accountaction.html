@@ -3,76 +3,248 @@
 <head>
   <meta charset="utf-8" />
   <title>FarmVista • Account Action</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
   <meta name="theme-color" content="#3B7E46" />
 
-  <!-- FarmVista theme (match your app) -->
-  <script src="/Farm-vista/js/theme-boot.js"></script>
-  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
-  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+  <!-- Make all relative URLs resolve under /Farm-vista/ -->
+  <base href="/Farm-vista/">
+
+  <!-- Theme -->
+  <link rel="stylesheet" href="assets/css/theme.css?v=AA1" />
+
+  <!-- ✅ Firebase config BEFORE anything that may use it -->
+  <script src="js/firebase-config.js"></script>
+
+  <!-- Core boot (keeps FarmVista behavior consistent) -->
+  <script src="js/core.js?v=AA1"></script>
 
   <style>
-    .wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
-    .card{ width:min(560px, 100%); background:var(--card); border:1px solid var(--line);
-      border-radius:18px; box-shadow:var(--shadow); padding:18px 18px 14px;
+    /* --- Match login page styling --- */
+    :root{
+      --green:#3B7E46; --gold:#D0C542;
+      --page:var(--app-bg,#f5f7f4); --text:#141514; --surface:#fff;
+      --muted:color-mix(in srgb,var(--text) 55%, #9aa09a);
+      --ring:color-mix(in srgb,var(--green) 28%, transparent);
+      --line:color-mix(in srgb,var(--text) 12%, transparent);
     }
-    .title{ font-size:20px; font-weight:800; margin:0 0 10px; }
-    .muted{ color:var(--muted); margin:0 0 14px; line-height:1.35; }
-    .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-    .field{ width:100%; }
-    input{
-      width:100%; padding:12px 12px; border-radius:12px;
-      border:1px solid var(--line); background:var(--bg); color:var(--text);
-      outline:none;
+    @media (prefers-color-scheme: dark){
+      :root{
+        --page:#141514; --text:#f5f7f4; --surface:#1c1e1c;
+        --muted:color-mix(in srgb,var(--text) 45%, #9aa09a 55%);
+        --line:color-mix(in srgb,var(--text) 16%, transparent);
+      }
     }
-    .btn{
-      appearance:none; border:0; border-radius:12px; padding:10px 12px;
-      font-weight:800; cursor:pointer;
-      background:var(--accent); color:var(--accentText);
-    }
-    .btn.secondary{
-      background:transparent; color:var(--text);
-      border:1px solid var(--line);
-    }
-    .msg{ margin-top:10px; padding:10px 12px; border-radius:12px; border:1px solid var(--line); }
-    .msg.ok{ background:rgba(59,126,70,.10); }
-    .msg.err{ background:rgba(180,50,50,.10); }
-    .small{ font-size:12px; color:var(--muted); margin-top:10px; }
-  </style>
 
-  <!-- Your config (must define FV_FIREBASE_CONFIG or similar) -->
-  <script src="/Farm-vista/js/firebase-config.js"></script>
+    html, body { height:100%; background:var(--page); color:var(--text); }
+    body { margin:0; font:400 16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial,sans-serif; -webkit-text-size-adjust:100%; }
+
+    .wrap{ min-height:100%; display:grid; place-items:center; padding:24px; }
+
+    .card{
+      width:min(420px,100%);
+      background:var(--surface); color:var(--text);
+      border-radius:16px; border:1px solid var(--line);
+      box-shadow:0 8px 28px rgba(0,0,0,.08),0 2px 8px rgba(0,0,0,.06);
+      overflow:clip;
+    }
+
+    .pad{ padding: clamp(18px,5vw,26px); }
+
+    .brand{ display:grid; grid-template-columns:44px 1fr; gap:12px; align-items:center; margin-bottom:10px; }
+    .logo{ width:44px; height:44px; border-radius:10px; object-fit:contain; background:color-mix(in srgb,var(--page) 65%,transparent); border:1px solid var(--line); }
+    .title{ display:grid; gap:2px; }
+    .title h1{ margin:0; font-size:clamp(18px,2.4vw,22px); font-weight:800; line-height:1.2; }
+    .title .byline{ margin:0; font-size:14px; font-weight:600; color:color-mix(in srgb,var(--text) 80%, var(--green)); }
+    .title .slogan{ margin:0; font-size:14px; font-style:italic; color:var(--muted); }
+
+    .headline{ margin:14px 0 6px 0; font-weight:900; font-size:16px; }
+    .sub{ margin:0 0 12px 0; color:var(--muted); font-size:14px; font-weight:650; }
+
+    form{ display:grid; gap:14px; margin-top:12px; }
+    .field{ display:grid; gap:6px; }
+    .field label{ font-size:14px; font-weight:700; }
+
+    .control{ position:relative; }
+
+    .input{
+      width:100%; padding:12px 14px; padding-right:42px;
+      background:#fff; border:1px solid color-mix(in srgb,var(--text) 18%, transparent);
+      border-radius:12px; color:var(--text); outline:none;
+      box-shadow:0 0 0 0 var(--ring);
+      transition: box-shadow .15s ease, border-color .15s ease, background .15s ease;
+    }
+    .input::placeholder{ color: color-mix(in srgb, var(--text) 40%, transparent); }
+    @media (prefers-color-scheme: dark){
+      .input{ background:#232523; border-color:color-mix(in srgb,var(--text) 18%, transparent); }
+      .input::placeholder{ color: color-mix(in srgb, var(--text) 45%, transparent); }
+    }
+    .input:focus{ border-color: color-mix(in srgb, var(--green) 60%, #0000); box-shadow:0 0 0 3px var(--ring); }
+
+    .eye{
+      position:absolute; right:8px; top:0; bottom:0;
+      width:34px; display:grid; place-items:center;
+      color:#8a8f8a; cursor:pointer; background:none; border:none; outline:none;
+    }
+    .eye svg{ width:22px; height:22px; display:block; }
+    .eye:hover{ color:#6f746f; }
+
+    .actions{ display:grid; gap:10px; margin-top:6px; }
+
+    .btn{
+      appearance:none; display:grid; place-items:center;
+      width:100%; min-height:44px; padding:12px 16px;
+      border-radius:12px; background-color:#3B7E46; color:#fff;
+      border:1px solid color-mix(in srgb,#3B7E46 55%, var(--line));
+      box-shadow:0 2px 0 color-mix(in srgb,#000 25%, #3B7E46);
+      font-weight:900; letter-spacing:.2px; cursor:pointer;
+    }
+    .btn:active{ transform:translateY(1px); }
+    .btn:disabled{ opacity:.65; cursor:not-allowed; transform:none; }
+
+    .btn.secondary{
+      background:transparent;
+      color:color-mix(in srgb,var(--text) 92%, transparent);
+      border:1px solid color-mix(in srgb,var(--text) 16%, transparent);
+      box-shadow:none;
+      font-weight:850;
+    }
+
+    .err{ color:#b3261e; font-size:13px; min-height:1.2em; }
+    .ok{ color:color-mix(in srgb, var(--green) 90%, var(--text)); font-size:13px; min-height:1.2em; }
+
+    .meta{ margin-top:16px; font-size:12px; text-align:center; color:var(--muted); }
+
+    .pill{
+      display:inline-flex; align-items:center; gap:8px;
+      padding:8px 10px; border-radius:999px;
+      border:1px solid var(--line);
+      background:color-mix(in srgb, var(--surface) 92%, var(--page));
+      font-size:12px; color:var(--muted); font-weight:700;
+      margin-top:8px;
+    }
+
+    .spinner{
+      width:14px; height:14px;
+      border-radius:999px;
+      border:2px solid color-mix(in srgb, var(--text) 18%, transparent);
+      border-top-color: color-mix(in srgb, var(--green) 70%, transparent);
+      animation: spin .9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
 </head>
 
-<body>
+<body class="login">
   <div class="wrap">
-    <div class="card">
-      <h1 class="title" id="hTitle">Working…</h1>
-      <p class="muted" id="hDesc">Please wait.</p>
-
-      <div id="resetBox" style="display:none;">
-        <div class="field">
-          <label class="small" for="pw">New password</label>
-          <input id="pw" type="password" autocomplete="new-password" minlength="6" placeholder="Enter new password" />
+    <main class="card" role="main" aria-labelledby="welcome">
+      <div class="pad">
+        <div class="brand">
+          <img class="logo" src="assets/icons/logo.png" alt="FarmVista logo" />
+          <div class="title">
+            <h1 id="welcome">Dowson Farms</h1>
+            <p class="byline">powered by FarmVista</p>
+            <p class="slogan">Clean Data, Smart Reporting</p>
+          </div>
         </div>
 
-        <div class="field" style="margin-top:10px;">
-          <label class="small" for="pw2">Confirm new password</label>
-          <input id="pw2" type="password" autocomplete="new-password" minlength="6" placeholder="Re-enter new password" />
+        <div class="headline" id="hTitle">Working…</div>
+        <p class="sub" id="hDesc">Please wait.</p>
+
+        <div class="pill" id="pill" style="display:none;">
+          <span class="spinner" aria-hidden="true"></span>
+          <span id="pillText">Processing…</span>
         </div>
 
-        <div class="row" style="margin-top:12px;">
-          <button class="btn" id="btnSave">Save</button>
-          <a class="btn secondary" href="/Farm-vista/auth/index.html" style="text-decoration:none; display:inline-flex; align-items:center;">
-            Back to Login
-          </a>
+        <!-- Reset UI -->
+        <form id="resetForm" style="display:none;" autocomplete="off" novalidate>
+          <div class="field">
+            <label for="pw">New password</label>
+            <div class="control">
+              <input id="pw" class="input" type="password" autocomplete="new-password" minlength="6"
+                     placeholder="Enter new password" />
+              <button type="button" class="eye" id="togglePw1" aria-controls="pw" aria-label="Show password" title="Show/Hide password">
+                <svg id="lashClosed1" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 13c2.5-3 5.5-4.5 9-4.5S18.5 10 21 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  <path d="M6 11.5l-1-2M9 10.2l-.5-2.2M12 9.5V7M15 10.2l.5-2.2M18 11.5l1-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                </svg>
+                <svg id="lashOpen1" viewBox="0 0 24 24" aria-hidden="true" style="display:none">
+                  <path d="M3 13c2.5-3 5.5-4.5 9-4.5S18.5 10 21 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  <path d="M6 11.5l-1-2M9 10.2l-.5-2.2M12 9.5V7M15 10.2l.5-2.2M18 11.5l1-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                  <circle cx="12" cy="13.5" r="1.8" fill="currentColor"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="pw2">Confirm new password</label>
+            <div class="control">
+              <input id="pw2" class="input" type="password" autocomplete="new-password" minlength="6"
+                     placeholder="Re-enter new password" />
+              <button type="button" class="eye" id="togglePw2" aria-controls="pw2" aria-label="Show password" title="Show/Hide password">
+                <svg id="lashClosed2" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 13c2.5-3 5.5-4.5 9-4.5S18.5 10 21 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  <path d="M6 11.5l-1-2M9 10.2l-.5-2.2M12 9.5V7M15 10.2l.5-2.2M18 11.5l1-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                </svg>
+                <svg id="lashOpen2" viewBox="0 0 24 24" aria-hidden="true" style="display:none">
+                  <path d="M3 13c2.5-3 5.5-4.5 9-4.5S18.5 10 21 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  <path d="M6 11.5l-1-2M9 10.2l-.5-2.2M12 9.5V7M15 10.2l.5-2.2M18 11.5l1-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                  <circle cx="12" cy="13.5" r="1.8" fill="currentColor"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="err" id="errBox"></div>
+          <div class="ok" id="okBox"></div>
+
+          <div class="actions">
+            <button class="btn" id="btnSave" type="submit">Save new password</button>
+            <a class="btn secondary" id="backBtn" href="pages/login/index.html" style="text-decoration:none;">Back to Login</a>
+          </div>
+
+          <p class="meta" id="meta">© Dowson Farms — </p>
+        </form>
+
+        <!-- For verify-email success/fail, we show a single CTA -->
+        <div class="actions" id="verifyActions" style="display:none;">
+          <a class="btn" href="pages/login/index.html" style="text-decoration:none;">Go to Login</a>
         </div>
+
+        <p class="meta" id="meta2" style="display:none;">© Dowson Farms — </p>
       </div>
-
-      <div id="status" class="msg" style="display:none;"></div>
-      <div class="small" id="smallNote" style="display:none;"></div>
-    </div>
+    </main>
   </div>
+
+  <script>
+    // Footer date + eyelash toggles
+    (function(){
+      function setFooter(id){
+        const el = document.getElementById(id);
+        if (!el) return;
+        const fmt = new Intl.DateTimeFormat('en-US', { year:'numeric', month:'long', day:'2-digit' });
+        el.textContent = `© ${new Date().getFullYear()} Dowson Farms — ${fmt.format(new Date())}`;
+      }
+      setFooter('meta');
+      setFooter('meta2');
+
+      function bindEye(btnId, inputId, openId, closedId){
+        const input = document.getElementById(inputId);
+        const btn = document.getElementById(btnId);
+        const open = document.getElementById(openId);
+        const closed = document.getElementById(closedId);
+        if (!input || !btn || !open || !closed) return;
+        btn.addEventListener('click', () => {
+          const show = input.type !== 'text';
+          input.type = show ? 'text' : 'password';
+          open.style.display = show ? 'block' : 'none';
+          closed.style.display = show ? 'none' : 'block';
+        }, { passive: true });
+      }
+      bindEye('togglePw1','pw','lashOpen1','lashClosed1');
+      bindEye('togglePw2','pw2','lashOpen2','lashClosed2');
+    }());
+  </script>
 
   <script type="module">
     // Firebase modular SDK (CDN)
@@ -86,11 +258,11 @@
 
     const $ = (id) => document.getElementById(id);
 
-    function showStatus(text, ok=true){
-      const el = $("status");
-      el.style.display = "block";
-      el.className = "msg " + (ok ? "ok" : "err");
-      el.textContent = text;
+    const LOGIN_URL = "pages/login/index.html";
+
+    function getParam(name){
+      const u = new URL(window.location.href);
+      return u.searchParams.get(name) || "";
     }
 
     function setHeader(title, desc){
@@ -98,15 +270,25 @@
       $("hDesc").textContent = desc || "";
     }
 
-    function redirectSoon(){
-      $("smallNote").style.display = "block";
-      $("smallNote").textContent = "Redirecting to login…";
-      setTimeout(() => { window.location.href = "/Farm-vista/auth/index.html"; }, 1200);
+    function setPill(text, on){
+      const pill = $("pill");
+      if (!pill) return;
+      pill.style.display = on ? "inline-flex" : "none";
+      $("pillText").textContent = text || "Processing…";
     }
 
-    function getParam(name){
-      const u = new URL(window.location.href);
-      return u.searchParams.get(name) || "";
+    function setErr(text){
+      const el = $("errBox");
+      if (el) el.textContent = text || "";
+    }
+    function setOk(text){
+      const el = $("okBox");
+      if (el) el.textContent = text || "";
+    }
+
+    function redirectSoon(ms=1100){
+      setPill("Redirecting to login…", true);
+      setTimeout(() => { window.location.href = LOGIN_URL; }, ms);
     }
 
     // ---- Bootstrap Firebase ----
@@ -117,71 +299,92 @@
 
     if (!cfg) {
       setHeader("Configuration missing", "firebase-config.js did not provide config.");
-      showStatus("Missing Firebase config on this page.", false);
+      setPill("", false);
+      const h = $("hDesc");
+      if (h) h.textContent = "Missing Firebase config on this page.";
       throw new Error("Missing Firebase config");
     }
 
     const app = initializeApp(cfg);
     const auth = getAuth(app);
 
-    // ---- Handle action modes ----
     const mode = getParam("mode");
     const oobCode = getParam("oobCode");
 
     if (!mode || !oobCode) {
       setHeader("Invalid link", "This link is missing required parameters.");
-      showStatus("Try requesting a new email from the login screen.", false);
+      setPill("", false);
+      $("verifyActions").style.display = "block";
+      $("meta2").style.display = "block";
       throw new Error("Missing mode/oobCode");
     }
 
     // EMAIL VERIFY
     if (mode === "verifyEmail") {
       setHeader("Verifying email…", "Please wait.");
+      setPill("Verifying…", true);
+
       try {
         await applyActionCode(auth, oobCode);
+        setPill("", false);
         setHeader("Email verified", "You can now log in to FarmVista.");
-        showStatus("Success. Your email address is verified.");
-        redirectSoon();
+        $("verifyActions").style.display = "grid";
+        $("meta2").style.display = "block";
+        redirectSoon(900);
       } catch (e) {
         console.error(e);
+        setPill("", false);
         setHeader("Verification failed", "This link may be expired or already used.");
-        showStatus(e?.message || "Unable to verify email.", false);
+        $("verifyActions").style.display = "grid";
+        $("meta2").style.display = "block";
       }
     }
 
     // PASSWORD RESET
     else if (mode === "resetPassword") {
-      setHeader("Reset your password", "Enter a new password below.");
+      setHeader("Reset your password", "Set a new password below.");
+      setPill("Checking link…", true);
 
-      // Verify code first (shows user-friendly error if expired)
+      // Show form
+      $("resetForm").style.display = "grid";
+
+      // Verify code first
       try {
         await verifyPasswordResetCode(auth, oobCode);
+        setPill("", false);
+        setHeader("Reset your password", "Enter a strong password (6+ characters).");
       } catch (e) {
         console.error(e);
+        setPill("", false);
         setHeader("Reset link invalid", "This link may be expired. Please request a new reset email.");
-        showStatus(e?.message || "Reset link invalid.", false);
-        throw e;
+        setErr(e?.message || "Reset link invalid.");
+        // Keep Back to Login available
       }
 
-      $("resetBox").style.display = "block";
+      $("resetForm").addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        setErr("");
+        setOk("");
 
-      $("btnSave").addEventListener("click", async () => {
         const p1 = $("pw").value || "";
         const p2 = $("pw2").value || "";
 
-        if (p1.length < 6) return showStatus("Password must be at least 6 characters.", false);
-        if (p1 !== p2) return showStatus("Passwords do not match.", false);
+        if (p1.length < 6) return setErr("Password must be at least 6 characters.");
+        if (p1 !== p2) return setErr("Passwords do not match.");
 
         $("btnSave").disabled = true;
+        setPill("Saving new password…", true);
+
         try {
           await confirmPasswordReset(auth, oobCode, p1);
-          setHeader("Password updated", "You can now log in with your new password.");
-          showStatus("Success. Your password has been updated.");
-          $("resetBox").style.display = "none";
-          redirectSoon();
+          setPill("", false);
+          setOk("Password updated. Redirecting to login…");
+          $("btnSave").disabled = true;
+          redirectSoon(1000);
         } catch (e) {
           console.error(e);
-          showStatus(e?.message || "Unable to reset password.", false);
+          setPill("", false);
+          setErr(e?.message || "Unable to reset password.");
           $("btnSave").disabled = false;
         }
       });
@@ -189,8 +392,10 @@
 
     // OTHER MODES
     else {
-      setHeader("Unsupported action", `Mode "${mode}" is not handled on this page yet.`);
-      showStatus("Please go back to login and try again.", false);
+      setHeader("Unsupported action", `Mode "${mode}" is not handled here.`);
+      setPill("", false);
+      $("verifyActions").style.display = "grid";
+      $("meta2").style.display = "block";
     }
   </script>
 </body>
