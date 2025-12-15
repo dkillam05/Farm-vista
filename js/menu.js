@@ -324,6 +324,18 @@ export const NAV_MENU = {
           activeMatch: 'starts-with'
         },
 
+         {
+          type: 'link',
+          id: 'office-vehicle-registration',
+          perm: 'office-vehicle-registration',
+          icon: '🚗',
+          label: 'Vehicle Registration',
+          href: '/Farm-vista/pages/office/vehicle-registration.html',
+          activeMatch: 'exact'
+        }
+      ]
+    },
+
         // Teams & Partners – EXPAND ONLY
         {
           type: 'group',
@@ -370,17 +382,6 @@ export const NAV_MENU = {
           ]
         },
 
-        {
-          type: 'link',
-          id: 'office-vehicle-registration',
-          perm: 'office-vehicle-registration',
-          icon: '🚗',
-          label: 'Vehicle Registration',
-          href: '/Farm-vista/pages/office/vehicle-registration.html',
-          activeMatch: 'exact'
-        }
-      ]
-    },
 
     /* ===== Inventory ===== */
     {
