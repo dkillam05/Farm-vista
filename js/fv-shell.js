@@ -452,108 +452,70 @@
   <div class="toast js-toast" role="status" aria-live="polite"></div>
   `;
 
- class FVShell extends HTMLElement {
-  constructor(){
-    super();
-    this.attachShadow({mode:'open'}).appendChild(tpl.content.cloneNode(true));
-    this._menuPainted = false;
-    this._lastLogoutName = '';
-    this._lastUID = '';
-    this._lastRoleHash = '';
-    this.LOGIN_URL = '/Farm-vista/pages/login/index.html';
+  class FVShell extends HTMLElement {
+    constructor(){
+      super();
+      this.attachShadow({mode:'open'}).appendChild(tpl.content.cloneNode(true));
+      this._menuPainted = false;
+      this._lastLogoutName = '';
+      this._lastUID = '';
+      this._lastRoleHash = '';
+      this.LOGIN_URL = '/Farm-vista/pages/login/index.html';
 
-    this._scrollLocked = false;
-    this._scrollY = 0;
-    this._isIOSStandaloneFlag = null;
-    this._scrimTouchBlocker = (e)=>{ e.preventDefault(); e.stopPropagation(); };
+      this._scrollLocked = false;
+      this._scrollY = 0;
+      this._isIOSStandaloneFlag = null;
+      this._scrimTouchBlocker = (e)=>{ e.preventDefault(); e.stopPropagation(); };
 
-    this._ptrDisabled = false;
+      this._ptrDisabled = false;
 
-    // QC caps (defaults: allow until context says otherwise)
-    this._qcCaps = { qr:true, camera:true };
+      // QC caps (defaults: allow until context says otherwise)
+      this._qcCaps = { qr:true, camera:true };
 
-    // Soft retry timers
-    this._softMenuRetryTimer = null;
-    this._softNameRetryTimer = null;
+      // Soft retry timers
+      this._softMenuRetryTimer = null;
+      this._softNameRetryTimer = null;
 
-    // Toast timer
-    this._toastTimer = null;
-  }
-
-  connectedCallback(){
-    const r = this.shadowRoot;
-    this._btnMenu = r.querySelector('.js-menu');
-    this._btnAccount = r.querySelector('.js-account');
-    this._scrim = r.querySelector('.js-scrim');
-    this._drawer = r.querySelector('.drawer');
-    this._top = r.querySelector('.js-top');
-    this._footerText = r.querySelector('.js-footer');
-    this._toast = r.querySelector('.js-toast');
-    this._verEl = r.querySelector('.js-ver');
-    this._sloganEl = r.querySelector('.js-slogan');
-    this._navEl = r.querySelector('.js-nav');
-    this._boot = r.querySelector('.js-boot');
-    this._logoutLabel = r.getElementById('logoutLabel');
-    this._connRow = r.querySelector('.js-conn');
-    this._connTxt = r.querySelector('.js-conn-text');
-    this._betaBadge = r.getElementById('betaBadge');
-
-    /* QC refs */
-    this._qcRail   = r.querySelector('.js-qc');
-    this._qcHandle = r.querySelector('.js-qc-handle');
-    this._qcPanel  = r.querySelector('.js-qc-panel');
-    this._qcScan   = r.querySelector('.js-qc-scan');
-    this._qcSep    = r.querySelector('.js-qc-sep');
-    this._qcCamera = r.querySelector('.js-qc-camera');
-
-    /* Camera popup refs */
-    this._cameraModal      = r.querySelector('.js-camera-modal');
-    this._cameraReceiptBtn = r.querySelector('.js-camera-receipt');
-    this._cameraCloseBtn   = r.querySelector('.js-camera-close');
-
-    // Beta detection: show badge only when running under /Farm-vista/beta/...
-    const isBeta = (FV_ROOT === '/Farm-vista/beta');
-    if (isBeta && this._betaBadge) {
-      this._betaBadge.hidden = false;
+      // Toast timer
+      this._toastTimer = null;
     }
 
-    // (rest of your connectedCallback continues below...)
-  }
+    connectedCallback(){
+      const r = this.shadowRoot;
+      this._btnMenu = r.querySelector('.js-menu');
+      this._btnAccount = r.querySelector('.js-account');
+      this._scrim = r.querySelector('.js-scrim');
+      this._drawer = r.querySelector('.drawer');
+      this._top = r.querySelector('.js-top');
+      this._footerText = r.querySelector('.js-footer');
+      this._toast = r.querySelector('.js-toast');
+      this._verEl = r.querySelector('.js-ver');
+      this._sloganEl = r.querySelector('.js-slogan');
+      this._navEl = r.querySelector('.js-nav');
+      this._boot = r.querySelector('.js-boot');
+      this._logoutLabel = r.getElementById('logoutLabel');
+      this._connRow = r.querySelector('.js-conn');
+      this._connTxt = r.querySelector('.js-conn-text');
+      this._betaBadge = r.getElementById('betaBadge');
 
-  /* ============================== */
-  /* Toast helper (FIX)             */
-  /* ============================== */
-  _toastMsg(message, ms = 1600) {
-    try {
-      const el = this._toast || (this.shadowRoot && this.shadowRoot.querySelector('.js-toast'));
-      if (!el) return;
+      /* QC refs */
+      this._qcRail   = r.querySelector('.js-qc');
+      this._qcHandle = r.querySelector('.js-qc-handle');
+      this._qcPanel  = r.querySelector('.js-qc-panel');
+      this._qcScan   = r.querySelector('.js-qc-scan');
+      this._qcSep    = r.querySelector('.js-qc-sep');
+      this._qcCamera = r.querySelector('.js-qc-camera');
 
-      const msg = (message == null) ? '' : String(message);
-      el.textContent = msg;
+      /* Camera popup refs */
+      this._cameraModal      = r.querySelector('.js-camera-modal');
+      this._cameraReceiptBtn = r.querySelector('.js-camera-receipt');
+      this._cameraCloseBtn   = r.querySelector('.js-camera-close');
 
-      // show
-      el.classList.add('show');
-
-      // clear any prior timer
-      if (this._toastTimer) {
-        clearTimeout(this._toastTimer);
-        this._toastTimer = null;
+      // Beta detection: show badge only when running under /Farm-vista/beta/...
+      const isBeta = (FV_ROOT === '/Farm-vista/beta');
+      if (isBeta && this._betaBadge) {
+        this._betaBadge.hidden = false;
       }
-
-      // auto-hide
-      const dur = Math.max(400, Number(ms) || 0);
-      this._toastTimer = setTimeout(() => {
-        el.classList.remove('show');
-        this._toastTimer = null;
-      }, dur);
-    } catch (e) {
-      // never let toast failures break flows
-      console.warn('[FV] toast failed:', e);
-    }
-  }
-
-  // (the rest of your class continues...)
-}
 
       if (this._boot) this._boot.hidden = false;
 
@@ -614,6 +576,34 @@
           e.preventDefault();
           this._closeCameraModal();
         });
+      }
+    }
+
+    /* ============================== */
+    /* Toast helper (FIX)             */
+    /* ============================== */
+    _toastMsg(message, ms = 1600) {
+      try {
+        const el = this._toast || (this.shadowRoot && this.shadowRoot.querySelector('.js-toast'));
+        if (!el) return;
+
+        const msg = (message == null) ? '' : String(message);
+        el.textContent = msg;
+
+        el.classList.add('show');
+
+        if (this._toastTimer) {
+          clearTimeout(this._toastTimer);
+          this._toastTimer = null;
+        }
+
+        const dur = Math.max(400, Number(ms) || 0);
+        this._toastTimer = setTimeout(() => {
+          el.classList.remove('show');
+          this._toastTimer = null;
+        }, dur);
+      } catch (e) {
+        console.warn('[FV] toast failed:', e);
       }
     }
 
@@ -1630,84 +1620,83 @@
     }
 
     async checkForUpdates(){
-  const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
+      const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
 
-  async function readTargetVersion(){
-    try{
-      const resp = await fetch('/Farm-vista/js/version.js?ts=' + Date.now(), { cache:'reload' });
-      const txt = await resp.text();
-      const m =
-        txt.match(/number\s*:\s*["']([\d.]+)["']/) ||
-        txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
-      return (m && m[1]) || '';
-    }catch{
-      return '';
-    }
-  }
-
-  try{
-    // ---- Read versions (informational only) ----
-    const targetVer = await readTargetVersion();
-    const curVer = (window.FV_VERSION && window.FV_VERSION.number)
-      ? String(window.FV_VERSION.number)
-      : '';
-
-    if (targetVer && curVer && targetVer === curVer) {
-      this._toastMsg(`Up to date (v${curVer}) — refreshing cache…`, 1400);
-    } else if (targetVer) {
-      this._toastMsg(`Updating to v${targetVer}…`, 1200);
-    } else {
-      this._toastMsg('Refreshing cache…', 1200);
-    }
-
-    // ---- HARD CLEAR: Service Workers ----
-    if (navigator.serviceWorker) {
-      try {
-        const regs = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(regs.map(r => r.unregister()));
-      } catch (e) {
-        console.warn('[FV] SW unregister failed:', e);
-      }
-    }
-
-    // ---- HARD CLEAR: CacheStorage ----
-    if ('caches' in window) {
-      try {
-        const keys = await caches.keys();
-        await Promise.all(keys.map(k => caches.delete(k)));
-      } catch (e) {
-        console.warn('[FV] Cache delete failed:', e);
-      }
-    }
-
-    // ---- Re-register Service Worker (cache-busted) ----
-    if (navigator.serviceWorker) {
-      try {
-        const reg = await navigator.serviceWorker.register(
-          '/Farm-vista/serviceworker.js?ts=' + Date.now()
-        );
-        if (reg?.waiting && reg.waiting.postMessage) {
-          reg.waiting.postMessage('SKIP_WAITING');
+      const readTargetVersion = async ()=>{
+        try{
+          const resp = await fetch('/Farm-vista/js/version.js?ts=' + Date.now(), { cache:'reload' });
+          const txt = await resp.text();
+          const m =
+            txt.match(/number\s*:\s*["']([\d.]+)["']/) ||
+            txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
+          return (m && m[1]) || '';
+        }catch{
+          return '';
         }
+      };
+
+      try{
+        // ---- Read versions (informational only) ----
+        const targetVer = await readTargetVersion();
+        const curVer = (window.FV_VERSION && window.FV_VERSION.number)
+          ? String(window.FV_VERSION.number)
+          : '';
+
+        if (targetVer && curVer && targetVer === curVer) {
+          this._toastMsg(`Up to date (v${curVer}) — refreshing cache…`, 1400);
+        } else if (targetVer) {
+          this._toastMsg(`Updating to v${targetVer}…`, 1200);
+        } else {
+          this._toastMsg('Refreshing cache…', 1200);
+        }
+
+        // ---- HARD CLEAR: Service Workers ----
+        if (navigator.serviceWorker) {
+          try {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map(r => r.unregister()));
+          } catch (e) {
+            console.warn('[FV] SW unregister failed:', e);
+          }
+        }
+
+        // ---- HARD CLEAR: CacheStorage ----
+        if ('caches' in window) {
+          try {
+            const keys = await caches.keys();
+            await Promise.all(keys.map(k => caches.delete(k)));
+          } catch (e) {
+            console.warn('[FV] Cache delete failed:', e);
+          }
+        }
+
+        // ---- Re-register Service Worker (cache-busted) ----
+        if (navigator.serviceWorker) {
+          try {
+            const reg = await navigator.serviceWorker.register(
+              '/Farm-vista/serviceworker.js?ts=' + Date.now()
+            );
+            if (reg?.waiting && reg.waiting.postMessage) {
+              reg.waiting.postMessage('SKIP_WAITING');
+            }
+          } catch (e) {
+            console.warn('[FV] SW re-register failed:', e);
+          }
+        }
+
+        // ---- Give browser a moment to settle ----
+        await sleep(250);
+
+        // ---- Force hard navigation ----
+        const url = new URL(location.href);
+        url.searchParams.set('rev', targetVer || Date.now().toString(36));
+        location.replace(url.toString());
+
       } catch (e) {
-        console.warn('[FV] SW re-register failed:', e);
+        console.error('[FV] Update failed:', e);
+        this._toastMsg('Update failed. Try again.', 2400);
       }
     }
-
-    // ---- Give browser a moment to settle ----
-    await sleep(250);
-
-    // ---- Force hard navigation ----
-    const url = new URL(location.href);
-    url.searchParams.set('rev', targetVer || Date.now().toString(36));
-    location.replace(url.toString());
-
-  } catch (e) {
-    console.error('[FV] Update failed:', e);
-    this._toastMsg('Update failed. Try again.', 2400);
-  }
-}
-
 
     /* ============================== */
     /* Quick Camera interactions      */
