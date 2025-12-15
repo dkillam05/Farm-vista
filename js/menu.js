@@ -333,7 +333,6 @@ export const NAV_MENU = {
           href: '/Farm-vista/pages/office/vehicle-registration.html',
           activeMatch: 'exact'
         }
-      ]
     },
 
         // Teams & Partners – EXPAND ONLY
@@ -378,8 +377,8 @@ export const NAV_MENU = {
               icon: '📖',
               label: 'Dictionary',
               href: '/Farm-vista/pages/office/teams-and-partners/dictionary.html'
-            }
-          ]
+            }]
+           ]
         },
 
 
