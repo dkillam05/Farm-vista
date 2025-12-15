@@ -139,8 +139,6 @@
             </div>
           </div>
 
-          <!-- Role / Title REMOVED -->
-
           <div class="field">
             <label for="start">Start Date</label>
             <input id="start" class="input" type="date" />
@@ -219,33 +217,20 @@
 
     const COLLECTION_ROLES = 'accountRoles';
 
-    let basePerms4 = {};      // id -> {view,add,edit,delete} from selected role
-    let effectivePerms4 = {}; // id -> {view,add,edit,delete} after employee overrides
+    let basePerms4 = {};
+    let effectivePerms4 = {};
 
-    // Capability ids + real drivers (same as Roles page)
     const CAP_QR = 'cap-qr-scanner';
     const CAP_CAMERA = 'cap-camera-popup';
     const DRIVE_QR_BY = 'eq-maint-workorders';
     const DRIVE_CAM_BY = 'exp-expenditures';
 
     function normalizeEntry(v){
-      if (typeof v === 'boolean') {
-        return { view: v, add: false, edit: false, delete: false };
-      }
-      if (v && typeof v.on === 'boolean' && !('view' in v)) {
-        return { view: !!v.on, add: false, edit: false, delete: false };
-      }
-      return {
-        view: !!(v && v.view),
-        add: !!(v && v.add),
-        edit: !!(v && v.edit),
-        delete: !!(v && v.delete)
-      };
+      if (typeof v === 'boolean') return { view: v, add: false, edit: false, delete: false };
+      if (v && typeof v.on === 'boolean' && !('view' in v)) return { view: !!v.on, add: false, edit: false, delete: false };
+      return { view: !!(v && v.view), add: !!(v && v.add), edit: !!(v && v.edit), delete: !!(v && v.delete) };
     }
-
-    function deepClone(obj){
-      return JSON.parse(JSON.stringify(obj || {}));
-    }
+    function deepClone(obj){ return JSON.parse(JSON.stringify(obj || {})); }
 
     function rebuildEffectiveFromRole(rolePermsRaw){
       const out = {};
@@ -257,7 +242,6 @@
       return out;
     }
 
-    // Ensure cap keys exist and match dependency truth (so they can be saved/used consistently)
     function applyCapabilityDeps(permsMap){
       const p = deepClone(permsMap || {});
       Object.keys(p).forEach(k=>{
@@ -283,25 +267,13 @@
       return p;
     }
 
-    /* =========================
-       OVERRIDES (FIXED)
-       - load booleans OR objects
-       - save deltas for view/add/edit/delete
-       - keep cap keys present (dependency-driven)
-    ========================= */
-
     function applyOverridesFromEmployeeData(empOverrides){
       if (!empOverrides || typeof empOverrides !== 'object') return;
 
       Object.entries(empOverrides).forEach(([key, val])=>{
         const leafId = key.includes('.') ? key.split('.').pop() : key;
+        if (!effectivePerms4[leafId]) effectivePerms4[leafId] = normalizeEntry(false);
 
-        // allow overrides even if not present in role doc
-        if (!effectivePerms4[leafId]) {
-          effectivePerms4[leafId] = normalizeEntry(false);
-        }
-
-        // legacy boolean = view only
         if (typeof val === 'boolean') {
           const entry = normalizeEntry(effectivePerms4[leafId]);
           entry.view = !!val;
@@ -309,19 +281,12 @@
           return;
         }
 
-        // new object override
         if (val && typeof val === 'object') {
           const ov = normalizeEntry(val);
-          effectivePerms4[leafId] = {
-            view: ov.view,
-            add: ov.add,
-            edit: ov.edit,
-            delete: ov.delete
-          };
+          effectivePerms4[leafId] = { view: ov.view, add: ov.add, edit: ov.edit, delete: ov.delete };
         }
       });
 
-      // After applying overrides, enforce cap deps again
       effectivePerms4 = applyCapabilityDeps(effectivePerms4 || {});
     }
 
@@ -330,23 +295,14 @@
       const base = basePerms4 || {};
       const eff  = effectivePerms4 || {};
       const ids = new Set([...Object.keys(base), ...Object.keys(eff)]);
-
       ids.forEach((id)=>{
         if (id === 'home') return;
-
         const b = normalizeEntry(base[id] || false);
         const e = normalizeEntry(eff[id] || false);
-
-        if (
-          b.view !== e.view ||
-          b.add !== e.add ||
-          b.edit !== e.edit ||
-          b.delete !== e.delete
-        ){
+        if (b.view!==e.view || b.add!==e.add || b.edit!==e.edit || b.delete!==e.delete){
           overrides[id] = { view: !!e.view, add: !!e.add, edit: !!e.edit, delete: !!e.delete };
         }
       });
-
       return overrides;
     }
 
@@ -360,12 +316,7 @@
     function updateHero(){
       const hero = $("permsHero");
       if (!hero) return;
-
-      // Hide completely until an employee is selected
-      if (!sel || !currentRoleName){
-        hero.style.display = 'none';
-        return;
-      }
+      if (!sel || !currentRoleName){ hero.style.display = 'none'; return; }
 
       const first = $("first")?.value.trim() || "";
       const last  = $("last")?.value.trim()  || "";
@@ -373,20 +324,15 @@
       const name = (first || last) ? `${first} ${last}`.trim() : (email || "Employee");
 
       hero.style.display = '';
-
       hero.config = {
         mode: 'employee',
         name,
         baseRoleName: currentRoleName,
         perms: effectivePerms4,
         navMenu: NAV_MENU,
-        onPermsChange: (updatedPerms) => {
-          // Keep effective perms valid + cap keys always present
-          effectivePerms4 = applyCapabilityDeps(deepClone(updatedPerms || {}));
-        },
+        onPermsChange: (updatedPerms) => { effectivePerms4 = applyCapabilityDeps(deepClone(updatedPerms || {})); },
         onResetOverrides: () => {
-          effectivePerms4 = deepClone(basePerms4 || {});
-          effectivePerms4 = applyCapabilityDeps(effectivePerms4 || {});
+          effectivePerms4 = applyCapabilityDeps(deepClone(basePerms4 || {}));
           updateHero();
           showToast("Overrides reset to role defaults.");
         }
@@ -404,17 +350,14 @@
 
     function ensurePermSelected(value){
       const selPerm = $("perm");
-      if(!rolesLoaded){
-        setTimeout(()=>ensurePermSelected(value), 120);
-        return;
-      }
+      if(!rolesLoaded){ setTimeout(()=>ensurePermSelected(value), 120); return; }
       const opts = Array.from(selPerm.options).map(o=>o.value);
       if(!opts.includes(value) && value){
         const o = document.createElement('option');
         o.value = o.textContent = value;
         selPerm.appendChild(o);
       }
-      if(value){ selPerm.value = value; }
+      if(value) selPerm.value = value;
     }
 
     async function populatePermissionGroups(){
@@ -433,12 +376,10 @@
           const name=(d.data()?.name||'').trim();
           if(name) roles.push(name);
         });
-        if(roles.length===0){
-          selPerm.innerHTML = '<option selected>Standard</option>';
-        }else{
-          selPerm.innerHTML = '<option value="">Select Permission Group…</option>' +
-            roles.map((r)=>`<option value="${r}">${r}</option>`).join('');
-        }
+        selPerm.innerHTML = roles.length
+          ? '<option value="">Select Permission Group…</option>' + roles.map((r)=>`<option value="${r}">${r}</option>`).join('')
+          : '<option selected>Standard</option>';
+
         rolesLoaded = true;
 
         selPerm.addEventListener('change', async (e)=>{
@@ -459,13 +400,11 @@
             basePerms4 = applyCapabilityDeps(rebuildEffectiveFromRole(rawPerms));
             effectivePerms4 = deepClone(basePerms4);
 
-            // If we already have an employee selected, re-apply their overrides
             if (sel && sel.data && sel.data.overrides){
               applyOverridesFromEmployeeData(sel.data.overrides);
             } else {
               effectivePerms4 = applyCapabilityDeps(effectivePerms4 || {});
             }
-
             updateHero();
           }catch(err){
             console.error('Failed to load role:', err);
@@ -480,7 +419,7 @@
 
       }catch(err){
         console.error('Roles load failed:', err);
-        $("perm").innerHTML = '<option selected>Standard</option>';
+        selPerm.innerHTML = '<option selected>Standard</option>';
         rolesLoaded = true;
       }
     }
@@ -557,7 +496,6 @@
       if(!last.checkValidity()){last.reportValidity();return null;}
       if(!email.checkValidity()){email.reportValidity();return null;}
 
-      // Ensure caps enforced before diff/save
       basePerms4 = applyCapabilityDeps(basePerms4 || {});
       effectivePerms4 = applyCapabilityDeps(effectivePerms4 || {});
 
@@ -588,7 +526,8 @@
       const newId=emailKey(vals.email), newRef=doc(db,"employees",newId);
 
       if(sel && sel.id && sel.id!==newId){
-        const oldRef=doc(db,"employees",sel.id); const oldSnap=await getDoc(oldRef);
+        const oldRef=doc(db,"employees",sel.id);
+        const oldSnap=await getDoc(oldRef);
         const createdAt=oldSnap.exists()? oldSnap.data()?.createdAt : serverTimestamp();
         await setDoc(newRef,{...payload,createdAt},{merge:false});
         if(oldSnap.exists()) await deleteDoc(oldRef);
@@ -605,48 +544,44 @@
       return newId;
     }
 
-    async function ensureAuthUser(email, displayName) {
-  if (!email) throw new Error("Missing email for Auth user");
+    // FIXED: do NOT send reset inside; do NOT create user if it already exists
+    async function ensureAuthUser(email, displayName){
+      if(!email) throw new Error("Missing email for Auth user");
 
-  const CDN = 'https://www.gstatic.com/firebasejs/10.12.5/';
-  const [{ initializeApp }, authMod] = await Promise.all([import(CDN + 'firebase-app.js'), import(CDN + 'firebase-auth.js')]);
+      const CDN='https://www.gstatic.com/firebasejs/10.12.5/';
+      const [{initializeApp},authMod]=await Promise.all([
+        import(CDN+'firebase-app.js'),
+        import(CDN+'firebase-auth.js')
+      ]);
 
-  const app = initializeApp(window.FV_FIREBASE_CONFIG, 'fv-admin');
-  const a = authMod.getAuth(app);
+      const app = initializeApp(window.FV_FIREBASE_CONFIG, 'fv-admin');
+      const a   = authMod.getAuth(app);
 
-  try {
-    // Check if the user already exists
-    const userMethods = await authMod.fetchSignInMethodsForEmail(a, email);
+      try { await authMod.setPersistence(a, authMod.inMemoryPersistence); } catch {}
 
-    // If methods exist, that means the user is already in Auth
-    if (userMethods.length > 0) {
-      // User exists, send password reset (this is equivalent to "Resend Invite")
-      await sendPasswordResetEmail(a, email);
-      console.log("Password reset email sent.");
-    } else {
-      // User doesn't exist, create a new user
-      await authMod.createUserWithEmailAndPassword(a, email, 'temporary-password');
-      if (displayName) {
-        try {
-          await authMod.updateProfile(a.currentUser, { displayName });
-        } catch (e) {
-          console.error("Error updating display name:", e);
+      try{
+        const methods = await authMod.fetchSignInMethodsForEmail(a, email);
+        if (Array.isArray(methods) && methods.length > 0){
+          return { existed: true, created: false };
         }
+
+        const tmp = (() => {
+          const u = new Uint8Array(24);
+          crypto.getRandomValues(u);
+          return btoa(String.fromCharCode(...u))
+            .replace(/[^a-zA-Z0-9]/g,'')
+            .slice(0,20);
+        })();
+
+        const cred = await authMod.createUserWithEmailAndPassword(a, email, tmp);
+        if (displayName){
+          try { await authMod.updateProfile(cred.user, { displayName }); } catch {}
+        }
+        return { existed: false, created: true };
+      } finally {
+        try { await authMod.signOut(a); } catch {}
       }
     }
-  } catch (e) {
-    console.error("Error handling auth:", e);
-    if (e.code !== 'auth/email-already-in-use') {
-      throw e;  // Rethrow if it's not the 'email already in use' error
-    }
-  } finally {
-    try {
-      await authMod.signOut(a);
-    } catch (err) {
-      console.error("Error signing out:", err);
-    }
-  }
-}
 
     async function loadIntoForm(item){
       sel={id:item.id,data:item.data};
@@ -661,7 +596,6 @@
       ensurePermSelected(permVal);
 
       formSection.classList.add("show"); formSection.setAttribute('aria-hidden','false');
-
       updateInviteButtonLabel();
 
       setBusy(true);
@@ -722,13 +656,12 @@
         const {mode}=await ready;
         if(mode!=='firebase'){ alert("Email not sent: Firebase is in stub mode."); return; }
 
-        // Always save first, then (re)send invite
         await upsertEmployee(vals);
 
-        // If the Auth user already exists, ensureAuthUser will simply ignore that and continue
+        // Ensure auth user exists (but never errors for already-existing users)
         await ensureAuthUser(vals.email, `${vals.first} ${vals.last}`.trim());
 
-        // Resend = password reset email (works whether user existed or was just created)
+        // Always send reset email as the "invite/resend"
         await sendPasswordResetEmail(getAuth(), vals.email);
 
         showToast("Saved & invite sent.");
