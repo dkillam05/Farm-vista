@@ -264,7 +264,7 @@ export const NAV_MENU = {
           initialOpen: false,
           children: [
             { type: 'link', id: 'teams-employees', perm: 'teams-employees', icon: '👤', label: 'Employees', href: '/Farm-vista/pages/office/teams-and-partners/employees.html' },
-            { type: 'link', id: 'teams-sub-contractors', perm: 'teams-sub-contractors', icon: '🧰', label: 'Sub-Contractors', href: '/Farm-vista/pages/office/teams-and-partners/sub_contractors.html' },
+            { type: 'link', id: 'teams-sub-contractors', perm: 'teams-sub-contractors', icon: '🧰', label: 'Sub-Contractors', href: '/Farm-vista/pages/office/teams-and-partners/sub-contractors.html' },
             { type: 'link', id: 'teams-vendors', perm: 'teams-vendors', icon: '🏪', label: 'Vendors', href: '/Farm-vista/pages/office/teams-and-partners/vendors.html' },
             { type: 'link', id: 'teams-dictionary', perm: 'teams-dictionary', icon: '📖', label: 'Dictionary', href: '/Farm-vista/pages/office/teams-and-partners/dictionary.html' }
           ]
