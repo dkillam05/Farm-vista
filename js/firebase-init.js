@@ -505,11 +505,31 @@ ensureStubGlobals();
 onAuthStateChangedImpl(auth, (user) => updateWindowUser(user));
 
 export const ready = (async () => {
-  const cfg = window.FV_FIREBASE_CONFIG;
+  // Wait briefly for config to exist (iOS timing / SW caching can delay it)
+  const waitForConfig = async (ms=2500) => {
+    const start = Date.now();
+    while (Date.now() - start < ms) {
+      if (window.FV_FIREBASE_CONFIG) return window.FV_FIREBASE_CONFIG;
+      await new Promise(r => setTimeout(r, 50));
+    }
+    return window.FV_FIREBASE_CONFIG || null;
+  };
+
+  const cfg = await waitForConfig(2500);
+
+  // If config still missing, only allow stub when offline.
+  // If online and config missing, this is almost always a stale SW/script issue.
   if (!cfg) {
+    const online = (() => { try { return navigator.onLine !== false; } catch { return true; } })();
+
     mode = 'stub';
     ensureStubGlobals();
     window.FV_HAS_STORAGE = false;
+
+    if (online) {
+      console.warn('[FV] Firebase config missing while online. Likely stale cached JS/SW. Running in stub mode.');
+      window.__FV_FIREBASE_CONFIG_MISSING = true;
+    }
     return { app, auth, firestore, mode };
   }
 
@@ -530,6 +550,13 @@ export const ready = (async () => {
     firestore = storeMod.getFirestore(app);
     mode = 'firebase';
 
+    // ✅ Keep users signed in (what you asked for)
+    try {
+      await authMod.setPersistence(auth, authMod.browserLocalPersistence);
+    } catch (e) {
+      console.warn('[FV] setPersistence failed (non-fatal):', e);
+    }
+
     getAuthImpl = (appInstance) => authMod.getAuth(appInstance || app);
     onAuthStateChangedImpl = (instance, cb) => authMod.onAuthStateChanged(instance || auth, cb);
     onIdTokenChangedImpl = (instance, cb) => authMod.onIdTokenChanged(instance || auth, cb);
@@ -549,8 +576,6 @@ export const ready = (async () => {
     setPersistenceImpl = (instance, persistence) => authMod.setPersistence(instance || auth, persistence);
     browserLocalPersistenceValue = authMod.browserLocalPersistence;
 
-    firestore = storeMod.getFirestore(app);
-
     ensureStubGlobals();
     window.firebaseApp = app;
     window.firebaseAuth = auth;
@@ -561,9 +586,21 @@ export const ready = (async () => {
 
     onAuthStateChangedImpl(auth, (user) => updateWindowUser(user));
 
+    // Helpful flag for diagnostics
+    window.__FV_FIREBASE_MODE = 'firebase';
+
     return { app, auth, firestore, mode };
   } catch (err) {
-    console.warn('[FV] Firebase init failed, using stub mode:', err);
+    const online = (() => { try { return navigator.onLine !== false; } catch { return true; } })();
+
+    console.warn('[FV] Firebase init failed.', err);
+
+    // If online, we *still* fall back to stub to avoid hard-crash,
+    // but we mark it loudly so your diagnostics can tell.
+    if (online) {
+      window.__FV_FIREBASE_INIT_FAILED = true;
+    }
+
     app = null;
     auth = stubAuth;
     firestore = stubFirestore;
@@ -573,9 +610,11 @@ export const ready = (async () => {
     storageModule = null;
     ensureStubGlobals();
     window.FV_HAS_STORAGE = false;
+    window.__FV_FIREBASE_MODE = 'stub';
     return { app, auth, firestore, mode };
   }
 })();
+
 
 /* ------------------------ Global PTR event handler ------------------------ */
 async function _softRefreshNow(){
