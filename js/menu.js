@@ -317,7 +317,7 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'office-field-boundary-correction',
-          perm: 'office-field-boundaries',
+          perm: 'office-field-boundary-correction',
           icon: '🗺️',
           label: 'Field Boundary Correction',
           href: '/Farm-vista/pages/office/field-boundaries.html',
