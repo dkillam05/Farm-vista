@@ -452,67 +452,108 @@
   <div class="toast js-toast" role="status" aria-live="polite"></div>
   `;
 
-  class FVShell extends HTMLElement {
-    constructor(){
-      super();
-      this.attachShadow({mode:'open'}).appendChild(tpl.content.cloneNode(true));
-      this._menuPainted = false;
-      this._lastLogoutName = '';
-      this._lastUID = '';
-      this._lastRoleHash = '';
-      this.LOGIN_URL = '/Farm-vista/pages/login/index.html';
+ class FVShell extends HTMLElement {
+  constructor(){
+    super();
+    this.attachShadow({mode:'open'}).appendChild(tpl.content.cloneNode(true));
+    this._menuPainted = false;
+    this._lastLogoutName = '';
+    this._lastUID = '';
+    this._lastRoleHash = '';
+    this.LOGIN_URL = '/Farm-vista/pages/login/index.html';
 
-      this._scrollLocked = false;
-      this._scrollY = 0;
-      this._isIOSStandaloneFlag = null;
-      this._scrimTouchBlocker = (e)=>{ e.preventDefault(); e.stopPropagation(); };
+    this._scrollLocked = false;
+    this._scrollY = 0;
+    this._isIOSStandaloneFlag = null;
+    this._scrimTouchBlocker = (e)=>{ e.preventDefault(); e.stopPropagation(); };
 
-      this._ptrDisabled = false;
+    this._ptrDisabled = false;
 
-      // QC caps (defaults: allow until context says otherwise)
-      this._qcCaps = { qr:true, camera:true };
+    // QC caps (defaults: allow until context says otherwise)
+    this._qcCaps = { qr:true, camera:true };
 
-      // Soft retry timers
-      this._softMenuRetryTimer = null;
-      this._softNameRetryTimer = null;
+    // Soft retry timers
+    this._softMenuRetryTimer = null;
+    this._softNameRetryTimer = null;
+
+    // Toast timer
+    this._toastTimer = null;
+  }
+
+  connectedCallback(){
+    const r = this.shadowRoot;
+    this._btnMenu = r.querySelector('.js-menu');
+    this._btnAccount = r.querySelector('.js-account');
+    this._scrim = r.querySelector('.js-scrim');
+    this._drawer = r.querySelector('.drawer');
+    this._top = r.querySelector('.js-top');
+    this._footerText = r.querySelector('.js-footer');
+    this._toast = r.querySelector('.js-toast');
+    this._verEl = r.querySelector('.js-ver');
+    this._sloganEl = r.querySelector('.js-slogan');
+    this._navEl = r.querySelector('.js-nav');
+    this._boot = r.querySelector('.js-boot');
+    this._logoutLabel = r.getElementById('logoutLabel');
+    this._connRow = r.querySelector('.js-conn');
+    this._connTxt = r.querySelector('.js-conn-text');
+    this._betaBadge = r.getElementById('betaBadge');
+
+    /* QC refs */
+    this._qcRail   = r.querySelector('.js-qc');
+    this._qcHandle = r.querySelector('.js-qc-handle');
+    this._qcPanel  = r.querySelector('.js-qc-panel');
+    this._qcScan   = r.querySelector('.js-qc-scan');
+    this._qcSep    = r.querySelector('.js-qc-sep');
+    this._qcCamera = r.querySelector('.js-qc-camera');
+
+    /* Camera popup refs */
+    this._cameraModal      = r.querySelector('.js-camera-modal');
+    this._cameraReceiptBtn = r.querySelector('.js-camera-receipt');
+    this._cameraCloseBtn   = r.querySelector('.js-camera-close');
+
+    // Beta detection: show badge only when running under /Farm-vista/beta/...
+    const isBeta = (FV_ROOT === '/Farm-vista/beta');
+    if (isBeta && this._betaBadge) {
+      this._betaBadge.hidden = false;
     }
 
-    connectedCallback(){
-      const r = this.shadowRoot;
-      this._btnMenu = r.querySelector('.js-menu');
-      this._btnAccount = r.querySelector('.js-account');
-      this._scrim = r.querySelector('.js-scrim');
-      this._drawer = r.querySelector('.drawer');
-      this._top = r.querySelector('.js-top');
-      this._footerText = r.querySelector('.js-footer');
-      this._toast = r.querySelector('.js-toast');
-      this._verEl = r.querySelector('.js-ver');
-      this._sloganEl = r.querySelector('.js-slogan');
-      this._navEl = r.querySelector('.js-nav');
-      this._boot = r.querySelector('.js-boot');
-      this._logoutLabel = r.getElementById('logoutLabel');
-      this._connRow = r.querySelector('.js-conn');
-      this._connTxt = r.querySelector('.js-conn-text');
-      this._betaBadge = r.getElementById('betaBadge');
+    // (rest of your connectedCallback continues below...)
+  }
 
-      /* QC refs */
-      this._qcRail   = r.querySelector('.js-qc');
-      this._qcHandle = r.querySelector('.js-qc-handle');
-      this._qcPanel  = r.querySelector('.js-qc-panel');
-      this._qcScan   = r.querySelector('.js-qc-scan');
-      this._qcSep    = r.querySelector('.js-qc-sep');
-      this._qcCamera = r.querySelector('.js-qc-camera');
+  /* ============================== */
+  /* Toast helper (FIX)             */
+  /* ============================== */
+  _toastMsg(message, ms = 1600) {
+    try {
+      const el = this._toast || (this.shadowRoot && this.shadowRoot.querySelector('.js-toast'));
+      if (!el) return;
 
-      /* Camera popup refs */
-      this._cameraModal      = r.querySelector('.js-camera-modal');
-      this._cameraReceiptBtn = r.querySelector('.js-camera-receipt');
-      this._cameraCloseBtn   = r.querySelector('.js-camera-close');
+      const msg = (message == null) ? '' : String(message);
+      el.textContent = msg;
 
-      // Beta detection: show badge only when running under /Farm-vista/beta/...
-      const isBeta = (FV_ROOT === '/Farm-vista/beta');
-      if (isBeta && this._betaBadge) {
-        this._betaBadge.hidden = false;
+      // show
+      el.classList.add('show');
+
+      // clear any prior timer
+      if (this._toastTimer) {
+        clearTimeout(this._toastTimer);
+        this._toastTimer = null;
       }
+
+      // auto-hide
+      const dur = Math.max(400, Number(ms) || 0);
+      this._toastTimer = setTimeout(() => {
+        el.classList.remove('show');
+        this._toastTimer = null;
+      }, dur);
+    } catch (e) {
+      // never let toast failures break flows
+      console.warn('[FV] toast failed:', e);
+    }
+  }
+
+  // (the rest of your class continues...)
+}
 
       if (this._boot) this._boot.hidden = false;
 
