@@ -1589,40 +1589,84 @@
     }
 
     async checkForUpdates(){
-      const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
-      async function readTargetVersion(){
-        try{
-          const resp = await fetch('/Farm-vista/js/version.js?ts=' + Date.now(), { cache:'reload' });
-          const txt = await resp.text();
-          const m = txt.match(/number\s*:\s*["']([\d.]+)["']/) || txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
-          return (m && m[1]) || '';
-        }catch{ return ''; }
-      }
-      try{
-        const targetVer = await readTargetVersion();
-        const cur = (window.FV_VERSION && window.FV_VERSION.number) ? String(window.FV_VERSION.number) : '';
-        if (targetVer && cur && targetVer === cur) { this._toastMsg(`Up To Date (v${cur})`, 2200); return; }
-        this._toastMsg('Clearing cache…', 900);
-        if (navigator.serviceWorker) { try { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=> r.unregister())); } catch {} }
-        if ('caches' in window) { try { const keys = await caches.keys(); await Promise.all(keys.map(k => caches.delete(k))); } catch {} }
-        const waitForControl = new Promise((resolve) => {
-          const timer = setTimeout(()=> resolve(false), 3000);
-          if (navigator.serviceWorker) navigator.serviceWorker.oncontrollerchange = () => { clearTimeout(timer); resolve(true); };
-          else { clearTimeout(timer); resolve(false); }
-        });
-        if (navigator.serviceWorker) { try { const reg = await navigator.serviceWorker.register('/Farm-vista/serviceworker.js?ts=' + Date.now()); if (reg && reg.waiting && reg.waiting.postMessage) reg.waiting.postMessage('SKIP_WAITING'); } catch {} }
-        this._toastMsg('Updating…', 1200);
-        await waitForControl; await sleep(200);
-        const url = new URL(location.href); url.searchParams.set('rev', targetVer || String(Date.now()));
-        location.replace(url.toString());
-      }catch(e){ console.error(e); this._toastMsg('Update failed. Try again.', 2400); }
+  const sleep = (ms)=> new Promise(res=> setTimeout(res, ms));
+
+  async function readTargetVersion(){
+    try{
+      const resp = await fetch('/Farm-vista/js/version.js?ts=' + Date.now(), { cache:'reload' });
+      const txt = await resp.text();
+      const m =
+        txt.match(/number\s*:\s*["']([\d.]+)["']/) ||
+        txt.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
+      return (m && m[1]) || '';
+    }catch{
+      return '';
+    }
+  }
+
+  try{
+    // ---- Read versions (informational only) ----
+    const targetVer = await readTargetVersion();
+    const curVer = (window.FV_VERSION && window.FV_VERSION.number)
+      ? String(window.FV_VERSION.number)
+      : '';
+
+    if (targetVer && curVer && targetVer === curVer) {
+      this._toastMsg(`Up to date (v${curVer}) — refreshing cache…`, 1400);
+    } else if (targetVer) {
+      this._toastMsg(`Updating to v${targetVer}…`, 1200);
+    } else {
+      this._toastMsg('Refreshing cache…', 1200);
     }
 
-    _toastMsg(msg, ms=2000){
-      const t = this._toast; if (!t) return;
-      t.textContent = msg; t.classList.add('show');
-      clearTimeout(this._tt); this._tt = setTimeout(()=> t.classList.remove('show'), ms);
+    // ---- HARD CLEAR: Service Workers ----
+    if (navigator.serviceWorker) {
+      try {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      } catch (e) {
+        console.warn('[FV] SW unregister failed:', e);
+      }
     }
+
+    // ---- HARD CLEAR: CacheStorage ----
+    if ('caches' in window) {
+      try {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      } catch (e) {
+        console.warn('[FV] Cache delete failed:', e);
+      }
+    }
+
+    // ---- Re-register Service Worker (cache-busted) ----
+    if (navigator.serviceWorker) {
+      try {
+        const reg = await navigator.serviceWorker.register(
+          '/Farm-vista/serviceworker.js?ts=' + Date.now()
+        );
+        if (reg?.waiting && reg.waiting.postMessage) {
+          reg.waiting.postMessage('SKIP_WAITING');
+        }
+      } catch (e) {
+        console.warn('[FV] SW re-register failed:', e);
+      }
+    }
+
+    // ---- Give browser a moment to settle ----
+    await sleep(250);
+
+    // ---- Force hard navigation ----
+    const url = new URL(location.href);
+    url.searchParams.set('rev', targetVer || Date.now().toString(36));
+    location.replace(url.toString());
+
+  } catch (e) {
+    console.error('[FV] Update failed:', e);
+    this._toastMsg('Update failed. Try again.', 2400);
+  }
+}
+
 
     /* ============================== */
     /* Quick Camera interactions      */
