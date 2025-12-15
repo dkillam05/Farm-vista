@@ -929,51 +929,107 @@
     }
 
     async function loadTrial(){
-      if(!STATE.trialId) return;
-      try{
-        diag('loadTrial.start', { trialId: STATE.trialId });
-        const refDoc = doc(STATE.db, CONFIG.COLLECTION_TRIALS, STATE.trialId);
-        const snap = await withRetry(async()=> await getDoc(refDoc), 'loadTrial.getDoc', 2);
+  if(!STATE.trialId) return;
 
-        if(!snap.exists()){
-          showError("This trial could not be found. It may have been deleted.");
-          diag('loadTrial.missing', {});
-          return;
-        }
-        STATE.trial = snap.data()||{};
-        const t=STATE.trial;
+  try{
+    diag('loadTrial.start', { trialId: STATE.trialId });
 
-        if(!STATE.orgId && t.orgId){
-          STATE.orgId = t.orgId;
-          diag('loadTrial.orgIdFromTrial', { orgId: STATE.orgId });
-        }
+    const refDoc = doc(STATE.db, CONFIG.COLLECTION_TRIALS, STATE.trialId);
+    const snap = await withRetry(async()=> await getDoc(refDoc), 'loadTrial.getDoc', 2);
 
-        if(trialNameMain) trialNameMain.textContent = t.trialName || "Field Trial";
-        if(trialCropMain){
-          const bits=[];
-          if(t.cropYear!=null) bits.push(t.cropYear);
-          if(t.crop) bits.push(t.crop);
-          trialCropMain.textContent = bits.join(" • ") || "—";
-        }
-        if(trialTypeLine){
-          const parts=[];
-          if(t.trialType) parts.push(`Type: ${t.trialType}`);
-          if(t.operationTask) parts.push(`Operation: ${t.operationTask}`);
-          trialTypeLine.textContent = parts.join("  |  ") || "";
-        }
-        if(trialTreatmentLine){
-          const parts=[];
-          if(t.treatmentProduct) parts.push(`Treatment: ${t.treatmentProduct}`);
-          if(t.check) parts.push(`Check: ${t.check}`);
-          trialTreatmentLine.textContent = parts.join("  |  ") || "";
-        }
-        diag('loadTrial.success', { trialName: t.trialName || null });
-      }catch(err){
-        console.error("Error loading trial:",err);
-        diag('loadTrial.error', { code: err.code, message: err.message });
-        showError("Unable to load trial details. You can still add a field, but some labels may be missing.");
-      }
+    if(!snap.exists()){
+      // --- MINI DIAGNOSTIC (temporary) ---
+      const authUser = (() => {
+        try { return STATE.auth?.currentUser || STATE.user || null; } catch { return null; }
+      })();
+
+      const swControlled = (() => {
+        try { return !!navigator.serviceWorker?.controller; } catch { return false; }
+      })();
+
+      const online = (() => {
+        try { return navigator.onLine !== false; } catch { return true; }
+      })();
+
+      const lines = [
+        "This trial could not be found (doc missing).",
+        "",
+        `trialId: ${STATE.trialId || '(missing)'}`,
+        `signed in: ${authUser ? 'YES' : 'NO'}`,
+        `user email: ${authUser?.email || '(none)'}`,
+        `user uid: ${authUser?.uid || '(none)'}`,
+        `online: ${online ? 'YES' : 'NO'}`,
+        `service worker controlling page: ${swControlled ? 'YES' : 'NO'}`,
+        `time: ${new Date().toISOString()}`,
+        `device: ${(navigator.userAgent || '').slice(0, 140)}`,
+        "",
+        "Common causes:",
+        "• Wrong/old link (trialId not valid anymore).",
+        "• Firestore rules deny read (can look like missing on some setups).",
+        "• iPad/iPhone stale cached JS/SW serving old app state.",
+        "• Auth/context not ready yet (open trial again from Trials list)."
+      ];
+
+      showError(lines.join("\n"));
+      diag('loadTrial.missing', {
+        trialId: STATE.trialId,
+        signedIn: !!authUser,
+        email: authUser?.email || null,
+        swControlled,
+        online
+      });
+
+      return;
     }
+
+    STATE.trial = snap.data()||{};
+    const t = STATE.trial;
+
+    if(!STATE.orgId && t.orgId){
+      STATE.orgId = t.orgId;
+      diag('loadTrial.orgIdFromTrial', { orgId: STATE.orgId });
+    }
+
+    if(trialNameMain) trialNameMain.textContent = t.trialName || "Field Trial";
+    if(trialCropMain){
+      const bits=[];
+      if(t.cropYear!=null) bits.push(t.cropYear);
+      if(t.crop) bits.push(t.crop);
+      trialCropMain.textContent = bits.join(" • ") || "—";
+    }
+    if(trialTypeLine){
+      const parts=[];
+      if(t.trialType) parts.push(`Type: ${t.trialType}`);
+      if(t.operationTask) parts.push(`Operation: ${t.operationTask}`);
+      trialTypeLine.textContent = parts.join("  |  ") || "";
+    }
+    if(trialTreatmentLine){
+      const parts=[];
+      if(t.treatmentProduct) parts.push(`Treatment: ${t.treatmentProduct}`);
+      if(t.check) parts.push(`Check: ${t.check}`);
+      trialTreatmentLine.textContent = parts.join("  |  ") || "";
+    }
+
+    diag('loadTrial.success', { trialName: t.trialName || null });
+
+  }catch(err){
+    console.error("Error loading trial:", err);
+    diag('loadTrial.error', { code: err?.code, message: err?.message });
+
+    // Add a tiny diagnostic here too (different failure than "missing")
+    const lines = [
+      "Unable to load trial details (error).",
+      "",
+      `trialId: ${STATE.trialId || '(missing)'}`,
+      `error: ${err?.code || ''} ${err?.message || ''}`.trim(),
+      `online: ${navigator.onLine !== false ? 'YES' : 'NO'}`,
+      `service worker controlling page: ${(() => { try { return !!navigator.serviceWorker?.controller; } catch { return false; } })() ? 'YES' : 'NO'}`,
+      `time: ${new Date().toISOString()}`
+    ];
+
+    showError(lines.join("\n"));
+  }
+}
 
     // Use Firestore fields trialType + seedTrialType to detect multi-hybrid
     function isMultiHybridTrial(){
