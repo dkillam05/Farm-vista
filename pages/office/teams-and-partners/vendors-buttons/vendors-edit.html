@@ -38,12 +38,13 @@
     .input{width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
       border:1px solid var(--border);border-radius:10px;padding:12px;outline:none;}
 
+    /* Actions row — ALL buttons one row (wrap on mobile) */
     .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;
       border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
     .btn[disabled]{opacity:.5;pointer-events:none}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
-    .btn-accent{border-color:#2F6C3C;background:#E7F1EA;color:#2F6C3C;width:100%;font-size:17px;font-weight:800;margin-top:8px;}
+    .btn-accent{border-color:#2F6C3C;background:#E7F1EA;color:#2F6C3C;}
     .btn-quiet{min-width:auto;padding:8px 12px}
 
     /* Autofill neutralize */
@@ -75,7 +76,7 @@
   <fv-shell>
     <div class="page container">
       <h1 class="page-title">Edit Vendor</h1>
-      <p class="page-sub">Load a vendor by email, make changes, then Save or Save &amp; Invite.</p>
+      <p class="page-sub">Load a vendor by email, make changes, then Save or Save &amp; Resend Invite.</p>
 
       <!-- Card 0: Lookup -->
       <section class="section">
@@ -149,9 +150,10 @@
             <textarea id="notes" class="input" rows="3"></textarea>
           </div>
 
-          <button id="saveInvite" class="btn btn-accent" type="button">Save &amp; Invite</button>
+          <!-- Buttons in a single row -->
           <div class="actions">
             <button id="save" class="btn btn-primary" type="button">Save</button>
+            <button id="saveInvite" class="btn btn-accent" type="button">Save &amp; Resend Invite</button>
           </div>
         </div>
       </section>
@@ -488,18 +490,25 @@
         setBusy(true);
         await ready;
         await upsertVendor(vals);
+
         if(invite){
           const {mode}=await ready;
           if(mode==='firebase'){
-            try{ await sendPasswordResetEmail(getAuth(), vals.email); }catch(e){ console.warn(e); }
+            // EDIT screen = RESEND ONLY (no account creation)
+            await sendPasswordResetEmail(getAuth(), vals.email);
           }
-          showToast('Saved & invite sent.');
+          showToast('Saved & invite resent.');
         }else{
           showToast('Vendor saved.');
         }
         window.scrollTo({top:0,behavior:'smooth'});
       }catch(e){
-        alert('Save failed.\n\n'+(e?.message||e));
+        const code = e?.code || "";
+        if (invite && code === "auth/user-not-found") {
+          alert("Resend failed.\n\nThis email does not have a login account yet.\nCreate the vendor from the New Vendor flow first.");
+        } else {
+          alert('Save failed.\n\n'+(e?.message||e));
+        }
       }finally{
         setBusy(false);
       }
