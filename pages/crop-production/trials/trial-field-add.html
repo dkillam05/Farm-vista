@@ -1208,25 +1208,103 @@
     }
 
     async function removeExistingField(idx){
-      const row = STATE.existingFields[idx];
-      if(!row) return;
-      const ok = window.confirm("Remove this field from the trial? This doesn't delete the field itself.");
-      if(!ok) return;
+  // HARD STOP — requires delete permission
+  if (!window.FV || typeof window.FV.can !== 'function' || !window.FV.can('crop-trials:delete')) {
+    showToast('You do not have permission to remove fields from trials.');
+    return;
+  }
 
-      try{
-        diag('removeExistingField.start', {
-          trialId: STATE.trialId,
-          docId: row.docId
-        });
-        await deleteDoc(doc(STATE.db, CONFIG.COLLECTION_TRIALS, STATE.trialId, 'fields', row.docId));
-        showToast("Field removed from this trial.");
-        diag('removeExistingField.success', {});
-      }catch(err){
-        console.error("Error removing field:", err);
-        diag('removeExistingField.error', { code: err.code, message: err.message });
-        showError("Error removing field from trial: " + (err && (err.message || err.code) || "Unknown error"));
-      }
+  const row = STATE.existingFields[idx];
+  if(!row) return;
+
+  // Modal elements
+  const modal   = document.getElementById('removeFieldConfirmModal');
+  const inputEl = document.getElementById('removeFieldConfirmInput');
+  const cancelBtn = document.getElementById('removeFieldCancelBtn');
+  const confirmBtn= document.getElementById('removeFieldConfirmBtn');
+
+  // Fallback (if modal missing)
+  if(!modal || !inputEl || !cancelBtn || !confirmBtn){
+    const ok = window.confirm("Remove this field from the trial? This doesn't delete the field itself.");
+    if(!ok) return;
+    return await actuallyRemoveExistingFieldDoc(row);
+  }
+
+  // Open modal
+  inputEl.value = '';
+  confirmBtn.disabled = true;
+  modal.classList.add('show');
+
+  const close = () => {
+    modal.classList.remove('show');
+  };
+
+  const cleanup = () => {
+    try{ inputEl.oninput = null; }catch{}
+    try{ cancelBtn.onclick = null; }catch{}
+    try{ confirmBtn.onclick = null; }catch{}
+    try{ document.removeEventListener('keydown', onKeyDown, true); }catch{}
+  };
+
+  const onKeyDown = (e) => {
+    if(e.key === 'Escape'){
+      e.preventDefault();
+      cleanup();
+      close();
+    }else if(e.key === 'Enter' && !confirmBtn.disabled){
+      e.preventDefault();
+      confirmBtn.click();
     }
+  };
+
+  inputEl.oninput = () => {
+    confirmBtn.disabled = (inputEl.value || '').trim().toUpperCase() !== 'YES';
+  };
+
+  cancelBtn.onclick = () => {
+    cleanup();
+    close();
+  };
+
+  confirmBtn.onclick = async () => {
+    // Re-check perm right before delete
+    if (!window.FV || typeof window.FV.can !== 'function' || !window.FV.can('crop-trials:delete')) {
+      showToast('You do not have permission to remove fields from trials.');
+      cleanup();
+      close();
+      return;
+    }
+
+    confirmBtn.disabled = true;
+    cleanup();
+    close();
+    await actuallyRemoveExistingFieldDoc(row);
+  };
+
+  document.addEventListener('keydown', onKeyDown, true);
+
+  // focus input
+  setTimeout(()=>{ try{ inputEl.focus(); }catch{} }, 0);
+}
+
+async function actuallyRemoveExistingFieldDoc(row){
+  try{
+    diag('removeExistingField.start', {
+      trialId: STATE.trialId,
+      docId: row.docId
+    });
+
+    await deleteDoc(doc(STATE.db, CONFIG.COLLECTION_TRIALS, STATE.trialId, 'fields', row.docId));
+
+    showToast("Field removed from this trial.");
+    diag('removeExistingField.success', {});
+  }catch(err){
+    console.error("Error removing field:", err);
+    diag('removeExistingField.error', { code: err.code, message: err.message });
+    showError("Error removing field from trial: " + (err && (err.message || err.code) || "Unknown error"));
+  }
+}
+
 
     function openYieldForExisting(idx){
       const row = STATE.existingFields[idx];
@@ -1267,12 +1345,17 @@
               }
             },
             rightAction: {
-              label: 'Remove',
-              onAction: (itemEl) => {
-                const idx = Number(itemEl.dataset.index);
-                if(!Number.isNaN(idx)) removeExistingField(idx);
-              }
-            }
+  label: 'Remove',
+  onAction: (itemEl) => {
+    if (!window.FV?.can?.('crop-trials:delete')) {
+      showToast('You do not have permission to remove fields.');
+      return;
+    }
+    const idx = Number(itemEl.dataset.index);
+    if(!Number.isNaN(idx)) removeExistingField(idx);
+  }
+}
+
           });
         }
 
@@ -1554,7 +1637,7 @@
               </div>
               <div class="field-card-actions">
                 <button type="button" class="btn btn-small" data-pending-yield="${idx}">Add Yield</button>
-                <button type="button" class="btn btn-small btn-danger" data-pending-idx="${idx}">Remove</button>
+                <button type="button" class="btn btn-small btn-danger" data-existing-idx="${idx}" data-perm="crop-trials:delete">Remove</button>
               </div>
             </div>
             ${row.notes?`<div class="field-card-note">${row.notes}</div>`:''}
@@ -2114,6 +2197,33 @@
               </div>
               <div class="helper">Optional, but really helpful when you come back to review results.</div>
             </div>
+
+            <!-- Remove Field confirm (type YES) -->
+<div id="removeFieldConfirmModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Remove field confirmation">
+  <div class="modal-sheet">
+    <div class="modal-title">Remove Field From Trial</div>
+
+    <div class="modal-body">
+      This will remove this field from the trial (it does not delete the field itself).
+      <br><br>
+      Type <b>YES</b> to confirm.
+    </div>
+
+    <input
+      id="removeFieldConfirmInput"
+      class="input"
+      type="text"
+      placeholder="Type YES"
+      autocomplete="off"
+      spellcheck="false"
+    />
+
+    <div class="modal-actions">
+      <button type="button" id="removeFieldCancelBtn" class="modal-btn">Cancel</button>
+      <button type="button" id="removeFieldConfirmBtn" class="modal-btn modal-btn-primary" disabled>Remove</button>
+    </div>
+  </div>
+</div>
 
             <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:4px;">
               <button id="btnAddField" type="button" class="btn btn-primary">
