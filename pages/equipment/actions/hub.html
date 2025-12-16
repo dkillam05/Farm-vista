@@ -251,6 +251,7 @@
       font-size:13px;
       line-height:1.3;
       display:none;
+      white-space:pre-line; /* allow \n in banner text */
     }
     :root[data-theme="dark"] .banner{ color:var(--ink-1,#eaece9); }
     .banner[data-show="1"]{ display:block; }
@@ -289,7 +290,6 @@
           <div class="card" id="eqCard" hidden>
             <h2 id="eqName" style="margin:0"></h2>
             <div class="meta">
-              <!-- We keep only SN + metric chips visible; the others stay unused/hidden -->
               <span id="eqSerial" class="chip" hidden></span>
               <span id="eqMetric" class="chip" hidden></span>
             </div>
@@ -298,7 +298,7 @@
           <!-- Primary actions: dynamic per type -->
           <div class="actions" id="fnLinks" hidden>
             <a id="linkReq"    class="btn" href="#">Submit Service Request</a>
-            <a id="linkMetric" class="btn" href="#">Update Engine Hours</a>
+            <a id="linkMetric" class="btn" href="#">Update Usage</a>
             <a id="linkMaint"  class="btn" href="#">Service Records</a>
             <a id="linkPre"    class="btn" href="#">Pre-Season Checklist</a>
           </div>
@@ -415,8 +415,13 @@
     const from = (qs.get('from') || '').toLowerCase();
     console.info('[hub] start; id=', id, 'from=', from);
 
-    // --- Type configuration: display names + metrics + buttons
-    // NOTE: metricFields supports multiple inputs per equipment type (combine engine + separator, etc.)
+    // --- Type configuration (aligned to equipment-forms.js)
+    // NOTE:
+    // - Trucks use odometerMiles (not odometer)
+    // - Combines have engineHours + separatorHours
+    // - Implements only get metrics when implementType === 'planter' (totalAcres/totalHours)
+    // - Trailers do NOT have usage metrics (no button)
+    // - Construction only has engine hours when constructionType === 'machine'
     const HUB_CONFIG = {
       tractor: {
         display: 'Tractor',
@@ -462,51 +467,40 @@
       truck: {
         display: 'Truck',
         metricFields: [
-          { key:'odometer', label:'Odometer', suffix:'mi', step:'1' }
+          { key:'odometerMiles', label:'Odometer (miles)', suffix:'mi', step:'1' },
+          { key:'engineHours',   label:'Engine Hours',     suffix:'hrs', step:'0.1' }
         ],
-        updateLabel: 'Update Odometer',
+        updateLabel: 'Update Mileage / Hours',
         hasPreSeason: false
       },
       trailer: {
         display: 'Trailer',
-        metricFields: [
-          { key:'odometer', label:'Odometer', suffix:'mi', step:'1' }
-        ],
-        updateLabel: 'Update Odometer',
+        metricFields: [],               // keep hub clean (no usage updates)
+        updateLabel: '',
         hasPreSeason: false
-      },
-      planter: {
-        display: 'Planter',
-        metricFields: [
-          { key:'acres', label:'Acres', suffix:'ac', step:'0.1' }
-        ],
-        updateLabel: 'Update Acres',
-        hasPreSeason: true
       },
       implement: {
         display: 'Implement',
-        metricFields: [], // none by default
-        updateLabel: 'Update Usage',
+        metricFields: [],               // dynamic: only planters get metrics
+        updateLabel: 'Update Planter Usage',
         hasPreSeason: false
       },
       starfire: {
         display: 'StarFire',
-        metricFields: [], // none
+        metricFields: [],
         updateLabel: 'Update Location',
         hasPreSeason: false
       },
       technology: {
         display: 'Technology',
         metricFields: [],
-        updateLabel: 'Update Usage',
+        updateLabel: '',
         hasPreSeason: false
       },
       equipment: {
         display: 'Equipment',
-        metricFields: [
-          { key:'engineHours', label:'Engine Hours', suffix:'hrs', step:'0.1' }
-        ],
-        updateLabel: 'Update Usage',
+        metricFields: [],
+        updateLabel: '',
         hasPreSeason: false
       }
     };
@@ -550,7 +544,6 @@
       if(from && FROM_MAP[from]) {
         cfg = FROM_MAP[from];
       } else {
-        // Fallback: infer from equipment type if we didn't get a from=
         switch(typeKey){
           case 'tractor':   cfg = FROM_MAP.tractors; break;
           case 'combine':   cfg = FROM_MAP.combines; break;
@@ -629,7 +622,7 @@
       return String(n);
     }
 
-    function buildMetricForm(docData, cfg, typeKey){
+    function buildMetricForm(docData, cfg){
       const form = $('metricForm');
       const help = $('metricHelp');
       if(!form || !help) return;
@@ -638,7 +631,6 @@
       const fields = Array.isArray(cfg.metricFields) ? cfg.metricFields : [];
       MODAL.fields = fields;
 
-      // Build dynamic inputs (2-col where possible)
       const rows = [];
       for (const f of fields){
         const current = docData?.[f.key];
@@ -665,7 +657,6 @@
         rows.push(el);
       }
 
-      // pack rows into .row blocks of 2
       for(let i=0;i<rows.length;i+=2){
         const row = document.createElement('div');
         row.className = 'row';
@@ -674,19 +665,17 @@
         form.appendChild(row);
       }
 
-      // If no fields, show info
       if(fields.length === 0){
         const empty = document.createElement('div');
         empty.className = 'card';
         empty.style.padding = '12px';
         empty.innerHTML = `
           <div style="font-weight:950;">No usage metric configured</div>
-          <div class="small-note">This equipment type doesn’t have hours/mileage/acres tracking enabled yet.</div>
+          <div class="small-note">This equipment doesn’t have hours/mileage/acres tracking enabled.</div>
         `;
         form.appendChild(empty);
       }
 
-      // helper copy
       const overrideKey = 'equipment-metrics:override';
       help.innerHTML = `
         <div class="small-note">
@@ -700,7 +689,6 @@
         </div>
       `;
 
-      // set defaults to blank (force user to type the new reading)
       for (const f of fields){
         const inp = $(`metric_${f.key}`);
         if(inp) inp.value = '';
@@ -718,7 +706,7 @@
       for(const f of (MODAL.fields||[])){
         const el = $(`metric_${f.key}`);
         const raw = el ? String(el.value ?? '').trim() : '';
-        if(raw === '') continue; // skip empties (no change)
+        if(raw === '') continue;
         const n = Number(raw);
         out[f.key] = Number.isFinite(n) ? n : NaN;
       }
@@ -746,45 +734,49 @@
         }
         const cur = getCurrentValue(docData, k);
         if(cur == null){
-          // if missing current value, allow setting (still must be finite)
           results.updates[k] = v;
           continue;
         }
         if(v < cur){
           results.anyDecrease = true;
           results.decreases.push({ key:k, current:cur, next:v });
-          // do not add to updates yet
           continue;
         }
-        if(v === cur){
-          // no change
-          continue;
-        }
+        if(v === cur) continue;
         results.updates[k] = v;
       }
 
-      // if no decreases and no bad numbers, ok can still be true even if updates empty
       if(results.badNumbers.length) results.ok = false;
-
       return results;
     }
 
-    function updateMetricChip(docData, cfg){
-      // We keep the visible chip simple:
-      // - if combine: show engine + separator (if present)
-      // - else: show first configured field
+    function updateMetricChip(docData, cfg, typeKey){
       const chip = $('eqMetric');
       if(!chip) return;
 
       const fields = Array.isArray(cfg.metricFields) ? cfg.metricFields : [];
       if(fields.length === 0){ chip.hidden = true; return; }
 
-      if(String(MODAL.typeKey||'') === 'combine'){
+      if(String(typeKey||'') === 'combine'){
         const e = docData?.engineHours;
         const s = docData?.separatorHours;
         const parts = [];
         if(e != null && e !== '') parts.push(`${fmtNum(e)} hrs eng`);
         if(s != null && s !== '') parts.push(`${fmtNum(s)} hrs sep`);
+        if(parts.length){
+          chip.textContent = parts.join(' • ');
+          chip.hidden = false;
+          return;
+        }
+      }
+
+      if(String(typeKey||'') === 'implement'){
+        // Planter implement: show acres + hours if present
+        const a = docData?.totalAcres;
+        const h = docData?.totalHours;
+        const parts = [];
+        if(a != null && a !== '') parts.push(`${fmtNum(a)} ac`);
+        if(h != null && h !== '') parts.push(`${fmtNum(h)} hrs`);
         if(parts.length){
           chip.textContent = parts.join(' • ');
           chip.hidden = false;
@@ -827,12 +819,10 @@
           return;
         }
 
-        // Hard rule: no decreases unless permissioned override
         const overrideKey = 'equipment-metrics:override';
         const canOverride = !!(window.FV && typeof window.FV.can === 'function' && window.FV.can(overrideKey));
 
         if(v.anyDecrease && !canOverride){
-          // Show request adjustment UI
           const lines = v.decreases.map(x=>{
             const label = (MODAL.fields.find(f=>f.key===x.key)?.label) || x.key;
             return `• ${label}: current ${fmtNum(x.current)} → attempted ${fmtNum(x.next)}`;
@@ -847,7 +837,6 @@
           return;
         }
 
-        // Override path: allow decreases, but REQUIRE a reason
         if(v.anyDecrease && canOverride){
           const reason = String($('adjustReason')?.value || '').trim();
           if(!reason){
@@ -855,7 +844,6 @@
             $('adjustBlock').hidden = false;
             return;
           }
-          // allow decreases by including them in updates
           for(const dec of v.decreases){
             v.updates[dec.key] = dec.next;
           }
@@ -866,7 +854,6 @@
           return;
         }
 
-        // Write update
         const auth = getAuth();
         const user = auth.currentUser || null;
 
@@ -878,8 +865,6 @@
 
         await updateDoc(MODAL.snapRef, patch);
 
-        // Log to history collection (audit trail)
-        // (Safe if collection doesn't exist yet — Firestore will create it.)
         await addDoc(collection(MODAL.db, 'equipment_metric_entries'), {
           equipmentId: id,
           equipmentType: MODAL.typeKey || null,
@@ -891,13 +876,11 @@
           mode: (v.anyDecrease ? 'override' : 'normal')
         });
 
-        // Update local doc snapshot values
         for(const [k,val] of Object.entries(v.updates)){
           MODAL.doc[k] = val;
         }
 
-        // Update chip + close
-        updateMetricChip(MODAL.doc, MODAL.cfg);
+        updateMetricChip(MODAL.doc, MODAL.cfg, MODAL.typeKey);
         showBanner('Saved.');
         setTimeout(()=>closeModal(), 220);
       }catch(e){
@@ -973,14 +956,12 @@
         showBanner('');
       });
 
-      // click outside closes
       if(back){
         back.addEventListener('click', (e)=>{
           if(e.target === back) closeModal();
         });
       }
 
-      // escape closes
       window.addEventListener('keydown', (e)=>{
         if(e.key === 'Escape' && MODAL.open) closeModal();
       });
@@ -996,18 +977,17 @@
       const title = cfg.updateLabel || 'Update Usage';
       $('metricModalTitle').textContent = title;
 
-      buildMetricForm(docData, cfg, typeKey);
+      buildMetricForm(docData, cfg);
 
-      // If no metric fields, don't open
       if(!Array.isArray(cfg.metricFields) || cfg.metricFields.length === 0){
-        showBanner('No usage metric configured for this equipment type yet.');
+        showBanner('No usage metric configured for this equipment.');
         return;
       }
 
       openModal();
     }
 
-    // --- Watchdog (content-only since fv-shell handles splash)
+    // --- Watchdog
     const TIMEOUT_MS = 22000;
     let finished=false;
     const watchdog=setTimeout(()=>{
@@ -1018,7 +998,6 @@
       console.warn('[hub] watchdog fired');
     },TIMEOUT_MS);
 
-    // --- Wait for REAL user (not just an auth event). Cap at ~3s.
     async function userReady(maxMs=3000){
       const auth = getAuth();
       if (auth.currentUser) { console.info('[hub] userReady: currentUser present'); return; }
@@ -1034,7 +1013,6 @@
       console.info('[hub] userReady: final user=', !!auth.currentUser);
     }
 
-    // --- Gentle retry
     async function getDocWithRetry(ref){
       try {
         console.info('[hub] getDoc attempt #1');
@@ -1045,6 +1023,52 @@
         console.info('[hub] getDoc attempt #2');
         return await getDoc(ref);
       }
+    }
+
+    function cloneCfg(base){
+      return {
+        display: base.display,
+        updateLabel: base.updateLabel,
+        hasPreSeason: !!base.hasPreSeason,
+        metricFields: Array.isArray(base.metricFields) ? base.metricFields.slice() : []
+      };
+    }
+
+    function resolveEffectiveCfg(typeKey, d){
+      const base = HUB_CONFIG[typeKey] || HUB_CONFIG.equipment;
+      const cfg = cloneCfg(base);
+
+      // Implement: only planters get metrics (from equipment-forms.js: totalAcres/totalHours)
+      if(typeKey === 'implement'){
+        const it = String(d.implementType || '').toLowerCase();
+        if(it === 'planter'){
+          cfg.display = 'Planter';
+          cfg.updateLabel = 'Update Planter Acres / Hours';
+          cfg.metricFields = [
+            { key:'totalAcres', label:'Total Acres', suffix:'ac', step:'1' },
+            { key:'totalHours', label:'Total Hours', suffix:'hrs', step:'0.1' }
+          ];
+        }else{
+          cfg.metricFields = [];
+          cfg.updateLabel = '';
+        }
+      }
+
+      // Construction: only machines track engine hours
+      if(typeKey === 'construction'){
+        const ct = String(d.constructionType || '').toLowerCase();
+        if(ct && ct !== 'machine'){
+          cfg.metricFields = [];
+          cfg.updateLabel = '';
+        }
+      }
+
+      // If nothing to update, keep label empty for cleanliness
+      if(!cfg.metricFields || cfg.metricFields.length === 0){
+        cfg.updateLabel = '';
+      }
+
+      return cfg;
     }
 
     // --- Single-run guard
@@ -1086,71 +1110,68 @@
 
       const d = snap.data() || {}; d.id = id;
       const typeKey = String(d.type || 'equipment').toLowerCase();
-      const cfg = HUB_CONFIG[typeKey] || HUB_CONFIG.equipment;
+      const cfg = resolveEffectiveCfg(typeKey, d);
 
       console.info('[hub] loaded doc', { id, type:d.type, make:d.makeName, model:d.modelName });
 
-      // Title and header (singular, per config)
       const hubTitle = `${cfg.display} Hub`;
       setText('pageTitle', hubTitle);
       document.title = `FarmVista • ${hubTitle}`;
 
-      // Main hero title: Make + Model + (#last6)
       const mm = [d.makeName, d.modelName].filter(Boolean).join(' ');
       const ls = last6(d.serial);
       const title = mm ? `${mm}${ls ? ` (#${ls})` : ''}` : (d.name || `Unit ${id.slice(0,6)}`);
       setText('eqName', title);
 
-      // SN chip
       if(ls){
         setText('eqSerial', `SN #${ls}`, { unhide:true });
       }
 
-      // Metric chip (hours / odometer / acres)
-      updateMetricChip(d, cfg);
+      updateMetricChip(d, cfg, typeKey);
 
       $('eqCard').hidden = false;
 
       const calcCard = $('combineCalcs');
 
-      // Archived state vs links
       const isArchived = (String(d.status||'').toLowerCase() === 'archived') || (d.archived === true);
       if(isArchived){
         const name = mm || 'This unit';
         $('archivedMsg').textContent = `“${name}${ls ? ' • SN …'+ls : ''}” is archived and not available for new entries.`;
         $('archivedCard').hidden = false;
-        if (calcCard) calcCard.hidden = true; // no calculators for archived units
+        if (calcCard) calcCard.hidden = true;
       }else{
-        // Configure button labels & visibility
         setText('linkReq', 'Submit Service Request');
         $('linkReq').hidden = false;
 
-        // Metric button (opens modal)
-        if(cfg.updateLabel){
+        // Usage button: ONLY show if cfg.metricFields exists (keep hub clean)
+        if(Array.isArray(cfg.metricFields) && cfg.metricFields.length > 0 && cfg.updateLabel){
           setText('linkMetric', cfg.updateLabel);
           $('linkMetric').hidden = false;
         }else{
           $('linkMetric').hidden = true;
         }
 
+        // These still exist but can be wired later
         $('linkMaint').hidden = false;
         $('linkPre').hidden   = !cfg.hasPreSeason;
 
-        // Default hrefs (can be wired later per type)
         $('linkReq').href =
           `/Farm-vista/pages/equipment/actions/service-request.html?id=${encodeURIComponent(id)}${from ? `&from=${encodeURIComponent(from)}` : ''}`;
 
-        $('linkMetric').href = '#';
         $('linkMaint').href  = '#';
         $('linkPre').href    = '#';
 
-        // Metric click => modal
-        $('linkMetric').onclick = (e)=>{
-          e.preventDefault();
-          openMetricModal(d, cfg, typeKey, db, ref);
-        };
+        if(!$('linkMetric').hidden){
+          $('linkMetric').href = '#';
+          $('linkMetric').onclick = (e)=>{
+            e.preventDefault();
+            openMetricModal(d, cfg, typeKey, db, ref);
+          };
+        }else{
+          $('linkMetric').onclick = null;
+        }
 
-        // --- StarFire special case: only "Submit Service Request" + "Update Location"
+        // StarFire special case stays clean
         if(typeKey === 'starfire'){
           setText('linkMetric', 'Update Location');
           $('linkMetric').hidden = false;
@@ -1163,25 +1184,15 @@
 
           if (calcCard) calcCard.hidden = true;
         } else {
-          // --- Combine-only Calculators wiring
           if (typeKey === 'combine' && calcCard) {
             const lossLink   = $('linkCalcLoss');
             const checkLink  = $('linkCalcYieldCheck');
             const calibLink  = $('linkCalcYieldCal');
             const basePath   = '/Farm-vista/pages/calculators';
 
-            if (lossLink) {
-              lossLink.href =
-                `${basePath}/calc-combine-grain-loss.html?equipmentId=${encodeURIComponent(id)}`;
-            }
-            if (checkLink) {
-              checkLink.href =
-                `${basePath}/calc-combine-yield.html?equipmentId=${encodeURIComponent(id)}`;
-            }
-            if (calibLink) {
-              calibLink.href =
-                `${basePath}/calc-combine-yield-calibration.html?equipmentId=${encodeURIComponent(id)}`;
-            }
+            if (lossLink)  lossLink.href  = `${basePath}/calc-combine-grain-loss.html?equipmentId=${encodeURIComponent(id)}`;
+            if (checkLink) checkLink.href = `${basePath}/calc-combine-yield.html?equipmentId=${encodeURIComponent(id)}`;
+            if (calibLink) calibLink.href = `${basePath}/calc-combine-yield-calibration.html?equipmentId=${encodeURIComponent(id)}`;
 
             calcCard.hidden = false;
           } else if (calcCard) {
@@ -1192,7 +1203,6 @@
         $('fnLinks').hidden = false;
       }
 
-      // Set up "Return to X" buttons
       setupReturnButtons(typeKey);
     }
 
@@ -1204,7 +1214,6 @@
       $('status').textContent='Error loading hub.'; $('status').hidden=false;
     });
 
-    // Re-run on true resumes (bfcache return / tab re-focus)
     window.addEventListener('pageshow', (e)=>{ if(e.persisted) init(); });
     document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') init(); });
   </script>
