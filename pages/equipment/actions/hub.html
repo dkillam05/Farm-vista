@@ -227,6 +227,7 @@
       outline:none;
     }
     :root[data-theme="dark"] .input{ color:var(--ink-1,#eaece9); }
+
     .modal-actions{
       display:grid;
       grid-template-columns: 1fr 1fr;
@@ -273,6 +274,20 @@
       outline:none;
     }
     :root[data-theme="dark"] .textarea{ color:var(--ink-1,#eaece9); }
+
+    /* ===== Combine guard (red box + subtle hint) ===== */
+    .input-error{
+      border-color:#c62828 !important;
+      box-shadow:0 0 0 2px rgba(198,40,40,.15);
+    }
+    .input-hint{
+      font-size:12px;
+      color:#c62828;
+      line-height:1.25;
+      margin-top:2px;
+      display:none;
+    }
+    .input-hint[data-show="1"]{ display:block; }
   </style>
 </head>
 
@@ -415,13 +430,6 @@
     const from = (qs.get('from') || '').toLowerCase();
     console.info('[hub] start; id=', id, 'from=', from);
 
-    // --- Type configuration (aligned to equipment-forms.js)
-    // NOTE:
-    // - Trucks use odometerMiles (not odometer)
-    // - Combines have engineHours + separatorHours
-    // - Implements only get metrics when implementType === 'planter' (totalAcres/totalHours)
-    // - Trailers do NOT have usage metrics (no button)
-    // - Construction only has engine hours when constructionType === 'machine'
     const HUB_CONFIG = {
       tractor: {
         display: 'Tractor',
@@ -475,13 +483,13 @@
       },
       trailer: {
         display: 'Trailer',
-        metricFields: [],               // keep hub clean (no usage updates)
+        metricFields: [],
         updateLabel: '',
         hasPreSeason: false
       },
       implement: {
         display: 'Implement',
-        metricFields: [],               // dynamic: only planters get metrics
+        metricFields: [],
         updateLabel: 'Update Planter Usage',
         hasPreSeason: false
       },
@@ -505,7 +513,6 @@
       }
     };
 
-    // Where to send "Return to X" when coming from a list/lookup
     const FROM_MAP = {
       tractors: { label: 'Return to Tractors', href: '/Farm-vista/pages/equipment/equipment-tractors.html' },
       combines: { label: 'Return to Combines', href: '/Farm-vista/pages/equipment/equipment-combines.html' },
@@ -519,7 +526,6 @@
       scanner:  { label: 'Return to Scanner', href: '/Farm-vista/pages/qr-scan.html' }
     };
 
-    // --- Helpers
     const last6 = v => String(v || '').slice(-6);
     const setText = (id, val, opts = {}) => {
       const el = $(id); if(!el) return;
@@ -652,6 +658,7 @@
             step="${String(step).replace(/"/g,'')}"
             placeholder="Enter new ${label.toLowerCase()}"
           />
+          <div class="input-hint" id="hint_metric_${f.key}"></div>
           <div class="help">Current: <b>${fmtNum(current) || '—'}</b>${suffix ? ` ${suffix}` : ''}. New value cannot be less than current.</div>
         `;
         rows.push(el);
@@ -692,7 +699,72 @@
       for (const f of fields){
         const inp = $(`metric_${f.key}`);
         if(inp) inp.value = '';
+        const hint = $(`hint_metric_${f.key}`);
+        if(hint){
+          hint.textContent = '';
+          hint.dataset.show = '0';
+        }
       }
+    }
+
+    function toNum(v){
+      const n = Number(String(v ?? '').trim());
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function clearInputError(key){
+      const el = $(`metric_${key}`);
+      const hint = $(`hint_metric_${key}`);
+      if(el) el.classList.remove('input-error');
+      if(hint){
+        hint.textContent = '';
+        hint.dataset.show = '0';
+      }
+    }
+
+    function setInputError(key, msg){
+      const el = $(`metric_${key}`);
+      const hint = $(`hint_metric_${key}`);
+      if(el) el.classList.add('input-error');
+      if(hint){
+        hint.textContent = msg || 'Invalid value.';
+        hint.dataset.show = '1';
+      }
+    }
+
+    // Combine-only: separator cannot exceed engine (live guard + red hint)
+    function wireCombineModalGuard(){
+      const engEl = $('metric_engineHours');
+      const sepEl = $('metric_separatorHours');
+      if(!engEl || !sepEl) return;
+
+      const msg = 'Separator Hours cannot be greater than Engine Hours.';
+
+      function validateAndGuard(){
+        clearInputError('separatorHours');
+
+        const eng = toNum(engEl.value);
+        const sep = toNum(sepEl.value);
+
+        // If either is blank, don’t yell.
+        if(eng == null || sep == null) return;
+
+        if(sep > eng){
+          // Auto-fix so operators can’t swap values and save bad data
+          sepEl.value = String(eng);
+
+          // Show red + subtle message
+          setInputError('separatorHours', msg);
+
+          // Fade the hint after a moment (still prevents bad value)
+          setTimeout(()=>{ clearInputError('separatorHours'); }, 2200);
+        }
+      }
+
+      engEl.addEventListener('input', validateAndGuard);
+      sepEl.addEventListener('input', validateAndGuard);
+      engEl.addEventListener('change', validateAndGuard);
+      sepEl.addEventListener('change', validateAndGuard);
     }
 
     function getCurrentValue(docData, key){
@@ -771,7 +843,6 @@
       }
 
       if(String(typeKey||'') === 'implement'){
-        // Planter implement: show acres + hours if present
         const a = docData?.totalAcres;
         const h = docData?.totalHours;
         const parts = [];
@@ -810,6 +881,17 @@
         if(!hasAnyInput(inputs)){
           showBanner('Enter at least one new reading to save.');
           return;
+        }
+
+        // HARD backstop for combines (even if user disables JS, etc.)
+        if(String(MODAL.typeKey||'') === 'combine'){
+          const eng = (inputs.engineHours != null) ? Number(inputs.engineHours) : null;
+          const sep = (inputs.separatorHours != null) ? Number(inputs.separatorHours) : null;
+          if(Number.isFinite(eng) && Number.isFinite(sep) && sep > eng){
+            setInputError('separatorHours', 'Separator Hours cannot be greater than Engine Hours.');
+            showBanner('Fix: Separator Hours cannot be greater than Engine Hours.');
+            return;
+          }
         }
 
         const v = computeValidation(MODAL.doc, inputs);
@@ -984,10 +1066,14 @@
         return;
       }
 
+      // Wire combine guard AFTER the form is built
+      if(String(typeKey||'') === 'combine'){
+        wireCombineModalGuard();
+      }
+
       openModal();
     }
 
-    // --- Watchdog
     const TIMEOUT_MS = 22000;
     let finished=false;
     const watchdog=setTimeout(()=>{
@@ -1038,7 +1124,6 @@
       const base = HUB_CONFIG[typeKey] || HUB_CONFIG.equipment;
       const cfg = cloneCfg(base);
 
-      // Implement: only planters get metrics (from equipment-forms.js: totalAcres/totalHours)
       if(typeKey === 'implement'){
         const it = String(d.implementType || '').toLowerCase();
         if(it === 'planter'){
@@ -1054,7 +1139,6 @@
         }
       }
 
-      // Construction: only machines track engine hours
       if(typeKey === 'construction'){
         const ct = String(d.constructionType || '').toLowerCase();
         if(ct && ct !== 'machine'){
@@ -1063,7 +1147,6 @@
         }
       }
 
-      // If nothing to update, keep label empty for cleanliness
       if(!cfg.metricFields || cfg.metricFields.length === 0){
         cfg.updateLabel = '';
       }
@@ -1071,7 +1154,6 @@
       return cfg;
     }
 
-    // --- Single-run guard
     let runId = 0;
     async function init(){
       const my = ++runId;
@@ -1143,7 +1225,6 @@
         setText('linkReq', 'Submit Service Request');
         $('linkReq').hidden = false;
 
-        // Usage button: ONLY show if cfg.metricFields exists (keep hub clean)
         if(Array.isArray(cfg.metricFields) && cfg.metricFields.length > 0 && cfg.updateLabel){
           setText('linkMetric', cfg.updateLabel);
           $('linkMetric').hidden = false;
@@ -1151,7 +1232,6 @@
           $('linkMetric').hidden = true;
         }
 
-        // These still exist but can be wired later
         $('linkMaint').hidden = false;
         $('linkPre').hidden   = !cfg.hasPreSeason;
 
@@ -1171,7 +1251,6 @@
           $('linkMetric').onclick = null;
         }
 
-        // StarFire special case stays clean
         if(typeKey === 'starfire'){
           setText('linkMetric', 'Update Location');
           $('linkMetric').hidden = false;
