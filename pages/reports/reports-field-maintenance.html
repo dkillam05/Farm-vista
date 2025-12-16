@@ -30,8 +30,83 @@
       padding: clamp(14px,3vw,22px);
       padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
       box-sizing:border-box;
+      display:grid;
+      gap:12px;
     }
 
+    /* Filters (OUTSIDE hero) */
+    .filters{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      padding:12px 12px 10px;
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+    }
+    .filter-field{
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+      min-width:160px;
+      flex:1 1 180px;
+      font-size:0.8rem;
+    }
+    .filter-label{
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      opacity:0.78;
+    }
+    .filter-select{
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:6px 10px;
+      font-size:0.9rem;
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+      min-height:34px;
+    }
+
+    /* Search: square-ish like dropdowns */
+    .filter-input{
+      border-radius:12px; /* square-ish */
+      border:1px solid var(--border);
+      padding:8px 10px;
+      font-size:0.92rem;
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+      min-height:34px;
+    }
+    .filter-input::placeholder{ color:var(--muted,#9CA3AF); }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:120px;
+      padding:10px 14px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      font-weight:800;
+      text-decoration:none;
+      cursor:pointer;
+      user-select:none;
+      color:var(--text) !important;
+      background:var(--card-surface,var(--surface));
+      font-size:0.9rem;
+      gap:6px;
+      white-space:nowrap;
+    }
+    .btn-quiet{ min-width:auto; padding-inline:10px; }
+    .btn-primary{
+      border-color:transparent;
+      background:#2F6C3C;
+      color:#fff !important;
+    }
+
+    /* Hero */
     .hero{
       border:1px solid var(--border);
       border-radius:14px;
@@ -77,66 +152,7 @@
       gap:10px;
       align-items:center;
     }
-
-    .btn{
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      min-width:120px;
-      padding:10px 14px;
-      border-radius:12px;
-      border:1px solid var(--border);
-      font-weight:800;
-      text-decoration:none;
-      cursor:pointer;
-      user-select:none;
-      color:var(--text) !important;
-      background:var(--card-surface,var(--surface));
-      font-size:0.9rem;
-      gap:6px;
-    }
-    .btn-quiet{ min-width:auto; padding-inline:10px; }
-    .btn-primary{
-      border-color:transparent;
-      background:#2F6C3C;
-      color:#fff !important;
-    }
-    .btn-small{ min-width:auto; padding:8px 12px; font-size:0.85rem; }
-
     .page-header-meta{ font-size:0.9rem; opacity:0.8; }
-
-    /* Filters */
-    .filters{
-      display:flex;
-      flex-wrap:wrap;
-      gap:8px;
-      align-items:flex-end;
-      margin-top:4px;
-    }
-    .filter-field{
-      display:flex;
-      flex-direction:column;
-      gap:3px;
-      min-width:150px;
-      flex:1 1 160px;
-      font-size:0.8rem;
-    }
-    .filter-label{
-      text-transform:uppercase;
-      letter-spacing:0.08em;
-      opacity:0.78;
-    }
-    .filter-input,
-    .filter-select{
-      border-radius:999px;
-      border:1px solid var(--border);
-      padding:6px 10px;
-      font-size:0.9rem;
-      background:var(--card-surface,var(--surface));
-      color:var(--text);
-      min-height:32px;
-    }
-    .filter-input::placeholder{ color:var(--muted,#9CA3AF); }
 
     /* List cards */
     .wo-list{ display:flex; flex-direction:column; gap:10px; margin-top:8px; }
@@ -290,8 +306,6 @@
       margin-bottom:2px;
     }
 
-    .wo-detail-notes-body{ margin-top:2px; }
-
     .wo-detail-footer{
       margin-top:10px;
       font-size:0.82rem;
@@ -344,9 +358,8 @@
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const CONFIG = {
-      // Your Field Maintenance collection:
-      // If yours is named differently later, change this ONE line.
-      COLLECTION_PATH: 'field_maintenance',
+      // ✅ Correct collection name
+      COLLECTION_PATH: 'fieldMaintenance',
       COMPANY_DOC_PATH: ['company','main']
     };
 
@@ -354,14 +367,10 @@
 
     const STATE = {
       items: [],
-      filteredItems: null,
+      filteredItems: [],
       selectedId: null,
       db: null,
-      company: null,
-
-      farmsById: new Map(),     // farmId -> farmName
-      fieldsById: new Map(),    // fieldId -> { fieldName, farmId, farmName }
-      years: []                 // numeric crop years
+      company: null
     };
 
     function escapeHtml(str){
@@ -376,8 +385,8 @@
       if(v.includes('complete')) return 'completed';
       if(v.includes('done')) return 'completed';
       if(v.includes('in progress')) return 'in progress';
-      if(v.includes('approved')) return 'approved';
       if(v.includes('needs approved')) return 'needs approved';
+      if(v.includes('approved')) return 'approved';
       if(v.includes('open')) return 'open';
       return v;
     }
@@ -389,16 +398,32 @@
       if(n === 'needs approved') return 'Needs approved';
       if(n === 'approved') return 'Approved';
       if(n === 'open') return 'Open';
-      // fall back to original
       return v || '—';
     }
 
     function toDateMaybe(ts){
       if(!ts) return null;
       try{
+        // Firestore Timestamp
         if(ts.toDate) return ts.toDate();
-        if(typeof ts === 'string' || typeof ts === 'number') return new Date(ts);
-        if(ts && typeof ts === 'object' && typeof ts.seconds === 'number') return new Date(ts.seconds * 1000);
+
+        // Your exported JSON style: { "__time__": "2025-12-14T..." }
+        if(ts && typeof ts === 'object' && ts.__time__){
+          const d = new Date(ts.__time__);
+          return Number.isFinite(d.getTime()) ? d : null;
+        }
+
+        // seconds-based
+        if(ts && typeof ts === 'object' && typeof ts.seconds === 'number'){
+          const d = new Date(ts.seconds * 1000);
+          return Number.isFinite(d.getTime()) ? d : null;
+        }
+
+        // raw string/number
+        if(typeof ts === 'string' || typeof ts === 'number'){
+          const d = new Date(ts);
+          return Number.isFinite(d.getTime()) ? d : null;
+        }
       }catch(_){}
       return null;
     }
@@ -414,18 +439,155 @@
       catch{ return ''; }
     }
 
-    function getWorkingItems(){
-      return (STATE.filteredItems && STATE.filteredItems.length) ? STATE.filteredItems : STATE.items;
-    }
-
     function inferCropYear(d){
-      // Prefer an explicit cropYear if you add it later
       const direct = d?.cropYear;
       if(Number.isFinite(direct)) return direct;
-
       const dt = toDateMaybe(d?.dateSubmitted) || toDateMaybe(d?.createdAt) || toDateMaybe(d?.updatedAt) || null;
       if(!dt || !Number.isFinite(dt.getTime())) return null;
       return dt.getFullYear();
+    }
+
+    function getSubmittedDate(d){
+      return toDateMaybe(d?.dateSubmitted) || toDateMaybe(d?.createdAt) || toDateMaybe(d?.updatedAt) || null;
+    }
+
+    function computeAvailableYears(items){
+      const set = new Set();
+      items.forEach(it => {
+        const y = inferCropYear(it.data);
+        if(Number.isFinite(y)) set.add(y);
+      });
+      return Array.from(set).sort((a,b)=>b-a);
+    }
+
+    function computeAvailableFieldsForYear(items, yearVal, statusVal){
+      const year = String(yearVal || 'all');
+      const status = String(statusVal || 'all').toLowerCase();
+
+      const map = new Map(); // fieldId -> { name, farmName }
+      items.forEach(it=>{
+        const d = it.data;
+        const y = inferCropYear(d);
+        const st = normalizeStatus(d.status);
+
+        if(year !== 'all' && String(y || '') !== year) return;
+        if(status !== 'all' && st !== status) return;
+
+        const id = (d.fieldId || '').trim();
+        const nm = (d.fieldName || '').trim();
+        if(!id && !nm) return;
+
+        const key = id || nm;
+        if(!map.has(key)){
+          map.set(key, {
+            id: key,
+            name: nm || key,
+            farm: (d.farmName || '').trim()
+          });
+        }
+      });
+
+      return Array.from(map.values()).sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+    }
+
+    function setSelectOptions(selectEl, options, currentValue){
+      if(!selectEl) return;
+      selectEl.innerHTML = options;
+      if(currentValue != null){
+        const exists = Array.from(selectEl.options).some(o => o.value === currentValue);
+        selectEl.value = exists ? currentValue : selectEl.options[0]?.value || '';
+      }
+    }
+
+    function hydrateYearDropdown(){
+      const yearSel = $('#filterYear');
+      const years = computeAvailableYears(STATE.items);
+      const cur = yearSel?.value || 'all';
+
+      const opts = [
+        `<option value="all">All crop years</option>`,
+        ...years.map(y => `<option value="${y}">${y}</option>`)
+      ].join('');
+
+      setSelectOptions(yearSel, opts, cur);
+    }
+
+    function hydrateFieldDropdown(){
+      const fieldSel = $('#filterField');
+      const yearSel = $('#filterYear');
+      const statusSel = $('#filterStatus');
+
+      const cur = fieldSel?.value || 'all';
+      const yearVal = yearSel?.value || 'all';
+      const statusVal = statusSel?.value || 'all';
+
+      const fields = computeAvailableFieldsForYear(STATE.items, yearVal, statusVal);
+
+      const opts = [
+        `<option value="all">All fields</option>`,
+        ...fields.map(f => {
+          const label = f.farm ? `${escapeHtml(f.name)} — ${escapeHtml(f.farm)}` : escapeHtml(f.name);
+          return `<option value="${escapeHtml(f.id)}">${label}</option>`;
+        })
+      ].join('');
+
+      // If current value no longer exists under the year/status filter, drop back to "all"
+      const curExists = fields.some(f => String(f.id) === String(cur));
+      setSelectOptions(fieldSel, opts, curExists ? cur : 'all');
+    }
+
+    function getFilters(){
+      return {
+        status: ($('#filterStatus')?.value || 'all'),
+        year: ($('#filterYear')?.value || 'all'),
+        field: ($('#filterField')?.value || 'all'),
+        q: ( ($('#filterSearch')?.value || '').trim().toLowerCase() )
+      };
+    }
+
+    function applyFilters(){
+      const { status, year, field, q } = getFilters();
+      const stFilter = String(status || 'all').toLowerCase();
+      const yearFilter = String(year || 'all');
+      const fieldFilter = String(field || 'all');
+
+      const filtered = STATE.items.filter(it=>{
+        const d = it.data;
+
+        const st = normalizeStatus(d.status);
+        const y = inferCropYear(d);
+        const fid = (d.fieldId || '').trim();
+        const fnm = (d.fieldName || '').trim();
+        const key = fid || fnm;
+
+        if(stFilter !== 'all' && st !== stFilter) return false;
+        if(yearFilter !== 'all' && String(y || '') !== yearFilter) return false;
+        if(fieldFilter !== 'all' && String(key || '') !== fieldFilter) return false;
+
+        if(q){
+          const hay = [
+            d.farmName, d.fieldName,
+            d.topicLabel, d.notes,
+            d.status,
+            d.submittedBy?.name, d.submittedBy?.email
+          ].join(' ').toLowerCase();
+          if(!hay.includes(q)) return false;
+        }
+
+        return true;
+      });
+
+      // newest first
+      filtered.sort((a,b)=>{
+        const ta = a.data._submittedDate ? a.data._submittedDate.getTime() : 0;
+        const tb = b.data._submittedDate ? b.data._submittedDate.getTime() : 0;
+        return tb - ta;
+      });
+
+      STATE.filteredItems = filtered;
+
+      renderList();
+      if(STATE.selectedId) renderDetails();
     }
 
     function renderList(){
@@ -434,7 +596,7 @@
       const countEl = $('#fmCount');
 
       listEl.innerHTML = '';
-      const items = getWorkingItems();
+      const items = STATE.filteredItems || [];
 
       if(!items.length){
         emptyEl.style.display = 'block';
@@ -446,7 +608,7 @@
       emptyEl.style.display = 'none';
 
       const completedCount = items.filter(it => normalizeStatus(it.data.status) === 'completed').length;
-      const uniqueFields = new Set(items.map(it => it.data.fieldId || it.data.fieldName || '').filter(Boolean)).size;
+      const uniqueFields = new Set(items.map(it => (it.data.fieldId || it.data.fieldName || '').trim()).filter(Boolean)).size;
 
       if(countEl){
         countEl.textContent = `${items.length} project${items.length===1?'':'s'} • ${completedCount} completed • ${uniqueFields} field${uniqueFields===1?'':'s'}`;
@@ -455,7 +617,7 @@
       for(const item of items){
         const d = item.data;
 
-        const farmName  = d.farmName  || STATE.farmsById.get(d.farmId) || '';
+        const farmName  = d.farmName || '';
         const fieldName = d.fieldName || '';
         const topic     = d.topicLabel || 'Field Maintenance';
         const status    = statusLabel(d.status);
@@ -512,7 +674,7 @@
 
     function renderDetails(){
       const panel = $('.wo-detail-panel');
-      const item = STATE.items.find(x => x.id === STATE.selectedId);
+      const item = (STATE.filteredItems || STATE.items).find(x => x.id === STATE.selectedId) || STATE.items.find(x => x.id === STATE.selectedId);
       if(!item){
         clearDetails();
         return;
@@ -520,7 +682,7 @@
 
       const d = item.data;
 
-      const farmName  = d.farmName  || STATE.farmsById.get(d.farmId) || '';
+      const farmName  = d.farmName  || '';
       const fieldName = d.fieldName || 'Field not set';
       const topic     = d.topicLabel || 'Field Maintenance';
       const status    = statusLabel(d.status);
@@ -635,15 +797,10 @@
         const snap = await getDocs(ref);
         const items = snap.docs.map(docSnap => {
           const data = docSnap.data() || {};
-
-          const submitted = toDateMaybe(data.dateSubmitted) || toDateMaybe(data.createdAt) || toDateMaybe(data.updatedAt) || null;
-
+          const submitted = getSubmittedDate(data);
           return {
             id: docSnap.id,
-            data: {
-              ...data,
-              _submittedDate: submitted
-            }
+            data: { ...data, _submittedDate: submitted }
           };
         });
 
@@ -655,36 +812,8 @@
         });
 
         STATE.items = items;
-
-        // build lookup maps and year list
-        STATE.farmsById = new Map();
-        STATE.fieldsById = new Map();
-
-        const yearsSet = new Set();
-
-        items.forEach(it => {
-          const d = it.data;
-
-          const farmId = d.farmId || '';
-          const farmName = d.farmName || '';
-          if(farmId && farmName && !STATE.farmsById.has(farmId)) STATE.farmsById.set(farmId, farmName);
-
-          const fieldId = d.fieldId || '';
-          const fieldName = d.fieldName || '';
-          if(fieldId){
-            if(!STATE.fieldsById.has(fieldId)){
-              STATE.fieldsById.set(fieldId, { fieldName, farmId, farmName });
-            }
-          }
-
-          const y = inferCropYear(d);
-          if(Number.isFinite(y)) yearsSet.add(y);
-        });
-
-        STATE.years = Array.from(yearsSet).sort((a,b)=>b-a);
-
       }catch(err){
-        console.error('Error loading field_maintenance:', err);
+        console.error('Error loading fieldMaintenance:', err);
         const emptyEl = $('.wo-empty');
         emptyEl.style.display = 'block';
         emptyEl.textContent = 'Error loading field maintenance. Check console or Firestore rules / collection name.';
@@ -693,569 +822,55 @@
       }
     }
 
-    function populateFilters(){
-      // Status dropdown (fixed options + dynamic fallback)
+    function chooseInitialStatus(){
       const statusSel = $('#filterStatus');
+      if(!statusSel) return;
+
+      const anyCompleted = STATE.items.some(it => normalizeStatus(it.data.status) === 'completed');
+      statusSel.value = anyCompleted ? 'completed' : 'all';
+    }
+
+    function wireFilterEvents(){
+      const statusSel = $('#filterStatus');
+      const yearSel   = $('#filterYear');
+      const fieldSel  = $('#filterField');
+      const searchEl  = $('#filterSearch');
+      const clearBtn  = $('#filterClear');
+
       if(statusSel){
-        // Keep what user wants: default to completed.
-        const current = statusSel.value || 'completed';
-        statusSel.innerHTML = `
-          <option value="completed">Completed (default)</option>
-          <option value="in progress">In progress</option>
-          <option value="needs approved">Needs approved</option>
-          <option value="approved">Approved</option>
-          <option value="all">All statuses</option>
-        `;
-        // restore if possible
-        const opt = Array.from(statusSel.options).find(o => o.value === current);
-        statusSel.value = opt ? current : 'completed';
-      }
-
-      // Crop year
-      const yearSel = $('#filterYear');
-      if(yearSel){
-        const current = yearSel.value || 'all';
-        yearSel.innerHTML = `<option value="all">All crop years</option>` +
-          STATE.years.map(y => `<option value="${y}">${y}</option>`).join('');
-        const opt = Array.from(yearSel.options).find(o => o.value === current);
-        yearSel.value = opt ? current : (STATE.years.length ? String(STATE.years[0]) : 'all');
-        // BUT per your request: default completed ones, not necessarily current year.
-        // If you prefer to default to latest year only, tell me and I’ll set it.
-        if(current === 'all') yearSel.value = 'all';
-      }
-
-      // Field dropdown
-      const fieldSel = $('#filterField');
-      if(fieldSel){
-        const current = fieldSel.value || 'all';
-        const fields = Array.from(STATE.fieldsById.entries())
-          .map(([id, info]) => ({ id, label: info.fieldName || id, farm: info.farmName || '' }))
-          .sort((a,b)=> (a.label||'').localeCompare(b.label||''));
-
-        fieldSel.innerHTML = `<option value="all">All fields</option>` +
-          fields.map(f => `<option value="${escapeHtml(f.id)}">${escapeHtml(f.label)}${f.farm ? ` — ${escapeHtml(f.farm)}` : ''}</option>`).join('');
-
-        const opt = Array.from(fieldSel.options).find(o => o.value === current);
-        fieldSel.value = opt ? current : 'all';
-      }
-    }
-
-    async function applyFilters(){
-      const statusSel = $('#filterStatus');
-      const yearSel   = $('#filterYear');
-      const fieldSel  = $('#filterField');
-      const searchEl  = $('#filterSearch');
-
-      const statusFilter = (statusSel?.value || 'completed').toLowerCase();
-      const yearFilter   = yearSel?.value || 'all';
-      const fieldFilter  = fieldSel?.value || 'all';
-      const q            = (searchEl?.value || '').trim().toLowerCase();
-
-      const filtered = STATE.items.filter(it => {
-        const d = it.data;
-
-        const st = normalizeStatus(d.status);
-
-        // status
-        if(statusFilter !== 'all'){
-          if(st !== statusFilter) return false;
-        }else{
-          // no-op
-        }
-
-        // crop year
-        if(yearFilter !== 'all'){
-          const y = inferCropYear(d);
-          if(String(y || '') !== String(yearFilter)) return false;
-        }
-
-        // field
-        if(fieldFilter !== 'all'){
-          const id = (d.fieldId || '').toString();
-          if(id !== fieldFilter) return false;
-        }
-
-        // search
-        if(q){
-          const hay = [
-            d.farmName, d.fieldName,
-            d.topicLabel, d.notes,
-            d.status,
-            d.submittedBy?.name, d.submittedBy?.email
-          ].join(' ').toLowerCase();
-          if(!hay.includes(q)) return false;
-        }
-
-        return true;
-      });
-
-      STATE.filteredItems = filtered;
-
-      renderList();
-      if(STATE.selectedId) renderDetails();
-    }
-
-    function computeDateRange(items){
-      if (!items.length) return '';
-      let min = Infinity;
-      let max = -Infinity;
-      items.forEach(it=>{
-        const d = it.data._submittedDate;
-        if(!d) return;
-        const t = d.getTime();
-        if(t < min) min = t;
-        if(t > max) max = t;
-      });
-      if(!Number.isFinite(min) || !Number.isFinite(max)) return '';
-      const dMin = new Date(min);
-      const dMax = new Date(max);
-      if (dMin.toDateString() === dMax.toDateString()) return formatDate(dMin);
-      return `${formatDate(dMin)} – ${formatDate(dMax)}`;
-    }
-
-    function summarizeFilters(){
-      const statusSel = $('#filterStatus');
-      const yearSel   = $('#filterYear');
-      const fieldSel  = $('#filterField');
-      const searchEl  = $('#filterSearch');
-
-      const statusLabelTxt = (statusSel?.value === 'all')
-        ? 'All statuses'
-        : `Status: ${statusLabel(statusSel?.value)}`;
-
-      const yearTxt = (yearSel?.value && yearSel.value !== 'all')
-        ? `Crop Year: ${yearSel.value}`
-        : 'All crop years';
-
-      let fieldTxt = 'All fields';
-      if(fieldSel && fieldSel.value !== 'all'){
-        const info = STATE.fieldsById.get(fieldSel.value);
-        fieldTxt = info?.fieldName ? `Field: ${info.fieldName}` : 'Selected field';
-      }
-
-      const searchVal = (searchEl?.value || '').trim();
-      const searchTxt = searchVal ? `Search: "${searchVal}"` : 'No text filter';
-
-      return `${statusLabelTxt} • ${yearTxt} • ${fieldTxt} • ${searchTxt}`;
-    }
-
-    function groupForPdf(items){
-      // Farm -> Field -> [items]
-      const farmMap = new Map();
-
-      items.forEach(it=>{
-        const d = it.data;
-        const farm = d.farmName || 'Unknown farm';
-        const field = d.fieldName || 'Unknown field';
-
-        if(!farmMap.has(farm)) farmMap.set(farm, new Map());
-        const fieldMap = farmMap.get(farm);
-
-        if(!fieldMap.has(field)) fieldMap.set(field, []);
-        fieldMap.get(field).push(it);
-      });
-
-      // sort farms/fields
-      const farms = Array.from(farmMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
-      const out = farms.map(([farmName, fieldMap])=>{
-        const fields = Array.from(fieldMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
-        fields.forEach(([_, arr])=>{
-          arr.sort((a,b)=>{
-            const ta = a.data._submittedDate ? a.data._submittedDate.getTime() : 0;
-            const tb = b.data._submittedDate ? b.data._submittedDate.getTime() : 0;
-            return tb - ta;
-          });
+        statusSel.addEventListener('change', () => {
+          // status affects which fields are available for the selected year
+          hydrateFieldDropdown();
+          applyFilters();
         });
-        return [farmName, fields];
-      });
+      }
 
-      return out;
+      if(yearSel){
+        yearSel.addEventListener('change', () => {
+          // year drives field list
+          hydrateFieldDropdown();
+          applyFilters();
+        });
+      }
+
+      if(fieldSel) fieldSel.addEventListener('change', () => applyFilters());
+      if(searchEl) searchEl.addEventListener('input', () => applyFilters());
+
+      if(clearBtn){
+        clearBtn.addEventListener('click', () => {
+          if(statusSel) statusSel.value = (STATE.items.some(it => normalizeStatus(it.data.status)==='completed') ? 'completed' : 'all');
+          if(yearSel)   yearSel.value   = 'all';
+          if(fieldSel)  fieldSel.value  = 'all';
+          if(searchEl)  searchEl.value  = '';
+          hydrateFieldDropdown();
+          applyFilters();
+        });
+      }
     }
 
     async function handlePrintClick(){
-      const items = getWorkingItems();
-      if (!items.length){
-        alert('No field maintenance projects match the current filters to print.');
-        return;
-      }
-
-      const company = await loadCompanyHeader();
-      const grouped = groupForPdf(items);
-
-      const now = new Date();
-      const runStr = formatDateTime(now);
-      const runDateOnly = formatDate(now);
-
-      const dateRange = computeDateRange(items);
-      const filterSummary = summarizeFilters();
-
-      const total = items.length;
-      const completed = items.filter(it => normalizeStatus(it.data.status) === 'completed').length;
-
-      const html = buildPrintHtml({
-        company,
-        runStr,
-        runDateOnly,
-        dateRange,
-        filterSummary,
-        total,
-        completed,
-        grouped
-      });
-
-      let iframe = document.getElementById('fv-print-frame');
-      if (!iframe){
-        iframe = document.createElement('iframe');
-        iframe.id = 'fv-print-frame';
-        document.body.appendChild(iframe);
-      }
-
-      const win = iframe.contentWindow || iframe.contentDocument;
-      const docu = iframe.contentDocument || iframe.contentWindow.document;
-
-      docu.open();
-      docu.write(html);
-      docu.close();
-
-      setTimeout(() => {
-        try{ win.focus(); win.print(); }
-        catch(err){
-          console.warn('[field-maint-report] iframe print failed, falling back to window.print()', err);
-          window.print();
-        }
-      }, 350);
-    }
-
-    function buildPrintHtml({ company, runStr, runDateOnly, dateRange, filterSummary, total, completed, grouped }){
-      return `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Field Maintenance — Completed Projects</title>
-  <style>
-    :root{
-      --fv-green:#3B7E46;
-      --fv-border:#D1D5DB;
-      --fv-text:#111827;
-      --fv-muted:#6B7280;
-      --fv-bg:#F3F4F6;
-    }
-    *{box-sizing:border-box;}
-    html,body{
-      margin:0;
-      padding:0;
-      font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-      color:var(--fv-text);
-      background:var(--fv-bg);
-    }
-    body{ display:flex; justify-content:center; padding:22px 12px; }
-    .page{
-      width:100%;
-      max-width:920px;
-      background:#fff;
-      border-radius:14px;
-      box-shadow:0 10px 30px rgba(15,23,42,0.12);
-      padding:20px 22px 22px;
-    }
-    .hdr{
-      display:grid;
-      grid-template-columns:auto 1fr auto;
-      gap:14px;
-      align-items:center;
-      border-bottom:2px solid var(--fv-green);
-      padding-bottom:12px;
-      margin-bottom:14px;
-    }
-    .logo{
-      width:60px;height:60px;border-radius:16px;
-      border:1px solid var(--fv-border);
-      display:flex;align-items:center;justify-content:center;
-      font-size:24px;font-weight:900;color:#fff;
-      background:radial-gradient(circle at 30% 0%, #4CAF50, var(--fv-green));
-    }
-    .co-name{font-size:16px;font-weight:900;margin:0 0 2px;}
-    .co-line{font-size:11px;color:var(--fv-muted);margin:0;line-height:1.35;}
-    .meta{
-      text-align:right;
-      font-size:11px;
-      color:var(--fv-muted);
-      line-height:1.35;
-      white-space:nowrap;
-    }
-    .meta strong{color:var(--fv-text);}
-
-    .title{
-      margin:0;
-      font-size:18px;
-      font-weight:950;
-      letter-spacing:0.06em;
-      text-transform:uppercase;
-    }
-    .subtitle{
-      margin:4px 0 0;
-      font-size:12px;
-      color:var(--fv-muted);
-      line-height:1.35;
-    }
-
-    .summary{
-      margin-top:10px;
-      padding:8px 10px;
-      border-radius:12px;
-      background:linear-gradient(90deg, rgba(59,126,70,0.10), transparent);
-      border:1px solid rgba(59,126,70,0.22);
-      display:flex;
-      flex-wrap:wrap;
-      gap:6px 14px;
-      font-size:11px;
-    }
-    .pill{display:inline-flex; gap:6px; align-items:baseline; white-space:nowrap;}
-    .k{font-size:10px; text-transform:uppercase; letter-spacing:0.10em; color:var(--fv-muted); font-weight:700;}
-    .v{font-weight:800; color:var(--fv-text);}
-
-    .kpis{
-      margin-top:12px;
-      display:grid;
-      grid-template-columns:repeat(2, minmax(0,1fr));
-      gap:10px;
-    }
-    .kpi{
-      border:1px solid var(--fv-border);
-      border-radius:12px;
-      padding:9px 10px;
-      background:linear-gradient(135deg, rgba(59,126,70,0.06), #fff);
-    }
-    .kpi .lab{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--fv-muted);font-weight:900;}
-    .kpi .val{font-size:18px;font-weight:950;margin-top:2px;}
-    .kpi .note{font-size:10px;color:var(--fv-muted);margin-top:2px;line-height:1.25;}
-
-    .section{
-      margin-top:16px;
-      border-top:1px solid #EEF2F7;
-      padding-top:14px;
-    }
-    .farm-title{
-      font-size:12px;
-      font-weight:950;
-      letter-spacing:0.10em;
-      text-transform:uppercase;
-      color:#1F2937;
-      margin:0 0 6px;
-      display:flex;
-      justify-content:space-between;
-      gap:10px;
-      align-items:baseline;
-    }
-    .field-title{
-      margin:10px 0 6px;
-      font-size:12px;
-      font-weight:900;
-      color:#111827;
-    }
-    .field-sub{
-      margin:0 0 8px;
-      font-size:11px;
-      color:var(--fv-muted);
-    }
-
-    .req-grid{
-      display:grid;
-      grid-template-columns:repeat(2, minmax(0,1fr));
-      gap:10px;
-    }
-    .req{
-      border:1px solid var(--fv-border);
-      border-radius:12px;
-      padding:10px 10px 9px;
-      break-inside:avoid;
-    }
-    .req-top{
-      display:flex;
-      justify-content:space-between;
-      gap:10px;
-      align-items:flex-start;
-      padding-bottom:7px;
-      border-bottom:1px solid #EEF2F7;
-      margin-bottom:8px;
-    }
-    .req-title{ font-weight:950; font-size:13px; line-height:1.25; }
-    .badge{
-      font-size:10px;
-      font-weight:950;
-      letter-spacing:0.08em;
-      text-transform:uppercase;
-      padding:4px 8px;
-      border-radius:999px;
-      border:1px solid rgba(59,126,70,0.28);
-      background:rgba(59,126,70,0.07);
-      color:#0F172A;
-      white-space:nowrap;
-    }
-
-    .req-meta{
-      display:grid;
-      grid-template-columns:repeat(2, minmax(0,1fr));
-      gap:8px 10px;
-      font-size:11px;
-    }
-    .pair .kk{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--fv-muted);font-weight:900;margin-bottom:2px;}
-    .pair .vv{font-weight:650; color:#111827; line-height:1.25; word-break:break-word;}
-    .notes{
-      grid-column:1 / -1;
-      margin-top:2px;
-      padding-top:8px;
-      border-top:1px dashed #E5E7EB;
-    }
-    .notes .vv{
-      font-weight:650;
-      white-space:pre-wrap;
-      line-height:1.28;
-    }
-
-    .footer{
-      margin-top:16px;
-      padding-top:10px;
-      border-top:1px solid var(--fv-border);
-      display:flex;
-      justify-content:space-between;
-      gap:12px;
-      font-size:10px;
-      color:var(--fv-muted);
-      line-height:1.3;
-    }
-    .footer .l{max-width:65%;}
-    .footer .r{text-align:right;}
-
-    @media (max-width:860px){
-      .req-grid{grid-template-columns:1fr;}
-      .kpis{grid-template-columns:1fr;}
-      .meta{white-space:normal;}
-    }
-    @media print{
-      html,body{background:#fff;padding:0;}
-      body{box-shadow:none;}
-      .page{
-        max-width:none;
-        border-radius:0;
-        box-shadow:none;
-        padding:12mm 13mm;
-      }
-      .req{break-inside:avoid; page-break-inside:avoid;}
-    }
-  </style>
-</head>
-<body>
-  <div class="page">
-    <header class="hdr">
-      <div class="logo"><span>DF</span></div>
-      <div>
-        <p class="co-name">${escapeHtml(company.name || '')}</p>
-        <p class="co-line">
-          ${company.address ? escapeHtml(company.address) + '<br>' : ''}
-          ${company.phone ? 'Phone: ' + escapeHtml(company.phone) : ''}${company.phone && company.email ? ' · ' : ''}
-          ${company.email ? 'Email: ' + escapeHtml(company.email) : ''}
-        </p>
-      </div>
-      <div class="meta">
-        <div><strong>Field Maintenance</strong></div>
-        <div>Generated: ${escapeHtml(runStr)}</div>
-        <div>Prepared by: ${escapeHtml(company.name || 'FarmVista')}</div>
-      </div>
-    </header>
-
-    <h1 class="title">Field Maintenance — Completed Projects</h1>
-    <p class="subtitle">A clean landowner-facing summary of field maintenance work, grouped by farm and field.</p>
-
-    <div class="summary">
-      <div class="pill"><span class="k">Date range</span><span class="v">${escapeHtml(dateRange || 'All dates')}</span></div>
-      <div class="pill"><span class="k">Filters</span><span class="v">${escapeHtml(filterSummary)}</span></div>
-      <div class="pill"><span class="k">Records</span><span class="v">${total}</span></div>
-    </div>
-
-    <div class="kpis">
-      <div class="kpi">
-        <div class="lab">Projects</div>
-        <div class="val">${total}</div>
-        <div class="note">Projects matching the selected filters</div>
-      </div>
-      <div class="kpi">
-        <div class="lab">Completed</div>
-        <div class="val">${completed}</div>
-        <div class="note">Completed within the filtered set</div>
-      </div>
-    </div>
-
-    ${grouped.map(([farmName, fields]) => {
-      const farmTotal = fields.reduce((sum, [,arr]) => sum + arr.length, 0);
-      const farmCompleted = fields.reduce((sum, [,arr]) => sum + arr.filter(it => normalizeStatus(it.data.status)==='completed').length, 0);
-
-      return `
-      <section class="section">
-        <div class="farm-title">
-          <span>${escapeHtml(farmName)}</span>
-          <span style="font-size:11px;color:var(--fv-muted);letter-spacing:0.06em;text-transform:none;font-weight:900;">${farmCompleted} completed / ${farmTotal} total</span>
-        </div>
-
-        ${fields.map(([fieldName, arr]) => {
-          const done = arr.filter(it => normalizeStatus(it.data.status)==='completed').length;
-          return `
-            <div class="field-title">${escapeHtml(fieldName)}</div>
-            <p class="field-sub">${done} completed / ${arr.length} total</p>
-
-            <div class="req-grid">
-              ${arr.map(it => {
-                const d = it.data;
-                const topic = d.topicLabel || 'Field Maintenance';
-                const st = statusLabel(d.status);
-                const when = d._submittedDate ? formatDate(d._submittedDate) : '—';
-                const by = (d.submittedBy?.name || d.submittedBy?.email || '—');
-                const pr = Number.isFinite(d.priority) ? String(d.priority) : '—';
-                const notes = (d.notes || '').trim();
-
-                return `
-                  <article class="req">
-                    <div class="req-top">
-                      <div class="req-title">${escapeHtml(topic)}</div>
-                      <div class="badge">${escapeHtml(st || '—')}</div>
-                    </div>
-
-                    <div class="req-meta">
-                      <div class="pair">
-                        <div class="kk">Submitted</div>
-                        <div class="vv">${escapeHtml(when)}</div>
-                      </div>
-                      <div class="pair">
-                        <div class="kk">Priority</div>
-                        <div class="vv">${escapeHtml(pr)}</div>
-                      </div>
-
-                      <div class="pair" style="grid-column:1/-1;">
-                        <div class="kk">Submitted By</div>
-                        <div class="vv">${escapeHtml(by)}</div>
-                      </div>
-
-                      <div class="pair notes">
-                        <div class="kk">Notes</div>
-                        <div class="vv">${escapeHtml(notes)}</div>
-                      </div>
-                    </div>
-                  </article>
-                `;
-              }).join('')}
-            </div>
-          `;
-        }).join('')}
-      </section>
-      `;
-    }).join('')}
-
-    <footer class="footer">
-      <div class="l">Prepared for landowner communication. Details reflect what was submitted in FarmVista.</div>
-      <div class="r">FarmVista • Field Maintenance • ${escapeHtml(runDateOnly || '')}</div>
-    </footer>
-  </div>
-</body>
-</html>`;
+      // placeholder hook; we’ll wire the landowner PDF layout next
+      alert('Print/PDF layout for Field Maintenance is next — page is now loading + filtering correctly.');
     }
 
     (async function boot(){
@@ -1277,39 +892,21 @@
         clearDetails();
       });
 
-      await loadFieldMaintenance();
-      populateFilters();
-
-      const statusSel = $('#filterStatus');
-      const yearSel   = $('#filterYear');
-      const fieldSel  = $('#filterField');
-      const searchEl  = $('#filterSearch');
-      const clearBtn  = $('#filterClear');
-
-      // Defaults you asked for:
-      if(statusSel) statusSel.value = 'completed';
-
-      if(statusSel) statusSel.addEventListener('change', () => applyFilters());
-      if(yearSel)   yearSel.addEventListener('change', () => applyFilters());
-      if(fieldSel)  fieldSel.addEventListener('change', () => applyFilters());
-      if(searchEl)  searchEl.addEventListener('input', () => applyFilters());
-
-      if(clearBtn){
-        clearBtn.addEventListener('click', () => {
-          if(statusSel) statusSel.value = 'completed';
-          if(yearSel)   yearSel.value   = 'all';
-          if(fieldSel)  fieldSel.value  = 'all';
-          if(searchEl)  searchEl.value  = '';
-          applyFilters();
-        });
-      }
-
-      await applyFilters();
-
       const printTop = $('#btnPrint');
       const printBottom = $('#btnPrintBottom');
       if (printTop)    printTop.addEventListener('click', handlePrintClick);
       if (printBottom) printBottom.addEventListener('click', handlePrintClick);
+
+      await loadFieldMaintenance();
+
+      // build dropdowns from loaded maintenance docs
+      hydrateYearDropdown();
+      chooseInitialStatus();
+      hydrateFieldDropdown(); // depends on year + status
+      wireFilterEvents();
+
+      // initial filter + render
+      applyFilters();
     })();
   </script>
 </head>
@@ -1317,6 +914,42 @@
 <body>
   <fv-shell>
     <div class="wrap">
+
+      <!-- Filters OUTSIDE hero -->
+      <div class="filters" aria-label="Field maintenance filters">
+        <div class="filter-field">
+          <label class="filter-label" for="filterStatus">Status</label>
+          <select id="filterStatus" class="filter-select">
+            <option value="completed">Completed</option>
+            <option value="in progress">In progress</option>
+            <option value="needs approved">Needs approved</option>
+            <option value="approved">Approved</option>
+            <option value="all">All statuses</option>
+          </select>
+        </div>
+
+        <div class="filter-field">
+          <label class="filter-label" for="filterYear">Crop Year</label>
+          <select id="filterYear" class="filter-select">
+            <option value="all">All crop years</option>
+          </select>
+        </div>
+
+        <div class="filter-field">
+          <label class="filter-label" for="filterField">Field</label>
+          <select id="filterField" class="filter-select">
+            <option value="all">All fields</option>
+          </select>
+        </div>
+
+        <div class="filter-field">
+          <label class="filter-label" for="filterSearch">Search</label>
+          <input id="filterSearch" class="filter-input" type="search" placeholder="Search topic, notes, field, farm, submitter…" />
+        </div>
+
+        <button id="filterClear" type="button" class="btn btn-quiet">Clear filters</button>
+      </div>
+
       <section class="hero">
         <header class="hero-head">
           <div class="icon" aria-hidden="true">🛠️</div>
@@ -1324,7 +957,7 @@
             <h1>Field Maintenance — Completed Projects</h1>
             <p class="muted">
               Landowner-friendly report of completed (and optional in-progress) field maintenance work.
-              Use the filters for Status, Crop Year, and Field.
+              Choose a Crop Year to see only the fields that had maintenance that year.
             </p>
           </div>
         </header>
@@ -1336,40 +969,6 @@
               <button id="btnPrint" type="button" class="btn btn-primary">Print / Save PDF</button>
             </div>
             <div class="page-header-meta" id="fmCount">0 projects</div>
-          </div>
-
-          <div class="filters">
-            <div class="filter-field">
-              <label class="filter-label" for="filterStatus">Status</label>
-              <select id="filterStatus" class="filter-select">
-                <option value="completed">Completed (default)</option>
-                <option value="in progress">In progress</option>
-                <option value="needs approved">Needs approved</option>
-                <option value="approved">Approved</option>
-                <option value="all">All statuses</option>
-              </select>
-            </div>
-
-            <div class="filter-field">
-              <label class="filter-label" for="filterYear">Crop Year</label>
-              <select id="filterYear" class="filter-select">
-                <option value="all">All crop years</option>
-              </select>
-            </div>
-
-            <div class="filter-field">
-              <label class="filter-label" for="filterField">Field</label>
-              <select id="filterField" class="filter-select">
-                <option value="all">All fields</option>
-              </select>
-            </div>
-
-            <div class="filter-field">
-              <label class="filter-label" for="filterSearch">Search</label>
-              <input id="filterSearch" class="filter-input" type="search" placeholder="Search topic, notes, field, farm, submitter…" />
-            </div>
-
-            <button id="filterClear" type="button" class="btn btn-quiet">Clear filters</button>
           </div>
 
           <section aria-label="Field maintenance list">
@@ -1398,10 +997,9 @@
           </div>
         </div>
       </section>
-    </div>
 
-    <iframe id="fv-print-frame"></iframe>
+      <iframe id="fv-print-frame"></iframe>
+    </div>
   </fv-shell>
 </body>
 </html>
-
