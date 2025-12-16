@@ -1,6 +1,6 @@
 /* =======================================================================
 /Farm-vista/js/equipment-forms.js  (FULL FILE)
-Rev: 2025-11-13d + Planter acres/hours
+Rev: 2025-11-13d + Planter acres/hours + Combine hours guard (sep <= engine)
 
 Purpose:
   Shared "extras" engine for equipment forms.
@@ -349,7 +349,6 @@ Usage (from any page):
         'attachmentType',
         'Attachment / Implement',
         [
-          // Skid steer attachments
           { value: 'skid-bucket',          label: 'Skid Steer — Bucket' },
           { value: 'skid-forks',           label: 'Skid Steer — Forks' },
           { value: 'skid-grapple',         label: 'Skid Steer — Grapple' },
@@ -359,15 +358,11 @@ Usage (from any page):
           { value: 'skid-trencher',        label: 'Skid Steer — Trencher' },
           { value: 'skid-post-hole',       label: 'Skid Steer — Post Hole Digger' },
           { value: 'skid-broom',           label: 'Skid Steer — Broom' },
-
-          // Dirt-moving / grading
           { value: 'dirt-scraper',         label: 'Dirt Scraper' },
           { value: 'box-blade',            label: 'Box Blade' },
           { value: 'dozer-blade',          label: 'Dozer Blade' },
           { value: 'snow-blade',           label: 'Snow Blade' },
           { value: 'backhoe-3pt',          label: 'Backhoe (3-pt)' },
-
-          // Catch-all
           { value: 'other',                label: 'Other' }
         ],
         {
@@ -379,13 +374,12 @@ Usage (from any page):
 
     /* 9) STARFIRE / TECHNOLOGY ---------------------------------------- */
     starfire: [
-      // Serial/VIN is handled in the top form; no extra serial here.
       selectField(
         'activationLevel',
         'Activation Level',
         [
           { value: 'rtk',   label: 'RTK' },
-          { value: 'sfrtk',   label: 'SF-RTK' },
+          { value: 'sfrtk', label: 'SF-RTK' },
           { value: 'sf3',   label: 'SF3' },
           { value: 'sf2',   label: 'SF2' },
           { value: 'sf1',   label: 'SF1' },
@@ -443,7 +437,6 @@ Usage (from any page):
       input = doc.createElement('select');
       input.className = 'select';
 
-      // Placeholder option
       const opt0 = doc.createElement('option');
       opt0.value = '';
       opt0.textContent = '— Select —';
@@ -462,7 +455,6 @@ Usage (from any page):
       input.className = 'input';
 
     }else if (field.kind === 'toggle'){
-      // Slider-pill style toggle using a button; CSS can style .pill-toggle and .pill-toggle.on
       input = doc.createElement('button');
       input.type = 'button';
       input.className = 'pill-toggle';
@@ -483,7 +475,6 @@ Usage (from any page):
       });
 
     }else{
-      // Fallback to simple text input
       input = doc.createElement('input');
       input.type = 'text';
       input.className = 'input';
@@ -500,10 +491,9 @@ Usage (from any page):
     const controls = new Map();
 
     if (!fields || !fields.length){
-      return controls; // empty map
+      return controls;
     }
 
-    // Group fields 2 per row to match existing layout
     for (let i = 0; i < fields.length; i += 2){
       const row = doc.createElement('div');
       row.className = 'row';
@@ -527,13 +517,59 @@ Usage (from any page):
   }
 
   /** ------------------------------------------------------------------
+   * Combine rule: separatorHours <= engineHours
+   * - Soft guard while typing (clamp)
+   * - Hard validation on save
+   * -------------------------------------------------------------------*/
+
+  function toNum(v){
+    const n = Number(String(v ?? '').trim());
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function clampCombineHours(controls){
+    const engEl = controls.get('engineHours');
+    const sepEl = controls.get('separatorHours');
+    if (!engEl || !sepEl) return;
+
+    const eng = toNum(engEl.value);
+    const sep = toNum(sepEl.value);
+    if (eng == null || sep == null) return;
+
+    if (sep > eng){
+      // Clamp separator down to engine hours
+      sepEl.value = String(eng);
+
+      // Tiny hint without being noisy
+      sepEl.title = 'Separator Hours cannot exceed Engine Hours. Value was adjusted.';
+    }else{
+      // Clear hint when valid
+      if (sepEl.title) sepEl.title = '';
+    }
+  }
+
+  function wireCombineRule(controls){
+    const engEl = controls.get('engineHours');
+    const sepEl = controls.get('separatorHours');
+    if (!engEl || !sepEl) return;
+
+    // Clamp on input for either field (covers “typed in wrong box”)
+    const onAnyInput = ()=> clampCombineHours(controls);
+    engEl.addEventListener('input', onAnyInput);
+    sepEl.addEventListener('input', onAnyInput);
+
+    // Also clamp on blur so copy/paste gets caught
+    engEl.addEventListener('change', onAnyInput);
+    sepEl.addEventListener('change', onAnyInput);
+  }
+
+  /** ------------------------------------------------------------------
    * Normalization & validation
    * -------------------------------------------------------------------*/
 
   function normalizeExtras(fields, controls){
     const out = {};
 
-    // One-of controller for conditional fields (implement OR construction)
     const typeEl =
       controls.get('implementType') ||
       controls.get('constructionType') ||
@@ -541,7 +577,6 @@ Usage (from any page):
     const currentType = typeEl ? (typeEl.value || '').toLowerCase() : null;
 
     for (const field of fields){
-      // Skip non-applicable conditional fields (implements + construction)
       if (
         field.id !== 'implementType' &&
         field.id !== 'constructionType' &&
@@ -558,7 +593,6 @@ Usage (from any page):
       const el = controls.get(field.id);
       if (!el) continue;
 
-      // Toggle fields normalize to boolean
       if (field.kind === 'toggle'){
         const state = (el.dataset.state || 'off').toLowerCase();
         out[field.id] = (state === 'on');
@@ -578,7 +612,7 @@ Usage (from any page):
       }else if (field.kind === 'select'){
         out[field.id] = raw || null;
       }else if (field.kind === 'date'){
-        out[field.id] = raw || null; // ISO yyyy-mm-dd
+        out[field.id] = raw || null;
       }else{
         out[field.id] = raw;
       }
@@ -603,15 +637,28 @@ Usage (from any page):
   }
 
   function validateExtras(fields, controls){
-    // Same controller logic as normalize for visibleForTypes
     const typeEl =
       controls.get('implementType') ||
       controls.get('constructionType') ||
       null;
     const currentType = typeEl ? (typeEl.value || '').toLowerCase() : null;
 
+    // --- Global combine rule (hard stop) ---
+    // Only triggers if both fields exist (i.e., combine forms).
+    const engEl = controls.get('engineHours');
+    const sepEl = controls.get('separatorHours');
+    if (engEl && sepEl){
+      const eng = toNum(engEl.value);
+      const sep = toNum(sepEl.value);
+      if (eng != null && sep != null && sep > eng){
+        return {
+          ok: false,
+          message: 'Separator Hours cannot be greater than Engine Hours.'
+        };
+      }
+    }
+
     for (const field of fields){
-      // Skip required check if field is conditional but not visible
       if (
         field.id !== 'implementType' &&
         field.id !== 'constructionType' &&
@@ -637,23 +684,17 @@ Usage (from any page):
       if (field.kind === 'toggle'){
         const state = (el.dataset.state || 'off').toLowerCase();
         if (state !== 'on'){
-          return {
-            ok: false,
-            message: `${field.label || field.id} is required.`
-          };
+          return { ok:false, message: `${field.label || field.id} is required.` };
         }
         continue;
       }
 
       const raw = (el.value ?? '').trim();
       if (raw === ''){
-        return {
-          ok: false,
-          message: `${field.label || field.id} is required.`
-        };
+        return { ok:false, message: `${field.label || field.id} is required.` };
       }
     }
-    return { ok: true, message: null };
+    return { ok:true, message:null };
   }
 
   /** ------------------------------------------------------------------
@@ -668,7 +709,7 @@ Usage (from any page):
       const currentType = (typeEl.value || '').toLowerCase();
 
       fields.forEach(field => {
-        if (field.id === typeFieldId) return; // controller always visible
+        if (field.id === typeFieldId) return;
 
         const wrap = container.querySelector('[data-field-id="' + field.id + '"]');
         if (!wrap) return;
@@ -678,13 +719,11 @@ Usage (from any page):
           : null;
 
         if (!list || !list.length){
-          // No visibility rules: always show
           wrap.style.display = '';
           return;
         }
 
         if (!currentType || !list.includes(currentType)){
-          // Hide and clear value when not applicable
           const input = controls.get(field.id);
           if (input){
             if (field.kind === 'toggle'){
@@ -703,7 +742,6 @@ Usage (from any page):
     }
 
     typeEl.addEventListener('change', updateVisibility);
-    // Initial state (hide conditional stuff until a type is chosen)
     updateVisibility();
   }
 
@@ -712,21 +750,12 @@ Usage (from any page):
    * -------------------------------------------------------------------*/
 
   const FVEquipForms = {
-    /**
-     * Initialize extra fields for a given equipment type.
-     *
-     * @param {Object} opts
-     * @param {string} opts.equipType   e.g. 'tractor', 'sprayer'
-     * @param {HTMLElement} opts.container  The element where fields should render
-     * @param {Document} opts.document  The document object (usually window.document)
-     */
     initExtras(opts){
       const equipType = (opts && opts.equipType || '').toLowerCase();
       const container = opts && opts.container;
       const doc = opts && opts.document || global.document;
 
       if (!container || !doc){
-        // Return no-op API so callers don't explode if mis-wired
         return {
           read(){ return {}; },
           reset(){},
@@ -737,31 +766,26 @@ Usage (from any page):
       const fields = CONFIG[equipType] || [];
       const controls = buildRows(doc, container, fields);
 
-      // Implement-specific dynamic behavior
       if (equipType === 'implement'){
         setupDynamic('implementType', fields, controls, container);
       }
 
-      // Construction-specific dynamic behavior
       if (equipType === 'construction'){
         setupDynamic('constructionType', fields, controls, container);
       }
 
+      // Wire global combine guard (soft clamp) ONLY when combine fields exist.
+      if (equipType === 'combine'){
+        wireCombineRule(controls);
+      }
+
       return {
-        /** Read current values as a plain object */
         read(){
           return normalizeExtras(fields, controls);
         },
-
-        /** Clear extra fields back to blank */
         reset(){
           resetExtras(fields, controls);
         },
-
-        /**
-         * Validate required extras.
-         * Returns { ok: boolean, message: string|null }
-         */
         validate(){
           return validateExtras(fields, controls);
         }
@@ -769,7 +793,6 @@ Usage (from any page):
     }
   };
 
-  // Attach to global
   global.FVEquipForms = FVEquipForms;
 
 })(window);
