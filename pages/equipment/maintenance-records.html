@@ -1137,24 +1137,70 @@
        PRINT MODAL + REPORTS
        =========================== */
 
-    function openPrintModal(){
+        /* ========= MODAL A11Y FOCUS FIX ========= */
+    let __fvPrintModalLastFocus = null;
+
+    function __fvFocusFirstIn(el){
+      if(!el) return;
+      const first = el.querySelector(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      (first || el).focus?.();
+    }
+
+    function __fvRestoreFocus(){
+      const t = __fvPrintModalLastFocus;
+      __fvPrintModalLastFocus = null;
+      if(t && typeof t.focus === 'function'){
+        try{ t.focus(); return; }catch(_){}
+      }
+      // fallback: focus the Print button (top) if available
+      const fb = document.getElementById('btnPrint') || document.getElementById('btnPrintBottom');
+      fb?.focus?.();
+    }
+
+        function openPrintModal(){
       const items = STATE.filtered || [];
       if(!items.length){
         alert('No work orders match the current filters to print.');
         return;
       }
+
       const b = $('#print-modal-backdrop');
       if(!b) return;
+
+      // Remember where focus was before opening
+      __fvPrintModalLastFocus = document.activeElement;
+
+      // Show modal
       b.classList.remove('modal-hidden');
       b.setAttribute('aria-hidden','false');
+
+      // Prevent the hidden-state modal from being focusable (when supported)
+      const modal = b.querySelector('.modal');
+      if(modal) modal.removeAttribute('inert');
+
+      // Put focus inside the modal
+      __fvFocusFirstIn(modal || b);
     }
 
     function closePrintModal(){
       const b = $('#print-modal-backdrop');
       if(!b) return;
+
+      const modal = b.querySelector('.modal');
+
+      // Move focus OUT of the modal FIRST (before aria-hidden / display:none)
+      __fvRestoreFocus();
+
+      // Make modal inert (prevents focus/interaction leaks)
+      if(modal) modal.setAttribute('inert','');
+
+      // Hide modal
       b.classList.add('modal-hidden');
       b.setAttribute('aria-hidden','true');
     }
+
 
     function groupForPrint(items){
       // group: type -> equipment -> work orders
@@ -1903,7 +1949,7 @@
       await printHtml(html, fileName, 'Equipment Maintenance — Detailed');
     }
 
-    function wirePrintModal(){
+        function wirePrintModal(){
       const topBtn = $('#btnPrint');
       const bottomBtn = $('#btnPrintBottom');
       const closeBtn = $('#printModalClose');
@@ -1915,10 +1961,41 @@
       if(bottomBtn) bottomBtn.addEventListener('click', openPrintModal);
 
       if(closeBtn) closeBtn.addEventListener('click', closePrintModal);
+
       if(backdrop){
+        // Prevent clicks inside the modal from bubbling up
+        const modal = backdrop.querySelector('.modal');
+        if(modal){
+          modal.addEventListener('click', (e) => e.stopPropagation());
+        }
+
+        // Click on the shaded backdrop closes the modal
         backdrop.addEventListener('click', (evt) => {
           if(evt.target === backdrop) closePrintModal();
         });
+      }
+
+      if(sumBtn){
+        sumBtn.addEventListener('click', async () => {
+          closePrintModal();
+          await runSummaryPrint();
+        });
+      }
+
+      if(detBtn){
+        detBtn.addEventListener('click', async () => {
+          closePrintModal();
+          await runDetailedPrint();
+        });
+      }
+
+      document.addEventListener('keydown', (evt) => {
+        if(evt.key === 'Escape'){
+          if(backdrop && !backdrop.classList.contains('modal-hidden')) closePrintModal();
+        }
+      });
+    }
+
       }
 
       if(sumBtn){
