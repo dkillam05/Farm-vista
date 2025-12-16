@@ -1,6 +1,6 @@
 /* =======================================================================
 /Farm-vista/js/equipment-forms.js  (FULL FILE)
-Rev: 2025-11-13d + Planter acres/hours + Combine hours guard (sep <= engine)
+Rev: 2025-11-13d + Planter acres/hours + Combine hours guard (sep <= engine) + UI error
 
 Purpose:
   Shared "extras" engine for equipment forms.
@@ -326,7 +326,6 @@ Usage (from any page):
 
     /* 8) CONSTRUCTION ------------------------------------------------- */
     construction: [
-      // Machine vs Attachment/Implement
       selectField(
         'constructionType',
         'Construction Type',
@@ -337,14 +336,12 @@ Usage (from any page):
         { required: true }
       ),
 
-      // Engine hours only matter for machines
       numField('engineHours', 'Engine Hours', {
         step: '0.1',
         placeholder: 'e.g. 3200.0',
         visibleForTypes: ['machine']
       }),
 
-      // Attachment / Implement dropdown for attachments only
       selectField(
         'attachmentType',
         'Attachment / Implement',
@@ -483,6 +480,22 @@ Usage (from any page):
     input.id = id;
     wrap.appendChild(label);
     wrap.appendChild(input);
+
+    // --- Combine UI message placeholder (only used when separatorHours exists) ---
+    if (field.id === 'separatorHours'){
+      const hint = doc.createElement('div');
+      hint.className = 'eqforms-hint';
+      hint.dataset.eqformsHint = 'sep>eng';
+      hint.style.display = 'none';
+      hint.style.marginTop = '6px';
+      hint.style.fontSize = '12px';
+      hint.style.lineHeight = '1.25';
+      hint.style.color = '#b51f1f';
+      hint.style.fontWeight = '850';
+      hint.textContent = 'Separator Hours cannot be greater than Engine Hours.';
+      wrap.appendChild(hint);
+    }
+
     return { wrap, input };
   }
 
@@ -518,8 +531,11 @@ Usage (from any page):
 
   /** ------------------------------------------------------------------
    * Combine rule: separatorHours <= engineHours
-   * - Soft guard while typing (clamp)
-   * - Hard validation on save
+   * - UI: red border + subtle message
+   * - Hard validation on save (already)
+   *
+   * NOTE: We intentionally do NOT auto-clamp anymore. Better to show
+   *       the operator that they likely typed into the wrong box.
    * -------------------------------------------------------------------*/
 
   function toNum(v){
@@ -527,25 +543,42 @@ Usage (from any page):
     return Number.isFinite(n) ? n : null;
   }
 
-  function clampCombineHours(controls){
+  function setCombineErrorUI(controls, isBad){
+    const engEl = controls.get('engineHours');
+    const sepEl = controls.get('separatorHours');
+    if (!engEl || !sepEl) return;
+
+    const wrap = sepEl.closest('.field');
+    const hint = wrap ? wrap.querySelector('[data-eqforms-hint="sep>eng"]') : null;
+
+    if (isBad){
+      sepEl.classList.add('eqforms-error');
+      sepEl.style.borderColor = '#b51f1f';
+      sepEl.style.boxShadow = '0 0 0 2px rgba(181,31,31,.18)';
+      if (hint) hint.style.display = 'block';
+    }else{
+      sepEl.classList.remove('eqforms-error');
+      sepEl.style.borderColor = '';
+      sepEl.style.boxShadow = '';
+      if (hint) hint.style.display = 'none';
+    }
+  }
+
+  function validateCombinePairUI(controls){
     const engEl = controls.get('engineHours');
     const sepEl = controls.get('separatorHours');
     if (!engEl || !sepEl) return;
 
     const eng = toNum(engEl.value);
     const sep = toNum(sepEl.value);
-    if (eng == null || sep == null) return;
 
-    if (sep > eng){
-      // Clamp separator down to engine hours
-      sepEl.value = String(eng);
-
-      // Tiny hint without being noisy
-      sepEl.title = 'Separator Hours cannot exceed Engine Hours. Value was adjusted.';
-    }else{
-      // Clear hint when valid
-      if (sepEl.title) sepEl.title = '';
+    // If either field is blank/non-numeric, don't show error UI.
+    if (eng == null || sep == null){
+      setCombineErrorUI(controls, false);
+      return;
     }
+
+    setCombineErrorUI(controls, sep > eng);
   }
 
   function wireCombineRule(controls){
@@ -553,14 +586,15 @@ Usage (from any page):
     const sepEl = controls.get('separatorHours');
     if (!engEl || !sepEl) return;
 
-    // Clamp on input for either field (covers “typed in wrong box”)
-    const onAnyInput = ()=> clampCombineHours(controls);
+    const onAnyInput = ()=> validateCombinePairUI(controls);
     engEl.addEventListener('input', onAnyInput);
     sepEl.addEventListener('input', onAnyInput);
 
-    // Also clamp on blur so copy/paste gets caught
     engEl.addEventListener('change', onAnyInput);
     sepEl.addEventListener('change', onAnyInput);
+
+    // initial
+    validateCombinePairUI(controls);
   }
 
   /** ------------------------------------------------------------------
@@ -634,6 +668,9 @@ Usage (from any page):
         el.value = '';
       }
     }
+
+    // Clear combine UI on reset
+    validateCombinePairUI(controls);
   }
 
   function validateExtras(fields, controls){
@@ -644,13 +681,14 @@ Usage (from any page):
     const currentType = typeEl ? (typeEl.value || '').toLowerCase() : null;
 
     // --- Global combine rule (hard stop) ---
-    // Only triggers if both fields exist (i.e., combine forms).
     const engEl = controls.get('engineHours');
     const sepEl = controls.get('separatorHours');
     if (engEl && sepEl){
       const eng = toNum(engEl.value);
       const sep = toNum(sepEl.value);
       if (eng != null && sep != null && sep > eng){
+        // ensure UI marks it
+        validateCombinePairUI(controls);
         return {
           ok: false,
           message: 'Separator Hours cannot be greater than Engine Hours.'
@@ -774,7 +812,7 @@ Usage (from any page):
         setupDynamic('constructionType', fields, controls, container);
       }
 
-      // Wire global combine guard (soft clamp) ONLY when combine fields exist.
+      // Combine UI rule + validation support
       if (equipType === 'combine'){
         wireCombineRule(controls);
       }
