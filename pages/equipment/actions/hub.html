@@ -114,7 +114,7 @@
     }
 
     .actions-return{
-      margin-top:26px; /* extra separation between main actions and return buttons */
+      margin-top:26px;
     }
 
     .state{
@@ -252,7 +252,7 @@
       font-size:13px;
       line-height:1.3;
       display:none;
-      white-space:pre-line; /* allow \n in banner text */
+      white-space:pre-line;
     }
     :root[data-theme="dark"] .banner{ color:var(--ink-1,#eaece9); }
     .banner[data-show="1"]{ display:block; }
@@ -275,19 +275,21 @@
     }
     :root[data-theme="dark"] .textarea{ color:var(--ink-1,#eaece9); }
 
-    /* ===== Combine guard (red box + subtle hint) ===== */
+    /* ===== Combine “sep > eng” UI ===== */
     .input-error{
-      border-color:#c62828 !important;
-      box-shadow:0 0 0 2px rgba(198,40,40,.15);
+      border-color:#b51f1f !important;
+      box-shadow:0 0 0 2px rgba(181,31,31,.18);
     }
-    .input-hint{
+    .hint{
       font-size:12px;
-      color:#c62828;
       line-height:1.25;
+      color:var(--muted,#67706B);
       margin-top:2px;
-      display:none;
     }
-    .input-hint[data-show="1"]{ display:block; }
+    .hint.error{
+      color:#b51f1f;
+      font-weight:850;
+    }
   </style>
 </head>
 
@@ -301,7 +303,6 @@
         </header>
 
         <div class="body">
-          <!-- Main equipment card -->
           <div class="card" id="eqCard" hidden>
             <h2 id="eqName" style="margin:0"></h2>
             <div class="meta">
@@ -310,7 +311,6 @@
             </div>
           </div>
 
-          <!-- Primary actions: dynamic per type -->
           <div class="actions" id="fnLinks" hidden>
             <a id="linkReq"    class="btn" href="#">Submit Service Request</a>
             <a id="linkMetric" class="btn" href="#">Update Usage</a>
@@ -318,7 +318,6 @@
             <a id="linkPre"    class="btn" href="#">Pre-Season Checklist</a>
           </div>
 
-          <!-- Combine-only calculators -->
           <div class="card" id="combineCalcs" hidden>
             <div>
               <h3 style="margin:0 0 4px;font-size:16px;font-weight:800;">Calculators</h3>
@@ -333,7 +332,6 @@
             </div>
           </div>
 
-          <!-- Archived state -->
           <div id="archivedCard" class="state" hidden>
             <div class="emo">📦</div>
             <h2>This equipment is archived</h2>
@@ -343,7 +341,6 @@
             </div>
           </div>
 
-          <!-- Timeout state -->
           <div id="timeoutCard" class="state" hidden>
             <div class="emo">⏱️</div>
             <h2>Timed out</h2>
@@ -354,7 +351,6 @@
             </div>
           </div>
 
-          <!-- Return buttons: separated row -->
           <div class="actions actions-return" id="returnActions">
             <a id="btnReturnOrigin" class="btn" href="#">Return</a>
             <a id="btnReturnHome"   class="btn" href="/Farm-vista/index.html">Return to Home</a>
@@ -363,7 +359,7 @@
       </section>
     </div>
 
-    <!-- ===== Metric Modal (hours / mileage / acres) ===== -->
+    <!-- ===== Metric Modal ===== -->
     <div class="modal-backdrop" id="metricModal" aria-hidden="true">
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="metricModalTitle">
         <div class="modal-head">
@@ -378,9 +374,7 @@
         <div class="modal-body">
           <div class="banner" id="metricBanner"></div>
 
-          <div class="form-grid" id="metricForm">
-            <!-- dynamic rows injected -->
-          </div>
+          <div class="form-grid" id="metricForm"></div>
 
           <div id="adjustBlock" hidden>
             <div class="card" style="padding:12px; gap:10px">
@@ -424,7 +418,6 @@
 
     const $ = id => document.getElementById(id);
 
-    // --- Query params
     const qs  = new URLSearchParams(location.search);
     const id  = qs.get('id')   || '';
     const from = (qs.get('from') || '').toLowerCase();
@@ -481,36 +474,11 @@
         updateLabel: 'Update Mileage / Hours',
         hasPreSeason: false
       },
-      trailer: {
-        display: 'Trailer',
-        metricFields: [],
-        updateLabel: '',
-        hasPreSeason: false
-      },
-      implement: {
-        display: 'Implement',
-        metricFields: [],
-        updateLabel: 'Update Planter Usage',
-        hasPreSeason: false
-      },
-      starfire: {
-        display: 'StarFire',
-        metricFields: [],
-        updateLabel: 'Update Location',
-        hasPreSeason: false
-      },
-      technology: {
-        display: 'Technology',
-        metricFields: [],
-        updateLabel: '',
-        hasPreSeason: false
-      },
-      equipment: {
-        display: 'Equipment',
-        metricFields: [],
-        updateLabel: '',
-        hasPreSeason: false
-      }
+      trailer: { display: 'Trailer', metricFields: [], updateLabel: '', hasPreSeason: false },
+      implement: { display: 'Implement', metricFields: [], updateLabel: 'Update Planter Usage', hasPreSeason: false },
+      starfire: { display: 'StarFire', metricFields: [], updateLabel: 'Update Location', hasPreSeason: false },
+      technology: { display: 'Technology', metricFields: [], updateLabel: '', hasPreSeason: false },
+      equipment: { display: 'Equipment', metricFields: [], updateLabel: '', hasPreSeason: false }
     };
 
     const FROM_MAP = {
@@ -576,7 +544,6 @@
       wrap.hidden    = false;
     }
 
-    // ===== Metric Modal Logic =====
     const MODAL = {
       open: false,
       doc: null,
@@ -585,7 +552,9 @@
       db: null,
       snapRef: null,
       fields: [],
-      lastInputs: null
+      lastInputs: null,
+      combineInvalid: false,
+      _combineUnwire: null
     };
 
     function showBanner(msg){
@@ -618,6 +587,11 @@
       showBanner('');
       $('adjustBlock').hidden = true;
       $('adjustReason').value = '';
+      MODAL.combineInvalid = false;
+      if (typeof MODAL._combineUnwire === 'function'){
+        try{ MODAL._combineUnwire(); }catch{}
+      }
+      MODAL._combineUnwire = null;
     }
 
     function fmtNum(v){
@@ -658,7 +632,7 @@
             step="${String(step).replace(/"/g,'')}"
             placeholder="Enter new ${label.toLowerCase()}"
           />
-          <div class="input-hint" id="hint_metric_${f.key}"></div>
+          <div class="hint" id="hint_metric_${f.key}" hidden></div>
           <div class="help">Current: <b>${fmtNum(current) || '—'}</b>${suffix ? ` ${suffix}` : ''}. New value cannot be less than current.</div>
         `;
         rows.push(el);
@@ -700,10 +674,7 @@
         const inp = $(`metric_${f.key}`);
         if(inp) inp.value = '';
         const hint = $(`hint_metric_${f.key}`);
-        if(hint){
-          hint.textContent = '';
-          hint.dataset.show = '0';
-        }
+        if (hint){ hint.hidden = true; hint.textContent = ''; hint.classList.remove('error'); }
       }
     }
 
@@ -712,59 +683,54 @@
       return Number.isFinite(n) ? n : null;
     }
 
-    function clearInputError(key){
-      const el = $(`metric_${key}`);
-      const hint = $(`hint_metric_${key}`);
-      if(el) el.classList.remove('input-error');
-      if(hint){
+    function wireCombineModalRule(){
+      const eng = $('metric_engineHours');
+      const sep = $('metric_separatorHours');
+      const hint = $('hint_metric_separatorHours');
+      if (!eng || !sep || !hint) { MODAL.combineInvalid = false; return; }
+
+      function clearErr(){
+        sep.classList.remove('input-error');
+        hint.hidden = true;
         hint.textContent = '';
-        hint.dataset.show = '0';
-      }
-    }
-
-    function setInputError(key, msg){
-      const el = $(`metric_${key}`);
-      const hint = $(`hint_metric_${key}`);
-      if(el) el.classList.add('input-error');
-      if(hint){
-        hint.textContent = msg || 'Invalid value.';
-        hint.dataset.show = '1';
-      }
-    }
-
-    // Combine-only: separator cannot exceed engine (live guard + red hint)
-    function wireCombineModalGuard(){
-      const engEl = $('metric_engineHours');
-      const sepEl = $('metric_separatorHours');
-      if(!engEl || !sepEl) return;
-
-      const msg = 'Separator Hours cannot be greater than Engine Hours.';
-
-      function validateAndGuard(){
-        clearInputError('separatorHours');
-
-        const eng = toNum(engEl.value);
-        const sep = toNum(sepEl.value);
-
-        // If either is blank, don’t yell.
-        if(eng == null || sep == null) return;
-
-        if(sep > eng){
-          // Auto-fix so operators can’t swap values and save bad data
-          sepEl.value = String(eng);
-
-          // Show red + subtle message
-          setInputError('separatorHours', msg);
-
-          // Fade the hint after a moment (still prevents bad value)
-          setTimeout(()=>{ clearInputError('separatorHours'); }, 2200);
-        }
+        hint.classList.remove('error');
+        MODAL.combineInvalid = false;
       }
 
-      engEl.addEventListener('input', validateAndGuard);
-      sepEl.addEventListener('input', validateAndGuard);
-      engEl.addEventListener('change', validateAndGuard);
-      sepEl.addEventListener('change', validateAndGuard);
+      function setErr(){
+        sep.classList.add('input-error');
+        hint.hidden = false;
+        hint.textContent = 'Separator Hours cannot be greater than Engine Hours. (You may have typed into the wrong box.)';
+        hint.classList.add('error');
+        MODAL.combineInvalid = true;
+      }
+
+      function validate(){
+        const e = toNum(eng.value);
+        const s = toNum(sep.value);
+
+        // If either blank, don’t scream yet.
+        if (e == null || s == null){ clearErr(); return; }
+
+        if (s > e) setErr();
+        else clearErr();
+      }
+
+      const onAny = ()=>validate();
+      eng.addEventListener('input', onAny);
+      sep.addEventListener('input', onAny);
+      eng.addEventListener('change', onAny);
+      sep.addEventListener('change', onAny);
+
+      // Initial pass
+      validate();
+
+      MODAL._combineUnwire = ()=>{
+        eng.removeEventListener('input', onAny);
+        sep.removeEventListener('input', onAny);
+        eng.removeEventListener('change', onAny);
+        sep.removeEventListener('change', onAny);
+      };
     }
 
     function getCurrentValue(docData, key){
@@ -883,13 +849,12 @@
           return;
         }
 
-        // HARD backstop for combines (even if user disables JS, etc.)
-        if(String(MODAL.typeKey||'') === 'combine'){
-          const eng = (inputs.engineHours != null) ? Number(inputs.engineHours) : null;
-          const sep = (inputs.separatorHours != null) ? Number(inputs.separatorHours) : null;
-          if(Number.isFinite(eng) && Number.isFinite(sep) && sep > eng){
-            setInputError('separatorHours', 'Separator Hours cannot be greater than Engine Hours.');
-            showBanner('Fix: Separator Hours cannot be greater than Engine Hours.');
+        // Hard stop for combine rule in the Hub (operators)
+        if (String(MODAL.typeKey||'') === 'combine'){
+          const e = toNum($('metric_engineHours')?.value);
+          const s = toNum($('metric_separatorHours')?.value);
+          if (e != null && s != null && s > e){
+            showBanner('Fix required: Separator Hours cannot be greater than Engine Hours.');
             return;
           }
         }
@@ -1066,9 +1031,9 @@
         return;
       }
 
-      // Wire combine guard AFTER the form is built
-      if(String(typeKey||'') === 'combine'){
-        wireCombineModalGuard();
+      // Combine-only rule wired here for operators
+      if (String(typeKey||'') === 'combine'){
+        wireCombineModalRule();
       }
 
       openModal();
@@ -1210,7 +1175,6 @@
       }
 
       updateMetricChip(d, cfg, typeKey);
-
       $('eqCard').hidden = false;
 
       const calcCard = $('combineCalcs');
