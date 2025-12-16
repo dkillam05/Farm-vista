@@ -27,6 +27,9 @@
   <!-- Firebase CONFIG FIRST -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
 
+  <!-- Shared equipment extras engine (matches the rest of the app) -->
+  <script defer src="/Farm-vista/js/equipment-forms.js"></script>
+
   <style>
     :root{
       --card-max:1100px;
@@ -183,6 +186,52 @@
     }
     .combo-item:hover, .combo-item:focus{ background:var(--hover, rgba(0,0,0,.06)); outline:none; }
     .combo-hidden{ display:none !important; }
+
+    /* -------------------------------------------------------------------
+       Equipment-forms.js (extras) layout helpers (so edit modal matches)
+    ------------------------------------------------------------------- */
+    .extras{
+      grid-column: 1 / -1;
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      padding:12px;
+    }
+    .extras .row{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:12px;
+      margin-bottom:12px;
+    }
+    @media(max-width:700px){ .extras .row{ grid-template-columns:1fr; } }
+    .extras .field label{ margin:0 0 6px; }
+    .extras .select{
+      width:100%;
+      font:inherit;
+      color:inherit;
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:var(--ctl-radius);
+      padding:var(--ctl-pad-y) var(--ctl-pad-x);
+      height:var(--ctl-h);
+      line-height:calc(var(--ctl-h) - 2px);
+      -webkit-text-fill-color: var(--text) !important;
+    }
+    .pill-toggle{
+      width:100%;
+      height:var(--ctl-h);
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+      font-weight:800;
+      cursor:pointer;
+    }
+    .pill-toggle.on{
+      border-color:transparent;
+      background:var(--brand);
+      color:#fff;
+    }
   </style>
 </head>
 <body>
@@ -279,10 +328,8 @@
           </select>
         </div>
 
-        <div>
-          <label for="hrs">Engine Hours</label>
-          <input id="hrs" type="number" inputmode="numeric" min="0" step="1" class="input" placeholder="0"/>
-        </div>
+        <!-- Shared extras engine renders here (engineHours, odometer, separatorHours, etc) -->
+        <div id="equipExtras" class="extras" aria-label="Equipment extra fields"></div>
 
         <div style="grid-column:1/-1">
           <label for="notes">Notes</label>
@@ -568,7 +615,7 @@
     const f = {
       mkId: $('#mkId'), mdId: $('#mdId'), yr: $('#yr'),
       sn: $('#sn'), sn6: $('#sn6'),
-      st: $('#st'), hrs: $('#hrs'), notes: $('#notes')
+      st: $('#st'), notes: $('#notes')
     };
     const saveBtn=$('#saveBtn'), archiveBtn=$('#archiveBtn'), deleteBtn=$('#deleteBtn');
 
@@ -730,12 +777,87 @@
       ddModel.root.classList.remove("open");
     }
 
-    function getHoursFromDoc(d){
-      const cands = [d.engineHours, d.hours, d.engine_hour, d.hourMeter, d.hrs];
-      for (const v of cands){
-        if (v !== undefined && v !== null && !Number.isNaN(Number(v))) return Number(v);
+    /* ================================================================
+       Extras engine (equipment-forms.js)
+       ================================================================ */
+    let extras = null;
+
+    function ensureExtrasEngine(){
+      const host = $('#equipExtras');
+      if (!host) return null;
+
+      // If the shared file didn’t load for any reason, fail soft (don’t break edit)
+      if (!window.FVEquipForms || typeof window.FVEquipForms.initExtras !== 'function'){
+        host.innerHTML = '<div class="sub" style="margin:0">Extras engine missing (equipment-forms.js).</div>';
+        return null;
       }
-      return 0;
+
+      extras = window.FVEquipForms.initExtras({
+        equipType: TYPE_SINGULAR,
+        container: host,
+        document
+      });
+
+      return extras;
+    }
+
+    function setToggle(el, on){
+      if (!el) return;
+      const isOn = !!on;
+      el.dataset.state = isOn ? 'on' : 'off';
+      el.classList.toggle('on', isOn);
+      el.textContent = isOn ? 'Yes' : 'No';
+    }
+
+    function setExtraValue(fieldId, value){
+      const el = document.getElementById('extra-' + fieldId);
+      if (!el) return;
+
+      // Toggle (pill button)
+      if (el.tagName === 'BUTTON' && el.classList.contains('pill-toggle')){
+        setToggle(el, !!value);
+        return;
+      }
+
+      // Select / input
+      if (value === undefined || value === null){
+        el.value = '';
+      }else{
+        el.value = String(value);
+      }
+    }
+
+    function hydrateExtrasFromDoc(d){
+      // Render fresh extras for this type
+      ensureExtrasEngine();
+
+      // Apply known fields that exist in equipment-forms CONFIG
+      const keys = [
+        // Common-ish
+        'engineHours',
+        'separatorHours',
+        'odometerMiles',
+        'boomWidthFt',
+        'tankSizeGal',
+        'starfireCapable',
+        // Implements
+        'implementType','workingWidthFt','numRows','rowSpacingIn','totalAcres','totalHours','bushelCapacityBu','augerDiameterIn','augerLengthFt',
+        // Fertilizer
+        'applicationType',
+        // Trucks/trailers dates/fields
+        'licensePlate','licensePlateExp','insuranceExp','tireSizes','dotRequired','dotExpiration',
+        'trailerType','trailerPlate','trailerPlateExp','trailerDotRequired','lastDotInspection','gvwrLb',
+        // Construction
+        'constructionType','attachmentType',
+        // Starfire
+        'activationLevel','firmwareVersion'
+      ];
+
+      keys.forEach(k=>{
+        if (Object.prototype.hasOwnProperty.call(d, k)){
+          setExtraValue(k, d[k]);
+        }
+      });
     }
 
     let currentId=null, deleteClean=false;
@@ -773,13 +895,15 @@
         archiveBtn.textContent = 'Archive';
       }
 
+      // Notes still live here (bottom of modal)
       f.notes.value = d.notes || '';
-      f.hrs.value = getHoursFromDoc(d);
+
+      // Shared extras hydration (engine hours, odometer, etc.)
+      hydrateExtrasFromDoc(d);
 
       dependencyGuard(id).then(ok=>{ deleteClean=ok; }).catch(()=>{ deleteClean=false; });
       f.sn.oninput = ()=> (f.sn6.textContent = (f.sn.value||'').slice(-6) || '—');
 
-      // Modal heading uses singular type (Edit Tractor, Edit Combine, etc.)
       eTitle.textContent = MODAL_TITLE;
 
       openModal();
@@ -805,6 +929,11 @@
     function collectPatch(){
       const makeName = (MAKES.find(m=>m.id===f.mkId.value)?.name) || '';
       const modelName = (MODELS.find(m=>m.id===f.mdId.value)?.name) || '';
+
+      const extraData = (extras && typeof extras.read === 'function') ? extras.read() : {};
+
+      // IMPORTANT: this keeps edit consistent with add forms:
+      // extras provide engineHours / odometerMiles / etc based on TYPE_SINGULAR config.
       return {
         makeId: f.mkId.value || null,
         modelId: f.mdId.value || null,
@@ -812,17 +941,28 @@
         year: f.yr.value ? Number(f.yr.value) : null,
         serial: (f.sn.value||'').trim(),
         status: f.st.value || 'Active',
-        engineHours: Number(f.hrs.value||0),
         notes: (f.notes.value||'').trim(),
+        ...extraData,
         updatedAt: serverTimestamp()
       };
     }
+
     function validate(p){
       if(!p.makeId) return 'Make is required.';
       if(!p.modelId) return 'Model is required.';
       if(!p.year) return 'Year is required.';
       if(!p.serial || p.serial.length<3) return 'Serial looks short.';
-      if(p.engineHours<0) return 'Engine hours cannot be negative.';
+
+      // Shared extras validation (required fields for implement/construction/etc)
+      if (extras && typeof extras.validate === 'function'){
+        const v = extras.validate();
+        if (!v.ok) return v.message || 'Missing required extra field.';
+      }
+
+      // Guard negatives if engineHours exists
+      if (p.engineHours != null && Number(p.engineHours) < 0) return 'Engine hours cannot be negative.';
+      if (p.odometerMiles != null && Number(p.odometerMiles) < 0) return 'Odometer cannot be negative.';
+      if (p.separatorHours != null && Number(p.separatorHours) < 0) return 'Separator hours cannot be negative.';
       return '';
     }
 
