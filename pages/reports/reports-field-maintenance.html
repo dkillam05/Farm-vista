@@ -30,8 +30,6 @@
       padding: clamp(14px,3vw,22px);
       padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
       box-sizing:border-box;
-      display:grid;
-      gap:12px;
     }
 
     .btn{
@@ -59,99 +57,14 @@
       color:#fff !important;
     }
 
-    /* =========================================================
-       FILTER BAR — OUTSIDE HERO + FORCED ABOVE EVERYTHING
-       This fixes the dropdown list being hidden behind the hero.
-       ========================================================= */
-    .filters{
-      border:1px solid var(--border);
-      border-radius:14px;
-      background:var(--surface);
-      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      padding:12px 12px 10px;
-      display:flex;
-      flex-wrap:wrap;
-      gap:10px;
-      align-items:flex-end;
-
-      position:relative;
-      z-index:9999; /* ✅ always above hero */
-      isolation:isolate; /* ✅ prevents weird stacking contexts */
-    }
-
-    .filter-field{
-      display:flex;
-      flex-direction:column;
-      gap:3px;
-      min-width:160px;
-      flex:1 1 180px;
-      font-size:0.8rem;
-      min-width:0; /* ✅ allow ellipsis; prevents resizing */
-    }
-
-    .filter-label{
-      text-transform:uppercase;
-      letter-spacing:0.08em;
-      opacity:0.78;
-    }
-
-    /* Select: fixed width, ellipsis instead of growing */
-    .filter-select{
-      width:100%;
-      max-width:100%;
-      min-width:0;
-
-      border-radius:999px;
-      border:1px solid var(--border);
-      padding:6px 28px 6px 10px;
-      font-size:0.9rem;
-      background:var(--card-surface,var(--surface));
-      color:var(--text);
-      min-height:34px;
-
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-
-    /* Search: square-ish rounded corners */
-    .filter-input{
-      width:100%;
-      max-width:100%;
-      min-width:0;
-
-      border-radius:12px;
-      border:1px solid var(--border);
-      padding:8px 10px;
-      font-size:0.92rem;
-      background:var(--card-surface,var(--surface));
-      color:var(--text);
-      min-height:34px;
-
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-    .filter-input::placeholder{ color:var(--muted,#9CA3AF); }
-
-    /* ======================
-       HERO (below filters)
-       ====================== */
+    /* Hero */
     .hero{
       border:1px solid var(--border);
       border-radius:14px;
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-
-      position:relative;
-      z-index:1; /* ✅ keep hero underneath filters */
-
-      /* IMPORTANT:
-         Some browsers create odd stacking when overflow:hidden is used.
-         We keep rounded corners via border-radius and do NOT rely on overflow hidden. */
-      overflow:visible;
+      overflow:hidden;
     }
-
     .hero-head{
       display:grid;
       grid-template-columns:36px 1fr;
@@ -160,12 +73,7 @@
       padding:14px 16px;
       background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
       border-bottom:1px solid var(--border);
-
-      /* keep head rounded without needing overflow hidden */
-      border-top-left-radius:14px;
-      border-top-right-radius:14px;
     }
-
     .hero-head .icon{
       width:24px;
       height:24px;
@@ -196,6 +104,39 @@
       align-items:center;
     }
     .page-header-meta{ font-size:0.9rem; opacity:0.8; }
+
+    /* Filters (MATCH other report pages: inside hero, below toolbar) */
+    .filters{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+      margin-top:4px;
+    }
+    .filter-field{
+      display:flex;
+      flex-direction:column;
+      gap:3px;
+      min-width:160px;
+      flex:1 1 180px;
+      font-size:0.8rem;
+    }
+    .filter-label{
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      opacity:0.78;
+    }
+    .filter-select,
+    .filter-input{
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:6px 10px;
+      font-size:0.9rem;
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+      min-height:34px;
+    }
+    .filter-input::placeholder{ color:var(--muted,#9CA3AF); }
 
     /* List cards */
     .wo-list{ display:flex; flex-direction:column; gap:10px; margin-top:8px; }
@@ -514,7 +455,11 @@
 
         const key = id || nm;
         if(!map.has(key)){
-          map.set(key, { id: key, name: nm || key, farm: (d.farmName || '').trim() });
+          map.set(key, {
+            id: key,
+            name: nm || key,
+            farm: (d.farmName || '').trim()
+          });
         }
       });
 
@@ -526,7 +471,7 @@
       selectEl.innerHTML = options;
       if(currentValue != null){
         const exists = Array.from(selectEl.options).some(o => o.value === currentValue);
-        selectEl.value = exists ? currentValue : (selectEl.options[0]?.value || '');
+        selectEl.value = exists ? currentValue : selectEl.options[0]?.value || '';
       }
     }
 
@@ -568,7 +513,7 @@
 
     function getFilters(){
       return {
-        status: ($('#filterStatus')?.value || 'completed'),
+        status: ($('#filterStatus')?.value || 'all'),
         year: ($('#filterYear')?.value || 'all'),
         field: ($('#filterField')?.value || 'all'),
         q: ( ($('#filterSearch')?.value || '').trim().toLowerCase() )
@@ -577,7 +522,7 @@
 
     function applyFilters(){
       const { status, year, field, q } = getFilters();
-      const stFilter = String(status || 'completed').toLowerCase();
+      const stFilter = String(status || 'all').toLowerCase();
       const yearFilter = String(year || 'all');
       const fieldFilter = String(field || 'all');
 
@@ -811,7 +756,9 @@
         ].filter(Boolean).join(' · ');
         const phone = d.phone || '';
         const email = d.email || '';
-        STATE.company = { name, address, phone, email };
+        STATE.company = { name, address, phone, email:'' };
+        // Keep email if present
+        STATE.company.email = email || '';
       }catch(e){
         console.warn('[field-maint-report] failed to load company header', e);
         STATE.company = { name:'', address:'', phone:'', email:'' };
@@ -827,7 +774,10 @@
         const items = snap.docs.map(docSnap => {
           const data = docSnap.data() || {};
           const submitted = getSubmittedDate(data);
-          return { id: docSnap.id, data: { ...data, _submittedDate: submitted } };
+          return {
+            id: docSnap.id,
+            data: { ...data, _submittedDate: submitted }
+          };
         });
 
         items.sort((a,b) => {
@@ -845,6 +795,14 @@
         const countEl = $('#fmCount');
         if(countEl) countEl.textContent = 'Error loading projects';
       }
+    }
+
+    function chooseInitialStatus(){
+      const statusSel = $('#filterStatus');
+      if(!statusSel) return;
+
+      const anyCompleted = STATE.items.some(it => normalizeStatus(it.data.status) === 'completed');
+      statusSel.value = anyCompleted ? 'completed' : 'all';
     }
 
     function wireFilterEvents(){
@@ -873,7 +831,7 @@
 
       if(clearBtn){
         clearBtn.addEventListener('click', () => {
-          if(statusSel) statusSel.value = 'completed';
+          if(statusSel) statusSel.value = (STATE.items.some(it => normalizeStatus(it.data.status)==='completed') ? 'completed' : 'all');
           if(yearSel)   yearSel.value   = 'all';
           if(fieldSel)  fieldSel.value  = 'all';
           if(searchEl)  searchEl.value  = '';
@@ -883,20 +841,14 @@
       }
     }
 
-    /* ---------------------------
-       PRINT / PDF
-       --------------------------- */
     function summarizeFilters(){
       const { status, year, field, q } = getFilters();
+
       const statusTxt = (status === 'all') ? 'All statuses' : `Status: ${statusLabel(status)}`;
       const yearTxt = (year === 'all') ? 'All crop years' : `Crop Year: ${year}`;
-
-      let fieldTxt = 'All fields';
-      if(field !== 'all'){
-        const opt = Array.from($('#filterField')?.options || []).find(o => o.value === field);
-        fieldTxt = opt?.textContent ? `Field: ${opt.textContent.split('—')[0].trim()}` : 'Selected field';
-      }
+      const fieldTxt = (field === 'all') ? 'All fields' : 'Selected field';
       const searchTxt = q ? `Search: "${q}"` : 'No text filter';
+
       return `${statusTxt} • ${yearTxt} • ${fieldTxt} • ${searchTxt}`;
     }
 
@@ -918,6 +870,7 @@
     }
 
     function groupForPdf(items){
+      // farmName -> fieldName -> []
       const farmMap = new Map();
       items.forEach(it=>{
         const d = it.data;
@@ -929,6 +882,7 @@
         fieldMap.get(field).push(it);
       });
 
+      // sort
       const farms = Array.from(farmMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
       return farms.map(([farmName, fieldMap])=>{
         const fields = Array.from(fieldMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
@@ -948,7 +902,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Field Maintenance — Projects</title>
+  <title>Field Maintenance — Completed Projects</title>
   <style>
     :root{
       --fv-green:#3B7E46;
@@ -1322,55 +1276,27 @@
         grouped
       });
 
-      const iframe = document.getElementById('fv-print-frame');
+      let iframe = document.getElementById('fv-print-frame');
+      if (!iframe){
+        iframe = document.createElement('iframe');
+        iframe.id = 'fv-print-frame';
+        document.body.appendChild(iframe);
+      }
+
+      const win = iframe.contentWindow || iframe.contentDocument;
       const docu = iframe.contentDocument || iframe.contentWindow.document;
+
       docu.open();
       docu.write(html);
       docu.close();
 
       setTimeout(() => {
-        try{ iframe.contentWindow.focus(); iframe.contentWindow.print(); }
+        try{ win.focus(); win.print(); }
         catch(err){
           console.warn('[field-maint-report] iframe print failed, falling back to window.print()', err);
           window.print();
         }
       }, 350);
-    }
-
-    function wireFilterEvents(){
-      const statusSel = $('#filterStatus');
-      const yearSel   = $('#filterYear');
-      const fieldSel  = $('#filterField');
-      const searchEl  = $('#filterSearch');
-      const clearBtn  = $('#filterClear');
-
-      if(statusSel){
-        statusSel.addEventListener('change', () => {
-          hydrateFieldDropdown();
-          applyFilters();
-        });
-      }
-
-      if(yearSel){
-        yearSel.addEventListener('change', () => {
-          hydrateFieldDropdown();
-          applyFilters();
-        });
-      }
-
-      if(fieldSel) fieldSel.addEventListener('change', () => applyFilters());
-      if(searchEl) searchEl.addEventListener('input', () => applyFilters());
-
-      if(clearBtn){
-        clearBtn.addEventListener('click', () => {
-          if(statusSel) statusSel.value = 'completed';
-          if(yearSel)   yearSel.value   = 'all';
-          if(fieldSel)  fieldSel.value  = 'all';
-          if(searchEl)  searchEl.value  = '';
-          hydrateFieldDropdown();
-          applyFilters();
-        });
-      }
     }
 
     (async function boot(){
@@ -1400,14 +1326,11 @@
       await loadFieldMaintenance();
 
       hydrateYearDropdown();
-
-      // ✅ IMPORTANT: force the initial UI + filter to actually be "completed"
-      const statusSel = $('#filterStatus');
-      if(statusSel) statusSel.value = 'completed';
-
+      chooseInitialStatus();
       hydrateFieldDropdown();
       wireFilterEvents();
-      applyFilters(); // ✅ list matches the dropdown immediately
+
+      applyFilters();
     })();
   </script>
 </head>
@@ -1415,42 +1338,6 @@
 <body>
   <fv-shell>
     <div class="wrap">
-
-      <!-- Filters OUTSIDE hero card -->
-      <div class="filters" aria-label="Field maintenance filters">
-        <div class="filter-field">
-          <label class="filter-label" for="filterStatus">Status</label>
-          <select id="filterStatus" class="filter-select">
-            <option value="completed">Completed</option>
-            <option value="in progress">In progress</option>
-            <option value="needs approved">Needs approved</option>
-            <option value="approved">Approved</option>
-            <option value="all">All statuses</option>
-          </select>
-        </div>
-
-        <div class="filter-field">
-          <label class="filter-label" for="filterYear">Crop Year</label>
-          <select id="filterYear" class="filter-select">
-            <option value="all">All crop years</option>
-          </select>
-        </div>
-
-        <div class="filter-field">
-          <label class="filter-label" for="filterField">Field</label>
-          <select id="filterField" class="filter-select">
-            <option value="all">All fields</option>
-          </select>
-        </div>
-
-        <div class="filter-field">
-          <label class="filter-label" for="filterSearch">Search</label>
-          <input id="filterSearch" class="filter-input" type="search" placeholder="Search topic, notes, field, farm, submitter…" />
-        </div>
-
-        <button id="filterClear" type="button" class="btn btn-quiet">Clear filters</button>
-      </div>
-
       <section class="hero">
         <header class="hero-head">
           <div class="icon" aria-hidden="true">🛠️</div>
@@ -1470,6 +1357,41 @@
               <button id="btnPrint" type="button" class="btn btn-primary">Print / Save PDF</button>
             </div>
             <div class="page-header-meta" id="fmCount">0 projects</div>
+          </div>
+
+          <!-- ✅ Filters moved to match your other report pages -->
+          <div class="filters" aria-label="Field maintenance filters">
+            <div class="filter-field">
+              <label class="filter-label" for="filterStatus">Status</label>
+              <select id="filterStatus" class="filter-select">
+                <option value="completed">Completed</option>
+                <option value="in progress">In progress</option>
+                <option value="needs approved">Needs approved</option>
+                <option value="approved">Approved</option>
+                <option value="all">All statuses</option>
+              </select>
+            </div>
+
+            <div class="filter-field">
+              <label class="filter-label" for="filterYear">Crop Year</label>
+              <select id="filterYear" class="filter-select">
+                <option value="all">All crop years</option>
+              </select>
+            </div>
+
+            <div class="filter-field">
+              <label class="filter-label" for="filterField">Field</label>
+              <select id="filterField" class="filter-select">
+                <option value="all">All fields</option>
+              </select>
+            </div>
+
+            <div class="filter-field">
+              <label class="filter-label" for="filterSearch">Search</label>
+              <input id="filterSearch" class="filter-input" type="search" placeholder="Search topic, notes, field, farm, submitter…" />
+            </div>
+
+            <button id="filterClear" type="button" class="btn btn-quiet">Clear filters</button>
           </div>
 
           <section aria-label="Field maintenance list">
@@ -1504,3 +1426,4 @@
   </fv-shell>
 </body>
 </html>
+
