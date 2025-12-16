@@ -778,247 +778,144 @@
     }
 
     /* ================================================================
-       Extras engine (equipment-forms.js)
-       ================================================================ */
-    let extras = null;
+   Extras engine (equipment-forms.js)
+   ================================================================ */
+let extras = null;
 
-    function ensureExtrasEngine(){
-      const host = $('#equipExtras');
-      if (!host) return null;
+function ensureExtrasEngine(){
+  const host = $('#equipExtras');
+  if (!host) return null;
 
-      // If the shared file didn’t load for any reason, fail soft (don’t break edit)
-      if (!window.FVEquipForms || typeof window.FVEquipForms.initExtras !== 'function'){
-        host.innerHTML = '<div class="sub" style="margin:0">Extras engine missing (equipment-forms.js).</div>';
-        return null;
-      }
+  // If the shared file didn’t load for any reason, fail soft (don’t break edit)
+  if (!window.FVEquipForms || typeof window.FVEquipForms.initExtras !== 'function'){
+    host.innerHTML = '<div class="sub" style="margin:0">Extras engine missing (equipment-forms.js).</div>';
+    extras = null;
+    return null;
+  }
 
-      extras = window.FVEquipForms.initExtras({
-        equipType: TYPE_SINGULAR,
-        container: host,
-        document
-      });
+  // Re-init each time we open an editor (fresh controls + dynamic visibility)
+  host.innerHTML = '';
+  extras = window.FVEquipForms.initExtras({
+    equipType: TYPE_SINGULAR,
+    container: host,
+    document
+  });
 
-      return extras;
+  return extras;
+}
+
+function setToggle(el, on){
+  if (!el) return;
+  const isOn = !!on;
+  el.dataset.state = isOn ? 'on' : 'off';
+  el.classList.toggle('on', isOn);
+  el.textContent = isOn ? 'Yes' : 'No';
+}
+
+function setExtraValue(fieldId, value){
+  const el = document.getElementById('extra-' + fieldId);
+  if (!el) return;
+
+  // Toggle (pill button)
+  if (el.tagName === 'BUTTON' && el.classList.contains('pill-toggle')){
+    setToggle(el, !!value);
+    return;
+  }
+
+  // Select / input
+  if (value === undefined || value === null){
+    el.value = '';
+  }else{
+    el.value = String(value);
+  }
+}
+
+function readAny(d, keys){
+  for (const k of keys){
+    if (d && Object.prototype.hasOwnProperty.call(d, k) && d[k] != null && String(d[k]).trim() !== ''){
+      return d[k];
     }
+  }
+  return null;
+}
 
-    function setToggle(el, on){
-      if (!el) return;
-      const isOn = !!on;
-      el.dataset.state = isOn ? 'on' : 'off';
-      el.classList.toggle('on', isOn);
-      el.textContent = isOn ? 'Yes' : 'No';
+function hydrateExtrasFromDoc(d){
+  // Render fresh extras for this type
+  ensureExtrasEngine();
+
+  // 1) Set controller FIRST for dynamic visibility (implementType / constructionType)
+  if (TYPE_SINGULAR === 'implement'){
+    const impType = readAny(d, ['implementType','implement_type','subType','subtype','implementSubtype','implement_subtype']);
+    if (impType){
+      setExtraValue('implementType', impType);
+      const ctrl = document.getElementById('extra-implementType');
+      if (ctrl) ctrl.dispatchEvent(new Event('change', { bubbles:true }));
     }
+  }
 
-    function setExtraValue(fieldId, value){
-      const el = document.getElementById('extra-' + fieldId);
-      if (!el) return;
-
-      // Toggle (pill button)
-      if (el.tagName === 'BUTTON' && el.classList.contains('pill-toggle')){
-        setToggle(el, !!value);
-        return;
-      }
-
-      // Select / input
-      if (value === undefined || value === null){
-        el.value = '';
-      }else{
-        el.value = String(value);
-      }
+  if (TYPE_SINGULAR === 'construction'){
+    const conType = readAny(d, ['constructionType','construction_type','subType','subtype']);
+    if (conType){
+      setExtraValue('constructionType', conType);
+      const ctrl = document.getElementById('extra-constructionType');
+      if (ctrl) ctrl.dispatchEvent(new Event('change', { bubbles:true }));
     }
+  }
 
-    function hydrateExtrasFromDoc(d){
-      // Render fresh extras for this type
-      ensureExtrasEngine();
+  // 2) Now apply the rest (after dynamic fields are visible)
+  const keys = [
+    // Common-ish
+    'engineHours',
+    'separatorHours',
+    'odometerMiles',
+    'boomWidthFt',
+    'tankSizeGal',
+    'starfireCapable',
 
-      // Apply known fields that exist in equipment-forms CONFIG
-      const keys = [
-        // Common-ish
-        'engineHours',
-        'separatorHours',
-        'odometerMiles',
-        'boomWidthFt',
-        'tankSizeGal',
-        'starfireCapable',
-        // Implements
-        'implementType','workingWidthFt','numRows','rowSpacingIn','totalAcres','totalHours','bushelCapacityBu','augerDiameterIn','augerLengthFt',
-        // Fertilizer
-        'applicationType',
-        // Trucks/trailers dates/fields
-        'licensePlate','licensePlateExp','insuranceExp','tireSizes','dotRequired','dotExpiration',
-        'trailerType','trailerPlate','trailerPlateExp','trailerDotRequired','lastDotInspection','gvwrLb',
-        // Construction
-        'constructionType','attachmentType',
-        // Starfire
-        'activationLevel','firmwareVersion'
-      ];
+    // Implements
+    'implementType',
+    'workingWidthFt',
+    'numRows',
+    'rowSpacingIn',
+    'totalAcres',
+    'totalHours',
+    'bushelCapacityBu',
+    'augerDiameterIn',
+    'augerLengthFt',
 
-      keys.forEach(k=>{
-        if (Object.prototype.hasOwnProperty.call(d, k)){
-          setExtraValue(k, d[k]);
-        }
-      });
+    // Fertilizer
+    'applicationType',
+
+    // Trucks/trailers dates/fields
+    'licensePlate',
+    'licensePlateExp',
+    'insuranceExp',
+    'tireSizes',
+    'dotRequired',
+    'dotExpiration',
+    'trailerType',
+    'trailerPlate',
+    'trailerPlateExp',
+    'trailerDotRequired',
+    'lastDotInspection',
+    'gvwrLb',
+
+    // Construction
+    'constructionType',
+    'attachmentType',
+
+    // Starfire
+    'activationLevel',
+    'firmwareVersion'
+  ];
+
+  keys.forEach(k=>{
+    if (Object.prototype.hasOwnProperty.call(d, k)){
+      setExtraValue(k, d[k]);
     }
+  });
+}
 
-    let currentId=null, deleteClean=false;
-
-    async function openEditor(id){
-      currentId=id;
-      deleteClean=false;
-      const db=getFirestore();
-
-      if(!MAKES.length) await loadMakes();
-      if(!MODELS.length) await loadModels();
-      buildYearOptions();
-
-      const snap=await getDoc(doc(db,'equipment',id));
-      if(!snap.exists()){
-        alert(`${TYPE_SINGULAR} not found`);
-        return;
-      }
-      const d=snap.data()||{};
-
-      refreshMakeSelect(d.makeId || d.makeName || '');
-      refreshModelSelect(d.modelId || d.modelName || '');
-
-      f.yr.value = d.year ? String(d.year) : '';
-      $("#yearTrigger").textContent = f.yr.value ? String(d.year) : '— Select —';
-
-      f.sn.value = d.serial || '';
-      f.sn6.textContent = (d.serial ? String(d.serial).slice(-6) : '—');
-      f.st.value = d.status || 'Active';
-
-      const normalizedStatus = d.status || 'Active';
-      if (normalizedStatus === 'Archived') {
-        archiveBtn.textContent = 'Unarchive';
-      } else {
-        archiveBtn.textContent = 'Archive';
-      }
-
-      // Notes still live here (bottom of modal)
-      f.notes.value = d.notes || '';
-
-      // Shared extras hydration (engine hours, odometer, etc.)
-      hydrateExtrasFromDoc(d);
-
-      dependencyGuard(id).then(ok=>{ deleteClean=ok; }).catch(()=>{ deleteClean=false; });
-      f.sn.oninput = ()=> (f.sn6.textContent = (f.sn.value||'').slice(-6) || '—');
-
-      eTitle.textContent = MODAL_TITLE;
-
-      openModal();
-    }
-
-    async function dependencyGuard(equipmentId){
-      const db = getFirestore();
-      const checks = [
-        ['equipmentLogs','equipmentId'],
-        ['maintenance','equipmentId'],
-        ['usage','equipmentId'],
-        ['qrScans','equipmentId'],
-      ].map(async ([c,field])=>{
-        try{
-          const qs = await getDocs(query(collection(db,c), where(field,'==', equipmentId), limit(1)));
-          return qs.size===0;
-        }catch(_){ return false; }
-      });
-      const rs = await Promise.all(checks);
-      return rs.every(Boolean);
-    }
-
-    function collectPatch(){
-      const makeName = (MAKES.find(m=>m.id===f.mkId.value)?.name) || '';
-      const modelName = (MODELS.find(m=>m.id===f.mdId.value)?.name) || '';
-
-      const extraData = (extras && typeof extras.read === 'function') ? extras.read() : {};
-
-      // IMPORTANT: this keeps edit consistent with add forms:
-      // extras provide engineHours / odometerMiles / etc based on TYPE_SINGULAR config.
-      return {
-        makeId: f.mkId.value || null,
-        modelId: f.mdId.value || null,
-        makeName, modelName,
-        year: f.yr.value ? Number(f.yr.value) : null,
-        serial: (f.sn.value||'').trim(),
-        status: f.st.value || 'Active',
-        notes: (f.notes.value||'').trim(),
-        ...extraData,
-        updatedAt: serverTimestamp()
-      };
-    }
-
-    function validate(p){
-      if(!p.makeId) return 'Make is required.';
-      if(!p.modelId) return 'Model is required.';
-      if(!p.year) return 'Year is required.';
-      if(!p.serial || p.serial.length<3) return 'Serial looks short.';
-
-      // Shared extras validation (required fields for implement/construction/etc)
-      if (extras && typeof extras.validate === 'function'){
-        const v = extras.validate();
-        if (!v.ok) return v.message || 'Missing required extra field.';
-      }
-
-      // Guard negatives if engineHours exists
-      if (p.engineHours != null && Number(p.engineHours) < 0) return 'Engine hours cannot be negative.';
-      if (p.odometerMiles != null && Number(p.odometerMiles) < 0) return 'Odometer cannot be negative.';
-      if (p.separatorHours != null && Number(p.separatorHours) < 0) return 'Separator hours cannot be negative.';
-      return '';
-    }
-
-    async function saveEdits(){
-      if(!currentId) return;
-      const db = getFirestore();
-      const patch = collectPatch();
-      const err = validate(patch);
-      if(err){
-        alert(err);
-        return;
-      }
-
-      try{
-        await setDoc(doc(db,'equipment',currentId), patch, { merge:true });
-        alert('Saved ✓');
-        closeModal();
-      }catch(e){
-        console.error(e);
-        alert('Save failed by Firestore rules.');
-      }
-    }
-    async function toggleArchive(){
-      if(!currentId) return;
-      const db=getFirestore();
-      try{
-        const snap=await getDoc(doc(db,'equipment',currentId));
-        if(!snap.exists()) return;
-        const now=snap.data()||{};
-        const next=(now.status==='Archived')?'Active':'Archived';
-        await updateDoc(doc(db,'equipment',currentId), { status: next, updatedAt: serverTimestamp() });
-        alert(next==='Archived'?'Archived ✓':'Restored ✓');
-        closeModal();
-      }catch(e){
-        console.error(e);
-        alert('Archive/Unarchive failed.');
-      }
-    }
-    async function doDelete(){
-      if(!currentId) return;
-      if(!deleteClean){
-        alert(`This ${TYPE_SINGULAR} is referenced by other data. Delete is blocked. Use Archive instead.`);
-        return;
-      }
-      if(!confirm('Delete permanently?')) return;
-      const db=getFirestore();
-      try{
-        const { deleteDoc } = await import('/Farm-vista/js/firebase-init.js');
-        await deleteDoc(doc(db,'equipment',currentId));
-        alert('Deleted ✓');
-        closeModal();
-      }catch(e){
-        console.error(e);
-        alert('Delete failed by Firestore rules.');
-      }
-    }
 
     saveBtn.addEventListener('click', saveEdits);
     archiveBtn.addEventListener('click', toggleArchive);
