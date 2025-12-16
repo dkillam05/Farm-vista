@@ -122,20 +122,6 @@
     .textarea{ min-height:110px; height:auto; line-height:1.35; resize:vertical; }
     .tip{ font-size:12px; color:var(--muted); margin-top:6px; }
 
-    /* File input styling (keeps text readable if/when file inputs are added here) */
-    input[type="file"].input{
-      height:auto;
-      line-height:normal;
-      padding:8px 12px;
-      color:var(--text) !important;
-      -webkit-text-fill-color:var(--text) !important; /* iOS Safari */
-    }
-    input[type="file"].input::-webkit-file-upload-button{
-      color:#111111 !important;
-      -webkit-text-fill-color:#111111 !important;
-      background-color:#ffffff;
-    }
-
     .btn{ display:inline-flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:12px;
       background:var(--surface); color:var(--text)!important; padding:10px 14px; font-weight:800; cursor:pointer; text-decoration:none; }
     .btn[disabled]{ opacity:.55; pointer-events:none; }
@@ -187,9 +173,7 @@
     .combo-item:hover, .combo-item:focus{ background:var(--hover, rgba(0,0,0,.06)); outline:none; }
     .combo-hidden{ display:none !important; }
 
-    /* -------------------------------------------------------------------
-       Equipment-forms.js (extras) layout helpers (so edit modal matches)
-    ------------------------------------------------------------------- */
+    /* Extras layout (equipment-forms.js renders .row/.field/.select/.pill-toggle) */
     .extras{
       grid-column: 1 / -1;
       border:1px solid var(--border);
@@ -328,7 +312,7 @@
           </select>
         </div>
 
-        <!-- Shared extras engine renders here (engineHours, odometer, separatorHours, etc) -->
+        <!-- Shared extras engine renders here -->
         <div id="equipExtras" class="extras" aria-label="Equipment extra fields"></div>
 
         <div style="grid-column:1/-1">
@@ -349,7 +333,7 @@
     import {
       ready,
       getFirestore, collection, doc, getDoc, getDocs, query, where, orderBy, onSnapshot,
-      setDoc, updateDoc, serverTimestamp, limit
+      setDoc, updateDoc, serverTimestamp, limit, deleteDoc
     } from '/Farm-vista/js/firebase-init.js';
 
     const $ = s => document.querySelector(s);
@@ -362,41 +346,17 @@
     const qs = new URLSearchParams(location.search);
     const RAW_TYPE = (qs.get('type') || 'tractors').toLowerCase();
 
-    // Map any incoming type to a canonical key used in TYPE_MAP
     const TYPE_NORMALIZE = {
-      // Tractors
-      tractor: 'tractors',
-      tractors: 'tractors',
-
-      // Combines
-      combine: 'combines',
-      combines: 'combines',
-
-      // Implements
-      implement: 'implements',
-      implements: 'implements',
-
-      // Sprayers
-      sprayer: 'sprayers',
-      sprayers: 'sprayers',
-
-      // Fertilizer equipment
+      tractor: 'tractors', tractors: 'tractors',
+      combine: 'combines', combines: 'combines',
+      implement: 'implements', implements: 'implements',
+      sprayer: 'sprayers', sprayers: 'sprayers',
       fertilizer: 'fertilizer',
       'fertilizer-equipment': 'fertilizer',
       'fertilizer equipment': 'fertilizer',
-
-      // Construction
       construction: 'construction',
-
-      // Trucks
-      truck: 'trucks',
-      trucks: 'trucks',
-
-      // Trailers
-      trailer: 'trailers',
-      trailers: 'trailers',
-
-      // StarFire / Technology
+      truck: 'trucks', trucks: 'trucks',
+      trailer: 'trailers', trailers: 'trailers',
       starfire: 'starfire',
       'starfire-technology': 'starfire',
       'starfire / technology': 'starfire',
@@ -405,7 +365,6 @@
 
     const TYPE_KEY = TYPE_NORMALIZE[RAW_TYPE] || RAW_TYPE;
 
-    // Canonical noun mapping (keys are the canonical TYPE_KEY values)
     const TYPE_MAP = {
       tractors:      { singular:'tractor',      plural:'Tractors' },
       combines:      { singular:'combine',      plural:'Combines' },
@@ -419,10 +378,10 @@
     };
 
     const TYPE_INFO     = TYPE_MAP[TYPE_KEY] || TYPE_MAP['tractors'];
-    const TYPE_SINGULAR = TYPE_INFO.singular;                // tractor, combine, sprayer, etc.
-    const TITLE_PLURAL  = TYPE_INFO.plural;                  // Tractors, Combines, Fertilizer Equipment, etc.
-    const TYPE_LABEL    = TYPE_INFO.plural.replace(/s$/,''); // Tractor, Combine, Implement, etc.
-    const MODAL_TITLE   = `Edit ${TYPE_LABEL}`;              // Edit Tractor, Edit Combine, etc.
+    const TYPE_SINGULAR = TYPE_INFO.singular;
+    const TITLE_PLURAL  = TYPE_INFO.plural;
+    const TYPE_LABEL    = TYPE_INFO.plural.replace(/s$/,'');
+    const MODAL_TITLE   = `Edit ${TYPE_LABEL}`;
 
     /*
     ===================================================================
@@ -492,10 +451,6 @@
     const displayLine = d => {
       const mm = mmText(d), ls = last6(d.serial);
       return mm ? (ls ? `${mm} — #${ls}` : mm) : (ls ? `#${ls}` : `(${TYPE_SINGULAR})`);
-    };
-    const titleFor = d => {
-      const mm = mmText(d), ls = last6(d.serial);
-      return mm ? (ls ? `${mm} (#${ls})` : mm) : (d.name || `(${TYPE_SINGULAR})`);
     };
 
     function looksLikeType(d){
@@ -778,144 +733,256 @@
     }
 
     /* ================================================================
-   Extras engine (equipment-forms.js)
-   ================================================================ */
-let extras = null;
+       Extras engine (equipment-forms.js) — FIXED
+       ================================================================ */
+    let extras = null;
 
-function ensureExtrasEngine(){
-  const host = $('#equipExtras');
-  if (!host) return null;
+    function ensureExtrasEngine(){
+      const host = $('#equipExtras');
+      if (!host) return null;
 
-  // If the shared file didn’t load for any reason, fail soft (don’t break edit)
-  if (!window.FVEquipForms || typeof window.FVEquipForms.initExtras !== 'function'){
-    host.innerHTML = '<div class="sub" style="margin:0">Extras engine missing (equipment-forms.js).</div>';
-    extras = null;
-    return null;
-  }
+      if (!window.FVEquipForms || typeof window.FVEquipForms.initExtras !== 'function'){
+        host.innerHTML = '<div class="sub" style="margin:0">Extras engine missing (equipment-forms.js).</div>';
+        extras = null;
+        return null;
+      }
 
-  // Re-init each time we open an editor (fresh controls + dynamic visibility)
-  host.innerHTML = '';
-  extras = window.FVEquipForms.initExtras({
-    equipType: TYPE_SINGULAR,
-    container: host,
-    document
-  });
+      host.innerHTML = '';
+      extras = window.FVEquipForms.initExtras({
+        equipType: TYPE_SINGULAR,
+        container: host,
+        document
+      });
 
-  return extras;
-}
-
-function setToggle(el, on){
-  if (!el) return;
-  const isOn = !!on;
-  el.dataset.state = isOn ? 'on' : 'off';
-  el.classList.toggle('on', isOn);
-  el.textContent = isOn ? 'Yes' : 'No';
-}
-
-function setExtraValue(fieldId, value){
-  const el = document.getElementById('extra-' + fieldId);
-  if (!el) return;
-
-  // Toggle (pill button)
-  if (el.tagName === 'BUTTON' && el.classList.contains('pill-toggle')){
-    setToggle(el, !!value);
-    return;
-  }
-
-  // Select / input
-  if (value === undefined || value === null){
-    el.value = '';
-  }else{
-    el.value = String(value);
-  }
-}
-
-function readAny(d, keys){
-  for (const k of keys){
-    if (d && Object.prototype.hasOwnProperty.call(d, k) && d[k] != null && String(d[k]).trim() !== ''){
-      return d[k];
+      return extras;
     }
-  }
-  return null;
-}
 
-function hydrateExtrasFromDoc(d){
-  // Render fresh extras for this type
-  ensureExtrasEngine();
+    function setExtraValue(fieldId, value){
+      const el = document.getElementById('extra-' + fieldId);
+      if (!el) return;
 
-  // 1) Set controller FIRST for dynamic visibility (implementType / constructionType)
-  if (TYPE_SINGULAR === 'implement'){
-    const impType = readAny(d, ['implementType','implement_type','subType','subtype','implementSubtype','implement_subtype']);
-    if (impType){
-      setExtraValue('implementType', impType);
-      const ctrl = document.getElementById('extra-implementType');
-      if (ctrl) ctrl.dispatchEvent(new Event('change', { bubbles:true }));
+      // Toggle (pill button)
+      if (el.tagName === 'BUTTON' && el.classList.contains('pill-toggle')){
+        const isOn = !!value;
+        el.dataset.state = isOn ? 'on' : 'off';
+        el.classList.toggle('on', isOn);
+        el.textContent = isOn ? 'Yes' : 'No';
+        return;
+      }
+
+      el.value = (value === undefined || value === null) ? '' : String(value);
     }
-  }
 
-  if (TYPE_SINGULAR === 'construction'){
-    const conType = readAny(d, ['constructionType','construction_type','subType','subtype']);
-    if (conType){
-      setExtraValue('constructionType', conType);
-      const ctrl = document.getElementById('extra-constructionType');
-      if (ctrl) ctrl.dispatchEvent(new Event('change', { bubbles:true }));
+    function readAny(d, keys){
+      for (const k of keys){
+        if (d && Object.prototype.hasOwnProperty.call(d, k) && d[k] != null && String(d[k]).trim() !== ''){
+          return d[k];
+        }
+      }
+      return null;
     }
-  }
 
-  // 2) Now apply the rest (after dynamic fields are visible)
-  const keys = [
-    // Common-ish
-    'engineHours',
-    'separatorHours',
-    'odometerMiles',
-    'boomWidthFt',
-    'tankSizeGal',
-    'starfireCapable',
+    function hydrateExtrasFromDoc(d){
+      ensureExtrasEngine();
 
-    // Implements
-    'implementType',
-    'workingWidthFt',
-    'numRows',
-    'rowSpacingIn',
-    'totalAcres',
-    'totalHours',
-    'bushelCapacityBu',
-    'augerDiameterIn',
-    'augerLengthFt',
+      // Controller FIRST, then dispatch change so conditional fields appear.
+      if (TYPE_SINGULAR === 'implement'){
+        const impType = readAny(d, ['implementType','implement_type','subType','subtype','implementSubtype','implement_subtype']);
+        if (impType){
+          setExtraValue('implementType', impType);
+          const ctrl = document.getElementById('extra-implementType');
+          if (ctrl) ctrl.dispatchEvent(new Event('change', { bubbles:true }));
+        }
+      }
 
-    // Fertilizer
-    'applicationType',
+      if (TYPE_SINGULAR === 'construction'){
+        const conType = readAny(d, ['constructionType','construction_type','subType','subtype']);
+        if (conType){
+          setExtraValue('constructionType', conType);
+          const ctrl = document.getElementById('extra-constructionType');
+          if (ctrl) ctrl.dispatchEvent(new Event('change', { bubbles:true }));
+        }
+      }
 
-    // Trucks/trailers dates/fields
-    'licensePlate',
-    'licensePlateExp',
-    'insuranceExp',
-    'tireSizes',
-    'dotRequired',
-    'dotExpiration',
-    'trailerType',
-    'trailerPlate',
-    'trailerPlateExp',
-    'trailerDotRequired',
-    'lastDotInspection',
-    'gvwrLb',
+      // Now hydrate other extras
+      const keys = [
+        'engineHours','separatorHours','odometerMiles','boomWidthFt','tankSizeGal','starfireCapable',
+        'implementType','workingWidthFt','numRows','rowSpacingIn','totalAcres','totalHours','bushelCapacityBu','augerDiameterIn','augerLengthFt',
+        'applicationType',
+        'licensePlate','licensePlateExp','insuranceExp','tireSizes','dotRequired','dotExpiration',
+        'trailerType','trailerPlate','trailerPlateExp','trailerDotRequired','lastDotInspection','gvwrLb',
+        'constructionType','attachmentType',
+        'activationLevel','firmwareVersion'
+      ];
 
-    // Construction
-    'constructionType',
-    'attachmentType',
-
-    // Starfire
-    'activationLevel',
-    'firmwareVersion'
-  ];
-
-  keys.forEach(k=>{
-    if (Object.prototype.hasOwnProperty.call(d, k)){
-      setExtraValue(k, d[k]);
+      keys.forEach(k=>{
+        if (Object.prototype.hasOwnProperty.call(d, k)){
+          setExtraValue(k, d[k]);
+        }
+      });
     }
-  });
-}
 
+    /* ================================================================
+       OPEN / SAVE / ARCHIVE / DELETE
+       ================================================================ */
+    let currentId=null, deleteClean=false;
+
+    async function openEditor(id){
+      currentId = id;
+      deleteClean = false;
+
+      const db=getFirestore();
+
+      if(!MAKES.length) await loadMakes();
+      if(!MODELS.length) await loadModels();
+      buildYearOptions();
+
+      const snap=await getDoc(doc(db,'equipment',id));
+      if(!snap.exists()){
+        alert(`${TYPE_SINGULAR} not found`);
+        return;
+      }
+      const d=snap.data()||{};
+
+      refreshMakeSelect(d.makeId || d.makeName || '');
+      refreshModelSelect(d.modelId || d.modelName || '');
+
+      f.yr.value = d.year ? String(d.year) : '';
+      $("#yearTrigger").textContent = f.yr.value ? String(d.year) : '— Select —';
+
+      f.sn.value = d.serial || '';
+      f.sn6.textContent = (d.serial ? String(d.serial).slice(-6) : '—');
+      f.st.value = d.status || 'Active';
+
+      if ((d.status || 'Active') === 'Archived') archiveBtn.textContent = 'Unarchive';
+      else archiveBtn.textContent = 'Archive';
+
+      f.notes.value = d.notes || '';
+      f.sn.oninput = ()=> (f.sn6.textContent = (f.sn.value||'').slice(-6) || '—');
+
+      // Extras hydrate (planter fix lives here)
+      hydrateExtrasFromDoc(d);
+
+      // Delete guard
+      dependencyGuard(id).then(ok=>{ deleteClean = ok; }).catch(()=>{ deleteClean=false; });
+
+      eTitle.textContent = MODAL_TITLE;
+      openModal();
+    }
+
+    async function dependencyGuard(equipmentId){
+      const db = getFirestore();
+      const checks = [
+        ['equipmentLogs','equipmentId'],
+        ['maintenance','equipmentId'],
+        ['usage','equipmentId'],
+        ['qrScans','equipmentId'],
+      ].map(async ([c,field])=>{
+        try{
+          const qs = await getDocs(query(collection(db,c), where(field,'==', equipmentId), limit(1)));
+          return qs.size===0;
+        }catch(_){ return false; }
+      });
+      const rs = await Promise.all(checks);
+      return rs.every(Boolean);
+    }
+
+    function collectPatch(){
+      const makeName = (MAKES.find(m=>m.id===f.mkId.value)?.name) || '';
+      const modelName = (MODELS.find(m=>m.id===f.mdId.value)?.name) || '';
+
+      const extraData = (extras && typeof extras.read === 'function') ? extras.read() : {};
+
+      return {
+        makeId: f.mkId.value || null,
+        modelId: f.mdId.value || null,
+        makeName, modelName,
+        year: f.yr.value ? Number(f.yr.value) : null,
+        serial: (f.sn.value||'').trim(),
+        status: f.st.value || 'Active',
+        notes: (f.notes.value||'').trim(),
+        ...extraData,
+        updatedAt: serverTimestamp()
+      };
+    }
+
+    function validatePatch(p){
+      if(!p.makeId) return 'Make is required.';
+      if(!p.modelId) return 'Model is required.';
+      if(!p.year) return 'Year is required.';
+      if(!p.serial || p.serial.length < 3) return 'Serial looks short.';
+
+      if (extras && typeof extras.validate === 'function'){
+        const v = extras.validate();
+        if (!v.ok) return v.message || 'Missing required extra field.';
+      }
+
+      const negs = [
+        ['engineHours','Engine Hours'],
+        ['separatorHours','Separator Hours'],
+        ['odometerMiles','Odometer'],
+        ['totalAcres','Total Acres'],
+        ['totalHours','Total Hours']
+      ];
+      for (const [k,label] of negs){
+        if (p[k] != null && Number(p[k]) < 0) return `${label} cannot be negative.`;
+      }
+
+      return '';
+    }
+
+    async function saveEdits(){
+      if(!currentId) return;
+      const db = getFirestore();
+      const patch = collectPatch();
+      const err = validatePatch(patch);
+      if(err){ alert(err); return; }
+
+      try{
+        await setDoc(doc(db,'equipment',currentId), patch, { merge:true });
+        alert('Saved ✓');
+        closeModal();
+      }catch(e){
+        console.error(e);
+        alert('Save failed by Firestore rules.');
+      }
+    }
+
+    async function toggleArchive(){
+      if(!currentId) return;
+      const db=getFirestore();
+      try{
+        const snap=await getDoc(doc(db,'equipment',currentId));
+        if(!snap.exists()) return;
+        const now=snap.data()||{};
+        const next=(now.status==='Archived') ? 'Active' : 'Archived';
+        await updateDoc(doc(db,'equipment',currentId), { status: next, updatedAt: serverTimestamp() });
+        alert(next==='Archived' ? 'Archived ✓' : 'Restored ✓');
+        closeModal();
+      }catch(e){
+        console.error(e);
+        alert('Archive/Unarchive failed.');
+      }
+    }
+
+    async function doDelete(){
+      if(!currentId) return;
+      if(!deleteClean){
+        alert(`This ${TYPE_SINGULAR} is referenced by other data. Delete is blocked. Use Archive instead.`);
+        return;
+      }
+      if(!confirm('Delete permanently?')) return;
+
+      const db=getFirestore();
+      try{
+        await deleteDoc(doc(db,'equipment',currentId));
+        alert('Deleted ✓');
+        closeModal();
+      }catch(e){
+        console.error(e);
+        alert('Delete failed by Firestore rules.');
+      }
+    }
 
     saveBtn.addEventListener('click', saveEdits);
     archiveBtn.addEventListener('click', toggleArchive);
