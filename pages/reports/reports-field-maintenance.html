@@ -30,56 +30,7 @@
       padding: clamp(14px,3vw,22px);
       padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
       box-sizing:border-box;
-      display:grid;
-      gap:12px;
     }
-
-    /* Filters (OUTSIDE hero) */
-    .filters{
-      border:1px solid var(--border);
-      border-radius:14px;
-      background:var(--surface);
-      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      padding:12px 12px 10px;
-      display:flex;
-      flex-wrap:wrap;
-      gap:10px;
-      align-items:flex-end;
-    }
-    .filter-field{
-      display:flex;
-      flex-direction:column;
-      gap:4px;
-      min-width:160px;
-      flex:1 1 180px;
-      font-size:0.8rem;
-    }
-    .filter-label{
-      text-transform:uppercase;
-      letter-spacing:0.08em;
-      opacity:0.78;
-    }
-    .filter-select{
-      border-radius:999px;
-      border:1px solid var(--border);
-      padding:6px 10px;
-      font-size:0.9rem;
-      background:var(--card-surface,var(--surface));
-      color:var(--text);
-      min-height:34px;
-    }
-
-    /* Search: square-ish like dropdowns */
-    .filter-input{
-      border-radius:12px; /* square-ish */
-      border:1px solid var(--border);
-      padding:8px 10px;
-      font-size:0.92rem;
-      background:var(--card-surface,var(--surface));
-      color:var(--text);
-      min-height:34px;
-    }
-    .filter-input::placeholder{ color:var(--muted,#9CA3AF); }
 
     .btn{
       display:inline-flex;
@@ -153,6 +104,39 @@
       align-items:center;
     }
     .page-header-meta{ font-size:0.9rem; opacity:0.8; }
+
+    /* Filters (MATCH other report pages: inside hero, below toolbar) */
+    .filters{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+      margin-top:4px;
+    }
+    .filter-field{
+      display:flex;
+      flex-direction:column;
+      gap:3px;
+      min-width:160px;
+      flex:1 1 180px;
+      font-size:0.8rem;
+    }
+    .filter-label{
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      opacity:0.78;
+    }
+    .filter-select,
+    .filter-input{
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:6px 10px;
+      font-size:0.9rem;
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+      min-height:34px;
+    }
+    .filter-input::placeholder{ color:var(--muted,#9CA3AF); }
 
     /* List cards */
     .wo-list{ display:flex; flex-direction:column; gap:10px; margin-top:8px; }
@@ -358,7 +342,6 @@
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const CONFIG = {
-      // ✅ Correct collection name
       COLLECTION_PATH: 'fieldMaintenance',
       COMPANY_DOC_PATH: ['company','main']
     };
@@ -404,22 +387,15 @@
     function toDateMaybe(ts){
       if(!ts) return null;
       try{
-        // Firestore Timestamp
         if(ts.toDate) return ts.toDate();
-
-        // Your exported JSON style: { "__time__": "2025-12-14T..." }
         if(ts && typeof ts === 'object' && ts.__time__){
           const d = new Date(ts.__time__);
           return Number.isFinite(d.getTime()) ? d : null;
         }
-
-        // seconds-based
         if(ts && typeof ts === 'object' && typeof ts.seconds === 'number'){
           const d = new Date(ts.seconds * 1000);
           return Number.isFinite(d.getTime()) ? d : null;
         }
-
-        // raw string/number
         if(typeof ts === 'string' || typeof ts === 'number'){
           const d = new Date(ts);
           return Number.isFinite(d.getTime()) ? d : null;
@@ -464,7 +440,7 @@
       const year = String(yearVal || 'all');
       const status = String(statusVal || 'all').toLowerCase();
 
-      const map = new Map(); // fieldId -> { name, farmName }
+      const map = new Map();
       items.forEach(it=>{
         const d = it.data;
         const y = inferCropYear(d);
@@ -531,7 +507,6 @@
         })
       ].join('');
 
-      // If current value no longer exists under the year/status filter, drop back to "all"
       const curExists = fields.some(f => String(f.id) === String(cur));
       setSelectOptions(fieldSel, opts, curExists ? cur : 'all');
     }
@@ -577,7 +552,6 @@
         return true;
       });
 
-      // newest first
       filtered.sort((a,b)=>{
         const ta = a.data._submittedDate ? a.data._submittedDate.getTime() : 0;
         const tb = b.data._submittedDate ? b.data._submittedDate.getTime() : 0;
@@ -782,7 +756,9 @@
         ].filter(Boolean).join(' · ');
         const phone = d.phone || '';
         const email = d.email || '';
-        STATE.company = { name, address, phone, email };
+        STATE.company = { name, address, phone, email:'' };
+        // Keep email if present
+        STATE.company.email = email || '';
       }catch(e){
         console.warn('[field-maint-report] failed to load company header', e);
         STATE.company = { name:'', address:'', phone:'', email:'' };
@@ -804,7 +780,6 @@
           };
         });
 
-        // newest first
         items.sort((a,b) => {
           const ta = a.data._submittedDate ? a.data._submittedDate.getTime() : 0;
           const tb = b.data._submittedDate ? b.data._submittedDate.getTime() : 0;
@@ -839,7 +814,6 @@
 
       if(statusSel){
         statusSel.addEventListener('change', () => {
-          // status affects which fields are available for the selected year
           hydrateFieldDropdown();
           applyFilters();
         });
@@ -847,7 +821,6 @@
 
       if(yearSel){
         yearSel.addEventListener('change', () => {
-          // year drives field list
           hydrateFieldDropdown();
           applyFilters();
         });
@@ -868,9 +841,462 @@
       }
     }
 
+    function summarizeFilters(){
+      const { status, year, field, q } = getFilters();
+
+      const statusTxt = (status === 'all') ? 'All statuses' : `Status: ${statusLabel(status)}`;
+      const yearTxt = (year === 'all') ? 'All crop years' : `Crop Year: ${year}`;
+      const fieldTxt = (field === 'all') ? 'All fields' : 'Selected field';
+      const searchTxt = q ? `Search: "${q}"` : 'No text filter';
+
+      return `${statusTxt} • ${yearTxt} • ${fieldTxt} • ${searchTxt}`;
+    }
+
+    function computeDateRange(items){
+      if (!items.length) return '';
+      let min = Infinity, max = -Infinity;
+      items.forEach(it=>{
+        const d = it.data._submittedDate;
+        if(!d) return;
+        const t = d.getTime();
+        if(t < min) min = t;
+        if(t > max) max = t;
+      });
+      if(!Number.isFinite(min) || !Number.isFinite(max)) return '';
+      const dMin = new Date(min);
+      const dMax = new Date(max);
+      if (dMin.toDateString() === dMax.toDateString()) return formatDate(dMin);
+      return `${formatDate(dMin)} – ${formatDate(dMax)}`;
+    }
+
+    function groupForPdf(items){
+      // farmName -> fieldName -> []
+      const farmMap = new Map();
+      items.forEach(it=>{
+        const d = it.data;
+        const farm = (d.farmName || 'Unknown farm').trim();
+        const field = (d.fieldName || 'Unknown field').trim();
+        if(!farmMap.has(farm)) farmMap.set(farm, new Map());
+        const fieldMap = farmMap.get(farm);
+        if(!fieldMap.has(field)) fieldMap.set(field, []);
+        fieldMap.get(field).push(it);
+      });
+
+      // sort
+      const farms = Array.from(farmMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
+      return farms.map(([farmName, fieldMap])=>{
+        const fields = Array.from(fieldMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
+        fields.forEach(([_, arr])=>{
+          arr.sort((a,b)=>{
+            const ta = a.data._submittedDate ? a.data._submittedDate.getTime() : 0;
+            const tb = b.data._submittedDate ? b.data._submittedDate.getTime() : 0;
+            return tb - ta;
+          });
+        });
+        return [farmName, fields];
+      });
+    }
+
+    function buildPrintHtml({ company, runStr, runDateOnly, dateRange, filterSummary, totalRecords, completedCount, farmCount, fieldCount, grouped }){
+      return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Field Maintenance — Completed Projects</title>
+  <style>
+    :root{
+      --fv-green:#3B7E46;
+      --fv-border:#D1D5DB;
+      --fv-text:#111827;
+      --fv-muted:#6B7280;
+      --fv-bg:#F3F4F6;
+    }
+    *{box-sizing:border-box;}
+    html,body{
+      margin:0; padding:0;
+      font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      color:var(--fv-text);
+      background:var(--fv-bg);
+    }
+    body{ display:flex; justify-content:center; padding:22px 12px; }
+    .page{
+      width:100%;
+      max-width:920px;
+      background:#fff;
+      border-radius:14px;
+      box-shadow:0 10px 30px rgba(15,23,42,0.12);
+      padding:20px 22px 22px;
+    }
+    .hdr{
+      display:grid;
+      grid-template-columns:auto 1fr auto;
+      gap:14px;
+      align-items:center;
+      border-bottom:2px solid var(--fv-green);
+      padding-bottom:12px;
+      margin-bottom:14px;
+    }
+    .logo{
+      width:60px;height:60px;border-radius:16px;
+      border:1px solid var(--fv-border);
+      display:flex;align-items:center;justify-content:center;
+      font-size:24px;font-weight:900;color:#fff;
+      background:radial-gradient(circle at 30% 0%, #4CAF50, var(--fv-green));
+    }
+    .co-name{font-size:16px;font-weight:900;margin:0 0 2px;}
+    .co-line{font-size:11px;color:var(--fv-muted);margin:0;line-height:1.35;}
+    .meta{
+      text-align:right;
+      font-size:11px;
+      color:var(--fv-muted);
+      line-height:1.35;
+      white-space:nowrap;
+    }
+    .meta strong{color:var(--fv-text);}
+    .title{
+      margin:0;
+      font-size:18px;
+      font-weight:950;
+      letter-spacing:0.06em;
+      text-transform:uppercase;
+    }
+    .subtitle{
+      margin:4px 0 0;
+      font-size:12px;
+      color:var(--fv-muted);
+      line-height:1.35;
+    }
+    .summary{
+      margin-top:10px;
+      padding:8px 10px;
+      border-radius:12px;
+      background:linear-gradient(90deg, rgba(59,126,70,0.10), transparent);
+      border:1px solid rgba(59,126,70,0.22);
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 14px;
+      font-size:11px;
+    }
+    .pill{display:inline-flex; gap:6px; align-items:baseline; white-space:nowrap;}
+    .k{font-size:10px; text-transform:uppercase; letter-spacing:0.10em; color:var(--fv-muted); font-weight:700;}
+    .v{font-weight:800; color:var(--fv-text);}
+    .kpis{
+      margin-top:12px;
+      display:grid;
+      grid-template-columns:repeat(4, minmax(0,1fr));
+      gap:10px;
+    }
+    .kpi{
+      border:1px solid var(--fv-border);
+      border-radius:12px;
+      padding:9px 10px;
+      background:linear-gradient(135deg, rgba(59,126,70,0.06), #fff);
+    }
+    .kpi .lab{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--fv-muted);font-weight:900;}
+    .kpi .val{font-size:18px;font-weight:950;margin-top:2px;}
+    .kpi .note{font-size:10px;color:var(--fv-muted);margin-top:2px;line-height:1.25;}
+
+    .section{
+      margin-top:16px;
+      border-top:1px solid #EEF2F7;
+      padding-top:14px;
+    }
+    .farm-title{
+      font-size:12px;
+      font-weight:950;
+      letter-spacing:0.10em;
+      text-transform:uppercase;
+      color:#1F2937;
+      margin:0 0 6px;
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      align-items:baseline;
+    }
+    .field-title{
+      margin:10px 0 6px;
+      font-size:12px;
+      font-weight:900;
+      color:#111827;
+    }
+    .field-sub{
+      margin:0 0 8px;
+      font-size:11px;
+      color:var(--fv-muted);
+    }
+
+    .req-grid{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0,1fr));
+      gap:10px;
+    }
+    .req{
+      border:1px solid var(--fv-border);
+      border-radius:12px;
+      padding:10px 10px 9px;
+      break-inside:avoid;
+    }
+    .req-top{
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      align-items:flex-start;
+      padding-bottom:7px;
+      border-bottom:1px solid #EEF2F7;
+      margin-bottom:8px;
+    }
+    .req-title{ font-weight:950; font-size:13px; line-height:1.25; }
+    .badge{
+      font-size:10px;
+      font-weight:950;
+      letter-spacing:0.08em;
+      text-transform:uppercase;
+      padding:4px 8px;
+      border-radius:999px;
+      border:1px solid rgba(59,126,70,0.28);
+      background:rgba(59,126,70,0.07);
+      color:#0F172A;
+      white-space:nowrap;
+    }
+    .req-meta{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0,1fr));
+      gap:8px 10px;
+      font-size:11px;
+    }
+    .pair .kk{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--fv-muted);font-weight:900;margin-bottom:2px;}
+    .pair .vv{font-weight:650; color:#111827; line-height:1.25; word-break:break-word;}
+    .notes{
+      grid-column:1 / -1;
+      margin-top:2px;
+      padding-top:8px;
+      border-top:1px dashed #E5E7EB;
+    }
+    .notes .vv{
+      font-weight:650;
+      white-space:pre-wrap;
+      line-height:1.28;
+    }
+    .footer{
+      margin-top:16px;
+      padding-top:10px;
+      border-top:1px solid var(--fv-border);
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      font-size:10px;
+      color:var(--fv-muted);
+      line-height:1.3;
+    }
+    .footer .l{max-width:65%;}
+    .footer .r{text-align:right;}
+
+    @media (max-width:860px){
+      .req-grid{grid-template-columns:1fr;}
+      .kpis{grid-template-columns:repeat(2, minmax(0,1fr));}
+      .meta{white-space:normal;}
+    }
+    @media print{
+      html,body{background:#fff;padding:0;}
+      body{box-shadow:none;}
+      .page{
+        max-width:none;
+        border-radius:0;
+        box-shadow:none;
+        padding:12mm 13mm;
+      }
+      .req{break-inside:avoid; page-break-inside:avoid;}
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="hdr">
+      <div class="logo"><span>DF</span></div>
+      <div>
+        <p class="co-name">${escapeHtml(company.name || '')}</p>
+        <p class="co-line">
+          ${company.address ? escapeHtml(company.address) + '<br>' : ''}
+          ${company.phone ? 'Phone: ' + escapeHtml(company.phone) : ''}${company.phone && company.email ? ' · ' : ''}
+          ${company.email ? 'Email: ' + escapeHtml(company.email) : ''}
+        </p>
+      </div>
+      <div class="meta">
+        <div><strong>Field Maintenance</strong></div>
+        <div>Generated: ${escapeHtml(runStr)}</div>
+        <div>Prepared by: ${escapeHtml(company.name || 'FarmVista')}</div>
+      </div>
+    </header>
+
+    <h1 class="title">Field Maintenance — Projects</h1>
+    <p class="subtitle">Landowner-friendly summary of field maintenance work, grouped by farm and field.</p>
+
+    <div class="summary">
+      <div class="pill"><span class="k">Date range</span><span class="v">${escapeHtml(dateRange || 'All dates')}</span></div>
+      <div class="pill"><span class="k">Filters</span><span class="v">${escapeHtml(filterSummary)}</span></div>
+      <div class="pill"><span class="k">Records</span><span class="v">${totalRecords}</span></div>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi">
+        <div class="lab">Projects</div>
+        <div class="val">${totalRecords}</div>
+        <div class="note">Matching current filters</div>
+      </div>
+      <div class="kpi">
+        <div class="lab">Completed</div>
+        <div class="val">${completedCount}</div>
+        <div class="note">Completed in filtered set</div>
+      </div>
+      <div class="kpi">
+        <div class="lab">Farms</div>
+        <div class="val">${farmCount}</div>
+        <div class="note">Unique farms included</div>
+      </div>
+      <div class="kpi">
+        <div class="lab">Fields</div>
+        <div class="val">${fieldCount}</div>
+        <div class="note">Unique fields included</div>
+      </div>
+    </div>
+
+    ${grouped.map(([farmName, fields]) => {
+      const farmTotal = fields.reduce((sum, [,arr]) => sum + arr.length, 0);
+      const farmCompleted = fields.reduce((sum, [,arr]) => sum + arr.filter(it => normalizeStatus(it.data.status)==='completed').length, 0);
+
+      return `
+      <section class="section">
+        <div class="farm-title">
+          <span>${escapeHtml(farmName)}</span>
+          <span style="font-size:11px;color:var(--fv-muted);letter-spacing:0.06em;text-transform:none;font-weight:900;">
+            ${farmCompleted} completed / ${farmTotal} total
+          </span>
+        </div>
+
+        ${fields.map(([fieldName, arr]) => {
+          const done = arr.filter(it => normalizeStatus(it.data.status)==='completed').length;
+          return `
+            <div class="field-title">${escapeHtml(fieldName)}</div>
+            <p class="field-sub">${done} completed / ${arr.length} total</p>
+
+            <div class="req-grid">
+              ${arr.map(it => {
+                const d = it.data;
+                const topic = d.topicLabel || 'Field Maintenance';
+                const st = statusLabel(d.status);
+                const when = d._submittedDate ? formatDate(d._submittedDate) : '—';
+                const pr = Number.isFinite(d.priority) ? String(d.priority) : '—';
+                const notes = (d.notes || '').trim();
+                const by = (d.submittedBy?.name || d.submittedBy?.email || '—');
+
+                return `
+                  <article class="req">
+                    <div class="req-top">
+                      <div class="req-title">${escapeHtml(topic)}</div>
+                      <div class="badge">${escapeHtml(st || '—')}</div>
+                    </div>
+
+                    <div class="req-meta">
+                      <div class="pair">
+                        <div class="kk">Submitted</div>
+                        <div class="vv">${escapeHtml(when)}</div>
+                      </div>
+                      <div class="pair">
+                        <div class="kk">Priority</div>
+                        <div class="vv">${escapeHtml(pr)}</div>
+                      </div>
+
+                      <div class="pair" style="grid-column:1/-1;">
+                        <div class="kk">Submitted By</div>
+                        <div class="vv">${escapeHtml(by)}</div>
+                      </div>
+
+                      <div class="pair notes">
+                        <div class="kk">Notes</div>
+                        <div class="vv">${escapeHtml(notes)}</div>
+                      </div>
+                    </div>
+                  </article>
+                `;
+              }).join('')}
+            </div>
+          `;
+        }).join('')}
+      </section>
+      `;
+    }).join('')}
+
+    <footer class="footer">
+      <div class="l">Prepared for landowner communication. Details reflect what was submitted in FarmVista.</div>
+      <div class="r">FarmVista • Field Maintenance • ${escapeHtml(runDateOnly || '')}</div>
+    </footer>
+  </div>
+</body>
+</html>`;
+    }
+
     async function handlePrintClick(){
-      // placeholder hook; we’ll wire the landowner PDF layout next
-      alert('Print/PDF layout for Field Maintenance is next — page is now loading + filtering correctly.');
+      const items = STATE.filteredItems || [];
+      if(!items.length){
+        alert('No field maintenance projects match the current filters to print.');
+        return;
+      }
+
+      const company = await loadCompanyHeader();
+      const grouped = groupForPdf(items);
+
+      const now = new Date();
+      const runStr = formatDateTime(now);
+      const runDateOnly = formatDate(now);
+
+      const dateRange = computeDateRange(items);
+      const filterSummary = summarizeFilters();
+
+      const totalRecords = items.length;
+      const completedCount = items.filter(it => normalizeStatus(it.data.status)==='completed').length;
+
+      const farmSet = new Set();
+      const fieldSet = new Set();
+      items.forEach(it=>{
+        const d = it.data;
+        if(d.farmName) farmSet.add(String(d.farmName).trim());
+        if(d.fieldName) fieldSet.add(String(d.fieldName).trim());
+      });
+
+      const html = buildPrintHtml({
+        company,
+        runStr,
+        runDateOnly,
+        dateRange,
+        filterSummary,
+        totalRecords,
+        completedCount,
+        farmCount: farmSet.size,
+        fieldCount: fieldSet.size,
+        grouped
+      });
+
+      let iframe = document.getElementById('fv-print-frame');
+      if (!iframe){
+        iframe = document.createElement('iframe');
+        iframe.id = 'fv-print-frame';
+        document.body.appendChild(iframe);
+      }
+
+      const win = iframe.contentWindow || iframe.contentDocument;
+      const docu = iframe.contentDocument || iframe.contentWindow.document;
+
+      docu.open();
+      docu.write(html);
+      docu.close();
+
+      setTimeout(() => {
+        try{ win.focus(); win.print(); }
+        catch(err){
+          console.warn('[field-maint-report] iframe print failed, falling back to window.print()', err);
+          window.print();
+        }
+      }, 350);
     }
 
     (async function boot(){
@@ -899,13 +1325,11 @@
 
       await loadFieldMaintenance();
 
-      // build dropdowns from loaded maintenance docs
       hydrateYearDropdown();
       chooseInitialStatus();
-      hydrateFieldDropdown(); // depends on year + status
+      hydrateFieldDropdown();
       wireFilterEvents();
 
-      // initial filter + render
       applyFilters();
     })();
   </script>
@@ -914,42 +1338,6 @@
 <body>
   <fv-shell>
     <div class="wrap">
-
-      <!-- Filters OUTSIDE hero -->
-      <div class="filters" aria-label="Field maintenance filters">
-        <div class="filter-field">
-          <label class="filter-label" for="filterStatus">Status</label>
-          <select id="filterStatus" class="filter-select">
-            <option value="completed">Completed</option>
-            <option value="in progress">In progress</option>
-            <option value="needs approved">Needs approved</option>
-            <option value="approved">Approved</option>
-            <option value="all">All statuses</option>
-          </select>
-        </div>
-
-        <div class="filter-field">
-          <label class="filter-label" for="filterYear">Crop Year</label>
-          <select id="filterYear" class="filter-select">
-            <option value="all">All crop years</option>
-          </select>
-        </div>
-
-        <div class="filter-field">
-          <label class="filter-label" for="filterField">Field</label>
-          <select id="filterField" class="filter-select">
-            <option value="all">All fields</option>
-          </select>
-        </div>
-
-        <div class="filter-field">
-          <label class="filter-label" for="filterSearch">Search</label>
-          <input id="filterSearch" class="filter-input" type="search" placeholder="Search topic, notes, field, farm, submitter…" />
-        </div>
-
-        <button id="filterClear" type="button" class="btn btn-quiet">Clear filters</button>
-      </div>
-
       <section class="hero">
         <header class="hero-head">
           <div class="icon" aria-hidden="true">🛠️</div>
@@ -969,6 +1357,41 @@
               <button id="btnPrint" type="button" class="btn btn-primary">Print / Save PDF</button>
             </div>
             <div class="page-header-meta" id="fmCount">0 projects</div>
+          </div>
+
+          <!-- ✅ Filters moved to match your other report pages -->
+          <div class="filters" aria-label="Field maintenance filters">
+            <div class="filter-field">
+              <label class="filter-label" for="filterStatus">Status</label>
+              <select id="filterStatus" class="filter-select">
+                <option value="completed">Completed</option>
+                <option value="in progress">In progress</option>
+                <option value="needs approved">Needs approved</option>
+                <option value="approved">Approved</option>
+                <option value="all">All statuses</option>
+              </select>
+            </div>
+
+            <div class="filter-field">
+              <label class="filter-label" for="filterYear">Crop Year</label>
+              <select id="filterYear" class="filter-select">
+                <option value="all">All crop years</option>
+              </select>
+            </div>
+
+            <div class="filter-field">
+              <label class="filter-label" for="filterField">Field</label>
+              <select id="filterField" class="filter-select">
+                <option value="all">All fields</option>
+              </select>
+            </div>
+
+            <div class="filter-field">
+              <label class="filter-label" for="filterSearch">Search</label>
+              <input id="filterSearch" class="filter-input" type="search" placeholder="Search topic, notes, field, farm, submitter…" />
+            </div>
+
+            <button id="filterClear" type="button" class="btn btn-quiet">Clear filters</button>
           </div>
 
           <section aria-label="Field maintenance list">
