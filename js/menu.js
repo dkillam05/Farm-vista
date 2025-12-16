@@ -200,7 +200,7 @@ export const NAV_MENU = {
           perm: 'eq-maint-records',
           icon: '📚',
           label: 'Maintenance Records',
-          href: '/Farm-vista/docs/cooming-soon.html',
+          href: '/Farm-vista/pages/equipment/maintenance-records.html',
           activeMatch: 'starts-with'
         },
         {
