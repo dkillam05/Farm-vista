@@ -131,6 +131,147 @@
     .state h2{ margin:0; font-size:20px; font-weight:900; }
     .state p{ margin:0; color:var(--muted,#67706B); max-width:520px; }
     [hidden]{ display:none !important; }
+
+    /* ===== Metric Modal ===== */
+    .modal-backdrop{
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,.45);
+      display:none;
+      align-items:flex-end;
+      justify-content:center;
+      padding:14px;
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + 14px);
+      z-index:9999;
+    }
+    .modal-backdrop[data-open="1"]{ display:flex; }
+
+    .modal{
+      width:min(680px, 100%);
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:16px;
+      box-shadow:0 22px 60px rgba(0,0,0,.22);
+      overflow:hidden;
+    }
+    .modal-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      padding:14px 14px;
+      border-bottom:1px solid var(--border);
+      background:color-mix(in srgb,var(--brand) 10%, transparent);
+    }
+    .modal-head h3{
+      margin:0;
+      font-size:16px;
+      font-weight:950;
+      letter-spacing:.2px;
+    }
+    .icon-btn{
+      appearance:none;
+      border:1px solid var(--border);
+      background:var(--surface);
+      border-radius:12px;
+      height:40px;
+      width:40px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+    }
+    .icon-btn svg{ width:18px; height:18px; }
+    .modal-body{
+      padding:14px;
+      display:grid;
+      gap:12px;
+    }
+    .form-grid{
+      display:grid;
+      gap:10px;
+    }
+    .row{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+    }
+    @media (max-width:560px){
+      .row{ grid-template-columns:1fr; }
+    }
+    .field{
+      display:grid;
+      gap:6px;
+    }
+    .label{
+      font-size:12px;
+      font-weight:850;
+      color:var(--ink-2, #2a332d);
+    }
+    :root[data-theme="dark"] .label{ color:var(--ink-2, #d7dbd8); }
+    .help{
+      font-size:12px;
+      color:var(--muted,#67706B);
+      line-height:1.25;
+    }
+    .input{
+      width:100%;
+      min-height:46px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      padding:10px 12px;
+      font-size:16px;
+      font-weight:800;
+      color:var(--ink-1,#0f1a13);
+      outline:none;
+    }
+    :root[data-theme="dark"] .input{ color:var(--ink-1,#eaece9); }
+    .modal-actions{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+      padding:14px;
+      border-top:1px solid var(--border);
+      background:color-mix(in srgb, var(--surface) 70%, transparent);
+    }
+    @media (max-width:560px){
+      .modal-actions{ grid-template-columns:1fr; }
+    }
+    .btn-danger{
+      background:color-mix(in srgb, #b51f1f 14%, var(--surface));
+      border-color:color-mix(in srgb, #b51f1f 30%, var(--border));
+    }
+    .banner{
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:10px 12px;
+      background:color-mix(in srgb, #b51f1f 10%, transparent);
+      color:var(--ink-1,#0f1a13);
+      font-size:13px;
+      line-height:1.3;
+      display:none;
+    }
+    :root[data-theme="dark"] .banner{ color:var(--ink-1,#eaece9); }
+    .banner[data-show="1"]{ display:block; }
+    .small-note{
+      font-size:12px;
+      color:var(--muted,#67706B);
+      line-height:1.25;
+    }
+    .textarea{
+      width:100%;
+      min-height:88px;
+      resize:vertical;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      padding:10px 12px;
+      font-size:14px;
+      color:var(--ink-1,#0f1a13);
+      outline:none;
+    }
+    :root[data-theme="dark"] .textarea{ color:var(--ink-1,#eaece9); }
   </style>
 </head>
 
@@ -206,11 +347,64 @@
         </div>
       </section>
     </div>
+
+    <!-- ===== Metric Modal (hours / mileage / acres) ===== -->
+    <div class="modal-backdrop" id="metricModal" aria-hidden="true">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="metricModalTitle">
+        <div class="modal-head">
+          <h3 id="metricModalTitle">Update Usage</h3>
+          <button class="icon-btn" id="metricModalClose" type="button" aria-label="Close">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M18 6L6 18"></path><path d="M6 6l12 12"></path>
+            </svg>
+          </button>
+        </div>
+
+        <div class="modal-body">
+          <div class="banner" id="metricBanner"></div>
+
+          <div class="form-grid" id="metricForm">
+            <!-- dynamic rows injected -->
+          </div>
+
+          <div id="adjustBlock" hidden>
+            <div class="card" style="padding:12px; gap:10px">
+              <div style="display:grid; gap:6px">
+                <div style="font-weight:950;">Request permissioned adjustment</div>
+                <div class="small-note">
+                  If a number needs to go DOWN (or was entered wrong), you must request an adjustment.
+                  This sends a request to the office/admin queue.
+                </div>
+              </div>
+              <div class="field">
+                <div class="label">Reason / note to office</div>
+                <textarea class="textarea" id="adjustReason" placeholder="Explain what happened (typo, meter replaced, etc.)"></textarea>
+              </div>
+              <div class="actions" style="grid-template-columns:1fr 1fr; gap:10px">
+                <button class="btn btn-danger" id="btnRequestAdjust" type="button">Send Adjustment Request</button>
+                <button class="btn" id="btnAdjustCancel" type="button">Cancel Request</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="help" id="metricHelp"></div>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn" id="metricCancel" type="button">Cancel</button>
+          <button class="btn btn-primary" id="metricSave" type="button">Save</button>
+        </div>
+      </div>
+    </div>
+
   </fv-shell>
 
   <script type="module">
     import {
-      ready, getFirestore, doc, getDoc, getAuth, onAuthStateChanged
+      ready,
+      getFirestore, doc, getDoc, updateDoc,
+      getAuth, onAuthStateChanged,
+      collection, addDoc, serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
     const $ = id => document.getElementById(id);
@@ -222,81 +416,96 @@
     console.info('[hub] start; id=', id, 'from=', from);
 
     // --- Type configuration: display names + metrics + buttons
+    // NOTE: metricFields supports multiple inputs per equipment type (combine engine + separator, etc.)
     const HUB_CONFIG = {
       tractor: {
         display: 'Tractor',
-        metricField: 'engineHours',
-        metricSuffix: 'hrs',
+        metricFields: [
+          { key:'engineHours', label:'Engine Hours', suffix:'hrs', step:'0.1' }
+        ],
         updateLabel: 'Update Engine Hours',
         hasPreSeason: true
       },
       combine: {
         display: 'Combine',
-        metricField: 'engineHours',
-        metricSuffix: 'hrs',
-        updateLabel: 'Update Engine Hours',
+        metricFields: [
+          { key:'engineHours',    label:'Engine Hours',    suffix:'hrs', step:'0.1' },
+          { key:'separatorHours', label:'Separator Hours', suffix:'hrs', step:'0.1' }
+        ],
+        updateLabel: 'Update Hours',
         hasPreSeason: true
       },
       sprayer: {
         display: 'Sprayer',
-        metricField: 'engineHours',
-        metricSuffix: 'hrs',
+        metricFields: [
+          { key:'engineHours', label:'Engine Hours', suffix:'hrs', step:'0.1' }
+        ],
         updateLabel: 'Update Engine Hours',
         hasPreSeason: true
       },
       fertilizer: {
         display: 'Fertilizer Equipment',
-        metricField: 'engineHours',
-        metricSuffix: 'hrs',
+        metricFields: [
+          { key:'engineHours', label:'Engine Hours', suffix:'hrs', step:'0.1' }
+        ],
         updateLabel: 'Update Engine Hours',
         hasPreSeason: true
       },
       construction: {
         display: 'Construction',
-        metricField: 'engineHours',
-        metricSuffix: 'hrs',
+        metricFields: [
+          { key:'engineHours', label:'Engine Hours', suffix:'hrs', step:'0.1' }
+        ],
         updateLabel: 'Update Engine Hours',
         hasPreSeason: false
       },
       truck: {
         display: 'Truck',
-        metricField: 'odometer',
-        metricSuffix: 'mi',
+        metricFields: [
+          { key:'odometer', label:'Odometer', suffix:'mi', step:'1' }
+        ],
         updateLabel: 'Update Odometer',
         hasPreSeason: false
       },
       trailer: {
         display: 'Trailer',
-        metricField: 'odometer',
-        metricSuffix: 'mi',
+        metricFields: [
+          { key:'odometer', label:'Odometer', suffix:'mi', step:'1' }
+        ],
         updateLabel: 'Update Odometer',
         hasPreSeason: false
       },
+      planter: {
+        display: 'Planter',
+        metricFields: [
+          { key:'acres', label:'Acres', suffix:'ac', step:'0.1' }
+        ],
+        updateLabel: 'Update Acres',
+        hasPreSeason: true
+      },
       implement: {
         display: 'Implement',
-        metricField: null,
-        metricSuffix: '',
+        metricFields: [], // none by default
         updateLabel: 'Update Usage',
         hasPreSeason: false
       },
       starfire: {
         display: 'StarFire',
-        metricField: null,
-        metricSuffix: '',
-        updateLabel: 'Update Location',   // label only; href handled below
+        metricFields: [], // none
+        updateLabel: 'Update Location',
         hasPreSeason: false
       },
       technology: {
         display: 'Technology',
-        metricField: null,
-        metricSuffix: '',
+        metricFields: [],
         updateLabel: 'Update Usage',
         hasPreSeason: false
       },
       equipment: {
         display: 'Equipment',
-        metricField: 'engineHours',
-        metricSuffix: 'hrs',
+        metricFields: [
+          { key:'engineHours', label:'Engine Hours', suffix:'hrs', step:'0.1' }
+        ],
         updateLabel: 'Update Usage',
         hasPreSeason: false
       }
@@ -304,47 +513,16 @@
 
     // Where to send "Return to X" when coming from a list/lookup
     const FROM_MAP = {
-      tractors: {
-        label: 'Return to Tractors',
-        href: '/Farm-vista/pages/equipment/equipment-tractors.html'
-      },
-      combines: {
-        label: 'Return to Combines',
-        href: '/Farm-vista/pages/equipment/equipment-combines.html'
-      },
-      trucks: {
-        label: 'Return to Trucks',
-        href: '/Farm-vista/pages/equipment/equipment-trucks.html'
-      },
-      trailers: {
-        label: 'Return to Trailers',
-        href: '/Farm-vista/pages/equipment/equipment-trailers.html'
-      },
-      implements: {
-        label: 'Return to Implements',
-        href: '/Farm-vista/pages/equipment/equipment-implements.html'
-      },
-      sprayers: {
-        label: 'Return to Sprayers',
-        href: '/Farm-vista/pages/equipment/equipment-sprayers.html'
-      },
-      construction: {
-        label: 'Return to Construction Equipment',
-        href: '/Farm-vista/pages/equipment/equipment-construction.html'
-      },
-      starfire: {
-        label: 'Return to StarFire',
-        href: '/Farm-vista/pages/equipment/equipment-starfire.html'
-      },
-      // fallback for any generic equipment lookup page
-      lookup: {
-        label: 'Return to Equipment',
-        href: '/Farm-vista/pages/equipment/actions/lookup.html'
-      },
-      scanner: {
-        label: 'Return to Scanner',
-        href: '/Farm-vista/pages/qr-scan.html'
-      }
+      tractors: { label: 'Return to Tractors', href: '/Farm-vista/pages/equipment/equipment-tractors.html' },
+      combines: { label: 'Return to Combines', href: '/Farm-vista/pages/equipment/equipment-combines.html' },
+      trucks:   { label: 'Return to Trucks', href: '/Farm-vista/pages/equipment/equipment-trucks.html' },
+      trailers: { label: 'Return to Trailers', href: '/Farm-vista/pages/equipment/equipment-trailers.html' },
+      implements:{ label:'Return to Implements', href:'/Farm-vista/pages/equipment/equipment-implements.html' },
+      sprayers: { label: 'Return to Sprayers', href: '/Farm-vista/pages/equipment/equipment-sprayers.html' },
+      construction:{ label:'Return to Construction Equipment', href:'/Farm-vista/pages/equipment/equipment-construction.html' },
+      starfire: { label: 'Return to StarFire', href: '/Farm-vista/pages/equipment/equipment-starfire.html' },
+      lookup:   { label: 'Return to Equipment', href: '/Farm-vista/pages/equipment/actions/lookup.html' },
+      scanner:  { label: 'Return to Scanner', href: '/Farm-vista/pages/qr-scan.html' }
     };
 
     // --- Helpers
@@ -391,14 +569,442 @@
         btnOrigin.href        = cfg.href;
         btnOrigin.hidden      = false;
       }else{
-        // If we truly have nowhere sensible to go, hide the origin button
         btnOrigin.hidden = true;
       }
 
-      // Always keep Return to Home
       btnHome.href   = '/Farm-vista/index.html';
       btnHome.hidden = false;
       wrap.hidden    = false;
+    }
+
+    // ===== Metric Modal Logic =====
+    const MODAL = {
+      open: false,
+      doc: null,
+      cfg: null,
+      typeKey: null,
+      db: null,
+      snapRef: null,
+      fields: [],
+      lastInputs: null
+    };
+
+    function showBanner(msg){
+      const b = $('metricBanner');
+      if(!b) return;
+      if(!msg){ b.textContent=''; b.dataset.show='0'; return; }
+      b.textContent = msg;
+      b.dataset.show='1';
+    }
+
+    function openModal(){
+      const back = $('metricModal');
+      if(!back) return;
+      back.dataset.open = '1';
+      back.setAttribute('aria-hidden','false');
+      MODAL.open = true;
+      showBanner('');
+      $('adjustBlock').hidden = true;
+      $('adjustReason').value = '';
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeModal(){
+      const back = $('metricModal');
+      if(!back) return;
+      back.dataset.open = '0';
+      back.setAttribute('aria-hidden','true');
+      MODAL.open = false;
+      document.body.style.overflow = '';
+      showBanner('');
+      $('adjustBlock').hidden = true;
+      $('adjustReason').value = '';
+    }
+
+    function fmtNum(v){
+      if(v == null || v === '') return '';
+      const n = Number(v);
+      if(Number.isNaN(n)) return '';
+      if(Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
+      return String(n);
+    }
+
+    function buildMetricForm(docData, cfg, typeKey){
+      const form = $('metricForm');
+      const help = $('metricHelp');
+      if(!form || !help) return;
+
+      form.innerHTML = '';
+      const fields = Array.isArray(cfg.metricFields) ? cfg.metricFields : [];
+      MODAL.fields = fields;
+
+      // Build dynamic inputs (2-col where possible)
+      const rows = [];
+      for (const f of fields){
+        const current = docData?.[f.key];
+        const label = f.label || f.key;
+        const suffix = f.suffix || '';
+        const step = f.step || '1';
+
+        const el = document.createElement('div');
+        el.className = 'field';
+        el.innerHTML = `
+          <div class="label">${label}</div>
+          <input
+            class="input"
+            inputmode="decimal"
+            autocomplete="off"
+            spellcheck="false"
+            id="metric_${f.key}"
+            type="number"
+            step="${String(step).replace(/"/g,'')}"
+            placeholder="Enter new ${label.toLowerCase()}"
+          />
+          <div class="help">Current: <b>${fmtNum(current) || '—'}</b>${suffix ? ` ${suffix}` : ''}. New value cannot be less than current.</div>
+        `;
+        rows.push(el);
+      }
+
+      // pack rows into .row blocks of 2
+      for(let i=0;i<rows.length;i+=2){
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.appendChild(rows[i]);
+        if(rows[i+1]) row.appendChild(rows[i+1]);
+        form.appendChild(row);
+      }
+
+      // If no fields, show info
+      if(fields.length === 0){
+        const empty = document.createElement('div');
+        empty.className = 'card';
+        empty.style.padding = '12px';
+        empty.innerHTML = `
+          <div style="font-weight:950;">No usage metric configured</div>
+          <div class="small-note">This equipment type doesn’t have hours/mileage/acres tracking enabled yet.</div>
+        `;
+        form.appendChild(empty);
+      }
+
+      // helper copy
+      const overrideKey = 'equipment-metrics:override';
+      help.innerHTML = `
+        <div class="small-note">
+          Rules:
+          <b>No reductions allowed</b> (prevents rollback).
+          If something truly needs to go down (meter replaced, typo), use the <b>Adjustment Request</b>.
+          ${ (window.FV && typeof window.FV.can === 'function')
+              ? `If you have special permission (<code>${overrideKey}</code>), an office user can override decreases with a reason.`
+              : ``
+          }
+        </div>
+      `;
+
+      // set defaults to blank (force user to type the new reading)
+      for (const f of fields){
+        const inp = $(`metric_${f.key}`);
+        if(inp) inp.value = '';
+      }
+    }
+
+    function getCurrentValue(docData, key){
+      const v = docData?.[key];
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function readInputs(){
+      const out = {};
+      for(const f of (MODAL.fields||[])){
+        const el = $(`metric_${f.key}`);
+        const raw = el ? String(el.value ?? '').trim() : '';
+        if(raw === '') continue; // skip empties (no change)
+        const n = Number(raw);
+        out[f.key] = Number.isFinite(n) ? n : NaN;
+      }
+      return out;
+    }
+
+    function hasAnyInput(inputs){
+      return inputs && Object.keys(inputs).length > 0;
+    }
+
+    function computeValidation(docData, inputs){
+      const results = {
+        ok: true,
+        anyDecrease: false,
+        badNumbers: [],
+        decreases: [],
+        updates: {}
+      };
+
+      for(const [k,v] of Object.entries(inputs)){
+        if(!Number.isFinite(v)){
+          results.ok = false;
+          results.badNumbers.push(k);
+          continue;
+        }
+        const cur = getCurrentValue(docData, k);
+        if(cur == null){
+          // if missing current value, allow setting (still must be finite)
+          results.updates[k] = v;
+          continue;
+        }
+        if(v < cur){
+          results.anyDecrease = true;
+          results.decreases.push({ key:k, current:cur, next:v });
+          // do not add to updates yet
+          continue;
+        }
+        if(v === cur){
+          // no change
+          continue;
+        }
+        results.updates[k] = v;
+      }
+
+      // if no decreases and no bad numbers, ok can still be true even if updates empty
+      if(results.badNumbers.length) results.ok = false;
+
+      return results;
+    }
+
+    function updateMetricChip(docData, cfg){
+      // We keep the visible chip simple:
+      // - if combine: show engine + separator (if present)
+      // - else: show first configured field
+      const chip = $('eqMetric');
+      if(!chip) return;
+
+      const fields = Array.isArray(cfg.metricFields) ? cfg.metricFields : [];
+      if(fields.length === 0){ chip.hidden = true; return; }
+
+      if(String(MODAL.typeKey||'') === 'combine'){
+        const e = docData?.engineHours;
+        const s = docData?.separatorHours;
+        const parts = [];
+        if(e != null && e !== '') parts.push(`${fmtNum(e)} hrs eng`);
+        if(s != null && s !== '') parts.push(`${fmtNum(s)} hrs sep`);
+        if(parts.length){
+          chip.textContent = parts.join(' • ');
+          chip.hidden = false;
+          return;
+        }
+      }
+
+      const f0 = fields[0];
+      const v0 = docData?.[f0.key];
+      if(v0 != null){
+        chip.textContent = `${fmtNum(v0)}${f0.suffix ? ` ${f0.suffix}` : ''}`;
+        chip.hidden = false;
+      }else{
+        chip.hidden = true;
+      }
+    }
+
+    async function saveMetrics(){
+      if(!MODAL.db || !MODAL.snapRef || !MODAL.doc) return;
+
+      const btnSave = $('metricSave');
+      const btnCancel = $('metricCancel');
+      if(btnSave) btnSave.disabled = true;
+      if(btnCancel) btnCancel.disabled = true;
+      showBanner('');
+
+      try{
+        const inputs = readInputs();
+        MODAL.lastInputs = inputs;
+
+        if(!hasAnyInput(inputs)){
+          showBanner('Enter at least one new reading to save.');
+          return;
+        }
+
+        const v = computeValidation(MODAL.doc, inputs);
+
+        if(v.badNumbers.length){
+          showBanner('One or more values are not valid numbers.');
+          return;
+        }
+
+        // Hard rule: no decreases unless permissioned override
+        const overrideKey = 'equipment-metrics:override';
+        const canOverride = !!(window.FV && typeof window.FV.can === 'function' && window.FV.can(overrideKey));
+
+        if(v.anyDecrease && !canOverride){
+          // Show request adjustment UI
+          const lines = v.decreases.map(x=>{
+            const label = (MODAL.fields.find(f=>f.key===x.key)?.label) || x.key;
+            return `• ${label}: current ${fmtNum(x.current)} → attempted ${fmtNum(x.next)}`;
+          }).join('\n');
+
+          showBanner(
+            `Not allowed: readings cannot be reduced.\n` +
+            `Use Adjustment Request (below) so an office/admin can review.\n\n` +
+            `${lines}`
+          );
+          $('adjustBlock').hidden = false;
+          return;
+        }
+
+        // Override path: allow decreases, but REQUIRE a reason
+        if(v.anyDecrease && canOverride){
+          const reason = String($('adjustReason')?.value || '').trim();
+          if(!reason){
+            showBanner('Override requires a reason. Enter a note in the "Reason / note to office" box.');
+            $('adjustBlock').hidden = false;
+            return;
+          }
+          // allow decreases by including them in updates
+          for(const dec of v.decreases){
+            v.updates[dec.key] = dec.next;
+          }
+        }
+
+        if(Object.keys(v.updates).length === 0){
+          showBanner('No changes to save (new values match current).');
+          return;
+        }
+
+        // Write update
+        const auth = getAuth();
+        const user = auth.currentUser || null;
+
+        const patch = {
+          ...v.updates,
+          metricUpdatedAt: serverTimestamp(),
+          metricUpdatedBy: user?.email || null
+        };
+
+        await updateDoc(MODAL.snapRef, patch);
+
+        // Log to history collection (audit trail)
+        // (Safe if collection doesn't exist yet — Firestore will create it.)
+        await addDoc(collection(MODAL.db, 'equipment_metric_entries'), {
+          equipmentId: id,
+          equipmentType: MODAL.typeKey || null,
+          updatedAt: serverTimestamp(),
+          updatedBy: user?.email || null,
+          updates: v.updates,
+          previous: Object.fromEntries(Object.keys(v.updates).map(k => [k, getCurrentValue(MODAL.doc, k)])),
+          from: from || null,
+          mode: (v.anyDecrease ? 'override' : 'normal')
+        });
+
+        // Update local doc snapshot values
+        for(const [k,val] of Object.entries(v.updates)){
+          MODAL.doc[k] = val;
+        }
+
+        // Update chip + close
+        updateMetricChip(MODAL.doc, MODAL.cfg);
+        showBanner('Saved.');
+        setTimeout(()=>closeModal(), 220);
+      }catch(e){
+        console.error('[hub] saveMetrics error', e);
+        showBanner('Save failed. Try again (or check connection).');
+      }finally{
+        if(btnSave) btnSave.disabled = false;
+        if(btnCancel) btnCancel.disabled = false;
+      }
+    }
+
+    async function sendAdjustmentRequest(){
+      try{
+        if(!MODAL.db || !MODAL.doc) return;
+
+        const reason = String($('adjustReason')?.value || '').trim();
+        if(!reason){
+          showBanner('Please enter a reason so the office knows what to fix.');
+          return;
+        }
+
+        const inputs = MODAL.lastInputs || readInputs();
+        if(!hasAnyInput(inputs)){
+          showBanner('Enter the value(s) you attempted, then send the request.');
+          return;
+        }
+
+        const v = computeValidation(MODAL.doc, inputs);
+        if(!v.anyDecrease){
+          showBanner('This request is only needed when a value would be reduced.');
+          $('adjustBlock').hidden = true;
+          return;
+        }
+
+        const auth = getAuth();
+        const user = auth.currentUser || null;
+
+        await addDoc(collection(MODAL.db, 'equipment_metric_adjust_requests'), {
+          equipmentId: id,
+          equipmentType: MODAL.typeKey || null,
+          createdAt: serverTimestamp(),
+          createdBy: user?.email || null,
+          status: 'open',
+          reason,
+          attempted: Object.fromEntries(v.decreases.map(d => [d.key, d.next])),
+          current: Object.fromEntries(v.decreases.map(d => [d.key, d.current])),
+          from: from || null
+        });
+
+        showBanner('Adjustment request sent. Office/admin will review.');
+        setTimeout(()=>closeModal(), 380);
+      }catch(e){
+        console.error('[hub] sendAdjustmentRequest error', e);
+        showBanner('Could not send request. Try again.');
+      }
+    }
+
+    function wireModalButtons(){
+      const back = $('metricModal');
+      const closeBtn = $('metricModalClose');
+      const cancelBtn = $('metricCancel');
+      const saveBtn = $('metricSave');
+      const reqBtn = $('btnRequestAdjust');
+      const adjCancel = $('btnAdjustCancel');
+
+      if(closeBtn) closeBtn.addEventListener('click', closeModal);
+      if(cancelBtn) cancelBtn.addEventListener('click', closeModal);
+      if(saveBtn) saveBtn.addEventListener('click', saveMetrics);
+
+      if(reqBtn) reqBtn.addEventListener('click', sendAdjustmentRequest);
+      if(adjCancel) adjCancel.addEventListener('click', ()=>{
+        $('adjustBlock').hidden = true;
+        showBanner('');
+      });
+
+      // click outside closes
+      if(back){
+        back.addEventListener('click', (e)=>{
+          if(e.target === back) closeModal();
+        });
+      }
+
+      // escape closes
+      window.addEventListener('keydown', (e)=>{
+        if(e.key === 'Escape' && MODAL.open) closeModal();
+      });
+    }
+
+    function openMetricModal(docData, cfg, typeKey, db, snapRef){
+      MODAL.doc = docData;
+      MODAL.cfg = cfg;
+      MODAL.typeKey = typeKey;
+      MODAL.db = db;
+      MODAL.snapRef = snapRef;
+
+      const title = cfg.updateLabel || 'Update Usage';
+      $('metricModalTitle').textContent = title;
+
+      buildMetricForm(docData, cfg, typeKey);
+
+      // If no metric fields, don't open
+      if(!Array.isArray(cfg.metricFields) || cfg.metricFields.length === 0){
+        showBanner('No usage metric configured for this equipment type yet.');
+        return;
+      }
+
+      openModal();
     }
 
     // --- Watchdog (content-only since fv-shell handles splash)
@@ -458,8 +1064,9 @@
 
       const db=getFirestore();
       let snap;
+      let ref;
       try{
-        const ref = doc(db,'equipment',id);
+        ref = doc(db,'equipment',id);
         snap = await getDocWithRetry(ref);
       }catch(e){
         console.error('[hub] getDoc error', e);
@@ -499,12 +1106,8 @@
         setText('eqSerial', `SN #${ls}`, { unhide:true });
       }
 
-      // Metric chip (engine hours / odometer etc.)
-      if(cfg.metricField && d[cfg.metricField] != null){
-        const v = d[cfg.metricField];
-        const suf = cfg.metricSuffix ? ` ${cfg.metricSuffix}` : '';
-        setText('eqMetric', `${v}${suf}`, { unhide:true });
-      }
+      // Metric chip (hours / odometer / acres)
+      updateMetricChip(d, cfg);
 
       $('eqCard').hidden = false;
 
@@ -517,42 +1120,48 @@
         $('archivedMsg').textContent = `“${name}${ls ? ' • SN …'+ls : ''}” is archived and not available for new entries.`;
         $('archivedCard').hidden = false;
         if (calcCard) calcCard.hidden = true; // no calculators for archived units
-        // Keep primary fnLinks hidden when archived
       }else{
         // Configure button labels & visibility
         setText('linkReq', 'Submit Service Request');
         $('linkReq').hidden = false;
 
-        // Defaults for most types
+        // Metric button (opens modal)
         if(cfg.updateLabel){
           setText('linkMetric', cfg.updateLabel);
           $('linkMetric').hidden = false;
         }else{
           $('linkMetric').hidden = true;
         }
+
         $('linkMaint').hidden = false;
         $('linkPre').hidden   = !cfg.hasPreSeason;
 
         // Default hrefs (can be wired later per type)
         $('linkReq').href =
           `/Farm-vista/pages/equipment/actions/service-request.html?id=${encodeURIComponent(id)}${from ? `&from=${encodeURIComponent(from)}` : ''}`;
+
         $('linkMetric').href = '#';
         $('linkMaint').href  = '#';
         $('linkPre').href    = '#';
 
+        // Metric click => modal
+        $('linkMetric').onclick = (e)=>{
+          e.preventDefault();
+          openMetricModal(d, cfg, typeKey, db, ref);
+        };
+
         // --- StarFire special case: only "Submit Service Request" + "Update Location"
         if(typeKey === 'starfire'){
-          // Middle button becomes Update Location with real link
           setText('linkMetric', 'Update Location');
           $('linkMetric').hidden = false;
           $('linkMetric').href =
             `/Farm-vista/pages/equipment/actions/starfire-location.html?id=${encodeURIComponent(id)}`;
+          $('linkMetric').onclick = null;
 
-          // Hide Service Records & Pre-Season for StarFire
           $('linkMaint').hidden = true;
           $('linkPre').hidden   = true;
 
-          if (calcCard) calcCard.hidden = true; // calculators not relevant for StarFire
+          if (calcCard) calcCard.hidden = true;
         } else {
           // --- Combine-only Calculators wiring
           if (typeKey === 'combine' && calcCard) {
@@ -586,6 +1195,8 @@
       // Set up "Return to X" buttons
       setupReturnButtons(typeKey);
     }
+
+    wireModalButtons();
 
     init().catch(e=>{
       console.error('[hub] init fatal', e);
