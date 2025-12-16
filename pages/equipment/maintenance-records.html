@@ -1,1 +1,1205 @@
-.gitkeep
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FarmVista • Equipment Maintenance — Work Orders</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3B7E46" />
+
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+
+  <!-- ABSOLUTE PATHS -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+
+  <style>
+    :root{
+      --card-max: 1200px;
+      --page-bottom-gap: 72px;
+      --accent: #2F6C3C;
+    }
+
+    body{ background: var(--app-bg, var(--surface)); }
+
+    .wrap{
+      max-width: var(--card-max);
+      margin: 0 auto;
+      padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+      box-sizing:border-box;
+      overflow: visible; /* do not clip dropdowns */
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:120px;
+      padding:10px 14px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      font-weight:800;
+      text-decoration:none;
+      cursor:pointer;
+      user-select:none;
+      color:var(--text) !important;
+      background:var(--card-surface,var(--surface));
+      font-size:0.9rem;
+      gap:6px;
+      white-space:nowrap;
+    }
+    .btn-quiet{ min-width:auto; padding-inline:10px; }
+    .btn-primary{
+      border-color:transparent;
+      background:#2F6C3C;
+      color:#fff !important;
+    }
+
+    /* Hero */
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow: visible;
+      position: relative;
+      z-index: 1;
+    }
+    .hero-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      border-bottom:1px solid var(--border);
+      border-top-left-radius:14px;
+      border-top-right-radius:14px;
+    }
+    .hero-head .icon{
+      width:24px;
+      height:24px;
+      color:var(--accent);
+      display:grid;
+      place-items:center;
+    }
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+    .muted{ color:var(--muted,#67706B); }
+
+    .body{
+      padding:16px;
+      display:grid;
+      gap:14px;
+      overflow: visible;
+    }
+
+    .toolbar{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+      justify-content:space-between;
+    }
+    .toolbar-left{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+    }
+    .page-header-meta{ font-size:0.9rem; opacity:0.8; }
+
+    /* Filters */
+    .filters{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+      margin-top:4px;
+      position: relative;
+      z-index: 50;
+    }
+    .filter-field{
+      display:flex;
+      flex-direction:column;
+      gap:3px;
+      min-width:160px;
+      flex:1 1 180px;
+      font-size:0.8rem;
+      min-width: 0;
+    }
+    .filter-label{
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      opacity:0.78;
+    }
+
+    .filter-select{
+      width:100%;
+      height:34px;
+      line-height:34px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:0 10px;
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+      font-size:0.9rem;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      box-sizing:border-box;
+      position:relative;
+      z-index:60;
+      display:block;
+    }
+    .filter-select option{ white-space: nowrap; }
+
+    .filter-input{
+      width:100%;
+      max-width:100%;
+      min-width:0;
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:6px 10px;
+      font-size:0.9rem;
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+      min-height:34px;
+      position: relative;
+      z-index: 60;
+    }
+    .filter-input::placeholder{ color:var(--muted,#9CA3AF); }
+
+    .filters-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+      width:100%;
+    }
+    .filters-row-secondary{ margin-top:6px; }
+
+    .type-wide{ flex:1.25 1 240px; }
+    .equip-wide{ flex:2 1 360px; }
+
+    /* List cards */
+    .wo-list{ display:flex; flex-direction:column; gap:10px; margin-top:8px; }
+
+    .wo-empty{
+      padding:14px 16px;
+      border-radius:12px;
+      border:1px dashed var(--border);
+      background:var(--card-surface, var(--surface));
+      font-size:0.95rem;
+      opacity:0.9;
+    }
+
+    .group{
+      margin-top:12px;
+      border-top:1px solid color-mix(in srgb, var(--border) 70%, transparent);
+      padding-top:12px;
+    }
+    .group-head{
+      display:flex;
+      align-items:baseline;
+      justify-content:space-between;
+      gap:10px;
+      margin:0 0 8px;
+      padding:0 2px;
+    }
+    .group-title{
+      margin:0;
+      font-weight:950;
+      letter-spacing:0.06em;
+      text-transform:uppercase;
+      font-size:0.86rem;
+      opacity:0.88;
+    }
+    .group-sub{
+      font-size:0.82rem;
+      opacity:0.72;
+      white-space:nowrap;
+    }
+
+    .wo-card{
+      position:relative;
+      border-radius:10px;
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
+      padding:12px 14px 10px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      cursor:pointer;
+      transition:transform .06s, box-shadow .12s, border-color .12s, background .12s;
+      z-index: 1;
+    }
+    .wo-card:active{
+      transform:scale(.995);
+      box-shadow:var(--shadow);
+    }
+
+    .wo-row-top{ display:flex; align-items:flex-start; gap:10px; }
+    .wo-main{ flex:1 1 auto; min-width:0; }
+
+    .wo-title{
+      font-weight:800;
+      font-size:0.98rem;
+      line-height:1.3;
+    }
+
+    .wo-sub{
+      font-size:0.86rem;
+      opacity:0.9;
+      margin-top:2px;
+    }
+
+    .wo-meta{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 10px;
+      margin-top:4px;
+      font-size:0.8rem;
+      opacity:0.92;
+    }
+
+    .wo-meta span{
+      display:inline-flex;
+      align-items:flex-start;
+      gap:6px;
+      padding:2px 7px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      max-width:100%;
+    }
+    .wo-meta span > span.wo-meta-label{
+      font-weight:900;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      font-size:0.72rem;
+      opacity:0.85;
+      margin-top:1px;
+    }
+    .wo-meta .wo-meta-val{
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      max-width:56ch;
+    }
+    @media (max-width:520px){
+      .wo-meta .wo-meta-val{ max-width:30ch; }
+    }
+
+    /* Detail panel */
+    .wo-detail-panel{
+      margin-top:10px;
+      border-radius:10px;
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
+      padding:14px 16px 12px;
+      display:none;
+      flex-direction:column;
+      gap:8px;
+    }
+
+    .wo-detail-header{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:10px;
+    }
+
+    .wo-detail-title{ font-weight:900; font-size:1rem; }
+
+    .wo-detail-close{
+      border:none;
+      outline:none;
+      border-radius:999px;
+      padding:4px 9px;
+      font-size:0.8rem;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      cursor:pointer;
+    }
+
+    .wo-detail-grid{
+      display:grid;
+      grid-template-columns:minmax(0,1fr);
+      gap:8px 16px;
+      font-size:0.9rem;
+      margin-top:4px;
+    }
+    @media (min-width:700px){
+      .wo-detail-grid{ grid-template-columns:repeat(2, minmax(0,1fr)); }
+    }
+
+    .wo-detail-item-label{
+      font-size:0.78rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:1px;
+    }
+    .wo-detail-item-value{ font-size:0.94rem; }
+
+    .wo-detail-notes{
+      margin-top:8px;
+      padding-top:8px;
+      border-top:1px solid var(--border);
+      font-size:1.02rem;
+      white-space:pre-wrap;
+      line-height:1.35;
+    }
+    .wo-detail-notes-label{
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:2px;
+    }
+
+    .wo-detail-footer{
+      margin-top:10px;
+      font-size:0.82rem;
+      opacity:0.85;
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:center;
+    }
+    .wo-detail-pill{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 8px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      font-size:0.8rem;
+    }
+
+    .li-list{
+      margin-top:8px;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    .li{
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:10px 10px 9px;
+      background:linear-gradient(135deg, rgba(59,126,70,0.05), var(--surface));
+    }
+    .li-top{
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      align-items:flex-start;
+      padding-bottom:7px;
+      border-bottom:1px solid color-mix(in srgb, var(--border) 60%, transparent);
+      margin-bottom:8px;
+    }
+    .li-title{
+      font-weight:950;
+      font-size:0.95rem;
+      line-height:1.25;
+    }
+    .li-badge{
+      font-size:0.72rem;
+      font-weight:950;
+      letter-spacing:0.08em;
+      text-transform:uppercase;
+      padding:4px 8px;
+      border-radius:999px;
+      border:1px solid rgba(59,126,70,0.28);
+      background:rgba(59,126,70,0.07);
+      color:#0F172A;
+      white-space:nowrap;
+    }
+    .li-badge.open{
+      border-color: rgba(234,179,8,0.35);
+      background: rgba(234,179,8,0.10);
+    }
+
+    .li-meta{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0,1fr));
+      gap:8px 10px;
+      font-size:0.86rem;
+      opacity:0.96;
+    }
+    .pair .kk{
+      font-size:0.72rem;
+      text-transform:uppercase;
+      letter-spacing:0.10em;
+      opacity:0.75;
+      font-weight:900;
+      margin-bottom:2px;
+    }
+    .pair .vv{
+      font-weight:650;
+      line-height:1.25;
+      word-break:break-word;
+    }
+    .pair.notes{ grid-column:1/-1; padding-top:8px; border-top:1px dashed color-mix(in srgb, var(--border) 65%, transparent); }
+    .pair.notes .vv{ white-space:pre-wrap; }
+
+    /* Search bar (Option A style) */
+    .bar{
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .search{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:var(--surface);
+      padding:10px 12px;
+      flex:1 1 auto;
+      min-height:34px;
+    }
+    .search svg{
+      opacity:0.6;
+      flex-shrink:0;
+    }
+    .search input{
+      flex:1;
+      background:transparent;
+      border:0;
+      outline:none;
+      font:inherit;
+      color:var(--text);
+      min-width:0;
+    }
+  </style>
+
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection, getDocs
+    } from '/Farm-vista/js/firebase-init.js';
+
+    import { NAV_MENU } from '/Farm-vista/js/menu.js';
+
+    const CONFIG = {
+      WORKORDERS: 'equipmentWorkOrders',
+      EQUIPMENT: 'equipment'
+    };
+
+    const $ = (sel, root=document) => root.querySelector(sel);
+
+    const STATE = {
+      db: null,
+      equipmentById: new Map(),     // active only
+      workOrders: [],              // active-equipment only
+      filtered: [],
+      selectedId: null
+    };
+
+    function escapeHtml(str){
+      return String(str || '').replace(/[&<>"']/g, m => (
+        { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]
+      ));
+    }
+
+    function toDateMaybe(ts){
+      if(!ts) return null;
+      try{
+        if(ts.toDate) return ts.toDate();
+        if(ts && typeof ts === 'object' && ts.__time__){
+          const d = new Date(ts.__time__);
+          return Number.isFinite(d.getTime()) ? d : null;
+        }
+        if(ts && typeof ts === 'object' && typeof ts.seconds === 'number'){
+          const d = new Date(ts.seconds * 1000);
+          return Number.isFinite(d.getTime()) ? d : null;
+        }
+        if(typeof ts === 'string' || typeof ts === 'number'){
+          const d = new Date(ts);
+          return Number.isFinite(d.getTime()) ? d : null;
+        }
+      }catch(_){}
+      return null;
+    }
+
+    function formatDate(d){
+      if(!d) return '';
+      try{ return d.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}); }
+      catch{ return ''; }
+    }
+    function formatDateTime(d){
+      if(!d) return '';
+      try{ return d.toLocaleString(); }
+      catch{ return ''; }
+    }
+
+    function titleCaseType(s){
+      const v = String(s||'').trim().toLowerCase();
+      if(!v) return '';
+      // simple friendly mapping (safe default)
+      const map = {
+        'in_progress': 'In progress',
+        'pending': 'Pending',
+        'completed': 'Completed'
+      };
+      if(map[v]) return map[v];
+      return v.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase());
+    }
+
+    function normalizeStatus(s){
+      const v = String(s||'').trim().toLowerCase();
+      if(v === 'in progress') return 'in_progress';
+      if(v === 'in_progress') return 'in_progress';
+      if(v === 'pending') return 'pending';
+      if(v === 'completed') return 'completed';
+      return v;
+    }
+
+    function statusLabel(st){
+      const n = normalizeStatus(st);
+      if(n === 'pending') return 'Pending';
+      if(n === 'in_progress') return 'In progress';
+      if(n === 'completed') return 'Completed';
+      return st || '—';
+    }
+
+    function equipDisplay(e){
+      if(!e) return '';
+      const name = (e.name || '').trim();
+      if(name) return name;
+      const mk = (e.makeName || e.equipmentMake || '').trim();
+      const md = (e.modelName || e.equipmentModel || '').trim();
+      const sr = (e.serial || '').trim();
+      return [mk, md].filter(Boolean).join(' ') + (sr ? ` (#${sr})` : '');
+    }
+
+    function woDisplayEquipment(wo){
+      const d = wo.data || {};
+      const eq = STATE.equipmentById.get(d.equipmentId) || null;
+      return {
+        equipId: d.equipmentId || '',
+        type: (eq?.type || d.equipmentType || '').trim(),
+        name: eq ? equipDisplay(eq) : (d.equipmentName || '').trim(),
+        make: (eq?.makeName || d.equipmentMake || '').trim(),
+        model: (eq?.modelName || d.equipmentModel || '').trim(),
+        serial: (eq?.serial || '').trim(),
+        serialLast6: (d.equipmentSerialLast6 || '').trim()
+      };
+    }
+
+    function getSortDateForWO(d){
+      const done = toDateMaybe(d.completedAt);
+      const upd  = toDateMaybe(d.updatedAt);
+      const crt  = toDateMaybe(d.createdAt);
+      return done || upd || crt || null;
+    }
+
+    function computeCounts(items){
+      const pending = items.filter(x => normalizeStatus(x.data.status) === 'pending').length;
+      const ip = items.filter(x => normalizeStatus(x.data.status) === 'in_progress').length;
+      const done = items.filter(x => normalizeStatus(x.data.status) === 'completed').length;
+      return { pending, ip, done, total: items.length };
+    }
+
+    function setSelectOptions(selectEl, optionsHtml, currentValue){
+      if(!selectEl) return;
+      selectEl.innerHTML = optionsHtml;
+      if(currentValue != null){
+        const exists = Array.from(selectEl.options).some(o => o.value === currentValue);
+        selectEl.value = exists ? currentValue : (selectEl.options[0]?.value || '');
+      }
+    }
+
+    function hydrateTypeDropdown(){
+      const typeSel = $('#filterType');
+      const cur = typeSel?.value || 'all';
+
+      const types = Array.from(new Set(
+        Array.from(STATE.equipmentById.values())
+          .filter(e => String(e.status||'').toLowerCase() === 'active')
+          .map(e => String(e.type||'').trim().toLowerCase())
+          .filter(Boolean)
+      )).sort((a,b)=> a.localeCompare(b));
+
+      const opts = [
+        `<option value="all">All types</option>`,
+        ...types.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(titleCaseType(t))}</option>`)
+      ].join('');
+
+      setSelectOptions(typeSel, opts, cur);
+    }
+
+    function hydrateEquipmentDropdown(){
+      const eqSel = $('#filterEquip');
+      const typeSel = $('#filterType');
+
+      const typeVal = (typeSel?.value || 'all').toLowerCase();
+      const cur = eqSel?.value || 'all';
+
+      const list = Array.from(STATE.equipmentById.entries())
+        .map(([id, e]) => ({ id, e }))
+        .filter(({e}) => String(e.status||'').toLowerCase() === 'active')
+        .filter(({e}) => typeVal === 'all' ? true : String(e.type||'').toLowerCase() === typeVal)
+        .sort((a,b)=> equipDisplay(a.e).localeCompare(equipDisplay(b.e)));
+
+      const opts = [
+        `<option value="all">All equipment</option>`,
+        ...list.map(({id, e}) => {
+          const full = equipDisplay(e);
+          const label = full.length > 60 ? full.slice(0,59) + '…' : full;
+          return `<option value="${escapeHtml(id)}" title="${escapeHtml(full)}">${escapeHtml(label)}</option>`;
+        })
+      ].join('');
+
+      const curExists = list.some(x => x.id === cur);
+      setSelectOptions(eqSel, opts, curExists ? cur : 'all');
+    }
+
+    function getFilters(){
+      return {
+        status: ($('#filterStatus')?.value || 'all').toLowerCase(),
+        type: ($('#filterType')?.value || 'all').toLowerCase(),
+        equip: ($('#filterEquip')?.value || 'all'),
+        q: (($('#filterSearch')?.value || '').trim().toLowerCase())
+      };
+    }
+
+    function applyFilters(){
+      const { status, type, equip, q } = getFilters();
+
+      const filtered = STATE.workOrders.filter(wo => {
+        const d = wo.data || {};
+        const st = normalizeStatus(d.status);
+
+        // only active equipment already enforced, but keep safe guard:
+        const eq = STATE.equipmentById.get(d.equipmentId) || null;
+        if(!eq || String(eq.status||'').toLowerCase() !== 'active') return false;
+
+        if(status !== 'all' && st !== status) return false;
+
+        const eqType = String(eq.type || d.equipmentType || '').trim().toLowerCase();
+        if(type !== 'all' && eqType !== type) return false;
+
+        if(equip !== 'all' && String(d.equipmentId || '') !== String(equip)) return false;
+
+        if(q){
+          const eqName = equipDisplay(eq);
+          const li = Array.isArray(d.lineItems) ? d.lineItems : [];
+          const liText = li.map(x => [
+            x.serviceTopic, x.serviceTopicOther,
+            x.notes, x.partsNeeded,
+            x.submittedByName,
+            x.completedByEmployeeName, x.completedByEmployeeId
+          ].filter(Boolean).join(' ')).join('  •  ');
+
+          const hay = [
+            eqName,
+            eq?.makeName, eq?.modelName, eq?.serial,
+            d.equipmentName, d.equipmentMake, d.equipmentModel, d.equipmentSerialLast6,
+            d.status,
+            d.meterLabel, d.meterType,
+            d.summaryNotes,
+            liText
+          ].filter(Boolean).join(' ').toLowerCase();
+
+          if(!hay.includes(q)) return false;
+        }
+
+        return true;
+      });
+
+      filtered.sort((a,b) => {
+        const da = a.data?._sortDate ? a.data._sortDate.getTime() : 0;
+        const db = b.data?._sortDate ? b.data._sortDate.getTime() : 0;
+        return db - da;
+      });
+
+      STATE.filtered = filtered;
+      renderList();
+      if(STATE.selectedId) renderDetails();
+    }
+
+    function renderList(){
+      const host = $('.wo-list');
+      const emptyEl = $('.wo-empty');
+      const countEl = $('#woCount');
+
+      host.innerHTML = '';
+      const items = STATE.filtered || [];
+
+      if(!items.length){
+        emptyEl.style.display = 'block';
+        emptyEl.textContent = 'No work orders match the current filters.';
+        if(countEl) countEl.textContent = '0 work orders';
+        return;
+      }
+      emptyEl.style.display = 'none';
+
+      const counts = computeCounts(items);
+      if(countEl){
+        countEl.textContent =
+          `${counts.total} work order${counts.total===1?'':'s'} • ` +
+          `${counts.pending} pending • ${counts.ip} in progress • ${counts.done} completed`;
+      }
+
+      // group by equipment type
+      const groups = new Map();
+      for(const wo of items){
+        const info = woDisplayEquipment(wo);
+        const key = (info.type || 'unknown').toLowerCase();
+        if(!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(wo);
+      }
+
+      const orderedKeys = Array.from(groups.keys()).sort((a,b)=> a.localeCompare(b));
+
+      for(const key of orderedKeys){
+        const arr = groups.get(key) || [];
+        const label = key === 'unknown' ? 'Unknown type' : titleCaseType(key);
+        const g = document.createElement('div');
+        g.className = 'group';
+        g.innerHTML = `
+          <div class="group-head">
+            <h3 class="group-title">${escapeHtml(label)}</h3>
+            <div class="group-sub">${arr.length} work order${arr.length===1?'':'s'}</div>
+          </div>
+        `;
+
+        for(const wo of arr){
+          const d = wo.data || {};
+          const info = woDisplayEquipment(wo);
+
+          const st = statusLabel(d.status);
+          const created = toDateMaybe(d.createdAt);
+          const completed = toDateMaybe(d.completedAt);
+          const showDate = completed || created || d._sortDate || null;
+
+          const li = Array.isArray(d.lineItems) ? d.lineItems : [];
+          const openCount = li.filter(x => !x?.completed).length;
+          const doneCount = li.filter(x => !!x?.completed).length;
+
+          const meter = (d.meterLabel && (d.completionMeter != null))
+            ? `${d.meterLabel}: ${d.completionMeter}`
+            : (d.meterLabel ? String(d.meterLabel) : '');
+
+          const card = document.createElement('article');
+          card.className = 'wo-card';
+          card.dataset.id = wo.id;
+
+          card.innerHTML = `
+            <div class="wo-row-top">
+              <div class="wo-main">
+                <div class="wo-title">${escapeHtml(info.name || 'Equipment')}</div>
+                <div class="wo-sub">
+                  ${escapeHtml(info.make || '')}${info.model ? ` · <span>${escapeHtml(info.model)}</span>` : ''}
+                </div>
+                <div class="wo-meta">
+                  <span><span class="wo-meta-label">Status</span> <span class="wo-meta-val">${escapeHtml(st || '—')}</span></span>
+                  <span><span class="wo-meta-label">Items</span> <span class="wo-meta-val">${escapeHtml(String(li.length))} (${escapeHtml(String(openCount))} open)</span></span>
+                  ${meter ? `<span><span class="wo-meta-label">Meter</span> <span class="wo-meta-val">${escapeHtml(meter)}</span></span>` : ''}
+                  ${showDate ? `<span><span class="wo-meta-label">${completed ? 'Completed' : 'Created'}</span> <span class="wo-meta-val">${escapeHtml(formatDate(showDate))}</span></span>` : ''}
+                  <span><span class="wo-meta-label">WO ID</span> <span class="wo-meta-val">${escapeHtml(wo.id)}</span></span>
+                </div>
+              </div>
+            </div>
+          `;
+
+          card.addEventListener('click', () => {
+            STATE.selectedId = wo.id;
+            renderDetails();
+          });
+
+          g.appendChild(card);
+        }
+
+        host.appendChild(g);
+      }
+    }
+
+    function clearDetails(){
+      const panel = $('.wo-detail-panel');
+      panel.style.display = 'none';
+      panel.dataset.id = '';
+      $('.wo-detail-title', panel).textContent = 'Work Order Details';
+      $('.wo-detail-grid', panel).innerHTML = '';
+      $('.wo-detail-notes-body', panel).textContent = '';
+      $('.wo-detail-footer', panel).innerHTML = '';
+      const liHost = $('#lineItemsHost', panel);
+      if(liHost) liHost.innerHTML = '';
+    }
+
+    function renderDetails(){
+      const panel = $('.wo-detail-panel');
+      const wo = (STATE.filtered || STATE.workOrders).find(x => x.id === STATE.selectedId) || STATE.workOrders.find(x => x.id === STATE.selectedId);
+      if(!wo){ clearDetails(); return; }
+
+      const d = wo.data || {};
+      const eq = STATE.equipmentById.get(d.equipmentId) || null;
+      const info = woDisplayEquipment(wo);
+
+      panel.dataset.id = wo.id;
+      $('.wo-detail-title', panel).textContent = info.name || 'Work Order Details';
+
+      const created = toDateMaybe(d.createdAt);
+      const updated = toDateMaybe(d.updatedAt);
+      const completed = toDateMaybe(d.completedAt);
+
+      const st = statusLabel(d.status);
+      const typeLabel = info.type ? titleCaseType(info.type) : '—';
+
+      const meterLine = d.meterLabel
+        ? `${d.meterLabel}${(d.completionMeter != null) ? `: ${d.completionMeter}` : ''}`
+        : '—';
+
+      const grid = $('.wo-detail-grid', panel);
+      grid.innerHTML = `
+        <div>
+          <div class="wo-detail-item-label">Equipment Type</div>
+          <div class="wo-detail-item-value">${escapeHtml(typeLabel)}</div>
+        </div>
+
+        <div>
+          <div class="wo-detail-item-label">Status</div>
+          <div class="wo-detail-item-value">${escapeHtml(st || '—')}</div>
+        </div>
+
+        <div>
+          <div class="wo-detail-item-label">Make / Model</div>
+          <div class="wo-detail-item-value">${escapeHtml([info.make, info.model].filter(Boolean).join(' ') || '—')}</div>
+        </div>
+
+        <div>
+          <div class="wo-detail-item-label">Serial</div>
+          <div class="wo-detail-item-value">${escapeHtml(info.serial || (info.serialLast6 ? `…${info.serialLast6}` : '—'))}</div>
+        </div>
+
+        <div>
+          <div class="wo-detail-item-label">Meter</div>
+          <div class="wo-detail-item-value">${escapeHtml(meterLine)}</div>
+        </div>
+
+        <div>
+          <div class="wo-detail-item-label">Work Order ID</div>
+          <div class="wo-detail-item-value">${escapeHtml(wo.id)}</div>
+        </div>
+
+        <div>
+          <div class="wo-detail-item-label">Created</div>
+          <div class="wo-detail-item-value">${escapeHtml(created ? formatDateTime(created) : '—')}</div>
+        </div>
+
+        <div>
+          <div class="wo-detail-item-label">Updated</div>
+          <div class="wo-detail-item-value">${escapeHtml(updated ? formatDateTime(updated) : '—')}</div>
+        </div>
+
+        <div>
+          <div class="wo-detail-item-label">Completed</div>
+          <div class="wo-detail-item-value">${escapeHtml(completed ? formatDateTime(completed) : '—')}</div>
+        </div>
+
+        <div>
+          <div class="wo-detail-item-label">Active Equipment</div>
+          <div class="wo-detail-item-value">${escapeHtml(eq && String(eq.status||'').toLowerCase()==='active' ? 'Yes' : 'No')}</div>
+        </div>
+      `;
+
+      $('.wo-detail-notes-body', panel).textContent = (d.summaryNotes || '').trim() || 'No summary notes recorded for this work order.';
+
+      const liHost = $('#lineItemsHost', panel);
+      const li = Array.isArray(d.lineItems) ? d.lineItems : [];
+      liHost.innerHTML = '';
+
+      if(!li.length){
+        const box = document.createElement('div');
+        box.className = 'wo-empty';
+        box.textContent = 'No line items on this work order.';
+        liHost.appendChild(box);
+      }else{
+        li.forEach((x, idx) => {
+          const topic = x.serviceTopicOther ? String(x.serviceTopicOther) : titleCaseType(x.serviceTopic || 'Service');
+          const done = !!x.completed;
+          const badge = done ? 'Completed' : 'Open';
+
+          const submittedBy = (x.submittedByName || '').trim() || '—';
+          const completedBy = (x.completedByEmployeeName || x.completedByEmployeeId || '').trim() || '—';
+          const parts = (x.partsNeeded || '').trim() || '—';
+
+          const completedAt = toDateMaybe(x.completedAt);
+          const completedAtStr = completedAt ? formatDateTime(completedAt) : '—';
+
+          const notes = (x.notes || '').trim() || '';
+
+          const el = document.createElement('div');
+          el.className = 'li';
+          el.innerHTML = `
+            <div class="li-top">
+              <div class="li-title">${escapeHtml(topic)} <span style="opacity:.65;font-weight:800">#${idx+1}</span></div>
+              <div class="li-badge ${done ? '' : 'open'}">${escapeHtml(badge)}</div>
+            </div>
+
+            <div class="li-meta">
+              <div class="pair"><div class="kk">Submitted By</div><div class="vv">${escapeHtml(submittedBy)}</div></div>
+              <div class="pair"><div class="kk">Completed By</div><div class="vv">${escapeHtml(completedBy)}</div></div>
+              <div class="pair"><div class="kk">Parts Needed</div><div class="vv">${escapeHtml(parts)}</div></div>
+              <div class="pair"><div class="kk">Completed At</div><div class="vv">${escapeHtml(completedAtStr)}</div></div>
+              <div class="pair notes"><div class="kk">Notes</div><div class="vv">${escapeHtml(notes || '—')}</div></div>
+            </div>
+          `;
+          liHost.appendChild(el);
+        });
+      }
+
+      const openCount = li.filter(x => !x?.completed).length;
+      const doneCount = li.filter(x => !!x?.completed).length;
+
+      const footer = $('.wo-detail-footer', panel);
+      footer.innerHTML = `
+        <span>Current status:</span>
+        <span class="wo-detail-pill">${escapeHtml(st || '—')}</span>
+        <span class="wo-detail-pill">${escapeHtml(String(li.length))} items</span>
+        <span class="wo-detail-pill">${escapeHtml(String(openCount))} open</span>
+        <span class="wo-detail-pill">${escapeHtml(String(doneCount))} completed</span>
+      `;
+
+      panel.style.display = 'flex';
+    }
+
+    async function loadActiveEquipment(){
+      const ref = collection(STATE.db, CONFIG.EQUIPMENT);
+      const snap = await getDocs(ref);
+
+      const byId = new Map();
+      snap.docs.forEach(ds => {
+        const d = ds.data() || {};
+        const st = String(d.status || '').trim().toLowerCase();
+        if(st !== 'active') return; // active only
+        byId.set(ds.id, { id: ds.id, ...d });
+      });
+
+      STATE.equipmentById = byId;
+    }
+
+    async function loadWorkOrders(){
+      const ref = collection(STATE.db, CONFIG.WORKORDERS);
+      const snap = await getDocs(ref);
+
+      const items = snap.docs.map(ds => {
+        const data = ds.data() || {};
+        const sortDate = getSortDateForWO(data);
+        return { id: ds.id, data: { ...data, _sortDate: sortDate } };
+      });
+
+      // keep only work orders whose equipmentId is active
+      STATE.workOrders = items.filter(x => {
+        const eqId = x.data?.equipmentId || '';
+        return !!(eqId && STATE.equipmentById.has(eqId));
+      });
+
+      STATE.workOrders.sort((a,b) => {
+        const ta = a.data._sortDate ? a.data._sortDate.getTime() : 0;
+        const tb = b.data._sortDate ? b.data._sortDate.getTime() : 0;
+        return tb - ta;
+      });
+    }
+
+    function wireFilterEvents(){
+      const statusSel = $('#filterStatus');
+      const typeSel   = $('#filterType');
+      const equipSel  = $('#filterEquip');
+      const searchEl  = $('#filterSearch');
+      const clearBtn  = $('#filterClear');
+
+      if(statusSel) statusSel.addEventListener('change', applyFilters);
+
+      if(typeSel){
+        typeSel.addEventListener('change', () => {
+          hydrateEquipmentDropdown();
+          applyFilters();
+        });
+      }
+
+      if(equipSel) equipSel.addEventListener('change', applyFilters);
+      if(searchEl) searchEl.addEventListener('input', applyFilters);
+
+      if(clearBtn){
+        clearBtn.addEventListener('click', () => {
+          location.reload();
+        });
+      }
+    }
+
+    (async function boot(){
+      await ready;
+      STATE.db = getFirestore();
+
+      const shell = document.querySelector('fv-shell');
+      if(shell) shell.nav = NAV_MENU;
+
+      const backBtn = document.getElementById('btnBack');
+      if(backBtn){
+        backBtn.addEventListener('click', () => {
+          // Prefer history back; fallback to equipment home
+          if(history.length > 1) history.back();
+          else location.href = '/Farm-vista/pages/equipment/index.html';
+        });
+      }
+
+      $('#woDetailClose').addEventListener('click', () => {
+        STATE.selectedId = null;
+        clearDetails();
+      });
+
+      try{
+        await loadActiveEquipment();
+        await loadWorkOrders();
+
+        // Defaults
+        const statusSel = $('#filterStatus');
+        if(statusSel) statusSel.value = 'all';
+
+        hydrateTypeDropdown();
+        hydrateEquipmentDropdown();
+        wireFilterEvents();
+        applyFilters();
+
+        const emptyEl = $('.wo-empty');
+        if(emptyEl && (STATE.workOrders?.length || 0) === 0){
+          emptyEl.style.display = 'block';
+          emptyEl.textContent = 'No work orders found for active equipment.';
+        }
+      }catch(err){
+        console.error('[maintenance-records] load failed:', err);
+        const emptyEl = $('.wo-empty');
+        emptyEl.style.display = 'block';
+        emptyEl.textContent = 'Error loading maintenance records. Check console or Firestore rules / collection names.';
+        const countEl = $('#woCount');
+        if(countEl) countEl.textContent = 'Error loading records';
+      }
+    })();
+  </script>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🛠️</div>
+          <div>
+            <h1>Equipment Maintenance — Work Orders</h1>
+            <p class="muted">
+              View service work orders for active equipment. Filter by status, type, and equipment, or use search.
+              Defaults to grouping by equipment type.
+            </p>
+          </div>
+        </header>
+
+        <div class="body">
+          <div class="toolbar">
+            <div class="toolbar-left">
+              <button id="btnBack" type="button" class="btn btn-quiet">← Back</button>
+            </div>
+            <div class="page-header-meta" id="woCount">0 work orders</div>
+          </div>
+
+          <div class="filters" aria-label="Equipment maintenance filters">
+            <!-- ROW 1: Core filters -->
+            <div class="filters-row">
+              <div class="filter-field">
+                <label class="filter-label" for="filterStatus">Status</label>
+                <select id="filterStatus" class="filter-select">
+                  <option value="all">All statuses</option>
+                  <option value="pending">Pending</option>
+                  <option value="in_progress">In progress</option>
+                  <option value="completed">Completed</option>
+                </select>
+              </div>
+
+              <div class="filter-field type-wide">
+                <label class="filter-label" for="filterType">Equipment Type</label>
+                <select id="filterType" class="filter-select">
+                  <option value="all">All types</option>
+                </select>
+              </div>
+
+              <div class="filter-field equip-wide">
+                <label class="filter-label" for="filterEquip">Equipment</label>
+                <select id="filterEquip" class="filter-select">
+                  <option value="all">All equipment</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- ROW 2: Search + clear -->
+            <div class="filters-row filters-row-secondary">
+              <div class="filter-field">
+                <label class="filter-label">Search</label>
+                <div class="bar">
+                  <div class="search">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M21 21l-4.2-4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                      <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/>
+                    </svg>
+                    <input id="filterSearch" type="search" placeholder="Search" autocomplete="off"/>
+                  </div>
+                </div>
+              </div>
+
+              <button id="filterClear" type="button" class="btn btn-quiet">Clear filters</button>
+            </div>
+          </div>
+
+          <section aria-label="Maintenance work order list">
+            <div class="wo-empty">Loading work orders…</div>
+            <div class="wo-list"></div>
+          </section>
+
+          <section class="wo-detail-panel" aria-label="Work order details">
+            <div class="wo-detail-header">
+              <div class="wo-detail-title">Work Order Details</div>
+              <button type="button" id="woDetailClose" class="wo-detail-close">Close</button>
+            </div>
+
+            <div class="wo-detail-grid"></div>
+
+            <div class="wo-detail-notes">
+              <div class="wo-detail-notes-label">Summary Notes</div>
+              <div class="wo-detail-notes-body"></div>
+            </div>
+
+            <div style="margin-top:8px;">
+              <div class="wo-detail-notes-label">Line Items</div>
+              <div id="lineItemsHost" class="li-list"></div>
+            </div>
+
+            <div class="wo-detail-footer"></div>
+          </section>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+</body>
+</html>
+
