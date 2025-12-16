@@ -30,6 +30,8 @@
       padding: clamp(14px,3vw,22px);
       padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
       box-sizing:border-box;
+      display:grid;
+      gap:12px;
     }
 
     .btn{
@@ -56,6 +58,70 @@
       background:#2F6C3C;
       color:#fff !important;
     }
+
+    /* ✅ Filters OUTSIDE hero card (visible above hero) */
+    .filters{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      padding:12px 12px 10px;
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+    }
+    .filter-field{
+      display:flex;
+      flex-direction:column;
+      gap:3px;
+      min-width:160px;
+      flex:1 1 180px;
+      font-size:0.8rem;
+      min-width:0; /* ✅ allows truncation instead of growing */
+    }
+    .filter-label{
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      opacity:0.78;
+    }
+
+    /* ✅ Selects should not grow when long text selected */
+    .filter-select{
+      width:100%;
+      max-width:100%;
+      min-width:0;
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:6px 28px 6px 10px; /* room for chevron */
+      font-size:0.9rem;
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+      min-height:34px;
+
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    /* ✅ Search box square with rounded corners */
+    .filter-input{
+      width:100%;
+      max-width:100%;
+      min-width:0;
+      border-radius:12px; /* square-ish */
+      border:1px solid var(--border);
+      padding:8px 10px;
+      font-size:0.92rem;
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+      min-height:34px;
+
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .filter-input::placeholder{ color:var(--muted,#9CA3AF); }
 
     /* Hero */
     .hero{
@@ -104,39 +170,6 @@
       align-items:center;
     }
     .page-header-meta{ font-size:0.9rem; opacity:0.8; }
-
-    /* Filters (MATCH other report pages: inside hero, below toolbar) */
-    .filters{
-      display:flex;
-      flex-wrap:wrap;
-      gap:10px;
-      align-items:flex-end;
-      margin-top:4px;
-    }
-    .filter-field{
-      display:flex;
-      flex-direction:column;
-      gap:3px;
-      min-width:160px;
-      flex:1 1 180px;
-      font-size:0.8rem;
-    }
-    .filter-label{
-      text-transform:uppercase;
-      letter-spacing:0.08em;
-      opacity:0.78;
-    }
-    .filter-select,
-    .filter-input{
-      border-radius:999px;
-      border:1px solid var(--border);
-      padding:6px 10px;
-      font-size:0.9rem;
-      background:var(--card-surface,var(--surface));
-      color:var(--text);
-      min-height:34px;
-    }
-    .filter-input::placeholder{ color:var(--muted,#9CA3AF); }
 
     /* List cards */
     .wo-list{ display:flex; flex-direction:column; gap:10px; margin-top:8px; }
@@ -440,7 +473,7 @@
       const year = String(yearVal || 'all');
       const status = String(statusVal || 'all').toLowerCase();
 
-      const map = new Map();
+      const map = new Map(); // key(fieldId|fieldName) -> { id, name, farmName }
       items.forEach(it=>{
         const d = it.data;
         const y = inferCropYear(d);
@@ -471,7 +504,7 @@
       selectEl.innerHTML = options;
       if(currentValue != null){
         const exists = Array.from(selectEl.options).some(o => o.value === currentValue);
-        selectEl.value = exists ? currentValue : selectEl.options[0]?.value || '';
+        selectEl.value = exists ? currentValue : (selectEl.options[0]?.value || '');
       }
     }
 
@@ -502,6 +535,7 @@
       const opts = [
         `<option value="all">All fields</option>`,
         ...fields.map(f => {
+          // label can be long; select will now ellipsis and NOT resize container
           const label = f.farm ? `${escapeHtml(f.name)} — ${escapeHtml(f.farm)}` : escapeHtml(f.name);
           return `<option value="${escapeHtml(f.id)}">${label}</option>`;
         })
@@ -562,6 +596,26 @@
 
       renderList();
       if(STATE.selectedId) renderDetails();
+    }
+
+    /* ✅ Fix #2: default says Completed AND list actually matches.
+       If there are NO completed records at all, auto-switch to All statuses (so you aren't staring at empty). */
+    function applyInitialDefaultAndFilter(){
+      const statusSel = $('#filterStatus');
+      if(!statusSel) return;
+
+      // Always start with completed
+      statusSel.value = 'completed';
+      hydrateFieldDropdown();
+      applyFilters();
+
+      const anyCompleted = STATE.items.some(it => normalizeStatus(it.data.status) === 'completed');
+      if(!anyCompleted){
+        // If none exist, switch UI + list to ALL so it matches what you see
+        statusSel.value = 'all';
+        hydrateFieldDropdown();
+        applyFilters();
+      }
     }
 
     function renderList(){
@@ -756,9 +810,7 @@
         ].filter(Boolean).join(' · ');
         const phone = d.phone || '';
         const email = d.email || '';
-        STATE.company = { name, address, phone, email:'' };
-        // Keep email if present
-        STATE.company.email = email || '';
+        STATE.company = { name, address, phone, email };
       }catch(e){
         console.warn('[field-maint-report] failed to load company header', e);
         STATE.company = { name:'', address:'', phone:'', email:'' };
@@ -797,14 +849,6 @@
       }
     }
 
-    function chooseInitialStatus(){
-      const statusSel = $('#filterStatus');
-      if(!statusSel) return;
-
-      const anyCompleted = STATE.items.some(it => normalizeStatus(it.data.status) === 'completed');
-      statusSel.value = anyCompleted ? 'completed' : 'all';
-    }
-
     function wireFilterEvents(){
       const statusSel = $('#filterStatus');
       const yearSel   = $('#filterYear');
@@ -831,24 +875,42 @@
 
       if(clearBtn){
         clearBtn.addEventListener('click', () => {
-          if(statusSel) statusSel.value = (STATE.items.some(it => normalizeStatus(it.data.status)==='completed') ? 'completed' : 'all');
+          if(statusSel) statusSel.value = 'completed';
           if(yearSel)   yearSel.value   = 'all';
           if(fieldSel)  fieldSel.value  = 'all';
           if(searchEl)  searchEl.value  = '';
           hydrateFieldDropdown();
           applyFilters();
+
+          // if none completed exist, match behavior and show All
+          const anyCompleted = STATE.items.some(it => normalizeStatus(it.data.status) === 'completed');
+          if(!anyCompleted && statusSel){
+            statusSel.value = 'all';
+            hydrateFieldDropdown();
+            applyFilters();
+          }
         });
       }
     }
+
+    /* ---------------------------
+       PRINT / PDF
+       --------------------------- */
 
     function summarizeFilters(){
       const { status, year, field, q } = getFilters();
 
       const statusTxt = (status === 'all') ? 'All statuses' : `Status: ${statusLabel(status)}`;
       const yearTxt = (year === 'all') ? 'All crop years' : `Crop Year: ${year}`;
-      const fieldTxt = (field === 'all') ? 'All fields' : 'Selected field';
-      const searchTxt = q ? `Search: "${q}"` : 'No text filter';
 
+      let fieldTxt = 'All fields';
+      if(field !== 'all'){
+        // try to show a short field label (name only) in filter summary
+        const opt = Array.from($('#filterField')?.options || []).find(o => o.value === field);
+        fieldTxt = opt?.textContent ? `Field: ${opt.textContent.split('—')[0].trim()}` : 'Selected field';
+      }
+
+      const searchTxt = q ? `Search: "${q}"` : 'No text filter';
       return `${statusTxt} • ${yearTxt} • ${fieldTxt} • ${searchTxt}`;
     }
 
@@ -870,7 +932,6 @@
     }
 
     function groupForPdf(items){
-      // farmName -> fieldName -> []
       const farmMap = new Map();
       items.forEach(it=>{
         const d = it.data;
@@ -882,7 +943,6 @@
         fieldMap.get(field).push(it);
       });
 
-      // sort
       const farms = Array.from(farmMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
       return farms.map(([farmName, fieldMap])=>{
         const fields = Array.from(fieldMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
@@ -902,7 +962,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Field Maintenance — Completed Projects</title>
+  <title>Field Maintenance — Projects</title>
   <style>
     :root{
       --fv-green:#3B7E46;
@@ -1299,6 +1359,22 @@
       }, 350);
     }
 
+    function wirePrintButtons(){
+      const printTop = $('#btnPrint');
+      const printBottom = $('#btnPrintBottom');
+      if (printTop)    printTop.addEventListener('click', handlePrintClick);
+      if (printBottom) printBottom.addEventListener('click', handlePrintClick);
+    }
+
+    function wireBackButton(){
+      const backBtn = document.getElementById('btnBack');
+      if(backBtn){
+        backBtn.addEventListener('click', () => {
+          location.href = '/Farm-vista/pages/reports/reports-predefined.html';
+        });
+      }
+    }
+
     (async function boot(){
       await ready;
       STATE.db = getFirestore();
@@ -1306,31 +1382,25 @@
       const shell = document.querySelector('fv-shell');
       if (shell) shell.nav = NAV_MENU;
 
-      const backBtn = document.getElementById('btnBack');
-      if(backBtn){
-        backBtn.addEventListener('click', () => {
-          location.href = '/Farm-vista/pages/reports/reports-predefined.html';
-        });
-      }
+      wireBackButton();
 
       $('#woDetailClose').addEventListener('click', () => {
         STATE.selectedId = null;
         clearDetails();
       });
 
-      const printTop = $('#btnPrint');
-      const printBottom = $('#btnPrintBottom');
-      if (printTop)    printTop.addEventListener('click', handlePrintClick);
-      if (printBottom) printBottom.addEventListener('click', handlePrintClick);
+      wirePrintButtons();
 
       await loadFieldMaintenance();
 
+      // dropdowns
       hydrateYearDropdown();
-      chooseInitialStatus();
+      // start with year = all (already), field = all
       hydrateFieldDropdown();
       wireFilterEvents();
 
-      applyFilters();
+      // ✅ Fix #2: default filter behavior and ensure list matches dropdown
+      applyInitialDefaultAndFilter();
     })();
   </script>
 </head>
@@ -1338,6 +1408,42 @@
 <body>
   <fv-shell>
     <div class="wrap">
+
+      <!-- ✅ Fix #1: dropdown menus visible OUTSIDE hero card -->
+      <div class="filters" aria-label="Field maintenance filters">
+        <div class="filter-field">
+          <label class="filter-label" for="filterStatus">Status</label>
+          <select id="filterStatus" class="filter-select">
+            <option value="completed">Completed</option>
+            <option value="in progress">In progress</option>
+            <option value="needs approved">Needs approved</option>
+            <option value="approved">Approved</option>
+            <option value="all">All statuses</option>
+          </select>
+        </div>
+
+        <div class="filter-field">
+          <label class="filter-label" for="filterYear">Crop Year</label>
+          <select id="filterYear" class="filter-select">
+            <option value="all">All crop years</option>
+          </select>
+        </div>
+
+        <div class="filter-field">
+          <label class="filter-label" for="filterField">Field</label>
+          <select id="filterField" class="filter-select">
+            <option value="all">All fields</option>
+          </select>
+        </div>
+
+        <div class="filter-field">
+          <label class="filter-label" for="filterSearch">Search</label>
+          <input id="filterSearch" class="filter-input" type="search" placeholder="Search topic, notes, field, farm, submitter…" />
+        </div>
+
+        <button id="filterClear" type="button" class="btn btn-quiet">Clear filters</button>
+      </div>
+
       <section class="hero">
         <header class="hero-head">
           <div class="icon" aria-hidden="true">🛠️</div>
@@ -1357,41 +1463,6 @@
               <button id="btnPrint" type="button" class="btn btn-primary">Print / Save PDF</button>
             </div>
             <div class="page-header-meta" id="fmCount">0 projects</div>
-          </div>
-
-          <!-- ✅ Filters moved to match your other report pages -->
-          <div class="filters" aria-label="Field maintenance filters">
-            <div class="filter-field">
-              <label class="filter-label" for="filterStatus">Status</label>
-              <select id="filterStatus" class="filter-select">
-                <option value="completed">Completed</option>
-                <option value="in progress">In progress</option>
-                <option value="needs approved">Needs approved</option>
-                <option value="approved">Approved</option>
-                <option value="all">All statuses</option>
-              </select>
-            </div>
-
-            <div class="filter-field">
-              <label class="filter-label" for="filterYear">Crop Year</label>
-              <select id="filterYear" class="filter-select">
-                <option value="all">All crop years</option>
-              </select>
-            </div>
-
-            <div class="filter-field">
-              <label class="filter-label" for="filterField">Field</label>
-              <select id="filterField" class="filter-select">
-                <option value="all">All fields</option>
-              </select>
-            </div>
-
-            <div class="filter-field">
-              <label class="filter-label" for="filterSearch">Search</label>
-              <input id="filterSearch" class="filter-input" type="search" placeholder="Search topic, notes, field, farm, submitter…" />
-            </div>
-
-            <button id="filterClear" type="button" class="btn btn-quiet">Clear filters</button>
           </div>
 
           <section aria-label="Field maintenance list">
