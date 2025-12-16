@@ -546,9 +546,16 @@ export const ready = (async () => {
     storageModule = storageMod;
 
     app = initializeApp(cfg);
-    auth = authMod.getAuth(app);
-    firestore = storeMod.getFirestore(app);
-    mode = 'firebase';
+auth = authMod.getAuth(app);
+
+// ✅ Force long-polling to avoid Firestore Listen/channel 400 spam
+firestore = storeMod.initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+  useFetchStreams: false
+});
+
+mode = 'firebase';
+
 
     // ✅ Keep users signed in (what you asked for)
     try {
