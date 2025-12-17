@@ -1,14 +1,12 @@
 <!-- =========================================================
 /Farm-vista/pages/equipment/actions/pre-check.html  (FULL FILE)
 Seasonal Pre-Check Items (Templates + Simple Checklist)
-Rev: 2025-12-17b
+Rev: 2025-12-17d
 
-NEW IN THIS REV:
-- Global item library (bank) in Firestore: seasonal_precheck_item_bank
-- Add Item is a dropdown from bank + "Add New…" option
-- New bank items are Title Case and char-limited (48)
-- Template items can store a short "notesHint" (expand row to edit)
-- Checklist displays notesHint under each item
+Changes in this rev:
+• FIX: New item box no longer "eats" spaces while typing (preserves trailing space)
+• NEW: Spellcheck/autocorrect/autocapitalize on new item input
+• NEW: Bottom-page Cancel button → returns to previous page (safe fallback)
 
 Data model:
   seasonal_precheck_templates (docs)
@@ -51,7 +49,7 @@ Data model:
   <style>
     :root{
       --card-max: 1100px;
-      --page-bottom-gap: 86px;
+      --page-bottom-gap: 110px; /* a little extra so the bottom buttons breathe */
       --brand: var(--green,#3B7E46);
       --danger:#b00020;
 
@@ -370,6 +368,15 @@ Data model:
     }
     .toast.show{ display:block; animation:fadeout 4s forwards; }
     @keyframes fadeout{ 0%{opacity:1} 82%{opacity:1} 100%{opacity:0} }
+
+    /* Bottom buttons */
+    .bottom-actions{
+      display:flex;
+      justify-content:flex-end;
+      gap:12px;
+      flex-wrap:wrap;
+      margin-top:14px;
+    }
   </style>
 </head>
 
@@ -430,6 +437,12 @@ Data model:
           </div>
 
           <div id="err" style="display:none; color:var(--danger); font-weight:900;"></div>
+
+          <!-- Bottom cancel -->
+          <div class="bottom-actions">
+            <button id="btnCancel" class="btn btn-quiet" type="button">Cancel</button>
+          </div>
+
         </div>
       </section>
     </div>
@@ -484,7 +497,15 @@ Data model:
               </div>
 
               <div id="newBankWrap" style="display:none;">
-                <input id="newBankText" class="input" placeholder="Add new item… (Title Case)" maxlength="48"/>
+                <input id="newBankText"
+                       class="input"
+                       placeholder="Add new item… (Title Case)"
+                       maxlength="48"
+                       spellcheck="true"
+                       autocorrect="on"
+                       autocomplete="on"
+                       autocapitalize="words"
+                       inputmode="text"/>
                 <div class="counter"><span id="newBankCount">0</span>/48</div>
               </div>
             </div>
@@ -596,7 +617,6 @@ Data model:
       wrap.style.display='block';
       sel.innerHTML = `<option value="">— All Implement Types —</option>`;
 
-      // Pull distinct implementType values from equipment docs
       try{
         const snap = await getDocs(query(collection(db,'equipment'), where('type','==','implement')));
         const set = new Set();
@@ -640,16 +660,34 @@ Data model:
       return t.length > max ? t.slice(0, max) : t;
     }
 
-    function toTitleCase(s){
-      // Simple Title Case: each word capitalized, keeps acronyms reasonably
+    function toTitleCasePreserveSpaces(raw){
+      // Keeps internal/trailing spaces while typing, but Title-Cases words.
+      // We DO NOT trim here (trimming happens on save).
+      const s = String(raw ?? '');
+      if(!s) return '';
+
+      // Split into tokens capturing whitespace
+      const parts = s.split(/(\s+)/);
+      return parts.map(tok=>{
+        if(/^\s+$/.test(tok)) return tok; // keep whitespace as-is
+        if(!tok) return tok;
+
+        // Keep small acronyms like PTO/DEF/A/C if already typed in caps
+        if(tok.length <= 4 && tok.toUpperCase() === tok && /[A-Z]/.test(tok)) return tok;
+
+        const lower = tok.toLowerCase();
+        return lower.charAt(0).toUpperCase() + lower.slice(1);
+      }).join('');
+    }
+
+    function toTitleCaseFinal(s){
+      // Final cleanup on save: trim, collapse whitespace, title case
       const raw = String(s||'').trim().replace(/\s+/g,' ');
       if(!raw) return '';
       return raw.split(' ').map(w=>{
-        const word = w.trim();
-        if(!word) return '';
-        // keep all-caps short tokens (PTO, DEF, A/C)
-        if(word.length <= 4 && word.toUpperCase() === word && /[A-Z]/.test(word)) return word;
-        const lower = word.toLowerCase();
+        if(!w) return '';
+        if(w.length <= 4 && w.toUpperCase() === w && /[A-Z]/.test(w)) return w;
+        const lower = w.toLowerCase();
         return lower.charAt(0).toUpperCase() + lower.slice(1);
       }).join(' ');
     }
@@ -983,19 +1021,16 @@ Data model:
     }
 
     async function ensureBankItem(labelRaw){
-      // Title Case + clamp
-      let label = toTitleCase(labelRaw);
+      let label = toTitleCaseFinal(labelRaw);
       label = clampStr(label, BANK_MAX);
       label = label.trim();
       if(!label) return null;
 
       const labelLower = normalizeLabelLower(label);
 
-      // If already in local cache, return it
       const hit = bankItems.find(x => x.labelLower === labelLower);
       if(hit) return hit;
 
-      // Soft check in Firestore by labelLower (fallback to create if missing)
       try{
         const snap = await getDocs(query(collection(db, COL_BANK), where('labelLower','==',labelLower), limit(1)));
         if(!snap.empty){
@@ -1010,7 +1045,6 @@ Data model:
         console.warn('bank labelLower lookup failed:', e);
       }
 
-      // Create new bank item
       const ref = doc(collection(db, COL_BANK));
       await setDoc(ref, {
         label,
@@ -1034,7 +1068,6 @@ Data model:
     async function addTemplateItemFromBank(bankId, label){
       if(!currentTemplateId) return;
 
-      // Prevent duplicates inside template (by labelLower)
       const labelLower = normalizeLabelLower(label);
       if(currentItems.some(x => normalizeLabelLower(x.label) === labelLower && !x.archived)){
         showToast('Already in list');
@@ -1100,7 +1133,6 @@ Data model:
         notesHint: hint,
         updatedAt: serverTimestamp()
       });
-      // update local
       const it = currentItems.find(x=>x.id===itemId);
       if(it) it.notesHint = hint;
       showToast('Saved note');
@@ -1176,7 +1208,6 @@ Data model:
         top.append(txt, right);
         row.appendChild(top);
 
-        // Expand editor (notes hint)
         const expand=document.createElement('div');
         expand.className='expand';
 
@@ -1207,9 +1238,7 @@ Data model:
         expand.append(hintRow, help);
         row.appendChild(expand);
 
-        // Click row to toggle expand
         row.addEventListener('click', ()=>{
-          // close others (keeps it clean)
           list.querySelectorAll('.item.open').forEach(el=>{ if(el!==row) el.classList.remove('open'); });
           row.classList.toggle('open');
           if(row.classList.contains('open')){
@@ -1274,26 +1303,16 @@ Data model:
       });
 
       $("tplCreate").addEventListener('click', async ()=>{
-        try{
-          setErr(null);
-          await createTemplate();
-        }catch(e){
-          console.error(e);
-          setErr('Template create failed.');
-        }
+        try{ setErr(null); await createTemplate(); }
+        catch(e){ console.error(e); setErr('Template create failed.'); }
       });
 
       $("btnEditItems").addEventListener('click', async ()=>{
         if(!currentTemplateId) return;
         $("itemsTitle").textContent = `Edit Items • ${currentTemplate?.title || ''}`;
 
-        try{
-          setErr(null);
-          await loadBank(false);
-          renderBankPick();
-        }catch(e){
-          console.warn(e);
-        }
+        try{ setErr(null); await loadBank(false); renderBankPick(); }
+        catch(e){ console.warn(e); }
 
         $("newBankText").value = '';
         $("newBankCount").textContent = '0';
@@ -1303,25 +1322,31 @@ Data model:
 
       $("bankPick").addEventListener('change', syncNewBankUI);
 
+      // IMPORTANT FIX: preserve whitespace while typing + keep cursor position
       $("newBankText").addEventListener('input', ()=>{
-        // Force Title Case live + clamp
-        const raw = $("newBankText").value;
-        const tc  = toTitleCase(raw);
-        const cl  = clampStr(tc, BANK_MAX);
-        if(cl !== raw) $("newBankText").value = cl;
-        $("newBankCount").textContent = String(($("newBankText").value||'').length);
+        const el = $("newBankText");
+        const before = el.value;
+        const start = el.selectionStart || 0;
+        const end   = el.selectionEnd || 0;
+
+        const tc = toTitleCasePreserveSpaces(before);
+        const cl = clampStr(tc, BANK_MAX);
+
+        if(cl !== before){
+          el.value = cl;
+          // keep cursor roughly where it was (best-effort)
+          const delta = cl.length - before.length;
+          const ns = Math.max(0, Math.min(cl.length, start + delta));
+          const ne = Math.max(0, Math.min(cl.length, end + delta));
+          try{ el.setSelectionRange(ns, ne); }catch{}
+        }
+
+        $("newBankCount").textContent = String((el.value||'').length);
       });
 
       $("btnRefreshBank").addEventListener('click', async ()=>{
-        try{
-          setErr(null);
-          await loadBank(true);
-          renderBankPick();
-          showToast('List refreshed');
-        }catch(e){
-          console.error(e);
-          setErr('Refresh failed.');
-        }
+        try{ setErr(null); await loadBank(true); renderBankPick(); showToast('List refreshed'); }
+        catch(e){ console.error(e); setErr('Refresh failed.'); }
       });
 
       $("btnAddFromBank").addEventListener('click', async ()=>{
@@ -1329,7 +1354,6 @@ Data model:
 
         try{
           setErr(null);
-
           const pick = $("bankPick").value || '';
           if(!pick){
             alert('Pick an item (or Add New…).');
@@ -1344,11 +1368,11 @@ Data model:
               return;
             }
 
-            // rebuild dropdown so it appears, then add it to template
             await loadBank(true);
             renderBankPick();
             $("bankPick").value = created.id;
             syncNewBankUI();
+
             $("newBankText").value = '';
             $("newBankCount").textContent = '0';
 
@@ -1380,6 +1404,15 @@ Data model:
         renderChecklist();
         showToast('Cleared');
       });
+
+      // Bottom Cancel: go back (safe fallback)
+      $("btnCancel").addEventListener('click', ()=>{
+        if(document.referrer){
+          history.back();
+        }else{
+          location.assign('/Farm-vista/index.html');
+        }
+      });
     }
 
     (async()=>{
@@ -1392,12 +1425,10 @@ Data model:
 
       $("tplApplies").textContent = tplAppliesText();
 
-      // Preload bank quietly (not blocking)
       try{ await loadBank(false); }catch{}
 
       await refreshTemplates();
       wire();
-
     })();
   </script>
 </body>
