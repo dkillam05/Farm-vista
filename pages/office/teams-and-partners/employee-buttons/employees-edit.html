@@ -73,13 +73,16 @@
     .input{width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
       border:1px solid var(--border);border-radius:10px;padding:12px;outline:none;}
 
-    /* Actions row — ALL buttons one row (wrap on mobile) */
-    .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    /* Actions row — match Add page (centered, wraps nicely on mobile) */
+    .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:center}
+
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;
       border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
     .btn[disabled]{opacity:.5;pointer-events:none}
+
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
-    .btn-accent{border-color:#2F6C3C;background:#E7F1EA;color:#2F6C3C;}
+    /* Keep accent the same as Add page */
+    .btn-accent{border-color:#2F6C3C;background:#E7F1EA;color:#2F6C3C;width:auto;font-size:17px;font-weight:800;margin-top:0;}
     .btn-quiet{min-width:auto;padding:8px 12px}
 
     /* Toast */
@@ -166,10 +169,10 @@
             <textarea id="notes" class="input" rows="3" placeholder="Certifications, endorsements, PTO notes, etc."></textarea>
           </div>
 
-          <!-- All buttons in a single row -->
+          <!-- Buttons aligned like Add page; Save is neutral; Clear renamed to Cancel -->
           <div class="actions">
-            <button id="clear" class="btn" type="button">Clear</button>
-            <button id="save" class="btn btn-primary" type="button">Save</button>
+            <button id="clear" class="btn" type="button">Cancel</button>
+            <button id="save" class="btn" type="button">Save</button>
             <button id="saveInvite" class="btn btn-accent" type="button">Save &amp; Invite</button>
           </div>
         </div>
@@ -449,7 +452,9 @@
         left.innerHTML=`<div class="name">${it.data.fullName || '(no name)'}</div><div class="meta">${it.data.email || ''}</div>`;
         const right=document.createElement('div');
         const btn=document.createElement('button');
-        btn.className='btn btn-primary'; btn.textContent='Edit';
+        /* Edit button should match Add-page Save style (neutral) */
+        btn.className='btn';
+        btn.textContent='Edit';
         btn.addEventListener('click',()=>loadIntoForm(it));
         right.appendChild(btn);
         li.appendChild(left); li.appendChild(right); resultsEl.appendChild(li);
@@ -658,47 +663,47 @@
 
         await upsertEmployee(vals);
 
-       // Edit screen = RESEND ONLY (no account creation)
-await sendPasswordResetEmail(getAuth(), vals.email);
+        // Edit screen = RESEND ONLY (no account creation)
+        await sendPasswordResetEmail(getAuth(), vals.email);
 
-showToast("Saved & invite resent.");
-window.scrollTo({ top: 0, behavior: "smooth" });
+        showToast("Saved & invite resent.");
+        window.scrollTo({ top: 0, behavior: "smooth" });
 
-} catch (err) {
-  console.error(err);
-  const code = err?.code || "";
+      } catch (err) {
+        console.error(err);
+        const code = err?.code || "";
 
-  if (code === "auth/user-not-found") {
-    alert(
-      "Resend failed.\n\nThis email does not have a login account yet.\n" +
-      "Create the employee from the New Employee flow first."
-    );
-  } else if (
-    code === "auth/invalid-continue-uri" ||
-    code === "auth/unauthorized-continue-uri"
-  ) {
-    alert(
-      "Invite failed due to domain settings.\n" +
-      "Add your site under Firebase Auth → Settings → Authorized domains."
-    );
-  } else {
-    alert("Invite failed.\n\n" + (err?.message || err));
-  }
-} finally {
-  setBusy(false);
-}
-});
+        if (code === "auth/user-not-found") {
+          alert(
+            "Resend failed.\n\nThis email does not have a login account yet.\n" +
+            "Create the employee from the New Employee flow first."
+          );
+        } else if (
+          code === "auth/invalid-continue-uri" ||
+          code === "auth/unauthorized-continue-uri"
+        ) {
+          alert(
+            "Invite failed due to domain settings.\n" +
+            "Add your site under Firebase Auth → Settings → Authorized domains."
+          );
+        } else {
+          alert("Invite failed.\n\n" + (err?.message || err));
+        }
+      } finally {
+        setBusy(false);
+      }
+    });
 
-async function boot() {
-  await ready;
-  const col = collection(getFirestore(), "employees");
-  onSnapshot(col, (snap) => {
-    all = snap.docs.map(d => ({ id: d.id, data: d.data() || {} }));
-    renderList();
-  });
-  updateInviteButtonLabel();
-}
-boot().catch(console.error);
+    async function boot() {
+      await ready;
+      const col = collection(getFirestore(), "employees");
+      onSnapshot(col, (snap) => {
+        all = snap.docs.map(d => ({ id: d.id, data: d.data() || {} }));
+        renderList();
+      });
+      updateInviteButtonLabel();
+    }
+    boot().catch(console.error);
 
   </script>
 </body>
