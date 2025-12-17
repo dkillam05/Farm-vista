@@ -1,22 +1,26 @@
 <!-- =========================================================
 /Farm-vista/pages/equipment/actions/pre-check.html  (FULL FILE)
-Seasonal Pre-Check Templates (Builder Only)
-Rev: 2025-12-17g
+Pre-Check Templates (Builder Only — No Year)
+Rev: 2025-12-17h
 
 This page is ONLY for:
-- Create template
-- Rename template (tap template name in the “items” panel header)
-- Build the template item list (add / reorder / remove / notes)
+- Create template (no Season Year — templates apply every year)
+- Rename template (tap template name in panel header)
+- Build template item list (add / reorder / remove / notes)
 
 Changes in this rev (per Dane):
-1) Removed “Restart Checklist”
-2) “Current Checklist” header is now the TEMPLATE NAME (tap to rename)
-3) Removed “Edit Items” button; added “Add Item” button in lower section (opens same modal)
-4) Removed “Refresh List” button from modal
-5) Removed checkboxes from this page (no “checking off” here)
+1) Modal: remove horizontal scroll on small screens
+2) Title Case rule also applies to template names (create + rename)
+3) Notes are back: click an item in the main list to add/save a short note
+4) Removed Season Year entirely (templates are not per-year)
 
-Notes:
-- Delete Template removed (perms not trusted yet)
+Data model (updated intent):
+  seasonal_precheck_templates (docs)
+    - equipmentType, implementType(optional), title, titleLower, archived, createdAt, updatedAt
+  seasonal_precheck_templates/{templateId}/items (subcollection)
+    - bankId(optional), label, labelLower, order, notesHint(optional), archived, createdAt, updatedAt
+  seasonal_precheck_item_bank (docs)
+    - label, labelLower, archived, createdAt, updatedAt
 ========================================================= -->
 <!doctype html>
 <html lang="en">
@@ -128,11 +132,12 @@ Notes:
       padding:var(--ctl-pad-y) var(--ctl-pad-x);
       box-sizing:border-box;
       outline:none;
+      min-width:0; /* prevent overflow in grids */
     }
     .input,.select{ height:var(--ctl-h); line-height:calc(var(--ctl-h) - 2px); }
     .textarea{ min-height:110px; resize:vertical; line-height:1.35; }
 
-    /* Actions under template dropdown (now minimal) */
+    /* Actions under template dropdown (minimal) */
     .tpl-actions{
       display:flex;
       gap:10px;
@@ -149,7 +154,7 @@ Notes:
       border-radius:12px;
       border:1px solid var(--border);
       background:var(--card-surface,var(--surface));
-      font-weight:900;
+      font-weight:1000;
       cursor:pointer;
       color:var(--text)!important;
       text-decoration:none;
@@ -212,6 +217,7 @@ Notes:
       gap:6px;
       min-width:220px;
       flex:1 1 auto;
+      min-width:0;
     }
     .tplname-title{
       font-weight:1000;
@@ -222,6 +228,7 @@ Notes:
       align-items:center;
       gap:10px;
       flex-wrap:wrap;
+      min-width:0;
     }
     .tplname-btn{
       border:none;
@@ -233,6 +240,7 @@ Notes:
       cursor:pointer;
       color:var(--text);
       text-align:left;
+      min-width:0;
     }
     .tplname-btn:disabled{
       cursor:default;
@@ -243,18 +251,6 @@ Notes:
       font-size:12px;
       color:var(--muted,#67706B);
       font-weight:800;
-    }
-
-    .panel-head .rightwrap{
-      display:flex;
-      gap:10px;
-      align-items:center;
-      justify-content:flex-end;
-      flex:0 0 auto;
-      flex-wrap:wrap;
-    }
-    @media (max-width:520px){
-      .panel-head .rightwrap{ justify-content:flex-start; width:100%; }
     }
 
     .panel-body{
@@ -280,6 +276,7 @@ Notes:
       border:1px solid var(--border);
       border-radius:12px;
       background:var(--card-surface,var(--surface));
+      overflow:hidden;
     }
     .item-top{
       display:flex;
@@ -300,23 +297,6 @@ Notes:
       color:var(--muted,#67706B);
       white-space:pre-wrap;
     }
-    .item .right{
-      display:flex;
-      align-items:center;
-      gap:8px;
-      flex:0 0 auto;
-    }
-
-    .mini{
-      min-width:auto;
-      padding:8px 10px;
-      border-radius:10px;
-      font-weight:1000;
-    }
-    .danger{
-      border-color: rgba(176,0,32,.35);
-      color: var(--danger)!important;
-    }
 
     .empty{
       padding:14px;
@@ -326,15 +306,15 @@ Notes:
       background:var(--surface);
     }
 
-    /* Expand editor (notes hint) - used inside modal list */
-    .expand{
+    /* Main list note editor (click item) */
+    .main-expand{
       margin-top:10px;
       padding-top:10px;
       border-top:1px dashed var(--border);
       display:none;
       gap:8px;
     }
-    .item.open .expand{ display:grid; }
+    .item.open .main-expand{ display:grid; }
     .hint-row{
       display:flex;
       gap:10px;
@@ -346,6 +326,9 @@ Notes:
       font-size:13px;
       color:var(--muted,#67706B);
       margin:0;
+    }
+    @media (max-width:520px){
+      .hint-row .grow{ min-width:0; }
     }
 
     /* Modal */
@@ -365,6 +348,7 @@ Notes:
       flex-direction:column;
       overflow:hidden;
       max-height:90vh;
+      overflow-x:hidden; /* prevent horizontal scroll */
     }
 
     .sheet header{
@@ -377,6 +361,7 @@ Notes:
       gap:10px;
       color:var(--text);
       flex:0 0 auto;
+      min-width:0;
     }
 
     .sheet header .close{
@@ -396,13 +381,17 @@ Notes:
       display:grid;
       gap:12px;
       overflow:auto;
+      overflow-x:hidden; /* prevent horizontal scroll */
+      min-width:0;
     }
 
     .grid2{
       display:grid;
       grid-template-columns:1fr 1fr;
       gap:10px;
+      min-width:0;
     }
+    .grid2 > *{ min-width:0; }
     @media (max-width:720px){
       .grid2{ grid-template-columns:1fr; }
     }
@@ -447,6 +436,7 @@ Notes:
       gap:8px;
       align-items:center;
       flex-wrap:wrap;
+      min-width:0;
     }
     .rename-row.show{ display:flex; }
     .rename-row .input{ min-width:260px; }
@@ -471,25 +461,19 @@ Notes:
         </header>
 
         <div class="body">
-          <!-- Season / Implement -->
+          <!-- Implement type only (no Season Year) -->
           <div class="row">
-            <div class="field">
-              <label for="seasonYear">Season Year</label>
-              <select id="seasonYear" class="select"></select>
-            </div>
-
             <div class="field" id="implTypeWrap" style="display:none;">
               <label for="implementType">Implement Type</label>
               <select id="implementType" class="select"></select>
             </div>
           </div>
 
-          <!-- Template directly under Season -->
+          <!-- Template -->
           <div class="field">
             <label for="templateSel">Template</label>
             <select id="templateSel" class="select"></select>
 
-            <!-- Minimal buttons under dropdown -->
             <div class="tpl-actions">
               <button id="btnNewTemplate" class="btn btn-primary" type="button">New Template</button>
             </div>
@@ -515,10 +499,6 @@ Notes:
                   <button id="btnRenameCancel" class="btn btn-quiet" type="button" style="min-width:auto;">Cancel</button>
                 </div>
               </div>
-
-              <div class="rightwrap">
-                <!-- intentionally minimal -->
-              </div>
             </div>
 
             <div class="panel-body">
@@ -531,9 +511,8 @@ Notes:
             </div>
           </div>
 
-          <div id="err" style="display:none; color:var(--danger); font-weight:900;"></div>
+          <div id="err" style="display:none; color:var(--danger); font-weight:1000;"></div>
 
-          <!-- Bottom cancel -->
           <div class="bottom-actions">
             <button id="btnCancel" class="btn btn-quiet" type="button">Cancel</button>
           </div>
@@ -554,7 +533,7 @@ Notes:
           <div class="grid2">
             <div class="field">
               <label for="tplName" class="req">Template Name</label>
-              <input id="tplName" class="input" placeholder="e.g., Spring Startup"/>
+              <input id="tplName" class="input" placeholder="e.g., Spring Startup" maxlength="60"/>
             </div>
             <div class="field">
               <label>Applies To</label>
@@ -643,11 +622,12 @@ Notes:
     // Limits
     const BANK_MAX = 48;
     const HINT_MAX = 90;
+    const TPL_MAX  = 60;
 
     // UI state
     let db = null;
     let currentTemplateId = null;
-    let currentTemplate = null; // {id,title,seasonYear,equipmentType,implementType}
+    let currentTemplate = null; // {id,title,equipmentType,implementType}
     let currentItems = [];      // [{id,label,order,archived,notesHint,bankId}]
 
     // Bank state
@@ -681,21 +661,8 @@ Notes:
 
     function applyHeader(){
       $("hTitle").textContent = `${niceType(TYPE)} • Pre-Check Template Builder`;
-      $("hSub").textContent = `Create templates and build the item list for ${niceType(TYPE)} by year${TYPE==='implement' ? ' and implement type' : ''}.`;
+      $("hSub").textContent = `Create templates and build the item list for ${niceType(TYPE)}${TYPE==='implement' ? ' (by implement type)' : ''}.`;
       $("pillMeta").textContent = '—';
-    }
-
-    function buildYearOptions(){
-      const now = new Date().getFullYear();
-      const sel = $("seasonYear");
-      sel.innerHTML = '';
-      for(let y=now+1; y>=now-5; y--){
-        const o=document.createElement('option');
-        o.value=String(y);
-        o.textContent=String(y);
-        if(y===now) o.selected=true;
-        sel.appendChild(o);
-      }
     }
 
     async function loadImplementTypes(){
@@ -732,24 +699,36 @@ Notes:
     }
 
     function tplAppliesText(){
-      const year = $("seasonYear").value || '—';
       const impl = (TYPE==='implement') ? ($("implementType").value || 'All Types') : null;
       return TYPE==='implement'
-        ? `${niceType(TYPE)} • ${impl} • ${year}`
-        : `${niceType(TYPE)} • ${year}`;
+        ? `${niceType(TYPE)} • ${impl}`
+        : `${niceType(TYPE)}`;
     }
 
     function readFilters(){
-      const seasonYear = Number($("seasonYear").value);
       const implementType = (TYPE==='implement')
         ? (String($("implementType").value||'').trim() || null)
         : null;
-      return { seasonYear, implementType };
+      return { implementType };
     }
 
+    /* ===== Title Case helpers ===== */
     function clampStr(s, max){
       const t = String(s||'');
       return t.length > max ? t.slice(0, max) : t;
+    }
+
+    function toTitleCasePreserveSpaces(raw){
+      const s = String(raw ?? '');
+      if(!s) return '';
+      const parts = s.split(/(\s+)/);
+      return parts.map(tok=>{
+        if(/^\s+$/.test(tok)) return tok;
+        if(!tok) return tok;
+        if(tok.length <= 4 && tok.toUpperCase() === tok && /[A-Z]/.test(tok)) return tok;
+        const lower = tok.toLowerCase();
+        return lower.charAt(0).toUpperCase() + lower.slice(1);
+      }).join('');
     }
 
     function toTitleCaseFinal(s){
@@ -787,7 +766,8 @@ Notes:
 
     async function doRenameTemplate(newNameRaw){
       if(!currentTemplateId || !currentTemplate) return;
-      const next = String(newNameRaw||'').trim();
+      let next = toTitleCaseFinal(newNameRaw);
+      next = clampStr(next, TPL_MAX).trim();
       if(!next) return;
       if(next === currentTemplate.title) return;
 
@@ -798,7 +778,7 @@ Notes:
       });
 
       showToast('Renamed');
-      await refreshTemplates(false); // keep selection if possible
+      await refreshTemplates(true);
       $("templateSel").value = currentTemplateId;
       await loadTemplateAndItems(currentTemplateId, false);
     }
@@ -822,15 +802,14 @@ Notes:
       }
     }
 
-    /* ===== Templates list ===== */
+    /* ===== Templates list (NO YEAR) ===== */
     async function queryTemplates(){
-      const { seasonYear, implementType } = readFilters();
+      const { implementType } = readFilters();
 
       try{
         const qRef = query(
           collection(db, COL_TPL),
           where('equipmentType','==',TYPE),
-          where('seasonYear','==',seasonYear),
           where('archived','!=',true),
           orderBy('archived'),
           orderBy('title')
@@ -842,7 +821,6 @@ Notes:
           all.push({
             id:d.id,
             title:String(v.title||'').trim() || '(Untitled)',
-            seasonYear:Number(v.seasonYear||seasonYear),
             equipmentType:String(v.equipmentType||TYPE),
             implementType: v.implementType ? String(v.implementType) : null
           });
@@ -860,7 +838,6 @@ Notes:
         snap.forEach(d=>{
           const v=d.data()||{};
           if(String(v.equipmentType||'').toLowerCase() !== TYPE) return;
-          if(Number(v.seasonYear||0) !== seasonYear) return;
           if(v.archived) return;
 
           if(TYPE==='implement' && implementType){
@@ -870,7 +847,6 @@ Notes:
           out.push({
             id:d.id,
             title:String(v.title||'').trim() || '(Untitled)',
-            seasonYear:Number(v.seasonYear||seasonYear),
             equipmentType:String(v.equipmentType||TYPE),
             implementType: v.implementType ? String(v.implementType) : null
           });
@@ -947,15 +923,13 @@ Notes:
       currentTemplate = {
         id: templateId,
         title: String(v.title||'').trim() || '(Untitled)',
-        seasonYear: Number(v.seasonYear||Number($("seasonYear").value)),
         equipmentType: String(v.equipmentType||TYPE),
         implementType: v.implementType ? String(v.implementType) : null
       };
 
       currentItems = await loadItems(templateId);
 
-      const meta = tplAppliesText();
-      $("pillMeta").textContent = meta;
+      $("pillMeta").textContent = tplAppliesText();
 
       renderItemsMain();
       setTemplateUIState();
@@ -1003,7 +977,7 @@ Notes:
       }
     }
 
-    /* ===== Main (builder) list — NO CHECKBOXES ===== */
+    /* ===== Main list — click item to add/save note ===== */
     function renderItemsMain(){
       const list = $("itemsMain");
       const empty = $("itemsEmptyMain");
@@ -1042,15 +1016,65 @@ Notes:
         p.textContent = `${idx+1}. ${it.label || '(blank)'}`;
         txt.appendChild(p);
 
-        if(it.notesHint){
-          const sub=document.createElement('p');
-          sub.className='sub';
-          sub.textContent = it.notesHint;
-          txt.appendChild(sub);
-        }
+        const sub=document.createElement('p');
+        sub.className='sub';
+        sub.textContent = it.notesHint ? it.notesHint : 'Tap to add a short note…';
+        txt.appendChild(sub);
 
         top.appendChild(txt);
         row.appendChild(top);
+
+        // Expand note editor
+        const expand=document.createElement('div');
+        expand.className='main-expand';
+
+        const hintRow=document.createElement('div');
+        hintRow.className='hint-row';
+
+        const hintInp=document.createElement('input');
+        hintInp.className='input grow';
+        hintInp.placeholder='Short note (optional)…';
+        hintInp.maxLength = HINT_MAX;
+        hintInp.value = it.notesHint || '';
+
+        const saveBtn=document.createElement('button');
+        saveBtn.className='btn btn-primary';
+        saveBtn.type='button';
+        saveBtn.style.minWidth='auto';
+        saveBtn.textContent='Save Note';
+
+        saveBtn.addEventListener('click', async (e)=>{
+          e.stopPropagation();
+          try{
+            setErr(null);
+            await saveNotesHint(it.id, hintInp.value);
+            // update label preview
+            sub.textContent = (hintInp.value||'').trim() ? (hintInp.value||'').trim() : 'Tap to add a short note…';
+            row.classList.remove('open');
+          }catch(err){
+            console.error(err);
+            setErr('Save note failed.');
+          }
+        });
+
+        hintRow.append(hintInp, saveBtn);
+
+        const help=document.createElement('p');
+        help.className='hint-help';
+        help.textContent = `Example: “Record on dipstick / replace if dirty” (max ${HINT_MAX} chars).`;
+
+        expand.append(hintRow, help);
+        row.appendChild(expand);
+
+        row.addEventListener('click', ()=>{
+          // close other opens
+          list.querySelectorAll('.item.open').forEach(el=>{ if(el!==row) el.classList.remove('open'); });
+          row.classList.toggle('open');
+          if(row.classList.contains('open')){
+            setTimeout(()=>hintInp.focus(), 30);
+          }
+        });
+
         list.appendChild(row);
       });
 
@@ -1311,22 +1335,31 @@ Notes:
         right.className='right';
 
         const up=document.createElement('button');
-        up.className='btn mini';
+        up.className='btn';
         up.type='button';
+        up.style.minWidth='auto';
+        up.style.padding='8px 10px';
+        up.style.borderRadius='10px';
         up.textContent='↑';
         up.disabled = (i===0);
         up.addEventListener('click', (e)=>{ e.stopPropagation(); reorderItem(it.id, -1); });
 
         const dn=document.createElement('button');
-        dn.className='btn mini';
+        dn.className='btn';
         dn.type='button';
+        dn.style.minWidth='auto';
+        dn.style.padding='8px 10px';
+        dn.style.borderRadius='10px';
         dn.textContent='↓';
         dn.disabled = (i===items.length-1);
         dn.addEventListener('click', (e)=>{ e.stopPropagation(); reorderItem(it.id, +1); });
 
         const rm=document.createElement('button');
-        rm.className='btn mini danger';
+        rm.className='btn danger';
         rm.type='button';
+        rm.style.minWidth='auto';
+        rm.style.padding='8px 10px';
+        rm.style.borderRadius='10px';
         rm.textContent='Remove';
         rm.addEventListener('click', (e)=>{ e.stopPropagation(); archiveItem(it.id); });
 
@@ -1334,8 +1367,9 @@ Notes:
         top.append(txt, right);
         row.appendChild(top);
 
+        // Click-to-edit note inside modal list
         const expand=document.createElement('div');
-        expand.className='expand';
+        expand.className='main-expand';
 
         const hintRow=document.createElement('div');
         hintRow.className='hint-row';
@@ -1347,9 +1381,11 @@ Notes:
         hintInp.value = it.notesHint || '';
 
         const saveBtn=document.createElement('button');
-        saveBtn.className='btn btn-primary mini';
+        saveBtn.className='btn btn-primary';
         saveBtn.type='button';
+        saveBtn.style.minWidth='auto';
         saveBtn.textContent='Save';
+
         saveBtn.addEventListener('click', (e)=>{
           e.stopPropagation();
           saveNotesHint(it.id, hintInp.value);
@@ -1376,16 +1412,16 @@ Notes:
       });
     }
 
-    /* ===== Template create ===== */
+    /* ===== Template create (NO YEAR) ===== */
     async function createTemplate(){
-      const name = String($("tplName").value||'').trim();
+      let name = toTitleCaseFinal($("tplName").value || '');
+      name = clampStr(name, TPL_MAX).trim();
       if(!name){ alert('Enter a template name.'); return; }
 
-      const { seasonYear, implementType } = readFilters();
+      const { implementType } = readFilters();
       const ref = doc(collection(db, COL_TPL));
       const data = {
         equipmentType: TYPE,
-        seasonYear,
         title: name,
         titleLower: name.toLowerCase(),
         archived: false,
@@ -1405,11 +1441,7 @@ Notes:
 
     /* ===== Wiring ===== */
     function wire(){
-      $("seasonYear").addEventListener('change', async ()=>{
-        $("tplApplies").textContent = tplAppliesText();
-        await refreshTemplates(false);
-      });
-
+      // Implement type filter
       $("implementType").addEventListener('change', async ()=>{
         $("tplApplies").textContent = tplAppliesText();
         await refreshTemplates(false);
@@ -1426,6 +1458,25 @@ Notes:
         setTimeout(()=>$("tplName").focus(), 60);
       });
 
+      // Title Case while typing (template create)
+      $("tplName").addEventListener('input', ()=>{
+        const el = $("tplName");
+        const before = el.value;
+        const start = el.selectionStart || 0;
+        const end   = el.selectionEnd || 0;
+
+        const tc = toTitleCasePreserveSpaces(before);
+        const cl = clampStr(tc, TPL_MAX);
+
+        if(cl !== before){
+          el.value = cl;
+          const delta = cl.length - before.length;
+          const ns = Math.max(0, Math.min(cl.length, start + delta));
+          const ne = Math.max(0, Math.min(cl.length, end + delta));
+          try{ el.setSelectionRange(ns, ne); }catch{}
+        }
+      });
+
       $("tplCreate").addEventListener('click', async ()=>{
         try{ setErr(null); await createTemplate(); }
         catch(e){ console.error(e); setErr('Template create failed.'); }
@@ -1435,6 +1486,25 @@ Notes:
       $("tplNameBtn").addEventListener('click', ()=>{
         if(!currentTemplateId) return;
         setRenameMode(true);
+      });
+
+      // Title Case while typing (rename)
+      $("renameInput").addEventListener('input', ()=>{
+        const el = $("renameInput");
+        const before = el.value;
+        const start = el.selectionStart || 0;
+        const end   = el.selectionEnd || 0;
+
+        const tc = toTitleCasePreserveSpaces(before);
+        const cl = clampStr(tc, TPL_MAX);
+
+        if(cl !== before){
+          el.value = cl;
+          const delta = cl.length - before.length;
+          const ns = Math.max(0, Math.min(cl.length, start + delta));
+          const ne = Math.max(0, Math.min(cl.length, end + delta));
+          try{ el.setSelectionRange(ns, ne); }catch{}
+        }
       });
 
       $("btnRenameCancel").addEventListener('click', ()=>{
@@ -1463,7 +1533,7 @@ Notes:
         }
       });
 
-      // Add Item (opens same modal)
+      // Add Item (opens modal)
       $("btnAddItem").addEventListener('click', async ()=>{
         if(!currentTemplateId) return;
 
@@ -1471,7 +1541,7 @@ Notes:
 
         try{
           setErr(null);
-          await loadBank(true); // always fresh enough without needing a refresh button
+          await loadBank(true);
           renderBankPick();
         }catch(e){
           console.warn(e);
@@ -1485,8 +1555,24 @@ Notes:
 
       $("bankPick").addEventListener('change', syncNewBankUI);
 
+      // Title Case while typing (new item)
       $("newBankText").addEventListener('input', ()=>{
         const el = $("newBankText");
+        const before = el.value;
+        const start = el.selectionStart || 0;
+        const end   = el.selectionEnd || 0;
+
+        const tc = toTitleCasePreserveSpaces(before);
+        const cl = clampStr(tc, BANK_MAX);
+
+        if(cl !== before){
+          el.value = cl;
+          const delta = cl.length - before.length;
+          const ns = Math.max(0, Math.min(cl.length, start + delta));
+          const ne = Math.max(0, Math.min(cl.length, end + delta));
+          try{ el.setSelectionRange(ns, ne); }catch{}
+        }
+
         $("newBankCount").textContent = String((el.value||'').length);
       });
 
@@ -1558,7 +1644,6 @@ Notes:
       db = getFirestore();
 
       applyHeader();
-      buildYearOptions();
       await loadImplementTypes();
 
       $("tplApplies").textContent = tplAppliesText();
