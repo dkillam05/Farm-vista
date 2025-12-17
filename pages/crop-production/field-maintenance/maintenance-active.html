@@ -1149,6 +1149,36 @@
     ::-webkit-clear-button {
       filter: invert(0%) !important;
     }
+    /* === Hard scroll-lock when any modal is open === */
+html.modal-open,
+body.modal-open{
+  height:100%;
+  overflow:hidden !important;
+  overscroll-behavior: none;
+}
+
+/* Make sure only the SHEET scrolls, not the page behind it */
+.job-sheet,
+.photo-sheet,
+.status-sheet{
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Crew dropdown list should scroll smoothly and not “bubble” to page */
+.job-crew-list{
+  max-height: min(40vh, 260px);
+  overflow:auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* Prevent scroll chaining from modal overlay to page */
+.job-modal,
+.photo-modal,
+.status-modal{
+  overscroll-behavior: contain;
+}
+
   </style>
 
   <script>
@@ -1309,15 +1339,50 @@
       if(!photoModal || !photoModalImg || !url) return;
       photoModalImg.src = url;
       photoModal.classList.add('show');
-      document.body.style.overflow = 'hidden';
+      lockPageScroll();
     }
 
     function closePhotoViewer(){
       if(!photoModal) return;
       photoModal.classList.remove('show');
       if(photoModalImg) photoModalImg.src = '';
-      document.body.style.overflow = '';
+      unlockPageScroll();
     }
+    // === Modal scroll lock (prevents background scroll on iOS + desktop) ===
+let __fvScrollY = 0;
+
+function lockPageScroll(){
+  __fvScrollY = window.scrollY || document.documentElement.scrollTop || 0;
+
+  document.documentElement.classList.add('modal-open');
+  document.body.classList.add('modal-open');
+
+  // iOS-safe lock: freeze body at current scroll position
+  document.body.style.position = 'fixed';
+  document.body.style.top = `-${__fvScrollY}px`;
+  document.body.style.left = '0';
+  document.body.style.right = '0';
+  document.body.style.width = '100%';
+}
+
+function unlockPageScroll(){
+  document.documentElement.classList.remove('modal-open');
+  document.body.classList.remove('modal-open');
+
+  document.body.style.position = '';
+  document.body.style.top = '';
+  document.body.style.left = '';
+  document.body.style.right = '';
+  document.body.style.width = '';
+
+  window.scrollTo(0, __fvScrollY || 0);
+}
+
+function preventTouchScrollOn(el){
+  if(!el) return;
+  el.addEventListener('touchmove', (e)=>e.preventDefault(), { passive:false });
+}
+
 
     // ---------- lazy-load Google Maps ----------
     let mapsPromise = null;
@@ -2033,13 +2098,13 @@
       }
 
       jobModal.classList.add('show');
-      document.body.style.overflow = 'hidden';
+      lockPageScroll();
     }
 
     function closeJobModal(){
       if(!jobModal) return;
       jobModal.classList.remove('show');
-      document.body.style.overflow = '';
+      unlockPageScroll();
       STATE.jobForId = null;
       closeCrewPanel();
     }
@@ -2163,8 +2228,10 @@
       photoModalCloseBtn = $('#photoModalClose');
 
       if(photoModalBackdrop){
-        photoModalBackdrop.addEventListener('click', closePhotoViewer);
-      }
+  photoModalBackdrop.addEventListener('click', closePhotoViewer);
+  preventTouchScrollOn(photoModalBackdrop);
+}
+
       if(photoModalCloseBtn){
         photoModalCloseBtn.addEventListener('click', closePhotoViewer);
       }
@@ -2213,8 +2280,10 @@
       jobStatusChoiceInputs = document.querySelectorAll('input[name="jobStatusChoice"]');
 
       if(jobModalBackdrop){
-        jobModalBackdrop.addEventListener('click', closeJobModal);
-      }
+  jobModalBackdrop.addEventListener('click', closeJobModal);
+  preventTouchScrollOn(jobModalBackdrop);
+}
+
       if(jobModalCloseBtn){
         jobModalCloseBtn.addEventListener('click', closeJobModal);
       }
@@ -2229,8 +2298,10 @@
       }
 
       if(jobStatusBackdrop){
-        jobStatusBackdrop.addEventListener('click', closeJobStatusModal);
-      }
+  jobStatusBackdrop.addEventListener('click', closeJobStatusModal);
+  preventTouchScrollOn(jobStatusBackdrop);
+}
+
       if(jobStatusCancelBtn){
         jobStatusCancelBtn.addEventListener('click', closeJobStatusModal);
       }
