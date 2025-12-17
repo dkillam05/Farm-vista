@@ -1,32 +1,20 @@
 <!-- =========================================================
 /Farm-vista/pages/equipment/actions/pre-check.html  (FULL FILE)
 Seasonal Pre-Check Items (Templates + Simple Checklist)
-Rev: 2025-12-17e
+Rev: 2025-12-17f
 
 Changes in this rev:
-• Template actions:
-   - Rename Template (perm: eq-precheck:edit)
-   - Delete Template (perm: eq-precheck:delete) → archives template (safe)
-   - Trash button greys out when disabled (works with FV Permission UI Controller)
-• Mobile pill/meta layout:
-   - Panel header wraps cleanly on small screens (no bunching)
-   - pillMeta can wrap and stays readable
-• Desktop spellcheck reliability:
-   - New bank item input is now a single-line styled TEXTAREA (better desktop spell underline)
-   - Still Title-Cases while typing (preserves spaces), trims/cleans on save
-
-Existing:
-• Global item bank: seasonal_precheck_item_bank
-• Template items support notesHint
-• Bottom-page Cancel button returns to previous page
-
-Data model:
-  seasonal_precheck_templates (docs)
-    - equipmentType, seasonYear, implementType(optional), title, titleLower, archived, createdAt, updatedAt
-  seasonal_precheck_templates/{templateId}/items (subcollection)
-    - bankId(optional), label, labelLower, order, notesHint(optional), archived, createdAt, updatedAt
-  seasonal_precheck_item_bank (docs)
-    - label, labelLower, archived, createdAt, updatedAt
+• Stop fighting desktop spellcheck:
+   - “Add New…” is now a plain INPUT (no single-line textarea tricks).
+• Checklist shows immediately when a template is selected:
+   - No need to click Start Checklist.
+   - “Start” becomes “Restart Checklist” (optional reset).
+• Layout fix:
+   - Template dropdown sits directly under Season.
+   - All template buttons moved UNDER the template dropdown (wraps cleanly).
+• Action buttons enable correctly:
+   - Enabled only when a template is selected AND user has permission (when perms available).
+   - Still keeps data-perm for your global Permission UI Controller.
 ========================================================= -->
 <!doctype html>
 <html lang="en">
@@ -142,25 +130,13 @@ Data model:
     .input,.select{ height:var(--ctl-h); line-height:calc(var(--ctl-h) - 2px); }
     .textarea{ min-height:110px; resize:vertical; line-height:1.35; }
 
-    /* Single-line textarea (spellcheck-friendly) */
-    .ta-single{
-      height:var(--ctl-h);
-      min-height:var(--ctl-h);
-      max-height:var(--ctl-h);
-      overflow:hidden;
-      resize:none;
-      line-height:calc(var(--ctl-h) - 2px);
-      padding-top:0;
-      padding-bottom:0;
-      display:flex;
-      align-items:center;
-    }
-
-    .actions{
+    /* Actions now UNDER template dropdown */
+    .tpl-actions{
       display:flex;
       gap:10px;
       flex-wrap:wrap;
       align-items:center;
+      margin-top:10px;
     }
 
     .btn{
@@ -220,7 +196,7 @@ Data model:
       align-items:flex-start;
       justify-content:space-between;
       gap:10px;
-      flex-wrap:wrap; /* mobile wrap */
+      flex-wrap:wrap;
     }
     .panel-head .title{
       font-weight:900;
@@ -236,9 +212,7 @@ Data model:
       min-width:min(520px, 100%);
     }
     @media (max-width:520px){
-      .panel-head .rightwrap{
-        justify-content:flex-start;
-      }
+      .panel-head .rightwrap{ justify-content:flex-start; }
     }
 
     .panel-body{
@@ -247,10 +221,7 @@ Data model:
       gap:10px;
     }
 
-    .list{
-      display:grid;
-      gap:8px;
-    }
+    .list{ display:grid; gap:8px; }
 
     .item{
       padding:10px 12px;
@@ -313,13 +284,8 @@ Data model:
       justify-content:center;
       background:transparent;
     }
-    .trash-svg{
-      width:20px; height:20px;
-      display:block;
-    }
-    /* Enabled = red */
+    .trash-svg{ width:20px; height:20px; display:block; }
     .trash-svg path{ stroke: var(--danger); }
-    /* Disabled = grey */
     .icon-btn:disabled .trash-svg path,
     .fv-perm-disabled .trash-svg path,
     .icon-btn[aria-disabled="true"] .trash-svg path{
@@ -469,6 +435,7 @@ Data model:
         </header>
 
         <div class="body">
+          <!-- Season / Implement -->
           <div class="row">
             <div class="field">
               <label for="seasonYear">Season Year</label>
@@ -481,44 +448,41 @@ Data model:
             </div>
           </div>
 
-          <div class="row">
-            <div class="field">
-              <label for="templateSel">Template</label>
-              <select id="templateSel" class="select"></select>
-            </div>
+          <!-- Template directly under Season -->
+          <div class="field">
+            <label for="templateSel">Template</label>
+            <select id="templateSel" class="select"></select>
 
-            <div class="field">
-              <label>&nbsp;</label>
-              <div class="actions">
-                <button id="btnNewTemplate" class="btn btn-primary" type="button">New Template</button>
+            <!-- Buttons UNDER dropdown -->
+            <div class="tpl-actions">
+              <button id="btnNewTemplate" class="btn btn-primary" type="button">New Template</button>
 
-                <!-- RENAME (edit perm) -->
-                <button id="btnRenameTemplate"
-                        class="btn"
-                        type="button"
-                        data-perm="eq-precheck:edit"
-                        disabled>Rename</button>
+              <!-- RENAME (edit perm) -->
+              <button id="btnRenameTemplate"
+                      class="btn"
+                      type="button"
+                      data-perm="eq-precheck:edit"
+                      disabled>Rename</button>
 
-                <!-- DELETE (delete perm) -->
-                <button id="btnDeleteTemplate"
-                        class="btn icon-btn"
-                        type="button"
-                        data-perm="eq-precheck:delete"
-                        aria-label="Delete template"
-                        title="Delete template"
-                        disabled>
-                  <svg class="trash-svg" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M4 7h16" stroke-width="2" stroke-linecap="round"/>
-                    <path d="M10 11v7" stroke-width="2" stroke-linecap="round"/>
-                    <path d="M14 11v7" stroke-width="2" stroke-linecap="round"/>
-                    <path d="M6 7l1 14h10l1-14" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    <path d="M9 7V4h6v3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                  </svg>
-                </button>
+              <!-- DELETE (delete perm) -->
+              <button id="btnDeleteTemplate"
+                      class="btn icon-btn"
+                      type="button"
+                      data-perm="eq-precheck:delete"
+                      aria-label="Delete template"
+                      title="Delete template"
+                      disabled>
+                <svg class="trash-svg" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M4 7h16" stroke-width="2" stroke-linecap="round"/>
+                  <path d="M10 11v7" stroke-width="2" stroke-linecap="round"/>
+                  <path d="M14 11v7" stroke-width="2" stroke-linecap="round"/>
+                  <path d="M6 7l1 14h10l1-14" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M9 7V4h6v3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
 
-                <button id="btnEditItems" class="btn" type="button" disabled>Edit Items</button>
-                <button id="btnStart" class="btn" type="button" disabled>Start Checklist</button>
-              </div>
+              <button id="btnEditItems" class="btn" type="button" disabled>Edit Items</button>
+              <button id="btnRestart" class="btn" type="button" disabled>Restart Checklist</button>
             </div>
           </div>
 
@@ -532,7 +496,7 @@ Data model:
             </div>
 
             <div class="panel-body">
-              <div id="checklistEmpty" class="empty">Pick or create a template, then click <b>Start Checklist</b>.</div>
+              <div id="checklistEmpty" class="empty">Pick or create a template to see its items here.</div>
               <div id="checklist" class="list" style="display:none;"></div>
             </div>
           </div>
@@ -598,16 +562,15 @@ Data model:
               </div>
 
               <div id="newBankWrap" style="display:none;">
-                <textarea id="newBankText"
-                          class="input ta-single"
-                          placeholder="Add new item… (Title Case)"
-                          maxlength="48"
-                          spellcheck="true"
-                          autocorrect="on"
-                          autocomplete="on"
-                          autocapitalize="words"
-                          inputmode="text"
-                          rows="1"></textarea>
+                <input id="newBankText"
+                       class="input"
+                       placeholder="Add new item…"
+                       maxlength="48"
+                       spellcheck="true"
+                       autocorrect="on"
+                       autocomplete="on"
+                       autocapitalize="words"
+                       inputmode="text"/>
                 <div class="counter"><span id="newBankCount">0</span>/48</div>
               </div>
             </div>
@@ -649,17 +612,17 @@ Data model:
     const COL_BANK = 'seasonal_precheck_item_bank';
 
     // Limits
-    const BANK_MAX = 48;      // bank label max chars
-    const HINT_MAX = 90;      // notes hint max chars
+    const BANK_MAX = 48;
+    const HINT_MAX = 90;
 
-    // Perm keys (match FV Permission UI Controller)
+    // Perm keys (match your Permission UI Controller / rules)
     const PERM_EDIT   = 'eq-precheck:edit';
     const PERM_DELETE = 'eq-precheck:delete';
 
     // UI state
     let db = null;
     let currentTemplateId = null;
-    let currentTemplate = null; // {id, title, seasonYear, equipmentType, implementType}
+    let currentTemplate = null; // {id,title,seasonYear,equipmentType,implementType}
     let currentItems = [];      // [{id,label,order,archived,notesHint,bankId}]
     let checklistState = new Map(); // itemId => boolean
 
@@ -760,23 +723,9 @@ Data model:
       return { seasonYear, implementType };
     }
 
-    /* ===== Title Case + limits ===== */
     function clampStr(s, max){
       const t = String(s||'');
       return t.length > max ? t.slice(0, max) : t;
-    }
-
-    function toTitleCasePreserveSpaces(raw){
-      const s = String(raw ?? '');
-      if(!s) return '';
-      const parts = s.split(/(\s+)/);
-      return parts.map(tok=>{
-        if(/^\s+$/.test(tok)) return tok;
-        if(!tok) return tok;
-        if(tok.length <= 4 && tok.toUpperCase() === tok && /[A-Z]/.test(tok)) return tok;
-        const lower = tok.toLowerCase();
-        return lower.charAt(0).toUpperCase() + lower.slice(1);
-      }).join('');
     }
 
     function toTitleCaseFinal(s){
@@ -794,14 +743,35 @@ Data model:
       return String(s||'').trim().toLowerCase();
     }
 
+    /* ===== Permission helper (prevents “admin but greyed out”) ===== */
+    function can(perm){
+      try{
+        if(!perm) return true;
+        if(window.FV && typeof window.FV.can === 'function') return !!window.FV.can(perm);
+        if(window.FVUserContext && typeof window.FVUserContext.can === 'function') return !!window.FVUserContext.can(perm);
+        const allowed = window.FVUserContext?.get?.()?.allowedIds;
+        if(Array.isArray(allowed)) return allowed.includes(perm);
+      }catch{}
+      // If perms aren’t ready yet, don’t block forever — your global controller will still enforce.
+      return true;
+    }
+
+    function setDisabled(btn, disabled){
+      if(!btn) return;
+      btn.disabled = !!disabled;
+      btn.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+    }
+
     /* ===== Template actions (rename / archive delete) ===== */
     function setTemplateActionState(){
       const has = !!currentTemplateId;
-      $("btnRenameTemplate").disabled = !has;
-      $("btnDeleteTemplate").disabled = !has;
 
-      // NOTE: Permission UI Controller will disable/grey these as needed via data-perm
-      // We only disable when no template selected; perms handle the rest.
+      // Only enable if template selected AND user can (when perms are available)
+      setDisabled($("btnRenameTemplate"), !(has && can(PERM_EDIT)));
+      setDisabled($("btnDeleteTemplate"), !(has && can(PERM_DELETE)));
+
+      setDisabled($("btnEditItems"), !has);
+      setDisabled($("btnRestart"), !has);
     }
 
     async function renameTemplate(){
@@ -835,16 +805,15 @@ Data model:
       });
 
       showToast('Deleted (archived)');
-      // Clear selection
+
       currentTemplateId = null;
       currentTemplate = null;
       currentItems = [];
       $("templateSel").value = '';
-      setTemplateActionState();
-      $("btnEditItems").disabled = true;
-      $("btnStart").disabled = true;
+
       $("pillMeta").textContent = '—';
       clearChecklistUI();
+      setTemplateActionState();
 
       await refreshTemplates();
     }
@@ -929,8 +898,7 @@ Data model:
 
       currentTemplateId = null;
       currentTemplate = null;
-      $("btnEditItems").disabled = true;
-      $("btnStart").disabled = true;
+      currentItems = [];
       $("pillMeta").textContent = '—';
       clearChecklistUI();
       setTemplateActionState();
@@ -947,8 +915,6 @@ Data model:
         currentTemplateId = null;
         currentTemplate = null;
         currentItems = [];
-        $("btnEditItems").disabled = true;
-        $("btnStart").disabled = true;
         $("pillMeta").textContent = '—';
         clearChecklistUI();
         setTemplateActionState();
@@ -973,12 +939,14 @@ Data model:
       };
 
       currentItems = await loadItems(templateId);
-      $("btnEditItems").disabled = false;
-      $("btnStart").disabled = currentItems.filter(x=>!x.archived).length === 0;
 
       const meta = tplAppliesText();
       $("pillMeta").textContent = `${currentTemplate.title} • ${meta}`;
-      clearChecklistUI();
+
+      // IMPORTANT: show checklist immediately
+      checklistState.clear();
+      renderChecklist();
+
       setTemplateActionState();
     }
 
@@ -1077,7 +1045,6 @@ Data model:
 
         top.append(cb, txt);
         row.appendChild(top);
-
         list.appendChild(row);
       });
 
@@ -1245,9 +1212,12 @@ Data model:
       });
 
       currentItems = await loadItems(currentTemplateId);
-      $("btnStart").disabled = currentItems.filter(x=>!x.archived).length === 0;
       showToast('Added');
       renderItemsEditor();
+
+      // keep checklist live
+      checklistState.clear();
+      renderChecklist();
     }
 
     async function archiveItem(itemId){
@@ -1257,9 +1227,11 @@ Data model:
         updatedAt: serverTimestamp()
       });
       currentItems = await loadItems(currentTemplateId);
-      $("btnStart").disabled = currentItems.filter(x=>!x.archived).length === 0;
       showToast('Removed');
       renderItemsEditor();
+
+      checklistState.clear();
+      renderChecklist();
     }
 
     async function reorderItem(itemId, dir){
@@ -1283,6 +1255,9 @@ Data model:
       currentItems = await loadItems(currentTemplateId);
       renderItemsEditor();
       showToast('Reordered');
+
+      checklistState.clear();
+      renderChecklist();
     }
 
     async function saveNotesHint(itemId, hintRaw){
@@ -1294,6 +1269,8 @@ Data model:
       const it = currentItems.find(x=>x.id===itemId);
       if(it) it.notesHint = hint;
       showToast('Saved note');
+
+      renderChecklist();
     }
 
     function renderItemsEditor(){
@@ -1327,17 +1304,10 @@ Data model:
         p.textContent = it.label || '(blank)';
         txt.appendChild(p);
 
-        if(it.notesHint){
-          const sub=document.createElement('p');
-          sub.className='sub';
-          sub.textContent = it.notesHint;
-          txt.appendChild(sub);
-        }else{
-          const sub=document.createElement('p');
-          sub.className='sub';
-          sub.textContent = 'Click to add a short note…';
-          txt.appendChild(sub);
-        }
+        const sub=document.createElement('p');
+        sub.className='sub';
+        sub.textContent = it.notesHint ? it.notesHint : 'Click to add a short note…';
+        txt.appendChild(sub);
 
         const right=document.createElement('div');
         right.className='right';
@@ -1424,9 +1394,7 @@ Data model:
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
-      if(TYPE==='implement'){
-        if(implementType) data.implementType = implementType;
-      }
+      if(TYPE==='implement' && implementType) data.implementType = implementType;
 
       await setDoc(ref, data);
       showToast('Template created');
@@ -1465,7 +1433,6 @@ Data model:
         catch(e){ console.error(e); setErr('Template create failed.'); }
       });
 
-      // Template actions
       $("btnRenameTemplate").addEventListener('click', async ()=>{
         try{ setErr(null); await renameTemplate(); }
         catch(e){ console.error(e); setErr('Rename failed.'); }
@@ -1489,30 +1456,25 @@ Data model:
         openModal('itemsModal');
       });
 
+      $("btnRestart").addEventListener('click', ()=>{
+        checklistState.clear();
+        renderChecklist();
+        showToast('Checklist restarted');
+      });
+
+      $("btnClearChecks").addEventListener('click', ()=>{
+        checklistState.clear();
+        renderChecklist();
+        showToast('Cleared');
+      });
+
       $("bankPick").addEventListener('change', syncNewBankUI);
 
-      // Live Title Case while typing (preserve spaces), keep cursor
       $("newBankText").addEventListener('input', ()=>{
         const el = $("newBankText");
-        const before = el.value;
-        const start = el.selectionStart || 0;
-        const end   = el.selectionEnd || 0;
-
-        const tc = toTitleCasePreserveSpaces(before);
-        const cl = clampStr(tc, BANK_MAX);
-
-        if(cl !== before){
-          el.value = cl;
-          const delta = cl.length - before.length;
-          const ns = Math.max(0, Math.min(cl.length, start + delta));
-          const ne = Math.max(0, Math.min(cl.length, end + delta));
-          try{ el.setSelectionRange(ns, ne); }catch{}
-        }
-
         $("newBankCount").textContent = String((el.value||'').length);
       });
 
-      // Prevent newlines in textarea (keep single-line feel)
       $("newBankText").addEventListener('keydown', (e)=>{
         if(e.key === 'Enter'){
           e.preventDefault();
@@ -1569,19 +1531,6 @@ Data model:
         }
       });
 
-      $("btnStart").addEventListener('click', ()=>{
-        checklistState.clear();
-        renderChecklist();
-        showToast('Checklist started');
-      });
-
-      $("btnClearChecks").addEventListener('click', ()=>{
-        checklistState.clear();
-        renderChecklist();
-        showToast('Cleared');
-      });
-
-      // Bottom Cancel: go back (safe fallback)
       $("btnCancel").addEventListener('click', ()=>{
         if(document.referrer){
           history.back();
@@ -1590,7 +1539,9 @@ Data model:
         }
       });
 
-      // Initial state
+      // Re-evaluate once perms arrive (global controller typically fires this)
+      window.addEventListener('fv:user-ready', ()=>{ setTemplateActionState(); });
+
       setTemplateActionState();
     }
 
@@ -1612,3 +1563,4 @@ Data model:
   </script>
 </body>
 </html>
+
