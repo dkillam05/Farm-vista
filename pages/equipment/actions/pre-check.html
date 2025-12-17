@@ -533,6 +533,14 @@ IMPORTANT:
 }
 .picker-panel.open{ display:block; }
 
+/* Optional: feels nicer on desktop */
+#heroWO .picker-panel{ margin-bottom: 16px; }
+
+/* Give the open list breathing room above the footer */
+#heroWO .picker-list{
+  padding-bottom: calc(var(--ftr-h,42px) + env(safe-area-inset-bottom,0px) + 16px);
+}
+
 .picker-panel-head{
   padding:10px;
   border-bottom:1px solid var(--border);
@@ -1002,24 +1010,24 @@ IMPORTANT:
     }
 
     function setTemplateUIState(){
-  const selId = String(currentTemplateId || $("templateSel")?.value || '').trim();
-  const has = !!selId;
+      const selId = String(currentTemplateId || $("templateSel")?.value || '').trim();
+      const has = !!selId;
 
-  $("btnAddItem").disabled = !has;
+      $("btnAddItem").disabled = !has;
 
-  const nameBtn = $("tplNameBtn");
-  if(!has){
-    nameBtn.disabled = true;
-    nameBtn.textContent = '— Select a template —';
-    nameBtn.title = 'Select a template to rename';
-    $("tplNameHelp").style.display = 'none';
-  }else{
-    nameBtn.disabled = false;
-    nameBtn.textContent = currentTemplate?.title || '(Untitled)';
-    nameBtn.title = 'Tap to rename template';
-    $("tplNameHelp").style.display = '';
-  }
-}
+      const nameBtn = $("tplNameBtn");
+      if(!has){
+        nameBtn.disabled = true;
+        nameBtn.textContent = '— Select a template —';
+        nameBtn.title = 'Select a template to rename';
+        $("tplNameHelp").style.display = 'none';
+      }else{
+        nameBtn.disabled = false;
+        nameBtn.textContent = currentTemplate?.title || '(Untitled)';
+        nameBtn.title = 'Tap to rename template';
+        $("tplNameHelp").style.display = '';
+      }
+    }
 
     // ---------------------------
     // INDEX-FREE READS (unchanged)
@@ -1053,31 +1061,30 @@ IMPORTANT:
     }
 
     async function loadItems(templateId){
-  const snap = await getDocs(
-    collection(db, COL_TPL, templateId, 'items')
-  );
+      const snap = await getDocs(
+        collection(db, COL_TPL, templateId, 'items')
+      );
 
-  const out = [];
-  snap.forEach(d=>{
-    const v = d.data() || {};
+      const out = [];
+      snap.forEach(d=>{
+        const v = d.data() || {};
 
-    // Treat missing archived as ACTIVE
-    if(v.archived === true) return;
+        // Treat missing archived as ACTIVE
+        if(v.archived === true) return;
 
-    out.push({
-      id: d.id,
-      bankId: v.bankId ? String(v.bankId) : null,
-      label: String(v.label || '').trim(),
-      order: Number(v.order || 0),
-      archived: false,
-      notesHint: String(v.notesHint || '').trim() || ''
-    });
-  });
+        out.push({
+          id: d.id,
+          bankId: v.bankId ? String(v.bankId) : null,
+          label: String(v.label || '').trim(),
+          order: Number(v.order || 0),
+          archived: false,
+          notesHint: String(v.notesHint || '').trim() || ''
+        });
+      });
 
-  out.sort((a,b)=>a.order - b.order);
-  return out;
-}
-
+      out.sort((a,b)=>a.order - b.order);
+      return out;
+    }
 
     async function loadBank(force=false){
       const now = Date.now();
@@ -1159,7 +1166,7 @@ IMPORTANT:
     }
 
     async function loadTemplateAndItems(templateId, resetRename=true){
-       currentTemplateId = String(templateId || '').trim() || null;
+      currentTemplateId = String(templateId || '').trim() || null;
       if(!templateId){
         currentTemplateId = null;
         currentTemplate = null;
@@ -1204,109 +1211,108 @@ IMPORTANT:
     }
 
     function renderItemsMain(){
-  const list = $("itemsMain");
-  const empty = $("itemsEmptyMain");
+      const list = $("itemsMain");
+      const empty = $("itemsEmptyMain");
 
-  const selId = String(currentTemplateId || $("templateSel")?.value || '').trim();
+      const selId = String(currentTemplateId || $("templateSel")?.value || '').trim();
 
-  // If dropdown has no template selected
-  if(!selId){
-    empty.textContent = 'Select a template to view its items.';
-    empty.style.display = 'block';
-    list.style.display = 'none';
-    list.innerHTML = '';
-    return;
-  }
-
-  const items = currentItems.filter(x=>!x.archived).slice().sort(byOrder);
-
-  if(!items.length){
-    empty.textContent = 'No items yet. Tap “Add Item” to add your first line.';
-    empty.style.display = 'block';
-    list.style.display = 'none';
-    list.innerHTML = '';
-    return;
-  }
-
-  list.innerHTML = '';
-  items.forEach((it, idx)=>{
-    const row=document.createElement('div');
-    row.className='item';
-
-    const top=document.createElement('div');
-    top.className='item-top';
-
-    const txt=document.createElement('div');
-    txt.className='txt';
-
-    const p=document.createElement('p');
-    p.className='label';
-    p.textContent = `${idx+1}. ${it.label || '(blank)'}`;
-    txt.appendChild(p);
-
-    const sub=document.createElement('p');
-    sub.className='sub';
-    sub.textContent = it.notesHint ? it.notesHint : 'Tap to add a short note…';
-    txt.appendChild(sub);
-
-    top.appendChild(txt);
-    row.appendChild(top);
-
-    const expand=document.createElement('div');
-    expand.className='main-expand';
-
-    const hintRow=document.createElement('div');
-    hintRow.className='hint-row';
-
-    const hintInp=document.createElement('input');
-    hintInp.className='input grow';
-    hintInp.placeholder='Short note (optional)…';
-    hintInp.maxLength = HINT_MAX;
-    hintInp.value = it.notesHint || '';
-
-    const saveBtn=document.createElement('button');
-    saveBtn.className='btn btn-primary';
-    saveBtn.type='button';
-    saveBtn.style.minWidth='auto';
-    saveBtn.textContent='Save Note';
-
-    saveBtn.addEventListener('click', async (e)=>{
-      e.stopPropagation();
-      try{
-        setErr(null);
-        await saveNotesHint(it.id, hintInp.value);
-        sub.textContent = (hintInp.value||'').trim() ? (hintInp.value||'').trim() : 'Tap to add a short note…';
-        row.classList.remove('open');
-      }catch(err){
-        console.error(err);
-        setErr('Save note failed.');
+      // If dropdown has no template selected
+      if(!selId){
+        empty.textContent = 'Select a template to view its items.';
+        empty.style.display = 'block';
+        list.style.display = 'none';
+        list.innerHTML = '';
+        return;
       }
-    });
 
-    hintRow.append(hintInp, saveBtn);
+      const items = currentItems.filter(x=>!x.archived).slice().sort(byOrder);
 
-    const help=document.createElement('p');
-    help.className='hint-help';
-    help.textContent = `Example: “Record on dipstick / replace if dirty” (max ${HINT_MAX} chars).`;
-
-    expand.append(hintRow, help);
-    row.appendChild(expand);
-
-    row.addEventListener('click', ()=>{
-      list.querySelectorAll('.item.open').forEach(el=>{ if(el!==row) el.classList.remove('open'); });
-      row.classList.toggle('open');
-      if(row.classList.contains('open')){
-        setTimeout(()=>hintInp.focus(), 30);
+      if(!items.length){
+        empty.textContent = 'No items yet. Tap “Add Item” to add your first line.';
+        empty.style.display = 'block';
+        list.style.display = 'none';
+        list.innerHTML = '';
+        return;
       }
-    });
 
-    list.appendChild(row);
-  });
+      list.innerHTML = '';
+      items.forEach((it, idx)=>{
+        const row=document.createElement('div');
+        row.className='item';
 
-  empty.style.display = 'none';
-  list.style.display = 'grid';
-}
+        const top=document.createElement('div');
+        top.className='item-top';
 
+        const txt=document.createElement('div');
+        txt.className='txt';
+
+        const p=document.createElement('p');
+        p.className='label';
+        p.textContent = `${idx+1}. ${it.label || '(blank)'}`;
+        txt.appendChild(p);
+
+        const sub=document.createElement('p');
+        sub.className='sub';
+        sub.textContent = it.notesHint ? it.notesHint : 'Tap to add a short note…';
+        txt.appendChild(sub);
+
+        top.appendChild(txt);
+        row.appendChild(top);
+
+        const expand=document.createElement('div');
+        expand.className='main-expand';
+
+        const hintRow=document.createElement('div');
+        hintRow.className='hint-row';
+
+        const hintInp=document.createElement('input');
+        hintInp.className='input grow';
+        hintInp.placeholder='Short note (optional)…';
+        hintInp.maxLength = HINT_MAX;
+        hintInp.value = it.notesHint || '';
+
+        const saveBtn=document.createElement('button');
+        saveBtn.className='btn btn-primary';
+        saveBtn.type='button';
+        saveBtn.style.minWidth='auto';
+        saveBtn.textContent='Save Note';
+
+        saveBtn.addEventListener('click', async (e)=>{
+          e.stopPropagation();
+          try{
+            setErr(null);
+            await saveNotesHint(it.id, hintInp.value);
+            sub.textContent = (hintInp.value||'').trim() ? (hintInp.value||'').trim() : 'Tap to add a short note…';
+            row.classList.remove('open');
+          }catch(err){
+            console.error(err);
+            setErr('Save note failed.');
+          }
+        });
+
+        hintRow.append(hintInp, saveBtn);
+
+        const help=document.createElement('p');
+        help.className='hint-help';
+        help.textContent = `Example: “Record on dipstick / replace if dirty” (max ${HINT_MAX} chars).`;
+
+        expand.append(hintRow, help);
+        row.appendChild(expand);
+
+        row.addEventListener('click', ()=>{
+          list.querySelectorAll('.item.open').forEach(el=>{ if(el!==row) el.classList.remove('open'); });
+          row.classList.toggle('open');
+          if(row.classList.contains('open')){
+            setTimeout(()=>hintInp.focus(), 30);
+          }
+        });
+
+        list.appendChild(row);
+      });
+
+      empty.style.display = 'none';
+      list.style.display = 'grid';
+    }
 
     function openModal(id){
       const el=$(id);
@@ -1841,7 +1847,8 @@ IMPORTANT:
         txt.append(title, sub);
         row.append(dot, txt);
 
-        row.addEventListener('click', ()=>{
+        row.addEventListener('click', (ev)=>{
+          ev.stopPropagation(); // keep dropdown open
           if(equipSelected.has(e.id)) equipSelected.delete(e.id);
           else equipSelected.add(e.id);
           renderEquipChips();
@@ -1951,8 +1958,16 @@ IMPORTANT:
       }
 
       showToast(`Created ${created} Work Orders`);
-      // Keep selections (so you can add more quickly) — but update count/button
       syncWOButtons();
+
+      // bounce back after toast starts
+      setTimeout(()=>{
+        if(document.referrer){
+          history.back();
+        }else{
+          location.assign('/Farm-vista/index.html');
+        }
+      }, 1200);
     }
 
     // ---------------------------
@@ -1974,17 +1989,16 @@ IMPORTANT:
       });
 
       $("templateSel").addEventListener('change', async ()=>{
-  const id = String($("templateSel").value || '').trim();
+        const id = String($("templateSel").value || '').trim();
 
-  // Immediately reflect selection in UI even before async loads finish
-  currentTemplateId = id || null;
-  setTemplateUIState();
-  renderItemsMain();
-  syncWOCardVisibility();
+        // Immediately reflect selection in UI even before async loads finish
+        currentTemplateId = id || null;
+        setTemplateUIState();
+        renderItemsMain();
+        syncWOCardVisibility();
 
-  await loadTemplateAndItems(id, true);
-});
-
+        await loadTemplateAndItems(id, true);
+      });
 
       $("btnNewTemplate").addEventListener('click', ()=>{
         $("tplName").value = '';
@@ -2167,6 +2181,10 @@ IMPORTANT:
 
       // Phase 2: picker open/close + search
       $("equipPickerBox").addEventListener('click', toggleEquipPanel);
+
+      // keep dropdown open when clicking inside the panel
+      $("equipPanel").addEventListener('click', (ev)=>ev.stopPropagation());
+
       document.addEventListener('click', (e)=>{
         const box = $("equipPicker");
         if(!equipPanelOpen) return;
@@ -2205,7 +2223,6 @@ IMPORTANT:
       renderItemsMain();
       syncWOCardVisibility();
     }
-
 
     // replace stub with the real function reference (so hoisting isn't confusing)
     renderEquipPanel = function(){
@@ -2251,7 +2268,8 @@ IMPORTANT:
         txt.append(title, sub);
         row.append(dot, txt);
 
-        row.addEventListener('click', ()=>{
+        row.addEventListener('click', (ev)=>{
+          ev.stopPropagation(); // keep dropdown open
           if(equipSelected.has(e.id)) equipSelected.delete(e.id);
           else equipSelected.add(e.id);
           renderEquipChips();
