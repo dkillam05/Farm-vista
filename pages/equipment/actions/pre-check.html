@@ -1,15 +1,22 @@
 <!-- =========================================================
 /Farm-vista/pages/equipment/actions/pre-check.html  (FULL FILE)
 Seasonal Pre-Check Items (Templates + Simple Checklist)
-Rev: 2025-12-17a
+Rev: 2025-12-17b
 
-- Route: /Farm-vista/pages/equipment/actions/pre-check.html?type=tractor
-- For implements: supports implementType filter (auto-populated from equipment collection)
-- Stores templates in Firestore:
-    seasonal_precheck_templates (docs)
-      - equipmentType, seasonYear, implementType(optional), title, archived, createdAt, updatedAt
-    seasonal_precheck_templates/{templateId}/items (subcollection)
-      - label, order, archived, createdAt, updatedAt
+NEW IN THIS REV:
+- Global item library (bank) in Firestore: seasonal_precheck_item_bank
+- Add Item is a dropdown from bank + "Add New…" option
+- New bank items are Title Case and char-limited (48)
+- Template items can store a short "notesHint" (expand row to edit)
+- Checklist displays notesHint under each item
+
+Data model:
+  seasonal_precheck_templates (docs)
+    - equipmentType, seasonYear, implementType(optional), title, archived, createdAt, updatedAt
+  seasonal_precheck_templates/{templateId}/items (subcollection)
+    - bankId(optional), label, labelLower, order, notesHint(optional), archived, createdAt, updatedAt
+  seasonal_precheck_item_bank (docs)
+    - label, labelLower, archived, createdAt, updatedAt
 ========================================================= -->
 <!doctype html>
 <html lang="en">
@@ -200,19 +207,23 @@ Rev: 2025-12-17a
       display:grid;
       gap:8px;
     }
+
     .item{
-      display:flex;
-      align-items:flex-start;
-      gap:10px;
       padding:10px 12px;
       border:1px solid var(--border);
       border-radius:12px;
       background:var(--card-surface,var(--surface));
     }
+    .item-top{
+      display:flex;
+      align-items:flex-start;
+      gap:10px;
+    }
     .item .chk{
       width:22px; height:22px;
       margin-top:2px;
       accent-color: var(--brand);
+      flex:0 0 auto;
     }
     .item .txt{
       flex:1 1 auto;
@@ -226,6 +237,7 @@ Rev: 2025-12-17a
       margin:4px 0 0 0;
       font-size:13px;
       color:var(--muted,#67706B);
+      white-space:pre-wrap;
     }
     .item .right{
       display:flex;
@@ -251,6 +263,28 @@ Rev: 2025-12-17a
       border-radius:12px;
       color:var(--muted,#67706B);
       background:var(--surface);
+    }
+
+    /* Expand editor (notes hint) */
+    .expand{
+      margin-top:10px;
+      padding-top:10px;
+      border-top:1px dashed var(--border);
+      display:none;
+      gap:8px;
+    }
+    .item.open .expand{ display:grid; }
+    .hint-row{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+    .hint-row .grow{ flex:1 1 auto; min-width:220px; }
+    .hint-help{
+      font-size:13px;
+      color:var(--muted,#67706B);
+      margin:0;
     }
 
     /* Modal */
@@ -310,6 +344,14 @@ Rev: 2025-12-17a
     }
     @media (max-width:720px){
       .grid2{ grid-template-columns:1fr; }
+    }
+
+    .counter{
+      font-size:12px;
+      color:var(--muted,#67706B);
+      font-weight:900;
+      text-align:right;
+      margin-top:6px;
     }
 
     .toast{
@@ -428,11 +470,28 @@ Rev: 2025-12-17a
           <button class="close" type="button" data-close>Close</button>
         </header>
         <div class="content">
+
+          <!-- ADD ITEM: bank dropdown + add new -->
           <div class="field">
-            <label for="newItemText">Add Item</label>
-            <div class="actions" style="gap:8px;">
-              <input id="newItemText" class="input" placeholder="e.g., Check tire pressure" style="flex:1 1 auto; min-width:220px;">
-              <button id="btnAddItem" class="btn btn-primary" type="button" style="min-width:auto;">Add</button>
+            <label for="bankPick">Add Item</label>
+
+            <div class="grid2">
+              <div>
+                <select id="bankPick" class="select"></select>
+                <p class="hint-help" style="margin:6px 0 0 0;">
+                  Pick from the global list (saves time), or choose “Add New…” to create a new one.
+                </p>
+              </div>
+
+              <div id="newBankWrap" style="display:none;">
+                <input id="newBankText" class="input" placeholder="Add new item… (Title Case)" maxlength="48"/>
+                <div class="counter"><span id="newBankCount">0</span>/48</div>
+              </div>
+            </div>
+
+            <div class="actions" style="gap:8px; margin-top:10px;">
+              <button id="btnAddFromBank" class="btn btn-primary" type="button" style="min-width:auto;">Add</button>
+              <button id="btnRefreshBank" class="btn" type="button" style="min-width:auto;">Refresh List</button>
             </div>
           </div>
 
@@ -453,8 +512,8 @@ Rev: 2025-12-17a
     import {
       ready,
       getFirestore,
-      collection, doc, setDoc, updateDoc, deleteDoc, getDoc, getDocs,
-      query, where, orderBy,
+      collection, doc, setDoc, updateDoc, getDoc, getDocs,
+      query, where, orderBy, limit,
       serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
@@ -463,14 +522,23 @@ Rev: 2025-12-17a
     const TYPE = String(qs.get('type') || 'tractor').toLowerCase();
 
     // Firestore collections
-    const COL_TPL = 'seasonal_precheck_templates';
+    const COL_TPL  = 'seasonal_precheck_templates';
+    const COL_BANK = 'seasonal_precheck_item_bank';
+
+    // Limits
+    const BANK_MAX = 48;      // bank label max chars
+    const HINT_MAX = 90;      // notes hint max chars
 
     // UI state
     let db = null;
     let currentTemplateId = null;
     let currentTemplate = null; // {id, title, seasonYear, equipmentType, implementType}
-    let currentItems = [];      // [{id,label,order,archived}]
+    let currentItems = [];      // [{id,label,order,archived,notesHint,bankId}]
     let checklistState = new Map(); // itemId => boolean
+
+    // Bank state
+    let bankItems = [];         // [{id,label,labelLower}]
+    let bankLoadedAt = 0;
 
     function showToast(msg="Saved."){
       const t=$("toast");
@@ -547,7 +615,6 @@ Rev: 2025-12-17a
         });
       }catch(e){
         console.warn('implementType load failed:', e);
-        // Still usable with manual/all filter
       }
     }
 
@@ -567,12 +634,36 @@ Rev: 2025-12-17a
       return { seasonYear, implementType };
     }
 
+    /* ===== Title Case + limits ===== */
+    function clampStr(s, max){
+      const t = String(s||'');
+      return t.length > max ? t.slice(0, max) : t;
+    }
+
+    function toTitleCase(s){
+      // Simple Title Case: each word capitalized, keeps acronyms reasonably
+      const raw = String(s||'').trim().replace(/\s+/g,' ');
+      if(!raw) return '';
+      return raw.split(' ').map(w=>{
+        const word = w.trim();
+        if(!word) return '';
+        // keep all-caps short tokens (PTO, DEF, A/C)
+        if(word.length <= 4 && word.toUpperCase() === word && /[A-Z]/.test(word)) return word;
+        const lower = word.toLowerCase();
+        return lower.charAt(0).toUpperCase() + lower.slice(1);
+      }).join(' ');
+    }
+
+    function normalizeLabelLower(s){
+      return String(s||'').trim().toLowerCase();
+    }
+
+    /* ===== Templates ===== */
     async function queryTemplates(){
       const { seasonYear, implementType } = readFilters();
 
-      // Preferred (index-backed) query; fallback to client filtering if needed.
       try{
-        let qRef = query(
+        const qRef = query(
           collection(db, COL_TPL),
           where('equipmentType','==',TYPE),
           where('seasonYear','==',seasonYear),
@@ -580,20 +671,11 @@ Rev: 2025-12-17a
           orderBy('archived'),
           orderBy('title')
         );
-
-        // Firestore doesn't allow conditional where additions after orderBy easily in this pattern
-        // So for implementType, we will filter client-side unless you want a dedicated index later.
         const snap = await getDocs(qRef);
-        const out = [];
+        const all = [];
         snap.forEach(d=>{
           const v=d.data()||{};
-          if(TYPE==='implement'){
-            const it = v.implementType ? String(v.implementType) : null;
-            if(implementType && it !== implementType) return;
-            if(!implementType && it) return; // when "All Implement Types" selected, show only non-typed? (we want all)
-            // ^ change behavior: when implementType empty, show all templates (typed or not)
-          }
-          out.push({
+          all.push({
             id:d.id,
             title:String(v.title||'').trim() || '(Untitled)',
             seasonYear:Number(v.seasonYear||seasonYear),
@@ -602,30 +684,13 @@ Rev: 2025-12-17a
           });
         });
 
-        // Fix implementType behavior: if implementType is empty, we want ALL templates for implements (typed + untyped)
-        if(TYPE==='implement' && !implementType){
-          // re-run without filtering typed out
-          const all = [];
-          snap.forEach(d=>{
-            const v=d.data()||{};
-            all.push({
-              id:d.id,
-              title:String(v.title||'').trim() || '(Untitled)',
-              seasonYear:Number(v.seasonYear||seasonYear),
-              equipmentType:String(v.equipmentType||TYPE),
-              implementType: v.implementType ? String(v.implementType) : null
-            });
-          });
-          all.sort((a,b)=>a.title.localeCompare(b.title));
-          return all;
+        if(TYPE==='implement' && implementType){
+          return all.filter(t => (t.implementType||null) === implementType).sort((a,b)=>a.title.localeCompare(b.title));
         }
-
-        out.sort((a,b)=>a.title.localeCompare(b.title));
-        return out;
+        return all.sort((a,b)=>a.title.localeCompare(b.title));
       }catch(e){
         console.warn('Template query fell back:', e);
 
-        // Fallback: fetch and filter manually
         const snap = await getDocs(collection(db, COL_TPL));
         const out = [];
         snap.forEach(d=>{
@@ -633,10 +698,10 @@ Rev: 2025-12-17a
           if(String(v.equipmentType||'').toLowerCase() !== TYPE) return;
           if(Number(v.seasonYear||0) !== seasonYear) return;
           if(v.archived) return;
-          if(TYPE==='implement'){
+
+          if(TYPE==='implement' && implementType){
             const it = v.implementType ? String(v.implementType) : null;
-            if(implementType && it !== implementType) return;
-            // if implementType empty => allow all
+            if(it !== implementType) return;
           }
           out.push({
             id:d.id,
@@ -662,7 +727,6 @@ Rev: 2025-12-17a
       templates.forEach(t=>{
         const o=document.createElement('option');
         o.value=t.id;
-
         if(TYPE==='implement'){
           const it = t.implementType ? ` (${t.implementType})` : '';
           o.textContent = `${t.title}${it}`;
@@ -723,7 +787,6 @@ Rev: 2025-12-17a
     }
 
     async function loadItems(templateId){
-      // Preferred ordered query; fallback to manual sort
       try{
         const snap = await getDocs(query(
           collection(db, COL_TPL, templateId, 'items'),
@@ -736,9 +799,11 @@ Rev: 2025-12-17a
           const v=d.data()||{};
           out.push({
             id:d.id,
+            bankId: v.bankId ? String(v.bankId) : null,
             label:String(v.label||'').trim(),
             order:Number(v.order||0),
-            archived: !!v.archived
+            archived: !!v.archived,
+            notesHint: String(v.notesHint||'').trim() || ''
           });
         });
         return out;
@@ -750,9 +815,11 @@ Rev: 2025-12-17a
           const v=d.data()||{};
           out.push({
             id:d.id,
+            bankId: v.bankId ? String(v.bankId) : null,
             label:String(v.label||'').trim(),
             order:Number(v.order||0),
-            archived: !!v.archived
+            archived: !!v.archived,
+            notesHint: String(v.notesHint||'').trim() || ''
           });
         });
         out.sort((a,b)=>a.order-b.order);
@@ -760,6 +827,7 @@ Rev: 2025-12-17a
       }
     }
 
+    /* ===== Checklist UI ===== */
     function clearChecklistUI(){
       checklistState.clear();
       $("btnClearChecks").disabled = true;
@@ -771,7 +839,7 @@ Rev: 2025-12-17a
     function renderChecklist(){
       const list = $("checklist");
       const empty = $("checklistEmpty");
-      const items = currentItems.filter(x=>!x.archived);
+      const items = currentItems.filter(x=>!x.archived).sort((a,b)=>(a.order||0)-(b.order||0));
 
       if(!currentTemplateId || !items.length){
         clearChecklistUI();
@@ -782,6 +850,9 @@ Rev: 2025-12-17a
       items.forEach(it=>{
         const row=document.createElement('div');
         row.className='item';
+
+        const top=document.createElement('div');
+        top.className='item-top';
 
         const cb=document.createElement('input');
         cb.type='checkbox';
@@ -795,12 +866,22 @@ Rev: 2025-12-17a
 
         const txt=document.createElement('div');
         txt.className='txt';
+
         const p=document.createElement('p');
         p.className='label';
         p.textContent = it.label || '(blank)';
         txt.appendChild(p);
 
-        row.append(cb, txt);
+        if(it.notesHint){
+          const sub=document.createElement('p');
+          sub.className='sub';
+          sub.textContent = it.notesHint;
+          txt.appendChild(sub);
+        }
+
+        top.append(cb, txt);
+        row.appendChild(top);
+
         list.appendChild(row);
       });
 
@@ -828,79 +909,178 @@ Rev: 2025-12-17a
       });
     });
 
-    async function createTemplate(){
-      const name = String($("tplName").value||'').trim();
-      if(!name){ alert('Enter a template name.'); return; }
+    /* ===== Bank (global items) ===== */
+    async function loadBank(force=false){
+      const now = Date.now();
+      if(!force && bankItems.length && (now - bankLoadedAt) < 60_000) return bankItems;
 
-      const { seasonYear, implementType } = readFilters();
-      const ref = doc(collection(db, COL_TPL));
-      const data = {
-        equipmentType: TYPE,
-        seasonYear,
-        title: name,
-        titleLower: name.toLowerCase(),
-        archived: false,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      };
-      if(TYPE==='implement'){
-        // If implementType is selected, bind template to that type; if not selected, make it "general"
-        if(implementType) data.implementType = implementType;
+      try{
+        const snap = await getDocs(query(
+          collection(db, COL_BANK),
+          where('archived','!=',true),
+          orderBy('archived'),
+          orderBy('label')
+        ));
+        const out=[];
+        snap.forEach(d=>{
+          const v=d.data()||{};
+          const label = String(v.label||'').trim();
+          if(!label) return;
+          out.push({ id:d.id, label, labelLower: String(v.labelLower||'').trim() || label.toLowerCase() });
+        });
+        bankItems = out.sort((a,b)=>a.label.localeCompare(b.label));
+        bankLoadedAt = now;
+        return bankItems;
+      }catch(e){
+        console.warn('Bank query fell back:', e);
+        const snap = await getDocs(collection(db, COL_BANK));
+        const out=[];
+        snap.forEach(d=>{
+          const v=d.data()||{};
+          if(v.archived) return;
+          const label = String(v.label||'').trim();
+          if(!label) return;
+          out.push({ id:d.id, label, labelLower: String(v.labelLower||'').trim() || label.toLowerCase() });
+        });
+        bankItems = out.sort((a,b)=>a.label.localeCompare(b.label));
+        bankLoadedAt = now;
+        return bankItems;
       }
-
-      await setDoc(ref, data);
-      showToast('Template created');
-      closeModal('tplModal');
-
-      await refreshTemplates();
-      $("templateSel").value = ref.id;
-      await loadTemplateAndItems(ref.id);
     }
 
-    async function addItem(){
-      if(!currentTemplateId){ return; }
-      const txt = String($("newItemText").value||'').trim();
-      if(!txt){ return; }
+    function renderBankPick(){
+      const sel = $("bankPick");
+      sel.innerHTML = '';
 
-      const nextOrder = (currentItems.reduce((m,x)=>Math.max(m, x.order||0), 0) || 0) + 10;
+      const o0=document.createElement('option');
+      o0.value='';
+      o0.textContent='— Select from list —';
+      sel.appendChild(o0);
+
+      bankItems.forEach(it=>{
+        const o=document.createElement('option');
+        o.value=it.id;
+        o.textContent=it.label;
+        sel.appendChild(o);
+      });
+
+      const oNew=document.createElement('option');
+      oNew.value='__new__';
+      oNew.textContent='Add New…';
+      sel.appendChild(oNew);
+
+      sel.value = '';
+      syncNewBankUI();
+    }
+
+    function syncNewBankUI(){
+      const isNew = $("bankPick").value === '__new__';
+      $("newBankWrap").style.display = isNew ? '' : 'none';
+      $("btnAddFromBank").textContent = isNew ? 'Create + Add' : 'Add';
+      if(isNew){
+        setTimeout(()=>$("newBankText").focus(), 40);
+      }
+    }
+
+    async function ensureBankItem(labelRaw){
+      // Title Case + clamp
+      let label = toTitleCase(labelRaw);
+      label = clampStr(label, BANK_MAX);
+      label = label.trim();
+      if(!label) return null;
+
+      const labelLower = normalizeLabelLower(label);
+
+      // If already in local cache, return it
+      const hit = bankItems.find(x => x.labelLower === labelLower);
+      if(hit) return hit;
+
+      // Soft check in Firestore by labelLower (fallback to create if missing)
+      try{
+        const snap = await getDocs(query(collection(db, COL_BANK), where('labelLower','==',labelLower), limit(1)));
+        if(!snap.empty){
+          const d = snap.docs[0];
+          const v = d.data()||{};
+          const out = { id:d.id, label: String(v.label||label).trim(), labelLower: String(v.labelLower||labelLower).trim() || labelLower };
+          bankItems.push(out);
+          bankItems.sort((a,b)=>a.label.localeCompare(b.label));
+          return out;
+        }
+      }catch(e){
+        console.warn('bank labelLower lookup failed:', e);
+      }
+
+      // Create new bank item
+      const ref = doc(collection(db, COL_BANK));
+      await setDoc(ref, {
+        label,
+        labelLower,
+        archived:false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      const created = { id: ref.id, label, labelLower };
+      bankItems.push(created);
+      bankItems.sort((a,b)=>a.label.localeCompare(b.label));
+      return created;
+    }
+
+    /* ===== Template item add/remove/reorder/notes ===== */
+    function nextOrder(){
+      const max = currentItems.reduce((m,x)=>Math.max(m, x.order||0), 0) || 0;
+      return max + 10;
+    }
+
+    async function addTemplateItemFromBank(bankId, label){
+      if(!currentTemplateId) return;
+
+      // Prevent duplicates inside template (by labelLower)
+      const labelLower = normalizeLabelLower(label);
+      if(currentItems.some(x => normalizeLabelLower(x.label) === labelLower && !x.archived)){
+        showToast('Already in list');
+        return;
+      }
+
       const ref = doc(collection(db, COL_TPL, currentTemplateId, 'items'));
       await setDoc(ref, {
-        label: txt,
-        order: nextOrder,
-        archived: false,
+        bankId: bankId || null,
+        label,
+        labelLower,
+        order: nextOrder(),
+        notesHint: '',
+        archived:false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
 
-      $("newItemText").value = '';
       currentItems = await loadItems(currentTemplateId);
-      renderItemsEditor();
       $("btnStart").disabled = currentItems.filter(x=>!x.archived).length === 0;
-      showToast('Item added');
+      showToast('Added');
+      renderItemsEditor();
     }
 
     async function archiveItem(itemId){
       if(!currentTemplateId || !itemId) return;
       await updateDoc(doc(db, COL_TPL, currentTemplateId, 'items', itemId), {
-        archived: true,
+        archived:true,
         updatedAt: serverTimestamp()
       });
       currentItems = await loadItems(currentTemplateId);
-      renderItemsEditor();
       $("btnStart").disabled = currentItems.filter(x=>!x.archived).length === 0;
-      showToast('Item removed');
+      showToast('Removed');
+      renderItemsEditor();
     }
 
     async function reorderItem(itemId, dir){
-      const idx = currentItems.findIndex(x=>x.id===itemId);
+      const items = currentItems.filter(x=>!x.archived).sort((a,b)=>(a.order||0)-(b.order||0));
+      const idx = items.findIndex(x=>x.id===itemId);
       if(idx<0) return;
       const target = idx + dir;
-      if(target<0 || target>=currentItems.length) return;
+      if(target<0 || target>=items.length) return;
 
-      const a = currentItems[idx];
-      const b = currentItems[target];
+      const a = items[idx];
+      const b = items[target];
 
-      // swap orders
       const aOrder = a.order || 0;
       const bOrder = b.order || 0;
 
@@ -912,6 +1092,18 @@ Rev: 2025-12-17a
       currentItems = await loadItems(currentTemplateId);
       renderItemsEditor();
       showToast('Reordered');
+    }
+
+    async function saveNotesHint(itemId, hintRaw){
+      const hint = clampStr(String(hintRaw||'').trim(), HINT_MAX);
+      await updateDoc(doc(db, COL_TPL, currentTemplateId, 'items', itemId), {
+        notesHint: hint,
+        updatedAt: serverTimestamp()
+      });
+      // update local
+      const it = currentItems.find(x=>x.id===itemId);
+      if(it) it.notesHint = hint;
+      showToast('Saved note');
     }
 
     function renderItemsEditor(){
@@ -933,6 +1125,10 @@ Rev: 2025-12-17a
       items.forEach((it, i)=>{
         const row=document.createElement('div');
         row.className='item';
+        row.dataset.id = it.id;
+
+        const top=document.createElement('div');
+        top.className='item-top';
 
         const txt=document.createElement('div');
         txt.className='txt';
@@ -940,6 +1136,18 @@ Rev: 2025-12-17a
         p.className='label';
         p.textContent = it.label || '(blank)';
         txt.appendChild(p);
+
+        if(it.notesHint){
+          const sub=document.createElement('p');
+          sub.className='sub';
+          sub.textContent = it.notesHint;
+          txt.appendChild(sub);
+        }else{
+          const sub=document.createElement('p');
+          sub.className='sub';
+          sub.textContent = 'Click to add a short note…';
+          txt.appendChild(sub);
+        }
 
         const right=document.createElement('div');
         right.className='right';
@@ -949,26 +1157,97 @@ Rev: 2025-12-17a
         up.type='button';
         up.textContent='↑';
         up.disabled = (i===0);
-        up.addEventListener('click', ()=>reorderItem(it.id, -1));
+        up.addEventListener('click', (e)=>{ e.stopPropagation(); reorderItem(it.id, -1); });
 
         const dn=document.createElement('button');
         dn.className='btn mini';
         dn.type='button';
         dn.textContent='↓';
         dn.disabled = (i===items.length-1);
-        dn.addEventListener('click', ()=>reorderItem(it.id, +1));
+        dn.addEventListener('click', (e)=>{ e.stopPropagation(); reorderItem(it.id, +1); });
 
         const rm=document.createElement('button');
         rm.className='btn mini danger';
         rm.type='button';
         rm.textContent='Remove';
-        rm.addEventListener('click', ()=>archiveItem(it.id));
+        rm.addEventListener('click', (e)=>{ e.stopPropagation(); archiveItem(it.id); });
 
         right.append(up, dn, rm);
+        top.append(txt, right);
+        row.appendChild(top);
 
-        row.append(txt, right);
+        // Expand editor (notes hint)
+        const expand=document.createElement('div');
+        expand.className='expand';
+
+        const hintRow=document.createElement('div');
+        hintRow.className='hint-row';
+
+        const hintInp=document.createElement('input');
+        hintInp.className='input grow';
+        hintInp.placeholder='Short note (optional)…';
+        hintInp.maxLength = HINT_MAX;
+        hintInp.value = it.notesHint || '';
+
+        const saveBtn=document.createElement('button');
+        saveBtn.className='btn btn-primary mini';
+        saveBtn.type='button';
+        saveBtn.textContent='Save';
+        saveBtn.addEventListener('click', (e)=>{
+          e.stopPropagation();
+          saveNotesHint(it.id, hintInp.value);
+        });
+
+        hintRow.append(hintInp, saveBtn);
+
+        const help=document.createElement('p');
+        help.className='hint-help';
+        help.textContent = `Example: “Record on dipstick / replace if dirty” (max ${HINT_MAX} chars).`;
+
+        expand.append(hintRow, help);
+        row.appendChild(expand);
+
+        // Click row to toggle expand
+        row.addEventListener('click', ()=>{
+          // close others (keeps it clean)
+          list.querySelectorAll('.item.open').forEach(el=>{ if(el!==row) el.classList.remove('open'); });
+          row.classList.toggle('open');
+          if(row.classList.contains('open')){
+            setTimeout(()=>hintInp.focus(), 40);
+          }
+        });
+
         list.appendChild(row);
       });
+    }
+
+    /* ===== Template create ===== */
+    async function createTemplate(){
+      const name = String($("tplName").value||'').trim();
+      if(!name){ alert('Enter a template name.'); return; }
+
+      const { seasonYear, implementType } = readFilters();
+      const ref = doc(collection(db, COL_TPL));
+      const data = {
+        equipmentType: TYPE,
+        seasonYear,
+        title: name,
+        titleLower: name.toLowerCase(),
+        archived: false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+      if(TYPE==='implement'){
+        if(implementType) data.implementType = implementType;
+      }
+
+      await setDoc(ref, data);
+      showToast('Template created');
+      closeModal('tplModal');
+
+      await refreshTemplates();
+      $("templateSel").value = ref.id;
+      await loadTemplateAndItems(ref.id);
     }
 
     /* ===== Wiring ===== */
@@ -1004,35 +1283,89 @@ Rev: 2025-12-17a
         }
       });
 
-      $("btnEditItems").addEventListener('click', ()=>{
+      $("btnEditItems").addEventListener('click', async ()=>{
         if(!currentTemplateId) return;
         $("itemsTitle").textContent = `Edit Items • ${currentTemplate?.title || ''}`;
-        $("newItemText").value = '';
-        renderItemsEditor();
-        openModal('itemsModal');
-        setTimeout(()=>$("newItemText").focus(), 60);
-      });
 
-      $("btnAddItem").addEventListener('click', async ()=>{
         try{
           setErr(null);
-          await addItem();
+          await loadBank(false);
+          renderBankPick();
+        }catch(e){
+          console.warn(e);
+        }
+
+        $("newBankText").value = '';
+        $("newBankCount").textContent = '0';
+        renderItemsEditor();
+        openModal('itemsModal');
+      });
+
+      $("bankPick").addEventListener('change', syncNewBankUI);
+
+      $("newBankText").addEventListener('input', ()=>{
+        // Force Title Case live + clamp
+        const raw = $("newBankText").value;
+        const tc  = toTitleCase(raw);
+        const cl  = clampStr(tc, BANK_MAX);
+        if(cl !== raw) $("newBankText").value = cl;
+        $("newBankCount").textContent = String(($("newBankText").value||'').length);
+      });
+
+      $("btnRefreshBank").addEventListener('click', async ()=>{
+        try{
+          setErr(null);
+          await loadBank(true);
+          renderBankPick();
+          showToast('List refreshed');
         }catch(e){
           console.error(e);
-          setErr('Add item failed.');
+          setErr('Refresh failed.');
         }
       });
 
-      $("newItemText").addEventListener('keydown', async (e)=>{
-        if(e.key === 'Enter'){
-          e.preventDefault();
-          try{
-            setErr(null);
-            await addItem();
-          }catch(err){
-            console.error(err);
-            setErr('Add item failed.');
+      $("btnAddFromBank").addEventListener('click', async ()=>{
+        if(!currentTemplateId){ return; }
+
+        try{
+          setErr(null);
+
+          const pick = $("bankPick").value || '';
+          if(!pick){
+            alert('Pick an item (or Add New…).');
+            return;
           }
+
+          if(pick === '__new__'){
+            const raw = $("newBankText").value || '';
+            const created = await ensureBankItem(raw);
+            if(!created){
+              alert('Enter a new item name.');
+              return;
+            }
+
+            // rebuild dropdown so it appears, then add it to template
+            await loadBank(true);
+            renderBankPick();
+            $("bankPick").value = created.id;
+            syncNewBankUI();
+            $("newBankText").value = '';
+            $("newBankCount").textContent = '0';
+
+            await addTemplateItemFromBank(created.id, created.label);
+            return;
+          }
+
+          const hit = bankItems.find(x=>x.id===pick);
+          if(!hit){
+            alert('That item was not found. Refresh list.');
+            return;
+          }
+          await addTemplateItemFromBank(hit.id, hit.label);
+
+        }catch(e){
+          console.error(e);
+          setErr('Add item failed.');
         }
       });
 
@@ -1058,6 +1391,9 @@ Rev: 2025-12-17a
       await loadImplementTypes();
 
       $("tplApplies").textContent = tplAppliesText();
+
+      // Preload bank quietly (not blocking)
+      try{ await loadBank(false); }catch{}
 
       await refreshTemplates();
       wire();
