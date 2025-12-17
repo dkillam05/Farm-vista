@@ -1,20 +1,19 @@
 <!-- =========================================================
 /Farm-vista/pages/equipment/actions/pre-check.html  (FULL FILE)
-Pre-Check Templates (Builder Only — No Year)
-Rev: 2025-12-17j
+Pre-Check Templates (Builder Only — No Year) + WO Builder Card
+Rev: 2025-12-17k
 
-Goal of this rev:
-- Remove ALL Firestore "query requires an index" console errors.
-Approach:
-- NO composite-index-triggering queries:
-  - Avoid mixing where(...) + orderBy(...) on different fields.
-- Use ONLY where(...) filters, then sort client-side in JS.
+NEW in this rev (Phase 2):
+- Adds a SECOND hero card (does NOT change the existing builder card).
+- When a template is selected AND it has items:
+   • Loads ACTIVE equipment for the current category (?type=tractor, etc.)
+   • Multi-select picker (fast pick 10+)
+   • Creates one Work Order per selected equipment using the template items
 
-Still supports:
-- Title Case while typing + on save (Template + New Item)
-- Notes on items (tap item in main list to save)
-- Add / reorder / remove / notes in modal
-- Implement type filter (implements only)
+IMPORTANT:
+- Work Orders collection name is set to COL_WO = 'equipment_work_orders'.
+  If your WO collection is named differently, change that constant ONLY.
+- No Firestore composite-index queries are introduced; equipment/WOs are created, equipment list is loaded via safe client filtering.
 ========================================================= -->
 <!doctype html>
 <html lang="en">
@@ -64,6 +63,8 @@ Still supports:
       margin:0 auto;
       padding:clamp(14px,3vw,22px);
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap));
+      display:grid;
+      gap:14px; /* space between hero cards */
     }
 
     .hero{
@@ -153,6 +154,7 @@ Still supports:
       -webkit-appearance:none;
       appearance:none;
       min-width:150px;
+      user-select:none;
     }
     .btn-primary{
       border-color:transparent;
@@ -430,13 +432,157 @@ Still supports:
       .rename-row .input{ flex:1 1 240px; min-width:0; }
       .rename-row .btn{ flex:1 1 140px; min-width:0; }
     }
+
+    /* ============================
+       Phase 2: Equipment Multi-Select
+       ============================ */
+    .wo-card{ display:none; }
+    .wo-card.show{ display:block; }
+
+    .picker{
+      position:relative;
+    }
+
+    .picker-box{
+      min-height:var(--ctl-h);
+      border:1px solid var(--border);
+      border-radius:var(--ctl-radius);
+      background:var(--card-surface,var(--surface));
+      padding:8px 10px;
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      align-items:center;
+      cursor:pointer;
+    }
+
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:6px 10px;
+      border:1px solid var(--border);
+      border-radius:999px;
+      background:var(--surface);
+      font-weight:900;
+      font-size:13px;
+      color:var(--text);
+      max-width:100%;
+    }
+    .chip .x{
+      border:none;
+      background:transparent;
+      font:inherit;
+      font-weight:1000;
+      cursor:pointer;
+      padding:0 2px;
+      color:var(--muted,#67706B);
+    }
+
+    .picker-placeholder{
+      color:var(--muted,#67706B);
+      font-weight:900;
+      padding:6px 4px;
+    }
+
+    .picker-caret{
+      margin-left:auto;
+      font-weight:1000;
+      color:var(--muted,#67706B);
+      padding:0 4px;
+    }
+
+    .picker-panel{
+      position:absolute;
+      left:0;
+      right:0;
+      top:calc(100% + 6px);
+      z-index:50;
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:0 16px 34px rgba(0,0,0,.18);
+      overflow:hidden;
+      display:none;
+    }
+    .picker-panel.open{ display:block; }
+
+    .picker-panel-head{
+      padding:10px;
+      border-bottom:1px solid var(--border);
+      display:grid;
+      gap:8px;
+    }
+
+    .picker-actions{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+    .picker-actions .btn{
+      min-width:auto;
+      padding:8px 10px;
+      border-radius:10px;
+      font-weight:1000;
+    }
+
+    .picker-list{
+      max-height:300px;
+      overflow:auto;
+      padding:8px;
+      display:grid;
+      gap:6px;
+    }
+
+    .pick-row{
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:10px 10px;
+      background:var(--card-surface,var(--surface));
+      display:flex;
+      gap:10px;
+      align-items:flex-start;
+      cursor:pointer;
+    }
+    .pick-row:hover{ background:var(--hover,rgba(0,0,0,.04)); }
+
+    .pick-dot{
+      width:18px; height:18px;
+      border-radius:6px;
+      border:2px solid var(--border);
+      flex:0 0 auto;
+      margin-top:2px;
+      display:grid;
+      place-items:center;
+      font-weight:1000;
+      font-size:12px;
+      color:var(--brand);
+    }
+    .pick-row.selected .pick-dot{
+      border-color: var(--brand);
+      background: rgba(59,126,70,.10);
+    }
+
+    .pick-text{ flex:1 1 auto; min-width:0; }
+    .pick-title{ margin:0; font-weight:1000; }
+    .pick-sub{ margin:4px 0 0 0; font-size:12px; color:var(--muted,#67706B); }
+
+    @media (max-width:520px){
+      .picker-panel{ position:fixed; left:10px; right:10px; top:90px; }
+      .picker-list{ max-height:55vh; }
+    }
   </style>
 </head>
 
 <body>
   <fv-shell>
     <div class="wrap">
-      <section class="hero">
+
+      <!-- =======================
+           HERO 1 (existing builder)
+           ======================= -->
+      <section class="hero" id="heroBuilder">
         <header class="hero-head">
           <div class="icon" aria-hidden="true">🧰</div>
           <div>
@@ -502,8 +648,65 @@ Still supports:
 
         </div>
       </section>
+
+      <!-- =======================
+           HERO 2 (NEW — WO Builder)
+           ======================= -->
+      <section class="hero wo-card" id="heroWO">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🧾</div>
+          <div>
+            <h1>Create Work Orders From Template</h1>
+            <p class="muted" id="woSub">Pick active equipment and create pre-season inspection work orders.</p>
+          </div>
+        </header>
+
+        <div class="body">
+          <div class="field">
+            <label for="equipSearch">Active Equipment</label>
+
+            <div class="picker" id="equipPicker">
+              <div class="picker-box" id="equipPickerBox" role="button" aria-haspopup="listbox" aria-expanded="false">
+                <div id="equipChips" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;"></div>
+                <div class="picker-placeholder" id="equipPlaceholder">Select equipment…</div>
+                <div class="picker-caret" aria-hidden="true">▾</div>
+              </div>
+
+              <div class="picker-panel" id="equipPanel">
+                <div class="picker-panel-head">
+                  <input id="equipSearch" class="input" placeholder="Search equipment…" />
+                  <div class="picker-actions">
+                    <button id="btnEquipSelectAll" class="btn" type="button">Select All</button>
+                    <button id="btnEquipClear" class="btn btn-quiet" type="button">Clear</button>
+                    <span class="pill" id="equipCountPill">0 selected</span>
+                  </div>
+                </div>
+                <div class="picker-list" id="equipList" role="listbox" aria-multiselectable="true"></div>
+              </div>
+            </div>
+
+            <p class="hint-help" style="margin:8px 0 0 0;">
+              This creates one Work Order per selected unit using the template items.
+            </p>
+          </div>
+
+          <div class="panel">
+            <div class="panel-body" style="gap:12px;">
+              <div class="panel-top-actions" style="justify-content:flex-end;">
+                <button id="btnCreateWO" class="btn btn-primary" type="button" disabled>Create Work Orders</button>
+              </div>
+
+              <div class="empty" id="woHint">
+                Select equipment above, then tap <b>Create Work Orders</b>.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
     </div>
 
+    <!-- Template modal -->
     <div id="tplModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="tplTitle">
       <div class="backdrop" data-close></div>
       <div class="sheet">
@@ -530,6 +733,7 @@ Still supports:
       </div>
     </div>
 
+    <!-- Items modal -->
     <div id="itemsModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="itemsTitle">
       <div class="backdrop" data-close></div>
       <div class="sheet">
@@ -596,6 +800,8 @@ Still supports:
 
     const COL_TPL  = 'seasonal_precheck_templates';
     const COL_BANK = 'seasonal_precheck_item_bank';
+    const COL_EQUIP = 'equipment';
+    const COL_WO = 'equipment_work_orders'; // <-- CHANGE ONLY THIS if your WO collection name differs
 
     const BANK_MAX = 48;
     const HINT_MAX = 90;
@@ -608,6 +814,12 @@ Still supports:
 
     let bankItems = [];
     let bankLoadedAt = 0;
+
+    // Phase 2 state
+    let equipAll = [];          // [{id, type, status, name, makeName, modelName, year, serial, implementType}]
+    let equipActive = [];       // filtered by TYPE + status active (+ implementType if implement)
+    let equipSelected = new Set(); // ids
+    let equipPanelOpen = false;
 
     function showToast(msg="Saved."){
       const t=$("toast");
@@ -653,10 +865,12 @@ Still supports:
       sel.innerHTML = `<option value="">— All Implement Types —</option>`;
 
       try{
-        const snap = await getDocs(query(collection(db,'equipment'), where('type','==','implement')));
+        // index-free: read equipment and filter client-side
+        const snap = await getDocs(collection(db, COL_EQUIP));
         const set = new Set();
         snap.forEach(d=>{
           const v=d.data()||{};
+          if(String(v.type||'').toLowerCase() !== 'implement') return;
           const t = String(v.implementType||'').trim();
           if(t) set.add(t);
         });
@@ -778,16 +992,11 @@ Still supports:
       }
     }
 
-    /* ======================================================
-       INDEX-FREE QUERIES:
-       - Use ONLY where(...) filters.
-       - Sort client-side.
-       ====================================================== */
-
+    // ---------------------------
+    // INDEX-FREE READS (unchanged)
+    // ---------------------------
     async function queryTemplates(){
       const { implementType } = readFilters();
-
-      // Only where filters -> no composite index required
       const qRef = query(
         collection(db, COL_TPL),
         where('equipmentType','==',TYPE),
@@ -901,6 +1110,8 @@ Still supports:
       renderItemsMain();
       setTemplateUIState();
       setRenameMode(false);
+
+      syncWOCardVisibility(); // Phase 2: show/hide card
     }
 
     async function refreshTemplates(keepSelection=false){
@@ -924,6 +1135,7 @@ Still supports:
         renderItemsMain();
         setTemplateUIState();
         if(resetRename) setRenameMode(false);
+        syncWOCardVisibility();
         return;
       }
 
@@ -950,6 +1162,8 @@ Still supports:
         renderItemsMain();
         setTemplateUIState();
         if(resetRename) setRenameMode(false);
+
+        syncWOCardVisibility(); // Phase 2: show/hide card + load equipment when needed
       }catch(e){
         console.error(e);
         setErr('Failed to load template/items.');
@@ -1052,9 +1266,6 @@ Still supports:
 
         list.appendChild(row);
       });
-
-      empty.style.display = 'none';
-      list.style.display = 'grid';
     }
 
     function openModal(id){
@@ -1120,7 +1331,6 @@ Still supports:
       const hit = bankItems.find(x => x.labelLower === labelLower);
       if(hit) return hit;
 
-      // optional exact lookup (single-field equality -> index-free)
       try{
         const snap = await getDocs(query(collection(db, COL_BANK), where('labelLower','==',labelLower), limit(1)));
         if(!snap.empty){
@@ -1177,6 +1387,7 @@ Still supports:
       showToast('Added');
       renderItemsEditor();
       renderItemsMain();
+      syncWOCardVisibility();
     }
 
     async function archiveItem(itemId){
@@ -1189,6 +1400,7 @@ Still supports:
       showToast('Removed');
       renderItemsEditor();
       renderItemsMain();
+      syncWOCardVisibility();
     }
 
     async function reorderItem(itemId, dir){
@@ -1370,10 +1582,355 @@ Still supports:
       await loadTemplateAndItems(ref.id, true);
     }
 
+    // ======================================================
+    // PHASE 2: ACTIVE EQUIPMENT + MULTI-SELECT + WO CREATION
+    // ======================================================
+
+    function statusIsActive(v){
+      const s = String(v||'').trim().toLowerCase();
+      return s === 'active';
+    }
+
+    function serialLast6(serial){
+      const s = String(serial||'').trim();
+      if(!s) return '';
+      return s.length <= 6 ? s : s.slice(-6);
+    }
+
+    function equipmentDisplayName(e){
+      // Prefer existing e.name, but append last6 if we can (useful)
+      const base = String(e.name || '').trim();
+      const last6 = serialLast6(e.serial);
+      if(base && last6){
+        // If base already contains (#...), don't double it
+        if(base.includes('(#')) return base;
+        return `${base} (#${last6})`;
+      }
+      if(base) return base;
+
+      const mk = String(e.makeName||'').trim();
+      const md = String(e.modelName||'').trim();
+      if(mk && md && last6) return `${mk} ${md} (#${last6})`;
+      if(mk && md) return `${mk} ${md}`;
+      return e.id || '(equipment)';
+    }
+
+    async function loadActiveEquipmentIfNeeded(){
+      // Load once per page (then filter dynamically by type/implementType)
+      if(equipAll.length) return;
+
+      const snap = await getDocs(collection(db, COL_EQUIP));
+      const out = [];
+      snap.forEach(d=>{
+        const v = d.data() || {};
+        out.push({
+          id: d.id,
+          type: String(v.type||'').toLowerCase(),
+          status: v.status,
+          name: v.name || '',
+          makeName: v.makeName || v.make || '',
+          modelName: v.modelName || v.model || '',
+          year: v.year || null,
+          serial: v.serial || '',
+          implementType: v.implementType ? String(v.implementType) : null
+        });
+      });
+      equipAll = out;
+    }
+
+    function filterActiveEquipment(){
+      const { implementType } = readFilters();
+
+      equipActive = equipAll
+        .filter(e => String(e.type||'').toLowerCase() === TYPE)
+        .filter(e => statusIsActive(e.status))
+        .filter(e => {
+          if(TYPE !== 'implement') return true;
+          if(!implementType) return true;
+          return String(e.implementType||'') === implementType;
+        })
+        .sort((a,b)=>equipmentDisplayName(a).localeCompare(equipmentDisplayName(b)));
+    }
+
+    function syncWOCardVisibility(){
+      const hasTemplate = !!currentTemplateId;
+      const hasItems = Array.isArray(currentItems) && currentItems.filter(x=>!x.archived).length > 0;
+
+      const hero = $("heroWO");
+      if(hasTemplate && hasItems){
+        hero.classList.add('show');
+
+        // Update subtitle to include template name
+        const tn = currentTemplate?.title || '(Template)';
+        $("woSub").textContent = `Template: ${tn} — Pick active ${niceType(TYPE)} and create pre-season inspection work orders.`;
+
+        // If we haven't loaded equipment yet, load now
+        (async()=>{
+          try{
+            await loadActiveEquipmentIfNeeded();
+            filterActiveEquipment();
+            renderEquipPanel(); // build list
+            renderEquipChips();
+            syncWOButtons();
+          }catch(e){
+            console.error(e);
+            // Keep card visible, but show no list
+            $("equipList").innerHTML = `<div class="empty">Failed to load equipment.</div>`;
+          }
+        })();
+
+      }else{
+        hero.classList.remove('show');
+        closeEquipPanel();
+        equipSelected.clear();
+        renderEquipChips();
+        syncWOButtons();
+      }
+    }
+
+    function openEquipPanel(){
+      equipPanelOpen = true;
+      $("equipPanel").classList.add('open');
+      $("equipPickerBox").setAttribute('aria-expanded','true');
+      $("equipSearch").value = '';
+      renderEquipPanel();
+      setTimeout(()=>$("equipSearch").focus(), 30);
+    }
+
+    function closeEquipPanel(){
+      equipPanelOpen = false;
+      $("equipPanel").classList.remove('open');
+      $("equipPickerBox").setAttribute('aria-expanded','false');
+    }
+
+    function toggleEquipPanel(){
+      if(equipPanelOpen) closeEquipPanel();
+      else openEquipPanel();
+    }
+
+    function renderEquipChips(){
+      const chips = $("equipChips");
+      const ph = $("equipPlaceholder");
+      chips.innerHTML = '';
+
+      const ids = [...equipSelected];
+      if(!ids.length){
+        ph.style.display = '';
+      }else{
+        ph.style.display = 'none';
+      }
+
+      // Render up to 6 chips, then "+N more"
+      const maxChips = 6;
+      const showIds = ids.slice(0, maxChips);
+      showIds.forEach(id=>{
+        const e = equipActive.find(x=>x.id===id) || equipAll.find(x=>x.id===id);
+        const label = e ? equipmentDisplayName(e) : id;
+
+        const c = document.createElement('span');
+        c.className = 'chip';
+        c.title = label;
+        c.textContent = label;
+
+        const x = document.createElement('button');
+        x.className = 'x';
+        x.type = 'button';
+        x.textContent = '×';
+        x.addEventListener('click', (ev)=>{
+          ev.stopPropagation();
+          equipSelected.delete(id);
+          renderEquipChips();
+          renderEquipPanel();
+          syncWOButtons();
+        });
+
+        c.appendChild(x);
+        chips.appendChild(c);
+      });
+
+      if(ids.length > maxChips){
+        const more = document.createElement('span');
+        more.className = 'chip';
+        more.textContent = `+${ids.length - maxChips} more`;
+        chips.appendChild(more);
+      }
+
+      $("equipCountPill").textContent = `${ids.length} selected`;
+    }
+
+    function renderEquipPanel(){
+      const q = String($("equipSearch").value||'').trim().toLowerCase();
+      const list = $("equipList");
+      list.innerHTML = '';
+
+      const filtered = equipActive.filter(e=>{
+        if(!q) return true;
+        const hay = `${equipmentDisplayName(e)} ${e.makeName||''} ${e.modelName||''} ${e.serial||''}`.toLowerCase();
+        return hay.includes(q);
+      });
+
+      if(!filtered.length){
+        list.innerHTML = `<div class="empty">No active ${niceType(TYPE)} found.</div>`;
+        renderEquipChips();
+        return;
+      }
+
+      filtered.forEach(e=>{
+        const row = document.createElement('div');
+        row.className = 'pick-row' + (equipSelected.has(e.id) ? ' selected' : '');
+        row.setAttribute('role','option');
+        row.setAttribute('aria-selected', equipSelected.has(e.id) ? 'true' : 'false');
+
+        const dot = document.createElement('div');
+        dot.className = 'pick-dot';
+        dot.textContent = equipSelected.has(e.id) ? '✓' : '';
+
+        const txt = document.createElement('div');
+        txt.className = 'pick-text';
+
+        const title = document.createElement('p');
+        title.className = 'pick-title';
+        title.textContent = equipmentDisplayName(e);
+
+        const sub = document.createElement('p');
+        sub.className = 'pick-sub';
+        const yr = e.year ? ` • ${e.year}` : '';
+        const it = (TYPE==='implement' && e.implementType) ? ` • ${e.implementType}` : '';
+        sub.textContent = `${String(e.makeName||'').trim()} ${String(e.modelName||'').trim()}${yr}${it}`.trim() || '—';
+
+        txt.append(title, sub);
+        row.append(dot, txt);
+
+        row.addEventListener('click', ()=>{
+          if(equipSelected.has(e.id)) equipSelected.delete(e.id);
+          else equipSelected.add(e.id);
+          renderEquipChips();
+          renderEquipPanel();
+          syncWOButtons();
+        });
+
+        list.appendChild(row);
+      });
+
+      renderEquipChips();
+    }
+
+    function syncWOButtons(){
+      const ids = equipSelected.size;
+      const canCreate = !!currentTemplateId && ids > 0 && currentItems.filter(x=>!x.archived).length > 0;
+      $("btnCreateWO").disabled = !canCreate;
+    }
+
+    function getUserDisplay(){
+      // Try to get display name/email from your global context if present
+      const email = window.FVUserContext?.get?.()?.email
+        || window.FVUserContext?.get?.()?.userEmail
+        || window.FVUserContext?.get?.()?.uid
+        || window.FV?.user?.email
+        || '';
+      const name = window.FVUserContext?.get?.()?.name
+        || window.FVUserContext?.get?.()?.displayName
+        || window.FV?.user?.displayName
+        || '';
+      return {
+        email: String(email||'').trim(),
+        name: String(name||'').trim()
+      };
+    }
+
+    async function createWorkOrdersFromTemplate(){
+      if(!currentTemplateId) return;
+      const items = currentItems.filter(x=>!x.archived).slice().sort(byOrder);
+      if(!items.length) return;
+
+      const ids = [...equipSelected];
+      if(!ids.length) return;
+
+      const { email, name } = getUserDisplay();
+      const whoName = name || (email ? email : 'FarmVista');
+      const templateTitle = currentTemplate?.title || 'Pre-Season Inspection';
+
+      // Build lineItems from template items
+      const templateLineItems = items.map(it=>({
+        completed: false,
+        completedAt: null,
+        completedByEmployeeId: null,
+        completedByEmployeeName: null,
+        notes: it.notesHint || '',
+        origin: 'precheck_template',
+        partsNeeded: null,
+        serviceRequestId: null,
+        serviceTopic: 'inspection',
+        serviceTopicOther: null,
+        submittedByName: whoName
+      }));
+
+      // Create one WO per equipment
+      let created = 0;
+
+      for(const equipId of ids){
+        const e = equipActive.find(x=>x.id===equipId) || equipAll.find(x=>x.id===equipId);
+        if(!e) continue;
+
+        const mk = String(e.makeName||'').trim();
+        const md = String(e.modelName||'').trim();
+        const last6 = serialLast6(e.serial) || '';
+        const equipName = (mk && md && last6) ? `${mk} ${md} (#${last6})` : (equipmentDisplayName(e) || '');
+
+        const woRef = doc(collection(db, COL_WO));
+        await setDoc(woRef, {
+          // Core status fields (matching your examples)
+          status: 'pending',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          completedAt: null,
+          completedByEmployeeId: null,
+          completedByEmployeeName: null,
+          completionMeter: null,
+          meterLabel: null,
+          meterType: null,
+          summaryNotes: null,
+
+          // Equipment snapshot fields (matching your examples)
+          equipmentId: e.id,
+          equipmentType: TYPE,
+          equipmentMake: mk || null,
+          equipmentModel: md || null,
+          equipmentName: equipName || null,
+          equipmentSerialLast6: last6 || null,
+
+          // Template linkage
+          precheckTemplateId: currentTemplateId,
+          precheckTemplateTitle: templateTitle,
+
+          // Work order content
+          lineItems: templateLineItems.map(x=>({ ...x })) // deep copy
+        });
+
+        created++;
+      }
+
+      showToast(`Created ${created} Work Orders`);
+      // Keep selections (so you can add more quickly) — but update count/button
+      syncWOButtons();
+    }
+
+    // ---------------------------
+    // Wiring
+    // ---------------------------
     function wire(){
       $("implementType").addEventListener('change', async ()=>{
         $("tplApplies").textContent = tplAppliesText();
         await refreshTemplates(false);
+
+        // Re-filter equipment if card is showing
+        if($("heroWO").classList.contains('show')){
+          filterActiveEquipment();
+          equipSelected.clear();
+          renderEquipPanel();
+          renderEquipChips();
+          syncWOButtons();
+        }
       });
 
       $("templateSel").addEventListener('change', async ()=>{
@@ -1559,9 +2116,110 @@ Still supports:
         }
       });
 
+      // Phase 2: picker open/close + search
+      $("equipPickerBox").addEventListener('click', toggleEquipPanel);
+      document.addEventListener('click', (e)=>{
+        const box = $("equipPicker");
+        if(!equipPanelOpen) return;
+        if(box && !box.contains(e.target)){
+          closeEquipPanel();
+        }
+      });
+      $("equipSearch").addEventListener('input', renderEquipPanel);
+
+      $("btnEquipSelectAll").addEventListener('click', ()=>{
+        equipActive.forEach(e=>equipSelected.add(e.id));
+        renderEquipChips();
+        renderEquipPanel();
+        syncWOButtons();
+      });
+      $("btnEquipClear").addEventListener('click', ()=>{
+        equipSelected.clear();
+        renderEquipChips();
+        renderEquipPanel();
+        syncWOButtons();
+      });
+
+      $("btnCreateWO").addEventListener('click', async ()=>{
+        try{
+          $("btnCreateWO").disabled = true;
+          await createWorkOrdersFromTemplate();
+        }catch(e){
+          console.error(e);
+          setErr('Failed to create work orders.');
+        }finally{
+          syncWOButtons();
+        }
+      });
+
       setTemplateUIState();
       renderItemsMain();
+      syncWOCardVisibility();
     }
+
+    // Helper to build list once (called by syncWOCardVisibility)
+    function renderEquipPanel(){
+      // placeholder; overwritten earlier - keep for safety
+      // (real implementation is above)
+    }
+
+    // replace stub with the real function reference (so hoisting isn't confusing)
+    renderEquipPanel = function(){
+      const q = String($("equipSearch").value||'').trim().toLowerCase();
+      const list = $("equipList");
+      list.innerHTML = '';
+
+      const filtered = equipActive.filter(e=>{
+        if(!q) return true;
+        const hay = `${equipmentDisplayName(e)} ${e.makeName||''} ${e.modelName||''} ${e.serial||''}`.toLowerCase();
+        return hay.includes(q);
+      });
+
+      if(!filtered.length){
+        list.innerHTML = `<div class="empty">No active ${niceType(TYPE)} found.</div>`;
+        renderEquipChips();
+        return;
+      }
+
+      filtered.forEach(e=>{
+        const row = document.createElement('div');
+        row.className = 'pick-row' + (equipSelected.has(e.id) ? ' selected' : '');
+        row.setAttribute('role','option');
+        row.setAttribute('aria-selected', equipSelected.has(e.id) ? 'true' : 'false');
+
+        const dot = document.createElement('div');
+        dot.className = 'pick-dot';
+        dot.textContent = equipSelected.has(e.id) ? '✓' : '';
+
+        const txt = document.createElement('div');
+        txt.className = 'pick-text';
+
+        const title = document.createElement('p');
+        title.className = 'pick-title';
+        title.textContent = equipmentDisplayName(e);
+
+        const sub = document.createElement('p');
+        sub.className = 'pick-sub';
+        const yr = e.year ? ` • ${e.year}` : '';
+        const it = (TYPE==='implement' && e.implementType) ? ` • ${e.implementType}` : '';
+        sub.textContent = `${String(e.makeName||'').trim()} ${String(e.modelName||'').trim()}${yr}${it}`.trim() || '—';
+
+        txt.append(title, sub);
+        row.append(dot, txt);
+
+        row.addEventListener('click', ()=>{
+          if(equipSelected.has(e.id)) equipSelected.delete(e.id);
+          else equipSelected.add(e.id);
+          renderEquipChips();
+          renderEquipPanel();
+          syncWOButtons();
+        });
+
+        list.appendChild(row);
+      });
+
+      renderEquipChips();
+    };
 
     (async()=>{
       await ready;
