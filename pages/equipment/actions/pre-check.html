@@ -1,0 +1,1068 @@
+<!-- =========================================================
+/Farm-vista/pages/equipment/actions/pre-check.html  (FULL FILE)
+Seasonal Pre-Check Items (Templates + Simple Checklist)
+Rev: 2025-12-17a
+
+- Route: /Farm-vista/pages/equipment/actions/pre-check.html?type=tractor
+- For implements: supports implementType filter (auto-populated from equipment collection)
+- Stores templates in Firestore:
+    seasonal_precheck_templates (docs)
+      - equipmentType, seasonYear, implementType(optional), title, archived, createdAt, updatedAt
+    seasonal_precheck_templates/{templateId}/items (subcollection)
+      - label, order, archived, createdAt, updatedAt
+========================================================= -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Seasonal Pre-Check Items</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- PWA + icons (absolute paths) -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
+  <!-- Theme + global CSS -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Ensure fv-shell (global header/footer/menu) -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <style>
+    :root{
+      --card-max: 1100px;
+      --page-bottom-gap: 86px;
+      --brand: var(--green,#3B7E46);
+      --danger:#b00020;
+
+      --ctl-h:48px;
+      --ctl-pad-x:12px;
+      --ctl-pad-y:12px;
+      --ctl-radius:12px;
+    }
+
+    .wrap{
+      max-width:var(--card-max);
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap));
+    }
+
+    /* Card */
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+      contain:layout paint;
+    }
+    .hero-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      border-bottom:1px solid var(--border);
+      background:var(--surface);
+    }
+    .hero-head .icon{
+      width:24px; height:24px;
+      display:grid; place-items:center;
+      color:var(--brand);
+      font-size:18px;
+    }
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+    .muted{ color:var(--muted,#67706B); margin:4px 0 0 0; }
+
+    .body{ padding:16px; display:grid; gap:14px; }
+
+    .row{
+      display:grid;
+      gap:10px;
+      grid-template-columns:1fr 1fr;
+      align-items:end;
+    }
+    @media (max-width:900px){
+      .row{ grid-template-columns:1fr; }
+    }
+
+    .field label{
+      display:block;
+      font-weight:800;
+      margin:0 0 6px 0;
+    }
+
+    .input,.select,.textarea{
+      width:100%;
+      font:inherit;
+      font-size:16px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:var(--ctl-radius);
+      padding:var(--ctl-pad-y) var(--ctl-pad-x);
+      box-sizing:border-box;
+      outline:none;
+    }
+    .input,.select{ height:var(--ctl-h); line-height:calc(var(--ctl-h) - 2px); }
+    .textarea{ min-height:110px; resize:vertical; line-height:1.35; }
+
+    .actions{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      padding:10px 14px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      font-weight:800;
+      cursor:pointer;
+      color:var(--text)!important;
+      text-decoration:none;
+      -webkit-appearance:none;
+      appearance:none;
+      min-width:160px;
+    }
+    .btn-primary{
+      border-color:transparent;
+      background:var(--brand);
+      color:#fff!important;
+    }
+    .btn-quiet{
+      background:transparent;
+      color:var(--text)!important;
+    }
+    .btn[disabled]{ opacity:.6; cursor:not-allowed; }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:6px 10px;
+      border:1px solid var(--border);
+      border-radius:999px;
+      background:var(--surface);
+      font-weight:800;
+      font-size:13px;
+      color:var(--text);
+    }
+
+    /* Panels */
+    .panel{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      overflow:hidden;
+    }
+    .panel-head{
+      padding:12px 14px;
+      border-bottom:1px solid var(--border);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .panel-head .title{
+      font-weight:900;
+    }
+    .panel-body{
+      padding:12px 14px;
+      display:grid;
+      gap:10px;
+    }
+
+    .list{
+      display:grid;
+      gap:8px;
+    }
+    .item{
+      display:flex;
+      align-items:flex-start;
+      gap:10px;
+      padding:10px 12px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:var(--card-surface,var(--surface));
+    }
+    .item .chk{
+      width:22px; height:22px;
+      margin-top:2px;
+      accent-color: var(--brand);
+    }
+    .item .txt{
+      flex:1 1 auto;
+      min-width:0;
+    }
+    .item .txt .label{
+      font-weight:900;
+      margin:0;
+    }
+    .item .txt .sub{
+      margin:4px 0 0 0;
+      font-size:13px;
+      color:var(--muted,#67706B);
+    }
+    .item .right{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex:0 0 auto;
+    }
+
+    .mini{
+      min-width:auto;
+      padding:8px 10px;
+      border-radius:10px;
+      font-weight:900;
+    }
+    .danger{
+      border-color: rgba(176,0,32,.35);
+      color: var(--danger)!important;
+    }
+
+    .empty{
+      padding:14px;
+      border:1px dashed var(--border);
+      border-radius:12px;
+      color:var(--muted,#67706B);
+      background:var(--surface);
+    }
+
+    /* Modal */
+    .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:100000; }
+    .modal.show{ display:flex; }
+    .backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.45); }
+
+    .sheet{
+      position:relative;
+      width:min(100vw, 760px);
+      max-width:92vw;
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:14px;
+      box-shadow:0 20px 40px rgba(0,0,0,.35);
+      display:flex;
+      flex-direction:column;
+      overflow:hidden;
+      max-height:90vh;
+    }
+
+    .sheet header{
+      padding:12px 14px;
+      border-bottom:1px solid var(--border);
+      font-weight:900;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      color:var(--text);
+      flex:0 0 auto;
+    }
+
+    .sheet header .close{
+      border:none;
+      background:transparent;
+      font:inherit;
+      font-weight:900;
+      cursor:pointer;
+      padding:8px 10px;
+      border-radius:10px;
+      color:var(--text);
+    }
+    .sheet header .close:hover{ background:var(--hover,rgba(0,0,0,.06)); }
+
+    .sheet .content{
+      padding:12px 14px;
+      display:grid;
+      gap:12px;
+      overflow:auto;
+    }
+
+    .grid2{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+    }
+    @media (max-width:720px){
+      .grid2{ grid-template-columns:1fr; }
+    }
+
+    .toast{
+      position:fixed;
+      left:50%;
+      bottom:calc(env(safe-area-inset-bottom,0px) + 72px);
+      transform:translateX(-50%);
+      background:var(--brand);
+      color:#fff;
+      padding:10px 14px;
+      border-radius:10px;
+      box-shadow:0 6px 20px rgba(0,0,0,.25);
+      z-index:99999;
+      display:none;
+      font-weight:900;
+    }
+    .toast.show{ display:block; animation:fadeout 4s forwards; }
+    @keyframes fadeout{ 0%{opacity:1} 82%{opacity:1} 100%{opacity:0} }
+  </style>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">✅</div>
+          <div>
+            <h1 id="hTitle">Seasonal Pre-Check Items</h1>
+            <p class="muted" id="hSub">Build a reusable checklist template by category and year, then run it as a simple checklist.</p>
+          </div>
+        </header>
+
+        <div class="body">
+          <div class="row">
+            <div class="field">
+              <label for="seasonYear">Season Year</label>
+              <select id="seasonYear" class="select"></select>
+            </div>
+
+            <div class="field" id="implTypeWrap" style="display:none;">
+              <label for="implementType">Implement Type</label>
+              <select id="implementType" class="select"></select>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label for="templateSel">Template</label>
+              <select id="templateSel" class="select"></select>
+            </div>
+
+            <div class="field">
+              <label>&nbsp;</label>
+              <div class="actions">
+                <button id="btnNewTemplate" class="btn btn-primary" type="button">New Template</button>
+                <button id="btnEditItems" class="btn" type="button" disabled>Edit Items</button>
+                <button id="btnStart" class="btn" type="button" disabled>Start Checklist</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <div class="title">Current Checklist</div>
+              <div style="display:flex; gap:10px; align-items:center;">
+                <span class="pill" id="pillMeta">—</span>
+                <button id="btnClearChecks" class="btn btn-quiet mini" type="button" disabled>Clear Checks</button>
+              </div>
+            </div>
+
+            <div class="panel-body">
+              <div id="checklistEmpty" class="empty">Pick or create a template, then click <b>Start Checklist</b>.</div>
+              <div id="checklist" class="list" style="display:none;"></div>
+            </div>
+          </div>
+
+          <div id="err" style="display:none; color:var(--danger); font-weight:900;"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Template modal -->
+    <div id="tplModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="tplTitle">
+      <div class="backdrop" data-close></div>
+      <div class="sheet">
+        <header>
+          <div id="tplTitle">New Template</div>
+          <button class="close" type="button" data-close>Close</button>
+        </header>
+        <div class="content">
+          <div class="grid2">
+            <div class="field">
+              <label for="tplName" class="req">Template Name</label>
+              <input id="tplName" class="input" placeholder="e.g., Spring Startup"/>
+            </div>
+            <div class="field">
+              <label>Applies To</label>
+              <div class="pill" id="tplApplies">—</div>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="tplCreate" class="btn btn-primary" type="button">Create Template</button>
+            <button id="tplCancel" class="btn btn-quiet" type="button" data-close>Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Items modal -->
+    <div id="itemsModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="itemsTitle">
+      <div class="backdrop" data-close></div>
+      <div class="sheet">
+        <header>
+          <div id="itemsTitle">Edit Items</div>
+          <button class="close" type="button" data-close>Close</button>
+        </header>
+        <div class="content">
+          <div class="field">
+            <label for="newItemText">Add Item</label>
+            <div class="actions" style="gap:8px;">
+              <input id="newItemText" class="input" placeholder="e.g., Check tire pressure" style="flex:1 1 auto; min-width:220px;">
+              <button id="btnAddItem" class="btn btn-primary" type="button" style="min-width:auto;">Add</button>
+            </div>
+          </div>
+
+          <div id="itemsEmpty" class="empty">No items yet. Add your first line above.</div>
+          <div id="itemsList" class="list" style="display:none;"></div>
+
+          <div class="actions" style="justify-content:flex-end;">
+            <button id="btnCloseItems" class="btn btn-quiet" type="button" data-close>Done</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+  </fv-shell>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection, doc, setDoc, updateDoc, deleteDoc, getDoc, getDocs,
+      query, where, orderBy,
+      serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
+
+    const $ = (id)=>document.getElementById(id);
+    const qs = new URLSearchParams(location.search);
+    const TYPE = String(qs.get('type') || 'tractor').toLowerCase();
+
+    // Firestore collections
+    const COL_TPL = 'seasonal_precheck_templates';
+
+    // UI state
+    let db = null;
+    let currentTemplateId = null;
+    let currentTemplate = null; // {id, title, seasonYear, equipmentType, implementType}
+    let currentItems = [];      // [{id,label,order,archived}]
+    let checklistState = new Map(); // itemId => boolean
+
+    function showToast(msg="Saved."){
+      const t=$("toast");
+      t.textContent = msg;
+      t.classList.remove("show");
+      t.style.display='block';
+      void t.offsetWidth;
+      t.classList.add("show");
+      setTimeout(()=>{ t.classList.remove("show"); t.style.display='none'; }, 3800);
+    }
+
+    function setErr(msg){
+      const el=$("err");
+      if(!msg){
+        el.style.display='none';
+        el.textContent='';
+        return;
+      }
+      el.style.display='block';
+      el.textContent = msg;
+    }
+
+    function niceType(type){
+      return type ? type[0].toUpperCase()+type.slice(1) : 'Equipment';
+    }
+
+    function applyHeader(){
+      $("hTitle").textContent = `${niceType(TYPE)} • Seasonal Pre-Check Items`;
+      $("hSub").textContent = `Build reusable checklist templates for ${niceType(TYPE)} by year${TYPE==='implement' ? ' and implement type' : ''}.`;
+      $("pillMeta").textContent = '—';
+    }
+
+    function buildYearOptions(){
+      const now = new Date().getFullYear();
+      const sel = $("seasonYear");
+      sel.innerHTML = '';
+      for(let y=now+1; y>=now-5; y--){
+        const o=document.createElement('option');
+        o.value=String(y);
+        o.textContent=String(y);
+        if(y===now) o.selected=true;
+        sel.appendChild(o);
+      }
+    }
+
+    async function loadImplementTypes(){
+      const wrap = $("implTypeWrap");
+      const sel  = $("implementType");
+      if(TYPE !== 'implement'){
+        wrap.style.display='none';
+        sel.innerHTML='';
+        return;
+      }
+
+      wrap.style.display='block';
+      sel.innerHTML = `<option value="">— All Implement Types —</option>`;
+
+      // Pull distinct implementType values from equipment docs
+      try{
+        const snap = await getDocs(query(collection(db,'equipment'), where('type','==','implement')));
+        const set = new Set();
+        snap.forEach(d=>{
+          const v=d.data()||{};
+          const t = String(v.implementType||'').trim();
+          if(t) set.add(t);
+        });
+
+        const arr = [...set].sort((a,b)=>a.localeCompare(b));
+        arr.forEach(t=>{
+          const o=document.createElement('option');
+          o.value=t;
+          o.textContent=t;
+          sel.appendChild(o);
+        });
+      }catch(e){
+        console.warn('implementType load failed:', e);
+        // Still usable with manual/all filter
+      }
+    }
+
+    function tplAppliesText(){
+      const year = $("seasonYear").value || '—';
+      const impl = (TYPE==='implement') ? ($("implementType").value || 'All Types') : null;
+      return TYPE==='implement'
+        ? `${niceType(TYPE)} • ${impl} • ${year}`
+        : `${niceType(TYPE)} • ${year}`;
+    }
+
+    function readFilters(){
+      const seasonYear = Number($("seasonYear").value);
+      const implementType = (TYPE==='implement')
+        ? (String($("implementType").value||'').trim() || null)
+        : null;
+      return { seasonYear, implementType };
+    }
+
+    async function queryTemplates(){
+      const { seasonYear, implementType } = readFilters();
+
+      // Preferred (index-backed) query; fallback to client filtering if needed.
+      try{
+        let qRef = query(
+          collection(db, COL_TPL),
+          where('equipmentType','==',TYPE),
+          where('seasonYear','==',seasonYear),
+          where('archived','!=',true),
+          orderBy('archived'),
+          orderBy('title')
+        );
+
+        // Firestore doesn't allow conditional where additions after orderBy easily in this pattern
+        // So for implementType, we will filter client-side unless you want a dedicated index later.
+        const snap = await getDocs(qRef);
+        const out = [];
+        snap.forEach(d=>{
+          const v=d.data()||{};
+          if(TYPE==='implement'){
+            const it = v.implementType ? String(v.implementType) : null;
+            if(implementType && it !== implementType) return;
+            if(!implementType && it) return; // when "All Implement Types" selected, show only non-typed? (we want all)
+            // ^ change behavior: when implementType empty, show all templates (typed or not)
+          }
+          out.push({
+            id:d.id,
+            title:String(v.title||'').trim() || '(Untitled)',
+            seasonYear:Number(v.seasonYear||seasonYear),
+            equipmentType:String(v.equipmentType||TYPE),
+            implementType: v.implementType ? String(v.implementType) : null
+          });
+        });
+
+        // Fix implementType behavior: if implementType is empty, we want ALL templates for implements (typed + untyped)
+        if(TYPE==='implement' && !implementType){
+          // re-run without filtering typed out
+          const all = [];
+          snap.forEach(d=>{
+            const v=d.data()||{};
+            all.push({
+              id:d.id,
+              title:String(v.title||'').trim() || '(Untitled)',
+              seasonYear:Number(v.seasonYear||seasonYear),
+              equipmentType:String(v.equipmentType||TYPE),
+              implementType: v.implementType ? String(v.implementType) : null
+            });
+          });
+          all.sort((a,b)=>a.title.localeCompare(b.title));
+          return all;
+        }
+
+        out.sort((a,b)=>a.title.localeCompare(b.title));
+        return out;
+      }catch(e){
+        console.warn('Template query fell back:', e);
+
+        // Fallback: fetch and filter manually
+        const snap = await getDocs(collection(db, COL_TPL));
+        const out = [];
+        snap.forEach(d=>{
+          const v=d.data()||{};
+          if(String(v.equipmentType||'').toLowerCase() !== TYPE) return;
+          if(Number(v.seasonYear||0) !== seasonYear) return;
+          if(v.archived) return;
+          if(TYPE==='implement'){
+            const it = v.implementType ? String(v.implementType) : null;
+            if(implementType && it !== implementType) return;
+            // if implementType empty => allow all
+          }
+          out.push({
+            id:d.id,
+            title:String(v.title||'').trim() || '(Untitled)',
+            seasonYear:Number(v.seasonYear||seasonYear),
+            equipmentType:String(v.equipmentType||TYPE),
+            implementType: v.implementType ? String(v.implementType) : null
+          });
+        });
+        out.sort((a,b)=>a.title.localeCompare(b.title));
+        return out;
+      }
+    }
+
+    function renderTemplateSelect(templates){
+      const sel = $("templateSel");
+      sel.innerHTML = '';
+      const o0=document.createElement('option');
+      o0.value='';
+      o0.textContent = templates.length ? '— Select Template —' : '— No templates yet —';
+      sel.appendChild(o0);
+
+      templates.forEach(t=>{
+        const o=document.createElement('option');
+        o.value=t.id;
+
+        if(TYPE==='implement'){
+          const it = t.implementType ? ` (${t.implementType})` : '';
+          o.textContent = `${t.title}${it}`;
+        }else{
+          o.textContent = t.title;
+        }
+        sel.appendChild(o);
+      });
+
+      currentTemplateId = null;
+      currentTemplate = null;
+      $("btnEditItems").disabled = true;
+      $("btnStart").disabled = true;
+      clearChecklistUI();
+    }
+
+    async function refreshTemplates(){
+      setErr(null);
+      const templates = await queryTemplates();
+      renderTemplateSelect(templates);
+    }
+
+    async function loadTemplateAndItems(templateId){
+      if(!templateId){
+        currentTemplateId = null;
+        currentTemplate = null;
+        currentItems = [];
+        $("btnEditItems").disabled = true;
+        $("btnStart").disabled = true;
+        clearChecklistUI();
+        return;
+      }
+
+      const tSnap = await getDoc(doc(db, COL_TPL, templateId));
+      if(!tSnap.exists()){
+        showToast('Template not found');
+        await refreshTemplates();
+        return;
+      }
+
+      const v = tSnap.data()||{};
+      currentTemplateId = templateId;
+      currentTemplate = {
+        id: templateId,
+        title: String(v.title||'').trim() || '(Untitled)',
+        seasonYear: Number(v.seasonYear||Number($("seasonYear").value)),
+        equipmentType: String(v.equipmentType||TYPE),
+        implementType: v.implementType ? String(v.implementType) : null
+      };
+
+      currentItems = await loadItems(templateId);
+      $("btnEditItems").disabled = false;
+      $("btnStart").disabled = currentItems.filter(x=>!x.archived).length === 0;
+
+      const meta = tplAppliesText();
+      $("pillMeta").textContent = `${currentTemplate.title} • ${meta}`;
+      clearChecklistUI();
+    }
+
+    async function loadItems(templateId){
+      // Preferred ordered query; fallback to manual sort
+      try{
+        const snap = await getDocs(query(
+          collection(db, COL_TPL, templateId, 'items'),
+          where('archived','!=',true),
+          orderBy('archived'),
+          orderBy('order')
+        ));
+        const out=[];
+        snap.forEach(d=>{
+          const v=d.data()||{};
+          out.push({
+            id:d.id,
+            label:String(v.label||'').trim(),
+            order:Number(v.order||0),
+            archived: !!v.archived
+          });
+        });
+        return out;
+      }catch(e){
+        console.warn('Items query fell back:', e);
+        const snap = await getDocs(collection(db, COL_TPL, templateId, 'items'));
+        const out=[];
+        snap.forEach(d=>{
+          const v=d.data()||{};
+          out.push({
+            id:d.id,
+            label:String(v.label||'').trim(),
+            order:Number(v.order||0),
+            archived: !!v.archived
+          });
+        });
+        out.sort((a,b)=>a.order-b.order);
+        return out.filter(x=>!x.archived);
+      }
+    }
+
+    function clearChecklistUI(){
+      checklistState.clear();
+      $("btnClearChecks").disabled = true;
+      $("checklist").style.display='none';
+      $("checklist").innerHTML='';
+      $("checklistEmpty").style.display='block';
+    }
+
+    function renderChecklist(){
+      const list = $("checklist");
+      const empty = $("checklistEmpty");
+      const items = currentItems.filter(x=>!x.archived);
+
+      if(!currentTemplateId || !items.length){
+        clearChecklistUI();
+        return;
+      }
+
+      list.innerHTML='';
+      items.forEach(it=>{
+        const row=document.createElement('div');
+        row.className='item';
+
+        const cb=document.createElement('input');
+        cb.type='checkbox';
+        cb.className='chk';
+        cb.checked = checklistState.get(it.id) === true;
+
+        cb.addEventListener('change', ()=>{
+          checklistState.set(it.id, cb.checked);
+          $("btnClearChecks").disabled = checklistState.size === 0;
+        });
+
+        const txt=document.createElement('div');
+        txt.className='txt';
+        const p=document.createElement('p');
+        p.className='label';
+        p.textContent = it.label || '(blank)';
+        txt.appendChild(p);
+
+        row.append(cb, txt);
+        list.appendChild(row);
+      });
+
+      empty.style.display='none';
+      list.style.display='grid';
+      $("btnClearChecks").disabled = checklistState.size === 0;
+    }
+
+    /* ===== Modals ===== */
+    function openModal(id){
+      const el=$(id);
+      el.classList.add('show');
+      document.body.style.overflow='hidden';
+    }
+    function closeModal(id){
+      const el=$(id);
+      el.classList.remove('show');
+      document.body.style.overflow='';
+    }
+    document.querySelectorAll('[data-close]').forEach(el=>{
+      el.addEventListener('click', ()=>{
+        const m = el.closest('.modal');
+        if(m) m.classList.remove('show');
+        document.body.style.overflow='';
+      });
+    });
+
+    async function createTemplate(){
+      const name = String($("tplName").value||'').trim();
+      if(!name){ alert('Enter a template name.'); return; }
+
+      const { seasonYear, implementType } = readFilters();
+      const ref = doc(collection(db, COL_TPL));
+      const data = {
+        equipmentType: TYPE,
+        seasonYear,
+        title: name,
+        titleLower: name.toLowerCase(),
+        archived: false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+      if(TYPE==='implement'){
+        // If implementType is selected, bind template to that type; if not selected, make it "general"
+        if(implementType) data.implementType = implementType;
+      }
+
+      await setDoc(ref, data);
+      showToast('Template created');
+      closeModal('tplModal');
+
+      await refreshTemplates();
+      $("templateSel").value = ref.id;
+      await loadTemplateAndItems(ref.id);
+    }
+
+    async function addItem(){
+      if(!currentTemplateId){ return; }
+      const txt = String($("newItemText").value||'').trim();
+      if(!txt){ return; }
+
+      const nextOrder = (currentItems.reduce((m,x)=>Math.max(m, x.order||0), 0) || 0) + 10;
+      const ref = doc(collection(db, COL_TPL, currentTemplateId, 'items'));
+      await setDoc(ref, {
+        label: txt,
+        order: nextOrder,
+        archived: false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+
+      $("newItemText").value = '';
+      currentItems = await loadItems(currentTemplateId);
+      renderItemsEditor();
+      $("btnStart").disabled = currentItems.filter(x=>!x.archived).length === 0;
+      showToast('Item added');
+    }
+
+    async function archiveItem(itemId){
+      if(!currentTemplateId || !itemId) return;
+      await updateDoc(doc(db, COL_TPL, currentTemplateId, 'items', itemId), {
+        archived: true,
+        updatedAt: serverTimestamp()
+      });
+      currentItems = await loadItems(currentTemplateId);
+      renderItemsEditor();
+      $("btnStart").disabled = currentItems.filter(x=>!x.archived).length === 0;
+      showToast('Item removed');
+    }
+
+    async function reorderItem(itemId, dir){
+      const idx = currentItems.findIndex(x=>x.id===itemId);
+      if(idx<0) return;
+      const target = idx + dir;
+      if(target<0 || target>=currentItems.length) return;
+
+      const a = currentItems[idx];
+      const b = currentItems[target];
+
+      // swap orders
+      const aOrder = a.order || 0;
+      const bOrder = b.order || 0;
+
+      await Promise.all([
+        updateDoc(doc(db, COL_TPL, currentTemplateId, 'items', a.id), { order: bOrder, updatedAt: serverTimestamp() }),
+        updateDoc(doc(db, COL_TPL, currentTemplateId, 'items', b.id), { order: aOrder, updatedAt: serverTimestamp() })
+      ]);
+
+      currentItems = await loadItems(currentTemplateId);
+      renderItemsEditor();
+      showToast('Reordered');
+    }
+
+    function renderItemsEditor(){
+      const items = currentItems.filter(x=>!x.archived).sort((a,b)=>(a.order||0)-(b.order||0));
+      const empty = $("itemsEmpty");
+      const list = $("itemsList");
+
+      if(!items.length){
+        empty.style.display='block';
+        list.style.display='none';
+        list.innerHTML='';
+        return;
+      }
+
+      empty.style.display='none';
+      list.style.display='grid';
+      list.innerHTML='';
+
+      items.forEach((it, i)=>{
+        const row=document.createElement('div');
+        row.className='item';
+
+        const txt=document.createElement('div');
+        txt.className='txt';
+        const p=document.createElement('p');
+        p.className='label';
+        p.textContent = it.label || '(blank)';
+        txt.appendChild(p);
+
+        const right=document.createElement('div');
+        right.className='right';
+
+        const up=document.createElement('button');
+        up.className='btn mini';
+        up.type='button';
+        up.textContent='↑';
+        up.disabled = (i===0);
+        up.addEventListener('click', ()=>reorderItem(it.id, -1));
+
+        const dn=document.createElement('button');
+        dn.className='btn mini';
+        dn.type='button';
+        dn.textContent='↓';
+        dn.disabled = (i===items.length-1);
+        dn.addEventListener('click', ()=>reorderItem(it.id, +1));
+
+        const rm=document.createElement('button');
+        rm.className='btn mini danger';
+        rm.type='button';
+        rm.textContent='Remove';
+        rm.addEventListener('click', ()=>archiveItem(it.id));
+
+        right.append(up, dn, rm);
+
+        row.append(txt, right);
+        list.appendChild(row);
+      });
+    }
+
+    /* ===== Wiring ===== */
+    function wire(){
+      $("seasonYear").addEventListener('change', async ()=>{
+        $("tplApplies").textContent = tplAppliesText();
+        await refreshTemplates();
+      });
+
+      $("implementType").addEventListener('change', async ()=>{
+        $("tplApplies").textContent = tplAppliesText();
+        await refreshTemplates();
+      });
+
+      $("templateSel").addEventListener('change', async ()=>{
+        await loadTemplateAndItems($("templateSel").value || '');
+      });
+
+      $("btnNewTemplate").addEventListener('click', ()=>{
+        $("tplName").value = '';
+        $("tplApplies").textContent = tplAppliesText();
+        openModal('tplModal');
+        setTimeout(()=>$("tplName").focus(), 60);
+      });
+
+      $("tplCreate").addEventListener('click', async ()=>{
+        try{
+          setErr(null);
+          await createTemplate();
+        }catch(e){
+          console.error(e);
+          setErr('Template create failed.');
+        }
+      });
+
+      $("btnEditItems").addEventListener('click', ()=>{
+        if(!currentTemplateId) return;
+        $("itemsTitle").textContent = `Edit Items • ${currentTemplate?.title || ''}`;
+        $("newItemText").value = '';
+        renderItemsEditor();
+        openModal('itemsModal');
+        setTimeout(()=>$("newItemText").focus(), 60);
+      });
+
+      $("btnAddItem").addEventListener('click', async ()=>{
+        try{
+          setErr(null);
+          await addItem();
+        }catch(e){
+          console.error(e);
+          setErr('Add item failed.');
+        }
+      });
+
+      $("newItemText").addEventListener('keydown', async (e)=>{
+        if(e.key === 'Enter'){
+          e.preventDefault();
+          try{
+            setErr(null);
+            await addItem();
+          }catch(err){
+            console.error(err);
+            setErr('Add item failed.');
+          }
+        }
+      });
+
+      $("btnStart").addEventListener('click', ()=>{
+        checklistState.clear();
+        renderChecklist();
+        showToast('Checklist started');
+      });
+
+      $("btnClearChecks").addEventListener('click', ()=>{
+        checklistState.clear();
+        renderChecklist();
+        showToast('Cleared');
+      });
+    }
+
+    (async()=>{
+      await ready;
+      db = getFirestore();
+
+      applyHeader();
+      buildYearOptions();
+      await loadImplementTypes();
+
+      $("tplApplies").textContent = tplAppliesText();
+
+      await refreshTemplates();
+      wire();
+
+    })();
+  </script>
+</body>
+</html>
