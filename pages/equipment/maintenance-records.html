@@ -28,7 +28,12 @@
       max-width: var(--card-max);
       margin: 0 auto;
       padding: clamp(14px,3vw,22px);
-      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+      padding-bottom: calc(
+        env(safe-area-inset-bottom,0px)
+        + var(--ftr-h,56px)
+        + var(--page-bottom-gap)
+        + 16px
+      ) !important;
       box-sizing:border-box;
       overflow: visible; /* do not clip dropdowns */
     }
@@ -1131,9 +1136,8 @@
       const typeLabel = info.type ? titleCaseType(info.type) : '—';
 
       const meterLine = d.meterLabel
-  ? (String(d.meterLabel) + ((d.completionMeter != null) ? (': ' + String(d.completionMeter)) : ''))
-  : '—';
-
+        ? (String(d.meterLabel) + ((d.completionMeter != null) ? (': ' + String(d.completionMeter)) : ''))
+        : '—';
 
       const grid = $('.wo-detail-grid', panel);
       grid.innerHTML = `
@@ -1360,7 +1364,6 @@
 
     /* ===========================
        PRINT MODAL + REPORTS
-       (unchanged except removing duplicate # for pre-season line titles)
        =========================== */
 
     let __fvPrintModalLastFocus = null;
@@ -1491,7 +1494,7 @@
       return `${formatDate(a)} – ${formatDate(b)}`;
     }
 
-    function buildSummaryPrintHtml({ company, runStr, runDateOnly, filterSummary, dateRange, counts, grouped }){
+    function buildSummaryPrintHtml({ company, runStr, runDateOnly, filterSummary, dateRange, counts, grouped, preseasonCount }){
       return `<!doctype html>
 <html>
 <head>
@@ -1533,7 +1536,7 @@
     .k{font-size:10px; text-transform:uppercase; letter-spacing:0.10em; color:var(--fv-muted); font-weight:700;}
     .v{font-weight:800; color:var(--fv-text);}
 
-    .kpis{ margin-top:12px; display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px; }
+    .kpis{ margin-top:12px; display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:10px; }
     .kpi{ border:1px solid var(--fv-border); border-radius:12px; padding:9px 10px; background:linear-gradient(135deg, rgba(59,126,70,0.06), #fff); }
     .kpi .lab{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--fv-muted);font-weight:900;}
     .kpi .val{font-size:18px;font-weight:950;margin-top:2px;}
@@ -1544,14 +1547,14 @@
     .equip-card{ border:1px solid var(--fv-border); border-radius:12px; padding:10px 10px 9px; margin-bottom:10px; break-inside:avoid; }
     .equip-name{ font-weight:950; font-size:13px; line-height:1.25; }
     .equip-sub{ margin-top:2px; font-size:11px; color:var(--fv-muted); }
-    .row{ display:flex; flex-wrap:wrap; gap:8px 12px; margin-top:8px; font-size:11px; }
-    .chip{ display:inline-flex; gap:6px; align-items:baseline; padding:3px 8px; border-radius:999px; background:#F3F4F6; border:1px solid #E5E7EB; }
-    .chip b{ font-size:10px; text-transform:uppercase; letter-spacing:0.08em; color:var(--fv-muted); }
 
     .footer{ margin-top:16px; padding-top:10px; border-top:1px solid var(--fv-border); display:flex; justify-content:space-between; gap:12px; font-size:10px; color:var(--fv-muted); line-height:1.3; }
     .footer .l{max-width:65%;}
     .footer .r{text-align:right;}
-    @media (max-width:860px){ .kpis{grid-template-columns:repeat(2, minmax(0,1fr));} .meta{white-space:normal;} }
+    @media (max-width:860px){
+      .kpis{grid-template-columns:repeat(2, minmax(0,1fr));}
+      .meta{white-space:normal;}
+    }
     @media print{
       html,body{background:#fff;padding:0;}
       .page{ max-width:none; border-radius:0; box-shadow:none; padding:12mm 13mm; }
@@ -1587,10 +1590,32 @@
     </div>
 
     <div class="kpis">
-      <div class="kpi"><div class="lab">Work orders</div><div class="val">${counts.total}</div><div class="note">Matching current filters</div></div>
-      <div class="kpi"><div class="lab">Pending</div><div class="val">${counts.pending}</div><div class="note">Open work orders</div></div>
-      <div class="kpi"><div class="lab">In progress</div><div class="val">${counts.ip}</div><div class="note">Currently being worked</div></div>
-      <div class="kpi"><div class="lab">Completed</div><div class="val">${counts.done}</div><div class="note">Completed work orders</div></div>
+      <div class="kpi">
+        <div class="lab">Work orders</div>
+        <div class="val">${counts.total}</div>
+        <div class="note">Matching current filters</div>
+      </div>
+
+      <div class="kpi">
+        <div class="lab">Pending</div>
+        <div class="val">${counts.pending}</div>
+      </div>
+
+      <div class="kpi">
+        <div class="lab">In progress</div>
+        <div class="val">${counts.ip}</div>
+      </div>
+
+      <div class="kpi">
+        <div class="lab">Completed</div>
+        <div class="val">${counts.done}</div>
+      </div>
+
+      <div class="kpi">
+        <div class="lab">Pre-Season Checks</div>
+        <div class="val">${Number(preseasonCount || 0)}</div>
+        <div class="note">From pre-check templates</div>
+      </div>
     </div>
 
     ${grouped.map(([typeKey, equipmentArr]) => {
@@ -1605,31 +1630,10 @@
         </div>
 
         ${equipmentArr.map(e => {
-          const wos = e.workOrders || [];
-          const c = {
-            pending: wos.filter(w=>normalizeStatus(w.data.status)==='pending').length,
-            ip: wos.filter(w=>normalizeStatus(w.data.status)==='in_progress').length,
-            done: wos.filter(w=>normalizeStatus(w.data.status)==='completed').length,
-            total: wos.length
-          };
-          const last = wos[0]?.data?._sortDate ? formatDate(wos[0].data._sortDate) : '';
-          const openItems = wos.reduce((sum,w)=>{
-            const li = Array.isArray(w.data.lineItems) ? w.data.lineItems : [];
-            return sum + li.filter(x=>!x?.completed).length;
-          },0);
-
           return `
             <div class="equip-card">
               <div class="equip-name">${escapeHtml(e.name || 'Equipment')}</div>
               <div class="equip-sub">${escapeHtml([e.make, e.model].filter(Boolean).join(' ') || '')}${e.serial ? ` · Serial: ${escapeHtml(e.serial)}` : ''}</div>
-              <div class="row">
-                <span class="chip"><b>Total</b> <span>${c.total}</span></span>
-                <span class="chip"><b>Pending</b> <span>${c.pending}</span></span>
-                <span class="chip"><b>In progress</b> <span>${c.ip}</span></span>
-                <span class="chip"><b>Completed</b> <span>${c.done}</span></span>
-                <span class="chip"><b>Open items</b> <span>${openItems}</span></span>
-                ${last ? `<span class="chip"><b>Latest</b> <span>${escapeHtml(last)}</span></span>` : ''}
-              </div>
             </div>
           `;
         }).join('')}
@@ -2008,9 +2012,8 @@
               const completedAt = d.completedAt ? formatDateTime(toDateMaybe(d.completedAt)) : '—';
 
               const meterLine = d.meterLabel
-  ? (String(d.meterLabel) + ((d.completionMeter != null) ? (': ' + String(d.completionMeter)) : ''))
-  : '—';
-
+                ? (String(d.meterLabel) + ((d.completionMeter != null) ? (': ' + String(d.completionMeter)) : ''))
+                : '—';
 
               const lineItems = Array.isArray(d.lineItems) ? d.lineItems : [];
               const openCount = lineItems.filter(x=>!x?.completed).length;
@@ -2137,7 +2140,19 @@
       const filterSummary = summarizeFilters();
       const dateRange = computeDateRange(items);
 
-      const html = buildSummaryPrintHtml({ company, runStr, runDateOnly, filterSummary, dateRange, counts, grouped });
+      const preseasonCount = items.filter(wo => isPreSeasonWO(wo.data)).length;
+
+      const html = buildSummaryPrintHtml({
+        company,
+        runStr,
+        runDateOnly,
+        filterSummary,
+        dateRange,
+        counts,
+        grouped,
+        preseasonCount
+      });
+
       const fileName = `equipment_maintenance_summary_${now.toISOString().slice(0,10)}.pdf`;
 
       await printHtml(html, fileName, 'Equipment Maintenance — Summary');
