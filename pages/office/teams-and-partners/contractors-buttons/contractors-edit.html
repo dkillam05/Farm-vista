@@ -38,13 +38,16 @@
     .input{width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
       border:1px solid var(--border);border-radius:10px;padding:12px;outline:none;}
 
-    /* Actions row — ALL buttons one row (wrap on mobile) */
-    .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    /* Actions row — match Employee edit/add (center + wrap nicely) */
+    .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:center}
+
     .btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;
       border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer;}
     .btn[disabled]{opacity:.5;pointer-events:none}
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
-    .btn-accent{border-color:#2F6C3C;background:#E7F1EA;color:#2F6C3C;}
+
+    /* Match Employee: accent button look */
+    .btn-accent{border-color:#2F6C3C;background:#E7F1EA;color:#2F6C3C;width:auto;font-size:17px;font-weight:800;margin-top:0;}
     .btn-quiet{min-width:auto;padding:8px 12px}
 
     /* Autofill neutralize */
@@ -89,6 +92,7 @@
               <input id="lookupEmail" class="input" type="email" placeholder="contact@company.com" required/>
             </div>
             <div class="field" style="display:flex;align-items:flex-end">
+              <!-- Load stays as-is (green) -->
               <button id="btnLoad" class="btn btn-primary" type="button" style="width:100%">Load</button>
             </div>
           </div>
@@ -148,9 +152,14 @@
             <textarea id="notes" class="input" rows="3" placeholder="Rates, insurance, W-9 on file…"></textarea>
           </div>
 
-          <!-- Buttons in a single row -->
+          <!-- Same deal as Edit Employee:
+               - Add Cancel button (neutral) where "Clear" would be
+               - Save becomes neutral (like old Clear)
+               - Save & Resend Invite stays accent
+               - Buttons centered/wrap like Employee pages -->
           <div class="actions">
-            <button id="save" class="btn btn-primary" type="button">Save</button>
+            <button id="clear" class="btn" type="button">Cancel</button>
+            <button id="save" class="btn" type="button">Save</button>
             <button id="saveInvite" class="btn btn-accent" type="button">Save &amp; Resend Invite</button>
           </div>
         </div>
@@ -194,7 +203,7 @@
     };
     const setBusy = on => {
       busy=!!on;
-      ["save","saveInvite","btnLoad","perm"].forEach(id=>{const b=$(id); if(b) b.disabled=on;});
+      ["save","saveInvite","btnLoad","perm","clear"].forEach(id=>{const b=$(id); if(b) b.disabled=on;});
     };
 
     const digitsOnly=s=>String(s||'').replace(/\D+/g,'');
@@ -383,6 +392,35 @@
       }
       if(value){ sel.value = value; }
     }
+
+    function clearForm(){
+      $("company").value='';
+      $("contact").value='';
+      $("phone").value='';
+      $("email").value='';
+      $("service").value='';
+      $("status").value='Active';
+      $("notes").value='';
+      const p=$("perm"); if(p && p.options.length) p.selectedIndex=0;
+
+      loaded=false;
+      currentDocId=null;
+      contractorData=null;
+
+      currentRoleName=null;
+      basePerms4={};
+      effectivePerms4={};
+      updateHero();
+
+      $("editCard").hidden=true;
+      showToast("Form cleared.");
+      window.scrollTo({top:0,behavior:'smooth'});
+    }
+
+    $("clear").addEventListener('click', ()=>{
+      if(busy) return;
+      clearForm();
+    });
 
     $("btnLoad").addEventListener('click', async ()=>{
       const key=emailKey($("lookupEmail").value);
