@@ -621,9 +621,12 @@
       db: null,
       company: null,
       equipmentById: new Map(),  // active only
-      workOrders: [],           // active-equipment only
+      workOrders: [],            // active-equipment only
       filtered: [],
-      selectedId: null
+      selectedId: null,
+
+      // ✅ cache template items so older precheck WOs can display label/notesHint
+      precheckTplCache: new Map() // tplId -> [{id,label,notesHint,order}]
     };
 
     function escapeHtml(str){
@@ -801,7 +804,6 @@
 
     /* ==========================
        PRE-SEASON / PRE-INSPECTION DETECTOR
-       - robust: checks template IDs + lineItem origins + type-ish flags
        ========================== */
     function isPreSeasonWO(d){
       if(!d) return false;
@@ -826,10 +828,40 @@
       }
 
       const li = Array.isArray(d.lineItems) ? d.lineItems : [];
-      // If any line item came from a precheck template, treat WO as pre-season/pre-inspection
       if(li.some(x => String(x?.origin || '').toLowerCase() === 'precheck_template')) return true;
 
       return false;
+    }
+
+    /* ==========================
+       TEMPLATE ITEMS LOADER (same pattern as Service WO page)
+       ========================== */
+    async function getPrecheckTemplateItems(tplId){
+      const id = String(tplId || '').trim();
+      if(!id) return [];
+      if(STATE.precheckTplCache.has(id)) return STATE.precheckTplCache.get(id);
+
+      try{
+        const snap = await getDocs(collection(STATE.db, 'seasonal_precheck_templates', id, 'items'));
+        const out = [];
+        snap.forEach(d=>{
+          const v = d.data() || {};
+          if(v.archived === true) return;
+          out.push({
+            id: d.id,
+            label: String(v.label || '').trim(),
+            notesHint: String(v.notesHint || '').trim(),
+            order: Number(v.order || 0)
+          });
+        });
+        out.sort((a,b)=> (a.order||0) - (b.order||0));
+        STATE.precheckTplCache.set(id, out);
+        return out;
+      }catch(e){
+        console.warn('[maintenance] precheck template items load failed:', e);
+        STATE.precheckTplCache.set(id, []);
+        return [];
+      }
     }
 
     function applyFilters(){
@@ -854,7 +886,7 @@
           const li = Array.isArray(d.lineItems) ? d.lineItems : [];
           const liText = li.map(x => [
             x.serviceTopic, x.serviceTopicOther,
-            x.label, x.notesHint,           /* ✅ add template fields to search */
+            x.label, x.notesHint,
             x.notes, x.partsNeeded,
             x.submittedByName,
             x.completedByEmployeeName, x.completedByEmployeeId
@@ -886,7 +918,7 @@
 
       STATE.filtered = filtered;
       renderList();
-      if(STATE.selectedId) renderDetails();
+      if(STATE.selectedId) void renderDetails();
     }
 
     function renderList(){
@@ -912,7 +944,6 @@
           `${counts.pending} pending • ${counts.ip} in progress • ${counts.done} completed`;
       }
 
-      // ✅ Split: Pre-season/pre-inspection WOs together (top), then the rest grouped by type
       const pre = [];
       const normal = [];
       for(const wo of items){
@@ -920,7 +951,6 @@
         (isPreSeasonWO(d) ? pre : normal).push(wo);
       }
 
-      // --- Pre-season group (single bucket) ---
       if(pre.length){
         const g = document.createElement('div');
         g.className = 'group';
@@ -981,7 +1011,7 @@
 
           card.addEventListener('click', () => {
             STATE.selectedId = wo.id;
-            renderDetails();
+            void renderDetails();
           });
 
           g.appendChild(card);
@@ -990,7 +1020,6 @@
         host.appendChild(g);
       }
 
-      // --- Normal groups by equipment type (existing behavior) ---
       const groups = new Map();
       for(const wo of normal){
         const info = woEquipInfo(wo);
@@ -1053,7 +1082,7 @@
 
           card.addEventListener('click', () => {
             STATE.selectedId = wo.id;
-            renderDetails();
+            void renderDetails();
           });
 
           g.appendChild(card);
@@ -1075,7 +1104,7 @@
       if(liHost) liHost.innerHTML = '';
     }
 
-    function renderDetails(){
+    async function renderDetails(){
       const panel = $('.wo-detail-panel');
       const wo = (STATE.filtered || STATE.workOrders).find(x => x.id === STATE.selectedId) || STATE.workOrders.find(x => x.id === STATE.selectedId);
       if(!wo){ clearDetails(); return; }
@@ -1083,6 +1112,13 @@
       const d = wo.data || {};
       const info = woEquipInfo(wo);
       const isPre = isPreSeasonWO(d);
+
+      // ✅ If pre-season, load template items so we can display label/notesHint even for older WOs
+      const tplId = String(d.precheckTemplateId || d.preCheckTemplateId || '').trim();
+      let tplItems = null;
+      if(isPre && tplId){
+        tplItems = await getPrecheckTemplateItems(tplId);
+      }
 
       panel.dataset.id = wo.id;
       $('.wo-detail-title', panel).textContent = info.name || 'Work Order Details';
@@ -1157,17 +1193,33 @@
           const origin = String(x.origin || '').toLowerCase();
           const isPreSeasonItem = (origin === 'precheck_template');
 
-          // ✅ Title: for pre-season use label (template item field)
+          // ✅ Resolve template hit (id match first, else index) for older WOs
+          let tplHit = null;
+          if(isPreSeasonItem && tplItems && tplItems.length){
+            const tplItemId = String(x.precheckTemplateItemId || '').trim();
+            if(tplItemId){
+              tplHit = tplItems.find(t => t.id === tplItemId) || null;
+            }
+            if(!tplHit && tplItems[idx]) tplHit = tplItems[idx];
+          }
+
+          const resolvedLabel =
+            String(x.label || '').trim() ||
+            String(tplHit?.label || '').trim() ||
+            String(x.checkItem || x.item || x.title || '').trim();
+
+          const resolvedNotesHint =
+            String(x.notesHint || '').trim() ||
+            String(tplHit?.notesHint || '').trim();
+
           const topic = isPreSeasonItem
-            ? (String(x.label || x.checkItem || x.item || x.title || '').trim() || `Pre-Inspection Item #${idx+1}`)
+            ? (resolvedLabel || `Pre-Inspection Item #${idx+1}`)
             : (x.serviceTopicOther ? String(x.serviceTopicOther) : titleCaseType(x.serviceTopic || 'Service'));
 
-          // ✅ Notes: for pre-season show notesHint (template guidance)
           const notes = isPreSeasonItem
-            ? (String(x.notesHint || '').trim() || '—')
+            ? (resolvedNotesHint || '—')
             : ((x.notes || '').trim() || '—');
 
-          // ✅ Parts: normal only (pre-season hides parts entirely)
           const parts = isPreSeasonItem ? '' : ((x.partsNeeded || '').trim() || '—');
 
           const done = !!x.completed;
@@ -1183,7 +1235,10 @@
           el.className = 'li';
           el.innerHTML = `
             <div class="li-top">
-              <div class="li-title">${escapeHtml(topic)} <span style="opacity:.65;font-weight:800">#${idx+1}</span></div>
+              <div class="li-title">
+                ${escapeHtml(topic)}
+                ${isPreSeasonItem ? '' : ` <span style="opacity:.65;font-weight:800">#${idx+1}</span>`}
+              </div>
               <div class="li-badge ${done ? '' : 'open'}">${escapeHtml(badge)}</div>
             </div>
 
@@ -1266,7 +1321,6 @@
         return { id: ds.id, data: { ...data, _sortDate: sortDate } };
       });
 
-      // Keep only work orders whose equipmentId is active
       STATE.workOrders = items.filter(x => {
         const eqId = x.data?.equipmentId || '';
         return !!(eqId && STATE.equipmentById.has(eqId));
@@ -1305,7 +1359,7 @@
 
     /* ===========================
        PRINT MODAL + REPORTS
-       (mostly unchanged; updated detailed line items for pre-season)
+       (unchanged except removing duplicate # for pre-season line titles)
        =========================== */
 
     let __fvPrintModalLastFocus = null;
@@ -1953,7 +2007,7 @@
               const completedAt = d.completedAt ? formatDateTime(toDateMaybe(d.completedAt)) : '—';
 
               const meterLine = d.meterLabel
-                ? `${d.meterLabel}${(d.completionMeter != null) ? `: ${d.completionMeter}` : ''}`
+                ? \`\${d.meterLabel}\${(d.completionMeter != null) ? \`: \${d.completionMeter}\` : ''}\`
                 : '—';
 
               const lineItems = Array.isArray(d.lineItems) ? d.lineItems : [];
@@ -1999,7 +2053,10 @@
                       return `
                         <div class="line">
                           <div class="line-top">
-                            <div class="line-title">${escapeHtml(topic)} <span style="opacity:.65;font-weight:800">#${idx+1}</span></div>
+                            <div class="line-title">
+                              ${escapeHtml(topic)}
+                              ${isPreSeasonItem ? '' : ` <span style="opacity:.65;font-weight:800">#${idx+1}</span>`}
+                            </div>
                             <div class="line-badge ${isDone ? '' : 'open'}">${escapeHtml(badge)}</div>
                           </div>
                           <div class="line-grid">
