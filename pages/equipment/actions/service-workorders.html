@@ -188,12 +188,84 @@
       white-space:nowrap;
     }
 
+    /* ✅ Group headers (Type -> Origin) */
+    .wo-groups{
+      display:flex;
+      flex-direction:column;
+      gap:14px;
+      margin-top:8px;
+      min-width:0;
+    }
+    .wo-type-group{
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      min-width:0;
+    }
+    .wo-type-head{
+      display:flex;
+      align-items:baseline;
+      justify-content:space-between;
+      gap:10px;
+      padding:8px 10px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:color-mix(in srgb, var(--surface) 80%, var(--border) 20%);
+      min-width:0;
+    }
+    .wo-type-title{
+      font-weight:900;
+      letter-spacing:.02em;
+      text-transform:uppercase;
+      font-size:0.82rem;
+      opacity:.92;
+      min-width:0;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .wo-type-meta{
+      font-size:0.78rem;
+      opacity:.85;
+      white-space:nowrap;
+      flex:0 0 auto;
+    }
+    .wo-origin-block{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      padding-left:4px;
+      min-width:0;
+    }
+    .wo-origin-head{
+      display:flex;
+      align-items:baseline;
+      justify-content:space-between;
+      gap:10px;
+      padding:4px 6px;
+      min-width:0;
+    }
+    .wo-origin-title{
+      font-weight:800;
+      font-size:0.8rem;
+      opacity:.9;
+      min-width:0;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .wo-origin-meta{
+      font-size:0.76rem;
+      opacity:.75;
+      white-space:nowrap;
+      flex:0 0 auto;
+    }
+
     /* Work order list */
     .wo-list {
       display:flex;
       flex-direction:column;
       gap:10px;
-      margin-top:8px;
     }
 
     .wo-empty {
@@ -811,6 +883,10 @@
       .btn-complete, .btn-reopen{ width:100%; justify-content:center; }
 
       .lineitem-status-pill{ max-width:40%; }
+
+      .wo-type-head{ padding:8px 10px; }
+      .wo-type-title{ white-space:normal; }
+      .wo-origin-head{ padding:2px 4px; }
     }
 
     /* Remove Safari blue text & focus outlines */
@@ -1007,6 +1083,41 @@
       return s || 'Unknown';
     }
 
+    function mapTypeLabel(t){
+      const v = (t||'').toString().toLowerCase();
+      if(!v) return 'Other';
+      return v.charAt(0).toUpperCase() + v.slice(1);
+    }
+
+    function mapOriginLabel(o){
+      const v = (o||'').toString().toLowerCase();
+      if(v === 'precheck_template') return 'Precheck Template';
+      if(v === 'request') return 'Service Request';
+      if(v === 'manual') return 'Manual';
+      if(v === 'mixed') return 'Mixed';
+      return o ? titleCase(v.replace(/_/g,' ')) : 'Unknown';
+    }
+
+    // ✅ Work Order origin = roll-up from lineItems origins (or precheckTemplateId hint)
+    function getWorkOrderOrigin(d){
+      try{
+        const lines = Array.isArray(d?.lineItems) ? d.lineItems : [];
+        const set = new Set();
+        for(const li of lines){
+          const o = (li?.origin || (li?.serviceRequestId ? 'request' : 'manual') || '').toString().toLowerCase();
+          if(o) set.add(o);
+        }
+        // If nothing in line items but it is clearly a template WO
+        if(set.size === 0 && (d?.precheckTemplateId || d?.precheckTemplateTitle)) set.add('precheck_template');
+
+        if(set.size === 0) return 'unknown';
+        if(set.size === 1) return [...set][0];
+        return 'mixed';
+      }catch{
+        return 'unknown';
+      }
+    }
+
     function deriveMeterInfo(wo){
       const type = (wo.equipmentType || '').toLowerCase();
       if(wo.meterType){
@@ -1172,53 +1283,140 @@
 
       hideEmpty();
 
-      filtered.forEach(item=>{
-        const d  = item.data;
-        const id = item.id;
+      // ✅ Group by Equipment Type -> Origin
+      // Structure: { [typeKey]: { items: [...], origins: { [originKey]: [...] } } }
+      const groups = new Map();
 
-        const equipName = d.equipmentName || 'Equipment (unknown)';
-        const typeLabel = d.equipmentType ? String(d.equipmentType).charAt(0).toUpperCase() + String(d.equipmentType).slice(1) : '';
-        const serial6   = d.equipmentSerialLast6 ? `SN …${d.equipmentSerialLast6}` : '';
-        const statusRaw = (d[CONFIG.STATUS_FIELD] || '').toString().toLowerCase();
-        const statusLabel = mapStatusLabel(statusRaw);
+      for(const item of filtered){
+        const d = item.data || {};
+        const typeKey = (d.equipmentType || 'other').toString().toLowerCase() || 'other';
+        const originKey = getWorkOrderOrigin(d);
 
-        const lineItems = Array.isArray(d.lineItems) ? d.lineItems : [];
-        const totalItems = lineItems.length;
-        const completedCount = lineItems.filter(li => li.completed === true).length;
-        const openCount = totalItems - completedCount;
+        if(!groups.has(typeKey)){
+          groups.set(typeKey, new Map());
+        }
+        const originMap = groups.get(typeKey);
+        if(!originMap.has(originKey)){
+          originMap.set(originKey, []);
+        }
+        originMap.get(originKey).push(item);
+      }
 
-        const created = d.createdAt || null;
-        const updated = d.updatedAt || created || null;
+      // Order types in a sensible way
+      const typeOrder = ['tractor','combine','sprayer','truck','trailer','implement','starfire','construction','other'];
+      const typeKeys = [...groups.keys()].sort((a,b)=>{
+        const ia = typeOrder.indexOf(a); const ib = typeOrder.indexOf(b);
+        const ra = ia === -1 ? 999 : ia;
+        const rb = ib === -1 ? 999 : ib;
+        if(ra !== rb) return ra - rb;
+        return a.localeCompare(b);
+      });
 
-        const card = document.createElement('article');
-        card.className = 'wo-card';
-        card.dataset.id = id;
+      // Order origins
+      const originOrder = ['precheck_template','request','manual','mixed','unknown'];
+      const sortOrigins = (a,b)=>{
+        const ia = originOrder.indexOf(a); const ib = originOrder.indexOf(b);
+        const ra = ia === -1 ? 999 : ia;
+        const rb = ib === -1 ? 999 : ib;
+        if(ra !== rb) return ra - rb;
+        return a.localeCompare(b);
+      };
 
-        card.innerHTML = `
-          <div class="wo-row-top">
-            <div class="wo-main">
-              <div class="wo-title">${equipName}</div>
-              <div class="wo-sub">${typeLabel || ''} ${serial6 ? `• ${serial6}` : ''}</div>
-              <div class="wo-meta">
-                <span><span class="wo-meta-label">Status</span> ${statusLabel}</span>
-                <span><span class="wo-meta-label">Items</span> ${totalItems || 0} total</span>
-                <span><span class="wo-meta-label">Open</span> ${openCount}</span>
-              </div>
-            </div>
-          </div>
-          <div class="wo-bottom-row">
-            <div>${updated ? `Last updated ${formatDateTime(updated)}` : ''}</div>
-            <div class="wo-status-chip">${statusLabel}</div>
-          </div>
+      const wrap = document.createElement('div');
+      wrap.className = 'wo-groups';
+
+      typeKeys.forEach(typeKey=>{
+        const originMap = groups.get(typeKey);
+        const originKeys = [...originMap.keys()].sort(sortOrigins);
+
+        let typeCount = 0;
+        originKeys.forEach(ok => { typeCount += (originMap.get(ok) || []).length; });
+
+        const typeGroup = document.createElement('div');
+        typeGroup.className = 'wo-type-group';
+
+        const typeHead = document.createElement('div');
+        typeHead.className = 'wo-type-head';
+        typeHead.innerHTML = `
+          <div class="wo-type-title">${mapTypeLabel(typeKey)} Work Orders</div>
+          <div class="wo-type-meta">${typeCount} total</div>
         `;
+        typeGroup.appendChild(typeHead);
 
-        card.addEventListener('click', () => {
-          STATE.selectedId = id;
-          renderDetails();
+        originKeys.forEach(originKey=>{
+          const items = originMap.get(originKey) || [];
+          if(!items.length) return;
+
+          const originBlock = document.createElement('div');
+          originBlock.className = 'wo-origin-block';
+
+          const originHead = document.createElement('div');
+          originHead.className = 'wo-origin-head';
+          originHead.innerHTML = `
+            <div class="wo-origin-title">${mapOriginLabel(originKey)}</div>
+            <div class="wo-origin-meta">${items.length}</div>
+          `;
+          originBlock.appendChild(originHead);
+
+          const originList = document.createElement('div');
+          originList.className = 'wo-list';
+
+          items.forEach(item=>{
+            const d  = item.data;
+            const id = item.id;
+
+            const equipName = d.equipmentName || 'Equipment (unknown)';
+            const typeLabel = d.equipmentType ? String(d.equipmentType).charAt(0).toUpperCase() + String(d.equipmentType).slice(1) : '';
+            const serial6   = d.equipmentSerialLast6 ? `SN …${d.equipmentSerialLast6}` : '';
+            const statusRaw = (d[CONFIG.STATUS_FIELD] || '').toString().toLowerCase();
+            const statusLabel = mapStatusLabel(statusRaw);
+
+            const lineItems = Array.isArray(d.lineItems) ? d.lineItems : [];
+            const totalItems = lineItems.length;
+            const completedCount = lineItems.filter(li => li.completed === true).length;
+            const openCount = totalItems - completedCount;
+
+            const created = d.createdAt || null;
+            const updated = d.updatedAt || created || null;
+
+            const card = document.createElement('article');
+            card.className = 'wo-card';
+            card.dataset.id = id;
+
+            card.innerHTML = `
+              <div class="wo-row-top">
+                <div class="wo-main">
+                  <div class="wo-title">${equipName}</div>
+                  <div class="wo-sub">${typeLabel || ''} ${serial6 ? `• ${serial6}` : ''}</div>
+                  <div class="wo-meta">
+                    <span><span class="wo-meta-label">Status</span> ${statusLabel}</span>
+                    <span><span class="wo-meta-label">Items</span> ${totalItems || 0} total</span>
+                    <span><span class="wo-meta-label">Open</span> ${openCount}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="wo-bottom-row">
+                <div>${updated ? `Last updated ${formatDateTime(updated)}` : ''}</div>
+                <div class="wo-status-chip">${statusLabel}</div>
+              </div>
+            `;
+
+            card.addEventListener('click', () => {
+              STATE.selectedId = id;
+              renderDetails();
+            });
+
+            originList.appendChild(card);
+          });
+
+          originBlock.appendChild(originList);
+          typeGroup.appendChild(originBlock);
         });
 
-        listEl.appendChild(card);
+        wrap.appendChild(typeGroup);
       });
+
+      listEl.appendChild(wrap);
 
       if(countEl){
         const n = filtered.length;
@@ -2015,7 +2213,7 @@
 
       const topic = mapTopic(li.serviceTopic, li.serviceTopicOther);
       const origin = li.origin || (li.serviceRequestId ? 'request' : 'manual');
-      const originLabel = origin === 'request' ? 'From service request' : 'Manual';
+      const originLabel = origin === 'request' ? 'From service request' : (origin === 'precheck_template' ? 'From precheck template' : 'Manual');
       const submitted = li.submittedByName || '';
       const completed = li.completed === true;
       const completedAt = li.completedAt || null;
