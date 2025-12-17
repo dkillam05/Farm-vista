@@ -1583,79 +1583,93 @@
     }
 
     function renderLineItems(panel, item){
-      const d = item.data;
-      const listEl = $('.lineitems-list', panel);
-      if(!listEl) return;
+  const d = item.data;
+  const listEl = $('.lineitems-list', panel);
+  if(!listEl) return;
 
-      listEl.innerHTML = '';
+  listEl.innerHTML = '';
 
-      const lineItems = Array.isArray(d.lineItems) ? d.lineItems : [];
-      if(!lineItems.length){
-        listEl.innerHTML = `<div class="attachment-empty">No service line items yet. Add items below.</div>`;
-        return;
+  const lineItems = Array.isArray(d.lineItems) ? d.lineItems : [];
+  if(!lineItems.length){
+    listEl.innerHTML = `<div class="attachment-empty">No service line items yet. Add items below.</div>`;
+    return;
+  }
+
+  const tplId = String(d.precheckTemplateId || '').trim();
+  const cachedTpl = tplId && STATE.precheckTplCache.has(tplId) ? STATE.precheckTplCache.get(tplId) : null;
+
+  lineItems.forEach((li, idx)=>{
+    const origin = (li.origin || (li.serviceRequestId ? 'request' : 'manual')).toString().toLowerCase();
+    const isPrecheck = origin === 'precheck_template';
+
+    // If older WOs still have serviceTopic='inspection', use cached template label (if available)
+    let displayTopic = '';
+    if(isPrecheck){
+      const st = String(li.serviceTopic || '').trim();
+      if(st && st.toLowerCase() !== 'inspection'){
+        displayTopic = st;
+      }else if(cachedTpl && cachedTpl[idx] && cachedTpl[idx].label){
+        displayTopic = cachedTpl[idx].label;
+      }else{
+        displayTopic = 'Pre-Season Inspection';
       }
-
-      const tplId = String(d.precheckTemplateId || '').trim();
-      const cachedTpl = tplId && STATE.precheckTplCache.has(tplId) ? STATE.precheckTplCache.get(tplId) : null;
-
-      lineItems.forEach((li, idx)=>{
-        const origin = (li.origin || (li.serviceRequestId ? 'request' : 'manual')).toString().toLowerCase();
-        const isPrecheck = origin === 'precheck_template';
-
-        // If older WOs still have serviceTopic='inspection', use cached template label (if available)
-        let displayTopic = '';
-        if(isPrecheck){
-          const st = String(li.serviceTopic || '').trim();
-          if(st && st.toLowerCase() !== 'inspection'){
-            displayTopic = st;
-          }else if(cachedTpl && cachedTpl[idx] && cachedTpl[idx].label){
-            displayTopic = cachedTpl[idx].label;
-          }else{
-            displayTopic = 'Pre-Season Inspection';
-          }
-        }else{
-          displayTopic = mapTopic(li.serviceTopic, li.serviceTopicOther);
-        }
-
-        const notes = String(li.notes || '').trim();
-        const completed = li.completed === true;
-        const completedAt = li.completedAt || null;
-
-        const row = document.createElement('div');
-        row.className = 'lineitem-row';
-
-        const notePreview = notes
-          || (isPrecheck ? 'No additional notes.' : (origin === 'request' ? 'From service request' : 'Manual entry'));
-
-        const statusText = completed
-          ? (completedAt ? `Completed ${formatDate(completedAt)}` : 'Completed')
-          : 'Open';
-
-        row.innerHTML = `
-          <div class="lineitem-main">
-            <div class="lineitem-title">${displayTopic}</div>
-            <div class="lineitem-sub">${notePreview}</div>
-          </div>
-          <div class="lineitem-status-pill">${statusText}</div>
-        `;
-
-        row.addEventListener('click', ()=>{
-          openLineItemModal(item, idx);
-        });
-
-        listEl.appendChild(row);
-      });
-
-      // Warm cache for this WO so modal + list can resolve labels/notes even for older WOs
-      if(tplId && !STATE.precheckTplCache.has(tplId)){
-        getPrecheckTemplateItems(tplId).then(()=>{
-          // re-render to replace generic "inspection" labels if present
-          if(STATE.selectedId === item.id){
-            renderLineItems(panel, item);
-          }
-        });
-      }
+    }else{
+      displayTopic = mapTopic(li.serviceTopic, li.serviceTopicOther);
     }
+
+    const notes = String(li.notes || '').trim();
+    const completed = li.completed === true;
+    const completedAt = li.completedAt || null;
+
+    const row = document.createElement('div');
+    row.className = 'lineitem-row';
+
+    // ✅ Precheck: if notes are blank on the WO line item, show template notesHint (by id, else index)
+    let tplNotesHint = '';
+    if(isPrecheck && cachedTpl){
+      const tplItemId = String(li.precheckTemplateItemId || '').trim();
+      const hit = tplItemId
+        ? (cachedTpl.find(x => x.id === tplItemId) || null)
+        : (cachedTpl[idx] || null);
+
+      tplNotesHint = hit ? String(hit.notesHint || '').trim() : '';
+    }
+
+    const notePreview = notes
+      || (isPrecheck
+            ? (tplNotesHint || 'No additional notes.')
+            : (origin === 'request' ? 'From service request' : 'Manual entry'));
+
+    const statusText = completed
+      ? (completedAt ? `Completed ${formatDate(completedAt)}` : 'Completed')
+      : 'Open';
+
+    row.innerHTML = `
+      <div class="lineitem-main">
+        <div class="lineitem-title">${displayTopic}</div>
+        <div class="lineitem-sub">${notePreview}</div>
+      </div>
+      <div class="lineitem-status-pill">${statusText}</div>
+    `;
+
+    row.addEventListener('click', ()=>{
+      openLineItemModal(item, idx);
+    });
+
+    listEl.appendChild(row);
+  });
+
+  // Warm cache for this WO so modal + list can resolve labels/notes even for older WOs
+  if(tplId && !STATE.precheckTplCache.has(tplId)){
+    getPrecheckTemplateItems(tplId).then(()=>{
+      // re-render to replace generic "inspection" labels / notes if present
+      if(STATE.selectedId === item.id){
+        renderLineItems(panel, item);
+      }
+    });
+  }
+}
+
 
     function renderSummary(panel, item){
       const d = item.data;
