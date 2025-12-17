@@ -1,26 +1,17 @@
 <!-- =========================================================
 /Farm-vista/pages/equipment/actions/pre-check.html  (FULL FILE)
 Pre-Check Templates (Builder Only — No Year)
-Rev: 2025-12-17h
+Rev: 2025-12-17i
 
 This page is ONLY for:
 - Create template (no Season Year — templates apply every year)
 - Rename template (tap template name in panel header)
 - Build template item list (add / reorder / remove / notes)
 
-Changes in this rev (per Dane):
-1) Modal: remove horizontal scroll on small screens
-2) Title Case rule also applies to template names (create + rename)
-3) Notes are back: click an item in the main list to add/save a short note
-4) Removed Season Year entirely (templates are not per-year)
-
-Data model (updated intent):
-  seasonal_precheck_templates (docs)
-    - equipmentType, implementType(optional), title, titleLower, archived, createdAt, updatedAt
-  seasonal_precheck_templates/{templateId}/items (subcollection)
-    - bankId(optional), label, labelLower, order, notesHint(optional), archived, createdAt, updatedAt
-  seasonal_precheck_item_bank (docs)
-    - label, labelLower, archived, createdAt, updatedAt
+Change in this rev (Option 2 — FIX index errors):
+- Removed Firestore "archived != true" + orderBy('archived') patterns
+- Replaced with "where('archived','==',false)" and normal ordering
+  -> avoids composite index requirement for these queries
 ========================================================= -->
 <!doctype html>
 <html lang="en">
@@ -132,12 +123,11 @@ Data model (updated intent):
       padding:var(--ctl-pad-y) var(--ctl-pad-x);
       box-sizing:border-box;
       outline:none;
-      min-width:0; /* prevent overflow in grids */
+      min-width:0;
     }
     .input,.select{ height:var(--ctl-h); line-height:calc(var(--ctl-h) - 2px); }
     .textarea{ min-height:110px; resize:vertical; line-height:1.35; }
 
-    /* Actions under template dropdown (minimal) */
     .tpl-actions{
       display:flex;
       gap:10px;
@@ -193,7 +183,6 @@ Data model (updated intent):
       word-break:break-word;
     }
 
-    /* Panels */
     .panel{
       border:1px solid var(--border);
       border-radius:14px;
@@ -210,12 +199,10 @@ Data model (updated intent):
       flex-wrap:wrap;
     }
 
-    /* Template name (click to rename) */
     .tplname-wrap{
       display:flex;
       flex-direction:column;
       gap:6px;
-      min-width:220px;
       flex:1 1 auto;
       min-width:0;
     }
@@ -306,7 +293,6 @@ Data model (updated intent):
       background:var(--surface);
     }
 
-    /* Main list note editor (click item) */
     .main-expand{
       margin-top:10px;
       padding-top:10px;
@@ -331,7 +317,6 @@ Data model (updated intent):
       .hint-row .grow{ min-width:0; }
     }
 
-    /* Modal */
     .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:100000; }
     .modal.show{ display:flex; }
     .backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.45); }
@@ -348,7 +333,7 @@ Data model (updated intent):
       flex-direction:column;
       overflow:hidden;
       max-height:90vh;
-      overflow-x:hidden; /* prevent horizontal scroll */
+      overflow-x:hidden;
     }
 
     .sheet header{
@@ -381,7 +366,7 @@ Data model (updated intent):
       display:grid;
       gap:12px;
       overflow:auto;
-      overflow-x:hidden; /* prevent horizontal scroll */
+      overflow-x:hidden;
       min-width:0;
     }
 
@@ -421,7 +406,6 @@ Data model (updated intent):
     .toast.show{ display:block; animation:fadeout 4s forwards; }
     @keyframes fadeout{ 0%{opacity:1} 82%{opacity:1} 100%{opacity:0} }
 
-    /* Bottom buttons */
     .bottom-actions{
       display:flex;
       justify-content:flex-end;
@@ -430,7 +414,6 @@ Data model (updated intent):
       margin-top:14px;
     }
 
-    /* Inline rename UI */
     .rename-row{
       display:none;
       gap:8px;
@@ -461,7 +444,6 @@ Data model (updated intent):
         </header>
 
         <div class="body">
-          <!-- Implement type only (no Season Year) -->
           <div class="row">
             <div class="field" id="implTypeWrap" style="display:none;">
               <label for="implementType">Implement Type</label>
@@ -469,7 +451,6 @@ Data model (updated intent):
             </div>
           </div>
 
-          <!-- Template -->
           <div class="field">
             <label for="templateSel">Template</label>
             <select id="templateSel" class="select"></select>
@@ -521,7 +502,6 @@ Data model (updated intent):
       </section>
     </div>
 
-    <!-- Template modal -->
     <div id="tplModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="tplTitle">
       <div class="backdrop" data-close></div>
       <div class="sheet">
@@ -548,7 +528,6 @@ Data model (updated intent):
       </div>
     </div>
 
-    <!-- Items modal -->
     <div id="itemsModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="itemsTitle">
       <div class="backdrop" data-close></div>
       <div class="sheet">
@@ -557,8 +536,6 @@ Data model (updated intent):
           <button class="close" type="button" data-close>Close</button>
         </header>
         <div class="content">
-
-          <!-- ADD ITEM: bank dropdown + add new -->
           <div class="field">
             <label for="bankPick">Add Item</label>
 
@@ -615,23 +592,19 @@ Data model (updated intent):
     const qs = new URLSearchParams(location.search);
     const TYPE = String(qs.get('type') || 'tractor').toLowerCase();
 
-    // Firestore collections
     const COL_TPL  = 'seasonal_precheck_templates';
     const COL_BANK = 'seasonal_precheck_item_bank';
 
-    // Limits
     const BANK_MAX = 48;
     const HINT_MAX = 90;
     const TPL_MAX  = 60;
 
-    // UI state
     let db = null;
     let currentTemplateId = null;
-    let currentTemplate = null; // {id,title,equipmentType,implementType}
-    let currentItems = [];      // [{id,label,order,archived,notesHint,bankId}]
+    let currentTemplate = null;
+    let currentItems = [];
 
-    // Bank state
-    let bankItems = [];         // [{id,label,labelLower}]
+    let bankItems = [];
     let bankLoadedAt = 0;
 
     function showToast(msg="Saved."){
@@ -712,7 +685,6 @@ Data model (updated intent):
       return { implementType };
     }
 
-    /* ===== Title Case helpers ===== */
     function clampStr(s, max){
       const t = String(s||'');
       return t.length > max ? t.slice(0, max) : t;
@@ -746,7 +718,6 @@ Data model (updated intent):
       return String(s||'').trim().toLowerCase();
     }
 
-    /* ===== Rename UI ===== */
     function setRenameMode(on){
       const row = $("renameRow");
       const btn = $("tplNameBtn");
@@ -785,7 +756,6 @@ Data model (updated intent):
 
     function setTemplateUIState(){
       const has = !!currentTemplateId;
-
       $("btnAddItem").disabled = !has;
 
       const nameBtn = $("tplNameBtn");
@@ -802,16 +772,21 @@ Data model (updated intent):
       }
     }
 
-    /* ===== Templates list (NO YEAR) ===== */
+    /* ======================================================
+       OPTION 2 QUERIES (NO COMPOSITE INDEX NEEDED)
+       - archived == false
+       - no orderBy('archived')
+       ====================================================== */
+
     async function queryTemplates(){
       const { implementType } = readFilters();
 
+      // Primary query (fast)
       try{
         const qRef = query(
           collection(db, COL_TPL),
           where('equipmentType','==',TYPE),
-          where('archived','!=',true),
-          orderBy('archived'),
+          where('archived','==',false),
           orderBy('title')
         );
         const snap = await getDocs(qRef);
@@ -831,8 +806,8 @@ Data model (updated intent):
         }
         return all.sort((a,b)=>a.title.localeCompare(b.title));
       }catch(e){
-        console.warn('Template query fell back:', e);
-
+        // Fallback (full scan) — should rarely run now
+        console.warn('Template query fallback:', e);
         const snap = await getDocs(collection(db, COL_TPL));
         const out = [];
         snap.forEach(d=>{
@@ -853,6 +828,94 @@ Data model (updated intent):
         });
         out.sort((a,b)=>a.title.localeCompare(b.title));
         return out;
+      }
+    }
+
+    async function loadItems(templateId){
+      // Primary query (fast)
+      try{
+        const snap = await getDocs(query(
+          collection(db, COL_TPL, templateId, 'items'),
+          where('archived','==',false),
+          orderBy('order')
+        ));
+        const out=[];
+        snap.forEach(d=>{
+          const v=d.data()||{};
+          out.push({
+            id:d.id,
+            bankId: v.bankId ? String(v.bankId) : null,
+            label:String(v.label||'').trim(),
+            order:Number(v.order||0),
+            archived: !!v.archived,
+            notesHint: String(v.notesHint||'').trim() || ''
+          });
+        });
+        return out;
+      }catch(e){
+        console.warn('Items query fallback:', e);
+        const snap = await getDocs(collection(db, COL_TPL, templateId, 'items'));
+        const out=[];
+        snap.forEach(d=>{
+          const v=d.data()||{};
+          if(v.archived) return;
+          out.push({
+            id:d.id,
+            bankId: v.bankId ? String(v.bankId) : null,
+            label:String(v.label||'').trim(),
+            order:Number(v.order||0),
+            archived: !!v.archived,
+            notesHint: String(v.notesHint||'').trim() || ''
+          });
+        });
+        out.sort((a,b)=>a.order-b.order);
+        return out;
+      }
+    }
+
+    async function loadBank(force=false){
+      const now = Date.now();
+      if(!force && bankItems.length && (now - bankLoadedAt) < 60_000) return bankItems;
+
+      // Primary query (fast)
+      try{
+        const snap = await getDocs(query(
+          collection(db, COL_BANK),
+          where('archived','==',false),
+          orderBy('label')
+        ));
+        const out=[];
+        snap.forEach(d=>{
+          const v=d.data()||{};
+          const label = String(v.label||'').trim();
+          if(!label) return;
+          out.push({
+            id:d.id,
+            label,
+            labelLower: String(v.labelLower||'').trim() || label.toLowerCase()
+          });
+        });
+        bankItems = out.sort((a,b)=>a.label.localeCompare(b.label));
+        bankLoadedAt = now;
+        return bankItems;
+      }catch(e){
+        console.warn('Bank query fallback:', e);
+        const snap = await getDocs(collection(db, COL_BANK));
+        const out=[];
+        snap.forEach(d=>{
+          const v=d.data()||{};
+          if(v.archived) return;
+          const label = String(v.label||'').trim();
+          if(!label) return;
+          out.push({
+            id:d.id,
+            label,
+            labelLower: String(v.labelLower||'').trim() || label.toLowerCase()
+          });
+        });
+        bankItems = out.sort((a,b)=>a.label.localeCompare(b.label));
+        bankLoadedAt = now;
+        return bankItems;
       }
     }
 
@@ -936,48 +999,6 @@ Data model (updated intent):
       if(resetRename) setRenameMode(false);
     }
 
-    async function loadItems(templateId){
-      try{
-        const snap = await getDocs(query(
-          collection(db, COL_TPL, templateId, 'items'),
-          where('archived','!=',true),
-          orderBy('archived'),
-          orderBy('order')
-        ));
-        const out=[];
-        snap.forEach(d=>{
-          const v=d.data()||{};
-          out.push({
-            id:d.id,
-            bankId: v.bankId ? String(v.bankId) : null,
-            label:String(v.label||'').trim(),
-            order:Number(v.order||0),
-            archived: !!v.archived,
-            notesHint: String(v.notesHint||'').trim() || ''
-          });
-        });
-        return out;
-      }catch(e){
-        console.warn('Items query fell back:', e);
-        const snap = await getDocs(collection(db, COL_TPL, templateId, 'items'));
-        const out=[];
-        snap.forEach(d=>{
-          const v=d.data()||{};
-          out.push({
-            id:d.id,
-            bankId: v.bankId ? String(v.bankId) : null,
-            label:String(v.label||'').trim(),
-            order:Number(v.order||0),
-            archived: !!v.archived,
-            notesHint: String(v.notesHint||'').trim() || ''
-          });
-        });
-        out.sort((a,b)=>a.order-b.order);
-        return out.filter(x=>!x.archived);
-      }
-    }
-
-    /* ===== Main list — click item to add/save note ===== */
     function renderItemsMain(){
       const list = $("itemsMain");
       const empty = $("itemsEmptyMain");
@@ -1024,7 +1045,6 @@ Data model (updated intent):
         top.appendChild(txt);
         row.appendChild(top);
 
-        // Expand note editor
         const expand=document.createElement('div');
         expand.className='main-expand';
 
@@ -1048,7 +1068,6 @@ Data model (updated intent):
           try{
             setErr(null);
             await saveNotesHint(it.id, hintInp.value);
-            // update label preview
             sub.textContent = (hintInp.value||'').trim() ? (hintInp.value||'').trim() : 'Tap to add a short note…';
             row.classList.remove('open');
           }catch(err){
@@ -1067,7 +1086,6 @@ Data model (updated intent):
         row.appendChild(expand);
 
         row.addEventListener('click', ()=>{
-          // close other opens
           list.querySelectorAll('.item.open').forEach(el=>{ if(el!==row) el.classList.remove('open'); });
           row.classList.toggle('open');
           if(row.classList.contains('open')){
@@ -1082,7 +1100,6 @@ Data model (updated intent):
       list.style.display = 'grid';
     }
 
-    /* ===== Modals ===== */
     function openModal(id){
       const el=$(id);
       el.classList.add('show');
@@ -1100,45 +1117,6 @@ Data model (updated intent):
         document.body.style.overflow='';
       });
     });
-
-    /* ===== Bank (global items) ===== */
-    async function loadBank(force=false){
-      const now = Date.now();
-      if(!force && bankItems.length && (now - bankLoadedAt) < 60_000) return bankItems;
-
-      try{
-        const snap = await getDocs(query(
-          collection(db, COL_BANK),
-          where('archived','!=',true),
-          orderBy('archived'),
-          orderBy('label')
-        ));
-        const out=[];
-        snap.forEach(d=>{
-          const v=d.data()||{};
-          const label = String(v.label||'').trim();
-          if(!label) return;
-          out.push({ id:d.id, label, labelLower: String(v.labelLower||'').trim() || label.toLowerCase() });
-        });
-        bankItems = out.sort((a,b)=>a.label.localeCompare(b.label));
-        bankLoadedAt = now;
-        return bankItems;
-      }catch(e){
-        console.warn('Bank query fell back:', e);
-        const snap = await getDocs(collection(db, COL_BANK));
-        const out=[];
-        snap.forEach(d=>{
-          const v=d.data()||{};
-          if(v.archived) return;
-          const label = String(v.label||'').trim();
-          if(!label) return;
-          out.push({ id:d.id, label, labelLower: String(v.labelLower||'').trim() || label.toLowerCase() });
-        });
-        bankItems = out.sort((a,b)=>a.label.localeCompare(b.label));
-        bankLoadedAt = now;
-        return bankItems;
-      }
-    }
 
     function renderBankPick(){
       const sel = $("bankPick");
@@ -1181,7 +1159,6 @@ Data model (updated intent):
       if(!label) return null;
 
       const labelLower = normalizeLabelLower(label);
-
       const hit = bankItems.find(x => x.labelLower === labelLower);
       if(hit) return hit;
 
@@ -1213,7 +1190,6 @@ Data model (updated intent):
       return created;
     }
 
-    /* ===== Template item add/remove/reorder/notes ===== */
     function nextOrder(){
       const max = currentItems.reduce((m,x)=>Math.max(m, x.order||0), 0) || 0;
       return max + 10;
@@ -1367,7 +1343,6 @@ Data model (updated intent):
         top.append(txt, right);
         row.appendChild(top);
 
-        // Click-to-edit note inside modal list
         const expand=document.createElement('div');
         expand.className='main-expand';
 
@@ -1412,7 +1387,6 @@ Data model (updated intent):
       });
     }
 
-    /* ===== Template create (NO YEAR) ===== */
     async function createTemplate(){
       let name = toTitleCaseFinal($("tplName").value || '');
       name = clampStr(name, TPL_MAX).trim();
@@ -1439,9 +1413,7 @@ Data model (updated intent):
       await loadTemplateAndItems(ref.id, true);
     }
 
-    /* ===== Wiring ===== */
     function wire(){
-      // Implement type filter
       $("implementType").addEventListener('change', async ()=>{
         $("tplApplies").textContent = tplAppliesText();
         await refreshTemplates(false);
@@ -1458,7 +1430,6 @@ Data model (updated intent):
         setTimeout(()=>$("tplName").focus(), 60);
       });
 
-      // Title Case while typing (template create)
       $("tplName").addEventListener('input', ()=>{
         const el = $("tplName");
         const before = el.value;
@@ -1482,13 +1453,11 @@ Data model (updated intent):
         catch(e){ console.error(e); setErr('Template create failed.'); }
       });
 
-      // Tap template name to rename
       $("tplNameBtn").addEventListener('click', ()=>{
         if(!currentTemplateId) return;
         setRenameMode(true);
       });
 
-      // Title Case while typing (rename)
       $("renameInput").addEventListener('input', ()=>{
         const el = $("renameInput");
         const before = el.value;
@@ -1507,9 +1476,7 @@ Data model (updated intent):
         }
       });
 
-      $("btnRenameCancel").addEventListener('click', ()=>{
-        setRenameMode(false);
-      });
+      $("btnRenameCancel").addEventListener('click', ()=> setRenameMode(false));
 
       $("btnRenameSave").addEventListener('click', async ()=>{
         try{
@@ -1533,7 +1500,6 @@ Data model (updated intent):
         }
       });
 
-      // Add Item (opens modal)
       $("btnAddItem").addEventListener('click', async ()=>{
         if(!currentTemplateId) return;
 
@@ -1555,7 +1521,6 @@ Data model (updated intent):
 
       $("bankPick").addEventListener('change', syncNewBankUI);
 
-      // Title Case while typing (new item)
       $("newBankText").addEventListener('input', ()=>{
         const el = $("newBankText");
         const before = el.value;
