@@ -989,22 +989,24 @@ IMPORTANT:
     }
 
     function setTemplateUIState(){
-      const has = !!currentTemplateId;
-      $("btnAddItem").disabled = !has;
+  const selId = String(currentTemplateId || $("templateSel")?.value || '').trim();
+  const has = !!selId;
 
-      const nameBtn = $("tplNameBtn");
-      if(!has){
-        nameBtn.disabled = true;
-        nameBtn.textContent = '— Select a template —';
-        nameBtn.title = 'Select a template to rename';
-        $("tplNameHelp").style.display = 'none';
-      }else{
-        nameBtn.disabled = false;
-        nameBtn.textContent = currentTemplate?.title || '(Untitled)';
-        nameBtn.title = 'Tap to rename template';
-        $("tplNameHelp").style.display = '';
-      }
-    }
+  $("btnAddItem").disabled = !has;
+
+  const nameBtn = $("tplNameBtn");
+  if(!has){
+    nameBtn.disabled = true;
+    nameBtn.textContent = '— Select a template —';
+    nameBtn.title = 'Select a template to rename';
+    $("tplNameHelp").style.display = 'none';
+  }else{
+    nameBtn.disabled = false;
+    nameBtn.textContent = currentTemplate?.title || '(Untitled)';
+    nameBtn.title = 'Tap to rename template';
+    $("tplNameHelp").style.display = '';
+  }
+}
 
     // ---------------------------
     // INDEX-FREE READS (unchanged)
@@ -1188,102 +1190,109 @@ IMPORTANT:
     }
 
     function renderItemsMain(){
-      const list = $("itemsMain");
-      const empty = $("itemsEmptyMain");
+  const list = $("itemsMain");
+  const empty = $("itemsEmptyMain");
 
-      const items = currentItems.filter(x=>!x.archived).slice().sort(byOrder);
+  const selId = String(currentTemplateId || $("templateSel")?.value || '').trim();
 
-      if(!currentTemplateId){
-        empty.textContent = 'Select a template to view its items.';
-        empty.style.display = 'block';
-        list.style.display = 'none';
-        list.innerHTML = '';
-        return;
+  // If dropdown has no template selected
+  if(!selId){
+    empty.textContent = 'Select a template to view its items.';
+    empty.style.display = 'block';
+    list.style.display = 'none';
+    list.innerHTML = '';
+    return;
+  }
+
+  const items = currentItems.filter(x=>!x.archived).slice().sort(byOrder);
+
+  if(!items.length){
+    empty.textContent = 'No items yet. Tap “Add Item” to add your first line.';
+    empty.style.display = 'block';
+    list.style.display = 'none';
+    list.innerHTML = '';
+    return;
+  }
+
+  list.innerHTML = '';
+  items.forEach((it, idx)=>{
+    const row=document.createElement('div');
+    row.className='item';
+
+    const top=document.createElement('div');
+    top.className='item-top';
+
+    const txt=document.createElement('div');
+    txt.className='txt';
+
+    const p=document.createElement('p');
+    p.className='label';
+    p.textContent = `${idx+1}. ${it.label || '(blank)'}`;
+    txt.appendChild(p);
+
+    const sub=document.createElement('p');
+    sub.className='sub';
+    sub.textContent = it.notesHint ? it.notesHint : 'Tap to add a short note…';
+    txt.appendChild(sub);
+
+    top.appendChild(txt);
+    row.appendChild(top);
+
+    const expand=document.createElement('div');
+    expand.className='main-expand';
+
+    const hintRow=document.createElement('div');
+    hintRow.className='hint-row';
+
+    const hintInp=document.createElement('input');
+    hintInp.className='input grow';
+    hintInp.placeholder='Short note (optional)…';
+    hintInp.maxLength = HINT_MAX;
+    hintInp.value = it.notesHint || '';
+
+    const saveBtn=document.createElement('button');
+    saveBtn.className='btn btn-primary';
+    saveBtn.type='button';
+    saveBtn.style.minWidth='auto';
+    saveBtn.textContent='Save Note';
+
+    saveBtn.addEventListener('click', async (e)=>{
+      e.stopPropagation();
+      try{
+        setErr(null);
+        await saveNotesHint(it.id, hintInp.value);
+        sub.textContent = (hintInp.value||'').trim() ? (hintInp.value||'').trim() : 'Tap to add a short note…';
+        row.classList.remove('open');
+      }catch(err){
+        console.error(err);
+        setErr('Save note failed.');
       }
+    });
 
-      if(!items.length){
-        empty.textContent = 'No items yet. Tap “Add Item” to add your first line.';
-        empty.style.display = 'block';
-        list.style.display = 'none';
-        list.innerHTML = '';
-        return;
+    hintRow.append(hintInp, saveBtn);
+
+    const help=document.createElement('p');
+    help.className='hint-help';
+    help.textContent = `Example: “Record on dipstick / replace if dirty” (max ${HINT_MAX} chars).`;
+
+    expand.append(hintRow, help);
+    row.appendChild(expand);
+
+    row.addEventListener('click', ()=>{
+      list.querySelectorAll('.item.open').forEach(el=>{ if(el!==row) el.classList.remove('open'); });
+      row.classList.toggle('open');
+      if(row.classList.contains('open')){
+        setTimeout(()=>hintInp.focus(), 30);
       }
+    });
 
-      list.innerHTML = '';
-      items.forEach((it, idx)=>{
-        const row=document.createElement('div');
-        row.className='item';
+    list.appendChild(row);
+  });
 
-        const top=document.createElement('div');
-        top.className='item-top';
+  empty.style.display = 'none';
+  list.style.display = 'grid';
+}
 
-        const txt=document.createElement('div');
-        txt.className='txt';
-
-        const p=document.createElement('p');
-        p.className='label';
-        p.textContent = `${idx+1}. ${it.label || '(blank)'}`;
-        txt.appendChild(p);
-
-        const sub=document.createElement('p');
-        sub.className='sub';
-        sub.textContent = it.notesHint ? it.notesHint : 'Tap to add a short note…';
-        txt.appendChild(sub);
-
-        top.appendChild(txt);
-        row.appendChild(top);
-
-        const expand=document.createElement('div');
-        expand.className='main-expand';
-
-        const hintRow=document.createElement('div');
-        hintRow.className='hint-row';
-
-        const hintInp=document.createElement('input');
-        hintInp.className='input grow';
-        hintInp.placeholder='Short note (optional)…';
-        hintInp.maxLength = HINT_MAX;
-        hintInp.value = it.notesHint || '';
-
-        const saveBtn=document.createElement('button');
-        saveBtn.className='btn btn-primary';
-        saveBtn.type='button';
-        saveBtn.style.minWidth='auto';
-        saveBtn.textContent='Save Note';
-
-        saveBtn.addEventListener('click', async (e)=>{
-          e.stopPropagation();
-          try{
-            setErr(null);
-            await saveNotesHint(it.id, hintInp.value);
-            sub.textContent = (hintInp.value||'').trim() ? (hintInp.value||'').trim() : 'Tap to add a short note…';
-            row.classList.remove('open');
-          }catch(err){
-            console.error(err);
-            setErr('Save note failed.');
-          }
-        });
-
-        hintRow.append(hintInp, saveBtn);
-
-        const help=document.createElement('p');
-        help.className='hint-help';
-        help.textContent = `Example: “Record on dipstick / replace if dirty” (max ${HINT_MAX} chars).`;
-
-        expand.append(hintRow, help);
-        row.appendChild(expand);
-
-        row.addEventListener('click', ()=>{
-          list.querySelectorAll('.item.open').forEach(el=>{ if(el!==row) el.classList.remove('open'); });
-          row.classList.toggle('open');
-          if(row.classList.contains('open')){
-            setTimeout(()=>hintInp.focus(), 30);
-          }
-        });
-
-        list.appendChild(row);
-      });
-    }
 
     function openModal(id){
       const el=$(id);
@@ -1951,8 +1960,17 @@ IMPORTANT:
       });
 
       $("templateSel").addEventListener('change', async ()=>{
-        await loadTemplateAndItems($("templateSel").value || '', true);
-      });
+  const id = String($("templateSel").value || '').trim();
+
+  // Immediately reflect selection in UI even before async loads finish
+  currentTemplateId = id || null;
+  setTemplateUIState();
+  renderItemsMain();
+  syncWOCardVisibility();
+
+  await loadTemplateAndItems(id, true);
+});
+
 
       $("btnNewTemplate").addEventListener('click', ()=>{
         $("tplName").value = '';
