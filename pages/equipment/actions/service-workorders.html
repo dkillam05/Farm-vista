@@ -918,13 +918,12 @@
 
   <script type="module">
     import {
-  ready,
-  getFirestore,
-  collection, query, getDocs, getDoc,
-  doc, updateDoc, serverTimestamp,
-  getStorage, ref, uploadBytes, getDownloadURL
-} from '/Farm-vista/js/firebase-init.js';
-
+      ready,
+      getFirestore,
+      collection, query, getDocs, getDoc,
+      doc, updateDoc, serverTimestamp,
+      getStorage, ref, uploadBytes, getDownloadURL
+    } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
@@ -945,7 +944,10 @@
       currentLine: null,   // {woId, index}
       savingLineItem: false,
       isLoadingWO: false,
-      isLoadingEmployees: false
+      isLoadingEmployees: false,
+
+      // ✅ cache template items so precheck WOs work even when WO lineItems don't contain label/notes
+      precheckTplCache: new Map() // tplId -> [{id,label,notesHint,order}]
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
@@ -1108,7 +1110,6 @@
           const o = (li?.origin || (li?.serviceRequestId ? 'request' : 'manual') || '').toString().toLowerCase();
           if(o) set.add(o);
         }
-        // If nothing in line items but it is clearly a template WO
         if(set.size === 0 && (d?.precheckTemplateId || d?.precheckTemplateTitle)) set.add('precheck_template');
 
         if(set.size === 0) return 'unknown';
@@ -1284,8 +1285,6 @@
 
       hideEmpty();
 
-      // ✅ Group by Equipment Type -> Origin
-      // Structure: { [typeKey]: { items: [...], origins: { [originKey]: [...] } } }
       const groups = new Map();
 
       for(const item of filtered){
@@ -1303,7 +1302,6 @@
         originMap.get(originKey).push(item);
       }
 
-      // Order types in a sensible way
       const typeOrder = ['tractor','combine','sprayer','truck','trailer','implement','starfire','construction','other'];
       const typeKeys = [...groups.keys()].sort((a,b)=>{
         const ia = typeOrder.indexOf(a); const ib = typeOrder.indexOf(b);
@@ -1313,7 +1311,6 @@
         return a.localeCompare(b);
       });
 
-      // Order origins
       const originOrder = ['precheck_template','request','manual','mixed','unknown'];
       const sortOrigins = (a,b)=>{
         const ia = originOrder.indexOf(a); const ib = originOrder.indexOf(b);
@@ -1557,6 +1554,34 @@
       }
     }
 
+    async function getPrecheckTemplateItems(tplId){
+      const id = String(tplId || '').trim();
+      if(!id) return [];
+      if(STATE.precheckTplCache.has(id)) return STATE.precheckTplCache.get(id);
+
+      try{
+        const snap = await getDocs(collection(STATE.db, 'seasonal_precheck_templates', id, 'items'));
+        const out = [];
+        snap.forEach(d=>{
+          const v = d.data() || {};
+          if(v.archived === true) return;
+          out.push({
+            id: d.id,
+            label: String(v.label || '').trim(),
+            notesHint: String(v.notesHint || '').trim(),
+            order: Number(v.order || 0)
+          });
+        });
+        out.sort((a,b)=> (a.order||0) - (b.order||0));
+        STATE.precheckTplCache.set(id, out);
+        return out;
+      }catch(e){
+        console.warn('precheck template items load failed:', e);
+        STATE.precheckTplCache.set(id, []);
+        return [];
+      }
+    }
+
     function renderLineItems(panel, item){
       const d = item.data;
       const listEl = $('.lineitems-list', panel);
@@ -1570,45 +1595,66 @@
         return;
       }
 
+      const tplId = String(d.precheckTemplateId || '').trim();
+      const cachedTpl = tplId && STATE.precheckTplCache.has(tplId) ? STATE.precheckTplCache.get(tplId) : null;
+
       lineItems.forEach((li, idx)=>{
-  const origin = (li.origin || (li.serviceRequestId ? 'request' : 'manual')).toString().toLowerCase();
-  const isPrecheck = origin === 'precheck_template';
+        const origin = (li.origin || (li.serviceRequestId ? 'request' : 'manual')).toString().toLowerCase();
+        const isPrecheck = origin === 'precheck_template';
 
-  // Precheck items already store the LABEL in serviceTopic
-  const topic = isPrecheck
-    ? (String(li.serviceTopic || '').trim() || 'Pre-Season Inspection')
-    : mapTopic(li.serviceTopic, li.serviceTopicOther);
+        // If older WOs still have serviceTopic='inspection', use cached template label (if available)
+        let displayTopic = '';
+        if(isPrecheck){
+          const st = String(li.serviceTopic || '').trim();
+          if(st && st.toLowerCase() !== 'inspection'){
+            displayTopic = st;
+          }else if(cachedTpl && cachedTpl[idx] && cachedTpl[idx].label){
+            displayTopic = cachedTpl[idx].label;
+          }else{
+            displayTopic = 'Pre-Season Inspection';
+          }
+        }else{
+          displayTopic = mapTopic(li.serviceTopic, li.serviceTopicOther);
+        }
 
-  const notes = String(li.notes || '').trim();
-  const completed = li.completed === true;
-  const completedAt = li.completedAt || null;
+        const notes = String(li.notes || '').trim();
+        const completed = li.completed === true;
+        const completedAt = li.completedAt || null;
 
-  const row = document.createElement('div');
-  row.className = 'lineitem-row';
+        const row = document.createElement('div');
+        row.className = 'lineitem-row';
 
-  const notePreview = notes
-    || (isPrecheck
-      ? 'No additional notes.'
-      : (origin === 'request' ? 'From service request' : 'Manual entry'));
+        const notePreview = notes
+          || (isPrecheck ? 'No additional notes.' : (origin === 'request' ? 'From service request' : 'Manual entry'));
 
-  const statusText = completed
-    ? (completedAt ? `Completed ${formatDate(completedAt)}` : 'Completed')
-    : 'Open';
+        const statusText = completed
+          ? (completedAt ? `Completed ${formatDate(completedAt)}` : 'Completed')
+          : 'Open';
 
-  row.innerHTML = `
-    <div class="lineitem-main">
-      <div class="lineitem-title">${topic}</div>
-      <div class="lineitem-sub">${notePreview}</div>
-    </div>
-    <div class="lineitem-status-pill">${statusText}</div>
-  `;
+        row.innerHTML = `
+          <div class="lineitem-main">
+            <div class="lineitem-title">${displayTopic}</div>
+            <div class="lineitem-sub">${notePreview}</div>
+          </div>
+          <div class="lineitem-status-pill">${statusText}</div>
+        `;
 
-  row.addEventListener('click', ()=>{
-    openLineItemModal(item, idx);
-  });
+        row.addEventListener('click', ()=>{
+          openLineItemModal(item, idx);
+        });
 
-  listEl.appendChild(row);
-});
+        listEl.appendChild(row);
+      });
+
+      // Warm cache for this WO so modal + list can resolve labels/notes even for older WOs
+      if(tplId && !STATE.precheckTplCache.has(tplId)){
+        getPrecheckTemplateItems(tplId).then(()=>{
+          // re-render to replace generic "inspection" labels if present
+          if(STATE.selectedId === item.id){
+            renderLineItems(panel, item);
+          }
+        });
+      }
     }
 
     function renderSummary(panel, item){
@@ -2204,113 +2250,116 @@
     }
 
     async function openLineItemModal(item, index){
-  const modal = $('#liModal');
-  if(!modal) return;
+      const modal = $('#liModal');
+      if(!modal) return;
 
-  const li = (item.data.lineItems || [])[index];
-  if(!li) return;
+      const li = (item.data.lineItems || [])[index];
+      if(!li) return;
 
-  STATE.currentLine = { woId: item.id, index };
+      STATE.currentLine = { woId: item.id, index };
 
-  const titleEl = $('#liModalTitle');
-  const subtitleEl = $('#liModalSubtitle');
-  const topicVal = $('#liTopicVal');
-  const notesVal = $('#liNotesVal');
-  const partsVal = $('#liPartsVal');
-  const metaEl = $('#liMeta');
-  const completedCheckbox = $('#liCompleted');
-  const empSelect = $('#liEmployee');
-  const hintEl = $('#liHint');
+      const titleEl = $('#liModalTitle');
+      const subtitleEl = $('#liModalSubtitle');
+      const topicVal = $('#liTopicVal');
+      const notesVal = $('#liNotesVal');
+      const partsVal = $('#liPartsVal');
+      const metaEl = $('#liMeta');
+      const completedCheckbox = $('#liCompleted');
+      const empSelect = $('#liEmployee');
+      const hintEl = $('#liHint');
 
-  const origin = (li.origin || (li.serviceRequestId ? 'request' : 'manual')).toString().toLowerCase();
-  const isPrecheck = origin === 'precheck_template';
+      const origin = (li.origin || (li.serviceRequestId ? 'request' : 'manual')).toString().toLowerCase();
+      const isPrecheck = origin === 'precheck_template';
 
-  // ---- Precheck fallback: pull label + notesHint from template item if WO line is generic/blank ----
-  const tplId = String(item.data?.precheckTemplateId || '').trim();
-  const tplItemId = String(li.precheckTemplateItemId || '').trim();
+      const originLabel =
+        origin === 'request' ? 'From service request' :
+        origin === 'precheck_template' ? 'From precheck template' :
+        'Manual';
 
-  if(isPrecheck && tplId && tplItemId){
-    try{
-      const snap = await getDoc(doc(STATE.db, 'seasonal_precheck_templates', tplId, 'items', tplItemId));
-      if(snap.exists()){
-        const tv = snap.data() || {};
-        const lbl  = String(tv.label || '').trim();
-        const hint = String(tv.notesHint || '').trim();
+      // ✅ Precheck: resolve label/notes from template items EVEN if WO lineItems are still generic (inspection)
+      if(isPrecheck){
+        const tplId = String(item.data?.precheckTemplateId || '').trim();
+        if(tplId){
+          const tplItems = await getPrecheckTemplateItems(tplId);
 
-        // Only override if WO data is still generic/blank
-        if(!li.serviceTopic || String(li.serviceTopic).trim().toLowerCase() === 'inspection'){
-          li.serviceTopic = lbl || li.serviceTopic;
-        }
-        if(!li.notes || !String(li.notes).trim()){
-          li.notes = hint || li.notes;
+          // Prefer explicit id match (new WOs), otherwise fall back to index match (older WOs)
+          let tplHit = null;
+          const tplItemId = String(li.precheckTemplateItemId || '').trim();
+          if(tplItemId){
+            tplHit = tplItems.find(x => x.id === tplItemId) || null;
+          }
+          if(!tplHit && tplItems[index]) tplHit = tplItems[index];
+
+          if(tplHit){
+            // if WO still has old generic values, replace for display
+            const st = String(li.serviceTopic || '').trim().toLowerCase();
+            if(!li.serviceTopic || st === 'inspection'){
+              li.serviceTopic = tplHit.label || li.serviceTopic;
+            }
+            if(!li.notes || !String(li.notes).trim()){
+              li.notes = tplHit.notesHint || li.notes;
+            }
+          }
         }
       }
-    }catch(e){
-      console.warn('Template item lookup failed:', e);
+
+      const topic = isPrecheck
+        ? (String(li.serviceTopic || '').trim() || 'Pre-Season Inspection')
+        : mapTopic(li.serviceTopic, li.serviceTopicOther);
+
+      const submitted = li.submittedByName || '';
+      const completed = li.completed === true;
+      const completedAt = li.completedAt || null;
+      const completedByName = li.completedByEmployeeName || '';
+      const notes = String(li.notes || '').trim();
+      const parts = String(li.partsNeeded || '').trim();
+
+      // Use template title as modal heading for precheck items
+      const templateTitle = String(item.data?.precheckTemplateTitle || '').trim();
+
+      if(titleEl) titleEl.textContent = (isPrecheck && templateTitle) ? templateTitle : topic;
+      if(subtitleEl) subtitleEl.textContent = originLabel;
+      if(topicVal) topicVal.textContent = topic;
+      if(notesVal) notesVal.textContent = notes || 'No additional notes.';
+
+      // ✅ Parts: normal WOs must ALWAYS show; precheck must ALWAYS hide
+      if(partsVal){
+        const wrap = partsVal.parentElement; // container that includes label + value
+        if(wrap) wrap.style.display = isPrecheck ? 'none' : '';
+        if(!isPrecheck){
+          partsVal.textContent = parts || 'No parts listed.';
+        }
+      }
+
+      if(metaEl){
+        const dateText = completedAt ? `Completed ${formatDate(completedAt)}` : 'Not completed';
+        metaEl.textContent = submitted
+          ? `Submitted by ${submitted} • ${dateText}${completedByName ? ' • ' + completedByName : ''}`
+          : dateText;
+      }
+
+      if(completedCheckbox) completedCheckbox.checked = completed;
+
+      if(empSelect){
+        empSelect.innerHTML = '<option value="">Select employee…</option>';
+        (STATE.employees || []).forEach(emp=>{
+          const opt = document.createElement('option');
+          opt.value = emp.id;
+          opt.textContent = emp.name;
+          empSelect.appendChild(opt);
+        });
+        if(li.completedByEmployeeId){
+          empSelect.value = li.completedByEmployeeId;
+        }
+      }
+
+      if(hintEl){
+        hintEl.textContent = 'Mark this task as completed and choose who did it. Date will be stored automatically.';
+      }
+
+      modal.classList.add('show');
+      document.body.style.overflow = 'hidden';
     }
-  }
-
-  const topic = isPrecheck
-    ? (String(li.serviceTopic || '').trim() || 'Pre-Season Inspection')
-    : mapTopic(li.serviceTopic, li.serviceTopicOther);
-
-  const originLabel =
-    origin === 'request' ? 'From service request' :
-    origin === 'precheck_template' ? 'From precheck template' :
-    'Manual';
-
-  const submitted = li.submittedByName || '';
-  const completed = li.completed === true;
-  const completedAt = li.completedAt || null;
-  const completedByName = li.completedByEmployeeName || '';
-  const notes = String(li.notes || '').trim();
-  const parts = String(li.partsNeeded || '').trim();
-
-  // Use template title as modal heading for precheck items
-  const templateTitle = String(item.data?.precheckTemplateTitle || '').trim();
-
-  if(titleEl) titleEl.textContent = (isPrecheck && templateTitle) ? templateTitle : topic;
-  if(subtitleEl) subtitleEl.textContent = originLabel;
-  if(topicVal) topicVal.textContent = topic;
-  if(notesVal) notesVal.textContent = notes || 'No additional notes.';
-
-  // Hide parts section for precheck items
-  if(partsVal){
-    const wrap = partsVal.parentElement; // container that includes label + value
-    if(wrap) wrap.style.display = isPrecheck ? 'none' : '';
-    if(!isPrecheck) partsVal.textContent = parts || 'No parts listed.';
-  }
-
-  if(metaEl){
-    const dateText = completedAt ? `Completed ${formatDate(completedAt)}` : 'Not completed';
-    metaEl.textContent = submitted
-      ? `Submitted by ${submitted} • ${dateText}${completedByName ? ' • ' + completedByName : ''}`
-      : dateText;
-  }
-
-  if(completedCheckbox) completedCheckbox.checked = completed;
-
-  if(empSelect){
-    empSelect.innerHTML = '<option value="">Select employee…</option>';
-    (STATE.employees || []).forEach(emp=>{
-      const opt = document.createElement('option');
-      opt.value = emp.id;
-      opt.textContent = emp.name;
-      empSelect.appendChild(opt);
-    });
-    if(li.completedByEmployeeId){
-      empSelect.value = li.completedByEmployeeId;
-    }
-  }
-
-  if(hintEl){
-    hintEl.textContent = 'Mark this task as completed and choose who did it. Date will be stored automatically.';
-  }
-
-  modal.classList.add('show');
-  document.body.style.overflow = 'hidden';
-}
-
 
     function closeLineItemModal(){
       const modal = $('#liModal');
