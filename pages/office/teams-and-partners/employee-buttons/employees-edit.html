@@ -49,11 +49,38 @@
 
     .list{margin:0 0 16px 0;padding:0;list-style:none;border:1px solid var(--border);
       border-radius:12px;overflow:hidden}
-    .list li{display:flex;justify-content:space-between;gap:10px;align-items:center;
-      padding:12px 14px;background:var(--surface)}
+    .list li{
+      display:flex;justify-content:space-between;gap:10px;align-items:center;
+      padding:12px 14px;background:var(--surface)
+    }
     .list li:nth-child(odd){background:var(--card-surface,var(--surface))}
-    .list .name{font-weight:800}
-    .list .meta{font-size:.925rem;color:var(--muted,#87908a)}
+
+    /* ✅ NEW: lock the right column width so Edit buttons line up */
+    .list .left{
+      flex:1 1 auto;
+      min-width:0; /* critical for ellipsis inside flex */
+    }
+    .list .right{
+      flex:0 0 168px;         /* fixed column width for alignment */
+      display:flex;
+      justify-content:flex-end;
+      align-items:center;
+    }
+
+    /* ✅ NEW: ellipsis so long name/email never pushes the button */
+    .list .name{
+      font-weight:800;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .list .meta{
+      font-size:.925rem;color:var(--muted,#87908a);
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+
     .empty{color:var(--muted,#87908a);padding:6px 2px}
 
     .section{border:1px solid var(--border);border-radius:14px;background:var(--surface);
@@ -81,7 +108,6 @@
     .btn[disabled]{opacity:.5;pointer-events:none}
 
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
-    /* Keep accent the same as Add page */
     .btn-accent{border-color:#2F6C3C;background:#E7F1EA;color:#2F6C3C;width:auto;font-size:17px;font-weight:800;margin-top:0;}
     .btn-quiet{min-width:auto;padding:8px 12px}
 
@@ -448,16 +474,23 @@
 
       for(const it of items){
         const li=document.createElement('li');
+
         const left=document.createElement('div');
+        left.className='left';
         left.innerHTML=`<div class="name">${it.data.fullName || '(no name)'}</div><div class="meta">${it.data.email || ''}</div>`;
+
         const right=document.createElement('div');
+        right.className='right';
+
         const btn=document.createElement('button');
-        /* Edit button should match Add-page Save style (neutral) */
         btn.className='btn';
         btn.textContent='Edit';
         btn.addEventListener('click',()=>loadIntoForm(it));
+
         right.appendChild(btn);
-        li.appendChild(left); li.appendChild(right); resultsEl.appendChild(li);
+        li.appendChild(left);
+        li.appendChild(right);
+        resultsEl.appendChild(li);
       }
     }
 
@@ -547,45 +580,6 @@
       try{ await window.FVUserContext?.refresh?.({force:true}); }catch{}
       updateInviteButtonLabel();
       return newId;
-    }
-
-    // FIXED: do NOT send reset inside; do NOT create user if it already exists
-    async function ensureAuthUser(email, displayName){
-      if(!email) throw new Error("Missing email for Auth user");
-
-      const CDN='https://www.gstatic.com/firebasejs/10.12.5/';
-      const [{initializeApp},authMod]=await Promise.all([
-        import(CDN+'firebase-app.js'),
-        import(CDN+'firebase-auth.js')
-      ]);
-
-      const app = initializeApp(window.FV_FIREBASE_CONFIG, 'fv-admin');
-      const a   = authMod.getAuth(app);
-
-      try { await authMod.setPersistence(a, authMod.inMemoryPersistence); } catch {}
-
-      try{
-        const methods = await authMod.fetchSignInMethodsForEmail(a, email);
-        if (Array.isArray(methods) && methods.length > 0){
-          return { existed: true, created: false };
-        }
-
-        const tmp = (() => {
-          const u = new Uint8Array(24);
-          crypto.getRandomValues(u);
-          return btoa(String.fromCharCode(...u))
-            .replace(/[^a-zA-Z0-9]/g,'')
-            .slice(0,20);
-        })();
-
-        const cred = await authMod.createUserWithEmailAndPassword(a, email, tmp);
-        if (displayName){
-          try { await authMod.updateProfile(cred.user, { displayName }); } catch {}
-        }
-        return { existed: false, created: true };
-      } finally {
-        try { await authMod.signOut(a); } catch {}
-      }
     }
 
     async function loadIntoForm(item){
@@ -704,7 +698,6 @@
       updateInviteButtonLabel();
     }
     boot().catch(console.error);
-
   </script>
 </body>
 </html>
