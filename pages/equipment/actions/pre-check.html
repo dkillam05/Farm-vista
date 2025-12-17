@@ -1038,28 +1038,31 @@ IMPORTANT:
     }
 
     async function loadItems(templateId){
-      const qRef = query(
-        collection(db, COL_TPL, templateId, 'items'),
-        where('archived','==',false)
-      );
-      const snap = await getDocs(qRef);
+  const snap = await getDocs(
+    collection(db, COL_TPL, templateId, 'items')
+  );
 
-      const out=[];
-      snap.forEach(d=>{
-        const v=d.data()||{};
-        out.push({
-          id:d.id,
-          bankId: v.bankId ? String(v.bankId) : null,
-          label:String(v.label||'').trim(),
-          order:Number(v.order||0),
-          archived: !!v.archived,
-          notesHint: String(v.notesHint||'').trim() || ''
-        });
-      });
+  const out = [];
+  snap.forEach(d=>{
+    const v = d.data() || {};
 
-      out.sort(byOrder);
-      return out;
-    }
+    // Treat missing archived as ACTIVE
+    if(v.archived === true) return;
+
+    out.push({
+      id: d.id,
+      bankId: v.bankId ? String(v.bankId) : null,
+      label: String(v.label || '').trim(),
+      order: Number(v.order || 0),
+      archived: false,
+      notesHint: String(v.notesHint || '').trim() || ''
+    });
+  });
+
+  out.sort((a,b)=>a.order - b.order);
+  return out;
+}
+
 
     async function loadBank(force=false){
       const now = Date.now();
