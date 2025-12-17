@@ -854,6 +854,7 @@
           const li = Array.isArray(d.lineItems) ? d.lineItems : [];
           const liText = li.map(x => [
             x.serviceTopic, x.serviceTopicOther,
+            x.label, x.notesHint,           /* ✅ add template fields to search */
             x.notes, x.partsNeeded,
             x.submittedByName,
             x.completedByEmployeeName, x.completedByEmployeeId
@@ -1153,18 +1154,30 @@
         liHost.appendChild(box);
       }else{
         li.forEach((x, idx) => {
-          const topic = x.serviceTopicOther ? String(x.serviceTopicOther) : titleCaseType(x.serviceTopic || 'Service');
+          const origin = String(x.origin || '').toLowerCase();
+          const isPreSeasonItem = (origin === 'precheck_template');
+
+          // ✅ Title: for pre-season use label (template item field)
+          const topic = isPreSeasonItem
+            ? (String(x.label || x.checkItem || x.item || x.title || '').trim() || `Pre-Inspection Item #${idx+1}`)
+            : (x.serviceTopicOther ? String(x.serviceTopicOther) : titleCaseType(x.serviceTopic || 'Service'));
+
+          // ✅ Notes: for pre-season show notesHint (template guidance)
+          const notes = isPreSeasonItem
+            ? (String(x.notesHint || '').trim() || '—')
+            : ((x.notes || '').trim() || '—');
+
+          // ✅ Parts: normal only (pre-season hides parts entirely)
+          const parts = isPreSeasonItem ? '' : ((x.partsNeeded || '').trim() || '—');
+
           const done = !!x.completed;
           const badge = done ? 'Completed' : 'Open';
 
           const submittedBy = (x.submittedByName || '').trim() || '—';
           const completedBy = (x.completedByEmployeeName || x.completedByEmployeeId || '').trim() || '—';
-          const parts = (x.partsNeeded || '').trim() || '—';
 
           const completedAt = toDateMaybe(x.completedAt);
           const completedAtStr = completedAt ? formatDateTime(completedAt) : '—';
-
-          const notes = (x.notes || '').trim() || '';
 
           const el = document.createElement('div');
           el.className = 'li';
@@ -1177,9 +1190,12 @@
             <div class="li-meta">
               <div class="pair"><div class="kk">Submitted By</div><div class="vv">${escapeHtml(submittedBy)}</div></div>
               <div class="pair"><div class="kk">Completed By</div><div class="vv">${escapeHtml(completedBy)}</div></div>
-              <div class="pair"><div class="kk">Parts Needed</div><div class="vv">${escapeHtml(parts)}</div></div>
+              ${isPreSeasonItem ? '' : `<div class="pair"><div class="kk">Parts Needed</div><div class="vv">${escapeHtml(parts)}</div></div>`}
               <div class="pair"><div class="kk">Completed At</div><div class="vv">${escapeHtml(completedAtStr)}</div></div>
-              <div class="pair notes"><div class="kk">Notes</div><div class="vv">${escapeHtml(notes || '—')}</div></div>
+              <div class="pair notes">
+                <div class="kk">${isPreSeasonItem ? 'Guidance' : 'Notes'}</div>
+                <div class="vv">${escapeHtml(notes || '—')}</div>
+              </div>
             </div>
           `;
           liHost.appendChild(el);
@@ -1289,7 +1305,7 @@
 
     /* ===========================
        PRINT MODAL + REPORTS
-       (unchanged)
+       (mostly unchanged; updated detailed line items for pre-season)
        =========================== */
 
     let __fvPrintModalLastFocus = null;
@@ -1961,14 +1977,24 @@
 
                   <div class="lines">
                     ${lineItems.map((li, idx) => {
-                      const topic = li.serviceTopicOther ? String(li.serviceTopicOther) : titleCaseType(li.serviceTopic || 'Service');
+                      const origin = String(li.origin || '').toLowerCase();
+                      const isPreSeasonItem = (origin === 'precheck_template');
+
+                      const topic = isPreSeasonItem
+                        ? (String(li.label || li.checkItem || li.item || li.title || '').trim() || `Pre-Inspection Item #${idx+1}`)
+                        : (li.serviceTopicOther ? String(li.serviceTopicOther) : titleCaseType(li.serviceTopic || 'Service'));
+
+                      const parts = isPreSeasonItem ? '' : ((li.partsNeeded || '').trim() || '—');
+
+                      const notes = isPreSeasonItem
+                        ? (String(li.notesHint || '').trim() || '—')
+                        : ((li.notes || '').trim() || '—');
+
                       const isDone = !!li.completed;
                       const badge = isDone ? 'Completed' : 'Open';
                       const submittedBy = (li.submittedByName || '').trim() || '—';
                       const completedBy = (li.completedByEmployeeName || li.completedByEmployeeId || '').trim() || '—';
-                      const parts = (li.partsNeeded || '').trim() || '—';
                       const doneAt = li.completedAt ? formatDateTime(toDateMaybe(li.completedAt)) : '—';
-                      const notes = (li.notes || '').trim() || '—';
 
                       return `
                         <div class="line">
@@ -1979,9 +2005,9 @@
                           <div class="line-grid">
                             <div class="pair"><div class="kk">Submitted by</div><div class="vv">${escapeHtml(submittedBy)}</div></div>
                             <div class="pair"><div class="kk">Completed by</div><div class="vv">${escapeHtml(completedBy)}</div></div>
-                            <div class="pair"><div class="kk">Parts</div><div class="vv">${escapeHtml(parts)}</div></div>
+                            ${isPreSeasonItem ? '' : `<div class="pair"><div class="kk">Parts</div><div class="vv">${escapeHtml(parts)}</div></div>`}
                             <div class="pair"><div class="kk">Completed at</div><div class="vv">${escapeHtml(doneAt)}</div></div>
-                            <div class="line-notes"><span class="kk" style="display:block;margin-bottom:2px;">Notes</span>${escapeHtml(notes)}</div>
+                            <div class="line-notes"><span class="kk" style="display:block;margin-bottom:2px;">${isPreSeasonItem ? 'Guidance' : 'Notes'}</span>${escapeHtml(notes)}</div>
                           </div>
                         </div>
                       `;
