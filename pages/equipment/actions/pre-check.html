@@ -1,17 +1,20 @@
 <!-- =========================================================
 /Farm-vista/pages/equipment/actions/pre-check.html  (FULL FILE)
 Pre-Check Templates (Builder Only — No Year)
-Rev: 2025-12-17i
+Rev: 2025-12-17j
 
-This page is ONLY for:
-- Create template (no Season Year — templates apply every year)
-- Rename template (tap template name in panel header)
-- Build template item list (add / reorder / remove / notes)
+Goal of this rev:
+- Remove ALL Firestore "query requires an index" console errors.
+Approach:
+- NO composite-index-triggering queries:
+  - Avoid mixing where(...) + orderBy(...) on different fields.
+- Use ONLY where(...) filters, then sort client-side in JS.
 
-Change in this rev (Option 2 — FIX index errors):
-- Removed Firestore "archived != true" + orderBy('archived') patterns
-- Replaced with "where('archived','==',false)" and normal ordering
-  -> avoids composite index requirement for these queries
+Still supports:
+- Title Case while typing + on save (Template + New Item)
+- Notes on items (tap item in main list to save)
+- Add / reorder / remove / notes in modal
+- Implement type filter (implements only)
 ========================================================= -->
 <!doctype html>
 <html lang="en">
@@ -63,7 +66,6 @@ Change in this rev (Option 2 — FIX index errors):
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap));
     }
 
-    /* Card */
     .hero{
       border:1px solid var(--border);
       border-radius:14px;
@@ -584,7 +586,7 @@ Change in this rev (Option 2 — FIX index errors):
       ready,
       getFirestore,
       collection, doc, setDoc, updateDoc, getDoc, getDocs,
-      query, where, orderBy, limit,
+      query, where, limit,
       serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
@@ -718,6 +720,10 @@ Change in this rev (Option 2 — FIX index errors):
       return String(s||'').trim().toLowerCase();
     }
 
+    function byTitle(a,b){ return String(a.title||'').localeCompare(String(b.title||'')); }
+    function byLabel(a,b){ return String(a.label||'').localeCompare(String(b.label||'')); }
+    function byOrder(a,b){ return (Number(a.order||0) - Number(b.order||0)); }
+
     function setRenameMode(on){
       const row = $("renameRow");
       const btn = $("tplNameBtn");
@@ -773,150 +779,91 @@ Change in this rev (Option 2 — FIX index errors):
     }
 
     /* ======================================================
-       OPTION 2 QUERIES (NO COMPOSITE INDEX NEEDED)
-       - archived == false
-       - no orderBy('archived')
+       INDEX-FREE QUERIES:
+       - Use ONLY where(...) filters.
+       - Sort client-side.
        ====================================================== */
 
     async function queryTemplates(){
       const { implementType } = readFilters();
 
-      // Primary query (fast)
-      try{
-        const qRef = query(
-          collection(db, COL_TPL),
-          where('equipmentType','==',TYPE),
-          where('archived','==',false),
-          orderBy('title')
-        );
-        const snap = await getDocs(qRef);
-        const all = [];
-        snap.forEach(d=>{
-          const v=d.data()||{};
-          all.push({
-            id:d.id,
-            title:String(v.title||'').trim() || '(Untitled)',
-            equipmentType:String(v.equipmentType||TYPE),
-            implementType: v.implementType ? String(v.implementType) : null
-          });
-        });
+      // Only where filters -> no composite index required
+      const qRef = query(
+        collection(db, COL_TPL),
+        where('equipmentType','==',TYPE),
+        where('archived','==',false)
+      );
+      const snap = await getDocs(qRef);
 
-        if(TYPE==='implement' && implementType){
-          return all.filter(t => (t.implementType||null) === implementType).sort((a,b)=>a.title.localeCompare(b.title));
-        }
-        return all.sort((a,b)=>a.title.localeCompare(b.title));
-      }catch(e){
-        // Fallback (full scan) — should rarely run now
-        console.warn('Template query fallback:', e);
-        const snap = await getDocs(collection(db, COL_TPL));
-        const out = [];
-        snap.forEach(d=>{
-          const v=d.data()||{};
-          if(String(v.equipmentType||'').toLowerCase() !== TYPE) return;
-          if(v.archived) return;
-
-          if(TYPE==='implement' && implementType){
-            const it = v.implementType ? String(v.implementType) : null;
-            if(it !== implementType) return;
-          }
-          out.push({
-            id:d.id,
-            title:String(v.title||'').trim() || '(Untitled)',
-            equipmentType:String(v.equipmentType||TYPE),
-            implementType: v.implementType ? String(v.implementType) : null
-          });
+      const all = [];
+      snap.forEach(d=>{
+        const v=d.data()||{};
+        all.push({
+          id:d.id,
+          title:String(v.title||'').trim() || '(Untitled)',
+          equipmentType:String(v.equipmentType||TYPE),
+          implementType: v.implementType ? String(v.implementType) : null
         });
-        out.sort((a,b)=>a.title.localeCompare(b.title));
-        return out;
+      });
+
+      let out = all;
+      if(TYPE==='implement' && implementType){
+        out = out.filter(t => (t.implementType||null) === implementType);
       }
+      out.sort(byTitle);
+      return out;
     }
 
     async function loadItems(templateId){
-      // Primary query (fast)
-      try{
-        const snap = await getDocs(query(
-          collection(db, COL_TPL, templateId, 'items'),
-          where('archived','==',false),
-          orderBy('order')
-        ));
-        const out=[];
-        snap.forEach(d=>{
-          const v=d.data()||{};
-          out.push({
-            id:d.id,
-            bankId: v.bankId ? String(v.bankId) : null,
-            label:String(v.label||'').trim(),
-            order:Number(v.order||0),
-            archived: !!v.archived,
-            notesHint: String(v.notesHint||'').trim() || ''
-          });
+      const qRef = query(
+        collection(db, COL_TPL, templateId, 'items'),
+        where('archived','==',false)
+      );
+      const snap = await getDocs(qRef);
+
+      const out=[];
+      snap.forEach(d=>{
+        const v=d.data()||{};
+        out.push({
+          id:d.id,
+          bankId: v.bankId ? String(v.bankId) : null,
+          label:String(v.label||'').trim(),
+          order:Number(v.order||0),
+          archived: !!v.archived,
+          notesHint: String(v.notesHint||'').trim() || ''
         });
-        return out;
-      }catch(e){
-        console.warn('Items query fallback:', e);
-        const snap = await getDocs(collection(db, COL_TPL, templateId, 'items'));
-        const out=[];
-        snap.forEach(d=>{
-          const v=d.data()||{};
-          if(v.archived) return;
-          out.push({
-            id:d.id,
-            bankId: v.bankId ? String(v.bankId) : null,
-            label:String(v.label||'').trim(),
-            order:Number(v.order||0),
-            archived: !!v.archived,
-            notesHint: String(v.notesHint||'').trim() || ''
-          });
-        });
-        out.sort((a,b)=>a.order-b.order);
-        return out;
-      }
+      });
+
+      out.sort(byOrder);
+      return out;
     }
 
     async function loadBank(force=false){
       const now = Date.now();
       if(!force && bankItems.length && (now - bankLoadedAt) < 60_000) return bankItems;
 
-      // Primary query (fast)
-      try{
-        const snap = await getDocs(query(
-          collection(db, COL_BANK),
-          where('archived','==',false),
-          orderBy('label')
-        ));
-        const out=[];
-        snap.forEach(d=>{
-          const v=d.data()||{};
-          const label = String(v.label||'').trim();
-          if(!label) return;
-          out.push({
-            id:d.id,
-            label,
-            labelLower: String(v.labelLower||'').trim() || label.toLowerCase()
-          });
+      const qRef = query(
+        collection(db, COL_BANK),
+        where('archived','==',false)
+      );
+      const snap = await getDocs(qRef);
+
+      const out=[];
+      snap.forEach(d=>{
+        const v=d.data()||{};
+        const label = String(v.label||'').trim();
+        if(!label) return;
+        out.push({
+          id:d.id,
+          label,
+          labelLower: String(v.labelLower||'').trim() || label.toLowerCase()
         });
-        bankItems = out.sort((a,b)=>a.label.localeCompare(b.label));
-        bankLoadedAt = now;
-        return bankItems;
-      }catch(e){
-        console.warn('Bank query fallback:', e);
-        const snap = await getDocs(collection(db, COL_BANK));
-        const out=[];
-        snap.forEach(d=>{
-          const v=d.data()||{};
-          if(v.archived) return;
-          const label = String(v.label||'').trim();
-          if(!label) return;
-          out.push({
-            id:d.id,
-            label,
-            labelLower: String(v.labelLower||'').trim() || label.toLowerCase()
-          });
-        });
-        bankItems = out.sort((a,b)=>a.label.localeCompare(b.label));
-        bankLoadedAt = now;
-        return bankItems;
-      }
+      });
+
+      out.sort(byLabel);
+      bankItems = out;
+      bankLoadedAt = now;
+      return bankItems;
     }
 
     function renderTemplateSelect(templates, keepSelection=false){
@@ -958,8 +905,14 @@ Change in this rev (Option 2 — FIX index errors):
 
     async function refreshTemplates(keepSelection=false){
       setErr(null);
-      const templates = await queryTemplates();
-      renderTemplateSelect(templates, keepSelection);
+      try{
+        const templates = await queryTemplates();
+        renderTemplateSelect(templates, keepSelection);
+      }catch(e){
+        console.error(e);
+        setErr('Failed to load templates.');
+        renderTemplateSelect([], false);
+      }
     }
 
     async function loadTemplateAndItems(templateId, resetRename=true){
@@ -974,36 +927,40 @@ Change in this rev (Option 2 — FIX index errors):
         return;
       }
 
-      const tSnap = await getDoc(doc(db, COL_TPL, templateId));
-      if(!tSnap.exists()){
-        showToast('Template not found');
-        await refreshTemplates(false);
-        return;
+      try{
+        const tSnap = await getDoc(doc(db, COL_TPL, templateId));
+        if(!tSnap.exists()){
+          showToast('Template not found');
+          await refreshTemplates(false);
+          return;
+        }
+
+        const v = tSnap.data()||{};
+        currentTemplateId = templateId;
+        currentTemplate = {
+          id: templateId,
+          title: String(v.title||'').trim() || '(Untitled)',
+          equipmentType: String(v.equipmentType||TYPE),
+          implementType: v.implementType ? String(v.implementType) : null
+        };
+
+        currentItems = await loadItems(templateId);
+        $("pillMeta").textContent = tplAppliesText();
+
+        renderItemsMain();
+        setTemplateUIState();
+        if(resetRename) setRenameMode(false);
+      }catch(e){
+        console.error(e);
+        setErr('Failed to load template/items.');
       }
-
-      const v = tSnap.data()||{};
-      currentTemplateId = templateId;
-      currentTemplate = {
-        id: templateId,
-        title: String(v.title||'').trim() || '(Untitled)',
-        equipmentType: String(v.equipmentType||TYPE),
-        implementType: v.implementType ? String(v.implementType) : null
-      };
-
-      currentItems = await loadItems(templateId);
-
-      $("pillMeta").textContent = tplAppliesText();
-
-      renderItemsMain();
-      setTemplateUIState();
-      if(resetRename) setRenameMode(false);
     }
 
     function renderItemsMain(){
       const list = $("itemsMain");
       const empty = $("itemsEmptyMain");
 
-      const items = currentItems.filter(x=>!x.archived).sort((a,b)=>(a.order||0)-(b.order||0));
+      const items = currentItems.filter(x=>!x.archived).slice().sort(byOrder);
 
       if(!currentTemplateId){
         empty.textContent = 'Select a template to view its items.';
@@ -1127,7 +1084,7 @@ Change in this rev (Option 2 — FIX index errors):
       o0.textContent='— Select from list —';
       sel.appendChild(o0);
 
-      bankItems.forEach(it=>{
+      bankItems.slice().sort(byLabel).forEach(it=>{
         const o=document.createElement('option');
         o.value=it.id;
         o.textContent=it.label;
@@ -1159,9 +1116,11 @@ Change in this rev (Option 2 — FIX index errors):
       if(!label) return null;
 
       const labelLower = normalizeLabelLower(label);
+
       const hit = bankItems.find(x => x.labelLower === labelLower);
       if(hit) return hit;
 
+      // optional exact lookup (single-field equality -> index-free)
       try{
         const snap = await getDocs(query(collection(db, COL_BANK), where('labelLower','==',labelLower), limit(1)));
         if(!snap.empty){
@@ -1169,12 +1128,10 @@ Change in this rev (Option 2 — FIX index errors):
           const v = d.data()||{};
           const out = { id:d.id, label: String(v.label||label).trim(), labelLower: String(v.labelLower||labelLower).trim() || labelLower };
           bankItems.push(out);
-          bankItems.sort((a,b)=>a.label.localeCompare(b.label));
+          bankItems.sort(byLabel);
           return out;
         }
-      }catch(e){
-        console.warn('bank labelLower lookup failed:', e);
-      }
+      }catch{}
 
       const ref = doc(collection(db, COL_BANK));
       await setDoc(ref, {
@@ -1186,7 +1143,7 @@ Change in this rev (Option 2 — FIX index errors):
       });
       const created = { id: ref.id, label, labelLower };
       bankItems.push(created);
-      bankItems.sort((a,b)=>a.label.localeCompare(b.label));
+      bankItems.sort(byLabel);
       return created;
     }
 
@@ -1235,7 +1192,7 @@ Change in this rev (Option 2 — FIX index errors):
     }
 
     async function reorderItem(itemId, dir){
-      const items = currentItems.filter(x=>!x.archived).sort((a,b)=>(a.order||0)-(b.order||0));
+      const items = currentItems.filter(x=>!x.archived).slice().sort(byOrder);
       const idx = items.findIndex(x=>x.id===itemId);
       if(idx<0) return;
       const target = idx + dir;
@@ -1271,7 +1228,7 @@ Change in this rev (Option 2 — FIX index errors):
     }
 
     function renderItemsEditor(){
-      const items = currentItems.filter(x=>!x.archived).sort((a,b)=>(a.order||0)-(b.order||0));
+      const items = currentItems.filter(x=>!x.archived).slice().sort(byOrder);
       const empty = $("itemsEmpty");
       const list = $("itemsList");
 
@@ -1510,7 +1467,9 @@ Change in this rev (Option 2 — FIX index errors):
           await loadBank(true);
           renderBankPick();
         }catch(e){
-          console.warn(e);
+          console.error(e);
+          setErr('Failed to load item bank.');
+          return;
         }
 
         $("newBankText").value = '';
