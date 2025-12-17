@@ -1570,35 +1570,45 @@
       }
 
       lineItems.forEach((li, idx)=>{
-        const topic = mapTopic(li.serviceTopic, li.serviceTopicOther);
-        const notes = li.notes || '';
-        const origin = li.origin || (li.serviceRequestId ? 'request' : 'manual');
-        const completed = li.completed === true;
-        const completedAt = li.completedAt || null;
+  const origin = (li.origin || (li.serviceRequestId ? 'request' : 'manual')).toString().toLowerCase();
+  const isPrecheck = origin === 'precheck_template';
 
-        const row = document.createElement('div');
-        row.className = 'lineitem-row';
+  // Precheck items already store the LABEL in serviceTopic
+  const topic = isPrecheck
+    ? (String(li.serviceTopic || '').trim() || 'Pre-Season Inspection')
+    : mapTopic(li.serviceTopic, li.serviceTopicOther);
 
-        const notePreview = notes || (origin === 'request' ? 'From service request' : 'Manual entry');
-        const statusText = completed
-          ? (completedAt ? `Completed ${formatDate(completedAt)}` : 'Completed')
-          : 'Open';
+  const notes = String(li.notes || '').trim();
+  const completed = li.completed === true;
+  const completedAt = li.completedAt || null;
 
-        row.innerHTML = `
-          <div class="lineitem-main">
-            <div class="lineitem-title">${topic}</div>
-            <div class="lineitem-sub">${notePreview}</div>
-          </div>
-          <div class="lineitem-status-pill">${statusText}</div>
-        `;
+  const row = document.createElement('div');
+  row.className = 'lineitem-row';
 
-        row.addEventListener('click', ()=>{
-          openLineItemModal(item, idx);
-        });
+  const notePreview = notes
+    || (isPrecheck
+      ? 'No additional notes.'
+      : (origin === 'request' ? 'From service request' : 'Manual entry'));
 
-        listEl.appendChild(row);
-      });
-    }
+  const statusText = completed
+    ? (completedAt ? `Completed ${formatDate(completedAt)}` : 'Completed')
+    : 'Open';
+
+  row.innerHTML = `
+    <div class="lineitem-main">
+      <div class="lineitem-title">${topic}</div>
+      <div class="lineitem-sub">${notePreview}</div>
+    </div>
+    <div class="lineitem-status-pill">${statusText}</div>
+  `;
+
+  row.addEventListener('click', ()=>{
+    openLineItemModal(item, idx);
+  });
+
+  listEl.appendChild(row);
+});
+
 
     function renderSummary(panel, item){
       const d = item.data;
@@ -2211,27 +2221,47 @@
       const empSelect = $('#liEmployee');
       const hintEl = $('#liHint');
 
-      const topic = mapTopic(li.serviceTopic, li.serviceTopicOther);
-      const origin = li.origin || (li.serviceRequestId ? 'request' : 'manual');
-      const originLabel = origin === 'request' ? 'From service request' : (origin === 'precheck_template' ? 'From precheck template' : 'Manual');
-      const submitted = li.submittedByName || '';
-      const completed = li.completed === true;
-      const completedAt = li.completedAt || null;
-      const completedByName = li.completedByEmployeeName || '';
-      const notes = li.notes || '';
-      const parts = li.partsNeeded || '';
+      const origin = (li.origin || (li.serviceRequestId ? 'request' : 'manual')).toString().toLowerCase();
+const isPrecheck = origin === 'precheck_template';
 
-      if(titleEl) titleEl.textContent = topic;
-      if(subtitleEl) subtitleEl.textContent = originLabel;
-      if(topicVal) topicVal.textContent = topic;
-      if(notesVal) notesVal.textContent = notes || 'No additional notes.';
-      if(partsVal) partsVal.textContent = parts || 'No parts listed.';
-      if(metaEl){
-        const dateText = completedAt ? `Completed ${formatDate(completedAt)}` : 'Not completed';
-        metaEl.textContent = submitted
-          ? `Submitted by ${submitted} • ${dateText}${completedByName ? ' • ' + completedByName : ''}`
-          : dateText;
-      }
+const topic = isPrecheck
+  ? (String(li.serviceTopic || '').trim() || 'Pre-Season Inspection')
+  : mapTopic(li.serviceTopic, li.serviceTopicOther);
+
+const originLabel =
+  origin === 'request' ? 'From service request' :
+  origin === 'precheck_template' ? 'From precheck template' :
+  'Manual';
+
+const submitted = li.submittedByName || '';
+const completed = li.completed === true;
+const completedAt = li.completedAt || null;
+const completedByName = li.completedByEmployeeName || '';
+const notes = String(li.notes || '').trim();
+const parts = String(li.partsNeeded || '').trim();
+
+// Use template title as modal heading for precheck items
+const templateTitle = String(item.data?.precheckTemplateTitle || '').trim();
+
+if(titleEl) titleEl.textContent = (isPrecheck && templateTitle) ? templateTitle : topic;
+if(subtitleEl) subtitleEl.textContent = originLabel;
+if(topicVal) topicVal.textContent = topic;
+if(notesVal) notesVal.textContent = notes || 'No additional notes.';
+
+// Hide parts section for precheck items
+if(partsVal){
+  const wrap = partsVal.closest('div'); // container that includes label + value
+  if(wrap) wrap.style.display = isPrecheck ? 'none' : '';
+  if(!isPrecheck) partsVal.textContent = parts || 'No parts listed.';
+}
+
+if(metaEl){
+  const dateText = completedAt ? `Completed ${formatDate(completedAt)}` : 'Not completed';
+  metaEl.textContent = submitted
+    ? `Submitted by ${submitted} • ${dateText}${completedByName ? ' • ' + completedByName : ''}`
+    : dateText;
+}
+
 
       if(completedCheckbox) completedCheckbox.checked = completed;
 
