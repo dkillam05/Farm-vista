@@ -1,7 +1,7 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/field-maintenance/maintenance-edit.html
 Worker Order Editor – list, filter by status, full edit (delete from list w/ FV confirm)
-Rev: 2025-12-18 (search removed, FV delete confirm, mobile + modal fixes)
+Rev: 2025-12-18 + photo popup viewer (tap thumbnail to view)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -495,15 +495,112 @@ Rev: 2025-12-18 (search removed, FV delete confirm, mobile + modal fixes)
       background:var(--card-surface,var(--surface));
       position:relative;
       flex:0 0 auto;
+      cursor:pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .photo-thumb:focus{
+      outline:2px solid rgba(47,108,60,.5);
+      outline-offset:2px;
     }
     .photo-thumb img{
       width:100%;
       height:100%;
       object-fit:cover;
       display:block;
+      pointer-events:none;
     }
     /* Hide raw URL editor (thumbnails only, as requested) */
     .photo-urls-raw{ display:none !important; }
+
+    /* ===== Photo popup viewer (lightbox) ===== */
+    #photoModal{
+      z-index:110000; /* above edit modal */
+    }
+    .photo-sheet{
+      width:min(100vw,980px);
+      max-width:96vw;
+      max-height:94vh;
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:14px;
+      overflow:hidden;
+      display:flex;
+      flex-direction:column;
+    }
+    .photo-body{
+      flex:1 1 auto;
+      min-height:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:10px;
+      background:rgba(0,0,0,.08);
+    }
+    .photo-stage{
+      width:100%;
+      height:100%;
+      min-height:240px;
+      border-radius:14px;
+      overflow:hidden;
+      border:1px solid var(--border);
+      background:#000;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      position:relative;
+    }
+    .photo-stage img{
+      max-width:100%;
+      max-height:calc(94vh - 120px);
+      width:auto;
+      height:auto;
+      object-fit:contain;
+      display:block;
+      background:#000;
+    }
+    .photo-nav{
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+    }
+    .photo-nav button{
+      pointer-events:auto;
+      position:absolute;
+      top:50%;
+      transform:translateY(-50%);
+      border:1px solid rgba(255,255,255,.25);
+      background:rgba(0,0,0,.45);
+      color:#fff !important;
+      font-weight:900;
+      border-radius:12px;
+      padding:10px 12px;
+      cursor:pointer;
+      user-select:none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .photo-nav button:hover{ background:rgba(0,0,0,.6); }
+    .photo-nav .prev{ left:10px; }
+    .photo-nav .next{ right:10px; }
+    .photo-footer{
+      border-top:1px solid var(--border);
+      padding:10px 14px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .photo-count{
+      color:var(--muted,#67706B);
+      font-weight:800;
+      font-size:0.9rem;
+    }
+    @media (max-width:560px){
+      .photo-nav button{ padding:10px 10px; }
+      .photo-stage img{ max-height:calc(94vh - 150px); }
+      .photo-footer .btn{ width:100%; }
+      .photo-footer{ justify-content:stretch; }
+    }
 
     /* Map modal for editing location */
     .map-modal-body{
@@ -774,6 +871,30 @@ Rev: 2025-12-18 (search removed, FV delete confirm, mobile + modal fixes)
     </div>
   </div>
 
+  <!-- Photo popup viewer modal -->
+  <div id="photoModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="photoTitle">
+    <div class="backdrop" data-close></div>
+    <div class="photo-sheet">
+      <header>
+        <div id="photoTitle">Photo</div>
+        <button class="close" type="button" data-close>Close</button>
+      </header>
+      <div class="photo-body">
+        <div class="photo-stage">
+          <img id="photoViewerImg" alt="Work order photo">
+          <div class="photo-nav" aria-hidden="false">
+            <button id="photoPrev" type="button" class="prev" title="Previous">‹</button>
+            <button id="photoNext" type="button" class="next" title="Next">›</button>
+          </div>
+        </div>
+      </div>
+      <div class="photo-footer">
+        <div id="photoCount" class="photo-count"></div>
+        <button id="photoCloseBtn" type="button" class="btn">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- FV-style Delete Confirmation modal -->
   <div id="confirmModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
     <div class="backdrop" data-close></div>
@@ -851,6 +972,10 @@ Rev: 2025-12-18 (search removed, FV delete confirm, mobile + modal fixes)
       },
       confirm: {
         pending: null, // { id, resolve }
+      },
+      photoViewer: {
+        urls: [],
+        index: 0
       }
     };
 
@@ -1045,6 +1170,91 @@ Rev: 2025-12-18 (search removed, FV delete confirm, mobile + modal fixes)
       }
       state.editSelections.topic = { id: topic.id, name: topic.label, label: topic.label };
       btn.textContent = topic.label;
+    }
+
+    /* ------------ Photo popup viewer ------------ */
+    function openPhotoModal(urls, startIndex=0){
+      const list = Array.isArray(urls) ? urls.filter(Boolean) : [];
+      if(!list.length) return;
+
+      state.photoViewer.urls = list;
+      state.photoViewer.index = Math.max(0, Math.min(startIndex, list.length - 1));
+
+      const modal = $("photoModal");
+      modal.classList.add("show");
+
+      renderPhotoViewer();
+    }
+
+    function closePhotoModal(){
+      const modal = $("photoModal");
+      modal.classList.remove("show");
+      state.photoViewer.urls = [];
+      state.photoViewer.index = 0;
+    }
+
+    function renderPhotoViewer(){
+      const urls = state.photoViewer.urls || [];
+      const idx = state.photoViewer.index || 0;
+
+      const img = $("photoViewerImg");
+      const count = $("photoCount");
+      const prevBtn = $("photoPrev");
+      const nextBtn = $("photoNext");
+      const title = $("photoTitle");
+
+      if(!urls.length){
+        img.removeAttribute("src");
+        count.textContent = "";
+        title.textContent = "Photo";
+        prevBtn.style.display = "none";
+        nextBtn.style.display = "none";
+        return;
+      }
+
+      img.src = urls[idx];
+      title.textContent = "Photo";
+      count.textContent = `${idx + 1} of ${urls.length}`;
+
+      // show/hide nav (only if multiple)
+      const showNav = urls.length > 1;
+      prevBtn.style.display = showNav ? "" : "none";
+      nextBtn.style.display = showNav ? "" : "none";
+    }
+
+    function photoPrev(){
+      const urls = state.photoViewer.urls || [];
+      if(urls.length <= 1) return;
+      state.photoViewer.index = (state.photoViewer.index - 1 + urls.length) % urls.length;
+      renderPhotoViewer();
+    }
+    function photoNext(){
+      const urls = state.photoViewer.urls || [];
+      if(urls.length <= 1) return;
+      state.photoViewer.index = (state.photoViewer.index + 1) % urls.length;
+      renderPhotoViewer();
+    }
+
+    function setupPhotoModal(){
+      const modal = $("photoModal");
+      if(!modal) return;
+
+      // close behaviors
+      modal.querySelector(".backdrop").addEventListener("click", closePhotoModal);
+      modal.querySelectorAll("[data-close]").forEach(el=> el.addEventListener("click", closePhotoModal));
+      $("photoCloseBtn").addEventListener("click", closePhotoModal);
+
+      // nav buttons
+      $("photoPrev").addEventListener("click", photoPrev);
+      $("photoNext").addEventListener("click", photoNext);
+
+      // keyboard (only when photo modal is open)
+      document.addEventListener("keydown", (e)=>{
+        if(!modal.classList.contains("show")) return;
+        if(e.key === "Escape"){ closePhotoModal(); return; }
+        if(e.key === "ArrowLeft"){ photoPrev(); return; }
+        if(e.key === "ArrowRight"){ photoNext(); return; }
+      });
     }
 
     /* ------------ load Firestore data ------------ */
@@ -1271,7 +1481,7 @@ Rev: 2025-12-18 (search removed, FV delete confirm, mobile + modal fixes)
       selectEditFieldById(row.fieldId || null, row.fieldName || "Select field…");
       selectEditTopicById(row.topicId || null, row.topicLabel || "Select topic…");
 
-      // photos (thumbs only)
+      // photos (thumbs only, click opens popup)
       const thumbsEl = $("edPhotoThumbs");
       const urlsArea = $("edPhotoUrlsRaw");
       thumbsEl.innerHTML = "";
@@ -1279,13 +1489,28 @@ Rev: 2025-12-18 (search removed, FV delete confirm, mobile + modal fixes)
       urlsArea.value = urls.join("\n"); // hidden, but used for saving
 
       if(urls.length){
-        urls.forEach(url=>{
+        urls.forEach((url, idx)=>{
           const div = document.createElement("div");
           div.className = "photo-thumb";
+          div.tabIndex = 0;
+          div.setAttribute("role","button");
+          div.setAttribute("aria-label", `Open photo ${idx+1}`);
+          div.dataset.idx = String(idx);
+
           const img = document.createElement("img");
           img.src = url;
           img.alt = "Photo";
           div.appendChild(img);
+
+          // click / keyboard open
+          div.addEventListener("click", ()=> openPhotoModal(urls, idx));
+          div.addEventListener("keydown", (e)=>{
+            if(e.key === "Enter" || e.key === " "){
+              e.preventDefault();
+              openPhotoModal(urls, idx);
+            }
+          });
+
           thumbsEl.appendChild(div);
         });
       }else{
@@ -1750,6 +1975,7 @@ Rev: 2025-12-18 (search removed, FV delete confirm, mobile + modal fixes)
       setupEditCombos();
       setupMapModal();
       setupConfirmModal();
+      setupPhotoModal();
 
       try{
         await Promise.all([
