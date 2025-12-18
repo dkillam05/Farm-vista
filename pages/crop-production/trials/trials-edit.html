@@ -572,6 +572,23 @@
     .trial-detail-item-value{
       font-size:0.92rem;
     }
+    /* Status row: value left, Edit Setup button far-right */
+.trial-detail-status-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+}
+
+/* Make the inline Edit button smaller so it feels like “header action” */
+#trialEditBtn.trial-edit-inline{
+  min-width:auto;
+  padding:6px 10px;
+  border-radius:10px;
+  font-size:0.82rem;
+  font-weight:800;
+  white-space:nowrap;
+}
 
     .trial-detail-notes{
       margin-top:8px;
@@ -1780,6 +1797,14 @@
     if(delBtn){
       delBtn.disabled = false;
     }
+    // Return Edit Setup button back to its home container when closing details
+const home = document.getElementById('trialEditHome');
+const editBtn = document.getElementById('trialEditBtn');
+if(home && editBtn){
+  editBtn.classList.remove('trial-edit-inline');
+  home.appendChild(editBtn);
+}
+
 
     resetDetailButtonsForViewMode();
   }
@@ -1894,60 +1919,73 @@
       }
 
       if(status){
-        html += '<div>';
-        html += '<div class="trial-detail-item-label">Status</div>';
-        html += `<div class="trial-detail-item-value">${escapeHtml(getStatusLabel(status))}</div>`;
-        html += '</div>';
-      }
+  html += '<div>';
+  html += '<div class="trial-detail-item-label">Status</div>';
+  html += `
+    <div class="trial-detail-item-value trial-detail-status-row">
+      <span>${escapeHtml(getStatusLabel(status))}</span>
+      <span id="trialEditSlot"></span>
+    </div>
+  `;
+  html += '</div>';
+}
 
       grid.innerHTML = html;
-    }
 
-    const notesBody = $('.trial-detail-notes-body', panel);
-    if(notesBody){
-      notesBody.textContent = notes || 'No additional notes recorded.';
-    }
+// Move "Edit Setup" button into the Status row (far right)
+const slot = document.getElementById('trialEditSlot');
+const editBtn = document.getElementById('trialEditBtn');
+if(slot && editBtn){
+  editBtn.classList.add('trial-edit-inline');
+  slot.appendChild(editBtn);
+}
+}
 
-    const attGrid = $('#trialDetailAttachments');
-    if(attGrid){
-      attGrid.innerHTML = '';
-      const files = Array.isArray(d.files) ? d.files : [];
-      if(files.length){
-        files.forEach(raw => {
-          if(!raw || !raw.url) return;
-          const att = {
-            url: raw.url,
-            name: raw.name || raw.path || 'Attachment'
-          };
+const notesBody = $('.trial-detail-notes-body', panel);
+if(notesBody){
+  notesBody.textContent = notes || 'No additional notes recorded.';
+}
 
-          const thumbBtn = document.createElement('button');
-          thumbBtn.type = 'button';
-          thumbBtn.className = 'trial-attachment-thumb';
-          thumbBtn.title = att.name;
+const attGrid = $('#trialDetailAttachments');
+if(attGrid){
+  attGrid.innerHTML = '';
+  const files = Array.isArray(d.files) ? d.files : [];
+  if(files.length){
+    files.forEach(raw => {
+      if(!raw || !raw.url) return;
+      const att = {
+        url: raw.url,
+        name: raw.name || raw.path || 'Attachment'
+      };
 
-          if(isImageUrl(att.url)){
-            const img = document.createElement('img');
-            img.src = att.url;
-            img.alt = att.name;
-            thumbBtn.appendChild(img);
-          }else{
-            thumbBtn.textContent = 'FILE';
-          }
+      const thumbBtn = document.createElement('button');
+      thumbBtn.type = 'button';
+      thumbBtn.className = 'trial-attachment-thumb';
+      thumbBtn.title = att.name;
 
-          thumbBtn.addEventListener('click', (ev)=>{
-            ev.stopPropagation();
-            openFileViewer(att);
-          });
-
-          attGrid.appendChild(thumbBtn);
-        });
+      if(isImageUrl(att.url)){
+        const img = document.createElement('img');
+        img.src = att.url;
+        img.alt = att.name;
+        thumbBtn.appendChild(img);
       }else{
-        const empty = document.createElement('div');
-        empty.className = 'trial-attachment-empty';
-        empty.textContent = 'No files or photos attached.';
-        attGrid.appendChild(empty);
+        thumbBtn.textContent = 'FILE';
       }
-    }
+
+      thumbBtn.addEventListener('click', (ev)=>{
+        ev.stopPropagation();
+        openFileViewer(att);
+      });
+
+      attGrid.appendChild(thumbBtn);
+    });
+  }else{
+    const empty = document.createElement('div');
+    empty.className = 'trial-attachment-empty';
+    empty.textContent = 'No files or photos attached.';
+    attGrid.appendChild(empty);
+  }
+}
 
     renderTrialFields(item.id);
 
@@ -3103,16 +3141,20 @@
 
         <div class="trial-actions">
           <div class="trial-actions-left">
-            <button type="button" id="trialEditBtn" class="btn btn-quiet" style="display:none;">
-              Edit Setup
-            </button>
-            <button type="button" id="trialSaveBtn" class="btn btn-complete" style="display:none;">
-              Save Changes
-            </button>
-            <button type="button" id="trialCancelBtn" class="btn btn-quiet" style="display:none;">
-              Cancel
-            </button>
-          </div>
+  <div id="trialEditHome">
+    <button type="button" id="trialEditBtn" class="btn btn-quiet" style="display:none;">
+      Edit Setup
+    </button>
+  </div>
+
+  <button type="button" id="trialSaveBtn" class="btn btn-complete" style="display:none;">
+    Save Changes
+  </button>
+  <button type="button" id="trialCancelBtn" class="btn btn-quiet" style="display:none;">
+    Cancel
+  </button>
+</div>
+
           <div class="trial-actions-right">
             <button type="button" id="trialCompleteBtn" class="btn btn-complete" style="display:none;">
               Mark Trial Completed
