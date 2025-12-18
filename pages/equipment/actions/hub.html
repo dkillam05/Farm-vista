@@ -1,6 +1,10 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/equipment-hub.html  (FULL FILE REPLACEMENT)
-Rev: 2025-12-18 (Hub button: Service Records now links to equipment-specific view)
+Rev: 2025-12-18b
+Change:
+ • "Service Records" now opens a hub modal (popup) showing ONLY this equipment’s records
+ • Newest records on top
+ • Print Summary + Print Detailed buttons (stub print builders; you’ll give me your real ones later)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -117,9 +121,7 @@ Rev: 2025-12-18 (Hub button: Service Records now links to equipment-specific vie
       border-color:transparent
     }
 
-    .actions-return{
-      margin-top:26px;
-    }
+    .actions-return{ margin-top:26px; }
 
     .state{
       border:1px solid var(--border);
@@ -191,22 +193,14 @@ Rev: 2025-12-18 (Hub button: Service Records now links to equipment-specific vie
       display:grid;
       gap:12px;
     }
-    .form-grid{
-      display:grid;
-      gap:10px;
-    }
+    .form-grid{ display:grid; gap:10px; }
     .row{
       display:grid;
       grid-template-columns: 1fr 1fr;
       gap:10px;
     }
-    @media (max-width:560px){
-      .row{ grid-template-columns:1fr; }
-    }
-    .field{
-      display:grid;
-      gap:6px;
-    }
+    @media (max-width:560px){ .row{ grid-template-columns:1fr; } }
+    .field{ display:grid; gap:6px; }
     .label{
       font-size:12px;
       font-weight:850;
@@ -240,9 +234,8 @@ Rev: 2025-12-18 (Hub button: Service Records now links to equipment-specific vie
       border-top:1px solid var(--border);
       background:color-mix(in srgb, var(--surface) 70%, transparent);
     }
-    @media (max-width:560px){
-      .modal-actions{ grid-template-columns:1fr; }
-    }
+    @media (max-width:560px){ .modal-actions{ grid-template-columns:1fr; } }
+
     .btn-danger{
       background:color-mix(in srgb, #b51f1f 14%, var(--surface));
       border-color:color-mix(in srgb, #b51f1f 30%, var(--border));
@@ -260,11 +253,7 @@ Rev: 2025-12-18 (Hub button: Service Records now links to equipment-specific vie
     }
     :root[data-theme="dark"] .banner{ color:var(--ink-1,#eaece9); }
     .banner[data-show="1"]{ display:block; }
-    .small-note{
-      font-size:12px;
-      color:var(--muted,#67706B);
-      line-height:1.25;
-    }
+    .small-note{ font-size:12px; color:var(--muted,#67706B); line-height:1.25; }
     .textarea{
       width:100%;
       min-height:88px;
@@ -290,9 +279,72 @@ Rev: 2025-12-18 (Hub button: Service Records now links to equipment-specific vie
       color:var(--muted,#67706B);
       margin-top:2px;
     }
-    .hint.error{
-      color:#b51f1f;
-      font-weight:850;
+    .hint.error{ color:#b51f1f; font-weight:850; }
+
+    /* ===== Service Records Modal ===== */
+    .sr-list{ display:grid; gap:10px; }
+    .sr-item{
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:var(--surface);
+      padding:12px;
+      display:grid;
+      gap:8px;
+    }
+    .sr-top{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .sr-title{
+      font-weight:950;
+      font-size:14px;
+      line-height:1.15;
+      margin:0;
+    }
+    .sr-sub{
+      font-size:12px;
+      color:var(--muted,#67706B);
+      margin:0;
+      line-height:1.25;
+    }
+    .sr-tags{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:center;
+    }
+    .sr-tag{
+      font-size:12px;
+      border:1px solid var(--border);
+      border-radius:999px;
+      padding:5px 10px;
+      background:var(--surface);
+      white-space:nowrap;
+    }
+    .sr-notes{
+      font-size:13px;
+      color:var(--ink-1,#0f1a13);
+      line-height:1.35;
+      white-space:pre-wrap;
+      margin:0;
+    }
+    :root[data-theme="dark"] .sr-notes{ color:var(--ink-1,#eaece9); }
+    .sr-empty{
+      border:1px dashed var(--border);
+      border-radius:12px;
+      padding:14px;
+      text-align:center;
+      color:var(--muted,#67706B);
+      background:color-mix(in srgb, var(--surface) 70%, transparent);
+    }
+
+    /* Service records modal: allow scrolling inside the modal body, not the page */
+    #srModalBody{
+      max-height: min(62vh, 560px);
+      overflow:auto;
+      -webkit-overflow-scrolling:touch;
     }
   </style>
 </head>
@@ -410,6 +462,30 @@ Rev: 2025-12-18 (Hub button: Service Records now links to equipment-specific vie
       </div>
     </div>
 
+    <!-- ===== Service Records Modal (NEW) ===== -->
+    <div class="modal-backdrop" id="srModal" aria-hidden="true">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="srTitle">
+        <div class="modal-head">
+          <h3 id="srTitle">Service Records</h3>
+          <button class="icon-btn" id="srClose" type="button" aria-label="Close">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M18 6L6 18"></path><path d="M6 6l12 12"></path>
+            </svg>
+          </button>
+        </div>
+
+        <div class="modal-body" id="srModalBody">
+          <div class="banner" id="srBanner"></div>
+          <div class="sr-list" id="srList"></div>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn" id="srPrintSummary" type="button">Print Summary</button>
+          <button class="btn btn-primary" id="srPrintDetailed" type="button">Print Detailed</button>
+        </div>
+      </div>
+    </div>
+
   </fv-shell>
 
   <script type="module">
@@ -417,7 +493,8 @@ Rev: 2025-12-18 (Hub button: Service Records now links to equipment-specific vie
       ready,
       getFirestore, doc, getDoc, updateDoc,
       getAuth, onAuthStateChanged,
-      collection, addDoc, serverTimestamp
+      collection, addDoc, serverTimestamp,
+      getDocs, query, where, limit
     } from '/Farm-vista/js/firebase-init.js';
 
     const $ = id => document.getElementById(id);
@@ -499,6 +576,7 @@ Rev: 2025-12-18 (Hub button: Service Records now links to equipment-specific vie
     };
 
     const last6 = v => String(v || '').slice(-6);
+
     const setText = (id, val, opts = {}) => {
       const el = $(id); if(!el) return;
       if(!val){
@@ -509,6 +587,7 @@ Rev: 2025-12-18 (Hub button: Service Records now links to equipment-specific vie
       el.textContent = val;
       if(opts.unhide) el.hidden = false;
     };
+
     function showContent(){ $('content').hidden = false; }
 
     function setupReturnButtons(typeKey){
@@ -548,6 +627,9 @@ Rev: 2025-12-18 (Hub button: Service Records now links to equipment-specific vie
       wrap.hidden    = false;
     }
 
+    /* ===========================
+       Metric Modal logic (unchanged)
+       =========================== */
     const MODAL = {
       open: false,
       doc: null,
@@ -712,10 +794,7 @@ Rev: 2025-12-18 (Hub button: Service Records now links to equipment-specific vie
       function validate(){
         const e = toNum(eng.value);
         const s = toNum(sep.value);
-
-        // If either blank, don’t scream yet.
         if (e == null || s == null){ clearErr(); return; }
-
         if (s > e) setErr();
         else clearErr();
       }
@@ -725,8 +804,6 @@ Rev: 2025-12-18 (Hub button: Service Records now links to equipment-specific vie
       sep.addEventListener('input', onAny);
       eng.addEventListener('change', onAny);
       sep.addEventListener('change', onAny);
-
-      // Initial pass
       validate();
 
       MODAL._combineUnwire = ()=>{
@@ -760,13 +837,7 @@ Rev: 2025-12-18 (Hub button: Service Records now links to equipment-specific vie
     }
 
     function computeValidation(docData, inputs){
-      const results = {
-        ok: true,
-        anyDecrease: false,
-        badNumbers: [],
-        decreases: [],
-        updates: {}
-      };
+      const results = { ok:true, anyDecrease:false, badNumbers:[], decreases:[], updates:{} };
 
       for(const [k,v] of Object.entries(inputs)){
         if(!Number.isFinite(v)){
@@ -853,7 +924,6 @@ Rev: 2025-12-18 (Hub button: Service Records now links to equipment-specific vie
           return;
         }
 
-        // Hard stop for combine rule in the Hub (operators)
         if (String(MODAL.typeKey||'') === 'combine'){
           const e = toNum($('metric_engineHours')?.value);
           const s = toNum($('metric_separatorHours')?.value);
@@ -864,7 +934,6 @@ Rev: 2025-12-18 (Hub button: Service Records now links to equipment-specific vie
         }
 
         const v = computeValidation(MODAL.doc, inputs);
-
         if(v.badNumbers.length){
           showBanner('One or more values are not valid numbers.');
           return;
@@ -1035,7 +1104,6 @@ Rev: 2025-12-18 (Hub button: Service Records now links to equipment-specific vie
         return;
       }
 
-      // Combine-only rule wired here for operators
       if (String(typeKey||'') === 'combine'){
         wireCombineModalRule();
       }
@@ -1043,6 +1111,366 @@ Rev: 2025-12-18 (Hub button: Service Records now links to equipment-specific vie
       openModal();
     }
 
+    /* ===========================
+       Service Records Modal logic (NEW)
+       =========================== */
+    const SR = {
+      open:false,
+      rows:[],
+      eqTitle:'',
+      eqSerial:'',
+      typeKey:'',
+      cfgDisplay:'Equipment',
+      db:null
+    };
+
+    function srShowBanner(msg){
+      const b = $('srBanner');
+      if(!b) return;
+      if(!msg){ b.textContent=''; b.dataset.show='0'; return; }
+      b.textContent = msg;
+      b.dataset.show='1';
+    }
+
+    function srOpen(){
+      const back = $('srModal');
+      if(!back) return;
+      back.dataset.open='1';
+      back.setAttribute('aria-hidden','false');
+      SR.open=true;
+      document.body.style.overflow='hidden';
+    }
+
+    function srClose(){
+      const back = $('srModal');
+      if(!back) return;
+      back.dataset.open='0';
+      back.setAttribute('aria-hidden','true');
+      SR.open=false;
+      document.body.style.overflow='';
+    }
+
+    function toDateMaybe(v){
+      try{
+        if(!v) return null;
+        // Firestore Timestamp
+        if(typeof v.toDate === 'function') return v.toDate();
+        // {seconds, nanoseconds}
+        if(typeof v.seconds === 'number') return new Date(v.seconds*1000);
+        // ISO string
+        if(typeof v === 'string'){
+          const d = new Date(v);
+          if(!Number.isNaN(d.getTime())) return d;
+        }
+        // millis
+        if(typeof v === 'number'){
+          const d = new Date(v);
+          if(!Number.isNaN(d.getTime())) return d;
+        }
+        return null;
+      }catch{
+        return null;
+      }
+    }
+
+    function pad2(n){ return String(n).padStart(2,'0'); }
+    function fmtDateTime(d){
+      if(!d) return '—';
+      const mm = pad2(d.getMonth()+1);
+      const dd = pad2(d.getDate());
+      const yy = d.getFullYear();
+      let hh = d.getHours();
+      const ap = hh >= 12 ? 'PM' : 'AM';
+      hh = hh % 12; if(hh===0) hh=12;
+      const mi = pad2(d.getMinutes());
+      return `${mm}/${dd}/${yy} ${hh}:${mi} ${ap}`;
+    }
+
+    function bestRecordDate(r){
+      // prefer completed/updated/created (newest first)
+      const d =
+        toDateMaybe(r.completedAt) ||
+        toDateMaybe(r.updatedAt) ||
+        toDateMaybe(r.createdAt) ||
+        toDateMaybe(r.date) ||
+        null;
+      return d;
+    }
+
+    function normStatus(s){
+      const v = String(s||'').trim().toLowerCase();
+      if(!v) return '—';
+      if(v === 'in-progress' || v === 'in progress') return 'In Progress';
+      if(v === 'completed' || v === 'complete') return 'Completed';
+      if(v === 'open') return 'Open';
+      if(v === 'pending') return 'Pending';
+      return v.replace(/\b\w/g, m=>m.toUpperCase());
+    }
+
+    function safeText(v){
+      const s = String(v ?? '').trim();
+      return s;
+    }
+
+    function pickTitle(r){
+      return (
+        safeText(r.title) ||
+        safeText(r.summary) ||
+        safeText(r.problem) ||
+        safeText(r.issue) ||
+        safeText(r.subject) ||
+        'Service Record'
+      );
+    }
+
+    function pickNotes(r){
+      return (
+        safeText(r.notes) ||
+        safeText(r.description) ||
+        safeText(r.details) ||
+        safeText(r.workDone) ||
+        ''
+      );
+    }
+
+    function money(v){
+      const n = Number(v);
+      if(!Number.isFinite(n)) return '';
+      return `$${n.toFixed(2)}`;
+    }
+
+    function buildSrItemHtml(row){
+      const r = row.data || {};
+      const dt = bestRecordDate(r);
+      const when = fmtDateTime(dt);
+      const status = normStatus(r.status);
+      const title = pickTitle(r);
+      const notes = pickNotes(r);
+
+      const tags = [];
+      if(status && status !== '—') tags.push({ label: status });
+      if(r.vendorName) tags.push({ label: safeText(r.vendorName) });
+      if(r.category) tags.push({ label: safeText(r.category) });
+      if(r.cost != null) {
+        const c = money(r.cost);
+        if(c) tags.push({ label: c });
+      }
+      if(r.meterLabel && r.meterValue != null){
+        tags.push({ label: `${safeText(r.meterLabel)}: ${safeText(r.meterValue)}` });
+      }
+
+      return `
+        <div class="sr-item">
+          <div class="sr-top">
+            <div style="min-width:0">
+              <p class="sr-title">${title}</p>
+              <p class="sr-sub">${when}</p>
+            </div>
+            <div class="sr-tags" aria-hidden="true" style="justify-content:flex-end">
+              ${tags.slice(0,3).map(t=>`<span class="sr-tag">${t.label}</span>`).join('')}
+            </div>
+          </div>
+
+          ${tags.length > 3 ? `
+            <div class="sr-tags">
+              ${tags.slice(3).map(t=>`<span class="sr-tag">${t.label}</span>`).join('')}
+            </div>
+          ` : ''}
+
+          ${notes ? `<p class="sr-notes">${notes}</p>` : ''}
+        </div>
+      `;
+    }
+
+    function renderSrList(){
+      const list = $('srList');
+      if(!list) return;
+
+      if(!SR.rows.length){
+        list.innerHTML = `<div class="sr-empty">No service records found for this equipment.</div>`;
+        return;
+      }
+
+      list.innerHTML = SR.rows.map(buildSrItemHtml).join('');
+    }
+
+    async function loadServiceRecordsForEquipment(db, equipmentId){
+      // Try a few possible collection names so it “just works”
+      const candidates = ['equipmentWorkOrders','equipment_work_orders','equipment_service_records'];
+
+      for(const colName of candidates){
+        try{
+          const base = collection(db, colName);
+          // Keep query simple to avoid index headaches: where + limit, then sort client-side
+          const q = query(base, where('equipmentId','==', equipmentId), limit(250));
+          const snap = await getDocs(q);
+          const rows = snap.docs.map(d=>({ id:d.id, data:d.data(), _col:colName }));
+
+          if(rows.length){
+            console.info('[hub][sr] loaded', rows.length, 'from', colName);
+            return rows;
+          }
+        }catch(e){
+          console.warn('[hub][sr] query failed for', colName, e?.code||e);
+        }
+      }
+      return [];
+    }
+
+    async function openServiceRecords(eqLabel){
+      try{
+        if(!SR.db) SR.db = getFirestore();
+        srShowBanner('');
+        $('srList').innerHTML = `<div class="sr-empty">Loading…</div>`;
+        $('srTitle').textContent = `Service Records — ${eqLabel || 'Equipment'}`;
+        srOpen();
+
+        const rows = await loadServiceRecordsForEquipment(SR.db, id);
+
+        // Sort newest -> oldest using best available date
+        rows.sort((a,b)=>{
+          const da = bestRecordDate(a.data);
+          const db = bestRecordDate(b.data);
+          const ta = da ? da.getTime() : 0;
+          const tb = db ? db.getTime() : 0;
+          return tb - ta;
+        });
+
+        SR.rows = rows;
+        renderSrList();
+
+      }catch(e){
+        console.error('[hub][sr] openServiceRecords error', e);
+        srShowBanner('Could not load service records. Check connection.');
+        $('srList').innerHTML = `<div class="sr-empty">Error loading records.</div>`;
+      }
+    }
+
+    function buildSummaryPrintHtml({ eqLabel, rows }){
+      // STUB: You’ll give me the real summary/detailed builders from maintenance-records later.
+      const items = (rows||[]).map(r=>{
+        const d = r.data || {};
+        const when = fmtDateTime(bestRecordDate(d));
+        return `<tr>
+          <td style="padding:8px 10px;border-bottom:1px solid #ddd;">${when}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #ddd;">${pickTitle(d)}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #ddd;">${normStatus(d.status)}</td>
+        </tr>`;
+      }).join('');
+
+      return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Service Records — Summary</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:20px; color:#111; }
+    h1{ margin:0 0 8px; font-size:20px; }
+    .muted{ color:#666; margin:0 0 14px; }
+    table{ width:100%; border-collapse:collapse; }
+    th{ text-align:left; font-size:12px; letter-spacing:.2px; color:#444; padding:8px 10px; border-bottom:2px solid #111; }
+    td{ font-size:13px; vertical-align:top; }
+    @media print{ body{ margin:0.5in; } }
+  </style>
+</head>
+<body>
+  <h1>Service Records — Summary</h1>
+  <p class="muted">${eqLabel || 'Equipment'}</p>
+
+  <table>
+    <thead>
+      <tr><th style="width:190px">Date</th><th>Record</th><th style="width:130px">Status</th></tr>
+    </thead>
+    <tbody>
+      ${items || `<tr><td colspan="3" style="padding:10px;">No records.</td></tr>`}
+    </tbody>
+  </table>
+  <script>window.print()</script>
+</body>
+</html>`;
+    }
+
+    function buildDetailedPrintHtml({ eqLabel, rows }){
+      // STUB detailed print
+      const blocks = (rows||[]).map(r=>{
+        const d = r.data || {};
+        const when = fmtDateTime(bestRecordDate(d));
+        const title = pickTitle(d);
+        const notes = pickNotes(d);
+        return `
+          <div style="border:1px solid #ddd;border-radius:10px;padding:12px;margin:0 0 12px;">
+            <div style="font-weight:900;margin:0 0 4px;">${title}</div>
+            <div style="color:#666;font-size:12px;margin:0 0 8px;">${when} • ${normStatus(d.status)}</div>
+            ${notes ? `<div style="white-space:pre-wrap;line-height:1.35;font-size:13px;">${notes}</div>` : `<div style="color:#777;font-size:13px;">(No details)</div>`}
+          </div>
+        `;
+      }).join('');
+
+      return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Service Records — Detailed</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:20px; color:#111; }
+    h1{ margin:0 0 8px; font-size:20px; }
+    .muted{ color:#666; margin:0 0 14px; }
+    @media print{ body{ margin:0.5in; } }
+  </style>
+</head>
+<body>
+  <h1>Service Records — Detailed</h1>
+  <p class="muted">${eqLabel || 'Equipment'}</p>
+  ${blocks || `<div>No records.</div>`}
+  <script>window.print()</script>
+</body>
+</html>`;
+    }
+
+    function openPrintWindow(html){
+      const w = window.open('', '_blank', 'noopener,noreferrer');
+      if(!w){ srShowBanner('Popup blocked. Allow popups to print.'); return; }
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+    }
+
+    function wireServiceRecordsModalButtons(){
+      const back = $('srModal');
+      const closeBtn = $('srClose');
+      const btnSum = $('srPrintSummary');
+      const btnDet = $('srPrintDetailed');
+
+      if(closeBtn) closeBtn.addEventListener('click', srClose);
+
+      if(back){
+        back.addEventListener('click', (e)=>{
+          if(e.target === back) srClose();
+        });
+      }
+
+      window.addEventListener('keydown', (e)=>{
+        if(e.key === 'Escape' && SR.open) srClose();
+      });
+
+      if(btnSum) btnSum.addEventListener('click', ()=>{
+        const eqLabel = $('eqName')?.textContent || 'Equipment';
+        const html = buildSummaryPrintHtml({ eqLabel, rows: SR.rows });
+        openPrintWindow(html);
+      });
+
+      if(btnDet) btnDet.addEventListener('click', ()=>{
+        const eqLabel = $('eqName')?.textContent || 'Equipment';
+        const html = buildDetailedPrintHtml({ eqLabel, rows: SR.rows });
+        openPrintWindow(html);
+      });
+    }
+
+    /* ===========================
+       Init + Hub wiring
+       =========================== */
     const TIMEOUT_MS = 22000;
     let finished=false;
     const watchdog=setTimeout(()=>{
@@ -1140,6 +1568,7 @@ Rev: 2025-12-18 (Hub button: Service Records now links to equipment-specific vie
       const db=getFirestore();
       let snap;
       let ref;
+
       try{
         ref = doc(db,'equipment',id);
         snap = await getDocWithRetry(ref);
@@ -1206,14 +1635,15 @@ Rev: 2025-12-18 (Hub button: Service Records now links to equipment-specific vie
         $('linkReq').href =
           `/Farm-vista/pages/equipment/actions/service-request.html?id=${encodeURIComponent(id)}${from ? `&from=${encodeURIComponent(from)}` : ''}`;
 
-        /* ============================================================
-           CHANGE: Service Records now links to maintenance-records.html
-           filtered to THIS equipment, with simple=1 mode.
-           ============================================================ */
-        $('linkMaint').href =
-          `/Farm-vista/pages/equipment/maintenance-records.html?equipmentId=${encodeURIComponent(id)}&simple=1${from ? `&from=${encodeURIComponent(from)}` : ''}`;
+        // Service Records now opens modal (no navigation)
+        $('linkMaint').href = '#';
+        $('linkMaint').onclick = (e)=>{
+          e.preventDefault();
+          const eqLabel = $('eqName')?.textContent || 'Equipment';
+          openServiceRecords(eqLabel);
+        };
 
-        $('linkPre').href    = '#';
+        $('linkPre').href = '#';
 
         if(!$('linkMetric').hidden){
           $('linkMetric').href = '#';
@@ -1259,7 +1689,9 @@ Rev: 2025-12-18 (Hub button: Service Records now links to equipment-specific vie
       setupReturnButtons(typeKey);
     }
 
+    // Wire modals
     wireModalButtons();
+    wireServiceRecordsModalButtons();
 
     init().catch(e=>{
       console.error('[hub] init fatal', e);
