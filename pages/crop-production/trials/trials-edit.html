@@ -129,6 +129,18 @@
       padding-inline:10px;
     }
 
+    /* Smaller “header-action” buttons (Save/Cancel/Edit when slotted) */
+    #trialEditBtn.trial-edit-inline,
+    #trialSaveBtn.trial-edit-inline,
+    #trialCancelBtn.trial-edit-inline{
+      min-width:auto;
+      padding:6px 10px;
+      border-radius:10px;
+      font-size:0.82rem;
+      font-weight:800;
+      white-space:nowrap;
+    }
+
     /* Base select style (used instead of FVCombo on this page) */
     .select{
       width:100%;
@@ -573,7 +585,7 @@
       font-size:0.92rem;
     }
 
-    /* Status row: value left, Edit/Save button far-right */
+    /* Status row: value left, action buttons far-right */
     .trial-detail-status-row{
       display:flex;
       align-items:center;
@@ -581,15 +593,13 @@
       gap:10px;
     }
 
-    /* Inline header-action sizing */
-    #trialEditBtn.trial-edit-inline,
-    #trialSaveBtn.trial-edit-inline{
-      min-width:auto;
-      padding:6px 10px;
-      border-radius:10px;
-      font-size:0.82rem;
-      font-weight:800;
-      white-space:nowrap;
+    /* Slot can hold 2 buttons (Save + Cancel) */
+    .trial-edit-slot-actions{
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      gap:8px;
+      flex-shrink:0;
     }
 
     .trial-detail-notes{
@@ -755,6 +765,7 @@
       width:16px;
       height:16px;
       display:block;
+      fill: currentColor; /* ensure svg path uses red */
     }
 
     .trial-detail-footer{
@@ -901,16 +912,6 @@
       .trial-card-actions{
         display:none;
       }
-
-      #trialEditBtn.trial-edit-inline,
-      #trialSaveBtn.trial-edit-inline{
-        min-width:auto;
-        padding:6px 10px;
-        border-radius:10px;
-        font-size:0.82rem;
-        font-weight:800;
-        white-space:nowrap;
-      }
     }
   </style>
 
@@ -983,7 +984,6 @@
     };
 
     // Keep hard references to the action buttons so they never “disappear”
-    // when we rebuild grid.innerHTML (moving nodes around can detach them).
     const UI = {
       editBtn: null,
       saveBtn: null,
@@ -991,29 +991,23 @@
       completeBtn: null,
       deleteBtn: null,
       editHome: null,
-      saveHome: null
+      saveHome: null,
+      cancelHome: null
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
     const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 
-    // -------------------------------------------------------------------
-    // MOBILE LOAD STABILITY HELPERS (same idea as the last page)
-    // -------------------------------------------------------------------
     async function safeReady(){
-      // Some builds export ready as a Promise, others as a function.
       if(typeof ready === 'function') return await ready();
       return await ready;
     }
-
     function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
-
     async function withRetry(fn, label='op', tries=2){
       let lastErr = null;
       for(let i=1;i<=tries;i++){
-        try{
-          return await fn(i);
-        }catch(err){
+        try{ return await fn(i); }
+        catch(err){
           lastErr = err;
           console.warn('[TrialsAddFieldYield]', `${label}.retry`, { attempt:i, code: err?.code, message: err?.message });
           await sleep(400 * i);
@@ -1021,50 +1015,34 @@
       }
       throw lastErr;
     }
-
     async function getDocsServerFirst(ref){
-      // iOS Safari: server-first reduces "empty until refresh" cases.
-      try{
-        return await getDocs(ref, { source: 'server' });
-      }catch{
-        return await getDocs(ref); // fallback
-      }
+      try{ return await getDocs(ref, { source: 'server' }); }
+      catch{ return await getDocs(ref); }
     }
 
     let _resumeTimer = null;
     function resume(reason='resume'){
-      // Throttle resume events (focus/pageshow/visibility) so iOS doesn't spam reloads.
       if(_resumeTimer) return;
       _resumeTimer = setTimeout(async ()=>{
         _resumeTimer = null;
         if(!STATE.db) return;
         if(STATE.isLoading) return;
 
-        // If the list never loaded (or is empty) after resume, reload.
         if(!STATE.loaded || (STATE.allItems && STATE.allItems.length === 0)){
-          try{
-            STATE.loaded = false;
-            await loadAllTrials();
-          }catch{}
+          try{ STATE.loaded = false; await loadAllTrials(); }catch{}
         }else{
-          // Light refresh (still useful for mobile)
-          try{
-            await loadAllTrials();
-          }catch{}
+          try{ await loadAllTrials(); }catch{}
         }
       }, 300);
     }
 
-    // ---------------------------------------------------------
-    // BUTTON “SURVIVAL” FIX
-    // Always re-home Edit/Save back into their containers BEFORE
-    // any grid.innerHTML rebuild, then re-slot them after.
-    // ---------------------------------------------------------
     function rehomeActionButtons(){
       const editHome = UI.editHome || document.getElementById('trialEditHome');
       const saveHome = UI.saveHome || document.getElementById('trialSaveHome');
+      const cancelHome = UI.cancelHome || document.getElementById('trialCancelHome');
       const editBtn  = UI.editBtn  || document.getElementById('trialEditBtn');
       const saveBtn  = UI.saveBtn  || document.getElementById('trialSaveBtn');
+      const cancelBtn= UI.cancelBtn|| document.getElementById('trialCancelBtn');
 
       if(editHome && editBtn && editBtn.parentElement !== editHome){
         editBtn.classList.remove('trial-edit-inline');
@@ -1073,6 +1051,10 @@
       if(saveHome && saveBtn && saveBtn.parentElement !== saveHome){
         saveBtn.classList.remove('trial-edit-inline');
         saveHome.appendChild(saveBtn);
+      }
+      if(cancelHome && cancelBtn && cancelBtn.parentElement !== cancelHome){
+        cancelBtn.classList.remove('trial-edit-inline');
+        cancelHome.appendChild(cancelBtn);
       }
     }
 
@@ -1105,9 +1087,7 @@
         const statuses = Array.from(STATE.filterStatuses || []);
         localStorage.setItem(STORAGE_KEYS.STATUSES, JSON.stringify(statuses));
         localStorage.setItem(STORAGE_KEYS.YEAR, STATE.filterYear || 'all');
-      }catch{
-        // ignore
-      }
+      }catch{}
     }
 
     function populateYearFilter(){
@@ -1142,14 +1122,13 @@
         .replace(/'/g,'&#39;');
     }
 
-    function buildOptions(list, selected, isNumeric){
+    function buildOptions(list, selected){
       if(!Array.isArray(list)) return '';
       const selStr = selected === null || selected === undefined ? '' : String(selected);
       return list.map(v => {
         const valStr = v === null || v === undefined ? '' : String(v);
-        const value = isNumeric ? valStr : valStr;
         const selectedAttr = (selStr !== '' && selStr === valStr) ? ' selected' : '';
-        const safe = escapeHtml(value);
+        const safe = escapeHtml(valStr);
         return `<option value="${safe}"${selectedAttr}>${safe}</option>`;
       }).join('');
     }
@@ -1174,7 +1153,6 @@
       }else{
         list.sort((a,b) => String(a).localeCompare(String(b)));
       }
-
       return list;
     }
 
@@ -1188,9 +1166,7 @@
         if(ts.toDate)   return ts.toDate().getTime();
         if(ts instanceof Date) return ts.getTime();
         return new Date(ts).getTime() || 0;
-      }catch{
-        return 0;
-      }
+      }catch{ return 0; }
     }
 
     function sortTrialsList(items){
@@ -1235,21 +1211,13 @@
         if(d.cropYear !== null && d.cropYear !== undefined){
           yearsSet.add(d.cropYear);
         }
-        if(d.crop){
-          cropsSet.add(d.crop);
-        }
-        if(d.trialType){
-          typesSet.add(d.trialType);
-        }
-        if(d.operationTask){
-          opsSet.add(d.operationTask);
-        }
+        if(d.crop) cropsSet.add(d.crop);
+        if(d.trialType) typesSet.add(d.trialType);
+        if(d.operationTask) opsSet.add(d.operationTask);
       }
 
-      const years = Array.from(yearsSet).sort((a,b) => Number(a) - Number(b));
+      STATE.optionLists.cropYears = Array.from(yearsSet).sort((a,b) => Number(a)-Number(b));
       const asSortedStrings = set => Array.from(set).sort((a,b) => String(a).localeCompare(String(b)));
-
-      STATE.optionLists.cropYears = years;
       STATE.optionLists.crops = asSortedStrings(cropsSet);
       STATE.optionLists.trialTypes = asSortedStrings(typesSet);
       STATE.optionLists.operationTasks = asSortedStrings(opsSet);
@@ -1282,7 +1250,6 @@
 
     function isMultiHybridTrialData(d){
       if (!d) return false;
-
       if (d.isMultiHybrid === true || d.multiHybrid === true) return true;
 
       const trialType     = (d.trialType      || '').toString().toLowerCase();
@@ -1290,9 +1257,7 @@
       const trialSubtype  = (d.trialSubtype   || '').toString().toLowerCase();
 
       if (trialType === 'seed varieties' &&
-          seedTrialType === 'multiple hybrid trial') {
-        return true;
-      }
+          seedTrialType === 'multiple hybrid trial') return true;
 
       if (seedTrialType.includes('multi') && seedTrialType.includes('hybrid')) return true;
       if (trialSubtype.includes('multi')  && trialSubtype.includes('hybrid'))  return true;
@@ -1316,9 +1281,7 @@
           emptyEl.style.display = 'block';
           emptyEl.textContent = 'Loading trials...';
         }
-        if(countEl){
-          countEl.textContent = 'Loading trials...';
-        }
+        if(countEl) countEl.textContent = 'Loading trials...';
         clearDetails();
         return;
       }
@@ -1347,8 +1310,6 @@
       renderList();
     }
 
-    // ===== Simple status dropdown UI (multi-select) =====
-
     function syncStatusDropdownUI(){
       const statuses = STATE.filterStatuses || new Set([CONFIG.STATUS_ALL]);
       const hasAll = statuses.has(CONFIG.STATUS_ALL);
@@ -1359,11 +1320,8 @@
         boxes.forEach(cb => {
           const code = (cb.dataset.status || '').toLowerCase();
           if(!code) return;
-          if(hasAll){
-            cb.checked = (code === CONFIG.STATUS_ALL);
-          }else{
-            cb.checked = statuses.has(code);
-          }
+          if(hasAll) cb.checked = (code === CONFIG.STATUS_ALL);
+          else cb.checked = statuses.has(code);
         });
       }
 
@@ -1372,13 +1330,9 @@
         let label = 'All';
         if(!hasAll){
           const vals = Array.from(statuses).map(getStatusLabel);
-          if(vals.length === 1){
-            label = vals[0];
-          }else if(vals.length === 2){
-            label = vals.join(', ');
-          }else if(vals.length > 2){
-            label = `${vals.length} selected`;
-          }
+          if(vals.length === 1) label = vals[0];
+          else if(vals.length === 2) label = vals.join(', ');
+          else if(vals.length > 2) label = `${vals.length} selected`;
         }
         summaryEl.textContent = label;
       }
@@ -1389,35 +1343,14 @@
       const panel = $('#statusDropdownPanel');
       if(!trigger || !panel) return;
 
-      function openPanel(){
-        panel.classList.add('open');
-      }
-      function closePanel(){
-        panel.classList.remove('open');
-      }
-      function togglePanel(){
-        if(panel.classList.contains('open')) closePanel();
-        else openPanel();
-      }
+      function openPanel(){ panel.classList.add('open'); }
+      function closePanel(){ panel.classList.remove('open'); }
+      function togglePanel(){ panel.classList.contains('open') ? closePanel() : openPanel(); }
 
-      trigger.addEventListener('click', (e) => {
-        e.stopPropagation();
-        togglePanel();
-      });
-
-      panel.addEventListener('click', (e) => {
-        e.stopPropagation();
-      });
-
-      document.addEventListener('click', () => {
-        if(panel.classList.contains('open')) closePanel();
-      });
-
-      document.addEventListener('keydown', (e) => {
-        if(e.key === 'Escape'){
-          closePanel();
-        }
-      });
+      trigger.addEventListener('click', (e) => { e.stopPropagation(); togglePanel(); });
+      panel.addEventListener('click', (e) => { e.stopPropagation(); });
+      document.addEventListener('click', () => { if(panel.classList.contains('open')) closePanel(); });
+      document.addEventListener('keydown', (e) => { if(e.key === 'Escape') closePanel(); });
 
       const boxes = panel.querySelectorAll('input[type="checkbox"][data-status]');
       boxes.forEach(cb => {
@@ -1428,24 +1361,15 @@
           let next = new Set(STATE.filterStatuses || [CONFIG.STATUS_ALL]);
 
           if(code === CONFIG.STATUS_ALL){
-            if(cb.checked){
-              next = new Set([CONFIG.STATUS_ALL]);
-            }else{
-              if(next.size === 1){
-                cb.checked = true;
-                return;
-              }
+            if(cb.checked) next = new Set([CONFIG.STATUS_ALL]);
+            else{
+              if(next.size === 1){ cb.checked = true; return; }
             }
           }else{
             next.delete(CONFIG.STATUS_ALL);
-            if(cb.checked){
-              next.add(code);
-            }else{
-              next.delete(code);
-            }
-            if(next.size === 0){
-              next.add(CONFIG.STATUS_ALL);
-            }
+            if(cb.checked) next.add(code);
+            else next.delete(code);
+            if(next.size === 0) next.add(CONFIG.STATUS_ALL);
           }
 
           STATE.filterStatuses = next;
@@ -1467,15 +1391,11 @@
 
       const doneBtn = $('#statusDoneBtn');
       if(doneBtn){
-        doneBtn.addEventListener('click', () => {
-          closePanel();
-        });
+        doneBtn.addEventListener('click', () => closePanel());
       }
 
       syncStatusDropdownUI();
     }
-
-    // ===== Stats / detail helpers =====
 
     function applyStatsToCard(card, stats){
       if(!card) return;
@@ -1487,36 +1407,27 @@
         if(stats && stats.totalTrialAcres != null && isFinite(stats.totalTrialAcres)){
           const v = fmtNumber(stats.totalTrialAcres, 1);
           acresEl.textContent = v !== null ? v : '—';
-        }else{
-          acresEl.textContent = '—';
-        }
+        }else acresEl.textContent = '—';
       }
 
       if(checkEl){
         if(stats && stats.avgCheckYield != null && isFinite(stats.avgCheckYield)){
           const v = fmtNumber(stats.avgCheckYield, 1);
           checkEl.textContent = v !== null ? v : '—';
-        }else{
-          checkEl.textContent = '—';
-        }
+        }else checkEl.textContent = '—';
       }
 
       if(trialEl){
         if(stats && stats.avgTrialYield != null && isFinite(stats.avgTrialYield)){
           const v = fmtNumber(stats.avgTrialYield, 1);
           trialEl.textContent = v !== null ? v : '—';
-        }else{
-          trialEl.textContent = '—';
-        }
+        }else trialEl.textContent = '—';
       }
     }
 
     async function loadTrialStats(trialId){
       if(!STATE.db || !trialId) return { stats: null, fields: [] };
-
-      if(STATE.trialStatsPromises[trialId]){
-        return STATE.trialStatsPromises[trialId];
-      }
+      if(STATE.trialStatsPromises[trialId]) return STATE.trialStatsPromises[trialId];
 
       const p = (async () => {
         const db = STATE.db;
@@ -1548,14 +1459,7 @@
 
           totalTrialAcres += trialAcres;
 
-          const blocksRef = collection(
-            db,
-            CONFIG.COLLECTION_TRIALS,
-            trialId,
-            'fields',
-            fieldId,
-            'yieldBlocks'
-          );
+          const blocksRef = collection(db, CONFIG.COLLECTION_TRIALS, trialId, 'fields', fieldId, 'yieldBlocks');
           const blocksSnap = await getDocsServerFirst(blocksRef);
 
           for(const bDoc of blocksSnap.docs){
@@ -1587,7 +1491,6 @@
 
         STATE.trialStats[trialId] = stats;
         STATE.trialFields[trialId] = fields;
-
         return { stats, fields };
       })().catch(err => {
         console.error('Error loading trial stats for', trialId, err);
@@ -1637,9 +1540,7 @@
 
           let html = '<div class="trial-field-name">';
           html += escapeHtml(f.farmName || '');
-          if(f.farmName && f.fieldName){
-            html += ' • ';
-          }
+          if(f.farmName && f.fieldName) html += ' • ';
           html += escapeHtml(f.fieldName || '');
           html += '</div>';
 
@@ -1671,12 +1572,7 @@
       if(addYieldBtn) addYieldBtn.style.display = 'none';
 
       try{
-        const fieldsRef = collection(
-          STATE.db,
-          CONFIG.COLLECTION_TRIALS,
-          trialId,
-          'fields'
-        );
+        const fieldsRef = collection(STATE.db, CONFIG.COLLECTION_TRIALS, trialId, 'fields');
         const snap = await getDocsServerFirst(fieldsRef);
         const hasField = !snap.empty;
         STATE.mhHasFieldByTrial[trialId] = hasField;
@@ -1707,8 +1603,7 @@
     }
 
     function beginEditTrialTitle(){
-      const id = STATE.selectedId;
-      if(!id || !STATE.db) return;
+      if(!STATE.selectedId || !STATE.db) return;
       const textEl  = document.getElementById('trialDetailTitleText');
       const inputEl = document.getElementById('trialDetailTitleInput');
       if(!textEl || !inputEl) return;
@@ -1731,21 +1626,13 @@
     async function commitEditTrialTitle(){
       const id = STATE.selectedId;
       const db = STATE.db;
-      if(!id || !db){
-        cancelEditTrialTitle();
-        return;
-      }
+      if(!id || !db){ cancelEditTrialTitle(); return; }
 
       const inputEl = document.getElementById('trialDetailTitleInput');
-      if(!inputEl){
-        cancelEditTrialTitle();
-        return;
-      }
+      if(!inputEl){ cancelEditTrialTitle(); return; }
 
       let newName = (inputEl.value || '').trim();
-      if(!newName){
-        newName = 'Field Trial';
-      }
+      if(!newName) newName = 'Field Trial';
 
       const itemAll = STATE.allItems.find(x => x.id === id);
       const oldName = itemAll?.data?.trialName || 'Field Trial';
@@ -1758,16 +1645,11 @@
       inputEl.disabled = true;
 
       try{
-        const ref = doc(db, CONFIG.COLLECTION_TRIALS, id);
-        await updateDoc(ref, { trialName: newName });
+        await updateDoc(doc(db, CONFIG.COLLECTION_TRIALS, id), { trialName: newName });
 
-        if(itemAll){
-          itemAll.data.trialName = newName;
-        }
+        if(itemAll) itemAll.data.trialName = newName;
         const itemFiltered = STATE.items.find(x => x.id === id);
-        if(itemFiltered){
-          itemFiltered.data.trialName = newName;
-        }
+        if(itemFiltered) itemFiltered.data.trialName = newName;
 
         setTrialTitleView(newName);
         renderList();
@@ -1782,33 +1664,32 @@
     }
 
     function resetDetailButtonsForViewMode(){
-      const editBtn   = UI.editBtn   || $('#trialEditBtn');
-      const saveBtn   = UI.saveBtn   || $('#trialSaveBtn');
-      const cancelBtn = UI.cancelBtn || $('#trialCancelBtn');
-      const completeBtn = UI.completeBtn || $('#trialCompleteBtn');
-      const delBtn      = UI.deleteBtn   || $('#trialDeleteBtn');
+      const editBtn   = UI.editBtn;
+      const saveBtn   = UI.saveBtn;
+      const cancelBtn = UI.cancelBtn;
+      const completeBtn = UI.completeBtn;
+      const delBtn      = UI.deleteBtn;
 
       STATE.isEditingSetup = false;
 
       if(editBtn){
         editBtn.style.display = STATE.selectedId ? 'inline-flex' : 'none';
         editBtn.disabled = !STATE.selectedId;
+        editBtn.classList.remove('trial-edit-inline');
       }
       if(saveBtn){
         saveBtn.style.display = 'none';
         saveBtn.disabled = false;
-        saveBtn.textContent = 'Save Changes';
+        saveBtn.textContent = 'Save';
+        saveBtn.classList.remove('trial-edit-inline');
       }
       if(cancelBtn){
         cancelBtn.style.display = 'none';
         cancelBtn.disabled = false;
+        cancelBtn.classList.remove('trial-edit-inline');
       }
-      if(completeBtn){
-        completeBtn.disabled = false;
-      }
-      if(delBtn){
-        delBtn.disabled = false;
-      }
+      if(completeBtn) completeBtn.disabled = false;
+      if(delBtn) delBtn.disabled = false;
     }
 
     function clearDetails(){
@@ -1817,7 +1698,6 @@
       panel.style.display = 'none';
       panel.dataset.id = '';
 
-      // IMPORTANT: Put buttons back in their home containers first
       rehomeActionButtons();
 
       setTrialTitleView('Trial Details');
@@ -1835,22 +1715,16 @@
       if(attGrid) attGrid.innerHTML = '';
 
       const fieldsList = document.getElementById('trialFieldsList');
-      if(fieldsList){
-        fieldsList.innerHTML = '';
+      if(fieldsList) fieldsList.innerHTML = '';
+
+      if(UI.completeBtn){
+        UI.completeBtn.style.display = 'none';
+        UI.completeBtn.disabled = false;
+        UI.completeBtn.textContent = 'Mark Trial Completed';
+        delete UI.completeBtn.dataset.id;
       }
 
-      const completeBtn = UI.completeBtn || $('#trialCompleteBtn');
-      if(completeBtn){
-        completeBtn.style.display = 'none';
-        completeBtn.disabled = false;
-        completeBtn.textContent = 'Mark Trial Completed';
-        delete completeBtn.dataset.id;
-      }
-
-      const delBtn = UI.deleteBtn || $('#trialDeleteBtn');
-      if(delBtn){
-        delBtn.disabled = false;
-      }
+      if(UI.deleteBtn) UI.deleteBtn.disabled = false;
 
       resetDetailButtonsForViewMode();
     }
@@ -1883,17 +1757,12 @@
       const panel = $('.trial-detail-panel');
       if(!panel) return;
 
-      // IMPORTANT: before rebuilding grid HTML, make sure Edit/Save are re-homed
-      // so they do NOT get deleted when grid.innerHTML is replaced.
       rehomeActionButtons();
 
       const item = STATE.items.find(x => x.id === STATE.selectedId);
-      if(!item){
-        clearDetails();
-        return;
-      }
+      if(!item){ clearDetails(); return; }
 
-      const d = item.data;
+      const d = item.data || {};
 
       const title = d.trialName || 'Field Trial';
       const cropYear = d.cropYear ?? null;
@@ -1902,8 +1771,6 @@
       const operationTask = d.operationTask || '';
       const treatment = d.treatmentProduct || '';
       const check = d.check || '';
-
-      // ALWAYS have a status row so the Edit slot always exists
       const status = (d[CONFIG.STATUS_FIELD] || CONFIG.STATUS_PENDING);
       const statusLower = String(status || '').toLowerCase();
 
@@ -1913,7 +1780,6 @@
       const notes = d.notes || '';
 
       panel.dataset.id = item.id;
-
       setTrialTitleView(title);
 
       const grid = $('.trial-detail-grid', panel);
@@ -1931,79 +1797,59 @@
         }
 
         if(trialType){
-          html += '<div>';
-          html += '<div class="trial-detail-item-label">Trial Type</div>';
-          html += `<div class="trial-detail-item-value">${escapeHtml(trialType)}</div>`;
-          html += '</div>';
+          html += '<div><div class="trial-detail-item-label">Trial Type</div>';
+          html += `<div class="trial-detail-item-value">${escapeHtml(trialType)}</div></div>`;
         }
 
         if(operationTask){
-          html += '<div>';
-          html += '<div class="trial-detail-item-label">Operation</div>';
-          html += `<div class="trial-detail-item-value">${escapeHtml(operationTask)}</div>`;
-          html += '</div>';
+          html += '<div><div class="trial-detail-item-label">Operation</div>';
+          html += `<div class="trial-detail-item-value">${escapeHtml(operationTask)}</div></div>`;
         }
 
         if(treatment){
-          html += '<div>';
-          html += '<div class="trial-detail-item-label">Treatment Product</div>';
-          html += `<div class="trial-detail-item-value">${escapeHtml(treatment)}</div>`;
-          html += '</div>';
+          html += '<div><div class="trial-detail-item-label">Treatment Product</div>';
+          html += `<div class="trial-detail-item-value">${escapeHtml(treatment)}</div></div>`;
         }
 
         if(check){
-          html += '<div>';
-          html += '<div class="trial-detail-item-label">Check</div>';
-          html += `<div class="trial-detail-item-value">${escapeHtml(check)}</div>`;
-          html += '</div>';
+          html += '<div><div class="trial-detail-item-label">Check</div>';
+          html += `<div class="trial-detail-item-value">${escapeHtml(check)}</div></div>`;
         }
 
         if(createdBy){
-          html += '<div>';
-          html += '<div class="trial-detail-item-label">Created By</div>';
-          html += `<div class="trial-detail-item-value">${escapeHtml(createdBy)}</div>`;
-          html += '</div>';
+          html += '<div><div class="trial-detail-item-label">Created By</div>';
+          html += `<div class="trial-detail-item-value">${escapeHtml(createdBy)}</div></div>`;
         }
 
         if(when){
-          html += '<div>';
-          html += '<div class="trial-detail-item-label">Created</div>';
-          html += `<div class="trial-detail-item-value">${when.toLocaleString()}</div>`;
-          html += '</div>';
+          html += '<div><div class="trial-detail-item-label">Created</div>';
+          html += `<div class="trial-detail-item-value">${when.toLocaleString()}</div></div>`;
         }
 
-        // Status row ALWAYS rendered (so Edit slot always exists)
         html += '<div>';
         html += '<div class="trial-detail-item-label">Status</div>';
         html += `
           <div class="trial-detail-item-value trial-detail-status-row">
             <span>${escapeHtml(getStatusLabel(status) || status)}</span>
-            <span id="trialEditSlot"></span>
+            <span id="trialEditSlot" class="trial-edit-slot-actions"></span>
           </div>
         `;
         html += '</div>';
 
         grid.innerHTML = html;
 
-        // ===============================
-        // VIEW MODE ONLY
-        // Put Edit Setup into Status row
-        // ===============================
+        // VIEW MODE: put Edit button in slot (right side)
         const slot = document.getElementById('trialEditSlot');
-        const editBtn = UI.editBtn || document.getElementById('trialEditBtn');
-
-        if(slot && editBtn){
+        if(slot && UI.editBtn){
           slot.innerHTML = '';
-          editBtn.classList.add('trial-edit-inline');
-          editBtn.style.display = 'inline-flex';
-          slot.appendChild(editBtn);
+          UI.editBtn.classList.add('trial-edit-inline');
+          UI.editBtn.style.display = 'inline-flex';
+          slot.appendChild(UI.editBtn);
         }
       }
 
       const notesBody = $('.trial-detail-notes-body', panel);
-      if(notesBody){
-        notesBody.textContent = notes || 'No additional notes recorded.';
-      }
+      if(notesBody) notesBody.textContent = notes || 'No additional notes recorded.';
 
       const attGrid = $('#trialDetailAttachments');
       if(attGrid){
@@ -2012,10 +1858,7 @@
         if(files.length){
           files.forEach(raw => {
             if(!raw || !raw.url) return;
-            const att = {
-              url: raw.url,
-              name: raw.name || raw.path || 'Attachment'
-            };
+            const att = { url: raw.url, name: raw.name || raw.path || 'Attachment' };
 
             const thumbBtn = document.createElement('button');
             thumbBtn.type = 'button';
@@ -2056,25 +1899,20 @@
         `;
       }
 
-      const completeBtn = UI.completeBtn || $('#trialCompleteBtn');
-      if(completeBtn){
+      if(UI.completeBtn){
         if(statusLower === CONFIG.STATUS_COMPLETED){
-          completeBtn.style.display = 'none';
-          completeBtn.disabled = false;
-          completeBtn.textContent = 'Mark Trial Completed';
-          delete completeBtn.dataset.id;
+          UI.completeBtn.style.display = 'none';
+          UI.completeBtn.disabled = false;
+          delete UI.completeBtn.dataset.id;
         }else{
-          completeBtn.style.display = 'inline-flex';
-          completeBtn.disabled = false;
-          completeBtn.textContent = 'Mark Trial Completed';
-          completeBtn.dataset.id = item.id;
+          UI.completeBtn.style.display = 'inline-flex';
+          UI.completeBtn.disabled = false;
+          UI.completeBtn.textContent = 'Mark Trial Completed';
+          UI.completeBtn.dataset.id = item.id;
         }
       }
 
-      const delBtn = UI.deleteBtn || $('#trialDeleteBtn');
-      if(delBtn){
-        delBtn.disabled = false;
-      }
+      if(UI.deleteBtn) UI.deleteBtn.disabled = false;
 
       resetDetailButtonsForViewMode();
       panel.style.display = 'flex';
@@ -2083,18 +1921,18 @@
     function enterEditSetup(){
       const id = STATE.selectedId;
       if(!id || !STATE.db) return;
+
       const panel = $('.trial-detail-panel');
       if(!panel) return;
+
       const item = STATE.items.find(x => x.id === id);
       if(!item) return;
-      const d = item.data || {};
 
+      rehomeActionButtons();
+
+      const d = item.data || {};
       const grid = $('.trial-detail-grid', panel);
       if(!grid) return;
-
-      // IMPORTANT: before rebuilding grid HTML, put Edit/Save back in their homes
-      // so they do NOT get deleted by grid.innerHTML.
-      rehomeActionButtons();
 
       STATE.isEditingSetup = true;
 
@@ -2109,42 +1947,21 @@
 
       const thisYear = new Date().getFullYear();
       const baseYears = [thisYear - 1, thisYear, thisYear + 1, thisYear + 2];
-
       const baseCrops = ['Corn','Soybeans','Wheat'];
-
-      const baseTrialTypes = [
-        'Seed Varieties',
-        'Seed Treatments',
-        'Biologics',
-        'Nitrogen',
-        'Tillage',
-        'Fungicides'
-      ];
-
-      const baseOps = [
-        'Planting',
-        'Spraying',
-        'Aerial Application',
-        'Tillage',
-        'Fertilizer Application'
-      ];
+      const baseTrialTypes = ['Seed Varieties','Seed Treatments','Biologics','Nitrogen','Tillage','Fungicides'];
+      const baseOps = ['Planting','Spraying','Aerial Application','Tillage','Fertilizer Application'];
 
       const cropYearList   = mergeCurrentIntoList(baseYears, cropYear, true);
       const cropList       = mergeCurrentIntoList(baseCrops, crop, false);
       const trialTypeList  = mergeCurrentIntoList(baseTrialTypes, trialType, false);
       const opList         = mergeCurrentIntoList(baseOps, operationTask, false);
 
-      const cropYearOptions = buildOptions(cropYearList, cropYear, true);
-      const cropOptions     = buildOptions(cropList, crop, false);
-      const trialTypeOptions= buildOptions(trialTypeList, trialType, false);
-      const opOptions       = buildOptions(opList, operationTask, false);
-
       grid.innerHTML = `
         <div>
           <div class="trial-detail-item-label">Crop Year</div>
           <select id="trialEditCropYear" class="select trial-edit-select">
             <option value=""></option>
-            ${cropYearOptions}
+            ${buildOptions(cropYearList, cropYear)}
           </select>
         </div>
 
@@ -2152,7 +1969,7 @@
           <div class="trial-detail-item-label">Crop</div>
           <select id="trialEditCrop" class="select trial-edit-select">
             <option value=""></option>
-            ${cropOptions}
+            ${buildOptions(cropList, crop)}
           </select>
         </div>
 
@@ -2160,7 +1977,7 @@
           <div class="trial-detail-item-label">Trial Type</div>
           <select id="trialEditTrialType" class="select trial-edit-select">
             <option value=""></option>
-            ${trialTypeOptions}
+            ${buildOptions(trialTypeList, trialType)}
           </select>
         </div>
 
@@ -2168,33 +1985,20 @@
           <div class="trial-detail-item-label">Operation</div>
           <select id="trialEditOperation" class="select trial-edit-select">
             <option value=""></option>
-            ${opOptions}
+            ${buildOptions(opList, operationTask)}
           </select>
         </div>
 
         <div>
           <div class="trial-detail-item-label">Treatment Product</div>
-          <input
-            type="text"
-            id="trialEditTreatment"
-            class="trial-edit-input"
-            maxlength="120"
-            value="${escapeHtml(treatment)}"
-          />
+          <input type="text" id="trialEditTreatment" class="trial-edit-input" maxlength="120" value="${escapeHtml(treatment)}"/>
         </div>
 
         <div>
           <div class="trial-detail-item-label">Check</div>
-          <input
-            type="text"
-            id="trialEditCheck"
-            class="trial-edit-input"
-            maxlength="120"
-            value="${escapeHtml(check)}"
-          />
+          <input type="text" id="trialEditCheck" class="trial-edit-input" maxlength="120" value="${escapeHtml(check)}"/>
         </div>
 
-        <!-- EDIT MODE: Status row with a slot on the right for Save -->
         <div>
           <div class="trial-detail-item-label">Status</div>
           <div class="trial-detail-status-row">
@@ -2203,12 +2007,11 @@
               <option value="active"${status === CONFIG.STATUS_ACTIVE ? ' selected' : ''}>Active</option>
               <option value="completed"${status === CONFIG.STATUS_COMPLETED ? ' selected' : ''}>Completed</option>
             </select>
-            <span id="trialEditSlot"></span>
+            <span id="trialEditSlot" class="trial-edit-slot-actions"></span>
           </div>
         </div>
       `;
 
-      // Put notes into textarea for edit mode
       const notesBody = $('.trial-detail-notes-body', panel);
       if(notesBody){
         notesBody.innerHTML = '';
@@ -2219,41 +2022,35 @@
         notesBody.appendChild(ta);
       }
 
-      const editBtn   = UI.editBtn   || $('#trialEditBtn');
-      const saveBtn   = UI.saveBtn   || $('#trialSaveBtn');
-      const cancelBtn = UI.cancelBtn || $('#trialCancelBtn');
-      const completeBtn = UI.completeBtn || $('#trialCompleteBtn');
-      const delBtn      = UI.deleteBtn   || $('#trialDeleteBtn');
+      // Buttons
+      if(UI.editBtn) UI.editBtn.style.display = 'none';
 
-      // Hide edit button (we're in edit mode)
-      if(editBtn){
-        editBtn.style.display = 'none';
+      if(UI.saveBtn){
+        UI.saveBtn.style.display = 'inline-flex';
+        UI.saveBtn.disabled = false;
+        UI.saveBtn.textContent = 'Save'; /* remove “Changes” */
       }
 
-      // Ensure Save is visible, but we will place it into the slot up top
-      if(saveBtn){
-        saveBtn.style.display = 'inline-flex';
-        saveBtn.disabled = false;
-        saveBtn.textContent = 'Save Changes';
+      if(UI.cancelBtn){
+        UI.cancelBtn.style.display = 'inline-flex';
+        UI.cancelBtn.disabled = false;
       }
 
-      if(cancelBtn){
-        cancelBtn.style.display = 'inline-flex';
-        cancelBtn.disabled = false;
-      }
-      if(completeBtn){
-        completeBtn.disabled = true;
-      }
-      if(delBtn){
-        delBtn.disabled = true;
-      }
+      if(UI.completeBtn) UI.completeBtn.disabled = true;
+      if(UI.deleteBtn) UI.deleteBtn.disabled = true;
 
-      // Move SAVE into the Status row slot (far right)
+      // MOVE Save + Cancel into the Status slot (right side)
       const slot = document.getElementById('trialEditSlot');
-      if(slot && saveBtn){
+      if(slot){
         slot.innerHTML = '';
-        saveBtn.classList.add('trial-edit-inline');
-        slot.appendChild(saveBtn);
+        if(UI.saveBtn){
+          UI.saveBtn.classList.add('trial-edit-inline');
+          slot.appendChild(UI.saveBtn);
+        }
+        if(UI.cancelBtn){
+          UI.cancelBtn.classList.add('trial-edit-inline');
+          slot.appendChild(UI.cancelBtn);
+        }
       }
     }
 
@@ -2277,19 +2074,11 @@
         return;
       }
 
-      const editBtn   = UI.editBtn   || $('#trialEditBtn');
-      const saveBtn   = UI.saveBtn   || $('#trialSaveBtn');
-      const cancelBtn = UI.cancelBtn || $('#trialCancelBtn');
-      const completeBtn = UI.completeBtn || $('#trialCompleteBtn');
-      const delBtn      = UI.deleteBtn   || $('#trialDeleteBtn');
-
-      if(saveBtn){
-        saveBtn.disabled = true;
-        saveBtn.textContent = 'Saving...';
+      if(UI.saveBtn){
+        UI.saveBtn.disabled = true;
+        UI.saveBtn.textContent = 'Saving...';
       }
-      if(cancelBtn){
-        cancelBtn.disabled = true;
-      }
+      if(UI.cancelBtn) UI.cancelBtn.disabled = true;
 
       const cropYearRaw = (cropYearEl.value || '').trim();
       const cropRaw = (cropEl.value || '').trim();
@@ -2301,33 +2090,26 @@
       const notesRaw = notesEl.value || '';
 
       const updates = {};
-
       if(cropYearRaw){
         const n = Number(cropYearRaw);
         updates.cropYear = isFinite(n) ? n : null;
       }else{
         updates.cropYear = null;
       }
-
       updates.crop = cropRaw || '';
       updates.trialType = trialTypeRaw || '';
       updates.operationTask = opRaw || '';
       updates.treatmentProduct = treatmentRaw || '';
       updates.check = checkRaw || '';
       updates.notes = notesRaw;
-      if(statusRaw){
-        updates[CONFIG.STATUS_FIELD] = statusRaw;
-      }
+      if(statusRaw) updates[CONFIG.STATUS_FIELD] = statusRaw;
 
       try{
-        const ref = doc(db, CONFIG.COLLECTION_TRIALS, id);
-        await updateDoc(ref, updates);
+        await updateDoc(doc(db, CONFIG.COLLECTION_TRIALS, id), updates);
 
         const itemAll = STATE.allItems.find(x => x.id === id);
         const itemFiltered = STATE.items.find(x => x.id === id);
-        const targets = [itemAll, itemFiltered].filter(Boolean);
-
-        targets.forEach(t => {
+        [itemAll, itemFiltered].filter(Boolean).forEach(t => {
           t.data.cropYear = updates.cropYear;
           t.data.crop = updates.crop;
           t.data.trialType = updates.trialType;
@@ -2335,9 +2117,7 @@
           t.data.treatmentProduct = updates.treatmentProduct;
           t.data.check = updates.check;
           t.data.notes = updates.notes;
-          if(updates[CONFIG.STATUS_FIELD] !== undefined){
-            t.data[CONFIG.STATUS_FIELD] = updates[CONFIG.STATUS_FIELD];
-          }
+          if(updates[CONFIG.STATUS_FIELD] !== undefined) t.data[CONFIG.STATUS_FIELD] = updates[CONFIG.STATUS_FIELD];
         });
 
         STATE.isEditingSetup = false;
@@ -2345,8 +2125,6 @@
         rebuildOptionLists();
         populateYearFilter();
         applyFilters();
-
-        // Re-open the same trial after applyFilters() closed the panel
         renderDetails();
 
         showToast('Trial setup updated.');
@@ -2356,22 +2134,13 @@
         STATE.isEditingSetup = false;
         renderDetails();
       }finally{
-        if(editBtn){
-          editBtn.disabled = false;
+        if(UI.saveBtn){
+          UI.saveBtn.disabled = false;
+          UI.saveBtn.textContent = 'Save';
         }
-        if(saveBtn){
-          saveBtn.disabled = false;
-          saveBtn.textContent = 'Save Changes';
-        }
-        if(cancelBtn){
-          cancelBtn.disabled = false;
-        }
-        if(completeBtn){
-          completeBtn.disabled = false;
-        }
-        if(delBtn){
-          delBtn.disabled = false;
-        }
+        if(UI.cancelBtn) UI.cancelBtn.disabled = false;
+        if(UI.completeBtn) UI.completeBtn.disabled = false;
+        if(UI.deleteBtn) UI.deleteBtn.disabled = false;
       }
     }
 
@@ -2387,9 +2156,7 @@
       if(!isMobile) return;
 
       const cards = listEl.querySelectorAll('.trial-card');
-      cards.forEach(card => {
-        card.classList.add('fv-swipe-item');
-      });
+      cards.forEach(card => card.classList.add('fv-swipe-item'));
 
       initSwipeList(listEl, {
         itemSelector: '.fv-swipe-item',
@@ -2407,12 +2174,7 @@
                 let hasField = STATE.mhHasFieldByTrial[trialId];
                 if (typeof hasField !== 'boolean' && STATE.db) {
                   try{
-                    const fieldsRef = collection(
-                      STATE.db,
-                      CONFIG.COLLECTION_TRIALS,
-                      trialId,
-                      'fields'
-                    );
+                    const fieldsRef = collection(STATE.db, CONFIG.COLLECTION_TRIALS, trialId, 'fields');
                     const snap = await getDocsServerFirst(fieldsRef);
                     hasField = !snap.empty;
                     STATE.mhHasFieldByTrial[trialId] = hasField;
@@ -2420,15 +2182,12 @@
                     console.error('Error checking MH field (swipe Add Yield):', err);
                   }
                 }
-
                 if(hasField === false){
                   showToast('Add a field to this multi-hybrid trial first.');
                   return;
                 }
               }
-
-              const url = buildYieldUrl(trialId, data);
-              window.location.href = url;
+              window.location.href = buildYieldUrl(trialId, data);
             })();
           }
         },
@@ -2445,12 +2204,7 @@
                 let hasField = STATE.mhHasFieldByTrial[trialId];
                 if (typeof hasField !== 'boolean' && STATE.db) {
                   try{
-                    const fieldsRef = collection(
-                      STATE.db,
-                      CONFIG.COLLECTION_TRIALS,
-                      trialId,
-                      'fields'
-                    );
+                    const fieldsRef = collection(STATE.db, CONFIG.COLLECTION_TRIALS, trialId, 'fields');
                     const snap = await getDocsServerFirst(fieldsRef);
                     hasField = !snap.empty;
                     STATE.mhHasFieldByTrial[trialId] = hasField;
@@ -2458,15 +2212,12 @@
                     console.error('Error checking MH field (swipe Add Field):', err);
                   }
                 }
-
                 if(hasField === true){
                   showToast('This multi-hybrid trial already has a field.');
                   return;
                 }
               }
-
-              const url = `${CONFIG.ADD_FIELD_URL}?trialId=${encodeURIComponent(trialId)}`;
-              window.location.href = url;
+              window.location.href = `${CONFIG.ADD_FIELD_URL}?trialId=${encodeURIComponent(trialId)}`;
             })();
           }
         }
@@ -2477,7 +2228,6 @@
       const listEl  = $('.trial-list');
       const emptyEl = $('.trial-empty');
       const countEl = $('#trialCount');
-
       if(!listEl) return;
 
       listEl.innerHTML = '';
@@ -2489,25 +2239,19 @@
       const usingFilters = !(isAllStatuses && isAllYears);
 
       if(!STATE.items.length){
-        if(emptyEl) {
+        if(emptyEl){
           emptyEl.style.display = 'block';
-          emptyEl.textContent = usingFilters
-            ? 'No trials match your filters.'
-            : 'No trials right now.';
+          emptyEl.textContent = usingFilters ? 'No trials match your filters.' : 'No trials right now.';
         }
-        if(countEl){
-          countEl.textContent = '0 trials';
-        }
+        if(countEl) countEl.textContent = '0 trials';
         clearDetails();
         return;
       }
 
-      if(emptyEl){
-        emptyEl.style.display = 'none';
-      }
+      if(emptyEl) emptyEl.style.display = 'none';
 
       for(const item of STATE.items){
-        const d = item.data;
+        const d = item.data || {};
         const id = item.id;
 
         const title = d.trialName || 'Field Trial';
@@ -2533,9 +2277,7 @@
         card.dataset.trialId = id;
 
         const isMhTrial = isMultiHybridTrialData(d);
-        if(isMhTrial){
-          card.dataset.isMh = '1';
-        }
+        if(isMhTrial) card.dataset.isMh = '1';
 
         card.innerHTML = `
           <div class="trial-card-actions">
@@ -2545,40 +2287,23 @@
 
           <div class="trial-row-top">
             <div class="trial-main">
-              <div class="trial-title">
-                ${escapeHtml(title)}
-              </div>
+              <div class="trial-title">${escapeHtml(title)}</div>
               <div class="trial-sub">
                 ${cropYear !== null ? escapeHtml(cropYear) : ''}${cropYear && crop ? ' • ' : ''}${escapeHtml(crop)}
                 ${trialType ? ` • ${escapeHtml(trialType)}` : ''}
               </div>
               <div class="trial-meta">
-                ${operationTask ? `
-                  <span><span class="trial-meta-label">Operation</span> ${escapeHtml(operationTask)}</span>
-                ` : ''}
-                ${trialType ? `
-                  <span><span class="trial-meta-label">Type</span> ${escapeHtml(trialType)}</span>
-                ` : ''}
-                <span class="trial-meta-stat" data-role="stat-acres">
-                  <span class="trial-meta-label">Trial acres</span>
-                  <span class="trial-meta-value">—</span>
-                </span>
-                <span class="trial-meta-stat" data-role="stat-check">
-                  <span class="trial-meta-label">Check avg</span>
-                  <span class="trial-meta-value">—</span> bu/ac
-                </span>
-                <span class="trial-meta-stat" data-role="stat-trial">
-                  <span class="trial-meta-label">Trial avg</span>
-                  <span class="trial-meta-value">—</span> bu/ac
-                </span>
+                ${operationTask ? `<span><span class="trial-meta-label">Operation</span> ${escapeHtml(operationTask)}</span>` : ''}
+                ${trialType ? `<span><span class="trial-meta-label">Type</span> ${escapeHtml(trialType)}</span>` : ''}
+                <span class="trial-meta-stat" data-role="stat-acres"><span class="trial-meta-label">Trial acres</span> <span class="trial-meta-value">—</span></span>
+                <span class="trial-meta-stat" data-role="stat-check"><span class="trial-meta-label">Check avg</span> <span class="trial-meta-value">—</span> bu/ac</span>
+                <span class="trial-meta-stat" data-role="stat-trial"><span class="trial-meta-label">Trial avg</span> <span class="trial-meta-value">—</span> bu/ac</span>
               </div>
             </div>
           </div>
 
           <div class="trial-bottom-row">
-            <div>
-              ${when ? `Created ${when.toLocaleDateString()} ${when.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}` : ''}
-            </div>
+            <div>${when ? `Created ${when.toLocaleDateString()} ${when.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}` : ''}</div>
             <div class="trial-status-chip">${escapeHtml(friendlyStatus)}</div>
           </div>
         `;
@@ -2593,8 +2318,7 @@
         if(addFieldBtn){
           addFieldBtn.addEventListener('click', (ev)=>{
             ev.stopPropagation();
-            const url = `${CONFIG.ADD_FIELD_URL}?trialId=${encodeURIComponent(id)}`;
-            window.location.href = url;
+            window.location.href = `${CONFIG.ADD_FIELD_URL}?trialId=${encodeURIComponent(id)}`;
           });
         }
 
@@ -2602,24 +2326,14 @@
         if(addYieldBtn){
           addYieldBtn.addEventListener('click', (ev)=>{
             ev.stopPropagation();
-            const url = buildYieldUrl(id, d);
-            window.location.href = url;
+            window.location.href = buildYieldUrl(id, d);
           });
         }
 
-        if(isMhTrial){
-          configureMhButtonsForTrial(card, id, d);
-        }
+        if(isMhTrial) configureMhButtonsForTrial(card, id, d);
 
-        if(STATE.trialStats[id]){
-          applyStatsToCard(card, STATE.trialStats[id]);
-        }
-
-        loadTrialStats(id).then(({ stats }) => {
-          applyStatsToCard(card, stats);
-        }).catch(err => {
-          console.error('Error applying stats to card', id, err);
-        });
+        if(STATE.trialStats[id]) applyStatsToCard(card, STATE.trialStats[id]);
+        loadTrialStats(id).then(({ stats }) => applyStatsToCard(card, stats)).catch(()=>{});
 
         listEl.appendChild(card);
       }
@@ -2627,18 +2341,16 @@
       const countEl2 = $('#trialCount');
       if(countEl2){
         const total = STATE.items.length;
-        if(usingFilters){
-          countEl2.textContent = `${total} filtered trial${total === 1 ? '' : 's'}`;
-        }else{
-          countEl2.textContent = `${total} trial${total === 1 ? '' : 's'}`;
-        }
+        countEl2.textContent = usingFilters
+          ? `${total} filtered trial${total === 1 ? '' : 's'}`
+          : `${total} trial${total === 1 ? '' : 's'}`;
       }
 
       setupMobileSwipe(listEl);
     }
 
     async function loadAllTrials(){
-      const db  = STATE.db;
+      const db = STATE.db;
       if(!db) return;
       if(STATE.isLoading) return;
 
@@ -2661,30 +2373,17 @@
           emptyEl.style.display = 'block';
           emptyEl.textContent = 'Loading trials...';
         }
-        if(countEl){
-          countEl.textContent = 'Loading trials...';
-        }
+        if(countEl) countEl.textContent = 'Loading trials...';
         clearDetails();
       }else{
-        if(countEl){
-          countEl.textContent = 'Refreshing trials...';
-        }
+        if(countEl) countEl.textContent = 'Refreshing trials...';
       }
 
       try{
         const ref = collection(db, CONFIG.COLLECTION_TRIALS);
+        const snap = await withRetry(async () => await getDocsServerFirst(ref), 'loadAllTrials', 2);
 
-        const snap = await withRetry(
-          async () => await getDocsServerFirst(ref),
-          'loadAllTrials',
-          2
-        );
-
-        const items = snap.docs.map(d => ({
-          id: d.id,
-          data: d.data()
-        }));
-
+        const items = snap.docs.map(d => ({ id: d.id, data: d.data() }));
         sortTrialsList(items);
 
         STATE.allItems = items;
@@ -2705,17 +2404,12 @@
           if(countEl) countEl.textContent = 'Error loading trials';
           clearDetails();
         }else{
-          if(countEl){
-            countEl.textContent = `${STATE.items.length} trials (using last known list – error loading live data)`;
-          }
+          if(countEl) countEl.textContent = `${STATE.items.length} trials (using last known list – error loading live data)`;
         }
 
         if(STATE.retryCount < 1){
           STATE.retryCount++;
-          setTimeout(() => {
-            STATE.loaded = false;
-            loadAllTrials();
-          }, 1500);
+          setTimeout(() => { STATE.loaded = false; loadAllTrials(); }, 1500);
         }
       }finally{
         STATE.isLoading = false;
@@ -2727,29 +2421,23 @@
       if(!id || !STATE.db) return;
       if(STATE.isEditingSetup) return;
 
-      const btn = UI.completeBtn || $('#trialCompleteBtn');
+      const btn = UI.completeBtn;
       if(btn){
         btn.disabled = true;
         btn.textContent = 'Saving...';
       }
 
       try{
-        const ref = doc(STATE.db, CONFIG.COLLECTION_TRIALS, id);
-        await updateDoc(ref, {
+        await updateDoc(doc(STATE.db, CONFIG.COLLECTION_TRIALS, id), {
           [CONFIG.STATUS_FIELD]: CONFIG.STATUS_COMPLETED
         });
 
         const itemAll = STATE.allItems.find(x => x.id === id);
-        if(itemAll){
-          itemAll.data[CONFIG.STATUS_FIELD] = CONFIG.STATUS_COMPLETED;
-        }
+        if(itemAll) itemAll.data[CONFIG.STATUS_FIELD] = CONFIG.STATUS_COMPLETED;
         const itemFiltered = STATE.items.find(x => x.id === id);
-        if(itemFiltered){
-          itemFiltered.data[CONFIG.STATUS_FIELD] = CONFIG.STATUS_COMPLETED;
-        }
+        if(itemFiltered) itemFiltered.data[CONFIG.STATUS_FIELD] = CONFIG.STATUS_COMPLETED;
 
         applyFilters();
-
         showToast('Trial marked as completed.');
       }catch(err){
         console.error('Error marking trial completed:', err);
@@ -2762,7 +2450,6 @@
     }
 
     async function deleteTrial(){
-      // HARD STOP — requires delete permission (edit users still cannot delete)
       if (!window.FV || typeof window.FV.can !== 'function' || !window.FV.can('crop-trials:delete')) {
         showToast('You do not have permission to delete trials.');
         return;
@@ -2772,25 +2459,17 @@
       if(!id || !STATE.db) return;
       if(STATE.isEditingSetup) return;
 
-      // Use the FarmVista "type YES" modal we added in the HTML
       const modal    = document.getElementById('deleteConfirmModal');
       const backdrop = document.getElementById('deleteBackdrop');
       const inputEl  = document.getElementById('deleteConfirmInput');
       const cancelBtn= document.getElementById('deleteCancelBtn');
       const confirmBtn=document.getElementById('deleteConfirmBtn');
-
-      // Fallback to confirm if modal isn't present for any reason
       const hasModal = !!(modal && inputEl && cancelBtn && confirmBtn);
 
-      const delBtn = UI.deleteBtn || $('#trialDeleteBtn');
+      const delBtn = UI.deleteBtn;
 
-      const lockTrashButton = () => {
-        if(delBtn) delBtn.disabled = true;
-      };
-      const unlockTrashButton = () => {
-        // If user lacks perm-ui will keep it disabled anyway; this just restores state for allowed users.
-        if(delBtn) delBtn.disabled = false;
-      };
+      const lockTrashButton = () => { if(delBtn) delBtn.disabled = true; };
+      const unlockTrashButton = () => { if(delBtn) delBtn.disabled = false; };
 
       const doDelete = async () => {
         lockTrashButton();
@@ -2798,7 +2477,6 @@
         try{
           const db = STATE.db;
 
-          // Delete fields/*/yieldBlocks/* + multiHybrid/state + field doc
           const fieldsRef = collection(db, CONFIG.COLLECTION_TRIALS, id, 'fields');
           const fieldsSnap = await getDocsServerFirst(fieldsRef);
 
@@ -2806,42 +2484,23 @@
             fieldsSnap.docs.map(async (fieldDoc) => {
               const fieldId = fieldDoc.id;
 
-              const blocksRef = collection(
-                db,
-                CONFIG.COLLECTION_TRIALS,
-                id,
-                'fields',
-                fieldId,
-                'yieldBlocks'
-              );
+              const blocksRef = collection(db, CONFIG.COLLECTION_TRIALS, id, 'fields', fieldId, 'yieldBlocks');
               const blocksSnap = await getDocsServerFirst(blocksRef);
               await Promise.all(blocksSnap.docs.map(b => deleteDoc(b.ref)));
 
-              const mhStateRef = doc(
-                db,
-                CONFIG.COLLECTION_TRIALS,
-                id,
-                'fields',
-                fieldId,
-                'multiHybrid',
-                'state'
-              );
-              try{ await deleteDoc(mhStateRef); }catch(e){ /* ignore */ }
+              const mhStateRef = doc(db, CONFIG.COLLECTION_TRIALS, id, 'fields', fieldId, 'multiHybrid', 'state');
+              try{ await deleteDoc(mhStateRef); }catch(e){}
 
               await deleteDoc(fieldDoc.ref);
             })
           );
 
-          // Extra safety: delete any yieldBlocks directly under the trial if present
           const yieldsRef = collection(db, CONFIG.COLLECTION_TRIALS, id, 'yieldBlocks');
           const yieldsSnap = await getDocsServerFirst(yieldsRef);
           await Promise.all(yieldsSnap.docs.map(d => deleteDoc(d.ref)));
 
-          // Delete the trial doc last
-          const trialRef = doc(db, CONFIG.COLLECTION_TRIALS, id);
-          await deleteDoc(trialRef);
+          await deleteDoc(doc(db, CONFIG.COLLECTION_TRIALS, id));
 
-          // Update local state/UI
           STATE.allItems = STATE.allItems.filter(x => x.id !== id);
           STATE.items = STATE.items.filter(x => x.id !== id);
           STATE.selectedId = null;
@@ -2856,7 +2515,6 @@
         }
       };
 
-      // If modal missing, fall back to browser confirm
       if(!hasModal){
         const ok = window.confirm('Delete this trial and ALL of its fields and yield blocks? This cannot be undone.');
         if(!ok) return;
@@ -2864,7 +2522,6 @@
         return;
       }
 
-      // Modal open/close helpers
       const openModal = () => {
         inputEl.value = '';
         confirmBtn.disabled = true;
@@ -2878,17 +2535,14 @@
         document.body.style.overflow = '';
       };
 
-      // Keep handlers local & clean (no stacking)
-      const onInput = () => {
-        confirmBtn.disabled = (inputEl.value || '').trim().toUpperCase() !== 'YES';
-      };
+      const onInput = () => { confirmBtn.disabled = (inputEl.value || '').trim().toUpperCase() !== 'YES'; };
 
       const onKeyDown = (e) => {
         if(e.key === 'Escape'){
           e.preventDefault();
           cleanup();
           closeModal();
-        } else if(e.key === 'Enter' && !confirmBtn.disabled){
+        }else if(e.key === 'Enter' && !confirmBtn.disabled){
           e.preventDefault();
           confirmBtn.click();
         }
@@ -2902,41 +2556,33 @@
         try{ confirmBtn.removeEventListener('click', onConfirm); }catch{}
       };
 
-      const onCancel = () => {
-        cleanup();
-        closeModal();
-      };
+      const onCancel = () => { cleanup(); closeModal(); };
 
       const onConfirm = async () => {
-        // double-check permission right before deleting
         if (!window.FV || typeof window.FV.can !== 'function' || !window.FV.can('crop-trials:delete')) {
           showToast('You do not have permission to delete trials.');
           cleanup();
           closeModal();
           return;
         }
-
         confirmBtn.disabled = true;
         cleanup();
         closeModal();
         await doDelete();
       };
 
-      // Wire up modal events
       inputEl.addEventListener('input', onInput);
       document.addEventListener('keydown', onKeyDown, true);
       if(backdrop) backdrop.addEventListener('click', onCancel);
       cancelBtn.addEventListener('click', onCancel);
       confirmBtn.addEventListener('click', onConfirm);
 
-      // Show it
       openModal();
     }
 
     (async function boot(){
       await safeReady();
 
-      // Cache UI references once (these nodes may be moved around)
       UI.editBtn     = document.getElementById('trialEditBtn');
       UI.saveBtn     = document.getElementById('trialSaveBtn');
       UI.cancelBtn   = document.getElementById('trialCancelBtn');
@@ -2944,20 +2590,11 @@
       UI.deleteBtn   = document.getElementById('trialDeleteBtn');
       UI.editHome    = document.getElementById('trialEditHome');
       UI.saveHome    = document.getElementById('trialSaveHome');
+      UI.cancelHome  = document.getElementById('trialCancelHome');
 
       STATE.db = getFirestore();
       STATE.loaded = false;
       STATE.retryCount = 0;
-      STATE.mhHasFieldByTrial = {};
-      STATE.trialStats = {};
-      STATE.trialFields = {};
-      STATE.trialStatsPromises = {};
-      STATE.optionLists = {
-        cropYears: [],
-        crops: [],
-        trialTypes: [],
-        operationTasks: []
-      };
 
       loadFilterPrefs();
 
@@ -3005,41 +2642,37 @@
         });
       }
 
-      const completeBtn = UI.completeBtn || $('#trialCompleteBtn');
-      if(completeBtn){
-        completeBtn.addEventListener('click', () => {
+      if(UI.completeBtn){
+        UI.completeBtn.addEventListener('click', () => {
           if(!STATE.selectedId) return;
           markTrialCompleted();
         });
       }
 
-      const deleteBtn = UI.deleteBtn || $('#trialDeleteBtn');
-      if(deleteBtn){
-        deleteBtn.addEventListener('click', () => {
+      if(UI.deleteBtn){
+        UI.deleteBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
           if(!STATE.selectedId) return;
           deleteTrial();
         });
       }
 
-      const editBtn = UI.editBtn || $('#trialEditBtn');
-      if(editBtn){
-        editBtn.addEventListener('click', () => {
+      if(UI.editBtn){
+        UI.editBtn.addEventListener('click', () => {
           if(!STATE.selectedId) return;
           enterEditSetup();
         });
       }
 
-      const saveBtn = UI.saveBtn || $('#trialSaveBtn');
-      if(saveBtn){
-        saveBtn.addEventListener('click', () => {
+      if(UI.saveBtn){
+        UI.saveBtn.addEventListener('click', () => {
           if(!STATE.selectedId) return;
           saveEditSetup();
         });
       }
 
-      const cancelBtn = UI.cancelBtn || $('#trialCancelBtn');
-      if(cancelBtn){
-        cancelBtn.addEventListener('click', () => {
+      if(UI.cancelBtn){
+        UI.cancelBtn.addEventListener('click', () => {
           if(!STATE.selectedId) return;
           cancelEditSetup();
         });
@@ -3050,12 +2683,8 @@
       fileCloseBtn    = $('#fileModalClose');
       fileContentWrap = $('#fileContentWrap');
 
-      if(fileBackdrop){
-        fileBackdrop.addEventListener('click', closeFileViewer);
-      }
-      if(fileCloseBtn){
-        fileCloseBtn.addEventListener('click', closeFileViewer);
-      }
+      if(fileBackdrop) fileBackdrop.addEventListener('click', closeFileViewer);
+      if(fileCloseBtn) fileCloseBtn.addEventListener('click', closeFileViewer);
 
       initStatusDropdown();
 
@@ -3080,24 +2709,9 @@
       await loadAllTrials();
     })();
 
-    // iOS resume reliability (same idea as last page)
-    window.addEventListener('focus', () => {
-      resume('focus');
-    });
-
-    window.addEventListener('pageshow', (event) => {
-      if(event && event.persisted){
-        resume('pageshow.persisted');
-      }else{
-        resume('pageshow');
-      }
-    });
-
-    document.addEventListener('visibilitychange', () => {
-      if(document.visibilityState === 'visible'){
-        resume('visibility.visible');
-      }
-    });
+    window.addEventListener('focus', () => resume('focus'));
+    window.addEventListener('pageshow', (event) => resume(event && event.persisted ? 'pageshow.persisted' : 'pageshow'));
+    document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') resume('visibility.visible'); });
   </script>
 
 </head>
@@ -3131,11 +2745,7 @@
           <div class="filters-row">
             <div class="status-filter-wrap">
               <label class="status-filter-label">Status</label>
-              <button
-                type="button"
-                id="statusDropdownTrigger"
-                class="status-dropdown-trigger"
-              >
+              <button type="button" id="statusDropdownTrigger" class="status-dropdown-trigger">
                 <div class="status-dropdown-label">
                   <span class="status-dropdown-label-main" id="statusSummaryText">All</span>
                   <span class="status-dropdown-label-sub">Multi-select</span>
@@ -3143,28 +2753,11 @@
                 <span class="status-dropdown-caret">▾</span>
               </button>
 
-              <div
-                id="statusDropdownPanel"
-                class="status-dropdown-panel"
-                role="dialog"
-                aria-label="Filter by status"
-              >
-                <label class="status-option">
-                  <input type="checkbox" data-status="all" value="all">
-                  <span>All</span>
-                </label>
-                <label class="status-option">
-                  <input type="checkbox" data-status="pending" value="pending">
-                  <span>Pending</span>
-                </label>
-                <label class="status-option">
-                  <input type="checkbox" data-status="active" value="active">
-                  <span>Active</span>
-                </label>
-                <label class="status-option">
-                  <input type="checkbox" data-status="completed" value="completed">
-                  <span>Completed</span>
-                </label>
+              <div id="statusDropdownPanel" class="status-dropdown-panel" role="dialog" aria-label="Filter by status">
+                <label class="status-option"><input type="checkbox" data-status="all" value="all"><span>All</span></label>
+                <label class="status-option"><input type="checkbox" data-status="pending" value="pending"><span>Pending</span></label>
+                <label class="status-option"><input type="checkbox" data-status="active" value="active"><span>Active</span></label>
+                <label class="status-option"><input type="checkbox" data-status="completed" value="completed"><span>Completed</span></label>
 
                 <div class="status-dropdown-footer">
                   <button type="button" class="status-reset-btn" id="statusResetBtn">Reset</button>
@@ -3175,19 +2768,14 @@
 
             <div class="year-filter-wrap">
               <label for="trialYearFilter" class="status-filter-label">Year</label>
-              <select
-                id="trialYearFilter"
-                class="select"
-              >
+              <select id="trialYearFilter" class="select">
                 <option value="all">All years</option>
               </select>
             </div>
           </div>
 
           <section aria-label="Field trials">
-            <div class="trial-empty">
-              Loading trials...
-            </div>
+            <div class="trial-empty">Loading trials...</div>
             <div class="trial-list"></div>
           </section>
         </div>
@@ -3197,13 +2785,7 @@
         <div class="trial-detail-header">
           <div class="trial-detail-title-area">
             <div class="trial-detail-title" id="trialDetailTitleText">Trial Details</div>
-            <input
-              type="text"
-              id="trialDetailTitleInput"
-              class="trial-detail-title-input"
-              maxlength="80"
-              autocomplete="off"
-            />
+            <input type="text" id="trialDetailTitleInput" class="trial-detail-title-input" maxlength="80" autocomplete="off" />
             <div class="trial-detail-edit-hint">Tap name to edit</div>
           </div>
           <button type="button" id="trialDetailClose" class="trial-detail-close">
@@ -3232,28 +2814,28 @@
         </div>
 
         <div class="trial-actions">
+          <!-- Move Complete to FAR LEFT -->
           <div class="trial-actions-left">
-            <div id="trialEditHome">
-              <button type="button" id="trialEditBtn" class="btn btn-quiet" style="display:none;">
-                Edit Setup
-              </button>
-            </div>
-
-            <div id="trialSaveHome">
-              <button type="button" id="trialSaveBtn" class="btn btn-quiet" style="display:none;">
-                Save Changes
-              </button>
-            </div>
-
-            <button type="button" id="trialCancelBtn" class="btn btn-quiet" style="display:none;">
-              Cancel
-            </button>
-          </div>
-
-          <div class="trial-actions-right">
             <button type="button" id="trialCompleteBtn" class="btn btn-complete" style="display:none;">
               Mark Trial Completed
             </button>
+          </div>
+
+          <!-- Nothing else sits here now -->
+          <div class="trial-actions-right">
+            <div id="trialEditHome">
+              <button type="button" id="trialEditBtn" class="btn btn-quiet" style="display:none;">Edit Setup</button>
+            </div>
+
+            <div id="trialSaveHome">
+              <button type="button" id="trialSaveBtn" class="btn btn-quiet" style="display:none;">Save</button>
+            </div>
+
+            <!-- Cancel home (so it can be re-homed safely) -->
+            <div id="trialCancelHome">
+              <button type="button" id="trialCancelBtn" class="btn btn-quiet" style="display:none;">Cancel</button>
+            </div>
+
             <button type="button" id="trialDeleteBtn" class="trial-delete-btn" aria-label="Delete trial" data-perm="crop-trials:delete">
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M9 3a1 1 0 0 0-.894.553L7.382 5H5a1 1 0 1 0 0 2h.293l.853 11.093A2 2 0 0 0 8.14 20h7.72a2 2 0 0 0 1.994-1.907L18.707 7H19a1 1 0 1 0 0-2h-2.382l-.724-1.447A1 1 0 0 0 15 3H9Zm1.118 4a1 1 0 0 0-.996 1.09l.5 8a1 1 0 1 0 1.996-.124l-.5-8A1 1 0 0 0 10.118 7Zm3.764 0a1 1 0 0 0-.882 1.09l.5 8a1 1 0 0 0 1.996-.124l-.5-8A1 1 0 0 0 13.882 7Z" fill="currentColor"/>
