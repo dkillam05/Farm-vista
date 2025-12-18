@@ -1092,16 +1092,17 @@
       return v.charAt(0).toUpperCase() + v.slice(1);
     }
 
+    // ✅ Only TWO origin buckets:
+    // - precheck_template  -> "Pre-Season Check List"
+    // - everything else    -> "Service Request" (includes manual/mixed/unknown)
     function mapOriginLabel(o){
       const v = (o||'').toString().toLowerCase();
-      if(v === 'precheck_template') return 'Precheck Template';
-      if(v === 'request') return 'Service Request';
-      if(v === 'manual') return 'Manual';
-      if(v === 'mixed') return 'Mixed';
-      return o ? titleCase(v.replace(/_/g,' ')) : 'Unknown';
+      if(v === 'precheck_template') return 'Pre-Season Check List';
+      return 'Service Request';
     }
 
     // ✅ Work Order origin = roll-up from lineItems origins (or precheckTemplateId hint)
+    // We intentionally REMOVE "Mixed" and "Manual" as list categories.
     function getWorkOrderOrigin(d){
       try{
         const lines = Array.isArray(d?.lineItems) ? d.lineItems : [];
@@ -1112,11 +1113,13 @@
         }
         if(set.size === 0 && (d?.precheckTemplateId || d?.precheckTemplateTitle)) set.add('precheck_template');
 
-        if(set.size === 0) return 'unknown';
-        if(set.size === 1) return [...set][0];
-        return 'mixed';
+        // Only "pure precheck" stays precheck.
+        if(set.size === 1 && set.has('precheck_template')) return 'precheck_template';
+
+        // Everything else (manual-only, request-only, or mixed) is treated as Service Request.
+        return 'request';
       }catch{
-        return 'unknown';
+        return 'request';
       }
     }
 
@@ -1311,7 +1314,8 @@
         return a.localeCompare(b);
       });
 
-      const originOrder = ['precheck_template','request','manual','mixed','unknown'];
+      // ✅ Only two origin buckets now
+      const originOrder = ['precheck_template','request'];
       const sortOrigins = (a,b)=>{
         const ia = originOrder.indexOf(a); const ib = originOrder.indexOf(b);
         const ra = ia === -1 ? 999 : ia;
@@ -2287,7 +2291,7 @@
 
       const originLabel =
         origin === 'request' ? 'From service request' :
-        origin === 'precheck_template' ? 'From precheck template' :
+        origin === 'precheck_template' ? 'From pre-season check list' :
         'Manual';
 
       // ✅ Precheck: resolve label/notes from template items EVEN if WO lineItems are still generic (inspection)
