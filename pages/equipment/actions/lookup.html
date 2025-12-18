@@ -30,15 +30,17 @@
   <style>
     :root{ --card-max:1100px; }
 
-    /* ===== QL-820NWB / DK-2205 label sizing (PREVIEW + PRINT) ===== */
+    /* ===== QL-820NWB / DK-2205 (62mm wide continuous) — MATCHES ADD PAGE ===== */
     :root{
-      --ql-label-w: 62mm;   /* DK-2205 width */
-      --ql-label-h: 62mm;   /* requested: "at least a square" */
-      --ql-qr-mm: 26mm;     /* slightly larger since label is square */
+      --ql-tape-mm: 62mm;    /* fixed tape width = label HEIGHT */
+      --ql-qr-mm: 48mm;      /* big QR */
       --ql-pad-mm: 2.2mm;
       --ql-gap-mm: 2mm;
-      --ql-font: 12pt;
-      --ql-font-small: 10pt;
+
+      /* bigger fonts for older eyes */
+      --ql-font: 18pt;         /* Make + VIN/Serial value */
+      --ql-font-small: 16pt;   /* Model */
+      --ql-font-lab: 12pt;     /* VIN/Serial label */
     }
 
     html,body{ max-width:100vw; overflow-x:hidden; }
@@ -178,56 +180,87 @@
       background:var(--surface); color:var(--text); padding:10px 14px; font-weight:800; cursor:pointer; text-decoration:none;
     }
     .btn[disabled], .btn.disabled{ opacity:.55; pointer-events:none; }
-    .btn-primary{ border-color:transparent; background:var(--brand-green,#3B7E46); color:#fff; }
+    .btn-primary{ border-color:transparent; background:var(--brand-green,#3B7E46); color:#fff !important; }
+    .btn-primary:visited{ color:#fff !important; }
 
     /* ✅ Force Open Hub to be white text (avoid any browser link blue) */
     #openHub{ color:#fff !important; }
     #openHub:visited{ color:#fff !important; }
 
-    /* ===== Reprint preview label (matches Add page, but square) ===== */
+    /* ===== Reprint modal (MATCHES ADD PAGE): hug the label ===== */
+    dialog.sheet.sheet-print{
+      width:fit-content;
+      max-width:calc(100vw - 24px);
+    }
+    dialog.sheet.sheet-print .body{
+      width:fit-content;
+      max-width:calc(100vw - 24px);
+      overflow-x:auto;
+      overflow-y:auto;
+      -webkit-overflow-scrolling:touch;
+    }
+
     .print-help{
       color:var(--muted,#6f7772);
       font-size:14px;
       line-height:1.35;
       margin:0 0 10px;
+      max-width: min(560px, calc(100vw - 48px));
     }
+
+    /* wrapper for preview (lets it scroll on small screens, but stays neat) */
+    .print-wrap{
+      display:grid;
+      gap:10px;
+      overflow-x:auto;
+      overflow-y:hidden;
+      -webkit-overflow-scrolling:touch;
+      justify-items:center;
+      padding: 4px 2px 2px;
+      width: fit-content;
+      max-width: calc(100vw - 48px);
+    }
+
+    /* ✅ LONG STRIP label preview (max-content / QR / max-content) */
     .label-preview{
-      width:var(--ql-label-w);
-      height:var(--ql-label-h);
+      width:140mm;   /* JS overrides to computed cut length */
+      height:var(--ql-tape-mm);
       border:1px dashed var(--border);
       border-radius:10px;
       background:#fff;
       color:#000;
+
       display:grid;
-      grid-template-columns: 1fr auto 1fr;
+      grid-template-columns: max-content var(--ql-qr-mm) max-content;
       align-items:center;
+
       gap:var(--ql-gap-mm);
       padding:var(--ql-pad-mm);
       box-sizing:border-box;
-      overflow:hidden;
+
       margin:0 auto;
+      max-width:none !important;
+      white-space:nowrap;
+      overflow:visible;
     }
+
     .lp-left, .lp-right{
       display:flex;
       flex-direction:column;
       justify-content:center;
-      min-width:0;
+      min-width:max-content;
     }
     .lp-left .make{
       font-weight:900;
       font-size:var(--ql-font);
       line-height:1.05;
       white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
     }
     .lp-left .model{
       font-weight:800;
       font-size:var(--ql-font-small);
       line-height:1.05;
       white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
       margin-top:1mm;
     }
     .lp-mid{
@@ -250,9 +283,10 @@
     }
     .lp-right .serial-lab{
       font-weight:800;
-      font-size:8.5pt;
+      font-size:var(--ql-font-lab);
       line-height:1.05;
       opacity:.85;
+      white-space:nowrap;
     }
     .lp-right .serial-val{
       font-weight:900;
@@ -260,7 +294,12 @@
       line-height:1.05;
       letter-spacing:.6px;
       margin-top:1mm;
+      white-space:nowrap;
     }
+
+    /* ✅ Ensure Print button text is white (you asked specifically) */
+    #pPrint{ color:#fff !important; }
+    #pPrint:visited{ color:#fff !important; }
   </style>
 </head>
 <body>
@@ -280,7 +319,6 @@
 
         <!-- Compact filter button -->
         <button id="filterBtn" class="icon-btn" aria-label="Filters" aria-haspopup="true" aria-expanded="false">
-          <!-- funnel icon -->
           <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M3 5h18l-7 8v5l-4 2v-7L3 5z" fill="currentColor"/>
           </svg>
@@ -318,7 +356,6 @@
     <div class="body">
       <div class="kv" id="dKV"></div>
 
-      <!-- QR preview -->
       <div id="qrSection" class="qrbox" hidden>
         <h4>Equipment QR</h4>
         <img id="qrImg" alt="Equipment QR"/>
@@ -332,8 +369,8 @@
     </footer>
   </dialog>
 
-  <!-- Reprint preview modal -->
-  <dialog id="printPrev" class="sheet" aria-modal="true">
+  <!-- Reprint preview modal (NOW matches Add page print) -->
+  <dialog id="printPrev" class="sheet sheet-print" aria-modal="true">
     <header>
       <strong>Print QR Label</strong>
       <button id="pClose" class="btn" type="button">Close</button>
@@ -341,21 +378,23 @@
 
     <div class="body">
       <p class="print-help">
-        Printer: <b>Brother QL-820NWB</b> • Tape: <b>DK-2205 (62mm / 2.4&quot; continuous)</b> • Orientation: <b>Horizontal</b><br>
-        Label size: <b>62mm × 62mm</b> (square cut)
+        Printer: <b>Brother QL-820NWB</b> • Tape: <b>DK-2205 (62mm / 2.4&quot; continuous)</b><br>
+        ✅ Label length flexes to your text (up to <b>6&quot;</b>). If it’s long on mobile, swipe left/right.
       </p>
 
-      <div class="label-preview" aria-label="Label preview">
-        <div class="lp-left">
-          <div id="pMake" class="make">—</div>
-          <div id="pModel" class="model">—</div>
-        </div>
-        <div class="lp-mid">
-          <img id="pQR" alt="QR">
-        </div>
-        <div class="lp-right">
-          <div class="serial-lab">VIN/Serial</div>
-          <div id="pSer" class="serial-val">—</div>
+      <div class="print-wrap" aria-label="Preview scroller">
+        <div id="pLabel" class="label-preview" aria-label="Label preview">
+          <div class="lp-left">
+            <div id="pMake" class="make">—</div>
+            <div id="pModel" class="model">—</div>
+          </div>
+          <div class="lp-mid">
+            <img id="pQR" alt="QR">
+          </div>
+          <div class="lp-right">
+            <div class="serial-lab" id="pSerialLab">VIN/Serial</div>
+            <div id="pSer" class="serial-val">—</div>
+          </div>
         </div>
       </div>
     </div>
@@ -582,28 +621,137 @@
       }catch{ return ''; }
     }
 
-    // ===== Reprint Preview modal wiring =====
+    // ===== Reprint Preview modal wiring (NOW matches Add page) =====
     const pDlg = document.getElementById('printPrev');
+    const pLabel = document.getElementById('pLabel');
     const pMake = document.getElementById('pMake');
     const pModel = document.getElementById('pModel');
     const pQR = document.getElementById('pQR');
     const pSer = document.getElementById('pSer');
+    const pSerialLab = document.getElementById('pSerialLab');
     const pClose = document.getElementById('pClose');
     const pCancel = document.getElementById('pCancel');
     const pPrint = document.getElementById('pPrint');
 
     let __pendingPrint = null;
 
+    // ===== Dynamic label length (continuous tape) — MAX 6" =====
+    const LABEL = {
+      tapeWmm: 62,
+      qrMm: 48,
+      padMm: 2.2,
+      gapMm: 2.0,
+      minLenMm: 90,
+      maxLenMm: 152.4  // 6"
+    };
+    function pxPerMm(){ return 96 / 25.4; }
+    function clampLenMm(mm){
+      let len = Math.max(LABEL.minLenMm, Math.min(LABEL.maxLenMm, mm));
+      len = Math.round(len * 2) / 2;
+      return len;
+    }
+    function normalizeSerial(s){ return String(s||'').trim().toUpperCase(); }
+    function serialLast6(serial){
+      const s = normalizeSerial(serial || '');
+      if(!s) return '';
+      return s.length <= 6 ? s : s.slice(-6);
+    }
+
+    function measureTextPxWithStyle(text, styleRefEl){
+      const cs = getComputedStyle(styleRefEl);
+      const span = document.createElement('span');
+      span.textContent = String(text ?? '');
+      span.style.position = 'fixed';
+      span.style.left = '-99999px';
+      span.style.top = '-99999px';
+      span.style.visibility = 'hidden';
+      span.style.whiteSpace = 'nowrap';
+      span.style.fontFamily = cs.fontFamily;
+      span.style.fontSize = cs.fontSize;
+      span.style.fontWeight = cs.fontWeight;
+      span.style.letterSpacing = cs.letterSpacing;
+      span.style.textTransform = cs.textTransform;
+      document.body.appendChild(span);
+      const w = span.getBoundingClientRect().width;
+      span.remove();
+      return w;
+    }
+
+    function computeLabelLenMmFromDOM({ makeName, modelName, serial6 }){
+      const pmm = pxPerMm();
+
+      const makeEl = pMake;
+      const modelEl = pModel;
+      const labEl = pSerialLab;
+      const valEl = pSer;
+
+      const makeWpx  = measureTextPxWithStyle(makeName || '', makeEl);
+      const modelWpx = measureTextPxWithStyle(modelName || '', modelEl);
+      const leftWpx  = Math.max(makeWpx, modelWpx);
+
+      const labText = 'VIN/Serial';
+      const valText = serial6 || '';
+      const labWpx = measureTextPxWithStyle(labText, labEl);
+      const valWpx = measureTextPxWithStyle(valText, valEl);
+      const rightWpx = Math.max(labWpx, valWpx);
+
+      const leftMm  = leftWpx / pmm;
+      const rightMm = rightWpx / pmm;
+
+      const safetyMm = 6.0;
+      const raw =
+        (LABEL.padMm * 2) +
+        (LABEL.gapMm * 2) +
+        leftMm +
+        LABEL.qrMm +
+        rightMm +
+        safetyMm;
+
+      return clampLenMm(raw);
+    }
+
+    let __labelLenMm = LABEL.minLenMm;
+
+    async function setReprintPreview({ makeName, modelName, serial, qrUrl }){
+      const serial6 = serialLast6(serial) || '—';
+
+      pMake.textContent = (makeName || '—');
+      pModel.textContent = (modelName || '—');
+      pSerialLab.textContent = 'VIN/Serial';
+      pSer.textContent = serial6;
+
+      // bust cache so it always loads before print
+      const bust = (qrUrl && qrUrl.includes('?') ? '&' : '?') + '_=' + Date.now();
+      pQR.src = qrUrl ? (qrUrl + bust) : '';
+
+      // start at min then measure
+      if (pLabel){
+        pLabel.style.width  = `${LABEL.minLenMm}mm`;
+        pLabel.style.height = `${LABEL.tapeWmm}mm`;
+      }
+
+      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+      __labelLenMm = computeLabelLenMmFromDOM({ makeName, modelName, serial6 });
+
+      if (pLabel){
+        pLabel.style.width  = `${__labelLenMm}mm`;
+        pLabel.style.height = `${LABEL.tapeWmm}mm`;
+      }
+    }
+
     function openReprintPreview(payload){
       __pendingPrint = payload || null;
       if(!__pendingPrint) return;
 
-      pMake.textContent = (__pendingPrint.make || '—');
-      pModel.textContent = (__pendingPrint.model || '—');
-      pSer.textContent = (__pendingPrint.serial6 || '—');
-
-      pQR.src = __pendingPrint.url || '';
       try{ pDlg.showModal(); }catch{ pDlg.setAttribute('open',''); }
+
+      // after open, layout exists -> then measure/size
+      setReprintPreview({
+        makeName: __pendingPrint.make || '',
+        modelName: __pendingPrint.model || '',
+        serial: __pendingPrint.serial || __pendingPrint.serial6 || '',
+        qrUrl: __pendingPrint.url || ''
+      });
     }
     function closeReprintPreview(){
       __pendingPrint = null;
@@ -611,9 +759,150 @@
     }
     pClose.addEventListener('click', closeReprintPreview);
     pCancel.addEventListener('click', closeReprintPreview);
+
+    // ✅ Print uses SAME layout as Add page (dynamic cut length, max 6")
+    function buildPrintHtml({ makeName, modelName, serial, qrUrl, labelW, labelH, qrMm }){
+      const last6v = serialLast6(serial) || '';
+      const esc = (s)=>String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+      const mk = esc(makeName);
+      const md = esc(modelName);
+      const s6 = esc(last6v);
+
+      return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Print Label</title>
+<style>
+  @page{ size: ${labelW} ${labelH}; margin: 0; }
+  html, body{
+    margin:0;
+    padding:0;
+    width:${labelW};
+    height:${labelH};
+    background:#fff;
+  }
+  .label{
+    width:${labelW};
+    height:${labelH};
+    box-sizing:border-box;
+    padding: 2.2mm;
+    display:grid;
+    grid-template-columns: max-content ${qrMm} max-content;
+    gap: 2mm;
+    align-items:center;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    color:#000;
+    overflow:hidden;
+  }
+  .left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
+
+  .make{
+    font-weight:900;
+    font-size:18pt;
+    line-height:1.05;
+    white-space:nowrap;
+  }
+  .model{
+    font-weight:800;
+    font-size:16pt;
+    line-height:1.05;
+    white-space:nowrap;
+    margin-top:1mm;
+  }
+
+  .mid{
+    width:${qrMm};
+    height:${qrMm};
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .mid img{
+    width:100%;
+    height:100%;
+    display:block;
+    image-rendering:pixelated;
+  }
+
+  .right{ align-items:flex-end; text-align:right; }
+  .lab{
+    font-weight:800;
+    font-size:12pt;
+    line-height:1.05;
+    opacity:.85;
+    white-space:nowrap;
+  }
+  .val{
+    font-weight:900;
+    font-size:18pt;
+    line-height:1.05;
+    letter-spacing:.6px;
+    margin-top:1mm;
+    white-space:nowrap;
+  }
+
+  @media print{
+    html, body{
+      -webkit-print-color-adjust:exact;
+      print-color-adjust:exact;
+    }
+    *, *:before, *:after { box-shadow:none !important; }
+  }
+</style>
+</head>
+<body>
+  <div class="label">
+    <div class="left">
+      <div class="make">${mk || '—'}</div>
+      <div class="model">${md || '—'}</div>
+    </div>
+    <div class="mid">
+      <img id="qri" alt="QR" src="${qrUrl || ''}">
+    </div>
+    <div class="right">
+      <div class="lab">VIN/Serial</div>
+      <div class="val">${s6 || '—'}</div>
+    </div>
+  </div>
+<script>
+  const img = document.getElementById('qri');
+  function doPrint(){ try{ window.focus(); window.print(); }catch(e){} }
+  if (img && img.complete) { setTimeout(doPrint, 0); }
+  else if (img){ img.addEventListener('load', ()=> setTimeout(doPrint, 0), {once:true}); }
+  window.addEventListener('afterprint', ()=> { try{ window.close(); }catch(e){} });
+  setTimeout(()=>{ try{ window.close(); }catch(e){} }, 6000);
+<\/script>
+</body>
+</html>`;
+    }
+
+    function openPrintWindow(payload){
+      const html = buildPrintHtml(payload);
+      const w = window.open('', '_blank', 'noopener,noreferrer,width=900,height=650');
+      if(!w){ alert('Popup blocked. Allow popups to print.'); return; }
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+    }
+
     pPrint.addEventListener('click', ()=>{
       if(!__pendingPrint) return;
-      printQR(__pendingPrint);
+
+      const cutLenMm = __labelLenMm || LABEL.minLenMm;
+
+      // NOTE: for horizontal label, page WIDTH = cut length, HEIGHT = tape width (62mm)
+      openPrintWindow({
+        makeName: __pendingPrint.make || '',
+        modelName: __pendingPrint.model || '',
+        serial: __pendingPrint.serial || __pendingPrint.serial6 || '',
+        qrUrl: __pendingPrint.url || '',
+        labelW: `${cutLenMm}mm`,
+        labelH: `${LABEL.tapeWmm}mm`,
+        qrMm: `${LABEL.qrMm}mm`
+      });
+
       closeReprintPreview();
     });
 
@@ -628,7 +917,9 @@
       addRow('Make', d.makeName);
       addRow('Model', d.modelName);
       addRow('Year', d.year);
-      const ls = last6(d.serial); if(ls) addRow('Serial (last 6)', ls);
+
+      const ls = last6(d.serial);
+      if(ls) addRow('Serial (last 6)', ls);
 
       if (has(d.engineHours))     addRow('Engine Hours', d.engineHours);
       if (has(d.separatorHours))  addRow('Separator Hours', d.separatorHours);
@@ -659,11 +950,12 @@
         qrSection.hidden = false;
         btnPrintQR.disabled = false;
 
-        // ✅ Now: Reprint opens preview (like Add page)
+        // ✅ Reprint opens matching preview
         btnPrintQR.onclick = ()=> openReprintPreview({
           url,
           make: d.makeName || '',
           model: d.modelName || '',
+          serial: d.serial || '',
           serial6: ls || ''
         });
       } else {
@@ -744,122 +1036,6 @@
     function syncRadios(){
       const r = filterPop.querySelector(`input[name="statusMode"][value="${mode}"]`);
       if (r) r.checked = true;
-    }
-
-    // ✅ PRINT: square label, matches preview + DK-2205 settings
-    function printQR({ url, make, model, serial6 }){
-      const w = window.open('', '_blank', 'noopener,noreferrer,width=720,height=640');
-      if (!w) return;
-
-      const esc = (s)=>String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
-      const mk = esc(make);
-      const md = esc(model);
-      const s6 = esc(serial6);
-
-      const html = `<!doctype html><html><head><meta charset="utf-8"/>
-<title>QR Label</title><meta name="viewport" content="width=device-width, initial-scale=1"/>
-<style>
-  @page { size: 62mm 62mm; margin: 0; }
-  html, body{
-    margin:0; padding:0;
-    width:62mm; height:62mm;
-    background:#fff;
-  }
-  .label{
-    width:62mm; height:62mm;
-    box-sizing:border-box;
-    padding: 2.2mm;
-    display:grid;
-    grid-template-columns: 1fr auto 1fr;
-    gap: 2mm;
-    align-items:center;
-    font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
-    color:#000;
-    overflow:hidden;
-  }
-  .left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:0; }
-  .make{
-    font-weight:900;
-    font-size:12pt;
-    line-height:1.05;
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
-  }
-  .model{
-    font-weight:800;
-    font-size:10pt;
-    line-height:1.05;
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
-    margin-top:1mm;
-  }
-  .mid{
-    width:26mm;
-    height:26mm;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-  }
-  .mid img{
-    width:100%;
-    height:100%;
-    display:block;
-    image-rendering:pixelated;
-  }
-  .right{
-    align-items:flex-end;
-    text-align:right;
-  }
-  .lab{
-    font-weight:800;
-    font-size:9pt;
-    line-height:1.05;
-    opacity:.85;
-  }
-  .val{
-    font-weight:900;
-    font-size:12pt;
-    line-height:1.05;
-    letter-spacing:.6px;
-    margin-top:1mm;
-  }
-  @media print{
-    html, body{
-      -webkit-print-color-adjust:exact;
-      print-color-adjust:exact;
-    }
-    *, *:before, *:after { box-shadow:none !important; }
-  }
-</style>
-</head><body>
-  <div class="label">
-    <div class="left">
-      <div class="make">${mk || '—'}</div>
-      <div class="model">${md || '—'}</div>
-    </div>
-    <div class="mid">
-      <img id="qri" src="${url}" alt="QR"/>
-    </div>
-    <div class="right">
-      <div class="lab">VIN/Serial</div>
-      <div class="val">${s6 || '—'}</div>
-    </div>
-  </div>
-<script>
-  const img = document.getElementById('qri');
-  function doPrint(){ try{ window.focus(); window.print(); }catch(e){} }
-  if (img && img.complete) { setTimeout(doPrint, 0); }
-  else if (img){ img.addEventListener('load', ()=> setTimeout(doPrint, 0), {once:true}); }
-  window.addEventListener('afterprint', ()=> { try{ window.close(); }catch(e){} });
-  setTimeout(()=>{ try{ window.close(); }catch(e){} }, 6000);
-<\/script>
-</body></html>`;
-
-      w.document.open();
-      w.document.write(html);
-      w.document.close();
     }
 
     function resume(){ if (!unsub) attach(); }
