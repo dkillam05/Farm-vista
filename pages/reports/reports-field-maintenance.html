@@ -174,18 +174,16 @@
 
       box-sizing:border-box;
 
-      /* ✅ keep control above neighbors (was previously broken outside the rule) */
+      /* ✅ keep control above neighbors */
       position:relative;
       z-index:60;
 
       display:block;
     }
     /* 🔒 Prevent select height growth when option text is long */
-     .filter-select option{
-      white-space: nowrap;
-      }
+    .filter-select option{ white-space: nowrap; }
 
-        /* filter-input (keeping your current look) */
+    /* filter-input */
     .filter-input{
       width:100%;
       max-width:100%;
@@ -205,43 +203,33 @@
     .filter-input::placeholder{ color:var(--muted,#9CA3AF); }
 
     /* === Filter rows layout === */
-.filters-row{
-  display:flex;
-  flex-wrap:wrap;
-  gap:10px;
-  align-items:flex-end;
-  width:100%;
-}
+    .filters-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+      width:100%;
+    }
 
-.filters-row-secondary{
-  margin-top:6px;
-}
+    .filters-row-secondary{ margin-top:6px; }
 
-/* Give Field more room */
-.field-wide{
-  flex:2 1 320px;
-}
-   /* === Mobile: put Clear Filters on its own line (NO column mode) === */
-@media (max-width: 520px){
-  .filters-row-secondary{
-    margin-top:6px;
-  }
+    /* Give Field more room */
+    .field-wide{ flex:2 1 320px; }
 
-  /* Search takes full row */
-  .filters-row-secondary .filter-field{
-    flex: 1 1 100%;
-    width: 100%;
-  }
+    /* === Mobile: put Clear Filters on its own line (NO column mode) === */
+    @media (max-width: 520px){
+      .filters-row-secondary{ margin-top:6px; }
 
-  /* Button drops below search */
-  .filters-row-secondary #filterClear{
-    flex: 1 1 100%;
-    width: 100%;
-  }
-}
+      .filters-row-secondary .filter-field{
+        flex: 1 1 100%;
+        width: 100%;
+      }
 
-
-
+      .filters-row-secondary #filterClear{
+        flex: 1 1 100%;
+        width: 100%;
+      }
+    }
 
     /* List cards */
     .wo-list{ display:flex; flex-direction:column; gap:10px; margin-top:8px; }
@@ -398,6 +386,49 @@
       margin-bottom:2px;
     }
 
+    /* ✅ Photos section in details (larger, like trial reports) */
+    .wo-detail-photos{
+      margin-top:10px;
+      padding-top:10px;
+      border-top:1px solid var(--border);
+      display:none;
+      flex-direction:column;
+      gap:8px;
+    }
+    .wo-detail-photos.show{ display:flex; }
+
+    .wo-detail-photos-label{
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+    }
+
+    .wo-photo-grid{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0,1fr));
+      gap:10px;
+    }
+    @media (max-width:520px){
+      .wo-photo-grid{ grid-template-columns:1fr; }
+    }
+
+    .wo-photo{
+      border:1px solid var(--border);
+      border-radius:14px;
+      overflow:hidden;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      box-shadow:var(--shadow-soft, var(--shadow));
+      cursor:pointer;
+    }
+    .wo-photo img{
+      width:100%;
+      height:auto;
+      display:block;
+      max-height:520px;
+      object-fit:cover;
+    }
+
     .wo-detail-footer{
       margin-top:10px;
       font-size:0.82rem;
@@ -457,6 +488,65 @@
       color:var(--text);
       min-width:0;
     }
+
+    /* Photo viewer modal (reused pattern) */
+    .photo-modal{
+      position:fixed;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:100000;
+      padding:16px;
+    }
+    .photo-modal.show{ display:flex; }
+    .photo-backdrop{
+      position:absolute;
+      inset:0;
+      background:rgba(0,0,0,.65);
+    }
+    .photo-sheet{
+      position:relative;
+      max-width:min(1000px, 95vw);
+      max-height:90vh;
+      background:var(--surface);
+      border-radius:14px;
+      border:1px solid var(--border);
+      box-shadow:0 20px 40px rgba(0,0,0,.45);
+      padding:10px;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      z-index:1;
+      overflow:hidden;
+    }
+    .photo-close-row{
+      display:flex;
+      justify-content:flex-end;
+    }
+    .photo-close-btn{
+      border:none;
+      border-radius:999px;
+      padding:6px 12px;
+      font-size:0.85rem;
+      cursor:pointer;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      color:var(--text);
+    }
+    .photo-img-wrap{
+      border-radius:12px;
+      overflow:hidden;
+      background:#000;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      max-height:calc(90vh - 70px);
+    }
+    .photo-img-wrap img{
+      max-width:100%;
+      max-height:100%;
+      display:block;
+    }
   </style>
 
   <script>
@@ -502,10 +592,10 @@
     }
 
     function truncateLabel(str, max = 28){
-  const s = String(str || '');
-  return s.length > max ? s.slice(0, max - 1) + '…' : s;
-}
- 
+      const s = String(str || '');
+      return s.length > max ? s.slice(0, max - 1) + '…' : s;
+    }
+
     function normalizeStatus(s){
       const v = String(s || '').trim().toLowerCase().replace(/\.+$/,'');
       if(!v) return '';
@@ -569,6 +659,53 @@
 
     function getSubmittedDate(d){
       return toDateMaybe(d?.dateSubmitted) || toDateMaybe(d?.createdAt) || toDateMaybe(d?.updatedAt) || null;
+    }
+
+    // ✅ unified photo urls (supports your WO job photoUrls + legacy arrays)
+    function getPhotoUrls(d){
+      const out = [];
+      const add = (u) => {
+        const s = String(u || '').trim();
+        if(!s) return;
+        out.push(s);
+      };
+
+      if(Array.isArray(d?.photoUrls)) d.photoUrls.forEach(add);
+      if(Array.isArray(d?.photos)) d.photos.forEach(add);
+
+      // also support attachments arrays if they contain images
+      if(Array.isArray(d?.attachments)){
+        d.attachments.forEach(a=>{
+          const u = a?.url || a?.href || '';
+          if(u) add(u);
+        });
+      }
+      if(Array.isArray(d?.files)){
+        d.files.forEach(f=>{
+          const u = f?.url || f?.href || '';
+          if(u) add(u);
+        });
+      }
+
+      // de-dupe
+      return Array.from(new Set(out));
+    }
+
+    // photo viewer
+    let photoModal = null;
+    let photoModalImg = null;
+    let photoModalBackdrop = null;
+    let photoModalCloseBtn = null;
+
+    function openPhotoViewer(url){
+      if(!photoModal || !photoModalImg || !url) return;
+      photoModalImg.src = url;
+      photoModal.classList.add('show');
+    }
+    function closePhotoViewer(){
+      if(!photoModal) return;
+      photoModal.classList.remove('show');
+      if(photoModalImg) photoModalImg.src = '';
     }
 
     function computeAvailableYears(items){
@@ -644,18 +781,17 @@
       const fields = computeAvailableFieldsForYear(STATE.items, yearVal, statusVal);
 
       const opts = [
-  `<option value="all">All fields</option>`,
-  ...fields.map(f => {
-    const fullLabel = f.farm
-      ? `${escapeHtml(f.name)} — ${escapeHtml(f.farm)}`
-      : escapeHtml(f.name);
+        `<option value="all">All fields</option>`,
+        ...fields.map(f => {
+          const fullLabel = f.farm
+            ? `${escapeHtml(f.name)} — ${escapeHtml(f.farm)}`
+            : escapeHtml(f.name);
 
-    const shortLabel = truncateLabel(fullLabel, 52);
+          const shortLabel = truncateLabel(fullLabel, 52);
 
-    return `<option value="${escapeHtml(f.id)}" title="${fullLabel}">${shortLabel}</option>`;
-  })
-].join('');
-
+          return `<option value="${escapeHtml(f.id)}" title="${fullLabel}">${shortLabel}</option>`;
+        })
+      ].join('');
 
       const curExists = fields.some(f => String(f.id) === String(cur));
       setSelectOptions(fieldSel, opts, curExists ? cur : 'all');
@@ -692,7 +828,7 @@
         if(q){
           const hay = [
             d.farmName, d.fieldName,
-            d.topicLabel, d.notes,
+            d.topicLabel, d.notes, d.jobNotes,
             d.status,
             d.submittedBy?.name, d.submittedBy?.email
           ].join(' ').toLowerCase();
@@ -746,7 +882,9 @@
         const topic     = d.topicLabel || 'Field Maintenance';
         const status    = statusLabel(d.status);
         const prio      = Number.isFinite(d.priority) ? d.priority : null;
-        const photos    = Number.isFinite(d.photoCount) ? d.photoCount : (Array.isArray(d.photos) ? d.photos.length : null);
+
+        const photoUrls = getPhotoUrls(d);
+        const photos    = photoUrls.length;
 
         const dt = d._submittedDate || null;
         const whenStr = formatDate(dt);
@@ -769,7 +907,7 @@
               <div class="wo-meta">
                 ${status ? `<span><span class="wo-meta-label">Status</span> <span class="wo-meta-val">${escapeHtml(status)}</span></span>` : ''}
                 ${prio != null ? `<span><span class="wo-meta-label">Priority</span> <span class="wo-meta-val">${escapeHtml(String(prio))}</span></span>` : ''}
-                ${photos != null ? `<span><span class="wo-meta-label">Photos</span> <span class="wo-meta-val">${escapeHtml(String(photos))}</span></span>` : ''}
+                <span><span class="wo-meta-label">Photos</span> <span class="wo-meta-val">${escapeHtml(String(photos))}</span></span>
                 ${whenStr ? `<span><span class="wo-meta-label">Submitted</span> <span class="wo-meta-val">${escapeHtml(whenStr)}</span></span>` : ''}
                 ${byLine ? `<span><span class="wo-meta-label">By</span> <span class="wo-meta-val">${escapeHtml(byLine)}</span></span>` : ''}
               </div>
@@ -794,6 +932,11 @@
       $('.wo-detail-grid', panel).innerHTML = '';
       $('.wo-detail-notes-body', panel).textContent = '';
       $('.wo-detail-footer', panel).innerHTML = '';
+
+      const photosWrap = $('#woDetailPhotos');
+      const photosGrid = $('#woDetailPhotoGrid');
+      if(photosWrap) photosWrap.classList.remove('show');
+      if(photosGrid) photosGrid.innerHTML = '';
     }
 
     function renderDetails(){
@@ -818,7 +961,12 @@
 
       const byName  = d?.submittedBy?.name || '';
       const byEmail = d?.submittedBy?.email || '';
-      const byUid   = d?.submittedBy?.uid || '';
+
+      // Prefer jobNotes when present (notes from actually doing the job)
+      const notesTxt = (String(d.jobNotes || '').trim() || String(d.notes || '').trim());
+
+      const photoUrls = getPhotoUrls(d);
+      const photoCount = photoUrls.length;
 
       panel.dataset.id = item.id;
       $('.wo-detail-title', panel).textContent = farmName ? `${fieldName} · ${farmName}` : fieldName;
@@ -855,7 +1003,6 @@
           <div class="wo-detail-item-value">
             ${escapeHtml(byName || '—')}
             ${byEmail ? `<br><span style="opacity:.8">${escapeHtml(byEmail)}</span>` : ''}
-            ${byUid ? `<br><span style="opacity:.6">UID: ${escapeHtml(byUid)}</span>` : ''}
           </div>
         </div>
 
@@ -871,16 +1018,30 @@
 
         <div>
           <div class="wo-detail-item-label">Photos</div>
-          <div class="wo-detail-item-value">${escapeHtml(Number.isFinite(d.photoCount) ? String(d.photoCount) : (Array.isArray(d.photos) ? String(d.photos.length) : '—'))}</div>
-        </div>
-
-        <div>
-          <div class="wo-detail-item-label">Project ID</div>
-          <div class="wo-detail-item-value">${escapeHtml(item.id)}</div>
+          <div class="wo-detail-item-value">${escapeHtml(String(photoCount))}</div>
         </div>
       `;
 
-      $('.wo-detail-notes-body', panel).textContent = (d.notes || '').trim() || 'No notes recorded for this project.';
+      $('.wo-detail-notes-body', panel).textContent = notesTxt || 'No notes recorded for this project.';
+
+      // Photos (big)
+      const photosWrap = $('#woDetailPhotos');
+      const photosGrid = $('#woDetailPhotoGrid');
+      if(photosWrap && photosGrid){
+        photosGrid.innerHTML = '';
+        if(photoUrls.length){
+          photosWrap.classList.add('show');
+          photoUrls.forEach((url) => {
+            const box = document.createElement('div');
+            box.className = 'wo-photo';
+            box.innerHTML = `<img src="${escapeHtml(url)}" alt="Work photo" loading="lazy" decoding="async">`;
+            box.addEventListener('click', () => openPhotoViewer(url));
+            photosGrid.appendChild(box);
+          });
+        }else{
+          photosWrap.classList.remove('show');
+        }
+      }
 
       const footer = $('.wo-detail-footer', panel);
       footer.innerHTML = `
@@ -943,13 +1104,6 @@
       }
     }
 
-    function chooseInitialStatus(){
-      const statusSel = $('#filterStatus');
-      if(!statusSel) return;
-      const anyCompleted = STATE.items.some(it => normalizeStatus(it.data.status) === 'completed');
-      statusSel.value = anyCompleted ? 'completed' : 'all';
-    }
-
     function wireFilterEvents(){
       const statusSel = $('#filterStatus');
       const yearSel   = $('#filterYear');
@@ -976,10 +1130,9 @@
 
       if (clearBtn){
         clearBtn.addEventListener('click', () => {
-        // 🔒 simplest, safest reset for report pages
-        location.reload();
+          location.reload();
         });
-        }
+      }
     }
 
     /* ==========================
@@ -1040,6 +1193,9 @@
       });
     }
 
+    // Keep PDFs reasonable: limit photos per project (change if you want)
+    const PRINT_PHOTO_LIMIT = 6;
+
     function buildPrintHtml({ company, runStr, runDateOnly, dateRange, filterSummary, totalRecords, completedCount, farmCount, fieldCount, grouped }){
       return `<!doctype html>
 <html>
@@ -1089,15 +1245,36 @@
     .pair .vv{font-weight:650; color:#111827; line-height:1.25; word-break:break-word;}
     .notes{ grid-column:1 / -1; margin-top:2px; padding-top:8px; border-top:1px dashed #E5E7EB; }
     .notes .vv{ font-weight:650; white-space:pre-wrap; line-height:1.28; }
+
+    /* ✅ photos in PDF */
+    .photos{ grid-column:1 / -1; margin-top:8px; padding-top:8px; border-top:1px dashed #E5E7EB; }
+    .photo-grid{ display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px; }
+    .photo{
+      border:1px solid #E5E7EB;
+      border-radius:12px;
+      overflow:hidden;
+      background:#F8FAFC;
+      break-inside:avoid;
+      page-break-inside:avoid;
+    }
+    .photo img{ width:100%; height:auto; display:block; max-height:380px; object-fit:cover; }
+    .photo-cap{ font-size:10px; color:var(--fv-muted); padding:6px 8px; border-top:1px solid #EEF2F7; }
+
     .footer{ margin-top:16px; padding-top:10px; border-top:1px solid var(--fv-border); display:flex; justify-content:space-between; gap:12px; font-size:10px; color:var(--fv-muted); line-height:1.3; }
     .footer .l{max-width:65%;}
     .footer .r{text-align:right;}
-    @media (max-width:860px){ .req-grid{grid-template-columns:1fr;} .kpis{grid-template-columns:repeat(2, minmax(0,1fr));} .meta{white-space:normal;} }
+    @media (max-width:860px){
+      .req-grid{grid-template-columns:1fr;}
+      .kpis{grid-template-columns:repeat(2, minmax(0,1fr));}
+      .meta{white-space:normal;}
+      .photo-grid{grid-template-columns:1fr;}
+    }
     @media print{
       html,body{background:#fff;padding:0;}
       body{box-shadow:none;}
       .page{ max-width:none; border-radius:0; box-shadow:none; padding:12mm 13mm; }
       .req{break-inside:avoid; page-break-inside:avoid;}
+      img{ break-inside:avoid; page-break-inside:avoid; }
     }
   </style>
 </head>
@@ -1160,8 +1337,9 @@
                 const st = statusLabel(d.status);
                 const when = d._submittedDate ? formatDate(d._submittedDate) : '—';
                 const pr = Number.isFinite(d.priority) ? String(d.priority) : '—';
-                const notes = (d.notes || '').trim();
+                const notes = (String(d.jobNotes || '').trim() || String(d.notes || '').trim());
                 const by = (d.submittedBy?.name || d.submittedBy?.email || '—');
+                const urls = (getPhotoUrls(d) || []).slice(0, ${PRINT_PHOTO_LIMIT});
 
                 return `
                   <article class="req">
@@ -1174,7 +1352,21 @@
                       <div class="pair"><div class="kk">Submitted</div><div class="vv">${escapeHtml(when)}</div></div>
                       <div class="pair"><div class="kk">Priority</div><div class="vv">${escapeHtml(pr)}</div></div>
                       <div class="pair" style="grid-column:1/-1;"><div class="kk">Submitted By</div><div class="vv">${escapeHtml(by)}</div></div>
-                      <div class="pair notes"><div class="kk">Notes</div><div class="vv">${escapeHtml(notes)}</div></div>
+                      <div class="pair notes"><div class="kk">Notes</div><div class="vv">${escapeHtml(notes || '—')}</div></div>
+
+                      ${urls.length ? `
+                        <div class="pair photos">
+                          <div class="kk">Photos</div>
+                          <div class="photo-grid">
+                            ${urls.map((u, idx) => `
+                              <div class="photo">
+                                <img src="${escapeHtml(u)}" alt="Work photo">
+                                <div class="photo-cap">Photo ${idx+1}${(getPhotoUrls(d).length > ${PRINT_PHOTO_LIMIT}) ? ' (more in app)' : ''}</div>
+                              </div>
+                            `).join('')}
+                          </div>
+                        </div>
+                      ` : ''}
                     </div>
                   </article>
                 `;
@@ -1256,7 +1448,7 @@
           console.warn('[field-maint-report] iframe print failed, falling back to window.print()', err);
           window.print();
         }
-      }, 350);
+      }, 450);
     }
 
     (async function boot(){
@@ -1283,18 +1475,29 @@
       if (printTop)    printTop.addEventListener('click', handlePrintClick);
       if (printBottom) printBottom.addEventListener('click', handlePrintClick);
 
+      // Photo viewer wiring
+      photoModal = $('#photoModal');
+      photoModalImg = $('#photoModalImg');
+      photoModalBackdrop = $('#photoModalBackdrop');
+      photoModalCloseBtn = $('#photoModalClose');
+      if(photoModalBackdrop) photoModalBackdrop.addEventListener('click', closePhotoViewer);
+      if(photoModalCloseBtn) photoModalCloseBtn.addEventListener('click', closePhotoViewer);
+      document.addEventListener('keydown', (e)=>{
+        if(e.key === 'Escape') closePhotoViewer();
+      });
+
       await loadFieldMaintenance();
 
-/* 🔒 Force completed BEFORE any filtering */
-const statusSel = $('#filterStatus');
-if (statusSel) statusSel.value = 'completed';
+      /* 🔒 Force completed BEFORE any filtering */
+      const statusSel = $('#filterStatus');
+      if (statusSel) statusSel.value = 'completed';
 
-hydrateYearDropdown();
-hydrateFieldDropdown();
-wireFilterEvents();
+      hydrateYearDropdown();
+      hydrateFieldDropdown();
+      wireFilterEvents();
 
-/* 🔒 First filter run now truly uses "completed" */
-applyFilters();
+      /* 🔒 First filter run now truly uses "completed" */
+      applyFilters();
     })();
   </script>
 </head>
@@ -1324,55 +1527,52 @@ applyFilters();
           </div>
 
           <div class="filters" aria-label="Field maintenance filters">
+            <!-- ROW 1: Core filters -->
+            <div class="filters-row">
+              <div class="filter-field">
+                <label class="filter-label" for="filterStatus">Status</label>
+                <select id="filterStatus" class="filter-select">
+                  <option value="completed">Completed</option>
+                  <option value="in progress">In progress</option>
+                  <option value="needs approved">Needs approved</option>
+                  <option value="approved">Approved</option>
+                  <option value="all">All statuses</option>
+                </select>
+              </div>
 
-  <!-- ROW 1: Core filters -->
-  <div class="filters-row">
-    <div class="filter-field">
-      <label class="filter-label" for="filterStatus">Status</label>
-      <select id="filterStatus" class="filter-select">
-        <option value="completed">Completed</option>
-        <option value="in progress">In progress</option>
-        <option value="needs approved">Needs approved</option>
-        <option value="approved">Approved</option>
-        <option value="all">All statuses</option>
-      </select>
-    </div>
+              <div class="filter-field">
+                <label class="filter-label" for="filterYear">Crop Year</label>
+                <select id="filterYear" class="filter-select">
+                  <option value="all">All crop years</option>
+                </select>
+              </div>
 
-    <div class="filter-field">
-      <label class="filter-label" for="filterYear">Crop Year</label>
-      <select id="filterYear" class="filter-select">
-        <option value="all">All crop years</option>
-      </select>
-    </div>
+              <div class="filter-field field-wide">
+                <label class="filter-label" for="filterField">Field</label>
+                <select id="filterField" class="filter-select">
+                  <option value="all">All fields</option>
+                </select>
+              </div>
+            </div>
 
-    <div class="filter-field field-wide">
-      <label class="filter-label" for="filterField">Field</label>
-      <select id="filterField" class="filter-select">
-        <option value="all">All fields</option>
-      </select>
-    </div>
-  </div>
+            <!-- ROW 2: Search + clear -->
+            <div class="filters-row filters-row-secondary">
+              <div class="filter-field">
+                <label class="filter-label">Search</label>
+                <div class="bar">
+                  <div class="search">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M21 21l-4.2-4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                      <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/>
+                    </svg>
+                    <input id="filterSearch" type="search" placeholder="Search" autocomplete="off"/>
+                  </div>
+                </div>
+              </div>
 
-  <!-- ROW 2: Search + clear -->
-  <div class="filters-row filters-row-secondary">
-    <div class="filter-field">
-      <label class="filter-label">Search</label>
-      <div class="bar">
-        <div class="search">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M21 21l-4.2-4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/>
-          </svg>
-          <input id="filterSearch" type="search" placeholder="Search" autocomplete="off"/>
-        </div>
-      </div>
-    </div>
-
-    <button id="filterClear" type="button" class="btn btn-quiet">Clear filters</button>
-  </div>
-
-</div>
-
+              <button id="filterClear" type="button" class="btn btn-quiet">Clear filters</button>
+            </div>
+          </div>
 
           <section aria-label="Field maintenance list">
             <div class="wo-empty">Loading field maintenance…</div>
@@ -1392,6 +1592,12 @@ applyFilters();
               <div class="wo-detail-notes-body"></div>
             </div>
 
+            <!-- ✅ BIG PHOTOS (DETAIL VIEW) -->
+            <div id="woDetailPhotos" class="wo-detail-photos" aria-label="Project photos">
+              <div class="wo-detail-photos-label">Photos</div>
+              <div id="woDetailPhotoGrid" class="wo-photo-grid"></div>
+            </div>
+
             <div class="wo-detail-footer"></div>
           </section>
 
@@ -1404,5 +1610,18 @@ applyFilters();
       <iframe id="fv-print-frame"></iframe>
     </div>
   </fv-shell>
+
+  <!-- Photo viewer modal -->
+  <div id="photoModal" class="photo-modal" role="dialog" aria-modal="true" aria-label="Work order photo">
+    <div id="photoModalBackdrop" class="photo-backdrop"></div>
+    <div class="photo-sheet">
+      <div class="photo-close-row">
+        <button id="photoModalClose" type="button" class="photo-close-btn">Close</button>
+      </div>
+      <div class="photo-img-wrap">
+        <img id="photoModalImg" src="" alt="Work order photo"/>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
