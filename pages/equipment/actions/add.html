@@ -1,10 +1,13 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-11-13d + QR-id-link update
+Rev: 2025-11-13d + QR-id-link update + Save&Print label
 Changes in this rev:
- • For TYPE=implement: move the "Type" field (implementType) above Make/Model
- • For TYPE=truck or trailer: relabel Serial # → VIN # (and tweak placeholder)
- • QR codes now point directly to hub.html?id={equipmentId} (no launch.html, no ?t=)
+ • Adds a 3rd bottom button: "Save and Print"
+ • After saving, opens a print preview modal and prints a Brother QL-820NWB label
+   (DK-2205 62mm/2.4" continuous) in a horizontal layout:
+     Left: Make (top) + Model (bottom)
+     Middle: QR
+     Right: VIN/Serial last 6
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -50,6 +53,18 @@ Changes in this rev:
       --ctl-pad-x:12px;
       --ctl-pad-y:12px;
       --ctl-radius:10px;
+
+      /* ===== Brother QL label sizing =====
+         DK-2205 is 62mm wide continuous tape.
+         Common cut length used here: 29mm (you can tweak if you want longer/shorter).
+      */
+      --ql-label-w: 62mm;   /* tape width */
+      --ql-label-h: 29mm;   /* cut length */
+      --ql-qr-mm: 22mm;     /* QR square size */
+      --ql-pad-mm: 2.2mm;   /* inner padding */
+      --ql-gap-mm: 2mm;     /* column gap */
+      --ql-font: 11pt;
+      --ql-font-small: 9.5pt;
     }
 
     html, body { min-height:100%; }
@@ -323,6 +338,96 @@ Changes in this rev:
       border-color:var(--green);
       color:#fff;
     }
+
+    /* ===== Print preview label (inside modal) ===== */
+    .print-wrap{
+      padding:12px;
+      display:grid;
+      gap:10px;
+    }
+    .print-help{
+      color:var(--muted,#67706B);
+      font-size:14px;
+      line-height:1.35;
+    }
+    .label-preview{
+      width:var(--ql-label-w);
+      height:var(--ql-label-h);
+      border:1px dashed var(--border);
+      border-radius:10px;
+      background:#fff;
+      color:#000;
+      display:grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items:center;
+      gap:var(--ql-gap-mm);
+      padding:var(--ql-pad-mm);
+      box-sizing:border-box;
+      overflow:hidden;
+      margin:0 auto;
+    }
+    .lp-left, .lp-right{
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      min-width:0;
+    }
+    .lp-left .make{
+      font-weight:900;
+      font-size:var(--ql-font);
+      line-height:1.05;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .lp-left .model{
+      font-weight:800;
+      font-size:var(--ql-font-small);
+      line-height:1.05;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      margin-top:1mm;
+    }
+    .lp-mid{
+      width:var(--ql-qr-mm);
+      height:var(--ql-qr-mm);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:#fff;
+    }
+    .lp-mid img{
+      width:100%;
+      height:100%;
+      image-rendering:pixelated;
+      display:block;
+    }
+    .lp-right{
+      align-items:flex-end;
+      text-align:right;
+    }
+    .lp-right .serial-lab{
+      font-weight:800;
+      font-size:8.5pt;
+      line-height:1.05;
+      opacity:.85;
+    }
+    .lp-right .serial-val{
+      font-weight:900;
+      font-size:var(--ql-font);
+      line-height:1.05;
+      letter-spacing:.6px;
+      margin-top:1mm;
+    }
+    .print-actions{
+      display:flex;
+      gap:10px;
+      justify-content:flex-end;
+      flex-wrap:wrap;
+      padding:0 12px 12px;
+    }
+
   </style>
 </head>
 
@@ -415,6 +520,7 @@ Changes in this rev:
 
           <div class="actions">
             <button id="btnSave" class="btn btn-primary" type="button" disabled>Save</button>
+            <button id="btnSavePrint" class="btn btn-primary" type="button" disabled>Save and Print</button>
             <a id="btnClear" class="btn btn-quiet" role="button">Cancel</a>
           </div>
         </div>
@@ -473,6 +579,43 @@ Changes in this rev:
         <div class="ed-footer">
           <button id="nmCreate" class="btn btn-primary" type="button">Create</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Print modal -->
+  <div id="printModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="printTitle">
+    <div class="backdrop" data-close-print></div>
+    <div class="sheet" style="width:min(100vw,720px);">
+      <header>
+        <div id="printTitle">Print QR Label</div>
+        <button class="close" type="button" data-close-print>Close</button>
+      </header>
+
+      <div class="print-wrap">
+        <div class="print-help">
+          Printer: <b>Brother QL-820NWB</b> • Tape: <b>DK-2205 (62mm / 2.4&quot; continuous)</b> • Orientation: <b>Horizontal</b><br>
+          Tip: In the print dialog, pick the Brother printer and set paper/label size to <b>62mm</b> (tape width). The page is set to a 62mm × 29mm cut.
+        </div>
+
+        <div id="labelPreview" class="label-preview" aria-label="Label preview">
+          <div class="lp-left">
+            <div id="lpMake" class="make">—</div>
+            <div id="lpModel" class="model">—</div>
+          </div>
+          <div class="lp-mid">
+            <img id="lpQR" alt="QR">
+          </div>
+          <div class="lp-right">
+            <div class="serial-lab" id="lpSerialLab">VIN/Serial</div>
+            <div class="serial-val" id="lpSerialVal">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="print-actions">
+        <button id="btnPrintNow" class="btn btn-primary" type="button">Print</button>
+        <button id="btnPrintClose" class="btn btn-quiet" type="button">Cancel</button>
       </div>
     </div>
   </div>
@@ -649,7 +792,9 @@ Changes in this rev:
       const makeOk = Boolean($("makeId").value);
       const modelOk= Boolean($("modelId").value);
       const serialOk= Boolean(normalizeSerial($("serial").value));
-      $("btnSave").disabled = !(makeOk && modelOk && serialOk);
+      const ok = (makeOk && modelOk && serialOk);
+      $("btnSave").disabled = !ok;
+      $("btnSavePrint").disabled = !ok;
     }
 
     /* QR */
@@ -714,6 +859,152 @@ Changes in this rev:
       img.src=dataURL;
       img.onload=()=>{ $("qrArea").hidden=false; img.style.display='block'; };
       pendingQRBlob = blob;
+      return { dataURL, blob };
+    }
+
+    /* ===== Print: open modal + print window ===== */
+    const PrintUI = {
+      el: $("printModal"),
+      open(){ this.el.classList.add('show'); document.body.style.overflow='hidden'; },
+      close(){ this.el.classList.remove('show'); document.body.style.overflow=''; }
+    };
+    document.querySelectorAll('#printModal [data-close-print]').forEach(el=>el.addEventListener('click', ()=>PrintUI.close()));
+    $("btnPrintClose").addEventListener('click', ()=>PrintUI.close());
+
+    function serialLast6(serial){
+      const s = normalizeSerial(serial || '');
+      if(!s) return '';
+      return s.length <= 6 ? s : s.slice(-6);
+    }
+
+    function setPrintPreview({ makeName, modelName, serial, qrDataUrl }){
+      $("lpMake").textContent = (makeName || '—');
+      $("lpModel").textContent = (modelName || '—');
+      $("lpSerialLab").textContent = 'VIN/Serial';
+      $("lpSerialVal").textContent = serialLast6(serial) || '—';
+      $("lpQR").src = qrDataUrl || '';
+    }
+
+    function buildPrintHtml({ makeName, modelName, serial, qrDataUrl, labelW='62mm', labelH='29mm', qrMm='22mm' }){
+      const last6 = serialLast6(serial) || '';
+      const safe = (s)=>String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+      const mk = safe(makeName);
+      const md = safe(modelName);
+      const s6 = safe(last6);
+
+      return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Print Label</title>
+<style>
+  @page{
+    size: ${labelW} ${labelH};
+    margin: 0;
+  }
+  html, body{
+    margin:0;
+    padding:0;
+    width:${labelW};
+    height:${labelH};
+    background:#fff;
+  }
+  .label{
+    width:${labelW};
+    height:${labelH};
+    box-sizing:border-box;
+    padding: 2.2mm;
+    display:grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 2mm;
+    align-items:center;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    color:#000;
+    overflow:hidden;
+  }
+  .left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:0; }
+  .make{
+    font-weight:900;
+    font-size:11pt;
+    line-height:1.05;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .model{
+    font-weight:800;
+    font-size:9.5pt;
+    line-height:1.05;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    margin-top:1mm;
+  }
+  .mid{
+    width:${qrMm};
+    height:${qrMm};
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .mid img{
+    width:100%;
+    height:100%;
+    display:block;
+    image-rendering:pixelated;
+  }
+  .right{
+    align-items:flex-end;
+    text-align:right;
+  }
+  .lab{
+    font-weight:800;
+    font-size:8.5pt;
+    line-height:1.05;
+    opacity:.85;
+  }
+  .val{
+    font-weight:900;
+    font-size:11pt;
+    line-height:1.05;
+    letter-spacing:.6px;
+    margin-top:1mm;
+  }
+</style>
+</head>
+<body>
+  <div class="label">
+    <div class="left">
+      <div class="make">${mk || '—'}</div>
+      <div class="model">${md || '—'}</div>
+    </div>
+    <div class="mid">
+      <img alt="QR" src="${qrDataUrl || ''}">
+    </div>
+    <div class="right">
+      <div class="lab">VIN/Serial</div>
+      <div class="val">${s6 || '—'}</div>
+    </div>
+  </div>
+<script>
+  // auto print when the window is ready
+  window.onload = () => {
+    window.focus();
+    window.print();
+  };
+</script>
+</body>
+</html>`;
+    }
+
+    function openPrintWindow(payload){
+      const html = buildPrintHtml(payload);
+      const w = window.open('', '_blank', 'noopener,noreferrer,width=520,height=520');
+      if(!w){ alert('Popup blocked. Allow popups to print.'); return; }
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
     }
 
     /* Data helpers */
@@ -1199,32 +1490,42 @@ Changes in this rev:
 
     /* Save equipment */
     let saving = false;
-    async function saveAll(db){
-      if(saving) return;
-      const form = readForm();
-      if(!form.makeId){ alert("Please choose a Make."); return; }
-      if(!form.modelId){ alert("Please choose a Model."); return; }
-      if(!form.serial){ alert("Serial/VIN is required."); return; }
 
-      if(!pendingQRBlob){
-        const ok = confirm("No QR preview yet. Create it first? (Click Cancel to save without a QR image.)");
-        if(ok) return;
+    async function ensureQrReservedAndBuilt(db){
+      // Reserve ID if needed
+      if(!pendingEquipId){
+        const tmpRef = doc(collection(db, 'equipment'));
+        pendingEquipId = tmpRef.id;
       }
+      // Build QR if needed
+      if(!pendingQRBlob){
+        const hubAbs = location.origin + `/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(pendingEquipId)}`;
+        await makeQRForUrl(hubAbs);
+      }
+      return pendingEquipId;
+    }
+
+    async function saveAll(db, opts = { post:'reset' }){
+      if(saving) return { ok:false };
+      const form = readForm();
+      if(!form.makeId){ alert("Please choose a Make."); return { ok:false }; }
+      if(!form.modelId){ alert("Please choose a Model."); return { ok:false }; }
+      if(!form.serial){ alert("Serial/VIN is required."); return { ok:false }; }
 
       // Optional: extras validation hook
       if(EXTRAS_API && typeof EXTRAS_API.validate === 'function'){
         const v = EXTRAS_API.validate(form);
         if(v && v.ok === false){
           alert(v.message || "Please check the extra fields.");
-          return;
+          return { ok:false };
         }
       }
 
-      saving = true; $("btnSave").disabled = true;
+      saving = true; $("btnSave").disabled = true; $("btnSavePrint").disabled = true;
 
       const uniqDocId = uniqKey(form.makeId, form.modelId, form.serial);
 
-      // NEW: if we've already reserved an ID for the QR, use that for the Firestore doc
+      // If we've already reserved an ID for the QR, use that for the Firestore doc
       const eqRef = pendingEquipId
         ? doc(db, 'equipment', pendingEquipId)
         : doc(collection(db,'equipment'));
@@ -1317,8 +1618,13 @@ Changes in this rev:
         }
 
         showToast("Saved");
-        resetForm();
-        window.scrollTo({ top:0, behavior:'smooth' });
+
+        if(opts && opts.post === 'reset'){
+          resetForm();
+          window.scrollTo({ top:0, behavior:'smooth' });
+        }
+
+        return { ok:true, id:eqRef.id, form };
 
       }catch(err){
         if(err && err.message === "DUP_UNIQ"){
@@ -1329,6 +1635,7 @@ Changes in this rev:
           console.error(err);
           alert("Save failed.");
         }
+        return { ok:false };
       }finally{
         saving = false;
         validateForm();
@@ -1500,7 +1807,47 @@ Changes in this rev:
         }
       });
 
-      $("btnSave").addEventListener("click", ()=> saveAll(db));
+      $("btnSave").addEventListener("click", ()=> saveAll(db, { post:'reset' }));
+
+      // NEW: Save and Print
+      $("btnSavePrint").addEventListener("click", async ()=>{
+        try{
+          // 1) Ensure we have an ID + QR built (so printing is always ready)
+          await ensureQrReservedAndBuilt(db);
+
+          // 2) Save without resetting the form (we still want the values for the label)
+          const result = await saveAll(db, { post:'none' });
+          if(!result || !result.ok) return;
+
+          // 3) Open print modal and populate preview
+          const form = result.form || readForm();
+          const qrDataUrl = $("qrThumb")?.src || "";
+          setPrintPreview({
+            makeName: form.makeName,
+            modelName: form.modelName,
+            serial: form.serial,
+            qrDataUrl
+          });
+          PrintUI.open();
+
+          // 4) Wire the Print button (prints a clean label-only page)
+          $("btnPrintNow").onclick = ()=>{
+            openPrintWindow({
+              makeName: form.makeName,
+              modelName: form.modelName,
+              serial: form.serial,
+              qrDataUrl,
+              labelW: '62mm',
+              labelH: '29mm',
+              qrMm: '22mm'
+            });
+          };
+
+        }catch(e){
+          console.error(e);
+          alert("Save & Print failed.");
+        }
+      });
 
       // 🔹 UPDATED CANCEL BEHAVIOR: go back to previous page (with safe fallback)
       $("btnClear").addEventListener("click", () => {
