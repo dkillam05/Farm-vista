@@ -2266,24 +2266,47 @@ function buildDetailedPrintHtml({ company, runStr, runDateOnly, filterSummary, d
     }
 
     async function runDetailedPrint(){
-      const items = STATE.filtered || [];
-      if(!items.length) return;
+  const items = STATE.filtered || [];
+  if(!items.length) return;
 
-      const company = await loadCompanyHeader();
-      const now = new Date();
-      const runStr = formatDateTime(now);
-      const runDateOnly = formatDate(now);
+  const company = await loadCompanyHeader();
+  const now = new Date();
+  const runStr = formatDateTime(now);
+  const runDateOnly = formatDate(now);
 
-      const counts = computeCounts(items);
-      const grouped = groupForPrint(items);
-      const filterSummary = summarizeFilters();
-      const dateRange = computeDateRange(items);
+  const counts = computeCounts(items);
+  const grouped = groupForPrint(items);
+  const filterSummary = summarizeFilters();
+  const dateRange = computeDateRange(items);
 
-      const html = buildDetailedPrintHtml({ company, runStr, runDateOnly, filterSummary, dateRange, counts, grouped });
-      const fileName = `equipment_maintenance_detailed_${now.toISOString().slice(0,10)}.pdf`;
+  // ✅ NEW: preload template items used by any pre-season WOs so labels + guidance print correctly
+  const tplItemsById = {};
+  for(const wo of items){
+    const d = wo?.data || {};
+    if(!isPreSeasonWO(d)) continue;
+    const tplId = String(d.precheckTemplateId || d.preCheckTemplateId || '').trim();
+    if(!tplId) continue;
+    if(tplItemsById[tplId]) continue;
 
-      await printHtml(html, fileName, 'Equipment Maintenance — Detailed');
-    }
+    const tplItems = await getPrecheckTemplateItems(tplId);
+    tplItemsById[tplId] = Array.isArray(tplItems) ? tplItems : [];
+  }
+
+  const html = buildDetailedPrintHtml({
+    company,
+    runStr,
+    runDateOnly,
+    filterSummary,
+    dateRange,
+    counts,
+    grouped,
+    tplItemsById
+  });
+
+  const fileName = `equipment_maintenance_detailed_${now.toISOString().slice(0,10)}.pdf`;
+  await printHtml(html, fileName, 'Equipment Maintenance — Detailed');
+}
+
 
     function wirePrintModal(){
       const topBtn = $('#btnPrint');
