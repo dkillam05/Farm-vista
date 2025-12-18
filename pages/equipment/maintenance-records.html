@@ -1647,7 +1647,7 @@
     }
 
     function buildSummaryPrintHtml({ company, runStr, runDateOnly, filterSummary, dateRange, counts, grouped, preseasonCount }){
-      return `<!doctype html>
+  return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -1699,6 +1699,39 @@
     .equip-card{ border:1px solid var(--fv-border); border-radius:12px; padding:10px 10px 9px; margin-bottom:10px; break-inside:avoid; }
     .equip-name{ font-weight:950; font-size:13px; line-height:1.25; }
     .equip-sub{ margin-top:2px; font-size:11px; color:var(--fv-muted); }
+
+    /* ✅ NEW: per-equipment origin tags */
+    .wo-tags{ margin-top:8px; display:flex; flex-wrap:wrap; gap:6px; }
+    .tag{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:3px 8px;
+      border-radius:999px;
+      border:1px solid #E5E7EB;
+      background:#F9FAFB;
+      font-size:10px;
+      font-weight:950;
+      letter-spacing:0.08em;
+      text-transform:uppercase;
+      color:#111827;
+      white-space:nowrap;
+    }
+    .tag .n{
+      font-size:10px;
+      font-weight:950;
+      letter-spacing:0.02em;
+      text-transform:none;
+      color:var(--fv-muted);
+    }
+    .tag.pre{
+      border-color: rgba(59,126,70,0.28);
+      background: rgba(59,126,70,0.08);
+    }
+    .tag.req{
+      border-color: rgba(17,24,39,0.18);
+      background: rgba(17,24,39,0.04);
+    }
 
     .footer{ margin-top:16px; padding-top:10px; border-top:1px solid var(--fv-border); display:flex; justify-content:space-between; gap:12px; font-size:10px; color:var(--fv-muted); line-height:1.3; }
     .footer .l{max-width:65%;}
@@ -1782,10 +1815,20 @@
         </div>
 
         ${equipmentArr.map(e => {
+          const wos = Array.isArray(e.workOrders) ? e.workOrders : [];
+          const preCount = wos.filter(wo => isPreSeasonWO(wo && wo.data)).length;
+          const reqCount = Math.max(0, wos.length - preCount);
+
           return `
             <div class="equip-card">
               <div class="equip-name">${escapeHtml(e.name || 'Equipment')}</div>
               <div class="equip-sub">${escapeHtml([e.make, e.model].filter(Boolean).join(' ') || '')}${e.serial ? ` · Serial: ${escapeHtml(e.serial)}` : ''}</div>
+
+              <div class="wo-tags" aria-label="Work order origin">
+                ${reqCount ? `<span class="tag req">Service Request <span class="n">(${reqCount})</span></span>` : ''}
+                ${preCount ? `<span class="tag pre">Pre-Season Check List <span class="n">(${preCount})</span></span>` : ''}
+                ${(!reqCount && !preCount) ? `<span class="tag req">No work orders <span class="n">(0)</span></span>` : ''}
+              </div>
             </div>
           `;
         }).join('')}
@@ -1800,10 +1843,10 @@
   </div>
 </body>
 </html>`;
-    }
+}
 
-    function buildDetailedPrintHtml({ company, runStr, runDateOnly, filterSummary, dateRange, counts, grouped }){
-      return `<!doctype html>
+function buildDetailedPrintHtml({ company, runStr, runDateOnly, filterSummary, dateRange, counts, grouped }){
+  return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -2243,7 +2286,8 @@
   </div>
 </body>
 </html>`;
-    }
+}
+
 
     async function printHtml(html, fileName, title){
       if (window.FVPdf && typeof window.FVPdf.openHtml === 'function') {
