@@ -1,6 +1,7 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
 Rev: 2025-11-13d + QR-id-link update + Save&Print label
+
 Changes in this rev:
  • Adds a 3rd bottom button: "Save and Print"
  • After saving, opens a print preview modal and prints a Brother QL-820NWB label
@@ -8,6 +9,13 @@ Changes in this rev:
      Left: Make (top) + Model (bottom)
      Middle: QR
      Right: VIN/Serial last 6
+
+Fixes in this rev:
+ • Fixes "Unexpected end of input" (your file had extra junk characters appended at the very end)
+ • Fixes bottom button layout to exactly:
+      Cancel          Save
+        Save and Print
+   (centered, 2 rows)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -124,7 +132,6 @@ Changes in this rev:
     .textarea{ min-height:110px; resize:vertical; line-height:1.35; }
 
     /* Buttons */
-    .actions{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:6px }
     .btn{
       display:inline-flex; align-items:center; justify-content:center; min-width:148px;
       padding:10px 14px; border-radius:12px; border:1px solid var(--border);
@@ -212,11 +219,9 @@ Changes in this rev:
       height:auto;
       line-height:normal;
       padding:8px 12px;
-      /* This controls the "no files selected" text */
       color:var(--text) !important;
-      -webkit-text-fill-color:var(--text) !important; /* iOS Safari */
+      -webkit-text-fill-color:var(--text) !important;
     }
-    /* This targets ONLY the white pill button ("Choose Files") */
     input[type="file"].input::-webkit-file-upload-button{
       color:#111111 !important;
       -webkit-text-fill-color:#111111 !important;
@@ -303,7 +308,7 @@ Changes in this rev:
     .archived-panel .arch-item{ display:flex; align-items:center; justify-content:space-between; padding:6px 4px; }
     .archived-panel .arch-item .btn{ min-width:auto; padding:6px 10px; }
 
-    /* Pill toggle (StarFire, HEL/CRP, etc.) */
+    /* Pill toggle */
     .pill-toggle{
       display:inline-flex;
       align-items:center;
@@ -328,28 +333,12 @@ Changes in this rev:
         border-color 0.15s ease,
         box-shadow 0.15s ease;
     }
-
-    .pill-toggle:hover{
-      box-shadow:0 0 0 1px rgba(0,0,0,0.04);
-    }
-
-    .pill-toggle.on{
-      background:var(--green);
-      border-color:var(--green);
-      color:#fff;
-    }
+    .pill-toggle:hover{ box-shadow:0 0 0 1px rgba(0,0,0,0.04); }
+    .pill-toggle.on{ background:var(--green); border-color:var(--green); color:#fff; }
 
     /* ===== Print preview label (inside modal) ===== */
-    .print-wrap{
-      padding:12px;
-      display:grid;
-      gap:10px;
-    }
-    .print-help{
-      color:var(--muted,#67706B);
-      font-size:14px;
-      line-height:1.35;
-    }
+    .print-wrap{ padding:12px; display:grid; gap:10px; }
+    .print-help{ color:var(--muted,#67706B); font-size:14px; line-height:1.35; }
     .label-preview{
       width:var(--ql-label-w);
       height:var(--ql-label-h);
@@ -403,10 +392,7 @@ Changes in this rev:
       image-rendering:pixelated;
       display:block;
     }
-    .lp-right{
-      align-items:flex-end;
-      text-align:right;
-    }
+    .lp-right{ align-items:flex-end; text-align:right; }
     .lp-right .serial-lab{
       font-weight:800;
       font-size:8.5pt;
@@ -427,46 +413,47 @@ Changes in this rev:
       flex-wrap:wrap;
       padding:0 12px 12px;
     }
-   /* ===== Bottom buttons: 2 rows centered =====
-   Row 1: Cancel | Save
-   Row 2: Save and Print (centered)
-*/
-.actions{
-  display:grid !important;
-  grid-template-columns: repeat(2, minmax(140px, 220px));
-  gap:12px;
-  justify-content:center;
-  align-items:center;
-}
 
-/* Make buttons fill their grid cells neatly */
-.actions .btn,
-.actions a.btn{
-  width:100%;
-  min-width:0;
-}
-
-/* Save and Print spans both columns and stays reasonably short on desktop */
-#btnSavePrint{
-  grid-column: 1 / -1;
-  justify-self:center;
-  width:min(320px, 100%);
-}
-
-/* Mobile: allow columns to shrink a bit */
-@media (max-width:420px){
-  .actions{
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
-
+    /* =========================================================
+       Bottom buttons — EXACT layout requested
+         Cancel          Save
+           Save and Print
+       ========================================================= */
+    .actions{
+      display:grid;
+      grid-template-columns: minmax(140px, 220px) minmax(140px, 220px);
+      grid-template-areas:
+        "cancel save"
+        "print  print";
+      gap:12px;
+      justify-content:center;
+      align-items:center;
+      margin-top:6px;
+    }
+    #btnClear{ grid-area: cancel; }
+    #btnSave{ grid-area: save; }
+    #btnSavePrint{
+      grid-area: print;
+      justify-self:center;
+      width:min(320px, 100%);
+    }
+    .actions .btn,
+    .actions a.btn{
+      width:100%;
+      min-width:0;
+    }
+    @media (max-width:420px){
+      .actions{
+        grid-template-columns: 1fr 1fr;
+        width:100%;
+      }
+      #btnSavePrint{ width:100%; }
+    }
   </style>
 </head>
 
 <body>
   <fv-shell>
-    <!-- TYPE will be written into data-equipment-type by JS -->
     <div class="wrap" data-equipment-type="">
       <section class="hero">
         <header class="hero-head">
@@ -478,11 +465,7 @@ Changes in this rev:
         </header>
 
         <div class="body">
-          <!-- (for implements, Type field will be moved up here via JS) -->
-
-          <!-- 1 & 2: MAKE / MODEL -->
           <div class="row">
-            <!-- Make -->
             <div class="field">
               <button id="openMakes" type="button" class="as-label req" aria-haspopup="dialog" aria-controls="editModal">Make</button>
               <input type="hidden" id="makeId" value=""/>
@@ -495,7 +478,6 @@ Changes in this rev:
               </div>
             </div>
 
-            <!-- Model -->
             <div class="field">
               <button id="openModels" type="button" class="as-label req" aria-haspopup="dialog" aria-controls="editModal">Model</button>
               <input type="hidden" id="modelId" value=""/>
@@ -509,7 +491,6 @@ Changes in this rev:
             </div>
           </div>
 
-          <!-- 3 & 4: YEAR / SERIAL (VIN for trucks & trailers) -->
           <div class="row">
             <div class="field">
               <label for="year">Year</label>
@@ -526,22 +507,18 @@ Changes in this rev:
             </div>
           </div>
 
-          <!-- MIDDLE: dynamic extras (engine hours, acres, miles, implement type, etc.) -->
           <div id="equipExtras"></div>
 
-          <!-- 5: NOTES -->
           <div class="field">
             <label for="notes">Notes</label>
             <textarea id="notes" class="textarea" placeholder="Optional details (tires, guidance, attachments, etc.)"></textarea>
           </div>
 
-          <!-- 6: PHOTOS -->
           <div class="field">
             <label for="photos">Photos (optional)</label>
             <input id="photos" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.pdf" multiple>
           </div>
 
-          <!-- 7: QR row: preview + button -->
           <div class="field qr-row">
             <div id="qrArea" class="qr-area" hidden>
               <img id="qrThumb" alt="QR code">
@@ -551,10 +528,11 @@ Changes in this rev:
 
           <div id="err" class="error" hidden></div>
 
+          <!-- IMPORTANT: order doesn't matter now; CSS grid areas enforce layout -->
           <div class="actions">
+            <a id="btnClear" class="btn btn-quiet" role="button">Cancel</a>
             <button id="btnSave" class="btn btn-primary" type="button" disabled>Save</button>
             <button id="btnSavePrint" class="btn btn-primary" type="button" disabled>Save and Print</button>
-            <a id="btnClear" class="btn btn-quiet" role="button">Cancel</a>
           </div>
         </div>
       </section>
@@ -571,7 +549,6 @@ Changes in this rev:
       </header>
 
       <div class="ed-wrap">
-        <!-- Models bar (only for models editor) -->
         <div id="edModelsBar" style="display:none; gap:8px; align-items:center;">
           <label for="edMakeSelect" style="font-weight:800;margin-right:6px;">Make</label>
           <select id="edMakeSelect" class="select" style="max-width:260px;"></select>
@@ -579,14 +556,12 @@ Changes in this rev:
 
         <div id="edList" class="ed-list" role="list"></div>
 
-        <!-- Bottom footer -->
         <div class="ed-bottom">
           <button id="edToggleArchived" class="btn btn-quiet" type="button">Show Archived Makes</button>
           <div class="grow"></div>
           <button id="edSaveAll" class="btn btn-primary" type="button" disabled>Save All Changes</button>
         </div>
 
-        <!-- Archived list (view + unarchive) -->
         <div id="edArchivedPanel" class="archived-panel"></div>
       </div>
     </div>
@@ -673,7 +648,6 @@ Changes in this rev:
     const qs = new URLSearchParams(location.search);
     const TYPE = (qs.get('type') || 'tractor').toLowerCase();
 
-    // Will hold whatever the shared equipment-forms.js returns for this form
     let EXTRAS_API = null;
 
     const state = { pendingChanges:0 };
@@ -703,7 +677,6 @@ Changes in this rev:
     const EQUIP_TYPES = getEquipmentTypesFromMenu();
     const EQUIP_SLUGS = EQUIP_TYPES.map(t=>t.slug);
 
-    // NEW: look up the correct emoji icon for this equipment TYPE from NAV_MENU
     function lookupEquipIcon(typeSlug){
       try{
         const group = NAV_MENU.items?.find(x => x.type === 'group' && x.id === 'equipment');
@@ -727,7 +700,10 @@ Changes in this rev:
     function buildYearOptions(){
       const sel=$("year"); const now=new Date().getFullYear();
       sel.innerHTML='<option value="">— Select —</option>';
-      for(let y=now; y>=1980; y--){ const o=document.createElement('option'); o.value=String(y); o.textContent=String(y); sel.appendChild(o); }
+      for(let y=now; y>=1980; y--){
+        const o=document.createElement('option'); o.value=String(y); o.textContent=String(y);
+        sel.appendChild(o);
+      }
       const panel=$("yearPanel"), trigger=$("yearTrigger");
       panel.innerHTML="";
       [...sel.options].forEach(opt=>{
@@ -743,9 +719,21 @@ Changes in this rev:
         panel.appendChild(btn);
       });
     }
-    function openYearPanel(){ $("yearPanel").classList.remove('combo-hidden'); $("yearTrigger").setAttribute('aria-expanded','true'); document.addEventListener('click', onDocClickClose, { once:true }); document.addEventListener('keydown', onEscClose); }
-    function closeYearPanel(){ $("yearPanel").classList.add('combo-hidden'); $("yearTrigger").setAttribute('aria-expanded','false'); document.removeEventListener('keydown', onEscClose); }
-    function onDocClickClose(e){ if(!$("yearCombo").contains(e.target)) closeYearPanel(); else document.addEventListener('click', onDocClickClose, { once:true }); }
+    function openYearPanel(){
+      $("yearPanel").classList.remove('combo-hidden');
+      $("yearTrigger").setAttribute('aria-expanded','true');
+      document.addEventListener('click', onDocClickClose, { once:true });
+      document.addEventListener('keydown', onEscClose);
+    }
+    function closeYearPanel(){
+      $("yearPanel").classList.add('combo-hidden');
+      $("yearTrigger").setAttribute('aria-expanded','false');
+      document.removeEventListener('keydown', onEscClose);
+    }
+    function onDocClickClose(e){
+      if(!$("yearCombo").contains(e.target)) closeYearPanel();
+      else document.addEventListener('click', onDocClickClose, { once:true });
+    }
     function onEscClose(e){ if(e.key==='Escape') closeYearPanel(); }
 
     /* Dropdown helpers */
@@ -797,7 +785,6 @@ Changes in this rev:
       const serialNorm = normalizeSerial($("serial").value);
       const name = [makeName, modelName].filter(Boolean).join(" ") + (yr?` (${yr})`:"");
 
-      // Core fields
       const base = {
         makeId, modelId, makeName, modelName,
         year: yr,
@@ -807,18 +794,15 @@ Changes in this rev:
         name: name.trim()
       };
 
-      // Extras (engineHours, acres, miles, implementType, etc.)
       let extras = {};
       if(EXTRAS_API && typeof EXTRAS_API.read === 'function'){
         try{ extras = EXTRAS_API.read() || {}; }catch{ extras = {}; }
       }else{
-        // Backwards-compatible fallback for tractors (original engineHours field)
         const engEl = $("engineHours");
         if(engEl && engEl.value){
           extras.engineHours = Number(engEl.value);
         }
       }
-
       return { ...base, ...extras };
     }
     function validateForm(){
@@ -833,7 +817,7 @@ Changes in this rev:
     /* QR */
     let pendingToken = null;
     let pendingQRBlob = null;
-    let pendingEquipId = null; // NEW: the equipment doc ID used in the QR (matches ?id=...)
+    let pendingEquipId = null;
 
     async function waitQRReady(){
       let tries=0;
@@ -853,7 +837,6 @@ Changes in this rev:
       return await new Promise((res,rej)=>canvas.toBlob(b=>b?res(b):rej(new Error('toBlob failed')),'image/png'));
     }
 
-    // UPDATED: encode the hub.html?id=... URL directly (no launch.html wrapper)
     async function makeQRForUrl(absUrl){
       await waitQRReady();
       const size=256, ecc=window.QRCode.CorrectLevel.H;
@@ -875,9 +858,11 @@ Changes in this rev:
           else requestAnimationFrame(check);
         })();
       });
+
       let canvas;
-      if(node.tagName==='CANVAS'){ canvas=node; }
-      else{
+      if(node.tagName==='CANVAS'){
+        canvas=node;
+      }else{
         canvas=document.createElement('canvas'); canvas.width=size; canvas.height=size;
         const ctx=canvas.getContext('2d');
         await new Promise((res,rej)=>{
@@ -886,6 +871,7 @@ Changes in this rev:
           img.onerror=rej; img.src=node.src;
         });
       }
+
       const blob = await canvasToBlob(canvas);
       const dataURL = canvas.toDataURL('image/png');
       const img=$("qrThumb");
@@ -1021,7 +1007,6 @@ Changes in this rev:
     </div>
   </div>
 <script>
-  // auto print when the window is ready
   window.onload = () => {
     window.focus();
     window.print();
@@ -1207,7 +1192,7 @@ Changes in this rev:
       const allModels = await getModels(db, makeId);
       const models = allModels.filter(visibleForType);
       const items = [
-        ["__add__", "Add New…", {isAdd:true} ],
+        ["__add__", "Add New…", {isAdd:true}],
         ...models.map(m=>[m.id, m.name, {categories:m.categories}])
       ];
       buildList(ddModel.list, items, async (val,label,meta)=>{
@@ -1253,7 +1238,7 @@ Changes in this rev:
       validateForm();
     }
 
-    /* ===== Edit modal (rules + actions) ===== */
+    /* ===== Edit modal ===== */
     let EDIT_KIND = null; // 'makes' | 'models'
     const Edit = {
       el: $("editModal"),
@@ -1264,8 +1249,24 @@ Changes in this rev:
       modelsBar: $("edModelsBar"),
       modelsMakeSel: $("edMakeSelect"),
       pending: new Map(),
-      open(title){ $("editTitle").textContent = title; this.pending.clear(); state.pendingChanges=0; $("edSaveAll").disabled=true; this.el.classList.add('show'); document.body.style.overflow='hidden'; },
-      close(){ this.el.classList.remove('show'); document.body.style.overflow=''; this.list.innerHTML=''; EDIT_KIND=null; this.archivedPanel.classList.remove('show'); this.archivedPanel.innerHTML=""; this.archivedBtn.textContent='Show Archived Makes'; this.modelsBar.style.display='none'; }
+      open(title){
+        $("editTitle").textContent = title;
+        this.pending.clear();
+        state.pendingChanges=0;
+        $("edSaveAll").disabled=true;
+        this.el.classList.add('show');
+        document.body.style.overflow='hidden';
+      },
+      close(){
+        this.el.classList.remove('show');
+        document.body.style.overflow='';
+        this.list.innerHTML='';
+        EDIT_KIND=null;
+        this.archivedPanel.classList.remove('show');
+        this.archivedPanel.innerHTML="";
+        this.archivedBtn.textContent='Show Archived Makes';
+        this.modelsBar.style.display='none';
+      }
     };
     document.querySelectorAll('#editModal [data-close]').forEach(el=>el.addEventListener('click', ()=>Edit.close()));
 
@@ -1414,7 +1415,6 @@ Changes in this rev:
           delBtn.addEventListener('click', ()=> deleteMakeImmediate(db, it.id, inp.value.trim() || it.name));
           arcBtn.addEventListener('click', ()=> archiveMakeImmediate(db, it.id, inp.value.trim() || it.name));
         }
-
       }else{
         Edit.modelsBar.style.display='flex';
         const sel = Edit.modelsMakeSel;
@@ -1439,9 +1439,11 @@ Changes in this rev:
             const chev=document.createElement('div'); chev.className='ed-chevron'; chev.textContent='›';
             nameWrap.append(inp);
             head.append(nameWrap, chev);
+
             const body=document.createElement('div'); body.className='ed-body';
             const note=document.createElement('div'); note.className='ed-foot-left'; note.style.padding='8px 0 0'; note.textContent='Categories follow Make';
             body.append(note);
+
             row.append(head, body);
             Edit.list.append(row);
 
@@ -1525,12 +1527,10 @@ Changes in this rev:
     let saving = false;
 
     async function ensureQrReservedAndBuilt(db){
-      // Reserve ID if needed
       if(!pendingEquipId){
         const tmpRef = doc(collection(db, 'equipment'));
         pendingEquipId = tmpRef.id;
       }
-      // Build QR if needed
       if(!pendingQRBlob){
         const hubAbs = location.origin + `/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(pendingEquipId)}`;
         await makeQRForUrl(hubAbs);
@@ -1545,7 +1545,6 @@ Changes in this rev:
       if(!form.modelId){ alert("Please choose a Model."); return { ok:false }; }
       if(!form.serial){ alert("Serial/VIN is required."); return { ok:false }; }
 
-      // Optional: extras validation hook
       if(EXTRAS_API && typeof EXTRAS_API.validate === 'function'){
         const v = EXTRAS_API.validate(form);
         if(v && v.ok === false){
@@ -1558,7 +1557,6 @@ Changes in this rev:
 
       const uniqDocId = uniqKey(form.makeId, form.modelId, form.serial);
 
-      // If we've already reserved an ID for the QR, use that for the Firestore doc
       const eqRef = pendingEquipId
         ? doc(db, 'equipment', pendingEquipId)
         : doc(collection(db,'equipment'));
@@ -1680,7 +1678,6 @@ Changes in this rev:
       $("photos").value="";
       $("year").value=""; $("yearTrigger").textContent="— Select —";
 
-      // Clear extras via shared API if present
       if(EXTRAS_API && typeof EXTRAS_API.reset === 'function'){
         try{ EXTRAS_API.reset(); }catch{}
       }else{
@@ -1695,7 +1692,7 @@ Changes in this rev:
       $("qrThumb").src=""; $("qrThumb").style.display='none'; $("qrArea").hidden=true;
       pendingToken=null;
       pendingQRBlob=null;
-      pendingEquipId=null; // clear reserved ID so next unit gets a fresh one
+      pendingEquipId=null;
       validateForm();
     }
 
@@ -1716,12 +1713,10 @@ Changes in this rev:
       location.assign(target);
     }
 
-    // ===== Shared extras init (middle fields) =====
     function initExtras(){
       const host = $("equipExtras");
       if(!host) return;
 
-      // If shared layout engine exists, let it render the middle section
       if(window.FVEquipForms && typeof window.FVEquipForms.initExtras === 'function'){
         try{
           EXTRAS_API = window.FVEquipForms.initExtras({
@@ -1735,7 +1730,6 @@ Changes in this rev:
         }
       }
 
-      // For implements: move the "Type" field above Make/Model
       if(EXTRAS_API && TYPE === 'implement'){
         try{
           const typeFieldWrap = host.querySelector('[data-field-id="implementType"]');
@@ -1751,7 +1745,6 @@ Changes in this rev:
         }
       }
 
-      // Fallback so tractors stay exactly like before if JS isn't ready
       if(!EXTRAS_API && TYPE === 'tractor'){
         host.innerHTML = "";
         const fld = document.createElement('div');
@@ -1770,26 +1763,23 @@ Changes in this rev:
       const db  = getFirestore();
       window.__db = db;
 
-      // Update title + heading + wrapper attribute based on TYPE (unchanged behavior)
       const niceType = TYPE[0].toUpperCase()+TYPE.slice(1);
       document.title = `FarmVista • Add ${niceType}`;
       document.querySelector('.hero-head h1').textContent = `Add ${niceType}`;
       const wrap = document.querySelector('.wrap');
       if(wrap) wrap.dataset.equipmentType = TYPE;
 
-      // Set hero emoji icon from NAV_MENU equipment icon
       const heroIconEl = document.querySelector('.hero-head .icon');
       if(heroIconEl){
         heroIconEl.textContent = lookupEquipIcon(TYPE);
       }
 
-      // For trucks & trailers: rename Serial # → VIN #
       const serialLabel = document.querySelector('label[for="serial"]');
       const serialInput = $("serial");
       if(serialLabel){
         if(TYPE === 'truck' || TYPE === 'trailer'){
           serialLabel.textContent = 'VIN #';
-          serialLabel.classList.add('req'); // keep required styling
+          serialLabel.classList.add('req');
           if(serialInput){
             serialInput.placeholder = 'VIN (required)';
           }
@@ -1803,8 +1793,6 @@ Changes in this rev:
       });
 
       buildDdObjects();
-
-      // Init shared extras (middle section)
       initExtras();
 
       $("openMakes").addEventListener('click', async ()=>{
@@ -1825,7 +1813,6 @@ Changes in this rev:
 
       $("serial").addEventListener("input", validateForm);
 
-      // UPDATED: QR button — reserve an equipment ID and encode hub.html?id={id}
       $("btnQR").addEventListener("click", async ()=>{
         if(!pendingEquipId){
           const tmpRef = doc(collection(db, 'equipment'));
@@ -1842,19 +1829,16 @@ Changes in this rev:
 
       $("btnSave").addEventListener("click", ()=> saveAll(db, { post:'reset' }));
 
-      // NEW: Save and Print
       $("btnSavePrint").addEventListener("click", async ()=>{
         try{
-          // 1) Ensure we have an ID + QR built (so printing is always ready)
           await ensureQrReservedAndBuilt(db);
 
-          // 2) Save without resetting the form (we still want the values for the label)
           const result = await saveAll(db, { post:'none' });
           if(!result || !result.ok) return;
 
-          // 3) Open print modal and populate preview
           const form = result.form || readForm();
           const qrDataUrl = $("qrThumb")?.src || "";
+
           setPrintPreview({
             makeName: form.makeName,
             modelName: form.modelName,
@@ -1863,7 +1847,6 @@ Changes in this rev:
           });
           PrintUI.open();
 
-          // 4) Wire the Print button (prints a clean label-only page)
           $("btnPrintNow").onclick = ()=>{
             openPrintWindow({
               makeName: form.makeName,
@@ -1875,14 +1858,12 @@ Changes in this rev:
               qrMm: '22mm'
             });
           };
-
         }catch(e){
           console.error(e);
           alert("Save & Print failed.");
         }
       });
 
-      // 🔹 UPDATED CANCEL BEHAVIOR: go back to previous page (with safe fallback)
       $("btnClear").addEventListener("click", () => {
         if (document.referrer) {
           history.back();
@@ -1895,5 +1876,4 @@ Changes in this rev:
     })();
   </script>
 </body>
-</html>;
-}
+</html>
