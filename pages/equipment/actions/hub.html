@@ -1,9 +1,12 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/equipment-hub.html  (FULL FILE REPLACEMENT)
-Rev: 2025-12-18e
+Rev: 2025-12-18f
 Updates:
- • Tap a Service Record => opens an on-screen Work Order Summary view (inside modal)
- • Print Summary / Print Detailed => same report style as Equipment Maintenance page (scoped to this equipment)
+ • Removed Pre-Season button + all JS refs
+ • Service Record LIST tags now: Status + Item Count only
+ • Detail header grid now: Status / Created / Updated / Completed only
+ • Line items are collapsed by default; tap to expand
+ • Print Summary / Print Detailed unchanged
  • Green buttons always white text (no black on green)
  • Keeps module script safe from early termination
 ===================================================================== -->
@@ -482,6 +485,34 @@ Updates:
       white-space:pre-wrap;
       line-height:1.35;
     }
+
+    /* ===== Collapsible Line Items ===== */
+    .sr-li{ cursor:pointer; }
+    .sr-li-top{ margin-bottom:0; border-bottom:none; padding-bottom:0; }
+
+    .sr-li-body{
+      display:none;
+      margin-top:8px;
+    }
+    .sr-li[data-open="1"] .sr-li-body{ display:block; }
+
+    .sr-li-title{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      min-width:0;
+    }
+    .sr-li-title .sr-li-text{
+      min-width:0;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .sr-li-chev{
+      opacity:.7;
+      font-weight:950;
+      user-select:none;
+    }
   </style>
 </head>
 
@@ -507,7 +538,6 @@ Updates:
             <a id="linkReq"    class="btn" href="#">Submit Service Request</a>
             <a id="linkMetric" class="btn" href="#">Update Usage</a>
             <a id="linkMaint"  class="btn" href="#">Service Records</a>
-            <a id="linkPre"    class="btn btn-primary" href="#">Pre-Season Checklist</a>
           </div>
 
           <div class="card" id="combineCalcs" hidden>
@@ -1444,18 +1474,6 @@ Updates:
 
       const tags = [];
       if(status && status !== '—') tags.push(status);
-      if(r.vendorName) tags.push(safeText(r.vendorName));
-      if(r.category) tags.push(safeText(r.category));
-      if(r.cost != null){
-        const c = money(r.cost);
-        if(c) tags.push(c);
-      }
-      if(r.meterLabel && r.meterValue != null){
-        tags.push(`${safeText(r.meterLabel)}: ${safeText(r.meterValue)}`);
-      }
-      if(r.meterLabel && r.completionMeter != null){
-        tags.push(`${safeText(r.meterLabel)}: ${safeText(r.completionMeter)}`);
-      }
 
       const li = Array.isArray(r.lineItems) ? r.lineItems : [];
       const openCount = li.filter(x => !x?.completed).length;
@@ -1590,15 +1608,10 @@ Updates:
 
       const title = pickTitle(d);
       const st = statusLabel(d.status);
-      const stNorm = normalizeStatus(d.status);
 
       const created = toDateMaybe(d.createdAt);
       const updated = toDateMaybe(d.updatedAt);
       const completed = toDateMaybe(d.completedAt);
-
-      const meterLine = d.meterLabel
-        ? (String(d.meterLabel) + ((d.completionMeter != null) ? (': ' + String(d.completionMeter)) : ''))
-        : (d.meterType ? String(d.meterType) : '—');
 
       $('srDetailTitle').textContent = title || 'Work Order Summary';
       $('srDetailSub').textContent = `${SR.eqTitle || 'Equipment'} • ${isPre ? 'Pre-Season Check List' : 'Service Request'}`;
@@ -1613,13 +1626,9 @@ Updates:
       if(grid){
         grid.innerHTML = `
           <div class="sr-pair"><div class="sr-k">Status</div><div class="sr-v">${escapeHtml(st || '—')}</div></div>
-          <div class="sr-pair"><div class="sr-k">Category</div><div class="sr-v">${escapeHtml(safeText(d.category) || '—')}</div></div>
-          <div class="sr-pair"><div class="sr-k">Vendor</div><div class="sr-v">${escapeHtml(safeText(d.vendorName) || '—')}</div></div>
-          <div class="sr-pair"><div class="sr-k">Cost</div><div class="sr-v">${escapeHtml(d.cost != null ? (money(d.cost) || String(d.cost)) : '—')}</div></div>
-          <div class="sr-pair"><div class="sr-k">Meter</div><div class="sr-v">${escapeHtml(meterLine || '—')}</div></div>
           <div class="sr-pair"><div class="sr-k">Created</div><div class="sr-v">${escapeHtml(created ? formatDateTime(created) : '—')}</div></div>
           <div class="sr-pair"><div class="sr-k">Updated</div><div class="sr-v">${escapeHtml(updated ? formatDateTime(updated) : '—')}</div></div>
-          <div class="sr-pair"><div class="sr-k">Completed</div><div class="sr-v">${escapeHtml(completed ? formatDateTime(completed) : (stNorm==='completed' ? '—' : '—'))}</div></div>
+          <div class="sr-pair"><div class="sr-k">Completed</div><div class="sr-v">${escapeHtml(completed ? formatDateTime(completed) : '—')}</div></div>
         `;
       }
 
@@ -1656,24 +1665,33 @@ Updates:
 
             const el = document.createElement('div');
             el.className = 'sr-li';
+            el.dataset.open = '0';
             el.innerHTML = `
               <div class="sr-li-top">
-                <div class="sr-li-title">${escapeHtml(r.topic)}${r.isPreSeasonItem ? '' : ` <span style="opacity:.65;font-weight:800">#${idx+1}</span>`}</div>
+                <div class="sr-li-title">
+                  <span class="sr-li-text">${escapeHtml(r.topic)}</span>
+                  <span class="sr-li-chev" aria-hidden="true">▾</span>
+                </div>
                 <div class="sr-li-badge ${isDone ? '' : 'open'}">${escapeHtml(badge)}</div>
               </div>
 
-              <div class="sr-li-grid">
-                <div><div class="sr-k">Submitted by</div><div class="sr-v">${escapeHtml(submittedBy)}</div></div>
-                <div><div class="sr-k">Completed by</div><div class="sr-v">${escapeHtml(completedBy)}</div></div>
-                ${r.isPreSeasonItem ? '' : `<div><div class="sr-k">Parts</div><div class="sr-v">${escapeHtml(r.parts)}</div></div>`}
-                <div><div class="sr-k">Completed at</div><div class="sr-v">${escapeHtml(doneAt)}</div></div>
+              <div class="sr-li-body">
+                <div class="sr-li-grid">
+                  <div><div class="sr-k">Submitted by</div><div class="sr-v">${escapeHtml(submittedBy)}</div></div>
+                  <div><div class="sr-k">Completed by</div><div class="sr-v">${escapeHtml(completedBy)}</div></div>
+                  ${r.isPreSeasonItem ? '' : `<div><div class="sr-k">Parts</div><div class="sr-v">${escapeHtml(r.parts)}</div></div>`}
+                  <div><div class="sr-k">Completed at</div><div class="sr-v">${escapeHtml(doneAt)}</div></div>
 
-                <div class="sr-li-notes">
-                  <div class="sr-k">${escapeHtml(r.isPreSeasonItem ? 'Guidance' : 'Notes')}</div>
-                  <div class="sr-v" style="margin-top:3px;font-weight:700;">${escapeHtml(r.notes)}</div>
+                  <div class="sr-li-notes">
+                    <div class="sr-k">${escapeHtml(r.isPreSeasonItem ? 'Guidance' : 'Notes')}</div>
+                    <div class="sr-v" style="margin-top:3px;font-weight:700;">${escapeHtml(r.notes)}</div>
+                  </div>
                 </div>
               </div>
             `;
+            el.addEventListener('click', ()=>{
+              el.dataset.open = (el.dataset.open === '1') ? '0' : '1';
+            });
             liHost.appendChild(el);
           });
         }
@@ -2631,7 +2649,6 @@ Updates:
         }
 
         $('linkMaint').hidden = false;
-        $('linkPre').hidden   = !cfg.hasPreSeason;
 
         $('linkReq').href =
           `/Farm-vista/pages/equipment/actions/service-request.html?id=${encodeURIComponent(id)}${from ? `&from=${encodeURIComponent(from)}` : ''}`;
@@ -2639,8 +2656,6 @@ Updates:
         // Service Records opens modal
         $('linkMaint').href = '#';
         $('linkMaint').onclick = (e)=>{ e.preventDefault(); openServiceRecords(); };
-
-        $('linkPre').href = '#';
 
         if(!$('linkMetric').hidden){
           $('linkMetric').href = '#';
@@ -2658,7 +2673,6 @@ Updates:
           $('linkMetric').href = `/Farm-vista/pages/equipment/actions/starfire-location.html?id=${encodeURIComponent(id)}`;
           $('linkMetric').onclick = null;
           $('linkMaint').hidden = true;
-          $('linkPre').hidden   = true;
           if (calcCard) calcCard.hidden = true;
         } else {
           if (typeKey === 'combine' && calcCard) {
