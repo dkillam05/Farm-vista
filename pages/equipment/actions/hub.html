@@ -1,10 +1,11 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/equipment-hub.html  (FULL FILE REPLACEMENT)
-Rev: 2025-12-18d
-Fixes:
- • Service Records opens modal and loads ONLY this equipment's records (newest first)
- • No auto-print. Print only when user clicks buttons at bottom of modal.
- • FIX: remove literal closing-script tag text from inside <script type="module"> to prevent truncation.
+Rev: 2025-12-18e
+Updates:
+ • Tap a Service Record => opens an on-screen Work Order Summary view (inside modal)
+ • Print Summary / Print Detailed => same report style as Equipment Maintenance page (scoped to this equipment)
+ • Green buttons always white text (no black on green)
+ • Keeps module script safe from early termination
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -32,6 +33,9 @@ Fixes:
   <!-- IMPORTANT: match tractors — load Firebase CONFIG first -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
 
+  <!-- Cloud PDF helper (if present) -->
+  <script src="/Farm-vista/js/fv-pdf.js"></script>
+
   <!-- Ensure fv-shell -->
   <script>
     (function(){
@@ -50,9 +54,12 @@ Fixes:
     /* kill blue links in dark mode */
     .wrap, .wrap * { -webkit-tap-highlight-color: transparent; }
     .wrap a, .wrap a:visited, .wrap a:active, .wrap a:hover { color:inherit; text-decoration:none; }
+
+    /* ✅ GLOBAL OVERRIDE: NO BLACK TEXT ON GREEN */
+    .btn-primary{ color:#fff !important; }
+
     .btn { color:var(--ink-1,#0f1a13); }
     :root[data-theme="dark"] .btn { color:var(--ink-1,#eaece9); }
-    .btn-primary { color:#fff; }
 
     .wrap{
       max-width:var(--card-max);
@@ -114,7 +121,9 @@ Fixes:
       border-radius:14px;
       border:1px solid var(--border);
       background:var(--card-surface,var(--surface));
-      text-decoration:none
+      text-decoration:none;
+      cursor:pointer;
+      user-select:none;
     }
     .btn-primary{
       background:var(--brand);
@@ -153,7 +162,7 @@ Fixes:
     .modal-backdrop[data-open="1"]{ display:flex; }
 
     .modal{
-      width:min(680px, 100%);
+      width:min(720px, 100%);
       background:var(--surface);
       border:1px solid var(--border);
       border-radius:16px;
@@ -273,10 +282,14 @@ Fixes:
 
     /* ===== Service Records Modal ===== */
     #srModalBody{
-      max-height: min(62vh, 560px);
+      max-height: min(70vh, 640px);
       overflow:auto;
       -webkit-overflow-scrolling:touch;
     }
+
+    .sr-view{ display:none; }
+    .sr-view[data-show="1"]{ display:block; }
+
     .sr-list{ display:grid; gap:10px; }
     .sr-item{
       border:1px solid var(--border);
@@ -285,7 +298,17 @@ Fixes:
       padding:12px;
       display:grid;
       gap:8px;
+      cursor:pointer;
+      user-select:none;
+      transition:transform .06s, box-shadow .12s, border-color .12s;
     }
+    .sr-item:active{ transform:scale(.996); }
+    .sr-item[aria-selected="true"]{
+      border-color: color-mix(in srgb, var(--brand) 42%, var(--border));
+      box-shadow: 0 10px 26px rgba(0,0,0,.10);
+      background: color-mix(in srgb, var(--brand) 6%, var(--surface));
+    }
+
     .sr-top{
       display:flex;
       align-items:flex-start;
@@ -334,6 +357,131 @@ Fixes:
       color:var(--muted,#67706B);
       background:color-mix(in srgb, var(--surface) 70%, transparent);
     }
+
+    /* ===== SR Detail View (inside modal) ===== */
+    .sr-detail-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      padding:10px 10px 8px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:color-mix(in srgb, var(--brand) 6%, var(--surface));
+    }
+    .sr-back{
+      min-height:42px;
+      padding:8px 12px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      font-weight:900;
+      cursor:pointer;
+      color:var(--ink-1,#0f1a13);
+    }
+    :root[data-theme="dark"] .sr-back{ color:var(--ink-1,#eaece9); }
+    .sr-detail-title{
+      font-weight:950;
+      font-size:14px;
+      line-height:1.15;
+      margin:0;
+    }
+    .sr-detail-sub{
+      margin:2px 0 0;
+      font-size:12px;
+      color:var(--muted,#67706B);
+      line-height:1.2;
+    }
+
+    .sr-detail-grid{
+      margin-top:10px;
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0, 1fr));
+      gap:10px;
+    }
+    @media (max-width:560px){
+      .sr-detail-grid{ grid-template-columns:1fr; }
+    }
+    .sr-pair{
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:10px 10px 9px;
+      background:var(--surface);
+    }
+    .sr-k{ font-size:11px; text-transform:uppercase; letter-spacing:.10em; opacity:.75; font-weight:950; }
+    .sr-v{ margin-top:3px; font-size:13px; font-weight:800; line-height:1.25; word-break:break-word; }
+
+    .sr-block{
+      margin-top:10px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:10px 10px 9px;
+      background:var(--surface);
+    }
+    .sr-block h4{
+      margin:0 0 6px;
+      font-size:12px;
+      letter-spacing:.10em;
+      text-transform:uppercase;
+      font-weight:950;
+      opacity:.85;
+    }
+    .sr-block .txt{
+      font-size:13px;
+      white-space:pre-wrap;
+      line-height:1.35;
+    }
+
+    .sr-li-list{ display:grid; gap:10px; margin-top:8px; }
+    .sr-li{
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:10px 10px 9px;
+      background:linear-gradient(135deg, rgba(59,126,70,0.05), var(--surface));
+    }
+    .sr-li-top{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:10px;
+      padding-bottom:7px;
+      border-bottom:1px solid color-mix(in srgb, var(--border) 60%, transparent);
+      margin-bottom:8px;
+    }
+    .sr-li-title{ font-weight:950; font-size:13px; line-height:1.25; }
+    .sr-li-badge{
+      font-size:11px;
+      font-weight:950;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      padding:4px 10px;
+      border-radius:999px;
+      border:1px solid rgba(59,126,70,0.28);
+      background:rgba(59,126,70,0.07);
+      white-space:nowrap;
+    }
+    .sr-li-badge.open{
+      border-color: rgba(234,179,8,0.35);
+      background: rgba(234,179,8,0.10);
+    }
+
+    .sr-li-grid{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0,1fr));
+      gap:10px;
+      font-size:13px;
+    }
+    @media (max-width:560px){
+      .sr-li-grid{ grid-template-columns:1fr; }
+    }
+    .sr-li-notes{
+      grid-column:1/-1;
+      margin-top:8px;
+      padding-top:8px;
+      border-top:1px dashed color-mix(in srgb, var(--border) 65%, transparent);
+      white-space:pre-wrap;
+      line-height:1.35;
+    }
   </style>
 </head>
 
@@ -359,7 +507,7 @@ Fixes:
             <a id="linkReq"    class="btn" href="#">Submit Service Request</a>
             <a id="linkMetric" class="btn" href="#">Update Usage</a>
             <a id="linkMaint"  class="btn" href="#">Service Records</a>
-            <a id="linkPre"    class="btn" href="#">Pre-Season Checklist</a>
+            <a id="linkPre"    class="btn btn-primary" href="#">Pre-Season Checklist</a>
           </div>
 
           <div class="card" id="combineCalcs" hidden>
@@ -463,7 +611,37 @@ Fixes:
 
         <div class="modal-body" id="srModalBody">
           <div class="banner" id="srBanner"></div>
-          <div class="sr-list" id="srList"></div>
+
+          <!-- LIST VIEW -->
+          <div class="sr-view" id="srListView" data-show="1">
+            <div class="sr-list" id="srList"></div>
+          </div>
+
+          <!-- DETAIL VIEW -->
+          <div class="sr-view" id="srDetailView" data-show="0" aria-live="polite">
+            <div class="sr-detail-head">
+              <button class="sr-back" id="srBackBtn" type="button">← Back</button>
+              <div style="min-width:0; flex:1 1 auto;">
+                <div class="sr-detail-title" id="srDetailTitle">Work Order Summary</div>
+                <div class="sr-detail-sub" id="srDetailSub">Tap a record to view details.</div>
+              </div>
+              <div class="sr-tags" style="justify-content:flex-end">
+                <span class="sr-tag" id="srDetailStatusTag" hidden></span>
+              </div>
+            </div>
+
+            <div class="sr-detail-grid" id="srDetailGrid"></div>
+
+            <div class="sr-block" id="srDetailNotesBlock" hidden>
+              <h4 id="srDetailNotesLabel">Summary Notes</h4>
+              <div class="txt" id="srDetailNotesTxt"></div>
+            </div>
+
+            <div class="sr-block" id="srDetailLineItemsBlock" hidden>
+              <h4>Line Items</h4>
+              <div class="sr-li-list" id="srDetailLineItems"></div>
+            </div>
+          </div>
         </div>
 
         <div class="modal-actions">
@@ -554,6 +732,15 @@ Fixes:
       scanner:  { label: 'Return to Scanner', href: '/Farm-vista/pages/qr-scan.html' }
     };
 
+    /* ======================
+       Helpers
+       ====================== */
+    function escapeHtml(str){
+      return String(str || '').replace(/[&<>"']/g, m => (
+        { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]
+      ));
+    }
+
     const last6 = v => String(v || '').slice(-6);
     const setText = (id, val, opts = {}) => {
       const el = $(id); if(!el) return;
@@ -604,8 +791,132 @@ Fixes:
       wrap.hidden    = false;
     }
 
+    function fmtNum(v){
+      if(v == null || v === '') return '';
+      const n = Number(v);
+      if(Number.isNaN(n)) return '';
+      if(Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
+      return String(n);
+    }
+
+    function toDateMaybe(ts){
+      if(!ts) return null;
+      try{
+        if(ts.toDate) return ts.toDate();
+        if(ts && typeof ts === 'object' && typeof ts.seconds === 'number'){
+          const d = new Date(ts.seconds * 1000);
+          return Number.isFinite(d.getTime()) ? d : null;
+        }
+        if(typeof ts === 'string' || typeof ts === 'number'){
+          const d = new Date(ts);
+          return Number.isFinite(d.getTime()) ? d : null;
+        }
+      }catch(_){}
+      return null;
+    }
+    function formatDate(d){
+      if(!d) return '';
+      try{ return d.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}); }
+      catch{ return ''; }
+    }
+    function formatDateTime(d){
+      if(!d) return '';
+      try{ return d.toLocaleString(); }
+      catch{ return ''; }
+    }
+
+    function titleCaseType(s){
+      const v = String(s||'').trim().toLowerCase();
+      if(!v) return '';
+      const map = { 'in_progress':'In progress', 'pending':'Pending', 'completed':'Completed' };
+      if(map[v]) return map[v];
+      return v.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase());
+    }
+
+    function normalizeStatus(s){
+      const v = String(s||'').trim().toLowerCase();
+      if(v === 'in progress' || v === 'in-progress') return 'in_progress';
+      if(v === 'in_progress') return 'in_progress';
+      if(v === 'pending') return 'pending';
+      if(v === 'open') return 'pending';
+      if(v === 'completed' || v === 'complete') return 'completed';
+      return v;
+    }
+
+    function statusLabel(st){
+      const n = normalizeStatus(st);
+      if(n === 'pending') return 'Pending';
+      if(n === 'in_progress') return 'In progress';
+      if(n === 'completed') return 'Completed';
+      return st || '—';
+    }
+
+    /* ==========================
+       PRE-SEASON / PRE-INSPECTION DETECTOR (same logic as maintenance page)
+       ========================== */
+    function isPreSeasonWO(d){
+      if(!d) return false;
+
+      const directKeys = [
+        d.precheckTemplateId,
+        d.preCheckTemplateId,
+        d.preInspectionTemplateId,
+        d.preInspectionId,
+        d.templateId
+      ].map(x => String(x || '').trim()).filter(Boolean);
+      if(directKeys.length) return true;
+
+      const kind = String(d.workOrderType || d.type || d.kind || '').trim().toLowerCase();
+      if(kind){
+        if(kind.includes('precheck') || kind.includes('pre-check') || kind.includes('preseason') || kind.includes('pre-season') || kind.includes('preinspection') || kind.includes('pre-inspection')) return true;
+      }
+
+      const tag = String(d.tag || d.category || '').trim().toLowerCase();
+      if(tag){
+        if(tag.includes('precheck') || tag.includes('preseason') || tag.includes('preinspection')) return true;
+      }
+
+      const li = Array.isArray(d.lineItems) ? d.lineItems : [];
+      if(li.some(x => String(x?.origin || '').toLowerCase() === 'precheck_template')) return true;
+
+      return false;
+    }
+
+    /* ==========================
+       TEMPLATE ITEMS LOADER (for older precheck WOs)
+       ========================== */
+    const TPL_CACHE = new Map(); // tplId -> items[]
+
+    async function getPrecheckTemplateItems(db, tplId){
+      const id = String(tplId || '').trim();
+      if(!id) return [];
+      if(TPL_CACHE.has(id)) return TPL_CACHE.get(id);
+
+      try{
+        const snap = await getDocs(collection(db, 'seasonal_precheck_templates', id, 'items'));
+        const out = [];
+        snap.forEach(d=>{
+          const v = d.data() || {};
+          if(v.archived === true) return;
+          out.push({
+            id: d.id,
+            label: String(v.label || '').trim(),
+            notesHint: String(v.notesHint || '').trim(),
+            order: Number(v.order || 0)
+          });
+        });
+        out.sort((a,b)=> (a.order||0) - (b.order||0));
+        TPL_CACHE.set(id, out);
+        return out;
+      }catch(e){
+        console.warn('[hub][tpl] items load failed:', e);
+        TPL_CACHE.set(id, []);
+        return [];
+      }
+    }
+
     /* ======================
-       Metric modal (unchanged)
+       Metric modal (unchanged from your working version)
        ====================== */
     const MODAL = {
       open: false,
@@ -657,14 +968,6 @@ Fixes:
       MODAL._combineUnwire = null;
     }
 
-    function fmtNum(v){
-      if(v == null || v === '') return '';
-      const n = Number(v);
-      if(Number.isNaN(n)) return '';
-      if(Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
-      return String(n);
-    }
-
     function buildMetricForm(docData, cfg){
       const form = $('metricForm');
       const help = $('metricHelp');
@@ -684,19 +987,19 @@ Fixes:
         const el = document.createElement('div');
         el.className = 'field';
         el.innerHTML = `
-          <div class="label">${label}</div>
+          <div class="label">${escapeHtml(label)}</div>
           <input
             class="input"
             inputmode="decimal"
             autocomplete="off"
             spellcheck="false"
-            id="metric_${f.key}"
+            id="metric_${escapeHtml(f.key)}"
             type="number"
-            step="${String(step).replace(/"/g,'')}"
-            placeholder="Enter new ${label.toLowerCase()}"
+            step="${escapeHtml(String(step).replace(/"/g,''))}"
+            placeholder="Enter new ${escapeHtml(label.toLowerCase())}"
           />
-          <div class="hint" id="hint_metric_${f.key}" hidden></div>
-          <div class="help">Current: <b>${fmtNum(current) || '—'}</b>${suffix ? ` ${suffix}` : ''}. New value cannot be less than current.</div>
+          <div class="hint" id="hint_metric_${escapeHtml(f.key)}" hidden></div>
+          <div class="help">Current: <b>${escapeHtml(fmtNum(current) || '—')}</b>${suffix ? ` ${escapeHtml(suffix)}` : ''}. New value cannot be less than current.</div>
         `;
         rows.push(el);
       }
@@ -727,7 +1030,7 @@ Fixes:
           <b>No reductions allowed</b> (prevents rollback).
           If something truly needs to go down (meter replaced, typo), use the <b>Adjustment Request</b>.
           ${ (window.FV && typeof window.FV.can === 'function')
-              ? `If you have special permission (<code>${overrideKey}</code>), an office user can override decreases with a reason.`
+              ? `If you have special permission (<code>${escapeHtml(overrideKey)}</code>), an office user can override decreases with a reason.`
               : ``
           }
         </div>
@@ -1020,12 +1323,21 @@ Fixes:
     }
 
     /* ======================
-       Service Records Modal
+       Service Records Modal + On-screen summary + Print Reports
        ====================== */
     const SR = {
       open:false,
       rows:[],
-      db:null
+      db:null,
+      selectedId:null,
+      eqDoc:null,
+      eqTypeKey:'equipment',
+      eqDisplay:'Equipment',
+      eqTitle:'Equipment',
+      eqMake:'',
+      eqModel:'',
+      eqSerial:'',
+      tplItemsById: {} // tplId -> items[] (used for print + detail)
     };
 
     function srShowBanner(msg){
@@ -1052,56 +1364,35 @@ Fixes:
       back.setAttribute('aria-hidden','true');
       SR.open=false;
       document.body.style.overflow='';
+      SR.selectedId = null;
+      srShowListView();
     }
 
-    function toDateMaybe(v){
-      try{
-        if(!v) return null;
-        if(typeof v.toDate === 'function') return v.toDate();
-        if(typeof v.seconds === 'number') return new Date(v.seconds*1000);
-        if(typeof v === 'string'){
-          const d = new Date(v);
-          if(!Number.isNaN(d.getTime())) return d;
-        }
-        if(typeof v === 'number'){
-          const d = new Date(v);
-          if(!Number.isNaN(d.getTime())) return d;
-        }
-        return null;
-      }catch{ return null; }
+    function srShowListView(){
+      $('srListView').dataset.show = '1';
+      $('srDetailView').dataset.show = '0';
+      $('srDetailGrid').innerHTML = '';
+      $('srDetailNotesBlock').hidden = true;
+      $('srDetailLineItemsBlock').hidden = true;
+      $('srDetailTitle').textContent = 'Work Order Summary';
+      $('srDetailSub').textContent = 'Tap a record to view details.';
+      $('srDetailStatusTag').hidden = true;
+
+      // clear selection UI
+      const list = $('srList');
+      if(list){
+        list.querySelectorAll('.sr-item[aria-selected="true"]').forEach(el=>{
+          el.setAttribute('aria-selected','false');
+        });
+      }
     }
 
-    function pad2(n){ return String(n).padStart(2,'0'); }
-    function fmtDateTime(d){
-      if(!d) return '—';
-      const mm = pad2(d.getMonth()+1);
-      const dd = pad2(d.getDate());
-      const yy = d.getFullYear();
-      let hh = d.getHours();
-      const ap = hh >= 12 ? 'PM' : 'AM';
-      hh = hh % 12; if(hh===0) hh=12;
-      const mi = pad2(d.getMinutes());
-      return `${mm}/${dd}/${yy} ${hh}:${mi} ${ap}`;
-    }
-
-    function bestRecordDate(r){
-      return (
-        toDateMaybe(r?.completedAt) ||
-        toDateMaybe(r?.updatedAt) ||
-        toDateMaybe(r?.createdAt) ||
-        toDateMaybe(r?.date) ||
-        null
-      );
-    }
-
-    function normStatus(s){
-      const v = String(s||'').trim().toLowerCase();
-      if(!v) return '—';
-      if(v === 'in-progress' || v === 'in progress') return 'In Progress';
-      if(v === 'completed' || v === 'complete') return 'Completed';
-      if(v === 'open') return 'Open';
-      if(v === 'pending') return 'Pending';
-      return v.replace(/\b\w/g, m=>m.toUpperCase());
+    function srShowDetailView(){
+      $('srListView').dataset.show = '0';
+      $('srDetailView').dataset.show = '1';
+      // keep scroll at top for detail
+      const body = $('srModalBody');
+      if(body) body.scrollTop = 0;
     }
 
     function safeText(v){ return String(v ?? '').trim(); }
@@ -1113,12 +1404,13 @@ Fixes:
         safeText(r?.problem) ||
         safeText(r?.issue) ||
         safeText(r?.subject) ||
-        'Service Record'
+        (isPreSeasonWO(r) ? 'Pre-Season Check List' : 'Service Record')
       );
     }
 
     function pickNotes(r){
       return (
+        safeText(r?.summaryNotes) ||
         safeText(r?.notes) ||
         safeText(r?.description) ||
         safeText(r?.details) ||
@@ -1133,10 +1425,20 @@ Fixes:
       return `$${n.toFixed(2)}`;
     }
 
+    function bestRecordDate(r){
+      return (
+        toDateMaybe(r?.completedAt) ||
+        toDateMaybe(r?.updatedAt) ||
+        toDateMaybe(r?.createdAt) ||
+        toDateMaybe(r?.date) ||
+        null
+      );
+    }
+
     function buildSrItemHtml(row){
       const r = row.data || {};
-      const when = fmtDateTime(bestRecordDate(r));
-      const status = normStatus(r.status);
+      const when = bestRecordDate(r);
+      const status = statusLabel(r.status);
       const title = pickTitle(r);
       const notes = pickNotes(r);
 
@@ -1151,26 +1453,33 @@ Fixes:
       if(r.meterLabel && r.meterValue != null){
         tags.push(`${safeText(r.meterLabel)}: ${safeText(r.meterValue)}`);
       }
+      if(r.meterLabel && r.completionMeter != null){
+        tags.push(`${safeText(r.meterLabel)}: ${safeText(r.completionMeter)}`);
+      }
+
+      const li = Array.isArray(r.lineItems) ? r.lineItems : [];
+      const openCount = li.filter(x => !x?.completed).length;
+      if(li.length) tags.push(`${li.length} items (${openCount} open)`);
 
       return `
-        <div class="sr-item">
+        <div class="sr-item" data-id="${escapeHtml(row.id)}" aria-selected="false">
           <div class="sr-top">
             <div style="min-width:0">
-              <p class="sr-title">${title}</p>
-              <p class="sr-sub">${when}</p>
+              <p class="sr-title">${escapeHtml(title)}</p>
+              <p class="sr-sub">${escapeHtml(when ? formatDateTime(when) : '—')}</p>
             </div>
             <div class="sr-tags" aria-hidden="true" style="justify-content:flex-end">
-              ${tags.slice(0,3).map(t=>`<span class="sr-tag">${t}</span>`).join('')}
+              ${tags.slice(0,3).map(t=>`<span class="sr-tag">${escapeHtml(t)}</span>`).join('')}
             </div>
           </div>
 
           ${tags.length > 3 ? `
             <div class="sr-tags">
-              ${tags.slice(3).map(t=>`<span class="sr-tag">${t}</span>`).join('')}
+              ${tags.slice(3).map(t=>`<span class="sr-tag">${escapeHtml(t)}</span>`).join('')}
             </div>
           ` : ''}
 
-          ${notes ? `<p class="sr-notes">${notes}</p>` : ''}
+          ${notes ? `<p class="sr-notes">${escapeHtml(notes)}</p>` : ''}
         </div>
       `;
     }
@@ -1188,13 +1497,11 @@ Fixes:
     }
 
     async function loadServiceRecordsForEquipment(db, equipmentId){
-      // Try common names so it works even if your collection differs.
       const candidates = ['equipmentWorkOrders','equipment_work_orders','equipment_service_records'];
 
       for(const colName of candidates){
         try{
           const base = collection(db, colName);
-          // Keep query simple (where + limit) then sort client-side
           const q = query(base, where('equipmentId','==', equipmentId), limit(250));
           const snap = await getDocs(q);
           const rows = snap.docs.map(d=>({ id:d.id, data:d.data(), _col:colName }));
@@ -1209,12 +1516,180 @@ Fixes:
       return [];
     }
 
+    async function ensureTplItemsForWO(db, woData){
+      const d = woData || {};
+      if(!isPreSeasonWO(d)) return null;
+      const tplId = String(d.precheckTemplateId || d.preCheckTemplateId || '').trim();
+      if(!tplId) return null;
+      if(SR.tplItemsById[tplId]) return SR.tplItemsById[tplId];
+      const items = await getPrecheckTemplateItems(db, tplId);
+      SR.tplItemsById[tplId] = Array.isArray(items) ? items : [];
+      return SR.tplItemsById[tplId];
+    }
+
+    function resolvePreSeasonLineItem(li, idx, tplItems){
+      const origin = String(li?.origin || '').toLowerCase();
+      const isPreSeasonItem = (origin === 'precheck_template');
+
+      if(!isPreSeasonItem){
+        const topic = li?.serviceTopicOther ? String(li.serviceTopicOther) : titleCaseType(li?.serviceTopic || 'Service');
+        return {
+          isPreSeasonItem:false,
+          topic: String(topic || '').trim() || 'Service',
+          notes: (String(li?.notes || '').trim() || '—'),
+          parts: (String(li?.partsNeeded || '').trim() || '—')
+        };
+      }
+
+      let tplHit = null;
+      if(Array.isArray(tplItems) && tplItems.length){
+        const tplItemId = String(li?.precheckTemplateItemId || '').trim();
+        if(tplItemId){
+          tplHit = tplItems.find(t => t.id === tplItemId) || null;
+        }
+        if(!tplHit && tplItems[idx]) tplHit = tplItems[idx];
+      }
+
+      const resolvedLabel =
+        String(li?.label || '').trim() ||
+        String(tplHit?.label || '').trim() ||
+        String(li?.checkItem || li?.item || li?.title || '').trim() ||
+        'Inspection Item';
+
+      const resolvedNotesHint =
+        String(li?.notesHint || '').trim() ||
+        String(tplHit?.notesHint || '').trim() ||
+        '—';
+
+      return {
+        isPreSeasonItem:true,
+        topic: resolvedLabel,
+        notes: resolvedNotesHint,
+        parts: ''
+      };
+    }
+
+    async function renderSrDetail(rowId){
+      const row = (SR.rows || []).find(r => r.id === rowId) || null;
+      if(!row) return;
+
+      SR.selectedId = rowId;
+
+      const list = $('srList');
+      if(list){
+        list.querySelectorAll('.sr-item').forEach(el=>{
+          el.setAttribute('aria-selected', el.dataset.id === rowId ? 'true' : 'false');
+        });
+      }
+
+      const d = row.data || {};
+      const isPre = isPreSeasonWO(d);
+
+      if(!SR.db) SR.db = getFirestore();
+      const tplItems = await ensureTplItemsForWO(SR.db, d);
+
+      const title = pickTitle(d);
+      const st = statusLabel(d.status);
+      const stNorm = normalizeStatus(d.status);
+
+      const created = toDateMaybe(d.createdAt);
+      const updated = toDateMaybe(d.updatedAt);
+      const completed = toDateMaybe(d.completedAt);
+
+      const meterLine = d.meterLabel
+        ? (String(d.meterLabel) + ((d.completionMeter != null) ? (': ' + String(d.completionMeter)) : ''))
+        : (d.meterType ? String(d.meterType) : '—');
+
+      $('srDetailTitle').textContent = title || 'Work Order Summary';
+      $('srDetailSub').textContent = `${SR.eqTitle || 'Equipment'} • ${isPre ? 'Pre-Season Check List' : 'Service Request'}`;
+
+      const tag = $('srDetailStatusTag');
+      if(tag){
+        tag.textContent = st || '—';
+        tag.hidden = false;
+      }
+
+      const grid = $('srDetailGrid');
+      if(grid){
+        grid.innerHTML = `
+          <div class="sr-pair"><div class="sr-k">Status</div><div class="sr-v">${escapeHtml(st || '—')}</div></div>
+          <div class="sr-pair"><div class="sr-k">Category</div><div class="sr-v">${escapeHtml(safeText(d.category) || '—')}</div></div>
+          <div class="sr-pair"><div class="sr-k">Vendor</div><div class="sr-v">${escapeHtml(safeText(d.vendorName) || '—')}</div></div>
+          <div class="sr-pair"><div class="sr-k">Cost</div><div class="sr-v">${escapeHtml(d.cost != null ? (money(d.cost) || String(d.cost)) : '—')}</div></div>
+          <div class="sr-pair"><div class="sr-k">Meter</div><div class="sr-v">${escapeHtml(meterLine || '—')}</div></div>
+          <div class="sr-pair"><div class="sr-k">Created</div><div class="sr-v">${escapeHtml(created ? formatDateTime(created) : '—')}</div></div>
+          <div class="sr-pair"><div class="sr-k">Updated</div><div class="sr-v">${escapeHtml(updated ? formatDateTime(updated) : '—')}</div></div>
+          <div class="sr-pair"><div class="sr-k">Completed</div><div class="sr-v">${escapeHtml(completed ? formatDateTime(completed) : (stNorm==='completed' ? '—' : '—'))}</div></div>
+        `;
+      }
+
+      const notes = pickNotes(d);
+      const notesBlock = $('srDetailNotesBlock');
+      if(notes && notesBlock){
+        $('srDetailNotesLabel').textContent = isPre ? 'Summary / Notes' : 'Summary Notes';
+        $('srDetailNotesTxt').textContent = notes;
+        notesBlock.hidden = false;
+      }else if(notesBlock){
+        notesBlock.hidden = true;
+      }
+
+      const liBlock = $('srDetailLineItemsBlock');
+      const liHost = $('srDetailLineItems');
+      const lineItems = Array.isArray(d.lineItems) ? d.lineItems : [];
+
+      if(liBlock && liHost){
+        liHost.innerHTML = '';
+        if(!lineItems.length){
+          liBlock.hidden = true;
+        }else{
+          liBlock.hidden = false;
+
+          lineItems.forEach((li, idx)=>{
+            const r = resolvePreSeasonLineItem(li, idx, tplItems);
+
+            const isDone = !!li.completed;
+            const badge = isDone ? 'Completed' : 'Open';
+
+            const submittedBy = (li.submittedByName || '').trim() || '—';
+            const completedBy = (li.completedByEmployeeName || li.completedByEmployeeId || '').trim() || '—';
+            const doneAt = li.completedAt ? formatDateTime(toDateMaybe(li.completedAt)) : '—';
+
+            const el = document.createElement('div');
+            el.className = 'sr-li';
+            el.innerHTML = `
+              <div class="sr-li-top">
+                <div class="sr-li-title">${escapeHtml(r.topic)}${r.isPreSeasonItem ? '' : ` <span style="opacity:.65;font-weight:800">#${idx+1}</span>`}</div>
+                <div class="sr-li-badge ${isDone ? '' : 'open'}">${escapeHtml(badge)}</div>
+              </div>
+
+              <div class="sr-li-grid">
+                <div><div class="sr-k">Submitted by</div><div class="sr-v">${escapeHtml(submittedBy)}</div></div>
+                <div><div class="sr-k">Completed by</div><div class="sr-v">${escapeHtml(completedBy)}</div></div>
+                ${r.isPreSeasonItem ? '' : `<div><div class="sr-k">Parts</div><div class="sr-v">${escapeHtml(r.parts)}</div></div>`}
+                <div><div class="sr-k">Completed at</div><div class="sr-v">${escapeHtml(doneAt)}</div></div>
+
+                <div class="sr-li-notes">
+                  <div class="sr-k">${escapeHtml(r.isPreSeasonItem ? 'Guidance' : 'Notes')}</div>
+                  <div class="sr-v" style="margin-top:3px;font-weight:700;">${escapeHtml(r.notes)}</div>
+                </div>
+              </div>
+            `;
+            liHost.appendChild(el);
+          });
+        }
+      }
+
+      srShowDetailView();
+    }
+
     async function openServiceRecords(){
       try{
         if(!SR.db) SR.db = getFirestore();
         srShowBanner('');
         $('srList').innerHTML = `<div class="sr-empty">Loading…</div>`;
         $('srTitle').textContent = `Service Records — ${$('eqName')?.textContent || 'Equipment'}`;
+
+        srShowListView();
         srOpen();
 
         const rows = await loadServiceRecordsForEquipment(SR.db, id);
@@ -1236,107 +1711,744 @@ Fixes:
       }
     }
 
-    function openPrintWindow(html){
-      const w = window.open('', '_blank', 'noopener,noreferrer');
-      if(!w){ srShowBanner('Popup blocked. Allow popups to print.'); return; }
-      w.document.open();
-      w.document.write(html);
-      w.document.close();
+    function wireServiceRecordTap(){
+      const list = $('srList');
+      if(!list) return;
+
+      list.addEventListener('click', (e)=>{
+        const item = e.target?.closest?.('.sr-item');
+        if(!item) return;
+        const rid = item.dataset.id || '';
+        if(!rid) return;
+        void renderSrDetail(rid);
+      });
     }
 
-    function buildPrintShell({ title, subtitle, bodyHtml }){
-      // NOTE: Template string MUST be properly closed with a final backtick.
-      // IMPORTANT: never write a literal closing SCRIPT tag sequence inside this module script.
-      const safeTitle = String(title || '');
-      const safeSub   = String(subtitle || '');
-      const htmlBody  = String(bodyHtml || '');
+    /* ===========================
+       PRINT (same style as Equipment Maintenance — Work Orders page)
+       =========================== */
+    async function loadCompanyHeader(db){
+      try{
+        const ref = doc(db, 'company', 'main');
+        const snap = await getDoc(ref);
+        const d = snap.exists() ? (snap.data() || {}) : {};
+        const name = d.name || '';
+        const address = [
+          d.addressStreet || '',
+          [d.addressCity, d.addressState].filter(Boolean).join(', '),
+          d.addressZip || ''
+        ].filter(Boolean).join(' · ');
+        const phone = d.phone || '';
+        const email = d.email || '';
+        return { name, address, phone, email };
+      }catch(e){
+        console.warn('[hub][sr] failed to load company header', e);
+        return { name:'', address:'', phone:'', email:'' };
+      }
+    }
+
+    function getSortDateForWO(d){
+      const done = toDateMaybe(d.completedAt);
+      const upd  = toDateMaybe(d.updatedAt);
+      const crt  = toDateMaybe(d.createdAt);
+      return done || upd || crt || null;
+    }
+
+    function computeCounts(items){
+      const pending = items.filter(x => normalizeStatus(x.data.status) === 'pending').length;
+      const ip = items.filter(x => normalizeStatus(x.data.status) === 'in_progress').length;
+      const done = items.filter(x => normalizeStatus(x.data.status) === 'completed').length;
+      return { pending, ip, done, total: items.length };
+    }
+
+    function computeDateRange(items){
+      if(!items.length) return '';
+      let min = Infinity, max = -Infinity;
+      items.forEach(wo=>{
+        const d = wo.data?._sortDate || null;
+        if(!d) return;
+        const t = d.getTime();
+        if(t < min) min = t;
+        if(t > max) max = t;
+      });
+      if(!Number.isFinite(min) || !Number.isFinite(max)) return '';
+      const a = new Date(min);
+      const b = new Date(max);
+      if(a.toDateString() === b.toDateString()) return formatDate(a);
+      return `${formatDate(a)} – ${formatDate(b)}`;
+    }
+
+    function groupForPrint(items){
+      const typeKey = String(SR.eqTypeKey || 'unknown').toLowerCase() || 'unknown';
+      const equipObj = {
+        equipId: id,
+        name: SR.eqTitle || 'Equipment',
+        make: SR.eqMake || '',
+        model: SR.eqModel || '',
+        serial: SR.eqSerial || '',
+        workOrders: items
+      };
+      return [[typeKey, [equipObj]]];
+    }
+
+    function summarizePrintContext(){
+      const parts = [];
+      parts.push(`Equipment: ${SR.eqTitle || 'Equipment'}`);
+      parts.push(`Type: ${titleCaseType(SR.eqTypeKey || '') || '—'}`);
+      return parts.join(' • ');
+    }
+
+    async function printHtml(html, fileName, title){
+      if (window.FVPdf && typeof window.FVPdf.openHtml === 'function') {
+        try{
+          window.FVPdf.openHtml({ html, fileName, title });
+          return;
+        }catch(err){
+          console.warn('[hub][sr] FVPdf.openHtml failed, falling back to native print()', err);
+        }
+      }
+
+      let iframe = document.getElementById('fv-print-frame');
+      if(!iframe){
+        iframe = document.createElement('iframe');
+        iframe.id = 'fv-print-frame';
+        iframe.style.position='fixed';
+        iframe.style.right='0';
+        iframe.style.bottom='0';
+        iframe.style.width='0';
+        iframe.style.height='0';
+        iframe.style.border='0';
+        iframe.style.visibility='hidden';
+        document.body.appendChild(iframe);
+      }
+
+      const win = iframe.contentWindow || iframe.contentDocument;
+      const docu = iframe.contentDocument || iframe.contentWindow.document;
+
+      docu.open();
+      docu.write(html);
+      docu.close();
+
+      setTimeout(() => {
+        try{ win.focus(); win.print(); }
+        catch(err){
+          console.warn('[hub][sr] iframe print failed, falling back to window.print()', err);
+          window.print();
+        }
+      }, 420);
+    }
+
+    /* ===== COPY OF YOUR MAINTENANCE REPORT BUILDERS (scoped to this equipment) ===== */
+    function buildSummaryPrintHtml({ company, runStr, runDateOnly, filterSummary, dateRange, counts, grouped, preseasonCount }){
+      return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Equipment Maintenance — Summary</title>
+  <style>
+    :root{
+      --fv-green:#3B7E46;
+      --fv-border:#D1D5DB;
+      --fv-text:#111827;
+      --fv-muted:#6B7280;
+      --fv-bg:#F3F4F6;
+    }
+    *{box-sizing:border-box;}
+    html,body{ margin:0; padding:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--fv-text); background:var(--fv-bg); }
+    body{ display:flex; justify-content:center; padding:22px 12px; }
+    .page{ width:100%; max-width:920px; background:#fff; border-radius:14px; box-shadow:0 10px 30px rgba(15,23,42,0.12); padding:20px 22px 22px; }
+    .hdr{ display:grid; grid-template-columns:auto 1fr auto; gap:14px; align-items:center; border-bottom:2px solid var(--fv-green); padding-bottom:12px; margin-bottom:14px; }
+    .logo{ width:60px;height:60px;border-radius:16px; border:1px solid var(--fv-border); display:flex;align-items:center;justify-content:center; font-size:24px;font-weight:900;color:#fff; background:radial-gradient(circle at 30% 0%, #4CAF50, var(--fv-green)); }
+    .co-name{font-size:16px;font-weight:900;margin:0 0 2px;}
+    .co-line{font-size:11px;color:var(--fv-muted);margin:0;line-height:1.35;}
+    .meta{ text-align:right; font-size:11px; color:var(--fv-muted); line-height:1.35; white-space:nowrap; }
+    .meta strong{color:var(--fv-text);}
+    .title{ margin:0; font-size:18px; font-weight:950; letter-spacing:0.06em; text-transform:uppercase; }
+    .subtitle{ margin:4px 0 0; font-size:12px; color:var(--fv-muted); line-height:1.35; }
+
+    .summary{
+      margin-top:10px;
+      padding:8px 10px;
+      border-radius:12px;
+      background:linear-gradient(90deg, rgba(59,126,70,0.10), transparent);
+      border:1px solid rgba(59,126,70,0.22);
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 14px;
+      font-size:11px;
+    }
+    .pill{display:inline-flex; gap:6px; align-items:baseline; white-space:nowrap;}
+    .k{font-size:10px; text-transform:uppercase; letter-spacing:0.10em; color:var(--fv-muted); font-weight:700;}
+    .v{font-weight:800; color:var(--fv-text);}
+
+    .kpis{ margin-top:12px; display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:10px; }
+    .kpi{ border:1px solid var(--fv-border); border-radius:12px; padding:9px 10px; background:linear-gradient(135deg, rgba(59,126,70,0.06), #fff); }
+    .kpi .lab{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--fv-muted);font-weight:900;}
+    .kpi .val{font-size:18px;font-weight:950;margin-top:2px;}
+    .kpi .note{font-size:10px;color:var(--fv-muted);margin-top:2px;line-height:1.25;}
+
+    .section{ margin-top:16px; border-top:1px solid #EEF2F7; padding-top:14px; }
+    .type-title{ font-size:12px; font-weight:950; letter-spacing:0.10em; text-transform:uppercase; color:#1F2937; margin:0 0 8px; display:flex; justify-content:space-between; gap:10px; align-items:baseline; }
+    .equip-card{ border:1px solid var(--fv-border); border-radius:12px; padding:10px 10px 9px; margin-bottom:10px; break-inside:avoid; }
+    .equip-name{ font-weight:950; font-size:13px; line-height:1.25; }
+    .equip-sub{ margin-top:2px; font-size:11px; color:var(--fv-muted); }
+
+    .wo-tags{ margin-top:8px; display:flex; flex-wrap:wrap; gap:6px; }
+    .tag{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:3px 8px;
+      border-radius:999px;
+      border:1px solid #E5E7EB;
+      background:#F9FAFB;
+      font-size:10px;
+      font-weight:950;
+      letter-spacing:0.08em;
+      text-transform:uppercase;
+      color:#111827;
+      white-space:nowrap;
+    }
+    .tag .n{
+      font-size:10px;
+      font-weight:950;
+      letter-spacing:0.02em;
+      text-transform:none;
+      color:var(--fv-muted);
+    }
+    .tag.pre{
+      border-color: rgba(59,126,70,0.28);
+      background: rgba(59,126,70,0.08);
+    }
+    .tag.req{
+      border-color: rgba(17,24,39,0.18);
+      background: rgba(17,24,39,0.04);
+    }
+
+    .footer{ margin-top:16px; padding-top:10px; border-top:1px solid var(--fv-border); display:flex; justify-content:space-between; gap:12px; font-size:10px; color:var(--fv-muted); line-height:1.3; }
+    .footer .l{max-width:65%;}
+    .footer .r{text-align:right;}
+    @media (max-width:860px){
+      .kpis{grid-template-columns:repeat(2, minmax(0,1fr));}
+      .meta{white-space:normal;}
+    }
+    @media print{
+      html,body{background:#fff;padding:0;}
+      .page{ max-width:none; border-radius:0; box-shadow:none; padding:12mm 13mm; }
+      .equip-card{break-inside:avoid; page-break-inside:avoid;}
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="hdr">
+      <div class="logo"><span>DF</span></div>
+      <div>
+        <p class="co-name">${escapeHtml(company.name || '')}</p>
+        <p class="co-line">
+          ${company.address ? escapeHtml(company.address) + '<br>' : ''}
+          ${company.phone ? 'Phone: ' + escapeHtml(company.phone) : ''}${company.phone && company.email ? ' · ' : ''}
+          ${company.email ? 'Email: ' + escapeHtml(company.email) : ''}
+        </p>
+      </div>
+      <div class="meta">
+        <div><strong>Equipment Maintenance</strong></div>
+        <div>Generated: ${escapeHtml(runStr)}</div>
+        <div>Prepared by: ${escapeHtml(company.name || 'FarmVista')}</div>
+      </div>
+    </header>
+
+    <h1 class="title">Equipment Maintenance — Summary</h1>
+    <p class="subtitle">Summary of work orders for active equipment, grouped by type and equipment. Matches current selection.</p>
+
+    <div class="summary">
+      <div class="pill"><span class="k">Date range</span><span class="v">${escapeHtml(dateRange || 'All dates')}</span></div>
+      <div class="pill"><span class="k">Filters</span><span class="v">${escapeHtml(filterSummary)}</span></div>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi">
+        <div class="lab">Work orders</div>
+        <div class="val">${counts.total}</div>
+        <div class="note">Matching selection</div>
+      </div>
+
+      <div class="kpi"><div class="lab">Pending</div><div class="val">${counts.pending}</div></div>
+      <div class="kpi"><div class="lab">In progress</div><div class="val">${counts.ip}</div></div>
+      <div class="kpi"><div class="lab">Completed</div><div class="val">${counts.done}</div></div>
+
+      <div class="kpi">
+        <div class="lab">Pre-Season Checks</div>
+        <div class="val">${Number(preseasonCount || 0)}</div>
+        <div class="note">From pre-check templates</div>
+      </div>
+    </div>
+
+    ${grouped.map(([typeKey, equipmentArr]) => {
+      const typeLabel = typeKey === 'unknown' ? 'Unknown type' : titleCaseType(typeKey);
+      const typeTotal = equipmentArr.reduce((sum, e) => sum + (e.workOrders?.length || 0), 0);
+
+      return `
+      <section class="section">
+        <div class="type-title">
+          <span>${escapeHtml(typeLabel)}</span>
+          <span style="font-size:11px;color:var(--fv-muted);letter-spacing:0.06em;text-transform:none;font-weight:900;">${typeTotal} total</span>
+        </div>
+
+        ${equipmentArr.map(e => {
+          const wos = Array.isArray(e.workOrders) ? e.workOrders : [];
+          const preCount = wos.filter(wo => isPreSeasonWO(wo && wo.data)).length;
+          const reqCount = Math.max(0, wos.length - preCount);
+
+          return `
+            <div class="equip-card">
+              <div class="equip-name">${escapeHtml(e.name || 'Equipment')}</div>
+              <div class="equip-sub">${escapeHtml([e.make, e.model].filter(Boolean).join(' ') || '')}${e.serial ? ` · Serial: ${escapeHtml(e.serial)}` : ''}</div>
+
+              <div class="wo-tags" aria-label="Work order origin">
+                ${reqCount ? `<span class="tag req">Service Request</span>` : ''}
+                ${preCount ? `<span class="tag pre">Pre-Season Check List</span>` : ''}
+                ${(!reqCount && !preCount) ? `<span class="tag req">No work orders <span class="n">(0)</span></span>` : ''}
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </section>
+      `;
+    }).join('')}
+
+    <footer class="footer">
+      <div class="l">Summary report. Line-item details are available in the detailed report.</div>
+      <div class="r">FarmVista • Equipment Maintenance • ${escapeHtml(runDateOnly || '')}</div>
+    </footer>
+  </div>
+</body>
+</html>`;
+    }
+
+    function buildDetailedPrintHtml({ company, runStr, runDateOnly, filterSummary, dateRange, counts, grouped, tplItemsById }){
+      function resolvePreSeasonLineItemPrint(li, idx, tplItems){
+        const origin = String(li?.origin || '').toLowerCase();
+        const isPreSeasonItem = (origin === 'precheck_template');
+
+        if(!isPreSeasonItem){
+          const topic = li?.serviceTopicOther ? String(li.serviceTopicOther) : titleCaseType(li?.serviceTopic || 'Service');
+          return {
+            isPreSeasonItem:false,
+            topic: String(topic || '').trim() || 'Service',
+            notes: (String(li?.notes || '').trim() || '—'),
+            parts: (String(li?.partsNeeded || '').trim() || '—')
+          };
+        }
+
+        let tplHit = null;
+        if(Array.isArray(tplItems) && tplItems.length){
+          const tplItemId = String(li?.precheckTemplateItemId || '').trim();
+          if(tplItemId){
+            tplHit = tplItems.find(t => t.id === tplItemId) || null;
+          }
+          if(!tplHit && tplItems[idx]) tplHit = tplItems[idx];
+        }
+
+        const resolvedLabel =
+          String(li?.label || '').trim() ||
+          String(tplHit?.label || '').trim() ||
+          String(li?.checkItem || li?.item || li?.title || '').trim() ||
+          'Inspection Item';
+
+        const resolvedNotesHint =
+          String(li?.notesHint || '').trim() ||
+          String(tplHit?.notesHint || '').trim() ||
+          '—';
+
+        return {
+          isPreSeasonItem:true,
+          topic: resolvedLabel,
+          notes: resolvedNotesHint,
+          parts: ''
+        };
+      }
+
+      const preseasonCount = (grouped || []).reduce((sum, [, equipmentArr]) => {
+        const eqSum = (equipmentArr || []).reduce((s2, e) => {
+          const wos = Array.isArray(e.workOrders) ? e.workOrders : [];
+          return s2 + wos.filter(wo => isPreSeasonWO(wo && wo.data)).length;
+        }, 0);
+        return sum + eqSum;
+      }, 0);
 
       return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
-  <title>${safeTitle}</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Equipment Maintenance — Detailed</title>
   <style>
-    body{ font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; margin:20px; color:#111; }
-    h1{ margin:0 0 6px; font-size:20px; }
-    .muted{ color:#666; margin:0 0 14px; }
-    .bar{ display:flex; gap:10px; align-items:center; justify-content:space-between; margin:0 0 14px; }
-    .btn{
-      border:1px solid #ddd; border-radius:10px; padding:10px 12px;
-      font-weight:800; background:#f7f7f7; cursor:pointer;
+    :root{
+      --fv-green:#3B7E46;
+      --fv-border:#D1D5DB;
+      --fv-text:#111827;
+      --fv-muted:#6B7280;
+      --fv-bg:#F3F4F6;
     }
-    @media print{ .bar{ display:none; } body{ margin:0.5in; } }
-    table{ width:100%; border-collapse:collapse; }
-    th{ text-align:left; font-size:12px; color:#444; padding:8px 10px; border-bottom:2px solid #111; }
-    td{ font-size:13px; padding:8px 10px; border-bottom:1px solid #ddd; vertical-align:top; }
+    *{box-sizing:border-box;}
+    html,body{ margin:0; padding:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--fv-text); background:var(--fv-bg); }
+    body{ display:flex; justify-content:center; padding:22px 12px; }
+
+    .page{ width:100%; max-width:920px; background:#fff; border-radius:14px; box-shadow:0 10px 30px rgba(15,23,42,0.12); padding:20px 22px 22px; }
+
+    .hdr{ display:grid; grid-template-columns:auto 1fr auto; gap:14px; align-items:center; border-bottom:2px solid var(--fv-green); padding-bottom:12px; margin-bottom:14px; }
+    .logo{ width:60px;height:60px;border-radius:16px; border:1px solid var(--fv-border); display:flex;align-items:center;justify-content:center; font-size:24px;font-weight:900;color:#fff; background:radial-gradient(circle at 30% 0%, #4CAF50, var(--fv-green)); }
+    .co-name{font-size:16px;font-weight:900;margin:0 0 2px;}
+    .co-line{font-size:11px;color:var(--fv-muted);margin:0;line-height:1.35;}
+    .meta{ text-align:right; font-size:11px; color:var(--fv-muted); line-height:1.35; white-space:nowrap; }
+    .meta strong{color:var(--fv-text);}
+
+    .title{ margin:0; font-size:18px; font-weight:950; letter-spacing:0.06em; text-transform:uppercase; }
+    .subtitle{ margin:4px 0 0; font-size:12px; color:var(--fv-muted); line-height:1.35; }
+
+    .summary{
+      margin-top:10px; padding:8px 10px; border-radius:12px;
+      background:linear-gradient(90deg, rgba(59,126,70,0.10), transparent);
+      border:1px solid rgba(59,126,70,0.22);
+      display:flex; flex-wrap:wrap; gap:6px 14px; font-size:11px;
+    }
+    .pill{display:inline-flex; gap:6px; align-items:baseline; white-space:nowrap;}
+    .k{font-size:10px; text-transform:uppercase; letter-spacing:0.10em; color:var(--fv-muted); font-weight:700;}
+    .v{font-weight:800; color:var(--fv-text);}
+
+    .kpis{ margin-top:12px; display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:10px; }
+    .kpi{ border:1px solid var(--fv-border); border-radius:12px; padding:9px 10px; background:linear-gradient(135deg, rgba(59,126,70,0.06), #fff); }
+    .kpi .lab{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--fv-muted);font-weight:900; white-space:nowrap;}
+    .kpi .val{font-size:18px;font-weight:950;margin-top:2px;line-height:1.05; white-space:nowrap;}
+    .kpi .note{font-size:10px;color:var(--fv-muted);margin-top:2px;line-height:1.25;}
+
+    .section{ margin-top:16px; border-top:1px solid #EEF2F7; padding-top:14px; }
+
+    .type-head{ display:flex; justify-content:space-between; gap:10px; align-items:baseline; margin:12px 0 8px; }
+    .type-title{ font-size:12px; font-weight:950; letter-spacing:0.10em; text-transform:uppercase; color:#111827; margin:0; white-space:nowrap; }
+    .type-right{ font-size:11px; color:var(--fv-muted); font-weight:900; white-space:nowrap; text-align:right; }
+
+    .equip-card{
+      border:1px solid var(--fv-border);
+      border-radius:12px;
+      padding:10px 10px 9px;
+      margin-bottom:10px;
+      break-inside:auto;
+      page-break-inside:auto;
+    }
+    .equip-name{ font-weight:950; font-size:13px; line-height:1.25; }
+    .equip-sub{ margin-top:2px; font-size:11px; color:var(--fv-muted); }
+
+    .wo{
+      margin-top:10px;
+      border:1px solid #E5E7EB;
+      border-radius:12px;
+      padding:10px 10px 9px;
+      break-inside:auto;
+      page-break-inside:auto;
+    }
+
+    .wo-head{ display:flex; justify-content:space-between; gap:10px; align-items:flex-start; padding-bottom:8px; border-bottom:1px solid #EEF2F7; margin-bottom:8px; }
+    .wo-title{ font-weight:950; font-size:12px; line-height:1.25; }
+    .wo-sub{ margin-top:2px; font-size:10px; color:var(--fv-muted); line-height:1.25; }
+
+    .wo-right{ display:flex; gap:6px; align-items:flex-start; justify-content:flex-end; flex:0 0 auto; white-space:nowrap; }
+    .pill-pre{
+      font-size:9px; font-weight:950; letter-spacing:0.08em; text-transform:uppercase;
+      padding:3px 8px; border-radius:999px;
+      border:1px solid rgba(59,126,70,0.28);
+      background:rgba(59,126,70,0.08);
+      color:#0F172A;
+      white-space:nowrap;
+    }
+    .badge{
+      font-size:9px; font-weight:950; letter-spacing:0.08em; text-transform:uppercase;
+      padding:3px 8px; border-radius:999px;
+      border:1px solid rgba(59,126,70,0.26);
+      background:rgba(59,126,70,0.06);
+      color:#0F172A;
+      white-space:nowrap;
+    }
+    .badge.open{ border-color: rgba(234,179,8,0.35); background: rgba(234,179,8,0.10); }
+
+    .wo-meta{ display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px 10px; font-size:10px; }
+    .pair .kk{ font-size:9px; text-transform:uppercase; letter-spacing:0.10em; color:var(--fv-muted); font-weight:900; margin-bottom:2px; line-height:1.1; white-space:nowrap; }
+    .pair .vv{ font-weight:650; color:#111827; line-height:1.2; word-break:break-word; }
+
+    .lines{ margin-top:8px; padding-top:8px; border-top:1px dashed #E5E7EB; }
+
+    .line{
+      border:1px solid #E5E7EB;
+      border-radius:12px;
+      padding:9px 9px 8px;
+      margin-top:8px;
+      break-inside:avoid;
+      page-break-inside:avoid;
+      background:linear-gradient(135deg, rgba(59,126,70,0.05), #fff);
+    }
+    .line-top{ display:flex; justify-content:space-between; gap:10px; align-items:flex-start; margin-bottom:8px; padding-bottom:7px; border-bottom:1px solid #EEF2F7; }
+    .line-title{ font-weight:950; font-size:11px; line-height:1.25; }
+    .line-badge{
+      font-size:9px; font-weight:950; letter-spacing:0.08em; text-transform:uppercase;
+      padding:3px 8px; border-radius:999px;
+      border:1px solid rgba(59,126,70,0.26);
+      background:rgba(59,126,70,0.06);
+      white-space:nowrap;
+      flex:0 0 auto;
+    }
+    .line-badge.open{ border-color: rgba(234,179,8,0.35); background: rgba(234,179,8,0.10); }
+
+    .line-grid{ display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px 10px; font-size:10px; }
+    .line-notes{ grid-column:1/-1; margin-top:6px; padding-top:6px; border-top:1px dashed #E5E7EB; white-space:pre-wrap; line-height:1.25; font-size:10px; }
+
+    .footer{ margin-top:16px; padding-top:10px; border-top:1px solid var(--fv-border); display:flex; justify-content:space-between; gap:12px; font-size:10px; color:var(--fv-muted); line-height:1.3; }
+    .footer .l{max-width:65%;}
+    .footer .r{text-align:right;}
+
+    @media (max-width:860px){
+      .kpis{grid-template-columns:repeat(2, minmax(0,1fr));}
+      .meta{white-space:normal;}
+      .wo-meta{grid-template-columns:repeat(2, minmax(0,1fr));}
+      .line-grid{grid-template-columns:repeat(2, minmax(0,1fr));}
+      .wo-right{white-space:normal; flex-wrap:wrap;}
+    }
+
+    @media print{
+      html,body{background:#fff;padding:0;}
+      body{padding:0;}
+      .page{ max-width:none; border-radius:0; box-shadow:none; padding:12mm 13mm; }
+      .equip-card{ break-inside:auto; page-break-inside:auto; }
+      .wo{ break-inside:auto; page-break-inside:auto; }
+      .line{ break-inside:avoid; page-break-inside:avoid; }
+    }
   </style>
 </head>
 <body>
-  <div class="bar">
-    <div>
-      <h1>${safeTitle}</h1>
-      <div class="muted">${safeSub}</div>
+  <div class="page">
+    <header class="hdr">
+      <div class="logo"><span>DF</span></div>
+      <div>
+        <p class="co-name">${escapeHtml(company.name || '')}</p>
+        <p class="co-line">
+          ${company.address ? escapeHtml(company.address) + '<br>' : ''}
+          ${company.phone ? 'Phone: ' + escapeHtml(company.phone) : ''}${company.phone && company.email ? ' · ' : ''}
+          ${company.email ? 'Email: ' + escapeHtml(company.email) : ''}
+        </p>
+      </div>
+      <div class="meta">
+        <div><strong>Equipment Maintenance</strong></div>
+        <div>Generated: ${escapeHtml(runStr)}</div>
+        <div>Prepared by: ${escapeHtml(company.name || 'FarmVista')}</div>
+      </div>
+    </header>
+
+    <h1 class="title">Equipment Maintenance — Detailed</h1>
+    <p class="subtitle">Detailed work orders and line items for active equipment. Matches current selection.</p>
+
+    <div class="summary">
+      <div class="pill"><span class="k">Date range</span><span class="v">${escapeHtml(dateRange || 'All dates')}</span></div>
+      <div class="pill"><span class="k">Filters</span><span class="v">${escapeHtml(filterSummary)}</span></div>
     </div>
-    <button class="btn" onclick="window.print()">Print</button>
+
+    <div class="kpis">
+      <div class="kpi"><div class="lab">Work orders</div><div class="val">${counts.total}</div><div class="note">Matching selection</div></div>
+      <div class="kpi"><div class="lab">Pending</div><div class="val">${counts.pending}</div></div>
+      <div class="kpi"><div class="lab">In progress</div><div class="val">${counts.ip}</div></div>
+      <div class="kpi"><div class="lab">Completed</div><div class="val">${counts.done}</div></div>
+      <div class="kpi"><div class="lab">Pre-Season Checks</div><div class="val">${Number(preseasonCount || 0)}</div><div class="note">From pre-check templates</div></div>
+    </div>
+
+    ${grouped.map(([typeKey, equipmentArr]) => {
+      const typeLabel = typeKey === 'unknown' ? 'Unknown type' : titleCaseType(typeKey);
+      const typeTotal = (equipmentArr || []).reduce((sum, e) => sum + ((e.workOrders || []).length), 0);
+
+      return `
+      <section class="section">
+        <div class="type-head">
+          <h3 class="type-title">${escapeHtml(typeLabel)}</h3>
+          <div class="type-right">${typeTotal} total</div>
+        </div>
+
+        ${(equipmentArr || []).map(e => {
+          const wos = Array.isArray(e.workOrders) ? e.workOrders : [];
+          return `
+            <div class="equip-card">
+              <div class="equip-name">${escapeHtml(e.name || 'Equipment')}</div>
+              <div class="equip-sub">${escapeHtml([e.make, e.model].filter(Boolean).join(' ') || '')}${e.serial ? ` · Serial: ${escapeHtml(e.serial)}` : ''}</div>
+
+              ${wos.map(wo => {
+                const d = wo.data || {};
+                const stNorm = normalizeStatus(d.status);
+                const st = statusLabel(d.status);
+
+                const created = d.createdAt ? formatDateTime(toDateMaybe(d.createdAt)) : '—';
+                const updated = d.updatedAt ? formatDateTime(toDateMaybe(d.updatedAt)) : '—';
+                const completedAt = d.completedAt ? formatDateTime(toDateMaybe(d.completedAt)) : '—';
+
+                const meterLine = d.meterLabel
+                  ? (String(d.meterLabel) + ((d.completionMeter != null) ? (': ' + String(d.completionMeter)) : ''))
+                  : '—';
+
+                const lineItems = Array.isArray(d.lineItems) ? d.lineItems : [];
+                const openCount = lineItems.filter(x=>!x?.completed).length;
+
+                const pre = isPreSeasonWO(d);
+                const tplId = String(d.precheckTemplateId || d.preCheckTemplateId || '').trim();
+                const tplItems = (pre && tplId && tplItemsById && tplItemsById[tplId]) ? tplItemsById[tplId] : null;
+
+                return `
+                  <article class="wo">
+                    <div class="wo-head">
+                      <div>
+                        <div class="wo-title">${escapeHtml(e.name || 'Equipment')} — ${lineItems.length} item${lineItems.length===1?'':'s'} (${openCount} open)</div>
+                        <div class="wo-sub">Meter: ${escapeHtml(meterLine)} · Created: ${escapeHtml(created)}${updated && updated!=='—' ? ` · Updated: ${escapeHtml(updated)}` : ''}${completedAt && completedAt!=='—' ? ` · Completed: ${escapeHtml(completedAt)}` : ''}</div>
+                      </div>
+                      <div class="wo-right">
+                        ${pre ? `<span class="pill-pre">Pre-Season Check List</span>` : ``}
+                        <span class="badge ${stNorm==='completed' ? '' : 'open'}">${escapeHtml(st)}</span>
+                      </div>
+                    </div>
+
+                    ${d.summaryNotes ? `<div class="lines"><div class="pair"><div class="kk">Summary notes</div><div class="vv">${escapeHtml(String(d.summaryNotes))}</div></div></div>` : ''}
+
+                    <div class="lines">
+                      ${lineItems.map((li, idx) => {
+                        const r = resolvePreSeasonLineItemPrint(li, idx, tplItems);
+
+                        const isDone = !!li.completed;
+                        const badge = isDone ? 'Completed' : 'Open';
+                        const submittedBy = (li.submittedByName || '').trim() || '—';
+                        const completedBy = (li.completedByEmployeeName || li.completedByEmployeeId || '').trim() || '—';
+                        const doneAt = li.completedAt ? formatDateTime(toDateMaybe(li.completedAt)) : '—';
+
+                        return `
+                          <div class="line">
+                            <div class="line-top">
+                              <div class="line-title">
+                                ${escapeHtml(r.topic)}
+                                ${r.isPreSeasonItem ? '' : ` <span style="opacity:.65;font-weight:800">#${idx+1}</span>`}
+                              </div>
+                              <div class="line-badge ${isDone ? '' : 'open'}">${escapeHtml(badge)}</div>
+                            </div>
+
+                            <div class="line-grid">
+                              <div class="pair"><div class="kk">Submitted by</div><div class="vv">${escapeHtml(submittedBy)}</div></div>
+                              <div class="pair"><div class="kk">Completed by</div><div class="vv">${escapeHtml(completedBy)}</div></div>
+                              ${r.isPreSeasonItem ? '' : `<div class="pair"><div class="kk">Parts</div><div class="vv">${escapeHtml(r.parts)}</div></div>`}
+                              <div class="pair"><div class="kk">Completed at</div><div class="vv">${escapeHtml(doneAt)}</div></div>
+
+                              <div class="line-notes">
+                                <span class="kk" style="display:block;margin-bottom:2px;">${escapeHtml(r.isPreSeasonItem ? 'Guidance' : 'Notes')}</span>
+                                ${escapeHtml(r.notes)}
+                              </div>
+                            </div>
+                          </div>
+                        `;
+                      }).join('')}
+                    </div>
+                  </article>
+                `;
+              }).join('')}
+            </div>
+          `;
+        }).join('')}
+      </section>
+      `;
+    }).join('')}
+
+    <footer class="footer">
+      <div class="l">Detailed report includes work orders and line items. Data reflects what is stored in FarmVista.</div>
+      <div class="r">FarmVista • Equipment Maintenance • ${escapeHtml(runDateOnly || '')}</div>
+    </footer>
   </div>
-
-  ${htmlBody}
-
 </body>
 </html>`;
     }
 
-    function buildSummaryPrintHtml(){
-      const eqLabel = $('eqName')?.textContent || 'Equipment';
-      const items = (SR.rows||[]).map(r=>{
-        const d = r.data || {};
-        const when = fmtDateTime(bestRecordDate(d));
-        return `<tr>
-          <td style="width:190px">${when}</td>
-          <td>${pickTitle(d)}</td>
-          <td style="width:130px">${normStatus(d.status)}</td>
-        </tr>`;
-      }).join('');
+    async function runSummaryPrint(){
+      const itemsRaw = SR.rows || [];
+      if(!itemsRaw.length){ srShowBanner('No records to print.'); return; }
 
-      const body = `
-        <table>
-          <thead>
-            <tr><th style="width:190px">Date</th><th>Record</th><th style="width:130px">Status</th></tr>
-          </thead>
-          <tbody>
-            ${items || `<tr><td colspan="3">No records.</td></tr>`}
-          </tbody>
-        </table>
-      `;
-      return buildPrintShell({
-        title: 'Service Records — Summary',
-        subtitle: eqLabel,
-        bodyHtml: body
+      if(!SR.db) SR.db = getFirestore();
+      const company = await loadCompanyHeader(SR.db);
+
+      const items = itemsRaw.map(x=>{
+        const d = x.data || {};
+        return { id:x.id, data:{ ...d, _sortDate: getSortDateForWO(d) } };
       });
+
+      const now = new Date();
+      const runStr = formatDateTime(now);
+      const runDateOnly = formatDate(now);
+
+      const counts = computeCounts(items);
+      const grouped = groupForPrint(items);
+      const filterSummary = summarizePrintContext();
+      const dateRange = computeDateRange(items);
+
+      const preseasonCount = items.filter(wo => isPreSeasonWO(wo.data)).length;
+
+      const html = buildSummaryPrintHtml({
+        company,
+        runStr,
+        runDateOnly,
+        filterSummary,
+        dateRange,
+        counts,
+        grouped,
+        preseasonCount
+      });
+
+      const fileName = `equipment_maintenance_summary_${now.toISOString().slice(0,10)}.pdf`;
+      await printHtml(html, fileName, 'Equipment Maintenance — Summary');
     }
 
-    function buildDetailedPrintHtml(){
-      const eqLabel = $('eqName')?.textContent || 'Equipment';
-      const blocks = (SR.rows||[]).map(r=>{
-        const d = r.data || {};
-        const when = fmtDateTime(bestRecordDate(d));
-        const title = pickTitle(d);
-        const notes = pickNotes(d);
-        return `
-          <div style="border:1px solid #ddd;border-radius:10px;padding:12px;margin:0 0 12px;">
-            <div style="font-weight:900;margin:0 0 4px;">${title}</div>
-            <div style="color:#666;font-size:12px;margin:0 0 8px;">${when} • ${normStatus(d.status)}</div>
-            ${notes ? `<div style="white-space:pre-wrap;line-height:1.35;font-size:13px;">${notes}</div>` : `<div style="color:#777;font-size:13px;">(No details)</div>`}
-          </div>
-        `;
-      }).join('');
+    async function runDetailedPrint(){
+      const itemsRaw = SR.rows || [];
+      if(!itemsRaw.length){ srShowBanner('No records to print.'); return; }
 
-      return buildPrintShell({
-        title: 'Service Records — Detailed',
-        subtitle: eqLabel,
-        bodyHtml: blocks || `<div>No records.</div>`
+      if(!SR.db) SR.db = getFirestore();
+      const company = await loadCompanyHeader(SR.db);
+
+      const items = itemsRaw.map(x=>{
+        const d = x.data || {};
+        return { id:x.id, data:{ ...d, _sortDate: getSortDateForWO(d) } };
       });
+
+      // preload template items for any pre-season WOs
+      const tplItemsById = {};
+      for(const wo of items){
+        const d = wo?.data || {};
+        if(!isPreSeasonWO(d)) continue;
+        const tplId = String(d.precheckTemplateId || d.preCheckTemplateId || '').trim();
+        if(!tplId) continue;
+        if(tplItemsById[tplId]) continue;
+        const t = await getPrecheckTemplateItems(SR.db, tplId);
+        tplItemsById[tplId] = Array.isArray(t) ? t : [];
+      }
+
+      const now = new Date();
+      const runStr = formatDateTime(now);
+      const runDateOnly = formatDate(now);
+
+      const counts = computeCounts(items);
+      const grouped = groupForPrint(items);
+      const filterSummary = summarizePrintContext();
+      const dateRange = computeDateRange(items);
+
+      const html = buildDetailedPrintHtml({
+        company,
+        runStr,
+        runDateOnly,
+        filterSummary,
+        dateRange,
+        counts,
+        grouped,
+        tplItemsById
+      });
+
+      const fileName = `equipment_maintenance_detailed_${now.toISOString().slice(0,10)}.pdf`;
+      await printHtml(html, fileName, 'Equipment Maintenance — Detailed');
     }
 
     function wireServiceRecordsModalButtons(){
@@ -1350,12 +2462,16 @@ Fixes:
 
       window.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && SR.open) srClose(); });
 
-      $('srPrintSummary')?.addEventListener('click', ()=>{
-        openPrintWindow(buildSummaryPrintHtml());
+      $('srBackBtn')?.addEventListener('click', ()=> srShowListView());
+
+      $('srPrintSummary')?.addEventListener('click', async ()=>{
+        srShowBanner('');
+        await runSummaryPrint();
       });
 
-      $('srPrintDetailed')?.addEventListener('click', ()=>{
-        openPrintWindow(buildDetailedPrintHtml());
+      $('srPrintDetailed')?.addEventListener('click', async ()=>{
+        srShowBanner('');
+        await runDetailedPrint();
       });
     }
 
@@ -1483,6 +2599,15 @@ Fixes:
       setText('eqName', title);
       if(ls) setText('eqSerial', `SN #${ls}`, { unhide:true });
 
+      // store equipment context for SR print + detail
+      SR.eqDoc = d;
+      SR.eqTypeKey = typeKey || 'equipment';
+      SR.eqDisplay = cfg.display || 'Equipment';
+      SR.eqTitle = title || 'Equipment';
+      SR.eqMake = String(d.makeName || '').trim();
+      SR.eqModel = String(d.modelName || '').trim();
+      SR.eqSerial = String(d.serial || '').trim();
+
       updateMetricChip(d, cfg, typeKey);
       $('eqCard').hidden = false;
 
@@ -1511,7 +2636,7 @@ Fixes:
         $('linkReq').href =
           `/Farm-vista/pages/equipment/actions/service-request.html?id=${encodeURIComponent(id)}${from ? `&from=${encodeURIComponent(from)}` : ''}`;
 
-        // Service Records opens popup
+        // Service Records opens modal
         $('linkMaint').href = '#';
         $('linkMaint').onclick = (e)=>{ e.preventDefault(); openServiceRecords(); };
 
@@ -1555,6 +2680,7 @@ Fixes:
 
     wireMetricModalButtons();
     wireServiceRecordsModalButtons();
+    wireServiceRecordTap();
 
     init().catch(e=>{
       console.error('[hub] init fatal', e);
