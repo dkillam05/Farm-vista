@@ -29,6 +29,18 @@
 
   <style>
     :root{ --card-max:1100px; }
+
+    /* ===== QL-820NWB / DK-2205 label sizing (PREVIEW + PRINT) ===== */
+    :root{
+      --ql-label-w: 62mm;   /* DK-2205 width */
+      --ql-label-h: 62mm;   /* requested: "at least a square" */
+      --ql-qr-mm: 26mm;     /* slightly larger since label is square */
+      --ql-pad-mm: 2.2mm;
+      --ql-gap-mm: 2mm;
+      --ql-font: 12pt;
+      --ql-font-small: 10pt;
+    }
+
     html,body{ max-width:100vw; overflow-x:hidden; }
     body{ background:var(--app-bg, var(--bg)); color:var(--text); }
 
@@ -171,6 +183,84 @@
     /* ✅ Force Open Hub to be white text (avoid any browser link blue) */
     #openHub{ color:#fff !important; }
     #openHub:visited{ color:#fff !important; }
+
+    /* ===== Reprint preview label (matches Add page, but square) ===== */
+    .print-help{
+      color:var(--muted,#6f7772);
+      font-size:14px;
+      line-height:1.35;
+      margin:0 0 10px;
+    }
+    .label-preview{
+      width:var(--ql-label-w);
+      height:var(--ql-label-h);
+      border:1px dashed var(--border);
+      border-radius:10px;
+      background:#fff;
+      color:#000;
+      display:grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items:center;
+      gap:var(--ql-gap-mm);
+      padding:var(--ql-pad-mm);
+      box-sizing:border-box;
+      overflow:hidden;
+      margin:0 auto;
+    }
+    .lp-left, .lp-right{
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      min-width:0;
+    }
+    .lp-left .make{
+      font-weight:900;
+      font-size:var(--ql-font);
+      line-height:1.05;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .lp-left .model{
+      font-weight:800;
+      font-size:var(--ql-font-small);
+      line-height:1.05;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      margin-top:1mm;
+    }
+    .lp-mid{
+      width:var(--ql-qr-mm);
+      height:var(--ql-qr-mm);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:#fff;
+    }
+    .lp-mid img{
+      width:100%;
+      height:100%;
+      image-rendering:pixelated;
+      display:block;
+    }
+    .lp-right{
+      align-items:flex-end;
+      text-align:right;
+    }
+    .lp-right .serial-lab{
+      font-weight:800;
+      font-size:8.5pt;
+      line-height:1.05;
+      opacity:.85;
+    }
+    .lp-right .serial-val{
+      font-weight:900;
+      font-size:var(--ql-font);
+      line-height:1.05;
+      letter-spacing:.6px;
+      margin-top:1mm;
+    }
   </style>
 </head>
 <body>
@@ -239,6 +329,40 @@
       <button id="btnPrintQR" class="btn" type="button" disabled>Reprint QR</button>
       <a id="openHub" class="btn btn-primary disabled" href="#" aria-disabled="true">Open Hub</a>
       <button id="dClose2" class="btn" type="button">Close</button>
+    </footer>
+  </dialog>
+
+  <!-- Reprint preview modal -->
+  <dialog id="printPrev" class="sheet" aria-modal="true">
+    <header>
+      <strong>Print QR Label</strong>
+      <button id="pClose" class="btn" type="button">Close</button>
+    </header>
+
+    <div class="body">
+      <p class="print-help">
+        Printer: <b>Brother QL-820NWB</b> • Tape: <b>DK-2205 (62mm / 2.4&quot; continuous)</b> • Orientation: <b>Horizontal</b><br>
+        Label size: <b>62mm × 62mm</b> (square cut)
+      </p>
+
+      <div class="label-preview" aria-label="Label preview">
+        <div class="lp-left">
+          <div id="pMake" class="make">—</div>
+          <div id="pModel" class="model">—</div>
+        </div>
+        <div class="lp-mid">
+          <img id="pQR" alt="QR">
+        </div>
+        <div class="lp-right">
+          <div class="serial-lab">VIN/Serial</div>
+          <div id="pSer" class="serial-val">—</div>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <button id="pPrint" class="btn btn-primary" type="button">Print</button>
+      <button id="pCancel" class="btn" type="button">Cancel</button>
     </footer>
   </dialog>
 
@@ -458,6 +582,41 @@
       }catch{ return ''; }
     }
 
+    // ===== Reprint Preview modal wiring =====
+    const pDlg = document.getElementById('printPrev');
+    const pMake = document.getElementById('pMake');
+    const pModel = document.getElementById('pModel');
+    const pQR = document.getElementById('pQR');
+    const pSer = document.getElementById('pSer');
+    const pClose = document.getElementById('pClose');
+    const pCancel = document.getElementById('pCancel');
+    const pPrint = document.getElementById('pPrint');
+
+    let __pendingPrint = null;
+
+    function openReprintPreview(payload){
+      __pendingPrint = payload || null;
+      if(!__pendingPrint) return;
+
+      pMake.textContent = (__pendingPrint.make || '—');
+      pModel.textContent = (__pendingPrint.model || '—');
+      pSer.textContent = (__pendingPrint.serial6 || '—');
+
+      pQR.src = __pendingPrint.url || '';
+      try{ pDlg.showModal(); }catch{ pDlg.setAttribute('open',''); }
+    }
+    function closeReprintPreview(){
+      __pendingPrint = null;
+      try{ pDlg.close(); }catch{ pDlg.removeAttribute('open'); }
+    }
+    pClose.addEventListener('click', closeReprintPreview);
+    pCancel.addEventListener('click', closeReprintPreview);
+    pPrint.addEventListener('click', ()=>{
+      if(!__pendingPrint) return;
+      printQR(__pendingPrint);
+      closeReprintPreview();
+    });
+
     function openDetail(d){
       btnHub.classList.add('disabled');
       btnHub.setAttribute('aria-disabled','true');
@@ -500,9 +659,8 @@
         qrSection.hidden = false;
         btnPrintQR.disabled = false;
 
-        // ✅ Reprint uses same printer settings/layout as Add → Save & Print:
-        // DK-2205 62mm wide tape, horizontal label, Make/Model left, QR middle, last6 right.
-        btnPrintQR.onclick = ()=> printQR({
+        // ✅ Now: Reprint opens preview (like Add page)
+        btnPrintQR.onclick = ()=> openReprintPreview({
           url,
           make: d.makeName || '',
           model: d.modelName || '',
@@ -588,13 +746,9 @@
       if (r) r.checked = true;
     }
 
-    // ✅ UPDATED: Reprint label matches Add page printer settings/layout
-    // DK-2205 (62mm wide). Using 62mm x 62mm cut length (same “longer” fix you made).
-    // Left: Make (top) + Model (bottom)
-    // Middle: QR
-    // Right: VIN/Serial + last6
+    // ✅ PRINT: square label, matches preview + DK-2205 settings
     function printQR({ url, make, model, serial6 }){
-      const w = window.open('', '_blank', 'noopener,noreferrer,width=620,height=520');
+      const w = window.open('', '_blank', 'noopener,noreferrer,width=720,height=640');
       if (!w) return;
 
       const esc = (s)=>String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
@@ -626,7 +780,7 @@
   .left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:0; }
   .make{
     font-weight:900;
-    font-size:11pt;
+    font-size:12pt;
     line-height:1.05;
     white-space:nowrap;
     overflow:hidden;
@@ -634,7 +788,7 @@
   }
   .model{
     font-weight:800;
-    font-size:9.5pt;
+    font-size:10pt;
     line-height:1.05;
     white-space:nowrap;
     overflow:hidden;
@@ -642,8 +796,8 @@
     margin-top:1mm;
   }
   .mid{
-    width:22mm;
-    height:22mm;
+    width:26mm;
+    height:26mm;
     display:flex;
     align-items:center;
     justify-content:center;
@@ -660,13 +814,13 @@
   }
   .lab{
     font-weight:800;
-    font-size:8.5pt;
+    font-size:9pt;
     line-height:1.05;
     opacity:.85;
   }
   .val{
     font-weight:900;
-    font-size:11pt;
+    font-size:12pt;
     line-height:1.05;
     letter-spacing:.6px;
     margin-top:1mm;
@@ -699,7 +853,7 @@
   if (img && img.complete) { setTimeout(doPrint, 0); }
   else if (img){ img.addEventListener('load', ()=> setTimeout(doPrint, 0), {once:true}); }
   window.addEventListener('afterprint', ()=> { try{ window.close(); }catch(e){} });
-  setTimeout(()=>{ try{ window.close(); }catch(e){} }, 5000);
+  setTimeout(()=>{ try{ window.close(); }catch(e){} }, 6000);
 <\/script>
 </body></html>`;
 
