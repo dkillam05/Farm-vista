@@ -1846,6 +1846,48 @@
 }
 
 function buildDetailedPrintHtml({ company, runStr, runDateOnly, filterSummary, dateRange, counts, grouped }){
+  // Count pre-season WOs from grouped data (no signature change)
+  const preseasonCount = (grouped || []).reduce((sum, [, equipmentArr]) => {
+    const eqSum = (equipmentArr || []).reduce((s2, e) => {
+      const wos = Array.isArray(e.workOrders) ? e.workOrders : [];
+      return s2 + wos.filter(wo => isPreSeasonWO(wo && wo.data)).length;
+    }, 0);
+    return sum + eqSum;
+  }, 0);
+
+  // Split into 2 printable “sections”: Pre-Season first, then Normal by type
+  const preGrouped = [];
+  const normGrouped = [];
+
+  (grouped || []).forEach(([typeKey, equipmentArr]) => {
+    const preEquip = [];
+    const normEquip = [];
+
+    (equipmentArr || []).forEach(e => {
+      const wos = Array.isArray(e.workOrders) ? e.workOrders : [];
+      const preWOs = wos.filter(wo => isPreSeasonWO(wo && wo.data));
+      const normWOs = wos.filter(wo => !isPreSeasonWO(wo && wo.data));
+
+      if(preWOs.length){
+        preEquip.push({ ...e, workOrders: preWOs });
+      }
+      if(normWOs.length){
+        normEquip.push({ ...e, workOrders: normWOs });
+      }
+    });
+
+    if(preEquip.length) preGrouped.push([typeKey, preEquip]);
+    if(normEquip.length) normGrouped.push([typeKey, normEquip]);
+  });
+
+  // Totals for the headings (right-aligned counts)
+  const preTotal = preGrouped.reduce((sum, [, equipmentArr]) => (
+    sum + (equipmentArr || []).reduce((s2, e) => s2 + ((e.workOrders || []).length), 0)
+  ), 0);
+  const normTotal = normGrouped.reduce((sum, [, equipmentArr]) => (
+    sum + (equipmentArr || []).reduce((s2, e) => s2 + ((e.workOrders || []).length), 0)
+  ), 0);
+
   return `<!doctype html>
 <html>
 <head>
@@ -1867,185 +1909,260 @@ function buildDetailedPrintHtml({ company, runStr, runDateOnly, filterSummary, d
       color:var(--fv-text);
       background:var(--fv-bg);
     }
-
     body{
       display:flex;
       justify-content:center;
-      padding:12px 10px;
+      padding:22px 12px;
     }
 
+    /* Match the “main tiles” feel: cleaner, roomier page, consistent header */
     .page{
       width:100%;
-      max-width:1020px;
+      max-width:920px;
       background:#fff;
-      border-radius:12px;
-      box-shadow:0 10px 26px rgba(15,23,42,0.10);
-      padding:14px 16px 16px;
+      border-radius:14px;
+      box-shadow:0 10px 30px rgba(15,23,42,0.12);
+      padding:20px 22px 22px;
     }
 
     .hdr{
       display:grid;
       grid-template-columns:auto 1fr auto;
-      gap:10px;
+      gap:14px;
       align-items:center;
       border-bottom:2px solid var(--fv-green);
-      padding-bottom:8px;
-      margin-bottom:10px;
+      padding-bottom:12px;
+      margin-bottom:14px;
     }
     .logo{
-      width:46px;height:46px;
-      border-radius:12px;
+      width:60px;height:60px;border-radius:16px;
       border:1px solid var(--fv-border);
       display:flex;align-items:center;justify-content:center;
-      font-size:18px;font-weight:900;color:#fff;
+      font-size:24px;font-weight:900;color:#fff;
       background:radial-gradient(circle at 30% 0%, #4CAF50, var(--fv-green));
       flex:0 0 auto;
     }
-    .co-name{font-size:13px;font-weight:900;margin:0 0 1px;}
-    .co-line{font-size:10px;color:var(--fv-muted);margin:0;line-height:1.25;}
+    .co-name{font-size:16px;font-weight:900;margin:0 0 2px;}
+    .co-line{font-size:11px;color:var(--fv-muted);margin:0;line-height:1.35;}
     .meta{
       text-align:right;
-      font-size:10px;
+      font-size:11px;
       color:var(--fv-muted);
-      line-height:1.25;
+      line-height:1.35;
       white-space:nowrap;
     }
     .meta strong{color:var(--fv-text);}
 
     .title{
       margin:0;
-      font-size:15px;
+      font-size:18px;
       font-weight:950;
       letter-spacing:0.06em;
       text-transform:uppercase;
     }
     .subtitle{
-      margin:3px 0 0;
-      font-size:11px;
+      margin:4px 0 0;
+      font-size:12px;
       color:var(--fv-muted);
-      line-height:1.25;
+      line-height:1.35;
     }
 
     .summary{
-      margin-top:8px;
-      padding:6px 8px;
-      border-radius:10px;
-      background:linear-gradient(90deg, rgba(59,126,70,0.08), transparent);
-      border:1px solid rgba(59,126,70,0.20);
+      margin-top:10px;
+      padding:8px 10px;
+      border-radius:12px;
+      background:linear-gradient(90deg, rgba(59,126,70,0.10), transparent);
+      border:1px solid rgba(59,126,70,0.22);
       display:flex;
       flex-wrap:wrap;
-      gap:4px 10px;
-      font-size:10px;
+      gap:6px 14px;
+      font-size:11px;
     }
     .pill{display:inline-flex; gap:6px; align-items:baseline; white-space:nowrap;}
-    .k{
-      font-size:9px;
-      text-transform:uppercase;
-      letter-spacing:0.10em;
-      color:var(--fv-muted);
-      font-weight:800;
-      white-space:nowrap;
-    }
-    .v{font-weight:900; color:var(--fv-text); white-space:nowrap;}
+    .k{font-size:10px; text-transform:uppercase; letter-spacing:0.10em; color:var(--fv-muted); font-weight:700;}
+    .v{font-weight:800; color:var(--fv-text);}
 
+    /* KPI tiles: match the summary “main tiles” layout (5 across desktop) */
     .kpis{
-      margin-top:8px;
+      margin-top:12px;
       display:grid;
-      grid-template-columns:repeat(4, minmax(0,1fr));
-      gap:8px;
+      grid-template-columns:repeat(5, minmax(0,1fr));
+      gap:10px;
     }
     .kpi{
       border:1px solid var(--fv-border);
-      border-radius:10px;
-      padding:7px 8px;
-      background:linear-gradient(135deg, rgba(59,126,70,0.05), #fff);
+      border-radius:12px;
+      padding:9px 10px;
+      background:linear-gradient(135deg, rgba(59,126,70,0.06), #fff);
     }
     .kpi .lab{
-      font-size:9px;
+      font-size:10px;
       text-transform:uppercase;
       letter-spacing:0.10em;
       color:var(--fv-muted);
       font-weight:900;
-      line-height:1.1;
       white-space:nowrap;
     }
     .kpi .val{
-      font-size:15px;
+      font-size:18px;
       font-weight:950;
-      margin-top:1px;
+      margin-top:2px;
       line-height:1.05;
       white-space:nowrap;
     }
+    .kpi .note{
+      font-size:10px;
+      color:var(--fv-muted);
+      margin-top:2px;
+      line-height:1.25;
+    }
 
-    .section{ margin-top:12px; border-top:1px solid #EEF2F7; padding-top:10px; }
-    .type-title{
-      font-size:11px;
+    .section{ margin-top:16px; border-top:1px solid #EEF2F7; padding-top:14px; }
+
+    /* Headings: LEFT label + RIGHT total (aligned like the main page groups) */
+    .sec-head{
+      display:flex;
+      align-items:baseline;
+      justify-content:space-between;
+      gap:10px;
+      margin:0 0 10px;
+      padding:0 2px;
+    }
+    .sec-title{
+      margin:0;
+      font-size:12px;
       font-weight:950;
       letter-spacing:0.10em;
       text-transform:uppercase;
       color:#1F2937;
-      margin:0 0 8px;
-      white-space:nowrap;
     }
-    .equip-title{
-      margin:10px 0 4px;
+    .sec-right{
       font-size:11px;
-      font-weight:950;
-      color:#111827;
-      line-height:1.2;
-    }
-    .equip-sub{
-      margin:0 0 6px;
-      font-size:10px;
       color:var(--fv-muted);
-      line-height:1.2;
+      letter-spacing:0.06em;
+      text-transform:none;
+      font-weight:900;
+      white-space:nowrap;
+      text-align:right;
+    }
+    .sec-note{
+      margin:4px 0 0;
+      font-size:11px;
+      color:var(--fv-muted);
+      line-height:1.35;
+      padding:0 2px;
     }
 
-    .wo{
+    .type-block{ margin-top:12px; }
+    .type-head{
+      display:flex;
+      align-items:baseline;
+      justify-content:space-between;
+      gap:10px;
+      margin:0 0 8px;
+      padding:0 2px;
+    }
+    .type-title{
+      margin:0;
+      font-size:12px;
+      font-weight:950;
+      letter-spacing:0.10em;
+      text-transform:uppercase;
+      color:#111827;
+      white-space:nowrap;
+    }
+    .type-right{
+      font-size:11px;
+      color:var(--fv-muted);
+      font-weight:900;
+      white-space:nowrap;
+      text-align:right;
+    }
+
+    .equip-card{
       border:1px solid var(--fv-border);
-      border-radius:10px;
-      padding:8px 8px 7px;
-      margin-bottom:8px;
+      border-radius:12px;
+      padding:10px 10px 9px;
+      margin-bottom:10px;
+      break-inside:avoid;
+      page-break-inside:avoid;
+    }
+    .equip-name{ font-weight:950; font-size:13px; line-height:1.25; }
+    .equip-sub{ margin-top:2px; font-size:11px; color:var(--fv-muted); }
+
+    .wo{
+      margin-top:10px;
+      border:1px solid #E5E7EB;
+      border-radius:12px;
+      padding:10px 10px 9px;
+      background:#fff;
       break-inside:auto;
       page-break-inside:auto;
     }
-
     .wo-head{
       display:flex;
       justify-content:space-between;
       gap:10px;
-      align-items:center;
-      padding-bottom:6px;
+      align-items:flex-start;
+      padding-bottom:8px;
       border-bottom:1px solid #EEF2F7;
-      margin-bottom:6px;
+      margin-bottom:8px;
     }
     .wo-title{
       font-weight:950;
       font-size:12px;
-      line-height:1.2;
+      line-height:1.25;
+    }
+    .wo-sub{
+      margin-top:2px;
+      font-size:10px;
+      color:var(--fv-muted);
+      line-height:1.25;
+      white-space:nowrap;
+    }
+    .wo-right{
+      display:flex;
+      gap:6px;
+      align-items:flex-start;
+      justify-content:flex-end;
+      flex:0 0 auto;
+      white-space:nowrap;
     }
 
+    /* Match main-page helper pill + status badge (right side) */
+    .pill-pre{
+      font-size:9px;
+      font-weight:950;
+      letter-spacing:0.08em;
+      text-transform:uppercase;
+      padding:3px 8px;
+      border-radius:999px;
+      border:1px solid rgba(59,126,70,0.28);
+      background:rgba(59,126,70,0.08);
+      color:#0F172A;
+      white-space:nowrap;
+    }
     .badge{
       font-size:9px;
       font-weight:950;
       letter-spacing:0.08em;
       text-transform:uppercase;
-      padding:3px 7px;
+      padding:3px 8px;
       border-radius:999px;
       border:1px solid rgba(59,126,70,0.26);
       background:rgba(59,126,70,0.06);
       color:#0F172A;
       white-space:nowrap;
-      word-break:keep-all;
-      overflow-wrap:normal;
-      flex:0 0 auto;
     }
-    .badge.open{ border-color: rgba(234,179,8,0.35); background: rgba(234,179,8,0.10); }
+    .badge.open{
+      border-color: rgba(234,179,8,0.35);
+      background: rgba(234,179,8,0.10);
+    }
 
     .wo-meta{
       display:grid;
       grid-template-columns:repeat(4, minmax(0,1fr));
-      gap:6px 8px;
+      gap:8px 10px;
       font-size:10px;
     }
     .pair .kk{
@@ -2054,51 +2171,52 @@ function buildDetailedPrintHtml({ company, runStr, runDateOnly, filterSummary, d
       letter-spacing:0.10em;
       color:var(--fv-muted);
       font-weight:900;
-      margin-bottom:1px;
+      margin-bottom:2px;
       line-height:1.1;
       white-space:nowrap;
     }
     .pair .vv{
       font-weight:650;
       color:#111827;
-      line-height:1.15;
+      line-height:1.2;
       word-break:break-word;
     }
 
-    .lines{ margin-top:6px; padding-top:6px; border-top:1px dashed #E5E7EB; }
+    .lines{ margin-top:8px; padding-top:8px; border-top:1px dashed #E5E7EB; }
 
     .line{
       border:1px solid #E5E7EB;
-      border-radius:9px;
-      padding:7px 7px 6px;
-      margin-top:7px;
+      border-radius:12px;
+      padding:9px 9px 8px;
+      margin-top:8px;
       break-inside:avoid;
       page-break-inside:avoid;
+      background:linear-gradient(135deg, rgba(59,126,70,0.05), #fff);
     }
     .line-top{
       display:flex;
       justify-content:space-between;
       gap:10px;
-      align-items:center;
-      margin-bottom:6px;
+      align-items:flex-start;
+      margin-bottom:8px;
+      padding-bottom:7px;
+      border-bottom:1px solid #EEF2F7;
     }
     .line-title{
-      font-weight:900;
+      font-weight:950;
       font-size:11px;
-      line-height:1.2;
+      line-height:1.25;
     }
     .line-badge{
       font-size:9px;
       font-weight:950;
       letter-spacing:0.08em;
       text-transform:uppercase;
-      padding:3px 7px;
+      padding:3px 8px;
       border-radius:999px;
       border:1px solid rgba(59,126,70,0.26);
       background:rgba(59,126,70,0.06);
       white-space:nowrap;
-      word-break:keep-all;
-      overflow-wrap:normal;
       flex:0 0 auto;
     }
     .line-badge.open{ border-color: rgba(234,179,8,0.35); background: rgba(234,179,8,0.10); }
@@ -2106,49 +2224,50 @@ function buildDetailedPrintHtml({ company, runStr, runDateOnly, filterSummary, d
     .line-grid{
       display:grid;
       grid-template-columns:repeat(4, minmax(0,1fr));
-      gap:6px 8px;
+      gap:8px 10px;
       font-size:10px;
     }
     .line-notes{
       grid-column:1/-1;
-      margin-top:5px;
-      padding-top:5px;
+      margin-top:6px;
+      padding-top:6px;
       border-top:1px dashed #E5E7EB;
       white-space:pre-wrap;
-      line-height:1.2;
+      line-height:1.25;
       font-size:10px;
     }
 
     .footer{
-      margin-top:12px;
-      padding-top:8px;
+      margin-top:16px;
+      padding-top:10px;
       border-top:1px solid var(--fv-border);
       display:flex;
       justify-content:space-between;
       gap:12px;
-      font-size:9px;
+      font-size:10px;
       color:var(--fv-muted);
-      line-height:1.25;
+      line-height:1.3;
     }
     .footer .l{max-width:65%;}
     .footer .r{text-align:right;}
 
     @media (max-width:860px){
+      body{padding:14px 10px;}
+      .page{padding:16px 14px;}
       .kpis{grid-template-columns:repeat(2, minmax(0,1fr));}
       .meta{white-space:normal;}
       .wo-meta{grid-template-columns:repeat(2, minmax(0,1fr));}
       .line-grid{grid-template-columns:repeat(2, minmax(0,1fr));}
+      .wo-sub{white-space:normal;}
+      .wo-right{white-space:normal; flex-wrap:wrap;}
     }
 
     @media print{
       html,body{background:#fff;padding:0;}
       body{padding:0;}
-      .page{
-        max-width:none;
-        border-radius:0;
-        box-shadow:none;
-        padding:9mm 10mm;
-      }
+      .page{ max-width:none; border-radius:0; box-shadow:none; padding:12mm 13mm; }
+      .equip-card{break-inside:avoid; page-break-inside:avoid;}
+      .line{break-inside:avoid; page-break-inside:avoid;}
     }
   </style>
 </head>
@@ -2172,7 +2291,7 @@ function buildDetailedPrintHtml({ company, runStr, runDateOnly, filterSummary, d
     </header>
 
     <h1 class="title">Equipment Maintenance — Detailed</h1>
-    <p class="subtitle">Detailed work orders and line items for active equipment. Matches current filters. Layout optimized to reduce page breaks; long work orders may continue on the next page.</p>
+    <p class="subtitle">Detailed work orders and line items for active equipment. Matches current filters.</p>
 
     <div class="summary">
       <div class="pill"><span class="k">Date range</span><span class="v">${escapeHtml(dateRange || 'All dates')}</span></div>
@@ -2180,104 +2299,255 @@ function buildDetailedPrintHtml({ company, runStr, runDateOnly, filterSummary, d
     </div>
 
     <div class="kpis">
-      <div class="kpi"><div class="lab">Work orders</div><div class="val">${counts.total}</div></div>
+      <div class="kpi">
+        <div class="lab">Work orders</div>
+        <div class="val">${counts.total}</div>
+        <div class="note">Matching current filters</div>
+      </div>
+
       <div class="kpi"><div class="lab">Pending</div><div class="val">${counts.pending}</div></div>
       <div class="kpi"><div class="lab">In progress</div><div class="val">${counts.ip}</div></div>
       <div class="kpi"><div class="lab">Completed</div><div class="val">${counts.done}</div></div>
+
+      <div class="kpi">
+        <div class="lab">Pre-Season Checks</div>
+        <div class="val">${Number(preseasonCount || 0)}</div>
+        <div class="note">From pre-check templates</div>
+      </div>
     </div>
 
-    ${grouped.map(([typeKey, equipmentArr]) => {
-      const typeLabel = typeKey === 'unknown' ? 'Unknown type' : titleCaseType(typeKey);
-      return `
+    ${
+      preTotal ? `
       <section class="section">
-        <div class="type-title">${escapeHtml(typeLabel)}</div>
+        <div class="sec-head">
+          <h2 class="sec-title">Pre-Season Check List</h2>
+          <div class="sec-right">${preTotal} work order${preTotal===1?'':'s'}</div>
+        </div>
+        <div class="sec-note">Work orders created from pre-check / pre-inspection templates.</div>
 
-        ${equipmentArr.map(e => {
-          const wos = e.workOrders || [];
+        ${preGrouped.map(([typeKey, equipmentArr]) => {
+          const typeLabel = typeKey === 'unknown' ? 'Unknown type' : titleCaseType(typeKey);
+          const typeTotal = (equipmentArr || []).reduce((s, e) => s + ((e.workOrders || []).length), 0);
+
           return `
-            <div class="equip-title">${escapeHtml(e.name || 'Equipment')}</div>
-            <div class="equip-sub">${escapeHtml([e.make, e.model].filter(Boolean).join(' ') || '')}${e.serial ? ` · Serial: ${escapeHtml(e.serial)}` : ''}</div>
+            <div class="type-block">
+              <div class="type-head">
+                <div class="type-title">${escapeHtml(typeLabel)}</div>
+                <div class="type-right">${typeTotal} total</div>
+              </div>
 
-            ${wos.map(wo => {
-              const d = wo.data || {};
-              const stNorm = normalizeStatus(d.status);
-              const st = statusLabel(d.status);
-              const created = d.createdAt ? formatDateTime(toDateMaybe(d.createdAt)) : '—';
-              const updated = d.updatedAt ? formatDateTime(toDateMaybe(d.updatedAt)) : '—';
-              const completedAt = d.completedAt ? formatDateTime(toDateMaybe(d.completedAt)) : '—';
+              ${(equipmentArr || []).map(e => {
+                const wos = Array.isArray(e.workOrders) ? e.workOrders : [];
 
-              const meterLine = d.meterLabel
-                ? (String(d.meterLabel) + ((d.completionMeter != null) ? (': ' + String(d.completionMeter)) : ''))
-                : '—';
+                return `
+                  <div class="equip-card">
+                    <div class="equip-name">${escapeHtml(e.name || 'Equipment')}</div>
+                    <div class="equip-sub">${escapeHtml([e.make, e.model].filter(Boolean).join(' ') || '')}${e.serial ? ` · Serial: ${escapeHtml(e.serial)}` : ''}</div>
 
-              const lineItems = Array.isArray(d.lineItems) ? d.lineItems : [];
-              const openCount = lineItems.filter(x=>!x?.completed).length;
+                    ${wos.map(wo => {
+                      const d = wo.data || {};
+                      const stNorm = normalizeStatus(d.status);
+                      const st = statusLabel(d.status);
 
-              return `
-                <article class="wo">
-                  <div class="wo-head">
-                    <div class="wo-title">Work Order (${lineItems.length} items, ${openCount} open)</div>
-                    <div class="badge ${stNorm==='completed' ? '' : 'open'}">${escapeHtml(st)}</div>
-                  </div>
+                      const created = d.createdAt ? formatDateTime(toDateMaybe(d.createdAt)) : '—';
+                      const updated = d.updatedAt ? formatDateTime(toDateMaybe(d.updatedAt)) : '—';
+                      const completedAt = d.completedAt ? formatDateTime(toDateMaybe(d.completedAt)) : '—';
 
-                  <div class="wo-meta">
-                    <div class="pair"><div class="kk">Meter</div><div class="vv">${escapeHtml(meterLine)}</div></div>
-                    <div class="pair"><div class="kk">Created</div><div class="vv">${escapeHtml(created || '—')}</div></div>
-                    <div class="pair"><div class="kk">Updated</div><div class="vv">${escapeHtml(updated || '—')}</div></div>
-                    <div class="pair"><div class="kk">Completed</div><div class="vv">${escapeHtml(completedAt || '—')}</div></div>
-                  </div>
+                      const meterLine = d.meterLabel
+                        ? (String(d.meterLabel) + ((d.completionMeter != null) ? (': ' + String(d.completionMeter)) : ''))
+                        : '—';
 
-                  ${d.summaryNotes ? `<div class="lines"><div class="pair"><div class="kk">Summary notes</div><div class="vv">${escapeHtml(String(d.summaryNotes))}</div></div></div>` : ''}
-
-                  <div class="lines">
-                    ${lineItems.map((li, idx) => {
-                      const origin = String(li.origin || '').toLowerCase();
-                      const isPreSeasonItem = (origin === 'precheck_template');
-
-                      const topic = isPreSeasonItem
-                        ? (String(li.label || li.checkItem || li.item || li.title || '').trim() || `Pre-Inspection Item #${idx+1}`)
-                        : (li.serviceTopicOther ? String(li.serviceTopicOther) : titleCaseType(li.serviceTopic || 'Service'));
-
-                      const parts = isPreSeasonItem ? '' : ((li.partsNeeded || '').trim() || '—');
-
-                      const notes = isPreSeasonItem
-                        ? (String(li.notesHint || '').trim() || '—')
-                        : ((li.notes || '').trim() || '—');
-
-                      const isDone = !!li.completed;
-                      const badge = isDone ? 'Completed' : 'Open';
-                      const submittedBy = (li.submittedByName || '').trim() || '—';
-                      const completedBy = (li.completedByEmployeeName || li.completedByEmployeeId || '').trim() || '—';
-                      const doneAt = li.completedAt ? formatDateTime(toDateMaybe(li.completedAt)) : '—';
+                      const lineItems = Array.isArray(d.lineItems) ? d.lineItems : [];
+                      const openCount = lineItems.filter(x=>!x?.completed).length;
 
                       return `
-                        <div class="line">
-                          <div class="line-top">
-                            <div class="line-title">
-                              ${escapeHtml(topic)}
-                              ${isPreSeasonItem ? '' : ` <span style="opacity:.65;font-weight:800">#${idx+1}</span>`}
+                        <article class="wo">
+                          <div class="wo-head">
+                            <div>
+                              <div class="wo-title">${escapeHtml(e.name || 'Equipment')} — ${lineItems.length} item${lineItems.length===1?'':'s'} (${openCount} open)</div>
+                              <div class="wo-sub">Meter: ${escapeHtml(meterLine)} · Created: ${escapeHtml(created)}${updated && updated!=='—' ? ` · Updated: ${escapeHtml(updated)}` : ''}${completedAt && completedAt!=='—' ? ` · Completed: ${escapeHtml(completedAt)}` : ''}</div>
                             </div>
-                            <div class="line-badge ${isDone ? '' : 'open'}">${escapeHtml(badge)}</div>
+                            <div class="wo-right">
+                              <span class="pill-pre">Pre-Season Check List</span>
+                              <span class="badge ${stNorm==='completed' ? '' : 'open'}">${escapeHtml(st)}</span>
+                            </div>
                           </div>
-                          <div class="line-grid">
-                            <div class="pair"><div class="kk">Submitted by</div><div class="vv">${escapeHtml(submittedBy)}</div></div>
-                            <div class="pair"><div class="kk">Completed by</div><div class="vv">${escapeHtml(completedBy)}</div></div>
-                            ${isPreSeasonItem ? '' : `<div class="pair"><div class="kk">Parts</div><div class="vv">${escapeHtml(parts)}</div></div>`}
-                            <div class="pair"><div class="kk">Completed at</div><div class="vv">${escapeHtml(doneAt)}</div></div>
-                            <div class="line-notes"><span class="kk" style="display:block;margin-bottom:2px;">${isPreSeasonItem ? 'Guidance' : 'Notes'}</span>${escapeHtml(notes)}</div>
+
+                          ${d.summaryNotes ? `<div class="lines"><div class="pair"><div class="kk">Summary notes</div><div class="vv">${escapeHtml(String(d.summaryNotes))}</div></div></div>` : ''}
+
+                          <div class="lines">
+                            ${lineItems.map((li, idx) => {
+                              const origin = String(li.origin || '').toLowerCase();
+                              const isPreSeasonItem = (origin === 'precheck_template');
+
+                              const topic = isPreSeasonItem
+                                ? (String(li.label || li.checkItem || li.item || li.title || '').trim() || `Pre-Inspection Item #${idx+1}`)
+                                : (li.serviceTopicOther ? String(li.serviceTopicOther) : titleCaseType(li.serviceTopic || 'Service'));
+
+                              const notes = isPreSeasonItem
+                                ? (String(li.notesHint || '').trim() || '—')
+                                : ((li.notes || '').trim() || '—');
+
+                              const parts = isPreSeasonItem ? '' : ((li.partsNeeded || '').trim() || '—');
+
+                              const isDone = !!li.completed;
+                              const badge = isDone ? 'Completed' : 'Open';
+
+                              const submittedBy = (li.submittedByName || '').trim() || '—';
+                              const completedBy = (li.completedByEmployeeName || li.completedByEmployeeId || '').trim() || '—';
+                              const doneAt = li.completedAt ? formatDateTime(toDateMaybe(li.completedAt)) : '—';
+
+                              return `
+                                <div class="line">
+                                  <div class="line-top">
+                                    <div class="line-title">${escapeHtml(topic)}</div>
+                                    <div class="line-badge ${isDone ? '' : 'open'}">${escapeHtml(badge)}</div>
+                                  </div>
+
+                                  <div class="line-grid">
+                                    <div class="pair"><div class="kk">Submitted by</div><div class="vv">${escapeHtml(submittedBy)}</div></div>
+                                    <div class="pair"><div class="kk">Completed by</div><div class="vv">${escapeHtml(completedBy)}</div></div>
+                                    ${isPreSeasonItem ? '' : `<div class="pair"><div class="kk">Parts</div><div class="vv">${escapeHtml(parts)}</div></div>`}
+                                    <div class="pair"><div class="kk">Completed at</div><div class="vv">${escapeHtml(doneAt)}</div></div>
+
+                                    <div class="line-notes">
+                                      <span class="kk" style="display:block;margin-bottom:2px;">${isPreSeasonItem ? 'Guidance' : 'Notes'}</span>
+                                      ${escapeHtml(notes)}
+                                    </div>
+                                  </div>
+                                </div>
+                              `;
+                            }).join('')}
                           </div>
-                        </div>
+                        </article>
                       `;
                     }).join('')}
                   </div>
-                </article>
-              `;
-            }).join('')}
+                `;
+              }).join('')}
+            </div>
           `;
         }).join('')}
       </section>
-      `;
-    }).join('')}
+      ` : ''
+    }
+
+    ${
+      normTotal ? `
+      <section class="section">
+        <div class="sec-head">
+          <h2 class="sec-title">Service Requests</h2>
+          <div class="sec-right">${normTotal} work order${normTotal===1?'':'s'}</div>
+        </div>
+
+        ${normGrouped.map(([typeKey, equipmentArr]) => {
+          const typeLabel = typeKey === 'unknown' ? 'Unknown type' : titleCaseType(typeKey);
+          const typeTotal = (equipmentArr || []).reduce((s, e) => s + ((e.workOrders || []).length), 0);
+
+          return `
+            <div class="type-block">
+              <div class="type-head">
+                <div class="type-title">${escapeHtml(typeLabel)}</div>
+                <div class="type-right">${typeTotal} total</div>
+              </div>
+
+              ${(equipmentArr || []).map(e => {
+                const wos = Array.isArray(e.workOrders) ? e.workOrders : [];
+
+                return `
+                  <div class="equip-card">
+                    <div class="equip-name">${escapeHtml(e.name || 'Equipment')}</div>
+                    <div class="equip-sub">${escapeHtml([e.make, e.model].filter(Boolean).join(' ') || '')}${e.serial ? ` · Serial: ${escapeHtml(e.serial)}` : ''}</div>
+
+                    ${wos.map(wo => {
+                      const d = wo.data || {};
+                      const stNorm = normalizeStatus(d.status);
+                      const st = statusLabel(d.status);
+
+                      const created = d.createdAt ? formatDateTime(toDateMaybe(d.createdAt)) : '—';
+                      const updated = d.updatedAt ? formatDateTime(toDateMaybe(d.updatedAt)) : '—';
+                      const completedAt = d.completedAt ? formatDateTime(toDateMaybe(d.completedAt)) : '—';
+
+                      const meterLine = d.meterLabel
+                        ? (String(d.meterLabel) + ((d.completionMeter != null) ? (': ' + String(d.completionMeter)) : ''))
+                        : '—';
+
+                      const lineItems = Array.isArray(d.lineItems) ? d.lineItems : [];
+                      const openCount = lineItems.filter(x=>!x?.completed).length;
+
+                      return `
+                        <article class="wo">
+                          <div class="wo-head">
+                            <div>
+                              <div class="wo-title">${escapeHtml(e.name || 'Equipment')} — ${lineItems.length} item${lineItems.length===1?'':'s'} (${openCount} open)</div>
+                              <div class="wo-sub">Meter: ${escapeHtml(meterLine)} · Created: ${escapeHtml(created)}${updated && updated!=='—' ? ` · Updated: ${escapeHtml(updated)}` : ''}${completedAt && completedAt!=='—' ? ` · Completed: ${escapeHtml(completedAt)}` : ''}</div>
+                            </div>
+                            <div class="wo-right">
+                              <span class="badge ${stNorm==='completed' ? '' : 'open'}">${escapeHtml(st)}</span>
+                            </div>
+                          </div>
+
+                          ${d.summaryNotes ? `<div class="lines"><div class="pair"><div class="kk">Summary notes</div><div class="vv">${escapeHtml(String(d.summaryNotes))}</div></div></div>` : ''}
+
+                          <div class="lines">
+                            ${lineItems.map((li, idx) => {
+                              const origin = String(li.origin || '').toLowerCase();
+                              const isPreSeasonItem = (origin === 'precheck_template');
+
+                              const topic = isPreSeasonItem
+                                ? (String(li.label || li.checkItem || li.item || li.title || '').trim() || `Pre-Inspection Item #${idx+1}`)
+                                : (li.serviceTopicOther ? String(li.serviceTopicOther) : titleCaseType(li.serviceTopic || 'Service'));
+
+                              const parts = isPreSeasonItem ? '' : ((li.partsNeeded || '').trim() || '—');
+
+                              const notes = isPreSeasonItem
+                                ? (String(li.notesHint || '').trim() || '—')
+                                : ((li.notes || '').trim() || '—');
+
+                              const isDone = !!li.completed;
+                              const badge = isDone ? 'Completed' : 'Open';
+
+                              const submittedBy = (li.submittedByName || '').trim() || '—';
+                              const completedBy = (li.completedByEmployeeName || li.completedByEmployeeId || '').trim() || '—';
+                              const doneAt = li.completedAt ? formatDateTime(toDateMaybe(li.completedAt)) : '—';
+
+                              return `
+                                <div class="line">
+                                  <div class="line-top">
+                                    <div class="line-title">
+                                      ${escapeHtml(topic)}
+                                      ${isPreSeasonItem ? '' : ` <span style="opacity:.65;font-weight:800">#${idx+1}</span>`}
+                                    </div>
+                                    <div class="line-badge ${isDone ? '' : 'open'}">${escapeHtml(badge)}</div>
+                                  </div>
+
+                                  <div class="line-grid">
+                                    <div class="pair"><div class="kk">Submitted by</div><div class="vv">${escapeHtml(submittedBy)}</div></div>
+                                    <div class="pair"><div class="kk">Completed by</div><div class="vv">${escapeHtml(completedBy)}</div></div>
+                                    ${isPreSeasonItem ? '' : `<div class="pair"><div class="kk">Parts</div><div class="vv">${escapeHtml(parts)}</div></div>`}
+                                    <div class="pair"><div class="kk">Completed at</div><div class="vv">${escapeHtml(doneAt)}</div></div>
+
+                                    <div class="line-notes">
+                                      <span class="kk" style="display:block;margin-bottom:2px;">${isPreSeasonItem ? 'Guidance' : 'Notes'}</span>
+                                      ${escapeHtml(notes)}
+                                    </div>
+                                  </div>
+                                </div>
+                              `;
+                            }).join('')}
+                          </div>
+                        </article>
+                      `;
+                    }).join('')}
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          `;
+        }).join('')}
+      </section>
+      ` : ''
+    }
 
     <footer class="footer">
       <div class="l">Detailed report includes work orders and line items. Data reflects what is stored in FarmVista.</div>
@@ -2287,7 +2557,6 @@ function buildDetailedPrintHtml({ company, runStr, runDateOnly, filterSummary, d
 </body>
 </html>`;
 }
-
 
     async function printHtml(html, fileName, title){
       if (window.FVPdf && typeof window.FVPdf.openHtml === 'function') {
