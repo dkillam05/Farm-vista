@@ -1,17 +1,14 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-11-13d + QR-id-link update + Save&Print label + Dynamic Continuous Length + StarFire white ON
+Rev: 2025-12-18a + Bigger Label Fonts + True “Flex Length” Print + Scrollable Preview
 
 Changes in this rev:
- • "Save and Print" prints on Brother QL-820NWB + DK-2205 (62mm wide continuous)
- • Layout exactly as requested:
-     Left: Make (top) + Model (bottom)
-     Middle: QR (square ~2" / 48mm)
-     Right: VIN/Serial last 6
- • Label CUT LENGTH auto-expands only when needed (up to 6") so long names are never truncated
- • Preview shows the same variable-length label you will actually print
- • StarFire pill ON text is forced white
-
+ • MUCH larger label fonts (Make / Model / VIN/Serial value) for older eyes
+ • Preview no longer centers/shrinks — it renders at natural length
+ • Mobile + desktop: preview area allows horizontal scroll when label is long
+ • PRINT window now matches preview orientation (WIDTH = cut length, HEIGHT = 62mm tape)
+ • Label cut length is computed from REAL rendered DOM widths (more accurate than canvas guess)
+ • StarFire pill ON text remains forced white
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -59,18 +56,19 @@ Changes in this rev:
       --ctl-radius:10px;
 
       /* ===== Brother QL-820NWB / DK-2205 (62mm wide continuous) =====
-         IMPORTANT:
-         - Tape width is fixed 62mm.
-         - Label CUT LENGTH is computed in JS from actual Make/Model/VIN widths.
-         - QR is square ~2" (hair smaller) -> 48mm.
-         - Preview is shown "horizontal" (long side as width) so it looks like a label.
+         - Tape width is fixed 62mm (this is the LABEL HEIGHT on-screen/print).
+         - Cut LENGTH is computed from actual rendered text widths.
+         - QR is square ~2" -> 48mm.
       */
-      --ql-tape-mm: 62mm;    /* fixed tape width */
-      --ql-qr-mm: 48mm;      /* ~1.89" square (hair smaller than 2") */
+      --ql-tape-mm: 62mm;    /* fixed tape width (label HEIGHT) */
+      --ql-qr-mm: 48mm;      /* QR square */
       --ql-pad-mm: 2.2mm;    /* inner padding */
       --ql-gap-mm: 2mm;      /* column gap */
-      --ql-font: 12pt;
-      --ql-font-small: 10pt;
+
+      /* ✅ BIGGER label fonts (older eyes) */
+      --ql-font: 18pt;         /* Make + VIN/Serial value */
+      --ql-font-small: 16pt;   /* Model */
+      --ql-font-lab: 12pt;     /* VIN/Serial label */
     }
 
     html, body { min-height:100%; }
@@ -340,7 +338,18 @@ Changes in this rev:
     }
 
     /* ===== Print preview label (inside modal) ===== */
-    .print-wrap{ padding:12px; display:grid; gap:10px; }
+    /* ✅ allow long label preview without shrinking + allow horizontal scroll */
+    .print-wrap{
+      padding:12px;
+      display:grid;
+      gap:10px;
+
+      overflow-x:auto;
+      overflow-y:hidden;
+      -webkit-overflow-scrolling:touch;
+
+      justify-items:start; /* ✅ don't center */
+    }
     .print-help{ color:var(--muted,#67706B); font-size:14px; line-height:1.35; }
 
     /* Preview size is overridden inline in JS to show variable cut length */
@@ -357,8 +366,15 @@ Changes in this rev:
       gap:var(--ql-gap-mm);
       padding:var(--ql-pad-mm);
       box-sizing:border-box;
-      overflow:hidden;
-      margin:0 auto;
+
+      /* ✅ do not center/shrink */
+      margin:0;
+      max-width:none !important;
+      white-space:nowrap;
+      flex:0 0 auto;
+
+      /* ✅ don't clip if our computed length is a hair short */
+      overflow:visible;
     }
     .lp-left, .lp-right{
       display:flex;
@@ -397,9 +413,10 @@ Changes in this rev:
     .lp-right{ align-items:flex-end; text-align:right; }
     .lp-right .serial-lab{
       font-weight:800;
-      font-size:9pt;
+      font-size:var(--ql-font-lab);
       line-height:1.05;
       opacity:.85;
+      white-space:nowrap;
     }
     .lp-right .serial-val{
       font-weight:900;
@@ -407,6 +424,7 @@ Changes in this rev:
       line-height:1.05;
       letter-spacing:.6px;
       margin-top:1mm;
+      white-space:nowrap;
     }
     .print-actions{
       display:flex;
@@ -617,8 +635,8 @@ Changes in this rev:
 
       <div class="print-wrap">
         <div class="print-help">
-          Printer: <b>Brother QL-820NWB</b> • Tape: <b>DK-2205 (62mm / 2.4&quot; continuous)</b> • Orientation: <b>Horizontal</b><br>
-          This is continuous tape: label length grows only when needed (up to 6&quot;).
+          Printer: <b>Brother QL-820NWB</b> • Tape: <b>DK-2205 (62mm / 2.4&quot; continuous)</b><br>
+          ✅ Label <b>length flexes</b> to your text. On phones, swipe left/right to see the whole label.
         </div>
 
         <div id="labelPreview" class="label-preview" aria-label="Label preview">
@@ -925,56 +943,48 @@ Changes in this rev:
     }
 
     // ===== Dynamic label length (continuous tape) =====
-    // Tape width is fixed (62mm). Cut length grows only when needed (up to 6").
+    // Tape width is fixed (62mm). Cut length grows to fit content (up to ~10").
     const LABEL = {
-      tapeWmm: 62,        // fixed tape width
-      qrMm: 48,           // ~2" square hair smaller
+      tapeWmm: 62,        // fixed tape width (label HEIGHT)
+      qrMm: 48,           // ~2" square
       padMm: 2.2,
       gapMm: 2.0,
-      minLenMm: 80,       // don’t be tiny
-      maxLenMm: 152.4     // 6 inches
+      minLenMm: 90,       // a little longer minimum for big fonts
+      maxLenMm: 254.0     // ✅ ~10 inches (lets big fonts + long make/model fit)
     };
 
     function pxPerMm(){ return 96 / 25.4; }
 
-    function measureTextPx(text, font){
-      const canvas = measureTextPx._c || (measureTextPx._c = document.createElement('canvas'));
-      const ctx = canvas.getContext('2d');
-      ctx.font = font;
-      return ctx.measureText(String(text || '')).width;
-    }
-
-    function computeLabelLenMm({ makeName, modelName, serial6 }){
-      const pmm = pxPerMm();
-
-      // Approximate the label fonts
-      const makeFont  = '900 16px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
-      const modelFont = '800 14px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
-      const labFont   = '800 12px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
-      const valFont   = '900 16px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
-
-      const makeWpx  = measureTextPx(makeName || '', makeFont);
-      const modelWpx = measureTextPx(modelName || '', modelFont);
-      const leftWpx  = Math.max(makeWpx, modelWpx);
-
-      const lab = 'VIN/Serial';
-      const val = serial6 || '';
-      const labWpx = measureTextPx(lab, labFont);
-      const valWpx = measureTextPx(val, valFont);
-      const rightWpx = Math.max(labWpx, valWpx);
-
-      const leftMm  = leftWpx / pmm;
-      const rightMm = rightWpx / pmm;
-
-      let len = (LABEL.padMm * 2) + (LABEL.gapMm * 2) + leftMm + LABEL.qrMm + rightMm;
-      len = Math.max(LABEL.minLenMm, Math.min(LABEL.maxLenMm, len));
+    function clampLenMm(mm){
+      let len = Math.max(LABEL.minLenMm, Math.min(LABEL.maxLenMm, mm));
       len = Math.round(len * 2) / 2; // 0.5mm steps
       return len;
     }
 
+    // ✅ compute cut length from *actual rendered DOM widths* (most accurate)
+    function computeLabelLenMmFromDOM(){
+      const pmm = pxPerMm();
+
+      const makeEl = $("lpMake");
+      const modelEl = $("lpModel");
+      const labEl = $("lpSerialLab");
+      const valEl = $("lpSerialVal");
+
+      const leftWpx  = Math.max(makeEl?.scrollWidth || 0, modelEl?.scrollWidth || 0);
+      const rightWpx = Math.max(labEl?.scrollWidth || 0, valEl?.scrollWidth || 0);
+
+      const leftMm  = leftWpx / pmm;
+      const rightMm = rightWpx / pmm;
+
+      const safetyMm = 3.0; // small buffer so nothing ever kisses the edge
+      const raw = (LABEL.padMm * 2) + (LABEL.gapMm * 2) + leftMm + LABEL.qrMm + rightMm + safetyMm;
+
+      return clampLenMm(raw);
+    }
+
     let __labelLenMm = LABEL.minLenMm;
 
-    function setPrintPreview({ makeName, modelName, serial, qrDataUrl }){
+    async function setPrintPreview({ makeName, modelName, serial, qrDataUrl }){
       const serial6 = serialLast6(serial) || '—';
 
       $("lpMake").textContent = (makeName || '—');
@@ -983,18 +993,25 @@ Changes in this rev:
       $("lpSerialVal").textContent = serial6;
       $("lpQR").src = qrDataUrl || '';
 
-      // compute cut length
-      __labelLenMm = computeLabelLenMm({ makeName, modelName, serial6 });
-
-      // Preview: show long dimension as WIDTH (so it looks horizontal in the modal)
       const preview = document.getElementById('labelPreview');
+      if(preview){
+        // start at min length so scrollWidth becomes meaningful if content overflows
+        preview.style.width  = `${LABEL.minLenMm}mm`;
+        preview.style.height = `${LABEL.tapeWmm}mm`;
+      }
+
+      // let layout + QR image settle, then measure
+      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+
+      __labelLenMm = computeLabelLenMmFromDOM();
+
       if(preview){
         preview.style.width  = `${__labelLenMm}mm`;
         preview.style.height = `${LABEL.tapeWmm}mm`;
       }
     }
 
-    function buildPrintHtml({ makeName, modelName, serial, qrDataUrl, labelW='62mm', labelH='80mm', qrMm='48mm' }){
+    function buildPrintHtml({ makeName, modelName, serial, qrDataUrl, labelW='140mm', labelH='62mm', qrMm='48mm' }){
       const last6 = serialLast6(serial) || '';
       const esc = (s)=>String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
       const mk = esc(makeName);
@@ -1008,9 +1025,10 @@ Changes in this rev:
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Print Label</title>
 <style>
-  /* IMPORTANT: for continuous tape, page WIDTH is tape width (62mm),
-     page HEIGHT is cut length (variable). */
+  /* ✅ For horizontal label layout:
+     PAGE WIDTH = cut length, PAGE HEIGHT = tape width (62mm). */
   @page{ size: ${labelW} ${labelH}; margin: 0; }
+
   html, body{
     margin:0;
     padding:0;
@@ -1018,6 +1036,7 @@ Changes in this rev:
     height:${labelH};
     background:#fff;
   }
+
   .label{
     width:${labelW};
     height:${labelH};
@@ -1031,18 +1050,19 @@ Changes in this rev:
     color:#000;
     overflow:hidden;
   }
+
   .left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:0; }
 
-  /* NO ellipsis: label length grows instead */
+  /* ✅ BIGGER print fonts */
   .make{
     font-weight:900;
-    font-size:12pt;
+    font-size:18pt;
     line-height:1.05;
     white-space:nowrap;
   }
   .model{
     font-weight:800;
-    font-size:10pt;
+    font-size:16pt;
     line-height:1.05;
     white-space:nowrap;
     margin-top:1mm;
@@ -1065,16 +1085,18 @@ Changes in this rev:
   .right{ align-items:flex-end; text-align:right; }
   .lab{
     font-weight:800;
-    font-size:9pt;
+    font-size:12pt;
     line-height:1.05;
     opacity:.85;
+    white-space:nowrap;
   }
   .val{
     font-weight:900;
-    font-size:12pt;
+    font-size:18pt;
     line-height:1.05;
     letter-spacing:.6px;
     margin-top:1mm;
+    white-space:nowrap;
   }
 </style>
 </head>
@@ -1106,7 +1128,7 @@ Changes in this rev:
 
     function openPrintWindow(payload){
       const html = buildPrintHtml(payload);
-      const w = window.open('', '_blank', 'noopener,noreferrer,width=800,height=650');
+      const w = window.open('', '_blank', 'noopener,noreferrer,width=900,height=650');
       if(!w){ alert('Popup blocked. Allow popups to print.'); return; }
       w.document.open();
       w.document.write(html);
@@ -1431,7 +1453,6 @@ Changes in this rev:
           Edit.list.append(row);
 
           const act = actionForUsage(usageMap.get(it.id) || {total:0,active:0});
-          // keep your existing actions as-is (this file focuses on printing + starfire)
           head.addEventListener('click', ()=> row.classList.toggle('open'));
 
           const stageBase = ()=>{
@@ -1842,7 +1863,7 @@ Changes in this rev:
           const form = result.form || readForm();
           const qrDataUrl = $("qrThumb")?.src || "";
 
-          setPrintPreview({
+          await setPrintPreview({
             makeName: form.makeName,
             modelName: form.modelName,
             serial: form.serial,
@@ -1852,16 +1873,16 @@ Changes in this rev:
           PrintUI.open();
 
           $("btnPrintNow").onclick = ()=>{
-            // PRINT orientation: labelW = tape width, labelH = cut length
             const cutLenMm = __labelLenMm || LABEL.minLenMm;
 
+            // ✅ PRINT matches preview: width = cut length, height = tape width
             openPrintWindow({
               makeName: form.makeName,
               modelName: form.modelName,
               serial: form.serial,
               qrDataUrl,
-              labelW: `${LABEL.tapeWmm}mm`,
-              labelH: `${cutLenMm}mm`,
+              labelW: `${cutLenMm}mm`,
+              labelH: `${LABEL.tapeWmm}mm`,
               qrMm: `${LABEL.qrMm}mm`
             });
           };
