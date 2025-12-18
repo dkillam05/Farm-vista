@@ -1,10 +1,10 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/equipment-hub.html  (FULL FILE REPLACEMENT)
-Rev: 2025-12-18b
-Change:
- • "Service Records" now opens a hub modal (popup) showing ONLY this equipment’s records
- • Newest records on top
- • Print Summary + Print Detailed buttons (stub print builders; you’ll give me your real ones later)
+Rev: 2025-12-18c
+Fixes:
+ • Service Records opens modal and loads ONLY this equipment's records (newest first)
+ • No auto-print. Print only when user clicks buttons at bottom of modal.
+ • Fixes "</script>" inside template literal breaking the module script.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -138,7 +138,7 @@ Change:
     .state p{ margin:0; color:var(--muted,#67706B); max-width:520px; }
     [hidden]{ display:none !important; }
 
-    /* ===== Metric Modal ===== */
+    /* ===== Modal shared ===== */
     .modal-backdrop{
       position:fixed;
       inset:0;
@@ -188,17 +188,45 @@ Change:
       cursor:pointer;
     }
     .icon-btn svg{ width:18px; height:18px; }
+
     .modal-body{
       padding:14px;
       display:grid;
       gap:12px;
     }
-    .form-grid{ display:grid; gap:10px; }
-    .row{
+    .modal-actions{
       display:grid;
       grid-template-columns: 1fr 1fr;
       gap:10px;
+      padding:14px;
+      border-top:1px solid var(--border);
+      background:color-mix(in srgb, var(--surface) 70%, transparent);
     }
+    @media (max-width:560px){ .modal-actions{ grid-template-columns:1fr; } }
+
+    .banner{
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:10px 12px;
+      background:color-mix(in srgb, #b51f1f 10%, transparent);
+      color:var(--ink-1,#0f1a13);
+      font-size:13px;
+      line-height:1.3;
+      display:none;
+      white-space:pre-line;
+    }
+    :root[data-theme="dark"] .banner{ color:var(--ink-1,#eaece9); }
+    .banner[data-show="1"]{ display:block; }
+
+    .btn-danger{
+      background:color-mix(in srgb, #b51f1f 14%, var(--surface));
+      border-color:color-mix(in srgb, #b51f1f 30%, var(--border));
+    }
+    .small-note{ font-size:12px; color:var(--muted,#67706B); line-height:1.25; }
+
+    /* ===== Metric Modal (existing) ===== */
+    .form-grid{ display:grid; gap:10px; }
+    .row{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
     @media (max-width:560px){ .row{ grid-template-columns:1fr; } }
     .field{ display:grid; gap:6px; }
     .label{
@@ -207,11 +235,7 @@ Change:
       color:var(--ink-2, #2a332d);
     }
     :root[data-theme="dark"] .label{ color:var(--ink-2, #d7dbd8); }
-    .help{
-      font-size:12px;
-      color:var(--muted,#67706B);
-      line-height:1.25;
-    }
+    .help{ font-size:12px; color:var(--muted,#67706B); line-height:1.25; }
     .input{
       width:100%;
       min-height:46px;
@@ -226,34 +250,6 @@ Change:
     }
     :root[data-theme="dark"] .input{ color:var(--ink-1,#eaece9); }
 
-    .modal-actions{
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:10px;
-      padding:14px;
-      border-top:1px solid var(--border);
-      background:color-mix(in srgb, var(--surface) 70%, transparent);
-    }
-    @media (max-width:560px){ .modal-actions{ grid-template-columns:1fr; } }
-
-    .btn-danger{
-      background:color-mix(in srgb, #b51f1f 14%, var(--surface));
-      border-color:color-mix(in srgb, #b51f1f 30%, var(--border));
-    }
-    .banner{
-      border:1px solid var(--border);
-      border-radius:12px;
-      padding:10px 12px;
-      background:color-mix(in srgb, #b51f1f 10%, transparent);
-      color:var(--ink-1,#0f1a13);
-      font-size:13px;
-      line-height:1.3;
-      display:none;
-      white-space:pre-line;
-    }
-    :root[data-theme="dark"] .banner{ color:var(--ink-1,#eaece9); }
-    .banner[data-show="1"]{ display:block; }
-    .small-note{ font-size:12px; color:var(--muted,#67706B); line-height:1.25; }
     .textarea{
       width:100%;
       min-height:88px;
@@ -268,20 +264,19 @@ Change:
     }
     :root[data-theme="dark"] .textarea{ color:var(--ink-1,#eaece9); }
 
-    /* ===== Combine “sep > eng” UI ===== */
     .input-error{
       border-color:#b51f1f !important;
       box-shadow:0 0 0 2px rgba(181,31,31,.18);
     }
-    .hint{
-      font-size:12px;
-      line-height:1.25;
-      color:var(--muted,#67706B);
-      margin-top:2px;
-    }
+    .hint{ font-size:12px; line-height:1.25; color:var(--muted,#67706B); margin-top:2px; }
     .hint.error{ color:#b51f1f; font-weight:850; }
 
     /* ===== Service Records Modal ===== */
+    #srModalBody{
+      max-height: min(62vh, 560px);
+      overflow:auto;
+      -webkit-overflow-scrolling:touch;
+    }
     .sr-list{ display:grid; gap:10px; }
     .sr-item{
       border:1px solid var(--border);
@@ -338,13 +333,6 @@ Change:
       text-align:center;
       color:var(--muted,#67706B);
       background:color-mix(in srgb, var(--surface) 70%, transparent);
-    }
-
-    /* Service records modal: allow scrolling inside the modal body, not the page */
-    #srModalBody{
-      max-height: min(62vh, 560px);
-      overflow:auto;
-      -webkit-overflow-scrolling:touch;
     }
   </style>
 </head>
@@ -429,7 +417,6 @@ Change:
 
         <div class="modal-body">
           <div class="banner" id="metricBanner"></div>
-
           <div class="form-grid" id="metricForm"></div>
 
           <div id="adjustBlock" hidden>
@@ -462,7 +449,7 @@ Change:
       </div>
     </div>
 
-    <!-- ===== Service Records Modal (NEW) ===== -->
+    <!-- ===== Service Records Modal ===== -->
     <div class="modal-backdrop" id="srModal" aria-hidden="true">
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="srTitle">
         <div class="modal-head">
@@ -507,9 +494,7 @@ Change:
     const HUB_CONFIG = {
       tractor: {
         display: 'Tractor',
-        metricFields: [
-          { key:'engineHours', label:'Engine Hours', suffix:'hrs', step:'0.1' }
-        ],
+        metricFields: [{ key:'engineHours', label:'Engine Hours', suffix:'hrs', step:'0.1' }],
         updateLabel: 'Update Engine Hours',
         hasPreSeason: true
       },
@@ -524,25 +509,19 @@ Change:
       },
       sprayer: {
         display: 'Sprayer',
-        metricFields: [
-          { key:'engineHours', label:'Engine Hours', suffix:'hrs', step:'0.1' }
-        ],
+        metricFields: [{ key:'engineHours', label:'Engine Hours', suffix:'hrs', step:'0.1' }],
         updateLabel: 'Update Engine Hours',
         hasPreSeason: true
       },
       fertilizer: {
         display: 'Fertilizer Equipment',
-        metricFields: [
-          { key:'engineHours', label:'Engine Hours', suffix:'hrs', step:'0.1' }
-        ],
+        metricFields: [{ key:'engineHours', label:'Engine Hours', suffix:'hrs', step:'0.1' }],
         updateLabel: 'Update Engine Hours',
         hasPreSeason: true
       },
       construction: {
         display: 'Construction',
-        metricFields: [
-          { key:'engineHours', label:'Engine Hours', suffix:'hrs', step:'0.1' }
-        ],
+        metricFields: [{ key:'engineHours', label:'Engine Hours', suffix:'hrs', step:'0.1' }],
         updateLabel: 'Update Engine Hours',
         hasPreSeason: false
       },
@@ -576,7 +555,6 @@ Change:
     };
 
     const last6 = v => String(v || '').slice(-6);
-
     const setText = (id, val, opts = {}) => {
       const el = $(id); if(!el) return;
       if(!val){
@@ -598,9 +576,8 @@ Change:
 
       let cfg = null;
 
-      if(from && FROM_MAP[from]) {
-        cfg = FROM_MAP[from];
-      } else {
+      if(from && FROM_MAP[from]) cfg = FROM_MAP[from];
+      else{
         switch(typeKey){
           case 'tractor':   cfg = FROM_MAP.tractors; break;
           case 'combine':   cfg = FROM_MAP.combines; break;
@@ -627,9 +604,9 @@ Change:
       wrap.hidden    = false;
     }
 
-    /* ===========================
-       Metric Modal logic (unchanged)
-       =========================== */
+    /* ======================
+       Metric modal (unchanged)
+       ====================== */
     const MODAL = {
       open: false,
       doc: null,
@@ -782,7 +759,6 @@ Change:
         hint.classList.remove('error');
         MODAL.combineInvalid = false;
       }
-
       function setErr(){
         sep.classList.add('input-error');
         hint.hidden = false;
@@ -790,13 +766,11 @@ Change:
         hint.classList.add('error');
         MODAL.combineInvalid = true;
       }
-
       function validate(){
         const e = toNum(eng.value);
         const s = toNum(sep.value);
         if (e == null || s == null){ clearErr(); return; }
-        if (s > e) setErr();
-        else clearErr();
+        if (s > e) setErr(); else clearErr();
       }
 
       const onAny = ()=>validate();
@@ -838,28 +812,15 @@ Change:
 
     function computeValidation(docData, inputs){
       const results = { ok:true, anyDecrease:false, badNumbers:[], decreases:[], updates:{} };
-
       for(const [k,v] of Object.entries(inputs)){
-        if(!Number.isFinite(v)){
-          results.ok = false;
-          results.badNumbers.push(k);
-          continue;
-        }
+        if(!Number.isFinite(v)){ results.ok=false; results.badNumbers.push(k); continue; }
         const cur = getCurrentValue(docData, k);
-        if(cur == null){
-          results.updates[k] = v;
-          continue;
-        }
-        if(v < cur){
-          results.anyDecrease = true;
-          results.decreases.push({ key:k, current:cur, next:v });
-          continue;
-        }
+        if(cur == null){ results.updates[k]=v; continue; }
+        if(v < cur){ results.anyDecrease=true; results.decreases.push({ key:k, current:cur, next:v }); continue; }
         if(v === cur) continue;
-        results.updates[k] = v;
+        results.updates[k]=v;
       }
-
-      if(results.badNumbers.length) results.ok = false;
+      if(results.badNumbers.length) results.ok=false;
       return results;
     }
 
@@ -876,34 +837,13 @@ Change:
         const parts = [];
         if(e != null && e !== '') parts.push(`${fmtNum(e)} hrs eng`);
         if(s != null && s !== '') parts.push(`${fmtNum(s)} hrs sep`);
-        if(parts.length){
-          chip.textContent = parts.join(' • ');
-          chip.hidden = false;
-          return;
-        }
-      }
-
-      if(String(typeKey||'') === 'implement'){
-        const a = docData?.totalAcres;
-        const h = docData?.totalHours;
-        const parts = [];
-        if(a != null && a !== '') parts.push(`${fmtNum(a)} ac`);
-        if(h != null && h !== '') parts.push(`${fmtNum(h)} hrs`);
-        if(parts.length){
-          chip.textContent = parts.join(' • ');
-          chip.hidden = false;
-          return;
-        }
+        if(parts.length){ chip.textContent = parts.join(' • '); chip.hidden=false; return; }
       }
 
       const f0 = fields[0];
       const v0 = docData?.[f0.key];
-      if(v0 != null){
-        chip.textContent = `${fmtNum(v0)}${f0.suffix ? ` ${f0.suffix}` : ''}`;
-        chip.hidden = false;
-      }else{
-        chip.hidden = true;
-      }
+      if(v0 != null){ chip.textContent = `${fmtNum(v0)}${f0.suffix ? ` ${f0.suffix}` : ''}`; chip.hidden=false; }
+      else chip.hidden=true;
     }
 
     async function saveMetrics(){
@@ -919,25 +859,16 @@ Change:
         const inputs = readInputs();
         MODAL.lastInputs = inputs;
 
-        if(!hasAnyInput(inputs)){
-          showBanner('Enter at least one new reading to save.');
-          return;
-        }
+        if(!hasAnyInput(inputs)){ showBanner('Enter at least one new reading to save.'); return; }
 
         if (String(MODAL.typeKey||'') === 'combine'){
           const e = toNum($('metric_engineHours')?.value);
           const s = toNum($('metric_separatorHours')?.value);
-          if (e != null && s != null && s > e){
-            showBanner('Fix required: Separator Hours cannot be greater than Engine Hours.');
-            return;
-          }
+          if (e != null && s != null && s > e){ showBanner('Fix required: Separator Hours cannot be greater than Engine Hours.'); return; }
         }
 
         const v = computeValidation(MODAL.doc, inputs);
-        if(v.badNumbers.length){
-          showBanner('One or more values are not valid numbers.');
-          return;
-        }
+        if(v.badNumbers.length){ showBanner('One or more values are not valid numbers.'); return; }
 
         const overrideKey = 'equipment-metrics:override';
         const canOverride = !!(window.FV && typeof window.FV.can === 'function' && window.FV.can(overrideKey));
@@ -964,15 +895,10 @@ Change:
             $('adjustBlock').hidden = false;
             return;
           }
-          for(const dec of v.decreases){
-            v.updates[dec.key] = dec.next;
-          }
+          for(const dec of v.decreases){ v.updates[dec.key] = dec.next; }
         }
 
-        if(Object.keys(v.updates).length === 0){
-          showBanner('No changes to save (new values match current).');
-          return;
-        }
+        if(Object.keys(v.updates).length === 0){ showBanner('No changes to save (new values match current).'); return; }
 
         const auth = getAuth();
         const user = auth.currentUser || null;
@@ -996,9 +922,7 @@ Change:
           mode: (v.anyDecrease ? 'override' : 'normal')
         });
 
-        for(const [k,val] of Object.entries(v.updates)){
-          MODAL.doc[k] = val;
-        }
+        for(const [k,val] of Object.entries(v.updates)){ MODAL.doc[k] = val; }
 
         updateMetricChip(MODAL.doc, MODAL.cfg, MODAL.typeKey);
         showBanner('Saved.');
@@ -1015,25 +939,14 @@ Change:
     async function sendAdjustmentRequest(){
       try{
         if(!MODAL.db || !MODAL.doc) return;
-
         const reason = String($('adjustReason')?.value || '').trim();
-        if(!reason){
-          showBanner('Please enter a reason so the office knows what to fix.');
-          return;
-        }
+        if(!reason){ showBanner('Please enter a reason so the office knows what to fix.'); return; }
 
         const inputs = MODAL.lastInputs || readInputs();
-        if(!hasAnyInput(inputs)){
-          showBanner('Enter the value(s) you attempted, then send the request.');
-          return;
-        }
+        if(!hasAnyInput(inputs)){ showBanner('Enter the value(s) you attempted, then send the request.'); return; }
 
         const v = computeValidation(MODAL.doc, inputs);
-        if(!v.anyDecrease){
-          showBanner('This request is only needed when a value would be reduced.');
-          $('adjustBlock').hidden = true;
-          return;
-        }
+        if(!v.anyDecrease){ showBanner('This request is only needed when a value would be reduced.'); $('adjustBlock').hidden = true; return; }
 
         const auth = getAuth();
         const user = auth.currentUser || null;
@@ -1058,7 +971,7 @@ Change:
       }
     }
 
-    function wireModalButtons(){
+    function wireMetricModalButtons(){
       const back = $('metricModal');
       const closeBtn = $('metricModalClose');
       const cancelBtn = $('metricCancel');
@@ -1094,9 +1007,7 @@ Change:
       MODAL.db = db;
       MODAL.snapRef = snapRef;
 
-      const title = cfg.updateLabel || 'Update Usage';
-      $('metricModalTitle').textContent = title;
-
+      $('metricModalTitle').textContent = cfg.updateLabel || 'Update Usage';
       buildMetricForm(docData, cfg);
 
       if(!Array.isArray(cfg.metricFields) || cfg.metricFields.length === 0){
@@ -1104,23 +1015,16 @@ Change:
         return;
       }
 
-      if (String(typeKey||'') === 'combine'){
-        wireCombineModalRule();
-      }
-
+      if (String(typeKey||'') === 'combine'){ wireCombineModalRule(); }
       openModal();
     }
 
-    /* ===========================
-       Service Records Modal logic (NEW)
-       =========================== */
+    /* ======================
+       Service Records Modal
+       ====================== */
     const SR = {
       open:false,
       rows:[],
-      eqTitle:'',
-      eqSerial:'',
-      typeKey:'',
-      cfgDisplay:'Equipment',
       db:null
     };
 
@@ -1153,24 +1057,18 @@ Change:
     function toDateMaybe(v){
       try{
         if(!v) return null;
-        // Firestore Timestamp
         if(typeof v.toDate === 'function') return v.toDate();
-        // {seconds, nanoseconds}
         if(typeof v.seconds === 'number') return new Date(v.seconds*1000);
-        // ISO string
         if(typeof v === 'string'){
           const d = new Date(v);
           if(!Number.isNaN(d.getTime())) return d;
         }
-        // millis
         if(typeof v === 'number'){
           const d = new Date(v);
           if(!Number.isNaN(d.getTime())) return d;
         }
         return null;
-      }catch{
-        return null;
-      }
+      }catch{ return null; }
     }
 
     function pad2(n){ return String(n).padStart(2,'0'); }
@@ -1187,14 +1085,13 @@ Change:
     }
 
     function bestRecordDate(r){
-      // prefer completed/updated/created (newest first)
-      const d =
-        toDateMaybe(r.completedAt) ||
-        toDateMaybe(r.updatedAt) ||
-        toDateMaybe(r.createdAt) ||
-        toDateMaybe(r.date) ||
-        null;
-      return d;
+      return (
+        toDateMaybe(r?.completedAt) ||
+        toDateMaybe(r?.updatedAt) ||
+        toDateMaybe(r?.createdAt) ||
+        toDateMaybe(r?.date) ||
+        null
+      );
     }
 
     function normStatus(s){
@@ -1207,28 +1104,25 @@ Change:
       return v.replace(/\b\w/g, m=>m.toUpperCase());
     }
 
-    function safeText(v){
-      const s = String(v ?? '').trim();
-      return s;
-    }
+    function safeText(v){ return String(v ?? '').trim(); }
 
     function pickTitle(r){
       return (
-        safeText(r.title) ||
-        safeText(r.summary) ||
-        safeText(r.problem) ||
-        safeText(r.issue) ||
-        safeText(r.subject) ||
+        safeText(r?.title) ||
+        safeText(r?.summary) ||
+        safeText(r?.problem) ||
+        safeText(r?.issue) ||
+        safeText(r?.subject) ||
         'Service Record'
       );
     }
 
     function pickNotes(r){
       return (
-        safeText(r.notes) ||
-        safeText(r.description) ||
-        safeText(r.details) ||
-        safeText(r.workDone) ||
+        safeText(r?.notes) ||
+        safeText(r?.description) ||
+        safeText(r?.details) ||
+        safeText(r?.workDone) ||
         ''
       );
     }
@@ -1241,22 +1135,21 @@ Change:
 
     function buildSrItemHtml(row){
       const r = row.data || {};
-      const dt = bestRecordDate(r);
-      const when = fmtDateTime(dt);
+      const when = fmtDateTime(bestRecordDate(r));
       const status = normStatus(r.status);
       const title = pickTitle(r);
       const notes = pickNotes(r);
 
       const tags = [];
-      if(status && status !== '—') tags.push({ label: status });
-      if(r.vendorName) tags.push({ label: safeText(r.vendorName) });
-      if(r.category) tags.push({ label: safeText(r.category) });
-      if(r.cost != null) {
+      if(status && status !== '—') tags.push(status);
+      if(r.vendorName) tags.push(safeText(r.vendorName));
+      if(r.category) tags.push(safeText(r.category));
+      if(r.cost != null){
         const c = money(r.cost);
-        if(c) tags.push({ label: c });
+        if(c) tags.push(c);
       }
       if(r.meterLabel && r.meterValue != null){
-        tags.push({ label: `${safeText(r.meterLabel)}: ${safeText(r.meterValue)}` });
+        tags.push(`${safeText(r.meterLabel)}: ${safeText(r.meterValue)}`);
       }
 
       return `
@@ -1267,13 +1160,13 @@ Change:
               <p class="sr-sub">${when}</p>
             </div>
             <div class="sr-tags" aria-hidden="true" style="justify-content:flex-end">
-              ${tags.slice(0,3).map(t=>`<span class="sr-tag">${t.label}</span>`).join('')}
+              ${tags.slice(0,3).map(t=>`<span class="sr-tag">${t}</span>`).join('')}
             </div>
           </div>
 
           ${tags.length > 3 ? `
             <div class="sr-tags">
-              ${tags.slice(3).map(t=>`<span class="sr-tag">${t.label}</span>`).join('')}
+              ${tags.slice(3).map(t=>`<span class="sr-tag">${t}</span>`).join('')}
             </div>
           ` : ''}
 
@@ -1295,17 +1188,16 @@ Change:
     }
 
     async function loadServiceRecordsForEquipment(db, equipmentId){
-      // Try a few possible collection names so it “just works”
+      // Try common names so it works even if your collection differs.
       const candidates = ['equipmentWorkOrders','equipment_work_orders','equipment_service_records'];
 
       for(const colName of candidates){
         try{
           const base = collection(db, colName);
-          // Keep query simple to avoid index headaches: where + limit, then sort client-side
+          // Keep query simple (where + limit) then sort client-side
           const q = query(base, where('equipmentId','==', equipmentId), limit(250));
           const snap = await getDocs(q);
           const rows = snap.docs.map(d=>({ id:d.id, data:d.data(), _col:colName }));
-
           if(rows.length){
             console.info('[hub][sr] loaded', rows.length, 'from', colName);
             return rows;
@@ -1317,28 +1209,26 @@ Change:
       return [];
     }
 
-    async function openServiceRecords(eqLabel){
+    async function openServiceRecords(){
       try{
         if(!SR.db) SR.db = getFirestore();
         srShowBanner('');
         $('srList').innerHTML = `<div class="sr-empty">Loading…</div>`;
-        $('srTitle').textContent = `Service Records — ${eqLabel || 'Equipment'}`;
+        $('srTitle').textContent = `Service Records — ${$('eqName')?.textContent || 'Equipment'}`;
         srOpen();
 
         const rows = await loadServiceRecordsForEquipment(SR.db, id);
 
-        // Sort newest -> oldest using best available date
         rows.sort((a,b)=>{
           const da = bestRecordDate(a.data);
-          const db = bestRecordDate(b.data);
+          const dbb = bestRecordDate(b.data);
           const ta = da ? da.getTime() : 0;
-          const tb = db ? db.getTime() : 0;
-          return tb - ta;
+          const tb = dbb ? dbb.getTime() : 0;
+          return tb - ta; // newest first
         });
 
         SR.rows = rows;
         renderSrList();
-
       }catch(e){
         console.error('[hub][sr] openServiceRecords error', e);
         srShowBanner('Could not load service records. Check connection.');
@@ -1346,54 +1236,84 @@ Change:
       }
     }
 
-    function buildSummaryPrintHtml({ eqLabel, rows }){
-      // STUB: You’ll give me the real summary/detailed builders from maintenance-records later.
-      const items = (rows||[]).map(r=>{
-        const d = r.data || {};
-        const when = fmtDateTime(bestRecordDate(d));
-        return `<tr>
-          <td style="padding:8px 10px;border-bottom:1px solid #ddd;">${when}</td>
-          <td style="padding:8px 10px;border-bottom:1px solid #ddd;">${pickTitle(d)}</td>
-          <td style="padding:8px 10px;border-bottom:1px solid #ddd;">${normStatus(d.status)}</td>
-        </tr>`;
-      }).join('');
+    function openPrintWindow(html){
+      const w = window.open('', '_blank', 'noopener,noreferrer');
+      if(!w){ srShowBanner('Popup blocked. Allow popups to print.'); return; }
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+    }
 
+    function buildPrintShell({ title, subtitle, bodyHtml }){
+      // IMPORTANT: no </script> inside template strings. (We use a button, no auto-print.)
       return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Service Records — Summary</title>
+  <title>${title}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    body{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:20px; color:#111; }
-    h1{ margin:0 0 8px; font-size:20px; }
+    body{ font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; margin:20px; color:#111; }
+    h1{ margin:0 0 6px; font-size:20px; }
     .muted{ color:#666; margin:0 0 14px; }
+    .bar{ display:flex; gap:10px; align-items:center; justify-content:space-between; margin:0 0 14px; }
+    .btn{
+      border:1px solid #ddd; border-radius:10px; padding:10px 12px;
+      font-weight:800; background:#f7f7f7; cursor:pointer;
+    }
+    @media print{ .bar{ display:none; } body{ margin:0.5in; } }
     table{ width:100%; border-collapse:collapse; }
-    th{ text-align:left; font-size:12px; letter-spacing:.2px; color:#444; padding:8px 10px; border-bottom:2px solid #111; }
-    td{ font-size:13px; vertical-align:top; }
-    @media print{ body{ margin:0.5in; } }
+    th{ text-align:left; font-size:12px; color:#444; padding:8px 10px; border-bottom:2px solid #111; }
+    td{ font-size:13px; padding:8px 10px; border-bottom:1px solid #ddd; vertical-align:top; }
   </style>
 </head>
 <body>
-  <h1>Service Records — Summary</h1>
-  <p class="muted">${eqLabel || 'Equipment'}</p>
+  <div class="bar">
+    <div>
+      <h1>${title}</h1>
+      <div class="muted">${subtitle || ''}</div>
+    </div>
+    <button class="btn" onclick="window.print()">Print</button>
+  </div>
 
-  <table>
-    <thead>
-      <tr><th style="width:190px">Date</th><th>Record</th><th style="width:130px">Status</th></tr>
-    </thead>
-    <tbody>
-      ${items || `<tr><td colspan="3" style="padding:10px;">No records.</td></tr>`}
-    </tbody>
-  </table>
-  <script>window.print()</script>
+  ${bodyHtml || ''}
+
 </body>
 </html>`;
     }
 
-    function buildDetailedPrintHtml({ eqLabel, rows }){
-      // STUB detailed print
-      const blocks = (rows||[]).map(r=>{
+    function buildSummaryPrintHtml(){
+      const eqLabel = $('eqName')?.textContent || 'Equipment';
+      const items = (SR.rows||[]).map(r=>{
+        const d = r.data || {};
+        const when = fmtDateTime(bestRecordDate(d));
+        return `<tr>
+          <td style="width:190px">${when}</td>
+          <td>${pickTitle(d)}</td>
+          <td style="width:130px">${normStatus(d.status)}</td>
+        </tr>`;
+      }).join('');
+
+      const body = `
+        <table>
+          <thead>
+            <tr><th style="width:190px">Date</th><th>Record</th><th style="width:130px">Status</th></tr>
+          </thead>
+          <tbody>
+            ${items || `<tr><td colspan="3">No records.</td></tr>`}
+          </tbody>
+        </table>
+      `;
+      return buildPrintShell({
+        title: 'Service Records — Summary',
+        subtitle: eqLabel,
+        bodyHtml: body
+      });
+    }
+
+    function buildDetailedPrintHtml(){
+      const eqLabel = $('eqName')?.textContent || 'Equipment';
+      const blocks = (SR.rows||[]).map(r=>{
         const d = r.data || {};
         const when = fmtDateTime(bestRecordDate(d));
         const title = pickTitle(d);
@@ -1407,70 +1327,36 @@ Change:
         `;
       }).join('');
 
-      return `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Service Records — Detailed</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    body{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:20px; color:#111; }
-    h1{ margin:0 0 8px; font-size:20px; }
-    .muted{ color:#666; margin:0 0 14px; }
-    @media print{ body{ margin:0.5in; } }
-  </style>
-</head>
-<body>
-  <h1>Service Records — Detailed</h1>
-  <p class="muted">${eqLabel || 'Equipment'}</p>
-  ${blocks || `<div>No records.</div>`}
-  <script>window.print()</script>
-</body>
-</html>`;
-    }
-
-    function openPrintWindow(html){
-      const w = window.open('', '_blank', 'noopener,noreferrer');
-      if(!w){ srShowBanner('Popup blocked. Allow popups to print.'); return; }
-      w.document.open();
-      w.document.write(html);
-      w.document.close();
+      return buildPrintShell({
+        title: 'Service Records — Detailed',
+        subtitle: eqLabel,
+        bodyHtml: blocks || `<div>No records.</div>`
+      });
     }
 
     function wireServiceRecordsModalButtons(){
       const back = $('srModal');
       const closeBtn = $('srClose');
-      const btnSum = $('srPrintSummary');
-      const btnDet = $('srPrintDetailed');
 
       if(closeBtn) closeBtn.addEventListener('click', srClose);
-
       if(back){
-        back.addEventListener('click', (e)=>{
-          if(e.target === back) srClose();
-        });
+        back.addEventListener('click', (e)=>{ if(e.target === back) srClose(); });
       }
 
-      window.addEventListener('keydown', (e)=>{
-        if(e.key === 'Escape' && SR.open) srClose();
+      window.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && SR.open) srClose(); });
+
+      $('srPrintSummary')?.addEventListener('click', ()=>{
+        openPrintWindow(buildSummaryPrintHtml());
       });
 
-      if(btnSum) btnSum.addEventListener('click', ()=>{
-        const eqLabel = $('eqName')?.textContent || 'Equipment';
-        const html = buildSummaryPrintHtml({ eqLabel, rows: SR.rows });
-        openPrintWindow(html);
-      });
-
-      if(btnDet) btnDet.addEventListener('click', ()=>{
-        const eqLabel = $('eqName')?.textContent || 'Equipment';
-        const html = buildDetailedPrintHtml({ eqLabel, rows: SR.rows });
-        openPrintWindow(html);
+      $('srPrintDetailed')?.addEventListener('click', ()=>{
+        openPrintWindow(buildDetailedPrintHtml());
       });
     }
 
-    /* ===========================
-       Init + Hub wiring
-       =========================== */
+    /* ======================
+       Init
+       ====================== */
     const TIMEOUT_MS = 22000;
     let finished=false;
     const watchdog=setTimeout(()=>{
@@ -1483,29 +1369,21 @@ Change:
 
     async function userReady(maxMs=3000){
       const auth = getAuth();
-      if (auth.currentUser) { console.info('[hub] userReady: currentUser present'); return; }
+      if (auth.currentUser) return;
       const first = new Promise(res=>{
         const off = onAuthStateChanged(auth, (u)=>{ try{off();}catch{} res(u); }, { onlyOnce:true });
       });
       let u = await first;
-      if (u) { console.info('[hub] userReady: got user from first event'); return; }
+      if (u) return;
       const t0 = Date.now();
       while(!auth.currentUser && (Date.now()-t0) < maxMs){
         await new Promise(r=>setTimeout(r,120));
       }
-      console.info('[hub] userReady: final user=', !!auth.currentUser);
     }
 
     async function getDocWithRetry(ref){
-      try {
-        console.info('[hub] getDoc attempt #1');
-        return await getDoc(ref);
-      }catch(e){
-        console.warn('[hub] getDoc failed #1; retrying...', e?.code||e);
-        await new Promise(r=>setTimeout(r, 600));
-        console.info('[hub] getDoc attempt #2');
-        return await getDoc(ref);
-      }
+      try { return await getDoc(ref); }
+      catch(e){ await new Promise(r=>setTimeout(r, 600)); return await getDoc(ref); }
     }
 
     function cloneCfg(base){
@@ -1561,7 +1439,6 @@ Change:
       if(!id){
         clearTimeout(watchdog); finished=true; showContent();
         $('status').textContent='No equipment id provided.'; $('status').hidden=false;
-        console.warn('[hub] no id');
         return;
       }
 
@@ -1584,15 +1461,12 @@ Change:
 
       if(!snap.exists()){
         $('status').textContent='Not found.'; $('status').hidden=false;
-        console.warn('[hub] snap not exists for id', id);
         return;
       }
 
       const d = snap.data() || {}; d.id = id;
       const typeKey = String(d.type || 'equipment').toLowerCase();
       const cfg = resolveEffectiveCfg(typeKey, d);
-
-      console.info('[hub] loaded doc', { id, type:d.type, make:d.makeName, model:d.modelName });
 
       const hubTitle = `${cfg.display} Hub`;
       setText('pageTitle', hubTitle);
@@ -1602,10 +1476,7 @@ Change:
       const ls = last6(d.serial);
       const title = mm ? `${mm}${ls ? ` (#${ls})` : ''}` : (d.name || `Unit ${id.slice(0,6)}`);
       setText('eqName', title);
-
-      if(ls){
-        setText('eqSerial', `SN #${ls}`, { unhide:true });
-      }
+      if(ls) setText('eqSerial', `SN #${ls}`, { unhide:true });
 
       updateMetricChip(d, cfg, typeKey);
       $('eqCard').hidden = false;
@@ -1635,13 +1506,9 @@ Change:
         $('linkReq').href =
           `/Farm-vista/pages/equipment/actions/service-request.html?id=${encodeURIComponent(id)}${from ? `&from=${encodeURIComponent(from)}` : ''}`;
 
-        // Service Records now opens modal (no navigation)
+        // Service Records opens popup
         $('linkMaint').href = '#';
-        $('linkMaint').onclick = (e)=>{
-          e.preventDefault();
-          const eqLabel = $('eqName')?.textContent || 'Equipment';
-          openServiceRecords(eqLabel);
-        };
+        $('linkMaint').onclick = (e)=>{ e.preventDefault(); openServiceRecords(); };
 
         $('linkPre').href = '#';
 
@@ -1658,25 +1525,17 @@ Change:
         if(typeKey === 'starfire'){
           setText('linkMetric', 'Update Location');
           $('linkMetric').hidden = false;
-          $('linkMetric').href =
-            `/Farm-vista/pages/equipment/actions/starfire-location.html?id=${encodeURIComponent(id)}`;
+          $('linkMetric').href = `/Farm-vista/pages/equipment/actions/starfire-location.html?id=${encodeURIComponent(id)}`;
           $('linkMetric').onclick = null;
-
           $('linkMaint').hidden = true;
           $('linkPre').hidden   = true;
-
           if (calcCard) calcCard.hidden = true;
         } else {
           if (typeKey === 'combine' && calcCard) {
-            const lossLink   = $('linkCalcLoss');
-            const checkLink  = $('linkCalcYieldCheck');
-            const calibLink  = $('linkCalcYieldCal');
             const basePath   = '/Farm-vista/pages/calculators';
-
-            if (lossLink)  lossLink.href  = `${basePath}/calc-combine-grain-loss.html?equipmentId=${encodeURIComponent(id)}`;
-            if (checkLink) checkLink.href = `${basePath}/calc-combine-yield.html?equipmentId=${encodeURIComponent(id)}`;
-            if (calibLink) calibLink.href = `${basePath}/calc-combine-yield-calibration.html?equipmentId=${encodeURIComponent(id)}`;
-
+            $('linkCalcLoss').href  = `${basePath}/calc-combine-grain-loss.html?equipmentId=${encodeURIComponent(id)}`;
+            $('linkCalcYieldCheck').href = `${basePath}/calc-combine-yield.html?equipmentId=${encodeURIComponent(id)}`;
+            $('linkCalcYieldCal').href = `${basePath}/calc-combine-yield-calibration.html?equipmentId=${encodeURIComponent(id)}`;
             calcCard.hidden = false;
           } else if (calcCard) {
             calcCard.hidden = true;
@@ -1689,8 +1548,7 @@ Change:
       setupReturnButtons(typeKey);
     }
 
-    // Wire modals
-    wireModalButtons();
+    wireMetricModalButtons();
     wireServiceRecordsModalButtons();
 
     init().catch(e=>{
