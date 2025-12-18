@@ -899,6 +899,22 @@
       .trial-card-actions{
         display:none;
       }
+      .trial-detail-status-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+}
+
+#trialEditBtn.trial-edit-inline,
+#trialSaveBtn.trial-edit-inline{
+  min-width:auto;
+  padding:6px 10px;
+  border-radius:10px;
+  font-size:0.82rem;
+  font-weight:800;
+  white-space:nowrap;
+}
     }
   </style>
 
@@ -1767,47 +1783,63 @@
   }
 
   function clearDetails(){
-    const panel = $('.trial-detail-panel');
-    if(!panel) return;
-    panel.style.display = 'none';
-    panel.dataset.id = '';
+  const panel = $('.trial-detail-panel');
+  if(!panel) return;
+  panel.style.display = 'none';
+  panel.dataset.id = '';
 
-    setTrialTitleView('Trial Details');
+  setTrialTitleView('Trial Details');
 
-    const grid = $('.trial-detail-grid', panel);
-    if(grid) grid.innerHTML = '';
-    const notesBody = $('.trial-detail-notes-body', panel);
-    if(notesBody) notesBody.textContent = '';
-    const footer = $('.trial-detail-footer', panel);
-    if(footer) footer.innerHTML = '';
-    const attGrid = $('#trialDetailAttachments');
-    if(attGrid) attGrid.innerHTML = '';
-    const fieldsList = document.getElementById('trialFieldsList');
-    if(fieldsList){
-      fieldsList.innerHTML = '';
-    }
-    const completeBtn = $('#trialCompleteBtn');
-    if(completeBtn){
-      completeBtn.style.display = 'none';
-      completeBtn.disabled = false;
-      completeBtn.textContent = 'Mark Trial Completed';
-      delete completeBtn.dataset.id;
-    }
-    const delBtn = $('#trialDeleteBtn');
-    if(delBtn){
-      delBtn.disabled = false;
-    }
-    // Return Edit Setup button back to its home container when closing details
-const home = document.getElementById('trialEditHome');
-const editBtn = document.getElementById('trialEditBtn');
-if(home && editBtn){
-  editBtn.classList.remove('trial-edit-inline');
-  home.appendChild(editBtn);
+  const grid = $('.trial-detail-grid', panel);
+
+  // IMPORTANT: If Edit/Save are currently inside the grid slot,
+  // move them back home BEFORE we clear grid.innerHTML (or they get deleted).
+  const editHome = document.getElementById('trialEditHome');
+  const saveHome = document.getElementById('trialSaveHome');
+  const editBtn  = document.getElementById('trialEditBtn');
+  const saveBtn  = document.getElementById('trialSaveBtn');
+
+  if(editHome && editBtn){
+    editBtn.classList.remove('trial-edit-inline');
+    editHome.appendChild(editBtn);
+  }
+  if(saveHome && saveBtn){
+    saveBtn.classList.remove('trial-edit-inline');
+    saveHome.appendChild(saveBtn);
+  }
+
+  if(grid) grid.innerHTML = '';
+
+  const notesBody = $('.trial-detail-notes-body', panel);
+  if(notesBody) notesBody.textContent = '';
+
+  const footer = $('.trial-detail-footer', panel);
+  if(footer) footer.innerHTML = '';
+
+  const attGrid = $('#trialDetailAttachments');
+  if(attGrid) attGrid.innerHTML = '';
+
+  const fieldsList = document.getElementById('trialFieldsList');
+  if(fieldsList){
+    fieldsList.innerHTML = '';
+  }
+
+  const completeBtn = $('#trialCompleteBtn');
+  if(completeBtn){
+    completeBtn.style.display = 'none';
+    completeBtn.disabled = false;
+    completeBtn.textContent = 'Mark Trial Completed';
+    delete completeBtn.dataset.id;
+  }
+
+  const delBtn = $('#trialDeleteBtn');
+  if(delBtn){
+    delBtn.disabled = false;
+  }
+
+  resetDetailButtonsForViewMode();
 }
 
-
-    resetDetailButtonsForViewMode();
-  }
 
   function openFileViewer(att){
     if(!fileModal || !fileContentWrap || !att || !att.url) return;
@@ -1932,13 +1964,28 @@ if(home && editBtn){
 
       grid.innerHTML = html;
 
-// Move "Edit Setup" button into the Status row (far right)
-const slot = document.getElementById('trialEditSlot');
+// Put Edit OR Save into the Status row slot (far right)
+const slot    = document.getElementById('trialEditSlot');
 const editBtn = document.getElementById('trialEditBtn');
-if(slot && editBtn){
-  editBtn.classList.add('trial-edit-inline');
-  slot.appendChild(editBtn);
+const saveBtn = document.getElementById('trialSaveBtn');
+
+if(slot){
+  // clear any previous content
+  slot.innerHTML = '';
+
+  if(STATE.isEditingSetup){
+    if(saveBtn){
+      saveBtn.classList.add('trial-edit-inline');
+      slot.appendChild(saveBtn);
+    }
+  }else{
+    if(editBtn){
+      editBtn.classList.add('trial-edit-inline');
+      slot.appendChild(editBtn);
+    }
+  }
 }
+
 }
 
 const notesBody = $('.trial-detail-notes-body', panel);
@@ -3147,9 +3194,12 @@ if(attGrid){
     </button>
   </div>
 
-  <button type="button" id="trialSaveBtn" class="btn btn-complete" style="display:none;">
-    Save Changes
-  </button>
+  <div id="trialSaveHome">
+    <button type="button" id="trialSaveBtn" class="btn btn-quiet" style="display:none;">
+      Save Changes
+    </button>
+  </div>
+
   <button type="button" id="trialCancelBtn" class="btn btn-quiet" style="display:none;">
     Cancel
   </button>
