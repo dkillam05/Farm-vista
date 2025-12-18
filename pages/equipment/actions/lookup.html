@@ -167,6 +167,10 @@
     }
     .btn[disabled], .btn.disabled{ opacity:.55; pointer-events:none; }
     .btn-primary{ border-color:transparent; background:var(--brand-green,#3B7E46); color:#fff; }
+
+    /* ✅ Force Open Hub to be white text (avoid any browser link blue) */
+    #openHub{ color:#fff !important; }
+    #openHub:visited{ color:#fff !important; }
   </style>
 </head>
 <body>
@@ -495,7 +499,15 @@
         qrLbl.textContent = labelText || TYPE_META.sing;
         qrSection.hidden = false;
         btnPrintQR.disabled = false;
-        btnPrintQR.onclick = ()=> printQR(url, labelText || TYPE_META.sing);
+
+        // ✅ Reprint uses same printer settings/layout as Add → Save & Print:
+        // DK-2205 62mm wide tape, horizontal label, Make/Model left, QR middle, last6 right.
+        btnPrintQR.onclick = ()=> printQR({
+          url,
+          make: d.makeName || '',
+          model: d.modelName || '',
+          serial6: ls || ''
+        });
       } else {
         qrImg.removeAttribute('src');
         qrLbl.textContent = 'No QR image saved for this equipment.';
@@ -576,107 +588,118 @@
       if (r) r.checked = true;
     }
 
-    // UPDATED FOR 50mm x 25mm LABEL WITH 24mm QR LEFT, MODEL + LAST6 RIGHT
-    function printQR(url, labelText){
-      const w = window.open('', '_blank');
+    // ✅ UPDATED: Reprint label matches Add page printer settings/layout
+    // DK-2205 (62mm wide). Using 62mm x 38mm cut length (same “longer” fix you made).
+    // Left: Make (top) + Model (bottom)
+    // Middle: QR
+    // Right: VIN/Serial + last6
+    function printQR({ url, make, model, serial6 }){
+      const w = window.open('', '_blank', 'noopener,noreferrer,width=620,height=520');
       if (!w) return;
 
-      // Parse labelText into model + last6 (expects "Model - #123456")
-      let model = labelText || '';
-      let serial6 = '';
-      if (labelText) {
-        const m = labelText.match(/^(.*?)(?:\s*-\s*#(\w+))?$/);
-        if (m) {
-          model = (m[1] || '').trim();
-          serial6 = (m[2] || '').trim();
-        }
-      }
+      const esc = (s)=>String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+      const mk = esc(make);
+      const md = esc(model);
+      const s6 = esc(serial6);
 
       const html = `<!doctype html><html><head><meta charset="utf-8"/>
 <title>QR Label</title><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <style>
-  /* Physical label: 50mm x 25mm, no margins */
-  @page { size: 50mm 25mm; margin: 0; }
-  html, body {
+  @page { size: 62mm 38mm; margin: 0; }
+  html, body{
     margin:0; padding:0;
-    width:50mm; height:25mm;
+    width:62mm; height:38mm;
     background:#fff;
   }
-  #wrap{
-    width:50mm; height:25mm;
-    margin:0;
-    display:flex;
-    align-items:center;
-    justify-content:flex-start;
-    padding-left:2mm;
-    padding-right:2mm;
+  .label{
+    width:62mm; height:38mm;
     box-sizing:border-box;
-    transform:translateZ(0);
-  }
-  #card{
-    width:100%; height:100%;
-    display:flex;
-    flex-direction:row;
+    padding: 2.2mm;
+    display:grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 2mm;
     align-items:center;
-    justify-content:flex-start;
+    font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    color:#000;
+    overflow:hidden;
   }
-  #qri{
-    width:24mm;
-    height:24mm;
+  .left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:0; }
+  .make{
+    font-weight:900;
+    font-size:11pt;
+    line-height:1.05;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .model{
+    font-weight:800;
+    font-size:9.5pt;
+    line-height:1.05;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    margin-top:1mm;
+  }
+  .mid{
+    width:22mm;
+    height:22mm;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .mid img{
+    width:100%;
+    height:100%;
     display:block;
     image-rendering:pixelated;
-    background:#fff;
-    margin-right:3mm;
   }
-  #text{
-    display:flex;
-    flex-direction:column;
-    justify-content:center;
-    align-items:flex-start;
-    max-width:calc(50mm - 24mm - 7mm); /* label width - QR width - margins */
-    overflow:hidden;
+  .right{
+    align-items:flex-end;
+    text-align:right;
   }
-  #model{
-    font:700 4mm system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
-    line-height:1.1;
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
+  .lab{
+    font-weight:800;
+    font-size:8.5pt;
+    line-height:1.05;
+    opacity:.85;
   }
-  #serial{
-    font:600 3.2mm system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
-    line-height:1.1;
+  .val{
+    font-weight:900;
+    font-size:11pt;
+    line-height:1.05;
+    letter-spacing:.6px;
     margin-top:1mm;
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
   }
-  @media print {
-    html, body {
+  @media print{
+    html, body{
       -webkit-print-color-adjust:exact;
       print-color-adjust:exact;
     }
     *, *:before, *:after { box-shadow:none !important; }
-    #wrap, #card { break-inside:avoid; page-break-inside:avoid; }
   }
 </style>
 </head><body>
-  <div id="wrap">
-    <div id="card">
+  <div class="label">
+    <div class="left">
+      <div class="make">${mk || '—'}</div>
+      <div class="model">${md || '—'}</div>
+    </div>
+    <div class="mid">
       <img id="qri" src="${url}" alt="QR"/>
-      <div id="text">
-        <div id="model">${model || ''}</div>
-        <div id="serial">${serial6 ? ('#' + serial6) : ''}</div>
-      </div>
+    </div>
+    <div class="right">
+      <div class="lab">VIN/Serial</div>
+      <div class="val">${s6 || '—'}</div>
     </div>
   </div>
 <script>
   const img = document.getElementById('qri');
   function doPrint(){ try{ window.focus(); window.print(); }catch(e){} }
-  if (img.complete) { setTimeout(doPrint, 0); }
-  else { img.addEventListener('load', ()=> setTimeout(doPrint, 0), {once:true}); }
+  if (img && img.complete) { setTimeout(doPrint, 0); }
+  else if (img){ img.addEventListener('load', ()=> setTimeout(doPrint, 0), {once:true}); }
   window.addEventListener('afterprint', ()=> { try{ window.close(); }catch(e){} });
-  setTimeout(()=>{ try{ window.close(); }catch(e){} }, 4000);
+  setTimeout(()=>{ try{ window.close(); }catch(e){} }, 5000);
 <\/script>
 </body></html>`;
 
