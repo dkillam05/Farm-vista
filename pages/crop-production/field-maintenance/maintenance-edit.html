@@ -1,6 +1,7 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/field-maintenance/maintenance-edit.html
-Worker Order Editor – list, filter by status, full edit + delete
+Worker Order Editor – list, filter by status, full edit (delete from list w/ FV confirm)
+Rev: 2025-12-18 (search removed, FV delete confirm, mobile + modal fixes)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -47,6 +48,16 @@ Worker Order Editor – list, filter by status, full edit + delete
     html{-webkit-text-size-adjust:100%}
     body{ background: var(--app-bg, var(--surface)); }
 
+    /* HARD CLAMP */
+    html, body{
+      width:100%;
+      max-width:100%;
+      overflow-x:hidden !important;
+    }
+    @supports (width: 100dvw){
+      html, body{ width:100dvw; }
+    }
+
     .wrap{
       max-width: var(--card-max);
       margin: 0 auto;
@@ -54,7 +65,7 @@ Worker Order Editor – list, filter by status, full edit + delete
       padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
       box-sizing:border-box;
       display:grid;
-      gap:16px;
+      gap:12px;
     }
 
     .hero{
@@ -62,7 +73,8 @@ Worker Order Editor – list, filter by status, full edit + delete
       border-radius:14px;
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      overflow:hidden;
+      /* IMPORTANT: allow content like status to never be clipped */
+      overflow:visible;
     }
     .hero-head{
       display:grid;
@@ -72,6 +84,8 @@ Worker Order Editor – list, filter by status, full edit + delete
       padding:14px 16px;
       background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
       border-bottom:1px solid var(--border);
+      border-top-left-radius:14px;
+      border-top-right-radius:14px;
     }
     .hero-head .icon{
       width:24px;
@@ -109,7 +123,7 @@ Worker Order Editor – list, filter by status, full edit + delete
       display:flex;
       flex-direction:column;
       gap:4px;
-      min-width:160px;
+      min-width:180px;
     }
     .field-inline label{
       font-weight:800;
@@ -129,10 +143,6 @@ Worker Order Editor – list, filter by status, full edit + delete
       outline:none;
     }
 
-    .input::placeholder{
-      color:var(--muted,#67706B);
-    }
-
     .btn{
       display:inline-flex; align-items:center; justify-content:center;
       min-width:120px; padding:10px 14px; border-radius:12px; border:1px solid var(--border);
@@ -140,6 +150,7 @@ Worker Order Editor – list, filter by status, full edit + delete
       color:var(--text) !important; background:var(--card-surface,var(--surface));
       font-size:0.9rem;
       gap:6px;
+      -webkit-tap-highlight-color: transparent;
     }
     .btn-primary{ border-color:transparent; background:#2F6C3C; color:#fff !important; }
     .btn-quiet{ min-width:auto; padding-inline:10px; }
@@ -178,9 +189,22 @@ Worker Order Editor – list, filter by status, full edit + delete
     .toast.show{ display:block; animation:fadeout 3.2s forwards; }
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
 
+    /* STATUS OUTSIDE HERO (always visible) */
+    .status-bar{
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:var(--card-surface,var(--surface));
+      padding:10px 12px;
+      display:flex;
+      gap:10px;
+      align-items:center;
+      justify-content:space-between;
+      box-shadow:var(--shadow,0 6px 16px rgba(0,0,0,.06));
+    }
     .wo-status{
-      font-size:0.85rem;
+      font-size:0.9rem;
       color:var(--muted,#67706B);
+      font-weight:700;
     }
 
     .wo-list{
@@ -189,20 +213,21 @@ Worker Order Editor – list, filter by status, full edit + delete
       gap:8px;
     }
     .wo-item{
-      border-radius:10px;
+      border-radius:12px;
       border:1px solid var(--border);
       background:var(--card-surface,var(--surface));
-      padding:10px 12px;
+      padding:12px 12px;
       display:grid;
-      gap:4px;
+      gap:6px;
+      overflow:hidden;
     }
     .wo-header{
       display:flex;
       align-items:center;
       justify-content:space-between;
       gap:8px;
-      font-size:0.9rem;
-      font-weight:800;
+      font-size:0.95rem;
+      font-weight:900;
     }
     .wo-topic{
       min-width:0;
@@ -212,23 +237,24 @@ Worker Order Editor – list, filter by status, full edit + delete
     }
     .wo-pill{
       font-size:0.75rem;
-      padding:2px 8px;
+      padding:3px 10px;
       border-radius:999px;
       border:1px solid var(--border);
       text-transform:uppercase;
       letter-spacing:0.03em;
       white-space:nowrap;
+      background:rgba(0,0,0,.02);
     }
     .wo-sub{
       display:flex;
       flex-wrap:wrap;
       gap:6px 10px;
-      font-size:0.8rem;
+      font-size:0.82rem;
       color:var(--muted,#67706B);
     }
     .wo-notes{
-      font-size:0.9rem;
-      line-height:1.3;
+      font-size:0.92rem;
+      line-height:1.35;
       max-height:4.2em;
       overflow:hidden;
       text-overflow:ellipsis;
@@ -242,8 +268,8 @@ Worker Order Editor – list, filter by status, full edit + delete
     }
     .wo-actions .btn{
       min-width:auto;
-      padding-inline:10px;
-      font-size:0.8rem;
+      padding-inline:12px;
+      font-size:0.85rem;
     }
 
     /* === DEV-STYLE INLINE COMBOS (Farm / Field / Topic in editor) === */
@@ -261,6 +287,7 @@ Worker Order Editor – list, filter by status, full edit + delete
       text-align:left;
       cursor:pointer;
       position:relative;
+      max-width:100%;
     }
     .buttonish.has-caret::after{
       content:"";
@@ -281,6 +308,7 @@ Worker Order Editor – list, filter by status, full edit + delete
       position:relative;
       display:inline-block;
       width:100%;
+      max-width:100%;
     }
     .combo-panel{
       position:absolute;
@@ -306,7 +334,7 @@ Worker Order Editor – list, filter by status, full edit + delete
       border-radius:var(--combo-btn-radius);
       background:var(--card-surface,var(--surface));
       color:var(--text);
-      font-size:0.9rem;
+      font-size:0.95rem;
     }
 
     .combo-panel .list{
@@ -318,21 +346,21 @@ Worker Order Editor – list, filter by status, full edit + delete
       padding:var(--combo-item-pad);
       border-bottom:1px solid var(--border);
       cursor:pointer;
-      font-size:0.9rem;
+      font-size:0.95rem;
     }
     .combo-item:hover{ background:rgba(0,0,0,.04); }
     .combo-item:last-child{ border-bottom:none; }
     .combo-empty{
       padding:var(--combo-item-pad);
       color:#67706B;
-      font-size:0.9rem;
+      font-size:0.95rem;
     }
 
     .fm-row-label{
       display:block;
-      font-weight:800;
+      font-weight:900;
       margin:0 0 4px 0;
-      font-size:0.9rem;
+      font-size:0.92rem;
     }
     .fm-row-label .req{ color:var(--accent); }
 
@@ -349,10 +377,11 @@ Worker Order Editor – list, filter by status, full edit + delete
       outline:none;
       min-height:90px;
       resize:vertical;
+      max-width:100%;
     }
 
     .priority-readout{
-      font-size:0.8rem;
+      font-size:0.85rem;
       color:var(--muted,#67706B);
       margin-top:4px;
     }
@@ -388,22 +417,26 @@ Worker Order Editor – list, filter by status, full edit + delete
       flex-direction:column;
       overflow:hidden;
       max-height:92vh;
+
+      /* stop any horizontal scroll inside modals */
+      overflow-x:hidden;
     }
     .sheet header{
       padding:12px 14px;
       border-bottom:1px solid var(--border);
-      font-weight:800;
+      font-weight:900;
       display:flex;
       align-items:center;
       justify-content:space-between;
       color:var(--text);
       flex:0 0 auto;
+      gap:10px;
     }
     .sheet header .close{
       border:none;
       background:transparent;
       font:inherit;
-      font-weight:800;
+      font-weight:900;
       cursor:pointer;
       padding:6px 10px;
       border-radius:10px;
@@ -418,6 +451,9 @@ Worker Order Editor – list, filter by status, full edit + delete
       flex:1 1 auto;
       min-height:0;
       overflow:auto;
+
+      /* stop horizontal scroll */
+      overflow-x:hidden;
     }
     .edit-grid{
       display:grid;
@@ -435,12 +471,11 @@ Worker Order Editor – list, filter by status, full edit + delete
       gap:10px;
       align-items:center;
       justify-content:flex-end;
+      flex-wrap:wrap;
     }
     .grow{ flex:1 1 auto; }
 
-    #masterErr{
-      margin-top:4px;
-    }
+    #masterErr{ margin-top:4px; }
 
     /* Photos in editor */
     .photo-thumbs{
@@ -450,20 +485,25 @@ Worker Order Editor – list, filter by status, full edit + delete
       margin-bottom:4px;
     }
     .photo-thumb{
-      width:72px;
-      height:72px;
-      border-radius:10px;
+      width:78px;
+      height:78px;
+      border-radius:12px;
       border:1px solid var(--border);
       overflow:hidden;
       display:grid;
       place-items:center;
       background:var(--card-surface,var(--surface));
+      position:relative;
+      flex:0 0 auto;
     }
     .photo-thumb img{
-      max-width:100%;
-      max-height:100%;
+      width:100%;
+      height:100%;
+      object-fit:cover;
       display:block;
     }
+    /* Hide raw URL editor (thumbnails only, as requested) */
+    .photo-urls-raw{ display:none !important; }
 
     /* Map modal for editing location */
     .map-modal-body{
@@ -473,6 +513,7 @@ Worker Order Editor – list, filter by status, full edit + delete
       gap:12px;
       flex:1 1 auto;
       min-height:0;
+      overflow-x:hidden;
     }
     .map-shell{
       border-radius:14px;
@@ -499,6 +540,41 @@ Worker Order Editor – list, filter by status, full edit + delete
       display:flex;
       gap:12px;
       justify-content:flex-end;
+      flex-wrap:wrap;
+    }
+
+    /* FV confirm modal (smaller) */
+    .confirm-sheet{
+      width:min(100vw,520px);
+      max-width:92vw;
+    }
+    .confirm-body{
+      padding:14px 14px 10px;
+      display:grid;
+      gap:10px;
+    }
+    .confirm-title{
+      font-weight:1000;
+      font-size:1.02rem;
+    }
+    .confirm-msg{
+      color:var(--muted,#67706B);
+      line-height:1.35;
+      font-size:0.95rem;
+    }
+
+    /* Mobile friendliness */
+    @media (max-width:560px){
+      .toolbar{ flex-direction:column; align-items:stretch; }
+      .toolbar-left, .toolbar-right{ width:100%; justify-content:space-between; }
+      .field-inline{ min-width:unset; width:100%; }
+      .btn{ width:100%; min-width:unset; }
+      .wo-actions .btn{ width:auto; }
+      .status-bar{ gap:8px; flex-direction:column; align-items:flex-start; }
+      .sheet{ max-width:96vw; width:96vw; }
+      .edit-footer .btn{ width:100%; }
+      .edit-footer{ justify-content:stretch; }
+      .grow{ display:none; }
     }
   </style>
 </head>
@@ -538,21 +614,18 @@ Worker Order Editor – list, filter by status, full edit + delete
                   <option value="cancelled">Cancelled</option>
                 </select>
               </div>
-              <div class="field-inline">
-                <label for="searchBox">Search</label>
-                <input
-                  id="searchBox"
-                  class="input"
-                  type="search"
-                  placeholder="Search farm, field, topic, or notes…">
-              </div>
+
+              <!-- SEARCH BAR REMOVED (not needed right now) -->
             </div>
           </div>
-
-          <div id="woStatus" class="wo-status">Loading work orders…</div>
-          <div id="woList" class="wo-list"></div>
         </div>
       </section>
+
+      <!-- Status + list are OUTSIDE the hero card (so they never get clipped/hidden) -->
+      <div class="status-bar">
+        <div id="woStatus" class="wo-status">Loading work orders…</div>
+      </div>
+      <div id="woList" class="wo-list"></div>
     </div>
   </fv-shell>
 
@@ -669,39 +742,21 @@ Worker Order Editor – list, filter by status, full edit + delete
           <input id="edLocationLng" type="hidden">
         </div>
 
-        <!-- Photos -->
+        <!-- Photos (thumbnails only) -->
         <div class="field">
           <label class="fm-row-label">Photos</label>
           <div id="edPhotoThumbs" class="photo-thumbs"></div>
-          <label class="fm-row-label" for="edPhotoUrlsRaw" style="margin-top:6px;">
-            Photo URLs (one per line)
-          </label>
-          <textarea
-            id="edPhotoUrlsRaw"
-            class="textarea"
-            placeholder="https://.../photo1.jpg&#10;https://.../photo2.jpg"></textarea>
-        </div>
 
-        <!-- Finalize / Work performed -->
-        <div class="edit-grid">
-          <div class="field">
-            <label class="fm-row-label" for="edAssignedType">Assigned To Type</label>
-            <select id="edAssignedType" class="select">
-              <option value="">(none)</option>
-              <option value="employee">Employee</option>
-              <option value="subcontractor">Subcontractor</option>
-            </select>
-          </div>
-          <div class="field">
-            <label class="fm-row-label" for="edAssignedTo">Assigned To (names or crew)</label>
-            <input
-              id="edAssignedTo"
-              class="input"
-              type="text"
-              placeholder="e.g. John / Sprayer crew A">
+          <!-- hidden raw URLs editor (kept for saving, but not shown) -->
+          <div class="photo-urls-raw">
+            <textarea
+              id="edPhotoUrlsRaw"
+              class="textarea"
+              placeholder="https://.../photo1.jpg&#10;https://.../photo2.jpg"></textarea>
           </div>
         </div>
 
+        <!-- Final notes -->
         <div class="field">
           <label class="fm-row-label" for="edWorkPerformed">Work Performed / Final Notes</label>
           <textarea
@@ -711,10 +766,29 @@ Worker Order Editor – list, filter by status, full edit + delete
         </div>
       </div>
       <div class="edit-footer">
-        <button id="btnDeleteWo" type="button" class="btn btn-danger">Delete</button>
+        <!-- DELETE BUTTON REMOVED from modal (delete happens from list w/ FV confirm) -->
         <div class="grow"></div>
         <button id="btnCancelEdit" type="button" class="btn">Cancel</button>
         <button id="btnSaveEdit" type="button" class="btn btn-primary">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- FV-style Delete Confirmation modal -->
+  <div id="confirmModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+    <div class="backdrop" data-close></div>
+    <div class="sheet confirm-sheet">
+      <header>
+        <div id="confirmTitle">Confirm Delete</div>
+        <button class="close" type="button" data-close>Close</button>
+      </header>
+      <div class="confirm-body">
+        <div class="confirm-title">Delete this work order?</div>
+        <div id="confirmMsg" class="confirm-msg">This cannot be undone.</div>
+      </div>
+      <div class="edit-footer">
+        <button id="btnConfirmCancel" type="button" class="btn">Cancel</button>
+        <button id="btnConfirmYes" type="button" class="btn btn-danger">Yes, Delete</button>
       </div>
     </div>
   </div>
@@ -774,6 +848,9 @@ Worker Order Editor – list, filter by status, full edit + delete
         farm: null,
         field: null,
         topic: null
+      },
+      confirm: {
+        pending: null, // { id, resolve }
       }
     };
 
@@ -821,11 +898,6 @@ Worker Order Editor – list, filter by status, full edit + delete
 
     function inferName(data){
       return data.name || data.farmName || data.fieldName || data.label || "Unnamed";
-    }
-
-    function titleCase(s){
-      return String(s||"").replace(/\s+/g," ").trim().split(" ")
-        .filter(Boolean).map(w=>w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()).join(" ");
     }
 
     /* ---------- global combo closer ---------- */
@@ -1046,8 +1118,6 @@ Worker Order Editor – list, filter by status, full edit + delete
             photoCount: data.photoCount || 0,
             photoUrls: Array.isArray(data.photoUrls) ? data.photoUrls : null,
             location: data.location || null,
-            assignedType: data.assignedType || "",
-            assignedTo: data.assignedTo || "",
             workPerformed: data.workPerformed || data.finalNotes || "",
             raw: data
           };
@@ -1078,28 +1148,10 @@ Worker Order Editor – list, filter by status, full edit + delete
     /* ------------ filters + render ------------ */
     function applyFilters(){
       const statusFilter = $("statusFilter").value || "all";
-      const search = ($("searchBox").value || "").trim().toLowerCase();
-
       let rows = state.workOrders.slice();
 
       if(statusFilter !== "all"){
         rows = rows.filter(r => (r.status || "").toLowerCase() === statusFilter.toLowerCase());
-      }
-
-      if(search){
-        rows = rows.filter(r=>{
-          const hay = [
-            r.farmName,
-            r.fieldName,
-            r.topicLabel,
-            r.notes,
-            r.status,
-            r.submittedBy,
-            r.assignedTo,
-            r.workPerformed
-          ].join(" ").toLowerCase();
-          return hay.includes(search);
-        });
       }
 
       renderWorkOrders(rows);
@@ -1125,7 +1177,7 @@ Worker Order Editor – list, filter by status, full edit + delete
         const who = row.submittedBy ? esc(row.submittedBy) : "";
         const farmField = [row.farmName, row.fieldName].filter(Boolean).join(" • ");
         const notes = esc(row.notes || "");
-        const assigned = row.assignedTo ? `Assigned: ${esc(row.assignedTo)}` : "";
+
         return `
           <div class="wo-item" data-id="${esc(row.id)}">
             <div class="wo-header">
@@ -1136,8 +1188,7 @@ Worker Order Editor – list, filter by status, full edit + delete
               <span>${farmField || "No farm / field set"}</span>
               <span>${when || ""}</span>
               <span>${who || ""}</span>
-              ${pr ? `<span>${pr}</span>` : ""}
-              ${assigned ? `<span>${assigned}</span>` : ""}
+              ${pr ? `<span>${esc(pr)}</span>` : ""}
             </div>
             <div class="wo-notes">
               ${notes || "<span class='wo-empty'>No notes entered.</span>"}
@@ -1220,12 +1271,13 @@ Worker Order Editor – list, filter by status, full edit + delete
       selectEditFieldById(row.fieldId || null, row.fieldName || "Select field…");
       selectEditTopicById(row.topicId || null, row.topicLabel || "Select topic…");
 
-      // photos
+      // photos (thumbs only)
       const thumbsEl = $("edPhotoThumbs");
       const urlsArea = $("edPhotoUrlsRaw");
       thumbsEl.innerHTML = "";
       const urls = Array.isArray(row.photoUrls) ? row.photoUrls : [];
-      urlsArea.value = urls.join("\n");
+      urlsArea.value = urls.join("\n"); // hidden, but used for saving
+
       if(urls.length){
         urls.forEach(url=>{
           const div = document.createElement("div");
@@ -1245,9 +1297,7 @@ Worker Order Editor – list, filter by status, full edit + delete
         thumbsEl.appendChild(span);
       }
 
-      // finalize fields
-      $("edAssignedType").value = row.assignedType || "";
-      $("edAssignedTo").value = row.assignedTo || "";
+      // final notes
       $("edWorkPerformed").value = row.workPerformed || "";
 
       // Show modal
@@ -1314,10 +1364,8 @@ Worker Order Editor – list, filter by status, full edit + delete
       const topicId = topicSel ? topicSel.id : (state.editing.topicId || "");
       const farmName = farmSel ? farmSel.name : (fallbackFarmName || null);
       const fieldName = fieldSel ? fieldSel.name : (fallbackFieldName || null);
-      const topicLabel = topicSel ? topicSel.label || topicSel.name : (fallbackTopicLabel || null);
+      const topicLabel = topicSel ? (topicSel.label || topicSel.name) : (fallbackTopicLabel || null);
 
-      const assignedType = $("edAssignedType").value || "";
-      const assignedTo = $("edAssignedTo").value.trim();
       const workPerformed = $("edWorkPerformed").value.trim();
 
       // location
@@ -1365,19 +1413,13 @@ Worker Order Editor – list, filter by status, full edit + delete
         priorityReason: priority>=7 ? priorityReason : null,
         notes,
         status,
-        assignedType: assignedType || null,
-        assignedTo: assignedTo || null,
         workPerformed: workPerformed || null,
         photoUrls,
         photoCount,
         updatedAt: serverTimestamp()
       };
 
-      if(location){
-        payload.location = location;
-      }else{
-        payload.location = null;
-      }
+      payload.location = location ? location : null;
 
       $("btnSaveEdit").disabled = true;
 
@@ -1401,8 +1443,6 @@ Worker Order Editor – list, filter by status, full edit + delete
             priorityReason: priority>=7 ? priorityReason : "",
             notes,
             status,
-            assignedType: assignedType || "",
-            assignedTo,
             workPerformed,
             photoUrls,
             photoCount,
@@ -1420,27 +1460,40 @@ Worker Order Editor – list, filter by status, full edit + delete
       }
     }
 
-    async function deleteCurrentWo(){
-      if(!state.editing || !state.DB) return;
-      const id = state.editing.id;
-      const ok = window.confirm("Delete this work order? This cannot be undone.");
-      if(!ok) return;
+    /* ------------ FV confirm modal ------------ */
+    function openConfirmDelete({ id, label }){
+      return new Promise(resolve=>{
+        state.confirm.pending = { id, resolve };
+        $("confirmMsg").textContent = label
+          ? `Delete "${label}"? This cannot be undone.`
+          : "Delete this work order? This cannot be undone.";
 
-      $("btnDeleteWo").disabled = true;
+        const modal = $("confirmModal");
+        modal.classList.add("show");
+        document.body.style.overflow = "hidden";
+      });
+    }
 
+    function closeConfirmModal(result=false){
+      const modal = $("confirmModal");
+      modal.classList.remove("show");
+      document.body.style.overflow = "";
+      const pending = state.confirm.pending;
+      state.confirm.pending = null;
+      pending?.resolve?.(result);
+    }
+
+    async function deleteWorkOrderById(id){
+      if(!state.DB || !id) return;
       try{
         const ref = doc(state.DB, "fieldMaintenance", id);
         await deleteDoc(ref);
         showToast("Work order deleted.");
-
         state.workOrders = state.workOrders.filter(w=>w.id !== id);
-        closeEditModal();
         applyFilters();
       }catch(e){
-        console.error("deleteCurrentWo error", e);
-        showEditErr("Failed to delete this work order.");
-      }finally{
-        $("btnDeleteWo").disabled = false;
+        console.error("deleteWorkOrderById error", e);
+        showMasterErr("Failed to delete this work order.");
       }
     }
 
@@ -1570,7 +1623,6 @@ Worker Order Editor – list, filter by status, full edit + delete
       });
 
       $("btnCancelEditLocation").addEventListener("click", closeMapModal);
-
       $("btnEditLocation").addEventListener("click", openMapModal);
     }
 
@@ -1586,12 +1638,9 @@ Worker Order Editor – list, filter by status, full edit + delete
       });
 
       $("statusFilter").addEventListener("change", applyFilters);
-      $("searchBox").addEventListener("input", ()=>{
-        applyFilters();
-      });
 
       const listEl = $("woList");
-      listEl.addEventListener("click", e=>{
+      listEl.addEventListener("click", async e=>{
         const item = e.target.closest(".wo-item");
         if(!item) return;
         const id = item.dataset.id;
@@ -1599,11 +1648,16 @@ Worker Order Editor – list, filter by status, full edit + delete
 
         if(e.target.classList.contains("act-edit")){
           openEditModalForId(id);
-        }else if(e.target.classList.contains("act-delete")){
+          return;
+        }
+
+        if(e.target.classList.contains("act-delete")){
           const row = state.workOrders.find(r=>r.id===id);
-          if(!row) return;
-          state.editing = row;
-          deleteCurrentWo();
+          const label = row ? (row.topicLabel || "Work Order") : "Work Order";
+          const ok = await openConfirmDelete({ id, label });
+          if(ok){
+            await deleteWorkOrderById(id);
+          }
         }
       });
     }
@@ -1617,9 +1671,25 @@ Worker Order Editor – list, filter by status, full edit + delete
 
       $("btnCancelEdit").addEventListener("click", closeEditModal);
       $("btnSaveEdit").addEventListener("click", saveEdit);
-      $("btnDeleteWo").addEventListener("click", deleteCurrentWo);
 
       setupPriorityEditor();
+    }
+
+    function setupConfirmModal(){
+      const modal = $("confirmModal");
+      modal.querySelector(".backdrop").addEventListener("click", ()=>closeConfirmModal(false));
+      modal.querySelectorAll("[data-close]").forEach(el=>{
+        el.addEventListener("click", ()=>closeConfirmModal(false));
+      });
+
+      $("btnConfirmCancel").addEventListener("click", ()=>closeConfirmModal(false));
+      $("btnConfirmYes").addEventListener("click", ()=>closeConfirmModal(true));
+
+      document.addEventListener("keydown", (e)=>{
+        if(e.key === "Escape" && modal.classList.contains("show")){
+          closeConfirmModal(false);
+        }
+      });
     }
 
     /* ------------ combos for editor ------------ */
@@ -1679,6 +1749,7 @@ Worker Order Editor – list, filter by status, full edit + delete
       setupEditModalChrome();
       setupEditCombos();
       setupMapModal();
+      setupConfirmModal();
 
       try{
         await Promise.all([
