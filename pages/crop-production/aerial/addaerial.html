@@ -1,6 +1,6 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/crop-aerial-add.html  (FULL FILE)
-Rev: 2025-12-19a
+Rev: 2025-12-19b
 Purpose:
  • Add Aerial Application Job (multi-field)
  • Farm filters field list (farm is for narrowing only)
@@ -11,7 +11,14 @@ Purpose:
  • Submitted by defaults to logged-in user (still selectable)
  • Notes w/ dictation mic (Web Speech API if supported)
  • File/photo upload (multi) + thumbnails
- • Optional: Link fields to a Trial (UI + stored payload; trial wiring can be refined once you provide JSON)
+ • Trial Link:
+    - Trial dropdown loads from fieldTrials where:
+        crop == selected crop
+        cropYear == year(releaseDate)
+        operationTask == "Aerial Application"
+      (any status)
+    - On Save: if Trial=Yes and fields assigned, writes to:
+        fieldTrials/{trialId}/fields/{fieldId}  (merge)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -385,7 +392,7 @@ Purpose:
     .mic-btn{
       position:absolute;
       right:10px;
-      bottom:12px;
+      bottom:22px; /* ✅ moved up */
       width:34px;
       height:34px;
       border-radius:12px;
@@ -499,7 +506,6 @@ Purpose:
       <section class="hero">
         <header class="hero-head">
           <div class="icon" aria-hidden="true">
-            <!-- simple plane/spray icon -->
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M3 11l18-6-8 16-2-7-8-3z"/>
               <path d="M11 14l3 3"/>
@@ -526,12 +532,9 @@ Purpose:
               <select id="crop" class="select" data-label="Crop">
                 <option value="">— Select crop —</option>
                 <option value="Corn">Corn</option>
-                <option value="Soybeans">Soybeans</option>
+                <option value="Soybean">Soybean</option>
                 <option value="Wheat">Wheat</option>
-                <option value="Alfalfa">Alfalfa</option>
-                <option value="Other">Other</option>
               </select>
-              <input id="cropOther" class="input" placeholder="Enter crop name…" style="margin-top:10px" hidden />
             </div>
           </div>
 
@@ -634,7 +637,6 @@ Purpose:
           <div class="row">
             <div class="field">
               <label for="attachments">Files / Photos</label>
-              <!-- No capture attribute so iOS shows Camera, Photo Library, and Files -->
               <input id="attachments" class="input" type="file" multiple
                      accept="image/*,.jpg,.jpeg,.png,.heic,.pdf,.doc,.docx,.xls,.xlsx,.txt" />
               <div class="help">Attach any photos or documents for this job.</div>
@@ -655,12 +657,12 @@ Purpose:
 
                 <div id="trialDetails" hidden>
                   <div class="field" style="margin:0">
-                    <label for="trialSelect">Select Trial (current year)</label>
+                    <label for="trialSelect">Select Trial (matches crop + release year)</label>
                     <select id="trialSelect" class="select">
-                      <option value="">Loading…</option>
+                      <option value="">— Select crop + release date first —</option>
                     </select>
                     <div class="help" id="trialHelp">
-                      Shows aerial-application trials for the current year (any status). We’ll tighten this once you provide your trial JSON/schema.
+                      Shows trials where crop matches, cropYear = release date year, and operationTask = Aerial Application (any status).
                     </div>
                   </div>
 
@@ -692,8 +694,8 @@ Purpose:
     import {
       ready,
       getFirestore, getAuth,
-      collection, getDocs, addDoc, updateDoc, doc, serverTimestamp,
-      query, where, orderBy
+      collection, getDocs, addDoc, updateDoc, setDoc, doc, serverTimestamp,
+      query, where
     } from '/Farm-vista/js/firebase-init.js';
 
     /* ========== Helpers ========== */
@@ -742,7 +744,6 @@ Purpose:
     }
 
     function getTillableFromFieldDoc(d){
-      // try common keys
       const keys = [
         'tillableAcres','tillable_acres','acresTillable','acres_tillable',
         'tillable','tillableAcre','tillableArea','tillable_area'
@@ -753,13 +754,20 @@ Purpose:
           if(isFinite(x)) return x;
         }
       }
-      // sometimes nested
       const maybe = d?.acres?.tillable ?? d?.acreage?.tillable;
       if(maybe!=null){
         const x = Number(maybe);
         if(isFinite(x)) return x;
       }
       return 0;
+    }
+
+    function cropYearFromReleaseDate(){
+      const v = String(releaseDate?.value || "").trim();
+      if(!v) return new Date().getFullYear();
+      const d = new Date(v + "T00:00:00");
+      const y = d.getFullYear();
+      return Number.isFinite(y) ? y : new Date().getFullYear();
     }
 
     /* ========== State ========== */
@@ -777,7 +785,6 @@ Purpose:
     /* ========== UI refs ========== */
     const jobNumber = $("jobNumber");
     const crop = $("crop");
-    const cropOther = $("cropOther");
 
     const farmBtn = $("farmBtn");
     const farmPanel = $("farmPanel");
@@ -831,13 +838,6 @@ Purpose:
       jobNumber.value = String(jobNumber.value||"").replace(/[^\d]/g,"");
     });
 
-    /* Crop Other toggle */
-    crop.addEventListener('change', ()=>{
-      const v = crop.value;
-      cropOther.hidden = (v !== "Other");
-      if(v !== "Other") cropOther.value = "";
-    });
-
     /* Release acres format + KPI */
     function updateReleaseKPI(){
       const r = parseNum(releaseAcres.value);
@@ -846,7 +846,7 @@ Purpose:
       }else{
         kpiRelease.textContent = "—";
       }
-      validateReleaseAgainstTillable(); // updates warn color
+      validateReleaseAgainstTillable();
     }
 
     function formatReleaseTo2(){
@@ -860,10 +860,8 @@ Purpose:
     }
 
     releaseAcres.addEventListener('input', ()=>{
-      // allow typing, but keep it numeric-ish
       const s = String(releaseAcres.value||"");
       releaseAcres.value = s.replace(/[^\d.]/g,"");
-      // keep only one dot
       const parts = releaseAcres.value.split(".");
       if(parts.length>2){
         releaseAcres.value = parts[0]+"."+parts.slice(1).join("");
@@ -996,7 +994,6 @@ Purpose:
       const id = row.dataset.id;
       if(!id) return;
 
-      // toggle
       if(selectedFieldIds.has(id)){
         selectedFieldIds.delete(id);
         trialAssignedFieldIds.delete(id);
@@ -1012,10 +1009,8 @@ Purpose:
       const selected = allFields.filter(f=> selectedFieldIds.has(f.id));
       const count = selected.length;
 
-      // Update button label
       fieldsBtn.textContent = count ? `${count} field${count===1?'':'s'} selected` : "— Select fields —";
 
-      // Chips
       fieldChips.innerHTML = selected.slice(0,18).map(f=>`
         <span class="chip">
           ${esc(f.name)}
@@ -1023,7 +1018,6 @@ Purpose:
         </span>
       `).join("") + (count>18 ? `<span class="muted" style="font-weight:900">+${count-18} more…</span>` : "");
 
-      // KPIs
       kpiFields.textContent = String(count);
 
       const totalTillable = selected.reduce((sum,f)=> sum + (Number(f.tillable)||0), 0);
@@ -1051,11 +1045,9 @@ Purpose:
       const total = getTotalTillableSelected();
       const r = parseNum(releaseAcres.value);
 
-      // show release in KPI even if blank
       if(isFinite(r)) kpiRelease.textContent = to2(r);
       else kpiRelease.textContent = "—";
 
-      // warn color if invalid
       let warn = false;
       if(isFinite(r)){
         if(r < 0) warn = true;
@@ -1172,7 +1164,6 @@ Purpose:
     }
 
     function applyFarmFilter(fid){
-      // just re-render list scoped by farm + current search
       renderFieldsList(fieldsSearch.value);
       renderSelectedChipsAndKPIs();
 
@@ -1212,7 +1203,6 @@ Purpose:
           if(event.results[i].isFinal) finalText += t;
           else interim += t;
         }
-        // put text at end (simple & predictable)
         const base = notes.value || "";
         const out = (base.trim() ? base.replace(/\s*$/," ") : base) + (finalText + interim).trim();
         notes.value = out;
@@ -1225,7 +1215,6 @@ Purpose:
       };
 
       rec.onend = ()=>{
-        // if user didn't press stop, keep UI consistent
         if(recActive){
           recActive = false;
           micBtn.setAttribute("aria-pressed","false");
@@ -1258,7 +1247,6 @@ Purpose:
     /* ========== Upload thumbs ========== */
     attachments.addEventListener('change', ()=>{
       const list = Array.from(attachments.files||[]);
-      // keep all (no hard cap), but you can cap later if you want
       selectedFiles = (selectedFiles || []).concat(list);
       renderThumbs();
     });
@@ -1296,11 +1284,11 @@ Purpose:
 
     /* ========== Trial Link UI ========== */
     document.querySelectorAll('input[name="isTrial"]').forEach(r=>{
-      r.addEventListener('change', ()=>{
+      r.addEventListener('change', async ()=>{
         const yes = document.querySelector('input[name="isTrial"]:checked')?.value === "yes";
         trialDetails.hidden = !yes;
         if(yes){
-          loadTrialsIfNeeded();
+          await loadTrials();   // ✅ always load fresh with current crop + release year
           renderTrialAssignUI();
         }else{
           trialAssignedFieldIds.clear();
@@ -1309,54 +1297,37 @@ Purpose:
       });
     });
 
-    let triedTrialsLoad = false;
-    async function loadTrialsIfNeeded(){
-      if(triedTrialsLoad) return;
-      triedTrialsLoad = true;
+    async function loadTrials(){
+      const cropVal = String(crop.value||"").trim();
+      const year = cropYearFromReleaseDate();
 
-      const year = new Date().getFullYear();
+      if(!cropVal){
+        trialSelect.innerHTML = `<option value="">— Select crop first —</option>`;
+        trialHelp.textContent = "Pick a crop to load matching trials.";
+        return;
+      }
 
       trialSelect.innerHTML = `<option value="">Loading…</option>`;
-      trialHelp.textContent = "Loading trials…";
+      trialHelp.textContent = `Loading trials for ${cropVal} • ${year}…`;
 
-      // NOTE: We don't know your exact schema yet.
-      // This tries a reasonable default: collection 'field_trials' with {year, type} and/or name/title fields.
       try{
-        let snap = null;
-
-        // Try: field_trials where year == currentYear
-        try{
-          const qy = query(
-            collection(db,'field_trials'),
-            where('year','==',year),
-            orderBy('name','asc')
-          );
-          snap = await getDocs(qy);
-        }catch(_){
-          // fallback: no orderBy
-          const qy2 = query(
-            collection(db,'field_trials'),
-            where('year','==',year)
-          );
-          snap = await getDocs(qy2);
-        }
+        const qy = query(
+          collection(db,'fieldTrials'),
+          where('crop','==',cropVal),
+          where('cropYear','==',year),
+          where('operationTask','==','Aerial Application')
+        );
+        const snap = await getDocs(qy);
 
         const items = [];
         snap.forEach(d=>{
           const x = d.data()||{};
-          // try to infer "aerial application" relevant trials, but keep broad (any status)
-          const t = norm(x.type || x.trialType || x.category || "");
-          const isAerialish = (!t) || t.includes("aerial") || t.includes("application") || t.includes("spray");
-          if(!isAerialish) return;
-
-          const name = String(x.name || x.title || x.trialName || `Trial ${d.id}` ).trim();
+          const name = String(x.trialName || x.name || x.title || `Trial ${d.id}`).trim();
           if(!name) return;
-
           items.push({
             id: d.id,
             name,
-            status: String(x.status || x.state || "").trim(),
-            year: x.year ?? year
+            status: String(x.status || "").trim()
           });
         });
 
@@ -1364,8 +1335,8 @@ Purpose:
         trialItems = items;
 
         if(!trialItems.length){
-          trialSelect.innerHTML = `<option value="">(No trials found for ${year})</option>`;
-          trialHelp.textContent = `No aerial-application trials found for ${year}. (We’ll refine once you provide trial JSON/schema.)`;
+          trialSelect.innerHTML = `<option value="">(No matching trials)</option>`;
+          trialHelp.textContent = `No trials found for ${cropVal} • ${year} with operationTask "Aerial Application".`;
           return;
         }
 
@@ -1373,18 +1344,38 @@ Purpose:
           `<option value="">— Select trial —</option>` +
           trialItems.map(t=> `<option value="${esc(t.id)}">${esc(t.name)}${t.status?` • ${esc(t.status)}`:""}</option>`).join("");
 
-        trialHelp.textContent = `Showing ${trialItems.length} trial(s) for ${year}.`;
+        trialHelp.textContent = `Showing ${trialItems.length} trial(s) for ${cropVal} • ${year}.`;
 
       }catch(e){
         console.warn("[trial load]", e);
         trialItems = [];
         trialSelect.innerHTML = `<option value="">(Trial list unavailable)</option>`;
-        trialHelp.textContent = "Trial list unavailable on this build. Once you provide your trial JSON/schema we’ll wire it exactly.";
+        trialHelp.textContent = "Unable to load trials. Check Firestore rules / indexes for fieldTrials crop/cropYear/operationTask.";
       }
     }
 
+    // ✅ reload trials when crop or release date changes (if Trial=Yes)
+    crop.addEventListener('change', async ()=>{
+      const yes = document.querySelector('input[name="isTrial"]:checked')?.value === "yes";
+      if(yes){
+        trialAssignedFieldIds.clear();
+        trialSelect.value = "";
+        await loadTrials();
+        renderTrialAssignUI();
+      }
+    });
+
+    releaseDate.addEventListener('change', async ()=>{
+      const yes = document.querySelector('input[name="isTrial"]:checked')?.value === "yes";
+      if(yes){
+        trialAssignedFieldIds.clear();
+        trialSelect.value = "";
+        await loadTrials();
+        renderTrialAssignUI();
+      }
+    });
+
     trialSelect.addEventListener('change', ()=>{
-      // reset assigned when trial changes (keeps behavior clean)
       trialAssignedFieldIds.clear();
       renderTrialAssignUI();
     });
@@ -1408,7 +1399,7 @@ Purpose:
         return;
       }
 
-      trialAssignHelp.textContent = "Tap chips to toggle whether each field is added to this trial.";
+      trialAssignHelp.textContent = "Tap chips to toggle which fields get added to the trial.";
 
       trialAssignList.innerHTML = selected.map(f=>{
         const active = trialAssignedFieldIds.has(f.id);
@@ -1455,12 +1446,7 @@ Purpose:
         const r = ref(st, path);
         await uploadBytes(r, f, { contentType: f.type || 'application/octet-stream' });
         const url = await getDownloadURL(r);
-        out.push({
-          name: f.name,
-          url,
-          path,
-          contentType: f.type || ''
-        });
+        out.push({ name: f.name, url, path, contentType: f.type || '' });
       }
       return out;
     }
@@ -1473,7 +1459,6 @@ Purpose:
 
       const cropVal = String(crop.value||"").trim();
       if(!cropVal) return "Please select the Crop Being Sprayed.";
-      if(cropVal==="Other" && !String(cropOther.value||"").trim()) return "Please enter the crop name (Other).";
 
       if(selectedFieldIds.size < 1) return "Please select at least one field for this job.";
 
@@ -1494,7 +1479,6 @@ Purpose:
       if(trialYes){
         const tid = String(trialSelect.value||"").trim();
         if(!tid) return "Trial is set to Yes — please select a trial.";
-        // it's OK if they assign zero fields to trial; but usually they'd pick at least 1
       }
 
       return "";
@@ -1504,9 +1488,8 @@ Purpose:
       const meOpt = submittedBy.options[submittedBy.selectedIndex];
       const submittedByEmail = (meOpt?.dataset?.email || "").trim();
 
-      const cropVal = (crop.value === "Other")
-        ? String(cropOther.value||"").trim()
-        : String(crop.value||"").trim();
+      const cropVal = String(crop.value||"").trim();
+      const cropYear = cropYearFromReleaseDate();
 
       const selected = allFields.filter(f=> selectedFieldIds.has(f.id)).map(f=>({
         fieldId: f.id,
@@ -1523,45 +1506,70 @@ Purpose:
       const trialFieldIds = Array.from(trialAssignedFieldIds).filter(id=> selectedFieldIds.has(id));
 
       return {
-        // core
         jobNumber: Number(jobNumber.value),
         crop: cropVal,
+        cropYear,
 
-        // farm chosen is only for filtering (still store it for convenience)
         farmId: String(farmId.value||""),
         farm: String(farmName.value||""),
 
-        // fields
         fields: selected,
         fieldIds: selected.map(x=>x.fieldId),
         totalTillableAcres: Number(totalTillable),
 
-        // release
         releaseAcres: Number(parseNum(releaseAcres.value)),
         releaseDate: String(releaseDate.value||""),
 
-        // submitted
         submittedBy: String(submittedBy.value||""),
         submittedByEmail,
 
-        // notes
         notes: String(notes.value||"").trim(),
 
-        // trial link (UI-level; can be refined with your trial JSON later)
         trialLink: trialYes ? {
           enabled: true,
           trialId,
           assignFieldIds: trialFieldIds
         } : { enabled:false },
 
-        // meta
-        year: new Date().getFullYear(),
+        year: cropYear,                /* keep 'year' aligned to cropYear for this module */
         status: "Open",
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         t: Date.now(),
         timestampISO: new Date().toISOString()
       };
+    }
+
+    async function linkFieldsIntoTrial(payload, aerialDocId){
+      const trialYes = payload?.trialLink?.enabled === true;
+      const trialId = String(payload?.trialLink?.trialId || "").trim();
+      const assignIds = Array.isArray(payload?.trialLink?.assignFieldIds) ? payload.trialLink.assignFieldIds : [];
+      if(!trialYes || !trialId || !assignIds.length) return;
+
+      const byId = new Map((payload.fields||[]).map(f=>[String(f.fieldId), f]));
+
+      for(const fid of assignIds){
+        const f = byId.get(String(fid));
+        if(!f) continue;
+
+        const ref = doc(db, 'fieldTrials', trialId, 'fields', String(f.fieldId));
+        await setDoc(ref, {
+          farmId: String(f.farmId||""),
+          farmName: String(f.farm||""),
+          fieldId: String(f.fieldId||""),
+          fieldName: String(f.field||""),
+          notes: null,
+          tillable: Number(f.tillableAcres||0),
+          trialAcres: null,
+
+          // linkage metadata
+          source: "aerialApplication",
+          aerialApplicationId: aerialDocId,
+          jobNumber: Number(payload.jobNumber || 0),
+          releaseDate: String(payload.releaseDate || ""),
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      }
     }
 
     async function saveAerialJob(){
@@ -1579,11 +1587,9 @@ Purpose:
       const payload = collectPayload();
 
       try{
-        // Save core doc
         const refDoc = await addDoc(collection(db, 'aerial_applications'), payload);
         const id = refDoc.id;
 
-        // Upload attachments (optional)
         if(selectedFiles.length){
           try{
             const uploaded = await uploadFiles(id, selectedFiles);
@@ -1593,26 +1599,26 @@ Purpose:
                 updatedAt: serverTimestamp()
               });
             }
-          }catch(upErr){
-            console.error(upErr);
-            alert("Saved job, but file upload failed:\n\n" + (upErr?.message||upErr));
+          }catch(stErr){
+            console.error(stErr);
+            alert("Saved job, but file upload failed:\n\n" + (stErr?.message||stErr));
           }
         }
 
-        // NOTE: Trial linking writes are intentionally NOT performed here yet.
-        // Once you provide the trial JSON/schema, we’ll add:
-        //  - update trial doc to include these fields
-        //  - and/or create a join record
-        // For now, we store trialLink in this aerial job record.
+        // ✅ LINK: add selected fields into the trial subcollection
+        try{
+          await linkFieldsIntoTrial(payload, id);
+        }catch(linkErr){
+          console.error(linkErr);
+          alert("Saved job, but trial linking failed:\n\n" + (linkErr?.message||linkErr));
+        }
 
         showToast("Aerial job saved");
-        setTimeout(()=> goBack(), 1100);
+        setTimeout(()=>{ goBack(); }, 1100);
 
       }catch(e){
         console.error(e);
-        errBox.hidden = false;
-        errBox.textContent = "Save failed: " + (e?.message || e);
-        alert("Save failed: " + (e?.message || e));
+        alert("Save failed: " + e.message);
       }finally{
         saveBtn.disabled = false;
       }
@@ -1628,14 +1634,12 @@ Purpose:
 
       setupDictation();
 
-      // Initial KPIs
       renderSelectedChipsAndKPIs();
       updateReleaseKPI();
 
       await loadFarmsAndFields();
       await loadEmployees();
 
-      // First render lists
       renderFieldsList("");
       renderFarmList("");
     })();
