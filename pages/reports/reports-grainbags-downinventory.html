@@ -12,7 +12,7 @@
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
-  
+
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
@@ -195,6 +195,21 @@
       font-size:0.9rem;
       font-weight:600;
       color:var(--text,#111827);
+      display:flex;
+      align-items:baseline;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .site-heading .site-kpi{
+      font-size:0.82rem;
+      font-weight:700;
+      padding:3px 10px;
+      border-radius:999px;
+      border:1px solid color-mix(in srgb, var(--accent) 25%, var(--border) 75%);
+      background:linear-gradient(90deg, rgba(47,108,60,.10), transparent);
+      color:color-mix(in srgb, var(--text) 85%, var(--accent) 15%);
+      white-space:nowrap;
     }
 
     .wo-card {
@@ -228,22 +243,38 @@
     }
 
     .wo-title {
-      font-weight:700;
+      font-weight:800;
       font-size:0.98rem;
       line-height:1.3;
+      display:flex;
+      align-items:baseline;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .wo-title .tag{
+      font-size:0.78rem;
+      font-weight:800;
+      padding:3px 10px;
+      border-radius:999px;
+      background:linear-gradient(90deg, rgba(59,126,70,0.14), transparent);
+      border:1px solid rgba(59,126,70,0.22);
+      color:color-mix(in srgb, var(--text) 80%, var(--accent) 20%);
+      white-space:nowrap;
     }
 
     .wo-sub {
-      font-size:0.86rem;
-      opacity:0.9;
+      font-size:0.90rem;
+      opacity:0.95;
       margin-top:2px;
+      font-weight:700;
     }
 
     .wo-meta {
       display:flex;
       flex-wrap:wrap;
       gap:6px 10px;
-      margin-top:4px;
+      margin-top:6px;
       font-size:0.8rem;
       opacity:0.85;
     }
@@ -282,7 +313,7 @@
     }
 
     .wo-detail-title {
-      font-weight:700;
+      font-weight:800;
       font-size:1rem;
     }
 
@@ -320,6 +351,7 @@
 
     .wo-detail-item-value {
       font-size:0.92rem;
+      font-weight:650;
     }
 
     .wo-detail-notes {
@@ -551,6 +583,9 @@
 
       const totalOnHandBu = items.reduce((sum,it) => sum + (Number(it.data.onHandBu) || 0), 0);
       const totalCapacityBu = items.reduce((sum,it) => sum + (Number(it.data.capacityBu) || 0), 0);
+      const totalFull = items.reduce((sum,it)=> sum + (Number(it.data.fullBags) || 0), 0);
+      const totalPartial = items.reduce((sum,it)=> sum + (Number(it.data.partialBags) || 0), 0);
+
       const farms = new Set(items.map(it => it.data.farmId || it.data.farmName));
       const fields = new Set(items.map(it => it.data.fieldId || it.data.fieldName));
       const bagEntries = items.length;
@@ -558,8 +593,9 @@
       const pct = totalCapacityBu > 0 ? (totalOnHandBu / totalCapacityBu) * 100 : 0;
       const pctStr = totalCapacityBu > 0 ? `${pct.toFixed(1)}% of bag capacity` : 'Capacity N/A';
 
+      // Summary line now emphasizes bag count
       setSummaryText(
-        `${formatNumber(totalOnHandBu)} bu (estimated) on hand across ${bagEntries} bag entr${bagEntries===1?'y':'ies'} in ${fields.size} field${fields.size===1?'':'s'} on ${farms.size} farm${farms.size===1?'':'s'} (${pctStr})`,
+        `${totalFull} full, ${totalPartial} partial • ${formatNumber(totalOnHandBu)} bu (estimated) on hand • ${bagEntries} bag entr${bagEntries===1?'y':'ies'} • ${pctStr}`,
         STATE.stats.eventsLoaded
           ? `Loaded ${STATE.stats.eventsLoaded} open bag entr${STATE.stats.eventsLoaded===1?'y':'ies'} • Resolved ${STATE.stats.fieldsResolved} fields / ${STATE.stats.farmsResolved} farms`
           : ''
@@ -580,9 +616,17 @@
           const fieldsArr = Array.from(fieldMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
 
           for(const [fieldName, bags] of fieldsArr){
+            // Field-level KPI pill (bag counts + bu)
+            const fFull = bags.reduce((s,it)=> s + (Number(it.data.fullBags) || 0), 0);
+            const fPartial = bags.reduce((s,it)=> s + (Number(it.data.partialBags) || 0), 0);
+            const fBu = bags.reduce((s,it)=> s + (Number(it.data.onHandBu) || 0), 0);
+
             const siteHeading = document.createElement('div');
             siteHeading.className = 'site-heading';
-            siteHeading.textContent = `${cropName} • ${fieldName}`;
+            siteHeading.innerHTML = `
+              <span>${cropName} • ${fieldName}</span>
+              <span class="site-kpi">${fFull} full, ${fPartial} partial • ~${formatNumber(fBu)} bu</span>
+            `;
             frag.appendChild(siteHeading);
 
             for(const item of bags){
@@ -595,11 +639,17 @@
               card.className = 'wo-card';
               card.dataset.id = item.id;
 
+              // ✅ Remove Bag SKU + Location from the tile
+              // ✅ The "spot" becomes the bag count line (big + clear)
+              const titleLeft = `${d.cropType || 'Crop'}${d.cropYear ? ' • ' + d.cropYear : ''}`;
+              const titleTag = `${full + partial} bag${(full+partial)===1?'':'s'}`;
+
               card.innerHTML = `
                 <div class="wo-row-top">
                   <div class="wo-main">
                     <div class="wo-title">
-                      ${d.skuBrand || 'Bag'} · ${d.skuSizeFeet ? d.skuSizeFeet + ' ft' : ''}${d.skuDiameterFt ? ' · Ø' + d.skuDiameterFt + "'" : ''}
+                      <span>${titleLeft}</span>
+                      <span class="tag">${titleTag}</span>
                     </div>
                     <div class="wo-sub">
                       ${full} full, ${partial} partial · approx ${formatNumber(bu)} bu on hand
@@ -607,17 +657,9 @@
                     <div class="wo-meta">
                       <span><span class="wo-meta-label">Farm</span> ${farmName}</span>
                       <span><span class="wo-meta-label">Field</span> ${fieldName}</span>
-                      <span><span class="wo-meta-label">Crop year</span> ${d.cropYear || '—'}</span>
-                      ${d.cropMoisture !== null && d.cropMoisture !== undefined
-                        ? `<span><span class="wo-meta-label">Moisture</span> ${d.cropMoisture}%</span>` : ''}
-                      ${d.skuLocation
-                        ? `<span><span class="wo-meta-label">Location</span> ${d.skuLocation}</span>` : ''}
-                      ${d.datePlaced
-                        ? `<span><span class="wo-meta-label">Placed</span> ${formatDate(d.datePlaced)}</span>` : ''}
-                      ${d.priority
-                        ? `<span><span class="wo-meta-label">Priority</span> ${d.priority}</span>` : ''}
-                      ${d.submittedByName
-                        ? `<span><span class="wo-meta-label">Submitted by</span> ${d.submittedByName}</span>` : ''}
+                      ${d.datePlaced ? `<span><span class="wo-meta-label">Placed</span> ${formatDate(d.datePlaced)}</span>` : ''}
+                      ${d.cropMoisture !== null && d.cropMoisture !== undefined ? `<span><span class="wo-meta-label">Moisture</span> ${d.cropMoisture}%</span>` : ''}
+                      ${d.priority ? `<span><span class="wo-meta-label">Priority</span> ${d.priority}</span>` : ''}
                     </div>
                   </div>
                 </div>
@@ -663,11 +705,13 @@
 
       const titleEl = panel.querySelector('.wo-detail-title');
       if(titleEl){
-        titleEl.textContent = `${d.skuBrand || 'Bag'} · ${d.skuSizeFeet ? d.skuSizeFeet + ' ft' : ''}${d.skuDiameterFt ? ' · Ø' + d.skuDiameterFt + "'" : ''}`;
+        // ✅ no SKU/title clutter
+        titleEl.textContent = `${d.cropType || 'Crop'}${d.cropYear ? ' • ' + d.cropYear : ''} • Bag entry`;
       }
 
       const grid = panel.querySelector('.wo-detail-grid');
       if(grid){
+        // ✅ Remove Bag SKU + Location notes from details panel
         grid.innerHTML = `
           <div>
             <div class="wo-detail-item-label">Farm</div>
@@ -702,18 +746,6 @@
             <div class="wo-detail-item-value">
               ${d.capacityBu ? formatNumber(d.capacityBu) + ' bu (all full/partial at full length)' : 'Not calculated'}
             </div>
-          </div>
-          <div>
-            <div class="wo-detail-item-label">Bag SKU</div>
-            <div class="wo-detail-item-value">
-              ${d.skuBrand || 'Bag'}
-              ${d.skuSizeFeet ? ' · ' + d.skuSizeFeet + ' ft' : ''}
-              ${d.skuDiameterFt ? ' · Ø' + d.skuDiameterFt + "'" : ''}
-            </div>
-          </div>
-          <div>
-            <div class="wo-detail-item-label">Location notes</div>
-            <div class="wo-detail-item-value">${d.skuLocation || 'Not recorded'}</div>
           </div>
           <div>
             <div class="wo-detail-item-label">Moisture</div>
@@ -821,13 +853,12 @@
         if(fieldFilter !== 'all' && (d.fieldId || '') !== fieldFilter) return false;
 
         if(q){
+          // ✅ remove location from search
           const hay = [
             d.farmName,
             d.fieldName,
             d.cropType,
             d.cropYear,
-            d.skuBrand,
-            d.skuLocation,
             d.submittedByName
           ].join(' ').toLowerCase();
           if(!hay.includes(q)) return false;
@@ -967,6 +998,9 @@
 
       const totalOnHandBu = items.reduce((sum,it) => sum + (Number(it.data.onHandBu) || 0), 0);
       const totalCapacityBu = items.reduce((sum,it) => sum + (Number(it.data.capacityBu) || 0), 0);
+      const totalFull = items.reduce((sum,it) => sum + (Number(it.data.fullBags) || 0), 0);
+      const totalPartial = items.reduce((sum,it) => sum + (Number(it.data.partialBags) || 0), 0);
+
       const farms = new Set(items.map(it => it.data.farmId || it.data.farmName));
       const fields = new Set(items.map(it => it.data.fieldId || it.data.fieldName));
       const bagEntries = items.length;
@@ -988,7 +1022,9 @@
         pct,
         farmCount: farms.size,
         fieldCount: fields.size,
-        grouped
+        grouped,
+        totalFull,
+        totalPartial
       });
 
       let iframe = document.getElementById('fv-print-frame');
@@ -1028,7 +1064,9 @@
       pct,
       farmCount,
       fieldCount,
-      grouped
+      grouped,
+      totalFull,
+      totalPartial
     }){
       return `<!doctype html>
 <html>
@@ -1038,10 +1076,13 @@
   <style>
     :root{
       --fv-green:#3B7E46;
+      --fv-green2:#2F6C3C;
       --fv-border:#D1D5DB;
       --fv-text:#111827;
       --fv-muted:#6B7280;
       --fv-bg:#F3F4F6;
+      --fv-soft: rgba(59,126,70,0.10);
+      --fv-soft2: rgba(47,108,60,0.08);
     }
     *{box-sizing:border-box;}
     html,body{
@@ -1107,7 +1148,7 @@
     .report-title-block{margin-bottom:16px;}
     .report-title{
       font-size:20px;
-      font-weight:800;
+      font-weight:900;
       margin:4px 0 4px;
       letter-spacing:0.02em;
       text-transform:uppercase;
@@ -1121,8 +1162,8 @@
       margin-top:12px;
       padding:8px 10px;
       border-radius:10px;
-      background:linear-gradient(90deg, rgba(59,126,70,0.08), transparent);
-      border:1px solid rgba(59,126,70,0.20);
+      background:linear-gradient(90deg, var(--fv-soft), transparent);
+      border:1px solid rgba(59,126,70,0.22);
       font-size:11px;
       display:flex;
       flex-wrap:wrap;
@@ -1131,18 +1172,18 @@
     .summary-pill{
       display:inline-flex;
       align-items:center;
-      gap:4px;
+      gap:6px;
       white-space:nowrap;
     }
     .summary-label{
       text-transform:uppercase;
       letter-spacing:0.08em;
-      font-weight:600;
+      font-weight:700;
       font-size:10px;
       color:var(--fv-muted);
     }
     .summary-value{
-      font-weight:600;
+      font-weight:700;
       font-size:11px;
     }
     .section{margin-top:18px;}
@@ -1155,7 +1196,7 @@
     }
     .section-title-main{
       font-size:15px;
-      font-weight:700;
+      font-weight:800;
       letter-spacing:0.03em;
       text-transform:uppercase;
     }
@@ -1170,27 +1211,40 @@
       margin-top:6px;
     }
     .kpi-card{
-      flex:1 1 140px;
+      flex:1 1 160px;
       border-radius:10px;
       border:1px solid var(--fv-border);
-      padding:8px 10px;
-      background:linear-gradient(135deg, rgba(59,126,70,0.06), #ffffff);
+      padding:9px 10px;
+      background:linear-gradient(135deg, var(--fv-soft2), #ffffff);
+      position:relative;
+      overflow:hidden;
     }
+    .kpi-card:before{
+      content:"";
+      position:absolute;
+      inset:0;
+      background:linear-gradient(90deg, rgba(59,126,70,0.10), transparent);
+      opacity:.55;
+      pointer-events:none;
+    }
+    .kpi-card > *{ position:relative; }
     .kpi-label{
       font-size:10px;
       text-transform:uppercase;
       letter-spacing:0.08em;
       color:var(--fv-muted);
       margin-bottom:2px;
+      font-weight:800;
     }
     .kpi-value{
       font-size:16px;
-      font-weight:800;
+      font-weight:900;
     }
     .kpi-footnote{
       font-size:10px;
       color:var(--fv-muted);
       margin-top:2px;
+      font-weight:650;
     }
     .section-title{
       font-size:13px;
@@ -1198,6 +1252,7 @@
       letter-spacing:0.12em;
       color:var(--fv-muted);
       margin:0 0 4px;
+      font-weight:800;
     }
     .section-body{
       font-size:12px;
@@ -1206,13 +1261,28 @@
     .crop-block{margin-top:10px;}
     .farm-title{
       font-size:13px;
-      font-weight:700;
-      margin:8px 0 4px;
+      font-weight:900;
+      margin:10px 0 4px;
+      color:var(--fv-text);
     }
     .farm-subtitle{
       font-size:11px;
       color:var(--fv-muted);
       margin:0 0 4px;
+      font-weight:650;
+    }
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:2px 10px;
+      border-radius:999px;
+      background:linear-gradient(90deg, rgba(59,126,70,0.12), transparent);
+      border:1px solid rgba(59,126,70,0.22);
+      font-size:10px;
+      font-weight:800;
+      color:color-mix(in srgb, var(--fv-text) 80%, var(--fv-green2) 20%);
+      white-space:nowrap;
     }
     .table-wrap{
       margin-top:4px;
@@ -1226,7 +1296,7 @@
       font-size:11px;
     }
     thead{
-      background:#F9FAFB;
+      background:linear-gradient(90deg, rgba(59,126,70,0.10), #F9FAFB);
     }
     th, td{
       padding:6px 8px;
@@ -1235,11 +1305,11 @@
       vertical-align:top;
     }
     th{
-      font-weight:700;
+      font-weight:900;
       text-transform:uppercase;
       letter-spacing:0.08em;
       font-size:10px;
-      color:#4B5563;
+      color:#3F4B46;
       border-bottom:1px solid #D1D5DB;
     }
     tr:nth-child(even) td{
@@ -1314,23 +1384,31 @@
     <section class="section">
       <div class="section-heading-row">
         <div class="section-title-main">Key Metrics</div>
-        <div class="section-note">Snapshot at the time of report generation. Bushels are estimated from bag length and diameter.</div>
+        <div class="section-note">Snapshot at time of generation. Bushels are estimated from bag length and diameter.</div>
       </div>
       <div class="kpi-row">
         <div class="kpi-card">
           <div class="kpi-label">Estimated grain on hand</div>
           <div class="kpi-value">${formatNumber(totalOnHandBu)} bu</div>
-          <div class="kpi-footnote">Across all open grain bag entries</div>
+          <div class="kpi-footnote">Across all open bag entries</div>
         </div>
+
+        <div class="kpi-card">
+          <div class="kpi-label">Bag count</div>
+          <div class="kpi-value">${totalFull} full / ${totalPartial} partial</div>
+          <div class="kpi-footnote">${formatNumber(totalFull + totalPartial)} total bags represented</div>
+        </div>
+
         <div class="kpi-card">
           <div class="kpi-label">Tracked bag capacity</div>
           <div class="kpi-value">${formatNumber(totalCapacityBu)} bu</div>
           <div class="kpi-footnote">${totalCapacityBu > 0 ? ('Approx. ' + pct.toFixed(1) + '% filled') : 'Capacity not fully defined'}</div>
         </div>
+
         <div class="kpi-card">
           <div class="kpi-label">Farms & fields</div>
           <div class="kpi-value">${farmCount} farms / ${fieldCount} fields</div>
-          <div class="kpi-footnote">Locations with non-zero estimated grain on hand</div>
+          <div class="kpi-footnote">With non-zero estimated grain on hand</div>
         </div>
       </div>
     </section>
@@ -1344,30 +1422,32 @@
             sum + Array.from(fieldMap.values()).reduce((s, arr) => s + arr.length, 0), 0);
           return `
           <div class="crop-block">
-            <div class="farm-title">${escapeHtml(farmName)}</div>
-            <p class="farm-subtitle">${bagCount} bag entr${bagCount===1?'y':'ies'} currently open on this farm.</p>
+            <div class="farm-title">${escapeHtml(farmName)} <span class="pill">${bagCount} open entry${bagCount===1?'':'ies'}</span></div>
             ${cropsArr.map(([cropName, fieldMap]) => {
               const fieldsArr = Array.from(fieldMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
               return `
                 <div class="farm-subtitle" style="margin-top:6px;"><strong>${escapeHtml(cropName)}</strong></div>
                 ${fieldsArr.map(([fieldName, arr]) => {
                   const fieldTotal = arr.reduce((s,it)=> s + (Number(it.data.onHandBu) || 0), 0);
+                  const fieldFull = arr.reduce((s,it)=> s + (Number(it.data.fullBags) || 0), 0);
+                  const fieldPartial = arr.reduce((s,it)=> s + (Number(it.data.partialBags) || 0), 0);
                   return `
-                    <div class="farm-subtitle" style="margin-left:8px;margin-top:2px;">
-                      <strong>${escapeHtml(fieldName)}</strong> • approx ${formatNumber(fieldTotal)} bu on hand
+                    <div class="farm-subtitle" style="margin-left:8px;margin-top:3px;">
+                      <strong>${escapeHtml(fieldName)}</strong>
+                      • <span class="pill">${fieldFull} full / ${fieldPartial} partial</span>
+                      • approx ${formatNumber(fieldTotal)} bu on hand
                     </div>
                     <div class="table-wrap" style="margin-left:8px;">
                       <table>
                         <thead>
                           <tr>
-                            <th style="width:18%">Bag SKU</th>
                             <th style="width:10%">Full</th>
                             <th style="width:10%">Partial</th>
-                            <th style="width:18%">Est. on hand (bu)</th>
-                            <th style="width:14%">Bag capacity (bu)</th>
-                            <th style="width:10%">Crop year</th>
+                            <th style="width:20%">Est. on hand (bu)</th>
+                            <th style="width:16%">Bag capacity (bu)</th>
+                            <th style="width:12%">Crop year</th>
                             <th style="width:12%">Moisture</th>
-                            <th style="width:16%">Placed</th>
+                            <th style="width:20%">Placed</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1375,10 +1455,6 @@
                             const d = it.data;
                             return `
                               <tr>
-                                <td>${escapeHtml((d.skuBrand || 'Bag') +
-                                  (d.skuSizeFeet ? ' · ' + d.skuSizeFeet + ' ft' : '') +
-                                  (d.skuDiameterFt ? ' · Ø' + d.skuDiameterFt + "'" : '')
-                                )}</td>
                                 <td class="cell-right">${d.fullBags}</td>
                                 <td class="cell-right">${d.partialBags}</td>
                                 <td class="cell-right">${formatNumber(d.onHandBu)}</td>
@@ -1404,7 +1480,7 @@
 
     <footer class="report-footer">
       <div class="footer-left">
-        Internal use only. Values reflect open bag entries in FarmVista. Bushels are estimated based on bag length and diameter; adjust conversion factors as needed for your operation.
+        Internal use only. Values reflect open bag entries in FarmVista. Bushels are estimated; adjust conversion factors as needed for your operation.
       </div>
       <div class="footer-right">
         FarmVista • Grain Bag Inventory • ${escapeHtml(runDateOnly || '')}
@@ -1556,7 +1632,7 @@
           const cropType = x.cropType || x.crop || 'Unknown crop';
           const cropYear = x.cropYear || null;
 
-          // Bag SKU
+          // Bag SKU (kept for capacity math, but NOT shown in UI/report)
           const sku = x.bagSku || {};
           const sizeFeet = Number(sku.sizeFeet || sku.lengthFt || 0);
           const diameterFt = Number(sku.diameterFt || sku.diameter || 0);
@@ -1602,10 +1678,13 @@
               cropYear,
               datePlaced,
               cropMoisture: (x.cropMoisture !== undefined ? x.cropMoisture : null),
+
+              // still stored for assumptions/math, but no longer displayed:
               skuBrand,
               skuSizeFeet: sizeFeet || null,
               skuDiameterFt: diameterFt || null,
               skuLocation,
+
               fullBags: full,
               partialBags: partial,
               totalBags,
@@ -1739,7 +1818,6 @@
 
       // Final status line
       const dt = Math.max(1, Math.round(nowMs() - STATE.stats.t0));
-      // keep the primary summary already set by renderList(); this just updates its tiny line
       setSummaryText(
         document.getElementById('gbSummary')?.firstChild?.textContent || 'Grain bag inventory loaded.',
         `Loaded in ~${dt}ms • Resolved ${STATE.stats.fieldsResolved} fields / ${STATE.stats.farmsResolved} farms`
@@ -1786,7 +1864,7 @@
                 id="filterSearch"
                 class="filter-input"
                 type="search"
-                placeholder="Search farm, field, crop, bag, submitted by…"
+                placeholder="Search farm, field, crop, year, submitted by…"
               />
             </div>
 
