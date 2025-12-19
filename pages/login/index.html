@@ -31,44 +31,89 @@
   <script src="js/core.js?v=LG1"></script>
 
   <style>
+    /* =====================================================================
+       /Farm-vista/auth/index.html  (FULL FILE REPLACEMENT)
+       Rev: 2025-12-19a
+       Fixes:
+        • Inputs no longer go "light" while page is in FarmVista dark theme
+        • Dark mode detection supports BOTH prefers-color-scheme AND data-theme="dark"
+        • Chrome autofill no longer paints email white in dark mode
+        • Sign In button text stays white
+    ===================================================================== */
+
     .login * { box-sizing: border-box; }
     .login a { text-decoration: none; }
 
+    /* Let UA widgets pick correct palette */
+    :root{ color-scheme: light dark; }
+
+    /* ---------------------------------------------------------------------
+       IMPORTANT: Use FarmVista theme tokens from theme.css instead of
+       redefining the whole color system here (that caused the mismatch).
+       We only define "login-scoped" tokens that derive from theme.css vars.
+    --------------------------------------------------------------------- */
     :root{
-      /* Helps UA widgets choose correct palette */
-      color-scheme: light dark;
+      --fv-green: #3B7E46;
 
-      --green:#3B7E46; --gold:#D0C542;
-      --page:var(--app-bg,#f5f7f4); --text:#141514; --surface:#fff;
-      --muted:color-mix(in srgb,var(--text) 55%, #9aa09a);
-      --ring:color-mix(in srgb,var(--green) 28%, transparent);
-      --line:color-mix(in srgb,var(--text) 12%, transparent);
+      /* theme.css should define these; fallbacks are safe */
+      --fv-bg:   var(--bg, #f5f7f4);
+      --fv-card: var(--card, #ffffff);
+      --fv-text: var(--text, #141514);
+      --fv-border: var(--border, rgba(0,0,0,.12));
+      --fv-muted: color-mix(in srgb, var(--fv-text) 60%, transparent);
 
-      --input-bg:#fff;
-      --input-border:color-mix(in srgb,var(--text) 18%, transparent);
-      --input-ph:color-mix(in srgb, var(--text) 40%, transparent);
+      /* inputs */
+      --fv-input-bg: color-mix(in srgb, var(--fv-card) 92%, var(--fv-bg));
+      --fv-input-border: color-mix(in srgb, var(--fv-text) 18%, transparent);
+      --fv-input-ph: color-mix(in srgb, var(--fv-text) 42%, transparent);
+      --fv-ring: color-mix(in srgb, var(--fv-green) 28%, transparent);
+      --fv-line: color-mix(in srgb, var(--fv-text) 14%, transparent);
+    }
+
+    /* ---------------------------------------------------------------------
+       Dark theme detection:
+       FarmVista often toggles via data-theme (not OS preference).
+       Support BOTH mechanisms.
+    --------------------------------------------------------------------- */
+    html[data-theme="dark"],
+    :root[data-theme="dark"],
+    body[data-theme="dark"]{
+      --fv-muted: color-mix(in srgb, var(--fv-text) 55%, transparent);
+      --fv-line:  color-mix(in srgb, var(--fv-text) 18%, transparent);
+
+      /* darker input surface */
+      --fv-input-bg: color-mix(in srgb, var(--fv-card) 88%, #000);
+      --fv-input-border: color-mix(in srgb, var(--fv-text) 22%, transparent);
+      --fv-input-ph: color-mix(in srgb, var(--fv-text) 48%, transparent);
     }
     @media (prefers-color-scheme: dark){
-      :root{
-        --page:#141514; --text:#f5f7f4; --surface:#1c1e1c;
-        --muted:color-mix(in srgb,var(--text) 45%, #9aa09a 55%);
-        --line:color-mix(in srgb,var(--text) 16%, transparent);
+      html:not([data-theme]),
+      :root:not([data-theme]),
+      body:not([data-theme]){
+        --fv-muted: color-mix(in srgb, var(--fv-text) 55%, transparent);
+        --fv-line:  color-mix(in srgb, var(--fv-text) 18%, transparent);
 
-        --input-bg:#232523;
-        --input-border:color-mix(in srgb,var(--text) 18%, transparent);
-        --input-ph:color-mix(in srgb, var(--text) 45%, transparent);
+        --fv-input-bg: color-mix(in srgb, var(--fv-card) 88%, #000);
+        --fv-input-border: color-mix(in srgb, var(--fv-text) 22%, transparent);
+        --fv-input-ph: color-mix(in srgb, var(--fv-text) 48%, transparent);
       }
     }
 
-    html, body { height:100%; background:var(--page); color:var(--text); }
-    body { margin:0; font:400 16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial,sans-serif; -webkit-text-size-adjust:100%; }
+    html, body { height:100%; background:var(--fv-bg); color:var(--fv-text); }
+    body {
+      margin:0;
+      font:400 16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial,sans-serif;
+      -webkit-text-size-adjust:100%;
+    }
 
     .wrap{ min-height:100%; display:grid; place-items:center; padding:24px; }
 
     .card{
       width:min(400px,100%);
-      background:var(--surface); color:var(--text);
-      border-radius:16px; border:1px solid var(--line);
+      background:var(--fv-card);
+      color:var(--fv-text);
+      border-radius:16px;
+      border:1px solid var(--fv-line);
       box-shadow:0 8px 28px rgba(0,0,0,.08),0 2px 8px rgba(0,0,0,.06);
       overflow:clip;
     }
@@ -76,89 +121,94 @@
     .pad{ padding: clamp(18px,5vw,26px); }
 
     .brand{ display:grid; grid-template-columns:44px 1fr; gap:12px; align-items:center; margin-bottom:6px; }
-    .logo{ width:44px; height:44px; border-radius:10px; object-fit:contain; background:color-mix(in srgb,var(--page) 65%,transparent); border:1px solid var(--line); }
+    .logo{
+      width:44px; height:44px; border-radius:10px; object-fit:contain;
+      background:color-mix(in srgb,var(--fv-bg) 65%,transparent);
+      border:1px solid var(--fv-line);
+    }
     .title{ display:grid; gap:2px; }
     .title h1{ margin:0; font-size:clamp(18px,2.4vw,22px); font-weight:800; line-height:1.2; }
-    .title .byline{ margin:0; font-size:14px; font-weight:600; color:color-mix(in srgb,var(--text) 80%, var(--green)); }
-    .title .slogan{ margin:0; font-size:14px; font-style:italic; color:var(--muted); }
+    .title .byline{ margin:0; font-size:14px; font-weight:700; color:color-mix(in srgb,var(--fv-text) 80%, var(--fv-green)); }
+    .title .slogan{ margin:0; font-size:14px; font-style:italic; color:var(--fv-muted); }
 
     form{ display:grid; gap:14px; margin-top:14px; }
     .field{ display:grid; gap:6px; }
-    .field label{ font-size:14px; font-weight:600; }
+    .field label{ font-size:14px; font-weight:700; }
     .control{ position:relative; }
 
     .input{
       width:100%;
       padding:12px 14px;
       padding-right:42px;
-      background:var(--input-bg);
-      border:1px solid var(--input-border);
+      background:var(--fv-input-bg);
+      border:1px solid var(--fv-input-border);
       border-radius:12px;
-      color:var(--text);
+      color:var(--fv-text);
+      caret-color: var(--fv-text);
       outline:none;
-      box-shadow:0 0 0 0 var(--ring);
+      box-shadow:0 0 0 0 var(--fv-ring);
       transition: box-shadow .15s ease, border-color .15s ease, background .15s ease;
+      -webkit-appearance:none;
+      appearance:none;
     }
-    .input::placeholder{ color: var(--input-ph); }
-    .input:focus{ border-color: color-mix(in srgb, var(--green) 60%, #0000); box-shadow:0 0 0 3px var(--ring); }
-
-    /* ============================================================
-      ✅ FIX: Email field turning white in dark mode (Desktop Chrome)
-      Cause: Chrome autofill paints the email input background.
-      Goal: Make EMAIL look like PASSWORD (dark) and leave password alone.
-    ============================================================ */
-
-    /* Force email base styling to win even if theme.css has rules */
-    #email{
-      background:var(--input-bg) !important;
-      border-color:var(--input-border) !important;
-      color:var(--text) !important;
-      caret-color:var(--text) !important;
+    .input::placeholder{ color: var(--fv-input-ph); }
+    .input:focus{
+      border-color: color-mix(in srgb, var(--fv-green) 60%, transparent);
+      box-shadow:0 0 0 3px var(--fv-ring);
     }
 
-    /* EMAIL autofill paint override (email only) */
+    /* ------------------------------------------------------------
+       Chrome autofill override (EMAIL + PASSWORD)
+       This prevents the "white painted" autofill background in dark.
+    ------------------------------------------------------------ */
     #email:-webkit-autofill,
     #email:-webkit-autofill:hover,
-    #email:-webkit-autofill:focus{
-      -webkit-text-fill-color: var(--text) !important;
-      caret-color: var(--text) !important;
-
-      /* This is the part that actually fixes the white box */
-      -webkit-box-shadow: 0 0 0 1000px var(--input-bg) inset !important;
-      box-shadow: 0 0 0 1000px var(--input-bg) inset !important;
-
-      border:1px solid var(--input-border) !important;
+    #email:-webkit-autofill:focus,
+    #password:-webkit-autofill,
+    #password:-webkit-autofill:hover,
+    #password:-webkit-autofill:focus{
+      -webkit-text-fill-color: var(--fv-text) !important;
+      caret-color: var(--fv-text) !important;
+      -webkit-box-shadow: 0 0 0 1000px var(--fv-input-bg) inset !important;
+      box-shadow: 0 0 0 1000px var(--fv-input-bg) inset !important;
+      border:1px solid var(--fv-input-border) !important;
       transition: background-color 999999s ease-in-out 0s;
     }
 
     .eye{
       position:absolute; right:8px; top:0; bottom:0;
       width:34px; display:grid; place-items:center;
-      color:#8a8f8a; cursor:pointer; background:none; border:none; outline:none;
+      color:color-mix(in srgb, var(--fv-text) 55%, transparent);
+      cursor:pointer; background:none; border:none; outline:none;
     }
     .eye svg{ width:22px; height:22px; display:block; }
-    .eye:hover{ color:#6f746f; }
+    .eye:hover{ color:color-mix(in srgb, var(--fv-text) 72%, transparent); }
 
     .actions{ display:grid; gap:10px; margin-top:6px; }
+
     .btn{
       appearance:none; display:grid; place-items:center;
       width:100%; min-height:44px; padding:12px 16px;
       border-radius:12px;
-      background-color:#3B7E46;
+      background-color: var(--fv-green);
       color:#ffffff;
-      border:1px solid color-mix(in srgb,#3B7E46 55%, var(--line));
-      box-shadow:0 2px 0 color-mix(in srgb,#000 25%, #3B7E46);
-      font-weight:800; letter-spacing:.2px; cursor:pointer;
+      border:1px solid color-mix(in srgb, var(--fv-green) 55%, var(--fv-line));
+      box-shadow:0 2px 0 color-mix(in srgb,#000 25%, var(--fv-green));
+      font-weight:900; letter-spacing:.2px; cursor:pointer;
     }
     .btn:active{ transform:translateY(1px); }
 
-    /* OVERRIDE theme.css forcing button text to var(--text) */
+    /* hard guarantee: no black text on green */
     #signIn{ color:#ffffff !important; }
 
-    .link{ text-align:center; font-size:14px; color:color-mix(in srgb,var(--text) 78%, var(--green)); }
+    .link{
+      text-align:center;
+      font-size:14px;
+      color:color-mix(in srgb,var(--fv-text) 78%, var(--fv-green));
+    }
     .link:hover{ text-decoration:underline; }
 
-    .meta{ margin-top:16px; font-size:12px; text-align:center; color:var(--muted); }
+    .meta{ margin-top:16px; font-size:12px; text-align:center; color:var(--fv-muted); }
     .err{ color:#b3261e; font-size:13px; min-height:1.2em; }
 
     /* ---------- Mobile help button (mobile-only) ---------- */
@@ -166,7 +216,7 @@
       display:none;
       margin-top:12px;
       padding-top:12px;
-      border-top:1px solid var(--line);
+      border-top:1px solid var(--fv-line);
     }
 
     .help-btn{
@@ -179,10 +229,10 @@
       min-height:42px;
       padding:10px 14px;
       border-radius:12px;
-      background:color-mix(in srgb, var(--surface) 88%, var(--page));
-      border:1px solid color-mix(in srgb, var(--text) 14%, transparent);
-      color:color-mix(in srgb, var(--text) 92%, transparent);
-      font-weight:800;
+      background:color-mix(in srgb, var(--fv-card) 88%, var(--fv-bg));
+      border:1px solid color-mix(in srgb, var(--fv-text) 14%, transparent);
+      color:color-mix(in srgb, var(--fv-text) 92%, transparent);
+      font-weight:900;
       cursor:pointer;
       box-shadow:0 1px 0 rgba(0,0,0,.05);
     }
@@ -191,9 +241,9 @@
       width:22px; height:22px; flex:0 0 auto;
       border-radius:999px;
       display:grid; place-items:center;
-      background:color-mix(in srgb, var(--green) 16%, transparent);
-      border:1px solid color-mix(in srgb, var(--green) 28%, transparent);
-      color:color-mix(in srgb, var(--green) 85%, var(--text));
+      background:color-mix(in srgb, var(--fv-green) 16%, transparent);
+      border:1px solid color-mix(in srgb, var(--fv-green) 28%, transparent);
+      color:color-mix(in srgb, var(--fv-green) 85%, var(--fv-text));
       font-weight:900;
       line-height:1;
     }
@@ -221,9 +271,9 @@
     .modal{
       width:min(520px, 100%);
       border-radius:18px;
-      background:var(--surface);
-      color:var(--text);
-      border:1px solid var(--line);
+      background:var(--fv-card);
+      color:var(--fv-text);
+      border:1px solid var(--fv-line);
       box-shadow:0 20px 70px rgba(0,0,0,.35), 0 2px 14px rgba(0,0,0,.18);
       overflow:hidden;
       transform:translateY(10px);
@@ -241,29 +291,29 @@
       justify-content:space-between;
       gap:12px;
       padding:14px 14px 10px 14px;
-      border-bottom:1px solid var(--line);
-      background:color-mix(in srgb, var(--surface) 86%, var(--page));
+      border-bottom:1px solid var(--fv-line);
+      background:color-mix(in srgb, var(--fv-card) 86%, var(--fv-bg));
     }
     .modal-title{ display:grid; gap:2px; }
     .modal-title h2{
       margin:0;
       font-size:16px;
-      font-weight:900;
+      font-weight:950;
       letter-spacing:.2px;
     }
     .modal-title p{
       margin:0;
       font-size:13px;
-      color:var(--muted);
-      font-weight:650;
+      color:var(--fv-muted);
+      font-weight:700;
     }
     .modal-close{
       appearance:none;
       width:38px; height:38px;
       border-radius:12px;
-      border:1px solid color-mix(in srgb, var(--text) 14%, transparent);
-      background:color-mix(in srgb, var(--surface) 90%, var(--page));
-      color:color-mix(in srgb, var(--text) 92%, transparent);
+      border:1px solid color-mix(in srgb, var(--fv-text) 14%, transparent);
+      background:color-mix(in srgb, var(--fv-card) 90%, var(--fv-bg));
+      color:color-mix(in srgb, var(--fv-text) 92%, transparent);
       cursor:pointer;
       display:grid; place-items:center;
       flex:0 0 auto;
@@ -277,17 +327,17 @@
     }
 
     .help-card{
-      border:1px solid var(--line);
+      border:1px solid var(--fv-line);
       border-radius:14px;
       padding:12px;
-      background:color-mix(in srgb, var(--surface) 92%, var(--page));
+      background:color-mix(in srgb, var(--fv-card) 92%, var(--fv-bg));
       margin-bottom:12px;
     }
     .help-card h3{
       margin:0 0 8px 0;
       font-size:14px;
-      font-weight:900;
-      color:color-mix(in srgb, var(--text) 92%, var(--green));
+      font-weight:950;
+      color:color-mix(in srgb, var(--fv-text) 92%, var(--fv-green));
     }
     .help-card ul{
       margin:0;
@@ -295,44 +345,44 @@
       display:grid;
       gap:6px;
       font-size:14px;
-      color:color-mix(in srgb, var(--text) 92%, transparent);
+      color:color-mix(in srgb, var(--fv-text) 92%, transparent);
     }
     .kbd{
       font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       font-size:12px;
       padding:.08em .42em;
       border-radius:7px;
-      border:1px solid var(--line);
-      background:color-mix(in srgb, var(--surface) 88%, var(--page));
-      color:color-mix(in srgb, var(--text) 92%, transparent);
+      border:1px solid var(--fv-line);
+      background:color-mix(in srgb, var(--fv-card) 88%, var(--fv-bg));
+      color:color-mix(in srgb, var(--fv-text) 92%, transparent);
       white-space:nowrap;
     }
     .tip{
       margin:0;
       font-size:13px;
-      color:var(--muted);
-      font-weight:650;
+      color:var(--fv-muted);
+      font-weight:700;
       line-height:1.35;
     }
 
     .modal-ft{
       padding:12px 14px 14px 14px;
-      border-top:1px solid var(--line);
+      border-top:1px solid var(--fv-line);
       display:grid;
       gap:10px;
-      background:color-mix(in srgb, var(--surface) 90%, var(--page));
+      background:color-mix(in srgb, var(--fv-card) 90%, var(--fv-bg));
     }
     .modal-primary{
       appearance:none;
       width:100%;
       min-height:42px;
       border-radius:12px;
-      border:1px solid color-mix(in srgb, #3B7E46 55%, var(--line));
-      background:#3B7E46;
+      border:1px solid color-mix(in srgb, var(--fv-green) 55%, var(--fv-line));
+      background:var(--fv-green);
       color:#fff;
-      font-weight:900;
+      font-weight:950;
       cursor:pointer;
-      box-shadow:0 2px 0 color-mix(in srgb,#000 25%, #3B7E46);
+      box-shadow:0 2px 0 color-mix(in srgb,#000 25%, var(--fv-green));
     }
     .modal-primary:active{ transform:translateY(1px); }
   </style>
