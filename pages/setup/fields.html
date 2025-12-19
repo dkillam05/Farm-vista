@@ -604,7 +604,8 @@ Fixes (2025-12-19):
     </div>
   </div>
 
-  <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY"></script>
+  <!-- ✅ Adds loading=async to silence the warning (still non-blocking) -->
+  <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY&loading=async"></script>
 
   <script type="module">
   import {
@@ -623,8 +624,6 @@ Fixes (2025-12-19):
 
     const fieldSearch   = $("fieldSearch");
     const farmFilterBtn = $("farmFilterBtn");
-    const farmFilterPop = $("farmFilterPop");
-    const farmFilterOpts = $("farmFilterOpts");
     const pageEl = document.querySelector('.page');
 
     const CENSUS_KEY = "14a8ad456efef642983bd8e830809694965b003f";
@@ -1375,10 +1374,11 @@ Fixes (2025-12-19):
       closeModal();
     });
 
-    // dropdown builds
-    let ddStateCfgBuilt = false;
+    // ✅ dropdown builds (SINGLE COPY) + global guard (prevents crash even if injected twice)
     function buildStateDropdowns(){
-      if(ddStateCfgBuilt) return;
+      if (window.__FV_ddStateCfgBuilt) return;
+      window.__FV_ddStateCfgBuilt = true;
+
       ddState = { root:$("ddState"), btn:$("ddStateBtn"), search:$("ddStateSearch"), list:$("ddStateList"), hidden:$("stateSelect") };
       wireDropdownOpenClose(ddState.root); setupSearch(ddState.search, ddState.list);
 
@@ -1395,8 +1395,6 @@ Fixes (2025-12-19):
         loadCountiesIntoDropdown(ddCounty, code);
       });
       buildList(ddEditState.list, STATES.map(([c,n])=>[c,n]), onEditStatePicked);
-
-      ddStateCfgBuilt = true;
     }
 
     function buildCountyDropdowns(){
@@ -1681,37 +1679,6 @@ Fixes (2025-12-19):
     $("clear").addEventListener("click", ()=> location.reload());
 
     if(fieldSearch){ fieldSearch.addEventListener("input", ()=> renderList()); }
-
-    // build state/county dropdowns
-    let ddStateCfgBuilt = false;
-    function buildStateDropdowns(){
-      if(ddStateCfgBuilt) return;
-      ddState = { root:$("ddState"), btn:$("ddStateBtn"), search:$("ddStateSearch"), list:$("ddStateList"), hidden:$("stateSelect") };
-      wireDropdownOpenClose(ddState.root); setupSearch(ddState.search, ddState.list);
-
-      ddEditState = { root:$("ddEditState"), btn:$("ddEditStateBtn"), search:$("ddEditStateSearch"), list:$("ddEditStateList"), hidden:$("editState") };
-      wireDropdownOpenClose(ddEditState.root); setupSearch(ddEditState.search, ddEditState.list);
-
-      buildList(ddState.list, STATES.map(([c,n])=>[c,n]), (code,label)=>{
-        ddState.hidden.value = code;
-        ddState.btn.textContent = label;
-        ddState.root.classList.remove("open");
-        ddCounty.btn.textContent = "Select a county…";
-        ddCounty.btn.disabled = true; ddCounty.search.value=""; ddCounty.search.disabled = true; ddCounty.list.innerHTML = "";
-        $("countySelect").value = "";
-        loadCountiesIntoDropdown(ddCounty, code);
-      });
-      buildList(ddEditState.list, STATES.map(([c,n])=>[c,n]), onEditStatePicked);
-
-      ddStateCfgBuilt = true;
-    }
-    function buildCountyDropdowns(){
-      ddCounty = { root:$("ddCounty"), btn:$("ddCountyBtn"), search:$("ddCountySearch"), list:$("ddCountyList"), hidden:$("countySelect") };
-      wireDropdownOpenClose(ddCounty.root); setupSearch(ddCounty.search, ddCounty.list);
-
-      ddEditCounty = { root:$("ddEditCounty"), btn:$("ddEditCountyBtn"), search:$("ddEditCountySearch"), list:$("ddEditCountyList"), hidden:$("editCounty") };
-      wireDropdownOpenClose(ddEditCounty.root); setupSearch(ddEditCounty.search, ddEditCounty.list);
-    }
 
     function wireToggleSet(){
       wireToggle($("helToggle"), $("hasHEL"), $("helAcreWrap"), $("helAcres"));
