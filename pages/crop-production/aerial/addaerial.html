@@ -1,6 +1,6 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/crop-aerial-add.html  (FULL FILE)
-Rev: 2025-12-19c
+Rev: 2025-12-19d
 Purpose:
  • Add Aerial Application Job (multi-field)
  • Farm filters field list (farm is for narrowing only)
@@ -20,6 +20,8 @@ Purpose:
     - Trial assignment UI supports per-field Trial Acres (<= tillable)
     - On Save: if Trial=Yes and fields assigned, writes to:
         fieldTrials/{trialId}/fields/{fieldId}  (merge)
+ • NEW:
+    - On Save: marks all selected fields as used:true (prevents delete in Setup → Fields)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -1139,7 +1141,6 @@ Purpose:
 
       if(selectedFieldIds.has(id)){
         selectedFieldIds.delete(id);
-        // also remove from trialAssignments if present
         delete trialAssignments[id];
       }else{
         selectedFieldIds.add(id);
@@ -1535,14 +1536,12 @@ Purpose:
     }
 
     function syncTrialAssignmentsWithSelectedFields(){
-      // ensure an entry exists for each selected field
       const selected = allFields.filter(f=> selectedFieldIds.has(f.id));
       for(const f of selected){
         if(!trialAssignments[f.id]){
           trialAssignments[f.id] = { included:false, trialAcres:null, err:"" };
         }
       }
-      // remove any assignments for unselected fields
       for(const k of Object.keys(trialAssignments)){
         if(!selectedFieldIds.has(k)) delete trialAssignments[k];
       }
@@ -1649,7 +1648,6 @@ Purpose:
         const n = parseNum(s);
         a.trialAcres = Number.isFinite(n) ? n : null;
         validateTrialAcresForField(id);
-        // lightweight: only update styling after input without rerendering everything
         e.target.classList.toggle('ta-warn', !!a.err);
         const note = row.querySelector('.ta-note, .ta-err');
         if(note){
@@ -1729,7 +1727,6 @@ Purpose:
         const tid = String(trialSelect.value||"").trim();
         if(!tid) return "Trial is set to Yes — please select a trial.";
 
-        // validate any included rows
         const selected = allFields.filter(f=> selectedFieldIds.has(f.id));
         for(const f of selected){
           const a = trialAssignments[f.id];
@@ -1763,7 +1760,6 @@ Purpose:
       const trialYes = document.querySelector('input[name="isTrial"]:checked')?.value === "yes";
       const trialId = String(trialSelect.value||"").trim();
 
-      // Build assignments with acres
       const trialAssignmentsOut = [];
       for(const f of selected){
         const a = trialAssignments[f.fieldId];
@@ -1826,6 +1822,21 @@ Purpose:
       return "";
     }
 
+    // ✅ Mark fields as USED so they can never be deleted (only archived)
+    async function markFieldsUsed(fieldIds, contextLabel="aerialApplication"){
+      const ids = Array.isArray(fieldIds) ? fieldIds.map(x=>String(x||"").trim()).filter(Boolean) : [];
+      if(!ids.length) return;
+
+      for(const fid of ids){
+        await updateDoc(doc(db, 'fields', fid), {
+          used: true,
+          usedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          usedBy: contextLabel
+        });
+      }
+    }
+
     async function linkFieldsIntoTrial(payload, aerialDocId){
       const trialYes = payload?.trialLink?.enabled === true;
       const trialId = String(payload?.trialLink?.trialId || "").trim();
@@ -1839,7 +1850,6 @@ Purpose:
         const f = byId.get(fid);
         if(!f) continue;
 
-        // ✅ guarantee farmName
         let farmNameResolved = String(f.farm||"").trim();
         if(!farmNameResolved && f.farmId){
           farmNameResolved = await resolveFarmName(f.farmId);
@@ -1855,7 +1865,6 @@ Purpose:
           tillable: Number(f.tillableAcres||0),
           trialAcres: (a.trialAcres!=null ? Number(a.trialAcres) : null),
 
-          // linkage metadata
           source: "aerialApplication",
           aerialApplicationId: aerialDocId,
           jobNumber: Number(payload.jobNumber || 0),
@@ -1882,6 +1891,18 @@ Purpose:
       try{
         const refDoc = await addDoc(collection(db, 'aerial_applications'), payload);
         const id = refDoc.id;
+
+        // ✅ LOCK: mark selected fields as used so they can't be deleted later
+        try{
+          await markFieldsUsed(payload.fieldIds, "aerialApplication");
+        }catch(lockErr){
+          console.error(lockErr);
+          alert(
+            "Saved job, but could not mark one or more fields as USED (delete-lock).\n\n" +
+            "This usually means Firestore rules are blocking updates to fields/{fieldId}.\n\n" +
+            (lockErr?.message || lockErr)
+          );
+        }
 
         if(selectedFiles.length){
           try{
