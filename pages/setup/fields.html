@@ -3,8 +3,9 @@
 Fields setup – farms, counties, acres + optional GPS location (add + edit)
 
 Fixes (2025-12-19):
+ • Clear button reloads page (fresh state)
  • Add Field Farm is FORCE-PICK (no default to first farm)
- • View/Edit Farm combo stays interactive and synced (no “stuck text”)
+ • View/Edit Farm combo label always syncs to the real editFarm value (no Assumption-Tville ghost)
  • Modal opens fast again (usage scan happens after open, not before)
  • Delete disabled if field is used anywhere (async background scan + cached)
  • ANY green button => white text (hard override)
@@ -672,8 +673,15 @@ Fixes (2025-12-19):
     }
 
     const esc = (s)=> String(s||"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));
-    const norm = v => String(v||"").trim();
-    const key  = v => norm(v).toLowerCase();
+    const toNum = (v)=> {
+      const n = Number(String(v||"").replace(/,/g,"").trim());
+      return isFinite(n) ? n : 0;
+    };
+    const fmt = (n, dec=2)=>{
+      if(n==null || n==="") return "";
+      const v = Number(n);
+      return isFinite(v) ? v.toLocaleString(undefined,{minimumFractionDigits:dec, maximumFractionDigits:dec}) : String(n);
+    };
 
     function buildList(listEl, items, onPick){
       listEl.innerHTML="";
@@ -745,15 +753,6 @@ Fixes (2025-12-19):
       window.addEventListener('online', ()=> showToast("Back online — syncing…", 5000));
       window.addEventListener('offline',()=> showToast("Currently offline — using saved data", 5000));
     }
-    const toNum = (v)=> {
-      const n = Number(String(v||"").replace(/,/g,"").trim());
-      return isFinite(n) ? n : 0;
-    };
-    const fmt = (n, dec=2)=>{
-      if(n==null || n==="") return "";
-      const v = Number(n);
-      return isFinite(v) ? v.toLocaleString(undefined,{minimumFractionDigits:dec, maximumFractionDigits:dec}) : String(n);
-    };
 
     let db;
     let FARMS_CACHE = []; let FARMS_MAP = new Map();
@@ -770,11 +769,20 @@ Fixes (2025-12-19):
     // usage cache (fast)
     const USED_ANYWHERE_CACHE = new Map();
 
-    // ✅ Tell fv-combo wrapper to refresh its visible label + behavior
-    function refreshCombo(selectEl){
+    // ✅ Local helper: force the fv-combo visible label to match the <select>
+    function syncComboLabel(selectEl){
       if(!selectEl) return;
-      // The fv-shell combo wrapper listens for change to sync its anchor text + state.
-      selectEl.dispatchEvent(new Event("change", { bubbles:true }));
+      const wrap = selectEl.closest('.fv-combo') || selectEl.parentElement?.closest?.('.fv-combo');
+      if(!wrap) return;
+      const anchor = wrap.querySelector('.fv-anchor');
+      if(!anchor) return;
+      const opt = selectEl.options && selectEl.selectedIndex >= 0 ? selectEl.options[selectEl.selectedIndex] : null;
+      const txt = opt ? (opt.textContent || "").trim() : "";
+      if(txt) anchor.textContent = txt;
+    }
+    function syncComboLabelNextFrame(selectEl){
+      syncComboLabel(selectEl);
+      requestAnimationFrame(()=> syncComboLabel(selectEl));
     }
 
     async function loadFarms(){
@@ -827,7 +835,7 @@ Fixes (2025-12-19):
       });
     }
 
-    // ✅ IMPORTANT FIX: preserve editFarm selection during rebuild + FORCE PICK (without disabling combo)
+    // ✅ IMPORTANT: FORCE PICK on Add Field + keep Edit options intact
     function populateFarmSelects(){
       const addSel = $("farmSelect");
       const editSel = $("editFarm");
@@ -849,8 +857,7 @@ Fixes (2025-12-19):
         $("noFarms").style.display = "none";
         $("save").disabled = false;
 
-        // ✅ FORCE PICK placeholder:
-        // NOT disabled (so fv-combo doesn't lock), value="" so validateNew blocks save.
+        // FORCE PICK placeholder (value="" so validateNew blocks save until chosen)
         const ph = document.createElement("option");
         ph.value = "";
         ph.textContent = "Choose a Farm…";
@@ -892,24 +899,18 @@ Fixes (2025-12-19):
       });
 
       // restore values
-      if(keepAddVal) addSel.value = keepAddVal;
-      else addSel.value = ""; // force pick default
-
+      addSel.value = keepAddVal || "";     // keep empty by default (force pick)
       if(keepEditVal) editSel.value = keepEditVal;
 
-      // ✅ re-sync combo wrappers
-      refreshCombo(addSel);
-      refreshCombo(editSel);
-      refreshCombo(filterSel);
+      // combo display sync (if shell wrapped them)
+      syncComboLabelNextFrame(addSel);
+      syncComboLabelNextFrame(editSel);
+      syncComboLabelNextFrame(filterSel);
 
       buildFarmFilterPopover();
     }
 
-    /* ============================================================
-       ✅ Farms "ready" gate + hard select helper
-       ============================================================ */
     let FARMS_READY = null;
-
     function ensureFarmsReady(){
       if(FARMS_READY) return FARMS_READY;
       FARMS_READY = (async ()=>{
@@ -925,23 +926,21 @@ Fixes (2025-12-19):
 
       if(!v){
         selectEl.value = "";
-        refreshCombo(selectEl);
+        syncComboLabelNextFrame(selectEl);
         return false;
       }
 
       const opts = Array.from(selectEl.options || []);
       const idx = opts.findIndex(o => String(o.value) === v);
-
       if(idx >= 0){
         selectEl.selectedIndex = idx;
         selectEl.value = v;
-        refreshCombo(selectEl);
+        syncComboLabelNextFrame(selectEl);
         return true;
       }
 
-      // not found — do NOT silently pick the first farm as "correct"
       selectEl.value = "";
-      refreshCombo(selectEl);
+      syncComboLabelNextFrame(selectEl);
       return false;
     }
 
@@ -960,7 +959,7 @@ Fixes (2025-12-19):
       ).join('');
       sel.innerHTML = opts;
       if(val) sel.value = val;
-      refreshCombo(sel);
+      syncComboLabelNextFrame(sel);
     }
     function rtkLabel(id){
       if(!id) return '';
@@ -1034,13 +1033,12 @@ Fixes (2025-12-19):
       await addDoc(fieldsRef(), payload);
       showToast("Successfully saved.");
 
+      // after save, reload list but keep force pick state
       $("fieldName").value = "";
       $("tillable").value = "";
       $("rtkSelect").value = "";
-
-      // ✅ FORCE PICK again after save
       $("farmSelect").value = "";
-      refreshCombo($("farmSelect"));
+      syncComboLabelNextFrame($("farmSelect"));
 
       setToggle($("helToggle"), $("hasHEL"), false, $("helAcreWrap"), $("helAcres"));
       setToggle($("crpToggle"), $("hasCRP"), false, $("crpAcreWrap"), $("crpAcres"));
@@ -1225,7 +1223,7 @@ Fixes (2025-12-19):
 
       openModal();
 
-      // ✅ This now also triggers fv-combo sync
+      // ✅ set actual select value + force combo label sync (immediate + next frame)
       hardSelectByValue($("editFarm"), it.farmId);
 
       $("editName").value     = it.name || "";
@@ -1410,7 +1408,7 @@ Fixes (2025-12-19):
     }
 
     /* ===== Map pickers (unchanged from your version) ===== */
-    function ensureFieldMap(){ /* unchanged */ 
+    function ensureFieldMap(){
       if(fieldMap) return;
       const el = $("fieldMap");
       if(!el) return;
@@ -1451,7 +1449,7 @@ Fixes (2025-12-19):
       modal.removeAttribute("open"); modal.setAttribute("aria-hidden","true");
       document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
     }
-    function setupFieldLocationPicker(){ /* unchanged */
+    function setupFieldLocationPicker(){
       const btnMark=$("btnMarkLocation"), modal=$("fieldLocationModal");
       const btnClose=$("fieldLocationClose"), btnCancel=$("fieldLocationCancel");
       const btnSave=$("fieldLocationSave"), btnUse=$("fieldUseLocation");
@@ -1496,7 +1494,7 @@ Fixes (2025-12-19):
       document.addEventListener("keydown", e=>{ if(e.key === "Escape" && modal.hasAttribute("open")) closeFieldLocationModal(); });
     }
 
-    function ensureEditFieldMap(){ /* unchanged */
+    function ensureEditFieldMap(){
       if(editFieldMap) return;
       const el = $("editFieldMap"); if(!el) return;
 
@@ -1521,7 +1519,7 @@ Fixes (2025-12-19):
       if(status) status.textContent = `Pin set at ${lat.toFixed(5)}, ${lng.toFixed(5)}. Tap again to move it.`;
       if(label)  label.textContent  = `Location set: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
     }
-    function openEditFieldLocationModal(){ /* unchanged */
+    function openEditFieldLocationModal(){
       if(!canNow('setup-fields:edit')){ alert("You don't have permission to edit field locations."); return; }
       const modal = $("editFieldLocationModal"); if(!modal) return;
       modal.setAttribute("open",""); modal.setAttribute("aria-hidden","false");
@@ -1541,12 +1539,12 @@ Fixes (2025-12-19):
         editFieldMap.setZoom(15);
       }
     }
-    function closeEditFieldLocationModal(){ /* unchanged */
+    function closeEditFieldLocationModal(){
       const modal = $("editFieldLocationModal"); if(!modal) return;
       modal.removeAttribute("open"); modal.setAttribute("aria-hidden","true");
       document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
     }
-    function setupEditFieldLocationPicker(){ /* unchanged */
+    function setupEditFieldLocationPicker(){
       const btnMark=$("editBtnMarkLocation"), modal=$("editFieldLocationModal");
       const btnClose=$("editFieldLocationClose"), btnCancel=$("editFieldLocationCancel");
       const btnSave=$("editFieldLocationSave"), btnUse=$("editFieldUseLocation");
@@ -1607,7 +1605,7 @@ Fixes (2025-12-19):
       document.addEventListener("keydown", e=>{ if(e.key === "Escape" && modal.hasAttribute("open")) closeEditFieldLocationModal(); });
     }
 
-    /* ===== filter popover + init (your original behavior retained) ===== */
+    // filter popover
     function openFarmPop(){
       const farmFilterPop = $("farmFilterPop");
       if(!farmFilterPop) return;
@@ -1647,14 +1645,14 @@ Fixes (2025-12-19):
     if(farmFilterBtn){
       farmFilterBtn.addEventListener("click", (e)=>{
         e.preventDefault(); e.stopPropagation();
-        const farmFilterPop = $("farmFilterPop");
-        if(farmFilterPop && !farmFilterPop.hidden) closeFarmPop();
+        const pop = $("farmFilterPop");
+        if(pop && !pop.hidden) closeFarmPop();
         else openFarmPop();
       });
     }
     document.addEventListener("click",(e)=>{
-      const farmFilterPop = $("farmFilterPop");
-      if(!farmFilterPop || farmFilterPop.hidden) return;
+      const pop = $("farmFilterPop");
+      if(!pop || pop.hidden) return;
       if(e.target.closest("#farmFilterPop")) return;
       if(e.target.closest("#farmFilterBtn")) return;
       closeFarmPop();
@@ -1666,35 +1664,64 @@ Fixes (2025-12-19):
         if(!(inp && inp.name==="farmFilterRadio")) return;
         const filterSel = $("filterFarm");
         if(filterSel) filterSel.value = inp.value || "";
-        refreshCombo(filterSel);
+        syncComboLabelNextFrame(filterSel);
         closeFarmPop();
         await renderList();
       });
     }
     $("filterFarm").addEventListener("change", ()=>{
-      refreshCombo($("filterFarm"));
+      syncComboLabelNextFrame($("filterFarm"));
       renderList();
     });
 
     // hook buttons
     $("save").addEventListener("click", createField);
-    $("clear").addEventListener("click", ()=>{
-      $("fieldName").value = "";
-      $("tillable").value = "";
-      $("rtkSelect").value = "";
-      setToggle($("helToggle"), $("hasHEL"), false, $("helAcreWrap"), $("helAcres"));
-      setToggle($("crpToggle"), $("hasCRP"), false, $("crpAcreWrap"), $("crpAcres"));
-      $("fieldLat").value = ""; $("fieldLng").value = "";
-      const locLabel = $("fieldLocationLabel");
-      if(locLabel) locLabel.textContent = "No location set.";
-      fieldMapLatLng = null;
-      if(fieldMapMarker){ fieldMapMarker.setMap(null); fieldMapMarker = null; }
 
-      // ✅ FORCE PICK after clear
-      $("farmSelect").value = "";
-      refreshCombo($("farmSelect"));
-    });
+    // ✅ Clear should reload the page
+    $("clear").addEventListener("click", ()=> location.reload());
+
     if(fieldSearch){ fieldSearch.addEventListener("input", ()=> renderList()); }
+
+    // dropdown configs
+    let ddState, ddCounty, ddEditState, ddEditCounty;
+
+    // build state/county dropdowns
+    let ddStateCfgBuilt = false;
+    function buildStateDropdowns(){
+      if(ddStateCfgBuilt) return;
+      ddState = { root:$("ddState"), btn:$("ddStateBtn"), search:$("ddStateSearch"), list:$("ddStateList"), hidden:$("stateSelect") };
+      wireDropdownOpenClose(ddState.root); setupSearch(ddState.search, ddState.list);
+
+      ddEditState = { root:$("ddEditState"), btn:$("ddEditStateBtn"), search:$("ddEditStateSearch"), list:$("ddEditStateList"), hidden:$("editState") };
+      wireDropdownOpenClose(ddEditState.root); setupSearch(ddEditState.search, ddEditState.list);
+
+      buildList(ddState.list, STATES.map(([c,n])=>[c,n]), (code,label)=>{
+        ddState.hidden.value = code;
+        ddState.btn.textContent = label;
+        ddState.root.classList.remove("open");
+        ddCounty.btn.textContent = "Select a county…";
+        ddCounty.btn.disabled = true; ddCounty.search.value=""; ddCounty.search.disabled = true; ddCounty.list.innerHTML = "";
+        $("countySelect").value = "";
+        loadCountiesIntoDropdown(ddCounty, code);
+      });
+      buildList(ddEditState.list, STATES.map(([c,n])=>[c,n]), onEditStatePicked);
+
+      ddStateCfgBuilt = true;
+    }
+    function buildCountyDropdowns(){
+      ddCounty = { root:$("ddCounty"), btn:$("ddCountyBtn"), search:$("ddCountySearch"), list:$("ddCountyList"), hidden:$("countySelect") };
+      wireDropdownOpenClose(ddCounty.root); setupSearch(ddCounty.search, ddCounty.list);
+
+      ddEditCounty = { root:$("ddEditCounty"), btn:$("ddEditCountyBtn"), search:$("ddEditCountySearch"), list:$("ddEditCountyList"), hidden:$("editCounty") };
+      wireDropdownOpenClose(ddEditCounty.root); setupSearch(ddEditCounty.search, ddEditCounty.list);
+    }
+
+    function wireToggleSet(){
+      wireToggle($("helToggle"), $("hasHEL"), $("helAcreWrap"), $("helAcres"));
+      wireToggle($("crpToggle"), $("hasCRP"), $("crpAcreWrap"), $("crpAcres"));
+      wireToggle($("editHelToggle"), $("editHasHEL"), $("editHelAcreWrap"), $("editHelAcres"));
+      wireToggle($("editCrpToggle"), $("editHasCRP"), $("editCrpAcreWrap"), $("editCrpAcres"));
+    }
 
     async function init(){
       await ready;
@@ -1704,11 +1731,7 @@ Fixes (2025-12-19):
 
       buildCountyDropdowns();
       buildStateDropdowns();
-
-      wireToggle($("helToggle"), $("hasHEL"), $("helAcreWrap"), $("helAcres"));
-      wireToggle($("crpToggle"), $("hasCRP"), $("crpAcreWrap"), $("crpAcres"));
-      wireToggle($("editHelToggle"), $("editHasHEL"), $("editHelAcreWrap"), $("editHelAcres"));
-      wireToggle($("editCrpToggle"), $("editHasCRP"), $("editCrpAcreWrap"), $("editCrpAcres"));
+      wireToggleSet();
 
       await ensureFarmsReady();
 
