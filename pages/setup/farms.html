@@ -350,7 +350,6 @@
       return !qs.empty;
     }
     async function farmHasActiveFields(farmId){
-      // simplest: treat active as status !== archived; your data uses 'active'/'archived'
       const qs = await getDocs(query(fieldsRef(), where('farmId','==', farmId), where('status','==','active'), limit(1)));
       return !qs.empty;
     }
@@ -367,11 +366,9 @@
     }
 
     async function applyFarmLocks(farmId){
-      // Default: optimistic UI (then lock down)
       setDeleteLocked(false, "");
       setArchiveLocked(false, "");
 
-      // If modal has changed before async returns, do nothing
       const token = farmId + "::" + Date.now();
       applyFarmLocks._token = token;
 
@@ -384,11 +381,9 @@
           setDeleteLocked(false, "");
         }
 
-        // Archive is only allowed if ALL fields are archived => i.e., NO active fields
         const anyActive = await farmHasActiveFields(farmId);
         if(applyFarmLocks._token !== token) return;
 
-        // If farm is currently archived, allow unarchive regardless (but still keep delete lock as above)
         const it = rows.find(r=>r.id===farmId);
         const isArchived = it && it.status === 'archived';
 
@@ -398,11 +393,9 @@
           setArchiveLocked(false, "");
         }
 
-        // If there are fields at all, show pill
         $("usedPill").style.display = anyFields ? 'inline-block' : 'none';
       }catch(err){
         console.warn("Farm lock check failed:", err);
-        // safest fallback: lock destructive actions if we can't verify
         setDeleteLocked(true, "Cannot verify field history right now. Delete is locked.");
         const it = rows.find(r=>r.id===farmId);
         const isArchived = it && it.status === 'archived';
@@ -416,12 +409,10 @@
       if(!canNow('setup-farms:delete')) throw new Error("no-permission:delete");
       if(!id) return;
 
-      // HARD RULE: only delete if zero fields exist (any status)
       if(await farmHasAnyFields(id)){
         throw new Error("has-fields");
       }
 
-      // Legacy safety: used farms cannot be deleted
       const snap = await getDoc(doc(db, FARMS_COLL, id));
       if(snap.exists() && snap.data()?.used){
         throw new Error("in-use");
@@ -484,7 +475,6 @@
 
       mdArchive.textContent = it.status==='archived' ? 'Unarchive' : 'Archive';
 
-      // initial lock state (then async checks)
       $("usedPill").style.display = 'none';
       mdDelete.disabled = true;
       mdDelete.title = "Checking farm history…";
@@ -492,8 +482,6 @@
       mdArchive.title = "Archive / Unarchive";
 
       openModal();
-
-      // Apply your rules based on assigned fields
       applyFarmLocks(id);
     }
 
@@ -539,7 +527,6 @@
         const it = rows.find(r=>r.id===editId);
         if(!it) return;
 
-        // Unarchive always allowed
         if(it.status === 'archived'){
           await updateFarm(editId, { status: 'active' });
           showToast("Farm unarchived.");
@@ -548,7 +535,6 @@
           return;
         }
 
-        // Archive only allowed if NO active fields exist
         const anyActive = await farmHasActiveFields(editId);
         if(anyActive){
           setArchiveLocked(true, "Cannot archive: this farm has active fields. Archive all fields under it first.");
@@ -572,7 +558,6 @@
         const it = rows.find(r=>r.id===editId);
         if(!it) return;
 
-        // HARD RULE: delete only if zero fields exist
         const anyFields = await farmHasAnyFields(editId);
         if(anyFields){
           setDeleteLocked(true, "Cannot delete: this farm has fields/history. Only farms with zero history can be deleted.");
@@ -580,7 +565,6 @@
           return;
         }
 
-        // Legacy used flag safety (kept)
         if(it.used){
           alert("This farm is in use and cannot be deleted.");
           return;
