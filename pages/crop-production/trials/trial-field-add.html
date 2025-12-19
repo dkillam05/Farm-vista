@@ -619,11 +619,13 @@
 
   <script type="module">
     import {
-      ready,
-      getFirestore, getAuth,
-      collection, getDocs, getDoc, doc, deleteDoc, onSnapshot, addDoc,
-      onAuthStateChanged
-    } from '/Farm-vista/js/firebase-init.js';
+  ready,
+  getFirestore, getAuth,
+  collection, getDocs, getDoc, doc, deleteDoc, onSnapshot, addDoc,
+  updateDoc, serverTimestamp,
+  onAuthStateChanged
+} from '/Farm-vista/js/firebase-init.js';
+
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
     import { initSwipeList } from '/Farm-vista/js/fv-swipe-list.js';
@@ -1787,84 +1789,117 @@ async function actuallyRemoveExistingFieldDoc(row){
     }
 
     async function saveAllFields(e){
-      e.preventDefault();
-      showError('');
-      if(trialAcresInput) trialAcresInput.classList.remove('input-error');
+  e.preventDefault();
+  showError('');
+  if(trialAcresInput) trialAcresInput.classList.remove('input-error');
 
-      if(!STATE.pendingFields.length){
-        showError("No new fields to save. Add at least one field to this trial.");
-        return;
-      }
-      if(!STATE.user){
-        showError("User is not signed in. Please re-login and try again.");
-        return;
-      }
+  if(!STATE.pendingFields.length){
+    showError("No new fields to save. Add at least one field to this trial.");
+    return;
+  }
+  if(!STATE.user){
+    showError("User is not signed in. Please re-login and try again.");
+    return;
+  }
 
-      if(isMultiHybridTrial()){
-        const existingCount = (STATE.existingFields || []).length;
-        const pendingCount  = (STATE.pendingFields || []).length;
-        const totalCount    = existingCount + pendingCount;
-        if(totalCount > 1){
-          showError("Multiple-hybrid trials can only have one field. Remove extra fields before saving.");
-          if(btnSaveFieldsEl) btnSaveFieldsEl.disabled = true;
-          return;
-        }
-      }
+  if(isMultiHybridTrial()){
+    const existingCount = (STATE.existingFields || []).length;
+    const pendingCount  = (STATE.pendingFields || []).length;
+    const totalCount    = existingCount + pendingCount;
+    if(totalCount > 1){
+      showError("Multiple-hybrid trials can only have one field. Remove extra fields before saving.");
+      if(btnSaveFieldsEl) btnSaveFieldsEl.disabled = true;
+      return;
+    }
+  }
 
-      const saveBtn = btnSaveFieldsEl || document.getElementById('btnSaveFields');
-      if(saveBtn) saveBtn.disabled=true;
+  const saveBtn = btnSaveFieldsEl || document.getElementById('btnSaveFields');
+  if(saveBtn) saveBtn.disabled = true;
 
+  try{
+    const trialId = STATE.trialId;
+    const basePath = `${CONFIG.COLLECTION_TRIALS}/${trialId}/fields`;
+    const fieldsCollRef = collection(STATE.db, CONFIG.COLLECTION_TRIALS, trialId, 'fields');
+
+    diag('saveAllFields.start', {
+      trialId,
+      basePath,
+      pendingCount: STATE.pendingFields.length,
+      userUid: STATE.user.uid,
+      orgId: STATE.orgId
+    });
+
+    // 1) Write each trial field doc
+    // 2) Immediately mark the underlying Field as used:true
+    for(const row of STATE.pendingFields){
+      const payload = {
+        farmId: row.farm.id,
+        farmName: row.farm.name,
+        fieldId: row.field.id,
+        fieldName: row.field.fieldName,
+        tillable: row.field.tillable!=null ? row.field.tillable : null,
+        trialAcres: row.acres!=null ? row.acres : null,
+        notes: row.notes || null
+      };
+
+      diag('saveAllFields.addDoc', { path: basePath, payload });
+      await addDoc(fieldsCollRef, payload);
+
+      // ✅ THIS is what drives delete-locking on the Fields page
+      // If a field is ever referenced, it is "used" forever.
       try{
-        const trialId = STATE.trialId;
-        const basePath = `${CONFIG.COLLECTION_TRIALS}/${trialId}/fields`;
-        const fieldsCollRef = collection(STATE.db, CONFIG.COLLECTION_TRIALS, trialId, 'fields');
-
-        diag('saveAllFields.start', {
-          trialId,
-          basePath,
-          pendingCount: STATE.pendingFields.length,
-          userUid: STATE.user.uid,
-          orgId: STATE.orgId
-        });
-
-        for(const row of STATE.pendingFields){
-          const payload = {
-            farmId: row.farm.id,
-            farmName: row.farm.name,
-            fieldId: row.field.id,
-            fieldName: row.field.fieldName,
-            tillable: row.field.tillable!=null?row.field.tillable:null,
-            trialAcres: row.acres!=null?row.acres:null,
-            notes: row.notes || null
-          };
-          diag('saveAllFields.addDoc', {
-            path: basePath,
-            payload
-          });
-          await addDoc(fieldsCollRef, payload);
-        }
-
-        diag('saveAllFields.updateTrial', { path: `${CONFIG.COLLECTION_TRIALS}/${trialId}` });
-        await FVData.updateDocWithMeta(
-          `${CONFIG.COLLECTION_TRIALS}/${trialId}`,
-          { status: 'active' }
+        await updateDoc(
+          doc(STATE.db, CONFIG.COLLECTION_FIELDS, row.field.id),
+          {
+            used: true,
+            usedAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          }
         );
-
-        diag('saveAllFields.success', {});
-        showToast("Fields saved and trial marked Active.");
-        setTimeout(()=>{ window.location.href=CONFIG.RETURN_URL; },800);
-      }catch(err){
-        console.error("Error saving fields:",err);
-        diag('saveAllFields.error', {
-          code: err.code,
-          message: err.message,
-          stack: err.stack
+        diag('saveAllFields.markUsed', { fieldId: row.field.id, used: true });
+      }catch(markErr){
+        // If this fails, the trial field saved but deletion may still appear allowed.
+        // We fail hard so you notice rules/permissions are blocking the lock.
+        diag('saveAllFields.markUsed.error', {
+          fieldId: row.field.id,
+          code: markErr?.code,
+          message: markErr?.message
         });
-        showError("Error saving fields: "+(err && (err.message||err.code) || "Unknown error"));
-        const saveBtn2=btnSaveFieldsEl || document.getElementById('btnSaveFields');
-        if(saveBtn2) saveBtn2.disabled=false;
+        throw new Error(
+          `Saved trial link, but could not mark field as used (fieldId=${row.field.id}). Check Firestore rules/permissions.`
+        );
       }
     }
+
+    // Mark trial active
+    diag('saveAllFields.updateTrial', { path: `${CONFIG.COLLECTION_TRIALS}/${trialId}` });
+    await FVData.updateDocWithMeta(
+      `${CONFIG.COLLECTION_TRIALS}/${trialId}`,
+      { status: 'active' }
+    );
+
+    diag('saveAllFields.success', {});
+    showToast("Fields saved and trial marked Active.");
+    setTimeout(()=>{ window.location.href=CONFIG.RETURN_URL; },800);
+
+  }catch(err){
+    console.error("Error saving fields:", err);
+    diag('saveAllFields.error', {
+      code: err?.code,
+      message: err?.message,
+      stack: err?.stack
+    });
+
+    showError(
+      "Error saving fields: " +
+      (err && (err.message||err.code) || "Unknown error")
+    );
+
+    const saveBtn2 = btnSaveFieldsEl || document.getElementById('btnSaveFields');
+    if(saveBtn2) saveBtn2.disabled = false;
+  }
+}
+
 
     (async function boot(){
       await safeReady();
