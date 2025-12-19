@@ -1,6 +1,13 @@
 <!-- =====================================================================
 /Farm-vista/pages/setup/fields.html
 Fields setup – farms, counties, acres + optional GPS location (add + edit)
+
+UPDATE (2025-12-19):
+• Farms now default like RTK Towers:
+  - Add form Farm dropdown starts blank with “Select a farm…”
+  - Edit modal Farm dropdown starts blank unless the record has a farmId
+  - Archived farms are disabled everywhere EXCEPT if the current record is already on that archived farm (so it can display)
+  - Clear + Save reset Farm back to blank (same behavior style as RTK)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -16,7 +23,6 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
-  
 
   <!-- ✅ Permission UI controller (makes data-perm actually work consistently) -->
   <script src="/Farm-vista/js/perm-ui.js"></script>
@@ -876,7 +882,8 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       });
     }
 
-    function populateFarmSelects(){
+    // ✅ Farms now behave like RTK: blank placeholder default
+    function populateFarmSelects(currentEditFarmId=""){
       const addSel = $("farmSelect");
       const editSel = $("editFarm");
       const filterSel = $("filterFarm");
@@ -885,6 +892,7 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       const active = farms.filter(f=>f.status!=='archived');
       const archived = farms.filter(f=>f.status==='archived');
 
+      // ---- Add form ----
       addSel.innerHTML = '';
       if(!farms.length){
         $("noFarms").style.display = "block";
@@ -892,29 +900,54 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       }else{
         $("noFarms").style.display = "none";
         $("save").disabled = false;
+
+        // placeholder
+        const ph = document.createElement("option");
+        ph.value = "";
+        ph.textContent = "Select a farm…";
+        addSel.appendChild(ph);
+
         active.forEach(f=>{
           const o=document.createElement("option");
           o.value=f.id; o.textContent=f.name;
           addSel.appendChild(o);
         });
+
         if(archived.length){
           const grp=document.createElement("optgroup"); grp.label='Archived';
           archived.forEach(f=>{
             const o=document.createElement("option");
-            o.value=f.id; o.textContent=f.name + " (Archived)"; o.disabled = true;
+            o.value=f.id;
+            o.textContent=f.name + " (Archived)";
+            o.disabled = true; // archived never selectable on Add
             grp.appendChild(o);
           });
           addSel.appendChild(grp);
         }
+
+        // default blank (same style as RTK)
+        addSel.value = "";
       }
 
+      // ---- Edit modal ----
       editSel.innerHTML='';
+      const ph2 = document.createElement("option");
+      ph2.value = "";
+      ph2.textContent = "Select a farm…";
+      editSel.appendChild(ph2);
+
       farms.forEach(f=>{
         const o=document.createElement('option');
-        o.value=f.id; o.textContent=f.name + (f.status==='archived'?' (Archived)':'');
+        o.value=f.id;
+        o.textContent=f.name + (f.status==='archived'?' (Archived)':'');
+        // archived: show it only if currently assigned, otherwise disable
+        if(f.status==='archived' && f.id !== currentEditFarmId){
+          o.disabled = true;
+        }
         editSel.appendChild(o);
       });
 
+      // ---- Filter dropdown (unchanged) ----
       filterSel.innerHTML='';
       const optAll = document.createElement('option');
       optAll.value=''; optAll.textContent='All Farms';
@@ -1002,6 +1035,8 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       await addDoc(fieldsRef(), payload);
       showToast("Successfully saved.");
 
+      // ✅ reset like RTK style (blank default)
+      $("farmSelect").value = "";
       $("fieldName").value = "";
       $("tillable").value = "";
       $("rtkSelect").value = "";
@@ -1111,12 +1146,14 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
 
     async function openEdit(id){
       editId = id;
-      populateFarmSelects();
 
       const ref = doc(db, 'fields', id);
       const snap = await getDoc(ref);
       if(!snap.exists()){ return; }
       const it = snap.data()||{};
+
+      // ✅ build farm selects with knowledge of current edit farm id
+      populateFarmSelects(it.farmId || "");
 
       $("editFarm").value     = it.farmId || "";
       $("editName").value     = it.name || "";
@@ -1320,20 +1357,6 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       };
       wireDropdownOpenClose(ddEditCounty.root);
       setupSearch(ddEditCounty.search, ddEditCounty.list);
-    }
-
-    async function getCompanyStateCode(){
-      try{
-        const snap = await getDoc(doc(db, 'company', 'main'));
-        if(!snap.exists()) return "";
-        const d = snap.data()||{};
-        const NAME_TO_CODE = new Map([
-          ...STATES.map(([c,n])=>[n.toLowerCase(),c]),
-          ...STATES.map(([c])=>[c.toLowerCase(),c])
-        ]);
-        const v = String(d.addressState || d.state || "").trim().toLowerCase();
-        return NAME_TO_CODE.get(v) || "";
-      }catch{ return ""; }
     }
 
     function setToggle(btn, hiddenCheckbox, on, wrap, input){
@@ -1964,6 +1987,8 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
 
     $("save").addEventListener("click", createField);
     $("clear").addEventListener("click", ()=>{
+      // ✅ reset like RTK style (blank default)
+      $("farmSelect").value = "";
       $("fieldName").value = "";
       $("tillable").value = "";
       $("rtkSelect").value = "";
@@ -2002,7 +2027,7 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       wireToggle($("editCrpToggle"), $("editHasCRP"), $("editCrpAcreWrap"), $("editCrpAcres"));
 
       await loadFarms();
-      populateFarmSelects();
+      populateFarmSelects(""); // ✅ blank default on load
 
       await loadRTKTowers();
       populateRTKSelect($("rtkSelect"), "");
