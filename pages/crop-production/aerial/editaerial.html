@@ -1,19 +1,22 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/crop-aerial-view.html  (FULL FILE)
-Rev: 2025-12-19d
-Fixes per your list:
- 1) Dropdown issue: crop/cropYear selects now sit ABOVE date-range popover
- 2) Remove “Actions” label/row entirely
- 3) Edit button sits FAR RIGHT on details row; in edit mode Save+Cancel replace it (far right)
- 4) Where “Actions” was: show Trial info (Trial name) ONLY if fields are in trialLink.assignments
-    then list which fields are in that trial.
- 5) Add Delete button (red trash) beside Edit, with FV themed “type YES” modal,
-    and disabled/greyed unless delete permission.
+Rev: 2025-12-19e
+What’s fixed in this version (per your “just finish it” request):
+ ✅ Dropdown stacking: Crop / Crop Year selects now stay ABOVE the date-range popover
+ ✅ Detail layout: Edit + Trash ALWAYS stay pinned FAR RIGHT (even when NO trial info)
+ ✅ Removed “Actions” section entirely (gone)
+ ✅ Trial info: ONLY shows if trialLink.assignments exist:
+      - Trial Name
+      - List of assigned fields
+ ✅ Delete button: red trash beside Edit (disabled/grey unless delete permission)
+ ✅ Delete modal: FV themed “type YES” confirmation
+ ✅ Default load: last 50 by jobNumber (desc)
+ ✅ When crop/year or date range is applied: loads up to 1000 matches
+ ✅ Back button: history-first fallback (no more 404)
 
-Also:
- • Summary tiles: NO status and NO status bubble (kept)
- • Details: no Updated row (kept)
- • Default load: last 50 jobs by jobNumber desc (kept)
+NOTE: Your collection is currently set to:
+  COLLECTION_AERIAL: 'aerial_applications'
+If your Firestore collection name is different, change that one line.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -185,7 +188,7 @@ Also:
       z-index:10;
     }
 
-    /* FIX #1: ensure select wrappers always above calendar popover */
+    /* ✅ Fix dropdown issue: keep selects above popover */
     .filter-wrap{
       display:flex;
       flex-direction:column;
@@ -193,7 +196,7 @@ Also:
       font-size:0.85rem;
       max-width:320px;
       position:relative;
-      z-index:50; /* ✅ higher than calendar popover */
+      z-index:50; /* higher than calendar popover */
       flex:1 1 220px;
       min-width:220px;
     }
@@ -364,15 +367,17 @@ Also:
       border:0;
     }
 
+    /* ✅ Key: on desktop we reserve a fixed right column */
     .detail-grid{
-  display:grid;
-  grid-template-columns: minmax(0,1fr) minmax(180px,240px);
-  gap:8px 16px;
-  align-items:start;
-}
-
+      display:grid;
+      grid-template-columns: minmax(0,1fr);
+      gap:8px 16px;
+      align-items:start;
+    }
     @media (min-width:700px){
-      .detail-grid{ grid-template-columns:repeat(2, minmax(0,1fr)); }
+      .detail-grid{
+        grid-template-columns: minmax(0,1fr) minmax(180px,240px);
+      }
     }
 
     .detail-item-label{
@@ -385,7 +390,25 @@ Also:
 
     .detail-item-value{ font-size:0.94rem; }
 
-    /* #3: right-side slot where Edit or Save/Cancel live */
+    /* Left info cells stay in left column on desktop */
+    .detail-cell{ }
+    @media (min-width:700px){
+      .detail-cell{ grid-column:1; }
+    }
+
+    /* ✅ Controls are pinned far-right and span rows */
+    .detail-right-col{
+      display:flex;
+      justify-content:flex-end;
+      align-items:flex-start;
+    }
+    @media (min-width:700px){
+      .detail-right-col{
+        grid-column:2;
+        grid-row:1 / span 50; /* keep it top-right even if left content changes */
+      }
+    }
+
     .detail-right-slot{
       display:flex;
       justify-content:flex-end;
@@ -393,13 +416,6 @@ Also:
       gap:8px;
       width:100%;
     }
-   /* Force controls to stay far-right even when trial info is absent */
-.detail-right-col{
-  grid-column: 2;
-  display:flex;
-  justify-content:flex-end;
-}
-
 
     /* Smaller header-action buttons */
     #editBtn.edit-inline,
@@ -519,37 +535,13 @@ Also:
     .field-name{ font-weight:900; font-size:0.92rem; }
     .field-meta{ font-size:0.82rem; opacity:0.85; margin-top:1px; }
 
-    /* #4: Trial info block */
-    .trial-block{
-      margin-top:2px;
-      padding-top:10px;
-      border-top:1px solid var(--border);
-      font-size:0.9rem;
-    }
-    .trial-label{
-      font-size:0.8rem;
-      text-transform:uppercase;
-      letter-spacing:0.06em;
-      opacity:0.7;
-      margin-bottom:4px;
-    }
-    .trial-name{
-      font-weight:900;
-      font-size:0.98rem;
-      margin-top:2px;
-    }
-    .trial-fields{
-      display:flex;
-      flex-direction:column;
-      gap:4px;
-      margin-top:6px;
-    }
     .trial-field-line{
       padding:6px 8px;
       border-radius:8px;
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
       font-size:0.88rem;
       font-weight:800;
+      margin-top:4px;
     }
 
     .toast{
@@ -565,15 +557,8 @@ Also:
       z-index:99999;
       display:none;
     }
-    .toast.show{
-      display:block;
-      animation:fadeout 5s forwards;
-    }
-    @keyframes fadeout{
-      0%{opacity:1}
-      85%{opacity:1}
-      100%{opacity:0}
-    }
+    .toast.show{ display:block; animation:fadeout 5s forwards; }
+    @keyframes fadeout{ 0%{opacity:1} 85%{opacity:1} 100%{opacity:0} }
 
     /* Attachment viewer modal */
     .file-modal{
@@ -646,7 +631,7 @@ Also:
       box-shadow:0 18px 38px rgba(0,0,0,.22);
       padding:10px 10px 10px;
       display:none;
-      z-index:25; /* ✅ lower than filter-wrap z-index */
+      z-index:25; /* lower than filter-wrap z-index */
     }
     .cal-pop-head{
       display:flex;
@@ -752,7 +737,7 @@ Also:
     .cal-btn.apply{
       background:var(--accent);
       border-color:var(--accent);
-      color:#fff !important;
+      color:#fff !important; /* Apply text white */
     }
 
     /* Delete modal */
@@ -842,6 +827,7 @@ Also:
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const CONFIG = {
+      // ⚠️ If jobs don’t load, this is the #1 line to verify.
       COLLECTION_AERIAL: 'aerial_applications',
       COLLECTION_TRIALS: 'fieldTrials',
       BACK_URL: '/Farm-vista/pages/crop-production/crop-aerial.html',
@@ -859,16 +845,20 @@ Also:
       db: null,
       loaded: false,
       isLoading: false,
+
       allItems: [],
       items: [],
       selectedId: null,
+
       search: '',
       fromYmd: '',
       toYmd: '',
       crop: 'all',
       cropYear: 'all',
+
       isEditing: false,
       isEditingTitle: false,
+
       trialCache: {} // trialId -> { trialName }
     };
 
@@ -879,8 +869,6 @@ Also:
       trashBtn: null,
       canDelete: false
     };
-
-    const $ = (sel, root=document) => root.querySelector(sel);
 
     async function safeReady(){
       if(typeof ready === 'function') return await ready();
@@ -920,13 +908,6 @@ Also:
       const n = Number(value);
       if(!isFinite(n)) return null;
       return n.toFixed(decimals);
-    }
-
-    function isImageUrl(url){
-      if(!url || typeof url !== 'string') return false;
-      const u = url.split('?')[0].toLowerCase();
-      return u.endsWith('.jpg') || u.endsWith('.jpeg') || u.endsWith('.png') ||
-             u.endsWith('.gif') || u.endsWith('.webp') || u.endsWith('.heic');
     }
 
     function ymdFromDate(date){
@@ -1010,7 +991,7 @@ Also:
       }catch{}
     }
 
-    // Date picker integration
+    // Date picker integration (reads the text your fv-date-range-picker writes)
     function parseLooseDate(str){
       const d = new Date(str);
       if(isNaN(d.getTime())) return null;
@@ -1068,7 +1049,6 @@ Also:
       if(clearBtn) clearBtn.addEventListener('click', () => setTimeout(afterChange, 0));
     }
 
-    // Sorting
     function sortItems(items){
       items.sort((a,b)=>{
         const ra = getReleaseTime(a.data) || getFallbackTime(a.data);
@@ -1082,7 +1062,6 @@ Also:
       return items;
     }
 
-    // Trial cache
     async function fetchTrialName(trialId){
       if(!trialId) return '';
       if(STATE.trialCache[trialId]?.trialName) return STATE.trialCache[trialId].trialName;
@@ -1099,9 +1078,6 @@ Also:
       }
     }
 
-    // Server load:
-    // default: last 50 jobNumber desc
-    // filtered: up to 1000 results (range/crop/year)
     async function loadAll(){
       const db = STATE.db;
       if(!db || STATE.isLoading) return;
@@ -1174,7 +1150,6 @@ Also:
       }
     }
 
-    // In-memory filter (search only)
     function applyFilters(){
       const emptyEl = document.getElementById('listEmpty');
       const countEl = document.getElementById('listCount');
@@ -1198,7 +1173,6 @@ Also:
       renderList();
     }
 
-    // List render (no status)
     function renderList(){
       const listEl = document.getElementById('list');
       const emptyEl = document.getElementById('listEmpty');
@@ -1251,6 +1225,7 @@ Also:
         card.className = 'aerial-card';
         card.dataset.id = id;
 
+        // No status / no bubble
         card.innerHTML = `
           <div class="aerial-row-top">
             <div class="aerial-main">
@@ -1287,7 +1262,6 @@ Also:
       }
     }
 
-    // Details helpers
     function clearDetails(){
       const panel = document.getElementById('detailPanel');
       if(!panel) return;
@@ -1319,37 +1293,6 @@ Also:
 
       const fieldsList = document.getElementById('detailFieldsList');
       if(fieldsList) fieldsList.innerHTML = '';
-
-      const trialBox = document.getElementById('trialBox');
-      if(trialBox) trialBox.innerHTML = '';
-
-      resetButtonsForViewMode();
-    }
-
-    function resetButtonsForViewMode(){
-      STATE.isEditing = false;
-
-      if(UI.editBtn){
-        UI.editBtn.style.display = STATE.selectedId ? 'inline-flex' : 'none';
-        UI.editBtn.disabled = !STATE.selectedId;
-        UI.editBtn.classList.remove('edit-inline');
-      }
-      if(UI.saveBtn){
-        UI.saveBtn.style.display = 'none';
-        UI.saveBtn.disabled = false;
-        UI.saveBtn.textContent = 'Save';
-        UI.saveBtn.classList.remove('edit-inline');
-      }
-      if(UI.cancelBtn){
-        UI.cancelBtn.style.display = 'none';
-        UI.cancelBtn.disabled = false;
-        UI.cancelBtn.classList.remove('edit-inline');
-      }
-
-      if(UI.trashBtn){
-        UI.trashBtn.disabled = !(UI.canDelete && STATE.selectedId);
-        UI.trashBtn.style.display = (STATE.selectedId ? 'inline-flex' : 'none');
-      }
     }
 
     function setTitleView(title){
@@ -1365,6 +1308,7 @@ Also:
     function beginEditTitle(){
       if(!STATE.selectedId || !STATE.db) return;
       if(STATE.isEditing) return;
+
       const textEl  = document.getElementById('detailTitleText');
       const inputEl = document.getElementById('detailTitleInput');
       if(!textEl || !inputEl) return;
@@ -1434,91 +1378,13 @@ Also:
       }
     }
 
-    function renderFieldsList(d){
-      const listEl = document.getElementById('detailFieldsList');
-      if(!listEl) return;
-      listEl.innerHTML = '';
-
-      const fields = Array.isArray(d.fields) ? d.fields : [];
-      if(!fields.length){
-        const empty = document.createElement('div');
-        empty.className = 'attachment-empty';
-        empty.textContent = 'No fields attached.';
-        listEl.appendChild(empty);
-        return;
-      }
-
-      fields.forEach(f=>{
-        const row = document.createElement('div');
-        row.className = 'field-row';
-
-        const farm = f?.farm || '';
-        const field = f?.field || '';
-        const till = Number(f?.tillableAcres);
-
-        row.innerHTML = `
-          <div class="field-name">${escapeHtml(farm)}${farm && field ? ' • ' : ''}${escapeHtml(field)}</div>
-          <div class="field-meta">${isFinite(till) ? `${fmtNumber(till, 2)} ac tillable` : ''}</div>
-        `;
-        listEl.appendChild(row);
-      });
+    function isImageUrl(url){
+      if(!url || typeof url !== 'string') return false;
+      const u = url.split('?')[0].toLowerCase();
+      return u.endsWith('.jpg') || u.endsWith('.jpeg') || u.endsWith('.png') ||
+             u.endsWith('.gif') || u.endsWith('.webp') || u.endsWith('.heic');
     }
 
-    async function renderTrialInfo(d){
-      const trialBox = document.getElementById('trialBox');
-      if(!trialBox) return;
-      trialBox.innerHTML = '';
-
-      const tl = d.trialLink || null;
-      const enabled = !!tl?.enabled;
-      const trialId = tl?.trialId || '';
-      const assignments = Array.isArray(tl?.assignments) ? tl.assignments : [];
-
-      if(!enabled || !trialId || !assignments.length){
-        return;
-      }
-
-      const jobFields = Array.isArray(d.fields) ? d.fields : [];
-      const fieldNameById = new Map(jobFields.map(f => [
-        f.fieldId,
-        `${f.farm || ''}${f.farm && f.field ? ' • ' : ''}${f.field || ''}`.trim()
-      ]));
-
-      const assignedNames = assignments
-        .map(a => {
-          const id = a?.fieldId || '';
-          return fieldNameById.get(id) || id || '';
-        })
-        .filter(Boolean);
-
-      const name = await fetchTrialName(trialId);
-
-      const block = document.createElement('div');
-      block.className = 'trial-block';
-      block.innerHTML = `
-        <div class="trial-label">Trial</div>
-        <div class="trial-name">${escapeHtml(name || 'Field Trial')}</div>
-        <div class="trial-label" style="margin-top:10px;">Fields in this trial</div>
-        <div class="trial-fields" id="trialFieldsListInner"></div>
-      `;
-      trialBox.appendChild(block);
-
-      const inner = block.querySelector('#trialFieldsListInner');
-      if(inner){
-        if(!assignedNames.length){
-          inner.innerHTML = '<div class="attachment-empty">No fields assigned.</div>';
-        }else{
-          assignedNames.forEach(n=>{
-            const line = document.createElement('div');
-            line.className = 'trial-field-line';
-            line.textContent = n;
-            inner.appendChild(line);
-          });
-        }
-      }
-    }
-
-    // Attachments
     let fileModal, fileBackdrop, fileCloseBtn, fileContentWrap;
 
     function openFileViewer(att){
@@ -1586,7 +1452,45 @@ Also:
       });
     }
 
-    // #3: Build right-slot controls (Edit or Save/Cancel) + Delete
+    function renderFieldsList(d){
+      const listEl = document.getElementById('detailFieldsList');
+      if(!listEl) return;
+      listEl.innerHTML = '';
+
+      const fields = Array.isArray(d.fields) ? d.fields : [];
+      if(!fields.length){
+        const empty = document.createElement('div');
+        empty.className = 'attachment-empty';
+        empty.textContent = 'No fields attached.';
+        listEl.appendChild(empty);
+        return;
+      }
+
+      fields.forEach(f=>{
+        const row = document.createElement('div');
+        row.className = 'field-row';
+
+        const farm = f?.farm || '';
+        const field = f?.field || '';
+        const till = Number(f?.tillableAcres);
+
+        row.innerHTML = `
+          <div class="field-name">${escapeHtml(farm)}${farm && field ? ' • ' : ''}${escapeHtml(field)}</div>
+          <div class="field-meta">${isFinite(till) ? `${fmtNumber(till, 2)} ac tillable` : ''}</div>
+        `;
+        listEl.appendChild(row);
+      });
+    }
+
+    function computeDeletePermission(){
+      try{
+        if(window.FV && typeof window.FV.can === 'function'){
+          return !!window.FV.can('crop-aerial:delete');
+        }
+      }catch{}
+      return false;
+    }
+
     function slotControls(mode){
       const slot = document.getElementById('detailRightSlot');
       if(!slot) return;
@@ -1618,7 +1522,6 @@ Also:
       }
     }
 
-    // Render details (NO Actions label; right slot controls; trial info in grid spot)
     async function renderDetails(){
       const panel = document.getElementById('detailPanel');
       if(!panel) return;
@@ -1641,7 +1544,7 @@ Also:
       const notes = d.notes || '';
       const createdAt = d.createdAt?.toDate ? d.createdAt.toDate() : (d.createdAt ? new Date(d.createdAt) : null);
 
-      // Trial (only if fields assigned)
+      // Trial info only when assignments exist
       const tl = d.trialLink || null;
       const showTrial = !!(tl?.enabled && tl?.trialId && Array.isArray(tl?.assignments) && tl.assignments.length);
 
@@ -1665,36 +1568,43 @@ Also:
       if(grid){
         let html = '';
 
+        // ✅ RIGHT COLUMN IS ALWAYS PRESENT FIRST (so it never shifts)
         html += `
-          <div>
+          <div class="detail-right-col">
+            <div id="detailRightSlot" class="detail-right-slot"></div>
+          </div>
+        `;
+
+        html += `
+          <div class="detail-cell">
             <div class="detail-item-label">Crop Year / Crop</div>
             <div class="detail-item-value">${cropYear != null ? escapeHtml(cropYear) : ''}${cropYear && crop ? ' • ' : ''}${escapeHtml(crop)}</div>
           </div>
         `;
 
         html += `
-          <div>
+          <div class="detail-cell">
             <div class="detail-item-label">Release Date</div>
             <div class="detail-item-value">${escapeHtml(releaseDate || '—')}</div>
           </div>
         `;
 
         html += `
-          <div>
+          <div class="detail-cell">
             <div class="detail-item-label">Release Acres</div>
             <div class="detail-item-value">${isFinite(Number(releaseAcres)) ? escapeHtml(fmtNumber(releaseAcres, 2)) + ' ac' : '—'}</div>
           </div>
         `;
 
         html += `
-          <div>
+          <div class="detail-cell">
             <div class="detail-item-label">Total Tillable Acres</div>
             <div class="detail-item-value">${isFinite(Number(totalTill)) ? escapeHtml(fmtNumber(totalTill, 2)) + ' ac' : '—'}</div>
           </div>
         `;
 
         html += `
-          <div>
+          <div class="detail-cell">
             <div class="detail-item-label">Submitted By</div>
             <div class="detail-item-value">${escapeHtml(submittedBy || '—')}</div>
           </div>
@@ -1702,17 +1612,17 @@ Also:
 
         if(createdAt){
           html += `
-            <div>
+            <div class="detail-cell">
               <div class="detail-item-label">Created</div>
               <div class="detail-item-value">${createdAt.toLocaleString()}</div>
             </div>
           `;
         }
 
-        // #4: where “Actions” was -> Trial info (only when needed)
+        // ✅ Trial block in left column only (when needed)
         if(showTrial){
           html += `
-            <div>
+            <div class="detail-cell">
               <div class="detail-item-label">Trial</div>
               <div class="detail-item-value">
                 <div style="font-weight:900">${escapeHtml(trialName || 'Field Trial')}</div>
@@ -1725,17 +1635,6 @@ Also:
           `;
         }
 
-        // #3: Right slot control column (Edit or Save/Cancel + Delete)
-        html += `
-          <div>
-            <div class="detail-item-label"> </div>
-            <div class="detail-right-col">
-  <div id="detailRightSlot" class="detail-right-slot"></div>
-</div>
-
-          </div>
-        `;
-
         grid.innerHTML = html;
       }
 
@@ -1745,18 +1644,10 @@ Also:
       renderAttachments(d);
       renderFieldsList(d);
 
-      // we now render trial inside grid (so keep this empty)
-      const trialBox = document.getElementById('trialBox');
-      if(trialBox) trialBox.innerHTML = '';
-
-      resetButtonsForViewMode();
       panel.style.display = 'flex';
-
-      // Slot view mode controls
       slotControls('view');
     }
 
-    // Enter edit mode (right slot becomes Save/Cancel)
     function enterEdit(){
       const id = STATE.selectedId;
       if(!id || !STATE.db) return;
@@ -1786,10 +1677,13 @@ Also:
       const cropList = Array.from(new Set([...baseCrops, crop].filter(v=>String(v||'').trim()!=='')))
         .sort((a,b)=>String(a).localeCompare(String(b)));
 
-      // Keep the grid order similar; replace editable fields only
-      // (Trial info stays as-is in renderDetails; we don’t rebuild it here)
+      // Keep right controls column pinned
       grid.innerHTML = `
-        <div>
+        <div class="detail-right-col">
+          <div id="detailRightSlot" class="detail-right-slot"></div>
+        </div>
+
+        <div class="detail-cell">
           <div class="detail-item-label">Crop Year</div>
           <select id="editCropYear" class="select">
             <option value=""></option>
@@ -1801,7 +1695,7 @@ Also:
           </select>
         </div>
 
-        <div>
+        <div class="detail-cell">
           <div class="detail-item-label">Crop</div>
           <select id="editCrop" class="select">
             <option value=""></option>
@@ -1813,26 +1707,14 @@ Also:
           </select>
         </div>
 
-        <div>
+        <div class="detail-cell">
           <div class="detail-item-label">Release Date</div>
           <input id="editReleaseDate" type="text" class="input" value="${escapeHtml(releaseDate)}" placeholder="YYYY-MM-DD"/>
         </div>
 
-        <div>
+        <div class="detail-cell">
           <div class="detail-item-label">Release Acres</div>
           <input id="editReleaseAcres" type="number" step="0.01" class="input" value="${escapeHtml(releaseAcres)}" placeholder="0.00"/>
-        </div>
-
-        <div>
-          <div class="detail-item-label">Notes</div>
-          <div class="detail-item-value">Use the Notes box below</div>
-        </div>
-
-        <div>
-          <div class="detail-item-label"> </div>
-          <div class="detail-item-value">
-            <div id="detailRightSlot" class="detail-right-slot"></div>
-          </div>
         </div>
       `;
 
@@ -1848,7 +1730,6 @@ Also:
         notesBody.appendChild(ta);
       }
 
-      // Slot edit mode controls
       slotControls('edit');
     }
 
@@ -1943,17 +1824,6 @@ Also:
       await renderDetails();
     }
 
-    // Delete permission
-    function computeDeletePermission(){
-      try{
-        if(window.FV && typeof window.FV.can === 'function'){
-          return !!window.FV.can('crop-aerial:delete');
-        }
-      }catch{}
-      return false;
-    }
-
-    // Delete modal
     function openDeleteModal(){
       if(!UI.canDelete || !STATE.selectedId) return;
 
@@ -2031,7 +1901,6 @@ Also:
       }
     }
 
-    // Resume refresh
     let _resumeTimer = null;
     function resume(){
       if(_resumeTimer) return;
@@ -2062,21 +1931,17 @@ Also:
         UI.trashBtn.title = UI.canDelete ? 'Delete job' : 'No permission to delete';
       }
 
-      // Back
+      // Back (history-first)
       const backBtn = document.getElementById('btnBack');
-if(backBtn){
-  backBtn.addEventListener('click', () => {
-    // Prefer real navigation history so you never hit a wrong hard-coded URL.
-    if (window.history && window.history.length > 1) {
-      window.history.back();
-      return;
-    }
-
-    // Fallback if page was opened directly (no history)
-    location.href = CONFIG.BACK_URL || '/Farm-vista/pages/crop-production/';
-  });
-}
-
+      if(backBtn){
+        backBtn.addEventListener('click', () => {
+          if (window.history && window.history.length > 1) {
+            window.history.back();
+            return;
+          }
+          location.href = CONFIG.BACK_URL || '/Farm-vista/pages/crop-production/';
+        });
+      }
 
       // Filters
       loadPrefs();
@@ -2135,7 +2000,6 @@ if(backBtn){
         });
       }
 
-      // Retry
       const emptyEl = document.getElementById('listEmpty');
       if(emptyEl){
         emptyEl.addEventListener('click', ()=>{
@@ -2144,7 +2008,6 @@ if(backBtn){
         });
       }
 
-      // Close details
       const closeBtn = document.getElementById('detailClose');
       if(closeBtn){
         closeBtn.addEventListener('click', ()=>{
@@ -2153,12 +2016,10 @@ if(backBtn){
         });
       }
 
-      // Edit/Save/Cancel (slot handled inside renderDetails/enterEdit)
       if(UI.editBtn) UI.editBtn.addEventListener('click', ()=> { if(STATE.selectedId) enterEdit(); });
       if(UI.saveBtn) UI.saveBtn.addEventListener('click', ()=> { if(STATE.selectedId) saveEdit(); });
       if(UI.cancelBtn) UI.cancelBtn.addEventListener('click', ()=> { if(STATE.selectedId) cancelEdit(); });
 
-      // Delete
       if(UI.trashBtn){
         UI.trashBtn.addEventListener('click', (e)=>{
           e.stopPropagation();
@@ -2169,7 +2030,7 @@ if(backBtn){
         });
       }
 
-      // Title edit
+      // Title edit (job # quick edit)
       const titleTextEl = document.getElementById('detailTitleText');
       const titleInputEl = document.getElementById('detailTitleInput');
       if(titleTextEl && titleInputEl){
@@ -2204,6 +2065,7 @@ if(backBtn){
     window.addEventListener('pageshow', () => resume());
     document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') resume(); });
   </script>
+
 </head>
 
 <body>
@@ -2333,12 +2195,11 @@ if(backBtn){
           <div id="detailFieldsList" class="fields-list"></div>
         </div>
 
-        <!-- Buttons live here and are slotted into the right slot -->
+        <!-- Buttons are physically here; they get moved into the right slot -->
         <button type="button" id="editBtn" class="btn btn-quiet" style="display:none;">Edit</button>
         <button type="button" id="saveBtn" class="btn btn-quiet" style="display:none;">Save</button>
         <button type="button" id="cancelBtn" class="btn btn-quiet" style="display:none;">Cancel</button>
 
-        <!-- Delete button (red trash) -->
         <button type="button" id="trashBtn" class="trash-btn" aria-label="Delete job" title="Delete job" style="display:none;">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M9 3a1 1 0 0 0-.894.553L7.382 5H5a1 1 0 1 0 0 2h.293l.853 11.093A2 2 0 0 0 8.14 20h7.72a2 2 0 0 0 1.994-1.907L18.707 7H19a1 1 0 1 0 0-2h-2.382l-.724-1.447A1 1 0 0 0 15 3H9Zm1.118 4a1 1 0 0 0-.996 1.09l.5 8a1 1 0 1 0 1.996-.124l-.5-8A1 1 0 0 0 10.118 7Zm3.764 0a1 1 0 0 0-.882 1.09l.5 8a1 1 0 0 0 1.996-.124l-.5-8A1 1 0 0 0 13.882 7Z" fill="currentColor"/>
@@ -2392,5 +2253,6 @@ if(backBtn){
       </div>
     </div>
   </div>
+
 </body>
 </html>
