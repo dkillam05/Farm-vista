@@ -3,10 +3,12 @@
 Fields setup – farms, counties, acres + optional GPS location (add + edit)
 
 Fixes (2025-12-19):
- • View/Edit modal Farm dropdown now correctly selects the field’s actual farm
-   (supports legacy docs that stored farm name instead of farmId)
- • Delete button is disabled if the field is referenced/used anywhere (checks multiple collections)
- • When you Archive/Unarchive from the modal, the modal closes automatically
+ • Farm dropdown in edit modal now selects correctly even with legacy field data
+   (farmId may be an ID, a name, or an object {id,name})
+ • Edit modal opens fast again (no blocking "used anywhere" checks)
+ • Delete button is updated after modal opens (background usage scan)
+ • Any green button => white text (forced)
+ • Archive/Unarchive closes modal after success
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -77,6 +79,25 @@ Fixes (2025-12-19):
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff;}
     .btn-danger{border-color:#b3261e;color:#b3261e;background:var(--surface);}
     .btn-quiet{min-width:auto;padding:8px 12px}
+
+    /* ==========================================================
+       ✅ GREEN BUTTONS MUST ALWAYS HAVE WHITE TEXT
+       - covers .btn-primary, pressed pill toggles, and any inline green backgrounds
+       ========================================================== */
+    .btn-primary,
+    .pill-toggle[aria-pressed="true"]{
+      color:#fff !important;
+    }
+    button[style*="background:#2F6C3C"],
+    button[style*="background: #2F6C3C"],
+    button[style*="background:#3B7E46"],
+    button[style*="background: #3B7E46"],
+    .btn[style*="background:#2F6C3C"],
+    .btn[style*="background: #2F6C3C"],
+    .btn[style*="background:#3B7E46"],
+    .btn[style*="background: #3B7E46"]{
+      color:#fff !important;
+    }
 
     .list-head{
       padding:14px 16px;
@@ -832,6 +853,9 @@ Fixes (2025-12-19):
     let editFieldMapMarker = null;
     let editFieldMapLatLng = null;
 
+    // Cache usage scan results so repeated opens are instant
+    const USED_ANYWHERE_CACHE = new Map();
+
     async function loadFarms(){
       if (hasStore){
         const fromStore = (window.FVStore.getAll && window.FVStore.getAll('farms')) || [];
@@ -1114,83 +1138,147 @@ Fixes (2025-12-19):
 
     let ddState, ddCounty, ddEditState, ddEditCounty;
 
-    // ---------- NEW: robust "in use" detection (disables delete) ----------
-    async function collectionHasFieldId(collName, fieldId){
+    // ---------- ✅ FAST: background usage scan (does NOT block modal open) ----------
+    async function quickHasRef(collName, fieldId){
+      // we keep this light: one "where fieldId == X limit 1"
       try{
-        const qy = query(collection(db, collName), where('fieldId','==', fieldId), limit(1));
-        const qs = await getDocs(qy);
+        const qs = await getDocs(query(collection(db, collName), where('fieldId','==', fieldId), limit(1)));
         return !qs.empty;
       }catch{
-        // if collection doesn't exist / field doesn't exist / permission, treat as "unknown"
         return false;
       }
     }
-    async function collectionHasFieldRef(collName, fieldId){
-      // some docs store field references as {field:{id}} or fieldRefId etc — check a few common patterns
-      const patterns = [
-        ['fieldId','==',fieldId],
-        ['fieldRefId','==',fieldId],
-        ['field.id','==',fieldId],
-        ['field','==',fieldId]
-      ];
-      for(const [k,op,v] of patterns){
-        try{
-          const qy = query(collection(db, collName), where(k, op, v), limit(1));
-          const qs = await getDocs(qy);
-          if(!qs.empty) return true;
-        }catch{}
-      }
-      return false;
-    }
-    async function isFieldUsedAnywhere(fieldId){
-      // Add/remove collections here as you wire more modules.
-      // Goal: if used ANYWHERE, delete is disabled and user must archive.
-      const checks = [
-        'trials',
-        'fieldTrials',
-        'field_yields',
-        'yieldBlocks',
-        'fieldBoundaries',
+    async function scanUsedAnywhere(fieldId){
+      // If you want more collections later, add them here.
+      // Keep it tight so we don't hammer Firestore.
+      const cols = [
         'boundary_requests',
+        'fieldBoundaries',
+        'fieldTrials',
+        'trials',
+        'fieldMaintenanceWorkOrders',
         'cropApplications',
         'scoutingReports',
-        'fieldMaintenanceWorkOrders',
-        'equipmentServiceRequests'
+        'yieldBlocks',
+        'field_yields'
       ];
 
-      for(const c of checks){
-        if(await collectionHasFieldId(c, fieldId)) return true;
-        if(await collectionHasFieldRef(c, fieldId)) return true;
+      // Do sequential (small count) — safer/less bursty than Promise.all
+      for(const c of cols){
+        if(await quickHasRef(c, fieldId)) return true;
       }
       return false;
     }
+    function setDeleteState(isUsed){
+      mdDelete.disabled = !!isUsed;
+      mdDelete.title = isUsed
+        ? "This field is in use and cannot be deleted. Archive instead."
+        : "Delete this field";
+    }
+    function kickUsageScan(fieldId, currentDoc){
+      // Respect existing flag immediately
+      if(currentDoc && currentDoc.used){
+        USED_ANYWHERE_CACHE.set(fieldId, true);
+        setDeleteState(true);
+        return;
+      }
 
-    function findFarmIdFromLegacy(it){
-      // Some older docs stored farm name instead of farmId.
-      // Try: it.farmId, else map by name fields
-      const direct = String(it.farmId||"").trim();
-      if(direct && FARMS_MAP.has(direct)) return direct;
+      // If cached result exists, use it immediately
+      if(USED_ANYWHERE_CACHE.has(fieldId)){
+        setDeleteState(USED_ANYWHERE_CACHE.get(fieldId));
+        return;
+      }
 
-      const legacyName = String(it.farmName || it.farm || it.farm_label || "").trim();
-      if(!legacyName) return "";
+      // Start optimistic (enable delete) — but protect on click too
+      setDeleteState(false);
 
-      const k = key(legacyName);
-      const match = FARMS_CACHE.find(f=> key(f.name) === k);
-      return match ? match.id : "";
+      // Background scan after modal opens (keeps modal fast)
+      setTimeout(async ()=>{
+        // modal might have been closed or moved to a different record
+        if(editId !== fieldId) return;
+
+        const used = await scanUsedAnywhere(fieldId);
+        USED_ANYWHERE_CACHE.set(fieldId, used);
+
+        if(editId !== fieldId) return;
+        setDeleteState(used);
+
+        // best-effort: if used discovered, persist used:true so next time is instant
+        if(used && currentDoc && !currentDoc.used){
+          try{
+            await updateDoc(doc(db,'fields', fieldId), { used:true, updatedAt: serverTimestamp() });
+          }catch{}
+        }
+      }, 0);
+    }
+
+    // ---------- ✅ FARM ID RESOLUTION (fix dropdown always selecting top item) ----------
+    function resolveFarmIdFromFieldDoc(it){
+      // 1) farmId is a real farm doc id
+      const raw = it?.farmId;
+
+      if(raw && typeof raw === 'object'){
+        if(typeof raw.id === 'string' && raw.id.trim()) return raw.id.trim();
+        if(typeof raw.value === 'string' && raw.value.trim()) return raw.value.trim();
+      }
+
+      if(typeof raw === 'string' && raw.trim()){
+        const v = raw.trim();
+        // if it's a real farm doc id
+        if(FARMS_MAP.has(v)) return v;
+
+        // otherwise treat it as a farm name (legacy)
+        const k = key(v);
+        const match = FARMS_CACHE.find(f=> key(f.name) === k);
+        if(match) return match.id;
+      }
+
+      // 2) legacy fields storing farmName / farm / farm_label
+      const legacyName = String(it?.farmName || it?.farm || it?.farm_label || it?.farmLabel || "").trim();
+      if(legacyName){
+        const k = key(legacyName);
+        const match = FARMS_CACHE.find(f=> key(f.name) === k);
+        if(match) return match.id;
+      }
+
+      return "";
+    }
+
+    function forceSelectByValue(selectEl, value){
+      if(!selectEl) return false;
+      if(!value) return false;
+
+      // normal set
+      selectEl.value = value;
+      if(selectEl.value === value) return true;
+
+      // force search through options
+      const opts = Array.from(selectEl.options || []);
+      const idx = opts.findIndex(o => String(o.value) === String(value));
+      if(idx >= 0){
+        selectEl.selectedIndex = idx;
+        return true;
+      }
+      return false;
     }
 
     async function openEdit(id){
       editId = id;
-      populateFarmSelects();
 
       const ref = doc(db, 'fields', id);
       const snap = await getDoc(ref);
       if(!snap.exists()){ return; }
       const it = snap.data()||{};
 
-      // ✅ FIX: make sure editFarm selects the correct farm (supports legacy farm-name storage)
-      const resolvedFarmId = findFarmIdFromLegacy(it) || (String(it.farmId||"").trim());
-      $("editFarm").value = resolvedFarmId || "";
+      // ensure farm selects are populated (should already be, but safe)
+      if(!$("editFarm").options.length) populateFarmSelects();
+
+      // ✅ FIX: resolve farm id robustly, then force-select it
+      const resolvedFarmId = resolveFarmIdFromFieldDoc(it);
+      const ok = forceSelectByValue($("editFarm"), resolvedFarmId);
+
+      // If it *still* didn't select, keep it blank so it's obvious (instead of wrong farm)
+      if(!ok) $("editFarm").value = "";
 
       $("editName").value     = it.name || "";
       $("editTillable").value = (it.tillable ?? "");
@@ -1224,16 +1312,11 @@ Fixes (2025-12-19):
 
       mdArchive.textContent = (it.status==='archived') ? "Unarchive" : "Archive";
 
-      // ✅ NEW: disable delete if used anywhere (not just cur.used flag)
-      const usedAnywhere = !!it.used || await isFieldUsedAnywhere(id);
-      if(usedAnywhere && !it.used){
-        // optional: persist used=true so future opens are instant (best-effort; ignore permission errors)
-        try{ await updateDoc(ref, { used:true, updatedAt: it.updatedAt || serverTimestamp() }); }catch{}
-      }
-      mdDelete.disabled = usedAnywhere;
-      mdDelete.title = usedAnywhere ? "This field is in use and cannot be deleted. Archive instead." : "Delete this field";
-
+      // ✅ open modal immediately (fast)
       openModal();
+
+      // ✅ then update delete button in background
+      kickUsageScan(id, it);
     }
 
     function openModal(){
@@ -1324,7 +1407,7 @@ Fixes (2025-12-19):
       showToast(next==='archived' ? "Field archived." : "Field unarchived.");
       mdArchive.textContent = next==='archived' ? "Unarchive" : "Archive";
 
-      // ✅ NEW: close the modal automatically after archive/unarchive
+      // ✅ Close modal automatically after archive/unarchive
       closeModal();
     });
 
@@ -1334,21 +1417,37 @@ Fixes (2025-12-19):
         return;
       }
 
+      // If background scan already flagged it, block immediately
+      if(editId && USED_ANYWHERE_CACHE.get(editId) === true){
+        alert("This field is in use and cannot be deleted. Archive instead.");
+        setDeleteState(true);
+        return;
+      }
+
       const ref = doc(db, 'fields', editId);
       const snap = await getDoc(ref);
       if(!snap.exists()) return;
       const cur = snap.data()||{};
 
-      // ✅ enforce same rule on click (in case usage changed after modal opened)
-      const usedNow = !!cur.used || await isFieldUsedAnywhere(editId);
-      if(usedNow){
-        mdDelete.disabled = true;
-        mdDelete.title = "This field is in use and cannot be deleted. Archive instead.";
+      // hard enforcement
+      if(cur.used){
+        USED_ANYWHERE_CACHE.set(editId, true);
+        setDeleteState(true);
         alert("This field is in use and cannot be deleted. Archive instead.");
         return;
       }
 
-      if(!confirm(`Delete field "${cur.name}"? This cannot be undone.`)) return;
+      // one last quick background scan before deleting (still fast)
+      const usedNow = await scanUsedAnywhere(editId);
+      USED_ANYWHERE_CACHE.set(editId, usedNow);
+      if(usedNow){
+        setDeleteState(true);
+        alert("This field is in use and cannot be deleted. Archive instead.");
+        try{ await updateDoc(ref, { used:true, updatedAt: serverTimestamp() }); }catch{}
+        return;
+      }
+
+      if(!confirm(`Delete field "${cur.name}"? This (really) cannot be undone.`)) return;
       await deleteDoc(ref);
       await renderList();
       showToast("Field deleted.");
@@ -2065,8 +2164,8 @@ Fixes (2025-12-19):
     }
 
     async function init(){
-      await ready;              /* ✅ IMPORTANT: ready is a Promise, not a function */
-      db = getFirestore();      /* ✅ now db is a real Firestore (or stub) */
+      await ready;
+      db = getFirestore();
 
       wireNetToasts();
 
@@ -2086,21 +2185,7 @@ Fixes (2025-12-19):
       populateRTKSelect($("rtkSelect"), "");
       populateRTKSelect($("editRtkSelect"), "");
 
-      const companyState = await (async ()=>{
-        try{
-          const snap = await getDoc(doc(db, 'company', 'main'));
-          if(!snap.exists()) return "";
-          const d = snap.data()||{};
-          const NAME_TO_CODE = new Map([
-            ...STATES.map(([c,n])=>[n.toLowerCase(),c]),
-            ...STATES.map(([c])=>[c.toLowerCase(),c])
-          ]);
-          const v = String(d.addressState || d.state || "").trim().toLowerCase();
-          return NAME_TO_CODE.get(v) || "";
-        }catch{ return ""; }
-      })();
-
-      const initState = companyState || $("stateSelect").value || "IL";
+      const initState = $("stateSelect").value || "IL";
       $("stateSelect").value = initState;
       const stRec = STATES.find(([c])=>c===initState);
       if(stRec) $("ddStateBtn").textContent = stRec[1];
