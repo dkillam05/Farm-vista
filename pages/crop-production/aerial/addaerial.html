@@ -1,1 +1,1644 @@
-.gitkeep
+<!-- =====================================================================
+/Farm-vista/pages/crop-production/crop-aerial-add.html  (FULL FILE)
+Rev: 2025-12-19a
+Purpose:
+ • Add Aerial Application Job (multi-field)
+ • Farm filters field list (farm is for narrowing only)
+ • Multi-select fields (10+)
+ • Auto-sum tillable acres from selected fields
+ • Release acres (2 decimals) must be <= total tillable acres
+ • Release date defaults to today
+ • Submitted by defaults to logged-in user (still selectable)
+ • Notes w/ dictation mic (Web Speech API if supported)
+ • File/photo upload (multi) + thumbnails
+ • Optional: Link fields to a Trial (UI + stored payload; trial wiring can be refined once you provide JSON)
+===================================================================== -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FarmVista • Add Aerial Application</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3B7E46" />
+
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+
+  <!-- Standard includes (ABSOLUTE paths) -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
+
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+
+  <!-- Ensure fv-shell -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <style>
+    :root{
+      --card-max:1100px;
+      --page-bottom-gap:96px;
+      --accent:#2F6C3C;
+      --hero-icon-col:36px;
+      --hero-icon-size:24px;
+
+      /* FV Combo vars */
+      --combo-gap:4px;
+      --combo-radius:12px;
+      --combo-btn-radius:10px;
+      --combo-shadow:0 12px 26px rgba(0,0,0,.18);
+      --combo-item-pad:10px 8px;
+      --combo-max-h:52vh;
+
+      --danger:#b00020;
+      --ok:#2F6C3C;
+    }
+
+    body{ background:var(--app-bg,var(--surface)); }
+
+    .wrap{
+      max-width:var(--card-max);
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+    }
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+      margin-bottom:var(--page-bottom-gap);
+    }
+
+    .hero-head{
+      display:grid;
+      grid-template-columns:var(--hero-icon-col) 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      background:linear-gradient(90deg,rgba(47,108,60,.12),transparent);
+      border-bottom:1px solid var(--border);
+    }
+
+    .hero-head .icon{
+      width:var(--hero-icon-size);
+      height:var(--hero-icon-size);
+      color:var(--accent);
+      display:grid;
+      place-items:center;
+    }
+
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+
+    .muted{ color:var(--muted,#67706B); }
+
+    .body{
+      padding:16px;
+      display:grid;
+      gap:14px;
+    }
+
+    .row{
+      display:grid;
+      gap:10px;
+      grid-template-columns:1fr 1fr;
+    }
+    @media (max-width:880px){
+      .row{ grid-template-columns:1fr; }
+    }
+
+    .row3{
+      display:grid;
+      gap:10px;
+      grid-template-columns:1fr 1fr 1fr;
+    }
+    @media (max-width:980px){
+      .row3{ grid-template-columns:1fr; }
+    }
+
+    .field{ position:relative; }
+    .field label{
+      display:block;
+      font-weight:800;
+      margin:0 0 6px;
+    }
+
+    .input,
+    .select,
+    .textarea,
+    .buttonish{
+      width:100%;
+      font:inherit;
+      font-size:16px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:12px;
+      outline:none;
+    }
+
+    .textarea{
+      min-height:120px;
+      resize:vertical;
+      padding-right:48px; /* room for mic */
+    }
+
+    .buttonish{
+      cursor:pointer;
+      text-align:left;
+      position:relative;
+      padding-right:44px;
+      border-radius:var(--combo-btn-radius);
+      user-select:none;
+    }
+
+    .buttonish.has-caret::after{
+      content:"";
+      position:absolute;
+      right:14px;
+      top:50%;
+      width:0;
+      height:0;
+      border-left:6px solid transparent;
+      border-right:6px solid transparent;
+      border-top:7px solid var(--muted,#67706B);
+      transform:translateY(-50%);
+      pointer-events:none;
+    }
+
+    .help{
+      font-size:13px;
+      color:var(--muted,#67706B);
+      margin-top:6px;
+      line-height:1.25;
+    }
+    .help strong{ color:var(--text); }
+
+    .kpi-line{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      padding:10px 12px;
+      border:1px dashed color-mix(in srgb, var(--border) 65%, transparent);
+      border-radius:12px;
+      background:color-mix(in srgb, var(--surface) 92%, rgba(47,108,60,.08));
+    }
+    .kpi{
+      display:flex;
+      gap:8px;
+      align-items:baseline;
+      flex-wrap:wrap;
+    }
+    .kpi .v{
+      font-weight:900;
+      font-size:18px;
+    }
+    .kpi .l{
+      font-weight:800;
+      color:var(--muted,#67706B);
+      font-size:12px;
+      letter-spacing:.2px;
+      text-transform:uppercase;
+    }
+    .kpi.warn .v{ color:var(--danger); }
+
+    .actions{
+      display:flex;
+      gap:12px;
+      flex-wrap:wrap;
+      align-items:center;
+      margin-top:6px;
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:160px;
+      padding:12px 16px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      font-weight:900;
+      color:var(--text)!important;
+      cursor:pointer;
+    }
+
+    .btn-primary{
+      border-color:transparent;
+      background:#2F6C3C;
+      color:#fff!important; /* ✅ green button always white font */
+    }
+
+    .btn:disabled{
+      opacity:.55;
+      cursor:not-allowed;
+    }
+
+    .error{
+      color:var(--danger);
+      font-weight:800;
+    }
+
+    /* Combo core */
+    .combo{ position:relative; }
+    .combo .combo-anchor{
+      position:relative;
+      display:inline-block;
+      width:100%;
+    }
+    .combo-panel{
+      position:absolute;
+      left:0;
+      right:0;
+      top:calc(100% + var(--combo-gap));
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:var(--combo-radius);
+      box-shadow:var(--combo-shadow);
+      z-index:9999;
+      padding:8px;
+      display:none;
+    }
+    .combo-panel.show{ display:block; }
+    .combo-panel .search{
+      padding:4px 2px 8px;
+    }
+    .combo-panel .search input{
+      width:100%;
+      padding:10px;
+      border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius);
+      font:inherit;
+      font-size:14px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+    }
+    .combo-panel .list{
+      max-height:var(--combo-max-h);
+      overflow:auto;
+      border-top:1px solid var(--border);
+    }
+    .combo-item{
+      padding:var(--combo-item-pad);
+      border-bottom:1px solid var(--border);
+      cursor:pointer;
+      font-size:14px;
+      display:flex;
+      gap:10px;
+      align-items:flex-start;
+      justify-content:space-between;
+    }
+    .combo-item:hover{
+      background:rgba(0,0,0,.04);
+    }
+    .combo-item:last-child{ border-bottom:none; }
+
+    .combo-empty{
+      padding:var(--combo-item-pad);
+      color:#67706B;
+      font-size:14px;
+    }
+
+    .cb{
+      display:flex;
+      gap:10px;
+      align-items:flex-start;
+    }
+    .cb input{
+      transform:translateY(2px);
+      width:18px;
+      height:18px;
+      accent-color:#2F6C3C;
+    }
+    .meta{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      align-items:center;
+      justify-content:flex-end;
+      color:var(--muted,#67706B);
+      font-size:12px;
+      white-space:nowrap;
+    }
+    .pill{
+      font-size:12px;
+      border:1px solid var(--border);
+      padding:4px 8px;
+      border-radius:999px;
+      background:var(--surface);
+      color:var(--muted,#67706B);
+    }
+
+    /* Selected chips */
+    .chips{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      margin-top:8px;
+    }
+    .chip{
+      display:inline-flex;
+      gap:8px;
+      align-items:center;
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      font-weight:800;
+      font-size:12px;
+      color:var(--text);
+    }
+    .chip button{
+      border:1px solid var(--border);
+      background:var(--surface);
+      color:var(--text);
+      border-radius:999px;
+      width:20px;
+      height:20px;
+      display:grid;
+      place-items:center;
+      cursor:pointer;
+      padding:0;
+      line-height:1;
+      font-weight:900;
+    }
+
+    /* Notes mic */
+    .mic-btn{
+      position:absolute;
+      right:10px;
+      bottom:12px;
+      width:34px;
+      height:34px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      display:grid;
+      place-items:center;
+      cursor:pointer;
+      color:var(--text);
+      opacity:.95;
+    }
+    .mic-btn[aria-pressed="true"]{
+      background:#2F6C3C;
+      border-color:#2F6C3C;
+      color:#fff;
+    }
+    .mic-btn svg{ width:18px; height:18px; }
+
+    /* Upload thumbs */
+    .thumbs{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .thumb{
+      width:92px;
+      height:92px;
+      border:1px solid var(--border);
+      border-radius:10px;
+      overflow:hidden;
+      display:grid;
+      place-items:center;
+      background:#f6f7f6;
+      position:relative;
+    }
+    .thumb img{
+      width:100%;
+      height:100%;
+      object-fit:cover;
+    }
+    .thumb .rm{
+      position:absolute;
+      top:6px;
+      right:6px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      border-radius:10px;
+      width:26px;
+      height:26px;
+      display:grid;
+      place-items:center;
+      cursor:pointer;
+      font-weight:900;
+      color:var(--text);
+    }
+
+    /* Trial toggle box */
+    .trialbox{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--card-surface,var(--surface));
+      padding:14px;
+      display:grid;
+      gap:12px;
+    }
+    .toggle-row{
+      display:flex;
+      gap:14px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+    .radio{
+      display:inline-flex;
+      gap:8px;
+      align-items:center;
+      font-weight:900;
+    }
+    .radio input{
+      width:18px;height:18px;
+      accent-color:#2F6C3C;
+    }
+
+    /* Toast */
+    #fv-toast{
+      position:fixed;
+      left:50%;
+      bottom:24px;
+      transform:translate(-50%,12px);
+      background:#2F6C3C;
+      color:#fff;
+      padding:10px 16px;
+      border-radius:999px;
+      font-size:14px;
+      box-shadow:0 10px 24px rgba(0,0,0,.25);
+      opacity:0;
+      pointer-events:none;
+      transition:opacity .18s ease, transform .18s ease;
+      z-index:10000;
+      white-space:nowrap;
+    }
+    #fv-toast.show{ opacity:1; transform:translate(-50%,0); }
+
+    /* no-scroll helper */
+    .no-scroll{ overflow:hidden !important; }
+  </style>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">
+            <!-- simple plane/spray icon -->
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 11l18-6-8 16-2-7-8-3z"/>
+              <path d="M11 14l3 3"/>
+            </svg>
+          </div>
+          <div>
+            <h1>Add Aerial Application</h1>
+            <p class="muted">Create a job number, select multiple fields, confirm acres, attach notes + files/photos.</p>
+          </div>
+        </header>
+
+        <div class="body">
+          <!-- Row: Job + Crop -->
+          <div class="row">
+            <div class="field">
+              <label for="jobNumber">Job Number</label>
+              <input id="jobNumber" class="input" inputmode="numeric" autocomplete="off"
+                     placeholder="e.g., 1027" />
+              <div class="help">Whole numbers only.</div>
+            </div>
+
+            <div class="field">
+              <label for="crop">Crop Being Sprayed</label>
+              <select id="crop" class="select" data-label="Crop">
+                <option value="">— Select crop —</option>
+                <option value="Corn">Corn</option>
+                <option value="Soybeans">Soybeans</option>
+                <option value="Wheat">Wheat</option>
+                <option value="Alfalfa">Alfalfa</option>
+                <option value="Other">Other</option>
+              </select>
+              <input id="cropOther" class="input" placeholder="Enter crop name…" style="margin-top:10px" hidden />
+            </div>
+          </div>
+
+          <!-- Farm + Fields (multi) -->
+          <div class="row">
+            <!-- Farm combo -->
+            <div class="field combo">
+              <label for="farmBtn">Farm (for narrowing fields)</label>
+              <div class="combo-anchor">
+                <button id="farmBtn" class="buttonish has-caret" type="button">— All farms —</button>
+                <div class="combo-panel" id="farmPanel" role="listbox" aria-label="Farm list">
+                  <div class="search">
+                    <input id="farmSearch" type="search" placeholder="Search farms…" />
+                  </div>
+                  <div class="list" id="farmList"></div>
+                </div>
+              </div>
+              <div class="help" id="farmHelp">0 farms</div>
+              <input type="hidden" id="farmId" />
+              <input type="hidden" id="farmName" />
+            </div>
+
+            <!-- Fields multi-select combo -->
+            <div class="field combo">
+              <label for="fieldsBtn">Fields (multi-select)</label>
+              <div class="combo-anchor">
+                <button id="fieldsBtn" class="buttonish has-caret" type="button">— Select fields —</button>
+                <div class="combo-panel" id="fieldsPanel" role="listbox" aria-label="Field list">
+                  <div class="search">
+                    <input id="fieldsSearch" type="search" placeholder="Search fields…" />
+                  </div>
+                  <div class="toggle-row" style="padding:8px 2px 10px">
+                    <button id="btnSelectAll" class="btn" type="button" style="min-width:auto;padding:8px 10px">Select all shown</button>
+                    <button id="btnClearFields" class="btn" type="button" style="min-width:auto;padding:8px 10px">Clear</button>
+                    <span class="muted" id="fieldsScope" style="font-weight:800"></span>
+                  </div>
+                  <div class="list" id="fieldsList"></div>
+                </div>
+              </div>
+              <div class="help" id="fieldsHelp">0 fields</div>
+
+              <div class="chips" id="fieldChips" aria-live="polite"></div>
+            </div>
+          </div>
+
+          <!-- Acres summary -->
+          <div class="kpi-line" role="status" aria-live="polite">
+            <div class="kpi">
+              <div class="v" id="kpiFields">0</div>
+              <div class="l">Fields selected</div>
+            </div>
+            <div class="kpi">
+              <div class="v" id="kpiTillable">0.00</div>
+              <div class="l">Total tillable acres</div>
+            </div>
+            <div class="kpi warn" id="kpiReleaseWrap" style="margin-left:auto">
+              <div class="v" id="kpiRelease">—</div>
+              <div class="l">Release acres</div>
+            </div>
+          </div>
+
+          <!-- Release acres + date + submitted by -->
+          <div class="row3">
+            <div class="field">
+              <label for="releaseAcres">Released Area (acres)</label>
+              <input id="releaseAcres" class="input" inputmode="decimal" autocomplete="off"
+                     placeholder="0.00" />
+              <div class="help">Number only, forced to <strong>2 decimals</strong>. Must be ≤ total tillable acres.</div>
+            </div>
+
+            <div class="field">
+              <label for="releaseDate">Release Date</label>
+              <input id="releaseDate" type="date" class="input" />
+              <div class="help">Defaults to today (job created date).</div>
+            </div>
+
+            <div class="field">
+              <label for="submittedBy">Submitted By</label>
+              <select id="submittedBy" class="select"></select>
+              <div class="help">Defaults to the currently signed-in user.</div>
+            </div>
+          </div>
+
+          <!-- Notes -->
+          <div class="field">
+            <label for="notes">Notes</label>
+            <textarea id="notes" class="textarea" placeholder="Notes for the pilot / vendor / job (e.g., products, timing, wind, obstacles)"></textarea>
+            <button id="micBtn" class="mic-btn" type="button" aria-label="Dictate notes" aria-pressed="false" title="Dictate">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z"></path>
+                <path d="M19 11a7 7 0 0 1-14 0"></path>
+                <path d="M12 19v3"></path>
+                <path d="M8 22h8"></path>
+              </svg>
+            </button>
+            <div class="help" id="micHelp">Mic uses your device dictation (if supported).</div>
+          </div>
+
+          <!-- Files + Photos -->
+          <div class="row">
+            <div class="field">
+              <label for="attachments">Files / Photos</label>
+              <!-- No capture attribute so iOS shows Camera, Photo Library, and Files -->
+              <input id="attachments" class="input" type="file" multiple
+                     accept="image/*,.jpg,.jpeg,.png,.heic,.pdf,.doc,.docx,.xls,.xlsx,.txt" />
+              <div class="help">Attach any photos or documents for this job.</div>
+              <div id="thumbs" class="thumbs" aria-live="polite" style="margin-top:10px"></div>
+            </div>
+
+            <div class="field">
+              <label>Trial Link</label>
+              <div class="trialbox">
+                <div class="muted" style="font-weight:900">
+                  Are any of these fields a trial field for application?
+                </div>
+                <div class="toggle-row" role="radiogroup" aria-label="Trial fields">
+                  <label class="radio"><input type="radio" name="isTrial" value="no" checked /> No</label>
+                  <label class="radio"><input type="radio" name="isTrial" value="yes" /> Yes</label>
+                  <span class="pill">Default: No</span>
+                </div>
+
+                <div id="trialDetails" hidden>
+                  <div class="field" style="margin:0">
+                    <label for="trialSelect">Select Trial (current year)</label>
+                    <select id="trialSelect" class="select">
+                      <option value="">Loading…</option>
+                    </select>
+                    <div class="help" id="trialHelp">
+                      Shows aerial-application trials for the current year (any status). We’ll tighten this once you provide your trial JSON/schema.
+                    </div>
+                  </div>
+
+                  <div class="field" style="margin:0">
+                    <label>Assign fields in this job to the selected trial</label>
+                    <div class="help" id="trialAssignHelp">Select a trial first.</div>
+                    <div id="trialAssignList" class="chips" style="margin-top:10px"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="actions">
+            <button id="cancel" class="btn" type="button">Cancel</button>
+            <button id="save" class="btn btn-primary" type="button">Save Aerial Job</button>
+          </div>
+
+          <div id="err" class="help error" hidden></div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <div id="fv-toast" role="status" aria-live="polite"></div>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore, getAuth,
+      collection, getDocs, addDoc, updateDoc, doc, serverTimestamp,
+      query, where, orderBy
+    } from '/Farm-vista/js/firebase-init.js';
+
+    /* ========== Helpers ========== */
+    const $ = id => document.getElementById(id);
+    const esc = s => String(s||"").replace(/[&<>"']/g, m=>({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+    }[m]));
+    const todayISO = ()=> new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+    const titleCase = s => String(s||"").toLowerCase().split(/[\s._-]+/).filter(Boolean).map(w=>w[0].toUpperCase()+w.slice(1)).join(" ");
+    const norm = s => String(s||"").trim().toLowerCase();
+    const safeName = name => (Date.now()+"-"+String(name||"file")).replace(/[^\w.\-]+/g,"_");
+
+    function goBack(){
+      if (window.history.length > 1) { window.history.back(); return; }
+      if (document.referrer) { window.location.href = document.referrer; return; }
+      window.location.href = '/Farm-vista/index.html';
+    }
+
+    function showToast(msg){
+      const el = $("fv-toast");
+      if(!el) return;
+      el.textContent = msg;
+      el.classList.add("show");
+      setTimeout(()=> el.classList.remove("show"), 1200);
+    }
+
+    function closeAllCombos(except=null){
+      document.querySelectorAll('.combo-panel.show').forEach(p=>{
+        if(p!==except) p.classList.remove('show');
+      });
+    }
+    document.addEventListener('click', ()=> closeAllCombos());
+    document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
+
+    function to2(n){
+      const x = Number(n);
+      if(!isFinite(x)) return "";
+      return x.toFixed(2);
+    }
+
+    function parseNum(val){
+      const s = String(val||"").replace(/[^\d.\-]/g,"").trim();
+      if(!s) return NaN;
+      const x = Number(s);
+      return isFinite(x) ? x : NaN;
+    }
+
+    function getTillableFromFieldDoc(d){
+      // try common keys
+      const keys = [
+        'tillableAcres','tillable_acres','acresTillable','acres_tillable',
+        'tillable','tillableAcre','tillableArea','tillable_area'
+      ];
+      for(const k of keys){
+        if(d && d[k]!=null && String(d[k]).trim()!==""){
+          const x = Number(d[k]);
+          if(isFinite(x)) return x;
+        }
+      }
+      // sometimes nested
+      const maybe = d?.acres?.tillable ?? d?.acreage?.tillable;
+      if(maybe!=null){
+        const x = Number(maybe);
+        if(isFinite(x)) return x;
+      }
+      return 0;
+    }
+
+    /* ========== State ========== */
+    let db = null;
+
+    let allFarms = [];
+    let allFields = []; // {id,name,farmId,farmName,tillable}
+    let fieldsShown = [];
+    let selectedFieldIds = new Set();
+
+    let selectedFiles = []; // File[]
+    let trialItems = [];
+    let trialAssignedFieldIds = new Set(); // subset of selectedFieldIds
+
+    /* ========== UI refs ========== */
+    const jobNumber = $("jobNumber");
+    const crop = $("crop");
+    const cropOther = $("cropOther");
+
+    const farmBtn = $("farmBtn");
+    const farmPanel = $("farmPanel");
+    const farmList = $("farmList");
+    const farmSearch = $("farmSearch");
+    const farmHelp = $("farmHelp");
+    const farmId = $("farmId");
+    const farmName = $("farmName");
+
+    const fieldsBtn = $("fieldsBtn");
+    const fieldsPanel = $("fieldsPanel");
+    const fieldsList = $("fieldsList");
+    const fieldsSearch = $("fieldsSearch");
+    const fieldsHelp = $("fieldsHelp");
+    const fieldsScope = $("fieldsScope");
+    const fieldChips = $("fieldChips");
+    const btnSelectAll = $("btnSelectAll");
+    const btnClearFields = $("btnClearFields");
+
+    const kpiFields = $("kpiFields");
+    const kpiTillable = $("kpiTillable");
+    const kpiRelease = $("kpiRelease");
+    const kpiReleaseWrap = $("kpiReleaseWrap");
+
+    const releaseAcres = $("releaseAcres");
+    const releaseDate = $("releaseDate");
+    const submittedBy = $("submittedBy");
+
+    const notes = $("notes");
+    const micBtn = $("micBtn");
+    const micHelp = $("micHelp");
+
+    const attachments = $("attachments");
+    const thumbs = $("thumbs");
+
+    const trialDetails = $("trialDetails");
+    const trialSelect = $("trialSelect");
+    const trialHelp = $("trialHelp");
+    const trialAssignHelp = $("trialAssignHelp");
+    const trialAssignList = $("trialAssignList");
+
+    const errBox = $("err");
+    const saveBtn = $("save");
+    const cancelBtn = $("cancel");
+
+    /* ========== Boot defaults ========== */
+    releaseDate.value = todayISO();
+
+    /* Job number: whole numbers only */
+    jobNumber.addEventListener('input', ()=>{
+      jobNumber.value = String(jobNumber.value||"").replace(/[^\d]/g,"");
+    });
+
+    /* Crop Other toggle */
+    crop.addEventListener('change', ()=>{
+      const v = crop.value;
+      cropOther.hidden = (v !== "Other");
+      if(v !== "Other") cropOther.value = "";
+    });
+
+    /* Release acres format + KPI */
+    function updateReleaseKPI(){
+      const r = parseNum(releaseAcres.value);
+      if(isFinite(r)){
+        kpiRelease.textContent = to2(r);
+      }else{
+        kpiRelease.textContent = "—";
+      }
+      validateReleaseAgainstTillable(); // updates warn color
+    }
+
+    function formatReleaseTo2(){
+      const r = parseNum(releaseAcres.value);
+      if(isFinite(r)){
+        releaseAcres.value = to2(r);
+      }else{
+        releaseAcres.value = "";
+      }
+      updateReleaseKPI();
+    }
+
+    releaseAcres.addEventListener('input', ()=>{
+      // allow typing, but keep it numeric-ish
+      const s = String(releaseAcres.value||"");
+      releaseAcres.value = s.replace(/[^\d.]/g,"");
+      // keep only one dot
+      const parts = releaseAcres.value.split(".");
+      if(parts.length>2){
+        releaseAcres.value = parts[0]+"."+parts.slice(1).join("");
+      }
+      updateReleaseKPI();
+    });
+    releaseAcres.addEventListener('blur', formatReleaseTo2);
+
+    /* ========== Farms combo (single select) ========== */
+    function openFarmPanel(){
+      closeAllCombos(farmPanel);
+      farmPanel.classList.add('show');
+      farmSearch.value = "";
+      farmSearch.focus();
+      renderFarmList("");
+    }
+    function closeFarmPanel(){ farmPanel.classList.remove('show'); }
+
+    farmBtn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      farmPanel.classList.contains('show') ? closeFarmPanel() : openFarmPanel();
+    });
+    farmPanel.addEventListener('click', e=> e.stopPropagation());
+    farmPanel.addEventListener('mousedown', e=> e.stopPropagation());
+    farmSearch.addEventListener('input', ()=> renderFarmList(farmSearch.value));
+
+    function renderFarmList(q){
+      const qq = norm(q);
+      const items = allFarms
+        .filter(f=> !qq || norm(f.name).includes(qq))
+        .map(f=> `<div class="combo-item" data-id="${esc(f.id)}"><div>${esc(f.name)}</div><div class="meta"><span class="pill">Farm</span></div></div>`);
+      const topAll = `<div class="combo-item" data-id=""><div><strong>All farms</strong></div><div class="meta"><span class="pill">Show all</span></div></div>`;
+      farmList.innerHTML = topAll + (items.join("") || `<div class="combo-empty">(no matches)</div>`);
+    }
+
+    farmList.addEventListener('mousedown', (e)=>{
+      const row = e.target.closest('.combo-item'); if(!row) return;
+      const id = row.dataset.id || "";
+      if(!id){
+        farmId.value = "";
+        farmName.value = "";
+        farmBtn.textContent = "— All farms —";
+        applyFarmFilter("");
+      }else{
+        const f = allFarms.find(x=> String(x.id)===String(id));
+        if(!f) return;
+        farmId.value = f.id;
+        farmName.value = f.name;
+        farmBtn.textContent = f.name;
+        applyFarmFilter(f.id);
+      }
+      closeFarmPanel();
+    });
+
+    /* ========== Fields multi-select combo ========== */
+    function openFieldsPanel(){
+      closeAllCombos(fieldsPanel);
+      fieldsPanel.classList.add('show');
+      fieldsSearch.value = "";
+      fieldsSearch.focus();
+      renderFieldsList("");
+    }
+    function closeFieldsPanel(){ fieldsPanel.classList.remove('show'); }
+
+    fieldsBtn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      fieldsPanel.classList.contains('show') ? closeFieldsPanel() : openFieldsPanel();
+    });
+    fieldsPanel.addEventListener('click', e=> e.stopPropagation());
+    fieldsPanel.addEventListener('mousedown', e=> e.stopPropagation());
+    fieldsSearch.addEventListener('input', ()=> renderFieldsList(fieldsSearch.value));
+
+    btnSelectAll.addEventListener('click', ()=>{
+      for(const f of fieldsShown){
+        selectedFieldIds.add(f.id);
+      }
+      renderFieldsList(fieldsSearch.value);
+      renderSelectedChipsAndKPIs();
+      renderTrialAssignUI();
+    });
+
+    btnClearFields.addEventListener('click', ()=>{
+      selectedFieldIds.clear();
+      trialAssignedFieldIds.clear();
+      renderFieldsList(fieldsSearch.value);
+      renderSelectedChipsAndKPIs();
+      renderTrialAssignUI();
+    });
+
+    function renderFieldsList(q){
+      const qq = norm(q);
+      fieldsShown = allFields.filter(f=>{
+        if(qq && !norm(f.name).includes(qq)) return false;
+        const fid = String(farmId.value||"");
+        if(fid && String(f.farmId||"") !== fid) return false;
+        return true;
+      });
+
+      fieldsScope.textContent = farmId.value ? `Showing ${fieldsShown.length} in farm` : `Showing ${fieldsShown.length}`;
+
+      if(!fieldsShown.length){
+        fieldsList.innerHTML = `<div class="combo-empty">(no matches)</div>`;
+        return;
+      }
+
+      fieldsList.innerHTML = fieldsShown.map(f=>{
+        const checked = selectedFieldIds.has(f.id);
+        const acres = isFinite(f.tillable) ? f.tillable : 0;
+        return `
+          <div class="combo-item" data-id="${esc(f.id)}">
+            <div class="cb">
+              <input type="checkbox" ${checked?'checked':''} aria-label="Select ${esc(f.name)}"/>
+              <div>
+                <div style="font-weight:900">${esc(f.name)}</div>
+                <div class="muted" style="font-size:12px;margin-top:2px">
+                  ${esc(f.farmName || '')}
+                </div>
+              </div>
+            </div>
+            <div class="meta">
+              <span class="pill">${to2(acres)} ac</span>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    fieldsList.addEventListener('mousedown', (e)=>{
+      const row = e.target.closest('.combo-item'); if(!row) return;
+      const id = row.dataset.id;
+      if(!id) return;
+
+      // toggle
+      if(selectedFieldIds.has(id)){
+        selectedFieldIds.delete(id);
+        trialAssignedFieldIds.delete(id);
+      }else{
+        selectedFieldIds.add(id);
+      }
+      renderFieldsList(fieldsSearch.value);
+      renderSelectedChipsAndKPIs();
+      renderTrialAssignUI();
+    });
+
+    function renderSelectedChipsAndKPIs(){
+      const selected = allFields.filter(f=> selectedFieldIds.has(f.id));
+      const count = selected.length;
+
+      // Update button label
+      fieldsBtn.textContent = count ? `${count} field${count===1?'':'s'} selected` : "— Select fields —";
+
+      // Chips
+      fieldChips.innerHTML = selected.slice(0,18).map(f=>`
+        <span class="chip">
+          ${esc(f.name)}
+          <button type="button" data-id="${esc(f.id)}" aria-label="Remove ${esc(f.name)}">×</button>
+        </span>
+      `).join("") + (count>18 ? `<span class="muted" style="font-weight:900">+${count-18} more…</span>` : "");
+
+      // KPIs
+      kpiFields.textContent = String(count);
+
+      const totalTillable = selected.reduce((sum,f)=> sum + (Number(f.tillable)||0), 0);
+      kpiTillable.textContent = to2(totalTillable);
+
+      validateReleaseAgainstTillable();
+    }
+
+    fieldChips.addEventListener('click', (e)=>{
+      const btn = e.target.closest('button[data-id]'); if(!btn) return;
+      const id = btn.dataset.id;
+      selectedFieldIds.delete(id);
+      trialAssignedFieldIds.delete(id);
+      renderFieldsList(fieldsSearch.value);
+      renderSelectedChipsAndKPIs();
+      renderTrialAssignUI();
+    });
+
+    function getTotalTillableSelected(){
+      const selected = allFields.filter(f=> selectedFieldIds.has(f.id));
+      return selected.reduce((sum,f)=> sum + (Number(f.tillable)||0), 0);
+    }
+
+    function validateReleaseAgainstTillable(){
+      const total = getTotalTillableSelected();
+      const r = parseNum(releaseAcres.value);
+
+      // show release in KPI even if blank
+      if(isFinite(r)) kpiRelease.textContent = to2(r);
+      else kpiRelease.textContent = "—";
+
+      // warn color if invalid
+      let warn = false;
+      if(isFinite(r)){
+        if(r < 0) warn = true;
+        if(total > 0 && r > total + 1e-9) warn = true;
+        if(total === 0 && r > 0) warn = true;
+      }
+      kpiReleaseWrap.classList.toggle('warn', warn);
+      return !warn;
+    }
+
+    /* ========== Employees / Submitted By ========== */
+    async function currentUser(){
+      const auth = getAuth();
+      const u = auth.currentUser;
+      if (u) return {
+        name: u.displayName || titleCase(String(u.email||"").replace(/@.*/,"").replace(/\./g," ")),
+        email: u.email||""
+      };
+      return {name:"",email:""};
+    }
+
+    function empName(d){
+      const full = (d.fullName||"").trim();
+      if(full) return full;
+      const fn=(d.firstName||"").trim(), ln=(d.lastName||"").trim();
+      if(fn||ln) return (fn+" "+ln).trim();
+      if(d.displayName) return d.displayName;
+      if(d.name) return d.name;
+      return (d.email||"").replace(/@.*/,"");
+    }
+
+    async function loadEmployees(){
+      const me = await currentUser();
+      let emps = [];
+      try{
+        const snap = await getDocs(collection(db, 'employees'));
+        snap.forEach(docSnap=>{
+          const d = docSnap.data()||{};
+          const nm = empName(d);
+          if(nm) emps.push({ name:nm, email:d.email||"" });
+        });
+      }catch(_){}
+
+      const hasMe = emps.some(e => (e.email && norm(e.email)===norm(me.email)) || norm(e.name)===norm(me.name));
+      if(!hasMe && (me.name || me.email)){
+        emps.unshift({
+          name: me.name || titleCase(String(me.email||"").replace(/@.*/,"").replace(/\./g," ")),
+          email: me.email||""
+        });
+      }
+
+      emps = emps.filter(x=>x.name).sort((a,b)=>a.name.localeCompare(b.name));
+      submittedBy.innerHTML = emps.map(e=>
+        `<option value="${esc(e.name)}" data-email="${esc(e.email)}">${esc(e.name)}</option>`
+      ).join("");
+
+      let idx = emps.findIndex(e => norm(e.email)===norm(me.email));
+      if (idx<0) idx = emps.findIndex(e => norm(e.name)===norm(me.name));
+      if (idx>=0) submittedBy.selectedIndex = idx;
+    }
+
+    /* ========== Farms + Fields load ========== */
+    async function loadFarmsAndFields(){
+      farmHelp.textContent = "Loading…";
+      try{
+        const snap = await getDocs(collection(db,'farms'));
+        const items = [];
+        snap.forEach(d=>{
+          const data = d.data() || {};
+          const name = String(data.name||"").trim();
+          if(name) items.push({ id:d.id, name });
+        });
+        items.sort((a,b)=>a.name.localeCompare(b.name));
+        allFarms = items;
+        farmHelp.textContent = `${allFarms.length} farms`;
+        renderFarmList("");
+      }catch(e){
+        console.error(e);
+        farmHelp.textContent = "0 farms";
+      }
+
+      fieldsHelp.textContent = "Loading…";
+      try{
+        const snap = await getDocs(collection(db,'fields'));
+        const items = [];
+        snap.forEach(d=>{
+          const data = d.data() || {};
+          const name = String(data.name||"").trim();
+          if(!name) return;
+
+          const farmIdVal = String(data.farmId || "").trim();
+          const farmNameVal = String(data.farmName || data.farm || "").trim();
+
+          const tillable = getTillableFromFieldDoc(data);
+
+          items.push({
+            id:d.id,
+            name,
+            farmId:farmIdVal,
+            farmName:farmNameVal,
+            tillable: isFinite(tillable) ? Number(tillable) : 0
+          });
+        });
+
+        items.sort((a,b)=>a.name.localeCompare(b.name));
+        allFields = items;
+        fieldsHelp.textContent = `${allFields.length} fields`;
+        applyFarmFilter(farmId.value || "");
+      }catch(e){
+        console.error(e);
+        allFields = [];
+        fieldsHelp.textContent = "0 fields";
+      }
+    }
+
+    function applyFarmFilter(fid){
+      // just re-render list scoped by farm + current search
+      renderFieldsList(fieldsSearch.value);
+      renderSelectedChipsAndKPIs();
+
+      if(fid){
+        const f = allFarms.find(x=> String(x.id)===String(fid));
+        fieldsHelp.textContent = f ? `Fields (filtered: ${esc(f.name)})` : `Fields (filtered)`;
+      }else{
+        fieldsHelp.textContent = `${allFields.length} fields`;
+      }
+
+      renderTrialAssignUI();
+    }
+
+    /* ========== Dictation mic ========== */
+    let rec = null;
+    let recActive = false;
+
+    function setupDictation(){
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if(!SpeechRecognition){
+        micHelp.textContent = "Mic not supported on this browser/device.";
+        micBtn.disabled = true;
+        micBtn.style.opacity = ".6";
+        return;
+      }
+      rec = new SpeechRecognition();
+      rec.continuous = true;
+      rec.interimResults = true;
+      rec.lang = "en-US";
+
+      let finalText = "";
+
+      rec.onresult = (event)=>{
+        let interim = "";
+        for(let i=event.resultIndex; i<event.results.length; i++){
+          const t = event.results[i][0]?.transcript || "";
+          if(event.results[i].isFinal) finalText += t;
+          else interim += t;
+        }
+        // put text at end (simple & predictable)
+        const base = notes.value || "";
+        const out = (base.trim() ? base.replace(/\s*$/," ") : base) + (finalText + interim).trim();
+        notes.value = out;
+      };
+
+      rec.onerror = (e)=>{
+        console.warn("[dictation error]", e);
+        stopRec();
+        showToast("Mic stopped");
+      };
+
+      rec.onend = ()=>{
+        // if user didn't press stop, keep UI consistent
+        if(recActive){
+          recActive = false;
+          micBtn.setAttribute("aria-pressed","false");
+        }
+      };
+    }
+
+    function startRec(){
+      if(!rec) return;
+      try{
+        recActive = true;
+        micBtn.setAttribute("aria-pressed","true");
+        rec.start();
+        showToast("Mic on");
+      }catch(_){}
+    }
+
+    function stopRec(){
+      if(!rec) return;
+      try{ rec.stop(); }catch(_){}
+      recActive = false;
+      micBtn.setAttribute("aria-pressed","false");
+    }
+
+    micBtn.addEventListener('click', ()=>{
+      if(!rec) return;
+      recActive ? stopRec() : startRec();
+    });
+
+    /* ========== Upload thumbs ========== */
+    attachments.addEventListener('change', ()=>{
+      const list = Array.from(attachments.files||[]);
+      // keep all (no hard cap), but you can cap later if you want
+      selectedFiles = (selectedFiles || []).concat(list);
+      renderThumbs();
+    });
+
+    function renderThumbs(){
+      thumbs.innerHTML = "";
+      selectedFiles.forEach((file, idx)=>{
+        const isImg = /^image\//i.test(file.type);
+        const div = document.createElement("div");
+        div.className = "thumb";
+        if(isImg){
+          const img = document.createElement("img");
+          img.alt = file.name;
+          img.src = URL.createObjectURL(file);
+          div.appendChild(img);
+        }else{
+          div.innerHTML = `<div class="muted" style="padding:8px;text-align:center;font-weight:900;font-size:12px">
+            ${esc((file.name||"file").slice(0,18))}${(file.name||"").length>18?"…":""}
+            <div class="pill" style="margin-top:8px;display:inline-block">File</div>
+          </div>`;
+        }
+        const rm = document.createElement("button");
+        rm.className = "rm";
+        rm.type = "button";
+        rm.textContent = "×";
+        rm.title = "Remove";
+        rm.addEventListener("click", ()=>{
+          selectedFiles.splice(idx,1);
+          renderThumbs();
+        });
+        div.appendChild(rm);
+        thumbs.appendChild(div);
+      });
+    }
+
+    /* ========== Trial Link UI ========== */
+    document.querySelectorAll('input[name="isTrial"]').forEach(r=>{
+      r.addEventListener('change', ()=>{
+        const yes = document.querySelector('input[name="isTrial"]:checked')?.value === "yes";
+        trialDetails.hidden = !yes;
+        if(yes){
+          loadTrialsIfNeeded();
+          renderTrialAssignUI();
+        }else{
+          trialAssignedFieldIds.clear();
+          trialSelect.value = "";
+        }
+      });
+    });
+
+    let triedTrialsLoad = false;
+    async function loadTrialsIfNeeded(){
+      if(triedTrialsLoad) return;
+      triedTrialsLoad = true;
+
+      const year = new Date().getFullYear();
+
+      trialSelect.innerHTML = `<option value="">Loading…</option>`;
+      trialHelp.textContent = "Loading trials…";
+
+      // NOTE: We don't know your exact schema yet.
+      // This tries a reasonable default: collection 'field_trials' with {year, type} and/or name/title fields.
+      try{
+        let snap = null;
+
+        // Try: field_trials where year == currentYear
+        try{
+          const qy = query(
+            collection(db,'field_trials'),
+            where('year','==',year),
+            orderBy('name','asc')
+          );
+          snap = await getDocs(qy);
+        }catch(_){
+          // fallback: no orderBy
+          const qy2 = query(
+            collection(db,'field_trials'),
+            where('year','==',year)
+          );
+          snap = await getDocs(qy2);
+        }
+
+        const items = [];
+        snap.forEach(d=>{
+          const x = d.data()||{};
+          // try to infer "aerial application" relevant trials, but keep broad (any status)
+          const t = norm(x.type || x.trialType || x.category || "");
+          const isAerialish = (!t) || t.includes("aerial") || t.includes("application") || t.includes("spray");
+          if(!isAerialish) return;
+
+          const name = String(x.name || x.title || x.trialName || `Trial ${d.id}` ).trim();
+          if(!name) return;
+
+          items.push({
+            id: d.id,
+            name,
+            status: String(x.status || x.state || "").trim(),
+            year: x.year ?? year
+          });
+        });
+
+        items.sort((a,b)=> a.name.localeCompare(b.name));
+        trialItems = items;
+
+        if(!trialItems.length){
+          trialSelect.innerHTML = `<option value="">(No trials found for ${year})</option>`;
+          trialHelp.textContent = `No aerial-application trials found for ${year}. (We’ll refine once you provide trial JSON/schema.)`;
+          return;
+        }
+
+        trialSelect.innerHTML =
+          `<option value="">— Select trial —</option>` +
+          trialItems.map(t=> `<option value="${esc(t.id)}">${esc(t.name)}${t.status?` • ${esc(t.status)}`:""}</option>`).join("");
+
+        trialHelp.textContent = `Showing ${trialItems.length} trial(s) for ${year}.`;
+
+      }catch(e){
+        console.warn("[trial load]", e);
+        trialItems = [];
+        trialSelect.innerHTML = `<option value="">(Trial list unavailable)</option>`;
+        trialHelp.textContent = "Trial list unavailable on this build. Once you provide your trial JSON/schema we’ll wire it exactly.";
+      }
+    }
+
+    trialSelect.addEventListener('change', ()=>{
+      // reset assigned when trial changes (keeps behavior clean)
+      trialAssignedFieldIds.clear();
+      renderTrialAssignUI();
+    });
+
+    function renderTrialAssignUI(){
+      const yes = document.querySelector('input[name="isTrial"]:checked')?.value === "yes";
+      if(!yes) return;
+
+      const trialId = String(trialSelect.value||"");
+      const selected = allFields.filter(f=> selectedFieldIds.has(f.id));
+
+      if(!trialId){
+        trialAssignHelp.textContent = "Select a trial first.";
+        trialAssignList.innerHTML = "";
+        return;
+      }
+
+      if(!selected.length){
+        trialAssignHelp.textContent = "Select fields for this job, then assign the ones that belong in the trial.";
+        trialAssignList.innerHTML = "";
+        return;
+      }
+
+      trialAssignHelp.textContent = "Tap chips to toggle whether each field is added to this trial.";
+
+      trialAssignList.innerHTML = selected.map(f=>{
+        const active = trialAssignedFieldIds.has(f.id);
+        return `
+          <span class="chip" data-id="${esc(f.id)}" style="${active ? 'background:#2F6C3C;color:#fff;border-color:#2F6C3C' : ''}">
+            ${esc(f.name)}
+          </span>
+        `;
+      }).join("");
+    }
+
+    trialAssignList.addEventListener('click', (e)=>{
+      const chip = e.target.closest('.chip[data-id]'); if(!chip) return;
+      const id = chip.dataset.id;
+      if(!selectedFieldIds.has(id)) return;
+      if(trialAssignedFieldIds.has(id)) trialAssignedFieldIds.delete(id);
+      else trialAssignedFieldIds.add(id);
+      renderTrialAssignUI();
+    });
+
+    /* ========== Lazy Storage loader ========== */
+    async function loadStorageFns(){
+      try{
+        const m = await import('/Farm-vista/js/firebase-init.js');
+        const fns = {
+          getStorage:m.getStorage,
+          ref:m.ref,
+          uploadBytes:m.uploadBytes,
+          getDownloadURL:m.getDownloadURL
+        };
+        if (fns.getStorage && fns.ref && fns.uploadBytes && fns.getDownloadURL) return fns;
+      }catch(_){}
+      throw new Error('Storage functions are not exported by /Farm-vista/js/firebase-init.js. Please export getStorage, ref, uploadBytes, getDownloadURL.');
+    }
+
+    async function uploadFiles(docId, files){
+      if(!files || !files.length) return [];
+      const { getStorage, ref, uploadBytes, getDownloadURL } = await loadStorageFns();
+      const st = getStorage();
+      const out = [];
+      for(const f of files){
+        const safe = safeName(f.name);
+        const path = `aerial-applications/${docId}/${safe}`;
+        const r = ref(st, path);
+        await uploadBytes(r, f, { contentType: f.type || 'application/octet-stream' });
+        const url = await getDownloadURL(r);
+        out.push({
+          name: f.name,
+          url,
+          path,
+          contentType: f.type || ''
+        });
+      }
+      return out;
+    }
+
+    /* ========== Validate + Save ========== */
+    function validate(){
+      const j = String(jobNumber.value||"").trim();
+      if(!j) return "Please enter a Job Number.";
+      if(!/^\d+$/.test(j)) return "Job Number must be whole numbers only.";
+
+      const cropVal = String(crop.value||"").trim();
+      if(!cropVal) return "Please select the Crop Being Sprayed.";
+      if(cropVal==="Other" && !String(cropOther.value||"").trim()) return "Please enter the crop name (Other).";
+
+      if(selectedFieldIds.size < 1) return "Please select at least one field for this job.";
+
+      const total = getTotalTillableSelected();
+      if(!(total > 0)) return "Total tillable acres is 0. Please confirm field tillable acres data before creating this job.";
+
+      const r = parseNum(releaseAcres.value);
+      if(!isFinite(r)) return "Please enter Release Acres (number, 2 decimals).";
+      if(r <= 0) return "Release Acres must be greater than 0.";
+      if(r > total + 1e-9) return "Release Acres must be less than or equal to the total tillable acres for this job.";
+
+      if(!String(releaseDate.value||"").trim()) return "Please set a Release Date.";
+
+      const sb = String(submittedBy.value||"").trim();
+      if(!sb) return "Please choose Submitted By.";
+
+      const trialYes = document.querySelector('input[name="isTrial"]:checked')?.value === "yes";
+      if(trialYes){
+        const tid = String(trialSelect.value||"").trim();
+        if(!tid) return "Trial is set to Yes — please select a trial.";
+        // it's OK if they assign zero fields to trial; but usually they'd pick at least 1
+      }
+
+      return "";
+    }
+
+    function collectPayload(){
+      const meOpt = submittedBy.options[submittedBy.selectedIndex];
+      const submittedByEmail = (meOpt?.dataset?.email || "").trim();
+
+      const cropVal = (crop.value === "Other")
+        ? String(cropOther.value||"").trim()
+        : String(crop.value||"").trim();
+
+      const selected = allFields.filter(f=> selectedFieldIds.has(f.id)).map(f=>({
+        fieldId: f.id,
+        field: f.name,
+        farmId: f.farmId || "",
+        farm: f.farmName || "",
+        tillableAcres: Number(f.tillable)||0
+      }));
+
+      const totalTillable = selected.reduce((s,x)=> s + (Number(x.tillableAcres)||0), 0);
+
+      const trialYes = document.querySelector('input[name="isTrial"]:checked')?.value === "yes";
+      const trialId = String(trialSelect.value||"").trim();
+      const trialFieldIds = Array.from(trialAssignedFieldIds).filter(id=> selectedFieldIds.has(id));
+
+      return {
+        // core
+        jobNumber: Number(jobNumber.value),
+        crop: cropVal,
+
+        // farm chosen is only for filtering (still store it for convenience)
+        farmId: String(farmId.value||""),
+        farm: String(farmName.value||""),
+
+        // fields
+        fields: selected,
+        fieldIds: selected.map(x=>x.fieldId),
+        totalTillableAcres: Number(totalTillable),
+
+        // release
+        releaseAcres: Number(parseNum(releaseAcres.value)),
+        releaseDate: String(releaseDate.value||""),
+
+        // submitted
+        submittedBy: String(submittedBy.value||""),
+        submittedByEmail,
+
+        // notes
+        notes: String(notes.value||"").trim(),
+
+        // trial link (UI-level; can be refined with your trial JSON later)
+        trialLink: trialYes ? {
+          enabled: true,
+          trialId,
+          assignFieldIds: trialFieldIds
+        } : { enabled:false },
+
+        // meta
+        year: new Date().getFullYear(),
+        status: "Open",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        t: Date.now(),
+        timestampISO: new Date().toISOString()
+      };
+    }
+
+    async function saveAerialJob(){
+      errBox.hidden = true;
+      errBox.textContent = "";
+
+      const msg = validate();
+      if(msg){
+        alert(msg);
+        return;
+      }
+
+      saveBtn.disabled = true;
+
+      const payload = collectPayload();
+
+      try{
+        // Save core doc
+        const refDoc = await addDoc(collection(db, 'aerial_applications'), payload);
+        const id = refDoc.id;
+
+        // Upload attachments (optional)
+        if(selectedFiles.length){
+          try{
+            const uploaded = await uploadFiles(id, selectedFiles);
+            if(uploaded.length){
+              await updateDoc(doc(db,'aerial_applications',id), {
+                attachments: uploaded,
+                updatedAt: serverTimestamp()
+              });
+            }
+          }catch(upErr){
+            console.error(upErr);
+            alert("Saved job, but file upload failed:\n\n" + (upErr?.message||upErr));
+          }
+        }
+
+        // NOTE: Trial linking writes are intentionally NOT performed here yet.
+        // Once you provide the trial JSON/schema, we’ll add:
+        //  - update trial doc to include these fields
+        //  - and/or create a join record
+        // For now, we store trialLink in this aerial job record.
+
+        showToast("Aerial job saved");
+        setTimeout(()=> goBack(), 1100);
+
+      }catch(e){
+        console.error(e);
+        errBox.hidden = false;
+        errBox.textContent = "Save failed: " + (e?.message || e);
+        alert("Save failed: " + (e?.message || e));
+      }finally{
+        saveBtn.disabled = false;
+      }
+    }
+
+    saveBtn.addEventListener('click', saveAerialJob);
+    cancelBtn.addEventListener('click', goBack);
+
+    /* ========== Boot ========== */
+    (async function(){
+      await ready;
+      db = getFirestore();
+
+      setupDictation();
+
+      // Initial KPIs
+      renderSelectedChipsAndKPIs();
+      updateReleaseKPI();
+
+      await loadFarmsAndFields();
+      await loadEmployees();
+
+      // First render lists
+      renderFieldsList("");
+      renderFarmList("");
+    })();
+  </script>
+</body>
+</html>
