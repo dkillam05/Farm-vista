@@ -106,6 +106,35 @@
       transform:none !important;
     }
 
+    /* ==========================================================
+       ✅ FORCE: Archive + Delete identical (shape + color)
+       Beats perm-ui / inline differences with higher specificity
+       ========================================================== */
+    .left-btns .btn.btn-modal-action,
+    #mdArchive.btn.btn-modal-action,
+    #mdDelete.btn.btn-modal-action{
+      min-width:auto !important;
+      height:auto !important;
+      padding:8px 12px !important;
+      border-radius:12px !important;
+
+      border:1px solid var(--border) !important;
+      background:var(--card-surface,var(--surface)) !important;
+      color:var(--text) !important;
+
+      font-weight:800 !important;
+      line-height:1 !important;
+      opacity:1 !important;
+      filter:none !important;
+      box-shadow:none !important;
+      text-decoration:none !important;
+    }
+    #mdArchive.btn.btn-modal-action:disabled,
+    #mdDelete.btn.btn-modal-action:disabled{
+      opacity:.55 !important;
+      cursor:not-allowed !important;
+    }
+
     /* List */
     .list-head{
       display:flex;align-items:center;justify-content:space-between;
@@ -241,9 +270,9 @@
 
       <div class="dialog-footer">
         <div class="left-btns">
-          <button id="mdArchive" class="btn btn-quiet" type="button" data-perm="setup-farms:edit">Archive</button>
-          <!-- ✅ Delete now matches Archive styling (quiet) -->
-          <button id="mdDelete" class="btn btn-quiet" type="button" title="Delete is disabled if this farm has any fields/history." data-perm="setup-farms:delete">Delete</button>
+          <!-- ✅ BOTH NOW HARD-FORCED IDENTICAL -->
+          <button id="mdArchive" class="btn btn-modal-action" type="button" data-perm="setup-farms:edit">Archive</button>
+          <button id="mdDelete"  class="btn btn-modal-action" type="button" title="Delete is disabled if this farm has any fields/history." data-perm="setup-farms:delete">Delete</button>
         </div>
         <button id="mdSave" class="btn btn-primary" type="button" data-perm="setup-farms:edit">Save Changes</button>
       </div>
@@ -311,7 +340,7 @@
             id: d.id,
             name: String(v.name||'').trim(),
             status: v.status==='archived' ? 'archived' : 'active',
-            used: !!v.used,          // legacy flag (kept)
+            used: !!v.used,
             createdAt: v.createdAt,
             updatedAt: v.updatedAt
           });
@@ -344,7 +373,6 @@
       await setDoc(doc(db, FARMS_COLL, id), { ...patch, updatedAt: serverTimestamp() }, { merge:true });
     }
 
-    // ===== Field-based safety rules (your requested behavior) =====
     async function farmHasAnyFields(farmId){
       const qs = await getDocs(query(fieldsRef(), where('farmId','==', farmId), limit(1)));
       return !qs.empty;
@@ -375,6 +403,7 @@
       try{
         const anyFields = await farmHasAnyFields(farmId);
         if(applyFarmLocks._token !== token) return;
+
         if(anyFields){
           setDeleteLocked(true, "Cannot delete: this farm has fields/history. Only farms with zero history can be deleted.");
         }else{
