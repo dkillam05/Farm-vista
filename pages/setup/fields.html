@@ -1,6 +1,12 @@
 <!-- =====================================================================
 /Farm-vista/pages/setup/fields.html
 Fields setup – farms, counties, acres + optional GPS location (add + edit)
+
+Fixes (2025-12-19):
+ • View/Edit modal Farm dropdown now correctly selects the field’s actual farm
+   (supports legacy docs that stored farm name instead of farmId)
+ • Delete button is disabled if the field is referenced/used anywhere (checks multiple collections)
+ • When you Archive/Unarchive from the modal, the modal closes automatically
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -16,7 +22,6 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
-  
 
   <!-- ✅ Permission UI controller (makes data-perm actually work consistently) -->
   <script src="/Farm-vista/js/perm-ui.js"></script>
@@ -662,7 +667,7 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
   <script type="module">
   import {
     ready,
-    getFirestore, collection, query, orderBy,
+    getFirestore, collection, query, orderBy, where, limit,
     getDocs, addDoc, doc, getDoc, updateDoc, deleteDoc,
     serverTimestamp
   } from '/Farm-vista/js/firebase-init.js';
@@ -1109,6 +1114,71 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
 
     let ddState, ddCounty, ddEditState, ddEditCounty;
 
+    // ---------- NEW: robust "in use" detection (disables delete) ----------
+    async function collectionHasFieldId(collName, fieldId){
+      try{
+        const qy = query(collection(db, collName), where('fieldId','==', fieldId), limit(1));
+        const qs = await getDocs(qy);
+        return !qs.empty;
+      }catch{
+        // if collection doesn't exist / field doesn't exist / permission, treat as "unknown"
+        return false;
+      }
+    }
+    async function collectionHasFieldRef(collName, fieldId){
+      // some docs store field references as {field:{id}} or fieldRefId etc — check a few common patterns
+      const patterns = [
+        ['fieldId','==',fieldId],
+        ['fieldRefId','==',fieldId],
+        ['field.id','==',fieldId],
+        ['field','==',fieldId]
+      ];
+      for(const [k,op,v] of patterns){
+        try{
+          const qy = query(collection(db, collName), where(k, op, v), limit(1));
+          const qs = await getDocs(qy);
+          if(!qs.empty) return true;
+        }catch{}
+      }
+      return false;
+    }
+    async function isFieldUsedAnywhere(fieldId){
+      // Add/remove collections here as you wire more modules.
+      // Goal: if used ANYWHERE, delete is disabled and user must archive.
+      const checks = [
+        'trials',
+        'fieldTrials',
+        'field_yields',
+        'yieldBlocks',
+        'fieldBoundaries',
+        'boundary_requests',
+        'cropApplications',
+        'scoutingReports',
+        'fieldMaintenanceWorkOrders',
+        'equipmentServiceRequests'
+      ];
+
+      for(const c of checks){
+        if(await collectionHasFieldId(c, fieldId)) return true;
+        if(await collectionHasFieldRef(c, fieldId)) return true;
+      }
+      return false;
+    }
+
+    function findFarmIdFromLegacy(it){
+      // Some older docs stored farm name instead of farmId.
+      // Try: it.farmId, else map by name fields
+      const direct = String(it.farmId||"").trim();
+      if(direct && FARMS_MAP.has(direct)) return direct;
+
+      const legacyName = String(it.farmName || it.farm || it.farm_label || "").trim();
+      if(!legacyName) return "";
+
+      const k = key(legacyName);
+      const match = FARMS_CACHE.find(f=> key(f.name) === k);
+      return match ? match.id : "";
+    }
+
     async function openEdit(id){
       editId = id;
       populateFarmSelects();
@@ -1118,7 +1188,10 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       if(!snap.exists()){ return; }
       const it = snap.data()||{};
 
-      $("editFarm").value     = it.farmId || "";
+      // ✅ FIX: make sure editFarm selects the correct farm (supports legacy farm-name storage)
+      const resolvedFarmId = findFarmIdFromLegacy(it) || (String(it.farmId||"").trim());
+      $("editFarm").value = resolvedFarmId || "";
+
       $("editName").value     = it.name || "";
       $("editTillable").value = (it.tillable ?? "");
 
@@ -1150,8 +1223,15 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       }
 
       mdArchive.textContent = (it.status==='archived') ? "Unarchive" : "Archive";
-      mdDelete.disabled = !!it.used;
-      mdDelete.title = it.used ? "This field is in use and cannot be deleted. Archive instead." : "Delete this field";
+
+      // ✅ NEW: disable delete if used anywhere (not just cur.used flag)
+      const usedAnywhere = !!it.used || await isFieldUsedAnywhere(id);
+      if(usedAnywhere && !it.used){
+        // optional: persist used=true so future opens are instant (best-effort; ignore permission errors)
+        try{ await updateDoc(ref, { used:true, updatedAt: it.updatedAt || serverTimestamp() }); }catch{}
+      }
+      mdDelete.disabled = usedAnywhere;
+      mdDelete.title = usedAnywhere ? "This field is in use and cannot be deleted. Archive instead." : "Delete this field";
 
       openModal();
     }
@@ -1243,6 +1323,9 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       await renderList();
       showToast(next==='archived' ? "Field archived." : "Field unarchived.");
       mdArchive.textContent = next==='archived' ? "Unarchive" : "Archive";
+
+      // ✅ NEW: close the modal automatically after archive/unarchive
+      closeModal();
     });
 
     mdDelete.addEventListener("click", async ()=>{
@@ -1255,7 +1338,16 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       const snap = await getDoc(ref);
       if(!snap.exists()) return;
       const cur = snap.data()||{};
-      if(cur.used){ alert("This field is in use and cannot be deleted. Archive instead."); return; }
+
+      // ✅ enforce same rule on click (in case usage changed after modal opened)
+      const usedNow = !!cur.used || await isFieldUsedAnywhere(editId);
+      if(usedNow){
+        mdDelete.disabled = true;
+        mdDelete.title = "This field is in use and cannot be deleted. Archive instead.";
+        alert("This field is in use and cannot be deleted. Archive instead.");
+        return;
+      }
+
       if(!confirm(`Delete field "${cur.name}"? This cannot be undone.`)) return;
       await deleteDoc(ref);
       await renderList();
@@ -1320,20 +1412,6 @@ Fields setup – farms, counties, acres + optional GPS location (add + edit)
       };
       wireDropdownOpenClose(ddEditCounty.root);
       setupSearch(ddEditCounty.search, ddEditCounty.list);
-    }
-
-    async function getCompanyStateCode(){
-      try{
-        const snap = await getDoc(doc(db, 'company', 'main'));
-        if(!snap.exists()) return "";
-        const d = snap.data()||{};
-        const NAME_TO_CODE = new Map([
-          ...STATES.map(([c,n])=>[n.toLowerCase(),c]),
-          ...STATES.map(([c])=>[c.toLowerCase(),c])
-        ]);
-        const v = String(d.addressState || d.state || "").trim().toLowerCase();
-        return NAME_TO_CODE.get(v) || "";
-      }catch{ return ""; }
     }
 
     function setToggle(btn, hiddenCheckbox, on, wrap, input){
