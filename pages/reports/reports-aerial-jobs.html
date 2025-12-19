@@ -103,7 +103,7 @@
     }
     .btn-small{ min-width:auto; padding:8px 12px; font-size:0.85rem; }
 
-    .page-header-meta{ font-size:0.9rem; opacity:0.8; }
+    .page-header-meta{ font-size:0.9rem; opacity:0.85; }
 
     /* Filters */
     .filters{
@@ -148,6 +148,8 @@
       background:var(--card-surface, var(--surface));
       font-size:0.95rem;
       opacity:0.9;
+      white-space:pre-wrap;
+      line-height:1.35;
     }
 
     .wo-card{
@@ -169,7 +171,6 @@
     }
 
     .wo-row-top{ display:flex; align-items:flex-start; gap:10px; }
-
     .wo-main{ flex:1 1 auto; min-width:0; }
 
     .wo-title{
@@ -214,7 +215,7 @@
       white-space:nowrap;
       overflow:hidden;
       text-overflow:ellipsis;
-      max-width:48ch;
+      max-width:52ch;
     }
     @media (max-width:520px){
       .wo-meta .wo-meta-val{ max-width:28ch; }
@@ -350,7 +351,7 @@
       visibility:hidden;
     }
 
-    /* Fields list (details + PDF-ish feel on screen) */
+    /* Fields list (details) */
     .fields-block{
       margin-top:8px;
       padding-top:8px;
@@ -419,6 +420,24 @@
       text-overflow:ellipsis;
       max-width:28ch;
     }
+
+    /* Debug pill */
+    .src-pill{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:4px 10px;
+      border-radius:999px;
+      border:1px solid rgba(59,126,70,0.22);
+      background:rgba(59,126,70,0.08);
+      font-size:0.78rem;
+      font-weight:900;
+      letter-spacing:0.06em;
+      text-transform:uppercase;
+      color:var(--text);
+      white-space:nowrap;
+      opacity:0.9;
+    }
   </style>
 
   <script>
@@ -444,8 +463,18 @@
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const CONFIG = {
-      // ✅ Try multiple collection names so this report works even if you change the write target later.
-      JOB_COLLECTIONS: ['aerial_jobs','aerialJobs','aerial_applications','aerialApplications','aerialApplicationJobs'],
+      // ✅ This is the #1 reason your list shows "no data":
+      // If we hit a REAL collection that exists but is empty, we must NOT stop there.
+      // We'll probe all of these and select the one with the MOST records.
+      JOB_COLLECTIONS: [
+        'aerial_jobs',
+        'aerialJobs',
+        'aerial_applications',
+        'aerialApplications',
+        'aerialApplicationJobs',
+        'aerial_application_jobs',
+        'cropAerialJobs'
+      ],
       FARMS_COLLECTION: 'farms',
       COMPANY_DOC_PATH: ['company','main']
     };
@@ -458,7 +487,8 @@
       selectedId: null,
       db: null,
       company: null,
-      farmsById: new Map() // farmId -> farmName
+      farmsById: new Map(),
+      sourceCollection: '' // which collection actually produced records
     };
 
     function normalizeStatus(s){
@@ -528,13 +558,11 @@
     }
 
     function jobReleaseDate(d){
-      // releaseDate is often "YYYY-MM-DD"
       const rd = coerceStr(d?.releaseDate);
       if(rd){
         const dd = toDateMaybe(rd);
         if(dd) return dd;
       }
-      // fallback: createdAt or timestampISO/t
       return d?._createdAtDate || null;
     }
 
@@ -590,6 +618,18 @@
       return bits.join(' · ') || 'Aerial Application Job';
     }
 
+    function updateSourcePill(){
+      const el = document.getElementById('sourcePill');
+      if(!el) return;
+      if(STATE.sourceCollection){
+        el.textContent = `Source: ${STATE.sourceCollection}`;
+        el.style.display = 'inline-flex';
+      }else{
+        el.style.display = 'none';
+        el.textContent = '';
+      }
+    }
+
     /* ===========================
        Rendering (screen)
        =========================== */
@@ -602,26 +642,39 @@
       listEl.innerHTML = '';
       const items = getWorkingItems();
 
-      if(!items.length){
-        emptyEl.style.display = 'block';
-        emptyEl.textContent = 'No aerial application jobs have been created yet.';
-        if(countEl) countEl.textContent = '0 open jobs';
-        return;
-      }
-
-      emptyEl.style.display = 'none';
-
+      // header meta: open jobs & open acres (even though we’re NOT filtering by status)
       const open = items.filter(it => normalizeStatus(it.data.status) === 'open');
       const openCount = open.length;
-
       const openAcres = open.reduce((s,it)=>{
         const a = Number(it.data.releaseAcres);
         return s + (Number.isFinite(a) ? a : 0);
       },0);
 
       if(countEl){
-        countEl.textContent = `${openCount} open · ${formatNum(openAcres,0)} acres`;
+        countEl.textContent = `${openCount} open · ${formatNum(openAcres,0)} acres · ${items.length} total`;
       }
+
+      if(!items.length){
+        emptyEl.style.display = 'block';
+        const tried = CONFIG.JOB_COLLECTIONS.map(x=>`• ${x}`).join('\n');
+        emptyEl.textContent =
+`No aerial jobs found.
+
+Most likely: this report is looking at the wrong Firestore collection name.
+
+Tried collections:
+${tried}
+
+Fix:
+1) Open your Aerial Add page (the one that saves jobs) and search for the collection name it writes to (collection(db, '...')).
+2) Add that exact collection name to CONFIG.JOB_COLLECTIONS in this file (top of the module script), OR rename one of the entries to match.
+
+Tip: I show the live source once we find data (Source: ...).`;
+        if(countEl) countEl.textContent = `0 open · 0 acres · 0 total`;
+        return;
+      }
+
+      emptyEl.style.display = 'none';
 
       for(const item of items){
         const d = item.data;
@@ -782,7 +835,6 @@
         </div>
       `;
 
-      // Fields list
       const fieldsHtml = buildFieldsHtml(d, farmName);
       grid.insertAdjacentHTML('beforeend', fieldsHtml);
 
@@ -876,25 +928,42 @@
     }
 
     async function loadAerialJobs(){
-      let lastErr = null;
+      const emptyEl = $('.wo-empty');
+      if(emptyEl){
+        emptyEl.style.display = 'block';
+        emptyEl.textContent = 'Loading aerial application jobs…';
+      }
+
+      // ✅ Probe every candidate collection and pick the one with the MOST docs.
+      const results = [];
+      const errors = [];
+
       for(const colName of CONFIG.JOB_COLLECTIONS){
         try{
           const items = await tryLoadJobsFromCollection(colName);
-          // If collection exists but empty, still accept it.
-          STATE.items = items;
-          return;
+          results.push({ col: colName, count: items.length, items });
+          console.log('[aerial-report] probe', colName, '=>', items.length);
         }catch(err){
-          lastErr = err;
+          errors.push({ col: colName, err });
+          console.warn('[aerial-report] probe failed', colName, err);
         }
       }
 
-      console.error('Error loading aerial jobs (all collection names failed):', lastErr);
-      const emptyEl = $('.wo-empty');
-      emptyEl.style.display = 'block';
-      emptyEl.textContent = 'Error loading aerial application jobs. Check console / Firestore rules / collection name.';
-      const countEl = $('#brCount');
-      if(countEl) countEl.textContent = 'Error loading jobs';
-      STATE.items = [];
+      if(!results.length){
+        console.error('Error loading aerial jobs (all collection probes failed):', errors[0]?.err || errors);
+        STATE.items = [];
+        STATE.sourceCollection = '';
+        updateSourcePill();
+        return;
+      }
+
+      // pick max count; if all are 0, pick the first successful so we still have a valid source.
+      results.sort((a,b)=> b.count - a.count);
+      const chosen = results[0] || null;
+
+      STATE.items = (chosen && Array.isArray(chosen.items)) ? chosen.items : [];
+      STATE.sourceCollection = chosen ? chosen.col : '';
+      updateSourcePill();
     }
 
     async function loadFarmsMap(){
@@ -912,13 +981,11 @@
     }
 
     async function applyFilters(){
-      const statusSel = $('#filterStatus');
       const farmSel   = $('#filterFarm');
       const cropSel   = $('#filterCrop');
       const yearSel   = $('#filterYear');
       const searchEl  = $('#filterSearch');
 
-      const statusFilter = (statusSel?.value || 'open').toLowerCase();
       const farmFilter   = farmSel?.value || 'all';
       const cropFilter   = (cropSel?.value || 'all').toLowerCase();
       const yearFilter   = yearSel?.value || 'all';
@@ -926,9 +993,6 @@
 
       const filtered = STATE.items.filter(it => {
         const d = it.data;
-        const st = normalizeStatus(d.status);
-
-        if(statusFilter === 'open' && st !== 'open') return false;
 
         if(farmFilter !== 'all'){
           const fid = primaryFarmIdFromJob(d);
@@ -959,7 +1023,8 @@
             d.notes,
             farmNameFromId(primaryFarmIdFromJob(d)),
             d.farm,
-            fieldNames
+            fieldNames,
+            it._col
           ].join(' ').toLowerCase();
           if(!hay.includes(q)) return false;
         }
@@ -967,7 +1032,7 @@
         return true;
       });
 
-      // sort newest first (createdAt), then jobNumber desc as tie-breaker
+      // sort newest first (createdAt), then jobNumber desc
       filtered.sort((a,b)=>{
         const ta = a.data._createdAtDate ? a.data._createdAtDate.getTime() : 0;
         const tb = b.data._createdAtDate ? b.data._createdAtDate.getTime() : 0;
@@ -1067,13 +1132,10 @@
        =========================== */
 
     function summarizeFilters(){
-      const statusSel = $('#filterStatus');
       const farmSel   = $('#filterFarm');
       const cropSel   = $('#filterCrop');
       const yearSel   = $('#filterYear');
       const searchEl  = $('#filterSearch');
-
-      const statusLabel = statusSel?.value === 'all' ? 'All statuses' : 'Open only';
 
       let farmLabel = 'All farms';
       if (farmSel && farmSel.value !== 'all'){
@@ -1087,7 +1149,7 @@
       const searchVal = (searchEl?.value || '').trim();
       const searchLabel = searchVal ? `Search: "${searchVal}"` : 'No text filter';
 
-      return `${statusLabel} • ${farmLabel} • ${cropLabel} • ${yearLabel} • ${searchLabel}`;
+      return `${farmLabel} • ${cropLabel} • ${yearLabel} • ${searchLabel}`;
     }
 
     function computeDateRange(items){
@@ -1429,7 +1491,7 @@
     </header>
 
     <h1 class="title">Aerial Application Jobs</h1>
-    <p class="subtitle">Open and recent aerial jobs grouped by farm, including release acres, crop/year, and field lists (with trial acres when assigned).</p>
+    <p class="subtitle">Aerial jobs grouped by farm, including release acres, crop/year, and field lists (with trial acres when assigned).</p>
 
     <div class="summary">
       <div class="pill"><span class="k">Date range</span><span class="v">${escapeHtml(dateRange || 'All dates')}</span></div>
@@ -1577,7 +1639,7 @@
       if (normalizeStatus(currentStatus) !== 'open') return;
 
       try{
-        const ref = doc(STATE.db, item._col || CONFIG.JOB_COLLECTIONS[0], STATE.selectedId);
+        const ref = doc(STATE.db, item._col || STATE.sourceCollection || CONFIG.JOB_COLLECTIONS[0], STATE.selectedId);
         await updateDoc(ref, { status: 'Completed', updatedAt: new Date() });
         item.data.status = 'Completed';
         item.data.updatedAt = new Date();
@@ -1603,7 +1665,7 @@
       if(!confirmDelete) return;
 
       try{
-        const ref = doc(STATE.db, item._col || CONFIG.JOB_COLLECTIONS[0], STATE.selectedId);
+        const ref = doc(STATE.db, item._col || STATE.sourceCollection || CONFIG.JOB_COLLECTIONS[0], STATE.selectedId);
         await deleteDoc(ref);
         STATE.items = STATE.items.filter(it => it.id !== STATE.selectedId);
         STATE.selectedId = null;
@@ -1653,14 +1715,12 @@
       populateFarmFilterFromItems();
       populateCropAndYearFilters();
 
-      const statusSel = $('#filterStatus');
       const farmSel   = $('#filterFarm');
       const cropSel   = $('#filterCrop');
       const yearSel   = $('#filterYear');
       const searchEl  = $('#filterSearch');
       const clearBtn  = $('#filterClear');
 
-      if(statusSel) statusSel.addEventListener('change', () => applyFilters());
       if(farmSel)   farmSel.addEventListener('change', () => applyFilters());
       if(cropSel)   cropSel.addEventListener('change', () => applyFilters());
       if(yearSel)   yearSel.addEventListener('change', () => applyFilters());
@@ -1668,7 +1728,6 @@
 
       if(clearBtn){
         clearBtn.addEventListener('click', () => {
-          if(statusSel) statusSel.value = 'open';
           if(farmSel)   farmSel.value   = 'all';
           if(cropSel)   cropSel.value   = 'all';
           if(yearSel)   yearSel.value   = 'all';
@@ -1706,19 +1765,13 @@
             <div class="toolbar-left">
               <button id="btnBack" type="button" class="btn btn-quiet">← Back to Reports</button>
               <button id="btnPrint" type="button" class="btn btn-primary">Print / Save PDF</button>
+              <span id="sourcePill" class="src-pill" style="display:none;"></span>
             </div>
-            <div class="page-header-meta" id="brCount">0 open jobs</div>
+            <div class="page-header-meta" id="brCount">0 open · 0 acres · 0 total</div>
           </div>
 
+          <!-- ✅ Status filter removed (per your request) -->
           <div class="filters">
-            <div class="filter-field">
-              <label class="filter-label" for="filterStatus">Status</label>
-              <select id="filterStatus" class="filter-select">
-                <option value="open">Open only</option>
-                <option value="all">All statuses</option>
-              </select>
-            </div>
-
             <div class="filter-field">
               <label class="filter-label" for="filterFarm">Farm</label>
               <select id="filterFarm" class="filter-select">
