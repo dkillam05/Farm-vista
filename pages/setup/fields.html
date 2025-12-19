@@ -7,6 +7,8 @@ UI UPDATES (2025-12-19):
 2) ✅ Delete button in Field modal now matches Archive button styling (like Farms)
 3) ✅ If field is used => Delete disabled/greyed (only Archive allowed)
 4) ✅ FV themed delete confirm modal => must type YES to confirm (no X close; Cancel only)
+5) ✅ NEW: Simple status filter (Active / Archived) — defaults to Active
+6) ✅ NEW: When Archive/Unarchive is clicked and succeeds, close the modal (toast still shows)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -131,6 +133,20 @@ UI UPDATES (2025-12-19):
       outline:none;
       font:inherit;
       color:var(--text);
+    }
+
+    /* ✅ NEW: Status filter (Active / Archived) */
+    .status-toggle{
+      display:flex;
+      gap:8px;
+      align-items:center;
+      flex:0 0 auto;
+    }
+    .status-toggle .pill-toggle{
+      height:42px;
+      padding:0 14px;
+      min-width:auto;
+      border-radius:999px;
     }
 
     .icon-btn{
@@ -535,6 +551,12 @@ UI UPDATES (2025-12-19):
               <input id="fieldSearch" type="search" placeholder="Search fields" autocomplete="off"/>
             </div>
 
+            <!-- ✅ NEW: Active / Archived filter (defaults Active) -->
+            <div class="status-toggle" role="group" aria-label="Status filter">
+              <button id="statusActive" class="pill-toggle" type="button" aria-pressed="true">Active</button>
+              <button id="statusArchived" class="pill-toggle" type="button" aria-pressed="false">Archived</button>
+            </div>
+
             <button id="farmFilterBtn" class="icon-btn" aria-label="Filter by farm" aria-haspopup="true" aria-expanded="false">
               <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M3 5h18l-7 8v5l-4 2v-7L3 5z" fill="currentColor"/>
@@ -814,6 +836,13 @@ UI UPDATES (2025-12-19):
     const farmFilterPop = $("farmFilterPop");
     const farmFilterOpts = $("farmFilterOpts");
     const pageEl = document.querySelector('.page');
+
+    // ✅ NEW: status filter buttons
+    const statusActiveBtn   = $("statusActive");
+    const statusArchivedBtn = $("statusArchived");
+
+    // defaults to ACTIVE every load
+    let STATUS_FILTER = "active"; // "active" | "archived"
 
     const CENSUS_KEY = "14a8ad456efef642983bd8e830809694965b003f";
     const STATES = [
@@ -1187,25 +1216,52 @@ UI UPDATES (2025-12-19):
       window.scrollTo({top:0, behavior:"smooth"});
     }
 
-    async function fetchFields(farmIdFilter=""){
+    function normStatus(s){
+      const v = String(s||"active").trim().toLowerCase();
+      return (v === "archived") ? "archived" : "active";
+    }
+
+    async function fetchFields(farmIdFilter="", statusFilter="active"){
+      const wantStatus = normStatus(statusFilter);
+
       if (hasStore){
         const all = (window.FVStore.getAll && window.FVStore.getAll('fields')) || [];
-        return farmIdFilter ? all.filter(x=>x.farmId===farmIdFilter) : all;
+        let out = all;
+
+        if(farmIdFilter){
+          out = out.filter(x=>String(x.farmId||"") === String(farmIdFilter));
+        }
+        out = out.filter(x=> normStatus(x.status) === wantStatus);
+        return out;
       }
+
       const qs = await getDocs(query(fieldsRef(), orderBy('updatedAt', 'desc')));
       const out=[];
       qs.forEach(s=>{
         const d=s.data()||{};
         out.push({ id:s.id, ...d });
       });
-      if(farmIdFilter) return out.filter(x=>x.farmId===farmIdFilter);
-      return out;
+
+      let filtered = out;
+      if(farmIdFilter) filtered = filtered.filter(x=>String(x.farmId||"") === String(farmIdFilter));
+      filtered = filtered.filter(x=> normStatus(x.status) === wantStatus);
+      return filtered;
+    }
+
+    // ✅ NEW: status filter wiring
+    function setStatusFilter(next, skipRender=false){
+      STATUS_FILTER = (String(next||"").toLowerCase()==="archived") ? "archived" : "active";
+
+      if(statusActiveBtn)   statusActiveBtn.setAttribute("aria-pressed", STATUS_FILTER==="active" ? "true" : "false");
+      if(statusArchivedBtn) statusArchivedBtn.setAttribute("aria-pressed", STATUS_FILTER==="archived" ? "true" : "false");
+
+      if(!skipRender) renderList();
     }
 
     async function renderList(){
       const box = $("list");
       const farmFilter = $("filterFarm").value || "";
-      const items = await fetchFields(farmFilter);
+      const items = await fetchFields(farmFilter, STATUS_FILTER);
 
       const q = (fieldSearch && fieldSearch.value ? fieldSearch.value : "").toLowerCase().trim();
 
@@ -1224,14 +1280,12 @@ UI UPDATES (2025-12-19):
       }
 
       if(!filtered.length){
-        box.innerHTML = '<div class="muted">No fields yet.</div>';
+        box.innerHTML = `<div class="muted">${STATUS_FILTER==="archived" ? "No archived fields." : "No active fields yet."}</div>`;
         return;
       }
 
+      // when filtered by status already, sort by name naturally
       filtered.sort((a,b)=>{
-        const sa = (a.status==='archived')|0;
-        const sb = (b.status==='archived')|0;
-        if (sa !== sb) return sa - sb;
         const nameA = String(a.name||"");
         const nameB = String(b.name||"");
         return nameA.localeCompare(nameB, undefined, {numeric:true, sensitivity:'base'});
@@ -1246,7 +1300,7 @@ UI UPDATES (2025-12-19):
           (it.hasHEL && it.helAcres) ? `<span class="pill">HEL ${fmt(it.helAcres)} ac</span>` : "",
           (it.hasCRP && it.crpAcres) ? `<span class="pill">CRP ${fmt(it.crpAcres)} ac</span>` : "",
           it.rtkTowerId ? `<span class="pill">RTK: ${esc(rtkLabel(it.rtkTowerId))}</span>` : "",
-          it.status==="archived" ? `<span class="pill">Archived</span>` : ""
+          normStatus(it.status)==="archived" ? `<span class="pill">Archived</span>` : ""
         ].filter(Boolean).join(" ");
 
         const div = document.createElement("div");
@@ -1309,7 +1363,7 @@ UI UPDATES (2025-12-19):
         editFieldMapLatLng = null;
       }
 
-      mdArchive.textContent = (it.status==='archived') ? "Unarchive" : "Archive";
+      mdArchive.textContent = (normStatus(it.status)==='archived') ? "Unarchive" : "Archive";
 
       // ✅ lock delete if used (grey out like farms)
       mdDelete.disabled = !!it.used;
@@ -1400,11 +1454,14 @@ UI UPDATES (2025-12-19):
       const snap = await getDoc(ref);
       if(!snap.exists()) return;
       const cur = snap.data()||{};
-      const next = (cur.status==='archived') ? 'active' : 'archived';
+      const next = (normStatus(cur.status)==='archived') ? 'active' : 'archived';
+
       await updateDoc(ref, { status: next, updatedAt: serverTimestamp() });
       await renderList();
+
+      // ✅ toast + CLOSE MODAL (per your request)
       showToast(next==='archived' ? "Field archived." : "Field unarchived.");
-      mdArchive.textContent = next==='archived' ? "Unarchive" : "Archive";
+      closeModal();
     });
 
     /* =========================
@@ -2229,6 +2286,14 @@ UI UPDATES (2025-12-19):
       fieldSearch.addEventListener("input", ()=> renderList());
     }
 
+    // ✅ NEW: status toggle events
+    if(statusActiveBtn){
+      statusActiveBtn.addEventListener("click", ()=> setStatusFilter("active"));
+    }
+    if(statusArchivedBtn){
+      statusArchivedBtn.addEventListener("click", ()=> setStatusFilter("archived"));
+    }
+
     async function init(){
       await ready;
       db = getFirestore();
@@ -2274,6 +2339,9 @@ UI UPDATES (2025-12-19):
 
       setupFieldLocationPicker();
       setupEditFieldLocationPicker();
+
+      // ✅ default to ACTIVE on page load
+      setStatusFilter("active", true);
 
       await renderList();
     }
