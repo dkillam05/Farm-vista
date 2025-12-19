@@ -602,7 +602,8 @@
     import {
       ready,
       getFirestore,
-      collection, query, where, getDocs, updateDoc, doc, deleteDoc
+      collection, query, where, getDocs, updateDoc, doc, deleteDoc,
+      serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -636,6 +637,36 @@
     let deleteModalCancelBtn = null;
     let deleteModalConfirmBtn = null;
     let deleteTargetId = null;
+
+    /* ==========================================================
+       ✅ NEW: If a WO is approved (moved to Pending), mark its field used:true
+       ========================================================== */
+    function getFieldIdFromWO(data){
+      // common shapes across your app
+      const direct =
+        data?.fieldId ??
+        data?.fieldID ??
+        data?.fieldDocId ??
+        data?.fieldDocID ??
+        data?.field_id ??
+        data?.fieldRefId ??
+        '';
+      const fromObj = (data?.field && typeof data.field === 'object') ? (data.field.id || data.field.fieldId || '') : '';
+      const id = String(direct || fromObj || '').trim();
+      return id || '';
+    }
+
+    async function markFieldUsed(fieldId, context='fieldMaintenance-approved'){
+      const fid = String(fieldId||'').trim();
+      if(!fid) return; // nothing to mark
+
+      await updateDoc(doc(STATE.db, 'fields', fid), {
+        used: true,
+        usedAt: serverTimestamp(),
+        usedBy: context,
+        updatedAt: serverTimestamp()
+      });
+    }
 
     function getTime(ts){
       if(!ts) return 0;
@@ -802,9 +833,38 @@
 
           if(on){
             try{
+              // 1) Approve WO: move to Pending
               await updateDoc(doc(STATE.db, CONFIG.COLLECTION_PATH, id), {
                 [CONFIG.STATUS_FIELD]: CONFIG.PENDING_STATUS
               });
+
+              // 2) NEW: Lock the field (used:true) when WO is approved
+              const fid = getFieldIdFromWO(data);
+              try{
+                await markFieldUsed(fid, 'fieldMaintenance-approved');
+              }catch(lockErr){
+                // If lock fails, revert WO status so it stays in approval queue (safer).
+                console.error('[approve->lock] field used lock failed', lockErr);
+                try{
+                  await updateDoc(doc(STATE.db, CONFIG.COLLECTION_PATH, id), {
+                    [CONFIG.STATUS_FIELD]: CONFIG.NEEDS_APPROVAL_STATUS
+                  });
+                }catch(revertErr){
+                  console.error('[approve->lock] also failed to revert WO status', revertErr);
+                }
+
+                pill.dataset.on = 'false';
+                ev.target.checked = false;
+
+                alert(
+                  "Could not approve this work order because the field could not be locked (fields.used).\n\n" +
+                  "This usually means Firestore rules are blocking updates to fields/{fieldId}.\n\n" +
+                  (lockErr?.message || lockErr)
+                );
+                return;
+              }
+
+              // 3) Remove from list
               STATE.items = STATE.items.filter(x => x.id !== id);
               if(STATE.selectedId === id){
                 STATE.selectedId = null;
