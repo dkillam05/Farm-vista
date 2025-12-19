@@ -1,6 +1,6 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/crop-aerial-add.html  (FULL FILE)
-Rev: 2025-12-19b
+Rev: 2025-12-19c
 Purpose:
  • Add Aerial Application Job (multi-field)
  • Farm filters field list (farm is for narrowing only)
@@ -17,6 +17,7 @@ Purpose:
         cropYear == year(releaseDate)
         operationTask == "Aerial Application"
       (any status)
+    - Trial assignment UI supports per-field Trial Acres (<= tillable)
     - On Save: if Trial=Yes and fields assigned, writes to:
         fieldTrials/{trialId}/fields/{fieldId}  (merge)
 ===================================================================== -->
@@ -475,6 +476,113 @@ Purpose:
       accent-color:#2F6C3C;
     }
 
+    /* Trial helper */
+    .trial-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .helpbtn{
+      border:1px solid var(--border);
+      background:var(--surface);
+      border-radius:10px;
+      width:34px;
+      height:34px;
+      display:grid;
+      place-items:center;
+      cursor:pointer;
+      color:var(--text);
+      flex:0 0 auto;
+    }
+    .helpbox{
+      border:1px dashed color-mix(in srgb, var(--border) 65%, transparent);
+      background:color-mix(in srgb, var(--surface) 92%, rgba(47,108,60,.08));
+      border-radius:12px;
+      padding:10px 12px;
+      font-size:13px;
+      line-height:1.25;
+      color:var(--text);
+    }
+    .helpbox ul{ margin:8px 0 0 18px; padding:0; }
+    .helpbox li{ margin:6px 0; }
+
+    /* Trial assignment list with acres */
+    .trial-assign{
+      display:grid;
+      gap:8px;
+      margin-top:10px;
+    }
+    .ta-row{
+      border:1px solid var(--border);
+      background:var(--surface);
+      border-radius:12px;
+      padding:10px;
+      display:grid;
+      grid-template-columns: 22px 1fr 160px;
+      gap:10px;
+      align-items:center;
+    }
+    @media (max-width:720px){
+      .ta-row{ grid-template-columns: 22px 1fr; }
+      .ta-row .ta-acres{ grid-column: 1 / -1; }
+    }
+    .ta-row input[type="checkbox"]{
+      width:18px;height:18px;
+      accent-color:#2F6C3C;
+    }
+    .ta-name{
+      font-weight:900;
+    }
+    .ta-sub{
+      color:var(--muted,#67706B);
+      font-size:12px;
+      margin-top:2px;
+    }
+    .ta-acres{
+      display:flex;
+      gap:8px;
+      align-items:center;
+      justify-content:flex-end;
+      flex-wrap:wrap;
+    }
+    .ta-acres label{
+      margin:0;
+      font-size:12px;
+      font-weight:900;
+      color:var(--muted,#67706B);
+      text-transform:uppercase;
+      letter-spacing:.2px;
+    }
+    .ta-acres input{
+      width:120px;
+      padding:10px;
+      border:1px solid var(--border);
+      border-radius:10px;
+      font:inherit;
+      font-size:14px;
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+      text-align:right;
+    }
+    .ta-warn{
+      border-color: var(--danger) !important;
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 20%, transparent);
+    }
+    .ta-note{
+      font-size:12px;
+      color:var(--muted,#67706B);
+      text-align:right;
+      width:100%;
+    }
+    .ta-err{
+      font-size:12px;
+      color:var(--danger);
+      font-weight:800;
+      width:100%;
+      text-align:right;
+    }
+
     /* Toast */
     #fv-toast{
       position:fixed;
@@ -644,11 +752,35 @@ Purpose:
             </div>
 
             <div class="field">
-              <label>Trial Link</label>
+              <div class="trial-head">
+                <label style="margin:0">Trial Link</label>
+                <button id="trialHelpBtn" class="helpbtn" type="button" aria-label="Trial help">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4"></path>
+                    <path d="M12 17h.01"></path>
+                  </svg>
+                </button>
+              </div>
+
               <div class="trialbox">
+                <div id="trialHelpBox" class="helpbox" hidden>
+                  <strong>How trials work here</strong>
+                  <ul>
+                    <li>Trials must be created first in <strong>Field Trials</strong>.</li>
+                    <li>This list only shows trials where:</li>
+                    <li style="list-style:disc;margin-left:18px">
+                      <strong>crop</strong> matches, <strong>cropYear</strong> = Release Date year, and <strong>operationTask</strong> = “Aerial Application”.
+                    </li>
+                    <li>Any status can show (active, completed, etc.).</li>
+                    <li>To link fields: select a trial, check the fields, and enter <strong>Trial Acres</strong> (≤ tillable).</li>
+                  </ul>
+                </div>
+
                 <div class="muted" style="font-weight:900">
                   Are any of these fields a trial field for application?
                 </div>
+
                 <div class="toggle-row" role="radiogroup" aria-label="Trial fields">
                   <label class="radio"><input type="radio" name="isTrial" value="no" checked /> No</label>
                   <label class="radio"><input type="radio" name="isTrial" value="yes" /> Yes</label>
@@ -669,7 +801,7 @@ Purpose:
                   <div class="field" style="margin:0">
                     <label>Assign fields in this job to the selected trial</label>
                     <div class="help" id="trialAssignHelp">Select a trial first.</div>
-                    <div id="trialAssignList" class="chips" style="margin-top:10px"></div>
+                    <div id="trialAssignList" class="trial-assign" aria-live="polite"></div>
                   </div>
                 </div>
               </div>
@@ -694,7 +826,7 @@ Purpose:
     import {
       ready,
       getFirestore, getAuth,
-      collection, getDocs, addDoc, updateDoc, setDoc, doc, serverTimestamp,
+      collection, getDocs, addDoc, updateDoc, setDoc, doc, getDoc, serverTimestamp,
       query, where
     } from '/Farm-vista/js/firebase-init.js';
 
@@ -773,14 +905,16 @@ Purpose:
     /* ========== State ========== */
     let db = null;
 
-    let allFarms = [];
-    let allFields = []; // {id,name,farmId,farmName,tillable}
+    let allFarms = [];   // {id,name}
+    let allFields = [];  // {id,name,farmId,farmName,tillable}
     let fieldsShown = [];
     let selectedFieldIds = new Set();
 
     let selectedFiles = []; // File[]
     let trialItems = [];
-    let trialAssignedFieldIds = new Set(); // subset of selectedFieldIds
+
+    // trialAssignments[fieldId] = { included: bool, trialAcres: number|null, err: string }
+    const trialAssignments = Object.create(null);
 
     /* ========== UI refs ========== */
     const jobNumber = $("jobNumber");
@@ -820,6 +954,9 @@ Purpose:
     const attachments = $("attachments");
     const thumbs = $("thumbs");
 
+    const trialHelpBtn = $("trialHelpBtn");
+    const trialHelpBox = $("trialHelpBox");
+
     const trialDetails = $("trialDetails");
     const trialSelect = $("trialSelect");
     const trialHelp = $("trialHelp");
@@ -832,6 +969,11 @@ Purpose:
 
     /* ========== Boot defaults ========== */
     releaseDate.value = todayISO();
+
+    /* Trial help toggle */
+    trialHelpBtn.addEventListener('click', ()=>{
+      trialHelpBox.hidden = !trialHelpBox.hidden;
+    });
 
     /* Job number: whole numbers only */
     jobNumber.addEventListener('input', ()=>{
@@ -940,12 +1082,13 @@ Purpose:
       }
       renderFieldsList(fieldsSearch.value);
       renderSelectedChipsAndKPIs();
+      syncTrialAssignmentsWithSelectedFields();
       renderTrialAssignUI();
     });
 
     btnClearFields.addEventListener('click', ()=>{
       selectedFieldIds.clear();
-      trialAssignedFieldIds.clear();
+      clearTrialAssignments();
       renderFieldsList(fieldsSearch.value);
       renderSelectedChipsAndKPIs();
       renderTrialAssignUI();
@@ -996,12 +1139,14 @@ Purpose:
 
       if(selectedFieldIds.has(id)){
         selectedFieldIds.delete(id);
-        trialAssignedFieldIds.delete(id);
+        // also remove from trialAssignments if present
+        delete trialAssignments[id];
       }else{
         selectedFieldIds.add(id);
       }
       renderFieldsList(fieldsSearch.value);
       renderSelectedChipsAndKPIs();
+      syncTrialAssignmentsWithSelectedFields();
       renderTrialAssignUI();
     });
 
@@ -1030,9 +1175,10 @@ Purpose:
       const btn = e.target.closest('button[data-id]'); if(!btn) return;
       const id = btn.dataset.id;
       selectedFieldIds.delete(id);
-      trialAssignedFieldIds.delete(id);
+      delete trialAssignments[id];
       renderFieldsList(fieldsSearch.value);
       renderSelectedChipsAndKPIs();
+      syncTrialAssignmentsWithSelectedFields();
       renderTrialAssignUI();
     });
 
@@ -1174,6 +1320,7 @@ Purpose:
         fieldsHelp.textContent = `${allFields.length} fields`;
       }
 
+      syncTrialAssignmentsWithSelectedFields();
       renderTrialAssignUI();
     }
 
@@ -1288,10 +1435,11 @@ Purpose:
         const yes = document.querySelector('input[name="isTrial"]:checked')?.value === "yes";
         trialDetails.hidden = !yes;
         if(yes){
-          await loadTrials();   // ✅ always load fresh with current crop + release year
+          await loadTrials();
+          syncTrialAssignmentsWithSelectedFields();
           renderTrialAssignUI();
         }else{
-          trialAssignedFieldIds.clear();
+          clearTrialAssignments();
           trialSelect.value = "";
         }
       });
@@ -1354,13 +1502,13 @@ Purpose:
       }
     }
 
-    // ✅ reload trials when crop or release date changes (if Trial=Yes)
     crop.addEventListener('change', async ()=>{
       const yes = document.querySelector('input[name="isTrial"]:checked')?.value === "yes";
       if(yes){
-        trialAssignedFieldIds.clear();
         trialSelect.value = "";
+        clearTrialAssignments();
         await loadTrials();
+        syncTrialAssignmentsWithSelectedFields();
         renderTrialAssignUI();
       }
     });
@@ -1368,17 +1516,62 @@ Purpose:
     releaseDate.addEventListener('change', async ()=>{
       const yes = document.querySelector('input[name="isTrial"]:checked')?.value === "yes";
       if(yes){
-        trialAssignedFieldIds.clear();
         trialSelect.value = "";
+        clearTrialAssignments();
         await loadTrials();
+        syncTrialAssignmentsWithSelectedFields();
         renderTrialAssignUI();
       }
     });
 
     trialSelect.addEventListener('change', ()=>{
-      trialAssignedFieldIds.clear();
+      clearTrialAssignments();
+      syncTrialAssignmentsWithSelectedFields();
       renderTrialAssignUI();
     });
+
+    function clearTrialAssignments(){
+      for(const k of Object.keys(trialAssignments)) delete trialAssignments[k];
+    }
+
+    function syncTrialAssignmentsWithSelectedFields(){
+      // ensure an entry exists for each selected field
+      const selected = allFields.filter(f=> selectedFieldIds.has(f.id));
+      for(const f of selected){
+        if(!trialAssignments[f.id]){
+          trialAssignments[f.id] = { included:false, trialAcres:null, err:"" };
+        }
+      }
+      // remove any assignments for unselected fields
+      for(const k of Object.keys(trialAssignments)){
+        if(!selectedFieldIds.has(k)) delete trialAssignments[k];
+      }
+    }
+
+    function validateTrialAcresForField(fieldId){
+      const f = allFields.find(x=> String(x.id)===String(fieldId));
+      const a = trialAssignments[fieldId];
+      if(!f || !a) return "";
+
+      if(!a.included){
+        a.err = "";
+        return "";
+      }
+
+      const till = Number(f.tillable)||0;
+      const v = a.trialAcres;
+
+      if(!(Number.isFinite(v) && v > 0)){
+        a.err = "Enter trial acres";
+        return a.err;
+      }
+      if(v > till + 1e-9){
+        a.err = `Max ${to2(till)} ac`;
+        return a.err;
+      }
+      a.err = "";
+      return "";
+    }
 
     function renderTrialAssignUI(){
       const yes = document.querySelector('input[name="isTrial"]:checked')?.value === "yes";
@@ -1399,26 +1592,82 @@ Purpose:
         return;
       }
 
-      trialAssignHelp.textContent = "Tap chips to toggle which fields get added to the trial.";
+      trialAssignHelp.textContent = "Check fields to add to the trial and enter Trial Acres (cannot exceed tillable).";
 
       trialAssignList.innerHTML = selected.map(f=>{
-        const active = trialAssignedFieldIds.has(f.id);
+        const a = trialAssignments[f.id] || { included:false, trialAcres:null, err:"" };
+        const checked = a.included ? "checked" : "";
+        const till = Number(f.tillable)||0;
+        const acresVal = (Number.isFinite(a.trialAcres) ? to2(a.trialAcres) : "");
+        const err = a.err ? `<div class="ta-err">${esc(a.err)}</div>` : `<div class="ta-note">Tillable: ${to2(till)} ac</div>`;
+
         return `
-          <span class="chip" data-id="${esc(f.id)}" style="${active ? 'background:#2F6C3C;color:#fff;border-color:#2F6C3C' : ''}">
-            ${esc(f.name)}
-          </span>
+          <div class="ta-row" data-id="${esc(f.id)}">
+            <input class="ta-check" type="checkbox" ${checked} aria-label="Include ${esc(f.name)} in trial">
+            <div>
+              <div class="ta-name">${esc(f.name)}</div>
+              <div class="ta-sub">${esc(f.farmName||"")}</div>
+            </div>
+            <div class="ta-acres">
+              <label>Trial Acres</label>
+              <input class="ta-input ${a.err ? "ta-warn":""}" type="text" inputmode="decimal" placeholder="0.00" value="${esc(acresVal)}" ${a.included ? "" : "disabled"} aria-label="Trial acres for ${esc(f.name)}">
+              ${err}
+            </div>
+          </div>
         `;
       }).join("");
     }
 
-    trialAssignList.addEventListener('click', (e)=>{
-      const chip = e.target.closest('.chip[data-id]'); if(!chip) return;
-      const id = chip.dataset.id;
-      if(!selectedFieldIds.has(id)) return;
-      if(trialAssignedFieldIds.has(id)) trialAssignedFieldIds.delete(id);
-      else trialAssignedFieldIds.add(id);
-      renderTrialAssignUI();
+    trialAssignList.addEventListener('change', (e)=>{
+      const row = e.target.closest('.ta-row'); if(!row) return;
+      const id = row.dataset.id;
+      const a = trialAssignments[id]; if(!a) return;
+
+      if(e.target.classList.contains('ta-check')){
+        a.included = !!e.target.checked;
+        if(!a.included){
+          a.trialAcres = null;
+          a.err = "";
+        }
+        validateTrialAcresForField(id);
+        renderTrialAssignUI();
+      }
     });
+
+    trialAssignList.addEventListener('input', (e)=>{
+      const row = e.target.closest('.ta-row'); if(!row) return;
+      const id = row.dataset.id;
+      const a = trialAssignments[id]; if(!a) return;
+
+      if(e.target.classList.contains('ta-input')){
+        let s = String(e.target.value||"");
+        s = s.replace(/[^\d.]/g,"");
+        const parts = s.split(".");
+        if(parts.length>2) s = parts[0]+"."+parts.slice(1).join("");
+        e.target.value = s;
+
+        const n = parseNum(s);
+        a.trialAcres = Number.isFinite(n) ? n : null;
+        validateTrialAcresForField(id);
+        // lightweight: only update styling after input without rerendering everything
+        e.target.classList.toggle('ta-warn', !!a.err);
+        const note = row.querySelector('.ta-note, .ta-err');
+        if(note){
+          note.outerHTML = a.err ? `<div class="ta-err">${esc(a.err)}</div>` : `<div class="ta-note">Tillable: ${to2(Number(allFields.find(x=>x.id===id)?.tillable||0))} ac</div>`;
+        }
+      }
+    });
+
+    trialAssignList.addEventListener('blur', (e)=>{
+      if(!e.target.classList.contains('ta-input')) return;
+      const row = e.target.closest('.ta-row'); if(!row) return;
+      const id = row.dataset.id;
+      const a = trialAssignments[id]; if(!a) return;
+      const n = parseNum(e.target.value);
+      e.target.value = Number.isFinite(n) ? to2(n) : "";
+      a.trialAcres = Number.isFinite(n) ? n : null;
+      validateTrialAcresForField(id);
+    }, true);
 
     /* ========== Lazy Storage loader ========== */
     async function loadStorageFns(){
@@ -1479,6 +1728,16 @@ Purpose:
       if(trialYes){
         const tid = String(trialSelect.value||"").trim();
         if(!tid) return "Trial is set to Yes — please select a trial.";
+
+        // validate any included rows
+        const selected = allFields.filter(f=> selectedFieldIds.has(f.id));
+        for(const f of selected){
+          const a = trialAssignments[f.id];
+          if(a && a.included){
+            const err = validateTrialAcresForField(f.id);
+            if(err) return `Trial Acres needed for ${f.name} (and must be ≤ tillable).`;
+          }
+        }
       }
 
       return "";
@@ -1503,7 +1762,18 @@ Purpose:
 
       const trialYes = document.querySelector('input[name="isTrial"]:checked')?.value === "yes";
       const trialId = String(trialSelect.value||"").trim();
-      const trialFieldIds = Array.from(trialAssignedFieldIds).filter(id=> selectedFieldIds.has(id));
+
+      // Build assignments with acres
+      const trialAssignmentsOut = [];
+      for(const f of selected){
+        const a = trialAssignments[f.fieldId];
+        if(a && a.included){
+          trialAssignmentsOut.push({
+            fieldId: f.fieldId,
+            trialAcres: Number.isFinite(a.trialAcres) ? Number(a.trialAcres) : null
+          });
+        }
+      }
 
       return {
         jobNumber: Number(jobNumber.value),
@@ -1528,10 +1798,11 @@ Purpose:
         trialLink: trialYes ? {
           enabled: true,
           trialId,
-          assignFieldIds: trialFieldIds
+          assignments: trialAssignmentsOut,
+          assignFieldIds: trialAssignmentsOut.map(x=>x.fieldId)
         } : { enabled:false },
 
-        year: cropYear,                /* keep 'year' aligned to cropYear for this module */
+        year: cropYear,
         status: "Open",
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -1540,27 +1811,49 @@ Purpose:
       };
     }
 
+    async function resolveFarmName(farmIdStr){
+      const fid = String(farmIdStr||"").trim();
+      if(!fid) return "";
+      const local = allFarms.find(x=> String(x.id)===fid);
+      if(local?.name) return local.name;
+      try{
+        const snap = await getDoc(doc(db,'farms',fid));
+        if(snap.exists()){
+          const d = snap.data()||{};
+          return String(d.name||"").trim();
+        }
+      }catch(_){}
+      return "";
+    }
+
     async function linkFieldsIntoTrial(payload, aerialDocId){
       const trialYes = payload?.trialLink?.enabled === true;
       const trialId = String(payload?.trialLink?.trialId || "").trim();
-      const assignIds = Array.isArray(payload?.trialLink?.assignFieldIds) ? payload.trialLink.assignFieldIds : [];
-      if(!trialYes || !trialId || !assignIds.length) return;
+      const assignments = Array.isArray(payload?.trialLink?.assignments) ? payload.trialLink.assignments : [];
+      if(!trialYes || !trialId || !assignments.length) return;
 
       const byId = new Map((payload.fields||[]).map(f=>[String(f.fieldId), f]));
 
-      for(const fid of assignIds){
-        const f = byId.get(String(fid));
+      for(const a of assignments){
+        const fid = String(a.fieldId||"");
+        const f = byId.get(fid);
         if(!f) continue;
+
+        // ✅ guarantee farmName
+        let farmNameResolved = String(f.farm||"").trim();
+        if(!farmNameResolved && f.farmId){
+          farmNameResolved = await resolveFarmName(f.farmId);
+        }
 
         const ref = doc(db, 'fieldTrials', trialId, 'fields', String(f.fieldId));
         await setDoc(ref, {
           farmId: String(f.farmId||""),
-          farmName: String(f.farm||""),
+          farmName: farmNameResolved,
           fieldId: String(f.fieldId||""),
           fieldName: String(f.field||""),
           notes: null,
           tillable: Number(f.tillableAcres||0),
-          trialAcres: null,
+          trialAcres: (a.trialAcres!=null ? Number(a.trialAcres) : null),
 
           // linkage metadata
           source: "aerialApplication",
@@ -1642,6 +1935,8 @@ Purpose:
 
       renderFieldsList("");
       renderFarmList("");
+
+      syncTrialAssignmentsWithSelectedFields();
     })();
   </script>
 </body>
