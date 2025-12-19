@@ -3,7 +3,8 @@
 Fields setup – farms, counties, acres + optional GPS location (add + edit)
 
 Fixes (2025-12-19):
- • Edit Farm dropdown now ALWAYS selects the correct farmId (prevents rebuild reset)
+ • Add Field Farm now FORCE-PICK (no defaulting to first farm)
+ • View/Edit Farm display now stays in sync even when fv-combo hides the <select>
  • Modal opens fast again (usage scan happens after open, not before)
  • Delete disabled if field is used anywhere (async background scan + cached)
  • ANY green button => white text (hard override)
@@ -769,6 +770,19 @@ Fixes (2025-12-19):
     // usage cache (fast)
     const USED_ANYWHERE_CACHE = new Map();
 
+    // ===== fv-combo sync helper (local fix) =====
+    function syncComboLabelFromSelect(selectEl){
+      if(!selectEl) return;
+      // fv-shell may wrap selects in a "combo" UI; keep its visible anchor in sync.
+      const wrap = selectEl.closest('.fv-combo');
+      if(!wrap) return;
+      const anchor = wrap.querySelector('.fv-anchor');
+      if(!anchor) return;
+      const opt = selectEl.options && selectEl.selectedIndex >= 0 ? selectEl.options[selectEl.selectedIndex] : null;
+      const text = opt ? (opt.textContent || '') : '';
+      if(text) anchor.textContent = text;
+    }
+
     async function loadFarms(){
       if (hasStore){
         const fromStore = (window.FVStore.getAll && window.FVStore.getAll('farms')) || [];
@@ -819,20 +833,21 @@ Fixes (2025-12-19):
       });
     }
 
-    // ✅ IMPORTANT FIX: preserve editFarm selection during rebuild
+    // ✅ IMPORTANT FIX: preserve selection during rebuild + FORCE PICK on Add Field
     function populateFarmSelects(){
       const addSel = $("farmSelect");
       const editSel = $("editFarm");
       const filterSel = $("filterFarm");
 
       const keepEditVal = editSel ? (editSel.value || "") : "";
+      // If current value is empty, we keep it empty (force pick)
       const keepAddVal  = addSel  ? (addSel.value  || "") : "";
 
       const farms = FARMS_CACHE.slice();
       const active = farms.filter(f=>f.status!=='archived');
       const archived = farms.filter(f=>f.status==='archived');
 
-      // add form
+      // add form (FORCE PICK)
       addSel.innerHTML = '';
       if(!farms.length){
         $("noFarms").style.display = "block";
@@ -840,6 +855,15 @@ Fixes (2025-12-19):
       }else{
         $("noFarms").style.display = "none";
         $("save").disabled = false;
+
+        // placeholder that forces user to choose
+        const ph = document.createElement("option");
+        ph.value = "";
+        ph.textContent = "Choose a Farm…";
+        ph.disabled = true;
+        ph.selected = true;
+        addSel.appendChild(ph);
+
         active.forEach(f=>{
           const o=document.createElement("option");
           o.value=f.id; o.textContent=f.name;
@@ -876,15 +900,21 @@ Fixes (2025-12-19):
       });
 
       // restore values
+      // Add field: only restore if it was a real farmId; otherwise keep placeholder (force pick)
       if(keepAddVal) addSel.value = keepAddVal;
+      else addSel.value = ""; // placeholder
       if(keepEditVal) editSel.value = keepEditVal;
+
+      // keep any fv-combo anchor UI in sync
+      syncComboLabelFromSelect(addSel);
+      syncComboLabelFromSelect(editSel);
+      syncComboLabelFromSelect(filterSel);
 
       buildFarmFilterPopover();
     }
 
     /* ============================================================
-       ✅ NEW: Farms "ready" gate + hard select helper
-       - Guarantees farms/options exist BEFORE setting editFarm.
+       ✅ Farms "ready" gate + hard select helper
        ============================================================ */
     let FARMS_READY = null;
 
@@ -903,6 +933,7 @@ Fixes (2025-12-19):
 
       if(!v){
         if(selectEl.options && selectEl.options.length) selectEl.selectedIndex = 0;
+        syncComboLabelFromSelect(selectEl);
         return false;
       }
 
@@ -912,12 +943,15 @@ Fixes (2025-12-19):
       if(idx >= 0){
         selectEl.selectedIndex = idx;
         selectEl.value = v;
+        // update any fv-combo visible anchor label
+        syncComboLabelFromSelect(selectEl);
         selectEl.dispatchEvent(new Event("change", { bubbles:true }));
         return true;
       }
 
       // not found — do NOT silently pick the first farm as "correct"
       if(selectEl.options && selectEl.options.length) selectEl.selectedIndex = 0;
+      syncComboLabelFromSelect(selectEl);
       return false;
     }
 
@@ -936,6 +970,7 @@ Fixes (2025-12-19):
       ).join('');
       sel.innerHTML = opts;
       if(val) sel.value = val;
+      syncComboLabelFromSelect(sel);
     }
     function rtkLabel(id){
       if(!id) return '';
@@ -1012,6 +1047,10 @@ Fixes (2025-12-19):
       $("fieldName").value = "";
       $("tillable").value = "";
       $("rtkSelect").value = "";
+
+      // FORCE PICK again after save
+      $("farmSelect").value = "";
+      syncComboLabelFromSelect($("farmSelect"));
 
       setToggle($("helToggle"), $("hasHEL"), false, $("helAcreWrap"), $("helAcres"));
       setToggle($("crpToggle"), $("hasCRP"), false, $("crpAcreWrap"), $("crpAcres"));
@@ -1187,7 +1226,6 @@ Fixes (2025-12-19):
     async function openEdit(id){
       editId = id;
 
-      // ✅ Key fix: guarantee farms loaded + selects built BEFORE touching editFarm
       await ensureFarmsReady();
 
       const ref = doc(db, 'fields', id);
@@ -1195,10 +1233,9 @@ Fixes (2025-12-19):
       if(!snap.exists()) return;
       const it = snap.data()||{};
 
-      // FAST OPEN
       openModal();
 
-      // ✅ Hard-select the correct farmId (no timing / rebuild snap-back)
+      // ✅ Set value AND keep any fv-combo display in sync
       hardSelectByValue($("editFarm"), it.farmId);
 
       $("editName").value     = it.name || "";
@@ -1233,7 +1270,6 @@ Fixes (2025-12-19):
 
       mdArchive.textContent = (it.status==='archived') ? "Unarchive" : "Archive";
 
-      // background delete rule (no lag)
       kickUsageScan(id, it);
     }
 
@@ -1335,7 +1371,6 @@ Fixes (2025-12-19):
         return;
       }
 
-      // quick re-check right before delete
       const usedNow = await scanUsedAnywhere(editId);
       USED_ANYWHERE_CACHE.set(editId, usedNow);
       if(usedNow){
@@ -1641,11 +1676,15 @@ Fixes (2025-12-19):
         if(!(inp && inp.name==="farmFilterRadio")) return;
         const filterSel = $("filterFarm");
         if(filterSel) filterSel.value = inp.value || "";
+        syncComboLabelFromSelect(filterSel);
         closeFarmPop();
         await renderList();
       });
     }
-    $("filterFarm").addEventListener("change", renderList);
+    $("filterFarm").addEventListener("change", ()=>{
+      syncComboLabelFromSelect($("filterFarm"));
+      renderList();
+    });
 
     // hook buttons
     $("save").addEventListener("click", createField);
@@ -1660,6 +1699,10 @@ Fixes (2025-12-19):
       if(locLabel) locLabel.textContent = "No location set.";
       fieldMapLatLng = null;
       if(fieldMapMarker){ fieldMapMarker.setMap(null); fieldMapMarker = null; }
+
+      // FORCE PICK after clear
+      $("farmSelect").value = "";
+      syncComboLabelFromSelect($("farmSelect"));
     });
     if(fieldSearch){ fieldSearch.addEventListener("input", ()=> renderList()); }
 
@@ -1677,7 +1720,6 @@ Fixes (2025-12-19):
       wireToggle($("editHelToggle"), $("editHasHEL"), $("editHelAcreWrap"), $("editHelAcres"));
       wireToggle($("editCrpToggle"), $("editHasCRP"), $("editCrpAcreWrap"), $("editCrpAcres"));
 
-      // ✅ Single guaranteed sequence: farms loaded -> selects built
       await ensureFarmsReady();
 
       await loadRTKTowers();
