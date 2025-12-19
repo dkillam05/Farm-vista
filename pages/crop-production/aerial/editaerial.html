@@ -1,0 +1,1903 @@
+<!-- =====================================================================
+/Farm-vista/pages/crop-production/crop-aerial-view.html  (FULL FILE)
+Rev: 2025-12-19a
+Purpose:
+ • View / Edit Aerial Application Jobs (similar UX to Trials view panel)
+ • Filters: Search (job # or field/farm text), Date Range (release date)
+ • No “status” filter (status is shown in details, optional edit)
+ • List cards + right-side detail panel with Edit/Save/Cancel
+ • Attachment viewer modal (images + PDFs/files)
+Notes:
+ • Firestore collection name is set to "aerialApplications" below.
+   If your actual collection differs, change CONFIG.COLLECTION_AERIAL.
+ • Date range currently uses native <input type="date">.
+   If you want the shared date-picker JS you mentioned, we’ll swap it in later.
+===================================================================== -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Aerial Applications (View/Edit)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+
+  <!-- ABSOLUTE PATHS -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <style>
+    :root{
+      --card-max: 1200px;
+      --page-bottom-gap: 96px;
+      --accent: #2F6C3C;
+    }
+
+    html{-webkit-text-size-adjust:100%}
+    body{
+      background: var(--app-bg, var(--surface));
+      overflow-x:hidden;
+    }
+
+    .wrap{
+      max-width: var(--card-max);
+      margin: 0 auto;
+      padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+      box-sizing:border-box;
+      display:grid;
+      gap:12px;
+    }
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:visible;
+    }
+
+    .hero-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      border-bottom:1px solid var(--border);
+    }
+
+    .hero-head .icon{
+      width:24px;
+      height:24px;
+      color:var(--accent);
+      display:grid;
+      place-items:center;
+    }
+
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+
+    .muted{ color:var(--muted,#67706B); }
+
+    .body{
+      padding:16px;
+      display:grid;
+      gap:12px;
+    }
+
+    .toolbar{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+      justify-content:space-between;
+    }
+
+    .toolbar-left{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+    }
+
+    .toolbar-right{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:center;
+      font-size:0.9rem;
+      opacity:0.9;
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:120px;
+      padding:10px 14px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      font-weight:800;
+      text-decoration:none;
+      cursor:pointer;
+      user-select:none;
+      color:var(--text) !important;
+      background:var(--card-surface,var(--surface));
+      font-size:0.9rem;
+      gap:6px;
+      -webkit-appearance:none;
+      appearance:none;
+    }
+
+    .btn-quiet{
+      min-width:auto;
+      padding-inline:10px;
+    }
+
+    .btn-primary{
+      background:var(--accent);
+      border-color:var(--accent);
+      color:#fff !important; /* your green buttons must be white text */
+    }
+    .btn-primary[disabled]{opacity:.6; cursor:not-allowed;}
+
+    .select,
+    .input{
+      width:100%;
+      font:inherit;
+      font-size:16px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:10px 12px;
+      outline:none;
+      box-sizing:border-box;
+      position:relative;
+      -webkit-appearance:none;
+      appearance:none;
+    }
+
+    .input{
+      background-image:none;
+    }
+
+    /* Filters row */
+    .filters-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:12px;
+      align-items:flex-end;
+      margin-top:4px;
+      position:relative;
+      z-index:10;
+    }
+
+    .filter-wrap{
+      display:flex;
+      flex-direction:column;
+      gap:3px;
+      font-size:0.85rem;
+      max-width:280px;
+      position:relative;
+      z-index:15;
+      flex:1 1 220px;
+      min-width:220px;
+    }
+
+    .filter-label{
+      font-size:0.78rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+    }
+
+    .filters-actions{
+      display:flex;
+      gap:8px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+
+    .aerial-list{
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      margin-top:4px;
+    }
+
+    .aerial-empty{
+      padding:14px 16px;
+      border-radius:12px;
+      border:1px dashed var(--border);
+      background:var(--card-surface, var(--surface));
+      font-size:0.95rem;
+      opacity:0.9;
+    }
+
+    .aerial-card{
+      position:relative;
+      border-radius:14px;
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
+      padding:12px 14px 10px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      transition:transform .06s, box-shadow .12s, border-color .12s, background .12s;
+      cursor:pointer;
+    }
+
+    .aerial-card:active{
+      transform:scale(.995);
+      box-shadow:var(--shadow);
+    }
+
+    .aerial-row-top{
+      display:flex;
+      align-items:flex-start;
+      gap:10px;
+    }
+
+    .aerial-main{
+      flex:1 1 auto;
+      min-width:0;
+      padding-right:12px;
+    }
+
+    .aerial-title{
+      font-weight:800;
+      font-size:1.02rem;
+      line-height:1.25;
+    }
+
+    .aerial-sub{
+      font-size:0.88rem;
+      opacity:0.9;
+      margin-top:2px;
+    }
+
+    .aerial-meta{
+      font-size:0.8rem;
+      opacity:0.85;
+      margin-top:6px;
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 10px;
+    }
+
+    .aerial-meta span{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 7px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+
+    .aerial-meta-label{ font-weight:700; }
+    .aerial-meta-value{ font-weight:700; }
+
+    .aerial-bottom-row{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      font-size:0.78rem;
+      opacity:0.8;
+      margin-top:4px;
+      flex-wrap:wrap;
+    }
+
+    .aerial-chip{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:2px 8px;
+      border-radius:999px;
+      font-size:0.78rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+
+    /* Detail panel (copied vibe from Trials) */
+    .detail-panel{
+      margin-top:10px;
+      border-radius:14px;
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
+      padding:14px 16px 12px;
+      display:none;
+      flex-direction:column;
+      gap:10px;
+    }
+
+    .detail-header{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:10px;
+    }
+
+    .detail-title-area{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+    }
+
+    .detail-title{
+      font-weight:900;
+      font-size:1.05rem;
+      cursor:text;
+    }
+
+    .detail-title-input{
+      display:none;
+      font-size:1.05rem;
+      font-weight:900;
+      padding:4px 6px;
+      border-radius:8px;
+      border:1px solid var(--border);
+      background:var(--surface-strong, var(--surface));
+      color:var(--text);
+      max-width:100%;
+    }
+
+    .detail-edit-hint{
+      font-size:0.72rem;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      opacity:0.6;
+    }
+
+    .detail-close{
+      border:none;
+      outline:none;
+      background:transparent;
+      padding:0;
+      cursor:pointer;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:28px;
+      height:28px;
+      border-radius:999px;
+      color:var(--muted,#67706B);
+    }
+
+    .detail-close:hover{
+      background:color-mix(in srgb, var(--surface) 60%, var(--border) 40%);
+      color:var(--text);
+    }
+
+    .detail-close svg{
+      width:16px;
+      height:16px;
+      display:block;
+    }
+
+    .visually-hidden{
+      position:absolute;
+      width:1px;
+      height:1px;
+      padding:0;
+      margin:-1px;
+      overflow:hidden;
+      clip:rect(0,0,0,0);
+      white-space:nowrap;
+      border:0;
+    }
+
+    .detail-grid{
+      display:grid;
+      grid-template-columns:minmax(0,1fr);
+      gap:8px 16px;
+      font-size:0.92rem;
+      margin-top:2px;
+    }
+
+    @media (min-width:700px){
+      .detail-grid{ grid-template-columns:repeat(2, minmax(0,1fr)); }
+    }
+
+    .detail-item-label{
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:1px;
+    }
+
+    .detail-item-value{
+      font-size:0.94rem;
+    }
+
+    .detail-status-row{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+
+    .edit-slot-actions{
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      gap:8px;
+      flex-shrink:0;
+    }
+
+    /* Smaller header-action buttons */
+    #editBtn.edit-inline,
+    #saveBtn.edit-inline,
+    #cancelBtn.edit-inline{
+      min-width:auto;
+      padding:6px 10px;
+      border-radius:10px;
+      font-size:0.82rem;
+      font-weight:900;
+      white-space:nowrap;
+    }
+
+    .detail-notes{
+      margin-top:2px;
+      padding-top:10px;
+      border-top:1px solid var(--border);
+      font-size:0.92rem;
+      white-space:pre-wrap;
+    }
+    .detail-notes-label{
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:2px;
+    }
+
+    .attachments{
+      margin-top:2px;
+      padding-top:10px;
+      border-top:1px solid var(--border);
+      font-size:0.9rem;
+    }
+
+    .attachments-label{
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:4px;
+    }
+
+    .attachments-grid{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+    }
+
+    .attachment-thumb{
+      width:64px;
+      height:64px;
+      border-radius:10px;
+      overflow:hidden;
+      border:1px solid var(--border);
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:0.8rem;
+      cursor:pointer;
+      padding:0;
+    }
+
+    .attachment-thumb img{
+      width:100%;
+      height:100%;
+      object-fit:cover;
+      display:block;
+    }
+
+    .attachment-empty{
+      font-size:0.86rem;
+      opacity:0.8;
+    }
+
+    .fields-block{
+      margin-top:2px;
+      padding-top:10px;
+      border-top:1px solid var(--border);
+      font-size:0.9rem;
+    }
+    .fields-label{
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:4px;
+    }
+    .fields-list{
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+    }
+    .field-row{
+      padding:6px 8px;
+      border-radius:8px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+    .field-name{
+      font-weight:800;
+      font-size:0.92rem;
+    }
+    .field-meta{
+      font-size:0.82rem;
+      opacity:0.85;
+      margin-top:1px;
+    }
+
+    .actions-row{
+      margin-top:4px;
+      display:flex;
+      justify-content:flex-end;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+
+    .toast{
+      position:fixed;
+      left:50%;
+      bottom:calc(env(safe-area-inset-bottom,0px) + 72px);
+      transform:translateX(-50%);
+      background:#2F6C3C;
+      color:#fff;
+      padding:10px 14px;
+      border-radius:10px;
+      box-shadow:0 6px 20px rgba(0,0,0,.25);
+      z-index:99999;
+      display:none;
+    }
+    .toast.show{
+      display:block;
+      animation:fadeout 5s forwards;
+    }
+    @keyframes fadeout{
+      0%{opacity:1}
+      85%{opacity:1}
+      100%{opacity:0}
+    }
+
+    /* Viewer modal (same approach as Trials) */
+    .file-modal{
+      position:fixed;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:100000;
+    }
+    .file-modal.show{ display:flex; }
+    .file-backdrop{
+      position:absolute;
+      inset:0;
+      background:rgba(0,0,0,.6);
+    }
+    .file-sheet{
+      position:relative;
+      max-width:90vw;
+      max-height:90vh;
+      background:var(--surface);
+      border-radius:14px;
+      border:1px solid var(--border);
+      box-shadow:0 20px 40px rgba(0,0,0,.4);
+      padding:8px 10px 10px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      z-index:1;
+    }
+    .file-close-row{
+      display:flex;
+      justify-content:flex-end;
+      margin-bottom:4px;
+    }
+    .file-close-btn{
+      border:none;
+      border-radius:999px;
+      padding:4px 10px;
+      font-size:0.85rem;
+      cursor:pointer;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      color:var(--text);
+      -webkit-appearance:none;
+      appearance:none;
+    }
+    .file-content-wrap{
+      border-radius:12px;
+      overflow:hidden;
+      background:#000;
+      max-width:calc(90vw - 20px);
+      max-height:calc(80vh - 40px);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .file-content-wrap img{
+      max-width:100%;
+      max-height:100%;
+      display:block;
+    }
+    .file-content-wrap iframe{
+      border:0;
+      width:calc(90vw - 20px);
+      height:calc(80vh - 40px);
+      background:#fff;
+    }
+
+    @media (max-width: 600px){
+      .aerial-card{ padding:10px 12px; }
+      .aerial-meta, .aerial-bottom-row{ display:none; }
+      .filter-wrap{ min-width: 160px; }
+    }
+  </style>
+
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection,
+      getDocs,
+      doc,
+      updateDoc
+    } from '/Farm-vista/js/firebase-init.js';
+
+    import { NAV_MENU } from '/Farm-vista/js/menu.js';
+
+    const CONFIG = {
+      COLLECTION_AERIAL: 'aerialApplications',     // <-- change if yours is different
+      BACK_URL: '/Farm-vista/pages/crop-production/crop-aerial.html'
+    };
+
+    const STORAGE_KEYS = {
+      SEARCH: 'fv_aerialView_search',
+      FROM:   'fv_aerialView_from',
+      TO:     'fv_aerialView_to'
+    };
+
+    const STATE = {
+      db: null,
+      loaded: false,
+      isLoading: false,
+      allItems: [],
+      items: [],
+      selectedId: null,
+      search: '',
+      fromDate: '',
+      toDate: '',
+      isEditing: false,
+      isEditingTitle: false
+    };
+
+    const UI = {
+      editBtn: null,
+      saveBtn: null,
+      cancelBtn: null,
+      editHome: null,
+      saveHome: null,
+      cancelHome: null
+    };
+
+    const $  = (sel, root=document) => root.querySelector(sel);
+    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+    async function safeReady(){
+      if(typeof ready === 'function') return await ready();
+      return await ready;
+    }
+
+    function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
+
+    async function withRetry(fn, label='op', tries=2){
+      let lastErr = null;
+      for(let i=1;i<=tries;i++){
+        try{ return await fn(i); }
+        catch(err){
+          lastErr = err;
+          console.warn('[AerialView]', `${label}.retry`, { attempt:i, code: err?.code, message: err?.message });
+          await sleep(350 * i);
+        }
+      }
+      throw lastErr;
+    }
+
+    async function getDocsServerFirst(ref){
+      try{ return await getDocs(ref, { source: 'server' }); }
+      catch{ return await getDocs(ref); }
+    }
+
+    function escapeHtml(str){
+      if(str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;')
+        .replace(/'/g,'&#39;');
+    }
+
+    function fmtNumber(value, decimals){
+      const n = Number(value);
+      if(!isFinite(n)) return null;
+      return n.toFixed(decimals);
+    }
+
+    function isImageUrl(url){
+      if(!url || typeof url !== 'string') return false;
+      const u = url.split('?')[0].toLowerCase();
+      return u.endsWith('.jpg') || u.endsWith('.jpeg') || u.endsWith('.png') ||
+             u.endsWith('.gif') || u.endsWith('.webp') || u.endsWith('.heic');
+    }
+
+    function parseYmdToTime(ymd){
+      // ymd: "YYYY-MM-DD"
+      if(!ymd || typeof ymd !== 'string') return 0;
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
+      if(!m) return 0;
+      const y = Number(m[1]), mo = Number(m[2])-1, d = Number(m[3]);
+      const dt = new Date(y, mo, d, 12, 0, 0, 0);
+      return dt.getTime();
+    }
+
+    function getCreatedTime(d){
+      if(!d) return 0;
+      const ts = d.updatedAt || d.createdAt || null;
+      try{
+        if(ts?.toMillis) return ts.toMillis();
+        if(ts?.toDate) return ts.toDate().getTime();
+      }catch{}
+      const t = Number(d.t);
+      if(isFinite(t) && t > 0) return t;
+      const iso = d.timestampISO;
+      if(iso) return new Date(iso).getTime() || 0;
+      return 0;
+    }
+
+    function getReleaseTime(d){
+      const t = parseYmdToTime(d?.releaseDate || '');
+      return t || 0;
+    }
+
+    function buildSearchBlob(d){
+      const job = d?.jobNumber != null ? String(d.jobNumber) : '';
+      const crop = d?.crop || '';
+      const year = d?.cropYear != null ? String(d.cropYear) : '';
+      const farm = d?.farm || '';
+      const fieldsArr = Array.isArray(d?.fields) ? d.fields : [];
+      const fieldNames = fieldsArr.map(f => `${f?.farm || ''} ${f?.field || ''}`.trim()).join(' ');
+      return `${job} ${crop} ${year} ${farm} ${fieldNames}`.toLowerCase();
+    }
+
+    function showToast(message){
+      const el = document.getElementById('toast');
+      if(!el) return;
+      el.textContent = message || 'Saved.';
+      el.classList.remove('show');
+      void el.offsetWidth;
+      el.classList.add('show');
+    }
+
+    function loadPrefs(){
+      try{
+        STATE.search = (localStorage.getItem(STORAGE_KEYS.SEARCH) || '').toString();
+        STATE.fromDate = (localStorage.getItem(STORAGE_KEYS.FROM) || '').toString();
+        STATE.toDate = (localStorage.getItem(STORAGE_KEYS.TO) || '').toString();
+      }catch{
+        STATE.search = '';
+        STATE.fromDate = '';
+        STATE.toDate = '';
+      }
+    }
+
+    function savePrefs(){
+      try{
+        localStorage.setItem(STORAGE_KEYS.SEARCH, STATE.search || '');
+        localStorage.setItem(STORAGE_KEYS.FROM, STATE.fromDate || '');
+        localStorage.setItem(STORAGE_KEYS.TO, STATE.toDate || '');
+      }catch{}
+    }
+
+    function clearDetails(){
+      const panel = $('#detailPanel');
+      if(!panel) return;
+
+      panel.style.display = 'none';
+      panel.dataset.id = '';
+
+      const titleText = $('#detailTitleText');
+      const titleInput = $('#detailTitleInput');
+      if(titleText){
+        titleText.textContent = 'Aerial Job Details';
+        titleText.style.display = 'block';
+      }
+      if(titleInput){
+        titleInput.value = '';
+        titleInput.style.display = 'none';
+      }
+      STATE.isEditing = false;
+      STATE.isEditingTitle = false;
+
+      const grid = $('#detailGrid');
+      if(grid) grid.innerHTML = '';
+
+      const notesBody = $('#detailNotesBody');
+      if(notesBody) notesBody.textContent = '';
+
+      const attGrid = $('#detailAttachments');
+      if(attGrid) attGrid.innerHTML = '';
+
+      const fieldsList = $('#detailFieldsList');
+      if(fieldsList) fieldsList.innerHTML = '';
+
+      resetButtonsForViewMode();
+    }
+
+    function resetButtonsForViewMode(){
+      const editBtn = UI.editBtn;
+      const saveBtn = UI.saveBtn;
+      const cancelBtn = UI.cancelBtn;
+
+      if(editBtn){
+        editBtn.style.display = STATE.selectedId ? 'inline-flex' : 'none';
+        editBtn.disabled = !STATE.selectedId;
+        editBtn.classList.remove('edit-inline');
+      }
+      if(saveBtn){
+        saveBtn.style.display = 'none';
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+        saveBtn.classList.remove('edit-inline');
+      }
+      if(cancelBtn){
+        cancelBtn.style.display = 'none';
+        cancelBtn.disabled = false;
+        cancelBtn.classList.remove('edit-inline');
+      }
+
+      // restore homes (stable)
+      const editHome = UI.editHome || $('#editHome');
+      const saveHome = UI.saveHome || $('#saveHome');
+      const cancelHome = UI.cancelHome || $('#cancelHome');
+      if(editHome && editBtn && editBtn.parentElement !== editHome) editHome.appendChild(editBtn);
+      if(saveHome && saveBtn && saveBtn.parentElement !== saveHome) saveHome.appendChild(saveBtn);
+      if(cancelHome && cancelBtn && cancelBtn.parentElement !== cancelHome) cancelHome.appendChild(cancelBtn);
+    }
+
+    function sortItems(items){
+      items.sort((a,b)=>{
+        const ra = getReleaseTime(a.data);
+        const rb = getReleaseTime(b.data);
+        if(ra !== rb) return rb - ra; // newest release date first
+        const ja = Number(a.data?.jobNumber) || 0;
+        const jb = Number(b.data?.jobNumber) || 0;
+        if(ja !== jb) return jb - ja;
+        return getCreatedTime(b.data) - getCreatedTime(a.data);
+      });
+      return items;
+    }
+
+    function applyFilters(){
+      const emptyEl = $('#listEmpty');
+      const countEl = $('#listCount');
+
+      if(!STATE.loaded){
+        if(emptyEl){
+          emptyEl.style.display = 'block';
+          emptyEl.textContent = 'Loading aerial jobs...';
+        }
+        if(countEl) countEl.textContent = 'Loading...';
+        clearDetails();
+        return;
+      }
+
+      const q = (STATE.search || '').trim().toLowerCase();
+      const fromT = STATE.fromDate ? parseYmdToTime(STATE.fromDate) : 0;
+      const toT = STATE.toDate ? parseYmdToTime(STATE.toDate) : 0;
+
+      let filtered = STATE.allItems.slice();
+
+      if(q){
+        filtered = filtered.filter(it => (it.searchBlob || '').includes(q));
+      }
+
+      if(fromT || toT){
+        filtered = filtered.filter(it=>{
+          const rt = getReleaseTime(it.data) || getCreatedTime(it.data);
+          if(fromT && rt < fromT) return false;
+          if(toT){
+            // include the whole "to" day
+            const end = toT + (24*60*60*1000 - 1);
+            if(rt > end) return false;
+          }
+          return true;
+        });
+      }
+
+      STATE.items = filtered;
+      clearDetails();
+      renderList();
+    }
+
+    function renderList(){
+      const listEl = $('#list');
+      const emptyEl = $('#listEmpty');
+      const countEl = $('#listCount');
+      if(!listEl) return;
+
+      listEl.innerHTML = '';
+
+      const usingFilters = !!((STATE.search||'').trim() || STATE.fromDate || STATE.toDate);
+
+      if(!STATE.items.length){
+        if(emptyEl){
+          emptyEl.style.display = 'block';
+          emptyEl.textContent = usingFilters ? 'No aerial jobs match your filters.' : 'No aerial jobs yet.';
+        }
+        if(countEl) countEl.textContent = '0 jobs';
+        clearDetails();
+        return;
+      }
+
+      if(emptyEl) emptyEl.style.display = 'none';
+
+      for(const item of STATE.items){
+        const d = item.data || {};
+        const id = item.id;
+
+        const job = d.jobNumber != null ? d.jobNumber : '—';
+        const cropYear = d.cropYear ?? d.year ?? null;
+        const crop = d.crop || '';
+        const releaseDate = d.releaseDate || '';
+        const releaseAcres = Number(d.releaseAcres);
+        const totalTill = Number(d.totalTillableAcres);
+        const status = (d.status || '').toString();
+        const submittedBy = d.submittedBy || d.submittedByEmail || '';
+
+        const fields = Array.isArray(d.fields) ? d.fields : [];
+        const fieldCount = fields.length;
+
+        const acresLineParts = [];
+        if(isFinite(releaseAcres)) acresLineParts.push(`${fmtNumber(releaseAcres, 1)} ac released`);
+        if(isFinite(totalTill)) acresLineParts.push(`${fmtNumber(totalTill, 1)} ac total`);
+        const acresLine = acresLineParts.join(' • ');
+
+        const subtitleParts = [];
+        if(cropYear != null) subtitleParts.push(String(cropYear));
+        if(crop) subtitleParts.push(crop);
+        if(releaseDate) subtitleParts.push(`Release ${releaseDate}`);
+        const subtitle = subtitleParts.join(' • ');
+
+        const card = document.createElement('article');
+        card.className = 'aerial-card';
+        card.dataset.id = id;
+
+        card.innerHTML = `
+          <div class="aerial-row-top">
+            <div class="aerial-main">
+              <div class="aerial-title">Job #${escapeHtml(job)}</div>
+              <div class="aerial-sub">${escapeHtml(subtitle)}</div>
+
+              <div class="aerial-meta">
+                <span><span class="aerial-meta-label">Fields</span> <span class="aerial-meta-value">${fieldCount}</span></span>
+                ${acresLine ? `<span><span class="aerial-meta-label">Acres</span> <span class="aerial-meta-value">${escapeHtml(acresLine)}</span></span>` : ''}
+                ${submittedBy ? `<span><span class="aerial-meta-label">By</span> <span class="aerial-meta-value">${escapeHtml(submittedBy)}</span></span>` : ''}
+              </div>
+            </div>
+          </div>
+
+          <div class="aerial-bottom-row">
+            <div>${releaseDate ? `Release ${escapeHtml(releaseDate)}` : ''}</div>
+            ${status ? `<div class="aerial-chip">${escapeHtml(status)}</div>` : `<div class="aerial-chip">AERIAL</div>`}
+          </div>
+        `;
+
+        card.addEventListener('click', () => {
+          STATE.selectedId = id;
+          STATE.isEditing = false;
+          renderDetails();
+        });
+
+        listEl.appendChild(card);
+      }
+
+      if(countEl){
+        const total = STATE.items.length;
+        countEl.textContent = usingFilters
+          ? `${total} filtered job${total === 1 ? '' : 's'}`
+          : `${total} job${total === 1 ? '' : 's'}`;
+      }
+    }
+
+    let fileModal, fileBackdrop, fileCloseBtn, fileContentWrap;
+
+    function openFileViewer(att){
+      if(!fileModal || !fileContentWrap || !att || !att.url) return;
+      fileContentWrap.innerHTML = '';
+      if(isImageUrl(att.url)){
+        const img = document.createElement('img');
+        img.src = att.url;
+        img.alt = att.name || 'Attachment';
+        fileContentWrap.appendChild(img);
+      }else{
+        const iframe = document.createElement('iframe');
+        iframe.src = att.url;
+        fileContentWrap.appendChild(iframe);
+      }
+      fileModal.classList.add('show');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeFileViewer(){
+      if(!fileModal) return;
+      fileModal.classList.remove('show');
+      if(fileContentWrap) fileContentWrap.innerHTML = '';
+      document.body.style.overflow = '';
+    }
+
+    function setTitleView(title){
+      const textEl  = $('#detailTitleText');
+      const inputEl = $('#detailTitleInput');
+      if(!textEl || !inputEl) return;
+      STATE.isEditingTitle = false;
+      textEl.textContent = title || 'Aerial Job';
+      textEl.style.display = 'block';
+      inputEl.style.display = 'none';
+    }
+
+    function beginEditTitle(){
+      if(!STATE.selectedId || !STATE.db) return;
+      const textEl  = $('#detailTitleText');
+      const inputEl = $('#detailTitleInput');
+      if(!textEl || !inputEl) return;
+
+      STATE.isEditingTitle = true;
+      inputEl.value = (textEl.textContent || '').trim();
+      textEl.style.display = 'none';
+      inputEl.style.display = 'inline-block';
+      inputEl.focus();
+      inputEl.select();
+    }
+
+    function cancelEditTitle(){
+      const id = STATE.selectedId;
+      const item = STATE.items.find(x => x.id === id);
+      const job = item?.data?.jobNumber != null ? item.data.jobNumber : '';
+      setTitleView(job ? `Job #${job}` : 'Aerial Job');
+    }
+
+    async function commitEditTitle(){
+      // Title edit = jobNumber edit (quick)
+      const id = STATE.selectedId;
+      const db = STATE.db;
+      if(!id || !db){ cancelEditTitle(); return; }
+
+      const inputEl = $('#detailTitleInput');
+      if(!inputEl){ cancelEditTitle(); return; }
+
+      const raw = (inputEl.value || '').trim();
+      const m = raw.match(/(\d+)/);
+      const jobNum = m ? Number(m[1]) : NaN;
+
+      const itemAll = STATE.allItems.find(x => x.id === id);
+      const old = Number(itemAll?.data?.jobNumber);
+
+      if(!isFinite(jobNum) || jobNum <= 0){
+        showToast('Enter a valid job number.');
+        cancelEditTitle();
+        return;
+      }
+
+      if(isFinite(old) && old === jobNum){
+        setTitleView(`Job #${jobNum}`);
+        return;
+      }
+
+      inputEl.disabled = true;
+      try{
+        await updateDoc(doc(db, CONFIG.COLLECTION_AERIAL, id), { jobNumber: jobNum });
+
+        const itemAll2 = STATE.allItems.find(x => x.id === id);
+        const itemFiltered = STATE.items.find(x => x.id === id);
+        [itemAll2, itemFiltered].filter(Boolean).forEach(t => { t.data.jobNumber = jobNum; });
+
+        setTitleView(`Job #${jobNum}`);
+        showToast('Job number updated.');
+        applyFilters(); // re-render list
+      }catch(err){
+        console.error('Error updating job number:', err);
+        showToast('Error updating job number.');
+        cancelEditTitle();
+      }finally{
+        inputEl.disabled = false;
+      }
+    }
+
+    function renderFieldsList(d){
+      const listEl = $('#detailFieldsList');
+      if(!listEl) return;
+      listEl.innerHTML = '';
+
+      const fields = Array.isArray(d.fields) ? d.fields : [];
+      if(!fields.length){
+        const empty = document.createElement('div');
+        empty.className = 'attachment-empty';
+        empty.textContent = 'No fields attached.';
+        listEl.appendChild(empty);
+        return;
+      }
+
+      fields.forEach(f=>{
+        const row = document.createElement('div');
+        row.className = 'field-row';
+
+        const farm = f?.farm || '';
+        const field = f?.field || '';
+        const till = Number(f?.tillableAcres);
+
+        row.innerHTML = `
+          <div class="field-name">${escapeHtml(farm)}${farm && field ? ' • ' : ''}${escapeHtml(field)}</div>
+          <div class="field-meta">${isFinite(till) ? `${fmtNumber(till, 2)} ac tillable` : ''}</div>
+        `;
+        listEl.appendChild(row);
+      });
+    }
+
+    function renderAttachments(d){
+      const grid = $('#detailAttachments');
+      if(!grid) return;
+      grid.innerHTML = '';
+
+      const files = Array.isArray(d.files) ? d.files : [];
+      if(!files.length){
+        const empty = document.createElement('div');
+        empty.className = 'attachment-empty';
+        empty.textContent = 'No files or photos attached.';
+        grid.appendChild(empty);
+        return;
+      }
+
+      files.forEach(raw=>{
+        if(!raw || !raw.url) return;
+        const att = { url: raw.url, name: raw.name || raw.path || 'Attachment' };
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'attachment-thumb';
+        btn.title = att.name;
+
+        if(isImageUrl(att.url)){
+          const img = document.createElement('img');
+          img.src = att.url;
+          img.alt = att.name;
+          btn.appendChild(img);
+        }else{
+          btn.textContent = 'FILE';
+        }
+
+        btn.addEventListener('click', (ev)=>{
+          ev.stopPropagation();
+          openFileViewer(att);
+        });
+
+        grid.appendChild(btn);
+      });
+    }
+
+    function renderDetails(){
+      const panel = $('#detailPanel');
+      if(!panel) return;
+
+      const item = STATE.items.find(x => x.id === STATE.selectedId);
+      if(!item){ clearDetails(); return; }
+
+      const d = item.data || {};
+      panel.dataset.id = item.id;
+
+      const job = d.jobNumber != null ? d.jobNumber : '';
+      setTitleView(job ? `Job #${job}` : 'Aerial Job');
+
+      const cropYear = d.cropYear ?? d.year ?? null;
+      const crop = d.crop || '';
+      const releaseDate = d.releaseDate || '';
+      const releaseAcres = d.releaseAcres;
+      const totalTill = d.totalTillableAcres;
+      const status = d.status || '';
+      const submittedBy = d.submittedBy || '';
+      const submittedByEmail = d.submittedByEmail || '';
+      const notes = d.notes || '';
+
+      const createdAt = d.createdAt?.toDate ? d.createdAt.toDate() : (d.createdAt ? new Date(d.createdAt) : null);
+      const updatedAt = d.updatedAt?.toDate ? d.updatedAt.toDate() : (d.updatedAt ? new Date(d.updatedAt) : null);
+
+      const trialLink = d.trialLink || null;
+      const tlEnabled = !!trialLink?.enabled;
+      const tlTrialId = trialLink?.trialId || '';
+      const tlAssign = Array.isArray(trialLink?.assignments) ? trialLink.assignments : [];
+      const tlAssignCount = tlAssign.length;
+
+      const grid = $('#detailGrid');
+      if(grid){
+        let html = '';
+
+        html += `
+          <div>
+            <div class="detail-item-label">Crop Year / Crop</div>
+            <div class="detail-item-value">${cropYear != null ? escapeHtml(cropYear) : ''}${cropYear && crop ? ' • ' : ''}${escapeHtml(crop)}</div>
+          </div>
+        `;
+
+        html += `
+          <div>
+            <div class="detail-item-label">Release Date</div>
+            <div class="detail-item-value">${escapeHtml(releaseDate || '—')}</div>
+          </div>
+        `;
+
+        html += `
+          <div>
+            <div class="detail-item-label">Release Acres</div>
+            <div class="detail-item-value">${isFinite(Number(releaseAcres)) ? escapeHtml(fmtNumber(releaseAcres, 2)) + ' ac' : '—'}</div>
+          </div>
+        `;
+
+        html += `
+          <div>
+            <div class="detail-item-label">Total Tillable Acres</div>
+            <div class="detail-item-value">${isFinite(Number(totalTill)) ? escapeHtml(fmtNumber(totalTill, 2)) + ' ac' : '—'}</div>
+          </div>
+        `;
+
+        html += `
+          <div>
+            <div class="detail-item-label">Submitted By</div>
+            <div class="detail-item-value">${escapeHtml(submittedBy || submittedByEmail || '—')}</div>
+          </div>
+        `;
+
+        html += `
+          <div>
+            <div class="detail-item-label">Status</div>
+            <div class="detail-item-value detail-status-row">
+              <span>${escapeHtml(status || '—')}</span>
+              <span id="editSlot" class="edit-slot-actions"></span>
+            </div>
+          </div>
+        `;
+
+        if(createdAt){
+          html += `
+            <div>
+              <div class="detail-item-label">Created</div>
+              <div class="detail-item-value">${createdAt.toLocaleString()}</div>
+            </div>
+          `;
+        }
+        if(updatedAt){
+          html += `
+            <div>
+              <div class="detail-item-label">Updated</div>
+              <div class="detail-item-value">${updatedAt.toLocaleString()}</div>
+            </div>
+          `;
+        }
+
+        html += `
+          <div>
+            <div class="detail-item-label">Trial Link</div>
+            <div class="detail-item-value">
+              ${tlEnabled ? 'Enabled' : 'Off'}
+              ${tlEnabled && tlTrialId ? ` • Trial ID: ${escapeHtml(tlTrialId)}` : ''}
+              ${tlEnabled ? ` • Assignments: ${tlAssignCount}` : ''}
+            </div>
+          </div>
+        `;
+
+        html += `
+          <div>
+            <div class="detail-item-label">Job #</div>
+            <div class="detail-item-value">${job ? escapeHtml(job) : '—'}</div>
+          </div>
+        `;
+
+        grid.innerHTML = html;
+
+        // VIEW MODE: put Edit button in the status slot
+        const slot = $('#editSlot');
+        if(slot && UI.editBtn){
+          slot.innerHTML = '';
+          UI.editBtn.classList.add('edit-inline');
+          UI.editBtn.style.display = 'inline-flex';
+          slot.appendChild(UI.editBtn);
+        }
+      }
+
+      const notesBody = $('#detailNotesBody');
+      if(notesBody) notesBody.textContent = notes || 'No notes recorded.';
+
+      renderAttachments(d);
+      renderFieldsList(d);
+
+      resetButtonsForViewMode();
+      panel.style.display = 'flex';
+    }
+
+    function enterEdit(){
+      const id = STATE.selectedId;
+      if(!id || !STATE.db) return;
+
+      const item = STATE.items.find(x => x.id === id);
+      if(!item) return;
+
+      const d = item.data || {};
+      STATE.isEditing = true;
+
+      const grid = $('#detailGrid');
+      if(!grid) return;
+
+      const cropYear = d.cropYear ?? d.year ?? '';
+      const crop = d.crop || '';
+      const releaseDate = d.releaseDate || '';
+      const releaseAcres = d.releaseAcres ?? '';
+      const status = (d.status || '').toString();
+      const notes = d.notes || '';
+
+      const thisYear = new Date().getFullYear();
+      const baseYears = [thisYear - 1, thisYear, thisYear + 1, thisYear + 2];
+      const baseCrops = ['Corn','Soybeans','Wheat'];
+
+      const yearList = Array.from(new Set([...baseYears, cropYear].filter(v=>v!=='' && v!=null)))
+        .sort((a,b)=>Number(a)-Number(b));
+
+      const cropList = Array.from(new Set([...baseCrops, crop].filter(v=>String(v||'').trim()!=='']))
+        .sort((a,b)=>String(a).localeCompare(String(b)));
+
+      grid.innerHTML = `
+        <div>
+          <div class="detail-item-label">Crop Year</div>
+          <select id="editCropYear" class="select">
+            <option value=""></option>
+            ${yearList.map(y=>{
+              const val = String(y);
+              const sel = String(cropYear)===val ? ' selected' : '';
+              return `<option value="${escapeHtml(val)}"${sel}>${escapeHtml(val)}</option>`;
+            }).join('')}
+          </select>
+        </div>
+
+        <div>
+          <div class="detail-item-label">Crop</div>
+          <select id="editCrop" class="select">
+            <option value=""></option>
+            ${cropList.map(c=>{
+              const val = String(c);
+              const sel = String(crop)===val ? ' selected' : '';
+              return `<option value="${escapeHtml(val)}"${sel}>${escapeHtml(val)}</option>`;
+            }).join('')}
+          </select>
+        </div>
+
+        <div>
+          <div class="detail-item-label">Release Date</div>
+          <input id="editReleaseDate" type="date" class="input" value="${escapeHtml(releaseDate)}"/>
+        </div>
+
+        <div>
+          <div class="detail-item-label">Release Acres</div>
+          <input id="editReleaseAcres" type="number" step="0.01" class="input" value="${escapeHtml(releaseAcres)}" placeholder="0.00"/>
+        </div>
+
+        <div>
+          <div class="detail-item-label">Status (optional)</div>
+          <div class="detail-item-value detail-status-row">
+            <input id="editStatus" type="text" class="input" value="${escapeHtml(status)}" placeholder="Open"/>
+            <span id="editSlot" class="edit-slot-actions"></span>
+          </div>
+        </div>
+
+        <div>
+          <div class="detail-item-label">Job #</div>
+          <div class="detail-item-value">Tap title above to edit Job # (or edit in Add screen)</div>
+        </div>
+      `;
+
+      const notesBody = $('#detailNotesBody');
+      if(notesBody){
+        notesBody.innerHTML = '';
+        const ta = document.createElement('textarea');
+        ta.id = 'editNotes';
+        ta.className = 'input';
+        ta.style.minHeight = '90px';
+        ta.style.resize = 'vertical';
+        ta.value = notes;
+        notesBody.appendChild(ta);
+      }
+
+      // Buttons: move Save + Cancel into status slot
+      if(UI.editBtn) UI.editBtn.style.display = 'none';
+
+      if(UI.saveBtn){
+        UI.saveBtn.style.display = 'inline-flex';
+        UI.saveBtn.disabled = false;
+        UI.saveBtn.textContent = 'Save';
+      }
+      if(UI.cancelBtn){
+        UI.cancelBtn.style.display = 'inline-flex';
+        UI.cancelBtn.disabled = false;
+      }
+
+      const slot = $('#editSlot');
+      if(slot){
+        slot.innerHTML = '';
+        if(UI.saveBtn){
+          UI.saveBtn.classList.add('edit-inline');
+          slot.appendChild(UI.saveBtn);
+        }
+        if(UI.cancelBtn){
+          UI.cancelBtn.classList.add('edit-inline');
+          slot.appendChild(UI.cancelBtn);
+        }
+      }
+    }
+
+    async function saveEdit(){
+      const id = STATE.selectedId;
+      const db = STATE.db;
+      if(!id || !db) return;
+
+      const cropYearEl = $('#editCropYear');
+      const cropEl = $('#editCrop');
+      const releaseDateEl = $('#editReleaseDate');
+      const releaseAcresEl = $('#editReleaseAcres');
+      const statusEl = $('#editStatus');
+      const notesEl = $('#editNotes');
+
+      if(!cropYearEl || !cropEl || !releaseDateEl || !releaseAcresEl || !statusEl || !notesEl){
+        STATE.isEditing = false;
+        renderDetails();
+        return;
+      }
+
+      if(UI.saveBtn){
+        UI.saveBtn.disabled = true;
+        UI.saveBtn.textContent = 'Saving...';
+      }
+      if(UI.cancelBtn) UI.cancelBtn.disabled = true;
+
+      const cropYearRaw = (cropYearEl.value || '').trim();
+      const cropRaw = (cropEl.value || '').trim();
+      const releaseDateRaw = (releaseDateEl.value || '').trim();
+      const releaseAcresRaw = (releaseAcresEl.value || '').trim();
+      const statusRaw = (statusEl.value || '').trim();
+      const notesRaw = notesEl.value || '';
+
+      const updates = {};
+      if(cropYearRaw){
+        const n = Number(cropYearRaw);
+        updates.cropYear = isFinite(n) ? n : null;
+        updates.year = isFinite(n) ? n : null; // keep both if your docs use "year"
+      }else{
+        updates.cropYear = null;
+        updates.year = null;
+      }
+      updates.crop = cropRaw || '';
+      updates.releaseDate = releaseDateRaw || '';
+      if(releaseAcresRaw === ''){
+        updates.releaseAcres = null;
+      }else{
+        const n = Number(releaseAcresRaw);
+        updates.releaseAcres = isFinite(n) ? n : null;
+      }
+      updates.status = statusRaw || '';
+      updates.notes = notesRaw;
+
+      try{
+        await updateDoc(doc(db, CONFIG.COLLECTION_AERIAL, id), updates);
+
+        const itemAll = STATE.allItems.find(x => x.id === id);
+        const itemFiltered = STATE.items.find(x => x.id === id);
+        [itemAll, itemFiltered].filter(Boolean).forEach(t=>{
+          t.data.cropYear = updates.cropYear;
+          t.data.year = updates.year;
+          t.data.crop = updates.crop;
+          t.data.releaseDate = updates.releaseDate;
+          t.data.releaseAcres = updates.releaseAcres;
+          t.data.status = updates.status;
+          t.data.notes = updates.notes;
+          t.searchBlob = buildSearchBlob(t.data);
+        });
+
+        STATE.isEditing = false;
+        showToast('Aerial job updated.');
+        applyFilters();
+        // restore selected and re-render details
+        STATE.selectedId = id;
+        renderDetails();
+      }catch(err){
+        console.error('Error saving aerial job:', err);
+        showToast('Error saving aerial job.');
+        STATE.isEditing = false;
+        renderDetails();
+      }finally{
+        if(UI.saveBtn){
+          UI.saveBtn.disabled = false;
+          UI.saveBtn.textContent = 'Save';
+        }
+        if(UI.cancelBtn) UI.cancelBtn.disabled = false;
+      }
+    }
+
+    function cancelEdit(){
+      STATE.isEditing = false;
+      renderDetails();
+    }
+
+    let _searchTimer = null;
+    function scheduleFilter(){
+      if(_searchTimer) clearTimeout(_searchTimer);
+      _searchTimer = setTimeout(()=>{
+        _searchTimer = null;
+        savePrefs();
+        applyFilters();
+      }, 180);
+    }
+
+    async function loadAll(){
+      const db = STATE.db;
+      if(!db || STATE.isLoading) return;
+      STATE.isLoading = true;
+
+      const emptyEl = $('#listEmpty');
+      const countEl = $('#listCount');
+      const listEl = $('#list');
+
+      const hadExisting = STATE.allItems.length > 0;
+
+      if(!hadExisting){
+        if(listEl) listEl.innerHTML = '';
+        if(emptyEl){
+          emptyEl.style.display = 'block';
+          emptyEl.textContent = 'Loading aerial jobs...';
+        }
+        if(countEl) countEl.textContent = 'Loading...';
+        clearDetails();
+      }else{
+        if(countEl) countEl.textContent = 'Refreshing...';
+      }
+
+      try{
+        const ref = collection(db, CONFIG.COLLECTION_AERIAL);
+        const snap = await withRetry(async ()=> await getDocsServerFirst(ref), 'loadAll', 2);
+
+        const items = snap.docs.map(s=>{
+          const data = s.data() || {};
+          return {
+            id: s.id,
+            data,
+            searchBlob: buildSearchBlob(data)
+          };
+        });
+
+        sortItems(items);
+
+        STATE.allItems = items;
+        STATE.loaded = true;
+
+        applyFilters();
+      }catch(err){
+        console.error('Error loading aerial jobs:', err);
+        if(emptyEl){
+          emptyEl.style.display = 'block';
+          emptyEl.textContent = 'Error loading aerial jobs. Tap to retry.';
+        }
+        if(countEl) countEl.textContent = 'Error';
+        clearDetails();
+      }finally{
+        STATE.isLoading = false;
+      }
+    }
+
+    // Resume refresh (same pattern you like)
+    let _resumeTimer = null;
+    function resume(reason='resume'){
+      if(_resumeTimer) return;
+      _resumeTimer = setTimeout(async ()=>{
+        _resumeTimer = null;
+        if(!STATE.db) return;
+        if(STATE.isLoading) return;
+        try{ await loadAll(); }catch{}
+      }, 300);
+    }
+
+    (async function boot(){
+      await safeReady();
+
+      STATE.db = getFirestore();
+      STATE.loaded = false;
+
+      const shell = document.querySelector('fv-shell');
+      if(shell) shell.nav = NAV_MENU;
+
+      UI.editBtn = $('#editBtn');
+      UI.saveBtn = $('#saveBtn');
+      UI.cancelBtn = $('#cancelBtn');
+      UI.editHome = $('#editHome');
+      UI.saveHome = $('#saveHome');
+      UI.cancelHome = $('#cancelHome');
+
+      // Back button
+      const backBtn = $('#btnBack');
+      if(backBtn){
+        backBtn.addEventListener('click', ()=>{ location.href = CONFIG.BACK_URL; });
+      }
+
+      // Filters
+      loadPrefs();
+
+      const searchEl = $('#filterSearch');
+      const fromEl = $('#filterFrom');
+      const toEl = $('#filterTo');
+      const clearBtn = $('#btnClearFilters');
+
+      if(searchEl){
+        searchEl.value = STATE.search || '';
+        searchEl.addEventListener('input', ()=>{
+          STATE.search = searchEl.value || '';
+          scheduleFilter();
+        });
+      }
+
+      if(fromEl){
+        fromEl.value = STATE.fromDate || '';
+        fromEl.addEventListener('change', ()=>{
+          STATE.fromDate = fromEl.value || '';
+          scheduleFilter();
+        });
+      }
+
+      if(toEl){
+        toEl.value = STATE.toDate || '';
+        toEl.addEventListener('change', ()=>{
+          STATE.toDate = toEl.value || '';
+          scheduleFilter();
+        });
+      }
+
+      if(clearBtn){
+        clearBtn.addEventListener('click', ()=>{
+          STATE.search = '';
+          STATE.fromDate = '';
+          STATE.toDate = '';
+          if(searchEl) searchEl.value = '';
+          if(fromEl) fromEl.value = '';
+          if(toEl) toEl.value = '';
+          savePrefs();
+          applyFilters();
+        });
+      }
+
+      // Empty click retry
+      const emptyEl = $('#listEmpty');
+      if(emptyEl){
+        emptyEl.addEventListener('click', ()=>{
+          if(!STATE.db || STATE.isLoading) return;
+          loadAll();
+        });
+      }
+
+      // Detail close
+      const closeBtn = $('#detailClose');
+      if(closeBtn){
+        closeBtn.addEventListener('click', ()=>{
+          STATE.selectedId = null;
+          clearDetails();
+        });
+      }
+
+      // Edit/Save/Cancel
+      if(UI.editBtn){
+        UI.editBtn.addEventListener('click', ()=>{
+          if(!STATE.selectedId) return;
+          enterEdit();
+        });
+      }
+      if(UI.saveBtn){
+        UI.saveBtn.addEventListener('click', ()=>{
+          if(!STATE.selectedId) return;
+          saveEdit();
+        });
+      }
+      if(UI.cancelBtn){
+        UI.cancelBtn.addEventListener('click', ()=>{
+          if(!STATE.selectedId) return;
+          cancelEdit();
+        });
+      }
+
+      // Title edit (job # quick edit)
+      const titleTextEl = $('#detailTitleText');
+      const titleInputEl = $('#detailTitleInput');
+      if(titleTextEl && titleInputEl){
+        titleTextEl.addEventListener('click', ()=>{
+          if(!STATE.selectedId) return;
+          if(STATE.isEditing) return; // don’t mix modes
+          beginEditTitle();
+        });
+
+        titleInputEl.addEventListener('blur', ()=>{
+          if(!STATE.isEditingTitle) return;
+          commitEditTitle();
+        });
+
+        titleInputEl.addEventListener('keydown', (ev)=>{
+          if(ev.key === 'Enter'){
+            ev.preventDefault();
+            titleInputEl.blur();
+          }else if(ev.key === 'Escape'){
+            ev.preventDefault();
+            cancelEditTitle();
+          }
+        });
+      }
+
+      // File modal
+      fileModal = $('#fileModal');
+      fileBackdrop = $('#fileBackdrop');
+      fileCloseBtn = $('#fileModalClose');
+      fileContentWrap = $('#fileContentWrap');
+      if(fileBackdrop) fileBackdrop.addEventListener('click', closeFileViewer);
+      if(fileCloseBtn) fileCloseBtn.addEventListener('click', closeFileViewer);
+
+      await loadAll();
+    })();
+
+    window.addEventListener('focus', () => resume('focus'));
+    window.addEventListener('pageshow', (event) => resume(event && event.persisted ? 'pageshow.persisted' : 'pageshow'));
+    document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') resume('visibility.visible'); });
+  </script>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🛩️</div>
+          <div>
+            <h1>Aerial Applications</h1>
+            <p class="muted">
+              Search by field name/farm or job number, and filter by release date range. Tap a job to view &amp; edit.
+            </p>
+          </div>
+        </header>
+
+        <div class="body">
+          <div class="toolbar">
+            <div class="toolbar-left">
+              <button id="btnBack" type="button" class="btn btn-quiet">← Back to Aerial</button>
+            </div>
+            <div class="toolbar-right">
+              <span id="listCount">Loading...</span>
+            </div>
+          </div>
+
+          <div class="filters-row">
+            <div class="filter-wrap" style="flex:2 1 280px; min-width:260px;">
+              <label class="filter-label" for="filterSearch">Search</label>
+              <input id="filterSearch" class="input" type="search" placeholder="Search fields, farms, job #..." autocomplete="off"/>
+            </div>
+
+            <div class="filter-wrap" style="max-width:190px; min-width:170px;">
+              <label class="filter-label" for="filterFrom">From</label>
+              <input id="filterFrom" class="input" type="date"/>
+            </div>
+
+            <div class="filter-wrap" style="max-width:190px; min-width:170px;">
+              <label class="filter-label" for="filterTo">To</label>
+              <input id="filterTo" class="input" type="date"/>
+            </div>
+
+            <div class="filters-actions">
+              <button id="btnClearFilters" type="button" class="btn btn-quiet">Clear</button>
+            </div>
+          </div>
+
+          <section aria-label="Aerial jobs">
+            <div id="listEmpty" class="aerial-empty">Loading aerial jobs...</div>
+            <div id="list" class="aerial-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="detailPanel" class="detail-panel" aria-label="Aerial job details">
+        <div class="detail-header">
+          <div class="detail-title-area">
+            <div class="detail-title" id="detailTitleText">Aerial Job Details</div>
+            <input type="text" id="detailTitleInput" class="detail-title-input" maxlength="80" autocomplete="off"/>
+            <div class="detail-edit-hint">Tap title to edit job #</div>
+          </div>
+
+          <button type="button" id="detailClose" class="detail-close">
+            <span class="visually-hidden">Close</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6.225 4.811 4.81 6.225 10.586 12l-5.775 5.775 1.414 1.414L12 13.414l5.775 5.775 1.414-1.414L13.414 12l5.775-5.775-1.414-1.414L12 10.586 6.225 4.811Z" fill="currentColor"/>
+            </svg>
+          </button>
+        </div>
+
+        <div id="detailGrid" class="detail-grid"></div>
+
+        <div class="detail-notes">
+          <div class="detail-notes-label">Notes</div>
+          <div id="detailNotesBody"></div>
+        </div>
+
+        <div class="attachments">
+          <div class="attachments-label">Files &amp; Photos</div>
+          <div id="detailAttachments" class="attachments-grid"></div>
+        </div>
+
+        <div class="fields-block">
+          <div class="fields-label">Fields in this job</div>
+          <div id="detailFieldsList" class="fields-list"></div>
+        </div>
+
+        <div class="actions-row">
+          <div id="editHome">
+            <button type="button" id="editBtn" class="btn btn-quiet" style="display:none;">Edit</button>
+          </div>
+          <div id="saveHome">
+            <button type="button" id="saveBtn" class="btn btn-quiet" style="display:none;">Save</button>
+          </div>
+          <div id="cancelHome">
+            <button type="button" id="cancelBtn" class="btn btn-quiet" style="display:none;">Cancel</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+
+  <!-- File / Attachment Viewer Modal -->
+  <div id="fileModal" class="file-modal" role="dialog" aria-modal="true" aria-label="Aerial attachment">
+    <div id="fileBackdrop" class="file-backdrop"></div>
+    <div class="file-sheet">
+      <div class="file-close-row">
+        <button id="fileModalClose" type="button" class="file-close-btn">Close</button>
+      </div>
+      <div id="fileContentWrap" class="file-content-wrap"></div>
+    </div>
+  </div>
+</body>
+</html>
