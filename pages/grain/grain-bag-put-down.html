@@ -249,7 +249,7 @@
               <div class="field">
                 <label for="partialBags">Number of Partial Bags</label>
                 <input id="partialBags" class="input" type="number" inputmode="numeric" min="0" step="1" value="0"/>
-                <div class="help">Each partial must be at least 50 ft. Max shows after choosing a bag.</div>
+                <div class="help">Each partial must be > 50 ft and < (chosen bag length − 50 ft). Max shows after choosing a bag.</div>
               </div>
               <div class="field"><!-- spacer --></div>
             </div>
@@ -372,10 +372,21 @@
     /* ---------- partial rows ---------- */
     function updatePartialRangeHelp(){
       const L = Number(chosen.bag?.sizeFeet||0);
-      const min=50, max=Math.max(0,L-50);
-      $("partialsRangeHelp").textContent = L ? `Allowed range: ${min}–${max} ft per partial (bag ${L} ft).` : "";
-      return {min, max};
+
+      // STRICT RULE:
+      // length must be > 50 and < (L - 50)
+      // so the integer range is 51 .. (L - 51)
+      const min = 51;
+      const max = Math.max(0, L - 51);
+
+      // Display help using your wording (>50 and < bag-50)
+      $("partialsRangeHelp").textContent = L
+        ? `Allowed range: > 50 ft and < ${L - 50} ft per partial (bag ${L} ft).`
+        : "";
+
+      return {min, max, bagMinus50:(L ? (L-50) : 0)};
     }
+
     function buildPartialRow(idx){
       const row=document.createElement('div'); row.className='partial-row';
 
@@ -413,6 +424,7 @@
       row.append(lenWrap,useWrap);
       return row;
     }
+
     function renderPartialInputs(){
       const n=Math.max(0, Number($("partialBags").value||0));
       const wrap=$("partialsBlock"); const list=$("partialsList");
@@ -421,20 +433,44 @@
       for(let i=0;i<n;i++){ list.appendChild(buildPartialRow(i)); }
       updatePartialRangeHelp(); schedulePartialValidate();
     }
+
     function schedulePartialValidate(){ clearTimeout(debounceTimer); debounceTimer = setTimeout(validatePartials, 1000); }
+
     function validatePartials(){
       const L = Number(chosen.bag?.sizeFeet||0);
-      const min=50, max=Math.max(0,L-50);
+
+      // STRICT:
+      // v must be > 50 and < (L - 50)
+      const min = 51;             // smallest integer that satisfies > 50
+      const bagMinus50 = L ? (L - 50) : 0; // upper bound is strictly less than this
+      const maxInt = Math.max(0, L - 51);  // largest integer that satisfies < (L-50)
+
       let ok=true;
       const rows=[...$("partialsList").querySelectorAll('.partial-row')];
       for(const r of rows){
         const inp=r.querySelector('input'); const help=r.querySelector('.partial-help');
-        const v=Number(inp.value||0);
-        const bad = !(v>=min && v<=max);
-        const showInvalid = bad && inp.value!=="";
-        inp.classList.toggle('invalid', showInvalid);
-        help.textContent = (inp.value==="") ? "" : (showInvalid ? `Enter ${min}–${max} ft.` : "");
-        if(showInvalid) ok=false;
+        const raw = inp.value;
+        const v=Number(raw||0);
+
+        // only validate once user typed something
+        const hasVal = raw !== "";
+        const bad = hasVal && !(v > 50 && v < bagMinus50);
+
+        inp.classList.toggle('invalid', bad);
+
+        if(!hasVal){
+          help.textContent = "";
+        } else if(bad){
+          // show strict range in a user-friendly way
+          if(L){
+            help.textContent = `Enter > 50 and < ${bagMinus50} ft. (Whole numbers: ${min}–${maxInt}.)`;
+          }else{
+            help.textContent = `Choose a bag size first.`;
+          }
+          ok=false;
+        } else {
+          help.textContent = "";
+        }
       }
       return ok;
     }
