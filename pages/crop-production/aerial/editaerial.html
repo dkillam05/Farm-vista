@@ -1,23 +1,19 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/crop-aerial-view.html  (FULL FILE)
-Rev: 2025-12-19c
-Updates requested:
- • Summary: remove status text + remove status “bubble” on tiles
- • Summary: remove “Updated” from details grid (still keeps Created if present)
- • Trial display: If any fields are assigned to a Trial, show:
-     - Trial Name
-     - Which field(s) are in that trial (from job.trialLink.assignments + field name lookup)
- • Calendar: Apply button text white
- • Delete: red trash icon by Edit area
-     - FV themed “type YES” modal
-     - button disabled/greyed unless user has delete permission
- • Default load: last 50 jobs by jobNumber (desc)
-     - when date range applied (or crop/year filters), load server results as needed
- • Add filters: Crop + Crop Year
-Notes:
- • Collection set to "aerialApplications". Change CONFIG.COLLECTION_AERIAL if needed.
- • Trial lookup reads fieldTrials/{trialId} for trialName, and uses
-   job.fields[] to map assignment fieldIds to names.
+Rev: 2025-12-19d
+Fixes per your list:
+ 1) Dropdown issue: crop/cropYear selects now sit ABOVE date-range popover
+ 2) Remove “Actions” label/row entirely
+ 3) Edit button sits FAR RIGHT on details row; in edit mode Save+Cancel replace it (far right)
+ 4) Where “Actions” was: show Trial info (Trial name) ONLY if fields are in trialLink.assignments
+    then list which fields are in that trial.
+ 5) Add Delete button (red trash) beside Edit, with FV themed “type YES” modal,
+    and disabled/greyed unless delete permission.
+
+Also:
+ • Summary tiles: NO status and NO status bubble (kept)
+ • Details: no Updated row (kept)
+ • Default load: last 50 jobs by jobNumber desc (kept)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -36,10 +32,10 @@ Notes:
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- ✅ Firebase config before firebase-init -->
+  <!-- Firebase config before firebase-init -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
 
-  <!-- ✅ Date range picker (non-module) -->
+  <!-- Date range picker (non-module) -->
   <script src="/Farm-vista/js/fv-date-range-picker.js"></script>
 
   <style>
@@ -51,10 +47,7 @@ Notes:
     }
 
     html{-webkit-text-size-adjust:100%}
-    body{
-      background: var(--app-bg, var(--surface));
-      overflow-x:hidden;
-    }
+    body{ background: var(--app-bg, var(--surface)); overflow-x:hidden; }
 
     .wrap{
       max-width: var(--card-max);
@@ -100,11 +93,7 @@ Notes:
 
     .muted{ color:var(--muted,#67706B); }
 
-    .body{
-      padding:16px;
-      display:grid;
-      gap:12px;
-    }
+    .body{ padding:16px; display:grid; gap:12px; }
 
     .toolbar{
       display:flex;
@@ -150,10 +139,7 @@ Notes:
       appearance:none;
     }
 
-    .btn-quiet{
-      min-width:auto;
-      padding-inline:10px;
-    }
+    .btn-quiet{ min-width:auto; padding-inline:10px; }
 
     .btn-primary{
       background:var(--accent);
@@ -173,7 +159,6 @@ Notes:
       padding:10px 12px;
       outline:none;
       box-sizing:border-box;
-      position:relative;
       -webkit-appearance:none;
       appearance:none;
     }
@@ -200,6 +185,7 @@ Notes:
       z-index:10;
     }
 
+    /* FIX #1: ensure select wrappers always above calendar popover */
     .filter-wrap{
       display:flex;
       flex-direction:column;
@@ -207,7 +193,7 @@ Notes:
       font-size:0.85rem;
       max-width:320px;
       position:relative;
-      z-index:15;
+      z-index:50; /* ✅ higher than calendar popover */
       flex:1 1 220px;
       min-width:220px;
     }
@@ -227,12 +213,7 @@ Notes:
     }
 
     /* List */
-    .aerial-list{
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-      margin-top:4px;
-    }
+    .aerial-list{ display:flex; flex-direction:column; gap:10px; margin-top:4px; }
 
     .aerial-empty{
       padding:14px 16px;
@@ -257,34 +238,15 @@ Notes:
       cursor:pointer;
     }
 
-    .aerial-card:active{
-      transform:scale(.995);
-      box-shadow:var(--shadow);
-    }
+    .aerial-card:active{ transform:scale(.995); box-shadow:var(--shadow); }
 
-    .aerial-row-top{
-      display:flex;
-      align-items:flex-start;
-      gap:10px;
-    }
+    .aerial-row-top{ display:flex; align-items:flex-start; gap:10px; }
 
-    .aerial-main{
-      flex:1 1 auto;
-      min-width:0;
-      padding-right:12px;
-    }
+    .aerial-main{ flex:1 1 auto; min-width:0; padding-right:12px; }
 
-    .aerial-title{
-      font-weight:900;
-      font-size:1.02rem;
-      line-height:1.25;
-    }
+    .aerial-title{ font-weight:900; font-size:1.02rem; line-height:1.25; }
 
-    .aerial-sub{
-      font-size:0.88rem;
-      opacity:0.9;
-      margin-top:2px;
-    }
+    .aerial-sub{ font-size:0.88rem; opacity:0.9; margin-top:2px; }
 
     .aerial-meta{
       font-size:0.8rem;
@@ -342,13 +304,11 @@ Notes:
       display:flex;
       flex-direction:column;
       gap:2px;
+      flex:1 1 auto;
+      min-width:0;
     }
 
-    .detail-title{
-      font-weight:900;
-      font-size:1.05rem;
-      cursor:text;
-    }
+    .detail-title{ font-weight:900; font-size:1.05rem; cursor:text; }
 
     .detail-title-input{
       display:none;
@@ -382,6 +342,7 @@ Notes:
       height:28px;
       border-radius:999px;
       color:var(--muted,#67706B);
+      flex-shrink:0;
     }
 
     .detail-close:hover{
@@ -389,11 +350,7 @@ Notes:
       color:var(--text);
     }
 
-    .detail-close svg{
-      width:16px;
-      height:16px;
-      display:block;
-    }
+    .detail-close svg{ width:16px; height:16px; display:block; }
 
     .visually-hidden{
       position:absolute;
@@ -414,7 +371,6 @@ Notes:
       font-size:0.92rem;
       margin-top:2px;
     }
-
     @media (min-width:700px){
       .detail-grid{ grid-template-columns:repeat(2, minmax(0,1fr)); }
     }
@@ -427,16 +383,15 @@ Notes:
       margin-bottom:1px;
     }
 
-    .detail-item-value{
-      font-size:0.94rem;
-    }
+    .detail-item-value{ font-size:0.94rem; }
 
-    .detail-row-actions{
+    /* #3: right-side slot where Edit or Save/Cancel live */
+    .detail-right-slot{
       display:flex;
-      align-items:center;
       justify-content:flex-end;
+      align-items:center;
       gap:8px;
-      flex-shrink:0;
+      width:100%;
     }
 
     /* Smaller header-action buttons */
@@ -497,7 +452,6 @@ Notes:
       border-top:1px solid var(--border);
       font-size:0.9rem;
     }
-
     .attachments-label{
       font-size:0.8rem;
       text-transform:uppercase;
@@ -505,13 +459,11 @@ Notes:
       opacity:0.7;
       margin-bottom:4px;
     }
-
     .attachments-grid{
       display:flex;
       flex-wrap:wrap;
       gap:8px;
     }
-
     .attachment-thumb{
       width:64px;
       height:64px;
@@ -526,18 +478,13 @@ Notes:
       cursor:pointer;
       padding:0;
     }
-
     .attachment-thumb img{
       width:100%;
       height:100%;
       object-fit:cover;
       display:block;
     }
-
-    .attachment-empty{
-      font-size:0.86rem;
-      opacity:0.8;
-    }
+    .attachment-empty{ font-size:0.86rem; opacity:0.8; }
 
     .fields-block{
       margin-top:2px;
@@ -562,16 +509,10 @@ Notes:
       border-radius:8px;
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
     }
-    .field-name{
-      font-weight:900;
-      font-size:0.92rem;
-    }
-    .field-meta{
-      font-size:0.82rem;
-      opacity:0.85;
-      margin-top:1px;
-    }
+    .field-name{ font-weight:900; font-size:0.92rem; }
+    .field-meta{ font-size:0.82rem; opacity:0.85; margin-top:1px; }
 
+    /* #4: Trial info block */
     .trial-block{
       margin-top:2px;
       padding-top:10px;
@@ -585,22 +526,16 @@ Notes:
       opacity:0.7;
       margin-bottom:4px;
     }
-    .trial-chip{
-      display:inline-flex;
-      align-items:center;
-      gap:6px;
-      padding:2px 10px;
-      border-radius:999px;
-      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    .trial-name{
       font-weight:900;
-      font-size:0.86rem;
-      margin-bottom:6px;
+      font-size:0.98rem;
+      margin-top:2px;
     }
     .trial-fields{
       display:flex;
       flex-direction:column;
       gap:4px;
-      margin-top:4px;
+      margin-top:6px;
     }
     .trial-field-line{
       padding:6px 8px;
@@ -608,15 +543,6 @@ Notes:
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
       font-size:0.88rem;
       font-weight:800;
-    }
-
-    .actions-row{
-      margin-top:4px;
-      display:flex;
-      justify-content:flex-end;
-      align-items:center;
-      gap:8px;
-      flex-wrap:wrap;
     }
 
     .toast{
@@ -671,11 +597,7 @@ Notes:
       gap:6px;
       z-index:1;
     }
-    .file-close-row{
-      display:flex;
-      justify-content:flex-end;
-      margin-bottom:4px;
-    }
+    .file-close-row{ display:flex; justify-content:flex-end; margin-bottom:4px; }
     .file-close-btn{
       border:none;
       border-radius:999px;
@@ -697,11 +619,7 @@ Notes:
       align-items:center;
       justify-content:center;
     }
-    .file-content-wrap img{
-      max-width:100%;
-      max-height:100%;
-      display:block;
-    }
+    .file-content-wrap img{ max-width:100%; max-height:100%; display:block; }
     .file-content-wrap iframe{
       border:0;
       width:calc(90vw - 20px);
@@ -709,9 +627,7 @@ Notes:
       background:#fff;
     }
 
-    /* ==========================================================
-       Date Range Picker Popover styles
-       ========================================================== */
+    /* Date range picker popover styles */
     .cal-pop{
       position:absolute;
       top: calc(100% + 8px);
@@ -723,7 +639,7 @@ Notes:
       box-shadow:0 18px 38px rgba(0,0,0,.22);
       padding:10px 10px 10px;
       display:none;
-      z-index:3000;
+      z-index:25; /* ✅ lower than filter-wrap z-index */
     }
     .cal-pop-head{
       display:flex;
@@ -732,13 +648,7 @@ Notes:
       gap:8px;
       margin-bottom:8px;
     }
-    .cal-pop-head .row{
-      display:flex;
-      gap:8px;
-      align-items:center;
-      flex:1 1 auto;
-      min-width:0;
-    }
+    .cal-pop-head .row{ display:flex; gap:8px; align-items:center; flex:1 1 auto; min-width:0; }
     .cal-pop select{
       flex:1 1 auto;
       min-width:0;
@@ -761,9 +671,7 @@ Notes:
       display:grid;
       place-items:center;
     }
-    .cal-close:hover{
-      background:color-mix(in srgb, var(--surface) 65%, var(--border) 35%);
-    }
+    .cal-close:hover{ background:color-mix(in srgb, var(--surface) 65%, var(--border) 35%); }
 
     .cal-dow{
       display:grid;
@@ -796,13 +704,8 @@ Notes:
       font-weight:900;
       font-size:13px;
     }
-    .cal-day.other-month{
-      opacity:.45;
-      font-weight:800;
-    }
-    .cal-day:hover{
-      background:color-mix(in srgb, var(--surface) 60%, var(--border) 40%);
-    }
+    .cal-day.other-month{ opacity:.45; font-weight:800; }
+    .cal-day:hover{ background:color-mix(in srgb, var(--surface) 60%, var(--border) 40%); }
     .cal-day.start-selected,
     .cal-day.range-start,
     .cal-day.range-end,
@@ -825,17 +728,8 @@ Notes:
       justify-content:space-between;
       gap:10px;
     }
-    #rangeSummary{
-      font-size:13px;
-      opacity:.9;
-      min-width:0;
-    }
-    .cal-btns{
-      display:flex;
-      gap:8px;
-      align-items:center;
-      flex-shrink:0;
-    }
+    #rangeSummary{ font-size:13px; opacity:.9; min-width:0; }
+    .cal-btns{ display:flex; gap:8px; align-items:center; flex-shrink:0; }
     .cal-btn{
       min-width:auto;
       padding:8px 10px;
@@ -851,10 +745,10 @@ Notes:
     .cal-btn.apply{
       background:var(--accent);
       border-color:var(--accent);
-      color:#fff !important; /* ✅ Apply text white */
+      color:#fff !important;
     }
 
-    /* Delete confirmation modal (FV themed) */
+    /* Delete modal */
     .modal{
       position:fixed;
       inset:0;
@@ -890,10 +784,7 @@ Notes:
       font-weight:900;
       font-size:1.05rem;
       line-height:1.2;
-    }
-    .modal .body{
-      padding:0;
-      gap:10px;
+      color:var(--danger);
     }
     .modal .hint{
       font-size:.92rem;
@@ -944,7 +835,7 @@ Notes:
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const CONFIG = {
-      COLLECTION_AERIAL: 'aerial_applications',
+      COLLECTION_AERIAL: 'aerialApplications',
       COLLECTION_TRIALS: 'fieldTrials',
       BACK_URL: '/Farm-vista/pages/crop-production/crop-aerial.html',
       DEFAULT_LIMIT: 50
@@ -961,24 +852,16 @@ Notes:
       db: null,
       loaded: false,
       isLoading: false,
-
-      // list state
       allItems: [],
       items: [],
       selectedId: null,
-
-      // filters
       search: '',
       fromYmd: '',
       toYmd: '',
       crop: 'all',
       cropYear: 'all',
-
-      // derived
       isEditing: false,
       isEditingTitle: false,
-
-      // trial cache
       trialCache: {} // trialId -> { trialName }
     };
 
@@ -1091,7 +974,7 @@ Notes:
       el.classList.add('show');
     }
 
-    // ---------- Prefs ----------
+    // Prefs
     function loadPrefs(){
       try{
         STATE.search = (localStorage.getItem(STORAGE_KEYS.SEARCH) || '').toString();
@@ -1120,7 +1003,7 @@ Notes:
       }catch{}
     }
 
-    // ---------- Date range picker integration ----------
+    // Date picker integration
     function parseLooseDate(str){
       const d = new Date(str);
       if(isNaN(d.getTime())) return null;
@@ -1157,10 +1040,8 @@ Notes:
     }
 
     function hasServerFilters(){
-      // if any of these are set, we should load server-filtered results, not just last 50
       return !!(
-        (STATE.fromYmd && STATE.toYmd) ||
-        (STATE.fromYmd && !STATE.toYmd) ||
+        (STATE.fromYmd && (STATE.toYmd || !STATE.toYmd)) ||
         (STATE.crop && STATE.crop !== 'all') ||
         (STATE.cropYear && STATE.cropYear !== 'all')
       );
@@ -1173,14 +1054,14 @@ Notes:
       const afterChange = async () => {
         deriveRangeFromPickerText();
         savePrefs();
-        await loadAll(); // server refetch when range changes
+        await loadAll();
       };
 
       if(applyBtn) applyBtn.addEventListener('click', () => setTimeout(afterChange, 0));
       if(clearBtn) clearBtn.addEventListener('click', () => setTimeout(afterChange, 0));
     }
 
-    // ---------- Query building ----------
+    // Sorting
     function sortItems(items){
       items.sort((a,b)=>{
         const ra = getReleaseTime(a.data) || getFallbackTime(a.data);
@@ -1194,10 +1075,10 @@ Notes:
       return items;
     }
 
+    // Trial cache
     async function fetchTrialName(trialId){
       if(!trialId) return '';
       if(STATE.trialCache[trialId]?.trialName) return STATE.trialCache[trialId].trialName;
-
       try{
         const snap = await getDoc(doc(STATE.db, CONFIG.COLLECTION_TRIALS, trialId));
         const d = snap.exists() ? (snap.data() || {}) : {};
@@ -1211,9 +1092,9 @@ Notes:
       }
     }
 
-    // server load:
-    // - default: last 50 by jobNumber desc
-    // - if filters: pull all matching (reasonable cap) then filter in-memory by search text
+    // Server load:
+    // default: last 50 jobNumber desc
+    // filtered: up to 1000 results (range/crop/year)
     async function loadAll(){
       const db = STATE.db;
       if(!db || STATE.isLoading) return;
@@ -1236,26 +1117,19 @@ Notes:
         let qRef;
 
         if(!hasServerFilters()){
-          qRef = query(colRef, orderBy('jobNumber', 'desc'), limit(CONFIG.DEFAULT_LIMIT));
+          qRef = query(colRef, orderBy('jobNumber','desc'), limit(CONFIG.DEFAULT_LIMIT));
         }else{
-          // Base order for range queries
-          // We'll query by releaseDate if we can (string YYYY-MM-DD), else fallback to crop/year-only queries.
           const clauses = [];
 
-          // Crop filter
           if(STATE.crop && STATE.crop !== 'all'){
             clauses.push(where('crop','==', STATE.crop));
           }
 
-          // Crop year filter (support both cropYear and year by OR not possible in single query)
-          // We'll prefer cropYear if possible; if that yields empty, user can switch data to consistent field.
           if(STATE.cropYear && STATE.cropYear !== 'all'){
             const y = Number(STATE.cropYear);
             if(isFinite(y)) clauses.push(where('cropYear','==', y));
           }
 
-          // Date range filter
-          // Requires orderBy('releaseDate') to be the same field.
           if(STATE.fromYmd && STATE.toYmd){
             clauses.push(where('releaseDate','>=', STATE.fromYmd));
             clauses.push(where('releaseDate','<=', STATE.toYmd));
@@ -1264,7 +1138,6 @@ Notes:
             clauses.push(where('releaseDate','>=', STATE.fromYmd));
             qRef = query(colRef, ...clauses, orderBy('releaseDate','desc'), limit(1000));
           }else{
-            // crop/year only: order by jobNumber desc (more intuitive)
             qRef = query(colRef, ...clauses, orderBy('jobNumber','desc'), limit(1000));
           }
         }
@@ -1280,9 +1153,9 @@ Notes:
         STATE.allItems = items;
         STATE.loaded = true;
 
-        applyFilters(); // in-memory search + selection resets
+        applyFilters();
       }catch(err){
-        console.error('Error loading aerial jobs:', err);
+        console.error('Error loading jobs:', err);
         if(emptyEl){
           emptyEl.style.display = 'block';
           emptyEl.textContent = 'Error loading jobs. Tap to retry.';
@@ -1294,16 +1167,13 @@ Notes:
       }
     }
 
-    // ---------- Filters (in-memory search) ----------
+    // In-memory filter (search only)
     function applyFilters(){
       const emptyEl = document.getElementById('listEmpty');
       const countEl = document.getElementById('listCount');
 
       if(!STATE.loaded){
-        if(emptyEl){
-          emptyEl.style.display = 'block';
-          emptyEl.textContent = 'Loading jobs…';
-        }
+        if(emptyEl){ emptyEl.style.display = 'block'; emptyEl.textContent = 'Loading jobs…'; }
         if(countEl) countEl.textContent = 'Loading…';
         clearDetails();
         return;
@@ -1321,6 +1191,7 @@ Notes:
       renderList();
     }
 
+    // List render (no status)
     function renderList(){
       const listEl = document.getElementById('list');
       const emptyEl = document.getElementById('listEmpty');
@@ -1329,8 +1200,7 @@ Notes:
 
       listEl.innerHTML = '';
 
-      const usingFilters =
-        !!((STATE.search||'').trim() || hasServerFilters());
+      const usingFilters = !!((STATE.search||'').trim() || hasServerFilters());
 
       if(!STATE.items.length){
         if(emptyEl){
@@ -1374,7 +1244,6 @@ Notes:
         card.className = 'aerial-card';
         card.dataset.id = id;
 
-        // ✅ removed status from summary + removed tile bubble per request
         card.innerHTML = `
           <div class="aerial-row-top">
             <div class="aerial-main">
@@ -1411,7 +1280,7 @@ Notes:
       }
     }
 
-    // ---------- Details / fields / trial link ----------
+    // Details helpers
     function clearDetails(){
       const panel = document.getElementById('detailPanel');
       if(!panel) return;
@@ -1470,9 +1339,9 @@ Notes:
         UI.cancelBtn.classList.remove('edit-inline');
       }
 
-      // trash button visibility/enable
       if(UI.trashBtn){
-        UI.trashBtn.disabled = !(STATE.selectedId && UI.canDelete);
+        UI.trashBtn.disabled = !(UI.canDelete && STATE.selectedId);
+        UI.trashBtn.style.display = (STATE.selectedId ? 'inline-flex' : 'none');
       }
     }
 
@@ -1588,7 +1457,7 @@ Notes:
       });
     }
 
-    function renderTrialInfo(d){
+    async function renderTrialInfo(d){
       const trialBox = document.getElementById('trialBox');
       if(!trialBox) return;
       trialBox.innerHTML = '';
@@ -1599,54 +1468,50 @@ Notes:
       const assignments = Array.isArray(tl?.assignments) ? tl.assignments : [];
 
       if(!enabled || !trialId || !assignments.length){
-        return; // per your request: only show meaningful trial info when fields are in a trial
+        return;
       }
 
-      // Map fieldId -> nice name using job.fields
       const jobFields = Array.isArray(d.fields) ? d.fields : [];
-      const fieldNameById = new Map(jobFields.map(f => [f.fieldId, `${f.farm || ''}${f.farm && f.field ? ' • ' : ''}${f.field || ''}`.trim()]));
+      const fieldNameById = new Map(jobFields.map(f => [
+        f.fieldId,
+        `${f.farm || ''}${f.farm && f.field ? ' • ' : ''}${f.field || ''}`.trim()
+      ]));
 
-      // Collect assigned field names
       const assignedNames = assignments
         .map(a => {
           const id = a?.fieldId || '';
-          const name = fieldNameById.get(id) || id || 'Unknown field';
-          return name;
+          return fieldNameById.get(id) || id || '';
         })
         .filter(Boolean);
 
-      const box = document.createElement('div');
-      box.className = 'trial-block';
-      box.innerHTML = `
-        <div class="trial-label">Trial</div>
-        <div class="trial-chip" id="trialChip">Loading trial…</div>
-        <div class="trial-label" style="margin-top:8px">Fields in this trial</div>
-        <div class="trial-fields" id="trialFields"></div>
-      `;
-      trialBox.appendChild(box);
+      const name = await fetchTrialName(trialId);
 
-      const fieldsWrap = box.querySelector('#trialFields');
-      if(fieldsWrap){
+      const block = document.createElement('div');
+      block.className = 'trial-block';
+      block.innerHTML = `
+        <div class="trial-label">Trial</div>
+        <div class="trial-name">${escapeHtml(name || 'Field Trial')}</div>
+        <div class="trial-label" style="margin-top:10px;">Fields in this trial</div>
+        <div class="trial-fields" id="trialFieldsListInner"></div>
+      `;
+      trialBox.appendChild(block);
+
+      const inner = block.querySelector('#trialFieldsListInner');
+      if(inner){
         if(!assignedNames.length){
-          fieldsWrap.innerHTML = '<div class="attachment-empty">No fields assigned in trialLink.assignments.</div>';
+          inner.innerHTML = '<div class="attachment-empty">No fields assigned.</div>';
         }else{
           assignedNames.forEach(n=>{
             const line = document.createElement('div');
             line.className = 'trial-field-line';
             line.textContent = n;
-            fieldsWrap.appendChild(line);
+            inner.appendChild(line);
           });
         }
       }
-
-      // Trial name lookup
-      fetchTrialName(trialId).then(name=>{
-        const chip = box.querySelector('#trialChip');
-        if(chip) chip.textContent = name || 'Field Trial';
-      });
     }
 
-    // ---------- Attachments ----------
+    // Attachments
     let fileModal, fileBackdrop, fileCloseBtn, fileContentWrap;
 
     function openFileViewer(att){
@@ -1714,8 +1579,40 @@ Notes:
       });
     }
 
-    // ---------- Render details ----------
-    function renderDetails(){
+    // #3: Build right-slot controls (Edit or Save/Cancel) + Delete
+    function slotControls(mode){
+      const slot = document.getElementById('detailRightSlot');
+      if(!slot) return;
+      slot.innerHTML = '';
+
+      if(mode === 'edit'){
+        if(UI.saveBtn){
+          UI.saveBtn.classList.add('edit-inline');
+          UI.saveBtn.style.display = 'inline-flex';
+          slot.appendChild(UI.saveBtn);
+        }
+        if(UI.cancelBtn){
+          UI.cancelBtn.classList.add('edit-inline');
+          UI.cancelBtn.style.display = 'inline-flex';
+          slot.appendChild(UI.cancelBtn);
+        }
+      }else{
+        if(UI.editBtn){
+          UI.editBtn.classList.add('edit-inline');
+          UI.editBtn.style.display = 'inline-flex';
+          slot.appendChild(UI.editBtn);
+        }
+      }
+
+      if(UI.trashBtn){
+        UI.trashBtn.style.display = 'inline-flex';
+        UI.trashBtn.disabled = !(UI.canDelete && STATE.selectedId && !STATE.isEditing);
+        slot.appendChild(UI.trashBtn);
+      }
+    }
+
+    // Render details (NO Actions label; right slot controls; trial info in grid spot)
+    async function renderDetails(){
       const panel = document.getElementById('detailPanel');
       if(!panel) return;
 
@@ -1735,8 +1632,27 @@ Notes:
       const totalTill = d.totalTillableAcres;
       const submittedBy = d.submittedBy || d.submittedByEmail || '';
       const notes = d.notes || '';
-
       const createdAt = d.createdAt?.toDate ? d.createdAt.toDate() : (d.createdAt ? new Date(d.createdAt) : null);
+
+      // Trial (only if fields assigned)
+      const tl = d.trialLink || null;
+      const showTrial = !!(tl?.enabled && tl?.trialId && Array.isArray(tl?.assignments) && tl.assignments.length);
+
+      let trialName = '';
+      let trialFieldNames = [];
+      if(showTrial){
+        trialName = await fetchTrialName(tl.trialId);
+
+        const jobFields = Array.isArray(d.fields) ? d.fields : [];
+        const fieldNameById = new Map(jobFields.map(f => [
+          f.fieldId,
+          `${f.farm || ''}${f.farm && f.field ? ' • ' : ''}${f.field || ''}`.trim()
+        ]));
+
+        trialFieldNames = tl.assignments
+          .map(a => fieldNameById.get(a?.fieldId) || a?.fieldId || '')
+          .filter(Boolean);
+      }
 
       const grid = document.getElementById('detailGrid');
       if(grid){
@@ -1786,33 +1702,33 @@ Notes:
           `;
         }
 
-        // ✅ removed Updated row entirely per request
+        // #4: where “Actions” was -> Trial info (only when needed)
+        if(showTrial){
+          html += `
+            <div>
+              <div class="detail-item-label">Trial</div>
+              <div class="detail-item-value">
+                <div style="font-weight:900">${escapeHtml(trialName || 'Field Trial')}</div>
+                <div style="margin-top:6px;font-size:.82rem;opacity:.8;text-transform:uppercase;letter-spacing:.06em;">Fields in this trial</div>
+                <div style="margin-top:6px;display:flex;flex-direction:column;gap:4px">
+                  ${trialFieldNames.map(n => `<div class="trial-field-line">${escapeHtml(n)}</div>`).join('')}
+                </div>
+              </div>
+            </div>
+          `;
+        }
 
-        // Actions row on the right (Edit + Trash)
+        // #3: Right slot control column (Edit or Save/Cancel + Delete)
         html += `
           <div>
-            <div class="detail-item-label">Actions</div>
+            <div class="detail-item-label"> </div>
             <div class="detail-item-value">
-              <span id="editSlot" class="detail-row-actions"></span>
+              <div id="detailRightSlot" class="detail-right-slot"></div>
             </div>
           </div>
         `;
 
         grid.innerHTML = html;
-
-        const slot = document.getElementById('editSlot');
-        if(slot){
-          slot.innerHTML = '';
-          if(UI.editBtn){
-            UI.editBtn.classList.add('edit-inline');
-            UI.editBtn.style.display = 'inline-flex';
-            slot.appendChild(UI.editBtn);
-          }
-          if(UI.trashBtn){
-            UI.trashBtn.disabled = !(UI.canDelete && STATE.selectedId);
-            slot.appendChild(UI.trashBtn);
-          }
-        }
       }
 
       const notesBody = document.getElementById('detailNotesBody');
@@ -1820,13 +1736,19 @@ Notes:
 
       renderAttachments(d);
       renderFieldsList(d);
-      renderTrialInfo(d);
+
+      // we now render trial inside grid (so keep this empty)
+      const trialBox = document.getElementById('trialBox');
+      if(trialBox) trialBox.innerHTML = '';
 
       resetButtonsForViewMode();
       panel.style.display = 'flex';
+
+      // Slot view mode controls
+      slotControls('view');
     }
 
-    // ---------- Edit ----------
+    // Enter edit mode (right slot becomes Save/Cancel)
     function enterEdit(){
       const id = STATE.selectedId;
       if(!id || !STATE.db) return;
@@ -1856,6 +1778,8 @@ Notes:
       const cropList = Array.from(new Set([...baseCrops, crop].filter(v=>String(v||'').trim()!=='')))
         .sort((a,b)=>String(a).localeCompare(String(b)));
 
+      // Keep the grid order similar; replace editable fields only
+      // (Trial info stays as-is in renderDetails; we don’t rebuild it here)
       grid.innerHTML = `
         <div>
           <div class="detail-item-label">Crop Year</div>
@@ -1892,9 +1816,14 @@ Notes:
         </div>
 
         <div>
-          <div class="detail-item-label">Actions</div>
+          <div class="detail-item-label">Notes</div>
+          <div class="detail-item-value">Use the Notes box below</div>
+        </div>
+
+        <div>
+          <div class="detail-item-label"> </div>
           <div class="detail-item-value">
-            <span id="editSlot" class="detail-row-actions"></span>
+            <div id="detailRightSlot" class="detail-right-slot"></div>
           </div>
         </div>
       `;
@@ -1911,33 +1840,8 @@ Notes:
         notesBody.appendChild(ta);
       }
 
-      if(UI.editBtn) UI.editBtn.style.display = 'none';
-
-      if(UI.saveBtn){
-        UI.saveBtn.style.display = 'inline-flex';
-        UI.saveBtn.disabled = false;
-        UI.saveBtn.textContent = 'Save';
-      }
-      if(UI.cancelBtn){
-        UI.cancelBtn.style.display = 'inline-flex';
-        UI.cancelBtn.disabled = false;
-      }
-
-      // keep trash visible but disabled during editing to avoid conflicts
-      if(UI.trashBtn) UI.trashBtn.disabled = true;
-
-      const slot = document.getElementById('editSlot');
-      if(slot){
-        slot.innerHTML = '';
-        if(UI.saveBtn){
-          UI.saveBtn.classList.add('edit-inline');
-          slot.appendChild(UI.saveBtn);
-        }
-        if(UI.cancelBtn){
-          UI.cancelBtn.classList.add('edit-inline');
-          slot.appendChild(UI.cancelBtn);
-        }
-      }
+      // Slot edit mode controls
+      slotControls('edit');
     }
 
     async function saveEdit(){
@@ -2008,15 +1912,15 @@ Notes:
         });
 
         STATE.isEditing = false;
-        showToast('Aerial job updated.');
+        showToast('Job updated.');
         applyFilters();
         STATE.selectedId = id;
-        renderDetails();
+        await renderDetails();
       }catch(err){
-        console.error('Error saving aerial job:', err);
-        showToast('Error saving aerial job.');
+        console.error('Error saving job:', err);
+        showToast('Error saving job.');
         STATE.isEditing = false;
-        renderDetails();
+        await renderDetails();
       }finally{
         if(UI.saveBtn){
           UI.saveBtn.disabled = false;
@@ -2026,12 +1930,22 @@ Notes:
       }
     }
 
-    function cancelEdit(){
+    async function cancelEdit(){
       STATE.isEditing = false;
-      renderDetails();
+      await renderDetails();
     }
 
-    // ---------- Delete (YES confirm modal) ----------
+    // Delete permission
+    function computeDeletePermission(){
+      try{
+        if(window.FV && typeof window.FV.can === 'function'){
+          return !!window.FV.can('crop-aerial:delete');
+        }
+      }catch{}
+      return false;
+    }
+
+    // Delete modal
     function openDeleteModal(){
       if(!UI.canDelete || !STATE.selectedId) return;
 
@@ -2096,7 +2010,6 @@ Notes:
       try{
         await deleteDoc(doc(STATE.db, CONFIG.COLLECTION_AERIAL, id));
 
-        // remove locally
         STATE.allItems = STATE.allItems.filter(x => x.id !== id);
         STATE.items = STATE.items.filter(x => x.id !== id);
         STATE.selectedId = null;
@@ -2110,20 +2023,7 @@ Notes:
       }
     }
 
-    // ---------- Permissions (delete) ----------
-    function computeDeletePermission(){
-      // Your app uses FV.can in many places; if present, use it.
-      // If not present, default to false (safe).
-      try{
-        if(window.FV && typeof window.FV.can === 'function'){
-          // pick a perm name that matches your pattern; adjust if your perm key differs
-          return !!window.FV.can('crop-aerial:delete');
-        }
-      }catch{}
-      return false;
-    }
-
-    // ---------- Boot / events ----------
+    // Resume refresh
     let _resumeTimer = null;
     function resume(){
       if(_resumeTimer) return;
@@ -2143,12 +2043,11 @@ Notes:
       const shell = document.querySelector('fv-shell');
       if(shell) shell.nav = NAV_MENU;
 
-      // UI refs
       UI.editBtn = document.getElementById('editBtn');
       UI.saveBtn = document.getElementById('saveBtn');
       UI.cancelBtn = document.getElementById('cancelBtn');
-
       UI.trashBtn = document.getElementById('trashBtn');
+
       UI.canDelete = computeDeletePermission();
       if(UI.trashBtn){
         UI.trashBtn.disabled = !UI.canDelete;
@@ -2180,7 +2079,7 @@ Notes:
         cropEl.addEventListener('change', async ()=>{
           STATE.crop = cropEl.value || 'all';
           savePrefs();
-          await loadAll(); // server refetch
+          await loadAll();
         });
       }
 
@@ -2189,13 +2088,12 @@ Notes:
         yearEl.addEventListener('change', async ()=>{
           STATE.cropYear = yearEl.value || 'all';
           savePrefs();
-          await loadAll(); // server refetch
+          await loadAll();
         });
       }
 
       wireDateRangePickerEvents();
 
-      // Clear
       const clearBtn = document.getElementById('btnClearFilters');
       if(clearBtn){
         clearBtn.addEventListener('click', async ()=>{
@@ -2217,7 +2115,7 @@ Notes:
         });
       }
 
-      // Empty click retry
+      // Retry
       const emptyEl = document.getElementById('listEmpty');
       if(emptyEl){
         emptyEl.addEventListener('click', ()=>{
@@ -2226,7 +2124,7 @@ Notes:
         });
       }
 
-      // Detail close
+      // Close details
       const closeBtn = document.getElementById('detailClose');
       if(closeBtn){
         closeBtn.addEventListener('click', ()=>{
@@ -2235,12 +2133,12 @@ Notes:
         });
       }
 
-      // Edit/Save/Cancel
+      // Edit/Save/Cancel (slot handled inside renderDetails/enterEdit)
       if(UI.editBtn) UI.editBtn.addEventListener('click', ()=> { if(STATE.selectedId) enterEdit(); });
       if(UI.saveBtn) UI.saveBtn.addEventListener('click', ()=> { if(STATE.selectedId) saveEdit(); });
       if(UI.cancelBtn) UI.cancelBtn.addEventListener('click', ()=> { if(STATE.selectedId) cancelEdit(); });
 
-      // Trash
+      // Delete
       if(UI.trashBtn){
         UI.trashBtn.addEventListener('click', (e)=>{
           e.stopPropagation();
@@ -2283,7 +2181,7 @@ Notes:
     })();
 
     window.addEventListener('focus', () => resume());
-    window.addEventListener('pageshow', (event) => resume());
+    window.addEventListener('pageshow', () => resume());
     document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') resume(); });
   </script>
 </head>
@@ -2296,9 +2194,7 @@ Notes:
           <div class="icon" aria-hidden="true">🛩️</div>
           <div>
             <h1>Aerial Applications</h1>
-            <p class="muted">
-              Loads the most recent 50 jobs by default. Use crop/year or date range to pull more.
-            </p>
+            <p class="muted">Loads the most recent 50 jobs by default. Use crop/year or date range to pull more.</p>
           </div>
         </header>
 
@@ -2417,17 +2313,12 @@ Notes:
           <div id="detailFieldsList" class="fields-list"></div>
         </div>
 
-        <!-- Trial section (only appears when trialLink has assignments) -->
-        <div id="trialBox"></div>
+        <!-- Buttons live here and are slotted into the right slot -->
+        <button type="button" id="editBtn" class="btn btn-quiet" style="display:none;">Edit</button>
+        <button type="button" id="saveBtn" class="btn btn-quiet" style="display:none;">Save</button>
+        <button type="button" id="cancelBtn" class="btn btn-quiet" style="display:none;">Cancel</button>
 
-        <div class="actions-row" style="display:none;">
-          <!-- buttons get slotted into details grid actions row -->
-          <button type="button" id="editBtn" class="btn btn-quiet" style="display:none;">Edit</button>
-          <button type="button" id="saveBtn" class="btn btn-quiet" style="display:none;">Save</button>
-          <button type="button" id="cancelBtn" class="btn btn-quiet" style="display:none;">Cancel</button>
-        </div>
-
-        <!-- hidden trash button we slot next to Edit -->
+        <!-- Delete button (red trash) -->
         <button type="button" id="trashBtn" class="trash-btn" aria-label="Delete job" title="Delete job" style="display:none;">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M9 3a1 1 0 0 0-.894.553L7.382 5H5a1 1 0 1 0 0 2h.293l.853 11.093A2 2 0 0 0 8.14 20h7.72a2 2 0 0 0 1.994-1.907L18.707 7H19a1 1 0 1 0 0-2h-2.382l-.724-1.447A1 1 0 0 0 15 3H9Zm1.118 4a1 1 0 0 0-.996 1.09l.5 8a1 1 0 1 0 1.996-.124l-.5-8A1 1 0 0 0 10.118 7Zm3.764 0a1 1 0 0 0-.882 1.09l.5 8a1 1 0 0 0 1.996-.124l-.5-8A1 1 0 0 0 13.882 7Z" fill="currentColor"/>
@@ -2450,12 +2341,12 @@ Notes:
     </div>
   </div>
 
-  <!-- Delete confirmation modal (type YES) -->
+  <!-- Delete confirmation modal -->
   <div id="deleteModal" class="modal" role="dialog" aria-modal="true" aria-label="Delete job confirmation">
     <div id="deleteBackdrop" class="backdrop"></div>
     <div class="sheet">
       <div class="head">
-        <div class="title" style="color:var(--danger)">Delete Job</div>
+        <div class="title">Delete Job</div>
       </div>
 
       <div class="body">
