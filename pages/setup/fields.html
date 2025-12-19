@@ -882,6 +882,45 @@ Fixes (2025-12-19):
       buildFarmFilterPopover();
     }
 
+    /* ============================================================
+       ✅ NEW: Farms "ready" gate + hard select helper
+       - Guarantees farms/options exist BEFORE setting editFarm.
+       ============================================================ */
+    let FARMS_READY = null;
+
+    function ensureFarmsReady(){
+      if(FARMS_READY) return FARMS_READY;
+      FARMS_READY = (async ()=>{
+        await loadFarms();
+        populateFarmSelects();
+      })();
+      return FARMS_READY;
+    }
+
+    function hardSelectByValue(selectEl, val){
+      const v = String(val || "").trim();
+      if(!selectEl) return false;
+
+      if(!v){
+        if(selectEl.options && selectEl.options.length) selectEl.selectedIndex = 0;
+        return false;
+      }
+
+      const opts = Array.from(selectEl.options || []);
+      const idx = opts.findIndex(o => String(o.value) === v);
+
+      if(idx >= 0){
+        selectEl.selectedIndex = idx;
+        selectEl.value = v;
+        selectEl.dispatchEvent(new Event("change", { bubbles:true }));
+        return true;
+      }
+
+      // not found — do NOT silently pick the first farm as "correct"
+      if(selectEl.options && selectEl.options.length) selectEl.selectedIndex = 0;
+      return false;
+    }
+
     async function loadRTKTowers(){
       RTK_CACHE = []; RTK_MAP.clear();
       const qs = await getDocs(query(rtkTowersRef(), orderBy('name')));
@@ -1145,30 +1184,11 @@ Fixes (2025-12-19):
       }, 0);
     }
 
-    // ✅ KEY FIX: set farm selection reliably
-    function setEditFarmSelection(farmId){
-      const sel = $("editFarm");
-      if(!sel) return;
-
-      // First attempt
-      sel.value = farmId;
-
-      // If some rebuild or refresh happens, this forces it on the next frame too
-      requestAnimationFrame(()=>{
-        // modal might have switched records
-        if(!editId) return;
-        sel.value = farmId;
-      });
-    }
-
     async function openEdit(id){
       editId = id;
 
-      // DO NOT call populateFarmSelects here anymore — it can cause selection reset timing issues.
-      // farms are loaded once at init; if for any reason editFarm has no options, rebuild once.
-      if(!$("editFarm").options.length){
-        populateFarmSelects();
-      }
+      // ✅ Key fix: guarantee farms loaded + selects built BEFORE touching editFarm
+      await ensureFarmsReady();
 
       const ref = doc(db, 'fields', id);
       const snap = await getDoc(ref);
@@ -1178,8 +1198,8 @@ Fixes (2025-12-19):
       // FAST OPEN
       openModal();
 
-      // ✅ correct farm selection (your data uses farmId doc ID, so we just set it)
-      setEditFarmSelection(String(it.farmId || "").trim());
+      // ✅ Hard-select the correct farmId (no timing / rebuild snap-back)
+      hardSelectByValue($("editFarm"), it.farmId);
 
       $("editName").value     = it.name || "";
       $("editTillable").value = (it.tillable ?? "");
@@ -1657,8 +1677,8 @@ Fixes (2025-12-19):
       wireToggle($("editHelToggle"), $("editHasHEL"), $("editHelAcreWrap"), $("editHelAcres"));
       wireToggle($("editCrpToggle"), $("editHasCRP"), $("editCrpAcreWrap"), $("editCrpAcres"));
 
-      await loadFarms();
-      populateFarmSelects();
+      // ✅ Single guaranteed sequence: farms loaded -> selects built
+      await ensureFarmsReady();
 
       await loadRTKTowers();
       populateRTKSelect($("rtkSelect"), "");
