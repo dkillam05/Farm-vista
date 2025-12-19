@@ -1,17 +1,16 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/crop-aerial-view.html  (FULL FILE)
-Rev: 2025-12-19a
-Purpose:
- • View / Edit Aerial Application Jobs (similar UX to Trials view panel)
- • Filters: Search (job # or field/farm text), Date Range (release date)
- • No “status” filter (status is shown in details, optional edit)
- • List cards + right-side detail panel with Edit/Save/Cancel
- • Attachment viewer modal (images + PDFs/files)
+Rev: 2025-12-19b
+Fixes / Updates:
+ • FIX: “Loading jobs…” caused by missing firebase-config boot on this page
+ • Uses your reusable date range picker: /Farm-vista/js/fv-date-range-picker.js
+ • Filters:
+    - Search box (job #, field/farm text)
+    - Date range via FV date range picker (Release Date)
+ • View/Edit panel (Edit/Save/Cancel) stays like Trials
 Notes:
- • Firestore collection name is set to "aerialApplications" below.
-   If your actual collection differs, change CONFIG.COLLECTION_AERIAL.
- • Date range currently uses native <input type="date">.
-   If you want the shared date-picker JS you mentioned, we’ll swap it in later.
+ • Collection is set to "aerialApplications" below.
+   If your real Firestore collection name differs, change CONFIG.COLLECTION_AERIAL.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -29,6 +28,12 @@ Notes:
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- ✅ IMPORTANT: make sure Firebase config exists before firebase-init module runs -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+
+  <!-- ✅ Your reusable date range picker (non-module) -->
+  <script src="/Farm-vista/js/fv-date-range-picker.js"></script>
 
   <style>
     :root{
@@ -145,11 +150,10 @@ Notes:
     .btn-primary{
       background:var(--accent);
       border-color:var(--accent);
-      color:#fff !important; /* your green buttons must be white text */
+      color:#fff !important; /* green buttons always white text */
     }
     .btn-primary[disabled]{opacity:.6; cursor:not-allowed;}
 
-    .select,
     .input{
       width:100%;
       font:inherit;
@@ -164,10 +168,6 @@ Notes:
       position:relative;
       -webkit-appearance:none;
       appearance:none;
-    }
-
-    .input{
-      background-image:none;
     }
 
     /* Filters row */
@@ -186,7 +186,7 @@ Notes:
       flex-direction:column;
       gap:3px;
       font-size:0.85rem;
-      max-width:280px;
+      max-width:320px;
       position:relative;
       z-index:15;
       flex:1 1 220px;
@@ -255,7 +255,7 @@ Notes:
     }
 
     .aerial-title{
-      font-weight:800;
+      font-weight:900;
       font-size:1.02rem;
       line-height:1.25;
     }
@@ -284,8 +284,8 @@ Notes:
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
     }
 
-    .aerial-meta-label{ font-weight:700; }
-    .aerial-meta-value{ font-weight:700; }
+    .aerial-meta-label{ font-weight:800; }
+    .aerial-meta-value{ font-weight:800; }
 
     .aerial-bottom-row{
       display:flex;
@@ -310,7 +310,7 @@ Notes:
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
     }
 
-    /* Detail panel (copied vibe from Trials) */
+    /* Detail panel */
     .detail-panel{
       margin-top:10px;
       border-radius:14px;
@@ -537,7 +537,7 @@ Notes:
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
     }
     .field-name{
-      font-weight:800;
+      font-weight:900;
       font-size:0.92rem;
     }
     .field-meta{
@@ -578,7 +578,7 @@ Notes:
       100%{opacity:0}
     }
 
-    /* Viewer modal (same approach as Trials) */
+    /* Attachment viewer modal */
     .file-modal{
       position:fixed;
       inset:0;
@@ -645,10 +645,155 @@ Notes:
       background:#fff;
     }
 
+    /* ==========================================================
+       Date Range Picker Popover styles (for your fv-date-range-picker)
+       ========================================================== */
+    .cal-pop{
+      position:absolute;
+      top: calc(100% + 8px);
+      left: 0;
+      width: min(360px, 92vw);
+      border-radius:14px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      box-shadow:0 18px 38px rgba(0,0,0,.22);
+      padding:10px 10px 10px;
+      display:none;
+      z-index:3000;
+    }
+    .cal-pop-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+      margin-bottom:8px;
+    }
+    .cal-pop-head .row{
+      display:flex;
+      gap:8px;
+      align-items:center;
+      flex:1 1 auto;
+      min-width:0;
+    }
+    .cal-pop select{
+      flex:1 1 auto;
+      min-width:0;
+      padding:8px 10px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+      font:inherit;
+      font-size:14px;
+    }
+    .cal-close{
+      width:32px;
+      height:32px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:transparent;
+      color:var(--text);
+      cursor:pointer;
+      display:grid;
+      place-items:center;
+    }
+    .cal-close:hover{
+      background:color-mix(in srgb, var(--surface) 65%, var(--border) 35%);
+    }
+
+    .cal-dow{
+      display:grid;
+      grid-template-columns:repeat(7, 1fr);
+      gap:6px;
+      margin:6px 2px 6px;
+      font-size:12px;
+      opacity:.75;
+      text-transform:uppercase;
+      letter-spacing:.06em;
+    }
+    .cal-dow div{ text-align:center; }
+
+    #calDays{
+      display:grid;
+      grid-template-columns:repeat(7, 1fr);
+      gap:6px;
+      padding:2px;
+    }
+    .cal-day{
+      height:38px;
+      border-radius:10px;
+      border:1px solid color-mix(in srgb, var(--border) 65%, transparent);
+      display:grid;
+      place-items:center;
+      cursor:pointer;
+      user-select:none;
+      background:color-mix(in srgb, var(--surface) 75%, var(--border) 25%);
+      color:var(--text);
+      font-weight:800;
+      font-size:13px;
+    }
+    .cal-day.other-month{
+      opacity:.45;
+      font-weight:700;
+    }
+    .cal-day:hover{
+      background:color-mix(in srgb, var(--surface) 60%, var(--border) 40%);
+    }
+    .cal-day.start-selected,
+    .cal-day.range-start,
+    .cal-day.range-end,
+    .cal-day.single-day{
+      background: var(--accent);
+      border-color: var(--accent);
+      color:#fff;
+    }
+    .cal-day.in-range{
+      background: color-mix(in srgb, var(--accent) 18%, var(--surface) 82%);
+      border-color: color-mix(in srgb, var(--accent) 40%, var(--border) 60%);
+    }
+
+    .cal-pop-foot{
+      margin-top:10px;
+      border-top:1px solid var(--border);
+      padding-top:10px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    #rangeSummary{
+      font-size:13px;
+      opacity:.9;
+      min-width:0;
+    }
+    .cal-btns{
+      display:flex;
+      gap:8px;
+      align-items:center;
+      flex-shrink:0;
+    }
+    .cal-btn{
+      min-width:auto;
+      padding:8px 10px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+      font-weight:900;
+      cursor:pointer;
+      -webkit-appearance:none;
+      appearance:none;
+    }
+    .cal-btn.apply{
+      background:var(--accent);
+      border-color:var(--accent);
+      color:#fff;
+    }
+
     @media (max-width: 600px){
       .aerial-card{ padding:10px 12px; }
       .aerial-meta, .aerial-bottom-row{ display:none; }
-      .filter-wrap{ min-width: 160px; }
+      .filter-wrap{ min-width: 180px; }
     }
   </style>
 
@@ -676,14 +821,13 @@ Notes:
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const CONFIG = {
-      COLLECTION_AERIAL: 'aerialApplications',     // <-- change if yours is different
+      COLLECTION_AERIAL: 'aerialApplications', // <-- change if needed
       BACK_URL: '/Farm-vista/pages/crop-production/crop-aerial.html'
     };
 
     const STORAGE_KEYS = {
       SEARCH: 'fv_aerialView_search',
-      FROM:   'fv_aerialView_from',
-      TO:     'fv_aerialView_to'
+      RANGE:  'fv_aerialView_rangeText' // store display string only; we derive dates
     };
 
     const STATE = {
@@ -694,8 +838,9 @@ Notes:
       items: [],
       selectedId: null,
       search: '',
-      fromDate: '',
-      toDate: '',
+      // derived ymd bounds from date picker
+      fromYmd: '',
+      toYmd: '',
       isEditing: false,
       isEditingTitle: false
     };
@@ -710,13 +855,11 @@ Notes:
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
-    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 
     async function safeReady(){
       if(typeof ready === 'function') return await ready();
       return await ready;
     }
-
     function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
 
     async function withRetry(fn, label='op', tries=2){
@@ -760,8 +903,15 @@ Notes:
              u.endsWith('.gif') || u.endsWith('.webp') || u.endsWith('.heic');
     }
 
+    function ymdFromDate(date){
+      if(!(date instanceof Date) || isNaN(date.getTime())) return '';
+      const y = date.getFullYear();
+      const m = String(date.getMonth()+1).padStart(2,'0');
+      const d = String(date.getDate()).padStart(2,'0');
+      return `${y}-${m}-${d}`;
+    }
+
     function parseYmdToTime(ymd){
-      // ymd: "YYYY-MM-DD"
       if(!ymd || typeof ymd !== 'string') return 0;
       const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
       if(!m) return 0;
@@ -770,29 +920,29 @@ Notes:
       return dt.getTime();
     }
 
-    function getCreatedTime(d){
-      if(!d) return 0;
-      const ts = d.updatedAt || d.createdAt || null;
+    function getReleaseTime(d){
+      // releaseDate in your docs is "YYYY-MM-DD"
+      const t = parseYmdToTime(d?.releaseDate || '');
+      return t || 0;
+    }
+
+    function getFallbackTime(d){
+      const ts = d?.updatedAt || d?.createdAt || null;
       try{
         if(ts?.toMillis) return ts.toMillis();
         if(ts?.toDate) return ts.toDate().getTime();
       }catch{}
-      const t = Number(d.t);
+      const t = Number(d?.t);
       if(isFinite(t) && t > 0) return t;
-      const iso = d.timestampISO;
+      const iso = d?.timestampISO;
       if(iso) return new Date(iso).getTime() || 0;
       return 0;
-    }
-
-    function getReleaseTime(d){
-      const t = parseYmdToTime(d?.releaseDate || '');
-      return t || 0;
     }
 
     function buildSearchBlob(d){
       const job = d?.jobNumber != null ? String(d.jobNumber) : '';
       const crop = d?.crop || '';
-      const year = d?.cropYear != null ? String(d.cropYear) : '';
+      const year = d?.cropYear != null ? String(d.cropYear) : (d?.year != null ? String(d.year) : '');
       const farm = d?.farm || '';
       const fieldsArr = Array.isArray(d?.fields) ? d.fields : [];
       const fieldNames = fieldsArr.map(f => `${f?.farm || ''} ${f?.field || ''}`.trim()).join(' ');
@@ -811,32 +961,100 @@ Notes:
     function loadPrefs(){
       try{
         STATE.search = (localStorage.getItem(STORAGE_KEYS.SEARCH) || '').toString();
-        STATE.fromDate = (localStorage.getItem(STORAGE_KEYS.FROM) || '').toString();
-        STATE.toDate = (localStorage.getItem(STORAGE_KEYS.TO) || '').toString();
+        const rangeText = (localStorage.getItem(STORAGE_KEYS.RANGE) || '').toString();
+        const jobInput = document.getElementById('jobRangeInput');
+        if(jobInput) jobInput.value = rangeText;
+        // derive from/to from the visible range string (we’ll also refresh on Apply click)
+        deriveRangeFromPickerText();
       }catch{
         STATE.search = '';
-        STATE.fromDate = '';
-        STATE.toDate = '';
       }
     }
 
     function savePrefs(){
       try{
         localStorage.setItem(STORAGE_KEYS.SEARCH, STATE.search || '');
-        localStorage.setItem(STORAGE_KEYS.FROM, STATE.fromDate || '');
-        localStorage.setItem(STORAGE_KEYS.TO, STATE.toDate || '');
+        const jobInput = document.getElementById('jobRangeInput');
+        localStorage.setItem(STORAGE_KEYS.RANGE, (jobInput?.value || '').toString());
       }catch{}
     }
 
-    function clearDetails(){
-      const panel = $('#detailPanel');
-      if(!panel) return;
+    // ---------- Date Range Picker integration ----------
+    function parseLooseDate(str){
+      // Handles "Jan 5, 2026" style strings on Chrome/Edge reliably (US locale)
+      // If your browser locale differs, it still *often* parses; if not, we just no-op.
+      const d = new Date(str);
+      if(isNaN(d.getTime())) return null;
+      return d;
+    }
 
+    function deriveRangeFromPickerText(){
+      const jobInput = document.getElementById('jobRangeInput');
+      if(!jobInput) return;
+
+      const raw = (jobInput.value || '').trim();
+      if(!raw){
+        STATE.fromYmd = '';
+        STATE.toYmd = '';
+        return;
+      }
+
+      // fv-date-range-picker uses "Start – End" or "Start: X" formats
+      if(raw.includes('–')){
+        const parts = raw.split('–').map(s=>s.trim());
+        const a = parseLooseDate(parts[0]);
+        const b = parseLooseDate(parts[1]);
+        STATE.fromYmd = a ? ymdFromDate(a) : '';
+        STATE.toYmd = b ? ymdFromDate(b) : '';
+      }else if(raw.toLowerCase().startsWith('start:')){
+        const s = raw.replace(/^\s*start:\s*/i,'').trim();
+        const a = parseLooseDate(s);
+        STATE.fromYmd = a ? ymdFromDate(a) : '';
+        STATE.toYmd = '';
+      }else{
+        const a = parseLooseDate(raw);
+        STATE.fromYmd = a ? ymdFromDate(a) : '';
+        STATE.toYmd = '';
+      }
+    }
+
+    function wireDateRangePickerEvents(){
+      const applyBtn = document.getElementById('applyRangeBtn');
+      const clearBtn = document.getElementById('clearRangeBtn');
+
+      const afterChange = () => {
+        deriveRangeFromPickerText();
+        savePrefs();
+        applyFilters();
+      };
+
+      // These buttons exist inside your picker markup; we hook AFTER picker runs
+      if(applyBtn) applyBtn.addEventListener('click', () => setTimeout(afterChange, 0));
+      if(clearBtn) clearBtn.addEventListener('click', () => setTimeout(afterChange, 0));
+    }
+
+    // ---------- Filters / list ----------
+    function sortItems(items){
+      items.sort((a,b)=>{
+        const ra = getReleaseTime(a.data) || getFallbackTime(a.data);
+        const rb = getReleaseTime(b.data) || getFallbackTime(b.data);
+        if(ra !== rb) return rb - ra; // newest first
+        const ja = Number(a.data?.jobNumber) || 0;
+        const jb = Number(b.data?.jobNumber) || 0;
+        if(ja !== jb) return jb - ja;
+        return getFallbackTime(b.data) - getFallbackTime(a.data);
+      });
+      return items;
+    }
+
+    function clearDetails(){
+      const panel = document.getElementById('detailPanel');
+      if(!panel) return;
       panel.style.display = 'none';
       panel.dataset.id = '';
 
-      const titleText = $('#detailTitleText');
-      const titleInput = $('#detailTitleInput');
+      const titleText = document.getElementById('detailTitleText');
+      const titleInput = document.getElementById('detailTitleInput');
       if(titleText){
         titleText.textContent = 'Aerial Job Details';
         titleText.style.display = 'block';
@@ -848,16 +1066,16 @@ Notes:
       STATE.isEditing = false;
       STATE.isEditingTitle = false;
 
-      const grid = $('#detailGrid');
+      const grid = document.getElementById('detailGrid');
       if(grid) grid.innerHTML = '';
 
-      const notesBody = $('#detailNotesBody');
+      const notesBody = document.getElementById('detailNotesBody');
       if(notesBody) notesBody.textContent = '';
 
-      const attGrid = $('#detailAttachments');
+      const attGrid = document.getElementById('detailAttachments');
       if(attGrid) attGrid.innerHTML = '';
 
-      const fieldsList = $('#detailFieldsList');
+      const fieldsList = document.getElementById('detailFieldsList');
       if(fieldsList) fieldsList.innerHTML = '';
 
       resetButtonsForViewMode();
@@ -885,31 +1103,17 @@ Notes:
         cancelBtn.classList.remove('edit-inline');
       }
 
-      // restore homes (stable)
-      const editHome = UI.editHome || $('#editHome');
-      const saveHome = UI.saveHome || $('#saveHome');
-      const cancelHome = UI.cancelHome || $('#cancelHome');
+      const editHome = UI.editHome || document.getElementById('editHome');
+      const saveHome = UI.saveHome || document.getElementById('saveHome');
+      const cancelHome = UI.cancelHome || document.getElementById('cancelHome');
       if(editHome && editBtn && editBtn.parentElement !== editHome) editHome.appendChild(editBtn);
       if(saveHome && saveBtn && saveBtn.parentElement !== saveHome) saveHome.appendChild(saveBtn);
       if(cancelHome && cancelBtn && cancelBtn.parentElement !== cancelHome) cancelHome.appendChild(cancelBtn);
     }
 
-    function sortItems(items){
-      items.sort((a,b)=>{
-        const ra = getReleaseTime(a.data);
-        const rb = getReleaseTime(b.data);
-        if(ra !== rb) return rb - ra; // newest release date first
-        const ja = Number(a.data?.jobNumber) || 0;
-        const jb = Number(b.data?.jobNumber) || 0;
-        if(ja !== jb) return jb - ja;
-        return getCreatedTime(b.data) - getCreatedTime(a.data);
-      });
-      return items;
-    }
-
     function applyFilters(){
-      const emptyEl = $('#listEmpty');
-      const countEl = $('#listCount');
+      const emptyEl = document.getElementById('listEmpty');
+      const countEl = document.getElementById('listCount');
 
       if(!STATE.loaded){
         if(emptyEl){
@@ -922,8 +1126,9 @@ Notes:
       }
 
       const q = (STATE.search || '').trim().toLowerCase();
-      const fromT = STATE.fromDate ? parseYmdToTime(STATE.fromDate) : 0;
-      const toT = STATE.toDate ? parseYmdToTime(STATE.toDate) : 0;
+
+      const fromT = STATE.fromYmd ? parseYmdToTime(STATE.fromYmd) : 0;
+      const toT = STATE.toYmd ? parseYmdToTime(STATE.toYmd) : 0;
 
       let filtered = STATE.allItems.slice();
 
@@ -933,10 +1138,9 @@ Notes:
 
       if(fromT || toT){
         filtered = filtered.filter(it=>{
-          const rt = getReleaseTime(it.data) || getCreatedTime(it.data);
+          const rt = getReleaseTime(it.data) || getFallbackTime(it.data);
           if(fromT && rt < fromT) return false;
           if(toT){
-            // include the whole "to" day
             const end = toT + (24*60*60*1000 - 1);
             if(rt > end) return false;
           }
@@ -950,14 +1154,14 @@ Notes:
     }
 
     function renderList(){
-      const listEl = $('#list');
-      const emptyEl = $('#listEmpty');
-      const countEl = $('#listCount');
+      const listEl = document.getElementById('list');
+      const emptyEl = document.getElementById('listEmpty');
+      const countEl = document.getElementById('listCount');
       if(!listEl) return;
 
       listEl.innerHTML = '';
 
-      const usingFilters = !!((STATE.search||'').trim() || STATE.fromDate || STATE.toDate);
+      const usingFilters = !!((STATE.search||'').trim() || STATE.fromYmd || STATE.toYmd);
 
       if(!STATE.items.length){
         if(emptyEl){
@@ -1039,6 +1243,7 @@ Notes:
       }
     }
 
+    // ---------- File viewer ----------
     let fileModal, fileBackdrop, fileCloseBtn, fileContentWrap;
 
     function openFileViewer(att){
@@ -1065,9 +1270,10 @@ Notes:
       document.body.style.overflow = '';
     }
 
+    // ---------- Details / edit ----------
     function setTitleView(title){
-      const textEl  = $('#detailTitleText');
-      const inputEl = $('#detailTitleInput');
+      const textEl  = document.getElementById('detailTitleText');
+      const inputEl = document.getElementById('detailTitleInput');
       if(!textEl || !inputEl) return;
       STATE.isEditingTitle = false;
       textEl.textContent = title || 'Aerial Job';
@@ -1077,8 +1283,8 @@ Notes:
 
     function beginEditTitle(){
       if(!STATE.selectedId || !STATE.db) return;
-      const textEl  = $('#detailTitleText');
-      const inputEl = $('#detailTitleInput');
+      const textEl  = document.getElementById('detailTitleText');
+      const inputEl = document.getElementById('detailTitleInput');
       if(!textEl || !inputEl) return;
 
       STATE.isEditingTitle = true;
@@ -1097,12 +1303,12 @@ Notes:
     }
 
     async function commitEditTitle(){
-      // Title edit = jobNumber edit (quick)
+      // Title edit updates jobNumber
       const id = STATE.selectedId;
       const db = STATE.db;
       if(!id || !db){ cancelEditTitle(); return; }
 
-      const inputEl = $('#detailTitleInput');
+      const inputEl = document.getElementById('detailTitleInput');
       if(!inputEl){ cancelEditTitle(); return; }
 
       const raw = (inputEl.value || '').trim();
@@ -1129,11 +1335,17 @@ Notes:
 
         const itemAll2 = STATE.allItems.find(x => x.id === id);
         const itemFiltered = STATE.items.find(x => x.id === id);
-        [itemAll2, itemFiltered].filter(Boolean).forEach(t => { t.data.jobNumber = jobNum; });
+        [itemAll2, itemFiltered].filter(Boolean).forEach(t => {
+          t.data.jobNumber = jobNum;
+          t.searchBlob = buildSearchBlob(t.data);
+        });
 
         setTitleView(`Job #${jobNum}`);
         showToast('Job number updated.');
-        applyFilters(); // re-render list
+        applyFilters();
+        // keep selected
+        STATE.selectedId = id;
+        renderDetails();
       }catch(err){
         console.error('Error updating job number:', err);
         showToast('Error updating job number.');
@@ -1144,7 +1356,7 @@ Notes:
     }
 
     function renderFieldsList(d){
-      const listEl = $('#detailFieldsList');
+      const listEl = document.getElementById('detailFieldsList');
       if(!listEl) return;
       listEl.innerHTML = '';
 
@@ -1174,7 +1386,7 @@ Notes:
     }
 
     function renderAttachments(d){
-      const grid = $('#detailAttachments');
+      const grid = document.getElementById('detailAttachments');
       if(!grid) return;
       grid.innerHTML = '';
 
@@ -1215,7 +1427,7 @@ Notes:
     }
 
     function renderDetails(){
-      const panel = $('#detailPanel');
+      const panel = document.getElementById('detailPanel');
       if(!panel) return;
 
       const item = STATE.items.find(x => x.id === STATE.selectedId);
@@ -1246,7 +1458,7 @@ Notes:
       const tlAssign = Array.isArray(trialLink?.assignments) ? trialLink.assignments : [];
       const tlAssignCount = tlAssign.length;
 
-      const grid = $('#detailGrid');
+      const grid = document.getElementById('detailGrid');
       if(grid){
         let html = '';
 
@@ -1332,8 +1544,7 @@ Notes:
 
         grid.innerHTML = html;
 
-        // VIEW MODE: put Edit button in the status slot
-        const slot = $('#editSlot');
+        const slot = document.getElementById('editSlot');
         if(slot && UI.editBtn){
           slot.innerHTML = '';
           UI.editBtn.classList.add('edit-inline');
@@ -1342,7 +1553,7 @@ Notes:
         }
       }
 
-      const notesBody = $('#detailNotesBody');
+      const notesBody = document.getElementById('detailNotesBody');
       if(notesBody) notesBody.textContent = notes || 'No notes recorded.';
 
       renderAttachments(d);
@@ -1362,7 +1573,7 @@ Notes:
       const d = item.data || {};
       STATE.isEditing = true;
 
-      const grid = $('#detailGrid');
+      const grid = document.getElementById('detailGrid');
       if(!grid) return;
 
       const cropYear = d.cropYear ?? d.year ?? '';
@@ -1379,13 +1590,13 @@ Notes:
       const yearList = Array.from(new Set([...baseYears, cropYear].filter(v=>v!=='' && v!=null)))
         .sort((a,b)=>Number(a)-Number(b));
 
-      const cropList = Array.from(new Set([...baseCrops, crop].filter(v=>String(v||'').trim()!=='']))
+      const cropList = Array.from(new Set([...baseCrops, crop].filter(v=>String(v||'').trim()!=='')))
         .sort((a,b)=>String(a).localeCompare(String(b)));
 
       grid.innerHTML = `
         <div>
           <div class="detail-item-label">Crop Year</div>
-          <select id="editCropYear" class="select">
+          <select id="editCropYear" class="input">
             <option value=""></option>
             ${yearList.map(y=>{
               const val = String(y);
@@ -1397,7 +1608,7 @@ Notes:
 
         <div>
           <div class="detail-item-label">Crop</div>
-          <select id="editCrop" class="select">
+          <select id="editCrop" class="input">
             <option value=""></option>
             ${cropList.map(c=>{
               const val = String(c);
@@ -1409,7 +1620,7 @@ Notes:
 
         <div>
           <div class="detail-item-label">Release Date</div>
-          <input id="editReleaseDate" type="date" class="input" value="${escapeHtml(releaseDate)}"/>
+          <input id="editReleaseDate" type="text" class="input" value="${escapeHtml(releaseDate)}" placeholder="YYYY-MM-DD"/>
         </div>
 
         <div>
@@ -1427,11 +1638,11 @@ Notes:
 
         <div>
           <div class="detail-item-label">Job #</div>
-          <div class="detail-item-value">Tap title above to edit Job # (or edit in Add screen)</div>
+          <div class="detail-item-value">Tap title above to edit Job #</div>
         </div>
       `;
 
-      const notesBody = $('#detailNotesBody');
+      const notesBody = document.getElementById('detailNotesBody');
       if(notesBody){
         notesBody.innerHTML = '';
         const ta = document.createElement('textarea');
@@ -1443,7 +1654,6 @@ Notes:
         notesBody.appendChild(ta);
       }
 
-      // Buttons: move Save + Cancel into status slot
       if(UI.editBtn) UI.editBtn.style.display = 'none';
 
       if(UI.saveBtn){
@@ -1456,7 +1666,7 @@ Notes:
         UI.cancelBtn.disabled = false;
       }
 
-      const slot = $('#editSlot');
+      const slot = document.getElementById('editSlot');
       if(slot){
         slot.innerHTML = '';
         if(UI.saveBtn){
@@ -1475,12 +1685,12 @@ Notes:
       const db = STATE.db;
       if(!id || !db) return;
 
-      const cropYearEl = $('#editCropYear');
-      const cropEl = $('#editCrop');
-      const releaseDateEl = $('#editReleaseDate');
-      const releaseAcresEl = $('#editReleaseAcres');
-      const statusEl = $('#editStatus');
-      const notesEl = $('#editNotes');
+      const cropYearEl = document.getElementById('editCropYear');
+      const cropEl = document.getElementById('editCrop');
+      const releaseDateEl = document.getElementById('editReleaseDate');
+      const releaseAcresEl = document.getElementById('editReleaseAcres');
+      const statusEl = document.getElementById('editStatus');
+      const notesEl = document.getElementById('editNotes');
 
       if(!cropYearEl || !cropEl || !releaseDateEl || !releaseAcresEl || !statusEl || !notesEl){
         STATE.isEditing = false;
@@ -1496,12 +1706,13 @@ Notes:
 
       const cropYearRaw = (cropYearEl.value || '').trim();
       const cropRaw = (cropEl.value || '').trim();
-      const releaseDateRaw = (releaseDateEl.value || '').trim();
+      const releaseDateRaw = (releaseDateEl.value || '').trim(); // expecting YYYY-MM-DD
       const releaseAcresRaw = (releaseAcresEl.value || '').trim();
       const statusRaw = (statusEl.value || '').trim();
       const notesRaw = notesEl.value || '';
 
       const updates = {};
+
       if(cropYearRaw){
         const n = Number(cropYearRaw);
         updates.cropYear = isFinite(n) ? n : null;
@@ -1510,14 +1721,17 @@ Notes:
         updates.cropYear = null;
         updates.year = null;
       }
+
       updates.crop = cropRaw || '';
       updates.releaseDate = releaseDateRaw || '';
+
       if(releaseAcresRaw === ''){
         updates.releaseAcres = null;
       }else{
         const n = Number(releaseAcresRaw);
         updates.releaseAcres = isFinite(n) ? n : null;
       }
+
       updates.status = statusRaw || '';
       updates.notes = notesRaw;
 
@@ -1540,7 +1754,6 @@ Notes:
         STATE.isEditing = false;
         showToast('Aerial job updated.');
         applyFilters();
-        // restore selected and re-render details
         STATE.selectedId = id;
         renderDetails();
       }catch(err){
@@ -1562,38 +1775,22 @@ Notes:
       renderDetails();
     }
 
-    let _searchTimer = null;
-    function scheduleFilter(){
-      if(_searchTimer) clearTimeout(_searchTimer);
-      _searchTimer = setTimeout(()=>{
-        _searchTimer = null;
-        savePrefs();
-        applyFilters();
-      }, 180);
-    }
-
+    // ---------- Load ----------
     async function loadAll(){
       const db = STATE.db;
       if(!db || STATE.isLoading) return;
       STATE.isLoading = true;
 
-      const emptyEl = $('#listEmpty');
-      const countEl = $('#listCount');
-      const listEl = $('#list');
+      const emptyEl = document.getElementById('listEmpty');
+      const countEl = document.getElementById('listCount');
+      const listEl = document.getElementById('list');
 
-      const hadExisting = STATE.allItems.length > 0;
-
-      if(!hadExisting){
-        if(listEl) listEl.innerHTML = '';
-        if(emptyEl){
-          emptyEl.style.display = 'block';
-          emptyEl.textContent = 'Loading aerial jobs...';
-        }
-        if(countEl) countEl.textContent = 'Loading...';
-        clearDetails();
-      }else{
-        if(countEl) countEl.textContent = 'Refreshing...';
+      if(listEl && !STATE.allItems.length) listEl.innerHTML = '';
+      if(emptyEl){
+        emptyEl.style.display = 'block';
+        emptyEl.textContent = STATE.allItems.length ? 'Refreshing aerial jobs...' : 'Loading aerial jobs...';
       }
+      if(countEl) countEl.textContent = 'Loading...';
 
       try{
         const ref = collection(db, CONFIG.COLLECTION_AERIAL);
@@ -1601,11 +1798,7 @@ Notes:
 
         const items = snap.docs.map(s=>{
           const data = s.data() || {};
-          return {
-            id: s.id,
-            data,
-            searchBlob: buildSearchBlob(data)
-          };
+          return { id: s.id, data, searchBlob: buildSearchBlob(data) };
         });
 
         sortItems(items);
@@ -1627,7 +1820,7 @@ Notes:
       }
     }
 
-    // Resume refresh (same pattern you like)
+    // Resume refresh
     let _resumeTimer = null;
     function resume(reason='resume'){
       if(_resumeTimer) return;
@@ -1648,66 +1841,44 @@ Notes:
       const shell = document.querySelector('fv-shell');
       if(shell) shell.nav = NAV_MENU;
 
-      UI.editBtn = $('#editBtn');
-      UI.saveBtn = $('#saveBtn');
-      UI.cancelBtn = $('#cancelBtn');
-      UI.editHome = $('#editHome');
-      UI.saveHome = $('#saveHome');
-      UI.cancelHome = $('#cancelHome');
+      UI.editBtn = document.getElementById('editBtn');
+      UI.saveBtn = document.getElementById('saveBtn');
+      UI.cancelBtn = document.getElementById('cancelBtn');
+      UI.editHome = document.getElementById('editHome');
+      UI.saveHome = document.getElementById('saveHome');
+      UI.cancelHome = document.getElementById('cancelHome');
 
-      // Back button
-      const backBtn = $('#btnBack');
-      if(backBtn){
-        backBtn.addEventListener('click', ()=>{ location.href = CONFIG.BACK_URL; });
-      }
+      // Back
+      const backBtn = document.getElementById('btnBack');
+      if(backBtn) backBtn.addEventListener('click', ()=> location.href = CONFIG.BACK_URL);
 
-      // Filters
-      loadPrefs();
-
-      const searchEl = $('#filterSearch');
-      const fromEl = $('#filterFrom');
-      const toEl = $('#filterTo');
-      const clearBtn = $('#btnClearFilters');
-
+      // Search
+      const searchEl = document.getElementById('filterSearch');
       if(searchEl){
-        searchEl.value = STATE.search || '';
         searchEl.addEventListener('input', ()=>{
           STATE.search = searchEl.value || '';
-          scheduleFilter();
+          savePrefs();
+          applyFilters();
         });
       }
 
-      if(fromEl){
-        fromEl.value = STATE.fromDate || '';
-        fromEl.addEventListener('change', ()=>{
-          STATE.fromDate = fromEl.value || '';
-          scheduleFilter();
-        });
-      }
-
-      if(toEl){
-        toEl.value = STATE.toDate || '';
-        toEl.addEventListener('change', ()=>{
-          STATE.toDate = toEl.value || '';
-          scheduleFilter();
-        });
-      }
-
+      // Clear
+      const clearBtn = document.getElementById('btnClearFilters');
       if(clearBtn){
         clearBtn.addEventListener('click', ()=>{
           STATE.search = '';
-          STATE.fromDate = '';
-          STATE.toDate = '';
+          STATE.fromYmd = '';
+          STATE.toYmd = '';
           if(searchEl) searchEl.value = '';
-          if(fromEl) fromEl.value = '';
-          if(toEl) toEl.value = '';
+          const jobInput = document.getElementById('jobRangeInput');
+          if(jobInput) jobInput.value = '';
           savePrefs();
           applyFilters();
         });
       }
 
       // Empty click retry
-      const emptyEl = $('#listEmpty');
+      const emptyEl = document.getElementById('listEmpty');
       if(emptyEl){
         emptyEl.addEventListener('click', ()=>{
           if(!STATE.db || STATE.isLoading) return;
@@ -1716,7 +1887,7 @@ Notes:
       }
 
       // Detail close
-      const closeBtn = $('#detailClose');
+      const closeBtn = document.getElementById('detailClose');
       if(closeBtn){
         closeBtn.addEventListener('click', ()=>{
           STATE.selectedId = null;
@@ -1725,32 +1896,17 @@ Notes:
       }
 
       // Edit/Save/Cancel
-      if(UI.editBtn){
-        UI.editBtn.addEventListener('click', ()=>{
-          if(!STATE.selectedId) return;
-          enterEdit();
-        });
-      }
-      if(UI.saveBtn){
-        UI.saveBtn.addEventListener('click', ()=>{
-          if(!STATE.selectedId) return;
-          saveEdit();
-        });
-      }
-      if(UI.cancelBtn){
-        UI.cancelBtn.addEventListener('click', ()=>{
-          if(!STATE.selectedId) return;
-          cancelEdit();
-        });
-      }
+      if(UI.editBtn) UI.editBtn.addEventListener('click', ()=> { if(STATE.selectedId) enterEdit(); });
+      if(UI.saveBtn) UI.saveBtn.addEventListener('click', ()=> { if(STATE.selectedId) saveEdit(); });
+      if(UI.cancelBtn) UI.cancelBtn.addEventListener('click', ()=> { if(STATE.selectedId) cancelEdit(); });
 
-      // Title edit (job # quick edit)
-      const titleTextEl = $('#detailTitleText');
-      const titleInputEl = $('#detailTitleInput');
+      // Title edit (job #)
+      const titleTextEl = document.getElementById('detailTitleText');
+      const titleInputEl = document.getElementById('detailTitleInput');
       if(titleTextEl && titleInputEl){
         titleTextEl.addEventListener('click', ()=>{
           if(!STATE.selectedId) return;
-          if(STATE.isEditing) return; // don’t mix modes
+          if(STATE.isEditing) return;
           beginEditTitle();
         });
 
@@ -1760,23 +1916,23 @@ Notes:
         });
 
         titleInputEl.addEventListener('keydown', (ev)=>{
-          if(ev.key === 'Enter'){
-            ev.preventDefault();
-            titleInputEl.blur();
-          }else if(ev.key === 'Escape'){
-            ev.preventDefault();
-            cancelEditTitle();
-          }
+          if(ev.key === 'Enter'){ ev.preventDefault(); titleInputEl.blur(); }
+          else if(ev.key === 'Escape'){ ev.preventDefault(); cancelEditTitle(); }
         });
       }
 
       // File modal
-      fileModal = $('#fileModal');
-      fileBackdrop = $('#fileBackdrop');
-      fileCloseBtn = $('#fileModalClose');
-      fileContentWrap = $('#fileContentWrap');
+      fileModal = document.getElementById('fileModal');
+      fileBackdrop = document.getElementById('fileBackdrop');
+      fileCloseBtn = document.getElementById('fileModalClose');
+      fileContentWrap = document.getElementById('fileContentWrap');
       if(fileBackdrop) fileBackdrop.addEventListener('click', closeFileViewer);
       if(fileCloseBtn) fileCloseBtn.addEventListener('click', closeFileViewer);
+
+      // Prefs + picker
+      loadPrefs();
+      if(searchEl) searchEl.value = STATE.search || '';
+      wireDateRangePickerEvents();
 
       await loadAll();
     })();
@@ -1785,6 +1941,7 @@ Notes:
     window.addEventListener('pageshow', (event) => resume(event && event.persisted ? 'pageshow.persisted' : 'pageshow'));
     document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') resume('visibility.visible'); });
   </script>
+
 </head>
 
 <body>
@@ -1796,7 +1953,7 @@ Notes:
           <div>
             <h1>Aerial Applications</h1>
             <p class="muted">
-              Search by field name/farm or job number, and filter by release date range. Tap a job to view &amp; edit.
+              Search by field/farm or job number. Filter by release date range.
             </p>
           </div>
         </header>
@@ -1812,19 +1969,43 @@ Notes:
           </div>
 
           <div class="filters-row">
-            <div class="filter-wrap" style="flex:2 1 280px; min-width:260px;">
+            <div class="filter-wrap" style="flex:2 1 320px; min-width:260px;">
               <label class="filter-label" for="filterSearch">Search</label>
               <input id="filterSearch" class="input" type="search" placeholder="Search fields, farms, job #..." autocomplete="off"/>
             </div>
 
-            <div class="filter-wrap" style="max-width:190px; min-width:170px;">
-              <label class="filter-label" for="filterFrom">From</label>
-              <input id="filterFrom" class="input" type="date"/>
-            </div>
+            <!-- Date range picker standard markup IDs (required by fv-date-range-picker.js) -->
+            <div class="filter-wrap" style="max-width:360px; min-width:260px;">
+              <label class="filter-label" for="jobRangeInput">Release Date Range</label>
+              <div style="position:relative;">
+                <input id="jobRangeInput" class="input" type="text" readonly placeholder="Pick a date range…"/>
 
-            <div class="filter-wrap" style="max-width:190px; min-width:170px;">
-              <label class="filter-label" for="filterTo">To</label>
-              <input id="filterTo" class="input" type="date"/>
+                <div id="calendarPopover" class="cal-pop" role="dialog" aria-label="Date range picker">
+                  <div class="cal-pop-head">
+                    <div class="row">
+                      <select id="monthSelect" aria-label="Month"></select>
+                      <select id="yearSelect" aria-label="Year"></select>
+                    </div>
+                    <button id="closeCalBtn" class="cal-close" type="button" aria-label="Close">
+                      ✕
+                    </button>
+                  </div>
+
+                  <div class="cal-dow" aria-hidden="true">
+                    <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
+                  </div>
+
+                  <div id="calDays" aria-label="Calendar days"></div>
+
+                  <div class="cal-pop-foot">
+                    <span id="rangeSummary">No dates selected</span>
+                    <div class="cal-btns">
+                      <button id="clearRangeBtn" class="cal-btn" type="button">Clear</button>
+                      <button id="applyRangeBtn" class="cal-btn apply" type="button">Apply</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div class="filters-actions">
