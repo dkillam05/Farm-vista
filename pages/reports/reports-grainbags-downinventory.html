@@ -242,32 +242,18 @@
       min-width:0;
     }
 
+    /* ✅ this is the “spot” you called out (replaces crop/year) */
     .wo-title {
-      font-weight:800;
-      font-size:0.98rem;
-      line-height:1.3;
-      display:flex;
-      align-items:baseline;
-      justify-content:space-between;
-      gap:10px;
-      flex-wrap:wrap;
-    }
-    .wo-title .tag{
-      font-size:0.78rem;
-      font-weight:800;
-      padding:3px 10px;
-      border-radius:999px;
-      background:linear-gradient(90deg, rgba(59,126,70,0.14), transparent);
-      border:1px solid rgba(59,126,70,0.22);
-      color:color-mix(in srgb, var(--text) 80%, var(--accent) 20%);
-      white-space:nowrap;
+      font-weight:900;
+      font-size:1.02rem;
+      line-height:1.25;
     }
 
     .wo-sub {
-      font-size:0.90rem;
-      opacity:0.95;
+      font-size:0.86rem;
+      opacity:0.92;
       margin-top:2px;
-      font-weight:700;
+      font-weight:650;
     }
 
     .wo-meta {
@@ -313,7 +299,7 @@
     }
 
     .wo-detail-title {
-      font-weight:800;
+      font-weight:900;
       font-size:1rem;
     }
 
@@ -443,27 +429,18 @@
       RENDER_YIELD_MS: 0
     };
 
-    const $  = (sel, root=document) => root.querySelector(sel);
-
     const STATE = {
-      items: [],            // derived inventory rows
+      items: [],
       filteredItems: null,
       selectedId: null,
       db: null,
       company: null,
 
-      // caches
-      fieldMap: new Map(),  // fieldId -> { fieldId, fieldName, farmId, farmName }
-      farmMap: new Map(),   // farmId -> farmName (also used for filters)
+      fieldMap: new Map(),
+      farmMap: new Map(),
       cropSet: new Set(),
 
-      // load stats
-      stats: {
-        t0: 0,
-        eventsLoaded: 0,
-        fieldsResolved: 0,
-        farmsResolved: 0
-      }
+      stats: { t0:0, eventsLoaded:0, fieldsResolved:0, farmsResolved:0 }
     };
 
     function nowMs(){ return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now(); }
@@ -478,16 +455,12 @@
 
     function formatDate(d){
       if(!d) return '';
-      try{
-        return d.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});
-      }catch{ return ''; }
+      try{ return d.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}); }catch{ return ''; }
     }
 
     function formatDateTime(d){
       if(!d) return '';
-      try{
-        return d.toLocaleString();
-      }catch{ return ''; }
+      try{ return d.toLocaleString(); }catch{ return ''; }
     }
 
     function formatNumber(n){
@@ -512,9 +485,7 @@
     }
 
     function groupItemsByFarmCropField(items){
-      // Farm -> Crop -> Field -> [items]
       const farmMap = new Map();
-
       items.forEach(it => {
         const d = it.data;
         const farm = (d.farmName || 'Unknown farm').toString();
@@ -562,7 +533,6 @@
     function renderList(){
       const listEl  = document.querySelector('.wo-list');
       const emptyEl = document.querySelector('.wo-empty');
-
       if(!listEl || !emptyEl) return;
 
       listEl.innerHTML = '';
@@ -582,7 +552,6 @@
       emptyEl.style.display = 'none';
 
       const totalOnHandBu = items.reduce((sum,it) => sum + (Number(it.data.onHandBu) || 0), 0);
-      const totalCapacityBu = items.reduce((sum,it) => sum + (Number(it.data.capacityBu) || 0), 0);
       const totalFull = items.reduce((sum,it)=> sum + (Number(it.data.fullBags) || 0), 0);
       const totalPartial = items.reduce((sum,it)=> sum + (Number(it.data.partialBags) || 0), 0);
 
@@ -590,12 +559,8 @@
       const fields = new Set(items.map(it => it.data.fieldId || it.data.fieldName));
       const bagEntries = items.length;
 
-      const pct = totalCapacityBu > 0 ? (totalOnHandBu / totalCapacityBu) * 100 : 0;
-      const pctStr = totalCapacityBu > 0 ? `${pct.toFixed(1)}% of bag capacity` : 'Capacity N/A';
-
-      // Summary line now emphasizes bag count
       setSummaryText(
-        `${totalFull} full, ${totalPartial} partial • ${formatNumber(totalOnHandBu)} bu (estimated) on hand • ${bagEntries} bag entr${bagEntries===1?'y':'ies'} • ${pctStr}`,
+        `${totalFull} full, ${totalPartial} partial • ${formatNumber(totalOnHandBu)} bu (estimated) on hand • ${bagEntries} bag entr${bagEntries===1?'y':'ies'} • ${fields.size} field${fields.size===1?'':'s'} • ${farms.size} farm${farms.size===1?'':'s'}`,
         STATE.stats.eventsLoaded
           ? `Loaded ${STATE.stats.eventsLoaded} open bag entr${STATE.stats.eventsLoaded===1?'y':'ies'} • Resolved ${STATE.stats.fieldsResolved} fields / ${STATE.stats.farmsResolved} farms`
           : ''
@@ -616,7 +581,6 @@
           const fieldsArr = Array.from(fieldMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
 
           for(const [fieldName, bags] of fieldsArr){
-            // Field-level KPI pill (bag counts + bu)
             const fFull = bags.reduce((s,it)=> s + (Number(it.data.fullBags) || 0), 0);
             const fPartial = bags.reduce((s,it)=> s + (Number(it.data.partialBags) || 0), 0);
             const fBu = bags.reduce((s,it)=> s + (Number(it.data.onHandBu) || 0), 0);
@@ -639,26 +603,22 @@
               card.className = 'wo-card';
               card.dataset.id = item.id;
 
-              // ✅ Remove Bag SKU + Location from the tile
-              // ✅ The "spot" becomes the bag count line (big + clear)
-              const titleLeft = `${d.cropType || 'Crop'}${d.cropYear ? ' • ' + d.cropYear : ''}`;
-              const titleTag = `${full + partial} bag${(full+partial)===1?'':'s'}`;
-
+              // ✅ EXACTLY what you asked:
+              // The main “spot” is now: 2 full, 1 partial · approx 48,750 bu on hand
+              // Crop/year is moved to pills (kept), and Location is removed.
               card.innerHTML = `
                 <div class="wo-row-top">
                   <div class="wo-main">
                     <div class="wo-title">
-                      <span>${titleLeft}</span>
-                      <span class="tag">${titleTag}</span>
+                      ${full} full, ${partial} partial · approx ${formatNumber(bu)} bu on hand
                     </div>
                     <div class="wo-sub">
-                      ${full} full, ${partial} partial · approx ${formatNumber(bu)} bu on hand
+                      ${d.cropType || 'Crop'}${d.cropYear ? ' • ' + d.cropYear : ''}${d.cropMoisture !== null && d.cropMoisture !== undefined ? ' • ' + d.cropMoisture + '% moisture' : ''}
                     </div>
                     <div class="wo-meta">
                       <span><span class="wo-meta-label">Farm</span> ${farmName}</span>
                       <span><span class="wo-meta-label">Field</span> ${fieldName}</span>
                       ${d.datePlaced ? `<span><span class="wo-meta-label">Placed</span> ${formatDate(d.datePlaced)}</span>` : ''}
-                      ${d.cropMoisture !== null && d.cropMoisture !== undefined ? `<span><span class="wo-meta-label">Moisture</span> ${d.cropMoisture}%</span>` : ''}
                       ${d.priority ? `<span><span class="wo-meta-label">Priority</span> ${d.priority}</span>` : ''}
                     </div>
                   </div>
@@ -700,18 +660,16 @@
       }
 
       const d = item.data;
-
       panel.dataset.id = item.id;
 
       const titleEl = panel.querySelector('.wo-detail-title');
       if(titleEl){
-        // ✅ no SKU/title clutter
-        titleEl.textContent = `${d.cropType || 'Crop'}${d.cropYear ? ' • ' + d.cropYear : ''} • Bag entry`;
+        titleEl.textContent = `${d.fullBags} full, ${d.partialBags} partial • approx ${formatNumber(d.onHandBu)} bu on hand`;
       }
 
       const grid = panel.querySelector('.wo-detail-grid');
       if(grid){
-        // ✅ Remove Bag SKU + Location notes from details panel
+        // ✅ no Bag SKU, no Location notes, no Capacity
         grid.innerHTML = `
           <div>
             <div class="wo-detail-item-label">Farm</div>
@@ -742,12 +700,6 @@
             <div class="wo-detail-item-value">${formatNumber(d.onHandBu)} bu</div>
           </div>
           <div>
-            <div class="wo-detail-item-label">Bag capacity</div>
-            <div class="wo-detail-item-value">
-              ${d.capacityBu ? formatNumber(d.capacityBu) + ' bu (all full/partial at full length)' : 'Not calculated'}
-            </div>
-          </div>
-          <div>
             <div class="wo-detail-item-label">Moisture</div>
             <div class="wo-detail-item-value">${d.cropMoisture !== null && d.cropMoisture !== undefined ? d.cropMoisture + '%' : 'Not recorded'}</div>
           </div>
@@ -772,17 +724,14 @@
       const notesEl = panel.querySelector('.wo-detail-notes-body');
       if(notesEl){
         notesEl.textContent =
-          d.notes || 'This panel shows the last known crop, crop year, and estimated grain on hand for this grain bag entry. Pick-up events will reduce the full/partial counts and may eventually mark this entry as fully picked up.';
+          d.notes || 'This panel shows the last known crop, crop year, and estimated grain on hand for this grain bag entry.';
       }
 
       const footer = panel.querySelector('.wo-detail-footer');
       if(footer){
-        const pct = (d.capacityBu > 0) ? (d.onHandBu / d.capacityBu) * 100 : null;
         footer.innerHTML = `
-          Current fill level:
           <span class="wo-detail-pill">
-            ${d.onHandBu ? formatNumber(d.onHandBu) + ' bu estimated' : 'On-hand not calculated'}
-            ${pct !== null ? ' · approx ' + pct.toFixed(1) + '% of capacity' : ''}
+            ${formatNumber(d.onHandBu)} bu estimated • ${d.fullBags} full / ${d.partialBags} partial
           </span>
         `;
       }
@@ -796,7 +745,6 @@
       const fieldSel = document.getElementById('filterField');
       if(!cropSel || !farmSel || !fieldSel) return;
 
-      // crops
       cropSel.innerHTML = '<option value="all">All crops</option>';
       const crops = Array.from(STATE.cropSet).filter(Boolean).sort((a,b)=>a.localeCompare(b));
       crops.forEach(crop => {
@@ -806,7 +754,6 @@
         cropSel.appendChild(opt);
       });
 
-      // farms
       farmSel.innerHTML = '<option value="all">All farms</option>';
       Array.from(STATE.farmMap.entries())
         .sort((a,b)=> (a[1] || '').localeCompare(b[1] || ''))
@@ -817,7 +764,6 @@
           farmSel.appendChild(opt);
         });
 
-      // fields (only ones present in items)
       fieldSel.innerHTML = '<option value="all">All fields</option>';
       const usedFieldIds = new Set(STATE.items.map(it => it.data.fieldId).filter(Boolean));
       const fieldEntries = Array.from(STATE.fieldMap.entries())
@@ -853,7 +799,6 @@
         if(fieldFilter !== 'all' && (d.fieldId || '') !== fieldFilter) return false;
 
         if(q){
-          // ✅ remove location from search
           const hay = [
             d.farmName,
             d.fieldName,
@@ -874,8 +819,7 @@
     async function loadCompanyHeader(){
       if (STATE.company) return STATE.company;
       try{
-        const [col,id] = CONFIG.COMPANY_DOC_PATH;
-        const ref = doc(STATE.db, col, id);
+        const ref = doc(STATE.db, 'company', 'main');
         const snap = await getDoc(ref);
         const d = snap.exists() ? (snap.data() || {}) : {};
         const name = d.name || '';
@@ -914,9 +858,7 @@
       if(!Number.isFinite(min) || !Number.isFinite(max)) return '';
       const dMin = new Date(min);
       const dMax = new Date(max);
-      if (dMin.toDateString() === dMax.toDateString()){
-        return formatDate(dMin);
-      }
+      if (dMin.toDateString() === dMax.toDateString()) return formatDate(dMin);
       return `${formatDate(dMin)} – ${formatDate(dMax)}`;
     }
 
@@ -926,9 +868,7 @@
       const fieldSel = document.getElementById('filterField');
       const searchEl = document.getElementById('filterSearch');
 
-      const cropLabel = (!cropSel || cropSel.value === 'all')
-        ? 'All crops'
-        : `Crop: ${cropSel.value}`;
+      const cropLabel = (!cropSel || cropSel.value === 'all') ? 'All crops' : `Crop: ${cropSel.value}`;
 
       let farmLabel = 'All farms';
       if (farmSel && farmSel.value !== 'all'){
@@ -950,7 +890,7 @@
     }
 
     function groupForPdf(items){
-      const farmMap = new Map(); // farm -> crop -> field -> [items]
+      const farmMap = new Map();
       items.forEach(it => {
         const d = it.data;
         const farm = d.farmName || 'Unknown farm';
@@ -997,18 +937,14 @@
       const runDateOnly = formatDate(now);
 
       const totalOnHandBu = items.reduce((sum,it) => sum + (Number(it.data.onHandBu) || 0), 0);
-      const totalCapacityBu = items.reduce((sum,it) => sum + (Number(it.data.capacityBu) || 0), 0);
       const totalFull = items.reduce((sum,it) => sum + (Number(it.data.fullBags) || 0), 0);
       const totalPartial = items.reduce((sum,it) => sum + (Number(it.data.partialBags) || 0), 0);
 
       const farms = new Set(items.map(it => it.data.farmId || it.data.farmName));
       const fields = new Set(items.map(it => it.data.fieldId || it.data.fieldName));
-      const bagEntries = items.length;
-      const pct = totalCapacityBu > 0 ? (totalOnHandBu / totalCapacityBu) * 100 : 0;
 
       const dateRange = computeDateRange(items);
       const filterSummary = summarizeFilters();
-      const totalRecords = items.length;
 
       const html = buildPrintHtml({
         company,
@@ -1016,10 +952,8 @@
         runDateOnly,
         dateRange,
         filterSummary,
-        totalRecords,
+        totalRecords: items.length,
         totalOnHandBu,
-        totalCapacityBu,
-        pct,
         farmCount: farms.size,
         fieldCount: fields.size,
         grouped,
@@ -1060,8 +994,6 @@
       filterSummary,
       totalRecords,
       totalOnHandBu,
-      totalCapacityBu,
-      pct,
       farmCount,
       fieldCount,
       grouped,
@@ -1127,11 +1059,9 @@
       color:#fff;
       background:radial-gradient(circle at 30% 0%, #4CAF50, var(--fv-green));
     }
-    .report-logo span{letter-spacing:0.02em;}
-    .company-block{min-width:0;}
     .company-name{
       font-size:18px;
-      font-weight:800;
+      font-weight:900;
       margin:0 0 2px;
     }
     .company-line{
@@ -1145,10 +1075,9 @@
       color:var(--fv-muted);
     }
     .report-meta-top strong{color:var(--fv-text);}
-    .report-title-block{margin-bottom:16px;}
     .report-title{
       font-size:20px;
-      font-weight:900;
+      font-weight:950;
       margin:4px 0 4px;
       letter-spacing:0.02em;
       text-transform:uppercase;
@@ -1178,12 +1107,12 @@
     .summary-label{
       text-transform:uppercase;
       letter-spacing:0.08em;
-      font-weight:700;
+      font-weight:800;
       font-size:10px;
       color:var(--fv-muted);
     }
     .summary-value{
-      font-weight:700;
+      font-weight:800;
       font-size:11px;
     }
     .section{margin-top:18px;}
@@ -1196,7 +1125,7 @@
     }
     .section-title-main{
       font-size:15px;
-      font-weight:800;
+      font-weight:900;
       letter-spacing:0.03em;
       text-transform:uppercase;
     }
@@ -1211,7 +1140,7 @@
       margin-top:6px;
     }
     .kpi-card{
-      flex:1 1 160px;
+      flex:1 1 200px;
       border-radius:10px;
       border:1px solid var(--fv-border);
       padding:9px 10px;
@@ -1234,11 +1163,11 @@
       letter-spacing:0.08em;
       color:var(--fv-muted);
       margin-bottom:2px;
-      font-weight:800;
+      font-weight:900;
     }
     .kpi-value{
       font-size:16px;
-      font-weight:900;
+      font-weight:950;
     }
     .kpi-footnote{
       font-size:10px;
@@ -1246,24 +1175,21 @@
       margin-top:2px;
       font-weight:650;
     }
+
     .section-title{
       font-size:13px;
       text-transform:uppercase;
       letter-spacing:0.12em;
       color:var(--fv-muted);
       margin:0 0 4px;
-      font-weight:800;
+      font-weight:900;
     }
-    .section-body{
-      font-size:12px;
-      line-height:1.5;
-    }
+    .section-body{ font-size:12px; line-height:1.5; }
     .crop-block{margin-top:10px;}
     .farm-title{
       font-size:13px;
-      font-weight:900;
+      font-weight:950;
       margin:10px 0 4px;
-      color:var(--fv-text);
     }
     .farm-subtitle{
       font-size:11px;
@@ -1280,8 +1206,7 @@
       background:linear-gradient(90deg, rgba(59,126,70,0.12), transparent);
       border:1px solid rgba(59,126,70,0.22);
       font-size:10px;
-      font-weight:800;
-      color:color-mix(in srgb, var(--fv-text) 80%, var(--fv-green2) 20%);
+      font-weight:900;
       white-space:nowrap;
     }
     .table-wrap{
@@ -1305,17 +1230,19 @@
       vertical-align:top;
     }
     th{
-      font-weight:900;
+      font-weight:950;
       text-transform:uppercase;
       letter-spacing:0.08em;
       font-size:10px;
       color:#3F4B46;
       border-bottom:1px solid #D1D5DB;
     }
-    tr:nth-child(even) td{
-      background:#F9FAFB;
-    }
-    .cell-right{text-align:right;}
+    tr:nth-child(even) td{ background:#F9FAFB; }
+
+    /* ✅ Center numbers under headings */
+    .num, th.num{ text-align:center; }
+    .right{ text-align:right; }
+
     .report-footer{
       margin-top:18px;
       padding-top:8px;
@@ -1343,10 +1270,8 @@
 <body>
   <div class="page">
     <header class="report-header">
-      <div class="report-logo">
-        <span>DF</span>
-      </div>
-      <div class="company-block">
+      <div class="report-logo"><span>DF</span></div>
+      <div>
         <p class="company-name">${escapeHtml(company.name || '')}</p>
         <p class="company-line">
           ${company.address ? escapeHtml(company.address) + '<br>' : ''}
@@ -1361,7 +1286,7 @@
       </div>
     </header>
 
-    <section class="report-title-block">
+    <section>
       <h1 class="report-title">Grain Bag Inventory</h1>
       <p class="report-subtitle">Estimated grain on hand in field grain bags, grouped by farm, crop, and field.</p>
 
@@ -1384,7 +1309,7 @@
     <section class="section">
       <div class="section-heading-row">
         <div class="section-title-main">Key Metrics</div>
-        <div class="section-note">Snapshot at time of generation. Bushels are estimated from bag length and diameter.</div>
+        <div class="section-note">Snapshot at time of generation. Bushels are estimated.</div>
       </div>
       <div class="kpi-row">
         <div class="kpi-card">
@@ -1400,12 +1325,6 @@
         </div>
 
         <div class="kpi-card">
-          <div class="kpi-label">Tracked bag capacity</div>
-          <div class="kpi-value">${formatNumber(totalCapacityBu)} bu</div>
-          <div class="kpi-footnote">${totalCapacityBu > 0 ? ('Approx. ' + pct.toFixed(1) + '% filled') : 'Capacity not fully defined'}</div>
-        </div>
-
-        <div class="kpi-card">
           <div class="kpi-label">Farms & fields</div>
           <div class="kpi-value">${farmCount} farms / ${fieldCount} fields</div>
           <div class="kpi-footnote">With non-zero estimated grain on hand</div>
@@ -1418,11 +1337,12 @@
       <div class="section-body">
         ${grouped.map(([farmName, cropMap]) => {
           const cropsArr = Array.from(cropMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
-          const bagCount = cropsArr.reduce((sum, [, fieldMap]) =>
+          const entryCount = cropsArr.reduce((sum, [, fieldMap]) =>
             sum + Array.from(fieldMap.values()).reduce((s, arr) => s + arr.length, 0), 0);
+
           return `
           <div class="crop-block">
-            <div class="farm-title">${escapeHtml(farmName)} <span class="pill">${bagCount} open entry${bagCount===1?'':'ies'}</span></div>
+            <div class="farm-title">${escapeHtml(farmName)} <span class="pill">${entryCount} open entry${entryCount===1?'':'ies'}</span></div>
             ${cropsArr.map(([cropName, fieldMap]) => {
               const fieldsArr = Array.from(fieldMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
               return `
@@ -1431,23 +1351,24 @@
                   const fieldTotal = arr.reduce((s,it)=> s + (Number(it.data.onHandBu) || 0), 0);
                   const fieldFull = arr.reduce((s,it)=> s + (Number(it.data.fullBags) || 0), 0);
                   const fieldPartial = arr.reduce((s,it)=> s + (Number(it.data.partialBags) || 0), 0);
+
                   return `
                     <div class="farm-subtitle" style="margin-left:8px;margin-top:3px;">
                       <strong>${escapeHtml(fieldName)}</strong>
                       • <span class="pill">${fieldFull} full / ${fieldPartial} partial</span>
                       • approx ${formatNumber(fieldTotal)} bu on hand
                     </div>
+
                     <div class="table-wrap" style="margin-left:8px;">
                       <table>
                         <thead>
                           <tr>
-                            <th style="width:10%">Full</th>
-                            <th style="width:10%">Partial</th>
-                            <th style="width:20%">Est. on hand (bu)</th>
-                            <th style="width:16%">Bag capacity (bu)</th>
-                            <th style="width:12%">Crop year</th>
+                            <th class="num" style="width:10%">Full</th>
+                            <th class="num" style="width:10%">Partial</th>
+                            <th class="num" style="width:22%">Est. on hand (bu)</th>
+                            <th style="width:14%">Crop year</th>
                             <th style="width:12%">Moisture</th>
-                            <th style="width:20%">Placed</th>
+                            <th style="width:32%">Placed</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1455,10 +1376,9 @@
                             const d = it.data;
                             return `
                               <tr>
-                                <td class="cell-right">${d.fullBags}</td>
-                                <td class="cell-right">${d.partialBags}</td>
-                                <td class="cell-right">${formatNumber(d.onHandBu)}</td>
-                                <td class="cell-right">${d.capacityBu ? formatNumber(d.capacityBu) : ''}</td>
+                                <td class="num">${d.fullBags}</td>
+                                <td class="num">${d.partialBags}</td>
+                                <td class="num">${formatNumber(d.onHandBu)}</td>
                                 <td>${d.cropYear ? escapeHtml(String(d.cropYear)) : ''}</td>
                                 <td>${d.cropMoisture !== null && d.cropMoisture !== undefined ? d.cropMoisture + '%' : ''}</td>
                                 <td>${d.datePlaced ? escapeHtml(formatDate(d.datePlaced)) : ''}</td>
@@ -1480,7 +1400,7 @@
 
     <footer class="report-footer">
       <div class="footer-left">
-        Internal use only. Values reflect open bag entries in FarmVista. Bushels are estimated; adjust conversion factors as needed for your operation.
+        Internal use only. Values reflect open bag entries in FarmVista. Bushels are estimated.
       </div>
       <div class="footer-right">
         FarmVista • Grain Bag Inventory • ${escapeHtml(runDateOnly || '')}
@@ -1491,7 +1411,6 @@
 </html>`;
     }
 
-    // ---------- Performance helpers: fetch only the fields/farms we actually need ----------
     async function fetchDocsByIds(collectionName, ids, concurrency){
       const db = STATE.db;
       const list = Array.from(ids || []).filter(Boolean);
@@ -1506,9 +1425,7 @@
           try{
             const snap = await getDoc(doc(db, collectionName, id));
             if(snap.exists()) out.set(id, snap.data() || {});
-          }catch(e){
-            // keep going
-          }
+          }catch(e){}
         }
       });
 
@@ -1517,33 +1434,23 @@
     }
 
     function hydrateNamesFromCaches(){
-      // Update any items that have IDs and can be resolved from caches
       let fieldsResolved = 0;
       let farmsResolved = 0;
 
       for(const it of STATE.items){
         const d = it.data;
 
-        // Resolve field -> farm link
         if(d.fieldId && STATE.fieldMap.has(d.fieldId)){
           const meta = STATE.fieldMap.get(d.fieldId);
-          if(meta?.fieldName && (d.fieldName === 'Unknown field' || !d.fieldName)){
-            d.fieldName = meta.fieldName;
-          }
-          if(meta?.farmId && (!d.farmId || d.farmId === 'unknown')){
-            d.farmId = meta.farmId;
-          }
-          if(meta?.farmName && (d.farmName === 'Unknown farm' || !d.farmName)){
-            d.farmName = meta.farmName;
-          }
+          if(meta?.fieldName && (d.fieldName === 'Unknown field' || !d.fieldName)) d.fieldName = meta.fieldName;
+          if(meta?.farmId && (!d.farmId || d.farmId === 'unknown')) d.farmId = meta.farmId;
+          if(meta?.farmName && (d.farmName === 'Unknown farm' || !d.farmName)) d.farmName = meta.farmName;
           fieldsResolved++;
         }
 
         if(d.farmId && STATE.farmMap.has(d.farmId)){
           const name = STATE.farmMap.get(d.farmId);
-          if(name && (d.farmName === 'Unknown farm' || !d.farmName)){
-            d.farmName = name;
-          }
+          if(name && (d.farmName === 'Unknown farm' || !d.farmName)) d.farmName = name;
           farmsResolved++;
         }
       }
@@ -1553,17 +1460,9 @@
     }
 
     async function resolveFieldAndFarmNamesFromEvents(){
-      // Step 1: collect needed fieldIds from events
-      const fieldIds = new Set(
-        STATE.items
-          .map(it => it.data.fieldId)
-          .filter(Boolean)
-      );
-
-      // Fetch only those field docs (instead of scanning the whole collection)
+      const fieldIds = new Set(STATE.items.map(it => it.data.fieldId).filter(Boolean));
       const fieldDocs = await fetchDocsByIds(CONFIG.FIELDS_COLLECTION, fieldIds, CONFIG.FETCH_CONCURRENCY);
 
-      // Build fieldMap + collect farmIds
       const farmIds = new Set();
       for(const [fieldId, data] of fieldDocs.entries()){
         const fieldName = data.name || data.fieldName || 'Unnamed field';
@@ -1571,11 +1470,7 @@
         const farmNameInline = data.farmName || data.farm?.name || null;
 
         if(farmId) farmIds.add(farmId);
-
-        // seed farm name if present on field doc
-        if(farmId && farmNameInline && !STATE.farmMap.has(farmId)){
-          STATE.farmMap.set(farmId, farmNameInline);
-        }
+        if(farmId && farmNameInline && !STATE.farmMap.has(farmId)) STATE.farmMap.set(farmId, farmNameInline);
 
         STATE.fieldMap.set(fieldId, {
           fieldId,
@@ -1585,22 +1480,15 @@
         });
       }
 
-      // Step 2: fetch only farm docs needed (for clean labels)
       const farmDocs = await fetchDocsByIds(CONFIG.FARMS_COLLECTION, farmIds, CONFIG.FETCH_CONCURRENCY);
       for(const [farmId, data] of farmDocs.entries()){
         const label = data.name || data.farmName || 'Unnamed farm';
-        if(!STATE.farmMap.has(farmId)) STATE.farmMap.set(farmId, label);
-        else {
-          // overwrite "Unknown" or blank with real label
-          const cur = STATE.farmMap.get(farmId);
-          if(!cur || cur === 'Unknown farm') STATE.farmMap.set(farmId, label);
-        }
+        const cur = STATE.farmMap.get(farmId);
+        if(!cur || cur === 'Unknown farm') STATE.farmMap.set(farmId, label);
       }
     }
 
     async function loadGrainBagInventoryFastFirst(){
-      // Load events ASAP, render with what we already have (field.name embedded),
-      // then resolve field/farm names in background and re-render.
       const db = STATE.db;
       const ref = collection(db, CONFIG.EVENTS_COLLECTION);
 
@@ -1611,7 +1499,6 @@
         snap.forEach(docSnap => {
           const x = docSnap.data() || {};
 
-          // Only putDown events that are not fully picked up/closed
           if(x.type !== 'putDown') return;
           if(x.status === 'pickedUp') return;
 
@@ -1624,7 +1511,6 @@
           const fieldId = x.field?.id || null;
           const fieldName = x.field?.name || 'Unknown field';
 
-          // If event carries farm info, use it. Otherwise we’ll resolve later via field doc.
           const farmId = x.farm?.id || x.farmId || null;
           const farmName = x.farm?.name || x.farmName || 'Unknown farm';
           if(farmId && farmName && !STATE.farmMap.has(farmId)) STATE.farmMap.set(farmId, farmName);
@@ -1632,40 +1518,27 @@
           const cropType = x.cropType || x.crop || 'Unknown crop';
           const cropYear = x.cropYear || null;
 
-          // Bag SKU (kept for capacity math, but NOT shown in UI/report)
           const sku = x.bagSku || {};
           const sizeFeet = Number(sku.sizeFeet || sku.lengthFt || 0);
           const diameterFt = Number(sku.diameterFt || sku.diameter || 0);
-          const skuBrand = sku.brand || 'Bag';
-          const skuLocation = sku.location || '';
 
           const buPerFoot = estimateBuPerFoot(diameterFt);
           const capPerBagBu = (sizeFeet > 0 && buPerFoot > 0) ? sizeFeet * buPerFoot : 0;
 
-          const capacityBu = capPerBagBu * (full + partial);
           const onHandBagEq = full + 0.5 * partial;
           const onHandBu = capPerBagBu > 0 ? onHandBagEq * capPerBagBu : 0;
 
-          // Dates
           let updatedAt = null;
           const rawUpdated = x.updatedAt || x.createdAt || null;
-          if(rawUpdated && typeof rawUpdated.toDate === 'function'){
-            updatedAt = rawUpdated.toDate();
-          }else if(typeof rawUpdated === 'number'){
-            updatedAt = new Date(rawUpdated);
-          }
+          if(rawUpdated && typeof rawUpdated.toDate === 'function') updatedAt = rawUpdated.toDate();
+          else if(typeof rawUpdated === 'number') updatedAt = new Date(rawUpdated);
 
           let datePlaced = null;
           if(typeof x.datePlaced === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x.datePlaced)){
             datePlaced = new Date(x.datePlaced + 'T00:00:00');
           }
 
-          const submittedByName =
-            x.submittedBy?.name ||
-            x.submittedBy?.email ||
-            '';
-
-          const updatedBy = submittedByName;
+          const submittedByName = x.submittedBy?.name || x.submittedBy?.email || '';
 
           items.push({
             id: docSnap.id,
@@ -1679,24 +1552,20 @@
               datePlaced,
               cropMoisture: (x.cropMoisture !== undefined ? x.cropMoisture : null),
 
-              // still stored for assumptions/math, but no longer displayed:
-              skuBrand,
-              skuSizeFeet: sizeFeet || null,
-              skuDiameterFt: diameterFt || null,
-              skuLocation,
-
               fullBags: full,
               partialBags: partial,
               totalBags,
+
+              // math only
               buPerFoot,
               capPerBagBu,
-              capacityBu,
               onHandBu,
+
               priority: x.priority || null,
               notes: x.notes || '',
               submittedByName,
               updatedAt,
-              updatedBy
+              updatedBy: submittedByName
             }
           });
 
@@ -1717,11 +1586,8 @@
       }
     }
 
-    // ---------- boot ----------
     (async function boot(){
       STATE.stats.t0 = nowMs();
-
-      // show an immediate status so iOS doesn't look "stuck"
       setSummaryText('Loading grain bag inventory…', 'Starting…');
 
       await ready;
@@ -1730,7 +1596,6 @@
       const shell = document.querySelector('fv-shell');
       if (shell) shell.nav = NAV_MENU;
 
-      // Back button (no history logic - stable)
       const backBtn = document.getElementById('btnBack');
       if(backBtn){
         backBtn.addEventListener('click', () => {
@@ -1738,7 +1603,6 @@
         });
       }
 
-      // Close detail panel
       const closeBtn = document.getElementById('woDetailClose');
       if(closeBtn){
         closeBtn.addEventListener('click', () => {
@@ -1747,7 +1611,6 @@
         });
       }
 
-      // Event delegation for card clicks (fast / fewer listeners)
       const listEl = document.querySelector('.wo-list');
       if(listEl){
         listEl.addEventListener('click', (e) => {
@@ -1760,7 +1623,6 @@
         }, { passive: true });
       }
 
-      // Filters wiring (debounced search)
       const cropSel  = document.getElementById('filterCrop');
       const farmSel  = document.getElementById('filterFarm');
       const fieldSel = document.getElementById('filterField');
@@ -1784,39 +1646,29 @@
         });
       }
 
-      // Print buttons
       const printTop = document.getElementById('btnPrint');
       const printBottom = document.getElementById('btnPrintBottom');
       if (printTop)    printTop.addEventListener('click', handlePrintClick);
       if (printBottom) printBottom.addEventListener('click', handlePrintClick);
 
-      // 1) Load events first (fastest visible path)
       setSummaryText('Loading grain bag inventory…', 'Loading bag events…');
       await loadGrainBagInventoryFastFirst();
 
-      // Yield once before heavy DOM work (helps iOS)
       if(CONFIG.RENDER_YIELD_MS >= 0){
         await new Promise(r => setTimeout(r, CONFIG.RENDER_YIELD_MS));
       }
 
-      // First render with whatever names we already have
       applyFilters();
 
-      // 2) Resolve field/farm names in background (only what we need), then re-render once
       setSummaryText('Grain bag inventory loaded.', 'Resolving field / farm names…');
-
-      try{
-        await resolveFieldAndFarmNamesFromEvents();
-      }catch(e){
+      try{ await resolveFieldAndFarmNamesFromEvents(); }catch(e){
         console.warn('[grain-bag-inventory] name resolution failed', e);
       }
 
-      // apply caches to items + rebuild filters and list
       hydrateNamesFromCaches();
       populateFiltersFromItems();
       applyFilters();
 
-      // Final status line
       const dt = Math.max(1, Math.round(nowMs() - STATE.stats.t0));
       setSummaryText(
         document.getElementById('gbSummary')?.firstChild?.textContent || 'Grain bag inventory loaded.',
@@ -1857,7 +1709,6 @@
           </div>
 
           <div class="filters">
-            <!-- SEARCH ON TOP -->
             <div class="filter-field filter-search">
               <label class="filter-label" for="filterSearch">Search</label>
               <input
@@ -1909,18 +1760,14 @@
               </button>
             </div>
 
-            <div class="wo-detail-grid">
-              <!-- filled by JS -->
-            </div>
+            <div class="wo-detail-grid"></div>
 
             <div class="wo-detail-notes">
               <div class="wo-detail-notes-label">Notes</div>
               <div class="wo-detail-notes-body"></div>
             </div>
 
-            <div class="wo-detail-footer">
-              <!-- status pill by JS -->
-            </div>
+            <div class="wo-detail-footer"></div>
           </section>
 
           <div class="bottom-actions">
@@ -1932,7 +1779,6 @@
       </section>
     </div>
 
-    <!-- Hidden iframe used for print so we don't open a new tab -->
     <iframe id="fv-print-frame"></iframe>
   </fv-shell>
 </body>
