@@ -1,22 +1,19 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/crop-aerial-view.html  (FULL FILE)
-Rev: 2025-12-19f
-Purpose:
- • View / Edit Aerial Application Jobs
- • Filters: Search + Crop + Crop Year + Release Date Range (FV date range picker)
- • Default load: most recent 50 jobNumbers (desc)
- • When crop/year or date range applied: loads up to 1000 matches
- • Summary tiles: NO status and NO status bubble
- • Details: Edit/Save/Cancel + Delete (type YES) aligned across from Created row
- • Trial info: ONLY shows if trialLink.enabled && trialLink.assignments.length
-    - Trial name (from fieldTrials/{trialId}.trialName)
-    - List of field names in that trial (from job.fields by fieldId)
- • Fix: Crop/Crop Year selects no longer go behind the date range popover
- • Fix: No dead space from control column hacks (controls are in Created row)
-NOTES:
- • Verify Firestore collection name:
-     COLLECTION_AERIAL: 'aerial_applications'
-   Change if your collection name differs.
+Rev: 2025-12-19g
+Fixes in this version:
+1) Jobs auto-load reliably (no more “must click Loading jobs…”)
+   - Boot does an immediate load + one automatic safety retry if still not loaded.
+2) Delete button moved to LOWER RIGHT of the details panel (like your screenshot)
+   - Edit stays aligned with Created (perfect as-is)
+   - Trash is now a bottom-right “floating” button inside the details card
+   - Disabled/greyed unless delete permission; disabled while editing; still uses YES modal
+Everything else kept from your last working version (Rev f):
+- Search + Crop + Crop Year + Date range picker
+- Default load last 50 by jobNumber desc
+- Filter loads up to 1000
+- No status in tiles
+- Trial info only when trialLink.assignments exist
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -225,6 +222,7 @@ NOTES:
       background:var(--card-surface, var(--surface));
       font-size:0.95rem;
       opacity:0.9;
+      cursor:pointer;
     }
 
     .aerial-card{
@@ -288,6 +286,7 @@ NOTES:
       display:none;
       flex-direction:column;
       gap:10px;
+      position:relative; /* ✅ for bottom-right delete button */
     }
 
     .detail-header{
@@ -410,30 +409,41 @@ NOTES:
       white-space:nowrap;
     }
 
-    .trash-btn{
-      width:34px;
-      height:34px;
+    /* Delete button moved to lower-right */
+    .trash-fab{
+      position:absolute;
+      right:14px;
+      bottom:14px;
+      width:38px;
+      height:38px;
       border-radius:999px;
       border:1px solid var(--danger);
       background:transparent;
       color:var(--danger);
-      display:inline-flex;
+      display:none;          /* shown only when a job is selected */
       align-items:center;
       justify-content:center;
       cursor:pointer;
       -webkit-appearance:none;
       appearance:none;
+      box-shadow:0 6px 16px rgba(0,0,0,.10);
     }
-    .trash-btn svg{ width:16px; height:16px; display:block; fill: currentColor; }
-    .trash-btn:hover{ background: rgba(197,48,48,0.08); }
-    .trash-btn:disabled{
+    .trash-fab svg{ width:16px; height:16px; display:block; fill: currentColor; }
+    .trash-fab:hover{ background: rgba(197,48,48,0.08); }
+    .trash-fab:disabled{
       opacity:.35;
       cursor:not-allowed;
       border-color: color-mix(in srgb, var(--border) 70%, var(--danger) 30%);
       color: color-mix(in srgb, var(--muted,#67706B) 75%, var(--danger) 25%);
       background:transparent;
+      box-shadow:none;
     }
-    .trash-btn:disabled:hover{ background:transparent; }
+    .trash-fab:disabled:hover{ background:transparent; }
+
+    /* Add a little padding so FAB never covers last content */
+    .detail-panel.has-trash{
+      padding-bottom: 64px;
+    }
 
     .detail-notes{
       margin-top:2px;
@@ -806,6 +816,7 @@ NOTES:
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const CONFIG = {
+      // ⚠️ VERIFY THIS MATCHES YOUR FIRESTORE COLLECTION NAME EXACTLY
       COLLECTION_AERIAL: 'aerial_applications',
       COLLECTION_TRIALS: 'fieldTrials',
       BACK_URL: '/Farm-vista/pages/crop-production/crop-aerial.html',
@@ -843,8 +854,6 @@ NOTES:
       trashBtn: null,
       canDelete: false
     };
-
-    const $  = (sel, root=document) => root.querySelector(sel);
 
     async function safeReady(){
       if(typeof ready === 'function') return await ready();
@@ -1231,7 +1240,10 @@ NOTES:
     // ---------- Details ----------
     function clearDetails(){
       const panel = document.getElementById('detailPanel');
-      if(panel) panel.style.display = 'none';
+      if(panel){
+        panel.style.display = 'none';
+        panel.classList.remove('has-trash');
+      }
 
       const grid = document.getElementById('detailGrid');
       if(grid) grid.innerHTML = '';
@@ -1255,6 +1267,9 @@ NOTES:
         titleInput.value = '';
         titleInput.style.display = 'none';
       }
+
+      // Hide trash
+      if(UI.trashBtn) UI.trashBtn.style.display = 'none';
 
       STATE.isEditing = false;
       STATE.isEditingTitle = false;
@@ -1375,12 +1390,6 @@ NOTES:
           slot.appendChild(UI.editBtn);
         }
       }
-
-      if(UI.trashBtn){
-        UI.trashBtn.style.display = 'inline-flex';
-        UI.trashBtn.disabled = !(UI.canDelete && STATE.selectedId && !STATE.isEditing);
-        slot.appendChild(UI.trashBtn);
-      }
     }
 
     async function renderDetails(){
@@ -1401,7 +1410,6 @@ NOTES:
       const totalTill = d.totalTillableAcres;
       const submittedBy = d.submittedBy || d.submittedByEmail || '';
       const notes = d.notes || '';
-
       const createdAt = d.createdAt?.toDate ? d.createdAt.toDate() : (d.createdAt ? new Date(d.createdAt) : null);
 
       // Trial info only when assignments exist
@@ -1455,7 +1463,6 @@ NOTES:
           </div>
         `;
 
-        // ✅ Created row with controls on the right (always present)
         const createdText = createdAt ? createdAt.toLocaleString() : '';
         html += `
           <div class="created-actions-row">
@@ -1470,7 +1477,6 @@ NOTES:
           </div>
         `;
 
-        // ✅ Trial block (only when needed)
         if(showTrial){
           html += `
             <div class="trial-block">
@@ -1493,8 +1499,16 @@ NOTES:
       renderAttachments(d);
       renderFieldsList(d);
 
+      // Show details
       panel.style.display = 'flex';
+
+      // Slot buttons (Edit or Save/Cancel)
       slotControls('view');
+
+      // Show bottom-right delete
+      UI.trashBtn.style.display = 'inline-flex';
+      UI.trashBtn.disabled = !(UI.canDelete && STATE.selectedId && !STATE.isEditing);
+      panel.classList.add('has-trash');
     }
 
     function enterEdit(){
@@ -1585,6 +1599,9 @@ NOTES:
       }
 
       slotControls('edit');
+
+      // Disable delete while editing
+      UI.trashBtn.disabled = true;
     }
 
     async function saveEdit(){
@@ -1755,6 +1772,8 @@ NOTES:
              u.endsWith('.gif') || u.endsWith('.webp') || u.endsWith('.heic');
     }
 
+    let fileModal, fileBackdrop, fileCloseBtn, fileContentWrap;
+
     function openFileViewer(att){
       if(!fileModal || !fileContentWrap || !att || !att.url) return;
       fileContentWrap.innerHTML = '';
@@ -1879,6 +1898,7 @@ NOTES:
       if(UI.trashBtn){
         UI.trashBtn.disabled = !UI.canDelete;
         UI.trashBtn.title = UI.canDelete ? 'Delete job' : 'No permission to delete';
+        UI.trashBtn.style.display = 'none';
       }
 
       // Back (history-first)
@@ -1950,7 +1970,7 @@ NOTES:
         });
       }
 
-      // Retry
+      // Retry (still okay to keep, but not required anymore)
       const emptyEl = document.getElementById('listEmpty');
       if(emptyEl){
         emptyEl.addEventListener('click', ()=>{
@@ -1973,7 +1993,7 @@ NOTES:
       if(UI.saveBtn) UI.saveBtn.addEventListener('click', ()=> { if(STATE.selectedId) saveEdit(); });
       if(UI.cancelBtn) UI.cancelBtn.addEventListener('click', ()=> { if(STATE.selectedId) cancelEdit(); });
 
-      // Delete
+      // Delete (now bottom-right)
       if(UI.trashBtn){
         UI.trashBtn.addEventListener('click', (e)=>{
           e.stopPropagation();
@@ -2012,7 +2032,14 @@ NOTES:
       if(fileBackdrop) fileBackdrop.addEventListener('click', closeFileViewer);
       if(fileCloseBtn) fileCloseBtn.addEventListener('click', closeFileViewer);
 
+      // ✅ FIX: force auto-load + safety retry (no more “click Loading jobs…”)
       await loadAll();
+      setTimeout(() => {
+        // If we’re still not loaded (or still showing Loading…), try one more time automatically.
+        if(!STATE.loaded && !STATE.isLoading){
+          loadAll();
+        }
+      }, 700);
     })();
 
     window.addEventListener('focus', () => resume());
@@ -2153,7 +2180,8 @@ NOTES:
         <button type="button" id="saveBtn" class="btn btn-quiet" style="display:none;">Save</button>
         <button type="button" id="cancelBtn" class="btn btn-quiet" style="display:none;">Cancel</button>
 
-        <button type="button" id="trashBtn" class="trash-btn" aria-label="Delete job" title="Delete job" style="display:none;">
+        <!-- Delete button now lower-right -->
+        <button type="button" id="trashBtn" class="trash-fab" aria-label="Delete job" title="Delete job">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M9 3a1 1 0 0 0-.894.553L7.382 5H5a1 1 0 1 0 0 2h.293l.853 11.093A2 2 0 0 0 8.14 20h7.72a2 2 0 0 0 1.994-1.907L18.707 7H19a1 1 0 1 0 0-2h-2.382l-.724-1.447A1 1 0 0 0 15 3H9Zm1.118 4a1 1 0 0 0-.996 1.09l.5 8a1 1 0 1 0 1.996-.124l-.5-8A1 1 0 0 0 10.118 7Zm3.764 0a1 1 0 0 0-.882 1.09l.5 8a1 1 0 0 0 1.996-.124l-.5-8A1 1 0 0 0 13.882 7Z" fill="currentColor"/>
           </svg>
