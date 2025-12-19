@@ -1,22 +1,22 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/crop-aerial-view.html  (FULL FILE)
-Rev: 2025-12-19e
-What’s fixed in this version (per your “just finish it” request):
- ✅ Dropdown stacking: Crop / Crop Year selects now stay ABOVE the date-range popover
- ✅ Detail layout: Edit + Trash ALWAYS stay pinned FAR RIGHT (even when NO trial info)
- ✅ Removed “Actions” section entirely (gone)
- ✅ Trial info: ONLY shows if trialLink.assignments exist:
-      - Trial Name
-      - List of assigned fields
- ✅ Delete button: red trash beside Edit (disabled/grey unless delete permission)
- ✅ Delete modal: FV themed “type YES” confirmation
- ✅ Default load: last 50 by jobNumber (desc)
- ✅ When crop/year or date range is applied: loads up to 1000 matches
- ✅ Back button: history-first fallback (no more 404)
-
-NOTE: Your collection is currently set to:
-  COLLECTION_AERIAL: 'aerial_applications'
-If your Firestore collection name is different, change that one line.
+Rev: 2025-12-19f
+Purpose:
+ • View / Edit Aerial Application Jobs
+ • Filters: Search + Crop + Crop Year + Release Date Range (FV date range picker)
+ • Default load: most recent 50 jobNumbers (desc)
+ • When crop/year or date range applied: loads up to 1000 matches
+ • Summary tiles: NO status and NO status bubble
+ • Details: Edit/Save/Cancel + Delete (type YES) aligned across from Created row
+ • Trial info: ONLY shows if trialLink.enabled && trialLink.assignments.length
+    - Trial name (from fieldTrials/{trialId}.trialName)
+    - List of field names in that trial (from job.fields by fieldId)
+ • Fix: Crop/Crop Year selects no longer go behind the date range popover
+ • Fix: No dead space from control column hacks (controls are in Created row)
+NOTES:
+ • Verify Firestore collection name:
+     COLLECTION_AERIAL: 'aerial_applications'
+   Change if your collection name differs.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -240,15 +240,11 @@ If your Firestore collection name is different, change that one line.
       transition:transform .06s, box-shadow .12s, border-color .12s, background .12s;
       cursor:pointer;
     }
-
     .aerial-card:active{ transform:scale(.995); box-shadow:var(--shadow); }
 
     .aerial-row-top{ display:flex; align-items:flex-start; gap:10px; }
-
     .aerial-main{ flex:1 1 auto; min-width:0; padding-right:12px; }
-
     .aerial-title{ font-weight:900; font-size:1.02rem; line-height:1.25; }
-
     .aerial-sub{ font-size:0.88rem; opacity:0.9; margin-top:2px; }
 
     .aerial-meta{
@@ -259,7 +255,6 @@ If your Firestore collection name is different, change that one line.
       flex-wrap:wrap;
       gap:6px 10px;
     }
-
     .aerial-meta span{
       display:inline-flex;
       align-items:center;
@@ -268,7 +263,6 @@ If your Firestore collection name is different, change that one line.
       border-radius:999px;
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
     }
-
     .aerial-meta-label{ font-weight:900; }
     .aerial-meta-value{ font-weight:900; }
 
@@ -367,17 +361,14 @@ If your Firestore collection name is different, change that one line.
       border:0;
     }
 
-    /* ✅ Key: on desktop we reserve a fixed right column */
     .detail-grid{
       display:grid;
-      grid-template-columns: minmax(0,1fr);
+      grid-template-columns:minmax(0,1fr);
       gap:8px 16px;
       align-items:start;
     }
     @media (min-width:700px){
-      .detail-grid{
-        grid-template-columns: minmax(0,1fr) minmax(180px,240px);
-      }
+      .detail-grid{ grid-template-columns:repeat(2, minmax(0,1fr)); }
     }
 
     .detail-item-label{
@@ -387,40 +378,27 @@ If your Firestore collection name is different, change that one line.
       opacity:0.7;
       margin-bottom:1px;
     }
-
     .detail-item-value{ font-size:0.94rem; }
 
-    /* Left info cells stay in left column on desktop */
-    .detail-cell{ }
-    @media (min-width:700px){
-      .detail-cell{ grid-column:1; }
-    }
-
-    /* ✅ Controls are pinned far-right and span rows */
-    .detail-right-col{
+    /* ✅ Controls aligned across from Created (always in the same row) */
+    .created-actions-row{
+      grid-column: 1 / -1;
       display:flex;
-      justify-content:flex-end;
       align-items:flex-start;
+      justify-content:space-between;
+      gap:16px;
+      padding-top:2px;
     }
-    @media (min-width:700px){
-  .detail-right-col{
-    grid-column:2;
-    grid-row:1;              /* ✅ DO NOT span rows */
-    align-self:start;        /* keep it at the top */
-    justify-self:end;        /* far right */
-  }
-}
-
-
-    .detail-right-slot{
+    .created-actions-left{ min-width:0; }
+    .created-actions-right{
       display:flex;
       justify-content:flex-end;
       align-items:center;
       gap:8px;
-      width:100%;
+      flex-shrink:0;
     }
 
-    /* Smaller header-action buttons */
+    /* Small header-action buttons */
     #editBtn.edit-inline,
     #saveBtn.edit-inline,
     #cancelBtn.edit-inline{
@@ -485,11 +463,7 @@ If your Firestore collection name is different, change that one line.
       opacity:0.7;
       margin-bottom:4px;
     }
-    .attachments-grid{
-      display:flex;
-      flex-wrap:wrap;
-      gap:8px;
-    }
+    .attachments-grid{ display:flex; flex-wrap:wrap; gap:8px; }
     .attachment-thumb{
       width:64px;
       height:64px;
@@ -504,12 +478,7 @@ If your Firestore collection name is different, change that one line.
       cursor:pointer;
       padding:0;
     }
-    .attachment-thumb img{
-      width:100%;
-      height:100%;
-      object-fit:cover;
-      display:block;
-    }
+    .attachment-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
     .attachment-empty{ font-size:0.86rem; opacity:0.8; }
 
     .fields-block{
@@ -525,11 +494,7 @@ If your Firestore collection name is different, change that one line.
       opacity:0.7;
       margin-bottom:4px;
     }
-    .fields-list{
-      display:flex;
-      flex-direction:column;
-      gap:4px;
-    }
+    .fields-list{ display:flex; flex-direction:column; gap:4px; }
     .field-row{
       padding:6px 8px;
       border-radius:8px;
@@ -538,13 +503,24 @@ If your Firestore collection name is different, change that one line.
     .field-name{ font-weight:900; font-size:0.92rem; }
     .field-meta{ font-size:0.82rem; opacity:0.85; margin-top:1px; }
 
+    .trial-block{
+      grid-column: 1 / -1;
+      border-top:1px solid var(--border);
+      padding-top:10px;
+      margin-top:2px;
+    }
+    .trial-name{
+      font-weight:900;
+      font-size:0.98rem;
+      margin-top:2px;
+    }
     .trial-field-line{
       padding:6px 8px;
       border-radius:8px;
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
       font-size:0.88rem;
       font-weight:800;
-      margin-top:4px;
+      margin-top:6px;
     }
 
     .toast{
@@ -740,7 +716,7 @@ If your Firestore collection name is different, change that one line.
     .cal-btn.apply{
       background:var(--accent);
       border-color:var(--accent);
-      color:#fff !important; /* Apply text white */
+      color:#fff !important;
     }
 
     /* Delete modal */
@@ -830,7 +806,6 @@ If your Firestore collection name is different, change that one line.
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const CONFIG = {
-      // ⚠️ If jobs don’t load, this is the #1 line to verify.
       COLLECTION_AERIAL: 'aerial_applications',
       COLLECTION_TRIALS: 'fieldTrials',
       BACK_URL: '/Farm-vista/pages/crop-production/crop-aerial.html',
@@ -848,21 +823,17 @@ If your Firestore collection name is different, change that one line.
       db: null,
       loaded: false,
       isLoading: false,
-
       allItems: [],
       items: [],
       selectedId: null,
-
       search: '',
       fromYmd: '',
       toYmd: '',
       crop: 'all',
       cropYear: 'all',
-
       isEditing: false,
       isEditingTitle: false,
-
-      trialCache: {} // trialId -> { trialName }
+      trialCache: {}
     };
 
     const UI = {
@@ -872,6 +843,8 @@ If your Firestore collection name is different, change that one line.
       trashBtn: null,
       canDelete: false
     };
+
+    const $  = (sel, root=document) => root.querySelector(sel);
 
     async function safeReady(){
       if(typeof ready === 'function') return await ready();
@@ -911,6 +884,15 @@ If your Firestore collection name is different, change that one line.
       const n = Number(value);
       if(!isFinite(n)) return null;
       return n.toFixed(decimals);
+    }
+
+    function showToast(message){
+      const el = document.getElementById('toast');
+      if(!el) return;
+      el.textContent = message || 'Saved.';
+      el.classList.remove('show');
+      void el.offsetWidth;
+      el.classList.add('show');
     }
 
     function ymdFromDate(date){
@@ -956,45 +938,6 @@ If your Firestore collection name is different, change that one line.
       return `${job} ${crop} ${year} ${farm} ${fieldNames}`.toLowerCase();
     }
 
-    function showToast(message){
-      const el = document.getElementById('toast');
-      if(!el) return;
-      el.textContent = message || 'Saved.';
-      el.classList.remove('show');
-      void el.offsetWidth;
-      el.classList.add('show');
-    }
-
-    // Prefs
-    function loadPrefs(){
-      try{
-        STATE.search = (localStorage.getItem(STORAGE_KEYS.SEARCH) || '').toString();
-        STATE.crop = (localStorage.getItem(STORAGE_KEYS.CROP) || 'all').toString();
-        STATE.cropYear = (localStorage.getItem(STORAGE_KEYS.YEAR) || 'all').toString();
-
-        const rangeText = (localStorage.getItem(STORAGE_KEYS.RANGE) || '').toString();
-        const jobInput = document.getElementById('jobRangeInput');
-        if(jobInput) jobInput.value = rangeText;
-
-        deriveRangeFromPickerText();
-      }catch{
-        STATE.search = '';
-        STATE.crop = 'all';
-        STATE.cropYear = 'all';
-      }
-    }
-
-    function savePrefs(){
-      try{
-        localStorage.setItem(STORAGE_KEYS.SEARCH, STATE.search || '');
-        localStorage.setItem(STORAGE_KEYS.CROP, STATE.crop || 'all');
-        localStorage.setItem(STORAGE_KEYS.YEAR, STATE.cropYear || 'all');
-        const jobInput = document.getElementById('jobRangeInput');
-        localStorage.setItem(STORAGE_KEYS.RANGE, (jobInput?.value || '').toString());
-      }catch{}
-    }
-
-    // Date picker integration (reads the text your fv-date-range-picker writes)
     function parseLooseDate(str){
       const d = new Date(str);
       if(isNaN(d.getTime())) return null;
@@ -1028,6 +971,34 @@ If your Firestore collection name is different, change that one line.
         STATE.fromYmd = a ? ymdFromDate(a) : '';
         STATE.toYmd = '';
       }
+    }
+
+    function loadPrefs(){
+      try{
+        STATE.search = (localStorage.getItem(STORAGE_KEYS.SEARCH) || '').toString();
+        STATE.crop = (localStorage.getItem(STORAGE_KEYS.CROP) || 'all').toString();
+        STATE.cropYear = (localStorage.getItem(STORAGE_KEYS.YEAR) || 'all').toString();
+
+        const rangeText = (localStorage.getItem(STORAGE_KEYS.RANGE) || '').toString();
+        const jobInput = document.getElementById('jobRangeInput');
+        if(jobInput) jobInput.value = rangeText;
+
+        deriveRangeFromPickerText();
+      }catch{
+        STATE.search = '';
+        STATE.crop = 'all';
+        STATE.cropYear = 'all';
+      }
+    }
+
+    function savePrefs(){
+      try{
+        localStorage.setItem(STORAGE_KEYS.SEARCH, STATE.search || '');
+        localStorage.setItem(STORAGE_KEYS.CROP, STATE.crop || 'all');
+        localStorage.setItem(STORAGE_KEYS.YEAR, STATE.cropYear || 'all');
+        const jobInput = document.getElementById('jobRangeInput');
+        localStorage.setItem(STORAGE_KEYS.RANGE, (jobInput?.value || '').toString());
+      }catch{}
     }
 
     function hasServerFilters(){
@@ -1074,8 +1045,7 @@ If your Firestore collection name is different, change that one line.
         const name = (d.trialName || 'Field Trial').toString();
         STATE.trialCache[trialId] = { trialName: name };
         return name;
-      }catch(err){
-        console.warn('Trial name lookup failed', trialId, err);
+      }catch{
         STATE.trialCache[trialId] = { trialName: '' };
         return '';
       }
@@ -1088,7 +1058,7 @@ If your Firestore collection name is different, change that one line.
 
       const emptyEl = document.getElementById('listEmpty');
       const countEl = document.getElementById('listCount');
-      const listEl = document.getElementById('list');
+      const listEl  = document.getElementById('list');
 
       if(listEl && !STATE.allItems.length) listEl.innerHTML = '';
       if(emptyEl){
@@ -1129,19 +1099,19 @@ If your Firestore collection name is different, change that one line.
         }
 
         const snap = await withRetry(async ()=> await getDocsServerFirst(qRef), 'loadAll', 2);
-
         const items = snap.docs.map(s=>{
           const data = s.data() || {};
           return { id: s.id, data, searchBlob: buildSearchBlob(data) };
         });
 
         sortItems(items);
+
         STATE.allItems = items;
         STATE.loaded = true;
 
         applyFilters();
       }catch(err){
-        console.error('Error loading jobs:', err);
+        console.error(err);
         if(emptyEl){
           emptyEl.style.display = 'block';
           emptyEl.textContent = 'Error loading jobs. Tap to retry.';
@@ -1158,18 +1128,15 @@ If your Firestore collection name is different, change that one line.
       const countEl = document.getElementById('listCount');
 
       if(!STATE.loaded){
-        if(emptyEl){ emptyEl.style.display = 'block'; emptyEl.textContent = 'Loading jobs…'; }
-        if(countEl) countEl.textContent = 'Loading…';
+        if(emptyEl){ emptyEl.style.display='block'; emptyEl.textContent='Loading jobs…'; }
+        if(countEl) countEl.textContent='Loading…';
         clearDetails();
         return;
       }
 
       const q = (STATE.search || '').trim().toLowerCase();
       let filtered = STATE.allItems.slice();
-
-      if(q){
-        filtered = filtered.filter(it => (it.searchBlob || '').includes(q));
-      }
+      if(q) filtered = filtered.filter(it => (it.searchBlob||'').includes(q));
 
       STATE.items = filtered;
       clearDetails();
@@ -1177,7 +1144,7 @@ If your Firestore collection name is different, change that one line.
     }
 
     function renderList(){
-      const listEl = document.getElementById('list');
+      const listEl  = document.getElementById('list');
       const emptyEl = document.getElementById('listEmpty');
       const countEl = document.getElementById('listCount');
       if(!listEl) return;
@@ -1188,11 +1155,10 @@ If your Firestore collection name is different, change that one line.
 
       if(!STATE.items.length){
         if(emptyEl){
-          emptyEl.style.display = 'block';
+          emptyEl.style.display='block';
           emptyEl.textContent = usingFilters ? 'No jobs match your filters.' : 'No jobs yet.';
         }
         if(countEl) countEl.textContent = '0 jobs';
-        clearDetails();
         return;
       }
 
@@ -1228,7 +1194,6 @@ If your Firestore collection name is different, change that one line.
         card.className = 'aerial-card';
         card.dataset.id = id;
 
-        // No status / no bubble
         card.innerHTML = `
           <div class="aerial-row-top">
             <div class="aerial-main">
@@ -1259,17 +1224,26 @@ If your Firestore collection name is different, change that one line.
 
       if(countEl){
         const total = STATE.items.length;
-        countEl.textContent = usingFilters
-          ? `${total} filtered job${total === 1 ? '' : 's'}`
-          : `${total} job${total === 1 ? '' : 's'}`;
+        countEl.textContent = usingFilters ? `${total} filtered job${total===1?'':'s'}` : `${total} job${total===1?'':'s'}`;
       }
     }
 
+    // ---------- Details ----------
     function clearDetails(){
       const panel = document.getElementById('detailPanel');
-      if(!panel) return;
-      panel.style.display = 'none';
-      panel.dataset.id = '';
+      if(panel) panel.style.display = 'none';
+
+      const grid = document.getElementById('detailGrid');
+      if(grid) grid.innerHTML = '';
+
+      const notesBody = document.getElementById('detailNotesBody');
+      if(notesBody) notesBody.textContent = '';
+
+      const attGrid = document.getElementById('detailAttachments');
+      if(attGrid) attGrid.innerHTML = '';
+
+      const fieldsList = document.getElementById('detailFieldsList');
+      if(fieldsList) fieldsList.innerHTML = '';
 
       const titleText = document.getElementById('detailTitleText');
       const titleInput = document.getElementById('detailTitleInput');
@@ -1284,18 +1258,6 @@ If your Firestore collection name is different, change that one line.
 
       STATE.isEditing = false;
       STATE.isEditingTitle = false;
-
-      const grid = document.getElementById('detailGrid');
-      if(grid) grid.innerHTML = '';
-
-      const notesBody = document.getElementById('detailNotesBody');
-      if(notesBody) notesBody.textContent = '';
-
-      const attGrid = document.getElementById('detailAttachments');
-      if(attGrid) attGrid.innerHTML = '';
-
-      const fieldsList = document.getElementById('detailFieldsList');
-      if(fieldsList) fieldsList.innerHTML = '';
     }
 
     function setTitleView(title){
@@ -1362,7 +1324,7 @@ If your Firestore collection name is different, change that one line.
 
         const itemAll2 = STATE.allItems.find(x => x.id === id);
         const itemFiltered = STATE.items.find(x => x.id === id);
-        [itemAll2, itemFiltered].filter(Boolean).forEach(t => {
+        [itemAll2, itemFiltered].filter(Boolean).forEach(t=>{
           t.data.jobNumber = jobNum;
           t.searchBlob = buildSearchBlob(t.data);
         });
@@ -1371,9 +1333,9 @@ If your Firestore collection name is different, change that one line.
         showToast('Job number updated.');
         applyFilters();
         STATE.selectedId = id;
-        renderDetails();
+        await renderDetails();
       }catch(err){
-        console.error('Error updating job number:', err);
+        console.error(err);
         showToast('Error updating job number.');
         cancelEditTitle();
       }finally{
@@ -1381,14 +1343,417 @@ If your Firestore collection name is different, change that one line.
       }
     }
 
+    function computeDeletePermission(){
+      try{
+        if(window.FV && typeof window.FV.can === 'function'){
+          return !!window.FV.can('crop-aerial:delete');
+        }
+      }catch{}
+      return false;
+    }
+
+    function slotControls(mode){
+      const slot = document.getElementById('detailRightSlot');
+      if(!slot) return;
+      slot.innerHTML = '';
+
+      if(mode === 'edit'){
+        if(UI.saveBtn){
+          UI.saveBtn.classList.add('edit-inline');
+          UI.saveBtn.style.display = 'inline-flex';
+          slot.appendChild(UI.saveBtn);
+        }
+        if(UI.cancelBtn){
+          UI.cancelBtn.classList.add('edit-inline');
+          UI.cancelBtn.style.display = 'inline-flex';
+          slot.appendChild(UI.cancelBtn);
+        }
+      }else{
+        if(UI.editBtn){
+          UI.editBtn.classList.add('edit-inline');
+          UI.editBtn.style.display = 'inline-flex';
+          slot.appendChild(UI.editBtn);
+        }
+      }
+
+      if(UI.trashBtn){
+        UI.trashBtn.style.display = 'inline-flex';
+        UI.trashBtn.disabled = !(UI.canDelete && STATE.selectedId && !STATE.isEditing);
+        slot.appendChild(UI.trashBtn);
+      }
+    }
+
+    async function renderDetails(){
+      const panel = document.getElementById('detailPanel');
+      if(!panel) return;
+
+      const item = STATE.items.find(x => x.id === STATE.selectedId);
+      if(!item){ clearDetails(); return; }
+
+      const d = item.data || {};
+      const job = d.jobNumber != null ? d.jobNumber : '';
+      setTitleView(job ? `Job #${job}` : 'Aerial Job');
+
+      const cropYear = d.cropYear ?? d.year ?? null;
+      const crop = d.crop || '';
+      const releaseDate = d.releaseDate || '';
+      const releaseAcres = d.releaseAcres;
+      const totalTill = d.totalTillableAcres;
+      const submittedBy = d.submittedBy || d.submittedByEmail || '';
+      const notes = d.notes || '';
+
+      const createdAt = d.createdAt?.toDate ? d.createdAt.toDate() : (d.createdAt ? new Date(d.createdAt) : null);
+
+      // Trial info only when assignments exist
+      const tl = d.trialLink || null;
+      const showTrial = !!(tl?.enabled && tl?.trialId && Array.isArray(tl?.assignments) && tl.assignments.length);
+
+      let trialName = '';
+      let trialFieldNames = [];
+      if(showTrial){
+        trialName = await fetchTrialName(tl.trialId);
+
+        const jobFields = Array.isArray(d.fields) ? d.fields : [];
+        const fieldNameById = new Map(jobFields.map(f => [
+          f.fieldId,
+          `${f.farm || ''}${f.farm && f.field ? ' • ' : ''}${f.field || ''}`.trim()
+        ]));
+
+        trialFieldNames = tl.assignments
+          .map(a => fieldNameById.get(a?.fieldId) || a?.fieldId || '')
+          .filter(Boolean);
+      }
+
+      const grid = document.getElementById('detailGrid');
+      if(grid){
+        let html = '';
+
+        html += `
+          <div>
+            <div class="detail-item-label">Crop Year / Crop</div>
+            <div class="detail-item-value">${cropYear != null ? escapeHtml(cropYear) : ''}${cropYear && crop ? ' • ' : ''}${escapeHtml(crop)}</div>
+          </div>
+
+          <div>
+            <div class="detail-item-label">Release Date</div>
+            <div class="detail-item-value">${escapeHtml(releaseDate || '—')}</div>
+          </div>
+
+          <div>
+            <div class="detail-item-label">Release Acres</div>
+            <div class="detail-item-value">${isFinite(Number(releaseAcres)) ? escapeHtml(fmtNumber(releaseAcres, 2)) + ' ac' : '—'}</div>
+          </div>
+
+          <div>
+            <div class="detail-item-label">Total Tillable Acres</div>
+            <div class="detail-item-value">${isFinite(Number(totalTill)) ? escapeHtml(fmtNumber(totalTill, 2)) + ' ac' : '—'}</div>
+          </div>
+
+          <div>
+            <div class="detail-item-label">Submitted By</div>
+            <div class="detail-item-value">${escapeHtml(submittedBy || '—')}</div>
+          </div>
+        `;
+
+        // ✅ Created row with controls on the right (always present)
+        const createdText = createdAt ? createdAt.toLocaleString() : '';
+        html += `
+          <div class="created-actions-row">
+            <div class="created-actions-left">
+              <div class="detail-item-label">Created</div>
+              <div class="detail-item-value">${escapeHtml(createdText || '—')}</div>
+            </div>
+
+            <div class="created-actions-right">
+              <div id="detailRightSlot" class="detail-right-slot"></div>
+            </div>
+          </div>
+        `;
+
+        // ✅ Trial block (only when needed)
+        if(showTrial){
+          html += `
+            <div class="trial-block">
+              <div class="detail-item-label">Trial</div>
+              <div class="detail-item-value">
+                <div class="trial-name">${escapeHtml(trialName || 'Field Trial')}</div>
+                <div class="detail-item-label" style="margin-top:10px;">Fields in this trial</div>
+                ${trialFieldNames.map(n => `<div class="trial-field-line">${escapeHtml(n)}</div>`).join('')}
+              </div>
+            </div>
+          `;
+        }
+
+        grid.innerHTML = html;
+      }
+
+      const notesBody = document.getElementById('detailNotesBody');
+      if(notesBody) notesBody.textContent = notes || 'No notes recorded.';
+
+      renderAttachments(d);
+      renderFieldsList(d);
+
+      panel.style.display = 'flex';
+      slotControls('view');
+    }
+
+    function enterEdit(){
+      const id = STATE.selectedId;
+      if(!id || !STATE.db) return;
+
+      const item = STATE.items.find(x => x.id === id);
+      if(!item) return;
+
+      const d = item.data || {};
+      STATE.isEditing = true;
+
+      const cropYear = d.cropYear ?? d.year ?? '';
+      const crop = d.crop || '';
+      const releaseDate = d.releaseDate || '';
+      const releaseAcres = d.releaseAcres ?? '';
+      const notes = d.notes || '';
+      const createdAt = d.createdAt?.toDate ? d.createdAt.toDate() : (d.createdAt ? new Date(d.createdAt) : null);
+
+      const thisYear = new Date().getFullYear();
+      const baseYears = [thisYear - 1, thisYear, thisYear + 1, thisYear + 2];
+      const baseCrops = ['Corn','Soybeans','Wheat'];
+
+      const yearList = Array.from(new Set([...baseYears, cropYear].filter(v=>v!=='' && v!=null))).sort((a,b)=>Number(a)-Number(b));
+      const cropList = Array.from(new Set([...baseCrops, crop].filter(v=>String(v||'').trim()!==''))).sort((a,b)=>String(a).localeCompare(String(b)));
+
+      const grid = document.getElementById('detailGrid');
+      if(grid){
+        const createdText = createdAt ? createdAt.toLocaleString() : '';
+        grid.innerHTML = `
+          <div>
+            <div class="detail-item-label">Crop Year</div>
+            <select id="editCropYear" class="select">
+              <option value=""></option>
+              ${yearList.map(y=>{
+                const val = String(y);
+                const sel = String(cropYear)===val ? ' selected' : '';
+                return `<option value="${escapeHtml(val)}"${sel}>${escapeHtml(val)}</option>`;
+              }).join('')}
+            </select>
+          </div>
+
+          <div>
+            <div class="detail-item-label">Crop</div>
+            <select id="editCrop" class="select">
+              <option value=""></option>
+              ${cropList.map(c=>{
+                const val = String(c);
+                const sel = String(crop)===val ? ' selected' : '';
+                return `<option value="${escapeHtml(val)}"${sel}>${escapeHtml(val)}</option>`;
+              }).join('')}
+            </select>
+          </div>
+
+          <div>
+            <div class="detail-item-label">Release Date</div>
+            <input id="editReleaseDate" type="text" class="input" value="${escapeHtml(releaseDate)}" placeholder="YYYY-MM-DD"/>
+          </div>
+
+          <div>
+            <div class="detail-item-label">Release Acres</div>
+            <input id="editReleaseAcres" type="number" step="0.01" class="input" value="${escapeHtml(releaseAcres)}" placeholder="0.00"/>
+          </div>
+
+          <div class="created-actions-row">
+            <div class="created-actions-left">
+              <div class="detail-item-label">Created</div>
+              <div class="detail-item-value">${escapeHtml(createdText || '—')}</div>
+            </div>
+
+            <div class="created-actions-right">
+              <div id="detailRightSlot" class="detail-right-slot"></div>
+            </div>
+          </div>
+        `;
+      }
+
+      const notesBody = document.getElementById('detailNotesBody');
+      if(notesBody){
+        notesBody.innerHTML = '';
+        const ta = document.createElement('textarea');
+        ta.id = 'editNotes';
+        ta.className = 'input';
+        ta.style.minHeight = '90px';
+        ta.style.resize = 'vertical';
+        ta.value = notes;
+        notesBody.appendChild(ta);
+      }
+
+      slotControls('edit');
+    }
+
+    async function saveEdit(){
+      const id = STATE.selectedId;
+      const db = STATE.db;
+      if(!id || !db) return;
+
+      const cropYearEl   = document.getElementById('editCropYear');
+      const cropEl       = document.getElementById('editCrop');
+      const releaseDateEl= document.getElementById('editReleaseDate');
+      const releaseAcresEl=document.getElementById('editReleaseAcres');
+      const notesEl      = document.getElementById('editNotes');
+
+      if(!cropYearEl || !cropEl || !releaseDateEl || !releaseAcresEl || !notesEl){
+        STATE.isEditing = false;
+        await renderDetails();
+        return;
+      }
+
+      if(UI.saveBtn){ UI.saveBtn.disabled = true; UI.saveBtn.textContent = 'Saving...'; }
+      if(UI.cancelBtn) UI.cancelBtn.disabled = true;
+
+      const cropYearRaw = (cropYearEl.value || '').trim();
+      const cropRaw = (cropEl.value || '').trim();
+      const releaseDateRaw = (releaseDateEl.value || '').trim();
+      const releaseAcresRaw = (releaseAcresEl.value || '').trim();
+      const notesRaw = notesEl.value || '';
+
+      const updates = {};
+      if(cropYearRaw){
+        const n = Number(cropYearRaw);
+        updates.cropYear = isFinite(n) ? n : null;
+        updates.year = isFinite(n) ? n : null;
+      }else{
+        updates.cropYear = null;
+        updates.year = null;
+      }
+
+      updates.crop = cropRaw || '';
+      updates.releaseDate = releaseDateRaw || '';
+
+      if(releaseAcresRaw === ''){
+        updates.releaseAcres = null;
+      }else{
+        const n = Number(releaseAcresRaw);
+        updates.releaseAcres = isFinite(n) ? n : null;
+      }
+
+      updates.notes = notesRaw;
+
+      try{
+        await updateDoc(doc(db, CONFIG.COLLECTION_AERIAL, id), updates);
+
+        const itemAll = STATE.allItems.find(x => x.id === id);
+        const itemFiltered = STATE.items.find(x => x.id === id);
+        [itemAll, itemFiltered].filter(Boolean).forEach(t=>{
+          t.data.cropYear = updates.cropYear;
+          t.data.year = updates.year;
+          t.data.crop = updates.crop;
+          t.data.releaseDate = updates.releaseDate;
+          t.data.releaseAcres = updates.releaseAcres;
+          t.data.notes = updates.notes;
+          t.searchBlob = buildSearchBlob(t.data);
+        });
+
+        STATE.isEditing = false;
+        showToast('Job updated.');
+        applyFilters();
+        STATE.selectedId = id;
+        await renderDetails();
+      }catch(err){
+        console.error(err);
+        showToast('Error saving job.');
+        STATE.isEditing = false;
+        await renderDetails();
+      }finally{
+        if(UI.saveBtn){ UI.saveBtn.disabled = false; UI.saveBtn.textContent = 'Save'; }
+        if(UI.cancelBtn) UI.cancelBtn.disabled = false;
+      }
+    }
+
+    async function cancelEdit(){
+      STATE.isEditing = false;
+      await renderDetails();
+    }
+
+    // Delete modal
+    function openDeleteModal(){
+      if(!UI.canDelete || !STATE.selectedId) return;
+
+      const modal = document.getElementById('deleteModal');
+      const inputEl = document.getElementById('deleteConfirmInput');
+      const confirmBtn = document.getElementById('deleteConfirmBtn');
+      const cancelBtn = document.getElementById('deleteCancelBtn');
+      const backdrop = document.getElementById('deleteBackdrop');
+
+      if(!modal || !inputEl || !confirmBtn || !cancelBtn) return;
+
+      inputEl.value = '';
+      confirmBtn.disabled = true;
+
+      const onInput = () => { confirmBtn.disabled = (inputEl.value||'').trim().toUpperCase() !== 'YES'; };
+
+      const cleanup = () => {
+        try{ inputEl.removeEventListener('input', onInput); }catch{}
+        try{ cancelBtn.removeEventListener('click', onCancel); }catch{}
+        try{ confirmBtn.removeEventListener('click', onConfirm); }catch{}
+        try{ backdrop && backdrop.removeEventListener('click', onCancel); }catch{}
+        try{ document.removeEventListener('keydown', onKey, true); }catch{}
+      };
+
+      const close = () => {
+        modal.classList.remove('show');
+        document.body.style.overflow = '';
+      };
+
+      const onCancel = () => { cleanup(); close(); };
+
+      const onConfirm = async () => {
+        if(!UI.canDelete) { cleanup(); close(); return; }
+        confirmBtn.disabled = true;
+        cleanup();
+        close();
+        await doDeleteSelected();
+      };
+
+      const onKey = (e) => {
+        if(e.key === 'Escape'){ e.preventDefault(); onCancel(); }
+        else if(e.key === 'Enter' && !confirmBtn.disabled){ e.preventDefault(); confirmBtn.click(); }
+      };
+
+      inputEl.addEventListener('input', onInput);
+      cancelBtn.addEventListener('click', onCancel);
+      confirmBtn.addEventListener('click', onConfirm);
+      if(backdrop) backdrop.addEventListener('click', onCancel);
+      document.addEventListener('keydown', onKey, true);
+
+      modal.classList.add('show');
+      document.body.style.overflow = 'hidden';
+      setTimeout(()=>{ try{ inputEl.focus(); }catch{} }, 0);
+    }
+
+    async function doDeleteSelected(){
+      const id = STATE.selectedId;
+      if(!id || !STATE.db || !UI.canDelete) return;
+
+      try{
+        await deleteDoc(doc(STATE.db, CONFIG.COLLECTION_AERIAL, id));
+
+        STATE.allItems = STATE.allItems.filter(x => x.id !== id);
+        STATE.items = STATE.items.filter(x => x.id !== id);
+        STATE.selectedId = null;
+
+        applyFilters();
+        clearDetails();
+        showToast('Job deleted.');
+      }catch(err){
+        console.error(err);
+        showToast('Error deleting job.');
+      }
+    }
+
+    // File viewer
     function isImageUrl(url){
       if(!url || typeof url !== 'string') return false;
       const u = url.split('?')[0].toLowerCase();
       return u.endsWith('.jpg') || u.endsWith('.jpeg') || u.endsWith('.png') ||
              u.endsWith('.gif') || u.endsWith('.webp') || u.endsWith('.heic');
     }
-
-    let fileModal, fileBackdrop, fileCloseBtn, fileContentWrap;
 
     function openFileViewer(att){
       if(!fileModal || !fileContentWrap || !att || !att.url) return;
@@ -1485,425 +1850,7 @@ If your Firestore collection name is different, change that one line.
       });
     }
 
-    function computeDeletePermission(){
-      try{
-        if(window.FV && typeof window.FV.can === 'function'){
-          return !!window.FV.can('crop-aerial:delete');
-        }
-      }catch{}
-      return false;
-    }
-
-    function slotControls(mode){
-      const slot = document.getElementById('detailRightSlot');
-      if(!slot) return;
-      slot.innerHTML = '';
-
-      if(mode === 'edit'){
-        if(UI.saveBtn){
-          UI.saveBtn.classList.add('edit-inline');
-          UI.saveBtn.style.display = 'inline-flex';
-          slot.appendChild(UI.saveBtn);
-        }
-        if(UI.cancelBtn){
-          UI.cancelBtn.classList.add('edit-inline');
-          UI.cancelBtn.style.display = 'inline-flex';
-          slot.appendChild(UI.cancelBtn);
-        }
-      }else{
-        if(UI.editBtn){
-          UI.editBtn.classList.add('edit-inline');
-          UI.editBtn.style.display = 'inline-flex';
-          slot.appendChild(UI.editBtn);
-        }
-      }
-
-      if(UI.trashBtn){
-        UI.trashBtn.style.display = 'inline-flex';
-        UI.trashBtn.disabled = !(UI.canDelete && STATE.selectedId && !STATE.isEditing);
-        slot.appendChild(UI.trashBtn);
-      }
-    }
-
-    async function renderDetails(){
-      const panel = document.getElementById('detailPanel');
-      if(!panel) return;
-
-      const item = STATE.items.find(x => x.id === STATE.selectedId);
-      if(!item){ clearDetails(); return; }
-
-      const d = item.data || {};
-      panel.dataset.id = item.id;
-
-      const job = d.jobNumber != null ? d.jobNumber : '';
-      setTitleView(job ? `Job #${job}` : 'Aerial Job');
-
-      const cropYear = d.cropYear ?? d.year ?? null;
-      const crop = d.crop || '';
-      const releaseDate = d.releaseDate || '';
-      const releaseAcres = d.releaseAcres;
-      const totalTill = d.totalTillableAcres;
-      const submittedBy = d.submittedBy || d.submittedByEmail || '';
-      const notes = d.notes || '';
-      const createdAt = d.createdAt?.toDate ? d.createdAt.toDate() : (d.createdAt ? new Date(d.createdAt) : null);
-
-      // Trial info only when assignments exist
-      const tl = d.trialLink || null;
-      const showTrial = !!(tl?.enabled && tl?.trialId && Array.isArray(tl?.assignments) && tl.assignments.length);
-
-      let trialName = '';
-      let trialFieldNames = [];
-      if(showTrial){
-        trialName = await fetchTrialName(tl.trialId);
-
-        const jobFields = Array.isArray(d.fields) ? d.fields : [];
-        const fieldNameById = new Map(jobFields.map(f => [
-          f.fieldId,
-          `${f.farm || ''}${f.farm && f.field ? ' • ' : ''}${f.field || ''}`.trim()
-        ]));
-
-        trialFieldNames = tl.assignments
-          .map(a => fieldNameById.get(a?.fieldId) || a?.fieldId || '')
-          .filter(Boolean);
-      }
-
-      const grid = document.getElementById('detailGrid');
-      if(grid){
-        let html = '';
-
-        // ✅ RIGHT COLUMN IS ALWAYS PRESENT FIRST (so it never shifts)
-        html += `
-          <div class="detail-right-col">
-            <div id="detailRightSlot" class="detail-right-slot"></div>
-          </div>
-        `;
-
-        html += `
-          <div class="detail-cell">
-            <div class="detail-item-label">Crop Year / Crop</div>
-            <div class="detail-item-value">${cropYear != null ? escapeHtml(cropYear) : ''}${cropYear && crop ? ' • ' : ''}${escapeHtml(crop)}</div>
-          </div>
-        `;
-
-        html += `
-          <div class="detail-cell">
-            <div class="detail-item-label">Release Date</div>
-            <div class="detail-item-value">${escapeHtml(releaseDate || '—')}</div>
-          </div>
-        `;
-
-        html += `
-          <div class="detail-cell">
-            <div class="detail-item-label">Release Acres</div>
-            <div class="detail-item-value">${isFinite(Number(releaseAcres)) ? escapeHtml(fmtNumber(releaseAcres, 2)) + ' ac' : '—'}</div>
-          </div>
-        `;
-
-        html += `
-          <div class="detail-cell">
-            <div class="detail-item-label">Total Tillable Acres</div>
-            <div class="detail-item-value">${isFinite(Number(totalTill)) ? escapeHtml(fmtNumber(totalTill, 2)) + ' ac' : '—'}</div>
-          </div>
-        `;
-
-        html += `
-          <div class="detail-cell">
-            <div class="detail-item-label">Submitted By</div>
-            <div class="detail-item-value">${escapeHtml(submittedBy || '—')}</div>
-          </div>
-        `;
-
-        if(createdAt){
-          html += `
-            <div class="detail-cell">
-              <div class="detail-item-label">Created</div>
-              <div class="detail-item-value">${createdAt.toLocaleString()}</div>
-            </div>
-          `;
-        }
-
-        // ✅ Trial block in left column only (when needed)
-        if(showTrial){
-          html += `
-            <div class="detail-cell">
-              <div class="detail-item-label">Trial</div>
-              <div class="detail-item-value">
-                <div style="font-weight:900">${escapeHtml(trialName || 'Field Trial')}</div>
-                <div style="margin-top:6px;font-size:.82rem;opacity:.8;text-transform:uppercase;letter-spacing:.06em;">Fields in this trial</div>
-                <div style="margin-top:6px;display:flex;flex-direction:column;gap:4px">
-                  ${trialFieldNames.map(n => `<div class="trial-field-line">${escapeHtml(n)}</div>`).join('')}
-                </div>
-              </div>
-            </div>
-          `;
-        }
-
-        grid.innerHTML = html;
-      }
-
-      const notesBody = document.getElementById('detailNotesBody');
-      if(notesBody) notesBody.textContent = notes || 'No notes recorded.';
-
-      renderAttachments(d);
-      renderFieldsList(d);
-
-      panel.style.display = 'flex';
-      slotControls('view');
-    }
-
-    function enterEdit(){
-      const id = STATE.selectedId;
-      if(!id || !STATE.db) return;
-
-      const item = STATE.items.find(x => x.id === id);
-      if(!item) return;
-
-      const d = item.data || {};
-      STATE.isEditing = true;
-
-      const grid = document.getElementById('detailGrid');
-      if(!grid) return;
-
-      const cropYear = d.cropYear ?? d.year ?? '';
-      const crop = d.crop || '';
-      const releaseDate = d.releaseDate || '';
-      const releaseAcres = d.releaseAcres ?? '';
-      const notes = d.notes || '';
-
-      const thisYear = new Date().getFullYear();
-      const baseYears = [thisYear - 1, thisYear, thisYear + 1, thisYear + 2];
-      const baseCrops = ['Corn','Soybeans','Wheat'];
-
-      const yearList = Array.from(new Set([...baseYears, cropYear].filter(v=>v!=='' && v!=null)))
-        .sort((a,b)=>Number(a)-Number(b));
-
-      const cropList = Array.from(new Set([...baseCrops, crop].filter(v=>String(v||'').trim()!=='')))
-        .sort((a,b)=>String(a).localeCompare(String(b)));
-
-      // Keep right controls column pinned
-      grid.innerHTML = `
-        <div class="detail-right-col">
-          <div id="detailRightSlot" class="detail-right-slot"></div>
-        </div>
-
-        <div class="detail-cell">
-          <div class="detail-item-label">Crop Year</div>
-          <select id="editCropYear" class="select">
-            <option value=""></option>
-            ${yearList.map(y=>{
-              const val = String(y);
-              const sel = String(cropYear)===val ? ' selected' : '';
-              return `<option value="${escapeHtml(val)}"${sel}>${escapeHtml(val)}</option>`;
-            }).join('')}
-          </select>
-        </div>
-
-        <div class="detail-cell">
-          <div class="detail-item-label">Crop</div>
-          <select id="editCrop" class="select">
-            <option value=""></option>
-            ${cropList.map(c=>{
-              const val = String(c);
-              const sel = String(crop)===val ? ' selected' : '';
-              return `<option value="${escapeHtml(val)}"${sel}>${escapeHtml(val)}</option>`;
-            }).join('')}
-          </select>
-        </div>
-
-        <div class="detail-cell">
-          <div class="detail-item-label">Release Date</div>
-          <input id="editReleaseDate" type="text" class="input" value="${escapeHtml(releaseDate)}" placeholder="YYYY-MM-DD"/>
-        </div>
-
-        <div class="detail-cell">
-          <div class="detail-item-label">Release Acres</div>
-          <input id="editReleaseAcres" type="number" step="0.01" class="input" value="${escapeHtml(releaseAcres)}" placeholder="0.00"/>
-        </div>
-      `;
-
-      const notesBody = document.getElementById('detailNotesBody');
-      if(notesBody){
-        notesBody.innerHTML = '';
-        const ta = document.createElement('textarea');
-        ta.id = 'editNotes';
-        ta.className = 'input';
-        ta.style.minHeight = '90px';
-        ta.style.resize = 'vertical';
-        ta.value = notes;
-        notesBody.appendChild(ta);
-      }
-
-      slotControls('edit');
-    }
-
-    async function saveEdit(){
-      const id = STATE.selectedId;
-      const db = STATE.db;
-      if(!id || !db) return;
-
-      const cropYearEl = document.getElementById('editCropYear');
-      const cropEl = document.getElementById('editCrop');
-      const releaseDateEl = document.getElementById('editReleaseDate');
-      const releaseAcresEl = document.getElementById('editReleaseAcres');
-      const notesEl = document.getElementById('editNotes');
-
-      if(!cropYearEl || !cropEl || !releaseDateEl || !releaseAcresEl || !notesEl){
-        STATE.isEditing = false;
-        renderDetails();
-        return;
-      }
-
-      if(UI.saveBtn){
-        UI.saveBtn.disabled = true;
-        UI.saveBtn.textContent = 'Saving...';
-      }
-      if(UI.cancelBtn) UI.cancelBtn.disabled = true;
-
-      const cropYearRaw = (cropYearEl.value || '').trim();
-      const cropRaw = (cropEl.value || '').trim();
-      const releaseDateRaw = (releaseDateEl.value || '').trim();
-      const releaseAcresRaw = (releaseAcresEl.value || '').trim();
-      const notesRaw = notesEl.value || '';
-
-      const updates = {};
-
-      if(cropYearRaw){
-        const n = Number(cropYearRaw);
-        updates.cropYear = isFinite(n) ? n : null;
-        updates.year = isFinite(n) ? n : null;
-      }else{
-        updates.cropYear = null;
-        updates.year = null;
-      }
-
-      updates.crop = cropRaw || '';
-      updates.releaseDate = releaseDateRaw || '';
-
-      if(releaseAcresRaw === ''){
-        updates.releaseAcres = null;
-      }else{
-        const n = Number(releaseAcresRaw);
-        updates.releaseAcres = isFinite(n) ? n : null;
-      }
-
-      updates.notes = notesRaw;
-
-      try{
-        await updateDoc(doc(db, CONFIG.COLLECTION_AERIAL, id), updates);
-
-        const itemAll = STATE.allItems.find(x => x.id === id);
-        const itemFiltered = STATE.items.find(x => x.id === id);
-        [itemAll, itemFiltered].filter(Boolean).forEach(t=>{
-          t.data.cropYear = updates.cropYear;
-          t.data.year = updates.year;
-          t.data.crop = updates.crop;
-          t.data.releaseDate = updates.releaseDate;
-          t.data.releaseAcres = updates.releaseAcres;
-          t.data.notes = updates.notes;
-          t.searchBlob = buildSearchBlob(t.data);
-        });
-
-        STATE.isEditing = false;
-        showToast('Job updated.');
-        applyFilters();
-        STATE.selectedId = id;
-        await renderDetails();
-      }catch(err){
-        console.error('Error saving job:', err);
-        showToast('Error saving job.');
-        STATE.isEditing = false;
-        await renderDetails();
-      }finally{
-        if(UI.saveBtn){
-          UI.saveBtn.disabled = false;
-          UI.saveBtn.textContent = 'Save';
-        }
-        if(UI.cancelBtn) UI.cancelBtn.disabled = false;
-      }
-    }
-
-    async function cancelEdit(){
-      STATE.isEditing = false;
-      await renderDetails();
-    }
-
-    function openDeleteModal(){
-      if(!UI.canDelete || !STATE.selectedId) return;
-
-      const modal = document.getElementById('deleteModal');
-      const inputEl = document.getElementById('deleteConfirmInput');
-      const confirmBtn = document.getElementById('deleteConfirmBtn');
-      const cancelBtn = document.getElementById('deleteCancelBtn');
-      const backdrop = document.getElementById('deleteBackdrop');
-
-      if(!modal || !inputEl || !confirmBtn || !cancelBtn) return;
-
-      inputEl.value = '';
-      confirmBtn.disabled = true;
-
-      const onInput = () => {
-        confirmBtn.disabled = (inputEl.value || '').trim().toUpperCase() !== 'YES';
-      };
-
-      const cleanup = () => {
-        try{ inputEl.removeEventListener('input', onInput); }catch{}
-        try{ cancelBtn.removeEventListener('click', onCancel); }catch{}
-        try{ confirmBtn.removeEventListener('click', onConfirm); }catch{}
-        try{ backdrop && backdrop.removeEventListener('click', onCancel); }catch{}
-        try{ document.removeEventListener('keydown', onKey, true); }catch{}
-      };
-
-      const close = () => {
-        modal.classList.remove('show');
-        document.body.style.overflow = '';
-      };
-
-      const onCancel = () => { cleanup(); close(); };
-
-      const onConfirm = async () => {
-        if(!UI.canDelete) { cleanup(); close(); return; }
-        confirmBtn.disabled = true;
-        cleanup();
-        close();
-        await doDeleteSelected();
-      };
-
-      const onKey = (e) => {
-        if(e.key === 'Escape'){ e.preventDefault(); onCancel(); }
-        else if(e.key === 'Enter' && !confirmBtn.disabled){ e.preventDefault(); confirmBtn.click(); }
-      };
-
-      inputEl.addEventListener('input', onInput);
-      cancelBtn.addEventListener('click', onCancel);
-      confirmBtn.addEventListener('click', onConfirm);
-      if(backdrop) backdrop.addEventListener('click', onCancel);
-      document.addEventListener('keydown', onKey, true);
-
-      modal.classList.add('show');
-      document.body.style.overflow = 'hidden';
-      setTimeout(()=>{ try{ inputEl.focus(); }catch{} }, 0);
-    }
-
-    async function doDeleteSelected(){
-      const id = STATE.selectedId;
-      if(!id || !STATE.db || !UI.canDelete) return;
-
-      try{
-        await deleteDoc(doc(STATE.db, CONFIG.COLLECTION_AERIAL, id));
-
-        STATE.allItems = STATE.allItems.filter(x => x.id !== id);
-        STATE.items = STATE.items.filter(x => x.id !== id);
-        STATE.selectedId = null;
-
-        applyFilters();
-        clearDetails();
-        showToast('Job deleted.');
-      }catch(err){
-        console.error('Delete failed', err);
-        showToast('Error deleting job.');
-      }
-    }
-
+    // Resume refresh
     let _resumeTimer = null;
     function resume(){
       if(_resumeTimer) return;
@@ -1950,8 +1897,8 @@ If your Firestore collection name is different, change that one line.
       loadPrefs();
 
       const searchEl = document.getElementById('filterSearch');
-      const cropEl = document.getElementById('filterCrop');
-      const yearEl = document.getElementById('filterYear');
+      const cropEl   = document.getElementById('filterCrop');
+      const yearEl   = document.getElementById('filterYear');
 
       if(searchEl){
         searchEl.value = STATE.search || '';
@@ -2003,6 +1950,7 @@ If your Firestore collection name is different, change that one line.
         });
       }
 
+      // Retry
       const emptyEl = document.getElementById('listEmpty');
       if(emptyEl){
         emptyEl.addEventListener('click', ()=>{
@@ -2011,6 +1959,7 @@ If your Firestore collection name is different, change that one line.
         });
       }
 
+      // Close details
       const closeBtn = document.getElementById('detailClose');
       if(closeBtn){
         closeBtn.addEventListener('click', ()=>{
@@ -2019,10 +1968,12 @@ If your Firestore collection name is different, change that one line.
         });
       }
 
+      // Edit / Save / Cancel
       if(UI.editBtn) UI.editBtn.addEventListener('click', ()=> { if(STATE.selectedId) enterEdit(); });
       if(UI.saveBtn) UI.saveBtn.addEventListener('click', ()=> { if(STATE.selectedId) saveEdit(); });
       if(UI.cancelBtn) UI.cancelBtn.addEventListener('click', ()=> { if(STATE.selectedId) cancelEdit(); });
 
+      // Delete
       if(UI.trashBtn){
         UI.trashBtn.addEventListener('click', (e)=>{
           e.stopPropagation();
@@ -2068,7 +2019,6 @@ If your Firestore collection name is different, change that one line.
     window.addEventListener('pageshow', () => resume());
     document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') resume(); });
   </script>
-
 </head>
 
 <body>
@@ -2198,7 +2148,7 @@ If your Firestore collection name is different, change that one line.
           <div id="detailFieldsList" class="fields-list"></div>
         </div>
 
-        <!-- Buttons are physically here; they get moved into the right slot -->
+        <!-- Buttons live here; they get slotted into #detailRightSlot -->
         <button type="button" id="editBtn" class="btn btn-quiet" style="display:none;">Edit</button>
         <button type="button" id="saveBtn" class="btn btn-quiet" style="display:none;">Save</button>
         <button type="button" id="cancelBtn" class="btn btn-quiet" style="display:none;">Cancel</button>
