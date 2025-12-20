@@ -1,14 +1,12 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-12-20a
-Updates:
- ✅ StarFire label SPECIAL (compact QR + Serial UNDER QR) — matches lookup page behavior
- ✅ Print preview switches based on type:
-    - StarFire => compact label preview
-    - All others => long strip preview (existing)
- ✅ Printing now uses the SAME reliable iframe pattern as your working reports + lookup fix:
-    - Preloads print HTML into hidden iframe
-    - Print button calls iframe.print() (native printer chooser)
+Rev: 2025-12-20b
+Updates (MINIMAL, based on your working 2025-12-20a file):
+ ✅ Fix “double preview” in print modal by NOT relying on `hidden`
+    - Adds .pv-hide { display:none !important; }
+    - StarFire preview starts with class pv-hide
+    - setPrintPreview() toggles pv-hide on the two preview blocks
+ ✅ Everything else left as-is (no trimming)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -246,6 +244,9 @@ Updates:
       width: fit-content;
       max-width: calc(100vw - 24px);
     }
+
+    /* ✅ NEW: Force-hide helper (so we do not depend on [hidden]) */
+    .pv-hide{ display:none !important; }
 
     /* Print content wrapper */
     .print-wrap{
@@ -552,7 +553,8 @@ Updates:
         </div>
 
         <!-- StarFire compact preview -->
-        <div id="labelPreviewSF" class="label-preview-starfire" aria-label="StarFire label preview" hidden>
+        <!-- ✅ CHANGED: remove reliance on hidden; start force-hidden with pv-hide -->
+        <div id="labelPreviewSF" class="label-preview-starfire pv-hide" aria-label="StarFire label preview">
           <div class="sf-qr">
             <img id="sfQR" alt="QR">
           </div>
@@ -1028,9 +1030,11 @@ Updates:
     }
 
     async function setPrintPreview({ makeName, modelName, serial, qrDataUrl }){
-      // Toggle previews
-      $("labelPreviewLong").hidden = IS_STARFIRE;
-      $("labelPreviewSF").hidden = !IS_STARFIRE;
+      /* ✅ CHANGED: use pv-hide class toggling (instead of hidden attribute) */
+      const longEl = $("labelPreviewLong");
+      const sfEl   = $("labelPreviewSF");
+      if (longEl) longEl.classList.toggle('pv-hide', IS_STARFIRE);
+      if (sfEl)   sfEl.classList.toggle('pv-hide', !IS_STARFIRE);
 
       // Update helper text
       const help = $("printHelp");
