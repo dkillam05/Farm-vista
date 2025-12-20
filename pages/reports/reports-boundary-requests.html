@@ -1005,16 +1005,18 @@
         ].filter(Boolean).join(' · ');
         const phone = d.phone || '';
         const email = d.email || '';
-        STATE.company = { name, address, phone, email };
+        const logoUrl = (d.logo && d.logo.url) ? d.logo.url : '';
+        STATE.company = { name, address, phone, email, logoUrl };
       }catch(e){
         console.warn('[boundary-report] failed to load company header', e);
-        STATE.company = { name:'', address:'', phone:'', email:'' };
+        STATE.company = { name:'', address:'', phone:'', email:'', logoUrl:'' };
       }
       return STATE.company;
     }
 
     /* ===========================
-       Print / PDF (UNCHANGED from your working file)
+       Print / PDF
+       (UPDATED: square-ish status badges + include photos + use company logo + remove "URL" style footer text)
        =========================== */
 
     function extractFieldNumber(field){
@@ -1081,6 +1083,11 @@
       const dMax = new Date(max);
       if (dMin.toDateString() === dMax.toDateString()) return formatDate(dMin);
       return `${formatDate(dMin)} – ${formatDate(dMax)}`;
+    }
+
+    function normalizePhotoUrl(p){
+      if(!p) return '';
+      return p.url || p.path || '';
     }
 
     async function handlePrintClick(){
@@ -1155,6 +1162,7 @@
     }
 
     function buildPrintHtml({ company, runStr, runDateOnly, dateRange, filterSummary, totalRecords, openCount, farmCount, oldestOpenAge, grouped }){
+      const logoUrl = company?.logoUrl ? String(company.logoUrl) : '';
       return `<!doctype html>
 <html>
 <head>
@@ -1194,13 +1202,32 @@
       padding-bottom:12px;
       margin-bottom:14px;
     }
+
+    /* ✅ Company logo tile (uses Firestore company/main.logo.url) */
     .logo{
-      width:60px;height:60px;border-radius:16px;
+      width:60px;
+      height:60px;
+      border-radius:16px;
       border:1px solid var(--fv-border);
-      display:flex;align-items:center;justify-content:center;
-      font-size:24px;font-weight:900;color:#fff;
-      background:radial-gradient(circle at 30% 0%, #4CAF50, var(--fv-green));
+      background:#fff;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      overflow:hidden;
     }
+    .logo img{
+      width:100%;
+      height:100%;
+      object-fit:cover;
+      display:block;
+    }
+    .logo span{
+      font-size:22px;
+      font-weight:950;
+      color:#111827;
+      letter-spacing:0.04em;
+    }
+
     .co-name{font-size:16px;font-weight:900;margin:0 0 2px;}
     .co-line{font-size:11px;color:var(--fv-muted);margin:0;line-height:1.35;}
     .meta{
@@ -1299,18 +1326,22 @@
     }
     .req-field{ font-weight:950; font-size:13px; line-height:1.25; }
     .req-farm{ font-size:10.5px; color:var(--fv-muted); margin-top:2px; }
+
+    /* ✅ Make status "badge" more square + smaller so it eats less space */
     .badge{
-      font-size:10px;
+      font-size:9.5px;
       font-weight:900;
       letter-spacing:0.08em;
       text-transform:uppercase;
-      padding:4px 8px;
-      border-radius:999px;
+      padding:3px 6px;
+      border-radius:8px;               /* was 999px */
       border:1px solid rgba(59,126,70,0.28);
       background:rgba(59,126,70,0.07);
       color:#0F172A;
       white-space:nowrap;
+      line-height:1.1;
     }
+
     .req-meta{
       display:grid;
       grid-template-columns:repeat(2, minmax(0,1fr));
@@ -1334,6 +1365,37 @@
       white-space:pre-wrap;
       line-height:1.28;
     }
+
+    /* ✅ Include photos in report */
+    .photos{
+      grid-column:1 / -1;
+      margin-top:6px;
+      padding-top:8px;
+      border-top:1px dashed #E5E7EB;
+    }
+    .photos .kk{
+      font-size:10px;
+      text-transform:uppercase;
+      letter-spacing:0.10em;
+      color:var(--fv-muted);
+      font-weight:800;
+      margin-bottom:6px;
+    }
+    .photos-grid{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+    }
+    .pimg{
+      width:84px;
+      height:84px;
+      border-radius:10px;
+      border:1px solid #E5E7EB;
+      object-fit:cover;
+      display:block;
+      background:#fff;
+    }
+
     .footer{
       margin-top:16px;
       padding-top:10px;
@@ -1369,7 +1431,9 @@
 <body>
   <div class="page">
     <header class="hdr">
-      <div class="logo"><span>DF</span></div>
+      <div class="logo">
+        ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(company.name || 'Company logo')}" />` : `<span>DF</span>`}
+      </div>
       <div>
         <p class="co-name">${escapeHtml(company.name || '')}</p>
         <p class="co-line">
@@ -1422,7 +1486,7 @@
           <span>${escapeHtml(farmName)}</span>
           <span style="font-size:11px;color:var(--fv-muted);letter-spacing:0.06em;text-transform:none;font-weight:800;">${openHere} open / ${totalHere} total</span>
         </div>
-        <p class="farm-sub">Each card includes scope/type, submitter, and RTK (Name • Network ID • Frequency).</p>
+        <p class="farm-sub">Each card includes scope/type, submitter, and RTK (Name • Network ID • Frequency). Photos included when available.</p>
 
         <div class="req-grid">
           ${arr.map(it => {
@@ -1435,6 +1499,8 @@
             const submitLine = (d.submittedBy || '') + (d.submittedByEmail ? ' · ' + d.submittedByEmail : '');
             const status = d.status || '';
             const field = d.field || '';
+
+            const photos = Array.isArray(d.photos) ? d.photos.filter(p => p && (p.url || p.path)) : [];
 
             return `
               <article class="req">
@@ -1477,6 +1543,19 @@
                     <div class="kk">Notes</div>
                     <div class="vv">${escapeHtml(d.notes || '')}</div>
                   </div>
+
+                  ${photos.length ? `
+                    <div class="photos">
+                      <div class="kk">Photos</div>
+                      <div class="photos-grid">
+                        ${photos.map(p => {
+                          const u = normalizePhotoUrl(p);
+                          const nm = (p && p.name) ? String(p.name) : 'Boundary photo';
+                          return u ? `<img class="pimg" src="${escapeHtml(u)}" alt="${escapeHtml(nm)}" />` : '';
+                        }).join('')}
+                      </div>
+                    </div>
+                  ` : ''}
                 </div>
               </article>
             `;
@@ -1488,7 +1567,7 @@
 
     <footer class="footer">
       <div class="l">Internal use only. Please verify boundary fixes in your GIS system before finalizing changes.</div>
-      <div class="r">FarmVista • Field Boundary Fix Requests • ${escapeHtml(runDateOnly || '')}</div>
+      <div class="r">${escapeHtml(company.name || '')} • ${escapeHtml(runDateOnly || '')}</div>
     </footer>
   </div>
 </body>
