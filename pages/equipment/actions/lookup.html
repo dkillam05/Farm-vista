@@ -45,8 +45,8 @@
 
       /* starfire compact defaults */
       --sf-cut-mm: 62mm;      /* compact cut length */
-      --sf-qr-mm: 46mm;       /* big QR, still leaves space for serial underneath */
-      --sf-serial-font: 16pt; /* will auto-step down for long serials */
+      --sf-qr-mm: 46mm;       /* big QR */
+      --sf-serial-font: 16pt;
       --sf-serial-font-sm: 13pt;
     }
 
@@ -206,27 +206,27 @@
       max-width: min(560px, calc(100vw - 48px));
     }
 
-    .print-wrap{
-      display:grid;
-      gap:10px;
+    /* ✅ THIS is the centering fix:
+       - Always full width
+       - Scroll if needed
+       - Default left (long labels)
+       - StarFire adds .center to center the small label */
+    #printWrap{
+      display:flex;
+      width: 100%;
+      max-width: calc(100vw - 48px);
       overflow-x:auto;
       overflow-y:hidden;
       -webkit-overflow-scrolling:touch;
-      justify-items:center;
+      justify-content:flex-start;
       padding: 4px 2px 2px;
-      width: fit-content;
-      max-width: calc(100vw - 48px);
+      box-sizing:border-box;
     }
-
-    /* ✅ Center StarFire preview inside host (iOS was left-anchoring it) */
-    #pPreviewHost{
-      width: 100%;
-      min-width: 100%;
-    }
-    #pPreviewHost.center{
-      display:flex;
+    #printWrap.center{
       justify-content:center;
-      align-items:center;
+    }
+    #pPreviewHost{
+      flex: 0 0 auto; /* preview sizes itself (mm widths) and can scroll if bigger than wrap */
     }
 
     /* ===== Preview styles (injected) ===== */
@@ -248,7 +248,6 @@
       padding:var(--ql-pad-mm);
       box-sizing:border-box;
 
-      margin:0 auto;
       max-width:none !important;
       white-space:nowrap;
       overflow:visible;
@@ -324,8 +323,6 @@
       padding: 2.2mm;
       box-sizing:border-box;
 
-      margin:0 auto;
-      max-width:none !important;
       overflow:hidden;
     }
     .pv-sf .qr{
@@ -437,7 +434,7 @@
         ✅ Label length flexes to your text (up to <b>6&quot;</b>). If it’s long on mobile, swipe left/right.
       </p>
 
-      <div class="print-wrap" aria-label="Preview scroller">
+      <div id="printWrap" aria-label="Preview scroller">
         <div id="pPreviewHost" aria-label="Label preview host"></div>
       </div>
     </div>
@@ -659,6 +656,7 @@
     const pDlg = document.getElementById('printPrev');
     const pHdrTitle = document.getElementById('pHdrTitle');
     const pHelp = document.getElementById('pHelp');
+    const printWrap = document.getElementById('printWrap');
     const pHost = document.getElementById('pPreviewHost');
 
     const pClose = document.getElementById('pClose');
@@ -697,7 +695,6 @@
     };
 
     function pickStarfireSerial(d){
-      // Prefer starfireSerial if present, else serial.
       const raw = normalizeSerial(d?.starfireSerial || d?.serial || '');
       return raw || '';
     }
@@ -760,8 +757,8 @@
       const isSF = !!payload?.isStarfire;
       const qrUrl = payload?.url || '';
 
-      // ✅ Center only StarFire preview (prevents left-anchored look on iOS)
-      pHost.classList.toggle('center', isSF);
+      // ✅ Center only for StarFire, left for long labels
+      printWrap.classList.toggle('center', isSF);
 
       // cache bust so image definitely loads
       const bust = (qrUrl && qrUrl.includes('?') ? '&' : '?') + '_=' + Date.now();
@@ -843,7 +840,6 @@
       wrap.append(left, mid, right);
       pHost.appendChild(wrap);
 
-      // Measure after DOM paint, then resize to computed length
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
       __labelLenMm = computeLongLenMmFromDOM({
         makeEl: mk,
@@ -869,7 +865,7 @@
     function closeReprintPreview(){
       __pendingPrint = null;
       clearPreviewHost();
-      pHost.classList.remove('center');
+      printWrap.classList.remove('center');
       try{ pDlg.close(); }catch{ pDlg.removeAttribute('open'); }
     }
     pClose.addEventListener('click', closeReprintPreview);
