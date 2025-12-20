@@ -229,14 +229,14 @@
       max-width:min(62ch, 100%);
     }
     .rtk-block .rtk-name{
-      font-weight:600; /* not bold */
+      font-weight:600;
       white-space:nowrap;
       overflow:hidden;
       text-overflow:ellipsis;
       max-width:100%;
     }
     .rtk-block .rtk-sub{
-      font-weight:600; /* not bold */
+      font-weight:600;
       opacity:0.88;
       white-space:nowrap;
       overflow:hidden;
@@ -297,46 +297,45 @@
 
     .wo-detail-item-value{ font-size:0.94rem; }
 
+    /* ✅ Photos in details (larger grid like your Field Maintenance file) */
     .wo-detail-photos{
-      margin-top:8px;
-      padding-top:8px;
+      margin-top:10px;
+      padding-top:10px;
       border-top:1px solid var(--border);
       display:none;
       flex-direction:column;
-      gap:6px;
+      gap:8px;
     }
+    .wo-detail-photos.show{ display:flex; }
+
     .wo-detail-photos-label{
       font-size:0.8rem;
       text-transform:uppercase;
       letter-spacing:0.06em;
       opacity:0.7;
     }
-    .wo-detail-photos-grid{
-      display:flex;
-      flex-wrap:wrap;
-      gap:8px;
+    .wo-photo-grid{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0,1fr));
+      gap:10px;
     }
-    .photo-thumb{
-      border:none;
-      padding:0;
-      margin:0;
-      border-radius:8px;
-      overflow:hidden;
+    @media (max-width:520px){
+      .wo-photo-grid{ grid-template-columns:1fr; }
+    }
+    .wo-photo{
       border:1px solid var(--border);
-      background:var(--surface);
+      border-radius:14px;
+      overflow:hidden;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      box-shadow:var(--shadow-soft, var(--shadow));
       cursor:pointer;
-      display:inline-flex;
-      align-items:stretch;
-      justify-content:stretch;
     }
-    .photo-thumb img{
+    .wo-photo img{
+      width:100%;
+      height:auto;
       display:block;
-      width:80px;
-      height:80px;
+      max-height:520px;
       object-fit:cover;
-    }
-    @media (min-width:800px){
-      .photo-thumb img{ width:96px; height:96px; }
     }
 
     .wo-detail-notes{
@@ -346,7 +345,6 @@
       font-size:0.92rem;
       white-space:pre-wrap;
     }
-
     .wo-detail-notes-label{
       font-size:0.8rem;
       text-transform:uppercase;
@@ -354,7 +352,6 @@
       opacity:0.7;
       margin-bottom:2px;
     }
-
     .wo-detail-notes-body{ margin-top:2px; }
 
     .wo-detail-footer{
@@ -362,7 +359,6 @@
       font-size:0.82rem;
       opacity:0.85;
     }
-
     .wo-detail-pill{
       display:inline-flex;
       align-items:center;
@@ -416,61 +412,63 @@
       visibility:hidden;
     }
 
-    .photo-modal-backdrop{
+    /* Photo viewer modal (copied pattern) */
+    .photo-modal{
       position:fixed;
       inset:0;
-      background:rgba(15,23,42,0.7);
-      display:flex;
+      display:none;
       align-items:center;
       justify-content:center;
-      padding:18px;
-      z-index:9999;
+      z-index:100000;
+      padding:16px;
     }
-    .photo-modal-backdrop[hidden]{ display:none; }
-    .photo-modal{
-      background:var(--surface,#fff);
+    .photo-modal.show{ display:flex; }
+    .photo-backdrop{
+      position:absolute;
+      inset:0;
+      background:rgba(0,0,0,.65);
+    }
+    .photo-sheet{
+      position:relative;
+      max-width:min(1000px, 95vw);
+      max-height:90vh;
+      background:var(--surface);
       border-radius:14px;
-      max-width:min(900px, 94vw);
-      max-height:min(700px, 90vh);
-      padding:10px 10px 14px;
-      box-shadow:0 20px 45px rgba(0,0,0,0.45);
+      border:1px solid var(--border);
+      box-shadow:0 20px 40px rgba(0,0,0,.45);
+      padding:10px;
       display:flex;
       flex-direction:column;
       gap:8px;
+      z-index:1;
+      overflow:hidden;
     }
-    .photo-modal-header{
+    .photo-close-row{
       display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:10px;
-      font-size:0.9rem;
+      justify-content:flex-end;
     }
-    .photo-modal-title{ font-weight:600; }
-    .photo-modal-close{
+    .photo-close-btn{
       border:none;
       border-radius:999px;
-      padding:4px 9px;
-      font-size:0.8rem;
+      padding:6px 12px;
+      font-size:0.85rem;
       cursor:pointer;
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      color:var(--text);
     }
-    .photo-modal-imgwrap{
-      flex:1 1 auto;
-      min-height:0;
+    .photo-img-wrap{
+      border-radius:12px;
+      overflow:hidden;
+      background:#000;
       display:flex;
       align-items:center;
       justify-content:center;
+      max-height:calc(90vh - 70px);
     }
-    .photo-modal-imgwrap img{
+    .photo-img-wrap img{
       max-width:100%;
-      max-height:64vh;
-      border-radius:10px;
-      object-fit:contain;
-    }
-    .photo-modal-caption{
-      font-size:0.8rem;
-      opacity:0.8;
-      margin-top:2px;
+      max-height:100%;
+      display:block;
     }
   </style>
 
@@ -499,9 +497,6 @@
     const CONFIG = {
       COLLECTION_PATH: 'boundary_requests',
       COMPANY_DOC_PATH: ['company','main'],
-
-      /* ✅ Your real collection is rtkTowers.
-         Keep BOTH so it still works if any old data lives in rtk_towers. */
       TOWER_COLLECTIONS: ['rtkTowers','rtk_towers']
     };
 
@@ -514,7 +509,7 @@
       db: null,
       company: null,
       farmMap: new Map(),
-      towersById: new Map() // towerDocId -> { id, name, networkId, frequencyMHz }
+      towersById: new Map()
     };
 
     function normalizeStatus(s){
@@ -654,6 +649,21 @@
       `;
     }
 
+    function getPhotosFromRequest(d){
+      const arr = Array.isArray(d?.photos) ? d.photos : [];
+      const out = [];
+      arr.forEach((p)=>{
+        if(!p) return;
+        const url = String(p.url || p.path || '').trim();
+        if(!url) return;
+        out.push({
+          url,
+          name: String(p.name || '').trim()
+        });
+      });
+      return out;
+    }
+
     /* ===========================
        Rendering (screen)
        =========================== */
@@ -741,10 +751,10 @@
       $('.wo-detail-notes-body', panel).textContent = '';
       $('.wo-detail-footer', panel).innerHTML = '';
 
-      const photosWrap = $('.wo-detail-photos', panel);
-      const photosGrid = $('#woDetailPhotosGrid');
-      if (photosWrap) photosWrap.style.display = 'none';
-      if (photosGrid) photosGrid.innerHTML = '';
+      const photosWrap = $('#woDetailPhotos');
+      const photosGrid = $('#woDetailPhotoGrid');
+      if(photosWrap) photosWrap.classList.remove('show');
+      if(photosGrid) photosGrid.innerHTML = '';
 
       const markBtn = $('#btnMarkCompleted');
       if (markBtn){
@@ -753,27 +763,18 @@
       }
     }
 
-    function openPhotoModal(photo){
-      const backdrop = $('#photoModal');
-      const imgEl = $('#photoModalImg');
-      const capEl = $('#photoModalCaption');
-      if(!backdrop || !imgEl || !capEl) return;
+    // photo viewer state
+    let photoModal=null, photoModalImg=null, photoModalBackdrop=null, photoModalCloseBtn=null;
 
-      imgEl.src = photo.url || '';
-      imgEl.alt = photo.name || 'Boundary request photo';
-      capEl.textContent = photo.name || '';
-      backdrop.hidden = false;
-      imgEl.focus?.();
+    function openPhotoViewer(url){
+      if(!photoModal || !photoModalImg || !url) return;
+      photoModalImg.src = url;
+      photoModal.classList.add('show');
     }
-
-    function closePhotoModal(){
-      const backdrop = $('#photoModal');
-      const imgEl = $('#photoModalImg');
-      const capEl = $('#photoModalCaption');
-      if(!backdrop) return;
-      backdrop.hidden = true;
-      if(imgEl){ imgEl.src = ''; imgEl.alt = ''; }
-      if(capEl){ capEl.textContent = ''; }
+    function closePhotoViewer(){
+      if(!photoModal) return;
+      photoModal.classList.remove('show');
+      if(photoModalImg) photoModalImg.src = '';
     }
 
     function renderDetails(){
@@ -795,10 +796,11 @@
       const createdAt = d._createdAtDate || null;
       const createdStr = formatDateTime(createdAt);
       const notes = d.notes || '';
-      const photos = Array.isArray(d.photos) ? d.photos.filter(p => p && (p.url || p.path)) : [];
 
       const rtk = getRtkForRequest(d);
       const { nameLine, subLine } = rtkLines(rtk);
+
+      const photos = getPhotosFromRequest(d);
 
       panel.dataset.id = item.id;
       $('.wo-detail-title', panel).textContent = farm ? `${field} · ${farm}` : field;
@@ -835,6 +837,11 @@
           <div class="wo-detail-item-label">Submitted</div>
           <div class="wo-detail-item-value">${escapeHtml(createdStr || 'Unknown')}</div>
         </div>
+
+        <div>
+          <div class="wo-detail-item-label">Photos</div>
+          <div class="wo-detail-item-value">${escapeHtml(String(photos.length))}</div>
+        </div>
       `;
 
       $('.wo-detail-notes-body', panel).textContent = notes || 'No notes recorded for this request.';
@@ -852,27 +859,22 @@
         markBtn.textContent = isOpen ? 'Mark completed' : (status ? `Status: ${status}` : 'Mark completed');
       }
 
-      const photosWrap = $('.wo-detail-photos', panel);
-      const photosGrid = $('#woDetailPhotosGrid');
-      if (photosWrap && photosGrid){
+      // big photos
+      const photosWrap = $('#woDetailPhotos');
+      const photosGrid = $('#woDetailPhotoGrid');
+      if(photosWrap && photosGrid){
         photosGrid.innerHTML = '';
-        if (photos.length){
-          photosWrap.style.display = 'flex';
-          photos.forEach((p, idx) => {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'photo-thumb';
-            const img = document.createElement('img');
-            img.loading = 'lazy';
-            img.src = p.url || p.path || '';
-            img.alt = p.name || `Photo ${idx+1}`;
-            btn.setAttribute('aria-label', p.name || `View photo ${idx+1}`);
-            btn.appendChild(img);
-            btn.addEventListener('click', () => openPhotoModal({ url: img.src, name: img.alt }));
-            photosGrid.appendChild(btn);
+        if(photos.length){
+          photosWrap.classList.add('show');
+          photos.forEach((p) => {
+            const box = document.createElement('div');
+            box.className = 'wo-photo';
+            box.innerHTML = `<img src="${escapeHtml(p.url)}" alt="${escapeHtml(p.name || 'Boundary request photo')}" loading="lazy" decoding="async">`;
+            box.addEventListener('click', () => openPhotoViewer(p.url));
+            photosGrid.appendChild(box);
           });
         }else{
-          photosWrap.style.display = 'none';
+          photosWrap.classList.remove('show');
         }
       }
 
@@ -1016,7 +1018,7 @@
 
     /* ===========================
        Print / PDF
-       (UPDATED: KPI row constrained + larger photo thumbnails + company logo + no URL footer)
+       (UPDATED: KPI layout + PHOTO APPENDIX like your Field Maintenance file)
        =========================== */
 
     function extractFieldNumber(field){
@@ -1083,11 +1085,6 @@
       const dMax = new Date(max);
       if (dMin.toDateString() === dMax.toDateString()) return formatDate(dMin);
       return `${formatDate(dMin)} – ${formatDate(dMax)}`;
-    }
-
-    function normalizePhotoUrl(p){
-      if(!p) return '';
-      return p.url || p.path || '';
     }
 
     async function handlePrintClick(){
@@ -1158,7 +1155,7 @@
           console.warn('[boundary-report] iframe print failed, falling back to window.print()', err);
           window.print();
         }
-      }, 350);
+      }, 400);
     }
 
     function buildPrintHtml({ company, runStr, runDateOnly, dateRange, filterSummary, totalRecords, openCount, farmCount, oldestOpenAge, grouped }){
@@ -1177,259 +1174,114 @@
       --fv-bg:#F3F4F6;
     }
     *{box-sizing:border-box;}
-    html,body{
-      margin:0;
-      padding:0;
-      font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-      color:var(--fv-text);
-      background:var(--fv-bg);
-    }
+    html,body{ margin:0; padding:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--fv-text); background:var(--fv-bg); }
     body{ display:flex; justify-content:center; padding:22px 12px; }
-    .page{
-      width:100%;
-      max-width:920px;
-      background:#fff;
-      border-radius:14px;
-      box-shadow:0 10px 30px rgba(15,23,42,0.12);
-      padding:20px 22px 22px;
-    }
-    .hdr{
-      display:grid;
-      grid-template-columns:auto 1fr auto;
-      gap:14px;
-      align-items:center;
-      border-bottom:2px solid var(--fv-green);
-      padding-bottom:12px;
-      margin-bottom:14px;
-    }
+    .page{ width:100%; max-width:920px; background:#fff; border-radius:14px; box-shadow:0 10px 30px rgba(15,23,42,0.12); padding:20px 22px 22px; }
 
-    /* Company logo tile */
+    .hdr{ display:grid; grid-template-columns:auto 1fr auto; gap:14px; align-items:center; border-bottom:2px solid var(--fv-green); padding-bottom:12px; margin-bottom:14px; }
+
     .logo{
-      width:60px;
-      height:60px;
-      border-radius:16px;
+      width:60px;height:60px;border-radius:16px;
       border:1px solid var(--fv-border);
       background:#fff;
-      display:flex;
-      align-items:center;
-      justify-content:center;
+      display:flex;align-items:center;justify-content:center;
       overflow:hidden;
     }
-    .logo img{
-      width:100%;
-      height:100%;
-      object-fit:cover;
-      display:block;
-    }
-    .logo span{
-      font-size:22px;
-      font-weight:950;
-      color:#111827;
-      letter-spacing:0.04em;
-    }
+    .logo img{ width:100%; height:100%; object-fit:cover; display:block; }
+    .logo span{ font-size:22px; font-weight:950; color:#111827; letter-spacing:0.04em; }
 
     .co-name{font-size:16px;font-weight:900;margin:0 0 2px;}
     .co-line{font-size:11px;color:var(--fv-muted);margin:0;line-height:1.35;}
-    .meta{
-      text-align:right;
-      font-size:11px;
-      color:var(--fv-muted);
-      line-height:1.35;
-      white-space:nowrap;
-    }
+    .meta{ text-align:right; font-size:11px; color:var(--fv-muted); line-height:1.35; white-space:nowrap; }
     .meta strong{color:var(--fv-text);}
-    .title{
-      margin:0;
-      font-size:18px;
-      font-weight:950;
-      letter-spacing:0.06em;
-      text-transform:uppercase;
-    }
-    .subtitle{
-      margin:4px 0 0;
-      font-size:12px;
-      color:var(--fv-muted);
-      line-height:1.35;
-    }
-    .summary{
-      margin-top:10px;
-      padding:8px 10px;
-      border-radius:12px;
-      background:linear-gradient(90deg, rgba(59,126,70,0.10), transparent);
-      border:1px solid rgba(59,126,70,0.22);
-      display:flex;
-      flex-wrap:wrap;
-      gap:6px 14px;
-      font-size:11px;
-    }
+
+    .title{ margin:0; font-size:18px; font-weight:950; letter-spacing:0.06em; text-transform:uppercase; }
+    .subtitle{ margin:4px 0 0; font-size:12px; color:var(--fv-muted); line-height:1.35; }
+
+    .summary{ margin-top:10px; padding:8px 10px; border-radius:12px; background:linear-gradient(90deg, rgba(59,126,70,0.10), transparent); border:1px solid rgba(59,126,70,0.22); display:flex; flex-wrap:wrap; gap:6px 14px; font-size:11px; }
     .pill{display:inline-flex; gap:6px; align-items:baseline; white-space:nowrap;}
     .k{font-size:10px; text-transform:uppercase; letter-spacing:0.10em; color:var(--fv-muted); font-weight:700;}
-    .v{font-weight:700; color:var(--fv-text);}
+    .v{font-weight:800; color:var(--fv-text);}
 
-    /* ✅ KPIs: keep 3 across but visually constrained/centered */
+    /* ✅ KPI layout copied style, but kept to 3 across (your request) */
     .kpis{
-      margin:12px auto 0;
+      margin-top:12px;
       display:grid;
-      grid-template-columns:repeat(3, 1fr);
-      gap:12px;
-      max-width:720px;
+      grid-template-columns:repeat(3, minmax(0,1fr));
+      gap:10px;
     }
-
     .kpi{
       border:1px solid var(--fv-border);
       border-radius:12px;
       padding:9px 10px;
       background:linear-gradient(135deg, rgba(59,126,70,0.06), #fff);
     }
-    .kpi .lab{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--fv-muted);font-weight:800;}
+    .kpi .lab{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--fv-muted);font-weight:900;}
     .kpi .val{font-size:18px;font-weight:950;margin-top:2px;}
     .kpi .note{font-size:10px;color:var(--fv-muted);margin-top:2px;line-height:1.25;}
 
-    .section{
-      margin-top:16px;
-      border-top:1px solid #EEF2F7;
-      padding-top:14px;
-    }
-    .farm-title{
-      font-size:12px;
-      font-weight:950;
-      letter-spacing:0.10em;
-      text-transform:uppercase;
-      color:#1F2937;
-      margin:0 0 6px;
-      display:flex;
-      justify-content:space-between;
-      gap:10px;
-      align-items:baseline;
-    }
-    .farm-sub{
-      font-size:11px;
-      color:var(--fv-muted);
-      margin:0 0 10px;
-    }
+    .section{ margin-top:16px; border-top:1px solid #EEF2F7; padding-top:14px; }
+    .farm-title{ font-size:12px; font-weight:950; letter-spacing:0.10em; text-transform:uppercase; color:#1F2937; margin:0 0 6px; display:flex; justify-content:space-between; gap:10px; align-items:baseline; }
+    .farm-sub{ font-size:11px; color:var(--fv-muted); margin:0 0 10px; }
 
-    .req-grid{
-      display:grid;
-      grid-template-columns:repeat(2, minmax(0,1fr));
-      gap:10px;
-    }
-    .req{
-      border:1px solid var(--fv-border);
-      border-radius:12px;
-      padding:10px 10px 9px;
-      break-inside:avoid;
-    }
-    .req-top{
-      display:flex;
-      justify-content:space-between;
-      gap:10px;
-      align-items:flex-start;
-      padding-bottom:7px;
-      border-bottom:1px solid #EEF2F7;
-      margin-bottom:8px;
-    }
+    .req-grid{ display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px; }
+    .req{ border:1px solid var(--fv-border); border-radius:12px; padding:10px 10px 9px; break-inside:avoid; page-break-inside:avoid; }
+    .req-top{ display:flex; justify-content:space-between; gap:10px; align-items:flex-start; padding-bottom:7px; border-bottom:1px solid #EEF2F7; margin-bottom:8px; }
     .req-field{ font-weight:950; font-size:13px; line-height:1.25; }
     .req-farm{ font-size:10.5px; color:var(--fv-muted); margin-top:2px; }
 
-    /* ✅ More square/smaller status badge */
     .badge{
-      font-size:9.5px;
-      font-weight:900;
+      font-size:10px;
+      font-weight:950;
       letter-spacing:0.08em;
       text-transform:uppercase;
-      padding:3px 6px;
-      border-radius:8px;
+      padding:4px 8px;
+      border-radius:999px;
       border:1px solid rgba(59,126,70,0.28);
       background:rgba(59,126,70,0.07);
       color:#0F172A;
       white-space:nowrap;
-      line-height:1.1;
     }
 
-    .req-meta{
-      display:grid;
-      grid-template-columns:repeat(2, minmax(0,1fr));
-      gap:8px 10px;
-      font-size:11px;
-    }
-    .pair .kk{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--fv-muted);font-weight:800;margin-bottom:2px;}
-    .pair .vv{font-weight:600; color:#111827; line-height:1.25; word-break:break-word;}
+    .req-meta{ display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px 10px; font-size:11px; }
+    .pair .kk{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--fv-muted);font-weight:900;margin-bottom:2px;}
+    .pair .vv{font-weight:650; color:#111827; line-height:1.25; word-break:break-word;}
     .rtkbox{grid-column:1 / -1;}
-    .rtkname{font-weight:600;}
-    .rtksub{font-weight:600;color:#111827;opacity:.88;margin-top:2px;}
-    .notes{
-      grid-column:1 / -1;
-      margin-top:2px;
-      padding-top:8px;
-      border-top:1px dashed #E5E7EB;
-    }
-    .notes .vv{
-      font-weight:600;
-      color:#111827;
-      white-space:pre-wrap;
-      line-height:1.28;
-    }
+    .rtkname{font-weight:650;}
+    .rtksub{font-weight:650;color:#111827;opacity:.88;margin-top:2px;}
+    .notes{ grid-column:1 / -1; margin-top:2px; padding-top:8px; border-top:1px dashed #E5E7EB; }
+    .notes .vv{ font-weight:650; white-space:pre-wrap; line-height:1.28; }
 
-    /* ✅ Photos: larger so they're actually viewable */
-    .photos{
-      grid-column:1 / -1;
-      margin-top:6px;
-      padding-top:8px;
-      border-top:1px dashed #E5E7EB;
-    }
-    .photos .kk{
-      font-size:10px;
-      text-transform:uppercase;
-      letter-spacing:0.10em;
-      color:var(--fv-muted);
-      font-weight:800;
-      margin-bottom:6px;
-    }
-    .photos-grid{
-      display:flex;
-      flex-wrap:wrap;
-      gap:8px;
-    }
-    .pimg{
-      width:140px;
-      height:140px;
-      border-radius:12px;
+    /* ✅ Photo Appendix styles (copied pattern) */
+    .photo-grid{ display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px; }
+    .photo{
       border:1px solid #E5E7EB;
-      object-fit:cover;
-      display:block;
-      background:#fff;
+      border-radius:12px;
+      overflow:hidden;
+      background:#F8FAFC;
+      break-inside:avoid;
+      page-break-inside:avoid;
     }
+    .photo img{ width:100%; height:auto; display:block; max-height:420px; object-fit:cover; }
+    .photo-cap{ font-size:10px; color:var(--fv-muted); padding:6px 8px; border-top:1px solid #EEF2F7; }
 
-    .footer{
-      margin-top:16px;
-      padding-top:10px;
-      border-top:1px solid var(--fv-border);
-      display:flex;
-      justify-content:space-between;
-      gap:12px;
-      font-size:10px;
-      color:var(--fv-muted);
-      line-height:1.3;
-    }
+    .footer{ margin-top:16px; padding-top:10px; border-top:1px solid var(--fv-border); display:flex; justify-content:space-between; gap:12px; font-size:10px; color:var(--fv-muted); line-height:1.3; }
     .footer .l{max-width:65%;}
     .footer .r{text-align:right;}
 
     @media (max-width:860px){
       .req-grid{grid-template-columns:1fr;}
-      .kpis{grid-template-columns:1fr; max-width:none; margin-left:0; margin-right:0;}
+      .kpis{grid-template-columns:1fr;}
       .meta{white-space:normal;}
-      .pimg{ width:160px; height:160px; } /* mobile print preview: slightly bigger */
+      .photo-grid{grid-template-columns:1fr;}
     }
+
     @media print{
       html,body{background:#fff;padding:0;}
       body{box-shadow:none;}
-      .page{
-        max-width:none;
-        border-radius:0;
-        box-shadow:none;
-        padding:12mm 13mm;
-      }
+      .page{ max-width:none; border-radius:0; box-shadow:none; padding:9mm 10mm; }
       .req{break-inside:avoid; page-break-inside:avoid;}
+      img{ break-inside:avoid; page-break-inside:avoid; }
     }
   </style>
 </head>
@@ -1489,9 +1341,9 @@
       <section class="section">
         <div class="farm-title">
           <span>${escapeHtml(farmName)}</span>
-          <span style="font-size:11px;color:var(--fv-muted);letter-spacing:0.06em;text-transform:none;font-weight:800;">${openHere} open / ${totalHere} total</span>
+          <span style="font-size:11px;color:var(--fv-muted);letter-spacing:0.06em;text-transform:none;font-weight:900;">${openHere} open / ${totalHere} total</span>
         </div>
-        <p class="farm-sub">Each card includes scope/type, submitter, and RTK (Name • Network ID • Frequency). Photos included when available.</p>
+        <p class="farm-sub">Each card includes scope/type, submitter, and RTK (Name • Network ID • Frequency). Photos are in the Photo Appendix.</p>
 
         <div class="req-grid">
           ${arr.map(it => {
@@ -1504,8 +1356,6 @@
             const submitLine = (d.submittedBy || '') + (d.submittedByEmail ? ' · ' + d.submittedByEmail : '');
             const status = d.status || '';
             const field = d.field || '';
-
-            const photos = Array.isArray(d.photos) ? d.photos.filter(p => p && (p.url || p.path)) : [];
 
             return `
               <article class="req">
@@ -1548,19 +1398,6 @@
                     <div class="kk">Notes</div>
                     <div class="vv">${escapeHtml(d.notes || '')}</div>
                   </div>
-
-                  ${photos.length ? `
-                    <div class="photos">
-                      <div class="kk">Photos</div>
-                      <div class="photos-grid">
-                        ${photos.map(p => {
-                          const u = normalizePhotoUrl(p);
-                          const nm = (p && p.name) ? String(p.name) : 'Boundary photo';
-                          return u ? `<img class="pimg" src="${escapeHtml(u)}" alt="${escapeHtml(nm)}" />` : '';
-                        }).join('')}
-                      </div>
-                    </div>
-                  ` : ''}
                 </div>
               </article>
             `;
@@ -1569,6 +1406,64 @@
       </section>
       `;
     }).join('')}
+
+    ${(() => {
+      // ✅ Photo Appendix (grouped by request, just like your Field Maintenance pattern)
+      const flat = [];
+      grouped.forEach(([farmName, arr]) => {
+        arr.forEach(it => {
+          const d = it.data || {};
+          const photos = getPhotosFromRequest(d);
+          if(!photos.length) return;
+
+          const created = d._createdAtDate ? formatDate(d._createdAtDate) : '—';
+          flat.push({
+            farmName,
+            fieldName: d.field || 'Field not set',
+            scope: d.scope || 'Boundary correction requested',
+            status: d.status || '',
+            when: created,
+            photos
+          });
+        });
+      });
+
+      if(!flat.length) return '';
+
+      return `
+      <section class="section" style="page-break-before:always;">
+        <div class="farm-title" style="margin-bottom:10px;">
+          <span>Photo Appendix</span>
+          <span style="font-size:11px;color:var(--fv-muted);letter-spacing:0.06em;text-transform:none;font-weight:900;">
+            Photos grouped by request
+          </span>
+        </div>
+
+        ${flat.map((p) => `
+          <div style="border:1px solid var(--fv-border); border-radius:12px; padding:10px; margin:10px 0; break-inside:avoid; page-break-inside:avoid;">
+            <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start; margin-bottom:8px;">
+              <div>
+                <div style="font-weight:950; font-size:13px; line-height:1.25;">${escapeHtml(p.fieldName)}</div>
+                <div style="font-size:11px; color:var(--fv-muted); margin-top:2px;">
+                  ${escapeHtml(p.farmName)} · ${escapeHtml(p.when)} · ${escapeHtml(p.scope)}
+                </div>
+              </div>
+              <div class="badge">${escapeHtml(p.status || '—')}</div>
+            </div>
+
+            <div class="photo-grid">
+              ${p.photos.map((ph, i) => `
+                <div class="photo">
+                  <img src="${escapeHtml(ph.url)}" alt="${escapeHtml(ph.name || 'Boundary request photo')}">
+                  <div class="photo-cap">${escapeHtml(ph.name || ('Photo ' + (i+1)))}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `).join('')}
+      </section>
+      `;
+    })()}
 
     <footer class="footer">
       <div class="l">Internal use only. Please verify boundary fixes in your GIS system before finalizing changes.</div>
@@ -1651,13 +1546,14 @@
       const deleteBtn = $('#btnDeleteRequest');
       if (deleteBtn) deleteBtn.addEventListener('click', handleDeleteRequest);
 
-      const photoModal = $('#photoModal');
-      const photoModalClose = $('#photoModalClose');
-      if (photoModal && photoModalClose){
-        photoModalClose.addEventListener('click', closePhotoModal);
-        photoModal.addEventListener('click', (e) => { if (e.target === photoModal) closePhotoModal(); });
-        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePhotoModal(); });
-      }
+      // Photo viewer wiring
+      photoModal = $('#photoModal');
+      photoModalImg = $('#photoModalImg');
+      photoModalBackdrop = $('#photoModalBackdrop');
+      photoModalCloseBtn = $('#photoModalClose');
+      if(photoModalBackdrop) photoModalBackdrop.addEventListener('click', closePhotoViewer);
+      if(photoModalCloseBtn) photoModalCloseBtn.addEventListener('click', closePhotoViewer);
+      document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape') closePhotoViewer(); });
 
       await loadBoundaryRequests();
       populateFarmFilterFromItems();
@@ -1750,14 +1646,15 @@
 
             <div class="wo-detail-grid"></div>
 
-            <div class="wo-detail-photos">
-              <div class="wo-detail-photos-label">Photos</div>
-              <div class="wo-detail-photos-grid" id="woDetailPhotosGrid"></div>
-            </div>
-
             <div class="wo-detail-notes">
               <div class="wo-detail-notes-label">Notes</div>
               <div class="wo-detail-notes-body"></div>
+            </div>
+
+            <!-- ✅ BIG PHOTOS (DETAIL VIEW) -->
+            <div id="woDetailPhotos" class="wo-detail-photos" aria-label="Boundary request photos">
+              <div class="wo-detail-photos-label">Photos</div>
+              <div id="woDetailPhotoGrid" class="wo-photo-grid"></div>
             </div>
 
             <div class="wo-detail-footer"></div>
@@ -1787,22 +1684,22 @@
           </div>
         </div>
       </section>
-    </div>
 
-    <div id="photoModal" class="photo-modal-backdrop" hidden>
-      <div class="photo-modal" role="dialog" aria-modal="true" aria-label="Photo preview">
-        <div class="photo-modal-header">
-          <div class="photo-modal-title">Boundary request photo</div>
-          <button type="button" id="photoModalClose" class="photo-modal-close">Close</button>
-        </div>
-        <div class="photo-modal-imgwrap">
-          <img id="photoModalImg" src="" alt="" />
-        </div>
-        <div id="photoModalCaption" class="photo-modal-caption"></div>
+      <iframe id="fv-print-frame"></iframe>
+    </div>
+  </fv-shell>
+
+  <!-- Photo viewer modal -->
+  <div id="photoModal" class="photo-modal" role="dialog" aria-modal="true" aria-label="Boundary request photo">
+    <div id="photoModalBackdrop" class="photo-backdrop"></div>
+    <div class="photo-sheet">
+      <div class="photo-close-row">
+        <button id="photoModalClose" type="button" class="photo-close-btn">Close</button>
+      </div>
+      <div class="photo-img-wrap">
+        <img id="photoModalImg" src="" alt="Boundary request photo"/>
       </div>
     </div>
-
-    <iframe id="fv-print-frame"></iframe>
-  </fv-shell>
+  </div>
 </body>
 </html>
