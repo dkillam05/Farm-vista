@@ -356,7 +356,6 @@
        ========================================================== */
     #printStage, #printStageStyle { display:none; }
 
-    /* The print stage is built at runtime and only shown during printing */
     #printStage{
       position:fixed;
       left:-99999px;
@@ -368,7 +367,6 @@
       z-index:999999;
     }
 
-    /* Print-only visibility */
     @media print{
       fv-shell, dialog, .page{ display:none !important; }
       body{ background:#fff !important; }
@@ -438,6 +436,7 @@
     .ps-sf .serial.small{ font-size:13pt; }
   </style>
 </head>
+
 <body>
   <fv-shell>
     <div class="page">
@@ -678,11 +677,9 @@
 
           const title = document.createElement('div'); title.className='card-title'; title.textContent = displayLine(d);
           title.style.minWidth='0';
-
           left.append(title);
 
           const right = document.createElement('div'); right.style.display='flex'; right.style.gap='8px'; right.style.alignItems='center';
-
           if (isArchived(d)) {
             const badge = document.createElement('span');
             badge.className='badge arch';
@@ -714,9 +711,9 @@
     const qrImg = document.getElementById('qrImg');
     const qrLbl = document.getElementById('qrLbl');
 
-    const close = ()=> { try{ dlg.close(); }catch{ dlg.removeAttribute('open'); } };
-    document.getElementById('dClose').addEventListener('click', close);
-    document.getElementById('dClose2').addEventListener('click', close);
+    const closeDetail = ()=> { try{ dlg.close(); }catch{ dlg.removeAttribute('open'); } };
+    document.getElementById('dClose').addEventListener('click', closeDetail);
+    document.getElementById('dClose2').addEventListener('click', closeDetail);
 
     const has = v => !(v===undefined || v===null || v==='');
     function addRow(k, v){
@@ -737,7 +734,7 @@
       }catch{ return ''; }
     }
 
-    /* ===== Reprint Preview modal wiring (SINGLE HOST) ===== */
+    /* ===== Reprint Preview modal wiring ===== */
     const pDlg = document.getElementById('printPrev');
     const pHdrTitle = document.getElementById('pHdrTitle');
     const pHelp = document.getElementById('pHelp');
@@ -755,8 +752,8 @@
     let __pendingPrint = null;
     let __labelLenMm = 90;
     let __previewQrSrc = '';
+    let __isPrinting = false;
 
-    // Non-StarFire: dynamic label length (max 6")
     const LABEL = {
       tapeWmm: 62,
       qrMm: 48,
@@ -765,6 +762,7 @@
       minLenMm: 90,
       maxLenMm: 152.4
     };
+
     function pxPerMm(){ return 96 / 25.4; }
     function clampLenMm(mm){
       let len = Math.max(LABEL.minLenMm, Math.min(LABEL.maxLenMm, mm));
@@ -778,7 +776,6 @@
       return s.length <= 6 ? s : s.slice(-6);
     }
 
-    // StarFire fixed compact label
     const STARFIRE_LABEL = {
       tapeWmm: 62,
       cutLenMm: 62,
@@ -847,10 +844,8 @@
       const isSF = !!payload?.isStarfire;
       const qrUrl = payload?.url || '';
 
-      // Center only for StarFire, left for long labels
       printWrap.classList.toggle('center', isSF);
 
-      // cache bust so image definitely loads
       const bust = (qrUrl && qrUrl.includes('?') ? '&' : '?') + '_=' + Date.now();
       const qrSrc = qrUrl ? (qrUrl + bust) : '';
 
@@ -883,12 +878,11 @@
         wrap.append(q, s);
         pHost.appendChild(wrap);
 
-        // store a known-good src for same-page printing
+        // Use the preview image src as the print src (cached + same-origin cookies already in place)
         __previewQrSrc = img.src || qrSrc;
         return;
       }
 
-      // NON-StarFire long strip preview
       pHdrTitle.textContent = 'Print QR Label';
       pHelp.innerHTML =
         `Printer: <b>Brother QL-820NWB</b> • Tape: <b>DK-2205 (62mm / 2.4&quot; continuous)</b><br>
@@ -953,7 +947,6 @@
     function openReprintPreview(payload){
       __pendingPrint = payload || null;
       if(!__pendingPrint) return;
-
       try{ pDlg.showModal(); }catch{ pDlg.setAttribute('open',''); }
       setPreview(__pendingPrint);
     }
@@ -967,10 +960,7 @@
     pCancel.addEventListener('click', closeReprintPreview);
 
     // ---------- SAME-PAGE PRINT (native print chooser like reports) ----------
-    let __isPrinting = false;
-
     function setPageSizeMM(wMm, hMm){
-      // @page rule must be literal for best support (don’t rely on CSS vars)
       printStageStyle.textContent = `
 @page{ size: ${wMm}mm ${hMm}mm; margin: 0; }
 @media print{
@@ -980,7 +970,10 @@
 
     function buildPrintStageHTML(payload){
       const isSF = !!payload?.isStarfire;
+
+      // Use preview src if available, else use URL
       const qrSrc = __previewQrSrc || payload?.url || '';
+
       printStage.innerHTML = '';
 
       if (isSF){
@@ -989,7 +982,6 @@
 
         const wrap = document.createElement('div');
         wrap.className = 'ps-label ps-sf';
-        // exact size for stage
         wrap.style.width = `${STARFIRE_LABEL.cutLenMm}mm`;
         wrap.style.height = `${STARFIRE_LABEL.tapeWmm}mm`;
 
@@ -1009,7 +1001,6 @@
         return;
       }
 
-      // Long label
       const cutLenMm = __labelLenMm || LABEL.minLenMm;
       setPageSizeMM(cutLenMm, LABEL.tapeWmm);
 
@@ -1053,44 +1044,27 @@
       printStage.appendChild(wrap);
     }
 
-    function imgReadyInStage(){
-      const img = printStage.querySelector('img');
-      if (!img) return Promise.resolve(true);
-      if (img.complete && img.naturalWidth > 0) return Promise.resolve(true);
-      return new Promise((resolve)=>{
-        let done=false;
-        const finish=(ok)=>{ if(done) return; done=true; resolve(ok); };
-        img.addEventListener('load', ()=>finish(true), {once:true});
-        img.addEventListener('error', ()=>finish(false), {once:true});
-        setTimeout(()=>finish(false), 2500);
-      });
-    }
-
     function cleanupAfterPrint(){
       __isPrinting = false;
-      // clear stage so it never flashes anywhere
       try{ printStage.innerHTML=''; }catch{}
       try{ printStageStyle.textContent=''; }catch{}
     }
 
-    window.addEventListener('afterprint', ()=> {
-      cleanupAfterPrint();
-    });
+    window.addEventListener('afterprint', cleanupAfterPrint);
 
-    pPrint.addEventListener('click', async ()=>{
+    // ✅ CRITICAL FIX: NO await / NO async before window.print()
+    // (iOS requires window.print() to be called synchronously from the tap)
+    pPrint.addEventListener('click', ()=>{
       if(!__pendingPrint || __isPrinting) return;
       __isPrinting = true;
 
-      // Build stage using already-loaded preview QR src (so printing is immediate like reports)
+      // Build stage immediately (sync)
       buildPrintStageHTML(__pendingPrint);
 
-      // Best-effort: ensure the stage image is ready (usually instant because preview already loaded)
-      await imgReadyInStage();
-
-      // Close preview first so dialogs don't interfere with printing
+      // Close preview immediately (sync)
       closeReprintPreview();
 
-      // Trigger native print UI (same as reports)
+      // Call print immediately (sync) -> triggers native print options like reports
       try{
         window.print();
       }catch(e){
@@ -1099,7 +1073,7 @@
         return;
       }
 
-      // iOS sometimes doesn't fire afterprint reliably — safety cleanup
+      // Fallback cleanup (iOS sometimes doesn’t fire afterprint)
       setTimeout(()=>{ if(__isPrinting) cleanupAfterPrint(); }, 6000);
     });
 
@@ -1161,8 +1135,7 @@
               url,
               make: d.makeName || '',
               model: d.modelName || '',
-              serial: d.serial || '',
-              serial6: ls || ''
+              serial: d.serial || ''
             });
           }
         };
@@ -1201,10 +1174,7 @@
       if (!filterPop.hidden && !filterPop.contains(e.target) && e.target !== filterBtn) closePop();
     });
     window.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closePop(); });
-
-    window.addEventListener('scroll', () => {
-      if (!filterPop.hidden) closePop();
-    }, { passive: true });
+    window.addEventListener('scroll', () => { if (!filterPop.hidden) closePop(); }, { passive:true });
 
     filterPop.addEventListener('change', (e)=>{
       if (e.target && e.target.name === 'statusMode') {
