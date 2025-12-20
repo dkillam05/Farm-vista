@@ -1,19 +1,20 @@
 <!-- =====================================================================
-/Farm-vista/pages/dev/weather-model-dev.html  (FULL FILE)
-Rev: 2025-12-20a
-Purpose:
-  Dev-only “Weather Wetness Model” tuning page (NO API CALLS YET)
-  • Defaults to Divernon, IL lat/long
-  • Two field sliders: Soil Wetness (1–10) + Drainage (1–10)
-  • Generates a mock last-30-days weather series (daily) for testing
-  • Computes a simple water-balance Wetness Index (0–100)
-  • When you later add a backend function, wire it into fetchWeather30()
+/Farm-vista/pages/dev/weather.html  (FULL FILE)
+Rev: 2025-12-20b
+Dev Wetness Model (Mock + Real API Switch)
+- Default: Divernon, IL
+- Two sliders: Soil Wetness (1–10) + Drainage (1–10)
+- Mock 30-day daily weather generator for UI testing
+- Optional: Fetch real weather from your backend function:
+    Weather API Base URL = https://YOUR-SERVICE
+    Endpoint required: GET {base}/weather30?lat=..&lon=..
+    Response shape: { days:[{dateISO,rainIn,tempF,windMph,rh,solarWm2}], meta?:{...} }
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>FarmVista • Dev • Weather Wetness Model</title>
+  <title>FarmVista • Dev • Weather Model</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
@@ -27,224 +28,119 @@ Purpose:
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- Core (for header/logout patterns, optional auth helpers) -->
   <script src="/Farm-vista/js/core.js"></script>
 
   <style>
-    :root{
-      --card-max: 1100px;
-      --page-bottom-gap: 72px;
-      --accent: #2F6C3C;
-    }
+    :root{ --card-max:1100px; --page-bottom-gap:72px; --accent:#2F6C3C; }
 
     .page{
-      max-width: var(--card-max);
-      margin: 0 auto;
-      padding: clamp(14px, 3vw, 22px);
-      padding-bottom: calc(var(--page-bottom-gap) + env(safe-area-inset-bottom, 0px));
+      max-width:var(--card-max);
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(var(--page-bottom-gap) + env(safe-area-inset-bottom,0px));
     }
+    .topbar{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
+    .topbar h1{ font-size:18px; margin:0; letter-spacing:.2px; }
 
-    .topbar{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:12px;
-      margin-bottom: 14px;
-    }
-    .topbar h1{
-      font-size: 18px;
-      margin:0;
-      letter-spacing:.2px;
-    }
+    a,a:visited,a:hover,a:active{ color:var(--text); text-decoration:none; }
 
-    /* No-blue links */
-    a, a:visited, a:hover, a:active { color: var(--text); text-decoration:none; }
-
-    .grid{
-      display:grid;
-      grid-template-columns: 1fr;
-      gap: 14px;
-    }
-    @media (min-width: 920px){
-      .grid{ grid-template-columns: 420px 1fr; }
-    }
+    .grid{ display:grid; grid-template-columns:1fr; gap:14px; }
+    @media(min-width:920px){ .grid{ grid-template-columns:440px 1fr; } }
 
     .card{
-      background: var(--card, var(--surface));
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      box-shadow: 0 10px 30px rgba(0,0,0,.08);
+      background:var(--card, var(--surface));
+      border:1px solid var(--border);
+      border-radius:16px;
+      box-shadow:0 10px 30px rgba(0,0,0,.08);
       overflow:hidden;
     }
-    .card-h{
-      padding: 14px 14px 10px;
-      border-bottom: 1px solid var(--border);
-      display:flex;
-      align-items:flex-start;
-      justify-content:space-between;
-      gap:12px;
-    }
-    .card-h .t{
-      margin:0;
-      font-size: 15px;
-      font-weight: 700;
-    }
-    .card-b{
-      padding: 14px;
-    }
+    .card-h{ padding:14px 14px 10px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; gap:12px; }
+    .card-h .t{ margin:0; font-size:15px; font-weight:800; }
+    .card-b{ padding:14px; }
 
-    .row{
-      display:flex;
-      gap:10px;
-      align-items:center;
-      flex-wrap:wrap;
-    }
-    .row > *{ flex: 1 1 auto; }
-
-    .field{
-      display:flex;
-      flex-direction:column;
-      gap:6px;
-      margin-bottom: 12px;
-    }
-    label{
-      font-size: 12px;
-      opacity:.9;
-    }
+    .field{ display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
+    label{ font-size:12px; opacity:.9; }
     input[type="text"], input[type="number"]{
-      width:100%;
-      padding: 10px 12px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      background: var(--surface, var(--card));
-      color: var(--text);
-      outline: none;
+      width:100%; padding:10px 12px; border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--surface, var(--card));
+      color:var(--text);
+      outline:none;
     }
 
-    .slider-wrap{
-      display:grid;
-      grid-template-columns: 1fr auto;
-      gap:10px;
-      align-items:center;
-      margin: 6px 0 14px;
-    }
-    input[type="range"]{
-      width:100%;
-      accent-color: var(--brand, #3B7E46);
-    }
+    .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .row > *{ flex:1 1 auto; }
+
+    .slider-wrap{ display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center; margin:6px 0 14px; }
+    input[type="range"]{ width:100%; accent-color:var(--brand,#3B7E46); }
     .pill{
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      min-width: 58px;
-      height: 34px;
-      padding: 0 10px;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      background: color-mix(in srgb, var(--surface) 88%, #ffffff 12%);
-      font-weight: 700;
+      display:inline-flex; align-items:center; justify-content:center;
+      min-width:58px; height:34px; padding:0 10px;
+      border-radius:999px; border:1px solid var(--border);
+      background:color-mix(in srgb, var(--surface) 88%, #ffffff 12%);
+      font-weight:800;
     }
 
-    .btnbar{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-      margin-top: 10px;
-    }
-
-    /* Button styling: ensure green has WHITE text */
+    .btnbar{ display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
     .btn{
-      border: 1px solid var(--border);
-      background: var(--surface, var(--card));
-      color: var(--text);
-      padding: 10px 12px;
-      border-radius: 12px;
-      font-weight: 700;
+      border:1px solid var(--border);
+      background:var(--surface, var(--card));
+      color:var(--text);
+      padding:10px 12px;
+      border-radius:12px;
+      font-weight:800;
       cursor:pointer;
       user-select:none;
     }
-    .btn:active{ transform: translateY(1px); }
+    .btn:active{ transform:translateY(1px); }
+    .btn.primary{ background:var(--brand,#3B7E46); border-color:transparent; color:#fff !important; }
 
-    .btn.primary{
-      background: var(--brand, #3B7E46);
-      border-color: transparent;
-      color: #fff !important;
-    }
-    .btn.ghost{
-      background: transparent;
+    .note{
+      border:1px dashed var(--border);
+      border-radius:14px;
+      padding:10px 12px;
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      font-size:12px;
+      opacity:.92;
+      line-height:1.35;
     }
 
-    .kpis{
-      display:grid;
-      grid-template-columns: 1fr;
-      gap:12px;
-    }
-    @media (min-width: 720px){
-      .kpis{ grid-template-columns: 1fr 1fr; }
-    }
+    .kpis{ display:grid; grid-template-columns:1fr; gap:12px; }
+    @media(min-width:720px){ .kpis{ grid-template-columns:1fr 1fr; } }
     .kpi{
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      background: color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
-      padding: 12px;
+      border:1px solid var(--border);
+      border-radius:16px;
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      padding:12px;
       display:flex;
       flex-direction:column;
       gap:6px;
     }
-    .kpi .lab{
-      font-size: 12px;
-      opacity: .85;
-    }
-    .kpi .val{
-      font-size: 28px;
-      font-weight: 900;
-      letter-spacing: .2px;
-      line-height: 1.05;
-    }
-    .kpi .sub{
-      font-size: 12px;
-      opacity: .85;
-    }
-
-    .mini{
-      font-size: 12px;
-      opacity:.85;
-    }
+    .kpi .lab{ font-size:12px; opacity:.85; }
+    .kpi .val{ font-size:28px; font-weight:900; line-height:1.05; }
+    .kpi .sub{ font-size:12px; opacity:.85; }
 
     table{
       width:100%;
-      border-collapse: collapse;
-      border: 1px solid var(--border);
-      border-radius: 12px;
+      border-collapse:collapse;
+      border:1px solid var(--border);
+      border-radius:12px;
       overflow:hidden;
-      background: var(--surface, var(--card));
+      background:var(--surface, var(--card));
     }
-    th, td{
-      padding: 10px 10px;
-      border-bottom: 1px solid var(--border);
-      text-align:left;
-      font-size: 12px;
-      vertical-align: top;
-    }
-    th{
-      font-size: 12px;
-      opacity:.85;
-      background: color-mix(in srgb, var(--surface) 90%, #ffffff 10%);
-    }
-    tr:last-child td{ border-bottom: none; }
+    th,td{ padding:10px; border-bottom:1px solid var(--border); font-size:12px; text-align:left; vertical-align:top; }
+    th{ opacity:.85; background:color-mix(in srgb, var(--surface) 90%, #ffffff 10%); }
+    tr:last-child td{ border-bottom:none; }
 
-    .muted{ opacity:.75; }
     .right{ text-align:right; }
-    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .muted{ opacity:.75; }
+    .mono{ font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace; }
 
-    .note{
-      border: 1px dashed var(--border);
-      border-radius: 14px;
-      padding: 10px 12px;
-      background: color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
-      font-size: 12px;
-      opacity: .9;
-      line-height: 1.35;
+    .statusline{
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      margin-top:10px;
+      font-size:12px;
+      opacity:.9;
     }
   </style>
 </head>
@@ -252,20 +148,17 @@ Purpose:
 <body>
   <div class="page">
     <div class="topbar">
-      <h1>Dev • Weather Wetness Model</h1>
-
-      <div class="btnbar" style="margin:0;">
-        <button id="btnLogout" class="btn ghost" type="button">Logout</button>
-      </div>
+      <h1>Dev • Weather Model</h1>
+      <button id="btnLogout" class="btn" type="button">Logout</button>
     </div>
 
     <div class="grid">
-      <!-- LEFT: Inputs -->
+      <!-- LEFT -->
       <section class="card">
         <div class="card-h">
           <div>
             <p class="t">Inputs</p>
-            <div class="mini muted">Test-only. Uses mock 30-day weather until you wire your backend function.</div>
+            <div class="muted" style="font-size:12px;">Mock by default. Switch to real weather once your function is live.</div>
           </div>
         </div>
 
@@ -300,30 +193,42 @@ Purpose:
             </div>
           </div>
 
+          <div class="field">
+            <label for="apiBase">Weather API Base URL (your backend function)</label>
+            <input id="apiBase" type="text" placeholder="https://YOUR-CLOUDRUN-URL (leave blank = mock)"/>
+            <div class="muted" style="font-size:12px; margin-top:4px;">
+              Must expose <span class="mono">GET /weather30?lat=..&lon=..</span>
+            </div>
+          </div>
+
           <div class="btnbar">
             <button id="btnRegen" class="btn" type="button">Regenerate Mock 30 Days</button>
-            <button id="btnCompute" class="btn primary" type="button">Run Model</button>
-            <button id="btnFetch" class="btn" type="button" disabled title="Wire backend function first">Fetch 30 Days (API)</button>
+            <button id="btnFetch" class="btn primary" type="button">Fetch Real 30 Days</button>
+            <button id="btnRun" class="btn" type="button">Run Model</button>
+          </div>
+
+          <div class="statusline">
+            <div id="dataMode" class="mono muted">Mode: MOCK</div>
+            <div id="runStamp" class="mono muted"></div>
           </div>
 
           <div style="height:10px"></div>
 
           <div class="note">
-            <b>Next step (when you’re ready):</b><br/>
-            Add a backend function endpoint like <span class="mono">/Farm-vista/api/weather30</span> that calls Tomorrow.io with your key.
-            Then enable “Fetch 30 Days (API)” and replace the mock generator with real weather.
+            <b>How this dev model works:</b><br/>
+            We build a daily water “storage” score from rain minus drying power (temp + wind + RH + solar).
+            Your Soil Wetness & Drainage sliders bias the storage behavior.
           </div>
         </div>
       </section>
 
-      <!-- RIGHT: Output -->
+      <!-- RIGHT -->
       <section class="card">
         <div class="card-h">
           <div>
             <p class="t">Model Output</p>
-            <div class="mini muted">Simple daily water-balance using rain + drying power (temp/wind/humidity/solar).</div>
+            <div class="muted" style="font-size:12px;">Wetness Index (0–100) from last 30 days.</div>
           </div>
-          <div class="mini muted mono" id="runStamp"></div>
         </div>
 
         <div class="card-b">
@@ -343,7 +248,7 @@ Purpose:
 
           <div style="height:12px"></div>
 
-          <table aria-label="Last 30 days weather (mock)">
+          <table aria-label="Last 30 days weather">
             <thead>
               <tr>
                 <th style="width:120px;">Date</th>
@@ -352,7 +257,7 @@ Purpose:
                 <th class="right">Wind (mph)</th>
                 <th class="right">RH (%)</th>
                 <th class="right">Solar (W/m²)</th>
-                <th class="right">Dry Pwr</th>
+                <th class="right">Dry</th>
               </tr>
             </thead>
             <tbody id="wxRows">
@@ -361,8 +266,8 @@ Purpose:
           </table>
 
           <div style="height:10px"></div>
-          <div class="mini muted">
-            Note: “Dry Pwr” is a normalized 0–1 proxy (higher = dries faster). This is dev math you’ll tune later.
+          <div class="muted" style="font-size:12px;">
+            “Dry” is a normalized 0–1 proxy (higher = dries faster). This stays the same whether data is mock or real.
           </div>
         </div>
       </section>
@@ -373,24 +278,17 @@ Purpose:
 (function(){
   'use strict';
 
-  // ---------- Small helpers ----------
   const $ = (id)=> document.getElementById(id);
   const clamp = (v, lo, hi)=> Math.max(lo, Math.min(hi, v));
   const round = (v, d=2)=> {
-    const p = Math.pow(10, d);
+    const p = Math.pow(10,d);
     return Math.round(v*p)/p;
   };
 
-  // Divernon default is already in the inputs; this is a test page.
-  const state = {
-    weather30: [], // [{dateISO, rainIn, tempF, windMph, rh, solarWm2, dryPwr}]
-    seed: Date.now() % 1000000
-  };
+  const state = { weather30: [], seed: Date.now() % 1000000, mode: 'MOCK' };
 
-  // ---------- Mock weather generator (30 daily points) ----------
-  // This is NOT meant to be meteorologically perfect — just a stable test harness.
+  // ---------- Mock weather generator ----------
   function seededRand(){
-    // simple LCG
     state.seed = (state.seed * 1664525 + 1013904223) % 4294967296;
     return state.seed / 4294967296;
   }
@@ -400,48 +298,24 @@ Purpose:
     const today = new Date();
     today.setHours(12,0,0,0);
 
-    // Rough winter-ish solar + temps; tweak later if you want seasonality.
     for (let i=29; i>=0; i--){
       const d = new Date(today);
       d.setDate(d.getDate() - i);
 
-      // Rain: mostly 0 with occasional events
       const eventRoll = seededRand();
       let rain = 0;
-      if (eventRoll > 0.82){
-        // event depth 0.10–1.20
-        rain = 0.10 + seededRand() * 1.10;
-      } else if (eventRoll > 0.72){
-        // small shower 0.02–0.18
-        rain = 0.02 + seededRand() * 0.16;
-      }
+      if (eventRoll > 0.82) rain = 0.10 + seededRand()*1.10;
+      else if (eventRoll > 0.72) rain = 0.02 + seededRand()*0.16;
 
-      // Temp: 20–55 (winter range), with gentle waves
       const wave = Math.sin((29-i)/6) * 6;
       const temp = 34 + wave + (seededRand()*10 - 5);
-
-      // Wind: 2–22
       const wind = 4 + seededRand()*18;
 
-      // RH: 35–95, tends higher on rain days
       let rh = 45 + seededRand()*45;
       if (rain > 0) rh = clamp(rh + 10 + seededRand()*10, 35, 98);
 
-      // Solar: 60–360 W/m² average daily-ish proxy
       let solar = 120 + seededRand()*220;
       if (rain > 0) solar = clamp(solar - 60 - seededRand()*80, 40, 360);
-
-      // Drying power proxy (0..1)
-      // Higher temp + higher solar + higher wind => more drying; higher RH => less drying.
-      const tempN = clamp((temp - 20) / 45, 0, 1);      // 20..65 -> 0..1
-      const windN = clamp((wind - 2) / 20, 0, 1);       // 2..22 -> 0..1
-      const solarN = clamp((solar - 60) / 300, 0, 1);   // 60..360 -> 0..1
-      const rhN   = clamp((rh - 35) / 65, 0, 1);        // 35..100 -> 0..1
-
-      const dryPwr = clamp(
-        (0.35*tempN + 0.30*solarN + 0.25*windN - 0.25*rhN),
-        0, 1
-      );
 
       out.push({
         dateISO: d.toISOString().slice(0,10),
@@ -450,55 +324,63 @@ Purpose:
         windMph: Math.round(wind),
         rh: Math.round(rh),
         solarWm2: Math.round(solar),
-        dryPwr: round(dryPwr, 2)
       });
     }
 
     state.weather30 = out;
+    state.mode = 'MOCK';
+    $('dataMode').textContent = 'Mode: MOCK';
+  }
+
+  // ---------- Derived: drying power ----------
+  function withDryPwr(rows){
+    return (rows||[]).map(r=>{
+      const temp = Number(r.tempF||0);
+      const wind = Number(r.windMph||0);
+      const rh   = Number(r.rh||0);
+      const solar= Number(r.solarWm2||0);
+
+      const tempN = clamp((temp - 20) / 45, 0, 1);
+      const windN = clamp((wind - 2) / 20, 0, 1);
+      const solarN= clamp((solar - 60) / 300, 0, 1);
+      const rhN   = clamp((rh - 35) / 65, 0, 1);
+
+      const dryPwr = clamp((0.35*tempN + 0.30*solarN + 0.25*windN - 0.25*rhN), 0, 1);
+
+      return { ...r, dryPwr: round(dryPwr, 2) };
+    });
   }
 
   // ---------- Model ----------
-  // Simple daily water storage model:
-  // storage = clamp(storage + infilMult * rain - dryMult * dryPwr, 0..Smax)
-  // Then Wetness Index = storage / Smax * 100
   function runModel(){
-    const soilWet = Number($('soilWet').value); // 1..10
-    const drain = Number($('drain').value);     // 1..10
+    if (!state.weather30.length) return;
 
-    // Map sliders to multipliers (tunable)
+    const soilWet = Number($('soilWet').value);
+    const drain   = Number($('drain').value);
+
     const baseWetBias = (soilWet - 1) / 9; // 0..1
-    const drainage = (drain - 1) / 9;      // 0..1 (higher = better drainage)
+    const drainage    = (drain - 1) / 9;   // 0..1
 
-    // Storage capacity (inches equivalent). Tune later.
     const Smax = 4.0;
-
-    // Initial storage based on soil wetness slider (0.8..3.6 in)
     let storage = 0.8 + baseWetBias * 2.8;
 
-    // Rain infiltration effectiveness: worse drainage => more water stays (for “too wet” feel)
-    // If drainage is great, water drains away faster => less net storage increase.
-    // Map: drainage 0..1 -> infil 1.00..0.65
     const infilMult = 1.00 - (drainage * 0.35);
-
-    // Dry-down effectiveness: better drainage dries faster
-    // Map: drainage 0..1 -> dry 0.65..1.15
-    const dryMult = 0.65 + (drainage * 0.50);
-
-    // Soil wetness slider also reduces drying a bit if already wet (surface evaporation nuance)
-    const wetSlow = 1.00 - baseWetBias * 0.10;
+    const dryMult   = 0.65 + (drainage * 0.50);
+    const wetSlow   = 1.00 - baseWetBias * 0.10;
 
     let rainSum = 0;
     let drySum = 0;
 
-    for (const day of state.weather30){
-      rainSum += Number(day.rainIn || 0);
-      drySum += Number(day.dryPwr || 0);
+    const rows = withDryPwr(state.weather30);
+    for (const day of rows){
+      const rain = Number(day.rainIn||0);
+      const dry  = Number(day.dryPwr||0);
 
-      // Add rain
-      storage += (Number(day.rainIn||0) * infilMult);
+      rainSum += rain;
+      drySum  += dry;
 
-      // Remove by drying power (scaled to “inch equivalent”)
-      storage -= (Number(day.dryPwr||0) * 0.55 * dryMult * wetSlow);
+      storage += (rain * infilMult);
+      storage -= (dry * 0.55 * dryMult * wetSlow);
 
       storage = clamp(storage, 0, Smax);
     }
@@ -507,8 +389,8 @@ Purpose:
     const wetIdxR = Math.round(wetIdx);
 
     $('wetIndex').textContent = String(wetIdxR);
-    $('rain30').textContent = round(rainSum, 2) + ' in';
-    $('dry30').textContent = 'Drying power: ' + round(drySum, 1);
+    $('rain30').textContent   = round(rainSum, 2) + ' in';
+    $('dry30').textContent    = 'Drying power: ' + round(drySum, 1);
 
     const label =
       wetIdxR >= 75 ? 'Very wet' :
@@ -517,87 +399,113 @@ Purpose:
       wetIdxR >= 20 ? 'Drying' : 'Dry';
 
     $('wetLabel').textContent =
-      label + ' • Storage=' + round(storage, 2) + ' / ' + Smax + ' in (infil=' + round(infilMult,2) + ', dry=' + round(dryMult,2) + ')';
+      `${label} • Storage=${round(storage,2)} / ${Smax} in (infil=${round(infilMult,2)}, dry=${round(dryMult,2)})`;
 
     $('runStamp').textContent = new Date().toLocaleString();
+    renderTable();
   }
 
+  // ---------- Render ----------
   function renderTable(){
     const tb = $('wxRows');
+    const rows = withDryPwr(state.weather30);
     tb.innerHTML = '';
-    if (!state.weather30.length){
+    if (!rows.length){
       tb.innerHTML = '<tr><td colspan="7" class="muted">No data yet.</td></tr>';
       return;
     }
-
-    for (const r of state.weather30){
+    for (const r of rows){
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td class="mono">${r.dateISO}</td>
-        <td class="right mono">${Number(r.rainIn).toFixed(2)}</td>
-        <td class="right mono">${r.tempF}</td>
-        <td class="right mono">${r.windMph}</td>
-        <td class="right mono">${r.rh}</td>
-        <td class="right mono">${r.solarWm2}</td>
-        <td class="right mono">${Number(r.dryPwr).toFixed(2)}</td>
+        <td class="right mono">${Number(r.rainIn||0).toFixed(2)}</td>
+        <td class="right mono">${Math.round(Number(r.tempF||0))}</td>
+        <td class="right mono">${Math.round(Number(r.windMph||0))}</td>
+        <td class="right mono">${Math.round(Number(r.rh||0))}</td>
+        <td class="right mono">${Math.round(Number(r.solarWm2||0))}</td>
+        <td class="right mono">${Number(r.dryPwr||0).toFixed(2)}</td>
       `;
       tb.appendChild(tr);
     }
   }
 
-  // ---------- Placeholder for later Tomorrow.io wiring ----------
-  async function fetchWeather30(){
-    // When you add your backend function:
-    // 1) create endpoint like: /Farm-vista/api/weather30?lat=...&lon=...
-    // 2) backend uses TOMORROW_API_KEY in env and calls Tomorrow.io
-    // 3) backend returns { days:[{dateISO,rainIn,tempF,windMph,rh,solarWm2,dryPwr?}] }
-    //
-    // Then:
-    // const lat = $('lat').value; const lon = $('lon').value;
-    // const res = await fetch(`/Farm-vista/api/weather30?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`);
-    // const data = await res.json();
-    // state.weather30 = data.days || [];
-    // renderTable(); runModel();
-    alert('Not wired yet. Add backend function first, then enable this button.');
+  // ---------- Fetch real 30 days (your backend) ----------
+  async function fetchReal30(){
+    const base = String($('apiBase').value || '').trim().replace(/\/+$/,'');
+    if (!base){
+      alert('Add your Weather API Base URL first (e.g. https://your-cloudrun-url).');
+      return;
+    }
+
+    const lat = String($('lat').value || '').trim();
+    const lon = String($('lon').value || '').trim();
+    if (!lat || !lon){
+      alert('Enter lat/lon first.');
+      return;
+    }
+
+    $('btnFetch').disabled = true;
+    $('btnFetch').textContent = 'Fetching…';
+
+    try{
+      const url = `${base}/weather30?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`;
+      const res = await fetch(url, { method:'GET' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const days = Array.isArray(data.days) ? data.days : [];
+
+      if (days.length < 20) throw new Error('Response missing days[] (or too few rows).');
+
+      // Normalize
+      state.weather30 = days.map(d=>({
+        dateISO: String(d.dateISO||'').slice(0,10),
+        rainIn: Number(d.rainIn||0),
+        tempF: Number(d.tempF||0),
+        windMph: Number(d.windMph||0),
+        rh: Number(d.rh||0),
+        solarWm2: Number(d.solarWm2||0),
+      })).filter(x=>x.dateISO);
+
+      state.mode = 'REAL';
+      $('dataMode').textContent = 'Mode: REAL';
+      runModel();
+    }catch(err){
+      console.error(err);
+      alert('Fetch failed. Keeping MOCK data.\n\n' + String(err && err.message ? err.message : err));
+    }finally{
+      $('btnFetch').disabled = false;
+      $('btnFetch').textContent = 'Fetch Real 30 Days';
+    }
   }
 
-  // ---------- UI wiring ----------
   function syncSliderLabels(){
     $('soilWetVal').textContent = $('soilWet').value;
-    $('drainVal').textContent = $('drain').value;
+    $('drainVal').textContent   = $('drain').value;
   }
 
+  // UI
   $('soilWet').addEventListener('input', ()=>{ syncSliderLabels(); runModel(); });
-  $('drain').addEventListener('input', ()=>{ syncSliderLabels(); runModel(); });
+  $('drain').addEventListener('input',   ()=>{ syncSliderLabels(); runModel(); });
 
   $('btnRegen').addEventListener('click', ()=>{
     state.seed = Date.now() % 1000000;
     genMock30();
-    renderTable();
     runModel();
   });
 
-  $('btnCompute').addEventListener('click', ()=>{
-    runModel();
-  });
+  $('btnFetch').addEventListener('click', fetchReal30);
+  $('btnRun').addEventListener('click', runModel);
 
-  $('btnFetch').addEventListener('click', fetchWeather30);
-
-  // Logout button: try core.js helper if present; otherwise go to auth.
   $('btnLogout').addEventListener('click', ()=>{
     try{
-      if (window.FV && typeof window.FV.logout === 'function'){
-        window.FV.logout();
-        return;
-      }
+      if (window.FV && typeof window.FV.logout === 'function'){ window.FV.logout(); return; }
     }catch(e){}
     location.href = '/Farm-vista/auth/';
   });
 
-  // ---------- Init ----------
+  // Init
   syncSliderLabels();
   genMock30();
-  renderTable();
   runModel();
 })();
 </script>
