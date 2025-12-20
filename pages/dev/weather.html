@@ -1,14 +1,24 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/weather.html  (FULL FILE)
-Rev: 2025-12-20b
+Rev: 2025-12-20c
 Dev Wetness Model (Mock + Real API Switch)
 - Default: Divernon, IL
-- Two sliders: Soil Wetness (1–10) + Drainage (1–10)
+- Sliders:
+    • Soil Wetness (1–10)
+    • Drainage (1–10)
+    • Workable Threshold (0–100)
+    • "How too wet?" (0–100) for feedback
 - Mock 30-day daily weather generator for UI testing
 - Optional: Fetch real weather from your backend function:
-    Weather API Base URL = https://YOUR-SERVICE
-    Endpoint required: GET {base}/weather30?lat=..&lon=..
-    Response shape: { days:[{dateISO,rainIn,tempF,windMph,rh,solarWm2}], meta?:{...} }
+    Base URL: https://YOUR-SERVICE
+    Endpoint: GET {base}/weather30?lat=..&lon=..
+    Response: { days:[{dateISO,rainIn,tempF,windMph,rh,solarWm2}], meta?:{...} }
+- Model:
+    storage(t) = clamp(storage(t-1) + infilMult*rain - dryingLoss(dryPwr), 0..Smax)
+    WetnessIndex = storage/Smax * 100
+- New:
+    • "Too Wet" feedback + local log (localStorage)
+    • Estimated days until workable (assumes no new rain; uses last-7 avg drying)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -31,7 +41,7 @@ Dev Wetness Model (Mock + Real API Switch)
   <script src="/Farm-vista/js/core.js"></script>
 
   <style>
-    :root{ --card-max:1100px; --page-bottom-gap:72px; --accent:#2F6C3C; }
+    :root{ --card-max:1180px; --page-bottom-gap:72px; --accent:#2F6C3C; }
 
     .page{
       max-width:var(--card-max);
@@ -45,7 +55,7 @@ Dev Wetness Model (Mock + Real API Switch)
     a,a:visited,a:hover,a:active{ color:var(--text); text-decoration:none; }
 
     .grid{ display:grid; grid-template-columns:1fr; gap:14px; }
-    @media(min-width:920px){ .grid{ grid-template-columns:440px 1fr; } }
+    @media(min-width:980px){ .grid{ grid-template-columns:460px 1fr; } }
 
     .card{
       background:var(--card, var(--surface));
@@ -55,7 +65,7 @@ Dev Wetness Model (Mock + Real API Switch)
       overflow:hidden;
     }
     .card-h{ padding:14px 14px 10px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; gap:12px; }
-    .card-h .t{ margin:0; font-size:15px; font-weight:800; }
+    .card-h .t{ margin:0; font-size:15px; font-weight:900; }
     .card-b{ padding:14px; }
 
     .field{ display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
@@ -73,12 +83,13 @@ Dev Wetness Model (Mock + Real API Switch)
 
     .slider-wrap{ display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center; margin:6px 0 14px; }
     input[type="range"]{ width:100%; accent-color:var(--brand,#3B7E46); }
+
     .pill{
       display:inline-flex; align-items:center; justify-content:center;
       min-width:58px; height:34px; padding:0 10px;
       border-radius:999px; border:1px solid var(--border);
       background:color-mix(in srgb, var(--surface) 88%, #ffffff 12%);
-      font-weight:800;
+      font-weight:900;
     }
 
     .btnbar{ display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
@@ -88,12 +99,13 @@ Dev Wetness Model (Mock + Real API Switch)
       color:var(--text);
       padding:10px 12px;
       border-radius:12px;
-      font-weight:800;
+      font-weight:900;
       cursor:pointer;
       user-select:none;
     }
     .btn:active{ transform:translateY(1px); }
     .btn.primary{ background:var(--brand,#3B7E46); border-color:transparent; color:#fff !important; }
+    .btn.danger{ background:#b02a2a; border-color:transparent; color:#fff !important; }
 
     .note{
       border:1px dashed var(--border);
@@ -101,7 +113,7 @@ Dev Wetness Model (Mock + Real API Switch)
       padding:10px 12px;
       background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
       font-size:12px;
-      opacity:.92;
+      opacity:.95;
       line-height:1.35;
     }
 
@@ -117,8 +129,8 @@ Dev Wetness Model (Mock + Real API Switch)
       gap:6px;
     }
     .kpi .lab{ font-size:12px; opacity:.85; }
-    .kpi .val{ font-size:28px; font-weight:900; line-height:1.05; }
-    .kpi .sub{ font-size:12px; opacity:.85; }
+    .kpi .val{ font-size:28px; font-weight:950; line-height:1.05; }
+    .kpi .sub{ font-size:12px; opacity:.88; }
 
     table{
       width:100%;
@@ -140,7 +152,51 @@ Dev Wetness Model (Mock + Real API Switch)
       display:flex; align-items:center; justify-content:space-between; gap:10px;
       margin-top:10px;
       font-size:12px;
+      opacity:.92;
+    }
+
+    .split{
+      display:grid;
+      grid-template-columns:1fr;
+      gap:12px;
+    }
+    @media(min-width:720px){
+      .split{ grid-template-columns:1fr 1fr; }
+    }
+
+    .log{
+      border:1px solid var(--border);
+      border-radius:14px;
+      overflow:hidden;
+      background:var(--surface, var(--card));
+    }
+    .log .lh{
+      padding:10px 12px;
+      border-bottom:1px solid var(--border);
+      font-weight:900;
+      font-size:12px;
       opacity:.9;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .log .lb{
+      padding:10px 12px;
+      font-size:12px;
+      max-height:160px;
+      overflow:auto;
+    }
+    .tag{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      border:1px solid var(--border);
+      border-radius:999px;
+      padding:6px 10px;
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      font-weight:900;
+      font-size:12px;
     }
   </style>
 </head>
@@ -158,7 +214,7 @@ Dev Wetness Model (Mock + Real API Switch)
         <div class="card-h">
           <div>
             <p class="t">Inputs</p>
-            <div class="muted" style="font-size:12px;">Mock by default. Switch to real weather once your function is live.</div>
+            <div class="muted" style="font-size:12px;">Mock by default. Switch to REAL once your function is live.</div>
           </div>
         </div>
 
@@ -194,6 +250,17 @@ Dev Wetness Model (Mock + Real API Switch)
           </div>
 
           <div class="field">
+            <label for="workable">Workable Threshold (0–100)</label>
+            <div class="slider-wrap">
+              <input id="workable" type="range" min="0" max="100" step="1" value="55"/>
+              <div class="pill" id="workableVal">55</div>
+            </div>
+            <div class="muted" style="font-size:12px;">
+              “Workable” means Wetness Index ≤ this number.
+            </div>
+          </div>
+
+          <div class="field">
             <label for="apiBase">Weather API Base URL (your backend function)</label>
             <input id="apiBase" type="text" placeholder="https://YOUR-CLOUDRUN-URL (leave blank = mock)"/>
             <div class="muted" style="font-size:12px; margin-top:4px;">
@@ -212,13 +279,52 @@ Dev Wetness Model (Mock + Real API Switch)
             <div id="runStamp" class="mono muted"></div>
           </div>
 
-          <div style="height:10px"></div>
+          <div style="height:12px"></div>
 
-          <div class="note">
-            <b>How this dev model works:</b><br/>
-            We build a daily water “storage” score from rain minus drying power (temp + wind + RH + solar).
-            Your Soil Wetness & Drainage sliders bias the storage behavior.
+          <div class="split">
+            <div class="card" style="border-radius:14px; box-shadow:none;">
+              <div class="card-h" style="padding:12px; border-bottom:1px solid var(--border);">
+                <p class="t" style="font-size:13px;">Feedback</p>
+              </div>
+              <div class="card-b" style="padding:12px;">
+                <div class="field" style="margin-bottom:8px;">
+                  <label for="tooWetAmt">How “too wet” right now? (0–100)</label>
+                  <div class="slider-wrap">
+                    <input id="tooWetAmt" type="range" min="0" max="100" step="1" value="20"/>
+                    <div class="pill" id="tooWetAmtVal">20</div>
+                  </div>
+                </div>
+
+                <div class="btnbar" style="margin-top:0;">
+                  <button id="btnTooWet" class="btn danger" type="button">Mark TOO WET</button>
+                  <button id="btnClearLog" class="btn" type="button">Clear Log</button>
+                </div>
+
+                <div style="height:10px"></div>
+                <div class="note">
+                  This stores a simple feedback record in <span class="mono">localStorage</span> for now.
+                  Later we’ll write this to Firestore and use it to auto-calibrate.
+                </div>
+              </div>
+            </div>
+
+            <div class="card" style="border-radius:14px; box-shadow:none;">
+              <div class="card-h" style="padding:12px; border-bottom:1px solid var(--border);">
+                <p class="t" style="font-size:13px;">How the model works</p>
+              </div>
+              <div class="card-b" style="padding:12px;">
+                <div class="note">
+                  <b>Storage</b> is the model’s internal water “tank” (0..Smax).<br/>
+                  Each day: <span class="mono">storage += infilMult*rain − (dryPwr * dryMult)</span><br/>
+                  <b>DryPwr</b> comes from temp + solar + wind − humidity (normalized 0..1).<br/>
+                  <b>Wetness Index</b> is <span class="mono">storage/Smax × 100</span>.<br/><br/>
+                  <b>Soil Wetness slider</b> biases starting storage.<br/>
+                  <b>Drainage slider</b> changes how much rain sticks + how fast it dries.
+                </div>
+              </div>
+            </div>
           </div>
+
         </div>
       </section>
 
@@ -240,9 +346,33 @@ Dev Wetness Model (Mock + Real API Switch)
             </div>
 
             <div class="kpi">
+              <div class="lab">Workability</div>
+              <div class="val" id="daysDry">—</div>
+              <div class="sub" id="daysDrySub">Estimated days until workable (assumes no new rain).</div>
+            </div>
+
+            <div class="kpi">
               <div class="lab">30-Day Totals</div>
               <div class="val" id="rain30">—</div>
               <div class="sub" id="dry30">Drying power: —</div>
+            </div>
+
+            <div class="kpi">
+              <div class="lab">Internal State</div>
+              <div class="val" id="storageLine">—</div>
+              <div class="sub" id="stateLine">—</div>
+            </div>
+          </div>
+
+          <div style="height:12px"></div>
+
+          <div class="log">
+            <div class="lh">
+              <span>Feedback Log (local)</span>
+              <span class="tag" id="logCount">0</span>
+            </div>
+            <div class="lb" id="logBody">
+              <span class="muted">No feedback yet.</span>
             </div>
           </div>
 
@@ -267,7 +397,7 @@ Dev Wetness Model (Mock + Real API Switch)
 
           <div style="height:10px"></div>
           <div class="muted" style="font-size:12px;">
-            “Dry” is a normalized 0–1 proxy (higher = dries faster). This stays the same whether data is mock or real.
+            “Dry” is a normalized 0–1 proxy (higher = dries faster).
           </div>
         </div>
       </section>
@@ -285,7 +415,9 @@ Dev Wetness Model (Mock + Real API Switch)
     return Math.round(v*p)/p;
   };
 
-  const state = { weather30: [], seed: Date.now() % 1000000, mode: 'MOCK' };
+  const LS_LOG_KEY = 'FV_DEV_WETNESS_FEEDBACK_LOG_V1';
+
+  const state = { weather30: [], seed: Date.now() % 1000000, mode: 'MOCK', lastRun: null };
 
   // ---------- Mock weather generator ----------
   function seededRand(){
@@ -333,27 +465,31 @@ Dev Wetness Model (Mock + Real API Switch)
   }
 
   // ---------- Derived: drying power ----------
+  function computeDryPwr(r){
+    const temp = Number(r.tempF||0);
+    const wind = Number(r.windMph||0);
+    const rh   = Number(r.rh||0);
+    const solar= Number(r.solarWm2||0);
+
+    const tempN = clamp((temp - 20) / 45, 0, 1);
+    const windN = clamp((wind - 2) / 20, 0, 1);
+    const solarN= clamp((solar - 60) / 300, 0, 1);
+    const rhN   = clamp((rh - 35) / 65, 0, 1);
+
+    return clamp((0.35*tempN + 0.30*solarN + 0.25*windN - 0.25*rhN), 0, 1);
+  }
+
   function withDryPwr(rows){
     return (rows||[]).map(r=>{
-      const temp = Number(r.tempF||0);
-      const wind = Number(r.windMph||0);
-      const rh   = Number(r.rh||0);
-      const solar= Number(r.solarWm2||0);
-
-      const tempN = clamp((temp - 20) / 45, 0, 1);
-      const windN = clamp((wind - 2) / 20, 0, 1);
-      const solarN= clamp((solar - 60) / 300, 0, 1);
-      const rhN   = clamp((rh - 35) / 65, 0, 1);
-
-      const dryPwr = clamp((0.35*tempN + 0.30*solarN + 0.25*windN - 0.25*rhN), 0, 1);
-
+      const dryPwr = computeDryPwr(r);
       return { ...r, dryPwr: round(dryPwr, 2) };
     });
   }
 
   // ---------- Model ----------
+  // Returns a run object including final storage and average recent drying loss
   function runModel(){
-    if (!state.weather30.length) return;
+    if (!state.weather30.length) return null;
 
     const soilWet = Number($('soilWet').value);
     const drain   = Number($('drain').value);
@@ -361,36 +497,53 @@ Dev Wetness Model (Mock + Real API Switch)
     const baseWetBias = (soilWet - 1) / 9; // 0..1
     const drainage    = (drain - 1) / 9;   // 0..1
 
+    // Capacity of the "tank" (inches-equivalent). Tune later.
     const Smax = 4.0;
-    let storage = 0.8 + baseWetBias * 2.8;
 
-    const infilMult = 1.00 - (drainage * 0.35);
-    const dryMult   = 0.65 + (drainage * 0.50);
-    const wetSlow   = 1.00 - baseWetBias * 0.10;
+    // STARTING storage (where we "start off being close")
+    // - slider sets baseline
+    // - we lightly nudge it based on rain in the first 7 days of the 30-day window
+    const rows0 = withDryPwr(state.weather30);
+    const first7 = rows0.slice(0, 7);
+    const first7Rain = first7.reduce((s,x)=> s + Number(x.rainIn||0), 0);
+    const rainNudge = clamp(first7Rain / 4.0, 0, 1) * 0.35; // up to +0.35 inches start-bias
+
+    let storage = (0.8 + baseWetBias * 2.8) + rainNudge;
+
+    // Drainage effects
+    const infilMult = 1.00 - (drainage * 0.35);      // higher drainage => less water sticks
+    const dryMult   = 0.65 + (drainage * 0.50);      // higher drainage => dries faster
+    const wetSlow   = 1.00 - baseWetBias * 0.10;     // very wet soils dry a bit slower
 
     let rainSum = 0;
     let drySum = 0;
+    let last7DailyLoss = [];
 
-    const rows = withDryPwr(state.weather30);
-    for (const day of rows){
+    for (const day of rows0){
       const rain = Number(day.rainIn||0);
       const dry  = Number(day.dryPwr||0);
 
       rainSum += rain;
       drySum  += dry;
 
-      storage += (rain * infilMult);
-      storage -= (dry * 0.55 * dryMult * wetSlow);
+      const add = (rain * infilMult);
+      const loss = (dry * 0.55 * dryMult * wetSlow);
+
+      storage += add;
+      storage -= loss;
 
       storage = clamp(storage, 0, Smax);
+
+      last7DailyLoss.push(loss);
+      if (last7DailyLoss.length > 7) last7DailyLoss.shift();
     }
 
     const wetIdx = clamp((storage / Smax) * 100, 0, 100);
     const wetIdxR = Math.round(wetIdx);
 
-    $('wetIndex').textContent = String(wetIdxR);
-    $('rain30').textContent   = round(rainSum, 2) + ' in';
-    $('dry30').textContent    = 'Drying power: ' + round(drySum, 1);
+    const avgLoss7 = last7DailyLoss.length
+      ? (last7DailyLoss.reduce((s,x)=>s+x,0) / last7DailyLoss.length)
+      : 0.12;
 
     const label =
       wetIdxR >= 75 ? 'Very wet' :
@@ -398,19 +551,120 @@ Dev Wetness Model (Mock + Real API Switch)
       wetIdxR >= 35 ? 'Moderate' :
       wetIdxR >= 20 ? 'Drying' : 'Dry';
 
-    $('wetLabel').textContent =
-      `${label} • Storage=${round(storage,2)} / ${Smax} in (infil=${round(infilMult,2)}, dry=${round(dryMult,2)})`;
+    const run = {
+      rows: rows0,
+      soilWet, drain,
+      Smax, storage,
+      infilMult, dryMult, wetSlow,
+      wetIdx, wetIdxR, label,
+      rainSum, drySum,
+      avgLoss7
+    };
 
-    $('runStamp').textContent = new Date().toLocaleString();
-    renderTable();
+    state.lastRun = run;
+    return run;
+  }
+
+  function estimateDaysUntilWorkable(run){
+    const thr = Number($('workable').value); // 0..100
+    if (!run) return { days: null, note: 'Run the model.' };
+
+    if (run.wetIdxR <= thr){
+      return { days: 0, note: 'Already workable at current threshold.' };
+    }
+
+    // Convert threshold (0..100) to storage threshold (0..Smax)
+    const targetStorage = clamp((thr / 100) * run.Smax, 0, run.Smax);
+
+    // How much storage must drop?
+    const delta = run.storage - targetStorage;
+
+    // Use last-7 average drying loss as "daily drain", assume no additional rain.
+    // Guardrail so we never divide by tiny numbers.
+    const dailyLoss = Math.max(0.03, run.avgLoss7);
+
+    const days = Math.ceil(delta / dailyLoss);
+    const note = `Assuming no new rain. Using last-7 avg drying loss ≈ ${round(dailyLoss,2)} storage/day.`;
+    return { days: clamp(days, 0, 60), note };
+  }
+
+  // ---------- Feedback log ----------
+  function loadLog(){
+    try{
+      const raw = localStorage.getItem(LS_LOG_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    }catch(e){
+      return [];
+    }
+  }
+  function saveLog(arr){
+    try{ localStorage.setItem(LS_LOG_KEY, JSON.stringify(arr)); }catch(e){}
+  }
+  function renderLog(){
+    const log = loadLog();
+    $('logCount').textContent = String(log.length);
+    const box = $('logBody');
+
+    if (!log.length){
+      box.innerHTML = '<span class="muted">No feedback yet.</span>';
+      return;
+    }
+
+    // newest first
+    const lines = log.slice().reverse().slice(0, 30).map(x=>{
+      const when = new Date(x.ts).toLocaleString();
+      return `<div style="margin-bottom:8px;">
+        <span class="mono">${when}</span><br/>
+        <b>${x.kind}</b> • tooWet=${x.amount} • wetIdx=${x.wetIdx} • soil=${x.soilWet} • drain=${x.drain} • mode=${x.mode}
+      </div>`;
+    });
+
+    box.innerHTML = lines.join('') + (log.length > 30 ? '<div class="muted">…(showing last 30)</div>' : '');
+  }
+
+  function addTooWetFeedback(){
+    const run = state.lastRun || runModel();
+    if (!run){
+      alert('Run the model first.');
+      return;
+    }
+
+    const amt = Number($('tooWetAmt').value); // 0..100
+    const lat = Number($('lat').value);
+    const lon = Number($('lon').value);
+
+    const item = {
+      ts: Date.now(),
+      kind: 'TOO_WET',
+      amount: clamp(Math.round(amt), 0, 100),
+      wetIdx: run.wetIdxR,
+      soilWet: run.soilWet,
+      drain: run.drain,
+      lat: isFinite(lat) ? lat : null,
+      lon: isFinite(lon) ? lon : null,
+      mode: state.mode,
+    };
+
+    const log = loadLog();
+    log.push(item);
+    saveLog(log);
+    renderLog();
+
+    // For now: just confirmation. Later: we use these to auto-tune parameters.
+    alert('Saved feedback (local). Next: we’ll use these records to auto-calibrate.');
+  }
+
+  function clearLog(){
+    saveLog([]);
+    renderLog();
   }
 
   // ---------- Render ----------
-  function renderTable(){
+  function renderTable(rows){
     const tb = $('wxRows');
-    const rows = withDryPwr(state.weather30);
     tb.innerHTML = '';
-    if (!rows.length){
+    if (!rows || !rows.length){
       tb.innerHTML = '<tr><td colspan="7" class="muted">No data yet.</td></tr>';
       return;
     }
@@ -427,6 +681,29 @@ Dev Wetness Model (Mock + Real API Switch)
       `;
       tb.appendChild(tr);
     }
+  }
+
+  function refreshAll(){
+    const run = runModel();
+    if (!run) return;
+
+    $('wetIndex').textContent = String(run.wetIdxR);
+    $('rain30').textContent   = round(run.rainSum, 2) + ' in';
+    $('dry30').textContent    = 'Drying power: ' + round(run.drySum, 1);
+
+    $('storageLine').textContent = `${round(run.storage,2)} / ${run.Smax} storage`;
+    $('stateLine').textContent = `infil=${round(run.infilMult,2)} • dry=${round(run.dryMult,2)} • wetSlow=${round(run.wetSlow,2)} • startNudge≈${round(clamp((withDryPwr(state.weather30).slice(0,7).reduce((s,x)=>s+Number(x.rainIn||0),0)/4.0,0,1)*0.35),0,1),2)}`;
+
+    $('wetLabel').textContent =
+      `${run.label} • storage is the internal “water tank” (rain adds, drying removes).`;
+
+    const est = estimateDaysUntilWorkable(run);
+    $('daysDry').textContent = (est.days === null) ? '—' : (est.days === 0 ? '0 days' : `${est.days} days`);
+    $('daysDrySub').textContent = est.note;
+
+    $('runStamp').textContent = new Date().toLocaleString();
+    renderTable(run.rows);
+    renderLog();
   }
 
   // ---------- Fetch real 30 days (your backend) ----------
@@ -456,7 +733,6 @@ Dev Wetness Model (Mock + Real API Switch)
 
       if (days.length < 20) throw new Error('Response missing days[] (or too few rows).');
 
-      // Normalize
       state.weather30 = days.map(d=>({
         dateISO: String(d.dateISO||'').slice(0,10),
         rainIn: Number(d.rainIn||0),
@@ -468,7 +744,7 @@ Dev Wetness Model (Mock + Real API Switch)
 
       state.mode = 'REAL';
       $('dataMode').textContent = 'Mode: REAL';
-      runModel();
+      refreshAll();
     }catch(err){
       console.error(err);
       alert('Fetch failed. Keeping MOCK data.\n\n' + String(err && err.message ? err.message : err));
@@ -481,20 +757,27 @@ Dev Wetness Model (Mock + Real API Switch)
   function syncSliderLabels(){
     $('soilWetVal').textContent = $('soilWet').value;
     $('drainVal').textContent   = $('drain').value;
+    $('workableVal').textContent = $('workable').value;
+    $('tooWetAmtVal').textContent = $('tooWetAmt').value;
   }
 
-  // UI
-  $('soilWet').addEventListener('input', ()=>{ syncSliderLabels(); runModel(); });
-  $('drain').addEventListener('input',   ()=>{ syncSliderLabels(); runModel(); });
+  // UI events
+  $('soilWet').addEventListener('input', ()=>{ syncSliderLabels(); refreshAll(); });
+  $('drain').addEventListener('input',   ()=>{ syncSliderLabels(); refreshAll(); });
+  $('workable').addEventListener('input',()=>{ syncSliderLabels(); refreshAll(); });
+  $('tooWetAmt').addEventListener('input',()=>{ syncSliderLabels(); });
 
   $('btnRegen').addEventListener('click', ()=>{
     state.seed = Date.now() % 1000000;
     genMock30();
-    runModel();
+    refreshAll();
   });
 
   $('btnFetch').addEventListener('click', fetchReal30);
-  $('btnRun').addEventListener('click', runModel);
+  $('btnRun').addEventListener('click', refreshAll);
+
+  $('btnTooWet').addEventListener('click', addTooWetFeedback);
+  $('btnClearLog').addEventListener('click', clearLog);
 
   $('btnLogout').addEventListener('click', ()=>{
     try{
@@ -506,7 +789,7 @@ Dev Wetness Model (Mock + Real API Switch)
   // Init
   syncSliderLabels();
   genMock30();
-  runModel();
+  refreshAll();
 })();
 </script>
 </body>
