@@ -1,12 +1,15 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-12-20b
-Updates (MINIMAL, based on your working 2025-12-20a file):
- ✅ Fix “double preview” in print modal by NOT relying on `hidden`
-    - Adds .pv-hide { display:none !important; }
-    - StarFire preview starts with class pv-hide
-    - setPrintPreview() toggles pv-hide on the two preview blocks
- ✅ Everything else left as-is (no trimming)
+Rev: 2025-12-20c
+
+UPDATES (targeted):
+✅ Replace ugly StarFire "No" button with a real iOS-style slider toggle (checkbox switch)
+   - Looks good in light + dark theme
+   - Big tap target for mobile, clean on desktop
+   - Accessible (real checkbox + label)
+✅ Remove the old .toggle dark-mode hack block (and fix the stray CSS brace that could break styles)
+
+Everything else kept the same as your 2025-12-20b file.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -71,6 +74,12 @@ Updates (MINIMAL, based on your working 2025-12-20a file):
       --sf-qr-mm: 46mm;        /* big QR */
       --sf-serial-font: 16pt;
       --sf-serial-font-sm: 13pt;
+
+      /* ===== Switch (StarFire GPS Capable) ===== */
+      --sw-w: 56px;
+      --sw-h: 32px;
+      --sw-pad: 3px;
+      --sw-thumb: calc(var(--sw-h) - (var(--sw-pad) * 2));
     }
 
     html, body { min-height:100%; }
@@ -378,29 +387,114 @@ Updates (MINIMAL, based on your working 2025-12-20a file):
       border:0;
       visibility:hidden;
     }
-    /* ===== FarmVista dark theme: make toggle OFF state visible ===== */
-html[data-theme="dark"] .toggle,
-body[data-theme="dark"] .toggle,
-.dark .toggle{
-  background: rgba(255,255,255,.14) !important;
-  border-color: rgba(255,255,255,.18) !important;
-}
 
-html[data-theme="dark"] .toggle::after,
-body[data-theme="dark"] .toggle::after,
-.dark .toggle::after{
-  background:#fff !important;
-  box-shadow:0 2px 8px rgba(0,0,0,.45) !important;
-}
+    /* ==========================================================
+       ✅ NICE SLIDER TOGGLE (StarFire GPS Capable?)
+       - Real checkbox switch (accessible)
+       - Works in light/dark + mobile/desktop
+       ========================================================== */
 
-/* ON stays brand green with white knob */
-html[data-theme="dark"] .toggle:checked,
-body[data-theme="dark"] .toggle:checked,
-.dark .toggle:checked{
-  background: var(--brand, var(--green, #3B7E46)) !important;
-  border-color: transparent !important;
-}
-}
+    .pv-switch-row{
+      display:flex;
+      align-items:center;
+      justify-content:flex-start;
+      gap:12px;
+      min-height:var(--ctl-h);
+    }
+
+    .pv-switch{
+      position:relative;
+      display:inline-flex;
+      align-items:center;
+      gap:10px;
+      user-select:none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* Visually-hidden checkbox but still accessible */
+    .pv-switch input{
+      position:absolute;
+      width:1px; height:1px;
+      padding:0; margin:-1px;
+      overflow:hidden;
+      clip:rect(0,0,0,0);
+      white-space:nowrap;
+      border:0;
+    }
+
+    .pv-switch-track{
+      width:var(--sw-w);
+      height:var(--sw-h);
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:
+        linear-gradient(to bottom,
+          color-mix(in srgb, var(--surface) 88%, #ffffff 12%),
+          color-mix(in srgb, var(--surface) 96%, #000000 4%)
+        );
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.45);
+      position:relative;
+      transition: background .18s ease, border-color .18s ease;
+    }
+
+    .pv-switch-thumb{
+      width:var(--sw-thumb);
+      height:var(--sw-thumb);
+      border-radius:999px;
+      position:absolute;
+      top:var(--sw-pad);
+      left:var(--sw-pad);
+      background:#fff;
+      box-shadow: 0 6px 14px rgba(0,0,0,.22);
+      transition: transform .18s ease, box-shadow .18s ease;
+      transform: translateX(0);
+    }
+
+    .pv-switch-text{
+      font-weight:800;
+      font-size:14px;
+      color:var(--muted,#67706B);
+      min-width:32px;
+    }
+
+    /* ON state */
+    .pv-switch input:checked + .pv-switch-track{
+      background: var(--brand);
+      border-color: transparent;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+    }
+    .pv-switch input:checked + .pv-switch-track .pv-switch-thumb{
+      transform: translateX(calc(var(--sw-w) - var(--sw-thumb) - (var(--sw-pad) * 2)));
+      box-shadow: 0 8px 18px rgba(0,0,0,.26);
+    }
+    .pv-switch input:checked ~ .pv-switch-text{
+      color: var(--brand);
+    }
+
+    /* Focus ring */
+    .pv-switch input:focus-visible + .pv-switch-track{
+      outline: 3px solid color-mix(in srgb, var(--brand) 55%, transparent);
+      outline-offset: 2px;
+    }
+
+    /* Dark theme tuning (more contrast OFF state) */
+    html[data-theme="dark"] .pv-switch-track,
+    body[data-theme="dark"] .pv-switch-track,
+    .dark .pv-switch-track{
+      background:
+        linear-gradient(to bottom,
+          rgba(255,255,255,.14),
+          rgba(255,255,255,.08)
+        );
+      border-color: rgba(255,255,255,.18);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+    }
+    html[data-theme="dark"] .pv-switch-thumb,
+    body[data-theme="dark"] .pv-switch-thumb,
+    .dark .pv-switch-thumb{
+      background:#fff;
+      box-shadow: 0 6px 16px rgba(0,0,0,.45);
+    }
   </style>
 </head>
 
@@ -576,7 +670,6 @@ body[data-theme="dark"] .toggle:checked,
         </div>
 
         <!-- StarFire compact preview -->
-        <!-- ✅ CHANGED: remove reliance on hidden; start force-hidden with pv-hide -->
         <div id="labelPreviewSF" class="label-preview-starfire pv-hide" aria-label="StarFire label preview">
           <div class="sf-qr">
             <img id="sfQR" alt="QR">
@@ -778,6 +871,10 @@ body[data-theme="dark"] .toggle:checked,
         const engEl = $("engineHours");
         if(engEl && engEl.value){
           extras.engineHours = Number(engEl.value);
+        }
+        const sfEl = $("starfireCapable");
+        if(sfEl){
+          extras.starfireGpsCapable = !!sfEl.checked;
         }
       }
 
@@ -1053,13 +1150,11 @@ body[data-theme="dark"] .toggle:checked,
     }
 
     async function setPrintPreview({ makeName, modelName, serial, qrDataUrl }){
-      /* ✅ CHANGED: use pv-hide class toggling (instead of hidden attribute) */
       const longEl = $("labelPreviewLong");
       const sfEl   = $("labelPreviewSF");
       if (longEl) longEl.classList.toggle('pv-hide', IS_STARFIRE);
       if (sfEl)   sfEl.classList.toggle('pv-hide', !IS_STARFIRE);
 
-      // Update helper text
       const help = $("printHelp");
       if (help){
         help.innerHTML = IS_STARFIRE
@@ -1068,18 +1163,15 @@ body[data-theme="dark"] .toggle:checked,
       }
 
       if (IS_STARFIRE){
-        // StarFire preview
         const serialTxt = String(serial || '').trim() || '—';
         $("sfQR").src = qrDataUrl || '';
         $("sfSerial").textContent = serialTxt;
         $("sfSerial").classList.toggle('small', serialTxt.length > 12);
 
-        // Preload print iframe (StarFire)
         writePrintFrame(buildPrintHtmlStarfire({ serial: serialTxt, qrDataUrl }));
         return;
       }
 
-      // Long strip preview
       const serial6 = serialLast6(serial) || '—';
       $("lpMake").textContent = (makeName || '—');
       $("lpModel").textContent = (modelName || '—');
@@ -1101,7 +1193,6 @@ body[data-theme="dark"] .toggle:checked,
         preview.style.height = `${LABEL.tapeWmm}mm`;
       }
 
-      // Preload print iframe (Long)
       writePrintFrame(buildPrintHtmlLong({
         makeName, modelName, serial,
         qrDataUrl,
@@ -1449,6 +1540,10 @@ body[data-theme="dark"] .toggle:checked,
       }else{
         const eng = $("engineHours");
         if(eng) eng.value="";
+        const sf = $("starfireCapable");
+        if(sf) sf.checked = false;
+        const sft = $("starfireCapableText");
+        if(sft) sft.textContent = "Off";
       }
 
       ddMake.hidden.value="";
@@ -1487,16 +1582,50 @@ body[data-theme="dark"] .toggle:checked,
         }
       }
 
+      /* Fallback extras for Tractor */
       if(!EXTRAS_API && TYPE === 'tractor'){
         host.innerHTML = "";
-        const fld = document.createElement('div');
-        fld.className = 'field';
-        fld.innerHTML = `
+
+        const row = document.createElement('div');
+        row.className = 'row';
+
+        // Engine hours
+        const f1 = document.createElement('div');
+        f1.className = 'field';
+        f1.innerHTML = `
           <label for="engineHours">Engine Hours</label>
           <input id="engineHours" type="number" class="input"
                  inputmode="decimal" step="0.1" placeholder="e.g., 1250.5">
         `;
-        host.appendChild(fld);
+
+        // StarFire toggle
+        const f2 = document.createElement('div');
+        f2.className = 'field';
+        f2.innerHTML = `
+          <label for="starfireCapable">StarFire GPS Capable?</label>
+          <div class="pv-switch-row">
+            <label class="pv-switch" for="starfireCapable" aria-label="StarFire GPS Capable">
+              <input id="starfireCapable" type="checkbox" />
+              <span class="pv-switch-track" aria-hidden="true">
+                <span class="pv-switch-thumb" aria-hidden="true"></span>
+              </span>
+              <span class="pv-switch-text" id="starfireCapableText">Off</span>
+            </label>
+          </div>
+        `;
+
+        row.appendChild(f1);
+        row.appendChild(f2);
+        host.appendChild(row);
+
+        // Live text update (Off/On)
+        const sf = f2.querySelector('#starfireCapable');
+        const sft = f2.querySelector('#starfireCapableText');
+        if(sf && sft){
+          const sync = ()=>{ sft.textContent = sf.checked ? "On" : "Off"; };
+          sf.addEventListener('change', sync);
+          sync();
+        }
       }
     }
 
