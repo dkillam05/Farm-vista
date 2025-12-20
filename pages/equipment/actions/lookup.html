@@ -206,11 +206,7 @@
       max-width: min(560px, calc(100vw - 48px));
     }
 
-    /* ✅ THIS is the centering fix:
-       - Always full width
-       - Scroll if needed
-       - Default left (long labels)
-       - StarFire adds .center to center the small label */
+    /* Preview scroller (center StarFire; left for long labels) */
     #printWrap{
       display:flex;
       width: 100%;
@@ -226,14 +222,12 @@
       justify-content:center;
     }
     #pPreviewHost{
-      flex: 0 0 auto; /* preview sizes itself (mm widths) and can scroll if bigger than wrap */
+      flex: 0 0 auto;
     }
 
     /* ===== Preview styles (injected) ===== */
-
-    /* Non-StarFire: long strip */
     .pv-long{
-      width:140mm;   /* JS overrides to computed cut length */
+      width:140mm;
       height:var(--ql-tape-mm);
       border:1px dashed var(--border);
       border-radius:10px;
@@ -305,7 +299,6 @@
       white-space:nowrap;
     }
 
-    /* StarFire: compact */
     .pv-sf{
       width:var(--sf-cut-mm);
       height:var(--ql-tape-mm);
@@ -355,6 +348,94 @@
     /* ✅ Ensure Print button text is white */
     #pPrint{ color:#fff !important; }
     #pPrint:visited{ color:#fff !important; }
+
+    /* ==========================================================
+       SAME-PAGE PRINT STAGE (Report-style printing)
+       - No popups
+       - Uses native print chooser (iOS Options sheet)
+       ========================================================== */
+    #printStage, #printStageStyle { display:none; }
+
+    /* The print stage is built at runtime and only shown during printing */
+    #printStage{
+      position:fixed;
+      left:-99999px;
+      top:-99999px;
+      width:10px;
+      height:10px;
+      background:#fff;
+      color:#000;
+      z-index:999999;
+    }
+
+    /* Print-only visibility */
+    @media print{
+      fv-shell, dialog, .page{ display:none !important; }
+      body{ background:#fff !important; }
+
+      #printStage{
+        display:block !important;
+        position:fixed !important;
+        left:0 !important;
+        top:0 !important;
+        right:auto !important;
+        bottom:auto !important;
+        overflow:hidden !important;
+        background:#fff !important;
+      }
+    }
+
+    /* Print label layouts (used inside #printStage) */
+    .ps-label{
+      box-sizing:border-box;
+      padding: 2.2mm;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color:#000;
+      background:#fff;
+      overflow:hidden;
+    }
+
+    .ps-long{
+      display:grid;
+      grid-template-columns: max-content 48mm max-content;
+      gap: 2mm;
+      align-items:center;
+    }
+    .ps-long .left,.ps-long .right{
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      min-width:max-content;
+    }
+    .ps-long .make{ font-weight:900; font-size:18pt; line-height:1.05; white-space:nowrap; }
+    .ps-long .model{ font-weight:800; font-size:16pt; line-height:1.05; white-space:nowrap; margin-top:1mm; }
+    .ps-long .mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; }
+    .ps-long .mid img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
+    .ps-long .right{ align-items:flex-end; text-align:right; }
+    .ps-long .lab{ font-weight:800; font-size:12pt; line-height:1.05; opacity:.85; white-space:nowrap; }
+    .ps-long .val{ font-weight:900; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; white-space:nowrap; }
+
+    .ps-sf{
+      display:grid;
+      grid-template-rows: 46mm 1fr;
+      align-content:center;
+      justify-items:center;
+      gap: 2mm;
+    }
+    .ps-sf .qr{ width:46mm; height:46mm; display:flex; align-items:center; justify-content:center; }
+    .ps-sf .qr img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
+    .ps-sf .serial{
+      width:100%;
+      text-align:center;
+      font-weight:900;
+      letter-spacing:.6px;
+      line-height:1.05;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      font-size:16pt;
+    }
+    .ps-sf .serial.small{ font-size:13pt; }
   </style>
 </head>
 <body>
@@ -398,6 +479,10 @@
       <div id="list"></div>
     </div>
   </fv-shell>
+
+  <!-- Hidden print stage + @page injector (same-page printing) -->
+  <style id="printStageStyle"></style>
+  <div id="printStage" aria-hidden="true"></div>
 
   <!-- Detail modal -->
   <dialog id="detail" class="sheet" aria-modal="true">
@@ -663,7 +748,13 @@
     const pCancel = document.getElementById('pCancel');
     const pPrint = document.getElementById('pPrint');
 
+    // Same-page print stage bits
+    const printStage = document.getElementById('printStage');
+    const printStageStyle = document.getElementById('printStageStyle');
+
     let __pendingPrint = null;
+    let __labelLenMm = 90;
+    let __previewQrSrc = '';
 
     // Non-StarFire: dynamic label length (max 6")
     const LABEL = {
@@ -747,17 +838,16 @@
       return clampLenMm(raw);
     }
 
-    let __labelLenMm = LABEL.minLenMm;
-
     function clearPreviewHost(){
       pHost.innerHTML = '';
+      __previewQrSrc = '';
     }
 
     async function setPreview(payload){
       const isSF = !!payload?.isStarfire;
       const qrUrl = payload?.url || '';
 
-      // ✅ Center only for StarFire, left for long labels
+      // Center only for StarFire, left for long labels
       printWrap.classList.toggle('center', isSF);
 
       // cache bust so image definitely loads
@@ -792,6 +882,9 @@
 
         wrap.append(q, s);
         pHost.appendChild(wrap);
+
+        // store a known-good src for same-page printing
+        __previewQrSrc = img.src || qrSrc;
         return;
       }
 
@@ -853,6 +946,8 @@
 
       wrap.style.width = `${__labelLenMm}mm`;
       wrap.style.height = `${LABEL.tapeWmm}mm`;
+
+      __previewQrSrc = img.src || qrSrc;
     }
 
     function openReprintPreview(payload){
@@ -871,179 +966,141 @@
     pClose.addEventListener('click', closeReprintPreview);
     pCancel.addEventListener('click', closeReprintPreview);
 
-    function buildPrintHtml(payload){
+    // ---------- SAME-PAGE PRINT (native print chooser like reports) ----------
+    let __isPrinting = false;
+
+    function setPageSizeMM(wMm, hMm){
+      // @page rule must be literal for best support (don’t rely on CSS vars)
+      printStageStyle.textContent = `
+@page{ size: ${wMm}mm ${hMm}mm; margin: 0; }
+@media print{
+  #printStage{ width:${wMm}mm !important; height:${hMm}mm !important; }
+}`;
+    }
+
+    function buildPrintStageHTML(payload){
       const isSF = !!payload?.isStarfire;
-      const esc = (s)=>String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+      const qrSrc = __previewQrSrc || payload?.url || '';
+      printStage.innerHTML = '';
 
       if (isSF){
-        const serial = esc(payload?.serial || '');
-        const qrUrl = payload?.qrUrl || payload?.url || '';
-        const labelW = `${STARFIRE_LABEL.cutLenMm}mm`;
-        const labelH = `${STARFIRE_LABEL.tapeWmm}mm`;
-        const qrMm = `${STARFIRE_LABEL.qrMm}mm`;
+        const serialTxt = (payload?.serial || '') || '—';
+        setPageSizeMM(STARFIRE_LABEL.cutLenMm, STARFIRE_LABEL.tapeWmm);
 
-        return `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Print StarFire Label</title>
-<style>
-  @page{ size: ${labelW} ${labelH}; margin: 0; }
-  html, body{ margin:0; padding:0; width:${labelW}; height:${labelH}; background:#fff; }
-  .label{
-    width:${labelW}; height:${labelH};
-    box-sizing:border-box;
-    padding: 2.2mm;
-    display:grid;
-    grid-template-rows: ${qrMm} 1fr;
-    align-content:center;
-    justify-items:center;
-    gap: 2mm;
-    font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-    color:#000;
-    overflow:hidden;
-  }
-  .qr{ width:${qrMm}; height:${qrMm}; display:flex; align-items:center; justify-content:center; background:#fff; }
-  .qr img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
-  .serial{
-    width:100%;
-    text-align:center;
-    font-weight:900;
-    letter-spacing:.6px;
-    line-height:1.05;
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
-    font-size:${serial.length > 12 ? '13pt' : '16pt'};
-  }
-  @media print{
-    html, body{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-    *, *:before, *:after { box-shadow:none !important; }
-  }
-</style>
-</head>
-<body>
-  <div class="label">
-    <div class="qr"><img id="qri" alt="QR" src="${qrUrl || ''}"></div>
-    <div class="serial">${serial || '—'}</div>
-  </div>
-<script>
-  const img = document.getElementById('qri');
-  function doPrint(){ try{ window.focus(); window.print(); }catch(e){} }
-  if (img && img.complete) { setTimeout(doPrint, 0); }
-  else if (img){ img.addEventListener('load', ()=> setTimeout(doPrint, 0), {once:true}); }
-  window.addEventListener('afterprint', ()=> { try{ window.close(); }catch(e){} });
-  setTimeout(()=>{ try{ window.close(); }catch(e){} }, 6000);
-<\/script>
-</body>
-</html>`;
-      }
+        const wrap = document.createElement('div');
+        wrap.className = 'ps-label ps-sf';
+        // exact size for stage
+        wrap.style.width = `${STARFIRE_LABEL.cutLenMm}mm`;
+        wrap.style.height = `${STARFIRE_LABEL.tapeWmm}mm`;
 
-      // NON-StarFire long strip print
-      const last6v = serialLast6(payload?.serial) || '';
-      const mk = esc(payload?.makeName || payload?.make || '');
-      const md = esc(payload?.modelName || payload?.model || '');
-      const s6 = esc(last6v);
-      const qrUrl = payload?.qrUrl || payload?.url || '';
-      const labelW = payload?.labelW || `${LABEL.minLenMm}mm`;
-      const labelH = payload?.labelH || `${LABEL.tapeWmm}mm`;
-      const qrMm = payload?.qrMm || `${LABEL.qrMm}mm`;
+        const q = document.createElement('div');
+        q.className = 'qr';
+        const img = document.createElement('img');
+        img.alt = 'QR';
+        img.src = qrSrc;
+        q.appendChild(img);
 
-      return `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Print Label</title>
-<style>
-  @page{ size: ${labelW} ${labelH}; margin: 0; }
-  html, body{ margin:0; padding:0; width:${labelW}; height:${labelH}; background:#fff; }
-  .label{
-    width:${labelW}; height:${labelH};
-    box-sizing:border-box;
-    padding: 2.2mm;
-    display:grid;
-    grid-template-columns: max-content ${qrMm} max-content;
-    gap: 2mm;
-    align-items:center;
-    font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-    color:#000;
-    overflow:hidden;
-  }
-  .left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
-  .make{ font-weight:900; font-size:18pt; line-height:1.05; white-space:nowrap; }
-  .model{ font-weight:800; font-size:16pt; line-height:1.05; white-space:nowrap; margin-top:1mm; }
-  .mid{ width:${qrMm}; height:${qrMm}; display:flex; align-items:center; justify-content:center; }
-  .mid img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
-  .right{ align-items:flex-end; text-align:right; }
-  .lab{ font-weight:800; font-size:12pt; line-height:1.05; opacity:.85; white-space:nowrap; }
-  .val{ font-weight:900; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; white-space:nowrap; }
-  @media print{
-    html, body{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-    *, *:before, *:after { box-shadow:none !important; }
-  }
-</style>
-</head>
-<body>
-  <div class="label">
-    <div class="left">
-      <div class="make">${mk || '—'}</div>
-      <div class="model">${md || '—'}</div>
-    </div>
-    <div class="mid"><img id="qri" alt="QR" src="${qrUrl || ''}"></div>
-    <div class="right">
-      <div class="lab">VIN/Serial</div>
-      <div class="val">${s6 || '—'}</div>
-    </div>
-  </div>
-<script>
-  const img = document.getElementById('qri');
-  function doPrint(){ try{ window.focus(); window.print(); }catch(e){} }
-  if (img && img.complete) { setTimeout(doPrint, 0); }
-  else if (img){ img.addEventListener('load', ()=> setTimeout(doPrint, 0), {once:true}); }
-  window.addEventListener('afterprint', ()=> { try{ window.close(); }catch(e){} });
-  setTimeout(()=>{ try{ window.close(); }catch(e){} }, 6000);
-<\/script>
-</body>
-</html>`;
-    }
+        const s = document.createElement('div');
+        s.className = 'serial' + (String(serialTxt).length > 12 ? ' small' : '');
+        s.textContent = serialTxt;
 
-    function openPrintWindow(payload){
-      const html = buildPrintHtml(payload);
-      const w = window.open('', '_blank', 'noopener,noreferrer,width=900,height=650');
-      if(!w){ alert('Popup blocked. Allow popups to print.'); return; }
-      w.document.open();
-      w.document.write(html);
-      w.document.close();
-    }
-
-    pPrint.addEventListener('click', ()=>{
-      if(!__pendingPrint) return;
-
-      if (__pendingPrint.isStarfire){
-        openPrintWindow({
-          isStarfire: true,
-          serial: __pendingPrint.serial || '',
-          url: __pendingPrint.url || '',
-          qrUrl: __pendingPrint.url || ''
-        });
-        closeReprintPreview();
+        wrap.append(q, s);
+        printStage.appendChild(wrap);
         return;
       }
 
+      // Long label
       const cutLenMm = __labelLenMm || LABEL.minLenMm;
-      openPrintWindow({
-        makeName: __pendingPrint.make || '',
-        modelName: __pendingPrint.model || '',
-        serial: __pendingPrint.serial || __pendingPrint.serial6 || '',
-        qrUrl: __pendingPrint.url || '',
-        labelW: `${cutLenMm}mm`,
-        labelH: `${LABEL.tapeWmm}mm`,
-        qrMm: `${LABEL.qrMm}mm`
-      });
+      setPageSizeMM(cutLenMm, LABEL.tapeWmm);
 
+      const serial6 = serialLast6(payload?.serial) || '—';
+      const makeName = payload?.make || '—';
+      const modelName = payload?.model || '—';
+
+      const wrap = document.createElement('div');
+      wrap.className = 'ps-label ps-long';
+      wrap.style.width = `${cutLenMm}mm`;
+      wrap.style.height = `${LABEL.tapeWmm}mm`;
+
+      const left = document.createElement('div');
+      left.className = 'left';
+      const mk = document.createElement('div');
+      mk.className = 'make';
+      mk.textContent = makeName;
+      const md = document.createElement('div');
+      md.className = 'model';
+      md.textContent = modelName;
+      left.append(mk, md);
+
+      const mid = document.createElement('div');
+      mid.className = 'mid';
+      const img = document.createElement('img');
+      img.alt = 'QR';
+      img.src = qrSrc;
+      mid.appendChild(img);
+
+      const right = document.createElement('div');
+      right.className = 'right';
+      const lab = document.createElement('div');
+      lab.className = 'lab';
+      lab.textContent = 'VIN/Serial';
+      const val = document.createElement('div');
+      val.className = 'val';
+      val.textContent = serial6;
+      right.append(lab, val);
+
+      wrap.append(left, mid, right);
+      printStage.appendChild(wrap);
+    }
+
+    function imgReadyInStage(){
+      const img = printStage.querySelector('img');
+      if (!img) return Promise.resolve(true);
+      if (img.complete && img.naturalWidth > 0) return Promise.resolve(true);
+      return new Promise((resolve)=>{
+        let done=false;
+        const finish=(ok)=>{ if(done) return; done=true; resolve(ok); };
+        img.addEventListener('load', ()=>finish(true), {once:true});
+        img.addEventListener('error', ()=>finish(false), {once:true});
+        setTimeout(()=>finish(false), 2500);
+      });
+    }
+
+    function cleanupAfterPrint(){
+      __isPrinting = false;
+      // clear stage so it never flashes anywhere
+      try{ printStage.innerHTML=''; }catch{}
+      try{ printStageStyle.textContent=''; }catch{}
+    }
+
+    window.addEventListener('afterprint', ()=> {
+      cleanupAfterPrint();
+    });
+
+    pPrint.addEventListener('click', async ()=>{
+      if(!__pendingPrint || __isPrinting) return;
+      __isPrinting = true;
+
+      // Build stage using already-loaded preview QR src (so printing is immediate like reports)
+      buildPrintStageHTML(__pendingPrint);
+
+      // Best-effort: ensure the stage image is ready (usually instant because preview already loaded)
+      await imgReadyInStage();
+
+      // Close preview first so dialogs don't interfere with printing
       closeReprintPreview();
+
+      // Trigger native print UI (same as reports)
+      try{
+        window.print();
+      }catch(e){
+        console.warn('Print failed', e);
+        cleanupAfterPrint();
+        return;
+      }
+
+      // iOS sometimes doesn't fire afterprint reliably — safety cleanup
+      setTimeout(()=>{ if(__isPrinting) cleanupAfterPrint(); }, 6000);
     });
 
     function openDetail(d){
