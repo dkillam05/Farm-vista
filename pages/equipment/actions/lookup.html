@@ -926,17 +926,235 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${L}mm; background:#fff; }
     pClose.addEventListener('click', closeReprintPreview);
     pCancel.addEventListener('click', closeReprintPreview);
 
-    pPrint.addEventListener('click', ()=>{
-      try{
-        const win = printFrame.contentWindow;
-        if (!win) return;
-        win.focus();
-        win.print();
-      }catch(err){
-        console.warn('[equipment-label] print failed', err);
-      }
-      setTimeout(()=>closeReprintPreview(), 50);
+    // ============================================================
+// ✅ DK-2205 REAL PRINT FIX (NO @page / NO full-letter page)
+// We export a 62mm-tall PNG at print DPI and SHARE it.
+// This bypasses iOS/Chrome/AirPrint forcing Letter/A4.
+// ============================================================
+
+const exportHint = document.getElementById('exportHint');
+const exportLink = document.getElementById('exportLink');
+
+function mmToPx(mm, dpi){
+  // 1 inch = 25.4mm
+  return Math.round((mm / 25.4) * dpi);
+}
+
+async function fetchImageBitmap(src){
+  // Ensure CORS-safe load; if Firebase Storage URL disallows CORS,
+  // we still can draw it via <img> to canvas *if* browser allows.
+  // We'll do <img> + drawImage; this is the most compatible.
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    img.decoding = 'async';
+    // Try to allow canvas use if server supports it
+    img.crossOrigin = 'anonymous';
+    img.onload = ()=> resolve(img);
+    img.onerror = ()=> reject(new Error('QR image failed to load for export.'));
+    img.src = src;
+  });
+}
+
+function canvasToBlob(canvas, type='image/png', quality){
+  return new Promise((resolve)=> canvas.toBlob(resolve, type, quality));
+}
+
+async function exportLabelPng(payload){
+  // Tunable DPI. 300 prints very crisp on QL.
+  const DPI = 300;
+
+  const isSF = !!payload?.isStarfire;
+
+  // Tape is always 62mm tall
+  const tapeH_mm = 62;
+
+  // For StarFire, fixed cut length 62mm; else computed cut length
+  const cutL_mm = isSF ? 62 : Number(payload?.cutLenMm || __labelLenMm || 90);
+
+  // Canvas pixels
+  const Wpx = mmToPx(cutL_mm, DPI);
+  const Hpx = mmToPx(tapeH_mm, DPI);
+
+  // White background ALWAYS (no transparency → Brother import safe)
+  const c = document.createElement('canvas');
+  c.width = Wpx;
+  c.height = Hpx;
+  const ctx = c.getContext('2d', { alpha:false });
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0,0,Wpx,Hpx);
+
+  // Layout in mm (matching your preview intent)
+  const pad_mm = 2.2;
+  const gap_mm = 2.0;
+
+  // Convert mm→px helpers
+  const mm = (v)=> mmToPx(v, DPI);
+
+  // QR sizing
+  const qr_mm = isSF ? 46 : 48;
+  const qrPx = mm(qr_mm);
+
+  // Compute drawing box
+  const padPx = mm(pad_mm);
+  const gapPx = mm(gap_mm);
+
+  // Load QR image from the exact preview src (already cache-busted)
+  const qrSrc = String(payload?.qrSrc || payload?.url || __previewQrSrc || '');
+  const qrImgEl = await fetchImageBitmap(qrSrc);
+
+  // Draw QR with crisp scaling
+  // Put it centered in its QR box
+  const qrX = isSF
+    ? Math.round((Wpx - qrPx) / 2)
+    : Math.round((Wpx - (padPx*2) - qrPx) / 2); // we’ll adjust with columns below
+  const qrY = isSF ? padPx : Math.round((Hpx - qrPx) / 2);
+
+  // Fonts (use px sizes tuned for 300dpi)
+  // 18pt @ 300dpi ≈ 75px (since 1pt=1/72in)
+  const ptToPx = (pt)=> Math.round((pt/72) * DPI);
+
+  if (isSF){
+    // StarFire: QR top, serial bottom centered
+    const qrTop = padPx;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(qrImgEl, Math.round((Wpx-qrPx)/2), qrTop, qrPx, qrPx);
+
+    const serial = String(payload?.serial || '').trim() || '—';
+    const serialPt = (serial.length > 12) ? 13 : 16;
+    ctx.fillStyle = '#000';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = `900 ${ptToPx(serialPt)}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+
+    const textY = qrTop + qrPx + mm(2) + ptToPx(serialPt); // gap + font height
+    ctx.fillText(serial, Math.round(Wpx/2), Math.min(Hpx - mm(2), textY));
+
+  } else {
+    // Long label: left (make/model), middle (QR), right (VIN + last6)
+    const makeName = String(payload?.make || '').trim() || '—';
+    const modelName = String(payload?.model || '').trim() || '—';
+    const serialRaw = String(payload?.serial || '').trim();
+    const serial6 = serialLast6(serialRaw) || '—';
+
+    // Column math
+    // We'll estimate text widths by measuring with canvas.
+    const makePt = 18, modelPt = 16, labPt = 12, valPt = 18;
+    const makeFont = `900 ${ptToPx(makePt)}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+    const modelFont= `800 ${ptToPx(modelPt)}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+    const labFont  = `800 ${ptToPx(labPt)}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+    const valFont  = `900 ${ptToPx(valPt)}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+
+    // Measure max left and right text widths
+    ctx.font = makeFont; const makeW = ctx.measureText(makeName).width;
+    ctx.font = modelFont; const modelW = ctx.measureText(modelName).width;
+    const leftW = Math.max(makeW, modelW);
+
+    const labText = 'VIN/Serial';
+    ctx.font = labFont; const labW = ctx.measureText(labText).width;
+    ctx.font = valFont; const valW = ctx.measureText(serial6).width;
+    const rightW = Math.max(labW, valW);
+
+    // Total needed width
+    const contentW = padPx*2 + leftW + gapPx + qrPx + gapPx + rightW;
+
+    // Start X so everything is centered if cut length is bigger than content
+    const startX = Math.max(padPx, Math.round((Wpx - contentW)/2) + padPx);
+
+    // LEFT block baseline
+    const centerY = Math.round(Hpx/2);
+
+    ctx.fillStyle = '#000';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+
+    // Make line (slightly above center)
+    ctx.font = makeFont;
+    const makeY = centerY - mm(4);
+    ctx.fillText(makeName, startX, makeY);
+
+    // Model line (below make)
+    ctx.font = modelFont;
+    const modelY = makeY + mm(7);
+    ctx.fillText(modelName, startX, modelY);
+
+    // QR block
+    const qrBlockX = Math.round(startX + leftW + gapPx);
+    const qrBlockY = Math.round((Hpx - qrPx)/2);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(qrImgEl, qrBlockX, qrBlockY, qrPx, qrPx);
+
+    // RIGHT block
+    const rightX = Math.round(qrBlockX + qrPx + gapPx + rightW);
+    ctx.textAlign = 'right';
+
+    ctx.font = labFont;
+    ctx.globalAlpha = 0.85;
+    const labY = centerY - mm(4);
+    ctx.fillText(labText, rightX, labY);
+
+    ctx.globalAlpha = 1;
+    ctx.font = valFont;
+    const valY = labY + mm(7);
+    ctx.fillText(serial6, rightX, valY);
+  }
+
+  // Convert to blob and file
+  const blob = await canvasToBlob(c, 'image/png');
+  if (!blob) throw new Error('PNG export failed.');
+
+  const filename = isSF
+    ? `starfire-${Date.now()}.png`
+    : `equip-qr-${Date.now()}.png`;
+
+  const file = new File([blob], filename, { type:'image/png' });
+
+  // Create object URL for fallback open/download
+  const url = URL.createObjectURL(blob);
+
+  // Try native share first (BEST on iPhone)
+  if (navigator.share && navigator.canShare && navigator.canShare({ files:[file] })){
+    await navigator.share({
+      title: 'FarmVista Label',
+      text: 'DK-2205 label',
+      files: [file]
     });
+    return { url, file, shared:true };
+  }
+
+  // Fallback: open in new tab so user can Print/Share from there
+  const w = window.open(url, '_blank', 'noopener');
+  return { url, file, shared: !!w };
+}
+
+// ✅ Replace your current Print click with this:
+pPrint.addEventListener('click', async ()=>{
+  exportHint.style.display = 'none';
+  exportLink.href = '#';
+
+  try{
+    if (!__pendingPrint) return;
+
+    // Ensure cutLen is present for long labels
+    const payload = { ...__pendingPrint };
+    if (!payload.isStarfire){
+      payload.cutLenMm = Number(payload.cutLenMm || __labelLenMm || 90);
+    }
+
+    // Use the exact preview QR src (already cache-busted)
+    payload.qrSrc = __previewQrSrc || payload.qrSrc || payload.url;
+
+    const res = await exportLabelPng(payload);
+
+    // If popup blocked, give a manual link
+    exportLink.href = res.url;
+    exportHint.style.display = 'block';
+
+  }catch(err){
+    console.warn('[label-export] failed', err);
+    alert(err?.message || 'Label export failed.');
+  }
+});
+
 
     function openDetail(d){
       btnHub.classList.add('disabled');
