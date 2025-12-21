@@ -1,133 +1,184 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Brother Dev Print Page</title>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>QL-820NWB Bluetooth Dev Label</title>
   <style>
-    /* Screen layout (simple) */
     body{
+      margin:0; padding:16px;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      margin: 0;
-      padding: 18px;
+      background:#f6f6f6;
     }
-    .wrap{ max-width: 720px; margin: 0 auto; }
     .controls{
-      display:flex; gap:10px; align-items:center; flex-wrap:wrap;
-      margin-bottom: 14px;
+      display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+      margin-bottom:12px;
     }
     button{
-      padding: 10px 14px;
-      border-radius: 10px;
-      border: 1px solid #bbb;
-      background: #f5f5f5;
-      cursor: pointer;
+      padding:10px 14px;
+      border-radius:12px;
+      border:1px solid #bbb;
+      background:#fff;
+      font-weight:800;
     }
-    button:active{ transform: translateY(1px); }
+    .hint{ font-size:13px; opacity:.7; }
 
-    /* The thing we print */
-    #printArea{
-      border: 2px dashed #999;
-      border-radius: 14px;
-      padding: 18px;
-      width: 100%;
-      box-sizing: border-box;
+    /* On-screen preview box */
+    .preview{
+      width: min(720px, 100%);
+      margin:0 auto;
+      background:#fff;
+      border:2px dashed #999;
+      border-radius:14px;
+      padding:12px;
     }
+
+    /* Label design (what gets rendered into PNG) */
     .label{
-      border: 2px solid #111;
-      border-radius: 12px;
-      padding: 18px;
-      display:flex;
-      flex-direction:column;
-      gap:10px;
+      border:2px solid #111;
+      border-radius:14px;
+      padding:14px;
     }
-    .title{
-      font-size: 26px;
-      font-weight: 800;
-      letter-spacing: 0.4px;
-    }
-    .row{
-      display:flex;
-      justify-content:space-between;
-      gap:12px;
-      font-size: 16px;
-    }
-    .muted{ opacity: 0.75; }
+    .title{ font-size:24px; font-weight:900; margin-bottom:8px; }
+    .row{ display:flex; justify-content:space-between; gap:12px; margin:6px 0; font-size:15px; }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+    .muted{ opacity:.75; font-size:13px; margin-top:8px; }
 
-    /* PRINT: only print the label area */
-    @media print{
-      body{ padding: 0; }
-      .controls{ display:none !important; }
+    /* Hide the canvas by default */
+    canvas{ display:none; }
 
-      /* Hide everything, then show only #printArea */
-      body *{ visibility: hidden; }
-      #printArea, #printArea *{ visibility: visible; }
-
-      /* Put print area at top-left */
-      #printArea{
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 100%;
-        border: none;
-        padding: 0;
-      }
-
-      /* Optional: reduce margins */
-      @page{
-        margin: 0.25in;
-      }
-    }
+    /* Remove blue-ish link look if any */
+    a{ color:inherit; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="controls">
-      <button id="btnPrint" type="button">Print</button>
-      <button id="btnRandom" type="button">Random Test Data</button>
-      <span class="muted">Tip: Print → Save as PDF → open/share to Brother app</span>
-    </div>
+  <div class="controls">
+    <button id="btnMakePng" type="button">Make PNG Label</button>
+    <button id="btnRand" type="button">Randomize</button>
+    <span class="hint">
+      This page makes a PNG you can Save/Share → import into Brother iPrint&Label (Bluetooth).
+    </span>
+  </div>
 
-    <div id="printArea">
-      <div class="label">
-        <div class="title" id="lblTitle">TEST LABEL</div>
+  <div class="preview" id="captureBox">
+    <div class="label" id="label">
+      <div class="title" id="t1">DOWSON FARMS</div>
 
-        <div class="row">
-          <div><strong>ID:</strong> <span id="lblId">EQ-0001</span></div>
-          <div><strong>Date:</strong> <span id="lblDate"></span></div>
-        </div>
-
-        <div class="row">
-          <div><strong>Line 1:</strong> <span id="lblLine1">Brother Printer</span></div>
-          <div><strong>Line 2:</strong> <span id="lblLine2">Dev Print</span></div>
-        </div>
-
-        <div class="row muted">
-          <div>Make sure “Scale” is set to 100% in print dialog.</div>
-        </div>
+      <div class="row">
+        <div><strong>ID</strong> <span class="mono" id="id">EQ-0001</span></div>
+        <div><strong>Date</strong> <span class="mono" id="dt"></span></div>
       </div>
+
+      <div class="row">
+        <div><strong>Line 1</strong> <span id="l1">Test Label</span></div>
+        <div><strong>Line 2</strong> <span id="l2">QL-820NWB</span></div>
+      </div>
+
+      <div class="muted">PNG export sized for 62mm x 100mm label.</div>
     </div>
   </div>
 
+  <canvas id="cnv"></canvas>
+
   <script>
+    // ---- Label target size (change this if your DK roll differs)
+    // 62mm x 100mm at ~300dpi -> 732 x 1181 px (approx)
+    const LABEL_W = 732;
+    const LABEL_H = 1181;
+
     function pad(n){ return String(n).padStart(2,'0'); }
     function today(){
-      const d = new Date();
+      const d=new Date();
       return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
     }
-    document.getElementById('lblDate').textContent = today();
+    document.getElementById('dt').textContent = today();
 
-    document.getElementById('btnPrint').addEventListener('click', () => {
-      window.print();
+    document.getElementById('btnRand').addEventListener('click', () => {
+      const n = Math.floor(Math.random()*9000)+1000;
+      document.getElementById('id').textContent = 'EQ-' + n;
+      document.getElementById('l1').textContent = 'Scan Me';
+      document.getElementById('l2').textContent = 'Test ' + n;
+      document.getElementById('dt').textContent = today();
     });
 
-    document.getElementById('btnRandom').addEventListener('click', () => {
-      const n = Math.floor(Math.random() * 9000) + 1000;
-      document.getElementById('lblTitle').textContent = 'TEST LABEL';
-      document.getElementById('lblId').textContent = 'EQ-' + n;
-      document.getElementById('lblLine1').textContent = 'Dowson Farms';
-      document.getElementById('lblLine2').textContent = 'Scan Me';
-      document.getElementById('lblDate').textContent = today();
+    // Render a simple label into a canvas (reliable on iPhone; avoids DOM-to-image libs)
+    function drawLabelToCanvas(){
+      const cnv = document.getElementById('cnv');
+      cnv.width = LABEL_W;
+      cnv.height = LABEL_H;
+      const ctx = cnv.getContext('2d');
+
+      // white background
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0,0,cnv.width,cnv.height);
+
+      // border
+      ctx.strokeStyle = '#111111';
+      ctx.lineWidth = 8;
+      ctx.strokeRect(20,20,cnv.width-40,cnv.height-40);
+
+      // text
+      const title = document.getElementById('t1').textContent;
+      const id = document.getElementById('id').textContent;
+      const dt = document.getElementById('dt').textContent;
+      const l1 = document.getElementById('l1').textContent;
+      const l2 = document.getElementById('l2').textContent;
+
+      ctx.fillStyle = '#111111';
+
+      // Title
+      ctx.font = 'bold 78px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+      ctx.fillText(title, 60, 150);
+
+      // rows
+      ctx.font = '700 46px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace';
+      ctx.fillText('ID ' + id, 60, 280);
+      ctx.fillText('DATE ' + dt, 60, 350);
+
+      ctx.font = '800 54px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+      ctx.fillText('LINE 1', 60, 500);
+      ctx.font = '600 56px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+      ctx.fillText(l1, 60, 580);
+
+      ctx.font = '800 54px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+      ctx.fillText('LINE 2', 60, 720);
+      ctx.font = '600 56px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+      ctx.fillText(l2, 60, 800);
+
+      // small footer
+      ctx.font = '500 34px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+      ctx.globalAlpha = 0.75;
+      ctx.fillText('PNG export for Brother iPrint&Label (Bluetooth)', 60, cnv.height - 90);
+      ctx.globalAlpha = 1;
+
+      return cnv;
+    }
+
+    // Make a PNG and prompt user to save/share
+    document.getElementById('btnMakePng').addEventListener('click', async () => {
+      const cnv = drawLabelToCanvas();
+
+      cnv.toBlob(async (blob) => {
+        if(!blob){ alert('Could not create PNG (blob failed).'); return; }
+
+        const filename = `label-${Date.now()}.png`;
+        const file = new File([blob], filename, { type: 'image/png' });
+
+        // iOS Safari supports Web Share on most devices
+        if(navigator.canShare && navigator.canShare({ files: [file] })){
+          try{
+            await navigator.share({ files:[file], title:'Label PNG' });
+            return;
+          }catch(e){
+            // fall through to download link
+          }
+        }
+
+        // fallback: open image in new tab (then long-press Save Image)
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        setTimeout(()=>URL.revokeObjectURL(url), 10000);
+      }, 'image/png');
     });
   </script>
 </body>
