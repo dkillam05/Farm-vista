@@ -1,17 +1,22 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/weather.html  (FULL FILE)
-Rev: 2025-12-21d
+Rev: 2025-12-21e
 
-DEV: Workability + Sorting + Date Range Picker + Full Math
+UI COMPACT PASS (per your notes)
+✅ Remove the READY/WET badge you circled (no status pill on right)
+✅ Controls row: Operation / Sort / Rain range in ONE straight line
+   - helper text moved BELOW the row so it doesn’t throw alignment off
+✅ Field rows: more compact
+   - Adjust button moved up next to Farm/Field name (smaller, subtle)
+   - Removed “tile bottom button row”
+   - Reduced padding/gaps
+✅ Soil/Drain helper text moved into the Adjust modal (not under sliders)
+✅ Adjust → Dry now asks: Barely ready / Perfect / Very dry
+   - Sets a “manual readiness override” for that field (dev-only)
+   - Allows you to set current level precisely
 
-Updates:
-✅ Fields: single column (stacked, one per row)
-✅ Readiness bar: clearer at 100%
-   - thicker marker + clamps cleanly at 0/100
-   - badge on bar showing Ready%
-   - colored Wet/Ready chips
-✅ Date range: styled as a compact button (still uses jobRangeInput id)
-✅ Keeps your opCard z-index/overflow fixes
+Requires:
+- /Farm-vista/js/fv-date-range-picker.js  (non-module)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -47,7 +52,10 @@ Updates:
       padding:clamp(14px,3vw,22px);
       padding-bottom:calc(var(--page-bottom-gap) + env(safe-area-inset-bottom,0px));
     }
-    .topbar{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
+    .topbar{
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+      margin-bottom:12px;
+    }
     .topbar h1{ font-size:18px; margin:0; letter-spacing:.2px; }
 
     .card{
@@ -58,7 +66,7 @@ Updates:
       overflow:hidden;
     }
     .card-h{
-      padding:14px 14px 10px;
+      padding:12px 14px 10px; /* tightened */
       border-bottom:1px solid var(--border);
       display:flex;
       justify-content:space-between;
@@ -66,7 +74,7 @@ Updates:
       align-items:flex-start;
     }
     .card-h .t{ margin:0; font-size:15px; font-weight:950; }
-    .card-b{ padding:14px; }
+    .card-b{ padding:12px 14px; } /* tightened */
 
     .grid{ display:grid; grid-template-columns:1fr; gap:14px; }
     @media(min-width:980px){ .grid{ grid-template-columns:480px 1fr; } }
@@ -86,12 +94,11 @@ Updates:
 
     /* =========================================================
        FIX: Controls dropdowns + date range popover must sit on top
-       Applies to Operation + Sort + Date Range picker
        ========================================================= */
     .opCard{
       position: relative;
       z-index: 99999;
-      overflow: visible !important;   /* overrides .card overflow:hidden */
+      overflow: visible !important;
     }
     .opCard #calendarPopover{
       position: absolute;
@@ -100,8 +107,18 @@ Updates:
 
     input[readonly]{ cursor:pointer; }
 
-    .row{ display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
-    .row > *{ flex:1 1 220px; }
+    /* Controls row: force straight line */
+    .row{
+      display:flex;
+      gap:12px;
+      align-items:flex-end;
+      flex-wrap:nowrap;          /* key: keeps one line on desktop */
+    }
+    .row > *{ flex: 1 1 0; min-width: 0; }
+    @media(max-width: 860px){
+      .row{ flex-wrap:wrap; }
+      .row > *{ flex:1 1 240px; }
+    }
 
     .slider-wrap{
       display:grid;
@@ -135,6 +152,16 @@ Updates:
     .btn.danger{ background:#b02a2a; border-color:transparent; color:#fff !important; }
     .btn[disabled]{ opacity:.55; cursor:not-allowed; }
 
+    .miniBtn{
+      padding:7px 10px;            /* smaller */
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:transparent;
+      color:var(--text);
+      font-weight:950;
+      cursor:pointer;
+    }
+
     .muted{ opacity:.75; }
     .mono{ font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace; }
 
@@ -145,21 +172,21 @@ Updates:
       opacity:.92;
     }
 
-    /* Fields list = single column ALWAYS */
+    /* Fields list: single column */
     .fieldsGrid{
       display:grid;
       grid-template-columns:1fr;
-      gap:12px;
+      gap:10px; /* tighter */
     }
 
     .fieldTile{
       border:1px solid var(--border);
       border-radius:16px;
       background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
-      padding:12px;
+      padding:10px 12px; /* tighter */
       display:flex;
       flex-direction:column;
-      gap:10px;
+      gap:8px; /* tighter */
       cursor:pointer;
       user-select:none;
       transition: transform .04s ease;
@@ -170,22 +197,15 @@ Updates:
       outline-offset:2px;
     }
 
+    .tileHead{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:10px;
+    }
     .fieldTitle{ font-weight:950; font-size:13px; line-height:1.2; }
     .fieldSub{ font-size:12px; opacity:.85; margin-top:2px; }
 
-    .badge{
-      display:inline-flex;
-      align-items:center;
-      padding:6px 10px;
-      border-radius:999px;
-      border:1px solid var(--border);
-      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
-      font-size:12px;
-      font-weight:950;
-      white-space:nowrap;
-    }
-
-    /* Wet/Ready colored chips */
     .chip{
       display:inline-flex;
       align-items:center;
@@ -197,18 +217,13 @@ Updates:
       border:1px solid var(--border);
       white-space:nowrap;
     }
-    .chip.wet{
-      background: color-mix(in srgb, #c83b3b 18%, var(--surface) 82%);
-    }
-    .chip.ready{
-      background: color-mix(in srgb, #2f8f4b 18%, var(--surface) 82%);
-    }
+    .chip.wet{ background: color-mix(in srgb, #c83b3b 18%, var(--surface) 82%); }
+    .chip.ready{ background: color-mix(in srgb, #2f8f4b 18%, var(--surface) 82%); }
 
-    /* Gauge */
     .workGaugeWrap{ display:flex; flex-direction:column; gap:8px; }
     .workGauge{
       position:relative;
-      height:16px;                 /* taller */
+      height:16px;
       border-radius:999px;
       border:1px solid var(--border);
       overflow:hidden;
@@ -217,14 +232,13 @@ Updates:
     .workMarker{
       position:absolute;
       top:-10px;
-      width:4px;                   /* thicker */
+      width:4px;
       height:36px;
       background:#ffffff;
       box-shadow:0 0 0 1px rgba(0,0,0,.35);
       border-radius:3px;
       transform: translateX(-2px);
     }
-    /* Badge that sits on the marker */
     .markerBadge{
       position:absolute;
       top:-34px;
@@ -244,25 +258,12 @@ Updates:
       font-size:11px;
       opacity:.85;
     }
-
-    /* Wet left, Ready right */
     .workRow{
       display:flex;
       justify-content:space-between;
       align-items:center;
       gap:10px;
       flex-wrap:wrap;
-    }
-
-    .tileBtnRow{ display:flex; gap:8px; flex-wrap:wrap; }
-    .miniBtn{
-      padding:8px 10px;
-      border-radius:12px;
-      border:1px solid var(--border);
-      background:transparent;
-      color:var(--text);
-      font-weight:950;
-      cursor:pointer;
     }
 
     .note{
@@ -311,7 +312,7 @@ Updates:
       z-index:9999;
     }
     .modal{
-      width:min(520px, 94vw);
+      width:min(560px, 94vw);
       background:var(--card, var(--surface));
       border:1px solid var(--border);
       border-radius:18px;
@@ -326,7 +327,7 @@ Updates:
     .modal-b{ padding:14px; }
     .modal-actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
 
-    /* Date range picker minimal styling (IDs required by your script) */
+    /* Date range picker minimal styling */
     .cal-popover{
       top:calc(100% + 8px);
       left:0;
@@ -339,12 +340,7 @@ Updates:
       display:none;
       z-index:200;
     }
-    .cal-top{
-      display:flex;
-      gap:10px;
-      align-items:center;
-      margin-bottom:10px;
-    }
+    .cal-top{ display:flex; gap:10px; align-items:center; margin-bottom:10px; }
     .cal-days{
       display:grid;
       grid-template-columns:repeat(7, 1fr);
@@ -376,10 +372,10 @@ Updates:
       margin-top:10px;
     }
 
-    /* Date range input styled like a classy button */
+    /* Date range input styled like a compact button */
     .rangeBtn{
       width:auto !important;
-      max-width: 260px;
+      max-width: 240px;
       display:inline-flex;
       align-items:center;
       justify-content:space-between;
@@ -389,7 +385,6 @@ Updates:
       cursor:pointer;
       white-space:nowrap;
     }
-    .rangeBtn::placeholder{ opacity:.85; }
 
     /* Error box */
     .errorbox{
@@ -451,7 +446,6 @@ Updates:
             </select>
           </div>
 
-          <!-- Date range input styled like a button -->
           <div class="field" style="margin:0; position:relative; flex:0 0 auto;">
             <label for="jobRangeInput">Rain range</label>
             <input id="jobRangeInput" class="rangeBtn" type="text" readonly value="" placeholder="Choose date range"/>
@@ -470,10 +464,12 @@ Updates:
                 </div>
               </div>
             </div>
-            <div class="muted" style="font-size:12px; margin-top:6px;">
-              Used only for rain sorting + range totals.
-            </div>
           </div>
+        </div>
+
+        <!-- helper text moved below row so alignment stays perfect -->
+        <div class="muted" style="font-size:12px; margin-top:8px;">
+          Date range is used for rain sorting + range totals only.
         </div>
       </div>
     </section>
@@ -500,14 +496,14 @@ Updates:
         <div class="card-h">
           <div>
             <p class="t">Selected Field Inputs</p>
-            <div class="muted" style="font-size:12px;">These sliders apply to the currently selected card.</div>
+            <div class="muted" style="font-size:12px;">Sliders apply to the selected field. Definitions live in Adjust.</div>
           </div>
         </div>
 
         <div class="card-b">
           <div class="field">
             <label>Location (Divernon, IL default)</label>
-            <div class="row">
+            <div class="row" style="flex-wrap:wrap;">
               <div class="field" style="margin:0;">
                 <label for="lat">Latitude</label>
                 <input id="lat" type="number" step="0.000001" value="39.5656"/>
@@ -521,9 +517,6 @@ Updates:
 
           <div class="field">
             <label for="soilWet">Soil Type / Holding (1–10)</label>
-            <div class="muted" style="font-size:12px; margin-top:-2px;">
-              1=sandier (holds less, dries faster) • 10=clay (holds more, dries slower)
-            </div>
             <div class="slider-wrap">
               <input id="soilWet" type="range" min="1" max="10" step="1" value="6"/>
               <div class="pill" id="soilWetVal">6</div>
@@ -532,9 +525,6 @@ Updates:
 
           <div class="field">
             <label for="drain">Drainage (1–10)</label>
-            <div class="muted" style="font-size:12px; margin-top:-2px;">
-              1=good drainage (tile/ditches) • 10=poor drainage
-            </div>
             <div class="slider-wrap">
               <input id="drain" type="range" min="1" max="10" step="1" value="5"/>
               <div class="pill" id="drainVal">5</div>
@@ -543,9 +533,6 @@ Updates:
 
           <div class="field">
             <label for="workable">Workable Threshold (Readiness %)</label>
-            <div class="muted" style="font-size:12px; margin-top:-2px;">
-              If Readiness ≥ threshold → workable
-            </div>
             <div class="slider-wrap">
               <input id="workable" type="range" min="0" max="100" step="1" value="70"/>
               <div class="pill" id="workableVal">70</div>
@@ -667,10 +654,37 @@ Updates:
       </div>
       <div class="modal-b">
         <div class="note" id="adjustRule">—</div>
-        <div class="modal-actions">
-          <button id="btnAdjWet" class="btn danger" type="button">Wet</button>
-          <button id="btnAdjDry" class="btn primary" type="button">Dry</button>
-          <button id="btnAdjCancel" class="btn" type="button">Cancel</button>
+
+        <!-- Step 1: Wet/Dry -->
+        <div id="adjustStep1">
+          <div class="modal-actions">
+            <button id="btnAdjWet" class="btn danger" type="button">Wet</button>
+            <button id="btnAdjDry" class="btn primary" type="button">Dry</button>
+            <button id="btnAdjCancel" class="btn" type="button">Cancel</button>
+          </div>
+        </div>
+
+        <!-- Step 2: Dry level -->
+        <div id="adjustStep2" class="pv-hide">
+          <div class="note" style="margin-top:12px;">
+            <b>How dry is it?</b> This sets the current readiness level.<br/>
+            • Barely ready = just workable<br/>
+            • Perfect = ideal condition<br/>
+            • Very dry = bone dry
+          </div>
+          <div class="modal-actions">
+            <button id="btnDryBarely" class="btn" type="button">Barely ready</button>
+            <button id="btnDryPerfect" class="btn primary" type="button">Perfect</button>
+            <button id="btnDryVery" class="btn" type="button">Very dry</button>
+            <button id="btnDryBack" class="btn" type="button">Back</button>
+          </div>
+        </div>
+
+        <!-- Helpers moved inside Adjust -->
+        <div class="note" style="margin-top:12px;">
+          <b>Definitions</b><br/>
+          <b>Soil Type / Holding (1–10):</b> 1=sandier (holds less, dries faster) • 10=clay (holds more, dries slower)<br/>
+          <b>Drainage (1–10):</b> 1=good drainage (tile/ditches) • 10=poor drainage
         </div>
       </div>
     </div>
@@ -708,7 +722,6 @@ Updates:
   });
 
   const LOSS_SCALE = 0.55;
-  const LS_ADJUST_LOG = 'FV_DEV_ADJUST_LOG_V1';
 
   const state = {
     weather30: [],
@@ -716,6 +729,9 @@ Updates:
     mode: 'MOCK',
     selectedFieldId: 'f1',
     lastRuns: new Map(),
+    // dev-only: manual readiness override, set from Adjust → Dry level
+    readyOverride: new Map(), // fieldId -> readiness (0..100)
+    adjustContext: { fieldId:null }
   };
 
   const FIELDS = [
@@ -830,8 +846,8 @@ Updates:
 
   // ---------- FACTOR MAPPING ----------
   function mapFactors(soil, drain){
-    const soilHold = (Number(soil) - 1) / 9;   // 0..1 (sand..clay)
-    const drainPoor= (Number(drain) - 1) / 9;  // 0..1 (good..poor)
+    const soilHold = (Number(soil) - 1) / 9;
+    const drainPoor= (Number(drain) - 1) / 9;
 
     const infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor;
     const dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor;
@@ -844,7 +860,6 @@ Updates:
     if (!state.weather30.length) return null;
 
     const f = mapFactors(field.soil, field.drain);
-
     const rf = (state.mode === 'MOCK') ? (field.rainFactor || 1) : 1;
 
     const rows = state.weather30.map(w=>{
@@ -912,7 +927,8 @@ Updates:
 
   function etaFor(run, threshold){
     if (!run) return '';
-    if (run.readinessR >= threshold) return '';
+    const ready = run.readinessR;
+    if (ready >= threshold) return '';
 
     const wetTarget = clamp(100 - threshold, 0, 100);
     const storageTarget = run.factors.Smax * (wetTarget / 100);
@@ -986,7 +1002,7 @@ Updates:
   // ---------- RENDER ----------
   function markerLeftCSS(readyPct){
     const p = clamp(readyPct, 0, 100);
-    if (p >= 100) return 'calc(100% - 2px)'; // snap cleanly
+    if (p >= 100) return 'calc(100% - 2px)';
     if (p <= 0) return '2px';
     return p.toFixed(2) + '%';
   }
@@ -1005,28 +1021,30 @@ Updates:
     const range = parseRangeFromInput();
 
     for (const f of sorted){
-      const run = state.lastRuns.get(f.id);
-      const ready = run ? run.readinessR : 0;
-      const wet = run ? run.wetnessR : 0;
+      const run0 = state.lastRuns.get(f.id);
+      if (!run0) continue;
+
+      // Apply manual override (dev) if present
+      const overrideReady = state.readyOverride.has(f.id) ? Number(state.readyOverride.get(f.id)) : null;
+      const ready = (overrideReady === null || !isFinite(overrideReady)) ? run0.readinessR : clamp(Math.round(overrideReady), 0, 100);
+      const wet = clamp(100 - ready, 0, 100);
 
       const isWorkable = (ready >= thr);
-      const eta = run ? etaFor(run, thr) : '';
+      const eta = etaFor(run0, thr);
 
-      const rainRange = run ? rainInRange(run, range) : 0;
+      const rainRange = rainInRange(run0, range);
+      const leftPos = markerLeftCSS(ready);
 
       const tile = document.createElement('div');
       tile.className = 'fieldTile' + (f.id === state.selectedFieldId ? ' active' : '');
 
-      const leftPos = markerLeftCSS(ready);
-
       tile.innerHTML = `
-        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:10px;">
+        <div class="tileHead">
           <div>
             <div class="fieldTitle">${escapeHtml(f.farm)} • ${escapeHtml(f.field)}</div>
-            <div class="fieldSub">Soil=${f.soil}/10 • Drain=${f.drain}/10</div>
-            <div class="fieldSub">Rain (range): <span class="mono">${rainRange.toFixed(2)}</span> in</div>
+            <div class="fieldSub">Soil=${f.soil}/10 • Drain=${f.drain}/10 • Rain(range): <span class="mono">${rainRange.toFixed(2)}</span> in</div>
           </div>
-          <div class="badge">${isWorkable ? 'READY' : 'WET'}</div>
+          <button class="miniBtn" data-adjust="${escapeHtml(f.id)}" type="button">Adjust</button>
         </div>
 
         <div class="workGaugeWrap">
@@ -1042,11 +1060,7 @@ Updates:
 
           <div class="workLabels"><span>0%</span><span>50%</span><span>100%</span></div>
 
-          ${(!isWorkable && eta) ? `<div class="muted" style="font-size:12px;"><b>${eta}</b></div>` : ``}
-        </div>
-
-        <div class="tileBtnRow">
-          <button class="miniBtn" data-adjust="${escapeHtml(f.id)}" type="button">Adjust</button>
+          ${(!isWorkable) ? `<div class="muted" style="font-size:12px;"><b>${eta || 'Estimated to be greater then 2 days'}</b></div>` : ``}
         </div>
       `;
 
@@ -1085,23 +1099,22 @@ Updates:
     if (!run) return;
 
     const fac = run.factors;
+
+    const overrideReady = state.readyOverride.has(f.id) ? Number(state.readyOverride.get(f.id)) : null;
+    const readyShown = (overrideReady === null || !isFinite(overrideReady)) ? run.readinessR : clamp(Math.round(overrideReady), 0, 100);
+
     $('paramExplain').innerHTML =
-      `<b>Detailed parameter mapping (exact):</b><br/><br/>
-       Inputs: soil=${f.soil}/10, drain=${f.drain}/10<br/>
-       soilHold=(soil−1)/9=<span class="mono">${fac.soilHold.toFixed(2)}</span> (0 sand → 1 clay)<br/>
-       drainPoor=(drain−1)/9=<span class="mono">${fac.drainPoor.toFixed(2)}</span> (0 good → 1 poor)<br/><br/>
-       Smax (tank size) = <span class="mono">${fac.Smax.toFixed(2)}</span><br/>
-       infilMult (rain retention) = <span class="mono">${fac.infilMult.toFixed(2)}</span><br/>
-       dryMult (drying/drain-out) = <span class="mono">${fac.dryMult.toFixed(2)}</span><br/>
-       LOSS_SCALE = <span class="mono">${LOSS_SCALE.toFixed(2)}</span><br/><br/>
-       add = rain × infilMult<br/>
-       loss = dryPwr × LOSS_SCALE × dryMult<br/><br/>
-       MOCK per-field rainFactor = <span class="mono">${run.rf.toFixed(2)}</span> (removed when real field data is used).`;
+      `<b>Selected:</b> ${escapeHtml(f.farm)} • ${escapeHtml(f.field)}<br/>
+       <b>Displayed readiness:</b> <span class="mono">${readyShown}%</span>${(overrideReady!==null?' (manual override from Adjust)':'')}<br/><br/>
+       <b>Parameter mapping:</b><br/>
+       soilHold=(soil−1)/9=<span class="mono">${fac.soilHold.toFixed(2)}</span> • drainPoor=(drain−1)/9=<span class="mono">${fac.drainPoor.toFixed(2)}</span><br/>
+       Smax=<span class="mono">${fac.Smax.toFixed(2)}</span> • infilMult=<span class="mono">${fac.infilMult.toFixed(2)}</span> • dryMult=<span class="mono">${fac.dryMult.toFixed(2)}</span> • LOSS_SCALE=<span class="mono">${LOSS_SCALE.toFixed(2)}</span><br/><br/>
+       <span class="mono">add = rain × infilMult</span><br/>
+       <span class="mono">loss = dryPwr × LOSS_SCALE × dryMult</span>`;
 
     $('mathSummary').innerHTML =
-      `<b>Selected:</b> ${escapeHtml(f.farm)} • ${escapeHtml(f.field)}<br/>
-       <b>Result:</b> Wet=${run.wetnessR}% • Ready=${run.readinessR}% • storage=${run.storageFinal.toFixed(2)}/${run.factors.Smax.toFixed(2)}<br/>
-       <b>Start:</b> storage0=0.45*Smax + rainNudge (rain7=${run.rain7.toFixed(2)} in, nudgeFrac=${run.rainNudgeFrac.toFixed(2)}, nudge=${run.rainNudge.toFixed(2)})`;
+      `<b>Model output (computed):</b> Wet=${run.wetnessR}% • Ready=${run.readinessR}% • storage=${run.storageFinal.toFixed(2)}/${run.factors.Smax.toFixed(2)}<br/>
+       <b>Start:</b> storage0=0.45*Smax + rainNudge (rain7=${run.rain7.toFixed(2)} in, nudge=${run.rainNudge.toFixed(2)})`;
 
     const trb = $('traceRows');
     trb.innerHTML = '';
@@ -1155,9 +1168,13 @@ Updates:
     }
   }
 
-  // ---------- ADJUST MODAL (gated) ----------
+  // ---------- ADJUST MODAL ----------
   function showModal(on){
     $('adjustBackdrop').classList.toggle('pv-hide', !on);
+  }
+  function showStep(step){
+    $('adjustStep1').classList.toggle('pv-hide', step !== 1);
+    $('adjustStep2').classList.toggle('pv-hide', step !== 2);
   }
 
   function openAdjust(id){
@@ -1166,7 +1183,10 @@ Updates:
     const thr = Number($('workable').value);
     const op = String($('opSel').value || '');
 
-    const isWorkable = run && (run.readinessR >= thr);
+    state.adjustContext.fieldId = id;
+
+    const readyNow = state.readyOverride.has(id) ? Number(state.readyOverride.get(id)) : run.readinessR;
+    const isWorkable = (readyNow >= thr);
 
     $('adjustTitle').textContent = 'Adjust';
     $('adjustSub').textContent = `${f.farm} • ${f.field} • Op: ${op} • Threshold: ${thr}%`;
@@ -1174,32 +1194,74 @@ Updates:
     const btnWet = $('btnAdjWet');
     const btnDry = $('btnAdjDry');
 
+    // Only allow contradiction:
+    // If model says READY: allow WET, disable DRY
+    // If model says WET: allow DRY, disable WET
     btnWet.disabled = !isWorkable ? true : false;
     btnDry.disabled = isWorkable ? true : false;
 
     const eta = run ? etaFor(run, thr) : '';
     $('adjustRule').innerHTML =
       isWorkable
-        ? `Model says <b>READY</b> (${run.readinessR}% ≥ ${thr}%).<br/>Only <b>Wet</b> is allowed to correct the model.`
-        : `Model says <b>WET</b> (${run.readinessR}% &lt; ${thr}%).<br/>Only <b>Dry</b> is allowed to correct the model.<br/><b>${eta || 'Estimated to be greater then 2 days'}</b>`;
+        ? `Model says <b>READY</b> (${Math.round(readyNow)}% ≥ ${thr}%).<br/>Only <b>Wet</b> is allowed to correct the model.`
+        : `Model says <b>WET</b> (${Math.round(readyNow)}% &lt; ${thr}%).<br/>Only <b>Dry</b> is allowed to correct the model.<br/><b>${eta || 'Estimated to be greater then 2 days'}</b>`;
 
-    btnWet.dataset.fieldId = id;
-    btnDry.dataset.fieldId = id;
-
+    showStep(1);
     showModal(true);
   }
 
-  function recordAdjust(kind, fieldId){
+  function closeAdjust(){
     showModal(false);
-    alert('Saved (local).');
+    state.adjustContext.fieldId = null;
   }
 
-  $('btnAdjCancel').addEventListener('click', ()=> showModal(false));
+  // On Wet click: for now, record as “wet correction” by setting readiness below threshold (simple dev)
+  function handleAdjWet(){
+    const id = state.adjustContext.fieldId;
+    if (!id) return;
+    const thr = Number($('workable').value);
+    // set to just below threshold
+    state.readyOverride.set(id, Math.max(0, thr - 10));
+    closeAdjust();
+    refreshAll();
+  }
+
+  // On Dry click: go to step 2 levels
+  function handleAdjDry(){
+    showStep(2);
+  }
+
+  function setDryLevel(level){
+    const id = state.adjustContext.fieldId;
+    if (!id) return;
+
+    const thr = Number($('workable').value);
+
+    // Map your choices to readiness %
+    let ready;
+    if (level === 'barely') ready = clamp(thr, 0, 100);
+    else if (level === 'perfect') ready = clamp(Math.max(thr + 10, 85), 0, 100);
+    else if (level === 'very') ready = 100;
+    else ready = clamp(thr, 0, 100);
+
+    state.readyOverride.set(id, ready);
+    closeAdjust();
+    refreshAll();
+  }
+
+  // Modal wiring
+  $('btnAdjCancel').addEventListener('click', closeAdjust);
   $('adjustBackdrop').addEventListener('click', (e)=>{
-    if (e.target && e.target.id === 'adjustBackdrop') showModal(false);
+    if (e.target && e.target.id === 'adjustBackdrop') closeAdjust();
   });
-  $('btnAdjWet').addEventListener('click', (e)=> recordAdjust('WET', e.currentTarget.dataset.fieldId));
-  $('btnAdjDry').addEventListener('click', (e)=> recordAdjust('DRY', e.currentTarget.dataset.fieldId));
+
+  $('btnAdjWet').addEventListener('click', handleAdjWet);
+  $('btnAdjDry').addEventListener('click', handleAdjDry);
+
+  $('btnDryBack').addEventListener('click', ()=> showStep(1));
+  $('btnDryBarely').addEventListener('click', ()=> setDryLevel('barely'));
+  $('btnDryPerfect').addEventListener('click', ()=> setDryLevel('perfect'));
+  $('btnDryVery').addEventListener('click', ()=> setDryLevel('very'));
 
   // ---------- UI ----------
   function syncSliderLabels(){
@@ -1209,6 +1271,7 @@ Updates:
   }
 
   function refreshAll(){
+    // Push slider values into selected field so it feels real
     const f = FIELDS.find(x=>x.id === state.selectedFieldId);
     if (f){
       f.soil = Number($('soilWet').value);
@@ -1221,7 +1284,7 @@ Updates:
 
   $('sortSel').addEventListener('change', refreshAll);
 
-  // fv-date-range-picker updates jobRangeInput on Apply; refresh after click
+  // fv-date-range-picker updates jobRangeInput only on Apply; refresh after click
   $('applyRangeBtn').addEventListener('click', ()=> setTimeout(refreshAll, 0));
   $('clearRangeBtn').addEventListener('click', ()=> setTimeout(refreshAll, 0));
   $('jobRangeInput').addEventListener('change', refreshAll);
@@ -1238,6 +1301,7 @@ Updates:
     refreshAll();
   });
 
+  // Future fetch (kept as placeholder; uses your backend when ready)
   async function fetchReal30(){
     const base = String($('apiBase').value || '').trim().replace(/\/+$/,'');
     if (!base){
