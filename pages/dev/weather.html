@@ -1,56 +1,51 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/weather.html  (FULL FILE)
-Rev: 2025-12-21b
+Rev: 2025-12-21e
 
-DEV: Weather Workability Model + FULL MATH TRANSPARENCY
+DEV PAGE (per your last request)
 
-PRIMARY USER METRIC:
-✅ WORKABILITY (0..100)
-    0 = bad (red/left)
-    100 = good (green/right)
-    Workability = 100 - Wetness
+✅ PRIMARY WORDING/UI = READINESS
+   - Readiness 0..100: 0 = WET (red) … 100 = READY (green)
+   - Internally we still compute Wetness = 100 - Readiness (for math consistency)
 
-SLIDER DEFINITIONS (MATCH YOUR WORDING):
-✅ Soil Type / Holding (1..10):
-    1 = sandier (holds less, dries faster)
-    10 = clay (holds more, dries slower)
-✅ Drainage (1..10):
-    1 = good drainage (tile/ditches/natural)
-    10 = poor drainage
+✅ Operation dropdown is ALWAYS on top (not hidden under mock fields card)
 
-TILE ETA RULE (YOUR WORDING):
-✅ If field NOT workable:
-    - if <= 48 hours: "Est: ~X hours"
-    - else: "Estimated to be greater then 2 days"
+✅ Mock Fields tiles:
+   - show READINESS bar (red-left → green-right) + marker line
+   - if tile is NOT READY, show:
+       - "Est: ~X hours" if <= 48
+       - else: "Estimated to be greater then 2 days"
 
-ADJUST (SAFE / GATED):
-✅ Tile button: "Adjust"
-✅ Popup shows BOTH buttons (Wet/Dry) BUT disables the one that matches the current model state:
-    - If model says WORKABLE: disable "Dry", allow "Wet"
-    - If model says NOT WORKABLE: disable "Wet", allow "Dry"
+✅ Adjust button per-field:
+   - opens modal "Adjust" with Wet / Dry
+   - uses your threshold gating:
+       If model says READY (Readiness >= threshold):
+          - show Wet enabled, Dry disabled
+       If model says WET (Readiness < threshold):
+          - show Dry enabled, Wet disabled
+   (prevents users from “agree clicking” and messing up learning)
 
-OPERATION DROPDOWN:
-✅ Always on top (z-index) so it won’t be hidden by cards
+✅ Uses your CURRENT LIVE FUNCTION by default (24h lookback + 48h forecast):
+   https://farmvista-weather-300398089669.us-central1.run.app?lat=..&lon=..
+   Response expected:
+     { days30:[...], forecast48:[...], meta:{...}, sourceMode, lookbackHoursUsed, ... }
 
-FULL MATH DISPLAY:
-✅ Parameter mapping panel (sliders → normalized → multipliers → Smax)
-✅ DryPwr breakdown table (tempN/windN/rhN/solarN/raw/dryPwr)
-✅ 30-day tank trace table (before/add/loss/after/clamp)
-✅ Weather input table (30 days)
+✅ NO SOLAR
+   - We compute DryPwr from temp + wind - humidity only
+   - We still display the full math tables so you can inspect everything
 
-DATA:
-✅ Always generates mock 30-day daily weather
-✅ Optional future API hook:
-    Base URL: https://YOUR-SERVICE
-    GET {base}/weather30?lat=..&lon=..
-    Response: { days:[{dateISO,rainIn,tempF,windMph,rh,solarWm2}] }
+✅ FULL MATH TRANSPARENCY:
+   1) Slider → normalized → multipliers → Smax
+   2) DryPwr breakdown (tempN/windN/rhN/raw/dryPwr)
+   3) 30-day daily tank trace (before/add/loss/after/clamp)
+   4) 48-hour forecast simulation trace (hourly) to compute ETA within 48
 
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>FarmVista • Dev • Weather Model</title>
+  <title>FarmVista • Dev • Readiness Model</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
@@ -69,14 +64,15 @@ DATA:
     :root{
       --card-max:1200px;
       --page-bottom-gap:72px;
-      --accent:#2F6C3C;
     }
+
     .page{
       max-width:var(--card-max);
       margin:0 auto;
       padding:clamp(14px,3vw,22px);
       padding-bottom:calc(var(--page-bottom-gap) + env(safe-area-inset-bottom,0px));
     }
+
     .topbar{
       display:flex; align-items:center; justify-content:space-between; gap:12px;
       margin-bottom:12px;
@@ -102,11 +98,17 @@ DATA:
     .card-h .t{ margin:0; font-size:15px; font-weight:950; }
     .card-b{ padding:14px; }
 
+    /* Operation card MUST overlay others */
+    .opCard{ position:relative; z-index:9999; overflow:visible; }
+    .opCard .card-b{ overflow:visible; }
+    .opCard select{ position:relative; z-index:10000; }
+
     .grid{ display:grid; grid-template-columns:1fr; gap:14px; }
     @media(min-width:980px){ .grid{ grid-template-columns:480px 1fr; } }
 
     .field{ display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
     label{ font-size:12px; opacity:.9; }
+
     input[type="text"], input[type="number"], select{
       width:100%;
       padding:10px 12px;
@@ -117,6 +119,7 @@ DATA:
       outline:none;
       appearance:none;
     }
+
     .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     .row > *{ flex:1 1 auto; }
 
@@ -128,6 +131,7 @@ DATA:
       margin:6px 0 14px;
     }
     input[type="range"]{ width:100%; accent-color:var(--brand,#3B7E46); }
+
     .pill{
       display:inline-flex; align-items:center; justify-content:center;
       min-width:58px; height:34px; padding:0 10px;
@@ -222,9 +226,6 @@ DATA:
     }
     .errorbox b{ display:block; margin-bottom:6px; }
 
-    /* Operation always above */
-    .opCard{ position:relative; z-index:50; }
-
     /* Mock fields hero */
     .fieldsGrid{
       display:grid;
@@ -246,17 +247,17 @@ DATA:
     .fieldTitle{ font-weight:950; font-size:13px; line-height:1.2; }
     .fieldSub{ font-size:12px; opacity:.85; margin-top:2px; }
 
-    .workGaugeWrap{ display:flex; flex-direction:column; gap:6px; }
-    .workGauge{
+    .gaugeWrap{ display:flex; flex-direction:column; gap:6px; }
+    .gauge{
       position:relative;
       height:12px;
       border-radius:999px;
       border:1px solid var(--border);
       overflow:hidden;
-      /* RED left -> GREEN right */
+      /* READINESS bar: red(left) -> green(right) */
       background: linear-gradient(90deg, #c83b3b 0%, #d8b23b 55%, #2f8f4b 100%);
     }
-    .workMarker{
+    .marker{
       position:absolute;
       top:-6px;
       width:2px;
@@ -266,13 +267,13 @@ DATA:
       border-radius:2px;
       transform: translateX(-1px);
     }
-    .workLabels{
+    .gaugeLabels{
       display:flex;
       justify-content:space-between;
       font-size:11px;
       opacity:.85;
     }
-    .workRow{
+    .gaugeRow{
       display:flex;
       justify-content:space-between;
       align-items:center;
@@ -306,42 +307,6 @@ DATA:
       white-space:nowrap;
     }
 
-    /* Feedback log */
-    .log{
-      border:1px solid var(--border);
-      border-radius:14px;
-      overflow:hidden;
-      background:var(--surface, var(--card));
-    }
-    .log .lh{
-      padding:10px 12px;
-      border-bottom:1px solid var(--border);
-      font-weight:950;
-      font-size:12px;
-      opacity:.9;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-    }
-    .log .lb{
-      padding:10px 12px;
-      font-size:12px;
-      max-height:160px;
-      overflow:auto;
-    }
-    .tag{
-      display:inline-flex;
-      align-items:center;
-      gap:6px;
-      border:1px solid var(--border);
-      border-radius:999px;
-      padding:6px 10px;
-      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
-      font-weight:950;
-      font-size:12px;
-    }
-
     /* Modal */
     .pv-hide{ display:none !important; }
     .modal-backdrop{
@@ -351,7 +316,7 @@ DATA:
       align-items:center;
       justify-content:center;
       padding:16px;
-      z-index:9999;
+      z-index:99999;
     }
     .modal{
       width:min(520px, 94vw);
@@ -372,13 +337,23 @@ DATA:
     .modal-h h3{ margin:0; font-size:15px; font-weight:950; }
     .modal-b{ padding:14px; }
     .modal-actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
+
+    /* Math blocks */
+    .mathBlock{
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:10px 12px;
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      font-size:12px;
+      line-height:1.35;
+    }
   </style>
 </head>
 
 <body>
   <div class="page">
     <div class="topbar">
-      <h1>Dev • Weather Model</h1>
+      <h1>Dev • Readiness Model</h1>
       <button id="btnLogout" class="btn" type="button">Logout</button>
     </div>
 
@@ -387,9 +362,9 @@ DATA:
       <div class="card-h">
         <div>
           <p class="t">Operation</p>
-          <div class="muted" style="font-size:12px;">Operation will matter later. For now it’s part of the Adjust log.</div>
+          <div class="muted" style="font-size:12px;">This is for display/logging right now. Later it will tune thresholds.</div>
         </div>
-        <div class="mono muted" id="modeLine">MOCK</div>
+        <div class="mono muted" id="modeLine">—</div>
       </div>
       <div class="card-b">
         <div class="field" style="margin:0;">
@@ -410,7 +385,9 @@ DATA:
       <div class="card-h">
         <div>
           <p class="t">Mock Fields</p>
-          <div class="muted" style="font-size:12px;">Gauge shows Workability (0 red → 100 green). Select a field to edit sliders.</div>
+          <div class="muted" style="font-size:12px;">
+            Readiness: <b>0 = WET</b> (red) … <b>100 = READY</b> (green).
+          </div>
         </div>
         <div class="mono muted" id="tileStamp">—</div>
       </div>
@@ -420,12 +397,14 @@ DATA:
     </section>
 
     <div class="grid">
-      <!-- LEFT: Inputs -->
+      <!-- LEFT -->
       <section class="card">
         <div class="card-h">
           <div>
             <p class="t">Inputs</p>
-            <div class="muted" style="font-size:12px;">Mock weather always loads. “Fetch Real 30 Days” will work after you deploy your endpoint.</div>
+            <div class="muted" style="font-size:12px;">
+              Uses your live Cloud Run function (24h past + 48h forecast). Older history may be zeros until your Tomorrow.io request is approved.
+            </div>
           </div>
         </div>
 
@@ -445,13 +424,13 @@ DATA:
           </div>
 
           <div class="field">
-            <label for="soilWet">Soil Type / Holding (1–10)</label>
+            <label for="soil">Soil Type / Holding (1–10)</label>
             <div class="muted" style="font-size:12px; margin-top:-2px;">
               1=sandier (holds less, dries faster) • 10=clay (holds more, dries slower)
             </div>
             <div class="slider-wrap">
-              <input id="soilWet" type="range" min="1" max="10" step="1" value="6"/>
-              <div class="pill" id="soilWetVal">6</div>
+              <input id="soil" type="range" min="1" max="10" step="1" value="6"/>
+              <div class="pill" id="soilVal">6</div>
             </div>
           </div>
 
@@ -467,125 +446,129 @@ DATA:
           </div>
 
           <div class="field">
-            <label for="workable">Workable Threshold (Workability 0–100)</label>
+            <label for="thr">Readiness Threshold (0–100)</label>
             <div class="muted" style="font-size:12px; margin-top:-2px;">
-              If Workability ≥ threshold → field is workable
+              If Readiness ≥ threshold → READY (workable)
             </div>
             <div class="slider-wrap">
-              <input id="workable" type="range" min="0" max="100" step="1" value="70"/>
-              <div class="pill" id="workableVal">70</div>
+              <input id="thr" type="range" min="0" max="100" step="1" value="70"/>
+              <div class="pill" id="thrVal">70</div>
             </div>
           </div>
 
           <div class="field">
-            <label for="apiBase">Weather API Base URL (future)</label>
-            <input id="apiBase" type="text" placeholder="https://YOUR-CLOUDRUN-URL (blank = mock)"/>
+            <label for="apiBase">Weather function URL</label>
+            <input id="apiBase" type="text" value="https://farmvista-weather-300398089669.us-central1.run.app"/>
             <div class="muted" style="font-size:12px; margin-top:4px;">
-              Must expose <span class="mono">GET /weather30?lat=..&lon=..</span>
+              Called like: <span class="mono">URL?lat=..&lon=..</span>
             </div>
           </div>
 
           <div class="btnbar">
-            <button id="btnRegen" class="btn" type="button">Regenerate Mock 30 Days</button>
-            <button id="btnFetch" class="btn primary" type="button">Fetch Real 30 Days</button>
-            <button id="btnRun" class="btn" type="button">Run Model</button>
+            <button id="btnFetch" class="btn primary" type="button">Fetch Weather Now</button>
+            <button id="btnRecalc" class="btn" type="button">Recalculate Model</button>
           </div>
 
           <div class="statusline">
-            <div id="dataMode" class="mono muted">Mode: MOCK</div>
-            <div id="runStamp" class="mono muted"></div>
+            <div id="dataMode" class="mono muted">Mode: —</div>
+            <div id="runStamp" class="mono muted">—</div>
           </div>
 
           <div id="errBox" class="errorbox">
-            <b>Page JS Error</b>
+            <b>Page Error</b>
             <div class="mono" id="errText"></div>
           </div>
 
           <div style="height:12px;"></div>
-
           <div class="note" id="paramExplain">—</div>
         </div>
       </section>
 
-      <!-- RIGHT: Output + Math -->
+      <!-- RIGHT -->
       <section class="card">
         <div class="card-h">
           <div>
-            <p class="t">Output + Math</p>
-            <div class="muted" style="font-size:12px;">All calculations shown below (no black box).</div>
+            <p class="t">Output + Detailed Math</p>
+            <div class="muted" style="font-size:12px;">This is not a black box. Everything is shown.</div>
           </div>
         </div>
 
         <div class="card-b">
           <div class="kpis">
             <div class="kpi">
-              <div class="lab">Workability (0–100)</div>
-              <div class="val" id="workabilityVal">—</div>
-              <div class="sub" id="workabilityLabel">—</div>
+              <div class="lab">Readiness (0–100)</div>
+              <div class="val" id="readinessOut">—</div>
+              <div class="sub" id="readinessLabel">—</div>
             </div>
 
             <div class="kpi">
               <div class="lab">Wetness (internal)</div>
-              <div class="val" id="wetnessVal">—</div>
-              <div class="sub">Wetness = 100 − Workability</div>
+              <div class="val" id="wetnessOut">—</div>
+              <div class="sub">Wetness = 100 − Readiness</div>
             </div>
 
             <div class="kpi">
-              <div class="lab">ETA if NOT workable</div>
-              <div class="val" id="etaVal">—</div>
-              <div class="sub" id="etaSub">—</div>
+              <div class="lab">ETA if WET</div>
+              <div class="val" id="etaOut">—</div>
+              <div class="sub" id="etaSub">Uses 48-hour forecast simulation.</div>
             </div>
 
             <div class="kpi">
               <div class="lab">Tank</div>
-              <div class="val" id="tankVal">—</div>
+              <div class="val" id="tankOut">—</div>
               <div class="sub" id="tankSub">—</div>
             </div>
           </div>
 
           <div style="height:12px;"></div>
 
-          <div class="log">
-            <div class="lh">
-              <span>Adjust Log (local)</span>
-              <span class="tag" id="logCount">0</span>
-            </div>
-            <div class="lb" id="logBody"><span class="muted">No adjustments yet.</span></div>
-          </div>
+          <div class="mathBlock" id="mathSummary">—</div>
 
           <div style="height:12px;"></div>
 
           <section class="card" style="box-shadow:none; border-radius:16px;">
             <div class="card-h" style="border-bottom:1px solid var(--border);">
               <div>
-                <p class="t" style="font-size:14px;">Tank Trace (30 days)</p>
+                <p class="t" style="font-size:14px;">Daily Tank Trace (30 days)</p>
                 <div class="muted" style="font-size:12px;">
-                  storage(t+1) = clamp(storage(t) + add − loss, 0..Smax)
+                  storage = clamp(storage + add − loss, 0..Smax)
                 </div>
               </div>
             </div>
             <div class="card-b">
-              <table aria-label="Tank Trace">
+              <table aria-label="Daily trace">
                 <thead>
                   <tr>
                     <th style="width:110px;">Date</th>
                     <th class="right">Rain</th>
-                    <th class="right">infilMult</th>
-                    <th class="right">Add</th>
                     <th class="right">DryPwr</th>
+                    <th class="right">Add</th>
                     <th class="right">Loss</th>
                     <th class="right">Storage</th>
                     <th class="right">Clamp</th>
+                    <th class="right">Readiness</th>
                   </tr>
                 </thead>
-                <tbody id="traceRows">
-                  <tr><td colspan="8" class="muted">Run the model.</td></tr>
+                <tbody id="dailyTraceRows">
+                  <tr><td colspan="8" class="muted">Fetch weather.</td></tr>
                 </tbody>
               </table>
+            </div>
+          </section>
 
-              <div style="height:10px;"></div>
+          <div style="height:12px;"></div>
 
-              <table aria-label="DryPwr Breakdown">
+          <section class="card" style="box-shadow:none; border-radius:16px;">
+            <div class="card-h" style="border-bottom:1px solid var(--border);">
+              <div>
+                <p class="t" style="font-size:14px;">DryPwr Breakdown (daily)</p>
+                <div class="muted" style="font-size:12px;">
+                  NO SOLAR: dryPwr = clamp(0.45*tempN + 0.35*windN − 0.35*rhN, 0..1)
+                </div>
+              </div>
+            </div>
+            <div class="card-b">
+              <table aria-label="DryPwr breakdown">
                 <thead>
                   <tr>
                     <th style="width:110px;">Date</th>
@@ -595,39 +578,80 @@ DATA:
                     <th class="right">windN</th>
                     <th class="right">RH</th>
                     <th class="right">rhN</th>
-                    <th class="right">Solar</th>
-                    <th class="right">solarN</th>
                     <th class="right">raw</th>
                     <th class="right">DryPwr</th>
                   </tr>
                 </thead>
                 <tbody id="dryRows">
-                  <tr><td colspan="11" class="muted">Run the model.</td></tr>
+                  <tr><td colspan="9" class="muted">Fetch weather.</td></tr>
                 </tbody>
               </table>
-
-              <div style="height:10px;"></div>
-              <div class="note" id="mathNote">—</div>
             </div>
           </section>
 
           <div style="height:12px;"></div>
 
-          <table aria-label="Weather Inputs (30 days)">
-            <thead>
-              <tr>
-                <th style="width:110px;">Date</th>
-                <th class="right">Rain (in)</th>
-                <th class="right">Temp (°F)</th>
-                <th class="right">Wind (mph)</th>
-                <th class="right">RH (%)</th>
-                <th class="right">Solar (W/m²)</th>
-              </tr>
-            </thead>
-            <tbody id="wxRows">
-              <tr><td colspan="6" class="muted">Waiting for JS…</td></tr>
-            </tbody>
-          </table>
+          <section class="card" style="box-shadow:none; border-radius:16px;">
+            <div class="card-h" style="border-bottom:1px solid var(--border);">
+              <div>
+                <p class="t" style="font-size:14px;">48-hour Forecast Simulation Trace (hourly)</p>
+                <div class="muted" style="font-size:12px;">
+                  This is what determines “Est: ~X hours” vs “Estimated to be greater then 2 days”
+                </div>
+              </div>
+            </div>
+            <div class="card-b">
+              <table aria-label="Forecast trace">
+                <thead>
+                  <tr>
+                    <th style="width:170px;">Hour</th>
+                    <th class="right">Rain</th>
+                    <th class="right">DryPwr</th>
+                    <th class="right">Add</th>
+                    <th class="right">Loss</th>
+                    <th class="right">Storage</th>
+                    <th class="right">Readiness</th>
+                  </tr>
+                </thead>
+                <tbody id="fcTraceRows">
+                  <tr><td colspan="7" class="muted">Fetch weather.</td></tr>
+                </tbody>
+              </table>
+
+              <div style="height:10px;"></div>
+              <div class="note" id="fcNote">—</div>
+            </div>
+          </section>
+
+          <div style="height:12px;"></div>
+
+          <section class="card" style="box-shadow:none; border-radius:16px;">
+            <div class="card-h" style="border-bottom:1px solid var(--border);">
+              <div>
+                <p class="t" style="font-size:14px;">Weather Inputs (days30)</p>
+                <div class="muted" style="font-size:12px;">
+                  If your Tomorrow.io plan can’t provide history yet, older rows will be zeros.
+                </div>
+              </div>
+            </div>
+            <div class="card-b">
+              <table aria-label="Inputs table">
+                <thead>
+                  <tr>
+                    <th style="width:110px;">Date</th>
+                    <th class="right">Rain</th>
+                    <th class="right">Temp</th>
+                    <th class="right">Wind</th>
+                    <th class="right">RH</th>
+                    <th class="right">Solar</th>
+                  </tr>
+                </thead>
+                <tbody id="wxRows">
+                  <tr><td colspan="6" class="muted">Fetch weather.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
 
         </div>
       </section>
@@ -661,12 +685,8 @@ DATA:
 
   const $ = (id)=> document.getElementById(id);
   const clamp = (v, lo, hi)=> Math.max(lo, Math.min(hi, v));
-  const round = (v, d=2)=> {
-    const p = Math.pow(10,d);
-    return Math.round(v*p)/p;
-  };
+  const round2 = (n)=> Math.round(n*100)/100;
 
-  // error panel
   function showErr(msg){
     const box = $('errBox');
     const text = $('errText');
@@ -682,23 +702,21 @@ DATA:
     }catch(_){}
   });
   window.addEventListener('unhandledrejection', (e)=>{
-    try{
-      showErr('Unhandled promise rejection: ' + String(e && e.reason ? e.reason : e));
-    }catch(_){}
+    try{ showErr('Unhandled promise rejection: ' + String(e && e.reason ? e.reason : e)); }catch(_){}
   });
 
-  const LS_LOG_KEY = 'FV_DEV_WETNESS_ADJUST_LOG_V1';
+  // Local adjust log
+  const LS_LOG_KEY = 'FV_DEV_READINESS_ADJUST_LOG_V1';
 
   const state = {
-    weather30: [],
-    seed: Date.now() % 1000000,
-    mode: 'MOCK',
+    mode: 'LIVE',
+    weather: null,      // {days30, forecast48, meta, ...}
     selectedFieldId: 'f1',
-    lastRunByField: new Map(),
-    lastRunSelected: null
+    runsByField: new Map(),  // id -> run object
   };
 
-  const MOCK_FIELDS = [
+  // Mock fields (3)
+  const FIELDS = [
     { id:'f1', farm:'Dowson Farms', field:'Home 80',      soil:6, drain:5 },
     { id:'f2', farm:'Dowson Farms', field:'River Bottom', soil:9, drain:9 },
     { id:'f3', farm:'Dowson Farms', field:'North Ridge',  soil:3, drain:2 },
@@ -713,187 +731,6 @@ DATA:
       .replaceAll("'","&#039;");
   }
 
-  // -------- mock weather --------
-  function seededRand(){
-    state.seed = (state.seed * 1664525 + 1013904223) % 4294967296;
-    return state.seed / 4294967296;
-  }
-
-  function genMock30(){
-    const out = [];
-    const today = new Date();
-    today.setHours(12,0,0,0);
-
-    for (let i=29; i>=0; i--){
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
-
-      const eventRoll = seededRand();
-      let rain = 0;
-      if (eventRoll > 0.82) rain = 0.10 + seededRand()*1.10;
-      else if (eventRoll > 0.72) rain = 0.02 + seededRand()*0.16;
-
-      const wave = Math.sin((29-i)/6) * 6;
-      const temp = 34 + wave + (seededRand()*10 - 5);
-      const wind = 4 + seededRand()*18;
-
-      let rh = 45 + seededRand()*45;
-      if (rain > 0) rh = clamp(rh + 10 + seededRand()*10, 35, 98);
-
-      let solar = 120 + seededRand()*220;
-      if (rain > 0) solar = clamp(solar - 60 - seededRand()*80, 40, 360);
-
-      out.push({
-        dateISO: d.toISOString().slice(0,10),
-        rainIn: round(rain, 2),
-        tempF: Math.round(temp),
-        windMph: Math.round(wind),
-        rh: Math.round(rh),
-        solarWm2: Math.round(solar),
-      });
-    }
-
-    state.weather30 = out;
-    state.mode = 'MOCK';
-    $('dataMode').textContent = 'Mode: MOCK';
-    $('modeLine').textContent = 'MOCK';
-  }
-
-  // -------- dry power breakdown --------
-  function calcDryParts(r){
-    const temp = Number(r.tempF||0);
-    const wind = Number(r.windMph||0);
-    const rh   = Number(r.rh||0);
-    const solar= Number(r.solarWm2||0);
-
-    const tempN = clamp((temp - 20) / 45, 0, 1);
-    const windN = clamp((wind - 2) / 20, 0, 1);
-    const solarN= clamp((solar - 60) / 300, 0, 1);
-    const rhN   = clamp((rh - 35) / 65, 0, 1);
-
-    const raw = (0.35*tempN + 0.30*solarN + 0.25*windN - 0.25*rhN);
-    const dryPwr = clamp(raw, 0, 1);
-
-    return { temp, wind, rh, solar, tempN, windN, rhN, solarN, raw, dryPwr };
-  }
-
-  // -------- factor mapping --------
-  const LOSS_SCALE = 0.55;
-
-  function mapFactors(soil, drain){
-    const soilHold = (Number(soil) - 1) / 9;   // 0..1 (sand..clay)
-    const drainPoor= (Number(drain) - 1) / 9;  // 0..1 (good..poor)
-
-    const infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor; // 0.60..1.25
-    const dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor; // 0.45..1.20
-    const Smax      = 2.60 + 1.00*soilHold + 0.90*drainPoor; // 2.6..4.5
-
-    return { soilHold, drainPoor, infilMult, dryMult, Smax };
-  }
-
-  function runModelDaily(soil, drain){
-    if (!state.weather30.length) return null;
-
-    const factors = mapFactors(soil, drain);
-
-    const rows = state.weather30.map(w=>{
-      const p = calcDryParts(w);
-      return { ...w, ...p };
-    });
-
-    const first7 = rows.slice(0,7);
-    const rain7 = first7.reduce((s,x)=> s + Number(x.rainIn||0), 0);
-    const rainNudgeFrac = clamp(rain7 / 4.0, 0, 1);
-    const rainNudge = rainNudgeFrac * (0.35 * factors.Smax);
-
-    let storage = clamp((0.45 * factors.Smax) + rainNudge, 0, factors.Smax);
-
-    let rainSum = 0;
-    let drySum = 0;
-
-    const trace = [];
-    const dryBreak = [];
-
-    for (const d of rows){
-      const rain = Number(d.rainIn||0);
-      const dryPwr = Number(d.dryPwr||0);
-
-      rainSum += rain;
-      drySum += dryPwr;
-
-      const add = rain * factors.infilMult;
-      const loss = dryPwr * LOSS_SCALE * factors.dryMult;
-
-      const before = storage;
-      let afterRaw = before + add - loss;
-      const clamped = (afterRaw < 0) ? 'LOW' : (afterRaw > factors.Smax ? 'HIGH' : '—');
-      const after = clamp(afterRaw, 0, factors.Smax);
-
-      storage = after;
-
-      trace.push({
-        dateISO: d.dateISO,
-        rain, infilMult: factors.infilMult,
-        add, dryPwr, loss,
-        before, after,
-        clamped
-      });
-
-      dryBreak.push({
-        dateISO: d.dateISO,
-        temp: d.temp, tempN: d.tempN,
-        wind: d.wind, windN: d.windN,
-        rh: d.rh, rhN: d.rhN,
-        solar: d.solar, solarN: d.solarN,
-        raw: d.raw,
-        dryPwr
-      });
-    }
-
-    const wetness = clamp((storage / factors.Smax) * 100, 0, 100);
-    const wetnessR = Math.round(wetness);
-
-    const workability = clamp(100 - wetness, 0, 100);
-    const workabilityR = Math.round(workability);
-
-    const last7Trace = trace.slice(-7);
-    const avgLossDay = last7Trace.length
-      ? (last7Trace.reduce((s,x)=> s + x.loss, 0) / last7Trace.length)
-      : (LOSS_SCALE * factors.dryMult * 0.35);
-
-    return {
-      soil, drain,
-      factors,
-      rows, trace, dryBreak,
-      storageFinal: storage,
-      wetness, wetnessR,
-      workability, workabilityR,
-      rainSum, drySum,
-      rain7, rainNudgeFrac, rainNudge,
-      avgLossDay
-    };
-  }
-
-  function etaText(run, threshold){
-    if (!run) return { main:'—', sub:'Run the model.' };
-
-    const isWorkable = (run.workabilityR >= threshold);
-    if (isWorkable) return { main:'—', sub:'Field is workable now.' };
-
-    const wetTarget = clamp(100 - threshold, 0, 100);
-    const storageTarget = run.factors.Smax * (wetTarget / 100);
-
-    const delta = run.storageFinal - storageTarget;
-    const dailyLoss = Math.max(0.02, run.avgLossDay);
-    const hours = Math.ceil((delta / dailyLoss) * 24);
-
-    if (hours <= 48){
-      return { main:`Est: ~${hours} hours`, sub:'(Uses last-7-day avg loss; assumes no new rain.)' };
-    }
-    return { main:'Estimated to be greater then 2 days', sub:'(Not projected workable within 48 hours using current drying rate.)' };
-  }
-
-  // -------- log --------
   function loadLog(){
     try{
       const raw = localStorage.getItem(LS_LOG_KEY);
@@ -904,114 +741,310 @@ DATA:
   function saveLog(arr){
     try{ localStorage.setItem(LS_LOG_KEY, JSON.stringify(arr)); }catch(e){}
   }
-  function renderLog(){
-    const log = loadLog();
-    $('logCount').textContent = String(log.length);
-    const box = $('logBody');
-    if (!log.length){
-      box.innerHTML = '<span class="muted">No adjustments yet.</span>';
-      return;
-    }
-    const lines = log.slice().reverse().slice(0, 30).map(x=>{
-      const when = new Date(x.ts).toLocaleString();
-      return `<div style="margin-bottom:8px;">
-        <span class="mono">${when}</span><br/>
-        <b>${escapeHtml(x.kind)}</b> • ${escapeHtml(x.fieldName)} • op=${escapeHtml(x.op)}<br/>
-        work=${x.workability} • wet=${x.wetness} • thr=${x.thr} • soil=${x.soil}/10 • drain=${x.drain}/10 • mode=${escapeHtml(x.mode)}
-      </div>`;
-    });
-    box.innerHTML = lines.join('') + (log.length > 30 ? '<div class="muted">…(showing last 30)</div>' : '');
+
+  // ========= MODEL MATH =========
+  // We use a "tank" storage in inches-equivalent.
+  // Wetness = storage/Smax * 100
+  // Readiness = 100 - Wetness
+  //
+  // Slider interpretation (your definitions):
+  //   soil 1..10: sand -> clay
+  //   drain 1..10: good -> poor
+  //
+  // Normalize:
+  //   soilHold = (soil-1)/9       (0 sand .. 1 clay)
+  //   drainPoor= (drain-1)/9      (0 good .. 1 poor)
+  //
+  // Multipliers:
+  //   Smax      = 2.60 + 1.00*soilHold + 0.90*drainPoor
+  //   infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor     (rain sticks more w/ clay + poor drainage)
+  //   dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor     (dries slower w/ clay + poor drainage)
+  //
+  // Loss scale:
+  //   LOSS_SCALE_DAY = 0.55 inches/day when dryPwr=1 and dryMult=1 (dev tuning constant)
+  // For forecast hourly simulation:
+  //   LOSS_SCALE_HR = LOSS_SCALE_DAY / 24
+  //
+  const LOSS_SCALE_DAY = 0.55;
+  const LOSS_SCALE_HR  = LOSS_SCALE_DAY / 24;
+
+  function mapFactors(soil, drain){
+    const soilHold = (Number(soil) - 1) / 9;
+    const drainPoor= (Number(drain) - 1) / 9;
+
+    const Smax      = 2.60 + 1.00*soilHold + 0.90*drainPoor;
+    const infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor;
+    const dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor;
+
+    return { soilHold, drainPoor, Smax, infilMult, dryMult };
   }
 
-  // -------- tables --------
-  function renderWeatherTable(rows){
+  // NO SOLAR dryPwr:
+  // tempN = clamp((temp - 20)/45, 0..1)  -> 20..65°F
+  // windN = clamp((wind - 2)/20, 0..1)   -> 2..22 mph
+  // rhN   = clamp((rh - 35)/65, 0..1)    -> 35..100%
+  //
+  // raw   = 0.45*tempN + 0.35*windN - 0.35*rhN
+  // dryPwr= clamp(raw, 0..1)
+  function dryParts(tempF, windMph, rh){
+    const tempN = clamp((Number(tempF) - 20) / 45, 0, 1);
+    const windN = clamp((Number(windMph) - 2) / 20, 0, 1);
+    const rhN   = clamp((Number(rh) - 35) / 65, 0, 1);
+
+    const raw = (0.45*tempN + 0.35*windN - 0.35*rhN);
+    const dryPwr = clamp(raw, 0, 1);
+
+    return { tempN, windN, rhN, raw, dryPwr };
+  }
+
+  // Daily run (30 days)
+  function runDailyModel(days30, soil, drain){
+    const f = mapFactors(soil, drain);
+
+    // Start storage from neutral baseline + tiny nudge from recent rain memory
+    // (since you said soil slider is not "starting wetness")
+    const first7 = (days30 || []).slice(0,7);
+    const rain7 = first7.reduce((s,x)=> s + (Number(x.rainIn||0)), 0);
+    const rainNudgeFrac = clamp(rain7 / 4.0, 0, 1);
+    const rainNudge = rainNudgeFrac * (0.35 * f.Smax);
+
+    let storage = clamp((0.45 * f.Smax) + rainNudge, 0, f.Smax);
+
+    const trace = [];
+    const dryDaily = [];
+
+    for (const d of (days30 || [])){
+      const rain = Number(d.rainIn||0);
+      const temp = Number(d.tempF||0);
+      const wind = Number(d.windMph||0);
+      const rh   = Number(d.rh||0);
+
+      const dp = dryParts(temp, wind, rh);
+
+      const add = rain * f.infilMult;
+      const loss = dp.dryPwr * LOSS_SCALE_DAY * f.dryMult;
+
+      const before = storage;
+      const afterRaw = before + add - loss;
+      const clamped = (afterRaw < 0) ? 'LOW' : (afterRaw > f.Smax ? 'HIGH' : '—');
+      storage = clamp(afterRaw, 0, f.Smax);
+
+      const wetness = clamp((storage / f.Smax) * 100, 0, 100);
+      const readiness = clamp(100 - wetness, 0, 100);
+
+      trace.push({
+        dateISO: d.dateISO,
+        rain,
+        dryPwr: dp.dryPwr,
+        add,
+        loss,
+        before,
+        after: storage,
+        clamped,
+        readiness
+      });
+
+      dryDaily.push({
+        dateISO: d.dateISO,
+        temp, ...dp,
+        wind, rh
+      });
+    }
+
+    const wetnessFinal = clamp((storage / f.Smax) * 100, 0, 100);
+    const readinessFinal = clamp(100 - wetnessFinal, 0, 100);
+
+    return {
+      soil, drain,
+      factors: f,
+      storageFinal: storage,
+      wetnessFinal,
+      readinessFinal,
+      trace,
+      dryDaily,
+      rain7, rainNudgeFrac, rainNudge
+    };
+  }
+
+  // 48-hour forecast simulation for ETA
+  // Start from current storageFinal (end of daily run), then step forward hourly:
+  // storage = clamp(storage + addHr - lossHr, 0..Smax)
+  // addHr  = rainHr * infilMult
+  // lossHr = dryPwrHr * LOSS_SCALE_HR * dryMult
+  function simulate48h(runDaily, forecast48){
+    const f = runDaily.factors;
+    let storage = runDaily.storageFinal;
+
+    const rows = [];
+    let crossingHour = null;
+
+    for (let i=0;i<(forecast48||[]).length;i++){
+      const h = forecast48[i];
+      const rain = Number(h.rainIn||0);
+      const temp = Number(h.tempF||0);
+      const wind = Number(h.windMph||0);
+      const rh   = Number(h.rh||0);
+
+      const dp = dryParts(temp, wind, rh);
+
+      const add = rain * f.infilMult;
+      const loss = dp.dryPwr * LOSS_SCALE_HR * f.dryMult;
+
+      const before = storage;
+      const afterRaw = before + add - loss;
+      const clamped = (afterRaw < 0) ? 'LOW' : (afterRaw > f.Smax ? 'HIGH' : '—');
+      storage = clamp(afterRaw, 0, f.Smax);
+
+      const wetness = clamp((storage / f.Smax) * 100, 0, 100);
+      const readiness = clamp(100 - wetness, 0, 100);
+
+      rows.push({
+        tsISO: h.tsISO,
+        rain,
+        dryPwr: dp.dryPwr,
+        add,
+        loss,
+        before,
+        after: storage,
+        clamped,
+        readiness
+      });
+    }
+
+    return { rows, endStorage: storage };
+  }
+
+  function readinessStatus(readiness, thr){
+    return (readiness >= thr) ? 'READY' : 'WET';
+  }
+
+  function etaFromForecast(fcSimRows, thr){
+    // Find first hour where readiness >= thr
+    for (let i=0;i<fcSimRows.length;i++){
+      if (fcSimRows[i].readiness >= thr) return i+1; // hours from now (1-based)
+    }
+    return null; // not within 48
+  }
+
+  // ========= RENDER =========
+  function renderParamExplain(runDaily){
+    const f = runDaily.factors;
+
+    $('paramExplain').innerHTML =
+      `<b>How your sliders are used (exact):</b><br/><br/>
+       Soil=${runDaily.soil}/10 → soilHold=(soil−1)/9=<span class="mono">${f.soilHold.toFixed(2)}</span> (0 sand → 1 clay)<br/>
+       Drain=${runDaily.drain}/10 → drainPoor=(drain−1)/9=<span class="mono">${f.drainPoor.toFixed(2)}</span> (0 good → 1 poor)<br/><br/>
+       Smax=<span class="mono">2.60 + 1.00*soilHold + 0.90*drainPoor</span> = <span class="mono">${f.Smax.toFixed(2)}</span><br/>
+       infilMult=<span class="mono">0.60 + 0.30*soilHold + 0.35*drainPoor</span> = <span class="mono">${f.infilMult.toFixed(2)}</span><br/>
+       dryMult=<span class="mono">1.20 − 0.35*soilHold − 0.40*drainPoor</span> = <span class="mono">${f.dryMult.toFixed(2)}</span><br/><br/>
+       Daily add=<span class="mono">rain × infilMult</span><br/>
+       Daily loss=<span class="mono">dryPwr × ${LOSS_SCALE_DAY.toFixed(2)} × dryMult</span><br/><br/>
+       Start storage = <span class="mono">0.45*Smax + rainNudge</span><br/>
+       rainNudge uses first-7-day rain: rain7=<span class="mono">${runDaily.rain7.toFixed(2)}</span>,
+       nudgeFrac=<span class="mono">${runDaily.rainNudgeFrac.toFixed(2)}</span>,
+       nudge=<span class="mono">${runDaily.rainNudge.toFixed(2)}</span>`;
+  }
+
+  function renderWxTable(days30){
     const tb = $('wxRows');
     tb.innerHTML = '';
-    if (!rows || !rows.length){
-      tb.innerHTML = '<tr><td colspan="6" class="muted">No data yet.</td></tr>';
-      return;
-    }
-    for (const r of rows){
+    for (const d of (days30||[])){
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td class="mono">${r.dateISO}</td>
-        <td class="right mono">${Number(r.rainIn||0).toFixed(2)}</td>
-        <td class="right mono">${Math.round(Number(r.tempF||0))}</td>
-        <td class="right mono">${Math.round(Number(r.windMph||0))}</td>
-        <td class="right mono">${Math.round(Number(r.rh||0))}</td>
-        <td class="right mono">${Math.round(Number(r.solarWm2||0))}</td>
+        <td class="mono">${escapeHtml(d.dateISO||'')}</td>
+        <td class="right mono">${Number(d.rainIn||0).toFixed(2)}</td>
+        <td class="right mono">${Number(d.tempF||0).toFixed(1)}</td>
+        <td class="right mono">${Number(d.windMph||0).toFixed(1)}</td>
+        <td class="right mono">${Number(d.rh||0).toFixed(1)}</td>
+        <td class="right mono">${Number(d.solarWm2||0).toFixed(0)}</td>
       `;
       tb.appendChild(tr);
     }
   }
 
-  function renderTrace(run){
-    const tb = $('traceRows');
+  function renderDailyTrace(runDaily, thr){
+    const tb = $('dailyTraceRows');
     tb.innerHTML = '';
-    if (!run || !run.trace || !run.trace.length){
-      tb.innerHTML = '<tr><td colspan="8" class="muted">Run the model.</td></tr>';
-      return;
-    }
-    for (const t of run.trace){
+    for (const r of runDaily.trace){
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td class="mono">${t.dateISO}</td>
-        <td class="right mono">${t.rain.toFixed(2)}</td>
-        <td class="right mono">${t.infilMult.toFixed(2)}</td>
-        <td class="right mono">${t.add.toFixed(2)}</td>
-        <td class="right mono">${t.dryPwr.toFixed(2)}</td>
-        <td class="right mono">${t.loss.toFixed(2)}</td>
-        <td class="right mono">${t.before.toFixed(2)}→${t.after.toFixed(2)}</td>
-        <td class="right mono">${t.clamped}</td>
+        <td class="mono">${escapeHtml(r.dateISO||'')}</td>
+        <td class="right mono">${r.rain.toFixed(2)}</td>
+        <td class="right mono">${r.dryPwr.toFixed(2)}</td>
+        <td class="right mono">${r.add.toFixed(2)}</td>
+        <td class="right mono">${r.loss.toFixed(2)}</td>
+        <td class="right mono">${r.before.toFixed(2)}→${r.after.toFixed(2)}</td>
+        <td class="right mono">${escapeHtml(r.clamped)}</td>
+        <td class="right mono">${Math.round(r.readiness)}</td>
       `;
       tb.appendChild(tr);
     }
   }
 
-  function renderDryBreak(run){
-    const db = $('dryRows');
-    db.innerHTML = '';
-    if (!run || !run.dryBreak || !run.dryBreak.length){
-      db.innerHTML = '<tr><td colspan="11" class="muted">Run the model.</td></tr>';
-      return;
-    }
-    for (const d of run.dryBreak){
+  function renderDryRows(runDaily){
+    const tb = $('dryRows');
+    tb.innerHTML = '';
+    for (const d of runDaily.dryDaily){
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td class="mono">${d.dateISO}</td>
+        <td class="mono">${escapeHtml(d.dateISO||'')}</td>
         <td class="right mono">${Math.round(d.temp)}</td>
         <td class="right mono">${d.tempN.toFixed(2)}</td>
         <td class="right mono">${Math.round(d.wind)}</td>
         <td class="right mono">${d.windN.toFixed(2)}</td>
         <td class="right mono">${Math.round(d.rh)}</td>
         <td class="right mono">${d.rhN.toFixed(2)}</td>
-        <td class="right mono">${Math.round(d.solar)}</td>
-        <td class="right mono">${d.solarN.toFixed(2)}</td>
         <td class="right mono">${d.raw.toFixed(2)}</td>
         <td class="right mono">${d.dryPwr.toFixed(2)}</td>
       `;
-      db.appendChild(tr);
+      tb.appendChild(tr);
     }
   }
 
-  // -------- hero tiles --------
-  function renderFieldsHero(){
+  function renderFcTrace(fcRows){
+    const tb = $('fcTraceRows');
+    tb.innerHTML = '';
+    for (const r of (fcRows||[])){
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="mono">${escapeHtml(r.tsISO||'')}</td>
+        <td class="right mono">${r.rain.toFixed(2)}</td>
+        <td class="right mono">${r.dryPwr.toFixed(2)}</td>
+        <td class="right mono">${r.add.toFixed(3)}</td>
+        <td class="right mono">${r.loss.toFixed(3)}</td>
+        <td class="right mono">${r.before.toFixed(2)}→${r.after.toFixed(2)}</td>
+        <td class="right mono">${Math.round(r.readiness)}</td>
+      `;
+      tb.appendChild(tr);
+    }
+  }
+
+  function renderTiles(thr){
     const wrap = $('fieldsGrid');
     wrap.innerHTML = '';
-    state.lastRunByField.clear();
+    state.runsByField.clear();
 
-    const thr = Number($('workable').value);
+    for (const f of FIELDS){
+      const days30 = state.weather?.days30 || [];
+      const fc48 = state.weather?.forecast48 || [];
 
-    for (const f of MOCK_FIELDS){
-      const r = runModelDaily(f.soil, f.drain);
-      state.lastRunByField.set(f.id, r);
+      const runDaily = runDailyModel(days30, f.soil, f.drain);
+      const fcSim = simulate48h(runDaily, fc48);
 
-      const work = r ? r.workabilityR : 0;
-      const wet = r ? r.wetnessR : 0;
-      const isWorkable = (work >= thr);
+      const readiness = Math.round(runDaily.readinessFinal);
+      const wetness = Math.round(runDaily.wetnessFinal);
+      const status = readinessStatus(readiness, thr);
 
-      const pct = clamp(work, 0, 100); // workability marker
-      const eta = (!isWorkable && r) ? etaText(r, thr).main : '';
+      const pct = clamp(readiness, 0, 100);
+
+      let etaText = '';
+      if (status === 'WET'){
+        const h = etaFromForecast(fcSim.rows, thr);
+        if (h !== null && h <= 48) etaText = `Est: ~${h} hours`;
+        else etaText = 'Estimated to be greater then 2 days';
+      }
+
+      state.runsByField.set(f.id, { runDaily, fcSim, readiness, wetness, status, etaText });
 
       const tile = document.createElement('div');
       tile.className = 'fieldTile';
@@ -1024,19 +1057,21 @@ DATA:
             <div class="fieldTitle">${escapeHtml(f.farm)} • ${escapeHtml(f.field)}</div>
             <div class="fieldSub">Soil=${f.soil}/10 • Drain=${f.drain}/10</div>
           </div>
-          <div class="badge">${isWorkable ? 'WORKABLE' : 'WET'}</div>
+          <div class="badge">${status}</div>
         </div>
 
-        <div class="workGaugeWrap">
-          <div class="workRow">
-            <div><b>Workability:</b> <span class="mono">${work}</span></div>
-            <div class="muted">Wetness: <span class="mono">${wet}</span></div>
+        <div class="gaugeWrap">
+          <div class="gaugeRow">
+            <div><b>Readiness:</b> <span class="mono">${readiness}</span></div>
+            <div class="muted">Wetness: <span class="mono">${wetness}</span></div>
           </div>
-          <div class="workGauge">
-            <div class="workMarker" style="left:${pct}%;"></div>
+
+          <div class="gauge">
+            <div class="marker" style="left:${pct}%;"></div>
           </div>
-          <div class="workLabels"><span>0</span><span>50</span><span>100</span></div>
-          ${(!isWorkable && eta) ? `<div class="muted" style="font-size:12px;"><b>${eta}</b></div>` : ``}
+          <div class="gaugeLabels"><span>0</span><span>50</span><span>100</span></div>
+
+          ${status === 'WET' ? `<div class="muted" style="font-size:12px;"><b>${etaText}</b></div>` : ``}
         </div>
 
         <div class="tileBtnRow">
@@ -1059,59 +1094,130 @@ DATA:
     wrap.querySelectorAll('button[data-adjust]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const id = btn.getAttribute('data-adjust');
-        openAdjustForField(id);
+        openAdjust(id);
       });
     });
 
     $('tileStamp').textContent = new Date().toLocaleString();
   }
 
-  function selectField(fieldId){
-    const f = MOCK_FIELDS.find(x=>x.id === fieldId);
+  function selectField(id){
+    const f = FIELDS.find(x=>x.id === id);
     if (!f) return;
-    state.selectedFieldId = f.id;
-    $('soilWet').value = String(f.soil);
+    state.selectedFieldId = id;
+
+    $('soil').value = String(f.soil);
     $('drain').value = String(f.drain);
-    syncSliderLabels();
-    refreshAll();
+    syncLabels();
+    recalc();
   }
 
-  // -------- modal adjust --------
+  function recalc(){
+    const thr = Number($('thr').value);
+
+    // persist sliders to selected field
+    const f = FIELDS.find(x=>x.id === state.selectedFieldId);
+    if (f){
+      f.soil = Number($('soil').value);
+      f.drain = Number($('drain').value);
+    }
+
+    // render tiles first (so selected run exists)
+    renderTiles(thr);
+
+    const pack = state.runsByField.get(state.selectedFieldId);
+    if (!pack) return;
+
+    const runDaily = pack.runDaily;
+    const fcSim = pack.fcSim;
+
+    const readiness = Math.round(runDaily.readinessFinal);
+    const wetness = Math.round(runDaily.wetnessFinal);
+    const status = pack.status;
+
+    $('readinessOut').textContent = String(readiness);
+    $('wetnessOut').textContent = String(wetness);
+    $('readinessLabel').textContent = `${status} • threshold=${thr}`;
+
+    // ETA display
+    if (status === 'READY'){
+      $('etaOut').textContent = '—';
+      $('etaSub').textContent = 'Field is READY now.';
+    } else {
+      const h = etaFromForecast(fcSim.rows, thr);
+      if (h !== null && h <= 48){
+        $('etaOut').textContent = `Est: ~${h} hours`;
+        $('etaSub').textContent = 'Computed from the 48-hour forecast simulation.';
+      } else {
+        $('etaOut').textContent = 'Estimated to be greater then 2 days';
+        $('etaSub').textContent = 'Not projected to cross threshold within 48 hours.';
+      }
+    }
+
+    $('tankOut').textContent = `${runDaily.storageFinal.toFixed(2)} / ${runDaily.factors.Smax.toFixed(2)}`;
+    $('tankSub').textContent = `LOSS_SCALE_DAY=${LOSS_SCALE_DAY.toFixed(2)} • LOSS_SCALE_HR=${LOSS_SCALE_HR.toFixed(4)} • infilMult=${runDaily.factors.infilMult.toFixed(2)} • dryMult=${runDaily.factors.dryMult.toFixed(2)}`;
+
+    renderParamExplain(runDaily);
+    renderWxTable(state.weather?.days30 || []);
+    renderDailyTrace(runDaily, thr);
+    renderDryRows(runDaily);
+
+    renderFcTrace(fcSim.rows);
+
+    $('fcNote').textContent =
+      `Hourly loss = dryPwr * ${LOSS_SCALE_HR.toFixed(4)} * dryMult. Hourly add = rainHr * infilMult. Storage is clamped 0..Smax.`;
+
+    $('mathSummary').innerHTML =
+      `<b>Summary (selected field):</b><br/>
+       Readiness = 100 − (storage/Smax*100). Wetness = storage/Smax*100.<br/>
+       Final storage=${runDaily.storageFinal.toFixed(2)}, Smax=${runDaily.factors.Smax.toFixed(2)} → Wetness=${runDaily.wetnessFinal.toFixed(1)} → Readiness=${runDaily.readinessFinal.toFixed(1)}.<br/><br/>
+       <b>NO SOLAR</b> dryPwr uses temp + wind − humidity only.`;
+
+    $('runStamp').textContent = new Date().toLocaleString();
+  }
+
+  // ========= ADJUST MODAL =========
   function showModal(show){
     $('adjustBackdrop').classList.toggle('pv-hide', !show);
   }
 
-  function openAdjustForField(fieldId){
-    const f = MOCK_FIELDS.find(x=>x.id === fieldId);
-    if (!f) return;
+  function openAdjust(fieldId){
+    const thr = Number($('thr').value);
+    const f = FIELDS.find(x=>x.id === fieldId);
+    const pack = state.runsByField.get(fieldId);
 
-    const r = state.lastRunByField.get(fieldId) || runModelDaily(f.soil, f.drain);
-    const thr = Number($('workable').value);
+    if (!f || !pack){
+      alert('No model result yet. Fetch weather first.');
+      return;
+    }
+
     const op = String($('opSel').value || '');
-
-    const isWorkable = (r && r.workabilityR >= thr);
+    const readiness = pack.readiness;
+    const status = pack.status;
 
     $('adjustTitle').textContent = 'Adjust';
     $('adjustSub').textContent = `${f.farm} • ${f.field} • Op: ${op} • Threshold: ${thr}`;
 
+    // Your gating rule:
+    // If READY -> allow WET, disable DRY
+    // If WET   -> allow DRY, disable WET
     const btnWet = $('btnAdjWet');
     const btnDry = $('btnAdjDry');
 
-    // Your rule: if model says dry/workable, don’t allow "Dry"
-    // if model says wet/not workable, don’t allow "Wet"
-    btnWet.disabled = !(!isWorkable); // allow wet only if NOT workable? wait: contradict only
-    btnDry.disabled = !(isWorkable);  // allow dry only if workable? contradict only
-    // Correct contradict-only:
-    // - If workable (dry): allow WET, disable DRY
-    // - If not workable (wet): allow DRY, disable WET
-    btnWet.disabled = !isWorkable ? true : false;
-    btnDry.disabled = isWorkable ? true : false;
-
-    const eta = r ? etaText(r, thr).main : '—';
-    $('adjustRule').innerHTML =
-      isWorkable
-        ? `Model says <b>WORKABLE</b> (Workability ${r.workabilityR} ≥ ${thr}).<br/>Only <b>Wet</b> is allowed to correct the model.`
-        : `Model says <b>NOT WORKABLE</b> (Workability ${r.workabilityR} &lt; ${thr}).<br/>Only <b>Dry</b> is allowed to correct the model.<br/><b>${eta}</b>`;
+    if (status === 'READY'){
+      btnWet.disabled = false;
+      btnDry.disabled = true;
+      $('adjustRule').innerHTML =
+        `Model says <b>READY</b> (Readiness ${readiness} ≥ ${thr}).<br/>
+         To prevent messing up the model, only <b>Wet</b> is allowed as a correction.`;
+    } else {
+      btnWet.disabled = true;
+      btnDry.disabled = false;
+      $('adjustRule').innerHTML =
+        `Model says <b>WET</b> (Readiness ${readiness} &lt; ${thr}).<br/>
+         To prevent messing up the model, only <b>Dry</b> is allowed as a correction.<br/>
+         <b>${escapeHtml(pack.etaText)}</b>`;
+    }
 
     btnWet.dataset.fieldId = fieldId;
     btnDry.dataset.fieldId = fieldId;
@@ -1120,124 +1226,40 @@ DATA:
   }
 
   function recordAdjust(kind, fieldId){
-    const f = MOCK_FIELDS.find(x=>x.id === fieldId);
-    const thr = Number($('workable').value);
+    const thr = Number($('thr').value);
     const op = String($('opSel').value || '');
-
-    const soil = (fieldId === state.selectedFieldId) ? Number($('soilWet').value) : f.soil;
-    const drain= (fieldId === state.selectedFieldId) ? Number($('drain').value) : f.drain;
-
-    const r = runModelDaily(soil, drain);
+    const f = FIELDS.find(x=>x.id === fieldId);
+    const pack = state.runsByField.get(fieldId);
 
     const item = {
       ts: Date.now(),
       kind,
       fieldId,
       fieldName: `${f.farm} • ${f.field}`,
-      soil, drain,
-      workability: r ? r.workabilityR : null,
-      wetness: r ? r.wetnessR : null,
-      thr,
       op,
-      mode: state.mode
+      thr,
+      readiness: pack ? pack.readiness : null,
+      wetness: pack ? pack.wetness : null,
+      soil: f ? f.soil : null,
+      drain: f ? f.drain : null,
+      mode: $('dataMode').textContent
     };
 
     const log = loadLog();
     log.push(item);
     saveLog(log);
-    renderLog();
 
     showModal(false);
     alert('Saved (local).');
   }
 
-  // -------- main refresh --------
-  function renderParamExplain(run){
-    if (!run) return;
-
-    const f = run.factors;
-
-    $('paramExplain').innerHTML =
-      `<b>Detailed parameter mapping (exact):</b><br/><br/>
-       Inputs: soil=${run.soil}/10, drain=${run.drain}/10<br/>
-       soilHold=(soil−1)/9=<span class="mono">${f.soilHold.toFixed(2)}</span> (0 sand → 1 clay)<br/>
-       drainPoor=(drain−1)/9=<span class="mono">${f.drainPoor.toFixed(2)}</span> (0 good → 1 poor)<br/><br/>
-
-       <b>Smax</b> (tank size): <span class="mono">2.60 + 1.00*soilHold + 0.90*drainPoor</span> = <span class="mono">${f.Smax.toFixed(2)}</span><br/>
-       <b>infilMult</b> (rain retention): <span class="mono">0.60 + 0.30*soilHold + 0.35*drainPoor</span> = <span class="mono">${f.infilMult.toFixed(2)}</span><br/>
-       <b>dryMult</b> (drying/drain-out): <span class="mono">1.20 − 0.35*soilHold − 0.40*drainPoor</span> = <span class="mono">${f.dryMult.toFixed(2)}</span><br/><br/>
-
-       Daily add: <span class="mono">add = rainIn × infilMult</span><br/>
-       Daily loss: <span class="mono">loss = dryPwr × ${LOSS_SCALE.toFixed(2)} × dryMult</span><br/><br/>
-
-       Start storage (no “starting wet” slider):<br/>
-       <span class="mono">storage0 = 0.45*Smax + rainNudge</span><br/>
-       rainNudge based on first-7-day rain: rain7=<span class="mono">${run.rain7.toFixed(2)}</span>,
-       rainNudgeFrac=<span class="mono">${run.rainNudgeFrac.toFixed(2)}</span>,
-       rainNudge=<span class="mono">${run.rainNudge.toFixed(2)}</span>`;
-  }
-
-  function refreshSelected(){
-    const soil = Number($('soilWet').value);
-    const drain = Number($('drain').value);
-    const thr = Number($('workable').value);
-
-    const run = runModelDaily(soil, drain);
-    state.lastRunSelected = run;
-
-    if (!run) return;
-
-    const isWorkable = (run.workabilityR >= thr);
-
-    $('workabilityVal').textContent = String(run.workabilityR);
-    $('wetnessVal').textContent = String(run.wetnessR);
-    $('workabilityLabel').textContent = isWorkable ? `WORKABLE (≥ ${thr})` : `NOT WORKABLE (< ${thr})`;
-
-    const eta = etaText(run, thr);
-    $('etaVal').textContent = isWorkable ? '—' : eta.main;
-    $('etaSub').textContent = isWorkable ? 'Field is workable now.' : eta.sub;
-
-    $('tankVal').textContent = `${run.storageFinal.toFixed(2)} / ${run.factors.Smax.toFixed(2)}`;
-    $('tankSub').textContent = `LOSS_SCALE=${LOSS_SCALE.toFixed(2)} • avgLossDay≈${run.avgLossDay.toFixed(2)} • rain30=${run.rainSum.toFixed(2)} in`;
-
-    $('mathNote').innerHTML =
-      `<b>DryPwr normalization ranges:</b> temp 20..65°F, wind 2..22mph, rh 35..100%, solar 60..360 W/m²<br/>
-       dryPwr = clamp(0.35*tempN + 0.30*solarN + 0.25*windN − 0.25*rhN, 0..1)`;
-
-    $('runStamp').textContent = new Date().toLocaleString();
-
-    renderParamExplain(run);
-    renderWeatherTable(run.rows);
-    renderTrace(run);
-    renderDryBreak(run);
-  }
-
-  function refreshAll(){
-    // Persist sliders into selected mock field
-    const f = MOCK_FIELDS.find(x=>x.id === state.selectedFieldId);
-    if (f){
-      f.soil = Number($('soilWet').value);
-      f.drain = Number($('drain').value);
-    }
-
-    refreshSelected();
-    renderFieldsHero();
-    renderLog();
-    $('modeLine').textContent = state.mode;
-  }
-
-  // -------- fetch real 30 days (future) --------
-  async function fetchReal30(){
+  // ========= WEATHER FETCH =========
+  async function fetchWeather(){
     const base = String($('apiBase').value || '').trim().replace(/\/+$/,'');
-    if (!base){
-      alert('Add your Weather API Base URL first (e.g. https://your-cloudrun-url).');
-      return;
-    }
-
     const lat = String($('lat').value || '').trim();
     const lon = String($('lon').value || '').trim();
-    if (!lat || !lon){
-      alert('Enter lat/lon first.');
+    if (!base || !lat || !lon){
+      alert('Missing function URL or lat/lon.');
       return;
     }
 
@@ -1245,64 +1267,55 @@ DATA:
     $('btnFetch').textContent = 'Fetching…';
 
     try{
-      const url = `${base}/weather30?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`;
+      const url = `${base}?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`;
       const res = await fetch(url, { method:'GET' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const days = Array.isArray(data.days) ? data.days : [];
+      const js = await res.json().catch(()=> ({}));
+      if (!res.ok){
+        throw new Error(js?.error || `HTTP ${res.status}`);
+      }
 
-      if (days.length < 20) throw new Error('Response missing days[] (or too few rows).');
+      // Expect the function response format
+      const days30 = Array.isArray(js.days30) ? js.days30 : [];
+      const forecast48 = Array.isArray(js.forecast48) ? js.forecast48 : [];
 
-      state.weather30 = days.map(d=>({
-        dateISO: String(d.dateISO||'').slice(0,10),
-        rainIn: Number(d.rainIn||0),
-        tempF: Number(d.tempF||0),
-        windMph: Number(d.windMph||0),
-        rh: Number(d.rh||0),
-        solarWm2: Number(d.solarWm2||0),
-      })).filter(x=>x.dateISO);
+      state.weather = {
+        meta: js.meta || {},
+        sourceMode: js.sourceMode || 'unknown',
+        lookbackHoursUsed: js.lookbackHoursUsed,
+        days30,
+        forecast48
+      };
 
-      state.mode = 'REAL';
-      $('dataMode').textContent = 'Mode: REAL';
-      $('modeLine').textContent = 'REAL';
-      refreshAll();
+      $('dataMode').textContent = `Mode: LIVE (${state.weather.sourceMode})`;
+      $('modeLine').textContent = 'LIVE';
+
+      // hide any error box if previously shown
+      $('errBox').style.display = 'none';
+
+      recalc();
     }catch(err){
-      console.error(err);
-      alert('Fetch failed. Keeping MOCK data.\n\n' + String(err && err.message ? err.message : err));
+      showErr(String(err?.message || err));
     }finally{
       $('btnFetch').disabled = false;
-      $('btnFetch').textContent = 'Fetch Real 30 Days';
+      $('btnFetch').textContent = 'Fetch Weather Now';
     }
   }
 
-  function syncSliderLabels(){
-    $('soilWetVal').textContent = $('soilWet').value;
-    $('drainVal').textContent   = $('drain').value;
-    $('workableVal').textContent = $('workable').value;
+  function syncLabels(){
+    $('soilVal').textContent = $('soil').value;
+    $('drainVal').textContent = $('drain').value;
+    $('thrVal').textContent = $('thr').value;
   }
 
-  // modal wiring
-  $('btnAdjCancel').addEventListener('click', ()=> showModal(false));
-  $('adjustBackdrop').addEventListener('click', (e)=>{
-    if (e.target && e.target.id === 'adjustBackdrop') showModal(false);
-  });
-  $('btnAdjWet').addEventListener('click', (e)=> recordAdjust('WET', e.currentTarget.dataset.fieldId));
-  $('btnAdjDry').addEventListener('click', (e)=> recordAdjust('DRY', e.currentTarget.dataset.fieldId));
+  // ========= EVENTS =========
+  $('btnFetch').addEventListener('click', fetchWeather);
+  $('btnRecalc').addEventListener('click', recalc);
 
-  // slider events
-  $('soilWet').addEventListener('input', ()=>{ syncSliderLabels(); refreshAll(); });
-  $('drain').addEventListener('input',   ()=>{ syncSliderLabels(); refreshAll(); });
-  $('workable').addEventListener('input',()=>{ syncSliderLabels(); refreshAll(); });
+  $('soil').addEventListener('input', ()=>{ syncLabels(); recalc(); });
+  $('drain').addEventListener('input', ()=>{ syncLabels(); recalc(); });
+  $('thr').addEventListener('input', ()=>{ syncLabels(); recalc(); });
 
-  $('opSel').addEventListener('change', ()=> refreshAll());
-
-  $('btnRegen').addEventListener('click', ()=>{
-    state.seed = Date.now() % 1000000;
-    genMock30();
-    refreshAll();
-  });
-  $('btnFetch').addEventListener('click', fetchReal30);
-  $('btnRun').addEventListener('click', refreshAll);
+  $('opSel').addEventListener('change', ()=>{ /* affects modal/log only right now */ });
 
   $('btnLogout').addEventListener('click', ()=>{
     try{
@@ -1311,12 +1324,20 @@ DATA:
     location.href = '/Farm-vista/auth/';
   });
 
-  // init
-  syncSliderLabels();
-  genMock30();
-  selectField(state.selectedFieldId);
-  refreshAll();
+  $('btnAdjCancel').addEventListener('click', ()=> showModal(false));
+  $('adjustBackdrop').addEventListener('click', (e)=>{
+    if (e.target && e.target.id === 'adjustBackdrop') showModal(false);
+  });
+  $('btnAdjWet').addEventListener('click', (e)=> recordAdjust('WET', e.currentTarget.dataset.fieldId));
+  $('btnAdjDry').addEventListener('click', (e)=> recordAdjust('DRY', e.currentTarget.dataset.fieldId));
 
+  // ========= INIT =========
+  syncLabels();
+  $('modeLine').textContent = 'LIVE';
+  $('dataMode').textContent = 'Mode: LIVE (not fetched yet)';
+  // Create an empty weather state so tiles render (but will show zeros until fetch)
+  state.weather = { days30: Array.from({length:30}, (_,i)=>({ dateISO:'—', rainIn:0,tempF:0,windMph:0,rh:0,solarWm2:0 })), forecast48: [] };
+  recalc(); // will render tiles with zeros
 })();
 </script>
 </body>
