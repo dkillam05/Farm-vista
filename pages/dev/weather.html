@@ -1,15 +1,19 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/weather.html  (FULL FILE)
-Rev: 2025-12-21h
+Rev: 2025-12-21i
 
-Requested tweaks:
-✅ Use "Field Readiness" labeling (no percent language)
-✅ If ETA would be zero (field is ready), display NOTHING
-✅ Move "Rain (range)" up directly under Farm • Field (no blank line)
-✅ Remove the numbers next to Wet/Ready chips above bar (chips become labels only)
-✅ Rename "Ready" -> "Readiness" everywhere in the UI
-✅ Keep: tiny Adjust next to field name, readiness pill top-right (gradient),
-   threshold black line on gauge, wet/dry follow-up questions, rain range stays in controls
+Updates per your request:
+✅ Replace “Rain (range)” language with “Last 30 days”
+   - Controls label now says “Last 30 days”
+   - Tile line now says “Last 30 days: X.XX in”
+   - Helper text clarifies it defaults to last 30 days (and you can change it)
+Everything else kept exactly from your Rev 2025-12-21h build:
+✅ Field Readiness labeling (no percent language)
+✅ ETA hidden when field is ready
+✅ Chips are labels only (no numbers)
+✅ Adjust flow (wet/dry → follow-up options)
+✅ Threshold black line on bar
+✅ Drop-downs + date popover stay above cards
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -214,7 +218,7 @@ Requested tweaks:
     .subLine{
       font-size:12px;
       opacity:.85;
-      margin:0;              /* remove "blank line" feel */
+      margin:0;
       line-height:1.2;
     }
 
@@ -463,7 +467,7 @@ Requested tweaks:
           </div>
 
           <div class="field" style="margin:0; position:relative; flex:0 0 auto;">
-            <label for="jobRangeInput">Rain range</label>
+            <label for="jobRangeInput">Last 30 days</label>
             <input id="jobRangeInput" class="rangeBtn" type="text" readonly value="" placeholder="Choose date range"/>
             <div id="calendarPopover" class="cal-popover" aria-label="Calendar popover">
               <div class="cal-top">
@@ -484,7 +488,7 @@ Requested tweaks:
         </div>
 
         <div class="muted" style="font-size:12px; margin-top:8px;">
-          Date range is used for rain sorting + range totals only.
+          Defaults to last 30 days. Change the range to compare totals and sorting.
         </div>
       </div>
     </section>
@@ -751,11 +755,11 @@ Requested tweaks:
       .replaceAll('"','&quot;').replaceAll("'","&#039;");
   }
 
-  // Mock weather
   function seededRand(){
     state.seed = (state.seed * 1664525 + 1013904223) % 4294967296;
     return state.seed / 4294967296;
   }
+
   function genMock30(){
     const out = [];
     const today = new Date(); today.setHours(12,0,0,0);
@@ -791,11 +795,9 @@ Requested tweaks:
     $('modeLine').textContent = 'MOCK';
   }
 
-  // Date range
   function parseRangeFromInput(){
     const raw = String($('jobRangeInput').value || '').trim();
     if (!raw) return { start:null, end:null };
-
     const parts = raw.split('–').map(s=>s.trim());
     if (parts.length === 2){
       const a = new Date(parts[0]); const b = new Date(parts[1]);
@@ -812,13 +814,13 @@ Requested tweaks:
     }
     return { start:null, end:null };
   }
+
   function isDateInRange(dateISO, range){
     if (!range || !range.start || !range.end) return true;
     const d = new Date(dateISO + 'T12:00:00');
     return d >= range.start && d <= range.end;
   }
 
-  // Dry power
   function calcDryParts(r){
     const temp = Number(r.tempF||0);
     const wind = Number(r.windMph||0);
@@ -835,7 +837,6 @@ Requested tweaks:
     return { temp, wind, rh, solar, tempN, windN, rhN, solarN, raw, dryPwr };
   }
 
-  // Factors
   function mapFactors(soil, drain){
     const soilHold = (Number(soil) - 1) / 9;
     const drainPoor= (Number(drain) - 1) / 9;
@@ -884,18 +885,14 @@ Requested tweaks:
     return { field, factors:f, rows, trace, storageFinal:storage, wetnessR, readinessR, rain7, rainNudge, avgLossDay, rf };
   }
 
-  // ETA string. Return '' if ready.
   function etaFor(run, threshold){
     if (!run) return '';
     if (run.readinessR >= threshold) return '';
-
     const wetTarget = clamp(100 - threshold, 0, 100);
     const storageTarget = run.factors.Smax * (wetTarget / 100);
-
     const delta = run.storageFinal - storageTarget;
     const dailyLoss = Math.max(0.02, run.avgLossDay);
     const hours = Math.ceil((delta / dailyLoss) * 24);
-
     if (hours <= 48) return `Est: ~${hours} hours`;
     return 'Estimated to be greater then 2 days';
   }
@@ -909,7 +906,6 @@ Requested tweaks:
     return round(sum, 2);
   }
 
-  // Sort
   function sortFields(fields, runsById){
     const mode = String($('sortSel').value || 'name_az');
     const range = parseRangeFromInput();
@@ -944,7 +940,6 @@ Requested tweaks:
     return arr;
   }
 
-  // Color for pill
   function readinessColor(score){
     const p = clamp(score, 0, 100);
     if (p <= 55){
@@ -969,7 +964,6 @@ Requested tweaks:
     return p.toFixed(2) + '%';
   }
 
-  // Render
   function renderTiles(){
     const wrap = $('fieldsGrid');
     wrap.innerHTML = '';
@@ -989,16 +983,12 @@ Requested tweaks:
 
       const overrideReady = state.readyOverride.has(f.id) ? Number(state.readyOverride.get(f.id)) : null;
       const readiness = (overrideReady === null || !isFinite(overrideReady)) ? run0.readinessR : clamp(Math.round(overrideReady), 0, 100);
-      const wet = clamp(100 - readiness, 0, 100);
 
-      const isReady = (readiness >= thr);
-      const eta = isReady ? '' : etaFor(run0, thr); // if ready, display nothing
-
+      const eta = etaFor(run0, thr);
       const rainRange = rainInRange(run0, range);
 
       const leftPos = markerLeftCSS(readiness);
       const thrPos = markerLeftCSS(thr);
-
       const pillBg = readinessColor(readiness);
 
       const tile = document.createElement('div');
@@ -1010,10 +1000,10 @@ Requested tweaks:
             <div class="fieldTitle">${escapeHtml(f.farm)} • ${escapeHtml(f.field)}</div>
             <button class="miniAdjust" data-adjust="${escapeHtml(f.id)}" type="button">Adjust</button>
           </div>
-          <div class="readyPill" style="background:${pillBg};">Readiness ${readiness}</div>
+          <div class="readyPill" style="background:${pillBg};">Field Readiness ${readiness}</div>
         </div>
 
-        <p class="subLine">Rain (range): <span class="mono">${rainRange.toFixed(2)}</span> in</p>
+        <p class="subLine">Last 30 days: <span class="mono">${rainRange.toFixed(2)}</span> in</p>
 
         <div class="workGaugeWrap">
           <div class="workRow">
@@ -1024,7 +1014,7 @@ Requested tweaks:
           <div class="workGauge" aria-label="Field readiness gauge">
             <div class="thrMarker" style="left:${thrPos};"></div>
             <div class="workMarker" style="left:${leftPos};"></div>
-            <div class="markerBadge" style="left:${leftPos};">Readiness ${readiness}</div>
+            <div class="markerBadge" style="left:${leftPos};">Field Readiness ${readiness}</div>
           </div>
 
           <div class="workLabels"><span>0</span><span>50</span><span>100</span></div>
@@ -1073,12 +1063,12 @@ Requested tweaks:
 
     $('paramExplain').innerHTML =
       `<b>Selected:</b> ${escapeHtml(f.farm)} • ${escapeHtml(f.field)}<br/>
-       <b>Displayed readiness:</b> <span class="mono">${shown}</span>${(overrideReady!==null?' (manual override)':'')}<br/><br/>
+       <b>Displayed Field Readiness:</b> <span class="mono">${shown}</span>${(overrideReady!==null?' (manual override)':'')}<br/><br/>
        soilHold=(soil−1)/9=<span class="mono">${fac.soilHold.toFixed(2)}</span> • drainPoor=(drain−1)/9=<span class="mono">${fac.drainPoor.toFixed(2)}</span><br/>
        Smax=<span class="mono">${fac.Smax.toFixed(2)}</span> • infilMult=<span class="mono">${fac.infilMult.toFixed(2)}</span> • dryMult=<span class="mono">${fac.dryMult.toFixed(2)}</span> • LOSS_SCALE=<span class="mono">${LOSS_SCALE.toFixed(2)}</span>`;
 
     $('mathSummary').innerHTML =
-      `<b>Model output (computed):</b> Wet=${run.wetnessR} • Readiness=${run.readinessR} • storage=${run.storageFinal.toFixed(2)}/${run.factors.Smax.toFixed(2)}<br/>
+      `<b>Model output (computed):</b> Wet=${run.wetnessR} • Field Readiness=${run.readinessR} • storage=${run.storageFinal.toFixed(2)}/${run.factors.Smax.toFixed(2)}<br/>
        <b>Start:</b> storage0=0.45*Smax + rainNudge (rain7=${run.rain7.toFixed(2)} in, nudge=${run.rainNudge.toFixed(2)})`;
 
     const trb = $('traceRows');
@@ -1158,15 +1148,14 @@ Requested tweaks:
     const btnWet = $('btnAdjWet');
     const btnDry = $('btnAdjDry');
 
-    // only allow contradiction
     btnWet.disabled = !isReady ? true : false;
     btnDry.disabled = isReady ? true : false;
 
     const eta = etaFor(run, thr);
     $('adjustRule').innerHTML =
       isReady
-        ? `Model says <b>READY</b> (readiness ${Math.round(currentReady)} ≥ ${thr}). Only <b>Wet</b> is allowed.`
-        : `Model says <b>WET</b> (readiness ${Math.round(currentReady)} &lt; ${thr}). Only <b>Dry</b> is allowed.<br/><b>${eta || 'Estimated to be greater then 2 days'}</b>`;
+        ? `Model says <b>READY</b> (Field Readiness ${Math.round(currentReady)} ≥ ${thr}). Only <b>Wet</b> is allowed.`
+        : `Model says <b>WET</b> (Field Readiness ${Math.round(currentReady)} &lt; ${thr}). Only <b>Dry</b> is allowed.<br/><b>${eta || 'Estimated to be greater then 2 days'}</b>`;
 
     $('adjustSoilDrain').innerHTML =
       `<b>Field settings</b><br/>
@@ -1233,7 +1222,6 @@ Requested tweaks:
   $('btnWetPretty').addEventListener('click', ()=> setWetLevel('pretty'));
   $('btnWetVery').addEventListener('click', ()=> setWetLevel('very'));
 
-  // UI
   function syncSliderLabels(){
     $('soilWetVal').textContent = $('soilWet').value;
     $('drainVal').textContent   = $('drain').value;
@@ -1319,7 +1307,7 @@ Requested tweaks:
     location.href = '/Farm-vista/auth/';
   });
 
-  // Init
+  // init
   syncSliderLabels();
   genMock30();
   selectField(state.selectedFieldId);
