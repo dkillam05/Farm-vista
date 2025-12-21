@@ -373,6 +373,9 @@
     </div>
 
     <footer>
+      <!-- ✅ NEW: Share to Brother app (via share sheet) -->
+      <button id="pShare" class="btn" type="button" disabled>Share to Brother</button>
+
       <button id="pPrint" class="btn btn-primary" type="button">Print</button>
       <button id="pCancel" class="btn" type="button">Cancel</button>
     </footer>
@@ -381,7 +384,7 @@
   <script type="module">
     import {
       ready,
-      getFirestore, collection, query, where, onSnapshot, doc
+      getFirestore, collection, query, where, onSnapshot
     } from '/Farm-vista/js/firebase-init.js';
 
     const $ = sel => document.querySelector(sel);
@@ -586,6 +589,7 @@
     const pClose = document.getElementById('pClose');
     const pCancel = document.getElementById('pCancel');
     const pPrint = document.getElementById('pPrint');
+    const pShare = document.getElementById('pShare');
 
     const printFrame = document.getElementById('fv-print-frame');
 
@@ -668,6 +672,7 @@
     function clearPreviewHost(){
       pHost.innerHTML = '';
       __previewQrSrc = '';
+      pShare.disabled = true;
     }
 
     function writePrintFrame(html){
@@ -759,6 +764,267 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
 </body></html>`;
     }
 
+    // ==========================
+    // ✅ SHARE TO BROTHER (PNG)
+    // ==========================
+    function mmToPx(mm, dpi){
+      const ppmm = dpi / 25.4;
+      return Math.round(mm * ppmm);
+    }
+    function waitImage(img){
+      return new Promise((resolve, reject)=>{
+        if (!img) return reject(new Error('No image'));
+        if (img.complete && img.naturalWidth > 0) return resolve();
+        const onLoad = ()=>{ cleanup(); resolve(); };
+        const onErr = ()=>{ cleanup(); reject(new Error('Image load failed')); };
+        const cleanup = ()=>{ img.removeEventListener('load', onLoad); img.removeEventListener('error', onErr); };
+        img.addEventListener('load', onLoad, { once:true });
+        img.addEventListener('error', onErr, { once:true });
+      });
+    }
+
+    async function loadImageToCanvasSource(src){
+      const img = new Image();
+      img.decoding = 'async';
+      // NOTE: if the QR URL is cross-origin without CORS, canvas export will be blocked.
+      // Your QR images appear to be same-origin / Firebase storage with CORS; this should work.
+      img.crossOrigin = 'anonymous';
+      img.src = src;
+      await waitImage(img);
+      return img;
+    }
+
+    async function buildLabelPngBlob(payload){
+      const dpi = 300; // good for Brother apps + crisp QR
+      const isSF = !!payload?.isStarfire;
+
+      if (isSF){
+        const Wmm = STARFIRE_LABEL.cutLenMm;
+        const Hmm = STARFIRE_LABEL.tapeWmm;
+        const Qmm = STARFIRE_LABEL.qrMm;
+
+        const W = mmToPx(Wmm, dpi);
+        const H = mmToPx(Hmm, dpi);
+        const pad = mmToPx(2.2, dpi);
+        const gap = mmToPx(2.0, dpi);
+        const Q = mmToPx(Qmm, dpi);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = W;
+        canvas.height = H;
+        const ctx = canvas.getContext('2d', { alpha:false });
+
+        // bg
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0,0,W,H);
+
+        // QR
+        const qrSrc = String(payload?.qrSrc || payload?.url || '');
+        const img = await loadImageToCanvasSource(qrSrc);
+        const qrX = Math.round((W - Q)/2);
+        const qrY = pad;
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(img, qrX, qrY, Q, Q);
+
+        // Serial (center)
+        const serial = String(payload?.serial || '').trim() || '—';
+        const fontPt = (serial.length > 12) ? 13 : 16;
+        const fontPx = Math.round((fontPt / 72) * dpi);
+        ctx.fillStyle = '#000000';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = `900 ${fontPx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+
+        const textY = qrY + Q + gap + Math.round((H - (qrY + Q + gap))/2);
+        // clamp if needed
+        const maxW = W - pad*2;
+        let s = serial;
+        while (ctx.measureText(s).width > maxW && s.length > 4){
+          s = s.slice(0, -2) + '…';
+        }
+        ctx.fillText(s, Math.round(W/2), Math.min(H - pad - Math.round(fontPx/2), Math.max(qrY + Q + gap + Math.round(fontPx/2), textY)));
+
+        return await new Promise((resolve)=> canvas.toBlob(b=>resolve(b), 'image/png'));
+      }
+
+      // Long label
+      const cutLenMm = Number(payload?.cutLenMm || __labelLenMm || LABEL.minLenMm);
+      const Wmm = cutLenMm;
+      const Hmm = LABEL.tapeWmm;
+      const Qmm = LABEL.qrMm;
+
+      const W = mmToPx(Wmm, dpi);
+      const H = mmToPx(Hmm, dpi);
+
+      const pad = mmToPx(2.2, dpi);
+      const gap = mmToPx(2.0, dpi);
+      const Q = mmToPx(Qmm, dpi);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = W;
+      canvas.height = H;
+      const ctx = canvas.getContext('2d', { alpha:false });
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0,0,W,H);
+
+      // Layout:
+      // left block max width based on available space
+      // leftX = pad
+      // midX = center-ish; we mimic preview: left + gap + QR + gap + right
+      const leftX = pad;
+      const midX = leftX; // computed later after measuring right/left text (we'll measure and then place)
+      const rightPad = pad;
+
+      const make = String(payload?.make || '').trim() || '—';
+      const model = String(payload?.model || '').trim() || '—';
+      const serial6 = serialLast6(payload?.serial || '') || '—';
+
+      const makePt = 18;
+      const modelPt = 16;
+      const labPt = 12;
+      const valPt = 18;
+
+      const makePx = Math.round((makePt/72)*dpi);
+      const modelPx = Math.round((modelPt/72)*dpi);
+      const labPx = Math.round((labPt/72)*dpi);
+      const valPx = Math.round((valPt/72)*dpi);
+
+      // Measure with canvas fonts
+      ctx.font = `900 ${makePx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+      const makeW = ctx.measureText(make).width;
+      ctx.font = `800 ${modelPx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+      const modelW = ctx.measureText(model).width;
+      const leftW = Math.max(makeW, modelW);
+
+      ctx.font = `800 ${labPx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+      const labW = ctx.measureText('VIN/Serial').width;
+      ctx.font = `900 ${valPx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+      const valW = ctx.measureText(serial6).width;
+      const rightW = Math.max(labW, valW);
+
+      // Compute columns
+      const totalNeeded = pad + leftW + gap + Q + gap + rightW + rightPad;
+      // If text is too wide, we’ll still render, but we’ll ellipsize make/model first.
+      const available = W - (pad + gap + Q + gap + rightW + rightPad);
+      let makeDraw = make;
+      let modelDraw = model;
+
+      function ellipsize(text, font, maxWidth){
+        ctx.font = font;
+        if (ctx.measureText(text).width <= maxWidth) return text;
+        let t = text;
+        while (t.length > 4 && ctx.measureText(t + '…').width > maxWidth){
+          t = t.slice(0, -1);
+        }
+        return t.length <= 4 ? '…' : (t + '…');
+      }
+
+      const makeFont = `900 ${makePx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+      const modelFont = `800 ${modelPx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+      const leftMax = Math.max(10, available); // at least something
+      makeDraw = ellipsize(makeDraw, makeFont, leftMax);
+      modelDraw = ellipsize(modelDraw, modelFont, leftMax);
+
+      // Recompute leftW after ellipsize
+      ctx.font = makeFont; const makeW2 = ctx.measureText(makeDraw).width;
+      ctx.font = modelFont; const modelW2 = ctx.measureText(modelDraw).width;
+      const leftW2 = Math.max(makeW2, modelW2);
+
+      const qrX = Math.round(pad + leftW2 + gap);
+      const qrY = Math.round((H - Q)/2);
+
+      // Draw left text (vertically centered as two lines)
+      const lineGap = mmToPx(1.0, dpi); // ~1mm
+      const totalTextH = makePx + lineGap + modelPx;
+      const textTop = Math.round((H - totalTextH)/2);
+
+      ctx.fillStyle = '#000000';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+
+      ctx.font = makeFont;
+      ctx.fillText(makeDraw, leftX, textTop);
+
+      ctx.font = modelFont;
+      ctx.fillText(modelDraw, leftX, textTop + makePx + lineGap);
+
+      // Draw QR
+      const qrSrc = String(payload?.qrSrc || payload?.url || '');
+      const img = await loadImageToCanvasSource(qrSrc);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, qrX, qrY, Q, Q);
+
+      // Draw right text (VIN/Serial + last6)
+      const rightX = Math.round(qrX + Q + gap + rightW);
+      const rightStartX = Math.round(qrX + Q + gap);
+
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'top';
+
+      const rightTextH = labPx + lineGap + valPx;
+      const rightTop = Math.round((H - rightTextH)/2);
+
+      ctx.font = `800 ${labPx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+      ctx.globalAlpha = 0.85;
+      ctx.fillText('VIN/Serial', Math.min(W - rightPad, rightStartX + rightW), rightTop);
+
+      ctx.globalAlpha = 1.0;
+      ctx.font = `900 ${valPx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+      ctx.fillText(serial6, Math.min(W - rightPad, rightStartX + rightW), rightTop + labPx + lineGap);
+
+      return await new Promise((resolve)=> canvas.toBlob(b=>resolve(b), 'image/png'));
+    }
+
+    function canShareFiles(){
+      try{
+        if (!navigator.share) return false;
+        if (!navigator.canShare) return true; // older iOS Safari still works sometimes
+        // We'll validate at runtime with a small File
+        return true;
+      }catch{ return false; }
+    }
+
+    async function shareToBrother(payload){
+      try{
+        if (!payload) return;
+
+        const blob = await buildLabelPngBlob(payload);
+        if (!blob) throw new Error('Could not build PNG');
+
+        const base =
+          payload.isStarfire
+            ? `StarFire-${String(payload.serial||'').trim() || 'label'}`
+            : `${String(payload.make||'').trim() || 'Equip'}-${String(payload.model||'').trim() || 'QR'}-${serialLast6(payload.serial||'') || 'label'}`;
+
+        const safeName = String(base).replace(/[^a-z0-9\-_]+/gi,'_').slice(0,60);
+        const file = new File([blob], `${safeName}.png`, { type:'image/png' });
+
+        // If canShare exists, validate files support
+        if (navigator.canShare){
+          const ok = navigator.canShare({ files:[file] });
+          if (!ok) throw new Error('Share sheet does not accept files on this device/browser');
+        }
+
+        await navigator.share({
+          title: 'FarmVista QR Label',
+          text: 'QR label image (PNG)',
+          files: [file]
+        });
+      }catch(err){
+        console.warn('[equipment-label] share failed', err);
+        toast('Share failed. Try Print, or use Safari (not in-app browser).');
+      }
+    }
+
+    function toast(msg){
+      const t = document.createElement('div');
+      t.className='toast';
+      t.textContent = msg;
+      document.body.appendChild(t);
+      setTimeout(()=>{ try{ t.remove(); }catch{} }, 2400);
+    }
+
     async function setPreview(payload){
       const isSF = !!payload?.isStarfire;
       const qrUrl = payload?.url || '';
@@ -769,6 +1035,9 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
       const qrSrc = qrUrl ? (qrUrl + bust) : '';
 
       clearPreviewHost();
+
+      // Share button availability (will enable once preview is ready)
+      pShare.disabled = !canShareFiles();
 
       if (isSF){
         pHdrTitle.textContent = 'Print StarFire QR Label';
@@ -805,6 +1074,9 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
           qrSrc: __previewQrSrc,
           serial: payload?.serial || ''
         }));
+
+        // Enable share now that we have a preview QR src
+        pShare.disabled = !canShareFiles();
 
         return;
       }
@@ -877,6 +1149,9 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
         serial: payload?.serial || '',
         cutLenMm: __labelLenMm
       }));
+
+      // Enable share now that we know cut length + QR source
+      pShare.disabled = !canShareFiles();
     }
 
     function openReprintPreview(payload){
@@ -894,7 +1169,7 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
     pClose.addEventListener('click', closeReprintPreview);
     pCancel.addEventListener('click', closeReprintPreview);
 
-    // ✅ IMPORTANT: Print is now SYNC and does NOT rely on timeouts or rebuilding
+    // ✅ Print is SYNC and does NOT rely on timeouts or rebuilding
     pPrint.addEventListener('click', ()=>{
       try{
         const win = printFrame.contentWindow;
@@ -904,8 +1179,19 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
       }catch(err){
         console.warn('[equipment-label] print failed', err);
       }
-      // close AFTER calling print (so the print call stays tied to the tap)
       setTimeout(()=>closeReprintPreview(), 50);
+    });
+
+    // ✅ NEW: Share button
+    pShare.addEventListener('click', async ()=>{
+      if (!__pendingPrint) return;
+      // Ensure payload contains computed cut length + preview QR src
+      const payload = {
+        ...__pendingPrint,
+        qrSrc: __previewQrSrc || __pendingPrint.qrSrc || __pendingPrint.url || '',
+        cutLenMm: __pendingPrint.isStarfire ? STARFIRE_LABEL.cutLenMm : (__labelLenMm || LABEL.minLenMm)
+      };
+      await shareToBrother(payload);
     });
 
     function openDetail(d){
