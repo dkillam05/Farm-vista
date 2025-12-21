@@ -586,123 +586,139 @@
     }
 
     // ===== Print Preview + Print Iframe preload =====
-const pDlg = document.getElementById('printPrev');
-const pHdrTitle = document.getElementById('pHdrTitle');
-const pHelp = document.getElementById('pHelp');
-const printWrap = document.getElementById('printWrap');
-const pHost = document.getElementById('pPreviewHost');
-const pClose = document.getElementById('pClose');
-const pCancel = document.getElementById('pCancel');
-const pPrint = document.getElementById('pPrint');
-const pShare = document.getElementById('pShare');
+    const pDlg = document.getElementById('printPrev');
+    const pHdrTitle = document.getElementById('pHdrTitle');
+    const pHelp = document.getElementById('pHelp');
+    const printWrap = document.getElementById('printWrap');
+    const pHost = document.getElementById('pPreviewHost');
+    const pClose = document.getElementById('pClose');
+    const pCancel = document.getElementById('pCancel');
+    const pPrint = document.getElementById('pPrint');
+    const pShare = document.getElementById('pShare');
 
-const printFrame = document.getElementById('fv-print-frame');
+    const printFrame = document.getElementById('fv-print-frame');
 
-let __pendingPrint = null;
-let __labelLenMm = 90;
-let __previewQrSrc = '';
-let __rawQrUrl = '';
+    let __pendingPrint = null;
+    let __labelLenMm = 90;
+    let __previewQrSrc = '';
 
-const LABEL = { tapeWmm: 62, qrMm: 48, padMm: 2.2, gapMm: 2.0, minLenMm: 90, maxLenMm: 152.4 };
-const STARFIRE_LABEL = { tapeWmm: 62, cutLenMm: 62, qrMm: 46 };
+    const LABEL = { tapeWmm: 62, qrMm: 48, padMm: 2.2, gapMm: 2.0, minLenMm: 90, maxLenMm: 152.4 };
+    const STARFIRE_LABEL = { tapeWmm: 62, cutLenMm: 62, qrMm: 46 };
 
-function clampLenMm(mm){
-  let len = Math.max(LABEL.minLenMm, Math.min(LABEL.maxLenMm, mm));
-  len = Math.round(len * 2) / 2;
-  return len;
-}
-function normalizeSerial(s){ return String(s||'').trim().toUpperCase(); }
-function serialLast6(serial){
-  const s = normalizeSerial(serial || '');
-  if(!s) return '';
-  return s.length <= 6 ? s : s.slice(-6);
-}
-function pickStarfireSerial(d){
-  const raw = normalizeSerial(d?.starfireSerial || d?.serial || '');
-  return raw || '';
-}
+    // ✅ Your Cloud Run proxy (returns a REAL PNG file)
+    const QR_PROXY_BASE = 'https://qr-proxy-300398089669.us-central1.run.app';
 
-function esc(s){
-  return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
-}
+    // Hide “Share to Brother” on desktop (and on devices that can’t share files)
+    const UA = navigator.userAgent || '';
+    const IS_MOBILE =
+      /iphone|ipad|ipod|android/i.test(UA) ||
+      (window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches);
 
-function measureTextPxWithComputedStyle(text, styleRefEl){
-  const cs = getComputedStyle(styleRefEl);
-  const span = document.createElement('span');
-  span.textContent = String(text ?? '');
-  span.style.position = 'fixed';
-  span.style.left = '-99999px';
-  span.style.top = '-99999px';
-  span.style.visibility = 'hidden';
-  span.style.whiteSpace = 'nowrap';
-  span.style.fontFamily = cs.fontFamily;
-  span.style.fontSize = cs.fontSize;
-  span.style.fontWeight = cs.fontWeight;
-  span.style.letterSpacing = cs.letterSpacing;
-  span.style.textTransform = cs.textTransform;
-  document.body.appendChild(span);
-  const w = span.getBoundingClientRect().width;
-  span.remove();
-  return w;
-}
+    (function setupShareVisibility(){
+      const canShareFiles =
+        !!navigator.share &&
+        (!!navigator.canShare ? navigator.canShare({ files: [new File(['x'], 'x.txt', {type:'text/plain'})] }) : true);
 
-function pxPerMm(){ return 96 / 25.4; }
-function computeLongLenMmFromDOM({ makeEl, modelEl, labEl, valEl, makeName, modelName, serial6 }){
-  const pmm = pxPerMm();
+      if (!IS_MOBILE || !canShareFiles){
+        pShare.style.display = 'none';
+      }
+    })();
 
-  const makeWpx  = measureTextPxWithComputedStyle(makeName || '', makeEl);
-  const modelWpx = measureTextPxWithComputedStyle(modelName || '', modelEl);
-  const leftWpx  = Math.max(makeWpx, modelWpx);
+    function normalizeSerial(s){ return String(s||'').trim().toUpperCase(); }
+    function serialLast6(serial){
+      const s = normalizeSerial(serial || '');
+      if(!s) return '';
+      return s.length <= 6 ? s : s.slice(-6);
+    }
+    function pickStarfireSerial(d){
+      const raw = normalizeSerial(d?.starfireSerial || d?.serial || '');
+      return raw || '';
+    }
+    function esc(s){
+      return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+    }
 
-  const labText = 'VIN/Serial';
-  const valText = serial6 || '';
-  const labWpx = measureTextPxWithComputedStyle(labText, labEl);
-  const valWpx = measureTextPxWithComputedStyle(valText, valEl);
-  const rightWpx = Math.max(labWpx, valWpx);
+    function measureTextPxWithComputedStyle(text, styleRefEl){
+      const cs = getComputedStyle(styleRefEl);
+      const span = document.createElement('span');
+      span.textContent = String(text ?? '');
+      span.style.position = 'fixed';
+      span.style.left = '-99999px';
+      span.style.top = '-99999px';
+      span.style.visibility = 'hidden';
+      span.style.whiteSpace = 'nowrap';
+      span.style.fontFamily = cs.fontFamily;
+      span.style.fontSize = cs.fontSize;
+      span.style.fontWeight = cs.fontWeight;
+      span.style.letterSpacing = cs.letterSpacing;
+      span.style.textTransform = cs.textTransform;
+      document.body.appendChild(span);
+      const w = span.getBoundingClientRect().width;
+      span.remove();
+      return w;
+    }
 
-  const leftMm  = leftWpx / pmm;
-  const rightMm = rightWpx / pmm;
+    function pxPerMm(){ return 96 / 25.4; }
+    function clampLenMm(mm){
+      let len = Math.max(LABEL.minLenMm, Math.min(LABEL.maxLenMm, mm));
+      len = Math.round(len * 2) / 2;
+      return len;
+    }
+    function computeLongLenMmFromDOM({ makeEl, modelEl, labEl, valEl, makeName, modelName, serial6 }){
+      const pmm = pxPerMm();
 
-  const safetyMm = 6.0;
-  const raw =
-    (LABEL.padMm * 2) +
-    (LABEL.gapMm * 2) +
-    leftMm +
-    LABEL.qrMm +
-    rightMm +
-    safetyMm;
+      const makeWpx  = measureTextPxWithComputedStyle(makeName || '', makeEl);
+      const modelWpx = measureTextPxWithComputedStyle(modelName || '', modelEl);
+      const leftWpx  = Math.max(makeWpx, modelWpx);
 
-  return clampLenMm(raw);
-}
+      const labText = 'VIN/Serial';
+      const valText = serial6 || '';
+      const labWpx = measureTextPxWithComputedStyle(labText, labEl);
+      const valWpx = measureTextPxWithComputedStyle(valText, valEl);
+      const rightWpx = Math.max(labWpx, valWpx);
 
-function clearPreviewHost(){
-  pHost.innerHTML = '';
-  __previewQrSrc = '';
-  __rawQrUrl = '';
-}
+      const leftMm  = leftWpx / pmm;
+      const rightMm = rightWpx / pmm;
 
-function writePrintFrame(html){
-  const win = printFrame.contentWindow;
-  const docu = printFrame.contentDocument || win.document;
-  docu.open();
-  docu.write(html);
-  docu.close();
-}
+      const safetyMm = 6.0;
+      const raw =
+        (LABEL.padMm * 2) +
+        (LABEL.gapMm * 2) +
+        leftMm +
+        LABEL.qrMm +
+        rightMm +
+        safetyMm;
 
-function buildLabelPrintHtml(payload){
-  const isSF = !!payload?.isStarfire;
-  const qrSrc = String(payload?.qrSrc || payload?.url || '');
-  const serialRaw = String(payload?.serial || '');
-  const makeName = String(payload?.make || '');
-  const modelName = String(payload?.model || '');
+      return clampLenMm(raw);
+    }
 
-  if (isSF){
-    const W = STARFIRE_LABEL.cutLenMm;
-    const H = STARFIRE_LABEL.tapeWmm;
-    const Q = STARFIRE_LABEL.qrMm;
-    const fontSize = (serialRaw && serialRaw.length > 12) ? '13pt' : '16pt';
+    function clearPreviewHost(){
+      pHost.innerHTML = '';
+      __previewQrSrc = '';
+    }
 
-    return `<!doctype html>
+    function writePrintFrame(html){
+      const win = printFrame.contentWindow;
+      const docu = printFrame.contentDocument || win.document;
+      docu.open();
+      docu.write(html);
+      docu.close();
+    }
+
+    function buildLabelPrintHtml(payload){
+      const isSF = !!payload?.isStarfire;
+      const qrSrc = String(payload?.qrSrc || payload?.url || '');
+      const serialRaw = String(payload?.serial || '');
+      const makeName = String(payload?.make || '');
+      const modelName = String(payload?.model || '');
+
+      if (isSF){
+        const W = STARFIRE_LABEL.cutLenMm;
+        const H = STARFIRE_LABEL.tapeWmm;
+        const Q = STARFIRE_LABEL.qrMm;
+        const fontSize = (serialRaw && serialRaw.length > 12) ? '13pt' : '16pt';
+
+        return `<!doctype html>
 <html><head><meta charset="utf-8">
 <title>Print StarFire Label</title>
 <style>
@@ -726,15 +742,15 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
     <div class="serial">${esc(serialRaw || '—')}</div>
   </div>
 </body></html>`;
-  }
+      }
 
-  const cutLen = Number(payload?.cutLenMm || __labelLenMm || LABEL.minLenMm);
-  const W = cutLen;
-  const H = LABEL.tapeWmm;
-  const Q = LABEL.qrMm;
-  const serial6 = serialLast6(serialRaw) || '';
+      const cutLen = Number(payload?.cutLenMm || __labelLenMm || LABEL.minLenMm);
+      const W = cutLen;
+      const H = LABEL.tapeWmm;
+      const Q = LABEL.qrMm;
+      const serial6 = serialLast6(serialRaw) || '';
 
-  return `<!doctype html>
+      return `<!doctype html>
 <html><head><meta charset="utf-8">
 <title>Print Label</title>
 <style>
@@ -768,297 +784,11 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
     </div>
   </div>
 </body></html>`;
-}
-
-// =====================================================
-// ✅ ONLINE-ONLY "SHARE TO BROTHER" (NO CORS REQUIRED)
-// =====================================================
-pShare.addEventListener('click', async () => {
-  if (!__pendingPrint || !__pendingPrint.url) {
-    alert('QR not ready yet');
-    return;
-  }
-
-  const qrUrl = __pendingPrint.url;
-
-  // Use native share sheet with the IMAGE URL
-  if (navigator.share) {
-    try {
-      await navigator.share({
-        title: 'Equipment QR',
-        text: 'QR label',
-        url: qrUrl
-      });
-      return;
-    } catch (err) {
-      console.warn('Share cancelled or failed', err);
-    }
-  }
-
-  // Fallback: open QR image so it can be shared manually
-  window.open(qrUrl, '_blank', 'noopener');
-});
-
-
-    // ===== Share support + CORS-safe fallback =====
-    function canShare(){
-      return !!navigator.share;
-    }
-
-    function isLikelyCorsCanvasError(err){
-      const msg = String(err?.message || err || '');
-      return msg.toLowerCase().includes('image load failed')
-          || msg.toLowerCase().includes('cors')
-          || msg.toLowerCase().includes('tainted')
-          || msg.toLowerCase().includes('failed');
-    }
-
-    function waitImage(img){
-      return new Promise((resolve, reject)=>{
-        if (!img) return reject(new Error('No image'));
-        if (img.complete && img.naturalWidth > 0) return resolve();
-        const onLoad = ()=>{ cleanup(); resolve(); };
-        const onErr = ()=>{ cleanup(); reject(new Error('Image load failed')); };
-        const cleanup = ()=>{ img.removeEventListener('load', onLoad); img.removeEventListener('error', onErr); };
-        img.addEventListener('load', onLoad, { once:true });
-        img.addEventListener('error', onErr, { once:true });
-      });
-    }
-
-    async function loadImageToCanvasSource(src){
-      const img = new Image();
-      img.decoding = 'async';
-      // This DOES NOT bypass CORS; it only lets canvas use it IF the server sends CORS headers.
-      img.crossOrigin = 'anonymous';
-      img.src = src;
-      await waitImage(img);
-      return img;
-    }
-
-    function mmToPx(mm, dpi){
-      const ppmm = dpi / 25.4;
-      return Math.round(mm * ppmm);
-    }
-
-    async function buildLabelPngBlob(payload){
-      const dpi = 300;
-      const isSF = !!payload?.isStarfire;
-
-      if (isSF){
-        const Wmm = STARFIRE_LABEL.cutLenMm;
-        const Hmm = STARFIRE_LABEL.tapeWmm;
-        const Qmm = STARFIRE_LABEL.qrMm;
-
-        const W = mmToPx(Wmm, dpi);
-        const H = mmToPx(Hmm, dpi);
-        const pad = mmToPx(2.2, dpi);
-        const gap = mmToPx(2.0, dpi);
-        const Q = mmToPx(Qmm, dpi);
-
-        const canvas = document.createElement('canvas');
-        canvas.width = W;
-        canvas.height = H;
-        const ctx = canvas.getContext('2d', { alpha:false });
-
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0,0,W,H);
-
-        const qrSrc = String(payload?.qrSrc || payload?.url || '');
-        const img = await loadImageToCanvasSource(qrSrc);
-        const qrX = Math.round((W - Q)/2);
-        const qrY = pad;
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(img, qrX, qrY, Q, Q);
-
-        const serial = String(payload?.serial || '').trim() || '—';
-        const fontPt = (serial.length > 12) ? 13 : 16;
-        const fontPx = Math.round((fontPt / 72) * dpi);
-        ctx.fillStyle = '#000000';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.font = `900 ${fontPx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
-
-        const textY = qrY + Q + gap + Math.round((H - (qrY + Q + gap))/2);
-        const maxW = W - pad*2;
-        let s = serial;
-        while (ctx.measureText(s).width > maxW && s.length > 4){
-          s = s.slice(0, -2) + '…';
-        }
-        ctx.fillText(s, Math.round(W/2), Math.min(H - pad - Math.round(fontPx/2), Math.max(qrY + Q + gap + Math.round(fontPx/2), textY)));
-
-        return await new Promise((resolve)=> canvas.toBlob(b=>resolve(b), 'image/png'));
-      }
-
-      const cutLenMm = Number(payload?.cutLenMm || __labelLenMm || LABEL.minLenMm);
-      const Wmm = cutLenMm;
-      const Hmm = LABEL.tapeWmm;
-      const Qmm = LABEL.qrMm;
-
-      const W = mmToPx(Wmm, dpi);
-      const H = mmToPx(Hmm, dpi);
-
-      const pad = mmToPx(2.2, dpi);
-      const gap = mmToPx(2.0, dpi);
-      const Q = mmToPx(Qmm, dpi);
-
-      const canvas = document.createElement('canvas');
-      canvas.width = W;
-      canvas.height = H;
-      const ctx = canvas.getContext('2d', { alpha:false });
-
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0,0,W,H);
-
-      const make = String(payload?.make || '').trim() || '—';
-      const model = String(payload?.model || '').trim() || '—';
-      const serial6 = serialLast6(payload?.serial || '') || '—';
-
-      const makePt = 18, modelPt = 16, labPt = 12, valPt = 18;
-      const makePx = Math.round((makePt/72)*dpi);
-      const modelPx = Math.round((modelPt/72)*dpi);
-      const labPx = Math.round((labPt/72)*dpi);
-      const valPx = Math.round((valPt/72)*dpi);
-
-      const makeFont = `900 ${makePx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
-      const modelFont = `800 ${modelPx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
-      const labFont = `800 ${labPx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
-      const valFont = `900 ${valPx}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
-
-      ctx.font = makeFont; const makeW = ctx.measureText(make).width;
-      ctx.font = modelFont; const modelW = ctx.measureText(model).width;
-      let leftW = Math.max(makeW, modelW);
-
-      ctx.font = labFont; const labW = ctx.measureText('VIN/Serial').width;
-      ctx.font = valFont; const valW = ctx.measureText(serial6).width;
-      const rightW = Math.max(labW, valW);
-
-      const availableLeft = W - (pad + gap + Q + gap + rightW + pad);
-      const leftMax = Math.max(10, availableLeft);
-
-      function ellipsize(text, font, maxWidth){
-        ctx.font = font;
-        if (ctx.measureText(text).width <= maxWidth) return text;
-        let t = text;
-        while (t.length > 4 && ctx.measureText(t + '…').width > maxWidth){
-          t = t.slice(0, -1);
-        }
-        return t.length <= 4 ? '…' : (t + '…');
-      }
-
-      const makeDraw = ellipsize(make, makeFont, leftMax);
-      const modelDraw = ellipsize(model, modelFont, leftMax);
-
-      ctx.font = makeFont; const makeW2 = ctx.measureText(makeDraw).width;
-      ctx.font = modelFont; const modelW2 = ctx.measureText(modelDraw).width;
-      leftW = Math.max(makeW2, modelW2);
-
-      const leftX = pad;
-      const qrX = Math.round(pad + leftW + gap);
-      const qrY = Math.round((H - Q)/2);
-
-      const lineGap = mmToPx(1.0, dpi);
-      const totalTextH = makePx + lineGap + modelPx;
-      const textTop = Math.round((H - totalTextH)/2);
-
-      ctx.fillStyle = '#000';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'top';
-
-      ctx.font = makeFont;
-      ctx.fillText(makeDraw, leftX, textTop);
-
-      ctx.font = modelFont;
-      ctx.fillText(modelDraw, leftX, textTop + makePx + lineGap);
-
-      const qrSrc = String(payload?.qrSrc || payload?.url || '');
-      const img = await loadImageToCanvasSource(qrSrc);
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(img, qrX, qrY, Q, Q);
-
-      const rightStartX = Math.round(qrX + Q + gap);
-      const rightTop = Math.round((H - (labPx + lineGap + valPx))/2);
-
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'top';
-      ctx.font = labFont;
-      ctx.globalAlpha = 0.85;
-      ctx.fillText('VIN/Serial', Math.min(W - pad, rightStartX + rightW), rightTop);
-
-      ctx.globalAlpha = 1.0;
-      ctx.font = valFont;
-      ctx.fillText(serial6, Math.min(W - pad, rightStartX + rightW), rightTop + labPx + lineGap);
-
-      return await new Promise((resolve)=> canvas.toBlob(b=>resolve(b), 'image/png'));
-    }
-
-    async function shareToBrother(payload){
-      try{
-        toast('Preparing share…', 900);
-
-        const blob = await buildLabelPngBlob(payload);
-        if (!blob) throw new Error('Could not build PNG');
-
-        const base =
-          payload.isStarfire
-            ? `StarFire-${String(payload.serial||'').trim() || 'label'}`
-            : `${String(payload.make||'').trim() || 'Equip'}-${String(payload.model||'').trim() || 'QR'}-${serialLast6(payload.serial||'') || 'label'}`;
-
-        const safeName = String(base).replace(/[^a-z0-9\-_]+/gi,'_').slice(0,60);
-        const file = new File([blob], `${safeName}.png`, { type:'image/png' });
-
-        if (!navigator.share) {
-          // desktop fallback
-          const url = URL.createObjectURL(file);
-          window.open(url, '_blank', 'noopener');
-          toast('Opened PNG in a new tab (desktop).');
-          return;
-        }
-
-        if (navigator.canShare){
-          const ok = navigator.canShare({ files:[file] });
-          if (!ok) throw new Error('Share sheet does not accept files');
-        }
-
-        await navigator.share({
-          title: 'FarmVista QR Label',
-          text: 'QR label image (PNG)',
-          files: [file]
-        });
-      }catch(err){
-        console.warn('[equipment-label] share failed', err);
-
-        // ✅ CORS/workaround fallback:
-        if (isLikelyCorsCanvasError(err) && __rawQrUrl){
-          toast('CORS blocked PNG. Sharing QR link instead…', 1400);
-
-          // Try sharing a URL (Brother may accept, or you can open it then share from viewer)
-          if (navigator.share){
-            try{
-              await navigator.share({
-                title: 'Equipment QR',
-                text: 'QR image link',
-                url: __rawQrUrl
-              });
-              return;
-            }catch(e2){
-              console.warn('[equipment-label] url share failed', e2);
-            }
-          }
-
-          // Last fallback: open QR image in new tab
-          window.open(__rawQrUrl, '_blank', 'noopener');
-          toast('Opened QR image. Share it from the viewer / Brother app.');
-          return;
-        }
-
-        toast('Share failed. (Most likely Storage CORS).');
-      }
     }
 
     async function setPreview(payload){
       const isSF = !!payload?.isStarfire;
       const qrUrl = payload?.url || '';
-      __rawQrUrl = qrUrl || '';
 
       printWrap.classList.toggle('center', isSF);
 
@@ -1095,6 +825,7 @@ pShare.addEventListener('click', async () => {
 
         __previewQrSrc = img.src || qrSrc;
 
+        // ✅ preload print iframe
         writePrintFrame(buildLabelPrintHtml({
           isStarfire:true,
           url: qrUrl,
@@ -1163,6 +894,7 @@ pShare.addEventListener('click', async () => {
 
       __previewQrSrc = img.src || qrSrc;
 
+      // ✅ preload print iframe (after cut length known)
       writePrintFrame(buildLabelPrintHtml({
         isStarfire:false,
         url: qrUrl,
@@ -1189,6 +921,7 @@ pShare.addEventListener('click', async () => {
     pClose.addEventListener('click', closeReprintPreview);
     pCancel.addEventListener('click', closeReprintPreview);
 
+    // ✅ PRINT: keep it direct (works on iOS when tied to the tap)
     pPrint.addEventListener('click', ()=>{
       try{
         const win = printFrame.contentWindow;
@@ -1201,14 +934,46 @@ pShare.addEventListener('click', async () => {
       setTimeout(()=>closeReprintPreview(), 50);
     });
 
+    // ✅ SHARE (MOBILE ONLY): use proxy to get a REAL PNG file, then share the file
     pShare.addEventListener('click', async ()=>{
-      if (!__pendingPrint) return;
-      const payload = {
-        ...__pendingPrint,
-        qrSrc: __previewQrSrc || __pendingPrint.qrSrc || __pendingPrint.url || '',
-        cutLenMm: __pendingPrint.isStarfire ? STARFIRE_LABEL.cutLenMm : (__labelLenMm || LABEL.minLenMm)
-      };
-      await shareToBrother(payload);
+      if (!__pendingPrint || !__pendingPrint.url) return;
+
+      // If hidden on desktop, do nothing.
+      if (pShare.style.display === 'none') return;
+
+      try{
+        toast('Preparing share…', 900);
+
+        const proxyUrl = `${QR_PROXY_BASE}?url=${encodeURIComponent(__pendingPrint.url)}`;
+        const r = await fetch(proxyUrl, { cache: 'no-store' });
+        if (!r.ok) throw new Error('Proxy fetch failed');
+
+        const blob = await r.blob();
+        if (!blob || !blob.size) throw new Error('Empty file');
+
+        const serialPart = (__pendingPrint.isStarfire ? String(__pendingPrint.serial||'') : serialLast6(__pendingPrint.serial||'')) || 'qr';
+        const name = (__pendingPrint.isStarfire ? 'StarFire' : 'Equipment') + '-' + serialPart;
+        const safeName = name.replace(/[^a-z0-9\-_]+/gi,'_').slice(0,60) + '.png';
+
+        const file = new File([blob], safeName, { type: 'image/png' });
+
+        // iOS: navigator.canShare is best if available, but not required on all versions
+        if (navigator.canShare && !navigator.canShare({ files:[file] })) {
+          throw new Error('Share sheet does not accept files');
+        }
+
+        await navigator.share({
+          title: 'FarmVista QR Label',
+          text: 'QR label (PNG)',
+          files: [file]
+        });
+      }catch(err){
+        console.warn('[equipment-label] share failed', err);
+        toast('Share failed. Opening file…', 1200);
+        // fallback: open the proxy URL directly (still serves a file)
+        const proxyUrl = `${QR_PROXY_BASE}?url=${encodeURIComponent(__pendingPrint.url)}`;
+        window.open(proxyUrl, '_blank', 'noopener');
+      }
     });
 
     function openDetail(d){
