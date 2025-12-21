@@ -1,13 +1,15 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/weather.html  (FULL FILE)
-Rev: 2025-12-21g
+Rev: 2025-12-21h
 
-Requested changes:
-✅ Remove Soil/Drain text from field row (move into Adjust modal)
-✅ Keep rain range where it is
-✅ Remove % signs so users don’t think “percent of the field”
-   - Use “Readiness Score (0–100)” language
-   - Chips show “Wet 31” / “Ready 69” (no %)
+Requested tweaks:
+✅ Use "Field Readiness" labeling (no percent language)
+✅ If ETA would be zero (field is ready), display NOTHING
+✅ Move "Rain (range)" up directly under Farm • Field (no blank line)
+✅ Remove the numbers next to Wet/Ready chips above bar (chips become labels only)
+✅ Rename "Ready" -> "Readiness" everywhere in the UI
+✅ Keep: tiny Adjust next to field name, readiness pill top-right (gradient),
+   threshold black line on gauge, wet/dry follow-up questions, rain range stays in controls
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -30,7 +32,7 @@ Requested changes:
   <script src="/Farm-vista/js/fv-date-range-picker.js"></script>
 
   <style>
-    :root{ --card-max:1200px; --page-bottom-gap:72px; --accent:#2F6C3C; }
+    :root{ --card-max:1200px; --page-bottom-gap:72px; }
     .page{
       max-width:var(--card-max);
       margin:0 auto;
@@ -58,7 +60,6 @@ Requested changes:
     .card-h .t{ margin:0; font-size:15px; font-weight:950; }
     .card-b{ padding:12px 14px; }
 
-    /* Controls above everything */
     .opCard{
       position: relative;
       z-index: 99999;
@@ -183,8 +184,6 @@ Requested changes:
       text-overflow:ellipsis;
       max-width: 520px;
     }
-
-    /* Tiny adjust button */
     .miniAdjust{
       padding:6px 8px;
       border-radius:10px;
@@ -197,7 +196,7 @@ Requested changes:
       line-height:1;
     }
 
-    /* Ready score pill top-right (colored like gradient) */
+    /* Top-right readiness pill (gradient-matched) */
     .readyPill{
       display:inline-flex;
       align-items:center;
@@ -211,9 +210,15 @@ Requested changes:
       color:#fff;
     }
 
-    .fieldSub{ font-size:12px; opacity:.85; margin-top:2px; }
+    /* tighter subline */
+    .subLine{
+      font-size:12px;
+      opacity:.85;
+      margin:0;              /* remove "blank line" feel */
+      line-height:1.2;
+    }
 
-    /* Wet/Ready chips (NO percent sign) */
+    /* Chips become labels only (no numbers) */
     .chip{
       display:inline-flex;
       align-items:center;
@@ -226,7 +231,7 @@ Requested changes:
       white-space:nowrap;
     }
     .chip.wet{ background: color-mix(in srgb, #c83b3b 18%, var(--surface) 82%); }
-    .chip.ready{ background: color-mix(in srgb, #2f8f4b 18%, var(--surface) 82%); }
+    .chip.readiness{ background: color-mix(in srgb, #2f8f4b 18%, var(--surface) 82%); }
 
     /* Gauge */
     .workGaugeWrap{ display:flex; flex-direction:column; gap:8px; }
@@ -344,7 +349,7 @@ Requested changes:
     .modal-b{ padding:14px; }
     .modal-actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
 
-    /* Date range popover */
+    /* Date picker popover */
     .cal-popover{
       top:calc(100% + 8px);
       left:0;
@@ -489,7 +494,7 @@ Requested changes:
         <div>
           <p class="t">Fields</p>
           <div class="muted" style="font-size:12px;">
-            Readiness Score (0–100). Marker = field score. Black line = threshold.
+            Field Readiness (0–100). Marker = field score. Black line = threshold.
           </div>
         </div>
         <div class="mono muted" id="tileStamp">—</div>
@@ -504,7 +509,7 @@ Requested changes:
         <div class="card-h">
           <div>
             <p class="t">Selected Field Inputs</p>
-            <div class="muted" style="font-size:12px;">Soil/Drain definitions are shown inside Adjust.</div>
+            <div class="muted" style="font-size:12px;">Definitions live in Adjust.</div>
           </div>
         </div>
 
@@ -540,7 +545,7 @@ Requested changes:
           </div>
 
           <div class="field">
-            <label for="workable">Workable Threshold (Readiness Score)</label>
+            <label for="workable">Operation Threshold (Readiness Score)</label>
             <div class="slider-wrap">
               <input id="workable" type="range" min="0" max="100" step="1" value="70"/>
               <div class="pill" id="workableVal">70</div>
@@ -693,10 +698,7 @@ Requested changes:
           </div>
         </div>
 
-        <!-- Soil/Drain values + definitions live HERE -->
-        <div class="note" style="margin-top:12px;" id="adjustSoilDrain">
-          —
-        </div>
+        <div class="note" style="margin-top:12px;" id="adjustSoilDrain">—</div>
       </div>
     </div>
   </div>
@@ -704,7 +706,6 @@ Requested changes:
 <script>
 (function(){
   'use strict';
-
   const $ = (id)=> document.getElementById(id);
   const clamp = (v, lo, hi)=> Math.max(lo, Math.min(hi, v));
   const round = (v, d=2)=> {
@@ -712,25 +713,21 @@ Requested changes:
     return Math.round(v*p)/p;
   };
 
+  const LOSS_SCALE = 0.55;
+
   function showErr(msg){
-    const box = $('errBox');
-    const text = $('errText');
+    const box = $('errBox'); const text = $('errText');
     if (!box || !text) return;
-    text.textContent = String(msg || 'Unknown error');
+    text.textContent = String(msg||'Unknown error');
     box.style.display = 'block';
   }
   window.addEventListener('error', (e)=>{
     try{
-      const m = (e && e.message) ? e.message : 'Script error';
-      const at = (e && e.filename) ? (' @ ' + e.filename + ':' + (e.lineno||'?')) : '';
-      showErr(m + at);
+      const m=(e&&e.message)?e.message:'Script error';
+      const at=(e&&e.filename)?(' @ '+e.filename+':'+(e.lineno||'?')):'';
+      showErr(m+at);
     }catch(_){}
   });
-  window.addEventListener('unhandledrejection', (e)=>{
-    try{ showErr('Unhandled promise rejection: ' + String(e && e.reason ? e.reason : e)); }catch(_){}
-  });
-
-  const LOSS_SCALE = 0.55;
 
   const state = {
     weather30: [],
@@ -738,7 +735,7 @@ Requested changes:
     mode: 'MOCK',
     selectedFieldId: 'f1',
     lastRuns: new Map(),
-    readyOverride: new Map(),     // fieldId -> readiness score (0..100)
+    readyOverride: new Map(),
     adjustContext: { fieldId:null }
   };
 
@@ -750,27 +747,20 @@ Requested changes:
 
   function escapeHtml(s){
     return String(s||'')
-      .replaceAll('&','&amp;')
-      .replaceAll('<','&lt;')
-      .replaceAll('>','&gt;')
-      .replaceAll('"','&quot;')
-      .replaceAll("'","&#039;");
+      .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
+      .replaceAll('"','&quot;').replaceAll("'","&#039;");
   }
 
-  // MOCK WEATHER
+  // Mock weather
   function seededRand(){
     state.seed = (state.seed * 1664525 + 1013904223) % 4294967296;
     return state.seed / 4294967296;
   }
   function genMock30(){
     const out = [];
-    const today = new Date();
-    today.setHours(12,0,0,0);
-
+    const today = new Date(); today.setHours(12,0,0,0);
     for (let i=29; i>=0; i--){
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
-
+      const d = new Date(today); d.setDate(d.getDate() - i);
       const eventRoll = seededRand();
       let rain = 0;
       if (eventRoll > 0.82) rain = 0.10 + seededRand()*1.10;
@@ -795,34 +785,29 @@ Requested changes:
         solarWm2: Math.round(solar),
       });
     }
-
     state.weather30 = out;
     state.mode = 'MOCK';
     $('dataMode').textContent = 'Mode: MOCK';
     $('modeLine').textContent = 'MOCK';
   }
 
-  // DATE RANGE
+  // Date range
   function parseRangeFromInput(){
     const raw = String($('jobRangeInput').value || '').trim();
     if (!raw) return { start:null, end:null };
 
     const parts = raw.split('–').map(s=>s.trim());
     if (parts.length === 2){
-      const a = new Date(parts[0]);
-      const b = new Date(parts[1]);
+      const a = new Date(parts[0]); const b = new Date(parts[1]);
       if (isFinite(a.getTime()) && isFinite(b.getTime())){
-        a.setHours(0,0,0,0);
-        b.setHours(23,59,59,999);
+        a.setHours(0,0,0,0); b.setHours(23,59,59,999);
         return { start:a, end:b };
       }
     }
-
     const d = new Date(raw);
     if (isFinite(d.getTime())){
       d.setHours(0,0,0,0);
-      const e = new Date(d);
-      e.setHours(23,59,59,999);
+      const e = new Date(d); e.setHours(23,59,59,999);
       return { start:d, end:e };
     }
     return { start:null, end:null };
@@ -833,7 +818,7 @@ Requested changes:
     return d >= range.start && d <= range.end;
   }
 
-  // DRY POWER
+  // Dry power
   function calcDryParts(r){
     const temp = Number(r.tempF||0);
     const wind = Number(r.windMph||0);
@@ -847,25 +832,21 @@ Requested changes:
 
     const raw = (0.35*tempN + 0.30*solarN + 0.25*windN - 0.25*rhN);
     const dryPwr = clamp(raw, 0, 1);
-
     return { temp, wind, rh, solar, tempN, windN, rhN, solarN, raw, dryPwr };
   }
 
-  // FACTORS
+  // Factors
   function mapFactors(soil, drain){
     const soilHold = (Number(soil) - 1) / 9;
     const drainPoor= (Number(drain) - 1) / 9;
-
     const infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor;
     const dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor;
     const Smax      = 2.60 + 1.00*soilHold + 0.90*drainPoor;
-
     return { soilHold, drainPoor, infilMult, dryMult, Smax };
   }
 
   function runField(field){
     if (!state.weather30.length) return null;
-
     const f = mapFactors(field.soil, field.drain);
     const rf = (state.mode === 'MOCK') ? (field.rainFactor || 1) : 1;
 
@@ -887,21 +868,10 @@ Requested changes:
       const rain = Number(d.rainInAdj||0);
       const add = rain * f.infilMult;
       const loss = Number(d.dryPwr||0) * LOSS_SCALE * f.dryMult;
-
       const before = storage;
       const after = clamp(before + add - loss, 0, f.Smax);
       storage = after;
-
-      trace.push({
-        dateISO: d.dateISO,
-        rain,
-        infilMult: f.infilMult,
-        add,
-        dryPwr: d.dryPwr,
-        loss,
-        before,
-        after
-      });
+      trace.push({ dateISO:d.dateISO, rain, infilMult:f.infilMult, add, dryPwr:d.dryPwr, loss, before, after });
     }
 
     const wetness = clamp((storage / f.Smax) * 100, 0, 100);
@@ -911,21 +881,10 @@ Requested changes:
     const last7 = trace.slice(-7);
     const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
 
-    return {
-      field,
-      factors: f,
-      rows,
-      trace,
-      storageFinal: storage,
-      wetnessR,
-      readinessR,
-      rain7,
-      rainNudge,
-      avgLossDay,
-      rf
-    };
+    return { field, factors:f, rows, trace, storageFinal:storage, wetnessR, readinessR, rain7, rainNudge, avgLossDay, rf };
   }
 
+  // ETA string. Return '' if ready.
   function etaFor(run, threshold){
     if (!run) return '';
     if (run.readinessR >= threshold) return '';
@@ -950,7 +909,7 @@ Requested changes:
     return round(sum, 2);
   }
 
-  // SORT
+  // Sort
   function sortFields(fields, runsById){
     const mode = String($('sortSel').value || 'name_az');
     const range = parseRangeFromInput();
@@ -973,25 +932,11 @@ Requested changes:
       if (mode === 'name_az') return collator.compare(nameA, nameB);
       if (mode === 'name_za') return collator.compare(nameB, nameA);
 
-      if (mode === 'ready_dry_wet'){
-        if (readyB !== readyA) return readyB - readyA;
-        return collator.compare(nameA, nameB);
-      }
-      if (mode === 'ready_wet_dry'){
-        if (readyB !== readyA) return readyA - readyB;
-        return collator.compare(nameA, nameB);
-      }
+      if (mode === 'ready_dry_wet'){ if (readyB !== readyA) return readyB - readyA; return collator.compare(nameA, nameB); }
+      if (mode === 'ready_wet_dry'){ if (readyB !== readyA) return readyA - readyB; return collator.compare(nameA, nameB); }
 
-      if (mode === 'rain_most'){
-        if (rainB !== rainA) return rainB - rainA;
-        if (readyA !== readyB) return readyA - readyB;
-        return collator.compare(nameA, nameB);
-      }
-      if (mode === 'rain_least'){
-        if (rainB !== rainA) return rainA - rainB;
-        if (readyA !== readyB) return readyB - readyA;
-        return collator.compare(nameA, nameB);
-      }
+      if (mode === 'rain_most'){ if (rainB !== rainA) return rainB - rainA; return collator.compare(nameA, nameB); }
+      if (mode === 'rain_least'){ if (rainB !== rainA) return rainA - rainB; return collator.compare(nameA, nameB); }
 
       return collator.compare(nameA, nameB);
     });
@@ -999,9 +944,9 @@ Requested changes:
     return arr;
   }
 
-  // Color for pill (still matches gradient, but not “percent”)
-  function readyColor(ready){
-    const p = clamp(ready, 0, 100);
+  // Color for pill
+  function readinessColor(score){
+    const p = clamp(score, 0, 100);
     if (p <= 55){
       const t = p / 55;
       const r = Math.round(200 + (216-200)*t);
@@ -1024,7 +969,7 @@ Requested changes:
     return p.toFixed(2) + '%';
   }
 
-  // RENDER
+  // Render
   function renderTiles(){
     const wrap = $('fieldsGrid');
     wrap.innerHTML = '';
@@ -1043,17 +988,18 @@ Requested changes:
       if (!run0) continue;
 
       const overrideReady = state.readyOverride.has(f.id) ? Number(state.readyOverride.get(f.id)) : null;
-      const ready = (overrideReady === null || !isFinite(overrideReady)) ? run0.readinessR : clamp(Math.round(overrideReady), 0, 100);
-      const wet = clamp(100 - ready, 0, 100);
+      const readiness = (overrideReady === null || !isFinite(overrideReady)) ? run0.readinessR : clamp(Math.round(overrideReady), 0, 100);
+      const wet = clamp(100 - readiness, 0, 100);
 
-      const isWorkable = (ready >= thr);
-      const eta = etaFor(run0, thr);
+      const isReady = (readiness >= thr);
+      const eta = isReady ? '' : etaFor(run0, thr); // if ready, display nothing
 
       const rainRange = rainInRange(run0, range);
-      const leftPos = markerLeftCSS(ready);
+
+      const leftPos = markerLeftCSS(readiness);
       const thrPos = markerLeftCSS(thr);
 
-      const pillBg = readyColor(ready);
+      const pillBg = readinessColor(readiness);
 
       const tile = document.createElement('div');
       tile.className = 'fieldTile' + (f.id === state.selectedFieldId ? ' active' : '');
@@ -1064,30 +1010,26 @@ Requested changes:
             <div class="fieldTitle">${escapeHtml(f.farm)} • ${escapeHtml(f.field)}</div>
             <button class="miniAdjust" data-adjust="${escapeHtml(f.id)}" type="button">Adjust</button>
           </div>
-
-          <div class="readyPill" style="background:${pillBg};">Ready ${ready}</div>
+          <div class="readyPill" style="background:${pillBg};">Readiness ${readiness}</div>
         </div>
 
-        <div class="fieldSub">
-          Rain (range): <span class="mono">${rainRange.toFixed(2)}</span> in
-          ${overrideReady!==null ? ` • <span class="mono">manual</span>` : ``}
-        </div>
+        <p class="subLine">Rain (range): <span class="mono">${rainRange.toFixed(2)}</span> in</p>
 
         <div class="workGaugeWrap">
           <div class="workRow">
-            <div class="chip wet">Wet <span class="mono">${wet}</span></div>
-            <div class="chip ready">Ready <span class="mono">${ready}</span></div>
+            <div class="chip wet">Wet</div>
+            <div class="chip readiness">Readiness</div>
           </div>
 
-          <div class="workGauge" aria-label="Readiness score gauge">
+          <div class="workGauge" aria-label="Field readiness gauge">
             <div class="thrMarker" style="left:${thrPos};"></div>
             <div class="workMarker" style="left:${leftPos};"></div>
-            <div class="markerBadge" style="left:${leftPos};">Ready ${ready}</div>
+            <div class="markerBadge" style="left:${leftPos};">Readiness ${readiness}</div>
           </div>
 
           <div class="workLabels"><span>0</span><span>50</span><span>100</span></div>
 
-          ${(!isWorkable) ? `<div class="muted" style="font-size:12px;"><b>${eta || 'Estimated to be greater then 2 days'}</b></div>` : ``}
+          ${eta ? `<div class="muted" style="font-size:12px;"><b>${eta}</b></div>` : ``}
         </div>
       `;
 
@@ -1127,16 +1069,16 @@ Requested changes:
 
     const fac = run.factors;
     const overrideReady = state.readyOverride.has(f.id) ? Number(state.readyOverride.get(f.id)) : null;
-    const readyShown = (overrideReady === null || !isFinite(overrideReady)) ? run.readinessR : clamp(Math.round(overrideReady), 0, 100);
+    const shown = (overrideReady === null || !isFinite(overrideReady)) ? run.readinessR : clamp(Math.round(overrideReady), 0, 100);
 
     $('paramExplain').innerHTML =
       `<b>Selected:</b> ${escapeHtml(f.farm)} • ${escapeHtml(f.field)}<br/>
-       <b>Displayed readiness score:</b> <span class="mono">${readyShown}</span>${(overrideReady!==null?' (manual override)':'')}<br/><br/>
+       <b>Displayed readiness:</b> <span class="mono">${shown}</span>${(overrideReady!==null?' (manual override)':'')}<br/><br/>
        soilHold=(soil−1)/9=<span class="mono">${fac.soilHold.toFixed(2)}</span> • drainPoor=(drain−1)/9=<span class="mono">${fac.drainPoor.toFixed(2)}</span><br/>
        Smax=<span class="mono">${fac.Smax.toFixed(2)}</span> • infilMult=<span class="mono">${fac.infilMult.toFixed(2)}</span> • dryMult=<span class="mono">${fac.dryMult.toFixed(2)}</span> • LOSS_SCALE=<span class="mono">${LOSS_SCALE.toFixed(2)}</span>`;
 
     $('mathSummary').innerHTML =
-      `<b>Model output (computed):</b> Wet=${run.wetnessR} • Ready=${run.readinessR} • storage=${run.storageFinal.toFixed(2)}/${run.factors.Smax.toFixed(2)}<br/>
+      `<b>Model output (computed):</b> Wet=${run.wetnessR} • Readiness=${run.readinessR} • storage=${run.storageFinal.toFixed(2)}/${run.factors.Smax.toFixed(2)}<br/>
        <b>Start:</b> storage0=0.45*Smax + rainNudge (rain7=${run.rain7.toFixed(2)} in, nudge=${run.rainNudge.toFixed(2)})`;
 
     const trb = $('traceRows');
@@ -1191,7 +1133,7 @@ Requested changes:
     }
   }
 
-  // ADJUST MODAL
+  // Adjust modal
   function showModal(on){ $('adjustBackdrop').classList.toggle('pv-hide', !on); }
   function showStep(which){
     $('adjustStep1').classList.toggle('pv-hide', which !== 'start');
@@ -1208,7 +1150,7 @@ Requested changes:
     state.adjustContext.fieldId = id;
 
     const currentReady = state.readyOverride.has(id) ? Number(state.readyOverride.get(id)) : run.readinessR;
-    const isWorkable = (currentReady >= thr);
+    const isReady = (currentReady >= thr);
 
     $('adjustTitle').textContent = 'Adjust';
     $('adjustSub').textContent = `${f.farm} • ${f.field} • Op: ${op} • Threshold: ${thr}`;
@@ -1216,16 +1158,16 @@ Requested changes:
     const btnWet = $('btnAdjWet');
     const btnDry = $('btnAdjDry');
 
-    btnWet.disabled = !isWorkable ? true : false;
-    btnDry.disabled = isWorkable ? true : false;
+    // only allow contradiction
+    btnWet.disabled = !isReady ? true : false;
+    btnDry.disabled = isReady ? true : false;
 
     const eta = etaFor(run, thr);
     $('adjustRule').innerHTML =
-      isWorkable
-        ? `Model says <b>READY</b> (score ${Math.round(currentReady)} ≥ ${thr}). Only <b>Wet</b> is allowed.`
-        : `Model says <b>WET</b> (score ${Math.round(currentReady)} &lt; ${thr}). Only <b>Dry</b> is allowed.<br/><b>${eta || 'Estimated to be greater then 2 days'}</b>`;
+      isReady
+        ? `Model says <b>READY</b> (readiness ${Math.round(currentReady)} ≥ ${thr}). Only <b>Wet</b> is allowed.`
+        : `Model says <b>WET</b> (readiness ${Math.round(currentReady)} &lt; ${thr}). Only <b>Dry</b> is allowed.<br/><b>${eta || 'Estimated to be greater then 2 days'}</b>`;
 
-    // Soil/Drain values shown here
     $('adjustSoilDrain').innerHTML =
       `<b>Field settings</b><br/>
        <b>Soil:</b> ${f.soil}/10 • <b>Drain:</b> ${f.drain}/10<br/><br/>
@@ -1255,8 +1197,7 @@ Requested changes:
     else ready = clamp(thr, 0, 100);
 
     state.readyOverride.set(id, ready);
-    closeAdjust();
-    refreshAll();
+    closeAdjust(); refreshAll();
   }
 
   function setWetLevel(level){
@@ -1271,15 +1212,14 @@ Requested changes:
     else ready = clamp(thr - 10, 0, 100);
 
     state.readyOverride.set(id, ready);
-    closeAdjust();
-    refreshAll();
+    closeAdjust(); refreshAll();
   }
 
-  // Modal wiring
   $('btnAdjCancel').addEventListener('click', closeAdjust);
   $('adjustBackdrop').addEventListener('click', (e)=>{
     if (e.target && e.target.id === 'adjustBackdrop') closeAdjust();
   });
+
   $('btnAdjWet').addEventListener('click', ()=> showStep('wet'));
   $('btnAdjDry').addEventListener('click', ()=> showStep('dry'));
 
@@ -1311,7 +1251,6 @@ Requested changes:
     $('runStamp').textContent = new Date().toLocaleString();
   }
 
-  // Date picker apply/clear
   $('applyRangeBtn').addEventListener('click', ()=> setTimeout(refreshAll, 0));
   $('clearRangeBtn').addEventListener('click', ()=> setTimeout(refreshAll, 0));
   $('jobRangeInput').addEventListener('change', refreshAll);
