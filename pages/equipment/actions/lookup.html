@@ -274,7 +274,7 @@
     #pPrint{ color:#fff !important; }
     #pPrint:visited{ color:#fff !important; }
 
-    /* ✅ Hidden print iframe (same as your working report) */
+    /* ✅ Hidden print iframe */
     #fv-print-frame{
       position:fixed;
       right:0;
@@ -678,6 +678,10 @@
       docu.close();
     }
 
+    /* ============================================================
+       ✅ FIX: Make @page PORTRAIT (62mm wide), rotate label inside.
+       This prevents AirPrint/browser from "helpfully" using Letter/A4.
+       ============================================================ */
     function buildLabelPrintHtml(payload){
       const isSF = !!payload?.isStarfire;
       const qrSrc = String(payload?.qrSrc || payload?.url || '');
@@ -686,8 +690,8 @@
       const modelName = String(payload?.model || '');
 
       if (isSF){
-        const W = STARFIRE_LABEL.cutLenMm;
-        const H = STARFIRE_LABEL.tapeWmm;
+        const L = STARFIRE_LABEL.cutLenMm;   // feed direction length
+        const W = STARFIRE_LABEL.tapeWmm;    // tape width (62mm)
         const Q = STARFIRE_LABEL.qrMm;
         const fontSize = (serialRaw && serialRaw.length > 12) ? '13pt' : '16pt';
 
@@ -695,10 +699,21 @@
 <html><head><meta charset="utf-8">
 <title>Print StarFire Label</title>
 <style>
-@page{ size:${W}mm ${H}mm; margin:0; }
-html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
+@page{ size:${W}mm ${L}mm; margin:0; }
+html,body{ margin:0; padding:0; width:${W}mm; height:${L}mm; background:#fff; }
+*{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+
+.page{ width:${W}mm; height:${L}mm; overflow:hidden; position:relative; background:#fff; }
+
+/* The label design is built in landscape (L x W). Rotate it into portrait page. */
+.rot{
+  width:${L}mm; height:${W}mm;
+  transform-origin: top left;
+  transform: rotate(90deg) translateY(-${W}mm);
+}
+
 .label{
-  width:${W}mm; height:${H}mm; box-sizing:border-box; padding:2.2mm;
+  width:${L}mm; height:${W}mm; box-sizing:border-box; padding:2.2mm;
   display:grid; grid-template-rows:${Q}mm 1fr; align-content:center; justify-items:center;
   gap:2mm; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#000; overflow:hidden;
 }
@@ -710,16 +725,20 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
 }
 </style></head>
 <body>
-  <div class="label">
-    <div class="qr"><img alt="QR" src="${qrSrc}"></div>
-    <div class="serial">${esc(serialRaw || '—')}</div>
+  <div class="page">
+    <div class="rot">
+      <div class="label">
+        <div class="qr"><img alt="QR" src="${qrSrc}"></div>
+        <div class="serial">${esc(serialRaw || '—')}</div>
+      </div>
+    </div>
   </div>
 </body></html>`;
       }
 
-      const cutLen = Number(payload?.cutLenMm || __labelLenMm || LABEL.minLenMm);
-      const W = cutLen;
-      const H = LABEL.tapeWmm;
+      const cutLen = Number(payload?.cutLenMm || __labelLenMm || LABEL.minLenMm); // feed length
+      const L = cutLen;           // feed direction length
+      const W = LABEL.tapeWmm;    // tape width (62mm)
       const Q = LABEL.qrMm;
       const serial6 = serialLast6(serialRaw) || '';
 
@@ -727,10 +746,21 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
 <html><head><meta charset="utf-8">
 <title>Print Label</title>
 <style>
-@page{ size:${W}mm ${H}mm; margin:0; }
-html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
+@page{ size:${W}mm ${L}mm; margin:0; }
+html,body{ margin:0; padding:0; width:${W}mm; height:${L}mm; background:#fff; }
+*{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+
+.page{ width:${W}mm; height:${L}mm; overflow:hidden; position:relative; background:#fff; }
+
+/* The label design is built in landscape (L x W). Rotate it into portrait page. */
+.rot{
+  width:${L}mm; height:${W}mm;
+  transform-origin: top left;
+  transform: rotate(90deg) translateY(-${W}mm);
+}
+
 .label{
-  width:${W}mm; height:${H}mm; box-sizing:border-box; padding:2.2mm;
+  width:${L}mm; height:${W}mm; box-sizing:border-box; padding:2.2mm;
   display:grid; grid-template-columns:max-content ${Q}mm max-content;
   gap:2mm; align-items:center;
   font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#000; overflow:hidden;
@@ -745,15 +775,19 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
 .val{ font-weight:900; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; white-space:nowrap; }
 </style></head>
 <body>
-  <div class="label">
-    <div class="left">
-      <div class="make">${esc(makeName) || '—'}</div>
-      <div class="model">${esc(modelName) || '—'}</div>
-    </div>
-    <div class="mid"><img alt="QR" src="${qrSrc}"></div>
-    <div class="right">
-      <div class="lab">VIN/Serial</div>
-      <div class="val">${esc(serial6) || '—'}</div>
+  <div class="page">
+    <div class="rot">
+      <div class="label">
+        <div class="left">
+          <div class="make">${esc(makeName) || '—'}</div>
+          <div class="model">${esc(modelName) || '—'}</div>
+        </div>
+        <div class="mid"><img alt="QR" src="${qrSrc}"></div>
+        <div class="right">
+          <div class="lab">VIN/Serial</div>
+          <div class="val">${esc(serial6) || '—'}</div>
+        </div>
+      </div>
     </div>
   </div>
 </body></html>`;
@@ -798,7 +832,6 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
 
         __previewQrSrc = img.src || qrSrc;
 
-        // ✅ preload print iframe NOW (no waiting, no timeouts later)
         writePrintFrame(buildLabelPrintHtml({
           isStarfire:true,
           url: qrUrl,
@@ -867,7 +900,6 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
 
       __previewQrSrc = img.src || qrSrc;
 
-      // ✅ preload print iframe NOW (after we know the cut length)
       writePrintFrame(buildLabelPrintHtml({
         isStarfire:false,
         url: qrUrl,
@@ -894,7 +926,6 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
     pClose.addEventListener('click', closeReprintPreview);
     pCancel.addEventListener('click', closeReprintPreview);
 
-    // ✅ IMPORTANT: Print is now SYNC and does NOT rely on timeouts or rebuilding
     pPrint.addEventListener('click', ()=>{
       try{
         const win = printFrame.contentWindow;
@@ -904,7 +935,6 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
       }catch(err){
         console.warn('[equipment-label] print failed', err);
       }
-      // close AFTER calling print (so the print call stays tied to the tap)
       setTimeout(()=>closeReprintPreview(), 50);
     });
 
