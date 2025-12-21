@@ -129,8 +129,6 @@
       transform:translateX(-50%); background:var(--surface); color:var(--text);
       border:1px solid var(--border); border-radius:12px; padding:10px 14px;
       box-shadow:0 10px 24px rgba(0,0,0,.18); z-index:9999; font-weight:800;
-      max-width:min(560px, calc(100vw - 28px));
-      text-align:center;
     }
 
     /* Detail modal */
@@ -276,7 +274,7 @@
     #pPrint{ color:#fff !important; }
     #pPrint:visited{ color:#fff !important; }
 
-    /* ✅ Hidden print iframe */
+    /* ✅ Hidden print iframe (same as your working report) */
     #fv-print-frame{
       position:fixed;
       right:0;
@@ -331,8 +329,10 @@
     </div>
   </fv-shell>
 
+  <!-- ✅ Hidden print iframe -->
   <iframe id="fv-print-frame"></iframe>
 
+  <!-- Detail modal -->
   <dialog id="detail" class="sheet" aria-modal="true">
     <header>
       <strong id="dTitle">Details</strong>
@@ -354,6 +354,7 @@
     </footer>
   </dialog>
 
+  <!-- Reprint preview modal -->
   <dialog id="printPrev" class="sheet sheet-print" aria-modal="true">
     <header>
       <strong id="pHdrTitle">Print QR Label</strong>
@@ -372,7 +373,6 @@
     </div>
 
     <footer>
-      <button id="pShare" class="btn" type="button">Share to Brother</button>
       <button id="pPrint" class="btn btn-primary" type="button">Print</button>
       <button id="pCancel" class="btn" type="button">Cancel</button>
     </footer>
@@ -381,7 +381,7 @@
   <script type="module">
     import {
       ready,
-      getFirestore, collection, query, where, onSnapshot
+      getFirestore, collection, query, where, onSnapshot, doc
     } from '/Farm-vista/js/firebase-init.js';
 
     const $ = sel => document.querySelector(sel);
@@ -421,18 +421,10 @@
 
     let DATA = [];
     let unsub = null;
-    let mode = 'active';
+    let mode = 'active'; // 'active' | 'archived' | 'all'
 
     const last6 = v => String(v||'').slice(-6);
     const safe = v => (v==null ? '' : String(v));
-
-    function toast(msg, ms=2200){
-      const t = document.createElement('div');
-      t.className='toast';
-      t.textContent = msg;
-      document.body.appendChild(t);
-      setTimeout(()=>{ try{ t.remove(); }catch{} }, ms);
-    }
 
     function normStatus(d){
       const s = String((d && d.status != null ? d.status : '')||'').toLowerCase().trim();
@@ -594,7 +586,6 @@
     const pClose = document.getElementById('pClose');
     const pCancel = document.getElementById('pCancel');
     const pPrint = document.getElementById('pPrint');
-    const pShare = document.getElementById('pShare');
 
     const printFrame = document.getElementById('fv-print-frame');
 
@@ -605,25 +596,12 @@
     const LABEL = { tapeWmm: 62, qrMm: 48, padMm: 2.2, gapMm: 2.0, minLenMm: 90, maxLenMm: 152.4 };
     const STARFIRE_LABEL = { tapeWmm: 62, cutLenMm: 62, qrMm: 46 };
 
-    // ✅ Your Cloud Run proxy (returns a REAL PNG file)
-    const QR_PROXY_BASE = 'https://qr-proxy-300398089669.us-central1.run.app';
-
-    // Hide “Share to Brother” on desktop (and on devices that can’t share files)
-    const UA = navigator.userAgent || '';
-    const IS_MOBILE =
-      /iphone|ipad|ipod|android/i.test(UA) ||
-      (window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches);
-
-    (function setupShareVisibility(){
-      const canShareFiles =
-        !!navigator.share &&
-        (!!navigator.canShare ? navigator.canShare({ files: [new File(['x'], 'x.txt', {type:'text/plain'})] }) : true);
-
-      if (!IS_MOBILE || !canShareFiles){
-        pShare.style.display = 'none';
-      }
-    })();
-
+    function pxPerMm(){ return 96 / 25.4; }
+    function clampLenMm(mm){
+      let len = Math.max(LABEL.minLenMm, Math.min(LABEL.maxLenMm, mm));
+      len = Math.round(len * 2) / 2;
+      return len;
+    }
     function normalizeSerial(s){ return String(s||'').trim().toUpperCase(); }
     function serialLast6(serial){
       const s = normalizeSerial(serial || '');
@@ -634,6 +612,7 @@
       const raw = normalizeSerial(d?.starfireSerial || d?.serial || '');
       return raw || '';
     }
+
     function esc(s){
       return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
     }
@@ -658,12 +637,6 @@
       return w;
     }
 
-    function pxPerMm(){ return 96 / 25.4; }
-    function clampLenMm(mm){
-      let len = Math.max(LABEL.minLenMm, Math.min(LABEL.maxLenMm, mm));
-      len = Math.round(len * 2) / 2;
-      return len;
-    }
     function computeLongLenMmFromDOM({ makeEl, modelEl, labEl, valEl, makeName, modelName, serial6 }){
       const pmm = pxPerMm();
 
@@ -825,7 +798,7 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
 
         __previewQrSrc = img.src || qrSrc;
 
-        // ✅ preload print iframe
+        // ✅ preload print iframe NOW (no waiting, no timeouts later)
         writePrintFrame(buildLabelPrintHtml({
           isStarfire:true,
           url: qrUrl,
@@ -894,7 +867,7 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
 
       __previewQrSrc = img.src || qrSrc;
 
-      // ✅ preload print iframe (after cut length known)
+      // ✅ preload print iframe NOW (after we know the cut length)
       writePrintFrame(buildLabelPrintHtml({
         isStarfire:false,
         url: qrUrl,
@@ -921,7 +894,7 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
     pClose.addEventListener('click', closeReprintPreview);
     pCancel.addEventListener('click', closeReprintPreview);
 
-    // ✅ PRINT: keep it direct (works on iOS when tied to the tap)
+    // ✅ IMPORTANT: Print is now SYNC and does NOT rely on timeouts or rebuilding
     pPrint.addEventListener('click', ()=>{
       try{
         const win = printFrame.contentWindow;
@@ -931,49 +904,8 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
       }catch(err){
         console.warn('[equipment-label] print failed', err);
       }
+      // close AFTER calling print (so the print call stays tied to the tap)
       setTimeout(()=>closeReprintPreview(), 50);
-    });
-
-    // ✅ SHARE (MOBILE ONLY): use proxy to get a REAL PNG file, then share the file
-    pShare.addEventListener('click', async ()=>{
-      if (!__pendingPrint || !__pendingPrint.url) return;
-
-      // If hidden on desktop, do nothing.
-      if (pShare.style.display === 'none') return;
-
-      try{
-        toast('Preparing share…', 900);
-
-        const proxyUrl = `${QR_PROXY_BASE}?url=${encodeURIComponent(__pendingPrint.url)}`;
-        const r = await fetch(proxyUrl, { cache: 'no-store' });
-        if (!r.ok) throw new Error('Proxy fetch failed');
-
-        const blob = await r.blob();
-        if (!blob || !blob.size) throw new Error('Empty file');
-
-        const serialPart = (__pendingPrint.isStarfire ? String(__pendingPrint.serial||'') : serialLast6(__pendingPrint.serial||'')) || 'qr';
-        const name = (__pendingPrint.isStarfire ? 'StarFire' : 'Equipment') + '-' + serialPart;
-        const safeName = name.replace(/[^a-z0-9\-_]+/gi,'_').slice(0,60) + '.png';
-
-        const file = new File([blob], safeName, { type: 'image/png' });
-
-        // iOS: navigator.canShare is best if available, but not required on all versions
-        if (navigator.canShare && !navigator.canShare({ files:[file] })) {
-          throw new Error('Share sheet does not accept files');
-        }
-
-        await navigator.share({
-          title: 'FarmVista QR Label',
-          text: 'QR label (PNG)',
-          files: [file]
-        });
-      }catch(err){
-        console.warn('[equipment-label] share failed', err);
-        toast('Share failed. Opening file…', 1200);
-        // fallback: open the proxy URL directly (still serves a file)
-        const proxyUrl = `${QR_PROXY_BASE}?url=${encodeURIComponent(__pendingPrint.url)}`;
-        window.open(proxyUrl, '_blank', 'noopener');
-      }
     });
 
     function openDetail(d){
