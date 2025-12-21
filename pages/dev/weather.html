@@ -1,33 +1,17 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/weather.html  (FULL FILE)
-Rev: 2025-12-21c
+Rev: 2025-12-21d
 
 DEV: Workability + Sorting + Date Range Picker + Full Math
 
-Changes:
-✅ Remove Select button — tap tile to select
-✅ Sorting:
-   - Name A→Z, Z→A
-   - Readiness Dry→Wet, Wet→Dry
-   - Most rain (range), Least rain (range)
-✅ Rain-in-range uses FV date range picker UI
-✅ For MOCK ONLY: per-field rainFactor makes rain totals differ so sort works
-✅ Keeps your Readiness scale:
-   0% = very wet, 100% = bone dry
-✅ Tile labels:
-   Wet % on LEFT, Ready % on RIGHT (correct orientation)
-✅ ETA rule:
-   If NOT workable:
-     - <=48 hours: "Est: ~X hours"
-     - else: "Estimated to be greater then 2 days"
-✅ Adjust modal:
-   - button text: Adjust
-   - gated choices:
-     If workable: Wet enabled, Dry disabled
-     If not workable: Dry enabled, Wet disabled
-
-Requires:
-- /Farm-vista/js/fv-date-range-picker.js (non-module)
+Updates:
+✅ Fields: single column (stacked, one per row)
+✅ Readiness bar: clearer at 100%
+   - thicker marker + clamps cleanly at 0/100
+   - badge on bar showing Ready%
+   - colored Wet/Ready chips
+✅ Date range: styled as a compact button (still uses jobRangeInput id)
+✅ Keeps your opCard z-index/overflow fixes
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -99,26 +83,25 @@ Requires:
       outline:none;
       appearance:none;
     }
-     /* =========================================================
-   FIX: Controls dropdowns + date range popover must sit on top
-   Applies to Operation + Sort + Date Range picker
-   ========================================================= */
-.opCard{
-  position: relative;
-  z-index: 99999;
-  overflow: visible !important;   /* overrides .card overflow:hidden */
-}
 
-/* Date range popover must be above everything */
-.opCard #calendarPopover{
-  position: absolute;
-  z-index: 100000;
-}
+    /* =========================================================
+       FIX: Controls dropdowns + date range popover must sit on top
+       Applies to Operation + Sort + Date Range picker
+       ========================================================= */
+    .opCard{
+      position: relative;
+      z-index: 99999;
+      overflow: visible !important;   /* overrides .card overflow:hidden */
+    }
+    .opCard #calendarPopover{
+      position: absolute;
+      z-index: 100000;
+    }
 
     input[readonly]{ cursor:pointer; }
 
-    .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-    .row > *{ flex:1 1 auto; }
+    .row{ display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
+    .row > *{ flex:1 1 220px; }
 
     .slider-wrap{
       display:grid;
@@ -162,17 +145,11 @@ Requires:
       opacity:.92;
     }
 
-    /* Always above cards */
-    .opCard{ position:relative; z-index:50; }
-
-    /* Fields grid */
+    /* Fields list = single column ALWAYS */
     .fieldsGrid{
       display:grid;
       grid-template-columns:1fr;
       gap:12px;
-    }
-    @media(min-width:860px){
-      .fieldsGrid{ grid-template-columns:1fr 1fr 1fr; }
     }
 
     .fieldTile{
@@ -208,10 +185,30 @@ Requires:
       white-space:nowrap;
     }
 
-    .workGaugeWrap{ display:flex; flex-direction:column; gap:6px; }
+    /* Wet/Ready colored chips */
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:6px 10px;
+      border-radius:999px;
+      font-weight:950;
+      font-size:12px;
+      border:1px solid var(--border);
+      white-space:nowrap;
+    }
+    .chip.wet{
+      background: color-mix(in srgb, #c83b3b 18%, var(--surface) 82%);
+    }
+    .chip.ready{
+      background: color-mix(in srgb, #2f8f4b 18%, var(--surface) 82%);
+    }
+
+    /* Gauge */
+    .workGaugeWrap{ display:flex; flex-direction:column; gap:8px; }
     .workGauge{
       position:relative;
-      height:12px;
+      height:16px;                 /* taller */
       border-radius:999px;
       border:1px solid var(--border);
       overflow:hidden;
@@ -219,13 +216,27 @@ Requires:
     }
     .workMarker{
       position:absolute;
-      top:-6px;
-      width:2px;
-      height:24px;
+      top:-10px;
+      width:4px;                   /* thicker */
+      height:36px;
       background:#ffffff;
       box-shadow:0 0 0 1px rgba(0,0,0,.35);
-      border-radius:2px;
-      transform: translateX(-1px);
+      border-radius:3px;
+      transform: translateX(-2px);
+    }
+    /* Badge that sits on the marker */
+    .markerBadge{
+      position:absolute;
+      top:-34px;
+      transform: translateX(-50%);
+      padding:5px 8px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background: color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      font-size:12px;
+      font-weight:950;
+      white-space:nowrap;
+      box-shadow:0 10px 25px rgba(0,0,0,.12);
     }
     .workLabels{
       display:flex;
@@ -234,14 +245,13 @@ Requires:
       opacity:.85;
     }
 
-    /* THIS is the key: Wet on LEFT, Ready on RIGHT */
+    /* Wet left, Ready right */
     .workRow{
       display:flex;
       justify-content:space-between;
       align-items:center;
       gap:10px;
-      font-size:12px;
-      opacity:.95;
+      flex-wrap:wrap;
     }
 
     .tileBtnRow{ display:flex; gap:8px; flex-wrap:wrap; }
@@ -318,7 +328,6 @@ Requires:
 
     /* Date range picker minimal styling (IDs required by your script) */
     .cal-popover{
-      position:absolute;
       top:calc(100% + 8px);
       left:0;
       width:min(360px, 92vw);
@@ -367,6 +376,21 @@ Requires:
       margin-top:10px;
     }
 
+    /* Date range input styled like a classy button */
+    .rangeBtn{
+      width:auto !important;
+      max-width: 260px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      padding:10px 12px;
+      font-weight:950;
+      cursor:pointer;
+      white-space:nowrap;
+    }
+    .rangeBtn::placeholder{ opacity:.85; }
+
     /* Error box */
     .errorbox{
       border:1px solid #b02a2a;
@@ -390,7 +414,7 @@ Requires:
       <button id="btnLogout" class="btn" type="button">Logout</button>
     </div>
 
-    <!-- Controls: operation + sorting + date range -->
+    <!-- Controls -->
     <section class="card opCard" style="margin-bottom:14px;">
       <div class="card-h">
         <div>
@@ -401,6 +425,7 @@ Requires:
         </div>
         <div class="mono muted" id="modeLine">MOCK</div>
       </div>
+
       <div class="card-b">
         <div class="row">
           <div class="field" style="margin:0;">
@@ -425,29 +450,29 @@ Requires:
               <option value="rain_least">Least rain (range)</option>
             </select>
           </div>
-        </div>
 
-        <!-- Date range input + popover markup required by fv-date-range-picker.js -->
-        <div class="field" style="margin:0; position:relative;">
-          <label for="jobRangeInput">Rain range</label>
-          <input id="jobRangeInput" type="text" readonly placeholder="Tap to choose a date range"/>
-          <div id="calendarPopover" class="cal-popover" aria-label="Calendar popover">
-            <div class="cal-top">
-              <select id="monthSelect"></select>
-              <select id="yearSelect"></select>
-              <button id="closeCalBtn" class="btn" type="button" style="padding:8px 10px;">Close</button>
-            </div>
-            <div id="calDays" class="cal-days"></div>
-            <div class="cal-footer">
-              <span id="rangeSummary" class="muted" style="font-size:12px;">No dates selected</span>
-              <div style="display:flex; gap:8px;">
-                <button id="clearRangeBtn" class="btn" type="button" style="padding:8px 10px;">Clear</button>
-                <button id="applyRangeBtn" class="btn primary" type="button" style="padding:8px 10px;">Apply</button>
+          <!-- Date range input styled like a button -->
+          <div class="field" style="margin:0; position:relative; flex:0 0 auto;">
+            <label for="jobRangeInput">Rain range</label>
+            <input id="jobRangeInput" class="rangeBtn" type="text" readonly value="" placeholder="Choose date range"/>
+            <div id="calendarPopover" class="cal-popover" aria-label="Calendar popover">
+              <div class="cal-top">
+                <select id="monthSelect"></select>
+                <select id="yearSelect"></select>
+                <button id="closeCalBtn" class="btn" type="button" style="padding:8px 10px;">Close</button>
+              </div>
+              <div id="calDays" class="cal-days"></div>
+              <div class="cal-footer">
+                <span id="rangeSummary" class="muted" style="font-size:12px;">No dates selected</span>
+                <div style="display:flex; gap:8px;">
+                  <button id="clearRangeBtn" class="btn" type="button" style="padding:8px 10px;">Clear</button>
+                  <button id="applyRangeBtn" class="btn primary" type="button" style="padding:8px 10px;">Apply</button>
+                </div>
               </div>
             </div>
-          </div>
-          <div class="muted" style="font-size:12px; margin-top:6px;">
-            Used only for “Most rain” / “Least rain” sorting + displaying range totals.
+            <div class="muted" style="font-size:12px; margin-top:6px;">
+              Used only for rain sorting + range totals.
+            </div>
           </div>
         </div>
       </div>
@@ -459,7 +484,7 @@ Requires:
         <div>
           <p class="t">Fields</p>
           <div class="muted" style="font-size:12px;">
-            Tap a card to select it. Red-left = 0% ready (very wet). Green-right = 100% ready (bone dry).
+            One-per-row. Red-left = 0% ready (very wet). Green-right = 100% ready (bone dry).
           </div>
         </div>
         <div class="mono muted" id="tileStamp">—</div>
@@ -693,7 +718,6 @@ Requires:
     lastRuns: new Map(),
   };
 
-  // Mock fields with deterministic rainFactor so rain totals differ in MOCK mode
   const FIELDS = [
     { id:'f1', farm:'Dowson Farms', field:'Home 80',      soil:6, drain:5, rainFactor:0.98 },
     { id:'f2', farm:'Dowson Farms', field:'River Bottom', soil:9, drain:9, rainFactor:1.12 },
@@ -709,7 +733,7 @@ Requires:
       .replaceAll("'","&#039;");
   }
 
-  // -------- mock weather (30 daily) --------
+  // ---------- MOCK WEATHER ----------
   function seededRand(){
     state.seed = (state.seed * 1664525 + 1013904223) % 4294967296;
     return state.seed / 4294967296;
@@ -754,9 +778,7 @@ Requires:
     $('modeLine').textContent = 'MOCK';
   }
 
-  // -------- date range parsing (reads FV picker input text) --------
-  // jobRangeInput shows something like: "Dec 1, 2025 – Dec 10, 2025" (locale dependent)
-  // For dev, we parse by letting Date() try; if parsing fails, we treat as no range.
+  // ---------- DATE RANGE PARSE ----------
   function parseRangeFromInput(){
     const raw = String($('jobRangeInput').value || '').trim();
     if (!raw) return { start:null, end:null };
@@ -772,7 +794,6 @@ Requires:
       }
     }
 
-    // single date case
     const d = new Date(raw);
     if (isFinite(d.getTime())){
       d.setHours(0,0,0,0);
@@ -783,14 +804,13 @@ Requires:
 
     return { start:null, end:null };
   }
-
   function isDateInRange(dateISO, range){
     if (!range || !range.start || !range.end) return true;
     const d = new Date(dateISO + 'T12:00:00');
     return d >= range.start && d <= range.end;
   }
 
-  // -------- Dry power math --------
+  // ---------- DRY POWER ----------
   function calcDryParts(r){
     const temp = Number(r.tempF||0);
     const wind = Number(r.windMph||0);
@@ -808,14 +828,14 @@ Requires:
     return { temp, wind, rh, solar, tempN, windN, rhN, solarN, raw, dryPwr };
   }
 
-  // -------- Slider → multipliers (soil + drainage affect retention + drying + tank size) --------
+  // ---------- FACTOR MAPPING ----------
   function mapFactors(soil, drain){
     const soilHold = (Number(soil) - 1) / 9;   // 0..1 (sand..clay)
     const drainPoor= (Number(drain) - 1) / 9;  // 0..1 (good..poor)
 
-    const infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor; // 0.60..1.25
-    const dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor; // 0.45..1.20
-    const Smax      = 2.60 + 1.00*soilHold + 0.90*drainPoor; // 2.6..4.5
+    const infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor;
+    const dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor;
+    const Smax      = 2.60 + 1.00*soilHold + 0.90*drainPoor;
 
     return { soilHold, drainPoor, infilMult, dryMult, Smax };
   }
@@ -825,7 +845,6 @@ Requires:
 
     const f = mapFactors(field.soil, field.drain);
 
-    // Apply per-field rainFactor only in MOCK mode so "most rain" sorting works.
     const rf = (state.mode === 'MOCK') ? (field.rainFactor || 1) : 1;
 
     const rows = state.weather30.map(w=>{
@@ -834,7 +853,6 @@ Requires:
       return { ...w, rainInAdj: rainAdj, ...p };
     });
 
-    // neutral start + first-7-day rain nudge
     const first7 = rows.slice(0,7);
     const rain7 = first7.reduce((s,x)=> s + Number(x.rainInAdj||0), 0);
     const rainNudgeFrac = clamp(rain7 / 4.0, 0, 1);
@@ -870,11 +888,8 @@ Requires:
 
     const wetness = clamp((storage / f.Smax) * 100, 0, 100);
     const wetnessR = Math.round(wetness);
+    const readinessR = Math.round(clamp(100 - wetness, 0, 100));
 
-    const readiness = clamp(100 - wetness, 0, 100); // readiness %
-    const readinessR = Math.round(readiness);
-
-    // avg last-7 loss for ETA
     const last7 = trace.slice(-7);
     const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
 
@@ -895,13 +910,10 @@ Requires:
     };
   }
 
-  // ETA rule (based on readiness threshold; <=48 hours else message)
   function etaFor(run, threshold){
     if (!run) return '';
-    const ready = run.readinessR;
-    if (ready >= threshold) return ''; // no eta if workable
+    if (run.readinessR >= threshold) return '';
 
-    // need wetness <= (100 - threshold) => storageTarget
     const wetTarget = clamp(100 - threshold, 0, 100);
     const storageTarget = run.factors.Smax * (wetTarget / 100);
 
@@ -913,7 +925,6 @@ Requires:
     return 'Estimated to be greater then 2 days';
   }
 
-  // Rain in selected range (uses adjusted rain for mock)
   function rainInRange(run, range){
     if (!run || !run.rows) return 0;
     let sum = 0;
@@ -923,14 +934,11 @@ Requires:
     return round(sum, 2);
   }
 
-  // -------- Sorting --------
+  // ---------- SORT ----------
   function sortFields(fields, runsById){
     const mode = String($('sortSel').value || 'name_az');
-    const thr = Number($('workable').value);
     const range = parseRangeFromInput();
-
     const collator = new Intl.Collator(undefined, { numeric:true, sensitivity:'base' });
-
     const arr = fields.slice();
 
     arr.sort((a,b)=>{
@@ -950,19 +958,16 @@ Requires:
       if (mode === 'name_za') return collator.compare(nameB, nameA);
 
       if (mode === 'ready_dry_wet'){
-        // dry -> wet means readiness high -> low
         if (readyB !== readyA) return readyB - readyA;
         return collator.compare(nameA, nameB);
       }
       if (mode === 'ready_wet_dry'){
-        // wet -> dry means readiness low -> high
         if (readyB !== readyA) return readyA - readyB;
         return collator.compare(nameA, nameB);
       }
 
       if (mode === 'rain_most'){
         if (rainB !== rainA) return rainB - rainA;
-        // tie-breaker: wetter fields first
         if (readyA !== readyB) return readyA - readyB;
         return collator.compare(nameA, nameB);
       }
@@ -972,14 +977,20 @@ Requires:
         return collator.compare(nameA, nameB);
       }
 
-      // default
       return collator.compare(nameA, nameB);
     });
 
     return arr;
   }
 
-  // -------- Rendering --------
+  // ---------- RENDER ----------
+  function markerLeftCSS(readyPct){
+    const p = clamp(readyPct, 0, 100);
+    if (p >= 100) return 'calc(100% - 2px)'; // snap cleanly
+    if (p <= 0) return '2px';
+    return p.toFixed(2) + '%';
+  }
+
   function renderTiles(){
     const wrap = $('fieldsGrid');
     wrap.innerHTML = '';
@@ -1006,8 +1017,7 @@ Requires:
       const tile = document.createElement('div');
       tile.className = 'fieldTile' + (f.id === state.selectedFieldId ? ' active' : '');
 
-      // Marker position = readiness
-      const pct = clamp(ready, 0, 100);
+      const leftPos = markerLeftCSS(ready);
 
       tile.innerHTML = `
         <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:10px;">
@@ -1021,13 +1031,15 @@ Requires:
 
         <div class="workGaugeWrap">
           <div class="workRow">
-            <div><b>Wet:</b> <span class="mono">${wet}%</span></div>
-            <div><b>Ready:</b> <span class="mono">${ready}%</span></div>
+            <div class="chip wet">Wet <span class="mono">${wet}%</span></div>
+            <div class="chip ready">Ready <span class="mono">${ready}%</span></div>
           </div>
 
           <div class="workGauge" aria-label="Readiness gauge">
-            <div class="workMarker" style="left:${pct}%;"></div>
+            <div class="workMarker" style="left:${leftPos};"></div>
+            <div class="markerBadge" style="left:${leftPos};">Ready ${ready}%</div>
           </div>
+
           <div class="workLabels"><span>0%</span><span>50%</span><span>100%</span></div>
 
           ${(!isWorkable && eta) ? `<div class="muted" style="font-size:12px;"><b>${eta}</b></div>` : ``}
@@ -1038,14 +1050,12 @@ Requires:
         </div>
       `;
 
-      // Tile click selects field (but not when clicking Adjust)
       tile.addEventListener('click', (e)=>{
         const btn = e.target && e.target.closest ? e.target.closest('button') : null;
-        if (btn) return; // let button handler work
+        if (btn) return;
         selectField(f.id);
       });
 
-      // Adjust button handler
       tile.querySelector('button[data-adjust]').addEventListener('click', (e)=>{
         e.stopPropagation();
         openAdjust(f.id);
@@ -1069,13 +1079,11 @@ Requires:
     refreshAll();
   }
 
-  // Math tables for selected field only
   function renderSelectedMath(){
     const f = FIELDS.find(x=>x.id === state.selectedFieldId);
     const run = state.lastRuns.get(f.id) || runField(f);
     if (!run) return;
 
-    // Param explain
     const fac = run.factors;
     $('paramExplain').innerHTML =
       `<b>Detailed parameter mapping (exact):</b><br/><br/>
@@ -1090,13 +1098,11 @@ Requires:
        loss = dryPwr × LOSS_SCALE × dryMult<br/><br/>
        MOCK per-field rainFactor = <span class="mono">${run.rf.toFixed(2)}</span> (removed when real field data is used).`;
 
-    // Summary
     $('mathSummary').innerHTML =
       `<b>Selected:</b> ${escapeHtml(f.farm)} • ${escapeHtml(f.field)}<br/>
        <b>Result:</b> Wet=${run.wetnessR}% • Ready=${run.readinessR}% • storage=${run.storageFinal.toFixed(2)}/${run.factors.Smax.toFixed(2)}<br/>
        <b>Start:</b> storage0=0.45*Smax + rainNudge (rain7=${run.rain7.toFixed(2)} in, nudgeFrac=${run.rainNudgeFrac.toFixed(2)}, nudge=${run.rainNudge.toFixed(2)})`;
 
-    // Tank trace
     const trb = $('traceRows');
     trb.innerHTML = '';
     for (const t of run.trace){
@@ -1113,7 +1119,6 @@ Requires:
       trb.appendChild(tr);
     }
 
-    // DryPwr breakdown table (from rows)
     const drb = $('dryRows');
     drb.innerHTML = '';
     for (const r of run.rows){
@@ -1134,7 +1139,6 @@ Requires:
       drb.appendChild(tr);
     }
 
-    // Weather inputs
     const wxb = $('wxRows');
     wxb.innerHTML = '';
     for (const r of run.rows){
@@ -1151,7 +1155,7 @@ Requires:
     }
   }
 
-  // -------- Adjust modal (gated) --------
+  // ---------- ADJUST MODAL (gated) ----------
   function showModal(on){
     $('adjustBackdrop').classList.toggle('pv-hide', !on);
   }
@@ -1167,12 +1171,9 @@ Requires:
     $('adjustTitle').textContent = 'Adjust';
     $('adjustSub').textContent = `${f.farm} • ${f.field} • Op: ${op} • Threshold: ${thr}%`;
 
-    // Gating: only allow the contradiction
     const btnWet = $('btnAdjWet');
     const btnDry = $('btnAdjDry');
 
-    // If model says READY (workable): allow WET, disable DRY
-    // If model says WET (not workable): allow DRY, disable WET
     btnWet.disabled = !isWorkable ? true : false;
     btnDry.disabled = isWorkable ? true : false;
 
@@ -1188,44 +1189,11 @@ Requires:
     showModal(true);
   }
 
-  function loadAdjustLog(){
-    try{
-      const raw = localStorage.getItem(LS_ADJUST_LOG);
-      const arr = raw ? JSON.parse(raw) : [];
-      return Array.isArray(arr) ? arr : [];
-    }catch(e){ return []; }
-  }
-  function saveAdjustLog(arr){
-    try{ localStorage.setItem(LS_ADJUST_LOG, JSON.stringify(arr)); }catch(e){}
-  }
-
   function recordAdjust(kind, fieldId){
-    const f = FIELDS.find(x=>x.id === fieldId);
-    const run = state.lastRuns.get(fieldId) || runField(f);
-    const op = String($('opSel').value || '');
-    const thr = Number($('workable').value);
-
-    const item = {
-      ts: Date.now(),
-      kind,
-      fieldId,
-      fieldName: `${f.farm} • ${f.field}`,
-      op,
-      thr,
-      ready: run ? run.readinessR : null,
-      wet: run ? run.wetnessR : null,
-      mode: state.mode
-    };
-
-    const log = loadAdjustLog();
-    log.push(item);
-    saveAdjustLog(log);
-
     showModal(false);
     alert('Saved (local).');
   }
 
-  // Modal wiring
   $('btnAdjCancel').addEventListener('click', ()=> showModal(false));
   $('adjustBackdrop').addEventListener('click', (e)=>{
     if (e.target && e.target.id === 'adjustBackdrop') showModal(false);
@@ -1233,7 +1201,7 @@ Requires:
   $('btnAdjWet').addEventListener('click', (e)=> recordAdjust('WET', e.currentTarget.dataset.fieldId));
   $('btnAdjDry').addEventListener('click', (e)=> recordAdjust('DRY', e.currentTarget.dataset.fieldId));
 
-  // -------- Misc UI --------
+  // ---------- UI ----------
   function syncSliderLabels(){
     $('soilWetVal').textContent = $('soilWet').value;
     $('drainVal').textContent   = $('drain').value;
@@ -1241,7 +1209,6 @@ Requires:
   }
 
   function refreshAll(){
-    // Push slider values into selected field so it feels real
     const f = FIELDS.find(x=>x.id === state.selectedFieldId);
     if (f){
       f.soil = Number($('soilWet').value);
@@ -1252,16 +1219,13 @@ Requires:
     $('runStamp').textContent = new Date().toLocaleString();
   }
 
-  // Sorting and range changes
   $('sortSel').addEventListener('change', refreshAll);
 
-  // IMPORTANT: fv-date-range-picker updates jobRangeInput only on Apply.
-  // We refresh whenever that input changes (Apply sets value).
-  $('jobRangeInput').addEventListener('change', refreshAll);
+  // fv-date-range-picker updates jobRangeInput on Apply; refresh after click
   $('applyRangeBtn').addEventListener('click', ()=> setTimeout(refreshAll, 0));
   $('clearRangeBtn').addEventListener('click', ()=> setTimeout(refreshAll, 0));
+  $('jobRangeInput').addEventListener('change', refreshAll);
 
-  // Sliders
   $('soilWet').addEventListener('input', ()=>{ syncSliderLabels(); refreshAll(); });
   $('drain').addEventListener('input',   ()=>{ syncSliderLabels(); refreshAll(); });
   $('workable').addEventListener('input',()=>{ syncSliderLabels(); refreshAll(); });
@@ -1274,7 +1238,6 @@ Requires:
     refreshAll();
   });
 
-  // Future fetch (kept as placeholder; uses your backend when ready)
   async function fetchReal30(){
     const base = String($('apiBase').value || '').trim().replace(/\/+$/,'');
     if (!base){
@@ -1326,7 +1289,6 @@ Requires:
   $('btnFetch').addEventListener('click', fetchReal30);
   $('btnRun').addEventListener('click', refreshAll);
 
-  // Logout
   $('btnLogout').addEventListener('click', ()=>{
     try{
       if (window.FV && typeof window.FV.logout === 'function'){ window.FV.logout(); return; }
