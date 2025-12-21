@@ -1,15 +1,13 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/weather.html  (FULL FILE)
-Rev: 2025-12-21f
+Rev: 2025-12-21g
 
-UI COMPACT + THRESHOLD + ADJUST FLOW
-✅ Adjust button tiny + inline next to Farm/Field
-✅ Ready% moved to top-right (colored to match gauge gradient)
-✅ Threshold black line on gauge (uses Workable Threshold slider)
-✅ Wet adjustment asks severity (Barely wet / Pretty wet / Very wet)
-✅ Dry adjustment asks level (Barely ready / Perfect / Very dry)
-✅ Field rows compact, single column
-✅ Controls aligned in one line; date range stays compact button
+Requested changes:
+✅ Remove Soil/Drain text from field row (move into Adjust modal)
+✅ Keep rain range where it is
+✅ Remove % signs so users don’t think “percent of the field”
+   - Use “Readiness Score (0–100)” language
+   - Chips show “Wet 31” / “Ready 69” (no %)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -60,7 +58,7 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
     .card-h .t{ margin:0; font-size:15px; font-weight:950; }
     .card-b{ padding:12px 14px; }
 
-    /* Controls stack left/right */
+    /* Controls above everything */
     .opCard{
       position: relative;
       z-index: 99999;
@@ -142,7 +140,7 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
       opacity:.92;
     }
 
-    /* Fields list: compact */
+    /* Fields list */
     .fieldsGrid{ display:grid; grid-template-columns:1fr; gap:10px; }
 
     .fieldTile{
@@ -163,7 +161,6 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
       outline-offset:2px;
     }
 
-    /* Header row inside tile */
     .tileHead{
       display:flex;
       align-items:flex-start;
@@ -200,7 +197,7 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
       line-height:1;
     }
 
-    /* Ready% pill in top-right (colored like gradient) */
+    /* Ready score pill top-right (colored like gradient) */
     .readyPill{
       display:inline-flex;
       align-items:center;
@@ -211,11 +208,12 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
       font-weight:950;
       font-size:12px;
       white-space:nowrap;
+      color:#fff;
     }
 
     .fieldSub{ font-size:12px; opacity:.85; margin-top:2px; }
 
-    /* Wet/Ready chips */
+    /* Wet/Ready chips (NO percent sign) */
     .chip{
       display:inline-flex;
       align-items:center;
@@ -296,7 +294,6 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
       line-height:1.35;
     }
 
-    /* Tables */
     table{
       width:100%;
       border-collapse:collapse;
@@ -404,7 +401,6 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
       white-space:nowrap;
     }
 
-    /* Error */
     .errorbox{
       border:1px solid #b02a2a;
       background: color-mix(in srgb, #b02a2a 14%, var(--surface) 86%);
@@ -427,14 +423,11 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
       <button id="btnLogout" class="btn" type="button">Logout</button>
     </div>
 
-    <!-- Controls -->
     <section class="card opCard" style="margin-bottom:14px;">
       <div class="card-h">
         <div>
           <p class="t">Controls</p>
-          <div class="muted" style="font-size:12px;">
-            Sorting + date range drive “most rain” view.
-          </div>
+          <div class="muted" style="font-size:12px;">Sorting + date range drive “most rain” view.</div>
         </div>
         <div class="mono muted" id="modeLine">MOCK</div>
       </div>
@@ -491,13 +484,12 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
       </div>
     </section>
 
-    <!-- Field tiles -->
     <section class="card" style="margin-bottom:14px;">
       <div class="card-h">
         <div>
           <p class="t">Fields</p>
           <div class="muted" style="font-size:12px;">
-            One-per-row. Marker = field readiness. Black line = threshold.
+            Readiness Score (0–100). Marker = field score. Black line = threshold.
           </div>
         </div>
         <div class="mono muted" id="tileStamp">—</div>
@@ -508,12 +500,11 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
     </section>
 
     <div class="grid">
-      <!-- LEFT -->
       <section class="card">
         <div class="card-h">
           <div>
             <p class="t">Selected Field Inputs</p>
-            <div class="muted" style="font-size:12px;">Definitions live in Adjust.</div>
+            <div class="muted" style="font-size:12px;">Soil/Drain definitions are shown inside Adjust.</div>
           </div>
         </div>
 
@@ -549,7 +540,7 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
           </div>
 
           <div class="field">
-            <label for="workable">Workable Threshold (Readiness %)</label>
+            <label for="workable">Workable Threshold (Readiness Score)</label>
             <div class="slider-wrap">
               <input id="workable" type="range" min="0" max="100" step="1" value="70"/>
               <div class="pill" id="workableVal">70</div>
@@ -581,12 +572,10 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
           </div>
 
           <div style="height:12px;"></div>
-
           <div class="note" id="paramExplain">—</div>
         </div>
       </section>
 
-      <!-- RIGHT: math -->
       <section class="card">
         <div class="card-h">
           <div>
@@ -672,7 +661,6 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
       <div class="modal-b">
         <div class="note" id="adjustRule">—</div>
 
-        <!-- Step 1: Wet/Dry -->
         <div id="adjustStep1">
           <div class="modal-actions">
             <button id="btnAdjWet" class="btn danger" type="button">Wet</button>
@@ -681,10 +669,9 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
           </div>
         </div>
 
-        <!-- Step 2: Dry level -->
         <div id="adjustStepDry" class="pv-hide">
           <div class="note" style="margin-top:12px;">
-            <b>How dry is it?</b> This sets the current readiness level.
+            <b>How dry is it?</b> This sets the current readiness score.
           </div>
           <div class="modal-actions">
             <button id="btnDryBarely" class="btn" type="button">Barely ready</button>
@@ -694,10 +681,9 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
           </div>
         </div>
 
-        <!-- Step 2: Wet severity -->
         <div id="adjustStepWet" class="pv-hide">
           <div class="note" style="margin-top:12px;">
-            <b>How wet is it?</b> This sets the current readiness level lower.
+            <b>How wet is it?</b> This lowers the current readiness score.
           </div>
           <div class="modal-actions">
             <button id="btnWetBarely" class="btn" type="button">Barely wet</button>
@@ -707,11 +693,9 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
           </div>
         </div>
 
-        <!-- Helpers moved here -->
-        <div class="note" style="margin-top:12px;">
-          <b>Definitions</b><br/>
-          <b>Soil Type / Holding (1–10):</b> 1=sandier (holds less, dries faster) • 10=clay (holds more, dries slower)<br/>
-          <b>Drainage (1–10):</b> 1=good drainage (tile/ditches) • 10=poor drainage
+        <!-- Soil/Drain values + definitions live HERE -->
+        <div class="note" style="margin-top:12px;" id="adjustSoilDrain">
+          —
         </div>
       </div>
     </div>
@@ -754,7 +738,7 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
     mode: 'MOCK',
     selectedFieldId: 'f1',
     lastRuns: new Map(),
-    readyOverride: new Map(),     // fieldId -> readiness (0..100)
+    readyOverride: new Map(),     // fieldId -> readiness score (0..100)
     adjustContext: { fieldId:null }
   };
 
@@ -773,7 +757,7 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
       .replaceAll("'","&#039;");
   }
 
-  // ---------- MOCK WEATHER ----------
+  // MOCK WEATHER
   function seededRand(){
     state.seed = (state.seed * 1664525 + 1013904223) % 4294967296;
     return state.seed / 4294967296;
@@ -818,7 +802,7 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
     $('modeLine').textContent = 'MOCK';
   }
 
-  // ---------- DATE RANGE PARSE ----------
+  // DATE RANGE
   function parseRangeFromInput(){
     const raw = String($('jobRangeInput').value || '').trim();
     if (!raw) return { start:null, end:null };
@@ -849,7 +833,7 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
     return d >= range.start && d <= range.end;
   }
 
-  // ---------- DRY POWER ----------
+  // DRY POWER
   function calcDryParts(r){
     const temp = Number(r.tempF||0);
     const wind = Number(r.windMph||0);
@@ -867,7 +851,7 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
     return { temp, wind, rh, solar, tempN, windN, rhN, solarN, raw, dryPwr };
   }
 
-  // ---------- FACTOR MAPPING ----------
+  // FACTORS
   function mapFactors(soil, drain){
     const soilHold = (Number(soil) - 1) / 9;
     const drainPoor= (Number(drain) - 1) / 9;
@@ -936,7 +920,6 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
       wetnessR,
       readinessR,
       rain7,
-      rainNudgeFrac,
       rainNudge,
       avgLossDay,
       rf
@@ -967,7 +950,7 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
     return round(sum, 2);
   }
 
-  // ---------- SORT ----------
+  // SORT
   function sortFields(fields, runsById){
     const mode = String($('sortSel').value || 'name_az');
     const range = parseRangeFromInput();
@@ -1016,21 +999,17 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
     return arr;
   }
 
-  // ---------- Color for Ready% pill (matches gradient) ----------
-  // Simple 3-stop mapping:
-  // 0..55 -> red to yellow, 55..100 -> yellow to green
+  // Color for pill (still matches gradient, but not “percent”)
   function readyColor(ready){
     const p = clamp(ready, 0, 100);
     if (p <= 55){
-      const t = p / 55; // 0..1
-      // red(200,59,59) -> yellow(216,178,59)
+      const t = p / 55;
       const r = Math.round(200 + (216-200)*t);
       const g = Math.round(59  + (178-59)*t);
-      const b = Math.round(59  + (59-59)*t);
+      const b = 59;
       return `rgb(${r},${g},${b})`;
     } else {
-      const t = (p - 55) / 45; // 0..1
-      // yellow(216,178,59) -> green(47,143,75)
+      const t = (p - 55) / 45;
       const r = Math.round(216 + (47-216)*t);
       const g = Math.round(178 + (143-178)*t);
       const b = Math.round(59  + (75-59)*t);
@@ -1045,7 +1024,7 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
     return p.toFixed(2) + '%';
   }
 
-  // ---------- RENDER ----------
+  // RENDER
   function renderTiles(){
     const wrap = $('fieldsGrid');
     wrap.innerHTML = '';
@@ -1086,29 +1065,27 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
             <button class="miniAdjust" data-adjust="${escapeHtml(f.id)}" type="button">Adjust</button>
           </div>
 
-          <div class="readyPill" style="background:${pillBg}; color:#fff;">
-            Ready ${ready}%
-          </div>
+          <div class="readyPill" style="background:${pillBg};">Ready ${ready}</div>
         </div>
 
         <div class="fieldSub">
-          Soil=${f.soil}/10 • Drain=${f.drain}/10 • Rain(range): <span class="mono">${rainRange.toFixed(2)}</span> in
+          Rain (range): <span class="mono">${rainRange.toFixed(2)}</span> in
           ${overrideReady!==null ? ` • <span class="mono">manual</span>` : ``}
         </div>
 
         <div class="workGaugeWrap">
           <div class="workRow">
-            <div class="chip wet">Wet <span class="mono">${wet}%</span></div>
-            <div class="chip ready">Ready <span class="mono">${ready}%</span></div>
+            <div class="chip wet">Wet <span class="mono">${wet}</span></div>
+            <div class="chip ready">Ready <span class="mono">${ready}</span></div>
           </div>
 
-          <div class="workGauge" aria-label="Readiness gauge">
+          <div class="workGauge" aria-label="Readiness score gauge">
             <div class="thrMarker" style="left:${thrPos};"></div>
             <div class="workMarker" style="left:${leftPos};"></div>
-            <div class="markerBadge" style="left:${leftPos};">Ready ${ready}%</div>
+            <div class="markerBadge" style="left:${leftPos};">Ready ${ready}</div>
           </div>
 
-          <div class="workLabels"><span>0%</span><span>50%</span><span>100%</span></div>
+          <div class="workLabels"><span>0</span><span>50</span><span>100</span></div>
 
           ${(!isWorkable) ? `<div class="muted" style="font-size:12px;"><b>${eta || 'Estimated to be greater then 2 days'}</b></div>` : ``}
         </div>
@@ -1154,12 +1131,12 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
 
     $('paramExplain').innerHTML =
       `<b>Selected:</b> ${escapeHtml(f.farm)} • ${escapeHtml(f.field)}<br/>
-       <b>Displayed readiness:</b> <span class="mono">${readyShown}%</span>${(overrideReady!==null?' (manual override)':'')}<br/><br/>
+       <b>Displayed readiness score:</b> <span class="mono">${readyShown}</span>${(overrideReady!==null?' (manual override)':'')}<br/><br/>
        soilHold=(soil−1)/9=<span class="mono">${fac.soilHold.toFixed(2)}</span> • drainPoor=(drain−1)/9=<span class="mono">${fac.drainPoor.toFixed(2)}</span><br/>
        Smax=<span class="mono">${fac.Smax.toFixed(2)}</span> • infilMult=<span class="mono">${fac.infilMult.toFixed(2)}</span> • dryMult=<span class="mono">${fac.dryMult.toFixed(2)}</span> • LOSS_SCALE=<span class="mono">${LOSS_SCALE.toFixed(2)}</span>`;
 
     $('mathSummary').innerHTML =
-      `<b>Model output (computed):</b> Wet=${run.wetnessR}% • Ready=${run.readinessR}% • storage=${run.storageFinal.toFixed(2)}/${run.factors.Smax.toFixed(2)}<br/>
+      `<b>Model output (computed):</b> Wet=${run.wetnessR} • Ready=${run.readinessR} • storage=${run.storageFinal.toFixed(2)}/${run.factors.Smax.toFixed(2)}<br/>
        <b>Start:</b> storage0=0.45*Smax + rainNudge (rain7=${run.rain7.toFixed(2)} in, nudge=${run.rainNudge.toFixed(2)})`;
 
     const trb = $('traceRows');
@@ -1214,10 +1191,8 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
     }
   }
 
-  // ---------- ADJUST MODAL ----------
-  function showModal(on){
-    $('adjustBackdrop').classList.toggle('pv-hide', !on);
-  }
+  // ADJUST MODAL
+  function showModal(on){ $('adjustBackdrop').classList.toggle('pv-hide', !on); }
   function showStep(which){
     $('adjustStep1').classList.toggle('pv-hide', which !== 'start');
     $('adjustStepDry').classList.toggle('pv-hide', which !== 'dry');
@@ -1236,21 +1211,27 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
     const isWorkable = (currentReady >= thr);
 
     $('adjustTitle').textContent = 'Adjust';
-    $('adjustSub').textContent = `${f.farm} • ${f.field} • Op: ${op} • Threshold: ${thr}%`;
+    $('adjustSub').textContent = `${f.farm} • ${f.field} • Op: ${op} • Threshold: ${thr}`;
 
     const btnWet = $('btnAdjWet');
     const btnDry = $('btnAdjDry');
 
-    // Only allow contradiction:
-    // If READY, allow WET; If WET, allow DRY
     btnWet.disabled = !isWorkable ? true : false;
     btnDry.disabled = isWorkable ? true : false;
 
     const eta = etaFor(run, thr);
     $('adjustRule').innerHTML =
       isWorkable
-        ? `Model says <b>READY</b> (${Math.round(currentReady)}% ≥ ${thr}%). Only <b>Wet</b> is allowed.`
-        : `Model says <b>WET</b> (${Math.round(currentReady)}% &lt; ${thr}%). Only <b>Dry</b> is allowed.<br/><b>${eta || 'Estimated to be greater then 2 days'}</b>`;
+        ? `Model says <b>READY</b> (score ${Math.round(currentReady)} ≥ ${thr}). Only <b>Wet</b> is allowed.`
+        : `Model says <b>WET</b> (score ${Math.round(currentReady)} &lt; ${thr}). Only <b>Dry</b> is allowed.<br/><b>${eta || 'Estimated to be greater then 2 days'}</b>`;
+
+    // Soil/Drain values shown here
+    $('adjustSoilDrain').innerHTML =
+      `<b>Field settings</b><br/>
+       <b>Soil:</b> ${f.soil}/10 • <b>Drain:</b> ${f.drain}/10<br/><br/>
+       <b>Definitions</b><br/>
+       <b>Soil Type / Holding (1–10):</b> 1=sandier (holds less, dries faster) • 10=clay (holds more, dries slower)<br/>
+       <b>Drainage (1–10):</b> 1=good drainage (tile/ditches) • 10=poor drainage`;
 
     showStep('start');
     showModal(true);
@@ -1265,7 +1246,6 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
   function setDryLevel(level){
     const id = state.adjustContext.fieldId;
     if (!id) return;
-
     const thr = Number($('workable').value);
 
     let ready;
@@ -1282,10 +1262,8 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
   function setWetLevel(level){
     const id = state.adjustContext.fieldId;
     if (!id) return;
-
     const thr = Number($('workable').value);
 
-    // Wet choices lower readiness (below threshold)
     let ready;
     if (level === 'barely') ready = clamp(thr - 1, 0, 100);
     else if (level === 'pretty') ready = clamp(thr - 15, 0, 100);
@@ -1302,7 +1280,6 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
   $('adjustBackdrop').addEventListener('click', (e)=>{
     if (e.target && e.target.id === 'adjustBackdrop') closeAdjust();
   });
-
   $('btnAdjWet').addEventListener('click', ()=> showStep('wet'));
   $('btnAdjDry').addEventListener('click', ()=> showStep('dry'));
 
@@ -1316,7 +1293,7 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
   $('btnWetPretty').addEventListener('click', ()=> setWetLevel('pretty'));
   $('btnWetVery').addEventListener('click', ()=> setWetLevel('very'));
 
-  // ---------- UI ----------
+  // UI
   function syncSliderLabels(){
     $('soilWetVal').textContent = $('soilWet').value;
     $('drainVal').textContent   = $('drain').value;
@@ -1334,7 +1311,7 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
     $('runStamp').textContent = new Date().toLocaleString();
   }
 
-  // Date range apply/clear
+  // Date picker apply/clear
   $('applyRangeBtn').addEventListener('click', ()=> setTimeout(refreshAll, 0));
   $('clearRangeBtn').addEventListener('click', ()=> setTimeout(refreshAll, 0));
   $('jobRangeInput').addEventListener('change', refreshAll);
@@ -1354,17 +1331,11 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
 
   async function fetchReal30(){
     const base = String($('apiBase').value || '').trim().replace(/\/+$/,'');
-    if (!base){
-      alert('Add your Weather API Base URL first (e.g. https://your-cloudrun-url).');
-      return;
-    }
+    if (!base){ alert('Add your Weather API Base URL first.'); return; }
 
     const lat = String($('lat').value || '').trim();
     const lon = String($('lon').value || '').trim();
-    if (!lat || !lon){
-      alert('Enter lat/lon first.');
-      return;
-    }
+    if (!lat || !lon){ alert('Enter lat/lon first.'); return; }
 
     $('btnFetch').disabled = true;
     $('btnFetch').textContent = 'Fetching…';
@@ -1375,8 +1346,7 @@ UI COMPACT + THRESHOLD + ADJUST FLOW
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const days = Array.isArray(data.days) ? data.days : [];
-
-      if (days.length < 20) throw new Error('Response missing days[] (or too few rows).');
+      if (days.length < 20) throw new Error('Response missing days[]');
 
       state.weather30 = days.map(d=>({
         dateISO: String(d.dateISO||'').slice(0,10),
