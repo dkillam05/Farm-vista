@@ -1,23 +1,50 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/weather.html  (FULL FILE)
-Rev: 2025-12-20f
-DEV Wetness Model (UI + Math Transparency)
+Rev: 2025-12-21b
 
-NEW:
-✅ Operation dropdown (top)
-✅ Mock “Fields” hero card (3 fields: Farm + Field name)
-   - Red→Green gradient bar (Red=Too Wet, Green=Workable)
-   - Marker line shows each field’s current Wetness Index
-✅ “Math Trace” section shows simple formula + exact numbers
-   - Daily trace table (storage before/after, add, loss)
-   - So you can SEE how wetness is computed
+DEV: Weather Workability Model + FULL MATH TRANSPARENCY
 
-Still included:
-✅ Mock 30-day weather generator
-✅ Soil Wetness (1–10) + Drainage (1–10) sliders for the selected field
-✅ Workable threshold slider (0–100)
-✅ Optional real-weather fetch (later)
-✅ “Too Wet” feedback log (localStorage)
+PRIMARY USER METRIC:
+✅ WORKABILITY (0..100)
+    0 = bad (red/left)
+    100 = good (green/right)
+    Workability = 100 - Wetness
+
+SLIDER DEFINITIONS (MATCH YOUR WORDING):
+✅ Soil Type / Holding (1..10):
+    1 = sandier (holds less, dries faster)
+    10 = clay (holds more, dries slower)
+✅ Drainage (1..10):
+    1 = good drainage (tile/ditches/natural)
+    10 = poor drainage
+
+TILE ETA RULE (YOUR WORDING):
+✅ If field NOT workable:
+    - if <= 48 hours: "Est: ~X hours"
+    - else: "Estimated to be greater then 2 days"
+
+ADJUST (SAFE / GATED):
+✅ Tile button: "Adjust"
+✅ Popup shows BOTH buttons (Wet/Dry) BUT disables the one that matches the current model state:
+    - If model says WORKABLE: disable "Dry", allow "Wet"
+    - If model says NOT WORKABLE: disable "Wet", allow "Dry"
+
+OPERATION DROPDOWN:
+✅ Always on top (z-index) so it won’t be hidden by cards
+
+FULL MATH DISPLAY:
+✅ Parameter mapping panel (sliders → normalized → multipliers → Smax)
+✅ DryPwr breakdown table (tempN/windN/rhN/solarN/raw/dryPwr)
+✅ 30-day tank trace table (before/add/loss/after/clamp)
+✅ Weather input table (30 days)
+
+DATA:
+✅ Always generates mock 30-day daily weather
+✅ Optional future API hook:
+    Base URL: https://YOUR-SERVICE
+    GET {base}/weather30?lat=..&lon=..
+    Response: { days:[{dateISO,rainIn,tempF,windMph,rh,solarWm2}] }
+
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -29,7 +56,6 @@ Still included:
 
   <script src="/Farm-vista/js/theme-boot.js"></script>
 
-  <!-- ABSOLUTE PATHS -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
@@ -40,17 +66,22 @@ Still included:
   <script src="/Farm-vista/js/core.js"></script>
 
   <style>
-    :root{ --card-max:1180px; --page-bottom-gap:72px; --accent:#2F6C3C; }
-
+    :root{
+      --card-max:1200px;
+      --page-bottom-gap:72px;
+      --accent:#2F6C3C;
+    }
     .page{
       max-width:var(--card-max);
       margin:0 auto;
       padding:clamp(14px,3vw,22px);
       padding-bottom:calc(var(--page-bottom-gap) + env(safe-area-inset-bottom,0px));
     }
-    .topbar{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
+    .topbar{
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+      margin-bottom:12px;
+    }
     .topbar h1{ font-size:18px; margin:0; letter-spacing:.2px; }
-
     a,a:visited,a:hover,a:active{ color:var(--text); text-decoration:none; }
 
     .card{
@@ -72,11 +103,10 @@ Still included:
     .card-b{ padding:14px; }
 
     .grid{ display:grid; grid-template-columns:1fr; gap:14px; }
-    @media(min-width:980px){ .grid{ grid-template-columns:460px 1fr; } }
+    @media(min-width:980px){ .grid{ grid-template-columns:480px 1fr; } }
 
     .field{ display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
     label{ font-size:12px; opacity:.9; }
-
     input[type="text"], input[type="number"], select{
       width:100%;
       padding:10px 12px;
@@ -87,7 +117,6 @@ Still included:
       outline:none;
       appearance:none;
     }
-
     .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     .row > *{ flex:1 1 auto; }
 
@@ -99,16 +128,10 @@ Still included:
       margin:6px 0 14px;
     }
     input[type="range"]{ width:100%; accent-color:var(--brand,#3B7E46); }
-
     .pill{
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      min-width:58px;
-      height:34px;
-      padding:0 10px;
-      border-radius:999px;
-      border:1px solid var(--border);
+      display:inline-flex; align-items:center; justify-content:center;
+      min-width:58px; height:34px; padding:0 10px;
+      border-radius:999px; border:1px solid var(--border);
       background:color-mix(in srgb, var(--surface) 88%, #ffffff 12%);
       font-weight:950;
     }
@@ -127,16 +150,16 @@ Still included:
     .btn:active{ transform:translateY(1px); }
     .btn.primary{ background:var(--brand,#3B7E46); border-color:transparent; color:#fff !important; }
     .btn.danger{ background:#b02a2a; border-color:transparent; color:#fff !important; }
+    .btn[disabled]{ opacity:.55; cursor:not-allowed; }
 
-    .note{
-      border:1px dashed var(--border);
-      border-radius:14px;
-      padding:10px 12px;
-      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+    .statusline{
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      margin-top:10px;
       font-size:12px;
-      opacity:.95;
-      line-height:1.35;
+      opacity:.92;
     }
+    .muted{ opacity:.75; }
+    .mono{ font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace; }
 
     .kpis{ display:grid; grid-template-columns:1fr; gap:12px; }
     @media(min-width:720px){ .kpis{ grid-template-columns:1fr 1fr; } }
@@ -171,27 +194,119 @@ Still included:
     th{
       opacity:.85;
       background:color-mix(in srgb, var(--surface) 90%, #ffffff 10%);
-      font-weight:900;
+      font-weight:950;
     }
     tr:last-child td{ border-bottom:none; }
-
     .right{ text-align:right; }
-    .muted{ opacity:.75; }
-    .mono{ font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace; }
 
-    .statusline{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      margin-top:10px;
+    .note{
+      border:1px dashed var(--border);
+      border-radius:14px;
+      padding:10px 12px;
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
       font-size:12px;
-      opacity:.92;
+      opacity:.95;
+      line-height:1.35;
     }
 
-    .split{ display:grid; grid-template-columns:1fr; gap:12px; }
-    @media(min-width:720px){ .split{ grid-template-columns:1fr 1fr; } }
+    .errorbox{
+      border:1px solid #b02a2a;
+      background: color-mix(in srgb, #b02a2a 14%, var(--surface) 86%);
+      border-radius:14px;
+      padding:10px 12px;
+      font-size:12px;
+      line-height:1.35;
+      display:none;
+      margin-top:12px;
+      overflow:auto;
+    }
+    .errorbox b{ display:block; margin-bottom:6px; }
 
+    /* Operation always above */
+    .opCard{ position:relative; z-index:50; }
+
+    /* Mock fields hero */
+    .fieldsGrid{
+      display:grid;
+      grid-template-columns:1fr;
+      gap:12px;
+    }
+    @media(min-width:860px){
+      .fieldsGrid{ grid-template-columns:1fr 1fr 1fr; }
+    }
+    .fieldTile{
+      border:1px solid var(--border);
+      border-radius:16px;
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      padding:12px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .fieldTitle{ font-weight:950; font-size:13px; line-height:1.2; }
+    .fieldSub{ font-size:12px; opacity:.85; margin-top:2px; }
+
+    .workGaugeWrap{ display:flex; flex-direction:column; gap:6px; }
+    .workGauge{
+      position:relative;
+      height:12px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      overflow:hidden;
+      /* RED left -> GREEN right */
+      background: linear-gradient(90deg, #c83b3b 0%, #d8b23b 55%, #2f8f4b 100%);
+    }
+    .workMarker{
+      position:absolute;
+      top:-6px;
+      width:2px;
+      height:24px;
+      background:#ffffff;
+      box-shadow:0 0 0 1px rgba(0,0,0,.35);
+      border-radius:2px;
+      transform: translateX(-1px);
+    }
+    .workLabels{
+      display:flex;
+      justify-content:space-between;
+      font-size:11px;
+      opacity:.85;
+    }
+    .workRow{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      font-size:12px;
+      opacity:.95;
+    }
+    .tileBtnRow{ display:flex; gap:8px; flex-wrap:wrap; }
+    .miniBtn{
+      padding:8px 10px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:transparent;
+      color:var(--text);
+      font-weight:950;
+      cursor:pointer;
+    }
+    .miniBtn.active{
+      background: color-mix(in srgb, var(--surface) 86%, #ffffff 14%);
+    }
+    .badge{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      font-size:12px;
+      font-weight:950;
+      white-space:nowrap;
+    }
+
+    /* Feedback log */
     .log{
       border:1px solid var(--border);
       border-radius:14px;
@@ -227,109 +342,36 @@ Still included:
       font-size:12px;
     }
 
-    /* On-page error panel */
-    .errorbox{
-      border:1px solid #b02a2a;
-      background: color-mix(in srgb, #b02a2a 14%, var(--surface) 86%);
-      border-radius:14px;
-      padding:10px 12px;
-      font-size:12px;
-      line-height:1.35;
-      display:none;
-      margin-top:12px;
-      overflow:auto;
+    /* Modal */
+    .pv-hide{ display:none !important; }
+    .modal-backdrop{
+      position:fixed; inset:0;
+      background:rgba(0,0,0,.45);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:16px;
+      z-index:9999;
     }
-    .errorbox b{ display:block; margin-bottom:6px; }
-
-    /* ====== Mock Fields hero card ====== */
-    .fieldsGrid{
-      display:grid;
-      grid-template-columns:1fr;
+    .modal{
+      width:min(520px, 94vw);
+      background:var(--card, var(--surface));
+      border:1px solid var(--border);
+      border-radius:18px;
+      box-shadow:0 18px 60px rgba(0,0,0,.35);
+      overflow:hidden;
+    }
+    .modal-h{
+      padding:14px 14px 10px;
+      border-bottom:1px solid var(--border);
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
       gap:12px;
     }
-    @media(min-width:860px){
-      .fieldsGrid{ grid-template-columns:1fr 1fr 1fr; }
-    }
-    .fieldTile{
-      border:1px solid var(--border);
-      border-radius:16px;
-      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
-      padding:12px;
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-    }
-    .fieldTitle{
-      font-weight:950;
-      font-size:13px;
-      line-height:1.2;
-    }
-    .fieldSub{
-      font-size:12px;
-      opacity:.85;
-      margin-top:2px;
-    }
-
-    .wetGaugeWrap{
-      display:flex;
-      flex-direction:column;
-      gap:6px;
-    }
-    .wetGauge{
-      position:relative;
-      height:12px;
-      border-radius:999px;
-      border:1px solid var(--border);
-      overflow:hidden;
-      /* Left=Green (good/dry), Right=Red (too wet) */
-      background: linear-gradient(90deg, #2f8f4b 0%, #d8b23b 55%, #c83b3b 100%);
-    }
-    .wetMarker{
-      position:absolute;
-      top:-6px;
-      width:2px;
-      height:24px;
-      background:#ffffff;
-      box-shadow:0 0 0 1px rgba(0,0,0,.35);
-      border-radius:2px;
-      transform: translateX(-1px);
-    }
-    .wetLabels{
-      display:flex;
-      justify-content:space-between;
-      font-size:11px;
-      opacity:.85;
-    }
-    .wetNumberRow{
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:10px;
-      font-size:12px;
-      opacity:.95;
-    }
-
-    .selectHint{
-      font-size:12px;
-      opacity:.85;
-    }
-    .tileBtnRow{
-      display:flex;
-      gap:8px;
-      flex-wrap:wrap;
-    }
-    .miniBtn{
-      padding:8px 10px;
-      border-radius:12px;
-      border:1px solid var(--border);
-      background:transparent;
-      color:var(--text);
-      font-weight:950;
-      cursor:pointer;
-    }
-    .miniBtn.active{
-      background: color-mix(in srgb, var(--surface) 86%, #ffffff 14%);
-    }
+    .modal-h h3{ margin:0; font-size:15px; font-weight:950; }
+    .modal-b{ padding:14px; }
+    .modal-actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
   </style>
 </head>
 
@@ -341,12 +383,13 @@ Still included:
     </div>
 
     <!-- Operation dropdown -->
-    <section class="card" style="margin-bottom:14px;">
+    <section class="card opCard" style="margin-bottom:14px;">
       <div class="card-h">
         <div>
           <p class="t">Operation</p>
-          <div class="muted" style="font-size:12px;">This will later change thresholds + sensitivity. For now it’s just a selector.</div>
+          <div class="muted" style="font-size:12px;">Operation will matter later. For now it’s part of the Adjust log.</div>
         </div>
+        <div class="mono muted" id="modeLine">MOCK</div>
       </div>
       <div class="card-b">
         <div class="field" style="margin:0;">
@@ -362,30 +405,27 @@ Still included:
       </div>
     </section>
 
-    <!-- Mock fields hero card -->
+    <!-- Mock fields hero -->
     <section class="card" style="margin-bottom:14px;">
       <div class="card-h">
         <div>
           <p class="t">Mock Fields</p>
-          <div class="selectHint">Tap a field to load its Soil Wetness + Drainage sliders.</div>
+          <div class="muted" style="font-size:12px;">Gauge shows Workability (0 red → 100 green). Select a field to edit sliders.</div>
         </div>
-        <div class="mono muted" id="modeLine">MOCK</div>
+        <div class="mono muted" id="tileStamp">—</div>
       </div>
-
       <div class="card-b">
-        <div class="fieldsGrid" id="fieldsGrid">
-          <!-- filled by JS -->
-        </div>
+        <div class="fieldsGrid" id="fieldsGrid"></div>
       </div>
     </section>
 
     <div class="grid">
-      <!-- LEFT -->
+      <!-- LEFT: Inputs -->
       <section class="card">
         <div class="card-h">
           <div>
             <p class="t">Inputs</p>
-            <div class="muted" style="font-size:12px;">Mock by default. Switch to REAL once your function is live.</div>
+            <div class="muted" style="font-size:12px;">Mock weather always loads. “Fetch Real 30 Days” will work after you deploy your endpoint.</div>
           </div>
         </div>
 
@@ -405,7 +445,10 @@ Still included:
           </div>
 
           <div class="field">
-            <label for="soilWet">Soil Wetness (1–10)</label>
+            <label for="soilWet">Soil Type / Holding (1–10)</label>
+            <div class="muted" style="font-size:12px; margin-top:-2px;">
+              1=sandier (holds less, dries faster) • 10=clay (holds more, dries slower)
+            </div>
             <div class="slider-wrap">
               <input id="soilWet" type="range" min="1" max="10" step="1" value="6"/>
               <div class="pill" id="soilWetVal">6</div>
@@ -414,6 +457,9 @@ Still included:
 
           <div class="field">
             <label for="drain">Drainage (1–10)</label>
+            <div class="muted" style="font-size:12px; margin-top:-2px;">
+              1=good drainage (tile/ditches) • 10=poor drainage
+            </div>
             <div class="slider-wrap">
               <input id="drain" type="range" min="1" max="10" step="1" value="5"/>
               <div class="pill" id="drainVal">5</div>
@@ -421,17 +467,19 @@ Still included:
           </div>
 
           <div class="field">
-            <label for="workable">Workable Threshold (0–100)</label>
-            <div class="slider-wrap">
-              <input id="workable" type="range" min="0" max="100" step="1" value="55"/>
-              <div class="pill" id="workableVal">55</div>
+            <label for="workable">Workable Threshold (Workability 0–100)</label>
+            <div class="muted" style="font-size:12px; margin-top:-2px;">
+              If Workability ≥ threshold → field is workable
             </div>
-            <div class="muted" style="font-size:12px;">Workable means Wetness Index ≤ this value (lower = stricter).</div>
+            <div class="slider-wrap">
+              <input id="workable" type="range" min="0" max="100" step="1" value="70"/>
+              <div class="pill" id="workableVal">70</div>
+            </div>
           </div>
 
           <div class="field">
-            <label for="apiBase">Weather API Base URL (your backend function)</label>
-            <input id="apiBase" type="text" placeholder="https://YOUR-CLOUDRUN-URL (leave blank = mock)"/>
+            <label for="apiBase">Weather API Base URL (future)</label>
+            <input id="apiBase" type="text" placeholder="https://YOUR-CLOUDRUN-URL (blank = mock)"/>
             <div class="muted" style="font-size:12px; margin-top:4px;">
               Must expose <span class="mono">GET /weather30?lat=..&lon=..</span>
             </div>
@@ -453,165 +501,157 @@ Still included:
             <div class="mono" id="errText"></div>
           </div>
 
-          <div style="height:12px"></div>
+          <div style="height:12px;"></div>
 
-          <div class="split">
-            <div class="card" style="border-radius:14px; box-shadow:none;">
-              <div class="card-h" style="padding:12px; border-bottom:1px solid var(--border);">
-                <p class="t" style="font-size:13px;">Feedback</p>
-              </div>
-              <div class="card-b" style="padding:12px;">
-                <div class="field" style="margin-bottom:8px;">
-                  <label for="tooWetAmt">How “too wet” right now? (0–100)</label>
-                  <div class="slider-wrap">
-                    <input id="tooWetAmt" type="range" min="0" max="100" step="1" value="20"/>
-                    <div class="pill" id="tooWetAmtVal">20</div>
-                  </div>
-                </div>
-
-                <div class="btnbar" style="margin-top:0;">
-                  <button id="btnTooWet" class="btn danger" type="button">Mark TOO WET</button>
-                  <button id="btnClearLog" class="btn" type="button">Clear Log</button>
-                </div>
-
-                <div style="height:10px"></div>
-                <div class="note">
-                  Saves feedback to <span class="mono">localStorage</span> (dev-only).
-                  Later we’ll write this to Firestore and auto-calibrate.
-                </div>
-              </div>
-            </div>
-
-            <div class="card" style="border-radius:14px; box-shadow:none;">
-              <div class="card-h" style="padding:12px; border-bottom:1px solid var(--border);">
-                <p class="t" style="font-size:13px;">Math (simple)</p>
-              </div>
-              <div class="card-b" style="padding:12px;">
-                <div class="note">
-                  <b>Wetness Index</b> is just a scaled “water tank”:<br/><br/>
-                  <span class="mono">storage</span> starts from Soil Wetness (1–10)<br/>
-                  Each day we update:<br/>
-                  <span class="mono">storage = clamp(storage + add − loss, 0..Smax)</span><br/><br/>
-                  Where:<br/>
-                  <span class="mono">add = rainIn × infilMult</span><br/>
-                  <span class="mono">loss = dryPwr × 0.55 × dryMult × wetSlow</span><br/><br/>
-                  And finally:<br/>
-                  <span class="mono">wetnessIndex = (storage / Smax) × 100</span><br/><br/>
-                  <b>DryPwr</b> (0..1) comes from temp + solar + wind − humidity.
-                </div>
-              </div>
-            </div>
-          </div>
-
+          <div class="note" id="paramExplain">—</div>
         </div>
       </section>
 
-      <!-- RIGHT -->
+      <!-- RIGHT: Output + Math -->
       <section class="card">
         <div class="card-h">
           <div>
-            <p class="t">Model Output</p>
-            <div class="muted" style="font-size:12px;">Wetness Index (0–100) from last 30 days.</div>
+            <p class="t">Output + Math</p>
+            <div class="muted" style="font-size:12px;">All calculations shown below (no black box).</div>
           </div>
         </div>
 
         <div class="card-b">
           <div class="kpis">
             <div class="kpi">
-              <div class="lab">Wetness Index (0–100)</div>
-              <div class="val" id="wetIndex">—</div>
-              <div class="sub" id="wetLabel">Run the model.</div>
+              <div class="lab">Workability (0–100)</div>
+              <div class="val" id="workabilityVal">—</div>
+              <div class="sub" id="workabilityLabel">—</div>
             </div>
 
             <div class="kpi">
-              <div class="lab">Workability</div>
-              <div class="val" id="daysDry">—</div>
-              <div class="sub" id="daysDrySub">Estimated days until workable (assumes no new rain).</div>
+              <div class="lab">Wetness (internal)</div>
+              <div class="val" id="wetnessVal">—</div>
+              <div class="sub">Wetness = 100 − Workability</div>
             </div>
 
             <div class="kpi">
-              <div class="lab">Internal State</div>
-              <div class="val" id="storageLine">—</div>
-              <div class="sub" id="stateLine">—</div>
+              <div class="lab">ETA if NOT workable</div>
+              <div class="val" id="etaVal">—</div>
+              <div class="sub" id="etaSub">—</div>
             </div>
 
             <div class="kpi">
-              <div class="lab">30-Day Totals</div>
-              <div class="val" id="rain30">—</div>
-              <div class="sub" id="dry30">Drying power: —</div>
+              <div class="lab">Tank</div>
+              <div class="val" id="tankVal">—</div>
+              <div class="sub" id="tankSub">—</div>
             </div>
           </div>
 
-          <div style="height:12px"></div>
+          <div style="height:12px;"></div>
 
           <div class="log">
             <div class="lh">
-              <span>Feedback Log (local)</span>
+              <span>Adjust Log (local)</span>
               <span class="tag" id="logCount">0</span>
             </div>
-            <div class="lb" id="logBody">
-              <span class="muted">No feedback yet.</span>
-            </div>
+            <div class="lb" id="logBody"><span class="muted">No adjustments yet.</span></div>
           </div>
 
-          <div style="height:12px"></div>
+          <div style="height:12px;"></div>
 
-          <!-- Math Trace -->
           <section class="card" style="box-shadow:none; border-radius:16px;">
             <div class="card-h" style="border-bottom:1px solid var(--border);">
               <div>
-                <p class="t" style="font-size:14px;">Math Trace (what happened each day)</p>
-                <div class="muted" style="font-size:12px;">This is the “tank math” so you can verify it.</div>
+                <p class="t" style="font-size:14px;">Tank Trace (30 days)</p>
+                <div class="muted" style="font-size:12px;">
+                  storage(t+1) = clamp(storage(t) + add − loss, 0..Smax)
+                </div>
               </div>
             </div>
             <div class="card-b">
-              <table aria-label="Math trace">
+              <table aria-label="Tank Trace">
                 <thead>
                   <tr>
                     <th style="width:110px;">Date</th>
                     <th class="right">Rain</th>
-                    <th class="right">DryPwr</th>
+                    <th class="right">infilMult</th>
                     <th class="right">Add</th>
+                    <th class="right">DryPwr</th>
                     <th class="right">Loss</th>
-                    <th class="right">Storage→</th>
+                    <th class="right">Storage</th>
+                    <th class="right">Clamp</th>
                   </tr>
                 </thead>
                 <tbody id="traceRows">
-                  <tr><td colspan="6" class="muted">Run the model.</td></tr>
+                  <tr><td colspan="8" class="muted">Run the model.</td></tr>
                 </tbody>
               </table>
 
-              <div style="height:10px"></div>
-              <div class="note" id="traceNote">—</div>
+              <div style="height:10px;"></div>
+
+              <table aria-label="DryPwr Breakdown">
+                <thead>
+                  <tr>
+                    <th style="width:110px;">Date</th>
+                    <th class="right">Temp</th>
+                    <th class="right">tempN</th>
+                    <th class="right">Wind</th>
+                    <th class="right">windN</th>
+                    <th class="right">RH</th>
+                    <th class="right">rhN</th>
+                    <th class="right">Solar</th>
+                    <th class="right">solarN</th>
+                    <th class="right">raw</th>
+                    <th class="right">DryPwr</th>
+                  </tr>
+                </thead>
+                <tbody id="dryRows">
+                  <tr><td colspan="11" class="muted">Run the model.</td></tr>
+                </tbody>
+              </table>
+
+              <div style="height:10px;"></div>
+              <div class="note" id="mathNote">—</div>
             </div>
           </section>
 
-          <div style="height:12px"></div>
+          <div style="height:12px;"></div>
 
-          <!-- Weather table -->
-          <table aria-label="Last 30 days weather">
+          <table aria-label="Weather Inputs (30 days)">
             <thead>
               <tr>
-                <th style="width:120px;">Date</th>
+                <th style="width:110px;">Date</th>
                 <th class="right">Rain (in)</th>
                 <th class="right">Temp (°F)</th>
                 <th class="right">Wind (mph)</th>
                 <th class="right">RH (%)</th>
                 <th class="right">Solar (W/m²)</th>
-                <th class="right">Dry</th>
               </tr>
             </thead>
             <tbody id="wxRows">
-              <tr><td colspan="7" class="muted">Waiting for JS…</td></tr>
+              <tr><td colspan="6" class="muted">Waiting for JS…</td></tr>
             </tbody>
           </table>
 
-          <div style="height:10px"></div>
-          <div class="muted" style="font-size:12px;">
-            Dry is 0..1. Higher = dries faster.
-          </div>
         </div>
       </section>
+    </div>
+  </div>
+
+  <!-- Adjust Modal -->
+  <div id="adjustBackdrop" class="modal-backdrop pv-hide" role="dialog" aria-modal="true" aria-labelledby="adjustTitle">
+    <div class="modal">
+      <div class="modal-h">
+        <div>
+          <h3 id="adjustTitle">Adjust</h3>
+          <div class="muted" style="font-size:12px;" id="adjustSub">—</div>
+        </div>
+      </div>
+      <div class="modal-b">
+        <div class="note" id="adjustRule">—</div>
+
+        <div class="modal-actions">
+          <button id="btnAdjWet" class="btn danger" type="button">Wet</button>
+          <button id="btnAdjDry" class="btn primary" type="button">Dry</button>
+          <button id="btnAdjCancel" class="btn" type="button">Cancel</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -626,7 +666,7 @@ Still included:
     return Math.round(v*p)/p;
   };
 
-  // -------- On-page error reporting --------
+  // error panel
   function showErr(msg){
     const box = $('errBox');
     const text = $('errText');
@@ -647,23 +687,33 @@ Still included:
     }catch(_){}
   });
 
-  const LS_LOG_KEY = 'FV_DEV_WETNESS_FEEDBACK_LOG_V1';
+  const LS_LOG_KEY = 'FV_DEV_WETNESS_ADJUST_LOG_V1';
 
   const state = {
     weather30: [],
     seed: Date.now() % 1000000,
     mode: 'MOCK',
-    lastRun: null,
-    selectedFieldId: 'f1'
+    selectedFieldId: 'f1',
+    lastRunByField: new Map(),
+    lastRunSelected: null
   };
 
-  // Mock fields (3)
   const MOCK_FIELDS = [
-    { id:'f1', farm:'Dowson Farms', field:'Home 80',   soilWet:6, drain:5 },
-    { id:'f2', farm:'Dowson Farms', field:'River Bottom', soilWet:8, drain:3 },
-    { id:'f3', farm:'Dowson Farms', field:'North Ridge', soilWet:4, drain:8 },
+    { id:'f1', farm:'Dowson Farms', field:'Home 80',      soil:6, drain:5 },
+    { id:'f2', farm:'Dowson Farms', field:'River Bottom', soil:9, drain:9 },
+    { id:'f3', farm:'Dowson Farms', field:'North Ridge',  soil:3, drain:2 },
   ];
 
+  function escapeHtml(s){
+    return String(s||'')
+      .replaceAll('&','&amp;')
+      .replaceAll('<','&lt;')
+      .replaceAll('>','&gt;')
+      .replaceAll('"','&quot;')
+      .replaceAll("'","&#039;");
+  }
+
+  // -------- mock weather --------
   function seededRand(){
     state.seed = (state.seed * 1664525 + 1013904223) % 4294967296;
     return state.seed / 4294967296;
@@ -709,7 +759,8 @@ Still included:
     $('modeLine').textContent = 'MOCK';
   }
 
-  function computeDryPwr(r){
+  // -------- dry power breakdown --------
+  function calcDryParts(r){
     const temp = Number(r.tempF||0);
     const wind = Number(r.windMph||0);
     const rh   = Number(r.rh||0);
@@ -720,123 +771,129 @@ Still included:
     const solarN= clamp((solar - 60) / 300, 0, 1);
     const rhN   = clamp((rh - 35) / 65, 0, 1);
 
-    return clamp((0.35*tempN + 0.30*solarN + 0.25*windN - 0.25*rhN), 0, 1);
+    const raw = (0.35*tempN + 0.30*solarN + 0.25*windN - 0.25*rhN);
+    const dryPwr = clamp(raw, 0, 1);
+
+    return { temp, wind, rh, solar, tempN, windN, rhN, solarN, raw, dryPwr };
   }
 
-  function withDryPwr(rows){
-    return (rows||[]).map(r=>{
-      const dryPwr = computeDryPwr(r);
-      return { ...r, dryPwr: round(dryPwr, 2) };
-    });
+  // -------- factor mapping --------
+  const LOSS_SCALE = 0.55;
+
+  function mapFactors(soil, drain){
+    const soilHold = (Number(soil) - 1) / 9;   // 0..1 (sand..clay)
+    const drainPoor= (Number(drain) - 1) / 9;  // 0..1 (good..poor)
+
+    const infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor; // 0.60..1.25
+    const dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor; // 0.45..1.20
+    const Smax      = 2.60 + 1.00*soilHold + 0.90*drainPoor; // 2.6..4.5
+
+    return { soilHold, drainPoor, infilMult, dryMult, Smax };
   }
 
-  function runModelFor(soilWet, drain){
+  function runModelDaily(soil, drain){
     if (!state.weather30.length) return null;
 
-    const baseWetBias = (soilWet - 1) / 9; // 0..1
-    const drainage    = (drain - 1) / 9;   // 0..1
+    const factors = mapFactors(soil, drain);
 
-    const Smax = 4.0;
+    const rows = state.weather30.map(w=>{
+      const p = calcDryParts(w);
+      return { ...w, ...p };
+    });
 
-    const rows0 = withDryPwr(state.weather30);
+    const first7 = rows.slice(0,7);
+    const rain7 = first7.reduce((s,x)=> s + Number(x.rainIn||0), 0);
+    const rainNudgeFrac = clamp(rain7 / 4.0, 0, 1);
+    const rainNudge = rainNudgeFrac * (0.35 * factors.Smax);
 
-    // Start: slider baseline + small nudge from first 7-day rain
-    const first7 = rows0.slice(0,7);
-    const first7Rain = first7.reduce((s,x)=> s + Number(x.rainIn||0), 0);
-    const rainNudge = clamp(first7Rain / 4.0, 0, 1) * 0.35;
-
-    let storage = (0.8 + baseWetBias * 2.8) + rainNudge;
-
-    const infilMult = 1.00 - (drainage * 0.35);
-    const dryMult   = 0.65 + (drainage * 0.50);
-    const wetSlow   = 1.00 - baseWetBias * 0.10;
+    let storage = clamp((0.45 * factors.Smax) + rainNudge, 0, factors.Smax);
 
     let rainSum = 0;
     let drySum = 0;
-    let last7Loss = [];
-    const trace = [];
 
-    for (const day of rows0){
-      const rain = Number(day.rainIn||0);
-      const dry  = Number(day.dryPwr||0);
+    const trace = [];
+    const dryBreak = [];
+
+    for (const d of rows){
+      const rain = Number(d.rainIn||0);
+      const dryPwr = Number(d.dryPwr||0);
 
       rainSum += rain;
-      drySum  += dry;
+      drySum += dryPwr;
 
-      const add  = (rain * infilMult);
-      const loss = (dry * 0.55 * dryMult * wetSlow);
+      const add = rain * factors.infilMult;
+      const loss = dryPwr * LOSS_SCALE * factors.dryMult;
 
       const before = storage;
-      storage += add;
-      storage -= loss;
-      storage = clamp(storage, 0, Smax);
+      let afterRaw = before + add - loss;
+      const clamped = (afterRaw < 0) ? 'LOW' : (afterRaw > factors.Smax ? 'HIGH' : '—');
+      const after = clamp(afterRaw, 0, factors.Smax);
+
+      storage = after;
 
       trace.push({
-        dateISO: day.dateISO,
-        rain, dry,
-        add, loss,
-        storageAfter: storage,
-        storageBefore: before
+        dateISO: d.dateISO,
+        rain, infilMult: factors.infilMult,
+        add, dryPwr, loss,
+        before, after,
+        clamped
       });
 
-      last7Loss.push(loss);
-      if (last7Loss.length > 7) last7Loss.shift();
+      dryBreak.push({
+        dateISO: d.dateISO,
+        temp: d.temp, tempN: d.tempN,
+        wind: d.wind, windN: d.windN,
+        rh: d.rh, rhN: d.rhN,
+        solar: d.solar, solarN: d.solarN,
+        raw: d.raw,
+        dryPwr
+      });
     }
 
-    const wetIdx = clamp((storage / Smax) * 100, 0, 100);
-    const wetIdxR = Math.round(wetIdx);
+    const wetness = clamp((storage / factors.Smax) * 100, 0, 100);
+    const wetnessR = Math.round(wetness);
 
-    const avgLoss7 = last7Loss.length
-      ? (last7Loss.reduce((s,x)=>s+x,0) / last7Loss.length)
-      : 0.12;
+    const workability = clamp(100 - wetness, 0, 100);
+    const workabilityR = Math.round(workability);
 
-    const label =
-      wetIdxR >= 75 ? 'Very wet' :
-      wetIdxR >= 55 ? 'Wet' :
-      wetIdxR >= 35 ? 'Moderate' :
-      wetIdxR >= 20 ? 'Drying' : 'Dry';
+    const last7Trace = trace.slice(-7);
+    const avgLossDay = last7Trace.length
+      ? (last7Trace.reduce((s,x)=> s + x.loss, 0) / last7Trace.length)
+      : (LOSS_SCALE * factors.dryMult * 0.35);
 
     return {
-      rows: rows0,
-      trace,
-      soilWet, drain,
-      Smax, storage,
-      infilMult, dryMult, wetSlow,
-      wetIdx, wetIdxR, label,
+      soil, drain,
+      factors,
+      rows, trace, dryBreak,
+      storageFinal: storage,
+      wetness, wetnessR,
+      workability, workabilityR,
       rainSum, drySum,
-      avgLoss7,
-      rainNudge
+      rain7, rainNudgeFrac, rainNudge,
+      avgLossDay
     };
   }
 
-  function runSelectedModel(){
-    const soilWet = Number($('soilWet').value);
-    const drain   = Number($('drain').value);
-    const run = runModelFor(soilWet, drain);
-    state.lastRun = run;
-    return run;
-  }
+  function etaText(run, threshold){
+    if (!run) return { main:'—', sub:'Run the model.' };
 
-  function estimateDaysUntilWorkable(run){
-    const thr = Number($('workable').value);
-    if (!run) return { days: null, note: 'Run the model.' };
+    const isWorkable = (run.workabilityR >= threshold);
+    if (isWorkable) return { main:'—', sub:'Field is workable now.' };
 
-    if (run.wetIdxR <= thr){
-      return { days: 0, note: 'Already workable at current threshold.' };
+    const wetTarget = clamp(100 - threshold, 0, 100);
+    const storageTarget = run.factors.Smax * (wetTarget / 100);
+
+    const delta = run.storageFinal - storageTarget;
+    const dailyLoss = Math.max(0.02, run.avgLossDay);
+    const hours = Math.ceil((delta / dailyLoss) * 24);
+
+    if (hours <= 48){
+      return { main:`Est: ~${hours} hours`, sub:'(Uses last-7-day avg loss; assumes no new rain.)' };
     }
-
-    const targetStorage = clamp((thr / 100) * run.Smax, 0, run.Smax);
-    const delta = run.storage - targetStorage;
-
-    const dailyLoss = Math.max(0.03, run.avgLoss7);
-    const days = Math.ceil(delta / dailyLoss);
-
-    return {
-      days: clamp(days, 0, 60),
-      note: `Assuming no new rain. Last-7 avg drying loss ≈ ${round(dailyLoss,2)} storage/day.`
-    };
+    return { main:'Estimated to be greater then 2 days', sub:'(Not projected workable within 48 hours using current drying rate.)' };
   }
 
+  // -------- log --------
   function loadLog(){
     try{
       const raw = localStorage.getItem(LS_LOG_KEY);
@@ -851,28 +908,27 @@ Still included:
     const log = loadLog();
     $('logCount').textContent = String(log.length);
     const box = $('logBody');
-
     if (!log.length){
-      box.innerHTML = '<span class="muted">No feedback yet.</span>';
+      box.innerHTML = '<span class="muted">No adjustments yet.</span>';
       return;
     }
-
     const lines = log.slice().reverse().slice(0, 30).map(x=>{
       const when = new Date(x.ts).toLocaleString();
       return `<div style="margin-bottom:8px;">
         <span class="mono">${when}</span><br/>
-        <b>${x.kind}</b> • tooWet=${x.amount} • wetIdx=${x.wetIdx} • soil=${x.soilWet} • drain=${x.drain} • op=${x.op} • mode=${x.mode}
+        <b>${escapeHtml(x.kind)}</b> • ${escapeHtml(x.fieldName)} • op=${escapeHtml(x.op)}<br/>
+        work=${x.workability} • wet=${x.wetness} • thr=${x.thr} • soil=${x.soil}/10 • drain=${x.drain}/10 • mode=${escapeHtml(x.mode)}
       </div>`;
     });
-
     box.innerHTML = lines.join('') + (log.length > 30 ? '<div class="muted">…(showing last 30)</div>' : '');
   }
 
+  // -------- tables --------
   function renderWeatherTable(rows){
     const tb = $('wxRows');
     tb.innerHTML = '';
     if (!rows || !rows.length){
-      tb.innerHTML = '<tr><td colspan="7" class="muted">No data yet.</td></tr>';
+      tb.innerHTML = '<tr><td colspan="6" class="muted">No data yet.</td></tr>';
       return;
     }
     for (const r of rows){
@@ -884,7 +940,6 @@ Still included:
         <td class="right mono">${Math.round(Number(r.windMph||0))}</td>
         <td class="right mono">${Math.round(Number(r.rh||0))}</td>
         <td class="right mono">${Math.round(Number(r.solarWm2||0))}</td>
-        <td class="right mono">${Number(r.dryPwr||0).toFixed(2)}</td>
       `;
       tb.appendChild(tr);
     }
@@ -894,46 +949,69 @@ Still included:
     const tb = $('traceRows');
     tb.innerHTML = '';
     if (!run || !run.trace || !run.trace.length){
-      tb.innerHTML = '<tr><td colspan="6" class="muted">Run the model.</td></tr>';
+      tb.innerHTML = '<tr><td colspan="8" class="muted">Run the model.</td></tr>';
       return;
     }
-
-    // Show last 14 days of trace (most relevant)
-    const slice = run.trace.slice(-14);
-
-    for (const t of slice){
+    for (const t of run.trace){
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td class="mono">${t.dateISO}</td>
         <td class="right mono">${t.rain.toFixed(2)}</td>
-        <td class="right mono">${t.dry.toFixed(2)}</td>
+        <td class="right mono">${t.infilMult.toFixed(2)}</td>
         <td class="right mono">${t.add.toFixed(2)}</td>
+        <td class="right mono">${t.dryPwr.toFixed(2)}</td>
         <td class="right mono">${t.loss.toFixed(2)}</td>
-        <td class="right mono">${t.storageBefore.toFixed(2)}→${t.storageAfter.toFixed(2)}</td>
+        <td class="right mono">${t.before.toFixed(2)}→${t.after.toFixed(2)}</td>
+        <td class="right mono">${t.clamped}</td>
       `;
       tb.appendChild(tr);
     }
-
-    $('traceNote').innerHTML =
-      `<b>Using:</b> Smax=${run.Smax.toFixed(2)} • infilMult=${run.infilMult.toFixed(2)} • dryMult=${run.dryMult.toFixed(2)} • wetSlow=${run.wetSlow.toFixed(2)}<br/>
-       <b>Start:</b> base storage from SoilWet + rainNudge=${run.rainNudge.toFixed(2)} (based on first 7 days rain).`;
   }
 
+  function renderDryBreak(run){
+    const db = $('dryRows');
+    db.innerHTML = '';
+    if (!run || !run.dryBreak || !run.dryBreak.length){
+      db.innerHTML = '<tr><td colspan="11" class="muted">Run the model.</td></tr>';
+      return;
+    }
+    for (const d of run.dryBreak){
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="mono">${d.dateISO}</td>
+        <td class="right mono">${Math.round(d.temp)}</td>
+        <td class="right mono">${d.tempN.toFixed(2)}</td>
+        <td class="right mono">${Math.round(d.wind)}</td>
+        <td class="right mono">${d.windN.toFixed(2)}</td>
+        <td class="right mono">${Math.round(d.rh)}</td>
+        <td class="right mono">${d.rhN.toFixed(2)}</td>
+        <td class="right mono">${Math.round(d.solar)}</td>
+        <td class="right mono">${d.solarN.toFixed(2)}</td>
+        <td class="right mono">${d.raw.toFixed(2)}</td>
+        <td class="right mono">${d.dryPwr.toFixed(2)}</td>
+      `;
+      db.appendChild(tr);
+    }
+  }
+
+  // -------- hero tiles --------
   function renderFieldsHero(){
     const wrap = $('fieldsGrid');
     wrap.innerHTML = '';
+    state.lastRunByField.clear();
 
-    // compute each mock field’s wetness using same weather series
-    const computed = MOCK_FIELDS.map(f=>{
-      const r = runModelFor(f.soilWet, f.drain);
-      return { ...f, wetIdxR: r ? r.wetIdxR : null };
-    });
+    const thr = Number($('workable').value);
 
-    for (const f of computed){
-      const wet = (f.wetIdxR === null) ? 0 : f.wetIdxR;
+    for (const f of MOCK_FIELDS){
+      const r = runModelDaily(f.soil, f.drain);
+      state.lastRunByField.set(f.id, r);
 
-      // marker position: 0..100 (0=green left, 100=red right)
-      const pct = clamp(wet, 0, 100);
+      const work = r ? r.workabilityR : 0;
+      const wet = r ? r.wetnessR : 0;
+      const isWorkable = (work >= thr);
+
+      const pct = clamp(work, 0, 100); // workability marker
+      const eta = (!isWorkable && r) ? etaText(r, thr).main : '';
 
       const tile = document.createElement('div');
       tile.className = 'fieldTile';
@@ -941,85 +1019,214 @@ Still included:
       const active = (f.id === state.selectedFieldId);
 
       tile.innerHTML = `
-        <div>
-          <div class="fieldTitle">${escapeHtml(f.farm)} • ${escapeHtml(f.field)}</div>
-          <div class="fieldSub">Soil=${f.soilWet}/10 • Drain=${f.drain}/10</div>
+        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:10px;">
+          <div>
+            <div class="fieldTitle">${escapeHtml(f.farm)} • ${escapeHtml(f.field)}</div>
+            <div class="fieldSub">Soil=${f.soil}/10 • Drain=${f.drain}/10</div>
+          </div>
+          <div class="badge">${isWorkable ? 'WORKABLE' : 'WET'}</div>
         </div>
 
-        <div class="wetGaugeWrap">
-          <div class="wetNumberRow">
-            <div><b>Wetness:</b> <span class="mono">${wet}</span></div>
-            <div class="muted">Green=workable • Red=too wet</div>
+        <div class="workGaugeWrap">
+          <div class="workRow">
+            <div><b>Workability:</b> <span class="mono">${work}</span></div>
+            <div class="muted">Wetness: <span class="mono">${wet}</span></div>
           </div>
-          <div class="wetGauge" aria-label="Wetness gauge">
-            <div class="wetMarker" style="left:${pct}%;"></div>
+          <div class="workGauge">
+            <div class="workMarker" style="left:${pct}%;"></div>
           </div>
-          <div class="wetLabels">
-            <span>0</span><span>50</span><span>100</span>
-          </div>
+          <div class="workLabels"><span>0</span><span>50</span><span>100</span></div>
+          ${(!isWorkable && eta) ? `<div class="muted" style="font-size:12px;"><b>${eta}</b></div>` : ``}
         </div>
 
         <div class="tileBtnRow">
-          <button class="miniBtn ${active ? 'active' : ''}" data-field="${f.id}" type="button">
+          <button class="miniBtn ${active ? 'active' : ''}" data-field="${escapeHtml(f.id)}" type="button">
             ${active ? 'Selected' : 'Select'}
           </button>
+          <button class="miniBtn" data-adjust="${escapeHtml(f.id)}" type="button">Adjust</button>
         </div>
       `;
 
       wrap.appendChild(tile);
     }
 
-    // wire buttons
     wrap.querySelectorAll('button[data-field]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const id = btn.getAttribute('data-field');
         selectField(id);
       });
     });
+    wrap.querySelectorAll('button[data-adjust]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const id = btn.getAttribute('data-adjust');
+        openAdjustForField(id);
+      });
+    });
+
+    $('tileStamp').textContent = new Date().toLocaleString();
   }
 
   function selectField(fieldId){
     const f = MOCK_FIELDS.find(x=>x.id === fieldId);
     if (!f) return;
-
     state.selectedFieldId = f.id;
-
-    // Load sliders to match the selected field
-    $('soilWet').value = String(f.soilWet);
+    $('soilWet').value = String(f.soil);
     $('drain').value = String(f.drain);
-
     syncSliderLabels();
     refreshAll();
-    renderFieldsHero();
   }
 
-  function refreshAll(){
-    const run = runSelectedModel();
+  // -------- modal adjust --------
+  function showModal(show){
+    $('adjustBackdrop').classList.toggle('pv-hide', !show);
+  }
+
+  function openAdjustForField(fieldId){
+    const f = MOCK_FIELDS.find(x=>x.id === fieldId);
+    if (!f) return;
+
+    const r = state.lastRunByField.get(fieldId) || runModelDaily(f.soil, f.drain);
+    const thr = Number($('workable').value);
+    const op = String($('opSel').value || '');
+
+    const isWorkable = (r && r.workabilityR >= thr);
+
+    $('adjustTitle').textContent = 'Adjust';
+    $('adjustSub').textContent = `${f.farm} • ${f.field} • Op: ${op} • Threshold: ${thr}`;
+
+    const btnWet = $('btnAdjWet');
+    const btnDry = $('btnAdjDry');
+
+    // Your rule: if model says dry/workable, don’t allow "Dry"
+    // if model says wet/not workable, don’t allow "Wet"
+    btnWet.disabled = !(!isWorkable); // allow wet only if NOT workable? wait: contradict only
+    btnDry.disabled = !(isWorkable);  // allow dry only if workable? contradict only
+    // Correct contradict-only:
+    // - If workable (dry): allow WET, disable DRY
+    // - If not workable (wet): allow DRY, disable WET
+    btnWet.disabled = !isWorkable ? true : false;
+    btnDry.disabled = isWorkable ? true : false;
+
+    const eta = r ? etaText(r, thr).main : '—';
+    $('adjustRule').innerHTML =
+      isWorkable
+        ? `Model says <b>WORKABLE</b> (Workability ${r.workabilityR} ≥ ${thr}).<br/>Only <b>Wet</b> is allowed to correct the model.`
+        : `Model says <b>NOT WORKABLE</b> (Workability ${r.workabilityR} &lt; ${thr}).<br/>Only <b>Dry</b> is allowed to correct the model.<br/><b>${eta}</b>`;
+
+    btnWet.dataset.fieldId = fieldId;
+    btnDry.dataset.fieldId = fieldId;
+
+    showModal(true);
+  }
+
+  function recordAdjust(kind, fieldId){
+    const f = MOCK_FIELDS.find(x=>x.id === fieldId);
+    const thr = Number($('workable').value);
+    const op = String($('opSel').value || '');
+
+    const soil = (fieldId === state.selectedFieldId) ? Number($('soilWet').value) : f.soil;
+    const drain= (fieldId === state.selectedFieldId) ? Number($('drain').value) : f.drain;
+
+    const r = runModelDaily(soil, drain);
+
+    const item = {
+      ts: Date.now(),
+      kind,
+      fieldId,
+      fieldName: `${f.farm} • ${f.field}`,
+      soil, drain,
+      workability: r ? r.workabilityR : null,
+      wetness: r ? r.wetnessR : null,
+      thr,
+      op,
+      mode: state.mode
+    };
+
+    const log = loadLog();
+    log.push(item);
+    saveLog(log);
+    renderLog();
+
+    showModal(false);
+    alert('Saved (local).');
+  }
+
+  // -------- main refresh --------
+  function renderParamExplain(run){
     if (!run) return;
 
-    $('wetIndex').textContent = String(run.wetIdxR);
-    $('wetLabel').textContent = `${run.label} • (storage/Smax)*100`;
+    const f = run.factors;
 
-    const est = estimateDaysUntilWorkable(run);
-    $('daysDry').textContent = (est.days === null) ? '—' : (est.days === 0 ? '0 days' : `${est.days} days`);
-    $('daysDrySub').textContent = est.note;
+    $('paramExplain').innerHTML =
+      `<b>Detailed parameter mapping (exact):</b><br/><br/>
+       Inputs: soil=${run.soil}/10, drain=${run.drain}/10<br/>
+       soilHold=(soil−1)/9=<span class="mono">${f.soilHold.toFixed(2)}</span> (0 sand → 1 clay)<br/>
+       drainPoor=(drain−1)/9=<span class="mono">${f.drainPoor.toFixed(2)}</span> (0 good → 1 poor)<br/><br/>
 
-    $('storageLine').textContent = `${run.storage.toFixed(2)} / ${run.Smax.toFixed(2)} storage`;
-    $('stateLine').textContent = `infil=${run.infilMult.toFixed(2)} • dry=${run.dryMult.toFixed(2)} • wetSlow=${run.wetSlow.toFixed(2)} • startNudge=${run.rainNudge.toFixed(2)}`;
+       <b>Smax</b> (tank size): <span class="mono">2.60 + 1.00*soilHold + 0.90*drainPoor</span> = <span class="mono">${f.Smax.toFixed(2)}</span><br/>
+       <b>infilMult</b> (rain retention): <span class="mono">0.60 + 0.30*soilHold + 0.35*drainPoor</span> = <span class="mono">${f.infilMult.toFixed(2)}</span><br/>
+       <b>dryMult</b> (drying/drain-out): <span class="mono">1.20 − 0.35*soilHold − 0.40*drainPoor</span> = <span class="mono">${f.dryMult.toFixed(2)}</span><br/><br/>
 
-    $('rain30').textContent = round(run.rainSum, 2) + ' in';
-    $('dry30').textContent = 'Drying power: ' + round(run.drySum, 1);
+       Daily add: <span class="mono">add = rainIn × infilMult</span><br/>
+       Daily loss: <span class="mono">loss = dryPwr × ${LOSS_SCALE.toFixed(2)} × dryMult</span><br/><br/>
+
+       Start storage (no “starting wet” slider):<br/>
+       <span class="mono">storage0 = 0.45*Smax + rainNudge</span><br/>
+       rainNudge based on first-7-day rain: rain7=<span class="mono">${run.rain7.toFixed(2)}</span>,
+       rainNudgeFrac=<span class="mono">${run.rainNudgeFrac.toFixed(2)}</span>,
+       rainNudge=<span class="mono">${run.rainNudge.toFixed(2)}</span>`;
+  }
+
+  function refreshSelected(){
+    const soil = Number($('soilWet').value);
+    const drain = Number($('drain').value);
+    const thr = Number($('workable').value);
+
+    const run = runModelDaily(soil, drain);
+    state.lastRunSelected = run;
+
+    if (!run) return;
+
+    const isWorkable = (run.workabilityR >= thr);
+
+    $('workabilityVal').textContent = String(run.workabilityR);
+    $('wetnessVal').textContent = String(run.wetnessR);
+    $('workabilityLabel').textContent = isWorkable ? `WORKABLE (≥ ${thr})` : `NOT WORKABLE (< ${thr})`;
+
+    const eta = etaText(run, thr);
+    $('etaVal').textContent = isWorkable ? '—' : eta.main;
+    $('etaSub').textContent = isWorkable ? 'Field is workable now.' : eta.sub;
+
+    $('tankVal').textContent = `${run.storageFinal.toFixed(2)} / ${run.factors.Smax.toFixed(2)}`;
+    $('tankSub').textContent = `LOSS_SCALE=${LOSS_SCALE.toFixed(2)} • avgLossDay≈${run.avgLossDay.toFixed(2)} • rain30=${run.rainSum.toFixed(2)} in`;
+
+    $('mathNote').innerHTML =
+      `<b>DryPwr normalization ranges:</b> temp 20..65°F, wind 2..22mph, rh 35..100%, solar 60..360 W/m²<br/>
+       dryPwr = clamp(0.35*tempN + 0.30*solarN + 0.25*windN − 0.25*rhN, 0..1)`;
 
     $('runStamp').textContent = new Date().toLocaleString();
 
+    renderParamExplain(run);
     renderWeatherTable(run.rows);
     renderTrace(run);
-    renderLog();
-    renderFieldsHero();
+    renderDryBreak(run);
+  }
 
+  function refreshAll(){
+    // Persist sliders into selected mock field
+    const f = MOCK_FIELDS.find(x=>x.id === state.selectedFieldId);
+    if (f){
+      f.soil = Number($('soilWet').value);
+      f.drain = Number($('drain').value);
+    }
+
+    refreshSelected();
+    renderFieldsHero();
+    renderLog();
     $('modeLine').textContent = state.mode;
   }
 
+  // -------- fetch real 30 days (future) --------
   async function fetchReal30(){
     const base = String($('apiBase').value || '').trim().replace(/\/+$/,'');
     if (!base){
@@ -1057,6 +1264,7 @@ Still included:
 
       state.mode = 'REAL';
       $('dataMode').textContent = 'Mode: REAL';
+      $('modeLine').textContent = 'REAL';
       refreshAll();
     }catch(err){
       console.error(err);
@@ -1067,82 +1275,34 @@ Still included:
     }
   }
 
-  function addTooWetFeedback(){
-    const run = state.lastRun || runSelectedModel();
-    if (!run){
-      alert('Run the model first.');
-      return;
-    }
-
-    const amt = Number($('tooWetAmt').value);
-    const lat = Number($('lat').value);
-    const lon = Number($('lon').value);
-    const op = String($('opSel').value || '');
-
-    const item = {
-      ts: Date.now(),
-      kind: 'TOO_WET',
-      amount: clamp(Math.round(amt), 0, 100),
-      wetIdx: run.wetIdxR,
-      soilWet: run.soilWet,
-      drain: run.drain,
-      lat: isFinite(lat) ? lat : null,
-      lon: isFinite(lon) ? lon : null,
-      op,
-      mode: state.mode,
-      fieldId: state.selectedFieldId
-    };
-
-    const log = loadLog();
-    log.push(item);
-    saveLog(log);
-    renderLog();
-
-    alert('Saved feedback (local).');
-  }
-
-  function clearLog(){
-    saveLog([]);
-    renderLog();
-  }
-
   function syncSliderLabels(){
     $('soilWetVal').textContent = $('soilWet').value;
     $('drainVal').textContent   = $('drain').value;
     $('workableVal').textContent = $('workable').value;
-    $('tooWetAmtVal').textContent = $('tooWetAmt').value;
   }
 
-  function escapeHtml(s){
-    return String(s||'')
-      .replaceAll('&','&amp;')
-      .replaceAll('<','&lt;')
-      .replaceAll('>','&gt;')
-      .replaceAll('"','&quot;')
-      .replaceAll("'","&#039;");
-  }
+  // modal wiring
+  $('btnAdjCancel').addEventListener('click', ()=> showModal(false));
+  $('adjustBackdrop').addEventListener('click', (e)=>{
+    if (e.target && e.target.id === 'adjustBackdrop') showModal(false);
+  });
+  $('btnAdjWet').addEventListener('click', (e)=> recordAdjust('WET', e.currentTarget.dataset.fieldId));
+  $('btnAdjDry').addEventListener('click', (e)=> recordAdjust('DRY', e.currentTarget.dataset.fieldId));
 
-  // UI events
+  // slider events
   $('soilWet').addEventListener('input', ()=>{ syncSliderLabels(); refreshAll(); });
   $('drain').addEventListener('input',   ()=>{ syncSliderLabels(); refreshAll(); });
   $('workable').addEventListener('input',()=>{ syncSliderLabels(); refreshAll(); });
-  $('tooWetAmt').addEventListener('input',()=>{ syncSliderLabels(); });
 
-  $('opSel').addEventListener('change', ()=>{ refreshAll(); });
+  $('opSel').addEventListener('change', ()=> refreshAll());
 
   $('btnRegen').addEventListener('click', ()=>{
     state.seed = Date.now() % 1000000;
     genMock30();
-    state.mode = 'MOCK';
-    $('dataMode').textContent = 'Mode: MOCK';
     refreshAll();
   });
-
   $('btnFetch').addEventListener('click', fetchReal30);
   $('btnRun').addEventListener('click', refreshAll);
-
-  $('btnTooWet').addEventListener('click', addTooWetFeedback);
-  $('btnClearLog').addEventListener('click', clearLog);
 
   $('btnLogout').addEventListener('click', ()=>{
     try{
@@ -1151,12 +1311,11 @@ Still included:
     location.href = '/Farm-vista/auth/';
   });
 
-  // Init (guaranteed mock load)
+  // init
   syncSliderLabels();
   genMock30();
-
-  // Select default field (f1) and load sliders to match
   selectField(state.selectedFieldId);
+  refreshAll();
 
 })();
 </script>
