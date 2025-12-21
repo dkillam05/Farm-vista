@@ -586,123 +586,123 @@
     }
 
     // ===== Print Preview + Print Iframe preload =====
-    const pDlg = document.getElementById('printPrev');
-    const pHdrTitle = document.getElementById('pHdrTitle');
-    const pHelp = document.getElementById('pHelp');
-    const printWrap = document.getElementById('printWrap');
-    const pHost = document.getElementById('pPreviewHost');
-    const pClose = document.getElementById('pClose');
-    const pCancel = document.getElementById('pCancel');
-    const pPrint = document.getElementById('pPrint');
-    const pShare = document.getElementById('pShare');
+const pDlg = document.getElementById('printPrev');
+const pHdrTitle = document.getElementById('pHdrTitle');
+const pHelp = document.getElementById('pHelp');
+const printWrap = document.getElementById('printWrap');
+const pHost = document.getElementById('pPreviewHost');
+const pClose = document.getElementById('pClose');
+const pCancel = document.getElementById('pCancel');
+const pPrint = document.getElementById('pPrint');
+const pShare = document.getElementById('pShare');
 
-    const printFrame = document.getElementById('fv-print-frame');
+const printFrame = document.getElementById('fv-print-frame');
 
-    let __pendingPrint = null;
-    let __labelLenMm = 90;
-    let __previewQrSrc = '';
-    let __rawQrUrl = '';
+let __pendingPrint = null;
+let __labelLenMm = 90;
+let __previewQrSrc = '';
+let __rawQrUrl = '';
 
-    const LABEL = { tapeWmm: 62, qrMm: 48, padMm: 2.2, gapMm: 2.0, minLenMm: 90, maxLenMm: 152.4 };
-    const STARFIRE_LABEL = { tapeWmm: 62, cutLenMm: 62, qrMm: 46 };
+const LABEL = { tapeWmm: 62, qrMm: 48, padMm: 2.2, gapMm: 2.0, minLenMm: 90, maxLenMm: 152.4 };
+const STARFIRE_LABEL = { tapeWmm: 62, cutLenMm: 62, qrMm: 46 };
 
-    function clampLenMm(mm){
-      let len = Math.max(LABEL.minLenMm, Math.min(LABEL.maxLenMm, mm));
-      len = Math.round(len * 2) / 2;
-      return len;
-    }
-    function normalizeSerial(s){ return String(s||'').trim().toUpperCase(); }
-    function serialLast6(serial){
-      const s = normalizeSerial(serial || '');
-      if(!s) return '';
-      return s.length <= 6 ? s : s.slice(-6);
-    }
-    function pickStarfireSerial(d){
-      const raw = normalizeSerial(d?.starfireSerial || d?.serial || '');
-      return raw || '';
-    }
+function clampLenMm(mm){
+  let len = Math.max(LABEL.minLenMm, Math.min(LABEL.maxLenMm, mm));
+  len = Math.round(len * 2) / 2;
+  return len;
+}
+function normalizeSerial(s){ return String(s||'').trim().toUpperCase(); }
+function serialLast6(serial){
+  const s = normalizeSerial(serial || '');
+  if(!s) return '';
+  return s.length <= 6 ? s : s.slice(-6);
+}
+function pickStarfireSerial(d){
+  const raw = normalizeSerial(d?.starfireSerial || d?.serial || '');
+  return raw || '';
+}
 
-    function esc(s){
-      return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
-    }
+function esc(s){
+  return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+}
 
-    function measureTextPxWithComputedStyle(text, styleRefEl){
-      const cs = getComputedStyle(styleRefEl);
-      const span = document.createElement('span');
-      span.textContent = String(text ?? '');
-      span.style.position = 'fixed';
-      span.style.left = '-99999px';
-      span.style.top = '-99999px';
-      span.style.visibility = 'hidden';
-      span.style.whiteSpace = 'nowrap';
-      span.style.fontFamily = cs.fontFamily;
-      span.style.fontSize = cs.fontSize;
-      span.style.fontWeight = cs.fontWeight;
-      span.style.letterSpacing = cs.letterSpacing;
-      span.style.textTransform = cs.textTransform;
-      document.body.appendChild(span);
-      const w = span.getBoundingClientRect().width;
-      span.remove();
-      return w;
-    }
+function measureTextPxWithComputedStyle(text, styleRefEl){
+  const cs = getComputedStyle(styleRefEl);
+  const span = document.createElement('span');
+  span.textContent = String(text ?? '');
+  span.style.position = 'fixed';
+  span.style.left = '-99999px';
+  span.style.top = '-99999px';
+  span.style.visibility = 'hidden';
+  span.style.whiteSpace = 'nowrap';
+  span.style.fontFamily = cs.fontFamily;
+  span.style.fontSize = cs.fontSize;
+  span.style.fontWeight = cs.fontWeight;
+  span.style.letterSpacing = cs.letterSpacing;
+  span.style.textTransform = cs.textTransform;
+  document.body.appendChild(span);
+  const w = span.getBoundingClientRect().width;
+  span.remove();
+  return w;
+}
 
-    function pxPerMm(){ return 96 / 25.4; }
-    function computeLongLenMmFromDOM({ makeEl, modelEl, labEl, valEl, makeName, modelName, serial6 }){
-      const pmm = pxPerMm();
+function pxPerMm(){ return 96 / 25.4; }
+function computeLongLenMmFromDOM({ makeEl, modelEl, labEl, valEl, makeName, modelName, serial6 }){
+  const pmm = pxPerMm();
 
-      const makeWpx  = measureTextPxWithComputedStyle(makeName || '', makeEl);
-      const modelWpx = measureTextPxWithComputedStyle(modelName || '', modelEl);
-      const leftWpx  = Math.max(makeWpx, modelWpx);
+  const makeWpx  = measureTextPxWithComputedStyle(makeName || '', makeEl);
+  const modelWpx = measureTextPxWithComputedStyle(modelName || '', modelEl);
+  const leftWpx  = Math.max(makeWpx, modelWpx);
 
-      const labText = 'VIN/Serial';
-      const valText = serial6 || '';
-      const labWpx = measureTextPxWithComputedStyle(labText, labEl);
-      const valWpx = measureTextPxWithComputedStyle(valText, valEl);
-      const rightWpx = Math.max(labWpx, valWpx);
+  const labText = 'VIN/Serial';
+  const valText = serial6 || '';
+  const labWpx = measureTextPxWithComputedStyle(labText, labEl);
+  const valWpx = measureTextPxWithComputedStyle(valText, valEl);
+  const rightWpx = Math.max(labWpx, valWpx);
 
-      const leftMm  = leftWpx / pmm;
-      const rightMm = rightWpx / pmm;
+  const leftMm  = leftWpx / pmm;
+  const rightMm = rightWpx / pmm;
 
-      const safetyMm = 6.0;
-      const raw =
-        (LABEL.padMm * 2) +
-        (LABEL.gapMm * 2) +
-        leftMm +
-        LABEL.qrMm +
-        rightMm +
-        safetyMm;
+  const safetyMm = 6.0;
+  const raw =
+    (LABEL.padMm * 2) +
+    (LABEL.gapMm * 2) +
+    leftMm +
+    LABEL.qrMm +
+    rightMm +
+    safetyMm;
 
-      return clampLenMm(raw);
-    }
+  return clampLenMm(raw);
+}
 
-    function clearPreviewHost(){
-      pHost.innerHTML = '';
-      __previewQrSrc = '';
-      __rawQrUrl = '';
-    }
+function clearPreviewHost(){
+  pHost.innerHTML = '';
+  __previewQrSrc = '';
+  __rawQrUrl = '';
+}
 
-    function writePrintFrame(html){
-      const win = printFrame.contentWindow;
-      const docu = printFrame.contentDocument || win.document;
-      docu.open();
-      docu.write(html);
-      docu.close();
-    }
+function writePrintFrame(html){
+  const win = printFrame.contentWindow;
+  const docu = printFrame.contentDocument || win.document;
+  docu.open();
+  docu.write(html);
+  docu.close();
+}
 
-    function buildLabelPrintHtml(payload){
-      const isSF = !!payload?.isStarfire;
-      const qrSrc = String(payload?.qrSrc || payload?.url || '');
-      const serialRaw = String(payload?.serial || '');
-      const makeName = String(payload?.make || '');
-      const modelName = String(payload?.model || '');
+function buildLabelPrintHtml(payload){
+  const isSF = !!payload?.isStarfire;
+  const qrSrc = String(payload?.qrSrc || payload?.url || '');
+  const serialRaw = String(payload?.serial || '');
+  const makeName = String(payload?.make || '');
+  const modelName = String(payload?.model || '');
 
-      if (isSF){
-        const W = STARFIRE_LABEL.cutLenMm;
-        const H = STARFIRE_LABEL.tapeWmm;
-        const Q = STARFIRE_LABEL.qrMm;
-        const fontSize = (serialRaw && serialRaw.length > 12) ? '13pt' : '16pt';
+  if (isSF){
+    const W = STARFIRE_LABEL.cutLenMm;
+    const H = STARFIRE_LABEL.tapeWmm;
+    const Q = STARFIRE_LABEL.qrMm;
+    const fontSize = (serialRaw && serialRaw.length > 12) ? '13pt' : '16pt';
 
-        return `<!doctype html>
+    return `<!doctype html>
 <html><head><meta charset="utf-8">
 <title>Print StarFire Label</title>
 <style>
@@ -726,15 +726,15 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
     <div class="serial">${esc(serialRaw || '—')}</div>
   </div>
 </body></html>`;
-      }
+  }
 
-      const cutLen = Number(payload?.cutLenMm || __labelLenMm || LABEL.minLenMm);
-      const W = cutLen;
-      const H = LABEL.tapeWmm;
-      const Q = LABEL.qrMm;
-      const serial6 = serialLast6(serialRaw) || '';
+  const cutLen = Number(payload?.cutLenMm || __labelLenMm || LABEL.minLenMm);
+  const W = cutLen;
+  const H = LABEL.tapeWmm;
+  const Q = LABEL.qrMm;
+  const serial6 = serialLast6(serialRaw) || '';
 
-      return `<!doctype html>
+  return `<!doctype html>
 <html><head><meta charset="utf-8">
 <title>Print Label</title>
 <style>
@@ -768,7 +768,37 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
     </div>
   </div>
 </body></html>`;
+}
+
+// =====================================================
+// ✅ ONLINE-ONLY "SHARE TO BROTHER" (NO CORS REQUIRED)
+// =====================================================
+pShare.addEventListener('click', async () => {
+  if (!__pendingPrint || !__pendingPrint.url) {
+    alert('QR not ready yet');
+    return;
+  }
+
+  const qrUrl = __pendingPrint.url;
+
+  // Use native share sheet with the IMAGE URL
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: 'Equipment QR',
+        text: 'QR label',
+        url: qrUrl
+      });
+      return;
+    } catch (err) {
+      console.warn('Share cancelled or failed', err);
     }
+  }
+
+  // Fallback: open QR image so it can be shared manually
+  window.open(qrUrl, '_blank', 'noopener');
+});
+
 
     // ===== Share support + CORS-safe fallback =====
     function canShare(){
