@@ -53,7 +53,7 @@
       border-radius:14px;
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      overflow:visible; /* ✅ allow popovers to escape */
+      overflow:visible;           /* ✅ allow popovers to escape hero */
       margin-bottom:var(--page-bottom-gap);
       position:relative;
     }
@@ -67,17 +67,32 @@
     .muted{color:var(--muted,#67706B)}
     .body{padding:16px;display:grid;gap:14px}
 
-    /* Controls */
-    .row{display:grid;gap:10px;grid-template-columns:1fr 1fr auto;align-items:end}
-    @media (max-width:880px){.row{grid-template-columns:1fr;align-items:stretch}}
-    .field label{display:block;font-weight:800;margin:0 0 6px}
-    .input,.select{
-      width:100%;font:inherit;font-size:16px;color:var(--text);
-      background:var(--card-surface,var(--surface));border:1px solid var(--border);
-      border-radius:10px;padding:12px;outline:none
+    /* Controls (3 equal columns for a clean line) */
+    .row{
+      display:grid;
+      gap:10px;
+      grid-template-columns:1fr 1fr 1fr;   /* ✅ equal widths */
+      align-items:end;
+    }
+    @media (max-width:880px){
+      .row{grid-template-columns:1fr;align-items:stretch}
     }
 
-    /* Rain range */
+    .field{min-width:0;} /* ✅ prevent grid overflow */
+    .field label{display:block;font-weight:800;margin:0 0 6px}
+    .input,.select{
+      width:100%;
+      font:inherit;
+      font-size:16px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:12px;
+      outline:none;
+    }
+
+    /* Rain range label w/ help icon */
     .label-inline{
       display:flex;
       align-items:center;
@@ -116,21 +131,19 @@
     .helptip .muted{font-size:12px}
     .helptip.on{display:block}
 
+    /* Date range input */
     #jobRangeInput{
-      width:auto;
-      min-width:220px;
+      width:100%;             /* ✅ same width as other controls */
       cursor:pointer;
       white-space:nowrap;
     }
-    @media (max-width:880px){
-      #jobRangeInput{width:100%;min-width:0}
-    }
 
-    /* Calendar popover */
+    /* Calendar popover: OPEN INWARD (leftwards) so it stays inside hero */
     #calendarPopover{
       position:absolute;
       top:calc(100% + 8px);
-      left:0;
+      right:0;                /* ✅ anchor to right edge of field */
+      left:auto;              /* ✅ so it expands inward */
       width:min(360px, 92vw);
       background:var(--surface);
       border:1px solid var(--border);
@@ -140,6 +153,14 @@
       display:none;
       z-index:100000;
     }
+    /* If you're on a very small phone, keep it within viewport */
+    @media (max-width:520px){
+      #calendarPopover{
+        width:min(340px, 92vw);
+        right:0;
+      }
+    }
+
     .cal-top{display:flex;gap:10px;align-items:center;margin-bottom:10px}
     #calDays{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
     .cal-day{
@@ -224,7 +245,7 @@
       line-height:1.2;
     }
 
-    /* Chips/bubbles readable in light/dark */
+    /* Chips readable (light/dark) */
     .chips{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
     .chip{
       display:inline-flex;align-items:center;
@@ -286,7 +307,7 @@
     }
     summary::-webkit-details-marker{display:none}
 
-    /* ✅ Mobile: make details scroll so nothing gets cut off */
+    /* ✅ Mobile: details scroll vertically */
     .details-body{
       padding:14px;
       display:grid;
@@ -340,7 +361,7 @@
     }
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff!important}
 
-    /* Tables */
+    /* Tables: Desktop keep scroll; Mobile wrap (no horizontal scroll) */
     .table-scroll{
       overflow-x:auto;
       -webkit-overflow-scrolling:touch;
@@ -351,7 +372,7 @@
     table{
       width:100%;
       border-collapse:collapse;
-      min-width:820px;
+      min-width:820px;  /* desktop */
     }
     th,td{
       padding:10px;
@@ -371,6 +392,13 @@
     }
     tr:last-child td{border-bottom:none}
     .right{text-align:right}
+
+    @media (max-width:700px){
+      .table-scroll{overflow-x:visible;border:none;border-radius:0}
+      table{min-width:0}
+      th,td{white-space:normal;font-size:11px;padding:8px}
+      th{position:static}
+    }
 
     /* Adjust modal */
     .pv-hide{display:none!important}
@@ -433,7 +461,7 @@
               </select>
             </div>
 
-            <div class="field" style="position:relative;justify-self:end;">
+            <div class="field" style="position:relative;">
               <div class="label-inline">
                 <label for="jobRangeInput" style="margin:0;font-weight:800;">Rain range</label>
 
@@ -501,18 +529,10 @@
                     <label for="workable">Operation Threshold (Readiness Score)</label>
                     <input id="workable" type="range" min="0" max="100" step="1" value="70"/>
                   </div>
-
-                  <div class="field">
-                    <label for="apiBase">Weather API Base URL</label>
-                    <input id="apiBase" class="input" placeholder="https://YOUR-CLOUDRUN-URL (blank = mock)"/>
-                    <div class="help">Endpoint: <span class="mono">GET /weather30?lat=..&lon=..</span> (uses selected field).</div>
-                  </div>
                 </div>
 
                 <div class="actions">
                   <button id="btnRegen" class="btn" type="button">Regenerate Mock 30 Days</button>
-                  <button id="btnFetch" class="btn btn-primary" type="button">Fetch Real 30 Days</button>
-                  <button id="btnRun" class="btn" type="button">Run Model</button>
                 </div>
               </div>
 
@@ -538,11 +558,8 @@
                 </div>
 
                 <div class="panel">
-                  <h3>Weather API + Run</h3>
+                  <h3>Weather + Output</h3>
                   <div class="kv">
-                    <div class="k">Mode</div><div class="v" id="dMode">—</div>
-                    <div class="k">API Base</div><div class="v mono" id="dApiBase">—</div>
-                    <div class="k">Endpoint</div><div class="v mono" id="dEndpoint">—</div>
                     <div class="k">Days loaded</div><div class="v" id="dDays">—</div>
                     <div class="k">Range rain</div><div class="v" id="dRangeRain">—</div>
                     <div class="k">Readiness</div><div class="v" id="dReadiness">—</div>
@@ -638,7 +655,7 @@
         <div class="muted" style="font-size:12px; margin-top:4px;" id="adjustSub">—</div>
       </div>
       <div class="modal-b">
-        <div class="help" id="adjustBody">Use the sliders in Details to fine-tune soil/drain values. (This modal will get “real” later.)</div>
+        <div class="help">Use the sliders in Details to fine-tune soil/drain values.</div>
         <div class="actions" style="margin-top:12px;">
           <button id="btnAdjCancel" class="btn" type="button">Close</button>
         </div>
@@ -646,6 +663,7 @@
     </div>
   </div>
 
+  <!-- ✅ Module script -->
   <script type="module">
     'use strict';
 
@@ -664,7 +682,6 @@
     const state = {
       weather30: [],
       seed: Date.now() % 1000000,
-      mode: 'MOCK',
       selectedFieldId: null,
       lastRuns: new Map(),
       fields: [],
@@ -700,8 +717,7 @@
           if (!v || typeof v !== 'object') continue;
           state.perFieldParams.set(k, {
             soilWetness: clamp(Number(v.soilWetness ?? 60), 0, 100),
-            drainageIndex: clamp(Number(v.drainageIndex ?? 45), 0, 100),
-            rainFactor: isFinite(Number(v.rainFactor)) ? Number(v.rainFactor) : 1
+            drainageIndex: clamp(Number(v.drainageIndex ?? 45), 0, 100)
           });
         }
       }catch(_){}
@@ -711,7 +727,7 @@
       try{
         const obj = {};
         for (const [k,v] of state.perFieldParams.entries()){
-          obj[k] = { soilWetness:v.soilWetness, drainageIndex:v.drainageIndex, rainFactor:v.rainFactor };
+          obj[k] = { soilWetness:v.soilWetness, drainageIndex:v.drainageIndex };
         }
         localStorage.setItem(LS_KEY, JSON.stringify(obj));
       }catch(_){}
@@ -720,7 +736,7 @@
     function getFieldParams(fieldId){
       const p = state.perFieldParams.get(fieldId);
       if (p) return p;
-      const def = { soilWetness:60, drainageIndex:45, rainFactor:1 };
+      const def = { soilWetness:60, drainageIndex:45 };
       state.perFieldParams.set(fieldId, def);
       return def;
     }
@@ -753,7 +769,6 @@
         county: String(d.county||''),
         state: String(d.state||''),
         farmId: String(d.farmId||''),
-        rtkTowerId: String(d.rtkTowerId||''),
         status: String(d.status||''),
         tillable: Number(d.tillable||0),
         location: (isFinite(lat) && isFinite(lng)) ? { lat, lng } : null,
@@ -843,7 +858,6 @@
 
         arr.sort((a,b)=> String(a.name).localeCompare(String(b.name), undefined, {numeric:true, sensitivity:'base'}));
         state.fields = arr;
-
         saveParamsToLocal();
 
         if (!state.selectedFieldId || !state.fields.find(x=>x.id===state.selectedFieldId)){
@@ -865,6 +879,7 @@
       }
     }
 
+    // Mock weather
     function seededRand(){
       state.seed = (state.seed * 1664525 + 1013904223) % 4294967296;
       return state.seed / 4294967296;
@@ -905,7 +920,6 @@
       }
 
       state.weather30 = out;
-      state.mode = 'MOCK';
     }
 
     function parseRangeFromInput(){
@@ -973,12 +987,10 @@
 
       const p = getFieldParams(field.id);
       const f = mapFactors(p.soilWetness, p.drainageIndex);
-      const rf = (state.mode === 'MOCK') ? (p.rainFactor || 1) : 1;
 
       const rows = state.weather30.map(w=>{
         const parts = calcDryParts(w);
-        const rainAdj = round(Number(w.rainIn||0) * rf, 2);
-        return { ...w, rainInAdj: rainAdj, ...parts };
+        return { ...w, rainInAdj: Number(w.rainIn||0), ...parts };
       });
 
       const first7 = rows.slice(0,7);
@@ -1006,7 +1018,7 @@
       const last7 = trace.slice(-7);
       const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
 
-      return { field, factors:f, rows, trace, storageFinal:storage, wetnessR, readinessR, rain7, rainNudge, avgLossDay, rf };
+      return { field, factors:f, rows, trace, storageFinal:storage, wetnessR, readinessR, avgLossDay };
     }
 
     function rainInRange(run, range){
@@ -1196,12 +1208,6 @@
       const range = parseRangeFromInput();
       const rainRange = rainInRange(run, range);
 
-      const baseEl = $('apiBase');
-      const base = String(baseEl ? baseEl.value : '').trim().replace(/\/+$/,'');
-      const endpoint = (base && f.location)
-        ? `${base}/weather30?lat=${f.location.lat.toFixed(6)}&lon=${f.location.lng.toFixed(6)}`
-        : '—';
-
       const farmName = state.farmsById.get(f.farmId) || '';
 
       const setText = (id, val) => { const el = $(id); if (el) el.textContent = String(val); };
@@ -1219,9 +1225,6 @@
       setText('dThreshold', `${thr}`);
       setText('dOperation', op);
 
-      setText('dMode', state.mode);
-      setText('dApiBase', base || '(blank → mock)');
-      setText('dEndpoint', endpoint);
       setText('dDays', String(state.weather30.length || 0));
       setText('dRangeRain', `${rainRange.toFixed(2)} in`);
       setText('dReadiness', `${run.readinessR}`);
@@ -1299,7 +1302,7 @@
       }
     }
 
-    // Adjust modal
+    /* Adjust modal */
     function showModal(on){
       const b = $('adjustBackdrop');
       if (b) b.classList.toggle('pv-hide', !on);
@@ -1332,7 +1335,7 @@
       renderDetails();
     }
 
-    // Persist last operation
+    /* Persist last operation */
     function loadOpDefault(){
       const op = $('opSel');
       if (!op) return;
@@ -1347,7 +1350,7 @@
       try{ localStorage.setItem(LS_OP_KEY, String(op.value||'')); }catch(_){}
     }
 
-    // hook events (null-safe)
+    /* Null-safe event helper */
     function on(id, ev, fn){
       const el = $(id);
       if (el) el.addEventListener(ev, fn);
@@ -1369,9 +1372,8 @@
       genMock30();
       refreshAll();
     });
-    on('btnRun','click', refreshAll);
 
-    // rain help tooltip
+    /* rain help tooltip toggle */
     (function(){
       const rainHelpBtn = $('rainHelpBtn');
       const rainHelpTip = $('rainHelpTip');
@@ -1390,7 +1392,6 @@
       });
     })();
 
-    // adjust modal close
     on('btnAdjCancel','click', closeAdjust);
     (function(){
       const b = $('adjustBackdrop');
@@ -1400,41 +1401,7 @@
       });
     })();
 
-    // Weather fetch
-    async function fetchReal30(){
-      const apiBase = $('apiBase');
-      const base = String(apiBase ? apiBase.value : '').trim().replace(/\/+$/,'');
-      if (!base){ setErr('Add your Weather API Base URL first.'); return; }
-
-      const f = state.fields.find(x=>x.id === state.selectedFieldId);
-      if (!f || !f.location){ setErr('Selected field has no valid GPS.'); return; }
-
-      try{
-        const url = `${base}/weather30?lat=${encodeURIComponent(f.location.lat)}&lon=${encodeURIComponent(f.location.lng)}`;
-        const res = await fetch(url, { method:'GET' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        const days = Array.isArray(data.days) ? data.days : [];
-        if (days.length < 20) throw new Error('Response missing days[]');
-
-        state.weather30 = days.map(d=>({
-          dateISO: String(d.dateISO||'').slice(0,10),
-          rainIn: Number(d.rainIn||0),
-          tempF: Number(d.tempF||0),
-          windMph: Number(d.windMph||0),
-          rh: Number(d.rh||0),
-          solarWm2: Number(d.solarWm2||0),
-        })).filter(x=>x.dateISO);
-
-        state.mode = 'REAL';
-        refreshAll();
-      }catch(e){
-        setErr(`Fetch failed: ${e.message}`);
-      }
-    }
-    on('btnFetch','click', fetchReal30);
-
-    // init
+    /* init */
     (async function init(){
       const dp = $('detailsPanel');
       if (dp) dp.open = false;
@@ -1444,9 +1411,7 @@
       loadOpDefault();
 
       const ok = await importFirebaseInit();
-      if (!ok){
-        setErr('firebase-init.js failed to import as a module.');
-      }
+      if (!ok) setErr('firebase-init.js failed to import as a module.');
 
       await loadFarmsOptional();
       await loadFields();
