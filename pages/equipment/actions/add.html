@@ -1,16 +1,13 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-12-22n
+Rev: 2025-12-22o
 
-ONLY CHANGES vs your 2025-12-22m file:
-✅ LABEL / PRINT CODE now matches your *lookup* page style exactly:
-   - sheet-print sizing (fit-content)
-   - #printWrap + .center behavior
-   - setPrintWrapCentered() logic (no scroll-left logic)
-   - buildDesktopHtml() + buildMobilePortraitHtml() copied to match lookup behavior
-   - createPdf() flow matches lookup behavior (no extra page-size forcing in HTML)
-
-🚫 Everything else is untouched.
+FIX (LABEL ONLY, MATCH LOOKUP + FIXES):
+✅ Keeps lookup-style label flow (sheet-print sizing + wrap + builders) => 2-page issue stays fixed
+✅ QR preview works for data: URLs (no broken cache-bust)
+✅ Preview centering fixed again (apply centering AFTER preview is inserted + layout settles)
+✅ QR is truly centered inside the summary square (img or canvas)
+🚫 Everything else untouched.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -319,8 +316,18 @@ ONLY CHANGES vs your 2025-12-22m file:
       overflow:hidden;
       font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
     }
-    .pv-sf .qr{ width:46mm; height:46mm; display:flex; align-items:center; justify-content:center; }
-    .pv-sf .qr img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
+
+    /* ✅ true center for QR block (img or canvas) */
+    .pv-sf .qr{ width:46mm; height:46mm; display:grid; place-items:center; background:#fff; }
+    .pv-sf .qr img,
+    .pv-sf .qr canvas{
+      width:100% !important;
+      height:100% !important;
+      object-fit:contain;
+      display:block;
+      margin:0 !important;
+    }
+
     .pv-sf .lab{
       width:100%;
       text-align:center;
@@ -737,8 +744,6 @@ ONLY CHANGES vs your 2025-12-22m file:
       return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
     }
 
-    // PRINT HTML (Mobile PDF stays portrait 62 x cutLen; Desktop stays landscape cutLen x 62)
-    // Summary label MUST show "VIN/Serial" + last 6
     function buildMobilePortraitHtml({ mode, qrSrc, make, model, serial6, cutLenMm }){
       const isSummary = mode === 'summary';
       const pad = 2.2;
@@ -1083,30 +1088,31 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       __previewQrSrc = '';
     }
 
+    // Safe QR src for preview: bust only for http(s), never for data:
+    function safeQrSrcForPreview(url){
+      const s = String(url || '');
+      if(!s) return '';
+      if(s.startsWith('data:')) return s;
+      const bust = (s.includes('?') ? '&' : '?') + '_=' + Date.now();
+      return s + bust;
+    }
+
     async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
-      // Cache-bust ONLY for http(s) URLs. Never for data: URLs.
-const s = String(url || '');
-let qrSrc = '';
-if (s){
-  if (s.startsWith('data:')) qrSrc = s;
-  else {
-    const bust = (s.includes('?') ? '&' : '?') + '_=' + Date.now();
-    qrSrc = s + bust;
-  }
-}
+      const qrSrc = safeQrSrcForPreview(url);
 
-clearPreviewHost();
-__previewQrSrc = qrSrc;
+      clearPreviewHost();
+      __previewQrSrc = qrSrc;
 
-
-      await setPrintWrapCentered(mode === 'summary');
-
+      // Build preview FIRST (so layout exists), then center toggle
       if (mode === 'summary'){
         const wrap = document.createElement('div');
         wrap.className = 'pv-sf';
 
         const q = document.createElement('div'); q.className='qr';
-        const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc; q.appendChild(img);
+
+        // Use <img> for both data: and http(s) – css covers centering
+        const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc;
+        q.appendChild(img);
 
         const lab = document.createElement('div'); lab.className='lab'; lab.textContent = 'VIN/Serial';
         const val = document.createElement('div'); val.className='val'; val.textContent = serial6 || '—';
@@ -1134,6 +1140,10 @@ __previewQrSrc = qrSrc;
         wrap.append(left,mid,right);
         pHost.appendChild(wrap);
       }
+
+      // Now apply centering AFTER the DOM exists + layout settles
+      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+      await setPrintWrapCentered(mode === 'summary');
     }
 
     cCancel.addEventListener('click', ()=> closeDialog(cDlg));
