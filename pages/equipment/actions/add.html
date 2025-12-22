@@ -1,11 +1,12 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-12-22l
+Rev: 2025-12-22m
 
-FIX:
-✅ PDF generation works again (add missing buildDesktopHtml/buildMobilePortraitHtml)
-✅ If PDF build/fetch fails, show a real error (catch) instead of spinner flashing then nothing
-✅ Keep your current working dropdowns + preview behavior
+FIXES:
+✅ PDF now ALWAYS 1 page (no blank 2nd page)
+   - builder HTML uses @page { size: ... } and html/body exact mm size + overflow hidden
+✅ Restored file input styling ("Choose file" section)
+✅ Keeps: dropdowns, preview centering logic, dialogs, QR flow
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -203,6 +204,20 @@ FIX:
     #qrThumb{ display:none; max-width:100%; max-height:100%; border-radius:6px; }
     .qr-row{ display:flex; align-items:center; gap:12px; }
     .qr-row .btn{ min-width:160px; }
+
+    /* ✅ RESTORED: File input styling */
+    input[type="file"].input{
+      height:auto;
+      line-height:normal;
+      padding:8px 12px;
+      color:var(--text) !important;
+      -webkit-text-fill-color:var(--text) !important;
+    }
+    input[type="file"].input::-webkit-file-upload-button{
+      color:#111111 !important;
+      -webkit-text-fill-color:#111111 !important;
+      background-color:#ffffff;
+    }
 
     /* ===== Dialogs ===== */
     dialog.sheet{
@@ -742,7 +757,7 @@ FIX:
     }
 
     /* =========================
-       ✅ PDF HTML BUILDERS
+       PDF HTML BUILDERS (1-page enforced)
        ========================= */
 
     function esc(s){
@@ -761,12 +776,11 @@ FIX:
       const qr = String(qrSrc || '').trim();
 
       if(mode === 'summary'){
-        // 62mm x 62mm
         return `<!doctype html><html><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <style>
-  @page { margin:0; }
-  html,body{ margin:0; padding:0; background:#fff; }
+  @page { size: 62mm 62mm; margin:0; }
+  html,body{ width:62mm; height:62mm; margin:0; padding:0; overflow:hidden; background:#fff; }
   .label{
     width:62mm; height:62mm;
     display:grid;
@@ -780,8 +794,8 @@ FIX:
   }
   .qr{ width:46mm; height:46mm; display:grid; place-items:center; }
   .qr img{ width:100%; height:100%; object-fit:contain; display:block; }
-  .lab{ font-weight:800; font-size:10pt; opacity:.85; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%; text-align:center; }
-  .val{ font-weight:900; font-size:16pt; letter-spacing:.6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%; text-align:center; }
+  .lab{ font-weight:800; font-size:10pt; opacity:.85; width:100%; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .val{ font-weight:900; font-size:16pt; letter-spacing:.6px; width:100%; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 </style></head><body>
   <div class="label">
     <div class="qr"><img src="${qr}" alt="QR"/></div>
@@ -791,12 +805,11 @@ FIX:
 </body></html>`;
       }
 
-      // detailed (length provided by widthMm, heightMm in API call), but HTML itself just lays out at 140mm x 62mm
       return `<!doctype html><html><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <style>
-  @page { margin:0; }
-  html,body{ margin:0; padding:0; background:#fff; }
+  @page { size: 140mm 62mm; margin:0; }
+  html,body{ width:140mm; height:62mm; margin:0; padding:0; overflow:hidden; background:#fff; }
   .label{
     width:140mm; height:62mm;
     display:grid;
@@ -831,8 +844,6 @@ FIX:
     }
 
     function buildMobilePortraitHtml({ mode, qrSrc, make, model, serial6, cutLenMm }){
-      // Mobile: you’re sending widthMm=62, heightMm=cutLenMm (portrait)
-      // So we rotate the label content so it prints correctly on a portrait page.
       const mk = esc(make || '—');
       const md = esc(model || '—');
       const sn = esc(serial6 || '—');
@@ -840,13 +851,11 @@ FIX:
       const len = Number(cutLenMm || 140);
 
       if(mode === 'summary'){
-        // summary is 62x62; in portrait page 62x62, no rotation needed
         return `<!doctype html><html><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <style>
-  @page { margin:0; }
-  html,body{ margin:0; padding:0; background:#fff; }
-  .page{ width:62mm; height:62mm; margin:0; padding:0; }
+  @page { size: 62mm 62mm; margin:0; }
+  html,body{ width:62mm; height:62mm; margin:0; padding:0; overflow:hidden; background:#fff; }
   .label{
     width:62mm; height:62mm;
     display:grid;
@@ -863,22 +872,20 @@ FIX:
   .lab{ font-weight:800; font-size:10pt; opacity:.85; width:100%; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .val{ font-weight:900; font-size:16pt; letter-spacing:.6px; width:100%; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 </style></head><body>
-  <div class="page">
-    <div class="label">
-      <div class="qr"><img src="${qr}" alt="QR"/></div>
-      <div class="lab">VIN/Serial</div>
-      <div class="val">${sn}</div>
-    </div>
+  <div class="label">
+    <div class="qr"><img src="${qr}" alt="QR"/></div>
+    <div class="lab">VIN/Serial</div>
+    <div class="val">${sn}</div>
   </div>
 </body></html>`;
       }
 
-      // detailed: page is 62mm wide x len mm tall; rotate the 140x62 label into that space
+      // portrait page: 62mm wide x len mm tall
       return `<!doctype html><html><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <style>
-  @page { margin:0; }
-  html,body{ margin:0; padding:0; background:#fff; }
+  @page { size: 62mm ${len}mm; margin:0; }
+  html,body{ width:62mm; height:${len}mm; margin:0; padding:0; overflow:hidden; background:#fff; }
   .page{ width:62mm; height:${len}mm; position:relative; overflow:hidden; }
   .rot{
     position:absolute;
@@ -969,7 +976,7 @@ FIX:
     }
     function onEscClose(e){ if(e.key==='Escape') closeYearPanel(); }
 
-    // Dropdowns (unchanged)
+    // Dropdowns
     function wireDropdownOpenClose(root){
       const btn = root.querySelector(".dd-btn");
       btn.addEventListener("click",()=>{
@@ -1054,7 +1061,7 @@ FIX:
       $("btnCreateLabel").disabled = !ok;
     }
 
-    // QR generation (unchanged)
+    // QR generation
     let pendingToken = null;
     let pendingEquipId = null;
 
@@ -1200,8 +1207,8 @@ FIX:
       await setPrintWrapAlignment();
     }
 
-    pCancel.addEventListener('click', ()=> closeDialog(pDlg));
     cCancel.addEventListener('click', ()=> closeDialog(cDlg));
+    pCancel.addEventListener('click', ()=> closeDialog(pDlg));
 
     cOk.addEventListener('click', async ()=>{
       const picked = cDlg.querySelector('input[name="labelMode"]:checked');
@@ -1302,7 +1309,7 @@ FIX:
 
     pCreate.addEventListener('click', createPdf);
 
-    /* SAVE (unchanged) */
+    /* SAVE */
     let saving = false;
 
     async function saveAll(db){
