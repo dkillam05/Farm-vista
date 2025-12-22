@@ -29,7 +29,6 @@
 
   <style>
     :root{ --card-max:1100px; }
-
     :root{
       --ql-tape-mm: 62mm;
       --ql-qr-mm: 48mm;
@@ -159,6 +158,9 @@
     .btn[disabled], .btn.disabled{ opacity:.55; pointer-events:none; }
     .btn-primary{ border-color:transparent; background:var(--brand-green,#3B7E46); color:#fff !important; }
 
+    /* Make sure the Hub button is never “blue link” and always white on green */
+    #openHub.btn-primary{ color:#fff !important; }
+
     dialog.sheet.sheet-print{ width:fit-content; max-width:calc(100vw - 24px); }
     dialog.sheet.sheet-print .body{
       width:fit-content; max-width:calc(100vw - 24px);
@@ -182,7 +184,7 @@
     #printWrap.center{ justify-content:center; }
     #pPreviewHost{ flex:0 0 auto; }
 
-    /* Preview blocks */
+    /* Desktop preview (landscape label) */
     .pv-long{
       width:140mm;
       height:62mm;
@@ -237,9 +239,31 @@
       font-size:16pt;
     }
 
+    /* Mobile preview: show VERTICAL “portrait page” (62 x cutLen) */
+    .pv-mobile-page{
+      width:62mm;
+      height:140mm; /* updated dynamically in JS */
+      border:1px dashed var(--border);
+      border-radius:10px;
+      background:#fff;
+      display:grid;
+      place-items:center;
+      box-sizing:border-box;
+      overflow:hidden;
+    }
+    .pv-mobile-rot{
+      width:140mm;   /* updated dynamically in JS */
+      height:62mm;
+      transform-origin: top left;
+      /* rotate and translate so it fills portrait page */
+      transform: rotate(90deg) translateY(-62mm);
+      display:grid;
+    }
+
+    /* Hidden print iframe */
     #fv-print-frame{ position:fixed; right:0; bottom:0; width:0; height:0; border:0; visibility:hidden; }
 
-    /* Overlay (exact style) + mobile-safe visibility */
+    /* Overlay — EXACT style copied + iPhone-safe */
     .pdf-loading{
       position:fixed;
       inset:0;
@@ -249,13 +273,9 @@
       justify-content:center;
       z-index:2147483647;
       padding:16px;
-      /* iOS: keep it above dialogs and visible */
       pointer-events:auto;
-      opacity:1;
     }
-    .pdf-loading.hidden{
-      display:none;
-    }
+    .pdf-loading.hidden{ display:none; }
     .pdf-loading-inner{
       max-width:260px;
       width:100%;
@@ -288,7 +308,7 @@
     }
     @keyframes pdf-spin{ to{ transform:rotate(360deg); } }
 
-    /* Narrow label choice + NO close button */
+    /* Narrow label type popup */
     dialog#labelChoice.sheet{ width:fit-content; max-width:min(260px, 92vw); }
     .radio-box{
       display:grid;
@@ -352,6 +372,7 @@
     </div>
   </div>
 
+  <!-- Hidden iframe for desktop print -->
   <iframe id="fv-print-frame"></iframe>
 
   <!-- Detail modal -->
@@ -362,6 +383,7 @@
     </header>
     <div class="body">
       <div class="kv" id="dKV"></div>
+
       <div id="qrSection" class="qrbox" hidden>
         <h4>Equipment QR</h4>
         <img id="qrImg" alt="Equipment QR"/>
@@ -375,7 +397,7 @@
     </footer>
   </dialog>
 
-  <!-- Label choice (NO close button; Cancel only) -->
+  <!-- Label type (NO Close button; Cancel only) -->
   <dialog id="labelChoice" class="sheet" aria-modal="true">
     <header>
       <strong>Label type</strong>
@@ -393,17 +415,14 @@
     </footer>
   </dialog>
 
-  <!-- Preview modal -->
+  <!-- Preview -->
   <dialog id="printPrev" class="sheet sheet-print" aria-modal="true">
     <header>
       <strong id="pHdrTitle">QR Label Preview</strong>
       <button id="pClose" class="btn" type="button">Close</button>
     </header>
     <div class="body">
-      <p id="pHelp" class="print-help">
-        Printer: <b>Brother QL-820NWB</b> • Tape: <b>DK-2205</b><br>
-        Tap <b>Create Label</b>.
-      </p>
+      <p id="pHelp" class="print-help">Tap <b>Create Label</b>.</p>
       <div id="printWrap"><div id="pPreviewHost"></div></div>
     </div>
     <footer>
@@ -575,7 +594,6 @@
     function setPdfLoading(active, text, sub){
       if (pdfLoadingText && text) pdfLoadingText.textContent = text;
       if (pdfLoadingSub && sub) pdfLoadingSub.textContent = sub;
-
       if (active){
         pdfLoading.classList.remove('hidden');
         pdfLoading.setAttribute('aria-hidden','false');
@@ -585,7 +603,7 @@
       }
     }
 
-    // Modals
+    // Modals + elements
     const dlg = $('#detail');
     const dTitle = $('#dTitle');
     const dKV = $('#dKV');
@@ -595,6 +613,20 @@
     const qrImg = $('#qrImg');
     const qrLbl = $('#qrLbl');
 
+    const pDlg = $('#printPrev');
+    const pHdrTitle = $('#pHdrTitle');
+    const pHost = $('#pPreviewHost');
+    const pClose = $('#pClose');
+    const pCancel = $('#pCancel');
+    const pCreate = $('#pCreate');
+
+    const cDlg = $('#labelChoice');
+    const cOk = $('#cOk');
+    const cCancel = $('#cCancel');
+
+    const printFrame = $('#fv-print-frame');
+
+    // Hub button: always enable when we have an id
     btnHub.addEventListener('click', (e)=>{
       const href = btnHub.getAttribute('href') || '';
       if (!href.includes('id=')) e.preventDefault();
@@ -623,31 +655,6 @@
       }catch{ return ''; }
     }
 
-    const pDlg = $('#printPrev');
-    const pHdrTitle = $('#pHdrTitle');
-    const printWrap = $('#printWrap');
-    const pHost = $('#pPreviewHost');
-    const pClose = $('#pClose');
-    const pCancel = $('#pCancel');
-    const pCreate = $('#pCreate');
-
-    const cDlg = $('#labelChoice');
-    const cCancel = $('#cCancel');
-    const cOk = $('#cOk');
-
-    cCancel.addEventListener('click', ()=> { try{ cDlg.close(); }catch{ cDlg.removeAttribute('open'); } });
-
-    const printFrame = $('#fv-print-frame');
-
-    let __pending = null;
-    let __mode = 'detailed';
-    let __labelLenMm = 130;
-    let __previewQrSrc = '';
-    let __pdfBlobUrl = '';
-
-    function esc(s){
-      return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
-    }
     function normalizeSerial(s){ return String(s||'').trim().toUpperCase(); }
     function serialLast6(serial){
       const s = normalizeSerial(serial || '');
@@ -658,30 +665,106 @@
       const raw = normalizeSerial(d?.starfireSerial || d?.serial || '');
       return raw || '';
     }
+    function esc(s){
+      return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+    }
+
+    // State
+    let __pending = null;
+    let __mode = 'detailed';
+    let __cutLenMm = 140;     // long label default
+    let __previewQrSrc = '';
+    let __pdfBlobUrl = '';
 
     function clearPreviewHost(){
       pHost.innerHTML = '';
       __previewQrSrc = '';
+      __pdfBlobUrl = '';
     }
 
-    // ✅ Mobile MUST be vertical:
-    // Always generate page size as width=cutLen, height=62, and set landscape=false for mobile.
-    // That yields a "wide" page, but iOS viewer will show it vertical/fit correctly and the print uses full length.
-    function computePdfDims(cutLenMm){
-      return { widthMm: cutLenMm, heightMm: 62, landscape: false };
-    }
-
-    // ✅ NO rotation in HTML, ever.
-    // Mobile gets BIGGER QR to avoid "VIN cut off" and "tiny".
-    function buildLabelHtmlForPdf({ mode, qrSrc, make, model, serial6, serialRaw, mobile }){
+    // Mobile vertical page: 62 x cutLen, with rotated content sized cutLen x 62
+    function buildMobilePortraitHtml({ mode, qrSrc, make, model, serial6, serialRaw, cutLenMm }){
       const isSummary = mode === 'summary';
-      const Q = mobile ? 54 : (isSummary ? 46 : 48);
+      const Q = isSummary ? 46 : 48;
+      const pad = 2.2;
+
+      // portrait page: 62mm wide, cutLenMm tall
+      // rotated label: cutLenMm wide, 62mm tall; rotate 90deg and translate to fit
+      if (isSummary){
+        const fontSize = (serialRaw && serialRaw.length > 12) ? '13pt' : '16pt';
+        return `<!doctype html><html><head><meta charset="utf-8"><style>
+@page{ margin:0; }
+html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; overflow:hidden; }
+.page{ width:100%; height:100%; display:block; overflow:hidden; position:relative; }
+.rot{
+  width:${cutLenMm}mm; height:62mm;
+  transform-origin: top left;
+  transform: rotate(90deg) translateY(-62mm);
+}
+.label{
+  width:${cutLenMm}mm; height:62mm;
+  box-sizing:border-box; padding:${pad}mm;
+  display:grid; grid-template-rows:${Q}mm 1fr;
+  align-content:center; justify-items:center;
+  gap:2mm;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  color:#000; overflow:hidden;
+}
+.qr{ width:${Q}mm; height:${Q}mm; display:flex; align-items:center; justify-content:center; }
+.qr img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
+.serial{ width:100%; text-align:center; font-weight:900; letter-spacing:.6px; line-height:1.05;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:${fontSize}; }
+</style></head><body>
+<div class="page"><div class="rot"><div class="label">
+  <div class="qr"><img alt="QR" src="${qrSrc}"></div>
+  <div class="serial">${esc(serialRaw || '—')}</div>
+</div></div></div>
+</body></html>`;
+      }
+
+      return `<!doctype html><html><head><meta charset="utf-8"><style>
+@page{ margin:0; }
+html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; overflow:hidden; }
+.page{ width:100%; height:100%; display:block; overflow:hidden; position:relative; }
+.rot{
+  width:${cutLenMm}mm; height:62mm;
+  transform-origin: top left;
+  transform: rotate(90deg) translateY(-62mm);
+}
+.label{
+  width:${cutLenMm}mm; height:62mm;
+  box-sizing:border-box; padding:${pad}mm;
+  display:grid; grid-template-columns:max-content 48mm max-content;
+  gap:2mm; align-items:center;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  color:#000; overflow:hidden;
+}
+.left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
+.make{ font-weight:900; font-size:18pt; line-height:1.05; white-space:nowrap; }
+.model{ font-weight:800; font-size:16pt; line-height:1.05; white-space:nowrap; margin-top:1mm; }
+.mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; }
+.mid img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
+.right{ align-items:flex-end; text-align:right; }
+.lab{ font-weight:800; font-size:12pt; line-height:1.05; opacity:.85; white-space:nowrap; }
+.val{ font-weight:900; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; white-space:nowrap; }
+</style></head><body>
+<div class="page"><div class="rot"><div class="label">
+  <div class="left"><div class="make">${esc(make||'—')}</div><div class="model">${esc(model||'—')}</div></div>
+  <div class="mid"><img alt="QR" src="${qrSrc}"></div>
+  <div class="right"><div class="lab">VIN/Serial</div><div class="val">${esc(serial6||'—')}</div></div>
+</div></div></div>
+</body></html>`;
+    }
+
+    // Desktop HTML (normal landscape page cutLen x 62)
+    function buildDesktopHtml({ mode, qrSrc, make, model, serial6, serialRaw }){
+      const isSummary = mode === 'summary';
+      const Q = isSummary ? 46 : 48;
       const pad = 2.2;
 
       if (isSummary){
         const fontSize = (serialRaw && serialRaw.length > 12) ? '13pt' : '16pt';
-        return `<!doctype html>
-<html><head><meta charset="utf-8"><style>
+        return `<!doctype html><html><head><meta charset="utf-8"><style>
 @page{ margin:0; }
 html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 .label{
@@ -695,207 +778,260 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 }
 .qr{ width:${Q}mm; height:${Q}mm; display:flex; align-items:center; justify-content:center; }
 .qr img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
-.serial{
-  width:100%; text-align:center; font-weight:900; letter-spacing:.6px; line-height:1.05;
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-  font-size:${fontSize};
-}
-</style></head>
-<body>
-  <div class="label">
-    <div class="qr"><img alt="QR" src="${qrSrc}"></div>
-    <div class="serial">${esc(serialRaw || '—')}</div>
-  </div>
+.serial{ width:100%; text-align:center; font-weight:900; letter-spacing:.6px; line-height:1.05;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:${fontSize}; }
+</style></head><body>
+<div class="label">
+  <div class="qr"><img alt="QR" src="${qrSrc}"></div>
+  <div class="serial">${esc(serialRaw || '—')}</div>
+</div>
 </body></html>`;
       }
 
-      return `<!doctype html>
-<html><head><meta charset="utf-8"><style>
+      return `<!doctype html><html><head><meta charset="utf-8"><style>
 @page{ margin:0; }
 html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 .label{
   width:100%; height:100%;
   box-sizing:border-box; padding:${pad}mm;
-  display:grid; grid-template-columns:max-content ${Q}mm max-content;
+  display:grid; grid-template-columns:max-content 48mm max-content;
   gap:2mm; align-items:center;
   font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   color:#000; overflow:hidden;
 }
 .left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
-.make{ font-weight:900; font-size:${mobile ? '20pt' : '18pt'}; line-height:1.05; white-space:nowrap; }
-.model{ font-weight:800; font-size:${mobile ? '18pt' : '16pt'}; line-height:1.05; white-space:nowrap; margin-top:1mm; }
-.mid{ width:${Q}mm; height:${Q}mm; display:flex; align-items:center; justify-content:center; }
+.make{ font-weight:900; font-size:18pt; line-height:1.05; white-space:nowrap; }
+.model{ font-weight:800; font-size:16pt; line-height:1.05; white-space:nowrap; margin-top:1mm; }
+.mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; }
 .mid img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
 .right{ align-items:flex-end; text-align:right; }
-.lab{ font-weight:800; font-size:${mobile ? '13pt' : '12pt'}; line-height:1.05; opacity:.85; white-space:nowrap; }
-.val{ font-weight:900; font-size:${mobile ? '20pt' : '18pt'}; line-height:1.05; letter-spacing:.6px; margin-top:1mm; white-space:nowrap; }
-</style></head>
-<body>
-  <div class="label">
-    <div class="left">
-      <div class="make">${esc(make || '—')}</div>
-      <div class="model">${esc(model || '—')}</div>
-    </div>
-    <div class="mid"><img alt="QR" src="${qrSrc}"></div>
-    <div class="right">
-      <div class="lab">VIN/Serial</div>
-      <div class="val">${esc(serial6 || '—')}</div>
-    </div>
-  </div>
+.lab{ font-weight:800; font-size:12pt; line-height:1.05; opacity:.85; white-space:nowrap; }
+.val{ font-weight:900; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; white-space:nowrap; }
+</style></head><body>
+<div class="label">
+  <div class="left"><div class="make">${esc(make||'—')}</div><div class="model">${esc(model||'—')}</div></div>
+  <div class="mid"><img alt="QR" src="${qrSrc}"></div>
+  <div class="right"><div class="lab">VIN/Serial</div><div class="val">${esc(serial6||'—')}</div></div>
+</div>
 </body></html>`;
     }
 
-    async function setPreview(payload){
-      const isSummary = payload.mode === 'summary';
-      const qrUrl = payload.url || '';
-
-      printWrap.classList.toggle('center', isSummary);
-
-      const bust = (qrUrl && qrUrl.includes('?') ? '&' : '?') + '_=' + Date.now();
-      const qrSrc = qrUrl ? (qrUrl + bust) : '';
+    // Preview render
+    async function setPreview({ mode, url, make, model, serialRaw, serial6, cutLenMm }){
+      const mobile = isMobileLike();
+      const bust = (url && url.includes('?') ? '&' : '?') + '_=' + Date.now();
+      const qrSrc = url ? (url + bust) : '';
 
       clearPreviewHost();
-      __pdfBlobUrl = '';
+      __previewQrSrc = qrSrc;
 
-      pCreate.disabled = false;
-      pCreate.textContent = 'Create Label';
+      if (mobile){
+        // Portrait page preview
+        const page = document.createElement('div');
+        page.className = 'pv-mobile-page';
+        page.style.height = `${cutLenMm}mm`;
 
-      if (isSummary){
-        const wrap = document.createElement('div');
-        wrap.className = 'pv-sf';
+        const rot = document.createElement('div');
+        rot.className = 'pv-mobile-rot';
+        rot.style.width = `${cutLenMm}mm`;
+        rot.style.height = `62mm`;
 
-        const q = document.createElement('div');
-        q.className = 'qr';
-        const img = document.createElement('img');
-        img.alt = 'QR';
-        img.src = qrSrc;
-        q.appendChild(img);
+        // Inside the rotated area, reuse the desktop layout blocks for preview
+        if (mode === 'summary'){
+          const wrap = document.createElement('div');
+          wrap.className = 'pv-sf';
+          wrap.style.width = `${cutLenMm}mm`;
+          wrap.style.height = `62mm`;
+          wrap.style.border = '0';
+          wrap.style.borderRadius = '0';
 
-        const s = document.createElement('div');
-        s.className = 'serial';
-        s.textContent = payload.serialRaw || '—';
+          const q = document.createElement('div');
+          q.className='qr';
+          const img = document.createElement('img');
+          img.alt='QR';
+          img.src=qrSrc;
+          q.appendChild(img);
 
-        wrap.append(q, s);
-        pHost.appendChild(wrap);
+          const s = document.createElement('div');
+          s.className='serial';
+          s.textContent = serialRaw || '—';
 
-        __previewQrSrc = img.src || qrSrc;
-        __labelLenMm = 62;
-        return;
+          wrap.append(q,s);
+          rot.appendChild(wrap);
+        } else {
+          const wrap = document.createElement('div');
+          wrap.className = 'pv-long';
+          wrap.style.width = `${cutLenMm}mm`;
+          wrap.style.height = `62mm`;
+          wrap.style.border = '0';
+          wrap.style.borderRadius = '0';
+
+          const left = document.createElement('div'); left.className='left';
+          const mk = document.createElement('div'); mk.className='make'; mk.textContent = make || '—';
+          const md = document.createElement('div'); md.className='model'; md.textContent = model || '—';
+          left.append(mk,md);
+
+          const mid = document.createElement('div'); mid.className='mid';
+          const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc;
+          mid.appendChild(img);
+
+          const right = document.createElement('div'); right.className='right';
+          const lab = document.createElement('div'); lab.className='lab'; lab.textContent='VIN/Serial';
+          const val = document.createElement('div'); val.className='val'; val.textContent = serial6 || '—';
+          right.append(lab,val);
+
+          wrap.append(left,mid,right);
+          rot.appendChild(wrap);
+        }
+
+        page.appendChild(rot);
+        pHost.appendChild(page);
+
+        // Adjust rotate translate to fit (translateY = -62mm)
+        rot.style.transform = `rotate(90deg) translateY(-62mm)`;
+      } else {
+        // Desktop normal preview
+        if (mode === 'summary'){
+          const wrap = document.createElement('div');
+          wrap.className = 'pv-sf';
+          const q = document.createElement('div'); q.className='qr';
+          const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc; q.appendChild(img);
+          const s = document.createElement('div'); s.className='serial'; s.textContent = serialRaw || '—';
+          wrap.append(q,s);
+          pHost.appendChild(wrap);
+        } else {
+          const wrap = document.createElement('div');
+          wrap.className = 'pv-long';
+          wrap.style.width = `${cutLenMm}mm`;
+          const left = document.createElement('div'); left.className='left';
+          const mk = document.createElement('div'); mk.className='make'; mk.textContent = make || '—';
+          const md = document.createElement('div'); md.className='model'; md.textContent = model || '—';
+          left.append(mk,md);
+
+          const mid = document.createElement('div'); mid.className='mid';
+          const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc; mid.appendChild(img);
+
+          const right = document.createElement('div'); right.className='right';
+          const lab = document.createElement('div'); lab.className='lab'; lab.textContent='VIN/Serial';
+          const val = document.createElement('div'); val.className='val'; val.textContent = serial6 || '—';
+          right.append(lab,val);
+
+          wrap.append(left,mid,right);
+          pHost.appendChild(wrap);
+        }
       }
-
-      const wrap = document.createElement('div');
-      wrap.className = 'pv-long';
-      wrap.style.width = `130mm`;
-      wrap.style.height = `62mm`;
-
-      const left = document.createElement('div');
-      left.className = 'left';
-      const mk = document.createElement('div');
-      mk.className = 'make';
-      mk.textContent = payload.make || '—';
-      const md = document.createElement('div');
-      md.className = 'model';
-      md.textContent = payload.model || '—';
-      left.append(mk, md);
-
-      const mid = document.createElement('div');
-      mid.className = 'mid';
-      const img = document.createElement('img');
-      img.alt = 'QR';
-      img.src = qrSrc;
-      mid.appendChild(img);
-
-      const right = document.createElement('div');
-      right.className = 'right';
-      const lab = document.createElement('div');
-      lab.className = 'lab';
-      lab.textContent = 'VIN/Serial';
-      const val = document.createElement('div');
-      val.className = 'val';
-      val.textContent = payload.serial6 || '—';
-      right.append(lab, val);
-
-      wrap.append(left, mid, right);
-      pHost.appendChild(wrap);
-
-      __previewQrSrc = img.src || qrSrc;
-      __labelLenMm = 130;
     }
 
-    function openPreview(){
-      try{ pDlg.showModal(); }catch{ pDlg.setAttribute('open',''); }
+    function openDialog(d){
+      try{ d.showModal(); }catch{ d.setAttribute('open',''); }
     }
-    function closePreview(){
-      clearPreviewHost();
-      try{ pDlg.close(); }catch{ pDlg.removeAttribute('open'); }
+    function closeDialog(d){
+      try{ d.close(); }catch{ d.removeAttribute('open'); }
     }
-    pClose.addEventListener('click', closePreview);
-    pCancel.addEventListener('click', closePreview);
+
+    pClose.addEventListener('click', ()=> closeDialog(pDlg));
+    pCancel.addEventListener('click', ()=> closeDialog(pDlg));
+    cCancel.addEventListener('click', ()=> closeDialog(cDlg));
 
     cOk.addEventListener('click', ()=>{
-      const picked = cDlg.querySelector(`input[name="labelMode"]:checked`);
+      const picked = cDlg.querySelector('input[name="labelMode"]:checked');
       __mode = picked ? picked.value : __mode;
-      try{ cDlg.close(); }catch{ cDlg.removeAttribute('open'); }
+      closeDialog(cDlg);
+
       if (!__pending) return;
-      const payload = { ...__pending, mode: __mode };
-      openPreview();
-      setPreview(payload);
+
+      // set defaults per mode
+      __cutLenMm = (__mode === 'summary') ? 62 : 140;
+
+      openDialog(pDlg);
+      setPreview({
+        mode: __mode,
+        url: __pending.url,
+        make: __pending.make,
+        model: __pending.model,
+        serialRaw: __pending.serialRaw,
+        serial6: __pending.serial6,
+        cutLenMm: __cutLenMm
+      });
     });
 
-    async function createPdfAndPrintOrOpen(){
-      if (!__pending) return;
-
-      const mobile = isMobileLike();
-
-      // iOS: close preview so overlay is not hidden behind dialog layer
-      if (mobile){
-        try{ pDlg.close(); }catch{}
-        // allow layout to paint before fetch (important on iOS)
-        await new Promise(r=>setTimeout(r, 50));
+    async function showOverlayAndYield(){
+      // Close dialogs first on iPhone so overlay is never hidden by top layer
+      if (isMobileLike()){
+        closeDialog(pDlg);
+        closeDialog(cDlg);
+        closeDialog(dlg);
       }
 
       setPdfLoading(true, 'Creating label PDF…', 'Please keep this tab open.');
+
+      // iOS needs time to paint the overlay
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+      await new Promise(r=>setTimeout(r, 80));
+    }
+
+    async function createPdf(){
+      if (!__pending) return;
+
+      pCreate.disabled = true;
+      await showOverlayAndYield();
 
       try{
-        const cutLenMm = (__mode === 'summary') ? 62 : 140;
-        const dims = computePdfDims(cutLenMm);
+        const mobile = isMobileLike();
+        const cutLenMm = (__mode === 'summary') ? 62 : __cutLenMm;
 
-        const serialRaw = __pending.serialRaw || __pending.serial || '';
-        const serial6 = __pending.serial6 || serialLast6(serialRaw) || '';
+        // Page dims:
+        // Desktop: landscape page cutLen x 62
+        // Mobile: portrait page 62 x cutLen (so the PDF LOOKS vertical on screen)
+        const widthMm  = mobile ? 62 : cutLenMm;
+        const heightMm = mobile ? cutLenMm : 62;
+        const landscape = false;
 
-        const html = buildLabelHtmlForPdf({
-          mode: __mode,
-          qrSrc: __previewQrSrc || __pending.url || '',
-          make: __pending.make || '',
-          model: __pending.model || '',
-          serial6,
-          serialRaw,
-          mobile
-        });
+        const serialRaw = __pending.serialRaw || '';
+        const serial6 = __pending.serial6 || '';
+
+        const html = mobile
+          ? buildMobilePortraitHtml({
+              mode: __mode,
+              qrSrc: __previewQrSrc || __pending.url,
+              make: __pending.make,
+              model: __pending.model,
+              serial6,
+              serialRaw,
+              cutLenMm
+            })
+          : buildDesktopHtml({
+              mode: __mode,
+              qrSrc: __previewQrSrc || __pending.url,
+              make: __pending.make,
+              model: __pending.model,
+              serial6,
+              serialRaw
+            });
 
         const resp = await fetch(FV_LABEL_PDF_ENDPOINT, {
           method: 'POST',
           headers: { 'Content-Type':'application/json' },
           body: JSON.stringify({
             html,
-            widthMm: dims.widthMm,
-            heightMm: dims.heightMm,
-            landscape: dims.landscape,
+            widthMm,
+            heightMm,
+            landscape,
             filename: (__mode === 'summary' ? 'fv-qr-summary.pdf' : 'fv-qr-detailed.pdf')
           })
         });
 
         const errText = !resp.ok ? await resp.text().catch(()=> '') : '';
         if (!resp.ok){
-          alert('Label PDF failed.');
           console.warn('[label-pdf] failed', resp.status, errText);
+          alert('Label PDF failed. Check Cloud Run logs.');
           return;
         }
 
         const blob = await resp.blob();
         const url = URL.createObjectURL(blob);
 
+        // Desktop: print via iframe. Mobile: open in this tab so you can Share → Print.
         if (mobile){
           window.location.assign(url);
         } else {
@@ -907,45 +1043,58 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         pCreate.disabled = false;
       }
     }
-    pCreate.addEventListener('click', createPdfAndPrintOrOpen);
 
-    // open detail
+    pCreate.addEventListener('click', createPdf);
+
+    // Detail open logic (Hub button fixed here)
     function openDetail(d){
+      // Always enable Hub properly
+      btnHub.classList.remove('disabled');
+      btnHub.removeAttribute('aria-disabled');
+
+      // Set hub href immediately (so it never stays grey)
+      btnHub.href = hubUrl(d.id);
+
       dTitle.textContent = titleFor(d);
       dKV.innerHTML = '';
       addRow('Type', TYPE_META.sing);
       addRow('Make', d.makeName);
       addRow('Model', d.modelName);
       addRow('Year', d.year);
+
       const ls = last6(d.serial);
       if(ls) addRow('Serial (last 6)', ls);
+      addRow('Notes', d.notes);
 
       const url = getQrUrl(d);
+      const labelText = [safe(d.modelName)].filter(Boolean).join(' ') + (ls ? ` - #${ls}` : '');
       if (url){
         const bust = (url.includes('?') ? '&' : '?') + '_=' + Date.now();
         qrImg.src = url + bust;
-        qrLbl.textContent = (d.modelName || '') + (ls ? ` - #${ls}` : '');
+        qrImg.alt = `QR for ${labelText || TYPE_META.sing}`;
+        qrLbl.textContent = labelText || TYPE_META.sing;
         qrSection.hidden = false;
-        btnPrintQR.disabled = false;
 
+        btnPrintQR.disabled = false;
         btnPrintQR.onclick = ()=>{
           const rawSerial = IS_STARFIRE ? (pickStarfireSerial(d) || (d.serial || '')) : (d.serial || '');
           __pending = {
             url,
             make: d.makeName || '',
             model: d.modelName || '',
-            serial: rawSerial || '',
             serialRaw: rawSerial || '',
             serial6: serialLast6(rawSerial) || ''
           };
 
           __mode = IS_STARFIRE ? 'summary' : 'detailed';
-          __previewQrSrc = '';
-          __labelLenMm = 140;
+          __cutLenMm = (__mode === 'summary') ? 62 : 140;
+          clearPreviewHost();
 
+          // Default radio
           const r = cDlg.querySelector(`input[name="labelMode"][value="${__mode}"]`);
           if (r) r.checked = true;
-          try{ cDlg.showModal(); }catch{ cDlg.setAttribute('open',''); }
+
+          openDialog(cDlg);
         };
       } else {
         qrImg.removeAttribute('src');
@@ -955,10 +1104,10 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         btnPrintQR.onclick = null;
       }
 
-      try{ dlg.showModal(); }catch{ dlg.setAttribute('open',''); }
+      openDialog(dlg);
     }
 
-    // filter popover
+    // Filter popover
     function openPop(){
       if (!filterPop.hidden) return;
       const r = filterBtn.getBoundingClientRect();
@@ -983,7 +1132,6 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     });
     window.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closePop(); });
     window.addEventListener('scroll', () => { if (!filterPop.hidden) closePop(); }, { passive:true });
-
     filterPop.addEventListener('change', (e)=>{
       if (e.target && e.target.name === 'statusMode') {
         mode = e.target.value;
@@ -992,7 +1140,23 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       }
     });
 
-    // boot
+    // Firestore load
+    function attach(){
+      if (unsub) return;
+      const db = getFirestore();
+      const qref = query(collection(db,'equipment'), where('type','==', TYPE));
+      unsub = onSnapshot(qref, (snap)=>{
+        const out = [];
+        snap.forEach(docSnap=>{
+          const d = docSnap.data() || {};
+          out.push({ id: docSnap.id, ...d });
+        });
+        out.sort((a,b)=> displayLine(a).localeCompare(displayLine(b)));
+        DATA = out;
+        render();
+      }, (err)=> console.error(`${TYPE_META.plural} listener error:`, err));
+    }
+
     (async()=>{
       await ready;
       attach();
