@@ -1,296 +1,211 @@
-<!-- =====================================================================
-/Farm-vista/pages/dev/weather.html  (FULL FILE)
-Rev: 2025-12-21h (ONLY LABEL FIX)
-
-ONLY CHANGE REQUESTED:
-✅ Replace "Rain (range)" text with:
-   "Rain (Last 30 Days): "4.50" in"
-
-Everything else unchanged.
-===================================================================== -->
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>FarmVista • Dev • Weather Model</title>
+  <title>FarmVista • Dev • Field Readiness</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
-  <script src="/Farm-vista/js/theme-boot.js"></script>
-
+  <!-- ===========================
+       ABSOLUTE PATHS (REQUIRED)
+       =========================== -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
 
+  <!-- Theme + base app styles -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <script src="/Farm-vista/js/core.js"></script>
+  <!-- Date range picker (your file) -->
   <script src="/Farm-vista/js/fv-date-range-picker.js"></script>
 
+  <!-- Ensure fv-shell (global header/footer/menu) -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
   <style>
-    :root{ --card-max:1200px; --page-bottom-gap:72px; }
-    .page{
+    :root{
+      --card-max:1100px;
+      --page-bottom-gap:96px;
+      --accent:#2F6C3C;
+    }
+    body{ background:var(--app-bg,var(--surface)); }
+
+    .wrap{
       max-width:var(--card-max);
       margin:0 auto;
       padding:clamp(14px,3vw,22px);
-      padding-bottom:calc(var(--page-bottom-gap) + env(safe-area-inset-bottom,0px));
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
     }
-    .topbar{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
-    .topbar h1{ font-size:18px; margin:0; letter-spacing:.2px; }
 
-    .card{
-      background:var(--card, var(--surface));
+    .hero{
       border:1px solid var(--border);
-      border-radius:16px;
-      box-shadow:0 10px 30px rgba(0,0,0,.08);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
       overflow:hidden;
+      margin-bottom:var(--page-bottom-gap);
     }
-    .card-h{
-      padding:12px 14px 10px;
-      border-bottom:1px solid var(--border);
-      display:flex;
-      justify-content:space-between;
-      gap:12px;
-      align-items:flex-start;
+    .hero-head{
+      display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
+      padding:14px 16px;border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
     }
-    .card-h .t{ margin:0; font-size:15px; font-weight:950; }
-    .card-b{ padding:12px 14px; }
+    .hero-head .icon{width:24px;height:24px;color:var(--accent);display:grid;place-items:center}
+    .hero-head h1{margin:0;font-size:clamp(20px,3.2vw,26px);line-height:1.2}
+    .muted{color:var(--muted,#67706B)}
+    .body{padding:16px;display:grid;gap:14px}
 
-    .opCard{
-      position: relative;
-      z-index: 99999;
-      overflow: visible !important;
-    }
-    .opCard #calendarPopover{
-      position: absolute;
-      z-index: 100000;
-    }
-
-    .grid{ display:grid; grid-template-columns:1fr; gap:14px; }
-    @media(min-width:980px){ .grid{ grid-template-columns:480px 1fr; } }
-
-    .field{ display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
-    label{ font-size:12px; opacity:.9; }
-    input[type="text"], input[type="number"], select{
-      width:100%;
-      padding:10px 12px;
-      border-radius:12px;
-      border:1px solid var(--border);
-      background:var(--surface, var(--card));
-      color:var(--text);
-      outline:none;
-      appearance:none;
-    }
-    input[readonly]{ cursor:pointer; }
-
-    .row{
-      display:flex;
-      gap:12px;
-      align-items:flex-end;
-      flex-wrap:nowrap;
-    }
-    .row > *{ flex: 1 1 0; min-width: 0; }
-    @media(max-width:860px){
-      .row{ flex-wrap:wrap; }
-      .row > *{ flex:1 1 240px; }
+    /* Controls */
+    .row{display:grid;gap:10px;grid-template-columns:1fr 1fr auto}
+    @media (max-width:880px){.row{grid-template-columns:1fr}}
+    .field label{display:block;font-weight:800;margin:0 0 6px}
+    .input,.select{
+      width:100%;font:inherit;font-size:16px;color:var(--text);
+      background:var(--card-surface,var(--surface));border:1px solid var(--border);
+      border-radius:10px;padding:12px;outline:none
     }
 
-    .slider-wrap{
-      display:grid;
-      grid-template-columns:1fr auto;
-      gap:10px;
-      align-items:center;
-      margin:6px 0 14px;
-    }
-    input[type="range"]{ width:100%; accent-color:var(--brand,#3B7E46); }
-    .pill{
-      display:inline-flex; align-items:center; justify-content:center;
-      min-width:58px; height:34px; padding:0 10px;
-      border-radius:999px; border:1px solid var(--border);
-      background:color-mix(in srgb, var(--surface) 88%, #ffffff 12%);
-      font-weight:950;
-    }
-
-    .btnbar{ display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
-    .btn{
-      border:1px solid var(--border);
-      background:var(--surface, var(--card));
-      color:var(--text);
-      padding:10px 12px;
-      border-radius:12px;
-      font-weight:950;
+    /* Make the date-range input look like a classy button */
+    #jobRangeInput{
+      width:auto;
+      min-width: 220px;
       cursor:pointer;
-      user-select:none;
-    }
-    .btn:active{ transform:translateY(1px); }
-    .btn.primary{ background:var(--brand,#3B7E46); border-color:transparent; color:#fff !important; }
-    .btn.danger{ background:#b02a2a; border-color:transparent; color:#fff !important; }
-    .btn[disabled]{ opacity:.55; cursor:not-allowed; }
-
-    .muted{ opacity:.75; }
-    .mono{ font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace; }
-
-    .statusline{
-      display:flex; align-items:center; justify-content:space-between; gap:10px;
-      margin-top:10px;
-      font-size:12px;
-      opacity:.92;
+      white-space:nowrap;
     }
 
     /* Fields list */
-    .fieldsGrid{ display:grid; grid-template-columns:1fr; gap:10px; }
-
-    .fieldTile{
+    .list{
+      display:grid;
+      gap:10px;
+    }
+    .tile{
       border:1px solid var(--border);
-      border-radius:16px;
-      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
-      padding:10px 12px;
-      display:flex;
-      flex-direction:column;
+      border-radius:14px;
+      background:var(--surface);
+      padding:12px;
+      display:grid;
       gap:8px;
       cursor:pointer;
       user-select:none;
-      transition: transform .04s ease;
     }
-    .fieldTile:active{ transform: translateY(1px); }
-    .fieldTile.active{
-      outline:2px solid color-mix(in srgb, var(--brand,#3B7E46) 70%, transparent 30%);
+    .tile.active{
+      outline:2px solid color-mix(in srgb, var(--accent) 70%, transparent 30%);
       outline-offset:2px;
     }
-
-    .tileHead{
-      display:flex;
-      align-items:flex-start;
-      justify-content:space-between;
-      gap:10px;
+    .tile-top{
+      display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
     }
-    .titleInline{
-      display:flex;
-      align-items:center;
-      gap:8px;
-      flex-wrap:wrap;
-      min-width:0;
+    .titleline{
+      display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;
     }
-    .fieldTitle{
-      font-weight:950;
-      font-size:13px;
+    .name{
+      font-weight:900;
+      font-size:14px;
       line-height:1.2;
       white-space:nowrap;
       overflow:hidden;
       text-overflow:ellipsis;
       max-width: 520px;
     }
-    .miniAdjust{
+    .tiny-btn{
       padding:6px 8px;
       border-radius:10px;
       border:1px solid var(--border);
       background:transparent;
-      color:var(--text);
-      font-weight:950;
+      font-weight:900;
       font-size:12px;
+      color:var(--text);
       cursor:pointer;
       line-height:1;
     }
 
-    .readyPill{
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
+    /* Readiness pill (colored like bar gradient) */
+    .readiness-pill{
       padding:6px 10px;
       border-radius:999px;
       border:1px solid var(--border);
-      font-weight:950;
+      font-weight:900;
       font-size:12px;
-      white-space:nowrap;
       color:#fff;
+      white-space:nowrap;
     }
 
-    .subLine{
-      font-size:12px;
-      opacity:.85;
+    .subline{
       margin:0;
+      font-size:12px;
+      color:var(--muted,#67706B);
       line-height:1.2;
     }
 
+    .chips{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
     .chip{
-      display:inline-flex;
-      align-items:center;
-      gap:6px;
-      padding:6px 10px;
-      border-radius:999px;
-      font-weight:950;
-      font-size:12px;
-      border:1px solid var(--border);
-      white-space:nowrap;
+      display:inline-flex;align-items:center;
+      padding:6px 10px;border-radius:999px;border:1px solid var(--border);
+      font-weight:900;font-size:12px;
     }
-    .chip.wet{ background: color-mix(in srgb, #c83b3b 18%, var(--surface) 82%); }
-    .chip.readiness{ background: color-mix(in srgb, #2f8f4b 18%, var(--surface) 82%); }
+    .chip.wet{background:color-mix(in srgb, #c83b3b 18%, var(--surface) 82%)}
+    .chip.readiness{background:color-mix(in srgb, #2f8f4b 18%, var(--surface) 82%)}
 
-    .workGaugeWrap{ display:flex; flex-direction:column; gap:8px; }
-    .workRow{
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:10px;
-      flex-wrap:wrap;
-    }
-    .workGauge{
+    .gauge-wrap{display:grid;gap:8px}
+    .gauge{
       position:relative;
       height:16px;
       border-radius:999px;
       border:1px solid var(--border);
       overflow:hidden;
-      background: linear-gradient(90deg, #c83b3b 0%, #d8b23b 55%, #2f8f4b 100%);
+      background:linear-gradient(90deg, #c83b3b 0%, #d8b23b 55%, #2f8f4b 100%);
     }
-    .workMarker{
-      position:absolute;
-      top:-10px;
-      width:4px;
-      height:36px;
-      background:#ffffff;
-      box-shadow:0 0 0 1px rgba(0,0,0,.35);
-      border-radius:3px;
-      transform: translateX(-2px);
+    .marker{
+      position:absolute;top:-10px;width:4px;height:36px;
+      background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.35);
+      border-radius:3px;transform:translateX(-2px);
     }
-    .thrMarker{
-      position:absolute;
-      top:-10px;
-      width:2px;
-      height:36px;
-      background:#000;
-      opacity:.85;
-      transform: translateX(-1px);
+    .thr{
+      position:absolute;top:-10px;width:2px;height:36px;
+      background:#000;opacity:.85;transform:translateX(-1px);
     }
-    .markerBadge{
-      position:absolute;
-      top:-34px;
-      transform: translateX(-50%);
-      padding:5px 8px;
-      border-radius:999px;
-      border:1px solid var(--border);
-      background: color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
-      font-size:12px;
-      font-weight:950;
-      white-space:nowrap;
-      box-shadow:0 10px 25px rgba(0,0,0,.12);
-    }
-    .workLabels{
-      display:flex;
-      justify-content:space-between;
-      font-size:11px;
-      opacity:.85;
-    }
-
-    .note{
-      border:1px dashed var(--border);
-      border-radius:14px;
-      padding:10px 12px;
+    .badge{
+      position:absolute;top:-34px;transform:translateX(-50%);
+      padding:5px 8px;border-radius:999px;border:1px solid var(--border);
       background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
-      font-size:12px;
-      opacity:.95;
-      line-height:1.35;
+      font-size:12px;font-weight:900;white-space:nowrap;
+      box-shadow:0 10px 25px rgba(0,0,0,.12);
+      color:var(--text);
     }
+    .ticks{display:flex;justify-content:space-between;font-size:11px;color:var(--muted,#67706B)}
+
+    /* Collapsible details (closed by default) */
+    details{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      overflow:hidden;
+    }
+    summary{
+      list-style:none;
+      cursor:pointer;
+      padding:12px 14px;
+      font-weight:900;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      border-bottom:1px solid var(--border);
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+    }
+    summary::-webkit-details-marker{display:none}
+    .details-body{padding:14px;display:grid;gap:12px}
 
     table{
       width:100%;
@@ -298,7 +213,7 @@ Everything else unchanged.
       border:1px solid var(--border);
       border-radius:12px;
       overflow:hidden;
-      background:var(--surface, var(--card));
+      background:var(--surface);
     }
     th,td{
       padding:10px;
@@ -308,58 +223,30 @@ Everything else unchanged.
       vertical-align:top;
     }
     th{
-      opacity:.85;
       background:color-mix(in srgb, var(--surface) 90%, #ffffff 10%);
-      font-weight:950;
+      font-weight:900;
+      color:var(--text);
     }
-    tr:last-child td{ border-bottom:none; }
-    .right{ text-align:right; }
+    tr:last-child td{border-bottom:none}
+    .right{text-align:right}
+    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;}
 
-    .pv-hide{ display:none !important; }
-    .modal-backdrop{
-      position:fixed; inset:0;
-      background:rgba(0,0,0,.45);
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      padding:16px;
-      z-index:9999;
-    }
-    .modal{
-      width:min(560px, 94vw);
-      background:var(--card, var(--surface));
-      border:1px solid var(--border);
-      border-radius:18px;
-      box-shadow:0 18px 60px rgba(0,0,0,.35);
-      overflow:hidden;
-    }
-    .modal-h{
-      padding:14px 14px 10px;
-      border-bottom:1px solid var(--border);
-    }
-    .modal-h h3{ margin:0; font-size:15px; font-weight:950; }
-    .modal-b{ padding:14px; }
-    .modal-actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
-
-    .cal-popover{
+    /* Calendar popover styling (IDs required by your picker) */
+    #calendarPopover{
+      position:absolute;
       top:calc(100% + 8px);
       left:0;
       width:min(360px, 92vw);
-      background:var(--card, var(--surface));
+      background:var(--surface);
       border:1px solid var(--border);
       border-radius:16px;
       box-shadow:0 14px 45px rgba(0,0,0,.25);
       padding:12px;
       display:none;
-      z-index:200;
+      z-index:100000;
     }
-    .cal-top{ display:flex; gap:10px; align-items:center; margin-bottom:10px; }
-    .cal-days{
-      display:grid;
-      grid-template-columns:repeat(7, 1fr);
-      gap:6px;
-      margin-top:10px;
-    }
+    .cal-top{display:flex;gap:10px;align-items:center;margin-bottom:10px}
+    #calDays{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
     .cal-day{
       border:1px solid var(--border);
       border-radius:10px;
@@ -370,282 +257,214 @@ Everything else unchanged.
       background:color-mix(in srgb, var(--surface) 94%, #ffffff 6%);
       user-select:none;
     }
-    .cal-day.other-month{ opacity:.45; }
-    .cal-day.in-range{ background: color-mix(in srgb, var(--brand,#3B7E46) 14%, var(--surface) 86%); }
-    .cal-day.range-start, .cal-day.range-end, .cal-day.single-day, .cal-day.start-selected{
-      background: var(--brand,#3B7E46);
-      color:#fff;
-      border-color:transparent;
+    .cal-day.other-month{opacity:.45}
+    .cal-day.in-range{background:color-mix(in srgb, var(--accent) 14%, var(--surface) 86%)}
+    .cal-day.range-start,.cal-day.range-end,.cal-day.single-day,.cal-day.start-selected{
+      background:var(--accent);color:#fff;border-color:transparent
     }
-    .cal-footer{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      margin-top:10px;
-    }
-    .rangeBtn{
-      width:auto !important;
-      max-width: 240px;
-      display:inline-flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      padding:10px 12px;
-      font-weight:950;
-      cursor:pointer;
-      white-space:nowrap;
-    }
+    .cal-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px}
 
-    .errorbox{
-      border:1px solid #b02a2a;
-      background: color-mix(in srgb, #b02a2a 14%, var(--surface) 86%);
-      border-radius:14px;
-      padding:10px 12px;
-      font-size:12px;
-      line-height:1.35;
-      display:none;
-      margin-top:12px;
-      overflow:auto;
+    /* Adjust modal */
+    .pv-hide{display:none!important}
+    .modal-backdrop{
+      position:fixed;inset:0;background:rgba(0,0,0,.45);
+      display:flex;align-items:center;justify-content:center;
+      padding:16px;z-index:99999;
     }
-    .errorbox b{ display:block; margin-bottom:6px; }
+    .modal{
+      width:min(560px, 94vw);
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:18px;
+      box-shadow:0 18px 60px rgba(0,0,0,.35);
+      overflow:hidden;
+    }
+    .modal-h{
+      padding:14px 14px 10px;border-bottom:1px solid var(--border);
+    }
+    .modal-h h3{margin:0;font-size:15px;font-weight:900}
+    .modal-b{padding:14px}
+    .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:10px}
+    .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff!important}
+    .btn-danger{border-color:transparent;background:#b02a2a;color:#fff!important}
+
+    .help{font-size:13px;color:var(--muted,#67706B);margin-top:6px}
+    .error{color:#b00020;font-weight:800}
   </style>
 </head>
 
 <body>
-  <div class="page">
-    <div class="topbar">
-      <h1>Dev • Weather Model</h1>
-      <button id="btnLogout" class="btn" type="button">Logout</button>
-    </div>
-
-    <section class="card opCard" style="margin-bottom:14px;">
-      <div class="card-h">
-        <div>
-          <p class="t">Controls</p>
-          <div class="muted" style="font-size:12px;">Sorting + date range drive “most rain” view.</div>
-        </div>
-        <div class="mono muted" id="modeLine">MOCK</div>
-      </div>
-
-      <div class="card-b">
-        <div class="row">
-          <div class="field" style="margin:0;">
-            <label for="opSel">Operation</label>
-            <select id="opSel">
-              <option value="spring_tillage">Spring tillage</option>
-              <option value="planting">Planting</option>
-              <option value="spraying" selected>Spraying</option>
-              <option value="harvest">Harvest</option>
-              <option value="fall_tillage">Fall tillage</option>
-            </select>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🧭</div>
+          <div>
+            <h1>Field Readiness (Dev)</h1>
+            <p class="muted">Readiness score 0–100. Black line = threshold. Details are tucked away below.</p>
           </div>
+        </header>
 
-          <div class="field" style="margin:0;">
-            <label for="sortSel">Sort</label>
-            <select id="sortSel">
-              <option value="name_az">Name (A → Z)</option>
-              <option value="name_za">Name (Z → A)</option>
-              <option value="ready_dry_wet">Readiness (Dry → Wet)</option>
-              <option value="ready_wet_dry">Readiness (Wet → Dry)</option>
-              <option value="rain_most">Most rain (range)</option>
-              <option value="rain_least">Least rain (range)</option>
-            </select>
-          </div>
+        <div class="body">
+          <!-- CONTROLS -->
+          <div class="row opCard" style="position:relative;">
+            <div class="field">
+              <label for="opSel">Operation</label>
+              <select id="opSel" class="select">
+                <option value="spring_tillage">Spring tillage</option>
+                <option value="planting">Planting</option>
+                <option value="spraying" selected>Spraying</option>
+                <option value="harvest">Harvest</option>
+                <option value="fall_tillage">Fall tillage</option>
+              </select>
+            </div>
 
-          <div class="field" style="margin:0; position:relative; flex:0 0 auto;">
-            <label for="jobRangeInput">Rain Range</label>
-            <input id="jobRangeInput" class="rangeBtn" type="text" readonly value="" placeholder="Choose date range"/>
-            <div id="calendarPopover" class="cal-popover" aria-label="Calendar popover">
-              <div class="cal-top">
-                <select id="monthSelect"></select>
-                <select id="yearSelect"></select>
-                <button id="closeCalBtn" class="btn" type="button" style="padding:8px 10px;">Close</button>
-              </div>
-              <div id="calDays" class="cal-days"></div>
-              <div class="cal-footer">
-                <span id="rangeSummary" class="muted" style="font-size:12px;">No dates selected</span>
-                <div style="display:flex; gap:8px;">
-                  <button id="clearRangeBtn" class="btn" type="button" style="padding:8px 10px;">Clear</button>
-                  <button id="applyRangeBtn" class="btn primary" type="button" style="padding:8px 10px;">Apply</button>
+            <div class="field">
+              <label for="sortSel">Sort</label>
+              <select id="sortSel" class="select">
+                <option value="name_az">Name (A → Z)</option>
+                <option value="name_za">Name (Z → A)</option>
+                <option value="ready_dry_wet">Readiness (Dry → Wet)</option>
+                <option value="ready_wet_dry">Readiness (Wet → Dry)</option>
+                <option value="rain_most">Most rain (range)</option>
+                <option value="rain_least">Least rain (range)</option>
+              </select>
+            </div>
+
+            <div class="field" style="position:relative;justify-self:end;">
+              <label for="jobRangeInput">Rain range</label>
+              <input id="jobRangeInput" class="input" readonly placeholder="Choose date range"/>
+              <div id="calendarPopover">
+                <div class="cal-top">
+                  <select id="monthSelect" class="select" style="padding:10px"></select>
+                  <select id="yearSelect" class="select" style="padding:10px"></select>
+                  <button id="closeCalBtn" class="btn" type="button" style="min-width:auto;padding:10px 12px;">Close</button>
+                </div>
+                <div id="calDays"></div>
+                <div class="cal-footer">
+                  <span id="rangeSummary" class="muted" style="font-size:12px;">No dates selected</span>
+                  <div style="display:flex;gap:8px;">
+                    <button id="clearRangeBtn" class="btn" type="button" style="min-width:auto;padding:10px 12px;">Clear</button>
+                    <button id="applyRangeBtn" class="btn btn-primary" type="button" style="min-width:auto;padding:10px 12px;">Apply</button>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="muted" style="font-size:12px; margin-top:8px;">
-          Defaults to last 30 days until you choose a range.
-        </div>
-      </div>
-    </section>
-
-    <section class="card" style="margin-bottom:14px;">
-      <div class="card-h">
-        <div>
-          <p class="t">Fields</p>
-          <div class="muted" style="font-size:12px;">
-            Field Readiness (0–100). Marker = field score. Black line = threshold.
-          </div>
-        </div>
-        <div class="mono muted" id="tileStamp">—</div>
-      </div>
-      <div class="card-b">
-        <div class="fieldsGrid" id="fieldsGrid"></div>
-      </div>
-    </section>
-
-    <div class="grid">
-      <section class="card">
-        <div class="card-h">
-          <div>
-            <p class="t">Selected Field Inputs</p>
-            <div class="muted" style="font-size:12px;">Definitions live in Adjust.</div>
-          </div>
-        </div>
-
-        <div class="card-b">
-          <div class="field">
-            <label>Location (Divernon, IL default)</label>
-            <div class="row" style="flex-wrap:wrap;">
-              <div class="field" style="margin:0;">
-                <label for="lat">Latitude</label>
-                <input id="lat" type="number" step="0.000001" value="39.5656"/>
-              </div>
-              <div class="field" style="margin:0;">
-                <label for="lon">Longitude</label>
-                <input id="lon" type="number" step="0.000001" value="-89.6540"/>
-              </div>
+              <div class="help">Defaults to last 30 days until you choose a range.</div>
             </div>
           </div>
 
+          <!-- FIELDS -->
           <div class="field">
-            <label for="soilWet">Soil Type / Holding (1–10)</label>
-            <div class="slider-wrap">
+            <label>Fields</label>
+            <div id="fieldsGrid" class="list"></div>
+          </div>
+
+          <!-- SLIDERS -->
+          <div class="row">
+            <div class="field">
+              <label for="soilWet">Soil Type / Holding (1–10)</label>
               <input id="soilWet" type="range" min="1" max="10" step="1" value="6"/>
-              <div class="pill" id="soilWetVal">6</div>
+              <div class="help">Affects retention + dry-down.</div>
             </div>
-          </div>
 
-          <div class="field">
-            <label for="drain">Drainage (1–10)</label>
-            <div class="slider-wrap">
+            <div class="field">
+              <label for="drain">Drainage (1–10)</label>
               <input id="drain" type="range" min="1" max="10" step="1" value="5"/>
-              <div class="pill" id="drainVal">5</div>
+              <div class="help">Tile/ditches/natural drainage.</div>
             </div>
           </div>
 
-          <div class="field">
-            <label for="workable">Operation Threshold (Readiness Score)</label>
-            <div class="slider-wrap">
+          <div class="row">
+            <div class="field">
+              <label for="workable">Operation Threshold (Readiness Score)</label>
               <input id="workable" type="range" min="0" max="100" step="1" value="70"/>
-              <div class="pill" id="workableVal">70</div>
+              <div class="help">Black line on the bar.</div>
+            </div>
+
+            <div class="field">
+              <label for="apiBase">Weather API Base URL (future)</label>
+              <input id="apiBase" class="input" placeholder="https://YOUR-CLOUDRUN-URL (blank = mock)"/>
+              <div class="help">Endpoint: GET /weather30?lat=..&lon=..</div>
             </div>
           </div>
 
-          <div class="field">
-            <label for="apiBase">Weather API Base URL (future)</label>
-            <input id="apiBase" type="text" placeholder="https://YOUR-CLOUDRUN-URL (blank = mock)"/>
-            <div class="muted" style="font-size:12px; margin-top:4px;">
-              Must expose <span class="mono">GET /weather30?lat=..&lon=..</span>
-            </div>
-          </div>
-
-          <div class="btnbar">
+          <div class="actions">
             <button id="btnRegen" class="btn" type="button">Regenerate Mock 30 Days</button>
-            <button id="btnFetch" class="btn primary" type="button">Fetch Real 30 Days</button>
+            <button id="btnFetch" class="btn btn-primary" type="button">Fetch Real 30 Days</button>
             <button id="btnRun" class="btn" type="button">Run Model</button>
           </div>
 
-          <div class="statusline">
-            <div id="dataMode" class="mono muted">Mode: MOCK</div>
-            <div id="runStamp" class="mono muted"></div>
-          </div>
+          <div id="err" class="help error" hidden></div>
 
-          <div id="errBox" class="errorbox">
-            <b>Page JS Error</b>
-            <div class="mono" id="errText"></div>
-          </div>
+          <!-- DETAILS (always closed by default) -->
+          <details id="detailsPanel" open="false">
+            <summary>
+              <span>Details</span>
+              <span class="muted" style="font-size:12px;">(math + tables)</span>
+            </summary>
+            <div class="details-body">
+              <div class="note" id="paramExplain">—</div>
+              <div class="note" id="mathSummary">—</div>
 
-          <div style="height:12px;"></div>
-          <div class="note" id="paramExplain">—</div>
-        </div>
-      </section>
+              <table aria-label="Tank Trace">
+                <thead>
+                  <tr>
+                    <th style="width:110px;">Date</th>
+                    <th class="right">Rain</th>
+                    <th class="right">infilMult</th>
+                    <th class="right">Add</th>
+                    <th class="right">DryPwr</th>
+                    <th class="right">Loss</th>
+                    <th class="right">Storage</th>
+                  </tr>
+                </thead>
+                <tbody id="traceRows">
+                  <tr><td colspan="7" class="muted">Run the model.</td></tr>
+                </tbody>
+              </table>
 
-      <section class="card">
-        <div class="card-h">
-          <div>
-            <p class="t">Math Details</p>
-            <div class="muted" style="font-size:12px;">Full transparency (dry power breakdown + tank trace).</div>
-          </div>
-        </div>
+              <table aria-label="DryPwr Breakdown">
+                <thead>
+                  <tr>
+                    <th style="width:110px;">Date</th>
+                    <th class="right">Temp</th>
+                    <th class="right">tempN</th>
+                    <th class="right">Wind</th>
+                    <th class="right">windN</th>
+                    <th class="right">RH</th>
+                    <th class="right">rhN</th>
+                    <th class="right">Solar</th>
+                    <th class="right">solarN</th>
+                    <th class="right">raw</th>
+                    <th class="right">DryPwr</th>
+                  </tr>
+                </thead>
+                <tbody id="dryRows">
+                  <tr><td colspan="11" class="muted">Run the model.</td></tr>
+                </tbody>
+              </table>
 
-        <div class="card-b">
-          <div class="note" id="mathSummary">—</div>
-
-          <div style="height:12px;"></div>
-
-          <table aria-label="Tank Trace">
-            <thead>
-              <tr>
-                <th style="width:110px;">Date</th>
-                <th class="right">Rain</th>
-                <th class="right">infilMult</th>
-                <th class="right">Add</th>
-                <th class="right">DryPwr</th>
-                <th class="right">Loss</th>
-                <th class="right">Storage</th>
-              </tr>
-            </thead>
-            <tbody id="traceRows">
-              <tr><td colspan="7" class="muted">Run the model.</td></tr>
-            </tbody>
-          </table>
-
-          <div style="height:12px;"></div>
-
-          <table aria-label="DryPwr Breakdown">
-            <thead>
-              <tr>
-                <th style="width:110px;">Date</th>
-                <th class="right">Temp</th>
-                <th class="right">tempN</th>
-                <th class="right">Wind</th>
-                <th class="right">windN</th>
-                <th class="right">RH</th>
-                <th class="right">rhN</th>
-                <th class="right">Solar</th>
-                <th class="right">solarN</th>
-                <th class="right">raw</th>
-                <th class="right">DryPwr</th>
-              </tr>
-            </thead>
-            <tbody id="dryRows">
-              <tr><td colspan="11" class="muted">Run the model.</td></tr>
-            </tbody>
-          </table>
-
-          <div style="height:12px;"></div>
-
-          <table aria-label="Weather Inputs">
-            <thead>
-              <tr>
-                <th style="width:110px;">Date</th>
-                <th class="right">Rain</th>
-                <th class="right">Temp</th>
-                <th class="right">Wind</th>
-                <th class="right">RH</th>
-                <th class="right">Solar</th>
-              </tr>
-            </thead>
-            <tbody id="wxRows">
-              <tr><td colspan="6" class="muted">Waiting for JS…</td></tr>
-            </tbody>
-          </table>
+              <table aria-label="Weather Inputs">
+                <thead>
+                  <tr>
+                    <th style="width:110px;">Date</th>
+                    <th class="right">Rain</th>
+                    <th class="right">Temp</th>
+                    <th class="right">Wind</th>
+                    <th class="right">RH</th>
+                    <th class="right">Solar</th>
+                  </tr>
+                </thead>
+                <tbody id="wxRows">
+                  <tr><td colspan="6" class="muted">Waiting for JS…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </details>
         </div>
       </section>
     </div>
-  </div>
+  </fv-shell>
 
   <!-- Adjust Modal -->
   <div id="adjustBackdrop" class="modal-backdrop pv-hide" role="dialog" aria-modal="true" aria-labelledby="adjustTitle">
@@ -658,20 +477,20 @@ Everything else unchanged.
         <div class="note" id="adjustRule">—</div>
 
         <div id="adjustStep1">
-          <div class="modal-actions">
-            <button id="btnAdjWet" class="btn danger" type="button">Wet</button>
-            <button id="btnAdjDry" class="btn primary" type="button">Dry</button>
+          <div class="actions">
+            <button id="btnAdjWet" class="btn btn-danger" type="button">Wet</button>
+            <button id="btnAdjDry" class="btn btn-primary" type="button">Dry</button>
             <button id="btnAdjCancel" class="btn" type="button">Cancel</button>
           </div>
         </div>
 
         <div id="adjustStepDry" class="pv-hide">
           <div class="note" style="margin-top:12px;">
-            <b>How dry is it?</b> This sets the current readiness score.
+            <b>How dry is it?</b> Sets current Field Readiness.
           </div>
-          <div class="modal-actions">
+          <div class="actions">
             <button id="btnDryBarely" class="btn" type="button">Barely ready</button>
-            <button id="btnDryPerfect" class="btn primary" type="button">Perfect</button>
+            <button id="btnDryPerfect" class="btn btn-primary" type="button">Perfect</button>
             <button id="btnDryVery" class="btn" type="button">Very dry</button>
             <button id="btnDryBack" class="btn" type="button">Back</button>
           </div>
@@ -679,12 +498,12 @@ Everything else unchanged.
 
         <div id="adjustStepWet" class="pv-hide">
           <div class="note" style="margin-top:12px;">
-            <b>How wet is it?</b> This lowers the current readiness score.
+            <b>How wet is it?</b> Lowers current Field Readiness.
           </div>
-          <div class="modal-actions">
+          <div class="actions">
             <button id="btnWetBarely" class="btn" type="button">Barely wet</button>
-            <button id="btnWetPretty" class="btn danger" type="button">Pretty wet</button>
-            <button id="btnWetVery" class="btn danger" type="button">Very wet</button>
+            <button id="btnWetPretty" class="btn btn-danger" type="button">Pretty wet</button>
+            <button id="btnWetVery" class="btn btn-danger" type="button">Very wet</button>
             <button id="btnWetBack" class="btn" type="button">Back</button>
           </div>
         </div>
@@ -694,613 +513,608 @@ Everything else unchanged.
     </div>
   </div>
 
-<script>
-(function(){
-  'use strict';
-  const $ = (id)=> document.getElementById(id);
-  const clamp = (v, lo, hi)=> Math.max(lo, Math.min(hi, v));
-  const round = (v, d=2)=> {
-    const p = Math.pow(10,d);
-    return Math.round(v*p)/p;
-  };
+  <script>
+  (function(){
+    'use strict';
 
-  const LOSS_SCALE = 0.55;
+    const $ = id => document.getElementById(id);
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const round = (v, d=2) => {
+      const p = Math.pow(10,d);
+      return Math.round(v*p)/p;
+    };
 
-  function showErr(msg){
-    const box = $('errBox'); const text = $('errText');
-    if (!box || !text) return;
-    text.textContent = String(msg||'Unknown error');
-    box.style.display = 'block';
-  }
-  window.addEventListener('error', (e)=>{
-    try{
-      const m=(e&&e.message)?e.message:'Script error';
-      const at=(e&&e.filename)?(' @ '+e.filename+':'+(e.lineno||'?')):'';
-      showErr(m+at);
-    }catch(_){}
-  });
+    const LOSS_SCALE = 0.55;
 
-  const state = {
-    weather30: [],
-    seed: Date.now() % 1000000,
-    mode: 'MOCK',
-    selectedFieldId: 'f1',
-    lastRuns: new Map(),
-    readyOverride: new Map(),
-    adjustContext: { fieldId:null }
-  };
+    const state = {
+      weather30: [],
+      seed: Date.now() % 1000000,
+      mode: 'MOCK',
+      selectedFieldId: 'f1',
+      lastRuns: new Map(),
+      readyOverride: new Map(),     // fieldId -> readiness score (0..100)
+      adjustContext: { fieldId:null }
+    };
 
-  const FIELDS = [
-    { id:'f1', farm:'Dowson Farms', field:'Home 80',      soil:6, drain:5, rainFactor:0.98 },
-    { id:'f2', farm:'Dowson Farms', field:'River Bottom', soil:9, drain:9, rainFactor:1.12 },
-    { id:'f3', farm:'Dowson Farms', field:'North Ridge',  soil:3, drain:2, rainFactor:0.90 },
-  ];
+    const FIELDS = [
+      { id:'f1', farm:'Dowson Farms', field:'Home 80',      soil:6, drain:5, rainFactor:0.98 },
+      { id:'f2', farm:'Dowson Farms', field:'River Bottom', soil:9, drain:9, rainFactor:1.12 },
+      { id:'f3', farm:'Dowson Farms', field:'North Ridge',  soil:3, drain:2, rainFactor:0.90 },
+    ];
 
-  function escapeHtml(s){
-    return String(s||'')
-      .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
-      .replaceAll('"','&quot;').replaceAll("'","&#039;");
-  }
-
-  function seededRand(){
-    state.seed = (state.seed * 1664525 + 1013904223) % 4294967296;
-    return state.seed / 4294967296;
-  }
-
-  function genMock30(){
-    const out = [];
-    const today = new Date(); today.setHours(12,0,0,0);
-    for (let i=29; i>=0; i--){
-      const d = new Date(today); d.setDate(d.getDate() - i);
-      const eventRoll = seededRand();
-      let rain = 0;
-      if (eventRoll > 0.82) rain = 0.10 + seededRand()*1.10;
-      else if (eventRoll > 0.72) rain = 0.02 + seededRand()*0.16;
-
-      const wave = Math.sin((29-i)/6) * 6;
-      const temp = 34 + wave + (seededRand()*10 - 5);
-      const wind = 4 + seededRand()*18;
-
-      let rh = 45 + seededRand()*45;
-      if (rain > 0) rh = clamp(rh + 10 + seededRand()*10, 35, 98);
-
-      let solar = 120 + seededRand()*220;
-      if (rain > 0) solar = clamp(solar - 60 - seededRand()*80, 40, 360);
-
-      out.push({
-        dateISO: d.toISOString().slice(0,10),
-        rainIn: round(rain, 2),
-        tempF: Math.round(temp),
-        windMph: Math.round(wind),
-        rh: Math.round(rh),
-        solarWm2: Math.round(solar),
-      });
+    function esc(s){
+      return String(s||'')
+        .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
+        .replaceAll('"','&quot;').replaceAll("'","&#039;");
     }
-    state.weather30 = out;
-    state.mode = 'MOCK';
-    $('dataMode').textContent = 'Mode: MOCK';
-    $('modeLine').textContent = 'MOCK';
-  }
 
-  function parseRangeFromInput(){
-    const raw = String($('jobRangeInput').value || '').trim();
-    if (!raw) return { start:null, end:null };
-    const parts = raw.split('–').map(s=>s.trim());
-    if (parts.length === 2){
-      const a = new Date(parts[0]); const b = new Date(parts[1]);
-      if (isFinite(a.getTime()) && isFinite(b.getTime())){
-        a.setHours(0,0,0,0); b.setHours(23,59,59,999);
-        return { start:a, end:b };
+    function setErr(msg){
+      const el = $('err');
+      if (!el) return;
+      if (!msg){ el.hidden = true; el.textContent=''; return; }
+      el.hidden = false;
+      el.textContent = msg;
+    }
+
+    // Mock weather
+    function seededRand(){
+      state.seed = (state.seed * 1664525 + 1013904223) % 4294967296;
+      return state.seed / 4294967296;
+    }
+    function genMock30(){
+      const out = [];
+      const today = new Date();
+      today.setHours(12,0,0,0);
+
+      for (let i=29; i>=0; i--){
+        const d = new Date(today);
+        d.setDate(d.getDate() - i);
+
+        const eventRoll = seededRand();
+        let rain = 0;
+        if (eventRoll > 0.82) rain = 0.10 + seededRand()*1.10;
+        else if (eventRoll > 0.72) rain = 0.02 + seededRand()*0.16;
+
+        const wave = Math.sin((29-i)/6) * 6;
+        const temp = 34 + wave + (seededRand()*10 - 5);
+        const wind = 4 + seededRand()*18;
+
+        let rh = 45 + seededRand()*45;
+        if (rain > 0) rh = clamp(rh + 10 + seededRand()*10, 35, 98);
+
+        let solar = 120 + seededRand()*220;
+        if (rain > 0) solar = clamp(solar - 60 - seededRand()*80, 40, 360);
+
+        out.push({
+          dateISO: d.toISOString().slice(0,10),
+          rainIn: round(rain, 2),
+          tempF: Math.round(temp),
+          windMph: Math.round(wind),
+          rh: Math.round(rh),
+          solarWm2: Math.round(solar),
+        });
+      }
+
+      state.weather30 = out;
+      state.mode = 'MOCK';
+    }
+
+    // Date range parsing
+    function parseRangeFromInput(){
+      const raw = String($('jobRangeInput').value || '').trim();
+      if (!raw) return { start:null, end:null };
+
+      const parts = raw.split('–').map(s=>s.trim());
+      if (parts.length === 2){
+        const a = new Date(parts[0]);
+        const b = new Date(parts[1]);
+        if (isFinite(a.getTime()) && isFinite(b.getTime())){
+          a.setHours(0,0,0,0);
+          b.setHours(23,59,59,999);
+          return { start:a, end:b };
+        }
+      }
+
+      const d = new Date(raw);
+      if (isFinite(d.getTime())){
+        d.setHours(0,0,0,0);
+        const e = new Date(d);
+        e.setHours(23,59,59,999);
+        return { start:d, end:e };
+      }
+
+      return { start:null, end:null };
+    }
+    function isDateInRange(dateISO, range){
+      if (!range || !range.start || !range.end) return true;
+      const d = new Date(dateISO + 'T12:00:00');
+      return d >= range.start && d <= range.end;
+    }
+
+    // Dry power parts
+    function calcDryParts(r){
+      const temp = Number(r.tempF||0);
+      const wind = Number(r.windMph||0);
+      const rh   = Number(r.rh||0);
+      const solar= Number(r.solarWm2||0);
+
+      const tempN = clamp((temp - 20) / 45, 0, 1);
+      const windN = clamp((wind - 2) / 20, 0, 1);
+      const solarN= clamp((solar - 60) / 300, 0, 1);
+      const rhN   = clamp((rh - 35) / 65, 0, 1);
+
+      const raw = (0.35*tempN + 0.30*solarN + 0.25*windN - 0.25*rhN);
+      const dryPwr = clamp(raw, 0, 1);
+      return { temp, wind, rh, solar, tempN, windN, rhN, solarN, raw, dryPwr };
+    }
+
+    // Factor mapping
+    function mapFactors(soil, drain){
+      const soilHold = (Number(soil) - 1) / 9;
+      const drainPoor= (Number(drain) - 1) / 9;
+
+      const infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor;
+      const dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor;
+      const Smax      = 2.60 + 1.00*soilHold + 0.90*drainPoor;
+
+      return { soilHold, drainPoor, infilMult, dryMult, Smax };
+    }
+
+    function runField(field){
+      if (!state.weather30.length) return null;
+
+      const f = mapFactors(field.soil, field.drain);
+      const rf = (state.mode === 'MOCK') ? (field.rainFactor || 1) : 1;
+
+      const rows = state.weather30.map(w=>{
+        const p = calcDryParts(w);
+        const rainAdj = round(Number(w.rainIn||0) * rf, 2);
+        return { ...w, rainInAdj: rainAdj, ...p };
+      });
+
+      const first7 = rows.slice(0,7);
+      const rain7 = first7.reduce((s,x)=> s + Number(x.rainInAdj||0), 0);
+      const rainNudgeFrac = clamp(rain7 / 4.0, 0, 1);
+      const rainNudge = rainNudgeFrac * (0.35 * f.Smax);
+
+      let storage = clamp((0.45 * f.Smax) + rainNudge, 0, f.Smax);
+
+      const trace = [];
+      for (const d of rows){
+        const rain = Number(d.rainInAdj||0);
+        const add = rain * f.infilMult;
+        const loss = Number(d.dryPwr||0) * LOSS_SCALE * f.dryMult;
+        const before = storage;
+        const after = clamp(before + add - loss, 0, f.Smax);
+        storage = after;
+        trace.push({ dateISO:d.dateISO, rain, infilMult:f.infilMult, add, dryPwr:d.dryPwr, loss, before, after });
+      }
+
+      const wetness = clamp((storage / f.Smax) * 100, 0, 100);
+      const wetnessR = Math.round(wetness);
+      const readinessR = Math.round(clamp(100 - wetness, 0, 100));
+
+      const last7 = trace.slice(-7);
+      const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
+
+      return { field, factors:f, rows, trace, storageFinal:storage, wetnessR, readinessR, rain7, rainNudge, avgLossDay, rf };
+    }
+
+    function etaFor(run, threshold){
+      if (!run) return '';
+      if (run.readinessR >= threshold) return '';   // hide if ready
+
+      const wetTarget = clamp(100 - threshold, 0, 100);
+      const storageTarget = run.factors.Smax * (wetTarget / 100);
+
+      const delta = run.storageFinal - storageTarget;
+      const dailyLoss = Math.max(0.02, run.avgLossDay);
+      const hours = Math.ceil((delta / dailyLoss) * 24);
+
+      if (hours <= 48) return `Est: ~${hours} hours`;
+      return 'Estimated to be greater then 2 days';
+    }
+
+    function rainInRange(run, range){
+      if (!run || !run.rows) return 0;
+      let sum = 0;
+      for (const r of run.rows){
+        if (isDateInRange(r.dateISO, range)) sum += Number(r.rainInAdj||0);
+      }
+      return round(sum, 2);
+    }
+
+    function sortFields(fields, runsById){
+      const mode = String($('sortSel').value || 'name_az');
+      const range = parseRangeFromInput();
+      const collator = new Intl.Collator(undefined, { numeric:true, sensitivity:'base' });
+      const arr = fields.slice();
+
+      arr.sort((a,b)=>{
+        const ra = runsById.get(a.id);
+        const rb = runsById.get(b.id);
+
+        const nameA = `${a.farm} ${a.field}`;
+        const nameB = `${b.farm} ${b.field}`;
+
+        const readyA = ra ? ra.readinessR : 0;
+        const readyB = rb ? rb.readinessR : 0;
+
+        const rainA = ra ? rainInRange(ra, range) : 0;
+        const rainB = rb ? rainInRange(rb, range) : 0;
+
+        if (mode === 'name_az') return collator.compare(nameA, nameB);
+        if (mode === 'name_za') return collator.compare(nameB, nameA);
+
+        if (mode === 'ready_dry_wet'){ if (readyB !== readyA) return readyB - readyA; return collator.compare(nameA, nameB); }
+        if (mode === 'ready_wet_dry'){ if (readyB !== readyA) return readyA - readyB; return collator.compare(nameA, nameB); }
+
+        if (mode === 'rain_most'){ if (rainB !== rainA) return rainB - rainA; return collator.compare(nameA, nameB); }
+        if (mode === 'rain_least'){ if (rainB !== rainA) return rainA - rainB; return collator.compare(nameA, nameB); }
+
+        return collator.compare(nameA, nameB);
+      });
+
+      return arr;
+    }
+
+    function readinessColor(score){
+      const p = clamp(score, 0, 100);
+      if (p <= 55){
+        const t = p / 55;
+        const r = Math.round(200 + (216-200)*t);
+        const g = Math.round(59  + (178-59)*t);
+        const b = 59;
+        return `rgb(${r},${g},${b})`;
+      } else {
+        const t = (p - 55) / 45;
+        const r = Math.round(216 + (47-216)*t);
+        const g = Math.round(178 + (143-178)*t);
+        const b = Math.round(59  + (75-59)*t);
+        return `rgb(${r},${g},${b})`;
       }
     }
-    const d = new Date(raw);
-    if (isFinite(d.getTime())){
-      d.setHours(0,0,0,0);
-      const e = new Date(d); e.setHours(23,59,59,999);
-      return { start:d, end:e };
-    }
-    return { start:null, end:null };
-  }
 
-  function isDateInRange(dateISO, range){
-    if (!range || !range.start || !range.end) return true;
-    const d = new Date(dateISO + 'T12:00:00');
-    return d >= range.start && d <= range.end;
-  }
-
-  function calcDryParts(r){
-    const temp = Number(r.tempF||0);
-    const wind = Number(r.windMph||0);
-    const rh   = Number(r.rh||0);
-    const solar= Number(r.solarWm2||0);
-
-    const tempN = clamp((temp - 20) / 45, 0, 1);
-    const windN = clamp((wind - 2) / 20, 0, 1);
-    const solarN= clamp((solar - 60) / 300, 0, 1);
-    const rhN   = clamp((rh - 35) / 65, 0, 1);
-
-    const raw = (0.35*tempN + 0.30*solarN + 0.25*windN - 0.25*rhN);
-    const dryPwr = clamp(raw, 0, 1);
-    return { temp, wind, rh, solar, tempN, windN, rhN, solarN, raw, dryPwr };
-  }
-
-  function mapFactors(soil, drain){
-    const soilHold = (Number(soil) - 1) / 9;
-    const drainPoor= (Number(drain) - 1) / 9;
-    const infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor;
-    const dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor;
-    const Smax      = 2.60 + 1.00*soilHold + 0.90*drainPoor;
-    return { soilHold, drainPoor, infilMult, dryMult, Smax };
-  }
-
-  function runField(field){
-    if (!state.weather30.length) return null;
-    const f = mapFactors(field.soil, field.drain);
-    const rf = (state.mode === 'MOCK') ? (field.rainFactor || 1) : 1;
-
-    const rows = state.weather30.map(w=>{
-      const p = calcDryParts(w);
-      const rainAdj = round(Number(w.rainIn||0) * rf, 2);
-      return { ...w, rainInAdj: rainAdj, ...p };
-    });
-
-    const first7 = rows.slice(0,7);
-    const rain7 = first7.reduce((s,x)=> s + Number(x.rainInAdj||0), 0);
-    const rainNudgeFrac = clamp(rain7 / 4.0, 0, 1);
-    const rainNudge = rainNudgeFrac * (0.35 * f.Smax);
-
-    let storage = clamp((0.45 * f.Smax) + rainNudge, 0, f.Smax);
-
-    const trace = [];
-    for (const d of rows){
-      const rain = Number(d.rainInAdj||0);
-      const add = rain * f.infilMult;
-      const loss = Number(d.dryPwr||0) * LOSS_SCALE * f.dryMult;
-      const before = storage;
-      const after = clamp(before + add - loss, 0, f.Smax);
-      storage = after;
-      trace.push({ dateISO:d.dateISO, rain, infilMult:f.infilMult, add, dryPwr:d.dryPwr, loss, before, after });
+    function markerLeftCSS(pct){
+      const p = clamp(pct, 0, 100);
+      if (p >= 100) return 'calc(100% - 2px)';
+      if (p <= 0) return '2px';
+      return p.toFixed(2) + '%';
     }
 
-    const wetness = clamp((storage / f.Smax) * 100, 0, 100);
-    const wetnessR = Math.round(wetness);
-    const readinessR = Math.round(clamp(100 - wetness, 0, 100));
+    function renderTiles(){
+      const wrap = $('fieldsGrid');
+      wrap.innerHTML = '';
 
-    const last7 = trace.slice(-7);
-    const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
+      state.lastRuns.clear();
+      for (const f of FIELDS){
+        state.lastRuns.set(f.id, runField(f));
+      }
 
-    return { field, factors:f, rows, trace, storageFinal:storage, wetnessR, readinessR, rain7, rainNudge, avgLossDay, rf };
-  }
+      const sorted = sortFields(FIELDS, state.lastRuns);
+      const thr = Number($('workable').value);
+      const range = parseRangeFromInput();
 
-  function etaFor(run, threshold){
-    if (!run) return '';
-    if (run.readinessR >= threshold) return '';
-    const wetTarget = clamp(100 - threshold, 0, 100);
-    const storageTarget = run.factors.Smax * (wetTarget / 100);
-    const delta = run.storageFinal - storageTarget;
-    const dailyLoss = Math.max(0.02, run.avgLossDay);
-    const hours = Math.ceil((delta / dailyLoss) * 24);
-    if (hours <= 48) return `Est: ~${hours} hours`;
-    return 'Estimated to be greater then 2 days';
-  }
+      for (const f of sorted){
+        const run0 = state.lastRuns.get(f.id);
+        if (!run0) continue;
 
-  function rainInRange(run, range){
-    if (!run || !run.rows) return 0;
-    let sum = 0;
-    for (const r of run.rows){
-      if (isDateInRange(r.dateISO, range)) sum += Number(r.rainInAdj||0);
-    }
-    return round(sum, 2);
-  }
+        const overrideReady = state.readyOverride.has(f.id) ? Number(state.readyOverride.get(f.id)) : null;
+        const readiness = (overrideReady === null || !isFinite(overrideReady)) ? run0.readinessR : clamp(Math.round(overrideReady), 0, 100);
+        const wet = clamp(100 - readiness, 0, 100);
 
-  function sortFields(fields, runsById){
-    const mode = String($('sortSel').value || 'name_az');
-    const range = parseRangeFromInput();
-    const collator = new Intl.Collator(undefined, { numeric:true, sensitivity:'base' });
-    const arr = fields.slice();
+        const eta = etaFor(run0, thr);
+        const rainRange = rainInRange(run0, range);
 
-    arr.sort((a,b)=>{
-      const ra = runsById.get(a.id);
-      const rb = runsById.get(b.id);
+        const leftPos = markerLeftCSS(readiness);
+        const thrPos  = markerLeftCSS(thr);
 
-      const nameA = `${a.farm} ${a.field}`;
-      const nameB = `${b.farm} ${b.field}`;
+        const pillBg = readinessColor(readiness);
 
-      const readyA = ra ? ra.readinessR : 0;
-      const readyB = rb ? rb.readinessR : 0;
+        const tile = document.createElement('div');
+        tile.className = 'tile' + (f.id === state.selectedFieldId ? ' active' : '');
 
-      const rainA = ra ? rainInRange(ra, range) : 0;
-      const rainB = rb ? rainInRange(rb, range) : 0;
-
-      if (mode === 'name_az') return collator.compare(nameA, nameB);
-      if (mode === 'name_za') return collator.compare(nameB, nameA);
-
-      if (mode === 'ready_dry_wet'){ if (readyB !== readyA) return readyB - readyA; return collator.compare(nameA, nameB); }
-      if (mode === 'ready_wet_dry'){ if (readyB !== readyA) return readyA - readyB; return collator.compare(nameA, nameB); }
-
-      if (mode === 'rain_most'){ if (rainB !== rainA) return rainB - rainA; return collator.compare(nameA, nameB); }
-      if (mode === 'rain_least'){ if (rainB !== rainA) return rainA - rainB; return collator.compare(nameA, nameB); }
-
-      return collator.compare(nameA, nameB);
-    });
-
-    return arr;
-  }
-
-  function readinessColor(score){
-    const p = clamp(score, 0, 100);
-    if (p <= 55){
-      const t = p / 55;
-      const r = Math.round(200 + (216-200)*t);
-      const g = Math.round(59  + (178-59)*t);
-      const b = 59;
-      return `rgb(${r},${g},${b})`;
-    } else {
-      const t = (p - 55) / 45;
-      const r = Math.round(216 + (47-216)*t);
-      const g = Math.round(178 + (143-178)*t);
-      const b = Math.round(59  + (75-59)*t);
-      return `rgb(${r},${g},${b})`;
-    }
-  }
-
-  function markerLeftCSS(pct){
-    const p = clamp(pct, 0, 100);
-    if (p >= 100) return 'calc(100% - 2px)';
-    if (p <= 0) return '2px';
-    return p.toFixed(2) + '%';
-  }
-
-  function renderTiles(){
-    const wrap = $('fieldsGrid');
-    wrap.innerHTML = '';
-
-    state.lastRuns.clear();
-    for (const f of FIELDS){
-      state.lastRuns.set(f.id, runField(f));
-    }
-
-    const sorted = sortFields(FIELDS, state.lastRuns);
-    const thr = Number($('workable').value);
-    const range = parseRangeFromInput();
-
-    for (const f of sorted){
-      const run0 = state.lastRuns.get(f.id);
-      if (!run0) continue;
-
-      const overrideReady = state.readyOverride.has(f.id) ? Number(state.readyOverride.get(f.id)) : null;
-      const readiness = (overrideReady === null || !isFinite(overrideReady)) ? run0.readinessR : clamp(Math.round(overrideReady), 0, 100);
-
-      const eta = etaFor(run0, thr);
-      const rainRange = rainInRange(run0, range);
-
-      const leftPos = markerLeftCSS(readiness);
-      const thrPos = markerLeftCSS(thr);
-
-      const pillBg = readinessColor(readiness);
-
-      const tile = document.createElement('div');
-      tile.className = 'fieldTile' + (f.id === state.selectedFieldId ? ' active' : '');
-
-      tile.innerHTML = `
-        <div class="tileHead">
-          <div class="titleInline">
-            <div class="fieldTitle">${escapeHtml(f.farm)} • ${escapeHtml(f.field)}</div>
-            <button class="miniAdjust" data-adjust="${escapeHtml(f.id)}" type="button">Adjust</button>
-          </div>
-          <div class="readyPill" style="background:${pillBg};">Field Readiness ${readiness}</div>
-        </div>
-
-        <p class="subLine">Rain (Last 30 Days): "<span class="mono">${rainRange.toFixed(2)}</span>" in</p>
-
-        <div class="workGaugeWrap">
-          <div class="workRow">
-            <div class="chip wet">Wet</div>
-            <div class="chip readiness">Readiness</div>
+        tile.innerHTML = `
+          <div class="tile-top">
+            <div class="titleline">
+              <div class="name">${esc(f.farm)} • ${esc(f.field)}</div>
+              <button class="tiny-btn" data-adjust="${esc(f.id)}" type="button">Adjust</button>
+            </div>
+            <div class="readiness-pill" style="background:${pillBg};">Field Readiness ${readiness}</div>
           </div>
 
-          <div class="workGauge" aria-label="Field readiness gauge">
-            <div class="thrMarker" style="left:${thrPos};"></div>
-            <div class="workMarker" style="left:${leftPos};"></div>
-            <div class="markerBadge" style="left:${leftPos};">Field Readiness ${readiness}</div>
+          <p class="subline">Rain (Last 30 Days): "<span class="mono">${rainRange.toFixed(2)}</span>" in</p>
+
+          <div class="gauge-wrap">
+            <div class="chips">
+              <div class="chip wet">Wet</div>
+              <div class="chip readiness">Readiness</div>
+            </div>
+
+            <div class="gauge">
+              <div class="thr" style="left:${thrPos};"></div>
+              <div class="marker" style="left:${leftPos};"></div>
+              <div class="badge" style="left:${leftPos};">Field Readiness ${readiness}</div>
+            </div>
+
+            <div class="ticks"><span>0</span><span>50</span><span>100</span></div>
+
+            ${eta ? `<div class="help"><b>${eta}</b></div>` : ``}
           </div>
+        `;
 
-          <div class="workLabels"><span>0</span><span>50</span><span>100</span></div>
+        tile.addEventListener('click', (e)=>{
+          const btn = e.target && e.target.closest ? e.target.closest('button') : null;
+          if (btn) return;
+          selectField(f.id);
+        });
 
-          ${eta ? `<div class="muted" style="font-size:12px;"><b>${eta}</b></div>` : ``}
-        </div>
-      `;
+        tile.querySelector('button[data-adjust]').addEventListener('click', (e)=>{
+          e.stopPropagation();
+          openAdjust(f.id);
+        });
 
-      tile.addEventListener('click', (e)=>{
-        const btn = e.target && e.target.closest ? e.target.closest('button') : null;
-        if (btn) return;
-        selectField(f.id);
-      });
-
-      tile.querySelector('button[data-adjust]').addEventListener('click', (e)=>{
-        e.stopPropagation();
-        openAdjust(f.id);
-      });
-
-      wrap.appendChild(tile);
+        wrap.appendChild(tile);
+      }
     }
 
-    $('tileStamp').textContent = new Date().toLocaleString();
-  }
+    function selectField(id){
+      const f = FIELDS.find(x=>x.id === id);
+      if (!f) return;
+      state.selectedFieldId = id;
 
-  function selectField(id){
-    const f = FIELDS.find(x=>x.id === id);
-    if (!f) return;
-    state.selectedFieldId = id;
+      $('soilWet').value = String(f.soil);
+      $('drain').value   = String(f.drain);
 
-    $('soilWet').value = String(f.soil);
-    $('drain').value = String(f.drain);
-
-    syncSliderLabels();
-    refreshAll();
-  }
-
-  function renderSelectedMath(){
-    const f = FIELDS.find(x=>x.id === state.selectedFieldId);
-    const run = state.lastRuns.get(f.id) || runField(f);
-    if (!run) return;
-
-    const fac = run.factors;
-    const overrideReady = state.readyOverride.has(f.id) ? Number(state.readyOverride.get(f.id)) : null;
-    const shown = (overrideReady === null || !isFinite(overrideReady)) ? run.readinessR : clamp(Math.round(overrideReady), 0, 100);
-
-    $('paramExplain').innerHTML =
-      `<b>Selected:</b> ${escapeHtml(f.farm)} • ${escapeHtml(f.field)}<br/>
-       <b>Displayed Field Readiness:</b> <span class="mono">${shown}</span>${(overrideReady!==null?' (manual override)':'')}<br/><br/>
-       soilHold=(soil−1)/9=<span class="mono">${fac.soilHold.toFixed(2)}</span> • drainPoor=(drain−1)/9=<span class="mono">${fac.drainPoor.toFixed(2)}</span><br/>
-       Smax=<span class="mono">${fac.Smax.toFixed(2)}</span> • infilMult=<span class="mono">${fac.infilMult.toFixed(2)}</span> • dryMult=<span class="mono">${fac.dryMult.toFixed(2)}</span> • LOSS_SCALE=<span class="mono">${LOSS_SCALE.toFixed(2)}</span>`;
-
-    $('mathSummary').innerHTML =
-      `<b>Model output (computed):</b> Wet=${run.wetnessR} • Field Readiness=${run.readinessR} • storage=${run.storageFinal.toFixed(2)}/${run.factors.Smax.toFixed(2)}<br/>
-       <b>Start:</b> storage0=0.45*Smax + rainNudge (rain7=${run.rain7.toFixed(2)} in, nudge=${run.rainNudge.toFixed(2)})`;
-
-    const trb = $('traceRows');
-    trb.innerHTML = '';
-    for (const t of run.trace){
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td class="mono">${t.dateISO}</td>
-        <td class="right mono">${t.rain.toFixed(2)}</td>
-        <td class="right mono">${t.infilMult.toFixed(2)}</td>
-        <td class="right mono">${t.add.toFixed(2)}</td>
-        <td class="right mono">${t.dryPwr.toFixed(2)}</td>
-        <td class="right mono">${t.loss.toFixed(2)}</td>
-        <td class="right mono">${t.before.toFixed(2)}→${t.after.toFixed(2)}</td>
-      `;
-      trb.appendChild(tr);
-    }
-
-    const drb = $('dryRows');
-    drb.innerHTML = '';
-    for (const r of run.rows){
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td class="mono">${r.dateISO}</td>
-        <td class="right mono">${Math.round(r.temp)}</td>
-        <td class="right mono">${r.tempN.toFixed(2)}</td>
-        <td class="right mono">${Math.round(r.wind)}</td>
-        <td class="right mono">${r.windN.toFixed(2)}</td>
-        <td class="right mono">${Math.round(r.rh)}</td>
-        <td class="right mono">${r.rhN.toFixed(2)}</td>
-        <td class="right mono">${Math.round(r.solar)}</td>
-        <td class="right mono">${r.solarN.toFixed(2)}</td>
-        <td class="right mono">${r.raw.toFixed(2)}</td>
-        <td class="right mono">${r.dryPwr.toFixed(2)}</td>
-      `;
-      drb.appendChild(tr);
-    }
-
-    const wxb = $('wxRows');
-    wxb.innerHTML = '';
-    for (const r of run.rows){
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td class="mono">${r.dateISO}</td>
-        <td class="right mono">${Number(r.rainInAdj||0).toFixed(2)}</td>
-        <td class="right mono">${Math.round(r.temp)}</td>
-        <td class="right mono">${Math.round(r.wind)}</td>
-        <td class="right mono">${Math.round(r.rh)}</td>
-        <td class="right mono">${Math.round(r.solar)}</td>
-      `;
-      wxb.appendChild(tr);
-    }
-  }
-
-  function showModal(on){ $('adjustBackdrop').classList.toggle('pv-hide', !on); }
-  function showStep(which){
-    $('adjustStep1').classList.toggle('pv-hide', which !== 'start');
-    $('adjustStepDry').classList.toggle('pv-hide', which !== 'dry');
-    $('adjustStepWet').classList.toggle('pv-hide', which !== 'wet');
-  }
-
-  function openAdjust(id){
-    const f = FIELDS.find(x=>x.id === id);
-    const run = state.lastRuns.get(id) || runField(f);
-    const thr = Number($('workable').value);
-    const op = String($('opSel').value || '');
-
-    state.adjustContext.fieldId = id;
-
-    const currentReady = state.readyOverride.has(id) ? Number(state.readyOverride.get(id)) : run.readinessR;
-    const isReady = (currentReady >= thr);
-
-    $('adjustTitle').textContent = 'Adjust';
-    $('adjustSub').textContent = `${f.farm} • ${f.field} • Op: ${op} • Threshold: ${thr}`;
-
-    const btnWet = $('btnAdjWet');
-    const btnDry = $('btnAdjDry');
-
-    btnWet.disabled = !isReady ? true : false;
-    btnDry.disabled = isReady ? true : false;
-
-    const eta = etaFor(run, thr);
-    $('adjustRule').innerHTML =
-      isReady
-        ? `Model says <b>READY</b> (Field Readiness ${Math.round(currentReady)} ≥ ${thr}). Only <b>Wet</b> is allowed.`
-        : `Model says <b>WET</b> (Field Readiness ${Math.round(currentReady)} &lt; ${thr}). Only <b>Dry</b> is allowed.<br/><b>${eta || 'Estimated to be greater then 2 days'}</b>`;
-
-    $('adjustSoilDrain').innerHTML =
-      `<b>Field settings</b><br/>
-       <b>Soil:</b> ${f.soil}/10 • <b>Drain:</b> ${f.drain}/10<br/><br/>
-       <b>Definitions</b><br/>
-       <b>Soil Type / Holding (1–10):</b> 1=sandier (holds less, dries faster) • 10=clay (holds more, dries slower)<br/>
-       <b>Drainage (1–10):</b> 1=good drainage (tile/ditches) • 10=poor drainage`;
-
-    showStep('start');
-    showModal(true);
-  }
-
-  function closeAdjust(){
-    showModal(false);
-    state.adjustContext.fieldId = null;
-    showStep('start');
-  }
-
-  function setDryLevel(level){
-    const id = state.adjustContext.fieldId;
-    if (!id) return;
-    const thr = Number($('workable').value);
-
-    let ready;
-    if (level === 'barely') ready = clamp(thr, 0, 100);
-    else if (level === 'perfect') ready = clamp(Math.max(thr + 10, 85), 0, 100);
-    else if (level === 'very') ready = 100;
-    else ready = clamp(thr, 0, 100);
-
-    state.readyOverride.set(id, ready);
-    closeAdjust(); refreshAll();
-  }
-
-  function setWetLevel(level){
-    const id = state.adjustContext.fieldId;
-    if (!id) return;
-    const thr = Number($('workable').value);
-
-    let ready;
-    if (level === 'barely') ready = clamp(thr - 1, 0, 100);
-    else if (level === 'pretty') ready = clamp(thr - 15, 0, 100);
-    else if (level === 'very') ready = clamp(thr - 35, 0, 100);
-    else ready = clamp(thr - 10, 0, 100);
-
-    state.readyOverride.set(id, ready);
-    closeAdjust(); refreshAll();
-  }
-
-  $('btnAdjCancel').addEventListener('click', closeAdjust);
-  $('adjustBackdrop').addEventListener('click', (e)=>{
-    if (e.target && e.target.id === 'adjustBackdrop') closeAdjust();
-  });
-
-  $('btnAdjWet').addEventListener('click', ()=> showStep('wet'));
-  $('btnAdjDry').addEventListener('click', ()=> showStep('dry'));
-
-  $('btnDryBack').addEventListener('click', ()=> showStep('start'));
-  $('btnDryBarely').addEventListener('click', ()=> setDryLevel('barely'));
-  $('btnDryPerfect').addEventListener('click', ()=> setDryLevel('perfect'));
-  $('btnDryVery').addEventListener('click', ()=> setDryLevel('very'));
-
-  $('btnWetBack').addEventListener('click', ()=> showStep('start'));
-  $('btnWetBarely').addEventListener('click', ()=> setWetLevel('barely'));
-  $('btnWetPretty').addEventListener('click', ()=> setWetLevel('pretty'));
-  $('btnWetVery').addEventListener('click', ()=> setWetLevel('very'));
-
-  function syncSliderLabels(){
-    $('soilWetVal').textContent = $('soilWet').value;
-    $('drainVal').textContent   = $('drain').value;
-    $('workableVal').textContent = $('workable').value;
-  }
-
-  function refreshAll(){
-    const f = FIELDS.find(x=>x.id === state.selectedFieldId);
-    if (f){
-      f.soil = Number($('soilWet').value);
-      f.drain = Number($('drain').value);
-    }
-    renderTiles();
-    renderSelectedMath();
-    $('runStamp').textContent = new Date().toLocaleString();
-  }
-
-  $('applyRangeBtn').addEventListener('click', ()=> setTimeout(refreshAll, 0));
-  $('clearRangeBtn').addEventListener('click', ()=> setTimeout(refreshAll, 0));
-  $('jobRangeInput').addEventListener('change', refreshAll);
-
-  $('sortSel').addEventListener('change', refreshAll);
-  $('opSel').addEventListener('change', refreshAll);
-
-  $('soilWet').addEventListener('input', ()=>{ syncSliderLabels(); refreshAll(); });
-  $('drain').addEventListener('input',   ()=>{ syncSliderLabels(); refreshAll(); });
-  $('workable').addEventListener('input',()=>{ syncSliderLabels(); refreshAll(); });
-
-  $('btnRegen').addEventListener('click', ()=>{
-    state.seed = Date.now() % 1000000;
-    genMock30();
-    refreshAll();
-  });
-
-  async function fetchReal30(){
-    const base = String($('apiBase').value || '').trim().replace(/\/+$/,'');
-    if (!base){ alert('Add your Weather API Base URL first.'); return; }
-
-    const lat = String($('lat').value || '').trim();
-    const lon = String($('lon').value || '').trim();
-    if (!lat || !lon){ alert('Enter lat/lon first.'); return; }
-
-    $('btnFetch').disabled = true;
-    $('btnFetch').textContent = 'Fetching…';
-
-    try{
-      const url = `${base}/weather30?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`;
-      const res = await fetch(url, { method:'GET' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const days = Array.isArray(data.days) ? data.days : [];
-      if (days.length < 20) throw new Error('Response missing days[]');
-
-      state.weather30 = days.map(d=>({
-        dateISO: String(d.dateISO||'').slice(0,10),
-        rainIn: Number(d.rainIn||0),
-        tempF: Number(d.tempF||0),
-        windMph: Number(d.windMph||0),
-        rh: Number(d.rh||0),
-        solarWm2: Number(d.solarWm2||0),
-      })).filter(x=>x.dateISO);
-
-      state.mode = 'REAL';
-      $('dataMode').textContent = 'Mode: REAL';
-      $('modeLine').textContent = 'REAL';
       refreshAll();
-    }catch(err){
-      console.error(err);
-      alert('Fetch failed. Keeping MOCK data.\n\n' + String(err && err.message ? err.message : err));
-    }finally{
-      $('btnFetch').disabled = false;
-      $('btnFetch').textContent = 'Fetch Real 30 Days';
     }
-  }
 
-  $('btnFetch').addEventListener('click', fetchReal30);
-  $('btnRun').addEventListener('click', refreshAll);
+    function renderDetails(){
+      const f = FIELDS.find(x=>x.id === state.selectedFieldId);
+      const run = state.lastRuns.get(f.id) || runField(f);
+      if (!run) return;
 
-  $('btnLogout').addEventListener('click', ()=>{
+      const fac = run.factors;
+      const overrideReady = state.readyOverride.has(f.id) ? Number(state.readyOverride.get(f.id)) : null;
+      const shown = (overrideReady === null || !isFinite(overrideReady)) ? run.readinessR : clamp(Math.round(overrideReady), 0, 100);
+
+      $('paramExplain').innerHTML =
+        `<b>Selected:</b> ${esc(f.farm)} • ${esc(f.field)}<br/>
+         <b>Displayed Field Readiness:</b> <span class="mono">${shown}</span>${(overrideReady!==null?' (manual override)':'')}<br/><br/>
+         soilHold=(soil−1)/9=<span class="mono">${fac.soilHold.toFixed(2)}</span> • drainPoor=(drain−1)/9=<span class="mono">${fac.drainPoor.toFixed(2)}</span><br/>
+         Smax=<span class="mono">${fac.Smax.toFixed(2)}</span> • infilMult=<span class="mono">${fac.infilMult.toFixed(2)}</span> • dryMult=<span class="mono">${fac.dryMult.toFixed(2)}</span> • LOSS_SCALE=<span class="mono">${LOSS_SCALE.toFixed(2)}</span>`;
+
+      $('mathSummary').innerHTML =
+        `<b>Model output (computed):</b> Wet=${run.wetnessR} • Field Readiness=${run.readinessR} • storage=${run.storageFinal.toFixed(2)}/${run.factors.Smax.toFixed(2)}<br/>
+         <b>Start:</b> storage0=0.45*Smax + rainNudge (rain7=${run.rain7.toFixed(2)} in, nudge=${run.rainNudge.toFixed(2)})`;
+
+      const trb = $('traceRows');
+      trb.innerHTML = '';
+      for (const t of run.trace){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${t.dateISO}</td>
+          <td class="right mono">${t.rain.toFixed(2)}</td>
+          <td class="right mono">${t.infilMult.toFixed(2)}</td>
+          <td class="right mono">${t.add.toFixed(2)}</td>
+          <td class="right mono">${t.dryPwr.toFixed(2)}</td>
+          <td class="right mono">${t.loss.toFixed(2)}</td>
+          <td class="right mono">${t.before.toFixed(2)}→${t.after.toFixed(2)}</td>
+        `;
+        trb.appendChild(tr);
+      }
+
+      const drb = $('dryRows');
+      drb.innerHTML = '';
+      for (const r of run.rows){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${r.dateISO}</td>
+          <td class="right mono">${Math.round(r.temp)}</td>
+          <td class="right mono">${r.tempN.toFixed(2)}</td>
+          <td class="right mono">${Math.round(r.wind)}</td>
+          <td class="right mono">${r.windN.toFixed(2)}</td>
+          <td class="right mono">${Math.round(r.rh)}</td>
+          <td class="right mono">${r.rhN.toFixed(2)}</td>
+          <td class="right mono">${Math.round(r.solar)}</td>
+          <td class="right mono">${r.solarN.toFixed(2)}</td>
+          <td class="right mono">${r.raw.toFixed(2)}</td>
+          <td class="right mono">${r.dryPwr.toFixed(2)}</td>
+        `;
+        drb.appendChild(tr);
+      }
+
+      const wxb = $('wxRows');
+      wxb.innerHTML = '';
+      for (const r of run.rows){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${r.dateISO}</td>
+          <td class="right mono">${Number(r.rainInAdj||0).toFixed(2)}</td>
+          <td class="right mono">${Math.round(r.temp)}</td>
+          <td class="right mono">${Math.round(r.wind)}</td>
+          <td class="right mono">${Math.round(r.rh)}</td>
+          <td class="right mono">${Math.round(r.solar)}</td>
+        `;
+        wxb.appendChild(tr);
+      }
+    }
+
+    // Adjust modal
+    function showModal(on){ $('adjustBackdrop').classList.toggle('pv-hide', !on); }
+    function showStep(which){
+      $('adjustStep1').classList.toggle('pv-hide', which !== 'start');
+      $('adjustStepDry').classList.toggle('pv-hide', which !== 'dry');
+      $('adjustStepWet').classList.toggle('pv-hide', which !== 'wet');
+    }
+
+    function openAdjust(id){
+      const f = FIELDS.find(x=>x.id === id);
+      const run = state.lastRuns.get(id) || runField(f);
+      const thr = Number($('workable').value);
+      const op  = String($('opSel').value || '');
+
+      state.adjustContext.fieldId = id;
+
+      const currentReady = state.readyOverride.has(id) ? Number(state.readyOverride.get(id)) : run.readinessR;
+      const isReady = (currentReady >= thr);
+
+      $('adjustTitle').textContent = 'Adjust';
+      $('adjustSub').textContent = `${f.farm} • ${f.field} • Op: ${op} • Threshold: ${thr}`;
+
+      const btnWet = $('btnAdjWet');
+      const btnDry = $('btnAdjDry');
+
+      // only allow contradiction
+      btnWet.disabled = !isReady ? true : false;
+      btnDry.disabled = isReady ? true : false;
+
+      const eta = etaFor(run, thr);
+      $('adjustRule').innerHTML =
+        isReady
+          ? `Model says <b>READY</b> (Field Readiness ${Math.round(currentReady)} ≥ ${thr}). Only <b>Wet</b> is allowed.`
+          : `Model says <b>WET</b> (Field Readiness ${Math.round(currentReady)} &lt; ${thr}). Only <b>Dry</b> is allowed.<br/><b>${eta || 'Estimated to be greater then 2 days'}</b>`;
+
+      $('adjustSoilDrain').innerHTML =
+        `<b>Field settings</b><br/>
+         <b>Soil:</b> ${f.soil}/10 • <b>Drain:</b> ${f.drain}/10<br/><br/>
+         <b>Definitions</b><br/>
+         <b>Soil Type / Holding (1–10):</b> 1=sandier (holds less, dries faster) • 10=clay (holds more, dries slower)<br/>
+         <b>Drainage (1–10):</b> 1=good drainage (tile/ditches) • 10=poor drainage`;
+
+      showStep('start');
+      showModal(true);
+    }
+
+    function closeAdjust(){
+      showModal(false);
+      state.adjustContext.fieldId = null;
+      showStep('start');
+    }
+
+    function setDryLevel(level){
+      const id = state.adjustContext.fieldId;
+      if (!id) return;
+      const thr = Number($('workable').value);
+
+      let ready;
+      if (level === 'barely') ready = clamp(thr, 0, 100);
+      else if (level === 'perfect') ready = clamp(Math.max(thr + 10, 85), 0, 100);
+      else if (level === 'very') ready = 100;
+      else ready = clamp(thr, 0, 100);
+
+      state.readyOverride.set(id, ready);
+      closeAdjust(); refreshAll();
+    }
+
+    function setWetLevel(level){
+      const id = state.adjustContext.fieldId;
+      if (!id) return;
+      const thr = Number($('workable').value);
+
+      let ready;
+      if (level === 'barely') ready = clamp(thr - 1, 0, 100);
+      else if (level === 'pretty') ready = clamp(thr - 15, 0, 100);
+      else if (level === 'very') ready = clamp(thr - 35, 0, 100);
+      else ready = clamp(thr - 10, 0, 100);
+
+      state.readyOverride.set(id, ready);
+      closeAdjust(); refreshAll();
+    }
+
+    // modal handlers
+    $('btnAdjCancel').addEventListener('click', closeAdjust);
+    $('adjustBackdrop').addEventListener('click', (e)=>{
+      if (e.target && e.target.id === 'adjustBackdrop') closeAdjust();
+    });
+
+    $('btnAdjWet').addEventListener('click', ()=> showStep('wet'));
+    $('btnAdjDry').addEventListener('click', ()=> showStep('dry'));
+
+    $('btnDryBack').addEventListener('click', ()=> showStep('start'));
+    $('btnDryBarely').addEventListener('click', ()=> setDryLevel('barely'));
+    $('btnDryPerfect').addEventListener('click', ()=> setDryLevel('perfect'));
+    $('btnDryVery').addEventListener('click', ()=> setDryLevel('very'));
+
+    $('btnWetBack').addEventListener('click', ()=> showStep('start'));
+    $('btnWetBarely').addEventListener('click', ()=> setWetLevel('barely'));
+    $('btnWetPretty').addEventListener('click', ()=> setWetLevel('pretty'));
+    $('btnWetVery').addEventListener('click', ()=> setWetLevel('very'));
+
+    // UI refresh
+    function refreshAll(){
+      setErr('');
+      const f = FIELDS.find(x=>x.id === state.selectedFieldId);
+      if (f){
+        f.soil = Number($('soilWet').value);
+        f.drain = Number($('drain').value);
+      }
+      renderTiles();
+      renderDetails();
+    }
+
+    // Controls
+    $('sortSel').addEventListener('change', refreshAll);
+    $('opSel').addEventListener('change', refreshAll);
+
+    $('soilWet').addEventListener('input', refreshAll);
+    $('drain').addEventListener('input', refreshAll);
+    $('workable').addEventListener('input', refreshAll);
+
+    $('applyRangeBtn').addEventListener('click', ()=> setTimeout(refreshAll, 0));
+    $('clearRangeBtn').addEventListener('click', ()=> setTimeout(refreshAll, 0));
+    $('jobRangeInput').addEventListener('change', refreshAll);
+
+    $('btnRegen').addEventListener('click', ()=>{
+      state.seed = Date.now() % 1000000;
+      genMock30();
+      refreshAll();
+    });
+
+    $('btnRun').addEventListener('click', refreshAll);
+
+    // Future: backend call
+    async function fetchReal30(){
+      const base = String($('apiBase').value || '').trim().replace(/\/+$/,'');
+      if (!base){ setErr('Add your Weather API Base URL first.'); return; }
+
+      try{
+        const url = `${base}/weather30?lat=39.5656&lon=-89.6540`;
+        const res = await fetch(url, { method:'GET' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const days = Array.isArray(data.days) ? data.days : [];
+        if (days.length < 20) throw new Error('Response missing days[]');
+
+        state.weather30 = days.map(d=>({
+          dateISO: String(d.dateISO||'').slice(0,10),
+          rainIn: Number(d.rainIn||0),
+          tempF: Number(d.tempF||0),
+          windMph: Number(d.windMph||0),
+          rh: Number(d.rh||0),
+          solarWm2: Number(d.solarWm2||0),
+        })).filter(x=>x.dateISO);
+
+        state.mode = 'REAL';
+        refreshAll();
+      }catch(e){
+        setErr(`Fetch failed: ${e.message}`);
+      }
+    }
+
+    $('btnFetch').addEventListener('click', fetchReal30);
+
+    // Init
     try{
-      if (window.FV && typeof window.FV.logout === 'function'){ window.FV.logout(); return; }
-    }catch(e){}
-    location.href = '/Farm-vista/auth/';
-  });
+      // Ensure details closed by default
+      const dp = $('detailsPanel');
+      if (dp) dp.open = false;
+    }catch(_){}
 
-  // init
-  syncSliderLabels();
-  genMock30();
-  selectField(state.selectedFieldId);
-  refreshAll();
-
-})();
-</script>
+    genMock30();
+    selectField(state.selectedFieldId);
+    refreshAll();
+  })();
+  </script>
 </body>
 </html>
