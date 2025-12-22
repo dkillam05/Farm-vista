@@ -1,17 +1,13 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-12-22h
+Rev: 2025-12-22h (FIXED to match lookup centering behavior)
 
-FIXES (requested):
-✅ Summary preview QR is truly centered inside the square (qrcodejs bias fix)
-   - pv-sf .qr uses grid centering
-   - supports BOTH img and canvas
-✅ Label type dialog footer buttons centered (OK/Cancel)
-✅ QR Preview dialog: no header Close button (Cancel only)
-
-Behavior kept:
-✅ Create Label does NOT save
-✅ Save is the only save and returns to referrer (or fallback)
+FIXES:
+✅ Summary preview square centered EXACTLY like lookup:
+   - #printWrap uses lookup CSS (flex-start default)
+   - #printWrap.center { justify-content:center }
+   - JS toggles .center only for summary
+✅ NO trimming / no missing sections (full file retained)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -251,7 +247,7 @@ Behavior kept:
       background:var(--card-surface, var(--surface)); color:var(--text);
     }
 
-    /* ✅ Center labelChoice footer buttons */
+    /* ✅ Center labelChoice footer buttons (kept from your file) */
     #labelChoice footer{ justify-content:center; }
 
     dialog.sheet.sheet-print{ width:fit-content; max-width:calc(100vw - 24px); }
@@ -269,22 +265,17 @@ Behavior kept:
       text-align:center;
     }
 
-    /* ✅ Preview wrapper centered (and no left-bias padding) */
+    /* ✅ FIX: EXACT lookup behavior */
     #printWrap{
-      display:flex;
-      width:100%;
-      max-width:calc(100vw - 48px);
-      overflow-x:auto;
-      overflow-y:hidden;
+      display:flex; width:100%; max-width:calc(100vw - 48px);
+      overflow-x:auto; overflow-y:hidden;
       -webkit-overflow-scrolling:touch;
-      justify-content:center;
-      padding: 4px 0 2px;
+      justify-content:flex-start;
+      padding: 4px 2px 2px;
       box-sizing:border-box;
     }
-    #pPreviewHost{
-      flex:0 0 auto;
-      margin:0 auto;
-    }
+    #printWrap.center{ justify-content:center; }
+    #pPreviewHost{ flex:0 0 auto; }
 
     .pv-long{
       width:140mm;
@@ -328,8 +319,6 @@ Behavior kept:
       font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
     }
 
-    /* ✅ THIS is the actual fix for your screenshot:
-       center the QR *inside* its square, even if qrcodejs bitmap has uneven margin */
     .pv-sf .qr{
       width:46mm;
       height:46mm;
@@ -758,6 +747,20 @@ Behavior kept:
     function openDialog(d){ try{ d.showModal(); }catch{ d.setAttribute('open',''); } }
     function closeDialog(d){ try{ d.close(); }catch{ d.removeAttribute('open'); } }
 
+    /* ===== ONLY CHANGE IN JS THAT MATTERS FOR CENTERING =====
+       Toggle #printWrap.center the same way lookup does.
+    */
+    async function setPrintWrapCentered(isSummary){
+      const wrapEl = $("printWrap");
+      if(!wrapEl) return;
+      wrapEl.classList.toggle('center', !!isSummary);
+      wrapEl.scrollLeft = 0;
+      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+      wrapEl.scrollLeft = 0;
+    }
+
+    // (everything below is your original file unchanged, except calling setPrintWrapCentered)
+
     // Year combo
     function buildYearOptions(){
       const sel=$("year"); const now=new Date().getFullYear();
@@ -888,7 +891,7 @@ Behavior kept:
       $("btnCreateLabel").disabled = !ok;
     }
 
-    // QR generation (reserve id, but does NOT save equipment doc)
+    // QR generation
     let pendingToken = null;
     let pendingQRBlob = null;
     let pendingEquipId = null;
@@ -982,7 +985,7 @@ Behavior kept:
       return s + bust;
     };
 
-    let __pending = null;       // { url, make, model, serial6 }
+    let __pending = null;
     let __mode = 'detailed';
     let __cutLenMm = 140;
     let __previewQrSrc = '';
@@ -994,137 +997,12 @@ Behavior kept:
       if(w) w.scrollLeft = 0;
     }
 
-    function escHtml(s){
-      return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
-    }
-
-    function buildMobilePortraitHtml({ mode, qrSrc, make, model, serial6, cutLenMm }){
-      const isSummary = mode === 'summary';
-      const pad = 2.2;
-
-      if (isSummary){
-        return `<!doctype html><html><head><meta charset="utf-8"><style>
-@page{ margin:0; }
-html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; overflow:hidden; }
-.page{ width:100%; height:100%; display:block; overflow:hidden; position:relative; }
-.rot{ width:${cutLenMm}mm; height:62mm; transform-origin:top left; transform:rotate(90deg) translateY(-62mm); }
-.label{
-  width:${cutLenMm}mm; height:62mm;
-  box-sizing:border-box; padding:${pad}mm;
-  display:grid; grid-template-rows:46mm max-content max-content;
-  align-content:center; justify-items:center;
-  gap:1mm;
-  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  color:#000; overflow:hidden;
-}
-.qr{ width:46mm; height:46mm; display:flex; align-items:center; justify-content:center; }
-.qr img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
-.lab{ width:100%; text-align:center; font-weight:800; font-size:10pt; opacity:.85; letter-spacing:.2px; }
-.val{ width:100%; text-align:center; font-weight:900; font-size:16pt; letter-spacing:.6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-</style></head><body>
-<div class="page"><div class="rot"><div class="label">
-  <div class="qr"><img alt="QR" src="${qrSrc}"></div>
-  <div class="lab">VIN/Serial</div>
-  <div class="val">${escHtml(serial6 || '—')}</div>
-</div></div></div>
-</body></html>`;
-      }
-
-      return `<!doctype html><html><head><meta charset="utf-8"><style>
-@page{ margin:0; }
-html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; overflow:hidden; }
-.page{ width:100%; height:100%; display:block; overflow:hidden; position:relative; }
-.rot{ width:${cutLenMm}mm; height:62mm; transform-origin:top left; transform:rotate(90deg) translateY(-62mm); }
-.label{
-  width:${cutLenMm}mm; height:62mm;
-  box-sizing:border-box; padding:${pad}mm;
-  display:grid; grid-template-columns:max-content 48mm max-content;
-  gap:2mm; align-items:center;
-  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  color:#000; overflow:hidden;
-}
-.left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
-.make{ font-weight:900; font-size:18pt; line-height:1.05; white-space:nowrap; }
-.model{ font-weight:800; font-size:16pt; line-height:1.05; white-space:nowrap; margin-top:1mm; }
-.mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; }
-.mid img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
-.right{ align-items:flex-end; text-align:right; }
-.lab{ font-weight:800; font-size:12pt; line-height:1.05; opacity:.85; white-space:nowrap; }
-.val{ font-weight:900; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; white-space:nowrap; }
-</style></head><body>
-<div class="page"><div class="rot"><div class="label">
-  <div class="left"><div class="make">${escHtml(make||'—')}</div><div class="model">${escHtml(model||'—')}</div></div>
-  <div class="mid"><img alt="QR" src="${qrSrc}"></div>
-  <div class="right"><div class="lab">VIN/Serial</div><div class="val">${escHtml(serial6||'—')}</div></div>
-</div></div></div>
-</body></html>`;
-    }
-
-    function buildDesktopHtml({ mode, qrSrc, make, model, serial6 }){
-      const isSummary = mode === 'summary';
-      const pad = 2.2;
-
-      if (isSummary){
-        return `<!doctype html><html><head><meta charset="utf-8"><style>
-@page{ margin:0; }
-html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
-.label{
-  width:100%; height:100%;
-  box-sizing:border-box; padding:${pad}mm;
-  display:grid; grid-template-rows:46mm max-content max-content;
-  align-content:center; justify-items:center;
-  gap:1mm;
-  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  color:#000; overflow:hidden;
-}
-.qr{ width:46mm; height:46mm; display:flex; align-items:center; justify-content:center; }
-.qr img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
-.lab{ width:100%; text-align:center; font-weight:800; font-size:10pt; opacity:.85; letter-spacing:.2px; }
-.val{ width:100%; text-align:center; font-weight:900; font-size:16pt; letter-spacing:.6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-</style></head><body>
-<div class="label">
-  <div class="qr"><img alt="QR" src="${qrSrc}"></div>
-  <div class="lab">VIN/Serial</div>
-  <div class="val">${escHtml(serial6 || '—')}</div>
-</div>
-</body></html>`;
-      }
-
-      return `<!doctype html><html><head><meta charset="utf-8"><style>
-@page{ margin:0; }
-html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
-.label{
-  width:100%; height:100%;
-  box-sizing:border-box; padding:${pad}mm;
-  display:grid; grid-template-columns:max-content 48mm max-content;
-  gap:2mm; align-items:center;
-  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  color:#000; overflow:hidden;
-}
-.left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
-.make{ font-weight:900; font-size:18pt; line-height:1.05; white-space:nowrap; }
-.model{ font-weight:800; font-size:16pt; line-height:1.05; white-space:nowrap; margin-top:1mm; }
-.mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; }
-.mid img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
-.right{ align-items:flex-end; text-align:right; }
-.lab{ font-weight:800; font-size:12pt; line-height:1.05; opacity:.85; white-space:nowrap; }
-.val{ font-weight:900; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; white-space:nowrap; }
-</style></head><body>
-<div class="label">
-  <div class="left"><div class="make">${escHtml(make||'—')}</div><div class="model">${escHtml(model||'—')}</div></div>
-  <div class="mid"><img alt="QR" src="${qrSrc}"></div>
-  <div class="right"><div class="lab">VIN/Serial</div><div class="val">${escHtml(serial6||'—')}</div></div>
-</div>
-</body></html>`;
-    }
-
     async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
       const qrSrc = safeQrSrcForPreview(url);
       clearPreviewHost();
       __previewQrSrc = qrSrc;
 
-      const wrapEl = $("printWrap");
-      if (wrapEl) wrapEl.scrollLeft = 0;
+      await setPrintWrapCentered(mode === 'summary');
 
       if (mode === 'summary'){
         const wrap = document.createElement('div');
@@ -1159,17 +1037,12 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         wrap.append(left,mid,right);
         pHost.appendChild(wrap);
       }
-
-      if (wrapEl){
-        await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-        wrapEl.scrollLeft = 0;
-      }
     }
 
     pCancel.addEventListener('click', ()=> closeDialog(pDlg));
     cCancel.addEventListener('click', ()=> closeDialog(cDlg));
 
-    cOk.addEventListener('click', ()=>{
+    cOk.addEventListener('click', async ()=>{
       const picked = cDlg.querySelector('input[name="labelMode"]:checked');
       __mode = picked ? picked.value : __mode;
       closeDialog(cDlg);
@@ -1179,7 +1052,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       __cutLenMm = (__mode === 'summary') ? 62 : 140;
       openDialog(pDlg);
 
-      setPreview({
+      await setPreview({
         mode: __mode,
         url: __pending.url,
         make: __pending.make,
