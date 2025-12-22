@@ -483,6 +483,59 @@
     .oprow .opname{font-weight:900}
     .oprow .opval{font-weight:900}
     .oprow input[type="range"]{width:100%}
+
+    /* ✅ Beta inputs list (subtle) */
+    .varlist{
+      display:grid;
+      gap:8px;
+    }
+    .vgroup{
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:10px;
+      background:var(--surface);
+    }
+    .vgroup-title{
+      font-weight:900;
+      font-size:12px;
+      margin:0 0 8px;
+      color:var(--text);
+    }
+    .vitems{
+      display:grid;
+      gap:6px;
+    }
+    .vitem{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:8px 10px;
+      background:color-mix(in srgb, var(--surface) 96%, #ffffff 4%);
+      font-size:12px;
+    }
+    .vname{font-weight:900}
+    .vmeta{color:var(--muted,#67706B);font-weight:800}
+    .vok{
+      font-weight:900;
+      padding:4px 8px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:color-mix(in srgb, var(--accent) 10%, var(--surface) 90%);
+      color:var(--text);
+      white-space:nowrap;
+    }
+    .vno{
+      font-weight:900;
+      padding:4px 8px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:color-mix(in srgb, #b00020 10%, var(--surface) 90%);
+      color:var(--text);
+      white-space:nowrap;
+    }
   </style>
 </head>
 
@@ -494,7 +547,7 @@
           <div class="icon" aria-hidden="true">🧭</div>
           <div>
             <h1>Field Readiness (Beta)</h1>
-            <p class="muted">All Data is Mocked Weather Until we have API Active</p>
+            <p class="muted">Live weather is now pulled via our Open-Meteo proxy. Model weights and soil logic are still being tuned.</p>
           </div>
         </header>
 
@@ -593,7 +646,7 @@
                 </div>
 
                 <div class="actions">
-                  <button id="btnRegen" class="btn" type="button">Regenerate Mock 30 Days</button>
+                  <button id="btnRegen" class="btn btn-primary" type="button">Refresh Weather (API)</button>
                 </div>
 
                 <div class="help" id="thresholdHint" style="margin-top:8px;">
@@ -633,6 +686,13 @@
                   </div>
                   <div class="help" id="mathSummary">—</div>
                 </div>
+              </div>
+
+              <!-- ✅ NEW: Beta users can see what inputs we pull + what's currently used -->
+              <div class="panel">
+                <h3>Beta: Data pulled into the model</h3>
+                <div class="help" id="betaInputsMeta">—</div>
+                <div id="betaInputs" class="varlist" style="margin-top:10px;"></div>
               </div>
 
               <div class="panel">
@@ -759,18 +819,22 @@
       return Math.round(v*p)/p;
     };
 
+    // ✅ Your Cloud Run weather proxy (live)
+    const WX_BASE = 'https://farmvista-field-weather-300398089669.us-central1.run.app';
+    const WX_ENDPOINT = WX_BASE + '/api/open-meteo';
+    const WX_TTL_MS = 4 * 60 * 60 * 1000; // cache 4 hours
+    const WX_CACHE_PREFIX = 'fv_fr_wx_daily_cache_v1_';
+
     const LOSS_SCALE = 0.55;
 
     const LS_KEY = 'fv_dev_field_readiness_params_v2_0_100';
     const LS_OP_KEY = 'fv_dev_field_readiness_op';
-    const LS_THR_KEY = 'fv_dev_field_readiness_thresholds_v1'; // still keep as offline fallback
+    const LS_THR_KEY = 'fv_dev_field_readiness_thresholds_v1'; // offline fallback
 
     // ETA rules
     const ETA_MAX_HOURS = 72;
 
-    // ✅ Firestore storage (collection) for thresholds
-    // Collection: field_readiness_thresholds
-    // Doc: default
+    // Firestore thresholds collection/doc
     const THR_COLLECTION = 'field_readiness_thresholds';
     const THR_DOC_ID = 'default';
 
@@ -783,7 +847,9 @@
     ];
 
     const state = {
-      weather30: [],
+      weather30: [],                 // default fallback daily series
+      weatherByFieldId: new Map(),   // fieldId -> daily series
+      wxInfoByFieldId: new Map(),    // fieldId -> { source, fetchedAt, units, available, usedNow, pulledExtra }
       seed: Date.now() % 1000000,
       selectedFieldId: null,
       lastRuns: new Map(),
@@ -792,7 +858,8 @@
       perFieldParams: new Map(),
       thresholdsByOp: new Map(),
       fb: null,
-      _thrSaveTimer: null
+      _thrSaveTimer: null,
+      _renderTimer: null
     };
 
     function esc(s){
@@ -810,6 +877,243 @@
     }
 
     function normalizeStatus(s){ return String(s||'').trim().toLowerCase(); }
+
+    function todayISO(){
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth()+1).padStart(2,'0');
+      const day = String(d.getDate()).padStart(2,'0');
+      return `${y}-${m}-${day}`;
+    }
+
+    function mmToIn(mm){ return (Number(mm||0) / 25.4); }
+    function cToF(c){ return (Number(c) * 9/5) + 32; }
+
+    function aggregateHourlyToDaily(hourlyCore){
+      // hourlyCore: [{time, rain_mm, temp_c, wind_mph, rh_pct, solar_wm2}]
+      const map = new Map();
+      for (const h of (hourlyCore||[])){
+        const t = String(h.time||'');
+        if (t.length < 10) continue;
+        const dateISO = t.slice(0,10);
+
+        let row = map.get(dateISO);
+        if (!row){
+          row = { dateISO, rain_mm_sum:0, temp_c_sum:0, wind_mph_sum:0, rh_sum:0, solar_sum:0, n:0, nt:0, nw:0, nrh:0, ns:0 };
+          map.set(dateISO, row);
+        }
+
+        row.rain_mm_sum += Number(h.rain_mm||0);
+
+        const tc = Number(h.temp_c);
+        if (isFinite(tc)){ row.temp_c_sum += tc; row.nt++; }
+
+        const w = Number(h.wind_mph);
+        if (isFinite(w)){ row.wind_mph_sum += w; row.nw++; }
+
+        const rh = Number(h.rh_pct);
+        if (isFinite(rh)){ row.rh_sum += rh; row.nrh++; }
+
+        const s = Number(h.solar_wm2);
+        if (isFinite(s)){ row.solar_sum += s; row.ns++; }
+
+        row.n++;
+      }
+
+      const out = [...map.values()].sort((a,b)=> a.dateISO.localeCompare(b.dateISO)).map(r=>{
+        const rainIn = mmToIn(r.rain_mm_sum);
+        const tempF = (r.nt ? cToF(r.temp_c_sum / r.nt) : 0);
+        const windMph = (r.nw ? (r.wind_mph_sum / r.nw) : 0);
+        const rh = (r.nrh ? (r.rh_sum / r.nrh) : 0);
+        const solarWm2 = (r.ns ? (r.solar_sum / r.ns) : 0);
+        return {
+          dateISO: r.dateISO,
+          rainIn: round(rainIn, 2),
+          tempF: Math.round(tempF),
+          windMph: Math.round(windMph),
+          rh: Math.round(rh),
+          solarWm2: Math.round(solarWm2)
+        };
+      });
+
+      // Keep only <= today, then last 30 days
+      const tISO = todayISO();
+      const hist = out.filter(d=> d.dateISO && d.dateISO <= tISO);
+      return hist.slice(-30);
+    }
+
+    function cacheKey(fieldId){ return WX_CACHE_PREFIX + String(fieldId||''); }
+
+    function readWxCache(fieldId){
+      try{
+        const raw = localStorage.getItem(cacheKey(fieldId));
+        if (!raw) return null;
+        const obj = JSON.parse(raw);
+        if (!obj || typeof obj !== 'object') return null;
+        if (!obj.fetchedAt || !Array.isArray(obj.daily)) return null;
+        if ((Date.now() - Number(obj.fetchedAt)) > WX_TTL_MS) return null;
+        return obj;
+      }catch(_){ return null; }
+    }
+
+    function writeWxCache(fieldId, obj){
+      try{
+        localStorage.setItem(cacheKey(fieldId), JSON.stringify(obj));
+      }catch(_){}
+    }
+
+    function summarizeAvailability(wxJson){
+      const out = { hourly_core:true, hourly_ext:false, daily:false, vars:{} };
+      const norm = wxJson && wxJson.normalized ? wxJson.normalized : null;
+
+      const hourly = norm && Array.isArray(norm.hourly) ? norm.hourly : [];
+      const hourly_ext = norm && Array.isArray(norm.hourly_ext) ? norm.hourly_ext : [];
+      const daily = norm && Array.isArray(norm.daily) ? norm.daily : [];
+
+      out.hourly_ext = hourly_ext.length > 0;
+      out.daily = daily.length > 0;
+
+      // check presence (any non-null) for common keys
+      const checkHourlyExtKeys = [
+        ['cloud_cover_pct','Cloud cover'],
+        ['dew_point_c','Dew point'],
+        ['vapour_pressure_deficit_kpa','VPD'],
+        ['soil_temp_c_0_10','Soil temp 0–10cm'],
+        ['soil_temp_c_10_40','Soil temp 10–40cm'],
+        ['soil_temp_c_40_100','Soil temp 40–100cm'],
+        ['soil_temp_c_100_200','Soil temp 100–200cm'],
+        ['soil_moisture_0_10','Soil moisture 0–10cm'],
+        ['soil_moisture_10_40','Soil moisture 10–40cm'],
+        ['soil_moisture_40_100','Soil moisture 40–100cm'],
+        ['soil_moisture_100_200','Soil moisture 100–200cm']
+      ];
+      for (const [k,label] of checkHourlyExtKeys){
+        let ok = false;
+        for (let i=0; i<Math.min(72, hourly_ext.length); i++){
+          const v = hourly_ext[i] ? hourly_ext[i][k] : null;
+          if (v !== null && v !== undefined && isFinite(Number(v))){ ok = true; break; }
+        }
+        out.vars[k] = { label, ok };
+      }
+
+      const checkDailyKeys = [
+        ['daylight_s','Daylight duration'],
+        ['sunshine_s','Sunshine duration'],
+        ['et0_mm','ET₀'],
+        ['shortwave_radiation_sum','Solar (daily sum)'],
+        ['gdu','GDU (computed)']
+      ];
+      for (const [k,label] of checkDailyKeys){
+        let ok = false;
+        for (let i=0; i<Math.min(14, daily.length); i++){
+          const v = daily[i] ? daily[i][k] : null;
+          if (v !== null && v !== undefined && isFinite(Number(v))){ ok = true; break; }
+        }
+        out.vars[k] = { label, ok };
+      }
+
+      // core keys always (if hourly present)
+      out.vars.rain_mm = { label:'Precipitation', ok: hourly.length > 0 };
+      out.vars.temp_c = { label:'Air temperature', ok: hourly.length > 0 };
+      out.vars.wind_mph = { label:'Wind speed', ok: hourly.length > 0 };
+      out.vars.rh_pct = { label:'Relative humidity', ok: hourly.length > 0 };
+      out.vars.solar_wm2 = { label:'Shortwave radiation', ok: hourly.length > 0 };
+
+      return out;
+    }
+
+    async function fetchWeatherForField(field, force=false){
+      if (!field || !field.location) return null;
+
+      if (!force){
+        const cached = readWxCache(field.id);
+        if (cached){
+          state.weatherByFieldId.set(field.id, cached.daily || []);
+          state.wxInfoByFieldId.set(field.id, cached.wxInfo || { source:'cache', fetchedAt: cached.fetchedAt });
+          return cached.daily || [];
+        }
+      }
+
+      const lat = field.location.lat;
+      const lng = field.location.lng;
+
+      const url = `${WX_ENDPOINT}?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}&days=30&timezone=${encodeURIComponent('America/Chicago')}`;
+
+      const r = await fetch(url, { method:'GET', cache:'no-store' });
+      if (!r.ok) throw new Error(`Weather proxy ${r.status}`);
+
+      const json = await r.json();
+      if (!json || json.ok !== true) throw new Error('Weather proxy response not ok');
+
+      const norm = json.normalized || {};
+      const hourlyCore = Array.isArray(norm.hourly) ? norm.hourly : [];
+      const dailySeries = aggregateHourlyToDaily(hourlyCore);
+
+      // store
+      state.weatherByFieldId.set(field.id, dailySeries);
+
+      const availability = summarizeAvailability(json);
+      const wxInfo = {
+        source: String(json.source || 'open-meteo'),
+        fetchedAt: Date.now(),
+        units: (norm.meta && norm.meta.units) ? norm.meta.units : null,
+        availability
+      };
+      state.wxInfoByFieldId.set(field.id, wxInfo);
+
+      // cache (store only daily + small meta)
+      writeWxCache(field.id, { fetchedAt: wxInfo.fetchedAt, daily: dailySeries, wxInfo });
+
+      // set default series if not set
+      if (!state.weather30.length && dailySeries && dailySeries.length){
+        state.weather30 = dailySeries.slice();
+      }
+
+      return dailySeries;
+    }
+
+    function debounceRender(){
+      if (state._renderTimer) return;
+      state._renderTimer = setTimeout(()=>{
+        state._renderTimer = null;
+        renderTiles();
+        renderDetails();
+      }, 250);
+    }
+
+    async function warmWeatherForFields(force=false){
+      // modest concurrency
+      const fields = state.fields.slice();
+      if (!fields.length) return;
+
+      const maxConc = 4;
+      let idx = 0;
+
+      async function worker(){
+        while (idx < fields.length){
+          const my = fields[idx++];
+          try{
+            await fetchWeatherForField(my, force);
+          }catch(e){
+            // keep quiet; page will still run with any available series
+            console.warn('[FieldReadiness] weather fetch failed for', my?.name, e?.message || e);
+          }finally{
+            debounceRender();
+          }
+        }
+      }
+
+      const workers = [];
+      for (let i=0; i<Math.min(maxConc, fields.length); i++) workers.push(worker());
+      await Promise.all(workers);
+    }
+
+    function getWeatherSeriesForFieldId(fieldId){
+      const s = state.weatherByFieldId.get(fieldId);
+      if (s && s.length) return s;
+      if (state.weather30 && state.weather30.length) return state.weather30;
+      return [];
+    }
 
     /* ---------- firebase-init ---------- */
     async function importFirebaseInit(){
@@ -876,19 +1180,16 @@
 
     async function loadThresholdsFromFirestore(){
       const api = getAPI();
-      if (!api || api.kind === 'compat') {
-        // if compat ever used, we’ll just rely on local fallback for now
-        return false;
-      }
+      if (!api || api.kind === 'compat') return false;
       try{
         const db = api.getFirestore();
         const ref = api.doc(db, THR_COLLECTION, THR_DOC_ID);
         const snap = await api.getDoc(ref);
         if (snap && snap.exists && snap.exists()){
           const data = snap.data() || {};
-          const thr = data.thresholds || data; // allow either shape
+          const thr = data.thresholds || data;
           applyThresholdObject(thr);
-          saveThresholdsToLocal(); // mirror locally
+          saveThresholdsToLocal();
           return true;
         }
         return false;
@@ -923,7 +1224,6 @@
     }
 
     function scheduleThresholdSave(){
-      // debounce to avoid hammering Firestore while dragging
       try{ if (state._thrSaveTimer) clearTimeout(state._thrSaveTimer); }catch(_){}
       state._thrSaveTimer = setTimeout(async ()=>{
         saveThresholdsToLocal();
@@ -1082,6 +1382,10 @@
         if (empty) empty.style.display = state.fields.length ? 'none' : 'block';
 
         ensureSelectedParamsToSliders();
+
+        // warm weather cache + fetch
+        await warmWeatherForFields(false);
+
         renderTiles();
         renderDetails();
       }catch(e){
@@ -1093,47 +1397,72 @@
       }
     }
 
-    /* ---------- mock weather ---------- */
-    function seededRand(){
-      state.seed = (state.seed * 1664525 + 1013904223) % 4294967296;
-      return state.seed / 4294967296;
+    /* ---------- model math (unchanged, now uses live daily weather) ---------- */
+    function calcDryParts(r){
+      const temp = Number(r.tempF||0);
+      const wind = Number(r.windMph||0);
+      const rh   = Number(r.rh||0);
+      const solar= Number(r.solarWm2||0);
+
+      const tempN = clamp((temp - 20) / 45, 0, 1);
+      const windN = clamp((wind - 2) / 20, 0, 1);
+      const solarN= clamp((solar - 60) / 300, 0, 1);
+      const rhN   = clamp((rh - 35) / 65, 0, 1);
+
+      const raw = (0.35*tempN + 0.30*solarN + 0.25*windN - 0.25*rhN);
+      const dryPwr = clamp(raw, 0, 1);
+      return { temp, wind, rh, solar, tempN, windN, rhN, solarN, raw, dryPwr };
     }
 
-    function genMock30(){
-      const out = [];
-      const today = new Date();
-      today.setHours(12,0,0,0);
+    function mapFactors(soilWetness0_100, drainageIndex0_100){
+      const soilHold = clamp(Number(soilWetness0_100) / 100, 0, 1);
+      const drainPoor= clamp(Number(drainageIndex0_100) / 100, 0, 1);
 
-      for (let i=29; i>=0; i--){
-        const d = new Date(today);
-        d.setDate(d.getDate() - i);
+      const infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor;
+      const dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor;
+      const Smax      = 2.60 + 1.00*soilHold + 0.90*drainPoor;
 
-        const eventRoll = seededRand();
-        let rain = 0;
-        if (eventRoll > 0.82) rain = 0.10 + seededRand()*1.10;
-        else if (eventRoll > 0.72) rain = 0.02 + seededRand()*0.16;
+      return { soilHold, drainPoor, infilMult, dryMult, Smax };
+    }
 
-        const wave = Math.sin((29-i)/6) * 6;
-        const temp = 34 + wave + (seededRand()*10 - 5);
-        const wind = 4 + seededRand()*18;
+    function runField(field){
+      const wx = getWeatherSeriesForFieldId(field.id);
+      if (!wx.length) return null;
 
-        let rh = 45 + seededRand()*45;
-        if (rain > 0) rh = clamp(rh + 10 + seededRand()*10, 35, 98);
+      const p = getFieldParams(field.id);
+      const f = mapFactors(p.soilWetness, p.drainageIndex);
 
-        let solar = 120 + seededRand()*220;
-        if (rain > 0) solar = clamp(solar - 60 - seededRand()*80, 40, 360);
+      const rows = wx.map(w=>{
+        const parts = calcDryParts(w);
+        return { ...w, rainInAdj: Number(w.rainIn||0), ...parts };
+      });
 
-        out.push({
-          dateISO: d.toISOString().slice(0,10),
-          rainIn: round(rain, 2),
-          tempF: Math.round(temp),
-          windMph: Math.round(wind),
-          rh: Math.round(rh),
-          solarWm2: Math.round(solar),
-        });
+      const first7 = rows.slice(0,7);
+      const rain7 = first7.reduce((s,x)=> s + Number(x.rainInAdj||0), 0);
+      const rainNudgeFrac = clamp(rain7 / 4.0, 0, 1);
+      const rainNudge = rainNudgeFrac * (0.35 * f.Smax);
+
+      let storage = clamp((0.45 * f.Smax) + rainNudge, 0, f.Smax);
+
+      const trace = [];
+      for (const d of rows){
+        const rain = Number(d.rainInAdj||0);
+        const add = rain * f.infilMult;
+        const loss = Number(d.dryPwr||0) * LOSS_SCALE * f.dryMult;
+        const before = storage;
+        const after = clamp(before + add - loss, 0, f.Smax);
+        storage = after;
+        trace.push({ dateISO:d.dateISO, rain, infilMult:f.infilMult, add, dryPwr:d.dryPwr, loss, before, after });
       }
 
-      state.weather30 = out;
+      const wetness = clamp((storage / f.Smax) * 100, 0, 100);
+      const wetnessR = Math.round(wetness);
+      const readinessR = Math.round(clamp(100 - wetness, 0, 100));
+
+      const last7 = trace.slice(-7);
+      const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
+
+      return { field, factors:f, rows, trace, storageFinal:storage, wetnessR, readinessR, avgLossDay };
     }
 
     function parseRangeFromInput(){
@@ -1167,72 +1496,6 @@
       if (!range || !range.start || !range.end) return true;
       const d = new Date(dateISO + 'T12:00:00');
       return d >= range.start && d <= range.end;
-    }
-
-    function calcDryParts(r){
-      const temp = Number(r.tempF||0);
-      const wind = Number(r.windMph||0);
-      const rh   = Number(r.rh||0);
-      const solar= Number(r.solarWm2||0);
-
-      const tempN = clamp((temp - 20) / 45, 0, 1);
-      const windN = clamp((wind - 2) / 20, 0, 1);
-      const solarN= clamp((solar - 60) / 300, 0, 1);
-      const rhN   = clamp((rh - 35) / 65, 0, 1);
-
-      const raw = (0.35*tempN + 0.30*solarN + 0.25*windN - 0.25*rhN);
-      const dryPwr = clamp(raw, 0, 1);
-      return { temp, wind, rh, solar, tempN, windN, rhN, solarN, raw, dryPwr };
-    }
-
-    function mapFactors(soilWetness0_100, drainageIndex0_100){
-      const soilHold = clamp(Number(soilWetness0_100) / 100, 0, 1);
-      const drainPoor= clamp(Number(drainageIndex0_100) / 100, 0, 1);
-
-      const infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor;
-      const dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor;
-      const Smax      = 2.60 + 1.00*soilHold + 0.90*drainPoor;
-
-      return { soilHold, drainPoor, infilMult, dryMult, Smax };
-    }
-
-    function runField(field){
-      if (!state.weather30.length) return null;
-
-      const p = getFieldParams(field.id);
-      const f = mapFactors(p.soilWetness, p.drainageIndex);
-
-      const rows = state.weather30.map(w=>{
-        const parts = calcDryParts(w);
-        return { ...w, rainInAdj: Number(w.rainIn||0), ...parts };
-      });
-
-      const first7 = rows.slice(0,7);
-      const rain7 = first7.reduce((s,x)=> s + Number(x.rainInAdj||0), 0);
-      const rainNudgeFrac = clamp(rain7 / 4.0, 0, 1);
-      const rainNudge = rainNudgeFrac * (0.35 * f.Smax);
-
-      let storage = clamp((0.45 * f.Smax) + rainNudge, 0, f.Smax);
-
-      const trace = [];
-      for (const d of rows){
-        const rain = Number(d.rainInAdj||0);
-        const add = rain * f.infilMult;
-        const loss = Number(d.dryPwr||0) * LOSS_SCALE * f.dryMult;
-        const before = storage;
-        const after = clamp(before + add - loss, 0, f.Smax);
-        storage = after;
-        trace.push({ dateISO:d.dateISO, rain, infilMult:f.infilMult, add, dryPwr:d.dryPwr, loss, before, after });
-      }
-
-      const wetness = clamp((storage / f.Smax) * 100, 0, 100);
-      const wetnessR = Math.round(wetness);
-      const readinessR = Math.round(clamp(100 - wetness, 0, 100));
-
-      const last7 = trace.slice(-7);
-      const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
-
-      return { field, factors:f, rows, trace, storageFinal:storage, wetnessR, readinessR, avgLossDay };
     }
 
     function rainInRange(run, range){
@@ -1303,25 +1566,19 @@
       return p.toFixed(2) + '%';
     }
 
-    // ✅ ETA rules:
-    // - If field is already "dry enough" (readiness >= threshold) => show nothing
-    // - Else estimate hours; cap display at 72 hours
-    // - If >72 => show "> 72 hours"
     function etaFor(run, threshold){
       if (!run) return '';
-      if (run.readinessR >= threshold) return ''; // ✅ already dry/ready -> nothing
+      if (run.readinessR >= threshold) return '';
 
       const wetTarget = clamp(100 - threshold, 0, 100);
       const storageTarget = run.factors.Smax * (wetTarget / 100);
       const delta = run.storageFinal - storageTarget;
 
-      // If model math says we're already at/under target, treat as ready -> nothing
       if (!isFinite(delta) || delta <= 0) return '';
 
       const dailyLoss = Math.max(0.02, run.avgLossDay);
       let hours = Math.ceil((delta / dailyLoss) * 24);
 
-      // keep it sane for tiny deltas
       if (!isFinite(hours) || hours <= 0) hours = 1;
 
       if (hours > ETA_MAX_HOURS) return `> ${ETA_MAX_HOURS} hours`;
@@ -1384,7 +1641,6 @@
             </div>
 
             <div class="ticks"><span>0</span><span>50</span><span>100</span></div>
-
             ${eta ? `<div class="help"><b>${esc(eta)}</b></div>` : ``}
           </div>
         `;
@@ -1416,6 +1672,87 @@
       state.selectedFieldId = id;
       ensureSelectedParamsToSliders();
       refreshAll();
+    }
+
+    function renderBetaInputs(){
+      const box = $('betaInputs');
+      const meta = $('betaInputsMeta');
+      if (!box || !meta) return;
+
+      const fid = state.selectedFieldId;
+      const info = fid ? state.wxInfoByFieldId.get(fid) : null;
+
+      if (!info){
+        meta.textContent = 'Weather is loading…';
+        box.innerHTML = '';
+        return;
+      }
+
+      const when = info.fetchedAt ? new Date(info.fetchedAt) : null;
+      const whenTxt = when ? when.toLocaleString() : '—';
+      meta.textContent = `Source: ${info.source || '—'} • Updated: ${whenTxt} • Core variables are used now; extra variables are pulled for calibration/tuning.`;
+
+      const unitsHourly = info.units && info.units.hourly ? info.units.hourly : null;
+      const unitsDaily = info.units && info.units.daily ? info.units.daily : null;
+
+      const a = info.availability || { vars:{} };
+      const vars = a.vars || {};
+
+      const coreUsed = [
+        ['rain_mm','Precipitation', unitsHourly?.precipitation || 'mm'],
+        ['temp_c','Air temperature', unitsHourly?.temperature_2m || '°C'],
+        ['wind_mph','Wind speed', 'mph (converted)'],
+        ['rh_pct','Relative humidity', unitsHourly?.relative_humidity_2m || '%'],
+        ['solar_wm2','Shortwave radiation', unitsHourly?.shortwave_radiation || 'W/m²']
+      ];
+
+      const extraPulled = [
+        ['cloud_cover_pct','Cloud cover', unitsHourly?.cloud_cover || '%'],
+        ['dew_point_c','Dew point', unitsHourly?.dew_point_2m || '°C'],
+        ['vapour_pressure_deficit_kpa','VPD', unitsHourly?.vapour_pressure_deficit || 'kPa'],
+        ['soil_temp_c_0_10','Soil temp 0–10cm', unitsHourly?.soil_temperature_0_to_10cm || '°C'],
+        ['soil_temp_c_10_40','Soil temp 10–40cm', unitsHourly?.soil_temperature_10_to_40cm || '°C'],
+        ['soil_temp_c_40_100','Soil temp 40–100cm', unitsHourly?.soil_temperature_40_to_100cm || '°C'],
+        ['soil_temp_c_100_200','Soil temp 100–200cm', unitsHourly?.soil_temperature_100_to_200cm || '°C'],
+        ['soil_moisture_0_10','Soil moisture 0–10cm', unitsHourly?.soil_moisture_0_to_10cm || 'm³/m³'],
+        ['soil_moisture_10_40','Soil moisture 10–40cm', unitsHourly?.soil_moisture_10_to_40cm || 'm³/m³'],
+        ['soil_moisture_40_100','Soil moisture 40–100cm', unitsHourly?.soil_moisture_40_to_100cm || 'm³/m³'],
+        ['soil_moisture_100_200','Soil moisture 100–200cm', unitsHourly?.soil_moisture_100_to_200cm || 'm³/m³']
+      ];
+
+      const dailyPulled = [
+        ['daylight_s','Daylight duration', unitsDaily?.daylight_duration || 's/day'],
+        ['sunshine_s','Sunshine duration', unitsDaily?.sunshine_duration || 's/day'],
+        ['shortwave_radiation_sum','Solar (daily sum)', unitsDaily?.shortwave_radiation_sum || '—'],
+        ['et0_mm','ET₀', unitsDaily?.et0_fao_evapotranspiration || 'mm/day'],
+        ['gdu','GDU (computed)', 'GDU']
+      ];
+
+      function groupHtml(title, rows, tag){
+        const items = rows.map(([k,label,u])=>{
+          const ok = vars[k] ? !!vars[k].ok : true;
+          return `
+            <div class="vitem">
+              <div>
+                <div class="vname">${esc(label)}</div>
+                <div class="vmeta">${esc(u || '')}</div>
+              </div>
+              <div class="${ok ? 'vok' : 'vno'}">${ok ? esc(tag) : 'Not in response'}</div>
+            </div>
+          `;
+        }).join('');
+        return `
+          <div class="vgroup">
+            <div class="vgroup-title">${esc(title)}</div>
+            <div class="vitems">${items}</div>
+          </div>
+        `;
+      }
+
+      box.innerHTML =
+        groupHtml('Used now (current readiness math)', coreUsed, 'Used') +
+        groupHtml('Pulled (tuning / calibration)', extraPulled, 'Pulled') +
+        groupHtml('Daily pulled (tuning / calibration)', dailyPulled, 'Pulled');
     }
 
     function renderDetails(){
@@ -1452,7 +1789,7 @@
       setText('dThreshold', `${thr}`);
       setText('dOperation', opLabel);
 
-      setText('dDays', String(state.weather30.length || 0));
+      setText('dDays', String(run.rows.length || 0));
       setText('dRangeRain', `${rainRange.toFixed(2)} in`);
       setText('dReadiness', `${run.readinessR}`);
       setText('dWetness', `${run.wetnessR}`);
@@ -1470,6 +1807,8 @@
         sum.innerHTML =
           `Model output: <b>Wet=${run.wetnessR}</b> • <b>Readiness=${run.readinessR}</b> • storage=<span class="mono">${run.storageFinal.toFixed(2)}</span>/<span class="mono">${run.factors.Smax.toFixed(2)}</span>`;
       }
+
+      renderBetaInputs();
 
       const trb = $('traceRows');
       if (trb){
@@ -1529,7 +1868,23 @@
       }
     }
 
-    /* ---------- modals ---------- */
+    function refreshAll(){
+      setErr('');
+
+      if (state.selectedFieldId){
+        const a = $('soilWet');
+        const b = $('drain');
+        const p = getFieldParams(state.selectedFieldId);
+        if (a) p.soilWetness = clamp(Number(a.value), 0, 100);
+        if (b) p.drainageIndex = clamp(Number(b.value), 0, 100);
+        state.perFieldParams.set(state.selectedFieldId, p);
+        saveParamsToLocal();
+      }
+
+      renderTiles();
+      renderDetails();
+    }
+
     function showModal(backdropId, on){
       const b = $(backdropId);
       if (b) b.classList.toggle('pv-hide', !on);
@@ -1576,10 +1931,7 @@
           const vEl = $('thrVal_' + k);
           if (vEl) vEl.textContent = String(n);
 
-          // ✅ persist (local + Firestore debounced)
           scheduleThresholdSave();
-
-          // live update threshold line + ETA text
           refreshAll();
         });
 
@@ -1591,29 +1943,8 @@
       renderOpThresholdModal();
       showModal('opBackdrop', true);
     }
-    function closeOpModal(){
-      showModal('opBackdrop', false);
-    }
+    function closeOpModal(){ showModal('opBackdrop', false); }
 
-    /* ---------- refresh ---------- */
-    function refreshAll(){
-      setErr('');
-
-      if (state.selectedFieldId){
-        const a = $('soilWet');
-        const b = $('drain');
-        const p = getFieldParams(state.selectedFieldId);
-        if (a) p.soilWetness = clamp(Number(a.value), 0, 100);
-        if (b) p.drainageIndex = clamp(Number(b.value), 0, 100);
-        state.perFieldParams.set(state.selectedFieldId, p);
-        saveParamsToLocal();
-      }
-
-      renderTiles();
-      renderDetails();
-    }
-
-    /* ---------- persist last operation ---------- */
     function loadOpDefault(){
       const op = $('opSel');
       if (!op) return;
@@ -1628,7 +1959,6 @@
       try{ localStorage.setItem(LS_OP_KEY, String(op.value||'')); }catch(_){}
     }
 
-    /* ---------- null-safe event helper ---------- */
     function on(id, ev, fn){
       const el = $(id);
       if (el) el.addEventListener(ev, fn);
@@ -1644,13 +1974,18 @@
     on('clearRangeBtn','click', ()=> setTimeout(refreshAll, 0));
     on('jobRangeInput','change', refreshAll);
 
-    on('btnRegen','click', ()=>{
-      state.seed = Date.now() % 1000000;
-      genMock30();
-      refreshAll();
+    on('btnRegen','click', async ()=>{
+      try{
+        setErr('');
+        // force refresh all fields
+        await warmWeatherForFields(true);
+        refreshAll();
+      }catch(e){
+        console.error(e);
+        setErr('Weather refresh failed. Check Cloud Run logs / CORS.');
+      }
     });
 
-    /* rain help tooltip toggle */
     (function(){
       const rainHelpBtn = $('rainHelpBtn');
       const rainHelpTip = $('rainHelpTip');
@@ -1669,7 +2004,6 @@
       });
     })();
 
-    /* Operation modal open/close (X) */
     on('opBtn','click', openOpModal);
     on('btnOpX','click', closeOpModal);
     (function(){
@@ -1680,7 +2014,6 @@
       });
     })();
 
-    /* Adjust modal X */
     on('btnAdjX','click', closeAdjust);
     (function(){
       const b = $('adjustBackdrop');
@@ -1695,19 +2028,14 @@
       const dp = $('detailsPanel');
       if (dp) dp.open = false;
 
-      genMock30();
       loadParamsFromLocal();
       loadOpDefault();
-
-      // start with local thresholds
       loadThresholdsFromLocal();
 
       const ok = await importFirebaseInit();
       if (!ok) setErr('firebase-init.js failed to import as a module.');
 
-      // then try Firestore thresholds (overrides local if found)
       await loadThresholdsFromFirestore();
-
       await loadFarmsOptional();
       await loadFields();
 
