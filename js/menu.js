@@ -47,7 +47,7 @@ export const NAV_MENU = {
           id: 'crop-weather',
           perm: 'crop-weather',
           icon: '⛅',
-          label: 'Weather',
+          label: 'Field Readiness',
           href: '/Farm-vista/pages/crop-production/field-weather.html',
           activeMatch: 'exact'
         },
