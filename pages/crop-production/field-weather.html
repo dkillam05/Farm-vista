@@ -765,6 +765,9 @@
     const LS_OP_KEY = 'fv_dev_field_readiness_op';
     const LS_THR_KEY = 'fv_dev_field_readiness_thresholds_v1'; // still keep as offline fallback
 
+    // ETA rules
+    const ETA_MAX_HOURS = 72;
+
     // ✅ Firestore storage (collection) for thresholds
     // Collection: field_readiness_thresholds
     // Doc: default
@@ -1259,7 +1262,6 @@
         const readyB = rb ? rb.readinessR : 0;
 
         const rainA = ra ? rainInRange(ra, range) : 0;
-        const rainB = rb ? rb.rainInRange : 0;
 
         if (mode === 'name_az') return collator.compare(nameA, nameB);
         if (mode === 'name_za') return collator.compare(nameB, nameA);
@@ -1267,7 +1269,6 @@
         if (mode === 'ready_dry_wet'){ if (readyB !== readyA) return readyB - readyA; return collator.compare(nameA, nameB); }
         if (mode === 'ready_wet_dry'){ if (readyB !== readyA) return readyA - readyB; return collator.compare(nameA, nameB); }
 
-        // keep rain sorts stable
         const rainB2 = rb ? rainInRange(rb, range) : 0;
         if (mode === 'rain_most'){ if (rainB2 !== rainA) return rainB2 - rainA; return collator.compare(nameA, nameB); }
         if (mode === 'rain_least'){ if (rainB2 !== rainA) return rainA - rainB2; return collator.compare(nameA, nameB); }
@@ -1302,16 +1303,29 @@
       return p.toFixed(2) + '%';
     }
 
+    // ✅ ETA rules:
+    // - If field is already "dry enough" (readiness >= threshold) => show nothing
+    // - Else estimate hours; cap display at 72 hours
+    // - If >72 => show "> 72 hours"
     function etaFor(run, threshold){
       if (!run) return '';
-      if (run.readinessR >= threshold) return '';
+      if (run.readinessR >= threshold) return ''; // ✅ already dry/ready -> nothing
+
       const wetTarget = clamp(100 - threshold, 0, 100);
       const storageTarget = run.factors.Smax * (wetTarget / 100);
       const delta = run.storageFinal - storageTarget;
+
+      // If model math says we're already at/under target, treat as ready -> nothing
+      if (!isFinite(delta) || delta <= 0) return '';
+
       const dailyLoss = Math.max(0.02, run.avgLossDay);
-      const hours = Math.ceil((delta / dailyLoss) * 24);
-      if (hours <= 48) return `Est: ~${hours} hours`;
-      return 'Estimated to be greater then 2 days';
+      let hours = Math.ceil((delta / dailyLoss) * 24);
+
+      // keep it sane for tiny deltas
+      if (!isFinite(hours) || hours <= 0) hours = 1;
+
+      if (hours > ETA_MAX_HOURS) return `> ${ETA_MAX_HOURS} hours`;
+      return `Est: ~${hours} hours`;
     }
 
     function renderTiles(){
@@ -1370,7 +1384,8 @@
             </div>
 
             <div class="ticks"><span>0</span><span>50</span><span>100</span></div>
-            ${eta ? `<div class="help"><b>${eta}</b></div>` : ``}
+
+            ${eta ? `<div class="help"><b>${esc(eta)}</b></div>` : ``}
           </div>
         `;
 
