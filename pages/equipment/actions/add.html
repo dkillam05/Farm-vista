@@ -1,17 +1,18 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-12-22f
+Rev: 2025-12-22g
 
-CHANGES (requested):
-✅ Summary preview is truly CENTERED (fix: reset scrollLeft + center class every time)
-✅ "Save and Print" button becomes "Create Label" ONLY (does NOT save)
-✅ Save button is the ONLY thing that saves
-✅ After a successful SAVE, bounce back to whatever portal you came from (document.referrer),
-   otherwise fall back to the correct equipment list page for this type.
+FIXES (requested):
+✅ Preview content is visually CENTERED (no left shift):
+   - #printWrap always centers its child
+   - remove left-biased padding
+   - ensure pPreviewHost is centered
+✅ On phone: Label type dialog footer buttons (OK / Cancel) are CENTERED
+✅ QR Preview dialog: REMOVE the header Close button (Cancel only)
 
-Print flow remains the SAME (cloned from lookup):
-labelChoice → printPrev → Create PDF → desktop iframe print / mobile open
-
+Everything else kept from your 2025-12-22f behavior:
+- Create Label does NOT save
+- Save is the only save + returns to referrer/portal
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -59,17 +60,15 @@ labelChoice → printPrev → Create PDF → desktop iframe print / mobile open
       --ctl-radius:10px;
 
       /* ===== Brother QL-820NWB / DK-2205 (62mm wide continuous) ===== */
-      --ql-tape-mm: 62mm;    /* fixed tape width = label HEIGHT */
-      --ql-qr-mm: 48mm;      /* QR square */
-      --ql-pad-mm: 2.2mm;    /* inner padding */
-      --ql-gap-mm: 2mm;      /* column gap */
+      --ql-tape-mm: 62mm;
+      --ql-qr-mm: 48mm;
+      --ql-pad-mm: 2.2mm;
+      --ql-gap-mm: 2mm;
 
-      /* ✅ BIGGER label fonts */
-      --ql-font: 18pt;         /* Make + VIN/Serial value */
-      --ql-font-small: 16pt;   /* Model */
-      --ql-font-lab: 12pt;     /* VIN/Serial label */
+      --ql-font: 18pt;
+      --ql-font-small: 16pt;
+      --ql-font-lab: 12pt;
 
-      /* StarFire compact (matches lookup) */
       --sf-cut-mm: 62mm;
       --sf-qr-mm: 46mm;
       --sf-serial-font: 16pt;
@@ -93,7 +92,6 @@ labelChoice → printPrev → Create PDF → desktop iframe print / mobile open
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
     }
 
-    /* Card */
     .hero{
       width:min(720px, calc(100% - 24px));
       margin:0 auto var(--page-bottom-gap);
@@ -250,9 +248,12 @@ labelChoice → printPrev → Create PDF → desktop iframe print / mobile open
     }
     dialog.sheet footer{
       padding:12px 16px; border-top:1px solid var(--border);
-      display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap;
+      display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap;
       background:var(--card-surface, var(--surface)); color:var(--text);
     }
+
+    /* ✅ Phone centering for Label type dialog buttons */
+    #labelChoice footer{ justify-content:center; }
 
     dialog.sheet.sheet-print{ width:fit-content; max-width:calc(100vw - 24px); }
     dialog.sheet.sheet-print .body{
@@ -266,19 +267,25 @@ labelChoice → printPrev → Create PDF → desktop iframe print / mobile open
       line-height:1.35;
       margin:0 0 10px;
       max-width: min(560px, calc(100vw - 48px));
+      text-align:center;
     }
 
-    /* ✅ CENTERING FIX: #printWrap is flex + can scroll; we ALWAYS reset scrollLeft too. */
+    /* ✅ CENTER PREVIEW ALWAYS */
     #printWrap{
-      display:flex; width:100%; max-width:calc(100vw - 48px);
-      overflow-x:auto; overflow-y:hidden;
+      display:flex;
+      width:100%;
+      max-width:calc(100vw - 48px);
+      overflow-x:auto;
+      overflow-y:hidden;
       -webkit-overflow-scrolling:touch;
-      justify-content:flex-start;
-      padding: 4px 2px 2px;
+      justify-content:center;            /* was flex-start */
+      padding: 4px 0 2px;               /* remove left bias */
       box-sizing:border-box;
     }
-    #printWrap.center{ justify-content:center; }
-    #pPreviewHost{ flex:0 0 auto; }
+    #pPreviewHost{
+      flex:0 0 auto;
+      margin:0 auto;                    /* belt + suspenders centering */
+    }
 
     .pv-long{
       width:140mm;
@@ -571,7 +578,6 @@ labelChoice → printPrev → Create PDF → desktop iframe print / mobile open
           <div class="actions">
             <a id="btnClear" class="btn btn-quiet" role="button">Cancel</a>
             <button id="btnSave" class="btn btn-primary" type="button" disabled>Save</button>
-            <!-- ✅ changed: NOT saving, just label flow -->
             <button id="btnCreateLabel" class="btn btn-primary" type="button" disabled>Create Label</button>
           </div>
         </div>
@@ -591,7 +597,7 @@ labelChoice → printPrev → Create PDF → desktop iframe print / mobile open
   <!-- Hidden iframe for desktop print -->
   <iframe id="fv-print-frame"></iframe>
 
-  <!-- Label type (NO Close button; Cancel only) -->
+  <!-- Label type -->
   <dialog id="labelChoice" class="sheet" aria-modal="true">
     <header>
       <strong>Label type</strong>
@@ -609,11 +615,11 @@ labelChoice → printPrev → Create PDF → desktop iframe print / mobile open
     </footer>
   </dialog>
 
-  <!-- Preview -->
+  <!-- Preview (NO Close button; Cancel only) -->
   <dialog id="printPrev" class="sheet sheet-print" aria-modal="true">
     <header>
       <strong id="pHdrTitle">QR Label Preview</strong>
-      <button id="pClose" class="btn" type="button">Close</button>
+      <span></span>
     </header>
     <div class="body">
       <p id="pHelp" class="print-help">Tap <b>Create Label</b>.</p>
@@ -647,11 +653,9 @@ labelChoice → printPrev → Create PDF → desktop iframe print / mobile open
     const TYPE = (qs.get('type') || 'tractor').toLowerCase();
     const IS_STARFIRE = TYPE === 'starfire';
 
-    // ✅ Remember where we came from (used for post-SAVE redirect)
     const ENTRY_REFERRER = document.referrer || '';
 
     function portalFallbackForType(type){
-      // If no referrer (opened direct), go to the right equipment list page.
       const map = {
         tractor: '/Farm-vista/pages/equipment/equipment-tractors.html',
         combine: '/Farm-vista/pages/equipment/equipment-combines.html',
@@ -667,7 +671,6 @@ labelChoice → printPrev → Create PDF → desktop iframe print / mobile open
     }
 
     function returnAfterSave(){
-      // Prefer the portal the user came from (if it looks like your site)
       try{
         if(ENTRY_REFERRER && ENTRY_REFERRER.includes('/Farm-vista/')){
           window.location.assign(ENTRY_REFERRER);
@@ -869,7 +872,7 @@ labelChoice → printPrev → Create PDF → desktop iframe print / mobile open
       $("btnCreateLabel").disabled = !ok;
     }
 
-    // QR generation (reserve id, but DOES NOT save equipment doc)
+    // QR generation (reserve id, but does NOT save equipment doc)
     let pendingToken = null;
     let pendingQRBlob = null;
     let pendingEquipId = null;
@@ -948,7 +951,6 @@ labelChoice → printPrev → Create PDF → desktop iframe print / mobile open
        ========================== */
     const pDlg = $("printPrev");
     const pHost = $("pPreviewHost");
-    const pClose = $("pClose");
     const pCancel = $("pCancel");
     const pCreate = $("pCreate");
 
@@ -961,7 +963,7 @@ labelChoice → printPrev → Create PDF → desktop iframe print / mobile open
     const safeQrSrcForPreview = (url)=>{
       const s = String(url||'');
       if(!s) return '';
-      if(s.startsWith('data:')) return s; // our qrThumb
+      if(s.startsWith('data:')) return s;
       const bust = (s.includes('?') ? '&' : '?') + '_=' + Date.now();
       return s + bust;
     };
@@ -1107,12 +1109,9 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       clearPreviewHost();
       __previewQrSrc = qrSrc;
 
+      // Always reset scroll so it doesn't look "shifted"
       const wrapEl = $("printWrap");
-      if (wrapEl){
-        wrapEl.classList.toggle('center', mode === 'summary');
-        // ✅ HARD FIX: kill any previous horizontal scroll so summary doesn't look "off to the right"
-        wrapEl.scrollLeft = 0;
-      }
+      if (wrapEl) wrapEl.scrollLeft = 0;
 
       if (mode === 'summary'){
         const wrap = document.createElement('div');
@@ -1146,19 +1145,15 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 
         wrap.append(left,mid,right);
         pHost.appendChild(wrap);
-
-        // also reset scroll for long label open
-        if (wrapEl) wrapEl.scrollLeft = 0;
       }
 
-      // ✅ Ensure centering takes effect after layout paint (iOS can be weird)
+      // iOS: enforce centering after paint
       if (wrapEl){
         await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
         wrapEl.scrollLeft = 0;
       }
     }
 
-    pClose.addEventListener('click', ()=> closeDialog(pDlg));
     pCancel.addEventListener('click', ()=> closeDialog(pDlg));
     cCancel.addEventListener('click', ()=> closeDialog(cDlg));
 
@@ -1436,39 +1431,25 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       setupSearch(ddModel.search, ddModel.list);
     }
 
-    async function populateMakes(db, preselectId){
+    async function populateMakes(db){
       const allMakes = await getMakes(db);
       const makes = allMakes.filter(visibleForType);
       const items = makes.map(m=>[m.id, m.name, {categories:m.categories}]);
-
       buildList(ddMake.list, items, async (val,label)=> setMake(val,label));
-
-      if(preselectId && makes.find(m=>m.id===preselectId)){
-        const name = makes.find(m=>m.id===preselectId).name;
-        setMake(preselectId, name);
-      }else{
-        ddMake.hidden.value = "";
-        ddMake.btn.textContent = "— Select —";
-      }
+      ddMake.hidden.value = "";
+      ddMake.btn.textContent = "— Select —";
     }
 
-    async function populateModels(db, makeId, preselectId){
+    async function populateModels(db, makeId){
       const allModels = await getModels(db, makeId);
       const models = allModels.filter(visibleForType);
       const items = models.map(m=>[m.id, m.name, {categories:m.categories}]);
-
       buildList(ddModel.list, items, async (val,label)=> setModel(val,label));
 
       ddModel.btn.disabled = false;
       ddModel.search.disabled = false;
-
-      if(preselectId && models.find(m=>m.id===preselectId)){
-        const name = models.find(m=>m.id===preselectId).name;
-        setModel(preselectId, name);
-      }else{
-        ddModel.hidden.value = "";
-        ddModel.btn.textContent = "— Select —";
-      }
+      ddModel.hidden.value = "";
+      ddModel.btn.textContent = "— Select —";
     }
 
     function setMake(id, label){
@@ -1577,24 +1558,15 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       $("serial").addEventListener("input", validateForm);
 
       $("btnQR").addEventListener("click", async ()=>{
-        try{
-          await ensureQrReservedAndBuilt(db);
-        }catch(e){
-          console.error(e);
-          alert("Could not create QR code.");
-        }
+        try{ await ensureQrReservedAndBuilt(db); }
+        catch(e){ console.error(e); alert("Could not create QR code."); }
       });
 
-      // ✅ SAVE ONLY
       $("btnSave").addEventListener("click", async ()=>{
         const res = await saveAll(db);
-        if(res && res.ok){
-          // bounce to portal we came from
-          returnAfterSave();
-        }
+        if(res && res.ok) returnAfterSave();
       });
 
-      // ✅ CREATE LABEL ONLY (NO SAVE)
       $("btnCreateLabel").addEventListener("click", async ()=>{
         try{
           const form = readForm();
