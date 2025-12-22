@@ -1,21 +1,15 @@
 <!-- =====================================================================
 /Farm-vista/pages/field-readiness.html  (FULL FILE)
-Rev: 2025-12-22d
+Rev: 2025-12-22e
 
-CHANGES (per your ask):
-✅ Weather is no longer mocked — uses Cloud Run Open-Meteo proxy as the real input
-✅ Keep heading “Field Readiness (Beta)” + keep Beta label
-✅ Helper text updated to reflect live weather + tuning/calibration ongoing
-✅ Details: Beta panel lists what we pull (hourly + daily), units, and what’s:
-   - Used now (primary)
-   - Used now (light influence / nudges)
-   - Pulled (not yet used) — kept minimal
-✅ Extras now have real (light) influence in the score (not ignored)
-✅ Restore the “Adjust” flow:
-   - User marks Too Wet / About Right / Too Dry
-   - Quick observation question
-   - Guardrails (bounded change per submit)
-   - Writes to local + (if available) Firestore collection `field_readiness_adjustments`
+UPDATE (per your ask):
+✅ Details > GPS now includes a “Map” button
+✅ Clicking Map opens an IN-APP modal (no new tab / no navigation)
+✅ Modal drops a pin on the selected field’s lat/lng immediately
+✅ Uses Google Maps HYBRID
+✅ Loads Google Maps JS only if needed:
+   - window.FV_GOOGLE_MAPS_KEY OR localStorage.fv_google_maps_key
+✅ Clean “missing key” message if no key is available
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -266,6 +260,13 @@ CHANGES (per your ask):
       color:var(--text);
       cursor:pointer;
       line-height:1;
+      white-space:nowrap;
+    }
+    .tiny-btn:active{transform:translateY(1px)}
+    .tiny-btn.primary{
+      border-color:transparent;
+      background:#2F6C3C;
+      color:#fff!important;
     }
 
     .readiness-pill{
@@ -400,6 +401,16 @@ CHANGES (per your ask):
       margin-top:10px;
     }
     .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff!important}
+
+    /* GPS value + Map button row */
+    .gpsline{
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      gap:10px;
+      flex-wrap:wrap;
+      min-width:0;
+    }
 
     /* Tables: desktop scroll; mobile wrap */
     .table-scroll{
@@ -586,6 +597,31 @@ CHANGES (per your ask):
     .btn:active{transform:translateY(1px)}
     .btn-danger{border-color:transparent;background:#b00020;color:#fff!important}
     .note{font-size:12px;color:var(--muted,#67706B)}
+
+    /* Map modal */
+    .map-modal{
+      width:min(880px, 96vw);
+    }
+    .map-wrap{
+      border:1px solid var(--border);
+      border-radius:14px;
+      overflow:hidden;
+      background:var(--surface);
+      height:min(58vh, 520px);
+    }
+    @media (max-width:560px){
+      .map-wrap{ height:min(52vh, 420px); }
+    }
+    #fvMapCanvas{width:100%;height:100%}
+    .map-meta{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      justify-content:space-between;
+      flex-wrap:wrap;
+      margin-top:10px;
+      font-size:12px;
+    }
   </style>
 </head>
 
@@ -712,7 +748,12 @@ CHANGES (per your ask):
                     <div class="k">Status</div><div class="v" id="dStatus">—</div>
                     <div class="k">County / State</div><div class="v" id="dCounty">—</div>
                     <div class="k">Tillable</div><div class="v" id="dAcres">—</div>
-                    <div class="k">GPS</div><div class="v mono" id="dGps">—</div>
+
+                    <div class="k">GPS</div>
+                    <div class="v gpsline">
+                      <span class="mono" id="dGps">—</span>
+                      <button id="btnMap" class="tiny-btn primary" type="button">Map</button>
+                    </div>
 
                     <div class="k">Soil Wetness</div><div class="v" id="dSoilType">—</div>
                     <div class="k">Soil holding</div><div class="v" id="dSoilHold">—</div>
@@ -903,6 +944,31 @@ CHANGES (per your ask):
     </div>
   </div>
 
+  <!-- ✅ NEW: Map Modal -->
+  <div id="mapBackdrop" class="modal-backdrop pv-hide" role="dialog" aria-modal="true" aria-labelledby="mapTitle">
+    <div class="modal map-modal">
+      <div class="modal-h">
+        <h3 id="mapTitle">Map</h3>
+        <button id="btnMapX" class="xbtn" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <div class="muted" style="font-size:12px; margin-top:4px;" id="mapSub">—</div>
+      </div>
+      <div class="modal-b">
+        <div id="mapError" class="help error" style="display:none;"></div>
+        <div id="mapWrap" class="map-wrap">
+          <div id="fvMapCanvas" aria-label="Field map"></div>
+        </div>
+        <div class="map-meta">
+          <div class="muted">Pin is dropped on the field GPS.</div>
+          <div class="mono" id="mapLatLng">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ✅ Module script -->
   <script type="module">
     'use strict';
@@ -959,7 +1025,12 @@ CHANGES (per your ask):
       fb: null,
       _thrSaveTimer: null,
       _renderTimer: null,
-      _adjFeel: 'ok'
+      _adjFeel: 'ok',
+
+      // map
+      _mapsPromise: null,
+      _gmap: null,
+      _gmarker: null
     };
 
     function esc(s){
@@ -983,16 +1054,13 @@ CHANGES (per your ask):
       const y = d.getFullYear();
       const m = String(d.getMonth()+1).padStart(2,'0');
       const day = String(d.getDate()).padStart(2,'0');
-      return `${y}-${m}-${day}`;
+      return \`\${y}-\${m}-\${day}\`;
     }
 
     function mmToIn(mm){ return (Number(mm||0) / 25.4); }
     function cToF(c){ return (Number(c) * 9/5) + 32; }
 
     function aggregateHourlyToDaily(hourlyCore, hourlyExt, dailyArr){
-      // hourlyCore: [{time, rain_mm, temp_c, wind_mph, rh_pct, solar_wm2}]
-      // hourlyExt:  [{time, cloud_cover_pct, dew_point_c, vapour_pressure_deficit_kpa, soil_temp_c_0_10, soil_moisture_0_10, ...}]
-      // dailyArr:   [{dateISO, et0_mm, daylight_s, sunshine_s, ...}]
       const map = new Map();
 
       function ensure(dateISO){
@@ -1083,7 +1151,7 @@ CHANGES (per your ask):
         const cloudPct = (r.ncloud ? (r.cloud_sum / r.ncloud) : null);
         const vpdKpa = (r.nvpd ? (r.vpd_sum / r.nvpd) : null);
         const dewF = (r.ndew ? cToF(r.dew_sum / r.ndew) : null);
-        const sm010 = (r.nsm010 ? (r.sm010_sum / r.nsm010) : null);     // m³/m³
+        const sm010 = (r.nsm010 ? (r.sm010_sum / r.nsm010) : null);
         const st010F = (r.nst010 ? cToF(r.st010_sum / r.nst010) : null);
 
         const d0 = dailyMap.get(r.dateISO) || {};
@@ -1100,7 +1168,6 @@ CHANGES (per your ask):
           rh: Math.round(rh),
           solarWm2: Math.round(solarWm2),
 
-          // light extras (may be null)
           cloudPct: (cloudPct===null ? null : Math.round(cloudPct)),
           vpdKpa: (vpdKpa===null ? null : round(vpdKpa, 2)),
           dewF: (dewF===null ? null : Math.round(dewF)),
@@ -1113,7 +1180,6 @@ CHANGES (per your ask):
         };
       });
 
-      // Keep only <= today, then last 30 days
       const tISO = todayISO();
       const hist = out.filter(d=> d.dateISO && d.dateISO <= tISO);
       return hist.slice(-30);
@@ -1150,14 +1216,12 @@ CHANGES (per your ask):
       out.hourly_ext = hourly_ext.length > 0;
       out.daily = daily.length > 0;
 
-      // core
       out.vars.rain_mm = { label:'Precipitation', ok: hourly.length > 0 };
       out.vars.temp_c = { label:'Air temperature', ok: hourly.length > 0 };
       out.vars.wind_mph = { label:'Wind speed', ok: hourly.length > 0 };
       out.vars.rh_pct = { label:'Relative humidity', ok: hourly.length > 0 };
       out.vars.solar_wm2 = { label:'Shortwave radiation', ok: hourly.length > 0 };
 
-      // ext keys (used lightly)
       const extKeys = [
         ['cloud_cover_pct','Cloud cover'],
         ['vapour_pressure_deficit_kpa','VPD'],
@@ -1174,7 +1238,6 @@ CHANGES (per your ask):
         out.vars[k] = { label, ok };
       }
 
-      // deeper extras (pulled but not used yet)
       const extPulledNotUsed = [
         ['soil_temp_c_10_40','Soil temp 10–40cm'],
         ['soil_temp_c_40_100','Soil temp 40–100cm'],
@@ -1192,7 +1255,6 @@ CHANGES (per your ask):
         out.vars[k] = { label, ok };
       }
 
-      // daily keys (used lightly)
       const dailyKeys = [
         ['et0_mm','ET₀'],
         ['daylight_s','Daylight duration'],
@@ -1574,7 +1636,7 @@ CHANGES (per your ask):
         renderTiles();
         renderDetails();
       }catch(e){
-        setErr(`Failed to load fields: ${e.message}`);
+        setErr(\`Failed to load fields: \${e.message}\`);
         state.fields = [];
         const empty = $('emptyMsg');
         if (empty) empty.style.display = 'block';
@@ -1584,13 +1646,12 @@ CHANGES (per your ask):
 
     /* ---------- model math (now includes light influence extras) ---------- */
 
-    // light influence weights (kept small on purpose)
     const EXTRA = {
-      DRYPWR_VPD_W: 0.06,       // +dry if VPD high
-      DRYPWR_CLOUD_W: 0.04,     // -dry if cloud high
-      LOSS_ET0_W: 0.08,         // +loss if ET0 high
-      ADD_SM010_W: 0.10,        // +add if soil moisture 0-10 high (tiny)
-      STORAGE_CAP_SM010_W: 0.05 // +Smax if soil moisture suggests heavier wet hold (tiny)
+      DRYPWR_VPD_W: 0.06,
+      DRYPWR_CLOUD_W: 0.04,
+      LOSS_ET0_W: 0.08,
+      ADD_SM010_W: 0.10,
+      STORAGE_CAP_SM010_W: 0.05
     };
 
     function calcDryParts(r){
@@ -1604,18 +1665,15 @@ CHANGES (per your ask):
       const solarN= clamp((solar - 60) / 300, 0, 1);
       const rhN   = clamp((rh - 35) / 65, 0, 1);
 
-      // base dry power
       const rawBase = (0.35*tempN + 0.30*solarN + 0.25*windN - 0.25*rhN);
       let dryPwr = clamp(rawBase, 0, 1);
 
-      // light extras
       const vpd = (r.vpdKpa===null || r.vpdKpa===undefined) ? null : Number(r.vpdKpa);
       const cloud = (r.cloudPct===null || r.cloudPct===undefined) ? null : Number(r.cloudPct);
 
-      const vpdN = (vpd===null || !isFinite(vpd)) ? 0 : clamp(vpd / 2.6, 0, 1);     // 0..~2.6 kPa typical
+      const vpdN = (vpd===null || !isFinite(vpd)) ? 0 : clamp(vpd / 2.6, 0, 1);
       const cloudN = (cloud===null || !isFinite(cloud)) ? 0 : clamp(cloud / 100, 0, 1);
 
-      // vpd adds dry, cloud reduces dry (but lightly)
       dryPwr = clamp(dryPwr + EXTRA.DRYPWR_VPD_W * vpdN - EXTRA.DRYPWR_CLOUD_W * cloudN, 0, 1);
 
       return { temp, wind, rh, solar, tempN, windN, rhN, solarN, vpd: (isFinite(vpd)?vpd:0), vpdN, cloud: (isFinite(cloud)?cloud:0), cloudN, raw: rawBase, dryPwr };
@@ -1625,13 +1683,11 @@ CHANGES (per your ask):
       const soilHold = clamp(Number(soilWetness0_100) / 100, 0, 1);
       const drainPoor= clamp(Number(drainageIndex0_100) / 100, 0, 1);
 
-      // soil moisture 0-10: m³/m³ roughly 0.05..0.45, normalize gently
       const smN = (sm010===null || sm010===undefined || !isFinite(Number(sm010))) ? 0 : clamp((Number(sm010) - 0.10) / 0.25, 0, 1);
 
       const infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor;
       const dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor;
 
-      // small cap nudge from observed near-surface soil moisture
       const SmaxBase  = 2.60 + 1.00*soilHold + 0.90*drainPoor;
       const Smax      = SmaxBase * (1 + EXTRA.STORAGE_CAP_SM010_W * smN);
 
@@ -1644,18 +1700,15 @@ CHANGES (per your ask):
 
       const p = getFieldParams(field.id);
 
-      // use first day sm010 (most recent in series) for factor nudge (tiny)
       const last = wx[wx.length-1] || {};
       const f = mapFactors(p.soilWetness, p.drainageIndex, last.sm010);
 
       const rows = wx.map(w=>{
         const parts = calcDryParts(w);
 
-        // ET0 normalize (in/day), typical 0..0.30 in
         const et0 = (w.et0In===null || w.et0In===undefined) ? null : Number(w.et0In);
         const et0N = (et0===null || !isFinite(et0)) ? 0 : clamp(et0 / 0.30, 0, 1);
 
-        // soil moisture day normalize (already on factors as smN)
         const smN = (w.sm010===null || w.sm010===undefined || !isFinite(Number(w.sm010))) ? 0 : clamp((Number(w.sm010)-0.10)/0.25, 0, 1);
 
         return {
@@ -1668,7 +1721,6 @@ CHANGES (per your ask):
         };
       });
 
-      // initial storage nudge from recent rain
       const first7 = rows.slice(0,7);
       const rain7 = first7.reduce((s,x)=> s + Number(x.rainInAdj||0), 0);
       const rainNudgeFrac = clamp(rain7 / 4.0, 0, 1);
@@ -1680,13 +1732,9 @@ CHANGES (per your ask):
       for (const d of rows){
         const rain = Number(d.rainInAdj||0);
 
-        // base add
         let add = rain * f.infilMult;
+        add += (EXTRA.ADD_SM010_W * d.smN_day) * 0.05;
 
-        // light add nudge if surface soil moisture high (very small; keeps your "extras matter" promise)
-        add += (EXTRA.ADD_SM010_W * d.smN_day) * 0.05; // inches/day scale (tiny)
-
-        // base loss + light ET0 multiplier
         const loss = Number(d.dryPwr||0) * LOSS_SCALE * f.dryMult * (1 + EXTRA.LOSS_ET0_W * d.et0N);
 
         const before = storage;
@@ -2024,6 +2072,10 @@ CHANGES (per your ask):
       setText('dAcres', (isFinite(f.tillable) ? `${f.tillable.toFixed(2)} ac` : '—'));
       setText('dGps', (f.location ? `${f.location.lat.toFixed(6)}, ${f.location.lng.toFixed(6)}` : '—'));
 
+      // map button availability
+      const btnMap = $('btnMap');
+      if (btnMap) btnMap.disabled = !f.location;
+
       setText('dSoilType', `${p.soilWetness}/100`);
       setText('dSoilHold', `${fac.soilHold.toFixed(2)} (normalized)`);
       setText('dDrainage', `${p.drainageIndex}/100`);
@@ -2116,7 +2168,6 @@ CHANGES (per your ask):
         }
       }
 
-      // update Adjust modal pills (if open)
       updateAdjustPills();
     }
 
@@ -2220,7 +2271,6 @@ CHANGES (per your ask):
         const arr = raw ? JSON.parse(raw) : [];
         const out = Array.isArray(arr) ? arr : [];
         out.unshift(entry);
-        // cap
         while (out.length > 60) out.pop();
         localStorage.setItem(LS_ADJ_LOG, JSON.stringify(out));
       }catch(_){}
@@ -2241,12 +2291,10 @@ CHANGES (per your ask):
           createdBy: user ? (user.email || user.uid || null) : null
         };
 
-        // addDoc
         const col = api.collection(db, ADJ_COLLECTION);
         if (api.addDoc){
           await api.addDoc(col, payload);
         } else {
-          // fallback: deterministic doc id (timestamp)
           const id = String(Date.now());
           const ref = api.doc(db, ADJ_COLLECTION, id);
           await api.setDoc(ref, payload, { merge:true });
@@ -2268,7 +2316,6 @@ CHANGES (per your ask):
       const obs = String(($('adjObs') && $('adjObs').value) || 'none');
       const feel = state._adjFeel || 'ok';
 
-      // guardrails: cap per submit
       const MAX_DELTA = 14;
       const d = clamp(delta, -MAX_DELTA, +MAX_DELTA);
 
@@ -2279,17 +2326,14 @@ CHANGES (per your ask):
         drainageIndex: clamp(Math.round(p0.drainageIndex + d), 0, 100)
       };
 
-      // If "About Right": no-op
       if (d === 0){
         closeAdjust();
         return;
       }
 
-      // apply + persist
       state.perFieldParams.set(f.id, p1);
       saveParamsToLocal();
 
-      // sync sliders immediately
       const a = $('soilWet'), b = $('drain');
       if (a) a.value = String(p1.soilWetness);
       if (b) b.value = String(p1.drainageIndex);
@@ -2326,7 +2370,6 @@ CHANGES (per your ask):
       const sub = $('adjustSub');
       if (sub && f) sub.textContent = f.name || '—';
 
-      // default selection
       setFeel('ok');
       const obs = $('adjObs'); if (obs) obs.value = 'none';
       updateAdjustPills();
@@ -2393,6 +2436,143 @@ CHANGES (per your ask):
       if (!op) return;
       try{ localStorage.setItem(LS_OP_KEY, String(op.value||'')); }catch(_){}
     }
+
+    /* ---------- MAP (in-app modal) ---------- */
+
+    function getMapsKey(){
+      const k1 = (window && window.FV_GOOGLE_MAPS_KEY) ? String(window.FV_GOOGLE_MAPS_KEY) : '';
+      let k2 = '';
+      try{ k2 = String(localStorage.getItem('fv_google_maps_key') || ''); }catch(_){}
+      return (k1 || k2 || '').trim();
+    }
+
+    function loadGoogleMapsOnce(){
+      if (state._mapsPromise) return state._mapsPromise;
+
+      state._mapsPromise = new Promise((resolve, reject)=>{
+        if (window.google && window.google.maps){
+          resolve(window.google.maps);
+          return;
+        }
+
+        const key = getMapsKey();
+        if (!key){
+          reject(new Error('Missing Google Maps key. Set window.FV_GOOGLE_MAPS_KEY or localStorage.fv_google_maps_key.'));
+          return;
+        }
+
+        const existing = document.querySelector('script[data-fv-google-maps="1"]');
+        if (existing){
+          const t0 = Date.now();
+          const tick = ()=>{
+            if (window.google && window.google.maps) return resolve(window.google.maps);
+            if (Date.now() - t0 > 15000) return reject(new Error('Google Maps load timeout.'));
+            setTimeout(tick, 50);
+          };
+          tick();
+          return;
+        }
+
+        const s = document.createElement('script');
+        s.setAttribute('data-fv-google-maps','1');
+        s.async = true;
+        s.defer = true;
+        s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly`;
+        s.onload = ()=>{
+          if (window.google && window.google.maps) resolve(window.google.maps);
+          else reject(new Error('Google Maps loaded but google.maps is missing.'));
+        };
+        s.onerror = ()=> reject(new Error('Failed to load Google Maps script.'));
+        document.head.appendChild(s);
+      });
+
+      return state._mapsPromise;
+    }
+
+    function setMapError(msg){
+      const el = $('mapError');
+      const wrap = $('mapWrap');
+      if (el){
+        if (!msg){
+          el.style.display = 'none';
+          el.textContent = '';
+        } else {
+          el.style.display = 'block';
+          el.textContent = msg;
+        }
+      }
+      if (wrap) wrap.style.opacity = msg ? '0.65' : '1';
+    }
+
+    function openMapModal(){
+      const f = state.fields.find(x=>x.id === state.selectedFieldId);
+      if (!f || !f.location) return;
+
+      const lat = Number(f.location.lat);
+      const lng = Number(f.location.lng);
+      const sub = $('mapSub');
+      if (sub) sub.textContent = (f.name ? `${f.name}` : 'Field') + ' • HYBRID';
+
+      const ll = $('mapLatLng');
+      if (ll) ll.textContent = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+
+      setMapError('');
+      showModal('mapBackdrop', true);
+
+      // Build map (after modal visible so size is correct)
+      setTimeout(async ()=>{
+        try{
+          const maps = await loadGoogleMapsOnce();
+
+          const canvas = $('fvMapCanvas');
+          if (!canvas) throw new Error('Map canvas missing.');
+
+          const center = { lat, lng };
+
+          if (!state._gmap){
+            state._gmap = new maps.Map(canvas, {
+              center,
+              zoom: 16,
+              mapTypeId: maps.MapTypeId.HYBRID,
+              streetViewControl: false,
+              fullscreenControl: false,
+              mapTypeControl: true,
+              clickableIcons: false
+            });
+          } else {
+            state._gmap.setCenter(center);
+            state._gmap.setZoom(16);
+            state._gmap.setMapTypeId(maps.MapTypeId.HYBRID);
+          }
+
+          if (!state._gmarker){
+            state._gmarker = new maps.Marker({
+              position: center,
+              map: state._gmap
+            });
+          } else {
+            state._gmarker.setMap(state._gmap);
+            state._gmarker.setPosition(center);
+          }
+
+          // ensure it renders correctly after open
+          setTimeout(()=>{
+            try{ maps.event.trigger(state._gmap, 'resize'); }catch(_){}
+            try{ state._gmap.setCenter(center); }catch(_){}
+          }, 60);
+
+        }catch(e){
+          console.warn('[FieldReadiness] map open failed:', e);
+          setMapError(e?.message || 'Map failed to load.');
+        }
+      }, 0);
+    }
+
+    function closeMapModal(){
+      showModal('mapBackdrop', false);
+    }
+
+    /* ---------- wiring ---------- */
 
     function on(id, ev, fn){
       const el = $(id);
@@ -2471,6 +2651,21 @@ CHANGES (per your ask):
     })();
 
     on('adjObs','change', updateAdjustGuard);
+
+    // ✅ Map wiring
+    on('btnMap','click', (e)=>{
+      e.preventDefault();
+      e.stopPropagation();
+      openMapModal();
+    });
+    on('btnMapX','click', closeMapModal);
+    (function(){
+      const b = $('mapBackdrop');
+      if (!b) return;
+      b.addEventListener('click', (e)=>{
+        if (e.target && e.target.id === 'mapBackdrop') closeMapModal();
+      });
+    })();
 
     /* ---------- init ---------- */
     (async function init(){
