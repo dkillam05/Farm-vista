@@ -475,15 +475,15 @@
 
                 <div class="detail-controls">
                   <div class="field">
-                    <label for="soilWet">Soil Type / Holding (1–10)</label>
-                    <input id="soilWet" type="range" min="1" max="10" step="1" value="6"/>
-                    <div class="help">Saved per-field locally (device). Affects retention + dry-down.</div>
+                    <label for="soilWet">Soil Wetness (0–100)</label>
+                    <input id="soilWet" type="range" min="0" max="100" step="1" value="60"/>
+                    <div class="help">Reads from field: <span class="mono">soilWetness</span> (falls back to local).</div>
                   </div>
 
                   <div class="field">
-                    <label for="drain">Drainage (1–10)</label>
-                    <input id="drain" type="range" min="1" max="10" step="1" value="5"/>
-                    <div class="help">Saved per-field locally (device). Tile/ditches/natural drainage.</div>
+                    <label for="drain">Drainage Index (0–100)</label>
+                    <input id="drain" type="range" min="0" max="100" step="1" value="45"/>
+                    <div class="help">Reads from field: <span class="mono">drainageIndex</span> (falls back to local).</div>
                   </div>
 
                   <div class="field">
@@ -522,9 +522,9 @@
                     <div class="k">Tillable</div><div class="v" id="dAcres">—</div>
                     <div class="k">GPS</div><div class="v mono" id="dGps">—</div>
 
-                    <div class="k">Soil type</div><div class="v" id="dSoilType">—</div>
+                    <div class="k">Soil Wetness</div><div class="v" id="dSoilType">—</div>
                     <div class="k">Soil holding</div><div class="v" id="dSoilHold">—</div>
-                    <div class="k">Drainage</div><div class="v" id="dDrainage">—</div>
+                    <div class="k">Drainage Index</div><div class="v" id="dDrainage">—</div>
 
                     <div class="k">Threshold</div><div class="v" id="dThreshold">—</div>
                     <div class="k">Operation</div><div class="v" id="dOperation">—</div>
@@ -673,7 +673,7 @@
     </div>
   </div>
 
-  <!-- ✅ Module script so firebase-init.js can contain export -->
+  <!-- ✅ Module script -->
   <script type="module">
     'use strict';
 
@@ -685,7 +685,9 @@
     };
 
     const LOSS_SCALE = 0.55;
-    const LS_KEY = 'fv_dev_field_readiness_params_v1';
+
+    // Keep local fallback (dev) but now uses 0..100
+    const LS_KEY = 'fv_dev_field_readiness_params_v2_0_100';
 
     const state = {
       weather30: [],
@@ -699,8 +701,6 @@
       farmsById: new Map(),
       perFieldParams: new Map(),
       fieldsMeta: { total:0, activeGps:0, usedFallback:false },
-
-      // Firestore helpers (set after import)
       fb: null
     };
 
@@ -745,8 +745,8 @@
         for (const [k,v] of Object.entries(obj)){
           if (!v || typeof v !== 'object') continue;
           state.perFieldParams.set(k, {
-            soil: clamp(Number(v.soil||6), 1, 10),
-            drain: clamp(Number(v.drain||5), 1, 10),
+            soilWetness: clamp(Number(v.soilWetness ?? 60), 0, 100),
+            drainageIndex: clamp(Number(v.drainageIndex ?? 45), 0, 100),
             rainFactor: isFinite(Number(v.rainFactor)) ? Number(v.rainFactor) : 1
           });
         }
@@ -757,7 +757,7 @@
       try{
         const obj = {};
         for (const [k,v] of state.perFieldParams.entries()){
-          obj[k] = { soil:v.soil, drain:v.drain, rainFactor:v.rainFactor };
+          obj[k] = { soilWetness:v.soilWetness, drainageIndex:v.drainageIndex, rainFactor:v.rainFactor };
         }
         localStorage.setItem(LS_KEY, JSON.stringify(obj));
       }catch(_){}
@@ -766,7 +766,7 @@
     function getFieldParams(fieldId){
       const p = state.perFieldParams.get(fieldId);
       if (p) return p;
-      const def = { soil:6, drain:5, rainFactor:1 };
+      const def = { soilWetness:60, drainageIndex:45, rainFactor:1 };
       state.perFieldParams.set(fieldId, def);
       return def;
     }
@@ -774,14 +774,25 @@
     function ensureSelectedParamsToSliders(){
       if (!state.selectedFieldId) return;
       const p = getFieldParams(state.selectedFieldId);
-      $('soilWet').value = String(p.soil);
-      $('drain').value   = String(p.drain);
+      $('soilWet').value = String(p.soilWetness);
+      $('drain').value   = String(p.drainageIndex);
+    }
+
+    // Pull soilWetness / drainageIndex from Firestore doc (preferred)
+    function hydrateParamsFromFieldDoc(field){
+      if (!field) return;
+      const cur = getFieldParams(field.id);
+      if (isFinite(field.soilWetness)) cur.soilWetness = clamp(Number(field.soilWetness), 0, 100);
+      if (isFinite(field.drainageIndex)) cur.drainageIndex = clamp(Number(field.drainageIndex), 0, 100);
+      state.perFieldParams.set(field.id, cur);
     }
 
     function extractFieldDoc(docId, d){
       const loc = d.location || {};
       const lat = Number(loc.lat);
       const lng = Number(loc.lng);
+      const soilWetness = Number(d.soilWetness);
+      const drainageIndex = Number(d.drainageIndex);
       return {
         id: docId,
         name: String(d.name||''),
@@ -791,20 +802,22 @@
         rtkTowerId: String(d.rtkTowerId||''),
         status: String(d.status||''),
         tillable: Number(d.tillable||0),
-        location: (isFinite(lat) && isFinite(lng)) ? { lat, lng } : null
+        location: (isFinite(lat) && isFinite(lng)) ? { lat, lng } : null,
+        soilWetness: isFinite(soilWetness) ? soilWetness : null,
+        drainageIndex: isFinite(drainageIndex) ? drainageIndex : null
       };
     }
 
     async function importFirebaseInit(){
-      // ✅ This resolves your "Unexpected token export" issue.
-      // If firebase-init.js is an ES module, it must be imported by a module script.
       try{
         const mod = await import('/Farm-vista/js/firebase-init.js');
-        // Expecting named exports (your earlier pattern with modular Firestore)
         state.fb = mod;
+
+        // ✅ CRITICAL: wait for firebase-init to finish (prevents “0 docs” race)
+        if (mod && mod.ready) await mod.ready;
+
         return true;
       }catch(e){
-        // If your firebase-init attaches globals instead, we can still try window.* as fallback
         console.warn('[FieldReadiness] firebase-init import failed:', e);
         state.fb = null;
         return false;
@@ -812,13 +825,10 @@
     }
 
     function getModularFirestoreAPI(){
-      // Prefer imported module exports
       const m = state.fb;
       if (m && m.getFirestore && m.collection && m.getDocs && m.query && m.where){
         return { kind:'module', ...m };
       }
-
-      // Fallback if your init attaches to window (some builds do)
       if (window.getFirestore && window.collection && window.getDocs && window.query && window.where){
         return {
           kind:'window',
@@ -829,12 +839,9 @@
           where: window.where
         };
       }
-
-      // Compat fallback (rare)
       if (window.firebase && window.firebase.firestore){
         return { kind:'compat' };
       }
-
       return null;
     }
 
@@ -856,7 +863,7 @@
     async function loadFields(){
       const api = getModularFirestoreAPI();
       if (!api){
-        setErr('Firestore helpers not found (firebase-init didn’t load in a module context).');
+        setErr('Firestore helpers not found.');
         state.fields = [];
         state.fieldsMeta = { total:0, activeGps:0, usedFallback:false };
         updateFieldsDebug();
@@ -870,11 +877,13 @@
 
         if (api.kind !== 'compat'){
           const db = api.getFirestore();
+
+          // Fast path (but not required)
           const q = api.query(api.collection(db,'fields'), api.where('status','==','active'));
           const snap = await api.getDocs(q);
           snap.forEach(doc=> rawDocs.push({ id: doc.id, data: doc.data() || {} }));
 
-          // fallback: fetch all if query returns 0 (catches casing / data mismatch)
+          // fallback: fetch all if query returns 0 (covers casing/mismatch)
           if (rawDocs.length === 0){
             usedFallback = true;
             const snap2 = await api.getDocs(api.collection(db,'fields'));
@@ -899,6 +908,9 @@
           if (normalizeStatus(f.status) !== 'active') continue;
           if (!f.location) continue;
           arr.push(f);
+
+          // ✅ pull soilWetness/drainageIndex from Firestore into params
+          hydrateParamsFromFieldDoc(f);
         }
 
         arr.sort((a,b)=> String(a.name).localeCompare(String(b.name), undefined, {numeric:true, sensitivity:'base'}));
@@ -912,7 +924,9 @@
         $('emptyMsg').style.display = state.fields.length ? 'none' : 'block';
         updateFieldsDebug();
 
-        loadParamsFromLocal();
+        // persist any new hydrated params
+        saveParamsToLocal();
+
         ensureSelectedParamsToSliders();
 
         renderTiles();
@@ -1019,9 +1033,10 @@
       return { temp, wind, rh, solar, tempN, windN, rhN, solarN, raw, dryPwr };
     }
 
-    function mapFactors(soil, drain){
-      const soilHold = (Number(soil) - 1) / 9;
-      const drainPoor= (Number(drain) - 1) / 9;
+    // ✅ now soil/drain are 0..100 normalized to 0..1
+    function mapFactors(soilWetness0_100, drainageIndex0_100){
+      const soilHold = clamp(Number(soilWetness0_100) / 100, 0, 1);
+      const drainPoor= clamp(Number(drainageIndex0_100) / 100, 0, 1);
 
       const infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor;
       const dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor;
@@ -1034,7 +1049,7 @@
       if (!state.weather30.length) return null;
 
       const p = getFieldParams(field.id);
-      const f = mapFactors(p.soil, p.drain);
+      const f = mapFactors(p.soilWetness, p.drainageIndex);
       const rf = (state.mode === 'MOCK') ? (p.rainFactor || 1) : 1;
 
       const rows = state.weather30.map(w=>{
@@ -1237,23 +1252,6 @@
       refreshAll();
     }
 
-    function soilTypeLabel(n){
-      const v = clamp(Number(n), 1, 10);
-      if (v <= 2) return 'Sandy / low holding';
-      if (v <= 4) return 'Sandy loam';
-      if (v <= 6) return 'Loam / balanced';
-      if (v <= 8) return 'Silty clay loam';
-      return 'Clay / high holding';
-    }
-    function drainageLabel(n){
-      const v = clamp(Number(n), 1, 10);
-      if (v <= 2) return 'Very good drainage';
-      if (v <= 4) return 'Good drainage';
-      if (v <= 6) return 'Moderate drainage';
-      if (v <= 8) return 'Poor drainage';
-      return 'Very poor drainage';
-    }
-
     function renderDetails(){
       const f = state.fields.find(x=>x.id === state.selectedFieldId);
       if (!f) return;
@@ -1283,9 +1281,9 @@
       $('dAcres').textContent = (isFinite(f.tillable) ? `${f.tillable.toFixed(2)} ac` : '—');
       $('dGps').textContent = (f.location ? `${f.location.lat.toFixed(6)}, ${f.location.lng.toFixed(6)}` : '—');
 
-      $('dSoilType').textContent = `${soilTypeLabel(p.soil)} (${p.soil}/10)`;
+      $('dSoilType').textContent = `${p.soilWetness}/100`;
       $('dSoilHold').textContent = `${fac.soilHold.toFixed(2)} (normalized)`;
-      $('dDrainage').textContent = `${drainageLabel(p.drain)} (${p.drain}/10)`;
+      $('dDrainage').textContent = `${p.drainageIndex}/100`;
 
       $('dThreshold').textContent = `${thr}`;
       $('dOperation').textContent = op;
@@ -1300,7 +1298,7 @@
       $('dStorage').textContent = `${run.storageFinal.toFixed(2)} / ${run.factors.Smax.toFixed(2)}`;
 
       $('paramExplain').innerHTML =
-        `soilHold=(soil−1)/9=<span class="mono">${fac.soilHold.toFixed(2)}</span> • drainPoor=(drain−1)/9=<span class="mono">${fac.drainPoor.toFixed(2)}</span><br/>
+        `soilHold=soilWetness/100=<span class="mono">${fac.soilHold.toFixed(2)}</span> • drainPoor=drainageIndex/100=<span class="mono">${fac.drainPoor.toFixed(2)}</span><br/>
          Smax=<span class="mono">${fac.Smax.toFixed(2)}</span> • infilMult=<span class="mono">${fac.infilMult.toFixed(2)}</span> • dryMult=<span class="mono">${fac.dryMult.toFixed(2)}</span> • LOSS_SCALE=<span class="mono">${LOSS_SCALE.toFixed(2)}</span>`;
 
       $('mathSummary').innerHTML =
@@ -1358,12 +1356,42 @@
       }
     }
 
+    // Adjust modal (logic left as your existing file; not needed for field loading)
+    function showModal(on){ $('adjustBackdrop').classList.toggle('pv-hide', !on); }
+    function showStep(which){
+      const a=$('adjustStep1'), b=$('adjustStepDry'), c=$('adjustStepWet');
+      if (a) a.classList.toggle('pv-hide', which !== 'start');
+      if (b) b.classList.toggle('pv-hide', which !== 'dry');
+      if (c) c.classList.toggle('pv-hide', which !== 'wet');
+    }
+
+    function openAdjust(id){
+      state.adjustContext.fieldId = id;
+      showStep('start');
+      showModal(true);
+    }
+    function closeAdjust(){
+      showModal(false);
+      state.adjustContext.fieldId = null;
+      showStep('start');
+    }
+
+    $('btnAdjCancel').addEventListener('click', closeAdjust);
+    $('adjustBackdrop').addEventListener('click', (e)=>{
+      if (e.target && e.target.id === 'adjustBackdrop') closeAdjust();
+    });
+    $('btnAdjWet').addEventListener('click', ()=> showStep('wet'));
+    $('btnAdjDry').addEventListener('click', ()=> showStep('dry'));
+    $('btnDryBack').addEventListener('click', ()=> showStep('start'));
+    $('btnWetBack').addEventListener('click', ()=> showStep('start'));
+
+    // refresh
     function refreshAll(){
       setErr('');
       if (state.selectedFieldId){
         const p = getFieldParams(state.selectedFieldId);
-        p.soil  = clamp(Number($('soilWet').value), 1, 10);
-        p.drain = clamp(Number($('drain').value), 1, 10);
+        p.soilWetness = clamp(Number($('soilWet').value), 0, 100);
+        p.drainageIndex = clamp(Number($('drain').value), 0, 100);
         state.perFieldParams.set(state.selectedFieldId, p);
         saveParamsToLocal();
       }
@@ -1371,7 +1399,7 @@
       renderDetails();
     }
 
-    // --- events (same as before)
+    // events
     $('sortSel').addEventListener('change', refreshAll);
     $('opSel').addEventListener('change', refreshAll);
     $('soilWet').addEventListener('input', refreshAll);
@@ -1461,10 +1489,11 @@
       try{ $('detailsPanel').open = false; }catch(_){}
       genMock30();
 
+      loadParamsFromLocal();
+
       const ok = await importFirebaseInit();
       if (!ok){
-        // don’t hard stop — but show the real reason
-        setErr('firebase-init.js failed to import as a module. Check console for exact import error.');
+        setErr('firebase-init.js failed to import as a module.');
       }
 
       await loadFarmsOptional();
