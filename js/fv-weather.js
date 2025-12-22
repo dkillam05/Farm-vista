@@ -1,55 +1,50 @@
 /* =======================================================================
 // /Farm-vista/js/fv-weather.js
-// Rev: 2025-11-27h (Divernon + °F forecast + today-first + day details)
+// Rev: 2025-12-22a (Visual Crossing upgrade + optional Rain Map button)
 //
 // FarmVista Weather module
-// - Google Weather: current conditions + last 24h precip
-// - Open-Meteo: 7d & 30d rainfall + 7d forecast
+// ✅ Primary data source: Visual Crossing Timeline API
+// ✅ Keeps your existing card + modal UI/UX (same structure)
+// ✅ Computes:
+//    - Rain last 24h (sum hourly precip)
+//    - Rain last 7d / 30d (sum daily precip)
+//    - Next 5 days (today-first) with click-for-details
+// ✅ Optional: adds a “Rain Map” button in the modal that dispatches an event:
+//      document.dispatchEvent(new CustomEvent("fv:open-rain-map", {detail:{lat,lon,label}}))
 //
-// Card above dashboard:
-//   • Current conditions
-//   • Rain last 24h / 7d / 30d
-//
-// Modal popup:
-//   • Current conditions (detailed)
-//   • Next 5 days (rows, Fahrenheit) – starting from *today*
-//   • Click a day → details panel (conditions, snow/rain range, wind, sunrise/sunset)
-//   • Rainfall last 7 days (bar chart)
-//
-// Usage in dashboard:
-//
-//   FVWeather.initWeatherModule({
-//     googleApiKey: "YOUR_KEY",
-//     selector: "#fv-weather",
-//     mode: "card"
-//   });
-//
-//   FVWeather.initWeatherModule({
-//     googleApiKey: "YOUR_KEY",
-//     selector: "#fv-weather-modal-body",
-//     mode: "modal"
-//   });
-//
-// Lat / lon default to Divernon, IL but can be overridden.
+// Back-compat:
+//  - If you still pass googleApiKey (old config), this file will treat it as
+//    visualCrossingKey ONLY if visualCrossingKey is missing.
+//  - NOTE: This revision does NOT call Google Weather or Open-Meteo.
 // ======================================================================= */
 
 (() => {
-  const GOOGLE_CURRENT_URL =
-    "https://weather.googleapis.com/v1/currentConditions:lookup";
-  const GOOGLE_HISTORY_URL =
-    "https://weather.googleapis.com/v1/history/hours:lookup";
-  const OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast";
+  // Visual Crossing Timeline API
+  // Docs: /rest/services/timeline/{location}/{start}/{end}?unitGroup=us&contentType=json&key=...
+  const VC_TIMELINE_URL = "https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline";
 
   const DEFAULT_CONFIG = {
+    // NEW: Visual Crossing API key
+    visualCrossingKey: "",
+
+    // Back-compat: your dashboard currently passes googleApiKey
+    // We’ll treat googleApiKey as VC key if visualCrossingKey not provided.
     googleApiKey: "",
+
     // Divernon, IL (approx)
     lat: 39.5656,
     lon: -89.6573,
-    unitsSystem: "IMPERIAL",
+
     selector: "#fv-weather",
-    showOpenMeteo: true,
     mode: "card", // "card" | "modal"
-    locationLabel: "Divernon, Illinois"
+    locationLabel: "Divernon, Illinois",
+
+    // Optional: show “Rain Map” button inside modal
+    showRainMapButton: true,
+
+    // How far to pull:
+    pastDaysForTotals: 30,     // for 30-day rainfall
+    forecastDays: 7            // for forecast list (we use next 5)
   };
 
   /* ==========================
@@ -111,46 +106,12 @@
     `;
   }
 
-  function formatTemp(tempObj) {
-    if (!tempObj || typeof tempObj.degrees !== "number") return "—";
-    const value = Math.round(tempObj.degrees);
-    const unit =
-      tempObj.unit === "FAHRENHEIT"
-        ? "°F"
-        : tempObj.unit === "CELSIUS"
-        ? "°C"
-        : "";
-    return `${value}${unit}`;
-  }
-
-  function formatHumidity(value) {
-    if (typeof value !== "number") return "—";
-    return `${value}%`;
-  }
-
-  function formatWind(wind) {
-    if (!wind || !wind.speed || typeof wind.speed.value !== "number") return "—";
-    const speed = Math.round(wind.speed.value);
-    const dir = wind.direction && wind.direction.cardinal
-      ? wind.direction.cardinal.replace("_", " ")
-      : "";
-    return dir ? `${speed} mph ${dir}` : `${speed} mph`;
-  }
-
-  function buildGoogleIconUrl(weatherCondition) {
-    if (!weatherCondition || !weatherCondition.iconBaseUri) return "";
-    return `${weatherCondition.iconBaseUri}.svg`;
+  function roundTo2(n) {
+    return Math.round((Number(n) || 0) * 100) / 100;
   }
 
   function safeSum(arr) {
-    return (arr || []).reduce((sum, v) => {
-      const n = typeof v === "number" ? v : 0;
-      return sum + n;
-    }, 0);
-  }
-
-  function roundTo2(n) {
-    return Math.round(n * 100) / 100;
+    return (arr || []).reduce((sum, v) => sum + (Number.isFinite(Number(v)) ? Number(v) : 0), 0);
   }
 
   function fmtDayShort(dateStr) {
@@ -171,29 +132,96 @@
     return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   }
 
+  function formatTempF(n) {
+    if (!Number.isFinite(Number(n))) return "—";
+    return `${Math.round(Number(n))}°F`;
+  }
+
+  function formatHumidity(value) {
+    if (!Number.isFinite(Number(value))) return "—";
+    return `${Math.round(Number(value))}%`;
+  }
+
+  function formatWindMph(speed, dirDeg) {
+    if (!Number.isFinite(Number(speed))) return "—";
+    const s = Math.round(Number(speed));
+    const deg = Number(dirDeg);
+    const card = Number.isFinite(deg) ? degToCardinal(deg) : "";
+    return card ? `${s} mph ${card}` : `${s} mph`;
+  }
+
+  function degToCardinal(deg) {
+    const d = ((deg % 360) + 360) % 360;
+    const dirs = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+    const idx = Math.round(d / 22.5) % 16;
+    return dirs[idx];
+  }
+
+  // Visual Crossing icon -> simple inline SVG (keeps things clean, no external deps)
+  function iconSvgForVC(icon) {
+    const k = (icon || "").toString().toLowerCase();
+    const stroke = "currentColor";
+    const fill = "none";
+
+    // small, subtle line icons
+    const wrap = (inner) => `
+      <svg viewBox="0 0 24 24" width="48" height="48" aria-hidden="true"
+        style="display:block;color:var(--muted,#67706B)">
+        ${inner}
+      </svg>
+    `;
+
+    if (k.includes("snow")) {
+      return wrap(`
+        <path d="M8 7h8" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M7 11h10" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M8 15h8" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M9 18l-1 2" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M12 18v2" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M15 18l1 2" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round"/>
+      `);
+    }
+
+    if (k.includes("rain") || k.includes("showers")) {
+      return wrap(`
+        <path d="M8 16c-2.2 0-4-1.6-4-3.6C4 10.6 5.6 9.2 7.6 9c.6-2 2.4-3.4 4.6-3.4
+                 2.6 0 4.8 2 5 4.6 1.6.3 2.8 1.7 2.8 3.4 0 1.9-1.7 3.6-3.8 3.6H8z"
+              stroke="${stroke}" stroke-width="1.6" fill="${fill}" stroke-linejoin="round"/>
+        <path d="M9 18l-1 2" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M12 18l-1 2" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M15 18l-1 2" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round"/>
+      `);
+    }
+
+    if (k.includes("cloud")) {
+      return wrap(`
+        <path d="M8 16c-2.2 0-4-1.6-4-3.6C4 10.6 5.6 9.2 7.6 9c.6-2 2.4-3.4 4.6-3.4
+                 2.6 0 4.8 2 5 4.6 1.6.3 2.8 1.7 2.8 3.4 0 1.9-1.7 3.6-3.8 3.6H8z"
+              stroke="${stroke}" stroke-width="1.6" fill="${fill}" stroke-linejoin="round"/>
+      `);
+    }
+
+    // default: sun / clear-day
+    return wrap(`
+      <path d="M12 18a6 6 0 1 0 0-12a6 6 0 0 0 0 12z" stroke="${stroke}" stroke-width="1.6" fill="${fill}"/>
+      <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M19.8 4.2l-1.4 1.4M5.6 18.4l-1.4 1.4"
+            stroke="${stroke}" stroke-width="1.6" stroke-linecap="round"/>
+    `);
+  }
+
   // Classify a day into Sunny / Cloudy / Rain / Snow and compute snow range text.
   function classifyDay(day) {
     const hi = day.tMax;
-    const lo = day.tMin;
     const precip = day.precipIn || 0;
-    const prob = day.precipProb || 0;
     const clouds = day.cloudCover != null ? day.cloudCover : 0;
 
     let type = "Unknown";
-    // simple rule-of-thumb classification
-    if (precip >= 0.05 && hi <= 34) {
-      type = "Snow";
-    } else if (precip >= 0.05) {
-      type = "Rain";
-    } else if (clouds <= 20) {
-      type = "Sunny";
-    } else if (clouds <= 60) {
-      type = "Partly cloudy";
-    } else {
-      type = "Cloudy";
-    }
+    if (precip >= 0.05 && Number(hi) <= 34) type = "Snow";
+    else if (precip >= 0.05) type = "Rain";
+    else if (clouds <= 20) type = "Sunny";
+    else if (clouds <= 60) type = "Partly cloudy";
+    else type = "Cloudy";
 
-    // snow range bucket from precip amount
     let snowRange = null;
     if (type === "Snow" && precip > 0) {
       const inch = precip;
@@ -208,159 +236,171 @@
     return { type, snowRange };
   }
 
+  function yyyyMmDdLocal(d) {
+    const dt = new Date(d);
+    dt.setHours(0, 0, 0, 0);
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, "0");
+    const day = String(dt.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
   /* ==========================
-     Fetchers
+     Visual Crossing fetch + normalize
      ========================== */
 
-  async function fetchGoogleCurrent(config) {
+  async function fetchVisualCrossingTimeline(config) {
+    const key = (config.visualCrossingKey || config.googleApiKey || "").toString().trim();
+    if (!key) throw new Error("Missing Visual Crossing API key.");
+
+    const loc = `${config.lat},${config.lon}`;
+
+    const now = new Date();
+    const start = new Date(now);
+    start.setDate(start.getDate() - Number(config.pastDaysForTotals || 30));
+    const end = new Date(now);
+    end.setDate(end.getDate() + Number(config.forecastDays || 7));
+
+    const startStr = yyyyMmDdLocal(start);
+    const endStr = yyyyMmDdLocal(end);
+
     const params = new URLSearchParams({
-      key: config.googleApiKey,
-      "location.latitude": String(config.lat),
-      "location.longitude": String(config.lon),
-      unitsSystem: config.unitsSystem
+      key,
+      unitGroup: "us",
+      contentType: "json",
+      include: "hours,days,current,alerts"
     });
 
-    const url = `${GOOGLE_CURRENT_URL}?${params.toString()}`;
+    const url = `${VC_TIMELINE_URL}/${encodeURIComponent(loc)}/${startStr}/${endStr}?${params.toString()}`;
     const res = await fetch(url);
-    if (!res.ok) {
-      throw new Error(`currentConditions HTTP ${res.status}`);
-    }
-    const data = await res.json();
-    const current =
-      Array.isArray(data.currentConditions) && data.currentConditions.length > 0
-        ? data.currentConditions[0]
-        : data.currentConditions || data;
-    return { raw: data, current };
-  }
+    if (!res.ok) throw new Error(`VisualCrossing HTTP ${res.status}`);
 
-  async function fetchGoogleHistory24(config) {
-    const params = new URLSearchParams({
-      key: config.googleApiKey,
-      "location.latitude": String(config.lat),
-      "location.longitude": String(config.lon),
-      unitsSystem: config.unitsSystem,
-      hours: String(24)
+    const data = await res.json();
+
+    // Normalize into your existing combined structure
+    const current = data.currentConditions || {};
+    const days = Array.isArray(data.days) ? data.days : [];
+
+    // find "today" day bucket
+    const today0 = new Date(); today0.setHours(0,0,0,0);
+    const idxToday = days.findIndex(d => {
+      const dt = new Date(d.datetime || d.datetimeStr || d.datetimeEpoch * 1000);
+      dt.setHours(0,0,0,0);
+      return dt.getTime() === today0.getTime();
+    });
+    const todayDay = idxToday >= 0 ? days[idxToday] : (days.length ? days[days.length - 1] : null);
+
+    // Rain last 24h: sum hourly precip from the most recent 24 hours we can find
+    // Best case: use today.hours + yesterday.hours tail.
+    let rain24h = null;
+    try {
+      const hours = [];
+
+      // Pull from today and yesterday buckets if present
+      const todayBucket = idxToday >= 0 ? days[idxToday] : null;
+      const yBucket = (idxToday > 0) ? days[idxToday - 1] : null;
+
+      const pushHours = (bucket) => {
+        if (!bucket || !Array.isArray(bucket.hours)) return;
+        bucket.hours.forEach(h => {
+          // VC hour has datetime / datetimeEpoch and precip
+          const epochMs = Number(h.datetimeEpoch) ? Number(h.datetimeEpoch) * 1000 : null;
+          hours.push({
+            t: epochMs || Date.parse(`${bucket.datetime}T${(h.datetime || "00:00:00").slice(0,8)}`),
+            precip: Number(h.precip) || 0
+          });
+        });
+      };
+
+      pushHours(yBucket);
+      pushHours(todayBucket);
+
+      hours.sort((a,b)=> (a.t||0) - (b.t||0));
+
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      const last24 = hours.filter(h => Number.isFinite(h.t) && h.t >= cutoff);
+      if (last24.length) rain24h = safeSum(last24.map(h => h.precip));
+      else if (Number.isFinite(Number(current.precip))) rain24h = Number(current.precip); // fallback
+      else rain24h = 0;
+    } catch {
+      rain24h = 0;
+    }
+
+    // Rain last 7d/30d from daily precip
+    const dailyPrecip = days.map(d => Number(d.precip) || 0);
+    const dailyDates = days.map(d => {
+      // VC day datetime is "YYYY-MM-DD"
+      return d.datetime || "";
     });
 
-    const url = `${GOOGLE_HISTORY_URL}?${params.toString()}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      throw new Error(`history.hours HTTP ${res.status}`);
-    }
-    const data = await res.json();
-    const hoursArr = data.historyHours || [];
+    // Use most recent slices ending today (if found) else end of array
+    const endIdx = (idxToday >= 0) ? idxToday : (days.length - 1);
 
-    let totalInches = 0;
-    for (const h of hoursArr) {
-      const precip = h.precipitation;
-      const qpf = precip && precip.qpf;
-      const qty = qpf && typeof qpf.quantity === "number" ? qpf.quantity : 0;
-      totalInches += qty;
-    }
+    const sliceLast = (n) => {
+      const startIdx = Math.max(0, endIdx - (n - 1));
+      return {
+        amounts: dailyPrecip.slice(startIdx, endIdx + 1),
+        dates: dailyDates.slice(startIdx, endIdx + 1)
+      };
+    };
 
-    return { raw: data, rain24hInches: totalInches };
-  }
+    const last7 = sliceLast(7);
+    const last30 = sliceLast(30);
 
-  async function fetchOpenMeteoRain(config) {
-    const params = new URLSearchParams({
-      latitude: String(config.lat),
-      longitude: String(config.lon),
-      daily: "precipitation_sum",
-      past_days: "30",
-      forecast_days: "0",
-      timezone: "auto",
-      precipitation_unit: "inch"
-    });
+    const openRain = {
+      rain7dInches: safeSum(last7.amounts),
+      rain30dInches: safeSum(last30.amounts),
+      last7: { dates: last7.dates, amounts: last7.amounts }
+    };
 
-    const url = `${OPEN_METEO_URL}?${params.toString()}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      throw new Error(`Open-Meteo rain HTTP ${res.status}`);
-    }
-    const data = await res.json();
+    // Forecast days (we’ll map into your existing day objects)
+    const openForecast = {
+      days: days.map(d => ({
+        date: d.datetime || "",
+        tMax: Number.isFinite(Number(d.tempmax)) ? Number(d.tempmax) : null,
+        tMin: Number.isFinite(Number(d.tempmin)) ? Number(d.tempmin) : null,
+        precipIn: Number.isFinite(Number(d.precip)) ? Number(d.precip) : 0,
+        precipProb: Number.isFinite(Number(d.precipprob)) ? Number(d.precipprob) : null,
+        cloudCover: Number.isFinite(Number(d.cloudcover)) ? Number(d.cloudcover) : null,
+        windSpeedMax: Number.isFinite(Number(d.windspeed)) ? Number(d.windspeed) : null,
+        windDirDeg: Number.isFinite(Number(d.winddir)) ? Number(d.winddir) : null,
+        sunrise: d.sunrise ? `${d.datetime}T${d.sunrise}` : "",
+        sunset: d.sunset ? `${d.datetime}T${d.sunset}` : ""
+      }))
+    };
 
-    const daily = data.daily || {};
-    const amounts = daily.precipitation_sum || [];
-    const dates = daily.time || [];
-    const n = amounts.length;
+    const googleCurrentLike = {
+      // mimic previous structure enough for renderer
+      current: {
+        temperature: { degrees: Number(current.temp), unit: "FAHRENHEIT" },
+        feelsLikeTemperature: { degrees: Number(current.feelslike), unit: "FAHRENHEIT" },
+        relativeHumidity: Number(current.humidity),
+        wind: {
+          speed: { value: Number(current.windspeed) },
+          direction: { cardinal: degToCardinal(Number(current.winddir) || 0) }
+        },
+        weatherCondition: {
+          // store VC icon string; our renderer uses iconSvgForVC()
+          type: (current.conditions || "").toString(),
+          description: { text: (current.conditions || "").toString() },
+          vcIcon: (current.icon || "").toString()
+        },
+        currentTime: current.datetimeEpoch ? new Date(Number(current.datetimeEpoch) * 1000).toISOString() : ""
+      },
+      raw: data
+    };
 
-    let last30 = safeSum(amounts);
-    let last7 = 0;
-    let last7Dates = [];
-    let last7Amounts = [];
-
-    if (n > 0) {
-      const startIdx = n >= 7 ? n - 7 : 0;
-      last7Amounts = amounts.slice(startIdx);
-      last7Dates = dates.slice(startIdx);
-      last7 = safeSum(last7Amounts);
-    }
+    const googleHistoryLike = {
+      raw: data,
+      rain24hInches: Number(rain24h) || 0
+    };
 
     return {
-      raw: data,
-      rain7dInches: last7,
-      rain30dInches: last30,
-      last7: { dates: last7Dates, amounts: last7Amounts }
+      googleCurrent: googleCurrentLike,
+      googleHistory: googleHistoryLike,
+      openMeteo: openRain,
+      openForecast
     };
-  }
-
-  async function fetchOpenMeteoForecast(config) {
-    const params = new URLSearchParams({
-      latitude: String(config.lat),
-      longitude: String(config.lon),
-      daily: [
-        "temperature_2m_max",
-        "temperature_2m_min",
-        "precipitation_sum",
-        "precipitation_probability_mean",
-        "cloudcover_mean",
-        "windspeed_10m_max",
-        "winddirection_10m_dominant",
-        "sunrise",
-        "sunset"
-      ].join(","),
-      forecast_days: "7",
-      timezone: "auto",
-      precipitation_unit: "inch",
-      temperature_unit: "fahrenheit",
-      wind_speed_unit: "mph"
-    });
-
-    const url = `${OPEN_METEO_URL}?${params.toString()}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      throw new Error(`Open-Meteo forecast HTTP ${res.status}`);
-    }
-    const data = await res.json();
-    const daily = data.daily || {};
-    const times = daily.time || [];
-    const tMax = daily.temperature_2m_max || [];
-    const tMin = daily.temperature_2m_min || [];
-    const precip = daily.precipitation_sum || [];
-    const prob = daily.precipitation_probability_mean || [];
-    const clouds = daily.cloudcover_mean || [];
-    const windSpeed = daily.windspeed_10m_max || [];
-    const windDir = daily.winddirection_10m_dominant || [];
-    const sunrise = daily.sunrise || [];
-    const sunset = daily.sunset || [];
-
-    const days = [];
-    for (let i = 0; i < times.length; i++) {
-      days.push({
-        date: times[i],
-        tMax: typeof tMax[i] === "number" ? tMax[i] : null,
-        tMin: typeof tMin[i] === "number" ? tMin[i] : null,
-        precipIn: typeof precip[i] === "number" ? precip[i] : 0,
-        precipProb: typeof prob[i] === "number" ? prob[i] : null,
-        cloudCover: typeof clouds[i] === "number" ? clouds[i] : null,
-        windSpeedMax: typeof windSpeed[i] === "number" ? windSpeed[i] : null,
-        windDirDeg: typeof windDir[i] === "number" ? windDir[i] : null,
-        sunrise: sunrise[i],
-        sunset: sunset[i]
-      });
-    }
-
-    return { raw: data, days };
   }
 
   /* ==========================
@@ -371,41 +411,33 @@
     if (!container) return;
 
     const current = combined.googleCurrent?.current || {};
-    const currentData = combined.googleCurrent?.raw || {};
+    const dataRaw = combined.googleCurrent?.raw || {};
     const history24 = combined.googleHistory || {};
     const openRain = combined.openMeteo || {};
-    const condition = current.weatherCondition || {};
-    const temp = current.temperature || {};
-    const feels = current.feelsLikeTemperature || {};
-    const humidity = current.relativeHumidity;
-    const wind = current.wind || {};
-    const iconUrl = buildGoogleIconUrl(condition);
 
+    const condition = current.weatherCondition || {};
+    const vcIcon = condition.vcIcon || "";
     const desc =
       (condition.description && condition.description.text) ||
       condition.type ||
       "Current conditions";
 
-    const tempStr = formatTemp(temp);
-    const feelsStr = formatTemp(feels);
-    const humidStr = formatHumidity(humidity);
-    const windStr = formatWind(wind);
+    const tempStr = current.temperature ? formatTempF(current.temperature.degrees) : "—";
+    const feelsStr = current.feelsLikeTemperature ? formatTempF(current.feelsLikeTemperature.degrees) : "—";
+    const humidStr = formatHumidity(current.relativeHumidity);
 
-    const timeZone =
-      (currentData.timeZone && currentData.timeZone.id) ||
-      (history24.raw && history24.raw.timeZone && history24.raw.timeZone.id) ||
-      "";
-    const updatedTime =
-      current.displayTime ||
-      current.currentTime ||
-      currentData.currentTime ||
-      "";
-    const updatedLocal =
-      updatedTime && updatedTime.iso8601
-        ? updatedTime.iso8601
-        : typeof updatedTime === "string"
-        ? updatedTime
-        : "";
+    // wind (mph + cardinal)
+    const windSpeed = current.wind && current.wind.speed ? current.wind.speed.value : null;
+    const windDirCard = current.wind && current.wind.direction ? current.wind.direction.cardinal : "";
+    const windStr = (Number.isFinite(Number(windSpeed)))
+      ? `${Math.round(Number(windSpeed))} mph${windDirCard ? ` ${windDirCard}` : ""}`
+      : "—";
+
+    const tz = (dataRaw.timezone || "").toString();
+    const updatedIso = current.currentTime || "";
+    const updatedLabel = updatedIso
+      ? `• Updated ${new Date(updatedIso).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" })}`
+      : "";
 
     const rain24 =
       typeof history24.rain24hInches === "number"
@@ -433,15 +465,8 @@
               Weather · ${config.locationLabel || ""}
             </div>
             <div style="font-size:11px;color:var(--muted,#67706B);display:flex;flex-wrap:wrap;gap:6px;">
-              ${timeZone ? `<span>${timeZone}</span>` : ""}
-              ${
-                updatedLocal
-                  ? `<span>• Updated ${new Date(updatedLocal).toLocaleTimeString([], {
-                      hour: "numeric",
-                      minute: "2-digit"
-                    })}</span>`
-                  : ""
-              }
+              ${tz ? `<span>${tz}</span>` : ""}
+              ${updatedLabel ? `<span>${updatedLabel}</span>` : ""}
             </div>
           </div>
           <button type="button" class="fv-weather-refresh" style="
@@ -449,6 +474,7 @@
             background:var(--surface,#fff0);
             padding:4px 8px;
             font-size:12px;cursor:pointer;
+            color:inherit;
           " aria-label="Refresh weather">
             ⟳
           </button>
@@ -466,11 +492,7 @@
             </div>
           </div>
           <div style="flex:0 0 auto;">
-            ${
-              iconUrl
-                ? `<img src="${iconUrl}" alt="${desc}" style="width:48px;height:48px;display:block;" loading="lazy">`
-                : ""
-            }
+            ${iconSvgForVC(vcIcon)}
           </div>
         </div>
 
@@ -523,25 +545,27 @@
     if (!container) return;
 
     const current = combined.googleCurrent?.current || {};
+    const dataRaw = combined.googleCurrent?.raw || {};
     const history24 = combined.googleHistory || {};
     const openRain = combined.openMeteo || {};
     const forecast = combined.openForecast || {};
-    const condition = current.weatherCondition || {};
-    const temp = current.temperature || {};
-    const feels = current.feelsLikeTemperature || {};
-    const humidity = current.relativeHumidity;
-    const wind = current.wind || {};
-    const iconUrl = buildGoogleIconUrl(condition);
 
+    const condition = current.weatherCondition || {};
+    const vcIcon = condition.vcIcon || "";
     const desc =
       (condition.description && condition.description.text) ||
       condition.type ||
       "Current conditions";
 
-    const tempStr = formatTemp(temp);
-    const feelsStr = formatTemp(feels);
-    const humidStr = formatHumidity(humidity);
-    const windStr = formatWind(wind);
+    const tempStr = current.temperature ? formatTempF(current.temperature.degrees) : "—";
+    const feelsStr = current.feelsLikeTemperature ? formatTempF(current.feelsLikeTemperature.degrees) : "—";
+    const humidStr = formatHumidity(current.relativeHumidity);
+
+    const windSpeed = current.wind && current.wind.speed ? current.wind.speed.value : null;
+    const windDirCard = current.wind && current.wind.direction ? current.wind.direction.cardinal : "";
+    const windStr = (Number.isFinite(Number(windSpeed)))
+      ? `${Math.round(Number(windSpeed))} mph${windDirCard ? ` ${windDirCard}` : ""}`
+      : "—";
 
     const rain24 =
       typeof history24.rain24hInches === "number"
@@ -597,9 +621,11 @@
     // --- Forecast: only today and forward ---
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+
     const allDays = forecast.days || [];
     const upcoming = allDays.filter(d => {
       const dt = new Date(d.date);
+      dt.setHours(0,0,0,0);
       return dt >= today;
     });
     const forecastDays = upcoming.slice(0, 5);
@@ -657,21 +683,40 @@
       "></div>
     `;
 
+    const tz = (dataRaw.timezone || "").toString();
+
     container.innerHTML = `
       <section class="fv-weather-card fv-weather-modal-card" style="cursor:auto;box-shadow:none;border:none;padding:0;">
         <header class="fv-weather-modal-head" style="margin-bottom:10px;">
-          <div>
-            <div class="fv-weather-title" style="
-              font-size:13px;font-weight:600;letter-spacing:.06em;
-              text-transform:uppercase;
-            ">
-              Weather · ${config.locationLabel || ""}
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+            <div>
+              <div class="fv-weather-title" style="
+                font-size:13px;font-weight:600;letter-spacing:.06em;
+                text-transform:uppercase;
+              ">
+                Weather · ${config.locationLabel || ""}
+              </div>
+              <div class="fv-weather-meta" style="font-size:11px;color:var(--muted,#67706B);">
+                ${tz ? `${tz} · ` : ""}Detailed conditions, 5-day outlook, and rain history.
+              </div>
             </div>
-            <div class="fv-weather-meta" style="
-              font-size:11px;color:var(--muted,#67706B);
-            ">
-              Detailed conditions, 5-day outlook, and rain history.
-            </div>
+
+            ${
+              config.showRainMapButton
+                ? `<button type="button" class="fv-weather-rainmap" style="
+                    border-radius:999px;
+                    border:1px solid var(--border);
+                    background:#3B7E46;
+                    color:#fff !important;
+                    padding:8px 12px;
+                    font-size:12px;
+                    cursor:pointer;
+                    white-space:nowrap;
+                  " aria-label="Open rainfall map">
+                    Rain Map
+                  </button>`
+                : ``
+            }
           </div>
         </header>
 
@@ -700,11 +745,7 @@
                 </div>
               </div>
               <div class="fv-weather-icon-block" style="flex:0 0 auto;">
-                ${
-                  iconUrl
-                    ? `<img src="${iconUrl}" alt="${desc}" class="fv-weather-icon" style="width:60px;height:60px;" loading="lazy">`
-                    : ""
-                }
+                ${iconSvgForVC(vcIcon).replace('width="48" height="48"', 'width="60" height="60"')}
               </div>
             </div>
           </section>
@@ -741,6 +782,20 @@
         </div>
       </section>
     `;
+
+    // Rain map button -> dispatch event (dashboard decides how to show map)
+    const mapBtn = container.querySelector(".fv-weather-rainmap");
+    if (mapBtn) {
+      mapBtn.addEventListener("click", () => {
+        document.dispatchEvent(new CustomEvent("fv:open-rain-map", {
+          detail: {
+            lat: config.lat,
+            lon: config.lon,
+            label: config.locationLabel || ""
+          }
+        }));
+      });
+    }
 
     // --- Wire up "day details" click behavior ---
     const rows = container.querySelectorAll(".fv-forecast-row");
@@ -783,9 +838,7 @@
     }
 
     if (rows.length && detailEl && forecastDays.length) {
-      // default to first day
       renderDetail(0);
-
       rows.forEach(row => {
         row.addEventListener("click", () => {
           rows.forEach(r => r.classList.remove("fv-forecast-row-selected"));
@@ -806,56 +859,31 @@
     const container = getContainer(config.selector);
     if (!container) return;
 
-    if (!config.googleApiKey) {
-      renderError(container, "Missing Google Weather API key.");
-      console.error("[FVWeather] No googleApiKey provided.");
+    // Key resolution: prefer visualCrossingKey, else accept googleApiKey as alias
+    const key = (config.visualCrossingKey || config.googleApiKey || "").toString().trim();
+    if (!key) {
+      renderError(container, "Missing Visual Crossing API key.");
+      console.error("[FVWeather] No visualCrossingKey (or googleApiKey alias) provided.");
       return;
     }
 
     renderLoading(container);
 
-    const mode = config.mode || "card";
-    const wantForecast = mode === "modal" && config.showOpenMeteo;
-
-    const tasks = [
-      fetchGoogleCurrent(config),
-      fetchGoogleHistory24(config),
-      config.showOpenMeteo ? fetchOpenMeteoRain(config) : Promise.resolve(null),
-      wantForecast ? fetchOpenMeteoForecast(config) : Promise.resolve(null)
-    ];
-
-    let results;
+    let combined;
     try {
-      results = await Promise.allSettled(tasks);
-    } catch (err) {
-      console.error("[FVWeather] Unexpected Promise.allSettled error:", err);
-      renderError(container, "Unexpected error.");
-      return;
-    }
-
-    const [curRes, histRes, rainRes, fcRes] = results;
-
-    const combined = {
-      googleCurrent: curRes.status === "fulfilled" ? curRes.value : null,
-      googleHistory: histRes.status === "fulfilled" ? histRes.value : null,
-      openMeteo: rainRes.status === "fulfilled" ? rainRes.value : null,
-      openForecast: fcRes.status === "fulfilled" ? fcRes.value : null
-    };
-
-    if (!combined.googleCurrent && !combined.googleHistory) {
-      console.warn("[FVWeather] Google Weather failed:", {
-        current: curRes,
-        history: histRes
+      combined = await fetchVisualCrossingTimeline({
+        ...config,
+        visualCrossingKey: key
       });
+    } catch (err) {
+      console.warn("[FVWeather] Visual Crossing fetch failed:", err);
       renderError(container, "Weather service error.");
       return;
     }
 
-    if (mode === "modal") {
-      renderModal(container, combined, config);
-    } else {
-      renderCard(container, combined, config);
-    }
+    const mode = config.mode || "card";
+    if (mode === "modal") renderModal(container, combined, config);
+    else renderCard(container, combined, config);
   }
 
   window.FVWeather = { initWeatherModule };
