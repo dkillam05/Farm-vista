@@ -1,16 +1,15 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-12-22b
+Rev: 2025-12-22c
 
 FIX (requested):
-✅ Add the SAME "Label type" picker as lookup (Summary / Detailed)
-   - Opens when you tap Save and Print
-   - Default selection: StarFire => Summary, everything else => Detailed
-   - No green outline box around the unselected option
-✅ Keep preview horizontal
-✅ Keep overlay behavior EXACTLY as-is on phone (and still works on desktop)
+✅ Summary preview is CENTERED (not drifting right)
+✅ After "Create Label" finishes generating the PDF, bounce back to:
+   https://dkillam05.github.io/Farm-vista/pages/equipment/equipment-trucks.html
+   - Mobile: opens PDF in a new tab (so we can return the current tab)
+   - Desktop: prints via iframe, then returns
 
-Everything else kept from your last file.
+Everything else kept the same as your 2025-12-22b file.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -256,6 +255,10 @@ Everything else kept from your last file.
       width: fit-content;
       max-width: calc(100vw - 24px);
     }
+    /* ✅ When showing SUMMARY, make the sheet a normal centered card width */
+    #printModal .sheet.sheet-print.pv-summary{
+      width: min(92vw, 420px);
+    }
 
     /* ✅ Force-hide helper */
     .pv-hide{ display:none !important; }
@@ -271,6 +274,15 @@ Everything else kept from your last file.
       justify-items:start;
     }
     .print-help{ color:var(--muted,#67706B); font-size:14px; line-height:1.35; }
+
+    /* ✅ Centering mode for SUMMARY preview */
+    .print-wrap.pv-center{
+      justify-items:center;
+    }
+    .print-wrap.pv-center .print-help{
+      text-align:center;
+      max-width: 340px;
+    }
 
     /* ===== Long strip preview (detailed) ===== */
     .label-preview{
@@ -732,13 +744,13 @@ Everything else kept from your last file.
   <!-- Print/Preview modal -->
   <div id="printModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="printTitle">
     <div class="backdrop" data-close-print></div>
-    <div class="sheet sheet-print">
+    <div class="sheet sheet-print" id="printSheet">
       <header>
         <div id="printTitle">QR Label Preview</div>
         <button class="close" type="button" data-close-print>Close</button>
       </header>
 
-      <div class="print-wrap">
+      <div class="print-wrap" id="printWrap">
         <div class="print-help" id="printHelp">
           Tap <b>Create Label</b>. (Mobile opens PDF; Desktop auto-prints.)
         </div>
@@ -789,6 +801,9 @@ Everything else kept from your last file.
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const FV_LABEL_PDF_ENDPOINT = 'https://farmvista-pdf-label-300398089669.us-central1.run.app/label';
+
+    // ✅ After PDF is created, return here:
+    const RETURN_URL = 'https://dkillam05.github.io/Farm-vista/pages/equipment/equipment-trucks.html';
 
     const $ = id => document.getElementById(id);
     const qs = new URLSearchParams(location.search);
@@ -1290,10 +1305,18 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       const longEl = $("labelPreviewLong");
       const sumEl  = $("labelPreviewSummary");
 
-      if (longEl) longEl.classList.toggle('pv-hide', mode === 'summary');
-      if (sumEl)  sumEl.classList.toggle('pv-hide', mode !== 'summary');
+      // ✅ summary centering toggles
+      const wrapEl = $("printWrap");
+      const sheetEl = $("printSheet");
+      const isSummary = mode === 'summary';
 
-      if (mode === 'summary'){
+      if (wrapEl) wrapEl.classList.toggle('pv-center', isSummary);
+      if (sheetEl) sheetEl.classList.toggle('pv-summary', isSummary);
+
+      if (longEl) longEl.classList.toggle('pv-hide', isSummary);
+      if (sumEl)  sumEl.classList.toggle('pv-hide', !isSummary);
+
+      if (isSummary){
         $("sumQR").src = qrDataUrl || '';
         $("sumVal").textContent = serial6 || '—';
         return;
@@ -1321,6 +1344,11 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     }
 
     const PRINT_FRAME = $("fv-print-frame");
+
+    function bounceBack(){
+      // small delay to avoid racing iOS tab creation / iframe print
+      setTimeout(()=>{ window.location.assign(RETURN_URL); }, 250);
+    }
 
     async function createLabelPdfAndPrint(){
       if(!__pendingPrint) return;
@@ -1379,9 +1407,20 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         const url = URL.createObjectURL(blob);
 
         if (mobile){
-          window.location.assign(url);
+          // ✅ Open PDF in a new tab, then return THIS tab to trucks page
+          const w = window.open(url, '_blank');
+          if (!w){
+            // popup blocked: fall back to same-tab open
+            window.location.assign(url);
+            return;
+          }
+          bounceBack();
         } else {
-          PRINT_FRAME.onload = ()=> { try{ PRINT_FRAME.contentWindow.focus(); PRINT_FRAME.contentWindow.print(); } catch {} };
+          // Desktop: print iframe, then bounce back after print fires
+          PRINT_FRAME.onload = ()=> {
+            try{ PRINT_FRAME.contentWindow.focus(); PRINT_FRAME.contentWindow.print(); } catch {}
+            bounceBack();
+          };
           PRINT_FRAME.src = url;
         }
       } finally {
