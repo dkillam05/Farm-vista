@@ -271,18 +271,29 @@
 
     /* ------------------------------------------------------------------
        Overlay copied from your Trial Packet code (same classes)
+       NOTE: we'll show this via a <dialog> so it ALWAYS appears above modals
        ------------------------------------------------------------------ */
-    .pdf-loading{
-      position:fixed;
-      inset:0;
+    dialog.pdf-loading-dlg{
+      border:0;
+      padding:0;
+      background:transparent;
+      box-shadow:none;
+      width:auto;
+      max-width:none;
+    }
+    dialog.pdf-loading-dlg::backdrop{
       background:rgba(0,0,0,0.35);
+    }
+    .pdf-loading{
+      background:transparent;
       display:flex;
       align-items:center;
       justify-content:center;
-      z-index:999999;
       padding:16px;
+      width:100%;
+      height:100%;
+      box-sizing:border-box;
     }
-    .pdf-loading.hidden{ display:none; }
     .pdf-loading-inner{
       max-width:260px;
       width:100%;
@@ -315,7 +326,11 @@
     }
     @keyframes pdf-spin{ to{ transform:rotate(360deg); } }
 
-    /* Small chooser modal (radio) */
+    /* Small chooser modal (radio) — tighter */
+    dialog#labelChoice.sheet{
+      width: fit-content;
+      max-width: min(320px, 92vw);
+    }
     .radio-box{
       display:grid;
       gap:10px;
@@ -331,6 +346,7 @@
       padding:8px 10px;
       border-radius:10px;
       cursor:pointer;
+      white-space:nowrap;
     }
     .radio-row:hover{ background:var(--surface-2, rgba(127,127,127,.08)); }
     .radio-row input{ accent-color:var(--brand-green,#3B7E46); }
@@ -370,14 +386,16 @@
     </div>
   </fv-shell>
 
-  <!-- Overlay (same style as Trial Packet) -->
-  <div id="pdfLoading" class="pdf-loading hidden" role="alertdialog" aria-live="assertive" aria-hidden="true">
-    <div class="pdf-loading-inner">
-      <div class="pdf-loading-spinner"></div>
-      <p id="pdfLoadingText" class="pdf-loading-text">Creating label PDF…</p>
-      <p id="pdfLoadingSub" class="pdf-loading-sub">Please keep this tab open.</p>
+  <!-- Overlay (SAME look as Trial Packet) but shown via dialog so it always appears -->
+  <dialog id="pdfLoadingDlg" class="pdf-loading-dlg" aria-modal="true">
+    <div class="pdf-loading" role="alertdialog" aria-live="assertive">
+      <div class="pdf-loading-inner">
+        <div class="pdf-loading-spinner"></div>
+        <p id="pdfLoadingText" class="pdf-loading-text">Creating label PDF…</p>
+        <p id="pdfLoadingSub" class="pdf-loading-sub">Please keep this tab open.</p>
+      </div>
     </div>
-  </div>
+  </dialog>
 
   <!-- Hidden iframe used for desktop print -->
   <iframe id="fv-print-frame"></iframe>
@@ -414,11 +432,11 @@
       <div class="radio-box">
         <label class="radio-row">
           <input type="radio" name="labelMode" value="summary"/>
-          <span><b>Summary</b> (compact)</span>
+          <span><b>Summary</b></span>
         </label>
         <label class="radio-row">
           <input type="radio" name="labelMode" value="detailed"/>
-          <span><b>Detailed</b> (make/model + serial)</span>
+          <span><b>Detailed</b></span>
         </label>
       </div>
     </div>
@@ -506,9 +524,8 @@
       return /iphone|ipad|ipod|android|mobi/.test(ua);
     }
 
-    // ✅ KEY FIX: Desktop and phone want different rotation.
-    // Desktop looked right before, phone needs horizontal.
-    // So: rotate on DESKTOP, do NOT rotate on MOBILE.
+    // Rotation: desktop looked right as-is, phone needs horizontal
+    // We'll rotate on desktop, not on mobile
     const ROT_DEG = isMobileLike() ? 0 : 90;
 
     function normStatus(d){
@@ -614,20 +631,20 @@
       });
     }
 
-    // Overlay helpers (copied style)
-    const pdfLoading = $('#pdfLoading');
+    // Overlay helpers (same look, but show/hide via dialog)
+    const pdfLoadingDlg = $('#pdfLoadingDlg');
     const pdfLoadingText = $('#pdfLoadingText');
     const pdfLoadingSub = $('#pdfLoadingSub');
     function setPdfLoading(active, text, sub){
-      if (!pdfLoading) return;
       if (pdfLoadingText && text) pdfLoadingText.textContent = text;
       if (pdfLoadingSub && sub) pdfLoadingSub.textContent = sub;
+
       if (active){
-        pdfLoading.classList.remove('hidden');
-        pdfLoading.setAttribute('aria-hidden','false');
+        try{ if (!pdfLoadingDlg.open) pdfLoadingDlg.showModal(); }
+        catch{ pdfLoadingDlg.setAttribute('open',''); }
       } else {
-        pdfLoading.classList.add('hidden');
-        pdfLoading.setAttribute('aria-hidden','true');
+        try{ pdfLoadingDlg.close(); }
+        catch{ pdfLoadingDlg.removeAttribute('open'); }
       }
     }
 
@@ -688,12 +705,13 @@
     // Hidden iframe for desktop print
     const printFrame = $('#fv-print-frame');
 
-    let __pending = null;     // base payload { url, make, model, serialRaw, serial6 }
-    let __mode = 'detailed';  // 'summary' | 'detailed'
+    let __pending = null;
+    let __mode = 'detailed';
     let __labelLenMm = 90;
     let __previewQrSrc = '';
     let __pdfBlobUrl = '';
 
+    // Label sizing rules
     const LABEL = { tapeWmm: 62, qrMm: 48, padMm: 2.2, gapMm: 2.0, minLenMm: 90, maxLenMm: 152.4 };
     const SUMMARY = { tapeWmm: 62, cutLenMm: 62, qrMm: 46 };
 
@@ -769,8 +787,16 @@
       __previewQrSrc = '';
     }
 
-    // ✅ HTML for PDFShift (NO @page size; page size is controlled by your Cloud Run format)
-    // ✅ Rotation controlled by ROT_DEG (desktop vs mobile)
+    // ✅ Layout fix for your “1.25 inch long” issue:
+    // Many mobile print pipelines treat PAGE HEIGHT as the FEED length.
+    // So we will send page size: width=62mm, height=cutLenMm.
+    // That makes the label LONG, and QR stays large.
+    function pageDimsForPrinter(cutLenMm){
+      return { widthMm: 62, heightMm: cutLenMm };
+    }
+
+    // ✅ HTML for PDFShift (NO @page size; controlled by Cloud Run format)
+    // We rotate content on desktop only (ROT_DEG).
     function buildLabelHtmlForPdf({ mode, qrSrc, make, model, serial6, serialRaw }){
       const isSummary = mode === 'summary';
       const Q = isSummary ? SUMMARY.qrMm : LABEL.qrMm;
@@ -954,6 +980,7 @@ ${isSummary ? `
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
       __labelLenMm = computeLongLenMmFromDOM({ makeEl: mk, modelEl: md, labEl: lab, valEl: val, makeName, modelName, serial6 });
 
+      // preview visual only
       wrap.style.width = `${__labelLenMm}mm`;
       wrap.style.height = `${LABEL.tapeWmm}mm`;
 
@@ -988,7 +1015,6 @@ ${isSummary ? `
       closeChoice();
 
       if (!__pending) return;
-
       const payload = { ...__pending, mode: __mode };
       openPreview();
       setPreview(payload);
@@ -997,7 +1023,7 @@ ${isSummary ? `
     async function createPdfAndPrintOrOpen(){
       if (!__pending) return;
 
-      // If already created, just do print/open again
+      // If already created, print/open again
       if (__pdfBlobUrl){
         if (isMobileLike()){
           window.location.assign(__pdfBlobUrl);
@@ -1016,9 +1042,8 @@ ${isSummary ? `
           ? SUMMARY.cutLenMm
           : Math.max(LABEL.minLenMm, Math.min(LABEL.maxLenMm, Number(__labelLenMm || LABEL.minLenMm)));
 
-        // Page size is actual label size: width=cut length, height=tape width
-        const widthMm = cutLenMm;
-        const heightMm = 62;
+        // ✅ Use portrait-like dims so the feed length is correct on phones:
+        const dims = pageDimsForPrinter(cutLenMm);
 
         const serialRaw = __pending.serialRaw || __pending.serial || '';
         const serial6 = __pending.serial6 || serialLast6(serialRaw) || '';
@@ -1036,7 +1061,9 @@ ${isSummary ? `
           method: 'POST',
           headers: { 'Content-Type':'application/json' },
           body: JSON.stringify({
-            html, widthMm, heightMm,
+            html,
+            widthMm: dims.widthMm,
+            heightMm: dims.heightMm,
             filename: (__mode === 'summary' ? 'fv-qr-summary.pdf' : 'fv-qr-detailed.pdf')
           })
         });
