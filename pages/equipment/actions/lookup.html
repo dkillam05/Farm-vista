@@ -34,7 +34,7 @@
     :root{
       --ql-tape-mm: 62mm;    /* fixed tape width = label HEIGHT */
 
-      /* long strip defaults (non-starfire) */
+      /* long strip defaults (detailed) */
       --ql-qr-mm: 48mm;
       --ql-pad-mm: 2.2mm;
       --ql-gap-mm: 2mm;
@@ -43,9 +43,9 @@
       --ql-font-small: 16pt;
       --ql-font-lab: 12pt;
 
-      /* starfire compact defaults */
-      --sf-cut-mm: 62mm;      /* compact cut length */
-      --sf-qr-mm: 46mm;       /* big QR */
+      /* summary compact defaults */
+      --sf-cut-mm: 62mm;
+      --sf-qr-mm: 46mm;
       --sf-serial-font: 16pt;
       --sf-serial-font-sm: 13pt;
     }
@@ -271,10 +271,8 @@
       font-size: var(--sf-serial-font);
     }
     .pv-sf .serial.small{ font-size: var(--sf-serial-font-sm); }
-    #pPrint{ color:#fff !important; }
-    #pPrint:visited{ color:#fff !important; }
 
-    /* ✅ Hidden print iframe (same as your working report) */
+    /* ✅ Hidden print iframe (kept for fallback / parity) */
     #fv-print-frame{
       position:fixed;
       right:0;
@@ -283,6 +281,98 @@
       height:0;
       border:0;
       visibility:hidden;
+    }
+
+    /* ===== FV modal: choose label type ===== */
+    dialog.sheet.sheet-choice{
+      width:min(520px, 92vw);
+    }
+    .choice-grid{
+      display:grid;
+      grid-template-columns:1fr;
+      gap:10px;
+      margin-top:8px;
+    }
+    .choice-card{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      padding:12px;
+      display:flex;
+      align-items:flex-start;
+      gap:12px;
+      cursor:pointer;
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+    }
+    .choice-card:hover{ transform:translateY(-1px); box-shadow:0 12px 28px rgba(0,0,0,.12); }
+    .choice-ico{
+      width:38px; height:38px;
+      border-radius:12px;
+      display:grid; place-items:center;
+      background:color-mix(in srgb, var(--brand-green,#3B7E46) 12%, transparent);
+      border:1px solid color-mix(in srgb, var(--brand-green,#3B7E46) 35%, var(--border));
+      flex:0 0 auto;
+    }
+    .choice-ttl{ font-weight:900; margin:0; }
+    .choice-sub{ margin:3px 0 0; color:var(--muted); font-size:13px; line-height:1.25; }
+
+    /* ===== Spinner overlay during PDF generation ===== */
+    .busy{
+      position:fixed;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:99999;
+      background:rgba(0,0,0,.45);
+      padding:18px;
+    }
+    .busy.show{ display:flex; }
+    .busy-card{
+      width:min(420px, 92vw);
+      border:1px solid var(--border);
+      border-radius:16px;
+      background:var(--card-surface, var(--surface));
+      color:var(--text);
+      box-shadow:0 18px 40px rgba(0,0,0,.45);
+      padding:14px 14px 12px;
+    }
+    .busy-top{
+      display:flex;
+      align-items:center;
+      gap:12px;
+    }
+    .spinner{
+      width:22px;
+      height:22px;
+      border-radius:999px;
+      border:3px solid color-mix(in srgb, var(--text) 20%, transparent);
+      border-top-color: var(--brand-green,#3B7E46);
+      animation: spin 0.9s linear infinite;
+      flex:0 0 auto;
+    }
+    @keyframes spin{ to{ transform:rotate(360deg); } }
+    .busy-title{ font-weight:900; margin:0; }
+    .busy-msg{ margin:4px 0 0; color:var(--muted); font-size:13px; line-height:1.25; }
+    .busy-bar{
+      margin-top:12px;
+      height:6px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--text) 10%, transparent);
+      overflow:hidden;
+    }
+    .busy-bar > i{
+      display:block;
+      height:100%;
+      width:42%;
+      background:color-mix(in srgb, var(--brand-green,#3B7E46) 70%, transparent);
+      border-radius:999px;
+      animation: move 1.1s ease-in-out infinite;
+    }
+    @keyframes move{
+      0%{ transform:translateX(-120%); }
+      50%{ transform:translateX(90%); }
+      100%{ transform:translateX(260%); }
     }
   </style>
 </head>
@@ -329,7 +419,21 @@
     </div>
   </fv-shell>
 
-  <!-- ✅ Hidden print iframe -->
+  <!-- Busy overlay -->
+  <div id="busy" class="busy" aria-hidden="true">
+    <div class="busy-card" role="status" aria-live="polite">
+      <div class="busy-top">
+        <div class="spinner" aria-hidden="true"></div>
+        <div>
+          <p id="busyTitle" class="busy-title">Creating PDF label…</p>
+          <p id="busyMsg" class="busy-msg">This can take a few seconds.</p>
+        </div>
+      </div>
+      <div class="busy-bar" aria-hidden="true"><i></i></div>
+    </div>
+  </div>
+
+  <!-- ✅ Hidden print iframe (kept) -->
   <iframe id="fv-print-frame"></iframe>
 
   <!-- Detail modal -->
@@ -354,6 +458,48 @@
     </footer>
   </dialog>
 
+  <!-- Choose label type modal -->
+  <dialog id="labelChoice" class="sheet sheet-choice" aria-modal="true">
+    <header>
+      <strong>Choose label type</strong>
+      <button id="cClose" class="btn" type="button">Close</button>
+    </header>
+    <div class="body">
+      <p class="sub" style="margin:0 0 10px;">
+        Pick the format, then you’ll see the preview.
+      </p>
+
+      <div class="choice-grid">
+        <div id="choiceSummary" class="choice-card" role="button" tabindex="0" aria-label="Summary label">
+          <div class="choice-ico" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24">
+              <path fill="currentColor" d="M4 4h16v16H4zM7 7h4v4H7zM13 7h4v2h-4zM13 11h4v2h-4zM7 13h10v4H7z"/>
+            </svg>
+          </div>
+          <div style="min-width:0;">
+            <p class="choice-ttl">Summary</p>
+            <p class="choice-sub">Compact (StarFire-style). Best for quick scans and short info.</p>
+          </div>
+        </div>
+
+        <div id="choiceDetailed" class="choice-card" role="button" tabindex="0" aria-label="Detailed label">
+          <div class="choice-ico" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24">
+              <path fill="currentColor" d="M3 6h18v12H3zM6 9h5v2H6zM6 13h8v2H6zM16 9h3v6h-3z"/>
+            </svg>
+          </div>
+          <div style="min-width:0;">
+            <p class="choice-ttl">Detailed</p>
+            <p class="choice-sub">Long label with Make/Model + QR + last-6 serial.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <footer>
+      <button id="cCancel" class="btn" type="button">Cancel</button>
+    </footer>
+  </dialog>
+
   <!-- Reprint preview modal -->
   <dialog id="printPrev" class="sheet sheet-print" aria-modal="true">
     <header>
@@ -373,7 +519,7 @@
     </div>
 
     <footer>
-      <button id="pPrint" class="btn btn-primary" type="button">Print</button>
+      <button id="pCreate" class="btn btn-primary" type="button">Create Label</button>
       <button id="pCancel" class="btn" type="button">Cancel</button>
     </footer>
   </dialog>
@@ -381,8 +527,14 @@
   <script type="module">
     import {
       ready,
-      getFirestore, collection, query, where, onSnapshot, doc
+      getFirestore, collection, query, where, onSnapshot
     } from '/Farm-vista/js/firebase-init.js';
+
+    // ==========================================================
+    // ✅ SET THIS to your deployed Cloud Run label endpoint:
+    // Example: 'https://farmvista-pdf-label-xxxxx-uc.a.run.app/label'
+    // ==========================================================
+    const FV_LABEL_PDF_ENDPOINT = 'https://YOUR-CLOUD-RUN-LABEL-SERVICE-URL/label';
 
     const $ = sel => document.querySelector(sel);
     const list = $('#list');
@@ -577,7 +729,18 @@
       }catch{ return ''; }
     }
 
-    // ===== Print Preview + Print Iframe preload =====
+    // ===== Busy overlay =====
+    const busy = document.getElementById('busy');
+    const busyTitle = document.getElementById('busyTitle');
+    const busyMsg = document.getElementById('busyMsg');
+    function setBusy(on, title, msg){
+      if (title) busyTitle.textContent = title;
+      if (msg) busyMsg.textContent = msg;
+      busy.classList.toggle('show', !!on);
+      busy.setAttribute('aria-hidden', on ? 'false' : 'true');
+    }
+
+    // ===== Print Preview =====
     const pDlg = document.getElementById('printPrev');
     const pHdrTitle = document.getElementById('pHdrTitle');
     const pHelp = document.getElementById('pHelp');
@@ -585,13 +748,23 @@
     const pHost = document.getElementById('pPreviewHost');
     const pClose = document.getElementById('pClose');
     const pCancel = document.getElementById('pCancel');
-    const pPrint = document.getElementById('pPrint');
+    const pCreate = document.getElementById('pCreate');
 
+    // (kept)
     const printFrame = document.getElementById('fv-print-frame');
 
-    let __pendingPrint = null;
+    // Choice modal
+    const cDlg = document.getElementById('labelChoice');
+    const cClose = document.getElementById('cClose');
+    const cCancel = document.getElementById('cCancel');
+    const choiceSummary = document.getElementById('choiceSummary');
+    const choiceDetailed = document.getElementById('choiceDetailed');
+
+    let __pendingPrint = null;          // original equipment payload
+    let __chosenMode = 'detailed';      // 'summary' | 'detailed'
     let __labelLenMm = 90;
     let __previewQrSrc = '';
+    let __pdfBlobUrl = '';             // cached PDF for re-open
 
     const LABEL = { tapeWmm: 62, qrMm: 48, padMm: 2.2, gapMm: 2.0, minLenMm: 90, maxLenMm: 152.4 };
     const STARFIRE_LABEL = { tapeWmm: 62, cutLenMm: 62, qrMm: 46 };
@@ -670,6 +843,7 @@
       __previewQrSrc = '';
     }
 
+    // NOTE: we keep this, but PDF is now the primary workflow
     function writePrintFrame(html){
       const win = printFrame.contentWindow;
       const docu = printFrame.contentDocument || win.document;
@@ -678,27 +852,29 @@
       docu.close();
     }
 
+    // ===== Build HTML for PDFShift =====
+    // IMPORTANT change: .label is 100% width/height so it flexes with PDF page size
     function buildLabelPrintHtml(payload){
-      const isSF = !!payload?.isStarfire;
+      const isSummary = payload?.mode === 'summary';
       const qrSrc = String(payload?.qrSrc || payload?.url || '');
       const serialRaw = String(payload?.serial || '');
       const makeName = String(payload?.make || '');
       const modelName = String(payload?.model || '');
 
-      if (isSF){
-        const W = STARFIRE_LABEL.cutLenMm;
+      if (isSummary){
+        const W = Number(payload?.cutLenMm || STARFIRE_LABEL.cutLenMm);
         const H = STARFIRE_LABEL.tapeWmm;
         const Q = STARFIRE_LABEL.qrMm;
         const fontSize = (serialRaw && serialRaw.length > 12) ? '13pt' : '16pt';
 
         return `<!doctype html>
 <html><head><meta charset="utf-8">
-<title>Print StarFire Label</title>
+<title>FarmVista Label</title>
 <style>
 @page{ size:${W}mm ${H}mm; margin:0; }
 html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
 .label{
-  width:${W}mm; height:${H}mm; box-sizing:border-box; padding:2.2mm;
+  width:100%; height:100%; box-sizing:border-box; padding:2.2mm;
   display:grid; grid-template-rows:${Q}mm 1fr; align-content:center; justify-items:center;
   gap:2mm; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#000; overflow:hidden;
 }
@@ -725,12 +901,12 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
 
       return `<!doctype html>
 <html><head><meta charset="utf-8">
-<title>Print Label</title>
+<title>FarmVista Label</title>
 <style>
 @page{ size:${W}mm ${H}mm; margin:0; }
 html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
 .label{
-  width:${W}mm; height:${H}mm; box-sizing:border-box; padding:2.2mm;
+  width:100%; height:100%; box-sizing:border-box; padding:2.2mm;
   display:grid; grid-template-columns:max-content ${Q}mm max-content;
   gap:2mm; align-items:center;
   font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#000; overflow:hidden;
@@ -759,20 +935,27 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
 </body></html>`;
     }
 
+    // ===== Preview builder (FV UI) =====
     async function setPreview(payload){
-      const isSF = !!payload?.isStarfire;
+      const mode = payload?.mode || 'detailed';
+      const isSummary = mode === 'summary';
       const qrUrl = payload?.url || '';
 
-      printWrap.classList.toggle('center', isSF);
+      printWrap.classList.toggle('center', isSummary);
 
       const bust = (qrUrl && qrUrl.includes('?') ? '&' : '?') + '_=' + Date.now();
       const qrSrc = qrUrl ? (qrUrl + bust) : '';
 
       clearPreviewHost();
+      __pdfBlobUrl = ''; // new choice invalidates cached PDF
 
-      if (isSF){
-        pHdrTitle.textContent = 'Print StarFire QR Label';
-        pHelp.innerHTML = `Printer: <b>Brother QL-820NWB</b> • Tape: <b>DK-2205</b><br>✅ Compact StarFire label.`;
+      // Reset primary button state
+      pCreate.disabled = false;
+      pCreate.textContent = 'Create Label';
+
+      if (isSummary){
+        pHdrTitle.textContent = 'Summary QR Label';
+        pHelp.innerHTML = `Printer: <b>Brother QL-820NWB</b> • Tape: <b>DK-2205</b><br>✅ Compact summary label.`;
 
         document.documentElement.style.setProperty('--sf-cut-mm', `${STARFIRE_LABEL.cutLenMm}mm`);
         document.documentElement.style.setProperty('--sf-qr-mm', `${STARFIRE_LABEL.qrMm}mm`);
@@ -797,20 +980,12 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
         pHost.appendChild(wrap);
 
         __previewQrSrc = img.src || qrSrc;
-
-        // ✅ preload print iframe NOW (no waiting, no timeouts later)
-        writePrintFrame(buildLabelPrintHtml({
-          isStarfire:true,
-          url: qrUrl,
-          qrSrc: __previewQrSrc,
-          serial: payload?.serial || ''
-        }));
-
+        __labelLenMm = STARFIRE_LABEL.cutLenMm; // summary cut length fixed
         return;
       }
 
-      pHdrTitle.textContent = 'Print QR Label';
-      pHelp.innerHTML = `Printer: <b>Brother QL-820NWB</b> • Tape: <b>DK-2205</b><br>✅ Long label for equipment.`;
+      pHdrTitle.textContent = 'Detailed QR Label';
+      pHelp.innerHTML = `Printer: <b>Brother QL-820NWB</b> • Tape: <b>DK-2205</b><br>✅ Long label with Make/Model.`;
 
       const makeName = payload?.make || '—';
       const modelName = payload?.model || '—';
@@ -853,32 +1028,17 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
 
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
       __labelLenMm = computeLongLenMmFromDOM({
-        makeEl: mk,
-        modelEl: md,
-        labEl: lab,
-        valEl: val,
-        makeName,
-        modelName,
-        serial6
+        makeEl: mk, modelEl: md, labEl: lab, valEl: val,
+        makeName, modelName, serial6
       });
 
       wrap.style.width = `${__labelLenMm}mm`;
       wrap.style.height = `${LABEL.tapeWmm}mm`;
 
       __previewQrSrc = img.src || qrSrc;
-
-      // ✅ preload print iframe NOW (after we know the cut length)
-      writePrintFrame(buildLabelPrintHtml({
-        isStarfire:false,
-        url: qrUrl,
-        qrSrc: __previewQrSrc,
-        make: makeName,
-        model: modelName,
-        serial: payload?.serial || '',
-        cutLenMm: __labelLenMm
-      }));
     }
 
+    // ===== Modal open/close =====
     function openReprintPreview(payload){
       __pendingPrint = payload || null;
       if(!__pendingPrint) return;
@@ -886,27 +1046,98 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
       setPreview(__pendingPrint);
     }
     function closeReprintPreview(){
-      __pendingPrint = null;
       clearPreviewHost();
       printWrap.classList.remove('center');
       try{ pDlg.close(); }catch{ pDlg.removeAttribute('open'); }
+      __pendingPrint = null;
+      __pdfBlobUrl = '';
     }
     pClose.addEventListener('click', closeReprintPreview);
     pCancel.addEventListener('click', closeReprintPreview);
 
-    // ✅ IMPORTANT: Print is now SYNC and does NOT rely on timeouts or rebuilding
-    pPrint.addEventListener('click', ()=>{
-      try{
-        const win = printFrame.contentWindow;
-        if (!win) return;
-        win.focus();
-        win.print();
-      }catch(err){
-        console.warn('[equipment-label] print failed', err);
+    function openChoice(){
+      try{ cDlg.showModal(); }catch{ cDlg.setAttribute('open',''); }
+    }
+    function closeChoice(){
+      try{ cDlg.close(); }catch{ cDlg.removeAttribute('open'); }
+    }
+    cClose.addEventListener('click', closeChoice);
+    cCancel.addEventListener('click', closeChoice);
+
+    function activateChoice(el, fn){
+      el.addEventListener('click', fn);
+      el.addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' '){ e.preventDefault(); fn(); }});
+    }
+
+    // ===== Create PDF + open =====
+    async function createPdfAndOpen(){
+      if (!__pendingPrint) return;
+
+      // If we already created a PDF for this preview, just open it
+      if (__pdfBlobUrl){
+        window.open(__pdfBlobUrl, '_blank', 'noopener,noreferrer');
+        return;
       }
-      // close AFTER calling print (so the print call stays tied to the tap)
-      setTimeout(()=>closeReprintPreview(), 50);
-    });
+
+      pCreate.disabled = true;
+      setBusy(true, 'Creating PDF label…', 'This can take a few seconds.');
+
+      try{
+        const widthMm = (__chosenMode === 'summary')
+          ? STARFIRE_LABEL.cutLenMm
+          : Math.max(LABEL.minLenMm, Math.min(LABEL.maxLenMm, Number(__labelLenMm || LABEL.minLenMm)));
+
+        const heightMm = 62;
+
+        const html = buildLabelPrintHtml({
+          mode: __chosenMode,
+          url: __pendingPrint.url || '',
+          qrSrc: __previewQrSrc || __pendingPrint.url || '',
+          make: __pendingPrint.make || '',
+          model: __pendingPrint.model || '',
+          serial: __pendingPrint.serial || '',
+          cutLenMm: widthMm
+        });
+
+        const resp = await fetch(FV_LABEL_PDF_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type':'application/json' },
+          body: JSON.stringify({
+            html,
+            widthMm,
+            heightMm,
+            filename: (__chosenMode === 'summary' ? 'fv-qr-summary.pdf' : 'fv-qr-detailed.pdf')
+          })
+        });
+
+        if (!resp.ok){
+          const t = await resp.text().catch(()=> '');
+          console.warn('[label-pdf] failed', resp.status, t);
+          alert('Label PDF failed. Check Cloud Run logs.');
+          return;
+        }
+
+        const blob = await resp.blob();
+        __pdfBlobUrl = URL.createObjectURL(blob);
+
+        // Open PDF (user can Print / share from there)
+        window.open(__pdfBlobUrl, '_blank', 'noopener,noreferrer');
+
+        // Update button so the next tap is instant
+        pCreate.textContent = 'Open PDF';
+        pCreate.disabled = false;
+      }catch(err){
+        console.warn('[label-pdf] error', err);
+        alert('Label PDF error. Check console/logs.');
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    pCreate.addEventListener('click', createPdfAndOpen);
+
+    // ===== Detail modal wiring =====
+    const btnHub = document.getElementById('openHub');
 
     function openDetail(d){
       btnHub.classList.add('disabled');
@@ -939,23 +1170,50 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
         qrSection.hidden = false;
         btnPrintQR.disabled = false;
 
+        // NEW FLOW:
+        // Reprint QR -> choose Summary/Detailed -> preview -> Create Label (PDF) -> open PDF -> print
         btnPrintQR.onclick = ()=>{
-          if (IS_STARFIRE){
-            const sfSerial = pickStarfireSerial(d);
-            openReprintPreview({
-              isStarfire: true,
-              url,
-              serial: sfSerial || (d.serial || '')
-            });
-          } else {
-            openReprintPreview({
-              isStarfire: false,
-              url,
-              make: d.makeName || '',
-              model: d.modelName || '',
-              serial: d.serial || ''
-            });
-          }
+          // stash base payload (url + fields)
+          const base = {
+            url,
+            make: d.makeName || '',
+            model: d.modelName || '',
+            serial: d.serial || ''
+          };
+
+          // default choice based on equipment type:
+          // StarFire equipment defaults to Summary, otherwise Detailed
+          __chosenMode = IS_STARFIRE ? 'summary' : 'detailed';
+
+          // open choice modal
+          openChoice();
+
+          // wire choices (fresh each time)
+          const choose = (mode)=>{
+            __chosenMode = mode;
+            closeChoice();
+
+            const payload = {
+              ...base,
+              mode: __chosenMode
+            };
+
+            // For summary, use StarFire-like serial selection logic
+            if (__chosenMode === 'summary'){
+              payload.serial = pickStarfireSerial(d) || (d.serial || '');
+            }
+
+            openReprintPreview(payload);
+          };
+
+          // one-shot handlers
+          const once = (el, fn)=>{
+            const h = ()=> fn();
+            el.onclick = h;
+          };
+
+          once(choiceSummary, ()=> choose('summary'));
+          once(choiceDetailed, ()=> choose('detailed'));
         };
       } else {
         qrImg.removeAttribute('src');
