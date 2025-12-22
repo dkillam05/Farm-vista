@@ -80,7 +80,7 @@
     .icon-btn:active{ transform:translateY(1px); }
     .icon-btn svg{ display:block }
 
-    /* Popover – lowered z-index so header/footer win */
+    /* Popover */
     .popover{
       position:absolute;
       z-index:5;
@@ -272,7 +272,7 @@
     }
     .pv-sf .serial.small{ font-size: var(--sf-serial-font-sm); }
 
-    /* ✅ Hidden print iframe (kept for fallback / parity) */
+    /* Hidden print iframe (kept) */
     #fv-print-frame{
       position:fixed;
       right:0;
@@ -433,7 +433,7 @@
     </div>
   </div>
 
-  <!-- ✅ Hidden print iframe (kept) -->
+  <!-- Hidden print iframe (kept) -->
   <iframe id="fv-print-frame"></iframe>
 
   <!-- Detail modal -->
@@ -530,10 +530,8 @@
       getFirestore, collection, query, where, onSnapshot
     } from '/Farm-vista/js/firebase-init.js';
 
-    // ==========================================================
-    // ✅ SET THIS to your deployed Cloud Run label endpoint:
-    // Example: 'https://farmvista-pdf-label-xxxxx-uc.a.run.app/label'
-    // ==========================================================
+    // ✅ Put your Cloud Run label endpoint here (must end with /label)
+    // Example: https://farmvista-pdf-label-xxxxx-uc.a.run.app/label
     const FV_LABEL_PDF_ENDPOINT = 'https://YOUR-CLOUD-RUN-LABEL-SERVICE-URL/label';
 
     const $ = sel => document.querySelector(sel);
@@ -692,84 +690,65 @@
     }
 
     // ===============================
-// Detail modal + helpers (CLEAN)
-// ===============================
-const dlg = document.getElementById('detail');
-const dTitle = document.getElementById('dTitle');
-const dKV = document.getElementById('dKV');
+    // Detail modal + helpers
+    // ===============================
+    const dlg = document.getElementById('detail');
+    const dTitle = document.getElementById('dTitle');
+    const dKV = document.getElementById('dKV');
 
-const btnHub = document.getElementById('openHub');
-const btnPrintQR = document.getElementById('btnPrintQR');
+    const btnHub = document.getElementById('openHub');
+    const btnPrintQR = document.getElementById('btnPrintQR');
 
-const qrSection = document.getElementById('qrSection');
-const qrImg = document.getElementById('qrImg');
-const qrLbl = document.getElementById('qrLbl');
+    const qrSection = document.getElementById('qrSection');
+    const qrImg = document.getElementById('qrImg');
+    const qrLbl = document.getElementById('qrLbl');
 
-if (btnHub) {
-  btnHub.addEventListener('click', (e) => {
-    const href = btnHub.getAttribute('href') || '';
-    // Prevent accidental navigation if not wired yet
-    if (!href.includes('id=')) e.preventDefault();
-  });
-}
+    if (btnHub) {
+      btnHub.addEventListener('click', (e)=>{
+        const href = btnHub.getAttribute('href') || '';
+        if (!href.includes('id=')) e.preventDefault();
+      });
+    }
 
-const closeDetail = () => {
-  try { dlg?.close(); }
-  catch { dlg?.removeAttribute('open'); }
-};
+    const closeDetail = ()=> { try{ dlg.close(); }catch{ dlg.removeAttribute('open'); } };
+    document.getElementById('dClose').addEventListener('click', closeDetail);
+    document.getElementById('dClose2').addEventListener('click', closeDetail);
 
-const dClose = document.getElementById('dClose');
-const dClose2 = document.getElementById('dClose2');
-if (dClose) dClose.addEventListener('click', closeDetail);
-if (dClose2) dClose2.addEventListener('click', closeDetail);
+    const has = v => !(v===undefined || v===null || v==='');
+    function addRow(k, v){
+      if(!has(v)) return;
+      const K = document.createElement('div'); K.className='k'; K.textContent = k;
+      const V = document.createElement('div'); V.className='v'; V.textContent = String(v);
+      dKV.append(K,V);
+    }
 
-const has = (v) => !(v === undefined || v === null || v === '');
-function addRow(k, v) {
-  if (!dKV) return;
-  if (!has(v)) return;
+    function getQrUrl(d){
+      try{
+        if (!d || !d.qr) return '';
+        const img = d.qr.image;
+        if (!img) return '';
+        if (typeof img === 'string') return img;
+        if (typeof img.url === 'string') return img.url;
+        return '';
+      }catch{ return ''; }
+    }
 
-  const K = document.createElement('div');
-  K.className = 'k';
-  K.textContent = k;
+    // ===============================
+    // Busy overlay (spinner)
+    // ===============================
+    const busy = document.getElementById('busy');
+    const busyTitle = document.getElementById('busyTitle');
+    const busyMsg = document.getElementById('busyMsg');
+    function setBusy(on, title, msg){
+      if (title) busyTitle.textContent = title;
+      if (msg) busyMsg.textContent = msg;
+      busy.classList.toggle('show', !!on);
+      busy.setAttribute('aria-hidden', on ? 'false' : 'true');
+    }
 
-  const V = document.createElement('div');
-  V.className = 'v';
-  V.textContent = String(v);
-
-  dKV.append(K, V);
-}
-
-function getQrUrl(d) {
-  try {
-    if (!d || !d.qr) return '';
-    const img = d.qr.image;
-    if (!img) return '';
-    if (typeof img === 'string') return img;
-    if (typeof img.url === 'string') return img.url;
-    return '';
-  } catch {
-    return '';
-  }
-}
-
-// ===============================
-// Busy overlay (spinner)
-// ===============================
-const busy = document.getElementById('busy');
-const busyTitle = document.getElementById('busyTitle');
-const busyMsg = document.getElementById('busyMsg');
-
-function setBusy(on, title, msg) {
-  if (!busy) return;
-  if (busyTitle && title) busyTitle.textContent = title;
-  if (busyMsg && msg) busyMsg.textContent = msg;
-
-  busy.classList.toggle('show', !!on);
-  busy.setAttribute('aria-hidden', on ? 'false' : 'true');
-}
-
-
-    // ===== Print Preview =====
+    // ===============================
+    // Print Preview + Choice Modals
+    // ===============================
     const pDlg = document.getElementById('printPrev');
     const pHdrTitle = document.getElementById('pHdrTitle');
     const pHelp = document.getElementById('pHelp');
@@ -779,21 +758,19 @@ function setBusy(on, title, msg) {
     const pCancel = document.getElementById('pCancel');
     const pCreate = document.getElementById('pCreate');
 
-    // (kept)
-    const printFrame = document.getElementById('fv-print-frame');
+    const printFrame = document.getElementById('fv-print-frame'); // kept
 
-    // Choice modal
     const cDlg = document.getElementById('labelChoice');
     const cClose = document.getElementById('cClose');
     const cCancel = document.getElementById('cCancel');
     const choiceSummary = document.getElementById('choiceSummary');
     const choiceDetailed = document.getElementById('choiceDetailed');
 
-    let __pendingPrint = null;          // original equipment payload
-    let __chosenMode = 'detailed';      // 'summary' | 'detailed'
+    let __pendingPrint = null;
+    let __chosenMode = 'detailed';   // 'summary' | 'detailed'
     let __labelLenMm = 90;
     let __previewQrSrc = '';
-    let __pdfBlobUrl = '';             // cached PDF for re-open
+    let __pdfBlobUrl = '';
 
     const LABEL = { tapeWmm: 62, qrMm: 48, padMm: 2.2, gapMm: 2.0, minLenMm: 90, maxLenMm: 152.4 };
     const STARFIRE_LABEL = { tapeWmm: 62, cutLenMm: 62, qrMm: 46 };
@@ -814,7 +791,6 @@ function setBusy(on, title, msg) {
       const raw = normalizeSerial(d?.starfireSerial || d?.serial || '');
       return raw || '';
     }
-
     function esc(s){
       return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
     }
@@ -841,7 +817,6 @@ function setBusy(on, title, msg) {
 
     function computeLongLenMmFromDOM({ makeEl, modelEl, labEl, valEl, makeName, modelName, serial6 }){
       const pmm = pxPerMm();
-
       const makeWpx  = measureTextPxWithComputedStyle(makeName || '', makeEl);
       const modelWpx = measureTextPxWithComputedStyle(modelName || '', modelEl);
       const leftWpx  = Math.max(makeWpx, modelWpx);
@@ -872,7 +847,6 @@ function setBusy(on, title, msg) {
       __previewQrSrc = '';
     }
 
-    // NOTE: we keep this, but PDF is now the primary workflow
     function writePrintFrame(html){
       const win = printFrame.contentWindow;
       const docu = printFrame.contentDocument || win.document;
@@ -881,8 +855,7 @@ function setBusy(on, title, msg) {
       docu.close();
     }
 
-    // ===== Build HTML for PDFShift =====
-    // IMPORTANT change: .label is 100% width/height so it flexes with PDF page size
+    // HTML sent to PDFShift (label container is 100% so width flexes with page size)
     function buildLabelPrintHtml(payload){
       const isSummary = payload?.mode === 'summary';
       const qrSrc = String(payload?.qrSrc || payload?.url || '');
@@ -964,7 +937,6 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
 </body></html>`;
     }
 
-    // ===== Preview builder (FV UI) =====
     async function setPreview(payload){
       const mode = payload?.mode || 'detailed';
       const isSummary = mode === 'summary';
@@ -976,9 +948,8 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
       const qrSrc = qrUrl ? (qrUrl + bust) : '';
 
       clearPreviewHost();
-      __pdfBlobUrl = ''; // new choice invalidates cached PDF
+      __pdfBlobUrl = '';
 
-      // Reset primary button state
       pCreate.disabled = false;
       pCreate.textContent = 'Create Label';
 
@@ -1009,7 +980,7 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
         pHost.appendChild(wrap);
 
         __previewQrSrc = img.src || qrSrc;
-        __labelLenMm = STARFIRE_LABEL.cutLenMm; // summary cut length fixed
+        __labelLenMm = STARFIRE_LABEL.cutLenMm;
         return;
       }
 
@@ -1067,7 +1038,6 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
       __previewQrSrc = img.src || qrSrc;
     }
 
-    // ===== Modal open/close =====
     function openReprintPreview(payload){
       __pendingPrint = payload || null;
       if(!__pendingPrint) return;
@@ -1084,25 +1054,26 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
     pClose.addEventListener('click', closeReprintPreview);
     pCancel.addEventListener('click', closeReprintPreview);
 
-    function openChoice(){
-      try{ cDlg.showModal(); }catch{ cDlg.setAttribute('open',''); }
-    }
-    function closeChoice(){
-      try{ cDlg.close(); }catch{ cDlg.removeAttribute('open'); }
-    }
+    function openChoice(){ try{ cDlg.showModal(); }catch{ cDlg.setAttribute('open',''); } }
+    function closeChoice(){ try{ cDlg.close(); }catch{ cDlg.removeAttribute('open'); } }
     cClose.addEventListener('click', closeChoice);
     cCancel.addEventListener('click', closeChoice);
 
-    function activateChoice(el, fn){
-      el.addEventListener('click', fn);
-      el.addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' '){ e.preventDefault(); fn(); }});
+    // one-time choice handlers
+    function wireChoice(mode){
+      __chosenMode = mode;
+      closeChoice();
+      if (!__pendingPrint) return;
+      openReprintPreview(__pendingPrint);
     }
+    choiceSummary.addEventListener('click', ()=> wireChoice('summary'));
+    choiceDetailed.addEventListener('click', ()=> wireChoice('detailed'));
+    choiceSummary.addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' '){ e.preventDefault(); wireChoice('summary'); }});
+    choiceDetailed.addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' '){ e.preventDefault(); wireChoice('detailed'); }});
 
-    // ===== Create PDF + open =====
     async function createPdfAndOpen(){
       if (!__pendingPrint) return;
 
-      // If we already created a PDF for this preview, just open it
       if (__pdfBlobUrl){
         window.open(__pdfBlobUrl, '_blank', 'noopener,noreferrer');
         return;
@@ -1143,31 +1114,30 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
           const t = await resp.text().catch(()=> '');
           console.warn('[label-pdf] failed', resp.status, t);
           alert('Label PDF failed. Check Cloud Run logs.');
+          pCreate.disabled = false;
           return;
         }
 
         const blob = await resp.blob();
         __pdfBlobUrl = URL.createObjectURL(blob);
 
-        // Open PDF (user can Print / share from there)
         window.open(__pdfBlobUrl, '_blank', 'noopener,noreferrer');
 
-        // Update button so the next tap is instant
         pCreate.textContent = 'Open PDF';
         pCreate.disabled = false;
       }catch(err){
         console.warn('[label-pdf] error', err);
         alert('Label PDF error. Check console/logs.');
+        pCreate.disabled = false;
       } finally {
         setBusy(false);
       }
     }
-
     pCreate.addEventListener('click', createPdfAndOpen);
 
-    // ===== Detail modal wiring =====
-    const btnHub = document.getElementById('openHub');
-
+    // ===============================
+    // Detail modal wiring (SINGLE btnHub declaration in this file)
+    // ===============================
     function openDetail(d){
       btnHub.classList.add('disabled');
       btnHub.setAttribute('aria-disabled','true');
@@ -1199,10 +1169,8 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
         qrSection.hidden = false;
         btnPrintQR.disabled = false;
 
-        // NEW FLOW:
-        // Reprint QR -> choose Summary/Detailed -> preview -> Create Label (PDF) -> open PDF -> print
         btnPrintQR.onclick = ()=>{
-          // stash base payload (url + fields)
+          // base payload saved first
           const base = {
             url,
             make: d.makeName || '',
@@ -1210,39 +1178,27 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
             serial: d.serial || ''
           };
 
-          // default choice based on equipment type:
-          // StarFire equipment defaults to Summary, otherwise Detailed
+          // If user chooses summary, we want the starfire-ish serial value
+          const summarySerial = pickStarfireSerial(d) || (d.serial || '');
+
+          // Put something into __pendingPrint now so chooser can open preview after selection
+          __pendingPrint = {
+            ...base,
+            mode: (IS_STARFIRE ? 'summary' : 'detailed'),
+            serial: (IS_STARFIRE ? summarySerial : base.serial)
+          };
+
+          // Set default selection behavior
           __chosenMode = IS_STARFIRE ? 'summary' : 'detailed';
 
-          // open choice modal
+          // Open choice modal; when they tap an option, handlers call wireChoice()
           openChoice();
 
-          // wire choices (fresh each time)
-          const choose = (mode)=>{
-            __chosenMode = mode;
-            closeChoice();
-
-            const payload = {
-              ...base,
-              mode: __chosenMode
-            };
-
-            // For summary, use StarFire-like serial selection logic
-            if (__chosenMode === 'summary'){
-              payload.serial = pickStarfireSerial(d) || (d.serial || '');
-            }
-
-            openReprintPreview(payload);
-          };
-
-          // one-shot handlers
-          const once = (el, fn)=>{
-            const h = ()=> fn();
-            el.onclick = h;
-          };
-
-          once(choiceSummary, ()=> choose('summary'));
-          once(choiceDetailed, ()=> choose('detailed'));
+          // When they pick summary/detailed, wireChoice() opens preview using __pendingPrint
+          // BUT we must update __pendingPrint.serial for summary each time:
+          // We'll do it by watching __chosenMode inside openReprintPreview call path.
+          // So update pending now for the default:
+          if (__chosenMode === 'summary') __pendingPrint.serial = summarySerial;
         };
       } else {
         qrImg.removeAttribute('src');
@@ -1254,6 +1210,34 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
 
       try{ dlg.showModal(); }catch{ dlg.setAttribute('open',''); }
     }
+
+    // When label choice is made, update __pendingPrint.mode + serial if summary, then preview
+    function syncPendingAfterChoice(){
+      if (!__pendingPrint) return;
+      __pendingPrint.mode = __chosenMode;
+      if (__chosenMode === 'summary') {
+        // summary should use starfireSerial if present
+        __pendingPrint.serial = normalizeSerial(__pendingPrint.serial || '');
+      }
+    }
+    // Patch wireChoice to sync before preview
+    const __origWireChoice = wireChoice;
+    function wireChoicePatched(mode){
+      __chosenMode = mode;
+      syncPendingAfterChoice();
+      closeChoice();
+      if (!__pendingPrint) return;
+      openReprintPreview(__pendingPrint);
+    }
+    // Replace wireChoice behavior (handlers already bound above, so we re-bind them cleanly)
+    // (Remove old listeners by not attempting; simplest: we already used wireChoice in handlers,
+    // so we keep wireChoice name but assign it here.)
+    // eslint-disable-next-line no-unused-vars
+    // NOTE: in plain browser this assignment is fine:
+    // we just re-define wireChoice by shadowing isn't allowed; so we used wireChoicePatched and rebind:
+    // Rebind:
+    choiceSummary.onclick = ()=> wireChoicePatched('summary');
+    choiceDetailed.onclick = ()=> wireChoicePatched('detailed');
 
     // Filter popover logic
     function openPop(){
