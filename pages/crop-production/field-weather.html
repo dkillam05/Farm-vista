@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>FarmVista • Field Readiness</title>
+  <title>FarmVista • Dev • Field Readiness</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
@@ -435,12 +435,35 @@
       border-radius:18px;
       box-shadow:0 18px 60px rgba(0,0,0,.35);
       overflow:hidden;
+      position:relative;
     }
-    .modal-h{padding:14px 14px 10px;border-bottom:1px solid var(--border);}
+    .modal-h{
+      padding:14px 48px 10px 14px; /* room for X */
+      border-bottom:1px solid var(--border);
+      position:relative;
+    }
     .modal-h h3{margin:0;font-size:15px;font-weight:900;color:var(--text)}
     .modal-b{padding:14px;color:var(--text)}
     .help{font-size:13px;color:var(--muted,#67706B);margin-top:6px}
     .error{color:#b00020;font-weight:800}
+
+    /* X close button */
+    .xbtn{
+      position:absolute;
+      top:10px;
+      right:10px;
+      width:34px;height:34px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      color:var(--text);
+      display:grid;
+      place-items:center;
+      cursor:pointer;
+      user-select:none;
+    }
+    .xbtn svg{width:18px;height:18px;display:block}
+    .xbtn:active{transform:translateY(1px)}
 
     /* Operation thresholds list */
     .oplist{display:grid;gap:10px;margin-top:10px}
@@ -470,8 +493,8 @@
         <header class="hero-head">
           <div class="icon" aria-hidden="true">🧭</div>
           <div>
-            <h1>Field Readiness (Beta)</h1>
-            <p class="muted">Until we have a weatehr API this is all Mocked Up Weather Data</p>
+            <h1>Field Readiness (Dev)</h1>
+            <p class="muted">Readiness score 0–100. Black line = threshold. Details are tucked away below.</p>
           </div>
         </header>
 
@@ -479,7 +502,6 @@
           <!-- CONTROLS -->
           <div class="row opCard" style="position:relative;">
             <div class="field">
-              <!-- ✅ Operation label is a button that opens threshold modal -->
               <button id="opBtn" class="label-btn" type="button" aria-label="Operation thresholds">
                 <span>Operation</span>
                 <span class="pill" title="Edit thresholds">⚙</span>
@@ -574,7 +596,6 @@
                   <button id="btnRegen" class="btn" type="button">Regenerate Mock 30 Days</button>
                 </div>
 
-                <!-- ✅ Threshold removed from details; shown read-only here -->
                 <div class="help" id="thresholdHint" style="margin-top:8px;">
                   Operation threshold is managed under <b>Operation</b> (⚙).
                 </div>
@@ -696,13 +717,15 @@
     <div class="modal">
       <div class="modal-h">
         <h3 id="adjustTitle">Adjust</h3>
+        <button id="btnAdjX" class="xbtn" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          </svg>
+        </button>
         <div class="muted" style="font-size:12px; margin-top:4px;" id="adjustSub">—</div>
       </div>
       <div class="modal-b">
         <div class="help">Use the sliders in Details to fine-tune soil/drain values.</div>
-        <div class="actions" style="margin-top:12px;">
-          <button id="btnAdjCancel" class="btn" type="button">Close</button>
-        </div>
       </div>
     </div>
   </div>
@@ -712,20 +735,15 @@
     <div class="modal">
       <div class="modal-h">
         <h3 id="opTitle">Operation Thresholds</h3>
+        <button id="btnOpX" class="xbtn" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          </svg>
+        </button>
         <div class="muted" style="font-size:12px; margin-top:4px;" id="opSub">Set the readiness threshold (0–100) for each operation.</div>
       </div>
       <div class="modal-b">
-        <div class="oplist" id="opList">
-          <!-- populated by JS -->
-        </div>
-
-        <div class="actions" style="margin-top:12px;">
-          <button id="btnOpClose" class="btn" type="button">Close</button>
-        </div>
-
-        <div class="help" style="margin-top:8px;">
-          Later we can tie this into perms. For now it’s local per-device.
-        </div>
+        <div class="oplist" id="opList"></div>
       </div>
     </div>
   </div>
@@ -745,7 +763,13 @@
 
     const LS_KEY = 'fv_dev_field_readiness_params_v2_0_100';
     const LS_OP_KEY = 'fv_dev_field_readiness_op';
-    const LS_THR_KEY = 'fv_dev_field_readiness_thresholds_v1';
+    const LS_THR_KEY = 'fv_dev_field_readiness_thresholds_v1'; // still keep as offline fallback
+
+    // ✅ Firestore storage (collection) for thresholds
+    // Collection: field_readiness_thresholds
+    // Doc: default
+    const THR_COLLECTION = 'field_readiness_thresholds';
+    const THR_DOC_ID = 'default';
 
     const OPS = [
       { key:'spring_tillage', label:'Spring tillage' },
@@ -764,7 +788,8 @@
       farmsById: new Map(),
       perFieldParams: new Map(),
       thresholdsByOp: new Map(),
-      fb: null
+      fb: null,
+      _thrSaveTimer: null
     };
 
     function esc(s){
@@ -783,39 +808,124 @@
 
     function normalizeStatus(s){ return String(s||'').trim().toLowerCase(); }
 
+    /* ---------- firebase-init ---------- */
+    async function importFirebaseInit(){
+      try{
+        const mod = await import('/Farm-vista/js/firebase-init.js');
+        state.fb = mod;
+        if (mod && mod.ready) await mod.ready;
+        return true;
+      }catch(e){
+        console.warn('[FieldReadiness] firebase-init import failed:', e);
+        state.fb = null;
+        return false;
+      }
+    }
+
+    function getAPI(){
+      const m = state.fb;
+      if (m && m.getFirestore && m.collection && m.getDocs && m.query && m.where){
+        return { kind:'module', ...m };
+      }
+      if (window.firebase && window.firebase.firestore){
+        return { kind:'compat' };
+      }
+      return null;
+    }
+
     /* ---------- thresholds per operation ---------- */
-    function loadThresholds(){
-      // default thresholds
-      const defaults = {
+    function defaultThresholds(){
+      return {
         spring_tillage: 70,
         planting: 70,
         spraying: 70,
         harvest: 70,
         fall_tillage: 70
       };
+    }
 
-      let raw = null;
-      try{ raw = localStorage.getItem(LS_THR_KEY); }catch(_){}
-      let parsed = null;
-      try{ parsed = raw ? JSON.parse(raw) : null; }catch(_){ parsed = null; }
-
-      const obj = (parsed && typeof parsed === 'object') ? parsed : {};
+    function applyThresholdObject(obj){
+      const defs = defaultThresholds();
       state.thresholdsByOp = new Map();
       for (const op of OPS){
-        const v = obj[op.key];
-        const num = isFinite(Number(v)) ? Number(v) : defaults[op.key];
+        const v = (obj && typeof obj === 'object') ? obj[op.key] : undefined;
+        const num = isFinite(Number(v)) ? Number(v) : defs[op.key];
         state.thresholdsByOp.set(op.key, clamp(Math.round(num), 0, 100));
       }
     }
 
-    function saveThresholds(){
+    function loadThresholdsFromLocal(){
+      let parsed = null;
+      try{
+        const raw = localStorage.getItem(LS_THR_KEY);
+        parsed = raw ? JSON.parse(raw) : null;
+      }catch(_){ parsed = null; }
+      applyThresholdObject(parsed);
+    }
+
+    function saveThresholdsToLocal(){
       try{
         const obj = {};
-        for (const op of OPS){
-          obj[op.key] = state.thresholdsByOp.get(op.key);
-        }
+        for (const op of OPS) obj[op.key] = state.thresholdsByOp.get(op.key);
         localStorage.setItem(LS_THR_KEY, JSON.stringify(obj));
       }catch(_){}
+    }
+
+    async function loadThresholdsFromFirestore(){
+      const api = getAPI();
+      if (!api || api.kind === 'compat') {
+        // if compat ever used, we’ll just rely on local fallback for now
+        return false;
+      }
+      try{
+        const db = api.getFirestore();
+        const ref = api.doc(db, THR_COLLECTION, THR_DOC_ID);
+        const snap = await api.getDoc(ref);
+        if (snap && snap.exists && snap.exists()){
+          const data = snap.data() || {};
+          const thr = data.thresholds || data; // allow either shape
+          applyThresholdObject(thr);
+          saveThresholdsToLocal(); // mirror locally
+          return true;
+        }
+        return false;
+      }catch(e){
+        console.warn('[FieldReadiness] thresholds read failed:', e);
+        return false;
+      }
+    }
+
+    async function saveThresholdsToFirestoreNow(){
+      const api = getAPI();
+      if (!api || api.kind === 'compat') return;
+
+      try{
+        const db = api.getFirestore();
+        const auth = api.getAuth ? api.getAuth() : null;
+        const user = auth && auth.currentUser ? auth.currentUser : null;
+
+        const obj = {};
+        for (const op of OPS) obj[op.key] = state.thresholdsByOp.get(op.key);
+
+        const ref = api.doc(db, THR_COLLECTION, THR_DOC_ID);
+        await api.setDoc(ref, {
+          thresholds: obj,
+          updatedAt: api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString(),
+          updatedBy: user ? (user.email || user.uid || null) : null
+        }, { merge:true });
+
+      }catch(e){
+        console.warn('[FieldReadiness] thresholds save failed:', e);
+      }
+    }
+
+    function scheduleThresholdSave(){
+      // debounce to avoid hammering Firestore while dragging
+      try{ if (state._thrSaveTimer) clearTimeout(state._thrSaveTimer); }catch(_){}
+      state._thrSaveTimer = setTimeout(async ()=>{
+        saveThresholdsToLocal();
+        await saveThresholdsToFirestoreNow();
+      }, 600);
     }
 
     function getCurrentOp(){
@@ -881,7 +991,7 @@
       state.perFieldParams.set(field.id, cur);
     }
 
-    /* ---------- firestore ---------- */
+    /* ---------- firestore fields ---------- */
     function extractFieldDoc(docId, d){
       const loc = d.location || {};
       const lat = Number(loc.lat);
@@ -900,30 +1010,6 @@
         soilWetness: isFinite(soilWetness) ? soilWetness : null,
         drainageIndex: isFinite(drainageIndex) ? drainageIndex : null
       };
-    }
-
-    async function importFirebaseInit(){
-      try{
-        const mod = await import('/Farm-vista/js/firebase-init.js');
-        state.fb = mod;
-        if (mod && mod.ready) await mod.ready;
-        return true;
-      }catch(e){
-        console.warn('[FieldReadiness] firebase-init import failed:', e);
-        state.fb = null;
-        return false;
-      }
-    }
-
-    function getAPI(){
-      const m = state.fb;
-      if (m && m.getFirestore && m.collection && m.getDocs && m.query && m.where){
-        return { kind:'module', ...m };
-      }
-      if (window.firebase && window.firebase.firestore){
-        return { kind:'compat' };
-      }
-      return null;
     }
 
     async function loadFarmsOptional(){
@@ -1173,7 +1259,7 @@
         const readyB = rb ? rb.readinessR : 0;
 
         const rainA = ra ? rainInRange(ra, range) : 0;
-        const rainB = rb ? rainInRange(rb, range) : 0;
+        const rainB = rb ? rb.rainInRange : 0;
 
         if (mode === 'name_az') return collator.compare(nameA, nameB);
         if (mode === 'name_za') return collator.compare(nameB, nameA);
@@ -1181,8 +1267,10 @@
         if (mode === 'ready_dry_wet'){ if (readyB !== readyA) return readyB - readyA; return collator.compare(nameA, nameB); }
         if (mode === 'ready_wet_dry'){ if (readyB !== readyA) return readyA - readyB; return collator.compare(nameA, nameB); }
 
-        if (mode === 'rain_most'){ if (rainB !== rainA) return rainB - rainA; return collator.compare(nameA, nameB); }
-        if (mode === 'rain_least'){ if (rainB !== rainA) return rainA - rainB; return collator.compare(nameA, nameB); }
+        // keep rain sorts stable
+        const rainB2 = rb ? rainInRange(rb, range) : 0;
+        if (mode === 'rain_most'){ if (rainB2 !== rainA) return rainB2 - rainA; return collator.compare(nameA, nameB); }
+        if (mode === 'rain_least'){ if (rainB2 !== rainA) return rainA - rainB2; return collator.compare(nameA, nameB); }
 
         return collator.compare(nameA, nameB);
       });
@@ -1443,7 +1531,6 @@
 
       showModal('adjustBackdrop', true);
     }
-
     function closeAdjust(){ showModal('adjustBackdrop', false); }
 
     function renderOpThresholdModal(){
@@ -1463,7 +1550,6 @@
             <div class="opval"><span class="mono" id="thrVal_${esc(op.key)}">${val}</span></div>
           </div>
           <input type="range" min="0" max="100" step="1" value="${val}" data-thr="${esc(op.key)}"/>
-          <div class="help">Higher = “needs to be drier” before ready.</div>
         `;
 
         const slider = row.querySelector('input[type="range"]');
@@ -1471,9 +1557,13 @@
           const k = slider.getAttribute('data-thr');
           const n = clamp(Number(slider.value), 0, 100);
           state.thresholdsByOp.set(k, n);
+
           const vEl = $('thrVal_' + k);
           if (vEl) vEl.textContent = String(n);
-          saveThresholds();
+
+          // ✅ persist (local + Firestore debounced)
+          scheduleThresholdSave();
+
           // live update threshold line + ETA text
           refreshAll();
         });
@@ -1564,24 +1654,24 @@
       });
     })();
 
-    /* Adjust modal close */
-    on('btnAdjCancel','click', closeAdjust);
-    (function(){
-      const b = $('adjustBackdrop');
-      if (!b) return;
-      b.addEventListener('click', (e)=>{
-        if (e.target && e.target.id === 'adjustBackdrop') closeAdjust();
-      });
-    })();
-
-    /* Operation modal open/close */
+    /* Operation modal open/close (X) */
     on('opBtn','click', openOpModal);
-    on('btnOpClose','click', closeOpModal);
+    on('btnOpX','click', closeOpModal);
     (function(){
       const b = $('opBackdrop');
       if (!b) return;
       b.addEventListener('click', (e)=>{
         if (e.target && e.target.id === 'opBackdrop') closeOpModal();
+      });
+    })();
+
+    /* Adjust modal X */
+    on('btnAdjX','click', closeAdjust);
+    (function(){
+      const b = $('adjustBackdrop');
+      if (!b) return;
+      b.addEventListener('click', (e)=>{
+        if (e.target && e.target.id === 'adjustBackdrop') closeAdjust();
       });
     })();
 
@@ -1593,10 +1683,15 @@
       genMock30();
       loadParamsFromLocal();
       loadOpDefault();
-      loadThresholds();
+
+      // start with local thresholds
+      loadThresholdsFromLocal();
 
       const ok = await importFirebaseInit();
       if (!ok) setErr('firebase-init.js failed to import as a module.');
+
+      // then try Firestore thresholds (overrides local if found)
+      await loadThresholdsFromFirestore();
 
       await loadFarmsOptional();
       await loadFields();
