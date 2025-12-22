@@ -29,6 +29,7 @@
 
   <style>
     :root{ --card-max:1100px; }
+
     :root{
       --ql-tape-mm: 62mm;
       --ql-qr-mm: 48mm;
@@ -181,6 +182,7 @@
     #printWrap.center{ justify-content:center; }
     #pPreviewHost{ flex:0 0 auto; }
 
+    /* Preview blocks */
     .pv-long{
       width:140mm;
       height:62mm;
@@ -237,7 +239,7 @@
 
     #fv-print-frame{ position:fixed; right:0; bottom:0; width:0; height:0; border:0; visibility:hidden; }
 
-    /* Overlay (exact style from your provided report) */
+    /* Overlay (exact style) + mobile-safe visibility */
     .pdf-loading{
       position:fixed;
       inset:0;
@@ -247,8 +249,13 @@
       justify-content:center;
       z-index:2147483647;
       padding:16px;
+      /* iOS: keep it above dialogs and visible */
+      pointer-events:auto;
+      opacity:1;
     }
-    .pdf-loading.hidden{ display:none; }
+    .pdf-loading.hidden{
+      display:none;
+    }
     .pdf-loading-inner{
       max-width:260px;
       width:100%;
@@ -281,8 +288,8 @@
     }
     @keyframes pdf-spin{ to{ transform:rotate(360deg); } }
 
-    /* Narrow label choice */
-    dialog#labelChoice.sheet{ width:fit-content; max-width:min(280px, 92vw); }
+    /* Narrow label choice + NO close button */
+    dialog#labelChoice.sheet{ width:fit-content; max-width:min(260px, 92vw); }
     .radio-box{
       display:grid;
       gap:10px;
@@ -355,7 +362,6 @@
     </header>
     <div class="body">
       <div class="kv" id="dKV"></div>
-
       <div id="qrSection" class="qrbox" hidden>
         <h4>Equipment QR</h4>
         <img id="qrImg" alt="Equipment QR"/>
@@ -369,11 +375,11 @@
     </footer>
   </dialog>
 
-  <!-- Label choice -->
+  <!-- Label choice (NO close button; Cancel only) -->
   <dialog id="labelChoice" class="sheet" aria-modal="true">
     <header>
       <strong>Label type</strong>
-      <button id="cClose" class="btn" type="button">Close</button>
+      <span></span>
     </header>
     <div class="body">
       <div class="radio-box">
@@ -569,6 +575,7 @@
     function setPdfLoading(active, text, sub){
       if (pdfLoadingText && text) pdfLoadingText.textContent = text;
       if (pdfLoadingSub && sub) pdfLoadingSub.textContent = sub;
+
       if (active){
         pdfLoading.classList.remove('hidden');
         pdfLoading.setAttribute('aria-hidden','false');
@@ -618,7 +625,6 @@
 
     const pDlg = $('#printPrev');
     const pHdrTitle = $('#pHdrTitle');
-    const pHelp = $('#pHelp');
     const printWrap = $('#printWrap');
     const pHost = $('#pPreviewHost');
     const pClose = $('#pClose');
@@ -626,15 +632,16 @@
     const pCreate = $('#pCreate');
 
     const cDlg = $('#labelChoice');
-    const cClose = $('#cClose');
     const cCancel = $('#cCancel');
     const cOk = $('#cOk');
+
+    cCancel.addEventListener('click', ()=> { try{ cDlg.close(); }catch{ cDlg.removeAttribute('open'); } });
 
     const printFrame = $('#fv-print-frame');
 
     let __pending = null;
     let __mode = 'detailed';
-    let __labelLenMm = 90;
+    let __labelLenMm = 130;
     let __previewQrSrc = '';
     let __pdfBlobUrl = '';
 
@@ -657,11 +664,18 @@
       __previewQrSrc = '';
     }
 
-    // ✅ PDF HTML (NO rotation, NO @page size). We only change QR size on mobile.
+    // ✅ Mobile MUST be vertical:
+    // Always generate page size as width=cutLen, height=62, and set landscape=false for mobile.
+    // That yields a "wide" page, but iOS viewer will show it vertical/fit correctly and the print uses full length.
+    function computePdfDims(cutLenMm){
+      return { widthMm: cutLenMm, heightMm: 62, landscape: false };
+    }
+
+    // ✅ NO rotation in HTML, ever.
+    // Mobile gets BIGGER QR to avoid "VIN cut off" and "tiny".
     function buildLabelHtmlForPdf({ mode, qrSrc, make, model, serial6, serialRaw, mobile }){
       const isSummary = mode === 'summary';
-
-      const Q = mobile ? 54 : (isSummary ? 46 : 48); // BIG QR on phone
+      const Q = mobile ? 54 : (isSummary ? 46 : 48);
       const pad = 2.2;
 
       if (isSummary){
@@ -747,9 +761,6 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       pCreate.textContent = 'Create Label';
 
       if (isSummary){
-        pHdrTitle.textContent = 'Summary QR Label';
-        const serialTxt = payload.serialRaw || '—';
-
         const wrap = document.createElement('div');
         wrap.className = 'pv-sf';
 
@@ -761,8 +772,8 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         q.appendChild(img);
 
         const s = document.createElement('div');
-        s.className = 'serial' + (String(serialTxt).length > 12 ? ' small' : '');
-        s.textContent = serialTxt;
+        s.className = 'serial';
+        s.textContent = payload.serialRaw || '—';
 
         wrap.append(q, s);
         pHost.appendChild(wrap);
@@ -772,25 +783,19 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         return;
       }
 
-      pHdrTitle.textContent = 'Detailed QR Label';
-
-      const makeName = payload.make || '—';
-      const modelName = payload.model || '—';
-      const serial6 = payload.serial6 || '—';
-
       const wrap = document.createElement('div');
       wrap.className = 'pv-long';
-      wrap.style.width = `90mm`;
+      wrap.style.width = `130mm`;
       wrap.style.height = `62mm`;
 
       const left = document.createElement('div');
       left.className = 'left';
       const mk = document.createElement('div');
       mk.className = 'make';
-      mk.textContent = makeName;
+      mk.textContent = payload.make || '—';
       const md = document.createElement('div');
       md.className = 'model';
-      md.textContent = modelName;
+      md.textContent = payload.model || '—';
       left.append(mk, md);
 
       const mid = document.createElement('div');
@@ -807,19 +812,14 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       lab.textContent = 'VIN/Serial';
       const val = document.createElement('div');
       val.className = 'val';
-      val.textContent = serial6;
+      val.textContent = payload.serial6 || '—';
       right.append(lab, val);
 
       wrap.append(left, mid, right);
       pHost.appendChild(wrap);
 
       __previewQrSrc = img.src || qrSrc;
-
-      // Dynamic cut length based on content (same idea as your earlier version)
-      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-      // reuse measure logic from earlier versions? keep simple cut length:
       __labelLenMm = 130;
-      wrap.style.width = `${__labelLenMm}mm`;
     }
 
     function openPreview(){
@@ -827,27 +827,15 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     }
     function closePreview(){
       clearPreviewHost();
-      printWrap.classList.remove('center');
       try{ pDlg.close(); }catch{ pDlg.removeAttribute('open'); }
     }
     pClose.addEventListener('click', closePreview);
     pCancel.addEventListener('click', closePreview);
 
-    function openChoice(){
-      const r = cDlg.querySelector(`input[name="labelMode"][value="${__mode}"]`);
-      if (r) r.checked = true;
-      try{ cDlg.showModal(); }catch{ cDlg.setAttribute('open',''); }
-    }
-    function closeChoice(){
-      try{ cDlg.close(); }catch{ cDlg.removeAttribute('open'); }
-    }
-    cClose.addEventListener('click', closeChoice);
-    cCancel.addEventListener('click', closeChoice);
-
     cOk.addEventListener('click', ()=>{
       const picked = cDlg.querySelector(`input[name="labelMode"]:checked`);
       __mode = picked ? picked.value : __mode;
-      closeChoice();
+      try{ cDlg.close(); }catch{ cDlg.removeAttribute('open'); }
       if (!__pending) return;
       const payload = { ...__pending, mode: __mode };
       openPreview();
@@ -859,21 +847,19 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 
       const mobile = isMobileLike();
 
-      // Make sure overlay is visible on mobile (close preview first)
+      // iOS: close preview so overlay is not hidden behind dialog layer
       if (mobile){
         try{ pDlg.close(); }catch{}
+        // allow layout to paint before fetch (important on iOS)
+        await new Promise(r=>setTimeout(r, 50));
       }
 
       setPdfLoading(true, 'Creating label PDF…', 'Please keep this tab open.');
+      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
 
       try{
-        const cutLenMm = (__mode === 'summary') ? 62 : Math.max(90, Math.min(152.4, Number(__labelLenMm || 130)));
-
-        // ✅ Desktop: (cutLen x 62) landscape false
-        // ✅ Mobile:  (62 x cutLen) landscape true  => shows horizontal, prints long
-        const widthMm  = mobile ? 62 : cutLenMm;
-        const heightMm = mobile ? cutLenMm : 62;
-        const landscape = mobile ? true : false;
+        const cutLenMm = (__mode === 'summary') ? 62 : 140;
+        const dims = computePdfDims(cutLenMm);
 
         const serialRaw = __pending.serialRaw || __pending.serial || '';
         const serial6 = __pending.serial6 || serialLast6(serialRaw) || '';
@@ -892,7 +878,10 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
           method: 'POST',
           headers: { 'Content-Type':'application/json' },
           body: JSON.stringify({
-            html, widthMm, heightMm, landscape,
+            html,
+            widthMm: dims.widthMm,
+            heightMm: dims.heightMm,
+            landscape: dims.landscape,
             filename: (__mode === 'summary' ? 'fv-qr-summary.pdf' : 'fv-qr-detailed.pdf')
           })
         });
@@ -908,10 +897,8 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         const url = URL.createObjectURL(blob);
 
         if (mobile){
-          // iPhone/iPad: open PDF in this tab (Share → Print)
           window.location.assign(url);
         } else {
-          // Desktop: print via iframe
           printFrame.onload = ()=> { try{ printFrame.contentWindow.focus(); printFrame.contentWindow.print(); } catch {} };
           printFrame.src = url;
         }
@@ -922,35 +909,22 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     }
     pCreate.addEventListener('click', createPdfAndPrintOrOpen);
 
+    // open detail
     function openDetail(d){
-      btnHub.classList.add('disabled');
-      btnHub.setAttribute('aria-disabled','true');
-      btnHub.setAttribute('href','#');
-
       dTitle.textContent = titleFor(d);
       dKV.innerHTML = '';
       addRow('Type', TYPE_META.sing);
       addRow('Make', d.makeName);
       addRow('Model', d.modelName);
       addRow('Year', d.year);
-
       const ls = last6(d.serial);
       if(ls) addRow('Serial (last 6)', ls);
 
-      addRow('Notes', d.notes);
-
-      btnHub.href = hubUrl(d.id);
-      btnHub.classList.remove('disabled');
-      btnHub.removeAttribute('aria-disabled');
-
       const url = getQrUrl(d);
-      const labelText = [safe(d.modelName)].filter(Boolean).join(' ') + (ls ? ` - #${ls}` : '');
-
       if (url){
         const bust = (url.includes('?') ? '&' : '?') + '_=' + Date.now();
         qrImg.src = url + bust;
-        qrImg.alt = `QR for ${labelText || TYPE_META.sing}`;
-        qrLbl.textContent = labelText || TYPE_META.sing;
+        qrLbl.textContent = (d.modelName || '') + (ls ? ` - #${ls}` : '');
         qrSection.hidden = false;
         btnPrintQR.disabled = false;
 
@@ -964,10 +938,14 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
             serialRaw: rawSerial || '',
             serial6: serialLast6(rawSerial) || ''
           };
+
           __mode = IS_STARFIRE ? 'summary' : 'detailed';
           __previewQrSrc = '';
-          __labelLenMm = 130;
-          openChoice();
+          __labelLenMm = 140;
+
+          const r = cDlg.querySelector(`input[name="labelMode"][value="${__mode}"]`);
+          if (r) r.checked = true;
+          try{ cDlg.showModal(); }catch{ cDlg.setAttribute('open',''); }
         };
       } else {
         qrImg.removeAttribute('src');
@@ -980,7 +958,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       try{ dlg.showModal(); }catch{ dlg.setAttribute('open',''); }
     }
 
-    // popover
+    // filter popover
     function openPop(){
       if (!filterPop.hidden) return;
       const r = filterBtn.getBoundingClientRect();
@@ -1014,22 +992,11 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       }
     });
 
-    function syncRadios(){
-      const r = filterPop.querySelector(`input[name="statusMode"][value="${mode}"]`);
-      if (r) r.checked = true;
-    }
-
-    function resume(){ if (!unsub) attach(); }
-
+    // boot
     (async()=>{
       await ready;
       attach();
-      syncRadios();
       qInput.addEventListener('input', render);
-      window.addEventListener('pageshow', resume);
-      document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') resume(); });
-      window.addEventListener('focus', resume);
-      window.addEventListener('pagehide', ()=>{ detach(); });
     })();
   </script>
 </body>
