@@ -2,11 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>FarmVista • Field Weather</title>
+  <title>FarmVista • Dev • Field Readiness</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
-
-  <script src="/Farm-vista/js/theme-boot.js"></script>
 
   <!-- ===========================
        ABSOLUTE PATHS (REQUIRED)
@@ -16,8 +14,12 @@
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
 
   <!-- Theme + base app styles -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Date range picker (your file) -->
+  <script src="/Farm-vista/js/fv-date-range-picker.js"></script>
 
   <!-- Ensure fv-shell (global header/footer/menu) -->
   <script>
@@ -31,20 +33,14 @@
     })();
   </script>
 
-  <!-- ===========================
-       PAGE CSS (uses template tokens)
-       =========================== -->
   <style>
     :root{
       --card-max:1100px;
       --page-bottom-gap:96px;
       --accent:#2F6C3C;
     }
-    body{
-      background:var(--app-bg,var(--surface));
-    }
+    body{ background:var(--app-bg,var(--surface)); }
 
-    /* Standard wrapper */
     .wrap{
       max-width:var(--card-max);
       margin:0 auto;
@@ -52,124 +48,1381 @@
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
     }
 
-    /* Hero card */
     .hero{
       border:1px solid var(--border);
       border-radius:14px;
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      overflow:hidden;
+      overflow:visible;           /* ✅ allow popovers to escape hero */
       margin-bottom:var(--page-bottom-gap);
+      position:relative;
     }
     .hero-head{
-      display:grid;
-      grid-template-columns:36px 1fr;
-      gap:12px;
-      align-items:center;
-      padding:14px 16px;
-      border-bottom:1px solid var(--border);
+      display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
+      padding:14px 16px;border-bottom:1px solid var(--border);
       background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
     }
-    .hero-head .icon{
-      width:24px;
-      height:24px;
-      color:var(--accent);
+    .hero-head .icon{width:24px;height:24px;color:var(--accent);display:grid;place-items:center}
+    .hero-head h1{margin:0;font-size:clamp(20px,3.2vw,26px);line-height:1.2}
+    .muted{color:var(--muted,#67706B)}
+    .body{padding:16px;display:grid;gap:14px}
+
+    /* Controls (3 equal columns for a clean line) */
+    .row{
       display:grid;
-      place-items:center;
-      font-size:20px;
+      gap:10px;
+      grid-template-columns:1fr 1fr 1fr;   /* ✅ equal widths */
+      align-items:end;
     }
-    .hero-head h1{
-      margin:0;
-      font-size:clamp(20px,3.2vw,26px);
-      line-height:1.2;
-    }
-    .muted{
-      color:var(--muted,#67706B);
-      margin:2px 0 0;
-      font-size:14px;
-    }
-    .body{
-      padding:16px;
-      display:grid;
-      gap:12px;
-      font-size:15px;
+    @media (max-width:880px){
+      .row{grid-template-columns:1fr;align-items:stretch}
     }
 
-    /* Simple “chips” for future ideas */
-    .chip-row{
-      display:flex;
-      flex-wrap:wrap;
-      gap:8px;
-      margin-top:4px;
+    .field{min-width:0;} /* ✅ prevent grid overflow */
+    .field label{display:block;font-weight:800;margin:0 0 6px}
+    .input,.select{
+      width:100%;
+      font:inherit;
+      font-size:16px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:12px;
+      outline:none;
     }
-    .chip{
-      padding:4px 10px;
+
+    /* Rain range label w/ help icon */
+    .label-inline{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .helpicon-wrap{position:relative;display:inline-flex;align-items:center}
+    .helpicon{
+      width:28px;height:28px;
       border-radius:999px;
       border:1px solid var(--border);
-      background:var(--card-surface,var(--surface-alt,var(--surface)));
-      font-size:12px;
-      color:var(--muted,#67706B);
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      color:var(--text);
+      font-weight:900;
+      display:grid;place-items:center;
+      cursor:pointer;
+      user-select:none;
+    }
+    .helpicon:active{transform:translateY(1px)}
+    .helptip{
+      position:absolute;
+      right:0;
+      top:calc(100% + 8px);
+      width:min(320px, 86vw);
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:14px;
+      box-shadow:0 16px 50px rgba(0,0,0,.22);
+      padding:12px;
+      font-size:13px;
+      color:var(--text);
+      z-index:100001;
+      display:none;
+    }
+    .helptip b{font-weight:900}
+    .helptip .muted{font-size:12px}
+    .helptip.on{display:block}
+
+    /* Date range input */
+    #jobRangeInput{
+      width:100%;             /* ✅ same width as other controls */
+      cursor:pointer;
       white-space:nowrap;
     }
 
-    .coming-pill{
-      display:inline-flex;
-      align-items:center;
-      gap:6px;
-      padding:4px 10px;
-      border-radius:999px;
-      border:1px solid rgba(250,204,21,.8);
-      background:rgba(250,204,21,.12);
-      color:#8b6b00;
-      font-size:11px;
-      font-weight:800;
-      text-transform:uppercase;
-      letter-spacing:.08em;
-      margin-top:6px;
+    /* Calendar popover: OPEN INWARD (leftwards) so it stays inside hero */
+    #calendarPopover{
+      position:absolute;
+      top:calc(100% + 8px);
+      right:0;                /* ✅ anchor to right edge of field */
+      left:auto;              /* ✅ so it expands inward */
+      width:min(360px, 92vw);
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:16px;
+      box-shadow:0 14px 45px rgba(0,0,0,.25);
+      padding:12px;
+      display:none;
+      z-index:100000;
     }
+    /* If you're on a very small phone, keep it within viewport */
+    @media (max-width:520px){
+      #calendarPopover{
+        width:min(340px, 92vw);
+        right:0;
+      }
+    }
+
+    .cal-top{display:flex;gap:10px;align-items:center;margin-bottom:10px}
+    #calDays{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+    .cal-day{
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:10px 0;
+      text-align:center;
+      font-size:12px;
+      cursor:pointer;
+      background:color-mix(in srgb, var(--surface) 94%, #ffffff 6%);
+      user-select:none;
+      color:var(--text);
+    }
+    .cal-day.other-month{opacity:.45}
+    .cal-day.in-range{background:color-mix(in srgb, var(--accent) 14%, var(--surface) 86%)}
+    .cal-day.range-start,.cal-day.range-end,.cal-day.single-day,.cal-day.start-selected{
+      background:var(--accent);color:#fff;border-color:transparent
+    }
+    .cal-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px}
+
+    /* Fields list */
+    .list{display:grid;gap:10px;}
+    .tile{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      padding:12px;
+      display:grid;
+      gap:8px;
+      cursor:pointer;
+      user-select:none;
+    }
+    .tile.active{
+      outline:2px solid color-mix(in srgb, var(--accent) 70%, transparent 30%);
+      outline-offset:2px;
+    }
+    .tile-top{
+      display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
+      flex-wrap:wrap;
+    }
+    .titleline{
+      display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;
+      flex:1 1 auto;
+    }
+    .name{
+      font-weight:900;
+      font-size:14px;
+      line-height:1.2;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      max-width:520px;
+    }
+    @media (max-width:520px){ .name{max-width:240px;} }
+    .tiny-btn{
+      padding:6px 8px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:transparent;
+      font-weight:900;
+      font-size:12px;
+      color:var(--text);
+      cursor:pointer;
+      line-height:1;
+    }
+
+    .readiness-pill{
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      font-weight:900;
+      font-size:12px;
+      color:#fff;
+      white-space:nowrap;
+      flex:0 0 auto;
+    }
+
+    .subline{
+      margin:0;
+      font-size:12px;
+      color:var(--muted,#67706B);
+      line-height:1.2;
+    }
+
+    /* Chips readable (light/dark) */
+    .chips{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+    .chip{
+      display:inline-flex;align-items:center;
+      padding:6px 10px;border-radius:999px;border:1px solid var(--border);
+      font-weight:900;font-size:12px;
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      color:var(--text);
+    }
+    .chip.wet{background:color-mix(in srgb, #c83b3b 18%, var(--surface) 82%)}
+    .chip.readiness{background:color-mix(in srgb, #2f8f4b 18%, var(--surface) 82%)}
+
+    .gauge-wrap{display:grid;gap:8px}
+    .gauge{
+      position:relative;
+      height:16px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      overflow:hidden;
+      background:linear-gradient(90deg, #c83b3b 0%, #d8b23b 55%, #2f8f4b 100%);
+    }
+    .marker{
+      position:absolute;top:-10px;width:4px;height:36px;
+      background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.35);
+      border-radius:3px;transform:translateX(-2px);
+    }
+    .thr{
+      position:absolute;top:-10px;width:2px;height:36px;
+      background:#000;opacity:.85;transform:translateX(-1px);
+    }
+    .badge{
+      position:absolute;top:-34px;transform:translateX(-50%);
+      padding:5px 8px;border-radius:999px;border:1px solid var(--border);
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      font-size:12px;font-weight:900;white-space:nowrap;
+      box-shadow:0 10px 25px rgba(0,0,0,.12);
+      color:var(--text);
+    }
+    .ticks{display:flex;justify-content:space-between;font-size:11px;color:var(--muted,#67706B)}
+
+    /* Details */
+    details{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      overflow:hidden;
+    }
+    summary{
+      list-style:none;
+      cursor:pointer;
+      padding:12px 14px;
+      font-weight:900;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      border-bottom:1px solid var(--border);
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      color:var(--text);
+    }
+    summary::-webkit-details-marker{display:none}
+
+    /* ✅ Mobile: details scroll vertically */
+    .details-body{
+      padding:14px;
+      display:grid;
+      gap:12px;
+      max-height: calc(100svh - 220px);
+      overflow:auto;
+      -webkit-overflow-scrolling:touch;
+    }
+
+    .detail-grid{
+      display:grid;
+      gap:12px;
+      grid-template-columns: 1.1fr .9fr;
+      align-items:start;
+    }
+    @media (max-width:880px){ .detail-grid{grid-template-columns:1fr} }
+
+    .panel{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:color-mix(in srgb, var(--surface) 96%, #ffffff 4%);
+      padding:12px;
+      color:var(--text);
+    }
+    .panel h3{margin:0 0 8px;font-size:13px;font-weight:900;color:var(--text)}
+
+    .kv{
+      display:grid;
+      grid-template-columns: 1fr auto;
+      gap:8px 12px;
+      font-size:12px;
+    }
+    .kv .k{color:var(--muted,#67706B);font-weight:800}
+    .kv .v{font-weight:900;color:var(--text)}
+    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;}
+
+    .detail-controls{
+      display:grid;
+      gap:12px;
+      grid-template-columns: 1fr 1fr;
+      align-items:start;
+    }
+    @media (max-width:880px){ .detail-controls{grid-template-columns:1fr} }
+
+    .actions{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      margin-top:10px;
+    }
+    .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff!important}
+
+    /* Tables: Desktop keep scroll; Mobile wrap (no horizontal scroll) */
+    .table-scroll{
+      overflow-x:auto;
+      -webkit-overflow-scrolling:touch;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:var(--surface);
+    }
+    table{
+      width:100%;
+      border-collapse:collapse;
+      min-width:820px;  /* desktop */
+    }
+    th,td{
+      padding:10px;
+      border-bottom:1px solid var(--border);
+      font-size:12px;
+      text-align:left;
+      vertical-align:top;
+      white-space:nowrap;
+      color:var(--text);
+    }
+    th{
+      background:color-mix(in srgb, var(--surface) 90%, #ffffff 10%);
+      font-weight:900;
+      position:sticky;
+      top:0;
+      z-index:1;
+    }
+    tr:last-child td{border-bottom:none}
+    .right{text-align:right}
+
+    @media (max-width:700px){
+      .table-scroll{overflow-x:visible;border:none;border-radius:0}
+      table{min-width:0}
+      th,td{white-space:normal;font-size:11px;padding:8px}
+      th{position:static}
+    }
+
+    /* Adjust modal */
+    .pv-hide{display:none!important}
+    .modal-backdrop{
+      position:fixed;inset:0;background:rgba(0,0,0,.45);
+      display:flex;align-items:center;justify-content:center;
+      padding:16px;z-index:99999;
+    }
+    .modal{
+      width:min(560px, 94vw);
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:18px;
+      box-shadow:0 18px 60px rgba(0,0,0,.35);
+      overflow:hidden;
+    }
+    .modal-h{padding:14px 14px 10px;border-bottom:1px solid var(--border);}
+    .modal-h h3{margin:0;font-size:15px;font-weight:900;color:var(--text)}
+    .modal-b{padding:14px;color:var(--text)}
+    .help{font-size:13px;color:var(--muted,#67706B);margin-top:6px}
+    .error{color:#b00020;font-weight:800}
   </style>
 </head>
 
 <body>
-  <!-- All content must live inside <fv-shell> -->
   <fv-shell>
     <div class="wrap">
       <section class="hero">
         <header class="hero-head">
-          <div class="icon" aria-hidden="true">🌦️</div>
+          <div class="icon" aria-hidden="true">🧭</div>
           <div>
-            <h1>Field Weather</h1>
-            <p class="muted">
-              Coming Soon – a simple view of rainfall, spray windows, and field dry-down timing.
-            </p>
-            <div class="coming-pill">
-              ⏳ Coming Soon
-            </div>
+            <h1>Field Readiness (Beta)</h1>
+            <p class="muted">All Data is Mock Weather at This Time</p>
           </div>
         </header>
 
         <div class="body">
-          <p>
-            This page will become your weather hub inside Crop Production. The goal is to combine
-            forecast data with your fields so you can make fast decisions like:
-          </p>
-          <ul style="margin:0 0 4px 18px;padding:0;font-size:14px;">
-            <li>“Can I spray this afternoon?”</li>
-            <li>“When will this field be dry enough to run?”</li>
-            <li>“How much rain did that farm really get?”</li>
-          </ul>
+          <!-- CONTROLS -->
+          <div class="row opCard" style="position:relative;">
+            <div class="field">
+              <label for="opSel">Operation</label>
+              <select id="opSel" class="select">
+                <option value="spring_tillage">Spring tillage</option>
+                <option value="planting">Planting</option>
+                <option value="spraying">Spraying</option>
+                <option value="harvest">Harvest</option>
+                <option value="fall_tillage">Fall tillage</option>
+              </select>
+            </div>
 
-          <div class="chip-row">
-            <span class="chip">Spray window planner</span>
-            <span class="chip">Field dry-down estimator</span>
-            <span class="chip">Rainfall history</span>
-            <span class="chip">Wind &amp; drift checks</span>
+            <div class="field">
+              <label for="sortSel">Sort</label>
+              <select id="sortSel" class="select">
+                <option value="name_az">Name (A → Z)</option>
+                <option value="name_za">Name (Z → A)</option>
+                <option value="ready_dry_wet">Readiness (Dry → Wet)</option>
+                <option value="ready_wet_dry">Readiness (Wet → Dry)</option>
+                <option value="rain_most">Most rain (range)</option>
+                <option value="rain_least">Least rain (range)</option>
+              </select>
+            </div>
+
+            <div class="field" style="position:relative;">
+              <div class="label-inline">
+                <label for="jobRangeInput" style="margin:0;font-weight:800;">Rain range</label>
+
+                <span class="helpicon-wrap">
+                  <button id="rainHelpBtn" class="helpicon" type="button" aria-label="Rain range help">?</button>
+                  <div id="rainHelpTip" class="helptip" role="dialog" aria-modal="false">
+                    <b>Rain range</b><br/>
+                    Totals shown on tiles are calculated over this date range.<br/>
+                    <div class="muted" style="margin-top:6px;">Defaults to last 30 days until you choose a range.</div>
+                  </div>
+                </span>
+              </div>
+
+              <input id="jobRangeInput" class="input" readonly placeholder="Choose date range"/>
+              <div id="calendarPopover">
+                <div class="cal-top">
+                  <select id="monthSelect" class="select" style="padding:10px"></select>
+                  <select id="yearSelect" class="select" style="padding:10px"></select>
+                  <button id="closeCalBtn" class="btn" type="button" style="min-width:auto;padding:10px 12px;">Close</button>
+                </div>
+                <div id="calDays"></div>
+                <div class="cal-footer">
+                  <span id="rangeSummary" class="muted" style="font-size:12px;">No dates selected</span>
+                  <div style="display:flex;gap:8px;">
+                    <button id="clearRangeBtn" class="btn" type="button" style="min-width:auto;padding:10px 12px;">Clear</button>
+                    <button id="applyRangeBtn" class="btn btn-primary" type="button" style="min-width:auto;padding:10px 12px;">Apply</button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
+
+          <!-- FIELDS -->
+          <div class="field">
+            <label>Fields</label>
+            <div id="fieldsGrid" class="list"></div>
+            <div id="emptyMsg" class="help muted" style="display:none;">No active fields with GPS (lat/lng) found.</div>
+          </div>
+
+          <div id="err" class="help error" hidden></div>
+
+          <!-- DETAILS -->
+          <details id="detailsPanel" open="false">
+            <summary>
+              <span>Details</span>
+              <span class="muted" style="font-size:12px;">(inputs + weather + math)</span>
+            </summary>
+
+            <div class="details-body">
+              <div class="panel">
+                <h3>Inputs</h3>
+
+                <div class="detail-controls">
+                  <div class="field">
+                    <label for="soilWet">Soil Wetness (0–100)</label>
+                    <input id="soilWet" type="range" min="0" max="100" step="1" value="60"/>
+                  </div>
+
+                  <div class="field">
+                    <label for="drain">Drainage Index (0–100)</label>
+                    <input id="drain" type="range" min="0" max="100" step="1" value="45"/>
+                  </div>
+
+                  <div class="field">
+                    <label for="workable">Operation Threshold (Readiness Score)</label>
+                    <input id="workable" type="range" min="0" max="100" step="1" value="70"/>
+                  </div>
+                </div>
+
+                <div class="actions">
+                  <button id="btnRegen" class="btn" type="button">Regenerate Mock 30 Days</button>
+                </div>
+              </div>
+
+              <div class="detail-grid">
+                <div class="panel">
+                  <h3>Field + Settings</h3>
+                  <div class="kv">
+                    <div class="k">Field</div><div class="v" id="dFieldName">—</div>
+                    <div class="k">Status</div><div class="v" id="dStatus">—</div>
+                    <div class="k">County / State</div><div class="v" id="dCounty">—</div>
+                    <div class="k">Tillable</div><div class="v" id="dAcres">—</div>
+                    <div class="k">GPS</div><div class="v mono" id="dGps">—</div>
+
+                    <div class="k">Soil Wetness</div><div class="v" id="dSoilType">—</div>
+                    <div class="k">Soil holding</div><div class="v" id="dSoilHold">—</div>
+                    <div class="k">Drainage Index</div><div class="v" id="dDrainage">—</div>
+
+                    <div class="k">Threshold</div><div class="v" id="dThreshold">—</div>
+                    <div class="k">Operation</div><div class="v" id="dOperation">—</div>
+                  </div>
+
+                  <div class="help" id="paramExplain">—</div>
+                </div>
+
+                <div class="panel">
+                  <h3>Weather + Output</h3>
+                  <div class="kv">
+                    <div class="k">Days loaded</div><div class="v" id="dDays">—</div>
+                    <div class="k">Range rain</div><div class="v" id="dRangeRain">—</div>
+                    <div class="k">Readiness</div><div class="v" id="dReadiness">—</div>
+                    <div class="k">Wetness</div><div class="v" id="dWetness">—</div>
+                    <div class="k">Storage</div><div class="v" id="dStorage">—</div>
+                  </div>
+                  <div class="help" id="mathSummary">—</div>
+                </div>
+              </div>
+
+              <div class="panel">
+                <h3>Tank Trace</h3>
+                <div class="table-scroll">
+                  <table aria-label="Tank Trace">
+                    <thead>
+                      <tr>
+                        <th style="width:110px;">Date</th>
+                        <th class="right">Rain</th>
+                        <th class="right">infilMult</th>
+                        <th class="right">Add</th>
+                        <th class="right">DryPwr</th>
+                        <th class="right">Loss</th>
+                        <th class="right">Storage</th>
+                      </tr>
+                    </thead>
+                    <tbody id="traceRows">
+                      <tr><td colspan="7" class="muted">Run the model.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="panel">
+                <h3>DryPwr Breakdown</h3>
+                <div class="table-scroll">
+                  <table aria-label="DryPwr Breakdown">
+                    <thead>
+                      <tr>
+                        <th style="width:110px;">Date</th>
+                        <th class="right">Temp</th>
+                        <th class="right">tempN</th>
+                        <th class="right">Wind</th>
+                        <th class="right">windN</th>
+                        <th class="right">RH</th>
+                        <th class="right">rhN</th>
+                        <th class="right">Solar</th>
+                        <th class="right">solarN</th>
+                        <th class="right">raw</th>
+                        <th class="right">DryPwr</th>
+                      </tr>
+                    </thead>
+                    <tbody id="dryRows">
+                      <tr><td colspan="11" class="muted">Run the model.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="panel">
+                <h3>Weather Inputs</h3>
+                <div class="table-scroll">
+                  <table aria-label="Weather Inputs">
+                    <thead>
+                      <tr>
+                        <th style="width:110px;">Date</th>
+                        <th class="right">Rain</th>
+                        <th class="right">Temp</th>
+                        <th class="right">Wind</th>
+                        <th class="right">RH</th>
+                        <th class="right">Solar</th>
+                      </tr>
+                    </thead>
+                    <tbody id="wxRows">
+                      <tr><td colspan="6" class="muted">Waiting for JS…</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+            </div>
+          </details>
+
         </div>
       </section>
     </div>
   </fv-shell>
 
-  <!-- No Firebase yet – just a placeholder page -->
+  <!-- Adjust Modal -->
+  <div id="adjustBackdrop" class="modal-backdrop pv-hide" role="dialog" aria-modal="true" aria-labelledby="adjustTitle">
+    <div class="modal">
+      <div class="modal-h">
+        <h3 id="adjustTitle">Adjust</h3>
+        <div class="muted" style="font-size:12px; margin-top:4px;" id="adjustSub">—</div>
+      </div>
+      <div class="modal-b">
+        <div class="help">Use the sliders in Details to fine-tune soil/drain values.</div>
+        <div class="actions" style="margin-top:12px;">
+          <button id="btnAdjCancel" class="btn" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ✅ Module script -->
+  <script type="module">
+    'use strict';
+
+    const $ = id => document.getElementById(id);
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const round = (v, d=2) => {
+      const p = Math.pow(10,d);
+      return Math.round(v*p)/p;
+    };
+
+    const LOSS_SCALE = 0.55;
+
+    const LS_KEY = 'fv_dev_field_readiness_params_v2_0_100';
+    const LS_OP_KEY = 'fv_dev_field_readiness_op';
+
+    const state = {
+      weather30: [],
+      seed: Date.now() % 1000000,
+      selectedFieldId: null,
+      lastRuns: new Map(),
+      fields: [],
+      farmsById: new Map(),
+      perFieldParams: new Map(),
+      fb: null
+    };
+
+    function esc(s){
+      return String(s||'')
+        .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
+        .replaceAll('"','&quot;').replaceAll("'","&#039;");
+    }
+
+    function setErr(msg){
+      const el = $('err');
+      if (!el) return;
+      if (!msg){ el.hidden = true; el.textContent=''; return; }
+      el.hidden = false;
+      el.textContent = msg;
+    }
+
+    function normalizeStatus(s){ return String(s||'').trim().toLowerCase(); }
+
+    function loadParamsFromLocal(){
+      state.perFieldParams = new Map();
+      try{
+        const raw = localStorage.getItem(LS_KEY);
+        if (!raw) return;
+        const obj = JSON.parse(raw);
+        if (!obj || typeof obj !== 'object') return;
+        for (const [k,v] of Object.entries(obj)){
+          if (!v || typeof v !== 'object') continue;
+          state.perFieldParams.set(k, {
+            soilWetness: clamp(Number(v.soilWetness ?? 60), 0, 100),
+            drainageIndex: clamp(Number(v.drainageIndex ?? 45), 0, 100)
+          });
+        }
+      }catch(_){}
+    }
+
+    function saveParamsToLocal(){
+      try{
+        const obj = {};
+        for (const [k,v] of state.perFieldParams.entries()){
+          obj[k] = { soilWetness:v.soilWetness, drainageIndex:v.drainageIndex };
+        }
+        localStorage.setItem(LS_KEY, JSON.stringify(obj));
+      }catch(_){}
+    }
+
+    function getFieldParams(fieldId){
+      const p = state.perFieldParams.get(fieldId);
+      if (p) return p;
+      const def = { soilWetness:60, drainageIndex:45 };
+      state.perFieldParams.set(fieldId, def);
+      return def;
+    }
+
+    function ensureSelectedParamsToSliders(){
+      if (!state.selectedFieldId) return;
+      const p = getFieldParams(state.selectedFieldId);
+      const a = $('soilWet'), b = $('drain');
+      if (a) a.value = String(p.soilWetness);
+      if (b) b.value = String(p.drainageIndex);
+    }
+
+    function hydrateParamsFromFieldDoc(field){
+      if (!field) return;
+      const cur = getFieldParams(field.id);
+      if (isFinite(field.soilWetness)) cur.soilWetness = clamp(Number(field.soilWetness), 0, 100);
+      if (isFinite(field.drainageIndex)) cur.drainageIndex = clamp(Number(field.drainageIndex), 0, 100);
+      state.perFieldParams.set(field.id, cur);
+    }
+
+    function extractFieldDoc(docId, d){
+      const loc = d.location || {};
+      const lat = Number(loc.lat);
+      const lng = Number(loc.lng);
+      const soilWetness = Number(d.soilWetness);
+      const drainageIndex = Number(d.drainageIndex);
+      return {
+        id: docId,
+        name: String(d.name||''),
+        county: String(d.county||''),
+        state: String(d.state||''),
+        farmId: String(d.farmId||''),
+        status: String(d.status||''),
+        tillable: Number(d.tillable||0),
+        location: (isFinite(lat) && isFinite(lng)) ? { lat, lng } : null,
+        soilWetness: isFinite(soilWetness) ? soilWetness : null,
+        drainageIndex: isFinite(drainageIndex) ? drainageIndex : null
+      };
+    }
+
+    async function importFirebaseInit(){
+      try{
+        const mod = await import('/Farm-vista/js/firebase-init.js');
+        state.fb = mod;
+        if (mod && mod.ready) await mod.ready;
+        return true;
+      }catch(e){
+        console.warn('[FieldReadiness] firebase-init import failed:', e);
+        state.fb = null;
+        return false;
+      }
+    }
+
+    function getAPI(){
+      const m = state.fb;
+      if (m && m.getFirestore && m.collection && m.getDocs && m.query && m.where){
+        return { kind:'module', ...m };
+      }
+      if (window.firebase && window.firebase.firestore){
+        return { kind:'compat' };
+      }
+      return null;
+    }
+
+    async function loadFarmsOptional(){
+      const api = getAPI();
+      if (!api || api.kind === 'compat') return;
+      try{
+        const db = api.getFirestore();
+        const snap = await api.getDocs(api.collection(db,'farms'));
+        const map = new Map();
+        snap.forEach(doc=>{
+          const d = doc.data() || {};
+          if (d && d.name) map.set(doc.id, String(d.name));
+        });
+        state.farmsById = map;
+      }catch(_){}
+    }
+
+    async function loadFields(){
+      const api = getAPI();
+      if (!api){
+        setErr('Firestore helpers not found.');
+        state.fields = [];
+        renderTiles();
+        return;
+      }
+
+      try{
+        let rawDocs = [];
+
+        if (api.kind !== 'compat'){
+          const db = api.getFirestore();
+          const q = api.query(api.collection(db,'fields'), api.where('status','==','active'));
+          const snap = await api.getDocs(q);
+          snap.forEach(doc=> rawDocs.push({ id: doc.id, data: doc.data() || {} }));
+          if (rawDocs.length === 0){
+            const snap2 = await api.getDocs(api.collection(db,'fields'));
+            snap2.forEach(doc=> rawDocs.push({ id: doc.id, data: doc.data() || {} }));
+          }
+        } else {
+          const db = window.firebase.firestore();
+          let snap = await db.collection('fields').where('status','==','active').get();
+          snap.forEach(doc=> rawDocs.push({ id: doc.id, data: doc.data() || {} }));
+          if (rawDocs.length === 0){
+            snap = await db.collection('fields').get();
+            snap.forEach(doc=> rawDocs.push({ id: doc.id, data: doc.data() || {} }));
+          }
+        }
+
+        const arr = [];
+        for (const r of rawDocs){
+          const f = extractFieldDoc(r.id, r.data);
+          if (normalizeStatus(f.status) !== 'active') continue;
+          if (!f.location) continue;
+          arr.push(f);
+          hydrateParamsFromFieldDoc(f);
+        }
+
+        arr.sort((a,b)=> String(a.name).localeCompare(String(b.name), undefined, {numeric:true, sensitivity:'base'}));
+        state.fields = arr;
+        saveParamsToLocal();
+
+        if (!state.selectedFieldId || !state.fields.find(x=>x.id===state.selectedFieldId)){
+          state.selectedFieldId = state.fields.length ? state.fields[0].id : null;
+        }
+
+        const empty = $('emptyMsg');
+        if (empty) empty.style.display = state.fields.length ? 'none' : 'block';
+
+        ensureSelectedParamsToSliders();
+        renderTiles();
+        renderDetails();
+      }catch(e){
+        setErr(`Failed to load fields: ${e.message}`);
+        state.fields = [];
+        const empty = $('emptyMsg');
+        if (empty) empty.style.display = 'block';
+        renderTiles();
+      }
+    }
+
+    // Mock weather
+    function seededRand(){
+      state.seed = (state.seed * 1664525 + 1013904223) % 4294967296;
+      return state.seed / 4294967296;
+    }
+
+    function genMock30(){
+      const out = [];
+      const today = new Date();
+      today.setHours(12,0,0,0);
+
+      for (let i=29; i>=0; i--){
+        const d = new Date(today);
+        d.setDate(d.getDate() - i);
+
+        const eventRoll = seededRand();
+        let rain = 0;
+        if (eventRoll > 0.82) rain = 0.10 + seededRand()*1.10;
+        else if (eventRoll > 0.72) rain = 0.02 + seededRand()*0.16;
+
+        const wave = Math.sin((29-i)/6) * 6;
+        const temp = 34 + wave + (seededRand()*10 - 5);
+        const wind = 4 + seededRand()*18;
+
+        let rh = 45 + seededRand()*45;
+        if (rain > 0) rh = clamp(rh + 10 + seededRand()*10, 35, 98);
+
+        let solar = 120 + seededRand()*220;
+        if (rain > 0) solar = clamp(solar - 60 - seededRand()*80, 40, 360);
+
+        out.push({
+          dateISO: d.toISOString().slice(0,10),
+          rainIn: round(rain, 2),
+          tempF: Math.round(temp),
+          windMph: Math.round(wind),
+          rh: Math.round(rh),
+          solarWm2: Math.round(solar),
+        });
+      }
+
+      state.weather30 = out;
+    }
+
+    function parseRangeFromInput(){
+      const inp = $('jobRangeInput');
+      const raw = String(inp ? inp.value : '').trim();
+      if (!raw) return { start:null, end:null };
+
+      const parts = raw.split('–').map(s=>s.trim());
+      if (parts.length === 2){
+        const a = new Date(parts[0]);
+        const b = new Date(parts[1]);
+        if (isFinite(a.getTime()) && isFinite(b.getTime())){
+          a.setHours(0,0,0,0);
+          b.setHours(23,59,59,999);
+          return { start:a, end:b };
+        }
+      }
+
+      const d = new Date(raw);
+      if (isFinite(d.getTime())){
+        d.setHours(0,0,0,0);
+        const e = new Date(d);
+        e.setHours(23,59,59,999);
+        return { start:d, end:e };
+      }
+
+      return { start:null, end:null };
+    }
+
+    function isDateInRange(dateISO, range){
+      if (!range || !range.start || !range.end) return true;
+      const d = new Date(dateISO + 'T12:00:00');
+      return d >= range.start && d <= range.end;
+    }
+
+    function calcDryParts(r){
+      const temp = Number(r.tempF||0);
+      const wind = Number(r.windMph||0);
+      const rh   = Number(r.rh||0);
+      const solar= Number(r.solarWm2||0);
+
+      const tempN = clamp((temp - 20) / 45, 0, 1);
+      const windN = clamp((wind - 2) / 20, 0, 1);
+      const solarN= clamp((solar - 60) / 300, 0, 1);
+      const rhN   = clamp((rh - 35) / 65, 0, 1);
+
+      const raw = (0.35*tempN + 0.30*solarN + 0.25*windN - 0.25*rhN);
+      const dryPwr = clamp(raw, 0, 1);
+      return { temp, wind, rh, solar, tempN, windN, rhN, solarN, raw, dryPwr };
+    }
+
+    function mapFactors(soilWetness0_100, drainageIndex0_100){
+      const soilHold = clamp(Number(soilWetness0_100) / 100, 0, 1);
+      const drainPoor= clamp(Number(drainageIndex0_100) / 100, 0, 1);
+
+      const infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor;
+      const dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor;
+      const Smax      = 2.60 + 1.00*soilHold + 0.90*drainPoor;
+
+      return { soilHold, drainPoor, infilMult, dryMult, Smax };
+    }
+
+    function runField(field){
+      if (!state.weather30.length) return null;
+
+      const p = getFieldParams(field.id);
+      const f = mapFactors(p.soilWetness, p.drainageIndex);
+
+      const rows = state.weather30.map(w=>{
+        const parts = calcDryParts(w);
+        return { ...w, rainInAdj: Number(w.rainIn||0), ...parts };
+      });
+
+      const first7 = rows.slice(0,7);
+      const rain7 = first7.reduce((s,x)=> s + Number(x.rainInAdj||0), 0);
+      const rainNudgeFrac = clamp(rain7 / 4.0, 0, 1);
+      const rainNudge = rainNudgeFrac * (0.35 * f.Smax);
+
+      let storage = clamp((0.45 * f.Smax) + rainNudge, 0, f.Smax);
+
+      const trace = [];
+      for (const d of rows){
+        const rain = Number(d.rainInAdj||0);
+        const add = rain * f.infilMult;
+        const loss = Number(d.dryPwr||0) * LOSS_SCALE * f.dryMult;
+        const before = storage;
+        const after = clamp(before + add - loss, 0, f.Smax);
+        storage = after;
+        trace.push({ dateISO:d.dateISO, rain, infilMult:f.infilMult, add, dryPwr:d.dryPwr, loss, before, after });
+      }
+
+      const wetness = clamp((storage / f.Smax) * 100, 0, 100);
+      const wetnessR = Math.round(wetness);
+      const readinessR = Math.round(clamp(100 - wetness, 0, 100));
+
+      const last7 = trace.slice(-7);
+      const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
+
+      return { field, factors:f, rows, trace, storageFinal:storage, wetnessR, readinessR, avgLossDay };
+    }
+
+    function rainInRange(run, range){
+      if (!run || !run.rows) return 0;
+      let sum = 0;
+      for (const r of run.rows){
+        if (isDateInRange(r.dateISO, range)) sum += Number(r.rainInAdj||0);
+      }
+      return round(sum, 2);
+    }
+
+    function sortFields(fields, runsById){
+      const sel = $('sortSel');
+      const mode = String(sel ? sel.value : 'name_az');
+      const range = parseRangeFromInput();
+      const collator = new Intl.Collator(undefined, { numeric:true, sensitivity:'base' });
+      const arr = fields.slice();
+
+      arr.sort((a,b)=>{
+        const ra = runsById.get(a.id);
+        const rb = runsById.get(b.id);
+
+        const nameA = `${a.name||''}`;
+        const nameB = `${b.name||''}`;
+
+        const readyA = ra ? ra.readinessR : 0;
+        const readyB = rb ? rb.readinessR : 0;
+
+        const rainA = ra ? rainInRange(ra, range) : 0;
+        const rainB = rb ? rainInRange(rb, range) : 0;
+
+        if (mode === 'name_az') return collator.compare(nameA, nameB);
+        if (mode === 'name_za') return collator.compare(nameB, nameA);
+
+        if (mode === 'ready_dry_wet'){ if (readyB !== readyA) return readyB - readyA; return collator.compare(nameA, nameB); }
+        if (mode === 'ready_wet_dry'){ if (readyB !== readyA) return readyA - readyB; return collator.compare(nameA, nameB); }
+
+        if (mode === 'rain_most'){ if (rainB !== rainA) return rainB - rainA; return collator.compare(nameA, nameB); }
+        if (mode === 'rain_least'){ if (rainB !== rainA) return rainA - rainB; return collator.compare(nameA, nameB); }
+
+        return collator.compare(nameA, nameB);
+      });
+
+      return arr;
+    }
+
+    function readinessColor(score){
+      const p = clamp(score, 0, 100);
+      if (p <= 55){
+        const t = p / 55;
+        const r = Math.round(200 + (216-200)*t);
+        const g = Math.round(59  + (178-59)*t);
+        const b = 59;
+        return `rgb(${r},${g},${b})`;
+      } else {
+        const t = (p - 55) / 45;
+        const r = Math.round(216 + (47-216)*t);
+        const g = Math.round(178 + (143-178)*t);
+        const b = Math.round(59  + (75-59)*t);
+        return `rgb(${r},${g},${b})`;
+      }
+    }
+
+    function markerLeftCSS(pct){
+      const p = clamp(pct, 0, 100);
+      if (p >= 100) return 'calc(100% - 2px)';
+      if (p <= 0) return '2px';
+      return p.toFixed(2) + '%';
+    }
+
+    function etaFor(run, threshold){
+      if (!run) return '';
+      if (run.readinessR >= threshold) return '';
+      const wetTarget = clamp(100 - threshold, 0, 100);
+      const storageTarget = run.factors.Smax * (wetTarget / 100);
+      const delta = run.storageFinal - storageTarget;
+      const dailyLoss = Math.max(0.02, run.avgLossDay);
+      const hours = Math.ceil((delta / dailyLoss) * 24);
+      if (hours <= 48) return `Est: ~${hours} hours`;
+      return 'Estimated to be greater then 2 days';
+    }
+
+    function renderTiles(){
+      const wrap = $('fieldsGrid');
+      if (!wrap) return;
+      wrap.innerHTML = '';
+
+      state.lastRuns.clear();
+      for (const f of state.fields){
+        state.lastRuns.set(f.id, runField(f));
+      }
+
+      const sorted = sortFields(state.fields, state.lastRuns);
+      const thrEl = $('workable');
+      const thr = Number(thrEl ? thrEl.value : 70);
+      const range = parseRangeFromInput();
+
+      for (const f of sorted){
+        const run0 = state.lastRuns.get(f.id);
+        if (!run0) continue;
+
+        const readiness = run0.readinessR;
+        const eta = etaFor(run0, thr);
+        const rainRange = rainInRange(run0, range);
+
+        const leftPos = markerLeftCSS(readiness);
+        const thrPos  = markerLeftCSS(thr);
+        const pillBg = readinessColor(readiness);
+
+        const farmName = state.farmsById.get(f.farmId) || '';
+        const labelLeft = farmName ? `${farmName} • ${f.name}` : f.name;
+
+        const tile = document.createElement('div');
+        tile.className = 'tile' + (f.id === state.selectedFieldId ? ' active' : '');
+
+        tile.innerHTML = `
+          <div class="tile-top">
+            <div class="titleline">
+              <div class="name" title="${esc(labelLeft)}">${esc(labelLeft)}</div>
+              <button class="tiny-btn" data-adjust="${esc(f.id)}" type="button">Adjust</button>
+            </div>
+            <div class="readiness-pill" style="background:${pillBg};">Field Readiness ${readiness}</div>
+          </div>
+
+          <p class="subline">Rain (range): <span class="mono">${rainRange.toFixed(2)}</span> in</p>
+
+          <div class="gauge-wrap">
+            <div class="chips">
+              <div class="chip wet">Wet</div>
+              <div class="chip readiness">Readiness</div>
+            </div>
+
+            <div class="gauge">
+              <div class="thr" style="left:${thrPos};"></div>
+              <div class="marker" style="left:${leftPos};"></div>
+              <div class="badge" style="left:${leftPos};">Field Readiness ${readiness}</div>
+            </div>
+
+            <div class="ticks"><span>0</span><span>50</span><span>100</span></div>
+            ${eta ? `<div class="help"><b>${eta}</b></div>` : ``}
+          </div>
+        `;
+
+        tile.addEventListener('click', (e)=>{
+          const btn = e.target && e.target.closest ? e.target.closest('button') : null;
+          if (btn) return;
+          selectField(f.id);
+        });
+
+        const adjBtn = tile.querySelector('button[data-adjust]');
+        if (adjBtn){
+          adjBtn.addEventListener('click', (e)=>{
+            e.stopPropagation();
+            openAdjust(f.id);
+          });
+        }
+
+        wrap.appendChild(tile);
+      }
+
+      const empty = $('emptyMsg');
+      if (empty) empty.style.display = state.fields.length ? 'none' : 'block';
+    }
+
+    function selectField(id){
+      const f = state.fields.find(x=>x.id === id);
+      if (!f) return;
+      state.selectedFieldId = id;
+      ensureSelectedParamsToSliders();
+      refreshAll();
+    }
+
+    function renderDetails(){
+      const f = state.fields.find(x=>x.id === state.selectedFieldId);
+      if (!f) return;
+
+      const run = state.lastRuns.get(f.id) || runField(f);
+      if (!run) return;
+
+      const fac = run.factors;
+      const p = getFieldParams(f.id);
+
+      const thrEl = $('workable');
+      const thr = Number(thrEl ? thrEl.value : 70);
+      const opEl = $('opSel');
+      const op  = String(opEl ? opEl.value : '');
+      const range = parseRangeFromInput();
+      const rainRange = rainInRange(run, range);
+
+      const farmName = state.farmsById.get(f.farmId) || '';
+
+      const setText = (id, val) => { const el = $(id); if (el) el.textContent = String(val); };
+
+      setText('dFieldName', farmName ? `${farmName} • ${f.name}` : (f.name || '—'));
+      setText('dStatus', String(f.status||'—'));
+      setText('dCounty', `${String(f.county||'—')} / ${String(f.state||'—')}`);
+      setText('dAcres', (isFinite(f.tillable) ? `${f.tillable.toFixed(2)} ac` : '—'));
+      setText('dGps', (f.location ? `${f.location.lat.toFixed(6)}, ${f.location.lng.toFixed(6)}` : '—'));
+
+      setText('dSoilType', `${p.soilWetness}/100`);
+      setText('dSoilHold', `${fac.soilHold.toFixed(2)} (normalized)`);
+      setText('dDrainage', `${p.drainageIndex}/100`);
+
+      setText('dThreshold', `${thr}`);
+      setText('dOperation', op);
+
+      setText('dDays', String(state.weather30.length || 0));
+      setText('dRangeRain', `${rainRange.toFixed(2)} in`);
+      setText('dReadiness', `${run.readinessR}`);
+      setText('dWetness', `${run.wetnessR}`);
+      setText('dStorage', `${run.storageFinal.toFixed(2)} / ${run.factors.Smax.toFixed(2)}`);
+
+      const param = $('paramExplain');
+      if (param){
+        param.innerHTML =
+          `soilHold=soilWetness/100=<span class="mono">${fac.soilHold.toFixed(2)}</span> • drainPoor=drainageIndex/100=<span class="mono">${fac.drainPoor.toFixed(2)}</span><br/>
+           Smax=<span class="mono">${fac.Smax.toFixed(2)}</span> • infilMult=<span class="mono">${fac.infilMult.toFixed(2)}</span> • dryMult=<span class="mono">${fac.dryMult.toFixed(2)}</span> • LOSS_SCALE=<span class="mono">${LOSS_SCALE.toFixed(2)}</span>`;
+      }
+
+      const sum = $('mathSummary');
+      if (sum){
+        sum.innerHTML =
+          `Model output: <b>Wet=${run.wetnessR}</b> • <b>Readiness=${run.readinessR}</b> • storage=<span class="mono">${run.storageFinal.toFixed(2)}</span>/<span class="mono">${run.factors.Smax.toFixed(2)}</span>`;
+      }
+
+      const trb = $('traceRows');
+      if (trb){
+        trb.innerHTML = '';
+        for (const t of run.trace){
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td class="mono">${t.dateISO}</td>
+            <td class="right mono">${t.rain.toFixed(2)}</td>
+            <td class="right mono">${t.infilMult.toFixed(2)}</td>
+            <td class="right mono">${t.add.toFixed(2)}</td>
+            <td class="right mono">${t.dryPwr.toFixed(2)}</td>
+            <td class="right mono">${t.loss.toFixed(2)}</td>
+            <td class="right mono">${t.before.toFixed(2)}→${t.after.toFixed(2)}</td>
+          `;
+          trb.appendChild(tr);
+        }
+      }
+
+      const drb = $('dryRows');
+      if (drb){
+        drb.innerHTML = '';
+        for (const r of run.rows){
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td class="mono">${r.dateISO}</td>
+            <td class="right mono">${Math.round(r.temp)}</td>
+            <td class="right mono">${r.tempN.toFixed(2)}</td>
+            <td class="right mono">${Math.round(r.wind)}</td>
+            <td class="right mono">${r.windN.toFixed(2)}</td>
+            <td class="right mono">${Math.round(r.rh)}</td>
+            <td class="right mono">${r.rhN.toFixed(2)}</td>
+            <td class="right mono">${Math.round(r.solar)}</td>
+            <td class="right mono">${r.solarN.toFixed(2)}</td>
+            <td class="right mono">${r.raw.toFixed(2)}</td>
+            <td class="right mono">${r.dryPwr.toFixed(2)}</td>
+          `;
+          drb.appendChild(tr);
+        }
+      }
+
+      const wxb = $('wxRows');
+      if (wxb){
+        wxb.innerHTML = '';
+        for (const r of run.rows){
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td class="mono">${r.dateISO}</td>
+            <td class="right mono">${Number(r.rainInAdj||0).toFixed(2)}</td>
+            <td class="right mono">${Math.round(r.temp)}</td>
+            <td class="right mono">${Math.round(r.wind)}</td>
+            <td class="right mono">${Math.round(r.rh)}</td>
+            <td class="right mono">${Math.round(r.solar)}</td>
+          `;
+          wxb.appendChild(tr);
+        }
+      }
+    }
+
+    /* Adjust modal */
+    function showModal(on){
+      const b = $('adjustBackdrop');
+      if (b) b.classList.toggle('pv-hide', !on);
+    }
+    function openAdjust(id){
+      state.selectedFieldId = id;
+      ensureSelectedParamsToSliders();
+      refreshAll();
+      const f = state.fields.find(x=>x.id===id);
+      const sub = $('adjustSub');
+      if (sub && f) sub.textContent = f.name || '—';
+      showModal(true);
+    }
+    function closeAdjust(){ showModal(false); }
+
+    function refreshAll(){
+      setErr('');
+
+      if (state.selectedFieldId){
+        const a = $('soilWet');
+        const b = $('drain');
+        const p = getFieldParams(state.selectedFieldId);
+        if (a) p.soilWetness = clamp(Number(a.value), 0, 100);
+        if (b) p.drainageIndex = clamp(Number(b.value), 0, 100);
+        state.perFieldParams.set(state.selectedFieldId, p);
+        saveParamsToLocal();
+      }
+
+      renderTiles();
+      renderDetails();
+    }
+
+    /* Persist last operation */
+    function loadOpDefault(){
+      const op = $('opSel');
+      if (!op) return;
+      try{
+        const raw = localStorage.getItem(LS_OP_KEY);
+        if (raw) op.value = raw;
+      }catch(_){}
+    }
+    function saveOpDefault(){
+      const op = $('opSel');
+      if (!op) return;
+      try{ localStorage.setItem(LS_OP_KEY, String(op.value||'')); }catch(_){}
+    }
+
+    /* Null-safe event helper */
+    function on(id, ev, fn){
+      const el = $(id);
+      if (el) el.addEventListener(ev, fn);
+    }
+
+    on('sortSel','change', refreshAll);
+    on('opSel','change', ()=>{ saveOpDefault(); refreshAll(); });
+
+    on('soilWet','input', refreshAll);
+    on('drain','input', refreshAll);
+    on('workable','input', refreshAll);
+
+    on('applyRangeBtn','click', ()=> setTimeout(refreshAll, 0));
+    on('clearRangeBtn','click', ()=> setTimeout(refreshAll, 0));
+    on('jobRangeInput','change', refreshAll);
+
+    on('btnRegen','click', ()=>{
+      state.seed = Date.now() % 1000000;
+      genMock30();
+      refreshAll();
+    });
+
+    /* rain help tooltip toggle */
+    (function(){
+      const rainHelpBtn = $('rainHelpBtn');
+      const rainHelpTip = $('rainHelpTip');
+      if (!rainHelpBtn || !rainHelpTip) return;
+
+      function close(){ rainHelpTip.classList.remove('on'); }
+      rainHelpBtn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        rainHelpTip.classList.toggle('on');
+      });
+      document.addEventListener('click', (e)=>{
+        if (!rainHelpTip.classList.contains('on')) return;
+        const inside = e.target && e.target.closest && e.target.closest('#rainHelpTip');
+        const btn = e.target && e.target.closest && e.target.closest('#rainHelpBtn');
+        if (!inside && !btn) close();
+      });
+    })();
+
+    on('btnAdjCancel','click', closeAdjust);
+    (function(){
+      const b = $('adjustBackdrop');
+      if (!b) return;
+      b.addEventListener('click', (e)=>{
+        if (e.target && e.target.id === 'adjustBackdrop') closeAdjust();
+      });
+    })();
+
+    /* init */
+    (async function init(){
+      const dp = $('detailsPanel');
+      if (dp) dp.open = false;
+
+      genMock30();
+      loadParamsFromLocal();
+      loadOpDefault();
+
+      const ok = await importFirebaseInit();
+      if (!ok) setErr('firebase-init.js failed to import as a module.');
+
+      await loadFarmsOptional();
+      await loadFields();
+
+      if (!state.selectedFieldId && state.fields.length){
+        state.selectedFieldId = state.fields[0].id;
+      }
+
+      ensureSelectedParamsToSliders();
+      refreshAll();
+    })();
+  </script>
 </body>
 </html>
