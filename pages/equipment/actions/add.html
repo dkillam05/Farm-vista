@@ -1,15 +1,22 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-12-22c
+Rev: 2025-12-22d
 
 FIX (requested):
 ✅ Summary preview is CENTERED (not drifting right)
-✅ After "Create Label" finishes generating the PDF, bounce back to:
-   https://dkillam05.github.io/Farm-vista/pages/equipment/equipment-trucks.html
-   - Mobile: opens PDF in a new tab (so we can return the current tab)
-   - Desktop: prints via iframe, then returns
+✅ NO premature bounce-back
+✅ Desktop: open print dialog, then when it CLOSES we show a FarmVista modal:
+   - "Back to Trucks" (goes to trucks page)
+   - "Print Again" (opens print dialog again)
+   - "Stay Here" (closes modal)
+✅ If user cancels printing: they can just hit "Stay Here" (no forced redirect)
+✅ Mobile: PDF opens in new tab; current tab can still bounce back immediately (same as before)
 
-Everything else kept the same as your 2025-12-22b file.
+NOTE (platform limitation):
+Browsers do NOT reliably tell us "printed vs canceled". We only know the print dialog closed.
+So we never auto-bounce after desktop print. We ask via a clean in-app modal instead.
+
+Everything else kept the same as your 2025-12-22c file.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -410,7 +417,6 @@ Everything else kept the same as your 2025-12-22b file.
     /* ==========================================================
        ✅ NICE SLIDER TOGGLE (StarFire GPS Capable?)
        ========================================================== */
-
     .pv-switch-row{
       display:flex;
       align-items:center;
@@ -622,6 +628,45 @@ Everything else kept the same as your 2025-12-22b file.
       outline:none !important;
       box-shadow:none !important;
     }
+
+    /* ==========================================================
+       ✅ "Done printing?" modal (FarmVista styled)
+       ========================================================== */
+    .pv-done{
+      position:fixed;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:100001;
+    }
+    .pv-done.show{ display:flex; }
+    .pv-done .backdrop{ background:rgba(0,0,0,.55); }
+    .pv-done .sheet{
+      width:min(420px, 92vw);
+      max-width:92vw;
+      border-radius:16px;
+    }
+    .pv-done .dlg-body{
+      padding:14px 16px;
+      display:grid;
+      gap:8px;
+      color:var(--text);
+    }
+    .pv-done .dlg-body p{
+      margin:0;
+      color:var(--muted,#67706B);
+      font-size:14px;
+      line-height:1.35;
+    }
+    .pv-done .dlg-actions{
+      display:flex;
+      gap:10px;
+      justify-content:flex-end;
+      padding:12px 16px 14px;
+      border-top:1px solid var(--border);
+      flex-wrap:wrap;
+    }
   </style>
 </head>
 
@@ -785,6 +830,26 @@ Everything else kept the same as your 2025-12-22b file.
     </div>
   </div>
 
+  <!-- ✅ Done printing modal -->
+  <div id="doneModal" class="pv-done" role="dialog" aria-modal="true" aria-labelledby="doneTitle">
+    <div class="backdrop" data-done-close></div>
+    <div class="sheet">
+      <header>
+        <div id="doneTitle">Done printing?</div>
+        <button class="close" type="button" data-done-close>Close</button>
+      </header>
+      <div class="dlg-body">
+        <p>If you printed, tap <b>Back to Trucks</b>.</p>
+        <p>If you hit Cancel, tap <b>Stay Here</b> (nothing changes).</p>
+      </div>
+      <div class="dlg-actions">
+        <button id="btnStay" class="btn" type="button">Stay Here</button>
+        <button id="btnPrintAgain" class="btn" type="button">Print Again</button>
+        <button id="btnBackTrucks" class="btn btn-primary" type="button">Back to Trucks</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
@@ -802,7 +867,7 @@ Everything else kept the same as your 2025-12-22b file.
 
     const FV_LABEL_PDF_ENDPOINT = 'https://farmvista-pdf-label-300398089669.us-central1.run.app/label';
 
-    // ✅ After PDF is created, return here:
+    // ✅ Return here when user chooses
     const RETURN_URL = 'https://dkillam05.github.io/Farm-vista/pages/equipment/equipment-trucks.html';
 
     const $ = id => document.getElementById(id);
@@ -880,6 +945,7 @@ Everything else kept the same as your 2025-12-22b file.
       // close top-layer UI so overlay is always visible
       closeDialog($("labelChoice"));
       PrintUI.close();
+      DoneUI.close();
 
       setPdfLoading(true, 'Creating label PDF…', 'Please keep this tab open.');
 
@@ -1102,6 +1168,16 @@ Everything else kept the same as your 2025-12-22b file.
     document.querySelectorAll('#printModal [data-close-print]').forEach(el=>el.addEventListener('click', ()=>PrintUI.close()));
     $("btnPrintClose").addEventListener('click', ()=>PrintUI.close());
 
+    // ✅ Done modal UI
+    const DoneUI = {
+      el: $("doneModal"),
+      open(){ this.el.classList.add('show'); document.body.style.overflow='hidden'; },
+      close(){ this.el.classList.remove('show'); document.body.style.overflow=''; }
+    };
+    document.querySelectorAll('#doneModal [data-done-close]').forEach(el=>el.addEventListener('click', ()=>DoneUI.close()));
+    $("btnStay").addEventListener('click', ()=>DoneUI.close());
+    $("btnBackTrucks").addEventListener('click', ()=> window.location.assign(RETURN_URL));
+
     /* ===== Dynamic label length (continuous tape) — Detailed only ===== */
     const LABEL = {
       tapeWmm: 62,
@@ -1174,7 +1250,7 @@ Everything else kept the same as your 2025-12-22b file.
     let __labelLenMm = LABEL.minLenMm;
 
     // State for printing
-    let __pendingPrint = null;   // { urlData, make, model, serialRaw, serial6, cutLenMm, mode }
+    let __pendingPrint = null;   // { qrDataUrl, make, model, serialRaw, serial6, cutLenMm, mode }
     let __mode = 'detailed';
 
     function esc(s){
@@ -1345,10 +1421,54 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 
     const PRINT_FRAME = $("fv-print-frame");
 
-    function bounceBack(){
-      // small delay to avoid racing iOS tab creation / iframe print
-      setTimeout(()=>{ window.location.assign(RETURN_URL); }, 250);
+    // ✅ Print watcher (desktop)
+    let __printWatcherActive = false;
+    function watchForPrintDialogClose(win){
+      if(__printWatcherActive) return;
+      __printWatcherActive = true;
+
+      let fired = false;
+
+      const cleanup = ()=>{
+        __printWatcherActive = false;
+        try{ if(win) win.onafterprint = null; }catch{}
+        window.removeEventListener('focus', onFocusBack, true);
+      };
+
+      const openDone = ()=>{
+        if(fired) return;
+        fired = true;
+        cleanup();
+        DoneUI.open();
+      };
+
+      const onFocusBack = ()=>{
+        // Focus returns after print dialog closes (fallback)
+        setTimeout(openDone, 250);
+      };
+
+      try{
+        if(win) win.onafterprint = openDone; // when supported
+      }catch{}
+
+      window.addEventListener('focus', onFocusBack, true);
+
+      // Last-ditch safety (never auto-redirect)
+      setTimeout(openDone, 20000);
     }
+
+    // ✅ Let "Print Again" re-open the last desktop print
+    $("btnPrintAgain").addEventListener('click', ()=>{
+      DoneUI.close();
+      try{
+        const w = PRINT_FRAME?.contentWindow;
+        if(w){
+          watchForPrintDialogClose(w);
+          w.focus();
+          w.print();
+        }
+      }catch{}
+    });
 
     async function createLabelPdfAndPrint(){
       if(!__pendingPrint) return;
@@ -1407,19 +1527,30 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         const url = URL.createObjectURL(blob);
 
         if (mobile){
-          // ✅ Open PDF in a new tab, then return THIS tab to trucks page
+          // ✅ Mobile: open PDF in a new tab, then bounce current tab back
           const w = window.open(url, '_blank');
           if (!w){
-            // popup blocked: fall back to same-tab open
             window.location.assign(url);
             return;
           }
-          bounceBack();
+          setTimeout(()=>{ window.location.assign(RETURN_URL); }, 250);
         } else {
-          // Desktop: print iframe, then bounce back after print fires
-          PRINT_FRAME.onload = ()=> {
-            try{ PRINT_FRAME.contentWindow.focus(); PRINT_FRAME.contentWindow.print(); } catch {}
-            bounceBack();
+          // ✅ Desktop: open print dialog, then show Done modal AFTER dialog closes
+          PRINT_FRAME.onload = ()=>{
+            try{
+              const w = PRINT_FRAME.contentWindow;
+              if(!w) return;
+
+              // Start watcher before opening dialog
+              watchForPrintDialogClose(w);
+
+              w.focus();
+              w.print();
+            }catch(e){
+              console.warn('print failed', e);
+              // If print fails, at least give the user the Done modal controls
+              DoneUI.open();
+            }
           };
           PRINT_FRAME.src = url;
         }
