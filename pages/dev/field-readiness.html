@@ -1,1 +1,1075 @@
-.gitkeep
+
+<!-- =====================================================================
+/Farm-vista/pages/field-readiness.html  (FULL FILE)
+Rev: 2025-12-22g
+
+GOAL (your request):
+✅ HTML page that uses the 3 JS module files we created:
+   - /Farm-vista/js/field-readiness.weather.js
+   - /Farm-vista/js/field-readiness.model.js
+   - /Farm-vista/js/field-readiness.ui.js
+✅ Uses your Firestore trigger automatically by writing to:
+   - field_readiness_adjustments (addDoc)
+   Trigger runs server-side (no URL needed).
+
+NOTE:
+- The trigger fires ONLY when a NEW doc is created in field_readiness_adjustments.
+- This page does that when you confirm “Yes, Apply” in Adjust.
+===================================================================== -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Field Readiness</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <!-- ===========================
+       ABSOLUTE PATHS (REQUIRED)
+       =========================== -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
+  <!-- Theme + base app styles -->
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <!-- Date range picker (your file) -->
+  <script src="/Farm-vista/js/fv-date-range-picker.js"></script>
+
+  <!-- Ensure fv-shell (global header/footer/menu) -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <style>
+    :root{
+      --card-max:1100px;
+      --page-bottom-gap:96px;
+      --accent:#2F6C3C;
+    }
+    body{ background:var(--app-bg,var(--surface)); }
+
+    .wrap{
+      max-width:var(--card-max);
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
+    }
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:visible;
+      margin-bottom:var(--page-bottom-gap);
+      position:relative;
+    }
+    .hero-head{
+      display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
+      padding:14px 16px;border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+    }
+    .hero-head .icon{width:24px;height:24px;color:var(--accent);display:grid;place-items:center}
+    .hero-head h1{margin:0;font-size:clamp(20px,3.2vw,26px);line-height:1.2}
+    .muted{color:var(--muted,#67706B)}
+    .body{padding:16px;display:grid;gap:14px}
+
+    /* Controls (3 equal columns) */
+    .row{
+      display:grid;
+      gap:10px;
+      grid-template-columns:1fr 1fr 1fr;
+      align-items:end;
+    }
+    @media (max-width:880px){
+      .row{grid-template-columns:1fr;align-items:stretch}
+    }
+
+    .field{min-width:0;}
+    .field label{display:block;font-weight:800;margin:0 0 6px}
+
+    .input,.select{
+      width:100%;
+      font:inherit;
+      font-size:16px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:12px;
+      outline:none;
+    }
+
+    /* Operation label becomes a button */
+    .label-btn{
+      width:100%;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      padding:0;
+      margin:0 0 6px;
+      border:none;
+      background:transparent;
+      color:var(--text);
+      font-weight:900;
+      cursor:pointer;
+      text-align:left;
+    }
+    .label-btn .pill{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:28px;height:28px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      font-weight:900;
+      line-height:1;
+      user-select:none;
+    }
+    .label-btn:active{transform:translateY(1px)}
+
+    /* Rain range label w/ help icon */
+    .label-inline{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .helpicon-wrap{position:relative;display:inline-flex;align-items:center}
+    .helpicon{
+      width:28px;height:28px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      color:var(--text);
+      font-weight:900;
+      display:grid;place-items:center;
+      cursor:pointer;
+      user-select:none;
+    }
+    .helpicon:active{transform:translateY(1px)}
+    .helptip{
+      position:absolute;
+      right:0;
+      top:calc(100% + 8px);
+      width:min(320px, 86vw);
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:14px;
+      box-shadow:0 16px 50px rgba(0,0,0,.22);
+      padding:12px;
+      font-size:13px;
+      color:var(--text);
+      z-index:100001;
+      display:none;
+    }
+    .helptip b{font-weight:900}
+    .helptip .muted{font-size:12px}
+    .helptip.on{display:block}
+
+    /* Date range input */
+    #jobRangeInput{width:100%;cursor:pointer;white-space:nowrap}
+
+    /* Calendar popover: open inward */
+    #calendarPopover{
+      position:absolute;
+      top:calc(100% + 8px);
+      right:0;
+      left:auto;
+      width:min(360px, 92vw);
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:16px;
+      box-shadow:0 14px 45px rgba(0,0,0,.25);
+      padding:12px;
+      display:none;
+      z-index:100000;
+    }
+    @media (max-width:520px){
+      #calendarPopover{width:min(340px, 92vw);right:0;}
+    }
+    .cal-top{display:flex;gap:10px;align-items:center;margin-bottom:10px}
+    #calDays{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+    .cal-day{
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:10px 0;
+      text-align:center;
+      font-size:12px;
+      cursor:pointer;
+      background:color-mix(in srgb, var(--surface) 94%, #ffffff 6%);
+      user-select:none;
+      color:var(--text);
+    }
+    .cal-day.other-month{opacity:.45}
+    .cal-day.in-range{background:color-mix(in srgb, var(--accent) 14%, var(--surface) 86%)}
+    .cal-day.range-start,.cal-day.range-end,.cal-day.single-day,.cal-day.start-selected{
+      background:var(--accent);color:#fff;border-color:transparent
+    }
+    .cal-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px}
+
+    /* Fields list */
+    .list{display:grid;gap:10px;}
+    .tile{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      padding:12px;
+      display:grid;
+      gap:8px;
+      cursor:pointer;
+      user-select:none;
+    }
+    .tile.active{
+      outline:2px solid color-mix(in srgb, var(--accent) 70%, transparent 30%);
+      outline-offset:2px;
+    }
+    .tile-top{
+      display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
+      flex-wrap:wrap;
+    }
+    .titleline{
+      display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;
+      flex:1 1 auto;
+    }
+    .name{
+      font-weight:900;
+      font-size:14px;
+      line-height:1.2;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      max-width:520px;
+    }
+    @media (max-width:520px){ .name{max-width:240px;} }
+    .tiny-btn{
+      padding:6px 8px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:transparent;
+      font-weight:900;
+      font-size:12px;
+      color:var(--text);
+      cursor:pointer;
+      line-height:1;
+      white-space:nowrap;
+    }
+    .tiny-btn:active{transform:translateY(1px)}
+    .tiny-btn.primary{
+      border-color:transparent;
+      background:#2F6C3C;
+      color:#fff!important;
+    }
+
+    .readiness-pill{
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      font-weight:900;
+      font-size:12px;
+      color:#fff;
+      white-space:nowrap;
+      flex:0 0 auto;
+    }
+
+    .subline{
+      margin:0;
+      font-size:12px;
+      color:var(--muted,#67706B);
+      line-height:1.2;
+    }
+
+    /* Chips readable */
+    .chips{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+    .chip{
+      display:inline-flex;align-items:center;
+      padding:6px 10px;border-radius:999px;border:1px solid var(--border);
+      font-weight:900;font-size:12px;
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      color:var(--text);
+    }
+    .chip.wet{background:color-mix(in srgb, #c83b3b 18%, var(--surface) 82%)}
+    .chip.readiness{background:color-mix(in srgb, #2f8f4b 18%, var(--surface) 82%)}
+
+    .gauge-wrap{display:grid;gap:8px}
+    .gauge{
+      position:relative;
+      height:16px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      overflow:hidden;
+      background:linear-gradient(90deg, #c83b3b 0%, #d8b23b 55%, #2f8f4b 100%);
+    }
+    .marker{
+      position:absolute;top:-10px;width:4px;height:36px;
+      background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.35);
+      border-radius:3px;transform:translateX(-2px);
+    }
+    .thr{
+      position:absolute;top:-10px;width:2px;height:36px;
+      background:#000;opacity:.85;transform:translateX(-1px);
+    }
+    .badge{
+      position:absolute;top:-34px;transform:translateX(-50%);
+      padding:5px 8px;border-radius:999px;border:1px solid var(--border);
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      font-size:12px;font-weight:900;white-space:nowrap;
+      box-shadow:0 10px 25px rgba(0,0,0,.12);
+      color:var(--text);
+    }
+    .ticks{display:flex;justify-content:space-between;font-size:11px;color:var(--muted,#67706B)}
+
+    /* Details */
+    details{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      overflow:hidden;
+    }
+    summary{
+      list-style:none;
+      cursor:pointer;
+      padding:12px 14px;
+      font-weight:900;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      border-bottom:1px solid var(--border);
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      color:var(--text);
+    }
+    summary::-webkit-details-marker{display:none}
+
+    .details-body{
+      padding:14px;
+      display:grid;
+      gap:12px;
+      max-height: calc(100svh - 220px);
+      overflow:auto;
+      -webkit-overflow-scrolling:touch;
+    }
+
+    .detail-grid{
+      display:grid;
+      gap:12px;
+      grid-template-columns: 1.1fr .9fr;
+      align-items:start;
+    }
+    @media (max-width:880px){ .detail-grid{grid-template-columns:1fr} }
+
+    .panel{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:color-mix(in srgb, var(--surface) 96%, #ffffff 4%);
+      padding:12px;
+      color:var(--text);
+    }
+    .panel h3{margin:0 0 8px;font-size:13px;font-weight:900;color:var(--text)}
+
+    .kv{
+      display:grid;
+      grid-template-columns: 1fr auto;
+      gap:8px 12px;
+      font-size:12px;
+    }
+    .kv .k{color:var(--muted,#67706B);font-weight:800}
+    .kv .v{font-weight:900;color:var(--text)}
+    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;}
+
+    .detail-controls{
+      display:grid;
+      gap:12px;
+      grid-template-columns: 1fr 1fr;
+      align-items:start;
+    }
+    @media (max-width:880px){ .detail-controls{grid-template-columns:1fr} }
+
+    .actions{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      margin-top:10px;
+    }
+
+    /* FIX: primary buttons sometimes "disappear" in light mode */
+    .btn-primary,
+    .btn.btn-primary{
+      background: var(--accent, #2F6C3C) !important;
+      border-color: transparent !important;
+      color: #fff !important;
+    }
+    .btn-primary:disabled,
+    .btn.btn-primary:disabled{
+      opacity: .55 !important;
+      cursor: not-allowed !important;
+    }
+
+    /* GPS value + Map button row */
+    .gpsline{
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      gap:10px;
+      flex-wrap:wrap;
+      min-width:0;
+    }
+
+    /* Tables: desktop scroll; mobile wrap */
+    .table-scroll{
+      overflow-x:auto;
+      -webkit-overflow-scrolling:touch;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:var(--surface);
+    }
+    table{
+      width:100%;
+      border-collapse:collapse;
+      min-width:820px;
+    }
+    th,td{
+      padding:10px;
+      border-bottom:1px solid var(--border);
+      font-size:12px;
+      text-align:left;
+      vertical-align:top;
+      white-space:nowrap;
+      color:var(--text);
+    }
+    th{
+      background:color-mix(in srgb, var(--surface) 90%, #ffffff 10%);
+      font-weight:900;
+      position:sticky;
+      top:0;
+      z-index:1;
+    }
+    tr:last-child td{border-bottom:none}
+    .right{text-align:right}
+
+    @media (max-width:700px){
+      .table-scroll{overflow-x:visible;border:none;border-radius:0}
+      table{min-width:0}
+      th,td{white-space:normal;font-size:11px;padding:8px}
+      th{position:static}
+    }
+
+    /* Modals */
+    .pv-hide{display:none!important}
+    .modal-backdrop{
+      position:fixed;inset:0;background:rgba(0,0,0,.45);
+      display:flex;align-items:center;justify-content:center;
+      padding:16px;z-index:99999;
+    }
+    .modal{
+      width:min(620px, 94vw);
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:18px;
+      box-shadow:0 18px 60px rgba(0,0,0,.35);
+      overflow:hidden;
+      position:relative;
+    }
+    .modal-h{
+      padding:14px 48px 10px 14px;
+      border-bottom:1px solid var(--border);
+      position:relative;
+    }
+    .modal-h h3{margin:0;font-size:15px;font-weight:900;color:var(--text)}
+    .modal-b{padding:14px;color:var(--text)}
+    .help{font-size:13px;color:var(--muted,#67706B);margin-top:6px}
+    .error{color:#b00020;font-weight:800}
+
+    /* X close button */
+    .xbtn{
+      position:absolute;
+      top:10px;
+      right:10px;
+      width:34px;height:34px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      color:var(--text);
+      display:grid;
+      place-items:center;
+      cursor:pointer;
+      user-select:none;
+    }
+    .xbtn svg{width:18px;height:18px;display:block}
+    .xbtn:active{transform:translateY(1px)}
+
+    /* Operation thresholds list */
+    .oplist{display:grid;gap:10px;margin-top:10px}
+    .oprow{
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:12px;
+      background:color-mix(in srgb, var(--surface) 96%, #ffffff 4%);
+    }
+    .oprow-top{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .oprow .opname{font-weight:900}
+    .oprow .opval{font-weight:900}
+    .oprow input[type="range"]{width:100%}
+
+    /* ✅ Beta inputs list (subtle) */
+    .varlist{ display:grid; gap:8px; }
+    .vgroup{
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:10px;
+      background:var(--surface);
+    }
+    .vgroup-title{
+      font-weight:900;
+      font-size:12px;
+      margin:0 0 8px;
+      color:var(--text);
+    }
+    .vitems{ display:grid; gap:6px; }
+    .vitem{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:8px 10px;
+      background:color-mix(in srgb, var(--surface) 96%, #ffffff 4%);
+      font-size:12px;
+    }
+    .vname{font-weight:900}
+    .vmeta{color:var(--muted,#67706B);font-weight:800}
+    .vtag{
+      font-weight:900;
+      padding:4px 8px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      color:var(--text);
+      white-space:nowrap;
+    }
+    .tag-primary{ background:color-mix(in srgb, var(--accent) 12%, var(--surface) 88%); }
+    .tag-light{ background:color-mix(in srgb, #d8b23b 14%, var(--surface) 86%); }
+    .tag-pulled{ background:color-mix(in srgb, #67706B 10%, var(--surface) 90%); }
+    .tag-missing{ background:color-mix(in srgb, #b00020 10%, var(--surface) 90%); }
+
+    /* Adjust modal (CALIBRATION) */
+    .adj-grid{display:grid;gap:12px}
+    .seg{
+      display:grid;
+      grid-template-columns:1fr 1fr 1fr;
+      gap:10px;
+    }
+    @media (max-width:560px){ .seg{grid-template-columns:1fr} }
+    .segbtn{
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:10px 10px;
+      background:color-mix(in srgb, var(--surface) 96%, #ffffff 4%);
+      color:var(--text);
+      font-weight:900;
+      cursor:pointer;
+      text-align:center;
+      user-select:none;
+    }
+    .segbtn:active{transform:translateY(1px)}
+    .segbtn.on{
+      border-color:transparent;
+      background:color-mix(in srgb, var(--accent) 22%, var(--surface) 78%);
+      outline:2px solid color-mix(in srgb, var(--accent) 60%, transparent 40%);
+      outline-offset:1px;
+    }
+    .minirow{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .mini-pill{
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      font-weight:900;
+      font-size:12px;
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      color:var(--text);
+      white-space:nowrap;
+    }
+    .adj-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:12px}
+    .btn{border:1px solid var(--border);background:transparent;color:var(--text);border-radius:12px;padding:10px 12px;font-weight:900;cursor:pointer}
+    .btn:active{transform:translateY(1px)}
+    .btn-danger{border-color:transparent;background:#b00020;color:#fff!important}
+    .note{font-size:12px;color:var(--muted,#67706B)}
+
+    /* ===== Adjust modal fixes ===== */
+    .modal.overflow-vis{ overflow:visible !important; }
+    .modal.overflow-vis .modal-b{ overflow:visible !important; }
+
+    .segbtn:disabled{
+      opacity:.45;
+      cursor:not-allowed;
+      transform:none !important;
+    }
+
+    .intensity{
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:12px;
+      background:color-mix(in srgb, var(--surface) 96%, #ffffff 4%);
+    }
+    .intensity-top{
+      display:flex;
+      align-items:baseline;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:8px;
+    }
+    .intensity-title{
+      font-weight:900;
+      font-size:12px;
+      color:var(--text);
+    }
+    .intensity-val{
+      font-weight:800;
+      font-size:12px;
+      color:var(--muted,#67706B);
+    }
+    .intensity input[type="range"]{ width:100%; }
+    .intensity-scale{
+      display:flex;
+      justify-content:space-between;
+      margin-top:6px;
+      font-size:12px;
+      color:var(--muted,#67706B);
+      opacity:.9;
+      user-select:none;
+    }
+
+    /* Map modal */
+    .map-modal{
+      width:min(880px, 96vw);
+    }
+    .map-wrap{
+      border:1px solid var(--border);
+      border-radius:14px;
+      overflow:hidden;
+      background:var(--surface);
+      height:min(58vh, 520px);
+    }
+    @media (max-width:560px){
+      .map-wrap{ height:min(52vh, 420px); }
+    }
+    #fvMapCanvas{width:100%;height:100%}
+    .map-meta{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      justify-content:space-between;
+      flex-wrap:wrap;
+      margin-top:10px;
+      font-size:12px;
+    }
+  </style>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🧭</div>
+          <div>
+            <h1>Field Readiness (Beta)</h1>
+            <p class="muted">Live weather is now pulled via our Open-Meteo proxy. Model weights and calibration are still being tuned.</p>
+          </div>
+        </header>
+
+        <div class="body">
+          <!-- CONTROLS -->
+          <div class="row opCard" style="position:relative;">
+            <div class="field">
+              <button id="opBtn" class="label-btn" type="button" aria-label="Operation thresholds">
+                <span>Operation</span>
+                <span class="pill" title="Edit thresholds">⚙</span>
+              </button>
+              <select id="opSel" class="select">
+                <option value="spring_tillage">Spring tillage</option>
+                <option value="planting">Planting</option>
+                <option value="spraying">Spraying</option>
+                <option value="harvest">Harvest</option>
+                <option value="fall_tillage">Fall tillage</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="sortSel">Sort</label>
+              <select id="sortSel" class="select">
+                <option value="name_az">Name (A → Z)</option>
+                <option value="name_za">Name (Z → A)</option>
+                <option value="ready_dry_wet">Readiness (Dry → Wet)</option>
+                <option value="ready_wet_dry">Readiness (Wet → Dry)</option>
+                <option value="rain_most">Most rain (range)</option>
+                <option value="rain_least">Least rain (range)</option>
+              </select>
+            </div>
+
+            <div class="field" style="position:relative;">
+              <div class="label-inline">
+                <label for="jobRangeInput" style="margin:0;font-weight:800;">Rain range</label>
+                <span class="helpicon-wrap">
+                  <button id="rainHelpBtn" class="helpicon" type="button" aria-label="Rain range help">?</button>
+                  <div id="rainHelpTip" class="helptip" role="dialog" aria-modal="false">
+                    <b>Rain range</b><br/>
+                    Totals shown on tiles are calculated over this date range.<br/>
+                    <div class="muted" style="margin-top:6px;">Defaults to last 30 days until you choose a range.</div>
+                  </div>
+                </span>
+              </div>
+
+              <input id="jobRangeInput" class="input" readonly placeholder="Choose date range"/>
+              <div id="calendarPopover">
+                <div class="cal-top">
+                  <select id="monthSelect" class="select" style="padding:10px"></select>
+                  <select id="yearSelect" class="select" style="padding:10px"></select>
+                  <button id="closeCalBtn" class="btn" type="button" style="min-width:auto;padding:10px 12px;">Close</button>
+                </div>
+                <div id="calDays"></div>
+                <div class="cal-footer">
+                  <span id="rangeSummary" class="muted" style="font-size:12px;">No dates selected</span>
+                  <div style="display:flex;gap:8px;">
+                    <button id="clearRangeBtn" class="btn" type="button" style="min-width:auto;padding:10px 12px;">Clear</button>
+                    <button id="applyRangeBtn" class="btn btn-primary" type="button" style="min-width:auto;padding:10px 12px;">Apply</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- FIELDS -->
+          <div class="field">
+            <label>Fields</label>
+            <div id="fieldsGrid" class="list"></div>
+            <div id="emptyMsg" class="help muted" style="display:none;">No active fields with GPS (lat/lng) found.</div>
+          </div>
+
+          <div id="err" class="help error" hidden></div>
+
+          <!-- DETAILS -->
+          <details id="detailsPanel" open="false">
+            <summary>
+              <span>Details</span>
+              <span class="muted" style="font-size:12px;">(inputs + weather + math)</span>
+            </summary>
+
+            <div class="details-body">
+              <div class="panel">
+                <h3>Inputs</h3>
+
+                <div class="detail-controls">
+                  <div class="field">
+                    <label for="soilWet">Soil Wetness (0–100)</label>
+                    <input id="soilWet" type="range" min="0" max="100" step="1" value="60"/>
+                  </div>
+
+                  <div class="field">
+                    <label for="drain">Drainage Index (0–100)</label>
+                    <input id="drain" type="range" min="0" max="100" step="1" value="45"/>
+                  </div>
+                </div>
+
+                <div class="actions">
+                  <button id="btnRegen" class="btn btn-primary" type="button">Refresh Weather (API)</button>
+                </div>
+
+                <div class="help" id="thresholdHint" style="margin-top:8px;">
+                  Operation threshold is managed under <b>Operation</b> (⚙).
+                </div>
+              </div>
+
+              <div class="detail-grid">
+                <div class="panel">
+                  <h3>Field + Settings</h3>
+                  <div class="kv">
+                    <div class="k">Field</div><div class="v" id="dFieldName">—</div>
+                    <div class="k">Status</div><div class="v" id="dStatus">—</div>
+                    <div class="k">County / State</div><div class="v" id="dCounty">—</div>
+                    <div class="k">Tillable</div><div class="v" id="dAcres">—</div>
+
+                    <div class="k">GPS</div>
+                    <div class="v gpsline">
+                      <span class="mono" id="dGps">—</span>
+                      <button id="btnMap" class="tiny-btn primary" type="button">Map</button>
+                    </div>
+
+                    <div class="k">Soil Wetness</div><div class="v" id="dSoilType">—</div>
+                    <div class="k">Soil holding</div><div class="v" id="dSoilHold">—</div>
+                    <div class="k">Drainage Index</div><div class="v" id="dDrainage">—</div>
+
+                    <div class="k">Threshold</div><div class="v" id="dThreshold">—</div>
+                    <div class="k">Operation</div><div class="v" id="dOperation">—</div>
+                  </div>
+
+                  <div class="help" id="paramExplain">—</div>
+                </div>
+
+                <div class="panel">
+                  <h3>Weather + Output</h3>
+                  <div class="kv">
+                    <div class="k">Days loaded</div><div class="v" id="dDays">—</div>
+                    <div class="k">Range rain</div><div class="v" id="dRangeRain">—</div>
+                    <div class="k">Readiness</div><div class="v" id="dReadiness">—</div>
+                    <div class="k">Wetness</div><div class="v" id="dWetness">—</div>
+                    <div class="k">Storage</div><div class="v" id="dStorage">—</div>
+                  </div>
+                  <div class="help" id="mathSummary">—</div>
+                </div>
+              </div>
+
+              <div class="panel">
+                <h3>Beta: Data pulled into the model</h3>
+                <div class="help" id="betaInputsMeta">—</div>
+                <div id="betaInputs" class="varlist" style="margin-top:10px;"></div>
+              </div>
+
+              <div class="panel">
+                <h3>Tank Trace</h3>
+                <div class="table-scroll">
+                  <table aria-label="Tank Trace">
+                    <thead>
+                      <tr>
+                        <th style="width:110px;">Date</th>
+                        <th class="right">Rain</th>
+                        <th class="right">infilMult</th>
+                        <th class="right">Add</th>
+                        <th class="right">DryPwr</th>
+                        <th class="right">Loss</th>
+                        <th class="right">Storage</th>
+                      </tr>
+                    </thead>
+                    <tbody id="traceRows">
+                      <tr><td colspan="7" class="muted">Run the model.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="panel">
+                <h3>DryPwr Breakdown</h3>
+                <div class="table-scroll">
+                  <table aria-label="DryPwr Breakdown">
+                    <thead>
+                      <tr>
+                        <th style="width:110px;">Date</th>
+                        <th class="right">Temp</th>
+                        <th class="right">tempN</th>
+                        <th class="right">Wind</th>
+                        <th class="right">windN</th>
+                        <th class="right">RH</th>
+                        <th class="right">rhN</th>
+                        <th class="right">Solar</th>
+                        <th class="right">solarN</th>
+                        <th class="right">VPD</th>
+                        <th class="right">vpdN</th>
+                        <th class="right">Cloud</th>
+                        <th class="right">cloudN</th>
+                        <th class="right">raw</th>
+                        <th class="right">DryPwr</th>
+                      </tr>
+                    </thead>
+                    <tbody id="dryRows">
+                      <tr><td colspan="15" class="muted">Run the model.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="panel">
+                <h3>Weather Inputs</h3>
+                <div class="table-scroll">
+                  <table aria-label="Weather Inputs">
+                    <thead>
+                      <tr>
+                        <th style="width:110px;">Date</th>
+                        <th class="right">Rain</th>
+                        <th class="right">Temp</th>
+                        <th class="right">Wind</th>
+                        <th class="right">RH</th>
+                        <th class="right">Solar</th>
+                        <th class="right">ET0</th>
+                        <th class="right">SM 0–10</th>
+                        <th class="right">ST 0–10</th>
+                      </tr>
+                    </thead>
+                    <tbody id="wxRows">
+                      <tr><td colspan="9" class="muted">Waiting for JS…</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+            </div>
+          </details>
+
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <!-- Adjust Modal (CALIBRATION) -->
+  <div id="adjustBackdrop" class="modal-backdrop pv-hide" role="dialog" aria-modal="true" aria-labelledby="adjustTitle">
+    <div class="modal overflow-vis">
+      <div class="modal-h">
+        <h3 id="adjustTitle">Adjust</h3>
+        <button id="btnAdjX" class="xbtn" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <div class="muted" style="font-size:12px; margin-top:4px;" id="adjustSub">—</div>
+      </div>
+
+      <div class="modal-b">
+        <div class="adj-grid">
+          <div class="minirow">
+            <span class="mini-pill">Readiness: <span class="mono" id="adjReadiness">—</span></span>
+            <span class="mini-pill">Wetness: <span class="mono" id="adjWetness">—</span></span>
+            <span class="mini-pill">Soil: <span class="mono" id="adjSoil">—</span></span>
+            <span class="mini-pill">Drain: <span class="mono" id="adjDrain">—</span></span>
+            <span class="mini-pill">Model: <span class="mono" id="adjModelClass">—</span></span>
+          </div>
+
+          <div>
+            <div class="muted" style="font-size:12px;margin-bottom:6px;font-weight:800;">
+              Calibration input (pick the opposite if the model is wrong)
+            </div>
+            <div class="seg" id="feelSeg">
+              <button class="segbtn" type="button" data-feel="wet" id="btnFeelWet">Wet</button>
+              <button class="segbtn" type="button" data-feel="ok"  id="btnFeelOk">About Right</button>
+              <button class="segbtn" type="button" data-feel="dry" id="btnFeelDry">Dry</button>
+            </div>
+            <div class="note" id="adjHint" style="margin-top:6px;">—</div>
+          </div>
+
+          <div class="intensity pv-hide" id="intensityBox">
+            <div class="intensity-top">
+              <div class="intensity-title" id="intensityTitle">How wet/dry is it?</div>
+              <div class="intensity-val">Level: <span class="mono" id="adjIntensityVal">50</span>/100</div>
+            </div>
+            <input id="adjIntensity" type="range" min="0" max="100" step="1" value="50"/>
+            <div class="intensity-scale">
+              <span id="intensityLeft">Slight</span>
+              <span id="intensityRight">Extreme</span>
+            </div>
+          </div>
+
+          <div>
+            <div class="muted" style="font-size:12px;margin-bottom:6px;font-weight:800;">Quick observation (optional)</div>
+            <select id="adjObs" class="select" style="padding:12px;">
+              <option value="none">—</option>
+              <option value="ruts">Ruts / smearing / leaving tracks</option>
+              <option value="tacky">Tacky / slightly sticky</option>
+              <option value="crumbly">Crumbly / friable</option>
+              <option value="dusty">Dusty / powder dry</option>
+            </select>
+            <div class="note" style="margin-top:6px;">
+              This nudges per-field Soil Wetness + Drainage with guardrails.
+            </div>
+          </div>
+
+          <div class="help" id="adjGuard">—</div>
+
+          <div class="adj-actions">
+            <button id="btnAdjCancel" class="btn" type="button">Cancel</button>
+            <button id="btnAdjApply" class="btn btn-primary" type="button">Apply Adjustment</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm Calibration Modal -->
+  <div id="confirmAdjBackdrop" class="modal-backdrop pv-hide" role="dialog" aria-modal="true" aria-labelledby="confirmAdjTitle">
+    <div class="modal">
+      <div class="modal-h">
+        <h3 id="confirmAdjTitle">Confirm Calibration</h3>
+      </div>
+      <div class="modal-b">
+        <div style="font-size:14px; line-height:1.35;">
+          This adjustment will be saved and used to <b>calibrate the model</b>.
+        </div>
+        <div class="help muted" style="margin-top:8px;">
+          Only confirm if you’re sure this is correct.
+        </div>
+        <div class="adj-actions" style="margin-top:16px;">
+          <button id="btnAdjNo" class="btn" type="button">Cancel</button>
+          <button id="btnAdjYes" class="btn btn-primary" type="button">Yes, Apply</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Operation Thresholds Modal -->
+  <div id="opBackdrop" class="modal-backdrop pv-hide" role="dialog" aria-modal="true" aria-labelledby="opTitle">
+    <div class="modal">
+      <div class="modal-h">
+        <h3 id="opTitle">Operation Thresholds</h3>
+        <button id="btnOpX" class="xbtn" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <div class="muted" style="font-size:12px; margin-top:4px;" id="opSub">Set the readiness threshold (0–100) for each operation.</div>
+      </div>
+      <div class="modal-b">
+        <div class="oplist" id="opList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Map Modal -->
+  <div id="mapBackdrop" class="modal-backdrop pv-hide" role="dialog" aria-modal="true" aria-labelledby="mapTitle">
+    <div class="modal map-modal">
+      <div class="modal-h">
+        <h3 id="mapTitle">Map</h3>
+        <button id="btnMapX" class="xbtn" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <div class="muted" style="font-size:12px; margin-top:4px;" id="mapSub">—</div>
+      </div>
+      <div class="modal-b">
+        <div id="mapError" class="help error" style="display:none;"></div>
+        <div id="mapWrap" class="map-wrap">
+          <div id="fvMapCanvas" aria-label="Field map"></div>
+        </div>
+        <div class="map-meta">
+          <div class="muted">Pin is dropped on the field GPS.</div>
+          <div class="mono" id="mapLatLng">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ✅ Load the UI module (imports weather + model) -->
+  <script type="module" src="/Farm-vista/js/field-readiness.ui.js"></script>
+
+  <!-- Google Maps (shared key, same as setup/fields.html) -->
+  <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY"></script>
+
+</body>
+</html>
