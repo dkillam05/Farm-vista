@@ -1084,11 +1084,20 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     }
 
     async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
-      const bust = (url && url.includes('?') ? '&' : '?') + '_=' + Date.now();
-      const qrSrc = url ? (url + bust) : '';
+      // Cache-bust ONLY for http(s) URLs. Never for data: URLs.
+const s = String(url || '');
+let qrSrc = '';
+if (s){
+  if (s.startsWith('data:')) qrSrc = s;
+  else {
+    const bust = (s.includes('?') ? '&' : '?') + '_=' + Date.now();
+    qrSrc = s + bust;
+  }
+}
 
-      clearPreviewHost();
-      __previewQrSrc = qrSrc;
+clearPreviewHost();
+__previewQrSrc = qrSrc;
+
 
       await setPrintWrapCentered(mode === 'summary');
 
