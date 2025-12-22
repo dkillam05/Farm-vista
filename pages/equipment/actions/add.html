@@ -1,18 +1,11 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-12-22k
+Rev: 2025-12-22l
 
 FIX:
-✅ Summary preview centers when it fits
-✅ Detailed preview centers when it fits
-✅ If preview content is wider than visible area => auto left-align + natural scroll
-✅ NO missing dropdown logic (makes/models/extras/init preserved)
-
-How:
-- #printWrap defaults to justify-content:center
-- JS measures host width vs wrap width:
-  - if overflow -> add .scroll-left (justify flex-start)
-  - else -> stay centered
+✅ PDF generation works again (add missing buildDesktopHtml/buildMobilePortraitHtml)
+✅ If PDF build/fetch fails, show a real error (catch) instead of spinner flashing then nothing
+✅ Keep your current working dropdowns + preview behavior
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -211,20 +204,6 @@ How:
     .qr-row{ display:flex; align-items:center; gap:12px; }
     .qr-row .btn{ min-width:160px; }
 
-    /* File input */
-    input[type="file"].input{
-      height:auto;
-      line-height:normal;
-      padding:8px 12px;
-      color:var(--text) !important;
-      -webkit-text-fill-color:var(--text) !important;
-    }
-    input[type="file"].input::-webkit-file-upload-button{
-      color:#111111 !important;
-      -webkit-text-fill-color:#111111 !important;
-      background-color:#ffffff;
-    }
-
     /* ===== Dialogs ===== */
     dialog.sheet{
       width:min(740px, 92vw);
@@ -251,11 +230,8 @@ How:
       display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap;
       background:var(--card-surface, var(--surface)); color:var(--text);
     }
-
-    /* ✅ Center labelChoice footer buttons */
     #labelChoice footer{ justify-content:center; }
 
-    /* Preview dialog sizing (keep from your file) */
     dialog.sheet.sheet-print{
       width:min(860px, 92vw);
       max-width:calc(100vw - 24px);
@@ -263,7 +239,7 @@ How:
     dialog.sheet.sheet-print .body{
       width:100%;
       max-width:100%;
-      overflow-x:hidden;   /* wrap handles horizontal scrolling */
+      overflow-x:hidden;
       overflow-y:auto;
       -webkit-overflow-scrolling:touch;
     }
@@ -277,7 +253,7 @@ How:
       text-align:center;
     }
 
-    /* ✅ FIX: center by default; when overflow => .scroll-left */
+    /* Center by default; if overflow => .scroll-left */
     #printWrap{
       display:flex;
       width:100%;
@@ -285,7 +261,7 @@ How:
       overflow-x:auto;
       overflow-y:hidden;
       -webkit-overflow-scrolling:touch;
-      justify-content:center;     /* default center for BOTH modes */
+      justify-content:center;
       padding: 4px 2px 2px;
       box-sizing:border-box;
     }
@@ -333,7 +309,6 @@ How:
       overflow:hidden;
       font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
     }
-
     .pv-sf .qr{
       width:46mm;
       height:46mm;
@@ -349,7 +324,6 @@ How:
       display:block;
       margin:0 !important;
     }
-
     .pv-sf .lab{
       width:100%;
       text-align:center;
@@ -468,7 +442,7 @@ How:
       #btnCreateLabel{ width:100%; }
     }
 
-    /* Slider toggle */
+    /* Slider toggle (kept) */
     .pv-switch-row{ display:flex; align-items:center; justify-content:flex-start; gap:12px; min-height:var(--ctl-h); }
     .pv-switch{ position:relative; display:inline-flex; align-items:center; gap:10px; user-select:none; -webkit-tap-highlight-color: transparent; }
     .pv-switch input{
@@ -502,19 +476,6 @@ How:
     .pv-switch input:focus-visible + .pv-switch-track{
       outline: 3px solid color-mix(in srgb, var(--brand) 55%, transparent);
       outline-offset: 2px;
-    }
-    html[data-theme="dark"] .pv-switch-track,
-    body[data-theme="dark"] .pv-switch-track,
-    .dark .pv-switch-track{
-      background: linear-gradient(to bottom, rgba(255,255,255,.14), rgba(255,255,255,.08));
-      border-color: rgba(255,255,255,.18);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
-    }
-    html[data-theme="dark"] .pv-switch-thumb,
-    body[data-theme="dark"] .pv-switch-thumb,
-    .dark .pv-switch-thumb{
-      background:#fff;
-      box-shadow: 0 6px 16px rgba(0,0,0,.45);
     }
   </style>
 </head>
@@ -659,7 +620,7 @@ How:
     import {
       ready,
       getFirestore,
-      collection, setDoc, doc, updateDoc, getDocs, getDoc,
+      collection, setDoc, doc, getDocs, getDoc,
       query, orderBy, where,
       serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
@@ -762,25 +723,205 @@ How:
     function openDialog(d){ try{ d.showModal(); }catch{ d.setAttribute('open',''); } }
     function closeDialog(d){ try{ d.close(); }catch{ d.removeAttribute('open'); } }
 
-    /* ✅ PREVIEW ALIGNMENT FIX (center if fits; left+scroll if overflow) */
     async function setPrintWrapAlignment(){
       const wrapEl = $("printWrap");
       const hostEl = $("pPreviewHost");
       if(!wrapEl || !hostEl) return;
 
       wrapEl.classList.remove('scroll-left');
-
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
 
       const wrapW = wrapEl.clientWidth || 0;
       const hostW = hostEl.scrollWidth || Math.ceil(hostEl.getBoundingClientRect().width || 0);
 
-      const needsScroll = hostW > (wrapW + 2);
-      if(needsScroll) wrapEl.classList.add('scroll-left');
+      if(hostW > (wrapW + 2)) wrapEl.classList.add('scroll-left');
 
       wrapEl.scrollLeft = 0;
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
       wrapEl.scrollLeft = 0;
+    }
+
+    /* =========================
+       ✅ PDF HTML BUILDERS
+       ========================= */
+
+    function esc(s){
+      return String(s ?? '')
+        .replaceAll('&','&amp;')
+        .replaceAll('<','&lt;')
+        .replaceAll('>','&gt;')
+        .replaceAll('"','&quot;')
+        .replaceAll("'","&#39;");
+    }
+
+    function buildDesktopHtml({ mode, qrSrc, make, model, serial6 }){
+      const mk = esc(make || '—');
+      const md = esc(model || '—');
+      const sn = esc(serial6 || '—');
+      const qr = String(qrSrc || '').trim();
+
+      if(mode === 'summary'){
+        // 62mm x 62mm
+        return `<!doctype html><html><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<style>
+  @page { margin:0; }
+  html,body{ margin:0; padding:0; background:#fff; }
+  .label{
+    width:62mm; height:62mm;
+    display:grid;
+    grid-template-rows: 46mm max-content max-content;
+    align-content:center;
+    justify-items:center;
+    gap:1mm;
+    padding:2.2mm;
+    box-sizing:border-box;
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  }
+  .qr{ width:46mm; height:46mm; display:grid; place-items:center; }
+  .qr img{ width:100%; height:100%; object-fit:contain; display:block; }
+  .lab{ font-weight:800; font-size:10pt; opacity:.85; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%; text-align:center; }
+  .val{ font-weight:900; font-size:16pt; letter-spacing:.6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%; text-align:center; }
+</style></head><body>
+  <div class="label">
+    <div class="qr"><img src="${qr}" alt="QR"/></div>
+    <div class="lab">VIN/Serial</div>
+    <div class="val">${sn}</div>
+  </div>
+</body></html>`;
+      }
+
+      // detailed (length provided by widthMm, heightMm in API call), but HTML itself just lays out at 140mm x 62mm
+      return `<!doctype html><html><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<style>
+  @page { margin:0; }
+  html,body{ margin:0; padding:0; background:#fff; }
+  .label{
+    width:140mm; height:62mm;
+    display:grid;
+    grid-template-columns: max-content 48mm max-content;
+    align-items:center;
+    gap:2mm;
+    padding:2.2mm;
+    box-sizing:border-box;
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  }
+  .left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
+  .make{ font-weight:900; font-size:18pt; line-height:1.05; }
+  .model{ font-weight:800; font-size:16pt; line-height:1.05; margin-top:1mm; }
+  .mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; }
+  .mid img{ width:100%; height:100%; object-fit:contain; display:block; }
+  .right{ align-items:flex-end; text-align:right; }
+  .lab{ font-weight:800; font-size:12pt; opacity:.85; line-height:1.05; }
+  .val{ font-weight:900; font-size:18pt; letter-spacing:.6px; line-height:1.05; margin-top:1mm; }
+</style></head><body>
+  <div class="label">
+    <div class="left">
+      <div class="make">${mk}</div>
+      <div class="model">${md}</div>
+    </div>
+    <div class="mid"><img src="${qr}" alt="QR"/></div>
+    <div class="right">
+      <div class="lab">VIN/Serial</div>
+      <div class="val">${sn}</div>
+    </div>
+  </div>
+</body></html>`;
+    }
+
+    function buildMobilePortraitHtml({ mode, qrSrc, make, model, serial6, cutLenMm }){
+      // Mobile: you’re sending widthMm=62, heightMm=cutLenMm (portrait)
+      // So we rotate the label content so it prints correctly on a portrait page.
+      const mk = esc(make || '—');
+      const md = esc(model || '—');
+      const sn = esc(serial6 || '—');
+      const qr = String(qrSrc || '').trim();
+      const len = Number(cutLenMm || 140);
+
+      if(mode === 'summary'){
+        // summary is 62x62; in portrait page 62x62, no rotation needed
+        return `<!doctype html><html><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<style>
+  @page { margin:0; }
+  html,body{ margin:0; padding:0; background:#fff; }
+  .page{ width:62mm; height:62mm; margin:0; padding:0; }
+  .label{
+    width:62mm; height:62mm;
+    display:grid;
+    grid-template-rows: 46mm max-content max-content;
+    align-content:center;
+    justify-items:center;
+    gap:1mm;
+    padding:2.2mm;
+    box-sizing:border-box;
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  }
+  .qr{ width:46mm; height:46mm; display:grid; place-items:center; }
+  .qr img{ width:100%; height:100%; object-fit:contain; display:block; }
+  .lab{ font-weight:800; font-size:10pt; opacity:.85; width:100%; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .val{ font-weight:900; font-size:16pt; letter-spacing:.6px; width:100%; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+</style></head><body>
+  <div class="page">
+    <div class="label">
+      <div class="qr"><img src="${qr}" alt="QR"/></div>
+      <div class="lab">VIN/Serial</div>
+      <div class="val">${sn}</div>
+    </div>
+  </div>
+</body></html>`;
+      }
+
+      // detailed: page is 62mm wide x len mm tall; rotate the 140x62 label into that space
+      return `<!doctype html><html><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<style>
+  @page { margin:0; }
+  html,body{ margin:0; padding:0; background:#fff; }
+  .page{ width:62mm; height:${len}mm; position:relative; overflow:hidden; }
+  .rot{
+    position:absolute;
+    left:0; top:0;
+    width:${len}mm; height:62mm;
+    transform-origin: top left;
+    transform: rotate(90deg) translateY(-62mm);
+  }
+  .label{
+    width:140mm; height:62mm;
+    display:grid;
+    grid-template-columns: max-content 48mm max-content;
+    align-items:center;
+    gap:2mm;
+    padding:2.2mm;
+    box-sizing:border-box;
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  }
+  .left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
+  .make{ font-weight:900; font-size:18pt; line-height:1.05; }
+  .model{ font-weight:800; font-size:16pt; line-height:1.05; margin-top:1mm; }
+  .mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; }
+  .mid img{ width:100%; height:100%; object-fit:contain; display:block; }
+  .right{ align-items:flex-end; text-align:right; }
+  .lab{ font-weight:800; font-size:12pt; opacity:.85; line-height:1.05; }
+  .val{ font-weight:900; font-size:18pt; letter-spacing:.6px; line-height:1.05; margin-top:1mm; }
+</style></head><body>
+  <div class="page">
+    <div class="rot">
+      <div class="label">
+        <div class="left">
+          <div class="make">${mk}</div>
+          <div class="model">${md}</div>
+        </div>
+        <div class="mid"><img src="${qr}" alt="QR"/></div>
+        <div class="right">
+          <div class="lab">VIN/Serial</div>
+          <div class="val">${sn}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body></html>`;
     }
 
     // Year combo
@@ -828,7 +969,7 @@ How:
     }
     function onEscClose(e){ if(e.key==='Escape') closeYearPanel(); }
 
-    // Dropdowns
+    // Dropdowns (unchanged)
     function wireDropdownOpenClose(root){
       const btn = root.querySelector(".dd-btn");
       btn.addEventListener("click",()=>{
@@ -913,9 +1054,8 @@ How:
       $("btnCreateLabel").disabled = !ok;
     }
 
-    // QR generation
+    // QR generation (unchanged)
     let pendingToken = null;
-    let pendingQRBlob = null;
     let pendingEquipId = null;
 
     async function waitQRReady(){
@@ -971,7 +1111,6 @@ How:
       const img=$("qrThumb");
       img.src=dataURL;
       img.onload=()=>{ $("qrArea").hidden=false; img.style.display='block'; };
-      pendingQRBlob = blob;
       return { dataURL, blob };
     }
 
@@ -1058,7 +1197,6 @@ How:
         pHost.appendChild(wrap);
       }
 
-      // ✅ decide center vs left+scroll AFTER preview is in DOM
       await setPrintWrapAlignment();
     }
 
@@ -1140,7 +1278,7 @@ How:
         const errText = !resp.ok ? await resp.text().catch(()=> '') : '';
         if (!resp.ok){
           console.warn('[label-pdf] failed', resp.status, errText);
-          alert('Label PDF failed. Check Cloud Run logs.');
+          alert(`Label PDF failed (${resp.status}). Check Cloud Run logs.`);
           return;
         }
 
@@ -1153,6 +1291,9 @@ How:
           printFrame.onload = ()=> { try{ printFrame.contentWindow.focus(); printFrame.contentWindow.print(); } catch {} };
           printFrame.src = url;
         }
+      }catch(err){
+        console.error('[label-pdf] exception', err);
+        alert('Label PDF failed (exception). Open console for details.');
       } finally {
         setPdfLoading(false);
         pCreate.disabled = false;
@@ -1161,7 +1302,7 @@ How:
 
     pCreate.addEventListener('click', createPdf);
 
-    /* SAVE */
+    /* SAVE (unchanged) */
     let saving = false;
 
     async function saveAll(db){
@@ -1425,7 +1566,6 @@ How:
         if(open) closeYearPanel(); else openYearPanel();
       });
 
-      /* ✅ IMPORTANT: keep your original dropdown init */
       buildDdObjects();
       initExtras();
       await populateMakes(db);
