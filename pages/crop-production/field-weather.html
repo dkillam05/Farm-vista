@@ -1,15 +1,13 @@
 <!-- =====================================================================
 /Farm-vista/pages/field-readiness.html  (FULL FILE)
-Rev: 2025-12-22e
+Rev: 2025-12-22f
 
-UPDATE (per your ask):
-✅ Details > GPS now includes a “Map” button
-✅ Clicking Map opens an IN-APP modal (no new tab / no navigation)
-✅ Modal drops a pin on the selected field’s lat/lng immediately
-✅ Uses Google Maps HYBRID
-✅ Loads Google Maps JS only if needed:
-   - window.FV_GOOGLE_MAPS_KEY OR localStorage.fv_google_maps_key
-✅ Clean “missing key” message if no key is available
+UPDATES (per your Adjust ask):
+✅ Adjust dropdown no longer clipped (modal overflow fix)
+✅ If model says WET → “Too Wet” disabled (same for DRY → “Too Dry” disabled)
+✅ If correcting opposite direction (WET→DRY or DRY→WET) → shows 0–100 intensity slider
+✅ Guardrails keep deltas sane; logs include intensity + modelClass
+✅ Map modal kept exactly as-is
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -555,7 +553,7 @@ UPDATE (per your ask):
     .tag-pulled{ background:color-mix(in srgb, #67706B 10%, var(--surface) 90%); }
     .tag-missing{ background:color-mix(in srgb, #b00020 10%, var(--surface) 90%); }
 
-    /* Adjust modal (restored) */
+    /* Adjust modal (CALIBRATION) */
     .adj-grid{display:grid;gap:12px}
     .seg{
       display:grid;
@@ -597,6 +595,53 @@ UPDATE (per your ask):
     .btn:active{transform:translateY(1px)}
     .btn-danger{border-color:transparent;background:#b00020;color:#fff!important}
     .note{font-size:12px;color:var(--muted,#67706B)}
+
+    /* ===== Adjust modal fixes ===== */
+    /* Allow dropdowns to render outside the modal box (fix clipped select list) */
+    .modal.overflow-vis{ overflow:visible !important; }
+    .modal.overflow-vis .modal-b{ overflow:visible !important; }
+
+    /* Disabled segment buttons (when model already indicates wet/dry) */
+    .segbtn:disabled{
+      opacity:.45;
+      cursor:not-allowed;
+      transform:none !important;
+    }
+
+    /* Intensity slider (only shows for opposite-direction correction) */
+    .intensity{
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:12px;
+      background:color-mix(in srgb, var(--surface) 96%, #ffffff 4%);
+    }
+    .intensity-top{
+      display:flex;
+      align-items:baseline;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:8px;
+    }
+    .intensity-title{
+      font-weight:900;
+      font-size:12px;
+      color:var(--text);
+    }
+    .intensity-val{
+      font-weight:800;
+      font-size:12px;
+      color:var(--muted,#67706B);
+    }
+    .intensity input[type="range"]{ width:100%; }
+    .intensity-scale{
+      display:flex;
+      justify-content:space-between;
+      margin-top:6px;
+      font-size:12px;
+      color:var(--muted,#67706B);
+      opacity:.9;
+      user-select:none;
+    }
 
     /* Map modal */
     .map-modal{
@@ -870,9 +915,9 @@ UPDATE (per your ask):
     </div>
   </fv-shell>
 
-  <!-- Adjust Modal (RESTORED FLOW) -->
+  <!-- Adjust Modal (CALIBRATION) -->
   <div id="adjustBackdrop" class="modal-backdrop pv-hide" role="dialog" aria-modal="true" aria-labelledby="adjustTitle">
-    <div class="modal">
+    <div class="modal overflow-vis">
       <div class="modal-h">
         <h3 id="adjustTitle">Adjust</h3>
         <button id="btnAdjX" class="xbtn" type="button" aria-label="Close">
@@ -890,14 +935,31 @@ UPDATE (per your ask):
             <span class="mini-pill">Wetness: <span class="mono" id="adjWetness">—</span></span>
             <span class="mini-pill">Soil: <span class="mono" id="adjSoil">—</span></span>
             <span class="mini-pill">Drain: <span class="mono" id="adjDrain">—</span></span>
+            <span class="mini-pill">Model: <span class="mono" id="adjModelClass">—</span></span>
           </div>
 
           <div>
-            <div class="muted" style="font-size:12px;margin-bottom:6px;font-weight:800;">How does it feel right now?</div>
+            <div class="muted" style="font-size:12px;margin-bottom:6px;font-weight:800;">
+              Calibration input (pick the opposite if the model is wrong)
+            </div>
             <div class="seg" id="feelSeg">
-              <button class="segbtn" type="button" data-feel="wet">Too Wet</button>
-              <button class="segbtn" type="button" data-feel="ok">About Right</button>
-              <button class="segbtn" type="button" data-feel="dry">Too Dry</button>
+              <button class="segbtn" type="button" data-feel="wet" id="btnFeelWet">Too Wet</button>
+              <button class="segbtn" type="button" data-feel="ok"  id="btnFeelOk">About Right</button>
+              <button class="segbtn" type="button" data-feel="dry" id="btnFeelDry">Too Dry</button>
+            </div>
+            <div class="note" id="adjHint" style="margin-top:6px;">—</div>
+          </div>
+
+          <!-- Intensity slider (only for opposite-direction corrections) -->
+          <div class="intensity pv-hide" id="intensityBox">
+            <div class="intensity-top">
+              <div class="intensity-title" id="intensityTitle">How wet/dry is it?</div>
+              <div class="intensity-val">Level: <span class="mono" id="adjIntensityVal">50</span>/100</div>
+            </div>
+            <input id="adjIntensity" type="range" min="0" max="100" step="1" value="50"/>
+            <div class="intensity-scale">
+              <span id="intensityLeft">Slight</span>
+              <span id="intensityRight">Extreme</span>
             </div>
           </div>
 
@@ -911,7 +973,7 @@ UPDATE (per your ask):
               <option value="dusty">Dusty / powder dry</option>
             </select>
             <div class="note" style="margin-top:6px;">
-              This nudges per-field Soil Wetness + Drainage with guardrails. Sliders in Details still work for fine tuning.
+              This nudges per-field Soil Wetness + Drainage with guardrails.
             </div>
           </div>
 
@@ -1050,13 +1112,12 @@ UPDATE (per your ask):
     function normalizeStatus(s){ return String(s||'').trim().toLowerCase(); }
 
     function todayISO(){
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth()+1).padStart(2,'0');
-  const day = String(d.getDate()).padStart(2,'0');
-  return `${y}-${m}-${day}`;
-}
-
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth()+1).padStart(2,'0');
+      const day = String(d.getDate()).padStart(2,'0');
+      return `${y}-${m}-${day}`;
+    }
 
     function mmToIn(mm){ return (Number(mm||0) / 25.4); }
     function cToF(c){ return (Number(c) * 9/5) + 32; }
@@ -1637,13 +1698,12 @@ UPDATE (per your ask):
         renderTiles();
         renderDetails();
       }catch(e){
-  setErr(`Failed to load fields: ${e.message}`);
-  state.fields = [];
-  const empty = $('emptyMsg');
-  if (empty) empty.style.display = 'block';
-  renderTiles();
-}
-
+        setErr(`Failed to load fields: ${e.message}`);
+        state.fields = [];
+        const empty = $('emptyMsg');
+        if (empty) empty.style.display = 'block';
+        renderTiles();
+      }
     }
 
     /* ---------- model math (now includes light influence extras) ---------- */
@@ -2195,16 +2255,16 @@ UPDATE (per your ask):
       if (b) b.classList.toggle('pv-hide', !on);
     }
 
-    /* ---------- Adjust (restored flow + wired) ---------- */
+    /* ---------- Adjust (CALIBRATION + guardrails) ---------- */
 
-    function setFeel(feel){
-      state._adjFeel = feel;
-      const seg = $('feelSeg');
-      if (!seg) return;
-      seg.querySelectorAll('.segbtn').forEach(btn=>{
-        btn.classList.toggle('on', btn.getAttribute('data-feel') === feel);
-      });
-      updateAdjustGuard();
+    /** Determine the model’s “current reality” bucket from output wetness */
+    function modelClassFromRun(run){
+      if (!run) return 'ok';
+      const w = Number(run.wetnessR);
+      if (!isFinite(w)) return 'ok';
+      if (w >= 70) return 'wet';
+      if (w <= 30) return 'dry';
+      return 'ok';
     }
 
     function updateAdjustPills(){
@@ -2222,49 +2282,163 @@ UPDATE (per your ask):
       set('adjWetness', run.wetnessR);
       set('adjSoil', `${p.soilWetness}/100`);
       set('adjDrain', `${p.drainageIndex}/100`);
+
+      const mc = modelClassFromRun(run);
+      set('adjModelClass', mc.toUpperCase());
+
+      // Also update disabled states + hint + guard message
+      updateAdjustUI();
+    }
+
+    function setFeel(feel){
+      state._adjFeel = feel;
+
+      const seg = $('feelSeg');
+      if (seg){
+        seg.querySelectorAll('.segbtn').forEach(btn=>{
+          btn.classList.toggle('on', btn.getAttribute('data-feel') === feel);
+        });
+      }
+
+      updateAdjustUI();
+    }
+
+    /** Show/hide intensity slider only when correcting the opposite direction */
+    function updateAdjustUI(){
+      const fid = state.selectedFieldId;
+      const f = state.fields.find(x=>x.id===fid);
+      if (!f) return;
+
+      const run = state.lastRuns.get(f.id) || runField(f);
+      const mc = modelClassFromRun(run);
+      const feel = state._adjFeel || 'ok';
+
+      // Disable “Too Wet” when model already wet, disable “Too Dry” when model already dry
+      const bWet = $('btnFeelWet');
+      const bDry = $('btnFeelDry');
+      if (bWet) bWet.disabled = (mc === 'wet');
+      if (bDry) bDry.disabled = (mc === 'dry');
+
+      // If user is on a disabled option, force to OK
+      if (mc === 'wet' && feel === 'wet') state._adjFeel = 'ok';
+      if (mc === 'dry' && feel === 'dry') state._adjFeel = 'ok';
+
+      // ensure UI highlight matches forced feel
+      const seg = $('feelSeg');
+      if (seg){
+        seg.querySelectorAll('.segbtn').forEach(btn=>{
+          btn.classList.toggle('on', btn.getAttribute('data-feel') === (state._adjFeel || 'ok'));
+        });
+      }
+
+      // Intensity only when opposite-direction correction
+      const opposite =
+        (mc === 'wet' && state._adjFeel === 'dry') ||
+        (mc === 'dry' && state._adjFeel === 'wet');
+
+      const box = $('intensityBox');
+      const title = $('intensityTitle');
+      const left = $('intensityLeft');
+      const right = $('intensityRight');
+
+      if (box){
+        box.classList.toggle('pv-hide', !opposite);
+      }
+
+      if (opposite){
+        if (mc === 'wet' && title){
+          title.textContent = 'If it’s NOT wet… how DRY is it?';
+          if (left) left.textContent = 'Slightly dry';
+          if (right) right.textContent = 'Extremely dry';
+        }
+        if (mc === 'dry' && title){
+          title.textContent = 'If it’s NOT dry… how WET is it?';
+          if (left) left.textContent = 'Slightly wet';
+          if (right) right.textContent = 'Extremely wet';
+        }
+      }
+
+      // Hint line
+      const hint = $('adjHint');
+      if (hint){
+        if (mc === 'wet'){
+          hint.textContent = 'Model says WET → “Too Wet” disabled. Choose OK, or choose “Too Dry” to correct it (with intensity).';
+        } else if (mc === 'dry'){
+          hint.textContent = 'Model says DRY → “Too Dry” disabled. Choose OK, or choose “Too Wet” to correct it (with intensity).';
+        } else {
+          hint.textContent = 'Model says OK → you can mark Wet or Dry if it’s wrong.';
+        }
+      }
+
+      updateAdjustGuard();
+    }
+
+    function readIntensity0100(){
+      const el = $('adjIntensity');
+      const v = el ? Number(el.value) : 50;
+      return clamp(Math.round(isFinite(v) ? v : 50), 0, 100);
+    }
+
+    function updateIntensityLabel(){
+      const v = readIntensity0100();
+      const out = $('adjIntensityVal');
+      if (out) out.textContent = String(v);
+    }
+
+    function computeDelta(){
+      const fid = state.selectedFieldId;
+      const f = state.fields.find(x=>x.id===fid);
+      const run = f ? (state.lastRuns.get(f.id) || runField(f)) : null;
+
+      const mc = modelClassFromRun(run);
+      const feel = state._adjFeel || 'ok';
+      const obs = String(($('adjObs') && $('adjObs').value) || 'none');
+
+      // Base delta sign
+      let sign = 0;
+      if (feel === 'wet') sign = +1;
+      if (feel === 'dry') sign = -1;
+
+      if (sign === 0) return 0; // OK => no change
+
+      // Opposite-direction correction uses intensity slider to scale the magnitude
+      const opposite =
+        (mc === 'wet' && feel === 'dry') ||
+        (mc === 'dry' && feel === 'wet');
+
+      let mag = 8; // default normal nudge
+      if (opposite){
+        const intensity = readIntensity0100(); // 0..100
+        // 8..18 based on intensity
+        mag = 8 + Math.round((intensity/100) * 10);
+      }
+
+      // Observation boost (small)
+      const obsBoost =
+        (obs === 'ruts') ? +6 :
+        (obs === 'tacky') ? +3 :
+        (obs === 'crumbly') ? -2 :
+        (obs === 'dusty') ? -6 : 0;
+
+      const delta = (sign * mag) + obsBoost;
+
+      // Guardrail (calibration-only; prevent “messing up”)
+      return clamp(delta, -18, +18);
     }
 
     function updateAdjustGuard(){
+      updateIntensityLabel();
+
       const el = $('adjGuard');
       if (!el) return;
 
-      const feel = state._adjFeel || 'ok';
-      const obs = String(($('adjObs') && $('adjObs').value) || 'none');
+      const d = computeDelta();
+      if (d === 0){
+        el.textContent = 'No change will be applied (About Right).';
+        return;
+      }
 
-      const base =
-        (feel === 'wet') ? +8 :
-        (feel === 'dry') ? -8 : 0;
-
-      const obsBoost =
-        (obs === 'ruts') ? +6 :
-        (obs === 'tacky') ? +3 :
-        (obs === 'crumbly') ? -2 :
-        (obs === 'dusty') ? -6 : 0;
-
-      const delta = clamp(base + obsBoost, -14, +14);
-
-      const msg = delta === 0
-        ? 'No change will be applied (About Right).'
-        : `This will nudge Soil Wetness and Drainage by ~${delta > 0 ? '+' : ''}${delta} (guardrailed).`;
-
-      el.textContent = msg;
-    }
-
-    function readAdjustDelta(){
-      const feel = state._adjFeel || 'ok';
-      const obs = String(($('adjObs') && $('adjObs').value) || 'none');
-
-      const base =
-        (feel === 'wet') ? +8 :
-        (feel === 'dry') ? -8 : 0;
-
-      const obsBoost =
-        (obs === 'ruts') ? +6 :
-        (obs === 'tacky') ? +3 :
-        (obs === 'crumbly') ? -2 :
-        (obs === 'dusty') ? -6 : 0;
-
-      return clamp(base + obsBoost, -14, +14);
+      el.textContent = `This will nudge Soil Wetness + Drainage by ${d > 0 ? '+' : ''}${d} (guardrailed).`;
     }
 
     function appendAdjustLog(entry){
@@ -2314,12 +2488,14 @@ UPDATE (per your ask):
       const run = state.lastRuns.get(f.id) || runField(f);
       const p0 = getFieldParams(f.id);
 
-      const delta = readAdjustDelta();
+      const d = computeDelta();
       const obs = String(($('adjObs') && $('adjObs').value) || 'none');
       const feel = state._adjFeel || 'ok';
 
-      const MAX_DELTA = 14;
-      const d = clamp(delta, -MAX_DELTA, +MAX_DELTA);
+      if (d === 0){
+        closeAdjust();
+        return;
+      }
 
       const before = { soilWetness:p0.soilWetness, drainageIndex:p0.drainageIndex };
 
@@ -2328,14 +2504,11 @@ UPDATE (per your ask):
         drainageIndex: clamp(Math.round(p0.drainageIndex + d), 0, 100)
       };
 
-      if (d === 0){
-        closeAdjust();
-        return;
-      }
-
+      // apply + persist
       state.perFieldParams.set(f.id, p1);
       saveParamsToLocal();
 
+      // sync sliders immediately
       const a = $('soilWet'), b = $('drain');
       if (a) a.value = String(p1.soilWetness);
       if (b) b.value = String(p1.drainageIndex);
@@ -2346,12 +2519,14 @@ UPDATE (per your ask):
         op: getCurrentOp(),
         feel,
         observation: obs,
+        intensity: readIntensity0100(),
         delta: d,
         before,
         after: p1,
         model: {
           readinessBefore: run ? run.readinessR : null,
-          wetnessBefore: run ? run.wetnessR : null
+          wetnessBefore: run ? run.wetnessR : null,
+          modelClass: modelClassFromRun(run)
         },
         ts: Date.now()
       };
@@ -2372,13 +2547,21 @@ UPDATE (per your ask):
       const sub = $('adjustSub');
       if (sub && f) sub.textContent = f.name || '—';
 
-      setFeel('ok');
+      // defaults
       const obs = $('adjObs'); if (obs) obs.value = 'none';
+      const intensity = $('adjIntensity'); if (intensity) intensity.value = '50';
+      updateIntensityLabel();
+
+      // default feel to OK (safe)
+      state._adjFeel = 'ok';
+      setFeel('ok');
+
       updateAdjustPills();
       updateAdjustGuard();
 
       showModal('adjustBackdrop', true);
     }
+
     function closeAdjust(){ showModal('adjustBackdrop', false); }
 
     /* ---------- Operation modal ---------- */
@@ -2652,7 +2835,9 @@ UPDATE (per your ask):
       });
     })();
 
+    // ✅ keep both
     on('adjObs','change', updateAdjustGuard);
+    on('adjIntensity','input', updateAdjustGuard);
 
     // ✅ Map wiring
     on('btnMap','click', (e)=>{
@@ -2699,4 +2884,3 @@ UPDATE (per your ask):
 
 </body>
 </html>
-
