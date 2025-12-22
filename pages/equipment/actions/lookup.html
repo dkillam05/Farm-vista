@@ -279,7 +279,7 @@
       display:flex;
       align-items:center;
       justify-content:center;
-      z-index:999999; /* above dialogs */
+      z-index:999999;
       padding:16px;
     }
     .pdf-loading.hidden{ display:none; }
@@ -459,7 +459,6 @@
     const FV_LABEL_PDF_ENDPOINT = 'https://farmvista-pdf-label-300398089669.us-central1.run.app/label';
 
     const $ = (sel, root=document) => root.querySelector(sel);
-    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 
     const list = $('#list');
     const countEl = $('#count');
@@ -501,6 +500,16 @@
 
     const last6 = v => String(v||'').slice(-6);
     const safe = v => (v==null ? '' : String(v));
+
+    function isMobileLike(){
+      const ua = (navigator.userAgent || '').toLowerCase();
+      return /iphone|ipad|ipod|android|mobi/.test(ua);
+    }
+
+    // ✅ KEY FIX: Desktop and phone want different rotation.
+    // Desktop looked right before, phone needs horizontal.
+    // So: rotate on DESKTOP, do NOT rotate on MOBILE.
+    const ROT_DEG = isMobileLike() ? 0 : 90;
 
     function normStatus(d){
       const s = String((d && d.status != null ? d.status : '')||'').toLowerCase().trim();
@@ -622,11 +631,6 @@
       }
     }
 
-    function isMobileLike(){
-      const ua = (navigator.userAgent || '').toLowerCase();
-      return /iphone|ipad|ipod|android|mobi/.test(ua);
-    }
-
     // Detail modal
     const dlg = $('#detail');
     const dTitle = $('#dTitle');
@@ -684,7 +688,7 @@
     // Hidden iframe for desktop print
     const printFrame = $('#fv-print-frame');
 
-    let __pending = null;     // base payload { url, make, model, serial }
+    let __pending = null;     // base payload { url, make, model, serialRaw, serial6 }
     let __mode = 'detailed';  // 'summary' | 'detailed'
     let __labelLenMm = 90;
     let __previewQrSrc = '';
@@ -765,9 +769,8 @@
       __previewQrSrc = '';
     }
 
-    // ✅ Label HTML for PDFShift (NO @page size; we fill 100% of page)
-    // ✅ "Turned" orientation: rotate the whole label content 90deg around center.
-    // If it rotates the wrong way, switch 90deg → -90deg.
+    // ✅ HTML for PDFShift (NO @page size; page size is controlled by your Cloud Run format)
+    // ✅ Rotation controlled by ROT_DEG (desktop vs mobile)
     function buildLabelHtmlForPdf({ mode, qrSrc, make, model, serial6, serialRaw }){
       const isSummary = mode === 'summary';
       const Q = isSummary ? SUMMARY.qrMm : LABEL.qrMm;
@@ -775,37 +778,21 @@
       const serialText = isSummary ? (serialRaw || '—') : (serial6 || '—');
       const fontSize = (isSummary && serialText.length > 12) ? '13pt' : (isSummary ? '16pt' : '18pt');
 
-      // NOTE:
-      // We rotate inside the page so PDF viewers show it “turned”.
-      // Page size stays correct (cutLen x 62) via PDFShift format.
       return `<!doctype html>
 <html><head><meta charset="utf-8">
 <title>FarmVista Label</title>
 <style>
 @page{ margin:0; }
 html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; overflow:hidden; }
-
-/* page wrapper */
-.stage{
-  width:100%;
-  height:100%;
-  display:grid;
-  place-items:center;
-  background:#fff;
-  overflow:hidden;
-}
-
-/* rotated label area (turned) */
+.stage{ width:100%; height:100%; display:grid; place-items:center; overflow:hidden; background:#fff; }
 .rot{
   width:100%;
   height:100%;
-  transform: rotate(90deg);
+  transform: rotate(${ROT_DEG}deg);
   transform-origin: 50% 50%;
   display:grid;
   place-items:center;
 }
-
-/* actual label layout */
 .label{
   width:100%;
   height:100%;
@@ -815,7 +802,6 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; overfl
   color:#000;
   overflow:hidden;
 }
-
 ${isSummary ? `
 .label{
   display:grid;
@@ -853,7 +839,6 @@ ${isSummary ? `
 .lab{ font-weight:800; font-size:12pt; line-height:1.05; opacity:.85; white-space:nowrap; }
 .val{ font-weight:900; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; white-space:nowrap; }
 `}
-
 </style></head>
 <body>
   <div class="stage">
@@ -897,6 +882,8 @@ ${isSummary ? `
       if (isSummary){
         pHdrTitle.textContent = 'Summary QR Label';
         pHelp.innerHTML = `Printer: <b>Brother QL-820NWB</b> • Tape: <b>DK-2205</b><br>✅ Compact summary label.`;
+        document.documentElement.style.setProperty('--sf-cut-mm', `${SUMMARY.cutLenMm}mm`);
+        document.documentElement.style.setProperty('--sf-qr-mm', `${SUMMARY.qrMm}mm`);
 
         const serialTxt = payload.serialRaw || '—';
 
@@ -984,10 +971,8 @@ ${isSummary ? `
     pClose.addEventListener('click', closePreview);
     pCancel.addEventListener('click', closePreview);
 
-    // chooser open/close
     function openChoice(){
-      // default radio based on __mode
-      const r = $(`input[name="labelMode"][value="${__mode}"]`, cDlg);
+      const r = cDlg.querySelector(`input[name="labelMode"][value="${__mode}"]`);
       if (r) r.checked = true;
       try{ cDlg.showModal(); }catch{ cDlg.setAttribute('open',''); }
     }
@@ -998,21 +983,13 @@ ${isSummary ? `
     cCancel.addEventListener('click', closeChoice);
 
     cOk.addEventListener('click', ()=>{
-      const picked = $(`input[name="labelMode"]:checked`, cDlg);
+      const picked = cDlg.querySelector(`input[name="labelMode"]:checked`);
       __mode = picked ? picked.value : __mode;
       closeChoice();
 
       if (!__pending) return;
 
-      // Update preview payload fields (summary vs detailed)
       const payload = { ...__pending, mode: __mode };
-
-      if (__mode === 'summary'){
-        payload.serialRaw = __pending.serialRaw || __pending.serial || '—';
-      } else {
-        payload.serial6 = __pending.serial6 || serialLast6(__pending.serial || '') || '—';
-      }
-
       openPreview();
       setPreview(payload);
     });
@@ -1020,16 +997,13 @@ ${isSummary ? `
     async function createPdfAndPrintOrOpen(){
       if (!__pending) return;
 
-      // If already created, just open/print again
+      // If already created, just do print/open again
       if (__pdfBlobUrl){
         if (isMobileLike()){
           window.location.assign(__pdfBlobUrl);
           return;
         }
-        // desktop: print via hidden iframe
-        printFrame.onload = ()=> {
-          try{ printFrame.contentWindow.focus(); printFrame.contentWindow.print(); } catch {}
-        };
+        printFrame.onload = ()=> { try{ printFrame.contentWindow.focus(); printFrame.contentWindow.print(); } catch {} };
         printFrame.src = __pdfBlobUrl;
         return;
       }
@@ -1042,13 +1016,12 @@ ${isSummary ? `
           ? SUMMARY.cutLenMm
           : Math.max(LABEL.minLenMm, Math.min(LABEL.maxLenMm, Number(__labelLenMm || LABEL.minLenMm)));
 
-        // Page size is TRUE label size:
-        // width = cut length, height = tape width (62mm)
+        // Page size is actual label size: width=cut length, height=tape width
         const widthMm = cutLenMm;
         const heightMm = 62;
 
         const serialRaw = __pending.serialRaw || __pending.serial || '';
-        const serial6 = serialLast6(serialRaw) || '';
+        const serial6 = __pending.serial6 || serialLast6(serialRaw) || '';
 
         const html = buildLabelHtmlForPdf({
           mode: __mode,
@@ -1079,13 +1052,12 @@ ${isSummary ? `
         const blob = await resp.blob();
         __pdfBlobUrl = URL.createObjectURL(blob);
 
-        // Desktop: auto-print via iframe. Mobile: open PDF in same tab (then Share → Print).
         if (isMobileLike()){
+          // iPhone/iPad: open PDF in this tab so you can Share → Print
           window.location.assign(__pdfBlobUrl);
         } else {
-          printFrame.onload = ()=> {
-            try{ printFrame.contentWindow.focus(); printFrame.contentWindow.print(); } catch {}
-          };
+          // Desktop: auto print via hidden iframe
+          printFrame.onload = ()=> { try{ printFrame.contentWindow.focus(); printFrame.contentWindow.print(); } catch {} };
           printFrame.src = __pdfBlobUrl;
         }
 
@@ -1099,7 +1071,6 @@ ${isSummary ? `
         setPdfLoading(false);
       }
     }
-
     pCreate.addEventListener('click', createPdfAndPrintOrOpen);
 
     function openDetail(d){
@@ -1135,7 +1106,6 @@ ${isSummary ? `
         btnPrintQR.disabled = false;
 
         btnPrintQR.onclick = ()=>{
-          // Store base payload once
           const rawSerial = IS_STARFIRE ? (pickStarfireSerial(d) || (d.serial || '')) : (d.serial || '');
           __pending = {
             url,
@@ -1146,15 +1116,12 @@ ${isSummary ? `
             serial6: serialLast6(rawSerial) || ''
           };
 
-          // Default mode
           __mode = IS_STARFIRE ? 'summary' : 'detailed';
 
-          // Clear any previous pdf
           __pdfBlobUrl = '';
           __previewQrSrc = '';
           __labelLenMm = LABEL.minLenMm;
 
-          // Ask radio (small modal)
           openChoice();
         };
       } else {
