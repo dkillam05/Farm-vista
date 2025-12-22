@@ -325,22 +325,21 @@
     }
     .radio-row:hover{ background:var(--surface-2, rgba(127,127,127,.08)); }
 
-    /* Kill iOS yellow focus ring; replace with subtle brand outline */
+    /* Fix: remove the green focus/selection “box” around the row on iOS/desktop */
+    .radio-row,
+    .radio-row:focus,
+    .radio-row:focus-within{
+      outline:none !important;
+      box-shadow:none !important;
+    }
     .radio-row input{
       accent-color:var(--brand-green,#3B7E46);
       outline:none !important;
       box-shadow:none !important;
     }
-    .radio-row input:focus{ outline:none !important; box-shadow:none !important; }
-    .radio-row:focus-within{
-      outline:2px solid color-mix(in srgb, var(--brand-green,#3B7E46) 55%, transparent);
-      outline-offset:2px;
-    }
-    @supports not (color-mix(in srgb, #000 50%, #fff 50%)){
-      .radio-row:focus-within{
-        outline:2px solid rgba(47,108,60,.35);
-        outline-offset:2px;
-      }
+    .radio-row input:focus{
+      outline:none !important;
+      box-shadow:none !important;
     }
   </style>
 </head>
@@ -875,16 +874,17 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     });
 
     async function showOverlayAndYield(){
-      // Close dialogs first on iPhone so overlay is never hidden by top layer
-      if (isMobileLike()){
-        closeDialog(pDlg);
-        closeDialog(cDlg);
-        closeDialog(dlg);
-      }
+      // IMPORTANT FIX:
+      // On desktop, <dialog> is in the "top layer" and will sit ABOVE normal DOM,
+      // so the overlay div won't be visible unless we close dialogs first.
+      // Phone overlay already works; this keeps that behavior and makes desktop work too.
+      closeDialog(pDlg);
+      closeDialog(cDlg);
+      closeDialog(dlg);
 
       setPdfLoading(true, 'Creating label PDF…', 'Please keep this tab open.');
 
-      // iOS needs time to paint the overlay
+      // iOS needs time to paint the overlay (harmless on desktop)
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
       await new Promise(r=>setTimeout(r, 80));
     }
