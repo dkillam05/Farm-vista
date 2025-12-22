@@ -1,13 +1,18 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-12-22h (FIXED to match lookup centering behavior)
+Rev: 2025-12-22i
 
-FIXES:
-✅ Summary preview square centered EXACTLY like lookup:
-   - #printWrap uses lookup CSS (flex-start default)
-   - #printWrap.center { justify-content:center }
-   - JS toggles .center only for summary
-✅ NO trimming / no missing sections (full file retained)
+FIX (your suspicion was right):
+✅ The preview dialog was “shrink-wrapping” (fit-content), so #printWrap had NO extra width to center into.
+   That makes Summary *look* off-center even when justify-content:center is applied.
+
+What changed:
+✅ Preview dialog now uses a REAL viewport width (not fit-content)
+✅ print preview body is width:100%
+✅ #printWrap is width:100% (no max-width clamp) so it can actually center Summary
+✅ Detailed still scrolls horizontally when needed, Summary centers when there's space
+
+Nothing else trimmed / removed.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -250,10 +255,20 @@ FIXES:
     /* ✅ Center labelChoice footer buttons (kept from your file) */
     #labelChoice footer{ justify-content:center; }
 
-    dialog.sheet.sheet-print{ width:fit-content; max-width:calc(100vw - 24px); }
+    /* =========================================================
+       ✅ FIX: Preview dialog must NOT shrink-wrap
+       This is what was killing Summary centering.
+       ========================================================= */
+    dialog.sheet.sheet-print{
+      width:min(860px, 92vw);
+      max-width:calc(100vw - 24px);
+    }
     dialog.sheet.sheet-print .body{
-      width:fit-content; max-width:calc(100vw - 24px);
-      overflow-x:auto; overflow-y:auto; -webkit-overflow-scrolling:touch;
+      width:100%;
+      max-width:100%;
+      overflow-x:hidden;   /* wrap handles horizontal scrolling */
+      overflow-y:auto;
+      -webkit-overflow-scrolling:touch;
     }
 
     .print-help{
@@ -265,10 +280,13 @@ FIXES:
       text-align:center;
     }
 
-    /* ✅ FIX: EXACT lookup behavior */
+    /* ✅ FIX: Let wrap actually have room to center summary */
     #printWrap{
-      display:flex; width:100%; max-width:calc(100vw - 48px);
-      overflow-x:auto; overflow-y:hidden;
+      display:flex;
+      width:100%;
+      max-width:100%;
+      overflow-x:auto;
+      overflow-y:hidden;
       -webkit-overflow-scrolling:touch;
       justify-content:flex-start;
       padding: 4px 2px 2px;
@@ -758,8 +776,6 @@ FIXES:
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
       wrapEl.scrollLeft = 0;
     }
-
-    // (everything below is your original file unchanged, except calling setPrintWrapCentered)
 
     // Year combo
     function buildYearOptions(){
