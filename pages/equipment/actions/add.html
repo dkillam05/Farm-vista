@@ -1,15 +1,17 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-12-20c
+Rev: 2025-12-22a
 
-UPDATES (targeted):
-✅ Replace ugly StarFire "No" button with a real iOS-style slider toggle (checkbox switch)
-   - Looks good in light + dark theme
-   - Big tap target for mobile, clean on desktop
-   - Accessible (real checkbox + label)
-✅ Remove the old .toggle dark-mode hack block (and fix the stray CSS brace that could break styles)
+UPDATES (requested):
+✅ Make **Save and Print** work the SAME way as lookup:
+   - Generates a server PDF label (Cloud Run endpoint)
+   - Shows the same loading overlay (works on phone AND desktop)
+   - Mobile: opens PDF (Share → Print)
+   - Desktop: auto-prints via hidden iframe
+✅ Keep existing overlay behavior on phone (do not break it) + make it work on desktop too
+✅ Keep preview horizontal; PDF/print stays correct
 
-Everything else kept the same as your 2025-12-20b file.
+Everything else kept the same as your provided file.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -74,6 +76,7 @@ Everything else kept the same as your 2025-12-20b file.
       --sf-qr-mm: 46mm;        /* big QR */
       --sf-serial-font: 16pt;
       --sf-serial-font-sm: 13pt;
+      --sf-lab-font: 10pt;
 
       /* ===== Switch (StarFire GPS Capable) ===== */
       --sw-w: 56px;
@@ -145,6 +148,7 @@ Everything else kept the same as your 2025-12-20b file.
       background:var(--card-surface,var(--surface)); font-weight:800; cursor:pointer;
       -webkit-appearance:none; appearance:none; color:var(--text)!important;
       text-decoration:none;
+      -webkit-tap-highlight-color: transparent;
     }
     .btn-primary{ border-color:transparent; background:var(--brand); color:#fff!important }
     .btn-quiet{ background:transparent; color:var(--text)!important }
@@ -254,7 +258,7 @@ Everything else kept the same as your 2025-12-20b file.
       max-width: calc(100vw - 24px);
     }
 
-    /* ✅ NEW: Force-hide helper (so we do not depend on [hidden]) */
+    /* ✅ Force-hide helper (so we do not depend on [hidden]) */
     .pv-hide{ display:none !important; }
 
     /* Print content wrapper */
@@ -302,35 +306,40 @@ Everything else kept the same as your 2025-12-20b file.
     .lp-right .serial-lab{ font-weight:800; font-size:var(--ql-font-lab); line-height:1.05; opacity:.85; white-space:nowrap; }
     .lp-right .serial-val{ font-weight:900; font-size:var(--ql-font); line-height:1.05; letter-spacing:.6px; margin-top:1mm; white-space:nowrap; }
 
-    /* ===== StarFire compact preview (matches lookup) ===== */
-    .label-preview-starfire{
-      width:var(--sf-cut-mm);
-      height:var(--ql-tape-mm);
+    /* ===== Summary preview (square) — matches lookup ===== */
+    .label-preview-summary{
+      width:62mm;
+      height:62mm;
       border:1px dashed var(--border);
       border-radius:10px;
       background:#fff;
       color:#000;
 
       display:grid;
-      grid-template-rows: var(--sf-qr-mm) 1fr;
+      grid-template-rows: 46mm max-content max-content;
       align-content:center;
       justify-items:center;
-      gap: 2mm;
-      padding: 2.2mm;
+      gap:1mm;
+      padding:2.2mm;
       box-sizing:border-box;
-
       overflow:hidden;
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
     }
-    .sf-qr{
-      width:var(--sf-qr-mm);
-      height:var(--sf-qr-mm);
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      background:#fff;
+    .sum-qr{ width:46mm; height:46mm; display:flex; align-items:center; justify-content:center; }
+    .sum-qr img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
+    .sum-lab{
+      width:100%;
+      text-align:center;
+      font-weight:800;
+      letter-spacing:.2px;
+      line-height:1.05;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      font-size:var(--sf-lab-font);
+      opacity:.85;
     }
-    .sf-qr img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
-    .sf-serial{
+    .sum-val{
       width:100%;
       text-align:center;
       font-weight:900;
@@ -339,9 +348,8 @@ Everything else kept the same as your 2025-12-20b file.
       white-space:nowrap;
       overflow:hidden;
       text-overflow:ellipsis;
-      font-size: var(--sf-serial-font);
+      font-size:16pt;
     }
-    .sf-serial.small{ font-size: var(--sf-serial-font-sm); }
 
     .print-actions{
       display:flex;
@@ -377,7 +385,7 @@ Everything else kept the same as your 2025-12-20b file.
       #btnSavePrint{ width:100%; }
     }
 
-    /* ✅ Hidden print iframe (same as your working reports) */
+    /* ✅ Hidden print iframe */
     #fv-print-frame{
       position:fixed;
       right:0;
@@ -390,8 +398,6 @@ Everything else kept the same as your 2025-12-20b file.
 
     /* ==========================================================
        ✅ NICE SLIDER TOGGLE (StarFire GPS Capable?)
-       - Real checkbox switch (accessible)
-       - Works in light/dark + mobile/desktop
        ========================================================== */
 
     .pv-switch-row{
@@ -411,7 +417,6 @@ Everything else kept the same as your 2025-12-20b file.
       -webkit-tap-highlight-color: transparent;
     }
 
-    /* Visually-hidden checkbox but still accessible */
     .pv-switch input{
       position:absolute;
       width:1px; height:1px;
@@ -457,7 +462,6 @@ Everything else kept the same as your 2025-12-20b file.
       min-width:32px;
     }
 
-    /* ON state */
     .pv-switch input:checked + .pv-switch-track{
       background: var(--brand);
       border-color: transparent;
@@ -471,13 +475,11 @@ Everything else kept the same as your 2025-12-20b file.
       color: var(--brand);
     }
 
-    /* Focus ring */
     .pv-switch input:focus-visible + .pv-switch-track{
       outline: 3px solid color-mix(in srgb, var(--brand) 55%, transparent);
       outline-offset: 2px;
     }
 
-    /* Dark theme tuning (more contrast OFF state) */
     html[data-theme="dark"] .pv-switch-track,
     body[data-theme="dark"] .pv-switch-track,
     .dark .pv-switch-track{
@@ -495,6 +497,53 @@ Everything else kept the same as your 2025-12-20b file.
       background:#fff;
       box-shadow: 0 6px 16px rgba(0,0,0,.45);
     }
+
+    /* ==========================================================
+       ✅ PDF loading overlay (same as lookup; works on desktop too)
+       ========================================================== */
+    .pdf-loading{
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,0.35);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      z-index:2147483647;
+      padding:16px;
+      pointer-events:auto;
+    }
+    .pdf-loading.hidden{ display:none; }
+    .pdf-loading-inner{
+      max-width:260px;
+      width:100%;
+      border-radius:16px;
+      background:var(--surface,#ffffff);
+      padding:16px 18px 14px;
+      box-shadow:0 18px 45px rgba(0,0,0,0.26);
+      text-align:center;
+      border:1px solid var(--border);
+    }
+    .pdf-loading-spinner{
+      width:32px;
+      height:32px;
+      border-radius:999px;
+      border:3px solid rgba(0,0,0,0.12);
+      border-top-color:var(--accent,#2F6C3C);
+      margin:0 auto 10px;
+      animation:pdf-spin 0.8s linear infinite;
+    }
+    .pdf-loading-text{
+      font-size:0.95rem;
+      font-weight:600;
+      color:var(--text,#111827);
+      margin:0;
+    }
+    .pdf-loading-sub{
+      font-size:0.78rem;
+      margin-top:4px;
+      color:var(--muted,#67706B);
+    }
+    @keyframes pdf-spin{ to{ transform:rotate(360deg); } }
   </style>
 </head>
 
@@ -584,7 +633,16 @@ Everything else kept the same as your 2025-12-20b file.
     </div>
   </fv-shell>
 
-  <!-- ✅ Hidden print iframe (report-style printing) -->
+  <!-- Overlay (PDF loading) -->
+  <div id="pdfLoading" class="pdf-loading hidden" role="alertdialog" aria-live="assertive" aria-hidden="true">
+    <div class="pdf-loading-inner">
+      <div class="pdf-loading-spinner"></div>
+      <p id="pdfLoadingText" class="pdf-loading-text">Creating label PDF…</p>
+      <p id="pdfLoadingSub" class="pdf-loading-sub">Please keep this tab open.</p>
+    </div>
+  </div>
+
+  <!-- ✅ Hidden print iframe (desktop auto-print) -->
   <iframe id="fv-print-frame"></iframe>
 
   <!-- Edit modal -->
@@ -639,19 +697,18 @@ Everything else kept the same as your 2025-12-20b file.
     </div>
   </div>
 
-  <!-- Print modal -->
+  <!-- Print/Preview modal -->
   <div id="printModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="printTitle">
     <div class="backdrop" data-close-print></div>
     <div class="sheet sheet-print">
       <header>
-        <div id="printTitle">Print QR Label</div>
+        <div id="printTitle">QR Label Preview</div>
         <button class="close" type="button" data-close-print>Close</button>
       </header>
 
       <div class="print-wrap">
         <div class="print-help" id="printHelp">
-          Printer: <b>Brother QL-820NWB</b> • Tape: <b>DK-2205 (62mm / 2.4&quot; continuous)</b><br>
-          ✅ Label length flexes to your text (up to <b>6&quot;</b>). On phones, swipe left/right to see the whole label.
+          Tap <b>Create Label</b>. (Mobile opens PDF; Desktop auto-prints.)
         </div>
 
         <!-- Long strip preview -->
@@ -669,17 +726,16 @@ Everything else kept the same as your 2025-12-20b file.
           </div>
         </div>
 
-        <!-- StarFire compact preview -->
-        <div id="labelPreviewSF" class="label-preview-starfire pv-hide" aria-label="StarFire label preview">
-          <div class="sf-qr">
-            <img id="sfQR" alt="QR">
-          </div>
-          <div id="sfSerial" class="sf-serial">—</div>
+        <!-- Summary (square) preview -->
+        <div id="labelPreviewSummary" class="label-preview-summary pv-hide" aria-label="Summary label preview">
+          <div class="sum-qr"><img id="sumQR" alt="QR"></div>
+          <div class="sum-lab">VIN/Serial</div>
+          <div id="sumVal" class="sum-val">—</div>
         </div>
       </div>
 
       <div class="print-actions">
-        <button id="btnPrintNow" class="btn btn-primary" type="button">Print</button>
+        <button id="btnCreateLabel" class="btn btn-primary" type="button">Create Label</button>
         <button id="btnPrintClose" class="btn btn-quiet" type="button">Cancel</button>
       </div>
     </div>
@@ -699,6 +755,9 @@ Everything else kept the same as your 2025-12-20b file.
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
+
+    // Same PDF service used by lookup
+    const FV_LABEL_PDF_ENDPOINT = 'https://farmvista-pdf-label-300398089669.us-central1.run.app/label';
 
     const $ = id => document.getElementById(id);
     const qs = new URLSearchParams(location.search);
@@ -755,6 +814,37 @@ Everything else kept the same as your 2025-12-20b file.
       void t.offsetWidth;
       t.classList.add("show");
       setTimeout(()=>{ t.classList.remove("show"); t.style.display='none'; }, ms);
+    }
+
+    function isMobileLike(){
+      const ua = (navigator.userAgent || '').toLowerCase();
+      return /iphone|ipad|ipod|android|mobi/.test(ua);
+    }
+
+    // Overlay helpers (same behavior as lookup; works on desktop too)
+    const pdfLoading = $("pdfLoading");
+    const pdfLoadingText = $("pdfLoadingText");
+    const pdfLoadingSub = $("pdfLoadingSub");
+    function setPdfLoading(active, text, sub){
+      if (pdfLoadingText && text) pdfLoadingText.textContent = text;
+      if (pdfLoadingSub && sub) pdfLoadingSub.textContent = sub;
+      if (active){
+        pdfLoading.classList.remove('hidden');
+        pdfLoading.setAttribute('aria-hidden','false');
+      } else {
+        pdfLoading.classList.add('hidden');
+        pdfLoading.setAttribute('aria-hidden','true');
+      }
+    }
+    async function showOverlayAndYield(){
+      // close preview modal so overlay is never hidden behind it (desktop + mobile)
+      PrintUI.close();
+
+      setPdfLoading(true, 'Creating label PDF…', 'Please keep this tab open.');
+
+      // iOS needs time to paint the overlay (harmless on desktop)
+      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+      await new Promise(r=>setTimeout(r, 80));
     }
 
     function buildYearOptions(){
@@ -1034,171 +1124,254 @@ Everything else kept the same as your 2025-12-20b file.
     }
 
     let __labelLenMm = LABEL.minLenMm;
+    let __printPending = null; // {mode, cutLenMm, qrDataUrl, makeName, modelName, serialRaw, serial6}
 
-    /* ===== Print iframe (report-style) ===== */
-    const PRINT_FRAME = $("fv-print-frame");
-
-    function escHtml(s){
+    /* ===== PDF HTML builders (same as lookup) ===== */
+    function esc(s){
       return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
     }
-    function writePrintFrame(html){
-      const win = PRINT_FRAME.contentWindow;
-      const docu = PRINT_FRAME.contentDocument || win.document;
-      docu.open();
-      docu.write(html);
-      docu.close();
-    }
-    function printFrameSync(){
-      try{
-        const win = PRINT_FRAME.contentWindow;
-        win.focus();
-        win.print();
-      }catch(e){
-        console.warn('[add] iframe print failed', e);
+
+    function buildMobilePortraitHtml({ mode, qrSrc, make, model, serial6, serialRaw, cutLenMm }){
+      const isSummary = mode === 'summary';
+      const pad = 2.2;
+
+      if (isSummary){
+        return `<!doctype html><html><head><meta charset="utf-8"><style>
+@page{ margin:0; }
+html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; overflow:hidden; }
+.page{ width:100%; height:100%; display:block; overflow:hidden; position:relative; }
+.rot{ width:${cutLenMm}mm; height:62mm; transform-origin:top left; transform:rotate(90deg) translateY(-62mm); }
+.label{
+  width:${cutLenMm}mm; height:62mm;
+  box-sizing:border-box; padding:${pad}mm;
+  display:grid; grid-template-rows:46mm max-content max-content;
+  align-content:center; justify-items:center;
+  gap:1mm;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  color:#000; overflow:hidden;
+}
+.qr{ width:46mm; height:46mm; display:flex; align-items:center; justify-content:center; }
+.qr img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
+.lab{ width:100%; text-align:center; font-weight:800; font-size:10pt; opacity:.85; letter-spacing:.2px; }
+.val{ width:100%; text-align:center; font-weight:900; font-size:16pt; letter-spacing:.6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+</style></head><body>
+<div class="page"><div class="rot"><div class="label">
+  <div class="qr"><img alt="QR" src="${qrSrc}"></div>
+  <div class="lab">VIN/Serial</div>
+  <div class="val">${esc(serial6 || '—')}</div>
+</div></div></div>
+</body></html>`;
       }
-    }
 
-    function buildPrintHtmlLong({ makeName, modelName, serial, qrDataUrl, cutLenMm }){
-      const serial6 = serialLast6(serial) || '';
-      const W = `${cutLenMm}mm`;
-      const H = `${LABEL.tapeWmm}mm`;
-      const Q = `${LABEL.qrMm}mm`;
-      return `<!doctype html>
-<html><head><meta charset="utf-8">
-<title>Print Label</title>
-<style>
-  @page{ size: ${W} ${H}; margin: 0; }
-  html, body{ margin:0; padding:0; width:${W}; height:${H}; background:#fff; }
-  .label{
-    width:${W}; height:${H};
-    box-sizing:border-box;
-    padding:2.2mm;
-    display:grid;
-    grid-template-columns:max-content ${Q} max-content;
-    gap:2mm;
-    align-items:center;
-    font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-    color:#000;
-    overflow:hidden;
-  }
-  .left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
-  .make{ font-weight:900; font-size:18pt; line-height:1.05; white-space:nowrap; }
-  .model{ font-weight:800; font-size:16pt; line-height:1.05; white-space:nowrap; margin-top:1mm; }
-  .mid{ width:${Q}; height:${Q}; display:flex; align-items:center; justify-content:center; }
-  .mid img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
-  .right{ align-items:flex-end; text-align:right; }
-  .lab{ font-weight:800; font-size:12pt; line-height:1.05; opacity:.85; white-space:nowrap; }
-  .val{ font-weight:900; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; white-space:nowrap; }
-</style></head>
-<body>
-  <div class="label">
-    <div class="left">
-      <div class="make">${escHtml(makeName) || '—'}</div>
-      <div class="model">${escHtml(modelName) || '—'}</div>
-    </div>
-    <div class="mid"><img alt="QR" src="${qrDataUrl || ''}"></div>
-    <div class="right">
-      <div class="lab">VIN/Serial</div>
-      <div class="val">${escHtml(serial6) || '—'}</div>
-    </div>
-  </div>
+      return `<!doctype html><html><head><meta charset="utf-8"><style>
+@page{ margin:0; }
+html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; overflow:hidden; }
+.page{ width:100%; height:100%; display:block; overflow:hidden; position:relative; }
+.rot{ width:${cutLenMm}mm; height:62mm; transform-origin:top left; transform:rotate(90deg) translateY(-62mm); }
+.label{
+  width:${cutLenMm}mm; height:62mm;
+  box-sizing:border-box; padding:${pad}mm;
+  display:grid; grid-template-columns:max-content 48mm max-content;
+  gap:2mm; align-items:center;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  color:#000; overflow:hidden;
+}
+.left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
+.make{ font-weight:900; font-size:18pt; line-height:1.05; white-space:nowrap; }
+.model{ font-weight:800; font-size:16pt; line-height:1.05; white-space:nowrap; margin-top:1mm; }
+.mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; }
+.mid img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
+.right{ align-items:flex-end; text-align:right; }
+.lab{ font-weight:800; font-size:12pt; line-height:1.05; opacity:.85; white-space:nowrap; }
+.val{ font-weight:900; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; white-space:nowrap; }
+</style></head><body>
+<div class="page"><div class="rot"><div class="label">
+  <div class="left"><div class="make">${esc(make||'—')}</div><div class="model">${esc(model||'—')}</div></div>
+  <div class="mid"><img alt="QR" src="${qrSrc}"></div>
+  <div class="right"><div class="lab">VIN/Serial</div><div class="val">${esc(serial6||'—')}</div></div>
+</div></div></div>
 </body></html>`;
     }
 
-    function buildPrintHtmlStarfire({ serial, qrDataUrl }){
-      const serialTxt = String(serial || '').trim() || '—';
-      const font = serialTxt.length > 12 ? '13pt' : '16pt';
-      return `<!doctype html>
-<html><head><meta charset="utf-8">
-<title>Print StarFire Label</title>
-<style>
-  @page{ size: 62mm 62mm; margin: 0; }
-  html, body{ margin:0; padding:0; width:62mm; height:62mm; background:#fff; }
-  .label{
-    width:62mm; height:62mm;
-    box-sizing:border-box;
-    padding:2.2mm;
-    display:grid;
-    grid-template-rows:46mm 1fr;
-    align-content:center;
-    justify-items:center;
-    gap:2mm;
-    font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-    color:#000;
-    overflow:hidden;
-  }
-  .qr{ width:46mm; height:46mm; display:flex; align-items:center; justify-content:center; }
-  .qr img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
-  .serial{
-    width:100%;
-    text-align:center;
-    font-weight:900;
-    letter-spacing:.6px;
-    line-height:1.05;
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
-    font-size:${font};
-  }
-</style></head>
-<body>
-  <div class="label">
-    <div class="qr"><img alt="QR" src="${qrDataUrl || ''}"></div>
-    <div class="serial">${escHtml(serialTxt)}</div>
-  </div>
+    function buildDesktopHtml({ mode, qrSrc, make, model, serial6, serialRaw }){
+      const isSummary = mode === 'summary';
+      const pad = 2.2;
+
+      if (isSummary){
+        return `<!doctype html><html><head><meta charset="utf-8"><style>
+@page{ margin:0; }
+html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
+.label{
+  width:100%; height:100%;
+  box-sizing:border-box; padding:${pad}mm;
+  display:grid; grid-template-rows:46mm max-content max-content;
+  align-content:center; justify-items:center;
+  gap:1mm;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  color:#000; overflow:hidden;
+}
+.qr{ width:46mm; height:46mm; display:flex; align-items:center; justify-content:center; }
+.qr img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
+.lab{ width:100%; text-align:center; font-weight:800; font-size:10pt; opacity:.85; letter-spacing:.2px; }
+.val{ width:100%; text-align:center; font-weight:900; font-size:16pt; letter-spacing:.6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+</style></head><body>
+<div class="label">
+  <div class="qr"><img alt="QR" src="${qrSrc}"></div>
+  <div class="lab">VIN/Serial</div>
+  <div class="val">${esc(serial6 || '—')}</div>
+</div>
+</body></html>`;
+      }
+
+      return `<!doctype html><html><head><meta charset="utf-8"><style>
+@page{ margin:0; }
+html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
+.label{
+  width:100%; height:100%;
+  box-sizing:border-box; padding:${pad}mm;
+  display:grid; grid-template-columns:max-content 48mm max-content;
+  gap:2mm; align-items:center;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  color:#000; overflow:hidden;
+}
+.left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
+.make{ font-weight:900; font-size:18pt; line-height:1.05; white-space:nowrap; }
+.model{ font-weight:800; font-size:16pt; line-height:1.05; white-space:nowrap; margin-top:1mm; }
+.mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; }
+.mid img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
+.right{ align-items:flex-end; text-align:right; }
+.lab{ font-weight:800; font-size:12pt; line-height:1.05; opacity:.85; white-space:nowrap; }
+.val{ font-weight:900; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; white-space:nowrap; }
+</style></head><body>
+<div class="label">
+  <div class="left"><div class="make">${esc(make||'—')}</div><div class="model">${esc(model||'—')}</div></div>
+  <div class="mid"><img alt="QR" src="${qrSrc}"></div>
+  <div class="right"><div class="lab">VIN/Serial</div><div class="val">${esc(serial6||'—')}</div></div>
+</div>
 </body></html>`;
     }
 
-    async function setPrintPreview({ makeName, modelName, serial, qrDataUrl }){
+    async function setPrintPreview({ mode, makeName, modelName, serialRaw, serial6, qrDataUrl }){
       const longEl = $("labelPreviewLong");
-      const sfEl   = $("labelPreviewSF");
-      if (longEl) longEl.classList.toggle('pv-hide', IS_STARFIRE);
-      if (sfEl)   sfEl.classList.toggle('pv-hide', !IS_STARFIRE);
+      const sumEl  = $("labelPreviewSummary");
 
-      const help = $("printHelp");
-      if (help){
-        help.innerHTML = IS_STARFIRE
-          ? `Printer: <b>Brother QL-820NWB</b> • Tape: <b>DK-2205 (62mm)</b><br>✅ StarFire compact label: QR + serial under it.`
-          : `Printer: <b>Brother QL-820NWB</b> • Tape: <b>DK-2205 (62mm)</b><br>✅ Label length flexes to your text (up to <b>6&quot;</b>).`;
-      }
+      // show correct preview block
+      if (longEl) longEl.classList.toggle('pv-hide', mode === 'summary');
+      if (sumEl)  sumEl.classList.toggle('pv-hide', mode !== 'summary');
 
-      if (IS_STARFIRE){
-        const serialTxt = String(serial || '').trim() || '—';
-        $("sfQR").src = qrDataUrl || '';
-        $("sfSerial").textContent = serialTxt;
-        $("sfSerial").classList.toggle('small', serialTxt.length > 12);
-
-        writePrintFrame(buildPrintHtmlStarfire({ serial: serialTxt, qrDataUrl }));
+      if (mode === 'summary'){
+        $("sumQR").src = qrDataUrl || '';
+        $("sumVal").textContent = serial6 || '—';
+        $("printHelp").innerHTML = `Tap <b>Create Label</b>.`;
+        __labelLenMm = 62;
         return;
       }
 
-      const serial6 = serialLast6(serial) || '—';
+      // long (detailed)
       $("lpMake").textContent = (makeName || '—');
       $("lpModel").textContent = (modelName || '—');
       $("lpSerialLab").textContent = 'VIN/Serial';
-      $("lpSerialVal").textContent = serial6;
+      $("lpSerialVal").textContent = serial6 || '—';
       $("lpQR").src = qrDataUrl || '';
 
-      const preview = document.getElementById('labelPreviewLong');
+      const preview = $("labelPreviewLong");
       if(preview){
         preview.style.width  = `${LABEL.minLenMm}mm`;
         preview.style.height = `${LABEL.tapeWmm}mm`;
       }
 
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-      __labelLenMm = computeLabelLenMmFromDOM({ makeName, modelName, serial6 });
+      __labelLenMm = computeLabelLenMmFromDOM({ makeName, modelName, serial6: serial6 || '' });
 
       if(preview){
         preview.style.width  = `${__labelLenMm}mm`;
         preview.style.height = `${LABEL.tapeWmm}mm`;
       }
 
-      writePrintFrame(buildPrintHtmlLong({
-        makeName, modelName, serial,
-        qrDataUrl,
-        cutLenMm: __labelLenMm || LABEL.minLenMm
-      }));
+      $("printHelp").innerHTML = `Tap <b>Create Label</b>.`;
     }
+
+    // Create the PDF (same behavior as lookup)
+    const PRINT_FRAME = $("fv-print-frame");
+
+    async function createLabelPdfAndPrint(){
+      if(!__printPending) return;
+
+      const mobile = isMobileLike();
+
+      const mode = __printPending.mode;
+      const cutLenMm = __printPending.cutLenMm;
+      const serial6 = __printPending.serial6 || '';
+      const serialRaw = __printPending.serialRaw || '';
+      const makeName = __printPending.makeName || '';
+      const modelName = __printPending.modelName || '';
+      const qrSrc = __printPending.qrDataUrl || '';
+
+      $("btnCreateLabel").disabled = true;
+      await showOverlayAndYield();
+
+      try{
+        // PDF page dims:
+        // Desktop: landscape cutLen x 62
+        // Mobile: portrait 62 x cutLen (nice viewing), rotated content prints correctly
+        const widthMm  = mobile ? 62 : cutLenMm;
+        const heightMm = mobile ? cutLenMm : 62;
+        const landscape = false;
+
+        const html = mobile
+          ? buildMobilePortraitHtml({
+              mode,
+              qrSrc,
+              make: makeName,
+              model: modelName,
+              serial6,
+              serialRaw,
+              cutLenMm
+            })
+          : buildDesktopHtml({
+              mode,
+              qrSrc,
+              make: makeName,
+              model: modelName,
+              serial6,
+              serialRaw
+            });
+
+        const resp = await fetch(FV_LABEL_PDF_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type':'application/json' },
+          body: JSON.stringify({
+            html,
+            widthMm,
+            heightMm,
+            landscape,
+            filename: (mode === 'summary' ? 'fv-qr-summary.pdf' : 'fv-qr-detailed.pdf')
+          })
+        });
+
+        const errText = !resp.ok ? await resp.text().catch(()=> '') : '';
+        if (!resp.ok){
+          console.warn('[label-pdf] failed', resp.status, errText);
+          alert('Label PDF failed. Check Cloud Run logs.');
+          return;
+        }
+
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+
+        if (mobile){
+          window.location.assign(url);
+        } else {
+          PRINT_FRAME.onload = ()=> { try{ PRINT_FRAME.contentWindow.focus(); PRINT_FRAME.contentWindow.print(); } catch {} };
+          PRINT_FRAME.src = url;
+        }
+      } finally {
+        setPdfLoading(false);
+        $("btnCreateLabel").disabled = false;
+      }
+    }
+
+    $("btnCreateLabel").addEventListener('click', createLabelPdfAndPrint);
 
     function docCats(v){ return Array.isArray(v?.categories) ? v.categories.map(String) : undefined; }
 
@@ -1403,7 +1576,7 @@ Everything else kept the same as your 2025-12-20b file.
       validateForm();
     }
 
-    /* ===== Save equipment (same as your file, unchanged behavior) ===== */
+    /* ===== Save equipment (kept same behavior) ===== */
     let saving = false;
 
     async function ensureQrReservedAndBuilt(db){
@@ -1562,6 +1735,8 @@ Everything else kept the same as your 2025-12-20b file.
       pendingQRBlob=null;
       pendingEquipId=null;
 
+      __printPending = null;
+
       validateForm();
     }
 
@@ -1618,7 +1793,6 @@ Everything else kept the same as your 2025-12-20b file.
         row.appendChild(f2);
         host.appendChild(row);
 
-        // Live text update (Off/On)
         const sf = f2.querySelector('#starfireCapable');
         const sft = f2.querySelector('#starfireCapableText');
         if(sf && sft){
@@ -1628,12 +1802,6 @@ Everything else kept the same as your 2025-12-20b file.
         }
       }
     }
-
-    // ✅ Print button: now uses iframe print (native chooser like reports)
-    $("btnPrintNow").addEventListener('click', ()=>{
-      printFrameSync();
-      setTimeout(()=>PrintUI.close(), 80);
-    });
 
     (async()=>{
       await ready;
@@ -1682,6 +1850,7 @@ Everything else kept the same as your 2025-12-20b file.
 
       $("btnSave").addEventListener("click", ()=> saveAll(db, { post:'reset' }));
 
+      // ✅ Save & Print (same flow as lookup: preview -> Create Label -> PDF -> print/open)
       $("btnSavePrint").addEventListener("click", async ()=>{
         try{
           await ensureQrReservedAndBuilt(db);
@@ -1691,13 +1860,33 @@ Everything else kept the same as your 2025-12-20b file.
           const form = result.form || readForm();
           const qrDataUrl = $("qrThumb")?.src || "";
 
-          // Build preview + preload iframe print HTML
+          const serialRaw = form.serial || "";
+          const serial6 = serialLast6(serialRaw) || "";
+
+          // Mode: StarFire uses summary; everything else detailed
+          const mode = IS_STARFIRE ? 'summary' : 'detailed';
+          const cutLenMm = (mode === 'summary') ? 62 : (__labelLenMm || LABEL.minLenMm);
+
+          // Build horizontal preview (always)
           await setPrintPreview({
+            mode,
             makeName: form.makeName,
             modelName: form.modelName,
-            serial: form.serial,
+            serialRaw,
+            serial6,
             qrDataUrl
           });
+
+          // Capture for Create Label
+          __printPending = {
+            mode,
+            cutLenMm: (mode === 'summary') ? 62 : (__labelLenMm || LABEL.minLenMm),
+            qrDataUrl,
+            makeName: form.makeName || '',
+            modelName: form.modelName || '',
+            serialRaw,
+            serial6
+          };
 
           PrintUI.open();
         }catch(e){
