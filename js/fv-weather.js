@@ -1,54 +1,56 @@
 /* =======================================================================
 // /Farm-vista/js/fv-weather.js
-// Rev: 2025-12-22c (Open-Meteo Proxy version)
+// Rev: 2025-11-27h (Divernon + °F forecast + today-first + day details)
 //
-// FarmVista Weather module (Dashboard card + Modal)
-// ✅ Uses your Cloud Run proxy:
-//    GET {weatherEndpoint}/api/open-meteo?lat=..&lng=..&days=30&timezone=America/Chicago
-// ✅ Reads:
-//    json.normalized.hourly (back-compat core)
-//    json.normalized.hourly_ext
-//    json.normalized.daily
-// ✅ Computes:
-//    - "Current" from most recent hourly sample <= now
-//    - Rain last 24h / 7d / 30d from hourly precipitation
-//    - 7-day rain bar chart (daily sums derived from hourly)
-//    - Next 5 days (today-first) using normalized.daily (fallback to fewer days if backend only returns 3 forecast days)
+// FarmVista Weather module
+// - Google Weather: current conditions + last 24h precip
+// - Open-Meteo: 7d & 30d rainfall + 7d forecast
 //
-// Optional:
-// ✅ “Rain Map” button dispatches:
-//    document.dispatchEvent(new CustomEvent("fv:open-rain-map",{detail:{lat,lon,label}}))
+// Card above dashboard:
+//   • Current conditions
+//   • Rain last 24h / 7d / 30d
 //
-// IMPORTANT:
-// - This file does NOT use Google Weather or Open-Meteo direct.
-// - It expects your proxy payload structure from /index.js rev 2025-12-22b.
+// Modal popup:
+//   • Current conditions (detailed)
+//   • Next 5 days (rows, Fahrenheit) – starting from *today*
+//   • Click a day → details panel (conditions, snow/rain range, wind, sunrise/sunset)
+//   • Rainfall last 7 days (bar chart)
+//
+// Usage in dashboard:
+//
+//   FVWeather.initWeatherModule({
+//     googleApiKey: "YOUR_KEY",
+//     selector: "#fv-weather",
+//     mode: "card"
+//   });
+//
+//   FVWeather.initWeatherModule({
+//     googleApiKey: "YOUR_KEY",
+//     selector: "#fv-weather-modal-body",
+//     mode: "modal"
+//   });
+//
+// Lat / lon default to Divernon, IL but can be overridden.
 // ======================================================================= */
 
 (() => {
-  const DEFAULT_CONFIG = {
-    // REQUIRED: base URL of your Cloud Run service (no trailing slash preferred)
-    // Example: "https://farmvista-field-weather-xxxxx-uc.a.run.app"
-    weatherEndpoint: "",
+  const GOOGLE_CURRENT_URL =
+    "https://weather.googleapis.com/v1/currentConditions:lookup";
+  const GOOGLE_HISTORY_URL =
+    "https://weather.googleapis.com/v1/history/hours:lookup";
+  const OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast";
 
+  const DEFAULT_CONFIG = {
+    googleApiKey: "",
     // Divernon, IL (approx)
     lat: 39.5656,
     lon: -89.6573,
-
+    unitsSystem: "IMPERIAL",
     selector: "#fv-weather",
+    showOpenMeteo: true,
     mode: "card", // "card" | "modal"
-    locationLabel: "Divernon, Illinois",
-
-    showRainMapButton: true,
-
-    // history window request to proxy (clamped server-side 1..90)
-    days: 30,
-
-    timezone: "America/Chicago"
+    locationLabel: "Divernon, Illinois"
   };
-
-  // Unit conversion
-  const MM_PER_IN = 25.4;
-  const C_TO_F = (c) => (Number(c) * 9/5) + 32;
 
   /* ==========================
      Helpers
@@ -109,8 +111,46 @@
     `;
   }
 
+  function formatTemp(tempObj) {
+    if (!tempObj || typeof tempObj.degrees !== "number") return "—";
+    const value = Math.round(tempObj.degrees);
+    const unit =
+      tempObj.unit === "FAHRENHEIT"
+        ? "°F"
+        : tempObj.unit === "CELSIUS"
+        ? "°C"
+        : "";
+    return `${value}${unit}`;
+  }
+
+  function formatHumidity(value) {
+    if (typeof value !== "number") return "—";
+    return `${value}%`;
+  }
+
+  function formatWind(wind) {
+    if (!wind || !wind.speed || typeof wind.speed.value !== "number") return "—";
+    const speed = Math.round(wind.speed.value);
+    const dir = wind.direction && wind.direction.cardinal
+      ? wind.direction.cardinal.replace("_", " ")
+      : "";
+    return dir ? `${speed} mph ${dir}` : `${speed} mph`;
+  }
+
+  function buildGoogleIconUrl(weatherCondition) {
+    if (!weatherCondition || !weatherCondition.iconBaseUri) return "";
+    return `${weatherCondition.iconBaseUri}.svg`;
+  }
+
+  function safeSum(arr) {
+    return (arr || []).reduce((sum, v) => {
+      const n = typeof v === "number" ? v : 0;
+      return sum + n;
+    }, 0);
+  }
+
   function roundTo2(n) {
-    return Math.round((Number(n) || 0) * 100) / 100;
+    return Math.round(n * 100) / 100;
   }
 
   function fmtDayShort(dateStr) {
@@ -131,217 +171,29 @@
     return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   }
 
-  function formatTempF(valC) {
-    const c = Number(valC);
-    if (!Number.isFinite(c)) return "—";
-    const f = C_TO_F(c);
-    return `${Math.round(f)}°F`;
-  }
-
-  function formatHumidity(value) {
-    const v = Number(value);
-    if (!Number.isFinite(v)) return "—";
-    return `${Math.round(v)}%`;
-  }
-
-  function safeArr(a) {
-    return Array.isArray(a) ? a : [];
-  }
-
-  function dateOnly(isoLike) {
-    if (!isoLike) return "";
-    // Open-Meteo uses "YYYY-MM-DDTHH:MM" for hourly, and "YYYY-MM-DD" for daily
-    return isoLike.slice(0, 10);
-  }
-
-  function pickMostRecentHour(hourlyCore, hourlyExt) {
-    // Pick the most recent sample with time <= now
-    const now = Date.now();
-    let best = null;
-
-    for (let i = 0; i < hourlyCore.length; i++) {
-      const t = hourlyCore[i]?.time;
-      if (!t) continue;
-      const ms = Date.parse(t);
-      if (!Number.isFinite(ms)) continue;
-      if (ms <= now) best = { i, ms };
-    }
-
-    if (!best) {
-      // fallback to last element
-      const i = hourlyCore.length - 1;
-      return { i, core: hourlyCore[i] || null, ext: hourlyExt[i] || null, ms: null };
-    }
-
-    return { i: best.i, core: hourlyCore[best.i] || null, ext: hourlyExt[best.i] || null, ms: best.ms };
-  }
-
-  function computeRainSums(hourlyCore) {
-    // Returns inches for last 24h / 7d / 30d based on hourlyCore.rain_mm
-    const now = Date.now();
-
-    let mm24 = 0, mm7 = 0, mm30 = 0;
-
-    for (const h of hourlyCore) {
-      const t = h?.time;
-      if (!t) continue;
-      const ms = Date.parse(t);
-      if (!Number.isFinite(ms)) continue;
-
-      const mm = Number(h?.rain_mm);
-      const rain = Number.isFinite(mm) ? mm : 0;
-
-      const age = now - ms;
-      if (age <= 24 * 60 * 60 * 1000) mm24 += rain;
-      if (age <= 7 * 24 * 60 * 60 * 1000) mm7 += rain;
-      if (age <= 30 * 24 * 60 * 60 * 1000) mm30 += rain;
-    }
-
-    return {
-      in24: mm24 / MM_PER_IN,
-      in7: mm7 / MM_PER_IN,
-      in30: mm30 / MM_PER_IN
-    };
-  }
-
-  function computeDailyRainFromHourly(hourlyCore, daysBack = 7) {
-    // Builds last N daily totals ending today, from hourly precip
-    // Returns: { dates:[YYYY-MM-DD], amountsIn:[inches] }
-    const byDate = new Map();
-    for (const h of hourlyCore) {
-      const t = h?.time;
-      if (!t) continue;
-      const d = dateOnly(t);
-      if (!d) continue;
-      const mm = Number(h?.rain_mm);
-      const rain = Number.isFinite(mm) ? mm : 0;
-      byDate.set(d, (byDate.get(d) || 0) + rain);
-    }
-
-    // Determine today date in local time (best effort)
-    const today = new Date();
-    const y = today.getFullYear();
-    const m = String(today.getMonth() + 1).padStart(2, "0");
-    const dd = String(today.getDate()).padStart(2, "0");
-    const todayStr = `${y}-${m}-${dd}`;
-
-    const outDates = [];
-    const outAmounts = [];
-
-    for (let k = daysBack - 1; k >= 0; k--) {
-      const d = new Date();
-      d.setHours(0, 0, 0, 0);
-      d.setDate(d.getDate() - k);
-      const yy = d.getFullYear();
-      const mm = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      const ds = `${yy}-${mm}-${day}`;
-
-      const mmSum = byDate.get(ds) || 0;
-      outDates.push(ds);
-      outAmounts.push(mmSum / MM_PER_IN);
-    }
-
-    // Ensure today is included even if timezone parsing oddities occur
-    if (!outDates.includes(todayStr)) {
-      outDates.push(todayStr);
-      outAmounts.push((byDate.get(todayStr) || 0) / MM_PER_IN);
-    }
-
-    // Trim to exactly daysBack
-    const start = Math.max(0, outDates.length - daysBack);
-    return { dates: outDates.slice(start), amounts: outAmounts.slice(start) };
-  }
-
-  function classifyNow(core, ext) {
-    const rainMm = Number(core?.rain_mm) || 0;
-    const cloud = Number(ext?.cloud_cover_pct);
-    const t = Number(core?.temp_c);
-
-    let type = "Current conditions";
-    let icon = "clear";
-
-    if (rainMm >= 1.0) { type = "Rain"; icon = "rain"; }
-    else if (rainMm >= 0.2) { type = "Light rain"; icon = "rain"; }
-    else if (Number.isFinite(cloud)) {
-      if (cloud >= 70) { type = "Cloudy"; icon = "cloud"; }
-      else if (cloud >= 35) { type = "Partly cloudy"; icon = "cloud"; }
-      else { type = "Clear"; icon = "clear"; }
-    } else {
-      type = "Clear";
-      icon = "clear";
-    }
-
-    // crude snow hint if temp near freezing and precip
-    if (rainMm >= 0.2 && Number.isFinite(t) && t <= 0.5) {
-      type = "Snow";
-      icon = "snow";
-    }
-
-    return { type, icon };
-  }
-
-  function iconSvg(iconKey, size = 48) {
-    const stroke = "currentColor";
-    const fill = "none";
-
-    const wrap = (inner) => `
-      <svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true"
-        style="display:block;color:var(--muted,#67706B)">
-        ${inner}
-      </svg>
-    `;
-
-    if (iconKey === "snow") {
-      return wrap(`
-        <path d="M8 7h8" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round"/>
-        <path d="M7 11h10" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round"/>
-        <path d="M8 15h8" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round"/>
-        <path d="M9 18l-1 2" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round"/>
-        <path d="M12 18v2" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round"/>
-        <path d="M15 18l1 2" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round"/>
-      `);
-    }
-
-    if (iconKey === "rain") {
-      return wrap(`
-        <path d="M8 16c-2.2 0-4-1.6-4-3.6C4 10.6 5.6 9.2 7.6 9c.6-2 2.4-3.4 4.6-3.4
-                 2.6 0 4.8 2 5 4.6 1.6.3 2.8 1.7 2.8 3.4 0 1.9-1.7 3.6-3.8 3.6H8z"
-              stroke="${stroke}" stroke-width="1.6" fill="${fill}" stroke-linejoin="round"/>
-        <path d="M9 18l-1 2" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round"/>
-        <path d="M12 18l-1 2" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round"/>
-        <path d="M15 18l-1 2" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round"/>
-      `);
-    }
-
-    if (iconKey === "cloud") {
-      return wrap(`
-        <path d="M8 16c-2.2 0-4-1.6-4-3.6C4 10.6 5.6 9.2 7.6 9c.6-2 2.4-3.4 4.6-3.4
-                 2.6 0 4.8 2 5 4.6 1.6.3 2.8 1.7 2.8 3.4 0 1.9-1.7 3.6-3.8 3.6H8z"
-              stroke="${stroke}" stroke-width="1.6" fill="${fill}" stroke-linejoin="round"/>
-      `);
-    }
-
-    return wrap(`
-      <path d="M12 18a6 6 0 1 0 0-12a6 6 0 0 0 0 12z" stroke="${stroke}" stroke-width="1.6" fill="${fill}"/>
-      <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M19.8 4.2l-1.4 1.4M5.6 18.4l-1.4 1.4"
-            stroke="${stroke}" stroke-width="1.6" stroke-linecap="round"/>
-    `);
-  }
-
-  // For modal “day detail” panel
+  // Classify a day into Sunny / Cloudy / Rain / Snow and compute snow range text.
   function classifyDay(day) {
     const hi = day.tMax;
+    const lo = day.tMin;
     const precip = day.precipIn || 0;
+    const prob = day.precipProb || 0;
     const clouds = day.cloudCover != null ? day.cloudCover : 0;
 
     let type = "Unknown";
-    if (precip >= 0.05 && Number(hi) <= 34) type = "Snow";
-    else if (precip >= 0.05) type = "Rain";
-    else if (clouds <= 20) type = "Sunny";
-    else if (clouds <= 60) type = "Partly cloudy";
-    else type = "Cloudy";
+    // simple rule-of-thumb classification
+    if (precip >= 0.05 && hi <= 34) {
+      type = "Snow";
+    } else if (precip >= 0.05) {
+      type = "Rain";
+    } else if (clouds <= 20) {
+      type = "Sunny";
+    } else if (clouds <= 60) {
+      type = "Partly cloudy";
+    } else {
+      type = "Cloudy";
+    }
 
+    // snow range bucket from precip amount
     let snowRange = null;
     if (type === "Snow" && precip > 0) {
       const inch = precip;
@@ -357,72 +209,216 @@
   }
 
   /* ==========================
-     Fetch from your proxy
+     Fetchers
      ========================== */
 
-  async function fetchProxy(config) {
-    const base = (config.weatherEndpoint || "").toString().trim().replace(/\/+$/,"");
-    if (!base) throw new Error("Missing weatherEndpoint.");
-
+  async function fetchGoogleCurrent(config) {
     const params = new URLSearchParams({
-      lat: String(config.lat),
-      lng: String(config.lon),
-      days: String(config.days || 30),
-      timezone: String(config.timezone || "America/Chicago")
+      key: config.googleApiKey,
+      "location.latitude": String(config.lat),
+      "location.longitude": String(config.lon),
+      unitsSystem: config.unitsSystem
     });
 
-    const url = `${base}/api/open-meteo?${params.toString()}`;
-
-    const res = await fetch(url, { headers: { "Accept": "application/json" } });
-    const json = await res.json().catch(() => ({}));
-
-    if (!res.ok || !json || json.ok !== true) {
-      const msg = json && (json.error || json.message) ? (json.error || json.message) : `HTTP ${res.status}`;
-      throw new Error(msg);
+    const url = `${GOOGLE_CURRENT_URL}?${params.toString()}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`currentConditions HTTP ${res.status}`);
     }
-
-    return json;
+    const data = await res.json();
+    const current =
+      Array.isArray(data.currentConditions) && data.currentConditions.length > 0
+        ? data.currentConditions[0]
+        : data.currentConditions || data;
+    return { raw: data, current };
   }
 
-  function normalizeFromProxy(proxyJson) {
-    const norm = (proxyJson && proxyJson.normalized) ? proxyJson.normalized : {};
-    const hourlyCore = safeArr(norm.hourly);
-    const hourlyExt  = safeArr(norm.hourly_ext);
-    const daily      = safeArr(norm.daily);
+  async function fetchGoogleHistory24(config) {
+    const params = new URLSearchParams({
+      key: config.googleApiKey,
+      "location.latitude": String(config.lat),
+      "location.longitude": String(config.lon),
+      unitsSystem: config.unitsSystem,
+      hours: String(24)
+    });
 
-    return { hourlyCore, hourlyExt, daily, raw: proxyJson.raw || null, meta: norm.meta || null };
+    const url = `${GOOGLE_HISTORY_URL}?${params.toString()}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`history.hours HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    const hoursArr = data.historyHours || [];
+
+    let totalInches = 0;
+    for (const h of hoursArr) {
+      const precip = h.precipitation;
+      const qpf = precip && precip.qpf;
+      const qty = qpf && typeof qpf.quantity === "number" ? qpf.quantity : 0;
+      totalInches += qty;
+    }
+
+    return { raw: data, rain24hInches: totalInches };
+  }
+
+  async function fetchOpenMeteoRain(config) {
+    const params = new URLSearchParams({
+      latitude: String(config.lat),
+      longitude: String(config.lon),
+      daily: "precipitation_sum",
+      past_days: "30",
+      forecast_days: "0",
+      timezone: "auto",
+      precipitation_unit: "inch"
+    });
+
+    const url = `${OPEN_METEO_URL}?${params.toString()}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`Open-Meteo rain HTTP ${res.status}`);
+    }
+    const data = await res.json();
+
+    const daily = data.daily || {};
+    const amounts = daily.precipitation_sum || [];
+    const dates = daily.time || [];
+    const n = amounts.length;
+
+    let last30 = safeSum(amounts);
+    let last7 = 0;
+    let last7Dates = [];
+    let last7Amounts = [];
+
+    if (n > 0) {
+      const startIdx = n >= 7 ? n - 7 : 0;
+      last7Amounts = amounts.slice(startIdx);
+      last7Dates = dates.slice(startIdx);
+      last7 = safeSum(last7Amounts);
+    }
+
+    return {
+      raw: data,
+      rain7dInches: last7,
+      rain30dInches: last30,
+      last7: { dates: last7Dates, amounts: last7Amounts }
+    };
+  }
+
+  async function fetchOpenMeteoForecast(config) {
+    const params = new URLSearchParams({
+      latitude: String(config.lat),
+      longitude: String(config.lon),
+      daily: [
+        "temperature_2m_max",
+        "temperature_2m_min",
+        "precipitation_sum",
+        "precipitation_probability_mean",
+        "cloudcover_mean",
+        "windspeed_10m_max",
+        "winddirection_10m_dominant",
+        "sunrise",
+        "sunset"
+      ].join(","),
+      forecast_days: "7",
+      timezone: "auto",
+      precipitation_unit: "inch",
+      temperature_unit: "fahrenheit",
+      wind_speed_unit: "mph"
+    });
+
+    const url = `${OPEN_METEO_URL}?${params.toString()}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`Open-Meteo forecast HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    const daily = data.daily || {};
+    const times = daily.time || [];
+    const tMax = daily.temperature_2m_max || [];
+    const tMin = daily.temperature_2m_min || [];
+    const precip = daily.precipitation_sum || [];
+    const prob = daily.precipitation_probability_mean || [];
+    const clouds = daily.cloudcover_mean || [];
+    const windSpeed = daily.windspeed_10m_max || [];
+    const windDir = daily.winddirection_10m_dominant || [];
+    const sunrise = daily.sunrise || [];
+    const sunset = daily.sunset || [];
+
+    const days = [];
+    for (let i = 0; i < times.length; i++) {
+      days.push({
+        date: times[i],
+        tMax: typeof tMax[i] === "number" ? tMax[i] : null,
+        tMin: typeof tMin[i] === "number" ? tMin[i] : null,
+        precipIn: typeof precip[i] === "number" ? precip[i] : 0,
+        precipProb: typeof prob[i] === "number" ? prob[i] : null,
+        cloudCover: typeof clouds[i] === "number" ? clouds[i] : null,
+        windSpeedMax: typeof windSpeed[i] === "number" ? windSpeed[i] : null,
+        windDirDeg: typeof windDir[i] === "number" ? windDir[i] : null,
+        sunrise: sunrise[i],
+        sunset: sunset[i]
+      });
+    }
+
+    return { raw: data, days };
   }
 
   /* ==========================
      Render – card
      ========================== */
 
-  function renderCard(container, bundle, config) {
+  function renderCard(container, combined, config) {
     if (!container) return;
 
-    const { hourlyCore, hourlyExt } = bundle;
+    const current = combined.googleCurrent?.current || {};
+    const currentData = combined.googleCurrent?.raw || {};
+    const history24 = combined.googleHistory || {};
+    const openRain = combined.openMeteo || {};
+    const condition = current.weatherCondition || {};
+    const temp = current.temperature || {};
+    const feels = current.feelsLikeTemperature || {};
+    const humidity = current.relativeHumidity;
+    const wind = current.wind || {};
+    const iconUrl = buildGoogleIconUrl(condition);
 
-    const pick = pickMostRecentHour(hourlyCore, hourlyExt);
-    const core = pick.core || {};
-    const ext  = pick.ext  || {};
+    const desc =
+      (condition.description && condition.description.text) ||
+      condition.type ||
+      "Current conditions";
 
-    const nowCls = classifyNow(core, ext);
-    const tempStr = formatTempF(core.temp_c);
-    const feelsStr = "—"; // not available from your proxy right now
-    const humidStr = formatHumidity(core.rh_pct);
+    const tempStr = formatTemp(temp);
+    const feelsStr = formatTemp(feels);
+    const humidStr = formatHumidity(humidity);
+    const windStr = formatWind(wind);
 
-    const windStr = (core.wind_mph != null && Number.isFinite(Number(core.wind_mph)))
-      ? `${Math.round(Number(core.wind_mph))} mph`
-      : "—";
+    const timeZone =
+      (currentData.timeZone && currentData.timeZone.id) ||
+      (history24.raw && history24.raw.timeZone && history24.raw.timeZone.id) ||
+      "";
+    const updatedTime =
+      current.displayTime ||
+      current.currentTime ||
+      currentData.currentTime ||
+      "";
+    const updatedLocal =
+      updatedTime && updatedTime.iso8601
+        ? updatedTime.iso8601
+        : typeof updatedTime === "string"
+        ? updatedTime
+        : "";
 
-    const sums = computeRainSums(hourlyCore);
-    const rain24 = `${roundTo2(sums.in24)}"`;
-    const rain7  = `${roundTo2(sums.in7)}"`;
-    const rain30 = `${roundTo2(sums.in30)}"`;
-
-    const updatedLabel = pick.ms
-      ? `• Updated ${new Date(pick.ms).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" })}`
-      : "";
+    const rain24 =
+      typeof history24.rain24hInches === "number"
+        ? `${roundTo2(history24.rain24hInches)}"`
+        : "—";
+    const rain7 =
+      typeof openRain.rain7dInches === "number"
+        ? `${roundTo2(openRain.rain7dInches)}"`
+        : "—";
+    const rain30 =
+      typeof openRain.rain30dInches === "number"
+        ? `${roundTo2(openRain.rain30dInches)}"`
+        : "—";
 
     container.innerHTML = `
       <section class="fv-weather-card" style="
@@ -437,7 +433,15 @@
               Weather · ${config.locationLabel || ""}
             </div>
             <div style="font-size:11px;color:var(--muted,#67706B);display:flex;flex-wrap:wrap;gap:6px;">
-              ${updatedLabel ? `<span>${updatedLabel}</span>` : ""}
+              ${timeZone ? `<span>${timeZone}</span>` : ""}
+              ${
+                updatedLocal
+                  ? `<span>• Updated ${new Date(updatedLocal).toLocaleTimeString([], {
+                      hour: "numeric",
+                      minute: "2-digit"
+                    })}</span>`
+                  : ""
+              }
             </div>
           </div>
           <button type="button" class="fv-weather-refresh" style="
@@ -445,7 +449,6 @@
             background:var(--surface,#fff0);
             padding:4px 8px;
             font-size:12px;cursor:pointer;
-            color:inherit;
           " aria-label="Refresh weather">
             ⟳
           </button>
@@ -454,7 +457,7 @@
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
           <div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
             <div style="font-size:1.8rem;font-weight:600;">${tempStr}</div>
-            <div style="font-size:0.9rem;">${nowCls.type}</div>
+            <div style="font-size:0.9rem;">${desc}</div>
             <div style="font-size:0.8rem;color:var(--muted,#67706B);">
               Feels like <strong>${feelsStr}</strong>
             </div>
@@ -463,7 +466,11 @@
             </div>
           </div>
           <div style="flex:0 0 auto;">
-            ${iconSvg(nowCls.icon, 48)}
+            ${
+              iconUrl
+                ? `<img src="${iconUrl}" alt="${desc}" style="width:48px;height:48px;display:block;" loading="lazy">`
+                : ""
+            }
           </div>
         </div>
 
@@ -502,7 +509,7 @@
     const btn = container.querySelector(".fv-weather-refresh");
     if (btn) {
       btn.addEventListener("click", (evt) => {
-        evt.stopPropagation();
+        evt.stopPropagation(); // don’t open modal when hitting refresh
         initWeatherModule({ ...config });
       });
     }
@@ -512,167 +519,132 @@
      Render – modal
      ========================== */
 
-  function renderModal(container, bundle, config) {
+  function renderModal(container, combined, config) {
     if (!container) return;
 
-    const { hourlyCore, hourlyExt, daily } = bundle;
+    const current = combined.googleCurrent?.current || {};
+    const history24 = combined.googleHistory || {};
+    const openRain = combined.openMeteo || {};
+    const forecast = combined.openForecast || {};
+    const condition = current.weatherCondition || {};
+    const temp = current.temperature || {};
+    const feels = current.feelsLikeTemperature || {};
+    const humidity = current.relativeHumidity;
+    const wind = current.wind || {};
+    const iconUrl = buildGoogleIconUrl(condition);
 
-    const pick = pickMostRecentHour(hourlyCore, hourlyExt);
-    const core = pick.core || {};
-    const ext  = pick.ext  || {};
+    const desc =
+      (condition.description && condition.description.text) ||
+      condition.type ||
+      "Current conditions";
 
-    const nowCls = classifyNow(core, ext);
+    const tempStr = formatTemp(temp);
+    const feelsStr = formatTemp(feels);
+    const humidStr = formatHumidity(humidity);
+    const windStr = formatWind(wind);
 
-    const tempStr = formatTempF(core.temp_c);
-    const feelsStr = "—";
-    const humidStr = formatHumidity(core.rh_pct);
-    const windStr = (core.wind_mph != null && Number.isFinite(Number(core.wind_mph)))
-      ? `${Math.round(Number(core.wind_mph))} mph`
-      : "—";
+    const rain24 =
+      typeof history24.rain24hInches === "number"
+        ? `${roundTo2(history24.rain24hInches)}"`
+        : "—";
+    const rain7 =
+      typeof openRain.rain7dInches === "number"
+        ? `${roundTo2(openRain.rain7dInches)}"`
+        : "—";
+    const rain30 =
+      typeof openRain.rain30dInches === "number"
+        ? `${roundTo2(openRain.rain30dInches)}"`
+        : "—";
 
-    const sums = computeRainSums(hourlyCore);
-    const rain24 = `${roundTo2(sums.in24)}"`;
-    const rain7  = `${roundTo2(sums.in7)}"`;
-    const rain30 = `${roundTo2(sums.in30)}"`;
-
-    // Rain chart: last 7 days (derived from hourly)
-    const last7 = computeDailyRainFromHourly(hourlyCore, 7);
-    const seriesDates = last7.dates || [];
-    const seriesAmounts = last7.amounts || [];
+    const rainSeries = (openRain && openRain.last7) || { dates: [], amounts: [] };
+    const seriesDates = rainSeries.dates || [];
+    const seriesAmounts = rainSeries.amounts || [];
     const maxAmt = Math.max(...seriesAmounts, 0.01);
 
     const rainChartHtml = seriesDates.length
-      ? seriesDates.map((d, idx) => {
-          const val = seriesAmounts[idx] || 0;
-          const pct = Math.max(5, (val / maxAmt) * 100);
-          return `
-            <div class="fv-rain-row" style="
-              display:grid;grid-template-columns:50px 1fr 52px;
-              align-items:center;gap:6px;font-size:12px;
-            ">
-              <div class="fv-rain-label" style="font-weight:500;">${fmtDayShort(d)}</div>
-              <div class="fv-rain-bar-wrap" style="
-                position:relative;height:8px;border-radius:999px;
-                background:var(--border);opacity:.4;overflow:hidden;
+      ? seriesDates
+          .map((d, idx) => {
+            const val = seriesAmounts[idx] || 0;
+            const pct = Math.max(5, (val / maxAmt) * 100);
+            return `
+              <div class="fv-rain-row" style="
+                display:grid;grid-template-columns:50px 1fr 52px;
+                align-items:center;gap:6px;font-size:12px;
               ">
-                <div class="fv-rain-bar" style="
-                  position:absolute;inset:0;border-radius:999px;
-                  background:#2F6C3C;width:${pct}%;
-                "></div>
+                <div class="fv-rain-label" style="font-weight:500;">${fmtDayShort(d)}</div>
+                <div class="fv-rain-bar-wrap" style="
+                  position:relative;height:8px;border-radius:999px;
+                  background:var(--border);opacity:.4;overflow:hidden;
+                ">
+                  <div class="fv-rain-bar" style="
+                    position:absolute;inset:0;border-radius:999px;
+                    background:#2F6C3C;width:${pct}%;
+                  "></div>
+                </div>
+                <div class="fv-rain-value" style="
+                  text-align:right;font-variant-numeric:tabular-nums;
+                ">
+                  ${roundTo2(val)}"
+                </div>
               </div>
-              <div class="fv-rain-value" style="text-align:right;font-variant-numeric:tabular-nums;">
-                ${roundTo2(val)}"
-              </div>
-            </div>
-          `;
-        }).join("")
+            `;
+          })
+          .join("")
       : `<div class="fv-rain-chart-empty" style="font-size:12px;color:var(--muted,#67706B);">
            No recent rainfall data.
          </div>`;
 
-    // Forecast days: build from normalized.daily
-    // Your proxy sets forecast_days=3, so we may only have today + next 2.
-    const today0 = new Date(); today0.setHours(0,0,0,0);
-
-    const dailyUpcoming = daily
-      .filter(d => {
-        const dt = d?.date ? new Date(d.date) : null;
-        if (!dt || !Number.isFinite(dt.getTime())) return false;
-        dt.setHours(0,0,0,0);
-        return dt >= today0;
-      })
-      .slice(0, 5);
-
-    // We need precip per day (inches) -> derive from hourly by date
-    const byDateIn = new Map();
-    for (const h of hourlyCore) {
-      const t = h?.time;
-      if (!t) continue;
-      const d = dateOnly(t);
-      if (!d) continue;
-      const mm = Number(h?.rain_mm);
-      const inc = (Number.isFinite(mm) ? mm : 0) / MM_PER_IN;
-      byDateIn.set(d, (byDateIn.get(d) || 0) + inc);
-    }
-
-    // cloud cover for the day -> average from hourly_ext if present
-    const cloudByDate = new Map();
-    const cloudCount = new Map();
-    for (const h of hourlyExt) {
-      const t = h?.time;
-      if (!t) continue;
-      const d = dateOnly(t);
-      if (!d) continue;
-      const c = Number(h?.cloud_cover_pct);
-      if (!Number.isFinite(c)) continue;
-      cloudByDate.set(d, (cloudByDate.get(d) || 0) + c);
-      cloudCount.set(d, (cloudCount.get(d) || 0) + 1);
-    }
-    const avgCloud = (d) => {
-      const s = cloudByDate.get(d);
-      const n = cloudCount.get(d);
-      if (!Number.isFinite(s) || !Number.isFinite(n) || n <= 0) return null;
-      return s / n;
-    };
-
-    const forecastDays = dailyUpcoming.map(d => {
-      const date = d.date || "";
-      const tMaxC = d.temp_max_c;
-      const tMinC = d.temp_min_c;
-      const precipIn = byDateIn.get(date) || 0;
-      return {
-        date,
-        tMax: Number.isFinite(Number(tMaxC)) ? C_TO_F(Number(tMaxC)) : null,
-        tMin: Number.isFinite(Number(tMinC)) ? C_TO_F(Number(tMinC)) : null,
-        precipIn: precipIn,
-        precipProb: null,
-        cloudCover: avgCloud(date),
-        windSpeedMax: null,
-        windDirDeg: null,
-        sunrise: null,
-        sunset: null
-      };
+    // --- Forecast: only today and forward ---
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const allDays = forecast.days || [];
+    const upcoming = allDays.filter(d => {
+      const dt = new Date(d.date);
+      return dt >= today;
     });
+    const forecastDays = upcoming.slice(0, 5);
 
     const forecastRowsHtml = forecastDays.length
-      ? forecastDays.map((day, idx) => {
-          const hi = day.tMax != null ? `${Math.round(day.tMax)}°` : "—";
-          const lo = day.tMin != null ? `${Math.round(day.tMin)}°` : "—";
-          const rainIn = day.precipIn != null ? `${roundTo2(day.precipIn)}"` : "—";
-          const prob = "—";
-          const selectedClass = idx === 0 ? " fv-forecast-row-selected" : "";
-          return `
-            <div class="fv-forecast-row${selectedClass}" data-idx="${idx}" style="
-              display:grid;grid-template-columns:90px 1fr 110px;
-              align-items:center;gap:8px;padding:6px 0;
-              border-bottom:1px dashed rgba(148,163,184,0.4);
-              font-size:12px;cursor:pointer;
-            ">
-              <div class="fv-forecast-day" style="display:flex;flex-direction:column;gap:2px;">
-                <div class="fv-forecast-dow" style="font-weight:600;">${fmtDayShort(day.date)}</div>
-                <div class="fv-forecast-date" style="font-size:11px;color:var(--muted,#67706B);">
-                  ${fmtMD(day.date)}
+      ? forecastDays
+          .map((day, idx) => {
+            const hi = day.tMax != null ? `${Math.round(day.tMax)}°` : "—";
+            const lo = day.tMin != null ? `${Math.round(day.tMin)}°` : "—";
+            const rainIn = day.precipIn != null ? `${roundTo2(day.precipIn)}"` : "—";
+            const prob = day.precipProb != null ? `${Math.round(day.precipProb)}%` : "—";
+            const selectedClass = idx === 0 ? " fv-forecast-row-selected" : "";
+            return `
+              <div class="fv-forecast-row${selectedClass}" data-idx="${idx}" style="
+                display:grid;grid-template-columns:90px 1fr 110px;
+                align-items:center;gap:8px;padding:6px 0;
+                border-bottom:1px dashed rgba(148,163,184,0.4);
+                font-size:12px;cursor:pointer;
+              ">
+                <div class="fv-forecast-day" style="display:flex;flex-direction:column;gap:2px;">
+                  <div class="fv-forecast-dow" style="font-weight:600;">${fmtDayShort(day.date)}</div>
+                  <div class="fv-forecast-date" style="font-size:11px;color:var(--muted,#67706B);">
+                    ${fmtMD(day.date)}
+                  </div>
+                </div>
+                <div class="fv-forecast-temps" style="
+                  display:flex;align-items:center;gap:6px;
+                  font-variant-numeric:tabular-nums;
+                ">
+                  <span class="hi" style="font-weight:600;">${hi}</span>
+                  <span class="lo" style="color:var(--muted,#67706B);">${lo}</span>
+                </div>
+                <div class="fv-forecast-rain" style="
+                  display:flex;justify-content:flex-end;gap:6px;
+                  font-variant-numeric:tabular-nums;
+                ">
+                  <span class="amt" style="font-weight:500;">${rainIn}</span>
+                  <span class="prob" style="color:var(--muted,#67706B);">${prob}</span>
                 </div>
               </div>
-              <div class="fv-forecast-temps" style="
-                display:flex;align-items:center;gap:6px;
-                font-variant-numeric:tabular-nums;
-              ">
-                <span class="hi" style="font-weight:600;">${hi}</span>
-                <span class="lo" style="color:var(--muted,#67706B);">${lo}</span>
-              </div>
-              <div class="fv-forecast-rain" style="
-                display:flex;justify-content:flex-end;gap:6px;
-                font-variant-numeric:tabular-nums;
-              ">
-                <span class="amt" style="font-weight:500;">${rainIn}</span>
-                <span class="prob" style="color:var(--muted,#67706B);">${prob}</span>
-              </div>
-            </div>
-          `;
-        }).join("")
+            `;
+          })
+          .join("")
       : `<div class="fv-forecast-empty" style="font-size:12px;color:var(--muted,#67706B);">
-           Forecast data not available (your backend currently returns ~3 forecast days).
+           Forecast data not available.
          </div>`;
 
     const forecastHtml = `
@@ -688,35 +660,18 @@
     container.innerHTML = `
       <section class="fv-weather-card fv-weather-modal-card" style="cursor:auto;box-shadow:none;border:none;padding:0;">
         <header class="fv-weather-modal-head" style="margin-bottom:10px;">
-          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-            <div>
-              <div class="fv-weather-title" style="
-                font-size:13px;font-weight:600;letter-spacing:.06em;
-                text-transform:uppercase;
-              ">
-                Weather · ${config.locationLabel || ""}
-              </div>
-              <div class="fv-weather-meta" style="font-size:11px;color:var(--muted,#67706B);">
-                Detailed conditions, outlook, and rain history.
-              </div>
+          <div>
+            <div class="fv-weather-title" style="
+              font-size:13px;font-weight:600;letter-spacing:.06em;
+              text-transform:uppercase;
+            ">
+              Weather · ${config.locationLabel || ""}
             </div>
-
-            ${
-              config.showRainMapButton
-                ? `<button type="button" class="fv-weather-rainmap" style="
-                    border-radius:999px;
-                    border:1px solid var(--border);
-                    background:#3B7E46;
-                    color:#fff !important;
-                    padding:8px 12px;
-                    font-size:12px;
-                    cursor:pointer;
-                    white-space:nowrap;
-                  " aria-label="Open rainfall map">
-                    Rain Map
-                  </button>`
-                : ``
-            }
+            <div class="fv-weather-meta" style="
+              font-size:11px;color:var(--muted,#67706B);
+            ">
+              Detailed conditions, 5-day outlook, and rain history.
+            </div>
           </div>
         </header>
 
@@ -731,7 +686,7 @@
             ">
               <div class="fv-weather-temp-block" style="display:flex;flex-direction:column;gap:2px;">
                 <div class="fv-weather-temp" style="font-size:2rem;font-weight:600;">${tempStr}</div>
-                <div class="fv-weather-desc" style="font-size:0.95rem;">${nowCls.type}</div>
+                <div class="fv-weather-desc" style="font-size:0.95rem;">${desc}</div>
                 <div class="fv-weather-feels" style="font-size:0.85rem;color:var(--muted,#67706B);">
                   Feels like <strong>${feelsStr}</strong>
                 </div>
@@ -745,7 +700,11 @@
                 </div>
               </div>
               <div class="fv-weather-icon-block" style="flex:0 0 auto;">
-                ${iconSvg(nowCls.icon, 60)}
+                ${
+                  iconUrl
+                    ? `<img src="${iconUrl}" alt="${desc}" class="fv-weather-icon" style="width:60px;height:60px;" loading="lazy">`
+                    : ""
+                }
               </div>
             </div>
           </section>
@@ -759,7 +718,7 @@
               letter-spacing:.05em;text-transform:uppercase;
               color:var(--muted,#67706B);
             ">
-              Next days (today first)
+              Next 5 days
             </h3>
             ${forecastHtml}
           </section>
@@ -783,16 +742,6 @@
       </section>
     `;
 
-    // Rain map button -> dispatch event (dashboard/page decides how to show map)
-    const mapBtn = container.querySelector(".fv-weather-rainmap");
-    if (mapBtn) {
-      mapBtn.addEventListener("click", () => {
-        document.dispatchEvent(new CustomEvent("fv:open-rain-map", {
-          detail: { lat: config.lat, lon: config.lon, label: config.locationLabel || "" }
-        }));
-      });
-    }
-
     // --- Wire up "day details" click behavior ---
     const rows = container.querySelectorAll(".fv-forecast-row");
     const detailEl = container.querySelector(".fv-forecast-detail");
@@ -800,16 +749,16 @@
     function renderDetail(idx) {
       const day = forecastDays[idx];
       if (!day || !detailEl) return;
-
       const { type, snowRange } = classifyDay(day);
 
       const hi = day.tMax != null ? `${Math.round(day.tMax)}°F` : "—";
       const lo = day.tMin != null ? `${Math.round(day.tMin)}°F` : "—";
       const rainIn = day.precipIn != null ? `${roundTo2(day.precipIn)}"` : "0";
       const prob = day.precipProb != null ? `${Math.round(day.precipProb)}%` : "–";
-      const clouds = (day.cloudCover != null && Number.isFinite(Number(day.cloudCover)))
-        ? `${Math.round(Number(day.cloudCover))}%`
-        : "–";
+      const windSpeed = day.windSpeedMax != null ? `${Math.round(day.windSpeedMax)} mph` : "–";
+      const windDir = day.windDirDeg != null ? `${Math.round(day.windDirDeg)}°` : "–";
+      const sunrise = toLocalTime(day.sunrise);
+      const sunset = toLocalTime(day.sunset);
 
       const precipLine =
         type === "Snow"
@@ -823,13 +772,20 @@
           </div>
           <div>High: <strong>${hi}</strong> · Low: <strong>${lo}</strong></div>
           <div>${precipLine}</div>
-          <div>Avg cloud cover: <strong>${clouds}</strong></div>
+          <div>Wind: <strong>${windSpeed}</strong> (dir ${windDir})</div>
+          ${
+            sunrise || sunset
+              ? `<div>Sunrise: <strong>${sunrise || "–"}</strong> · Sunset: <strong>${sunset || "–"}</strong></div>`
+              : ""
+          }
         </div>
       `;
     }
 
     if (rows.length && detailEl && forecastDays.length) {
+      // default to first day
       renderDetail(0);
+
       rows.forEach(row => {
         row.addEventListener("click", () => {
           rows.forEach(r => r.classList.remove("fv-forecast-row-selected"));
@@ -850,24 +806,55 @@
     const container = getContainer(config.selector);
     if (!container) return;
 
+    if (!config.googleApiKey) {
+      renderError(container, "Missing Google Weather API key.");
+      console.error("[FVWeather] No googleApiKey provided.");
+      return;
+    }
+
     renderLoading(container);
 
+    const mode = config.mode || "card";
+    const wantForecast = mode === "modal" && config.showOpenMeteo;
+
+    const tasks = [
+      fetchGoogleCurrent(config),
+      fetchGoogleHistory24(config),
+      config.showOpenMeteo ? fetchOpenMeteoRain(config) : Promise.resolve(null),
+      wantForecast ? fetchOpenMeteoForecast(config) : Promise.resolve(null)
+    ];
+
+    let results;
     try {
-      const proxyJson = await fetchProxy(config);
-      const bundle = normalizeFromProxy(proxyJson);
-
-      // Validate minimal shape
-      if (!bundle.hourlyCore.length) {
-        renderError(container, "Weather payload missing hourly data.");
-        return;
-      }
-
-      if ((config.mode || "card") === "modal") renderModal(container, bundle, config);
-      else renderCard(container, bundle, config);
-
+      results = await Promise.allSettled(tasks);
     } catch (err) {
-      console.warn("[FVWeather] Load failed:", err);
-      renderError(container, (err && err.message) ? err.message : "Weather service error.");
+      console.error("[FVWeather] Unexpected Promise.allSettled error:", err);
+      renderError(container, "Unexpected error.");
+      return;
+    }
+
+    const [curRes, histRes, rainRes, fcRes] = results;
+
+    const combined = {
+      googleCurrent: curRes.status === "fulfilled" ? curRes.value : null,
+      googleHistory: histRes.status === "fulfilled" ? histRes.value : null,
+      openMeteo: rainRes.status === "fulfilled" ? rainRes.value : null,
+      openForecast: fcRes.status === "fulfilled" ? fcRes.value : null
+    };
+
+    if (!combined.googleCurrent && !combined.googleHistory) {
+      console.warn("[FVWeather] Google Weather failed:", {
+        current: curRes,
+        history: histRes
+      });
+      renderError(container, "Weather service error.");
+      return;
+    }
+
+    if (mode === "modal") {
+      renderModal(container, combined, config);
+    } else {
+      renderCard(container, combined, config);
     }
   }
 
