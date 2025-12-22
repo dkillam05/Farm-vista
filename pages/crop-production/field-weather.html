@@ -667,6 +667,18 @@ UPDATES (per your Adjust ask):
       margin-top:10px;
       font-size:12px;
     }
+    /* FIX: primary buttons sometimes "disappear" in light mode */
+.btn-primary,
+.btn.btn-primary{
+  background: var(--accent, #2F6C3C) !important;
+  border-color: transparent !important;
+  color: #fff !important;          /* white text on green */
+}
+.btn-primary:disabled,
+.btn.btn-primary:disabled{
+  opacity: .55 !important;
+  cursor: not-allowed !important;
+}
   </style>
 </head>
 
@@ -927,6 +939,7 @@ UPDATES (per your Adjust ask):
         </button>
         <div class="muted" style="font-size:12px; margin-top:4px;" id="adjustSub">—</div>
       </div>
+      
 
       <div class="modal-b">
         <div class="adj-grid">
@@ -1002,6 +1015,26 @@ UPDATES (per your Adjust ask):
       </div>
       <div class="modal-b">
         <div class="oplist" id="opList"></div>
+      </div>
+    </div>
+  </div>
+    <!-- Confirm Calibration Modal -->
+  <div id="confirmAdjBackdrop" class="modal-backdrop pv-hide" role="dialog" aria-modal="true" aria-labelledby="confirmAdjTitle">
+    <div class="modal">
+      <div class="modal-h">
+        <h3 id="confirmAdjTitle">Confirm Calibration</h3>
+      </div>
+      <div class="modal-b">
+        <div style="font-size:14px; line-height:1.35;">
+          This adjustment will be saved and used to <b>calibrate the model</b>.
+        </div>
+        <div class="help muted" style="margin-top:8px;">
+          Only confirm if you’re sure this is correct.
+        </div>
+        <div class="adj-actions" style="margin-top:16px;">
+          <button id="btnAdjNo" class="btn" type="button">Cancel</button>
+          <button id="btnAdjYes" class="btn btn-primary" type="button">Yes, Apply</button>
+        </div>
       </div>
     </div>
   </div>
@@ -2815,7 +2848,27 @@ UPDATES (per your Adjust ask):
 
     on('btnAdjX','click', closeAdjust);
     on('btnAdjCancel','click', closeAdjust);
-    on('btnAdjApply','click', applyAdjustment);
+    on('btnAdjApply','click', ()=>{
+  showModal('confirmAdjBackdrop', true);
+});
+   on('btnAdjNo','click', ()=>{
+  showModal('confirmAdjBackdrop', false);
+});
+
+on('btnAdjYes','click', async ()=>{
+  showModal('confirmAdjBackdrop', false);
+  await applyAdjustment();
+});
+    (function(){
+  const b = $('confirmAdjBackdrop');
+  if (!b) return;
+  b.addEventListener('click', (e)=>{
+    // prevent backdrop click from closing confirm modal
+    if (e.target && e.target.id === 'confirmAdjBackdrop'){
+      e.stopPropagation();
+    }
+  });
+})();
 
     (function(){
       const b = $('adjustBackdrop');
