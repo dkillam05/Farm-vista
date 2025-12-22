@@ -1,22 +1,19 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-12-22d
+Rev: 2025-12-22e
 
-FIX (requested):
-✅ Summary preview is CENTERED (not drifting right)
-✅ NO premature bounce-back
-✅ Desktop: open print dialog, then when it CLOSES we show a FarmVista modal:
-   - "Back to Trucks" (goes to trucks page)
-   - "Print Again" (opens print dialog again)
-   - "Stay Here" (closes modal)
-✅ If user cancels printing: they can just hit "Stay Here" (no forced redirect)
-✅ Mobile: PDF opens in new tab; current tab can still bounce back immediately (same as before)
+REQUESTED:
+✅ CLONE the Equipment Lookup print flow 100% (labelChoice → printPrev → Create PDF → desktop iframe print / mobile open)
+✅ Keep your Summary preview centered (uses #printWrap.center EXACTLY like lookup)
+✅ Remove the “other” print system (no custom print modal div)
 
-NOTE (platform limitation):
-Browsers do NOT reliably tell us "printed vs canceled". We only know the print dialog closed.
-So we never auto-bounce after desktop print. We ask via a clean in-app modal instead.
+NOTE:
+This uses the SAME structure and functions from lookup:
+- dialog#labelChoice (Summary/Detailed)
+- dialog#printPrev (Preview + Create Label)
+- createPdf() logic + overlay + iframe print
 
-Everything else kept the same as your 2025-12-22c file.
+Everything else kept as-is from your add page.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -237,102 +234,91 @@ Everything else kept the same as your 2025-12-22c file.
       background-color:#ffffff;
     }
 
-    /* Modal */
-    .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:100000; }
-    .modal.show{ display:flex; }
-    .backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.45); }
-    .sheet{
-      position:relative; width:min(100vw, 760px); max-width:90vw; background:var(--surface);
-      border:1px solid var(--border); border-radius:14px; box-shadow:0 20px 40px rgba(0,0,0,.35);
-      display:flex; flex-direction:column; overflow:hidden; max-height:90vh;
+    /* ==========================================================
+       ✅ Lookup-style dialogs + print preview styles (CLONED)
+       ========================================================== */
+    dialog.sheet{
+      width:min(740px, 92vw);
+      border:1px solid var(--border);
+      border-radius:16px;
+      padding:0;
+      background:var(--card-surface, var(--surface));
+      color:var(--text);
+      box-shadow:0 18px 40px rgba(0,0,0,.45);
     }
-    .sheet header{
-      padding:12px 14px; border-bottom:1px solid var(--border); font-weight:800;
-      display:flex; align-items:center; justify-content:space-between; color:var(--text);
-      flex:0 0 auto;
+    dialog.sheet::backdrop{ background:rgba(0,0,0,.55); }
+    dialog.sheet header{
+      padding:14px 16px; border-bottom:1px solid var(--border);
+      display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;
+      background:var(--card-surface, var(--surface));
+      color:var(--text);
     }
-    .sheet header .close{
-      border:none; background:transparent; font:inherit; font-weight:800; cursor:pointer;
-      padding:6px 10px; border-radius:10px; color:var(--text);
+    dialog.sheet .body{
+      padding:14px 16px; max-height:70vh; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch;
+      background:var(--card-surface, var(--surface));
     }
-    .sheet header .close:hover{ background:var(--hover,rgba(0,0,0,.06)); }
+    dialog.sheet footer{
+      padding:12px 16px; border-top:1px solid var(--border);
+      display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap;
+      background:var(--card-surface, var(--surface)); color:var(--text);
+    }
 
-    /* ===== Print modal: hug the label ===== */
-    #printModal .sheet.sheet-print{
-      width: fit-content;
-      max-width: calc(100vw - 24px);
+    dialog.sheet.sheet-print{ width:fit-content; max-width:calc(100vw - 24px); }
+    dialog.sheet.sheet-print .body{
+      width:fit-content; max-width:calc(100vw - 24px);
+      overflow-x:auto; overflow-y:auto; -webkit-overflow-scrolling:touch;
     }
-    /* ✅ When showing SUMMARY, make the sheet a normal centered card width */
-    #printModal .sheet.sheet-print.pv-summary{
-      width: min(92vw, 420px);
+    .print-help{
+      color:var(--muted,#6f7772);
+      font-size:14px;
+      line-height:1.35;
+      margin:0 0 10px;
+      max-width: min(560px, calc(100vw - 48px));
     }
-
-    /* ✅ Force-hide helper */
-    .pv-hide{ display:none !important; }
-
-    /* Print content wrapper */
-    .print-wrap{
-      padding:12px;
-      display:grid;
-      gap:10px;
-      overflow-x:auto;
-      overflow-y:hidden;
+    #printWrap{
+      display:flex; width:100%; max-width:calc(100vw - 48px);
+      overflow-x:auto; overflow-y:hidden;
       -webkit-overflow-scrolling:touch;
-      justify-items:start;
+      justify-content:flex-start;
+      padding: 4px 2px 2px;
+      box-sizing:border-box;
     }
-    .print-help{ color:var(--muted,#67706B); font-size:14px; line-height:1.35; }
+    #printWrap.center{ justify-content:center; }
+    #pPreviewHost{ flex:0 0 auto; }
 
-    /* ✅ Centering mode for SUMMARY preview */
-    .print-wrap.pv-center{
-      justify-items:center;
-    }
-    .print-wrap.pv-center .print-help{
-      text-align:center;
-      max-width: 340px;
-    }
-
-    /* ===== Long strip preview (detailed) ===== */
-    .label-preview{
-      width:140mm; /* JS overrides */
-      height:var(--ql-tape-mm);
+    /* Desktop/Preview (landscape label) */
+    .pv-long{
+      width:140mm;
+      height:62mm;
       border:1px dashed var(--border);
       border-radius:10px;
       background:#fff;
       color:#000;
-
       display:grid;
-      grid-template-columns: max-content var(--ql-qr-mm) max-content;
-
+      grid-template-columns: max-content 48mm max-content;
       align-items:center;
-      gap:var(--ql-gap-mm);
-      padding:var(--ql-pad-mm);
+      gap:2mm;
+      padding:2.2mm;
       box-sizing:border-box;
-
-      margin:0;
-      max-width:none !important;
       white-space:nowrap;
-      flex:0 0 auto;
-
-      overflow:visible;
     }
-    .lp-left, .lp-right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
-    .lp-left .make{ font-weight:900; font-size:var(--ql-font); line-height:1.05; white-space:nowrap; }
-    .lp-left .model{ font-weight:800; font-size:var(--ql-font-small); line-height:1.05; white-space:nowrap; margin-top:1mm; }
-    .lp-mid{ width:var(--ql-qr-mm); height:var(--ql-qr-mm); display:flex; align-items:center; justify-content:center; background:#fff; }
-    .lp-mid img{ width:100%; height:100%; image-rendering:pixelated; display:block; }
-    .lp-right{ align-items:flex-end; text-align:right; }
-    .lp-right .serial-lab{ font-weight:800; font-size:var(--ql-font-lab); line-height:1.05; opacity:.85; white-space:nowrap; }
-    .lp-right .serial-val{ font-weight:900; font-size:var(--ql-font); line-height:1.05; letter-spacing:.6px; margin-top:1mm; white-space:nowrap; }
+    .pv-long .left, .pv-long .right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
+    .pv-long .make{ font-weight:900; font-size:18pt; line-height:1.05; }
+    .pv-long .model{ font-weight:800; font-size:16pt; line-height:1.05; margin-top:1mm; }
+    .pv-long .mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; background:#fff; }
+    .pv-long .mid img{ width:100%; height:100%; image-rendering:pixelated; display:block; }
+    .pv-long .right{ align-items:flex-end; text-align:right; }
+    .pv-long .lab{ font-weight:800; font-size:12pt; line-height:1.05; opacity:.85; }
+    .pv-long .val{ font-weight:900; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; }
 
-    /* ===== Summary preview (square) — matches lookup ===== */
-    .label-preview-summary{
+    /* Summary (square) preview */
+    .pv-sf{
       width:62mm;
       height:62mm;
       border:1px dashed var(--border);
       border-radius:10px;
       background:#fff;
       color:#000;
-
       display:grid;
       grid-template-rows: 46mm max-content max-content;
       align-content:center;
@@ -343,9 +329,9 @@ Everything else kept the same as your 2025-12-22c file.
       overflow:hidden;
       font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
     }
-    .sum-qr{ width:46mm; height:46mm; display:flex; align-items:center; justify-content:center; }
-    .sum-qr img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
-    .sum-lab{
+    .pv-sf .qr{ width:46mm; height:46mm; display:flex; align-items:center; justify-content:center; }
+    .pv-sf .qr img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
+    .pv-sf .lab{
       width:100%;
       text-align:center;
       font-weight:800;
@@ -357,7 +343,7 @@ Everything else kept the same as your 2025-12-22c file.
       font-size:var(--sf-lab-font);
       opacity:.85;
     }
-    .sum-val{
+    .pv-sf .val{
       width:100%;
       text-align:center;
       font-weight:900;
@@ -369,12 +355,87 @@ Everything else kept the same as your 2025-12-22c file.
       font-size:16pt;
     }
 
-    .print-actions{
+    /* Hidden print iframe */
+    #fv-print-frame{ position:fixed; right:0; bottom:0; width:0; height:0; border:0; visibility:hidden; }
+
+    /* Overlay — EXACT style copied + iPhone-safe */
+    .pdf-loading{
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,0.35);
       display:flex;
+      align-items:center;
+      justify-content:center;
+      z-index:2147483647;
+      padding:16px;
+      pointer-events:auto;
+    }
+    .pdf-loading.hidden{ display:none; }
+    .pdf-loading-inner{
+      max-width:260px;
+      width:100%;
+      border-radius:16px;
+      background:var(--surface,#ffffff);
+      padding:16px 18px 14px;
+      box-shadow:0 18px 45px rgba(0,0,0,0.26);
+      text-align:center;
+      border:1px solid var(--border);
+    }
+    .pdf-loading-spinner{
+      width:32px;
+      height:32px;
+      border-radius:999px;
+      border:3px solid rgba(0,0,0,0.12);
+      border-top-color:var(--accent,#2F6C3C);
+      margin:0 auto 10px;
+      animation:pdf-spin 0.8s linear infinite;
+    }
+    .pdf-loading-text{
+      font-size:0.95rem;
+      font-weight:600;
+      color:var(--text,#111827);
+      margin:0;
+    }
+    .pdf-loading-sub{
+      font-size:0.78rem;
+      margin-top:4px;
+      color:var(--muted,#67706B);
+    }
+    @keyframes pdf-spin{ to{ transform:rotate(360deg); } }
+
+    /* Narrow label type popup */
+    dialog#labelChoice.sheet{ width:fit-content; max-width:min(260px, 92vw); }
+    .radio-box{
+      display:grid;
       gap:10px;
-      justify-content:flex-end;
-      flex-wrap:wrap;
-      padding:0 12px 12px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:12px;
+      background:var(--surface);
+    }
+    .radio-row{
+      display:flex; align-items:center; gap:10px;
+      padding:8px 10px;
+      border-radius:10px;
+      cursor:pointer;
+      white-space:nowrap;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .radio-row:hover{ background:var(--surface-2, rgba(127,127,127,.08)); }
+    .radio-row,
+    .radio-row:focus,
+    .radio-row:focus-within{
+      outline:none !important;
+      box-shadow:none !important;
+    }
+    .radio-row input{
+      accent-color:var(--brand);
+      outline:none !important;
+      box-shadow:none !important;
+    }
+    .radio-row input:focus{
+      outline:none !important;
+      box-shadow:none !important;
     }
 
     /* Bottom buttons layout */
@@ -401,17 +462,6 @@ Everything else kept the same as your 2025-12-22c file.
     @media (max-width:420px){
       .actions{ grid-template-columns: 1fr 1fr; width:100%; }
       #btnSavePrint{ width:100%; }
-    }
-
-    /* ✅ Hidden print iframe */
-    #fv-print-frame{
-      position:fixed;
-      right:0;
-      bottom:0;
-      width:0;
-      height:0;
-      border:0;
-      visibility:hidden;
     }
 
     /* ==========================================================
@@ -514,159 +564,6 @@ Everything else kept the same as your 2025-12-22c file.
       background:#fff;
       box-shadow: 0 6px 16px rgba(0,0,0,.45);
     }
-
-    /* ==========================================================
-       ✅ PDF loading overlay
-       ========================================================== */
-    .pdf-loading{
-      position:fixed;
-      inset:0;
-      background:rgba(0,0,0,0.35);
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      z-index:2147483647;
-      padding:16px;
-      pointer-events:auto;
-    }
-    .pdf-loading.hidden{ display:none; }
-    .pdf-loading-inner{
-      max-width:260px;
-      width:100%;
-      border-radius:16px;
-      background:var(--surface,#ffffff);
-      padding:16px 18px 14px;
-      box-shadow:0 18px 45px rgba(0,0,0,0.26);
-      text-align:center;
-      border:1px solid var(--border);
-    }
-    .pdf-loading-spinner{
-      width:32px;
-      height:32px;
-      border-radius:999px;
-      border:3px solid rgba(0,0,0,0.12);
-      border-top-color:var(--accent,#2F6C3C);
-      margin:0 auto 10px;
-      animation:pdf-spin 0.8s linear infinite;
-    }
-    .pdf-loading-text{
-      font-size:0.95rem;
-      font-weight:600;
-      color:var(--text,#111827);
-      margin:0;
-    }
-    .pdf-loading-sub{
-      font-size:0.78rem;
-      margin-top:4px;
-      color:var(--muted,#67706B);
-    }
-    @keyframes pdf-spin{ to{ transform:rotate(360deg); } }
-
-    /* ==========================================================
-       ✅ Label type picker (same as lookup)
-       ========================================================== */
-    dialog.sheet-dlg{
-      width:min(360px, 92vw);
-      border:1px solid var(--border);
-      border-radius:16px;
-      padding:0;
-      background:var(--card-surface, var(--surface));
-      color:var(--text);
-      box-shadow:0 18px 40px rgba(0,0,0,.45);
-    }
-    dialog.sheet-dlg::backdrop{ background:rgba(0,0,0,.55); }
-
-    .dlg-head{
-      padding:14px 16px;
-      border-bottom:1px solid var(--border);
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:8px;
-      font-weight:800;
-    }
-    .dlg-body{ padding:14px 16px; }
-    .dlg-foot{
-      padding:12px 16px;
-      border-top:1px solid var(--border);
-      display:flex;
-      justify-content:flex-end;
-      gap:8px;
-    }
-
-    .radio-box{
-      display:grid;
-      gap:10px;
-      border:1px solid var(--border);
-      border-radius:12px;
-      padding:12px;
-      background:var(--surface);
-    }
-    .radio-row{
-      display:flex; align-items:center; gap:10px;
-      padding:8px 10px;
-      border-radius:10px;
-      cursor:pointer;
-      white-space:nowrap;
-      -webkit-tap-highlight-color: transparent;
-    }
-    .radio-row:hover{ background:var(--surface-2, rgba(127,127,127,.08)); }
-
-    /* ✅ kill any row outline/box (your complaint) */
-    .radio-row,
-    .radio-row:focus,
-    .radio-row:focus-within{
-      outline:none !important;
-      box-shadow:none !important;
-    }
-    .radio-row input{
-      accent-color:var(--brand);
-      outline:none !important;
-      box-shadow:none !important;
-    }
-    .radio-row input:focus{
-      outline:none !important;
-      box-shadow:none !important;
-    }
-
-    /* ==========================================================
-       ✅ "Done printing?" modal (FarmVista styled)
-       ========================================================== */
-    .pv-done{
-      position:fixed;
-      inset:0;
-      display:none;
-      align-items:center;
-      justify-content:center;
-      z-index:100001;
-    }
-    .pv-done.show{ display:flex; }
-    .pv-done .backdrop{ background:rgba(0,0,0,.55); }
-    .pv-done .sheet{
-      width:min(420px, 92vw);
-      max-width:92vw;
-      border-radius:16px;
-    }
-    .pv-done .dlg-body{
-      padding:14px 16px;
-      display:grid;
-      gap:8px;
-      color:var(--text);
-    }
-    .pv-done .dlg-body p{
-      margin:0;
-      color:var(--muted,#67706B);
-      font-size:14px;
-      line-height:1.35;
-    }
-    .pv-done .dlg-actions{
-      display:flex;
-      gap:10px;
-      justify-content:flex-end;
-      padding:12px 16px 14px;
-      border-top:1px solid var(--border);
-      flex-wrap:wrap;
-    }
   </style>
 </head>
 
@@ -756,7 +653,7 @@ Everything else kept the same as your 2025-12-22c file.
     </div>
   </fv-shell>
 
-  <!-- Overlay (PDF loading) -->
+  <!-- Overlay -->
   <div id="pdfLoading" class="pdf-loading hidden" role="alertdialog" aria-live="assertive" aria-hidden="true">
     <div class="pdf-loading-inner">
       <div class="pdf-loading-spinner"></div>
@@ -765,90 +662,42 @@ Everything else kept the same as your 2025-12-22c file.
     </div>
   </div>
 
-  <!-- ✅ Hidden print iframe (desktop auto-print) -->
+  <!-- Hidden iframe for desktop print -->
   <iframe id="fv-print-frame"></iframe>
 
-  <!-- Label type picker (dialog, like lookup) -->
-  <dialog id="labelChoice" class="sheet-dlg" aria-modal="true">
-    <div class="dlg-head">
-      <div>Label type</div>
+  <!-- Label type (NO Close button; Cancel only) -->
+  <dialog id="labelChoice" class="sheet" aria-modal="true">
+    <header>
+      <strong>Label type</strong>
       <span></span>
-    </div>
-    <div class="dlg-body">
+    </header>
+    <div class="body">
       <div class="radio-box">
         <label class="radio-row"><input type="radio" name="labelMode" value="summary"/> <span><b>Summary</b></span></label>
         <label class="radio-row"><input type="radio" name="labelMode" value="detailed"/> <span><b>Detailed</b></span></label>
       </div>
     </div>
-    <div class="dlg-foot">
+    <footer>
       <button id="cOk" class="btn btn-primary" type="button">OK</button>
       <button id="cCancel" class="btn" type="button">Cancel</button>
-    </div>
+    </footer>
   </dialog>
 
-  <!-- Print/Preview modal -->
-  <div id="printModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="printTitle">
-    <div class="backdrop" data-close-print></div>
-    <div class="sheet sheet-print" id="printSheet">
-      <header>
-        <div id="printTitle">QR Label Preview</div>
-        <button class="close" type="button" data-close-print>Close</button>
-      </header>
-
-      <div class="print-wrap" id="printWrap">
-        <div class="print-help" id="printHelp">
-          Tap <b>Create Label</b>. (Mobile opens PDF; Desktop auto-prints.)
-        </div>
-
-        <!-- Detailed preview -->
-        <div id="labelPreviewLong" class="label-preview" aria-label="Label preview">
-          <div class="lp-left">
-            <div id="lpMake" class="make">—</div>
-            <div id="lpModel" class="model">—</div>
-          </div>
-          <div class="lp-mid">
-            <img id="lpQR" alt="QR">
-          </div>
-          <div class="lp-right">
-            <div class="serial-lab" id="lpSerialLab">VIN/Serial</div>
-            <div class="serial-val" id="lpSerialVal">—</div>
-          </div>
-        </div>
-
-        <!-- Summary preview -->
-        <div id="labelPreviewSummary" class="label-preview-summary pv-hide" aria-label="Summary label preview">
-          <div class="sum-qr"><img id="sumQR" alt="QR"></div>
-          <div class="sum-lab">VIN/Serial</div>
-          <div id="sumVal" class="sum-val">—</div>
-        </div>
-      </div>
-
-      <div class="print-actions">
-        <button id="btnCreateLabel" class="btn btn-primary" type="button">Create Label</button>
-        <button id="btnPrintClose" class="btn btn-quiet" type="button">Cancel</button>
-      </div>
+  <!-- Preview (CLONED) -->
+  <dialog id="printPrev" class="sheet sheet-print" aria-modal="true">
+    <header>
+      <strong id="pHdrTitle">QR Label Preview</strong>
+      <button id="pClose" class="btn" type="button">Close</button>
+    </header>
+    <div class="body">
+      <p id="pHelp" class="print-help">Tap <b>Create Label</b>.</p>
+      <div id="printWrap"><div id="pPreviewHost"></div></div>
     </div>
-  </div>
-
-  <!-- ✅ Done printing modal -->
-  <div id="doneModal" class="pv-done" role="dialog" aria-modal="true" aria-labelledby="doneTitle">
-    <div class="backdrop" data-done-close></div>
-    <div class="sheet">
-      <header>
-        <div id="doneTitle">Done printing?</div>
-        <button class="close" type="button" data-done-close>Close</button>
-      </header>
-      <div class="dlg-body">
-        <p>If you printed, tap <b>Back to Trucks</b>.</p>
-        <p>If you hit Cancel, tap <b>Stay Here</b> (nothing changes).</p>
-      </div>
-      <div class="dlg-actions">
-        <button id="btnStay" class="btn" type="button">Stay Here</button>
-        <button id="btnPrintAgain" class="btn" type="button">Print Again</button>
-        <button id="btnBackTrucks" class="btn btn-primary" type="button">Back to Trucks</button>
-      </div>
-    </div>
-  </div>
+    <footer>
+      <button id="pCreate" class="btn btn-primary" type="button">Create Label</button>
+      <button id="pCancel" class="btn" type="button">Cancel</button>
+    </footer>
+  </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
@@ -867,10 +716,7 @@ Everything else kept the same as your 2025-12-22c file.
 
     const FV_LABEL_PDF_ENDPOINT = 'https://farmvista-pdf-label-300398089669.us-central1.run.app/label';
 
-    // ✅ Return here when user chooses
-    const RETURN_URL = 'https://dkillam05.github.io/Farm-vista/pages/equipment/equipment-trucks.html';
-
-    const $ = id => document.getElementById(id);
+    const $id = id => document.getElementById(id);
     const qs = new URLSearchParams(location.search);
     const TYPE = (qs.get('type') || 'tractor').toLowerCase();
     const IS_STARFIRE = TYPE === 'starfire';
@@ -912,7 +758,7 @@ Everything else kept the same as your 2025-12-22c file.
     }
 
     function showToast(msg="Saved.", ms=3500){
-      const t=$("toast");
+      const t=$id("toast");
       t.textContent=msg;
       t.classList.remove("show");
       t.style.display='block';
@@ -926,10 +772,10 @@ Everything else kept the same as your 2025-12-22c file.
       return /iphone|ipad|ipod|android|mobi/.test(ua);
     }
 
-    // Overlay helpers
-    const pdfLoading = $("pdfLoading");
-    const pdfLoadingText = $("pdfLoadingText");
-    const pdfLoadingSub = $("pdfLoadingSub");
+    // Overlay (CLONED)
+    const pdfLoading = $id('pdfLoading');
+    const pdfLoadingText = $id('pdfLoadingText');
+    const pdfLoadingSub = $id('pdfLoadingSub');
     function setPdfLoading(active, text, sub){
       if (pdfLoadingText && text) pdfLoadingText.textContent = text;
       if (pdfLoadingSub && sub) pdfLoadingSub.textContent = sub;
@@ -941,18 +787,8 @@ Everything else kept the same as your 2025-12-22c file.
         pdfLoading.setAttribute('aria-hidden','true');
       }
     }
-    async function showOverlayAndYield(){
-      // close top-layer UI so overlay is always visible
-      closeDialog($("labelChoice"));
-      PrintUI.close();
-      DoneUI.close();
 
-      setPdfLoading(true, 'Creating label PDF…', 'Please keep this tab open.');
-
-      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-      await new Promise(r=>setTimeout(r, 80));
-    }
-
+    // Dialog helpers
     function openDialog(d){
       try{ d.showModal(); }catch{ d.setAttribute('open',''); }
     }
@@ -960,9 +796,9 @@ Everything else kept the same as your 2025-12-22c file.
       try{ d.close(); }catch{ d.removeAttribute('open'); }
     }
 
-    // Year combo (same as your file)
+    // Year combo (same as before)
     function buildYearOptions(){
-      const sel=$("year"); const now=new Date().getFullYear();
+      const sel=$id("year"); const now=new Date().getFullYear();
       sel.innerHTML='<option value="">— Select —</option>';
       for(let y=now; y>=1980; y--){
         const o=document.createElement('option');
@@ -970,7 +806,7 @@ Everything else kept the same as your 2025-12-22c file.
         o.textContent=String(y);
         sel.appendChild(o);
       }
-      const panel=$("yearPanel"), trigger=$("yearTrigger");
+      const panel=$id("yearPanel"), trigger=$id("yearTrigger");
       panel.innerHTML="";
       [...sel.options].forEach(opt=>{
         const btn=document.createElement('button');
@@ -989,22 +825,23 @@ Everything else kept the same as your 2025-12-22c file.
       });
     }
     function openYearPanel(){
-      $("yearPanel").classList.remove('combo-hidden');
-      $("yearTrigger").setAttribute('aria-expanded','true');
+      $id("yearPanel").classList.remove('combo-hidden');
+      $id("yearTrigger").setAttribute('aria-expanded','true');
       document.addEventListener('click', onDocClickClose, { once:true });
       document.addEventListener('keydown', onEscClose);
     }
     function closeYearPanel(){
-      $("yearPanel").classList.add('combo-hidden');
-      $("yearTrigger").setAttribute('aria-expanded','false');
+      $id("yearPanel").classList.add('combo-hidden');
+      $id("yearTrigger").setAttribute('aria-expanded','false');
       document.removeEventListener('keydown', onEscClose);
     }
     function onDocClickClose(e){
-      if(!$("yearCombo").contains(e.target)) closeYearPanel();
+      if(!$id("yearCombo").contains(e.target)) closeYearPanel();
       else document.addEventListener('click', onDocClickClose, { once:true });
     }
     function onEscClose(e){ if(e.key==='Escape') closeYearPanel(); }
 
+    // Dropdown helpers (same as before)
     function wireDropdownOpenClose(root){
       const btn = root.querySelector(".dd-btn");
       btn.addEventListener("click",()=>{
@@ -1051,19 +888,19 @@ Everything else kept the same as your 2025-12-22c file.
     }
 
     function readForm(){
-      const makeId = $("makeId").value || null;
-      const modelId = $("modelId").value || null;
-      const makeName = $("ddMakeBtn").textContent.replace(/^—\s*|\s*—$/g,'').trim() || null;
-      const modelName = $("ddModelBtn").textContent.replace(/^—\s*|\s*—$/g,'').trim() || null;
-      const yr = $("year").value ? Number($("year").value) : null;
-      const serialNorm = normalizeSerial($("serial").value);
+      const makeId = $id("makeId").value || null;
+      const modelId = $id("modelId").value || null;
+      const makeName = $id("ddMakeBtn").textContent.replace(/^—\s*|\s*—$/g,'').trim() || null;
+      const modelName = $id("ddModelBtn").textContent.replace(/^—\s*|\s*—$/g,'').trim() || null;
+      const yr = $id("year").value ? Number($id("year").value) : null;
+      const serialNorm = normalizeSerial($id("serial").value);
       const name = [makeName, modelName].filter(Boolean).join(" ") + (yr?` (${yr})`:"");
 
       const base = {
         makeId, modelId, makeName, modelName,
         year: yr,
         serial: serialNorm,
-        notes: $("notes").value.trim() || null,
+        notes: $id("notes").value.trim() || null,
         type: TYPE,
         name: name.trim()
       };
@@ -1072,11 +909,11 @@ Everything else kept the same as your 2025-12-22c file.
       if(EXTRAS_API && typeof EXTRAS_API.read === 'function'){
         try{ extras = EXTRAS_API.read() || {}; }catch{ extras = {}; }
       }else{
-        const engEl = $("engineHours");
+        const engEl = $id("engineHours");
         if(engEl && engEl.value){
           extras.engineHours = Number(engEl.value);
         }
-        const sfEl = $("starfireCapable");
+        const sfEl = $id("starfireCapable");
         if(sfEl){
           extras.starfireGpsCapable = !!sfEl.checked;
         }
@@ -1086,14 +923,15 @@ Everything else kept the same as your 2025-12-22c file.
     }
 
     function validateForm(){
-      const makeOk = Boolean($("makeId").value);
-      const modelOk= Boolean($("modelId").value);
-      const serialOk= Boolean(normalizeSerial($("serial").value));
+      const makeOk = Boolean($id("makeId").value);
+      const modelOk= Boolean($id("modelId").value);
+      const serialOk= Boolean(normalizeSerial($id("serial").value));
       const ok = (makeOk && modelOk && serialOk);
-      $("btnSave").disabled = !ok;
-      $("btnSavePrint").disabled = !ok;
+      $id("btnSave").disabled = !ok;
+      $id("btnSavePrint").disabled = !ok;
     }
 
+    // QR generation
     let pendingToken = null;
     let pendingQRBlob = null;
     let pendingEquipId = null;
@@ -1153,111 +991,65 @@ Everything else kept the same as your 2025-12-22c file.
 
       const blob = await canvasToBlob(canvas);
       const dataURL = canvas.toDataURL('image/png');
-      const img=$("qrThumb");
+      const img=$id("qrThumb");
       img.src=dataURL;
-      img.onload=()=>{ $("qrArea").hidden=false; img.style.display='block'; };
+      img.onload=()=>{ $id("qrArea").hidden=false; img.style.display='block'; };
       pendingQRBlob = blob;
       return { dataURL, blob };
     }
 
-    const PrintUI = {
-      el: $("printModal"),
-      open(){ this.el.classList.add('show'); document.body.style.overflow='hidden'; },
-      close(){ this.el.classList.remove('show'); document.body.style.overflow=''; }
-    };
-    document.querySelectorAll('#printModal [data-close-print]').forEach(el=>el.addEventListener('click', ()=>PrintUI.close()));
-    $("btnPrintClose").addEventListener('click', ()=>PrintUI.close());
-
-    // ✅ Done modal UI
-    const DoneUI = {
-      el: $("doneModal"),
-      open(){ this.el.classList.add('show'); document.body.style.overflow='hidden'; },
-      close(){ this.el.classList.remove('show'); document.body.style.overflow=''; }
-    };
-    document.querySelectorAll('#doneModal [data-done-close]').forEach(el=>el.addEventListener('click', ()=>DoneUI.close()));
-    $("btnStay").addEventListener('click', ()=>DoneUI.close());
-    $("btnBackTrucks").addEventListener('click', ()=> window.location.assign(RETURN_URL));
-
-    /* ===== Dynamic label length (continuous tape) — Detailed only ===== */
-    const LABEL = {
-      tapeWmm: 62,
-      qrMm: 48,
-      padMm: 2.2,
-      gapMm: 2.0,
-      minLenMm: 90,
-      maxLenMm: 152.4
-    };
-
-    function pxPerMm(){ return 96 / 25.4; }
-    function clampLenMm(mm){
-      let len = Math.max(LABEL.minLenMm, Math.min(LABEL.maxLenMm, mm));
-      len = Math.round(len * 2) / 2;
-      return len;
+    async function ensureQrReservedAndBuilt(db){
+      if(!pendingEquipId){
+        const tmpRef = doc(collection(db, 'equipment'));
+        pendingEquipId = tmpRef.id;
+      }
+      if(!pendingQRBlob){
+        const hubAbs = location.origin + `/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(pendingEquipId)}`;
+        await makeQRForUrl(hubAbs);
+      }
+      return pendingEquipId;
     }
 
-    function measureTextPxWithStyle(text, styleRefEl){
-      const cs = getComputedStyle(styleRefEl);
-      const span = document.createElement('span');
-      span.textContent = String(text ?? '');
-      span.style.position = 'fixed';
-      span.style.left = '-99999px';
-      span.style.top = '-99999px';
-      span.style.visibility = 'hidden';
-      span.style.whiteSpace = 'nowrap';
-      span.style.fontFamily = cs.fontFamily;
-      span.style.fontSize = cs.fontSize;
-      span.style.fontWeight = cs.fontWeight;
-      span.style.letterSpacing = cs.letterSpacing;
-      span.style.textTransform = cs.textTransform;
-      document.body.appendChild(span);
-      const w = span.getBoundingClientRect().width;
-      span.remove();
-      return w;
-    }
+    /* ==========================================================
+       ✅ PRINT FLOW (CLONED FROM LOOKUP)
+       ========================================================== */
+    const pDlg = $id('printPrev');
+    const pHost = $id('pPreviewHost');
+    const pClose = $id('pClose');
+    const pCancel = $id('pCancel');
+    const pCreate = $id('pCreate');
 
-    function computeLabelLenMmFromDOM({ makeName, modelName, serial6 }){
-      const pmm = pxPerMm();
-      const makeEl = $("lpMake");
-      const modelEl = $("lpModel");
-      const labEl = $("lpSerialLab");
-      const valEl = $("lpSerialVal");
+    const cDlg = $id('labelChoice');
+    const cOk = $id('cOk');
+    const cCancel = $id('cCancel');
 
-      const makeWpx  = measureTextPxWithStyle(makeName || '', makeEl);
-      const modelWpx = measureTextPxWithStyle(modelName || '', modelEl);
-      const leftWpx  = Math.max(makeWpx, modelWpx);
+    const printFrame = $id('fv-print-frame');
 
-      const labText = 'VIN/Serial';
-      const valText = serial6 || '';
-      const labWpx = measureTextPxWithStyle(labText, labEl);
-      const valWpx = measureTextPxWithStyle(valText, valEl);
-      const rightWpx = Math.max(labWpx, valWpx);
+    const safeQrSrcForPreview = (url)=>{
+      // Lookup adds cache-bust to normal URLs. For data: URLs (our QR thumb), keep as-is.
+      const s = String(url||'');
+      if(!s) return '';
+      if(s.startsWith('data:')) return s;
+      const bust = (s.includes('?') ? '&' : '?') + '_=' + Date.now();
+      return s + bust;
+    };
 
-      const leftMm  = leftWpx / pmm;
-      const rightMm = rightWpx / pmm;
+    const clearPreviewHost = ()=>{
+      pHost.innerHTML = '';
+      __previewQrSrc = '';
+    };
 
-      const safetyMm = 6.0;
-      const raw =
-        (LABEL.padMm * 2) +
-        (LABEL.gapMm * 2) +
-        leftMm +
-        LABEL.qrMm +
-        rightMm +
-        safetyMm;
-
-      return clampLenMm(raw);
-    }
-
-    let __labelLenMm = LABEL.minLenMm;
-
-    // State for printing
-    let __pendingPrint = null;   // { qrDataUrl, make, model, serialRaw, serial6, cutLenMm, mode }
-    let __mode = 'detailed';
-
+    function normalizeSerialUp(s){ return String(s||'').trim().toUpperCase(); }
     function esc(s){
       return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
     }
 
-    function buildMobilePortraitHtml({ mode, qrSrc, make, model, serial6, serialRaw, cutLenMm }){
+    let __pending = null;       // { url, make, model, serial6 }
+    let __mode = 'detailed';
+    let __cutLenMm = 140;
+    let __previewQrSrc = '';
+
+    function buildMobilePortraitHtml({ mode, qrSrc, make, model, serial6, cutLenMm }){
       const isSummary = mode === 'summary';
       const pad = 2.2;
 
@@ -1377,131 +1169,115 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 </body></html>`;
     }
 
-    async function setPrintPreview({ mode, makeName, modelName, serial6, qrDataUrl }){
-      const longEl = $("labelPreviewLong");
-      const sumEl  = $("labelPreviewSummary");
+    async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
+      const qrSrc = safeQrSrcForPreview(url);
 
-      // ✅ summary centering toggles
-      const wrapEl = $("printWrap");
-      const sheetEl = $("printSheet");
-      const isSummary = mode === 'summary';
+      clearPreviewHost();
+      __previewQrSrc = qrSrc;
 
-      if (wrapEl) wrapEl.classList.toggle('pv-center', isSummary);
-      if (sheetEl) sheetEl.classList.toggle('pv-summary', isSummary);
+      const wrapEl = $id('printWrap');
+      if (wrapEl) wrapEl.classList.toggle('center', mode === 'summary');
 
-      if (longEl) longEl.classList.toggle('pv-hide', isSummary);
-      if (sumEl)  sumEl.classList.toggle('pv-hide', !isSummary);
+      // Keep preview horizontal on all devices
+      if (mode === 'summary'){
+        const wrap = document.createElement('div');
+        wrap.className = 'pv-sf';
 
-      if (isSummary){
-        $("sumQR").src = qrDataUrl || '';
-        $("sumVal").textContent = serial6 || '—';
-        return;
-      }
+        const q = document.createElement('div'); q.className='qr';
+        const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc; q.appendChild(img);
 
-      $("lpMake").textContent = (makeName || '—');
-      $("lpModel").textContent = (modelName || '—');
-      $("lpSerialLab").textContent = 'VIN/Serial';
-      $("lpSerialVal").textContent = serial6 || '—';
-      $("lpQR").src = qrDataUrl || '';
+        const lab = document.createElement('div'); lab.className='lab'; lab.textContent = 'VIN/Serial';
+        const val = document.createElement('div'); val.className='val'; val.textContent = serial6 || '—';
 
-      const preview = $("labelPreviewLong");
-      if(preview){
-        preview.style.width  = `${LABEL.minLenMm}mm`;
-        preview.style.height = `${LABEL.tapeWmm}mm`;
-      }
+        wrap.append(q, lab, val);
+        pHost.appendChild(wrap);
+      } else {
+        const wrap = document.createElement('div');
+        wrap.className = 'pv-long';
+        wrap.style.width = `${cutLenMm}mm`;
 
-      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-      __labelLenMm = computeLabelLenMmFromDOM({ makeName, modelName, serial6: serial6 || '' });
+        const left = document.createElement('div'); left.className='left';
+        const mk = document.createElement('div'); mk.className='make'; mk.textContent = make || '—';
+        const md = document.createElement('div'); md.className='model'; md.textContent = model || '—';
+        left.append(mk,md);
 
-      if(preview){
-        preview.style.width  = `${__labelLenMm}mm`;
-        preview.style.height = `${LABEL.tapeWmm}mm`;
+        const mid = document.createElement('div'); mid.className='mid';
+        const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc; mid.appendChild(img);
+
+        const right = document.createElement('div'); right.className='right';
+        const lab = document.createElement('div'); lab.className='lab'; lab.textContent='VIN/Serial';
+        const val = document.createElement('div'); val.className='val'; val.textContent = serial6 || '—';
+        right.append(lab,val);
+
+        wrap.append(left,mid,right);
+        pHost.appendChild(wrap);
       }
     }
 
-    const PRINT_FRAME = $("fv-print-frame");
+    pClose.addEventListener('click', ()=> closeDialog(pDlg));
+    pCancel.addEventListener('click', ()=> closeDialog(pDlg));
+    cCancel.addEventListener('click', ()=> closeDialog(cDlg));
 
-    // ✅ Print watcher (desktop)
-    let __printWatcherActive = false;
-    function watchForPrintDialogClose(win){
-      if(__printWatcherActive) return;
-      __printWatcherActive = true;
+    cOk.addEventListener('click', ()=>{
+      const picked = cDlg.querySelector('input[name="labelMode"]:checked');
+      __mode = picked ? picked.value : __mode;
+      closeDialog(cDlg);
 
-      let fired = false;
+      if (!__pending) return;
 
-      const cleanup = ()=>{
-        __printWatcherActive = false;
-        try{ if(win) win.onafterprint = null; }catch{}
-        window.removeEventListener('focus', onFocusBack, true);
-      };
+      __cutLenMm = (__mode === 'summary') ? 62 : 140;
 
-      const openDone = ()=>{
-        if(fired) return;
-        fired = true;
-        cleanup();
-        DoneUI.open();
-      };
-
-      const onFocusBack = ()=>{
-        // Focus returns after print dialog closes (fallback)
-        setTimeout(openDone, 250);
-      };
-
-      try{
-        if(win) win.onafterprint = openDone; // when supported
-      }catch{}
-
-      window.addEventListener('focus', onFocusBack, true);
-
-      // Last-ditch safety (never auto-redirect)
-      setTimeout(openDone, 20000);
-    }
-
-    // ✅ Let "Print Again" re-open the last desktop print
-    $("btnPrintAgain").addEventListener('click', ()=>{
-      DoneUI.close();
-      try{
-        const w = PRINT_FRAME?.contentWindow;
-        if(w){
-          watchForPrintDialogClose(w);
-          w.focus();
-          w.print();
-        }
-      }catch{}
+      openDialog(pDlg);
+      setPreview({
+        mode: __mode,
+        url: __pending.url,
+        make: __pending.make,
+        model: __pending.model,
+        serial6: __pending.serial6,
+        cutLenMm: __cutLenMm
+      });
     });
 
-    async function createLabelPdfAndPrint(){
-      if(!__pendingPrint) return;
+    async function showOverlayAndYield(){
+      // Close dialogs first (top-layer issue)
+      closeDialog(pDlg);
+      closeDialog(cDlg);
 
-      const mobile = isMobileLike();
-      const mode = __pendingPrint.mode;
-      const cutLenMm = __pendingPrint.cutLenMm;
+      setPdfLoading(true, 'Creating label PDF…', 'Please keep this tab open.');
 
-      const widthMm  = mobile ? 62 : cutLenMm;
-      const heightMm = mobile ? cutLenMm : 62;
-      const landscape = false;
+      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+      await new Promise(r=>setTimeout(r, 80));
+    }
 
-      $("btnCreateLabel").disabled = true;
+    async function createPdf(){
+      if (!__pending) return;
+
+      pCreate.disabled = true;
       await showOverlayAndYield();
 
       try{
+        const mobile = isMobileLike();
+        const cutLenMm = (__mode === 'summary') ? 62 : __cutLenMm;
+
+        const widthMm  = mobile ? 62 : cutLenMm;
+        const heightMm = mobile ? cutLenMm : 62;
+        const landscape = false;
+
         const html = mobile
           ? buildMobilePortraitHtml({
-              mode,
-              qrSrc: __pendingPrint.qrDataUrl || '',
-              make: __pendingPrint.make || '',
-              model: __pendingPrint.model || '',
-              serial6: __pendingPrint.serial6 || '',
-              serialRaw: __pendingPrint.serialRaw || '',
+              mode: __mode,
+              qrSrc: __previewQrSrc || __pending.url,
+              make: __pending.make,
+              model: __pending.model,
+              serial6: __pending.serial6,
               cutLenMm
             })
           : buildDesktopHtml({
-              mode,
-              qrSrc: __pendingPrint.qrDataUrl || '',
-              make: __pendingPrint.make || '',
-              model: __pendingPrint.model || '',
-              serial6: __pendingPrint.serial6 || '',
-              serialRaw: __pendingPrint.serialRaw || ''
+              mode: __mode,
+              qrSrc: __previewQrSrc || __pending.url,
+              make: __pending.make,
+              model: __pending.model,
+              serial6: __pending.serial6
             });
 
         const resp = await fetch(FV_LABEL_PDF_ENDPOINT, {
@@ -1512,7 +1288,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
             widthMm,
             heightMm,
             landscape,
-            filename: (mode === 'summary' ? 'fv-qr-summary.pdf' : 'fv-qr-detailed.pdf')
+            filename: (__mode === 'summary' ? 'fv-qr-summary.pdf' : 'fv-qr-detailed.pdf')
           })
         });
 
@@ -1527,55 +1303,23 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         const url = URL.createObjectURL(blob);
 
         if (mobile){
-          // ✅ Mobile: open PDF in a new tab, then bounce current tab back
-          const w = window.open(url, '_blank');
-          if (!w){
-            window.location.assign(url);
-            return;
-          }
-          setTimeout(()=>{ window.location.assign(RETURN_URL); }, 250);
+          window.location.assign(url);
         } else {
-          // ✅ Desktop: open print dialog, then show Done modal AFTER dialog closes
-          PRINT_FRAME.onload = ()=>{
-            try{
-              const w = PRINT_FRAME.contentWindow;
-              if(!w) return;
-
-              // Start watcher before opening dialog
-              watchForPrintDialogClose(w);
-
-              w.focus();
-              w.print();
-            }catch(e){
-              console.warn('print failed', e);
-              // If print fails, at least give the user the Done modal controls
-              DoneUI.open();
-            }
-          };
-          PRINT_FRAME.src = url;
+          printFrame.onload = ()=> { try{ printFrame.contentWindow.focus(); printFrame.contentWindow.print(); } catch {} };
+          printFrame.src = url;
         }
       } finally {
         setPdfLoading(false);
-        $("btnCreateLabel").disabled = false;
+        pCreate.disabled = false;
       }
     }
 
-    $("btnCreateLabel").addEventListener('click', createLabelPdfAndPrint);
+    pCreate.addEventListener('click', createPdf);
 
-    /* ===== Save code (kept from your file) ===== */
+    /* ==========================================================
+       ✅ SAVE FLOW (same as your file)
+       ========================================================== */
     let saving = false;
-
-    async function ensureQrReservedAndBuilt(db){
-      if(!pendingEquipId){
-        const tmpRef = doc(collection(db, 'equipment'));
-        pendingEquipId = tmpRef.id;
-      }
-      if(!pendingQRBlob){
-        const hubAbs = location.origin + `/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(pendingEquipId)}`;
-        await makeQRForUrl(hubAbs);
-      }
-      return pendingEquipId;
-    }
 
     async function saveAll(db, opts = { post:'reset' }){
       if(saving) return { ok:false };
@@ -1592,7 +1336,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         }
       }
 
-      saving = true; $("btnSave").disabled = true; $("btnSavePrint").disabled = true;
+      saving = true; $id("btnSave").disabled = true; $id("btnSavePrint").disabled = true;
 
       const uniqDocId = uniqKey(form.makeId, form.modelId, form.serial);
       const eqRef = pendingEquipId ? doc(db, 'equipment', pendingEquipId) : doc(collection(db,'equipment'));
@@ -1659,7 +1403,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
             });
           }catch(qe){
             console.warn('QR upload failed:', qe);
-            $("err").hidden=false; $("err").textContent = `Saved but QR image upload failed: ${qe.message}`;
+            $id("err").hidden=false; $id("err").textContent = `Saved but QR image upload failed: ${qe.message}`;
           }
         }
 
@@ -1689,19 +1433,19 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     }
 
     function resetForm(){
-      ["serial","notes"].forEach(id=>$(id).value="");
-      $("photos").value="";
-      $("year").value="";
-      $("yearTrigger").textContent="— Select —";
+      ["serial","notes"].forEach(id=>$id(id).value="");
+      $id("photos").value="";
+      $id("year").value="";
+      $id("yearTrigger").textContent="— Select —";
 
       if(EXTRAS_API && typeof EXTRAS_API.reset === 'function'){
         try{ EXTRAS_API.reset(); }catch{}
       }else{
-        const eng = $("engineHours");
+        const eng = $id("engineHours");
         if(eng) eng.value="";
-        const sf = $("starfireCapable");
+        const sf = $id("starfireCapable");
         if(sf) sf.checked = false;
-        const sft = $("starfireCapableText");
+        const sft = $id("starfireCapableText");
         if(sft) sft.textContent = "Off";
       }
 
@@ -1713,20 +1457,21 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       ddModel.search.disabled = true;
       ddModel.list.innerHTML = "";
 
-      $("qrThumb").src="";
-      $("qrThumb").style.display='none';
-      $("qrArea").hidden=true;
+      $id("qrThumb").src="";
+      $id("qrThumb").style.display='none';
+      $id("qrArea").hidden=true;
 
       pendingToken=null;
       pendingQRBlob=null;
       pendingEquipId=null;
 
-      __pendingPrint = null;
+      __pending = null;
+      clearPreviewHost();
 
       validateForm();
     }
 
-    /* Dropdown plumbing + data */
+    /* Dropdown data */
     function docCats(v){ return Array.isArray(v?.categories) ? v.categories.map(String) : undefined; }
 
     async function getMakes(db){
@@ -1780,13 +1525,14 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       return cats.includes(TYPE);
     }
 
-    /* New Make modal */
+    /* New Make modal references are in your older build; keep your existing behavior if present */
     const NewMake = {
-      el: $("newMakeModal"),
-      name: $("nmName"),
-      list: $("nmSwitches"),
-      createBtn: $("nmCreate"),
+      el: $id("newMakeModal"),
+      name: $id("nmName"),
+      list: $id("nmSwitches"),
+      createBtn: $id("nmCreate"),
       open(){
+        if(!this.el) return;
         this.name.value="";
         this.list.innerHTML="";
         EQUIP_TYPES.forEach(t=>{
@@ -1799,11 +1545,17 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         });
         this.el.classList.add('show'); document.body.style.overflow='hidden';
       },
-      close(){ this.el.classList.remove('show'); document.body.style.overflow=''; }
+      close(){
+        if(!this.el) return;
+        this.el.classList.remove('show'); document.body.style.overflow='';
+      }
     };
-    document.querySelectorAll('#newMakeModal [data-close]').forEach(el=>el.addEventListener('click', ()=>NewMake.close()));
+    if (NewMake.el){
+      document.querySelectorAll('#newMakeModal [data-close]').forEach(el=>el.addEventListener('click', ()=>NewMake.close()));
+    }
 
     async function createMakeFromModal(db){
+      if(!NewMake.el) return null;
       const name = (NewMake.name.value||"").trim();
       if(!name){ alert("Enter a make name."); return null; }
       const chosen = [...NewMake.list.querySelectorAll('.toggle:checked')].map(i=>i.dataset.slug).filter(x=>EQUIP_SLUGS.includes(x));
@@ -1840,8 +1592,8 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 
     let ddMake, ddModel;
     function buildDdObjects(){
-      ddMake = { root: $("ddMake"), btn: $("ddMakeBtn"), search: $("ddMakeSearch"), list: $("ddMakeList"), hidden: $("makeId") };
-      ddModel = { root: $("ddModel"), btn: $("ddModelBtn"), search: $("ddModelSearch"), list: $("ddModelList"), hidden: $("modelId") };
+      ddMake = { root: $id("ddMake"), btn: $id("ddMakeBtn"), search: $id("ddMakeSearch"), list: $id("ddMakeList"), hidden: $id("makeId") };
+      ddModel = { root: $id("ddModel"), btn: $id("ddModelBtn"), search: $id("ddModelSearch"), list: $id("ddModelList"), hidden: $id("modelId") };
       wireDropdownOpenClose(ddMake.root);
       wireDropdownOpenClose(ddModel.root);
       setupSearch(ddMake.search, ddMake.list);
@@ -1866,7 +1618,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
               setMake(created.id, created.name);
             }
           };
-          NewMake.createBtn.onclick = onCreate;
+          if (NewMake.createBtn) NewMake.createBtn.onclick = onCreate;
           return;
         }
         setMake(val, label);
@@ -1931,7 +1683,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     }
 
     function initExtras(){
-      const host = $("equipExtras");
+      const host = $id("equipExtras");
       if(!host) return;
 
       if(window.FVEquipForms && typeof window.FVEquipForms.initExtras === 'function'){
@@ -1990,31 +1742,6 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       }
     }
 
-    // Label type dialog wiring
-    const cDlg = $("labelChoice");
-    $("cCancel").addEventListener('click', ()=> closeDialog(cDlg));
-    $("cOk").addEventListener('click', async ()=>{
-      const picked = cDlg.querySelector('input[name="labelMode"]:checked');
-      __mode = picked ? picked.value : __mode;
-      closeDialog(cDlg);
-
-      if(!__pendingPrint) return;
-
-      // update mode + preview
-      __pendingPrint.mode = __mode;
-      __pendingPrint.cutLenMm = (__mode === 'summary') ? 62 : (__labelLenMm || LABEL.minLenMm);
-
-      await setPrintPreview({
-        mode: __mode,
-        makeName: __pendingPrint.make,
-        modelName: __pendingPrint.model,
-        serial6: __pendingPrint.serial6,
-        qrDataUrl: __pendingPrint.qrDataUrl
-      });
-
-      PrintUI.open();
-    });
-
     (async()=>{
       await ready;
       const db  = getFirestore();
@@ -2030,19 +1757,18 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       if(heroIconEl){ heroIconEl.textContent = lookupEquipIcon(TYPE); }
 
       buildYearOptions();
-      $("yearTrigger").addEventListener('click', ()=>{
-        const open = $("yearTrigger").getAttribute('aria-expanded') === 'true';
+      $id("yearTrigger").addEventListener('click', ()=>{
+        const open = $id("yearTrigger").getAttribute('aria-expanded') === 'true';
         if(open) closeYearPanel(); else openYearPanel();
       });
 
       buildDdObjects();
       initExtras();
-
       await populateMakes(db);
 
-      $("serial").addEventListener("input", validateForm);
+      $id("serial").addEventListener("input", validateForm);
 
-      $("btnQR").addEventListener("click", async ()=>{
+      $id("btnQR").addEventListener("click", async ()=>{
         if(!pendingEquipId){
           const tmpRef = doc(collection(db, 'equipment'));
           pendingEquipId = tmpRef.id;
@@ -2052,50 +1778,49 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         catch(e){ console.error(e); alert("Could not create QR code."); }
       });
 
-      $("btnSave").addEventListener("click", ()=> saveAll(db, { post:'reset' }));
+      $id("btnSave").addEventListener("click", ()=> saveAll(db, { post:'reset' }));
 
-      // ✅ Save & Print now shows the same label-type prompt first (after save)
-      $("btnSavePrint").addEventListener("click", async ()=>{
+      // Save & Print → (save) → labelChoice → printPrev → createPdf (CLONED)
+      $id("btnSavePrint").addEventListener("click", async ()=>{
         try{
           await ensureQrReservedAndBuilt(db);
           const result = await saveAll(db, { post:'none' });
           if(!result || !result.ok) return;
 
           const form = result.form || readForm();
-          const qrDataUrl = $("qrThumb")?.src || "";
+
+          // Use the QR image we already rendered (data URL) — works perfectly for preview + PDF HTML
+          const qrDataUrl = ($id("qrThumb")?.src || "").trim();
+          if(!qrDataUrl){
+            alert("QR image not ready yet. Tap Create QR Code first.");
+            return;
+          }
 
           const serialRaw = form.serial || "";
           const serial6 = serialLast6(serialRaw) || "";
 
-          __pendingPrint = {
-            qrDataUrl,
+          __pending = {
+            url: qrDataUrl,
             make: form.makeName || '',
             model: form.modelName || '',
-            serialRaw,
-            serial6,
-            mode: 'detailed',
-            cutLenMm: (__labelLenMm || LABEL.minLenMm)
+            serial6
           };
 
-          // Default selection matches lookup logic
           __mode = IS_STARFIRE ? 'summary' : 'detailed';
-          __pendingPrint.mode = __mode;
-          __pendingPrint.cutLenMm = (__mode === 'summary') ? 62 : (__labelLenMm || LABEL.minLenMm);
+          __cutLenMm = (__mode === 'summary') ? 62 : 140;
+          clearPreviewHost();
 
-          // Set the radio default
           const r = cDlg.querySelector(`input[name="labelMode"][value="${__mode}"]`);
           if (r) r.checked = true;
 
-          // Open label type picker (like lookup)
           openDialog(cDlg);
-
         }catch(e){
           console.error(e);
           alert("Save & Print failed.");
         }
       });
 
-      $("btnClear").addEventListener("click", () => {
+      $id("btnClear").addEventListener("click", () => {
         if (document.referrer) history.back();
         else window.location.assign('/Farm-vista/index.html');
       });
