@@ -1,37 +1,55 @@
 /* =======================================================================
 // /Farm-vista/js/fv-weather.js
-// Rev: 2025-12-22a (Visual Crossing upgrade + optional Rain Map button)
+// Rev: 2025-12-22b (Proxy-first + Visual Crossing fallback)
 //
 // FarmVista Weather module
-// ✅ Primary data source: Visual Crossing Timeline API
-// ✅ Keeps your existing card + modal UI/UX (same structure)
+// ✅ Primary data source: YOUR server proxy endpoint (Cloud Run / Function)
+// ✅ Fallback: Visual Crossing Timeline API direct (if you provide key)
+// ✅ Keeps your existing card + modal UI/UX
 // ✅ Computes:
 //    - Rain last 24h (sum hourly precip)
 //    - Rain last 7d / 30d (sum daily precip)
 //    - Next 5 days (today-first) with click-for-details
-// ✅ Optional: adds a “Rain Map” button in the modal that dispatches an event:
-//      document.dispatchEvent(new CustomEvent("fv:open-rain-map", {detail:{lat,lon,label}}))
+// ✅ Optional: “Rain Map” button in modal dispatches:
+//      document.dispatchEvent(new CustomEvent("fv:open-rain-map",{detail:{lat,lon,label}}))
 //
-// Back-compat:
-//  - If you still pass googleApiKey (old config), this file will treat it as
-//    visualCrossingKey ONLY if visualCrossingKey is missing.
-//  - NOTE: This revision does NOT call Google Weather or Open-Meteo.
+// Dashboard usage (proxy recommended):
+//   FVWeather.initWeatherModule({
+//     weatherEndpoint: "https://YOUR-RUN-URL/weather",   // <- your proxy
+//     lat: 39.5656,
+//     lon: -89.6573,
+//     selector: "#fv-weather",
+//     mode: "card",
+//     locationLabel: "Divernon, Illinois"
+//   });
+//
+// If you MUST call VC direct (not recommended):
+//   FVWeather.initWeatherModule({ visualCrossingKey:"YOUR_VC_KEY", ... })
+//
+// Notes:
+//  - Your proxy can return either:
+//      (A) raw Visual Crossing timeline JSON
+//      (B) { data: <raw VC JSON> }
 // ======================================================================= */
 
 (() => {
-  // Visual Crossing Timeline API
-  // Docs: /rest/services/timeline/{location}/{start}/{end}?unitGroup=us&contentType=json&key=...
-  const VC_TIMELINE_URL = "https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline";
+  const VC_TIMELINE_URL =
+    "https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline";
 
   const DEFAULT_CONFIG = {
-    // NEW: Visual Crossing API key
+    // ✅ NEW: server endpoint (preferred)
+    // Example: https://your-service.run.app/weather
+    // This module will call:
+    //   `${weatherEndpoint}?lat=...&lon=...&daysPast=30&daysFuture=7`
+    weatherEndpoint: "",
+
+    // OPTIONAL: direct VC call (fallback only)
     visualCrossingKey: "",
 
-    // Back-compat: your dashboard currently passes googleApiKey
-    // We’ll treat googleApiKey as VC key if visualCrossingKey not provided.
+    // Back-compat: your dashboard historically passes googleApiKey
+    // If visualCrossingKey is empty and weatherEndpoint is empty, we'll treat googleApiKey as VC key.
     googleApiKey: "",
 
-    // Divernon, IL (approx)
     lat: 39.5656,
     lon: -89.6573,
 
@@ -39,12 +57,10 @@
     mode: "card", // "card" | "modal"
     locationLabel: "Divernon, Illinois",
 
-    // Optional: show “Rain Map” button inside modal
     showRainMapButton: true,
 
-    // How far to pull:
-    pastDaysForTotals: 30,     // for 30-day rainfall
-    forecastDays: 7            // for forecast list (we use next 5)
+    pastDaysForTotals: 30,
+    forecastDays: 7
   };
 
   /* ==========================
@@ -142,14 +158,6 @@
     return `${Math.round(Number(value))}%`;
   }
 
-  function formatWindMph(speed, dirDeg) {
-    if (!Number.isFinite(Number(speed))) return "—";
-    const s = Math.round(Number(speed));
-    const deg = Number(dirDeg);
-    const card = Number.isFinite(deg) ? degToCardinal(deg) : "";
-    return card ? `${s} mph ${card}` : `${s} mph`;
-  }
-
   function degToCardinal(deg) {
     const d = ((deg % 360) + 360) % 360;
     const dirs = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
@@ -157,13 +165,11 @@
     return dirs[idx];
   }
 
-  // Visual Crossing icon -> simple inline SVG (keeps things clean, no external deps)
   function iconSvgForVC(icon) {
     const k = (icon || "").toString().toLowerCase();
     const stroke = "currentColor";
     const fill = "none";
 
-    // small, subtle line icons
     const wrap = (inner) => `
       <svg viewBox="0 0 24 24" width="48" height="48" aria-hidden="true"
         style="display:block;color:var(--muted,#67706B)">
@@ -201,7 +207,6 @@
       `);
     }
 
-    // default: sun / clear-day
     return wrap(`
       <path d="M12 18a6 6 0 1 0 0-12a6 6 0 0 0 0 12z" stroke="${stroke}" stroke-width="1.6" fill="${fill}"/>
       <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M19.8 4.2l-1.4 1.4M5.6 18.4l-1.4 1.4"
@@ -209,7 +214,6 @@
     `);
   }
 
-  // Classify a day into Sunny / Cloudy / Rain / Snow and compute snow range text.
   function classifyDay(day) {
     const hi = day.tMax;
     const precip = day.precipIn || 0;
@@ -246,12 +250,33 @@
   }
 
   /* ==========================
-     Visual Crossing fetch + normalize
+     Fetchers
      ========================== */
 
-  async function fetchVisualCrossingTimeline(config) {
+  async function fetchFromProxy(config) {
+    const ep = (config.weatherEndpoint || "").toString().trim();
+    if (!ep) return null;
+
+    const params = new URLSearchParams({
+      lat: String(config.lat),
+      lon: String(config.lon),
+      daysPast: String(config.pastDaysForTotals || 30),
+      daysFuture: String(config.forecastDays || 7)
+    });
+
+    const url = ep.includes("?") ? `${ep}&${params}` : `${ep}?${params}`;
+
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
+    const data = await res.json();
+
+    // Proxy may return {data: VC_JSON} OR VC_JSON directly
+    return (data && typeof data === "object" && data.data) ? data.data : data;
+  }
+
+  async function fetchVisualCrossingDirect(config) {
     const key = (config.visualCrossingKey || config.googleApiKey || "").toString().trim();
-    if (!key) throw new Error("Missing Visual Crossing API key.");
+    if (!key) return null;
 
     const loc = `${config.lat},${config.lon}`;
 
@@ -274,66 +299,53 @@
     const url = `${VC_TIMELINE_URL}/${encodeURIComponent(loc)}/${startStr}/${endStr}?${params.toString()}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`VisualCrossing HTTP ${res.status}`);
+    return await res.json();
+  }
 
-    const data = await res.json();
-
-    // Normalize into your existing combined structure
+  function normalizeVisualCrossing(raw, config) {
+    const data = raw || {};
     const current = data.currentConditions || {};
     const days = Array.isArray(data.days) ? data.days : [];
 
-    // find "today" day bucket
+    // locate "today" index
     const today0 = new Date(); today0.setHours(0,0,0,0);
     const idxToday = days.findIndex(d => {
-      const dt = new Date(d.datetime || d.datetimeStr || d.datetimeEpoch * 1000);
-      dt.setHours(0,0,0,0);
-      return dt.getTime() === today0.getTime();
+      const base = d.datetime ? new Date(d.datetime) :
+        (Number(d.datetimeEpoch) ? new Date(Number(d.datetimeEpoch) * 1000) : null);
+      if (!base) return false;
+      base.setHours(0,0,0,0);
+      return base.getTime() === today0.getTime();
     });
-    const todayDay = idxToday >= 0 ? days[idxToday] : (days.length ? days[days.length - 1] : null);
 
-    // Rain last 24h: sum hourly precip from the most recent 24 hours we can find
-    // Best case: use today.hours + yesterday.hours tail.
-    let rain24h = null;
+    // Rain last 24h: sum hourly precip from today+ yesterday (best effort)
+    let rain24h = 0;
     try {
       const hours = [];
-
-      // Pull from today and yesterday buckets if present
       const todayBucket = idxToday >= 0 ? days[idxToday] : null;
       const yBucket = (idxToday > 0) ? days[idxToday - 1] : null;
 
       const pushHours = (bucket) => {
         if (!bucket || !Array.isArray(bucket.hours)) return;
         bucket.hours.forEach(h => {
-          // VC hour has datetime / datetimeEpoch and precip
-          const epochMs = Number(h.datetimeEpoch) ? Number(h.datetimeEpoch) * 1000 : null;
-          hours.push({
-            t: epochMs || Date.parse(`${bucket.datetime}T${(h.datetime || "00:00:00").slice(0,8)}`),
-            precip: Number(h.precip) || 0
-          });
+          const t = Number(h.datetimeEpoch) ? Number(h.datetimeEpoch) * 1000 : null;
+          hours.push({ t, precip: Number(h.precip) || 0 });
         });
       };
 
       pushHours(yBucket);
       pushHours(todayBucket);
+      hours.sort((a,b)=> (a.t||0)-(b.t||0));
 
-      hours.sort((a,b)=> (a.t||0) - (b.t||0));
-
-      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      const cutoff = Date.now() - 24*60*60*1000;
       const last24 = hours.filter(h => Number.isFinite(h.t) && h.t >= cutoff);
-      if (last24.length) rain24h = safeSum(last24.map(h => h.precip));
-      else if (Number.isFinite(Number(current.precip))) rain24h = Number(current.precip); // fallback
-      else rain24h = 0;
+      rain24h = last24.length ? safeSum(last24.map(h=>h.precip)) : (Number(current.precip) || 0);
     } catch {
-      rain24h = 0;
+      rain24h = Number(current.precip) || 0;
     }
 
-    // Rain last 7d/30d from daily precip
+    // daily rain totals ending on today (if found) else last day
     const dailyPrecip = days.map(d => Number(d.precip) || 0);
-    const dailyDates = days.map(d => {
-      // VC day datetime is "YYYY-MM-DD"
-      return d.datetime || "";
-    });
-
-    // Use most recent slices ending today (if found) else end of array
+    const dailyDates = days.map(d => d.datetime || "");
     const endIdx = (idxToday >= 0) ? idxToday : (days.length - 1);
 
     const sliceLast = (n) => {
@@ -353,7 +365,6 @@
       last7: { dates: last7.dates, amounts: last7.amounts }
     };
 
-    // Forecast days (we’ll map into your existing day objects)
     const openForecast = {
       days: days.map(d => ({
         date: d.datetime || "",
@@ -370,7 +381,6 @@
     };
 
     const googleCurrentLike = {
-      // mimic previous structure enough for renderer
       current: {
         temperature: { degrees: Number(current.temp), unit: "FAHRENHEIT" },
         feelsLikeTemperature: { degrees: Number(current.feelslike), unit: "FAHRENHEIT" },
@@ -380,7 +390,6 @@
           direction: { cardinal: degToCardinal(Number(current.winddir) || 0) }
         },
         weatherCondition: {
-          // store VC icon string; our renderer uses iconSvgForVC()
           type: (current.conditions || "").toString(),
           description: { text: (current.conditions || "").toString() },
           vcIcon: (current.icon || "").toString()
@@ -426,7 +435,6 @@
     const feelsStr = current.feelsLikeTemperature ? formatTempF(current.feelsLikeTemperature.degrees) : "—";
     const humidStr = formatHumidity(current.relativeHumidity);
 
-    // wind (mph + cardinal)
     const windSpeed = current.wind && current.wind.speed ? current.wind.speed.value : null;
     const windDirCard = current.wind && current.wind.direction ? current.wind.direction.cardinal : "";
     const windStr = (Number.isFinite(Number(windSpeed)))
@@ -531,7 +539,7 @@
     const btn = container.querySelector(".fv-weather-refresh");
     if (btn) {
       btn.addEventListener("click", (evt) => {
-        evt.stopPropagation(); // don’t open modal when hitting refresh
+        evt.stopPropagation();
         initWeatherModule({ ...config });
       });
     }
@@ -618,7 +626,6 @@
            No recent rainfall data.
          </div>`;
 
-    // --- Forecast: only today and forward ---
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -783,21 +790,15 @@
       </section>
     `;
 
-    // Rain map button -> dispatch event (dashboard decides how to show map)
     const mapBtn = container.querySelector(".fv-weather-rainmap");
     if (mapBtn) {
       mapBtn.addEventListener("click", () => {
         document.dispatchEvent(new CustomEvent("fv:open-rain-map", {
-          detail: {
-            lat: config.lat,
-            lon: config.lon,
-            label: config.locationLabel || ""
-          }
+          detail: { lat: config.lat, lon: config.lon, label: config.locationLabel || "" }
         }));
       });
     }
 
-    // --- Wire up "day details" click behavior ---
     const rows = container.querySelectorAll(".fv-forecast-row");
     const detailEl = container.querySelector(".fv-forecast-detail");
 
@@ -859,31 +860,35 @@
     const container = getContainer(config.selector);
     if (!container) return;
 
-    // Key resolution: prefer visualCrossingKey, else accept googleApiKey as alias
-    const key = (config.visualCrossingKey || config.googleApiKey || "").toString().trim();
-    if (!key) {
-      renderError(container, "Missing Visual Crossing API key.");
-      console.error("[FVWeather] No visualCrossingKey (or googleApiKey alias) provided.");
-      return;
-    }
-
     renderLoading(container);
 
-    let combined;
     try {
-      combined = await fetchVisualCrossingTimeline({
-        ...config,
-        visualCrossingKey: key
-      });
-    } catch (err) {
-      console.warn("[FVWeather] Visual Crossing fetch failed:", err);
-      renderError(container, "Weather service error.");
-      return;
-    }
+      // 1) Prefer proxy if provided
+      let raw = null;
+      if ((config.weatherEndpoint || "").toString().trim()) {
+        raw = await fetchFromProxy(config);
+      }
 
-    const mode = config.mode || "card";
-    if (mode === "modal") renderModal(container, combined, config);
-    else renderCard(container, combined, config);
+      // 2) Fallback to direct VC if proxy missing or returned nothing
+      if (!raw) {
+        const key = (config.visualCrossingKey || config.googleApiKey || "").toString().trim();
+        if (!key) {
+          renderError(container, "Missing weatherEndpoint (proxy) and no VC key provided.");
+          return;
+        }
+        raw = await fetchVisualCrossingDirect({ ...config, visualCrossingKey: key });
+      }
+
+      const combined = normalizeVisualCrossing(raw, config);
+
+      const mode = config.mode || "card";
+      if (mode === "modal") renderModal(container, combined, config);
+      else renderCard(container, combined, config);
+
+    } catch (err) {
+      console.warn("[FVWeather] Load failed:", err);
+      renderError(container, (err && err.message) ? err.message : "Weather service error.");
+    }
   }
 
   window.FVWeather = { initWeatherModule };
