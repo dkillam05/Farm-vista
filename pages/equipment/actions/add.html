@@ -1,19 +1,17 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-12-22e
+Rev: 2025-12-22f
 
-REQUESTED:
-✅ CLONE the Equipment Lookup print flow 100% (labelChoice → printPrev → Create PDF → desktop iframe print / mobile open)
-✅ Keep your Summary preview centered (uses #printWrap.center EXACTLY like lookup)
-✅ Remove the “other” print system (no custom print modal div)
+CHANGES (requested):
+✅ Summary preview is truly CENTERED (fix: reset scrollLeft + center class every time)
+✅ "Save and Print" button becomes "Create Label" ONLY (does NOT save)
+✅ Save button is the ONLY thing that saves
+✅ After a successful SAVE, bounce back to whatever portal you came from (document.referrer),
+   otherwise fall back to the correct equipment list page for this type.
 
-NOTE:
-This uses the SAME structure and functions from lookup:
-- dialog#labelChoice (Summary/Detailed)
-- dialog#printPrev (Preview + Create Label)
-- createPdf() logic + overlay + iframe print
+Print flow remains the SAME (cloned from lookup):
+labelChoice → printPrev → Create PDF → desktop iframe print / mobile open
 
-Everything else kept as-is from your add page.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -62,8 +60,6 @@ Everything else kept as-is from your add page.
 
       /* ===== Brother QL-820NWB / DK-2205 (62mm wide continuous) ===== */
       --ql-tape-mm: 62mm;    /* fixed tape width = label HEIGHT */
-
-      /* Long strip (non-starfire) */
       --ql-qr-mm: 48mm;      /* QR square */
       --ql-pad-mm: 2.2mm;    /* inner padding */
       --ql-gap-mm: 2mm;      /* column gap */
@@ -74,8 +70,8 @@ Everything else kept as-is from your add page.
       --ql-font-lab: 12pt;     /* VIN/Serial label */
 
       /* StarFire compact (matches lookup) */
-      --sf-cut-mm: 62mm;       /* fixed short cut length */
-      --sf-qr-mm: 46mm;        /* big QR */
+      --sf-cut-mm: 62mm;
+      --sf-qr-mm: 46mm;
       --sf-serial-font: 16pt;
       --sf-serial-font-sm: 13pt;
       --sf-lab-font: 10pt;
@@ -124,7 +120,6 @@ Everything else kept as-is from your add page.
     .field label{ display:flex; align-items:center; gap:10px; font-weight:800; margin:0 0 6px }
     .req::after{ content:" *"; color:var(--brand); }
 
-    /* Tappable labels (inline editors) */
     .as-label{
       display:inline-flex; align-items:center; gap:8px;
       font:inherit; font-weight:800; background:transparent; border:none; padding:0;
@@ -133,7 +128,6 @@ Everything else kept as-is from your add page.
     .as-label:hover{ text-decoration:underline; }
     .as-label.req::after{ content:" *"; color:var(--brand); }
 
-    /* Base controls */
     .input,.select,.textarea{
       width:100%; font:inherit; font-size:16px; color:var(--text);
       background:var(--card-surface,var(--surface));
@@ -143,7 +137,6 @@ Everything else kept as-is from your add page.
     .input,.select{ height:var(--ctl-h); line-height:calc(var(--ctl-h) - 2px); }
     .textarea{ min-height:110px; resize:vertical; line-height:1.35; }
 
-    /* Buttons */
     .btn{
       display:inline-flex; align-items:center; justify-content:center; min-width:148px;
       padding:10px 14px; border-radius:12px; border:1px solid var(--border);
@@ -210,7 +203,7 @@ Everything else kept as-is from your add page.
     .dd-list li:hover{background:#f0f1f0}
     .dd-btn[disabled]{opacity:.6;cursor:not-allowed}
 
-    /* QR Preview + row */
+    /* QR thumb */
     .qr-area{
       border:1px solid var(--border); border-radius:12px; background:var(--surface);
       display:flex; align-items:center; justify-content:center; padding:10px;
@@ -234,9 +227,7 @@ Everything else kept as-is from your add page.
       background-color:#ffffff;
     }
 
-    /* ==========================================================
-       ✅ Lookup-style dialogs + print preview styles (CLONED)
-       ========================================================== */
+    /* ===== Lookup-style dialogs ===== */
     dialog.sheet{
       width:min(740px, 92vw);
       border:1px solid var(--border);
@@ -268,6 +259,7 @@ Everything else kept as-is from your add page.
       width:fit-content; max-width:calc(100vw - 24px);
       overflow-x:auto; overflow-y:auto; -webkit-overflow-scrolling:touch;
     }
+
     .print-help{
       color:var(--muted,#6f7772);
       font-size:14px;
@@ -275,6 +267,8 @@ Everything else kept as-is from your add page.
       margin:0 0 10px;
       max-width: min(560px, calc(100vw - 48px));
     }
+
+    /* ✅ CENTERING FIX: #printWrap is flex + can scroll; we ALWAYS reset scrollLeft too. */
     #printWrap{
       display:flex; width:100%; max-width:calc(100vw - 48px);
       overflow-x:auto; overflow-y:hidden;
@@ -286,7 +280,6 @@ Everything else kept as-is from your add page.
     #printWrap.center{ justify-content:center; }
     #pPreviewHost{ flex:0 0 auto; }
 
-    /* Desktop/Preview (landscape label) */
     .pv-long{
       width:140mm;
       height:62mm;
@@ -311,7 +304,6 @@ Everything else kept as-is from your add page.
     .pv-long .lab{ font-weight:800; font-size:12pt; line-height:1.05; opacity:.85; }
     .pv-long .val{ font-weight:900; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; }
 
-    /* Summary (square) preview */
     .pv-sf{
       width:62mm;
       height:62mm;
@@ -355,10 +347,9 @@ Everything else kept as-is from your add page.
       font-size:16pt;
     }
 
-    /* Hidden print iframe */
     #fv-print-frame{ position:fixed; right:0; bottom:0; width:0; height:0; border:0; visibility:hidden; }
 
-    /* Overlay — EXACT style copied + iPhone-safe */
+    /* Overlay */
     .pdf-loading{
       position:fixed;
       inset:0;
@@ -403,7 +394,6 @@ Everything else kept as-is from your add page.
     }
     @keyframes pdf-spin{ to{ transform:rotate(360deg); } }
 
-    /* Narrow label type popup */
     dialog#labelChoice.sheet{ width:fit-content; max-width:min(260px, 92vw); }
     .radio-box{
       display:grid;
@@ -422,23 +412,11 @@ Everything else kept as-is from your add page.
       -webkit-tap-highlight-color: transparent;
     }
     .radio-row:hover{ background:var(--surface-2, rgba(127,127,127,.08)); }
-    .radio-row,
-    .radio-row:focus,
-    .radio-row:focus-within{
-      outline:none !important;
-      box-shadow:none !important;
-    }
-    .radio-row input{
-      accent-color:var(--brand);
-      outline:none !important;
-      box-shadow:none !important;
-    }
-    .radio-row input:focus{
-      outline:none !important;
-      box-shadow:none !important;
-    }
+    .radio-row, .radio-row:focus, .radio-row:focus-within{ outline:none !important; box-shadow:none !important; }
+    .radio-row input{ accent-color:var(--brand); outline:none !important; box-shadow:none !important; }
+    .radio-row input:focus{ outline:none !important; box-shadow:none !important; }
 
-    /* Bottom buttons layout */
+    /* Bottom actions layout */
     .actions{
       display:grid;
       grid-template-columns: minmax(140px, 220px) minmax(140px, 220px);
@@ -452,109 +430,56 @@ Everything else kept as-is from your add page.
     }
     #btnClear{ grid-area: cancel; }
     #btnSave{ grid-area: save; }
-    #btnSavePrint{
+    #btnCreateLabel{
       grid-area: print;
       justify-self:center;
       width:min(320px, 100%);
     }
-    .actions .btn,
-    .actions a.btn{ width:100%; min-width:0; }
+    .actions .btn, .actions a.btn{ width:100%; min-width:0; }
     @media (max-width:420px){
       .actions{ grid-template-columns: 1fr 1fr; width:100%; }
-      #btnSavePrint{ width:100%; }
+      #btnCreateLabel{ width:100%; }
     }
 
-    /* ==========================================================
-       ✅ NICE SLIDER TOGGLE (StarFire GPS Capable?)
-       ========================================================== */
-    .pv-switch-row{
-      display:flex;
-      align-items:center;
-      justify-content:flex-start;
-      gap:12px;
-      min-height:var(--ctl-h);
-    }
-
-    .pv-switch{
-      position:relative;
-      display:inline-flex;
-      align-items:center;
-      gap:10px;
-      user-select:none;
-      -webkit-tap-highlight-color: transparent;
-    }
-
+    /* Slider toggle */
+    .pv-switch-row{ display:flex; align-items:center; justify-content:flex-start; gap:12px; min-height:var(--ctl-h); }
+    .pv-switch{ position:relative; display:inline-flex; align-items:center; gap:10px; user-select:none; -webkit-tap-highlight-color: transparent; }
     .pv-switch input{
-      position:absolute;
-      width:1px; height:1px;
-      padding:0; margin:-1px;
-      overflow:hidden;
-      clip:rect(0,0,0,0);
-      white-space:nowrap;
-      border:0;
+      position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
+      clip:rect(0,0,0,0); white-space:nowrap; border:0;
     }
-
     .pv-switch-track{
-      width:var(--sw-w);
-      height:var(--sw-h);
-      border-radius:999px;
-      border:1px solid var(--border);
-      background:
-        linear-gradient(to bottom,
-          color-mix(in srgb, var(--surface) 88%, #ffffff 12%),
-          color-mix(in srgb, var(--surface) 96%, #000000 4%)
-        );
+      width:var(--sw-w); height:var(--sw-h); border-radius:999px; border:1px solid var(--border);
+      background: linear-gradient(to bottom,
+        color-mix(in srgb, var(--surface) 88%, #ffffff 12%),
+        color-mix(in srgb, var(--surface) 96%, #000000 4%)
+      );
       box-shadow: inset 0 1px 0 rgba(255,255,255,.45);
       position:relative;
       transition: background .18s ease, border-color .18s ease;
     }
-
     .pv-switch-thumb{
-      width:var(--sw-thumb);
-      height:var(--sw-thumb);
-      border-radius:999px;
-      position:absolute;
-      top:var(--sw-pad);
-      left:var(--sw-pad);
-      background:#fff;
-      box-shadow: 0 6px 14px rgba(0,0,0,.22);
+      width:var(--sw-thumb); height:var(--sw-thumb); border-radius:999px; position:absolute;
+      top:var(--sw-pad); left:var(--sw-pad);
+      background:#fff; box-shadow: 0 6px 14px rgba(0,0,0,.22);
       transition: transform .18s ease, box-shadow .18s ease;
       transform: translateX(0);
     }
-
-    .pv-switch-text{
-      font-weight:800;
-      font-size:14px;
-      color:var(--muted,#67706B);
-      min-width:32px;
-    }
-
-    .pv-switch input:checked + .pv-switch-track{
-      background: var(--brand);
-      border-color: transparent;
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
-    }
+    .pv-switch-text{ font-weight:800; font-size:14px; color:var(--muted,#67706B); min-width:32px; }
+    .pv-switch input:checked + .pv-switch-track{ background: var(--brand); border-color: transparent; box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); }
     .pv-switch input:checked + .pv-switch-track .pv-switch-thumb{
       transform: translateX(calc(var(--sw-w) - var(--sw-thumb) - (var(--sw-pad) * 2)));
       box-shadow: 0 8px 18px rgba(0,0,0,.26);
     }
-    .pv-switch input:checked ~ .pv-switch-text{
-      color: var(--brand);
-    }
-
+    .pv-switch input:checked ~ .pv-switch-text{ color: var(--brand); }
     .pv-switch input:focus-visible + .pv-switch-track{
       outline: 3px solid color-mix(in srgb, var(--brand) 55%, transparent);
       outline-offset: 2px;
     }
-
     html[data-theme="dark"] .pv-switch-track,
     body[data-theme="dark"] .pv-switch-track,
     .dark .pv-switch-track{
-      background:
-        linear-gradient(to bottom,
-          rgba(255,255,255,.14),
-          rgba(255,255,255,.08)
-        );
+      background: linear-gradient(to bottom, rgba(255,255,255,.14), rgba(255,255,255,.08));
       border-color: rgba(255,255,255,.18);
       box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
     }
@@ -582,7 +507,7 @@ Everything else kept as-is from your add page.
         <div class="body">
           <div class="row">
             <div class="field">
-              <button id="openMakes" type="button" class="as-label req" aria-haspopup="dialog" aria-controls="editModal">Make</button>
+              <button id="openMakes" type="button" class="as-label req">Make</button>
               <input type="hidden" id="makeId" value=""/>
               <div id="ddMake" class="dd">
                 <button type="button" id="ddMakeBtn" class="dd-btn">— Loading… —</button>
@@ -594,7 +519,7 @@ Everything else kept as-is from your add page.
             </div>
 
             <div class="field">
-              <button id="openModels" type="button" class="as-label req" aria-haspopup="dialog" aria-controls="editModal">Model</button>
+              <button id="openModels" type="button" class="as-label req">Model</button>
               <input type="hidden" id="modelId" value=""/>
               <div id="ddModel" class="dd">
                 <button type="button" id="ddModelBtn" class="dd-btn" disabled>— Select a Make first —</button>
@@ -646,7 +571,8 @@ Everything else kept as-is from your add page.
           <div class="actions">
             <a id="btnClear" class="btn btn-quiet" role="button">Cancel</a>
             <button id="btnSave" class="btn btn-primary" type="button" disabled>Save</button>
-            <button id="btnSavePrint" class="btn btn-primary" type="button" disabled>Save and Print</button>
+            <!-- ✅ changed: NOT saving, just label flow -->
+            <button id="btnCreateLabel" class="btn btn-primary" type="button" disabled>Create Label</button>
           </div>
         </div>
       </section>
@@ -683,7 +609,7 @@ Everything else kept as-is from your add page.
     </footer>
   </dialog>
 
-  <!-- Preview (CLONED) -->
+  <!-- Preview -->
   <dialog id="printPrev" class="sheet sheet-print" aria-modal="true">
     <header>
       <strong id="pHdrTitle">QR Label Preview</strong>
@@ -716,10 +642,40 @@ Everything else kept as-is from your add page.
 
     const FV_LABEL_PDF_ENDPOINT = 'https://farmvista-pdf-label-300398089669.us-central1.run.app/label';
 
-    const $id = id => document.getElementById(id);
+    const $ = (id)=>document.getElementById(id);
     const qs = new URLSearchParams(location.search);
     const TYPE = (qs.get('type') || 'tractor').toLowerCase();
     const IS_STARFIRE = TYPE === 'starfire';
+
+    // ✅ Remember where we came from (used for post-SAVE redirect)
+    const ENTRY_REFERRER = document.referrer || '';
+
+    function portalFallbackForType(type){
+      // If no referrer (opened direct), go to the right equipment list page.
+      const map = {
+        tractor: '/Farm-vista/pages/equipment/equipment-tractors.html',
+        combine: '/Farm-vista/pages/equipment/equipment-combines.html',
+        implement: '/Farm-vista/pages/equipment/equipment-implements.html',
+        sprayer: '/Farm-vista/pages/equipment/equipment-sprayers.html',
+        construction: '/Farm-vista/pages/equipment/equipment-construction.html',
+        truck: '/Farm-vista/pages/equipment/equipment-trucks.html',
+        trailer: '/Farm-vista/pages/equipment/equipment-trailers.html',
+        fertilizer: '/Farm-vista/pages/equipment/equipment-implements.html',
+        starfire: '/Farm-vista/pages/equipment/equipment-starfire.html'
+      };
+      return map[type] || '/Farm-vista/pages/equipment/index.html';
+    }
+
+    function returnAfterSave(){
+      // Prefer the portal the user came from (if it looks like your site)
+      try{
+        if(ENTRY_REFERRER && ENTRY_REFERRER.includes('/Farm-vista/')){
+          window.location.assign(ENTRY_REFERRER);
+          return;
+        }
+      }catch{}
+      window.location.assign(portalFallbackForType(TYPE));
+    }
 
     let EXTRAS_API = null;
 
@@ -736,14 +692,6 @@ Everything else kept as-is from your add page.
       if(s.includes('starfire') || s.includes('technology')) return 'starfire';
       return s.replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'');
     }
-    function getEquipmentTypesFromMenu(){
-      const group = NAV_MENU.items?.find(x => x.type==='group' && x.id==='equipment');
-      const children = group?.children || [];
-      return children.map(c => ({ label: c.label, slug: normType(c.label) }));
-    }
-    const EQUIP_TYPES = getEquipmentTypesFromMenu();
-    const EQUIP_SLUGS = EQUIP_TYPES.map(t=>t.slug);
-
     function lookupEquipIcon(typeSlug){
       try{
         const group = NAV_MENU.items?.find(x => x.type === 'group' && x.id === 'equipment');
@@ -757,8 +705,8 @@ Everything else kept as-is from your add page.
       }
     }
 
-    function showToast(msg="Saved.", ms=3500){
-      const t=$id("toast");
+    function showToast(msg="Saved.", ms=2500){
+      const t=$("toast");
       t.textContent=msg;
       t.classList.remove("show");
       t.style.display='block';
@@ -772,10 +720,10 @@ Everything else kept as-is from your add page.
       return /iphone|ipad|ipod|android|mobi/.test(ua);
     }
 
-    // Overlay (CLONED)
-    const pdfLoading = $id('pdfLoading');
-    const pdfLoadingText = $id('pdfLoadingText');
-    const pdfLoadingSub = $id('pdfLoadingSub');
+    // Overlay
+    const pdfLoading = $("pdfLoading");
+    const pdfLoadingText = $("pdfLoadingText");
+    const pdfLoadingSub = $("pdfLoadingSub");
     function setPdfLoading(active, text, sub){
       if (pdfLoadingText && text) pdfLoadingText.textContent = text;
       if (pdfLoadingSub && sub) pdfLoadingSub.textContent = sub;
@@ -788,17 +736,12 @@ Everything else kept as-is from your add page.
       }
     }
 
-    // Dialog helpers
-    function openDialog(d){
-      try{ d.showModal(); }catch{ d.setAttribute('open',''); }
-    }
-    function closeDialog(d){
-      try{ d.close(); }catch{ d.removeAttribute('open'); }
-    }
+    function openDialog(d){ try{ d.showModal(); }catch{ d.setAttribute('open',''); } }
+    function closeDialog(d){ try{ d.close(); }catch{ d.removeAttribute('open'); } }
 
-    // Year combo (same as before)
+    // Year combo
     function buildYearOptions(){
-      const sel=$id("year"); const now=new Date().getFullYear();
+      const sel=$("year"); const now=new Date().getFullYear();
       sel.innerHTML='<option value="">— Select —</option>';
       for(let y=now; y>=1980; y--){
         const o=document.createElement('option');
@@ -806,7 +749,7 @@ Everything else kept as-is from your add page.
         o.textContent=String(y);
         sel.appendChild(o);
       }
-      const panel=$id("yearPanel"), trigger=$id("yearTrigger");
+      const panel=$("yearPanel"), trigger=$("yearTrigger");
       panel.innerHTML="";
       [...sel.options].forEach(opt=>{
         const btn=document.createElement('button');
@@ -825,23 +768,23 @@ Everything else kept as-is from your add page.
       });
     }
     function openYearPanel(){
-      $id("yearPanel").classList.remove('combo-hidden');
-      $id("yearTrigger").setAttribute('aria-expanded','true');
+      $("yearPanel").classList.remove('combo-hidden');
+      $("yearTrigger").setAttribute('aria-expanded','true');
       document.addEventListener('click', onDocClickClose, { once:true });
       document.addEventListener('keydown', onEscClose);
     }
     function closeYearPanel(){
-      $id("yearPanel").classList.add('combo-hidden');
-      $id("yearTrigger").setAttribute('aria-expanded','false');
+      $("yearPanel").classList.add('combo-hidden');
+      $("yearTrigger").setAttribute('aria-expanded','false');
       document.removeEventListener('keydown', onEscClose);
     }
     function onDocClickClose(e){
-      if(!$id("yearCombo").contains(e.target)) closeYearPanel();
+      if(!$("yearCombo").contains(e.target)) closeYearPanel();
       else document.addEventListener('click', onDocClickClose, { once:true });
     }
     function onEscClose(e){ if(e.key==='Escape') closeYearPanel(); }
 
-    // Dropdown helpers (same as before)
+    // Dropdowns
     function wireDropdownOpenClose(root){
       const btn = root.querySelector(".dd-btn");
       btn.addEventListener("click",()=>{
@@ -882,25 +825,24 @@ Everything else kept as-is from your add page.
       if(!s) return '';
       return s.length <= 6 ? s : s.slice(-6);
     }
-
     function uniqKey(makeId, modelId, serial){
       return [String(makeId||''), String(modelId||''), normalizeSerial(serial)].join('_');
     }
 
     function readForm(){
-      const makeId = $id("makeId").value || null;
-      const modelId = $id("modelId").value || null;
-      const makeName = $id("ddMakeBtn").textContent.replace(/^—\s*|\s*—$/g,'').trim() || null;
-      const modelName = $id("ddModelBtn").textContent.replace(/^—\s*|\s*—$/g,'').trim() || null;
-      const yr = $id("year").value ? Number($id("year").value) : null;
-      const serialNorm = normalizeSerial($id("serial").value);
+      const makeId = $("makeId").value || null;
+      const modelId = $("modelId").value || null;
+      const makeName = $("ddMakeBtn").textContent.replace(/^—\s*|\s*—$/g,'').trim() || null;
+      const modelName = $("ddModelBtn").textContent.replace(/^—\s*|\s*—$/g,'').trim() || null;
+      const yr = $("year").value ? Number($("year").value) : null;
+      const serialNorm = normalizeSerial($("serial").value);
       const name = [makeName, modelName].filter(Boolean).join(" ") + (yr?` (${yr})`:"");
 
       const base = {
         makeId, modelId, makeName, modelName,
         year: yr,
         serial: serialNorm,
-        notes: $id("notes").value.trim() || null,
+        notes: $("notes").value.trim() || null,
         type: TYPE,
         name: name.trim()
       };
@@ -909,29 +851,25 @@ Everything else kept as-is from your add page.
       if(EXTRAS_API && typeof EXTRAS_API.read === 'function'){
         try{ extras = EXTRAS_API.read() || {}; }catch{ extras = {}; }
       }else{
-        const engEl = $id("engineHours");
-        if(engEl && engEl.value){
-          extras.engineHours = Number(engEl.value);
-        }
-        const sfEl = $id("starfireCapable");
-        if(sfEl){
-          extras.starfireGpsCapable = !!sfEl.checked;
-        }
+        const engEl = $("engineHours");
+        if(engEl && engEl.value) extras.engineHours = Number(engEl.value);
+        const sfEl = $("starfireCapable");
+        if(sfEl) extras.starfireGpsCapable = !!sfEl.checked;
       }
 
       return { ...base, ...extras };
     }
 
     function validateForm(){
-      const makeOk = Boolean($id("makeId").value);
-      const modelOk= Boolean($id("modelId").value);
-      const serialOk= Boolean(normalizeSerial($id("serial").value));
+      const makeOk = Boolean($("makeId").value);
+      const modelOk= Boolean($("modelId").value);
+      const serialOk= Boolean(normalizeSerial($("serial").value));
       const ok = (makeOk && modelOk && serialOk);
-      $id("btnSave").disabled = !ok;
-      $id("btnSavePrint").disabled = !ok;
+      $("btnSave").disabled = !ok;
+      $("btnCreateLabel").disabled = !ok;
     }
 
-    // QR generation
+    // QR generation (reserve id, but DOES NOT save equipment doc)
     let pendingToken = null;
     let pendingQRBlob = null;
     let pendingEquipId = null;
@@ -958,14 +896,8 @@ Everything else kept as-is from your add page.
       await waitQRReady();
       const size=512, ecc=window.QRCode.CorrectLevel.H;
       const holder=document.createElement('div');
-      new QRCode(holder,{
-        text:absUrl,
-        width:size,
-        height:size,
-        colorDark:"#000000",
-        colorLight:"#ffffff",
-        correctLevel:ecc
-      });
+      new QRCode(holder,{ text:absUrl, width:size, height:size, colorDark:"#000000", colorLight:"#ffffff", correctLevel:ecc });
+
       const node = await new Promise((res,rej)=>{
         const start=Date.now();
         (function check(){
@@ -991,9 +923,10 @@ Everything else kept as-is from your add page.
 
       const blob = await canvasToBlob(canvas);
       const dataURL = canvas.toDataURL('image/png');
-      const img=$id("qrThumb");
+
+      const img=$("qrThumb");
       img.src=dataURL;
-      img.onload=()=>{ $id("qrArea").hidden=false; img.style.display='block'; };
+      img.onload=()=>{ $("qrArea").hidden=false; img.style.display='block'; };
       pendingQRBlob = blob;
       return { dataURL, blob };
     }
@@ -1003,51 +936,51 @@ Everything else kept as-is from your add page.
         const tmpRef = doc(collection(db, 'equipment'));
         pendingEquipId = tmpRef.id;
       }
-      if(!pendingQRBlob){
+      if(!$("qrThumb")?.src){
         const hubAbs = location.origin + `/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(pendingEquipId)}`;
         await makeQRForUrl(hubAbs);
       }
       return pendingEquipId;
     }
 
-    /* ==========================================================
-       ✅ PRINT FLOW (CLONED FROM LOOKUP)
-       ========================================================== */
-    const pDlg = $id('printPrev');
-    const pHost = $id('pPreviewHost');
-    const pClose = $id('pClose');
-    const pCancel = $id('pCancel');
-    const pCreate = $id('pCreate');
+    /* ==========================
+       PRINT FLOW (lookup clone)
+       ========================== */
+    const pDlg = $("printPrev");
+    const pHost = $("pPreviewHost");
+    const pClose = $("pClose");
+    const pCancel = $("pCancel");
+    const pCreate = $("pCreate");
 
-    const cDlg = $id('labelChoice');
-    const cOk = $id('cOk');
-    const cCancel = $id('cCancel');
+    const cDlg = $("labelChoice");
+    const cOk = $("cOk");
+    const cCancel = $("cCancel");
 
-    const printFrame = $id('fv-print-frame');
+    const printFrame = $("fv-print-frame");
 
     const safeQrSrcForPreview = (url)=>{
-      // Lookup adds cache-bust to normal URLs. For data: URLs (our QR thumb), keep as-is.
       const s = String(url||'');
       if(!s) return '';
-      if(s.startsWith('data:')) return s;
+      if(s.startsWith('data:')) return s; // our qrThumb
       const bust = (s.includes('?') ? '&' : '?') + '_=' + Date.now();
       return s + bust;
     };
-
-    const clearPreviewHost = ()=>{
-      pHost.innerHTML = '';
-      __previewQrSrc = '';
-    };
-
-    function normalizeSerialUp(s){ return String(s||'').trim().toUpperCase(); }
-    function esc(s){
-      return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
-    }
 
     let __pending = null;       // { url, make, model, serial6 }
     let __mode = 'detailed';
     let __cutLenMm = 140;
     let __previewQrSrc = '';
+
+    function clearPreviewHost(){
+      pHost.innerHTML = '';
+      __previewQrSrc = '';
+      const w = $("printWrap");
+      if(w) w.scrollLeft = 0;
+    }
+
+    function esc(s){
+      return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+    }
 
     function buildMobilePortraitHtml({ mode, qrSrc, make, model, serial6, cutLenMm }){
       const isSummary = mode === 'summary';
@@ -1171,14 +1104,16 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 
     async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
       const qrSrc = safeQrSrcForPreview(url);
-
       clearPreviewHost();
       __previewQrSrc = qrSrc;
 
-      const wrapEl = $id('printWrap');
-      if (wrapEl) wrapEl.classList.toggle('center', mode === 'summary');
+      const wrapEl = $("printWrap");
+      if (wrapEl){
+        wrapEl.classList.toggle('center', mode === 'summary');
+        // ✅ HARD FIX: kill any previous horizontal scroll so summary doesn't look "off to the right"
+        wrapEl.scrollLeft = 0;
+      }
 
-      // Keep preview horizontal on all devices
       if (mode === 'summary'){
         const wrap = document.createElement('div');
         wrap.className = 'pv-sf';
@@ -1211,6 +1146,15 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 
         wrap.append(left,mid,right);
         pHost.appendChild(wrap);
+
+        // also reset scroll for long label open
+        if (wrapEl) wrapEl.scrollLeft = 0;
+      }
+
+      // ✅ Ensure centering takes effect after layout paint (iOS can be weird)
+      if (wrapEl){
+        await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+        wrapEl.scrollLeft = 0;
       }
     }
 
@@ -1239,12 +1183,10 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     });
 
     async function showOverlayAndYield(){
-      // Close dialogs first (top-layer issue)
       closeDialog(pDlg);
       closeDialog(cDlg);
 
       setPdfLoading(true, 'Creating label PDF…', 'Please keep this tab open.');
-
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
       await new Promise(r=>setTimeout(r, 80));
     }
@@ -1316,12 +1258,12 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 
     pCreate.addEventListener('click', createPdf);
 
-    /* ==========================================================
-       ✅ SAVE FLOW (same as your file)
-       ========================================================== */
+    /* ==========================
+       SAVE (only Save button)
+       ========================== */
     let saving = false;
 
-    async function saveAll(db, opts = { post:'reset' }){
+    async function saveAll(db){
       if(saving) return { ok:false };
       const form = readForm();
       if(!form.makeId){ alert("Please choose a Make."); return { ok:false }; }
@@ -1336,7 +1278,9 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         }
       }
 
-      saving = true; $id("btnSave").disabled = true; $id("btnSavePrint").disabled = true;
+      saving = true;
+      $("btnSave").disabled = true;
+      $("btnCreateLabel").disabled = true;
 
       const uniqDocId = uniqKey(form.makeId, form.modelId, form.serial);
       const eqRef = pendingEquipId ? doc(db, 'equipment', pendingEquipId) : doc(collection(db,'equipment'));
@@ -1403,18 +1347,12 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
             });
           }catch(qe){
             console.warn('QR upload failed:', qe);
-            $id("err").hidden=false; $id("err").textContent = `Saved but QR image upload failed: ${qe.message}`;
+            $("err").hidden=false; $("err").textContent = `Saved but QR image upload failed: ${qe.message}`;
           }
         }
 
         showToast("Saved");
-
-        if(opts && opts.post === 'reset'){
-          resetForm();
-          window.scrollTo({ top:0, behavior:'smooth' });
-        }
-
-        return { ok:true, id:eqRef.id, form };
+        return { ok:true, id:eqRef.id };
 
       }catch(err){
         if(err && err.message === "DUP_UNIQ"){
@@ -1432,46 +1370,9 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       }
     }
 
-    function resetForm(){
-      ["serial","notes"].forEach(id=>$id(id).value="");
-      $id("photos").value="";
-      $id("year").value="";
-      $id("yearTrigger").textContent="— Select —";
-
-      if(EXTRAS_API && typeof EXTRAS_API.reset === 'function'){
-        try{ EXTRAS_API.reset(); }catch{}
-      }else{
-        const eng = $id("engineHours");
-        if(eng) eng.value="";
-        const sf = $id("starfireCapable");
-        if(sf) sf.checked = false;
-        const sft = $id("starfireCapableText");
-        if(sft) sft.textContent = "Off";
-      }
-
-      ddMake.hidden.value="";
-      ddMake.btn.textContent="— Select —";
-      ddModel.hidden.value="";
-      ddModel.btn.textContent="— Select a Make first —";
-      ddModel.btn.disabled = true;
-      ddModel.search.disabled = true;
-      ddModel.list.innerHTML = "";
-
-      $id("qrThumb").src="";
-      $id("qrThumb").style.display='none';
-      $id("qrArea").hidden=true;
-
-      pendingToken=null;
-      pendingQRBlob=null;
-      pendingEquipId=null;
-
-      __pending = null;
-      clearPreviewHost();
-
-      validateForm();
-    }
-
-    /* Dropdown data */
+    /* ==========================
+       Data loading (makes/models)
+       ========================== */
     function docCats(v){ return Array.isArray(v?.categories) ? v.categories.map(String) : undefined; }
 
     async function getMakes(db){
@@ -1525,75 +1426,10 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       return cats.includes(TYPE);
     }
 
-    /* New Make modal references are in your older build; keep your existing behavior if present */
-    const NewMake = {
-      el: $id("newMakeModal"),
-      name: $id("nmName"),
-      list: $id("nmSwitches"),
-      createBtn: $id("nmCreate"),
-      open(){
-        if(!this.el) return;
-        this.name.value="";
-        this.list.innerHTML="";
-        EQUIP_TYPES.forEach(t=>{
-          const row=document.createElement('div'); row.className='switch';
-          const lab=document.createElement('label'); lab.textContent=t.label;
-          const tog=document.createElement('input'); tog.type='checkbox'; tog.className='toggle'; tog.dataset.slug=t.slug;
-          if(t.slug===TYPE) tog.checked=true;
-          row.append(lab, tog);
-          this.list.appendChild(row);
-        });
-        this.el.classList.add('show'); document.body.style.overflow='hidden';
-      },
-      close(){
-        if(!this.el) return;
-        this.el.classList.remove('show'); document.body.style.overflow='';
-      }
-    };
-    if (NewMake.el){
-      document.querySelectorAll('#newMakeModal [data-close]').forEach(el=>el.addEventListener('click', ()=>NewMake.close()));
-    }
-
-    async function createMakeFromModal(db){
-      if(!NewMake.el) return null;
-      const name = (NewMake.name.value||"").trim();
-      if(!name){ alert("Enter a make name."); return null; }
-      const chosen = [...NewMake.list.querySelectorAll('.toggle:checked')].map(i=>i.dataset.slug).filter(x=>EQUIP_SLUGS.includes(x));
-      const cats = chosen.length ? chosen : [TYPE];
-      const docRef = doc(collection(db,'equipment-makes'));
-      await setDoc(docRef,{
-        name, nameLower:name.toLowerCase(),
-        status:'active', archived:false,
-        categories: cats,
-        createdAt: serverTimestamp(), updatedAt: serverTimestamp()
-      });
-      return { id: docRef.id, name, categories: cats };
-    }
-
-    async function addModel(db, makeId){
-      if(!makeId){ alert("Pick a Make before adding a Model."); return null; }
-      const name = (prompt("New Model name:")||"").trim();
-      if(!name) return null;
-      let makeCats = [TYPE];
-      try{
-        const mSnap = await getDoc(doc(db,'equipment-makes', makeId));
-        const mv = mSnap.data()||{};
-        if(Array.isArray(mv.categories) && mv.categories.length) makeCats = mv.categories;
-      }catch{}
-      const docRef = doc(collection(db,'equipment-models'));
-      await setDoc(docRef,{
-        name, nameLower:name.toLowerCase(),
-        status:'active', archived:false,
-        makeId, categories: makeCats,
-        createdAt: serverTimestamp(), updatedAt: serverTimestamp()
-      });
-      return { id: docRef.id, name, categories: makeCats };
-    }
-
     let ddMake, ddModel;
     function buildDdObjects(){
-      ddMake = { root: $id("ddMake"), btn: $id("ddMakeBtn"), search: $id("ddMakeSearch"), list: $id("ddMakeList"), hidden: $id("makeId") };
-      ddModel = { root: $id("ddModel"), btn: $id("ddModelBtn"), search: $id("ddModelSearch"), list: $id("ddModelList"), hidden: $id("modelId") };
+      ddMake = { root: $("ddMake"), btn: $("ddMakeBtn"), search: $("ddMakeSearch"), list: $("ddMakeList"), hidden: $("makeId") };
+      ddModel = { root: $("ddModel"), btn: $("ddModelBtn"), search: $("ddModelSearch"), list: $("ddModelList"), hidden: $("modelId") };
       wireDropdownOpenClose(ddMake.root);
       wireDropdownOpenClose(ddModel.root);
       setupSearch(ddMake.search, ddMake.list);
@@ -1603,26 +1439,10 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     async function populateMakes(db, preselectId){
       const allMakes = await getMakes(db);
       const makes = allMakes.filter(visibleForType);
-      const items = [
-        ["__add__", "Add New…", {isAdd:true}],
-        ...makes.map(m=>[m.id, m.name, {categories:m.categories}])
-      ];
-      buildList(ddMake.list, items, async (val,label,meta)=>{
-        if(meta && meta.isAdd){
-          NewMake.open();
-          const onCreate = async ()=>{
-            const created = await createMakeFromModal(db);
-            if(created){
-              NewMake.close();
-              await populateMakes(db, created.id);
-              setMake(created.id, created.name);
-            }
-          };
-          if (NewMake.createBtn) NewMake.createBtn.onclick = onCreate;
-          return;
-        }
-        setMake(val, label);
-      });
+      const items = makes.map(m=>[m.id, m.name, {categories:m.categories}]);
+
+      buildList(ddMake.list, items, async (val,label)=> setMake(val,label));
+
       if(preselectId && makes.find(m=>m.id===preselectId)){
         const name = makes.find(m=>m.id===preselectId).name;
         setMake(preselectId, name);
@@ -1635,19 +1455,10 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     async function populateModels(db, makeId, preselectId){
       const allModels = await getModels(db, makeId);
       const models = allModels.filter(visibleForType);
-      const items = [
-        ["__add__", "Add New…", {isAdd:true} ],
-        ...models.map(m=>[m.id, m.name, {categories:m.categories}])
-      ];
-      buildList(ddModel.list, items, async (val,label,meta)=>{
-        if(meta && meta.isAdd){
-          const created = await addModel(db, ddMake.hidden.value);
-          await populateModels(db, ddMake.hidden.value, created ? created.id : "");
-          if(created){ setModel(created.id, created.name); }
-          return;
-        }
-        setModel(val, label);
-      });
+      const items = models.map(m=>[m.id, m.name, {categories:m.categories}]);
+
+      buildList(ddModel.list, items, async (val,label)=> setModel(val,label));
+
       ddModel.btn.disabled = false;
       ddModel.search.disabled = false;
 
@@ -1683,7 +1494,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     }
 
     function initExtras(){
-      const host = $id("equipExtras");
+      const host = $("equipExtras");
       if(!host) return;
 
       if(window.FVEquipForms && typeof window.FVEquipForms.initExtras === 'function'){
@@ -1750,15 +1561,12 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       const niceType = TYPE[0].toUpperCase()+TYPE.slice(1);
       document.title = `FarmVista • Add ${niceType}`;
       document.querySelector('.hero-head h1').textContent = `Add ${niceType}`;
-      const wrap = document.querySelector('.wrap');
-      if(wrap) wrap.dataset.equipmentType = TYPE;
-
       const heroIconEl = document.querySelector('.hero-head .icon');
       if(heroIconEl){ heroIconEl.textContent = lookupEquipIcon(TYPE); }
 
       buildYearOptions();
-      $id("yearTrigger").addEventListener('click', ()=>{
-        const open = $id("yearTrigger").getAttribute('aria-expanded') === 'true';
+      $("yearTrigger").addEventListener('click', ()=>{
+        const open = $("yearTrigger").getAttribute('aria-expanded') === 'true';
         if(open) closeYearPanel(); else openYearPanel();
       });
 
@@ -1766,38 +1574,44 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       initExtras();
       await populateMakes(db);
 
-      $id("serial").addEventListener("input", validateForm);
+      $("serial").addEventListener("input", validateForm);
 
-      $id("btnQR").addEventListener("click", async ()=>{
-        if(!pendingEquipId){
-          const tmpRef = doc(collection(db, 'equipment'));
-          pendingEquipId = tmpRef.id;
-        }
-        const hubAbs = location.origin + `/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(pendingEquipId)}`;
-        try{ await makeQRForUrl(hubAbs); }
-        catch(e){ console.error(e); alert("Could not create QR code."); }
-      });
-
-      $id("btnSave").addEventListener("click", ()=> saveAll(db, { post:'reset' }));
-
-      // Save & Print → (save) → labelChoice → printPrev → createPdf (CLONED)
-      $id("btnSavePrint").addEventListener("click", async ()=>{
+      $("btnQR").addEventListener("click", async ()=>{
         try{
           await ensureQrReservedAndBuilt(db);
-          const result = await saveAll(db, { post:'none' });
-          if(!result || !result.ok) return;
+        }catch(e){
+          console.error(e);
+          alert("Could not create QR code.");
+        }
+      });
 
-          const form = result.form || readForm();
+      // ✅ SAVE ONLY
+      $("btnSave").addEventListener("click", async ()=>{
+        const res = await saveAll(db);
+        if(res && res.ok){
+          // bounce to portal we came from
+          returnAfterSave();
+        }
+      });
 
-          // Use the QR image we already rendered (data URL) — works perfectly for preview + PDF HTML
-          const qrDataUrl = ($id("qrThumb")?.src || "").trim();
+      // ✅ CREATE LABEL ONLY (NO SAVE)
+      $("btnCreateLabel").addEventListener("click", async ()=>{
+        try{
+          const form = readForm();
+          if(!form.makeId || !form.modelId || !form.serial){
+            alert("Please choose Make, Model, and Serial/VIN first.");
+            return;
+          }
+
+          await ensureQrReservedAndBuilt(db);
+
+          const qrDataUrl = ($("qrThumb")?.src || "").trim();
           if(!qrDataUrl){
             alert("QR image not ready yet. Tap Create QR Code first.");
             return;
           }
 
-          const serialRaw = form.serial || "";
-          const serial6 = serialLast6(serialRaw) || "";
+          const serial6 = serialLast6(form.serial) || "";
 
           __pending = {
             url: qrDataUrl,
@@ -1816,11 +1630,11 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
           openDialog(cDlg);
         }catch(e){
           console.error(e);
-          alert("Save & Print failed.");
+          alert("Create Label failed.");
         }
       });
 
-      $id("btnClear").addEventListener("click", () => {
+      $("btnClear").addEventListener("click", () => {
         if (document.referrer) history.back();
         else window.location.assign('/Farm-vista/index.html');
       });
