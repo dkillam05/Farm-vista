@@ -1107,7 +1107,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       openDialog(dlg);
     }
 
-    // Filter popover
+        // Filter popover logic
     function openPop(){
       if (!filterPop.hidden) return;
       const r = filterBtn.getBoundingClientRect();
@@ -1132,6 +1132,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     });
     window.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closePop(); });
     window.addEventListener('scroll', () => { if (!filterPop.hidden) closePop(); }, { passive:true });
+
     filterPop.addEventListener('change', (e)=>{
       if (e.target && e.target.name === 'statusMode') {
         mode = e.target.value;
@@ -1140,8 +1141,13 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       }
     });
 
-    // Firestore load
-    function attach(){
+    function syncRadios(){
+      const r = filterPop.querySelector(`input[name="statusMode"][value="${mode}"]`);
+      if (r) r.checked = true;
+    }
+
+    // Firestore listener (ONLY ONE attach)
+    function attachListener(){
       if (unsub) return;
       const db = getFirestore();
       const qref = query(collection(db,'equipment'), where('type','==', TYPE));
@@ -1157,10 +1163,29 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       }, (err)=> console.error(`${TYPE_META.plural} listener error:`, err));
     }
 
+    function detachListener(){
+      if (unsub){
+        try{ unsub(); }catch{}
+        unsub = null;
+      }
+    }
+
+    function resume(){
+      attachListener();
+    }
+
     (async()=>{
       await ready;
-      attach();
+      attachListener();
+      syncRadios();
+
       qInput.addEventListener('input', render);
+
+      // keep listener stable across iOS/backgrounding
+      window.addEventListener('pageshow', resume);
+      document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') resume(); });
+      window.addEventListener('focus', resume);
+      window.addEventListener('pagehide', ()=>{ detachListener(); });
     })();
   </script>
 </body>
