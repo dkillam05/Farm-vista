@@ -21,6 +21,9 @@
   <!-- Date range picker (your file) -->
   <script src="/Farm-vista/js/fv-date-range-picker.js"></script>
 
+  <!-- Firebase init (expects your project to expose modular helpers globally or via FV) -->
+  <script src="/Farm-vista/js/firebase-init.js"></script>
+
   <!-- Ensure fv-shell (global header/footer/menu) -->
   <script>
     (function(){
@@ -67,8 +70,8 @@
     .body{padding:16px;display:grid;gap:14px}
 
     /* Controls */
-    .row{display:grid;gap:10px;grid-template-columns:1fr 1fr auto}
-    @media (max-width:880px){.row{grid-template-columns:1fr}}
+    .row{display:grid;gap:10px;grid-template-columns:1fr 1fr auto;align-items:end}
+    @media (max-width:880px){.row{grid-template-columns:1fr;align-items:stretch}}
     .field label{display:block;font-weight:800;margin:0 0 6px}
     .input,.select{
       width:100%;font:inherit;font-size:16px;color:var(--text);
@@ -82,6 +85,9 @@
       min-width: 220px;
       cursor:pointer;
       white-space:nowrap;
+    }
+    @media (max-width:880px){
+      #jobRangeInput{width:100%;min-width:0}
     }
 
     /* Fields list */
@@ -105,9 +111,11 @@
     }
     .tile-top{
       display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
+      flex-wrap:wrap;
     }
     .titleline{
       display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;
+      flex:1 1 auto;
     }
     .name{
       font-weight:900;
@@ -117,6 +125,9 @@
       overflow:hidden;
       text-overflow:ellipsis;
       max-width: 520px;
+    }
+    @media (max-width:520px){
+      .name{max-width: 240px;}
     }
     .tiny-btn{
       padding:6px 8px;
@@ -130,7 +141,7 @@
       line-height:1;
     }
 
-    /* Readiness pill (colored like bar gradient) */
+    /* Readiness pill */
     .readiness-pill{
       padding:6px 10px;
       border-radius:999px;
@@ -139,6 +150,7 @@
       font-size:12px;
       color:#fff;
       white-space:nowrap;
+      flex:0 0 auto;
     }
 
     .subline{
@@ -207,13 +219,49 @@
     summary::-webkit-details-marker{display:none}
     .details-body{padding:14px;display:grid;gap:12px}
 
+    .detail-grid{
+      display:grid;
+      gap:12px;
+      grid-template-columns: 1.1fr .9fr;
+      align-items:start;
+    }
+    @media (max-width:880px){
+      .detail-grid{grid-template-columns:1fr}
+    }
+
+    .panel{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:color-mix(in srgb, var(--surface) 96%, #ffffff 4%);
+      padding:12px;
+    }
+    .panel h3{
+      margin:0 0 8px;
+      font-size:13px;
+      font-weight:900;
+    }
+    .kv{
+      display:grid;
+      grid-template-columns: 1fr auto;
+      gap:8px 12px;
+      font-size:12px;
+    }
+    .kv .k{color:var(--muted,#67706B);font-weight:800}
+    .kv .v{font-weight:900}
+    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;}
+
+    /* Tables: make mobile viewable (no disappearing right side) */
+    .table-scroll{
+      overflow-x:auto;
+      -webkit-overflow-scrolling:touch;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:var(--surface);
+    }
     table{
       width:100%;
       border-collapse:collapse;
-      border:1px solid var(--border);
-      border-radius:12px;
-      overflow:hidden;
-      background:var(--surface);
+      min-width: 820px; /* key: forces horizontal scroll instead of clipping */
     }
     th,td{
       padding:10px;
@@ -221,15 +269,18 @@
       font-size:12px;
       text-align:left;
       vertical-align:top;
+      white-space:nowrap;
     }
     th{
       background:color-mix(in srgb, var(--surface) 90%, #ffffff 10%);
       font-weight:900;
       color:var(--text);
+      position:sticky;
+      top:0;
+      z-index:1;
     }
     tr:last-child td{border-bottom:none}
     .right{text-align:right}
-    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;}
 
     /* Calendar popover styling (IDs required by your picker) */
     #calendarPopover{
@@ -290,6 +341,19 @@
 
     .help{font-size:13px;color:var(--muted,#67706B);margin-top:6px}
     .error{color:#b00020;font-weight:800}
+
+    .fake-actions{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      margin-top:10px;
+    }
+    .fake-actions .btn{
+      min-width:auto;
+      padding:10px 12px;
+      border-radius:12px;
+    }
   </style>
 </head>
 
@@ -357,6 +421,7 @@
           <div class="field">
             <label>Fields</label>
             <div id="fieldsGrid" class="list"></div>
+            <div id="emptyMsg" class="help muted" style="display:none;">No active fields with GPS (lat/lng) found in <span class="mono">fields</span>.</div>
           </div>
 
           <!-- SLIDERS -->
@@ -364,13 +429,13 @@
             <div class="field">
               <label for="soilWet">Soil Type / Holding (1–10)</label>
               <input id="soilWet" type="range" min="1" max="10" step="1" value="6"/>
-              <div class="help">Affects retention + dry-down.</div>
+              <div class="help">Saved per-field locally (device). Affects retention + dry-down.</div>
             </div>
 
             <div class="field">
               <label for="drain">Drainage (1–10)</label>
               <input id="drain" type="range" min="1" max="10" step="1" value="5"/>
-              <div class="help">Tile/ditches/natural drainage.</div>
+              <div class="help">Saved per-field locally (device). Tile/ditches/natural drainage.</div>
             </div>
           </div>
 
@@ -382,9 +447,9 @@
             </div>
 
             <div class="field">
-              <label for="apiBase">Weather API Base URL (future)</label>
+              <label for="apiBase">Weather API Base URL</label>
               <input id="apiBase" class="input" placeholder="https://YOUR-CLOUDRUN-URL (blank = mock)"/>
-              <div class="help">Endpoint: GET /weather30?lat=..&lon=..</div>
+              <div class="help">Endpoint: <span class="mono">GET /weather30?lat=..&lon=..</span> (uses selected field).</div>
             </div>
           </div>
 
@@ -400,65 +465,128 @@
           <details id="detailsPanel" open="false">
             <summary>
               <span>Details</span>
-              <span class="muted" style="font-size:12px;">(math + tables)</span>
+              <span class="muted" style="font-size:12px;">(soil/drain/threshold + weather + math)</span>
             </summary>
+
             <div class="details-body">
-              <div class="note" id="paramExplain">—</div>
-              <div class="note" id="mathSummary">—</div>
+              <div class="detail-grid">
+                <div class="panel">
+                  <h3>Field + Settings</h3>
+                  <div class="kv">
+                    <div class="k">Field</div><div class="v" id="dFieldName">—</div>
+                    <div class="k">Status</div><div class="v" id="dStatus">—</div>
+                    <div class="k">County / State</div><div class="v" id="dCounty">—</div>
+                    <div class="k">Tillable</div><div class="v" id="dAcres">—</div>
+                    <div class="k">GPS</div><div class="v mono" id="dGps">—</div>
 
-              <table aria-label="Tank Trace">
-                <thead>
-                  <tr>
-                    <th style="width:110px;">Date</th>
-                    <th class="right">Rain</th>
-                    <th class="right">infilMult</th>
-                    <th class="right">Add</th>
-                    <th class="right">DryPwr</th>
-                    <th class="right">Loss</th>
-                    <th class="right">Storage</th>
-                  </tr>
-                </thead>
-                <tbody id="traceRows">
-                  <tr><td colspan="7" class="muted">Run the model.</td></tr>
-                </tbody>
-              </table>
+                    <div class="k">Soil type</div><div class="v" id="dSoilType">—</div>
+                    <div class="k">Soil holding</div><div class="v" id="dSoilHold">—</div>
+                    <div class="k">Drainage</div><div class="v" id="dDrainage">—</div>
 
-              <table aria-label="DryPwr Breakdown">
-                <thead>
-                  <tr>
-                    <th style="width:110px;">Date</th>
-                    <th class="right">Temp</th>
-                    <th class="right">tempN</th>
-                    <th class="right">Wind</th>
-                    <th class="right">windN</th>
-                    <th class="right">RH</th>
-                    <th class="right">rhN</th>
-                    <th class="right">Solar</th>
-                    <th class="right">solarN</th>
-                    <th class="right">raw</th>
-                    <th class="right">DryPwr</th>
-                  </tr>
-                </thead>
-                <tbody id="dryRows">
-                  <tr><td colspan="11" class="muted">Run the model.</td></tr>
-                </tbody>
-              </table>
+                    <div class="k">Threshold</div><div class="v" id="dThreshold">—</div>
+                    <div class="k">Operation</div><div class="v" id="dOperation">—</div>
+                  </div>
 
-              <table aria-label="Weather Inputs">
-                <thead>
-                  <tr>
-                    <th style="width:110px;">Date</th>
-                    <th class="right">Rain</th>
-                    <th class="right">Temp</th>
-                    <th class="right">Wind</th>
-                    <th class="right">RH</th>
-                    <th class="right">Solar</th>
-                  </tr>
-                </thead>
-                <tbody id="wxRows">
-                  <tr><td colspan="6" class="muted">Waiting for JS…</td></tr>
-                </tbody>
-              </table>
+                  <div class="fake-actions" style="margin-top:12px;">
+                    <button class="btn" type="button" data-fake="wo">Create Work Order</button>
+                    <button class="btn" type="button" data-fake="maps">Open in Maps</button>
+                    <button class="btn" type="button" data-fake="soil">Soil Survey</button>
+                    <button class="btn btn-primary" type="button" data-fake="share">Share Summary</button>
+                  </div>
+
+                  <div class="help" id="fakeHint">These buttons are “real-looking” placeholders for now.</div>
+                </div>
+
+                <div class="panel">
+                  <h3>Weather API + Run</h3>
+                  <div class="kv">
+                    <div class="k">Mode</div><div class="v" id="dMode">—</div>
+                    <div class="k">API Base</div><div class="v mono" id="dApiBase">—</div>
+                    <div class="k">Endpoint</div><div class="v mono" id="dEndpoint">—</div>
+                    <div class="k">Days loaded</div><div class="v" id="dDays">—</div>
+                    <div class="k">Range rain</div><div class="v" id="dRangeRain">—</div>
+                    <div class="k">Readiness</div><div class="v" id="dReadiness">—</div>
+                    <div class="k">Wetness</div><div class="v" id="dWetness">—</div>
+                    <div class="k">Storage</div><div class="v" id="dStorage">—</div>
+                  </div>
+                  <div class="help" id="mathSummary">—</div>
+                </div>
+              </div>
+
+              <div class="panel">
+                <h3>Model Parameters</h3>
+                <div class="help" id="paramExplain">—</div>
+              </div>
+
+              <div class="panel">
+                <h3>Tank Trace</h3>
+                <div class="table-scroll">
+                  <table aria-label="Tank Trace">
+                    <thead>
+                      <tr>
+                        <th style="width:110px;">Date</th>
+                        <th class="right">Rain</th>
+                        <th class="right">infilMult</th>
+                        <th class="right">Add</th>
+                        <th class="right">DryPwr</th>
+                        <th class="right">Loss</th>
+                        <th class="right">Storage</th>
+                      </tr>
+                    </thead>
+                    <tbody id="traceRows">
+                      <tr><td colspan="7" class="muted">Run the model.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="panel">
+                <h3>DryPwr Breakdown</h3>
+                <div class="table-scroll">
+                  <table aria-label="DryPwr Breakdown">
+                    <thead>
+                      <tr>
+                        <th style="width:110px;">Date</th>
+                        <th class="right">Temp</th>
+                        <th class="right">tempN</th>
+                        <th class="right">Wind</th>
+                        <th class="right">windN</th>
+                        <th class="right">RH</th>
+                        <th class="right">rhN</th>
+                        <th class="right">Solar</th>
+                        <th class="right">solarN</th>
+                        <th class="right">raw</th>
+                        <th class="right">DryPwr</th>
+                      </tr>
+                    </thead>
+                    <tbody id="dryRows">
+                      <tr><td colspan="11" class="muted">Run the model.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="panel">
+                <h3>Weather Inputs</h3>
+                <div class="table-scroll">
+                  <table aria-label="Weather Inputs">
+                    <thead>
+                      <tr>
+                        <th style="width:110px;">Date</th>
+                        <th class="right">Rain</th>
+                        <th class="right">Temp</th>
+                        <th class="right">Wind</th>
+                        <th class="right">RH</th>
+                        <th class="right">Solar</th>
+                      </tr>
+                    </thead>
+                    <tbody id="wxRows">
+                      <tr><td colspan="6" class="muted">Waiting for JS…</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
             </div>
           </details>
         </div>
@@ -526,21 +654,20 @@
 
     const LOSS_SCALE = 0.55;
 
+    const LS_KEY = 'fv_dev_field_readiness_params_v1';
+
     const state = {
       weather30: [],
       seed: Date.now() % 1000000,
       mode: 'MOCK',
-      selectedFieldId: 'f1',
+      selectedFieldId: null,
       lastRuns: new Map(),
       readyOverride: new Map(),     // fieldId -> readiness score (0..100)
-      adjustContext: { fieldId:null }
+      adjustContext: { fieldId:null },
+      fields: [],                  // real fields from Firestore
+      farmsById: new Map(),         // optional lookup
+      perFieldParams: new Map()     // fieldId -> {soil, drain, rainFactor}
     };
-
-    const FIELDS = [
-      { id:'f1', farm:'Dowson Farms', field:'Home 80',      soil:6, drain:5, rainFactor:0.98 },
-      { id:'f2', farm:'Dowson Farms', field:'River Bottom', soil:9, drain:9, rainFactor:1.12 },
-      { id:'f3', farm:'Dowson Farms', field:'North Ridge',  soil:3, drain:2, rainFactor:0.90 },
-    ];
 
     function esc(s){
       return String(s||'')
@@ -556,7 +683,235 @@
       el.textContent = msg;
     }
 
-    // Mock weather
+    function toast(msg){
+      // Use FV shell toast if available; fallback alert-lite
+      try{
+        if (window.FV && typeof window.FV.toast === 'function') return window.FV.toast(msg);
+      }catch(_){}
+      setErr(msg);
+      setTimeout(()=> setErr(''), 2600);
+    }
+
+    /* ===========================
+       Firestore access (defensive)
+       =========================== */
+    function getFirestoreAPI(){
+      // Pattern A: your firebase-init.js exposed modular helpers globally
+      if (window.getFirestore && window.collection && window.getDocs && window.query && window.where) {
+        return {
+          kind: 'global-modular',
+          getFirestore: window.getFirestore,
+          collection: window.collection,
+          getDocs: window.getDocs,
+          query: window.query,
+          where: window.where
+        };
+      }
+
+      // Pattern B: firebase-init.js attaches to FV
+      if (window.FV && window.FV.firestore && window.FV.firestore.getFirestore) {
+        const api = window.FV.firestore;
+        return {
+          kind: 'fv-modular',
+          getFirestore: api.getFirestore,
+          collection: api.collection,
+          getDocs: api.getDocs,
+          query: api.query,
+          where: api.where
+        };
+      }
+
+      // Pattern C: compat firebase.firestore()
+      if (window.firebase && window.firebase.firestore) {
+        return { kind:'compat' };
+      }
+
+      return null;
+    }
+
+    async function loadFarmsOptional(){
+      // Optional: if you have farms collection and modular helpers
+      const api = getFirestoreAPI();
+      if (!api || api.kind === 'compat') return;
+
+      try{
+        const db = api.getFirestore();
+        const snap = await api.getDocs(api.collection(db,'farms'));
+        const map = new Map();
+        snap.forEach(doc=>{
+          const d = doc.data() || {};
+          if (d && d.name) map.set(doc.id, String(d.name));
+        });
+        state.farmsById = map;
+      }catch(_){}
+    }
+
+    async function loadFields(){
+      const api = getFirestoreAPI();
+      if (!api){
+        setErr('Firebase helpers not found. Make sure /Farm-vista/js/firebase-init.js is loading and exposes Firestore helpers.');
+        state.fields = [];
+        renderTiles();
+        return;
+      }
+
+      // Modular path (preferred)
+      if (api.kind !== 'compat'){
+        try{
+          const db = api.getFirestore();
+          const q = api.query(api.collection(db,'fields'), api.where('status','==','active'));
+          const snap = await api.getDocs(q);
+
+          const arr = [];
+          snap.forEach(doc=>{
+            const d = doc.data() || {};
+            const loc = d.location || {};
+            const lat = Number(loc.lat);
+            const lng = Number(loc.lng);
+            if (!isFinite(lat) || !isFinite(lng)) return;            // must have GPS
+            if (String(d.status||'').toLowerCase() !== 'active') return;
+
+            arr.push({
+              id: doc.id,
+              name: String(d.name||''),
+              county: String(d.county||''),
+              state: String(d.state||''),
+              farmId: String(d.farmId||''),
+              rtkTowerId: String(d.rtkTowerId||''),
+              status: String(d.status||''),
+              tillable: Number(d.tillable||0),
+              location: { lat, lng },
+              updatedAt: d.updatedAt || null,
+              createdAt: d.createdAt || null
+            });
+          });
+
+          // stable ordering if you want
+          arr.sort((a,b)=> String(a.name).localeCompare(String(b.name), undefined, {numeric:true, sensitivity:'base'}));
+          state.fields = arr;
+
+          // pick default selection
+          if (!state.selectedFieldId || !state.fields.find(f=>f.id===state.selectedFieldId)){
+            state.selectedFieldId = state.fields.length ? state.fields[0].id : null;
+          }
+
+          // hydrate per-field params
+          loadParamsFromLocal();
+          ensureSelectedParamsToSliders();
+
+          $('emptyMsg').style.display = state.fields.length ? 'none' : 'block';
+
+          renderTiles();
+          renderDetails();
+          return;
+        }catch(e){
+          setErr(`Failed to load fields: ${e.message}`);
+          state.fields = [];
+          $('emptyMsg').style.display = 'block';
+          renderTiles();
+          return;
+        }
+      }
+
+      // Compat fallback (best-effort)
+      try{
+        const db = window.firebase.firestore();
+        const snap = await db.collection('fields').where('status','==','active').get();
+        const arr = [];
+        snap.forEach(doc=>{
+          const d = doc.data() || {};
+          const loc = d.location || {};
+          const lat = Number(loc.lat);
+          const lng = Number(loc.lng);
+          if (!isFinite(lat) || !isFinite(lng)) return;
+          if (String(d.status||'').toLowerCase() !== 'active') return;
+
+          arr.push({
+            id: doc.id,
+            name: String(d.name||''),
+            county: String(d.county||''),
+            state: String(d.state||''),
+            farmId: String(d.farmId||''),
+            rtkTowerId: String(d.rtkTowerId||''),
+            status: String(d.status||''),
+            tillable: Number(d.tillable||0),
+            location: { lat, lng },
+            updatedAt: d.updatedAt || null,
+            createdAt: d.createdAt || null
+          });
+        });
+
+        arr.sort((a,b)=> String(a.name).localeCompare(String(b.name), undefined, {numeric:true, sensitivity:'base'}));
+        state.fields = arr;
+
+        if (!state.selectedFieldId || !state.fields.find(f=>f.id===state.selectedFieldId)){
+          state.selectedFieldId = state.fields.length ? state.fields[0].id : null;
+        }
+
+        loadParamsFromLocal();
+        ensureSelectedParamsToSliders();
+
+        $('emptyMsg').style.display = state.fields.length ? 'none' : 'block';
+
+        renderTiles();
+        renderDetails();
+      }catch(e){
+        setErr(`Failed to load fields (compat): ${e.message}`);
+        state.fields = [];
+        $('emptyMsg').style.display = 'block';
+        renderTiles();
+      }
+    }
+
+    /* ===========================
+       Per-field params (local)
+       =========================== */
+    function loadParamsFromLocal(){
+      state.perFieldParams = new Map();
+      try{
+        const raw = localStorage.getItem(LS_KEY);
+        if (!raw) return;
+        const obj = JSON.parse(raw);
+        if (!obj || typeof obj !== 'object') return;
+        for (const [k,v] of Object.entries(obj)){
+          if (!v || typeof v !== 'object') continue;
+          state.perFieldParams.set(k, {
+            soil: clamp(Number(v.soil||6), 1, 10),
+            drain: clamp(Number(v.drain||5), 1, 10),
+            rainFactor: isFinite(Number(v.rainFactor)) ? Number(v.rainFactor) : 1
+          });
+        }
+      }catch(_){}
+    }
+
+    function saveParamsToLocal(){
+      try{
+        const obj = {};
+        for (const [k,v] of state.perFieldParams.entries()){
+          obj[k] = { soil:v.soil, drain:v.drain, rainFactor:v.rainFactor };
+        }
+        localStorage.setItem(LS_KEY, JSON.stringify(obj));
+      }catch(_){}
+    }
+
+    function getFieldParams(fieldId){
+      const p = state.perFieldParams.get(fieldId);
+      if (p) return p;
+      const def = { soil:6, drain:5, rainFactor:1 };
+      state.perFieldParams.set(fieldId, def);
+      return def;
+    }
+
+    function ensureSelectedParamsToSliders(){
+      if (!state.selectedFieldId) return;
+      const p = getFieldParams(state.selectedFieldId);
+      $('soilWet').value = String(p.soil);
+      $('drain').value   = String(p.drain);
+    }
+
+    /* ===========================
+       Mock weather
+       =========================== */
     function seededRand(){
       state.seed = (state.seed * 1664525 + 1013904223) % 4294967296;
       return state.seed / 4294967296;
@@ -599,7 +954,9 @@
       state.mode = 'MOCK';
     }
 
-    // Date range parsing
+    /* ===========================
+       Date range parsing
+       =========================== */
     function parseRangeFromInput(){
       const raw = String($('jobRangeInput').value || '').trim();
       if (!raw) return { start:null, end:null };
@@ -631,7 +988,9 @@
       return d >= range.start && d <= range.end;
     }
 
-    // Dry power parts
+    /* ===========================
+       Dry power parts
+       =========================== */
     function calcDryParts(r){
       const temp = Number(r.tempF||0);
       const wind = Number(r.windMph||0);
@@ -648,7 +1007,9 @@
       return { temp, wind, rh, solar, tempN, windN, rhN, solarN, raw, dryPwr };
     }
 
-    // Factor mapping
+    /* ===========================
+       Factor mapping
+       =========================== */
     function mapFactors(soil, drain){
       const soilHold = (Number(soil) - 1) / 9;
       const drainPoor= (Number(drain) - 1) / 9;
@@ -663,13 +1024,14 @@
     function runField(field){
       if (!state.weather30.length) return null;
 
-      const f = mapFactors(field.soil, field.drain);
-      const rf = (state.mode === 'MOCK') ? (field.rainFactor || 1) : 1;
+      const p = getFieldParams(field.id);
+      const f = mapFactors(p.soil, p.drain);
+      const rf = (state.mode === 'MOCK') ? (p.rainFactor || 1) : 1;
 
       const rows = state.weather30.map(w=>{
-        const p = calcDryParts(w);
+        const parts = calcDryParts(w);
         const rainAdj = round(Number(w.rainIn||0) * rf, 2);
-        return { ...w, rainInAdj: rainAdj, ...p };
+        return { ...w, rainInAdj: rainAdj, ...parts };
       });
 
       const first7 = rows.slice(0,7);
@@ -702,7 +1064,7 @@
 
     function etaFor(run, threshold){
       if (!run) return '';
-      if (run.readinessR >= threshold) return '';   // hide if ready
+      if (run.readinessR >= threshold) return '';
 
       const wetTarget = clamp(100 - threshold, 0, 100);
       const storageTarget = run.factors.Smax * (wetTarget / 100);
@@ -734,8 +1096,8 @@
         const ra = runsById.get(a.id);
         const rb = runsById.get(b.id);
 
-        const nameA = `${a.farm} ${a.field}`;
-        const nameB = `${b.farm} ${b.field}`;
+        const nameA = `${a.name||''}`;
+        const nameB = `${b.name||''}`;
 
         const readyA = ra ? ra.readinessR : 0;
         const readyB = rb ? rb.readinessR : 0;
@@ -787,11 +1149,13 @@
       wrap.innerHTML = '';
 
       state.lastRuns.clear();
-      for (const f of FIELDS){
+
+      // compute runs
+      for (const f of state.fields){
         state.lastRuns.set(f.id, runField(f));
       }
 
-      const sorted = sortFields(FIELDS, state.lastRuns);
+      const sorted = sortFields(state.fields, state.lastRuns);
       const thr = Number($('workable').value);
       const range = parseRangeFromInput();
 
@@ -801,7 +1165,6 @@
 
         const overrideReady = state.readyOverride.has(f.id) ? Number(state.readyOverride.get(f.id)) : null;
         const readiness = (overrideReady === null || !isFinite(overrideReady)) ? run0.readinessR : clamp(Math.round(overrideReady), 0, 100);
-        const wet = clamp(100 - readiness, 0, 100);
 
         const eta = etaFor(run0, thr);
         const rainRange = rainInRange(run0, range);
@@ -811,19 +1174,22 @@
 
         const pillBg = readinessColor(readiness);
 
+        const farmName = state.farmsById.get(f.farmId) || '';
+        const labelLeft = farmName ? `${farmName} • ${f.name}` : f.name;
+
         const tile = document.createElement('div');
         tile.className = 'tile' + (f.id === state.selectedFieldId ? ' active' : '');
 
         tile.innerHTML = `
           <div class="tile-top">
             <div class="titleline">
-              <div class="name">${esc(f.farm)} • ${esc(f.field)}</div>
+              <div class="name" title="${esc(labelLeft)}">${esc(labelLeft)}</div>
               <button class="tiny-btn" data-adjust="${esc(f.id)}" type="button">Adjust</button>
             </div>
             <div class="readiness-pill" style="background:${pillBg};">Field Readiness ${readiness}</div>
           </div>
 
-          <p class="subline">Rain (Last 30 Days): "<span class="mono">${rainRange.toFixed(2)}</span>" in</p>
+          <p class="subline">Rain (range): <span class="mono">${rainRange.toFixed(2)}</span> in</p>
 
           <div class="gauge-wrap">
             <div class="chips">
@@ -856,21 +1222,40 @@
 
         wrap.appendChild(tile);
       }
+
+      $('emptyMsg').style.display = state.fields.length ? 'none' : 'block';
     }
 
     function selectField(id){
-      const f = FIELDS.find(x=>x.id === id);
+      const f = state.fields.find(x=>x.id === id);
       if (!f) return;
       state.selectedFieldId = id;
 
-      $('soilWet').value = String(f.soil);
-      $('drain').value   = String(f.drain);
-
+      ensureSelectedParamsToSliders();
       refreshAll();
     }
 
+    function soilTypeLabel(n){
+      const v = clamp(Number(n), 1, 10);
+      if (v <= 2) return 'Sandy / low holding';
+      if (v <= 4) return 'Sandy loam';
+      if (v <= 6) return 'Loam / balanced';
+      if (v <= 8) return 'Silty clay loam';
+      return 'Clay / high holding';
+    }
+    function drainageLabel(n){
+      const v = clamp(Number(n), 1, 10);
+      if (v <= 2) return 'Very good drainage';
+      if (v <= 4) return 'Good drainage';
+      if (v <= 6) return 'Moderate drainage';
+      if (v <= 8) return 'Poor drainage';
+      return 'Very poor drainage';
+    }
+
     function renderDetails(){
-      const f = FIELDS.find(x=>x.id === state.selectedFieldId);
+      const f = state.fields.find(x=>x.id === state.selectedFieldId);
+      if (!f) return;
+
       const run = state.lastRuns.get(f.id) || runField(f);
       if (!run) return;
 
@@ -878,15 +1263,49 @@
       const overrideReady = state.readyOverride.has(f.id) ? Number(state.readyOverride.get(f.id)) : null;
       const shown = (overrideReady === null || !isFinite(overrideReady)) ? run.readinessR : clamp(Math.round(overrideReady), 0, 100);
 
+      const p = getFieldParams(f.id);
+      const thr = Number($('workable').value);
+      const op  = String($('opSel').value || '');
+      const range = parseRangeFromInput();
+      const rainRange = rainInRange(run, range);
+
+      const base = String($('apiBase').value || '').trim().replace(/\/+$/,'');
+      const endpoint = (base && f.location && isFinite(f.location.lat) && isFinite(f.location.lng))
+        ? `${base}/weather30?lat=${f.location.lat.toFixed(6)}&lon=${f.location.lng.toFixed(6)}`
+        : '—';
+
+      const farmName = state.farmsById.get(f.farmId) || '';
+      $('dFieldName').textContent = farmName ? `${farmName} • ${f.name}` : (f.name || '—');
+      $('dStatus').textContent = String(f.status||'—');
+      $('dCounty').textContent = `${String(f.county||'—')} / ${String(f.state||'—')}`;
+      $('dAcres').textContent = (isFinite(f.tillable) ? `${f.tillable.toFixed(2)} ac` : '—');
+      $('dGps').textContent = (f.location ? `${f.location.lat.toFixed(6)}, ${f.location.lng.toFixed(6)}` : '—');
+
+      $('dSoilType').textContent = `${soilTypeLabel(p.soil)} (${p.soil}/10)`;
+      $('dSoilHold').textContent = `${fac.soilHold.toFixed(2)} (normalized)`;
+      $('dDrainage').textContent = `${drainageLabel(p.drain)} (${p.drain}/10)`;
+
+      $('dThreshold').textContent = `${thr}`;
+      $('dOperation').textContent = op;
+
+      $('dMode').textContent = state.mode;
+      $('dApiBase').textContent = base || '(blank → mock)';
+      $('dEndpoint').textContent = endpoint;
+      $('dDays').textContent = String(state.weather30.length || 0);
+      $('dRangeRain').textContent = `${rainRange.toFixed(2)} in`;
+      $('dReadiness').textContent = `${shown}${(overrideReady!==null?' (manual)':'')}`;
+      $('dWetness').textContent = `${run.wetnessR}`;
+      $('dStorage').textContent = `${run.storageFinal.toFixed(2)} / ${run.factors.Smax.toFixed(2)}`;
+
       $('paramExplain').innerHTML =
-        `<b>Selected:</b> ${esc(f.farm)} • ${esc(f.field)}<br/>
+        `<b>Selected:</b> ${esc(f.name)}<br/>
          <b>Displayed Field Readiness:</b> <span class="mono">${shown}</span>${(overrideReady!==null?' (manual override)':'')}<br/><br/>
          soilHold=(soil−1)/9=<span class="mono">${fac.soilHold.toFixed(2)}</span> • drainPoor=(drain−1)/9=<span class="mono">${fac.drainPoor.toFixed(2)}</span><br/>
          Smax=<span class="mono">${fac.Smax.toFixed(2)}</span> • infilMult=<span class="mono">${fac.infilMult.toFixed(2)}</span> • dryMult=<span class="mono">${fac.dryMult.toFixed(2)}</span> • LOSS_SCALE=<span class="mono">${LOSS_SCALE.toFixed(2)}</span>`;
 
       $('mathSummary').innerHTML =
-        `<b>Model output (computed):</b> Wet=${run.wetnessR} • Field Readiness=${run.readinessR} • storage=${run.storageFinal.toFixed(2)}/${run.factors.Smax.toFixed(2)}<br/>
-         <b>Start:</b> storage0=0.45*Smax + rainNudge (rain7=${run.rain7.toFixed(2)} in, nudge=${run.rainNudge.toFixed(2)})`;
+        `Model output: <b>Wet=${run.wetnessR}</b> • <b>Readiness=${run.readinessR}</b> • storage=<span class="mono">${run.storageFinal.toFixed(2)}</span>/<span class="mono">${run.factors.Smax.toFixed(2)}</span><br/>
+         Start: storage0=0.45*Smax + rainNudge (rain7=<span class="mono">${run.rain7.toFixed(2)}</span> in, nudge=<span class="mono">${run.rainNudge.toFixed(2)}</span>)`;
 
       const trb = $('traceRows');
       trb.innerHTML = '';
@@ -940,7 +1359,9 @@
       }
     }
 
-    // Adjust modal
+    /* ===========================
+       Adjust modal
+       =========================== */
     function showModal(on){ $('adjustBackdrop').classList.toggle('pv-hide', !on); }
     function showStep(which){
       $('adjustStep1').classList.toggle('pv-hide', which !== 'start');
@@ -949,7 +1370,7 @@
     }
 
     function openAdjust(id){
-      const f = FIELDS.find(x=>x.id === id);
+      const f = state.fields.find(x=>x.id === id);
       const run = state.lastRuns.get(id) || runField(f);
       const thr = Number($('workable').value);
       const op  = String($('opSel').value || '');
@@ -960,7 +1381,7 @@
       const isReady = (currentReady >= thr);
 
       $('adjustTitle').textContent = 'Adjust';
-      $('adjustSub').textContent = `${f.farm} • ${f.field} • Op: ${op} • Threshold: ${thr}`;
+      $('adjustSub').textContent = `${f.name} • Op: ${op} • Threshold: ${thr}`;
 
       const btnWet = $('btnAdjWet');
       const btnDry = $('btnAdjDry');
@@ -975,12 +1396,13 @@
           ? `Model says <b>READY</b> (Field Readiness ${Math.round(currentReady)} ≥ ${thr}). Only <b>Wet</b> is allowed.`
           : `Model says <b>WET</b> (Field Readiness ${Math.round(currentReady)} &lt; ${thr}). Only <b>Dry</b> is allowed.<br/><b>${eta || 'Estimated to be greater then 2 days'}</b>`;
 
+      const p = getFieldParams(id);
       $('adjustSoilDrain').innerHTML =
         `<b>Field settings</b><br/>
-         <b>Soil:</b> ${f.soil}/10 • <b>Drain:</b> ${f.drain}/10<br/><br/>
+         <b>Soil:</b> ${p.soil}/10 • <b>Drain:</b> ${p.drain}/10<br/><br/>
          <b>Definitions</b><br/>
          <b>Soil Type / Holding (1–10):</b> 1=sandier (holds less, dries faster) • 10=clay (holds more, dries slower)<br/>
-         <b>Drainage (1–10):</b> 1=good drainage (tile/ditches) • 10=poor drainage`;
+         <b>Drainage (1–10):</b> 1=very good drainage • 10=very poor drainage`;
 
       showStep('start');
       showModal(true);
@@ -1041,19 +1463,28 @@
     $('btnWetPretty').addEventListener('click', ()=> setWetLevel('pretty'));
     $('btnWetVery').addEventListener('click', ()=> setWetLevel('very'));
 
-    // UI refresh
+    /* ===========================
+       UI refresh
+       =========================== */
     function refreshAll(){
       setErr('');
-      const f = FIELDS.find(x=>x.id === state.selectedFieldId);
-      if (f){
-        f.soil = Number($('soilWet').value);
-        f.drain = Number($('drain').value);
+
+      // persist per-field soil/drain from sliders
+      if (state.selectedFieldId){
+        const p = getFieldParams(state.selectedFieldId);
+        p.soil  = clamp(Number($('soilWet').value), 1, 10);
+        p.drain = clamp(Number($('drain').value), 1, 10);
+        state.perFieldParams.set(state.selectedFieldId, p);
+        saveParamsToLocal();
       }
+
       renderTiles();
       renderDetails();
     }
 
-    // Controls
+    /* ===========================
+       Controls
+       =========================== */
     $('sortSel').addEventListener('change', refreshAll);
     $('opSel').addEventListener('change', refreshAll);
 
@@ -1073,13 +1504,46 @@
 
     $('btnRun').addEventListener('click', refreshAll);
 
-    // Future: backend call
+    // Fake detail buttons (make it “look real”)
+    document.addEventListener('click', (e)=>{
+      const btn = e.target && e.target.closest ? e.target.closest('[data-fake]') : null;
+      if (!btn) return;
+      const kind = btn.getAttribute('data-fake');
+
+      const f = state.fields.find(x=>x.id===state.selectedFieldId);
+      if (!f) return;
+
+      if (kind === 'maps'){
+        // Real-ish behavior: open maps (if allowed). Keep it safe even in dev.
+        const lat = f.location?.lat, lng = f.location?.lng;
+        if (isFinite(lat) && isFinite(lng)){
+          const url = `https://www.google.com/maps?q=${lat},${lng}`;
+          window.open(url, '_blank', 'noopener');
+          return;
+        }
+      }
+
+      if (kind === 'soil') return toast('Soil Survey: coming soon (NRCS / SSURGO hook).');
+      if (kind === 'wo')   return toast('Work Order creation: coming soon (field_maintenance / equipment WOs).');
+      if (kind === 'share')return toast('Share Summary: coming soon (PDF / message).');
+
+      toast('Coming soon.');
+    });
+
+    /* ===========================
+       Weather fetch (uses selected field)
+       =========================== */
     async function fetchReal30(){
       const base = String($('apiBase').value || '').trim().replace(/\/+$/,'');
       if (!base){ setErr('Add your Weather API Base URL first.'); return; }
 
+      const f = state.fields.find(x=>x.id === state.selectedFieldId);
+      if (!f || !f.location || !isFinite(f.location.lat) || !isFinite(f.location.lng)){
+        setErr('Selected field has no valid GPS.'); return;
+      }
+
       try{
-        const url = `${base}/weather30?lat=39.5656&lon=-89.6540`;
+        const url = `${base}/weather30?lat=${encodeURIComponent(f.location.lat)}&lon=${encodeURIComponent(f.location.lng)}`;
         const res = await fetch(url, { method:'GET' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
@@ -1101,19 +1565,32 @@
         setErr(`Fetch failed: ${e.message}`);
       }
     }
-
     $('btnFetch').addEventListener('click', fetchReal30);
 
-    // Init
-    try{
-      // Ensure details closed by default
-      const dp = $('detailsPanel');
-      if (dp) dp.open = false;
-    }catch(_){}
+    /* ===========================
+       Init
+       =========================== */
+    (async function init(){
+      try{
+        const dp = $('detailsPanel');
+        if (dp) dp.open = false;
+      }catch(_){}
 
-    genMock30();
-    selectField(state.selectedFieldId);
-    refreshAll();
+      genMock30();
+
+      // Load farms name map (optional) and fields
+      await loadFarmsOptional();
+      await loadFields();
+
+      // if still none, keep UI stable
+      if (!state.selectedFieldId && state.fields.length){
+        state.selectedFieldId = state.fields[0].id;
+      }
+
+      ensureSelectedParamsToSliders();
+      refreshAll();
+    })();
+
   })();
   </script>
 </body>
