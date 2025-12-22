@@ -30,11 +30,13 @@
   <style>
     :root{ --card-max:1100px; }
 
+    /* ===== QL-820NWB / DK-2205 (62mm wide continuous) ===== */
     :root{
-      --ql-tape-mm: 62mm;
+      --ql-tape-mm: 62mm;    /* tape width */
       --ql-qr-mm: 48mm;
       --ql-pad-mm: 2.2mm;
       --ql-gap-mm: 2mm;
+
       --ql-font: 18pt;
       --ql-font-small: 16pt;
       --ql-font-lab: 12pt;
@@ -55,6 +57,7 @@
     .title{ margin:0 0 4px; font-size:clamp(22px,3.6vw,32px); line-height:1.1; }
     .sub{ margin:0 10px 12px 0; color:var(--muted,#6f7772); }
 
+    /* Search row */
     .bar{ display:flex; gap:10px; align-items:center; }
     .search{
       display:flex; align-items:center; gap:10px; border:1px solid var(--border);
@@ -62,6 +65,7 @@
     }
     .search input{ flex:1; background:transparent; border:0; outline:none; font:inherit; color:var(--text); }
 
+    /* Filter icon button */
     .icon-btn{
       display:inline-flex; align-items:center; justify-content:center;
       width:42px; height:42px;
@@ -73,8 +77,11 @@
     .icon-btn:active{ transform:translateY(1px); }
     .icon-btn svg{ display:block }
 
+    /* Popover */
     .popover{
-      position:absolute; z-index:5; min-width:220px;
+      position:absolute;
+      z-index:5;
+      min-width:220px;
       border:1px solid var(--border); border-radius:14px;
       background:var(--card-surface, var(--surface)); color:var(--text);
       box-shadow:0 18px 40px rgba(0,0,0,.28);
@@ -90,6 +97,7 @@
 
     .count{ margin:6px 0 10px; color:var(--muted,#6f7772); font-weight:700; }
 
+    /* Cards */
     .group{ margin:14px 0; }
     .group h3{ margin:0 0 8px; color:var(--muted); font-weight:800; letter-spacing:.02em; }
     .card{
@@ -112,6 +120,7 @@
     }
     .badge.arch{ border-color:rgba(200,80,80,.35); color:rgba(200,80,80,.9); }
 
+    /* Detail modal */
     dialog.sheet{
       width:min(740px, 92vw);
       border:1px solid var(--border);
@@ -159,7 +168,9 @@
     }
     .btn[disabled], .btn.disabled{ opacity:.55; pointer-events:none; }
     .btn-primary{ border-color:transparent; background:var(--brand-green,#3B7E46); color:#fff !important; }
+    #openHub{ color:#fff !important; }
 
+    /* ===== Print Preview ===== */
     dialog.sheet.sheet-print{ width:fit-content; max-width:calc(100vw - 24px); }
     dialog.sheet.sheet-print .body{
       width:fit-content; max-width:calc(100vw - 24px);
@@ -208,10 +219,7 @@
     }
     .pv-long .make{ font-weight:900; font-size:var(--ql-font); line-height:1.05; white-space:nowrap; }
     .pv-long .model{ font-weight:800; font-size:var(--ql-font-small); line-height:1.05; white-space:nowrap; margin-top:1mm; }
-    .pv-long .mid{
-      width:var(--ql-qr-mm); height:var(--ql-qr-mm);
-      display:flex; align-items:center; justify-content:center; background:#fff;
-    }
+    .pv-long .mid{ width:var(--ql-qr-mm); height:var(--ql-qr-mm); display:flex; align-items:center; justify-content:center; background:#fff; }
     .pv-long .mid img{ width:100%; height:100%; image-rendering:pixelated; display:block; }
     .pv-long .right{ align-items:flex-end; text-align:right; }
     .pv-long .lab{ font-weight:800; font-size:var(--ql-font-lab); line-height:1.05; opacity:.85; white-space:nowrap; }
@@ -248,7 +256,7 @@
     }
     .pv-sf .serial.small{ font-size: var(--sf-serial-font-sm); }
 
-    /* Busy dialog (spinner) */
+    /* ===== Busy dialog (spinner) ALWAYS above dialogs ===== */
     dialog.sheet.sheet-busy{ width:min(420px, 92vw); }
     dialog.sheet.sheet-busy::backdrop{ background:rgba(0,0,0,.45); }
     .busy-top{ display:flex; align-items:center; gap:12px; }
@@ -314,7 +322,7 @@
     </div>
   </fv-shell>
 
-  <!-- Busy (always visible above dialogs) -->
+  <!-- Busy spinner dialog -->
   <dialog id="busyDlg" class="sheet sheet-busy" aria-modal="true">
     <header>
       <strong>Working…</strong>
@@ -363,11 +371,13 @@
     <div class="body">
       <p class="sub" style="margin:0 0 10px;">Pick the format, then you’ll see the preview.</p>
 
-      <div class="choice-grid">
+      <div class="group" style="margin:0;">
         <div id="choiceSummary" class="card" role="button" tabindex="0">
           <div class="card-title">Summary</div>
           <div class="sub" style="margin:2px 0 0;">Compact (StarFire-style).</div>
         </div>
+
+        <div style="height:10px;"></div>
 
         <div id="choiceDetailed" class="card" role="button" tabindex="0">
           <div class="card-title">Detailed</div>
@@ -390,7 +400,7 @@
     <div class="body">
       <p id="pHelp" class="print-help">
         Printer: <b>Brother QL-820NWB</b> • Tape: <b>DK-2205</b><br>
-        Label length flexes to your text (up to 6").
+        Label length flexes (up to 6").
       </p>
 
       <div id="printWrap" aria-label="Preview scroller">
@@ -407,7 +417,7 @@
   <script type="module">
     import { ready, getFirestore, collection, query, where, onSnapshot } from '/Farm-vista/js/firebase-init.js';
 
-    // ✅ Your real Cloud Run endpoint
+    // ✅ Your Cloud Run label endpoint
     const FV_LABEL_PDF_ENDPOINT = 'https://farmvista-pdf-label-300398089669.us-central1.run.app/label';
 
     const $ = sel => document.querySelector(sel);
@@ -703,6 +713,7 @@
       __previewQrSrc = '';
     }
 
+    // ✅ IMPORTANT: no @page size in here. PDFShift controls page size via format.
     function buildLabelPrintHtml(payload){
       const isSummary = payload?.mode === 'summary';
       const qrSrc = String(payload?.qrSrc || payload?.url || '');
@@ -711,8 +722,6 @@
       const modelName = String(payload?.model || '');
 
       if (isSummary){
-        const W = Number(payload?.cutLenMm || STARFIRE_LABEL.cutLenMm);
-        const H = STARFIRE_LABEL.tapeWmm;
         const Q = STARFIRE_LABEL.qrMm;
         const fontSize = (serialRaw && serialRaw.length > 12) ? '13pt' : '16pt';
 
@@ -720,8 +729,8 @@
 <html><head><meta charset="utf-8">
 <title>FarmVista Label</title>
 <style>
-@page{ size:${W}mm ${H}mm; margin:0; }
-html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
+@page{ margin:0; }
+html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 .label{
   width:100%; height:100%; box-sizing:border-box; padding:2.2mm;
   display:grid; grid-template-rows:${Q}mm 1fr; align-content:center; justify-items:center;
@@ -742,9 +751,6 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
 </body></html>`;
       }
 
-      const cutLen = Number(payload?.cutLenMm || __labelLenMm || LABEL.minLenMm);
-      const W = cutLen;
-      const H = LABEL.tapeWmm;
       const Q = LABEL.qrMm;
       const serial6 = serialLast6(serialRaw) || '';
 
@@ -752,8 +758,8 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
 <html><head><meta charset="utf-8">
 <title>FarmVista Label</title>
 <style>
-@page{ size:${W}mm ${H}mm; margin:0; }
-html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
+@page{ margin:0; }
+html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 .label{
   width:100%; height:100%; box-sizing:border-box; padding:2.2mm;
   display:grid; grid-template-columns:max-content ${Q}mm max-content;
@@ -914,7 +920,8 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
       if (!__pendingPrint) return;
 
       if (__pdfBlobUrl){
-        window.open(__pdfBlobUrl, '_blank', 'noopener,noreferrer');
+        // ✅ same tab
+        window.location.assign(__pdfBlobUrl);
         return;
       }
 
@@ -922,11 +929,14 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
       setBusy(true, 'Creating PDF label…', 'This can take a few seconds.');
 
       try{
-        const widthMm = (__chosenMode === 'summary')
+        const cutLenMm = (__chosenMode === 'summary')
           ? STARFIRE_LABEL.cutLenMm
           : Math.max(LABEL.minLenMm, Math.min(LABEL.maxLenMm, Number(__labelLenMm || LABEL.minLenMm)));
 
-        const heightMm = 62;
+        // ✅ IMPORTANT: Use PDFShift format as 62mm x cutLenMm (portrait), then HTML fills it.
+        // This avoids landscape/orientation weirdness and reduces “extra blank page”.
+        const widthMm = 62;
+        const heightMm = cutLenMm;
 
         const html = buildLabelPrintHtml({
           mode: __chosenMode,
@@ -934,8 +944,7 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
           qrSrc: __previewQrSrc || __pendingPrint.url || '',
           make: __pendingPrint.make || '',
           model: __pendingPrint.model || '',
-          serial: __pendingPrint.serial || '',
-          cutLenMm: widthMm
+          serial: __pendingPrint.serial || ''
         });
 
         const resp = await fetch(FV_LABEL_PDF_ENDPOINT, {
@@ -957,10 +966,9 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
 
         const blob = await resp.blob();
         __pdfBlobUrl = URL.createObjectURL(blob);
-        window.open(__pdfBlobUrl, '_blank', 'noopener,noreferrer');
 
-        pCreate.textContent = 'Open PDF';
-        pCreate.disabled = false;
+        // ✅ same tab
+        window.location.assign(__pdfBlobUrl);
       } catch (err){
         console.warn('[label-pdf] error', err);
         alert('Label PDF error. Check console/logs.');
@@ -1004,10 +1012,7 @@ html,body{ margin:0; padding:0; width:${W}mm; height:${H}mm; background:#fff; }
 
         btnPrintQR.onclick = ()=>{
           const base = { url, make: d.makeName || '', model: d.modelName || '', serial: d.serial || '' };
-
-          // default: starfire -> summary, else detailed
           __chosenMode = IS_STARFIRE ? 'summary' : 'detailed';
-
           __pendingPrint = { ...base, mode: __chosenMode };
 
           if (__chosenMode === 'summary'){
