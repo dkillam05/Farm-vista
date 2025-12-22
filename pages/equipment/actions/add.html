@@ -1,12 +1,12 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-12-22j
+Rev: 2025-12-22k
 
 FIX:
-✅ Summary centers (when there’s room)
-✅ Detailed centers (when there’s room)
-✅ If a label is wider than the visible preview area, it automatically flips to
-   left-align + natural horizontal scroll (so it won’t “fake-center” and look off)
+✅ Summary preview centers when it fits
+✅ Detailed preview centers when it fits
+✅ If preview content is wider than visible area => auto left-align + natural scroll
+✅ NO missing dropdown logic (makes/models/extras/init preserved)
 
 How:
 - #printWrap defaults to justify-content:center
@@ -252,7 +252,7 @@ How:
       background:var(--card-surface, var(--surface)); color:var(--text);
     }
 
-    /* ✅ Center labelChoice footer buttons (kept from your file) */
+    /* ✅ Center labelChoice footer buttons */
     #labelChoice footer{ justify-content:center; }
 
     /* Preview dialog sizing (keep from your file) */
@@ -277,7 +277,7 @@ How:
       text-align:center;
     }
 
-    /* ✅ NEW: Center by default. If content overflows, JS adds .scroll-left */
+    /* ✅ FIX: center by default; when overflow => .scroll-left */
     #printWrap{
       display:flex;
       width:100%;
@@ -285,8 +285,7 @@ How:
       overflow-x:auto;
       overflow-y:hidden;
       -webkit-overflow-scrolling:touch;
-
-      justify-content:center;   /* default center */
+      justify-content:center;     /* default center for BOTH modes */
       padding: 4px 2px 2px;
       box-sizing:border-box;
     }
@@ -763,22 +762,19 @@ How:
     function openDialog(d){ try{ d.showModal(); }catch{ d.setAttribute('open',''); } }
     function closeDialog(d){ try{ d.close(); }catch{ d.removeAttribute('open'); } }
 
-    /* ✅ FIX: Center when it fits; left+scroll when it overflows */
+    /* ✅ PREVIEW ALIGNMENT FIX (center if fits; left+scroll if overflow) */
     async function setPrintWrapAlignment(){
       const wrapEl = $("printWrap");
       const hostEl = $("pPreviewHost");
       if(!wrapEl || !hostEl) return;
 
-      // clear previous state
       wrapEl.classList.remove('scroll-left');
 
-      // wait for layout + images
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
 
       const wrapW = wrapEl.clientWidth || 0;
       const hostW = hostEl.scrollWidth || Math.ceil(hostEl.getBoundingClientRect().width || 0);
 
-      // if the preview content is wider than the visible wrap area, go left+scroll
       const needsScroll = hostW > (wrapW + 2);
       if(needsScroll) wrapEl.classList.add('scroll-left');
 
@@ -1062,7 +1058,7 @@ How:
         pHost.appendChild(wrap);
       }
 
-      // after DOM is in place, decide center vs scroll-left
+      // ✅ decide center vs left+scroll AFTER preview is in DOM
       await setPrintWrapAlignment();
     }
 
@@ -1248,6 +1244,170 @@ How:
       }
     }
 
+    /* Data */
+    function docCats(v){ return Array.isArray(v?.categories) ? v.categories.map(String) : undefined; }
+
+    async function getMakes(db){
+      const items=[];
+      try{
+        const snap=await getDocs(query(collection(db,'equipment-makes'), where('archived','!=',true), orderBy('archived'), orderBy('name')));
+        snap.forEach(d=>{
+          const v=d.data()||{}; const name=String(v.name||'').trim();
+          if(name) items.push({id:d.id,name, categories:docCats(v)});
+        });
+      }catch{
+        const snap=await getDocs(collection(db,'equipment-makes'));
+        snap.forEach(d=>{
+          const v=d.data()||{};
+          if(!v.archived){
+            const name=String(v.name||'').trim();
+            if(name) items.push({id:d.id,name, categories:docCats(v)});
+          }
+        });
+        items.sort((a,b)=>a.name.localeCompare(b.name));
+      }
+      return items;
+    }
+
+    async function getModels(db, makeId){
+      if(!makeId) return [];
+      const items=[];
+      try{
+        const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId), where('archived','!=',true), orderBy('archived'), orderBy('name')));
+        snap.forEach(d=>{
+          const v=d.data()||{}; const name=String(v.name||'').trim();
+          if(name) items.push({id:d.id,name, categories:docCats(v)});
+        });
+      }catch{
+        const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId)));
+        snap.forEach(d=>{
+          const v=d.data()||{};
+          if(!v.archived){
+            const name=String(v.name||'').trim();
+            if(name) items.push({id:d.id,name, categories:docCats(v)});
+          }
+        });
+        items.sort((a,b)=>a.name.localeCompare(b.name));
+      }
+      return items;
+    }
+
+    function visibleForType(doc){
+      const cats = Array.isArray(doc.categories) ? doc.categories.map(s=>String(s).toLowerCase()) : null;
+      if(!cats || cats.length===0) return true;
+      return cats.includes(TYPE);
+    }
+
+    let ddMake, ddModel;
+    function buildDdObjects(){
+      ddMake = { root: $("ddMake"), btn: $("ddMakeBtn"), search: $("ddMakeSearch"), list: $("ddMakeList"), hidden: $("makeId") };
+      ddModel = { root: $("ddModel"), btn: $("ddModelBtn"), search: $("ddModelSearch"), list: $("ddModelList"), hidden: $("modelId") };
+      wireDropdownOpenClose(ddMake.root);
+      wireDropdownOpenClose(ddModel.root);
+      setupSearch(ddMake.search, ddMake.list);
+      setupSearch(ddModel.search, ddModel.list);
+    }
+
+    async function populateMakes(db){
+      const allMakes = await getMakes(db);
+      const makes = allMakes.filter(visibleForType);
+      buildList(ddMake.list, makes.map(m=>[m.id, m.name]), (val,label)=>setMake(val,label));
+      ddMake.hidden.value = "";
+      ddMake.btn.textContent = "— Select —";
+    }
+
+    async function populateModels(db, makeId){
+      const allModels = await getModels(db, makeId);
+      const models = allModels.filter(visibleForType);
+      buildList(ddModel.list, models.map(m=>[m.id, m.name]), (val,label)=>setModel(val,label));
+      ddModel.btn.disabled = false;
+      ddModel.search.disabled = false;
+      ddModel.hidden.value = "";
+      ddModel.btn.textContent = "— Select —";
+    }
+
+    function setMake(id, label){
+      ddMake.hidden.value = id || "";
+      ddMake.btn.textContent = id ? label : "— Select —";
+      ddMake.root.classList.remove("open");
+
+      ddModel.hidden.value = "";
+      ddModel.btn.textContent = "— Select a Make first —";
+      ddModel.btn.disabled = !id;
+      ddModel.search.disabled = !id;
+      ddModel.list.innerHTML = "";
+      validateForm();
+
+      if(id){ populateModels(window.__db, id); }
+    }
+
+    function setModel(id, label){
+      ddModel.hidden.value = id || "";
+      ddModel.btn.textContent = id ? label : "— Select —";
+      ddModel.root.classList.remove("open");
+      validateForm();
+    }
+
+    function initExtras(){
+      const host = $("equipExtras");
+      if(!host) return;
+
+      if(window.FVEquipForms && typeof window.FVEquipForms.initExtras === 'function'){
+        try{
+          EXTRAS_API = window.FVEquipForms.initExtras({
+            equipType: TYPE,
+            container: host,
+            document
+          }) || null;
+        }catch(e){
+          console.warn("extras init failed, falling back:", e);
+          EXTRAS_API = null;
+        }
+      }
+
+      if(!EXTRAS_API && TYPE === 'tractor'){
+        host.innerHTML = "";
+
+        const row = document.createElement('div');
+        row.className = 'row';
+
+        const f1 = document.createElement('div');
+        f1.className = 'field';
+        f1.innerHTML = `
+          <label for="engineHours">Engine Hours</label>
+          <input id="engineHours" type="number" class="input"
+                 inputmode="decimal" step="0.1" placeholder="e.g., 1250.5">
+        `;
+
+        const f2 = document.createElement('div');
+        f2.className = 'field';
+        f2.innerHTML = `
+          <label for="starfireCapable">StarFire GPS Capable?</label>
+          <div class="pv-switch-row">
+            <label class="pv-switch" for="starfireCapable" aria-label="StarFire GPS Capable">
+              <input id="starfireCapable" type="checkbox" />
+              <span class="pv-switch-track" aria-hidden="true">
+                <span class="pv-switch-thumb" aria-hidden="true"></span>
+              </span>
+              <span class="pv-switch-text" id="starfireCapableText">Off</span>
+            </label>
+          </div>
+        `;
+
+        row.appendChild(f1);
+        row.appendChild(f2);
+        host.appendChild(row);
+
+        const sf = f2.querySelector('#starfireCapable');
+        const sft = f2.querySelector('#starfireCapableText');
+        if(sf && sft){
+          const sync = ()=>{ sft.textContent = sf.checked ? "On" : "Off"; };
+          sf.addEventListener('change', sync);
+          sync();
+        }
+      }
+    }
+
     (async()=>{
       await ready;
       const db  = getFirestore();
@@ -1265,8 +1425,10 @@ How:
         if(open) closeYearPanel(); else openYearPanel();
       });
 
-      // NOTE: rest of your original init logic remains as-is in your file
-      // (populate makes/models, extras, etc.)
+      /* ✅ IMPORTANT: keep your original dropdown init */
+      buildDdObjects();
+      initExtras();
+      await populateMakes(db);
 
       $("serial").addEventListener("input", validateForm);
 
