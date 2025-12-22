@@ -1,12 +1,16 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-12-22m
+Rev: 2025-12-22n
 
-FIXES:
-✅ PDF now ALWAYS 1 page (no blank 2nd page)
-   - builder HTML uses @page { size: ... } and html/body exact mm size + overflow hidden
-✅ Restored file input styling ("Choose file" section)
-✅ Keeps: dropdowns, preview centering logic, dialogs, QR flow
+ONLY CHANGES vs your 2025-12-22m file:
+✅ LABEL / PRINT CODE now matches your *lookup* page style exactly:
+   - sheet-print sizing (fit-content)
+   - #printWrap + .center behavior
+   - setPrintWrapCentered() logic (no scroll-left logic)
+   - buildDesktopHtml() + buildMobilePortraitHtml() copied to match lookup behavior
+   - createPdf() flow matches lookup behavior (no extra page-size forcing in HTML)
+
+🚫 Everything else is untouched.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -247,18 +251,14 @@ FIXES:
     }
     #labelChoice footer{ justify-content:center; }
 
-    dialog.sheet.sheet-print{
-      width:min(860px, 92vw);
-      max-width:calc(100vw - 24px);
-    }
+    /* ============================
+       LABEL PREVIEW (MATCH LOOKUP)
+       ============================ */
+    dialog.sheet.sheet-print{ width:fit-content; max-width:calc(100vw - 24px); }
     dialog.sheet.sheet-print .body{
-      width:100%;
-      max-width:100%;
-      overflow-x:hidden;
-      overflow-y:auto;
-      -webkit-overflow-scrolling:touch;
+      width:fit-content; max-width:calc(100vw - 24px);
+      overflow-x:auto; overflow-y:auto; -webkit-overflow-scrolling:touch;
     }
-
     .print-help{
       color:var(--muted,#6f7772);
       font-size:14px;
@@ -267,20 +267,15 @@ FIXES:
       max-width: min(560px, calc(100vw - 48px));
       text-align:center;
     }
-
-    /* Center by default; if overflow => .scroll-left */
     #printWrap{
-      display:flex;
-      width:100%;
-      max-width:100%;
-      overflow-x:auto;
-      overflow-y:hidden;
+      display:flex; width:100%; max-width:calc(100vw - 48px);
+      overflow-x:auto; overflow-y:hidden;
       -webkit-overflow-scrolling:touch;
-      justify-content:center;
+      justify-content:flex-start;
       padding: 4px 2px 2px;
       box-sizing:border-box;
     }
-    #printWrap.scroll-left{ justify-content:flex-start; }
+    #printWrap.center{ justify-content:center; }
     #pPreviewHost{ flex:0 0 auto; }
 
     .pv-long{
@@ -324,21 +319,8 @@ FIXES:
       overflow:hidden;
       font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
     }
-    .pv-sf .qr{
-      width:46mm;
-      height:46mm;
-      display:grid;
-      place-items:center;
-      background:#fff;
-    }
-    .pv-sf .qr img,
-    .pv-sf .qr canvas{
-      width:100% !important;
-      height:100% !important;
-      object-fit:contain;
-      display:block;
-      margin:0 !important;
-    }
+    .pv-sf .qr{ width:46mm; height:46mm; display:flex; align-items:center; justify-content:center; }
+    .pv-sf .qr img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
     .pv-sf .lab{
       width:100%;
       text-align:center;
@@ -738,207 +720,142 @@ FIXES:
     function openDialog(d){ try{ d.showModal(); }catch{ d.setAttribute('open',''); } }
     function closeDialog(d){ try{ d.close(); }catch{ d.removeAttribute('open'); } }
 
-    async function setPrintWrapAlignment(){
+    /* ===== MATCH LOOKUP: center only for summary ===== */
+    async function setPrintWrapCentered(isSummary){
       const wrapEl = $("printWrap");
-      const hostEl = $("pPreviewHost");
-      if(!wrapEl || !hostEl) return;
-
-      wrapEl.classList.remove('scroll-left');
-      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-
-      const wrapW = wrapEl.clientWidth || 0;
-      const hostW = hostEl.scrollWidth || Math.ceil(hostEl.getBoundingClientRect().width || 0);
-
-      if(hostW > (wrapW + 2)) wrapEl.classList.add('scroll-left');
-
+      if(!wrapEl) return;
+      wrapEl.classList.toggle('center', !!isSummary);
       wrapEl.scrollLeft = 0;
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
       wrapEl.scrollLeft = 0;
     }
 
     /* =========================
-       PDF HTML BUILDERS (1-page enforced)
+       LABEL HTML BUILDERS (MATCH LOOKUP)
        ========================= */
-
     function esc(s){
-      return String(s ?? '')
-        .replaceAll('&','&amp;')
-        .replaceAll('<','&lt;')
-        .replaceAll('>','&gt;')
-        .replaceAll('"','&quot;')
-        .replaceAll("'","&#39;");
+      return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+    }
+
+    // PRINT HTML (Mobile PDF stays portrait 62 x cutLen; Desktop stays landscape cutLen x 62)
+    // Summary label MUST show "VIN/Serial" + last 6
+    function buildMobilePortraitHtml({ mode, qrSrc, make, model, serial6, cutLenMm }){
+      const isSummary = mode === 'summary';
+      const pad = 2.2;
+
+      if (isSummary){
+        return `<!doctype html><html><head><meta charset="utf-8"><style>
+@page{ margin:0; }
+html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; overflow:hidden; }
+.page{ width:100%; height:100%; display:block; overflow:hidden; position:relative; }
+.rot{ width:${cutLenMm}mm; height:62mm; transform-origin:top left; transform:rotate(90deg) translateY(-62mm); }
+.label{
+  width:${cutLenMm}mm; height:62mm;
+  box-sizing:border-box; padding:${pad}mm;
+  display:grid; grid-template-rows:46mm max-content max-content;
+  align-content:center; justify-items:center;
+  gap:1mm;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  color:#000; overflow:hidden;
+}
+.qr{ width:46mm; height:46mm; display:flex; align-items:center; justify-content:center; }
+.qr img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
+.lab{ width:100%; text-align:center; font-weight:800; font-size:10pt; opacity:.85; letter-spacing:.2px; }
+.val{ width:100%; text-align:center; font-weight:900; font-size:16pt; letter-spacing:.6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+</style></head><body>
+<div class="page"><div class="rot"><div class="label">
+  <div class="qr"><img alt="QR" src="${qrSrc}"></div>
+  <div class="lab">VIN/Serial</div>
+  <div class="val">${esc(serial6 || '—')}</div>
+</div></div></div>
+</body></html>`;
+      }
+
+      return `<!doctype html><html><head><meta charset="utf-8"><style>
+@page{ margin:0; }
+html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; overflow:hidden; }
+.page{ width:100%; height:100%; display:block; overflow:hidden; position:relative; }
+.rot{ width:${cutLenMm}mm; height:62mm; transform-origin:top left; transform:rotate(90deg) translateY(-62mm); }
+.label{
+  width:${cutLenMm}mm; height:62mm;
+  box-sizing:border-box; padding:${pad}mm;
+  display:grid; grid-template-columns:max-content 48mm max-content;
+  gap:2mm; align-items:center;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  color:#000; overflow:hidden;
+}
+.left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
+.make{ font-weight:900; font-size:18pt; line-height:1.05; white-space:nowrap; }
+.model{ font-weight:800; font-size:16pt; line-height:1.05; white-space:nowrap; margin-top:1mm; }
+.mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; }
+.mid img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
+.right{ align-items:flex-end; text-align:right; }
+.lab{ font-weight:800; font-size:12pt; line-height:1.05; opacity:.85; white-space:nowrap; }
+.val{ font-weight:900; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; white-space:nowrap; }
+</style></head><body>
+<div class="page"><div class="rot"><div class="label">
+  <div class="left"><div class="make">${esc(make||'—')}</div><div class="model">${esc(model||'—')}</div></div>
+  <div class="mid"><img alt="QR" src="${qrSrc}"></div>
+  <div class="right"><div class="lab">VIN/Serial</div><div class="val">${esc(serial6||'—')}</div></div>
+</div></div></div>
+</body></html>`;
     }
 
     function buildDesktopHtml({ mode, qrSrc, make, model, serial6 }){
-      const mk = esc(make || '—');
-      const md = esc(model || '—');
-      const sn = esc(serial6 || '—');
-      const qr = String(qrSrc || '').trim();
+      const isSummary = mode === 'summary';
+      const pad = 2.2;
 
-      if(mode === 'summary'){
-        return `<!doctype html><html><head><meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<style>
-  @page { size: 62mm 62mm; margin:0; }
-  html,body{ width:62mm; height:62mm; margin:0; padding:0; overflow:hidden; background:#fff; }
-  .label{
-    width:62mm; height:62mm;
-    display:grid;
-    grid-template-rows: 46mm max-content max-content;
-    align-content:center;
-    justify-items:center;
-    gap:1mm;
-    padding:2.2mm;
-    box-sizing:border-box;
-    font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  }
-  .qr{ width:46mm; height:46mm; display:grid; place-items:center; }
-  .qr img{ width:100%; height:100%; object-fit:contain; display:block; }
-  .lab{ font-weight:800; font-size:10pt; opacity:.85; width:100%; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .val{ font-weight:900; font-size:16pt; letter-spacing:.6px; width:100%; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      if (isSummary){
+        return `<!doctype html><html><head><meta charset="utf-8"><style>
+@page{ margin:0; }
+html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
+.label{
+  width:100%; height:100%;
+  box-sizing:border-box; padding:${pad}mm;
+  display:grid; grid-template-rows:46mm max-content max-content;
+  align-content:center; justify-items:center;
+  gap:1mm;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  color:#000; overflow:hidden;
+}
+.qr{ width:46mm; height:46mm; display:flex; align-items:center; justify-content:center; }
+.qr img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
+.lab{ width:100%; text-align:center; font-weight:800; font-size:10pt; opacity:.85; letter-spacing:.2px; }
+.val{ width:100%; text-align:center; font-weight:900; font-size:16pt; letter-spacing:.6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 </style></head><body>
-  <div class="label">
-    <div class="qr"><img src="${qr}" alt="QR"/></div>
-    <div class="lab">VIN/Serial</div>
-    <div class="val">${sn}</div>
-  </div>
+<div class="label">
+  <div class="qr"><img alt="QR" src="${qrSrc}"></div>
+  <div class="lab">VIN/Serial</div>
+  <div class="val">${esc(serial6 || '—')}</div>
+</div>
 </body></html>`;
       }
 
-      return `<!doctype html><html><head><meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<style>
-  @page { size: 140mm 62mm; margin:0; }
-  html,body{
-    width:140mm; height:62mm;
-    margin:0; padding:0;
-    overflow:hidden;
-    background:#fff;
-  }
-
-  /* Kill any flow-based pagination */
-  body{ position:relative; }
-
-  .label{
-    position:absolute; left:0; top:0;
-    width:140mm; height:62mm;
-    display:grid;
-    grid-template-columns: max-content 48mm max-content;
-    align-items:center;
-    gap:2mm;
-    padding:2.2mm;
-    box-sizing:border-box;
-    font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  }
-
-  .left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
-  .make{ font-weight:900; font-size:18pt; line-height:1.05; }
-  .model{ font-weight:800; font-size:16pt; line-height:1.05; margin-top:1mm; }
-  .mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; }
-  .mid img{ width:100%; height:100%; object-fit:contain; display:block; }
-  .right{ align-items:flex-end; text-align:right; }
-  .lab{ font-weight:800; font-size:12pt; opacity:.85; line-height:1.05; }
-  .val{ font-weight:900; font-size:18pt; letter-spacing:.6px; line-height:1.05; margin-top:1mm; }
+      return `<!doctype html><html><head><meta charset="utf-8"><style>
+@page{ margin:0; }
+html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
+.label{
+  width:100%; height:100%;
+  box-sizing:border-box; padding:${pad}mm;
+  display:grid; grid-template-columns:max-content 48mm max-content;
+  gap:2mm; align-items:center;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  color:#000; overflow:hidden;
+}
+.left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
+.make{ font-weight:900; font-size:18pt; line-height:1.05; white-space:nowrap; }
+.model{ font-weight:800; font-size:16pt; line-height:1.05; white-space:nowrap; margin-top:1mm; }
+.mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; }
+.mid img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
+.right{ align-items:flex-end; text-align:right; }
+.lab{ font-weight:800; font-size:12pt; line-height:1.05; opacity:.85; white-space:nowrap; }
+.val{ font-weight:900; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; white-space:nowrap; }
 </style></head><body>
-  <div class="label">
-    <div class="left">
-      <div class="make">${mk}</div>
-      <div class="model">${md}</div>
-    </div>
-    <div class="mid"><img src="${qr}" alt="QR"/></div>
-    <div class="right">
-      <div class="lab">VIN/Serial</div>
-      <div class="val">${sn}</div>
-    </div>
-  </div>
-</body></html>`;
-    }
-
-    function buildMobilePortraitHtml({ mode, qrSrc, make, model, serial6, cutLenMm }){
-      const mk = esc(make || '—');
-      const md = esc(model || '—');
-      const sn = esc(serial6 || '—');
-      const qr = String(qrSrc || '').trim();
-      const len = Number(cutLenMm || 140);
-
-      if(mode === 'summary'){
-        return `<!doctype html><html><head><meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<style>
-  @page { size: 62mm 62mm; margin:0; }
-  html,body{ width:62mm; height:62mm; margin:0; padding:0; overflow:hidden; background:#fff; }
-  .label{
-    width:62mm; height:62mm;
-    display:grid;
-    grid-template-rows: 46mm max-content max-content;
-    align-content:center;
-    justify-items:center;
-    gap:1mm;
-    padding:2.2mm;
-    box-sizing:border-box;
-    font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  }
-  .qr{ width:46mm; height:46mm; display:grid; place-items:center; }
-  .qr img{ width:100%; height:100%; object-fit:contain; display:block; }
-  .lab{ font-weight:800; font-size:10pt; opacity:.85; width:100%; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .val{ font-weight:900; font-size:16pt; letter-spacing:.6px; width:100%; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-</style></head><body>
-  <div class="label">
-    <div class="qr"><img src="${qr}" alt="QR"/></div>
-    <div class="lab">VIN/Serial</div>
-    <div class="val">${sn}</div>
-  </div>
-</body></html>`;
-      }
-
-      // portrait page: 62mm wide x len mm tall
-      return `<!doctype html><html><head><meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<style>
-  @page { size: 62mm ${len}mm; margin:0; }
-  html,body{ width:62mm; height:${len}mm; margin:0; padding:0; overflow:hidden; background:#fff; }
-  .page{ width:62mm; height:${len}mm; position:relative; overflow:hidden; }
-  .rot{
-    position:absolute;
-    left:0; top:0;
-    width:${len}mm; height:62mm;
-    transform-origin: top left;
-    transform: rotate(90deg) translateY(-62mm);
-  }
-  .label{
-    width:140mm; height:62mm;
-    display:grid;
-    grid-template-columns: max-content 48mm max-content;
-    align-items:center;
-    gap:2mm;
-    padding:2.2mm;
-    box-sizing:border-box;
-    font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  }
-  .left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
-  .make{ font-weight:900; font-size:18pt; line-height:1.05; }
-  .model{ font-weight:800; font-size:16pt; line-height:1.05; margin-top:1mm; }
-  .mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; }
-  .mid img{ width:100%; height:100%; object-fit:contain; display:block; }
-  .right{ align-items:flex-end; text-align:right; }
-  .lab{ font-weight:800; font-size:12pt; opacity:.85; line-height:1.05; }
-  .val{ font-weight:900; font-size:18pt; letter-spacing:.6px; line-height:1.05; margin-top:1mm; }
-</style></head><body>
-  <div class="page">
-    <div class="rot">
-      <div class="label">
-        <div class="left">
-          <div class="make">${mk}</div>
-          <div class="model">${md}</div>
-        </div>
-        <div class="mid"><img src="${qr}" alt="QR"/></div>
-        <div class="right">
-          <div class="lab">VIN/Serial</div>
-          <div class="val">${sn}</div>
-        </div>
-      </div>
-    </div>
-  </div>
+<div class="label">
+  <div class="left"><div class="make">${esc(make||'—')}</div><div class="model">${esc(model||'—')}</div></div>
+  <div class="mid"><img alt="QR" src="${qrSrc}"></div>
+  <div class="right"><div class="lab">VIN/Serial</div><div class="val">${esc(serial6||'—')}</div></div>
+</div>
 </body></html>`;
     }
 
@@ -1156,14 +1073,6 @@ FIXES:
 
     const printFrame = $("fv-print-frame");
 
-    const safeQrSrcForPreview = (url)=>{
-      const s = String(url||'');
-      if(!s) return '';
-      if(s.startsWith('data:')) return s;
-      const bust = (s.includes('?') ? '&' : '?') + '_=' + Date.now();
-      return s + bust;
-    };
-
     let __pending = null;
     let __mode = 'detailed';
     let __cutLenMm = 140;
@@ -1172,14 +1081,16 @@ FIXES:
     function clearPreviewHost(){
       pHost.innerHTML = '';
       __previewQrSrc = '';
-      const w = $("printWrap");
-      if(w) w.scrollLeft = 0;
     }
 
     async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
-      const qrSrc = safeQrSrcForPreview(url);
+      const bust = (url && url.includes('?') ? '&' : '?') + '_=' + Date.now();
+      const qrSrc = url ? (url + bust) : '';
+
       clearPreviewHost();
       __previewQrSrc = qrSrc;
+
+      await setPrintWrapCentered(mode === 'summary');
 
       if (mode === 'summary'){
         const wrap = document.createElement('div');
@@ -1214,14 +1125,12 @@ FIXES:
         wrap.append(left,mid,right);
         pHost.appendChild(wrap);
       }
-
-      await setPrintWrapAlignment();
     }
 
     cCancel.addEventListener('click', ()=> closeDialog(cDlg));
     pCancel.addEventListener('click', ()=> closeDialog(pDlg));
 
-    cOk.addEventListener('click', async ()=>{
+    cOk.addEventListener('click', ()=>{
       const picked = cDlg.querySelector('input[name="labelMode"]:checked');
       __mode = picked ? picked.value : __mode;
       closeDialog(cDlg);
@@ -1229,9 +1138,9 @@ FIXES:
       if (!__pending) return;
 
       __cutLenMm = (__mode === 'summary') ? 62 : 140;
-      openDialog(pDlg);
 
-      await setPreview({
+      openDialog(pDlg);
+      setPreview({
         mode: __mode,
         url: __pending.url,
         make: __pending.make,
@@ -1260,6 +1169,8 @@ FIXES:
         const mobile = isMobileLike();
         const cutLenMm = (__mode === 'summary') ? 62 : __cutLenMm;
 
+        // Desktop: landscape cutLen x 62
+        // Mobile: portrait 62 x cutLen
         const widthMm  = mobile ? 62 : cutLenMm;
         const heightMm = mobile ? cutLenMm : 62;
         const landscape = false;
@@ -1296,7 +1207,7 @@ FIXES:
         const errText = !resp.ok ? await resp.text().catch(()=> '') : '';
         if (!resp.ok){
           console.warn('[label-pdf] failed', resp.status, errText);
-          alert(`Label PDF failed (${resp.status}). Check Cloud Run logs.`);
+          alert('Label PDF failed. Check Cloud Run logs.');
           return;
         }
 
@@ -1309,9 +1220,6 @@ FIXES:
           printFrame.onload = ()=> { try{ printFrame.contentWindow.focus(); printFrame.contentWindow.print(); } catch {} };
           printFrame.src = url;
         }
-      }catch(err){
-        console.error('[label-pdf] exception', err);
-        alert('Label PDF failed (exception). Open console for details.');
       } finally {
         setPdfLoading(false);
         pCreate.disabled = false;
