@@ -756,7 +756,7 @@
           </div>
 
           <div class="fv-weather-zip-status" style="
-            font-size:12px;color:var(--muted,#67706B);
+            font-size:8px;color:var(--muted,#67706B);
             flex:1 1 auto;
             text-align:right;
             white-space:nowrap;
