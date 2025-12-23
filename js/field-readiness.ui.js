@@ -1,14 +1,27 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.ui.js  (FULL FILE)
-Rev: 2025-12-23d
+Rev: 2025-12-23e
 
 UPDATES (per Dane):
-✅ Adjust modal: show a real status card:
+✅ Global calibration cooldown (72h) enforced server-side; UI reflects lockout
+✅ Adjust modal: clear status card:
    - "Last global adjustment: Xh Ym ago"
    - "Next global adjustment allowed: <timestamp>"
-✅ Adds note: for one specific field, use field-specific Soil Wetness + Drainage sliders
-✅ No HTML changes required (uses existing #calibCooldownMsg)
-✅ Keeps existing: global-only calibration, cooldown enforcement UI, tiles, filters, paging, maps, etc.
+✅ Adjust modal note: if one specific field needs changes now, use field-specific Soil Wetness + Drainage sliders
+✅ Global calibration slider behavior:
+   - 0–100 scale
+   - anchored to current Field Readiness (starts at current readiness)
+   - cannot move in wrong direction (dry correction can't go wetter; wet correction can't go drier)
+   - distance from anchor determines intensity
+✅ Field-specific adjustments remain separate (Soil Wetness + Drainage Index sliders)
+✅ Field tiles show ONLY field name (farm name removed)
+✅ Filters:
+   - Farm dropdown: All (default) + farms
+   - Results per page: 25 (default), 50, 100, 250, All
+✅ MAJOR UX FIX: Threshold-centered color perception
+   - Operation threshold is visual midpoint (50%)
+   - numbers do NOT change; only the color/gradient/badge perception changes
+   - affects: readiness pill, gauge gradient, badge perception
 ===================================================================== */
 'use strict';
 
@@ -56,6 +69,70 @@ function showModal(backdropId, on){
 function on(id, ev, fn){
   const el = $(id);
   if (el) el.addEventListener(ev, fn);
+}
+
+/* ---------- threshold-centered perception ---------- */
+/**
+ * Map an actual readiness value (0..100) into a "perceived" 0..100
+ * where the current operation threshold is always the visual midpoint (50).
+ *
+ * - If readiness == threshold => perceived 50
+ * - Above threshold spreads across 50..100
+ * - Below threshold spreads across 0..50
+ *
+ * Numbers never change; only how we color/position the UI.
+ */
+function perceivedFromThreshold(readiness, thr){
+  const r = clamp(Math.round(Number(readiness)), 0, 100);
+  const t = clamp(Math.round(Number(thr)), 0, 100);
+
+  if (t <= 0){
+    // threshold at 0 means everything is acceptable; push perception greener
+    return 50 + Math.round((r/100) * 50);
+  }
+  if (t >= 100){
+    // threshold at 100 means extremely strict; everything below is "below threshold"
+    return Math.round((r/100) * 50);
+  }
+
+  if (r === t) return 50;
+
+  if (r > t){
+    const denom = Math.max(1, 100 - t);
+    const frac = (r - t) / denom;       // 0..1
+    return clamp(Math.round(50 + frac * 50), 0, 100);
+  } else {
+    const denom = Math.max(1, t);
+    const frac = r / denom;             // 0..1
+    return clamp(Math.round(frac * 50), 0, 100);
+  }
+}
+
+/* Simple HSL ramp (red->amber->green) for perceived values */
+function colorForPerceived(p){
+  const x = clamp(Number(p), 0, 100);
+  // 0 (red ~10deg) -> 50 (amber ~45deg) -> 100 (green ~120deg)
+  let h;
+  if (x <= 50){
+    const frac = x / 50;
+    h = 10 + (45 - 10) * frac;
+  } else {
+    const frac = (x - 50) / 50;
+    h = 45 + (120 - 45) * frac;
+  }
+  // keep it readable in light/dark (moderate saturation)
+  const s = 70;
+  const l = 38;
+  return `hsl(${h.toFixed(0)} ${s}% ${l}%)`;
+}
+
+function gaugeGradientCss(){
+  // consistent perception gradient: red -> amber at midpoint -> green
+  return `linear-gradient(90deg,
+    hsl(10 70% 38%) 0%,
+    hsl(45 75% 38%) 50%,
+    hsl(120 55% 34%) 100%
+  )`;
 }
 
 /* ---------- constants ---------- */
@@ -598,13 +675,17 @@ function renderTiles(){
     const run0 = state.lastRuns.get(f.id);
     if (!run0) continue;
 
-    const readiness = run0.readinessR;
+    const readiness = run0.readinessR;                // actual number
     const eta = etaFor(run0, thr, ETA_MAX_HOURS);
     const rainRange = rainInRange(run0, range);
 
-    const leftPos = markerLeftCSS(readiness);
-    const thrPos  = markerLeftCSS(thr);
-    const pillBg = readinessColor(readiness);
+    // Threshold-centered perception (colors/positions only)
+    const perceived = perceivedFromThreshold(readiness, thr);
+    const leftPos = markerLeftCSS(perceived);         // marker uses perceived
+    const thrPos  = markerLeftCSS(50);                // threshold is ALWAYS midpoint visually
+
+    // Pill color perception matches threshold
+    const pillBg = colorForPerceived(perceived);
 
     // FIELD ONLY
     const labelLeft = f.name;
@@ -617,7 +698,7 @@ function renderTiles(){
         <div class="titleline">
           <div class="name" title="${esc(labelLeft)}">${esc(labelLeft)}</div>
         </div>
-        <div class="readiness-pill" style="background:${pillBg};">Field Readiness ${readiness}</div>
+        <div class="readiness-pill" style="background:${pillBg};color:#fff;">Field Readiness ${readiness}</div>
       </div>
 
       <p class="subline">Rain (range): <span class="mono">${rainRange.toFixed(2)}</span> in</p>
@@ -628,10 +709,10 @@ function renderTiles(){
           <div class="chip readiness">Readiness</div>
         </div>
 
-        <div class="gauge">
+        <div class="gauge" style="background:${gaugeGradientCss()};">
           <div class="thr" style="left:${thrPos};"></div>
           <div class="marker" style="left:${leftPos};"></div>
-          <div class="badge" style="left:${leftPos};">Field Readiness ${readiness}</div>
+          <div class="badge" style="left:${leftPos};background:${pillBg};color:#fff;border:1px solid rgba(255,255,255,.18);">Field Readiness ${readiness}</div>
         </div>
 
         <div class="ticks"><span>0</span><span>50</span><span>100</span></div>
@@ -944,9 +1025,7 @@ function __renderCooldownCard(){
   const nextAbs = nextMs ? __fmtAbs(nextMs) : '—';
 
   const title = locked ? 'Global calibration is locked' : 'Global calibration is available';
-  const sub = locked
-    ? `Next global adjustment allowed: <span class="mono">${esc(nextAbs)}</span>`
-    : `Next global adjustment allowed: <span class="mono">${esc(nextAbs)}</span>`;
+  const sub = `Next global adjustment allowed: <span class="mono">${esc(nextAbs)}</span>`;
 
   const lastLine = lastMs
     ? `Last global adjustment: <span class="mono">${esc(since)}</span> ago`
