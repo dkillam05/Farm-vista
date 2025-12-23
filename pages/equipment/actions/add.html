@@ -306,7 +306,7 @@ dialog.sheet.sheet-print .body{
 
   align-items:center;
   gap:2mm;
-  padding:2.2mm;
+  padding:1.0mm;
   box-sizing:border-box;
 
   /* ✅ allow ellipsis instead of forcing width */
@@ -790,6 +790,10 @@ dialog.sheet.sheet-print .body{
     function esc(s){
       return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
     }
+    function pxToMm(px){ return (px * 25.4) / 96; }
+function clampMm(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+function roundUpMm(v){ return Math.ceil(v * 10) / 10; } // 0.1mm
+
 
     function buildMobilePortraitHtml({ mode, qrSrc, make, model, serial6, cutLenMm }){
   const isSummary = mode === 'summary';
@@ -1189,48 +1193,76 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     }
 
     async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
-      const qrSrc = safeQrSrcForPreview(url);
+  const qrSrc = safeQrSrcForPreview(url);
 
-      clearPreviewHost();
-      __previewQrSrc = qrSrc;
+  clearPreviewHost();
+  __previewQrSrc = qrSrc;
 
-      // Build preview FIRST (so layout exists), then center toggle
-      if (mode === 'summary'){
-        const wrap = document.createElement('div');
-        wrap.className = 'pv-sf';
+  // Build preview FIRST (so layout exists), then center toggle
+  if (mode === 'summary'){
+    const wrap = document.createElement('div');
+    wrap.className = 'pv-sf';
 
-        const q = document.createElement('div'); q.className='qr';
+    const q = document.createElement('div'); q.className='qr';
 
-        // Use <img> for both data: and http(s) – css covers centering
-        const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc;
-        q.appendChild(img);
+    // Use <img> for both data: and http(s) – css covers centering
+    const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc;
+    q.appendChild(img);
 
-        const lab = document.createElement('div'); lab.className='lab'; lab.textContent = 'VIN/Serial';
-        const val = document.createElement('div'); val.className='val'; val.textContent = serial6 || '—';
+    const lab = document.createElement('div'); lab.className='lab'; lab.textContent = 'VIN/Serial';
+    const val = document.createElement('div'); val.className='val'; val.textContent = serial6 || '—';
 
-        wrap.append(q, lab, val);
-        pHost.appendChild(wrap);
-      } else {
-        const wrap = document.createElement('div');
-        wrap.className = 'pv-long';
-        wrap.style.width = `${cutLenMm}mm`;
+    wrap.append(q, lab, val);
+    pHost.appendChild(wrap);
 
-        const left = document.createElement('div'); left.className='left';
-        const mk = document.createElement('div'); mk.className='make'; mk.textContent = make || '—';
-        const md = document.createElement('div'); md.className='model'; md.textContent = model || '—';
-        left.append(mk,md);
+    // Summary cut is fixed
+    __cutLenMm = 62;
+  } else {
+    const wrap = document.createElement('div');
+    wrap.className = 'pv-long';
 
-        const mid = document.createElement('div'); mid.className='mid';
-        const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc; mid.appendChild(img);
+    // Start shrink-to-fit so we can measure true content width (not a forced 140mm box)
+    wrap.style.width = 'fit-content';
 
-        const right = document.createElement('div'); right.className='right';
-        const lab = document.createElement('div'); lab.className='lab'; lab.textContent='VIN/Serial';
-        const val = document.createElement('div'); val.className='val'; val.textContent = serial6 || '—';
-        right.append(lab,val);
+    const left = document.createElement('div'); left.className='left';
+    const mk = document.createElement('div'); mk.className='make'; mk.textContent = make || '—';
+    const md = document.createElement('div'); md.className='model'; md.textContent = model || '—';
+    left.append(mk,md);
 
-        wrap.append(left,mid,right);
-        pHost.appendChild(wrap);
-      }
+    const mid = document.createElement('div'); mid.className='mid';
+    const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc; mid.appendChild(img);
+
+    const right = document.createElement('div'); right.className='right';
+    const lab = document.createElement('div'); lab.className='lab'; lab.textContent='VIN/Serial';
+    const val = document.createElement('div'); val.className='val'; val.textContent = serial6 || '—';
+    right.append(lab,val);
+
+    wrap.append(left,mid,right);
+    pHost.appendChild(wrap);
+
+    // Let layout settle so measurement is accurate (iOS needs this)
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+
+    // Measure natural width and convert to mm
+    let measuredMm = pxToMm(wrap.getBoundingClientRect().width);
+
+    // White buffer knob (safety so VIN doesn't kiss the cut)
+    measuredMm = measuredMm + 3.0;
+
+    // Clamp sane bounds (allow short + long)
+    measuredMm = clampMm(measuredMm, 62, 240);
+
+    __cutLenMm = roundUpMm(measuredMm);
+
+    // Now force preview to the computed cut length
+    wrap.style.width = `${__cutLenMm}mm`;
+  }
+
+  // Now apply centering AFTER the DOM exists + layout settles
+  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  await setPrintWrapCentered(mode === 'summary');
+}
+
 
       // Now apply centering AFTER the DOM exists + layout settles
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
