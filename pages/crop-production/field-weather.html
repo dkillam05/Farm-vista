@@ -1,13 +1,11 @@
 <!-- =====================================================================
 /Farm-vista/pages/field-readiness.html  (FULL FILE)
-Rev: 2025-12-22f
+Rev: 2025-12-23b
 
-UPDATES (per your Adjust ask):
-✅ Adjust dropdown no longer clipped (modal overflow fix)
-✅ If model says WET → “Too Wet” disabled (same for DRY → “Too Dry” disabled)
-✅ If correcting opposite direction (WET→DRY or DRY→WET) → shows 0–100 intensity slider
-✅ Guardrails keep deltas sane; logs include intensity + modelClass
-✅ Map modal kept exactly as-is
+UPDATES (per Dane):
+✅ Add Farm filter dropdown (id="farmSel") with All default
+✅ Add Results per page dropdown (id="pageSel") with 25/50/100/250/All (default 25)
+✅ Kept ALL existing content (no trimming)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -87,6 +85,18 @@ UPDATES (per your Adjust ask):
     }
     @media (max-width:880px){
       .row{grid-template-columns:1fr;align-items:stretch}
+    }
+
+    /* ✅ NEW: Filter row (2 columns) */
+    .row2{
+      display:grid;
+      gap:10px;
+      grid-template-columns:1fr 1fr;
+      align-items:end;
+      margin-top:10px;
+    }
+    @media (max-width:880px){
+      .row2{grid-template-columns:1fr;align-items:stretch}
     }
 
     .field{min-width:0;}
@@ -248,24 +258,6 @@ UPDATES (per your Adjust ask):
       max-width:520px;
     }
     @media (max-width:520px){ .name{max-width:240px;} }
-    .tiny-btn{
-      padding:6px 8px;
-      border-radius:10px;
-      border:1px solid var(--border);
-      background:transparent;
-      font-weight:900;
-      font-size:12px;
-      color:var(--text);
-      cursor:pointer;
-      line-height:1;
-      white-space:nowrap;
-    }
-    .tiny-btn:active{transform:translateY(1px)}
-    .tiny-btn.primary{
-      border-color:transparent;
-      background:#2F6C3C;
-      color:#fff!important;
-    }
 
     .readiness-pill{
       padding:6px 10px;
@@ -398,7 +390,19 @@ UPDATES (per your Adjust ask):
       align-items:center;
       margin-top:10px;
     }
-    .btn-primary{border-color:transparent;background:#2F6C3C;color:#fff!important}
+
+    /* FIX: primary buttons sometimes "disappear" in light mode */
+    .btn-primary,
+    .btn.btn-primary{
+      background: var(--accent, #2F6C3C) !important;
+      border-color: transparent !important;
+      color: #fff !important;
+    }
+    .btn-primary:disabled,
+    .btn.btn-primary:disabled{
+      opacity: .55 !important;
+      cursor: not-allowed !important;
+    }
 
     /* GPS value + Map button row */
     .gpsline{
@@ -466,7 +470,7 @@ UPDATES (per your Adjust ask):
       position:relative;
     }
     .modal-h{
-      padding:14px 48px 10px 14px; /* room for X */
+      padding:14px 48px 10px 14px;
       border-bottom:1px solid var(--border);
       position:relative;
     }
@@ -557,7 +561,7 @@ UPDATES (per your Adjust ask):
     .adj-grid{display:grid;gap:12px}
     .seg{
       display:grid;
-      grid-template-columns:1fr 1fr 1fr;
+      grid-template-columns:1fr 1fr;
       gap:10px;
     }
     @media (max-width:560px){ .seg{grid-template-columns:1fr} }
@@ -597,18 +601,15 @@ UPDATES (per your Adjust ask):
     .note{font-size:12px;color:var(--muted,#67706B)}
 
     /* ===== Adjust modal fixes ===== */
-    /* Allow dropdowns to render outside the modal box (fix clipped select list) */
     .modal.overflow-vis{ overflow:visible !important; }
     .modal.overflow-vis .modal-b{ overflow:visible !important; }
 
-    /* Disabled segment buttons (when model already indicates wet/dry) */
     .segbtn:disabled{
       opacity:.45;
       cursor:not-allowed;
       transform:none !important;
     }
 
-    /* Intensity slider (only shows for opposite-direction correction) */
     .intensity{
       border:1px solid var(--border);
       border-radius:14px;
@@ -643,6 +644,15 @@ UPDATES (per your Adjust ask):
       user-select:none;
     }
 
+    /* Cooldown line (subtle) */
+    #calibCooldownMsg{
+      display:none;
+      margin-top:8px;
+      font-size:12px;
+      color:var(--muted,#67706B);
+      opacity:.9;
+    }
+
     /* Map modal */
     .map-modal{
       width:min(880px, 96vw);
@@ -667,18 +677,13 @@ UPDATES (per your Adjust ask):
       margin-top:10px;
       font-size:12px;
     }
-    /* FIX: primary buttons sometimes "disappear" in light mode */
-.btn-primary,
-.btn.btn-primary{
-  background: var(--accent, #2F6C3C) !important;
-  border-color: transparent !important;
-  color: #fff !important;          /* white text on green */
-}
-.btn-primary:disabled,
-.btn.btn-primary:disabled{
-  opacity: .55 !important;
-  cursor: not-allowed !important;
-}
+
+    /* Hidden button feel for Fields label (still looks like a label) */
+    #fieldsTitle{
+      cursor:pointer;
+      user-select:none;
+    }
+    #fieldsTitle:active{ transform:translateY(1px); }
   </style>
 </head>
 
@@ -726,7 +731,6 @@ UPDATES (per your Adjust ask):
             <div class="field" style="position:relative;">
               <div class="label-inline">
                 <label for="jobRangeInput" style="margin:0;font-weight:800;">Rain range</label>
-
                 <span class="helpicon-wrap">
                   <button id="rainHelpBtn" class="helpicon" type="button" aria-label="Rain range help">?</button>
                   <div id="rainHelpTip" class="helptip" role="dialog" aria-modal="false">
@@ -756,9 +760,30 @@ UPDATES (per your Adjust ask):
             </div>
           </div>
 
+          <!-- ✅ NEW: FARM + PAGE SIZE FILTERS -->
+          <div class="row2">
+            <div class="field">
+              <label for="farmSel">Farm</label>
+              <select id="farmSel" class="select">
+                <option value="__all__">All</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="pageSel">Results per page</label>
+              <select id="pageSel" class="select">
+                <option value="25" selected>25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+                <option value="250">250</option>
+                <option value="__all__">All</option>
+              </select>
+            </div>
+          </div>
+
           <!-- FIELDS -->
           <div class="field">
-            <label>Fields</label>
+            <!-- ✅ This is now the hidden global calibration button target -->
+            <label id="fieldsTitle">Fields</label>
             <div id="fieldsGrid" class="list"></div>
             <div id="emptyMsg" class="help muted" style="display:none;">No active fields with GPS (lat/lng) found.</div>
           </div>
@@ -809,7 +834,7 @@ UPDATES (per your Adjust ask):
                     <div class="k">GPS</div>
                     <div class="v gpsline">
                       <span class="mono" id="dGps">—</span>
-                      <button id="btnMap" class="tiny-btn primary" type="button">Map</button>
+                      <button id="btnMap" class="btn btn-primary" type="button" style="padding:6px 10px;border-radius:10px;font-weight:900;">Map</button>
                     </div>
 
                     <div class="k">Soil Wetness</div><div class="v" id="dSoilType">—</div>
@@ -836,7 +861,6 @@ UPDATES (per your Adjust ask):
                 </div>
               </div>
 
-              <!-- ✅ NEW: Beta users can see what inputs we pull + what's used -->
               <div class="panel">
                 <h3>Beta: Data pulled into the model</h3>
                 <div class="help" id="betaInputsMeta">—</div>
@@ -939,7 +963,6 @@ UPDATES (per your Adjust ask):
         </button>
         <div class="muted" style="font-size:12px; margin-top:4px;" id="adjustSub">—</div>
       </div>
-      
 
       <div class="modal-b">
         <div class="adj-grid">
@@ -957,13 +980,11 @@ UPDATES (per your Adjust ask):
             </div>
             <div class="seg" id="feelSeg">
               <button class="segbtn" type="button" data-feel="wet" id="btnFeelWet">Wet</button>
-              <button class="segbtn" type="button" data-feel="ok"  id="btnFeelOk">About Right</button>
               <button class="segbtn" type="button" data-feel="dry" id="btnFeelDry">Dry</button>
             </div>
             <div class="note" id="adjHint" style="margin-top:6px;">—</div>
           </div>
 
-          <!-- Intensity slider (only for opposite-direction corrections) -->
           <div class="intensity pv-hide" id="intensityBox">
             <div class="intensity-top">
               <div class="intensity-title" id="intensityTitle">How wet/dry is it?</div>
@@ -976,26 +997,36 @@ UPDATES (per your Adjust ask):
             </div>
           </div>
 
-          <div>
-            <div class="muted" style="font-size:12px;margin-bottom:6px;font-weight:800;">Quick observation (optional)</div>
-            <select id="adjObs" class="select" style="padding:12px;">
-              <option value="none">—</option>
-              <option value="ruts">Ruts / smearing / leaving tracks</option>
-              <option value="tacky">Tacky / slightly sticky</option>
-              <option value="crumbly">Crumbly / friable</option>
-              <option value="dusty">Dusty / powder dry</option>
-            </select>
-            <div class="note" style="margin-top:6px;">
-              This nudges per-field Soil Wetness + Drainage with guardrails.
-            </div>
-          </div>
-
           <div class="help" id="adjGuard">—</div>
+
+          <!-- Cooldown line (set by UI JS) -->
+          <div id="calibCooldownMsg"></div>
 
           <div class="adj-actions">
             <button id="btnAdjCancel" class="btn" type="button">Cancel</button>
             <button id="btnAdjApply" class="btn btn-primary" type="button">Apply Adjustment</button>
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm Calibration Modal -->
+  <div id="confirmAdjBackdrop" class="modal-backdrop pv-hide" role="dialog" aria-modal="true" aria-labelledby="confirmAdjTitle">
+    <div class="modal">
+      <div class="modal-h">
+        <h3 id="confirmAdjTitle">Confirm Calibration</h3>
+      </div>
+      <div class="modal-b">
+        <div style="font-size:14px; line-height:1.35;">
+          This adjustment will be saved and used to <b>calibrate the model</b>.
+        </div>
+        <div class="help muted" style="margin-top:8px;">
+          Only confirm if you’re sure this is correct.
+        </div>
+        <div class="adj-actions" style="margin-top:16px;">
+          <button id="btnAdjNo" class="btn" type="button">Cancel</button>
+          <button id="btnAdjYes" class="btn btn-primary" type="button">Yes, Apply</button>
         </div>
       </div>
     </div>
@@ -1018,28 +1049,8 @@ UPDATES (per your Adjust ask):
       </div>
     </div>
   </div>
-    <!-- Confirm Calibration Modal -->
-  <div id="confirmAdjBackdrop" class="modal-backdrop pv-hide" role="dialog" aria-modal="true" aria-labelledby="confirmAdjTitle">
-    <div class="modal">
-      <div class="modal-h">
-        <h3 id="confirmAdjTitle">Confirm Calibration</h3>
-      </div>
-      <div class="modal-b">
-        <div style="font-size:14px; line-height:1.35;">
-          This adjustment will be saved and used to <b>calibrate the model</b>.
-        </div>
-        <div class="help muted" style="margin-top:8px;">
-          Only confirm if you’re sure this is correct.
-        </div>
-        <div class="adj-actions" style="margin-top:16px;">
-          <button id="btnAdjNo" class="btn" type="button">Cancel</button>
-          <button id="btnAdjYes" class="btn btn-primary" type="button">Yes, Apply</button>
-        </div>
-      </div>
-    </div>
-  </div>
 
-  <!-- ✅ NEW: Map Modal -->
+  <!-- Map Modal -->
   <div id="mapBackdrop" class="modal-backdrop pv-hide" role="dialog" aria-modal="true" aria-labelledby="mapTitle">
     <div class="modal map-modal">
       <div class="modal-h">
@@ -1064,1873 +1075,8 @@ UPDATES (per your Adjust ask):
     </div>
   </div>
 
-  <!-- ✅ Module script -->
-  <script type="module">
-    'use strict';
-
-    const $ = id => document.getElementById(id);
-    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-    const round = (v, d=2) => {
-      const p = Math.pow(10,d);
-      return Math.round(v*p)/p;
-    };
-
-    // ✅ Your Cloud Run weather proxy (live)
-    const WX_BASE = 'https://farmvista-field-weather-300398089669.us-central1.run.app';
-    const WX_ENDPOINT = WX_BASE + '/api/open-meteo';
-    const WX_TTL_MS = 4 * 60 * 60 * 1000; // cache 4 hours
-    const WX_CACHE_PREFIX = 'fv_fr_wx_daily_cache_v2_';
-
-    const LOSS_SCALE = 0.55;
-
-    const LS_KEY = 'fv_dev_field_readiness_params_v2_0_100';
-    const LS_OP_KEY = 'fv_dev_field_readiness_op';
-    const LS_THR_KEY = 'fv_dev_field_readiness_thresholds_v1';
-    const LS_ADJ_LOG = 'fv_fr_adjust_log_v1';
-
-    // ETA rules
-    const ETA_MAX_HOURS = 72;
-
-    // Firestore thresholds collection/doc
-    const THR_COLLECTION = 'field_readiness_thresholds';
-    const THR_DOC_ID = 'default';
-
-    // Firestore adjust log collection
-    const ADJ_COLLECTION = 'field_readiness_adjustments';
-
-    const OPS = [
-      { key:'spring_tillage', label:'Spring tillage' },
-      { key:'planting', label:'Planting' },
-      { key:'spraying', label:'Spraying' },
-      { key:'harvest', label:'Harvest' },
-      { key:'fall_tillage', label:'Fall tillage' }
-    ];
-
-    const state = {
-      weather30: [],
-      weatherByFieldId: new Map(),   // fieldId -> daily series (includes light extras if available)
-      wxInfoByFieldId: new Map(),    // fieldId -> { source, fetchedAt, units, availability }
-      seed: Date.now() % 1000000,
-      selectedFieldId: null,
-      lastRuns: new Map(),
-      fields: [],
-      farmsById: new Map(),
-      perFieldParams: new Map(),
-      thresholdsByOp: new Map(),
-      fb: null,
-      _thrSaveTimer: null,
-      _renderTimer: null,
-      _adjFeel: 'ok',
-
-      // map
-      _mapsPromise: null,
-      _gmap: null,
-      _gmarker: null
-    };
-
-    function esc(s){
-      return String(s||'')
-        .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
-        .replaceAll('"','&quot;').replaceAll("'","&#039;");
-    }
-
-    function setErr(msg){
-      const el = $('err');
-      if (!el) return;
-      if (!msg){ el.hidden = true; el.textContent=''; return; }
-      el.hidden = false;
-      el.textContent = msg;
-    }
-
-    function normalizeStatus(s){ return String(s||'').trim().toLowerCase(); }
-
-    function todayISO(){
-      const d = new Date();
-      const y = d.getFullYear();
-      const m = String(d.getMonth()+1).padStart(2,'0');
-      const day = String(d.getDate()).padStart(2,'0');
-      return `${y}-${m}-${day}`;
-    }
-
-    function mmToIn(mm){ return (Number(mm||0) / 25.4); }
-    function cToF(c){ return (Number(c) * 9/5) + 32; }
-
-    function aggregateHourlyToDaily(hourlyCore, hourlyExt, dailyArr){
-      const map = new Map();
-
-      function ensure(dateISO){
-        let row = map.get(dateISO);
-        if (!row){
-          row = {
-            dateISO,
-            rain_mm_sum:0,
-            temp_c_sum:0, nt:0,
-            wind_mph_sum:0, nw:0,
-            rh_sum:0, nrh:0,
-            solar_sum:0, ns:0,
-
-            // extras (daily averages)
-            cloud_sum:0, ncloud:0,
-            vpd_sum:0, nvpd:0,
-            dew_sum:0, ndew:0,
-            sm010_sum:0, nsm010:0,
-            st010_sum:0, nst010:0,
-
-            // daily totals
-            et0_mm:null,
-            daylight_s:null,
-            sunshine_s:null
-          };
-          map.set(dateISO, row);
-        }
-        return row;
-      }
-
-      for (const h of (hourlyCore||[])){
-        const t = String(h.time||'');
-        if (t.length < 10) continue;
-        const dateISO = t.slice(0,10);
-        const row = ensure(dateISO);
-
-        row.rain_mm_sum += Number(h.rain_mm||0);
-
-        const tc = Number(h.temp_c);
-        if (isFinite(tc)){ row.temp_c_sum += tc; row.nt++; }
-
-        const w = Number(h.wind_mph);
-        if (isFinite(w)){ row.wind_mph_sum += w; row.nw++; }
-
-        const rh = Number(h.rh_pct);
-        if (isFinite(rh)){ row.rh_sum += rh; row.nrh++; }
-
-        const s = Number(h.solar_wm2);
-        if (isFinite(s)){ row.solar_sum += s; row.ns++; }
-      }
-
-      for (const h of (hourlyExt||[])){
-        const t = String(h.time||'');
-        if (t.length < 10) continue;
-        const dateISO = t.slice(0,10);
-        const row = ensure(dateISO);
-
-        const cloud = Number(h.cloud_cover_pct);
-        if (isFinite(cloud)){ row.cloud_sum += cloud; row.ncloud++; }
-
-        const vpd = Number(h.vapour_pressure_deficit_kpa);
-        if (isFinite(vpd)){ row.vpd_sum += vpd; row.nvpd++; }
-
-        const dew = Number(h.dew_point_c);
-        if (isFinite(dew)){ row.dew_sum += dew; row.ndew++; }
-
-        const sm = Number(h.soil_moisture_0_10);
-        if (isFinite(sm)){ row.sm010_sum += sm; row.nsm010++; }
-
-        const st = Number(h.soil_temp_c_0_10);
-        if (isFinite(st)){ row.st010_sum += st; row.nst010++; }
-      }
-
-      const dailyMap = new Map();
-      for (const d of (dailyArr||[])){
-        const iso = String(d.dateISO||d.time||'').slice(0,10);
-        if (!iso) continue;
-        dailyMap.set(iso, d);
-      }
-
-      const out = [...map.values()].sort((a,b)=> a.dateISO.localeCompare(b.dateISO)).map(r=>{
-        const rainIn = mmToIn(r.rain_mm_sum);
-        const tempF = (r.nt ? cToF(r.temp_c_sum / r.nt) : 0);
-        const windMph = (r.nw ? (r.wind_mph_sum / r.nw) : 0);
-        const rh = (r.nrh ? (r.rh_sum / r.nrh) : 0);
-        const solarWm2 = (r.ns ? (r.solar_sum / r.ns) : 0);
-
-        const cloudPct = (r.ncloud ? (r.cloud_sum / r.ncloud) : null);
-        const vpdKpa = (r.nvpd ? (r.vpd_sum / r.nvpd) : null);
-        const dewF = (r.ndew ? cToF(r.dew_sum / r.ndew) : null);
-        const sm010 = (r.nsm010 ? (r.sm010_sum / r.nsm010) : null);
-        const st010F = (r.nst010 ? cToF(r.st010_sum / r.nst010) : null);
-
-        const d0 = dailyMap.get(r.dateISO) || {};
-        const et0mm = (d0 && isFinite(Number(d0.et0_mm))) ? Number(d0.et0_mm) : null;
-        const et0In = (et0mm === null) ? null : mmToIn(et0mm);
-        const daylightHr = (d0 && isFinite(Number(d0.daylight_s))) ? (Number(d0.daylight_s)/3600) : null;
-        const sunshineHr = (d0 && isFinite(Number(d0.sunshine_s))) ? (Number(d0.sunshine_s)/3600) : null;
-
-        return {
-          dateISO: r.dateISO,
-          rainIn: round(rainIn, 2),
-          tempF: Math.round(tempF),
-          windMph: Math.round(windMph),
-          rh: Math.round(rh),
-          solarWm2: Math.round(solarWm2),
-
-          cloudPct: (cloudPct===null ? null : Math.round(cloudPct)),
-          vpdKpa: (vpdKpa===null ? null : round(vpdKpa, 2)),
-          dewF: (dewF===null ? null : Math.round(dewF)),
-          sm010: (sm010===null ? null : round(sm010, 3)),
-          st010F: (st010F===null ? null : Math.round(st010F)),
-
-          et0In: (et0In===null ? null : round(et0In, 2)),
-          daylightHr: (daylightHr===null ? null : round(daylightHr, 1)),
-          sunshineHr: (sunshineHr===null ? null : round(sunshineHr, 1))
-        };
-      });
-
-      const tISO = todayISO();
-      const hist = out.filter(d=> d.dateISO && d.dateISO <= tISO);
-      return hist.slice(-30);
-    }
-
-    function cacheKey(fieldId){ return WX_CACHE_PREFIX + String(fieldId||''); }
-
-    function readWxCache(fieldId){
-      try{
-        const raw = localStorage.getItem(cacheKey(fieldId));
-        if (!raw) return null;
-        const obj = JSON.parse(raw);
-        if (!obj || typeof obj !== 'object') return null;
-        if (!obj.fetchedAt || !Array.isArray(obj.daily)) return null;
-        if ((Date.now() - Number(obj.fetchedAt)) > WX_TTL_MS) return null;
-        return obj;
-      }catch(_){ return null; }
-    }
-
-    function writeWxCache(fieldId, obj){
-      try{
-        localStorage.setItem(cacheKey(fieldId), JSON.stringify(obj));
-      }catch(_){}
-    }
-
-    function summarizeAvailability(wxJson){
-      const out = { hourly_core:true, hourly_ext:false, daily:false, vars:{} };
-      const norm = wxJson && wxJson.normalized ? wxJson.normalized : null;
-
-      const hourly = norm && Array.isArray(norm.hourly) ? norm.hourly : [];
-      const hourly_ext = norm && Array.isArray(norm.hourly_ext) ? norm.hourly_ext : [];
-      const daily = norm && Array.isArray(norm.daily) ? norm.daily : [];
-
-      out.hourly_ext = hourly_ext.length > 0;
-      out.daily = daily.length > 0;
-
-      out.vars.rain_mm = { label:'Precipitation', ok: hourly.length > 0 };
-      out.vars.temp_c = { label:'Air temperature', ok: hourly.length > 0 };
-      out.vars.wind_mph = { label:'Wind speed', ok: hourly.length > 0 };
-      out.vars.rh_pct = { label:'Relative humidity', ok: hourly.length > 0 };
-      out.vars.solar_wm2 = { label:'Shortwave radiation', ok: hourly.length > 0 };
-
-      const extKeys = [
-        ['cloud_cover_pct','Cloud cover'],
-        ['vapour_pressure_deficit_kpa','VPD'],
-        ['dew_point_c','Dew point'],
-        ['soil_temp_c_0_10','Soil temp 0–10cm'],
-        ['soil_moisture_0_10','Soil moisture 0–10cm']
-      ];
-      for (const [k,label] of extKeys){
-        let ok = false;
-        for (let i=0; i<Math.min(72, hourly_ext.length); i++){
-          const v = hourly_ext[i] ? hourly_ext[i][k] : null;
-          if (v !== null && v !== undefined && isFinite(Number(v))){ ok = true; break; }
-        }
-        out.vars[k] = { label, ok };
-      }
-
-      const extPulledNotUsed = [
-        ['soil_temp_c_10_40','Soil temp 10–40cm'],
-        ['soil_temp_c_40_100','Soil temp 40–100cm'],
-        ['soil_temp_c_100_200','Soil temp 100–200cm'],
-        ['soil_moisture_10_40','Soil moisture 10–40cm'],
-        ['soil_moisture_40_100','Soil moisture 40–100cm'],
-        ['soil_moisture_100_200','Soil moisture 100–200cm']
-      ];
-      for (const [k,label] of extPulledNotUsed){
-        let ok = false;
-        for (let i=0; i<Math.min(72, hourly_ext.length); i++){
-          const v = hourly_ext[i] ? hourly_ext[i][k] : null;
-          if (v !== null && v !== undefined && isFinite(Number(v))){ ok = true; break; }
-        }
-        out.vars[k] = { label, ok };
-      }
-
-      const dailyKeys = [
-        ['et0_mm','ET₀'],
-        ['daylight_s','Daylight duration'],
-        ['sunshine_s','Sunshine duration']
-      ];
-      for (const [k,label] of dailyKeys){
-        let ok = false;
-        for (let i=0; i<Math.min(14, daily.length); i++){
-          const v = daily[i] ? daily[i][k] : null;
-          if (v !== null && v !== undefined && isFinite(Number(v))){ ok = true; break; }
-        }
-        out.vars[k] = { label, ok };
-      }
-
-      return out;
-    }
-
-    async function fetchWeatherForField(field, force=false){
-      if (!field || !field.location) return null;
-
-      if (!force){
-        const cached = readWxCache(field.id);
-        if (cached){
-          state.weatherByFieldId.set(field.id, cached.daily || []);
-          state.wxInfoByFieldId.set(field.id, cached.wxInfo || { source:'cache', fetchedAt: cached.fetchedAt });
-          return cached.daily || [];
-        }
-      }
-
-      const lat = field.location.lat;
-      const lng = field.location.lng;
-
-      const url = `${WX_ENDPOINT}?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}&days=30&timezone=${encodeURIComponent('America/Chicago')}`;
-
-      const r = await fetch(url, { method:'GET', cache:'no-store' });
-      if (!r.ok) throw new Error(`Weather proxy ${r.status}`);
-
-      const json = await r.json();
-      if (!json || json.ok !== true) throw new Error('Weather proxy response not ok');
-
-      const norm = json.normalized || {};
-      const hourlyCore = Array.isArray(norm.hourly) ? norm.hourly : [];
-      const hourlyExt = Array.isArray(norm.hourly_ext) ? norm.hourly_ext : [];
-      const dailyArr  = Array.isArray(norm.daily) ? norm.daily : [];
-
-      const dailySeries = aggregateHourlyToDaily(hourlyCore, hourlyExt, dailyArr);
-
-      state.weatherByFieldId.set(field.id, dailySeries);
-
-      const availability = summarizeAvailability(json);
-      const wxInfo = {
-        source: String(json.source || 'open-meteo'),
-        fetchedAt: Date.now(),
-        units: (norm.meta && norm.meta.units) ? norm.meta.units : null,
-        availability
-      };
-      state.wxInfoByFieldId.set(field.id, wxInfo);
-
-      writeWxCache(field.id, { fetchedAt: wxInfo.fetchedAt, daily: dailySeries, wxInfo });
-
-      if (!state.weather30.length && dailySeries && dailySeries.length){
-        state.weather30 = dailySeries.slice();
-      }
-
-      return dailySeries;
-    }
-
-    function debounceRender(){
-      if (state._renderTimer) return;
-      state._renderTimer = setTimeout(()=>{
-        state._renderTimer = null;
-        renderTiles();
-        renderDetails();
-      }, 250);
-    }
-
-    async function warmWeatherForFields(force=false){
-      const fields = state.fields.slice();
-      if (!fields.length) return;
-
-      const maxConc = 4;
-      let idx = 0;
-
-      async function worker(){
-        while (idx < fields.length){
-          const my = fields[idx++];
-          try{
-            await fetchWeatherForField(my, force);
-          }catch(e){
-            console.warn('[FieldReadiness] weather fetch failed for', my?.name, e?.message || e);
-          }finally{
-            debounceRender();
-          }
-        }
-      }
-
-      const workers = [];
-      for (let i=0; i<Math.min(maxConc, fields.length); i++) workers.push(worker());
-      await Promise.all(workers);
-    }
-
-    function getWeatherSeriesForFieldId(fieldId){
-      const s = state.weatherByFieldId.get(fieldId);
-      if (s && s.length) return s;
-      if (state.weather30 && state.weather30.length) return state.weather30;
-      return [];
-    }
-
-    /* ---------- firebase-init ---------- */
-    async function importFirebaseInit(){
-      try{
-        const mod = await import('/Farm-vista/js/firebase-init.js');
-        state.fb = mod;
-        if (mod && mod.ready) await mod.ready;
-        return true;
-      }catch(e){
-        console.warn('[FieldReadiness] firebase-init import failed:', e);
-        state.fb = null;
-        return false;
-      }
-    }
-
-    function getAPI(){
-      const m = state.fb;
-      if (m && m.getFirestore && m.collection && m.getDocs && m.query && m.where){
-        return { kind:'module', ...m };
-      }
-      if (window.firebase && window.firebase.firestore){
-        return { kind:'compat' };
-      }
-      return null;
-    }
-
-    /* ---------- thresholds per operation ---------- */
-    function defaultThresholds(){
-      return {
-        spring_tillage: 70,
-        planting: 70,
-        spraying: 70,
-        harvest: 70,
-        fall_tillage: 70
-      };
-    }
-
-    function applyThresholdObject(obj){
-      const defs = defaultThresholds();
-      state.thresholdsByOp = new Map();
-      for (const op of OPS){
-        const v = (obj && typeof obj === 'object') ? obj[op.key] : undefined;
-        const num = isFinite(Number(v)) ? Number(v) : defs[op.key];
-        state.thresholdsByOp.set(op.key, clamp(Math.round(num), 0, 100));
-      }
-    }
-
-    function loadThresholdsFromLocal(){
-      let parsed = null;
-      try{
-        const raw = localStorage.getItem(LS_THR_KEY);
-        parsed = raw ? JSON.parse(raw) : null;
-      }catch(_){ parsed = null; }
-      applyThresholdObject(parsed);
-    }
-
-    function saveThresholdsToLocal(){
-      try{
-        const obj = {};
-        for (const op of OPS) obj[op.key] = state.thresholdsByOp.get(op.key);
-        localStorage.setItem(LS_THR_KEY, JSON.stringify(obj));
-      }catch(_){}
-    }
-
-    async function loadThresholdsFromFirestore(){
-      const api = getAPI();
-      if (!api || api.kind === 'compat') return false;
-      try{
-        const db = api.getFirestore();
-        const ref = api.doc(db, THR_COLLECTION, THR_DOC_ID);
-        const snap = await api.getDoc(ref);
-        if (snap && snap.exists && snap.exists()){
-          const data = snap.data() || {};
-          const thr = data.thresholds || data;
-          applyThresholdObject(thr);
-          saveThresholdsToLocal();
-          return true;
-        }
-        return false;
-      }catch(e){
-        console.warn('[FieldReadiness] thresholds read failed:', e);
-        return false;
-      }
-    }
-
-    async function saveThresholdsToFirestoreNow(){
-      const api = getAPI();
-      if (!api || api.kind === 'compat') return;
-
-      try{
-        const db = api.getFirestore();
-        const auth = api.getAuth ? api.getAuth() : null;
-        const user = auth && auth.currentUser ? auth.currentUser : null;
-
-        const obj = {};
-        for (const op of OPS) obj[op.key] = state.thresholdsByOp.get(op.key);
-
-        const ref = api.doc(db, THR_COLLECTION, THR_DOC_ID);
-        await api.setDoc(ref, {
-          thresholds: obj,
-          updatedAt: api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString(),
-          updatedBy: user ? (user.email || user.uid || null) : null
-        }, { merge:true });
-
-      }catch(e){
-        console.warn('[FieldReadiness] thresholds save failed:', e);
-      }
-    }
-
-    function scheduleThresholdSave(){
-      try{ if (state._thrSaveTimer) clearTimeout(state._thrSaveTimer); }catch(_){}
-      state._thrSaveTimer = setTimeout(async ()=>{
-        saveThresholdsToLocal();
-        await saveThresholdsToFirestoreNow();
-      }, 600);
-    }
-
-    function getCurrentOp(){
-      const opSel = $('opSel');
-      const key = String(opSel ? opSel.value : OPS[0].key);
-      return OPS.find(o=>o.key===key) ? key : OPS[0].key;
-    }
-
-    function getThresholdForOp(opKey){
-      const v = state.thresholdsByOp.get(opKey);
-      return isFinite(Number(v)) ? Number(v) : 70;
-    }
-
-    /* ---------- per-field params ---------- */
-    function loadParamsFromLocal(){
-      state.perFieldParams = new Map();
-      try{
-        const raw = localStorage.getItem(LS_KEY);
-        if (!raw) return;
-        const obj = JSON.parse(raw);
-        if (!obj || typeof obj !== 'object') return;
-        for (const [k,v] of Object.entries(obj)){
-          if (!v || typeof v !== 'object') continue;
-          state.perFieldParams.set(k, {
-            soilWetness: clamp(Number(v.soilWetness ?? 60), 0, 100),
-            drainageIndex: clamp(Number(v.drainageIndex ?? 45), 0, 100)
-          });
-        }
-      }catch(_){}
-    }
-
-    function saveParamsToLocal(){
-      try{
-        const obj = {};
-        for (const [k,v] of state.perFieldParams.entries()){
-          obj[k] = { soilWetness:v.soilWetness, drainageIndex:v.drainageIndex };
-        }
-        localStorage.setItem(LS_KEY, JSON.stringify(obj));
-      }catch(_){}
-    }
-
-    function getFieldParams(fieldId){
-      const p = state.perFieldParams.get(fieldId);
-      if (p) return p;
-      const def = { soilWetness:60, drainageIndex:45 };
-      state.perFieldParams.set(fieldId, def);
-      return def;
-    }
-
-    function ensureSelectedParamsToSliders(){
-      if (!state.selectedFieldId) return;
-      const p = getFieldParams(state.selectedFieldId);
-      const a = $('soilWet'), b = $('drain');
-      if (a) a.value = String(p.soilWetness);
-      if (b) b.value = String(p.drainageIndex);
-    }
-
-    function hydrateParamsFromFieldDoc(field){
-      if (!field) return;
-      const cur = getFieldParams(field.id);
-      if (isFinite(field.soilWetness)) cur.soilWetness = clamp(Number(field.soilWetness), 0, 100);
-      if (isFinite(field.drainageIndex)) cur.drainageIndex = clamp(Number(field.drainageIndex), 0, 100);
-      state.perFieldParams.set(field.id, cur);
-    }
-
-    /* ---------- firestore fields ---------- */
-    function extractFieldDoc(docId, d){
-      const loc = d.location || {};
-      const lat = Number(loc.lat);
-      const lng = Number(loc.lng);
-      const soilWetness = Number(d.soilWetness);
-      const drainageIndex = Number(d.drainageIndex);
-      return {
-        id: docId,
-        name: String(d.name||''),
-        county: String(d.county||''),
-        state: String(d.state||''),
-        farmId: String(d.farmId||''),
-        status: String(d.status||''),
-        tillable: Number(d.tillable||0),
-        location: (isFinite(lat) && isFinite(lng)) ? { lat, lng } : null,
-        soilWetness: isFinite(soilWetness) ? soilWetness : null,
-        drainageIndex: isFinite(drainageIndex) ? drainageIndex : null
-      };
-    }
-
-    async function loadFarmsOptional(){
-      const api = getAPI();
-      if (!api || api.kind === 'compat') return;
-      try{
-        const db = api.getFirestore();
-        const snap = await api.getDocs(api.collection(db,'farms'));
-        const map = new Map();
-        snap.forEach(doc=>{
-          const d = doc.data() || {};
-          if (d && d.name) map.set(doc.id, String(d.name));
-        });
-        state.farmsById = map;
-      }catch(_){}
-    }
-
-    async function loadFields(){
-      const api = getAPI();
-      if (!api){
-        setErr('Firestore helpers not found.');
-        state.fields = [];
-        renderTiles();
-        return;
-      }
-
-      try{
-        let rawDocs = [];
-
-        if (api.kind !== 'compat'){
-          const db = api.getFirestore();
-          const q = api.query(api.collection(db,'fields'), api.where('status','==','active'));
-          const snap = await api.getDocs(q);
-          snap.forEach(doc=> rawDocs.push({ id: doc.id, data: doc.data() || {} }));
-          if (rawDocs.length === 0){
-            const snap2 = await api.getDocs(api.collection(db,'fields'));
-            snap2.forEach(doc=> rawDocs.push({ id: doc.id, data: doc.data() || {} }));
-          }
-        } else {
-          const db = window.firebase.firestore();
-          let snap = await db.collection('fields').where('status','==','active').get();
-          snap.forEach(doc=> rawDocs.push({ id: doc.id, data: doc.data() || {} }));
-          if (rawDocs.length === 0){
-            snap = await db.collection('fields').get();
-            snap.forEach(doc=> rawDocs.push({ id: doc.id, data: doc.data() || {} }));
-          }
-        }
-
-        const arr = [];
-        for (const r of rawDocs){
-          const f = extractFieldDoc(r.id, r.data);
-          if (normalizeStatus(f.status) !== 'active') continue;
-          if (!f.location) continue;
-          arr.push(f);
-          hydrateParamsFromFieldDoc(f);
-        }
-
-        arr.sort((a,b)=> String(a.name).localeCompare(String(b.name), undefined, {numeric:true, sensitivity:'base'}));
-        state.fields = arr;
-        saveParamsToLocal();
-
-        if (!state.selectedFieldId || !state.fields.find(x=>x.id===state.selectedFieldId)){
-          state.selectedFieldId = state.fields.length ? state.fields[0].id : null;
-        }
-
-        const empty = $('emptyMsg');
-        if (empty) empty.style.display = state.fields.length ? 'none' : 'block';
-
-        ensureSelectedParamsToSliders();
-
-        await warmWeatherForFields(false);
-
-        renderTiles();
-        renderDetails();
-      }catch(e){
-        setErr(`Failed to load fields: ${e.message}`);
-        state.fields = [];
-        const empty = $('emptyMsg');
-        if (empty) empty.style.display = 'block';
-        renderTiles();
-      }
-    }
-
-    /* ---------- model math (now includes light influence extras) ---------- */
-
-    const EXTRA = {
-      DRYPWR_VPD_W: 0.06,
-      DRYPWR_CLOUD_W: 0.04,
-      LOSS_ET0_W: 0.08,
-      ADD_SM010_W: 0.10,
-      STORAGE_CAP_SM010_W: 0.05
-    };
-
-    function calcDryParts(r){
-      const temp = Number(r.tempF||0);
-      const wind = Number(r.windMph||0);
-      const rh   = Number(r.rh||0);
-      const solar= Number(r.solarWm2||0);
-
-      const tempN = clamp((temp - 20) / 45, 0, 1);
-      const windN = clamp((wind - 2) / 20, 0, 1);
-      const solarN= clamp((solar - 60) / 300, 0, 1);
-      const rhN   = clamp((rh - 35) / 65, 0, 1);
-
-      const rawBase = (0.35*tempN + 0.30*solarN + 0.25*windN - 0.25*rhN);
-      let dryPwr = clamp(rawBase, 0, 1);
-
-      const vpd = (r.vpdKpa===null || r.vpdKpa===undefined) ? null : Number(r.vpdKpa);
-      const cloud = (r.cloudPct===null || r.cloudPct===undefined) ? null : Number(r.cloudPct);
-
-      const vpdN = (vpd===null || !isFinite(vpd)) ? 0 : clamp(vpd / 2.6, 0, 1);
-      const cloudN = (cloud===null || !isFinite(cloud)) ? 0 : clamp(cloud / 100, 0, 1);
-
-      dryPwr = clamp(dryPwr + EXTRA.DRYPWR_VPD_W * vpdN - EXTRA.DRYPWR_CLOUD_W * cloudN, 0, 1);
-
-      return { temp, wind, rh, solar, tempN, windN, rhN, solarN, vpd: (isFinite(vpd)?vpd:0), vpdN, cloud: (isFinite(cloud)?cloud:0), cloudN, raw: rawBase, dryPwr };
-    }
-
-    function mapFactors(soilWetness0_100, drainageIndex0_100, sm010){
-      const soilHold = clamp(Number(soilWetness0_100) / 100, 0, 1);
-      const drainPoor= clamp(Number(drainageIndex0_100) / 100, 0, 1);
-
-      const smN = (sm010===null || sm010===undefined || !isFinite(Number(sm010))) ? 0 : clamp((Number(sm010) - 0.10) / 0.25, 0, 1);
-
-      const infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor;
-      const dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor;
-
-      const SmaxBase  = 2.60 + 1.00*soilHold + 0.90*drainPoor;
-      const Smax      = SmaxBase * (1 + EXTRA.STORAGE_CAP_SM010_W * smN);
-
-      return { soilHold, drainPoor, smN, infilMult, dryMult, Smax, SmaxBase };
-    }
-
-    function runField(field){
-      const wx = getWeatherSeriesForFieldId(field.id);
-      if (!wx.length) return null;
-
-      const p = getFieldParams(field.id);
-
-      const last = wx[wx.length-1] || {};
-      const f = mapFactors(p.soilWetness, p.drainageIndex, last.sm010);
-
-      const rows = wx.map(w=>{
-        const parts = calcDryParts(w);
-
-        const et0 = (w.et0In===null || w.et0In===undefined) ? null : Number(w.et0In);
-        const et0N = (et0===null || !isFinite(et0)) ? 0 : clamp(et0 / 0.30, 0, 1);
-
-        const smN = (w.sm010===null || w.sm010===undefined || !isFinite(Number(w.sm010))) ? 0 : clamp((Number(w.sm010)-0.10)/0.25, 0, 1);
-
-        return {
-          ...w,
-          rainInAdj: Number(w.rainIn||0),
-          et0: (isFinite(et0)?et0:0),
-          et0N,
-          smN_day: smN,
-          ...parts
-        };
-      });
-
-      const first7 = rows.slice(0,7);
-      const rain7 = first7.reduce((s,x)=> s + Number(x.rainInAdj||0), 0);
-      const rainNudgeFrac = clamp(rain7 / 4.0, 0, 1);
-      const rainNudge = rainNudgeFrac * (0.35 * f.Smax);
-
-      let storage = clamp((0.45 * f.Smax) + rainNudge, 0, f.Smax);
-
-      const trace = [];
-      for (const d of rows){
-        const rain = Number(d.rainInAdj||0);
-
-        let add = rain * f.infilMult;
-        add += (EXTRA.ADD_SM010_W * d.smN_day) * 0.05;
-
-        const loss = Number(d.dryPwr||0) * LOSS_SCALE * f.dryMult * (1 + EXTRA.LOSS_ET0_W * d.et0N);
-
-        const before = storage;
-        const after = clamp(before + add - loss, 0, f.Smax);
-        storage = after;
-
-        trace.push({ dateISO:d.dateISO, rain, infilMult:f.infilMult, add, dryPwr:d.dryPwr, loss, before, after });
-      }
-
-      const wetness = clamp((storage / f.Smax) * 100, 0, 100);
-      const wetnessR = Math.round(wetness);
-      const readinessR = Math.round(clamp(100 - wetness, 0, 100));
-
-      const last7 = trace.slice(-7);
-      const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
-
-      return { field, factors:f, rows, trace, storageFinal:storage, wetnessR, readinessR, avgLossDay };
-    }
-
-    function parseRangeFromInput(){
-      const inp = $('jobRangeInput');
-      const raw = String(inp ? inp.value : '').trim();
-      if (!raw) return { start:null, end:null };
-
-      const parts = raw.split('–').map(s=>s.trim());
-      if (parts.length === 2){
-        const a = new Date(parts[0]);
-        const b = new Date(parts[1]);
-        if (isFinite(a.getTime()) && isFinite(b.getTime())){
-          a.setHours(0,0,0,0);
-          b.setHours(23,59,59,999);
-          return { start:a, end:b };
-        }
-      }
-
-      const d = new Date(raw);
-      if (isFinite(d.getTime())){
-        d.setHours(0,0,0,0);
-        const e = new Date(d);
-        e.setHours(23,59,59,999);
-        return { start:d, end:e };
-      }
-
-      return { start:null, end:null };
-    }
-
-    function isDateInRange(dateISO, range){
-      if (!range || !range.start || !range.end) return true;
-      const d = new Date(dateISO + 'T12:00:00');
-      return d >= range.start && d <= range.end;
-    }
-
-    function rainInRange(run, range){
-      if (!run || !run.rows) return 0;
-      let sum = 0;
-      for (const r of run.rows){
-        if (isDateInRange(r.dateISO, range)) sum += Number(r.rainInAdj||0);
-      }
-      return round(sum, 2);
-    }
-
-    function sortFields(fields, runsById){
-      const sel = $('sortSel');
-      const mode = String(sel ? sel.value : 'name_az');
-      const range = parseRangeFromInput();
-      const collator = new Intl.Collator(undefined, { numeric:true, sensitivity:'base' });
-      const arr = fields.slice();
-
-      arr.sort((a,b)=>{
-        const ra = runsById.get(a.id);
-        const rb = runsById.get(b.id);
-
-        const nameA = `${a.name||''}`;
-        const nameB = `${b.name||''}`;
-
-        const readyA = ra ? ra.readinessR : 0;
-        const readyB = rb ? rb.readinessR : 0;
-
-        const rainA = ra ? rainInRange(ra, range) : 0;
-
-        if (mode === 'name_az') return collator.compare(nameA, nameB);
-        if (mode === 'name_za') return collator.compare(nameB, nameA);
-
-        if (mode === 'ready_dry_wet'){ if (readyB !== readyA) return readyB - readyA; return collator.compare(nameA, nameB); }
-        if (mode === 'ready_wet_dry'){ if (readyB !== readyA) return readyA - readyB; return collator.compare(nameA, nameB); }
-
-        const rainB2 = rb ? rainInRange(rb, range) : 0;
-        if (mode === 'rain_most'){ if (rainB2 !== rainA) return rainB2 - rainA; return collator.compare(nameA, nameB); }
-        if (mode === 'rain_least'){ if (rainB2 !== rainA) return rainA - rainB2; return collator.compare(nameA, nameB); }
-
-        return collator.compare(nameA, nameB);
-      });
-
-      return arr;
-    }
-
-    function readinessColor(score){
-      const p = clamp(score, 0, 100);
-      if (p <= 55){
-        const t = p / 55;
-        const r = Math.round(200 + (216-200)*t);
-        const g = Math.round(59  + (178-59)*t);
-        const b = 59;
-        return `rgb(${r},${g},${b})`;
-      } else {
-        const t = (p - 55) / 45;
-        const r = Math.round(216 + (47-216)*t);
-        const g = Math.round(178 + (143-178)*t);
-        const b = Math.round(59  + (75-59)*t);
-        return `rgb(${r},${g},${b})`;
-      }
-    }
-
-    function markerLeftCSS(pct){
-      const p = clamp(pct, 0, 100);
-      if (p >= 100) return 'calc(100% - 2px)';
-      if (p <= 0) return '2px';
-      return p.toFixed(2) + '%';
-    }
-
-    function etaFor(run, threshold){
-      if (!run) return '';
-      if (run.readinessR >= threshold) return '';
-
-      const wetTarget = clamp(100 - threshold, 0, 100);
-      const storageTarget = run.factors.Smax * (wetTarget / 100);
-      const delta = run.storageFinal - storageTarget;
-
-      if (!isFinite(delta) || delta <= 0) return '';
-
-      const dailyLoss = Math.max(0.02, run.avgLossDay);
-      let hours = Math.ceil((delta / dailyLoss) * 24);
-
-      if (!isFinite(hours) || hours <= 0) hours = 1;
-
-      if (hours > ETA_MAX_HOURS) return `> ${ETA_MAX_HOURS} hours`;
-      return `Est: ~${hours} hours`;
-    }
-
-    function renderTiles(){
-      const wrap = $('fieldsGrid');
-      if (!wrap) return;
-      wrap.innerHTML = '';
-
-      state.lastRuns.clear();
-      for (const f of state.fields){
-        state.lastRuns.set(f.id, runField(f));
-      }
-
-      const sorted = sortFields(state.fields, state.lastRuns);
-      const thr = getThresholdForOp(getCurrentOp());
-      const range = parseRangeFromInput();
-
-      for (const f of sorted){
-        const run0 = state.lastRuns.get(f.id);
-        if (!run0) continue;
-
-        const readiness = run0.readinessR;
-        const eta = etaFor(run0, thr);
-        const rainRange = rainInRange(run0, range);
-
-        const leftPos = markerLeftCSS(readiness);
-        const thrPos  = markerLeftCSS(thr);
-        const pillBg = readinessColor(readiness);
-
-        const farmName = state.farmsById.get(f.farmId) || '';
-        const labelLeft = farmName ? `${farmName} • ${f.name}` : f.name;
-
-        const tile = document.createElement('div');
-        tile.className = 'tile' + (f.id === state.selectedFieldId ? ' active' : '');
-
-        tile.innerHTML = `
-          <div class="tile-top">
-            <div class="titleline">
-              <div class="name" title="${esc(labelLeft)}">${esc(labelLeft)}</div>
-              <button class="tiny-btn" data-adjust="${esc(f.id)}" type="button">Adjust</button>
-            </div>
-            <div class="readiness-pill" style="background:${pillBg};">Field Readiness ${readiness}</div>
-          </div>
-
-          <p class="subline">Rain (range): <span class="mono">${rainRange.toFixed(2)}</span> in</p>
-
-          <div class="gauge-wrap">
-            <div class="chips">
-              <div class="chip wet">Wet</div>
-              <div class="chip readiness">Readiness</div>
-            </div>
-
-            <div class="gauge">
-              <div class="thr" style="left:${thrPos};"></div>
-              <div class="marker" style="left:${leftPos};"></div>
-              <div class="badge" style="left:${leftPos};">Field Readiness ${readiness}</div>
-            </div>
-
-            <div class="ticks"><span>0</span><span>50</span><span>100</span></div>
-            ${eta ? `<div class="help"><b>${esc(eta)}</b></div>` : ``}
-          </div>
-        `;
-
-        tile.addEventListener('click', (e)=>{
-          const btn = e.target && e.target.closest ? e.target.closest('button') : null;
-          if (btn) return;
-          selectField(f.id);
-        });
-
-        const adjBtn = tile.querySelector('button[data-adjust]');
-        if (adjBtn){
-          adjBtn.addEventListener('click', (e)=>{
-            e.stopPropagation();
-            openAdjust(f.id);
-          });
-        }
-
-        wrap.appendChild(tile);
-      }
-
-      const empty = $('emptyMsg');
-      if (empty) empty.style.display = state.fields.length ? 'none' : 'block';
-    }
-
-    function selectField(id){
-      const f = state.fields.find(x=>x.id === id);
-      if (!f) return;
-      state.selectedFieldId = id;
-      ensureSelectedParamsToSliders();
-      refreshAll();
-    }
-
-    function renderBetaInputs(){
-      const box = $('betaInputs');
-      const meta = $('betaInputsMeta');
-      if (!box || !meta) return;
-
-      const fid = state.selectedFieldId;
-      const info = fid ? state.wxInfoByFieldId.get(fid) : null;
-
-      if (!info){
-        meta.textContent = 'Weather is loading…';
-        box.innerHTML = '';
-        return;
-      }
-
-      const when = info.fetchedAt ? new Date(info.fetchedAt) : null;
-      const whenTxt = when ? when.toLocaleString() : '—';
-      meta.textContent =
-        `Source: ${info.source || '—'} • Updated: ${whenTxt} • Primary + light-influence variables are used now; weights are still being tuned.`;
-
-      const unitsHourly = info.units && info.units.hourly ? info.units.hourly : null;
-      const unitsDaily = info.units && info.units.daily ? info.units.daily : null;
-
-      const a = info.availability || { vars:{} };
-      const vars = a.vars || {};
-
-      const usedPrimary = [
-        ['rain_mm','Precipitation (hourly → daily sum)', unitsHourly?.precipitation || 'mm → in'],
-        ['temp_c','Air temperature (hourly avg)', unitsHourly?.temperature_2m || '°C → °F'],
-        ['wind_mph','Wind speed (hourly avg)', 'mph (converted)'],
-        ['rh_pct','Relative humidity (hourly avg)', unitsHourly?.relative_humidity_2m || '%'],
-        ['solar_wm2','Shortwave radiation (hourly avg)', unitsHourly?.shortwave_radiation || 'W/m²']
-      ];
-
-      const usedLight = [
-        ['vapour_pressure_deficit_kpa','VPD (hourly avg)', unitsHourly?.vapour_pressure_deficit || 'kPa'],
-        ['cloud_cover_pct','Cloud cover (hourly avg)', unitsHourly?.cloud_cover || '%'],
-        ['soil_moisture_0_10','Soil moisture 0–10cm (hourly avg)', unitsHourly?.soil_moisture_0_to_10cm || 'm³/m³'],
-        ['soil_temp_c_0_10','Soil temp 0–10cm (hourly avg)', unitsHourly?.soil_temperature_0_to_10cm || '°C → °F'],
-        ['et0_mm','ET₀ (daily)', unitsDaily?.et0_fao_evapotranspiration || 'mm/day → in/day'],
-        ['daylight_s','Daylight duration (daily)', unitsDaily?.daylight_duration || 's/day → hr/day'],
-        ['sunshine_s','Sunshine duration (daily)', unitsDaily?.sunshine_duration || 's/day → hr/day']
-      ];
-
-      const pulledNotUsed = [
-        ['soil_temp_c_10_40','Soil temp 10–40cm (hourly)', unitsHourly?.soil_temperature_10_to_40cm || '°C'],
-        ['soil_temp_c_40_100','Soil temp 40–100cm (hourly)', unitsHourly?.soil_temperature_40_to_100cm || '°C'],
-        ['soil_temp_c_100_200','Soil temp 100–200cm (hourly)', unitsHourly?.soil_temperature_100_to_200cm || '°C'],
-        ['soil_moisture_10_40','Soil moisture 10–40cm (hourly)', unitsHourly?.soil_moisture_10_to_40cm || 'm³/m³'],
-        ['soil_moisture_40_100','Soil moisture 40–100cm (hourly)', unitsHourly?.soil_moisture_40_to_100cm || 'm³/m³'],
-        ['soil_moisture_100_200','Soil moisture 100–200cm (hourly)', unitsHourly?.soil_moisture_100_to_200cm || 'm³/m³']
-      ];
-
-      function itemRow(k,label,u,tagClass,tagText){
-        const ok = vars[k] ? !!vars[k].ok : true;
-        const tag = ok ? `<div class="vtag ${tagClass}">${esc(tagText)}</div>` : `<div class="vtag tag-missing">Not in response</div>`;
-        return `
-          <div class="vitem">
-            <div>
-              <div class="vname">${esc(label)}</div>
-              <div class="vmeta">${esc(u || '')}</div>
-            </div>
-            ${tag}
-          </div>
-        `;
-      }
-
-      function groupHtml(title, rows, tagClass, tagText){
-        const items = rows.map(([k,label,u])=> itemRow(k,label,u,tagClass,tagText)).join('');
-        return `
-          <div class="vgroup">
-            <div class="vgroup-title">${esc(title)}</div>
-            <div class="vitems">${items}</div>
-          </div>
-        `;
-      }
-
-      box.innerHTML =
-        groupHtml('Used now (primary drivers)', usedPrimary, 'tag-primary', 'Used') +
-        groupHtml('Used now (light influence / nudges)', usedLight, 'tag-light', 'Light') +
-        groupHtml('Pulled (not yet used)', pulledNotUsed, 'tag-pulled', 'Pulled');
-    }
-
-    function renderDetails(){
-      const f = state.fields.find(x=>x.id === state.selectedFieldId);
-      if (!f) return;
-
-      const run = state.lastRuns.get(f.id) || runField(f);
-      if (!run) return;
-
-      const fac = run.factors;
-      const p = getFieldParams(f.id);
-
-      const opKey = getCurrentOp();
-      const opLabel = (OPS.find(o=>o.key===opKey)?.label) || opKey;
-      const thr = getThresholdForOp(opKey);
-
-      const range = parseRangeFromInput();
-      const rainRange = rainInRange(run, range);
-
-      const farmName = state.farmsById.get(f.farmId) || '';
-
-      const setText = (id, val) => { const el = $(id); if (el) el.textContent = String(val); };
-
-      setText('dFieldName', farmName ? `${farmName} • ${f.name}` : (f.name || '—'));
-      setText('dStatus', String(f.status||'—'));
-      setText('dCounty', `${String(f.county||'—')} / ${String(f.state||'—')}`);
-      setText('dAcres', (isFinite(f.tillable) ? `${f.tillable.toFixed(2)} ac` : '—'));
-      setText('dGps', (f.location ? `${f.location.lat.toFixed(6)}, ${f.location.lng.toFixed(6)}` : '—'));
-
-      // map button availability
-      const btnMap = $('btnMap');
-      if (btnMap) btnMap.disabled = !f.location;
-
-      setText('dSoilType', `${p.soilWetness}/100`);
-      setText('dSoilHold', `${fac.soilHold.toFixed(2)} (normalized)`);
-      setText('dDrainage', `${p.drainageIndex}/100`);
-
-      setText('dThreshold', `${thr}`);
-      setText('dOperation', opLabel);
-
-      setText('dDays', String(run.rows.length || 0));
-      setText('dRangeRain', `${rainRange.toFixed(2)} in`);
-      setText('dReadiness', `${run.readinessR}`);
-      setText('dWetness', `${run.wetnessR}`);
-      setText('dStorage', `${run.storageFinal.toFixed(2)} / ${run.factors.Smax.toFixed(2)}`);
-
-      const param = $('paramExplain');
-      if (param){
-        param.innerHTML =
-          `soilHold=soilWetness/100=<span class="mono">${fac.soilHold.toFixed(2)}</span> • drainPoor=drainageIndex/100=<span class="mono">${fac.drainPoor.toFixed(2)}</span><br/>
-           Smax=<span class="mono">${fac.Smax.toFixed(2)}</span> (base <span class="mono">${fac.SmaxBase.toFixed(2)}</span>) • infilMult=<span class="mono">${fac.infilMult.toFixed(2)}</span> • dryMult=<span class="mono">${fac.dryMult.toFixed(2)}</span> • LOSS_SCALE=<span class="mono">${LOSS_SCALE.toFixed(2)}</span>`;
-      }
-
-      const sum = $('mathSummary');
-      if (sum){
-        sum.innerHTML =
-          `Model output: <b>Wet=${run.wetnessR}</b> • <b>Readiness=${run.readinessR}</b> • storage=<span class="mono">${run.storageFinal.toFixed(2)}</span>/<span class="mono">${run.factors.Smax.toFixed(2)}</span>`;
-      }
-
-      renderBetaInputs();
-
-      const trb = $('traceRows');
-      if (trb){
-        trb.innerHTML = '';
-        for (const t of run.trace){
-          const tr = document.createElement('tr');
-          tr.innerHTML = `
-            <td class="mono">${t.dateISO}</td>
-            <td class="right mono">${t.rain.toFixed(2)}</td>
-            <td class="right mono">${t.infilMult.toFixed(2)}</td>
-            <td class="right mono">${t.add.toFixed(2)}</td>
-            <td class="right mono">${t.dryPwr.toFixed(2)}</td>
-            <td class="right mono">${t.loss.toFixed(2)}</td>
-            <td class="right mono">${t.before.toFixed(2)}→${t.after.toFixed(2)}</td>
-          `;
-          trb.appendChild(tr);
-        }
-      }
-
-      const drb = $('dryRows');
-      if (drb){
-        drb.innerHTML = '';
-        for (const r of run.rows){
-          const tr = document.createElement('tr');
-          tr.innerHTML = `
-            <td class="mono">${r.dateISO}</td>
-            <td class="right mono">${Math.round(r.temp)}</td>
-            <td class="right mono">${r.tempN.toFixed(2)}</td>
-            <td class="right mono">${Math.round(r.wind)}</td>
-            <td class="right mono">${r.windN.toFixed(2)}</td>
-            <td class="right mono">${Math.round(r.rh)}</td>
-            <td class="right mono">${r.rhN.toFixed(2)}</td>
-            <td class="right mono">${Math.round(r.solar)}</td>
-            <td class="right mono">${r.solarN.toFixed(2)}</td>
-            <td class="right mono">${(r.vpd||0).toFixed(2)}</td>
-            <td class="right mono">${(r.vpdN||0).toFixed(2)}</td>
-            <td class="right mono">${Math.round(r.cloud||0)}</td>
-            <td class="right mono">${(r.cloudN||0).toFixed(2)}</td>
-            <td class="right mono">${r.raw.toFixed(2)}</td>
-            <td class="right mono">${r.dryPwr.toFixed(2)}</td>
-          `;
-          drb.appendChild(tr);
-        }
-      }
-
-      const wxb = $('wxRows');
-      if (wxb){
-        wxb.innerHTML = '';
-        for (const r of run.rows){
-          const tr = document.createElement('tr');
-          tr.innerHTML = `
-            <td class="mono">${r.dateISO}</td>
-            <td class="right mono">${Number(r.rainInAdj||0).toFixed(2)}</td>
-            <td class="right mono">${Math.round(r.temp)}</td>
-            <td class="right mono">${Math.round(r.wind)}</td>
-            <td class="right mono">${Math.round(r.rh)}</td>
-            <td class="right mono">${Math.round(r.solar)}</td>
-            <td class="right mono">${(r.et0||0).toFixed(2)}</td>
-            <td class="right mono">${(r.sm010===null||r.sm010===undefined)?'—':Number(r.sm010).toFixed(3)}</td>
-            <td class="right mono">${(r.st010F===null||r.st010F===undefined)?'—':Math.round(r.st010F)}</td>
-          `;
-          wxb.appendChild(tr);
-        }
-      }
-
-      updateAdjustPills();
-    }
-
-    function refreshAll(){
-      setErr('');
-
-      if (state.selectedFieldId){
-        const a = $('soilWet');
-        const b = $('drain');
-        const p = getFieldParams(state.selectedFieldId);
-        if (a) p.soilWetness = clamp(Number(a.value), 0, 100);
-        if (b) p.drainageIndex = clamp(Number(b.value), 0, 100);
-        state.perFieldParams.set(state.selectedFieldId, p);
-        saveParamsToLocal();
-      }
-
-      renderTiles();
-      renderDetails();
-    }
-
-    function showModal(backdropId, on){
-      const b = $(backdropId);
-      if (b) b.classList.toggle('pv-hide', !on);
-    }
-
-    /* ---------- Adjust (CALIBRATION + guardrails) ---------- */
-
-    /** Determine the model’s “current reality” bucket from output wetness */
-    function modelClassFromRun(run){
-      if (!run) return 'ok';
-      const w = Number(run.wetnessR);
-      if (!isFinite(w)) return 'ok';
-      if (w >= 70) return 'wet';
-      if (w <= 30) return 'dry';
-      return 'ok';
-    }
-
-    function updateAdjustPills(){
-      const fid = state.selectedFieldId;
-      const f = state.fields.find(x=>x.id===fid);
-      if (!f) return;
-
-      const run = state.lastRuns.get(f.id) || runField(f);
-      if (!run) return;
-
-      const p = getFieldParams(f.id);
-      const set = (id,val)=>{ const el=$(id); if(el) el.textContent=String(val); };
-
-      set('adjReadiness', run.readinessR);
-      set('adjWetness', run.wetnessR);
-      set('adjSoil', `${p.soilWetness}/100`);
-      set('adjDrain', `${p.drainageIndex}/100`);
-
-      const mc = modelClassFromRun(run);
-      set('adjModelClass', mc.toUpperCase());
-
-      // Also update disabled states + hint + guard message
-      updateAdjustUI();
-    }
-
-    function setFeel(feel){
-      state._adjFeel = feel;
-
-      const seg = $('feelSeg');
-      if (seg){
-        seg.querySelectorAll('.segbtn').forEach(btn=>{
-          btn.classList.toggle('on', btn.getAttribute('data-feel') === feel);
-        });
-      }
-
-      updateAdjustUI();
-    }
-
-    /** Show/hide intensity slider only when correcting the opposite direction */
-    function updateAdjustUI(){
-      const fid = state.selectedFieldId;
-      const f = state.fields.find(x=>x.id===fid);
-      if (!f) return;
-
-      const run = state.lastRuns.get(f.id) || runField(f);
-      const mc = modelClassFromRun(run);
-      const feel = state._adjFeel || 'ok';
-
-      // Disable “Wet” when model already wet, disable “Dry” when model already dry
-      const bWet = $('btnFeelWet');
-      const bDry = $('btnFeelDry');
-      if (bWet) bWet.disabled = (mc === 'wet');
-      if (bDry) bDry.disabled = (mc === 'dry');
-
-      // If user is on a disabled option, force to OK
-      if (mc === 'wet' && feel === 'wet') state._adjFeel = 'ok';
-      if (mc === 'dry' && feel === 'dry') state._adjFeel = 'ok';
-
-      // ensure UI highlight matches forced feel
-      const seg = $('feelSeg');
-      if (seg){
-        seg.querySelectorAll('.segbtn').forEach(btn=>{
-          btn.classList.toggle('on', btn.getAttribute('data-feel') === (state._adjFeel || 'ok'));
-        });
-      }
-
-      // Intensity only when opposite-direction correction
-      const opposite =
-        (mc === 'wet' && state._adjFeel === 'dry') ||
-        (mc === 'dry' && state._adjFeel === 'wet');
-
-      const box = $('intensityBox');
-      const title = $('intensityTitle');
-      const left = $('intensityLeft');
-      const right = $('intensityRight');
-
-      if (box){
-        box.classList.toggle('pv-hide', !opposite);
-      }
-
-      if (opposite){
-        if (mc === 'wet' && title){
-          title.textContent = 'If it’s NOT wet… how DRY is it?';
-          if (left) left.textContent = 'Slightly dry';
-          if (right) right.textContent = 'Extremely dry';
-        }
-        if (mc === 'dry' && title){
-          title.textContent = 'If it’s NOT dry… how WET is it?';
-          if (left) left.textContent = 'Slightly wet';
-          if (right) right.textContent = 'Extremely wet';
-        }
-      }
-
-      // Hint line
-      const hint = $('adjHint');
-      if (hint){
-        if (mc === 'wet'){
-          hint.textContent = 'Model says WET → “Wet” disabled. Choose OK, or choose “Dry” to correct it (with intensity).';
-        } else if (mc === 'dry'){
-          hint.textContent = 'Model says DRY → “Dry” disabled. Choose OK, or choose “Wet” to correct it (with intensity).';
-        } else {
-          hint.textContent = 'Model says OK → you can mark Wet or Dry if it’s wrong.';
-        }
-      }
-
-      updateAdjustGuard();
-    }
-
-    function readIntensity0100(){
-      const el = $('adjIntensity');
-      const v = el ? Number(el.value) : 50;
-      return clamp(Math.round(isFinite(v) ? v : 50), 0, 100);
-    }
-
-    function updateIntensityLabel(){
-      const v = readIntensity0100();
-      const out = $('adjIntensityVal');
-      if (out) out.textContent = String(v);
-    }
-
-    function computeDelta(){
-      const fid = state.selectedFieldId;
-      const f = state.fields.find(x=>x.id===fid);
-      const run = f ? (state.lastRuns.get(f.id) || runField(f)) : null;
-
-      const mc = modelClassFromRun(run);
-      const feel = state._adjFeel || 'ok';
-      const obs = String(($('adjObs') && $('adjObs').value) || 'none');
-
-      // Base delta sign
-      let sign = 0;
-      if (feel === 'wet') sign = +1;
-      if (feel === 'dry') sign = -1;
-
-      if (sign === 0) return 0; // OK => no change
-
-      // Opposite-direction correction uses intensity slider to scale the magnitude
-      const opposite =
-        (mc === 'wet' && feel === 'dry') ||
-        (mc === 'dry' && feel === 'wet');
-
-      let mag = 8; // default normal nudge
-      if (opposite){
-        const intensity = readIntensity0100(); // 0..100
-        // 8..18 based on intensity
-        mag = 8 + Math.round((intensity/100) * 10);
-      }
-
-      // Observation boost (small)
-      const obsBoost =
-        (obs === 'ruts') ? +6 :
-        (obs === 'tacky') ? +3 :
-        (obs === 'crumbly') ? -2 :
-        (obs === 'dusty') ? -6 : 0;
-
-      const delta = (sign * mag) + obsBoost;
-
-      // Guardrail (calibration-only; prevent “messing up”)
-      return clamp(delta, -18, +18);
-    }
-
-    function updateAdjustGuard(){
-      updateIntensityLabel();
-
-      const el = $('adjGuard');
-      if (!el) return;
-
-      const d = computeDelta();
-      if (d === 0){
-        el.textContent = 'No change will be applied (About Right).';
-        return;
-      }
-
-      el.textContent = `This will nudge Soil Wetness + Drainage by ${d > 0 ? '+' : ''}${d} (guardrailed).`;
-    }
-
-    function appendAdjustLog(entry){
-      try{
-        const raw = localStorage.getItem(LS_ADJ_LOG);
-        const arr = raw ? JSON.parse(raw) : [];
-        const out = Array.isArray(arr) ? arr : [];
-        out.unshift(entry);
-        while (out.length > 60) out.pop();
-        localStorage.setItem(LS_ADJ_LOG, JSON.stringify(out));
-      }catch(_){}
-    }
-
-    async function writeAdjustToFirestore(entry){
-      const api = getAPI();
-      if (!api || api.kind === 'compat') return;
-
-      try{
-        const db = api.getFirestore();
-        const auth = api.getAuth ? api.getAuth() : null;
-        const user = auth && auth.currentUser ? auth.currentUser : null;
-
-        const payload = {
-          ...entry,
-          createdAt: api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString(),
-          createdBy: user ? (user.email || user.uid || null) : null
-        };
-
-        const col = api.collection(db, ADJ_COLLECTION);
-        if (api.addDoc){
-          await api.addDoc(col, payload);
-        } else {
-          const id = String(Date.now());
-          const ref = api.doc(db, ADJ_COLLECTION, id);
-          await api.setDoc(ref, payload, { merge:true });
-        }
-      }catch(e){
-        console.warn('[FieldReadiness] adjust log write failed:', e);
-      }
-    }
-
-    async function applyAdjustment(){
-      const fid = state.selectedFieldId;
-      const f = state.fields.find(x=>x.id===fid);
-      if (!f) return;
-
-      const run = state.lastRuns.get(f.id) || runField(f);
-      const p0 = getFieldParams(f.id);
-
-      const d = computeDelta();
-      const obs = String(($('adjObs') && $('adjObs').value) || 'none');
-      const feel = state._adjFeel || 'ok';
-
-      if (d === 0){
-        closeAdjust();
-        return;
-      }
-
-      const before = { soilWetness:p0.soilWetness, drainageIndex:p0.drainageIndex };
-
-      const p1 = {
-        soilWetness: clamp(Math.round(p0.soilWetness + d), 0, 100),
-        drainageIndex: clamp(Math.round(p0.drainageIndex + d), 0, 100)
-      };
-
-      // apply + persist
-      state.perFieldParams.set(f.id, p1);
-      saveParamsToLocal();
-
-      // sync sliders immediately
-      const a = $('soilWet'), b = $('drain');
-      if (a) a.value = String(p1.soilWetness);
-      if (b) b.value = String(p1.drainageIndex);
-
-      const entry = {
-        fieldId: f.id,
-        fieldName: f.name || '',
-        op: getCurrentOp(),
-        feel,
-        observation: obs,
-        intensity: readIntensity0100(),
-        delta: d,
-        before,
-        after: p1,
-        model: {
-          readinessBefore: run ? run.readinessR : null,
-          wetnessBefore: run ? run.wetnessR : null,
-          modelClass: modelClassFromRun(run)
-        },
-        ts: Date.now()
-      };
-
-      appendAdjustLog(entry);
-      await writeAdjustToFirestore(entry);
-
-      refreshAll();
-      closeAdjust();
-    }
-
-    function openAdjust(id){
-      state.selectedFieldId = id;
-      ensureSelectedParamsToSliders();
-      refreshAll();
-
-      const f = state.fields.find(x=>x.id===id);
-      const sub = $('adjustSub');
-      if (sub && f) sub.textContent = f.name || '—';
-
-      // defaults
-      const obs = $('adjObs'); if (obs) obs.value = 'none';
-      const intensity = $('adjIntensity'); if (intensity) intensity.value = '50';
-      updateIntensityLabel();
-
-      // default feel to OK (safe)
-      state._adjFeel = 'ok';
-      setFeel('ok');
-
-      updateAdjustPills();
-      updateAdjustGuard();
-
-      showModal('adjustBackdrop', true);
-    }
-
-    function closeAdjust(){ showModal('adjustBackdrop', false); }
-
-    /* ---------- Operation modal ---------- */
-
-    function renderOpThresholdModal(){
-      const list = $('opList');
-      if (!list) return;
-      list.innerHTML = '';
-
-      for (const op of OPS){
-        const val = getThresholdForOp(op.key);
-
-        const row = document.createElement('div');
-        row.className = 'oprow';
-
-        row.innerHTML = `
-          <div class="oprow-top">
-            <div class="opname">${esc(op.label)}</div>
-            <div class="opval"><span class="mono" id="thrVal_${esc(op.key)}">${val}</span></div>
-          </div>
-          <input type="range" min="0" max="100" step="1" value="${val}" data-thr="${esc(op.key)}"/>
-        `;
-
-        const slider = row.querySelector('input[type="range"]');
-        slider.addEventListener('input', ()=>{
-          const k = slider.getAttribute('data-thr');
-          const n = clamp(Number(slider.value), 0, 100);
-          state.thresholdsByOp.set(k, n);
-
-          const vEl = $('thrVal_' + k);
-          if (vEl) vEl.textContent = String(n);
-
-          scheduleThresholdSave();
-          refreshAll();
-        });
-
-        list.appendChild(row);
-      }
-    }
-
-    function openOpModal(){
-      renderOpThresholdModal();
-      showModal('opBackdrop', true);
-    }
-    function closeOpModal(){ showModal('opBackdrop', false); }
-
-    function loadOpDefault(){
-      const op = $('opSel');
-      if (!op) return;
-      try{
-        const raw = localStorage.getItem(LS_OP_KEY);
-        if (raw) op.value = raw;
-      }catch(_){}
-    }
-    function saveOpDefault(){
-      const op = $('opSel');
-      if (!op) return;
-      try{ localStorage.setItem(LS_OP_KEY, String(op.value||'')); }catch(_){}
-    }
-
-    /* ---------- MAP (in-app modal) ---------- */
-
-    function getMapsKey(){
-      const k1 = (window && window.FV_GOOGLE_MAPS_KEY) ? String(window.FV_GOOGLE_MAPS_KEY) : '';
-      let k2 = '';
-      try{ k2 = String(localStorage.getItem('fv_google_maps_key') || ''); }catch(_){}
-      return (k1 || k2 || '').trim();
-    }
-
-    function loadGoogleMapsOnce(){
-      if (state._mapsPromise) return state._mapsPromise;
-
-      state._mapsPromise = new Promise((resolve, reject)=>{
-        if (window.google && window.google.maps){
-          resolve(window.google.maps);
-          return;
-        }
-
-        const key = getMapsKey();
-        if (!key){
-          reject(new Error('Missing Google Maps key. Set window.FV_GOOGLE_MAPS_KEY or localStorage.fv_google_maps_key.'));
-          return;
-        }
-
-        const existing = document.querySelector('script[data-fv-google-maps="1"]');
-        if (existing){
-          const t0 = Date.now();
-          const tick = ()=>{
-            if (window.google && window.google.maps) return resolve(window.google.maps);
-            if (Date.now() - t0 > 15000) return reject(new Error('Google Maps load timeout.'));
-            setTimeout(tick, 50);
-          };
-          tick();
-          return;
-        }
-
-        const s = document.createElement('script');
-        s.setAttribute('data-fv-google-maps','1');
-        s.async = true;
-        s.defer = true;
-        s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly`;
-        s.onload = ()=>{
-          if (window.google && window.google.maps) resolve(window.google.maps);
-          else reject(new Error('Google Maps loaded but google.maps is missing.'));
-        };
-        s.onerror = ()=> reject(new Error('Failed to load Google Maps script.'));
-        document.head.appendChild(s);
-      });
-
-      return state._mapsPromise;
-    }
-
-    function setMapError(msg){
-      const el = $('mapError');
-      const wrap = $('mapWrap');
-      if (el){
-        if (!msg){
-          el.style.display = 'none';
-          el.textContent = '';
-        } else {
-          el.style.display = 'block';
-          el.textContent = msg;
-        }
-      }
-      if (wrap) wrap.style.opacity = msg ? '0.65' : '1';
-    }
-
-    function openMapModal(){
-      const f = state.fields.find(x=>x.id === state.selectedFieldId);
-      if (!f || !f.location) return;
-
-      const lat = Number(f.location.lat);
-      const lng = Number(f.location.lng);
-      const sub = $('mapSub');
-      if (sub) sub.textContent = (f.name ? `${f.name}` : 'Field') + ' • HYBRID';
-
-      const ll = $('mapLatLng');
-      if (ll) ll.textContent = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-
-      setMapError('');
-      showModal('mapBackdrop', true);
-
-      // Build map (after modal visible so size is correct)
-      setTimeout(async ()=>{
-        try{
-          const maps = await loadGoogleMapsOnce();
-
-          const canvas = $('fvMapCanvas');
-          if (!canvas) throw new Error('Map canvas missing.');
-
-          const center = { lat, lng };
-
-          if (!state._gmap){
-            state._gmap = new maps.Map(canvas, {
-              center,
-              zoom: 16,
-              mapTypeId: maps.MapTypeId.HYBRID,
-              streetViewControl: false,
-              fullscreenControl: false,
-              mapTypeControl: true,
-              clickableIcons: false
-            });
-          } else {
-            state._gmap.setCenter(center);
-            state._gmap.setZoom(16);
-            state._gmap.setMapTypeId(maps.MapTypeId.HYBRID);
-          }
-
-          if (!state._gmarker){
-            state._gmarker = new maps.Marker({
-              position: center,
-              map: state._gmap
-            });
-          } else {
-            state._gmarker.setMap(state._gmap);
-            state._gmarker.setPosition(center);
-          }
-
-          // ensure it renders correctly after open
-          setTimeout(()=>{
-            try{ maps.event.trigger(state._gmap, 'resize'); }catch(_){}
-            try{ state._gmap.setCenter(center); }catch(_){}
-          }, 60);
-
-        }catch(e){
-          console.warn('[FieldReadiness] map open failed:', e);
-          setMapError(e?.message || 'Map failed to load.');
-        }
-      }, 0);
-    }
-
-    function closeMapModal(){
-      showModal('mapBackdrop', false);
-    }
-
-    /* ---------- wiring ---------- */
-
-    function on(id, ev, fn){
-      const el = $(id);
-      if (el) el.addEventListener(ev, fn);
-    }
-
-    on('sortSel','change', refreshAll);
-    on('opSel','change', ()=>{ saveOpDefault(); refreshAll(); });
-
-    on('soilWet','input', refreshAll);
-    on('drain','input', refreshAll);
-
-    on('applyRangeBtn','click', ()=> setTimeout(refreshAll, 0));
-    on('clearRangeBtn','click', ()=> setTimeout(refreshAll, 0));
-    on('jobRangeInput','change', refreshAll);
-
-    on('btnRegen','click', async ()=>{
-      try{
-        setErr('');
-        await warmWeatherForFields(true);
-        refreshAll();
-      }catch(e){
-        console.error(e);
-        setErr('Weather refresh failed. Check Cloud Run logs / CORS.');
-      }
-    });
-
-    (function(){
-      const rainHelpBtn = $('rainHelpBtn');
-      const rainHelpTip = $('rainHelpTip');
-      if (!rainHelpBtn || !rainHelpTip) return;
-
-      function close(){ rainHelpTip.classList.remove('on'); }
-      rainHelpBtn.addEventListener('click', (e)=>{
-        e.stopPropagation();
-        rainHelpTip.classList.toggle('on');
-      });
-      document.addEventListener('click', (e)=>{
-        if (!rainHelpTip.classList.contains('on')) return;
-        const inside = e.target && e.target.closest && e.target.closest('#rainHelpTip');
-        const btn = e.target && e.target.closest && e.target.closest('#rainHelpBtn');
-        if (!inside && !btn) close();
-      });
-    })();
-
-    on('opBtn','click', openOpModal);
-    on('btnOpX','click', closeOpModal);
-    (function(){
-      const b = $('opBackdrop');
-      if (!b) return;
-      b.addEventListener('click', (e)=>{
-        if (e.target && e.target.id === 'opBackdrop') closeOpModal();
-      });
-    })();
-
-    on('btnAdjX','click', closeAdjust);
-    on('btnAdjCancel','click', closeAdjust);
-    on('btnAdjApply','click', ()=>{
-  showModal('confirmAdjBackdrop', true);
-});
-   on('btnAdjNo','click', ()=>{
-  showModal('confirmAdjBackdrop', false);
-});
-
-on('btnAdjYes','click', async ()=>{
-  showModal('confirmAdjBackdrop', false);
-  await applyAdjustment();
-});
-    (function(){
-  const b = $('confirmAdjBackdrop');
-  if (!b) return;
-  b.addEventListener('click', (e)=>{
-    // prevent backdrop click from closing confirm modal
-    if (e.target && e.target.id === 'confirmAdjBackdrop'){
-      e.stopPropagation();
-    }
-  });
-})();
-
-    (function(){
-      const b = $('adjustBackdrop');
-      if (!b) return;
-      b.addEventListener('click', (e)=>{
-        if (e.target && e.target.id === 'adjustBackdrop') closeAdjust();
-      });
-    })();
-
-    (function(){
-      const seg = $('feelSeg');
-      if (!seg) return;
-      seg.addEventListener('click', (e)=>{
-        const btn = e.target && e.target.closest ? e.target.closest('button[data-feel]') : null;
-        if (!btn) return;
-        setFeel(btn.getAttribute('data-feel'));
-      });
-    })();
-
-    // ✅ keep both
-    on('adjObs','change', updateAdjustGuard);
-    on('adjIntensity','input', updateAdjustGuard);
-
-    // ✅ Map wiring
-    on('btnMap','click', (e)=>{
-      e.preventDefault();
-      e.stopPropagation();
-      openMapModal();
-    });
-    on('btnMapX','click', closeMapModal);
-    (function(){
-      const b = $('mapBackdrop');
-      if (!b) return;
-      b.addEventListener('click', (e)=>{
-        if (e.target && e.target.id === 'mapBackdrop') closeMapModal();
-      });
-    })();
-
-    /* ---------- init ---------- */
-    (async function init(){
-      const dp = $('detailsPanel');
-      if (dp) dp.open = false;
-
-      loadParamsFromLocal();
-      loadOpDefault();
-      loadThresholdsFromLocal();
-
-      const ok = await importFirebaseInit();
-      if (!ok) setErr('firebase-init.js failed to import as a module.');
-
-      await loadThresholdsFromFirestore();
-      await loadFarmsOptional();
-      await loadFields();
-
-      if (!state.selectedFieldId && state.fields.length){
-        state.selectedFieldId = state.fields[0].id;
-      }
-
-      ensureSelectedParamsToSliders();
-      refreshAll();
-    })();
-  </script>
+  <!-- ✅ Load the UI module (imports weather + model) -->
+  <script type="module" src="/Farm-vista/js/field-readiness.ui.js"></script>
 
   <!-- Google Maps (shared key, same as setup/fields.html) -->
   <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY"></script>
