@@ -1,8 +1,12 @@
 /* =======================================================================
 // /Farm-vista/js/fv-weather.js
-// Rev: 2025-12-23b (Subtle refresh + ZIP picker FIXED)
+// Rev: 2025-12-23c (Saved ZIP label always wins header)
 //
 // Fixes (per Dane):
+// ✅ If user saved a ZIP, the header title ALWAYS uses the saved label too
+//    (prevents header reverting to Divernon after navigating away and back)
+//
+// Prior fixes kept:
 // ✅ ZIP input does NOT trigger modal open (stops click bubbling)
 // ✅ ZIP UI is small + subtle (no big buttons, no "Use Divernon" button)
 // ✅ ZIP auto-applies (debounced after 5 digits, Enter, or blur)
@@ -118,22 +122,53 @@
     }catch{}
   }
 
+  // NEW: decide when saved label should override caller
+  function shouldUseSavedLabel(saved, options){
+    if (!saved || !saved.label) return false;
+
+    // only "force" label override when we actually have a saved ZIP/location
+    // (ZIP is the user's intent; also allow if coords are saved and differ from default)
+    const hasRealSaved =
+      !!saved.zip ||
+      (Number.isFinite(saved.lat) && Number.isFinite(saved.lon) &&
+       (Math.abs(saved.lat - DEFAULT_LOCATION.lat) > 1e-6 ||
+        Math.abs(saved.lon - DEFAULT_LOCATION.lon) > 1e-6));
+
+    if (!hasRealSaved) return false;
+
+    // If caller did NOT explicitly provide a label, saved should win.
+    const callerProvidedLabel = !!(options && Object.prototype.hasOwnProperty.call(options, "locationLabel"));
+    if (!callerProvidedLabel) return true;
+
+    // If caller provided the DEFAULT label (Divernon), treat that as "not a real override"
+    const callerLabel = safeText(options.locationLabel).trim();
+    if (!callerLabel) return true;
+    if (callerLabel === DEFAULT_LOCATION.label) return true;
+    if (callerLabel === DEFAULT_CONFIG.locationLabel) return true;
+
+    // Caller provided some other non-default label; respect it.
+    return false;
+  }
+
   function effectiveConfig(options){
     const cfg = { ...DEFAULT_CONFIG, ...options };
 
     const callerProvidedLatLon =
       options && (Object.prototype.hasOwnProperty.call(options,"lat") || Object.prototype.hasOwnProperty.call(options,"lon"));
-    const callerProvidedLabel =
-      options && Object.prototype.hasOwnProperty.call(options,"locationLabel");
 
     const saved = readSavedLocation();
+
+    // coords: saved wins unless caller explicitly provides lat/lon
     if (saved && !callerProvidedLatLon){
       cfg.lat = saved.lat;
       cfg.lon = saved.lon;
     }
-    if (saved && !callerProvidedLabel){
+
+    // label: saved wins whenever there's a saved ZIP/location unless caller truly overrides
+    if (saved && shouldUseSavedLabel(saved, options)){
       cfg.locationLabel = saved.label || cfg.locationLabel;
     }
+
     return cfg;
   }
 
@@ -1156,18 +1191,20 @@
 
     // timers (card + modal containers both can auto-refresh; your dashboard likely only uses card)
     const doRefresh = async () => {
+      // On refresh, always re-resolve the saved location (so header stays in sync too)
       const saved = readSavedLocation();
       const nextCfg = { ...config };
+
       if (saved){
         nextCfg.lat = saved.lat;
         nextCfg.lon = saved.lon;
         nextCfg.locationLabel = saved.label || nextCfg.locationLabel;
       } else {
-        // default
         nextCfg.lat = DEFAULT_LOCATION.lat;
         nextCfg.lon = DEFAULT_LOCATION.lon;
         nextCfg.locationLabel = DEFAULT_LOCATION.label;
       }
+
       await initWeatherModule({ ...nextCfg });
     };
 
