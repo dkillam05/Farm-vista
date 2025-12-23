@@ -1122,22 +1122,9 @@ function updateIntensityLabel(){
   const out = $('adjIntensityVal');
   if (!out) return;
 
-  const anchor = clamp(Number(state._adjAnchorReadiness ?? 50), 0, 100);
-  const v = readSlider0100();
-  let intensity = 0;
-
-  if (state._adjFeel === 'dry'){
-    const denom = Math.max(1, 100 - anchor);
-    intensity = Math.round(clamp((v - anchor) / denom, 0, 1) * 100);
-  } else if (state._adjFeel === 'wet'){
-    const denom = Math.max(1, anchor);
-    intensity = Math.round(clamp((anchor - v) / denom, 0, 1) * 100);
-  } else {
-    intensity = 0;
-  }
-
-  // show intensity, not raw slider value
-  out.textContent = String(intensity);
+  // Show the actual slider value (anchored to current readiness),
+  // so if readiness is 8, it displays 8/100.
+  out.textContent = String(readSlider0100());
 }
 
 function getAnchorReadinessFromRun(run){
@@ -1710,6 +1697,27 @@ on('btnOpX','click', closeOpModal);
 })();
 
 on('btnAdjX','click', closeAdjust);
+/* ---------- ensure cooldown panel always renders when Adjust opens ---------- */
+(function wireAdjustCooldownAuto(){
+  const back = $('adjustBackdrop');
+  if (!back) return;
+
+  const obs = new MutationObserver(async ()=>{
+    const open = !back.classList.contains('pv-hide');
+    if (!open) return;
+
+    // Ensure the slot exists + render immediately
+    __ensureCooldownSlot();
+    await loadCooldownFromFirestore();
+    __renderCooldownCard();
+
+    // Keep it updating + enforce disable state
+    stopCooldownTicker();   // make sure no previous interval is running
+startCooldownTicker();  // start fresh
+  });
+
+  obs.observe(back, { attributes:true, attributeFilter:['class'] });
+})();
 on('btnAdjCancel','click', closeAdjust);
 on('btnAdjApply','click', ()=>{
   const btn = $('btnAdjApply');
