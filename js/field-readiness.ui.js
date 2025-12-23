@@ -1287,8 +1287,8 @@ if (bWet) bWet.disabled = locked || (mc === 'wet');
 if (bDry) bDry.disabled = locked || (mc === 'dry');
 
 // Apply must stay disabled while locked
-const applyBtn = $('btnAdjApply');
-if (applyBtn) applyBtn.disabled = locked || !(state._adjFeel === 'wet' || state._adjFeel === 'dry');
+const applyBtnLock = $('btnAdjApply');
+if (applyBtnLock) applyBtnLock.disabled = locked || !(state._adjFeel === 'wet' || state._adjFeel === 'dry');
 
 // Optional: prevent playing with the slider while locked
 const s = $('adjIntensity');
