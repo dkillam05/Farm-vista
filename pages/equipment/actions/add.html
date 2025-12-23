@@ -1283,71 +1283,80 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     }
 
     async function createPdf(){
-      if (!__pending) return;
+  if (!__pending) return;
 
-      pCreate.disabled = true;
-      await showOverlayAndYield();
+  // Guard: if detailed and cutLen isn't computed yet, refuse to print
+  if (__mode !== 'summary' && (!__cutLenMm || __cutLenMm < 70)){
+    alert('Cut length not ready yet. Close and reopen preview, then try again.');
+    return;
+  }
 
-      try{
-        const mobile = isMobileLike();
-        const cutLenMm = (__mode === 'summary') ? 62 : __cutLenMm;
+  pCreate.disabled = true;
+  await showOverlayAndYield();
 
-        // Desktop: landscape cutLen x 62
-        // Mobile: portrait 62 x cutLen
-        const widthMm  = mobile ? 62 : cutLenMm;
-        const heightMm = mobile ? cutLenMm : 62;
-        const landscape = false;
+  try{
+    const mobile = isMobileLike();
+    const cutLenMm = (__mode === 'summary') ? 62 : __cutLenMm;
 
-        const html = mobile
-          ? buildMobilePortraitHtml({
-              mode: __mode,
-              qrSrc: __previewQrSrc || __pending.url,
-              make: __pending.make,
-              model: __pending.model,
-              serial6: __pending.serial6,
-              cutLenMm
-            })
-          : buildDesktopHtml({
-              mode: __mode,
-              qrSrc: __previewQrSrc || __pending.url,
-              make: __pending.make,
-              model: __pending.model,
-              serial6: __pending.serial6
-            });
+    // DEBUG (remove later if you want)
+    console.log('[PDF]', { mode: __mode, cutLenMm, __cutLenMm, mobile });
 
-        const resp = await fetch(FV_LABEL_PDF_ENDPOINT, {
-          method: 'POST',
-          headers: { 'Content-Type':'application/json' },
-          body: JSON.stringify({
-            html,
-            widthMm,
-            heightMm,
-            landscape,
-            filename: (__mode === 'summary' ? 'fv-qr-summary.pdf' : 'fv-qr-detailed.pdf')
-          })
+    // Desktop: landscape cutLen x 62
+    // Mobile: portrait 62 x cutLen
+    const widthMm  = mobile ? 62 : cutLenMm;
+    const heightMm = mobile ? cutLenMm : 62;
+    const landscape = false;
+
+    const html = mobile
+      ? buildMobilePortraitHtml({
+          mode: __mode,
+          qrSrc: __previewQrSrc || __pending.url,
+          make: __pending.make,
+          model: __pending.model,
+          serial6: __pending.serial6,
+          cutLenMm
+        })
+      : buildDesktopHtml({
+          mode: __mode,
+          qrSrc: __previewQrSrc || __pending.url,
+          make: __pending.make,
+          model: __pending.model,
+          serial6: __pending.serial6
         });
 
-        const errText = !resp.ok ? await resp.text().catch(()=> '') : '';
-        if (!resp.ok){
-          console.warn('[label-pdf] failed', resp.status, errText);
-          alert('Label PDF failed. Check Cloud Run logs.');
-          return;
-        }
+    const resp = await fetch(FV_LABEL_PDF_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({
+        html,
+        widthMm,
+        heightMm,
+        landscape,
+        filename: (__mode === 'summary' ? 'fv-qr-summary.pdf' : 'fv-qr-detailed.pdf')
+      })
+    });
 
-        const blob = await resp.blob();
-        const url = URL.createObjectURL(blob);
-
-        if (mobile){
-          window.location.assign(url);
-        } else {
-          printFrame.onload = ()=> { try{ printFrame.contentWindow.focus(); printFrame.contentWindow.print(); } catch {} };
-          printFrame.src = url;
-        }
-      } finally {
-        setPdfLoading(false);
-        pCreate.disabled = false;
-      }
+    const errText = !resp.ok ? await resp.text().catch(()=> '') : '';
+    if (!resp.ok){
+      console.warn('[label-pdf] failed', resp.status, errText);
+      alert('Label PDF failed. Check Cloud Run logs.');
+      return;
     }
+
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+
+    if (mobile){
+      window.location.assign(url);
+    } else {
+      printFrame.onload = ()=> { try{ printFrame.contentWindow.focus(); printFrame.contentWindow.print(); } catch {} };
+      printFrame.src = url;
+    }
+  } finally {
+    setPdfLoading(false);
+    pCreate.disabled = false;
+  }
+}
 
     pCreate.addEventListener('click', createPdf);
 
