@@ -1483,6 +1483,9 @@ async function openAdjustGlobal(){
 
   // ensure status slot exists before we render it
   __ensureCooldownSlot();
+   __setCooldownHtml('<div style="padding:10px;border:1px dashed var(--border);border-radius:12px;">Cooldown panel placeholder (UI is rendering)</div>');
+__renderCooldownCard();
+
 
   updateAdjustPills();
   updateAdjustGuard();
