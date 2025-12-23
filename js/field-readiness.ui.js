@@ -40,6 +40,10 @@ const round = (v, d=2) => {
   const p = Math.pow(10,d);
   return Math.round(v*p)/p;
 };
+function isGlobalCalLocked(){
+  const nextMs = Number(state._nextAllowedMs || 0);
+  return !!(nextMs && Date.now() < nextMs);
+}
 function esc(s){
   return String(s||'')
     .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
@@ -1120,6 +1124,7 @@ function updateAdjustPills(){
 }
 
 function setFeel(feel){
+   if (isGlobalCalLocked()) return;
   state._adjFeel = (feel === 'wet' || feel === 'dry') ? feel : null;
 
   const seg = $('feelSeg');
@@ -1256,10 +1261,28 @@ function updateAdjustUI(){
   const run = state.lastRuns.get(f.id) || runField(f, deps);
   const mc = modelClassFromRun(run);
 
-  const bWet = $('btnFeelWet');
-  const bDry = $('btnFeelDry');
-  if (bWet) bWet.disabled = (mc === 'wet');
-  if (bDry) bDry.disabled = (mc === 'dry');
+  const locked = isGlobalCalLocked();
+
+const bWet = $('btnFeelWet');
+const bDry = $('btnFeelDry');
+
+// If locked: disable BOTH (no calibration allowed)
+if (bWet) bWet.disabled = locked || (mc === 'wet');
+if (bDry) bDry.disabled = locked || (mc === 'dry');
+
+// Apply must stay disabled while locked
+const applyBtn = $('btnAdjApply');
+if (applyBtn) applyBtn.disabled = locked || !(state._adjFeel === 'wet' || state._adjFeel === 'dry');
+
+// Optional: prevent playing with the slider while locked
+const s = $('adjIntensity');
+if (s) s.disabled = !!locked;
+
+// If locked, force a clear message
+const hint = $('adjHint');
+if (hint && locked){
+  hint.textContent = 'Global calibration is locked (72h rule). Use field-specific Soil Wetness and Drainage sliders instead.';
+}
 
   if (mc === 'wet' && state._adjFeel === 'wet') state._adjFeel = null;
   if (mc === 'dry' && state._adjFeel === 'dry') state._adjFeel = null;
