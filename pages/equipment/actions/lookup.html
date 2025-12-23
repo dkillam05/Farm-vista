@@ -700,19 +700,21 @@ function roundUpMm(v){
     }
 
     // PRINT HTML (Mobile PDF stays portrait 62 x cutLen; Desktop stays landscape cutLen x 62)
-    // Summary label MUST show "VIN/Serial" + last 6
-    function buildMobilePortraitHtml({ mode, qrSrc, make, model, serial6, cutLenMm }){
-      const isSummary = mode === 'summary';
-      const pad = 2.2;
+// Summary label MUST show "VIN/Serial" + last 6
+function buildMobilePortraitHtml({ mode, qrSrc, make, model, serial6, cutLenMm }){
+  const isSummary = mode === 'summary';
+  const pad = 2.2;
 
-      if (isSummary){
-        return `<!doctype html><html><head><meta charset="utf-8"><style>
+  // MOBILE PDF: DO NOT ROTATE.
+  // The PDF page we send is already portrait (width=62mm, height=cutLenMm),
+  // so we render the label directly in that orientation. This avoids iPhone “wrong direction” issues.
+  if (isSummary){
+    return `<!doctype html><html><head><meta charset="utf-8"><style>
 @page{ margin:0; }
 html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; overflow:hidden; }
-.page{ width:100%; height:100%; display:block; overflow:hidden; position:relative; }
-.rot{ width:${cutLenMm}mm; height:62mm; transform-origin:top left; transform:rotate(-90deg) translateX(-${cutLenMm}mm); }
+.page{ width:100%; height:100%; display:block; overflow:hidden; }
 .label{
-  width:${cutLenMm}mm; height:62mm;
+  width:62mm; height:${cutLenMm}mm;
   box-sizing:border-box; padding:${pad}mm;
   display:grid; grid-template-rows:46mm max-content max-content;
   align-content:center; justify-items:center;
@@ -723,52 +725,77 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; overfl
 .qr{ width:46mm; height:46mm; display:flex; align-items:center; justify-content:center; }
 .qr img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
 .lab{ width:100%; text-align:center; font-weight:800; font-size:10pt; opacity:.85; letter-spacing:.2px; }
-.val{ width:100%; text-align:center; font-weight:0; font-size:16pt; letter-spacing:.6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.val{ width:100%; text-align:center; font-weight:900; font-size:16pt; letter-spacing:.6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 </style></head><body>
-<div class="page"><div class="rot"><div class="label">
+<div class="page"><div class="label">
   <div class="qr"><img alt="QR" src="${qrSrc}"></div>
   <div class="lab">VIN/Serial</div>
   <div class="val">${esc(serial6 || '—')}</div>
-</div></div></div>
+</div></div>
 </body></html>`;
-      }
+  }
 
-      return `<!doctype html><html><head><meta charset="utf-8"><style>
+  // Detailed (mobile): render inside portrait page, no rotation
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
 @page{ margin:0; }
 html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; overflow:hidden; }
-.page{ width:100%; height:100%; display:block; overflow:hidden; position:relative; }
-.rot{ width:${cutLenMm}mm; height:62mm; transform-origin:top left; transform:rotate(deg) translateY(-62mm); }
+.page{ width:100%; height:100%; display:block; overflow:hidden; }
 .label{
-  width:${cutLenMm}mm; height:62mm;
+  width:62mm; height:${cutLenMm}mm;
   box-sizing:border-box; padding:${pad}mm;
-  display:grid; grid-template-columns:max-content 48mm max-content;
-  gap:2mm; align-items:center;
+  display:grid; grid-template-rows:auto 48mm auto; /* top text, QR, bottom text */
+  align-content:space-between;
+  justify-items:center;
+  gap:2mm;
   font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   color:#000; overflow:hidden;
 }
-.left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
-.make{ font-weight:0; font-size:18pt; line-height:1.05; white-space:nowrap; }
-.model{ font-weight:800; font-size:16pt; line-height:1.05; white-space:nowrap; margin-top:1mm; }
-.mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; }
+.top{
+  width:100%;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  justify-content:center;
+  gap:1mm;
+}
+.make{ font-weight:900; font-size:18pt; line-height:1.05; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+.model{ font-weight:800; font-size:16pt; line-height:1.05; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+
+.mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; background:#fff; }
 .mid img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
-.right{ align-items:flex-end; text-align:right; }
+
+.bot{
+  width:100%;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  text-align:right;
+  padding-right:2mm; /* extra safety so VIN never kisses the edge/cut */
+  box-sizing:border-box;
+}
 .lab{ font-weight:800; font-size:12pt; line-height:1.05; opacity:.85; white-space:nowrap; }
-.val{ font-weight:0; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; white-space:nowrap; }
+.val{ font-weight:900; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; white-space:nowrap; }
 </style></head><body>
-<div class="page"><div class="rot"><div class="label">
-  <div class="left"><div class="make">${esc(make||'—')}</div><div class="model">${esc(model||'—')}</div></div>
+<div class="page"><div class="label">
+  <div class="top">
+    <div class="make">${esc(make||'—')}</div>
+    <div class="model">${esc(model||'—')}</div>
+  </div>
   <div class="mid"><img alt="QR" src="${qrSrc}"></div>
-  <div class="right"><div class="lab">VIN/Serial</div><div class="val">${esc(serial6||'—')}</div></div>
-</div></div></div>
+  <div class="bot">
+    <div class="lab">VIN/Serial</div>
+    <div class="val">${esc(serial6||'—')}</div>
+  </div>
+</div></div>
 </body></html>`;
-    }
+}
 
-    function buildDesktopHtml({ mode, qrSrc, make, model, serial6 }){
-      const isSummary = mode === 'summary';
-      const pad = 2.2;
+function buildDesktopHtml({ mode, qrSrc, make, model, serial6 }){
+  const isSummary = mode === 'summary';
+  const pad = 2.2;
 
-      if (isSummary){
-        return `<!doctype html><html><head><meta charset="utf-8"><style>
+  if (isSummary){
+    return `<!doctype html><html><head><meta charset="utf-8"><style>
 @page{ margin:0; }
 html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 .label{
@@ -783,7 +810,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 .qr{ width:46mm; height:46mm; display:flex; align-items:center; justify-content:center; }
 .qr img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
 .lab{ width:100%; text-align:center; font-weight:800; font-size:10pt; opacity:.85; letter-spacing:.2px; }
-.val{ width:100%; text-align:center; font-weight:0; font-size:16pt; letter-spacing:.6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.val{ width:100%; text-align:center; font-weight:900; font-size:16pt; letter-spacing:.6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 </style></head><body>
 <div class="label">
   <div class="qr"><img alt="QR" src="${qrSrc}"></div>
@@ -791,9 +818,9 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
   <div class="val">${esc(serial6 || '—')}</div>
 </div>
 </body></html>`;
-      }
+  }
 
-      return `<!doctype html><html><head><meta charset="utf-8"><style>
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
 @page{ margin:0; }
 html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 .label{
@@ -805,13 +832,13 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
   color:#000; overflow:hidden;
 }
 .left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
-.make{ font-weight:0; font-size:18pt; line-height:1.05; white-space:nowrap; }
+.make{ font-weight:900; font-size:18pt; line-height:1.05; white-space:nowrap; }
 .model{ font-weight:800; font-size:16pt; line-height:1.05; white-space:nowrap; margin-top:1mm; }
 .mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; }
 .mid img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
-.right{ align-items:flex-end; text-align:right; }
+.right{ align-items:flex-end; text-align:right; padding-right:2mm; box-sizing:border-box; }
 .lab{ font-weight:800; font-size:12pt; line-height:1.05; opacity:.85; white-space:nowrap; }
-.val{ font-weight:0; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; white-space:nowrap; }
+.val{ font-weight:900; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; white-space:nowrap; }
 </style></head><body>
 <div class="label">
   <div class="left"><div class="make">${esc(make||'—')}</div><div class="model">${esc(model||'—')}</div></div>
@@ -819,9 +846,9 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
   <div class="right"><div class="lab">VIN/Serial</div><div class="val">${esc(serial6||'—')}</div></div>
 </div>
 </body></html>`;
-    }
+}
 
-    // PREVIEW render: ALWAYS landscape/horizontal (even on phone)
+// PREVIEW render: ALWAYS landscape/horizontal (even on phone)
 async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
   const bust = (url && url.includes('?') ? '&' : '?') + '_=' + Date.now();
   const qrSrc = url ? (url + bust) : '';
@@ -856,9 +883,6 @@ async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
   const wrap = document.createElement('div');
   wrap.className = 'pv-long';
 
-  // Use the incoming cutLen for the initial draw (we'll re-measure and set the real value)
-  wrap.style.width = `${cutLenMm}mm`;
-
   const left = document.createElement('div'); left.className='left';
   const mk = document.createElement('div'); mk.className='make'; mk.textContent = make || '—';
   const md = document.createElement('div'); md.className='model'; md.textContent = model || '—';
@@ -875,33 +899,28 @@ async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
   wrap.append(left,mid,right);
   pHost.appendChild(wrap);
 
-    // ---- Dynamic cut measurement (measure CONTENT, not the forced box) ----
-  // Let the preview shrink to content so we can measure the true needed width.
-  // (If we measure while width is forced to 140mm, we just "discover" 140mm.)
+  // ---- Dynamic cut measurement (measure CONTENT, not a forced width) ----
   wrap.style.width = 'fit-content';
 
-  // Wait for layout
   await new Promise(r=>requestAnimationFrame(r));
   await new Promise(r=>requestAnimationFrame(r));
 
-  // Measure the *natural* content width
   const rect = wrap.getBoundingClientRect();
   let measuredMm = pxToMm(rect.width);
 
-  // CUT BUFFER TEST: 0mm (tight as possible)
+  // Your tuned buffer (keep this value)
   measuredMm = measuredMm + 3.3;
 
-  // Allow tight cuts (you can raise max later)
-  measuredMm = clampMm(measuredMm, 90, 210);
+  // Allow tight cuts and long labels
+  measuredMm = clampMm(measuredMm, 62, 240);
 
   __cutLenMm = roundUpMm(measuredMm);
 
-  // Now force the preview to the computed cut length (so you SEE the cut)
+  // Show the computed cut in the preview
   wrap.style.width = `${__cutLenMm}mm`;
 
   pCreate.disabled = false;
 }
-
 
     function openDialog(d){
       try{ d.showModal(); }catch{ d.setAttribute('open',''); }
