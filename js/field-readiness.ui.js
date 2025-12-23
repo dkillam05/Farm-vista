@@ -1,18 +1,23 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.ui.js  (FULL FILE)
-Rev: 2025-12-23h
+Rev: 2025-12-23i
 
 FIXES (per Dane):
-✅ Weather is loading (confirmed). Beta UI was not updating due to ID mismatch.
-   - renderBetaInputs() now auto-finds the Beta panel elements even if IDs differ
-   - overwrites “waiting for JS” placeholders reliably
-✅ Global calibration cooldown panel shows in Adjust modal (top of modal body)
+✅ Weather IS loading — but the tables were not being rendered.
+   - Restores rendering for: #wxRows, #traceRows, #dryRows
+   - Removes “Waiting for JS…” by overwriting #wxRows every renderDetails()
+✅ Adjustment cooldown timer now uses your EXISTING HTML anchor:
+   - <div id="calibCooldownMsg"></div> (already in field-readiness.html)
+   - No auto-insert / no MutationObserver / no guessing
+   - Shows:
+      • Last global adjustment: Xh Ym ago
+      • Next global adjustment allowed: <date/time>
 ✅ When locked (72h): Wet/Dry disabled; Apply disabled; slider disabled
 ✅ Do NOT change gauge geometry:
    - Threshold line stays at TRUE op threshold
    - Readiness marker stays at TRUE readiness
 ✅ Only color “perception” shifts based on op threshold (pill/badge/gradient feel)
-✅ Sliders remain as-is (do not change core behavior)
+✅ Keeps your slider behavior as-is (anchored + wrong-direction blocked)
 ===================================================================== */
 'use strict';
 
@@ -516,7 +521,6 @@ async function loadFields(){
 
     ensureSelectedParamsToSliders();
 
-    // Weather load (confirmed working)
     await warmWeatherForFields(state.fields, wxCtx, { force:false, onEach:debounceRender });
 
     renderFarmFilterOptions();
@@ -701,90 +705,30 @@ function selectField(id){
   refreshAll();
 }
 
-/* ---------- details: robust Beta element discovery ---------- */
-function __findBetaEls(){
-  // Preferred IDs (if your HTML matches)
-  const box1  = $('betaInputs');
-  const meta1 = $('betaInputsMeta');
-  if (box1 || meta1) return { box: box1, meta: meta1 };
-
-  // Try common alternates (you may have renamed these)
-  const boxIds  = ['betaBox','betaVars','betaInputsBox','betaInputsWrap','betaPanel','betaInputsList'];
-  const metaIds = ['betaMeta','betaMetaText','betaInfo','betaInputsHeader','betaInputsNote','betaStatus'];
-
-  for (const id of boxIds){
-    const el = $(id);
-    if (el) return { box: el, meta: null };
-  }
-  for (const id of metaIds){
-    const el = $(id);
-    if (el) return { box: null, meta: el };
-  }
-
-  // Last resort: find “waiting for JS” placeholder inside details panel area
-  const dp = $('detailsPanel') || document;
-  const metaLike = dp.querySelector
-    ? dp.querySelector('*:not(script):not(style)')
-    : null;
-
-  // Better last resort: locate any element containing the placeholder text
-  const candidates = dp.querySelectorAll ? Array.from(dp.querySelectorAll('p,div,span')) : [];
-  const waiting = candidates.find(el=>{
-    const t = String(el.textContent||'').toLowerCase();
-    return t.includes('waiting for js');
-  });
-
-  if (waiting){
-    return { box: waiting, meta: null };
-  }
-
-  return { box: null, meta: null };
-}
-
+/* ---------- beta panel (your HTML has the correct IDs) ---------- */
 function renderBetaInputs(){
-  const els = __findBetaEls();
-  const box = els.box;
-  const meta = els.meta;
-
-  // If we can't find anything, just stop (HTML doesn't include the beta panel)
-  if (!box && !meta) return;
+  const box = $('betaInputs');
+  const meta = $('betaInputsMeta');
+  if (!box || !meta) return;
 
   const fid = state.selectedFieldId;
   const info = fid ? state.wxInfoByFieldId.get(fid) : null;
 
-  // If meta exists, always overwrite placeholder text
   if (!info){
-    if (meta) meta.textContent = 'Weather is loading…';
-    if (box && box !== meta) box.innerHTML = '';
-    // Also overwrite placeholder “waiting for JS” if that's what box is
-    if (box && !meta){
-      const t = String(box.textContent||'').toLowerCase();
-      if (t.includes('waiting for js')) box.textContent = 'Weather is loading…';
-    }
+    meta.textContent = 'Weather is loading…';
+    box.innerHTML = '';
     return;
   }
 
   const when = info.fetchedAt ? new Date(info.fetchedAt) : null;
   const whenTxt = when ? when.toLocaleString() : '—';
 
-  if (meta){
-    meta.textContent =
-      `Source: ${info.source || '—'} • Updated: ${whenTxt}`;
-  } else if (box){
-    // If meta is missing but box is present and currently placeholder, replace it with meta line
-    const t = String(box.textContent||'').toLowerCase();
-    if (t.includes('waiting for js') || t.includes('weather is loading')){
-      box.textContent = `Source: ${info.source || '—'} • Updated: ${whenTxt}`;
-      return; // no room for full list; don’t spam into a tiny placeholder
-    }
-  }
-
-  // If we have a real container (not just the placeholder line), render the variable list.
-  // Only render if box looks like a container (div/section) or has children already.
-  if (!box || box === meta) return;
+  meta.textContent =
+    `Source: ${info.source || '—'} • Updated: ${whenTxt} • Primary + light-influence variables are used now; weights are still being tuned.`;
 
   const unitsHourly = info.units && info.units.hourly ? info.units.hourly : null;
   const unitsDaily = info.units && info.units.daily ? info.units.daily : null;
+
   const a = info.availability || { vars:{} };
   const vars = a.vars || {};
 
@@ -844,6 +788,7 @@ function renderBetaInputs(){
     groupHtml('Pulled (not yet used)', pulledNotUsed, 'tag-pulled', 'Pulled');
 }
 
+/* ---------- DETAILS + TABLE RENDERING FIX ---------- */
 function renderDetails(){
   const f = state.fields.find(x=>x.id === state.selectedFieldId);
   if (!f) return;
@@ -907,7 +852,106 @@ function renderDetails(){
       `Model output: <b>Wet=${run.wetnessR}</b> • <b>Readiness=${run.readinessR}</b> • storage=<span class="mono">${run.storageFinal.toFixed(2)}</span>/<span class="mono">${run.factors.Smax.toFixed(2)}</span>`;
   }
 
+  // ✅ Beta panel
   renderBetaInputs();
+
+  // ✅ Tank Trace table
+  const trb = $('traceRows');
+  if (trb){
+    trb.innerHTML = '';
+    const rows = Array.isArray(run.trace) ? run.trace : [];
+    if (!rows.length){
+      trb.innerHTML = `<tr><td colspan="7" class="muted">No trace rows.</td></tr>`;
+    } else {
+      for (const t of rows){
+        const dateISO = String(t.dateISO || '');
+        const rain = Number(t.rain ?? 0);
+        const infilMult = Number(t.infilMult ?? 0);
+        const add = Number(t.add ?? 0);
+        const dryPwr = Number(t.dryPwr ?? 0);
+        const loss = Number(t.loss ?? 0);
+        const before = Number(t.before ?? 0);
+        const after = Number(t.after ?? 0);
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${esc(dateISO)}</td>
+          <td class="right mono">${rain.toFixed(2)}</td>
+          <td class="right mono">${infilMult.toFixed(2)}</td>
+          <td class="right mono">${add.toFixed(2)}</td>
+          <td class="right mono">${dryPwr.toFixed(2)}</td>
+          <td class="right mono">${loss.toFixed(2)}</td>
+          <td class="right mono">${before.toFixed(2)}→${after.toFixed(2)}</td>
+        `;
+        trb.appendChild(tr);
+      }
+    }
+  }
+
+  // ✅ DryPwr Breakdown table
+  const drb = $('dryRows');
+  if (drb){
+    drb.innerHTML = '';
+    const rows = Array.isArray(run.rows) ? run.rows : [];
+    if (!rows.length){
+      drb.innerHTML = `<tr><td colspan="15" class="muted">No rows.</td></tr>`;
+    } else {
+      for (const r of rows){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${esc(r.dateISO)}</td>
+          <td class="right mono">${Math.round(Number(r.temp||0))}</td>
+          <td class="right mono">${Number(r.tempN||0).toFixed(2)}</td>
+          <td class="right mono">${Math.round(Number(r.wind||0))}</td>
+          <td class="right mono">${Number(r.windN||0).toFixed(2)}</td>
+          <td class="right mono">${Math.round(Number(r.rh||0))}</td>
+          <td class="right mono">${Number(r.rhN||0).toFixed(2)}</td>
+          <td class="right mono">${Math.round(Number(r.solar||0))}</td>
+          <td class="right mono">${Number(r.solarN||0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.vpd||0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.vpdN||0).toFixed(2)}</td>
+          <td class="right mono">${Math.round(Number(r.cloud||0))}</td>
+          <td class="right mono">${Number(r.cloudN||0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.raw||0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.dryPwr||0).toFixed(2)}</td>
+        `;
+        drb.appendChild(tr);
+      }
+    }
+  }
+
+  // ✅ Weather Inputs table (this removes "Waiting for JS…")
+  const wxb = $('wxRows');
+  if (wxb){
+    wxb.innerHTML = '';
+    const rows = Array.isArray(run.rows) ? run.rows : [];
+    if (!rows.length){
+      wxb.innerHTML = `<tr><td colspan="9" class="muted">No weather rows.</td></tr>`;
+    } else {
+      for (const r of rows){
+        const rain = Number(r.rainInAdj ?? r.rainIn ?? 0);
+        const et0 = (r.et0 == null ? '—' : Number(r.et0).toFixed(2));
+        const sm010 = (r.sm010 == null ? '—' : Number(r.sm010).toFixed(3));
+        const st010F = (r.st010F == null ? '—' : String(Math.round(Number(r.st010F))));
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${esc(r.dateISO)}</td>
+          <td class="right mono">${rain.toFixed(2)}</td>
+          <td class="right mono">${Math.round(Number(r.temp||0))}</td>
+          <td class="right mono">${Math.round(Number(r.wind||0))}</td>
+          <td class="right mono">${Math.round(Number(r.rh||0))}</td>
+          <td class="right mono">${Math.round(Number(r.solar||0))}</td>
+          <td class="right mono">${esc(et0)}</td>
+          <td class="right mono">${esc(sm010)}</td>
+          <td class="right mono">${esc(st010F)}</td>
+        `;
+        wxb.appendChild(tr);
+      }
+    }
+  }
+
+  // ✅ Update adjust pills after all values
   updateAdjustPills();
 }
 
@@ -929,7 +973,7 @@ function refreshAll(){
 }
 
 /* =====================================================================
-   GLOBAL ADJUST
+   GLOBAL ADJUST (uses existing #calibCooldownMsg in HTML)
    ===================================================================== */
 function __fmtDur(ms){
   ms = Math.max(0, ms|0);
@@ -963,27 +1007,7 @@ function isGlobalCalLocked(){
   return !!(nextMs && Date.now() < nextMs);
 }
 
-/* Put cooldown panel at TOP of Adjust modal body (guaranteed visible) */
-function __ensureCooldownSlot(){
-  if ($('calibCooldownMsg')) return;
-
-  const back = $('adjustBackdrop');
-  if (!back) return;
-
-  const body =
-    back.querySelector('.modal-b') ||
-    back.querySelector('.modal') ||
-    back;
-
-  const div = document.createElement('div');
-  div.id = 'calibCooldownMsg';
-  div.style.margin = '10px 0 10px 0';
-
-  if (body.firstChild) body.insertBefore(div, body.firstChild);
-  else body.appendChild(div);
-}
 function __setCooldownHtml(html){
-  __ensureCooldownSlot();
   const el = $('calibCooldownMsg');
   if (!el) return;
   if (!html){
@@ -991,9 +1015,10 @@ function __setCooldownHtml(html){
     el.innerHTML = '';
     return;
   }
-  el.style.display = '';
+  el.style.display = ''; // IMPORTANT: override your CSS display:none
   el.innerHTML = html;
 }
+
 function __renderCooldownCard(){
   const now = Date.now();
   const lastMs = Number(state._lastAppliedMs || 0);
@@ -1042,9 +1067,11 @@ function __renderCooldownCard(){
     </div>
   `);
 }
+
 async function loadCooldownFromFirestore(){
   const api = getAPI();
   if (!api || api.kind === 'compat'){
+    // UI still works, but will show dashes
     state._nextAllowedMs = 0;
     state._lastAppliedMs = 0;
     state._cooldownHours = 72;
@@ -1071,6 +1098,7 @@ async function loadCooldownFromFirestore(){
     state._cooldownHours = 72;
   }
 }
+
 function startCooldownTicker(){
   function tick(){
     __renderCooldownCard();
@@ -1420,6 +1448,7 @@ function showModal(backdropId, on){
 
   if (backdropId === 'adjustBackdrop'){
     if (on){
+      // show current state immediately (even if Firestore is slow)
       __renderCooldownCard();
       updateAdjustUI();
     } else {
@@ -1456,7 +1485,7 @@ async function openAdjustGlobal(){
 
   await loadCooldownFromFirestore();
   stopCooldownTicker();
-  startCooldownTicker();
+  startCooldownTicker(); // renders + keeps updated
 
   updateAdjustPills();
   updateAdjustGuard();
