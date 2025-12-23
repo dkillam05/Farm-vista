@@ -1,23 +1,12 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.ui.js  (FULL FILE)
-Rev: 2025-12-23i
+Rev: 2025-12-23j
 
 FIXES (per Dane):
-✅ Weather IS loading — but the tables were not being rendered.
-   - Restores rendering for: #wxRows, #traceRows, #dryRows
-   - Removes “Waiting for JS…” by overwriting #wxRows every renderDetails()
-✅ Adjustment cooldown timer now uses your EXISTING HTML anchor:
-   - <div id="calibCooldownMsg"></div> (already in field-readiness.html)
-   - No auto-insert / no MutationObserver / no guessing
-   - Shows:
-      • Last global adjustment: Xh Ym ago
-      • Next global adjustment allowed: <date/time>
-✅ When locked (72h): Wet/Dry disabled; Apply disabled; slider disabled
-✅ Do NOT change gauge geometry:
-   - Threshold line stays at TRUE op threshold
-   - Readiness marker stays at TRUE readiness
-✅ Only color “perception” shifts based on op threshold (pill/badge/gradient feel)
-✅ Keeps your slider behavior as-is (anchored + wrong-direction blocked)
+✅ Weather loads from Firestore cache first (scheduled): field_weather_cache/{fieldId}
+✅ Remove the “Refresh Weather (API)” button in Details > Inputs
+✅ Show “Weather updated: <date/time>” under Details > Weather + Output
+✅ Keeps: tables rendering, cooldown card, locked behavior, slider behavior, gauge geometry, color perception only
 ===================================================================== */
 'use strict';
 
@@ -189,6 +178,10 @@ const wxCtx = {
   WX_TTL_MS,
   WX_CACHE_PREFIX,
   timezone: 'America/Chicago',
+
+  // ✅ NEW: Firestore scheduled cache collection
+  WX_FIRESTORE_COLLECTION: 'field_weather_cache',
+
   weatherByFieldId: state.weatherByFieldId,
   wxInfoByFieldId: state.wxInfoByFieldId,
   weather30: state.weather30
@@ -521,6 +514,7 @@ async function loadFields(){
 
     ensureSelectedParamsToSliders();
 
+    // ✅ Weather warm-up (now reads Firestore cache first via weather.js)
     await warmWeatherForFields(state.fields, wxCtx, { force:false, onEach:debounceRender });
 
     renderFarmFilterOptions();
@@ -705,7 +699,7 @@ function selectField(id){
   refreshAll();
 }
 
-/* ---------- beta panel (your HTML has the correct IDs) ---------- */
+/* ---------- beta panel ---------- */
 function renderBetaInputs(){
   const box = $('betaInputs');
   const meta = $('betaInputsMeta');
@@ -788,7 +782,7 @@ function renderBetaInputs(){
     groupHtml('Pulled (not yet used)', pulledNotUsed, 'tag-pulled', 'Pulled');
 }
 
-/* ---------- DETAILS + TABLE RENDERING FIX ---------- */
+/* ---------- DETAILS + TABLE RENDERING ---------- */
 function renderDetails(){
   const f = state.fields.find(x=>x.id === state.selectedFieldId);
   if (!f) return;
@@ -846,10 +840,16 @@ function renderDetails(){
        Smax=<span class="mono">${fac.Smax.toFixed(2)}</span> (base <span class="mono">${fac.SmaxBase.toFixed(2)}</span>) • infilMult=<span class="mono">${fac.infilMult.toFixed(2)}</span> • dryMult=<span class="mono">${fac.dryMult.toFixed(2)}</span> • LOSS_SCALE=<span class="mono">${LOSS_SCALE.toFixed(2)}</span>`;
   }
 
+  // ✅ Show last weather pull time in Weather + Output panel
+  const info = state.wxInfoByFieldId.get(f.id) || null;
+  const when = (info && info.fetchedAt) ? new Date(info.fetchedAt) : null;
+  const whenTxt = when ? when.toLocaleString() : '—';
+
   const sum = $('mathSummary');
   if (sum){
     sum.innerHTML =
-      `Model output: <b>Wet=${run.wetnessR}</b> • <b>Readiness=${run.readinessR}</b> • storage=<span class="mono">${run.storageFinal.toFixed(2)}</span>/<span class="mono">${run.factors.Smax.toFixed(2)}</span>`;
+      `Model output: <b>Wet=${run.wetnessR}</b> • <b>Readiness=${run.readinessR}</b> • storage=<span class="mono">${run.storageFinal.toFixed(2)}</span>/<span class="mono">${run.factors.Smax.toFixed(2)}</span>` +
+      `<br/><span class="muted">Weather updated: <span class="mono">${esc(whenTxt)}</span></span>`;
   }
 
   // ✅ Beta panel
@@ -920,7 +920,7 @@ function renderDetails(){
     }
   }
 
-  // ✅ Weather Inputs table (this removes "Waiting for JS…")
+  // ✅ Weather Inputs table
   const wxb = $('wxRows');
   if (wxb){
     wxb.innerHTML = '';
@@ -951,7 +951,6 @@ function renderDetails(){
     }
   }
 
-  // ✅ Update adjust pills after all values
   updateAdjustPills();
 }
 
@@ -1017,11 +1016,9 @@ function __setCooldownHtml(html){
     return;
   }
 
-  // FORCE visible even if CSS says display:none
   el.style.display = 'block';
   el.innerHTML = html;
 }
-
 
 function __renderCooldownCard(){
   const now = Date.now();
@@ -1075,7 +1072,6 @@ function __renderCooldownCard(){
 async function loadCooldownFromFirestore(){
   const api = getAPI();
   if (!api || api.kind === 'compat'){
-    // UI still works, but will show dashes
     state._nextAllowedMs = 0;
     state._lastAppliedMs = 0;
     state._cooldownHours = 72;
@@ -1412,7 +1408,6 @@ async function applyAdjustment(){
 
   const d = computeDelta();
   const feel = state._adjFeel;
-
   if (!feel || d === 0) return;
 
   const anchor = (state._adjAnchorReadiness == null) ? getAnchorReadinessFromRun(run) : Number(state._adjAnchorReadiness);
@@ -1452,7 +1447,6 @@ function showModal(backdropId, on){
 
   if (backdropId === 'adjustBackdrop'){
     if (on){
-      // show current state immediately (even if Firestore is slow)
       __renderCooldownCard();
       updateAdjustUI();
     } else {
@@ -1489,8 +1483,9 @@ async function openAdjustGlobal(){
 
   await loadCooldownFromFirestore();
   stopCooldownTicker();
-  startCooldownTicker(); // renders + keeps updated
-   __renderCooldownCard();
+  startCooldownTicker();
+
+  __renderCooldownCard();
   updateAdjustPills();
   updateAdjustGuard();
 
@@ -1720,17 +1715,6 @@ on('applyRangeBtn','click', ()=> setTimeout(refreshAll, 0));
 on('clearRangeBtn','click', ()=> setTimeout(refreshAll, 0));
 on('jobRangeInput','change', refreshAll);
 
-on('btnRegen','click', async ()=>{
-  try{
-    setErr('');
-    await warmWeatherForFields(state.fields, wxCtx, { force:true, onEach:debounceRender });
-    refreshAll();
-  }catch(e){
-    console.error(e);
-    setErr('Weather refresh failed. Check Cloud Run logs / CORS.');
-  }
-});
-
 (function(){
   const rainHelpBtn = $('rainHelpBtn');
   const rainHelpTip = $('rainHelpTip');
@@ -1808,6 +1792,13 @@ on('btnMapX','click', closeMapModal);
 (async function init(){
   const dp = $('detailsPanel');
   if (dp) dp.open = false;
+
+  // ✅ Remove/hide Refresh Weather (API) button (per Dane)
+  const br = $('btnRegen');
+  if (br){
+    br.style.display = 'none';
+    br.disabled = true;
+  }
 
   loadParamsFromLocal();
   loadOpDefault();
