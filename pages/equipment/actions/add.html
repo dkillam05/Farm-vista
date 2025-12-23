@@ -852,7 +852,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; overfl
   gap:2mm;
   font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   color:#000;
-  overflow:hidden;
+  overflow:visible;
   white-space:nowrap;
 }
 .left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
@@ -925,7 +925,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
   gap:2mm;
   font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   color:#000;
-  overflow:hidden;
+  overflow:visible;
   white-space:nowrap;
 }
 .left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
@@ -1285,12 +1285,6 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     async function createPdf(){
   if (!__pending) return;
 
-  // Guard: if detailed and cutLen isn't computed yet, refuse to print
-  if (__mode !== 'summary' && (!__cutLenMm || __cutLenMm < 70)){
-    alert('Cut length not ready yet. Close and reopen preview, then try again.');
-    return;
-  }
-
   pCreate.disabled = true;
   await showOverlayAndYield();
 
@@ -1298,11 +1292,9 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     const mobile = isMobileLike();
     const cutLenMm = (__mode === 'summary') ? 62 : __cutLenMm;
 
-    // DEBUG (remove later if you want)
-    console.log('[PDF]', { mode: __mode, cutLenMm, __cutLenMm, mobile });
-
-    // Desktop: landscape cutLen x 62
-    // Mobile: portrait 62 x cutLen
+    // Page dims:
+    // Desktop: landscape page cutLen x 62
+    // Mobile: portrait page 62 x cutLen (so the PDF LOOKS vertical on screen)
     const widthMm  = mobile ? 62 : cutLenMm;
     const heightMm = mobile ? cutLenMm : 62;
     const landscape = false;
@@ -1346,6 +1338,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     const blob = await resp.blob();
     const url = URL.createObjectURL(blob);
 
+    // Desktop: print via iframe. Mobile: open in this tab so you can Share → Print.
     if (mobile){
       window.location.assign(url);
     } else {
@@ -1358,7 +1351,8 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
   }
 }
 
-    pCreate.addEventListener('click', createPdf);
+pCreate.addEventListener('click', createPdf);
+
 
     /* SAVE */
     let saving = false;
