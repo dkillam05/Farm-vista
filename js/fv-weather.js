@@ -565,7 +565,7 @@
               autocomplete="postal-code"
               class="fv-weather-zip"
               value="${safeText(zipVal).replace(/"/g,"&quot;")}"
-              placeholder="Divernon default"
+              placeholder=""
               style="
                 width:130px;max-width:56vw;
                 border:1px solid var(--border,#d1d5db);
