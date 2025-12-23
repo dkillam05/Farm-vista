@@ -1279,10 +1279,11 @@ const s = $('adjIntensity');
 if (s) s.disabled = !!locked;
 
 // If locked, force a clear message
-const hint = $('adjHint');
-if (hint && locked){
-  hint.textContent = 'Global calibration is locked (72h rule). Use field-specific Soil Wetness and Drainage sliders instead.';
+const hintLock = $('adjHint');
+if (hintLock && locked){
+  hintLock.textContent = 'Global calibration is locked (72h rule). Use field-specific Soil Wetness and Drainage sliders instead.';
 }
+
 
   if (mc === 'wet' && state._adjFeel === 'wet') state._adjFeel = null;
   if (mc === 'dry' && state._adjFeel === 'dry') state._adjFeel = null;
