@@ -1,56 +1,78 @@
 /* =======================================================================
 // /Farm-vista/js/fv-weather.js
-// Rev: 2025-11-27h (Divernon + °F forecast + today-first + day details)
+// Rev: 2025-12-23a (Auto-refresh timer + ZIP location picker)
 //
 // FarmVista Weather module
 // - Google Weather: current conditions + last 24h precip
 // - Open-Meteo: 7d & 30d rainfall + 7d forecast
 //
-// Card above dashboard:
-//   • Current conditions
-//   • Rain last 24h / 7d / 30d
-//
-// Modal popup:
-//   • Current conditions (detailed)
-//   • Next 5 days (rows, Fahrenheit) – starting from *today*
-//   • Click a day → details panel (conditions, snow/rain range, wind, sunrise/sunset)
-//   • Rainfall last 7 days (bar chart)
+// NEW (per Dane):
+// ✅ Auto-refresh timer (default: every 60s) with “Next refresh in …” countdown
+// ✅ ZIP code location picker (defaults to Divernon, IL)
+//    - Stores chosen location in localStorage
+//    - Uses Google Geocoding API to turn ZIP → lat/lon
+//    - Applies to both card + modal
 //
 // Usage in dashboard:
 //
 //   FVWeather.initWeatherModule({
-//     googleApiKey: "YOUR_KEY",
+//     googleApiKey: "YOUR_KEY", // also used for geocoding
 //     selector: "#fv-weather",
-//     mode: "card"
+//     mode: "card",
+//     autoRefreshSec: 60
 //   });
 //
 //   FVWeather.initWeatherModule({
 //     googleApiKey: "YOUR_KEY",
 //     selector: "#fv-weather-modal-body",
-//     mode: "modal"
+//     mode: "modal",
+//     autoRefreshSec: 60
 //   });
 //
 // Lat / lon default to Divernon, IL but can be overridden.
 // ======================================================================= */
 
 (() => {
+  "use strict";
+
   const GOOGLE_CURRENT_URL =
     "https://weather.googleapis.com/v1/currentConditions:lookup";
   const GOOGLE_HISTORY_URL =
     "https://weather.googleapis.com/v1/history/hours:lookup";
   const OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast";
+  const GOOGLE_GEOCODE_URL =
+    "https://maps.googleapis.com/maps/api/geocode/json";
+
+  const LS_KEYS = {
+    zip:   "fv_weather_zip",
+    lat:   "fv_weather_lat",
+    lon:   "fv_weather_lon",
+    label: "fv_weather_label"
+  };
+
+  const DEFAULT_LOCATION = {
+    lat: 39.5656,
+    lon: -89.6573,
+    label: "Divernon, Illinois",
+    zip: ""
+  };
 
   const DEFAULT_CONFIG = {
     googleApiKey: "",
-    // Divernon, IL (approx)
-    lat: 39.5656,
-    lon: -89.6573,
+    lat: DEFAULT_LOCATION.lat,
+    lon: DEFAULT_LOCATION.lon,
     unitsSystem: "IMPERIAL",
     selector: "#fv-weather",
     showOpenMeteo: true,
     mode: "card", // "card" | "modal"
-    locationLabel: "Divernon, Illinois"
+    locationLabel: DEFAULT_LOCATION.label,
+
+    // NEW: Auto refresh
+    autoRefreshSec: 60, // set 0 to disable
   };
+
+  // per container timers to avoid duplicates when re-init is called
+  const __timers = new Map(); // key: selector string => { refreshId, tickId, nextAtMs, lastCfgSig }
 
   /* ==========================
      Helpers
@@ -60,6 +82,73 @@
     const el = document.querySelector(selector);
     if (!el) console.warn("[FVWeather] Container not found:", selector);
     return el;
+  }
+
+  function clampZip(s){
+    const v = (s || "").toString().trim();
+    // allow 5 or 5-4
+    if (/^\d{5}$/.test(v)) return v;
+    if (/^\d{5}-\d{4}$/.test(v)) return v;
+    // if they type 9 digits without dash, normalize to 5-4
+    if (/^\d{9}$/.test(v)) return v.slice(0,5) + "-" + v.slice(5);
+    return v;
+  }
+
+  function readSavedLocation(){
+    try{
+      const lat = Number(localStorage.getItem(LS_KEYS.lat));
+      const lon = Number(localStorage.getItem(LS_KEYS.lon));
+      const label = (localStorage.getItem(LS_KEYS.label) || "").toString().trim();
+      const zip = (localStorage.getItem(LS_KEYS.zip) || "").toString().trim();
+
+      if (Number.isFinite(lat) && Number.isFinite(lon) && lat !== 0 && lon !== 0){
+        return {
+          lat, lon,
+          label: label || DEFAULT_LOCATION.label,
+          zip: zip || ""
+        };
+      }
+    }catch{}
+    return null;
+  }
+
+  function saveLocation({ zip, lat, lon, label }){
+    try{
+      if (zip != null) localStorage.setItem(LS_KEYS.zip, String(zip || ""));
+      if (Number.isFinite(lat)) localStorage.setItem(LS_KEYS.lat, String(lat));
+      if (Number.isFinite(lon)) localStorage.setItem(LS_KEYS.lon, String(lon));
+      if (label != null) localStorage.setItem(LS_KEYS.label, String(label || DEFAULT_LOCATION.label));
+    }catch{}
+  }
+
+  function clearSavedLocation(){
+    try{
+      localStorage.removeItem(LS_KEYS.zip);
+      localStorage.removeItem(LS_KEYS.lat);
+      localStorage.removeItem(LS_KEYS.lon);
+      localStorage.removeItem(LS_KEYS.label);
+    }catch{}
+  }
+
+  function effectiveConfig(options){
+    const cfg = { ...DEFAULT_CONFIG, ...options };
+
+    // If caller didn't explicitly override lat/lon/label, use saved location if present
+    const callerProvidedLatLon =
+      options && (Object.prototype.hasOwnProperty.call(options,"lat") || Object.prototype.hasOwnProperty.call(options,"lon"));
+    const callerProvidedLabel =
+      options && Object.prototype.hasOwnProperty.call(options,"locationLabel");
+
+    const saved = readSavedLocation();
+    if (saved && !callerProvidedLatLon){
+      cfg.lat = saved.lat;
+      cfg.lon = saved.lon;
+    }
+    if (saved && !callerProvidedLabel){
+      cfg.locationLabel = saved.label || cfg.locationLabel;
+    }
+
+    return cfg;
   }
 
   function renderLoading(container) {
@@ -171,16 +260,22 @@
     return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   }
 
+  function msToClock(ms){
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    const mm = String(m).padStart(2,"0");
+    const rr = String(r).padStart(2,"0");
+    return `${mm}:${rr}`;
+  }
+
   // Classify a day into Sunny / Cloudy / Rain / Snow and compute snow range text.
   function classifyDay(day) {
     const hi = day.tMax;
-    const lo = day.tMin;
     const precip = day.precipIn || 0;
-    const prob = day.precipProb || 0;
     const clouds = day.cloudCover != null ? day.cloudCover : 0;
 
     let type = "Unknown";
-    // simple rule-of-thumb classification
     if (precip >= 0.05 && hi <= 34) {
       type = "Snow";
     } else if (precip >= 0.05) {
@@ -193,7 +288,6 @@
       type = "Cloudy";
     }
 
-    // snow range bucket from precip amount
     let snowRange = null;
     if (type === "Snow" && precip > 0) {
       const inch = precip;
@@ -206,6 +300,300 @@
     }
 
     return { type, snowRange };
+  }
+
+  function cfgSig(cfg){
+    // used to avoid restarting timers unnecessarily; include only what matters
+    return [
+      cfg.selector,
+      cfg.mode,
+      cfg.lat,
+      cfg.lon,
+      cfg.locationLabel,
+      cfg.unitsSystem,
+      cfg.showOpenMeteo,
+      cfg.autoRefreshSec
+    ].join("|");
+  }
+
+  function stopTimers(selector){
+    const t = __timers.get(selector);
+    if (!t) return;
+    if (t.refreshId) clearInterval(t.refreshId);
+    if (t.tickId) clearInterval(t.tickId);
+    __timers.delete(selector);
+  }
+
+  function wireAutoRefresh(container, config, doRefresh){
+    if (!container) return;
+
+    const sec = Number(config.autoRefreshSec);
+    if (!Number.isFinite(sec) || sec <= 0){
+      stopTimers(config.selector);
+      const nxt = container.querySelector(".fv-weather-next");
+      if (nxt) nxt.textContent = "";
+      return;
+    }
+
+    const sig = cfgSig(config);
+    const existing = __timers.get(config.selector);
+
+    // If config signature is same, keep existing timers
+    if (existing && existing.lastCfgSig === sig) return;
+
+    // Otherwise restart clean
+    stopTimers(config.selector);
+
+    const nextAt = Date.now() + sec * 1000;
+    const state = {
+      refreshId: null,
+      tickId: null,
+      nextAtMs: nextAt,
+      lastCfgSig: sig
+    };
+    __timers.set(config.selector, state);
+
+    function updateCountdown(){
+      const el = container.querySelector(".fv-weather-next");
+      if (!el) return;
+      const remaining = state.nextAtMs - Date.now();
+      el.textContent = `• Next refresh in ${msToClock(remaining)}`;
+    }
+
+    // 1s tick for countdown text
+    state.tickId = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      updateCountdown();
+    }, 1000);
+
+    // main refresh interval
+    state.refreshId = setInterval(async () => {
+      if (document.visibilityState !== "visible") return;
+      state.nextAtMs = Date.now() + sec * 1000;
+      await doRefresh();
+      updateCountdown();
+    }, sec * 1000);
+
+    // refresh immediately when tab becomes visible
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState !== "visible") return;
+      state.nextAtMs = Date.now() + sec * 1000;
+      doRefresh();
+      updateCountdown();
+    });
+
+    // initial countdown draw
+    updateCountdown();
+  }
+
+  /* ==========================
+     ZIP → Lat/Lon (Google Geocoding)
+     ========================== */
+
+  async function geocodeZip(zip, apiKey){
+    const z = clampZip(zip);
+    if (!z) throw new Error("ZIP is blank.");
+    if (!/^\d{5}(-\d{4})?$/.test(z)) throw new Error("ZIP must be 5 digits (or 5-4).");
+    if (!apiKey) throw new Error("Missing Google API key (needed for ZIP lookup).");
+
+    // Address is ZIP; restrict to US for less weird results
+    const params = new URLSearchParams({
+      address: z,
+      components: "country:US",
+      key: apiKey
+    });
+
+    const url = `${GOOGLE_GEOCODE_URL}?${params.toString()}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Geocode HTTP ${res.status}`);
+
+    const data = await res.json();
+    if (!data || data.status !== "OK" || !Array.isArray(data.results) || !data.results.length){
+      const msg = (data && data.error_message) ? data.error_message : (data && data.status) ? data.status : "No results";
+      throw new Error(`ZIP lookup failed: ${msg}`);
+    }
+
+    const best = data.results[0];
+    const loc = best.geometry && best.geometry.location ? best.geometry.location : null;
+    if (!loc || typeof loc.lat !== "number" || typeof loc.lng !== "number"){
+      throw new Error("ZIP lookup returned no coordinates.");
+    }
+
+    // Try to build a friendly label like "City, State"
+    let city = "";
+    let state = "";
+    const comps = best.address_components || [];
+    for (const c of comps){
+      const types = c.types || [];
+      if (!city && (types.includes("locality") || types.includes("postal_town"))) city = c.long_name || c.short_name || "";
+      if (!state && types.includes("administrative_area_level_1")) state = c.short_name || c.long_name || "";
+    }
+    const label = (city && state) ? `${city}, ${state}` : (best.formatted_address || `ZIP ${z}`);
+
+    return { zip: z, lat: loc.lat, lon: loc.lng, label };
+  }
+
+  function locationPickerHtml(config){
+    const saved = readSavedLocation();
+    const currentZip = saved && saved.zip ? saved.zip : "";
+
+    return `
+      <div class="fv-weather-loc" style="
+        display:flex;align-items:center;justify-content:space-between;gap:10px;
+        flex-wrap:wrap;margin-top:10px;
+        padding-top:10px;border-top:1px solid rgba(148,163,184,0.25);
+      ">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div style="
+            font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+            color:var(--muted,#67706B);
+          ">Location</div>
+
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+            <input
+              type="text"
+              inputmode="numeric"
+              autocomplete="postal-code"
+              class="fv-weather-zip"
+              value="${(currentZip || "").replace(/"/g,"&quot;")}"
+              placeholder="ZIP (defaults to Divernon)"
+              style="
+                width:160px;max-width:62vw;
+                border:1px solid var(--border,#d1d5db);
+                border-radius:999px;
+                padding:6px 10px;
+                background:var(--surface);
+                color:inherit;
+                font:inherit;
+                font-size:13px;
+                outline:none;
+              "
+            />
+            <button type="button" class="fv-weather-zip-apply" style="
+              border-radius:999px;
+              border:1px solid var(--border,#d1d5db);
+              background:var(--surface);
+              color:inherit;
+              padding:6px 10px;
+              font-size:13px;
+              cursor:pointer;
+              white-space:nowrap;
+            ">Set ZIP</button>
+
+            <button type="button" class="fv-weather-zip-default" style="
+              border-radius:999px;
+              border:1px solid rgba(59,126,70,0.45);
+              background:rgba(59,126,70,0.10);
+              color:inherit;
+              padding:6px 10px;
+              font-size:13px;
+              cursor:pointer;
+              white-space:nowrap;
+            ">Use Divernon</button>
+          </div>
+        </div>
+
+        <div class="fv-weather-zip-status" style="
+          font-size:12px;color:var(--muted,#67706B);
+          flex:1;text-align:right;min-width:180px;
+        "></div>
+      </div>
+    `;
+  }
+
+  function wireLocationPicker(container, config, doRefresh){
+    if (!container) return;
+
+    const zipEl = container.querySelector(".fv-weather-zip");
+    const applyBtn = container.querySelector(".fv-weather-zip-apply");
+    const defBtn = container.querySelector(".fv-weather-zip-default");
+    const statusEl = container.querySelector(".fv-weather-zip-status");
+
+    if (!zipEl || !applyBtn || !defBtn) return;
+
+    const setStatus = (msg) => {
+      if (!statusEl) return;
+      statusEl.textContent = msg || "";
+    };
+
+    const setBusy = (on) => {
+      applyBtn.disabled = !!on;
+      defBtn.disabled = !!on;
+      zipEl.disabled = !!on;
+      if (on) setStatus("Updating location…");
+    };
+
+    async function applyZip(){
+      const z = clampZip(zipEl.value);
+      zipEl.value = z;
+
+      if (!z){
+        // If they blank it, revert to default
+        clearSavedLocation();
+        saveLocation({ zip:"", lat: DEFAULT_LOCATION.lat, lon: DEFAULT_LOCATION.lon, label: DEFAULT_LOCATION.label });
+        setStatus(`Using ${DEFAULT_LOCATION.label}`);
+        await doRefresh(true);
+        return;
+      }
+
+      setBusy(true);
+      try{
+        const loc = await geocodeZip(z, config.googleApiKey);
+        saveLocation(loc);
+        setStatus(`Using ${loc.label}`);
+        await doRefresh(true);
+      }catch(e){
+        console.warn("[FVWeather] ZIP set failed:", e);
+        setStatus(e && e.message ? e.message : "ZIP lookup failed.");
+      }finally{
+        setBusy(false);
+      }
+    }
+
+    async function useDefault(){
+      setBusy(true);
+      try{
+        clearSavedLocation();
+        saveLocation({
+          zip: "",
+          lat: DEFAULT_LOCATION.lat,
+          lon: DEFAULT_LOCATION.lon,
+          label: DEFAULT_LOCATION.label
+        });
+        setStatus(`Using ${DEFAULT_LOCATION.label}`);
+        await doRefresh(true);
+      }finally{
+        setBusy(false);
+      }
+    }
+
+    applyBtn.addEventListener("click", (evt)=>{
+      evt.preventDefault();
+      evt.stopPropagation();
+      applyZip();
+    });
+
+    defBtn.addEventListener("click", (evt)=>{
+      evt.preventDefault();
+      evt.stopPropagation();
+      useDefault();
+    });
+
+    zipEl.addEventListener("keydown", (evt)=>{
+      if (evt.key === "Enter"){
+        evt.preventDefault();
+        evt.stopPropagation();
+        applyZip();
+      }
+    });
+
+    // initial status
+    const saved = readSavedLocation();
+    if (saved && saved.label){
+      setStatus(`Using ${saved.label}`);
+    }else{
+      setStatus(`Using ${DEFAULT_LOCATION.label}`);
+    }
   }
 
   /* ==========================
@@ -420,6 +808,11 @@
         ? `${roundTo2(openRain.rain30dInches)}"`
         : "—";
 
+    const autoTxt =
+      (Number(config.autoRefreshSec) > 0)
+        ? `<span class="fv-weather-next" style="white-space:nowrap;"></span>`
+        : `<span class="fv-weather-next"></span>`;
+
     container.innerHTML = `
       <section class="fv-weather-card" style="
         border-radius:14px;border:1px solid var(--border,#d1d5db);
@@ -432,7 +825,7 @@
             <div style="font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;">
               Weather · ${config.locationLabel || ""}
             </div>
-            <div style="font-size:11px;color:var(--muted,#67706B);display:flex;flex-wrap:wrap;gap:6px;">
+            <div style="font-size:11px;color:var(--muted,#67706B);display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
               ${timeZone ? `<span>${timeZone}</span>` : ""}
               ${
                 updatedLocal
@@ -442,6 +835,7 @@
                     })}</span>`
                   : ""
               }
+              ${autoTxt}
             </div>
           </div>
           <button type="button" class="fv-weather-refresh" style="
@@ -449,6 +843,7 @@
             background:var(--surface,#fff0);
             padding:4px 8px;
             font-size:12px;cursor:pointer;
+            color:inherit;
           " aria-label="Refresh weather">
             ⟳
           </button>
@@ -503,9 +898,12 @@
             <span style="font-variant-numeric:tabular-nums;">${rain30}</span>
           </div>
         </div>
+
+        ${locationPickerHtml(config)}
       </section>
     `;
 
+    // manual refresh button
     const btn = container.querySelector(".fv-weather-refresh");
     if (btn) {
       btn.addEventListener("click", (evt) => {
@@ -513,6 +911,22 @@
         initWeatherModule({ ...config });
       });
     }
+
+    // wire ZIP picker (re-renders using saved location)
+    wireLocationPicker(container, config, async (forceFromSaved)=>{
+      const saved = readSavedLocation();
+      const nextCfg = { ...config };
+      if (saved){
+        nextCfg.lat = saved.lat;
+        nextCfg.lon = saved.lon;
+        nextCfg.locationLabel = saved.label || nextCfg.locationLabel;
+      }else{
+        nextCfg.lat = DEFAULT_LOCATION.lat;
+        nextCfg.lon = DEFAULT_LOCATION.lon;
+        nextCfg.locationLabel = DEFAULT_LOCATION.label;
+      }
+      await initWeatherModule(nextCfg);
+    });
   }
 
   /* ==========================
@@ -647,6 +1061,11 @@
            Forecast data not available.
          </div>`;
 
+    const autoTxt =
+      (Number(config.autoRefreshSec) > 0)
+        ? `<span class="fv-weather-next" style="white-space:nowrap;"></span>`
+        : `<span class="fv-weather-next"></span>`;
+
     const forecastHtml = `
       <div class="fv-forecast-list">
         ${forecastRowsHtml}
@@ -660,19 +1079,37 @@
     container.innerHTML = `
       <section class="fv-weather-card fv-weather-modal-card" style="cursor:auto;box-shadow:none;border:none;padding:0;">
         <header class="fv-weather-modal-head" style="margin-bottom:10px;">
-          <div>
-            <div class="fv-weather-title" style="
-              font-size:13px;font-weight:600;letter-spacing:.06em;
-              text-transform:uppercase;
-            ">
-              Weather · ${config.locationLabel || ""}
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+            <div>
+              <div class="fv-weather-title" style="
+                font-size:13px;font-weight:600;letter-spacing:.06em;
+                text-transform:uppercase;
+              ">
+                Weather · ${config.locationLabel || ""}
+              </div>
+              <div class="fv-weather-meta" style="
+                font-size:11px;color:var(--muted,#67706B);
+                display:flex;flex-wrap:wrap;gap:6px;align-items:center;
+              ">
+                <span>Detailed conditions, 5-day outlook, and rain history.</span>
+                ${autoTxt}
+              </div>
             </div>
-            <div class="fv-weather-meta" style="
-              font-size:11px;color:var(--muted,#67706B);
-            ">
-              Detailed conditions, 5-day outlook, and rain history.
-            </div>
+
+            <button type="button" class="fv-weather-refresh" style="
+              border-radius:999px;border:1px solid var(--border,#d1d5db);
+              background:var(--surface);
+              color:inherit;
+              padding:6px 10px;
+              font-size:13px;
+              cursor:pointer;
+              white-space:nowrap;
+            " aria-label="Refresh weather">
+              Refresh
+            </button>
           </div>
+
+          ${locationPickerHtml(config)}
         </header>
 
         <div class="fv-weather-modal-body-inner" style="display:flex;flex-direction:column;gap:14px;">
@@ -742,6 +1179,32 @@
       </section>
     `;
 
+    // manual refresh
+    const btn = container.querySelector(".fv-weather-refresh");
+    if (btn) {
+      btn.addEventListener("click", (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        initWeatherModule({ ...config });
+      });
+    }
+
+    // wire ZIP picker (re-renders using saved location)
+    wireLocationPicker(container, config, async ()=>{
+      const saved = readSavedLocation();
+      const nextCfg = { ...config };
+      if (saved){
+        nextCfg.lat = saved.lat;
+        nextCfg.lon = saved.lon;
+        nextCfg.locationLabel = saved.label || nextCfg.locationLabel;
+      }else{
+        nextCfg.lat = DEFAULT_LOCATION.lat;
+        nextCfg.lon = DEFAULT_LOCATION.lon;
+        nextCfg.locationLabel = DEFAULT_LOCATION.label;
+      }
+      await initWeatherModule(nextCfg);
+    });
+
     // --- Wire up "day details" click behavior ---
     const rows = container.querySelectorAll(".fv-forecast-row");
     const detailEl = container.querySelector(".fv-forecast-detail");
@@ -783,7 +1246,6 @@
     }
 
     if (rows.length && detailEl && forecastDays.length) {
-      // default to first day
       renderDetail(0);
 
       rows.forEach(row => {
@@ -802,7 +1264,7 @@
      ========================== */
 
   async function initWeatherModule(options = {}) {
-    const config = { ...DEFAULT_CONFIG, ...options };
+    const config = effectiveConfig(options);
     const container = getContainer(config.selector);
     if (!container) return;
 
@@ -811,6 +1273,30 @@
       console.error("[FVWeather] No googleApiKey provided.");
       return;
     }
+
+    // inner refresh function used by timers (re-read saved location each time)
+    const refresh = async () => {
+      const saved = readSavedLocation();
+      const nextCfg = { ...config };
+      if (saved){
+        nextCfg.lat = saved.lat;
+        nextCfg.lon = saved.lon;
+        nextCfg.locationLabel = saved.label || nextCfg.locationLabel;
+      }else{
+        // if nothing saved, stick with whatever config already had
+      }
+      // prevent timer duplication (same selector/mode) by calling the internal render path below
+      await __render(nextCfg);
+    };
+
+    // Render once, then wire timers (timers use refresh())
+    await __render(config);
+    wireAutoRefresh(container, config, refresh);
+  }
+
+  async function __render(config){
+    const container = getContainer(config.selector);
+    if (!container) return;
 
     renderLoading(container);
 
