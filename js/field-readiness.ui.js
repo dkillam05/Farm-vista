@@ -10,8 +10,10 @@ CHANGES (per Dane):
    - Remove/ignore Quick Obs section (adjObs no longer impacts delta)
 ✅ Intensity slider:
    - Only shows for opposite-direction correction (kept)
-   - Starts at a best-guess intensity (based on model output)
-   - Direction is locked by Wet/Dry choice (slider is magnitude only)
+   - NOW: slider anchors to current Field Readiness and is direction-locked:
+       * If marking DRY: min=readiness, max=100, starts at readiness (can't go wetter)
+       * If marking WET: min=0, max=readiness, starts at readiness (can't go drier)
+   - Slider distance from anchor becomes intensity (0–100), normalized
 ✅ Cooldown UI:
    - Reads field_readiness_model_weights/default.nextAllowedAt
    - Disables Apply + shows “Next allowed in Xh Ym”
@@ -123,6 +125,9 @@ const state = {
   _adjFeel: null,            // 'wet' | 'dry' | null
   _cooldownTimer: null,
   _nextAllowedMs: 0,
+
+  // adjust slider anchoring
+  _adjAnchorReadiness: null, // integer 0..100 (set when modal opens / selection changes)
 
   // map
   _mapsPromise: null,
@@ -940,41 +945,87 @@ function setFeel(feel){
   updateAdjustUI();
 }
 
-function readIntensity0100(){
+/* Slider value helpers */
+function readSlider0100(){
   const el = $('adjIntensity');
   const v = el ? Number(el.value) : 50;
   return clamp(Math.round(isFinite(v) ? v : 50), 0, 100);
 }
-function setIntensity0100(v){
+function setSlider0100(v){
   const el = $('adjIntensity');
   if (!el) return;
   el.value = String(clamp(Math.round(v), 0, 100));
   updateIntensityLabel();
 }
 function updateIntensityLabel(){
-  const v = readIntensity0100();
+  const v = readSlider0100();
   const out = $('adjIntensityVal');
   if (out) out.textContent = String(v);
 }
 
-/* Best-guess intensity starting point */
-function guessIntensity(run, modelClass, feel){
-  // Only used when opposite correction is chosen.
-  // Use wetnessR as primary: farther from 50 -> stronger intensity.
-  // Example:
-  // - modelClass wet & user says dry: higher wetnessR => higher intensity
-  // - modelClass dry & user says wet: lower wetnessR => higher intensity
-  const w = clamp(Number(run?.wetnessR ?? 50), 0, 100);
+/* Anchor readiness (integer 0..100) */
+function getAnchorReadinessFromRun(run){
+  const r = clamp(Math.round(Number(run?.readinessR ?? 50)), 0, 100);
+  return r;
+}
 
-  if (modelClass === 'wet' && feel === 'dry'){
-    // if model says wet strongly (w=80), intensity ~60
-    return clamp(Math.round((w - 50) * 2), 10, 100);
+/* Configure slider bounds so it cannot move the wrong direction */
+function configureAdjustSliderForDirection(anchorReadiness, feel){
+  const slider = $('adjIntensity');
+  if (!slider) return;
+
+  const r = clamp(Math.round(Number(anchorReadiness)), 0, 100);
+
+  // Marking DRY: cannot go "wetter" => cannot go BELOW anchor
+  if (feel === 'dry'){
+    slider.min = String(r);
+    slider.max = '100';
+    slider.value = String(r);
   }
-  if (modelClass === 'dry' && feel === 'wet'){
-    // if model says very dry (w=20), intensity ~60
-    return clamp(Math.round((50 - w) * 2), 10, 100);
+
+  // Marking WET: cannot go "drier" => cannot go ABOVE anchor
+  if (feel === 'wet'){
+    slider.min = '0';
+    slider.max = String(r);
+    slider.value = String(r);
   }
-  return 50;
+
+  updateIntensityLabel();
+}
+
+/* Enforce direction lock on every input (safety) */
+function enforceAdjustSliderBounds(){
+  const slider = $('adjIntensity');
+  if (!slider) return;
+  const min = Number(slider.min);
+  const max = Number(slider.max);
+  let v = Number(slider.value);
+  if (!isFinite(v)) v = min;
+  v = clamp(v, isFinite(min)?min:0, isFinite(max)?max:100);
+  slider.value = String(v);
+  updateIntensityLabel();
+}
+
+/* Convert slider distance from anchor into 0..100 "intensity" */
+function computeNormalizedIntensity0100(anchor, feel){
+  const target = readSlider0100();
+  const r = clamp(Math.round(Number(anchor)), 0, 100);
+
+  if (feel === 'dry'){
+    // target >= r (locked). How far toward 100?
+    const denom = Math.max(1, 100 - r);
+    const frac = clamp((target - r) / denom, 0, 1);
+    return Math.round(frac * 100);
+  }
+
+  if (feel === 'wet'){
+    // target <= r (locked). How far toward 0?
+    const denom = Math.max(1, r);
+    const frac = clamp((r - target) / denom, 0, 1);
+    return Math.round(frac * 100);
+  }
+
+  return 0;
 }
 
 function computeDelta(){
@@ -1006,13 +1057,17 @@ function computeDelta(){
   // Base magnitude
   let mag = 8;
 
-  // Only allow magnitude slider on opposite corrections
+  // Only allow slider on opposite corrections
   if (opposite){
-    const intensity = readIntensity0100();
-    mag = 8 + Math.round((intensity/100) * 10);
+    const anchor = (state._adjAnchorReadiness == null)
+      ? getAnchorReadinessFromRun(run)
+      : clamp(Number(state._adjAnchorReadiness), 0, 100);
+
+    const intensity0100 = computeNormalizedIntensity0100(anchor, feel);
+    // same scaling as before, just driven by slider distance
+    mag = 8 + Math.round((intensity0100/100) * 10);
   }
 
-  // Quick Obs removed: no obsBoost anymore
   const delta = (sign * mag);
   return clamp(delta, -18, +18);
 }
@@ -1088,23 +1143,21 @@ function updateAdjustUI(){
       if (right) right.textContent = 'Extremely wet';
     }
 
-    // ✅ Start slider at best guess (only if user just chose opposite)
-    // We do NOT force it every render; only if it’s still at the default 50.
-    const slider = $('adjIntensity');
-    if (slider){
-      const cur = Number(slider.value);
-      if (!isFinite(cur) || cur === 50){
-        setIntensity0100(guessIntensity(run, mc, state._adjFeel));
-      }
+    // ✅ NEW: Anchor slider to current readiness and lock direction.
+    const anchor = getAnchorReadinessFromRun(run);
+    state._adjAnchorReadiness = anchor;
+
+    if (state._adjFeel === 'dry' || state._adjFeel === 'wet'){
+      configureAdjustSliderForDirection(anchor, state._adjFeel);
     }
   }
 
   const hint = $('adjHint');
   if (hint){
     if (mc === 'wet'){
-      hint.textContent = 'Model says WET → “Wet” disabled. Choose “Dry” to correct it (with intensity).';
+      hint.textContent = 'Model says WET → “Wet” disabled. Choose “Dry” to correct it (with slider).';
     } else if (mc === 'dry'){
-      hint.textContent = 'Model says DRY → “Dry” disabled. Choose “Wet” to correct it (with intensity).';
+      hint.textContent = 'Model says DRY → “Dry” disabled. Choose “Wet” to correct it (with slider).';
     } else {
       hint.textContent = 'Model says OK → choose Wet or Dry if it’s wrong.';
     }
@@ -1190,7 +1243,15 @@ async function applyAdjustment(){
 
     // Calibration signals
     feel,
-    intensity: readIntensity0100(),
+
+    // Save slider context
+    readinessAnchor: (state._adjAnchorReadiness == null) ? null : Number(state._adjAnchorReadiness),
+    readinessSlider: readSlider0100(),
+    intensity: computeNormalizedIntensity0100(
+      (state._adjAnchorReadiness == null) ? getAnchorReadinessFromRun(run) : Number(state._adjAnchorReadiness),
+      feel
+    ),
+
     delta: d,
 
     // Explicitly mark this as a GLOBAL calibration
@@ -1230,13 +1291,20 @@ async function openAdjustGlobal(){
   const obs = $('adjObs');
   if (obs) obs.value = 'none';
 
-  // Start intensity at 50 (we’ll set best-guess when opposite is chosen)
-  const intensity = $('adjIntensity');
-  if (intensity) intensity.value = '50';
+  // Reset feel
+  state._adjFeel = null;
+
+  // Set slider to a safe neutral state until opposite is chosen
+  const slider = $('adjIntensity');
+  if (slider){
+    slider.min = '0';
+    slider.max = '100';
+    slider.value = '50';
+  }
   updateIntensityLabel();
 
-  // Must choose wet/dry (no ok)
-  state._adjFeel = null;
+  // reset anchor until we render pills
+  state._adjAnchorReadiness = null;
 
   // Update pills + UI first
   updateAdjustPills();
@@ -1272,7 +1340,6 @@ function wireFieldsHiddenTap(){
   el.setAttribute('aria-label','Fields (tap for calibration)');
 
   el.addEventListener('click', (e)=>{
-    // Don’t break other header behavior if it exists; just open
     e.preventDefault();
     e.stopPropagation();
     openAdjustGlobal();
@@ -1512,7 +1579,6 @@ on('btnOpX','click', closeOpModal);
 on('btnAdjX','click', closeAdjust);
 on('btnAdjCancel','click', closeAdjust);
 on('btnAdjApply','click', ()=>{
-  // If cooldown ticker has disabled it, do nothing
   const btn = $('btnAdjApply');
   if (btn && btn.disabled) return;
   showModal('confirmAdjBackdrop', true);
@@ -1556,7 +1622,10 @@ on('btnAdjYes','click', async ()=>{
 })();
 
 on('adjObs','change', updateAdjustGuard);
-on('adjIntensity','input', updateAdjustGuard);
+on('adjIntensity','input', ()=>{
+  enforceAdjustSliderBounds();
+  updateAdjustGuard();
+});
 
 // Map
 on('btnMap','click', (e)=>{
