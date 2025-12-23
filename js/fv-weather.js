@@ -11,6 +11,19 @@
 
 (() => {
   "use strict";
+    // Center placeholder text in the ZIP input (Safari/iOS needs ::placeholder rule)
+  (function injectZipPlaceholderStyle(){
+    try{
+      if (document.getElementById('fv-weather-zip-ph-style')) return;
+      const s = document.createElement('style');
+      s.id = 'fv-weather-zip-ph-style';
+      s.textContent = `
+        .fv-weather-zip::placeholder{ text-align:center; }
+        .fv-weather-zip::-webkit-input-placeholder{ text-align:center; }
+      `;
+      document.head.appendChild(s);
+    }catch(_){}
+  })();
 
   const GOOGLE_CURRENT_URL =
     "https://weather.googleapis.com/v1/currentConditions:lookup";
