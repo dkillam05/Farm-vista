@@ -32,6 +32,16 @@ const round = (v, d=2) => {
   const p = Math.pow(10,d);
   return Math.round(v*p)/p;
 };
+async function waitForEl(id, timeoutMs=2000){
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs){
+    const el = document.getElementById(id);
+    if (el) return el;
+    await new Promise(r=>requestAnimationFrame(r));
+  }
+  return null;
+}
+
 function esc(s){
   return String(s||'')
     .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
@@ -1679,17 +1689,37 @@ function closeOpModal(){ showModal('opBackdrop', false); }
 
 function loadOpDefault(){
   const op = $('opSel');
-  if (!op) return;
-  try{
-    const raw = localStorage.getItem(LS_OP_KEY);
-    if (raw) op.value = raw;
-  }catch(_){}
+  if (!op) return false;
+
+  let raw = '';
+  try{ raw = String(localStorage.getItem(LS_OP_KEY) || ''); }catch(_){ raw=''; }
+  if (!raw){
+    try{ raw = String(sessionStorage.getItem(LS_OP_KEY) || ''); }catch(_){ raw=''; }
+  }
+
+  raw = String(raw || '').trim();
+  if (!raw) return false;
+
+  // Only apply if it matches a real option
+  const ok = OPS.some(o=>o.key === raw);
+  if (ok) op.value = raw;
+
+  return ok;
 }
+
 function saveOpDefault(){
   const op = $('opSel');
   if (!op) return;
-  try{ localStorage.setItem(LS_OP_KEY, String(op.value||'')); }catch(_){}
+  const v = String(op.value||'').trim();
+  if (!v) return;
+
+  try{ localStorage.setItem(LS_OP_KEY, v); }catch(_){}
+  try{ sessionStorage.setItem(LS_OP_KEY, v); }catch(_){}
+
+  // optional: also mirror to the op select dataset (helps debugging)
+  try{ op.dataset.saved = v; }catch(_){}
 }
+
 
 /* ---------- wiring ---------- */
 on('sortSel','change', refreshAll);
@@ -1801,8 +1831,12 @@ on('btnMapX','click', closeMapModal);
   }
 
   loadParamsFromLocal();
-  loadOpDefault();
-  loadThresholdsFromLocal();
+
+// iOS fix: wait for the select to exist, then apply the saved op
+await waitForEl('opSel', 2500);
+loadOpDefault();
+
+loadThresholdsFromLocal();
 
   loadFarmFilterDefault();
   loadPageSizeDefault();
