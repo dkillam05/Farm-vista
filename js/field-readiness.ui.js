@@ -1,10 +1,21 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness.ui.js  (NEW FILE)
-Rev: 2025-12-22u1
-UI + Firestore loads + rendering + wiring + init
-Imports:
-- field-readiness.weather.js
-- field-readiness.model.js
+/Farm-vista/js/field-readiness.ui.js  (FULL FILE)
+Rev: 2025-12-23a
+
+CHANGES (per Dane):
+✅ Remove per-field "Adjust" button from tiles
+✅ Make the word "Fields" a hidden tap target to open GLOBAL adjustment modal
+✅ In global adjust:
+   - Remove About Right (no "ok" selection; must pick Wet or Dry)
+   - Remove/ignore Quick Obs section (adjObs no longer impacts delta)
+✅ Intensity slider:
+   - Only shows for opposite-direction correction (kept)
+   - Starts at a best-guess intensity (based on model output)
+   - Direction is locked by Wet/Dry choice (slider is magnitude only)
+✅ Cooldown UI:
+   - Reads field_readiness_model_weights/default.nextAllowedAt
+   - Disables Apply + shows “Next allowed in Xh Ym”
+   - Server still enforces cooldown
 ===================================================================== */
 'use strict';
 
@@ -72,6 +83,10 @@ const THR_COLLECTION = 'field_readiness_thresholds';
 const THR_DOC_ID = 'default';
 const ADJ_COLLECTION = 'field_readiness_adjustments';
 
+// NEW: weights doc for cooldown UI
+const WEIGHTS_COLLECTION = 'field_readiness_model_weights';
+const WEIGHTS_DOC = 'default';
+
 const OPS = [
   { key:'spring_tillage', label:'Spring tillage' },
   { key:'planting', label:'Planting' },
@@ -103,7 +118,11 @@ const state = {
   fb: null,
   _thrSaveTimer: null,
   _renderTimer: null,
-  _adjFeel: 'ok',
+
+  // Adjust (GLOBAL)
+  _adjFeel: null,            // 'wet' | 'dry' | null
+  _cooldownTimer: null,
+  _nextAllowedMs: 0,
 
   // map
   _mapsPromise: null,
@@ -513,11 +532,11 @@ function renderTiles(){
     const tile = document.createElement('div');
     tile.className = 'tile' + (f.id === state.selectedFieldId ? ' active' : '');
 
+    // ✅ Removed Adjust button entirely
     tile.innerHTML = `
       <div class="tile-top">
         <div class="titleline">
           <div class="name" title="${esc(labelLeft)}">${esc(labelLeft)}</div>
-          <button class="tiny-btn" data-adjust="${esc(f.id)}" type="button">Adjust</button>
         </div>
         <div class="readiness-pill" style="background:${pillBg};">Field Readiness ${readiness}</div>
       </div>
@@ -541,19 +560,9 @@ function renderTiles(){
       </div>
     `;
 
-    tile.addEventListener('click', (e)=>{
-      const btn = e.target && e.target.closest ? e.target.closest('button') : null;
-      if (btn) return;
+    tile.addEventListener('click', ()=>{
       selectField(f.id);
     });
-
-    const adjBtn = tile.querySelector('button[data-adjust]');
-    if (adjBtn){
-      adjBtn.addEventListener('click', (e)=>{
-        e.stopPropagation();
-        openAdjust(f.id);
-      });
-    }
 
     wrap.appendChild(tile);
   }
@@ -801,7 +810,93 @@ function refreshAll(){
   renderDetails();
 }
 
-/* ---------- Adjust logic (kept as-is) ---------- */
+/* =====================================================================
+   GLOBAL ADJUST (hidden behind tapping "Fields")
+   ===================================================================== */
+
+/* ---------- cooldown UI helpers ---------- */
+function __fmtDur(ms){
+  ms = Math.max(0, ms|0);
+  const totalMin = Math.floor(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return `${h}h ${String(m).padStart(2,'0')}m`;
+}
+function __tsToMs(ts){
+  if (!ts) return 0;
+  if (typeof ts.toMillis === 'function') return ts.toMillis();
+  if (ts.seconds && ts.nanoseconds != null){
+    return (Number(ts.seconds)*1000) + Math.floor(Number(ts.nanoseconds)/1e6);
+  }
+  return 0;
+}
+function __setCooldownLine(text){
+  // Prefer a dedicated element if it exists; otherwise append to adjHint
+  const el = $('calibCooldownMsg') || $('adjCooldown');
+  const hint = $('adjHint');
+  if (el){
+    el.style.display = text ? '' : 'none';
+    el.textContent = text || '';
+    return;
+  }
+  if (hint){
+    // Keep hint + add a second subtle line (no HTML assumptions)
+    if (!text){
+      hint.textContent = String(hint.textContent || '').split('\n')[0];
+    } else {
+      const base = String(hint.textContent || '').split('\n')[0];
+      hint.textContent = base + '\n' + text;
+    }
+  }
+}
+
+async function loadCooldownFromFirestore(){
+  const api = getAPI();
+  if (!api || api.kind === 'compat'){
+    state._nextAllowedMs = 0;
+    return;
+  }
+  try{
+    const db = api.getFirestore();
+    const ref = api.doc(db, WEIGHTS_COLLECTION, WEIGHTS_DOC);
+    const snap = await api.getDoc(ref);
+    if (!snap || !snap.exists || !snap.exists()){
+      state._nextAllowedMs = 0;
+      return;
+    }
+    const d = snap.data() || {};
+    state._nextAllowedMs = __tsToMs(d.nextAllowedAt);
+  }catch(e){
+    console.warn('[FieldReadiness] cooldown read failed:', e);
+    state._nextAllowedMs = 0;
+  }
+}
+
+function startCooldownTicker(){
+  const btn = $('btnAdjApply');
+  function tick(){
+    const now = Date.now();
+    const locked = (state._nextAllowedMs && now < state._nextAllowedMs);
+    if (btn) btn.disabled = !!locked;
+
+    if (locked){
+      __setCooldownLine(`Model update locked. Next allowed in ${__fmtDur(state._nextAllowedMs - now)}.`);
+    } else {
+      __setCooldownLine('');
+    }
+  }
+
+  try{ if (state._cooldownTimer) clearInterval(state._cooldownTimer); }catch(_){}
+  tick();
+  state._cooldownTimer = setInterval(tick, 30000);
+}
+function stopCooldownTicker(){
+  try{ if (state._cooldownTimer) clearInterval(state._cooldownTimer); }catch(_){}
+  state._cooldownTimer = null;
+  __setCooldownLine('');
+}
+
+/* ---------- Adjust pills/UI ---------- */
 function updateAdjustPills(){
   const fid = state.selectedFieldId;
   const f = state.fields.find(x=>x.id===fid);
@@ -831,13 +926,15 @@ function updateAdjustPills(){
   updateAdjustUI();
 }
 
+/* About Right removed -> feel is only wet/dry */
 function setFeel(feel){
-  state._adjFeel = feel;
+  state._adjFeel = (feel === 'wet' || feel === 'dry') ? feel : null;
 
   const seg = $('feelSeg');
   if (seg){
     seg.querySelectorAll('.segbtn').forEach(btn=>{
-      btn.classList.toggle('on', btn.getAttribute('data-feel') === feel);
+      const bf = btn.getAttribute('data-feel');
+      btn.classList.toggle('on', bf === state._adjFeel);
     });
   }
   updateAdjustUI();
@@ -848,10 +945,36 @@ function readIntensity0100(){
   const v = el ? Number(el.value) : 50;
   return clamp(Math.round(isFinite(v) ? v : 50), 0, 100);
 }
+function setIntensity0100(v){
+  const el = $('adjIntensity');
+  if (!el) return;
+  el.value = String(clamp(Math.round(v), 0, 100));
+  updateIntensityLabel();
+}
 function updateIntensityLabel(){
   const v = readIntensity0100();
   const out = $('adjIntensityVal');
   if (out) out.textContent = String(v);
+}
+
+/* Best-guess intensity starting point */
+function guessIntensity(run, modelClass, feel){
+  // Only used when opposite correction is chosen.
+  // Use wetnessR as primary: farther from 50 -> stronger intensity.
+  // Example:
+  // - modelClass wet & user says dry: higher wetnessR => higher intensity
+  // - modelClass dry & user says wet: lower wetnessR => higher intensity
+  const w = clamp(Number(run?.wetnessR ?? 50), 0, 100);
+
+  if (modelClass === 'wet' && feel === 'dry'){
+    // if model says wet strongly (w=80), intensity ~60
+    return clamp(Math.round((w - 50) * 2), 10, 100);
+  }
+  if (modelClass === 'dry' && feel === 'wet'){
+    // if model says very dry (w=20), intensity ~60
+    return clamp(Math.round((50 - w) * 2), 10, 100);
+  }
+  return 50;
 }
 
 function computeDelta(){
@@ -866,8 +989,10 @@ function computeDelta(){
   const run = f ? (state.lastRuns.get(f.id) || runField(f, deps)) : null;
 
   const mc = modelClassFromRun(run);
-  const feel = state._adjFeel || 'ok';
-  const obs = String(($('adjObs') && $('adjObs').value) || 'none');
+  const feel = state._adjFeel; // wet|dry|null
+
+  // About Right removed: require a direction
+  if (!feel) return 0;
 
   let sign = 0;
   if (feel === 'wet') sign = +1;
@@ -878,19 +1003,17 @@ function computeDelta(){
     (mc === 'wet' && feel === 'dry') ||
     (mc === 'dry' && feel === 'wet');
 
+  // Base magnitude
   let mag = 8;
+
+  // Only allow magnitude slider on opposite corrections
   if (opposite){
     const intensity = readIntensity0100();
     mag = 8 + Math.round((intensity/100) * 10);
   }
 
-  const obsBoost =
-    (obs === 'ruts') ? +6 :
-    (obs === 'tacky') ? +3 :
-    (obs === 'crumbly') ? -2 :
-    (obs === 'dusty') ? -6 : 0;
-
-  const delta = (sign * mag) + obsBoost;
+  // Quick Obs removed: no obsBoost anymore
+  const delta = (sign * mag);
   return clamp(delta, -18, +18);
 }
 
@@ -902,10 +1025,10 @@ function updateAdjustGuard(){
 
   const d = computeDelta();
   if (d === 0){
-    el.textContent = 'No change will be applied (About Right).';
+    el.textContent = 'Choose Wet or Dry to submit a global calibration.';
     return;
   }
-  el.textContent = `This will nudge Soil Wetness + Drainage by ${d > 0 ? '+' : ''}${d} (guardrailed).`;
+  el.textContent = `This will nudge the model by ${d > 0 ? '+' : ''}${d} (guardrailed).`;
 }
 
 function updateAdjustUI(){
@@ -921,20 +1044,23 @@ function updateAdjustUI(){
   };
   const run = state.lastRuns.get(f.id) || runField(f, deps);
   const mc = modelClassFromRun(run);
-  const feel = state._adjFeel || 'ok';
+  const feel = state._adjFeel; // wet|dry|null
 
+  // Keep your existing validation: if model says wet, wet disabled; if dry, dry disabled
   const bWet = $('btnFeelWet');
   const bDry = $('btnFeelDry');
   if (bWet) bWet.disabled = (mc === 'wet');
   if (bDry) bDry.disabled = (mc === 'dry');
 
-  if (mc === 'wet' && feel === 'wet') state._adjFeel = 'ok';
-  if (mc === 'dry' && feel === 'dry') state._adjFeel = 'ok';
+  // If user selected the disabled direction, clear it
+  if (mc === 'wet' && feel === 'wet') state._adjFeel = null;
+  if (mc === 'dry' && feel === 'dry') state._adjFeel = null;
 
   const seg = $('feelSeg');
   if (seg){
     seg.querySelectorAll('.segbtn').forEach(btn=>{
-      btn.classList.toggle('on', btn.getAttribute('data-feel') === (state._adjFeel || 'ok'));
+      const bf = btn.getAttribute('data-feel');
+      btn.classList.toggle('on', bf === state._adjFeel);
     });
   }
 
@@ -950,6 +1076,7 @@ function updateAdjustUI(){
   if (box) box.classList.toggle('pv-hide', !opposite);
 
   if (opposite){
+    // Set title and endpoints (same as your current copy)
     if (mc === 'wet' && title){
       title.textContent = 'If it’s NOT wet… how DRY is it?';
       if (left) left.textContent = 'Slightly dry';
@@ -960,22 +1087,40 @@ function updateAdjustUI(){
       if (left) left.textContent = 'Slightly wet';
       if (right) right.textContent = 'Extremely wet';
     }
+
+    // ✅ Start slider at best guess (only if user just chose opposite)
+    // We do NOT force it every render; only if it’s still at the default 50.
+    const slider = $('adjIntensity');
+    if (slider){
+      const cur = Number(slider.value);
+      if (!isFinite(cur) || cur === 50){
+        setIntensity0100(guessIntensity(run, mc, state._adjFeel));
+      }
+    }
   }
 
   const hint = $('adjHint');
   if (hint){
     if (mc === 'wet'){
-      hint.textContent = 'Model says WET → “Wet” disabled. Choose OK, or choose “Dry” to correct it (with intensity).';
+      hint.textContent = 'Model says WET → “Wet” disabled. Choose “Dry” to correct it (with intensity).';
     } else if (mc === 'dry'){
-      hint.textContent = 'Model says DRY → “Dry” disabled. Choose OK, or choose “Wet” to correct it (with intensity).';
+      hint.textContent = 'Model says DRY → “Dry” disabled. Choose “Wet” to correct it (with intensity).';
     } else {
-      hint.textContent = 'Model says OK → you can mark Wet or Dry if it’s wrong.';
+      hint.textContent = 'Model says OK → choose Wet or Dry if it’s wrong.';
     }
+  }
+
+  // Disable Apply unless user chose a direction (and cooldown ticker may further disable)
+  const applyBtn = $('btnAdjApply');
+  if (applyBtn){
+    const hasChoice = (state._adjFeel === 'wet' || state._adjFeel === 'dry');
+    if (!hasChoice) applyBtn.disabled = true;
   }
 
   updateAdjustGuard();
 }
 
+/* ---------- logging + firestore write (kept, but GLOBAL-only now) ---------- */
 function appendAdjustLog(entry){
   try{
     const raw = localStorage.getItem(LS_ADJ_LOG);
@@ -1027,41 +1172,30 @@ async function applyAdjustment(){
     EXTRA
   };
   const run = state.lastRuns.get(f.id) || runField(f, deps);
-  const p0 = getFieldParams(f.id);
 
   const d = computeDelta();
-  const obs = String(($('adjObs') && $('adjObs').value) || 'none');
-  const feel = state._adjFeel || 'ok';
+  const feel = state._adjFeel;
 
-  if (d === 0){
-    closeAdjust();
+  // About Right removed -> must pick wet/dry
+  if (!feel || d === 0){
     return;
   }
 
-  const before = { soilWetness:p0.soilWetness, drainageIndex:p0.drainageIndex };
-
-  const p1 = {
-    soilWetness: clamp(Math.round(p0.soilWetness + d), 0, 100),
-    drainageIndex: clamp(Math.round(p0.drainageIndex + d), 0, 100)
-  };
-
-  state.perFieldParams.set(f.id, p1);
-  saveParamsToLocal();
-
-  const a = $('soilWet'), b = $('drain');
-  if (a) a.value = String(p1.soilWetness);
-  if (b) b.value = String(p1.drainageIndex);
-
+  // GLOBAL calibration only: do NOT change per-field params here
   const entry = {
+    // Context only (still helpful for audit)
     fieldId: f.id,
     fieldName: f.name || '',
     op: getCurrentOp(),
+
+    // Calibration signals
     feel,
-    observation: obs,
     intensity: readIntensity0100(),
     delta: d,
-    before,
-    after: p1,
+
+    // Explicitly mark this as a GLOBAL calibration
+    global: true,
+
     model: {
       readinessBefore: run ? run.readinessR : null,
       wetnessBefore: run ? run.wetnessR : null,
@@ -1073,32 +1207,77 @@ async function applyAdjustment(){
   appendAdjustLog(entry);
   await writeAdjustToFirestore(entry);
 
+  // Refresh (no per-field param change now)
   refreshAll();
   closeAdjust();
 }
 
-function openAdjust(id){
-  state.selectedFieldId = id;
-  ensureSelectedParamsToSliders();
-  refreshAll();
+/* ---------- open/close adjust (GLOBAL) ---------- */
+async function openAdjustGlobal(){
+  // Keep current selected field as the context (no per-field buttons anymore)
+  if (!state.selectedFieldId && state.fields.length){
+    state.selectedFieldId = state.fields[0].id;
+  }
 
-  const f = state.fields.find(x=>x.id===id);
+  const f = state.fields.find(x=>x.id===state.selectedFieldId);
   const sub = $('adjustSub');
-  if (sub && f) sub.textContent = f.name || '—';
+  if (sub){
+    sub.textContent = 'Global calibration';
+    if (f && f.name) sub.textContent = `Global calibration • ${f.name}`;
+  }
 
-  const obs = $('adjObs'); if (obs) obs.value = 'none';
-  const intensity = $('adjIntensity'); if (intensity) intensity.value = '50';
+  // Clear/ignore Quick Obs
+  const obs = $('adjObs');
+  if (obs) obs.value = 'none';
+
+  // Start intensity at 50 (we’ll set best-guess when opposite is chosen)
+  const intensity = $('adjIntensity');
+  if (intensity) intensity.value = '50';
   updateIntensityLabel();
 
-  state._adjFeel = 'ok';
-  setFeel('ok');
+  // Must choose wet/dry (no ok)
+  state._adjFeel = null;
 
+  // Update pills + UI first
   updateAdjustPills();
   updateAdjustGuard();
 
+  // Load cooldown and start ticker
+  await loadCooldownFromFirestore();
+  startCooldownTicker();
+
   showModal('adjustBackdrop', true);
 }
-function closeAdjust(){ showModal('adjustBackdrop', false); }
+
+function closeAdjust(){
+  showModal('adjustBackdrop', false);
+  stopCooldownTicker();
+}
+
+/* ---------- hidden "Fields" tap target ---------- */
+function wireFieldsHiddenTap(){
+  const direct = $('fieldsTitle') || document.querySelector('[data-fields-tap]');
+  let el = direct;
+
+  if (!el){
+    // fallback: find a header whose text is exactly "Fields"
+    const heads = Array.from(document.querySelectorAll('h1,h2,h3'));
+    el = heads.find(x => String(x.textContent || '').trim() === 'Fields') || null;
+  }
+  if (!el) return;
+
+  // Make it feel like a hidden button, but subtle
+  el.style.cursor = 'pointer';
+  el.setAttribute('role','button');
+  el.setAttribute('aria-label','Fields (tap for calibration)');
+
+  el.addEventListener('click', (e)=>{
+    // Don’t break other header behavior if it exists; just open
+    e.preventDefault();
+    e.stopPropagation();
+    openAdjustGlobal();
+  });
+}
 
 /* ---------- operation modal ---------- */
 function renderOpThresholdModal(){
@@ -1329,9 +1508,15 @@ on('btnOpX','click', closeOpModal);
   });
 })();
 
+// Adjust modal buttons
 on('btnAdjX','click', closeAdjust);
 on('btnAdjCancel','click', closeAdjust);
-on('btnAdjApply','click', ()=>{ showModal('confirmAdjBackdrop', true); });
+on('btnAdjApply','click', ()=>{
+  // If cooldown ticker has disabled it, do nothing
+  const btn = $('btnAdjApply');
+  if (btn && btn.disabled) return;
+  showModal('confirmAdjBackdrop', true);
+});
 on('btnAdjNo','click', ()=>{ showModal('confirmAdjBackdrop', false); });
 on('btnAdjYes','click', async ()=>{
   showModal('confirmAdjBackdrop', false);
@@ -1355,19 +1540,25 @@ on('btnAdjYes','click', async ()=>{
   });
 })();
 
+// Feel segment
 (function(){
   const seg = $('feelSeg');
   if (!seg) return;
   seg.addEventListener('click', (e)=>{
     const btn = e.target && e.target.closest ? e.target.closest('button[data-feel]') : null;
     if (!btn) return;
-    setFeel(btn.getAttribute('data-feel'));
+    const f = btn.getAttribute('data-feel');
+
+    // Only allow wet/dry now (ignore 'ok' if it still exists in HTML)
+    if (f !== 'wet' && f !== 'dry') return;
+    setFeel(f);
   });
 })();
 
 on('adjObs','change', updateAdjustGuard);
 on('adjIntensity','input', updateAdjustGuard);
 
+// Map
 on('btnMap','click', (e)=>{
   e.preventDefault();
   e.stopPropagation();
@@ -1401,6 +1592,9 @@ on('btnMapX','click', closeMapModal);
   if (!state.selectedFieldId && state.fields.length){
     state.selectedFieldId = state.fields[0].id;
   }
+
+  // ✅ Hidden global calibration entry point
+  wireFieldsHiddenTap();
 
   ensureSelectedParamsToSliders();
   refreshAll();
