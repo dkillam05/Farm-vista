@@ -1,16 +1,14 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.ui.js  (FULL FILE)
-Rev: 2025-12-23c
+Rev: 2025-12-23d
 
 UPDATES (per Dane):
-✅ Slider stays 0–100 always
-   - Starts at readiness anchor
-   - DRY: cannot go below anchor (blocks left)
-   - WET: cannot go above anchor (blocks right)
-✅ Tiles show FIELD ONLY (no farm prefix)
-✅ Farm filter dropdown (#farmSel) + All default
-✅ Results per page dropdown (#pageSel) 25/50/100/250/All (default 25)
-✅ No trimming — keeps all prior behavior, wiring, maps, etc.
+✅ Adjust modal: show a real status card:
+   - "Last global adjustment: Xh Ym ago"
+   - "Next global adjustment allowed: <timestamp>"
+✅ Adds note: for one specific field, use field-specific Soil Wetness + Drainage sliders
+✅ No HTML changes required (uses existing #calibCooldownMsg)
+✅ Keeps existing: global-only calibration, cooldown enforcement UI, tiles, filters, paging, maps, etc.
 ===================================================================== */
 'use strict';
 
@@ -60,7 +58,7 @@ function on(id, ev, fn){
   if (el) el.addEventListener(ev, fn);
 }
 
-/* ---------- constants (same as your inline) ---------- */
+/* ---------- constants ---------- */
 const WX_BASE = 'https://farmvista-field-weather-300398089669.us-central1.run.app';
 const WX_ENDPOINT = WX_BASE + '/api/open-meteo';
 const WX_TTL_MS = 4 * 60 * 60 * 1000;
@@ -74,7 +72,7 @@ const LS_OP_KEY = 'fv_dev_field_readiness_op';
 const LS_THR_KEY = 'fv_dev_field_readiness_thresholds_v1';
 const LS_ADJ_LOG = 'fv_fr_adjust_log_v1';
 
-// NEW: UI prefs
+// UI prefs
 const LS_FARM_FILTER = 'fv_fr_farm_filter_v1';
 const LS_PAGE_SIZE = 'fv_fr_page_size_v1';
 
@@ -118,17 +116,19 @@ const state = {
   _thrSaveTimer: null,
   _renderTimer: null,
 
-  // NEW: filter + page
+  // filters
   farmFilter: '__all__',
   pageSize: 25, // -1 means all
 
   // Adjust (GLOBAL)
-  _adjFeel: null,            // 'wet' | 'dry' | null
+  _adjFeel: null,               // 'wet' | 'dry' | null
   _cooldownTimer: null,
   _nextAllowedMs: 0,
+  _lastAppliedMs: 0,
+  _cooldownHours: 72,
 
-  // adjust slider anchoring
-  _adjAnchorReadiness: null, // integer 0..100
+  // slider anchoring
+  _adjAnchorReadiness: null,    // integer 0..100
 
   // map
   _mapsPromise: null,
@@ -321,13 +321,10 @@ function hydrateParamsFromFieldDoc(field){
   state.perFieldParams.set(field.id, cur);
 }
 
-/* ---------- UI prefs (farm + page) ---------- */
+/* ---------- UI prefs ---------- */
 function loadFarmFilterDefault(){
-  try{
-    state.farmFilter = String(localStorage.getItem(LS_FARM_FILTER) || '__all__') || '__all__';
-  }catch(_){
-    state.farmFilter = '__all__';
-  }
+  try{ state.farmFilter = String(localStorage.getItem(LS_FARM_FILTER) || '__all__') || '__all__'; }
+  catch(_){ state.farmFilter='__all__'; }
   const sel = $('farmSel');
   if (sel) sel.value = state.farmFilter;
 }
@@ -340,30 +337,21 @@ function saveFarmFilterDefault(){
 function loadPageSizeDefault(){
   let raw = '25';
   try{ raw = String(localStorage.getItem(LS_PAGE_SIZE) || '25'); }catch(_){ raw='25'; }
-  if (raw === '__all__') state.pageSize = -1;
-  else {
-    const n = Number(raw);
-    state.pageSize = isFinite(n) ? clamp(Math.round(n), 1, 10000) : 25;
-  }
+  state.pageSize = (raw === '__all__') ? -1 : (isFinite(Number(raw)) ? clamp(Math.round(Number(raw)), 1, 10000) : 25);
   const sel = $('pageSel');
   if (sel) sel.value = (state.pageSize === -1) ? '__all__' : String(state.pageSize);
 }
 function savePageSizeDefault(){
   const sel = $('pageSel');
   const raw = String(sel ? sel.value : '25');
-  if (raw === '__all__') state.pageSize = -1;
-  else {
-    const n = Number(raw);
-    state.pageSize = isFinite(n) ? clamp(Math.round(n), 1, 10000) : 25;
-  }
+  state.pageSize = (raw === '__all__') ? -1 : (isFinite(Number(raw)) ? clamp(Math.round(Number(raw)), 1, 10000) : 25);
   try{ localStorage.setItem(LS_PAGE_SIZE, raw); }catch(_){}
 }
 function renderFarmFilterOptions(){
   const sel = $('farmSel');
   if (!sel) return;
 
-  // farms actually used by the active fields
-  const used = new Map(); // id -> label
+  const used = new Map();
   for (const f of state.fields){
     const id = String(f.farmId||'').trim();
     if (!id) continue;
@@ -391,7 +379,6 @@ function renderFarmFilterOptions(){
     sel.appendChild(o);
   }
 
-  // restore if still valid
   const ok = (keep === '__all__') || ids.includes(keep);
   sel.value = ok ? keep : '__all__';
   state.farmFilter = sel.value;
@@ -488,9 +475,7 @@ async function loadFields(){
 
     await warmWeatherForFields(state.fields, wxCtx, { force:false, onEach:debounceRender });
 
-    // NEW: populate farm dropdown now that fields loaded
     renderFarmFilterOptions();
-
     renderTiles();
     renderDetails();
   }catch(e){
@@ -502,7 +487,7 @@ async function loadFields(){
   }
 }
 
-/* ---------- range helpers (kept inline behavior) ---------- */
+/* ---------- range helpers ---------- */
 function parseRangeFromInput(){
   const inp = $('jobRangeInput');
   const raw = String(inp ? inp.value : '').trim();
@@ -597,7 +582,6 @@ function renderTiles(){
     EXTRA
   };
 
-  // compute runs for all fields so details remains consistent
   for (const f of state.fields){
     state.lastRuns.set(f.id, runField(f, deps));
   }
@@ -622,7 +606,7 @@ function renderTiles(){
     const thrPos  = markerLeftCSS(thr);
     const pillBg = readinessColor(readiness);
 
-    // ✅ Show FIELD ONLY (no farm prefix)
+    // FIELD ONLY
     const labelLeft = f.name;
 
     const tile = document.createElement('div');
@@ -674,7 +658,7 @@ function selectField(id){
   refreshAll();
 }
 
-/* ---------- beta inputs UI ---------- */
+/* ---------- details ---------- */
 function renderBetaInputs(){
   const box = $('betaInputs');
   const meta = $('betaInputsMeta');
@@ -917,6 +901,18 @@ function __fmtDur(ms){
   const m = totalMin % 60;
   return `${h}h ${String(m).padStart(2,'0')}m`;
 }
+function __fmtAbs(tsMs){
+  if (!tsMs) return '—';
+  try{
+    const d = new Date(tsMs);
+    return d.toLocaleString(undefined, {
+      year:'numeric', month:'short', day:'2-digit',
+      hour:'numeric', minute:'2-digit'
+    });
+  }catch(_){
+    return '—';
+  }
+}
 function __tsToMs(ts){
   if (!ts) return 0;
   if (typeof ts.toMillis === 'function') return ts.toMillis();
@@ -925,28 +921,78 @@ function __tsToMs(ts){
   }
   return 0;
 }
-function __setCooldownLine(text){
-  const el = $('calibCooldownMsg') || $('adjCooldown');
-  const hint = $('adjHint');
-  if (el){
-    el.style.display = text ? '' : 'none';
-    el.textContent = text || '';
+function __setCooldownHtml(html){
+  const el = $('calibCooldownMsg');
+  if (!el) return;
+  if (!html){
+    el.style.display = 'none';
+    el.innerHTML = '';
     return;
   }
-  if (hint){
-    if (!text){
-      hint.textContent = String(hint.textContent || '').split('\n')[0];
-    } else {
-      const base = String(hint.textContent || '').split('\n')[0];
-      hint.textContent = base + '\n' + text;
-    }
-  }
+  el.style.display = '';
+  el.innerHTML = html;
+}
+
+function __renderCooldownCard(){
+  const now = Date.now();
+  const lastMs = Number(state._lastAppliedMs || 0);
+  const nextMs = Number(state._nextAllowedMs || 0);
+  const cdH = Number(state._cooldownHours || 72);
+
+  const locked = (nextMs && now < nextMs);
+  const since = lastMs ? __fmtDur(now - lastMs) : '—';
+  const nextAbs = nextMs ? __fmtAbs(nextMs) : '—';
+
+  const title = locked ? 'Global calibration is locked' : 'Global calibration is available';
+  const sub = locked
+    ? `Next global adjustment allowed: <span class="mono">${esc(nextAbs)}</span>`
+    : `Next global adjustment allowed: <span class="mono">${esc(nextAbs)}</span>`;
+
+  const lastLine = lastMs
+    ? `Last global adjustment: <span class="mono">${esc(since)}</span> ago`
+    : `Last global adjustment: <span class="mono">—</span>`;
+
+  const note =
+    `If one specific field needs changes right now, do a <b>field-specific adjustment</b> using the field’s <b>Soil Wetness</b> and <b>Drainage Index</b> sliders (Details / field settings).`;
+
+  // Inline styles so we don't need HTML/CSS edits
+  const cardStyle =
+    'border:1px solid var(--border);border-radius:14px;padding:12px;' +
+    'background:color-mix(in srgb, var(--surface) 96%, #ffffff 4%);' +
+    'display:grid;gap:8px;';
+
+  const headStyle = 'display:flex;align-items:flex-start;justify-content:space-between;gap:10px;';
+  const hStyle = 'margin:0;font-weight:900;font-size:12px;line-height:1.2;';
+  const badgeStyle =
+    'padding:4px 8px;border-radius:999px;border:1px solid var(--border);' +
+    'font-weight:900;font-size:12px;white-space:nowrap;' +
+    (locked ? 'background:color-mix(in srgb, #b00020 10%, var(--surface) 90%);'
+            : 'background:color-mix(in srgb, var(--accent) 12%, var(--surface) 88%);');
+
+  const lineStyle = 'font-size:12px;color:var(--text);opacity:.92;';
+  const mutedStyle = 'font-size:12px;color:var(--muted,#67706B);opacity:.95;line-height:1.35;';
+
+  __setCooldownHtml(`
+    <div style="${cardStyle}">
+      <div style="${headStyle}">
+        <div style="${hStyle}">${esc(title)}</div>
+        <div style="${badgeStyle}">${locked ? `${cdH}h rule` : 'Unlocked'}</div>
+      </div>
+
+      <div style="${lineStyle}">${lastLine}</div>
+      <div style="${lineStyle}">${sub}</div>
+
+      <div style="${mutedStyle}">${note}</div>
+    </div>
+  `);
 }
 
 async function loadCooldownFromFirestore(){
   const api = getAPI();
   if (!api || api.kind === 'compat'){
     state._nextAllowedMs = 0;
+    state._lastAppliedMs = 0;
+    state._cooldownHours = 72;
     return;
   }
   try{
@@ -955,28 +1001,30 @@ async function loadCooldownFromFirestore(){
     const snap = await api.getDoc(ref);
     if (!snap || !snap.exists || !snap.exists()){
       state._nextAllowedMs = 0;
+      state._lastAppliedMs = 0;
+      state._cooldownHours = 72;
       return;
     }
     const d = snap.data() || {};
     state._nextAllowedMs = __tsToMs(d.nextAllowedAt);
+    state._lastAppliedMs = __tsToMs(d.lastAppliedAt);
+    state._cooldownHours = isFinite(Number(d.cooldownHours)) ? Number(d.cooldownHours) : 72;
   }catch(e){
     console.warn('[FieldReadiness] cooldown read failed:', e);
     state._nextAllowedMs = 0;
+    state._lastAppliedMs = 0;
+    state._cooldownHours = 72;
   }
 }
 
 function startCooldownTicker(){
   const btn = $('btnAdjApply');
+
   function tick(){
     const now = Date.now();
     const locked = (state._nextAllowedMs && now < state._nextAllowedMs);
     if (btn) btn.disabled = !!locked;
-
-    if (locked){
-      __setCooldownLine(`Model update locked. Next allowed in ${__fmtDur(state._nextAllowedMs - now)}.`);
-    } else {
-      __setCooldownLine('');
-    }
+    __renderCooldownCard();
   }
 
   try{ if (state._cooldownTimer) clearInterval(state._cooldownTimer); }catch(_){}
@@ -986,7 +1034,7 @@ function startCooldownTicker(){
 function stopCooldownTicker(){
   try{ if (state._cooldownTimer) clearInterval(state._cooldownTimer); }catch(_){}
   state._cooldownTimer = null;
-  __setCooldownLine('');
+  __setCooldownHtml('');
 }
 
 /* ---------- Adjust pills/UI ---------- */
@@ -1033,7 +1081,7 @@ function setFeel(feel){
   updateAdjustUI();
 }
 
-/* Slider value helpers */
+/* Slider helpers */
 function readSlider0100(){
   const el = $('adjIntensity');
   const v = el ? Number(el.value) : 50;
@@ -1043,30 +1091,26 @@ function setSlider0100(v){
   const el = $('adjIntensity');
   if (!el) return;
   el.value = String(clamp(Math.round(v), 0, 100));
-  updateIntensityLabel();
+  const out = $('adjIntensityVal');
+  if (out) out.textContent = String(readSlider0100());
 }
 function updateIntensityLabel(){
-  const v = readSlider0100();
   const out = $('adjIntensityVal');
-  if (out) out.textContent = String(v);
+  if (out) out.textContent = String(readSlider0100());
 }
 
-/* Anchor readiness */
 function getAnchorReadinessFromRun(run){
-  const r = clamp(Math.round(Number(run?.readinessR ?? 50)), 0, 100);
-  return r;
+  return clamp(Math.round(Number(run?.readinessR ?? 50)), 0, 100);
 }
 
-/* ✅ NEW: Keep slider 0–100 always, but clamp the "wrong direction" */
-function configureAdjustSliderForDirection(anchorReadiness){
+/* Slider stays 0-100, but "wrong direction" is blocked */
+function configureSliderAnchor(anchorReadiness){
   const slider = $('adjIntensity');
   if (!slider) return;
   const r = clamp(Math.round(Number(anchorReadiness)), 0, 100);
-
   slider.min = '0';
   slider.max = '100';
   slider.value = String(r);
-
   updateIntensityLabel();
 }
 function enforceAdjustSliderBounds(){
@@ -1077,10 +1121,8 @@ function enforceAdjustSliderBounds(){
   let v = readSlider0100();
 
   if (state._adjFeel === 'dry'){
-    // cannot drag below anchor
     if (v < anchor) v = anchor;
   } else if (state._adjFeel === 'wet'){
-    // cannot drag above anchor
     if (v > anchor) v = anchor;
   } else {
     v = anchor;
@@ -1090,25 +1132,18 @@ function enforceAdjustSliderBounds(){
   updateIntensityLabel();
 }
 
-/* Convert slider distance from anchor into 0..100 intensity */
 function computeNormalizedIntensity0100(anchor, feel){
   const target = readSlider0100();
   const r = clamp(Math.round(Number(anchor)), 0, 100);
 
   if (feel === 'dry'){
-    // target >= r (enforced). How far toward 100?
     const denom = Math.max(1, 100 - r);
-    const frac = clamp((target - r) / denom, 0, 1);
-    return Math.round(frac * 100);
+    return Math.round(clamp((target - r) / denom, 0, 1) * 100);
   }
-
   if (feel === 'wet'){
-    // target <= r (enforced). How far toward 0?
     const denom = Math.max(1, r);
-    const frac = clamp((r - target) / denom, 0, 1);
-    return Math.round(frac * 100);
+    return Math.round(clamp((r - target) / denom, 0, 1) * 100);
   }
-
   return 0;
 }
 
@@ -1131,19 +1166,14 @@ function computeDelta(){
   let sign = 0;
   if (feel === 'wet') sign = +1;
   if (feel === 'dry') sign = -1;
-  if (sign === 0) return 0;
 
   const opposite =
     (mc === 'wet' && feel === 'dry') ||
     (mc === 'dry' && feel === 'wet');
 
   let mag = 8;
-
   if (opposite){
-    const anchor = (state._adjAnchorReadiness == null)
-      ? getAnchorReadinessFromRun(run)
-      : clamp(Number(state._adjAnchorReadiness), 0, 100);
-
+    const anchor = (state._adjAnchorReadiness == null) ? getAnchorReadinessFromRun(run) : clamp(Number(state._adjAnchorReadiness), 0, 100);
     const intensity0100 = computeNormalizedIntensity0100(anchor, feel);
     mag = 8 + Math.round((intensity0100/100) * 10);
   }
@@ -1153,7 +1183,6 @@ function computeDelta(){
 
 function updateAdjustGuard(){
   updateIntensityLabel();
-
   const el = $('adjGuard');
   if (!el) return;
 
@@ -1178,16 +1207,14 @@ function updateAdjustUI(){
   };
   const run = state.lastRuns.get(f.id) || runField(f, deps);
   const mc = modelClassFromRun(run);
-  const feel = state._adjFeel;
 
-  // validation: if model says wet, wet disabled; if dry, dry disabled
   const bWet = $('btnFeelWet');
   const bDry = $('btnFeelDry');
   if (bWet) bWet.disabled = (mc === 'wet');
   if (bDry) bDry.disabled = (mc === 'dry');
 
-  if (mc === 'wet' && feel === 'wet') state._adjFeel = null;
-  if (mc === 'dry' && feel === 'dry') state._adjFeel = null;
+  if (mc === 'wet' && state._adjFeel === 'wet') state._adjFeel = null;
+  if (mc === 'dry' && state._adjFeel === 'dry') state._adjFeel = null;
 
   const seg = $('feelSeg');
   if (seg){
@@ -1220,11 +1247,10 @@ function updateAdjustUI(){
       if (right) right.textContent = 'Extremely wet';
     }
 
-    // ✅ Anchor slider at readiness; keep 0-100; enforce direction on input
     const anchor = getAnchorReadinessFromRun(run);
     state._adjAnchorReadiness = anchor;
 
-    configureAdjustSliderForDirection(anchor);
+    configureSliderAnchor(anchor);
     enforceAdjustSliderBounds();
   }
 
@@ -1308,9 +1334,7 @@ async function applyAdjustment(){
     return;
   }
 
-  const anchor = (state._adjAnchorReadiness == null)
-    ? getAnchorReadinessFromRun(run)
-    : Number(state._adjAnchorReadiness);
+  const anchor = (state._adjAnchorReadiness == null) ? getAnchorReadinessFromRun(run) : Number(state._adjAnchorReadiness);
 
   const entry = {
     fieldId: f.id,
@@ -1353,10 +1377,8 @@ async function openAdjustGlobal(){
     if (f && f.name) sub.textContent = `Global calibration • ${f.name}`;
   }
 
-  // Reset feel
   state._adjFeel = null;
 
-  // Pre-anchor slider to current readiness for clarity
   const deps = {
     getWeatherSeriesForFieldId: (fieldId)=> getWeatherSeriesForFieldId(fieldId, wxCtx),
     getFieldParams,
@@ -1366,8 +1388,7 @@ async function openAdjustGlobal(){
   const run = f ? (state.lastRuns.get(f.id) || runField(f, deps)) : null;
   const anchor = getAnchorReadinessFromRun(run);
   state._adjAnchorReadiness = anchor;
-
-  configureAdjustSliderForDirection(anchor);
+  configureSliderAnchor(anchor);
 
   updateAdjustPills();
   updateAdjustGuard();
@@ -1578,14 +1599,12 @@ function openMapModal(){
 }
 function closeMapModal(){ showModal('mapBackdrop', false); }
 
-/* ---------- wiring (same behavior) ---------- */
+/* ---------- wiring ---------- */
 on('sortSel','change', refreshAll);
 on('opSel','change', ()=>{ saveOpDefault(); refreshAll(); });
 
-// NEW: farm + page
 on('farmSel','change', ()=>{
   saveFarmFilterDefault();
-  // if selected field not in filtered set, snap to first visible
   const filtered = getFilteredFields();
   if (state.selectedFieldId && !filtered.find(x=>x.id===state.selectedFieldId)){
     state.selectedFieldId = filtered.length ? filtered[0].id : state.selectedFieldId;
@@ -1643,7 +1662,6 @@ on('btnOpX','click', closeOpModal);
   });
 })();
 
-// Adjust modal buttons
 on('btnAdjX','click', closeAdjust);
 on('btnAdjCancel','click', closeAdjust);
 on('btnAdjApply','click', ()=>{
@@ -1656,25 +1674,7 @@ on('btnAdjYes','click', async ()=>{
   showModal('confirmAdjBackdrop', false);
   await applyAdjustment();
 });
-(function(){
-  const b = $('confirmAdjBackdrop');
-  if (!b) return;
-  b.addEventListener('click', (e)=>{
-    if (e.target && e.target.id === 'confirmAdjBackdrop'){
-      e.stopPropagation();
-    }
-  });
-})();
 
-(function(){
-  const b = $('adjustBackdrop');
-  if (!b) return;
-  b.addEventListener('click', (e)=>{
-    if (e.target && e.target.id === 'adjustBackdrop') closeAdjust();
-  });
-})();
-
-// Feel segment
 (function(){
   const seg = $('feelSeg');
   if (!seg) return;
@@ -1687,7 +1687,6 @@ on('btnAdjYes','click', async ()=>{
   });
 })();
 
-on('adjObs','change', updateAdjustGuard);
 on('adjIntensity','input', ()=>{
   enforceAdjustSliderBounds();
   updateAdjustGuard();
@@ -1717,7 +1716,6 @@ on('btnMapX','click', closeMapModal);
   loadOpDefault();
   loadThresholdsFromLocal();
 
-  // NEW defaults
   loadFarmFilterDefault();
   loadPageSizeDefault();
 
