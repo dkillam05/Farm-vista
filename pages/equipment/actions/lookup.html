@@ -664,6 +664,21 @@
     function esc(s){
       return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
     }
+    // --- Dynamic cut helpers (px <-> mm) ---
+function pxToMm(px){
+  // CSS pixels assume 96 DPI
+  return (px * 25.4) / 96;
+}
+function mmToPx(mm){
+  return (mm * 96) / 25.4;
+}
+function clampMm(v, lo, hi){
+  return Math.max(lo, Math.min(hi, v));
+}
+function roundUpMm(v){
+  // Round UP so cutter never clips content
+  return Math.ceil(v * 10) / 10; // 0.1mm precision
+}
 
     // State
     let __pending = null;
@@ -799,48 +814,84 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     }
 
     // PREVIEW render: ALWAYS landscape/horizontal (even on phone)
-    async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
-      const bust = (url && url.includes('?') ? '&' : '?') + '_=' + Date.now();
-      const qrSrc = url ? (url + bust) : '';
+async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
+  const bust = (url && url.includes('?') ? '&' : '?') + '_=' + Date.now();
+  const qrSrc = url ? (url + bust) : '';
 
-      clearPreviewHost();
-      __previewQrSrc = qrSrc;
+  clearPreviewHost();
+  __previewQrSrc = qrSrc;
 
-      // Keep preview horizontal on all devices
-      if (mode === 'summary'){
-        const wrap = document.createElement('div');
-        wrap.className = 'pv-sf';
+  // Disable Create until we compute dynamic cut
+  pCreate.disabled = true;
 
-        const q = document.createElement('div'); q.className='qr';
-        const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc; q.appendChild(img);
+  // Keep preview horizontal on all devices
+  if (mode === 'summary'){
+    const wrap = document.createElement('div');
+    wrap.className = 'pv-sf';
 
-        const lab = document.createElement('div'); lab.className='lab'; lab.textContent = 'VIN/Serial';
-        const val = document.createElement('div'); val.className='val'; val.textContent = serial6 || '—';
+    const q = document.createElement('div'); q.className='qr';
+    const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc; q.appendChild(img);
 
-        wrap.append(q, lab, val);
-        pHost.appendChild(wrap);
-      } else {
-        const wrap = document.createElement('div');
-        wrap.className = 'pv-long';
-        wrap.style.width = `${cutLenMm}mm`;
+    const lab = document.createElement('div'); lab.className='lab'; lab.textContent = 'VIN/Serial';
+    const val = document.createElement('div'); val.className='val'; val.textContent = serial6 || '—';
 
-        const left = document.createElement('div'); left.className='left';
-        const mk = document.createElement('div'); mk.className='make'; mk.textContent = make || '—';
-        const md = document.createElement('div'); md.className='model'; md.textContent = model || '—';
-        left.append(mk,md);
+    wrap.append(q, lab, val);
+    pHost.appendChild(wrap);
 
-        const mid = document.createElement('div'); mid.className='mid';
-        const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc; mid.appendChild(img);
+    // Summary is fixed 62mm cut
+    __cutLenMm = 62;
+    pCreate.disabled = false;
+    return;
+  }
 
-        const right = document.createElement('div'); right.className='right';
-        const lab = document.createElement('div'); lab.className='lab'; lab.textContent='VIN/Serial';
-        const val = document.createElement('div'); val.className='val'; val.textContent = serial6 || '—';
-        right.append(lab,val);
+  // Detailed preview
+  const wrap = document.createElement('div');
+  wrap.className = 'pv-long';
 
-        wrap.append(left,mid,right);
-        pHost.appendChild(wrap);
-      }
-    }
+  // Use the incoming cutLen for the initial draw (we'll re-measure and set the real value)
+  wrap.style.width = `${cutLenMm}mm`;
+
+  const left = document.createElement('div'); left.className='left';
+  const mk = document.createElement('div'); mk.className='make'; mk.textContent = make || '—';
+  const md = document.createElement('div'); md.className='model'; md.textContent = model || '—';
+  left.append(mk,md);
+
+  const mid = document.createElement('div'); mid.className='mid';
+  const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc; mid.appendChild(img);
+
+  const right = document.createElement('div'); right.className='right';
+  const lab = document.createElement('div'); lab.className='lab'; lab.textContent='VIN/Serial';
+  const val = document.createElement('div'); val.className='val'; val.textContent = serial6 || '—';
+  right.append(lab,val);
+
+  wrap.append(left,mid,right);
+  pHost.appendChild(wrap);
+
+  // ---- Dynamic cut measurement ----
+  // Wait a paint so layout settles (especially iOS)
+  await new Promise(r=>requestAnimationFrame(r));
+  await new Promise(r=>requestAnimationFrame(r));
+
+  // Measure rendered width and convert to mm
+  const rect = wrap.getBoundingClientRect();
+  let measuredMm = pxToMm(rect.width);
+
+  // Safety trim:
+  // +1.5mm gives the cutter a hair of buffer so VIN isn't clipped
+  measuredMm = measuredMm + 1.5;
+
+  // Clamp to sane bounds (prevents crazy values if something reports 0)
+  // You can widen these later if you want longer labels.
+  measuredMm = clampMm(measuredMm, 90, 180);
+
+  __cutLenMm = roundUpMm(measuredMm);
+
+  // Update preview width to match the final cut
+  wrap.style.width = `${__cutLenMm}mm`;
+
+  pCreate.disabled = false;
+}
+
 
     function openDialog(d){
       try{ d.showModal(); }catch{ d.setAttribute('open',''); }
@@ -860,7 +911,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 
       if (!__pending) return;
 
-      __cutLenMm = (__mode === 'summary') ? 62 : 140;
+      __cutLenMm = (__mode === 'summary') ? 62 : 140; // provisional; setPreview() will compute dynamic cut
 
       openDialog(pDlg);
       setPreview({
