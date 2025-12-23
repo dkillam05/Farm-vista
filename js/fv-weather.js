@@ -740,7 +740,7 @@
               autocomplete="postal-code"
               class="fv-weather-zip"
               value="${safeText(zipVal).replace(/"/g,"&quot;")}"
-              placeholder="Enter Zip"
+              placeholder="Enter Zip Code"
               style="
                 width:108px;
                 border:1px solid var(--border,#d1d5db);
@@ -756,9 +756,9 @@
           </div>
 
           <div class="fv-weather-zip-status" style="
-            font-size:8px;color:var(--muted,#67706B);
+            font-size:12px;color:var(--muted,#67706B);
             flex:1 1 auto;
-            text-align:center;
+            text-align:right;
             white-space:nowrap;
             overflow:hidden;
             text-overflow:ellipsis;
