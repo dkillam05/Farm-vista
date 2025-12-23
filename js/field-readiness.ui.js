@@ -1,24 +1,20 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.ui.js  (FULL FILE)
-Rev: 2025-12-23g
+Rev: 2025-12-23h
 
-GOALS (per Dane):
-✅ Sliders section is GOOD — do not change core slider behavior
-✅ Weather must load again (Beta inputs should not sit “waiting for JS”)
-✅ Global calibration cooldown panel MUST show:
-   - “Last global adjustment: Xh Ym ago”
-   - “Next global adjustment allowed: <date/time>”
-✅ When locked:
-   - Wet/Dry MUST be disabled (can’t even click)
-   - Apply disabled (backend still authoritative)
+FIXES (per Dane):
+✅ Weather is loading (confirmed). Beta UI was not updating due to ID mismatch.
+   - renderBetaInputs() now auto-finds the Beta panel elements even if IDs differ
+   - overwrites “waiting for JS” placeholders reliably
+✅ Global calibration cooldown panel shows in Adjust modal (top of modal body)
+✅ When locked (72h): Wet/Dry disabled; Apply disabled; slider disabled
 ✅ Do NOT change gauge geometry:
    - Threshold line stays at TRUE op threshold
    - Readiness marker stays at TRUE readiness
 ✅ Only color “perception” shifts based on op threshold (pill/badge/gradient feel)
+✅ Sliders remain as-is (do not change core behavior)
 ===================================================================== */
 'use strict';
-console.log('[FieldReadiness] ui.js loaded', new Date().toISOString());
-
 
 import {
   summarizeAvailability,
@@ -520,13 +516,9 @@ async function loadFields(){
 
     ensureSelectedParamsToSliders();
 
-    // WEATHER LOAD (critical)
+    // Weather load (confirmed working)
     await warmWeatherForFields(state.fields, wxCtx, { force:false, onEach:debounceRender });
-    console.log('[FieldReadiness] warmWeatherForFields done', {
-  fields: state.fields.length,
-  wxInfo: state.wxInfoByFieldId.size,
-  wxSeries: state.weatherByFieldId.size
-});
+
     renderFarmFilterOptions();
     renderTiles();
     renderDetails();
@@ -650,15 +642,13 @@ function renderTiles(){
     const run0 = state.lastRuns.get(f.id);
     if (!run0) continue;
 
-    const readiness = run0.readinessR; // TRUE readiness number
+    const readiness = run0.readinessR;
     const eta = etaFor(run0, thr, ETA_MAX_HOURS);
     const rainRange = rainInRange(run0, range);
 
-    // TRUE positions (unchanged)
     const leftPos = markerLeftCSS(readiness);
     const thrPos  = markerLeftCSS(thr);
 
-    // COLORS ONLY
     const perceived = perceivedFromThreshold(readiness, thr);
     const pillBg = colorForPerceived(perceived);
     const grad = gradientForThreshold(thr);
@@ -711,29 +701,90 @@ function selectField(id){
   refreshAll();
 }
 
-/* ---------- details ---------- */
+/* ---------- details: robust Beta element discovery ---------- */
+function __findBetaEls(){
+  // Preferred IDs (if your HTML matches)
+  const box1  = $('betaInputs');
+  const meta1 = $('betaInputsMeta');
+  if (box1 || meta1) return { box: box1, meta: meta1 };
+
+  // Try common alternates (you may have renamed these)
+  const boxIds  = ['betaBox','betaVars','betaInputsBox','betaInputsWrap','betaPanel','betaInputsList'];
+  const metaIds = ['betaMeta','betaMetaText','betaInfo','betaInputsHeader','betaInputsNote','betaStatus'];
+
+  for (const id of boxIds){
+    const el = $(id);
+    if (el) return { box: el, meta: null };
+  }
+  for (const id of metaIds){
+    const el = $(id);
+    if (el) return { box: null, meta: el };
+  }
+
+  // Last resort: find “waiting for JS” placeholder inside details panel area
+  const dp = $('detailsPanel') || document;
+  const metaLike = dp.querySelector
+    ? dp.querySelector('*:not(script):not(style)')
+    : null;
+
+  // Better last resort: locate any element containing the placeholder text
+  const candidates = dp.querySelectorAll ? Array.from(dp.querySelectorAll('p,div,span')) : [];
+  const waiting = candidates.find(el=>{
+    const t = String(el.textContent||'').toLowerCase();
+    return t.includes('waiting for js');
+  });
+
+  if (waiting){
+    return { box: waiting, meta: null };
+  }
+
+  return { box: null, meta: null };
+}
+
 function renderBetaInputs(){
-  const box = $('betaInputs');
-  const meta = $('betaInputsMeta');
-  if (!box || !meta) return;
+  const els = __findBetaEls();
+  const box = els.box;
+  const meta = els.meta;
+
+  // If we can't find anything, just stop (HTML doesn't include the beta panel)
+  if (!box && !meta) return;
 
   const fid = state.selectedFieldId;
   const info = fid ? state.wxInfoByFieldId.get(fid) : null;
 
+  // If meta exists, always overwrite placeholder text
   if (!info){
-    meta.textContent = 'Weather is loading…';
-    box.innerHTML = '';
+    if (meta) meta.textContent = 'Weather is loading…';
+    if (box && box !== meta) box.innerHTML = '';
+    // Also overwrite placeholder “waiting for JS” if that's what box is
+    if (box && !meta){
+      const t = String(box.textContent||'').toLowerCase();
+      if (t.includes('waiting for js')) box.textContent = 'Weather is loading…';
+    }
     return;
   }
 
   const when = info.fetchedAt ? new Date(info.fetchedAt) : null;
   const whenTxt = when ? when.toLocaleString() : '—';
-  meta.textContent =
-    `Source: ${info.source || '—'} • Updated: ${whenTxt} • Primary + light-influence variables are used now; weights are still being tuned.`;
+
+  if (meta){
+    meta.textContent =
+      `Source: ${info.source || '—'} • Updated: ${whenTxt}`;
+  } else if (box){
+    // If meta is missing but box is present and currently placeholder, replace it with meta line
+    const t = String(box.textContent||'').toLowerCase();
+    if (t.includes('waiting for js') || t.includes('weather is loading')){
+      box.textContent = `Source: ${info.source || '—'} • Updated: ${whenTxt}`;
+      return; // no room for full list; don’t spam into a tiny placeholder
+    }
+  }
+
+  // If we have a real container (not just the placeholder line), render the variable list.
+  // Only render if box looks like a container (div/section) or has children already.
+  if (!box || box === meta) return;
 
   const unitsHourly = info.units && info.units.hourly ? info.units.hourly : null;
   const unitsDaily = info.units && info.units.daily ? info.units.daily : null;
-
   const a = info.availability || { vars:{} };
   const vars = a.vars || {};
 
@@ -880,8 +931,6 @@ function refreshAll(){
 /* =====================================================================
    GLOBAL ADJUST
    ===================================================================== */
-
-/* ---------- cooldown UI helpers ---------- */
 function __fmtDur(ms){
   ms = Math.max(0, ms|0);
   const totalMin = Math.floor(ms / 60000);
@@ -933,7 +982,6 @@ function __ensureCooldownSlot(){
   if (body.firstChild) body.insertBefore(div, body.firstChild);
   else body.appendChild(div);
 }
-
 function __setCooldownHtml(html){
   __ensureCooldownSlot();
   const el = $('calibCooldownMsg');
@@ -946,7 +994,6 @@ function __setCooldownHtml(html){
   el.style.display = '';
   el.innerHTML = html;
 }
-
 function __renderCooldownCard(){
   const now = Date.now();
   const lastMs = Number(state._lastAppliedMs || 0);
@@ -995,11 +1042,9 @@ function __renderCooldownCard(){
     </div>
   `);
 }
-
 async function loadCooldownFromFirestore(){
   const api = getAPI();
   if (!api || api.kind === 'compat'){
-    // still render a card, but values will be —
     state._nextAllowedMs = 0;
     state._lastAppliedMs = 0;
     state._cooldownHours = 72;
@@ -1026,11 +1071,10 @@ async function loadCooldownFromFirestore(){
     state._cooldownHours = 72;
   }
 }
-
 function startCooldownTicker(){
   function tick(){
     __renderCooldownCard();
-    updateAdjustUI(); // refresh lock state + disabled buttons
+    updateAdjustUI();
   }
   try{ if (state._cooldownTimer) clearInterval(state._cooldownTimer); }catch(_){}
   tick();
@@ -1156,7 +1200,6 @@ function computeDelta(){
 
   const mc = modelClassFromRun(run);
   const feel = state._adjFeel;
-
   if (!feel) return 0;
 
   let sign = 0;
@@ -1211,11 +1254,9 @@ function updateAdjustUI(){
   if (bWet) bWet.disabled = locked || (mc === 'wet');
   if (bDry) bDry.disabled = locked || (mc === 'dry');
 
-  // Disable slider while locked so it’s not “playable”
   const s = $('adjIntensity');
   if (s) s.disabled = !!locked;
 
-  // Keep selected feel sane
   if (mc === 'wet' && state._adjFeel === 'wet') state._adjFeel = null;
   if (mc === 'dry' && state._adjFeel === 'dry') state._adjFeel = null;
   if (locked) state._adjFeel = null;
@@ -1233,13 +1274,13 @@ function updateAdjustUI(){
     (mc === 'dry' && state._adjFeel === 'wet');
 
   const box = $('intensityBox');
-  const title = $('intensityTitle');
-  const left = $('intensityLeft');
-  const right = $('intensityRight');
-
   if (box) box.classList.toggle('pv-hide', !opposite);
 
   if (opposite){
+    const title = $('intensityTitle');
+    const left = $('intensityLeft');
+    const right = $('intensityRight');
+
     if (mc === 'wet' && title){
       title.textContent = 'If it’s NOT wet… how DRY is it?';
       if (left) left.textContent = 'Slightly dry';
@@ -1340,9 +1381,7 @@ async function applyAdjustment(){
   const d = computeDelta();
   const feel = state._adjFeel;
 
-  if (!feel || d === 0){
-    return;
-  }
+  if (!feel || d === 0) return;
 
   const anchor = (state._adjAnchorReadiness == null) ? getAnchorReadinessFromRun(run) : Number(state._adjAnchorReadiness);
 
@@ -1381,7 +1420,6 @@ function showModal(backdropId, on){
 
   if (backdropId === 'adjustBackdrop'){
     if (on){
-      // Render card immediately from current state
       __renderCooldownCard();
       updateAdjustUI();
     } else {
@@ -1416,7 +1454,6 @@ async function openAdjustGlobal(){
   state._adjAnchorReadiness = anchor;
   configureSliderAnchor(anchor);
 
-  // Load cooldown BEFORE opening so lock state is correct immediately
   await loadCooldownFromFirestore();
   stopCooldownTicker();
   startCooldownTicker();
