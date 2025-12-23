@@ -57,6 +57,26 @@ function normalizeStatus(s){ return String(s||'').trim().toLowerCase(); }
 function showModal(backdropId, on){
   const b = $(backdropId);
   if (b) b.classList.toggle('pv-hide', !on);
+
+  // Guarantee cooldown panel renders whenever Adjust modal opens (no dependency on observers)
+  if (backdropId === 'adjustBackdrop'){
+    if (on){
+      // Let the DOM paint first, then render the cooldown panel
+      setTimeout(async ()=>{
+        try{
+          __ensureCooldownSlot();
+          await loadCooldownFromFirestore();
+          __renderCooldownCard();
+          stopCooldownTicker();
+          startCooldownTicker();
+        }catch(e){
+          console.warn('[FieldReadiness] cooldown render failed:', e);
+        }
+      }, 0);
+    } else {
+      stopCooldownTicker();
+    }
+  }
 }
 
 function on(id, ev, fn){
