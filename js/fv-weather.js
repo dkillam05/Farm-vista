@@ -758,7 +758,7 @@
           <div class="fv-weather-zip-status" style="
             font-size:8px;color:var(--muted,#67706B);
             flex:1 1 auto;
-            text-align:right;
+            text-align:center;
             white-space:nowrap;
             overflow:hidden;
             text-overflow:ellipsis;
