@@ -960,26 +960,42 @@ function __tsToMs(ts){
 function __ensureCooldownSlot(){
   if ($('calibCooldownMsg')) return;
 
+  // Best: put it directly under the Adjust subtitle (this exists)
+  const sub = $('adjustSub');
+  if (sub && sub.parentElement){
+    const div = document.createElement('div');
+    div.id = 'calibCooldownMsg';
+    div.style.margin = '10px 0 10px 0';
+    // insert right after the subtitle line
+    if (sub.nextSibling){
+      sub.parentElement.insertBefore(div, sub.nextSibling);
+    } else {
+      sub.parentElement.appendChild(div);
+    }
+    return;
+  }
+
+  // Next: put it above the Wet/Dry segment (feelSeg)
   const feelSeg = $('feelSeg');
   if (feelSeg && feelSeg.parentElement){
     const div = document.createElement('div');
     div.id = 'calibCooldownMsg';
-    // small spacer so it doesn’t jam the layout
-    div.style.margin = '8px 0 10px 0';
+    div.style.margin = '10px 0 10px 0';
     feelSeg.parentElement.insertBefore(div, feelSeg);
     return;
   }
 
-  // fallback: try to append inside adjustBackdrop modal body
+  // Fallback: append inside modal body
   const back = $('adjustBackdrop');
   if (back){
     const body = back.querySelector('.modal-b') || back.querySelector('.modal') || back;
     const div = document.createElement('div');
     div.id = 'calibCooldownMsg';
-    div.style.margin = '8px 0 10px 0';
+    div.style.margin = '10px 0 10px 0';
     body.appendChild(div);
   }
 }
+
 
 function __setCooldownHtml(html){
   __ensureCooldownSlot();
@@ -1473,6 +1489,7 @@ async function openAdjustGlobal(){
 
   await loadCooldownFromFirestore();
   startCooldownTicker();
+   __renderCooldownCard();
 
   showModal('adjustBackdrop', true);
 }
