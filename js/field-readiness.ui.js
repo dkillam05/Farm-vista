@@ -1721,102 +1721,217 @@ function saveOpDefault(){
 }
 
 
-/* ---------- wiring ---------- */
-on('sortSel','change', refreshAll);
-on('opSel','change', ()=>{ saveOpDefault(); refreshAll(); });
+/* ---------- wiring (MUST run after DOM exists) ---------- */
+async function wireUIOnce(){
+  if (state._wiredUI) return;
+  state._wiredUI = true;
 
-on('farmSel','change', ()=>{
-  saveFarmFilterDefault();
-  const filtered = getFilteredFields();
-  if (state.selectedFieldId && !filtered.find(x=>x.id===state.selectedFieldId)){
-    state.selectedFieldId = filtered.length ? filtered[0].id : state.selectedFieldId;
+  // Wait for critical controls (mobile Safari loads module early sometimes)
+  await waitForEl('opSel', 3000);
+  await waitForEl('sortSel', 3000);
+
+  // Sort
+  const sortSel = $('sortSel');
+  if (sortSel){
+    sortSel.addEventListener('change', refreshAll);
   }
+
+  // Operation (save on BOTH change + input for iOS reliability)
+  const opSel = $('opSel');
+  if (opSel){
+    const handler = ()=>{ saveOpDefault(); refreshAll(); };
+    opSel.addEventListener('change', handler);
+    opSel.addEventListener('input', handler);
+  }
+
+  // Farm filter
+  const farmSel = $('farmSel');
+  if (farmSel){
+    farmSel.addEventListener('change', ()=>{
+      saveFarmFilterDefault();
+      const filtered = getFilteredFields();
+      if (state.selectedFieldId && !filtered.find(x=>x.id===state.selectedFieldId)){
+        state.selectedFieldId = filtered.length ? filtered[0].id : state.selectedFieldId;
+      }
+      refreshAll();
+    });
+  }
+
+  // Page size
+  const pageSel = $('pageSel');
+  if (pageSel){
+    pageSel.addEventListener('change', ()=>{
+      savePageSizeDefault();
+      refreshAll();
+    });
+  }
+
+  // Sliders
+  const soilWet = $('soilWet');
+  if (soilWet) soilWet.addEventListener('input', refreshAll);
+
+  const drain = $('drain');
+  if (drain) drain.addEventListener('input', refreshAll);
+
+  // Range controls
+  const applyRangeBtn = $('applyRangeBtn');
+  if (applyRangeBtn) applyRangeBtn.addEventListener('click', ()=> setTimeout(refreshAll, 0));
+
+  const clearRangeBtn = $('clearRangeBtn');
+  if (clearRangeBtn) clearRangeBtn.addEventListener('click', ()=> setTimeout(refreshAll, 0));
+
+  const jobRangeInput = $('jobRangeInput');
+  if (jobRangeInput){
+    jobRangeInput.addEventListener('change', refreshAll);
+    jobRangeInput.addEventListener('input', refreshAll);
+  }
+
+  // Rain help tooltip
+  (function(){
+    const rainHelpBtn = $('rainHelpBtn');
+    const rainHelpTip = $('rainHelpTip');
+    if (!rainHelpBtn || !rainHelpTip) return;
+
+    function close(){ rainHelpTip.classList.remove('on'); }
+    rainHelpBtn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      rainHelpTip.classList.toggle('on');
+    });
+    document.addEventListener('click', (e)=>{
+      if (!rainHelpTip.classList.contains('on')) return;
+      const inside = e.target && e.target.closest && e.target.closest('#rainHelpTip');
+      const btn = e.target && e.target.closest && e.target.closest('#rainHelpBtn');
+      if (!inside && !btn) close();
+    });
+  })();
+
+  // Op threshold modal
+  const opBtn = $('opBtn');
+  if (opBtn) opBtn.addEventListener('click', openOpModal);
+
+  const btnOpX = $('btnOpX');
+  if (btnOpX) btnOpX.addEventListener('click', closeOpModal);
+
+  (function(){
+    const b = $('opBackdrop');
+    if (!b) return;
+    b.addEventListener('click', (e)=>{
+      if (e.target && e.target.id === 'opBackdrop') closeOpModal();
+    });
+  })();
+
+  // Adjust modal
+  const btnAdjX = $('btnAdjX');
+  if (btnAdjX) btnAdjX.addEventListener('click', closeAdjust);
+
+  const btnAdjCancel = $('btnAdjCancel');
+  if (btnAdjCancel) btnAdjCancel.addEventListener('click', closeAdjust);
+
+  const btnAdjApply = $('btnAdjApply');
+  if (btnAdjApply){
+    btnAdjApply.addEventListener('click', ()=>{
+      const btn = $('btnAdjApply');
+      if (btn && btn.disabled) return;
+      showModal('confirmAdjBackdrop', true);
+    });
+  }
+
+  const btnAdjNo = $('btnAdjNo');
+  if (btnAdjNo) btnAdjNo.addEventListener('click', ()=>{ showModal('confirmAdjBackdrop', false); });
+
+  const btnAdjYes = $('btnAdjYes');
+  if (btnAdjYes){
+    btnAdjYes.addEventListener('click', async ()=>{
+      showModal('confirmAdjBackdrop', false);
+      await applyAdjustment();
+    });
+  }
+
+  (function(){
+    const seg = $('feelSeg');
+    if (!seg) return;
+    seg.addEventListener('click', (e)=>{
+      const btn = e.target && e.target.closest ? e.target.closest('button[data-feel]') : null;
+      if (!btn) return;
+      const f = btn.getAttribute('data-feel');
+      if (f !== 'wet' && f !== 'dry') return;
+      setFeel(f);
+    });
+  })();
+
+  const adjIntensity = $('adjIntensity');
+  if (adjIntensity){
+    adjIntensity.addEventListener('input', ()=>{
+      enforceAdjustSliderBounds();
+      updateAdjustGuard();
+    });
+  }
+
+  // Map
+  const btnMap = $('btnMap');
+  if (btnMap){
+    btnMap.addEventListener('click', (e)=>{
+      e.preventDefault();
+      e.stopPropagation();
+      openMapModal();
+    });
+  }
+
+  const btnMapX = $('btnMapX');
+  if (btnMapX) btnMapX.addEventListener('click', closeMapModal);
+
+  (function(){
+    const b = $('mapBackdrop');
+    if (!b) return;
+    b.addEventListener('click', (e)=>{
+      if (e.target && e.target.id === 'mapBackdrop') closeMapModal();
+    });
+  })();
+}
+
+/* ---------- init ---------- */
+(async function init(){
+  const dp = $('detailsPanel');
+  if (dp) dp.open = false;
+
+  // ✅ Remove/hide Refresh Weather (API) button (per Dane)
+  const br = $('btnRegen');
+  if (br){
+    br.style.display = 'none';
+    br.disabled = true;
+  }
+
+  loadParamsFromLocal();
+
+  // IMPORTANT: wire UI after DOM exists (fixes iOS not persisting operation)
+  await wireUIOnce();
+
+  // iOS fix: wait for the select to exist, then apply the saved op
+  await waitForEl('opSel', 2500);
+  loadOpDefault();
+
+  loadThresholdsFromLocal();
+
+  loadFarmFilterDefault();
+  loadPageSizeDefault();
+
+  const ok = await importFirebaseInit();
+  if (!ok) setErr('firebase-init.js failed to import as a module.');
+
+  await loadThresholdsFromFirestore();
+  await loadFarmsOptional();
+  await loadFields();
+
+  if (!state.selectedFieldId && state.fields.length){
+    state.selectedFieldId = state.fields[0].id;
+  }
+
+  wireFieldsHiddenTap();
+
+  ensureSelectedParamsToSliders();
   refreshAll();
-});
-on('pageSel','change', ()=>{
-  savePageSizeDefault();
-  refreshAll();
-});
-
-on('soilWet','input', refreshAll);
-on('drain','input', refreshAll);
-
-on('applyRangeBtn','click', ()=> setTimeout(refreshAll, 0));
-on('clearRangeBtn','click', ()=> setTimeout(refreshAll, 0));
-on('jobRangeInput','change', refreshAll);
-
-(function(){
-  const rainHelpBtn = $('rainHelpBtn');
-  const rainHelpTip = $('rainHelpTip');
-  if (!rainHelpBtn || !rainHelpTip) return;
-
-  function close(){ rainHelpTip.classList.remove('on'); }
-  rainHelpBtn.addEventListener('click', (e)=>{
-    e.stopPropagation();
-    rainHelpTip.classList.toggle('on');
-  });
-  document.addEventListener('click', (e)=>{
-    if (!rainHelpTip.classList.contains('on')) return;
-    const inside = e.target && e.target.closest && e.target.closest('#rainHelpTip');
-    const btn = e.target && e.target.closest && e.target.closest('#rainHelpBtn');
-    if (!inside && !btn) close();
-  });
 })();
 
-on('opBtn','click', openOpModal);
-on('btnOpX','click', closeOpModal);
-(function(){
-  const b = $('opBackdrop');
-  if (!b) return;
-  b.addEventListener('click', (e)=>{
-    if (e.target && e.target.id === 'opBackdrop') closeOpModal();
-  });
-})();
-
-on('btnAdjX','click', closeAdjust);
-on('btnAdjCancel','click', closeAdjust);
-on('btnAdjApply','click', ()=>{
-  const btn = $('btnAdjApply');
-  if (btn && btn.disabled) return;
-  showModal('confirmAdjBackdrop', true);
-});
-on('btnAdjNo','click', ()=>{ showModal('confirmAdjBackdrop', false); });
-on('btnAdjYes','click', async ()=>{
-  showModal('confirmAdjBackdrop', false);
-  await applyAdjustment();
-});
-
-(function(){
-  const seg = $('feelSeg');
-  if (!seg) return;
-  seg.addEventListener('click', (e)=>{
-    const btn = e.target && e.target.closest ? e.target.closest('button[data-feel]') : null;
-    if (!btn) return;
-    const f = btn.getAttribute('data-feel');
-    if (f !== 'wet' && f !== 'dry') return;
-    setFeel(f);
-  });
-})();
-
-on('adjIntensity','input', ()=>{
-  enforceAdjustSliderBounds();
-  updateAdjustGuard();
-});
-
-// Map
-on('btnMap','click', (e)=>{
-  e.preventDefault();
-  e.stopPropagation();
-  openMapModal();
-});
-on('btnMapX','click', closeMapModal);
-(function(){
-  const b = $('mapBackdrop');
-  if (!b) return;
-  b.addEventListener('click', (e)=>{
-    if (e.target && e.target.id === 'mapBackdrop') closeMapModal();
-  });
-})();
 
 /* ---------- init ---------- */
 (async function init(){
