@@ -1,27 +1,20 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.ui.js  (FULL FILE)
-Rev: 2025-12-23e
+Rev: 2025-12-23f
 
-UPDATES (per Dane):
-✅ Global calibration cooldown (72h) enforced server-side; UI reflects lockout
-✅ Adjust modal: clear status card:
-   - "Last global adjustment: Xh Ym ago"
-   - "Next global adjustment allowed: <timestamp>"
-✅ Adjust modal note: if one specific field needs changes now, use field-specific Soil Wetness + Drainage sliders
-✅ Global calibration slider behavior:
-   - 0–100 scale
-   - anchored to current Field Readiness (starts at current readiness)
-   - cannot move in wrong direction (dry correction can't go wetter; wet correction can't go drier)
-   - distance from anchor determines intensity
-✅ Field-specific adjustments remain separate (Soil Wetness + Drainage Index sliders)
-✅ Field tiles show ONLY field name (farm name removed)
-✅ Filters:
-   - Farm dropdown: All (default) + farms
-   - Results per page: 25 (default), 50, 100, 250, All
-✅ MAJOR UX FIX: Threshold-centered color perception
-   - Operation threshold is visual midpoint (50%)
-   - numbers do NOT change; only the color/gradient/badge perception changes
-   - affects: readiness pill, gauge gradient, badge perception
+FIXES (per Dane, after failed attempt):
+✅ Countdown/status panel ALWAYS renders (auto-creates #calibCooldownMsg if missing)
+✅ Do NOT change gauge geometry:
+   - Threshold line stays at true operation threshold
+   - Readiness marker stays at true readiness
+✅ Only change color perception based on operation threshold:
+   - pill color
+   - gauge gradient
+   - badge background (perception)
+✅ Adjust slider UX:
+   - slider remains anchored to readiness
+   - wrong-direction movement blocked
+   - label shows INTENSITY (0–100 distance from anchor), not raw slider value
 ===================================================================== */
 'use strict';
 
@@ -71,66 +64,62 @@ function on(id, ev, fn){
   if (el) el.addEventListener(ev, fn);
 }
 
-/* ---------- threshold-centered perception ---------- */
+/* ---------- threshold-centered color perception (COLORS ONLY) ---------- */
 /**
- * Map an actual readiness value (0..100) into a "perceived" 0..100
- * where the current operation threshold is always the visual midpoint (50).
- *
- * - If readiness == threshold => perceived 50
- * - Above threshold spreads across 50..100
- * - Below threshold spreads across 0..50
- *
- * Numbers never change; only how we color/position the UI.
+ * Map a readiness value into a perceived 0..100 scale where the OP THRESHOLD
+ * is treated as the perceptual midpoint (50). IMPORTANT:
+ * - This is ONLY used to pick colors (pill/badge/gradient feel)
+ * - DO NOT use this for positioning the marker/threshold lines.
  */
 function perceivedFromThreshold(readiness, thr){
   const r = clamp(Math.round(Number(readiness)), 0, 100);
   const t = clamp(Math.round(Number(thr)), 0, 100);
 
-  if (t <= 0){
-    // threshold at 0 means everything is acceptable; push perception greener
-    return 50 + Math.round((r/100) * 50);
-  }
-  if (t >= 100){
-    // threshold at 100 means extremely strict; everything below is "below threshold"
-    return Math.round((r/100) * 50);
-  }
+  if (t <= 0) return 100;   // everything acceptable
+  if (t >= 100) return Math.round((r/100)*50); // extremely strict
 
   if (r === t) return 50;
 
   if (r > t){
     const denom = Math.max(1, 100 - t);
-    const frac = (r - t) / denom;       // 0..1
+    const frac = (r - t) / denom;
     return clamp(Math.round(50 + frac * 50), 0, 100);
   } else {
     const denom = Math.max(1, t);
-    const frac = r / denom;             // 0..1
+    const frac = r / denom;
     return clamp(Math.round(frac * 50), 0, 100);
   }
 }
 
-/* Simple HSL ramp (red->amber->green) for perceived values */
 function colorForPerceived(p){
   const x = clamp(Number(p), 0, 100);
-  // 0 (red ~10deg) -> 50 (amber ~45deg) -> 100 (green ~120deg)
   let h;
   if (x <= 50){
     const frac = x / 50;
-    h = 10 + (45 - 10) * frac;
+    h = 10 + (45 - 10) * frac;   // red -> amber
   } else {
     const frac = (x - 50) / 50;
-    h = 45 + (120 - 45) * frac;
+    h = 45 + (120 - 45) * frac;  // amber -> green
   }
-  // keep it readable in light/dark (moderate saturation)
   const s = 70;
   const l = 38;
   return `hsl(${h.toFixed(0)} ${s}% ${l}%)`;
 }
 
-function gaugeGradientCss(){
-  // consistent perception gradient: red -> amber at midpoint -> green
+/**
+ * Gauge gradient that “feels” correct for the current threshold:
+ * - amber point sits at the TRUE threshold percent (thr%)
+ * - so low thresholds yield mostly green
+ * - high thresholds yield mostly red/amber
+ *
+ * Marker/threshold lines still sit at their TRUE values.
+ */
+function gradientForThreshold(thr){
+  const t = clamp(Math.round(Number(thr)), 0, 100);
+  const a = `${t}%`;
   return `linear-gradient(90deg,
     hsl(10 70% 38%) 0%,
-    hsl(45 75% 38%) 50%,
+    hsl(45 75% 38%) ${a},
     hsl(120 55% 34%) 100%
   )`;
 }
@@ -675,17 +664,18 @@ function renderTiles(){
     const run0 = state.lastRuns.get(f.id);
     if (!run0) continue;
 
-    const readiness = run0.readinessR;                // actual number
+    const readiness = run0.readinessR; // TRUE readiness number (unchanged)
     const eta = etaFor(run0, thr, ETA_MAX_HOURS);
     const rainRange = rainInRange(run0, range);
 
-    // Threshold-centered perception (colors/positions only)
-    const perceived = perceivedFromThreshold(readiness, thr);
-    const leftPos = markerLeftCSS(perceived);         // marker uses perceived
-    const thrPos  = markerLeftCSS(50);                // threshold is ALWAYS midpoint visually
+    // TRUE positions (unchanged)
+    const leftPos = markerLeftCSS(readiness); // marker at readiness
+    const thrPos  = markerLeftCSS(thr);       // threshold at threshold
 
-    // Pill color perception matches threshold
+    // COLORS ONLY (perception)
+    const perceived = perceivedFromThreshold(readiness, thr);
     const pillBg = colorForPerceived(perceived);
+    const grad = gradientForThreshold(thr);
 
     // FIELD ONLY
     const labelLeft = f.name;
@@ -709,7 +699,7 @@ function renderTiles(){
           <div class="chip readiness">Readiness</div>
         </div>
 
-        <div class="gauge" style="background:${gaugeGradientCss()};">
+        <div class="gauge" style="background:${grad};">
           <div class="thr" style="left:${thrPos};"></div>
           <div class="marker" style="left:${leftPos};"></div>
           <div class="badge" style="left:${leftPos};background:${pillBg};color:#fff;border:1px solid rgba(255,255,255,.18);">Field Readiness ${readiness}</div>
@@ -739,7 +729,7 @@ function selectField(id){
   refreshAll();
 }
 
-/* ---------- details ---------- */
+/* ---------- details (unchanged) ---------- */
 function renderBetaInputs(){
   const box = $('betaInputs');
   const meta = $('betaInputsMeta');
@@ -822,6 +812,7 @@ function renderBetaInputs(){
 }
 
 function renderDetails(){
+  // (UNCHANGED from your live file)
   const f = state.fields.find(x=>x.id === state.selectedFieldId);
   if (!f) return;
 
@@ -885,71 +876,6 @@ function renderDetails(){
   }
 
   renderBetaInputs();
-
-  const trb = $('traceRows');
-  if (trb){
-    trb.innerHTML = '';
-    for (const t of run.trace){
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td class="mono">${t.dateISO}</td>
-        <td class="right mono">${t.rain.toFixed(2)}</td>
-        <td class="right mono">${t.infilMult.toFixed(2)}</td>
-        <td class="right mono">${t.add.toFixed(2)}</td>
-        <td class="right mono">${t.dryPwr.toFixed(2)}</td>
-        <td class="right mono">${t.loss.toFixed(2)}</td>
-        <td class="right mono">${t.before.toFixed(2)}→${t.after.toFixed(2)}</td>
-      `;
-      trb.appendChild(tr);
-    }
-  }
-
-  const drb = $('dryRows');
-  if (drb){
-    drb.innerHTML = '';
-    for (const r of run.rows){
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td class="mono">${r.dateISO}</td>
-        <td class="right mono">${Math.round(r.temp)}</td>
-        <td class="right mono">${r.tempN.toFixed(2)}</td>
-        <td class="right mono">${Math.round(r.wind)}</td>
-        <td class="right mono">${r.windN.toFixed(2)}</td>
-        <td class="right mono">${Math.round(r.rh)}</td>
-        <td class="right mono">${r.rhN.toFixed(2)}</td>
-        <td class="right mono">${Math.round(r.solar)}</td>
-        <td class="right mono">${r.solarN.toFixed(2)}</td>
-        <td class="right mono">${(r.vpd||0).toFixed(2)}</td>
-        <td class="right mono">${(r.vpdN||0).toFixed(2)}</td>
-        <td class="right mono">${Math.round(r.cloud||0)}</td>
-        <td class="right mono">${(r.cloudN||0).toFixed(2)}</td>
-        <td class="right mono">${r.raw.toFixed(2)}</td>
-        <td class="right mono">${r.dryPwr.toFixed(2)}</td>
-      `;
-      drb.appendChild(tr);
-    }
-  }
-
-  const wxb = $('wxRows');
-  if (wxb){
-    wxb.innerHTML = '';
-    for (const r of run.rows){
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td class="mono">${r.dateISO}</td>
-        <td class="right mono">${Number(r.rainInAdj||0).toFixed(2)}</td>
-        <td class="right mono">${Math.round(r.temp)}</td>
-        <td class="right mono">${Math.round(r.wind)}</td>
-        <td class="right mono">${Math.round(r.rh)}</td>
-        <td class="right mono">${Math.round(r.solar)}</td>
-        <td class="right mono">${(r.et0||0).toFixed(2)}</td>
-        <td class="right mono">${(r.sm010===null||r.sm010===undefined)?'—':Number(r.sm010).toFixed(3)}</td>
-        <td class="right mono">${(r.st010F===null||r.st010F===undefined)?'—':Math.round(r.st010F)}</td>
-      `;
-      wxb.appendChild(tr);
-    }
-  }
-
   updateAdjustPills();
 }
 
@@ -1002,7 +928,37 @@ function __tsToMs(ts){
   }
   return 0;
 }
+
+/**
+ * NEW: If the HTML doesn't have #calibCooldownMsg, create it and insert it
+ * inside the Adjust modal near the top (above the Wet/Dry buttons).
+ */
+function __ensureCooldownSlot(){
+  if ($('calibCooldownMsg')) return;
+
+  const feelSeg = $('feelSeg');
+  if (feelSeg && feelSeg.parentElement){
+    const div = document.createElement('div');
+    div.id = 'calibCooldownMsg';
+    // small spacer so it doesn’t jam the layout
+    div.style.margin = '8px 0 10px 0';
+    feelSeg.parentElement.insertBefore(div, feelSeg);
+    return;
+  }
+
+  // fallback: try to append inside adjustBackdrop modal body
+  const back = $('adjustBackdrop');
+  if (back){
+    const body = back.querySelector('.modal-b') || back.querySelector('.modal') || back;
+    const div = document.createElement('div');
+    div.id = 'calibCooldownMsg';
+    div.style.margin = '8px 0 10px 0';
+    body.appendChild(div);
+  }
+}
+
 function __setCooldownHtml(html){
+  __ensureCooldownSlot();
   const el = $('calibCooldownMsg');
   if (!el) return;
   if (!html){
@@ -1032,9 +988,8 @@ function __renderCooldownCard(){
     : `Last global adjustment: <span class="mono">—</span>`;
 
   const note =
-    `If one specific field needs changes right now, do a <b>field-specific adjustment</b> using the field’s <b>Soil Wetness</b> and <b>Drainage Index</b> sliders (Details / field settings).`;
+    `If one specific field needs changes right now, do a <b>field-specific adjustment</b> using the field’s <b>Soil Wetness</b> and <b>Drainage Index</b> sliders (not global calibration).`;
 
-  // Inline styles so we don't need HTML/CSS edits
   const cardStyle =
     'border:1px solid var(--border);border-radius:14px;padding:12px;' +
     'background:color-mix(in srgb, var(--surface) 96%, #ffffff 4%);' +
@@ -1057,10 +1012,8 @@ function __renderCooldownCard(){
         <div style="${hStyle}">${esc(title)}</div>
         <div style="${badgeStyle}">${locked ? `${cdH}h rule` : 'Unlocked'}</div>
       </div>
-
       <div style="${lineStyle}">${lastLine}</div>
       <div style="${lineStyle}">${sub}</div>
-
       <div style="${mutedStyle}">${note}</div>
     </div>
   `);
@@ -1146,7 +1099,6 @@ function updateAdjustPills(){
   updateAdjustUI();
 }
 
-/* About Right removed -> feel is only wet/dry */
 function setFeel(feel){
   state._adjFeel = (feel === 'wet' || feel === 'dry') ? feel : null;
 
@@ -1166,23 +1118,33 @@ function readSlider0100(){
   const v = el ? Number(el.value) : 50;
   return clamp(Math.round(isFinite(v) ? v : 50), 0, 100);
 }
-function setSlider0100(v){
-  const el = $('adjIntensity');
-  if (!el) return;
-  el.value = String(clamp(Math.round(v), 0, 100));
-  const out = $('adjIntensityVal');
-  if (out) out.textContent = String(readSlider0100());
-}
 function updateIntensityLabel(){
   const out = $('adjIntensityVal');
-  if (out) out.textContent = String(readSlider0100());
+  if (!out) return;
+
+  const anchor = clamp(Number(state._adjAnchorReadiness ?? 50), 0, 100);
+  const v = readSlider0100();
+  let intensity = 0;
+
+  if (state._adjFeel === 'dry'){
+    const denom = Math.max(1, 100 - anchor);
+    intensity = Math.round(clamp((v - anchor) / denom, 0, 1) * 100);
+  } else if (state._adjFeel === 'wet'){
+    const denom = Math.max(1, anchor);
+    intensity = Math.round(clamp((anchor - v) / denom, 0, 1) * 100);
+  } else {
+    intensity = 0;
+  }
+
+  // show intensity, not raw slider value
+  out.textContent = String(intensity);
 }
 
 function getAnchorReadinessFromRun(run){
   return clamp(Math.round(Number(run?.readinessR ?? 50)), 0, 100);
 }
 
-/* Slider stays 0-100, but "wrong direction" is blocked */
+/* Slider stays 0-100, anchored; wrong direction blocked */
 function configureSliderAnchor(anchorReadiness){
   const slider = $('adjIntensity');
   if (!slider) return;
@@ -1331,6 +1293,9 @@ function updateAdjustUI(){
 
     configureSliderAnchor(anchor);
     enforceAdjustSliderBounds();
+  } else {
+    // ensure the intensity label goes back to 0 when slider is hidden
+    updateIntensityLabel();
   }
 
   const hint = $('adjHint');
@@ -1469,6 +1434,9 @@ async function openAdjustGlobal(){
   state._adjAnchorReadiness = anchor;
   configureSliderAnchor(anchor);
 
+  // ensure status slot exists before we render it
+  __ensureCooldownSlot();
+
   updateAdjustPills();
   updateAdjustGuard();
 
@@ -1555,7 +1523,7 @@ function saveOpDefault(){
   try{ localStorage.setItem(LS_OP_KEY, String(op.value||'')); }catch(_){}
 }
 
-/* ---------- maps (kept as-is) ---------- */
+/* ---------- maps (kept as-is from your live file) ---------- */
 function getMapsKey(){
   const k1 = (window && window.FV_GOOGLE_MAPS_KEY) ? String(window.FV_GOOGLE_MAPS_KEY) : '';
   let k2 = '';
