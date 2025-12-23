@@ -735,24 +735,25 @@
             ">ZIP</div>
 
             <input
-              type="text"
-              inputmode="numeric"
-              autocomplete="postal-code"
-              class="fv-weather-zip"
-              value="${safeText(zipVal).replace(/"/g,"&quot;")}"
-              placeholder="Enter Zip Code"
-              style="
-                width:108px;
-                border:1px solid var(--border,#d1d5db);
-                border-radius:999px;
-                padding:4px 9px;
-                background:var(--surface);
-                color:inherit;
-                font:inherit;
-                font-size:12px;
-                outline:none;
-              "
-            />
+  type="text"
+  inputmode="numeric"
+  autocomplete="postal-code"
+  class="fv-weather-zip"
+  value="${safeText(zipVal).replace(/"/g,"&quot;")}"
+  placeholder="Enter Zip"
+  style="
+    width:130px;
+    border:1px solid var(--border,#d1d5db);
+    border-radius:999px;
+    padding:4px 9px;
+    background:var(--surface);
+    color:inherit;
+    font:inherit;
+    font-size:12px;
+    outline:none;
+    text-align:center;
+  "
+/>
           </div>
 
           <div class="fv-weather-zip-status" style="
