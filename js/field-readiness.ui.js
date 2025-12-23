@@ -1010,14 +1010,18 @@ function isGlobalCalLocked(){
 function __setCooldownHtml(html){
   const el = $('calibCooldownMsg');
   if (!el) return;
+
   if (!html){
     el.style.display = 'none';
     el.innerHTML = '';
     return;
   }
-  el.style.display = ''; // IMPORTANT: override your CSS display:none
+
+  // FORCE visible even if CSS says display:none
+  el.style.display = 'block';
   el.innerHTML = html;
 }
+
 
 function __renderCooldownCard(){
   const now = Date.now();
@@ -1486,7 +1490,7 @@ async function openAdjustGlobal(){
   await loadCooldownFromFirestore();
   stopCooldownTicker();
   startCooldownTicker(); // renders + keeps updated
-
+   __renderCooldownCard();
   updateAdjustPills();
   updateAdjustGuard();
 
