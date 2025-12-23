@@ -766,10 +766,35 @@ dialog.sheet.sheet-print .body{
     function esc(s){
       return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
     }
-    function pxToMm(px){ return (px * 25.4) / 96; }
-function clampMm(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
-function roundUpMm(v){ return Math.ceil(v * 10) / 10; } // 0.1mm
+    // ---- calibrated px <-> mm (avoids 96dpi assumptions on iOS/PDF) ----
+let __pxPerMm = null;
 
+function getPxPerMm(){
+  if (__pxPerMm) return __pxPerMm;
+  const d = document.createElement('div');
+  d.style.width = '100mm';
+  d.style.position = 'absolute';
+  d.style.left = '-1000mm';
+  d.style.top = '0';
+  d.style.visibility = 'hidden';
+  document.body.appendChild(d);
+  const px = d.getBoundingClientRect().width;
+  document.body.removeChild(d);
+  __pxPerMm = px / 100;
+  return __pxPerMm;
+}
+
+function pxToMm(px){
+  return px / getPxPerMm();
+}
+
+function clampMm(v, lo, hi){
+  return Math.max(lo, Math.min(hi, v));
+}
+
+function roundUpMm(v){
+  return Math.ceil(v * 10) / 10; // 0.1mm
+}
 
     function buildMobilePortraitHtml({ mode, qrSrc, make, model, serial6, cutLenMm }){
   const isSummary = mode === 'summary';
