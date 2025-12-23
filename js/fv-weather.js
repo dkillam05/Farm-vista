@@ -740,7 +740,7 @@
               autocomplete="postal-code"
               class="fv-weather-zip"
               value="${safeText(zipVal).replace(/"/g,"&quot;")}"
-              placeholder="Enter Zip Code"
+              placeholder="Enter Zip"
               style="
                 width:108px;
                 border:1px solid var(--border,#d1d5db);
