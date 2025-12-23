@@ -1,7 +1,12 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness.weather.js  (NEW FILE)
-Rev: 2025-12-22w1
+/Farm-vista/js/field-readiness.weather.js  (FULL FILE)
+Rev: 2025-12-23w2
+
 Weather proxy fetch + cache + normalize (Open-Meteo via your Cloud Run)
+✅ Keeps existing: localStorage cache + Cloud Run fetch + normalize
+✅ NEW: Firestore cache read first (field_weather_cache/{fieldId})
+    - Uses firebase-init.js module if available
+    - Falls back silently if Firestore isn’t available
 ===================================================================== */
 'use strict';
 
@@ -20,6 +25,16 @@ function todayISO(){
 }
 function mmToIn(mm){ return (Number(mm||0) / 25.4); }
 function cToF(c){ return (Number(c) * 9/5) + 32; }
+
+function tsToMs(ts){
+  if (!ts) return 0;
+  if (typeof ts === 'number' && isFinite(ts)) return ts;
+  if (typeof ts.toMillis === 'function') return ts.toMillis();
+  if (ts.seconds != null){
+    return (Number(ts.seconds) * 1000) + Math.floor(Number(ts.nanoseconds||0) / 1e6);
+  }
+  return 0;
+}
 
 /* ---------- normalize hourly -> daily ---------- */
 export function aggregateHourlyToDaily(hourlyCore, hourlyExt, dailyArr){
@@ -96,9 +111,11 @@ export function aggregateHourlyToDaily(hourlyCore, hourlyExt, dailyArr){
     if (isFinite(st)){ row.st010_sum += st; row.nst010++; }
   }
 
+  // Daily array from Cloud Run uses "date" (your current index.js normalizeDaily)
+  // Some older payloads may use time/dateISO. Accept all.
   const dailyMap = new Map();
   for (const d of (dailyArr||[])){
-    const iso = String(d.dateISO||d.time||'').slice(0,10);
+    const iso = String(d.dateISO || d.time || d.date || '').slice(0,10);
     if (!iso) continue;
     dailyMap.set(iso, d);
   }
@@ -144,6 +161,7 @@ export function aggregateHourlyToDaily(hourlyCore, hourlyExt, dailyArr){
       };
     });
 
+  // Keep your existing model behavior: history only (<= today)
   const tISO = todayISO();
   const hist = out.filter(d=> d.dateISO && d.dateISO <= tISO);
   return hist.slice(-30);
@@ -237,12 +255,66 @@ function writeWxCache(prefix, fieldId, obj){
   }catch(_){}
 }
 
+/* ---------- Firestore cache read (NEW) ---------- */
+let __fbModPromise = null;
+async function getFirebaseMod(){
+  if (__fbModPromise) return __fbModPromise;
+  __fbModPromise = (async()=>{
+    try{
+      const mod = await import('/Farm-vista/js/firebase-init.js');
+      if (mod && mod.ready) await mod.ready;
+      return mod;
+    }catch(_){
+      return null;
+    }
+  })();
+  return __fbModPromise;
+}
+
+async function readFromFirestoreCache(fieldId, collectionName){
+  const mod = await getFirebaseMod();
+  if (!mod) return null;
+
+  // Need modular methods
+  if (!(mod.getFirestore && mod.getDoc && mod.doc)) return null;
+
+  try{
+    const db = mod.getFirestore();
+    const ref = mod.doc(db, String(collectionName||'field_weather_cache'), String(fieldId));
+    const snap = await mod.getDoc(ref);
+    if (!snap || !snap.exists || !snap.exists()) return null;
+
+    const data = snap.data() || {};
+    const norm = data.normalized || {};
+    const hourlyCore = Array.isArray(norm.hourly) ? norm.hourly : [];
+    const hourlyExt  = Array.isArray(norm.hourly_ext) ? norm.hourly_ext : [];
+    const dailyArr   = Array.isArray(norm.daily) ? norm.daily : [];
+
+    const dailySeries = aggregateHourlyToDaily(hourlyCore, hourlyExt, dailyArr);
+
+    const fetchedAtMs = tsToMs(data.fetchedAt) || Date.now();
+    const availability = summarizeAvailability({ normalized: norm });
+
+    const wxInfo = {
+      source: String(data.source || 'firestore'),
+      fetchedAt: fetchedAtMs,
+      units: (norm.meta && norm.meta.units) ? norm.meta.units : null,
+      availability
+    };
+
+    return { fetchedAt: fetchedAtMs, daily: dailySeries, wxInfo };
+  }catch(_){
+    return null;
+  }
+}
+
 /* ---------- public API ---------- */
 export async function fetchWeatherForField(field, ctx, force=false){
   // ctx requires:
   // { WX_ENDPOINT, WX_TTL_MS, WX_CACHE_PREFIX, timezone, weatherByFieldId, wxInfoByFieldId, weather30 }
   if (!field || !field.location) return null;
 
+  // 1) LocalStorage cache (existing)
   if (!force){
     const cached = readWxCache(ctx.WX_CACHE_PREFIX, ctx.WX_TTL_MS, field.id);
     if (cached){
@@ -252,6 +324,30 @@ export async function fetchWeatherForField(field, ctx, force=false){
     }
   }
 
+  // 2) Firestore cache (NEW) — uses scheduled batch results
+  if (!force){
+    const col = (ctx && ctx.WX_FIRESTORE_COLLECTION) ? String(ctx.WX_FIRESTORE_COLLECTION) : 'field_weather_cache';
+    const fsCached = await readFromFirestoreCache(field.id, col);
+    if (fsCached && Array.isArray(fsCached.daily)){
+      ctx.weatherByFieldId.set(field.id, fsCached.daily || []);
+      ctx.wxInfoByFieldId.set(field.id, fsCached.wxInfo || { source:'firestore', fetchedAt: fsCached.fetchedAt });
+
+      // mirror into localStorage so paging/sorting stays fast and offline-friendly
+      writeWxCache(ctx.WX_CACHE_PREFIX, field.id, {
+        fetchedAt: fsCached.fetchedAt,
+        daily: fsCached.daily,
+        wxInfo: fsCached.wxInfo
+      });
+
+      if (!ctx.weather30.length && fsCached.daily && fsCached.daily.length){
+        ctx.weather30 = fsCached.daily.slice();
+      }
+
+      return fsCached.daily || [];
+    }
+  }
+
+  // 3) Cloud Run (existing fallback)
   const lat = field.location.lat;
   const lng = field.location.lng;
 
