@@ -1,20 +1,20 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.ui.js  (FULL FILE)
-Rev: 2025-12-23f
+Rev: 2025-12-23g
 
-FIXES (per Dane, after failed attempt):
-✅ Countdown/status panel ALWAYS renders (auto-creates #calibCooldownMsg if missing)
+GOALS (per Dane):
+✅ Sliders section is GOOD — do not change core slider behavior
+✅ Weather must load again (Beta inputs should not sit “waiting for JS”)
+✅ Global calibration cooldown panel MUST show:
+   - “Last global adjustment: Xh Ym ago”
+   - “Next global adjustment allowed: <date/time>”
+✅ When locked:
+   - Wet/Dry MUST be disabled (can’t even click)
+   - Apply disabled (backend still authoritative)
 ✅ Do NOT change gauge geometry:
-   - Threshold line stays at true operation threshold
-   - Readiness marker stays at true readiness
-✅ Only change color perception based on operation threshold:
-   - pill color
-   - gauge gradient
-   - badge background (perception)
-✅ Adjust slider UX:
-   - slider remains anchored to readiness
-   - wrong-direction movement blocked
-   - label shows INTENSITY (0–100 distance from anchor), not raw slider value
+   - Threshold line stays at TRUE op threshold
+   - Readiness marker stays at TRUE readiness
+✅ Only color “perception” shifts based on op threshold (pill/badge/gradient feel)
 ===================================================================== */
 'use strict';
 
@@ -40,10 +40,6 @@ const round = (v, d=2) => {
   const p = Math.pow(10,d);
   return Math.round(v*p)/p;
 };
-function isGlobalCalLocked(){
-  const nextMs = Number(state._nextAllowedMs || 0);
-  return !!(nextMs && Date.now() < nextMs);
-}
 function esc(s){
   return String(s||'')
     .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
@@ -58,49 +54,18 @@ function setErr(msg){
 }
 function normalizeStatus(s){ return String(s||'').trim().toLowerCase(); }
 
-function showModal(backdropId, on){
-  const b = $(backdropId);
-  if (b) b.classList.toggle('pv-hide', !on);
-
-  // Guarantee cooldown panel renders whenever Adjust modal opens (no dependency on observers)
-  if (backdropId === 'adjustBackdrop'){
-    if (on){
-      // Let the DOM paint first, then render the cooldown panel
-      setTimeout(async ()=>{
-        try{
-          __ensureCooldownSlot();
-          await loadCooldownFromFirestore();
-          __renderCooldownCard();
-          stopCooldownTicker();
-          startCooldownTicker();
-        }catch(e){
-          console.warn('[FieldReadiness] cooldown render failed:', e);
-        }
-      }, 0);
-    } else {
-      stopCooldownTicker();
-    }
-  }
-}
-
 function on(id, ev, fn){
   const el = $(id);
   if (el) el.addEventListener(ev, fn);
 }
 
 /* ---------- threshold-centered color perception (COLORS ONLY) ---------- */
-/**
- * Map a readiness value into a perceived 0..100 scale where the OP THRESHOLD
- * is treated as the perceptual midpoint (50). IMPORTANT:
- * - This is ONLY used to pick colors (pill/badge/gradient feel)
- * - DO NOT use this for positioning the marker/threshold lines.
- */
 function perceivedFromThreshold(readiness, thr){
   const r = clamp(Math.round(Number(readiness)), 0, 100);
   const t = clamp(Math.round(Number(thr)), 0, 100);
 
-  if (t <= 0) return 100;   // everything acceptable
-  if (t >= 100) return Math.round((r/100)*50); // extremely strict
+  if (t <= 0) return 100;
+  if (t >= 100) return Math.round((r/100)*50);
 
   if (r === t) return 50;
 
@@ -114,30 +79,20 @@ function perceivedFromThreshold(readiness, thr){
     return clamp(Math.round(frac * 50), 0, 100);
   }
 }
-
 function colorForPerceived(p){
   const x = clamp(Number(p), 0, 100);
   let h;
   if (x <= 50){
     const frac = x / 50;
-    h = 10 + (45 - 10) * frac;   // red -> amber
+    h = 10 + (45 - 10) * frac;
   } else {
     const frac = (x - 50) / 50;
-    h = 45 + (120 - 45) * frac;  // amber -> green
+    h = 45 + (120 - 45) * frac;
   }
   const s = 70;
   const l = 38;
   return `hsl(${h.toFixed(0)} ${s}% ${l}%)`;
 }
-
-/**
- * Gauge gradient that “feels” correct for the current threshold:
- * - amber point sits at the TRUE threshold percent (thr%)
- * - so low thresholds yield mostly green
- * - high thresholds yield mostly red/amber
- *
- * Marker/threshold lines still sit at their TRUE values.
- */
 function gradientForThreshold(thr){
   const t = clamp(Math.round(Number(thr)), 0, 100);
   const a = `${t}%`;
@@ -563,6 +518,7 @@ async function loadFields(){
 
     ensureSelectedParamsToSliders();
 
+    // WEATHER LOAD (critical)
     await warmWeatherForFields(state.fields, wxCtx, { force:false, onEach:debounceRender });
 
     renderFarmFilterOptions();
@@ -688,20 +644,19 @@ function renderTiles(){
     const run0 = state.lastRuns.get(f.id);
     if (!run0) continue;
 
-    const readiness = run0.readinessR; // TRUE readiness number (unchanged)
+    const readiness = run0.readinessR; // TRUE readiness number
     const eta = etaFor(run0, thr, ETA_MAX_HOURS);
     const rainRange = rainInRange(run0, range);
 
     // TRUE positions (unchanged)
-    const leftPos = markerLeftCSS(readiness); // marker at readiness
-    const thrPos  = markerLeftCSS(thr);       // threshold at threshold
+    const leftPos = markerLeftCSS(readiness);
+    const thrPos  = markerLeftCSS(thr);
 
-    // COLORS ONLY (perception)
+    // COLORS ONLY
     const perceived = perceivedFromThreshold(readiness, thr);
     const pillBg = colorForPerceived(perceived);
     const grad = gradientForThreshold(thr);
 
-    // FIELD ONLY
     const labelLeft = f.name;
 
     const tile = document.createElement('div');
@@ -734,10 +689,7 @@ function renderTiles(){
       </div>
     `;
 
-    tile.addEventListener('click', ()=>{
-      selectField(f.id);
-    });
-
+    tile.addEventListener('click', ()=> selectField(f.id));
     wrap.appendChild(tile);
   }
 
@@ -753,7 +705,7 @@ function selectField(id){
   refreshAll();
 }
 
-/* ---------- details (unchanged) ---------- */
+/* ---------- details ---------- */
 function renderBetaInputs(){
   const box = $('betaInputs');
   const meta = $('betaInputsMeta');
@@ -836,7 +788,6 @@ function renderBetaInputs(){
 }
 
 function renderDetails(){
-  // (UNCHANGED from your live file)
   const f = state.fields.find(x=>x.id === state.selectedFieldId);
   if (!f) return;
 
@@ -921,7 +872,7 @@ function refreshAll(){
 }
 
 /* =====================================================================
-   GLOBAL ADJUST (hidden behind tapping "Fields")
+   GLOBAL ADJUST
    ===================================================================== */
 
 /* ---------- cooldown UI helpers ---------- */
@@ -952,50 +903,30 @@ function __tsToMs(ts){
   }
   return 0;
 }
+function isGlobalCalLocked(){
+  const nextMs = Number(state._nextAllowedMs || 0);
+  return !!(nextMs && Date.now() < nextMs);
+}
 
-/**
- * NEW: If the HTML doesn't have #calibCooldownMsg, create it and insert it
- * inside the Adjust modal near the top (above the Wet/Dry buttons).
- */
+/* Put cooldown panel at TOP of Adjust modal body (guaranteed visible) */
 function __ensureCooldownSlot(){
   if ($('calibCooldownMsg')) return;
 
-  // Best: put it directly under the Adjust subtitle (this exists)
-  const sub = $('adjustSub');
-  if (sub && sub.parentElement){
-    const div = document.createElement('div');
-    div.id = 'calibCooldownMsg';
-    div.style.margin = '10px 0 10px 0';
-    // insert right after the subtitle line
-    if (sub.nextSibling){
-      sub.parentElement.insertBefore(div, sub.nextSibling);
-    } else {
-      sub.parentElement.appendChild(div);
-    }
-    return;
-  }
-
-  // Next: put it above the Wet/Dry segment (feelSeg)
-  const feelSeg = $('feelSeg');
-  if (feelSeg && feelSeg.parentElement){
-    const div = document.createElement('div');
-    div.id = 'calibCooldownMsg';
-    div.style.margin = '10px 0 10px 0';
-    feelSeg.parentElement.insertBefore(div, feelSeg);
-    return;
-  }
-
-  // Fallback: append inside modal body
   const back = $('adjustBackdrop');
-  if (back){
-    const body = back.querySelector('.modal-b') || back.querySelector('.modal') || back;
-    const div = document.createElement('div');
-    div.id = 'calibCooldownMsg';
-    div.style.margin = '10px 0 10px 0';
-    body.appendChild(div);
-  }
-}
+  if (!back) return;
 
+  const body =
+    back.querySelector('.modal-b') ||
+    back.querySelector('.modal') ||
+    back;
+
+  const div = document.createElement('div');
+  div.id = 'calibCooldownMsg';
+  div.style.margin = '10px 0 10px 0';
+
+  if (body.firstChild) body.insertBefore(div, body.firstChild);
+  else body.appendChild(div);
+}
 
 function __setCooldownHtml(html){
   __ensureCooldownSlot();
@@ -1062,6 +993,7 @@ function __renderCooldownCard(){
 async function loadCooldownFromFirestore(){
   const api = getAPI();
   if (!api || api.kind === 'compat'){
+    // still render a card, but values will be —
     state._nextAllowedMs = 0;
     state._lastAppliedMs = 0;
     state._cooldownHours = 72;
@@ -1090,15 +1022,10 @@ async function loadCooldownFromFirestore(){
 }
 
 function startCooldownTicker(){
-  const btn = $('btnAdjApply');
-
   function tick(){
-    const now = Date.now();
-    const locked = (state._nextAllowedMs && now < state._nextAllowedMs);
-    if (btn) btn.disabled = !!locked;
     __renderCooldownCard();
+    updateAdjustUI(); // refresh lock state + disabled buttons
   }
-
   try{ if (state._cooldownTimer) clearInterval(state._cooldownTimer); }catch(_){}
   tick();
   state._cooldownTimer = setInterval(tick, 30000);
@@ -1109,7 +1036,7 @@ function stopCooldownTicker(){
   __setCooldownHtml('');
 }
 
-/* ---------- Adjust pills/UI ---------- */
+/* ---------- Adjust UI + behavior ---------- */
 function updateAdjustPills(){
   const fid = state.selectedFieldId;
   const f = state.fields.find(x=>x.id===fid);
@@ -1140,7 +1067,7 @@ function updateAdjustPills(){
 }
 
 function setFeel(feel){
-   if (isGlobalCalLocked()) return;
+  if (isGlobalCalLocked()) return;
   state._adjFeel = (feel === 'wet' || feel === 'dry') ? feel : null;
 
   const seg = $('feelSeg');
@@ -1162,17 +1089,11 @@ function readSlider0100(){
 function updateIntensityLabel(){
   const out = $('adjIntensityVal');
   if (!out) return;
-
-  // Show the actual slider value (anchored to current readiness),
-  // so if readiness is 8, it displays 8/100.
   out.textContent = String(readSlider0100());
 }
-
 function getAnchorReadinessFromRun(run){
   return clamp(Math.round(Number(run?.readinessR ?? 50)), 0, 100);
 }
-
-/* Slider stays 0-100, anchored; wrong direction blocked */
 function configureSliderAnchor(anchorReadiness){
   const slider = $('adjIntensity');
   if (!slider) return;
@@ -1279,30 +1200,19 @@ function updateAdjustUI(){
 
   const locked = isGlobalCalLocked();
 
-const bWet = $('btnFeelWet');
-const bDry = $('btnFeelDry');
+  const bWet = $('btnFeelWet');
+  const bDry = $('btnFeelDry');
+  if (bWet) bWet.disabled = locked || (mc === 'wet');
+  if (bDry) bDry.disabled = locked || (mc === 'dry');
 
-// If locked: disable BOTH (no calibration allowed)
-if (bWet) bWet.disabled = locked || (mc === 'wet');
-if (bDry) bDry.disabled = locked || (mc === 'dry');
+  // Disable slider while locked so it’s not “playable”
+  const s = $('adjIntensity');
+  if (s) s.disabled = !!locked;
 
-// Apply must stay disabled while locked
-const applyBtnLock = $('btnAdjApply');
-if (applyBtnLock) applyBtnLock.disabled = locked || !(state._adjFeel === 'wet' || state._adjFeel === 'dry');
-
-// Optional: prevent playing with the slider while locked
-const s = $('adjIntensity');
-if (s) s.disabled = !!locked;
-
-// If locked, force a clear message
-const hintLock = $('adjHint');
-if (hintLock && locked){
-  hintLock.textContent = 'Global calibration is locked (72h rule). Use field-specific Soil Wetness and Drainage sliders instead.';
-}
-
-
+  // Keep selected feel sane
   if (mc === 'wet' && state._adjFeel === 'wet') state._adjFeel = null;
   if (mc === 'dry' && state._adjFeel === 'dry') state._adjFeel = null;
+  if (locked) state._adjFeel = null;
 
   const seg = $('feelSeg');
   if (seg){
@@ -1341,13 +1251,14 @@ if (hintLock && locked){
     configureSliderAnchor(anchor);
     enforceAdjustSliderBounds();
   } else {
-    // ensure the intensity label goes back to 0 when slider is hidden
     updateIntensityLabel();
   }
 
   const hint = $('adjHint');
   if (hint){
-    if (mc === 'wet'){
+    if (locked){
+      hint.textContent = 'Global calibration is locked (72h rule). Use field-specific Soil Wetness and Drainage sliders instead.';
+    } else if (mc === 'wet'){
       hint.textContent = 'Model says WET → “Wet” disabled. Choose “Dry” to correct it (slider won’t allow going wetter).';
     } else if (mc === 'dry'){
       hint.textContent = 'Model says DRY → “Dry” disabled. Choose “Wet” to correct it (slider won’t allow going drier).';
@@ -1359,7 +1270,7 @@ if (hintLock && locked){
   const applyBtn = $('btnAdjApply');
   if (applyBtn){
     const hasChoice = (state._adjFeel === 'wet' || state._adjFeel === 'dry');
-    if (!hasChoice) applyBtn.disabled = true;
+    applyBtn.disabled = locked || !hasChoice;
   }
 
   updateAdjustGuard();
@@ -1410,6 +1321,8 @@ async function applyAdjustment(){
   const f = state.fields.find(x=>x.id===fid);
   if (!f) return;
 
+  if (isGlobalCalLocked()) return;
+
   const deps = {
     getWeatherSeriesForFieldId: (fieldId)=> getWeatherSeriesForFieldId(fieldId, wxCtx),
     getFieldParams,
@@ -1455,6 +1368,22 @@ async function applyAdjustment(){
   closeAdjust();
 }
 
+/* ---------- modals ---------- */
+function showModal(backdropId, on){
+  const b = $(backdropId);
+  if (b) b.classList.toggle('pv-hide', !on);
+
+  if (backdropId === 'adjustBackdrop'){
+    if (on){
+      // Render card immediately from current state
+      __renderCooldownCard();
+      updateAdjustUI();
+    } else {
+      stopCooldownTicker();
+    }
+  }
+}
+
 /* ---------- open/close adjust (GLOBAL) ---------- */
 async function openAdjustGlobal(){
   if (!state.selectedFieldId && state.fields.length){
@@ -1481,100 +1410,22 @@ async function openAdjustGlobal(){
   state._adjAnchorReadiness = anchor;
   configureSliderAnchor(anchor);
 
-  // ensure status slot exists before we render it
-  __ensureCooldownSlot();
-   __setCooldownHtml('<div style="padding:10px;border:1px dashed var(--border);border-radius:12px;">Cooldown panel placeholder (UI is rendering)</div>');
-__renderCooldownCard();
-
+  // Load cooldown BEFORE opening so lock state is correct immediately
+  await loadCooldownFromFirestore();
+  stopCooldownTicker();
+  startCooldownTicker();
 
   updateAdjustPills();
   updateAdjustGuard();
-
-  await loadCooldownFromFirestore();
-  startCooldownTicker();
-   __renderCooldownCard();
 
   showModal('adjustBackdrop', true);
 }
 
 function closeAdjust(){
   showModal('adjustBackdrop', false);
-  stopCooldownTicker();
 }
 
-/* ---------- hidden "Fields" tap target ---------- */
-function wireFieldsHiddenTap(){
-  const el = $('fieldsTitle') || document.querySelector('[data-fields-tap]');
-  if (!el) return;
-
-  el.style.cursor = 'pointer';
-  el.setAttribute('role','button');
-  el.setAttribute('aria-label','Fields (tap for calibration)');
-
-  el.addEventListener('click', (e)=>{
-    e.preventDefault();
-    e.stopPropagation();
-    openAdjustGlobal();
-  });
-}
-
-/* ---------- operation modal ---------- */
-function renderOpThresholdModal(){
-  const list = $('opList');
-  if (!list) return;
-  list.innerHTML = '';
-
-  for (const op of OPS){
-    const val = getThresholdForOp(op.key);
-
-    const row = document.createElement('div');
-    row.className = 'oprow';
-
-    row.innerHTML = `
-      <div class="oprow-top">
-        <div class="opname">${esc(op.label)}</div>
-        <div class="opval"><span class="mono" id="thrVal_${esc(op.key)}">${val}</span></div>
-      </div>
-      <input type="range" min="0" max="100" step="1" value="${val}" data-thr="${esc(op.key)}"/>
-    `;
-
-    const slider = row.querySelector('input[type="range"]');
-    slider.addEventListener('input', ()=>{
-      const k = slider.getAttribute('data-thr');
-      const n = clamp(Number(slider.value), 0, 100);
-      state.thresholdsByOp.set(k, n);
-
-      const vEl = $('thrVal_' + k);
-      if (vEl) vEl.textContent = String(n);
-
-      scheduleThresholdSave();
-      refreshAll();
-    });
-
-    list.appendChild(row);
-  }
-}
-function openOpModal(){
-  renderOpThresholdModal();
-  showModal('opBackdrop', true);
-}
-function closeOpModal(){ showModal('opBackdrop', false); }
-
-function loadOpDefault(){
-  const op = $('opSel');
-  if (!op) return;
-  try{
-    const raw = localStorage.getItem(LS_OP_KEY);
-    if (raw) op.value = raw;
-  }catch(_){}
-}
-function saveOpDefault(){
-  const op = $('opSel');
-  if (!op) return;
-  try{ localStorage.setItem(LS_OP_KEY, String(op.value||'')); }catch(_){}
-}
-
-/* ---------- maps (kept as-is from your live file) ---------- */
+/* ---------- maps (kept as-is) ---------- */
 function getMapsKey(){
   const k1 = (window && window.FV_GOOGLE_MAPS_KEY) ? String(window.FV_GOOGLE_MAPS_KEY) : '';
   let k2 = '';
@@ -1697,6 +1548,78 @@ function openMapModal(){
 }
 function closeMapModal(){ showModal('mapBackdrop', false); }
 
+/* ---------- hidden "Fields" tap target ---------- */
+function wireFieldsHiddenTap(){
+  const el = $('fieldsTitle') || document.querySelector('[data-fields-tap]');
+  if (!el) return;
+
+  el.style.cursor = 'pointer';
+  el.setAttribute('role','button');
+  el.setAttribute('aria-label','Fields (tap for calibration)');
+
+  el.addEventListener('click', (e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    openAdjustGlobal();
+  });
+}
+
+/* ---------- operation modal ---------- */
+function renderOpThresholdModal(){
+  const list = $('opList');
+  if (!list) return;
+  list.innerHTML = '';
+
+  for (const op of OPS){
+    const val = getThresholdForOp(op.key);
+
+    const row = document.createElement('div');
+    row.className = 'oprow';
+
+    row.innerHTML = `
+      <div class="oprow-top">
+        <div class="opname">${esc(op.label)}</div>
+        <div class="opval"><span class="mono" id="thrVal_${esc(op.key)}">${val}</span></div>
+      </div>
+      <input type="range" min="0" max="100" step="1" value="${val}" data-thr="${esc(op.key)}"/>
+    `;
+
+    const slider = row.querySelector('input[type="range"]');
+    slider.addEventListener('input', ()=>{
+      const k = slider.getAttribute('data-thr');
+      const n = clamp(Number(slider.value), 0, 100);
+      state.thresholdsByOp.set(k, n);
+
+      const vEl = $('thrVal_' + k);
+      if (vEl) vEl.textContent = String(n);
+
+      scheduleThresholdSave();
+      refreshAll();
+    });
+
+    list.appendChild(row);
+  }
+}
+function openOpModal(){
+  renderOpThresholdModal();
+  showModal('opBackdrop', true);
+}
+function closeOpModal(){ showModal('opBackdrop', false); }
+
+function loadOpDefault(){
+  const op = $('opSel');
+  if (!op) return;
+  try{
+    const raw = localStorage.getItem(LS_OP_KEY);
+    if (raw) op.value = raw;
+  }catch(_){}
+}
+function saveOpDefault(){
+  const op = $('opSel');
+  if (!op) return;
+  try{ localStorage.setItem(LS_OP_KEY, String(op.value||'')); }catch(_){}
+}
+
 /* ---------- wiring ---------- */
 on('sortSel','change', refreshAll);
 on('opSel','change', ()=>{ saveOpDefault(); refreshAll(); });
@@ -1761,27 +1684,6 @@ on('btnOpX','click', closeOpModal);
 })();
 
 on('btnAdjX','click', closeAdjust);
-/* ---------- ensure cooldown panel always renders when Adjust opens ---------- */
-(function wireAdjustCooldownAuto(){
-  const back = $('adjustBackdrop');
-  if (!back) return;
-
-  const obs = new MutationObserver(async ()=>{
-    const open = !back.classList.contains('pv-hide');
-    if (!open) return;
-
-    // Ensure the slot exists + render immediately
-    __ensureCooldownSlot();
-    await loadCooldownFromFirestore();
-    __renderCooldownCard();
-
-    // Keep it updating + enforce disable state
-    stopCooldownTicker();   // make sure no previous interval is running
-startCooldownTicker();  // start fresh
-  });
-
-  obs.observe(back, { attributes:true, attributeFilter:['class'] });
-})();
 on('btnAdjCancel','click', closeAdjust);
 on('btnAdjApply','click', ()=>{
   const btn = $('btnAdjApply');
