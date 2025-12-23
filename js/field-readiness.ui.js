@@ -17,6 +17,8 @@ GOALS (per Dane):
 ✅ Only color “perception” shifts based on op threshold (pill/badge/gradient feel)
 ===================================================================== */
 'use strict';
+console.log('[FieldReadiness] ui.js loaded', new Date().toISOString());
+
 
 import {
   summarizeAvailability,
@@ -520,7 +522,11 @@ async function loadFields(){
 
     // WEATHER LOAD (critical)
     await warmWeatherForFields(state.fields, wxCtx, { force:false, onEach:debounceRender });
-
+    console.log('[FieldReadiness] warmWeatherForFields done', {
+  fields: state.fields.length,
+  wxInfo: state.wxInfoByFieldId.size,
+  wxSeries: state.weatherByFieldId.size
+});
     renderFarmFilterOptions();
     renderTiles();
     renderDetails();
