@@ -1,21 +1,12 @@
 /* =======================================================================
 // /Farm-vista/js/fv-weather.js
-// Rev: 2025-12-23c (Saved ZIP label always wins header)
+// Rev: 2025-12-23d (Mobile cache + helper sync + tighter ZIP footer)
 //
 // Fixes (per Dane):
-// ✅ If user saved a ZIP, the header title ALWAYS uses the saved label too
-//    (prevents header reverting to Divernon after navigating away and back)
-//
-// Prior fixes kept:
-// ✅ ZIP input does NOT trigger modal open (stops click bubbling)
-// ✅ ZIP UI is small + subtle (no big buttons, no "Use Divernon" button)
-// ✅ ZIP auto-applies (debounced after 5 digits, Enter, or blur)
-// ✅ Clearing ZIP reverts to Divernon automatically
-// ✅ ZIP lookup does NOT require Google Geocoding (uses Zippopotam.us)
-// ✅ Auto-refresh updates values in-place (no "Loading..." flash)
-// ✅ Countdown text "Next refresh in mm:ss" + subtle "Updating…" during fetch
-//
-// Note: googleApiKey still required for Google Weather endpoints.
+// ✅ Mobile persistence: if localStorage is blocked/flaky (iOS), fall back to cookie (+ sessionStorage)
+// ✅ Header + footer helper ALWAYS stay in sync (including any external “footer helper” elements)
+// ✅ ZIP row is tighter / takes less space, wraps clean on phone
+// ✅ Still: ZIP lookup via Zippopotam.us (no Google Geocoding), subtle refresh, timer, etc.
 // ======================================================================= */
 
 (() => {
@@ -35,6 +26,9 @@
     lon:   "fv_weather_lon",
     label: "fv_weather_label"
   };
+
+  // Cookie name (fallback persistence for iOS quirks)
+  const CK_NAME = "fv_weather_loc"; // stores JSON {zip,lat,lon,label}
 
   const DEFAULT_LOCATION = {
     lat: 39.5656,
@@ -59,6 +53,9 @@
   const __timers = new Map(); // selector => { refreshId, tickId, nextAtMs, lastCfgSig }
   const __rendered = new Set(); // selector => has base DOM structure rendered
 
+  // in-memory fallback (last resort)
+  let __memLoc = null;
+
   /* ==========================
      Helpers
      ========================== */
@@ -75,7 +72,6 @@
 
   function clampZipInput(raw){
     const s = safeText(raw).trim();
-    // keep only digits; user wants zip
     const digits = s.replace(/[^\d]/g, "").slice(0, 9);
     if (digits.length <= 5) return digits;
     return digits.slice(0,5) + "-" + digits.slice(5);
@@ -86,39 +82,184 @@
     return digits.length >= 5 ? digits.slice(0,5) : "";
   }
 
-  function readSavedLocation(){
-    try{
-      const lat = Number(localStorage.getItem(LS_KEYS.lat));
-      const lon = Number(localStorage.getItem(LS_KEYS.lon));
-      const label = safeText(localStorage.getItem(LS_KEYS.label)).trim();
-      const zip = safeText(localStorage.getItem(LS_KEYS.zip)).trim();
+  // -------- Storage layer (localStorage -> sessionStorage -> cookie -> memory) --------
 
-      if (Number.isFinite(lat) && Number.isFinite(lon) && lat !== 0 && lon !== 0){
-        return {
-          lat, lon,
-          label: label || DEFAULT_LOCATION.label,
-          zip: zip || ""
-        };
+  function canUseStorage(which){
+    try{
+      const s = (which === "local") ? window.localStorage : window.sessionStorage;
+      if (!s) return false;
+      const k = "__fv_test__";
+      s.setItem(k, "1");
+      s.removeItem(k);
+      return true;
+    }catch{
+      return false;
+    }
+  }
+
+  function cookieSet(name, value, days){
+    try{
+      const d = new Date();
+      d.setTime(d.getTime() + (days*24*60*60*1000));
+      const expires = "expires=" + d.toUTCString();
+      document.cookie = `${encodeURIComponent(name)}=${encodeURIComponent(value)};${expires};path=/;SameSite=Lax`;
+      return true;
+    }catch{
+      return false;
+    }
+  }
+
+  function cookieGet(name){
+    try{
+      const n = encodeURIComponent(name) + "=";
+      const parts = (document.cookie || "").split(";");
+      for (let p of parts){
+        p = p.trim();
+        if (p.startsWith(n)) return decodeURIComponent(p.substring(n.length));
       }
     }catch{}
+    return "";
+  }
+
+  function cookieDel(name){
+    try{
+      document.cookie = `${encodeURIComponent(name)}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;SameSite=Lax`;
+    }catch{}
+  }
+
+  function readSavedLocation(){
+    // 1) localStorage
+    try{
+      if (canUseStorage("local")){
+        const lat = Number(localStorage.getItem(LS_KEYS.lat));
+        const lon = Number(localStorage.getItem(LS_KEYS.lon));
+        const label = safeText(localStorage.getItem(LS_KEYS.label)).trim();
+        const zip = safeText(localStorage.getItem(LS_KEYS.zip)).trim();
+        if (Number.isFinite(lat) && Number.isFinite(lon) && lat !== 0 && lon !== 0){
+          return { lat, lon, label: label || DEFAULT_LOCATION.label, zip: zip || "" };
+        }
+      }
+    }catch{}
+
+    // 2) sessionStorage
+    try{
+      if (canUseStorage("session")){
+        const lat = Number(sessionStorage.getItem(LS_KEYS.lat));
+        const lon = Number(sessionStorage.getItem(LS_KEYS.lon));
+        const label = safeText(sessionStorage.getItem(LS_KEYS.label)).trim();
+        const zip = safeText(sessionStorage.getItem(LS_KEYS.zip)).trim();
+        if (Number.isFinite(lat) && Number.isFinite(lon) && lat !== 0 && lon !== 0){
+          return { lat, lon, label: label || DEFAULT_LOCATION.label, zip: zip || "" };
+        }
+      }
+    }catch{}
+
+    // 3) cookie (persistent fallback)
+    try{
+      const raw = cookieGet(CK_NAME);
+      if (raw){
+        const obj = JSON.parse(raw);
+        const lat = Number(obj.lat);
+        const lon = Number(obj.lon);
+        const label = safeText(obj.label).trim();
+        const zip = safeText(obj.zip).trim();
+        if (Number.isFinite(lat) && Number.isFinite(lon) && lat !== 0 && lon !== 0){
+          return { lat, lon, label: label || DEFAULT_LOCATION.label, zip: zip || "" };
+        }
+      }
+    }catch{}
+
+    // 4) in-memory
+    if (__memLoc && Number.isFinite(__memLoc.lat) && Number.isFinite(__memLoc.lon)){
+      return { ...__memLoc };
+    }
+
     return null;
   }
 
-  function saveLocation({ zip, lat, lon, label }){
+  function persistToAll(loc){
+    // localStorage
     try{
-      if (zip != null) localStorage.setItem(LS_KEYS.zip, String(zip || ""));
-      if (Number.isFinite(lat)) localStorage.setItem(LS_KEYS.lat, String(lat));
-      if (Number.isFinite(lon)) localStorage.setItem(LS_KEYS.lon, String(lon));
-      if (label != null) localStorage.setItem(LS_KEYS.label, String(label || DEFAULT_LOCATION.label));
+      if (canUseStorage("local")){
+        localStorage.setItem(LS_KEYS.zip, String(loc.zip || ""));
+        localStorage.setItem(LS_KEYS.lat, String(loc.lat));
+        localStorage.setItem(LS_KEYS.lon, String(loc.lon));
+        localStorage.setItem(LS_KEYS.label, String(loc.label || DEFAULT_LOCATION.label));
+      }
     }catch{}
+
+    // sessionStorage
+    try{
+      if (canUseStorage("session")){
+        sessionStorage.setItem(LS_KEYS.zip, String(loc.zip || ""));
+        sessionStorage.setItem(LS_KEYS.lat, String(loc.lat));
+        sessionStorage.setItem(LS_KEYS.lon, String(loc.lon));
+        sessionStorage.setItem(LS_KEYS.label, String(loc.label || DEFAULT_LOCATION.label));
+      }
+    }catch{}
+
+    // cookie (1 year)
+    try{
+      cookieSet(CK_NAME, JSON.stringify({
+        zip: loc.zip || "",
+        lat: Number(loc.lat),
+        lon: Number(loc.lon),
+        label: loc.label || DEFAULT_LOCATION.label
+      }), 365);
+    }catch{}
+
+    // memory
+    __memLoc = { ...loc };
+  }
+
+  function saveLocation({ zip, lat, lon, label }){
+    const loc = {
+      zip: String(zip || ""),
+      lat: Number(lat),
+      lon: Number(lon),
+      label: String(label || DEFAULT_LOCATION.label)
+    };
+    if (!Number.isFinite(loc.lat) || !Number.isFinite(loc.lon)) return;
+    persistToAll(loc);
   }
 
   function clearSavedLocation(){
     try{
-      localStorage.removeItem(LS_KEYS.zip);
-      localStorage.removeItem(LS_KEYS.lat);
-      localStorage.removeItem(LS_KEYS.lon);
-      localStorage.removeItem(LS_KEYS.label);
+      if (canUseStorage("local")){
+        localStorage.removeItem(LS_KEYS.zip);
+        localStorage.removeItem(LS_KEYS.lat);
+        localStorage.removeItem(LS_KEYS.lon);
+        localStorage.removeItem(LS_KEYS.label);
+      }
+    }catch{}
+    try{
+      if (canUseStorage("session")){
+        sessionStorage.removeItem(LS_KEYS.zip);
+        sessionStorage.removeItem(LS_KEYS.lat);
+        sessionStorage.removeItem(LS_KEYS.lon);
+        sessionStorage.removeItem(LS_KEYS.label);
+      }
+    }catch{}
+    try{ cookieDel(CK_NAME); }catch{}
+    __memLoc = null;
+  }
+
+  // External helper sync: anything with [data-fv-weather-help] OR #fv-weather-help
+  function syncExternalHelper(label){
+    const text = label ? `Using ${label}` : `Using ${DEFAULT_LOCATION.label}`;
+    try{
+      const els = [
+        ...document.querySelectorAll('[data-fv-weather-help]'),
+      ];
+      const byId = document.getElementById("fv-weather-help");
+      if (byId) els.push(byId);
+
+      els.forEach(el => {
+        if (!el) return;
+        // if element is an input, set value; else textContent
+        if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") el.value = text;
+        else el.textContent = text;
+      });
     }catch{}
   }
 
@@ -126,8 +267,6 @@
   function shouldUseSavedLabel(saved, options){
     if (!saved || !saved.label) return false;
 
-    // only "force" label override when we actually have a saved ZIP/location
-    // (ZIP is the user's intent; also allow if coords are saved and differ from default)
     const hasRealSaved =
       !!saved.zip ||
       (Number.isFinite(saved.lat) && Number.isFinite(saved.lon) &&
@@ -136,17 +275,14 @@
 
     if (!hasRealSaved) return false;
 
-    // If caller did NOT explicitly provide a label, saved should win.
     const callerProvidedLabel = !!(options && Object.prototype.hasOwnProperty.call(options, "locationLabel"));
     if (!callerProvidedLabel) return true;
 
-    // If caller provided the DEFAULT label (Divernon), treat that as "not a real override"
     const callerLabel = safeText(options.locationLabel).trim();
     if (!callerLabel) return true;
     if (callerLabel === DEFAULT_LOCATION.label) return true;
     if (callerLabel === DEFAULT_CONFIG.locationLabel) return true;
 
-    // Caller provided some other non-default label; respect it.
     return false;
   }
 
@@ -158,13 +294,11 @@
 
     const saved = readSavedLocation();
 
-    // coords: saved wins unless caller explicitly provides lat/lon
     if (saved && !callerProvidedLatLon){
       cfg.lat = saved.lat;
       cfg.lon = saved.lon;
     }
 
-    // label: saved wins whenever there's a saved ZIP/location unless caller truly overrides
     if (saved && shouldUseSavedLabel(saved, options)){
       cfg.locationLabel = saved.label || cfg.locationLabel;
     }
@@ -281,7 +415,6 @@
     const sig = cfgSig(config);
     const existing = __timers.get(config.selector);
     if (existing && existing.lastCfgSig === sig) {
-      // keep existing but update countdown immediately
       updateCountdown(container, config.selector);
       return;
     }
@@ -313,15 +446,21 @@
       }
     }, sec * 1000);
 
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState !== "visible") return;
-      state.nextAtMs = Date.now() + sec * 1000;
-      setUpdating(container, true);
-      doRefresh().finally(() => {
-        setUpdating(container, false);
-        updateCountdown(container, config.selector);
+    // NOTE: ensure we don't stack multiple visibility listeners per page load
+    if (!wireAutoRefresh.__wired){
+      wireAutoRefresh.__wired = true;
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState !== "visible") return;
+        const t = __timers.get(config.selector);
+        if (!t) return;
+        t.nextAtMs = Date.now() + sec * 1000;
+        setUpdating(container, true);
+        doRefresh().finally(() => {
+          setUpdating(container, false);
+          updateCountdown(container, config.selector);
+        });
       });
-    });
+    }
 
     updateCountdown(container, config.selector);
   }
@@ -513,11 +652,11 @@
         border-radius:14px;border:1px solid var(--border,#d1d5db);
         background:var(--card-surface,var(--surface));
         box-shadow:0 8px 18px rgba(0,0,0,0.06);
-        padding:10px 14px 12px;cursor:pointer;
+        padding:10px 14px 10px;cursor:pointer;
       ">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
-          <div>
-            <div style="font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;">
+          <div style="min-width:0;">
+            <div style="font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
               <span data-fv="title">Weather · ${safeText(config.locationLabel || "")}</span>
             </div>
             <div style="font-size:11px;color:var(--muted,#67706B);display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
@@ -533,6 +672,7 @@
             padding:4px 8px;
             font-size:12px;cursor:pointer;
             color:inherit;
+            flex:0 0 auto;
           " aria-label="Refresh weather">⟳</button>
         </div>
 
@@ -582,15 +722,15 @@
           </div>
         </div>
 
-        <!-- Location (ZIP) -->
+        <!-- Location (ZIP) - tighter + mobile friendly -->
         <div class="fv-weather-loc" style="
-          display:flex;align-items:center;justify-content:space-between;gap:10px;
-          flex-wrap:wrap;margin-top:10px;
-          padding-top:10px;border-top:1px solid rgba(148,163,184,0.25);
+          display:flex;align-items:center;justify-content:space-between;gap:8px;
+          flex-wrap:wrap;margin-top:8px;
+          padding-top:8px;border-top:1px solid rgba(148,163,184,0.22);
         ">
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:8px;flex:0 0 auto;">
             <div style="
-              font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+              font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
               color:var(--muted,#67706B);
             ">ZIP</div>
 
@@ -602,7 +742,7 @@
               value="${safeText(zipVal).replace(/"/g,"&quot;")}"
               placeholder=""
               style="
-                width:130px;max-width:56vw;
+                width:108px;
                 border:1px solid var(--border,#d1d5db);
                 border-radius:999px;
                 padding:4px 9px;
@@ -617,7 +757,12 @@
 
           <div class="fv-weather-zip-status" style="
             font-size:12px;color:var(--muted,#67706B);
-            flex:1;text-align:right;min-width:180px;
+            flex:1 1 auto;
+            text-align:right;
+            white-space:nowrap;
+            overflow:hidden;
+            text-overflow:ellipsis;
+            min-width:140px;
           "></div>
         </div>
       </section>
@@ -711,6 +856,10 @@
   function wireCardControls(container, config){
     if (!container) return;
 
+    // prevent stacking duplicate listeners on repeated init calls
+    if (container.__fvWeatherWired) return;
+    container.__fvWeatherWired = true;
+
     // refresh click should NOT bubble to modal open
     const refreshBtn = container.querySelector(".fv-weather-refresh");
     if (refreshBtn){
@@ -734,7 +883,10 @@
     const statusEl = container.querySelector(".fv-weather-zip-status");
     if (!zipEl) return;
 
-    const setStatus = (msg) => { if (statusEl) statusEl.textContent = msg || ""; };
+    const setStatus = (msg, alsoLabel) => {
+      if (statusEl) statusEl.textContent = msg || "";
+      if (alsoLabel) syncExternalHelper(alsoLabel);
+    };
 
     let debounceId = null;
     async function applyZip(raw){
@@ -751,7 +903,7 @@
           lon: DEFAULT_LOCATION.lon,
           label: DEFAULT_LOCATION.label
         });
-        setStatus(`Using ${DEFAULT_LOCATION.label}`);
+        setStatus(`Using ${DEFAULT_LOCATION.label}`, DEFAULT_LOCATION.label);
         await initWeatherModule({ ...config, lat: DEFAULT_LOCATION.lat, lon: DEFAULT_LOCATION.lon, locationLabel: DEFAULT_LOCATION.label, __forceRefresh:true });
         return;
       }
@@ -762,7 +914,10 @@
       try{
         const loc = await lookupZip(z5);
         saveLocation(loc);
-        setStatus(`Using ${loc.label}`);
+
+        // immediately sync any external footer helper
+        setStatus(`Using ${loc.label}`, loc.label);
+
         await initWeatherModule({ ...config, lat: loc.lat, lon: loc.lon, locationLabel: loc.label, __forceRefresh:true });
       }catch(e){
         console.warn("[FVWeather] ZIP set failed:", e);
@@ -780,7 +935,6 @@
     zipEl.addEventListener("input", (evt)=>{
       evt.stopPropagation();
       zipEl.value = clampZipInput(zipEl.value);
-      // only auto-apply when we have 5 digits
       if (zip5Only(zipEl.value).length === 5) scheduleApply();
       else setStatus("");
     });
@@ -794,23 +948,25 @@
     });
 
     zipEl.addEventListener("blur", ()=>{
-      // apply on blur if 5 digits present
       if (zip5Only(zipEl.value).length === 5) applyZip(zipEl.value);
       if (!zipEl.value) applyZip("");
     });
 
-    // initial status
+    // initial status + external helper sync
     const saved = readSavedLocation();
-    if (saved && saved.label) setStatus(`Using ${saved.label}`);
-    else setStatus(`Using ${DEFAULT_LOCATION.label}`);
+    if (saved && saved.label){
+      setStatus(`Using ${saved.label}`, saved.label);
+      // ensure input shows saved ZIP even if skeleton rendered before cookie/localStorage was ready
+      if (saved.zip) zipEl.value = saved.zip;
+    } else {
+      setStatus(`Using ${DEFAULT_LOCATION.label}`, DEFAULT_LOCATION.label);
+    }
   }
 
   /* ==========================
      Render – modal (kept as your original full render)
-     (Not doing ZIP inside modal anymore; ZIP is on main card)
      ========================== */
 
-  // Classify day
   function classifyDay(day) {
     const hi = day.tMax;
     const precip = day.precipIn || 0;
@@ -911,7 +1067,6 @@
            No recent rainfall data.
          </div>`;
 
-    // today-forward
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const allDays = forecast.days || [];
@@ -1038,7 +1193,6 @@
       });
     }
 
-    // details click behavior
     const rows = container.querySelectorAll(".fv-forecast-row");
     const detailEl = container.querySelector(".fv-forecast-detail");
 
@@ -1149,14 +1303,12 @@
 
     const firstPaint = !__rendered.has(config.selector) && (config.mode === "card");
 
-    // Card: render skeleton once, then update in place
     if (config.mode === "card") {
       if (firstPaint) {
         container.innerHTML = cardSkeletonHtml(config);
         __rendered.add(config.selector);
         wireCardControls(container, config);
       } else {
-        // keep existing DOM; just mark updating
         setUpdating(container, !!options.__forceRefresh);
       }
     }
@@ -1167,19 +1319,17 @@
       if (config.mode === "modal") {
         renderModal(container, combined, config);
       } else {
-        // update card in place (no flash)
         updateCardInPlace(container, combined, config);
 
-        // ensure click handlers still exist if something replaced the HTML externally
-        wireCardControls(container, config);
+        // If saved label exists, re-sync helper text (fixes “header changed, footer didn’t” cases)
+        const saved = readSavedLocation();
+        if (saved && saved.label) syncExternalHelper(saved.label);
 
-        // countdown display
         updateCountdown(container, config.selector);
       }
     }catch(err){
       console.warn("[FVWeather] render failed:", err);
       if (config.mode === "card") {
-        // keep skeleton but show status
         const statusEl = container.querySelector(".fv-weather-zip-status");
         if (statusEl) statusEl.textContent = "Weather unavailable.";
       } else {
@@ -1189,9 +1339,8 @@
       setUpdating(container, false);
     }
 
-    // timers (card + modal containers both can auto-refresh; your dashboard likely only uses card)
+    // timers
     const doRefresh = async () => {
-      // On refresh, always re-resolve the saved location (so header stays in sync too)
       const saved = readSavedLocation();
       const nextCfg = { ...config };
 
