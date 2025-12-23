@@ -11,19 +11,6 @@
 
 (() => {
   "use strict";
-    // Center placeholder text in the ZIP input (Safari/iOS needs ::placeholder rule)
-  (function injectZipPlaceholderStyle(){
-    try{
-      if (document.getElementById('fv-weather-zip-ph-style')) return;
-      const s = document.createElement('style');
-      s.id = 'fv-weather-zip-ph-style';
-      s.textContent = `
-        .fv-weather-zip::placeholder{ text-align:center; }
-        .fv-weather-zip::-webkit-input-placeholder{ text-align:center; }
-      `;
-      document.head.appendChild(s);
-    }catch(_){}
-  })();
 
   const GOOGLE_CURRENT_URL =
     "https://weather.googleapis.com/v1/currentConditions:lookup";
@@ -736,52 +723,51 @@
         </div>
 
         <!-- Location (ZIP) - tighter + mobile friendly -->
-<div class="fv-weather-loc" style="
-  display:flex;align-items:center;justify-content:space-between;gap:8px;
-  flex-wrap:wrap;margin-top:8px;
-  padding-top:8px;border-top:1px solid rgba(148,163,184,0.22);
-">
-  <div style="display:flex;align-items:center;gap:8px;flex:0 0 auto;">
-    <div style="
-      font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
-      color:var(--muted,#67706B);
-    ">ZIP</div>
+        <div class="fv-weather-loc" style="
+          display:flex;align-items:center;justify-content:space-between;gap:8px;
+          flex-wrap:wrap;margin-top:8px;
+          padding-top:8px;border-top:1px solid rgba(148,163,184,0.22);
+        ">
+          <div style="display:flex;align-items:center;gap:8px;flex:0 0 auto;">
+            <div style="
+              font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+              color:var(--muted,#67706B);
+            ">ZIP</div>
 
-    <input
-      type="text"
-      inputmode="numeric"
-      autocomplete="postal-code"
-      class="fv-weather-zip"
-      value="${safeText(zipVal).replace(/"/g,"&quot;")}"
-      placeholder="Enter Zip"
-      style="
-        width:108px;
-        border:1px solid var(--border,#d1d5db);
-        border-radius:999px;
-        padding:4px 9px;
-        background:var(--surface);
-        color:inherit;
-        font:inherit;
-        font-size:12px;
-        outline:none;
-        text-align:center;
-      "
-    />
-  </div>
+            <input
+              type="text"
+              inputmode="numeric"
+              autocomplete="postal-code"
+              class="fv-weather-zip"
+              value="${safeText(zipVal).replace(/"/g,"&quot;")}"
+              placeholder="Enter Zip"
+              style="
+                width:108px;
+                border:1px solid var(--border,#d1d5db);
+                border-radius:999px;
+                padding:4px 9px;
+                background:var(--surface);
+                color:inherit;
+                font:inherit;
+                font-size:12px;
+                outline:none;
+              "
+            />
+          </div>
 
-  <div class="fv-weather-zip-status" style="
-    font-size:8px;color:var(--muted,#67706B);
-    flex:1 1 auto;
-    text-align:center;
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
-    min-width:140px;
-  "></div>
-</div>
-</section>
-`;
-}
+          <div class="fv-weather-zip-status" style="
+            font-size:8px;color:var(--muted,#67706B);
+            flex:1 1 auto;
+            text-align:center;
+            white-space:nowrap;
+            overflow:hidden;
+            text-overflow:ellipsis;
+            min-width:140px;
+          "></div>
+        </div>
+      </section>
+    `;
+  }
 
   function updateCardInPlace(container, combined, config){
     if (!container) return;
