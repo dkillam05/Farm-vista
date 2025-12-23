@@ -867,28 +867,28 @@ async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
   wrap.append(left,mid,right);
   pHost.appendChild(wrap);
 
-  // ---- Dynamic cut measurement ----
-  // Wait a paint so layout settles (especially iOS)
+    // ---- Dynamic cut measurement (measure CONTENT, not the forced box) ----
+  // Let the preview shrink to content so we can measure the true needed width.
+  // (If we measure while width is forced to 140mm, we just "discover" 140mm.)
+  wrap.style.width = 'fit-content';
+
+  // Wait for layout
   await new Promise(r=>requestAnimationFrame(r));
   await new Promise(r=>requestAnimationFrame(r));
 
-  // Measure rendered width and convert to mm
+  // Measure the *natural* content width
   const rect = wrap.getBoundingClientRect();
   let measuredMm = pxToMm(rect.width);
 
-  // Safety trim:
-  // +1.5mm gives the cutter a hair of buffer so VIN isn't clipped
+  // CUT BUFFER TEST: 0mm (tight as possible)
   measuredMm = measuredMm + 0.0;
 
-  // Clamp to sane bounds (prevents crazy values if something reports 0)
-  // You can widen these later if you want longer labels.
+  // Allow tight cuts (you can raise max later)
   measuredMm = clampMm(measuredMm, 60, 180);
 
   __cutLenMm = roundUpMm(measuredMm);
-  console.log('[label] dynamic cutLenMm =', __cutLenMm, 'measuredMm=', measuredMm);
 
-
-  // Update preview width to match the final cut
+  // Now force the preview to the computed cut length (so you SEE the cut)
   wrap.style.width = `${__cutLenMm}mm`;
 
   pCreate.disabled = false;
