@@ -361,16 +361,14 @@
       gap:12px;
       grid-template-rows:minmax(220px, 320px) auto;
     }
-
-    /* Crunch down the chat log + bubbles */
     .ai-log{
       border:1px solid var(--border);
       border-radius:12px;
-      padding:8px;
+      padding:10px;
       background:var(--card-surface,var(--surface));
       display:flex;
       flex-direction:column;
-      gap:6px;
+      gap:8px;
       overflow:auto;
       max-height:320px;
       font-size:13px;
@@ -378,21 +376,28 @@
     .ai-empty{
       color:var(--muted,#67706B);
       font-size:13px;
-      line-height:1.35;
     }
 
-   .ai-msg{
-  display:inline-block;
-  width:fit-content;
-  max-width:55%;          /* tighter wrap */
-  padding:6px 8px;        /* less air */
-  border-radius:16px;     /* more iOS-like */
-  line-height:1.3;
-  white-space:pre-wrap;
-  word-break:break-word;
-  font-size:13px;
-}
-
+    /* ========= Copilot messages (ONLY) — phone-like bubbles + label under ========= */
+    .ai-msg-wrap{
+      display:flex;
+      flex-direction:column;
+      gap:3px;
+      margin:2px 0 6px;
+      max-width:100%;
+    }
+    .ai-msg{
+      /* bubble hugs text, grows down on wrap */
+      display:inline-block;
+      width:fit-content;
+      max-width:60%;
+      border-radius:14px;
+      padding:6px 8px;
+      line-height:1.3;
+      white-space:pre-wrap;
+      word-break:break-word;
+      font-size:13px;
+    }
     .ai-msg-user{
       align-self:flex-end;
       background:rgba(59,126,70,0.12);
@@ -403,34 +408,27 @@
       background:var(--surface);
       border:1px solid var(--border);
     }
-    .ai-msg-wrap{
-  display:flex;
-  flex-direction:column;
-  gap:3px;
-  margin:2px 0 6px;
-}
-.ai-msg-wrap .ai-msg-user{ align-self:flex-end; }
-.ai-msg-wrap .ai-msg-assistant{ align-self:flex-start; }
-
-.ai-msg-wrap .ai-msg-meta{
-  padding:0 6px;
-}
-.ai-msg-wrap .ai-msg-user + .ai-msg-meta{ text-align:right; }
-.ai-msg-wrap .ai-msg-assistant + .ai-msg-meta{ text-align:left; }
-
     .ai-msg-meta{
-      font-size:10.5px;
+      font-size:11px;
       color:var(--muted,#67706B);
-      margin-bottom:2px;
       opacity:0.85;
-      letter-spacing:.02em;
+      padding:0 6px;
+      line-height:1.2;
     }
+    .ai-msg-meta.user{
+      text-align:right;
+    }
+    .ai-msg-meta.assistant{
+      text-align:left;
+    }
+    /* ========= end Copilot messages ========= */
 
     .ai-form{
       display:grid;
       gap:6px;
     }
 
+    /* ====== DO NOT TOUCH INPUT AREA (your existing styling) ====== */
     .ai-input-wrap{
       position:relative;
       display:block;
@@ -535,30 +533,6 @@
       color:var(--muted,#67706B);
       flex:1;
       text-align:right;
-    }
-
-    /* Even tighter on phones */
-    @media (max-width: 520px){
-      .ai-log{
-        padding:7px;
-        gap:5px;
-        font-size:12.5px;
-      }
-      .ai-msg{
-        padding:6px 8px;
-        font-size:12.5px;
-        max-width:86%;
-      }
-      .ai-msg-meta{
-        font-size:10px;
-        margin-bottom:1px;
-      }
-      .ai-input{
-        font-size:13px;
-      }
-      .ai-actions{
-        gap:6px;
-      }
     }
   </style>
 </head>
@@ -677,6 +651,7 @@
             </div>
           </div>
 
+          <!-- INPUT AREA: LEFT EXACTLY AS YOU SENT IT -->
           <form id="ai-chat-form" class="ai-form" autocomplete="off">
             <div class="ai-input-wrap">
               <textarea
@@ -1448,258 +1423,266 @@
   </script>
 
   <!-- ==========================
-     FarmVista Copilot JS (AI UI)
-     - now respects cap-chatbot (section may be hidden)
-     - NOW: persists chat history in localStorage
-     ========================== -->
-<script>
-(function(){
-  "use strict";
+       FarmVista Copilot JS (AI UI)
+       - respects cap-chatbot (section may be hidden)
+       - ADDED: local chat history (messages only)
+       - CHANGED: message rendering only (bubble hugs text + label under)
+       - INPUT AREA: unchanged
+       ========================== -->
+  <script>
+  (function(){
+    "use strict";
 
-  const sectionEl = document.getElementById("ai-section");
-  const logEl   = document.getElementById("ai-chat-log");
-  const formEl  = document.getElementById("ai-chat-form");
-  const inputEl = document.getElementById("ai-input");
-  const micEl   = document.getElementById("ai-mic");
-  const sendEl  = document.getElementById("ai-send");
-  const statusEl= document.getElementById("ai-status");
+    const sectionEl = document.getElementById("ai-section");
+    const logEl   = document.getElementById("ai-chat-log");
+    const formEl  = document.getElementById("ai-chat-form");
+    const inputEl = document.getElementById("ai-input");
+    const micEl   = document.getElementById("ai-mic");
+    const sendEl  = document.getElementById("ai-send");
+    const statusEl= document.getElementById("ai-status");
 
-  if (!sectionEl || !logEl || !formEl || !inputEl || !micEl || !sendEl) return;
+    if (!sectionEl || !logEl || !formEl || !inputEl || !micEl || !sendEl) return;
 
-  function isHidden(){
-    return sectionEl.classList.contains("perm-hidden") || sectionEl.getAttribute("aria-hidden") === "true";
-  }
-
-  let wired = false;
-
-  function wireUp(){
-    if (wired) return;
-    if (isHidden()) return;
-
-    wired = true;
-
-    let isThinking = false;
-
-    // === Copilot local history ===
-    const STORE_KEY = "fv_copilot_chat_v1";
-    const MAX_KEEP  = 80; // keep last 80 bubbles (plenty for local UX)
-
-    function safeHtml(s){
-      return String(s ?? "")
-        .replace(/&/g,"&amp;")
-        .replace(/</g,"&lt;")
-        .replace(/>/g,"&gt;")
-        .replace(/"/g,"&quot;")
-        .replace(/'/g,"&#39;");
+    function isHidden(){
+      return sectionEl.classList.contains("perm-hidden") || sectionEl.getAttribute("aria-hidden") === "true";
     }
 
-    function clearEmptyState(){
-      const empty = logEl.querySelector(".ai-empty");
-      if (empty) empty.remove();
-    }
+    // If perms resolve after this script runs, we bail out early here and
+    // then re-run wiring when "fv:dash-perms-ready" fires (only if allowed).
+    let wired = false;
 
-    function loadHistory(){
-      try{
-        const raw = localStorage.getItem(STORE_KEY);
-        if (!raw) return [];
-        const arr = JSON.parse(raw);
-        if (!Array.isArray(arr)) return [];
-        return arr
-          .filter(m => m && (m.role === "user" || m.role === "assistant"))
-          .map(m => ({
-            role: m.role,
-            text: String(m.text ?? ""),
-            ts: Number(m.ts) || Date.now()
-          }));
-      }catch{
-        return [];
-      }
-    }
-
-    function saveHistory(list){
-      try{
-        const trimmed = (list || []).slice(-MAX_KEEP);
-        localStorage.setItem(STORE_KEY, JSON.stringify(trimmed));
-      }catch(e){
-        // If storage is full or blocked, silently ignore
-      }
-    }
-
-    let history = loadHistory();
-
-    function renderHistory(){
-      if (!history.length) return;
-
-      clearEmptyState();
-      // Render in order
-      for (const m of history){
-        const wrap = document.createElement("div");
-        wrap.className = "ai-msg " + (m.role === "user" ? "ai-msg-user" : "ai-msg-assistant");
-        const who = m.role === "user" ? "You" : "Copilot";
-        wrap.innerHTML = `
-          <div class="ai-msg-meta">${who}</div>
-          <div>${safeHtml(m.text)}</div>
-        `;
-        logEl.appendChild(wrap);
-      }
-      logEl.scrollTop = logEl.scrollHeight;
-    }
-
-    function appendMessage(role, text){
-  clearEmptyState();
-
-  const msgText = String(text || "");
-  const who = role === "user" ? "You" : "Copilot";
-
-  const wrap = document.createElement("div");
-  wrap.className = "ai-msg-wrap";
-
-  wrap.innerHTML = `
-    <div class="ai-msg ${role === "user" ? "ai-msg-user" : "ai-msg-assistant"}">
-      ${safeHtml(msgText)}
-    </div>
-    <div class="ai-msg-meta">${who}</div>
-  `;
-
-  logEl.appendChild(wrap);
-  logEl.scrollTop = logEl.scrollHeight;
-
-  history.push({ role, text: msgText, ts: Date.now() });
-  saveHistory(history);
-}
-
-
-    // Hydrate on first wire
-    renderHistory();
-
-    function setStatus(msg){
-      if (statusEl) statusEl.textContent = msg || "";
-    }
-
-    function setThinking(on){
-      isThinking = !!on;
-      sendEl.disabled = isThinking;
-      inputEl.disabled = isThinking;
-      micEl.disabled = isThinking;
-      setStatus(isThinking ? "Thinking…" : "");
-    }
-
-    async function callAssistant(prompt){
-      const endpoint = "https://farmvista-copilot-300398089669.us-central1.run.app/chat";
-
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: prompt })
-      });
-
-      if (!res.ok){
-        let detail = "";
-        try { detail = await res.text(); } catch {}
-        throw new Error("API error " + res.status + (detail ? (": " + detail) : ""));
-      }
-
-      const data = await res.json();
-      return (data && data.answer != null) ? String(data.answer) : "(No response)";
-    }
-
-    formEl.addEventListener("submit", async (evt)=>{
-      evt.preventDefault();
-      if (isThinking) return;
+    function wireUp(){
+      if (wired) return;
       if (isHidden()) return;
 
-      const text = (inputEl.value || "").trim();
-      if (!text) return;
+      wired = true;
 
-      appendMessage("user", text);
-      inputEl.value = "";
-      inputEl.style.height = "auto";
+      let isThinking = false;
 
-      setThinking(true);
-      try{
-        const reply = await callAssistant(text);
-        appendMessage("assistant", reply || "(No response)");
-      }catch(e){
-        console.warn("[copilot] error:", e);
-        appendMessage("assistant", "Sorry, I couldn't process that request right now.");
-      }finally{
-        setThinking(false);
+      // ===== Local chat persistence (messages only) =====
+      const STORE_KEY = "fv_copilot_chat_v1";
+      const MAX_KEEP  = 80;
+
+      function safeHtml(s){
+        return String(s ?? "")
+          .replace(/&/g,"&amp;")
+          .replace(/</g,"&lt;")
+          .replace(/>/g,"&gt;")
+          .replace(/"/g,"&quot;")
+          .replace(/'/g,"&#39;");
       }
-    });
 
-    inputEl.addEventListener("input", ()=>{
-      inputEl.style.height = "auto";
-      inputEl.style.height = Math.min(inputEl.scrollHeight, 96) + "px";
-    });
+      function loadHistory(){
+        try{
+          const raw = localStorage.getItem(STORE_KEY);
+          if (!raw) return [];
+          const arr = JSON.parse(raw);
+          if (!Array.isArray(arr)) return [];
+          return arr
+            .filter(m => m && (m.role === "user" || m.role === "assistant"))
+            .map(m => ({ role: m.role, text: String(m.text ?? ""), ts: Number(m.ts) || Date.now() }));
+        }catch{
+          return [];
+        }
+      }
 
-    inputEl.addEventListener("keydown", (evt)=>{
-      if (evt.key === "Enter" && !evt.shiftKey){
+      function saveHistory(list){
+        try{
+          const trimmed = (list || []).slice(-MAX_KEEP);
+          localStorage.setItem(STORE_KEY, JSON.stringify(trimmed));
+        }catch{}
+      }
+
+      let history = loadHistory();
+
+      function clearEmptyState(){
+        const empty = logEl.querySelector(".ai-empty");
+        if (empty) empty.remove();
+      }
+
+      function renderHistory(){
+        if (!history.length) return;
+        clearEmptyState();
+
+        for (const m of history){
+          const who = m.role === "user" ? "You" : "Copilot";
+
+          const wrap = document.createElement("div");
+          wrap.className = "ai-msg-wrap";
+
+          const bubble = document.createElement("div");
+          bubble.className = "ai-msg " + (m.role === "user" ? "ai-msg-user" : "ai-msg-assistant");
+          bubble.innerHTML = safeHtml(m.text);
+
+          const meta = document.createElement("div");
+          meta.className = "ai-msg-meta " + (m.role === "user" ? "user" : "assistant");
+          meta.textContent = who;
+
+          wrap.appendChild(bubble);
+          wrap.appendChild(meta);
+          logEl.appendChild(wrap);
+        }
+
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function appendMessage(role, text){
+        clearEmptyState();
+
+        const msgText = String(text || "");
+        const who = role === "user" ? "You" : "Copilot";
+
+        const wrap = document.createElement("div");
+        wrap.className = "ai-msg-wrap";
+
+        const bubble = document.createElement("div");
+        bubble.className = "ai-msg " + (role === "user" ? "ai-msg-user" : "ai-msg-assistant");
+        bubble.innerHTML = safeHtml(msgText);
+
+        const meta = document.createElement("div");
+        meta.className = "ai-msg-meta " + (role === "user" ? "user" : "assistant");
+        meta.textContent = who;
+
+        wrap.appendChild(bubble);
+        wrap.appendChild(meta);
+
+        logEl.appendChild(wrap);
+        logEl.scrollTop = logEl.scrollHeight;
+
+        history.push({ role, text: msgText, ts: Date.now() });
+        saveHistory(history);
+      }
+
+      // Hydrate on first wire
+      renderHistory();
+
+      function setStatus(msg){
+        statusEl.textContent = msg || "";
+      }
+
+      function setThinking(on){
+        isThinking = !!on;
+        sendEl.disabled = isThinking;
+        inputEl.disabled = isThinking;
+        micEl.disabled = isThinking;
+        setStatus(isThinking ? "Thinking…" : "");
+      }
+
+      async function callAssistant(prompt){
+        // KEEP EXACTLY AS YOU SENT
+        const endpoint = "https://chatbot-api-300398089669.us-central1.run.app/chat";
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: prompt })
+        });
+
+        if (!res.ok){
+          throw new Error("API error " + res.status);
+        }
+
+        const data = await res.json();
+        return data && data.reply ? data.reply.toString() : "(No response)";
+      }
+
+      formEl.addEventListener("submit", async (evt)=>{
         evt.preventDefault();
-        if (!isThinking){
-          if (typeof formEl.requestSubmit === "function"){
-            formEl.requestSubmit();
-          }else{
-            formEl.dispatchEvent(new Event("submit", { cancelable:true, bubbles:true }));
+        if (isThinking) return;
+        if (isHidden()) return;
+
+        const text = (inputEl.value || "").trim();
+        if (!text) return;
+
+        appendMessage("user", text);
+        inputEl.value = "";
+        inputEl.style.height = "auto";
+
+        setThinking(true);
+        try{
+          const reply = await callAssistant(text);
+          appendMessage("assistant", reply || "(No response)");
+        }catch(e){
+          console.warn("[copilot] error:", e);
+          appendMessage("assistant", "Sorry, I couldn't process that request right now.");
+        }finally{
+          setThinking(false);
+        }
+      });
+
+      inputEl.addEventListener("input", ()=>{
+        inputEl.style.height = "auto";
+        inputEl.style.height = Math.min(inputEl.scrollHeight, 96) + "px";
+      });
+
+      inputEl.addEventListener("keydown", (evt)=>{
+        if (evt.key === "Enter" && !evt.shiftKey){
+          evt.preventDefault();
+          if (!isThinking){
+            if (typeof formEl.requestSubmit === "function"){
+              formEl.requestSubmit();
+            }else{
+              formEl.dispatchEvent(new Event("submit", { cancelable:true, bubbles:true }));
+            }
           }
         }
+      });
+
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      let recognition = null;
+      let isRecording = false;
+
+      if (SpeechRecognition){
+        recognition = new SpeechRecognition();
+        recognition.lang = "en-US";
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        recognition.addEventListener("start", ()=>{
+          isRecording = true;
+          micEl.classList.add("recording");
+          setStatus("Listening…");
+        });
+
+        recognition.addEventListener("end", ()=>{
+          isRecording = false;
+          micEl.classList.remove("recording");
+          if (!isThinking) setStatus("");
+        });
+
+        recognition.addEventListener("result", (event)=>{
+          const result = event.results && event.results[0] && event.results[0][0];
+          const t = result ? result.transcript : "";
+          if (t){
+            const existing = inputEl.value.trim();
+            inputEl.value = existing ? (existing + " " + t) : t;
+            inputEl.dispatchEvent(new Event("input"));
+            inputEl.focus();
+          }
+        });
+
+        micEl.addEventListener("click", ()=>{
+          if (isThinking) return;
+          if (isRecording){
+            recognition.stop();
+            return;
+          }
+          try{
+            recognition.start();
+          }catch(e){
+            console.warn("[copilot] recognition error:", e);
+          }
+        });
+      }else{
+        micEl.disabled = true;
+        setStatus("Voice dictation not supported in this browser.");
       }
-    });
-
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    let recognition = null;
-    let isRecording = false;
-
-    if (SpeechRecognition){
-      recognition = new SpeechRecognition();
-      recognition.lang = "en-US";
-      recognition.interimResults = false;
-      recognition.maxAlternatives = 1;
-
-      recognition.addEventListener("start", ()=>{
-        isRecording = true;
-        micEl.classList.add("recording");
-        setStatus("Listening…");
-      });
-
-      recognition.addEventListener("end", ()=>{
-        isRecording = false;
-        micEl.classList.remove("recording");
-        if (!isThinking) setStatus("");
-      });
-
-      recognition.addEventListener("result", (event)=>{
-        const result = event.results && event.results[0] && event.results[0][0];
-        const txt = result ? result.transcript : "";
-        if (txt){
-          const existing = inputEl.value.trim();
-          inputEl.value = existing ? (existing + " " + txt) : txt;
-          inputEl.dispatchEvent(new Event("input"));
-          inputEl.focus();
-        }
-      });
-
-      micEl.addEventListener("click", ()=>{
-        if (isThinking) return;
-        if (isRecording){
-          recognition.stop();
-          return;
-        }
-        try{
-          recognition.start();
-        }catch(e){
-          console.warn("[copilot] recognition error:", e);
-        }
-      });
-    }else{
-      micEl.disabled = true;
-      setStatus("Voice dictation not supported in this browser.");
     }
-  }
 
-  wireUp();
-  document.addEventListener("fv:dash-perms-ready", wireUp);
-})();
-</script>
+    // Try now (in case perms already resolved), and again after perms event
+    wireUp();
+    document.addEventListener("fv:dash-perms-ready", wireUp);
+  })();
+  </script>
 
   <!-- One-time SW reset for path change -->
   <script>
