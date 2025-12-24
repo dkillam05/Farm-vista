@@ -361,14 +361,16 @@
       gap:12px;
       grid-template-rows:minmax(220px, 320px) auto;
     }
+
+    /* Crunch down the chat log + bubbles */
     .ai-log{
       border:1px solid var(--border);
       border-radius:12px;
-      padding:10px;
+      padding:8px;
       background:var(--card-surface,var(--surface));
       display:flex;
       flex-direction:column;
-      gap:8px;
+      gap:6px;
       overflow:auto;
       max-height:320px;
       font-size:13px;
@@ -376,14 +378,17 @@
     .ai-empty{
       color:var(--muted,#67706B);
       font-size:13px;
+      line-height:1.35;
     }
+
     .ai-msg{
-      border-radius:10px;
-      padding:8px 10px;
+      border-radius:12px;
+      padding:7px 9px;
       line-height:1.35;
       white-space:pre-wrap;
       word-break:break-word;
       font-size:13px;
+      max-width:min(78%, 520px);
     }
     .ai-msg-user{
       align-self:flex-end;
@@ -396,11 +401,13 @@
       border:1px solid var(--border);
     }
     .ai-msg-meta{
-      font-size:11px;
+      font-size:10.5px;
       color:var(--muted,#67706B);
       margin-bottom:2px;
       opacity:0.85;
+      letter-spacing:.02em;
     }
+
     .ai-form{
       display:grid;
       gap:6px;
@@ -488,14 +495,14 @@
       outline:none;
     }
     /* Force SEND button to always use white font */
-#ai-send,
-.ai-send{
-  color:#fff !important;
-}
-#ai-send * ,
-.ai-send *{
-  color:#fff !important;
-}
+    #ai-send,
+    .ai-send{
+      color:#fff !important;
+    }
+    #ai-send * ,
+    .ai-send *{
+      color:#fff !important;
+    }
 
     .ai-send[disabled]{
       opacity:0.5;
@@ -510,6 +517,30 @@
       color:var(--muted,#67706B);
       flex:1;
       text-align:right;
+    }
+
+    /* Even tighter on phones */
+    @media (max-width: 520px){
+      .ai-log{
+        padding:7px;
+        gap:5px;
+        font-size:12.5px;
+      }
+      .ai-msg{
+        padding:6px 8px;
+        font-size:12.5px;
+        max-width:86%;
+      }
+      .ai-msg-meta{
+        font-size:10px;
+        margin-bottom:1px;
+      }
+      .ai-input{
+        font-size:13px;
+      }
+      .ai-actions{
+        gap:6px;
+      }
     }
   </style>
 </head>
@@ -1401,6 +1432,7 @@
   <!-- ==========================
      FarmVista Copilot JS (AI UI)
      - now respects cap-chatbot (section may be hidden)
+     - NOW: persists chat history in localStorage
      ========================== -->
 <script>
 (function(){
@@ -1430,23 +1462,92 @@
 
     let isThinking = false;
 
+    // === Copilot local history ===
+    const STORE_KEY = "fv_copilot_chat_v1";
+    const MAX_KEEP  = 80; // keep last 80 bubbles (plenty for local UX)
+
+    function safeHtml(s){
+      return String(s ?? "")
+        .replace(/&/g,"&amp;")
+        .replace(/</g,"&lt;")
+        .replace(/>/g,"&gt;")
+        .replace(/"/g,"&quot;")
+        .replace(/'/g,"&#39;");
+    }
+
     function clearEmptyState(){
       const empty = logEl.querySelector(".ai-empty");
       if (empty) empty.remove();
     }
 
+    function loadHistory(){
+      try{
+        const raw = localStorage.getItem(STORE_KEY);
+        if (!raw) return [];
+        const arr = JSON.parse(raw);
+        if (!Array.isArray(arr)) return [];
+        return arr
+          .filter(m => m && (m.role === "user" || m.role === "assistant"))
+          .map(m => ({
+            role: m.role,
+            text: String(m.text ?? ""),
+            ts: Number(m.ts) || Date.now()
+          }));
+      }catch{
+        return [];
+      }
+    }
+
+    function saveHistory(list){
+      try{
+        const trimmed = (list || []).slice(-MAX_KEEP);
+        localStorage.setItem(STORE_KEY, JSON.stringify(trimmed));
+      }catch(e){
+        // If storage is full or blocked, silently ignore
+      }
+    }
+
+    let history = loadHistory();
+
+    function renderHistory(){
+      if (!history.length) return;
+
+      clearEmptyState();
+      // Render in order
+      for (const m of history){
+        const wrap = document.createElement("div");
+        wrap.className = "ai-msg " + (m.role === "user" ? "ai-msg-user" : "ai-msg-assistant");
+        const who = m.role === "user" ? "You" : "Copilot";
+        wrap.innerHTML = `
+          <div class="ai-msg-meta">${who}</div>
+          <div>${safeHtml(m.text)}</div>
+        `;
+        logEl.appendChild(wrap);
+      }
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
     function appendMessage(role, text){
       clearEmptyState();
+
+      const msgText = String(text || "");
       const wrap = document.createElement("div");
       wrap.className = "ai-msg " + (role === "user" ? "ai-msg-user" : "ai-msg-assistant");
       const who = role === "user" ? "You" : "Copilot";
+
       wrap.innerHTML = `
         <div class="ai-msg-meta">${who}</div>
-        <div>${String(text || "").replace(/</g, "&lt;")}</div>
+        <div>${safeHtml(msgText)}</div>
       `;
       logEl.appendChild(wrap);
       logEl.scrollTop = logEl.scrollHeight;
+
+      history.push({ role, text: msgText, ts: Date.now() });
+      saveHistory(history);
     }
+
+    // Hydrate on first wire
+    renderHistory();
 
     function setStatus(msg){
       if (statusEl) statusEl.textContent = msg || "";
@@ -1576,7 +1677,6 @@
   document.addEventListener("fv:dash-perms-ready", wireUp);
 })();
 </script>
-
 
   <!-- One-time SW reset for path change -->
   <script>
