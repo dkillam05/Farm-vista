@@ -382,14 +382,17 @@
     }
 
     .ai-msg{
-      border-radius:12px;
-      padding:7px 9px;
-      line-height:1.35;
-      white-space:pre-wrap;
-      word-break:break-word;
-      font-size:13px;
-      max-width:min(78%, 520px);
-    }
+  display:inline-block;     /* key: shrink to text */
+  width:fit-content;        /* hug the text */
+  max-width:70%;            /* wrap naturally on long lines */
+  padding:7px 9px;
+  border-radius:14px;
+  line-height:1.35;
+  white-space:pre-wrap;
+  word-break:break-word;
+  font-size:13px;
+}
+
     .ai-msg-user{
       align-self:flex-end;
       background:rgba(59,126,70,0.12);
@@ -400,6 +403,21 @@
       background:var(--surface);
       border:1px solid var(--border);
     }
+    .ai-msg-wrap{
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  margin:2px 0 6px;
+}
+.ai-msg-wrap .ai-msg-user{ align-self:flex-end; }
+.ai-msg-wrap .ai-msg-assistant{ align-self:flex-start; }
+
+.ai-msg-wrap .ai-msg-meta{
+  padding:0 6px;
+}
+.ai-msg-wrap .ai-msg-user + .ai-msg-meta{ text-align:right; }
+.ai-msg-wrap .ai-msg-assistant + .ai-msg-meta{ text-align:left; }
+
     .ai-msg-meta{
       font-size:10.5px;
       color:var(--muted,#67706B);
@@ -1532,19 +1550,24 @@
 
       const msgText = String(text || "");
       const wrap = document.createElement("div");
-      wrap.className = "ai-msg " + (role === "user" ? "ai-msg-user" : "ai-msg-assistant");
-      const who = role === "user" ? "You" : "Copilot";
+wrap.className = "ai-msg-wrap";
 
-      wrap.innerHTML = `
-        <div class="ai-msg-meta">${who}</div>
-        <div>${safeHtml(msgText)}</div>
-      `;
-      logEl.appendChild(wrap);
-      logEl.scrollTop = logEl.scrollHeight;
+const who = role === "user" ? "You" : "Copilot";
+const msgText = String(text || "");
 
-      history.push({ role, text: msgText, ts: Date.now() });
-      saveHistory(history);
-    }
+wrap.innerHTML = `
+  <div class="ai-msg ${role === "user" ? "ai-msg-user" : "ai-msg-assistant"}">
+    ${safeHtml(msgText)}
+  </div>
+  <div class="ai-msg-meta">${who}</div>
+`;
+
+logEl.appendChild(wrap);
+logEl.scrollTop = logEl.scrollHeight;
+
+history.push({ role, text: msgText, ts: Date.now() });
+saveHistory(history);
+
 
     // Hydrate on first wire
     renderHistory();
