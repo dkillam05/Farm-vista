@@ -1,10 +1,8 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2025-12-26b
+Rev: 2025-12-26c
 
-Save now performs a SOFT reload:
-- dispatches fr:soft-reload
-- modal stays open
+Now shows Range rain in popup using shared range/rain logic (rain.js).
 ===================================================================== */
 'use strict';
 
@@ -14,6 +12,7 @@ import { getFieldParams, saveParamsToLocal } from './params.js';
 import { getCurrentOp, getThresholdForOp } from './thresholds.js';
 import { esc, clamp } from './utils.js';
 import { canEdit } from './perm.js';
+import { parseRangeFromInput, rainInRange } from './rain.js';
 
 function $(id){ return document.getElementById(id); }
 
@@ -209,7 +208,11 @@ function fillQuickView(state){
   setText('frQvOp', opLabel);
   setText('frQvThr', thr);
 
-  setText('frQvRain', '—');
+  // ✅ Range rain (same as tiles)
+  const range = parseRangeFromInput();
+  const rr = rainInRange(run, range);
+  setText('frQvRain', `${rr.toFixed(2)} in`);
+
   setText('frQvReadiness', run ? run.readinessR : '—');
   setText('frQvWetness', run ? run.wetnessR : '—');
   setText('frQvStorage', run ? `${run.storageFinal.toFixed(2)} / ${run.factors.Smax.toFixed(2)}` : '—');
@@ -288,10 +291,7 @@ async function saveQuickView(state){
 
     state._qvSaving = false;
 
-    // SOFT reload (keeps modal open)
     try{ document.dispatchEvent(new CustomEvent('fr:soft-reload')); }catch(_){}
-
-    // Re-fill so numbers reflect immediately
     fillQuickView(state);
 
   }catch(e){
