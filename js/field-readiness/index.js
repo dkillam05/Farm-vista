@@ -2,38 +2,76 @@
 /Farm-vista/js/field-readiness/index.js  (FULL FILE)
 Rev: 2025-12-26a
 
-Entry point for the modular Field Readiness system.
-- Does not modify any existing/live files.
-- Your test page should load THIS file as the module script.
+Modular entry point. This is the ONLY script your test page needs to load.
+
+- Does not override any working file.
+- Uses model/weather as locked dependencies (paths.js).
+- Removes the duplicate init issue by design (single init here).
 ===================================================================== */
 'use strict';
 
-import { createState } from './state.js';
+import { createState, buildWxCtx } from './state.js';
 import { importFirebaseInit } from './firebase.js';
-import { initPrefs, loadPrefsToUI } from './prefs.js';
-import { initRange } from './range.js';
-import { initUIWiring } from './ui.js';
-import { loadInitialData } from './data.js';
-import { renderAll } from './ui.js';
+import { loadThresholdsFromLocal, loadThresholdsFromFirestore } from './thresholds.js';
+import { loadParamsFromLocal } from './params.js';
+import { loadPrefsFromLocalToUI } from './prefs.js';
+import { loadRangeFromLocalToUI, enforceCalendarNoFuture } from './range.js';
+import { loadFarmsOptional, loadFields } from './data.js';
+import { wireUIOnce } from './wiring.js';
+import { renderTiles, renderDetails, refreshAll } from './render.js';
+import { wireFieldsHiddenTap } from './adjust.js';
 
-(async function main(){
+(async function init(){
   const state = createState();
-  window.__FV_FR_STATE = state; // helpful for debugging in console
+  window.__FV_FR = state; // debug handle if you want it in console
 
-  // 1) Basic UI wiring (handlers + safety guards)
-  initPrefs(state);
-  initRange(state);
-  initUIWiring(state);
+  // Details closed by default (matches old)
+  const dp = document.getElementById('detailsPanel');
+  if (dp) dp.open = false;
 
-  // 2) Apply cached prefs to UI controls (op/sort/range/farm/page)
-  await loadPrefsToUI(state);
+  // Hide refresh weather button (matches old)
+  const br = document.getElementById('btnRegen');
+  if (br){ br.style.display = 'none'; br.disabled = true; }
 
-  // 3) Firebase (module)
-  await importFirebaseInit(state);
+  // local caches
+  loadParamsFromLocal(state);
+  loadThresholdsFromLocal(state);
 
-  // 4) Load data (thresholds, farms, fields, weather warm-up)
-  await loadInitialData(state);
+  // wire UI (only once)
+  await wireUIOnce(state);
 
-  // 5) First render
-  renderAll(state);
+  // prefs
+  await loadPrefsFromLocalToUI(state);
+  await loadRangeFromLocalToUI(state);
+
+  // calendar safety (no future)
+  enforceCalendarNoFuture();
+
+  // firebase
+  const ok = await importFirebaseInit(state);
+  if (!ok){
+    const err = document.getElementById('err');
+    if (err){ err.hidden = false; err.textContent = 'firebase-init.js failed to import as a module.'; }
+  }
+
+  // thresholds from Firestore (if available)
+  await loadThresholdsFromFirestore(state);
+
+  // farms + fields
+  await loadFarmsOptional(state);
+  await loadFields(state);
+
+  if (!state.selectedFieldId && state.fields.length){
+    state.selectedFieldId = state.fields[0].id;
+  }
+
+  // hidden “Fields” tap target = open calibration modal
+  wireFieldsHiddenTap(state);
+
+  // initial render
+  renderTiles(state);
+  renderDetails(state);
+
+  // keep sliders synced
+  refreshAll(state);
 })();
