@@ -1,23 +1,20 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/range.js  (FULL FILE)
-Rev: 2025-12-26a
+Rev: 2025-12-26b
 
-Phase 1: enforce "no future day selectable" in your calendar.
-Phase 2: we will migrate parseRangeFromInput here and add persistence.
+- Greys out future days
+- HARD blocks clicks/taps on future days (even if picker re-renders)
 ===================================================================== */
 'use strict';
 
-import { } from './utils.js';
-
 export async function loadRangeFromLocalToUI(){
-  // left intentionally blank in Phase 1 to match current working behavior
-  // (your working file does not persist range yet)
+  // Phase later: persistence; keep current behavior for now.
 }
 
 export function enforceCalendarNoFuture(){
   const calDays = document.getElementById('calDays');
   const monthSel = document.getElementById('monthSelect');
-  const yearSel = document.getElementById('yearSelect');
+  const yearSel  = document.getElementById('yearSelect');
   if (!calDays) return;
 
   const today = new Date();
@@ -26,35 +23,59 @@ export function enforceCalendarNoFuture(){
   const todayM0 = today.getMonth();
   const todayD = today.getDate();
 
-  function patch(){
+  function computeShown(){
     const y = yearSel ? Number(yearSel.value) : todayY;
     const m = monthSel ? Number(monthSel.value) : todayM0;
-    const shownM0 = (m > 11) ? (m-1) : m;
+    const shownM0 = (m > 11) ? (m-1) : m; // tolerate 1-12 or 0-11
+    return { y, shownM0 };
+  }
 
+  function isFutureDay(dayNum, shown){
+    if (shown.y > todayY) return true;
+    if (shown.y === todayY && shown.shownM0 > todayM0) return true;
+    if (shown.y === todayY && shown.shownM0 === todayM0 && dayNum > todayD) return true;
+    return false;
+  }
+
+  function patch(){
+    const shown = computeShown();
     const days = Array.from(calDays.querySelectorAll('.cal-day'));
     for (const el of days){
       const n = Number((el.textContent||'').trim());
       if (!isFinite(n) || n <= 0) continue;
 
-      let future = false;
-      if (y > todayY) future = true;
-      else if (y === todayY && shownM0 > todayM0) future = true;
-      else if (y === todayY && shownM0 === todayM0 && n > todayD) future = true;
-
+      const future = isFutureDay(n, shown);
       if (future){
-        el.style.pointerEvents = 'none';
         el.style.opacity = '0.35';
         el.setAttribute('aria-disabled','true');
+        // best-effort: stop pointer events
+        el.style.pointerEvents = 'none';
       } else {
-        el.style.pointerEvents = '';
         el.style.opacity = '';
         el.removeAttribute('aria-disabled');
+        el.style.pointerEvents = '';
       }
     }
   }
 
+  // HARD BLOCK: if anything marked aria-disabled is clicked, kill it (capture phase)
+  function blockIfDisabled(ev){
+    const t = ev.target && ev.target.closest ? ev.target.closest('.cal-day[aria-disabled="true"]') : null;
+    if (!t) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    ev.stopImmediatePropagation?.();
+    return false;
+  }
+
+  // Attach blockers once
+  calDays.addEventListener('pointerdown', blockIfDisabled, true);
+  calDays.addEventListener('pointerup', blockIfDisabled, true);
+  calDays.addEventListener('click', blockIfDisabled, true);
+
   patch();
 
+  // Re-patch on redraws
   try{
     const mo = new MutationObserver(()=>patch());
     mo.observe(calDays, { childList:true, subtree:true });
