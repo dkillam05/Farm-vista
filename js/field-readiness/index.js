@@ -1,10 +1,8 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/index.js  (FULL FILE)
-Rev: 2025-12-26c
+Rev: 2025-12-26d
 
-Now integrates FarmVista permission system via FVUserContext:
-- crop-field-readiness.view gates page visibility
-- crop-field-readiness.edit gates dblclick/swipe/quick save (added in later module)
+Permission key now matches existing system: crop-weather
 ===================================================================== */
 'use strict';
 
@@ -25,28 +23,21 @@ import { loadFieldReadinessPerms, canView } from './perm.js';
   const state = createState();
   window.__FV_FR = state;
 
-  // Close details by default
   const dp = document.getElementById('detailsPanel');
   if (dp) dp.open = false;
 
-  // Hide Refresh Weather (API) button
   const br = document.getElementById('btnRegen');
   if (br){ br.style.display = 'none'; br.disabled = true; }
 
-  // Local caches
   loadParamsFromLocal(state);
   loadThresholdsFromLocal(state);
 
-  // Wire UI once
   await wireUIOnce(state);
 
-  // Firebase (needed because user-context reads Firestore)
   await importFirebaseInit(state);
 
-  // Permissions from FVUserContext
   await loadFieldReadinessPerms(state);
 
-  // Gate: no view → stop
   if (!canView(state)){
     const grid = document.getElementById('fieldsGrid');
     if (grid){
@@ -60,14 +51,11 @@ import { loadFieldReadinessPerms, canView } from './perm.js';
     return;
   }
 
-  // Prefs (existing behavior)
   await loadPrefsFromLocalToUI(state);
   await loadRangeFromLocalToUI();
 
-  // Calendar safety (no future)
   enforceCalendarNoFuture();
 
-  // Firestore thresholds + data
   await loadThresholdsFromFirestore(state);
   await loadFarmsOptional(state);
   await loadFields(state);
@@ -76,15 +64,11 @@ import { loadFieldReadinessPerms, canView } from './perm.js';
     state.selectedFieldId = state.fields[0].id;
   }
 
-  // Load model/weather deps
   await ensureModelWeatherModules(state);
 
-  // Render
   renderTiles(state);
   renderDetails(state);
   refreshAll(state);
 
-  // Hidden Fields tap (calibration modal)
-  // Optional: you can later change this to require edit; for now leave it.
   wireFieldsHiddenTap(state);
 })();
