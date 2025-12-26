@@ -1,11 +1,12 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-26d
+Rev: 2025-12-26e
 
-- Uses shared range/rain logic from rain.js
-- Tiles still show Rain (range)
-- Dblclick (edit only) opens Quick View (no slider grab)
-- Swipe (edit only) opens Quick View
+Fix:
+- Desktop dblclick works reliably (no slider grab)
+  Uses click-delay pattern: click waits 220ms; dblclick cancels it.
+- Swipe remains edit-only (intended for mobile)
+- Uses shared rain/range helpers from rain.js
 ===================================================================== */
 'use strict';
 
@@ -17,7 +18,6 @@ import { getCurrentOp, getThresholdForOp } from './thresholds.js';
 import { canEdit } from './perm.js';
 import { openQuickView } from './quickview.js';
 import { initSwipeOnTiles } from './swipe.js';
-
 import { parseRangeFromInput, rainInRange } from './rain.js';
 
 export async function ensureModelWeatherModules(state){
@@ -27,6 +27,7 @@ export async function ensureModelWeatherModules(state){
   state._mods.model = model;
 }
 
+/* ---------- colors ---------- */
 function perceivedFromThreshold(readiness, thr){
   const r = clamp(Math.round(Number(readiness)), 0, 100);
   const t = clamp(Math.round(Number(thr)), 0, 100);
@@ -65,6 +66,7 @@ function gradientForThreshold(thr){
   )`;
 }
 
+/* ---------- sorting ---------- */
 function sortFields(fields, runsById){
   const sel = $('sortSel');
   const mode = String(sel ? sel.value : 'name_az');
@@ -104,6 +106,45 @@ function getFilteredFields(state){
   const farmId = String(state.farmFilter || '__all__');
   if (farmId === '__all__') return state.fields.slice();
   return state.fields.filter(f => String(f.farmId||'') === farmId);
+}
+
+/* ---------- click vs dblclick separation ---------- */
+function wireTileInteractions(state, tileEl, fieldId){
+  // One click selects, double-click opens quick view (edit only)
+  // We delay click so dblclick can cancel it.
+  const CLICK_DELAY_MS = 220;
+
+  // clear any prior timer
+  tileEl._fvClickTimer = null;
+
+  tileEl.addEventListener('click', (e)=>{
+    // If dblclick just happened, ignore.
+    const until = Number(state._suppressClickUntil || 0);
+    if (Date.now() < until) return;
+
+    if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
+
+    tileEl._fvClickTimer = setTimeout(()=>{
+      tileEl._fvClickTimer = null;
+      selectField(state, fieldId);
+    }, CLICK_DELAY_MS);
+  });
+
+  if (canEdit(state)){
+    tileEl.addEventListener('dblclick', (e)=>{
+      e.preventDefault();
+      e.stopPropagation();
+
+      // cancel pending click-select
+      if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
+      tileEl._fvClickTimer = null;
+
+      // suppress any late click handlers
+      state._suppressClickUntil = Date.now() + 350;
+
+      openQuickView(state, fieldId);
+    });
+  }
 }
 
 export async function renderTiles(state){
@@ -180,20 +221,7 @@ export async function renderTiles(state){
       </div>
     `;
 
-    tile.addEventListener('click', ()=>{
-      const until = Number(state._suppressClickUntil || 0);
-      if (Date.now() < until) return;
-      selectField(state, f.id);
-    });
-
-    if (canEdit(state)){
-      tile.addEventListener('dblclick', (e)=>{
-        e.preventDefault();
-        e.stopPropagation();
-        state._suppressClickUntil = Date.now() + 450;
-        openQuickView(state, f.id);
-      }, true);
-    }
+    wireTileInteractions(state, tile, f.id);
 
     wrap.appendChild(tile);
   }
@@ -201,6 +229,7 @@ export async function renderTiles(state){
   const empty = $('emptyMsg');
   if (empty) empty.style.display = show.length ? 'none' : 'block';
 
+  // Swipe is still edit-only and intended for mobile.
   await initSwipeOnTiles(state, { onDetails: (fieldId)=> openQuickView(state, fieldId) });
 }
 
