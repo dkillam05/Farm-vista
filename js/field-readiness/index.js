@@ -1,9 +1,9 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/index.js  (FULL FILE)
-Rev: 2025-12-26e
+Rev: 2025-12-26f
 
 Adds:
-- fr:soft-reload event handler → refreshAll(state) without leaving modals
+- buildFarmFilterOptions(state) after fields load so Farm dropdown populates
 ===================================================================== */
 'use strict';
 
@@ -17,8 +17,8 @@ import { loadFarmsOptional, loadFields } from './data.js';
 import { wireUIOnce } from './wiring.js';
 import { renderTiles, renderDetails, refreshAll, ensureModelWeatherModules } from './render.js';
 import { wireFieldsHiddenTap } from './adjust.js';
-
 import { loadFieldReadinessPerms, canView } from './perm.js';
+import { buildFarmFilterOptions } from './farm-filter.js';
 
 (async function init(){
   const state = createState();
@@ -61,13 +61,15 @@ import { loadFieldReadinessPerms, canView } from './perm.js';
   await loadFarmsOptional(state);
   await loadFields(state);
 
+  // ✅ Build Farm dropdown based on the fields present
+  buildFarmFilterOptions(state);
+
   if (!state.selectedFieldId && state.fields.length){
     state.selectedFieldId = state.fields[0].id;
   }
 
   await ensureModelWeatherModules(state);
 
-  // Soft reload hook (keeps modals open)
   document.addEventListener('fr:soft-reload', async ()=>{
     try{ await refreshAll(state); }catch(_){}
   });
