@@ -1,12 +1,26 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.ui.js  (FULL FILE)
-Rev: 2025-12-23j
+Rev: 2025-12-26a  (Dane: prefs + no-future range + swipe/dblclick quick view)
 
-FIXES (per Dane):
-✅ Weather loads from Firestore cache first (scheduled): field_weather_cache/{fieldId}
-✅ Remove the “Refresh Weather (API)” button in Details > Inputs
-✅ Show “Weather updated: <date/time>” under Details > Weather + Output
-✅ Keeps: tables rendering, cooldown card, locked behavior, slider behavior, gauge geometry, color perception only
+WHAT THIS FILE DOES (per your list)
+✅ Rain range: never allow future dates (UI hardening + clamp)
+✅ Persist: operation + sort + rain range + farm + page size
+✅ Field tiles:
+   - Desktop: double-click opens Quick View
+   - Mobile: swipe RIGHT opens Quick View (uses fv-swipe-list.js)
+✅ Quick View modal:
+   - Shows Field + Settings, Weather + Output, and the 2 per-field sliders
+✅ Save per-field sliders to Firestore collection "fields" (top-level soilWetness, drainageIndex)
+✅ Details panel trimmed (kept visible content only):
+   - Beta: Data pulled into model (Used now / Pulled)
+   - Tank Trace
+   - DryPwr Breakdown
+   - Weather Inputs
+✅ Fix: ONE init() only (prevents double-binding / state weirdness)
+
+NOTE
+- No HTML edits required: modal is injected at runtime; details panels are hidden at runtime.
+- Uses firebase-init.js module exports (updateDoc supported).
 ===================================================================== */
 'use strict';
 
@@ -25,6 +39,8 @@ import {
   modelClassFromRun
 } from '/Farm-vista/js/field-readiness.model.js';
 
+import { initSwipeList } from '/Farm-vista/js/fv-swipe-list.js';
+
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -41,7 +57,6 @@ async function waitForEl(id, timeoutMs=2000){
   }
   return null;
 }
-
 function esc(s){
   return String(s||'')
     .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
@@ -56,9 +71,29 @@ function setErr(msg){
 }
 function normalizeStatus(s){ return String(s||'').trim().toLowerCase(); }
 
-function on(id, ev, fn){
-  const el = $(id);
-  if (el) el.addEventListener(ev, fn);
+function toISODate(d){
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function todayLocal00(){
+  const t = new Date();
+  t.setHours(0,0,0,0);
+  return t;
+}
+function endOfTodayLocal(){
+  const t = new Date();
+  t.setHours(23,59,59,999);
+  return t;
+}
+function fmtRangeText(a00, b23){
+  // input expects: YYYY-MM-DD – YYYY-MM-DD
+  return `${toISODate(a00)} – ${toISODate(b23)}`;
+}
+function parseISODateLoose(s){
+  const d = new Date(String(s||'').trim());
+  return isFinite(d.getTime()) ? d : null;
 }
 
 /* ---------- threshold-centered color perception (COLORS ONLY) ---------- */
@@ -68,7 +103,6 @@ function perceivedFromThreshold(readiness, thr){
 
   if (t <= 0) return 100;
   if (t >= 100) return Math.round((r/100)*50);
-
   if (r === t) return 50;
 
   if (r > t){
@@ -121,7 +155,9 @@ const LS_ADJ_LOG = 'fv_fr_adjust_log_v1';
 
 // UI prefs
 const LS_FARM_FILTER = 'fv_fr_farm_filter_v1';
-const LS_PAGE_SIZE = 'fv_fr_page_size_v1';
+const LS_PAGE_SIZE   = 'fv_fr_page_size_v1';
+const LS_SORT_KEY    = 'fv_fr_sort_v1';
+const LS_RANGE_KEY   = 'fv_fr_rain_range_v1';
 
 const THR_COLLECTION = 'field_readiness_thresholds';
 const THR_DOC_ID = 'default';
@@ -162,10 +198,12 @@ const state = {
   fb: null,
   _thrSaveTimer: null,
   _renderTimer: null,
+  _wiredUI: false,
 
   // filters
   farmFilter: '__all__',
   pageSize: 25, // -1 means all
+  sortMode: 'name_az',
 
   // Adjust (GLOBAL)
   _adjFeel: null,               // 'wet' | 'dry' | null
@@ -180,7 +218,13 @@ const state = {
   // map
   _mapsPromise: null,
   _gmap: null,
-  _gmarker: null
+  _gmarker: null,
+
+  // Quick view modal
+  _qvBuilt: false,
+  _qvOpen: false,
+  _qvSaveBusy: false,
+  _qvLastFieldId: null
 };
 
 const wxCtx = {
@@ -188,10 +232,7 @@ const wxCtx = {
   WX_TTL_MS,
   WX_CACHE_PREFIX,
   timezone: 'America/Chicago',
-
-  // ✅ NEW: Firestore scheduled cache collection
   WX_FIRESTORE_COLLECTION: 'field_weather_cache',
-
   weatherByFieldId: state.weatherByFieldId,
   wxInfoByFieldId: state.wxInfoByFieldId,
   weather30: state.weather30
@@ -372,7 +413,7 @@ function hydrateParamsFromFieldDoc(field){
   state.perFieldParams.set(field.id, cur);
 }
 
-/* ---------- UI prefs ---------- */
+/* ---------- UI prefs: farm/page/op/sort/range ---------- */
 function loadFarmFilterDefault(){
   try{ state.farmFilter = String(localStorage.getItem(LS_FARM_FILTER) || '__all__') || '__all__'; }
   catch(_){ state.farmFilter='__all__'; }
@@ -398,41 +439,181 @@ function savePageSizeDefault(){
   state.pageSize = (raw === '__all__') ? -1 : (isFinite(Number(raw)) ? clamp(Math.round(Number(raw)), 1, 10000) : 25);
   try{ localStorage.setItem(LS_PAGE_SIZE, raw); }catch(_){}
 }
-function renderFarmFilterOptions(){
-  const sel = $('farmSel');
-  if (!sel) return;
+function loadSortDefault(){
+  let raw = '';
+  try{ raw = String(localStorage.getItem(LS_SORT_KEY) || ''); }catch(_){ raw=''; }
+  raw = (raw || '').trim();
+  const sel = $('sortSel');
+  const ok = sel && Array.from(sel.options).some(o=>o.value===raw);
+  if (ok){
+    sel.value = raw;
+    state.sortMode = raw;
+    return true;
+  }
+  state.sortMode = sel ? String(sel.value||'name_az') : 'name_az';
+  return false;
+}
+function saveSortDefault(){
+  const sel = $('sortSel');
+  const v = String(sel ? sel.value : 'name_az');
+  state.sortMode = v;
+  try{ localStorage.setItem(LS_SORT_KEY, v); }catch(_){}
+}
 
-  const used = new Map();
-  for (const f of state.fields){
-    const id = String(f.farmId||'').trim();
-    if (!id) continue;
-    used.set(id, state.farmsById.get(id) || id);
+/* Rain range persistence (string stored exactly as input uses) */
+function clampRangeNoFuture(range){
+  if (!range || !range.start || !range.end) return range;
+  const tEnd = endOfTodayLocal();
+  if (range.end > tEnd){
+    const out = { start: new Date(range.start), end: new Date(tEnd) };
+    out.start.setHours(0,0,0,0);
+    out.end.setHours(23,59,59,999);
+    return out;
+  }
+  return range;
+}
+function setRangeInputFromRange(range){
+  const inp = $('jobRangeInput');
+  if (!inp) return;
+  if (!range || !range.start || !range.end){
+    inp.value = '';
+    return;
+  }
+  const a = new Date(range.start); a.setHours(0,0,0,0);
+  const b = new Date(range.end);   b.setHours(23,59,59,999);
+  inp.value = fmtRangeText(a,b);
+}
+function parseRangeFromInputRaw(){
+  const inp = $('jobRangeInput');
+  const raw = String(inp ? inp.value : '').trim();
+  if (!raw) return { start:null, end:null };
+
+  const parts = raw.split('–').map(s=>s.trim());
+  if (parts.length === 2){
+    const a = parseISODateLoose(parts[0]);
+    const b = parseISODateLoose(parts[1]);
+    if (a && b){
+      a.setHours(0,0,0,0);
+      b.setHours(23,59,59,999);
+      return { start:a, end:b };
+    }
+  }
+  const d = parseISODateLoose(raw);
+  if (d){
+    d.setHours(0,0,0,0);
+    const e = new Date(d);
+    e.setHours(23,59,59,999);
+    return { start:d, end:e };
+  }
+  return { start:null, end:null };
+}
+function parseRangeFromInput(){
+  // Adds: default last 30 days when blank, and clamps future.
+  const r0 = parseRangeFromInputRaw();
+  if (!r0.start || !r0.end){
+    // default: last 30 days (including today)
+    const end = endOfTodayLocal();
+    const start = new Date(end);
+    start.setDate(start.getDate() - 29);
+    start.setHours(0,0,0,0);
+    return { start, end };
+  }
+  return clampRangeNoFuture(r0);
+}
+function loadRangeDefault(){
+  const inp = $('jobRangeInput');
+  if (!inp) return false;
+
+  let raw = '';
+  try{ raw = String(localStorage.getItem(LS_RANGE_KEY) || ''); }catch(_){ raw=''; }
+  raw = (raw || '').trim();
+
+  if (raw){
+    inp.value = raw;
+    // if saved was future-ended, clamp & rewrite
+    const r = clampRangeNoFuture(parseRangeFromInputRaw());
+    if (r && r.start && r.end){
+      setRangeInputFromRange(r);
+      try{ localStorage.setItem(LS_RANGE_KEY, inp.value); }catch(_){}
+    }
+    return true;
   }
 
-  const keep = state.farmFilter || '__all__';
+  // no saved -> set default last 30 days in the input so user sees it
+  const def = parseRangeFromInput();
+  setRangeInputFromRange(def);
+  try{ localStorage.setItem(LS_RANGE_KEY, inp.value); }catch(_){}
+  return true;
+}
+function saveRangeDefault(){
+  const inp = $('jobRangeInput');
+  if (!inp) return;
+  // clamp if user picked future end
+  const r = clampRangeNoFuture(parseRangeFromInputRaw());
+  if (r && r.start && r.end){
+    setRangeInputFromRange(r);
+  }
+  try{ localStorage.setItem(LS_RANGE_KEY, String(inp.value||'')); }catch(_){}
+}
 
-  sel.innerHTML = '';
-  const oAll = document.createElement('option');
-  oAll.value = '__all__';
-  oAll.textContent = 'All';
-  sel.appendChild(oAll);
+/* ---------- disable future dates in the custom calendar UI ---------- */
+function enforceCalendarNoFuture(){
+  const calDays = $('calDays');
+  const monthSel = $('monthSelect');
+  const yearSel = $('yearSelect');
 
-  const ids = Array.from(used.keys()).sort((a,b)=>{
-    const na = String(used.get(a)||a);
-    const nb = String(used.get(b)||b);
-    return na.localeCompare(nb, undefined, {numeric:true, sensitivity:'base'});
-  });
+  if (!calDays) return;
 
-  for (const id of ids){
-    const o = document.createElement('option');
-    o.value = id;
-    o.textContent = String(used.get(id));
-    sel.appendChild(o);
+  const t00 = todayLocal00();
+
+  function patch(){
+    // Your date picker renders .cal-day nodes with text numbers; it also adds "other-month".
+    // We can't reliably infer exact date from text alone without the picker internals,
+    // but we CAN block selection when the currently shown month/year is in the future,
+    // and we can block specific days when month/year is current.
+    const y = yearSel ? Number(yearSel.value) : NaN;
+    const m = monthSel ? Number(monthSel.value) : NaN; // depends on picker; may be 0-11 or 1-12
+    const todayY = t00.getFullYear();
+    const todayM0 = t00.getMonth();
+
+    const shownM0 = (isFinite(m) ? (m > 11 ? (m-1) : m) : todayM0); // tolerate 1-12 or 0-11
+    const shownY = isFinite(y) ? y : todayY;
+
+    const days = Array.from(calDays.querySelectorAll('.cal-day'));
+    for (const d of days){
+      // never block "other-month" (picker may use them for navigation) — but still block if future
+      const n = Number((d.textContent||'').trim());
+      if (!isFinite(n) || n <= 0) continue;
+
+      let isFuture = false;
+      if (shownY > todayY) isFuture = true;
+      else if (shownY === todayY && shownM0 > todayM0) isFuture = true;
+      else if (shownY === todayY && shownM0 === todayM0){
+        if (n > t00.getDate()) isFuture = true;
+      }
+
+      if (isFuture){
+        d.style.pointerEvents = 'none';
+        d.style.opacity = '0.35';
+        d.setAttribute('aria-disabled','true');
+      } else {
+        d.style.pointerEvents = '';
+        d.style.opacity = '';
+        d.removeAttribute('aria-disabled');
+      }
+    }
   }
 
-  const ok = (keep === '__all__') || ids.includes(keep);
-  sel.value = ok ? keep : '__all__';
-  state.farmFilter = sel.value;
+  // patch now + whenever picker re-renders
+  patch();
+
+  try{
+    const mo = new MutationObserver(()=>patch());
+    mo.observe(calDays, { childList:true, subtree:true });
+  }catch(_){}
+
+  if (monthSel) monthSel.addEventListener('change', ()=>setTimeout(patch,0));
+  if (yearSel)  yearSel.addEventListener('change',  ()=>setTimeout(patch,0));
 }
 
 /* ---------- fields/firestore ---------- */
@@ -524,7 +705,6 @@ async function loadFields(){
 
     ensureSelectedParamsToSliders();
 
-    // ✅ Weather warm-up (now reads Firestore cache first via weather.js)
     await warmWeatherForFields(state.fields, wxCtx, { force:false, onEach:debounceRender });
 
     renderFarmFilterOptions();
@@ -539,33 +719,45 @@ async function loadFields(){
   }
 }
 
-/* ---------- range helpers ---------- */
-function parseRangeFromInput(){
-  const inp = $('jobRangeInput');
-  const raw = String(inp ? inp.value : '').trim();
-  if (!raw) return { start:null, end:null };
+/* ---------- farm filter options ---------- */
+function renderFarmFilterOptions(){
+  const sel = $('farmSel');
+  if (!sel) return;
 
-  const parts = raw.split('–').map(s=>s.trim());
-  if (parts.length === 2){
-    const a = new Date(parts[0]);
-    const b = new Date(parts[1]);
-    if (isFinite(a.getTime()) && isFinite(b.getTime())){
-      a.setHours(0,0,0,0);
-      b.setHours(23,59,59,999);
-      return { start:a, end:b };
-    }
+  const used = new Map();
+  for (const f of state.fields){
+    const id = String(f.farmId||'').trim();
+    if (!id) continue;
+    used.set(id, state.farmsById.get(id) || id);
   }
 
-  const d = new Date(raw);
-  if (isFinite(d.getTime())){
-    d.setHours(0,0,0,0);
-    const e = new Date(d);
-    e.setHours(23,59,59,999);
-    return { start:d, end:e };
+  const keep = state.farmFilter || '__all__';
+
+  sel.innerHTML = '';
+  const oAll = document.createElement('option');
+  oAll.value = '__all__';
+  oAll.textContent = 'All';
+  sel.appendChild(oAll);
+
+  const ids = Array.from(used.keys()).sort((a,b)=>{
+    const na = String(used.get(a)||a);
+    const nb = String(used.get(b)||b);
+    return na.localeCompare(nb, undefined, {numeric:true, sensitivity:'base'});
+  });
+
+  for (const id of ids){
+    const o = document.createElement('option');
+    o.value = id;
+    o.textContent = String(used.get(id));
+    sel.appendChild(o);
   }
 
-  return { start:null, end:null };
+  const ok = (keep === '__all__') || ids.includes(keep);
+  sel.value = ok ? keep : '__all__';
+  state.farmFilter = sel.value;
 }
+
+/* ---------- range helpers ---------- */
 function isDateInRange(dateISO, range){
   if (!range || !range.start || !range.end) return true;
   const d = new Date(dateISO + 'T12:00:00');
@@ -580,8 +772,7 @@ function rainInRange(run, range){
   return round(sum, 2);
 }
 function sortFields(fields, runsById){
-  const sel = $('sortSel');
-  const mode = String(sel ? sel.value : 'name_az');
+  const mode = String(state.sortMode || 'name_az');
   const range = parseRangeFromInput();
   const collator = new Intl.Collator(undefined, { numeric:true, sensitivity:'base' });
   const arr = fields.slice();
@@ -664,7 +855,8 @@ function renderTiles(){
     const labelLeft = f.name;
 
     const tile = document.createElement('div');
-    tile.className = 'tile' + (f.id === state.selectedFieldId ? ' active' : '');
+    tile.className = 'tile fv-swipe-item' + (f.id === state.selectedFieldId ? ' active' : '');
+    tile.dataset.fieldId = f.id;
 
     tile.innerHTML = `
       <div class="tile-top">
@@ -693,12 +885,27 @@ function renderTiles(){
       </div>
     `;
 
-    tile.addEventListener('click', ()=> selectField(f.id));
+    // Single click selects (same as today)
+    tile.addEventListener('click', (e)=>{
+      // if swipe helper just opened, it blocks click once; otherwise select
+      selectField(f.id);
+    });
+
+    // Desktop double-click opens quick view
+    tile.addEventListener('dblclick', (e)=>{
+      e.preventDefault();
+      e.stopPropagation();
+      openQuickViewForField(f.id);
+    });
+
     wrap.appendChild(tile);
   }
 
   const empty = $('emptyMsg');
   if (empty) empty.style.display = show.length ? 'none' : 'block';
+
+  // Re-init swipe on the newly rendered list (mobile)
+  initSwipeQuickView();
 }
 
 function selectField(id){
@@ -707,6 +914,28 @@ function selectField(id){
   state.selectedFieldId = id;
   ensureSelectedParamsToSliders();
   refreshAll();
+}
+
+/* ---------- details panel trim (hide Inputs + Field/Weather panels) ---------- */
+function trimDetailsPanelsOnce(){
+  // Hide: Inputs panel + detail-grid (Field + Settings, Weather + Output)
+  const body = document.querySelector('#detailsPanel .details-body');
+  if (!body) return;
+
+  const kids = Array.from(body.children || []);
+  // Expected:
+  // 0: panel Inputs
+  // 1: detail-grid (field + weather)
+  // 2: panel Beta
+  // 3: panel Tank Trace
+  // 4: panel DryPwr
+  // 5: panel Weather Inputs
+  if (kids[0]) kids[0].style.display = 'none';
+  if (kids[1]) kids[1].style.display = 'none';
+
+  // Update summary subtitle to match new reality (optional)
+  const sum = document.querySelector('#detailsPanel summary .muted');
+  if (sum) sum.textContent = '(beta + tables)';
 }
 
 /* ---------- beta panel ---------- */
@@ -807,61 +1036,6 @@ function renderDetails(){
   const run = state.lastRuns.get(f.id) || runField(f, deps);
   if (!run) return;
 
-  const fac = run.factors;
-  const p = getFieldParams(f.id);
-
-  const opKey = getCurrentOp();
-  const opLabel = (OPS.find(o=>o.key===opKey)?.label) || opKey;
-  const thr = getThresholdForOp(opKey);
-
-  const range = parseRangeFromInput();
-  const rainRange = rainInRange(run, range);
-
-  const farmName = state.farmsById.get(f.farmId) || '';
-
-  const setText = (id, val) => { const el = $(id); if (el) el.textContent = String(val); };
-
-  setText('dFieldName', farmName ? `${farmName} • ${f.name}` : (f.name || '—'));
-  setText('dStatus', String(f.status||'—'));
-  setText('dCounty', `${String(f.county||'—')} / ${String(f.state||'—')}`);
-  setText('dAcres', (isFinite(f.tillable) ? `${f.tillable.toFixed(2)} ac` : '—'));
-  setText('dGps', (f.location ? `${f.location.lat.toFixed(6)}, ${f.location.lng.toFixed(6)}` : '—'));
-
-  const btnMap = $('btnMap');
-  if (btnMap) btnMap.disabled = !f.location;
-
-  setText('dSoilType', `${p.soilWetness}/100`);
-  setText('dSoilHold', `${fac.soilHold.toFixed(2)} (normalized)`);
-  setText('dDrainage', `${p.drainageIndex}/100`);
-
-  setText('dThreshold', `${thr}`);
-  setText('dOperation', opLabel);
-
-  setText('dDays', String(run.rows.length || 0));
-  setText('dRangeRain', `${rainRange.toFixed(2)} in`);
-  setText('dReadiness', `${run.readinessR}`);
-  setText('dWetness', `${run.wetnessR}`);
-  setText('dStorage', `${run.storageFinal.toFixed(2)} / ${run.factors.Smax.toFixed(2)}`);
-
-  const param = $('paramExplain');
-  if (param){
-    param.innerHTML =
-      `soilHold=soilWetness/100=<span class="mono">${fac.soilHold.toFixed(2)}</span> • drainPoor=drainageIndex/100=<span class="mono">${fac.drainPoor.toFixed(2)}</span><br/>
-       Smax=<span class="mono">${fac.Smax.toFixed(2)}</span> (base <span class="mono">${fac.SmaxBase.toFixed(2)}</span>) • infilMult=<span class="mono">${fac.infilMult.toFixed(2)}</span> • dryMult=<span class="mono">${fac.dryMult.toFixed(2)}</span> • LOSS_SCALE=<span class="mono">${LOSS_SCALE.toFixed(2)}</span>`;
-  }
-
-  // ✅ Show last weather pull time in Weather + Output panel
-  const info = state.wxInfoByFieldId.get(f.id) || null;
-  const when = (info && info.fetchedAt) ? new Date(info.fetchedAt) : null;
-  const whenTxt = when ? when.toLocaleString() : '—';
-
-  const sum = $('mathSummary');
-  if (sum){
-    sum.innerHTML =
-      `Model output: <b>Wet=${run.wetnessR}</b> • <b>Readiness=${run.readinessR}</b> • storage=<span class="mono">${run.storageFinal.toFixed(2)}</span>/<span class="mono">${run.factors.Smax.toFixed(2)}</span>` +
-      `<br/><span class="muted">Weather updated: <span class="mono">${esc(whenTxt)}</span></span>`;
-  }
-
   // ✅ Beta panel
   renderBetaInputs();
 
@@ -960,13 +1134,13 @@ function renderDetails(){
       }
     }
   }
-
-  updateAdjustPills();
 }
 
+/* ---------- refresh ---------- */
 function refreshAll(){
   setErr('');
 
+  // keep selected sliders in local state
   if (state.selectedFieldId){
     const a = $('soilWet');
     const b = $('drain');
@@ -977,12 +1151,350 @@ function refreshAll(){
     saveParamsToLocal();
   }
 
+  // clamp + save range if needed
+  saveRangeDefault();
+
   renderTiles();
   renderDetails();
 }
 
 /* =====================================================================
-   GLOBAL ADJUST (uses existing #calibCooldownMsg in HTML)
+   QUICK VIEW MODAL (double-click desktop / swipe-right mobile)
+   ===================================================================== */
+function buildQuickViewOnce(){
+  if (state._qvBuilt) return;
+  state._qvBuilt = true;
+
+  const wrap = document.createElement('div');
+  wrap.id = 'fvQvBackdrop';
+  wrap.className = 'modal-backdrop pv-hide';
+  wrap.setAttribute('role','dialog');
+  wrap.setAttribute('aria-modal','true');
+
+  // inline styles consistent with your modals + no blue text + white text on green
+  wrap.innerHTML = `
+    <div class="modal" style="width:min(720px, 96vw);">
+      <div class="modal-h">
+        <h3 id="fvQvTitle">Field</h3>
+        <button id="fvQvX" class="xbtn" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <div class="muted" style="font-size:12px; margin-top:4px;" id="fvQvSub">—</div>
+      </div>
+
+      <div class="modal-b" style="display:grid;gap:12px;">
+        <div class="panel" style="margin:0;">
+          <h3 style="margin:0 0 8px;font-size:13px;font-weight:900;">Inputs (field-specific)</h3>
+          <div style="display:grid;gap:12px;grid-template-columns:1fr 1fr;align-items:start;">
+            <div class="field">
+              <label for="fvQvSoil">Soil Wetness (0–100)</label>
+              <input id="fvQvSoil" type="range" min="0" max="100" step="1" value="60"/>
+              <div class="help muted" style="margin-top:6px;">Current: <span class="mono" id="fvQvSoilVal">60</span>/100</div>
+            </div>
+            <div class="field">
+              <label for="fvQvDrain">Drainage Index (0–100)</label>
+              <input id="fvQvDrain" type="range" min="0" max="100" step="1" value="45"/>
+              <div class="help muted" style="margin-top:6px;">Current: <span class="mono" id="fvQvDrainVal">45</span>/100</div>
+            </div>
+          </div>
+
+          <div class="actions" style="margin-top:12px;justify-content:flex-end;">
+            <div class="help muted" id="fvQvSaveHint" style="margin:0;flex:1 1 auto;align-self:center;">Saved values write to <b>fields</b> collection.</div>
+            <button id="fvQvCancel" class="btn" type="button">Close</button>
+            <button id="fvQvSave" class="btn btn-primary" type="button">Save</button>
+          </div>
+        </div>
+
+        <div class="panel" style="margin:0;">
+          <h3 style="margin:0 0 8px;font-size:13px;font-weight:900;">Field + Settings</h3>
+          <div class="kv">
+            <div class="k">Field</div><div class="v" id="fvQvFieldName">—</div>
+            <div class="k">County / State</div><div class="v" id="fvQvCounty">—</div>
+            <div class="k">Tillable</div><div class="v" id="fvQvAcres">—</div>
+            <div class="k">GPS</div><div class="v mono" id="fvQvGps">—</div>
+            <div class="k">Operation</div><div class="v" id="fvQvOp">—</div>
+            <div class="k">Threshold</div><div class="v" id="fvQvThr">—</div>
+          </div>
+          <div class="help" id="fvQvParamExplain">—</div>
+        </div>
+
+        <div class="panel" style="margin:0;">
+          <h3 style="margin:0 0 8px;font-size:13px;font-weight:900;">Weather + Output</h3>
+          <div class="kv">
+            <div class="k">Range rain</div><div class="v" id="fvQvRain">—</div>
+            <div class="k">Readiness</div><div class="v" id="fvQvReadiness">—</div>
+            <div class="k">Wetness</div><div class="v" id="fvQvWetness">—</div>
+            <div class="k">Storage</div><div class="v" id="fvQvStorage">—</div>
+          </div>
+          <div class="help" id="fvQvWxMeta">—</div>
+        </div>
+
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(wrap);
+
+  const close = ()=> closeQuickView();
+  const bx = $('fvQvX'); if (bx) bx.addEventListener('click', close);
+  const bc = $('fvQvCancel'); if (bc) bc.addEventListener('click', close);
+
+  wrap.addEventListener('click', (e)=>{
+    if (e.target && e.target.id === 'fvQvBackdrop') close();
+  });
+
+  const soil = $('fvQvSoil');
+  const drain = $('fvQvDrain');
+  const soilVal = $('fvQvSoilVal');
+  const drainVal = $('fvQvDrainVal');
+  if (soil){
+    soil.addEventListener('input', ()=>{
+      if (soilVal) soilVal.textContent = String(clamp(Number(soil.value),0,100));
+    });
+  }
+  if (drain){
+    drain.addEventListener('input', ()=>{
+      if (drainVal) drainVal.textContent = String(clamp(Number(drain.value),0,100));
+    });
+  }
+
+  const saveBtn = $('fvQvSave');
+  if (saveBtn){
+    saveBtn.addEventListener('click', async ()=>{
+      if (state._qvSaveBusy) return;
+      await saveQuickViewSliders();
+    });
+  }
+}
+
+function openQuickViewForField(fieldId){
+  buildQuickViewOnce();
+  const f = state.fields.find(x=>x.id===fieldId);
+  if (!f) return;
+
+  state._qvLastFieldId = fieldId;
+
+  // ensure selected field stays in sync
+  state.selectedFieldId = fieldId;
+  ensureSelectedParamsToSliders();
+
+  const backdrop = $('fvQvBackdrop');
+  if (backdrop) backdrop.classList.remove('pv-hide');
+
+  state._qvOpen = true;
+  fillQuickView(fieldId);
+}
+
+function closeQuickView(){
+  const backdrop = $('fvQvBackdrop');
+  if (backdrop) backdrop.classList.add('pv-hide');
+  state._qvOpen = false;
+}
+
+function fillQuickView(fieldId){
+  const f = state.fields.find(x=>x.id===fieldId);
+  if (!f) return;
+
+  const deps = {
+    getWeatherSeriesForFieldId: (fid)=> getWeatherSeriesForFieldId(fid, wxCtx),
+    getFieldParams,
+    LOSS_SCALE,
+    EXTRA
+  };
+  const run = state.lastRuns.get(f.id) || runField(f, deps);
+  const fac = run ? run.factors : null;
+
+  const farmName = state.farmsById.get(f.farmId) || '';
+  const opKey = getCurrentOp();
+  const opLabel = (OPS.find(o=>o.key===opKey)?.label) || opKey;
+  const thr = getThresholdForOp(opKey);
+
+  const range = parseRangeFromInput();
+  const rainRange = run ? rainInRange(run, range) : 0;
+
+  const info = state.wxInfoByFieldId.get(f.id) || null;
+  const when = (info && info.fetchedAt) ? new Date(info.fetchedAt) : null;
+  const whenTxt = when ? when.toLocaleString() : '—';
+
+  const title = $('fvQvTitle');
+  const sub = $('fvQvSub');
+  if (title) title.textContent = f.name || 'Field';
+  if (sub) sub.textContent = farmName ? `${farmName} • Quick View` : 'Quick View';
+
+  const p = getFieldParams(f.id);
+  const soil = $('fvQvSoil');
+  const drain = $('fvQvDrain');
+  const soilVal = $('fvQvSoilVal');
+  const drainVal = $('fvQvDrainVal');
+
+  if (soil){ soil.value = String(p.soilWetness); }
+  if (drain){ drain.value = String(p.drainageIndex); }
+  if (soilVal) soilVal.textContent = String(p.soilWetness);
+  if (drainVal) drainVal.textContent = String(p.drainageIndex);
+
+  const setText = (id, val)=>{ const el=$(id); if(el) el.textContent = String(val); };
+
+  setText('fvQvFieldName', farmName ? `${farmName} • ${f.name}` : (f.name || '—'));
+  setText('fvQvCounty', `${String(f.county||'—')} / ${String(f.state||'—')}`);
+  setText('fvQvAcres', (isFinite(f.tillable) ? `${f.tillable.toFixed(2)} ac` : '—'));
+  setText('fvQvGps', (f.location ? `${f.location.lat.toFixed(6)}, ${f.location.lng.toFixed(6)}` : '—'));
+  setText('fvQvOp', opLabel);
+  setText('fvQvThr', thr);
+
+  setText('fvQvRain', `${rainRange.toFixed(2)} in`);
+  setText('fvQvReadiness', run ? run.readinessR : '—');
+  setText('fvQvWetness', run ? run.wetnessR : '—');
+  setText('fvQvStorage', run ? `${run.storageFinal.toFixed(2)} / ${run.factors.Smax.toFixed(2)}` : '—');
+
+  const wxMeta = $('fvQvWxMeta');
+  if (wxMeta){
+    wxMeta.innerHTML = `Weather updated: <span class="mono">${esc(whenTxt)}</span>`;
+  }
+
+  const pe = $('fvQvParamExplain');
+  if (pe && fac){
+    pe.innerHTML =
+      `soilHold=soilWetness/100=<span class="mono">${fac.soilHold.toFixed(2)}</span> • ` +
+      `drainPoor=drainageIndex/100=<span class="mono">${fac.drainPoor.toFixed(2)}</span><br/>` +
+      `Smax=<span class="mono">${fac.Smax.toFixed(2)}</span> (base <span class="mono">${fac.SmaxBase.toFixed(2)}</span>) • ` +
+      `infilMult=<span class="mono">${fac.infilMult.toFixed(2)}</span> • dryMult=<span class="mono">${fac.dryMult.toFixed(2)}</span> • ` +
+      `LOSS_SCALE=<span class="mono">${LOSS_SCALE.toFixed(2)}</span>`;
+  }
+}
+
+async function saveQuickViewSliders(){
+  const fid = state._qvLastFieldId;
+  const f = state.fields.find(x=>x.id===fid);
+  if (!f) return;
+
+  const soil = $('fvQvSoil');
+  const drain = $('fvQvDrain');
+  const saveBtn = $('fvQvSave');
+  const hint = $('fvQvSaveHint');
+
+  const soilWetness = clamp(Number(soil ? soil.value : 60), 0, 100);
+  const drainageIndex = clamp(Number(drain ? drain.value : 45), 0, 100);
+
+  state._qvSaveBusy = true;
+  if (saveBtn){ saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+  if (hint) hint.textContent = 'Saving to Firestore…';
+
+  try{
+    // update local first (snappy UI)
+    const p = getFieldParams(fid);
+    p.soilWetness = soilWetness;
+    p.drainageIndex = drainageIndex;
+    state.perFieldParams.set(fid, p);
+    saveParamsToLocal();
+
+    // update field object for future hydrations
+    f.soilWetness = soilWetness;
+    f.drainageIndex = drainageIndex;
+
+    // write to Firestore: fields/{id} top-level
+    const api = getAPI();
+    if (api && api.kind !== 'compat'){
+      const db = api.getFirestore();
+      const auth = api.getAuth ? api.getAuth() : null;
+      const user = auth && auth.currentUser ? auth.currentUser : null;
+
+      const ref = api.doc(db, 'fields', fid);
+      await api.updateDoc(ref, {
+        soilWetness,
+        drainageIndex,
+        updatedAt: api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString(),
+        updatedBy: user ? (user.email || user.uid || null) : null
+      });
+    } else if (api && api.kind === 'compat' && window.firebase && window.firebase.firestore){
+      // compat fallback
+      const db = window.firebase.firestore();
+      await db.collection('fields').doc(fid).set({
+        soilWetness,
+        drainageIndex,
+        updatedAt: new Date().toISOString()
+      }, { merge:true });
+    }
+
+    if (hint) hint.textContent = 'Saved. Recomputing model…';
+
+    // recompute and redraw
+    refreshAll();
+    // keep modal values synced
+    fillQuickView(fid);
+
+    if (hint) hint.textContent = 'Saved values write to fields collection.';
+  }catch(e){
+    console.warn('[FieldReadiness] quick save failed:', e);
+    if (hint) hint.textContent = `Save failed: ${e.message || e}`;
+  }finally{
+    state._qvSaveBusy = false;
+    if (saveBtn){ saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+  }
+}
+
+/* ---------- swipe wiring (mobile) ---------- */
+function initSwipeQuickView(){
+  const root = $('fieldsGrid');
+  if (!root) return;
+
+  // initSwipeList wraps items; safe to call repeatedly (it will re-wrap already wrapped items if we let it),
+  // so we guard by only calling if there are unwrapped items.
+  const hasUnwrapped = !!root.querySelector('.fv-swipe-item:not(.fv-swipe-content *)');
+  // The selector above is conservative; if it fails, we still proceed safely.
+  // We’ll instead set a marker on the root after init.
+  if (root.dataset.fvSwipeInit === '1') return;
+
+  initSwipeList(root, {
+    itemSelector: '.fv-swipe-item',
+    leftAction: { // swipe RIGHT to reveal
+      label: 'Details',
+      intent: 'positive',
+      onAction: (itemEl)=>{
+        const fieldId = itemEl && itemEl.dataset ? itemEl.dataset.fieldId : null;
+        if (!fieldId) return;
+        openQuickViewForField(fieldId);
+      }
+    },
+    rightAction: null
+  });
+
+  root.dataset.fvSwipeInit = '1';
+}
+
+/* ---------- operation default ---------- */
+function loadOpDefault(){
+  const op = $('opSel');
+  if (!op) return false;
+
+  let raw = '';
+  try{ raw = String(localStorage.getItem(LS_OP_KEY) || ''); }catch(_){ raw=''; }
+  if (!raw){
+    try{ raw = String(sessionStorage.getItem(LS_OP_KEY) || ''); }catch(_){ raw=''; }
+  }
+
+  raw = String(raw || '').trim();
+  if (!raw) return false;
+
+  const ok = OPS.some(o=>o.key === raw);
+  if (ok) op.value = raw;
+
+  return ok;
+}
+function saveOpDefault(){
+  const op = $('opSel');
+  if (!op) return;
+  const v = String(op.value||'').trim();
+  if (!v) return;
+
+  try{ localStorage.setItem(LS_OP_KEY, v); }catch(_){}
+  try{ sessionStorage.setItem(LS_OP_KEY, v); }catch(_){}
+  try{ op.dataset.saved = v; }catch(_){}
+}
+
+/* =====================================================================
+   GLOBAL ADJUST + MAP + OP MODAL (kept existing behavior)
    ===================================================================== */
 function __fmtDur(ms){
   ms = Math.max(0, ms|0);
@@ -1015,21 +1527,17 @@ function isGlobalCalLocked(){
   const nextMs = Number(state._nextAllowedMs || 0);
   return !!(nextMs && Date.now() < nextMs);
 }
-
 function __setCooldownHtml(html){
   const el = $('calibCooldownMsg');
   if (!el) return;
-
   if (!html){
     el.style.display = 'none';
     el.innerHTML = '';
     return;
   }
-
   el.style.display = 'block';
   el.innerHTML = html;
 }
-
 function __renderCooldownCard(){
   const now = Date.now();
   const lastMs = Number(state._lastAppliedMs || 0);
@@ -1048,7 +1556,7 @@ function __renderCooldownCard(){
     : `Last global adjustment: <span class="mono">—</span>`;
 
   const note =
-    `If one specific field needs changes right now, do a <b>field-specific adjustment</b> using the field’s <b>Soil Wetness</b> and <b>Drainage Index</b> sliders (not global calibration).`;
+    `If one specific field needs changes right now, do a <b>field-specific adjustment</b> using the field’s <b>Soil Wetness</b> and <b>Drainage Index</b> sliders.`;
 
   const cardStyle =
     'border:1px solid var(--border);border-radius:14px;padding:12px;' +
@@ -1078,7 +1586,6 @@ function __renderCooldownCard(){
     </div>
   `);
 }
-
 async function loadCooldownFromFirestore(){
   const api = getAPI();
   if (!api || api.kind === 'compat'){
@@ -1108,7 +1615,6 @@ async function loadCooldownFromFirestore(){
     state._cooldownHours = 72;
   }
 }
-
 function startCooldownTicker(){
   function tick(){
     __renderCooldownCard();
@@ -1124,7 +1630,7 @@ function stopCooldownTicker(){
   __setCooldownHtml('');
 }
 
-/* ---------- Adjust UI + behavior ---------- */
+/* ---------- Adjust UI + behavior (kept) ---------- */
 function updateAdjustPills(){
   const fid = state.selectedFieldId;
   const f = state.fields.find(x=>x.id===fid);
@@ -1153,7 +1659,6 @@ function updateAdjustPills(){
 
   updateAdjustUI();
 }
-
 function setFeel(feel){
   if (isGlobalCalLocked()) return;
   state._adjFeel = (feel === 'wet' || feel === 'dry') ? feel : null;
@@ -1167,8 +1672,6 @@ function setFeel(feel){
   }
   updateAdjustUI();
 }
-
-/* Slider helpers */
 function readSlider0100(){
   const el = $('adjIntensity');
   const v = el ? Number(el.value) : 50;
@@ -1209,7 +1712,6 @@ function enforceAdjustSliderBounds(){
   slider.value = String(v);
   updateIntensityLabel();
 }
-
 function computeNormalizedIntensity0100(anchor, feel){
   const target = readSlider0100();
   const r = clamp(Math.round(Number(anchor)), 0, 100);
@@ -1224,7 +1726,6 @@ function computeNormalizedIntensity0100(anchor, feel){
   }
   return 0;
 }
-
 function computeDelta(){
   const fid = state.selectedFieldId;
   const f = state.fields.find(x=>x.id===fid);
@@ -1257,7 +1758,6 @@ function computeDelta(){
 
   return clamp(sign * mag, -18, +18);
 }
-
 function updateAdjustGuard(){
   updateIntensityLabel();
   const el = $('adjGuard');
@@ -1270,7 +1770,6 @@ function updateAdjustGuard(){
   }
   el.textContent = `This will nudge the model by ${d > 0 ? '+' : ''}${d} (guardrailed).`;
 }
-
 function updateAdjustUI(){
   const fid = state.selectedFieldId;
   const f = state.fields.find(x=>x.id===fid);
@@ -1372,7 +1871,6 @@ function appendAdjustLog(entry){
     localStorage.setItem(LS_ADJ_LOG, JSON.stringify(out));
   }catch(_){}
 }
-
 async function writeAdjustToFirestore(entry){
   const api = getAPI();
   if (!api || api.kind === 'compat') return;
@@ -1400,7 +1898,6 @@ async function writeAdjustToFirestore(entry){
     console.warn('[FieldReadiness] adjust log write failed:', e);
   }
 }
-
 async function applyAdjustment(){
   const fid = state.selectedFieldId;
   const f = state.fields.find(x=>x.id===fid);
@@ -1501,12 +1998,9 @@ async function openAdjustGlobal(){
 
   showModal('adjustBackdrop', true);
 }
+function closeAdjust(){ showModal('adjustBackdrop', false); }
 
-function closeAdjust(){
-  showModal('adjustBackdrop', false);
-}
-
-/* ---------- maps (kept as-is) ---------- */
+/* ---------- maps (kept) ---------- */
 function getMapsKey(){
   const k1 = (window && window.FV_GOOGLE_MAPS_KEY) ? String(window.FV_GOOGLE_MAPS_KEY) : '';
   let k2 = '';
@@ -1687,56 +2181,28 @@ function openOpModal(){
 }
 function closeOpModal(){ showModal('opBackdrop', false); }
 
-function loadOpDefault(){
-  const op = $('opSel');
-  if (!op) return false;
-
-  let raw = '';
-  try{ raw = String(localStorage.getItem(LS_OP_KEY) || ''); }catch(_){ raw=''; }
-  if (!raw){
-    try{ raw = String(sessionStorage.getItem(LS_OP_KEY) || ''); }catch(_){ raw=''; }
-  }
-
-  raw = String(raw || '').trim();
-  if (!raw) return false;
-
-  // Only apply if it matches a real option
-  const ok = OPS.some(o=>o.key === raw);
-  if (ok) op.value = raw;
-
-  return ok;
-}
-
-function saveOpDefault(){
-  const op = $('opSel');
-  if (!op) return;
-  const v = String(op.value||'').trim();
-  if (!v) return;
-
-  try{ localStorage.setItem(LS_OP_KEY, v); }catch(_){}
-  try{ sessionStorage.setItem(LS_OP_KEY, v); }catch(_){}
-
-  // optional: also mirror to the op select dataset (helps debugging)
-  try{ op.dataset.saved = v; }catch(_){}
-}
-
-
 /* ---------- wiring (MUST run after DOM exists) ---------- */
 async function wireUIOnce(){
   if (state._wiredUI) return;
   state._wiredUI = true;
 
-  // Wait for critical controls (mobile Safari loads module early sometimes)
   await waitForEl('opSel', 3000);
   await waitForEl('sortSel', 3000);
 
-  // Sort
+  // Sort (persist)
   const sortSel = $('sortSel');
   if (sortSel){
-    sortSel.addEventListener('change', refreshAll);
+    sortSel.addEventListener('change', ()=>{
+      saveSortDefault();
+      refreshAll();
+    });
+    sortSel.addEventListener('input', ()=>{
+      saveSortDefault();
+      refreshAll();
+    });
   }
 
-  // Operation (save on BOTH change + input for iOS reliability)
+  // Operation (persist)
   const opSel = $('opSel');
   if (opSel){
     const handler = ()=>{ saveOpDefault(); refreshAll(); };
@@ -1744,7 +2210,7 @@ async function wireUIOnce(){
     opSel.addEventListener('input', handler);
   }
 
-  // Farm filter
+  // Farm filter (persist)
   const farmSel = $('farmSel');
   if (farmSel){
     farmSel.addEventListener('change', ()=>{
@@ -1757,7 +2223,7 @@ async function wireUIOnce(){
     });
   }
 
-  // Page size
+  // Page size (persist)
   const pageSel = $('pageSel');
   if (pageSel){
     pageSel.addEventListener('change', ()=>{
@@ -1766,24 +2232,37 @@ async function wireUIOnce(){
     });
   }
 
-  // Sliders
-  const soilWet = $('soilWet');
-  if (soilWet) soilWet.addEventListener('input', refreshAll);
-
-  const drain = $('drain');
-  if (drain) drain.addEventListener('input', refreshAll);
-
-  // Range controls
+  // Range controls (persist + clamp future)
   const applyRangeBtn = $('applyRangeBtn');
-  if (applyRangeBtn) applyRangeBtn.addEventListener('click', ()=> setTimeout(refreshAll, 0));
+  if (applyRangeBtn) applyRangeBtn.addEventListener('click', ()=>{
+    // allow picker to update input first, then clamp/save
+    setTimeout(()=>{
+      saveRangeDefault();
+      refreshAll();
+    }, 0);
+  });
 
   const clearRangeBtn = $('clearRangeBtn');
-  if (clearRangeBtn) clearRangeBtn.addEventListener('click', ()=> setTimeout(refreshAll, 0));
+  if (clearRangeBtn) clearRangeBtn.addEventListener('click', ()=>{
+    setTimeout(()=>{
+      // clear means revert to default last 30 (your preferred behavior)
+      const def = parseRangeFromInput(); // will default if blank
+      setRangeInputFromRange(def);
+      saveRangeDefault();
+      refreshAll();
+    }, 0);
+  });
 
   const jobRangeInput = $('jobRangeInput');
   if (jobRangeInput){
-    jobRangeInput.addEventListener('change', refreshAll);
-    jobRangeInput.addEventListener('input', refreshAll);
+    jobRangeInput.addEventListener('change', ()=>{
+      saveRangeDefault();
+      refreshAll();
+    });
+    jobRangeInput.addEventListener('input', ()=>{
+      saveRangeDefault();
+      refreshAll();
+    });
   }
 
   // Rain help tooltip
@@ -1887,37 +2366,48 @@ async function wireUIOnce(){
       if (e.target && e.target.id === 'mapBackdrop') closeMapModal();
     });
   })();
+
+  // ✅ Always enforce no-future selection in the calendar UI
+  enforceCalendarNoFuture();
+
+  // ✅ Trim details panels (now that DOM exists)
+  trimDetailsPanelsOnce();
 }
 
 /* ---------- init ---------- */
 (async function init(){
+  // Close details by default
   const dp = $('detailsPanel');
   if (dp) dp.open = false;
 
-  // ✅ Remove/hide Refresh Weather (API) button (per Dane)
+  // Remove/hide Refresh Weather (API) button (per your prior rule)
   const br = $('btnRegen');
   if (br){
     br.style.display = 'none';
     br.disabled = true;
   }
 
+  // local caches
   loadParamsFromLocal();
+  loadThresholdsFromLocal();
 
-  // IMPORTANT: wire UI after DOM exists (fixes iOS not persisting operation)
+  // wire UI first (fixes iOS state/persistence)
   await wireUIOnce();
 
-  // iOS fix: wait for the select to exist, then apply the saved op
+  // Restore saved UI prefs
   await waitForEl('opSel', 2500);
   loadOpDefault();
 
-  loadThresholdsFromLocal();
-
   loadFarmFilterDefault();
   loadPageSizeDefault();
+  loadSortDefault();
+  loadRangeDefault(); // sets visible last-30 default and clamps future if needed
 
+  // firebase
   const ok = await importFirebaseInit();
   if (!ok) setErr('firebase-init.js failed to import as a module.');
 
+  // remote thresholds + farms + fields
   await loadThresholdsFromFirestore();
   await loadFarmsOptional();
   await loadFields();
@@ -1928,46 +2418,8 @@ async function wireUIOnce(){
 
   wireFieldsHiddenTap();
 
-  ensureSelectedParamsToSliders();
-  refreshAll();
-})();
-
-
-/* ---------- init ---------- */
-(async function init(){
-  const dp = $('detailsPanel');
-  if (dp) dp.open = false;
-
-  // ✅ Remove/hide Refresh Weather (API) button (per Dane)
-  const br = $('btnRegen');
-  if (br){
-    br.style.display = 'none';
-    br.disabled = true;
-  }
-
-  loadParamsFromLocal();
-
-// iOS fix: wait for the select to exist, then apply the saved op
-await waitForEl('opSel', 2500);
-loadOpDefault();
-
-loadThresholdsFromLocal();
-
-  loadFarmFilterDefault();
-  loadPageSizeDefault();
-
-  const ok = await importFirebaseInit();
-  if (!ok) setErr('firebase-init.js failed to import as a module.');
-
-  await loadThresholdsFromFirestore();
-  await loadFarmsOptional();
-  await loadFields();
-
-  if (!state.selectedFieldId && state.fields.length){
-    state.selectedFieldId = state.fields[0].id;
-  }
-
-  wireFieldsHiddenTap();
+  // Keep details-only content alive
+  trimDetailsPanelsOnce();
 
   ensureSelectedParamsToSliders();
   refreshAll();
