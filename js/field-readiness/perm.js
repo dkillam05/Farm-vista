@@ -1,37 +1,32 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/perm.js  (FULL FILE)
-Rev: 2025-12-26b
+Rev: 2025-12-26c
 
-Uses the existing FarmVista permission engine:
-- window.FVUserContext (user-context.js)
-- ctx.effectivePerms (role perms + employee overrides merged)
-- perm key: "crop-field-readiness"
-
-Outputs:
-- state.perm = { key, view, edit, add, delete, loaded, roleName, email }
-- adds data-perm hooks for perm-ui.js
+Uses existing FarmVista permission engine (FVUserContext):
+- Reads ctx.effectivePerms['crop-weather']
+- Normalizes to {view, edit, add, delete}
+- Adds data-perm hooks for perm-ui.js
 
 ===================================================================== */
 'use strict';
 
-const PERM_KEY = 'crop-field-readiness';
+const PERM_KEY = 'crop-weather';
 
 function emptyPerm(){
   return { view:false, edit:false, add:false, delete:false };
 }
 
 function normalizePerm(v){
-  // supports:
-  //  - boolean (treat as view)
-  //  - object {view,edit,add,delete}
   const out = emptyPerm();
 
+  // boolean -> treat as view
   if (typeof v === 'boolean'){
     out.view = v;
     out.edit = false;
     return out;
   }
 
+  // object {view, edit, add, delete}
   if (v && typeof v === 'object'){
     for (const k of ['view','edit','add','delete']){
       if (typeof v[k] === 'boolean') out[k] = v[k];
@@ -43,16 +38,16 @@ function normalizePerm(v){
 }
 
 export function applyPermDataAttrs(){
-  // Add runtime data-perm hooks (no HTML edits required)
   try{
     const grid = document.getElementById('fieldsGrid');
     const detailsPanel = document.getElementById('detailsPanel');
 
+    // page visibility
     if (grid) grid.setAttribute('data-perm', `${PERM_KEY}.view`);
     if (detailsPanel) detailsPanel.setAttribute('data-perm', `${PERM_KEY}.view`);
 
-    // If you later inject a quick-view modal button or save button,
-    // set data-perm="${PERM_KEY}.edit" on those elements.
+    // edit-only interactions will be wired in later modules; when you add UI elements,
+    // set data-perm="${PERM_KEY}.edit" on them.
   }catch(_){}
 }
 
@@ -60,7 +55,6 @@ export async function loadFieldReadinessPerms(state){
   state.perm = {
     key: PERM_KEY,
     ...emptyPerm(),
-
     loaded: false,
     roleName: null,
     email: null
@@ -68,7 +62,7 @@ export async function loadFieldReadinessPerms(state){
 
   applyPermDataAttrs();
 
-  // If FVUserContext isn't available, fail-open view (so you can still test layout)
+  // If FVUserContext isn't available, fail-open view (so layout/testing still works)
   if (!window.FVUserContext || typeof window.FVUserContext.ready !== 'function'){
     state.perm.view = true;
     state.perm.edit = false;
@@ -92,15 +86,12 @@ export async function loadFieldReadinessPerms(state){
   state.perm = {
     key: PERM_KEY,
     ...p,
-
     loaded: true,
     roleName: (ctx && ctx.roleName) ? String(ctx.roleName) : null,
     email: (ctx && ctx.email) ? String(ctx.email) : null
   };
 
-  // Let perm-ui.js re-apply (it listens for this)
   try{ document.dispatchEvent(new CustomEvent('fv:user-ready')); }catch(_){}
-
   return state.perm;
 }
 
