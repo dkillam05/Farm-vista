@@ -1,12 +1,11 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-26c
+Rev: 2025-12-26d
 
-Fixes:
-- Desktop dblclick now reliably opens Quick View (no “slider grab”)
-- Suppresses click selection when dblclick happens
-- Swipe stays edit-only
-
+- Uses shared range/rain logic from rain.js
+- Tiles still show Rain (range)
+- Dblclick (edit only) opens Quick View (no slider grab)
+- Swipe (edit only) opens Quick View
 ===================================================================== */
 'use strict';
 
@@ -18,6 +17,8 @@ import { getCurrentOp, getThresholdForOp } from './thresholds.js';
 import { canEdit } from './perm.js';
 import { openQuickView } from './quickview.js';
 import { initSwipeOnTiles } from './swipe.js';
+
+import { parseRangeFromInput, rainInRange } from './rain.js';
 
 export async function ensureModelWeatherModules(state){
   if (state._mods.model && state._mods.weather) return;
@@ -64,44 +65,6 @@ function gradientForThreshold(thr){
   )`;
 }
 
-function parseRangeFromInput(){
-  const inp = $('jobRangeInput');
-  const raw = String(inp ? inp.value : '').trim();
-  if (!raw) return { start:null, end:null };
-
-  const parts = raw.split('–').map(s=>s.trim());
-  if (parts.length === 2){
-    const a = new Date(parts[0]);
-    const b = new Date(parts[1]);
-    if (isFinite(a.getTime()) && isFinite(b.getTime())){
-      a.setHours(0,0,0,0);
-      b.setHours(23,59,59,999);
-      return { start:a, end:b };
-    }
-  }
-
-  const d = new Date(raw);
-  if (isFinite(d.getTime())){
-    d.setHours(0,0,0,0);
-    const e = new Date(d);
-    e.setHours(23,59,59,999);
-    return { start:d, end:e };
-  }
-  return { start:null, end:null };
-}
-function isDateInRange(dateISO, range){
-  if (!range || !range.start || !range.end) return true;
-  const d = new Date(dateISO + 'T12:00:00');
-  return d >= range.start && d <= range.end;
-}
-function rainInRange(run, range){
-  if (!run || !run.rows) return 0;
-  let sum = 0;
-  for (const r of run.rows){
-    if (isDateInRange(r.dateISO, range)) sum += Number(r.rainInAdj||0);
-  }
-  return round(sum, 2);
-}
 function sortFields(fields, runsById){
   const sel = $('sortSel');
   const mode = String(sel ? sel.value : 'name_az');
@@ -112,14 +75,18 @@ function sortFields(fields, runsById){
   arr.sort((a,b)=>{
     const ra = runsById.get(a.id);
     const rb = runsById.get(b.id);
+
     const nameA = `${a.name||''}`;
     const nameB = `${b.name||''}`;
+
     const readyA = ra ? ra.readinessR : 0;
     const readyB = rb ? rb.readinessR : 0;
+
     const rainA = ra ? rainInRange(ra, range) : 0;
 
     if (mode === 'name_az') return collator.compare(nameA, nameB);
     if (mode === 'name_za') return collator.compare(nameB, nameA);
+
     if (mode === 'ready_dry_wet'){ if (readyB !== readyA) return readyB - readyA; return collator.compare(nameA, nameB); }
     if (mode === 'ready_wet_dry'){ if (readyB !== readyA) return readyA - readyB; return collator.compare(nameA, nameB); }
 
@@ -213,14 +180,12 @@ export async function renderTiles(state){
       </div>
     `;
 
-    // Click select, but ignore immediately after a dblclick
     tile.addEventListener('click', ()=>{
       const until = Number(state._suppressClickUntil || 0);
       if (Date.now() < until) return;
       selectField(state, f.id);
     });
 
-    // Dblclick: open quick view (edit only), and suppress click for a moment
     if (canEdit(state)){
       tile.addEventListener('dblclick', (e)=>{
         e.preventDefault();
