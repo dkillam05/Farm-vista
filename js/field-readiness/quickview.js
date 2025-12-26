@@ -1,13 +1,10 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2025-12-26a
+Rev: 2025-12-26b
 
-Quick View modal:
-- Opens per field
-- Allows editing soilWetness/drainageIndex (edit permission required)
-- Saves back to Firestore collection "fields"
-- Reloads page after save (per Dane)
-
+Save now performs a SOFT reload:
+- dispatches fr:soft-reload
+- modal stays open
 ===================================================================== */
 'use strict';
 
@@ -124,7 +121,7 @@ function ensureBuiltOnce(state){
   const save = $('frQvSave');
   if (save){
     save.addEventListener('click', async ()=>{
-      if (!canEdit(state)) return; // hard gate
+      if (!canEdit(state)) return;
       if (state._qvSaving) return;
       await saveQuickView(state);
     });
@@ -212,9 +209,6 @@ function fillQuickView(state){
   setText('frQvOp', opLabel);
   setText('frQvThr', thr);
 
-  // Range rain display uses whatever the page currently computes; keep simple:
-  // We’ll use the same helper the main renderer uses later; for now show 0 if missing.
-  // If you want, we can pass in the computed rainRange from the tile run.
   setText('frQvRain', '—');
   setText('frQvReadiness', run ? run.readinessR : '—');
   setText('frQvWetness', run ? run.wetnessR : '—');
@@ -258,14 +252,12 @@ async function saveQuickView(state){
   if (hint) hint.textContent = 'Saving…';
 
   try{
-    // local cache update first
     const p = getFieldParams(state, fid);
     p.soilWetness = soilWetness;
     p.drainageIndex = drainageIndex;
     state.perFieldParams.set(fid, p);
     saveParamsToLocal(state);
 
-    // update field object
     f.soilWetness = soilWetness;
     f.drainageIndex = drainageIndex;
 
@@ -291,10 +283,16 @@ async function saveQuickView(state){
       }, { merge:true });
     }
 
-    if (hint) hint.textContent = 'Saved. Reloading…';
+    if (hint) hint.textContent = 'Saved.';
+    if (saveBtn){ saveBtn.textContent = 'Save'; saveBtn.disabled = false; }
 
-    // per your preference: hard reload so everything reflects immediately
-    setTimeout(()=>{ window.location.reload(); }, 200);
+    state._qvSaving = false;
+
+    // SOFT reload (keeps modal open)
+    try{ document.dispatchEvent(new CustomEvent('fr:soft-reload')); }catch(_){}
+
+    // Re-fill so numbers reflect immediately
+    fillQuickView(state);
 
   }catch(e){
     console.warn('[FieldReadiness] quick save failed:', e);
