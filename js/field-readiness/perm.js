@@ -1,11 +1,13 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/perm.js  (FULL FILE)
-Rev: 2025-12-26c
+Rev: 2025-12-26e
 
-Uses existing FarmVista permission engine (FVUserContext):
-- Reads ctx.effectivePerms['crop-weather']
-- Normalizes to {view, edit, add, delete}
-- Adds data-perm hooks for perm-ui.js
+Permission key: crop-weather (existing system)
+
+IMPORTANT:
+- perm-ui.js expects FV.can('crop-weather') style keys (no ".view")
+- So we set data-perm="crop-weather" (no suffix)
+- Edit gating is handled in code via state.perm.edit
 
 ===================================================================== */
 'use strict';
@@ -19,14 +21,12 @@ function emptyPerm(){
 function normalizePerm(v){
   const out = emptyPerm();
 
-  // boolean -> treat as view
   if (typeof v === 'boolean'){
     out.view = v;
     out.edit = false;
     return out;
   }
 
-  // object {view, edit, add, delete}
   if (v && typeof v === 'object'){
     for (const k of ['view','edit','add','delete']){
       if (typeof v[k] === 'boolean') out[k] = v[k];
@@ -38,16 +38,13 @@ function normalizePerm(v){
 }
 
 export function applyPermDataAttrs(){
+  // Use the exact key that FV.can understands
   try{
     const grid = document.getElementById('fieldsGrid');
     const detailsPanel = document.getElementById('detailsPanel');
 
-    // page visibility
-    if (grid) grid.setAttribute('data-perm', `${PERM_KEY}.view`);
-    if (detailsPanel) detailsPanel.setAttribute('data-perm', `${PERM_KEY}.view`);
-
-    // edit-only interactions will be wired in later modules; when you add UI elements,
-    // set data-perm="${PERM_KEY}.edit" on them.
+    if (grid) grid.setAttribute('data-perm', PERM_KEY);
+    if (detailsPanel) detailsPanel.setAttribute('data-perm', PERM_KEY);
   }catch(_){}
 }
 
@@ -62,7 +59,7 @@ export async function loadFieldReadinessPerms(state){
 
   applyPermDataAttrs();
 
-  // If FVUserContext isn't available, fail-open view (so layout/testing still works)
+  // If FVUserContext isn't available, fail-open view for testing (but no edit)
   if (!window.FVUserContext || typeof window.FVUserContext.ready !== 'function'){
     state.perm.view = true;
     state.perm.edit = false;
@@ -91,6 +88,7 @@ export async function loadFieldReadinessPerms(state){
     email: (ctx && ctx.email) ? String(ctx.email) : null
   };
 
+  // perm-ui.js listens for fv:user-ready
   try{ document.dispatchEvent(new CustomEvent('fv:user-ready')); }catch(_){}
   return state.perm;
 }
