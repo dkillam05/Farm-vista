@@ -1,13 +1,15 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/firebase.js  (FULL FILE)
 Rev: 2025-12-26a
-Thin wrapper over /Farm-vista/js/firebase-init.js
+Wrapper around firebase-init.js.
 ===================================================================== */
 'use strict';
 
+import { PATHS } from './paths.js';
+
 export async function importFirebaseInit(state){
   try{
-    const mod = await import('/Farm-vista/js/firebase-init.js');
+    const mod = await import(PATHS.FIREBASE_INIT);
     state.fb = mod;
     if (mod && mod.ready) await mod.ready;
     return true;
