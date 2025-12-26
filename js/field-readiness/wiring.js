@@ -1,15 +1,18 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/wiring.js  (FULL FILE)
-Rev: 2025-12-26a
+Rev: 2025-12-26b
 
-Wires UI handlers once (ported from your working file).
-Phase 2: add sort/range persistence + quick view + swipe wiring here.
+Farm filter:
+- saves to local cache
+- refreshes
+- ensures selected field stays valid
 ===================================================================== */
 'use strict';
 
 import { waitForEl } from './utils.js';
 import { saveFarmFilterDefault, savePageSizeDefault, saveOpDefault } from './prefs.js';
 import { refreshAll } from './render.js';
+import { buildFarmFilterOptions } from './farm-filter.js';
 
 export async function wireUIOnce(state){
   if (state._wiredUI) return;
@@ -18,13 +21,13 @@ export async function wireUIOnce(state){
   await waitForEl('opSel', 3000);
   await waitForEl('sortSel', 3000);
 
-  // Sort (kept as-is)
+  // Sort
   const sortSel = document.getElementById('sortSel');
   if (sortSel){
     sortSel.addEventListener('change', ()=> refreshAll(state));
   }
 
-  // Operation (kept as-is)
+  // Operation
   const opSel = document.getElementById('opSel');
   if (opSel){
     const handler = ()=>{ saveOpDefault(); refreshAll(state); };
@@ -32,11 +35,25 @@ export async function wireUIOnce(state){
     opSel.addEventListener('input', handler);
   }
 
-  // Farm filter
+  // Farm filter (persist + refresh)
   const farmSel = document.getElementById('farmSel');
   if (farmSel){
     farmSel.addEventListener('change', ()=>{
       saveFarmFilterDefault(state);
+
+      // If the saved farm is no longer present, snap back to All
+      buildFarmFilterOptions(state);
+
+      // If current selected field isn't in the filtered list anymore, keep it safe:
+      const farmId = String(state.farmFilter || '__all__');
+      if (farmId !== '__all__'){
+        const ok = (state.fields || []).some(f => f.id === state.selectedFieldId && String(f.farmId||'') === farmId);
+        if (!ok){
+          const first = (state.fields || []).find(f => String(f.farmId||'') === farmId);
+          state.selectedFieldId = first ? first.id : state.selectedFieldId;
+        }
+      }
+
       refreshAll(state);
     });
   }
@@ -57,7 +74,7 @@ export async function wireUIOnce(state){
   const drain = document.getElementById('drain');
   if (drain) drain.addEventListener('input', ()=> refreshAll(state));
 
-  // Range controls (kept as-is)
+  // Range controls (kept)
   const applyRangeBtn = document.getElementById('applyRangeBtn');
   if (applyRangeBtn) applyRangeBtn.addEventListener('click', ()=> setTimeout(()=>refreshAll(state), 0));
 
@@ -70,7 +87,7 @@ export async function wireUIOnce(state){
     jobRangeInput.addEventListener('input',  ()=> refreshAll(state));
   }
 
-  // Help tooltip (kept)
+  // Rain help tooltip (kept)
   (function(){
     const rainHelpBtn = document.getElementById('rainHelpBtn');
     const rainHelpTip = document.getElementById('rainHelpTip');
@@ -88,6 +105,4 @@ export async function wireUIOnce(state){
       if (!inside && !btn) close();
     });
   })();
-
-  // (We’re intentionally not moving your modals yet in Phase 1.)
 }
