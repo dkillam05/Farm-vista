@@ -1,11 +1,12 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-26b
+Rev: 2025-12-26c
 
-Adds:
-- dblclick (edit only) → Quick View
-- swipe-right action (edit only) → Quick View
-- tile elements become swipe items with data-field-id
+Fixes:
+- Desktop dblclick now reliably opens Quick View (no “slider grab”)
+- Suppresses click selection when dblclick happens
+- Swipe stays edit-only
+
 ===================================================================== */
 'use strict';
 
@@ -18,28 +19,19 @@ import { canEdit } from './perm.js';
 import { openQuickView } from './quickview.js';
 import { initSwipeOnTiles } from './swipe.js';
 
-/* ---------- module loader (model/weather) ---------- */
 export async function ensureModelWeatherModules(state){
   if (state._mods.model && state._mods.weather) return;
-
-  const [weather, model] = await Promise.all([
-    import(PATHS.WEATHER),
-    import(PATHS.MODEL)
-  ]);
-
+  const [weather, model] = await Promise.all([ import(PATHS.WEATHER), import(PATHS.MODEL) ]);
   state._mods.weather = weather;
   state._mods.model = model;
 }
 
-/* ---------- colors ---------- */
 function perceivedFromThreshold(readiness, thr){
   const r = clamp(Math.round(Number(readiness)), 0, 100);
   const t = clamp(Math.round(Number(thr)), 0, 100);
-
   if (t <= 0) return 100;
   if (t >= 100) return Math.round((r/100)*50);
   if (r === t) return 50;
-
   if (r > t){
     const denom = Math.max(1, 100 - t);
     const frac = (r - t) / denom;
@@ -60,9 +52,7 @@ function colorForPerceived(p){
     const frac = (x - 50) / 50;
     h = 45 + (120 - 45) * frac;
   }
-  const s = 70;
-  const l = 38;
-  return `hsl(${h.toFixed(0)} ${s}% ${l}%)`;
+  return `hsl(${h.toFixed(0)} 70% 38%)`;
 }
 function gradientForThreshold(thr){
   const t = clamp(Math.round(Number(thr)), 0, 100);
@@ -74,7 +64,6 @@ function gradientForThreshold(thr){
   )`;
 }
 
-/* ---------- range helpers (still using your existing input text) ---------- */
 function parseRangeFromInput(){
   const inp = $('jobRangeInput');
   const raw = String(inp ? inp.value : '').trim();
@@ -98,7 +87,6 @@ function parseRangeFromInput(){
     e.setHours(23,59,59,999);
     return { start:d, end:e };
   }
-
   return { start:null, end:null };
 }
 function isDateInRange(dateISO, range){
@@ -124,18 +112,14 @@ function sortFields(fields, runsById){
   arr.sort((a,b)=>{
     const ra = runsById.get(a.id);
     const rb = runsById.get(b.id);
-
     const nameA = `${a.name||''}`;
     const nameB = `${b.name||''}`;
-
     const readyA = ra ? ra.readinessR : 0;
     const readyB = rb ? rb.readinessR : 0;
-
     const rainA = ra ? rainInRange(ra, range) : 0;
 
     if (mode === 'name_az') return collator.compare(nameA, nameB);
     if (mode === 'name_za') return collator.compare(nameB, nameA);
-
     if (mode === 'ready_dry_wet'){ if (readyB !== readyA) return readyB - readyA; return collator.compare(nameA, nameB); }
     if (mode === 'ready_wet_dry'){ if (readyB !== readyA) return readyA - readyB; return collator.compare(nameA, nameB); }
 
@@ -229,18 +213,21 @@ export async function renderTiles(state){
       </div>
     `;
 
-    // single click selects field
+    // Click select, but ignore immediately after a dblclick
     tile.addEventListener('click', ()=>{
+      const until = Number(state._suppressClickUntil || 0);
+      if (Date.now() < until) return;
       selectField(state, f.id);
     });
 
-    // edit-only: dblclick opens quick view
+    // Dblclick: open quick view (edit only), and suppress click for a moment
     if (canEdit(state)){
       tile.addEventListener('dblclick', (e)=>{
         e.preventDefault();
         e.stopPropagation();
+        state._suppressClickUntil = Date.now() + 450;
         openQuickView(state, f.id);
-      });
+      }, true);
     }
 
     wrap.appendChild(tile);
@@ -249,10 +236,7 @@ export async function renderTiles(state){
   const empty = $('emptyMsg');
   if (empty) empty.style.display = show.length ? 'none' : 'block';
 
-  // edit-only: swipe action opens quick view
-  await initSwipeOnTiles(state, {
-    onDetails: (fieldId)=> openQuickView(state, fieldId)
-  });
+  await initSwipeOnTiles(state, { onDetails: (fieldId)=> openQuickView(state, fieldId) });
 }
 
 export function selectField(state, id){
@@ -280,7 +264,6 @@ export async function renderDetails(state){
   const run = state.lastRuns.get(f.id) || state._mods.model.runField(f, deps);
   if (!run) return;
 
-  // Keep your existing details content (we’ll finish Beta+tables module move next)
   const fac = run.factors;
   const p = getFieldParams(state, f.id);
 
