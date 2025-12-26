@@ -1,10 +1,10 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/index.js  (FULL FILE)
-Rev: 2025-12-26b
+Rev: 2025-12-26c
 
-Adds permissions:
-- view allowed: page works normally
-- edit required: (future) dblclick/swipe/save interactions
+Now integrates FarmVista permission system via FVUserContext:
+- crop-field-readiness.view gates page visibility
+- crop-field-readiness.edit gates dblclick/swipe/quick save (added in later module)
 ===================================================================== */
 'use strict';
 
@@ -19,7 +19,7 @@ import { wireUIOnce } from './wiring.js';
 import { renderTiles, renderDetails, refreshAll, ensureModelWeatherModules } from './render.js';
 import { wireFieldsHiddenTap } from './adjust.js';
 
-import { loadFieldReadinessPerms, applyPermDataAttrs } from './perm.js';
+import { loadFieldReadinessPerms, canView } from './perm.js';
 
 (async function init(){
   const state = createState();
@@ -33,24 +33,21 @@ import { loadFieldReadinessPerms, applyPermDataAttrs } from './perm.js';
   const br = document.getElementById('btnRegen');
   if (br){ br.style.display = 'none'; br.disabled = true; }
 
-  // Load local caches
+  // Local caches
   loadParamsFromLocal(state);
   loadThresholdsFromLocal(state);
 
   // Wire UI once
   await wireUIOnce(state);
 
-  // Load firebase
+  // Firebase (needed because user-context reads Firestore)
   await importFirebaseInit(state);
 
-  // Resolve perms (employees + accountRoles)
+  // Permissions from FVUserContext
   await loadFieldReadinessPerms(state);
 
-  // Add data-perm hooks so perm-ui.js can do its thing
-  applyPermDataAttrs();
-
-  // Gate: if cannot view, stop here
-  if (state.perm && state.perm.loaded && !state.perm.view){
+  // Gate: no view → stop
+  if (!canView(state)){
     const grid = document.getElementById('fieldsGrid');
     if (grid){
       grid.innerHTML = '';
@@ -63,11 +60,11 @@ import { loadFieldReadinessPerms, applyPermDataAttrs } from './perm.js';
     return;
   }
 
-  // prefs
+  // Prefs (existing behavior)
   await loadPrefsFromLocalToUI(state);
   await loadRangeFromLocalToUI();
 
-  // calendar safety
+  // Calendar safety (no future)
   enforceCalendarNoFuture();
 
   // Firestore thresholds + data
@@ -79,15 +76,15 @@ import { loadFieldReadinessPerms, applyPermDataAttrs } from './perm.js';
     state.selectedFieldId = state.fields[0].id;
   }
 
-  // hidden Fields tap (calibration modal)
-  // You may later want this to require edit; for now keep existing behavior:
-  wireFieldsHiddenTap(state);
-
-  // Ensure model/weather modules loaded for rendering
+  // Load model/weather deps
   await ensureModelWeatherModules(state);
 
-  // render
+  // Render
   renderTiles(state);
   renderDetails(state);
   refreshAll(state);
+
+  // Hidden Fields tap (calibration modal)
+  // Optional: you can later change this to require edit; for now leave it.
+  wireFieldsHiddenTap(state);
 })();
