@@ -1,9 +1,15 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/range.js  (FULL FILE)
-Rev: 2025-12-26b
+Rev: 2025-12-26c
 
-- Greys out future days
-- HARD blocks clicks/taps on future days (even if picker re-renders)
+Fix:
+- Future months like January were clickable because monthSelect.value was non-numeric (NaN).
+- Now we parse month/year from selected option TEXT (and/or value when numeric).
+
+Behavior:
+- Future days are greyed out AND hard-blocked (capture-phase stop).
+- Future months (any month after current month in current year, or any future year) are fully blocked.
+
 ===================================================================== */
 'use strict';
 
@@ -11,22 +17,84 @@ export async function loadRangeFromLocalToUI(){
   // Phase later: persistence; keep current behavior for now.
 }
 
+const MONTHS = new Map([
+  ['jan',0],['january',0],
+  ['feb',1],['february',1],
+  ['mar',2],['march',2],
+  ['apr',3],['april',3],
+  ['may',4],
+  ['jun',5],['june',5],
+  ['jul',6],['july',6],
+  ['aug',7],['august',7],
+  ['sep',8],['sept',8],['september',8],
+  ['oct',9],['october',9],
+  ['nov',10],['november',10],
+  ['dec',11],['december',11],
+]);
+
+function getSelectedText(sel){
+  try{
+    const i = sel.selectedIndex;
+    if (i >= 0 && sel.options && sel.options[i]) return String(sel.options[i].textContent || '').trim();
+  }catch(_){}
+  return '';
+}
+
+function parseMonthFromAny(monthSel){
+  // 1) numeric value (0-11 or 1-12)
+  const rawVal = monthSel ? String(monthSel.value || '').trim() : '';
+  const n = Number(rawVal);
+  if (Number.isFinite(n)){
+    if (n >= 0 && n <= 11) return n;
+    if (n >= 1 && n <= 12) return n - 1;
+  }
+
+  // 2) try from selected option text
+  const txt = monthSel ? getSelectedText(monthSel) : '';
+  const low = txt.toLowerCase();
+
+  // look for month name tokens
+  for (const [k, idx] of MONTHS.entries()){
+    if (low.includes(k)) return idx;
+  }
+
+  // 3) try first 3 letters of text
+  const abbr = low.slice(0,3);
+  if (MONTHS.has(abbr)) return MONTHS.get(abbr);
+
+  return null;
+}
+
+function parseYearFromAny(yearSel){
+  // 1) numeric value
+  const rawVal = yearSel ? String(yearSel.value || '').trim() : '';
+  const n = Number(rawVal);
+  if (Number.isFinite(n) && n > 1970 && n < 2100) return n;
+
+  // 2) option text
+  const txt = yearSel ? getSelectedText(yearSel) : '';
+  const m = txt.match(/(19\d{2}|20\d{2})/);
+  if (m) return Number(m[1]);
+
+  return null;
+}
+
 export function enforceCalendarNoFuture(){
-  const calDays = document.getElementById('calDays');
+  const calDays  = document.getElementById('calDays');
   const monthSel = document.getElementById('monthSelect');
   const yearSel  = document.getElementById('yearSelect');
   if (!calDays) return;
 
   const today = new Date();
   today.setHours(0,0,0,0);
-  const todayY = today.getFullYear();
+  const todayY  = today.getFullYear();
   const todayM0 = today.getMonth();
-  const todayD = today.getDate();
+  const todayD  = today.getDate();
 
   function computeShown(){
-    const y = yearSel ? Number(yearSel.value) : todayY;
-    const m = monthSel ? Number(monthSel.value) : todayM0;
-    const shownM0 = (m > 11) ? (m-1) : m; // tolerate 1-12 or 0-11
+    const y = parseYearFromAny(yearSel) ?? todayY;
+    const m0 = parseMonthFromAny(monthSel);
+    const shownM0 = (m0 == null ? todayM0 : m0);
     return { y, shownM0 };
   }
 
@@ -40,15 +108,16 @@ export function enforceCalendarNoFuture(){
   function patch(){
     const shown = computeShown();
     const days = Array.from(calDays.querySelectorAll('.cal-day'));
+
     for (const el of days){
       const n = Number((el.textContent||'').trim());
-      if (!isFinite(n) || n <= 0) continue;
+      if (!Number.isFinite(n) || n <= 0) continue;
 
       const future = isFutureDay(n, shown);
+
       if (future){
         el.style.opacity = '0.35';
         el.setAttribute('aria-disabled','true');
-        // best-effort: stop pointer events
         el.style.pointerEvents = 'none';
       } else {
         el.style.opacity = '';
@@ -58,24 +127,24 @@ export function enforceCalendarNoFuture(){
     }
   }
 
-  // HARD BLOCK: if anything marked aria-disabled is clicked, kill it (capture phase)
+  // HARD BLOCK: capture phase stop (even if picker tries to handle it)
   function blockIfDisabled(ev){
     const t = ev.target && ev.target.closest ? ev.target.closest('.cal-day[aria-disabled="true"]') : null;
     if (!t) return;
     ev.preventDefault();
     ev.stopPropagation();
-    ev.stopImmediatePropagation?.();
+    if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
     return false;
   }
 
-  // Attach blockers once
   calDays.addEventListener('pointerdown', blockIfDisabled, true);
   calDays.addEventListener('pointerup', blockIfDisabled, true);
   calDays.addEventListener('click', blockIfDisabled, true);
+  calDays.addEventListener('touchstart', blockIfDisabled, true);
 
   patch();
 
-  // Re-patch on redraws
+  // Re-patch when calendar re-renders
   try{
     const mo = new MutationObserver(()=>patch());
     mo.observe(calDays, { childList:true, subtree:true });
