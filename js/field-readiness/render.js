@@ -1,10 +1,11 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-26a
+Rev: 2025-12-26b
 
-Owns:
-- importing locked model/weather modules once
-- tile render + details render (ported from your working file)
+Adds:
+- dblclick (edit only) → Quick View
+- swipe-right action (edit only) → Quick View
+- tile elements become swipe items with data-field-id
 ===================================================================== */
 'use strict';
 
@@ -13,6 +14,9 @@ import { OPS, EXTRA, CONST, buildWxCtx } from './state.js';
 import { $, esc, round, clamp } from './utils.js';
 import { getFieldParams, ensureSelectedParamsToSliders, saveParamsToLocal } from './params.js';
 import { getCurrentOp, getThresholdForOp } from './thresholds.js';
+import { canEdit } from './perm.js';
+import { openQuickView } from './quickview.js';
+import { initSwipeOnTiles } from './swipe.js';
 
 /* ---------- module loader (model/weather) ---------- */
 export async function ensureModelWeatherModules(state){
@@ -27,7 +31,7 @@ export async function ensureModelWeatherModules(state){
   state._mods.model = model;
 }
 
-/* ---------- colors (ported) ---------- */
+/* ---------- colors ---------- */
 function perceivedFromThreshold(readiness, thr){
   const r = clamp(Math.round(Number(readiness)), 0, 100);
   const t = clamp(Math.round(Number(thr)), 0, 100);
@@ -70,7 +74,7 @@ function gradientForThreshold(thr){
   )`;
 }
 
-/* ---------- range helpers (still from your working file; we’ll migrate next) ---------- */
+/* ---------- range helpers (still using your existing input text) ---------- */
 function parseRangeFromInput(){
   const inp = $('jobRangeInput');
   const raw = String(inp ? inp.value : '').trim();
@@ -110,7 +114,7 @@ function rainInRange(run, range){
   }
   return round(sum, 2);
 }
-function sortFields(state, fields, runsById){
+function sortFields(fields, runsById){
   const sel = $('sortSel');
   const mode = String(sel ? sel.value : 'name_az');
   const range = parseRangeFromInput();
@@ -151,7 +155,9 @@ function getFilteredFields(state){
   return state.fields.filter(f => String(f.farmId||'') === farmId);
 }
 
-export function renderTiles(state){
+export async function renderTiles(state){
+  await ensureModelWeatherModules(state);
+
   const wrap = $('fieldsGrid');
   if (!wrap) return;
   wrap.innerHTML = '';
@@ -170,7 +176,7 @@ export function renderTiles(state){
   }
 
   const filtered = getFilteredFields(state);
-  const sorted = sortFields(state, filtered, state.lastRuns);
+  const sorted = sortFields(filtered, state.lastRuns);
   const thr = getThresholdForOp(state, getCurrentOp());
   const range = parseRangeFromInput();
 
@@ -192,15 +198,14 @@ export function renderTiles(state){
     const pillBg = colorForPerceived(perceived);
     const grad = gradientForThreshold(thr);
 
-    const labelLeft = f.name;
-
     const tile = document.createElement('div');
-    tile.className = 'tile' + (f.id === state.selectedFieldId ? ' active' : '');
+    tile.className = 'tile fv-swipe-item' + (f.id === state.selectedFieldId ? ' active' : '');
+    tile.dataset.fieldId = f.id;
 
     tile.innerHTML = `
       <div class="tile-top">
         <div class="titleline">
-          <div class="name" title="${esc(labelLeft)}">${esc(labelLeft)}</div>
+          <div class="name" title="${esc(f.name)}">${esc(f.name)}</div>
         </div>
         <div class="readiness-pill" style="background:${pillBg};color:#fff;">Field Readiness ${readiness}</div>
       </div>
@@ -224,12 +229,30 @@ export function renderTiles(state){
       </div>
     `;
 
-    tile.addEventListener('click', ()=> selectField(state, f.id));
+    // single click selects field
+    tile.addEventListener('click', ()=>{
+      selectField(state, f.id);
+    });
+
+    // edit-only: dblclick opens quick view
+    if (canEdit(state)){
+      tile.addEventListener('dblclick', (e)=>{
+        e.preventDefault();
+        e.stopPropagation();
+        openQuickView(state, f.id);
+      });
+    }
+
     wrap.appendChild(tile);
   }
 
   const empty = $('emptyMsg');
   if (empty) empty.style.display = show.length ? 'none' : 'block';
+
+  // edit-only: swipe action opens quick view
+  await initSwipeOnTiles(state, {
+    onDetails: (fieldId)=> openQuickView(state, fieldId)
+  });
 }
 
 export function selectField(state, id){
@@ -240,7 +263,9 @@ export function selectField(state, id){
   refreshAll(state);
 }
 
-export function renderDetails(state){
+export async function renderDetails(state){
+  await ensureModelWeatherModules(state);
+
   const f = state.fields.find(x=>x.id === state.selectedFieldId);
   if (!f) return;
 
@@ -255,8 +280,7 @@ export function renderDetails(state){
   const run = state.lastRuns.get(f.id) || state._mods.model.runField(f, deps);
   if (!run) return;
 
-  // keep EXACT details rendering in your working file (we’re not changing it here)
-  // We will migrate Beta/tables next phase into its own module.
+  // Keep your existing details content (we’ll finish Beta+tables module move next)
   const fac = run.factors;
   const p = getFieldParams(state, f.id);
 
@@ -299,7 +323,6 @@ export function renderDetails(state){
        Smax=<span class="mono">${fac.Smax.toFixed(2)}</span> (base <span class="mono">${fac.SmaxBase.toFixed(2)}</span>) • infilMult=<span class="mono">${fac.infilMult.toFixed(2)}</span> • dryMult=<span class="mono">${fac.dryMult.toFixed(2)}</span> • LOSS_SCALE=<span class="mono">${CONST.LOSS_SCALE.toFixed(2)}</span>`;
   }
 
-  // Weather updated line (kept)
   const info = state.wxInfoByFieldId.get(f.id) || null;
   const when = (info && info.fetchedAt) ? new Date(info.fetchedAt) : null;
   const whenTxt = when ? when.toLocaleString() : '—';
@@ -310,11 +333,9 @@ export function renderDetails(state){
       `Model output: <b>Wet=${run.wetnessR}</b> • <b>Readiness=${run.readinessR}</b> • storage=<span class="mono">${run.storageFinal.toFixed(2)}</span>/<span class="mono">${run.factors.Smax.toFixed(2)}</span>` +
       `<br/><span class="muted">Weather updated: <span class="mono">${esc(whenTxt)}</span></span>`;
   }
-
-  // TODO next phase: move renderBetaInputs + tables here exactly.
 }
 
-export function refreshAll(state){
+export async function refreshAll(state){
   if (state.selectedFieldId){
     const a = $('soilWet');
     const b = $('drain');
@@ -325,6 +346,6 @@ export function refreshAll(state){
     saveParamsToLocal(state);
   }
 
-  renderTiles(state);
-  renderDetails(state);
+  await renderTiles(state);
+  await renderDetails(state);
 }
