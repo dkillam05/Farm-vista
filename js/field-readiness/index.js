@@ -1,8 +1,9 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/index.js  (FULL FILE)
-Rev: 2025-12-26d
+Rev: 2025-12-26e
 
-Permission key now matches existing system: crop-weather
+Adds:
+- fr:soft-reload event handler → refreshAll(state) without leaving modals
 ===================================================================== */
 'use strict';
 
@@ -66,9 +67,14 @@ import { loadFieldReadinessPerms, canView } from './perm.js';
 
   await ensureModelWeatherModules(state);
 
-  renderTiles(state);
-  renderDetails(state);
-  refreshAll(state);
+  // Soft reload hook (keeps modals open)
+  document.addEventListener('fr:soft-reload', async ()=>{
+    try{ await refreshAll(state); }catch(_){}
+  });
+
+  await renderTiles(state);
+  await renderDetails(state);
+  await refreshAll(state);
 
   wireFieldsHiddenTap(state);
 })();
