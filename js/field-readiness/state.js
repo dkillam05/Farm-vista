@@ -1,8 +1,8 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/state.js  (FULL FILE)
-Rev: 2025-12-26b
+Rev: 2025-12-26c
 
-Adds: state.perm for crop-field-readiness gating.
+Permission key switched to: crop-weather
 ===================================================================== */
 'use strict';
 
@@ -50,16 +50,15 @@ export const CONST = {
 
 export function createState(){
   return {
-    // permissions
+    // permissions (default fail-open until loaded)
     perm: {
-      key: 'crop-field-readiness',
-      view: true,   // fail-open until resolved, perm-ui will reapply
-      edit: true,   // fail-open until resolved
+      key: 'crop-weather',
+      view: true,
+      edit: true,
       add: true,
       delete: true,
       loaded: false,
       roleName: null,
-      employeeId: null,
       email: null
     },
 
