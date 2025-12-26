@@ -1,8 +1,8 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/state.js  (FULL FILE)
-Rev: 2025-12-26a
+Rev: 2025-12-26b
 
-Holds constants + the state object (mirrors your current file).
+Adds: state.perm for crop-field-readiness gating.
 ===================================================================== */
 'use strict';
 
@@ -50,6 +50,19 @@ export const CONST = {
 
 export function createState(){
   return {
+    // permissions
+    perm: {
+      key: 'crop-field-readiness',
+      view: true,   // fail-open until resolved, perm-ui will reapply
+      edit: true,   // fail-open until resolved
+      add: true,
+      delete: true,
+      loaded: false,
+      roleName: null,
+      employeeId: null,
+      email: null
+    },
+
     weather30: [],
     weatherByFieldId: new Map(),
     wxInfoByFieldId: new Map(),
@@ -80,7 +93,6 @@ export function createState(){
     _gmap: null,
     _gmarker: null,
 
-    // model/weather modules live outside; we load them once in render.js
     _mods: { model:null, weather:null }
   };
 }
