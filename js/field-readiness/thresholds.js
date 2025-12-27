@@ -1,7 +1,15 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/thresholds.js  (FULL FILE)
 Rev: 2025-12-26a
-Thresholds per op (same logic as your working file).
+
+Restores full thresholds system:
+- load/save localStorage
+- load/save Firestore: field_readiness_thresholds/default
+- debounced save scheduler
+
+Exports used by:
+- render.js
+- op-thresholds.js (modal)
 ===================================================================== */
 'use strict';
 
@@ -22,6 +30,7 @@ function defaultThresholds(){
 function applyThresholdObject(state, obj){
   const defs = defaultThresholds();
   state.thresholdsByOp = new Map();
+
   for (const op of OPS){
     const v = (obj && typeof obj === 'object') ? obj[op.key] : undefined;
     const num = isFinite(Number(v)) ? Number(v) : defs[op.key];
@@ -35,6 +44,7 @@ export function loadThresholdsFromLocal(state){
     const raw = localStorage.getItem(CONST.LS_THR_KEY);
     parsed = raw ? JSON.parse(raw) : null;
   }catch(_){ parsed = null; }
+
   applyThresholdObject(state, parsed);
 }
 
@@ -49,10 +59,12 @@ export function saveThresholdsToLocal(state){
 export async function loadThresholdsFromFirestore(state){
   const api = getAPI(state);
   if (!api || api.kind === 'compat') return false;
+
   try{
     const db = api.getFirestore();
     const ref = api.doc(db, CONST.THR_COLLECTION, CONST.THR_DOC_ID);
     const snap = await api.getDoc(ref);
+
     if (snap && snap.exists && snap.exists()){
       const data = snap.data() || {};
       const thr = data.thresholds || data;
@@ -67,9 +79,43 @@ export async function loadThresholdsFromFirestore(state){
   }
 }
 
+export async function saveThresholdsToFirestoreNow(state){
+  const api = getAPI(state);
+  if (!api || api.kind === 'compat') return false;
+
+  try{
+    const db = api.getFirestore();
+    const auth = api.getAuth ? api.getAuth() : null;
+    const user = auth && auth.currentUser ? auth.currentUser : null;
+
+    const obj = {};
+    for (const op of OPS) obj[op.key] = state.thresholdsByOp.get(op.key);
+
+    const ref = api.doc(db, CONST.THR_COLLECTION, CONST.THR_DOC_ID);
+    await api.setDoc(ref, {
+      thresholds: obj,
+      updatedAt: api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString(),
+      updatedBy: user ? (user.email || user.uid || null) : null
+    }, { merge:true });
+
+    return true;
+  }catch(e){
+    console.warn('[FieldReadiness] thresholds save failed:', e);
+    return false;
+  }
+}
+
+export function scheduleThresholdSave(state){
+  try{ if (state._thrSaveTimer) clearTimeout(state._thrSaveTimer); }catch(_){}
+  state._thrSaveTimer = setTimeout(async ()=>{
+    saveThresholdsToLocal(state);
+    await saveThresholdsToFirestoreNow(state);
+  }, 600);
+}
+
 export function getCurrentOp(){
-  const sel = document.getElementById('opSel');
-  const key = String(sel ? sel.value : OPS[0].key);
+  const opSel = document.getElementById('opSel');
+  const key = String(opSel ? opSel.value : OPS[0].key);
   return OPS.find(o=>o.key===key) ? key : OPS[0].key;
 }
 
