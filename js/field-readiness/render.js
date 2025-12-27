@@ -1,14 +1,15 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-27l
+Rev: 2025-12-27m
 
-Adds (per Dane):
-✅ Selected field indicator (mobile-safe):
-   - Selected tile NAME is underlined and slightly tinted toward --accent
-   - Works in light/dark via CSS vars + color-mix
+Fix (per Dane):
+✅ Selected field indicator that is VERY obvious on mobile + works in light/dark:
+   - Selected tile gets class: .fv-selected
+   - Field name becomes green + underlined + subtle green highlight “pill”
+   - Uses simple CSS (no color-mix) for iOS reliability
 
 ✅ Lower Details section header:
-   - Injects a small panel at the top of Details showing Farm • Field
+   - Inject a small panel at top of Details showing Farm • Field
    - No HTML changes required
 
 Keeps:
@@ -122,48 +123,59 @@ function getFilteredFields(state){
 }
 
 /* =====================================================================
-   Selected field indicator: underline + subtle tint (theme-safe)
+   Selection CSS injected once (strong + iOS-safe)
 ===================================================================== */
-function _applyNameSelectedStyle(nameEl, on){
-  if (!nameEl) return;
+function ensureSelectionStyleOnce(){
+  try{
+    if (window.__FV_FR_SELSTYLE__) return;
+    window.__FV_FR_SELSTYLE__ = true;
 
-  if (on){
-    // Underline
-    nameEl.style.textDecorationLine = 'underline';
-    nameEl.style.textDecorationThickness = '2px';
-    nameEl.style.textUnderlineOffset = '3px';
-    nameEl.style.textDecorationColor = 'var(--accent, #2F6C3C)';
+    const s = document.createElement('style');
+    s.setAttribute('data-fv-fr-selstyle','1');
+    s.textContent = `
+      /* Selected tile name: very obvious, works in light + dark */
+      .tile.fv-selected .name{
+        color: var(--accent, #2F6C3C) !important;
+        text-decoration: underline !important;
+        text-decoration-thickness: 2px !important;
+        text-underline-offset: 3px !important;
+        text-decoration-color: var(--accent, #2F6C3C) !important;
+        font-weight: 950 !important;
 
-    // Theme-safe tint
-    nameEl.style.color = 'color-mix(in srgb, var(--text, #111) 55%, var(--accent, #2F6C3C) 45%)';
-    nameEl.style.fontWeight = '950';
-  } else {
-    nameEl.style.textDecorationLine = '';
-    nameEl.style.textDecorationThickness = '';
-    nameEl.style.textUnderlineOffset = '';
-    nameEl.style.textDecorationColor = '';
-    nameEl.style.color = '';
-    nameEl.style.fontWeight = '';
-  }
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 8px;
+
+        /* subtle highlight behind text */
+        background: rgba(47,108,60,0.12);
+        box-shadow: inset 0 -2px 0 rgba(47,108,60,0.55);
+      }
+
+      /* Dark mode: a touch stronger highlight */
+      html.dark .tile.fv-selected .name{
+        background: rgba(47,108,60,0.18);
+        box-shadow: inset 0 -2px 0 rgba(47,108,60,0.70);
+      }
+    `;
+    document.head.appendChild(s);
+  }catch(_){}
 }
 
-function setSelectedNameUI(state, fieldId){
+function setSelectedTileClass(state, fieldId){
   try{
     const fid = String(fieldId || '');
     if (!fid) return;
 
-    const prev = String(state._selectedNameId || '');
+    const prev = String(state._selectedTileId || '');
     if (prev && prev !== fid){
-      const prevTile = document.querySelector(`.tile[data-field-id="${CSS.escape(prev)}"]`);
-      const prevName = prevTile ? prevTile.querySelector('.name') : null;
-      _applyNameSelectedStyle(prevName, false);
+      const prevEl = document.querySelector(`.tile[data-field-id="${CSS.escape(prev)}"]`);
+      if (prevEl) prevEl.classList.remove('fv-selected');
     }
 
-    const curTile = document.querySelector(`.tile[data-field-id="${CSS.escape(fid)}"]`);
-    const curName = curTile ? curTile.querySelector('.name') : null;
-    _applyNameSelectedStyle(curName, true);
+    const curEl = document.querySelector(`.tile[data-field-id="${CSS.escape(fid)}"]`);
+    if (curEl) curEl.classList.add('fv-selected');
 
-    state._selectedNameId = fid;
+    state._selectedTileId = fid;
   }catch(_){}
 }
 
@@ -171,8 +183,9 @@ function setSelectedNameUI(state, fieldId){
 function setSelectedField(state, fieldId){
   state.selectedFieldId = fieldId;
 
-  // Selection indicator
-  setSelectedNameUI(state, fieldId);
+  // Selection indicator (strong and reliable)
+  ensureSelectionStyleOnce();
+  setSelectedTileClass(state, fieldId);
 
   try{ document.dispatchEvent(new CustomEvent('fr:selected-field-changed', { detail:{ fieldId } })); }catch(_){}
 }
@@ -209,7 +222,6 @@ function updateDetailsHeaderPanel(state){
 
   const farmName = (state.farmsById && state.farmsById.get) ? (state.farmsById.get(f.farmId) || '') : '';
   const title = farmName ? `${farmName} • ${f.name || ''}` : (f.name || '');
-
   const loc = (f.county || f.state) ? `${String(f.county||'—')} / ${String(f.state||'—')}` : '';
 
   panel.innerHTML = `
@@ -305,11 +317,10 @@ async function updateTileForField(state, fieldId){
       help.textContent = eta ? String(eta) : '';
     }
 
-    // keep selection name style consistent
+    // keep selection class consistent after tile updates
     if (String(state.selectedFieldId) === fid){
-      const nm = tile.querySelector('.name');
-      _applyNameSelectedStyle(nm, true);
-      state._selectedNameId = fid;
+      tile.classList.add('fv-selected');
+      state._selectedTileId = fid;
     }
   }catch(_){}
 }
@@ -330,7 +341,6 @@ function wireTileInteractions(state, tileEl, fieldId){
     }, CLICK_DELAY_MS);
   });
 
-  // dblclick always wired; permissions checked at click-time
   tileEl.addEventListener('dblclick', async (e)=>{
     e.preventDefault();
     e.stopPropagation();
@@ -358,6 +368,7 @@ function wireTileInteractions(state, tileEl, fieldId){
 /* ---------- tile render ---------- */
 export async function renderTiles(state){
   await ensureModelWeatherModules(state);
+  ensureSelectionStyleOnce();
 
   const wrap = $('fieldsGrid');
   if (!wrap) return;
@@ -404,6 +415,12 @@ export async function renderTiles(state){
     tile.dataset.fieldId = f.id;
     tile.setAttribute('data-field-id', f.id);
 
+    // selected marker
+    if (String(state.selectedFieldId) === String(f.id)){
+      tile.classList.add('fv-selected');
+      state._selectedTileId = String(f.id);
+    }
+
     tile.innerHTML = `
       <div class="tile-top">
         <div class="titleline">
@@ -430,13 +447,6 @@ export async function renderTiles(state){
         ${eta ? `<div class="help"><b>${esc(eta)}</b></div>` : ``}
       </div>
     `;
-
-    // Apply selection styling if this is current
-    if (String(state.selectedFieldId) === String(f.id)){
-      const nm = tile.querySelector('.name');
-      _applyNameSelectedStyle(nm, true);
-      state._selectedNameId = String(f.id);
-    }
 
     wireTileInteractions(state, tile, f.id);
     wrap.appendChild(tile);
@@ -572,10 +582,10 @@ export async function renderDetails(state){
   const run = state.lastRuns.get(f.id) || state._mods.model.runField(f, deps);
   if (!run) return;
 
-  // ✅ show Farm • Field at top of Details
+  // ✅ NEW: Farm • Field header at top of details
   updateDetailsHeaderPanel(state);
 
-  // Beta + tables only (your HTML removed lower panels)
+  // beta + tables
   renderBetaInputs(state);
 
   const trb = $('traceRows');
