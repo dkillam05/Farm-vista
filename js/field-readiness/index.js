@@ -1,10 +1,11 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/index.js  (FULL FILE)
-Rev: 2025-12-26i
+Rev: 2025-12-26k
 
-Fixes cold-start permissions race:
-- Do NOT hard-block based on a placeholder ctx with empty effectivePerms
-- Re-check perms on fv:user-ready and re-render so edit features appear without reload
+Based on YOUR latest Rev: 2025-12-26i (verbatim flow) with ONE addition:
+✅ initLayoutFix() to prevent intermittent bottom clipping (last tile / Details summary hidden)
+
+No other behavior changes.
 
 ===================================================================== */
 'use strict';
@@ -23,9 +24,15 @@ import { loadFieldReadinessPerms, canView } from './perm.js';
 import { buildFarmFilterOptions } from './farm-filter.js';
 import { initMap } from './map.js';
 
+// ✅ NEW: layout fix for intermittent footer clipping
+import { initLayoutFix } from './layout.js';
+
 (async function init(){
   const state = createState();
   window.__FV_FR = state;
+
+  // ✅ run ASAP (handles late-loading fv-shell footer)
+  initLayoutFix();
 
   const dp = document.getElementById('detailsPanel');
   if (dp) dp.open = false;
