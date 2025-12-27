@@ -1,18 +1,21 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-27k
+Rev: 2025-12-27l
 
-Change (per Dane):
-✅ If outline/active ring isn’t reliable on mobile, make the FIELD NAME indicate selection:
-   - underline + subtle accent tint (works in light/dark via CSS vars)
-✅ Selection styling updates in-place (no full rerender required)
+Adds (per Dane):
+✅ Selected field indicator (mobile-safe):
+   - Selected tile NAME is underlined and slightly tinted toward --accent
+   - Works in light/dark via CSS vars + color-mix
+
+✅ Lower Details section header:
+   - Injects a small panel at the top of Details showing Farm • Field
+   - No HTML changes required
 
 Keeps:
-✅ Double-click no longer disappears on cold-start permissions (dblclick always wired; canEdit checked at click-time)
+✅ Double-click always wired; canEdit checked at click-time
 ✅ Listeners for fr:tile-refresh and fr:details-refresh
 ✅ Background Firestore hydrate on select + dblclick quick view
 ✅ All prior rendering & tables behavior (NOTHING CUT)
-
 ===================================================================== */
 'use strict';
 
@@ -119,17 +122,20 @@ function getFilteredFields(state){
 }
 
 /* =====================================================================
-   NEW: Selected-name indicator (underline + accent tint)
-   Works in light/dark by using CSS variables.
+   Selected field indicator: underline + subtle tint (theme-safe)
 ===================================================================== */
 function _applyNameSelectedStyle(nameEl, on){
   if (!nameEl) return;
+
   if (on){
+    // Underline
     nameEl.style.textDecorationLine = 'underline';
     nameEl.style.textDecorationThickness = '2px';
     nameEl.style.textUnderlineOffset = '3px';
     nameEl.style.textDecorationColor = 'var(--accent, #2F6C3C)';
-    nameEl.style.color = 'var(--accent, #2F6C3C)';
+
+    // Theme-safe tint
+    nameEl.style.color = 'color-mix(in srgb, var(--text, #111) 55%, var(--accent, #2F6C3C) 45%)';
     nameEl.style.fontWeight = '950';
   } else {
     nameEl.style.textDecorationLine = '';
@@ -165,10 +171,53 @@ function setSelectedNameUI(state, fieldId){
 function setSelectedField(state, fieldId){
   state.selectedFieldId = fieldId;
 
-  // ✅ show selection indicator even if outlines fail
+  // Selection indicator
   setSelectedNameUI(state, fieldId);
 
   try{ document.dispatchEvent(new CustomEvent('fr:selected-field-changed', { detail:{ fieldId } })); }catch(_){}
+}
+
+/* =====================================================================
+   Details header panel (Farm • Field)
+===================================================================== */
+function ensureDetailsHeaderPanel(){
+  const details = document.getElementById('detailsPanel');
+  if (!details) return null;
+  const body = details.querySelector('.details-body');
+  if (!body) return null;
+
+  let panel = document.getElementById('frDetailsHeaderPanel');
+  if (panel && panel.parentElement === body) return panel;
+
+  panel = document.createElement('div');
+  panel.id = 'frDetailsHeaderPanel';
+  panel.className = 'panel';
+  panel.style.margin = '0';
+  panel.style.display = 'grid';
+  panel.style.gap = '6px';
+
+  body.prepend(panel);
+  return panel;
+}
+
+function updateDetailsHeaderPanel(state){
+  const f = state.fields.find(x=>x.id === state.selectedFieldId);
+  if (!f) return;
+
+  const panel = ensureDetailsHeaderPanel();
+  if (!panel) return;
+
+  const farmName = (state.farmsById && state.farmsById.get) ? (state.farmsById.get(f.farmId) || '') : '';
+  const title = farmName ? `${farmName} • ${f.name || ''}` : (f.name || '');
+
+  const loc = (f.county || f.state) ? `${String(f.county||'—')} / ${String(f.state||'—')}` : '';
+
+  panel.innerHTML = `
+    <div style="font-weight:900;font-size:13px;line-height:1.2;">
+      ${esc(title || '—')}
+    </div>
+    ${loc ? `<div class="muted" style="font-size:12px;line-height:1.2;">${esc(loc)}</div>` : ``}
+  `;
 }
 
 /* ---------- internal: patch a single tile DOM in-place ---------- */
@@ -256,7 +305,7 @@ async function updateTileForField(state, fieldId){
       help.textContent = eta ? String(eta) : '';
     }
 
-    // keep name indicator consistent after updates
+    // keep selection name style consistent
     if (String(state.selectedFieldId) === fid){
       const nm = tile.querySelector('.name');
       _applyNameSelectedStyle(nm, true);
@@ -382,7 +431,7 @@ export async function renderTiles(state){
       </div>
     `;
 
-    // Apply selected-name style if this is current selection
+    // Apply selection styling if this is current
     if (String(state.selectedFieldId) === String(f.id)){
       const nm = tile.querySelector('.name');
       _applyNameSelectedStyle(nm, true);
@@ -404,9 +453,7 @@ export function selectField(state, id){
   const f = state.fields.find(x=>x.id === id);
   if (!f) return;
 
-  // Selection indicator is applied immediately here:
   setSelectedField(state, id);
-
   ensureSelectedParamsToSliders(state);
 
   refreshAll(state);
@@ -525,6 +572,9 @@ export async function renderDetails(state){
   const run = state.lastRuns.get(f.id) || state._mods.model.runField(f, deps);
   if (!run) return;
 
+  // ✅ show Farm • Field at top of Details
+  updateDetailsHeaderPanel(state);
+
   // Beta + tables only (your HTML removed lower panels)
   renderBetaInputs(state);
 
@@ -624,7 +674,6 @@ export async function renderDetails(state){
 
 /* ---------- refresh ---------- */
 export async function refreshAll(state){
-  // (details sliders removed from HTML — keep lightweight refresh)
   await renderTiles(state);
   await renderDetails(state);
 }
