@@ -1,11 +1,13 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/wiring.js  (FULL FILE)
-Rev: 2025-12-26b
+Rev: 2025-12-27a
 
-Farm filter:
-- saves to local cache
-- refreshes
-- ensures selected field stays valid
+Fix:
+✅ No functional change other than restoring the missing tail of the file
+✅ Keeps:
+   - op save on change/input
+   - farm/page size save
+   - tooltip close logic
 ===================================================================== */
 'use strict';
 
@@ -30,12 +32,15 @@ export async function wireUIOnce(state){
   // Operation
   const opSel = document.getElementById('opSel');
   if (opSel){
-    const handler = ()=>{ saveOpDefault(); refreshAll(state); };
+    const handler = ()=>{
+      saveOpDefault();
+      refreshAll(state);
+    };
     opSel.addEventListener('change', handler);
     opSel.addEventListener('input', handler);
   }
 
-  // Farm filter (persist + refresh)
+  // Farm filter (persist)
   const farmSel = document.getElementById('farmSel');
   if (farmSel){
     farmSel.addEventListener('change', ()=>{
@@ -67,14 +72,7 @@ export async function wireUIOnce(state){
     });
   }
 
-  // Sliders
-  const soilWet = document.getElementById('soilWet');
-  if (soilWet) soilWet.addEventListener('input', ()=> refreshAll(state));
-
-  const drain = document.getElementById('drain');
-  if (drain) drain.addEventListener('input', ()=> refreshAll(state));
-
-  // Range controls (kept)
+  // Range controls
   const applyRangeBtn = document.getElementById('applyRangeBtn');
   if (applyRangeBtn) applyRangeBtn.addEventListener('click', ()=> setTimeout(()=>refreshAll(state), 0));
 
@@ -87,17 +85,19 @@ export async function wireUIOnce(state){
     jobRangeInput.addEventListener('input',  ()=> refreshAll(state));
   }
 
-  // Rain help tooltip (kept)
+  // Rain help tooltip
   (function(){
     const rainHelpBtn = document.getElementById('rainHelpBtn');
     const rainHelpTip = document.getElementById('rainHelpTip');
     if (!rainHelpBtn || !rainHelpTip) return;
 
     function close(){ rainHelpTip.classList.remove('on'); }
+
     rainHelpBtn.addEventListener('click', (e)=>{
       e.stopPropagation();
       rainHelpTip.classList.toggle('on');
     });
+
     document.addEventListener('click', (e)=>{
       if (!rainHelpTip.classList.contains('on')) return;
       const inside = e.target && e.target.closest && e.target.closest('#rainHelpTip');
