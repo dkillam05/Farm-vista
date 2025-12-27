@@ -1,16 +1,21 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/prefs.js  (FULL FILE)
-Rev: 2025-12-27a
+Rev: 2025-12-27b
 
 Fix:
-✅ Adds applySavedOpToUI(state, { fire }) helper
-✅ Uses BOTH localStorage + sessionStorage for op
-✅ Can optionally fire a change event (useful after BFCache restore)
+✅ Adds persistent Sort preference:
+   - localStorage key: fv_fr_sort_v1
+✅ Keeps:
+   - Operation (local + session)
+   - Farm filter
+   - Page size
 
 ===================================================================== */
 'use strict';
 
 import { CONST, OPS } from './state.js';
+
+const LS_SORT_KEY = 'fv_fr_sort_v1';
 
 function getSavedOpKey(){
   return String(CONST.LS_OP_KEY || '').trim() || 'fv_dev_field_readiness_op';
@@ -47,9 +52,36 @@ export function applySavedOpToUI(state, { fire=false } = {}){
   return false;
 }
 
+export function applySavedSortToUI({ fire=false } = {}){
+  const sel = document.getElementById('sortSel');
+  if (!sel) return false;
+
+  let raw = '';
+  try{ raw = String(localStorage.getItem(LS_SORT_KEY) || ''); }catch(_){ raw=''; }
+  raw = String(raw || '').trim();
+  if (!raw) return false;
+
+  // only apply if option exists
+  const ok = Array.from(sel.options || []).some(o => String(o.value) === raw);
+  if (!ok) return false;
+
+  if (sel.value !== raw){
+    sel.value = raw;
+    try{ sel.dataset.saved = raw; }catch(_){}
+    if (fire){
+      try{ sel.dispatchEvent(new Event('change', { bubbles:true })); }catch(_){}
+    }
+    return true;
+  }
+  return false;
+}
+
 export async function loadPrefsFromLocalToUI(state){
   // Operation
   applySavedOpToUI(state, { fire:false });
+
+  // Sort
+  applySavedSortToUI({ fire:false });
 
   // Farm
   try{ state.farmFilter = String(localStorage.getItem(CONST.LS_FARM_FILTER) || '__all__') || '__all__'; }
@@ -74,6 +106,14 @@ export function saveOpDefault(){
   const k = getSavedOpKey();
   try{ localStorage.setItem(k, v); }catch(_){}
   try{ sessionStorage.setItem(k, v); }catch(_){}
+}
+
+export function saveSortDefault(){
+  const sel = document.getElementById('sortSel');
+  if (!sel) return;
+  const v = String(sel.value || '').trim();
+  if (!v) return;
+  try{ localStorage.setItem(LS_SORT_KEY, v); }catch(_){}
 }
 
 export function saveFarmFilterDefault(state){
