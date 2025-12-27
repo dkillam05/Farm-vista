@@ -1,20 +1,17 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-27m
+Rev: 2025-12-27n
 
 Fix (per Dane):
-✅ Selected field indicator that is VERY obvious on mobile + works in light/dark:
-   - Selected tile gets class: .fv-selected
-   - Field name becomes green + underlined + subtle green highlight “pill”
-   - Uses simple CSS (no color-mix) for iOS reliability
-
-✅ Lower Details section header:
-   - Inject a small panel at top of Details showing Farm • Field
-   - No HTML changes required
+✅ On mobile, selected field name must stay ONE line and ellipsis if needed.
+   - Adds robust CSS to prevent wrapping for .name (normal + selected)
+   - Ensures .titleline can shrink (min-width:0) so ellipsis works
 
 Keeps:
+✅ Strong selected indicator via .fv-selected (green + underline + highlight)
+✅ Lower Details section header (Farm • Field)
 ✅ Double-click always wired; canEdit checked at click-time
-✅ Listeners for fr:tile-refresh and fr:details-refresh
+✅ fr:tile-refresh / fr:details-refresh listeners
 ✅ Background Firestore hydrate on select + dblclick quick view
 ✅ All prior rendering & tables behavior (NOTHING CUT)
 ===================================================================== */
@@ -123,7 +120,7 @@ function getFilteredFields(state){
 }
 
 /* =====================================================================
-   Selection CSS injected once (strong + iOS-safe)
+   Selection CSS injected once (strong + iOS-safe + ellipsis-safe)
 ===================================================================== */
 function ensureSelectionStyleOnce(){
   try{
@@ -133,7 +130,19 @@ function ensureSelectionStyleOnce(){
     const s = document.createElement('style');
     s.setAttribute('data-fv-fr-selstyle','1');
     s.textContent = `
-      /* Selected tile name: very obvious, works in light + dark */
+      /* Ensure titleline can shrink so ellipsis works */
+      .tile .tile-top .titleline{ min-width:0 !important; flex: 1 1 auto !important; }
+
+      /* Base name: one line ellipsis always */
+      .tile .name{
+        display:block;
+        max-width:100%;
+        white-space:nowrap;
+        overflow:hidden;
+        text-overflow:ellipsis;
+      }
+
+      /* Selected tile name: obvious AND still ellipsis */
       .tile.fv-selected .name{
         color: var(--accent, #2F6C3C) !important;
         text-decoration: underline !important;
@@ -142,16 +151,19 @@ function ensureSelectionStyleOnce(){
         text-decoration-color: var(--accent, #2F6C3C) !important;
         font-weight: 950 !important;
 
-        display: inline-block;
+        display:block !important;
+        max-width:100% !important;
+        white-space:nowrap !important;
+        overflow:hidden !important;
+        text-overflow:ellipsis !important;
+
         padding: 2px 6px;
         border-radius: 8px;
 
-        /* subtle highlight behind text */
         background: rgba(47,108,60,0.12);
         box-shadow: inset 0 -2px 0 rgba(47,108,60,0.55);
       }
 
-      /* Dark mode: a touch stronger highlight */
       html.dark .tile.fv-selected .name{
         background: rgba(47,108,60,0.18);
         box-shadow: inset 0 -2px 0 rgba(47,108,60,0.70);
@@ -183,7 +195,6 @@ function setSelectedTileClass(state, fieldId){
 function setSelectedField(state, fieldId){
   state.selectedFieldId = fieldId;
 
-  // Selection indicator (strong and reliable)
   ensureSelectionStyleOnce();
   setSelectedTileClass(state, fieldId);
 
@@ -317,7 +328,6 @@ async function updateTileForField(state, fieldId){
       help.textContent = eta ? String(eta) : '';
     }
 
-    // keep selection class consistent after tile updates
     if (String(state.selectedFieldId) === fid){
       tile.classList.add('fv-selected');
       state._selectedTileId = fid;
@@ -415,7 +425,6 @@ export async function renderTiles(state){
     tile.dataset.fieldId = f.id;
     tile.setAttribute('data-field-id', f.id);
 
-    // selected marker
     if (String(state.selectedFieldId) === String(f.id)){
       tile.classList.add('fv-selected');
       state._selectedTileId = String(f.id);
@@ -582,10 +591,7 @@ export async function renderDetails(state){
   const run = state.lastRuns.get(f.id) || state._mods.model.runField(f, deps);
   if (!run) return;
 
-  // ✅ NEW: Farm • Field header at top of details
   updateDetailsHeaderPanel(state);
-
-  // beta + tables
   renderBetaInputs(state);
 
   const trb = $('traceRows');
