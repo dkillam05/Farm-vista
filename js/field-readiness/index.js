@@ -1,9 +1,8 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/index.js  (FULL FILE)
-Rev: 2025-12-26f
+Rev: 2025-12-26h
 
-Adds:
-- buildFarmFilterOptions(state) after fields load so Farm dropdown populates
+Restores Map button wiring via initMap(state).
 ===================================================================== */
 'use strict';
 
@@ -19,6 +18,7 @@ import { renderTiles, renderDetails, refreshAll, ensureModelWeatherModules } fro
 import { wireFieldsHiddenTap } from './adjust.js';
 import { loadFieldReadinessPerms, canView } from './perm.js';
 import { buildFarmFilterOptions } from './farm-filter.js';
+import { initMap } from './map.js';
 
 (async function init(){
   const state = createState();
@@ -61,7 +61,6 @@ import { buildFarmFilterOptions } from './farm-filter.js';
   await loadFarmsOptional(state);
   await loadFields(state);
 
-  // ✅ Build Farm dropdown based on the fields present
   buildFarmFilterOptions(state);
 
   if (!state.selectedFieldId && state.fields.length){
@@ -69,6 +68,9 @@ import { buildFarmFilterOptions } from './farm-filter.js';
   }
 
   await ensureModelWeatherModules(state);
+
+  // ✅ restore map button behavior
+  initMap(state);
 
   document.addEventListener('fr:soft-reload', async ()=>{
     try{ await refreshAll(state); }catch(_){}
@@ -78,5 +80,6 @@ import { buildFarmFilterOptions } from './farm-filter.js';
   await renderDetails(state);
   await refreshAll(state);
 
+  // global calibration wiring
   wireFieldsHiddenTap(state);
 })();
