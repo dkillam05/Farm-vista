@@ -1,16 +1,14 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/index.js  (FULL FILE)
-Rev: 2025-12-27c
+Rev: 2025-12-27d
 
 Fix:
-✅ Operation dropdown (and other prefs) now restore correctly after leaving/returning on iOS/Safari:
-   - Re-apply saved op on pageshow (BFCache restore)
-   - Re-apply saved op on visibilitychange (returning to tab)
-✅ Does NOT rely on the browser preserving <select> state.
-
-Keeps:
-✅ Current boot flow + perms + layout fix
-✅ Details forced closed on boot
+✅ Persist + restore (iOS/Safari BFCache safe):
+   - Operation (already)
+   - Farm (already)
+   - Sort (NEW)
+   - Rain range (NEW) via localStorage key: fv_fr_range_v1
+✅ Re-apply on pageshow + visibilitychange so it sticks after leaving/returning
 
 ===================================================================== */
 'use strict';
@@ -19,7 +17,7 @@ import { createState } from './state.js';
 import { importFirebaseInit } from './firebase.js';
 import { loadThresholdsFromLocal, loadThresholdsFromFirestore } from './thresholds.js';
 import { loadParamsFromLocal } from './params.js';
-import { loadPrefsFromLocalToUI, applySavedOpToUI } from './prefs.js';
+import { loadPrefsFromLocalToUI, applySavedOpToUI, applySavedSortToUI } from './prefs.js';
 import { loadRangeFromLocalToUI, enforceCalendarNoFuture } from './range.js';
 import { loadFarmsOptional, loadFields } from './data.js';
 import { wireUIOnce } from './wiring.js';
@@ -30,6 +28,25 @@ import { buildFarmFilterOptions } from './farm-filter.js';
 import { initMap } from './map.js';
 import { initLayoutFix } from './layout.js';
 import { initOpThresholds } from './op-thresholds.js';
+
+const LS_RANGE_KEY = 'fv_fr_range_v1';
+
+function applySavedRangeToUI(){
+  try{
+    const inp = document.getElementById('jobRangeInput');
+    if (!inp) return false;
+
+    const raw = String(localStorage.getItem(LS_RANGE_KEY) || '').trim();
+    // allow empty (meaning default 30d) but still apply if it differs
+    if (String(inp.value || '').trim() !== raw){
+      inp.value = raw;
+      return true;
+    }
+    return false;
+  }catch(_){
+    return false;
+  }
+}
 
 (async function init(){
   const state = createState();
@@ -78,7 +95,10 @@ import { initOpThresholds } from './op-thresholds.js';
   // Apply prefs once on boot
   await loadPrefsFromLocalToUI(state);
 
-  // Range UI
+  // Apply saved range string (if any)
+  applySavedRangeToUI();
+
+  // Range UI module (calendar behavior) + enforcement
   await loadRangeFromLocalToUI();
   enforceCalendarNoFuture();
 
@@ -99,12 +119,10 @@ import { initOpThresholds } from './op-thresholds.js';
   initMap(state);
   initOpThresholds(state);
 
-  // Soft reload hook
   document.addEventListener('fr:soft-reload', async ()=>{
     try{ await refreshAll(state); }catch(_){}
   });
 
-  // perms finalize hook
   document.addEventListener('fv:user-ready', async ()=>{
     try{
       const prevLoaded = !!(state.perm && state.perm.loaded);
@@ -132,24 +150,26 @@ import { initOpThresholds } from './op-thresholds.js';
     }catch(_){}
   });
 
-  // ✅ iOS/Safari: restore <select> after returning to page
+  // ✅ iOS/Safari: re-apply selects + range after returning to page
   const reapplyPrefs = async (why)=>{
     try{
-      // re-apply op (option state can reset on BFCache)
-      const changed = applySavedOpToUI(state, { fire:false });
+      const opChanged = applySavedOpToUI(state, { fire:false });
+      const sortChanged = applySavedSortToUI({ fire:false });
+      const rangeChanged = applySavedRangeToUI();
 
-      // re-apply farm/page UI values too (safe)
+      // keep farm/page in sync too
       await loadPrefsFromLocalToUI(state);
 
-      // only refresh if something actually changed
-      if (changed){
+      // range module constraints (safe)
+      enforceCalendarNoFuture();
+
+      if (opChanged || sortChanged || rangeChanged){
         await refreshAll(state);
       }
     }catch(_){}
   };
 
-  window.addEventListener('pageshow', (e)=>{
-    // BFCache restore or normal show
+  window.addEventListener('pageshow', ()=>{
     reapplyPrefs('pageshow');
   });
 
