@@ -1,12 +1,15 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/index.js  (FULL FILE)
-Rev: 2025-12-26l
+Rev: 2025-12-27a
 
-Adds back Operation Thresholds modal wiring:
-✅ initOpThresholds(state)
+Adds background Firestore live-sync for per-field slider params:
+✅ Watches ONLY the selected field doc via onSnapshot
+✅ Updates sliders + details without re-rendering 500 tiles
+✅ No page refresh required
 
-Everything else stays aligned with your current Rev: 2025-12-26i flow + layout fix.
-
+Keeps:
+- Rev: 2025-12-26l flow + layout fix
+- Operation Thresholds modal wiring
 ===================================================================== */
 'use strict';
 
@@ -16,9 +19,9 @@ import { loadThresholdsFromLocal, loadThresholdsFromFirestore } from './threshol
 import { loadParamsFromLocal } from './params.js';
 import { loadPrefsFromLocalToUI } from './prefs.js';
 import { loadRangeFromLocalToUI, enforceCalendarNoFuture } from './range.js';
-import { loadFarmsOptional, loadFields } from './data.js';
+import { loadFarmsOptional, loadFields, startSelectedFieldLiveSync, stopSelectedFieldLiveSync } from './data.js';
 import { wireUIOnce } from './wiring.js';
-import { renderTiles, renderDetails, refreshAll, ensureModelWeatherModules } from './render.js';
+import { renderTiles, renderDetails, refreshAll, refreshDetailsOnly, ensureModelWeatherModules } from './render.js';
 import { wireFieldsHiddenTap } from './adjust.js';
 import { loadFieldReadinessPerms, canView } from './perm.js';
 import { buildFarmFilterOptions } from './farm-filter.js';
@@ -39,6 +42,7 @@ import { initOpThresholds } from './op-thresholds.js';
   const br = document.getElementById('btnRegen');
   if (br){ br.style.display = 'none'; br.disabled = true; }
 
+  // Local caches (fast boot)
   loadParamsFromLocal(state);
   loadThresholdsFromLocal(state);
 
@@ -82,6 +86,30 @@ import { initOpThresholds } from './op-thresholds.js';
   // ✅ restore Operation Thresholds modal
   initOpThresholds(state);
 
+  // ✅ START: background live sync for selected field only
+  document.addEventListener('fr:selected-field-changed', async (e)=>{
+    try{
+      const fid = e && e.detail ? String(e.detail.fieldId || '') : '';
+      if (!fid) return;
+      stopSelectedFieldLiveSync(state);
+      startSelectedFieldLiveSync(state, fid, async ()=>{
+        // Only refresh the details panel (NOT 500 tiles)
+        await refreshDetailsOnly(state);
+      });
+    }catch(_){}
+  });
+
+  // Kick the watcher once on boot
+  try{
+    if (state.selectedFieldId){
+      stopSelectedFieldLiveSync(state);
+      startSelectedFieldLiveSync(state, state.selectedFieldId, async ()=>{
+        await refreshDetailsOnly(state);
+      });
+    }
+  }catch(_){}
+  // ✅ END: background live sync
+
   document.addEventListener('fr:soft-reload', async ()=>{
     try{ await refreshAll(state); }catch(_){}
   });
@@ -108,7 +136,11 @@ import { initOpThresholds } from './op-thresholds.js';
 
       const nowEdit = !!(state.perm && state.perm.loaded && state.perm.edit);
       if (!prevLoaded || (prevEdit !== nowEdit)){
+        // perms changed -> tiles may gain edit features
         await refreshAll(state);
+      } else {
+        // keep it light
+        await refreshDetailsOnly(state);
       }
     }catch(_){}
   });
