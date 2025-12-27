@@ -2,13 +2,18 @@
 /Farm-vista/js/field-readiness/data.js  (FULL FILE)
 Rev: 2025-12-27b
 
-Fix:
-✅ Adds fetchAndHydrateFieldParams(state, fieldId):
-   - one Firestore read for the selected field doc
-   - hydrates perFieldParams from Firestore
-   - updates sliders immediately (no page refresh, no 500-field reload)
+IMPORTANT FIX:
+✅ Breaks circular import:
+   - render.js can import from data.js
+   - data.js NO LONGER imports from render.js
 
-Also hardens extraction for nested param paths + numeric strings.
+Keeps:
+✅ farms/fields loading
+✅ per-field params hydration from field docs
+✅ weather warmup
+
+Adds:
+✅ fetchAndHydrateFieldParams(state, fieldId) — one-doc background pull for sliders
 
 ===================================================================== */
 'use strict';
@@ -16,10 +21,19 @@ Also hardens extraction for nested param paths + numeric strings.
 import { normalizeStatus, setErr } from './utils.js';
 import { getAPI } from './firebase.js';
 import { hydrateParamsFromFieldDoc, saveParamsToLocal, ensureSelectedParamsToSliders } from './params.js';
-import { buildWxCtx } from './state.js';
-import { ensureModelWeatherModules } from './render.js';
+import { buildWxCtx, CONST } from './state.js';
+import { PATHS } from './paths.js';
 
-/* ----------------- robust param read helpers ----------------- */
+/* ---------- local module loader (avoids importing render.js) ---------- */
+async function ensureModelWeatherModulesLocal(state){
+  if (state._mods && state._mods.model && state._mods.weather) return;
+  const [weather, model] = await Promise.all([ import(PATHS.WEATHER), import(PATHS.MODEL) ]);
+  state._mods = state._mods || {};
+  state._mods.weather = weather;
+  state._mods.model = model;
+}
+
+/* ---------- robust param read helpers ---------- */
 function getByPath(obj, path){
   try{
     const parts = String(path||'').split('.');
@@ -29,9 +43,7 @@ function getByPath(obj, path){
       cur = cur[p];
     }
     return cur;
-  }catch(_){
-    return undefined;
-  }
+  }catch(_){ return undefined; }
 }
 
 function toNum(v){
@@ -64,13 +76,12 @@ function pickFirstNumber(d, paths){
   return null;
 }
 
-/* ----------------- field doc extraction ----------------- */
 function extractFieldDoc(docId, d){
   const loc = d.location || {};
   const lat = Number(loc.lat);
   const lng = Number(loc.lng);
 
-  // ✅ support multiple shapes/paths where Field Settings might store these
+  // Support common storage paths (keeps you compatible with Fields Settings variations)
   const soilWetness = pickFirstNumber(d, [
     'soilWetness',
     'fieldReadiness.soilWetness',
@@ -132,7 +143,7 @@ export async function fetchAndHydrateFieldParams(state, fieldId){
     const f = extractFieldDoc(fid, data);
 
     // Update state.fields copy if present
-    const idx = state.fields.findIndex(x=>x.id === fid);
+    const idx = (state.fields || []).findIndex(x=>x.id === fid);
     if (idx >= 0){
       state.fields[idx] = { ...state.fields[idx], ...f };
     }
@@ -141,7 +152,7 @@ export async function fetchAndHydrateFieldParams(state, fieldId){
     hydrateParamsFromFieldDoc(state, f);
     saveParamsToLocal(state);
 
-    // If this is the selected field, reflect immediately in UI
+    // If selected, update sliders immediately
     if (state.selectedFieldId === fid){
       ensureSelectedParamsToSliders(state);
     }
@@ -153,7 +164,6 @@ export async function fetchAndHydrateFieldParams(state, fieldId){
   }
 }
 
-/* ----------------- existing loads ----------------- */
 export async function loadFarmsOptional(state){
   const api = getAPI(state);
   if (!api || api.kind === 'compat') return;
@@ -222,7 +232,7 @@ export async function loadFields(state){
     ensureSelectedParamsToSliders(state);
 
     // weather warmup (uses existing weather module)
-    await ensureModelWeatherModules(state);
+    await ensureModelWeatherModulesLocal(state);
     const wxCtx = buildWxCtx(state);
     await state._mods.weather.warmWeatherForFields(state.fields, wxCtx, { force:false, onEach:()=>{} });
 
