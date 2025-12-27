@@ -1,13 +1,11 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-27q
+Rev: 2025-12-27r
 
-Fix:
-✅ Eliminates accidental invalid tokens (no "\`" anywhere)
-✅ Field name stays ONE line with ellipsis (mobile + desktop)
-   - Forces header to be a true flex row so ellipsis works on iOS
-✅ Keeps strong selected indicator via .fv-selected (green + underline + highlight)
-✅ Details header panel: Farm • Field at top of Details
+Update (per Dane):
+✅ Mobile stays EXACTLY as-is (ellipsis + selected name highlight/pill)
+✅ Desktop: single click selection shows subtle green outline on entire tile
+✅ Desktop: selected field name stays NORMAL (no pill, no underline)
 
 Keeps:
 ✅ Double-click always wired; canEdit checked at click-time
@@ -130,7 +128,9 @@ function ensureSelectionStyleOnce(){
     const s = document.createElement('style');
     s.setAttribute('data-fv-fr-selstyle','1');
     s.textContent = `
-      /* Force the tile header row to be a shrinkable single-line flex row */
+      /* ============================================================
+         HEADER: force a shrinkable single-line flex row (iOS ellipsis)
+         ============================================================ */
       .tile .tile-top{
         display:flex !important;
         align-items:center !important;
@@ -139,8 +139,6 @@ function ensureSelectionStyleOnce(){
         flex-wrap:nowrap !important;
         min-width:0 !important;
       }
-
-      /* Title column MUST be the shrinkable flex item (iOS ellipsis needs min-width:0 chain) */
       .tile .tile-top .titleline{
         display:flex !important;
         align-items:center !important;
@@ -148,14 +146,10 @@ function ensureSelectionStyleOnce(){
         min-width:0 !important;
         flex-wrap:nowrap !important;
       }
-
-      /* Pill never shrinks */
       .tile .tile-top .readiness-pill{
         flex:0 0 auto !important;
         white-space:nowrap !important;
       }
-
-      /* Base name: single line ellipsis always */
       .tile .tile-top .titleline .name{
         flex:1 1 auto !important;
         display:block !important;
@@ -166,31 +160,74 @@ function ensureSelectionStyleOnce(){
         text-overflow:ellipsis !important;
       }
 
-      /* Selected tile name: obvious + still ellipsis */
-      .tile.fv-selected .tile-top .titleline .name{
-        color: var(--accent, #2F6C3C) !important;
-        text-decoration: underline !important;
-        text-decoration-thickness: 2px !important;
-        text-underline-offset: 3px !important;
-        text-decoration-color: var(--accent, #2F6C3C) !important;
-        font-weight: 950 !important;
+      /* ============================================================
+         MOBILE/TABLET (touch): keep the current name-highlight selection
+         - Safe for swipe and tap
+         ============================================================ */
+      @media (hover: none) and (pointer: coarse){
+        .tile.fv-selected .tile-top .titleline .name{
+          color: var(--accent, #2F6C3C) !important;
+          text-decoration: underline !important;
+          text-decoration-thickness: 2px !important;
+          text-underline-offset: 3px !important;
+          text-decoration-color: var(--accent, #2F6C3C) !important;
+          font-weight: 950 !important;
 
-        display:block !important;
-        min-width:0 !important;
-        max-width:100% !important;
-        white-space:nowrap !important;
-        overflow:hidden !important;
-        text-overflow:ellipsis !important;
+          display:block !important;
+          min-width:0 !important;
+          max-width:100% !important;
+          white-space:nowrap !important;
+          overflow:hidden !important;
+          text-overflow:ellipsis !important;
 
-        padding: 2px 6px !important;
-        border-radius: 8px !important;
-        background: rgba(47,108,60,0.12) !important;
-        box-shadow: inset 0 -2px 0 rgba(47,108,60,0.55) !important;
+          padding: 2px 6px !important;
+          border-radius: 8px !important;
+          background: rgba(47,108,60,0.12) !important;
+          box-shadow: inset 0 -2px 0 rgba(47,108,60,0.55) !important;
+        }
+
+        html.dark .tile.fv-selected .tile-top .titleline .name{
+          background: rgba(47,108,60,0.18) !important;
+          box-shadow: inset 0 -2px 0 rgba(47,108,60,0.70) !important;
+        }
       }
 
-      html.dark .tile.fv-selected .tile-top .titleline .name{
-        background: rgba(47,108,60,0.18) !important;
-        box-shadow: inset 0 -2px 0 rgba(47,108,60,0.70) !important;
+      /* ============================================================
+         DESKTOP (mouse): subtle tile outline selection, name stays NORMAL
+         ============================================================ */
+      @media (hover: hover) and (pointer: fine){
+        .tile.fv-selected{
+          /* subtle green line without affecting layout */
+          box-shadow:
+            0 0 0 2px rgba(47,108,60,0.40),
+            0 10px 18px rgba(15,23,42,0.08);
+          border-radius: 14px;
+        }
+
+        html.dark .tile.fv-selected{
+          box-shadow:
+            0 0 0 2px rgba(47,108,60,0.45),
+            0 12px 22px rgba(0,0,0,0.28);
+        }
+
+        /* remove the "pill-like" selected name look on desktop */
+        .tile.fv-selected .tile-top .titleline .name{
+          color: inherit !important;
+          text-decoration: none !important;
+          font-weight: inherit !important;
+          padding: 0 !important;
+          border-radius: 0 !important;
+          background: transparent !important;
+          box-shadow: none !important;
+
+          /* keep ellipsis rules intact */
+          display:block !important;
+          min-width:0 !important;
+          max-width:100% !important;
+          white-space:nowrap !important;
+          overflow:hidden !important;
+          text-overflow:ellipsis !important;
+        }
       }
     `;
     document.head.appendChild(s);
