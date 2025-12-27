@@ -1,18 +1,24 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-26e
+Rev: 2025-12-26f
 
-Fix:
-- Desktop dblclick works reliably (no slider grab)
-  Uses click-delay pattern: click waits 220ms; dblclick cancels it.
-- Swipe remains edit-only (intended for mobile)
-- Uses shared rain/range helpers from rain.js
+Restores FULL details rendering that existed in your working file:
+✅ Beta panel (betaInputsMeta + betaInputs)
+✅ Tank Trace table (traceRows)
+✅ DryPwr Breakdown table (dryRows)
+✅ Weather Inputs table (wxRows)  <-- fixes “Waiting for JS…”
+
+Also keeps:
+✅ Desktop dblclick opens Quick View (edit only) using click-delay pattern
+✅ Mobile swipe-right Details (edit only, mobile only) via swipe.js
+✅ Shared range/rain logic via rain.js
+
 ===================================================================== */
 'use strict';
 
 import { PATHS } from './paths.js';
 import { OPS, EXTRA, CONST, buildWxCtx } from './state.js';
-import { $, esc, round, clamp } from './utils.js';
+import { $, esc, clamp } from './utils.js';
 import { getFieldParams, ensureSelectedParamsToSliders, saveParamsToLocal } from './params.js';
 import { getCurrentOp, getThresholdForOp } from './thresholds.js';
 import { canEdit } from './perm.js';
@@ -20,6 +26,7 @@ import { openQuickView } from './quickview.js';
 import { initSwipeOnTiles } from './swipe.js';
 import { parseRangeFromInput, rainInRange } from './rain.js';
 
+/* ---------- module loader (model/weather) ---------- */
 export async function ensureModelWeatherModules(state){
   if (state._mods.model && state._mods.weather) return;
   const [weather, model] = await Promise.all([ import(PATHS.WEATHER), import(PATHS.MODEL) ]);
@@ -27,13 +34,15 @@ export async function ensureModelWeatherModules(state){
   state._mods.model = model;
 }
 
-/* ---------- colors ---------- */
+/* ---------- colors (ported) ---------- */
 function perceivedFromThreshold(readiness, thr){
   const r = clamp(Math.round(Number(readiness)), 0, 100);
   const t = clamp(Math.round(Number(thr)), 0, 100);
+
   if (t <= 0) return 100;
   if (t >= 100) return Math.round((r/100)*50);
   if (r === t) return 50;
+
   if (r > t){
     const denom = Math.max(1, 100 - t);
     const frac = (r - t) / denom;
@@ -110,20 +119,14 @@ function getFilteredFields(state){
 
 /* ---------- click vs dblclick separation ---------- */
 function wireTileInteractions(state, tileEl, fieldId){
-  // One click selects, double-click opens quick view (edit only)
-  // We delay click so dblclick can cancel it.
   const CLICK_DELAY_MS = 220;
-
-  // clear any prior timer
   tileEl._fvClickTimer = null;
 
-  tileEl.addEventListener('click', (e)=>{
-    // If dblclick just happened, ignore.
+  tileEl.addEventListener('click', ()=>{
     const until = Number(state._suppressClickUntil || 0);
     if (Date.now() < until) return;
 
     if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
-
     tileEl._fvClickTimer = setTimeout(()=>{
       tileEl._fvClickTimer = null;
       selectField(state, fieldId);
@@ -135,18 +138,16 @@ function wireTileInteractions(state, tileEl, fieldId){
       e.preventDefault();
       e.stopPropagation();
 
-      // cancel pending click-select
       if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
       tileEl._fvClickTimer = null;
 
-      // suppress any late click handlers
       state._suppressClickUntil = Date.now() + 350;
-
       openQuickView(state, fieldId);
     });
   }
 }
 
+/* ---------- tile render ---------- */
 export async function renderTiles(state){
   await ensureModelWeatherModules(state);
 
@@ -222,17 +223,17 @@ export async function renderTiles(state){
     `;
 
     wireTileInteractions(state, tile, f.id);
-
     wrap.appendChild(tile);
   }
 
   const empty = $('emptyMsg');
   if (empty) empty.style.display = show.length ? 'none' : 'block';
 
-  // Swipe is still edit-only and intended for mobile.
+  // mobile-only + edit-only in swipe.js
   await initSwipeOnTiles(state, { onDetails: (fieldId)=> openQuickView(state, fieldId) });
 }
 
+/* ---------- select field ---------- */
 export function selectField(state, id){
   const f = state.fields.find(x=>x.id === id);
   if (!f) return;
@@ -241,6 +242,90 @@ export function selectField(state, id){
   refreshAll(state);
 }
 
+/* ---------- Beta panel render (ported) ---------- */
+function renderBetaInputs(state){
+  const box = $('betaInputs');
+  const meta = $('betaInputsMeta');
+  if (!box || !meta) return;
+
+  const fid = state.selectedFieldId;
+  const info = fid ? state.wxInfoByFieldId.get(fid) : null;
+
+  if (!info){
+    meta.textContent = 'Weather is loading…';
+    box.innerHTML = '';
+    return;
+  }
+
+  const when = info.fetchedAt ? new Date(info.fetchedAt) : null;
+  const whenTxt = when ? when.toLocaleString() : '—';
+
+  meta.textContent =
+    `Source: ${info.source || '—'} • Updated: ${whenTxt} • Primary + light-influence variables are used now; weights are still being tuned.`;
+
+  const unitsHourly = info.units && info.units.hourly ? info.units.hourly : null;
+  const unitsDaily = info.units && info.units.daily ? info.units.daily : null;
+
+  const a = info.availability || { vars:{} };
+  const vars = a.vars || {};
+
+  const usedPrimary = [
+    ['rain_mm','Precipitation (hourly → daily sum)', unitsHourly?.precipitation || 'mm → in'],
+    ['temp_c','Air temperature (hourly avg)', unitsHourly?.temperature_2m || '°C → °F'],
+    ['wind_mph','Wind speed (hourly avg)', 'mph (converted)'],
+    ['rh_pct','Relative humidity (hourly avg)', unitsHourly?.relative_humidity_2m || '%'],
+    ['solar_wm2','Shortwave radiation (hourly avg)', unitsHourly?.shortwave_radiation || 'W/m²']
+  ];
+
+  const usedLight = [
+    ['vapour_pressure_deficit_kpa','VPD (hourly avg)', unitsHourly?.vapour_pressure_deficit || 'kPa'],
+    ['cloud_cover_pct','Cloud cover (hourly avg)', unitsHourly?.cloud_cover || '%'],
+    ['soil_moisture_0_10','Soil moisture 0–10cm (hourly avg)', unitsHourly?.soil_moisture_0_to_10cm || 'm³/m³'],
+    ['soil_temp_c_0_10','Soil temp 0–10cm (hourly avg)', unitsHourly?.soil_temperature_0_to_10cm || '°C → °F'],
+    ['et0_mm','ET₀ (daily)', unitsDaily?.et0_fao_evapotranspiration || 'mm/day → in/day'],
+    ['daylight_s','Daylight duration (daily)', unitsDaily?.daylight_duration || 's/day → hr/day'],
+    ['sunshine_s','Sunshine duration (daily)', unitsDaily?.sunshine_duration || 's/day → hr/day']
+  ];
+
+  const pulledNotUsed = [
+    ['soil_temp_c_10_40','Soil temp 10–40cm (hourly)', unitsHourly?.soil_temperature_10_to_40cm || '°C'],
+    ['soil_temp_c_40_100','Soil temp 40–100cm (hourly)', unitsHourly?.soil_temperature_40_to_100cm || '°C'],
+    ['soil_temp_c_100_200','Soil temp 100–200cm (hourly)', unitsHourly?.soil_temperature_100_to_200cm || '°C'],
+    ['soil_moisture_10_40','Soil moisture 10–40cm (hourly)', unitsHourly?.soil_moisture_10_to_40cm || 'm³/m³'],
+    ['soil_moisture_40_100','Soil moisture 40–100cm (hourly)', unitsHourly?.soil_moisture_40_to_100cm || 'm³/m³'],
+    ['soil_moisture_100_200','Soil moisture 100–200cm (hourly)', unitsHourly?.soil_moisture_100_to_200cm || 'm³/m³']
+  ];
+
+  function itemRow(k,label,u,tagClass,tagText){
+    const ok = vars[k] ? !!vars[k].ok : true;
+    const tag = ok ? `<div class="vtag ${tagClass}">${esc(tagText)}</div>` : `<div class="vtag tag-missing">Not in response</div>`;
+    return `
+      <div class="vitem">
+        <div>
+          <div class="vname">${esc(label)}</div>
+          <div class="vmeta">${esc(u || '')}</div>
+        </div>
+        ${tag}
+      </div>
+    `;
+  }
+  function groupHtml(title, rows, tagClass, tagText){
+    const items = rows.map(([k,label,u])=> itemRow(k,label,u,tagClass,tagText)).join('');
+    return `
+      <div class="vgroup">
+        <div class="vgroup-title">${esc(title)}</div>
+        <div class="vitems">${items}</div>
+      </div>
+    `;
+  }
+
+  box.innerHTML =
+    groupHtml('Used now (primary drivers)', usedPrimary, 'tag-primary', 'Used') +
+    groupHtml('Used now (light influence / nudges)', usedLight, 'tag-light', 'Light') +
+    groupHtml('Pulled (not yet used)', pulledNotUsed, 'tag-pulled', 'Pulled');
+}
+
+/* ---------- Details + tables render (ported) ---------- */
 export async function renderDetails(state){
   await ensureModelWeatherModules(state);
 
@@ -267,6 +352,7 @@ export async function renderDetails(state){
 
   const range = parseRangeFromInput();
   const rainRange = rainInRange(run, range);
+
   const farmName = state.farmsById.get(f.farmId) || '';
 
   const setText = (id, val) => { const el = $(id); if (el) el.textContent = String(val); };
@@ -310,8 +396,108 @@ export async function renderDetails(state){
       `Model output: <b>Wet=${run.wetnessR}</b> • <b>Readiness=${run.readinessR}</b> • storage=<span class="mono">${run.storageFinal.toFixed(2)}</span>/<span class="mono">${run.factors.Smax.toFixed(2)}</span>` +
       `<br/><span class="muted">Weather updated: <span class="mono">${esc(whenTxt)}</span></span>`;
   }
+
+  // ✅ Beta panel
+  renderBetaInputs(state);
+
+  // ✅ Tank Trace table
+  const trb = $('traceRows');
+  if (trb){
+    trb.innerHTML = '';
+    const rows = Array.isArray(run.trace) ? run.trace : [];
+    if (!rows.length){
+      trb.innerHTML = `<tr><td colspan="7" class="muted">No trace rows.</td></tr>`;
+    } else {
+      for (const t of rows){
+        const dateISO = String(t.dateISO || '');
+        const rain = Number(t.rain ?? 0);
+        const infilMult = Number(t.infilMult ?? 0);
+        const add = Number(t.add ?? 0);
+        const dryPwr = Number(t.dryPwr ?? 0);
+        const loss = Number(t.loss ?? 0);
+        const before = Number(t.before ?? 0);
+        const after = Number(t.after ?? 0);
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${esc(dateISO)}</td>
+          <td class="right mono">${rain.toFixed(2)}</td>
+          <td class="right mono">${infilMult.toFixed(2)}</td>
+          <td class="right mono">${add.toFixed(2)}</td>
+          <td class="right mono">${dryPwr.toFixed(2)}</td>
+          <td class="right mono">${loss.toFixed(2)}</td>
+          <td class="right mono">${before.toFixed(2)}→${after.toFixed(2)}</td>
+        `;
+        trb.appendChild(tr);
+      }
+    }
+  }
+
+  // ✅ DryPwr Breakdown table
+  const drb = $('dryRows');
+  if (drb){
+    drb.innerHTML = '';
+    const rows = Array.isArray(run.rows) ? run.rows : [];
+    if (!rows.length){
+      drb.innerHTML = `<tr><td colspan="15" class="muted">No rows.</td></tr>`;
+    } else {
+      for (const r of rows){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${esc(r.dateISO)}</td>
+          <td class="right mono">${Math.round(Number(r.temp||0))}</td>
+          <td class="right mono">${Number(r.tempN||0).toFixed(2)}</td>
+          <td class="right mono">${Math.round(Number(r.wind||0))}</td>
+          <td class="right mono">${Number(r.windN||0).toFixed(2)}</td>
+          <td class="right mono">${Math.round(Number(r.rh||0))}</td>
+          <td class="right mono">${Number(r.rhN||0).toFixed(2)}</td>
+          <td class="right mono">${Math.round(Number(r.solar||0))}</td>
+          <td class="right mono">${Number(r.solarN||0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.vpd||0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.vpdN||0).toFixed(2)}</td>
+          <td class="right mono">${Math.round(Number(r.cloud||0))}</td>
+          <td class="right mono">${Number(r.cloudN||0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.raw||0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.dryPwr||0).toFixed(2)}</td>
+        `;
+        drb.appendChild(tr);
+      }
+    }
+  }
+
+  // ✅ Weather Inputs table (FIXES “Waiting for JS…”)
+  const wxb = $('wxRows');
+  if (wxb){
+    wxb.innerHTML = '';
+    const rows = Array.isArray(run.rows) ? run.rows : [];
+    if (!rows.length){
+      wxb.innerHTML = `<tr><td colspan="9" class="muted">No weather rows.</td></tr>`;
+    } else {
+      for (const r of rows){
+        const rain = Number(r.rainInAdj ?? r.rainIn ?? 0);
+        const et0 = (r.et0 == null ? '—' : Number(r.et0).toFixed(2));
+        const sm010 = (r.sm010 == null ? '—' : Number(r.sm010).toFixed(3));
+        const st010F = (r.st010F == null ? '—' : String(Math.round(Number(r.st010F))));
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${esc(r.dateISO)}</td>
+          <td class="right mono">${rain.toFixed(2)}</td>
+          <td class="right mono">${Math.round(Number(r.temp||0))}</td>
+          <td class="right mono">${Math.round(Number(r.wind||0))}</td>
+          <td class="right mono">${Math.round(Number(r.rh||0))}</td>
+          <td class="right mono">${Math.round(Number(r.solar||0))}</td>
+          <td class="right mono">${esc(et0)}</td>
+          <td class="right mono">${esc(sm010)}</td>
+          <td class="right mono">${esc(st010F)}</td>
+        `;
+        wxb.appendChild(tr);
+      }
+    }
+  }
 }
 
+/* ---------- refresh ---------- */
 export async function refreshAll(state){
   if (state.selectedFieldId){
     const a = $('soilWet');
