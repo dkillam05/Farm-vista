@@ -1,7 +1,12 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/data.js  (FULL FILE)
-Rev: 2025-12-26a
-Moves farms/fields loading out of the UI layer.
+Rev: 2025-12-27a
+
+Fix:
+✅ Field Readiness sliders now hydrate from Firestore correctly even if
+   soilWetness / drainageIndex are stored under nested objects or as strings.
+✅ Firestore wins over localStorage on load (local remains fallback).
+
 ===================================================================== */
 'use strict';
 
@@ -11,12 +16,75 @@ import { hydrateParamsFromFieldDoc, saveParamsToLocal, ensureSelectedParamsToSli
 import { buildWxCtx } from './state.js';
 import { ensureModelWeatherModules } from './render.js';
 
+function getByPath(obj, path){
+  try{
+    const parts = String(path||'').split('.');
+    let cur = obj;
+    for (const p of parts){
+      if (!cur || typeof cur !== 'object') return undefined;
+      cur = cur[p];
+    }
+    return cur;
+  }catch(_){
+    return undefined;
+  }
+}
+
+function toNum(v){
+  // Accept: number, numeric string, {value:number}, {n:number}
+  if (typeof v === 'number') return (isFinite(v) ? v : null);
+  if (typeof v === 'string'){
+    const n = Number(v.trim());
+    return isFinite(n) ? n : null;
+  }
+  if (v && typeof v === 'object'){
+    if (typeof v.value === 'number' && isFinite(v.value)) return v.value;
+    if (typeof v.value === 'string'){
+      const n = Number(String(v.value).trim());
+      return isFinite(n) ? n : null;
+    }
+    if (typeof v.n === 'number' && isFinite(v.n)) return v.n;
+    if (typeof v.n === 'string'){
+      const n = Number(String(v.n).trim());
+      return isFinite(n) ? n : null;
+    }
+  }
+  return null;
+}
+
+function pickFirstNumber(d, paths){
+  for (const p of paths){
+    const raw = getByPath(d, p);
+    const n = toNum(raw);
+    if (n != null) return n;
+  }
+  return null;
+}
+
 function extractFieldDoc(docId, d){
   const loc = d.location || {};
   const lat = Number(loc.lat);
   const lng = Number(loc.lng);
-  const soilWetness = Number(d.soilWetness);
-  const drainageIndex = Number(d.drainageIndex);
+
+  // ✅ Robust hydration: support different Firestore shapes/paths
+  const soilWetness = pickFirstNumber(d, [
+    'soilWetness',
+    'fieldReadiness.soilWetness',
+    'readiness.soilWetness',
+    'params.soilWetness',
+    'sliders.soilWetness',
+    'field_readiness.soilWetness'
+  ]);
+
+  const drainageIndex = pickFirstNumber(d, [
+    'drainageIndex',
+    'fieldReadiness.drainageIndex',
+    'readiness.drainageIndex',
+    'params.drainageIndex',
+    'sliders.drainageIndex',
+    'field_readiness.drainageIndex'
+  ]);
+
   return {
     id: docId,
     name: String(d.name||''),
@@ -26,8 +94,10 @@ function extractFieldDoc(docId, d){
     status: String(d.status||''),
     tillable: Number(d.tillable||0),
     location: (isFinite(lat) && isFinite(lng)) ? { lat, lng } : null,
-    soilWetness: isFinite(soilWetness) ? soilWetness : null,
-    drainageIndex: isFinite(drainageIndex) ? drainageIndex : null
+
+    // IMPORTANT: these are the values that hydrate the Field Readiness sliders
+    soilWetness: (soilWetness == null) ? null : soilWetness,
+    drainageIndex: (drainageIndex == null) ? null : drainageIndex
   };
 }
 
@@ -82,21 +152,26 @@ export async function loadFields(state){
       if (normalizeStatus(f.status) !== 'active') continue;
       if (!f.location) continue;
       arr.push(f);
+
+      // ✅ This is what makes Firestore win over local
       hydrateParamsFromFieldDoc(state, f);
     }
 
     arr.sort((a,b)=> String(a.name).localeCompare(String(b.name), undefined, {numeric:true, sensitivity:'base'}));
     state.fields = arr;
+
+    // Persist the merged params map (Firestore-hydrated values win)
     saveParamsToLocal(state);
 
     if (!state.selectedFieldId || !state.fields.find(x=>x.id===state.selectedFieldId)){
       state.selectedFieldId = state.fields.length ? state.fields[0].id : null;
     }
 
+    // Ensure selected field sliders reflect Firestore-hydrated params
+    ensureSelectedParamsToSliders(state);
+
     const empty = document.getElementById('emptyMsg');
     if (empty) empty.style.display = state.fields.length ? 'none' : 'block';
-
-    ensureSelectedParamsToSliders(state);
 
     // weather warmup (uses existing weather module)
     await ensureModelWeatherModules(state);
