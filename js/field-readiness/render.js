@@ -2,12 +2,16 @@
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
 Rev: 2025-12-27c
 
-Fix:
-✅ On field re-open/select, fetch Firestore params for that ONE field in background
-   and re-hydrate sliders + details (no page refresh, no 500-field reload)
+Fixes:
+✅ Re-opening/selecting a field pulls THAT ONE FIELD fresh from Firestore in background
+   and updates sliders/details automatically (no page refresh required).
+✅ Does NOT trigger a full refreshAll() on field select (avoids heavy reload with 500 fields).
+✅ Keeps ALL existing tiles/details/tables behavior — nothing cut out.
 
-Adds:
-✅ refreshDetailsOnly(state)
+Keeps:
+✅ refreshDetailsOnly(state) — updates sliders + details only (no tile rerender)
+✅ "fr:selected-field-changed" dispatch (so index.js can live-sync if you want)
+✅ All prior rendering & tables behavior
 
 ===================================================================== */
 'use strict';
@@ -112,6 +116,25 @@ function getFilteredFields(state){
   const farmId = String(state.farmFilter || '__all__');
   if (farmId === '__all__') return state.fields.slice();
   return state.fields.filter(f => String(f.farmId||'') === farmId);
+}
+
+/* ---------- small helper: update tile active class without rerender ---------- */
+function setActiveTileClass(state, newId){
+  try{
+    const prev = String(state._lastSelectedFieldId || '');
+    const next = String(newId || '');
+
+    if (prev && prev !== next){
+      const prevEl = document.querySelector(`.tile[data-field-id="${CSS.escape(prev)}"]`);
+      if (prevEl) prevEl.classList.remove('active');
+    }
+    if (next){
+      const nextEl = document.querySelector(`.tile[data-field-id="${CSS.escape(next)}"]`);
+      if (nextEl) nextEl.classList.add('active');
+    }
+
+    state._lastSelectedFieldId = next;
+  }catch(_){}
 }
 
 /* ---------- click vs dblclick separation ---------- */
@@ -230,30 +253,40 @@ export async function renderTiles(state){
   await initSwipeOnTiles(state, { onDetails: (fieldId)=> openQuickView(state, fieldId) });
 }
 
-/* ---------- select field ---------- */
+/* ---------- select field (FIXED: no heavy refreshAll + background Firestore hydrate) ---------- */
 export function selectField(state, id){
   const f = state.fields.find(x=>x.id === id);
   if (!f) return;
 
+  // Track active tile without re-rendering all tiles
+  setActiveTileClass(state, id);
+
   state.selectedFieldId = id;
 
-  // 1) fast: reflect current cached values immediately
+  // ✅ Let index.js switch the Firestore watcher to this field (if you keep that system)
+  try{
+    document.dispatchEvent(new CustomEvent('fr:selected-field-changed', { detail:{ fieldId:id } }));
+  }catch(_){}
+
+  // 1) Immediate: reflect current cached params (fast)
   ensureSelectedParamsToSliders(state);
 
-  // 2) background: pull the ONE field doc from Firestore, then update sliders + details only
+  // 2) Immediate: refresh DETAILS only (fast; no tile rerender)
+  refreshDetailsOnly(state);
+
+  // 3) Background: pull ONE field doc fresh from Firestore, then update sliders + details
   (async ()=>{
     try{
       const ok = await fetchAndHydrateFieldParams(state, id);
-      if (ok){
-        // Ensure sliders match Firestore (no full tile rerender)
-        ensureSelectedParamsToSliders(state);
-        await refreshDetailsOnly(state);
-      }
+      if (!ok) return;
+
+      // Only apply if user hasn't moved on
+      if (String(state.selectedFieldId) !== String(id)) return;
+
+      ensureSelectedParamsToSliders(state);
+      await refreshDetailsOnly(state);
     }catch(_){}
   })();
-
-  // Keep existing behavior (select + render)
-  refreshAll(state);
 }
 
 /* ---------- Beta panel render (ported) ---------- */
@@ -342,6 +375,7 @@ function renderBetaInputs(state){
 /* ---------- Details + tables render (ported) ---------- */
 export async function renderDetails(state){
   await ensureModelWeatherModules(state);
+
   const f = state.fields.find(x=>x.id === state.selectedFieldId);
   if (!f) return;
 
@@ -410,11 +444,104 @@ export async function renderDetails(state){
       `<br/><span class="muted">Weather updated: <span class="mono">${esc(whenTxt)}</span></span>`;
   }
 
+  // ✅ Beta panel
   renderBetaInputs(state);
 
-  // tables unchanged (your existing code continues below in your file)
-  // NOTE: your tables are already working; leave the rest of your renderDetails as-is.
-  // (No need to re-paste again here.)
+  // ✅ Tank Trace table
+  const trb = $('traceRows');
+  if (trb){
+    trb.innerHTML = '';
+    const rows = Array.isArray(run.trace) ? run.trace : [];
+    if (!rows.length){
+      trb.innerHTML = `<tr><td colspan="7" class="muted">No trace rows.</td></tr>`;
+    } else {
+      for (const t of rows){
+        const dateISO = String(t.dateISO || '');
+        const rain = Number(t.rain ?? 0);
+        const infilMult = Number(t.infilMult ?? 0);
+        const add = Number(t.add ?? 0);
+        const dryPwr = Number(t.dryPwr ?? 0);
+        const loss = Number(t.loss ?? 0);
+        const before = Number(t.before ?? 0);
+        const after = Number(t.after ?? 0);
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${esc(dateISO)}</td>
+          <td class="right mono">${rain.toFixed(2)}</td>
+          <td class="right mono">${infilMult.toFixed(2)}</td>
+          <td class="right mono">${add.toFixed(2)}</td>
+          <td class="right mono">${dryPwr.toFixed(2)}</td>
+          <td class="right mono">${loss.toFixed(2)}</td>
+          <td class="right mono">${before.toFixed(2)}→${after.toFixed(2)}</td>
+        `;
+        trb.appendChild(tr);
+      }
+    }
+  }
+
+  // ✅ DryPwr Breakdown table
+  const drb = $('dryRows');
+  if (drb){
+    drb.innerHTML = '';
+    const rows = Array.isArray(run.rows) ? run.rows : [];
+    if (!rows.length){
+      drb.innerHTML = `<tr><td colspan="15" class="muted">No rows.</td></tr>`;
+    } else {
+      for (const r of rows){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${esc(r.dateISO)}</td>
+          <td class="right mono">${Math.round(Number(r.temp||0))}</td>
+          <td class="right mono">${Number(r.tempN||0).toFixed(2)}</td>
+          <td class="right mono">${Math.round(Number(r.wind||0))}</td>
+          <td class="right mono">${Number(r.windN||0).toFixed(2)}</td>
+          <td class="right mono">${Math.round(Number(r.rh||0))}</td>
+          <td class="right mono">${Number(r.rhN||0).toFixed(2)}</td>
+          <td class="right mono">${Math.round(Number(r.solar||0))}</td>
+          <td class="right mono">${Number(r.solarN||0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.vpd||0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.vpdN||0).toFixed(2)}</td>
+          <td class="right mono">${Math.round(Number(r.cloud||0))}</td>
+          <td class="right mono">${Number(r.cloudN||0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.raw||0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.dryPwr||0).toFixed(2)}</td>
+        `;
+        drb.appendChild(tr);
+      }
+    }
+  }
+
+  // ✅ Weather Inputs table
+  const wxb = $('wxRows');
+  if (wxb){
+    wxb.innerHTML = '';
+    const rows = Array.isArray(run.rows) ? run.rows : [];
+    if (!rows.length){
+      wxb.innerHTML = `<tr><td colspan="9" class="muted">No weather rows.</td></tr>`;
+    } else {
+      for (const r of rows){
+        const rain = Number(r.rainInAdj ?? r.rainIn ?? 0);
+        const et0 = (r.et0 == null ? '—' : Number(r.et0).toFixed(2));
+        const sm010 = (r.sm010 == null ? '—' : Number(r.sm010).toFixed(3));
+        const st010F = (r.st010F == null ? '—' : String(Math.round(Number(r.st010F))));
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${esc(r.dateISO)}</td>
+          <td class="right mono">${rain.toFixed(2)}</td>
+          <td class="right mono">${Math.round(Number(r.temp||0))}</td>
+          <td class="right mono">${Math.round(Number(r.wind||0))}</td>
+          <td class="right mono">${Math.round(Number(r.rh||0))}</td>
+          <td class="right mono">${Math.round(Number(r.solar||0))}</td>
+          <td class="right mono">${esc(et0)}</td>
+          <td class="right mono">${esc(sm010)}</td>
+          <td class="right mono">${esc(st010F)}</td>
+        `;
+        wxb.appendChild(tr);
+      }
+    }
+  }
 }
 
 /* ---------- refresh ---------- */
@@ -433,8 +560,10 @@ export async function refreshAll(state){
   await renderDetails(state);
 }
 
-/* ---------- NEW: details only ---------- */
+/* ---------- details-only refresh ---------- */
 export async function refreshDetailsOnly(state){
-  try{ ensureSelectedParamsToSliders(state); }catch(_){}
+  try{
+    ensureSelectedParamsToSliders(state);
+  }catch(_){}
   await renderDetails(state);
 }
