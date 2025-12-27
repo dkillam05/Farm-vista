@@ -1,15 +1,12 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-27f
+Rev: 2025-12-27g
 
-Fix (your new bug):
-✅ When soilWetness/drainageIndex changes (details/quick view), we now update the
-   SELECTED FIELD TILE in-place (no 500-field rerender needed).
-✅ Main-screen “wetness / readiness line” now moves immediately when you go back.
-
-Key idea:
-- Details panel can update without re-rendering the tile grid.
-- So we compute the new run for that ONE field and patch its tile DOM.
+Fix:
+✅ Listens for:
+   - fr:tile-refresh { fieldId }  -> updates ONLY that tile in-place
+   - fr:details-refresh { fieldId } -> refreshes details + tile (lightweight)
+✅ This makes “Save & Close” update the main tile immediately, every time.
 
 Keeps:
 ✅ All prior rendering & tables behavior (NOTHING CUT)
@@ -124,11 +121,7 @@ function getFilteredFields(state){
 /* ---------- internal: set selected field safely ---------- */
 function setSelectedField(state, fieldId){
   state.selectedFieldId = fieldId;
-
-  // optional: allow any other listeners to respond
-  try{
-    document.dispatchEvent(new CustomEvent('fr:selected-field-changed', { detail:{ fieldId } }));
-  }catch(_){}
+  try{ document.dispatchEvent(new CustomEvent('fr:selected-field-changed', { detail:{ fieldId } })); }catch(_){}
 }
 
 /* ---------- internal: patch a single tile DOM in-place ---------- */
@@ -137,7 +130,6 @@ async function updateTileForField(state, fieldId){
     if (!fieldId) return;
     const fid = String(fieldId);
 
-    // Tile must exist
     const tile = document.querySelector(`.tile[data-field-id="${CSS.escape(fid)}"]`);
     if (!tile) return;
 
@@ -157,12 +149,9 @@ async function updateTileForField(state, fieldId){
     const run0 = state._mods.model.runField(f, deps);
     if (!run0) return;
 
-    // Keep lastRuns consistent
     try{ state.lastRuns && state.lastRuns.set(fid, run0); }catch(_){}
 
-    const opKey = getCurrentOp();
-    const thr = getThresholdForOp(state, opKey);
-
+    const thr = getThresholdForOp(state, getCurrentOp());
     const readiness = run0.readinessR;
     const wetness = run0.wetnessR;
 
@@ -173,20 +162,15 @@ async function updateTileForField(state, fieldId){
     const pillBg = colorForPerceived(perceived);
     const grad = gradientForThreshold(thr);
 
-    // Update gradient
     const gauge = tile.querySelector('.gauge');
     if (gauge) gauge.style.background = grad;
 
-    // Threshold line
     const thrEl = tile.querySelector('.thr');
     if (thrEl) thrEl.style.left = thrPos;
 
-    // Readiness marker
     const markerEl = tile.querySelector('.marker');
     if (markerEl) markerEl.style.left = leftPos;
 
-    // If you have a dedicated wetness marker in CSS/HTML, support it too
-    // (won't hurt if it doesn't exist)
     const wetEl =
       tile.querySelector('.wet-marker') ||
       tile.querySelector('.wetness-marker') ||
@@ -197,7 +181,6 @@ async function updateTileForField(state, fieldId){
       wetEl.style.left = wetPos;
     }
 
-    // Pill
     const pill = tile.querySelector('.readiness-pill');
     if (pill){
       pill.style.background = pillBg;
@@ -205,7 +188,6 @@ async function updateTileForField(state, fieldId){
       pill.textContent = `Field Readiness ${readiness}`;
     }
 
-    // Badge
     const badge = tile.querySelector('.badge');
     if (badge){
       badge.style.left = leftPos;
@@ -214,7 +196,6 @@ async function updateTileForField(state, fieldId){
       badge.textContent = `Field Readiness ${readiness}`;
     }
 
-    // Rain range text (in case your params affect rain math perception)
     const range = parseRangeFromInput();
     const rainRange = rainInRange(run0, range);
     const rainLine = tile.querySelector('.subline .mono');
@@ -222,7 +203,6 @@ async function updateTileForField(state, fieldId){
       rainLine.textContent = rainRange.toFixed(2);
     }
 
-    // ETA text
     const eta = state._mods.model.etaFor(run0, thr, CONST.ETA_MAX_HOURS);
     const help = tile.querySelector('.help b');
     if (help){
@@ -252,33 +232,20 @@ function wireTileInteractions(state, tileEl, fieldId){
       e.preventDefault();
       e.stopPropagation();
 
-      // cancel pending single-click select
       if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
       tileEl._fvClickTimer = null;
 
-      // ✅ set selected field FIRST so sliders/details refer to the correct field
       setSelectedField(state, fieldId);
-
-      // show whatever we have cached immediately (fast)
       ensureSelectedParamsToSliders(state);
 
-      // suppress the click select race after dblclick
       state._suppressClickUntil = Date.now() + 350;
 
-      // ✅ Background: pull ONE field doc fresh, then re-apply sliders, then open quick view
-      try{
-        await fetchAndHydrateFieldParams(state, fieldId);
-      }catch(_){}
-
-      // if user moved on, don't stomp
+      try{ await fetchAndHydrateFieldParams(state, fieldId); }catch(_){}
       if (String(state.selectedFieldId) !== String(fieldId)) return;
 
       ensureSelectedParamsToSliders(state);
-
-      // Update that one tile before opening quick view
       await updateTileForField(state, fieldId);
 
-      // finally open quick view for the correct field
       openQuickView(state, fieldId);
     });
   }
@@ -366,7 +333,6 @@ export async function renderTiles(state){
   const empty = $('emptyMsg');
   if (empty) empty.style.display = show.length ? 'none' : 'block';
 
-  // mobile-only + edit-only in swipe.js
   await initSwipeOnTiles(state, { onDetails: (fieldId)=> openQuickView(state, fieldId) });
 }
 
@@ -375,17 +341,11 @@ export function selectField(state, id){
   const f = state.fields.find(x=>x.id === id);
   if (!f) return;
 
-  // set selected field immediately
   setSelectedField(state, id);
-
-  // Fast: show cached params immediately
   ensureSelectedParamsToSliders(state);
 
-  // Existing behavior: selecting a field refreshes tiles/details
-  // (kept — but we’ll also do a background Firestore hydrate so sliders match saved values)
   refreshAll(state);
 
-  // Background: pull ONE doc fresh and update details + that one tile
   (async ()=>{
     try{
       const ok = await fetchAndHydrateFieldParams(state, id);
@@ -554,10 +514,8 @@ export async function renderDetails(state){
       `<br/><span class="muted">Weather updated: <span class="mono">${esc(whenTxt)}</span></span>`;
   }
 
-  // ✅ Beta panel
   renderBetaInputs(state);
 
-  // ✅ Tank Trace table
   const trb = $('traceRows');
   if (trb){
     trb.innerHTML = '';
@@ -590,7 +548,6 @@ export async function renderDetails(state){
     }
   }
 
-  // ✅ DryPwr Breakdown table
   const drb = $('dryRows');
   if (drb){
     drb.innerHTML = '';
@@ -622,7 +579,6 @@ export async function renderDetails(state){
     }
   }
 
-  // ✅ Weather Inputs table
   const wxb = $('wxRows');
   if (wxb){
     wxb.innerHTML = '';
@@ -660,7 +616,6 @@ export async function refreshAll(state){
     const a = $('soilWet');
     const b = $('drain');
 
-    // IMPORTANT: only save if sliders exist (prevents weird “random” values during boot/quickview race)
     if (a && b){
       const p = getFieldParams(state, state.selectedFieldId);
       p.soilWetness = clamp(Number(a.value), 0, 100);
@@ -668,7 +623,6 @@ export async function refreshAll(state){
       state.perFieldParams.set(state.selectedFieldId, p);
       saveParamsToLocal(state);
 
-      // NEW: update just the selected tile in-place
       await updateTileForField(state, state.selectedFieldId);
     }
   }
@@ -679,15 +633,39 @@ export async function refreshAll(state){
 
 /* ---------- details-only refresh ---------- */
 export async function refreshDetailsOnly(state){
-  try{
-    // Re-apply state params to sliders before rendering details (keeps UI stable)
-    ensureSelectedParamsToSliders(state);
-  }catch(_){}
-
+  try{ ensureSelectedParamsToSliders(state); }catch(_){}
   await renderDetails(state);
-
-  // NEW: keep the selected field tile aligned with the latest params
-  try{
-    if (state && state.selectedFieldId) await updateTileForField(state, state.selectedFieldId);
-  }catch(_){}
+  try{ if (state && state.selectedFieldId) await updateTileForField(state, state.selectedFieldId); }catch(_){}
 }
+
+/* =====================================================================
+   GLOBAL LISTENERS (wired once) — lets quickview.js update tiles instantly
+===================================================================== */
+(function wireGlobalLightRefreshOnce(){
+  try{
+    if (window.__FV_FR_TILE_REFRESH_WIRED__) return;
+    window.__FV_FR_TILE_REFRESH_WIRED__ = true;
+
+    document.addEventListener('fr:tile-refresh', async (e)=>{
+      try{
+        const state = window.__FV_FR;
+        if (!state) return;
+        const fid = e && e.detail ? String(e.detail.fieldId || '') : '';
+        if (!fid) return;
+
+        // ensure params are already updated optimistically by quickview
+        await updateTileForField(state, fid);
+      }catch(_){}
+    });
+
+    document.addEventListener('fr:details-refresh', async (e)=>{
+      try{
+        const state = window.__FV_FR;
+        if (!state) return;
+        const fid = e && e.detail ? String(e.detail.fieldId || '') : '';
+        if (fid) setSelectedField(state, fid);
+        await refreshDetailsOnly(state);
+      }catch(_){}
+    });
+  }catch(_){}
+})();
