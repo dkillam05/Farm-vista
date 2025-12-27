@@ -1,13 +1,18 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/perm.js  (FULL FILE)
-Rev: 2025-12-26e
+Rev: 2025-12-26f
 
-Permission key: crop-weather (existing system)
+Fixes cold-start race with FVUserContext:
 
-IMPORTANT:
-- perm-ui.js expects FV.can('crop-weather') style keys (no ".view")
-- So we set data-perm="crop-weather" (no suffix)
-- Edit gating is handled in code via state.perm.edit
+- If ctx.effectivePerms does not yet contain 'crop-weather', we treat perms as NOT READY.
+  -> view allowed (so no “no permission” flash)
+  -> edit false until perms arrive
+  -> loaded=false so callers know it’s provisional
+
+- When fv:user-ready fires, index.js will call loadFieldReadinessPerms(state) again.
+
+data-perm:
+- Uses data-perm="crop-weather" (no .view suffix) because FV.can expects that.
 
 ===================================================================== */
 'use strict';
@@ -38,7 +43,6 @@ function normalizePerm(v){
 }
 
 export function applyPermDataAttrs(){
-  // Use the exact key that FV.can understands
   try{
     const grid = document.getElementById('fieldsGrid');
     const detailsPanel = document.getElementById('detailsPanel');
@@ -49,9 +53,15 @@ export function applyPermDataAttrs(){
 }
 
 export async function loadFieldReadinessPerms(state){
+  // Default: allow viewing while perms are still resolving, but do NOT allow edit.
   state.perm = {
     key: PERM_KEY,
     ...emptyPerm(),
+
+    // provisional defaults
+    view: true,
+    edit: false,
+
     loaded: false,
     roleName: null,
     email: null
@@ -59,11 +69,8 @@ export async function loadFieldReadinessPerms(state){
 
   applyPermDataAttrs();
 
-  // If FVUserContext isn't available, fail-open view for testing (but no edit)
   if (!window.FVUserContext || typeof window.FVUserContext.ready !== 'function'){
-    state.perm.view = true;
-    state.perm.edit = false;
-    state.perm.loaded = true;
+    // No user context available => allow view for testing; no edit
     try{ document.dispatchEvent(new CustomEvent('fv:user-ready')); }catch(_){}
     return state.perm;
   }
@@ -75,10 +82,20 @@ export async function loadFieldReadinessPerms(state){
     ctx = window.FVUserContext.get ? window.FVUserContext.get() : null;
   }
 
-  const eff = (ctx && ctx.effectivePerms && typeof ctx.effectivePerms === 'object') ? ctx.effectivePerms : {};
-  const raw = eff[PERM_KEY];
+  const eff = (ctx && ctx.effectivePerms && typeof ctx.effectivePerms === 'object') ? ctx.effectivePerms : null;
 
-  const p = normalizePerm(raw);
+  // 🚨 KEY FIX:
+  // If effectivePerms isn't ready OR doesn't have our key yet, we DO NOT deny.
+  // We keep view=true/edit=false and loaded=false, and we rely on fv:user-ready refresh.
+  if (!eff || !(PERM_KEY in eff)){
+    state.perm.roleName = (ctx && ctx.roleName) ? String(ctx.roleName) : null;
+    state.perm.email = (ctx && ctx.email) ? String(ctx.email) : null;
+    state.perm.loaded = false;
+    return state.perm;
+  }
+
+  // Now we have a definitive permission object/boolean
+  const p = normalizePerm(eff[PERM_KEY]);
 
   state.perm = {
     key: PERM_KEY,
@@ -88,15 +105,15 @@ export async function loadFieldReadinessPerms(state){
     email: (ctx && ctx.email) ? String(ctx.email) : null
   };
 
-  // perm-ui.js listens for fv:user-ready
-  try{ document.dispatchEvent(new CustomEvent('fv:user-ready')); }catch(_){}
   return state.perm;
 }
 
 export function canView(state){
-  return !!(state && state.perm && state.perm.loaded ? state.perm.view : true);
+  // While not loaded, allow view (prevents “no permission” flash).
+  return !!(state && state.perm ? (state.perm.loaded ? state.perm.view : true) : true);
 }
 
 export function canEdit(state){
-  return !!(state && state.perm && state.perm.loaded ? state.perm.edit : true);
+  // While not loaded, do NOT allow edit.
+  return !!(state && state.perm ? (state.perm.loaded ? state.perm.edit : false) : false);
 }
