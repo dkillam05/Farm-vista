@@ -1,7 +1,11 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (NEW FILE)
-Rev: 2025-12-22m1
+Rev: 2025-12-27a
 Model math (dry power, storage, readiness) + helpers
+
+TUNING (per Dane):
+✅ Reduce "too wet" baseline by lowering starting storage
+✅ Reduce rain nudge strength so fields don't default overly wet
 ===================================================================== */
 'use strict';
 
@@ -104,12 +108,18 @@ export function runField(field, deps){
     };
   });
 
+  // -------------------------------------------------------------------
+  // TUNING: rain nudge + starting storage baseline
+  // Old: rain7/4.0 and 0.35*Smax (strong) + start at 0.45*Smax (wet bias)
+  // New: rain7/6.0 and 0.20*Smax (softer) + start at 0.30*Smax (drier baseline)
+  // -------------------------------------------------------------------
   const first7 = rows.slice(0,7);
   const rain7 = first7.reduce((s,x)=> s + Number(x.rainInAdj||0), 0);
-  const rainNudgeFrac = clamp(rain7 / 4.0, 0, 1);
-  const rainNudge = rainNudgeFrac * (0.35 * f.Smax);
 
-  let storage = clamp((0.45 * f.Smax) + rainNudge, 0, f.Smax);
+  const rainNudgeFrac = clamp(rain7 / 6.0, 0, 1);
+  const rainNudge = rainNudgeFrac * (0.20 * f.Smax);
+
+  let storage = clamp((0.30 * f.Smax) + rainNudge, 0, f.Smax);
 
   const trace = [];
   for (const d of rows){
