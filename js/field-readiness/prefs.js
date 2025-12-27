@@ -1,24 +1,55 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/prefs.js  (FULL FILE)
-Rev: 2025-12-26a
-Farm + page size + op prefs (same as working file).
+Rev: 2025-12-27a
+
+Fix:
+✅ Adds applySavedOpToUI(state, { fire }) helper
+✅ Uses BOTH localStorage + sessionStorage for op
+✅ Can optionally fire a change event (useful after BFCache restore)
+
 ===================================================================== */
 'use strict';
 
 import { CONST, OPS } from './state.js';
 
+function getSavedOpKey(){
+  return String(CONST.LS_OP_KEY || '').trim() || 'fv_dev_field_readiness_op';
+}
+
+function readSavedOp(){
+  const k = getSavedOpKey();
+  let raw = '';
+  try{ raw = String(localStorage.getItem(k) || ''); }catch(_){ raw=''; }
+  if (!raw){
+    try{ raw = String(sessionStorage.getItem(k) || ''); }catch(_){ raw=''; }
+  }
+  raw = String(raw || '').trim();
+  if (!raw) return '';
+  if (!OPS.some(o=>o.key === raw)) return '';
+  return raw;
+}
+
+export function applySavedOpToUI(state, { fire=false } = {}){
+  const op = document.getElementById('opSel');
+  if (!op) return false;
+
+  const raw = readSavedOp();
+  if (!raw) return false;
+
+  if (op.value !== raw){
+    op.value = raw;
+    try{ op.dataset.saved = raw; }catch(_){}
+    if (fire){
+      try{ op.dispatchEvent(new Event('change', { bubbles:true })); }catch(_){}
+    }
+    return true;
+  }
+  return false;
+}
+
 export async function loadPrefsFromLocalToUI(state){
   // Operation
-  const op = document.getElementById('opSel');
-  if (op){
-    let raw = '';
-    try{ raw = String(localStorage.getItem(CONST.LS_OP_KEY) || ''); }catch(_){ raw=''; }
-    if (!raw){
-      try{ raw = String(sessionStorage.getItem(CONST.LS_OP_KEY) || ''); }catch(_){ raw=''; }
-    }
-    raw = String(raw||'').trim();
-    if (raw && OPS.some(o=>o.key===raw)) op.value = raw;
-  }
+  applySavedOpToUI(state, { fire:false });
 
   // Farm
   try{ state.farmFilter = String(localStorage.getItem(CONST.LS_FARM_FILTER) || '__all__') || '__all__'; }
@@ -39,8 +70,10 @@ export function saveOpDefault(){
   if (!op) return;
   const v = String(op.value||'').trim();
   if (!v) return;
-  try{ localStorage.setItem(CONST.LS_OP_KEY, v); }catch(_){}
-  try{ sessionStorage.setItem(CONST.LS_OP_KEY, v); }catch(_){}
+
+  const k = getSavedOpKey();
+  try{ localStorage.setItem(k, v); }catch(_){}
+  try{ sessionStorage.setItem(k, v); }catch(_){}
 }
 
 export function saveFarmFilterDefault(state){
