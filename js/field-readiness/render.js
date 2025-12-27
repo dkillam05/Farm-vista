@@ -1,18 +1,16 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-27g
+Rev: 2025-12-27h
 
 Fix:
-✅ Listens for:
-   - fr:tile-refresh { fieldId }  -> updates ONLY that tile in-place
-   - fr:details-refresh { fieldId } -> refreshes details + tile (lightweight)
-✅ This makes “Save & Close” update the main tile immediately, every time.
+✅ Double-click no longer disappears on cold-start permissions.
+   - dblclick handler is ALWAYS attached
+   - canEdit(state) is checked at click-time
 
 Keeps:
+✅ Listeners for fr:tile-refresh and fr:details-refresh
+✅ Background Firestore hydrate on select + dblclick quick view
 ✅ All prior rendering & tables behavior (NOTHING CUT)
-✅ refreshDetailsOnly(state)
-✅ Background Firestore hydrate on select + on dblclick quick view
-
 ===================================================================== */
 'use strict';
 
@@ -227,28 +225,31 @@ function wireTileInteractions(state, tileEl, fieldId){
     }, CLICK_DELAY_MS);
   });
 
-  if (canEdit(state)){
-    tileEl.addEventListener('dblclick', async (e)=>{
-      e.preventDefault();
-      e.stopPropagation();
+  // ✅ ALWAYS attach dblclick; gate inside handler so cold-start perms can't kill wiring
+  tileEl.addEventListener('dblclick', async (e)=>{
+    e.preventDefault();
+    e.stopPropagation();
 
-      if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
-      tileEl._fvClickTimer = null;
+    if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
+    tileEl._fvClickTimer = null;
 
-      setSelectedField(state, fieldId);
-      ensureSelectedParamsToSliders(state);
+    // Always select the field (so modal uses the correct reference)
+    setSelectedField(state, fieldId);
+    ensureSelectedParamsToSliders(state);
 
-      state._suppressClickUntil = Date.now() + 350;
+    state._suppressClickUntil = Date.now() + 350;
 
-      try{ await fetchAndHydrateFieldParams(state, fieldId); }catch(_){}
-      if (String(state.selectedFieldId) !== String(fieldId)) return;
+    // Only edit users can open Quick View
+    if (!canEdit(state)) return;
 
-      ensureSelectedParamsToSliders(state);
-      await updateTileForField(state, fieldId);
+    try{ await fetchAndHydrateFieldParams(state, fieldId); }catch(_){}
+    if (String(state.selectedFieldId) !== String(fieldId)) return;
 
-      openQuickView(state, fieldId);
-    });
-  }
+    ensureSelectedParamsToSliders(state);
+    await updateTileForField(state, fieldId);
+
+    openQuickView(state, fieldId);
+  });
 }
 
 /* ---------- tile render ---------- */
@@ -297,7 +298,10 @@ export async function renderTiles(state){
 
     const tile = document.createElement('div');
     tile.className = 'tile fv-swipe-item' + (f.id === state.selectedFieldId ? ' active' : '');
+
+    // ✅ ensure both attribute styles exist (your updateTileForField selects by data-field-id)
     tile.dataset.fieldId = f.id;
+    tile.setAttribute('data-field-id', f.id);
 
     tile.innerHTML = `
       <div class="tile-top">
@@ -652,8 +656,6 @@ export async function refreshDetailsOnly(state){
         if (!state) return;
         const fid = e && e.detail ? String(e.detail.fieldId || '') : '';
         if (!fid) return;
-
-        // ensure params are already updated optimistically by quickview
         await updateTileForField(state, fid);
       }catch(_){}
     });
