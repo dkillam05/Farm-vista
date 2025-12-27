@@ -1,15 +1,21 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-27d
+Rev: 2025-12-27e
 
-Fix:
-✅ Re-open/select a field: background fetch THAT ONE field doc from Firestore
-   and re-hydrate sliders + details automatically (no page refresh).
-✅ Avoid heavy refreshAll() on field select (important for 500 fields).
+Fix (your bug):
+✅ Double-click Quick View now SETS selectedFieldId first (critical)
+   so it cannot reuse stale slider DOM values (the “random 39 / 49”).
+✅ Before opening Quick View, we background-fetch THAT ONE field doc from Firestore
+   (fetchAndHydrateFieldParams) and re-apply sliders.
+✅ Single-click select also does the same background hydrate so reopen matches Firestore.
+
+Why this matters:
+- Your dblclick path previously called openQuickView(state, fieldId) WITHOUT selecting the field.
+  That let the slider DOM keep old values and then refreshAll/save logic could “win” incorrectly.
 
 Keeps:
 ✅ All prior rendering & tables behavior (NOTHING CUT)
-✅ refreshDetailsOnly(state) export
+✅ refreshDetailsOnly(state)
 
 ===================================================================== */
 'use strict';
@@ -116,6 +122,16 @@ function getFilteredFields(state){
   return state.fields.filter(f => String(f.farmId||'') === farmId);
 }
 
+/* ---------- internal: set selected field safely ---------- */
+function setSelectedField(state, fieldId){
+  state.selectedFieldId = fieldId;
+
+  // optional: allow any other listeners to respond
+  try{
+    document.dispatchEvent(new CustomEvent('fr:selected-field-changed', { detail:{ fieldId } }));
+  }catch(_){}
+}
+
 /* ---------- click vs dblclick separation ---------- */
 function wireTileInteractions(state, tileEl, fieldId){
   const CLICK_DELAY_MS = 220;
@@ -133,14 +149,34 @@ function wireTileInteractions(state, tileEl, fieldId){
   });
 
   if (canEdit(state)){
-    tileEl.addEventListener('dblclick', (e)=>{
+    tileEl.addEventListener('dblclick', async (e)=>{
       e.preventDefault();
       e.stopPropagation();
 
+      // cancel pending single-click select
       if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
       tileEl._fvClickTimer = null;
 
+      // ✅ CRITICAL: set selected field FIRST so sliders/details refer to the correct field
+      setSelectedField(state, fieldId);
+
+      // show whatever we have cached immediately (fast)
+      ensureSelectedParamsToSliders(state);
+
+      // suppress the click select race after dblclick
       state._suppressClickUntil = Date.now() + 350;
+
+      // ✅ Background: pull ONE field doc fresh, then re-apply sliders, then open quick view
+      try{
+        await fetchAndHydrateFieldParams(state, fieldId);
+      }catch(_){}
+
+      // if user moved on, don't stomp
+      if (String(state.selectedFieldId) !== String(fieldId)) return;
+
+      ensureSelectedParamsToSliders(state);
+
+      // finally open quick view for the correct field
       openQuickView(state, fieldId);
     });
   }
@@ -237,25 +273,21 @@ export function selectField(state, id){
   const f = state.fields.find(x=>x.id === id);
   if (!f) return;
 
-  state.selectedFieldId = id;
+  // set selected field immediately
+  setSelectedField(state, id);
 
-  // ✅ Let index.js switch the Firestore watcher to this field (optional system)
-  try{
-    document.dispatchEvent(new CustomEvent('fr:selected-field-changed', { detail:{ fieldId:id } }));
-  }catch(_){}
-
-  // Fast: reflect whatever we have cached immediately
+  // Fast: show cached params immediately
   ensureSelectedParamsToSliders(state);
 
-  // Fast: update details only (no tile rerender)
-  refreshDetailsOnly(state);
+  // Existing behavior: selecting a field refreshes tiles/details
+  // (kept — but we’ll also do a background Firestore hydrate so sliders match saved values)
+  refreshAll(state);
 
-  // Background: fetch ONE field doc from Firestore to ensure sliders match saved values
+  // Background: pull ONE doc fresh and update details only
   (async ()=>{
     try{
       const ok = await fetchAndHydrateFieldParams(state, id);
       if (!ok) return;
-      // If user moved on, don't apply
       if (String(state.selectedFieldId) !== String(id)) return;
 
       ensureSelectedParamsToSliders(state);
@@ -524,11 +556,15 @@ export async function refreshAll(state){
   if (state.selectedFieldId){
     const a = $('soilWet');
     const b = $('drain');
-    const p = getFieldParams(state, state.selectedFieldId);
-    if (a) p.soilWetness = clamp(Number(a.value), 0, 100);
-    if (b) p.drainageIndex = clamp(Number(b.value), 0, 100);
-    state.perFieldParams.set(state.selectedFieldId, p);
-    saveParamsToLocal(state);
+
+    // IMPORTANT: only save if sliders exist (prevents weird “random” values during boot/quickview race)
+    if (a && b){
+      const p = getFieldParams(state, state.selectedFieldId);
+      p.soilWetness = clamp(Number(a.value), 0, 100);
+      p.drainageIndex = clamp(Number(b.value), 0, 100);
+      state.perFieldParams.set(state.selectedFieldId, p);
+      saveParamsToLocal(state);
+    }
   }
 
   await renderTiles(state);
@@ -541,5 +577,6 @@ export async function refreshDetailsOnly(state){
     // Re-apply state params to sliders before rendering details (keeps UI stable)
     ensureSelectedParamsToSliders(state);
   }catch(_){}
+
   await renderDetails(state);
 }
