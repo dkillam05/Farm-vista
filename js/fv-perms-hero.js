@@ -1236,11 +1236,17 @@ class FVPermsHero extends HTMLElement {
         .perm-pill:active{ transform: translateY(0.5px); }
 
         .perm-pill-on {
-          background: var(--pv-accent);
-          color: #fff;
-          border-color: rgba(47,108,60,0.95);
-          box-shadow: 0 6px 14px rgba(0,0,0,0.18);
-        }
+  background: var(--pv-accent);
+  color: #fff !important;
+  border-color: rgba(47,108,60,0.95);
+  box-shadow: 0 6px 14px rgba(0,0,0,0.18);
+}
+
+.perm-pill-on:hover,
+.perm-pill-on:focus,
+.perm-pill-on:active {
+  color: #fff !important;
+}
         .perm-pill-off {
           background: rgba(0,0,0,0.03);
           color: var(--pv-muted);
