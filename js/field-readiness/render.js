@@ -130,23 +130,49 @@ function ensureSelectionStyleOnce(){
     const s = document.createElement('style');
     s.setAttribute('data-fv-fr-selstyle','1');
     s.textContent = `
-      /* Prevent wrapping in header so name shrinks + ellipses */
-      .tile .tile-top{ flex-wrap: nowrap !important; }
-      .tile .tile-top .titleline{ min-width:0 !important; flex: 1 1 auto !important; flex-wrap: nowrap !important; }
-      .tile .tile-top .readiness-pill{ flex: 0 0 auto !important; }
+      /* ============================================================
+         TILE HEADER: force a single-line flex row that can shrink
+         (iOS ellipsis requires: display:flex + min-width:0 chain)
+         ============================================================ */
 
-      /* Base name: one line ellipsis always */
-      .tile .name{
-        display:block;
-        min-width:0;
-        max-width:100%;
-        white-space:nowrap;
-        overflow:hidden;
-        text-overflow:ellipsis;
+      /* Force the header row to be flex so flex-wrap rules actually apply */
+      .tile .tile-top{
+        display:flex !important;
+        align-items:center !important;
+        justify-content:space-between !important;
+        gap:8px !important;
+        flex-wrap:nowrap !important;
+        min-width:0 !important;
       }
 
-      /* Selected tile name: obvious + still ellipsis */
-      .tile.fv-selected .name{
+      /* Title column MUST be the shrinkable flex item */
+      .tile .tile-top .titleline{
+        display:flex !important;
+        align-items:center !important;
+        flex:1 1 0 !important;      /* allow shrink */
+        min-width:0 !important;     /* critical for iOS */
+        flex-wrap:nowrap !important;
+      }
+
+      /* Pill never shrinks; name yields space first */
+      .tile .tile-top .readiness-pill{
+        flex:0 0 auto !important;
+        white-space:nowrap !important;
+      }
+
+      /* Base name: single line ellipsis always */
+      .tile .tile-top .titleline .name{
+        flex:1 1 auto !important;
+        display:block !important;
+        min-width:0 !important;
+        max-width:100% !important;
+        white-space:nowrap !important;
+        overflow:hidden !important;
+        text-overflow:ellipsis !important;
+      }
+
+      /* Selected tile name: obvious + still ellipsis (no layout expansion) */
+      .tile.fv-selected .tile-top .titleline .name{
         color: var(--accent, #2F6C3C) !important;
         text-decoration: underline !important;
         text-decoration-thickness: 2px !important;
@@ -161,15 +187,15 @@ function ensureSelectionStyleOnce(){
         overflow:hidden !important;
         text-overflow:ellipsis !important;
 
-        padding: 2px 6px;
-        border-radius: 8px;
-        background: rgba(47,108,60,0.12);
-        box-shadow: inset 0 -2px 0 rgba(47,108,60,0.55);
+        padding: 2px 6px !important;
+        border-radius: 8px !important;
+        background: rgba(47,108,60,0.12) !important;
+        box-shadow: inset 0 -2px 0 rgba(47,108,60,0.55) !important;
       }
 
-      html.dark .tile.fv-selected .name{
-        background: rgba(47,108,60,0.18);
-        box-shadow: inset 0 -2px 0 rgba(47,108,60,0.70);
+      html.dark .tile.fv-selected .tile-top .titleline .name{
+        background: rgba(47,108,60,0.18) !important;
+        box-shadow: inset 0 -2px 0 rgba(47,108,60,0.70) !important;
       }
     `;
     document.head.appendChild(s);
@@ -183,11 +209,11 @@ function setSelectedTileClass(state, fieldId){
 
     const prev = String(state._selectedTileId || '');
     if (prev && prev !== fid){
-      const prevEl = document.querySelector(`.tile[data-field-id="${CSS.escape(prev)}"]`);
+      const prevEl = document.querySelector(\`.tile[data-field-id="\${CSS.escape(prev)}"]\`);
       if (prevEl) prevEl.classList.remove('fv-selected');
     }
 
-    const curEl = document.querySelector(`.tile[data-field-id="${CSS.escape(fid)}"]`);
+    const curEl = document.querySelector(\`.tile[data-field-id="\${CSS.escape(fid)}"]\`);
     if (curEl) curEl.classList.add('fv-selected');
 
     state._selectedTileId = fid;
@@ -235,8 +261,8 @@ function updateDetailsHeaderPanel(state){
   if (!panel) return;
 
   const farmName = (state.farmsById && state.farmsById.get) ? (state.farmsById.get(f.farmId) || '') : '';
-  const title = farmName ? `${farmName} • ${f.name || ''}` : (f.name || '');
-  const loc = (f.county || f.state) ? `${String(f.county||'—')} / ${String(f.state||'—')}` : '';
+  const title = farmName ? \`\${farmName} • \${f.name || ''}\` : (f.name || '');
+  const loc = (f.county || f.state) ? \`\${String(f.county||'—')} / \${String(f.state||'—')}\` : '';
 
   panel.innerHTML = `
     <div style="font-weight:900;font-size:13px;line-height:1.2;">
@@ -252,7 +278,7 @@ async function updateTileForField(state, fieldId){
     if (!fieldId) return;
     const fid = String(fieldId);
 
-    const tile = document.querySelector(`.tile[data-field-id="${CSS.escape(fid)}"]`);
+    const tile = document.querySelector(\`.tile[data-field-id="\${CSS.escape(fid)}"]\`);
     if (!tile) return;
 
     await ensureModelWeatherModules(state);
@@ -296,7 +322,7 @@ async function updateTileForField(state, fieldId){
     if (pill){
       pill.style.background = pillBg;
       pill.style.color = '#fff';
-      pill.textContent = `Field Readiness ${readiness}`;
+      pill.textContent = \`Field Readiness \${readiness}\`;
     }
 
     const badge = tile.querySelector('.badge');
@@ -304,7 +330,7 @@ async function updateTileForField(state, fieldId){
       badge.style.left = leftPos;
       badge.style.background = pillBg;
       badge.style.color = '#fff';
-      badge.textContent = `Field Readiness ${readiness}`;
+      badge.textContent = \`Field Readiness \${readiness}\`;
     }
 
     const range = parseRangeFromInput();
