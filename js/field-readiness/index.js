@@ -1,11 +1,11 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/index.js  (FULL FILE)
-Rev: 2025-12-26k
+Rev: 2025-12-26l
 
-Based on YOUR latest Rev: 2025-12-26i (verbatim flow) with ONE addition:
-✅ initLayoutFix() to prevent intermittent bottom clipping (last tile / Details summary hidden)
+Adds back Operation Thresholds modal wiring:
+✅ initOpThresholds(state)
 
-No other behavior changes.
+Everything else stays aligned with your current Rev: 2025-12-26i flow + layout fix.
 
 ===================================================================== */
 'use strict';
@@ -23,15 +23,14 @@ import { wireFieldsHiddenTap } from './adjust.js';
 import { loadFieldReadinessPerms, canView } from './perm.js';
 import { buildFarmFilterOptions } from './farm-filter.js';
 import { initMap } from './map.js';
-
-// ✅ NEW: layout fix for intermittent footer clipping
 import { initLayoutFix } from './layout.js';
+import { initOpThresholds } from './op-thresholds.js';
 
 (async function init(){
   const state = createState();
   window.__FV_FR = state;
 
-  // ✅ run ASAP (handles late-loading fv-shell footer)
+  // ✅ Fix intermittent footer clipping ASAP
   initLayoutFix();
 
   const dp = document.getElementById('detailsPanel');
@@ -49,8 +48,6 @@ import { initLayoutFix } from './layout.js';
   // Initial perms read (may be provisional)
   await loadFieldReadinessPerms(state);
 
-  // If truly denied (loaded AND view=false), show message and stop
-  // If not loaded yet, canView(state) returns true (prevents flash).
   if (!canView(state)){
     const grid = document.getElementById('fieldsGrid');
     if (grid){
@@ -79,13 +76,16 @@ import { initLayoutFix } from './layout.js';
 
   await ensureModelWeatherModules(state);
 
+  // ✅ restore Map button
   initMap(state);
+
+  // ✅ restore Operation Thresholds modal
+  initOpThresholds(state);
 
   document.addEventListener('fr:soft-reload', async ()=>{
     try{ await refreshAll(state); }catch(_){}
   });
 
-  // 🔥 KEY FIX: when perms finish loading, re-check and re-render.
   document.addEventListener('fv:user-ready', async ()=>{
     try{
       const prevLoaded = !!(state.perm && state.perm.loaded);
@@ -93,7 +93,6 @@ import { initLayoutFix } from './layout.js';
 
       await loadFieldReadinessPerms(state);
 
-      // If now truly denied view, show message
       if (state.perm && state.perm.loaded && !state.perm.view){
         const grid = document.getElementById('fieldsGrid');
         if (grid){
@@ -107,10 +106,7 @@ import { initLayoutFix } from './layout.js';
         return;
       }
 
-      // If edit permission just became available, we must re-render tiles
-      // so dblclick + swipe actions are attached.
       const nowEdit = !!(state.perm && state.perm.loaded && state.perm.edit);
-
       if (!prevLoaded || (prevEdit !== nowEdit)){
         await refreshAll(state);
       }
@@ -121,5 +117,6 @@ import { initLayoutFix } from './layout.js';
   await renderDetails(state);
   await refreshAll(state);
 
+  // global calibration wiring
   wireFieldsHiddenTap(state);
 })();
