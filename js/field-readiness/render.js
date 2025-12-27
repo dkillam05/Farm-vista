@@ -1,11 +1,11 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-27p
+Rev: 2025-12-27q
 
 Fix:
-✅ Removes invalid tokens (no escaped template literals)
+✅ Eliminates accidental invalid tokens (no "\`" anywhere)
 ✅ Field name stays ONE line with ellipsis (mobile + desktop)
-   - Prevent header flex wrapping so name shrinks instead of wrapping
+   - Forces header to be a true flex row so ellipsis works on iOS
 ✅ Keeps strong selected indicator via .fv-selected (green + underline + highlight)
 ✅ Details header panel: Farm • Field at top of Details
 
@@ -130,12 +130,7 @@ function ensureSelectionStyleOnce(){
     const s = document.createElement('style');
     s.setAttribute('data-fv-fr-selstyle','1');
     s.textContent = `
-      /* ============================================================
-         TILE HEADER: force a single-line flex row that can shrink
-         (iOS ellipsis requires: display:flex + min-width:0 chain)
-         ============================================================ */
-
-      /* Force the header row to be flex so flex-wrap rules actually apply */
+      /* Force the tile header row to be a shrinkable single-line flex row */
       .tile .tile-top{
         display:flex !important;
         align-items:center !important;
@@ -145,16 +140,16 @@ function ensureSelectionStyleOnce(){
         min-width:0 !important;
       }
 
-      /* Title column MUST be the shrinkable flex item */
+      /* Title column MUST be the shrinkable flex item (iOS ellipsis needs min-width:0 chain) */
       .tile .tile-top .titleline{
         display:flex !important;
         align-items:center !important;
-        flex:1 1 0 !important;      /* allow shrink */
-        min-width:0 !important;     /* critical for iOS */
+        flex:1 1 0 !important;
+        min-width:0 !important;
         flex-wrap:nowrap !important;
       }
 
-      /* Pill never shrinks; name yields space first */
+      /* Pill never shrinks */
       .tile .tile-top .readiness-pill{
         flex:0 0 auto !important;
         white-space:nowrap !important;
@@ -171,7 +166,7 @@ function ensureSelectionStyleOnce(){
         text-overflow:ellipsis !important;
       }
 
-      /* Selected tile name: obvious + still ellipsis (no layout expansion) */
+      /* Selected tile name: obvious + still ellipsis */
       .tile.fv-selected .tile-top .titleline .name{
         color: var(--accent, #2F6C3C) !important;
         text-decoration: underline !important;
@@ -209,11 +204,11 @@ function setSelectedTileClass(state, fieldId){
 
     const prev = String(state._selectedTileId || '');
     if (prev && prev !== fid){
-      const prevEl = document.querySelector(\`.tile[data-field-id="\${CSS.escape(prev)}"]\`);
+      const prevEl = document.querySelector(`.tile[data-field-id="${CSS.escape(prev)}"]`);
       if (prevEl) prevEl.classList.remove('fv-selected');
     }
 
-    const curEl = document.querySelector(\`.tile[data-field-id="\${CSS.escape(fid)}"]\`);
+    const curEl = document.querySelector(`.tile[data-field-id="${CSS.escape(fid)}"]`);
     if (curEl) curEl.classList.add('fv-selected');
 
     state._selectedTileId = fid;
@@ -261,8 +256,8 @@ function updateDetailsHeaderPanel(state){
   if (!panel) return;
 
   const farmName = (state.farmsById && state.farmsById.get) ? (state.farmsById.get(f.farmId) || '') : '';
-  const title = farmName ? \`\${farmName} • \${f.name || ''}\` : (f.name || '');
-  const loc = (f.county || f.state) ? \`\${String(f.county||'—')} / \${String(f.state||'—')}\` : '';
+  const title = farmName ? `${farmName} • ${f.name || ''}` : (f.name || '');
+  const loc = (f.county || f.state) ? `${String(f.county||'—')} / ${String(f.state||'—')}` : '';
 
   panel.innerHTML = `
     <div style="font-weight:900;font-size:13px;line-height:1.2;">
@@ -278,7 +273,7 @@ async function updateTileForField(state, fieldId){
     if (!fieldId) return;
     const fid = String(fieldId);
 
-    const tile = document.querySelector(\`.tile[data-field-id="\${CSS.escape(fid)}"]\`);
+    const tile = document.querySelector(`.tile[data-field-id="${CSS.escape(fid)}"]`);
     if (!tile) return;
 
     await ensureModelWeatherModules(state);
@@ -322,7 +317,7 @@ async function updateTileForField(state, fieldId){
     if (pill){
       pill.style.background = pillBg;
       pill.style.color = '#fff';
-      pill.textContent = \`Field Readiness \${readiness}\`;
+      pill.textContent = `Field Readiness ${readiness}`;
     }
 
     const badge = tile.querySelector('.badge');
@@ -330,7 +325,7 @@ async function updateTileForField(state, fieldId){
       badge.style.left = leftPos;
       badge.style.background = pillBg;
       badge.style.color = '#fff';
-      badge.textContent = \`Field Readiness \${readiness}\`;
+      badge.textContent = `Field Readiness ${readiness}`;
     }
 
     const range = parseRangeFromInput();
