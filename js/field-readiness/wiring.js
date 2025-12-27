@@ -1,20 +1,33 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/wiring.js  (FULL FILE)
-Rev: 2025-12-27a
+Rev: 2025-12-27b
 
 Fix:
-✅ No functional change other than restoring the missing tail of the file
+✅ Persist + restore:
+   - Sort (localStorage via prefs.js)
+   - Rain range (localStorage key: fv_fr_range_v1)
 ✅ Keeps:
    - op save on change/input
    - farm/page size save
    - tooltip close logic
+
 ===================================================================== */
 'use strict';
 
 import { waitForEl } from './utils.js';
-import { saveFarmFilterDefault, savePageSizeDefault, saveOpDefault } from './prefs.js';
+import { saveFarmFilterDefault, savePageSizeDefault, saveOpDefault, saveSortDefault } from './prefs.js';
 import { refreshAll } from './render.js';
 import { buildFarmFilterOptions } from './farm-filter.js';
+
+const LS_RANGE_KEY = 'fv_fr_range_v1';
+
+function saveRangeToLocal(){
+  try{
+    const inp = document.getElementById('jobRangeInput');
+    const v = String(inp ? inp.value : '').trim();
+    localStorage.setItem(LS_RANGE_KEY, v);
+  }catch(_){}
+}
 
 export async function wireUIOnce(state){
   if (state._wiredUI) return;
@@ -23,13 +36,16 @@ export async function wireUIOnce(state){
   await waitForEl('opSel', 3000);
   await waitForEl('sortSel', 3000);
 
-  // Sort
+  // Sort (persist + refresh)
   const sortSel = document.getElementById('sortSel');
   if (sortSel){
-    sortSel.addEventListener('change', ()=> refreshAll(state));
+    sortSel.addEventListener('change', ()=>{
+      saveSortDefault();
+      refreshAll(state);
+    });
   }
 
-  // Operation
+  // Operation (persist + refresh)
   const opSel = document.getElementById('opSel');
   if (opSel){
     const handler = ()=>{
@@ -72,17 +88,32 @@ export async function wireUIOnce(state){
     });
   }
 
-  // Range controls
+  // Range controls (persist + refresh)
   const applyRangeBtn = document.getElementById('applyRangeBtn');
-  if (applyRangeBtn) applyRangeBtn.addEventListener('click', ()=> setTimeout(()=>refreshAll(state), 0));
+  if (applyRangeBtn) applyRangeBtn.addEventListener('click', ()=>{
+    saveRangeToLocal();
+    setTimeout(()=>refreshAll(state), 0);
+  });
 
   const clearRangeBtn = document.getElementById('clearRangeBtn');
-  if (clearRangeBtn) clearRangeBtn.addEventListener('click', ()=> setTimeout(()=>refreshAll(state), 0));
+  if (clearRangeBtn) clearRangeBtn.addEventListener('click', ()=>{
+    // let the picker clear the input, then save
+    setTimeout(()=>{
+      saveRangeToLocal();
+      refreshAll(state);
+    }, 0);
+  });
 
   const jobRangeInput = document.getElementById('jobRangeInput');
   if (jobRangeInput){
-    jobRangeInput.addEventListener('change', ()=> refreshAll(state));
-    jobRangeInput.addEventListener('input',  ()=> refreshAll(state));
+    jobRangeInput.addEventListener('change', ()=>{
+      saveRangeToLocal();
+      refreshAll(state);
+    });
+    jobRangeInput.addEventListener('input', ()=>{
+      saveRangeToLocal();
+      refreshAll(state);
+    });
   }
 
   // Rain help tooltip
