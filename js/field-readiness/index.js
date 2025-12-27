@@ -1,16 +1,17 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/index.js  (FULL FILE)
-Rev: 2025-12-27b
+Rev: 2025-12-27c
 
-FIX:
-✅ Removes broken imports: startSelectedFieldLiveSync / stopSelectedFieldLiveSync
-   (those exports no longer exist in data.js after we broke the circular dependency).
-✅ Keeps the rest of your current boot flow intact.
-✅ Ensures Details panel is CLOSED on load (even if HTML has it open).
+Fix:
+✅ Operation dropdown (and other prefs) now restore correctly after leaving/returning on iOS/Safari:
+   - Re-apply saved op on pageshow (BFCache restore)
+   - Re-apply saved op on visibilitychange (returning to tab)
+✅ Does NOT rely on the browser preserving <select> state.
 
-NOTE:
-- Slider re-hydrate-on-reopen is now handled inside render.js via fetchAndHydrateFieldParams()
-  (one-doc background fetch; no full refresh needed).
+Keeps:
+✅ Current boot flow + perms + layout fix
+✅ Details forced closed on boot
+
 ===================================================================== */
 'use strict';
 
@@ -18,7 +19,7 @@ import { createState } from './state.js';
 import { importFirebaseInit } from './firebase.js';
 import { loadThresholdsFromLocal, loadThresholdsFromFirestore } from './thresholds.js';
 import { loadParamsFromLocal } from './params.js';
-import { loadPrefsFromLocalToUI } from './prefs.js';
+import { loadPrefsFromLocalToUI, applySavedOpToUI } from './prefs.js';
 import { loadRangeFromLocalToUI, enforceCalendarNoFuture } from './range.js';
 import { loadFarmsOptional, loadFields } from './data.js';
 import { wireUIOnce } from './wiring.js';
@@ -34,10 +35,9 @@ import { initOpThresholds } from './op-thresholds.js';
   const state = createState();
   window.__FV_FR = state;
 
-  // ✅ Fix intermittent footer clipping ASAP
   initLayoutFix();
 
-  // ✅ FORCE details closed on boot (even if <details open> in HTML)
+  // FORCE details closed on boot
   try{
     const dp = document.getElementById('detailsPanel');
     if (dp){
@@ -49,11 +49,14 @@ import { initOpThresholds } from './op-thresholds.js';
   const br = document.getElementById('btnRegen');
   if (br){ br.style.display = 'none'; br.disabled = true; }
 
-  // Local caches (fast boot)
+  // Local caches
   loadParamsFromLocal(state);
   loadThresholdsFromLocal(state);
 
+  // Wire UI early
   await wireUIOnce(state);
+
+  // Firebase
   await importFirebaseInit(state);
 
   // Initial perms read (may be provisional)
@@ -72,13 +75,19 @@ import { initOpThresholds } from './op-thresholds.js';
     return;
   }
 
+  // Apply prefs once on boot
   await loadPrefsFromLocalToUI(state);
+
+  // Range UI
   await loadRangeFromLocalToUI();
   enforceCalendarNoFuture();
 
+  // Load remote thresholds + data
   await loadThresholdsFromFirestore(state);
   await loadFarmsOptional(state);
   await loadFields(state);
+
+  // Farm options can change after farms/fields load
   buildFarmFilterOptions(state);
 
   if (!state.selectedFieldId && state.fields.length){
@@ -87,16 +96,15 @@ import { initOpThresholds } from './op-thresholds.js';
 
   await ensureModelWeatherModules(state);
 
-  // ✅ restore Map button
   initMap(state);
-
-  // ✅ restore Operation Thresholds modal
   initOpThresholds(state);
 
+  // Soft reload hook
   document.addEventListener('fr:soft-reload', async ()=>{
     try{ await refreshAll(state); }catch(_){}
   });
 
+  // perms finalize hook
   document.addEventListener('fv:user-ready', async ()=>{
     try{
       const prevLoaded = !!(state.perm && state.perm.loaded);
@@ -119,23 +127,47 @@ import { initOpThresholds } from './op-thresholds.js';
 
       const nowEdit = !!(state.perm && state.perm.loaded && state.perm.edit);
       if (!prevLoaded || (prevEdit !== nowEdit)){
-        // perms changed -> tiles may gain edit features
         await refreshAll(state);
       }
     }catch(_){}
   });
 
+  // ✅ iOS/Safari: restore <select> after returning to page
+  const reapplyPrefs = async (why)=>{
+    try{
+      // re-apply op (option state can reset on BFCache)
+      const changed = applySavedOpToUI(state, { fire:false });
+
+      // re-apply farm/page UI values too (safe)
+      await loadPrefsFromLocalToUI(state);
+
+      // only refresh if something actually changed
+      if (changed){
+        await refreshAll(state);
+      }
+    }catch(_){}
+  };
+
+  window.addEventListener('pageshow', (e)=>{
+    // BFCache restore or normal show
+    reapplyPrefs('pageshow');
+  });
+
+  document.addEventListener('visibilitychange', ()=>{
+    if (!document.hidden){
+      reapplyPrefs('visible');
+    }
+  });
+
   // Initial paint
   await renderTiles(state);
   await renderDetails(state);
-
-  // One full refresh to ensure everything is consistent after first paint
   await refreshAll(state);
 
   // global calibration wiring
   wireFieldsHiddenTap(state);
 
-  // ✅ Re-close details one more time after initial paints (prevents "open on load" edge cases)
+  // re-close details (edge cases)
   try{
     const dp2 = document.getElementById('detailsPanel');
     if (dp2){
