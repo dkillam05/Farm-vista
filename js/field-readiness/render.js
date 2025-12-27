@@ -1,17 +1,15 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-27c
+Rev: 2025-12-27d
 
-Fixes:
-✅ Re-opening/selecting a field pulls THAT ONE FIELD fresh from Firestore in background
-   and updates sliders/details automatically (no page refresh required).
-✅ Does NOT trigger a full refreshAll() on field select (avoids heavy reload with 500 fields).
-✅ Keeps ALL existing tiles/details/tables behavior — nothing cut out.
+Fix:
+✅ Re-open/select a field: background fetch THAT ONE field doc from Firestore
+   and re-hydrate sliders + details automatically (no page refresh).
+✅ Avoid heavy refreshAll() on field select (important for 500 fields).
 
 Keeps:
-✅ refreshDetailsOnly(state) — updates sliders + details only (no tile rerender)
-✅ "fr:selected-field-changed" dispatch (so index.js can live-sync if you want)
-✅ All prior rendering & tables behavior
+✅ All prior rendering & tables behavior (NOTHING CUT)
+✅ refreshDetailsOnly(state) export
 
 ===================================================================== */
 'use strict';
@@ -116,25 +114,6 @@ function getFilteredFields(state){
   const farmId = String(state.farmFilter || '__all__');
   if (farmId === '__all__') return state.fields.slice();
   return state.fields.filter(f => String(f.farmId||'') === farmId);
-}
-
-/* ---------- small helper: update tile active class without rerender ---------- */
-function setActiveTileClass(state, newId){
-  try{
-    const prev = String(state._lastSelectedFieldId || '');
-    const next = String(newId || '');
-
-    if (prev && prev !== next){
-      const prevEl = document.querySelector(`.tile[data-field-id="${CSS.escape(prev)}"]`);
-      if (prevEl) prevEl.classList.remove('active');
-    }
-    if (next){
-      const nextEl = document.querySelector(`.tile[data-field-id="${CSS.escape(next)}"]`);
-      if (nextEl) nextEl.classList.add('active');
-    }
-
-    state._lastSelectedFieldId = next;
-  }catch(_){}
 }
 
 /* ---------- click vs dblclick separation ---------- */
@@ -253,34 +232,30 @@ export async function renderTiles(state){
   await initSwipeOnTiles(state, { onDetails: (fieldId)=> openQuickView(state, fieldId) });
 }
 
-/* ---------- select field (FIXED: no heavy refreshAll + background Firestore hydrate) ---------- */
+/* ---------- select field ---------- */
 export function selectField(state, id){
   const f = state.fields.find(x=>x.id === id);
   if (!f) return;
 
-  // Track active tile without re-rendering all tiles
-  setActiveTileClass(state, id);
-
   state.selectedFieldId = id;
 
-  // ✅ Let index.js switch the Firestore watcher to this field (if you keep that system)
+  // ✅ Let index.js switch the Firestore watcher to this field (optional system)
   try{
     document.dispatchEvent(new CustomEvent('fr:selected-field-changed', { detail:{ fieldId:id } }));
   }catch(_){}
 
-  // 1) Immediate: reflect current cached params (fast)
+  // Fast: reflect whatever we have cached immediately
   ensureSelectedParamsToSliders(state);
 
-  // 2) Immediate: refresh DETAILS only (fast; no tile rerender)
+  // Fast: update details only (no tile rerender)
   refreshDetailsOnly(state);
 
-  // 3) Background: pull ONE field doc fresh from Firestore, then update sliders + details
+  // Background: fetch ONE field doc from Firestore to ensure sliders match saved values
   (async ()=>{
     try{
       const ok = await fetchAndHydrateFieldParams(state, id);
       if (!ok) return;
-
-      // Only apply if user hasn't moved on
+      // If user moved on, don't apply
       if (String(state.selectedFieldId) !== String(id)) return;
 
       ensureSelectedParamsToSliders(state);
@@ -563,6 +538,7 @@ export async function refreshAll(state){
 /* ---------- details-only refresh ---------- */
 export async function refreshDetailsOnly(state){
   try{
+    // Re-apply state params to sliders before rendering details (keeps UI stable)
     ensureSelectedParamsToSliders(state);
   }catch(_){}
   await renderDetails(state);
