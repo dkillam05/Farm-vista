@@ -1,17 +1,19 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-26f
+Rev: 2025-12-27a
 
-Restores FULL details rendering that existed in your working file:
+Fixes:
+✅ Desktop double-click restored reliably (no reliance on native dblclick)
+✅ Swipe init is MOBILE ONLY (pointer:coarse) so it cannot break desktop dblclick
+✅ Double-click logic checks canEdit(state) at click-time (works after perms finalize)
+
+Keeps:
 ✅ Beta panel (betaInputsMeta + betaInputs)
 ✅ Tank Trace table (traceRows)
 ✅ DryPwr Breakdown table (dryRows)
 ✅ Weather Inputs table (wxRows)  <-- fixes “Waiting for JS…”
-
-Also keeps:
-✅ Desktop dblclick opens Quick View (edit only) using click-delay pattern
-✅ Mobile swipe-right Details (edit only, mobile only) via swipe.js
-✅ Shared range/rain logic via rain.js
+✅ Range/rain logic via rain.js
+✅ Quick View open behavior
 
 ===================================================================== */
 'use strict';
@@ -32,6 +34,15 @@ export async function ensureModelWeatherModules(state){
   const [weather, model] = await Promise.all([ import(PATHS.WEATHER), import(PATHS.MODEL) ]);
   state._mods.weather = weather;
   state._mods.model = model;
+}
+
+/* ---------- pointer mode helpers ---------- */
+function isCoarsePointer(){
+  try{
+    return !!(window.matchMedia && window.matchMedia('(pointer:coarse)').matches);
+  }catch(_){
+    return false;
+  }
 }
 
 /* ---------- colors (ported) ---------- */
@@ -117,34 +128,85 @@ function getFilteredFields(state){
   return state.fields.filter(f => String(f.farmId||'') === farmId);
 }
 
-/* ---------- click vs dblclick separation ---------- */
+/* ---------- click vs double-click (robust, desktop-first) ---------- */
 function wireTileInteractions(state, tileEl, fieldId){
-  const CLICK_DELAY_MS = 220;
+  if (tileEl._fvWired) return;
+  tileEl._fvWired = true;
+
+  const CLICK_DELAY_MS = 240;     // select delay
+  const DBL_MS = 330;             // max gap for dbl
+  const DBL_DIST = 8;             // px move tolerance (mouse)
   tileEl._fvClickTimer = null;
 
-  tileEl.addEventListener('click', ()=>{
-    const until = Number(state._suppressClickUntil || 0);
-    if (Date.now() < until) return;
+  // local dbl tracker per tile
+  let lastUpAt = 0;
+  let lastUpX = 0;
+  let lastUpY = 0;
 
+  function clearSelectTimer(){
     if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
+    tileEl._fvClickTimer = null;
+  }
+
+  function scheduleSelect(){
+    clearSelectTimer();
     tileEl._fvClickTimer = setTimeout(()=>{
       tileEl._fvClickTimer = null;
       selectField(state, fieldId);
     }, CLICK_DELAY_MS);
-  });
-
-  if (canEdit(state)){
-    tileEl.addEventListener('dblclick', (e)=>{
-      e.preventDefault();
-      e.stopPropagation();
-
-      if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
-      tileEl._fvClickTimer = null;
-
-      state._suppressClickUntil = Date.now() + 350;
-      openQuickView(state, fieldId);
-    });
   }
+
+  function tryOpenQuickView(){
+    // Only open if edit is allowed NOW (not at wire time)
+    if (!canEdit(state)) return false;
+    state._suppressClickUntil = Date.now() + 380;
+    openQuickView(state, fieldId);
+    return true;
+  }
+
+  // Pointer-based dbl-click detector (mouse only)
+  tileEl.addEventListener('pointerup', (e)=>{
+    try{
+      if (!e || e.pointerType !== 'mouse') return;
+      if (e.button != null && e.button !== 0) return; // left only
+
+      const until = Number(state._suppressClickUntil || 0);
+      if (Date.now() < until) return;
+
+      const now = Date.now();
+      const dx = Math.abs((e.clientX||0) - lastUpX);
+      const dy = Math.abs((e.clientY||0) - lastUpY);
+      const closeEnough = (dx <= DBL_DIST && dy <= DBL_DIST);
+
+      if (lastUpAt && (now - lastUpAt) <= DBL_MS && closeEnough){
+        // second click
+        clearSelectTimer();
+        lastUpAt = 0;
+
+        // prevent the "select" click from firing after
+        state._suppressClickUntil = Date.now() + 380;
+
+        // open quick view
+        tryOpenQuickView();
+        return;
+      }
+
+      // first click
+      lastUpAt = now;
+      lastUpX = e.clientX||0;
+      lastUpY = e.clientY||0;
+
+      scheduleSelect();
+    }catch(_){}
+  }, { capture:true });
+
+  // Keep native dblclick as a fallback (some browsers still emit it)
+  tileEl.addEventListener('dblclick', (e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    clearSelectTimer();
+    tryOpenQuickView();
+  }, { capture:true });
 }
 
 /* ---------- tile render ---------- */
@@ -222,15 +284,20 @@ export async function renderTiles(state){
       </div>
     `;
 
+    // Always wire interactions (edit check happens at click-time)
     wireTileInteractions(state, tile, f.id);
+
     wrap.appendChild(tile);
   }
 
   const empty = $('emptyMsg');
   if (empty) empty.style.display = show.length ? 'none' : 'block';
 
-  // mobile-only + edit-only in swipe.js
-  await initSwipeOnTiles(state, { onDetails: (fieldId)=> openQuickView(state, fieldId) });
+  // ✅ MOBILE ONLY: swipe wiring (prevents desktop dblclick getting eaten)
+  if (isCoarsePointer()){
+    // swipe.js already includes "edit-only" behavior, but we still pass handler
+    await initSwipeOnTiles(state, { onDetails: (fieldId)=> openQuickView(state, fieldId) });
+  }
 }
 
 /* ---------- select field ---------- */
