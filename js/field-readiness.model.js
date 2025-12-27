@@ -116,8 +116,8 @@ export function runField(field, deps){
   const first7 = rows.slice(0,7);
   const rain7 = first7.reduce((s,x)=> s + Number(x.rainInAdj||0), 0);
 
-  const rainNudgeFrac = clamp(rain7 / 6.0, 0, 1);
-  const rainNudge = rainNudgeFrac * (0.20 * f.Smax);
+  const rainNudgeFrac = clamp(rain7 / 8.0, 0, 1);
+  const rainNudge = rainNudgeFrac * (0.10 * f.Smax);
 
   let storage = clamp((0.30 * f.Smax) + rainNudge, 0, f.Smax);
 
