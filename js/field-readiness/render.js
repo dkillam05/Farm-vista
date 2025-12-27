@@ -1,17 +1,16 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-27i
+Rev: 2025-12-27j
 
-Adds (per Dane):
-✅ Restore subtle "selected" indicator on single tap (mobile + desktop)
-   - Immediately toggles .active on the tapped tile
-   - No full grid rerender required just to show selection
-
-Keeps:
-✅ Double-click does not disappear on cold-start permissions (dblclick always wired; canEdit checked at click-time)
-✅ Listeners for fr:tile-refresh and fr:details-refresh
-✅ Background Firestore hydrate on select + dblclick quick view
-✅ All prior rendering & tables behavior (NOTHING CUT)
+Fix (per Dane):
+✅ Restore subtle "selected" tile outline on MOBILE taps even with swipe enabled.
+   - Do NOT rely on click for mobile (swipe handlers often swallow it).
+   - Uses pointerdown/pointerup tap detection (small movement + short duration).
+✅ Keeps:
+   - dblclick always wired; canEdit checked at click-time
+   - fr:tile-refresh / fr:details-refresh listeners
+   - background Firestore hydrate on select + dblclick quick view
+   - all rendering + tables logic (nothing cut)
 
 ===================================================================== */
 'use strict';
@@ -118,7 +117,13 @@ function getFilteredFields(state){
   return state.fields.filter(f => String(f.farmId||'') === farmId);
 }
 
-/* ---------- NEW: in-place active tile highlight (no rerender) ---------- */
+/* ---------- internal: set selected field safely ---------- */
+function setSelectedField(state, fieldId){
+  state.selectedFieldId = fieldId;
+  try{ document.dispatchEvent(new CustomEvent('fr:selected-field-changed', { detail:{ fieldId } })); }catch(_){}
+}
+
+/* ---------- NEW: immediate active outline toggle (no rerender required) ---------- */
 function setActiveTileUI(state, fieldId){
   try{
     const fid = String(fieldId || '');
@@ -129,22 +134,11 @@ function setActiveTileUI(state, fieldId){
       const prevEl = document.querySelector(`.tile[data-field-id="${CSS.escape(prev)}"]`);
       if (prevEl) prevEl.classList.remove('active');
     }
-
     const curEl = document.querySelector(`.tile[data-field-id="${CSS.escape(fid)}"]`);
     if (curEl) curEl.classList.add('active');
 
     state._activeTileId = fid;
   }catch(_){}
-}
-
-/* ---------- internal: set selected field safely ---------- */
-function setSelectedField(state, fieldId){
-  state.selectedFieldId = fieldId;
-
-  // ✅ immediately show subtle selected outline (mobile needs this)
-  setActiveTileUI(state, fieldId);
-
-  try{ document.dispatchEvent(new CustomEvent('fr:selected-field-changed', { detail:{ fieldId } })); }catch(_){}
 }
 
 /* ---------- internal: patch a single tile DOM in-place ---------- */
@@ -237,8 +231,61 @@ async function updateTileForField(state, fieldId){
 /* ---------- click vs dblclick separation ---------- */
 function wireTileInteractions(state, tileEl, fieldId){
   const CLICK_DELAY_MS = 220;
-  tileEl._fvClickTimer = null;
 
+  // --- Mobile tap detection (works even when swipe is enabled) ---
+  const isCoarse = !!(window.matchMedia && window.matchMedia('(pointer:coarse)').matches);
+  const TAP_MAX_MS = 450;
+  const TAP_MAX_MOVE_PX = 12;
+
+  let down = null;
+
+  if (isCoarse){
+    tileEl.addEventListener('pointerdown', (e)=>{
+      if (e.pointerType === 'mouse') return;
+      down = { x: e.clientX, y: e.clientY, t: Date.now() };
+    }, { passive:true });
+
+    tileEl.addEventListener('pointerup', (e)=>{
+      if (e.pointerType === 'mouse') return;
+      if (!down) return;
+
+      const dt = Date.now() - down.t;
+      const dx = Math.abs(e.clientX - down.x);
+      const dy = Math.abs(e.clientY - down.y);
+      down = null;
+
+      const until = Number(state._suppressClickUntil || 0);
+      if (Date.now() < until) return;
+
+      // treat as tap select only if it wasn't a swipe
+      if (dt <= TAP_MAX_MS && dx <= TAP_MAX_MOVE_PX && dy <= TAP_MAX_MOVE_PX){
+        // ✅ immediate outline
+        setActiveTileUI(state, fieldId);
+
+        // ✅ actual selection state
+        setSelectedField(state, fieldId);
+        ensureSelectedParamsToSliders(state);
+
+        // keep existing behavior
+        refreshAll(state);
+
+        // background hydrate
+        (async ()=>{
+          try{
+            const ok = await fetchAndHydrateFieldParams(state, fieldId);
+            if (!ok) return;
+            if (String(state.selectedFieldId) !== String(fieldId)) return;
+            ensureSelectedParamsToSliders(state);
+            await refreshDetailsOnly(state);
+            await updateTileForField(state, fieldId);
+          }catch(_){}
+        })();
+      }
+    }, { passive:true });
+  }
+
+  // --- Desktop click (kept) ---
+  tileEl._fvClickTimer = null;
   tileEl.addEventListener('click', ()=>{
     const until = Number(state._suppressClickUntil || 0);
     if (Date.now() < until) return;
@@ -246,11 +293,15 @@ function wireTileInteractions(state, tileEl, fieldId){
     if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
     tileEl._fvClickTimer = setTimeout(()=>{
       tileEl._fvClickTimer = null;
+
+      // immediate outline for desktop too
+      setActiveTileUI(state, fieldId);
+
       selectField(state, fieldId);
     }, CLICK_DELAY_MS);
   });
 
-  // dblclick always wired; permissions checked at click-time
+  // --- dblclick always wired; gate by canEdit at click-time ---
   tileEl.addEventListener('dblclick', async (e)=>{
     e.preventDefault();
     e.stopPropagation();
@@ -258,6 +309,7 @@ function wireTileInteractions(state, tileEl, fieldId){
     if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
     tileEl._fvClickTimer = null;
 
+    setActiveTileUI(state, fieldId);
     setSelectedField(state, fieldId);
     ensureSelectedParamsToSliders(state);
 
@@ -321,12 +373,9 @@ export async function renderTiles(state){
 
     const tile = document.createElement('div');
     tile.className = 'tile fv-swipe-item' + (f.id === state.selectedFieldId ? ' active' : '');
-
-    // keep both dataset + attribute (used by updateTileForField selector)
     tile.dataset.fieldId = f.id;
     tile.setAttribute('data-field-id', f.id);
 
-    // keep active tracker in sync when we render
     if (f.id === state.selectedFieldId) state._activeTileId = String(f.id);
 
     tile.innerHTML = `
@@ -371,14 +420,12 @@ export function selectField(state, id){
   const f = state.fields.find(x=>x.id === id);
   if (!f) return;
 
-  // ✅ immediate subtle highlight on tap
+  // selection + active outline (for desktop + fallback)
+  setActiveTileUI(state, id);
   setSelectedField(state, id);
 
   ensureSelectedParamsToSliders(state);
 
-  // Existing behavior (kept): selecting refreshes tiles/details
-  // Note: if later you want “no heavy refresh on mobile tap”, we can change this,
-  // but for now we keep your current behavior stable.
   refreshAll(state);
 
   (async ()=>{
@@ -495,7 +542,7 @@ export async function renderDetails(state){
   const run = state.lastRuns.get(f.id) || state._mods.model.runField(f, deps);
   if (!run) return;
 
-  // Beta panel + tables only (your HTML removed lower panels)
+  // Your HTML now contains only beta + tables. Keep those renders here:
   renderBetaInputs(state);
 
   const trb = $('traceRows');
@@ -594,7 +641,7 @@ export async function renderDetails(state){
 
 /* ---------- refresh ---------- */
 export async function refreshAll(state){
-  // Note: your details sliders were removed from HTML; keep safety guards
+  // (details sliders removed from HTML — keep lightweight refresh)
   await renderTiles(state);
   await renderDetails(state);
 }
@@ -628,7 +675,10 @@ export async function refreshDetailsOnly(state){
         const state = window.__FV_FR;
         if (!state) return;
         const fid = e && e.detail ? String(e.detail.fieldId || '') : '';
-        if (fid) setSelectedField(state, fid);
+        if (fid){
+          setActiveTileUI(state, fid);
+          setSelectedField(state, fid);
+        }
         await refreshDetailsOnly(state);
       }catch(_){}
     });
