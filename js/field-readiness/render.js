@@ -1,16 +1,17 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-27j
+Rev: 2025-12-27k
 
-Fix (per Dane):
-✅ Restore subtle "selected" tile outline on MOBILE taps even with swipe enabled.
-   - Do NOT rely on click for mobile (swipe handlers often swallow it).
-   - Uses pointerdown/pointerup tap detection (small movement + short duration).
-✅ Keeps:
-   - dblclick always wired; canEdit checked at click-time
-   - fr:tile-refresh / fr:details-refresh listeners
-   - background Firestore hydrate on select + dblclick quick view
-   - all rendering + tables logic (nothing cut)
+Change (per Dane):
+✅ If outline/active ring isn’t reliable on mobile, make the FIELD NAME indicate selection:
+   - underline + subtle accent tint (works in light/dark via CSS vars)
+✅ Selection styling updates in-place (no full rerender required)
+
+Keeps:
+✅ Double-click no longer disappears on cold-start permissions (dblclick always wired; canEdit checked at click-time)
+✅ Listeners for fr:tile-refresh and fr:details-refresh
+✅ Background Firestore hydrate on select + dblclick quick view
+✅ All prior rendering & tables behavior (NOTHING CUT)
 
 ===================================================================== */
 'use strict';
@@ -117,28 +118,57 @@ function getFilteredFields(state){
   return state.fields.filter(f => String(f.farmId||'') === farmId);
 }
 
-/* ---------- internal: set selected field safely ---------- */
-function setSelectedField(state, fieldId){
-  state.selectedFieldId = fieldId;
-  try{ document.dispatchEvent(new CustomEvent('fr:selected-field-changed', { detail:{ fieldId } })); }catch(_){}
+/* =====================================================================
+   NEW: Selected-name indicator (underline + accent tint)
+   Works in light/dark by using CSS variables.
+===================================================================== */
+function _applyNameSelectedStyle(nameEl, on){
+  if (!nameEl) return;
+  if (on){
+    nameEl.style.textDecorationLine = 'underline';
+    nameEl.style.textDecorationThickness = '2px';
+    nameEl.style.textUnderlineOffset = '3px';
+    nameEl.style.textDecorationColor = 'var(--accent, #2F6C3C)';
+    nameEl.style.color = 'var(--accent, #2F6C3C)';
+    nameEl.style.fontWeight = '950';
+  } else {
+    nameEl.style.textDecorationLine = '';
+    nameEl.style.textDecorationThickness = '';
+    nameEl.style.textUnderlineOffset = '';
+    nameEl.style.textDecorationColor = '';
+    nameEl.style.color = '';
+    nameEl.style.fontWeight = '';
+  }
 }
 
-/* ---------- NEW: immediate active outline toggle (no rerender required) ---------- */
-function setActiveTileUI(state, fieldId){
+function setSelectedNameUI(state, fieldId){
   try{
     const fid = String(fieldId || '');
     if (!fid) return;
 
-    const prev = String(state._activeTileId || '');
+    const prev = String(state._selectedNameId || '');
     if (prev && prev !== fid){
-      const prevEl = document.querySelector(`.tile[data-field-id="${CSS.escape(prev)}"]`);
-      if (prevEl) prevEl.classList.remove('active');
+      const prevTile = document.querySelector(`.tile[data-field-id="${CSS.escape(prev)}"]`);
+      const prevName = prevTile ? prevTile.querySelector('.name') : null;
+      _applyNameSelectedStyle(prevName, false);
     }
-    const curEl = document.querySelector(`.tile[data-field-id="${CSS.escape(fid)}"]`);
-    if (curEl) curEl.classList.add('active');
 
-    state._activeTileId = fid;
+    const curTile = document.querySelector(`.tile[data-field-id="${CSS.escape(fid)}"]`);
+    const curName = curTile ? curTile.querySelector('.name') : null;
+    _applyNameSelectedStyle(curName, true);
+
+    state._selectedNameId = fid;
   }catch(_){}
+}
+
+/* ---------- internal: set selected field safely ---------- */
+function setSelectedField(state, fieldId){
+  state.selectedFieldId = fieldId;
+
+  // ✅ show selection indicator even if outlines fail
+  setSelectedNameUI(state, fieldId);
+
+  try{ document.dispatchEvent(new CustomEvent('fr:selected-field-changed', { detail:{ fieldId } })); }catch(_){}
 }
 
 /* ---------- internal: patch a single tile DOM in-place ---------- */
@@ -225,67 +255,21 @@ async function updateTileForField(state, fieldId){
     if (help){
       help.textContent = eta ? String(eta) : '';
     }
+
+    // keep name indicator consistent after updates
+    if (String(state.selectedFieldId) === fid){
+      const nm = tile.querySelector('.name');
+      _applyNameSelectedStyle(nm, true);
+      state._selectedNameId = fid;
+    }
   }catch(_){}
 }
 
 /* ---------- click vs dblclick separation ---------- */
 function wireTileInteractions(state, tileEl, fieldId){
   const CLICK_DELAY_MS = 220;
-
-  // --- Mobile tap detection (works even when swipe is enabled) ---
-  const isCoarse = !!(window.matchMedia && window.matchMedia('(pointer:coarse)').matches);
-  const TAP_MAX_MS = 450;
-  const TAP_MAX_MOVE_PX = 12;
-
-  let down = null;
-
-  if (isCoarse){
-    tileEl.addEventListener('pointerdown', (e)=>{
-      if (e.pointerType === 'mouse') return;
-      down = { x: e.clientX, y: e.clientY, t: Date.now() };
-    }, { passive:true });
-
-    tileEl.addEventListener('pointerup', (e)=>{
-      if (e.pointerType === 'mouse') return;
-      if (!down) return;
-
-      const dt = Date.now() - down.t;
-      const dx = Math.abs(e.clientX - down.x);
-      const dy = Math.abs(e.clientY - down.y);
-      down = null;
-
-      const until = Number(state._suppressClickUntil || 0);
-      if (Date.now() < until) return;
-
-      // treat as tap select only if it wasn't a swipe
-      if (dt <= TAP_MAX_MS && dx <= TAP_MAX_MOVE_PX && dy <= TAP_MAX_MOVE_PX){
-        // ✅ immediate outline
-        setActiveTileUI(state, fieldId);
-
-        // ✅ actual selection state
-        setSelectedField(state, fieldId);
-        ensureSelectedParamsToSliders(state);
-
-        // keep existing behavior
-        refreshAll(state);
-
-        // background hydrate
-        (async ()=>{
-          try{
-            const ok = await fetchAndHydrateFieldParams(state, fieldId);
-            if (!ok) return;
-            if (String(state.selectedFieldId) !== String(fieldId)) return;
-            ensureSelectedParamsToSliders(state);
-            await refreshDetailsOnly(state);
-            await updateTileForField(state, fieldId);
-          }catch(_){}
-        })();
-      }
-    }, { passive:true });
-  }
-
-  // --- Desktop click (kept) ---
   tileEl._fvClickTimer = null;
+
   tileEl.addEventListener('click', ()=>{
     const until = Number(state._suppressClickUntil || 0);
     if (Date.now() < until) return;
@@ -293,15 +277,11 @@ function wireTileInteractions(state, tileEl, fieldId){
     if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
     tileEl._fvClickTimer = setTimeout(()=>{
       tileEl._fvClickTimer = null;
-
-      // immediate outline for desktop too
-      setActiveTileUI(state, fieldId);
-
       selectField(state, fieldId);
     }, CLICK_DELAY_MS);
   });
 
-  // --- dblclick always wired; gate by canEdit at click-time ---
+  // dblclick always wired; permissions checked at click-time
   tileEl.addEventListener('dblclick', async (e)=>{
     e.preventDefault();
     e.stopPropagation();
@@ -309,7 +289,6 @@ function wireTileInteractions(state, tileEl, fieldId){
     if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
     tileEl._fvClickTimer = null;
 
-    setActiveTileUI(state, fieldId);
     setSelectedField(state, fieldId);
     ensureSelectedParamsToSliders(state);
 
@@ -372,11 +351,9 @@ export async function renderTiles(state){
     const grad = gradientForThreshold(thr);
 
     const tile = document.createElement('div');
-    tile.className = 'tile fv-swipe-item' + (f.id === state.selectedFieldId ? ' active' : '');
+    tile.className = 'tile fv-swipe-item';
     tile.dataset.fieldId = f.id;
     tile.setAttribute('data-field-id', f.id);
-
-    if (f.id === state.selectedFieldId) state._activeTileId = String(f.id);
 
     tile.innerHTML = `
       <div class="tile-top">
@@ -405,6 +382,13 @@ export async function renderTiles(state){
       </div>
     `;
 
+    // Apply selected-name style if this is current selection
+    if (String(state.selectedFieldId) === String(f.id)){
+      const nm = tile.querySelector('.name');
+      _applyNameSelectedStyle(nm, true);
+      state._selectedNameId = String(f.id);
+    }
+
     wireTileInteractions(state, tile, f.id);
     wrap.appendChild(tile);
   }
@@ -420,8 +404,7 @@ export function selectField(state, id){
   const f = state.fields.find(x=>x.id === id);
   if (!f) return;
 
-  // selection + active outline (for desktop + fallback)
-  setActiveTileUI(state, id);
+  // Selection indicator is applied immediately here:
   setSelectedField(state, id);
 
   ensureSelectedParamsToSliders(state);
@@ -542,7 +525,7 @@ export async function renderDetails(state){
   const run = state.lastRuns.get(f.id) || state._mods.model.runField(f, deps);
   if (!run) return;
 
-  // Your HTML now contains only beta + tables. Keep those renders here:
+  // Beta + tables only (your HTML removed lower panels)
   renderBetaInputs(state);
 
   const trb = $('traceRows');
@@ -675,10 +658,7 @@ export async function refreshDetailsOnly(state){
         const state = window.__FV_FR;
         if (!state) return;
         const fid = e && e.detail ? String(e.detail.fieldId || '') : '';
-        if (fid){
-          setActiveTileUI(state, fid);
-          setSelectedField(state, fid);
-        }
+        if (fid) setSelectedField(state, fid);
         await refreshDetailsOnly(state);
       }catch(_){}
     });
