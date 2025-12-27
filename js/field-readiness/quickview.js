@@ -1,16 +1,20 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2025-12-27a
+Rev: 2025-12-27c
 
-Changes (per Dane):
-✅ Save & Close now triggers an immediate MAIN TILE rebuild (no full page refresh)
-   by dispatching: fr:tile-refresh { fieldId }
-✅ Also nudges details to refresh (lightweight) by dispatching: fr:details-refresh
-✅ Keeps EVERYTHING else exactly as your baseline (nothing cut)
+Mobile fit fix (per Dane):
+✅ Quick View modal now fits the screen on mobile (no trapped header)
+✅ Header is sticky; Close (X) is always reachable
+✅ Adds safe-area top/bottom padding (iPhone notch + home bar)
+✅ Modal body scrolls (not the whole page)
+✅ Bigger tap target for X (44x44)
 
-Depends on:
-- state._mods.model + state._mods.weather already loaded by index/render
-- shared rain/range helpers in rain.js
+Keeps:
+✅ One button: Save & Close
+✅ Live tile preview
+✅ Live output updates
+✅ Saves to Firestore fields/{id} soilWetness + drainageIndex
+✅ Dispatches fr:tile-refresh + fr:details-refresh on Save & Close
 ===================================================================== */
 'use strict';
 
@@ -77,7 +81,60 @@ function ensureBuiltOnce(state){
   wrap.setAttribute('aria-modal','true');
 
   wrap.innerHTML = `
-    <div class="modal" style="width:min(760px, 96vw);">
+    <style>
+      /* QuickView-only mobile fit */
+      #frQvBackdrop{
+        align-items:flex-start !important;
+        padding-top: calc(env(safe-area-inset-top, 0px) + 10px) !important;
+        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 10px) !important;
+      }
+
+      /* Make modal fit viewport and scroll internally */
+      #frQvBackdrop .modal{
+        width: min(760px, 96vw);
+        max-height: calc(100svh - 20px);
+        overflow: hidden;              /* header stays, body scrolls */
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* Sticky header so X is always reachable */
+      #frQvBackdrop .modal-h{
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+        padding: 14px 56px 10px 14px;
+      }
+
+      /* Body scroll area */
+      #frQvBackdrop .modal-b{
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        padding: 14px;
+        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+      }
+
+      /* Bigger tap target X + keep it above */
+      #frQvX{
+        width: 44px !important;
+        height: 44px !important;
+        border-radius: 14px !important;
+        top: 10px !important;
+        right: 10px !important;
+        z-index: 3 !important;
+      }
+      #frQvX svg{ width:20px;height:20px; }
+
+      /* On small phones, give the modal a touch more side space */
+      @media (max-width: 420px){
+        #frQvBackdrop{ padding-left: 10px !important; padding-right: 10px !important; }
+        #frQvBackdrop .modal{ width: 100%; }
+      }
+    </style>
+
+    <div class="modal">
       <div class="modal-h">
         <h3 id="frQvTitle">Field</h3>
         <button id="frQvX" class="xbtn" type="button" aria-label="Close">
@@ -160,20 +217,18 @@ function ensureBuiltOnce(state){
   const soilVal = $('frQvSoilVal');
   const drainVal = $('frQvDrainVal');
 
-  // Live preview updates on slider move (no save yet)
   function onSliderChange(){
     if (soilVal) soilVal.textContent = String(clamp(Number(soil.value),0,100));
     if (drainVal) drainVal.textContent = String(clamp(Number(drain.value),0,100));
 
-    // Update TEMP params in memory (not persisted yet)
     const fid = state._qvFieldId;
     if (!fid) return;
+
     const p = getFieldParams(state, fid);
     p.soilWetness = clamp(Number(soil.value),0,100);
     p.drainageIndex = clamp(Number(drain.value),0,100);
     state.perFieldParams.set(fid, p);
 
-    // Rerun model and update tile + output section live
     fillQuickView(state, { live:true });
   }
 
@@ -282,7 +337,6 @@ function fillQuickView(state, { live=false } = {}){
     EXTRA
   };
 
-  // Recompute each time sliders change so you see the effect
   const run = state._mods.model.runField(f, deps);
 
   const farmName = state.farmsById.get(f.farmId) || '';
@@ -295,7 +349,6 @@ function fillQuickView(state, { live=false } = {}){
   if (title) title.textContent = f.name || 'Field';
   if (sub) sub.textContent = farmName ? `${farmName} • Field details` : 'Field details';
 
-  // Sync slider values from state params
   const p = getFieldParams(state, f.id);
   const soil = $('frQvSoil');
   const drain = $('frQvDrain');
@@ -309,7 +362,6 @@ function fillQuickView(state, { live=false } = {}){
     if (drainVal) drainVal.textContent = String(p.drainageIndex);
   }
 
-  // Button state
   const hint = $('frQvHint');
   const saveBtn = $('frQvSaveClose');
   const inputsPanel = $('frQvInputsPanel');
@@ -324,7 +376,6 @@ function fillQuickView(state, { live=false } = {}){
     if (inputsPanel) inputsPanel.style.opacity = '1';
   }
 
-  // Field + settings section
   setText('frQvFieldName', farmName ? `${farmName} • ${f.name}` : (f.name || '—'));
   setText('frQvCounty', `${String(f.county||'—')} / ${String(f.state||'—')}`);
   setText('frQvAcres', isFinite(f.tillable) ? `${f.tillable.toFixed(2)} ac` : '—');
@@ -332,7 +383,6 @@ function fillQuickView(state, { live=false } = {}){
   setText('frQvOp', opLabel);
   setText('frQvThr', thr);
 
-  // Weather + output section
   const range = parseRangeFromInput();
   const rr = rainInRange(run, range);
   setText('frQvRain', `${rr.toFixed(2)} in`);
@@ -340,7 +390,6 @@ function fillQuickView(state, { live=false } = {}){
   setText('frQvWetness', run ? run.wetnessR : '—');
   setText('frQvStorage', run ? `${run.storageFinal.toFixed(2)} / ${run.factors.Smax.toFixed(2)}` : '—');
 
-  // Weather timestamp
   const info = state.wxInfoByFieldId.get(f.id) || null;
   const when = (info && info.fetchedAt) ? new Date(info.fetchedAt) : null;
   const whenTxt = when ? when.toLocaleString() : '—';
@@ -349,7 +398,6 @@ function fillQuickView(state, { live=false } = {}){
     wxMeta.innerHTML = `Weather updated: <span class="mono">${esc(whenTxt)}</span>`;
   }
 
-  // Param explain (same style as details)
   const pe = $('frQvParamExplain');
   if (pe && run && run.factors){
     const fac = run.factors;
@@ -361,7 +409,6 @@ function fillQuickView(state, { live=false } = {}){
       `LOSS_SCALE=<span class="mono">${CONST.LOSS_SCALE.toFixed(2)}</span>`;
   }
 
-  // Live tile preview at top
   renderTilePreview(state, run, thr);
 }
 
@@ -384,18 +431,15 @@ async function saveAndClose(state){
   if (hint) hint.textContent = 'Saving…';
 
   try{
-    // Update local cache (optimistic)
     const p = getFieldParams(state, fid);
     p.soilWetness = soilWetness;
     p.drainageIndex = drainageIndex;
     state.perFieldParams.set(fid, p);
     saveParamsToLocal(state);
 
-    // Update field object (optimistic)
     f.soilWetness = soilWetness;
     f.drainageIndex = drainageIndex;
 
-    // Firestore write
     const api = getAPI(state);
     if (api && api.kind !== 'compat'){
       const db = api.getFirestore();
@@ -418,11 +462,10 @@ async function saveAndClose(state){
       }, { merge:true });
     }
 
-    // ✅ Lightweight UI refreshes (no big grid rerender):
+    // instant main-tile update + light details nudge
     try{ document.dispatchEvent(new CustomEvent('fr:tile-refresh', { detail:{ fieldId: fid } })); }catch(_){}
     try{ document.dispatchEvent(new CustomEvent('fr:details-refresh', { detail:{ fieldId: fid } })); }catch(_){}
 
-    // Close modal
     closeQuickView(state);
 
   }catch(e){
