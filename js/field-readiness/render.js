@@ -1,16 +1,15 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-27o
+Rev: 2025-12-27p
 
-Fix (per Dane):
-✅ Field name must stay ONE line with ellipsis (mobile + desktop):
-   - Force .tile-top to NOT wrap (prevents name dropping to 2nd line)
-   - Force .titleline to NOT wrap
-   - Make .name flex-shrink and ellipsis reliably (min-width:0 + overflow hidden)
+Fix:
+✅ Removes invalid tokens (no escaped template literals)
+✅ Field name stays ONE line with ellipsis (mobile + desktop)
+   - Prevent header flex wrapping so name shrinks instead of wrapping
+✅ Keeps strong selected indicator via .fv-selected (green + underline + highlight)
+✅ Details header panel: Farm • Field at top of Details
 
 Keeps:
-✅ Strong selected indicator via .fv-selected (green + underline + highlight)
-✅ Lower Details section header (Farm • Field)
 ✅ Double-click always wired; canEdit checked at click-time
 ✅ fr:tile-refresh / fr:details-refresh listeners
 ✅ Background Firestore hydrate on select + dblclick quick view
@@ -131,7 +130,7 @@ function ensureSelectionStyleOnce(){
     const s = document.createElement('style');
     s.setAttribute('data-fv-fr-selstyle','1');
     s.textContent = `
-      /* CRITICAL: prevent wrapping in header row so name shrinks + ellipses instead */
+      /* Prevent wrapping in header so name shrinks + ellipses */
       .tile .tile-top{ flex-wrap: nowrap !important; }
       .tile .tile-top .titleline{ min-width:0 !important; flex: 1 1 auto !important; flex-wrap: nowrap !important; }
       .tile .tile-top .readiness-pill{ flex: 0 0 auto !important; }
@@ -139,15 +138,14 @@ function ensureSelectionStyleOnce(){
       /* Base name: one line ellipsis always */
       .tile .name{
         display:block;
-        flex: 1 1 auto;
-        min-width: 0;
+        min-width:0;
         max-width:100%;
         white-space:nowrap;
         overflow:hidden;
         text-overflow:ellipsis;
       }
 
-      /* Selected tile name: obvious AND still ellipsis */
+      /* Selected tile name: obvious + still ellipsis */
       .tile.fv-selected .name{
         color: var(--accent, #2F6C3C) !important;
         text-decoration: underline !important;
@@ -157,7 +155,6 @@ function ensureSelectionStyleOnce(){
         font-weight: 950 !important;
 
         display:block !important;
-        flex: 1 1 auto !important;
         min-width:0 !important;
         max-width:100% !important;
         white-space:nowrap !important;
@@ -166,7 +163,6 @@ function ensureSelectionStyleOnce(){
 
         padding: 2px 6px;
         border-radius: 8px;
-
         background: rgba(47,108,60,0.12);
         box-shadow: inset 0 -2px 0 rgba(47,108,60,0.55);
       }
@@ -187,11 +183,11 @@ function setSelectedTileClass(state, fieldId){
 
     const prev = String(state._selectedTileId || '');
     if (prev && prev !== fid){
-      const prevEl = document.querySelector(\`.tile[data-field-id="\${CSS.escape(prev)}"]\`);
+      const prevEl = document.querySelector(`.tile[data-field-id="${CSS.escape(prev)}"]`);
       if (prevEl) prevEl.classList.remove('fv-selected');
     }
 
-    const curEl = document.querySelector(\`.tile[data-field-id="\${CSS.escape(fid)}"]\`);
+    const curEl = document.querySelector(`.tile[data-field-id="${CSS.escape(fid)}"]`);
     if (curEl) curEl.classList.add('fv-selected');
 
     state._selectedTileId = fid;
@@ -239,8 +235,8 @@ function updateDetailsHeaderPanel(state){
   if (!panel) return;
 
   const farmName = (state.farmsById && state.farmsById.get) ? (state.farmsById.get(f.farmId) || '') : '';
-  const title = farmName ? \`\${farmName} • \${f.name || ''}\` : (f.name || '');
-  const loc = (f.county || f.state) ? \`\${String(f.county||'—')} / \${String(f.state||'—')}\` : '';
+  const title = farmName ? `${farmName} • ${f.name || ''}` : (f.name || '');
+  const loc = (f.county || f.state) ? `${String(f.county||'—')} / ${String(f.state||'—')}` : '';
 
   panel.innerHTML = `
     <div style="font-weight:900;font-size:13px;line-height:1.2;">
@@ -256,7 +252,7 @@ async function updateTileForField(state, fieldId){
     if (!fieldId) return;
     const fid = String(fieldId);
 
-    const tile = document.querySelector(\`.tile[data-field-id="\${CSS.escape(fid)}"]\`);
+    const tile = document.querySelector(`.tile[data-field-id="${CSS.escape(fid)}"]`);
     if (!tile) return;
 
     await ensureModelWeatherModules(state);
@@ -279,7 +275,6 @@ async function updateTileForField(state, fieldId){
 
     const thr = getThresholdForOp(state, getCurrentOp());
     const readiness = run0.readinessR;
-    const wetness = run0.wetnessR;
 
     const leftPos = state._mods.model.markerLeftCSS(readiness);
     const thrPos  = state._mods.model.markerLeftCSS(thr);
@@ -508,7 +503,6 @@ function renderBetaInputs(state){
   meta.textContent =
     `Source: ${info.source || '—'} • Updated: ${whenTxt} • Primary + light-influence variables are used now; weights are still being tuned.`;
 
-  // (unchanged) render beta cards...
   const unitsHourly = info.units && info.units.hourly ? info.units.hourly : null;
   const unitsDaily = info.units && info.units.daily ? info.units.daily : null;
 
@@ -571,7 +565,7 @@ function renderBetaInputs(state){
     groupHtml('Pulled (not yet used)', pulledNotUsed, 'tag-pulled', 'Pulled');
 }
 
-/* ---------- Details + tables render (ported) ---------- */
+/* ---------- Details + tables render ---------- */
 export async function renderDetails(state){
   await ensureModelWeatherModules(state);
 
@@ -592,7 +586,6 @@ export async function renderDetails(state){
   updateDetailsHeaderPanel(state);
   renderBetaInputs(state);
 
-  // (tables rendering stays as your current file does)
   const trb = $('traceRows');
   if (trb){
     trb.innerHTML = '';
