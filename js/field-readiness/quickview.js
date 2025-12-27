@@ -1,41 +1,30 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-27g
+/Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
+Rev: 2025-12-27a
 
-Fix:
-✅ Listens for:
-   - fr:tile-refresh { fieldId }  -> updates ONLY that tile in-place
-   - fr:details-refresh { fieldId } -> refreshes details + tile (lightweight)
-✅ This makes “Save & Close” update the main tile immediately, every time.
+Changes (per Dane):
+✅ Save & Close now triggers an immediate MAIN TILE rebuild (no full page refresh)
+   by dispatching: fr:tile-refresh { fieldId }
+✅ Also nudges details to refresh (lightweight) by dispatching: fr:details-refresh
+✅ Keeps EVERYTHING else exactly as your baseline (nothing cut)
 
-Keeps:
-✅ All prior rendering & tables behavior (NOTHING CUT)
-✅ refreshDetailsOnly(state)
-✅ Background Firestore hydrate on select + on dblclick quick view
-
+Depends on:
+- state._mods.model + state._mods.weather already loaded by index/render
+- shared rain/range helpers in rain.js
 ===================================================================== */
 'use strict';
 
-import { PATHS } from './paths.js';
-import { OPS, EXTRA, CONST, buildWxCtx } from './state.js';
-import { $, esc, clamp } from './utils.js';
-import { getFieldParams, ensureSelectedParamsToSliders, saveParamsToLocal } from './params.js';
+import { buildWxCtx, EXTRA, CONST, OPS } from './state.js';
+import { getAPI } from './firebase.js';
+import { getFieldParams, saveParamsToLocal } from './params.js';
 import { getCurrentOp, getThresholdForOp } from './thresholds.js';
+import { esc, clamp } from './utils.js';
 import { canEdit } from './perm.js';
-import { openQuickView } from './quickview.js';
-import { initSwipeOnTiles } from './swipe.js';
 import { parseRangeFromInput, rainInRange } from './rain.js';
-import { fetchAndHydrateFieldParams } from './data.js';
 
-/* ---------- module loader (model/weather) ---------- */
-export async function ensureModelWeatherModules(state){
-  if (state._mods.model && state._mods.weather) return;
-  const [weather, model] = await Promise.all([ import(PATHS.WEATHER), import(PATHS.MODEL) ]);
-  state._mods.weather = weather;
-  state._mods.model = model;
-}
+function $(id){ return document.getElementById(id); }
 
-/* ---------- colors (ported) ---------- */
+/* ---------- tile preview color helpers (match tiles) ---------- */
 function perceivedFromThreshold(readiness, thr){
   const r = clamp(Math.round(Number(readiness)), 0, 100);
   const t = clamp(Math.round(Number(thr)), 0, 100);
@@ -76,230 +65,182 @@ function gradientForThreshold(thr){
   )`;
 }
 
-/* ---------- sorting ---------- */
-function sortFields(fields, runsById){
-  const sel = $('sortSel');
-  const mode = String(sel ? sel.value : 'name_az');
-  const range = parseRangeFromInput();
-  const collator = new Intl.Collator(undefined, { numeric:true, sensitivity:'base' });
-  const arr = fields.slice();
+/* ---------- modal build ---------- */
+function ensureBuiltOnce(state){
+  if (state._qvBuilt) return;
+  state._qvBuilt = true;
 
-  arr.sort((a,b)=>{
-    const ra = runsById.get(a.id);
-    const rb = runsById.get(b.id);
+  const wrap = document.createElement('div');
+  wrap.id = 'frQvBackdrop';
+  wrap.className = 'modal-backdrop pv-hide';
+  wrap.setAttribute('role','dialog');
+  wrap.setAttribute('aria-modal','true');
 
-    const nameA = `${a.name||''}`;
-    const nameB = `${b.name||''}`;
+  wrap.innerHTML = `
+    <div class="modal" style="width:min(760px, 96vw);">
+      <div class="modal-h">
+        <h3 id="frQvTitle">Field</h3>
+        <button id="frQvX" class="xbtn" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <div class="muted" style="font-size:12px; margin-top:4px;" id="frQvSub">—</div>
+      </div>
 
-    const readyA = ra ? ra.readinessR : 0;
-    const readyB = rb ? rb.readinessR : 0;
+      <div class="modal-b" style="display:grid;gap:12px;">
+        <!-- LIVE TILE PREVIEW -->
+        <div id="frQvTilePreview"></div>
 
-    const rainA = ra ? rainInRange(ra, range) : 0;
+        <!-- INPUTS -->
+        <div class="panel" style="margin:0;" id="frQvInputsPanel">
+          <h3 style="margin:0 0 8px;font-size:13px;font-weight:900;">Inputs (field-specific)</h3>
 
-    if (mode === 'name_az') return collator.compare(nameA, nameB);
-    if (mode === 'name_za') return collator.compare(nameB, nameA);
+          <div style="display:grid;gap:12px;grid-template-columns:1fr 1fr;align-items:start;">
+            <div class="field">
+              <label for="frQvSoil">Soil Wetness (0–100)</label>
+              <input id="frQvSoil" type="range" min="0" max="100" step="1" value="60"/>
+              <div class="help muted" style="margin-top:6px;">Current: <span class="mono" id="frQvSoilVal">60</span>/100</div>
+            </div>
 
-    if (mode === 'ready_dry_wet'){ if (readyB !== readyA) return readyB - readyA; return collator.compare(nameA, nameB); }
-    if (mode === 'ready_wet_dry'){ if (readyB !== readyA) return readyA - readyB; return collator.compare(nameA, nameB); }
+            <div class="field">
+              <label for="frQvDrain">Drainage Index (0–100)</label>
+              <input id="frQvDrain" type="range" min="0" max="100" step="1" value="45"/>
+              <div class="help muted" style="margin-top:6px;">Current: <span class="mono" id="frQvDrainVal">45</span>/100</div>
+            </div>
+          </div>
 
-    const rainB2 = rb ? rainInRange(rb, range) : 0;
-    if (mode === 'rain_most'){ if (rainB2 !== rainA) return rainB2 - rainA; return collator.compare(nameA, nameB); }
-    if (mode === 'rain_least'){ if (rainB2 !== rainA) return rainA - rainB2; return collator.compare(nameA, nameB); }
+          <div class="actions" style="margin-top:12px;justify-content:flex-end;">
+            <div class="help muted" id="frQvHint" style="margin:0;flex:1 1 auto;align-self:center;">—</div>
+            <button id="frQvSaveClose" class="btn btn-primary" type="button">Save &amp; Close</button>
+          </div>
+        </div>
 
-    return collator.compare(nameA, nameB);
+        <!-- FIELD + SETTINGS -->
+        <div class="panel" style="margin:0;">
+          <h3 style="margin:0 0 8px;font-size:13px;font-weight:900;">Field + Settings</h3>
+          <div class="kv">
+            <div class="k">Field</div><div class="v" id="frQvFieldName">—</div>
+            <div class="k">County / State</div><div class="v" id="frQvCounty">—</div>
+            <div class="k">Tillable</div><div class="v" id="frQvAcres">—</div>
+            <div class="k">GPS</div><div class="v mono" id="frQvGps">—</div>
+            <div class="k">Operation</div><div class="v" id="frQvOp">—</div>
+            <div class="k">Threshold</div><div class="v" id="frQvThr">—</div>
+          </div>
+          <div class="help" id="frQvParamExplain">—</div>
+        </div>
+
+        <!-- WEATHER + OUTPUT -->
+        <div class="panel" style="margin:0;">
+          <h3 style="margin:0 0 8px;font-size:13px;font-weight:900;">Weather + Output</h3>
+          <div class="kv">
+            <div class="k">Range rain</div><div class="v" id="frQvRain">—</div>
+            <div class="k">Readiness</div><div class="v" id="frQvReadiness">—</div>
+            <div class="k">Wetness</div><div class="v" id="frQvWetness">—</div>
+            <div class="k">Storage</div><div class="v" id="frQvStorage">—</div>
+          </div>
+          <div class="help" id="frQvWxMeta">—</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(wrap);
+
+  const close = ()=> closeQuickView(state);
+
+  const x = $('frQvX'); if (x) x.addEventListener('click', close);
+
+  wrap.addEventListener('click', (e)=>{
+    if (e.target && e.target.id === 'frQvBackdrop') close();
   });
 
-  return arr;
-}
+  const soil = $('frQvSoil');
+  const drain = $('frQvDrain');
+  const soilVal = $('frQvSoilVal');
+  const drainVal = $('frQvDrainVal');
 
-function getFilteredFields(state){
-  const farmId = String(state.farmFilter || '__all__');
-  if (farmId === '__all__') return state.fields.slice();
-  return state.fields.filter(f => String(f.farmId||'') === farmId);
-}
+  // Live preview updates on slider move (no save yet)
+  function onSliderChange(){
+    if (soilVal) soilVal.textContent = String(clamp(Number(soil.value),0,100));
+    if (drainVal) drainVal.textContent = String(clamp(Number(drain.value),0,100));
 
-/* ---------- internal: set selected field safely ---------- */
-function setSelectedField(state, fieldId){
-  state.selectedFieldId = fieldId;
-  try{ document.dispatchEvent(new CustomEvent('fr:selected-field-changed', { detail:{ fieldId } })); }catch(_){}
-}
+    // Update TEMP params in memory (not persisted yet)
+    const fid = state._qvFieldId;
+    if (!fid) return;
+    const p = getFieldParams(state, fid);
+    p.soilWetness = clamp(Number(soil.value),0,100);
+    p.drainageIndex = clamp(Number(drain.value),0,100);
+    state.perFieldParams.set(fid, p);
 
-/* ---------- internal: patch a single tile DOM in-place ---------- */
-async function updateTileForField(state, fieldId){
-  try{
-    if (!fieldId) return;
-    const fid = String(fieldId);
+    // Rerun model and update tile + output section live
+    fillQuickView(state, { live:true });
+  }
 
-    const tile = document.querySelector(`.tile[data-field-id="${CSS.escape(fid)}"]`);
-    if (!tile) return;
+  if (soil) soil.addEventListener('input', onSliderChange);
+  if (drain) drain.addEventListener('input', onSliderChange);
 
-    await ensureModelWeatherModules(state);
-
-    const f = (state.fields || []).find(x=>x.id === fid);
-    if (!f) return;
-
-    const wxCtx = buildWxCtx(state);
-    const deps = {
-      getWeatherSeriesForFieldId: (id)=> state._mods.weather.getWeatherSeriesForFieldId(id, wxCtx),
-      getFieldParams: (id)=> getFieldParams(state, id),
-      LOSS_SCALE: CONST.LOSS_SCALE,
-      EXTRA
-    };
-
-    const run0 = state._mods.model.runField(f, deps);
-    if (!run0) return;
-
-    try{ state.lastRuns && state.lastRuns.set(fid, run0); }catch(_){}
-
-    const thr = getThresholdForOp(state, getCurrentOp());
-    const readiness = run0.readinessR;
-    const wetness = run0.wetnessR;
-
-    const leftPos = state._mods.model.markerLeftCSS(readiness);
-    const thrPos  = state._mods.model.markerLeftCSS(thr);
-
-    const perceived = perceivedFromThreshold(readiness, thr);
-    const pillBg = colorForPerceived(perceived);
-    const grad = gradientForThreshold(thr);
-
-    const gauge = tile.querySelector('.gauge');
-    if (gauge) gauge.style.background = grad;
-
-    const thrEl = tile.querySelector('.thr');
-    if (thrEl) thrEl.style.left = thrPos;
-
-    const markerEl = tile.querySelector('.marker');
-    if (markerEl) markerEl.style.left = leftPos;
-
-    const wetEl =
-      tile.querySelector('.wet-marker') ||
-      tile.querySelector('.wetness-marker') ||
-      tile.querySelector('.wetline') ||
-      tile.querySelector('.wetness-line');
-    if (wetEl){
-      const wetPos = state._mods.model.markerLeftCSS(wetness);
-      wetEl.style.left = wetPos;
-    }
-
-    const pill = tile.querySelector('.readiness-pill');
-    if (pill){
-      pill.style.background = pillBg;
-      pill.style.color = '#fff';
-      pill.textContent = `Field Readiness ${readiness}`;
-    }
-
-    const badge = tile.querySelector('.badge');
-    if (badge){
-      badge.style.left = leftPos;
-      badge.style.background = pillBg;
-      badge.style.color = '#fff';
-      badge.textContent = `Field Readiness ${readiness}`;
-    }
-
-    const range = parseRangeFromInput();
-    const rainRange = rainInRange(run0, range);
-    const rainLine = tile.querySelector('.subline .mono');
-    if (rainLine){
-      rainLine.textContent = rainRange.toFixed(2);
-    }
-
-    const eta = state._mods.model.etaFor(run0, thr, CONST.ETA_MAX_HOURS);
-    const help = tile.querySelector('.help b');
-    if (help){
-      help.textContent = eta ? String(eta) : '';
-    }
-  }catch(_){}
-}
-
-/* ---------- click vs dblclick separation ---------- */
-function wireTileInteractions(state, tileEl, fieldId){
-  const CLICK_DELAY_MS = 220;
-  tileEl._fvClickTimer = null;
-
-  tileEl.addEventListener('click', ()=>{
-    const until = Number(state._suppressClickUntil || 0);
-    if (Date.now() < until) return;
-
-    if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
-    tileEl._fvClickTimer = setTimeout(()=>{
-      tileEl._fvClickTimer = null;
-      selectField(state, fieldId);
-    }, CLICK_DELAY_MS);
-  });
-
-  if (canEdit(state)){
-    tileEl.addEventListener('dblclick', async (e)=>{
-      e.preventDefault();
-      e.stopPropagation();
-
-      if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
-      tileEl._fvClickTimer = null;
-
-      setSelectedField(state, fieldId);
-      ensureSelectedParamsToSliders(state);
-
-      state._suppressClickUntil = Date.now() + 350;
-
-      try{ await fetchAndHydrateFieldParams(state, fieldId); }catch(_){}
-      if (String(state.selectedFieldId) !== String(fieldId)) return;
-
-      ensureSelectedParamsToSliders(state);
-      await updateTileForField(state, fieldId);
-
-      openQuickView(state, fieldId);
+  const saveClose = $('frQvSaveClose');
+  if (saveClose){
+    saveClose.addEventListener('click', async ()=>{
+      if (!canEdit(state)) return;
+      if (state._qvSaving) return;
+      await saveAndClose(state);
     });
   }
 }
 
-/* ---------- tile render ---------- */
-export async function renderTiles(state){
-  await ensureModelWeatherModules(state);
+/* ---------- open/close ---------- */
+export function openQuickView(state, fieldId){
+  ensureBuiltOnce(state);
 
-  const wrap = $('fieldsGrid');
+  const f = state.fields.find(x=>x.id===fieldId);
+  if (!f) return;
+
+  state._qvFieldId = fieldId;
+  state.selectedFieldId = fieldId;
+
+  const b = $('frQvBackdrop');
+  if (b) b.classList.remove('pv-hide');
+  state._qvOpen = true;
+
+  fillQuickView(state, { live:false });
+}
+
+export function closeQuickView(state){
+  const b = $('frQvBackdrop');
+  if (b) b.classList.add('pv-hide');
+  state._qvOpen = false;
+}
+
+/* ---------- render inside modal ---------- */
+function setText(id,val){
+  const el = $(id);
+  if (el) el.textContent = String(val);
+}
+
+function renderTilePreview(state, run, thr){
+  const wrap = $('frQvTilePreview');
   if (!wrap) return;
-  wrap.innerHTML = '';
 
-  const wxCtx = buildWxCtx(state);
-  const deps = {
-    getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
-    getFieldParams: (fid)=> getFieldParams(state, fid),
-    LOSS_SCALE: CONST.LOSS_SCALE,
-    EXTRA
-  };
+  const f = state.fields.find(x=>x.id===state._qvFieldId);
+  if (!f || !run) return;
 
-  state.lastRuns.clear();
-  for (const f of state.fields){
-    state.lastRuns.set(f.id, state._mods.model.runField(f, deps));
-  }
-
-  const filtered = getFilteredFields(state);
-  const sorted = sortFields(filtered, state.lastRuns);
-  const thr = getThresholdForOp(state, getCurrentOp());
+  const readiness = run.readinessR;
   const range = parseRangeFromInput();
+  const rainRange = rainInRange(run, range);
 
-  const cap = (state.pageSize === -1) ? sorted.length : Math.min(sorted.length, state.pageSize);
-  const show = sorted.slice(0, cap);
+  const leftPos = state._mods.model.markerLeftCSS(readiness);
+  const thrPos  = state._mods.model.markerLeftCSS(thr);
 
-  for (const f of show){
-    const run0 = state.lastRuns.get(f.id);
-    if (!run0) continue;
+  const perceived = perceivedFromThreshold(readiness, thr);
+  const pillBg = colorForPerceived(perceived);
+  const grad = gradientForThreshold(thr);
 
-    const readiness = run0.readinessR;
-    const eta = state._mods.model.etaFor(run0, thr, CONST.ETA_MAX_HOURS);
-    const rainRange = rainInRange(run0, range);
+  const eta = state._mods.model.etaFor(run, thr, CONST.ETA_MAX_HOURS);
 
-    const leftPos = state._mods.model.markerLeftCSS(readiness);
-    const thrPos  = state._mods.model.markerLeftCSS(thr);
-
-    const perceived = perceivedFromThreshold(readiness, thr);
-    const pillBg = colorForPerceived(perceived);
-    const grad = gradientForThreshold(thr);
-
-    const tile = document.createElement('div');
-    tile.className = 'tile fv-swipe-item' + (f.id === state.selectedFieldId ? ' active' : '');
-    tile.dataset.fieldId = f.id;
-
-    tile.innerHTML = `
+  wrap.innerHTML = `
+    <div class="tile" style="cursor:default; user-select:none;">
       <div class="tile-top">
         <div class="titleline">
           <div class="name" title="${esc(f.name)}">${esc(f.name)}</div>
@@ -324,348 +265,175 @@ export async function renderTiles(state){
         <div class="ticks"><span>0</span><span>50</span><span>100</span></div>
         ${eta ? `<div class="help"><b>${esc(eta)}</b></div>` : ``}
       </div>
-    `;
-
-    wireTileInteractions(state, tile, f.id);
-    wrap.appendChild(tile);
-  }
-
-  const empty = $('emptyMsg');
-  if (empty) empty.style.display = show.length ? 'none' : 'block';
-
-  await initSwipeOnTiles(state, { onDetails: (fieldId)=> openQuickView(state, fieldId) });
+    </div>
+  `;
 }
 
-/* ---------- select field ---------- */
-export function selectField(state, id){
-  const f = state.fields.find(x=>x.id === id);
-  if (!f) return;
-
-  setSelectedField(state, id);
-  ensureSelectedParamsToSliders(state);
-
-  refreshAll(state);
-
-  (async ()=>{
-    try{
-      const ok = await fetchAndHydrateFieldParams(state, id);
-      if (!ok) return;
-      if (String(state.selectedFieldId) !== String(id)) return;
-
-      ensureSelectedParamsToSliders(state);
-      await refreshDetailsOnly(state);
-      await updateTileForField(state, id);
-    }catch(_){}
-  })();
-}
-
-/* ---------- Beta panel render (ported) ---------- */
-function renderBetaInputs(state){
-  const box = $('betaInputs');
-  const meta = $('betaInputsMeta');
-  if (!box || !meta) return;
-
-  const fid = state.selectedFieldId;
-  const info = fid ? state.wxInfoByFieldId.get(fid) : null;
-
-  if (!info){
-    meta.textContent = 'Weather is loading…';
-    box.innerHTML = '';
-    return;
-  }
-
-  const when = info.fetchedAt ? new Date(info.fetchedAt) : null;
-  const whenTxt = when ? when.toLocaleString() : '—';
-
-  meta.textContent =
-    `Source: ${info.source || '—'} • Updated: ${whenTxt} • Primary + light-influence variables are used now; weights are still being tuned.`;
-
-  const unitsHourly = info.units && info.units.hourly ? info.units.hourly : null;
-  const unitsDaily = info.units && info.units.daily ? info.units.daily : null;
-
-  const a = info.availability || { vars:{} };
-  const vars = a.vars || {};
-
-  const usedPrimary = [
-    ['rain_mm','Precipitation (hourly → daily sum)', unitsHourly?.precipitation || 'mm → in'],
-    ['temp_c','Air temperature (hourly avg)', unitsHourly?.temperature_2m || '°C → °F'],
-    ['wind_mph','Wind speed (hourly avg)', 'mph (converted)'],
-    ['rh_pct','Relative humidity (hourly avg)', unitsHourly?.relative_humidity_2m || '%'],
-    ['solar_wm2','Shortwave radiation (hourly avg)', unitsHourly?.shortwave_radiation || 'W/m²']
-  ];
-
-  const usedLight = [
-    ['vapour_pressure_deficit_kpa','VPD (hourly avg)', unitsHourly?.vapour_pressure_deficit || 'kPa'],
-    ['cloud_cover_pct','Cloud cover (hourly avg)', unitsHourly?.cloud_cover || '%'],
-    ['soil_moisture_0_10','Soil moisture 0–10cm (hourly avg)', unitsHourly?.soil_moisture_0_to_10cm || 'm³/m³'],
-    ['soil_temp_c_0_10','Soil temp 0–10cm (hourly avg)', unitsHourly?.soil_temperature_0_to_10cm || '°C → °F'],
-    ['et0_mm','ET₀ (daily)', unitsDaily?.et0_fao_evapotranspiration || 'mm/day → in/day'],
-    ['daylight_s','Daylight duration (daily)', unitsDaily?.daylight_duration || 's/day → hr/day'],
-    ['sunshine_s','Sunshine duration (daily)', unitsDaily?.sunshine_duration || 's/day → hr/day']
-  ];
-
-  const pulledNotUsed = [
-    ['soil_temp_c_10_40','Soil temp 10–40cm (hourly)', unitsHourly?.soil_temperature_10_to_40cm || '°C'],
-    ['soil_temp_c_40_100','Soil temp 40–100cm (hourly)', unitsHourly?.soil_temperature_40_to_100cm || '°C'],
-    ['soil_temp_c_100_200','Soil temp 100–200cm (hourly)', unitsHourly?.soil_temperature_100_to_200cm || '°C'],
-    ['soil_moisture_10_40','Soil moisture 10–40cm (hourly)', unitsHourly?.soil_moisture_10_to_40cm || 'm³/m³'],
-    ['soil_moisture_40_100','Soil moisture 40–100cm (hourly)', unitsHourly?.soil_moisture_40_to_100cm || 'm³/m³'],
-    ['soil_moisture_100_200','Soil moisture 100–200cm (hourly)', unitsHourly?.soil_moisture_100_to_200cm || 'm³/m³']
-  ];
-
-  function itemRow(k,label,u,tagClass,tagText){
-    const ok = vars[k] ? !!vars[k].ok : true;
-    const tag = ok ? `<div class="vtag ${tagClass}">${esc(tagText)}</div>` : `<div class="vtag tag-missing">Not in response</div>`;
-    return `
-      <div class="vitem">
-        <div>
-          <div class="vname">${esc(label)}</div>
-          <div class="vmeta">${esc(u || '')}</div>
-        </div>
-        ${tag}
-      </div>
-    `;
-  }
-  function groupHtml(title, rows, tagClass, tagText){
-    const items = rows.map(([k,label,u])=> itemRow(k,label,u,tagClass,tagText)).join('');
-    return `
-      <div class="vgroup">
-        <div class="vgroup-title">${esc(title)}</div>
-        <div class="vitems">${items}</div>
-      </div>
-    `;
-  }
-
-  box.innerHTML =
-    groupHtml('Used now (primary drivers)', usedPrimary, 'tag-primary', 'Used') +
-    groupHtml('Used now (light influence / nudges)', usedLight, 'tag-light', 'Light') +
-    groupHtml('Pulled (not yet used)', pulledNotUsed, 'tag-pulled', 'Pulled');
-}
-
-/* ---------- Details + tables render (ported) ---------- */
-export async function renderDetails(state){
-  await ensureModelWeatherModules(state);
-
-  const f = state.fields.find(x=>x.id === state.selectedFieldId);
+function fillQuickView(state, { live=false } = {}){
+  const fid = state._qvFieldId;
+  const f = state.fields.find(x=>x.id===fid);
   if (!f) return;
 
   const wxCtx = buildWxCtx(state);
   const deps = {
     getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
-    getFieldParams: (fid)=> getFieldParams(state, fid),
+    getFieldParams: (id)=> getFieldParams(state, id),
     LOSS_SCALE: CONST.LOSS_SCALE,
     EXTRA
   };
 
-  const run = state.lastRuns.get(f.id) || state._mods.model.runField(f, deps);
-  if (!run) return;
+  // Recompute each time sliders change so you see the effect
+  const run = state._mods.model.runField(f, deps);
 
-  const fac = run.factors;
-  const p = getFieldParams(state, f.id);
-
+  const farmName = state.farmsById.get(f.farmId) || '';
   const opKey = getCurrentOp();
   const opLabel = (OPS.find(o=>o.key===opKey)?.label) || opKey;
   const thr = getThresholdForOp(state, opKey);
 
-  const range = parseRangeFromInput();
-  const rainRange = rainInRange(run, range);
+  const title = $('frQvTitle');
+  const sub = $('frQvSub');
+  if (title) title.textContent = f.name || 'Field';
+  if (sub) sub.textContent = farmName ? `${farmName} • Field details` : 'Field details';
 
-  const farmName = state.farmsById.get(f.farmId) || '';
+  // Sync slider values from state params
+  const p = getFieldParams(state, f.id);
+  const soil = $('frQvSoil');
+  const drain = $('frQvDrain');
+  const soilVal = $('frQvSoilVal');
+  const drainVal = $('frQvDrainVal');
 
-  const setText = (id, val) => { const el = $(id); if (el) el.textContent = String(val); };
-
-  setText('dFieldName', farmName ? `${farmName} • ${f.name}` : (f.name || '—'));
-  setText('dStatus', String(f.status||'—'));
-  setText('dCounty', `${String(f.county||'—')} / ${String(f.state||'—')}`);
-  setText('dAcres', (isFinite(f.tillable) ? `${f.tillable.toFixed(2)} ac` : '—'));
-  setText('dGps', (f.location ? `${f.location.lat.toFixed(6)}, ${f.location.lng.toFixed(6)}` : '—'));
-
-  const btnMap = $('btnMap');
-  if (btnMap) btnMap.disabled = !f.location;
-
-  setText('dSoilType', `${p.soilWetness}/100`);
-  setText('dSoilHold', `${fac.soilHold.toFixed(2)} (normalized)`);
-  setText('dDrainage', `${p.drainageIndex}/100`);
-
-  setText('dThreshold', `${thr}`);
-  setText('dOperation', opLabel);
-
-  setText('dDays', String(run.rows.length || 0));
-  setText('dRangeRain', `${rainRange.toFixed(2)} in`);
-  setText('dReadiness', `${run.readinessR}`);
-  setText('dWetness', `${run.wetnessR}`);
-  setText('dStorage', `${run.storageFinal.toFixed(2)} / ${run.factors.Smax.toFixed(2)}`);
-
-  const param = $('paramExplain');
-  if (param){
-    param.innerHTML =
-      `soilHold=soilWetness/100=<span class="mono">${fac.soilHold.toFixed(2)}</span> • drainPoor=drainageIndex/100=<span class="mono">${fac.drainPoor.toFixed(2)}</span><br/>
-       Smax=<span class="mono">${fac.Smax.toFixed(2)}</span> (base <span class="mono">${fac.SmaxBase.toFixed(2)}</span>) • infilMult=<span class="mono">${fac.infilMult.toFixed(2)}</span> • dryMult=<span class="mono">${fac.dryMult.toFixed(2)}</span> • LOSS_SCALE=<span class="mono">${CONST.LOSS_SCALE.toFixed(2)}</span>`;
+  if (!live){
+    if (soil) soil.value = String(p.soilWetness);
+    if (drain) drain.value = String(p.drainageIndex);
+    if (soilVal) soilVal.textContent = String(p.soilWetness);
+    if (drainVal) drainVal.textContent = String(p.drainageIndex);
   }
 
+  // Button state
+  const hint = $('frQvHint');
+  const saveBtn = $('frQvSaveClose');
+  const inputsPanel = $('frQvInputsPanel');
+
+  if (!canEdit(state)){
+    if (hint) hint.textContent = 'View only. You do not have edit permission.';
+    if (saveBtn) saveBtn.disabled = true;
+    if (inputsPanel) inputsPanel.style.opacity = '0.75';
+  } else {
+    if (hint) hint.textContent = 'Adjust sliders → preview updates live → Save & Close.';
+    if (saveBtn) saveBtn.disabled = false;
+    if (inputsPanel) inputsPanel.style.opacity = '1';
+  }
+
+  // Field + settings section
+  setText('frQvFieldName', farmName ? `${farmName} • ${f.name}` : (f.name || '—'));
+  setText('frQvCounty', `${String(f.county||'—')} / ${String(f.state||'—')}`);
+  setText('frQvAcres', isFinite(f.tillable) ? `${f.tillable.toFixed(2)} ac` : '—');
+  setText('frQvGps', f.location ? `${f.location.lat.toFixed(6)}, ${f.location.lng.toFixed(6)}` : '—');
+  setText('frQvOp', opLabel);
+  setText('frQvThr', thr);
+
+  // Weather + output section
+  const range = parseRangeFromInput();
+  const rr = rainInRange(run, range);
+  setText('frQvRain', `${rr.toFixed(2)} in`);
+  setText('frQvReadiness', run ? run.readinessR : '—');
+  setText('frQvWetness', run ? run.wetnessR : '—');
+  setText('frQvStorage', run ? `${run.storageFinal.toFixed(2)} / ${run.factors.Smax.toFixed(2)}` : '—');
+
+  // Weather timestamp
   const info = state.wxInfoByFieldId.get(f.id) || null;
   const when = (info && info.fetchedAt) ? new Date(info.fetchedAt) : null;
   const whenTxt = when ? when.toLocaleString() : '—';
-
-  const sum = $('mathSummary');
-  if (sum){
-    sum.innerHTML =
-      `Model output: <b>Wet=${run.wetnessR}</b> • <b>Readiness=${run.readinessR}</b> • storage=<span class="mono">${run.storageFinal.toFixed(2)}</span>/<span class="mono">${run.factors.Smax.toFixed(2)}</span>` +
-      `<br/><span class="muted">Weather updated: <span class="mono">${esc(whenTxt)}</span></span>`;
+  const wxMeta = $('frQvWxMeta');
+  if (wxMeta){
+    wxMeta.innerHTML = `Weather updated: <span class="mono">${esc(whenTxt)}</span>`;
   }
 
-  renderBetaInputs(state);
-
-  const trb = $('traceRows');
-  if (trb){
-    trb.innerHTML = '';
-    const rows = Array.isArray(run.trace) ? run.trace : [];
-    if (!rows.length){
-      trb.innerHTML = `<tr><td colspan="7" class="muted">No trace rows.</td></tr>`;
-    } else {
-      for (const t of rows){
-        const dateISO = String(t.dateISO || '');
-        const rain = Number(t.rain ?? 0);
-        const infilMult = Number(t.infilMult ?? 0);
-        const add = Number(t.add ?? 0);
-        const dryPwr = Number(t.dryPwr ?? 0);
-        const loss = Number(t.loss ?? 0);
-        const before = Number(t.before ?? 0);
-        const after = Number(t.after ?? 0);
-
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td class="mono">${esc(dateISO)}</td>
-          <td class="right mono">${rain.toFixed(2)}</td>
-          <td class="right mono">${infilMult.toFixed(2)}</td>
-          <td class="right mono">${add.toFixed(2)}</td>
-          <td class="right mono">${dryPwr.toFixed(2)}</td>
-          <td class="right mono">${loss.toFixed(2)}</td>
-          <td class="right mono">${before.toFixed(2)}→${after.toFixed(2)}</td>
-        `;
-        trb.appendChild(tr);
-      }
-    }
+  // Param explain (same style as details)
+  const pe = $('frQvParamExplain');
+  if (pe && run && run.factors){
+    const fac = run.factors;
+    pe.innerHTML =
+      `soilHold=soilWetness/100=<span class="mono">${fac.soilHold.toFixed(2)}</span> • ` +
+      `drainPoor=drainageIndex/100=<span class="mono">${fac.drainPoor.toFixed(2)}</span><br/>` +
+      `Smax=<span class="mono">${fac.Smax.toFixed(2)}</span> (base <span class="mono">${fac.SmaxBase.toFixed(2)}</span>) • ` +
+      `infilMult=<span class="mono">${fac.infilMult.toFixed(2)}</span> • dryMult=<span class="mono">${fac.dryMult.toFixed(2)}</span> • ` +
+      `LOSS_SCALE=<span class="mono">${CONST.LOSS_SCALE.toFixed(2)}</span>`;
   }
 
-  const drb = $('dryRows');
-  if (drb){
-    drb.innerHTML = '';
-    const rows = Array.isArray(run.rows) ? run.rows : [];
-    if (!rows.length){
-      drb.innerHTML = `<tr><td colspan="15" class="muted">No rows.</td></tr>`;
-    } else {
-      for (const r of rows){
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td class="mono">${esc(r.dateISO)}</td>
-          <td class="right mono">${Math.round(Number(r.temp||0))}</td>
-          <td class="right mono">${Number(r.tempN||0).toFixed(2)}</td>
-          <td class="right mono">${Math.round(Number(r.wind||0))}</td>
-          <td class="right mono">${Number(r.windN||0).toFixed(2)}</td>
-          <td class="right mono">${Math.round(Number(r.rh||0))}</td>
-          <td class="right mono">${Number(r.rhN||0).toFixed(2)}</td>
-          <td class="right mono">${Math.round(Number(r.solar||0))}</td>
-          <td class="right mono">${Number(r.solarN||0).toFixed(2)}</td>
-          <td class="right mono">${Number(r.vpd||0).toFixed(2)}</td>
-          <td class="right mono">${Number(r.vpdN||0).toFixed(2)}</td>
-          <td class="right mono">${Math.round(Number(r.cloud||0))}</td>
-          <td class="right mono">${Number(r.cloudN||0).toFixed(2)}</td>
-          <td class="right mono">${Number(r.raw||0).toFixed(2)}</td>
-          <td class="right mono">${Number(r.dryPwr||0).toFixed(2)}</td>
-        `;
-        drb.appendChild(tr);
-      }
-    }
-  }
-
-  const wxb = $('wxRows');
-  if (wxb){
-    wxb.innerHTML = '';
-    const rows = Array.isArray(run.rows) ? run.rows : [];
-    if (!rows.length){
-      wxb.innerHTML = `<tr><td colspan="9" class="muted">No weather rows.</td></tr>`;
-    } else {
-      for (const r of rows){
-        const rain = Number(r.rainInAdj ?? r.rainIn ?? 0);
-        const et0 = (r.et0 == null ? '—' : Number(r.et0).toFixed(2));
-        const sm010 = (r.sm010 == null ? '—' : Number(r.sm010).toFixed(3));
-        const st010F = (r.st010F == null ? '—' : String(Math.round(Number(r.st010F))));
-
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td class="mono">${esc(r.dateISO)}</td>
-          <td class="right mono">${rain.toFixed(2)}</td>
-          <td class="right mono">${Math.round(Number(r.temp||0))}</td>
-          <td class="right mono">${Math.round(Number(r.wind||0))}</td>
-          <td class="right mono">${Math.round(Number(r.rh||0))}</td>
-          <td class="right mono">${Math.round(Number(r.solar||0))}</td>
-          <td class="right mono">${esc(et0)}</td>
-          <td class="right mono">${esc(sm010)}</td>
-          <td class="right mono">${esc(st010F)}</td>
-        `;
-        wxb.appendChild(tr);
-      }
-    }
-  }
+  // Live tile preview at top
+  renderTilePreview(state, run, thr);
 }
 
-/* ---------- refresh ---------- */
-export async function refreshAll(state){
-  if (state.selectedFieldId){
-    const a = $('soilWet');
-    const b = $('drain');
+/* ---------- Save & Close ---------- */
+async function saveAndClose(state){
+  const fid = state._qvFieldId;
+  const f = state.fields.find(x=>x.id===fid);
+  if (!f) return;
 
-    if (a && b){
-      const p = getFieldParams(state, state.selectedFieldId);
-      p.soilWetness = clamp(Number(a.value), 0, 100);
-      p.drainageIndex = clamp(Number(b.value), 0, 100);
-      state.perFieldParams.set(state.selectedFieldId, p);
-      saveParamsToLocal(state);
+  const soil = $('frQvSoil');
+  const drain = $('frQvDrain');
+  const btn = $('frQvSaveClose');
+  const hint = $('frQvHint');
 
-      await updateTileForField(state, state.selectedFieldId);
-    }
-  }
+  const soilWetness = clamp(Number(soil ? soil.value : 60), 0, 100);
+  const drainageIndex = clamp(Number(drain ? drain.value : 45), 0, 100);
 
-  await renderTiles(state);
-  await renderDetails(state);
-}
+  state._qvSaving = true;
+  if (btn){ btn.disabled = true; btn.textContent = 'Saving…'; }
+  if (hint) hint.textContent = 'Saving…';
 
-/* ---------- details-only refresh ---------- */
-export async function refreshDetailsOnly(state){
-  try{ ensureSelectedParamsToSliders(state); }catch(_){}
-  await renderDetails(state);
-  try{ if (state && state.selectedFieldId) await updateTileForField(state, state.selectedFieldId); }catch(_){}
-}
-
-/* =====================================================================
-   GLOBAL LISTENERS (wired once) — lets quickview.js update tiles instantly
-===================================================================== */
-(function wireGlobalLightRefreshOnce(){
   try{
-    if (window.__FV_FR_TILE_REFRESH_WIRED__) return;
-    window.__FV_FR_TILE_REFRESH_WIRED__ = true;
+    // Update local cache (optimistic)
+    const p = getFieldParams(state, fid);
+    p.soilWetness = soilWetness;
+    p.drainageIndex = drainageIndex;
+    state.perFieldParams.set(fid, p);
+    saveParamsToLocal(state);
 
-    document.addEventListener('fr:tile-refresh', async (e)=>{
-      try{
-        const state = window.__FV_FR;
-        if (!state) return;
-        const fid = e && e.detail ? String(e.detail.fieldId || '') : '';
-        if (!fid) return;
+    // Update field object (optimistic)
+    f.soilWetness = soilWetness;
+    f.drainageIndex = drainageIndex;
 
-        // ensure params are already updated optimistically by quickview
-        await updateTileForField(state, fid);
-      }catch(_){}
-    });
+    // Firestore write
+    const api = getAPI(state);
+    if (api && api.kind !== 'compat'){
+      const db = api.getFirestore();
+      const auth = api.getAuth ? api.getAuth() : null;
+      const user = auth && auth.currentUser ? auth.currentUser : null;
 
-    document.addEventListener('fr:details-refresh', async (e)=>{
-      try{
-        const state = window.__FV_FR;
-        if (!state) return;
-        const fid = e && e.detail ? String(e.detail.fieldId || '') : '';
-        if (fid) setSelectedField(state, fid);
-        await refreshDetailsOnly(state);
-      }catch(_){}
-    });
-  }catch(_){}
-})();
+      const ref = api.doc(db, 'fields', fid);
+      await api.updateDoc(ref, {
+        soilWetness,
+        drainageIndex,
+        updatedAt: api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString(),
+        updatedBy: user ? (user.email || user.uid || null) : null
+      });
+    } else if (api && api.kind === 'compat' && window.firebase && window.firebase.firestore){
+      const db = window.firebase.firestore();
+      await db.collection('fields').doc(fid).set({
+        soilWetness,
+        drainageIndex,
+        updatedAt: new Date().toISOString()
+      }, { merge:true });
+    }
+
+    // ✅ Lightweight UI refreshes (no big grid rerender):
+    try{ document.dispatchEvent(new CustomEvent('fr:tile-refresh', { detail:{ fieldId: fid } })); }catch(_){}
+    try{ document.dispatchEvent(new CustomEvent('fr:details-refresh', { detail:{ fieldId: fid } })); }catch(_){}
+
+    // Close modal
+    closeQuickView(state);
+
+  }catch(e){
+    console.warn('[FieldReadiness] Save & Close failed:', e);
+    if (hint) hint.textContent = `Save failed: ${e.message || e}`;
+    if (btn){ btn.disabled = false; btn.textContent = 'Save & Close'; }
+    state._qvSaving = false;
+    return;
+  }
+
+  state._qvSaving = false;
+  if (btn){ btn.disabled = false; btn.textContent = 'Save & Close'; }
+  if (hint) hint.textContent = 'Saved.';
+}
