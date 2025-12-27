@@ -1,18 +1,27 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/swipe.js  (FULL FILE)
-Rev: 2025-12-26a
+Rev: 2025-12-26b
 
-Swipe helper for Field Readiness tiles.
-- Injects swipe-list.css if missing
-- Uses /Farm-vista/js/fv-swipe-list.js
-- Only enabled when user has edit permission (crop-weather.edit)
-
+Swipe is MOBILE ONLY:
+- Only initializes on touch/coarse-pointer devices
+- Still requires edit permission
 ===================================================================== */
 'use strict';
 
 import { canEdit } from './perm.js';
 
 const SWIPE_CSS_HREF = '/Farm-vista/assets/css/swipe-list.css';
+
+function isTouchLike(){
+  try{
+    if (window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches) return true;
+  }catch(_){}
+  try{
+    if ('ontouchstart' in window) return true;
+    if (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) return true;
+  }catch(_){}
+  return false;
+}
 
 function ensureSwipeCSS(){
   try{
@@ -27,7 +36,8 @@ function ensureSwipeCSS(){
 }
 
 export async function initSwipeOnTiles(state, { onDetails }){
-  // If no edit permission, do not attach swipe UI at all.
+  // Mobile only + edit only
+  if (!isTouchLike()) return;
   if (!canEdit(state)) return;
 
   ensureSwipeCSS();
@@ -35,7 +45,6 @@ export async function initSwipeOnTiles(state, { onDetails }){
   const root = document.getElementById('fieldsGrid');
   if (!root) return;
 
-  // Lazy import (keeps startup fast)
   let swipe = null;
   try{
     swipe = await import('/Farm-vista/js/fv-swipe-list.js');
@@ -43,10 +52,8 @@ export async function initSwipeOnTiles(state, { onDetails }){
     console.warn('[FieldReadiness] swipe import failed:', e);
     return;
   }
-
   if (!swipe || typeof swipe.initSwipeList !== 'function') return;
 
-  // Re-init is safe because renderTiles wipes innerHTML each time.
   swipe.initSwipeList(root, {
     itemSelector: '.fv-swipe-item',
     leftAction: {
