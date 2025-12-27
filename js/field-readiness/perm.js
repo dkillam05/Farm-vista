@@ -1,18 +1,13 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/perm.js  (FULL FILE)
-Rev: 2025-12-26f
+Rev: 2025-12-27a
 
-Fixes cold-start race with FVUserContext:
-
-- If ctx.effectivePerms does not yet contain 'crop-weather', we treat perms as NOT READY.
-  -> view allowed (so no “no permission” flash)
-  -> edit false until perms arrive
-  -> loaded=false so callers know it’s provisional
-
-- When fv:user-ready fires, index.js will call loadFieldReadinessPerms(state) again.
-
-data-perm:
-- Uses data-perm="crop-weather" (no .view suffix) because FV.can expects that.
+Fixes:
+✅ Robust perm-key matching (crop-weather / crop_weather / cropWeather / etc)
+✅ Keeps cold-start behavior:
+   - view allowed while not loaded (prevents “no permission” flash)
+   - edit false until loaded (prevents premature edit UI)
+✅ data-perm attributes kept as "crop-weather"
 
 ===================================================================== */
 'use strict';
@@ -36,10 +31,50 @@ function normalizePerm(v){
     for (const k of ['view','edit','add','delete']){
       if (typeof v[k] === 'boolean') out[k] = v[k];
     }
+    // legacy {on:true}
+    if (typeof v.on === 'boolean'){
+      out.view = !!v.on;
+    }
     return out;
   }
 
   return out;
+}
+
+function simplifyKey(s){
+  return String(s||'')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g,'-')
+    .replace(/[^a-z0-9.-]+/g,'')
+    .replace(/-+/g,'-');
+}
+
+function pickPermValue(eff){
+  if (!eff || typeof eff !== 'object') return { found:false, key:null, value:null };
+
+  // 1) exact
+  if (PERM_KEY in eff) return { found:true, key:PERM_KEY, value: eff[PERM_KEY] };
+
+  // 2) common alternates
+  const alts = [
+    PERM_KEY.replace(/-/g,'_'),
+    PERM_KEY.replace(/-/g,''),
+    PERM_KEY.replace(/-/g,' ').trim(),
+    'cropWeather',
+    'crop_weather'
+  ];
+  for (const k of alts){
+    if (k in eff) return { found:true, key:k, value: eff[k] };
+  }
+
+  // 3) simplified match (covers crop-weather vs crop_weather vs Crop Weather)
+  const want = simplifyKey(PERM_KEY);
+  for (const k of Object.keys(eff)){
+    if (simplifyKey(k) === want) return { found:true, key:k, value: eff[k] };
+  }
+
+  return { found:false, key:null, value:null };
 }
 
 export function applyPermDataAttrs(){
@@ -53,15 +88,14 @@ export function applyPermDataAttrs(){
 }
 
 export async function loadFieldReadinessPerms(state){
-  // Default: allow viewing while perms are still resolving, but do NOT allow edit.
+  // Provisional defaults:
+  // - allow view while resolving (no "no permission" flash)
+  // - do NOT allow edit until definitive perms arrive
   state.perm = {
     key: PERM_KEY,
     ...emptyPerm(),
-
-    // provisional defaults
     view: true,
     edit: false,
-
     loaded: false,
     roleName: null,
     email: null
@@ -70,8 +104,7 @@ export async function loadFieldReadinessPerms(state){
   applyPermDataAttrs();
 
   if (!window.FVUserContext || typeof window.FVUserContext.ready !== 'function'){
-    // No user context available => allow view for testing; no edit
-    try{ document.dispatchEvent(new CustomEvent('fv:user-ready')); }catch(_){}
+    // No context => view for dev, edit off
     return state.perm;
   }
 
@@ -84,18 +117,17 @@ export async function loadFieldReadinessPerms(state){
 
   const eff = (ctx && ctx.effectivePerms && typeof ctx.effectivePerms === 'object') ? ctx.effectivePerms : null;
 
-  // 🚨 KEY FIX:
-  // If effectivePerms isn't ready OR doesn't have our key yet, we DO NOT deny.
-  // We keep view=true/edit=false and loaded=false, and we rely on fv:user-ready refresh.
-  if (!eff || !(PERM_KEY in eff)){
+  const picked = pickPermValue(eff);
+
+  // If not ready or key not present yet: keep provisional view=true/edit=false/loaded=false
+  if (!picked.found){
     state.perm.roleName = (ctx && ctx.roleName) ? String(ctx.roleName) : null;
     state.perm.email = (ctx && ctx.email) ? String(ctx.email) : null;
     state.perm.loaded = false;
     return state.perm;
   }
 
-  // Now we have a definitive permission object/boolean
-  const p = normalizePerm(eff[PERM_KEY]);
+  const p = normalizePerm(picked.value);
 
   state.perm = {
     key: PERM_KEY,
