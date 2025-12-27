@@ -1,8 +1,11 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/index.js  (FULL FILE)
-Rev: 2025-12-26h
+Rev: 2025-12-26i
 
-Restores Map button wiring via initMap(state).
+Fixes cold-start permissions race:
+- Do NOT hard-block based on a placeholder ctx with empty effectivePerms
+- Re-check perms on fv:user-ready and re-render so edit features appear without reload
+
 ===================================================================== */
 'use strict';
 
@@ -34,11 +37,13 @@ import { initMap } from './map.js';
   loadThresholdsFromLocal(state);
 
   await wireUIOnce(state);
-
   await importFirebaseInit(state);
 
+  // Initial perms read (may be provisional)
   await loadFieldReadinessPerms(state);
 
+  // If truly denied (loaded AND view=false), show message and stop
+  // If not loaded yet, canView(state) returns true (prevents flash).
   if (!canView(state)){
     const grid = document.getElementById('fieldsGrid');
     if (grid){
@@ -54,13 +59,11 @@ import { initMap } from './map.js';
 
   await loadPrefsFromLocalToUI(state);
   await loadRangeFromLocalToUI();
-
   enforceCalendarNoFuture();
 
   await loadThresholdsFromFirestore(state);
   await loadFarmsOptional(state);
   await loadFields(state);
-
   buildFarmFilterOptions(state);
 
   if (!state.selectedFieldId && state.fields.length){
@@ -69,17 +72,47 @@ import { initMap } from './map.js';
 
   await ensureModelWeatherModules(state);
 
-  // ✅ restore map button behavior
   initMap(state);
 
   document.addEventListener('fr:soft-reload', async ()=>{
     try{ await refreshAll(state); }catch(_){}
   });
 
+  // 🔥 KEY FIX: when perms finish loading, re-check and re-render.
+  document.addEventListener('fv:user-ready', async ()=>{
+    try{
+      const prevLoaded = !!(state.perm && state.perm.loaded);
+      const prevEdit = !!(state.perm && state.perm.edit);
+
+      await loadFieldReadinessPerms(state);
+
+      // If now truly denied view, show message
+      if (state.perm && state.perm.loaded && !state.perm.view){
+        const grid = document.getElementById('fieldsGrid');
+        if (grid){
+          grid.innerHTML = '';
+          const msg = document.createElement('div');
+          msg.className = 'help muted';
+          msg.style.padding = '10px 2px';
+          msg.textContent = 'You do not have permission to view Field Readiness.';
+          grid.appendChild(msg);
+        }
+        return;
+      }
+
+      // If edit permission just became available, we must re-render tiles
+      // so dblclick + swipe actions are attached.
+      const nowEdit = !!(state.perm && state.perm.loaded && state.perm.edit);
+
+      if (!prevLoaded || (prevEdit !== nowEdit)){
+        await refreshAll(state);
+      }
+    }catch(_){}
+  });
+
   await renderTiles(state);
   await renderDetails(state);
   await refreshAll(state);
 
-  // global calibration wiring
   wireFieldsHiddenTap(state);
 })();
