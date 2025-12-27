@@ -1,13 +1,15 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/data.js  (FULL FILE)
-Rev: 2025-12-27a
+Rev: 2025-12-27b
 
-Adds:
-✅ Background live-sync for ONLY the selected field doc (onSnapshot)
-✅ Updates sliders + details without full reload / without rerendering all tiles
+Fix:
+✅ Adds fetchAndHydrateFieldParams(state, fieldId):
+   - one Firestore read for the selected field doc
+   - hydrates perFieldParams from Firestore
+   - updates sliders immediately (no page refresh, no 500-field reload)
 
-Keeps:
-- farms/fields loading behavior
+Also hardens extraction for nested param paths + numeric strings.
+
 ===================================================================== */
 'use strict';
 
@@ -17,12 +19,76 @@ import { hydrateParamsFromFieldDoc, saveParamsToLocal, ensureSelectedParamsToSli
 import { buildWxCtx } from './state.js';
 import { ensureModelWeatherModules } from './render.js';
 
+/* ----------------- robust param read helpers ----------------- */
+function getByPath(obj, path){
+  try{
+    const parts = String(path||'').split('.');
+    let cur = obj;
+    for (const p of parts){
+      if (!cur || typeof cur !== 'object') return undefined;
+      cur = cur[p];
+    }
+    return cur;
+  }catch(_){
+    return undefined;
+  }
+}
+
+function toNum(v){
+  if (typeof v === 'number') return (isFinite(v) ? v : null);
+  if (typeof v === 'string'){
+    const n = Number(v.trim());
+    return isFinite(n) ? n : null;
+  }
+  if (v && typeof v === 'object'){
+    if (typeof v.value === 'number' && isFinite(v.value)) return v.value;
+    if (typeof v.value === 'string'){
+      const n = Number(String(v.value).trim());
+      return isFinite(n) ? n : null;
+    }
+    if (typeof v.n === 'number' && isFinite(v.n)) return v.n;
+    if (typeof v.n === 'string'){
+      const n = Number(String(v.n).trim());
+      return isFinite(n) ? n : null;
+    }
+  }
+  return null;
+}
+
+function pickFirstNumber(d, paths){
+  for (const p of paths){
+    const raw = getByPath(d, p);
+    const n = toNum(raw);
+    if (n != null) return n;
+  }
+  return null;
+}
+
+/* ----------------- field doc extraction ----------------- */
 function extractFieldDoc(docId, d){
   const loc = d.location || {};
   const lat = Number(loc.lat);
   const lng = Number(loc.lng);
-  const soilWetness = Number(d.soilWetness);
-  const drainageIndex = Number(d.drainageIndex);
+
+  // ✅ support multiple shapes/paths where Field Settings might store these
+  const soilWetness = pickFirstNumber(d, [
+    'soilWetness',
+    'fieldReadiness.soilWetness',
+    'readiness.soilWetness',
+    'params.soilWetness',
+    'sliders.soilWetness',
+    'field_readiness.soilWetness'
+  ]);
+
+  const drainageIndex = pickFirstNumber(d, [
+    'drainageIndex',
+    'fieldReadiness.drainageIndex',
+    'readiness.drainageIndex',
+    'params.drainageIndex',
+    'sliders.drainageIndex',
+    'field_readiness.drainageIndex'
+  ]);
+
   return {
     id: docId,
     name: String(d.name||''),
@@ -32,98 +98,62 @@ function extractFieldDoc(docId, d){
     status: String(d.status||''),
     tillable: Number(d.tillable||0),
     location: (isFinite(lat) && isFinite(lng)) ? { lat, lng } : null,
-    soilWetness: isFinite(soilWetness) ? soilWetness : null,
-    drainageIndex: isFinite(drainageIndex) ? drainageIndex : null
+    soilWetness: (soilWetness == null) ? null : soilWetness,
+    drainageIndex: (drainageIndex == null) ? null : drainageIndex
   };
 }
 
-/* =========================
-   Selected field live sync
-   ========================= */
-export function stopSelectedFieldLiveSync(state){
-  try{
-    if (state && state._selFieldUnsub){
-      state._selFieldUnsub();
-    }
-  }catch(_){}
-  if (state){
-    state._selFieldUnsub = null;
-    state._selFieldWatchId = null;
-  }
-}
-
-export function startSelectedFieldLiveSync(state, fieldId, onUpdate){
-  if (!state || !fieldId) return;
-  const fid = String(fieldId);
-
-  // Avoid re-subscribing to same doc
-  if (state._selFieldWatchId === fid && state._selFieldUnsub) return;
-
-  stopSelectedFieldLiveSync(state);
-  state._selFieldWatchId = fid;
+/* =====================================================================
+   NEW: One-doc background fetch for selected field params
+===================================================================== */
+export async function fetchAndHydrateFieldParams(state, fieldId){
+  const fid = String(fieldId || '').trim();
+  if (!fid) return false;
 
   const api = getAPI(state);
-  if (!api){
-    state._selFieldUnsub = null;
-    return;
-  }
+  if (!api) return false;
 
-  const applyDoc = (docId, data)=>{
-    try{
-      const f = extractFieldDoc(docId, data || {});
+  try{
+    let data = null;
 
-      // Update the copy in state.fields (so future renders match Firestore)
-      const idx = state.fields.findIndex(x=>x.id === docId);
-      if (idx >= 0){
-        state.fields[idx] = { ...state.fields[idx], ...f };
-      }
-
-      // Hydrate params map from Firestore doc, then update sliders
-      hydrateParamsFromFieldDoc(state, f);
-      saveParamsToLocal(state);
-
-      // Only apply to sliders if this doc is currently selected
-      if (state.selectedFieldId === docId){
-        ensureSelectedParamsToSliders(state);
-      }
-
-      if (typeof onUpdate === 'function'){
-        onUpdate();
-      }
-    }catch(_){}
-  };
-
-  // Modular SDK
-  if (api.kind !== 'compat'){
-    try{
+    if (api.kind !== 'compat'){
       const db = api.getFirestore();
       const ref = api.doc(db, 'fields', fid);
-      const unsub = api.onSnapshot(ref, (snap)=>{
-        try{
-          if (!snap || !snap.exists || !snap.exists()) return;
-          applyDoc(fid, snap.data() || {});
-        }catch(_){}
-      }, (_err)=>{});
-      state._selFieldUnsub = unsub;
-      return;
-    }catch(_){}
-  }
+      const snap = await api.getDoc(ref);
+      if (!snap || !snap.exists || !snap.exists()) return false;
+      data = snap.data() || {};
+    } else {
+      const db = window.firebase.firestore();
+      const snap = await db.collection('fields').doc(fid).get();
+      if (!snap || !snap.exists) return false;
+      data = snap.data() || {};
+    }
 
-  // Compat fallback
-  try{
-    const db = window.firebase.firestore();
-    const unsub = db.collection('fields').doc(fid).onSnapshot((snap)=>{
-      try{
-        if (!snap || !snap.exists) return;
-        applyDoc(fid, snap.data() || {});
-      }catch(_){}
-    }, (_err)=>{});
-    state._selFieldUnsub = unsub;
-  }catch(_){
-    state._selFieldUnsub = null;
+    const f = extractFieldDoc(fid, data);
+
+    // Update state.fields copy if present
+    const idx = state.fields.findIndex(x=>x.id === fid);
+    if (idx >= 0){
+      state.fields[idx] = { ...state.fields[idx], ...f };
+    }
+
+    // Hydrate params map from Firestore values
+    hydrateParamsFromFieldDoc(state, f);
+    saveParamsToLocal(state);
+
+    // If this is the selected field, reflect immediately in UI
+    if (state.selectedFieldId === fid){
+      ensureSelectedParamsToSliders(state);
+    }
+
+    return true;
+  }catch(e){
+    console.warn('[FieldReadiness] fetchAndHydrateFieldParams failed:', e);
+    return false;
   }
 }
 
+/* ----------------- existing loads ----------------- */
 export async function loadFarmsOptional(state){
   const api = getAPI(state);
   if (!api || api.kind === 'compat') return;
