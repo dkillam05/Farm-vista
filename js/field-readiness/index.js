@@ -1,15 +1,16 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/index.js  (FULL FILE)
-Rev: 2025-12-27a
+Rev: 2025-12-27b
 
-Adds background Firestore live-sync for per-field slider params:
-✅ Watches ONLY the selected field doc via onSnapshot
-✅ Updates sliders + details without re-rendering 500 tiles
-✅ No page refresh required
+FIX:
+✅ Removes broken imports: startSelectedFieldLiveSync / stopSelectedFieldLiveSync
+   (those exports no longer exist in data.js after we broke the circular dependency).
+✅ Keeps the rest of your current boot flow intact.
+✅ Ensures Details panel is CLOSED on load (even if HTML has it open).
 
-Keeps:
-- Rev: 2025-12-26l flow + layout fix
-- Operation Thresholds modal wiring
+NOTE:
+- Slider re-hydrate-on-reopen is now handled inside render.js via fetchAndHydrateFieldParams()
+  (one-doc background fetch; no full refresh needed).
 ===================================================================== */
 'use strict';
 
@@ -19,9 +20,9 @@ import { loadThresholdsFromLocal, loadThresholdsFromFirestore } from './threshol
 import { loadParamsFromLocal } from './params.js';
 import { loadPrefsFromLocalToUI } from './prefs.js';
 import { loadRangeFromLocalToUI, enforceCalendarNoFuture } from './range.js';
-import { loadFarmsOptional, loadFields, startSelectedFieldLiveSync, stopSelectedFieldLiveSync } from './data.js';
+import { loadFarmsOptional, loadFields } from './data.js';
 import { wireUIOnce } from './wiring.js';
-import { renderTiles, renderDetails, refreshAll, refreshDetailsOnly, ensureModelWeatherModules } from './render.js';
+import { renderTiles, renderDetails, refreshAll, ensureModelWeatherModules } from './render.js';
 import { wireFieldsHiddenTap } from './adjust.js';
 import { loadFieldReadinessPerms, canView } from './perm.js';
 import { buildFarmFilterOptions } from './farm-filter.js';
@@ -36,8 +37,14 @@ import { initOpThresholds } from './op-thresholds.js';
   // ✅ Fix intermittent footer clipping ASAP
   initLayoutFix();
 
-  const dp = document.getElementById('detailsPanel');
-  if (dp) dp.open = false;
+  // ✅ FORCE details closed on boot (even if <details open> in HTML)
+  try{
+    const dp = document.getElementById('detailsPanel');
+    if (dp){
+      dp.open = false;
+      dp.removeAttribute('open');
+    }
+  }catch(_){}
 
   const br = document.getElementById('btnRegen');
   if (br){ br.style.display = 'none'; br.disabled = true; }
@@ -86,30 +93,6 @@ import { initOpThresholds } from './op-thresholds.js';
   // ✅ restore Operation Thresholds modal
   initOpThresholds(state);
 
-  // ✅ START: background live sync for selected field only
-  document.addEventListener('fr:selected-field-changed', async (e)=>{
-    try{
-      const fid = e && e.detail ? String(e.detail.fieldId || '') : '';
-      if (!fid) return;
-      stopSelectedFieldLiveSync(state);
-      startSelectedFieldLiveSync(state, fid, async ()=>{
-        // Only refresh the details panel (NOT 500 tiles)
-        await refreshDetailsOnly(state);
-      });
-    }catch(_){}
-  });
-
-  // Kick the watcher once on boot
-  try{
-    if (state.selectedFieldId){
-      stopSelectedFieldLiveSync(state);
-      startSelectedFieldLiveSync(state, state.selectedFieldId, async ()=>{
-        await refreshDetailsOnly(state);
-      });
-    }
-  }catch(_){}
-  // ✅ END: background live sync
-
   document.addEventListener('fr:soft-reload', async ()=>{
     try{ await refreshAll(state); }catch(_){}
   });
@@ -138,17 +121,26 @@ import { initOpThresholds } from './op-thresholds.js';
       if (!prevLoaded || (prevEdit !== nowEdit)){
         // perms changed -> tiles may gain edit features
         await refreshAll(state);
-      } else {
-        // keep it light
-        await refreshDetailsOnly(state);
       }
     }catch(_){}
   });
 
+  // Initial paint
   await renderTiles(state);
   await renderDetails(state);
+
+  // One full refresh to ensure everything is consistent after first paint
   await refreshAll(state);
 
   // global calibration wiring
   wireFieldsHiddenTap(state);
+
+  // ✅ Re-close details one more time after initial paints (prevents "open on load" edge cases)
+  try{
+    const dp2 = document.getElementById('detailsPanel');
+    if (dp2){
+      dp2.open = false;
+      dp2.removeAttribute('open');
+    }
+  }catch(_){}
 })();
