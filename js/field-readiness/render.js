@@ -1,17 +1,18 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-27s
+Rev: 2025-12-28c
 
-Change (per Dane):
-✅ MOBILE selected field:
-   - keep normal font color (NO green text)
-   - underline is enough (keep the subtle highlight background if you want)
-✅ DESKTOP stays exactly as you have it:
-   - subtle green outline on selected tile
-   - selected name stays normal (no pill/underline)
+Add (per Dane):
+✅ Bring back the small info box at the TOP of the lower Details section:
+   - Shows: Farm • Field
+   - Also shows: County / State (subtle)
+   - Appears ABOVE “Beta: Data pulled into the model”
+   - Works in light + dark
 
-Keeps:
-✅ Double-click always wired; canEdit checked at click-time
+Keeps (from your Rev: 2025-12-27s):
+✅ Mobile selected field name: normal color + underline
+✅ Desktop selected tile outline; name stays normal
+✅ dblclick always wired; canEdit checked at click-time
 ✅ fr:tile-refresh / fr:details-refresh listeners
 ✅ Background Firestore hydrate on select + dblclick quick view
 ✅ All prior rendering & tables behavior
@@ -121,7 +122,7 @@ function getFilteredFields(state){
 }
 
 /* =====================================================================
-   Selection CSS injected once (matches your Rev r behavior)
+   Selection CSS injected once (matches your Rev s behavior)
 ===================================================================== */
 function ensureSelectionStyleOnce(){
   try{
@@ -165,11 +166,11 @@ function ensureSelectionStyleOnce(){
 
       /* ============================================================
          MOBILE/TABLET (touch): underline + subtle highlight
-         ✅ IMPORTANT: keep normal text color (no green)
+         ✅ keep normal text color (no green)
          ============================================================ */
       @media (hover: none) and (pointer: coarse){
         .tile.fv-selected .tile-top .titleline .name{
-          color: inherit !important; /* ✅ changed: no green */
+          color: inherit !important;
           text-decoration: underline !important;
           text-decoration-thickness: 2px !important;
           text-underline-offset: 3px !important;
@@ -229,6 +230,25 @@ function ensureSelectionStyleOnce(){
           text-overflow:ellipsis !important;
         }
       }
+
+      /* ============================================================
+         Details header panel (Farm • Field) styling
+         ============================================================ */
+      #frDetailsHeaderPanel{
+        margin: 0 !important;
+        padding: 10px 12px !important;
+      }
+      #frDetailsHeaderPanel .frdh-title{
+        font-weight: 950;
+        font-size: 13px;
+        line-height: 1.2;
+      }
+      #frDetailsHeaderPanel .frdh-sub{
+        font-size: 12px;
+        line-height: 1.2;
+        color: var(--muted,#67706B);
+        margin-top: 4px;
+      }
     `;
     document.head.appendChild(s);
   }catch(_){}
@@ -257,6 +277,48 @@ function setSelectedField(state, fieldId){
   ensureSelectionStyleOnce();
   setSelectedTileClass(state, fieldId);
   try{ document.dispatchEvent(new CustomEvent('fr:selected-field-changed', { detail:{ fieldId } })); }catch(_){}
+}
+
+/* =====================================================================
+   Details header panel (Farm • Field)
+===================================================================== */
+function ensureDetailsHeaderPanel(){
+  const details = document.getElementById('detailsPanel');
+  if (!details) return null;
+
+  const body = details.querySelector('.details-body');
+  if (!body) return null;
+
+  let panel = document.getElementById('frDetailsHeaderPanel');
+  if (panel && panel.parentElement === body) return panel;
+
+  panel = document.createElement('div');
+  panel.id = 'frDetailsHeaderPanel';
+  panel.className = 'panel';
+  panel.style.margin = '0';
+  panel.style.display = 'grid';
+  panel.style.gap = '4px';
+
+  // Put it at the top of the details body
+  body.prepend(panel);
+  return panel;
+}
+
+function updateDetailsHeaderPanel(state){
+  const f = (state.fields || []).find(x=>x.id === state.selectedFieldId);
+  if (!f) return;
+
+  const panel = ensureDetailsHeaderPanel();
+  if (!panel) return;
+
+  const farmName = (state.farmsById && state.farmsById.get) ? (state.farmsById.get(f.farmId) || '') : '';
+  const title = farmName ? `${farmName} • ${f.name || ''}` : (f.name || '—');
+  const loc = (f.county || f.state) ? `${String(f.county||'—')} / ${String(f.state||'—')}` : '';
+
+  panel.innerHTML = `
+    <div class="frdh-title">${esc(title)}</div>
+    ${loc ? `<div class="frdh-sub">${esc(loc)}</div>` : ``}
+  `;
 }
 
 /* ---------- internal: patch a single tile DOM in-place ---------- */
@@ -584,6 +646,9 @@ export async function renderDetails(state){
 
   const f = state.fields.find(x=>x.id === state.selectedFieldId);
   if (!f) return;
+
+  // ✅ Insert/update the farm/field box at the top of the details section
+  updateDetailsHeaderPanel(state);
 
   const wxCtx = buildWxCtx(state);
   const deps = {
