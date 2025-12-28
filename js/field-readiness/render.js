@@ -1,17 +1,20 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-27r
+Rev: 2025-12-27s
 
-Update (per Dane):
-✅ Mobile stays EXACTLY as-is (ellipsis + selected name highlight/pill)
-✅ Desktop: single click selection shows subtle green outline on entire tile
-✅ Desktop: selected field name stays NORMAL (no pill, no underline)
+Change (per Dane):
+✅ MOBILE selected field:
+   - keep normal font color (NO green text)
+   - underline is enough (keep the subtle highlight background if you want)
+✅ DESKTOP stays exactly as you have it:
+   - subtle green outline on selected tile
+   - selected name stays normal (no pill/underline)
 
 Keeps:
 ✅ Double-click always wired; canEdit checked at click-time
 ✅ fr:tile-refresh / fr:details-refresh listeners
 ✅ Background Firestore hydrate on select + dblclick quick view
-✅ All prior rendering & tables behavior (NOTHING CUT)
+✅ All prior rendering & tables behavior
 ===================================================================== */
 'use strict';
 
@@ -118,7 +121,7 @@ function getFilteredFields(state){
 }
 
 /* =====================================================================
-   Selection CSS injected once (strong + iOS-safe + ellipsis-safe)
+   Selection CSS injected once (matches your Rev r behavior)
 ===================================================================== */
 function ensureSelectionStyleOnce(){
   try{
@@ -161,12 +164,12 @@ function ensureSelectionStyleOnce(){
       }
 
       /* ============================================================
-         MOBILE/TABLET (touch): keep the current name-highlight selection
-         - Safe for swipe and tap
+         MOBILE/TABLET (touch): underline + subtle highlight
+         ✅ IMPORTANT: keep normal text color (no green)
          ============================================================ */
       @media (hover: none) and (pointer: coarse){
         .tile.fv-selected .tile-top .titleline .name{
-          color: var(--accent, #2F6C3C) !important;
+          color: inherit !important; /* ✅ changed: no green */
           text-decoration: underline !important;
           text-decoration-thickness: 2px !important;
           text-underline-offset: 3px !important;
@@ -197,7 +200,6 @@ function ensureSelectionStyleOnce(){
          ============================================================ */
       @media (hover: hover) and (pointer: fine){
         .tile.fv-selected{
-          /* subtle green line without affecting layout */
           box-shadow:
             0 0 0 2px rgba(47,108,60,0.40),
             0 10px 18px rgba(15,23,42,0.08);
@@ -210,7 +212,6 @@ function ensureSelectionStyleOnce(){
             0 12px 22px rgba(0,0,0,0.28);
         }
 
-        /* remove the "pill-like" selected name look on desktop */
         .tile.fv-selected .tile-top .titleline .name{
           color: inherit !important;
           text-decoration: none !important;
@@ -220,7 +221,6 @@ function ensureSelectionStyleOnce(){
           background: transparent !important;
           box-shadow: none !important;
 
-          /* keep ellipsis rules intact */
           display:block !important;
           min-width:0 !important;
           max-width:100% !important;
@@ -252,56 +252,11 @@ function setSelectedTileClass(state, fieldId){
   }catch(_){}
 }
 
-/* ---------- internal: set selected field safely ---------- */
 function setSelectedField(state, fieldId){
   state.selectedFieldId = fieldId;
-
   ensureSelectionStyleOnce();
   setSelectedTileClass(state, fieldId);
-
   try{ document.dispatchEvent(new CustomEvent('fr:selected-field-changed', { detail:{ fieldId } })); }catch(_){}
-}
-
-/* =====================================================================
-   Details header panel (Farm • Field)
-===================================================================== */
-function ensureDetailsHeaderPanel(){
-  const details = document.getElementById('detailsPanel');
-  if (!details) return null;
-  const body = details.querySelector('.details-body');
-  if (!body) return null;
-
-  let panel = document.getElementById('frDetailsHeaderPanel');
-  if (panel && panel.parentElement === body) return panel;
-
-  panel = document.createElement('div');
-  panel.id = 'frDetailsHeaderPanel';
-  panel.className = 'panel';
-  panel.style.margin = '0';
-  panel.style.display = 'grid';
-  panel.style.gap = '6px';
-
-  body.prepend(panel);
-  return panel;
-}
-
-function updateDetailsHeaderPanel(state){
-  const f = state.fields.find(x=>x.id === state.selectedFieldId);
-  if (!f) return;
-
-  const panel = ensureDetailsHeaderPanel();
-  if (!panel) return;
-
-  const farmName = (state.farmsById && state.farmsById.get) ? (state.farmsById.get(f.farmId) || '') : '';
-  const title = farmName ? `${farmName} • ${f.name || ''}` : (f.name || '');
-  const loc = (f.county || f.state) ? `${String(f.county||'—')} / ${String(f.state||'—')}` : '';
-
-  panel.innerHTML = `
-    <div style="font-weight:900;font-size:13px;line-height:1.2;">
-      ${esc(title || '—')}
-    </div>
-    ${loc ? `<div class="muted" style="font-size:12px;line-height:1.2;">${esc(loc)}</div>` : ``}
-  `;
 }
 
 /* ---------- internal: patch a single tile DOM in-place ---------- */
@@ -540,7 +495,7 @@ export function selectField(state, id){
   })();
 }
 
-/* ---------- Beta panel render (ported) ---------- */
+/* ---------- beta panel ---------- */
 function renderBetaInputs(state){
   const box = $('betaInputs');
   const meta = $('betaInputsMeta');
@@ -623,7 +578,7 @@ function renderBetaInputs(state){
     groupHtml('Pulled (not yet used)', pulledNotUsed, 'tag-pulled', 'Pulled');
 }
 
-/* ---------- Details + tables render ---------- */
+/* ---------- details render (beta + tables) ---------- */
 export async function renderDetails(state){
   await ensureModelWeatherModules(state);
 
@@ -641,7 +596,6 @@ export async function renderDetails(state){
   const run = state.lastRuns.get(f.id) || state._mods.model.runField(f, deps);
   if (!run) return;
 
-  updateDetailsHeaderPanel(state);
   renderBetaInputs(state);
 
   const trb = $('traceRows');
@@ -743,8 +697,6 @@ export async function refreshAll(state){
   await renderTiles(state);
   await renderDetails(state);
 }
-
-/* ---------- details-only refresh ---------- */
 export async function refreshDetailsOnly(state){
   await renderDetails(state);
   try{ if (state && state.selectedFieldId) await updateTileForField(state, state.selectedFieldId); }catch(_){}
