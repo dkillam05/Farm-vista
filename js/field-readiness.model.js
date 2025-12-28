@@ -1,11 +1,17 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness.model.js  (NEW FILE)
-Rev: 2025-12-27a
+/Farm-vista/js/field-readiness.model.js  (FULL FILE)
+Rev: 2025-12-28a
 Model math (dry power, storage, readiness) + helpers
 
 TUNING (per Dane):
 ✅ Reduce "too wet" baseline by lowering starting storage
 ✅ Reduce rain nudge strength so fields don't default overly wet
+
+NEW (Calibration hook):
+✅ Optional calibration bias applied AFTER physics model:
+   - deps.CAL.wetBias (number, wetness points; + = wetter, - = drier)
+   - deps.CAL.opWetBias[opKey] (optional per-op wetBias)
+   - deps.opKey (optional current operation key)
 ===================================================================== */
 'use strict';
 
@@ -71,6 +77,35 @@ export function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, EXTRA){
   return { soilHold, drainPoor, smN, infilMult, dryMult, Smax, SmaxBase };
 }
 
+/* =====================================================================
+   Calibration hook
+   - We keep the physical model intact
+   - Apply a small bias to wetness AFTER storage/Smax computed
+   - Bias units are "wetness points" (0..100 scale)
+===================================================================== */
+function getWetBiasFromDeps(deps){
+  try{
+    const CAL = deps && deps.CAL ? deps.CAL : null;
+    if (!CAL || typeof CAL !== 'object') return 0;
+
+    const opKey = (deps && typeof deps.opKey === 'string') ? deps.opKey : '';
+
+    // optional per-op override
+    if (opKey && CAL.opWetBias && typeof CAL.opWetBias === 'object'){
+      const vOp = CAL.opWetBias[opKey];
+      if (isFinite(Number(vOp))) return Number(vOp);
+    }
+
+    // global bias
+    const v = CAL.wetBias;
+    if (isFinite(Number(v))) return Number(v);
+
+    return 0;
+  }catch(_){
+    return 0;
+  }
+}
+
 /**
  * runField(field, deps)
  * deps:
@@ -78,6 +113,9 @@ export function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, EXTRA){
  * - getFieldParams(fieldId) -> { soilWetness, drainageIndex }
  * - LOSS_SCALE
  * - EXTRA (object)
+ * - OPTIONAL:
+ *   - opKey (string): current operation key (for per-op bias)
+ *   - CAL: { wetBias?: number, opWetBias?: { [opKey]: number } }
  */
 export function runField(field, deps){
   const wx = deps.getWeatherSeriesForFieldId(field.id);
@@ -110,8 +148,7 @@ export function runField(field, deps){
 
   // -------------------------------------------------------------------
   // TUNING: rain nudge + starting storage baseline
-  // Old: rain7/4.0 and 0.35*Smax (strong) + start at 0.45*Smax (wet bias)
-  // New: rain7/6.0 and 0.20*Smax (softer) + start at 0.30*Smax (drier baseline)
+  // New: rain7/8.0 and 0.10*Smax (softer) + start at 0.30*Smax (drier baseline)
   // -------------------------------------------------------------------
   const first7 = rows.slice(0,7);
   const rain7 = first7.reduce((s,x)=> s + Number(x.rainInAdj||0), 0);
@@ -137,14 +174,33 @@ export function runField(field, deps){
     trace.push({ dateISO:d.dateISO, rain, infilMult:f.infilMult, add, dryPwr:d.dryPwr, loss, before, after });
   }
 
-  const wetness = clamp((storage / f.Smax) * 100, 0, 100);
+  // Physical wetness (0..100)
+  let wetness = clamp((storage / f.Smax) * 100, 0, 100);
+
+  // ✅ Calibration wetness bias (from adjustments aggregation via deps.CAL)
+  // Positive = wetter, Negative = drier
+  const wetBias = clamp(getWetBiasFromDeps(deps), -25, 25); // guardrail
+  wetness = clamp(wetness + wetBias, 0, 100);
+
   const wetnessR = Math.round(wetness);
   const readinessR = Math.round(clamp(100 - wetness, 0, 100));
 
   const last7 = trace.slice(-7);
   const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
 
-  return { field, factors:f, rows, trace, storageFinal:storage, wetnessR, readinessR, avgLossDay };
+  return {
+    field,
+    factors:f,
+    rows,
+    trace,
+    storageFinal:storage,
+    wetnessR,
+    readinessR,
+    avgLossDay,
+
+    // helpful for debugging calibration
+    wetBiasApplied: wetBias
+  };
 }
 
 export function readinessColor(score){
