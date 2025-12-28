@@ -1,13 +1,16 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-27r
+Rev: 2025-12-27p
 
-Update (per Dane):
-✅ Mobile stays EXACTLY as-is (ellipsis + selected name highlight/pill)
-✅ Desktop: single click selection shows subtle green outline on entire tile
-✅ Desktop: selected field name stays NORMAL (no pill, no underline)
+Change (per Dane):
+✅ Selected field name indicator:
+   - KEEP normal text color
+   - Underline only (still with subtle highlight background)
+✅ Keeps ellipsis + no-wrap header behavior for mobile
 
 Keeps:
+✅ Strong selection via .fv-selected
+✅ Lower Details section header (Farm • Field)
 ✅ Double-click always wired; canEdit checked at click-time
 ✅ fr:tile-refresh / fr:details-refresh listeners
 ✅ Background Firestore hydrate on select + dblclick quick view
@@ -118,7 +121,7 @@ function getFilteredFields(state){
 }
 
 /* =====================================================================
-   Selection CSS injected once (strong + iOS-safe + ellipsis-safe)
+   Selection CSS injected once (underline only + ellipsis-safe)
 ===================================================================== */
 function ensureSelectionStyleOnce(){
   try{
@@ -128,106 +131,50 @@ function ensureSelectionStyleOnce(){
     const s = document.createElement('style');
     s.setAttribute('data-fv-fr-selstyle','1');
     s.textContent = `
-      /* ============================================================
-         HEADER: force a shrinkable single-line flex row (iOS ellipsis)
-         ============================================================ */
-      .tile .tile-top{
-        display:flex !important;
-        align-items:center !important;
-        justify-content:space-between !important;
-        gap:8px !important;
-        flex-wrap:nowrap !important;
-        min-width:0 !important;
+      /* Prevent wrapping in header row so name shrinks + ellipses instead */
+      .tile .tile-top{ flex-wrap: nowrap !important; }
+      .tile .tile-top .titleline{ min-width:0 !important; flex: 1 1 auto !important; flex-wrap: nowrap !important; }
+      .tile .tile-top .readiness-pill{ flex: 0 0 auto !important; }
+
+      /* Base name: one line ellipsis always */
+      .tile .name{
+        display:block;
+        flex: 1 1 auto;
+        min-width: 0;
+        max-width:100%;
+        white-space:nowrap;
+        overflow:hidden;
+        text-overflow:ellipsis;
       }
-      .tile .tile-top .titleline{
-        display:flex !important;
-        align-items:center !important;
-        flex:1 1 0 !important;
-        min-width:0 !important;
-        flex-wrap:nowrap !important;
-      }
-      .tile .tile-top .readiness-pill{
-        flex:0 0 auto !important;
-        white-space:nowrap !important;
-      }
-      .tile .tile-top .titleline .name{
-        flex:1 1 auto !important;
+
+      /* Selected tile name: UNDERLINE ONLY (keep normal text color) */
+      .tile.fv-selected .name{
+        color: var(--text) !important;              /* ✅ keep normal */
+        text-decoration: underline !important;
+        text-decoration-thickness: 2px !important;
+        text-underline-offset: 3px !important;
+        text-decoration-color: var(--accent, #2F6C3C) !important;
+        font-weight: 950 !important;
+
         display:block !important;
+        flex: 1 1 auto !important;
         min-width:0 !important;
         max-width:100% !important;
         white-space:nowrap !important;
         overflow:hidden !important;
         text-overflow:ellipsis !important;
+
+        padding: 2px 6px;
+        border-radius: 8px;
+
+        /* subtle highlight behind text (still OK) */
+        background: rgba(47,108,60,0.10);
+        box-shadow: inset 0 -2px 0 rgba(47,108,60,0.40);
       }
 
-      /* ============================================================
-         MOBILE/TABLET (touch): keep the current name-highlight selection
-         - Safe for swipe and tap
-         ============================================================ */
-      @media (hover: none) and (pointer: coarse){
-        .tile.fv-selected .tile-top .titleline .name{
-          color: var(--accent, #2F6C3C) !important;
-          text-decoration: underline !important;
-          text-decoration-thickness: 2px !important;
-          text-underline-offset: 3px !important;
-          text-decoration-color: var(--accent, #2F6C3C) !important;
-          font-weight: 950 !important;
-
-          display:block !important;
-          min-width:0 !important;
-          max-width:100% !important;
-          white-space:nowrap !important;
-          overflow:hidden !important;
-          text-overflow:ellipsis !important;
-
-          padding: 2px 6px !important;
-          border-radius: 8px !important;
-          background: rgba(47,108,60,0.12) !important;
-          box-shadow: inset 0 -2px 0 rgba(47,108,60,0.55) !important;
-        }
-
-        html.dark .tile.fv-selected .tile-top .titleline .name{
-          background: rgba(47,108,60,0.18) !important;
-          box-shadow: inset 0 -2px 0 rgba(47,108,60,0.70) !important;
-        }
-      }
-
-      /* ============================================================
-         DESKTOP (mouse): subtle tile outline selection, name stays NORMAL
-         ============================================================ */
-      @media (hover: hover) and (pointer: fine){
-        .tile.fv-selected{
-          /* subtle green line without affecting layout */
-          box-shadow:
-            0 0 0 2px rgba(47,108,60,0.40),
-            0 10px 18px rgba(15,23,42,0.08);
-          border-radius: 14px;
-        }
-
-        html.dark .tile.fv-selected{
-          box-shadow:
-            0 0 0 2px rgba(47,108,60,0.45),
-            0 12px 22px rgba(0,0,0,0.28);
-        }
-
-        /* remove the "pill-like" selected name look on desktop */
-        .tile.fv-selected .tile-top .titleline .name{
-          color: inherit !important;
-          text-decoration: none !important;
-          font-weight: inherit !important;
-          padding: 0 !important;
-          border-radius: 0 !important;
-          background: transparent !important;
-          box-shadow: none !important;
-
-          /* keep ellipsis rules intact */
-          display:block !important;
-          min-width:0 !important;
-          max-width:100% !important;
-          white-space:nowrap !important;
-          overflow:hidden !important;
-          text-overflow:ellipsis !important;
-        }
+      html.dark .tile.fv-selected .name{
+        background: rgba(47,108,60,0.14);
+        box-shadow: inset 0 -2px 0 rgba(47,108,60,0.55);
       }
     `;
     document.head.appendChild(s);
@@ -241,11 +188,11 @@ function setSelectedTileClass(state, fieldId){
 
     const prev = String(state._selectedTileId || '');
     if (prev && prev !== fid){
-      const prevEl = document.querySelector(`.tile[data-field-id="${CSS.escape(prev)}"]`);
+      const prevEl = document.querySelector(\`.tile[data-field-id="\${CSS.escape(prev)}"]\`);
       if (prevEl) prevEl.classList.remove('fv-selected');
     }
 
-    const curEl = document.querySelector(`.tile[data-field-id="${CSS.escape(fid)}"]`);
+    const curEl = document.querySelector(\`.tile[data-field-id="\${CSS.escape(fid)}"]\`);
     if (curEl) curEl.classList.add('fv-selected');
 
     state._selectedTileId = fid;
@@ -293,8 +240,8 @@ function updateDetailsHeaderPanel(state){
   if (!panel) return;
 
   const farmName = (state.farmsById && state.farmsById.get) ? (state.farmsById.get(f.farmId) || '') : '';
-  const title = farmName ? `${farmName} • ${f.name || ''}` : (f.name || '');
-  const loc = (f.county || f.state) ? `${String(f.county||'—')} / ${String(f.state||'—')}` : '';
+  const title = farmName ? \`\${farmName} • \${f.name || ''}\` : (f.name || '');
+  const loc = (f.county || f.state) ? \`\${String(f.county||'—')} / \${String(f.state||'—')}\` : '';
 
   panel.innerHTML = `
     <div style="font-weight:900;font-size:13px;line-height:1.2;">
@@ -310,7 +257,7 @@ async function updateTileForField(state, fieldId){
     if (!fieldId) return;
     const fid = String(fieldId);
 
-    const tile = document.querySelector(`.tile[data-field-id="${CSS.escape(fid)}"]`);
+    const tile = document.querySelector(\`.tile[data-field-id="\${CSS.escape(fid)}"]\`);
     if (!tile) return;
 
     await ensureModelWeatherModules(state);
@@ -540,7 +487,7 @@ export function selectField(state, id){
   })();
 }
 
-/* ---------- Beta panel render (ported) ---------- */
+/* ---------- Beta + tables render ---------- */
 function renderBetaInputs(state){
   const box = $('betaInputs');
   const meta = $('betaInputsMeta');
@@ -623,7 +570,6 @@ function renderBetaInputs(state){
     groupHtml('Pulled (not yet used)', pulledNotUsed, 'tag-pulled', 'Pulled');
 }
 
-/* ---------- Details + tables render ---------- */
 export async function renderDetails(state){
   await ensureModelWeatherModules(state);
 
@@ -738,13 +684,11 @@ export async function renderDetails(state){
   }
 }
 
-/* ---------- refresh ---------- */
 export async function refreshAll(state){
   await renderTiles(state);
   await renderDetails(state);
 }
 
-/* ---------- details-only refresh ---------- */
 export async function refreshDetailsOnly(state){
   await renderDetails(state);
   try{ if (state && state.selectedFieldId) await updateTileForField(state, state.selectedFieldId); }catch(_){}
