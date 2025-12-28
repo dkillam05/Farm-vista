@@ -1,14 +1,11 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2025-12-28b
+Rev: 2025-12-28c
 
 Fix (per Dane):
-✅ Quick View readiness now MATCHES tiles
-   - Root cause: Quick View runField() deps were missing calibration hook inputs:
-       deps.opKey and deps.CAL
-   - Fix: Quick View now passes:
-       opKey = getCurrentOp()
-       CAL   = state._cal (fallback safe default)
+✅ Calibration is GLOBAL ONLY (matches render.js)
+✅ Quick View readiness now matches main tiles for every operation
+   - Passes CAL as { wetBias, opWetBias:{} } so per-op bias never applies
 
 Keeps:
 ✅ Map no longer opens BEHIND Quick View.
@@ -74,17 +71,15 @@ function gradientForThreshold(thr){
 }
 
 /* =====================================================================
-   Calibration helper (read-only; render.js loads state._cal)
+   GLOBAL-ONLY calibration helper
 ===================================================================== */
 function getCalForDeps(state){
-  return (state && state._cal && typeof state._cal === 'object')
-    ? state._cal
-    : { wetBias:0, opWetBias:{} };
+  const wb = (state && state._cal && isFinite(Number(state._cal.wetBias))) ? Number(state._cal.wetBias) : 0;
+  return { wetBias: wb, opWetBias: {} };
 }
 
 /* =====================================================================
    Map modal helpers (uses existing #mapBackdrop modal in field-readiness.html)
-   Opens in-page popup, not a new browser.
 ===================================================================== */
 function mapEls(){
   return {
@@ -223,14 +218,11 @@ function ensureBuiltOnce(state){
 
   wrap.innerHTML = `
     <style>
-      /* QuickView-only mobile fit */
       #frQvBackdrop{
         align-items:flex-start !important;
         padding-top: calc(env(safe-area-inset-top, 0px) + 10px) !important;
         padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 10px) !important;
       }
-
-      /* Make modal fit viewport and scroll internally */
       #frQvBackdrop .modal{
         width: min(760px, 96vw);
         max-height: calc(100svh - 20px);
@@ -238,8 +230,6 @@ function ensureBuiltOnce(state){
         display: flex;
         flex-direction: column;
       }
-
-      /* Sticky header so X is always reachable */
       #frQvBackdrop .modal-h{
         position: sticky;
         top: 0;
@@ -248,16 +238,12 @@ function ensureBuiltOnce(state){
         border-bottom: 1px solid var(--border);
         padding: 14px 56px 10px 14px;
       }
-
-      /* Body scroll area */
       #frQvBackdrop .modal-b{
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
         padding: 14px;
         padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
       }
-
-      /* Bigger tap target X + keep it above + FV xbtn look */
       #frQvX{
         width: 44px !important;
         height: 44px !important;
@@ -273,7 +259,6 @@ function ensureBuiltOnce(state){
       #frQvX svg{ width:20px;height:20px; }
       #frQvX:active{ transform: translateY(1px); }
 
-      /* FV primary button (Save & Close) */
       #frQvSaveClose{
         background: var(--accent, #2F6C3C) !important;
         border-color: transparent !important;
@@ -290,7 +275,6 @@ function ensureBuiltOnce(state){
         box-shadow: none !important;
       }
 
-      /* Tiny Map button (GPS row) */
       #frQvMapBtn{
         border: 1px solid var(--border) !important;
         background: color-mix(in srgb, var(--surface) 92%, #ffffff 8%) !important;
@@ -309,7 +293,6 @@ function ensureBuiltOnce(state){
         cursor:not-allowed !important;
       }
 
-      /* GPS row layout */
       #frQvGpsRow{
         display:flex;
         align-items:center;
@@ -343,10 +326,8 @@ function ensureBuiltOnce(state){
       </div>
 
       <div class="modal-b" style="display:grid;gap:12px;">
-        <!-- LIVE TILE PREVIEW -->
         <div id="frQvTilePreview"></div>
 
-        <!-- INPUTS -->
         <div class="panel" style="margin:0;" id="frQvInputsPanel">
           <h3 style="margin:0 0 8px;font-size:13px;font-weight:900;">Inputs (field-specific)</h3>
 
@@ -370,7 +351,6 @@ function ensureBuiltOnce(state){
           </div>
         </div>
 
-        <!-- FIELD + SETTINGS -->
         <div class="panel" style="margin:0;">
           <h3 style="margin:0 0 8px;font-size:13px;font-weight:900;">Field + Settings</h3>
           <div class="kv">
@@ -390,7 +370,6 @@ function ensureBuiltOnce(state){
           <div class="help" id="frQvParamExplain">—</div>
         </div>
 
-        <!-- WEATHER + OUTPUT -->
         <div class="panel" style="margin:0;">
           <h3 style="margin:0 0 8px;font-size:13px;font-weight:900;">Weather + Output</h3>
           <div class="kv">
@@ -415,8 +394,6 @@ function ensureBuiltOnce(state){
     if (e.target && e.target.id === 'frQvBackdrop') close();
   });
 
-  // Wire Map modal close once (reuses existing HTML modal)
-  // ✅ ALSO restores Quick View after map closes (fixes "map behind quick view")
   (function wireMapCloseOnce(){
     if (state._qvMapWired) return;
     state._qvMapWired = true;
@@ -469,8 +446,6 @@ function ensureBuiltOnce(state){
     });
   }
 
-  // Tiny Map button click
-  // ✅ Hide Quick View so map is not obscured, then restore on map close
   const mapBtn = $('frQvMapBtn');
   if (mapBtn){
     mapBtn.addEventListener('click', async (e)=>{
@@ -508,8 +483,6 @@ export function closeQuickView(state){
   const b = $('frQvBackdrop');
   if (b) b.classList.add('pv-hide');
   state._qvOpen = false;
-
-  // If map is open and we close QV, don't auto-restore QV later
   try{ state._qvHiddenForMap = false; }catch(_){}
 }
 
@@ -574,8 +547,8 @@ function fillQuickView(state, { live=false } = {}){
   const f = state.fields.find(x=>x.id===fid);
   if (!f) return;
 
-  const opKey = getCurrentOp();           // ✅ match tiles
-  const CAL = getCalForDeps(state);       // ✅ match tiles
+  const opKey = getCurrentOp();
+  const CAL = getCalForDeps(state);
 
   const wxCtx = buildWxCtx(state);
   const deps = {
@@ -583,8 +556,8 @@ function fillQuickView(state, { live=false } = {}){
     getFieldParams: (id)=> getFieldParams(state, id),
     LOSS_SCALE: CONST.LOSS_SCALE,
     EXTRA,
-    opKey,            // ✅ required for per-op cal
-    CAL              // ✅ required for global/per-op bias
+    opKey,
+    CAL
   };
 
   const run = state._mods.model.runField(f, deps);
