@@ -1,15 +1,18 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-28c
+Rev: 2025-12-28d
 
-Add (per Dane):
-✅ Bring back the small info box at the TOP of the lower Details section:
-   - Shows: Farm • Field
-   - Also shows: County / State (subtle)
-   - Appears ABOVE “Beta: Data pulled into the model”
-   - Works in light + dark
+Change (per Dane):
+✅ ONLY change: adjust the model based on calibration from the
+   field_readiness_adjustments collection (global adjustments).
+   - Reads recent docs from CONST.ADJ_COLLECTION (field_readiness_adjustments)
+   - Builds: state._cal = { wetBias, opWetBias }
+   - Passes into model deps as:
+       deps.CAL  (your new hook)
+       deps.opKey (current operation key)
 
-Keeps (from your Rev: 2025-12-27s):
+Keeps EVERYTHING else exactly as your provided Rev: 2025-12-28c:
+✅ Farm • Field info box at TOP of lower Details section
 ✅ Mobile selected field name: normal color + underline
 ✅ Desktop selected tile outline; name stays normal
 ✅ dblclick always wired; canEdit checked at click-time
@@ -29,6 +32,136 @@ import { openQuickView } from './quickview.js';
 import { initSwipeOnTiles } from './swipe.js';
 import { parseRangeFromInput, rainInRange } from './rain.js';
 import { fetchAndHydrateFieldParams } from './data.js';
+import { getAPI } from './firebase.js';
+
+/* =====================================================================
+   Calibration from adjustments collection (GLOBAL ONLY)
+   Source: CONST.ADJ_COLLECTION  (field_readiness_adjustments)
+   Output: state._cal = { wetBias, opWetBias }
+===================================================================== */
+const CAL_MAX_DOCS = 12;        // last N global adjustments
+const CAL_SCALE = 0.25;         // wetBias points per delta unit
+const CAL_CLAMP = 12;           // clamp wetBias to ±
+
+async function loadCalibrationFromAdjustments(state, { force=false } = {}){
+  const now = Date.now();
+  const last = Number(state._calLoadedAt || 0);
+  if (!force && state._cal && (now - last) < 30000) return state._cal;
+
+  const out = { wetBias: 0, opWetBias: {} };
+
+  try{
+    const api = getAPI(state);
+
+    // If no API, keep default
+    if (!api){
+      state._cal = out;
+      state._calLoadedAt = now;
+      return out;
+    }
+
+    // ---------- compat ----------
+    if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
+      const db = window.firebase.firestore();
+
+      // best effort orderBy: createdAt -> ts fallback
+      let snap = null;
+      try{
+        snap = await db.collection(CONST.ADJ_COLLECTION)
+          .orderBy('createdAt', 'desc')
+          .limit(CAL_MAX_DOCS)
+          .get();
+      }catch(_){
+        snap = await db.collection(CONST.ADJ_COLLECTION)
+          .orderBy('ts', 'desc')
+          .limit(CAL_MAX_DOCS)
+          .get();
+      }
+
+      snap.forEach(doc=>{
+        const d = doc.data() || {};
+        if (d.global !== true) return;
+
+        const delta = Number(d.delta);
+        if (!isFinite(delta)) return;
+
+        const op = String(d.op || '').trim() || 'all';
+        const add = delta * CAL_SCALE;
+
+        out.wetBias += add;
+        out.opWetBias[op] = (out.opWetBias[op] || 0) + add;
+      });
+
+      out.wetBias = clamp(out.wetBias, -CAL_CLAMP, CAL_CLAMP);
+      for (const k of Object.keys(out.opWetBias)){
+        out.opWetBias[k] = clamp(out.opWetBias[k], -CAL_CLAMP, CAL_CLAMP);
+      }
+
+      state._cal = out;
+      state._calLoadedAt = now;
+      return out;
+    }
+
+    // ---------- modular ----------
+    if (api.kind !== 'compat'){
+      const db = api.getFirestore();
+
+      // best effort orderBy: createdAt -> ts fallback
+      let q = null;
+      try{
+        q = api.query(
+          api.collection(db, CONST.ADJ_COLLECTION),
+          api.orderBy('createdAt', 'desc'),
+          api.limit(CAL_MAX_DOCS)
+        );
+      }catch(_){
+        q = api.query(
+          api.collection(db, CONST.ADJ_COLLECTION),
+          api.orderBy('ts', 'desc'),
+          api.limit(CAL_MAX_DOCS)
+        );
+      }
+
+      const snap = await api.getDocs(q);
+      snap.forEach(doc=>{
+        const d = doc.data() || {};
+        if (d.global !== true) return;
+
+        const delta = Number(d.delta);
+        if (!isFinite(delta)) return;
+
+        const op = String(d.op || '').trim() || 'all';
+        const add = delta * CAL_SCALE;
+
+        out.wetBias += add;
+        out.opWetBias[op] = (out.opWetBias[op] || 0) + add;
+      });
+
+      out.wetBias = clamp(out.wetBias, -CAL_CLAMP, CAL_CLAMP);
+      for (const k of Object.keys(out.opWetBias)){
+        out.opWetBias[k] = clamp(out.opWetBias[k], -CAL_CLAMP, CAL_CLAMP);
+      }
+
+      state._cal = out;
+      state._calLoadedAt = now;
+      return out;
+    }
+
+  }catch(e){
+    console.warn('[FieldReadiness] calibration load failed:', e);
+  }
+
+  // Fallback: keep whatever we had (or default)
+  state._cal = state._cal || out;
+  state._calLoadedAt = now;
+  return state._cal;
+}
+
+function getCalForDeps(state){
+  return (state && state._cal && typeof state._cal === 'object')
+    ? state._cal
+    : { wetBias:0, opWetBias:{} };
+}
 
 /* ---------- module loader (model/weather) ---------- */
 export async function ensureModelWeatherModules(state){
@@ -331,16 +464,21 @@ async function updateTileForField(state, fieldId){
     if (!tile) return;
 
     await ensureModelWeatherModules(state);
+    await loadCalibrationFromAdjustments(state);
 
     const f = (state.fields || []).find(x=>x.id === fid);
     if (!f) return;
+
+    const opKey = getCurrentOp();
 
     const wxCtx = buildWxCtx(state);
     const deps = {
       getWeatherSeriesForFieldId: (id)=> state._mods.weather.getWeatherSeriesForFieldId(id, wxCtx),
       getFieldParams: (id)=> getFieldParams(state, id),
       LOSS_SCALE: CONST.LOSS_SCALE,
-      EXTRA
+      EXTRA,
+      opKey,
+      CAL: getCalForDeps(state)
     };
 
     const run0 = state._mods.model.runField(f, deps);
@@ -348,7 +486,7 @@ async function updateTileForField(state, fieldId){
 
     try{ state.lastRuns && state.lastRuns.set(fid, run0); }catch(_){}
 
-    const thr = getThresholdForOp(state, getCurrentOp());
+    const thr = getThresholdForOp(state, opKey);
     const readiness = run0.readinessR;
 
     const leftPos = state._mods.model.markerLeftCSS(readiness);
@@ -446,17 +584,22 @@ function wireTileInteractions(state, tileEl, fieldId){
 export async function renderTiles(state){
   await ensureModelWeatherModules(state);
   ensureSelectionStyleOnce();
+  await loadCalibrationFromAdjustments(state);
 
   const wrap = $('fieldsGrid');
   if (!wrap) return;
   wrap.innerHTML = '';
+
+  const opKey = getCurrentOp();
 
   const wxCtx = buildWxCtx(state);
   const deps = {
     getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
     getFieldParams: (fid)=> getFieldParams(state, fid),
     LOSS_SCALE: CONST.LOSS_SCALE,
-    EXTRA
+    EXTRA,
+    opKey,
+    CAL: getCalForDeps(state)
   };
 
   state.lastRuns.clear();
@@ -466,7 +609,7 @@ export async function renderTiles(state){
 
   const filtered = getFilteredFields(state);
   const sorted = sortFields(filtered, state.lastRuns);
-  const thr = getThresholdForOp(state, getCurrentOp());
+  const thr = getThresholdForOp(state, opKey);
   const range = parseRangeFromInput();
 
   const cap = (state.pageSize === -1) ? sorted.length : Math.min(sorted.length, state.pageSize);
@@ -650,12 +793,18 @@ export async function renderDetails(state){
   // ✅ Insert/update the farm/field box at the top of the details section
   updateDetailsHeaderPanel(state);
 
+  await loadCalibrationFromAdjustments(state);
+
+  const opKey = getCurrentOp();
+
   const wxCtx = buildWxCtx(state);
   const deps = {
     getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
     getFieldParams: (fid)=> getFieldParams(state, fid),
     LOSS_SCALE: CONST.LOSS_SCALE,
-    EXTRA
+    EXTRA,
+    opKey,
+    CAL: getCalForDeps(state)
   };
 
   const run = state.lastRuns.get(f.id) || state._mods.model.runField(f, deps);
@@ -794,5 +943,16 @@ export async function refreshDetailsOnly(state){
         await refreshDetailsOnly(state);
       }catch(_){}
     });
+
+    // ✅ When global calibration applies, force re-read calibration before the next paint
+    document.addEventListener('fr:soft-reload', async ()=>{
+      try{
+        const state = window.__FV_FR;
+        if (!state) return;
+        state._calLoadedAt = 0;
+        await loadCalibrationFromAdjustments(state, { force:true });
+      }catch(_){}
+    });
+
   }catch(_){}
 })();
