@@ -1,181 +1,35 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-28f
+/Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
+Rev: 2025-12-28c
 
 Fix (per Dane):
-✅ Desktop dblclick works again
-   - Root cause: selectField() was calling refreshAll() which re-rendered tiles,
-     replacing the DOM node between clicks, preventing native dblclick.
-   - Fix: selectField() now does NOT re-render tiles; it refreshes details only.
-   - Also: CLICK_DELAY_MS slightly increased so normal dblclick speed doesn’t
-     trigger select before dblclick fires.
-
-✅ Readiness mismatch fix (tiles vs details):
-   - renderDetails() no longer reuses stale state.lastRuns.get(f.id)
-   - Details always recomputes run with current deps (CAL + opKey) and then
-     writes back to lastRuns for consistency.
+✅ Calibration is GLOBAL ONLY (matches render.js)
+✅ Quick View readiness now matches main tiles for every operation
+   - Passes CAL as { wetBias, opWetBias:{} } so per-op bias never applies
 
 Keeps:
-✅ Mobile works great (ellipsis + selection behavior unchanged)
-✅ Desktop selected tile outline; name stays normal
-✅ dblclick always wired; canEdit checked at click-time
-✅ Calibration from field_readiness_adjustments stays
-✅ fr:tile-refresh / fr:details-refresh listeners
-✅ Background Firestore hydrate on select + dblclick quick view
-✅ All prior rendering & tables behavior
+✅ Map no longer opens BEHIND Quick View.
+✅ Tiny Map button on SAME row as GPS
+✅ Opens in-page Map modal (no new browser/tab)
+✅ Mobile fit (sticky header, X always reachable)
+✅ One button: Save & Close
+✅ Live tile preview + live output updates
+✅ Saves to Firestore fields/{id} soilWetness + drainageIndex
+✅ Dispatches fr:tile-refresh + fr:details-refresh on Save & Close
 ===================================================================== */
 'use strict';
 
-import { PATHS } from './paths.js';
-import { OPS, EXTRA, CONST, buildWxCtx } from './state.js';
-import { $, esc, clamp } from './utils.js';
-import { getFieldParams, ensureSelectedParamsToSliders, saveParamsToLocal } from './params.js';
-import { getCurrentOp, getThresholdForOp } from './thresholds.js';
-import { canEdit } from './perm.js';
-import { openQuickView } from './quickview.js';
-import { initSwipeOnTiles } from './swipe.js';
-import { parseRangeFromInput, rainInRange } from './rain.js';
-import { fetchAndHydrateFieldParams } from './data.js';
+import { buildWxCtx, EXTRA, CONST, OPS } from './state.js';
 import { getAPI } from './firebase.js';
+import { getFieldParams, saveParamsToLocal } from './params.js';
+import { getCurrentOp, getThresholdForOp } from './thresholds.js';
+import { esc, clamp } from './utils.js';
+import { canEdit } from './perm.js';
+import { parseRangeFromInput, rainInRange } from './rain.js';
 
-/* =====================================================================
-   Calibration from adjustments collection (GLOBAL ONLY)
-   Source: CONST.ADJ_COLLECTION  (field_readiness_adjustments)
-   Output: state._cal = { wetBias, opWetBias }
-===================================================================== */
-const CAL_MAX_DOCS = 12;        // last N global adjustments
-const CAL_SCALE = 0.25;         // wetBias points per delta unit
-const CAL_CLAMP = 12;           // clamp wetBias to ±
+function $(id){ return document.getElementById(id); }
 
-async function loadCalibrationFromAdjustments(state, { force=false } = {}){
-  const now = Date.now();
-  const last = Number(state._calLoadedAt || 0);
-  if (!force && state._cal && (now - last) < 30000) return state._cal;
-
-  const out = { wetBias: 0, opWetBias: {} };
-
-  try{
-    const api = getAPI(state);
-
-    // If no API, keep default
-    if (!api){
-      state._cal = out;
-      state._calLoadedAt = now;
-      return out;
-    }
-
-    // ---------- compat ----------
-    if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
-      const db = window.firebase.firestore();
-
-      // best effort orderBy: createdAt -> ts fallback
-      let snap = null;
-      try{
-        snap = await db.collection(CONST.ADJ_COLLECTION)
-          .orderBy('createdAt', 'desc')
-          .limit(CAL_MAX_DOCS)
-          .get();
-      }catch(_){
-        snap = await db.collection(CONST.ADJ_COLLECTION)
-          .orderBy('ts', 'desc')
-          .limit(CAL_MAX_DOCS)
-          .get();
-      }
-
-      snap.forEach(doc=>{
-        const d = doc.data() || {};
-        if (d.global !== true) return;
-
-        const delta = Number(d.delta);
-        if (!isFinite(delta)) return;
-
-        const op = String(d.op || '').trim() || 'all';
-        const add = delta * CAL_SCALE;
-
-        out.wetBias += add;
-        out.opWetBias[op] = (out.opWetBias[op] || 0) + add;
-      });
-
-      out.wetBias = clamp(out.wetBias, -CAL_CLAMP, CAL_CLAMP);
-      for (const k of Object.keys(out.opWetBias)){
-        out.opWetBias[k] = clamp(out.opWetBias[k], -CAL_CLAMP, CAL_CLAMP);
-      }
-
-      state._cal = out;
-      state._calLoadedAt = now;
-      return out;
-    }
-
-    // ---------- modular ----------
-    if (api.kind !== 'compat'){
-      const db = api.getFirestore();
-
-      // best effort orderBy: createdAt -> ts fallback
-      let q = null;
-      try{
-        q = api.query(
-          api.collection(db, CONST.ADJ_COLLECTION),
-          api.orderBy('createdAt', 'desc'),
-          api.limit(CAL_MAX_DOCS)
-        );
-      }catch(_){
-        q = api.query(
-          api.collection(db, CONST.ADJ_COLLECTION),
-          api.orderBy('ts', 'desc'),
-          api.limit(CAL_MAX_DOCS)
-        );
-      }
-
-      const snap = await api.getDocs(q);
-      snap.forEach(doc=>{
-        const d = doc.data() || {};
-        if (d.global !== true) return;
-
-        const delta = Number(d.delta);
-        if (!isFinite(delta)) return;
-
-        const op = String(d.op || '').trim() || 'all';
-        const add = delta * CAL_SCALE;
-
-        out.wetBias += add;
-        out.opWetBias[op] = (out.opWetBias[op] || 0) + add;
-      });
-
-      out.wetBias = clamp(out.wetBias, -CAL_CLAMP, CAL_CLAMP);
-      for (const k of Object.keys(out.opWetBias)){
-        out.opWetBias[k] = clamp(out.opWetBias[k], -CAL_CLAMP, CAL_CLAMP);
-      }
-
-      state._cal = out;
-      state._calLoadedAt = now;
-      return out;
-    }
-
-  }catch(e){
-    console.warn('[FieldReadiness] calibration load failed:', e);
-  }
-
-  // Fallback: keep whatever we had (or default)
-  state._cal = state._cal || out;
-  state._calLoadedAt = now;
-  return state._cal;
-}
-
-function getCalForDeps(state){
-  return (state && state._cal && typeof state._cal === 'object')
-    ? state._cal
-    : { wetBias:0, opWetBias:{} };
-}
-
-/* ---------- module loader (model/weather) ---------- */
-export async function ensureModelWeatherModules(state){
-  if (state._mods.model && state._mods.weather) return;
-  const [weather, model] = await Promise.all([ import(PATHS.WEATHER), import(PATHS.MODEL) ]);
-  state._mods.weather = weather;
-  state._mods.model = model;
-}
-
-/* ---------- colors (ported) ---------- */
+/* ---------- tile preview color helpers (match tiles) ---------- */
 function perceivedFromThreshold(readiness, thr){
   const r = clamp(Math.round(Number(readiness)), 0, 100);
   const t = clamp(Math.round(Number(thr)), 0, 100);
@@ -216,422 +70,450 @@ function gradientForThreshold(thr){
   )`;
 }
 
-/* ---------- sorting ---------- */
-function sortFields(fields, runsById){
-  const sel = $('sortSel');
-  const mode = String(sel ? sel.value : 'name_az');
-  const range = parseRangeFromInput();
-  const collator = new Intl.Collator(undefined, { numeric:true, sensitivity:'base' });
-  const arr = fields.slice();
-
-  arr.sort((a,b)=>{
-    const ra = runsById.get(a.id);
-    const rb = runsById.get(b.id);
-
-    const nameA = `${a.name||''}`;
-    const nameB = `${b.name||''}`;
-
-    const readyA = ra ? ra.readinessR : 0;
-    const readyB = rb ? rb.readinessR : 0;
-
-    const rainA = ra ? rainInRange(ra, range) : 0;
-
-    if (mode === 'name_az') return collator.compare(nameA, nameB);
-    if (mode === 'name_za') return collator.compare(nameB, nameA);
-
-    if (mode === 'ready_dry_wet'){ if (readyB !== readyA) return readyB - readyA; return collator.compare(nameA, nameB); }
-    if (mode === 'ready_wet_dry'){ if (readyB !== readyA) return readyA - readyB; return collator.compare(nameA, nameB); }
-
-    const rainB2 = rb ? rainInRange(rb, range) : 0;
-    if (mode === 'rain_most'){ if (rainB2 !== rainA) return rainB2 - rainA; return collator.compare(nameA, nameB); }
-    if (mode === 'rain_least'){ if (rainB2 !== rainA) return rainA - rainB2; return collator.compare(nameA, nameB); }
-
-    return collator.compare(nameA, nameB);
-  });
-
-  return arr;
-}
-
-function getFilteredFields(state){
-  const farmId = String(state.farmFilter || '__all__');
-  if (farmId === '__all__') return state.fields.slice();
-  return state.fields.filter(f => String(f.farmId||'') === farmId);
+/* =====================================================================
+   GLOBAL-ONLY calibration helper
+===================================================================== */
+function getCalForDeps(state){
+  const wb = (state && state._cal && isFinite(Number(state._cal.wetBias))) ? Number(state._cal.wetBias) : 0;
+  return { wetBias: wb, opWetBias: {} };
 }
 
 /* =====================================================================
-   Selection CSS injected once (matches your Rev s behavior)
+   Map modal helpers (uses existing #mapBackdrop modal in field-readiness.html)
 ===================================================================== */
-function ensureSelectionStyleOnce(){
-  try{
-    if (window.__FV_FR_SELSTYLE__) return;
-    window.__FV_FR_SELSTYLE__ = true;
-
-    const s = document.createElement('style');
-    s.setAttribute('data-fv-fr-selstyle','1');
-    s.textContent = `
-      .tile .tile-top{
-        display:flex !important;
-        align-items:center !important;
-        justify-content:space-between !important;
-        gap:8px !important;
-        flex-wrap:nowrap !important;
-        min-width:0 !important;
-      }
-      .tile .tile-top .titleline{
-        display:flex !important;
-        align-items:center !important;
-        flex:1 1 0 !important;
-        min-width:0 !important;
-        flex-wrap:nowrap !important;
-      }
-      .tile .tile-top .readiness-pill{
-        flex:0 0 auto !important;
-        white-space:nowrap !important;
-      }
-      .tile .tile-top .titleline .name{
-        flex:1 1 auto !important;
-        display:block !important;
-        min-width:0 !important;
-        max-width:100% !important;
-        white-space:nowrap !important;
-        overflow:hidden !important;
-        text-overflow:ellipsis !important;
-      }
-
-      @media (hover: none) and (pointer: coarse){
-        .tile.fv-selected .tile-top .titleline .name{
-          color: inherit !important;
-          text-decoration: underline !important;
-          text-decoration-thickness: 2px !important;
-          text-underline-offset: 3px !important;
-          text-decoration-color: var(--accent, #2F6C3C) !important;
-          font-weight: 950 !important;
-
-          display:block !important;
-          min-width:0 !important;
-          max-width:100% !important;
-          white-space:nowrap !important;
-          overflow:hidden !important;
-          text-overflow:ellipsis !important;
-
-          padding: 2px 6px !important;
-          border-radius: 8px !important;
-          background: rgba(47,108,60,0.12) !important;
-          box-shadow: inset 0 -2px 0 rgba(47,108,60,0.55) !important;
-        }
-
-        html.dark .tile.fv-selected .tile-top .titleline .name{
-          background: rgba(47,108,60,0.18) !important;
-          box-shadow: inset 0 -2px 0 rgba(47,108,60,0.70) !important;
-        }
-      }
-
-      @media (hover: hover) and (pointer: fine){
-        .tile.fv-selected{
-          box-shadow:
-            0 0 0 2px rgba(47,108,60,0.40),
-            0 10px 18px rgba(15,23,42,0.08);
-          border-radius: 14px;
-        }
-
-        html.dark .tile.fv-selected{
-          box-shadow:
-            0 0 0 2px rgba(47,108,60,0.45),
-            0 12px 22px rgba(0,0,0,0.28);
-        }
-
-        .tile.fv-selected .tile-top .titleline .name{
-          color: inherit !important;
-          text-decoration: none !important;
-          font-weight: inherit !important;
-          padding: 0 !important;
-          border-radius: 0 !important;
-          background: transparent !important;
-          box-shadow: none !important;
-
-          display:block !important;
-          min-width:0 !important;
-          max-width:100% !important;
-          white-space:nowrap !important;
-          overflow:hidden !important;
-          text-overflow:ellipsis !important;
-        }
-      }
-
-      #frDetailsHeaderPanel{
-        margin: 0 !important;
-        padding: 10px 12px !important;
-      }
-      #frDetailsHeaderPanel .frdh-title{
-        font-weight: 950;
-        font-size: 13px;
-        line-height: 1.2;
-      }
-      #frDetailsHeaderPanel .frdh-sub{
-        font-size: 12px;
-        line-height: 1.2;
-        color: var(--muted,#67706B);
-        margin-top: 4px;
-      }
-    `;
-    document.head.appendChild(s);
-  }catch(_){}
-}
-
-function setSelectedTileClass(state, fieldId){
-  try{
-    const fid = String(fieldId || '');
-    if (!fid) return;
-
-    const prev = String(state._selectedTileId || '');
-    if (prev && prev !== fid){
-      const prevEl = document.querySelector(`.tile[data-field-id="${CSS.escape(prev)}"]`);
-      if (prevEl) prevEl.classList.remove('fv-selected');
-    }
-
-    const curEl = document.querySelector(`.tile[data-field-id="${CSS.escape(fid)}"]`);
-    if (curEl) curEl.classList.add('fv-selected');
-
-    state._selectedTileId = fid;
-  }catch(_){}
-}
-
-function setSelectedField(state, fieldId){
-  state.selectedFieldId = fieldId;
-  ensureSelectionStyleOnce();
-  setSelectedTileClass(state, fieldId);
-  try{ document.dispatchEvent(new CustomEvent('fr:selected-field-changed', { detail:{ fieldId } })); }catch(_){}
-}
-
-/* =====================================================================
-   Details header panel (Farm • Field)
-===================================================================== */
-function ensureDetailsHeaderPanel(){
-  const details = document.getElementById('detailsPanel');
-  if (!details) return null;
-
-  const body = details.querySelector('.details-body');
-  if (!body) return null;
-
-  let panel = document.getElementById('frDetailsHeaderPanel');
-  if (panel && panel.parentElement === body) return panel;
-
-  panel = document.createElement('div');
-  panel.id = 'frDetailsHeaderPanel';
-  panel.className = 'panel';
-  panel.style.margin = '0';
-  panel.style.display = 'grid';
-  panel.style.gap = '4px';
-
-  body.prepend(panel);
-  return panel;
-}
-
-function updateDetailsHeaderPanel(state){
-  const f = (state.fields || []).find(x=>x.id === state.selectedFieldId);
-  if (!f) return;
-
-  const panel = ensureDetailsHeaderPanel();
-  if (!panel) return;
-
-  const farmName = (state.farmsById && state.farmsById.get) ? (state.farmsById.get(f.farmId) || '') : '';
-  const title = farmName ? `${farmName} • ${f.name || ''}` : (f.name || '—');
-  const loc = (f.county || f.state) ? `${String(f.county||'—')} / ${String(f.state||'—')}` : '';
-
-  panel.innerHTML = `
-    <div class="frdh-title">${esc(title)}</div>
-    ${loc ? `<div class="frdh-sub">${esc(loc)}</div>` : ``}
-  `;
-}
-
-/* ---------- internal: patch a single tile DOM in-place ---------- */
-async function updateTileForField(state, fieldId){
-  try{
-    if (!fieldId) return;
-    const fid = String(fieldId);
-
-    const tile = document.querySelector(`.tile[data-field-id="${CSS.escape(fid)}"]`);
-    if (!tile) return;
-
-    await ensureModelWeatherModules(state);
-    await loadCalibrationFromAdjustments(state);
-
-    const f = (state.fields || []).find(x=>x.id === fid);
-    if (!f) return;
-
-    const opKey = getCurrentOp();
-
-    const wxCtx = buildWxCtx(state);
-    const deps = {
-      getWeatherSeriesForFieldId: (id)=> state._mods.weather.getWeatherSeriesForFieldId(id, wxCtx),
-      getFieldParams: (id)=> getFieldParams(state, id),
-      LOSS_SCALE: CONST.LOSS_SCALE,
-      EXTRA,
-      opKey,
-      CAL: getCalForDeps(state)
-    };
-
-    const run0 = state._mods.model.runField(f, deps);
-    if (!run0) return;
-
-    try{ state.lastRuns && state.lastRuns.set(fid, run0); }catch(_){}
-
-    const thr = getThresholdForOp(state, opKey);
-    const readiness = run0.readinessR;
-
-    const leftPos = state._mods.model.markerLeftCSS(readiness);
-    const thrPos  = state._mods.model.markerLeftCSS(thr);
-
-    const perceived = perceivedFromThreshold(readiness, thr);
-    const pillBg = colorForPerceived(perceived);
-    const grad = gradientForThreshold(thr);
-
-    const gauge = tile.querySelector('.gauge');
-    if (gauge) gauge.style.background = grad;
-
-    const thrEl = tile.querySelector('.thr');
-    if (thrEl) thrEl.style.left = thrPos;
-
-    const markerEl = tile.querySelector('.marker');
-    if (markerEl) markerEl.style.left = leftPos;
-
-    const pill = tile.querySelector('.readiness-pill');
-    if (pill){
-      pill.style.background = pillBg;
-      pill.style.color = '#fff';
-      pill.textContent = `Field Readiness ${readiness}`;
-    }
-
-    const badge = tile.querySelector('.badge');
-    if (badge){
-      badge.style.left = leftPos;
-      badge.style.background = pillBg;
-      badge.style.color = '#fff';
-      badge.textContent = `Field Readiness ${readiness}`;
-    }
-
-    const range = parseRangeFromInput();
-    const rainRange = rainInRange(run0, range);
-    const rainLine = tile.querySelector('.subline .mono');
-    if (rainLine){
-      rainLine.textContent = rainRange.toFixed(2);
-    }
-
-    const eta = state._mods.model.etaFor(run0, thr, CONST.ETA_MAX_HOURS);
-    const help = tile.querySelector('.help b');
-    if (help){
-      help.textContent = eta ? String(eta) : '';
-    }
-
-    if (String(state.selectedFieldId) === fid){
-      tile.classList.add('fv-selected');
-      state._selectedTileId = fid;
-    }
-  }catch(_){}
-}
-
-/* ---------- click vs dblclick separation ---------- */
-function wireTileInteractions(state, tileEl, fieldId){
-  // Increased so normal desktop dblclick doesn’t trigger select first
-  const CLICK_DELAY_MS = 360;
-  tileEl._fvClickTimer = null;
-
-  tileEl.addEventListener('click', ()=>{
-    const until = Number(state._suppressClickUntil || 0);
-    if (Date.now() < until) return;
-
-    if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
-    tileEl._fvClickTimer = setTimeout(()=>{
-      tileEl._fvClickTimer = null;
-      selectField(state, fieldId);
-    }, CLICK_DELAY_MS);
-  });
-
-  tileEl.addEventListener('dblclick', async (e)=>{
-    e.preventDefault();
-    e.stopPropagation();
-
-    if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
-    tileEl._fvClickTimer = null;
-
-    setSelectedField(state, fieldId);
-    ensureSelectedParamsToSliders(state);
-
-    state._suppressClickUntil = Date.now() + 350;
-
-    if (!canEdit(state)) return;
-
-    try{ await fetchAndHydrateFieldParams(state, fieldId); }catch(_){}
-    if (String(state.selectedFieldId) !== String(fieldId)) return;
-
-    ensureSelectedParamsToSliders(state);
-    await updateTileForField(state, fieldId);
-
-    openQuickView(state, fieldId);
-  });
-}
-
-/* ---------- tile render ---------- */
-export async function renderTiles(state){
-  await ensureModelWeatherModules(state);
-  ensureSelectionStyleOnce();
-  await loadCalibrationFromAdjustments(state);
-
-  const wrap = $('fieldsGrid');
-  if (!wrap) return;
-  wrap.innerHTML = '';
-
-  const opKey = getCurrentOp();
-
-  const wxCtx = buildWxCtx(state);
-  const deps = {
-    getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
-    getFieldParams: (fid)=> getFieldParams(state, fid),
-    LOSS_SCALE: CONST.LOSS_SCALE,
-    EXTRA,
-    opKey,
-    CAL: getCalForDeps(state)
+function mapEls(){
+  return {
+    backdrop: $('mapBackdrop'),
+    canvas: $('fvMapCanvas'),
+    sub: $('mapSub'),
+    latlng: $('mapLatLng'),
+    err: $('mapError'),
+    wrap: $('mapWrap'),
+    btnX: $('btnMapX')
   };
+}
 
-  state.lastRuns.clear();
-  for (const f of state.fields){
-    state.lastRuns.set(f.id, state._mods.model.runField(f, deps));
+function showMapModal(on){
+  const { backdrop } = mapEls();
+  if (backdrop) backdrop.classList.toggle('pv-hide', !on);
+}
+
+function setMapError(msg){
+  const { err, wrap } = mapEls();
+  if (err){
+    if (!msg){
+      err.style.display = 'none';
+      err.textContent = '';
+    } else {
+      err.style.display = 'block';
+      err.textContent = String(msg);
+    }
+  }
+  if (wrap) wrap.style.opacity = msg ? '0.65' : '1';
+}
+
+function waitForGoogleMaps(timeoutMs=8000){
+  const t0 = Date.now();
+  return new Promise((resolve, reject)=>{
+    const tick = ()=>{
+      if (window.google && window.google.maps) return resolve(window.google.maps);
+      if (Date.now() - t0 > timeoutMs) return reject(new Error('Google Maps is still loading. Try again in a moment.'));
+      setTimeout(tick, 50);
+    };
+    tick();
+  });
+}
+
+async function openMapForField(state, field){
+  const { canvas, sub, latlng } = mapEls();
+  if (!field || !field.location || !canvas){
+    setMapError('Map unavailable for this field.');
+    showMapModal(true);
+    return;
   }
 
-  const filtered = getFilteredFields(state);
-  const sorted = sortFields(filtered, state.lastRuns);
-  const thr = getThresholdForOp(state, opKey);
-  const range = parseRangeFromInput();
+  const lat = Number(field.location.lat);
+  const lng = Number(field.location.lng);
+  if (!isFinite(lat) || !isFinite(lng)){
+    setMapError('Invalid GPS coordinates.');
+    showMapModal(true);
+    return;
+  }
 
-  const cap = (state.pageSize === -1) ? sorted.length : Math.min(sorted.length, state.pageSize);
-  const show = sorted.slice(0, cap);
+  if (sub) sub.textContent = (field.name ? `${field.name}` : 'Field') + ' • HYBRID';
+  if (latlng) latlng.textContent = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+  setMapError('');
+  showMapModal(true);
 
-  for (const f of show){
-    const run0 = state.lastRuns.get(f.id);
-    if (!run0) continue;
+  try{
+    const maps = await waitForGoogleMaps();
 
-    const readiness = run0.readinessR;
-    const eta = state._mods.model.etaFor(run0, thr, CONST.ETA_MAX_HOURS);
-    const rainRange = rainInRange(run0, range);
+    const center = { lat, lng };
 
-    const leftPos = state._mods.model.markerLeftCSS(readiness);
-    const thrPos  = state._mods.model.markerLeftCSS(thr);
-
-    const perceived = perceivedFromThreshold(readiness, thr);
-    const pillBg = colorForPerceived(perceived);
-    const grad = gradientForThreshold(thr);
-
-    const tile = document.createElement('div');
-    tile.className = 'tile fv-swipe-item';
-    tile.dataset.fieldId = f.id;
-    tile.setAttribute('data-field-id', f.id);
-
-    if (String(state.selectedFieldId) === String(f.id)){
-      tile.classList.add('fv-selected');
-      state._selectedTileId = String(f.id);
+    if (!state._qvGMap){
+      state._qvGMap = new maps.Map(canvas, {
+        center,
+        zoom: 16,
+        mapTypeId: maps.MapTypeId.HYBRID,
+        streetViewControl: false,
+        fullscreenControl: false,
+        mapTypeControl: true,
+        clickableIcons: false
+      });
+    } else {
+      state._qvGMap.setCenter(center);
+      state._qvGMap.setZoom(16);
+      state._qvGMap.setMapTypeId(maps.MapTypeId.HYBRID);
     }
 
-    tile.innerHTML = `
+    if (!state._qvGMarker){
+      state._qvGMarker = new maps.Marker({ position: center, map: state._qvGMap });
+    } else {
+      state._qvGMarker.setMap(state._qvGMap);
+      state._qvGMarker.setPosition(center);
+    }
+
+    setTimeout(()=>{
+      try{ maps.event.trigger(state._qvGMap, 'resize'); }catch(_){}
+      try{ state._qvGMap.setCenter(center); }catch(_){}
+    }, 60);
+
+  }catch(e){
+    console.warn('[FieldReadiness] map open failed:', e);
+    setMapError(e && e.message ? e.message : 'Map failed to load.');
+  }
+}
+
+/* =====================================================================
+   Quick View ↔ Map stacking fix
+===================================================================== */
+function hideQuickViewForMap(state){
+  try{
+    const qv = $('frQvBackdrop');
+    if (!qv) return;
+    state._qvHiddenForMap = true;
+    qv.classList.add('pv-hide');
+  }catch(_){}
+}
+function restoreQuickViewAfterMap(state){
+  try{
+    if (!state._qvHiddenForMap) return;
+    const qv = $('frQvBackdrop');
+    if (!qv) return;
+    qv.classList.remove('pv-hide');
+    state._qvHiddenForMap = false;
+  }catch(_){}
+}
+
+/* ---------- modal build ---------- */
+function ensureBuiltOnce(state){
+  if (state._qvBuilt) return;
+  state._qvBuilt = true;
+
+  const wrap = document.createElement('div');
+  wrap.id = 'frQvBackdrop';
+  wrap.className = 'modal-backdrop pv-hide';
+  wrap.setAttribute('role','dialog');
+  wrap.setAttribute('aria-modal','true');
+
+  wrap.innerHTML = `
+    <style>
+      #frQvBackdrop{
+        align-items:flex-start !important;
+        padding-top: calc(env(safe-area-inset-top, 0px) + 10px) !important;
+        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 10px) !important;
+      }
+      #frQvBackdrop .modal{
+        width: min(760px, 96vw);
+        max-height: calc(100svh - 20px);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      #frQvBackdrop .modal-h{
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+        padding: 14px 56px 10px 14px;
+      }
+      #frQvBackdrop .modal-b{
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        padding: 14px;
+        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+      }
+      #frQvX{
+        width: 44px !important;
+        height: 44px !important;
+        border-radius: 14px !important;
+        top: 10px !important;
+        right: 10px !important;
+        z-index: 3 !important;
+        border: 1px solid var(--border) !important;
+        background: color-mix(in srgb, var(--surface) 92%, #ffffff 8%) !important;
+        color: var(--text) !important;
+        box-shadow: 0 10px 25px rgba(0,0,0,.14) !important;
+      }
+      #frQvX svg{ width:20px;height:20px; }
+      #frQvX:active{ transform: translateY(1px); }
+
+      #frQvSaveClose{
+        background: var(--accent, #2F6C3C) !important;
+        border-color: transparent !important;
+        color: #fff !important;
+        border-radius: 12px !important;
+        padding: 10px 14px !important;
+        font-weight: 900 !important;
+        box-shadow: 0 10px 26px rgba(47,108,60,.45) !important;
+      }
+      #frQvSaveClose:active{ transform: translateY(1px); }
+      #frQvSaveClose:disabled{
+        opacity: .55 !important;
+        cursor: not-allowed !important;
+        box-shadow: none !important;
+      }
+
+      #frQvMapBtn{
+        border: 1px solid var(--border) !important;
+        background: color-mix(in srgb, var(--surface) 92%, #ffffff 8%) !important;
+        color: var(--text) !important;
+        border-radius: 10px !important;
+        padding: 6px 10px !important;
+        font-weight: 900 !important;
+        font-size: 12px !important;
+        line-height: 1 !important;
+        cursor: pointer;
+        user-select:none;
+      }
+      #frQvMapBtn:active{ transform: translateY(1px); }
+      #frQvMapBtn:disabled{
+        opacity:.55 !important;
+        cursor:not-allowed !important;
+      }
+
+      #frQvGpsRow{
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:10px;
+        flex-wrap:nowrap;
+        min-width:0;
+      }
+      #frQvGpsRow .mono{
+        min-width:0;
+        overflow:hidden;
+        text-overflow:ellipsis;
+        white-space:nowrap;
+      }
+
+      @media (max-width: 420px){
+        #frQvBackdrop{ padding-left: 10px !important; padding-right: 10px !important; }
+        #frQvBackdrop .modal{ width: 100%; }
+      }
+    </style>
+
+    <div class="modal">
+      <div class="modal-h">
+        <h3 id="frQvTitle">Field</h3>
+        <button id="frQvX" class="xbtn" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <div class="muted" style="font-size:12px; margin-top:4px;" id="frQvSub">—</div>
+      </div>
+
+      <div class="modal-b" style="display:grid;gap:12px;">
+        <div id="frQvTilePreview"></div>
+
+        <div class="panel" style="margin:0;" id="frQvInputsPanel">
+          <h3 style="margin:0 0 8px;font-size:13px;font-weight:900;">Inputs (field-specific)</h3>
+
+          <div style="display:grid;gap:12px;grid-template-columns:1fr 1fr;align-items:start;">
+            <div class="field">
+              <label for="frQvSoil">Soil Wetness (0–100)</label>
+              <input id="frQvSoil" type="range" min="0" max="100" step="1" value="60"/>
+              <div class="help muted" style="margin-top:6px;">Current: <span class="mono" id="frQvSoilVal">60</span>/100</div>
+            </div>
+
+            <div class="field">
+              <label for="frQvDrain">Drainage Index (0–100)</label>
+              <input id="frQvDrain" type="range" min="0" max="100" step="1" value="45"/>
+              <div class="help muted" style="margin-top:6px;">Current: <span class="mono" id="frQvDrainVal">45</span>/100</div>
+            </div>
+          </div>
+
+          <div class="actions" style="margin-top:12px;justify-content:flex-end;">
+            <div class="help muted" id="frQvHint" style="margin:0;flex:1 1 auto;align-self:center;">—</div>
+            <button id="frQvSaveClose" class="btn btn-primary" type="button">Save &amp; Close</button>
+          </div>
+        </div>
+
+        <div class="panel" style="margin:0;">
+          <h3 style="margin:0 0 8px;font-size:13px;font-weight:900;">Field + Settings</h3>
+          <div class="kv">
+            <div class="k">Field</div><div class="v" id="frQvFieldName">—</div>
+            <div class="k">County / State</div><div class="v" id="frQvCounty">—</div>
+            <div class="k">Tillable</div><div class="v" id="frQvAcres">—</div>
+
+            <div class="k">GPS</div>
+            <div class="v" id="frQvGpsRow">
+              <span class="mono" id="frQvGps">—</span>
+              <button id="frQvMapBtn" type="button">Map</button>
+            </div>
+
+            <div class="k">Operation</div><div class="v" id="frQvOp">—</div>
+            <div class="k">Threshold</div><div class="v" id="frQvThr">—</div>
+          </div>
+          <div class="help" id="frQvParamExplain">—</div>
+        </div>
+
+        <div class="panel" style="margin:0;">
+          <h3 style="margin:0 0 8px;font-size:13px;font-weight:900;">Weather + Output</h3>
+          <div class="kv">
+            <div class="k">Range rain</div><div class="v" id="frQvRain">—</div>
+            <div class="k">Readiness</div><div class="v" id="frQvReadiness">—</div>
+            <div class="k">Wetness</div><div class="v" id="frQvWetness">—</div>
+            <div class="k">Storage</div><div class="v" id="frQvStorage">—</div>
+          </div>
+          <div class="help" id="frQvWxMeta">—</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(wrap);
+
+  const close = ()=> closeQuickView(state);
+
+  const x = $('frQvX'); if (x) x.addEventListener('click', close);
+
+  wrap.addEventListener('click', (e)=>{
+    if (e.target && e.target.id === 'frQvBackdrop') close();
+  });
+
+  (function wireMapCloseOnce(){
+    if (state._qvMapWired) return;
+    state._qvMapWired = true;
+
+    const { btnX, backdrop } = mapEls();
+
+    function closeMapAndReturn(){
+      showMapModal(false);
+      restoreQuickViewAfterMap(state);
+    }
+
+    if (btnX) btnX.addEventListener('click', closeMapAndReturn);
+
+    if (backdrop){
+      backdrop.addEventListener('click', (e)=>{
+        if (e.target && e.target.id === 'mapBackdrop') closeMapAndReturn();
+      });
+    }
+  })();
+
+  const soil = $('frQvSoil');
+  const drain = $('frQvDrain');
+  const soilVal = $('frQvSoilVal');
+  const drainVal = $('frQvDrainVal');
+
+  function onSliderChange(){
+    if (soilVal) soilVal.textContent = String(clamp(Number(soil.value),0,100));
+    if (drainVal) drainVal.textContent = String(clamp(Number(drain.value),0,100));
+
+    const fid = state._qvFieldId;
+    if (!fid) return;
+
+    const p = getFieldParams(state, fid);
+    p.soilWetness = clamp(Number(soil.value),0,100);
+    p.drainageIndex = clamp(Number(drain.value),0,100);
+    state.perFieldParams.set(fid, p);
+
+    fillQuickView(state, { live:true });
+  }
+
+  if (soil) soil.addEventListener('input', onSliderChange);
+  if (drain) drain.addEventListener('input', onSliderChange);
+
+  const saveClose = $('frQvSaveClose');
+  if (saveClose){
+    saveClose.addEventListener('click', async ()=>{
+      if (!canEdit(state)) return;
+      if (state._qvSaving) return;
+      await saveAndClose(state);
+    });
+  }
+
+  const mapBtn = $('frQvMapBtn');
+  if (mapBtn){
+    mapBtn.addEventListener('click', async (e)=>{
+      e.preventDefault();
+      e.stopPropagation();
+
+      const fid = state._qvFieldId;
+      const f = fid ? state.fields.find(x=>x.id===fid) : null;
+      if (!f) return;
+
+      hideQuickViewForMap(state);
+      await openMapForField(state, f);
+    });
+  }
+}
+
+/* ---------- open/close ---------- */
+export function openQuickView(state, fieldId){
+  ensureBuiltOnce(state);
+
+  const f = state.fields.find(x=>x.id===fieldId);
+  if (!f) return;
+
+  state._qvFieldId = fieldId;
+  state.selectedFieldId = fieldId;
+
+  const b = $('frQvBackdrop');
+  if (b) b.classList.remove('pv-hide');
+  state._qvOpen = true;
+
+  fillQuickView(state, { live:false });
+}
+
+export function closeQuickView(state){
+  const b = $('frQvBackdrop');
+  if (b) b.classList.add('pv-hide');
+  state._qvOpen = false;
+  try{ state._qvHiddenForMap = false; }catch(_){}
+}
+
+/* ---------- render inside modal ---------- */
+function setText(id,val){
+  const el = $(id);
+  if (el) el.textContent = String(val);
+}
+
+function renderTilePreview(state, run, thr){
+  const wrap = $('frQvTilePreview');
+  if (!wrap) return;
+
+  const f = state.fields.find(x=>x.id===state._qvFieldId);
+  if (!f || !run) return;
+
+  const readiness = run.readinessR;
+  const range = parseRangeFromInput();
+  const rainRange = rainInRange(run, range);
+
+  const leftPos = state._mods.model.markerLeftCSS(readiness);
+  const thrPos  = state._mods.model.markerLeftCSS(thr);
+
+  const perceived = perceivedFromThreshold(readiness, thr);
+  const pillBg = colorForPerceived(perceived);
+  const grad = gradientForThreshold(thr);
+
+  const eta = state._mods.model.etaFor(run, thr, CONST.ETA_MAX_HOURS);
+
+  wrap.innerHTML = `
+    <div class="tile" style="cursor:default; user-select:none;">
       <div class="tile-top">
         <div class="titleline">
           <div class="name" title="${esc(f.name)}">${esc(f.name)}</div>
@@ -656,298 +538,172 @@ export async function renderTiles(state){
         <div class="ticks"><span>0</span><span>50</span><span>100</span></div>
         ${eta ? `<div class="help"><b>${esc(eta)}</b></div>` : ``}
       </div>
-    `;
-
-    wireTileInteractions(state, tile, f.id);
-    wrap.appendChild(tile);
-  }
-
-  const empty = $('emptyMsg');
-  if (empty) empty.style.display = show.length ? 'none' : 'block';
-
-  await initSwipeOnTiles(state, { onDetails: (fieldId)=> openQuickView(state, fieldId) });
+    </div>
+  `;
 }
 
-/* ---------- select field ---------- */
-export function selectField(state, id){
-  const f = state.fields.find(x=>x.id === id);
+function fillQuickView(state, { live=false } = {}){
+  const fid = state._qvFieldId;
+  const f = state.fields.find(x=>x.id===fid);
   if (!f) return;
-
-  setSelectedField(state, id);
-  ensureSelectedParamsToSliders(state);
-
-  // ✅ KEY FIX: do NOT re-render tiles on select (breaks native dblclick)
-  // Instead, refresh details only and update the selected tile in-place.
-  refreshDetailsOnly(state);
-
-  (async ()=>{
-    try{
-      const ok = await fetchAndHydrateFieldParams(state, id);
-      if (!ok) return;
-      if (String(state.selectedFieldId) !== String(id)) return;
-
-      ensureSelectedParamsToSliders(state);
-      await refreshDetailsOnly(state);
-      await updateTileForField(state, id);
-    }catch(_){}
-  })();
-}
-
-/* ---------- beta panel ---------- */
-function renderBetaInputs(state){
-  const box = $('betaInputs');
-  const meta = $('betaInputsMeta');
-  if (!box || !meta) return;
-
-  const fid = state.selectedFieldId;
-  const info = fid ? state.wxInfoByFieldId.get(fid) : null;
-
-  if (!info){
-    meta.textContent = 'Weather is loading…';
-    box.innerHTML = '';
-    return;
-  }
-
-  const when = info.fetchedAt ? new Date(info.fetchedAt) : null;
-  const whenTxt = when ? when.toLocaleString() : '—';
-
-  meta.textContent =
-    `Source: ${info.source || '—'} • Updated: ${whenTxt} • Primary + light-influence variables are used now; weights are still being tuned.`;
-
-  const unitsHourly = info.units && info.units.hourly ? info.units.hourly : null;
-  const unitsDaily = info.units && info.units.daily ? info.units.daily : null;
-
-  const a = info.availability || { vars:{} };
-  const vars = a.vars || {};
-
-  const usedPrimary = [
-    ['rain_mm','Precipitation (hourly → daily sum)', unitsHourly?.precipitation || 'mm → in'],
-    ['temp_c','Air temperature (hourly avg)', unitsHourly?.temperature_2m || '°C → °F'],
-    ['wind_mph','Wind speed (hourly avg)', 'mph (converted)'],
-    ['rh_pct','Relative humidity (hourly avg)', unitsHourly?.relative_humidity_2m || '%'],
-    ['solar_wm2','Shortwave radiation (hourly avg)', unitsHourly?.shortwave_radiation || 'W/m²']
-  ];
-
-  const usedLight = [
-    ['vapour_pressure_deficit_kpa','VPD (hourly avg)', unitsHourly?.vapour_pressure_deficit || 'kPa'],
-    ['cloud_cover_pct','Cloud cover (hourly avg)', unitsHourly?.cloud_cover || '%'],
-    ['soil_moisture_0_10','Soil moisture 0–10cm (hourly avg)', unitsHourly?.soil_moisture_0_to_10cm || 'm³/m³'],
-    ['soil_temp_c_0_10','Soil temp 0–10cm (hourly avg)', unitsHourly?.soil_temperature_0_to_10cm || '°C → °F'],
-    ['et0_mm','ET₀ (daily)', unitsDaily?.et0_fao_evapotranspiration || 'mm/day → in/day'],
-    ['daylight_s','Daylight duration (daily)', unitsDaily?.daylight_duration || 's/day → hr/day'],
-    ['sunshine_s','Sunshine duration (daily)', unitsDaily?.sunshine_duration || 's/day → hr/day']
-  ];
-
-  const pulledNotUsed = [
-    ['soil_temp_c_10_40','Soil temp 10–40cm (hourly)', unitsHourly?.soil_temperature_10_to_40cm || '°C'],
-    ['soil_temp_c_40_100','Soil temp 40–100cm (hourly)', unitsHourly?.soil_temperature_40_to_100cm || '°C'],
-    ['soil_temp_c_100_200','Soil temp 100–200cm (hourly)', unitsHourly?.soil_temperature_100_to_200cm || '°C'],
-    ['soil_moisture_10_40','Soil moisture 10–40cm (hourly)', unitsHourly?.soil_moisture_10_to_40cm || 'm³/m³'],
-    ['soil_moisture_40_100','Soil moisture 40–100cm (hourly)', unitsHourly?.soil_moisture_40_to_100cm || 'm³/m³'],
-    ['soil_moisture_100_200','Soil moisture 100–200cm (hourly)', unitsHourly?.soil_moisture_100_to_200cm || 'm³/m³']
-  ];
-
-  function itemRow(k,label,u,tagClass,tagText){
-    const ok = vars[k] ? !!vars[k].ok : true;
-    const tag = ok ? `<div class="vtag ${tagClass}">${esc(tagText)}</div>` : `<div class="vtag tag-missing">Not in response</div>`;
-    return `
-      <div class="vitem">
-        <div>
-          <div class="vname">${esc(label)}</div>
-          <div class="vmeta">${esc(u || '')}</div>
-        </div>
-        ${tag}
-      </div>
-    `;
-  }
-  function groupHtml(title, rows, tagClass, tagText){
-    const items = rows.map(([k,label,u])=> itemRow(k,label,u,tagClass,tagText)).join('');
-    return `
-      <div class="vgroup">
-        <div class="vgroup-title">${esc(title)}</div>
-        <div class="vitems">${items}</div>
-      </div>
-    `;
-  }
-
-  box.innerHTML =
-    groupHtml('Used now (primary drivers)', usedPrimary, 'tag-primary', 'Used') +
-    groupHtml('Used now (light influence / nudges)', usedLight, 'tag-light', 'Light') +
-    groupHtml('Pulled (not yet used)', pulledNotUsed, 'tag-pulled', 'Pulled');
-}
-
-/* ---------- details render (beta + tables) ---------- */
-export async function renderDetails(state){
-  await ensureModelWeatherModules(state);
-
-  const f = state.fields.find(x=>x.id === state.selectedFieldId);
-  if (!f) return;
-
-  updateDetailsHeaderPanel(state);
-
-  await loadCalibrationFromAdjustments(state);
 
   const opKey = getCurrentOp();
+  const CAL = getCalForDeps(state);
 
   const wxCtx = buildWxCtx(state);
   const deps = {
     getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
-    getFieldParams: (fid)=> getFieldParams(state, fid),
+    getFieldParams: (id)=> getFieldParams(state, id),
     LOSS_SCALE: CONST.LOSS_SCALE,
     EXTRA,
     opKey,
-    CAL: getCalForDeps(state)
+    CAL
   };
 
-  // ✅ MISMATCH FIX: always compute fresh run with current deps (CAL + opKey)
   const run = state._mods.model.runField(f, deps);
-  if (!run) return;
 
-  // keep cache aligned so tiles/details stay consistent
-  try{ state.lastRuns && state.lastRuns.set(f.id, run); }catch(_){}
+  const farmName = state.farmsById.get(f.farmId) || '';
+  const opLabel = (OPS.find(o=>o.key===opKey)?.label) || opKey;
+  const thr = getThresholdForOp(state, opKey);
 
-  renderBetaInputs(state);
+  const title = $('frQvTitle');
+  const sub = $('frQvSub');
+  if (title) title.textContent = f.name || 'Field';
+  if (sub) sub.textContent = farmName ? `${farmName} • Field details` : 'Field details';
 
-  const trb = $('traceRows');
-  if (trb){
-    trb.innerHTML = '';
-    const rows = Array.isArray(run.trace) ? run.trace : [];
-    if (!rows.length){
-      trb.innerHTML = `<tr><td colspan="7" class="muted">No trace rows.</td></tr>`;
-    } else {
-      for (const t of rows){
-        const dateISO = String(t.dateISO || '');
-        const rain = Number(t.rain ?? 0);
-        const infilMult = Number(t.infilMult ?? 0);
-        const add = Number(t.add ?? 0);
-        const dryPwr = Number(t.dryPwr ?? 0);
-        const loss = Number(t.loss ?? 0);
-        const before = Number(t.before ?? 0);
-        const after = Number(t.after ?? 0);
+  const p = getFieldParams(state, f.id);
+  const soil = $('frQvSoil');
+  const drain = $('frQvDrain');
+  const soilVal = $('frQvSoilVal');
+  const drainVal = $('frQvDrainVal');
 
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td class="mono">${esc(dateISO)}</td>
-          <td class="right mono">${rain.toFixed(2)}</td>
-          <td class="right mono">${infilMult.toFixed(2)}</td>
-          <td class="right mono">${add.toFixed(2)}</td>
-          <td class="right mono">${dryPwr.toFixed(2)}</td>
-          <td class="right mono">${loss.toFixed(2)}</td>
-          <td class="right mono">${before.toFixed(2)}→${after.toFixed(2)}</td>
-        `;
-        trb.appendChild(tr);
-      }
-    }
+  if (!live){
+    if (soil) soil.value = String(p.soilWetness);
+    if (drain) drain.value = String(p.drainageIndex);
+    if (soilVal) soilVal.textContent = String(p.soilWetness);
+    if (drainVal) drainVal.textContent = String(p.drainageIndex);
   }
 
-  const drb = $('dryRows');
-  if (drb){
-    drb.innerHTML = '';
-    const rows = Array.isArray(run.rows) ? run.rows : [];
-    if (!rows.length){
-      drb.innerHTML = `<tr><td colspan="15" class="muted">No rows.</td></tr>`;
-    } else {
-      for (const r of rows){
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td class="mono">${esc(r.dateISO)}</td>
-          <td class="right mono">${Math.round(Number(r.temp||0))}</td>
-          <td class="right mono">${Number(r.tempN||0).toFixed(2)}</td>
-          <td class="right mono">${Math.round(Number(r.wind||0))}</td>
-          <td class="right mono">${Number(r.windN||0).toFixed(2)}</td>
-          <td class="right mono">${Math.round(Number(r.rh||0))}</td>
-          <td class="right mono">${Number(r.rhN||0).toFixed(2)}</td>
-          <td class="right mono">${Math.round(Number(r.solar||0))}</td>
-          <td class="right mono">${Number(r.solarN||0).toFixed(2)}</td>
-          <td class="right mono">${Number(r.vpd||0).toFixed(2)}</td>
-          <td class="right mono">${Number(r.vpdN||0).toFixed(2)}</td>
-          <td class="right mono">${Math.round(Number(r.cloud||0))}</td>
-          <td class="right mono">${Number(r.cloudN||0).toFixed(2)}</td>
-          <td class="right mono">${Number(r.raw||0).toFixed(2)}</td>
-          <td class="right mono">${Number(r.dryPwr||0).toFixed(2)}</td>
-        `;
-        drb.appendChild(tr);
-      }
-    }
+  const hint = $('frQvHint');
+  const saveBtn = $('frQvSaveClose');
+  const inputsPanel = $('frQvInputsPanel');
+
+  if (!canEdit(state)){
+    if (hint) hint.textContent = 'View only. You do not have edit permission.';
+    if (saveBtn) saveBtn.disabled = true;
+    if (inputsPanel) inputsPanel.style.opacity = '0.75';
+  } else {
+    if (hint) hint.textContent = 'Adjust sliders → preview updates live → Save & Close.';
+    if (saveBtn) saveBtn.disabled = false;
+    if (inputsPanel) inputsPanel.style.opacity = '1';
   }
 
-  const wxb = $('wxRows');
-  if (wxb){
-    wxb.innerHTML = '';
-    const rows = Array.isArray(run.rows) ? run.rows : [];
-    if (!rows.length){
-      wxb.innerHTML = `<tr><td colspan="9" class="muted">No weather rows.</td></tr>`;
-    } else {
-      for (const r of rows){
-        const rain = Number(r.rainInAdj ?? r.rainIn ?? 0);
-        const et0 = (r.et0 == null ? '—' : Number(r.et0).toFixed(2));
-        const sm010 = (r.sm010 == null ? '—' : Number(r.sm010).toFixed(3));
-        const st010F = (r.st010F == null ? '—' : String(Math.round(Number(r.st010F))));
+  setText('frQvFieldName', farmName ? `${farmName} • ${f.name}` : (f.name || '—'));
+  setText('frQvCounty', `${String(f.county||'—')} / ${String(f.state||'—')}`);
+  setText('frQvAcres', isFinite(f.tillable) ? `${f.tillable.toFixed(2)} ac` : '—');
 
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td class="mono">${esc(r.dateISO)}</td>
-          <td class="right mono">${rain.toFixed(2)}</td>
-          <td class="right mono">${Math.round(Number(r.temp||0))}</td>
-          <td class="right mono">${Math.round(Number(r.wind||0))}</td>
-          <td class="right mono">${Math.round(Number(r.rh||0))}</td>
-          <td class="right mono">${Math.round(Number(r.solar||0))}</td>
-          <td class="right mono">${esc(et0)}</td>
-          <td class="right mono">${esc(sm010)}</td>
-          <td class="right mono">${esc(st010F)}</td>
-        `;
-        wxb.appendChild(tr);
-      }
-    }
+  const gpsText = f.location ? `${f.location.lat.toFixed(6)}, ${f.location.lng.toFixed(6)}` : '—';
+  setText('frQvGps', gpsText);
+
+  const mapBtn = $('frQvMapBtn');
+  if (mapBtn) mapBtn.disabled = !(f && f.location);
+
+  setText('frQvOp', opLabel);
+  setText('frQvThr', thr);
+
+  const range = parseRangeFromInput();
+  const rr = run ? rainInRange(run, range) : 0;
+  setText('frQvRain', run ? `${rr.toFixed(2)} in` : '—');
+  setText('frQvReadiness', run ? run.readinessR : '—');
+  setText('frQvWetness', run ? run.wetnessR : '—');
+  setText('frQvStorage', run ? `${run.storageFinal.toFixed(2)} / ${run.factors.Smax.toFixed(2)}` : '—');
+
+  const info = state.wxInfoByFieldId.get(f.id) || null;
+  const when = (info && info.fetchedAt) ? new Date(info.fetchedAt) : null;
+  const whenTxt = when ? when.toLocaleString() : '—';
+  const wxMeta = $('frQvWxMeta');
+  if (wxMeta){
+    wxMeta.innerHTML = `Weather updated: <span class="mono">${esc(whenTxt)}</span>`;
   }
+
+  const pe = $('frQvParamExplain');
+  if (pe && run && run.factors){
+    const fac = run.factors;
+    pe.innerHTML =
+      `soilHold=soilWetness/100=<span class="mono">${fac.soilHold.toFixed(2)}</span> • ` +
+      `drainPoor=drainageIndex/100=<span class="mono">${fac.drainPoor.toFixed(2)}</span><br/>` +
+      `Smax=<span class="mono">${fac.Smax.toFixed(2)}</span> (base <span class="mono">${fac.SmaxBase.toFixed(2)}</span>) • ` +
+      `infilMult=<span class="mono">${fac.infilMult.toFixed(2)}</span> • dryMult=<span class="mono">${fac.dryMult.toFixed(2)}</span> • ` +
+      `LOSS_SCALE=<span class="mono">${CONST.LOSS_SCALE.toFixed(2)}</span>`;
+  }
+
+  renderTilePreview(state, run, thr);
 }
 
-/* ---------- refresh ---------- */
-export async function refreshAll(state){
-  await renderTiles(state);
-  await renderDetails(state);
-}
-export async function refreshDetailsOnly(state){
-  await renderDetails(state);
-  try{ if (state && state.selectedFieldId) await updateTileForField(state, state.selectedFieldId); }catch(_){}
-}
+/* ---------- Save & Close ---------- */
+async function saveAndClose(state){
+  const fid = state._qvFieldId;
+  const f = state.fields.find(x=>x.id===fid);
+  if (!f) return;
 
-/* =====================================================================
-   GLOBAL LISTENERS (wired once)
-===================================================================== */
-(function wireGlobalLightRefreshOnce(){
+  const soil = $('frQvSoil');
+  const drain = $('frQvDrain');
+  const btn = $('frQvSaveClose');
+  const hint = $('frQvHint');
+
+  const soilWetness = clamp(Number(soil ? soil.value : 60), 0, 100);
+  const drainageIndex = clamp(Number(drain ? drain.value : 45), 0, 100);
+
+  state._qvSaving = true;
+  if (btn){ btn.disabled = true; btn.textContent = 'Saving…'; }
+  if (hint) hint.textContent = 'Saving…';
+
   try{
-    if (window.__FV_FR_TILE_REFRESH_WIRED__) return;
-    window.__FV_FR_TILE_REFRESH_WIRED__ = true;
+    const p = getFieldParams(state, fid);
+    p.soilWetness = soilWetness;
+    p.drainageIndex = drainageIndex;
+    state.perFieldParams.set(fid, p);
+    saveParamsToLocal(state);
 
-    document.addEventListener('fr:tile-refresh', async (e)=>{
-      try{
-        const state = window.__FV_FR;
-        if (!state) return;
-        const fid = e && e.detail ? String(e.detail.fieldId || '') : '';
-        if (!fid) return;
-        await updateTileForField(state, fid);
-      }catch(_){}
-    });
+    f.soilWetness = soilWetness;
+    f.drainageIndex = drainageIndex;
 
-    document.addEventListener('fr:details-refresh', async (e)=>{
-      try{
-        const state = window.__FV_FR;
-        if (!state) return;
-        const fid = e && e.detail ? String(e.detail.fieldId || '') : '';
-        if (fid) setSelectedField(state, fid);
-        await refreshDetailsOnly(state);
-      }catch(_){}
-    });
+    const api = getAPI(state);
+    if (api && api.kind !== 'compat'){
+      const db = api.getFirestore();
+      const auth = api.getAuth ? api.getAuth() : null;
+      const user = auth && auth.currentUser ? auth.currentUser : null;
 
-    document.addEventListener('fr:soft-reload', async ()=>{
-      try{
-        const state = window.__FV_FR;
-        if (!state) return;
-        state._calLoadedAt = 0;
-        await loadCalibrationFromAdjustments(state, { force:true });
-      }catch(_){}
-    });
+      const ref = api.doc(db, 'fields', fid);
+      await api.updateDoc(ref, {
+        soilWetness,
+        drainageIndex,
+        updatedAt: api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString(),
+        updatedBy: user ? (user.email || user.uid || null) : null
+      });
+    } else if (api && api.kind === 'compat' && window.firebase && window.firebase.firestore){
+      const db = window.firebase.firestore();
+      await db.collection('fields').doc(fid).set({
+        soilWetness,
+        drainageIndex,
+        updatedAt: new Date().toISOString()
+      }, { merge:true });
+    }
 
-  }catch(_){}
-})();
+    try{ document.dispatchEvent(new CustomEvent('fr:tile-refresh', { detail:{ fieldId: fid } })); }catch(_){}
+    try{ document.dispatchEvent(new CustomEvent('fr:details-refresh', { detail:{ fieldId: fid } })); }catch(_){}
+
+    closeQuickView(state);
+
+  }catch(e){
+    console.warn('[FieldReadiness] Save & Close failed:', e);
+    if (hint) hint.textContent = `Save failed: ${e.message || e}`;
+    if (btn){ btn.disabled = false; btn.textContent = 'Save & Close'; }
+    state._qvSaving = false;
+    return;
+  }
+
+  state._qvSaving = false;
+  if (btn){ btn.disabled = false; btn.textContent = 'Save & Close'; }
+  if (hint) hint.textContent = 'Saved.';
+}
