@@ -1,14 +1,16 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2025-12-27d
+Rev: 2025-12-27e
 
-Fix (per Dane):
-✅ Buttons + X in Quick View match FV theme:
-   - Save & Close uses FV green w/ WHITE text (and proper disabled look)
-   - X button matches FV xbtn style (not odd bubble)
-✅ Keeps your mobile fit/sticky header/safe area behavior
+Adds (per Dane):
+✅ Restore MAP button inside Quick View (Field + Settings):
+   - Tiny "Map" button on the SAME row as GPS (lat/lng)
+   - Opens the EXISTING in-page Map modal (mapBackdrop) — no new browser/tab
+   - Uses Google Maps JS already loaded on the page
+   - Works on mobile (safe-area + internal scroll stays intact)
 
 Keeps:
+✅ Mobile fit (sticky header, X always reachable)
 ✅ One button: Save & Close
 ✅ Live tile preview
 ✅ Live output updates
@@ -68,6 +70,116 @@ function gradientForThreshold(thr){
   )`;
 }
 
+/* =====================================================================
+   Map modal helpers (uses existing #mapBackdrop modal in field-readiness.html)
+   Opens in-page popup, not a new browser.
+===================================================================== */
+function mapEls(){
+  return {
+    backdrop: $('mapBackdrop'),
+    canvas: $('fvMapCanvas'),
+    sub: $('mapSub'),
+    latlng: $('mapLatLng'),
+    err: $('mapError'),
+    wrap: $('mapWrap'),
+    btnX: $('btnMapX')
+  };
+}
+
+function showMapModal(on){
+  const { backdrop } = mapEls();
+  if (backdrop) backdrop.classList.toggle('pv-hide', !on);
+}
+
+function setMapError(msg){
+  const { err, wrap } = mapEls();
+  if (err){
+    if (!msg){
+      err.style.display = 'none';
+      err.textContent = '';
+    } else {
+      err.style.display = 'block';
+      err.textContent = String(msg);
+    }
+  }
+  if (wrap) wrap.style.opacity = msg ? '0.65' : '1';
+}
+
+function waitForGoogleMaps(timeoutMs=8000){
+  // Script is already included in the page HTML (async/defer). We just wait for it.
+  const t0 = Date.now();
+  return new Promise((resolve, reject)=>{
+    const tick = ()=>{
+      if (window.google && window.google.maps) return resolve(window.google.maps);
+      if (Date.now() - t0 > timeoutMs) return reject(new Error('Google Maps is still loading. Try again in a moment.'));
+      setTimeout(tick, 50);
+    };
+    tick();
+  });
+}
+
+async function openMapForField(state, field){
+  const { canvas, sub, latlng } = mapEls();
+  if (!field || !field.location || !canvas){
+    setMapError('Map unavailable for this field.');
+    showMapModal(true);
+    return;
+  }
+
+  const lat = Number(field.location.lat);
+  const lng = Number(field.location.lng);
+  if (!isFinite(lat) || !isFinite(lng)){
+    setMapError('Invalid GPS coordinates.');
+    showMapModal(true);
+    return;
+  }
+
+  if (sub) sub.textContent = (field.name ? `${field.name}` : 'Field') + ' • HYBRID';
+  if (latlng) latlng.textContent = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+  setMapError('');
+  showMapModal(true);
+
+  try{
+    const maps = await waitForGoogleMaps();
+
+    const center = { lat, lng };
+
+    // Reuse map instance across opens
+    if (!state._qvGMap){
+      state._qvGMap = new maps.Map(canvas, {
+        center,
+        zoom: 16,
+        mapTypeId: maps.MapTypeId.HYBRID,
+        streetViewControl: false,
+        fullscreenControl: false,
+        mapTypeControl: true,
+        clickableIcons: false
+      });
+    } else {
+      state._qvGMap.setCenter(center);
+      state._qvGMap.setZoom(16);
+      state._qvGMap.setMapTypeId(maps.MapTypeId.HYBRID);
+    }
+
+    if (!state._qvGMarker){
+      state._qvGMarker = new maps.Marker({ position: center, map: state._qvGMap });
+    } else {
+      state._qvGMarker.setMap(state._qvGMap);
+      state._qvGMarker.setPosition(center);
+    }
+
+    // Resize nudge after modal paint
+    setTimeout(()=>{
+      try{ maps.event.trigger(state._qvGMap, 'resize'); }catch(_){}
+      try{ state._qvGMap.setCenter(center); }catch(_){}
+    }, 60);
+
+  }catch(e){
+    console.warn('[FieldReadiness] map open failed:', e);
+    setMapError(e && e.message ? e.message : 'Map failed to load.');
+  }
+}
+
 /* ---------- modal build ---------- */
 function ensureBuiltOnce(state){
   if (state._qvBuilt) return;
@@ -115,7 +227,7 @@ function ensureBuiltOnce(state){
         padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
       }
 
-      /* Bigger tap target X + keep it above */
+      /* Bigger tap target X + keep it above + FV xbtn look */
       #frQvX{
         width: 44px !important;
         height: 44px !important;
@@ -123,8 +235,6 @@ function ensureBuiltOnce(state){
         top: 10px !important;
         right: 10px !important;
         z-index: 3 !important;
-
-        /* FV xbtn look */
         border: 1px solid var(--border) !important;
         background: color-mix(in srgb, var(--surface) 92%, #ffffff 8%) !important;
         color: var(--text) !important;
@@ -144,14 +254,47 @@ function ensureBuiltOnce(state){
         box-shadow: 0 10px 26px rgba(47,108,60,.45) !important;
       }
       #frQvSaveClose:active{ transform: translateY(1px); }
-
       #frQvSaveClose:disabled{
         opacity: .55 !important;
         cursor: not-allowed !important;
         box-shadow: none !important;
       }
 
-      /* On small phones, give the modal a touch more side space */
+      /* Tiny Map button (GPS row) */
+      #frQvMapBtn{
+        border: 1px solid var(--border) !important;
+        background: color-mix(in srgb, var(--surface) 92%, #ffffff 8%) !important;
+        color: var(--text) !important;
+        border-radius: 10px !important;
+        padding: 6px 10px !important;
+        font-weight: 900 !important;
+        font-size: 12px !important;
+        line-height: 1 !important;
+        cursor: pointer;
+        user-select:none;
+      }
+      #frQvMapBtn:active{ transform: translateY(1px); }
+      #frQvMapBtn:disabled{
+        opacity:.55 !important;
+        cursor:not-allowed !important;
+      }
+
+      /* GPS row layout */
+      #frQvGpsRow{
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:10px;
+        flex-wrap:nowrap;
+        min-width:0;
+      }
+      #frQvGpsRow .mono{
+        min-width:0;
+        overflow:hidden;
+        text-overflow:ellipsis;
+        white-space:nowrap;
+      }
+
       @media (max-width: 420px){
         #frQvBackdrop{ padding-left: 10px !important; padding-right: 10px !important; }
         #frQvBackdrop .modal{ width: 100%; }
@@ -204,7 +347,13 @@ function ensureBuiltOnce(state){
             <div class="k">Field</div><div class="v" id="frQvFieldName">—</div>
             <div class="k">County / State</div><div class="v" id="frQvCounty">—</div>
             <div class="k">Tillable</div><div class="v" id="frQvAcres">—</div>
-            <div class="k">GPS</div><div class="v mono" id="frQvGps">—</div>
+
+            <div class="k">GPS</div>
+            <div class="v" id="frQvGpsRow">
+              <span class="mono" id="frQvGps">—</span>
+              <button id="frQvMapBtn" type="button">Map</button>
+            </div>
+
             <div class="k">Operation</div><div class="v" id="frQvOp">—</div>
             <div class="k">Threshold</div><div class="v" id="frQvThr">—</div>
           </div>
@@ -229,12 +378,25 @@ function ensureBuiltOnce(state){
   document.body.appendChild(wrap);
 
   const close = ()=> closeQuickView(state);
-
   const x = $('frQvX'); if (x) x.addEventListener('click', close);
 
   wrap.addEventListener('click', (e)=>{
     if (e.target && e.target.id === 'frQvBackdrop') close();
   });
+
+  // Wire Map modal close once (reuses existing HTML modal)
+  (function wireMapCloseOnce(){
+    if (state._qvMapWired) return;
+    state._qvMapWired = true;
+
+    const { btnX, backdrop } = mapEls();
+    if (btnX) btnX.addEventListener('click', ()=> showMapModal(false));
+    if (backdrop){
+      backdrop.addEventListener('click', (e)=>{
+        if (e.target && e.target.id === 'mapBackdrop') showMapModal(false);
+      });
+    }
+  })();
 
   const soil = $('frQvSoil');
   const drain = $('frQvDrain');
@@ -265,6 +427,18 @@ function ensureBuiltOnce(state){
       if (!canEdit(state)) return;
       if (state._qvSaving) return;
       await saveAndClose(state);
+    });
+  }
+
+  // Tiny Map button click
+  const mapBtn = $('frQvMapBtn');
+  if (mapBtn){
+    mapBtn.addEventListener('click', async (e)=>{
+      e.preventDefault();
+      e.stopPropagation();
+      const fid = state._qvFieldId;
+      const f = fid ? state.fields.find(x=>x.id===fid) : null;
+      await openMapForField(state, f);
     });
   }
 }
@@ -403,7 +577,13 @@ function fillQuickView(state, { live=false } = {}){
   setText('frQvFieldName', farmName ? `${farmName} • ${f.name}` : (f.name || '—'));
   setText('frQvCounty', `${String(f.county||'—')} / ${String(f.state||'—')}`);
   setText('frQvAcres', isFinite(f.tillable) ? `${f.tillable.toFixed(2)} ac` : '—');
-  setText('frQvGps', f.location ? `${f.location.lat.toFixed(6)}, ${f.location.lng.toFixed(6)}` : '—');
+
+  const gpsText = f.location ? `${f.location.lat.toFixed(6)}, ${f.location.lng.toFixed(6)}` : '—';
+  setText('frQvGps', gpsText);
+
+  const mapBtn = $('frQvMapBtn');
+  if (mapBtn) mapBtn.disabled = !(f && f.location);
+
   setText('frQvOp', opLabel);
   setText('frQvThr', thr);
 
@@ -486,6 +666,7 @@ async function saveAndClose(state){
       }, { merge:true });
     }
 
+    // instant main-tile update + light details nudge
     try{ document.dispatchEvent(new CustomEvent('fr:tile-refresh', { detail:{ fieldId: fid } })); }catch(_){}
     try{ document.dispatchEvent(new CustomEvent('fr:details-refresh', { detail:{ fieldId: fid } })); }catch(_){}
 
