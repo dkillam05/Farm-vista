@@ -1,13 +1,12 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2025-12-27c
+Rev: 2025-12-27d
 
-Mobile fit fix (per Dane):
-✅ Quick View modal now fits the screen on mobile (no trapped header)
-✅ Header is sticky; Close (X) is always reachable
-✅ Adds safe-area top/bottom padding (iPhone notch + home bar)
-✅ Modal body scrolls (not the whole page)
-✅ Bigger tap target for X (44x44)
+Fix (per Dane):
+✅ Buttons + X in Quick View match FV theme:
+   - Save & Close uses FV green w/ WHITE text (and proper disabled look)
+   - X button matches FV xbtn style (not odd bubble)
+✅ Keeps your mobile fit/sticky header/safe area behavior
 
 Keeps:
 ✅ One button: Save & Close
@@ -93,7 +92,7 @@ function ensureBuiltOnce(state){
       #frQvBackdrop .modal{
         width: min(760px, 96vw);
         max-height: calc(100svh - 20px);
-        overflow: hidden;              /* header stays, body scrolls */
+        overflow: hidden;
         display: flex;
         flex-direction: column;
       }
@@ -124,8 +123,33 @@ function ensureBuiltOnce(state){
         top: 10px !important;
         right: 10px !important;
         z-index: 3 !important;
+
+        /* FV xbtn look */
+        border: 1px solid var(--border) !important;
+        background: color-mix(in srgb, var(--surface) 92%, #ffffff 8%) !important;
+        color: var(--text) !important;
+        box-shadow: 0 10px 25px rgba(0,0,0,.14) !important;
       }
       #frQvX svg{ width:20px;height:20px; }
+      #frQvX:active{ transform: translateY(1px); }
+
+      /* FV primary button (Save & Close) */
+      #frQvSaveClose{
+        background: var(--accent, #2F6C3C) !important;
+        border-color: transparent !important;
+        color: #fff !important;
+        border-radius: 12px !important;
+        padding: 10px 14px !important;
+        font-weight: 900 !important;
+        box-shadow: 0 10px 26px rgba(47,108,60,.45) !important;
+      }
+      #frQvSaveClose:active{ transform: translateY(1px); }
+
+      #frQvSaveClose:disabled{
+        opacity: .55 !important;
+        cursor: not-allowed !important;
+        box-shadow: none !important;
+      }
 
       /* On small phones, give the modal a touch more side space */
       @media (max-width: 420px){
@@ -462,7 +486,6 @@ async function saveAndClose(state){
       }, { merge:true });
     }
 
-    // instant main-tile update + light details nudge
     try{ document.dispatchEvent(new CustomEvent('fr:tile-refresh', { detail:{ fieldId: fid } })); }catch(_){}
     try{ document.dispatchEvent(new CustomEvent('fr:details-refresh', { detail:{ fieldId: fid } })); }catch(_){}
 
