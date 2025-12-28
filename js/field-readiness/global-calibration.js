@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/global-calibration.js  (FULL FILE)
-Rev: 2025-12-27c
+Rev: 2025-12-27d
 
 Implements Dane's GLOBAL CALIBRATION rules:
 
@@ -29,6 +29,13 @@ Writes:
 - Optimistically updates weights doc (lastAppliedAt / nextAllowedAt) and local state
 - Dispatches fr:soft-reload so UI refreshes without page reload
 
+Theme fix (per Dane):
+✅ Buttons in Adjust + Confirm modals match FV theme:
+   - Primary buttons are FV green with WHITE text
+   - Secondary buttons are FV neutral
+   - Seg buttons match FV style (not default gray)
+   - X buttons match FV xbtn style (not odd bubble)
+
 Depends on:
 - state._mods.model + state._mods.weather loaded by index/render
 - getAPI(state) from firebase.js
@@ -47,6 +54,97 @@ function esc(s){
   return String(s||'')
     .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
     .replaceAll('"','&quot;').replaceAll("'","&#039;");
+}
+
+/* =========================
+   FV THEME PATCH (Adjust + Confirm)
+========================= */
+function ensureGlobalCalThemeCSSOnce(){
+  try{
+    if (window.__FV_FR_GCAL_THEME__) return;
+    window.__FV_FR_GCAL_THEME__ = true;
+
+    const st = document.createElement('style');
+    st.setAttribute('data-fv-fr-gcal-theme','1');
+    st.textContent = `
+      /* ----------------------------- */
+      /* Modal X buttons: FV xbtn look */
+      /* ----------------------------- */
+      #adjustBackdrop .xbtn,
+      #confirmAdjBackdrop .xbtn{
+        background: color-mix(in srgb, var(--surface) 92%, #ffffff 8%) !important;
+        border: 1px solid var(--border) !important;
+        color: var(--text) !important;
+        box-shadow: 0 10px 25px rgba(0,0,0,.14) !important;
+      }
+      #adjustBackdrop .xbtn:active,
+      #confirmAdjBackdrop .xbtn:active{
+        transform: translateY(1px) !important;
+      }
+
+      /* ----------------------------- */
+      /* Seg buttons (Wet/Dry)         */
+      /* ----------------------------- */
+      #adjustBackdrop .segbtn{
+        border: 1px solid var(--border) !important;
+        background: color-mix(in srgb, var(--surface) 94%, #ffffff 6%) !important;
+        color: var(--text) !important;
+        border-radius: 14px !important;
+        padding: 10px 12px !important;
+        font-weight: 900 !important;
+        box-shadow: 0 8px 18px rgba(0,0,0,.08) !important;
+      }
+      #adjustBackdrop .segbtn.on{
+        border-color: transparent !important;
+        background: color-mix(in srgb, var(--accent, #2F6C3C) 24%, var(--surface) 76%) !important;
+        outline: 2px solid color-mix(in srgb, var(--accent, #2F6C3C) 60%, transparent 40%) !important;
+        outline-offset: 1px !important;
+      }
+      #adjustBackdrop .segbtn:disabled{
+        opacity: .45 !important;
+        cursor: not-allowed !important;
+        transform: none !important;
+        box-shadow: none !important;
+      }
+
+      /* ----------------------------- */
+      /* Buttons (Cancel / Apply)      */
+      /* ----------------------------- */
+      #adjustBackdrop .btn,
+      #confirmAdjBackdrop .btn{
+        border: 1px solid var(--border) !important;
+        background: color-mix(in srgb, var(--surface) 92%, #ffffff 8%) !important;
+        color: var(--text) !important;
+        border-radius: 12px !important;
+        padding: 10px 12px !important;
+        font-weight: 900 !important;
+      }
+      #adjustBackdrop .btn:active,
+      #confirmAdjBackdrop .btn:active{
+        transform: translateY(1px) !important;
+      }
+
+      /* Primary buttons must be FV green with WHITE text */
+      #adjustBackdrop .btn.btn-primary,
+      #adjustBackdrop .btn-primary,
+      #confirmAdjBackdrop .btn.btn-primary,
+      #confirmAdjBackdrop .btn-primary{
+        background: var(--accent, #2F6C3C) !important;
+        border-color: transparent !important;
+        color: #fff !important;
+        box-shadow: 0 10px 26px rgba(47,108,60,.45) !important;
+      }
+      #adjustBackdrop .btn.btn-primary:disabled,
+      #adjustBackdrop .btn-primary:disabled,
+      #confirmAdjBackdrop .btn.btn-primary:disabled,
+      #confirmAdjBackdrop .btn-primary:disabled{
+        opacity: .55 !important;
+        cursor: not-allowed !important;
+        box-shadow: none !important;
+      }
+    `;
+    document.head.appendChild(st);
+  }catch(_){}
 }
 
 /* =========================
@@ -154,7 +252,6 @@ function statusFromRunAndThreshold(run, thr){
 function isLocked(state){
   const nextMs = Number(state._nextAllowedMs || 0);
   if (!nextMs) return false;
-  // ✅ If expired, unlocked — no stale lock
   return Date.now() < nextMs;
 }
 
@@ -168,7 +265,6 @@ async function loadCooldown(state){
     return;
   }
 
-  // compat
   if (api.kind === 'compat'){
     try{
       const db = window.firebase.firestore();
@@ -192,7 +288,6 @@ async function loadCooldown(state){
     }
   }
 
-  // modular
   try{
     const db = api.getFirestore();
     const ref = api.doc(db, CONST.WEIGHTS_COLLECTION, CONST.WEIGHTS_DOC);
@@ -289,11 +384,6 @@ function setAnchor(state, anchorReadiness){
   if (out) out.textContent = String(state._adjAnchorReadiness);
 }
 
-/**
- * Enforce the "can't go past current reading" clamp:
- * - If status wet and user marking drier => slider cannot go BELOW anchor (can't make wetter)
- * - If status dry and user marking wetter => slider cannot go ABOVE anchor (can't make drier)
- */
 function enforceSliderClamp(state){
   const el = sliderEl();
   if (!el) return;
@@ -304,7 +394,6 @@ function enforceSliderClamp(state){
   const status = state._adjStatus; // 'wet'|'dry'
   const feel = state._adjFeel;     // user choice: 'wet'|'dry'|null
 
-  // If no feel selected, keep it pinned at anchor
   if (!feel){
     v = anchor;
     el.value = String(v);
@@ -312,15 +401,11 @@ function enforceSliderClamp(state){
     return;
   }
 
-  // User choice must be opposite of status (rules), but clamp defensively:
   if (status === 'wet' && feel === 'dry'){
-    // drier => readiness can ONLY increase
     if (v < anchor) v = anchor;
   } else if (status === 'dry' && feel === 'wet'){
-    // wetter => readiness can ONLY decrease
     if (v > anchor) v = anchor;
   } else {
-    // invalid combination, pin
     v = anchor;
   }
 
@@ -337,7 +422,6 @@ function normalizedIntensity0100(state){
   const status = state._adjStatus;
   const feel = state._adjFeel;
 
-  // Only meaningful when choosing opposite
   if (status === 'wet' && feel === 'dry'){
     const denom = Math.max(1, 100 - anchor);
     return Math.round(clamp((target - anchor) / denom, 0, 1) * 100);
@@ -349,11 +433,6 @@ function normalizedIntensity0100(state){
   return 0;
 }
 
-/**
- * Delta is the guarded nudge sent to the calibration log.
- * - sign: + means "make model wetter", - means "make model drier" (same as old file)
- * - magnitude grows with slider distance (intensity) but is guardrailed
- */
 function computeDelta(state){
   const feel = state._adjFeel;
   if (!feel) return 0;
@@ -362,9 +441,8 @@ function computeDelta(state){
   if (feel === 'wet') sign = +1;
   if (feel === 'dry') sign = -1;
 
-  // Base magnitude and intensity-driven magnitude like your old behavior
-  const intensity = normalizedIntensity0100(state); // 0..100
-  const mag = 8 + Math.round((intensity/100) * 10); // 8..18
+  const intensity = normalizedIntensity0100(state);
+  const mag = 8 + Math.round((intensity/100) * 10);
   return clamp(sign * mag, -18, +18);
 }
 
@@ -387,7 +465,6 @@ function updateAdjustHeader(state){
   const sub = $('adjustSub');
   if (!sub) return;
 
-  // ✅ This is the indicator you asked for
   if (f && f.name){
     sub.textContent = `Global calibration • ${f.name}`;
   } else {
@@ -409,14 +486,11 @@ function updatePills(state, run){
 function updateUI(state){
   const locked = isLocked(state);
 
-  // enable/disable
   const bWet = $('btnFeelWet');
   const bDry = $('btnFeelDry');
   const applyBtn = $('btnAdjApply');
   const s = sliderEl();
 
-  // Your rule: if status is wet -> wet disabled, only dry allowed
-  //            if status is dry -> dry disabled, only wet allowed
   if (bWet) bWet.disabled = locked || (state._adjStatus === 'wet');
   if (bDry) bDry.disabled = locked || (state._adjStatus === 'dry');
 
@@ -426,7 +500,6 @@ function updateUI(state){
     state._adjFeel = null;
   }
 
-  // highlight selection
   const seg = $('feelSeg');
   if (seg){
     seg.querySelectorAll('.segbtn').forEach(btn=>{
@@ -435,14 +508,12 @@ function updateUI(state){
     });
   }
 
-  // intensity box only when choosing opposite (which is always in this design)
   const box = $('intensityBox');
   const opposite =
     (state._adjStatus === 'wet' && state._adjFeel === 'dry') ||
     (state._adjStatus === 'dry' && state._adjFeel === 'wet');
   if (box) box.classList.toggle('pv-hide', !opposite);
 
-  // set intensity labels
   const title = $('intensityTitle');
   const left = $('intensityLeft');
   const right = $('intensityRight');
@@ -458,7 +529,6 @@ function updateUI(state){
     }
   }
 
-  // hint
   const hint = $('adjHint');
   if (hint){
     if (locked){
@@ -472,7 +542,6 @@ function updateUI(state){
     }
   }
 
-  // apply enabled only when choice exists and not locked
   if (applyBtn){
     const hasChoice = (state._adjFeel === 'wet' || state._adjFeel === 'dry');
     applyBtn.disabled = locked || !hasChoice;
@@ -489,7 +558,6 @@ async function writeAdjustment(state, entry){
   const api = getAPI(state);
   if (!api) return;
 
-  // compat
   if (api.kind === 'compat'){
     try{
       const db = window.firebase.firestore();
@@ -508,7 +576,6 @@ async function writeAdjustment(state, entry){
     return;
   }
 
-  // modular
   try{
     const db = api.getFirestore();
     const auth = api.getAuth ? api.getAuth() : null;
@@ -537,13 +604,11 @@ async function writeWeightsLock(state, nowMs){
   const cdH = Number(state._cooldownHours || 72);
   const nextMs = nowMs + Math.round(cdH * 3600 * 1000);
 
-  // optimistic local update
   state._lastAppliedMs = nowMs;
   state._nextAllowedMs = nextMs;
 
   if (!api) return;
 
-  // compat
   if (api.kind === 'compat'){
     try{
       const db = window.firebase.firestore();
@@ -558,7 +623,6 @@ async function writeWeightsLock(state, nowMs){
     return;
   }
 
-  // modular
   try{
     const db = api.getFirestore();
     const ref = api.doc(db, CONST.WEIGHTS_COLLECTION, CONST.WEIGHTS_DOC);
@@ -576,6 +640,8 @@ async function writeWeightsLock(state, nowMs){
    Open / Close
 ========================= */
 async function openAdjust(state){
+  ensureGlobalCalThemeCSSOnce();
+
   if (!canEdit(state)) return;
 
   if (!state.selectedFieldId && (state.fields||[]).length){
@@ -586,20 +652,17 @@ async function openAdjust(state){
 
   updateAdjustHeader(state);
 
-  // read cooldown
   await loadCooldown(state);
   renderCooldownCard(state);
 
-  // compute run + status from threshold
   const run = getRunForField(state, f);
   const thr = currentThreshold(state);
   const status = statusFromRunAndThreshold(run, thr);
 
-  state._adjStatus = status;       // 'wet' or 'dry'
-  state._adjFeel = null;           // user choice
+  state._adjStatus = status;
+  state._adjFeel = null;
   state._adjAnchorReadiness = clamp(Math.round(Number(run?.readinessR ?? 50)), 0, 100);
 
-  // init slider at anchor
   setAnchor(state, state._adjAnchorReadiness);
   setSliderVal(state._adjAnchorReadiness);
 
@@ -608,14 +671,11 @@ async function openAdjust(state){
 
   showModal('adjustBackdrop', true);
 
-  // ticker
   try{ if (state._cooldownTimer) clearInterval(state._cooldownTimer); }catch(_){}
   state._cooldownTimer = setInterval(async ()=>{
-    // quick UI unlock if expired
     renderCooldownCard(state);
     updateUI(state);
 
-    // periodic firestore refresh (keeps you honest)
     try{ await loadCooldown(state); }catch(_){}
     renderCooldownCard(state);
     updateUI(state);
@@ -644,7 +704,6 @@ async function applyAdjustment(state){
   const feel = state._adjFeel;
   if (!(feel === 'wet' || feel === 'dry')) return;
 
-  // Enforce rule: must be opposite of status
   if (state._adjStatus === 'wet' && feel !== 'dry') return;
   if (state._adjStatus === 'dry' && feel !== 'wet') return;
 
@@ -658,9 +717,8 @@ async function applyAdjustment(state){
     op: getCurrentOp(),
     threshold: thr,
 
-    // rule context
-    status: state._adjStatus, // wet/dry relative to threshold
-    feel,                     // user correction direction
+    status: state._adjStatus,
+    feel,
 
     readinessAnchor: clamp(Math.round(Number(run.readinessR)), 0, 100),
     readinessSlider: sliderVal(),
@@ -679,7 +737,6 @@ async function applyAdjustment(state){
 
   await writeAdjustment(state, entry);
 
-  // lock
   const nowMs = Date.now();
   await writeWeightsLock(state, nowMs);
 
@@ -722,7 +779,6 @@ function wireOnce(state){
       if (feel !== 'wet' && feel !== 'dry') return;
       if (isLocked(state)) return;
 
-      // enforce opposite-only per status
       if (state._adjStatus === 'wet'){
         state._adjFeel = 'dry';
       } else if (state._adjStatus === 'dry'){
@@ -731,7 +787,6 @@ function wireOnce(state){
         state._adjFeel = feel;
       }
 
-      // reset slider to anchor on selection
       setSliderVal(state._adjAnchorReadiness);
       updateUI(state);
     });
@@ -782,7 +837,8 @@ function wireOnce(state){
    Public init
 ========================= */
 export function initGlobalCalibration(state){
-  // permission gate + hotspot visibility
+  ensureGlobalCalThemeCSSOnce();
+
   try{
     const hot = $('fieldsTitle');
     if (hot){
@@ -802,7 +858,6 @@ export function initGlobalCalibration(state){
 
   wireOnce(state);
 
-  // preload cooldown (no ticker until modal opens)
   (async ()=>{
     try{ await loadCooldown(state); }catch(_){}
     renderCooldownCard(state);
