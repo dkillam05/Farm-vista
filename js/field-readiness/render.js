@@ -1,21 +1,20 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-28d
+Rev: 2025-12-28e
 
-Change (per Dane):
-✅ ONLY change: adjust the model based on calibration from the
-   field_readiness_adjustments collection (global adjustments).
-   - Reads recent docs from CONST.ADJ_COLLECTION (field_readiness_adjustments)
-   - Builds: state._cal = { wetBias, opWetBias }
-   - Passes into model deps as:
-       deps.CAL  (your new hook)
-       deps.opKey (current operation key)
+Fix (per Dane):
+✅ Desktop dblclick works again
+   - Root cause: selectField() was calling refreshAll() which re-rendered tiles,
+     replacing the DOM node between clicks, preventing native dblclick.
+   - Fix: selectField() now does NOT re-render tiles; it refreshes details only.
+   - Also: CLICK_DELAY_MS slightly increased so normal dblclick speed doesn’t
+     trigger select before dblclick fires.
 
-Keeps EVERYTHING else exactly as your provided Rev: 2025-12-28c:
-✅ Farm • Field info box at TOP of lower Details section
-✅ Mobile selected field name: normal color + underline
+Keeps:
+✅ Mobile works great (ellipsis + selection behavior unchanged)
 ✅ Desktop selected tile outline; name stays normal
 ✅ dblclick always wired; canEdit checked at click-time
+✅ Calibration from field_readiness_adjustments stays
 ✅ fr:tile-refresh / fr:details-refresh listeners
 ✅ Background Firestore hydrate on select + dblclick quick view
 ✅ All prior rendering & tables behavior
@@ -265,9 +264,6 @@ function ensureSelectionStyleOnce(){
     const s = document.createElement('style');
     s.setAttribute('data-fv-fr-selstyle','1');
     s.textContent = `
-      /* ============================================================
-         HEADER: force a shrinkable single-line flex row (iOS ellipsis)
-         ============================================================ */
       .tile .tile-top{
         display:flex !important;
         align-items:center !important;
@@ -297,10 +293,6 @@ function ensureSelectionStyleOnce(){
         text-overflow:ellipsis !important;
       }
 
-      /* ============================================================
-         MOBILE/TABLET (touch): underline + subtle highlight
-         ✅ keep normal text color (no green)
-         ============================================================ */
       @media (hover: none) and (pointer: coarse){
         .tile.fv-selected .tile-top .titleline .name{
           color: inherit !important;
@@ -329,9 +321,6 @@ function ensureSelectionStyleOnce(){
         }
       }
 
-      /* ============================================================
-         DESKTOP (mouse): subtle tile outline selection, name stays NORMAL
-         ============================================================ */
       @media (hover: hover) and (pointer: fine){
         .tile.fv-selected{
           box-shadow:
@@ -364,9 +353,6 @@ function ensureSelectionStyleOnce(){
         }
       }
 
-      /* ============================================================
-         Details header panel (Farm • Field) styling
-         ============================================================ */
       #frDetailsHeaderPanel{
         margin: 0 !important;
         padding: 10px 12px !important;
@@ -432,7 +418,6 @@ function ensureDetailsHeaderPanel(){
   panel.style.display = 'grid';
   panel.style.gap = '4px';
 
-  // Put it at the top of the details body
   body.prepend(panel);
   return panel;
 }
@@ -542,7 +527,8 @@ async function updateTileForField(state, fieldId){
 
 /* ---------- click vs dblclick separation ---------- */
 function wireTileInteractions(state, tileEl, fieldId){
-  const CLICK_DELAY_MS = 220;
+  // Increased so normal desktop dblclick doesn’t trigger select first
+  const CLICK_DELAY_MS = 360;
   tileEl._fvClickTimer = null;
 
   tileEl.addEventListener('click', ()=>{
@@ -685,7 +671,9 @@ export function selectField(state, id){
   setSelectedField(state, id);
   ensureSelectedParamsToSliders(state);
 
-  refreshAll(state);
+  // ✅ KEY FIX: do NOT re-render tiles on select (breaks native dblclick)
+  // Instead, refresh details only and update the selected tile in-place.
+  refreshDetailsOnly(state);
 
   (async ()=>{
     try{
@@ -790,7 +778,6 @@ export async function renderDetails(state){
   const f = state.fields.find(x=>x.id === state.selectedFieldId);
   if (!f) return;
 
-  // ✅ Insert/update the farm/field box at the top of the details section
   updateDetailsHeaderPanel(state);
 
   await loadCalibrationFromAdjustments(state);
@@ -944,7 +931,6 @@ export async function refreshDetailsOnly(state){
       }catch(_){}
     });
 
-    // ✅ When global calibration applies, force re-read calibration before the next paint
     document.addEventListener('fr:soft-reload', async ()=>{
       try{
         const state = window.__FV_FR;
