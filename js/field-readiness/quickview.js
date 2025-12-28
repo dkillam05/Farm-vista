@@ -1,19 +1,19 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2025-12-27e
+Rev: 2025-12-28a
 
-Adds (per Dane):
-✅ Restore MAP button inside Quick View (Field + Settings):
-   - Tiny "Map" button on the SAME row as GPS (lat/lng)
-   - Opens the EXISTING in-page Map modal (mapBackdrop) — no new browser/tab
-   - Uses Google Maps JS already loaded on the page
-   - Works on mobile (safe-area + internal scroll stays intact)
+Fix (per Dane):
+✅ Map no longer opens BEHIND Quick View.
+   - When tapping "Map" inside Quick View, Quick View temporarily hides
+   - Map modal opens (existing #mapBackdrop)
+   - When Map closes (X or tapping backdrop), Quick View returns
 
 Keeps:
+✅ Tiny Map button on SAME row as GPS
+✅ Opens in-page Map modal (no new browser/tab)
 ✅ Mobile fit (sticky header, X always reachable)
 ✅ One button: Save & Close
-✅ Live tile preview
-✅ Live output updates
+✅ Live tile preview + live output updates
 ✅ Saves to Firestore fields/{id} soilWetness + drainageIndex
 ✅ Dispatches fr:tile-refresh + fr:details-refresh on Save & Close
 ===================================================================== */
@@ -106,7 +106,6 @@ function setMapError(msg){
 }
 
 function waitForGoogleMaps(timeoutMs=8000){
-  // Script is already included in the page HTML (async/defer). We just wait for it.
   const t0 = Date.now();
   return new Promise((resolve, reject)=>{
     const tick = ()=>{
@@ -144,7 +143,6 @@ async function openMapForField(state, field){
 
     const center = { lat, lng };
 
-    // Reuse map instance across opens
     if (!state._qvGMap){
       state._qvGMap = new maps.Map(canvas, {
         center,
@@ -168,7 +166,6 @@ async function openMapForField(state, field){
       state._qvGMarker.setPosition(center);
     }
 
-    // Resize nudge after modal paint
     setTimeout(()=>{
       try{ maps.event.trigger(state._qvGMap, 'resize'); }catch(_){}
       try{ state._qvGMap.setCenter(center); }catch(_){}
@@ -178,6 +175,27 @@ async function openMapForField(state, field){
     console.warn('[FieldReadiness] map open failed:', e);
     setMapError(e && e.message ? e.message : 'Map failed to load.');
   }
+}
+
+/* =====================================================================
+   Quick View ↔ Map stacking fix
+===================================================================== */
+function hideQuickViewForMap(state){
+  try{
+    const qv = $('frQvBackdrop');
+    if (!qv) return;
+    state._qvHiddenForMap = true;
+    qv.classList.add('pv-hide');
+  }catch(_){}
+}
+function restoreQuickViewAfterMap(state){
+  try{
+    if (!state._qvHiddenForMap) return;
+    const qv = $('frQvBackdrop');
+    if (!qv) return;
+    qv.classList.remove('pv-hide');
+    state._qvHiddenForMap = false;
+  }catch(_){}
 }
 
 /* ---------- modal build ---------- */
@@ -378,6 +396,7 @@ function ensureBuiltOnce(state){
   document.body.appendChild(wrap);
 
   const close = ()=> closeQuickView(state);
+
   const x = $('frQvX'); if (x) x.addEventListener('click', close);
 
   wrap.addEventListener('click', (e)=>{
@@ -385,15 +404,23 @@ function ensureBuiltOnce(state){
   });
 
   // Wire Map modal close once (reuses existing HTML modal)
+  // ✅ ALSO restores Quick View after map closes (fixes "map behind quick view")
   (function wireMapCloseOnce(){
     if (state._qvMapWired) return;
     state._qvMapWired = true;
 
     const { btnX, backdrop } = mapEls();
-    if (btnX) btnX.addEventListener('click', ()=> showMapModal(false));
+
+    function closeMapAndReturn(){
+      showMapModal(false);
+      restoreQuickViewAfterMap(state);
+    }
+
+    if (btnX) btnX.addEventListener('click', closeMapAndReturn);
+
     if (backdrop){
       backdrop.addEventListener('click', (e)=>{
-        if (e.target && e.target.id === 'mapBackdrop') showMapModal(false);
+        if (e.target && e.target.id === 'mapBackdrop') closeMapAndReturn();
       });
     }
   })();
@@ -431,13 +458,18 @@ function ensureBuiltOnce(state){
   }
 
   // Tiny Map button click
+  // ✅ Hide Quick View so map is not obscured, then restore on map close
   const mapBtn = $('frQvMapBtn');
   if (mapBtn){
     mapBtn.addEventListener('click', async (e)=>{
       e.preventDefault();
       e.stopPropagation();
+
       const fid = state._qvFieldId;
       const f = fid ? state.fields.find(x=>x.id===fid) : null;
+      if (!f) return;
+
+      hideQuickViewForMap(state);
       await openMapForField(state, f);
     });
   }
@@ -464,6 +496,9 @@ export function closeQuickView(state){
   const b = $('frQvBackdrop');
   if (b) b.classList.add('pv-hide');
   state._qvOpen = false;
+
+  // If map is open and we close QV, don't auto-restore QV later
+  try{ state._qvHiddenForMap = false; }catch(_){}
 }
 
 /* ---------- render inside modal ---------- */
@@ -666,7 +701,6 @@ async function saveAndClose(state){
       }, { merge:true });
     }
 
-    // instant main-tile update + light details nudge
     try{ document.dispatchEvent(new CustomEvent('fr:tile-refresh', { detail:{ fieldId: fid } })); }catch(_){}
     try{ document.dispatchEvent(new CustomEvent('fr:details-refresh', { detail:{ fieldId: fid } })); }catch(_){}
 
