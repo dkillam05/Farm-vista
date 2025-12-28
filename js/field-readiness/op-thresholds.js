@@ -1,13 +1,13 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/op-thresholds.js  (FULL FILE)
-Rev: 2025-12-27b
+Rev: 2025-12-27c
 
 Fix (per Dane):
-✅ Operation Thresholds modal layout restored on mobile:
-   - Label + value stay on ONE line
-   - Slider is full width and aligned
-   - Modal scrolls internally on small screens
-   - Close (X) tap target is larger and always reachable
+✅ Operation Thresholds modal is CENTERED on screen (not pinned to top)
+✅ Still mobile-safe:
+   - Respects safe-area insets
+   - Modal body scrolls internally when needed
+   - Close (X) tap target stays large
 
 Keeps:
 ✅ Same IDs + behavior:
@@ -35,14 +35,22 @@ function ensureOpModalStylesOnce(){
     const css = document.createElement('style');
     css.setAttribute('data-fv-fr-opmodal','1');
     css.textContent = `
-      /* Mobile-safe modal sizing + scroll */
+      /* Center the modal on screen */
       #opBackdrop{
-        align-items:flex-start !important;
-        padding-top: calc(env(safe-area-inset-top, 0px) + 10px) !important;
-        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 10px) !important;
+        align-items:center !important;
+        justify-content:center !important;
+
+        /* safe area padding so it never clips */
+        padding-top: calc(env(safe-area-inset-top, 0px) + 12px) !important;
+        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px) !important;
+        padding-left: 12px !important;
+        padding-right: 12px !important;
       }
+
+      /* Mobile-safe modal sizing + scroll */
       #opBackdrop .modal{
-        max-height: calc(100svh - 20px);
+        width: min(620px, 94vw);
+        max-height: calc(100svh - (env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px) + 28px));
         display:flex;
         flex-direction:column;
         overflow:hidden;
@@ -118,7 +126,6 @@ function renderOpThresholdModal(state){
 
   const editable = canEdit(state);
 
-  // If view-only, show a subtle note at top
   if (!editable){
     const note = document.createElement('div');
     note.className = 'help muted fv-op-note';
