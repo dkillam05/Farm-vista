@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-28e
+Rev: 2025-12-28f
 
 Fix (per Dane):
 ✅ Desktop dblclick works again
@@ -9,6 +9,11 @@ Fix (per Dane):
    - Fix: selectField() now does NOT re-render tiles; it refreshes details only.
    - Also: CLICK_DELAY_MS slightly increased so normal dblclick speed doesn’t
      trigger select before dblclick fires.
+
+✅ Readiness mismatch fix (tiles vs details):
+   - renderDetails() no longer reuses stale state.lastRuns.get(f.id)
+   - Details always recomputes run with current deps (CAL + opKey) and then
+     writes back to lastRuns for consistency.
 
 Keeps:
 ✅ Mobile works great (ellipsis + selection behavior unchanged)
@@ -794,8 +799,12 @@ export async function renderDetails(state){
     CAL: getCalForDeps(state)
   };
 
-  const run = state.lastRuns.get(f.id) || state._mods.model.runField(f, deps);
+  // ✅ MISMATCH FIX: always compute fresh run with current deps (CAL + opKey)
+  const run = state._mods.model.runField(f, deps);
   if (!run) return;
+
+  // keep cache aligned so tiles/details stay consistent
+  try{ state.lastRuns && state.lastRuns.set(f.id, run); }catch(_){}
 
   renderBetaInputs(state);
 
