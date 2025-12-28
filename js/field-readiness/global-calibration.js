@@ -1,13 +1,27 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/global-calibration.js  (FULL FILE)
-Rev: 2025-12-27e
+Rev: 2025-12-28f
 
-Fix (per Dane):
-✅ Wet/Dry buttons centered
-✅ Intensity slider full width (not tiny)
-✅ Keeps FV theme button styling added previously
-✅ No behavior changes
+Change (per Dane):
+✅ Global calibration "wet vs dry" is now OPERATION-INDEPENDENT.
+   - We do NOT use operation threshold to decide wet/dry status anymore.
+   - We use the model wetness itself as the truth:
+       wetnessR >= 50  -> status = 'wet'
+       wetnessR <  50  -> status = 'dry'
+   This keeps the same guardrail rule you wanted:
+   - If status is wet  -> "Wet" is disabled; only "Dry" allowed; slider can't move wetter.
+   - If status is dry  -> "Dry" is disabled; only "Wet" allowed; slider can't move drier.
 
+Keeps:
+✅ Lock logic (field_readiness_model_weights) unchanged
+✅ UI theme patch (Wet/Dry centered, slider full width, FV buttons)
+✅ Uses selected field as reference and shows it under "Adjust"
+✅ Still logs op + threshold for context in the adjustment doc
+✅ Still writes to field_readiness_adjustments (global:true) + dispatches fr:soft-reload
+
+NOTE:
+- For consistency with your newly calibrated model, we also pass CAL into the model
+  if state._cal exists (set by render.js).
 ===================================================================== */
 'use strict';
 
@@ -36,9 +50,7 @@ function ensureGlobalCalThemeCSSOnce(){
     const st = document.createElement('style');
     st.setAttribute('data-fv-fr-gcal-theme','1');
     st.textContent = `
-      /* -------------------------------------------------- */
-      /* Modal X buttons: FV xbtn look                        */
-      /* -------------------------------------------------- */
+      /* Modal X buttons: FV xbtn look */
       #adjustBackdrop .xbtn,
       #confirmAdjBackdrop .xbtn{
         background: color-mix(in srgb, var(--surface) 92%, #ffffff 8%) !important;
@@ -51,9 +63,7 @@ function ensureGlobalCalThemeCSSOnce(){
         transform: translateY(1px) !important;
       }
 
-      /* -------------------------------------------------- */
-      /* Seg buttons wrapper: CENTER Wet/Dry                 */
-      /* -------------------------------------------------- */
+      /* CENTER Wet/Dry */
       #adjustBackdrop #feelSeg{
         display:flex !important;
         justify-content:center !important;
@@ -91,9 +101,7 @@ function ensureGlobalCalThemeCSSOnce(){
         box-shadow: none !important;
       }
 
-      /* -------------------------------------------------- */
-      /* Intensity slider: FULL WIDTH                        */
-      /* -------------------------------------------------- */
+      /* Intensity slider: FULL WIDTH */
       #adjustBackdrop #intensityBox{
         max-width: 620px;
         margin: 0 auto;
@@ -108,9 +116,7 @@ function ensureGlobalCalThemeCSSOnce(){
         justify-content:space-between !important;
       }
 
-      /* -------------------------------------------------- */
-      /* Buttons (Cancel / Apply)                            */
-      /* -------------------------------------------------- */
+      /* Buttons (Cancel / Apply) */
       #adjustBackdrop .btn,
       #confirmAdjBackdrop .btn{
         border: 1px solid var(--border) !important;
@@ -144,7 +150,6 @@ function ensureGlobalCalThemeCSSOnce(){
         box-shadow: none !important;
       }
 
-      /* On very small phones, keep seg buttons from crowding */
       @media (max-width: 380px){
         #adjustBackdrop #feelSeg .segbtn{ min-width: 104px; }
       }
@@ -218,16 +223,30 @@ function getSelectedField(state){
   return (state.fields || []).find(x=>x.id === fid) || null;
 }
 
+function getCalForModel(state){
+  // render.js may set state._cal for calibration; if not present, default to none
+  try{
+    if (state && state._cal && typeof state._cal === 'object') return state._cal;
+  }catch(_){}
+  return { wetBias:0, opWetBias:{} };
+}
+
 function getRunForField(state, f){
   if (!f) return null;
   if (!state._mods || !state._mods.model || !state._mods.weather) return null;
 
   const wxCtx = buildWxCtx(state);
+
+  // IMPORTANT: we pass CAL + opKey so the run matches what users see elsewhere
+  const opKey = getCurrentOp();
+
   const deps = {
     getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
     getFieldParams: (id)=> getFieldParams(state, id),
     LOSS_SCALE: CONST.LOSS_SCALE,
-    EXTRA
+    EXTRA,
+    opKey,
+    CAL: getCalForModel(state)
   };
 
   const run = state._mods.model.runField(f, deps);
@@ -236,18 +255,13 @@ function getRunForField(state, f){
 }
 
 /* =========================
-   Threshold-based wet/dry status (YOUR RULE)
+   OPERATION-INDEPENDENT wet/dry truth
+   - Uses model wetness itself
+   - Fixed split at wetnessR >= 50 (wet) else dry
 ========================= */
-function currentThreshold(state){
-  const opKey = getCurrentOp();
-  const v = state.thresholdsByOp && state.thresholdsByOp.get ? state.thresholdsByOp.get(opKey) : null;
-  const thr = isFinite(Number(v)) ? Number(v) : 70;
-  return clamp(Math.round(thr), 0, 100);
-}
-
-function statusFromRunAndThreshold(run, thr){
-  const r = clamp(Math.round(Number(run?.readinessR ?? 0)), 0, 100);
-  return (r >= thr) ? 'dry' : 'wet';
+function statusFromWetness(run){
+  const w = clamp(Math.round(Number(run?.wetnessR ?? 0)), 0, 100);
+  return (w >= 50) ? 'wet' : 'dry';
 }
 
 /* =========================
@@ -363,6 +377,7 @@ function renderCooldownCard(state){
 
 /* =========================
    Slider anchoring + clamp (YOUR RULE)
+   (anchor is readiness; clamp prevents making it worse)
 ========================= */
 function sliderEl(){ return $('adjIntensity'); }
 function sliderVal(){
@@ -395,8 +410,8 @@ function enforceSliderClamp(state){
   const anchor = clamp(Number(state._adjAnchorReadiness ?? 50), 0, 100);
   let v = sliderVal();
 
-  const status = state._adjStatus;
-  const feel = state._adjFeel;
+  const status = state._adjStatus; // wet|dry
+  const feel = state._adjFeel;     // wet|dry|null
 
   if (!feel){
     v = anchor;
@@ -405,9 +420,12 @@ function enforceSliderClamp(state){
     return;
   }
 
+  // WET -> only DRY allowed -> readiness can only increase (cannot move below anchor)
   if (status === 'wet' && feel === 'dry'){
     if (v < anchor) v = anchor;
-  } else if (status === 'dry' && feel === 'wet'){
+  }
+  // DRY -> only WET allowed -> readiness can only decrease (cannot move above anchor)
+  else if (status === 'dry' && feel === 'wet'){
     if (v > anchor) v = anchor;
   } else {
     v = anchor;
@@ -495,6 +513,8 @@ function updateUI(state){
   const applyBtn = $('btnAdjApply');
   const s = sliderEl();
 
+  // If status is wet -> Wet disabled, only Dry allowed
+  // If status is dry -> Dry disabled, only Wet allowed
   if (bWet) bWet.disabled = locked || (state._adjStatus === 'wet');
   if (bDry) bDry.disabled = locked || (state._adjStatus === 'dry');
 
@@ -538,9 +558,9 @@ function updateUI(state){
     if (locked){
       hint.textContent = 'Global calibration is locked (72h rule). Use field-specific Soil Wetness and Drainage sliders instead.';
     } else if (state._adjStatus === 'wet'){
-      hint.textContent = 'This reference field is below threshold (WET). Only “Dry” is allowed, and the slider cannot move wetter than the current reading.';
+      hint.textContent = 'This reference field is WET (based on wetness). Only “Dry” is allowed, and the slider cannot move wetter than the current reading.';
     } else if (state._adjStatus === 'dry'){
-      hint.textContent = 'This reference field meets threshold (DRY). Only “Wet” is allowed, and the slider cannot move drier than the current reading.';
+      hint.textContent = 'This reference field is DRY (based on wetness). Only “Wet” is allowed, and the slider cannot move drier than the current reading.';
     } else {
       hint.textContent = 'Choose Wet or Dry.';
     }
@@ -660,11 +680,15 @@ async function openAdjust(state){
   renderCooldownCard(state);
 
   const run = getRunForField(state, f);
-  const thr = currentThreshold(state);
-  const status = statusFromRunAndThreshold(run, thr);
+  if (!run) return;
+
+  // ✅ NEW: op-independent wet/dry status
+  const status = statusFromWetness(run);
 
   state._adjStatus = status;
   state._adjFeel = null;
+
+  // Anchor remains readiness (matches your current UI)
   state._adjAnchorReadiness = clamp(Math.round(Number(run?.readinessR ?? 50)), 0, 100);
 
   setAnchor(state, state._adjAnchorReadiness);
@@ -696,6 +720,13 @@ function closeAdjust(state){
 /* =========================
    Apply
 ========================= */
+function currentThresholdForLogging(state){
+  const opKey = getCurrentOp();
+  const v = state.thresholdsByOp && state.thresholdsByOp.get ? state.thresholdsByOp.get(opKey) : null;
+  const thr = isFinite(Number(v)) ? Number(v) : 70;
+  return clamp(Math.round(thr), 0, 100);
+}
+
 async function applyAdjustment(state){
   if (isLocked(state)) return;
 
@@ -708,20 +739,23 @@ async function applyAdjustment(state){
   const feel = state._adjFeel;
   if (!(feel === 'wet' || feel === 'dry')) return;
 
+  // Enforce opposite-only
   if (state._adjStatus === 'wet' && feel !== 'dry') return;
   if (state._adjStatus === 'dry' && feel !== 'wet') return;
 
   const d = computeDelta(state);
   if (!d) return;
 
-  const thr = currentThreshold(state);
   const entry = {
     fieldId: f.id,
     fieldName: f.name || '',
-    op: getCurrentOp(),
-    threshold: thr,
 
-    status: state._adjStatus,
+    // keep for context (doesn't control wet/dry logic anymore)
+    op: getCurrentOp(),
+    threshold: currentThresholdForLogging(state),
+
+    // truth + direction
+    status: state._adjStatus, // wet/dry based on wetness
     feel,
 
     readinessAnchor: clamp(Math.round(Number(run.readinessR)), 0, 100),
@@ -781,6 +815,7 @@ function wireOnce(state){
       if (feel !== 'wet' && feel !== 'dry') return;
       if (isLocked(state)) return;
 
+      // Opposite-only enforcement
       if (state._adjStatus === 'wet'){
         state._adjFeel = 'dry';
       } else if (state._adjStatus === 'dry'){
