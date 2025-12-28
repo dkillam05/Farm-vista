@@ -1,14 +1,17 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2025-12-28a
+Rev: 2025-12-28b
 
 Fix (per Dane):
-✅ Map no longer opens BEHIND Quick View.
-   - When tapping "Map" inside Quick View, Quick View temporarily hides
-   - Map modal opens (existing #mapBackdrop)
-   - When Map closes (X or tapping backdrop), Quick View returns
+✅ Quick View readiness now MATCHES tiles
+   - Root cause: Quick View runField() deps were missing calibration hook inputs:
+       deps.opKey and deps.CAL
+   - Fix: Quick View now passes:
+       opKey = getCurrentOp()
+       CAL   = state._cal (fallback safe default)
 
 Keeps:
+✅ Map no longer opens BEHIND Quick View.
 ✅ Tiny Map button on SAME row as GPS
 ✅ Opens in-page Map modal (no new browser/tab)
 ✅ Mobile fit (sticky header, X always reachable)
@@ -68,6 +71,15 @@ function gradientForThreshold(thr){
     hsl(45 75% 38%) ${a},
     hsl(120 55% 34%) 100%
   )`;
+}
+
+/* =====================================================================
+   Calibration helper (read-only; render.js loads state._cal)
+===================================================================== */
+function getCalForDeps(state){
+  return (state && state._cal && typeof state._cal === 'object')
+    ? state._cal
+    : { wetBias:0, opWetBias:{} };
 }
 
 /* =====================================================================
@@ -562,18 +574,22 @@ function fillQuickView(state, { live=false } = {}){
   const f = state.fields.find(x=>x.id===fid);
   if (!f) return;
 
+  const opKey = getCurrentOp();           // ✅ match tiles
+  const CAL = getCalForDeps(state);       // ✅ match tiles
+
   const wxCtx = buildWxCtx(state);
   const deps = {
     getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
     getFieldParams: (id)=> getFieldParams(state, id),
     LOSS_SCALE: CONST.LOSS_SCALE,
-    EXTRA
+    EXTRA,
+    opKey,            // ✅ required for per-op cal
+    CAL              // ✅ required for global/per-op bias
   };
 
   const run = state._mods.model.runField(f, deps);
 
   const farmName = state.farmsById.get(f.farmId) || '';
-  const opKey = getCurrentOp();
   const opLabel = (OPS.find(o=>o.key===opKey)?.label) || opKey;
   const thr = getThresholdForOp(state, opKey);
 
@@ -623,8 +639,8 @@ function fillQuickView(state, { live=false } = {}){
   setText('frQvThr', thr);
 
   const range = parseRangeFromInput();
-  const rr = rainInRange(run, range);
-  setText('frQvRain', `${rr.toFixed(2)} in`);
+  const rr = run ? rainInRange(run, range) : 0;
+  setText('frQvRain', run ? `${rr.toFixed(2)} in` : '—');
   setText('frQvReadiness', run ? run.readinessR : '—');
   setText('frQvWetness', run ? run.wetnessR : '—');
   setText('frQvStorage', run ? `${run.storageFinal.toFixed(2)} / ${run.factors.Smax.toFixed(2)}` : '—');
