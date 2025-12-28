@@ -1,44 +1,13 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/global-calibration.js  (FULL FILE)
-Rev: 2025-12-27d
+Rev: 2025-12-27e
 
-Implements Dane's GLOBAL CALIBRATION rules:
+Fix (per Dane):
+✅ Wet/Dry buttons centered
+✅ Intensity slider full width (not tiny)
+✅ Keeps FV theme button styling added previously
+✅ No behavior changes
 
-Reference field:
-- The selected field at the moment you open Adjust is the reference.
-- adjustSub shows: "Global calibration • <Field Name>"
-
-Wet/Dry gating is based on CURRENT OP THRESHOLD:
-- status = (readinessR >= threshold) ? 'dry' : 'wet'
-
-Allowed actions:
-- If status === 'wet'  -> you CANNOT mark "wet"; you may only mark "dry" (drier).
-  Slider shows 0–100, starts at current readiness anchor.
-  Slider cannot be moved below anchor (can't make it wetter than current).
-- If status === 'dry' -> you CANNOT mark "dry"; you may only mark "wet" (wetter).
-  Slider shows 0–100, starts at current readiness anchor.
-  Slider cannot be moved above anchor (can't make it drier than current).
-
-72h cooldown:
-- Reads lock from: field_readiness_model_weights/default
-  fields used: lastAppliedAt, nextAllowedAt, cooldownHours (default 72)
-- Fixes "expired but still locked": if nextAllowedAt is in the past -> unlocked.
-
-Writes:
-- Writes entry to field_readiness_adjustments (global:true)
-- Optimistically updates weights doc (lastAppliedAt / nextAllowedAt) and local state
-- Dispatches fr:soft-reload so UI refreshes without page reload
-
-Theme fix (per Dane):
-✅ Buttons in Adjust + Confirm modals match FV theme:
-   - Primary buttons are FV green with WHITE text
-   - Secondary buttons are FV neutral
-   - Seg buttons match FV style (not default gray)
-   - X buttons match FV xbtn style (not odd bubble)
-
-Depends on:
-- state._mods.model + state._mods.weather loaded by index/render
-- getAPI(state) from firebase.js
 ===================================================================== */
 'use strict';
 
@@ -67,9 +36,9 @@ function ensureGlobalCalThemeCSSOnce(){
     const st = document.createElement('style');
     st.setAttribute('data-fv-fr-gcal-theme','1');
     st.textContent = `
-      /* ----------------------------- */
-      /* Modal X buttons: FV xbtn look */
-      /* ----------------------------- */
+      /* -------------------------------------------------- */
+      /* Modal X buttons: FV xbtn look                        */
+      /* -------------------------------------------------- */
       #adjustBackdrop .xbtn,
       #confirmAdjBackdrop .xbtn{
         background: color-mix(in srgb, var(--surface) 92%, #ffffff 8%) !important;
@@ -82,9 +51,24 @@ function ensureGlobalCalThemeCSSOnce(){
         transform: translateY(1px) !important;
       }
 
-      /* ----------------------------- */
-      /* Seg buttons (Wet/Dry)         */
-      /* ----------------------------- */
+      /* -------------------------------------------------- */
+      /* Seg buttons wrapper: CENTER Wet/Dry                 */
+      /* -------------------------------------------------- */
+      #adjustBackdrop #feelSeg{
+        display:flex !important;
+        justify-content:center !important;
+        align-items:center !important;
+        gap:10px !important;
+        width:100% !important;
+        max-width: 520px;
+        margin: 8px auto 0;
+      }
+      #adjustBackdrop #feelSeg .segbtn{
+        flex: 0 0 auto;
+        min-width: 120px;
+      }
+
+      /* Seg buttons (Wet/Dry) */
       #adjustBackdrop .segbtn{
         border: 1px solid var(--border) !important;
         background: color-mix(in srgb, var(--surface) 94%, #ffffff 6%) !important;
@@ -107,9 +91,26 @@ function ensureGlobalCalThemeCSSOnce(){
         box-shadow: none !important;
       }
 
-      /* ----------------------------- */
-      /* Buttons (Cancel / Apply)      */
-      /* ----------------------------- */
+      /* -------------------------------------------------- */
+      /* Intensity slider: FULL WIDTH                        */
+      /* -------------------------------------------------- */
+      #adjustBackdrop #intensityBox{
+        max-width: 620px;
+        margin: 0 auto;
+      }
+      #adjustBackdrop #intensityBox input[type="range"],
+      #adjustBackdrop #adjIntensity{
+        width: 100% !important;
+        display:block !important;
+      }
+      #adjustBackdrop .intensity-scale{
+        width: 100% !important;
+        justify-content:space-between !important;
+      }
+
+      /* -------------------------------------------------- */
+      /* Buttons (Cancel / Apply)                            */
+      /* -------------------------------------------------- */
       #adjustBackdrop .btn,
       #confirmAdjBackdrop .btn{
         border: 1px solid var(--border) !important;
@@ -141,6 +142,11 @@ function ensureGlobalCalThemeCSSOnce(){
         opacity: .55 !important;
         cursor: not-allowed !important;
         box-shadow: none !important;
+      }
+
+      /* On very small phones, keep seg buttons from crowding */
+      @media (max-width: 380px){
+        #adjustBackdrop #feelSeg .segbtn{ min-width: 104px; }
       }
     `;
     document.head.appendChild(st);
@@ -231,8 +237,6 @@ function getRunForField(state, f){
 
 /* =========================
    Threshold-based wet/dry status (YOUR RULE)
-   wet  => readiness below threshold
-   dry  => readiness at/above threshold
 ========================= */
 function currentThreshold(state){
   const opKey = getCurrentOp();
@@ -391,8 +395,8 @@ function enforceSliderClamp(state){
   const anchor = clamp(Number(state._adjAnchorReadiness ?? 50), 0, 100);
   let v = sliderVal();
 
-  const status = state._adjStatus; // 'wet'|'dry'
-  const feel = state._adjFeel;     // user choice: 'wet'|'dry'|null
+  const status = state._adjStatus;
+  const feel = state._adjFeel;
 
   if (!feel){
     v = anchor;
@@ -755,7 +759,6 @@ function wireOnce(state){
   if (state._globalCalWired) return;
   state._globalCalWired = true;
 
-  // close buttons
   const btnX = $('btnAdjX');
   if (btnX) btnX.addEventListener('click', ()=> closeAdjust(state));
 
@@ -769,7 +772,6 @@ function wireOnce(state){
     });
   }
 
-  // feel buttons
   const seg = $('feelSeg');
   if (seg){
     seg.addEventListener('click', (e)=>{
@@ -792,7 +794,6 @@ function wireOnce(state){
     });
   }
 
-  // slider
   const s = sliderEl();
   if (s){
     s.addEventListener('input', ()=>{
@@ -801,7 +802,6 @@ function wireOnce(state){
     });
   }
 
-  // apply -> confirm
   const btnApply = $('btnAdjApply');
   if (btnApply){
     btnApply.addEventListener('click', ()=>{
@@ -821,7 +821,6 @@ function wireOnce(state){
     });
   }
 
-  // hotspot: ONLY the word "Fields"
   const hot = $('fieldsTitle');
   if (hot){
     hot.addEventListener('click', async (e)=>{
