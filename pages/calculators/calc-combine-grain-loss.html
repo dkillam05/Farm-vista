@@ -88,18 +88,6 @@
       border:1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
       background:linear-gradient(180deg, rgba(47,108,60,.08), transparent);
     }
-    .ctx h3{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
-    .ctx-badge{
-      display:inline-flex; align-items:center; gap:6px;
-      border:1px solid var(--border);
-      background:var(--surface);
-      border-radius:999px;
-      padding:6px 10px;
-      font-weight:800;
-      font-size:12px;
-      color:var(--muted,#67706B);
-      white-space:nowrap;
-    }
 
     /* === DEV-STYLE INLINE COMBOS (Farm / Field) — copied pattern === */
     :root{
@@ -207,11 +195,8 @@
 
           <!-- Save context -->
           <div id="ctxCard" class="card ctx">
-            <h3 style="margin:0 0 8px 0;">
-              Save Info
-              <span id="ctxMode" class="ctx-badge">Manual</span>
-            </h3>
 
+            <!-- Combine row: ONLY exists when opened from hub -->
             <div id="combineRow" class="row" hidden>
               <div class="field">
                 <label for="combineName">Combine</label>
@@ -380,13 +365,13 @@
 
       const qs = new URLSearchParams(location.search);
 
+      // STRICT: only treat these as hub combine id
       const HUB_COMBINE_ID =
         (qs.get('combineId') || qs.get('combine') || qs.get('equipmentId') || qs.get('equipId') || qs.get('eqId') || '').trim() || null;
 
       const HUB_FARM_ID = (qs.get('farmId') || qs.get('farm') || '').trim() || '';
       const HUB_FIELD_ID = (qs.get('fieldId') || qs.get('field') || '').trim() || '';
 
-      const ctxMode = $("ctxMode");
       const ctxErr = $("ctxErr");
       const combineRow = $("combineRow");
       const combineNameEl = $("combineName");
@@ -613,12 +598,13 @@
       }
 
       function initHubUI(){
+        // Force-hide first (prevents any flash)
+        combineRow.hidden = true;
+
         if(HUB_COMBINE_ID){
-          ctxMode.textContent = "From Combine Hub";
           combineRow.hidden = false;
           combineNameEl.value = "Loading…";
         }else{
-          ctxMode.textContent = "Manual";
           combineRow.hidden = true;
           __combine = { id:null, name:null };
         }
@@ -750,7 +736,7 @@
       document.addEventListener("keydown", e=>{ if(e.key==="Escape" && modal.hasAttribute("open")) closeModal(); });
 
       function fromCount(crop, kernelsIn4ft2){
-        const perFt2 = COUNT_CONST[crop];
+        const perFt2 = { corn:2, soy:4 }[crop];
         if(!isFinite(kernelsIn4ft2) || kernelsIn4ft2<0) return NaN;
         return kernelsIn4ft2 / (perFt2 * 4);
       }
@@ -773,6 +759,8 @@
 
       function fromWeight(crop, hoopDiaIn, wetWeight, unit, moisturePct){
         const area = hoopAreaFt2(hoopDiaIn);
+        const STD = { corn:{mc:15.5,tw:56}, soy:{mc:13.0,tw:60} };
+        const SQFT_PER_AC = 43560;
         if(!isFinite(area) || area<=0) return { bu_ac: NaN, area_ft2: NaN, wet_lb: NaN, adj_lb: NaN };
         const wet_lb = toPounds(wetWeight, unit);
         const adj_lb = adjustToStdMoist(wet_lb, moisturePct, STD[crop].mc);
@@ -1000,28 +988,6 @@
         }
       }
 
-      function initHubUI(){
-        if(HUB_COMBINE_ID){
-          ctxMode.textContent = "From Combine Hub";
-          combineRow.hidden = false;
-          combineNameEl.value = "Loading…";
-        }else{
-          ctxMode.textContent = "Manual";
-          combineRow.hidden = true;
-          __combine = { id:null, name:null };
-        }
-      }
-
-      function initUserDefaults(){
-        submittedByEl.value = "";
-        submittedAtEl.value = toLocalDTInputValue(new Date());
-
-        onAuthStateChanged(__auth, (u)=>{
-          const name = (u && (u.displayName || u.email)) ? String(u.displayName || u.email) : "";
-          submittedByEl.value = name || "";
-        });
-      }
-
       (async()=>{
         await ready;
         __db = getFirestore();
@@ -1030,19 +996,19 @@
         initHubUI();
         initUserDefaults();
 
-        // init combo wiring first (panels exist), then load data, then set items
         initFarmFieldCombos();
 
         await Promise.all([loadFarms(), loadFields()]);
-        // ensure field list reflects current farm (if any)
         refreshFieldComboForFarm(state.farm ? state.farm.id : null);
 
-        // hub defaults after data is loaded
         applyHubDefaultsAfterLoad();
 
         await loadCombineIfHub();
         if(HUB_COMBINE_ID){
           combineNameEl.value = __combine.name || `Combine (${HUB_COMBINE_ID.slice(-6)})`;
+          combineRow.hidden = false;
+        }else{
+          combineRow.hidden = true;
         }
 
         $("hoopDia").value = 30;
