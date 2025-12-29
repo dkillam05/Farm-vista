@@ -424,6 +424,13 @@
         }catch{ return ""; }
       }
 
+      function normalizeSerial(s){ return String(s||'').trim().toUpperCase(); }
+      function serialLast6(serial){
+        const s = normalizeSerial(serial || '');
+        if(!s) return '';
+        return s.length <= 6 ? s : s.slice(-6);
+      }
+
       let __db = null;
       let __auth = null;
       let __combine = { id: null, name: null };
@@ -584,7 +591,11 @@
           const snap = await getDoc(doc(__db,'equipment',HUB_COMBINE_ID));
           if(snap.exists()){
             const d = snap.data() || {};
-            const name = String(d.name || '').trim() || [d.makeName, d.modelName].filter(Boolean).join(' ').trim() || `Combine (${HUB_COMBINE_ID.slice(-6)})`;
+            const mk = String(d.makeName || '').trim();
+            const md = String(d.modelName || '').trim();
+            const s6 = serialLast6(d.serial || '');
+            const mm = [mk, md].filter(Boolean).join(' ').trim();
+            const name = mm ? (s6 ? `${mm} — #${s6}` : mm) : (s6 ? `Combine — #${s6}` : `Combine (${HUB_COMBINE_ID.slice(-6)})`);
             __combine = { id: HUB_COMBINE_ID, name };
             if(combineNameEl) combineNameEl.value = name;
           }else{
@@ -598,13 +609,11 @@
       }
 
       function initHubUI(){
-        // No hub: remove combine row from DOM so it can never appear.
         if(!IS_HUB){
           try{ combineRow.remove(); }catch{}
           __combine = { id:null, name:null };
           return;
         }
-        // Hub: keep it and show it.
         combineRow.hidden = false;
         combineNameEl.value = "Loading…";
       }
@@ -914,7 +923,7 @@
       });
 
       function initFarmFieldCombos(){
-        farmCombo = makeCombo({
+        const farmCombo = makeCombo({
           btn: farmBtn,
           panel: farmPanel,
           list: farmList,
@@ -930,7 +939,7 @@
           }
         });
 
-        fieldCombo = makeCombo({
+        const fieldCombo = makeCombo({
           btn: fieldBtn,
           panel: fieldPanel,
           list: fieldList,
@@ -952,6 +961,9 @@
             showCtxErr("");
           }
         });
+
+        void farmCombo;
+        void fieldCombo;
       }
 
       function applyHubDefaultsAfterLoad(){
@@ -999,9 +1011,6 @@
         applyHubDefaultsAfterLoad();
 
         await loadCombineIfHub();
-        if(HUB_COMBINE_ID && combineNameEl){
-          combineNameEl.value = __combine.name || `Combine (${HUB_COMBINE_ID.slice(-6)})`;
-        }
 
         $("hoopDia").value = 30;
         $("areaOut").value = (Math.PI*(1.25**2)).toFixed(3)+" ft²";
