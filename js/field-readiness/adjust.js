@@ -1,13 +1,15 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/adjust.js  (FULL FILE)
-Rev: 2025-12-27a
+Rev: 2025-12-29a
 
-Fixes (per Dane):
-✅ Only the word "Fields" is clickable (small hidden hotspot) — NOT the whole row
-✅ Permission gate:
-   - if canEdit(state) is false -> hotspot hidden + calibration not wired
-✅ Still uses global-calibration.js for the real 72h rule + modal behavior
+Change (per Dane):
+✅ "Fields" label is ALWAYS visible
+   - If edit NOT allowed: it is NOT clickable (no link behavior) + calibration not wired
+   - If edit allowed: it remains the tiny hotspot + calibration wired
 
+Keeps:
+✅ Tiny hotspot (only the word "Fields")
+✅ Global calibration logic stays in global-calibration.js
 ===================================================================== */
 'use strict';
 
@@ -17,21 +19,25 @@ import { canEdit } from './perm.js';
 export function wireFieldsHiddenTap(state){
   // Ensure the hotspot is tiny + gated.
   try{
-    const hot = document.getElementById('fieldsTitle'); // this is now the *span* with the word "Fields"
+    const hot = document.getElementById('fieldsTitle'); // span with the word "Fields"
     if (hot){
-      // Always prevent the label area from becoming a giant tap target
       hot.style.userSelect = 'none';
 
-      // Gate by permission (edit only)
+      // ALWAYS visible, but only clickable when edit is allowed
+      hot.style.display = 'inline';
+      hot.removeAttribute('aria-hidden');
+
       if (!canEdit(state)){
-        hot.style.display = 'none';
+        // Show but NOT a link/hotspot
         hot.style.pointerEvents = 'none';
-        hot.setAttribute('aria-hidden','true');
+        hot.style.cursor = 'default';
+        hot.style.textDecoration = 'none';
+        hot.setAttribute('aria-disabled','true');
         return; // do NOT wire global calibration for view-only users
       } else {
-        hot.style.display = 'inline';
         hot.style.pointerEvents = 'auto';
-        hot.removeAttribute('aria-hidden');
+        hot.style.cursor = 'pointer';
+        hot.removeAttribute('aria-disabled');
       }
     }
   }catch(_){}
