@@ -20,8 +20,13 @@
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
     .muted{ color:var(--muted,#67706B); }
 
-    .hero{border:1px solid var(--border); border-radius:14px; background:var(--surface);
-      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08)); overflow:hidden;}
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:visible; /* ✅ IMPORTANT: allow dropdowns to escape hero */
+    }
     .hero-head{display:flex; gap:12px; align-items:flex-start; padding:14px 16px;
       background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
       border-bottom:1px solid var(--border);}
@@ -185,7 +190,7 @@
           <div class="icon" aria-hidden="true">⚙️</div>
           <div>
             <h1>Combine Yield Calibration</h1>
-            <p class="muted">Pick a crop, enter the monitor’s <strong>Combine Weight</strong> and the scale’s <strong>Grain Cart Weight</strong>. We’ll tell you if the monitor reads high/low and by what percent. Last 10 are saved locally.</p>
+            <p class="muted">Pick a crop, enter the monitor’s <strong>Combine Weight</strong> and the scale’s <strong>Grain Cart Weight</strong>. We’ll tell you if the monitor reads high/low and by what percent. Last 10 are saved locally and to Firestore.</p>
           </div>
         </header>
 
@@ -296,19 +301,21 @@
     import {
       ready,
       getFirestore,
-      collection, doc, getDoc, getDocs,
+      collection, doc, getDoc, getDocs, addDoc,
       query, orderBy,
+      serverTimestamp,
       getAuth,
       onAuthStateChanged
     } from '../../js/firebase-init.js';
 
     (function(){
       "use strict";
-      if(window.__FV_COMBINE_CALIB_MATCH_GRAINLOSS_V3__) return; window.__FV_COMBINE_CALIB_MATCH_GRAINLOSS_V3__=true;
+      if(window.__FV_COMBINE_CALIB_MATCH_GRAINLOSS_SAVE_V1__) return; window.__FV_COMBINE_CALIB_MATCH_GRAINLOSS_SAVE_V1__=true;
 
       const $ = id => document.getElementById(id);
       const fmt = (n, d=0) => Number(n).toLocaleString(undefined,{maximumFractionDigits:d});
-      const LS_KEY = "fv_calc_combine_calibration_history_v9";
+      const LS_KEY = "fv_calc_combine_calibration_history_v10";
+      const FS_COLLECTION = "combine_yield_calibration";
 
       const qs = new URLSearchParams(location.search);
       const RAW_COMBINE_ID =
@@ -346,6 +353,8 @@
       const mdClose = $("mdClose");
 
       const state = { farms: [], fields: [], farm: null, field: null };
+
+      let __db = null;
 
       function showErr(msg){
         if(!ctxErr) return;
@@ -577,7 +586,10 @@
         const pct = Math.abs(diff) / gwv * 100;
         const status = diff===0 ? "MATCH" : (diff>0 ? "HIGH" : "LOW");
 
-        return { farmId, fieldId, cw:cwv, gw:gwv, pct, status, submittedBy:by, submittedDate:dt };
+        const farmName = (()=>{ const f = state.farms.find(x=>String(x.id)===String(farmId)); return f ? f.name : ""; })();
+        const fieldName = (()=>{ const f = state.fields.find(x=>String(x.id)===String(fieldId)); return f ? f.name : ""; })();
+
+        return { farmId, fieldId, farmName, fieldName, cw:cwv, gw:gwv, pct, status, submittedBy:by, submittedDate:dt };
       }
 
       function showResult(out){
@@ -588,9 +600,36 @@
         summary.hidden = false;
       }
 
+      async function saveToFirestore(rec){
+        if(!__db) return;
+        const payload = {
+          type: "combine_yield_calibration",
+          farmId: rec.farmId || null,
+          farmName: rec.farmName || null,
+          fieldId: rec.fieldId || null,
+          fieldName: rec.fieldName || null,
+
+          combineId: rec.combineId || null,
+          combineName: rec.combineLabel || null,
+
+          crop: rec.crop || null,
+          combineWeight: (typeof rec.cw === "number") ? rec.cw : null,
+          grainCartWeight: (typeof rec.gw === "number") ? rec.gw : null,
+          percentOff: (typeof rec.pct === "number") ? rec.pct : null,
+          status: rec.status || null,
+
+          submittedBy: rec.submittedBy || null,
+          submittedDate: rec.submittedDate || null,
+
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        };
+        await addDoc(collection(__db, FS_COLLECTION), payload);
+      }
+
       async function boot(){
         await ready;
-        const db = getFirestore();
+        __db = getFirestore();
 
         // Submitted by + date
         submittedByEl.value = "";
@@ -634,7 +673,7 @@
 
         // Farms
         try{
-          const fsnap = await getDocs(query(collection(db,"farms"), orderBy("name")));
+          const fsnap = await getDocs(query(collection(__db,"farms"), orderBy("name")));
           state.farms = fsnap.docs.map(ds=>{
             const d = ds.data() || {};
             if(!!d.archived) return null;
@@ -645,7 +684,7 @@
 
         // Fields
         try{
-          const xsnap = await getDocs(query(collection(db,"fields"), orderBy("name")));
+          const xsnap = await getDocs(query(collection(__db,"fields"), orderBy("name")));
           state.fields = xsnap.docs.map(ds=>{
             const d = ds.data() || {};
             if(!!d.archived) return null;
@@ -671,7 +710,7 @@
           combineRow.hidden = false;
           combineNameEl.value = "Loading…";
           try{
-            const snap = await getDoc(doc(db,"equipment",HUB_COMBINE_ID));
+            const snap = await getDoc(doc(__db,"equipment",HUB_COMBINE_ID));
             if(snap.exists()){
               const d = snap.data() || {};
               const mk = String(d.makeName||"").trim();
@@ -700,23 +739,13 @@
         renderHist();
       }
 
-      $("calcBtn").addEventListener("click", ()=>{
+      $("calcBtn").addEventListener("click", async ()=>{
         const out = calc();
         if(!out) return;
 
         out.crop = cropSel.value;
-
         out.combineId = String(window.__fv_hub_combine_id || "");
         out.combineLabel = String(window.__fv_hub_combine_label || "");
-
-        out.farmName = "";
-        out.fieldName = "";
-        try{
-          const f = state.farms.find(x=>String(x.id)===String(out.farmId));
-          if(f) out.farmName = f.name;
-          const ff = state.fields.find(x=>String(x.id)===String(out.fieldId));
-          if(ff) out.fieldName = ff.name;
-        }catch{}
 
         const rec = {
           t: Date.now(),
@@ -737,6 +766,13 @@
 
         const h = loadH(); h.unshift(rec); saveH(h); renderHist();
         showResult(rec);
+
+        try{
+          await saveToFirestore(rec);
+        }catch(e){
+          console.error(e);
+          // keep UX simple: local history still saved even if Firestore fails
+        }
       });
 
       $("clearBtn").addEventListener("click", ()=>{
