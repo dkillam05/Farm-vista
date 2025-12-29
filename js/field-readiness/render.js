@@ -1,12 +1,15 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-29a
+Rev: 2025-12-29b
 
-Change (per Dane):
-✅ Swipe "Details" is gated by edit permission (same as dblclick)
+Fix (per Dane):
+✅ Farm dropdown filtering works again
+   - Removed invalid variable reference "fαρmId" that could crash rendering
+   - Filter now correctly matches f.farmId to selected farmId
 
 Keeps:
-✅ Desktop dblclick works again (and is edit-gated)
+✅ Swipe "Details" gated by edit permission (same as dblclick)
+✅ Desktop dblclick works (edit-gated)
 ✅ Readiness mismatch fix (tiles vs details)
 ✅ GLOBAL ONLY calibration (wetBias only)
 ✅ Mobile selection UX + desktop selected outline behavior
@@ -229,10 +232,11 @@ function sortFields(fields, runsById){
   return arr;
 }
 
+/* ---------- FIXED: farm filter ---------- */
 function getFilteredFields(state){
   const farmId = String(state.farmFilter || '__all__');
   if (farmId === '__all__') return state.fields.slice();
-  return state.fields.filter(f => String(f.farmId||'') === fαρmId ? true : String(f.farmId||'') === farmId); // (kept behavior, safe)
+  return state.fields.filter(f => String(f.farmId || '') === farmId);
 }
 
 /* =====================================================================
@@ -362,11 +366,11 @@ function setSelectedTileClass(state, fieldId){
 
     const prev = String(state._selectedTileId || '');
     if (prev && prev !== fid){
-      const prevEl = document.querySelector(`.tile[data-field-id="${CSS.escape(prev)}"]`);
+      const prevEl = document.querySelector(\`.tile[data-field-id="\${CSS.escape(prev)}"]\`);
       if (prevEl) prevEl.classList.remove('fv-selected');
     }
 
-    const curEl = document.querySelector(`.tile[data-field-id="${CSS.escape(fid)}"]`);
+    const curEl = document.querySelector(\`.tile[data-field-id="\${CSS.escape(fid)}"]\`);
     if (curEl) curEl.classList.add('fv-selected');
 
     state._selectedTileId = fid;
@@ -412,8 +416,8 @@ function updateDetailsHeaderPanel(state){
   if (!panel) return;
 
   const farmName = (state.farmsById && state.farmsById.get) ? (state.farmsById.get(f.farmId) || '') : '';
-  const title = farmName ? `${farmName} • ${f.name || ''}` : (f.name || '—');
-  const loc = (f.county || f.state) ? `${String(f.county||'—')} / ${String(f.state||'—')}` : '';
+  const title = farmName ? \`\${farmName} • \${f.name || ''}\` : (f.name || '—');
+  const loc = (f.county || f.state) ? \`\${String(f.county||'—')} / \${String(f.state||'—')}\` : '';
 
   panel.innerHTML = `
     <div class="frdh-title">${esc(title)}</div>
@@ -427,7 +431,7 @@ async function updateTileForField(state, fieldId){
     if (!fieldId) return;
     const fid = String(fieldId);
 
-    const tile = document.querySelector(`.tile[data-field-id="${CSS.escape(fid)}"]`);
+    const tile = document.querySelector(\`.tile[data-field-id="\${CSS.escape(fid)}"]\`);
     if (!tile) return;
 
     await ensureModelWeatherModules(state);
