@@ -100,6 +100,90 @@
       color:var(--muted,#67706B);
       white-space:nowrap;
     }
+
+    /* === DEV-STYLE INLINE COMBOS (Farm / Field) — copied pattern === */
+    :root{
+      --combo-gap:4px;
+      --combo-radius:12px;
+      --combo-btn-radius:10px;
+      --combo-shadow:0 12px 26px rgba(0,0,0,.18);
+      --combo-item-pad:10px 8px;
+      --combo-max-h:50vh;
+    }
+    .buttonish{
+      width:100%;
+      font:inherit;
+      font-size:16px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius);
+      padding:12px;
+      padding-right:42px;
+      outline:none;
+      text-align:left;
+      cursor:pointer;
+      position:relative;
+    }
+    .buttonish.has-caret::after{
+      content:"";
+      position:absolute;
+      right:14px;
+      top:50%;
+      width:0;
+      height:0;
+      border-left:6px solid transparent;
+      border-right:6px solid transparent;
+      border-top:7px solid var(--muted,#67706B);
+      transform:translateY(-50%);
+      pointer-events:none;
+    }
+    .combo{ position:relative; }
+    .combo .combo-anchor{
+      position:relative;
+      display:inline-block;
+      width:100%;
+    }
+    .combo-panel{
+      position:absolute;
+      left:0; right:0;
+      top:calc(100% + var(--combo-gap));
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:var(--combo-radius);
+      box-shadow:var(--combo-shadow);
+      padding:8px;
+      display:none;
+      z-index:9999;
+    }
+    .combo-panel.show{ display:block; }
+    .combo-panel .search{
+      padding:4px 2px 8px;
+    }
+    .combo-panel .search input{
+      width:100%;
+      padding:10px;
+      border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius);
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+    }
+    .combo-panel .list{
+      max-height:var(--combo-max-h);
+      overflow:auto;
+      border-top:1px solid var(--border);
+    }
+    .combo-item{
+      padding:var(--combo-item-pad);
+      border-bottom:1px solid var(--border);
+      cursor:pointer;
+    }
+    .combo-item:hover{ background:rgba(0,0,0,.04); }
+    .combo-item:last-child{ border-bottom:none; }
+    .combo-empty{
+      padding:var(--combo-item-pad);
+      color:#67706B;
+    }
   </style>
 
   <script>(function(){
@@ -128,7 +212,6 @@
               <span id="ctxMode" class="ctx-badge">Manual</span>
             </h3>
 
-            <!-- Combine row: ONLY exists when opened from hub -->
             <div id="combineRow" class="row" hidden>
               <div class="field">
                 <label for="combineName">Combine</label>
@@ -148,18 +231,30 @@
               </div>
             </div>
 
+            <!-- Farm / Field combos (match maintenance-add) -->
             <div class="row">
-              <div class="field">
-                <label for="farmSel">Farm</label>
-                <select id="farmSel" class="select">
-                  <option value="">— Select —</option>
-                </select>
+              <div class="field combo">
+                <label for="farmBtn">Farm</label>
+                <div class="combo-anchor">
+                  <button id="farmBtn" class="buttonish has-caret" type="button">Select farm…</button>
+                  <div class="combo-panel" id="farmPanel" role="listbox" aria-label="Farm list">
+                    <div class="search"><input id="farmSearch" type="search" placeholder="Search farms…"></div>
+                    <div class="list" id="farmList"></div>
+                  </div>
+                </div>
+                <input id="farmId" type="hidden" value="">
               </div>
-              <div class="field">
-                <label for="fieldSel">Field</label>
-                <select id="fieldSel" class="select">
-                  <option value="">— Select —</option>
-                </select>
+
+              <div class="field combo">
+                <label for="fieldBtn">Field</label>
+                <div class="combo-anchor">
+                  <button id="fieldBtn" class="buttonish has-caret" type="button">Select field…</button>
+                  <div class="combo-panel" id="fieldPanel" role="listbox" aria-label="Field list">
+                    <div class="search"><input id="fieldSearch" type="search" placeholder="Search fields…"></div>
+                    <div class="list" id="fieldList"></div>
+                  </div>
+                </div>
+                <input id="fieldId" type="hidden" value="">
               </div>
             </div>
 
@@ -285,7 +380,6 @@
 
       const qs = new URLSearchParams(location.search);
 
-      // IMPORTANT: do NOT treat generic "id" as combine id (normal calculator links can have id params)
       const HUB_COMBINE_ID =
         (qs.get('combineId') || qs.get('combine') || qs.get('equipmentId') || qs.get('equipId') || qs.get('eqId') || '').trim() || null;
 
@@ -300,8 +394,24 @@
       const submittedByEl = $("submittedBy");
       const submittedAtEl = $("submittedAt");
 
-      const farmSel = $("farmSel");
-      const fieldSel = $("fieldSel");
+      // Combo elements
+      const farmBtn = $("farmBtn");
+      const farmPanel = $("farmPanel");
+      const farmList = $("farmList");
+      const farmSearch = $("farmSearch");
+      const fieldBtn = $("fieldBtn");
+      const fieldPanel = $("fieldPanel");
+      const fieldList = $("fieldList");
+      const fieldSearch = $("fieldSearch");
+      const farmIdEl = $("farmId");
+      const fieldIdEl = $("fieldId");
+
+      const state = {
+        farms: [],
+        fields: [],
+        farm: null,
+        field: null
+      };
 
       function showCtxErr(msg){
         if(!ctxErr) return;
@@ -330,24 +440,25 @@
 
       let __db = null;
       let __auth = null;
-      let __user = null;
-
       let __combine = { id: null, name: null };
 
-      let __farms = [];
-      let __fields = [];
-      let __fieldsByFarm = new Map();
-      let __fieldById = new Map();
-      let __farmById = new Map();
+      /* ---------- global combo closer (copied pattern) ---------- */
+      function closeAllCombos(exceptPanel=null){
+        document.querySelectorAll('.combo-panel.show').forEach(p=>{
+          if(p!==exceptPanel) p.classList.remove('show');
+        });
+      }
+      document.addEventListener('click', ()=> closeAllCombos());
+      document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
 
-      function pickDocName(v){
-        const a = String(v?.name || '').trim();
-        if(a) return a;
-        const b = String(v?.label || '').trim();
-        if(b) return b;
-        const c = String(v?.title || '').trim();
-        if(c) return c;
-        return '';
+      function esc(s){
+        return String(s ?? "").replace(/[&<>"']/g, m =>
+          ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])
+        );
+      }
+
+      function pickName(data){
+        return data.name || data.farmName || data.fieldName || data.label || data.title || "Unnamed";
       }
 
       function refToId(v){
@@ -363,6 +474,123 @@
           }
           return null;
         }catch{ return null; }
+      }
+
+      function makeCombo({ btn, panel, list, searchInput, items=[], formatter, onPick }){
+        if(!btn || !panel || !list) return null;
+
+        panel.addEventListener('click', e=> e.stopPropagation());
+        panel.addEventListener('mousedown', e=> e.stopPropagation());
+
+        let DATA = items || [];
+
+        function render(q=""){
+          const qq = (q||"").toLowerCase();
+          const rows = (DATA||[]).filter(x=>{
+            const label = String(formatter(x)||"").toLowerCase();
+            return !qq || label.includes(qq);
+          });
+
+          if(rows.length){
+            list.innerHTML = rows.map(x=>`<div class="combo-item" data-id="${esc(String(x.id))}">${esc(formatter(x))}</div>`).join('');
+          }else{
+            list.innerHTML = `<div class="combo-empty">(no matches)</div>`;
+          }
+        }
+
+        function open(){
+          closeAllCombos(panel);
+          panel.classList.add('show');
+          render("");
+          if(searchInput){
+            searchInput.value = "";
+            searchInput.focus();
+          }
+        }
+        function close(){ panel.classList.remove('show'); }
+
+        btn.addEventListener('click', e=>{
+          e.stopPropagation();
+          panel.classList.contains('show') ? close() : open();
+        });
+
+        list.addEventListener('mousedown', e=>{
+          const row = e.target.closest('.combo-item');
+          if(!row) return;
+          const id = row.dataset.id;
+          const it = (DATA||[]).find(x=>String(x.id)===String(id));
+          if(!it) return;
+          onPick && onPick(it);
+          close();
+        });
+
+        if(searchInput){
+          searchInput.addEventListener('input', e=> render(e.target.value));
+        }
+
+        return {
+          setItems(arr){
+            DATA = arr || [];
+            render(searchInput ? searchInput.value : "");
+          }
+        };
+      }
+
+      let farmCombo = null;
+      let fieldCombo = null;
+
+      function refreshFieldComboForFarm(farmId){
+        let list = state.fields;
+        if(farmId){
+          list = list.filter(f=>String(f.farmId||"") === String(farmId));
+        }
+        if(fieldCombo) fieldCombo.setItems(list);
+
+        if(state.field && farmId && String(state.field.farmId||"") !== String(farmId)){
+          state.field = null;
+          if(fieldBtn) fieldBtn.textContent = "Select field…";
+          if(fieldIdEl) fieldIdEl.value = "";
+        }
+      }
+
+      function selectFarmById(farmId){
+        if(!farmId) return;
+        const farm = state.farms.find(f=>String(f.id)===String(farmId));
+        if(!farm) return;
+        state.farm = farm;
+        if(farmBtn) farmBtn.textContent = farm.name;
+        if(farmIdEl) farmIdEl.value = farm.id;
+      }
+
+      async function loadFarms(){
+        const snap = await getDocs(query(collection(__db,"farms"), orderBy("name")));
+        state.farms = snap.docs.map(ds=>{
+          const d = ds.data() || {};
+          if(!!d.archived) return null;
+          return { id: ds.id, name: pickName(d) };
+        }).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name));
+        if(farmCombo) farmCombo.setItems(state.farms);
+      }
+
+      async function loadFields(){
+        const snap = await getDocs(query(collection(__db,"fields"), orderBy("name")));
+        state.fields = snap.docs.map(ds=>{
+          const d = ds.data() || {};
+          if(!!d.archived) return null;
+
+          const farmId =
+            refToId(d.farmId) ||
+            refToId(d.farm) ||
+            refToId(d.farmRef) ||
+            refToId(d.farmDocId) ||
+            refToId(d.farmRefId) ||
+            refToId(d.farm_id) ||
+            null;
+
+          return { id: ds.id, name: pickName(d), farmId };
+        }).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name));
+
+        refreshFieldComboForFarm(state.farm ? state.farm.id : null);
       }
 
       async function loadCombineIfHub(){
@@ -384,97 +612,26 @@
         }
       }
 
-      async function loadFarmsAndFields(){
-        __farms = [];
-        try{
-          const fsnap = await getDocs(query(collection(__db,'farms'), orderBy('name')));
-          fsnap.forEach(ds=>{
-            const v = ds.data() || {};
-            const name = pickDocName(v) || `Farm (${ds.id.slice(-6)})`;
-            if(!!v.archived) return;
-            __farms.push({ id: ds.id, name });
-          });
-        }catch{}
-
-        __farms.sort((a,b)=>String(a.name).localeCompare(String(b.name)));
-        __farmById = new Map(__farms.map(f=>[f.id,f]));
-
-        __fields = [];
-        try{
-          const qsnap = await getDocs(query(collection(__db,'fields'), orderBy('name')));
-          qsnap.forEach(ds=>{
-            const v = ds.data() || {};
-            if(!!v.archived) return;
-            const name = pickDocName(v) || `Field (${ds.id.slice(-6)})`;
-
-            const farmId =
-              refToId(v.farmId) ||
-              refToId(v.farm) ||
-              refToId(v.farmRef) ||
-              refToId(v.farmRefId) ||
-              refToId(v.farm_id) ||
-              null;
-
-            __fields.push({ id: ds.id, name, farmId });
-          });
-        }catch{}
-
-        __fields.sort((a,b)=>String(a.name).localeCompare(String(b.name)));
-        __fieldById = new Map(__fields.map(f=>[f.id,f]));
-
-        __fieldsByFarm = new Map();
-        __fields.forEach(f=>{
-          const key = f.farmId || '';
-          if(!__fieldsByFarm.has(key)) __fieldsByFarm.set(key, []);
-          __fieldsByFarm.get(key).push(f);
-        });
-        for(const [k, arr] of __fieldsByFarm.entries()){
-          arr.sort((a,b)=>String(a.name).localeCompare(String(b.name)));
-          __fieldsByFarm.set(k, arr);
-        }
-      }
-
-      function renderFarmSelect(){
-        const current = String(farmSel.value || '').trim();
-        farmSel.innerHTML = '<option value="">— Select —</option>';
-        __farms.forEach(f=>{
-          const o = document.createElement('option');
-          o.value = f.id;
-          o.textContent = f.name;
-          farmSel.appendChild(o);
-        });
-        if(current && [...farmSel.options].some(o=>o.value===current)) farmSel.value = current;
-      }
-
-      function renderFieldSelect(filterFarmId, keepFieldId){
-        const current = keepFieldId != null ? String(keepFieldId||'') : String(fieldSel.value||'');
-        const farmId = String(filterFarmId || '').trim();
-
-        let list = [];
-        if(farmId){
-          list = (__fieldsByFarm.get(farmId) || []);
+      function initHubUI(){
+        if(HUB_COMBINE_ID){
+          ctxMode.textContent = "From Combine Hub";
+          combineRow.hidden = false;
+          combineNameEl.value = "Loading…";
         }else{
-          list = __fields.slice();
+          ctxMode.textContent = "Manual";
+          combineRow.hidden = true;
+          __combine = { id:null, name:null };
         }
+      }
 
-        fieldSel.innerHTML = '<option value="">— Select —</option>';
-        list.forEach(f=>{
-          const o = document.createElement('option');
-          o.value = f.id;
-          o.textContent = f.name;
-          fieldSel.appendChild(o);
+      function initUserDefaults(){
+        submittedByEl.value = "";
+        submittedAtEl.value = toLocalDTInputValue(new Date());
+
+        onAuthStateChanged(__auth, (u)=>{
+          const name = (u && (u.displayName || u.email)) ? String(u.displayName || u.email) : "";
+          submittedByEl.value = name || "";
         });
-
-        if(current && [...fieldSel.options].some(o=>o.value===current)) fieldSel.value = current;
-      }
-
-      function farmNameById(id){
-        const f = __farmById.get(id);
-        return f ? f.name : '';
-      }
-      function fieldNameById(id){
-        const f = __fieldById.get(id);
-        return f ? f.name : '';
       }
 
       /* ✅ Only numbers + max 2 decimals on all numeric fields */
@@ -500,7 +657,6 @@
           el.value = Number(n).toLocaleString(undefined,{maximumFractionDigits:2});
         });
       }
-
       ["kernels","avgYield1","hoopDia","wAmount","moist","avgYield2"].forEach(id=>restrict2($(id)));
 
       const COUNT_CONST = { corn: 2, soy: 4 };
@@ -633,14 +789,23 @@
         showCtxErr("");
         const by = String(submittedByEl?.value || "").trim();
         const at = String(submittedAtEl?.value || "").trim();
-        const farmId = String(farmSel?.value || "").trim();
-        const fieldId = String(fieldSel?.value || "").trim();
+        const farmId = String(farmIdEl?.value || "").trim();
+        const fieldId = String(fieldIdEl?.value || "").trim();
 
         if(!by) return { ok:false, msg:"Submitted by is required (login missing?)." };
         if(!at) return { ok:false, msg:"Date is required." };
         if(!farmId) return { ok:false, msg:"Farm is required." };
         if(!fieldId) return { ok:false, msg:"Field is required." };
         return { ok:true, by, at, farmId, fieldId };
+      }
+
+      function farmNameById(id){
+        const f = state.farms.find(x=>String(x.id)===String(id));
+        return f ? f.name : '';
+      }
+      function fieldNameById(id){
+        const f = state.fields.find(x=>String(x.id)===String(id));
+        return f ? f.name : '';
       }
 
       async function saveToFirestore(it){
@@ -722,10 +887,10 @@
           ...extra,
           combine_id: __combine.id || null,
           combine_name: __combine.name || null,
-          farm_id: String(farmSel?.value || "").trim() || null,
-          farm_name: farmNameById(String(farmSel?.value || "").trim()) || null,
-          field_id: String(fieldSel?.value || "").trim() || null,
-          field_name: fieldNameById(String(fieldSel?.value || "").trim()) || null,
+          farm_id: String(farmIdEl?.value || "").trim() || null,
+          farm_name: farmNameById(String(farmIdEl?.value || "").trim()) || null,
+          field_id: String(fieldIdEl?.value || "").trim() || null,
+          field_name: fieldNameById(String(fieldIdEl?.value || "").trim()) || null,
           submitted_by: String(submittedByEl?.value || "").trim() || null,
           submitted_at: String(submittedAtEl?.value || "").trim() || null
         };
@@ -764,56 +929,75 @@
         saveHist([]); renderHist();
       });
 
-      function initFarmFieldUX(){
-        renderFarmSelect();
-        renderFieldSelect('', '');
+      function initFarmFieldCombos(){
+        farmCombo = makeCombo({
+          btn: farmBtn,
+          panel: farmPanel,
+          list: farmList,
+          searchInput: farmSearch,
+          items: state.farms,
+          formatter: x => x.name,
+          onPick: it=>{
+            state.farm = it;
+            farmBtn.textContent = it.name;
+            farmIdEl.value = it.id;
 
-        if(HUB_FARM_ID){
-          farmSel.value = HUB_FARM_ID;
-        }
-        renderFieldSelect(String(farmSel.value||'').trim(), '');
-
-        if(HUB_FIELD_ID){
-          const f = __fieldById.get(HUB_FIELD_ID);
-          if(f && f.farmId){
-            farmSel.value = f.farmId;
-            renderFieldSelect(f.farmId, HUB_FIELD_ID);
-            fieldSel.value = HUB_FIELD_ID;
-          }else{
-            fieldSel.value = HUB_FIELD_ID;
+            refreshFieldComboForFarm(it.id);
+            showCtxErr("");
           }
-        }
-
-        farmSel.addEventListener('change', ()=>{
-          const farmId = String(farmSel.value || '').trim();
-          renderFieldSelect(farmId, '');
-          showCtxErr("");
         });
 
-        fieldSel.addEventListener('change', ()=>{
-          const fieldId = String(fieldSel.value || '').trim();
-          if(!fieldId){ showCtxErr(""); return; }
-          const f = __fieldById.get(fieldId);
-          if(f && f.farmId){
-            if(String(farmSel.value||'').trim() !== f.farmId){
-              farmSel.value = f.farmId;
-              renderFieldSelect(f.farmId, fieldId);
-              fieldSel.value = fieldId;
+        fieldCombo = makeCombo({
+          btn: fieldBtn,
+          panel: fieldPanel,
+          list: fieldList,
+          searchInput: fieldSearch,
+          items: state.fields,
+          formatter: x => x.name,
+          onPick: it=>{
+            state.field = it;
+            fieldBtn.textContent = it.name;
+            fieldIdEl.value = it.id;
+
+            if(it.farmId){
+              selectFarmById(it.farmId);
+              farmIdEl.value = it.farmId;
+              refreshFieldComboForFarm(it.farmId);
+              fieldBtn.textContent = it.name;
+              fieldIdEl.value = it.id;
             }
+            showCtxErr("");
           }
-          showCtxErr("");
         });
       }
 
-      function initUserDefaults(){
-        submittedByEl.value = "";
-        submittedAtEl.value = toLocalDTInputValue(new Date());
+      function applyHubDefaultsAfterLoad(){
+        if(HUB_FARM_ID){
+          const farm = state.farms.find(f=>String(f.id)===String(HUB_FARM_ID));
+          if(farm){
+            state.farm = farm;
+            farmBtn.textContent = farm.name;
+            farmIdEl.value = farm.id;
+            refreshFieldComboForFarm(farm.id);
+          }
+        }
 
-        onAuthStateChanged(__auth, (u)=>{
-          __user = u || null;
-          const name = (__user && (__user.displayName || __user.email)) ? String(__user.displayName || __user.email) : "";
-          submittedByEl.value = name || "";
-        });
+        if(HUB_FIELD_ID){
+          const field = state.fields.find(f=>String(f.id)===String(HUB_FIELD_ID));
+          if(field){
+            state.field = field;
+            fieldBtn.textContent = field.name;
+            fieldIdEl.value = field.id;
+
+            if(field.farmId){
+              selectFarmById(field.farmId);
+              farmIdEl.value = field.farmId;
+              refreshFieldComboForFarm(field.farmId);
+              fieldBtn.textContent = field.name;
+              fieldIdEl.value = field.id;
+            }
+          }
+        }
       }
 
       function initHubUI(){
@@ -828,6 +1012,16 @@
         }
       }
 
+      function initUserDefaults(){
+        submittedByEl.value = "";
+        submittedAtEl.value = toLocalDTInputValue(new Date());
+
+        onAuthStateChanged(__auth, (u)=>{
+          const name = (u && (u.displayName || u.email)) ? String(u.displayName || u.email) : "";
+          submittedByEl.value = name || "";
+        });
+      }
+
       (async()=>{
         await ready;
         __db = getFirestore();
@@ -836,8 +1030,15 @@
         initHubUI();
         initUserDefaults();
 
-        await loadFarmsAndFields();
-        initFarmFieldUX();
+        // init combo wiring first (panels exist), then load data, then set items
+        initFarmFieldCombos();
+
+        await Promise.all([loadFarms(), loadFields()]);
+        // ensure field list reflects current farm (if any)
+        refreshFieldComboForFarm(state.farm ? state.farm.id : null);
+
+        // hub defaults after data is loaded
+        applyHubDefaultsAfterLoad();
 
         await loadCombineIfHub();
         if(HUB_COMBINE_ID){
