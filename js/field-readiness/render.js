@@ -1,14 +1,13 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-29b
+Rev: 2025-12-29c
 
-Fix (per Dane):
+Fixes:
 ✅ Farm dropdown filtering works again
-   - Removed invalid variable reference "fαρmId" that could crash rendering
-   - Filter now correctly matches f.farmId to selected farmId
+✅ Swipe "Details" is edit-gated (same as dblclick)
+✅ Removed invalid tokens from prior paste (no "\`" sequences)
 
 Keeps:
-✅ Swipe "Details" gated by edit permission (same as dblclick)
 ✅ Desktop dblclick works (edit-gated)
 ✅ Readiness mismatch fix (tiles vs details)
 ✅ GLOBAL ONLY calibration (wetBias only)
@@ -18,9 +17,9 @@ Keeps:
 'use strict';
 
 import { PATHS } from './paths.js';
-import { OPS, EXTRA, CONST, buildWxCtx } from './state.js';
+import { EXTRA, CONST, buildWxCtx } from './state.js';
 import { $, esc, clamp } from './utils.js';
-import { getFieldParams, ensureSelectedParamsToSliders, saveParamsToLocal } from './params.js';
+import { getFieldParams, ensureSelectedParamsToSliders } from './params.js';
 import { getCurrentOp, getThresholdForOp } from './thresholds.js';
 import { canEdit } from './perm.js';
 import { openQuickView } from './quickview.js';
@@ -31,26 +30,20 @@ import { getAPI } from './firebase.js';
 
 /* =====================================================================
    Calibration from adjustments collection (GLOBAL ONLY)
-   Source: CONST.ADJ_COLLECTION  (field_readiness_adjustments)
-   Output: state._cal = { wetBias, opWetBias:{} }
-   NOTE: per-op is intentionally ignored (all adjustments apply globally)
 ===================================================================== */
-const CAL_MAX_DOCS = 12;        // last N global adjustments
-const CAL_SCALE = 0.25;         // wetBias points per delta unit
-const CAL_CLAMP = 12;           // clamp wetBias to ±
+const CAL_MAX_DOCS = 12;
+const CAL_SCALE = 0.25;
+const CAL_CLAMP = 12;
 
 async function loadCalibrationFromAdjustments(state, { force=false } = {}){
   const now = Date.now();
   const last = Number(state._calLoadedAt || 0);
   if (!force && state._cal && (now - last) < 30000) return state._cal;
 
-  // ✅ GLOBAL ONLY (opWetBias intentionally empty)
   const out = { wetBias: 0, opWetBias: {} };
 
   try{
     const api = getAPI(state);
-
-    // If no API, keep default
     if (!api){
       state._cal = out;
       state._calLoadedAt = now;
@@ -81,9 +74,7 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
         const delta = Number(d.delta);
         if (!isFinite(delta)) return;
 
-        // ✅ Ignore op entirely — everything is global
-        const add = delta * CAL_SCALE;
-        out.wetBias += add;
+        out.wetBias += (delta * CAL_SCALE);
       });
 
       out.wetBias = clamp(out.wetBias, -CAL_CLAMP, CAL_CLAMP);
@@ -120,9 +111,7 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
         const delta = Number(d.delta);
         if (!isFinite(delta)) return;
 
-        // ✅ Ignore op entirely — everything is global
-        const add = delta * CAL_SCALE;
-        out.wetBias += add;
+        out.wetBias += (delta * CAL_SCALE);
       });
 
       out.wetBias = clamp(out.wetBias, -CAL_CLAMP, CAL_CLAMP);
@@ -131,7 +120,6 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
       state._calLoadedAt = now;
       return out;
     }
-
   }catch(e){
     console.warn('[FieldReadiness] calibration load failed:', e);
   }
@@ -142,7 +130,6 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
 }
 
 function getCalForDeps(state){
-  // ✅ Always pass global-only calibration (opWetBias stays empty)
   const wb = (state && state._cal && isFinite(Number(state._cal.wetBias))) ? Number(state._cal.wetBias) : 0;
   return { wetBias: wb, opWetBias: {} };
 }
@@ -240,7 +227,7 @@ function getFilteredFields(state){
 }
 
 /* =====================================================================
-   Selection CSS injected once (matches your Rev f behavior)
+   Selection CSS injected once
 ===================================================================== */
 function ensureSelectionStyleOnce(){
   try{
@@ -366,11 +353,11 @@ function setSelectedTileClass(state, fieldId){
 
     const prev = String(state._selectedTileId || '');
     if (prev && prev !== fid){
-      const prevEl = document.querySelector(\`.tile[data-field-id="\${CSS.escape(prev)}"]\`);
+      const prevEl = document.querySelector('.tile[data-field-id="' + CSS.escape(prev) + '"]');
       if (prevEl) prevEl.classList.remove('fv-selected');
     }
 
-    const curEl = document.querySelector(\`.tile[data-field-id="\${CSS.escape(fid)}"]\`);
+    const curEl = document.querySelector('.tile[data-field-id="' + CSS.escape(fid) + '"]');
     if (curEl) curEl.classList.add('fv-selected');
 
     state._selectedTileId = fid;
@@ -416,8 +403,8 @@ function updateDetailsHeaderPanel(state){
   if (!panel) return;
 
   const farmName = (state.farmsById && state.farmsById.get) ? (state.farmsById.get(f.farmId) || '') : '';
-  const title = farmName ? \`\${farmName} • \${f.name || ''}\` : (f.name || '—');
-  const loc = (f.county || f.state) ? \`\${String(f.county||'—')} / \${String(f.state||'—')}\` : '';
+  const title = farmName ? `${farmName} • ${f.name || ''}` : (f.name || '—');
+  const loc = (f.county || f.state) ? `${String(f.county||'—')} / ${String(f.state||'—')}` : '';
 
   panel.innerHTML = `
     <div class="frdh-title">${esc(title)}</div>
@@ -431,7 +418,7 @@ async function updateTileForField(state, fieldId){
     if (!fieldId) return;
     const fid = String(fieldId);
 
-    const tile = document.querySelector(\`.tile[data-field-id="\${CSS.escape(fid)}"]\`);
+    const tile = document.querySelector('.tile[data-field-id="' + CSS.escape(fid) + '"]');
     if (!tile) return;
 
     await ensureModelWeatherModules(state);
@@ -494,15 +481,11 @@ async function updateTileForField(state, fieldId){
     const range = parseRangeFromInput();
     const rainRange = rainInRange(run0, range);
     const rainLine = tile.querySelector('.subline .mono');
-    if (rainLine){
-      rainLine.textContent = rainRange.toFixed(2);
-    }
+    if (rainLine) rainLine.textContent = rainRange.toFixed(2);
 
     const eta = state._mods.model.etaFor(run0, thr, CONST.ETA_MAX_HOURS);
     const help = tile.querySelector('.help b');
-    if (help){
-      help.textContent = eta ? String(eta) : '';
-    }
+    if (help) help.textContent = eta ? String(eta) : '';
 
     if (String(state.selectedFieldId) === fid){
       tile.classList.add('fv-selected');
@@ -583,7 +566,7 @@ export async function renderTiles(state){
   const thr = getThresholdForOp(state, opKey);
   const range = parseRangeFromInput();
 
-  const cap = (state.pageSize === -1) ? sorted.length : Math.min(sorted.length, state.pageSize);
+  const cap = (String(state.pageSize) === '__all__' || state.pageSize === -1) ? sorted.length : Math.min(sorted.length, Number(state.pageSize || 25));
   const show = sorted.slice(0, cap);
 
   for (const f of show){
@@ -645,7 +628,6 @@ export async function renderTiles(state){
   const empty = $('emptyMsg');
   if (empty) empty.style.display = show.length ? 'none' : 'block';
 
-  // ✅ Swipe "Details" is edit-gated (same as dblclick)
   await initSwipeOnTiles(state, {
     onDetails: async (fieldId)=>{
       if (!canEdit(state)) return;
