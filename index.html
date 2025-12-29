@@ -389,7 +389,7 @@
     .ai-msg{
       /* bubble hugs text, grows down on wrap */
       display:block;
-      width:fit-content%;
+      width:fit-content;
       max-width:80%;
       border-radius:14px;
       padding:6px 8px;
@@ -428,7 +428,7 @@
       gap:6px;
     }
 
-    /* ====== DO NOT TOUCH INPUT AREA (your existing styling) ====== */
+    /* ====== INPUT AREA (your existing styling) ====== */
     .ai-input-wrap{
       position:relative;
       display:block;
@@ -446,6 +446,15 @@
       color:inherit;
       line-height:1.35;
       font-size:13px;
+
+      /* ✅ STOP tiny scrollbars in textarea */
+      overflow:hidden;
+      scrollbar-width:none;         /* Firefox */
+      -ms-overflow-style:none;      /* old Edge */
+    }
+    .ai-input::-webkit-scrollbar{
+      width:0;
+      height:0;
     }
     .ai-input:focus{
       outline:2px solid rgba(59,126,70,0.4);
@@ -487,6 +496,12 @@
     }
     .ai-mic.recording{
       color:#cc3030;
+    }
+
+    /* ✅ DESKTOP: hide mic, remove right padding gap */
+    @media (min-width: 900px){
+      .ai-mic{ display:none !important; }
+      .ai-input{ padding-right:12px; }
     }
 
     .ai-actions{
@@ -1427,7 +1442,7 @@
        - respects cap-chatbot (section may be hidden)
        - ADDED: local chat history (messages only)
        - CHANGED: message rendering only (bubble hugs text + label under)
-       - INPUT AREA: unchanged
+       - INPUT AREA: unchanged (except desktop mic hidden + textarea scrollbar fix)
        ========================== -->
   <script>
   (function(){
@@ -1447,6 +1462,15 @@
       return sectionEl.classList.contains("perm-hidden") || sectionEl.getAttribute("aria-hidden") === "true";
     }
 
+    // Desktop rule for mic
+    const IS_DESKTOP = (() => {
+      try{
+        return window.matchMedia && window.matchMedia("(min-width: 900px)").matches;
+      }catch{
+        return false;
+      }
+    })();
+
     // If perms resolve after this script runs, we bail out early here and
     // then re-run wiring when "fv:dash-perms-ready" fires (only if allowed).
     let wired = false;
@@ -1458,6 +1482,12 @@
       wired = true;
 
       let isThinking = false;
+
+      // ✅ Desktop: hard-hide mic button + do not show "not supported" status
+      if (IS_DESKTOP){
+        micEl.style.display = "none";
+        micEl.disabled = true;
+      }
 
       // ===== Local chat persistence (messages only) =====
       const STORE_KEY = "fv_copilot_chat_v1";
@@ -1564,7 +1594,10 @@
         isThinking = !!on;
         sendEl.disabled = isThinking;
         inputEl.disabled = isThinking;
-        micEl.disabled = isThinking;
+
+        // ✅ Desktop already disables mic
+        if (!IS_DESKTOP) micEl.disabled = isThinking;
+
         setStatus(isThinking ? "Thinking…" : "");
       }
 
@@ -1627,54 +1660,58 @@
         }
       });
 
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      let recognition = null;
-      let isRecording = false;
+      // ✅ Mobile-only voice dictation
+      if (!IS_DESKTOP){
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition = null;
+        let isRecording = false;
 
-      if (SpeechRecognition){
-        recognition = new SpeechRecognition();
-        recognition.lang = "en-US";
-        recognition.interimResults = false;
-        recognition.maxAlternatives = 1;
+        if (SpeechRecognition){
+          recognition = new SpeechRecognition();
+          recognition.lang = "en-US";
+          recognition.interimResults = false;
+          recognition.maxAlternatives = 1;
 
-        recognition.addEventListener("start", ()=>{
-          isRecording = true;
-          micEl.classList.add("recording");
-          setStatus("Listening…");
-        });
+          recognition.addEventListener("start", ()=>{
+            isRecording = true;
+            micEl.classList.add("recording");
+            setStatus("Listening…");
+          });
 
-        recognition.addEventListener("end", ()=>{
-          isRecording = false;
-          micEl.classList.remove("recording");
-          if (!isThinking) setStatus("");
-        });
+          recognition.addEventListener("end", ()=>{
+            isRecording = false;
+            micEl.classList.remove("recording");
+            if (!isThinking) setStatus("");
+          });
 
-        recognition.addEventListener("result", (event)=>{
-          const result = event.results && event.results[0] && event.results[0][0];
-          const t = result ? result.transcript : "";
-          if (t){
-            const existing = inputEl.value.trim();
-            inputEl.value = existing ? (existing + " " + t) : t;
-            inputEl.dispatchEvent(new Event("input"));
-            inputEl.focus();
-          }
-        });
+          recognition.addEventListener("result", (event)=>{
+            const result = event.results && event.results[0] && event.results[0][0];
+            const t = result ? result.transcript : "";
+            if (t){
+              const existing = inputEl.value.trim();
+              inputEl.value = existing ? (existing + " " + t) : t;
+              inputEl.dispatchEvent(new Event("input"));
+              inputEl.focus();
+            }
+          });
 
-        micEl.addEventListener("click", ()=>{
-          if (isThinking) return;
-          if (isRecording){
-            recognition.stop();
-            return;
-          }
-          try{
-            recognition.start();
-          }catch(e){
-            console.warn("[copilot] recognition error:", e);
-          }
-        });
-      }else{
-        micEl.disabled = true;
-        setStatus("Voice dictation not supported in this browser.");
+          micEl.addEventListener("click", ()=>{
+            if (isThinking) return;
+            if (isRecording){
+              recognition.stop();
+              return;
+            }
+            try{
+              recognition.start();
+            }catch(e){
+              console.warn("[copilot] recognition error:", e);
+            }
+          });
+        }else{
+          micEl.disabled = true;
+          // keep status quiet until they try (prevents desktop-ish clutter)
+          // setStatus("Voice dictation not supported in this browser.");
+        }
       }
     }
 
