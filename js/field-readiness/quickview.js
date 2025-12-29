@@ -1,21 +1,17 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2025-12-28c
+Rev: 2025-12-29a
 
-Fix (per Dane):
-✅ Calibration is GLOBAL ONLY (matches render.js)
-✅ Quick View readiness now matches main tiles for every operation
-   - Passes CAL as { wetBias, opWetBias:{} } so per-op bias never applies
+Change (per Dane):
+✅ Last-line-of-defense permission gate:
+   - openQuickView() will NOT open unless canEdit(state) is true
 
 Keeps:
-✅ Map no longer opens BEHIND Quick View.
-✅ Tiny Map button on SAME row as GPS
-✅ Opens in-page Map modal (no new browser/tab)
-✅ Mobile fit (sticky header, X always reachable)
-✅ One button: Save & Close
-✅ Live tile preview + live output updates
-✅ Saves to Firestore fields/{id} soilWetness + drainageIndex
-✅ Dispatches fr:tile-refresh + fr:details-refresh on Save & Close
+✅ Calibration is GLOBAL ONLY (matches render.js)
+✅ Quick View readiness matches tiles (CAL global-only)
+✅ Map stacking fix + in-page map modal
+✅ Mobile fit, sticky header, X reachable
+✅ Save & Close, live preview updates, Firestore save, refresh events
 ===================================================================== */
 'use strict';
 
@@ -464,6 +460,9 @@ function ensureBuiltOnce(state){
 
 /* ---------- open/close ---------- */
 export function openQuickView(state, fieldId){
+  // ✅ Last-line-of-defense: do not open unless edit permission is allowed
+  if (!canEdit(state)) return;
+
   ensureBuiltOnce(state);
 
   const f = state.fields.find(x=>x.id===fieldId);
