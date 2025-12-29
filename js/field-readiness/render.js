@@ -1,27 +1,16 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-28g
+Rev: 2025-12-29a
 
-Fixes kept (per Dane):
-✅ Desktop dblclick works again
-✅ Readiness mismatch fix (tiles vs details):
-   - renderDetails() no longer reuses stale state.lastRuns.get(f.id)
-   - Details always recomputes run with current deps and writes back to lastRuns
-
-NEW (per Dane):
-✅ Make ALL calibration adjustments global (across the board)
-   - Any doc in field_readiness_adjustments with global===true contributes ONLY
-     to CAL.wetBias
-   - Ignore per-op bias entirely (do not build/use opWetBias)
-   - Result: readiness is the same for every operation
+Change (per Dane):
+✅ Swipe "Details" is gated by edit permission (same as dblclick)
 
 Keeps:
-✅ Mobile works great (ellipsis + selection behavior unchanged)
-✅ Desktop selected tile outline; name stays normal
-✅ dblclick always wired; canEdit checked at click-time
-✅ fr:tile-refresh / fr:details-refresh listeners
-✅ Background Firestore hydrate on select + dblclick quick view
-✅ All prior rendering & tables behavior
+✅ Desktop dblclick works again (and is edit-gated)
+✅ Readiness mismatch fix (tiles vs details)
+✅ GLOBAL ONLY calibration (wetBias only)
+✅ Mobile selection UX + desktop selected outline behavior
+✅ All existing refresh listeners + hydration behavior
 ===================================================================== */
 'use strict';
 
@@ -652,7 +641,13 @@ export async function renderTiles(state){
   const empty = $('emptyMsg');
   if (empty) empty.style.display = show.length ? 'none' : 'block';
 
-  await initSwipeOnTiles(state, { onDetails: (fieldId)=> openQuickView(state, fieldId) });
+  // ✅ Swipe "Details" is edit-gated (same as dblclick)
+  await initSwipeOnTiles(state, {
+    onDetails: async (fieldId)=>{
+      if (!canEdit(state)) return;
+      await openQuickView(state, fieldId);
+    }
+  });
 }
 
 /* ---------- select field ---------- */
