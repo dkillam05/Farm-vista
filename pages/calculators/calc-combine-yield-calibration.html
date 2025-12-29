@@ -219,13 +219,13 @@
           </div>
           <div>
             <h1>Combine Yield Calibration</h1>
-            <div class="muted">Pick a combine and crop, enter the monitor’s <strong>Combine Weight</strong> and the scale’s <strong>Grain Cart Weight</strong>. We’ll tell you if the monitor reads high/low and by what percent. Last 10 are saved locally.</div>
+            <div class="muted">Pick a crop, enter the monitor’s <strong>Combine Weight</strong> and the scale’s <strong>Grain Cart Weight</strong>. We’ll tell you if the monitor reads high/low and by what percent. Last 10 are saved locally.</div>
           </div>
         </div>
 
         <form id="frm" novalidate autocomplete="off">
 
-          <!-- Farm / Field combos (same as grain loss) -->
+          <!-- Farm / Field combos (MATCH grain loss) -->
           <div class="grid">
             <div class="combo">
               <label for="farmBtn">Farm</label>
@@ -252,15 +252,20 @@
             </div>
           </div>
 
-          <div class="grid" id="combinePickRow">
+          <!-- Combine row: ONLY exists when coming from hub (MATCH grain loss) -->
+          <div id="combineRow" class="grid" hidden>
             <div>
-              <label for="combine">Combine</label>
-              <select id="combine" class="select-box">
-                <option value="">Loading combines…</option>
-              </select>
-              <div class="note" id="combineNote" hidden></div>
+              <label for="combineHub">Combine</label>
+              <div class="ctrl">
+                <input id="combineHub" type="text" readonly value="Loading…">
+                <span class="unit">hub</span>
+              </div>
+              <div class="note" id="combineHubNote" hidden></div>
             </div>
+            <div></div>
+          </div>
 
+          <div class="grid">
             <div>
               <label for="crop">Crop</label>
               <select id="crop" class="select-box">
@@ -284,42 +289,8 @@
                 <span class="unit">lb</span>
               </div>
             </div>
-          </div>
 
-          <!-- Combine (hub-only read-only line) -->
-          <div class="grid" id="combineHubRow" hidden>
-            <div>
-              <label for="combineHub">Combine</label>
-              <div class="ctrl">
-                <input id="combineHub" type="text" readonly value="Loading…">
-                <span class="unit">hub</span>
-              </div>
-              <div class="note" id="combineHubNote" hidden></div>
-            </div>
-
-            <div>
-              <label for="crop2">Crop</label>
-              <select id="crop2" class="select-box">
-                <option value="corn">Corn</option>
-                <option value="soy">Soybeans</option>
-              </select>
-            </div>
-
-            <div>
-              <label for="cw2">Combine Weight (monitor)</label>
-              <div class="ctrl">
-                <input id="cw2" type="text" inputmode="numeric" placeholder="e.g. 56,320" autocomplete="off">
-                <span class="unit">lb</span>
-              </div>
-            </div>
-
-            <div>
-              <label for="gw2">Grain Cart Weight (scale)</label>
-              <div class="ctrl">
-                <input id="gw2" type="text" inputmode="numeric" placeholder="e.g. 54,250" autocomplete="off">
-                <span class="unit">lb</span>
-              </div>
-            </div>
+            <div></div>
           </div>
 
           <div class="actions">
@@ -355,11 +326,11 @@
   <script type="module">
     (function(){
       "use strict";
-      if(window.__FV_COMBINE_CALIB_V7__) return; window.__FV_COMBINE_CALIB_V7__=true;
+      if(window.__FV_COMBINE_CALIB_MATCH_GRAINLOSS_V1__) return; window.__FV_COMBINE_CALIB_MATCH_GRAINLOSS_V1__=true;
 
       const $ = id => document.getElementById(id);
       const fmt = (n, d=0) => Number(n).toLocaleString(undefined,{maximumFractionDigits:d});
-      const LS_KEY = "fv_calc_combine_calibration_history_v7";
+      const LS_KEY = "fv_calc_combine_calibration_history_v8";
 
       const qs = new URLSearchParams(location.search);
       const RAW_COMBINE_ID =
@@ -367,18 +338,15 @@
       const IS_HUB = /^[A-Za-z0-9_-]{12,}$/.test(RAW_COMBINE_ID);
       const HUB_COMBINE_ID = IS_HUB ? RAW_COMBINE_ID : null;
 
-      const combinePickRow = $("combinePickRow");
-      const combineHubRow = $("combineHubRow");
-
-      const combineSel = $("combine"), cropSel = $("crop");
-      const cw = $("cw"), gw = $("gw");
-
-      const combineHub = $("combineHub"), cropSel2 = $("crop2");
-      const cw2 = $("cw2"), gw2 = $("gw2");
+      const combineRow = $("combineRow");
+      const combineHub = $("combineHub");
       const combineHubNote = $("combineHubNote");
 
+      const cropSel = $("crop");
+      const cw = $("cw");
+      const gw = $("gw");
+
       const res = $("res"), rStatus=$("rStatus"), rPct=$("rPct"), rCw=$("rCw"), rGw=$("rGw");
-      const combineNote = $("combineNote");
 
       // Farm/Field combo elements
       const farmBtn = $("farmBtn");
@@ -392,12 +360,7 @@
       const farmIdEl = $("farmId");
       const fieldIdEl = $("fieldId");
 
-      const state = {
-        farms: [],
-        fields: [],
-        farm: null,
-        field: null
-      };
+      const state = { farms: [], fields: [], farm: null, field: null };
 
       function esc(s){
         return String(s ?? "").replace(/[&<>"']/g, m =>
@@ -424,7 +387,13 @@
         }catch{ return null; }
       }
 
-      /* ---------- global combo closer ---------- */
+      function normalizeSerial(s){ return String(s||'').trim().toUpperCase(); }
+      function serialLast6(serial){
+        const s = normalizeSerial(serial || '');
+        if(!s) return '';
+        return s.length <= 6 ? s : s.slice(-6);
+      }
+
       function closeAllCombos(exceptPanel=null){
         document.querySelectorAll('.combo-panel.show').forEach(p=>{
           if(p!==exceptPanel) p.classList.remove('show');
@@ -519,37 +488,6 @@
         if(farmIdEl) farmIdEl.value = farm.id;
       }
 
-      async function loadFarms(fb, db){
-        const snap = await fb.getDocs(fb.query(fb.collection(db,"farms"), fb.orderBy("name")));
-        state.farms = snap.docs.map(ds=>{
-          const d = ds.data() || {};
-          if(!!d.archived) return null;
-          return { id: ds.id, name: pickName(d) };
-        }).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name));
-        if(farmCombo) farmCombo.setItems(state.farms);
-      }
-
-      async function loadFields(fb, db){
-        const snap = await fb.getDocs(fb.query(fb.collection(db,"fields"), fb.orderBy("name")));
-        state.fields = snap.docs.map(ds=>{
-          const d = ds.data() || {};
-          if(!!d.archived) return null;
-
-          const farmId =
-            refToId(d.farmId) ||
-            refToId(d.farm) ||
-            refToId(d.farmRef) ||
-            refToId(d.farmDocId) ||
-            refToId(d.farmRefId) ||
-            refToId(d.farm_id) ||
-            null;
-
-          return { id: ds.id, name: pickName(d), farmId };
-        }).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name));
-
-        refreshFieldComboForFarm(state.farm ? state.farm.id : null);
-      }
-
       function digitsOnly(el){
         el.addEventListener("input", ()=>{
           const cleaned = (el.value || "").replace(/[^\d]/g,"");
@@ -560,100 +498,18 @@
           el.value = raw ? Number(raw).toLocaleString() : "";
         });
       }
-
-      function last6Serial(serial){
-        const s = String(serial || "").replace(/\s+/g,"").toUpperCase();
-        if(!s) return "";
-        return (s.length > 6) ? s.slice(-6) : s;
-      }
-
-      function stripTrailingYear(name){
-        return String(name || "").replace(/\s*\(\d{4}\)\s*$/, "");
-      }
-
-      async function populateCombinesFromFirestore(fb, db){
-        combineSel.innerHTML = '<option value="">Loading…</option>';
-        combineNote.hidden = true;
-        combineNote.textContent = "";
-
-        try{
-          const snap = await fb.getDocs(fb.collection(db, "equipment"));
-
-          const items = [];
-          snap.forEach(docSnap => {
-            const d = docSnap.data() || {};
-            if(String(d.type||"") !== "combine") return;
-            if(String(d.status||"") !== "active") return;
-
-            const mk = String(d.makeName||"").trim();
-            const md = String(d.modelName||"").trim();
-            const mm = [mk, md].filter(Boolean).join(" ").trim() || stripTrailingYear(d.name || "") || "Combine";
-            const sn6 = last6Serial(d.serial);
-            const label = sn6 ? `${mm} — #${sn6}` : mm;
-
-            items.push({ id: docSnap.id, label, serial: d.serial || "" });
-          });
-
-          items.sort((a,b)=> String(a.label).localeCompare(String(b.label)));
-
-          combineSel.innerHTML = '<option value="">— Select Combine —</option>';
-
-          if(!items.length){
-            const opt = document.createElement("option");
-            opt.value = "";
-            opt.textContent = "No active combines found";
-            combineSel.appendChild(opt);
-
-            combineNote.hidden = false;
-            combineNote.textContent = "Equipment collection loaded, but none matched type=combine and status=active.";
-            return;
-          }
-
-          items.forEach(it => {
-            const opt = document.createElement("option");
-            opt.value = it.id;
-            opt.textContent = it.label;
-            opt.dataset.serial = it.serial || "";
-            combineSel.appendChild(opt);
-          });
-
-        }catch(err){
-          console.error(err);
-          combineSel.innerHTML = '<option value="">— Select Combine —</option>';
-          combineNote.hidden = false;
-          combineNote.textContent = "Couldn’t load combines from Firestore (see console).";
-        }
-      }
-
-      async function loadHubCombineLabel(fb, db){
-        if(!HUB_COMBINE_ID) return;
-        try{
-          const snap = await fb.getDoc(fb.doc(db,"equipment",HUB_COMBINE_ID));
-          if(!snap.exists()){
-            combineHub.value = `Combine (${HUB_COMBINE_ID.slice(-6)})`;
-            return;
-          }
-          const d = snap.data() || {};
-          const mk = String(d.makeName||"").trim();
-          const md = String(d.modelName||"").trim();
-          const mm = [mk, md].filter(Boolean).join(" ").trim() || stripTrailingYear(d.name || "") || "Combine";
-          const sn6 = last6Serial(d.serial);
-          combineHub.value = sn6 ? `${mm} — #${sn6}` : mm;
-        }catch(e){
-          combineHub.value = `Combine (${HUB_COMBINE_ID.slice(-6)})`;
-          combineHubNote.hidden = false;
-          combineHubNote.textContent = "Couldn’t load combine details (see console).";
-        }
-      }
+      digitsOnly(cw);
+      digitsOnly(gw);
 
       function loadH(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
       function saveH(arr){ localStorage.setItem(LS_KEY, JSON.stringify(arr.slice(0,10))); }
 
       function addHistRow(it){
         const row = document.createElement("div"); row.className="hitem";
+        const c = it.combineLabel ? (it.combineLabel + " • ") : "";
         row.innerHTML = `
           <div style="min-width:0">
-            <div class="hsummary">${it.combineLabel || "—"} • ${it.crop==="corn"?"Corn":"Soy"} — ${it.status} (${fmt(it.pct,2)}%)</div>
+            <div class="hsummary">${c}${it.crop==="corn"?"Corn":"Soy"} — ${it.status} (${fmt(it.pct,2)}%)</div>
             <div class="muted-sm">${fmt(it.cw,0)} lb vs ${fmt(it.gw,0)} lb • ${new Date(it.t).toLocaleString()}</div>
           </div>
         `;
@@ -673,15 +529,19 @@
         renderHist();
       });
 
-      function calc(cwEl, gwEl){
-        const cwv = Number((cwEl.value||"").replace(/,/g,""));
-        const gwv = Number((gwEl.value||"").replace(/,/g,""));
+      function calc(){
+        const farmId = (farmIdEl.value || "").trim();
+        const fieldId = (fieldIdEl.value || "").trim();
+        if(!farmId || !fieldId){ alert("Select Farm and Field."); return null; }
+
+        const cwv = Number((cw.value||"").replace(/,/g,""));
+        const gwv = Number((gw.value||"").replace(/,/g,""));
         if(!(cwv>0 && gwv>0)){ alert("Enter both weights."); return null; }
 
         const diff = cwv - gwv;
         const pct = Math.abs(diff) / gwv * 100;
         const status = diff===0 ? "MATCH" : (diff>0 ? "HIGH" : "LOW");
-        return { cw: cwv, gw: gwv, pct, status };
+        return { farmId, fieldId, cw: cwv, gw: gwv, pct, status };
       }
 
       function show(o){
@@ -698,17 +558,13 @@
         try{
           fb = await import("../../js/firebase-init.js");
         }catch(e){
-          combineSel.innerHTML = '<option value="">— Select Combine —</option>';
-          combineNote.hidden = false;
-          combineNote.textContent = "firebase-init.js not found at ../../js/firebase-init.js";
           return;
         }
 
         try { await fb.ready; } catch(e) {}
-
         const db = (typeof fb.getFirestore === "function") ? fb.getFirestore() : fb.firestore;
 
-        // Combos
+        // Farm/Field combos
         farmCombo = makeCombo({
           btn: farmBtn,
           panel: farmPanel,
@@ -746,88 +602,96 @@
           }
         });
 
+        // Load farms
         try{
-          await Promise.all([loadFarms(fb, db), loadFields(fb, db)]);
+          const fsnap = await fb.getDocs(fb.query(fb.collection(db,"farms"), fb.orderBy("name")));
+          state.farms = fsnap.docs.map(ds=>{
+            const d = ds.data() || {};
+            if(!!d.archived) return null;
+            return { id: ds.id, name: pickName(d) };
+          }).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name));
+          farmCombo.setItems(state.farms);
         }catch(e){
           console.error(e);
         }
 
-        // Toggle hub/non-hub combine UI
-        if(IS_HUB){
-          combinePickRow.hidden = true;
-          combineHubRow.hidden = false;
+        // Load fields
+        try{
+          const xsnap = await fb.getDocs(fb.query(fb.collection(db,"fields"), fb.orderBy("name")));
+          state.fields = xsnap.docs.map(ds=>{
+            const d = ds.data() || {};
+            if(!!d.archived) return null;
 
-          digitsOnly(cw2);
-          digitsOnly(gw2);
+            const farmId =
+              refToId(d.farmId) ||
+              refToId(d.farm) ||
+              refToId(d.farmRef) ||
+              refToId(d.farmDocId) ||
+              refToId(d.farmRefId) ||
+              refToId(d.farm_id) ||
+              null;
 
-          // keep crop in sync (use crop2 as the canonical when hub)
-          cropSel2.value = cropSel.value;
+            return { id: ds.id, name: pickName(d), farmId };
+          }).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name));
 
-          await loadHubCombineLabel(fb, db);
-        }else{
-          combinePickRow.hidden = false;
-          combineHubRow.hidden = true;
-
-          digitsOnly(cw);
-          digitsOnly(gw);
-
-          await populateCombinesFromFirestore(fb, db);
+          refreshFieldComboForFarm(state.farm ? state.farm.id : null);
+        }catch(e){
+          console.error(e);
         }
 
-        // submitted by (same pattern as other pages)
-        try{
-          const auth = (typeof fb.getAuth === "function") ? fb.getAuth() : null;
-          if(auth && typeof fb.onAuthStateChanged === "function"){
-            fb.onAuthStateChanged(auth, (u)=>{
-              const name = (u && (u.displayName || u.email)) ? String(u.displayName || u.email) : "";
-              // keep it simple in this page: store in hidden fields later if needed
-              window.__fv_calib_user = name || "";
-            });
+        // Combine: ONLY from hub (MATCH grain loss)
+        if(!IS_HUB){
+          try{ combineRow.remove(); }catch{}
+        }else{
+          combineRow.hidden = false;
+          try{
+            const snap = await fb.getDoc(fb.doc(db,"equipment",HUB_COMBINE_ID));
+            if(snap.exists()){
+              const d = snap.data() || {};
+              const mk = String(d.makeName||"").trim();
+              const md = String(d.modelName||"").trim();
+              const s6 = serialLast6(d.serial || "");
+              const mm = [mk, md].filter(Boolean).join(" ").trim();
+              const label = mm ? (s6 ? `${mm} — #${s6}` : mm) : (s6 ? `Combine — #${s6}` : `Combine (${HUB_COMBINE_ID.slice(-6)})`);
+              combineHub.value = label;
+              window.__fv_hub_combine_id = HUB_COMBINE_ID;
+              window.__fv_hub_combine_label = label;
+            }else{
+              const label = `Combine (${HUB_COMBINE_ID.slice(-6)})`;
+              combineHub.value = label;
+              window.__fv_hub_combine_id = HUB_COMBINE_ID;
+              window.__fv_hub_combine_label = label;
+            }
+          }catch(e){
+            console.error(e);
+            const label = `Combine (${HUB_COMBINE_ID.slice(-6)})`;
+            combineHub.value = label;
+            combineHubNote.hidden = false;
+            combineHubNote.textContent = "Couldn’t load combine details (see console).";
+            window.__fv_hub_combine_id = HUB_COMBINE_ID;
+            window.__fv_hub_combine_label = label;
           }
-        }catch{}
+        }
 
         renderHist();
       }
 
-      // submit
       $("frm").addEventListener("submit", (ev)=>{
         ev.preventDefault();
 
-        const farmId = (farmIdEl.value || "").trim();
-        const fieldId = (fieldIdEl.value || "").trim();
-        if(!farmId || !fieldId){
-          alert("Select Farm and Field.");
-          return;
-        }
-
-        let combineId = "";
-        let combineLabel = "—";
-        let crop = "corn";
-        let out = null;
-
-        if(IS_HUB){
-          combineId = HUB_COMBINE_ID || "";
-          combineLabel = combineHub.value || "—";
-          crop = cropSel2.value;
-          out = calc(cw2, gw2);
-        }else{
-          combineId = combineSel.value || "";
-          if(!combineId){ alert("Select a combine."); return; }
-          const selOpt = combineSel.options[combineSel.selectedIndex];
-          combineLabel = selOpt ? selOpt.textContent : "—";
-          crop = cropSel.value;
-          out = calc(cw, gw);
-        }
-
+        const out = calc();
         if(!out) return;
+
+        const combineId = String(window.__fv_hub_combine_id || "");
+        const combineLabel = String(window.__fv_hub_combine_label || "");
 
         const rec = {
           t: Date.now(),
-          farmId,
-          fieldId,
+          farmId: out.farmId,
+          fieldId: out.fieldId,
           combineId,
           combineLabel,
-          crop,
+          crop: cropSel.value,
           cw: out.cw,
           gw: out.gw,
           pct: out.pct,
@@ -839,11 +703,7 @@
       });
 
       $("clearBtn").addEventListener("click", ()=>{
-        if(IS_HUB){
-          cw2.value=""; gw2.value="";
-        }else{
-          cw.value=""; gw.value="";
-        }
+        cw.value=""; gw.value="";
         res.hidden = true;
       });
 
