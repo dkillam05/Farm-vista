@@ -30,17 +30,16 @@
       padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
     }
 
-    /* ✅ Match Grain Bin: use calc-card (not card) */
+    /* ✅ allow combo panels to escape the card */
     .calc-card{
       border:1px solid var(--border);
       border-radius:14px;
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      overflow:hidden;
+      overflow:visible;
       margin-bottom: var(--page-bottom-gap);
     }
 
-    /* ✅ Match Grain Bin header */
     .card-head{
       display:flex; align-items:center; gap:12px; padding:14px 16px;
       background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
@@ -84,6 +83,11 @@
     .select-box:focus{
       border-color: rgba(47,108,60,.42);
       box-shadow: 0 0 0 4px var(--ring);
+    }
+
+    .input-ro[readonly]{
+      opacity:.92;
+      background: color-mix(in srgb, var(--card-surface,var(--surface)) 92%, #000 8%);
     }
 
     .note{
@@ -172,7 +176,7 @@
       box-shadow:var(--combo-shadow);
       padding:8px;
       display:none;
-      z-index:9999;
+      z-index:999999;
     }
     .combo-panel.show{ display:block; }
     .combo-panel .search{
@@ -201,6 +205,16 @@
     .combo-empty{
       padding:var(--combo-item-pad);
       color:#67706B;
+    }
+
+    /* ✅ weights always same row */
+    .weights-row{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:12px;
+    }
+    @media (max-width:760px){
+      .weights-row{ grid-template-columns:1fr 1fr; }
     }
   </style>
 </head>
@@ -252,7 +266,7 @@
             </div>
           </div>
 
-          <!-- Combine row: ONLY exists when coming from hub (MATCH grain loss) -->
+          <!-- Combine row: ONLY when coming from hub (MATCH grain loss) -->
           <div id="combineRow" class="grid" hidden>
             <div>
               <label for="combineHub">Combine</label>
@@ -265,6 +279,23 @@
             <div></div>
           </div>
 
+          <!-- Submitted by + Date (date only) -->
+          <div class="grid">
+            <div>
+              <label for="submittedBy">Submitted by</label>
+              <div class="ctrl">
+                <input id="submittedBy" type="text" readonly class="input-ro" value="Detecting user…">
+              </div>
+            </div>
+
+            <div>
+              <label for="submittedDate">Date</label>
+              <div class="ctrl">
+                <input id="submittedDate" type="date" value="">
+              </div>
+            </div>
+          </div>
+
           <div class="grid">
             <div>
               <label for="crop">Crop</label>
@@ -273,7 +304,11 @@
                 <option value="soy">Soybeans</option>
               </select>
             </div>
+            <div></div>
+          </div>
 
+          <!-- Weights ALWAYS same row -->
+          <div class="weights-row">
             <div>
               <label for="cw">Combine Weight (monitor)</label>
               <div class="ctrl">
@@ -289,8 +324,6 @@
                 <span class="unit">lb</span>
               </div>
             </div>
-
-            <div></div>
           </div>
 
           <div class="actions">
@@ -324,9 +357,18 @@
   </fv-shell>
 
   <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection, getDocs,
+      query, orderBy,
+      doc, getDoc,
+      getAuth, onAuthStateChanged
+    } from '../../js/firebase-init.js';
+
     (function(){
       "use strict";
-      if(window.__FV_COMBINE_CALIB_MATCH_GRAINLOSS_V1__) return; window.__FV_COMBINE_CALIB_MATCH_GRAINLOSS_V1__=true;
+      if(window.__FV_COMBINE_CALIB_GRAINLOSS_MATCH_V2__) return; window.__FV_COMBINE_CALIB_GRAINLOSS_MATCH_V2__=true;
 
       const $ = id => document.getElementById(id);
       const fmt = (n, d=0) => Number(n).toLocaleString(undefined,{maximumFractionDigits:d});
@@ -342,13 +384,15 @@
       const combineHub = $("combineHub");
       const combineHubNote = $("combineHubNote");
 
+      const submittedBy = $("submittedBy");
+      const submittedDate = $("submittedDate");
+
+      const combineWeight = $("cw");
+      const grainWeight = $("gw");
       const cropSel = $("crop");
-      const cw = $("cw");
-      const gw = $("gw");
 
       const res = $("res"), rStatus=$("rStatus"), rPct=$("rPct"), rCw=$("rCw"), rGw=$("rGw");
 
-      // Farm/Field combo elements
       const farmBtn = $("farmBtn");
       const farmPanel = $("farmPanel");
       const farmList = $("farmList");
@@ -367,11 +411,9 @@
           ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])
         );
       }
-
       function pickName(data){
         return data.name || data.farmName || data.fieldName || data.label || data.title || "Unnamed";
       }
-
       function refToId(v){
         try{
           if(!v) return null;
@@ -386,7 +428,6 @@
           return null;
         }catch{ return null; }
       }
-
       function normalizeSerial(s){ return String(s||'').trim().toUpperCase(); }
       function serialLast6(serial){
         const s = normalizeSerial(serial || '');
@@ -474,8 +515,8 @@
 
         if(state.field && farmId && String(state.field.farmId||"") !== String(farmId)){
           state.field = null;
-          if(fieldBtn) fieldBtn.textContent = "Select field…";
-          if(fieldIdEl) fieldIdEl.value = "";
+          fieldBtn.textContent = "Select field…";
+          fieldIdEl.value = "";
         }
       }
 
@@ -484,8 +525,8 @@
         const farm = state.farms.find(f=>String(f.id)===String(farmId));
         if(!farm) return;
         state.farm = farm;
-        if(farmBtn) farmBtn.textContent = farm.name;
-        if(farmIdEl) farmIdEl.value = farm.id;
+        farmBtn.textContent = farm.name;
+        farmIdEl.value = farm.id;
       }
 
       function digitsOnly(el){
@@ -498,8 +539,14 @@
           el.value = raw ? Number(raw).toLocaleString() : "";
         });
       }
-      digitsOnly(cw);
-      digitsOnly(gw);
+      digitsOnly(combineWeight);
+      digitsOnly(grainWeight);
+
+      function todayISO(){
+        const d = new Date();
+        const pad = n => String(n).padStart(2,'0');
+        return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+      }
 
       function loadH(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
       function saveH(arr){ localStorage.setItem(LS_KEY, JSON.stringify(arr.slice(0,10))); }
@@ -534,8 +581,8 @@
         const fieldId = (fieldIdEl.value || "").trim();
         if(!farmId || !fieldId){ alert("Select Farm and Field."); return null; }
 
-        const cwv = Number((cw.value||"").replace(/,/g,""));
-        const gwv = Number((gw.value||"").replace(/,/g,""));
+        const cwv = Number((combineWeight.value||"").replace(/,/g,""));
+        const gwv = Number((grainWeight.value||"").replace(/,/g,""));
         if(!(cwv>0 && gwv>0)){ alert("Enter both weights."); return null; }
 
         const diff = cwv - gwv;
@@ -554,15 +601,8 @@
       }
 
       async function boot(){
-        let fb;
-        try{
-          fb = await import("../../js/firebase-init.js");
-        }catch(e){
-          return;
-        }
-
-        try { await fb.ready; } catch(e) {}
-        const db = (typeof fb.getFirestore === "function") ? fb.getFirestore() : fb.firestore;
+        await ready;
+        const db = getFirestore();
 
         // Farm/Field combos
         farmCombo = makeCombo({
@@ -602,9 +642,8 @@
           }
         });
 
-        // Load farms
         try{
-          const fsnap = await fb.getDocs(fb.query(fb.collection(db,"farms"), fb.orderBy("name")));
+          const fsnap = await getDocs(query(collection(db,"farms"), orderBy("name")));
           state.farms = fsnap.docs.map(ds=>{
             const d = ds.data() || {};
             if(!!d.archived) return null;
@@ -615,9 +654,8 @@
           console.error(e);
         }
 
-        // Load fields
         try{
-          const xsnap = await fb.getDocs(fb.query(fb.collection(db,"fields"), fb.orderBy("name")));
+          const xsnap = await getDocs(query(collection(db,"fields"), orderBy("name")));
           state.fields = xsnap.docs.map(ds=>{
             const d = ds.data() || {};
             if(!!d.archived) return null;
@@ -639,13 +677,30 @@
           console.error(e);
         }
 
+        // Submitted by
+        submittedBy.value = "";
+        try{
+          const auth = getAuth();
+          onAuthStateChanged(auth, (u)=>{
+            const name = (u && (u.displayName || u.email)) ? String(u.displayName || u.email) : "";
+            submittedBy.value = name || "";
+          });
+        }catch{
+          submittedBy.value = "";
+        }
+
+        // Date default (date only)
+        submittedDate.value = todayISO();
+
         // Combine: ONLY from hub (MATCH grain loss)
         if(!IS_HUB){
           try{ combineRow.remove(); }catch{}
+          window.__fv_hub_combine_id = "";
+          window.__fv_hub_combine_label = "";
         }else{
           combineRow.hidden = false;
           try{
-            const snap = await fb.getDoc(fb.doc(db,"equipment",HUB_COMBINE_ID));
+            const snap = await getDoc(doc(db,"equipment",HUB_COMBINE_ID));
             if(snap.exists()){
               const d = snap.data() || {};
               const mk = String(d.makeName||"").trim();
@@ -695,7 +750,9 @@
           cw: out.cw,
           gw: out.gw,
           pct: out.pct,
-          status: out.status
+          status: out.status,
+          submittedBy: String(submittedBy.value || ""),
+          submittedDate: String(submittedDate.value || "")
         };
 
         const h = loadH(); h.unshift(rec); saveH(h); renderHist();
@@ -703,7 +760,7 @@
       });
 
       $("clearBtn").addEventListener("click", ()=>{
-        cw.value=""; gw.value="";
+        combineWeight.value=""; grainWeight.value="";
         res.hidden = true;
       });
 
