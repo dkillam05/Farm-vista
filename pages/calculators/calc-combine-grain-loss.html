@@ -121,22 +121,20 @@
 
         <div class="body" id="form">
 
-          <!-- Save context (always shown), Combine row only appears when coming from hub -->
+          <!-- Save context -->
           <div id="ctxCard" class="card ctx">
             <h3 style="margin:0 0 8px 0;">
               Save Info
               <span id="ctxMode" class="ctx-badge">Manual</span>
             </h3>
 
+            <!-- Combine row: ONLY exists when opened from hub -->
             <div id="combineRow" class="row" hidden>
               <div class="field">
                 <label for="combineName">Combine</label>
                 <input id="combineName" class="input" readonly value="—">
               </div>
-              <div class="field">
-                <label>&nbsp;</label>
-                <div class="hint" id="combineHint">Saving directly to this combine.</div>
-              </div>
+              <div class="field"></div>
             </div>
 
             <div class="row">
@@ -156,7 +154,6 @@
                 <select id="farmSel" class="select">
                   <option value="">— Select —</option>
                 </select>
-                <div class="hint">Pick a farm to narrow fields, or pick a field first and we’ll set the farm.</div>
               </div>
               <div class="field">
                 <label for="fieldSel">Field</label>
@@ -288,9 +285,9 @@
 
       const qs = new URLSearchParams(location.search);
 
-      // Accept many possible hub param names (your hub likely uses one of these)
+      // IMPORTANT: do NOT treat generic "id" as combine id (normal calculator links can have id params)
       const HUB_COMBINE_ID =
-        (qs.get('combineId') || qs.get('combine') || qs.get('equipmentId') || qs.get('equipId') || qs.get('eqId') || qs.get('id') || '').trim() || null;
+        (qs.get('combineId') || qs.get('combine') || qs.get('equipmentId') || qs.get('equipId') || qs.get('eqId') || '').trim() || null;
 
       const HUB_FARM_ID = (qs.get('farmId') || qs.get('farm') || '').trim() || '';
       const HUB_FIELD_ID = (qs.get('fieldId') || qs.get('field') || '').trim() || '';
@@ -353,6 +350,21 @@
         return '';
       }
 
+      function refToId(v){
+        try{
+          if(!v) return null;
+          if(typeof v === 'string') return v.trim() || null;
+          if(typeof v.id === 'string') return v.id.trim() || null;
+          if(typeof v.path === 'string'){
+            const p = v.path.trim();
+            if(!p) return null;
+            const parts = p.split('/').filter(Boolean);
+            return parts.length ? parts[parts.length-1] : null;
+          }
+          return null;
+        }catch{ return null; }
+      }
+
       async function loadCombineIfHub(){
         if(!HUB_COMBINE_ID) return;
         try{
@@ -373,7 +385,6 @@
       }
 
       async function loadFarmsAndFields(){
-        // Farms
         __farms = [];
         try{
           const fsnap = await getDocs(query(collection(__db,'farms'), orderBy('name')));
@@ -381,15 +392,13 @@
             const v = ds.data() || {};
             const name = pickDocName(v) || `Farm (${ds.id.slice(-6)})`;
             if(!!v.archived) return;
-            const item = { id: ds.id, name };
-            __farms.push(item);
+            __farms.push({ id: ds.id, name });
           });
         }catch{}
 
         __farms.sort((a,b)=>String(a.name).localeCompare(String(b.name)));
         __farmById = new Map(__farms.map(f=>[f.id,f]));
 
-        // Fields
         __fields = [];
         try{
           const qsnap = await getDocs(query(collection(__db,'fields'), orderBy('name')));
@@ -397,9 +406,16 @@
             const v = ds.data() || {};
             if(!!v.archived) return;
             const name = pickDocName(v) || `Field (${ds.id.slice(-6)})`;
-            const farmId = String(v.farmId || v.farm || v.farmRefId || '').trim() || null;
-            const item = { id: ds.id, name, farmId };
-            __fields.push(item);
+
+            const farmId =
+              refToId(v.farmId) ||
+              refToId(v.farm) ||
+              refToId(v.farmRef) ||
+              refToId(v.farmRefId) ||
+              refToId(v.farm_id) ||
+              null;
+
+            __fields.push({ id: ds.id, name, farmId });
           });
         }catch{}
 
@@ -640,7 +656,6 @@
           crop: it.crop,
           method: it.method,
 
-          // context
           combineId: __combine.id || null,
           combineName: __combine.name || null,
           farmId: v.farmId,
@@ -650,12 +665,10 @@
           submittedBy: v.by,
           submittedAtLocal: v.at,
 
-          // calc summary
           lossBuAc: isFinite(it.loss_bu_ac) ? Number(it.loss_bu_ac) : null,
           lossPct: isFinite(it.loss_pct) ? Number(it.loss_pct) : null,
           avgYield: isFinite(it.avg_yield) ? Number(it.avg_yield) : null,
 
-          // calc inputs
           kernels: (it.method==="count" && isFinite(it.kernels)) ? Number(it.kernels) : null,
           hoopDiaIn: (it.method==="weight" && isFinite(it.hoop_dia_in)) ? Number(it.hoop_dia_in) : null,
           areaFt2: (it.method==="weight" && isFinite(it.area_ft2)) ? Number(it.area_ft2) : null,
@@ -727,7 +740,6 @@
           await saveToFirestore(it);
         }catch(e){
           if(e && e.message === "CTX_INVALID"){
-            // ctxErr already shown
           }else{
             console.error(e);
             showCtxErr("Save failed. Check console / Firestore rules.");
@@ -756,15 +768,12 @@
         renderFarmSelect();
         renderFieldSelect('', '');
 
-        // apply hub preselect if provided
         if(HUB_FARM_ID){
           farmSel.value = HUB_FARM_ID;
         }
-        // if farm set, narrow fields
         renderFieldSelect(String(farmSel.value||'').trim(), '');
 
         if(HUB_FIELD_ID){
-          // if field exists, set it, and ensure farm matches the field's farm
           const f = __fieldById.get(HUB_FIELD_ID);
           if(f && f.farmId){
             farmSel.value = f.farmId;
@@ -814,7 +823,7 @@
           combineNameEl.value = "Loading…";
         }else{
           ctxMode.textContent = "Manual";
-          combineRow.hidden = true; // combine box gone
+          combineRow.hidden = true;
           __combine = { id:null, name:null };
         }
       }
