@@ -89,7 +89,7 @@
       background:linear-gradient(180deg, rgba(47,108,60,.08), transparent);
     }
 
-    /* === DEV-STYLE INLINE COMBOS (Farm / Field) — copied pattern === */
+    /* === DEV-STYLE INLINE COMBOS (Farm / Field) === */
     :root{
       --combo-gap:4px;
       --combo-radius:12px;
@@ -193,30 +193,8 @@
 
         <div class="body" id="form">
 
-          <!-- Save context -->
           <div id="ctxCard" class="card ctx">
 
-            <!-- Combine row: ONLY exists when opened from hub -->
-            <div id="combineRow" class="row" hidden>
-              <div class="field">
-                <label for="combineName">Combine</label>
-                <input id="combineName" class="input" readonly value="—">
-              </div>
-              <div class="field"></div>
-            </div>
-
-            <div class="row">
-              <div class="field">
-                <label for="submittedBy">Submitted by</label>
-                <input id="submittedBy" class="input" readonly value="">
-              </div>
-              <div class="field">
-                <label for="submittedAt">Date</label>
-                <input id="submittedAt" class="input" type="datetime-local" value="">
-              </div>
-            </div>
-
-            <!-- Farm / Field combos (match maintenance-add) -->
             <div class="row">
               <div class="field combo">
                 <label for="farmBtn">Farm</label>
@@ -240,6 +218,26 @@
                   </div>
                 </div>
                 <input id="fieldId" type="hidden" value="">
+              </div>
+            </div>
+
+            <!-- Combine row moved UNDER farm/field; only exists if hub -->
+            <div id="combineRow" class="row" hidden>
+              <div class="field">
+                <label for="combineName">Combine</label>
+                <input id="combineName" class="input" readonly value="—">
+              </div>
+              <div class="field"></div>
+            </div>
+
+            <div class="row">
+              <div class="field">
+                <label for="submittedBy">Submitted by</label>
+                <input id="submittedBy" class="input" readonly value="">
+              </div>
+              <div class="field">
+                <label for="submittedAt">Date</label>
+                <input id="submittedAt" class="input" type="datetime-local" value="">
               </div>
             </div>
 
@@ -365,9 +363,13 @@
 
       const qs = new URLSearchParams(location.search);
 
-      // STRICT: only treat these as hub combine id
-      const HUB_COMBINE_ID =
-        (qs.get('combineId') || qs.get('combine') || qs.get('equipmentId') || qs.get('equipId') || qs.get('eqId') || '').trim() || null;
+      const RAW_COMBINE_ID =
+        (qs.get('combineId') || qs.get('combine') || qs.get('equipmentId') || qs.get('equipId') || qs.get('eqId') || '').trim() || "";
+
+      const IS_HUB =
+        /^[A-Za-z0-9_-]{12,}$/.test(RAW_COMBINE_ID);
+
+      const HUB_COMBINE_ID = IS_HUB ? RAW_COMBINE_ID : null;
 
       const HUB_FARM_ID = (qs.get('farmId') || qs.get('farm') || '').trim() || '';
       const HUB_FIELD_ID = (qs.get('fieldId') || qs.get('field') || '').trim() || '';
@@ -379,7 +381,6 @@
       const submittedByEl = $("submittedBy");
       const submittedAtEl = $("submittedAt");
 
-      // Combo elements
       const farmBtn = $("farmBtn");
       const farmPanel = $("farmPanel");
       const farmList = $("farmList");
@@ -427,7 +428,6 @@
       let __auth = null;
       let __combine = { id: null, name: null };
 
-      /* ---------- global combo closer (copied pattern) ---------- */
       function closeAllCombos(exceptPanel=null){
         document.querySelectorAll('.combo-panel.show').forEach(p=>{
           if(p!==exceptPanel) p.classList.remove('show');
@@ -598,16 +598,15 @@
       }
 
       function initHubUI(){
-        // Force-hide first (prevents any flash)
-        combineRow.hidden = true;
-
-        if(HUB_COMBINE_ID){
-          combineRow.hidden = false;
-          combineNameEl.value = "Loading…";
-        }else{
-          combineRow.hidden = true;
+        // No hub: remove combine row from DOM so it can never appear.
+        if(!IS_HUB){
+          try{ combineRow.remove(); }catch{}
           __combine = { id:null, name:null };
+          return;
         }
+        // Hub: keep it and show it.
+        combineRow.hidden = false;
+        combineNameEl.value = "Loading…";
       }
 
       function initUserDefaults(){
@@ -620,7 +619,6 @@
         });
       }
 
-      /* ✅ Only numbers + max 2 decimals on all numeric fields */
       function restrict2(el){
         if(!el) return;
         el.addEventListener("input", ()=>{
@@ -736,7 +734,7 @@
       document.addEventListener("keydown", e=>{ if(e.key==="Escape" && modal.hasAttribute("open")) closeModal(); });
 
       function fromCount(crop, kernelsIn4ft2){
-        const perFt2 = { corn:2, soy:4 }[crop];
+        const perFt2 = COUNT_CONST[crop];
         if(!isFinite(kernelsIn4ft2) || kernelsIn4ft2<0) return NaN;
         return kernelsIn4ft2 / (perFt2 * 4);
       }
@@ -759,8 +757,6 @@
 
       function fromWeight(crop, hoopDiaIn, wetWeight, unit, moisturePct){
         const area = hoopAreaFt2(hoopDiaIn);
-        const STD = { corn:{mc:15.5,tw:56}, soy:{mc:13.0,tw:60} };
-        const SQFT_PER_AC = 43560;
         if(!isFinite(area) || area<=0) return { bu_ac: NaN, area_ft2: NaN, wet_lb: NaN, adj_lb: NaN };
         const wet_lb = toPounds(wetWeight, unit);
         const adj_lb = adjustToStdMoist(wet_lb, moisturePct, STD[crop].mc);
@@ -929,7 +925,6 @@
             state.farm = it;
             farmBtn.textContent = it.name;
             farmIdEl.value = it.id;
-
             refreshFieldComboForFarm(it.id);
             showCtxErr("");
           }
@@ -1004,11 +999,8 @@
         applyHubDefaultsAfterLoad();
 
         await loadCombineIfHub();
-        if(HUB_COMBINE_ID){
+        if(HUB_COMBINE_ID && combineNameEl){
           combineNameEl.value = __combine.name || `Combine (${HUB_COMBINE_ID.slice(-6)})`;
-          combineRow.hidden = false;
-        }else{
-          combineRow.hidden = true;
         }
 
         $("hoopDia").value = 30;
