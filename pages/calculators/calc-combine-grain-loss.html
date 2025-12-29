@@ -83,12 +83,12 @@
     .kv{ display:grid; grid-template-columns:1fr auto; gap:8px 12px; align-items:baseline; }
     .kv .val{ font-weight:800; }
 
-    /* Context box (shown when coming from hub) */
+    /* Context card */
     .ctx{
       border:1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
       background:linear-gradient(180deg, rgba(47,108,60,.08), transparent);
     }
-    .ctx h3{ display:flex; align-items:center; gap:8px; }
+    .ctx h3{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
     .ctx-badge{
       display:inline-flex; align-items:center; gap:6px;
       border:1px solid var(--border);
@@ -121,46 +121,51 @@
 
         <div class="body" id="form">
 
-          <!-- Context + submit info -->
-          <div id="ctxCard" class="card ctx" hidden>
+          <!-- Save context (always shown), Combine row only appears when coming from hub -->
+          <div id="ctxCard" class="card ctx">
             <h3 style="margin:0 0 8px 0;">
-              Save To
+              Save Info
               <span id="ctxMode" class="ctx-badge">Manual</span>
             </h3>
-            <div class="row">
+
+            <div id="combineRow" class="row" hidden>
               <div class="field">
                 <label for="combineName">Combine</label>
                 <input id="combineName" class="input" readonly value="—">
               </div>
               <div class="field">
-                <label for="submittedBy">Submitted by</label>
-                <input id="submittedBy" class="input" placeholder="e.g., Dane" value="">
+                <label>&nbsp;</label>
+                <div class="hint" id="combineHint">Saving directly to this combine.</div>
               </div>
             </div>
+
             <div class="row">
+              <div class="field">
+                <label for="submittedBy">Submitted by</label>
+                <input id="submittedBy" class="input" readonly value="">
+              </div>
               <div class="field">
                 <label for="submittedAt">Date</label>
                 <input id="submittedAt" class="input" type="datetime-local" value="">
               </div>
-              <div class="field">
-                <label>&nbsp;</label>
-                <div class="hint" id="ctxHint">When opened from a Combine Hub, this will save to that combine automatically.</div>
-              </div>
             </div>
+
             <div class="row">
               <div class="field">
                 <label for="farmSel">Farm</label>
                 <select id="farmSel" class="select">
                   <option value="">— Select —</option>
                 </select>
+                <div class="hint">Pick a farm to narrow fields, or pick a field first and we’ll set the farm.</div>
               </div>
               <div class="field">
                 <label for="fieldSel">Field</label>
-                <select id="fieldSel" class="select" disabled>
-                  <option value="">— Select a Farm first —</option>
+                <select id="fieldSel" class="select">
+                  <option value="">— Select —</option>
                 </select>
               </div>
             </div>
+
             <div id="ctxErr" class="error" hidden></div>
           </div>
 
@@ -268,9 +273,11 @@
       ready,
       getFirestore,
       collection, doc, getDoc, getDocs,
-      query, where, orderBy,
+      query, orderBy,
       addDoc,
-      serverTimestamp
+      serverTimestamp,
+      getAuth,
+      onAuthStateChanged
     } from '/Farm-vista/js/firebase-init.js';
 
     (function(){
@@ -280,19 +287,22 @@
       const toNum = v => { const n = Number(String(v||"").replace(/[^0-9.]/g,"")); return isFinite(n)?n:NaN; };
 
       const qs = new URLSearchParams(location.search);
-      const HUB_COMBINE_ID = (qs.get('combineId') || qs.get('combine') || qs.get('id') || '').trim() || null;
-      const HUB_BY = (qs.get('by') || qs.get('user') || '').trim() || '';
-      const HUB_AT = (qs.get('date') || qs.get('t') || '').trim() || '';
+
+      // Accept many possible hub param names (your hub likely uses one of these)
+      const HUB_COMBINE_ID =
+        (qs.get('combineId') || qs.get('combine') || qs.get('equipmentId') || qs.get('equipId') || qs.get('eqId') || qs.get('id') || '').trim() || null;
+
       const HUB_FARM_ID = (qs.get('farmId') || qs.get('farm') || '').trim() || '';
       const HUB_FIELD_ID = (qs.get('fieldId') || qs.get('field') || '').trim() || '';
 
-      const ctxCard = $("ctxCard");
       const ctxMode = $("ctxMode");
-      const ctxHint = $("ctxHint");
       const ctxErr = $("ctxErr");
+      const combineRow = $("combineRow");
       const combineNameEl = $("combineName");
+
       const submittedByEl = $("submittedBy");
       const submittedAtEl = $("submittedAt");
+
       const farmSel = $("farmSel");
       const fieldSel = $("fieldSel");
 
@@ -322,10 +332,26 @@
       }
 
       let __db = null;
+      let __auth = null;
+      let __user = null;
+
       let __combine = { id: null, name: null };
+
       let __farms = [];
       let __fields = [];
       let __fieldsByFarm = new Map();
+      let __fieldById = new Map();
+      let __farmById = new Map();
+
+      function pickDocName(v){
+        const a = String(v?.name || '').trim();
+        if(a) return a;
+        const b = String(v?.label || '').trim();
+        if(b) return b;
+        const c = String(v?.title || '').trim();
+        if(c) return c;
+        return '';
+      }
 
       async function loadCombineIfHub(){
         if(!HUB_COMBINE_ID) return;
@@ -346,45 +372,39 @@
         }
       }
 
-      function pickDocName(v){
-        const a = String(v?.name || '').trim();
-        if(a) return a;
-        const b = String(v?.label || '').trim();
-        if(b) return b;
-        const c = String(v?.title || '').trim();
-        if(c) return c;
-        return '';
-      }
-
       async function loadFarmsAndFields(){
         // Farms
+        __farms = [];
         try{
           const fsnap = await getDocs(query(collection(__db,'farms'), orderBy('name')));
-          __farms = [];
           fsnap.forEach(ds=>{
             const v = ds.data() || {};
             const name = pickDocName(v) || `Farm (${ds.id.slice(-6)})`;
-            const archived = !!v.archived;
-            __farms.push({ id: ds.id, name, archived });
+            if(!!v.archived) return;
+            const item = { id: ds.id, name };
+            __farms.push(item);
           });
-        }catch{
-          __farms = [];
-        }
+        }catch{}
+
+        __farms.sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+        __farmById = new Map(__farms.map(f=>[f.id,f]));
 
         // Fields
+        __fields = [];
         try{
           const qsnap = await getDocs(query(collection(__db,'fields'), orderBy('name')));
-          __fields = [];
           qsnap.forEach(ds=>{
             const v = ds.data() || {};
+            if(!!v.archived) return;
             const name = pickDocName(v) || `Field (${ds.id.slice(-6)})`;
             const farmId = String(v.farmId || v.farm || v.farmRefId || '').trim() || null;
-            const archived = !!v.archived;
-            __fields.push({ id: ds.id, name, farmId, archived });
+            const item = { id: ds.id, name, farmId };
+            __fields.push(item);
           });
-        }catch{
-          __fields = [];
-        }
+        }catch{}
+
+        __fields.sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+        __fieldById = new Map(__fields.map(f=>[f.id,f]));
 
         __fieldsByFarm = new Map();
         __fields.forEach(f=>{
@@ -399,53 +419,45 @@
       }
 
       function renderFarmSelect(){
-        if(!farmSel) return;
-        const current = farmSel.value || '';
+        const current = String(farmSel.value || '').trim();
         farmSel.innerHTML = '<option value="">— Select —</option>';
-        __farms
-          .filter(x=>!x.archived)
-          .forEach(f=>{
-            const o = document.createElement('option');
-            o.value = f.id;
-            o.textContent = f.name;
-            farmSel.appendChild(o);
-          });
+        __farms.forEach(f=>{
+          const o = document.createElement('option');
+          o.value = f.id;
+          o.textContent = f.name;
+          farmSel.appendChild(o);
+        });
         if(current && [...farmSel.options].some(o=>o.value===current)) farmSel.value = current;
       }
 
-      function renderFieldSelect(farmId){
-        if(!fieldSel) return;
-        const current = fieldSel.value || '';
-        const list = (__fieldsByFarm.get(farmId || '') || []).filter(x=>!x.archived);
-        fieldSel.innerHTML = '';
-        if(!farmId){
-          fieldSel.disabled = true;
-          const o = document.createElement('option');
-          o.value = '';
-          o.textContent = '— Select a Farm first —';
-          fieldSel.appendChild(o);
-          return;
+      function renderFieldSelect(filterFarmId, keepFieldId){
+        const current = keepFieldId != null ? String(keepFieldId||'') : String(fieldSel.value||'');
+        const farmId = String(filterFarmId || '').trim();
+
+        let list = [];
+        if(farmId){
+          list = (__fieldsByFarm.get(farmId) || []);
+        }else{
+          list = __fields.slice();
         }
-        fieldSel.disabled = false;
-        const o0 = document.createElement('option');
-        o0.value = '';
-        o0.textContent = '— Select —';
-        fieldSel.appendChild(o0);
+
+        fieldSel.innerHTML = '<option value="">— Select —</option>';
         list.forEach(f=>{
           const o = document.createElement('option');
           o.value = f.id;
           o.textContent = f.name;
           fieldSel.appendChild(o);
         });
+
         if(current && [...fieldSel.options].some(o=>o.value===current)) fieldSel.value = current;
       }
 
       function farmNameById(id){
-        const f = __farms.find(x=>x.id===id);
+        const f = __farmById.get(id);
         return f ? f.name : '';
       }
       function fieldNameById(id){
-        const f = __fields.find(x=>x.id===id);
+        const f = __fieldById.get(id);
         return f ? f.name : '';
       }
 
@@ -608,7 +620,7 @@
         const farmId = String(farmSel?.value || "").trim();
         const fieldId = String(fieldSel?.value || "").trim();
 
-        if(!by) return { ok:false, msg:"Submitted by is required." };
+        if(!by) return { ok:false, msg:"Submitted by is required (login missing?)." };
         if(!at) return { ok:false, msg:"Date is required." };
         if(!farmId) return { ok:false, msg:"Farm is required." };
         if(!fieldId) return { ok:false, msg:"Field is required." };
@@ -740,75 +752,88 @@
         saveHist([]); renderHist();
       });
 
-      async function initContextUI(){
-        ctxCard.hidden = false;
-
-        if(HUB_COMBINE_ID){
-          ctxMode.textContent = "From Combine Hub";
-          ctxHint.textContent = "This will save to the combine you opened from. Farm/Field and Submitted By/Date are required.";
-        }else{
-          ctxMode.textContent = "Manual";
-          ctxHint.textContent = "Select Farm/Field and enter Submitted By/Date to save.";
-        }
-
-        // Submitted by/date defaults
-        if(HUB_BY) submittedByEl.value = HUB_BY;
-        if(!submittedByEl.value) submittedByEl.value = "";
-
-        const dtFromHub = HUB_AT ? toLocalDTInputValue(HUB_AT) : "";
-        submittedAtEl.value = dtFromHub || toLocalDTInputValue(new Date());
-
-        // If hub provided by/date, lock them (still editable otherwise)
-        if(HUB_BY) submittedByEl.setAttribute('readonly','readonly');
-        if(HUB_AT) submittedAtEl.setAttribute('readonly','readonly');
-
-        // Combine box behavior
-        if(HUB_COMBINE_ID){
-          combineNameEl.value = "Loading…";
-        }else{
-          combineNameEl.value = "— (not from hub)";
-        }
-
-        // Farms/fields
+      function initFarmFieldUX(){
         renderFarmSelect();
-        renderFieldSelect('');
+        renderFieldSelect('', '');
+
+        // apply hub preselect if provided
+        if(HUB_FARM_ID){
+          farmSel.value = HUB_FARM_ID;
+        }
+        // if farm set, narrow fields
+        renderFieldSelect(String(farmSel.value||'').trim(), '');
+
+        if(HUB_FIELD_ID){
+          // if field exists, set it, and ensure farm matches the field's farm
+          const f = __fieldById.get(HUB_FIELD_ID);
+          if(f && f.farmId){
+            farmSel.value = f.farmId;
+            renderFieldSelect(f.farmId, HUB_FIELD_ID);
+            fieldSel.value = HUB_FIELD_ID;
+          }else{
+            fieldSel.value = HUB_FIELD_ID;
+          }
+        }
 
         farmSel.addEventListener('change', ()=>{
           const farmId = String(farmSel.value || '').trim();
-          renderFieldSelect(farmId);
+          renderFieldSelect(farmId, '');
           showCtxErr("");
         });
-        fieldSel.addEventListener('change', ()=> showCtxErr(""));
 
-        // Hub preselect if provided
-        if(HUB_FARM_ID){
-          farmSel.value = HUB_FARM_ID;
-          renderFieldSelect(HUB_FARM_ID);
-        }
-        if(HUB_FIELD_ID){
-          fieldSel.value = HUB_FIELD_ID;
+        fieldSel.addEventListener('change', ()=>{
+          const fieldId = String(fieldSel.value || '').trim();
+          if(!fieldId){ showCtxErr(""); return; }
+          const f = __fieldById.get(fieldId);
+          if(f && f.farmId){
+            if(String(farmSel.value||'').trim() !== f.farmId){
+              farmSel.value = f.farmId;
+              renderFieldSelect(f.farmId, fieldId);
+              fieldSel.value = fieldId;
+            }
+          }
+          showCtxErr("");
+        });
+      }
+
+      function initUserDefaults(){
+        submittedByEl.value = "";
+        submittedAtEl.value = toLocalDTInputValue(new Date());
+
+        onAuthStateChanged(__auth, (u)=>{
+          __user = u || null;
+          const name = (__user && (__user.displayName || __user.email)) ? String(__user.displayName || __user.email) : "";
+          submittedByEl.value = name || "";
+        });
+      }
+
+      function initHubUI(){
+        if(HUB_COMBINE_ID){
+          ctxMode.textContent = "From Combine Hub";
+          combineRow.hidden = false;
+          combineNameEl.value = "Loading…";
+        }else{
+          ctxMode.textContent = "Manual";
+          combineRow.hidden = true; // combine box gone
+          __combine = { id:null, name:null };
         }
       }
 
       (async()=>{
         await ready;
         __db = getFirestore();
+        __auth = getAuth();
+
+        initHubUI();
+        initUserDefaults();
 
         await loadFarmsAndFields();
-        await initContextUI();
+        initFarmFieldUX();
 
         await loadCombineIfHub();
-
-        // after combine load, reflect name if hub
         if(HUB_COMBINE_ID){
           combineNameEl.value = __combine.name || `Combine (${HUB_COMBINE_ID.slice(-6)})`;
         }
-
-        // initial farm/field render with loaded data (in case init ran before farms loaded)
-        renderFarmSelect();
-        const selectedFarm = String(farmSel.value || HUB_FARM_ID || '').trim();
-        renderFieldSelect(selectedFarm);
-        if(HUB_FIELD_ID) fieldSel.value = HUB_FIELD_ID;
 
         $("hoopDia").value = 30;
         $("areaOut").value = (Math.PI*(1.25**2)).toFixed(3)+" ft²";
