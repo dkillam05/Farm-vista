@@ -1,15 +1,15 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/index.js  (FULL FILE)
-Rev: 2025-12-27d
+Rev: 2025-12-29a
 
-Fix:
-✅ Persist + restore (iOS/Safari BFCache safe):
-   - Operation (already)
-   - Farm (already)
-   - Sort (NEW)
-   - Rain range (NEW) via localStorage key: fv_fr_range_v1
-✅ Re-apply on pageshow + visibilitychange so it sticks after leaving/returning
+Changes (per Dane):
+✅ Edit permission controls interactivity:
+   - Details panel is ALWAYS shown, but cannot be opened when edit is false
+   - Gate is applied on boot and whenever perms update (fv:user-ready)
 
+Keeps:
+✅ Persist + restore (iOS/Safari BFCache safe): Operation, Farm, Sort, Rain range
+✅ Re-apply on pageshow + visibilitychange
 ===================================================================== */
 'use strict';
 
@@ -23,7 +23,7 @@ import { loadFarmsOptional, loadFields } from './data.js';
 import { wireUIOnce } from './wiring.js';
 import { renderTiles, renderDetails, refreshAll, ensureModelWeatherModules } from './render.js';
 import { wireFieldsHiddenTap } from './adjust.js';
-import { loadFieldReadinessPerms, canView } from './perm.js';
+import { loadFieldReadinessPerms, canView, canEdit } from './perm.js';
 import { buildFarmFilterOptions } from './farm-filter.js';
 import { initMap } from './map.js';
 import { initLayoutFix } from './layout.js';
@@ -46,6 +46,67 @@ function applySavedRangeToUI(){
   }catch(_){
     return false;
   }
+}
+
+/* =====================================================================
+   Edit-gates (Details shown, but not openable unless edit allowed)
+===================================================================== */
+function ensureDetailsEditGateWired(){
+  try{
+    const dp = document.getElementById('detailsPanel');
+    if (!dp) return;
+
+    const sum = dp.querySelector('summary');
+    if (!sum) return;
+
+    if (dp._fvEditGateWired) return;
+    dp._fvEditGateWired = true;
+
+    // Capture-phase so we beat the native <details> toggle reliably.
+    sum.addEventListener('click', (e)=>{
+      try{
+        const st = window.__FV_FR;
+        if (!st) return;
+
+        if (!canEdit(st)){
+          e.preventDefault();
+          e.stopPropagation();
+
+          // Force closed (native toggle might already have flipped)
+          dp.open = false;
+          dp.removeAttribute('open');
+        }
+      }catch(_){}
+    }, true);
+  }catch(_){}
+}
+
+function applyDetailsEditGateState(state){
+  try{
+    const dp = document.getElementById('detailsPanel');
+    if (!dp) return;
+
+    ensureDetailsEditGateWired();
+
+    if (!canEdit(state)){
+      // Keep visible, but never open
+      dp.open = false;
+      dp.removeAttribute('open');
+
+      // Optional subtle disabled feel on the summary
+      const sum = dp.querySelector('summary');
+      if (sum){
+        sum.style.opacity = '0.72';
+        sum.style.cursor = 'not-allowed';
+      }
+    } else {
+      const sum = dp.querySelector('summary');
+      if (sum){
+        sum.style.opacity = '';
+        sum.style.cursor = 'pointer';
+      }
+    }
+  }catch(_){}
 }
 
 (async function init(){
@@ -78,6 +139,9 @@ function applySavedRangeToUI(){
 
   // Initial perms read (may be provisional)
   await loadFieldReadinessPerms(state);
+
+  // Apply details edit gating immediately (covers provisional + loaded)
+  applyDetailsEditGateState(state);
 
   if (!canView(state)){
     const grid = document.getElementById('fieldsGrid');
@@ -119,9 +183,7 @@ function applySavedRangeToUI(){
   initMap(state);
   initOpThresholds(state);
 
-  document.addEventListener('fr:soft-reload', async ()=>{
-    try{ await refreshAll(state); }catch(_){}
-  });
+  document.addEventListener('fr:soft-reload', async ()=>{ try{ await refreshAll(state); }catch(_){ } });
 
   document.addEventListener('fv:user-ready', async ()=>{
     try{
@@ -129,6 +191,9 @@ function applySavedRangeToUI(){
       const prevEdit = !!(state.perm && state.perm.edit);
 
       await loadFieldReadinessPerms(state);
+
+      // Re-apply details gate anytime perms might have changed
+      applyDetailsEditGateState(state);
 
       if (state.perm && state.perm.loaded && !state.perm.view){
         const grid = document.getElementById('fieldsGrid');
@@ -151,7 +216,7 @@ function applySavedRangeToUI(){
   });
 
   // ✅ iOS/Safari: re-apply selects + range after returning to page
-  const reapplyPrefs = async (why)=>{
+  const reapplyPrefs = async ()=>{
     try{
       const opChanged = applySavedOpToUI(state, { fire:false });
       const sortChanged = applySavedSortToUI({ fire:false });
@@ -163,19 +228,20 @@ function applySavedRangeToUI(){
       // range module constraints (safe)
       enforceCalendarNoFuture();
 
+      // Re-apply details gate on return (covers BFCache + perms already known)
+      applyDetailsEditGateState(state);
+
       if (opChanged || sortChanged || rangeChanged){
         await refreshAll(state);
       }
     }catch(_){}
   };
 
-  window.addEventListener('pageshow', ()=>{
-    reapplyPrefs('pageshow');
-  });
+  window.addEventListener('pageshow', ()=>{ reapplyPrefs(); });
 
   document.addEventListener('visibilitychange', ()=>{
     if (!document.hidden){
-      reapplyPrefs('visible');
+      reapplyPrefs();
     }
   });
 
@@ -184,8 +250,11 @@ function applySavedRangeToUI(){
   await renderDetails(state);
   await refreshAll(state);
 
-  // global calibration wiring
+  // global calibration wiring (will show Fields always; only wires when edit allowed)
   wireFieldsHiddenTap(state);
+
+  // Re-apply details gate again after all wiring (safe)
+  applyDetailsEditGateState(state);
 
   // re-close details (edge cases)
   try{
