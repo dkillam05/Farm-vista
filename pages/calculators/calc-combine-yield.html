@@ -157,6 +157,90 @@
       font-size:12px;
       color:var(--text);
     }
+
+    /* === DEV-STYLE INLINE COMBOS (Farm / Field) === */
+    :root{
+      --combo-gap:4px;
+      --combo-radius:12px;
+      --combo-btn-radius:10px;
+      --combo-shadow:0 12px 26px rgba(0,0,0,.18);
+      --combo-item-pad:10px 8px;
+      --combo-max-h:50vh;
+    }
+    .buttonish{
+      width:100%;
+      font:inherit;
+      font-size:16px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius);
+      padding:10px 12px;
+      padding-right:42px;
+      outline:none;
+      text-align:left;
+      cursor:pointer;
+      position:relative;
+    }
+    .buttonish.has-caret::after{
+      content:"";
+      position:absolute;
+      right:14px;
+      top:50%;
+      width:0;
+      height:0;
+      border-left:6px solid transparent;
+      border-right:6px solid transparent;
+      border-top:7px solid var(--muted,#67706B);
+      transform:translateY(-50%);
+      pointer-events:none;
+    }
+    .combo{ position:relative; }
+    .combo .combo-anchor{
+      position:relative;
+      display:inline-block;
+      width:100%;
+    }
+    .combo-panel{
+      position:absolute;
+      left:0; right:0;
+      top:calc(100% + var(--combo-gap));
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:var(--combo-radius);
+      box-shadow:var(--combo-shadow);
+      padding:8px;
+      display:none;
+      z-index:9999;
+    }
+    .combo-panel.show{ display:block; }
+    .combo-panel .search{
+      padding:4px 2px 8px;
+    }
+    .combo-panel .search input{
+      width:100%;
+      padding:10px;
+      border:1px solid var(--border);
+      border-radius:var(--combo-btn-radius);
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+    }
+    .combo-panel .list{
+      max-height:var(--combo-max-h);
+      overflow:auto;
+      border-top:1px solid var(--border);
+    }
+    .combo-item{
+      padding:var(--combo-item-pad);
+      border-bottom:1px solid var(--border);
+      cursor:pointer;
+    }
+    .combo-item:hover{ background:rgba(0,0,0,.04); }
+    .combo-item:last-child{ border-bottom:none; }
+    .combo-empty{
+      padding:var(--combo-item-pad);
+      color:#67706B;
+    }
   </style>
 </head>
 <body>
@@ -179,6 +263,46 @@
         </div>
 
         <form id="frm" novalidate autocomplete="off">
+
+          <!-- Farm / Field combos (same as other combine calculators) -->
+          <div class="grid">
+            <div class="combo">
+              <label for="farmBtn">Farm</label>
+              <div class="combo-anchor">
+                <button id="farmBtn" class="buttonish has-caret" type="button">Select farm…</button>
+                <div class="combo-panel" id="farmPanel" role="listbox" aria-label="Farm list">
+                  <div class="search"><input id="farmSearch" type="search" placeholder="Search farms…"></div>
+                  <div class="list" id="farmList"></div>
+                </div>
+              </div>
+              <input id="farmId" type="hidden" value="">
+            </div>
+
+            <div class="combo">
+              <label for="fieldBtn">Field</label>
+              <div class="combo-anchor">
+                <button id="fieldBtn" class="buttonish has-caret" type="button">Select field…</button>
+                <div class="combo-panel" id="fieldPanel" role="listbox" aria-label="Field list">
+                  <div class="search"><input id="fieldSearch" type="search" placeholder="Search fields…"></div>
+                  <div class="list" id="fieldList"></div>
+                </div>
+              </div>
+              <input id="fieldId" type="hidden" value="">
+            </div>
+          </div>
+
+          <!-- Hub-only combine line -->
+          <div class="grid" id="combineHubRow" hidden>
+            <div>
+              <label for="combineHub">Combine</label>
+              <div class="ctrl">
+                <input id="combineHub" type="text" readonly value="Loading…">
+                <span class="unit">hub</span>
+              </div>
+            </div>
+            <div></div>
+          </div>
+
           <div class="grid">
             <div>
               <label for="crop">Crop</label>
@@ -319,10 +443,269 @@
     </div>
   </div>
 
+  <!-- Farm/Field + Hub Combine loader -->
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection, getDocs,
+      query, orderBy,
+      doc, getDoc
+    } from '../../js/firebase-init.js';
+
+    (function(){
+      "use strict";
+      if(window.__FV_COMBINE_YIELD_CTX_V1__) return; window.__FV_COMBINE_YIELD_CTX_V1__=true;
+
+      const $ = id => document.getElementById(id);
+      const esc = s => String(s ?? "").replace(/[&<>"']/g, m =>
+        ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])
+      );
+
+      const qs = new URLSearchParams(location.search);
+      const RAW_COMBINE_ID =
+        (qs.get('combineId') || qs.get('combine') || qs.get('equipmentId') || qs.get('equipId') || qs.get('eqId') || '').trim() || "";
+      const IS_HUB = /^[A-Za-z0-9_-]{12,}$/.test(RAW_COMBINE_ID);
+      const HUB_COMBINE_ID = IS_HUB ? RAW_COMBINE_ID : null;
+
+      const farmBtn = $("farmBtn"), farmPanel=$("farmPanel"), farmList=$("farmList"), farmSearch=$("farmSearch");
+      const fieldBtn = $("fieldBtn"), fieldPanel=$("fieldPanel"), fieldList=$("fieldList"), fieldSearch=$("fieldSearch");
+      const farmIdEl = $("farmId"), fieldIdEl = $("fieldId");
+
+      const combineHubRow = $("combineHubRow");
+      const combineHub = $("combineHub");
+
+      const state = { farms:[], fields:[], farm:null, field:null };
+
+      function pickName(data){
+        return data.name || data.farmName || data.fieldName || data.label || data.title || "Unnamed";
+      }
+      function refToId(v){
+        try{
+          if(!v) return null;
+          if(typeof v === 'string') return v.trim() || null;
+          if(typeof v.id === 'string') return v.id.trim() || null;
+          if(typeof v.path === 'string'){
+            const p = v.path.trim();
+            if(!p) return null;
+            const parts = p.split('/').filter(Boolean);
+            return parts.length ? parts[parts.length-1] : null;
+          }
+          return null;
+        }catch{ return null; }
+      }
+
+      function closeAllCombos(exceptPanel=null){
+        document.querySelectorAll('.combo-panel.show').forEach(p=>{
+          if(p!==exceptPanel) p.classList.remove('show');
+        });
+      }
+      document.addEventListener('click', ()=> closeAllCombos());
+      document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
+
+      function makeCombo({ btn, panel, list, searchInput, items=[], formatter, onPick }){
+        if(!btn || !panel || !list) return null;
+
+        panel.addEventListener('click', e=> e.stopPropagation());
+        panel.addEventListener('mousedown', e=> e.stopPropagation());
+
+        let DATA = items || [];
+
+        function render(q=""){
+          const qq = (q||"").toLowerCase();
+          const rows = (DATA||[]).filter(x=>{
+            const label = String(formatter(x)||"").toLowerCase();
+            return !qq || label.includes(qq);
+          });
+
+          if(rows.length){
+            list.innerHTML = rows.map(x=>`<div class="combo-item" data-id="${esc(String(x.id))}">${esc(formatter(x))}</div>`).join('');
+          }else{
+            list.innerHTML = `<div class="combo-empty">(no matches)</div>`;
+          }
+        }
+
+        function open(){
+          closeAllCombos(panel);
+          panel.classList.add('show');
+          render("");
+          if(searchInput){
+            searchInput.value = "";
+            searchInput.focus();
+          }
+        }
+        function close(){ panel.classList.remove('show'); }
+
+        btn.addEventListener('click', e=>{
+          e.stopPropagation();
+          panel.classList.contains('show') ? close() : open();
+        });
+
+        list.addEventListener('mousedown', e=>{
+          const row = e.target.closest('.combo-item');
+          if(!row) return;
+          const id = row.dataset.id;
+          const it = (DATA||[]).find(x=>String(x.id)===String(id));
+          if(!it) return;
+          onPick && onPick(it);
+          close();
+        });
+
+        if(searchInput){
+          searchInput.addEventListener('input', e=> render(e.target.value));
+        }
+
+        return {
+          setItems(arr){
+            DATA = arr || [];
+            render(searchInput ? searchInput.value : "");
+          }
+        };
+      }
+
+      let farmCombo=null, fieldCombo=null;
+
+      function refreshFieldComboForFarm(farmId){
+        let list = state.fields;
+        if(farmId){
+          list = list.filter(f=>String(f.farmId||"") === String(farmId));
+        }
+        if(fieldCombo) fieldCombo.setItems(list);
+
+        if(state.field && farmId && String(state.field.farmId||"") !== String(farmId)){
+          state.field = null;
+          fieldBtn.textContent = "Select field…";
+          fieldIdEl.value = "";
+        }
+      }
+
+      function selectFarmById(farmId){
+        if(!farmId) return;
+        const farm = state.farms.find(f=>String(f.id)===String(farmId));
+        if(!farm) return;
+        state.farm = farm;
+        farmBtn.textContent = farm.name;
+        farmIdEl.value = farm.id;
+      }
+
+      function normalizeSerial(s){ return String(s||'').trim().toUpperCase(); }
+      function serialLast6(serial){
+        const s = normalizeSerial(serial || '');
+        if(!s) return '';
+        return s.length <= 6 ? s : s.slice(-6);
+      }
+
+      (async()=>{
+        await ready;
+        const db = getFirestore();
+
+        farmCombo = makeCombo({
+          btn: farmBtn, panel: farmPanel, list: farmList, searchInput: farmSearch,
+          items: [], formatter:x=>x.name,
+          onPick: it=>{
+            state.farm = it;
+            farmBtn.textContent = it.name;
+            farmIdEl.value = it.id;
+            refreshFieldComboForFarm(it.id);
+          }
+        });
+
+        fieldCombo = makeCombo({
+          btn: fieldBtn, panel: fieldPanel, list: fieldList, searchInput: fieldSearch,
+          items: [], formatter:x=>x.name,
+          onPick: it=>{
+            state.field = it;
+            fieldBtn.textContent = it.name;
+            fieldIdEl.value = it.id;
+
+            if(it.farmId){
+              selectFarmById(it.farmId);
+              farmIdEl.value = it.farmId;
+              refreshFieldComboForFarm(it.farmId);
+              fieldBtn.textContent = it.name;
+              fieldIdEl.value = it.id;
+            }
+          }
+        });
+
+        // farms
+        try{
+          const fsnap = await getDocs(query(collection(db,"farms"), orderBy("name")));
+          state.farms = fsnap.docs.map(ds=>{
+            const d = ds.data() || {};
+            if(!!d.archived) return null;
+            return { id: ds.id, name: pickName(d) };
+          }).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name));
+          farmCombo.setItems(state.farms);
+        }catch(e){
+          console.error(e);
+        }
+
+        // fields
+        try{
+          const xsnap = await getDocs(query(collection(db,"fields"), orderBy("name")));
+          state.fields = xsnap.docs.map(ds=>{
+            const d = ds.data() || {};
+            if(!!d.archived) return null;
+
+            const farmId =
+              refToId(d.farmId) ||
+              refToId(d.farm) ||
+              refToId(d.farmRef) ||
+              refToId(d.farmDocId) ||
+              refToId(d.farmRefId) ||
+              refToId(d.farm_id) ||
+              null;
+
+            return { id: ds.id, name: pickName(d), farmId };
+          }).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name));
+
+          refreshFieldComboForFarm(state.farm ? state.farm.id : null);
+        }catch(e){
+          console.error(e);
+        }
+
+        // hub combine
+        if(IS_HUB && combineHubRow){
+          combineHubRow.hidden = false;
+          try{
+            const snap = await getDoc(doc(db,"equipment",HUB_COMBINE_ID));
+            if(snap.exists()){
+              const d = snap.data() || {};
+              const mk = String(d.makeName||"").trim();
+              const md = String(d.modelName||"").trim();
+              const s6 = serialLast6(d.serial || "");
+              const mm = [mk, md].filter(Boolean).join(" ").trim();
+              const label = mm ? (s6 ? `${mm} — #${s6}` : mm) : (s6 ? `Combine — #${s6}` : `Combine (${HUB_COMBINE_ID.slice(-6)})`);
+              combineHub.value = label;
+              window.__fv_hub_combine_label = label;
+              window.__fv_hub_combine_id = HUB_COMBINE_ID;
+            }else{
+              const label = `Combine (${HUB_COMBINE_ID.slice(-6)})`;
+              combineHub.value = label;
+              window.__fv_hub_combine_label = label;
+              window.__fv_hub_combine_id = HUB_COMBINE_ID;
+            }
+          }catch(e){
+            console.error(e);
+            const label = `Combine (${HUB_COMBINE_ID.slice(-6)})`;
+            combineHub.value = label;
+            window.__fv_hub_combine_label = label;
+            window.__fv_hub_combine_id = HUB_COMBINE_ID;
+          }
+        }else{
+          if(combineHubRow) combineHubRow.hidden = true;
+          window.__fv_hub_combine_label = "";
+          window.__fv_hub_combine_id = "";
+        }
+      })();
+    })();
+  </script>
+
   <script>
   (function(){
     "use strict";
-    if(window.__FV_COMBINE_RO_V3__) return; window.__FV_COMBINE_RO_V3__=true;
+    if(window.__FV_COMBINE_RO_V4__) return; window.__FV_COMBINE_RO_V4__=true;
 
     var SQFT_PER_ACRE=43560;
     var CORN_STD=15.5, CORN_TW=56, CORN_SLOPE=(21.0/(29.0-15.5)), CORN_CAP_M=40.0, CORN_CAP_SH=CORN_SLOPE*(CORN_CAP_M-CORN_STD);
@@ -336,6 +719,8 @@
     var cropEl=$("crop"), modeEl=$("mode"), len=$("len"), wid=$("wid"), acRO=$("acRO"), wt=$("wt"), start=$("start");
     var results=$("results"), trueTile=$("trueTile"), elevTile=$("elevTile");
     var trueY=$("trueY"), trueBu=$("trueBu"), elevY=$("elevY"), elevBu=$("elevBu");
+
+    var farmIdEl=$("farmId"), fieldIdEl=$("fieldId");
 
     /* ✅ Only numbers + max 2 decimals for ALL calculator input fields */
     function restrict2(el, opts){
@@ -366,11 +751,8 @@
       });
     }
 
-    // Cut length: numeric + 2 decimals
     restrict2(len);
-    // Wet weight: numeric + 2 decimals (allow commas display on blur)
     restrict2(wt, { allowComma:true });
-    // Moisture: numeric + 2 decimals
     restrict2(start);
 
     function computeArea(){
@@ -458,6 +840,14 @@
 
     function calc(){
       var crop=cropEl.value, mode=modeEl.value;
+
+      var farmId = (farmIdEl && farmIdEl.value) ? String(farmIdEl.value) : "";
+      var fieldId = (fieldIdEl && fieldIdEl.value) ? String(fieldIdEl.value) : "";
+      if(!farmId || !fieldId){
+        alert("Select Farm and Field.");
+        return null;
+      }
+
       var area = computeArea();
       if(!(area>0)) { alert("Enter cut length and choose a cut width."); return null; }
 
@@ -475,8 +865,12 @@
       var eBushels = eWt / tw;
       var eYield = eBushels / area;
 
+      var hubCombineId = String(window.__fv_hub_combine_id || "");
+      var hubCombineLabel = String(window.__fv_hub_combine_label || "");
+
       return { t:Date.now(), crop:crop, mode:mode, area:area, len:num(len.value), wid:parseFloat(wid.value),
-               wt:Wt, m:M, trueY:trueYield, trueBu:trueBushels, elevY:eYield, elevBu:eBushels };
+               wt:Wt, m:M, trueY:trueYield, trueBu:trueBushels, elevY:eYield, elevBu:eBushels,
+               farmId:farmId, fieldId:fieldId, combineId: hubCombineId || "", combineLabel: hubCombineLabel || "" };
     }
 
     function show(o){
@@ -488,12 +882,13 @@
       results.hidden=false;
     }
 
-    var LS_KEY="fv_calc_combine_history_v4", hlist=$("hlist"), nohist=$("nohist");
+    var LS_KEY="fv_calc_combine_history_v5", hlist=$("hlist"), nohist=$("nohist");
     function load(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch(e){ return []; } }
     function save(a){ localStorage.setItem(LS_KEY, JSON.stringify(a.slice(0,10))); }
 
     function summary(it){
-      return (it.crop==="corn"?"Corn":"Soy")+" "
+      var c = it.combineLabel ? (it.combineLabel + " • ") : "";
+      return c + (it.crop==="corn"?"Corn":"Soy")+" "
         + fmt(it.area,3)+" ac ("+fmt(it.len,0)+" ft × "+fmt(it.wid,0)+" ft), "
         + fmt(it.wt,0)+" lb @ "+fmt(it.m,2)+"% → T "+fmt(it.trueY,1)+" / E "+fmt(it.elevY,1)+" bu/ac";
     }
@@ -513,6 +908,7 @@
     function openModal(it, opener){
       lastOpener=opener||null;
       mdBody.innerHTML = '<div class="kv">'
+        +(it.combineLabel?('<div>Combine</div><div>'+it.combineLabel+'</div>'):'')
         +'<div>When</div><div>'+new Date(it.t).toLocaleString()+'</div>'
         +'<div>Crop</div><div>'+(it.crop==="corn"?"Corn":"Soybeans")+'</div>'
         +'<div>Area</div><div>'+fmt(it.area,3)+' ac</div>'
