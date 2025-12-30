@@ -1319,51 +1319,48 @@
 
       buildEnriched();
 
-      // Hydrate dropdowns first
+      // Hydrate counties first (static list)
       hydrateCountyDropdown();
-      hydrateFarmDropdown();
 
-      // Apply saved filters OR default to Active
+      // ✅ DEFAULT status to ACTIVE unless user previously chose something else
       const saved = loadSavedFilters();
+      const desiredStatus = (saved && ['all','active','archived'].includes(String(saved.status)))
+        ? String(saved.status)
+        : 'active';
 
       const statusSel = $('#filterStatus');
       const countySel = $('#filterCounty');
       const farmSel   = $('#filterFarm');
       const searchEl  = $('#filterSearch');
 
-      // Status: default Active if nothing saved
-      const desiredStatus = (saved && saved.status) ? String(saved.status) : 'active';
-      if(statusSel){
-        // Ensure dropdown has desired option (all/active/archived)
-        statusSel.value = ['all','active','archived'].includes(desiredStatus) ? desiredStatus : 'active';
-      }
+      if(statusSel) statusSel.value = desiredStatus;
 
-      // County (must exist)
+      // Restore county (if still exists)
       if(countySel && saved && saved.county){
         const c = String(saved.county);
         const exists = Array.from(countySel.options).some(o => o.value === c);
         countySel.value = exists ? c : 'all';
       }
 
-      // After status/county set, re-hydrate farms (farm list depends on them)
+      // Farms depend on status + county, so hydrate after restoring those
       hydrateFarmDropdown();
 
-      // Farm (must exist in current farm dropdown)
+      // Restore farm (if still exists under current status/county)
       if(farmSel && saved && saved.farm){
         const f = String(saved.farm);
         const exists = Array.from(farmSel.options).some(o => o.value === f);
         farmSel.value = exists ? f : 'all';
       }
 
-      // Search
+      // Restore search
       if(searchEl && saved && typeof saved.q === 'string'){
         searchEl.value = saved.q;
       }
 
-      // Wire events AFTER setting initial values (so we don't spam-save during init)
+      // Wire events AFTER init restore
       wireFilterEvents();
 
-      // Apply filters once, then save current (so defaults persist)
+      // Apply once and persist current (captures default Active on first visit)
       applyFilters();
       saveFilters();
     })();
@@ -1425,7 +1422,7 @@
                 <select id="filterStatus" class="filter-select">
                   <option value="all">All</option>
                   <option value="active">Active</option>
-                  <!-- Requirement: archived should show up as "Inactive" -->
+                  <!-- Stored value is archived; UI label should read Inactive -->
                   <option value="archived">Inactive</option>
                 </select>
               </div>
