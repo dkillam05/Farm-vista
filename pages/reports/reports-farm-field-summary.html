@@ -55,7 +55,7 @@
     .btn-primary{
       border-color:transparent;
       background:#2F6C3C;
-      color:#fff !important; /* per Dane: white text on green buttons */
+      color:#fff !important; /* white on green */
     }
 
     .hero{
@@ -157,22 +157,6 @@
       display:block;
     }
     .filter-select option{ white-space: nowrap; }
-
-    .filter-input{
-      width:100%;
-      max-width:100%;
-      min-width:0;
-      border-radius:999px;
-      border:1px solid var(--border);
-      padding:6px 10px;
-      font-size:0.9rem;
-      background:var(--card-surface,var(--surface));
-      color:var(--text);
-      min-height:34px;
-      position: relative;
-      z-index: 60;
-    }
-    .filter-input::placeholder{ color:var(--muted,#9CA3AF); }
 
     .filters-row{
       display:flex;
@@ -480,6 +464,8 @@
       COMPANY_DOC_PATH: ['company','main']
     };
 
+    const LS_KEY = 'fv_farm_field_summary_filters_v2';
+
     const $ = (sel, root=document) => root.querySelector(sel);
 
     const STATE = {
@@ -530,27 +516,27 @@
       catch{ return ''; }
     }
 
-    // ✅ Always clamp to max 2 decimals (no 10-decimal garbage anywhere)
+    // ✅ clamp to max 2 decimals everywhere (page + report)
     function fmtAcres(n){
       const v = Number(n);
       if(!Number.isFinite(v)) return '0';
       return v.toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 0 });
     }
 
+    // Only statuses you have: active, archived
     function normalizeStatus(s){
       const v = String(s || '').trim().toLowerCase().replace(/\.+$/,'');
       if(!v) return '';
       if(v.includes('active')) return 'active';
       if(v.includes('arch')) return 'archived';
-      if(v.includes('inact')) return 'inactive';
       return v;
     }
 
+    // Requirement: archived should DISPLAY as "Inactive"
     function statusLabel(v){
       const n = normalizeStatus(v);
       if(n === 'active') return 'Active';
-      if(n === 'archived') return 'Archived';
-      if(n === 'inactive') return 'Inactive';
+      if(n === 'archived') return 'Inactive';
       if(n === 'all') return 'All';
       return v || '—';
     }
@@ -564,6 +550,28 @@
       const key = String(id || '').trim();
       if(!key) return '—';
       return STATE.rtkMap.get(key) || '—';
+    }
+
+    function loadSavedFilters(){
+      try{
+        const raw = localStorage.getItem(LS_KEY);
+        if(!raw) return null;
+        const obj = JSON.parse(raw);
+        if(!obj || typeof obj !== 'object') return null;
+        return obj;
+      }catch(_){
+        return null;
+      }
+    }
+
+    function saveFilters(){
+      const status = ($('#filterStatus')?.value || 'active');
+      const county = ($('#filterCounty')?.value || 'all');
+      const farm   = ($('#filterFarm')?.value || 'all');
+      const q      = ($('#filterSearch')?.value || '').trim();
+
+      const payload = { status, county, farm, q };
+      try{ localStorage.setItem(LS_KEY, JSON.stringify(payload)); }catch(_){}
     }
 
     async function loadCompanyHeader(){
@@ -582,7 +590,6 @@
         ].filter(Boolean).join(' · ');
         const phone = d.phone || '';
         const email = d.email || '';
-
         const logoUrl = d?.logo?.url || d?.logoUrl || '';
 
         STATE.company = { name, address, phone, email: (email || ''), logoUrl };
@@ -661,13 +668,10 @@
           tillable: Number(d.tillable) || 0,
           crpAcres: Number(d.crpAcres) || 0,
           helAcres: Number(d.helAcres) || 0,
-
           rtkTowerId: (d.rtkTowerId || '').trim(),
           rtkTowerName: rtkNameFor(d.rtkTowerId),
-
           soilWetness: (Number.isFinite(d.soilWetness) ? Number(d.soilWetness) : null),
           drainageIndex: (Number.isFinite(d.drainageIndex) ? Number(d.drainageIndex) : null),
-
           updatedAt: toDateMaybe(d.updatedAt) || toDateMaybe(d.createdAt) || null
         };
 
@@ -696,7 +700,8 @@
       const county = String(countyVal || 'all');
 
       const list = farms.filter(f => {
-        if(st !== 'all' && normalizeStatus(f.status) !== st) return false;
+        const fs = normalizeStatus(f.status);
+        if(st !== 'all' && fs !== st) return false;
         if(county !== 'all'){
           if(!f.counties || !f.counties.has(county)) return false;
         }
@@ -745,7 +750,7 @@
       const countySel = $('#filterCounty');
 
       const cur = farmSel?.value || 'all';
-      const st = statusSel?.value || 'all';
+      const st = statusSel?.value || 'active';
       const county = countySel?.value || 'all';
 
       const farms = computeAvailableFarms(STATE.farms, st, county);
@@ -765,7 +770,7 @@
 
     function getFilters(){
       return {
-        status: ($('#filterStatus')?.value || 'all'),
+        status: ($('#filterStatus')?.value || 'active'),
         county: ($('#filterCounty')?.value || 'all'),
         farm: ($('#filterFarm')?.value || 'all'),
         q: ( ($('#filterSearch')?.value || '').trim().toLowerCase() )
@@ -774,12 +779,13 @@
 
     function applyFilters(){
       const { status, county, farm, q } = getFilters();
-      const stFilter = String(status || 'all').toLowerCase();
+      const stFilter = String(status || 'active').toLowerCase();
       const countyFilter = String(county || 'all');
       const farmFilter = String(farm || 'all');
 
       const filtered = STATE.farms.filter(f => {
-        if(stFilter !== 'all' && normalizeStatus(f.status) !== stFilter) return false;
+        const fs = normalizeStatus(f.status);
+        if(stFilter !== 'all' && fs !== stFilter) return false;
         if(farmFilter !== 'all' && String(f.id) !== farmFilter) return false;
         if(countyFilter !== 'all'){
           if(!f.counties || !f.counties.has(countyFilter)) return false;
@@ -832,7 +838,7 @@
       const meta = $('#ffCount');
       if(meta){
         const county = ($('#filterCounty')?.value || 'all');
-        const st = ($('#filterStatus')?.value || 'all');
+        const st = ($('#filterStatus')?.value || 'active');
         const farmSel = ($('#filterFarm')?.value || 'all');
 
         const parts = [];
@@ -972,14 +978,6 @@
       panel.style.display = 'flex';
     }
 
-    function chooseDefaultStatusFromData(farms){
-      const set = new Set(farms.map(f => normalizeStatus(f.status)).filter(Boolean));
-      if(set.has('active')) return 'active';
-      if(set.has('inactive')) return 'inactive';
-      if(set.has('archived')) return 'archived';
-      return 'all';
-    }
-
     function wireFilterEvents(){
       const statusSel = $('#filterStatus');
       const countySel = $('#filterCounty');
@@ -991,6 +989,7 @@
         statusSel.addEventListener('change', () => {
           hydrateFarmDropdown();
           applyFilters();
+          saveFilters();
         });
       }
 
@@ -998,28 +997,36 @@
         countySel.addEventListener('change', () => {
           hydrateFarmDropdown();
           applyFilters();
+          saveFilters();
         });
       }
 
       if(farmSel){
         farmSel.addEventListener('change', () => {
           applyFilters();
+          saveFilters();
         });
       }
 
       if(searchEl){
-        searchEl.addEventListener('input', () => applyFilters());
+        searchEl.addEventListener('input', () => {
+          applyFilters();
+          saveFilters();
+        });
       }
 
       if(clearBtn){
-        clearBtn.addEventListener('click', () => location.reload());
+        clearBtn.addEventListener('click', () => {
+          try{ localStorage.removeItem(LS_KEY); }catch(_){}
+          location.reload();
+        });
       }
     }
 
     function summarizeFilters(){
       const { status, county, farm, q } = getFilters();
 
-      const statusTxt = (status === 'all') ? 'All farm statuses' : `Farm Status: ${statusLabel(status)}`;
+      const statusTxt = (status === 'all') ? 'All statuses' : `Status: ${statusLabel(status)}`;
       const countyTxt = (county === 'all') ? 'All counties' : `County: ${county}`;
       let farmTxt = (farm === 'all') ? 'All farms' : 'Selected farm';
       if(farm !== 'all'){
@@ -1312,16 +1319,53 @@
 
       buildEnriched();
 
-      const statusSel = $('#filterStatus');
-      if(statusSel){
-        statusSel.value = chooseDefaultStatusFromData(STATE.farms);
-      }
-
+      // Hydrate dropdowns first
       hydrateCountyDropdown();
       hydrateFarmDropdown();
+
+      // Apply saved filters OR default to Active
+      const saved = loadSavedFilters();
+
+      const statusSel = $('#filterStatus');
+      const countySel = $('#filterCounty');
+      const farmSel   = $('#filterFarm');
+      const searchEl  = $('#filterSearch');
+
+      // Status: default Active if nothing saved
+      const desiredStatus = (saved && saved.status) ? String(saved.status) : 'active';
+      if(statusSel){
+        // Ensure dropdown has desired option (all/active/archived)
+        statusSel.value = ['all','active','archived'].includes(desiredStatus) ? desiredStatus : 'active';
+      }
+
+      // County (must exist)
+      if(countySel && saved && saved.county){
+        const c = String(saved.county);
+        const exists = Array.from(countySel.options).some(o => o.value === c);
+        countySel.value = exists ? c : 'all';
+      }
+
+      // After status/county set, re-hydrate farms (farm list depends on them)
+      hydrateFarmDropdown();
+
+      // Farm (must exist in current farm dropdown)
+      if(farmSel && saved && saved.farm){
+        const f = String(saved.farm);
+        const exists = Array.from(farmSel.options).some(o => o.value === f);
+        farmSel.value = exists ? f : 'all';
+      }
+
+      // Search
+      if(searchEl && saved && typeof saved.q === 'string'){
+        searchEl.value = saved.q;
+      }
+
+      // Wire events AFTER setting initial values (so we don't spam-save during init)
       wireFilterEvents();
 
+      // Apply filters once, then save current (so defaults persist)
       applyFilters();
+      saveFilters();
     })();
   </script>
 </head>
@@ -1335,7 +1379,9 @@
           <div>
             <h1>Farm &amp; Field Summary</h1>
             <p class="muted">
-            
+              Summary report based on your Firestore collections:
+              <strong>farms</strong> and <strong>fields</strong>.
+              All lists are alphabetical (ABC).
             </p>
           </div>
         </header>
@@ -1353,22 +1399,22 @@
             <div class="kpi">
               <div class="lab">Farms</div>
               <div class="val" id="kpiFarms">—</div>
-              <div class="note"></div>
+              <div class="note">Filtered farms</div>
             </div>
             <div class="kpi">
               <div class="lab">Fields</div>
               <div class="val" id="kpiFields">—</div>
-              <div class="note"></div>
+              <div class="note">Filtered fields</div>
             </div>
             <div class="kpi">
               <div class="lab">Tillable Acres</div>
               <div class="val" id="kpiTillable">—</div>
-              <div class="note"></div>
+              <div class="note">Sum of fields.tillable</div>
             </div>
             <div class="kpi">
               <div class="lab">HEL Acres</div>
               <div class="val" id="kpiHEL">—</div>
-              <div class="note"></div>
+              <div class="note">Sum of fields.helAcres</div>
             </div>
           </div>
 
@@ -1379,8 +1425,8 @@
                 <select id="filterStatus" class="filter-select">
                   <option value="all">All</option>
                   <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                  <option value="archived">Archived</option>
+                  <!-- Requirement: archived should show up as "Inactive" -->
+                  <option value="archived">Inactive</option>
                 </select>
               </div>
 
