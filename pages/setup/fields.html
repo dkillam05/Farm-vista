@@ -13,6 +13,11 @@ UI UPDATES (2025-12-19):
 UI UPDATES (2025-12-22):
 7) ✅ Soil Wetness + Drainage sliders now 0–100 (granular)
 8) ✅ Subtle left/right labels under sliders + subtle live value next to name
+
+CHANGE (2025-12-30):
+✅ Reload page after saving:
+   - New Field Save
+   - Edit Save Changes
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -947,6 +952,21 @@ UI UPDATES (2025-12-22):
     // defaults to ACTIVE every load
     let STATUS_FILTER = "active"; // "active" | "archived"
 
+    // ✅ NEW: reload helper (after successful saves)
+    let __reloadArmed = false;
+    function reloadPageSoon(ms=650){
+      if(__reloadArmed) return;
+      __reloadArmed = true;
+
+      // ensure toast paints at least once
+      requestAnimationFrame(()=>{
+        setTimeout(()=>{
+          try{ window.location.reload(); }
+          catch{ window.location.href = window.location.href; }
+        }, ms);
+      });
+    }
+
     const CENSUS_KEY = "14a8ad456efef642983bd8e830809694965b003f";
     const STATES = [
       ["AL","Alabama"],["AK","Alaska"],["AZ","Arizona"],["AR","Arkansas"],["CA","California"],["CO","Colorado"],
@@ -1310,35 +1330,8 @@ UI UPDATES (2025-12-22):
       await addDoc(fieldsRef(), payload);
       showToast("Successfully saved.");
 
-      $("farmSelect").value = "";
-      $("fieldName").value = "";
-      $("tillable").value = "";
-      $("rtkSelect").value = "";
-
-      setToggle($("helToggle"), $("hasHEL"), false, $("helAcreWrap"), $("helAcres"));
-      setToggle($("crpToggle"), $("hasCRP"), false, $("crpAcreWrap"), $("crpAcres"));
-
-      ddCounty.btn.textContent = "Select a county…";
-      ddCounty.btn.disabled = true;
-      ddCounty.search.value = ""; ddCounty.search.disabled = true; ddCounty.list.innerHTML = "";
-      $("countySelect").value = "";
-
-      $("fieldLat").value = "";
-      $("fieldLng").value = "";
-      const locLabel = $("fieldLocationLabel");
-      if(locLabel) locLabel.textContent = "No location set.";
-      fieldMapLatLng = null;
-      if(fieldMapMarker){
-        fieldMapMarker.setMap(null);
-        fieldMapMarker = null;
-      }
-
-      // reset sliders
-      setRange0100("soilWetness", 50);
-      setRange0100("drainageIndex", 50);
-
-      await renderList();
-      window.scrollTo({top:0, behavior:"smooth"});
+      // ✅ Reload after NEW save
+      reloadPageSoon(650);
     }
 
     function normStatus(s){
@@ -1573,9 +1566,11 @@ UI UPDATES (2025-12-22):
         updatedAt: serverTimestamp()
       });
 
-      await renderList();
       showToast("Changes saved.");
       closeModal();
+
+      // ✅ Reload after EDIT save
+      reloadPageSoon(650);
     });
 
     mdArchive.addEventListener("click", async ()=>{
@@ -2417,6 +2412,11 @@ UI UPDATES (2025-12-22):
 
       setToggle($("helToggle"), $("hasHEL"), false, $("helAcreWrap"), $("helAcres"));
       setToggle($("crpToggle"), $("hasCRP"), false, $("crpAcreWrap"), $("crpAcres"));
+
+      ddCounty.btn.textContent = "Select a county…";
+      ddCounty.btn.disabled = true;
+      ddCounty.search.value = ""; ddCounty.search.disabled = true; ddCounty.list.innerHTML = "";
+      $("countySelect").value = "";
 
       $("fieldLat").value = "";
       $("fieldLng").value = "";
