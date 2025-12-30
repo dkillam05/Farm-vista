@@ -567,14 +567,23 @@
       try{ localStorage.setItem(LS_KEY, JSON.stringify({ status, county, farm, q })); }catch(_){}
     }
 
-    // ✅ FIX: some browsers / shells re-apply "first option" visually after we set status.
-    // This forces the UI to match the cached value (without changing any filtering math).
+    // ✅ FIX: force select UI to match value (value + selectedIndex + option.selected)
     function forceStatusUI(desired){
       const el = $('#filterStatus');
       if(!el) return;
       const v = ['all','active','archived'].includes(String(desired)) ? String(desired) : 'active';
 
-      const setIt = () => { el.value = v; };
+      const setIt = () => {
+        const optIndex = Array.from(el.options).findIndex(o => o.value === v);
+        if(optIndex >= 0){
+          el.selectedIndex = optIndex;
+          el.value = v;
+          // ensure option.selected is aligned too
+          Array.from(el.options).forEach((o, i) => { o.selected = (i === optIndex); });
+        }else{
+          el.value = v;
+        }
+      };
 
       setIt();
       Promise.resolve().then(setIt);
@@ -983,9 +992,7 @@
 
       if(statusSel){
         statusSel.addEventListener('change', () => {
-          // keep UI honest in case browser reverts visually
           forceStatusUI(statusSel.value);
-
           hydrateFarmDropdown();
           applyFilters();
           saveFilters();
@@ -1323,7 +1330,6 @@
 
       buildEnriched();
 
-      // Restore filters (default Active if none saved)
       const saved = loadSavedFilters();
 
       const statusSel = $('#filterStatus');
@@ -1335,33 +1341,25 @@
         ? String(saved.status)
         : 'active';
 
-      // IMPORTANT: set status FIRST so the UI shows it and farm dropdown is computed correctly
       if(statusSel) statusSel.value = desiredStatus;
-
-      // ✅ force UI to show the same value (fixes “looks like All”)
       forceStatusUI(desiredStatus);
 
-      // Counties list
       hydrateCountyDropdown();
 
-      // Restore county if still exists
       if(countySel && saved && saved.county){
         const c = String(saved.county);
         const exists = Array.from(countySel.options).some(o => o.value === c);
         countySel.value = exists ? c : 'all';
       }
 
-      // Farm dropdown depends on status+county+field-status filter
       hydrateFarmDropdown();
 
-      // Restore farm if still exists under current filters
       if(farmSel && saved && saved.farm){
         const f = String(saved.farm);
         const exists = Array.from(farmSel.options).some(o => o.value === f);
         farmSel.value = exists ? f : 'all';
       }
 
-      // Restore search
       if(searchEl && saved && typeof saved.q === 'string'){
         searchEl.value = saved.q;
       }
@@ -1370,7 +1368,7 @@
       applyFilters();
       saveFilters();
 
-      // ✅ final safety: after everything has rendered, keep status showing correct value
+      // final "truth" pass
       forceStatusUI($('#filterStatus')?.value || desiredStatus);
     })();
   </script>
@@ -1427,11 +1425,12 @@
             <div class="filters-row">
               <div class="filter-field">
                 <label class="filter-label" for="filterStatus">Field Status</label>
+
+                <!-- ✅ CHANGE: make Active the first option and the HTML default -->
                 <select id="filterStatus" class="filter-select">
-                  <option value="all">All</option>
-                  <option value="active">Active</option>
-                  <!-- DB value archived; label shows Inactive -->
+                  <option value="active" selected>Active</option>
                   <option value="archived">Inactive</option>
+                  <option value="all">All</option>
                 </select>
               </div>
 
