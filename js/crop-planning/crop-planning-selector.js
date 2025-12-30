@@ -1,11 +1,17 @@
 /* =====================================================================
 /Farm-vista/js/crop-planning/crop-planning-selector.js  (FULL FILE)
-Rev: 2025-12-30c
-Controller + renderer for Crop Planning Selector (FV themed)
+Rev: 2025-12-30d
 
 Changes in this rev:
-✅ ONLY shows ACTIVE fields (no status dropdown)
-✅ Better error banner when farms fail to load (prevents silent "0 farms")
+✅ Year dropdown is ONLY 2026 + 2027 (default 2026)
+✅ Removed Refresh + Undo completely
+✅ Farm dropdown list no longer shows "active" status pills
+✅ Board columns are scrollable (handled in CSS)
+✅ Added bulk actions for ALL shown:
+   - ALL → Corn
+   - ALL → Soybeans
+   - Clear ALL
+✅ Page ALWAYS shows ACTIVE fields only
 ===================================================================== */
 'use strict';
 
@@ -32,20 +38,6 @@ function showToast(msg){
   showToast._t = setTimeout(()=> el.classList.remove('show'), 1200);
 }
 
-function showErr(msg){
-  const b = $('errBanner');
-  if(!b) return;
-  b.textContent = msg;
-  b.classList.add('show');
-}
-
-function clearErr(){
-  const b = $('errBanner');
-  if(!b) return;
-  b.textContent = '';
-  b.classList.remove('show');
-}
-
 function closeAllCombos(except=null){
   document.querySelectorAll('.combo-panel.show').forEach(p=>{
     if(p!==except) p.classList.remove('show');
@@ -53,6 +45,22 @@ function closeAllCombos(except=null){
 }
 document.addEventListener('click', ()=> closeAllCombos());
 document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
+
+async function runWithConcurrency(items, limit, worker){
+  const arr = Array.from(items || []);
+  let idx = 0;
+  let done = 0;
+  const total = arr.length;
+  const runners = new Array(Math.max(1, limit)).fill(0).map(async ()=>{
+    while(idx < total){
+      const i = idx++;
+      await worker(arr[i], i);
+      done++;
+    }
+  });
+  await Promise.all(runners);
+  return done;
+}
 
 /* ========= DOM ========= */
 const farmBtn   = $('farmBtn');
@@ -65,12 +73,11 @@ const farmNameEl= $('farmName');
 
 const yearEl    = $('year');
 const searchEl  = $('search');
-
 const scopeHelp = $('scopeHelp');
 
-const btnRefresh= $('btnRefresh');
-const btnUndo   = $('btnUndo');
-const mobileHint= $('mobileHint');
+const btnAllCorn  = $('btnAllCorn');
+const btnAllSoy   = $('btnAllSoy');
+const btnAllClear = $('btnAllClear');
 
 const kpiUnplannedFields = $('kpiUnplannedFields');
 const kpiUnplannedAcres  = $('kpiUnplannedAcres');
@@ -96,8 +103,7 @@ let fields = [];
 let farmNameById = new Map();
 
 let plans = new Map();
-let currentYear = '';
-let undoStack = [];
+let currentYear = '2026';
 
 /* ========= Farm combo ========= */
 function openFarmPanel(){
@@ -124,16 +130,14 @@ function renderFarmList(q){
     .map(f => `
       <div class="combo-item" data-id="${esc(f.id)}">
         <div>${esc(f.name)}</div>
-        <div style="display:flex;gap:6px;align-items:center;justify-content:flex-end">
-          <span class="pill">${esc(String(f.status||'active'))}</span>
-        </div>
+        <div></div>
       </div>
     `);
 
   const topAll = `
     <div class="combo-item" data-id="">
       <div><strong>All farms</strong></div>
-      <div><span class="pill">Show all</span></div>
+      <div></div>
     </div>
   `;
 
@@ -158,29 +162,20 @@ farmList.addEventListener('mousedown', (e)=>{
   renderAll();
 });
 
-/* ========= Year options ========= */
+/* ========= Year options (only 2026-2027) ========= */
 function buildYearOptions(){
-  const now = new Date();
-  const y = now.getFullYear();
-  const years = [];
-  for(let i=-1; i<=5; i++) years.push(y+i);
-
+  const years = [2026, 2027];
   yearEl.innerHTML = years.map(v=> `<option value="${v}">${v}</option>`).join('');
-
-  const def = y + 1;
-  yearEl.value = String(def);
-  currentYear = String(def);
-
-  const isMobile = window.matchMedia('(max-width: 980px)').matches;
-  if(isMobile && mobileHint) mobileHint.style.display = 'block';
+  yearEl.value = '2026';
+  currentYear = '2026';
 }
 
 /* ========= Filtering / grouping ========= */
-function getFilteredFields(){
+function getShownFields(){
   const farmId = String(farmIdEl.value || '').trim();
   const q = norm(searchEl.value);
 
-  // ✅ HARD LOCK: only ACTIVE fields
+  // ✅ active-only lock
   return fields.filter(f=>{
     if(norm(f.status) !== 'active') return false;
     if(farmId && String(f.farmId||'') !== farmId) return false;
@@ -212,9 +207,7 @@ function groupFields(list){
 
 /* ========= Rendering ========= */
 function renderAll(){
-  clearErr();
-
-  const list = getFilteredFields();
+  const list = getShownFields();
   scopeHelp.textContent = `Showing ${list.length} active fields` + (farmNameEl.value ? ` in ${farmNameEl.value}` : '');
 
   const { un, co, so } = groupFields(list);
@@ -239,7 +232,6 @@ function renderAll(){
   subSoy.textContent       = `${so.length} fields • ${to2(soAc)} ac`;
 
   bindMobileButtons();
-  btnUndo.disabled = undoStack.length === 0;
 }
 
 function renderEmpty(msg){
@@ -252,7 +244,7 @@ function renderCard(f, crop){
 
   return `
     <div class="cardRow" data-field-id="${esc(f.id)}" data-crop="${esc(crop)}">
-      <div class="dragGrip desktop-only" data-drag-grip="1" draggable="true" title="Drag">
+      <div class="dragGrip" data-drag-grip="1" draggable="true" title="Drag">
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
           <circle cx="9" cy="7" r="1.6" fill="currentColor"></circle>
           <circle cx="15" cy="7" r="1.6" fill="currentColor"></circle>
@@ -291,30 +283,26 @@ function bindMobileButtons(){
       const f = fields.find(x=> x.id === id);
       if(!f) return;
 
-      const fromCrop = cropForField(id);
       try{
         if(action === 'corn' || action === 'soybeans'){
           const payload = await setPlan(db, currentYear, f, action);
           plans.set(id, { crop: norm(payload.crop), acres: payload.acres, farmId: payload.farmId, fieldName: payload.fieldName, status: payload.status });
-          undoStack.push({ fieldId: id, fromCrop, toCrop: action });
-          showToast(`Planned: ${action === 'soybeans' ? 'soybeans' : 'corn'}`);
+          showToast(`Planned: ${action}`);
         }else if(action === 'clear'){
           await clearPlan(db, currentYear, id);
           plans.delete(id);
-          undoStack.push({ fieldId: id, fromCrop, toCrop: '' });
           showToast('Cleared plan');
         }
         renderAll();
       }catch(e){
         console.error(e);
-        showErr('Save failed. Check console for Firestore/rules/import errors.');
-        showToast('Save failed');
+        showToast('Save failed (see console)');
       }
     }, { once:true });
   });
 }
 
-/* ========= DnD handlers ========= */
+/* ========= DnD drop ========= */
 async function handleDrop({ fieldId, fromCrop, toCrop }){
   if(norm(fromCrop) === norm(toCrop)) return;
 
@@ -325,94 +313,98 @@ async function handleDrop({ fieldId, fromCrop, toCrop }){
     if(toCrop === 'corn' || toCrop === 'soybeans'){
       const payload = await setPlan(db, currentYear, f, toCrop);
       plans.set(fieldId, { crop: norm(payload.crop), acres: payload.acres, farmId: payload.farmId, fieldName: payload.fieldName, status: payload.status });
-      undoStack.push({ fieldId, fromCrop: norm(fromCrop), toCrop: norm(toCrop) });
-      showToast(`Planned: ${toCrop === 'soybeans' ? 'soybeans' : 'corn'}`);
+      showToast(`Planned: ${toCrop}`);
     }else{
       await clearPlan(db, currentYear, fieldId);
       plans.delete(fieldId);
-      undoStack.push({ fieldId, fromCrop: norm(fromCrop), toCrop: '' });
       showToast('Cleared plan');
     }
     renderAll();
   }catch(e){
     console.error(e);
-    showErr('Drop save failed. Check console for Firestore/rules/import errors.');
-    showToast('Save failed');
+    showToast('Save failed (see console)');
   }
 }
 
-/* ========= Undo ========= */
-async function undoLast(){
-  const last = undoStack.pop();
-  if(!last){
-    btnUndo.disabled = true;
-    return;
-  }
+/* ========= Bulk actions (ALL shown) ========= */
+async function bulkSetAllShown(targetCrop){
+  const list = getShownFields();
+  if(!list.length) return;
 
-  const f = fields.find(x=> x.id === last.fieldId);
-  if(!f){
-    renderAll();
-    return;
-  }
+  disableBulk(true);
+  showToast(`Saving ${list.length}…`);
 
   try{
-    const target = norm(last.fromCrop);
-    if(target === 'corn' || target === 'soybeans'){
-      const payload = await setPlan(db, currentYear, f, target);
-      plans.set(last.fieldId, { crop: norm(payload.crop), acres: payload.acres, farmId: payload.farmId, fieldName: payload.fieldName, status: payload.status });
-      showToast('Undo: restored');
-    }else{
-      await clearPlan(db, currentYear, last.fieldId);
-      plans.delete(last.fieldId);
-      showToast('Undo: cleared');
-    }
+    const concurrency = 10;
+
+    await runWithConcurrency(list, concurrency, async (f)=>{
+      const payload = await setPlan(db, currentYear, f, targetCrop);
+      plans.set(f.id, { crop: norm(payload.crop), acres: payload.acres, farmId: payload.farmId, fieldName: payload.fieldName, status: payload.status });
+    });
+
+    renderAll();
+    showToast(`Planned ${list.length} → ${targetCrop}`);
   }catch(e){
     console.error(e);
-    showErr('Undo failed. Check console.');
-    showToast('Undo failed');
+    showToast('Bulk save failed (see console)');
+  }finally{
+    disableBulk(false);
+  }
+}
+
+async function bulkClearAllShown(){
+  const list = getShownFields();
+  if(!list.length) return;
+
+  disableBulk(true);
+  showToast(`Clearing ${list.length}…`);
+
+  try{
+    const concurrency = 10;
+
+    await runWithConcurrency(list, concurrency, async (f)=>{
+      await clearPlan(db, currentYear, f.id);
+      plans.delete(f.id);
+    });
+
+    renderAll();
+    showToast(`Cleared ${list.length} plans`);
+  }catch(e){
+    console.error(e);
+    showToast('Bulk clear failed (see console)');
+  }finally{
+    disableBulk(false);
+  }
+}
+
+function disableBulk(disabled){
+  btnAllCorn.disabled = !!disabled;
+  btnAllSoy.disabled = !!disabled;
+  btnAllClear.disabled = !!disabled;
+  yearEl.disabled = !!disabled;
+  // farm combo is still usable visually but we prevent accidental mid-bulk edits by closing it
+  if(disabled) closeAllCombos();
+}
+
+/* ========= Load ========= */
+async function loadAll(){
+  farmHelp.textContent = 'Loading farms…';
+  farms = await loadFarms(db);
+  farmNameById = new Map(farms.map(f=>[String(f.id), String(f.name)]));
+  farmHelp.textContent = `${farms.length} farms`;
+  renderFarmList('');
+
+  fields = await loadFields(db);
+  plans = await loadPlansForYear(db, currentYear);
+
+  // if selected farm no longer exists, reset
+  if(farmIdEl.value && !farmNameById.get(String(farmIdEl.value))){
+    farmIdEl.value = '';
+    farmNameEl.value = '';
+    farmBtn.textContent = '— All farms —';
   }
 
   renderAll();
-}
-
-/* ========= Load / refresh ========= */
-async function refreshAll(){
-  btnRefresh.disabled = true;
-  clearErr();
-
-  try{
-    farmHelp.textContent = 'Loading farms…';
-    farms = await loadFarms(db);
-
-    if(!farms.length){
-      farmHelp.textContent = '0 farms (check Firestore rules / console errors)';
-      showErr('Farms returned 0. Open console: likely Firestore read blocked or JS import failed.');
-    }else{
-      farmHelp.textContent = `${farms.length} farms`;
-    }
-
-    farmNameById = new Map(farms.map(f=>[String(f.id), String(f.name)]));
-    renderFarmList('');
-
-    fields = await loadFields(db);
-    plans = await loadPlansForYear(db, currentYear);
-
-    // If selected farm no longer exists, reset
-    if(farmIdEl.value && !farmNameById.get(String(farmIdEl.value))){
-      farmIdEl.value = '';
-      farmNameEl.value = '';
-      farmBtn.textContent = '— All farms —';
-    }
-
-    renderAll();
-    showToast('Ready');
-  }catch(e){
-    console.error(e);
-    showErr('Load failed. Open console. Most common: missing JS file path or Firestore rules blocking reads.');
-    showToast('Load failed');
-  }finally{
-    btnRefresh.disabled = false;
-  }
 }
 
 /* ========= Events ========= */
@@ -423,43 +415,21 @@ searchEl.addEventListener('input', ()=>{
 });
 
 yearEl.addEventListener('change', async ()=>{
-  currentYear = String(yearEl.value || '').trim();
-  undoStack = [];
-  btnUndo.disabled = true;
-  await refreshPlansOnly();
+  currentYear = String(yearEl.value || '2026');
+  plans = await loadPlansForYear(db, currentYear);
+  renderAll();
+  showToast(`Year: ${currentYear}`);
 });
 
-btnRefresh.addEventListener('click', refreshAll);
-btnUndo.addEventListener('click', undoLast);
-
-async function refreshPlansOnly(){
-  btnRefresh.disabled = true;
-  clearErr();
-  try{
-    showToast('Loading plans…');
-    plans = await loadPlansForYear(db, currentYear);
-    renderAll();
-    showToast('Year loaded');
-  }catch(e){
-    console.error(e);
-    showErr('Year load failed. Check console.');
-    showToast('Year load failed');
-  }finally{
-    btnRefresh.disabled = false;
-  }
-}
+btnAllCorn.addEventListener('click', ()=> bulkSetAllShown('corn'));
+btnAllSoy.addEventListener('click', ()=> bulkSetAllShown('soybeans'));
+btnAllClear.addEventListener('click', bulkClearAllShown);
 
 /* ========= Boot ========= */
 (async function boot(){
   buildYearOptions();
 
-  try{
-    db = await initDB();
-  }catch(e){
-    console.error(e);
-    showErr('Firebase init failed. Check theme-boot/firebase-init chain and console.');
-    return;
-  }
+  db = await initDB();
 
   wireDnd({
     root: boardRoot,
@@ -467,5 +437,6 @@ async function refreshPlansOnly(){
     onDragStart: ()=>{}
   });
 
-  await refreshAll();
+  await loadAll();
+  showToast('Ready');
 })();
