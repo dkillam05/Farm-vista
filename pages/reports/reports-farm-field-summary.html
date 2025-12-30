@@ -575,16 +575,70 @@
       }catch(_){}
     }
 
-    // ✅ This is the Field Maintenance structure: set select value AFTER data load, from our state.
+    // ✅ REPLACED: Strong sync like we discussed (value + selectedIndex + option.selected)
     function syncStatusUI(){
       const sel = $('#filterStatus');
       if(!sel) return;
-      const v = ['all','active','archived'].includes(String(STATE.statusFilter)) ? String(STATE.statusFilter) : 'active';
-      if(sel.value !== v) sel.value = v;
+
+      const v = ['all','active','archived'].includes(String(STATE.statusFilter))
+        ? String(STATE.statusFilter)
+        : 'active';
+
+      const opts = Array.from(sel.options || []);
+      const idx = opts.findIndex(o => o.value === v);
+
+      if(idx >= 0){
+        sel.selectedIndex = idx;
+        opts.forEach((o,i) => { o.selected = (i === idx); });
+        sel.value = v;
+      }else{
+        sel.value = v;
+      }
+    }
+
+    // ✅ ADDED: Guard to prevent the select from drifting back to "All"
+    function installStatusGuard(){
+      const sel = $('#filterStatus');
+      if(!sel) return;
+
+      const enforce = () => {
+        const real = ['all','active','archived'].includes(String(STATE.statusFilter))
+          ? String(STATE.statusFilter)
+          : 'active';
+
+        if(sel.value !== real){
+          syncStatusUI();
+        }
+      };
+
+      // late restore / bfcache / UI settle
+      requestAnimationFrame(enforce);
+      setTimeout(enforce, 0);
+      setTimeout(enforce, 50);
+      setTimeout(enforce, 200);
+
+      window.addEventListener('pageshow', enforce);
+      document.addEventListener('visibilitychange', () => {
+        if(!document.hidden) enforce();
+      });
+
+      // Watch for external attribute toggles (some browsers/shell flows)
+      const mo = new MutationObserver(enforce);
+      mo.observe(sel, { attributes:true, attributeFilter:['value'] });
+
+      // If something toggles option.selected behind the scenes, this catches it too
+      const mo2 = new MutationObserver(enforce);
+      mo2.observe(sel, { subtree:true, childList:true, attributes:true, attributeFilter:['selected'] });
+
+      // Keep state in sync if user changes it
+      sel.addEventListener('change', () => {
+        STATE.statusFilter = sel.value || 'active';
+        syncStatusUI();
+        enforce();
+      });
     }
 
     function chooseDefaultFieldStatusFromData(){
-      // smart default like your “chooseDefaultStatusFromData”
       let hasActive = false;
       let hasArchived = false;
       for(const farm of (STATE.farms || [])){
@@ -776,7 +830,6 @@
     }
 
     function applyFilters(){
-      // ✅ always sync UI from state right before filtering (Field Maintenance behavior)
       syncStatusUI();
 
       const county = ($('#filterCounty')?.value || 'all');
@@ -999,10 +1052,7 @@
 
       if(statusSel){
         statusSel.addEventListener('change', () => {
-          // ✅ update the source of truth
           STATE.statusFilter = statusSel.value || 'active';
-
-          // ✅ match the Field Maintenance pattern: set the dropdown + then filter
           syncStatusUI();
 
           hydrateFarmDropdown();
@@ -1381,11 +1431,9 @@
       applyFilters();
       saveFilters();
 
-      // ✅ If browser tries to "restore" a different visible option on return, resync from STATE.
-      window.addEventListener('pageshow', () => { syncStatusUI(); });
-      document.addEventListener('visibilitychange', () => {
-        if(!document.hidden) syncStatusUI();
-      });
+      // ✅ ADDED: lock the dropdown so it can’t drift back to "All"
+      installStatusGuard();
+      syncStatusUI();
     })();
   </script>
 </head>
