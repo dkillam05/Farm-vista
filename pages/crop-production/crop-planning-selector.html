@@ -1,6 +1,6 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/crop-planning-selector.html  (FULL FILE)
-Rev: 2025-12-30d
+Rev: 2025-12-30e
 Purpose:
  • Desktop-first Crop Planning Selector (Year + Corn/Soybeans)
  • FV-native theme/shell
@@ -12,9 +12,10 @@ Purpose:
     - Search
  • IMPORTANT:
     - ONLY ACTIVE fields are shown (no status filter)
- • Bulk actions:
-    - Plan ALL shown -> Corn / Soybeans
-    - Clear plan for ALL shown
+ • Small per-column actions (NOT big buttons):
+    - Unplanned: Clear ALL shown
+    - Corn: Move ALL shown → Corn
+    - Soybeans: Move ALL shown → Soybeans
  • Writes plans to:
     field_crop_plans/{YEAR}/fields/{FIELD_ID}
 ===================================================================== -->
@@ -60,7 +61,7 @@ Purpose:
       --col-radius:14px;
       --col-pad:12px;
 
-      /* 👇 Column scroll height (keeps All Farms from being a mile long) */
+      /* Column scroll height */
       --board-max-h: 62vh;
 
       --danger:#b00020;
@@ -213,36 +214,6 @@ Purpose:
       text-transform:uppercase;
     }
 
-    .actions{
-      display:flex;
-      gap:12px;
-      flex-wrap:wrap;
-      align-items:center;
-      margin-top:6px;
-    }
-
-    .btn{
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      min-width:160px;
-      padding:12px 16px;
-      border-radius:12px;
-      border:1px solid var(--border);
-      background:var(--card-surface,var(--surface));
-      font-weight:900;
-      color:var(--text)!important;
-      cursor:pointer;
-      user-select:none;
-    }
-
-    .btn-primary{
-      border-color:transparent;
-      background:#2F6C3C;
-      color:#fff!important; /* ✅ green button always white font */
-    }
-    .btn:disabled{ opacity:.55; cursor:not-allowed; }
-
     /* Combo core */
     .combo{ position:relative; }
     .combo .combo-anchor{
@@ -297,6 +268,28 @@ Purpose:
       color:#67706B;
       font-size:14px;
     }
+
+    /* Small action pills */
+    .miniBtn{
+      border:1px solid var(--border);
+      background:var(--surface);
+      color:var(--text);
+      border-radius:999px;
+      padding:7px 10px;
+      font-weight:900;
+      cursor:pointer;
+      user-select:none;
+      font-size:12px;
+      line-height:1;
+      white-space:nowrap;
+    }
+    .miniBtnPrimary{
+      border-color:transparent;
+      background:#2F6C3C;
+      color:#fff !important;
+    }
+    .miniBtn:disabled{ opacity:.55; cursor:not-allowed; }
+
     .pill{
       font-size:12px;
       border:1px solid var(--border);
@@ -347,7 +340,14 @@ Purpose:
       text-transform:uppercase;
     }
 
-    /* ✅ Scroll container for each section */
+    .col-actions{
+      margin-top:8px;
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      justify-content:flex-start;
+    }
+
     .dropzone{
       padding:var(--col-pad);
       display:grid;
@@ -409,23 +409,6 @@ Purpose:
       white-space:nowrap;
     }
 
-    .miniBtn{
-      border:1px solid var(--border);
-      background:var(--surface);
-      color:var(--text);
-      border-radius:10px;
-      padding:8px 10px;
-      font-weight:900;
-      cursor:pointer;
-      user-select:none;
-      font-size:13px;
-    }
-    .miniBtnPrimary{
-      border-color:transparent;
-      background:#2F6C3C;
-      color:#fff !important;
-    }
-
     .mobileSet{
       display:none;
       gap:8px;
@@ -475,7 +458,7 @@ Purpose:
           </div>
           <div>
             <h1>Crop Planning Selector</h1>
-            <p class="muted">Active fields only. Drag fields into Corn or Soybeans. Columns scroll to stay compact.</p>
+            <p class="muted">Active fields only. Columns scroll so “All farms” stays compact.</p>
           </div>
         </header>
 
@@ -494,7 +477,7 @@ Purpose:
                   <div class="list" id="farmList"></div>
                 </div>
               </div>
-              <div class="help" id="farmHelp">Loading farms…</div>
+              <div class="help" id="farmHelp"></div>
               <input type="hidden" id="farmId" />
               <input type="hidden" id="farmName" />
             </div>
@@ -502,30 +485,13 @@ Purpose:
             <div class="field">
               <label for="year">Crop Year</label>
               <select id="year" class="select"></select>
-              <div class="help">Only: <strong>2026</strong> and <strong>2027</strong></div>
+              <div class="help"></div>
             </div>
 
-            <div class="field">
-              <label>Plan ALL shown</label>
-              <div class="actions" style="margin:0">
-                <button id="btnAllCorn" class="btn btn-primary" type="button">ALL → Corn</button>
-                <button id="btnAllSoy" class="btn btn-primary" type="button">ALL → Soybeans</button>
-                <button id="btnAllClear" class="btn" type="button">Clear ALL</button>
-              </div>
-              <div class="help">Uses current Farm + Search. (Active fields only.)</div>
-            </div>
-          </div>
-
-          <div class="row">
             <div class="field">
               <label for="search">Search fields</label>
               <input id="search" class="input" type="search" placeholder="Type to filter field names…" />
               <div class="help" id="scopeHelp">Showing 0 active fields</div>
-            </div>
-
-            <div class="field">
-              <label>Drag & drop</label>
-              <div class="help">Use the grip icon on desktop. On mobile, use the buttons on each card.</div>
             </div>
           </div>
 
@@ -566,6 +532,9 @@ Purpose:
                 <div>
                   <div class="col-title">Unplanned</div>
                   <div class="col-sub"><span id="subUnplanned">0 fields • 0.00 ac</span></div>
+                  <div class="col-actions">
+                    <button id="btnAllClear" class="miniBtn" type="button" title="Clear plans for ALL shown fields">Clear ALL shown</button>
+                  </div>
                 </div>
                 <span class="pill">none</span>
               </div>
@@ -577,6 +546,9 @@ Purpose:
                 <div>
                   <div class="col-title">Corn</div>
                   <div class="col-sub"><span id="subCorn">0 fields • 0.00 ac</span></div>
+                  <div class="col-actions">
+                    <button id="btnAllCorn" class="miniBtn miniBtnPrimary" type="button" title="Plan ALL shown fields as Corn">Move ALL shown → Corn</button>
+                  </div>
                 </div>
                 <span class="pill">corn</span>
               </div>
@@ -588,6 +560,9 @@ Purpose:
                 <div>
                   <div class="col-title">Soybeans</div>
                   <div class="col-sub"><span id="subSoy">0 fields • 0.00 ac</span></div>
+                  <div class="col-actions">
+                    <button id="btnAllSoy" class="miniBtn miniBtnPrimary" type="button" title="Plan ALL shown fields as Soybeans">Move ALL shown → Soybeans</button>
+                  </div>
                 </div>
                 <span class="pill">soybeans</span>
               </div>
