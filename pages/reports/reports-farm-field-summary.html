@@ -530,11 +530,11 @@
       catch{ return ''; }
     }
 
+    // ✅ Always clamp to max 2 decimals (no 10-decimal garbage anywhere)
     function fmtAcres(n){
       const v = Number(n);
       if(!Number.isFinite(v)) return '0';
-      const dp = (Math.abs(v) >= 100 || Number.isInteger(v)) ? 0 : 2;
-      return v.toLocaleString(undefined, { maximumFractionDigits: dp, minimumFractionDigits: 0 });
+      return v.toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 0 });
     }
 
     function normalizeStatus(s){
@@ -608,7 +608,6 @@
       STATE.fieldsRaw = fieldsSnap.docs.map(ds => ({ id: ds.id, data: (ds.data() || {}) }));
       STATE.rtkRaw    = rtkSnap.docs.map(ds => ({ id: ds.id, data: (ds.data() || {}) }));
 
-      // Build RTK id -> name map
       STATE.rtkMap = new Map();
       STATE.rtkRaw.forEach(t => {
         const nm = String(t.data?.name || '').trim();
@@ -664,7 +663,7 @@
           helAcres: Number(d.helAcres) || 0,
 
           rtkTowerId: (d.rtkTowerId || '').trim(),
-          rtkTowerName: rtkNameFor(d.rtkTowerId),   // ✅ resolved name
+          rtkTowerName: rtkNameFor(d.rtkTowerId),
 
           soilWetness: (Number.isFinite(d.soilWetness) ? Number(d.soilWetness) : null),
           drainageIndex: (Number.isFinite(d.drainageIndex) ? Number(d.drainageIndex) : null),
@@ -681,15 +680,12 @@
         if(field.county) farm.counties.add(field.county);
       });
 
-      // Fields ABC
       const farms = Array.from(farmsById.values()).map(f => {
         f.fields.sort((a,b) => (a.name||'').localeCompare(b.name||''));
         return f;
       });
 
       const out = farms.filter(f => f.id !== UNKNOWN_ID || f.fieldsCount > 0);
-
-      // Farms ABC
       out.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
 
       STATE.farms = out;
@@ -791,7 +787,7 @@
         if(q){
           const hay = [
             f.name,
-            ...f.fields.map(fl => `${fl.name} ${fl.county} ${fl.rtkTowerName}`) // ✅ searchable by RTK name
+            ...f.fields.map(fl => `${fl.name} ${fl.county} ${fl.rtkTowerName}`)
           ].join(' ').toLowerCase();
           if(!hay.includes(q)) return false;
         }
@@ -820,23 +816,18 @@
 
       let fieldCount = 0;
       let acres = 0;
-      let crp = 0;
       let hel = 0;
 
       farms.forEach(f => {
         fieldCount += f.fieldsCount;
         acres += f.totalTillable;
-        crp += f.totalCrp;
         hel += f.totalHel;
       });
 
       $('#kpiFarms').textContent = String(farmCount);
       $('#kpiFields').textContent = String(fieldCount);
       $('#kpiTillable').textContent = fmtAcres(acres);
-      $('#kpiCRP').textContent = fmtAcres(crp);
-
-      const helEl = $('#kpiHEL');
-      if(helEl) helEl.textContent = fmtAcres(hel);
+      $('#kpiHEL').textContent = fmtAcres(hel);
 
       const meta = $('#ffCount');
       if(meta){
@@ -948,10 +939,6 @@
           <div class="detail-item-value">${escapeHtml(fmtAcres(f.totalTillable))}</div>
         </div>
         <div>
-          <div class="detail-item-label">CRP Acres</div>
-          <div class="detail-item-value">${escapeHtml(fmtAcres(f.totalCrp))}</div>
-        </div>
-        <div>
           <div class="detail-item-label">HEL Acres</div>
           <div class="detail-item-value">${escapeHtml(fmtAcres(f.totalHel))}</div>
         </div>
@@ -1045,7 +1032,7 @@
     }
 
     function buildPrintHtml({ company, runStr, runDateOnly, filterSummary, totals, farms }){
-      const { farmCount, fieldCount, tillable, crp, hel } = totals;
+      const { farmCount, fieldCount, tillable, hel } = totals;
 
       return `<!doctype html>
 <html>
@@ -1094,7 +1081,7 @@
     .k{font-size:10px; text-transform:uppercase; letter-spacing:0.10em; color:var(--fv-muted); font-weight:700;}
     .v{font-weight:800; color:var(--fv-text);}
 
-    .kpis{ margin-top:12px; display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:10px; }
+    .kpis{ margin-top:12px; display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px; }
     .kpi{ border:1px solid var(--fv-border); border-radius:12px; padding:9px 10px; background:linear-gradient(135deg, rgba(59,126,70,0.06), #fff); }
     .kpi .lab{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--fv-muted);font-weight:900;}
     .kpi .val{font-size:18px;font-weight:950;margin-top:2px;}
@@ -1152,7 +1139,7 @@
     </header>
 
     <h1 class="title">Farm &amp; Field Summary</h1>
-    <p class="subtitle">Farm totals + field list (tillable, CRP, HEL, county, RTK tower, soil wetness, drainage index).</p>
+    <p class="subtitle">Farm totals + field list (tillable, HEL, county, RTK tower, soil wetness, drainage index).</p>
 
     <div class="summary">
       <div class="pill"><span class="k">Filters</span><span class="v">${escapeHtml(filterSummary)}</span></div>
@@ -1164,7 +1151,6 @@
       <div class="kpi"><div class="lab">Farms</div><div class="val">${farmCount}</div><div class="note">Matching filters</div></div>
       <div class="kpi"><div class="lab">Fields</div><div class="val">${fieldCount}</div><div class="note">Matching filters</div></div>
       <div class="kpi"><div class="lab">Tillable Acres</div><div class="val">${escapeHtml(String(tillable))}</div><div class="note">Sum of fields.tillable</div></div>
-      <div class="kpi"><div class="lab">CRP Acres</div><div class="val">${escapeHtml(String(crp))}</div><div class="note">Sum of fields.crpAcres</div></div>
       <div class="kpi"><div class="lab">HEL Acres</div><div class="val">${escapeHtml(String(hel))}</div><div class="note">Sum of fields.helAcres</div></div>
     </div>
 
@@ -1175,7 +1161,7 @@
         <div class="farm-title">
           <span>${escapeHtml(f.name)}</span>
           <span style="font-size:11px;color:var(--fv-muted);letter-spacing:0.06em;text-transform:none;font-weight:900;">
-            ${f.fieldsCount} fields • ${escapeHtml(String(f.totalTillable))} ac
+            ${f.fieldsCount} fields • ${escapeHtml(fmtAcres(f.totalTillable))} ac
           </span>
         </div>
         <p class="farm-sub">
@@ -1216,7 +1202,7 @@
     }).join('')}
 
     <footer class="footer">
-      <div class="l">Prepared for quick reference. Values reflect what is stored in FarmVista (farms + fields collections).</div>
+      <div class="l">Prepared for quick reference. Values reflect what is stored in FarmVista (farms + fields + rtkTowers collections).</div>
       <div class="r">FarmVista • Farm &amp; Field Summary • ${escapeHtml(runDateOnly || '')}</div>
     </footer>
   </div>
@@ -1235,13 +1221,11 @@
         let farmCount = farms.length;
         let fieldCount = 0;
         let tillable = 0;
-        let crp = 0;
         let hel = 0;
 
         farms.forEach(f => {
           fieldCount += f.fieldsCount;
           tillable += f.totalTillable;
-          crp += f.totalCrp;
           hel += f.totalHel;
         });
 
@@ -1249,7 +1233,6 @@
           farmCount,
           fieldCount,
           tillable: fmtAcres(tillable),
-          crp: fmtAcres(crp),
           hel: fmtAcres(hel)
         };
       })();
@@ -1319,7 +1302,7 @@
       if (printBottom) printBottom.addEventListener('click', handlePrintClick);
 
       try{
-        await loadFarmsFieldsAndRTK(); // ✅ now includes RTK towers
+        await loadFarmsFieldsAndRTK();
       }catch(err){
         console.error('[farm-field-summary] load failed', err);
         $('.empty').style.display = 'block';
@@ -1385,11 +1368,6 @@
               <div class="note">Sum of fields.tillable</div>
             </div>
             <div class="kpi">
-              <div class="lab">CRP Acres</div>
-              <div class="val" id="kpiCRP">—</div>
-              <div class="note">Sum of fields.crpAcres</div>
-            </div>
-            <div class="kpi" style="display:none;">
               <div class="lab">HEL Acres</div>
               <div class="val" id="kpiHEL">—</div>
               <div class="note">Sum of fields.helAcres</div>
