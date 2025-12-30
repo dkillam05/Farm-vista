@@ -567,6 +567,22 @@
       try{ localStorage.setItem(LS_KEY, JSON.stringify({ status, county, farm, q })); }catch(_){}
     }
 
+    // ✅ FIX: some browsers / shells re-apply "first option" visually after we set status.
+    // This forces the UI to match the cached value (without changing any filtering math).
+    function forceStatusUI(desired){
+      const el = $('#filterStatus');
+      if(!el) return;
+      const v = ['all','active','archived'].includes(String(desired)) ? String(desired) : 'active';
+
+      const setIt = () => { el.value = v; };
+
+      setIt();
+      Promise.resolve().then(setIt);
+      requestAnimationFrame(setIt);
+      setTimeout(setIt, 50);
+      setTimeout(setIt, 200);
+    }
+
     async function loadCompanyHeader(){
       if (STATE.company) return STATE.company;
       try{
@@ -967,11 +983,15 @@
 
       if(statusSel){
         statusSel.addEventListener('change', () => {
+          // keep UI honest in case browser reverts visually
+          forceStatusUI(statusSel.value);
+
           hydrateFarmDropdown();
           applyFilters();
           saveFilters();
         });
       }
+
       if(countySel){
         countySel.addEventListener('change', () => {
           hydrateFarmDropdown();
@@ -979,18 +999,21 @@
           saveFilters();
         });
       }
+
       if(farmSel){
         farmSel.addEventListener('change', () => {
           applyFilters();
           saveFilters();
         });
       }
+
       if(searchEl){
         searchEl.addEventListener('input', () => {
           applyFilters();
           saveFilters();
         });
       }
+
       if(clearBtn){
         clearBtn.addEventListener('click', () => {
           try{ localStorage.removeItem(LS_KEY); }catch(_){}
@@ -1315,6 +1338,9 @@
       // IMPORTANT: set status FIRST so the UI shows it and farm dropdown is computed correctly
       if(statusSel) statusSel.value = desiredStatus;
 
+      // ✅ force UI to show the same value (fixes “looks like All”)
+      forceStatusUI(desiredStatus);
+
       // Counties list
       hydrateCountyDropdown();
 
@@ -1343,6 +1369,9 @@
       wireFilterEvents();
       applyFilters();
       saveFilters();
+
+      // ✅ final safety: after everything has rendered, keep status showing correct value
+      forceStatusUI($('#filterStatus')?.value || desiredStatus);
     })();
   </script>
 </head>
