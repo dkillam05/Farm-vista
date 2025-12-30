@@ -464,7 +464,8 @@
       COMPANY_DOC_PATH: ['company','main']
     };
 
-    const LS_KEY = 'fv_farm_field_summary_filters_v3';
+    // bump key so old “stuck all” values don’t keep fighting you
+    const LS_KEY = 'fv_farm_field_summary_filters_v4';
 
     const $ = (sel, root=document) => root.querySelector(sel);
 
@@ -512,28 +513,25 @@
       catch{ return ''; }
     }
 
-    // clamp max 2 decimals everywhere
     function fmtAcres(n){
       const v = Number(n);
       if(!Number.isFinite(v)) return '0';
       return v.toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 0 });
     }
 
-    // only statuses in your DB: active, archived
-    function normalizeStatus(s){
+    // FIELD statuses: active / archived (archived is shown as “Inactive” in UI)
+    function normalizeFieldStatus(s){
       const v = String(s || '').trim().toLowerCase().replace(/\.+$/,'');
-      if(!v) return 'active'; // treat missing as active
+      if(!v) return 'active';
       if(v === 'archived') return 'archived';
       if(v === 'active') return 'active';
-      // be tolerant
       if(v.includes('arch')) return 'archived';
       if(v.includes('act')) return 'active';
       return v;
     }
 
-    // UI label: archived should show as Inactive
     function statusLabel(v){
-      const n = normalizeStatus(v);
+      const n = normalizeFieldStatus(v);
       if(n === 'active') return 'Active';
       if(n === 'archived') return 'Inactive';
       if(n === 'all') return 'All';
@@ -624,13 +622,8 @@
         farmsById.set(f.id, {
           id: f.id,
           name: (f.data?.name || f.id || '—').trim(),
-          status: normalizeStatus(f.data?.status) || 'active',
           updatedAt: toDateMaybe(f.data?.updatedAt) || toDateMaybe(f.data?.createdAt) || null,
-
           fields: [],
-          fieldsCount: 0,
-          totalTillable: 0,
-          totalHel: 0,
           counties: new Set()
         });
       });
@@ -640,13 +633,8 @@
         farmsById.set(UNKNOWN_ID, {
           id: UNKNOWN_ID,
           name: 'Unknown / Unassigned',
-          status: 'active',
           updatedAt: null,
-
           fields: [],
-          fieldsCount: 0,
-          totalTillable: 0,
-          totalHel: 0,
           counties: new Set()
         });
       }
@@ -656,17 +644,14 @@
         const farmId = String(d.farmId || '').trim() || UNKNOWN_ID;
         const farm = farmsById.get(farmId) || farmsById.get(UNKNOWN_ID);
 
-        const fieldStatus = normalizeStatus(d.status || 'active');
-
         const field = {
           id: f.id,
           name: (d.name || f.id || '—').trim(),
-          status: fieldStatus,
+          status: normalizeFieldStatus(d.status),
           county: (d.county || '').trim(),
           tillable: Number(d.tillable) || 0,
           crpAcres: Number(d.crpAcres) || 0,
           helAcres: Number(d.helAcres) || 0,
-          rtkTowerId: (d.rtkTowerId || '').trim(),
           rtkTowerName: rtkNameFor(d.rtkTowerId),
           soilWetness: (Number.isFinite(d.soilWetness) ? Number(d.soilWetness) : null),
           drainageIndex: (Number.isFinite(d.drainageIndex) ? Number(d.drainageIndex) : null),
@@ -674,28 +659,24 @@
         };
 
         farm.fields.push(field);
-        farm.fieldsCount += 1;
-        farm.totalTillable += field.tillable;
-        farm.totalHel += field.helAcres;
         if(field.county) farm.counties.add(field.county);
       });
 
-      const farms = Array.from(farmsById.values()).map(f => {
-        f.fields.sort((a,b) => (a.name||'').localeCompare(b.name||''));
-        return f;
-      });
-
-      const out = farms.filter(f => f.id !== UNKNOWN_ID || f.fieldsCount > 0);
-      out.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+      // ABC farms + fields
+      const out = Array.from(farmsById.values())
+        .filter(f => f.id !== UNKNOWN_ID || f.fields.length > 0)
+        .map(f => {
+          f.fields.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+          return f;
+        })
+        .sort((a,b)=> (a.name||'').localeCompare(b.name||''));
 
       STATE.farms = out;
     }
 
     function computeAvailableCountiesFromFields(){
       const set = new Set();
-      STATE.farms.forEach(f => {
-        f.fields.forEach(fl => { if(fl.county) set.add(fl.county); });
-      });
+      STATE.farms.forEach(f => f.fields.forEach(fl => { if(fl.county) set.add(fl.county); }));
       return Array.from(set).sort((a,b)=>a.localeCompare(b));
     }
 
@@ -712,24 +693,54 @@
       const countySel = $('#filterCounty');
       const cur = countySel?.value || 'all';
       const counties = computeAvailableCountiesFromFields();
-
       const opts = [
         `<option value="all">All counties</option>`,
         ...counties.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)
       ].join('');
-
       setSelectOptions(countySel, opts, cur);
     }
 
-    // Status filter applies to BOTH farms and fields:
-    // - active => only active fields + active farms (unless all)
-    // - archived => only archived fields + archived farms (unless all)
-    // - all => all fields and farms
     function fieldPassesStatus(fieldStatus, statusFilter){
-      const fs = normalizeStatus(fieldStatus);
+      const fs = normalizeFieldStatus(fieldStatus);
       const st = String(statusFilter || 'active').toLowerCase();
       if(st === 'all') return true;
       return fs === st;
+    }
+
+    function hydrateFarmDropdown(){
+      const farmSel = $('#filterFarm');
+      const st = ($('#filterStatus')?.value || 'active');
+      const county = ($('#filterCounty')?.value || 'all');
+      const cur = farmSel?.value || 'all';
+
+      const farms = [];
+      for(const f of STATE.farms){
+        if(county !== 'all' && (!f.counties || !f.counties.has(county))) continue;
+        const viewFields = f.fields.filter(fl => fieldPassesStatus(fl.status, st));
+        if(st !== 'all' && viewFields.length === 0) continue;
+
+        const viewTillable = viewFields.reduce((s,fl)=> s + (Number(fl.tillable)||0), 0);
+
+        farms.push({
+          id: f.id,
+          name: f.name,
+          _count: viewFields.length,
+          _acres: viewTillable
+        });
+      }
+      farms.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+
+      const opts = [
+        `<option value="all">All farms</option>`,
+        ...farms.map(f => {
+          const label = `${f.name} (${f._count} fields • ${fmtAcres(f._acres)} ac)`;
+          const shortLabel = truncateLabel(label, 64);
+          return `<option value="${escapeHtml(f.id)}" title="${escapeHtml(label)}">${escapeHtml(shortLabel)}</option>`;
+        })
+      ].join('');
+
+      const exists = farms.some(f => String(f.id) === String(cur));
+      setSelectOptions(farmSel, opts, exists ? cur : 'all');
     }
 
     function applyFilters(){
@@ -744,25 +755,12 @@
 
       const filtered = [];
       for(const f of STATE.farms){
-        const farmStatus = normalizeStatus(f.status);
-
-        // Farm-level status filter (only if your farms actually use it)
-        if(st !== 'all' && farmStatus !== st){
-          // BUT if your farms collection never marks archived, don't hide farms solely for that.
-          // We'll still allow farms through based on field status below by not hard-blocking here.
-          // (So leave it soft; field filtering will decide.)
-        }
-
         if(farmFilter !== 'all' && String(f.id) !== farmFilter) continue;
         if(countyFilter !== 'all' && (!f.counties || !f.counties.has(countyFilter))) continue;
 
-        // Field status filter (THIS is the part you needed)
-        const viewFields = (f.fields || []).filter(fl => fieldPassesStatus(fl.status, st));
-
-        // If filtering active/archived, and this farm has ZERO matching fields, hide it.
+        const viewFields = f.fields.filter(fl => fieldPassesStatus(fl.status, st));
         if(st !== 'all' && viewFields.length === 0) continue;
 
-        // Search should run against visible fields only
         if(q){
           const hay = [
             f.name,
@@ -771,7 +769,6 @@
           if(!hay.includes(q)) continue;
         }
 
-        // Attach view fields + view totals (no mutation of original arrays)
         const viewTillable = viewFields.reduce((s,fl)=>s + (Number(fl.tillable)||0), 0);
         const viewHel = viewFields.reduce((s,fl)=>s + (Number(fl.helAcres)||0), 0);
 
@@ -806,9 +803,9 @@
       let hel = 0;
 
       farms.forEach(f => {
-        fieldCount += (f._viewFieldsCount ?? f.fieldsCount ?? 0);
-        acres += (f._viewTillable ?? f.totalTillable ?? 0);
-        hel += (f._viewHel ?? f.totalHel ?? 0);
+        fieldCount += (f._viewFieldsCount ?? 0);
+        acres += (f._viewTillable ?? 0);
+        hel += (f._viewHel ?? 0);
       });
 
       $('#kpiFarms').textContent = String(farmCount);
@@ -831,8 +828,8 @@
         if(st !== 'all') filt.push(`Status: ${statusLabel(st)}`);
         if(county !== 'all') filt.push(`County: ${county}`);
         if(farmSel !== 'all'){
-          const f = STATE.farms.find(x => x.id === farmSel);
-          if(f) filt.push(`Farm: ${f.name}`);
+          const f0 = STATE.farms.find(x => x.id === farmSel);
+          if(f0) filt.push(`Farm: ${f0.name}`);
         }
 
         meta.textContent = parts.join(' • ') + (filt.length ? `  —  ${filt.join(' • ')}` : '');
@@ -858,11 +855,8 @@
         const counties = Array.from(f.counties || []).sort((a,b)=>a.localeCompare(b)).slice(0,4);
         const countyLine = counties.length ? counties.join(', ') + (f.counties.size > 4 ? '…' : '') : '—';
 
-        // Status pill should reflect farm status (archived => Inactive)
-        const stPill = normalizeStatus(f.status) ? `<span class="pill">${escapeHtml(statusLabel(f.status))}</span>` : '';
-
-        const fieldsShown = (f._viewFieldsCount ?? f.fieldsCount ?? 0);
-        const acresShown = (f._viewTillable ?? f.totalTillable ?? 0);
+        const fieldsShown = (f._viewFieldsCount ?? 0);
+        const acresShown = (f._viewTillable ?? 0);
 
         const card = document.createElement('article');
         card.className = 'card';
@@ -873,7 +867,6 @@
             <div class="main">
               <div class="title">
                 <span>${escapeHtml(f.name)}</span>
-                ${stPill}
               </div>
 
               <div class="meta">
@@ -915,16 +908,13 @@
       $('.detail-title', panel).textContent = f.name;
 
       const counties = Array.from(f.counties || []).sort((a,b)=>a.localeCompare(b));
-      const fieldsShown = (f._viewFieldsCount ?? f.fieldsCount ?? 0);
-      const tillableShown = (f._viewTillable ?? f.totalTillable ?? 0);
-      const helShown = (f._viewHel ?? f.totalHel ?? 0);
+
+      const fieldsShown = (f._viewFieldsCount ?? 0);
+      const tillableShown = (f._viewTillable ?? 0);
+      const helShown = (f._viewHel ?? 0);
 
       const grid = $('.detail-grid', panel);
       grid.innerHTML = `
-        <div>
-          <div class="detail-item-label">Farm Status</div>
-          <div class="detail-item-value">${escapeHtml(statusLabel(f.status) || '—')}</div>
-        </div>
         <div>
           <div class="detail-item-label">Fields</div>
           <div class="detail-item-value">${escapeHtml(String(fieldsShown))}</div>
@@ -946,7 +936,7 @@
       const tbody = $('#fieldTableBody');
       tbody.innerHTML = '';
 
-      const viewFields = f._viewFields || f.fields || [];
+      const viewFields = f._viewFields || [];
       for(const fl of viewFields){
         const sw = (fl.soilWetness == null) ? '—' : String(fl.soilWetness);
         const di = (fl.drainageIndex == null) ? '—' : String(fl.drainageIndex);
@@ -966,38 +956,6 @@
       }
 
       panel.style.display = 'flex';
-    }
-
-    function hydrateFarmDropdown(){
-      const farmSel = $('#filterFarm');
-      const statusSel = $('#filterStatus');
-      const countySel = $('#filterCounty');
-
-      const cur = farmSel?.value || 'all';
-      const st = statusSel?.value || 'active';
-      const county = countySel?.value || 'all';
-
-      // Farms available should match *current field-status filter* too
-      const farms = [];
-      for(const f of STATE.farms){
-        if(county !== 'all' && (!f.counties || !f.counties.has(county))) continue;
-        const viewFields = (f.fields||[]).filter(fl => fieldPassesStatus(fl.status, st));
-        if(st !== 'all' && viewFields.length === 0) continue;
-        farms.push(f);
-      }
-      farms.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
-
-      const opts = [
-        `<option value="all">All farms</option>`,
-        ...farms.map(f => {
-          const label = `${f.name} (${f.fieldsCount} fields • ${fmtAcres(f.totalTillable)} ac)`;
-          const shortLabel = truncateLabel(label, 64);
-          return `<option value="${escapeHtml(f.id)}" title="${escapeHtml(label)}">${escapeHtml(shortLabel)}</option>`;
-        })
-      ].join('');
-
-      const exists = farms.some(f => String(f.id) === String(cur));
-      setSelectOptions(farmSel, opts, exists ? cur : 'all');
     }
 
     function wireFilterEvents(){
@@ -1167,7 +1125,7 @@
     </header>
 
     <h1 class="title">Farm &amp; Field Summary</h1>
-    <p class="subtitle">Farm totals + field list (tillable, HEL, county, RTK tower, soil wetness, drainage index).</p>
+    <p class="subtitle">Filtered by Field Status (Active / Inactive / All).</p>
 
     <div class="summary">
       <div class="pill"><span class="k">Filters</span><span class="v">${escapeHtml(filterSummary)}</span></div>
@@ -1185,7 +1143,7 @@
     ${farms.map(f => {
       const counties = Array.from(f.counties || []).sort((a,b)=>a.localeCompare(b));
       const viewFields = f._viewFields || f.fields || [];
-      const viewTillable = f._viewTillable ?? f.totalTillable ?? 0;
+      const viewTillable = f._viewTillable ?? 0;
 
       return `
       <section class="section">
@@ -1196,8 +1154,7 @@
           </span>
         </div>
         <p class="farm-sub">
-          Status: <strong>${escapeHtml(statusLabel(f.status) || '—')}</strong>
-          ${counties.length ? ` • Counties: ${escapeHtml(counties.join(', '))}` : ''}
+          ${counties.length ? `Counties: ${escapeHtml(counties.join(', '))}` : ''}
         </p>
 
         <table>
@@ -1255,9 +1212,9 @@
         let hel = 0;
 
         farms.forEach(f => {
-          fieldCount += (f._viewFieldsCount ?? f.fieldsCount ?? 0);
-          tillable += (f._viewTillable ?? f.totalTillable ?? 0);
-          hel += (f._viewHel ?? f.totalHel ?? 0);
+          fieldCount += (f._viewFieldsCount ?? 0);
+          tillable += (f._viewTillable ?? 0);
+          hel += (f._viewHel ?? 0);
         });
 
         return {
@@ -1343,38 +1300,42 @@
 
       buildEnriched();
 
-      // Restore filters (default Active only if no saved)
+      // Restore filters (default Active if none saved)
       const saved = loadSavedFilters();
+
       const statusSel = $('#filterStatus');
       const countySel = $('#filterCounty');
       const farmSel   = $('#filterFarm');
       const searchEl  = $('#filterSearch');
 
-      // Default Active unless user has saved something else
       const desiredStatus = (saved && ['all','active','archived'].includes(String(saved.status)))
         ? String(saved.status)
         : 'active';
 
+      // IMPORTANT: set status FIRST so the UI shows it and farm dropdown is computed correctly
       if(statusSel) statusSel.value = desiredStatus;
 
       // Counties list
       hydrateCountyDropdown();
 
+      // Restore county if still exists
       if(countySel && saved && saved.county){
         const c = String(saved.county);
         const exists = Array.from(countySel.options).some(o => o.value === c);
         countySel.value = exists ? c : 'all';
       }
 
-      // Farms depend on status+county
+      // Farm dropdown depends on status+county+field-status filter
       hydrateFarmDropdown();
 
+      // Restore farm if still exists under current filters
       if(farmSel && saved && saved.farm){
         const f = String(saved.farm);
         const exists = Array.from(farmSel.options).some(o => o.value === f);
         farmSel.value = exists ? f : 'all';
       }
 
+      // Restore search
       if(searchEl && saved && typeof saved.q === 'string'){
         searchEl.value = saved.q;
       }
@@ -1395,8 +1356,7 @@
           <div>
             <h1>Farm &amp; Field Summary</h1>
             <p class="muted">
-              Summary report based on your Firestore collections:
-              <strong>farms</strong> and <strong>fields</strong>.
+              This report is filtered by <strong>Field Status</strong> to help you find fields to archive or add.
               All lists are alphabetical (ABC).
             </p>
           </div>
@@ -1437,11 +1397,11 @@
           <div class="filters" aria-label="Farm & field filters">
             <div class="filters-row">
               <div class="filter-field">
-                <label class="filter-label" for="filterStatus">Farm Status</label>
+                <label class="filter-label" for="filterStatus">Field Status</label>
                 <select id="filterStatus" class="filter-select">
                   <option value="all">All</option>
                   <option value="active">Active</option>
-                  <!-- DB value archived, UI label Inactive -->
+                  <!-- DB value archived; label shows Inactive -->
                   <option value="archived">Inactive</option>
                 </select>
               </div>
