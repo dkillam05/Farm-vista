@@ -1,1039 +1,618 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/crop-planning-selector.html  (FULL FILE)
-Rev: 2025-12-30a
-
-Goal (per Dane):
-✅ Filter fields by Farm + Field Status (Active/Archived) + search
-✅ Multi-select fields (Select all filtered / Clear)
-✅ Bulk apply: choose Crop Year + Crop (Corn/Soybeans) -> apply to selected fields
-✅ Live counters:
-   - Selected field count + selected tillable acres
-   - For the chosen year: totals by crop (Corn + Soybeans) = field count + acres
-   - (Also shows Unplanned count/acres for the filtered set)
-✅ Data sources:
-   - fields collection (uses: name, farmId, status, tillable)
-   - farms collection (uses: name, status)
-✅ Plan storage (recommended rotation-friendly):
-   field_crop_plans/{YEAR}/fields/{FIELD_ID}
-   { crop, acres, farmId, fieldName, status, updatedAt, updatedBy }
-
-Notes:
-- Green buttons forced to WHITE text
-- No blue-styled links/buttons
+Rev: 2025-12-30b
+Purpose:
+ • Desktop-first Crop Planning Selector (Year + Corn/Soybeans)
+ • FV-native theme/shell (based on your crop-aerial-add template)
+ • Drag & drop board:
+    - Unplanned  |  Corn  |  Soybeans
+ • Filters:
+    - Farm (combo)
+    - Field Status (active/archived/all)  (defaults active)
+    - Year selector
+    - Search
+ • KPIs:
+    - Per column: field count + tillable acres
+ • Writes plans to:
+    field_crop_plans/{YEAR}/fields/{FIELD_ID}
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
+  <meta charset="utf-8" />
   <title>FarmVista • Crop Planning Selector</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-  <meta name="theme-color" content="#3B7E46"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3B7E46" />
 
-  <!-- IMPORTANT: make all relative URLs resolve under /Farm-vista/ -->
-  <base href="/Farm-vista/">
+  <script src="/Farm-vista/js/theme-boot.js"></script>
 
-  <!-- Theme + firebase boot chain -->
-  <script src="js/theme-boot.js"></script>
+  <!-- Standard includes (ABSOLUTE paths) -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
 
-  <!-- Standard includes (relative to <base>) -->
-  <link rel="manifest" href="manifest.webmanifest"/>
-  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png"/>
-  <link rel="icon" href="assets/icons/icon-192.png"/>
-  <link rel="stylesheet" href="assets/css/theme.css"/>
-  <link rel="stylesheet" href="assets/css/app.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
-  <!-- Shell/header/nav -->
-  <script defer src="js/fv-shell.js"></script>
+  <!-- Ensure fv-shell -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
 
   <style>
     :root{
+      --card-max:1200px;
+      --page-bottom-gap:96px;
       --accent:#2F6C3C;
-      --card-max: 1100px;
-      --page-bottom-gap: 96px;
-      --muted: rgba(255,255,255,.70);
-      --border: rgba(255,255,255,.10);
-      --chip: rgba(255,255,255,.08);
-      --chip2: rgba(255,255,255,.12);
-      --danger: #B94A48;
-      --ok: #3B7E46;
-      --shadow: 0 10px 30px rgba(0,0,0,.25);
+      --hero-icon-col:36px;
+      --hero-icon-size:24px;
+
+      /* Board */
+      --col-gap:12px;
+      --col-radius:14px;
+      --col-pad:12px;
+
+      --danger:#b00020;
+      --ok:#2F6C3C;
     }
 
-    /* Layout */
-    body{
-      background: var(--fv-bg, #0f1412);
-    }
-    .page{
-      padding: 18px 14px calc(var(--page-bottom-gap) + env(safe-area-inset-bottom)) 14px;
-    }
+    body{ background:var(--app-bg,var(--surface)); }
+
     .wrap{
-      max-width: var(--card-max);
-      margin: 0 auto;
+      max-width:var(--card-max);
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
     }
 
     .hero{
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      box-shadow: var(--shadow);
-      padding: 16px 16px 14px 16px;
-      background: linear-gradient(180deg, rgba(47,108,60,.26), rgba(255,255,255,.03));
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:visible;
+      margin-bottom:var(--page-bottom-gap);
     }
-    .heroTop{
+
+    .hero-head{
+      display:grid;
+      grid-template-columns:var(--hero-icon-col) 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      background:linear-gradient(90deg,rgba(47,108,60,.12),transparent);
+      border-bottom:1px solid var(--border);
+    }
+
+    .hero-head .icon{
+      width:var(--hero-icon-size);
+      height:var(--hero-icon-size);
+      color:var(--accent);
+      display:grid;
+      place-items:center;
+    }
+
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+
+    .muted{ color:var(--muted,#67706B); }
+
+    .body{
+      padding:16px;
+      display:grid;
+      gap:14px;
+    }
+
+    .row{
+      display:grid;
+      gap:10px;
+      grid-template-columns:1fr 1fr;
+    }
+    @media (max-width:980px){
+      .row{ grid-template-columns:1fr; }
+    }
+
+    .row3{
+      display:grid;
+      gap:10px;
+      grid-template-columns:1fr 1fr 1fr;
+    }
+    @media (max-width:1100px){
+      .row3{ grid-template-columns:1fr; }
+    }
+
+    .field{ position:relative; }
+    .field label{
+      display:block;
+      font-weight:800;
+      margin:0 0 6px;
+    }
+
+    .input,
+    .select,
+    .buttonish{
+      width:100%;
+      font:inherit;
+      font-size:16px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:12px;
+      outline:none;
+    }
+
+    .buttonish{
+      cursor:pointer;
+      text-align:left;
+      position:relative;
+      padding-right:44px;
+      user-select:none;
+    }
+
+    .buttonish.has-caret::after{
+      content:"";
+      position:absolute;
+      right:14px;
+      top:50%;
+      width:0;
+      height:0;
+      border-left:6px solid transparent;
+      border-right:6px solid transparent;
+      border-top:7px solid var(--muted,#67706B);
+      transform:translateY(-50%);
+      pointer-events:none;
+    }
+
+    .help{
+      font-size:13px;
+      color:var(--muted,#67706B);
+      margin-top:6px;
+      line-height:1.25;
+    }
+
+    .kpi-line{
       display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      padding:10px 12px;
+      border:1px dashed color-mix(in srgb, var(--border) 65%, transparent);
+      border-radius:12px;
+      background:color-mix(in srgb, var(--surface) 92%, rgba(47,108,60,.08));
+    }
+    .kpi{
+      display:flex;
+      gap:8px;
+      align-items:baseline;
+      flex-wrap:wrap;
+    }
+    .kpi .v{
+      font-weight:900;
+      font-size:18px;
+    }
+    .kpi .l{
+      font-weight:800;
+      color:var(--muted,#67706B);
+      font-size:12px;
+      letter-spacing:.2px;
+      text-transform:uppercase;
+    }
+
+    .actions{
+      display:flex;
+      gap:12px;
+      flex-wrap:wrap;
+      align-items:center;
+      margin-top:6px;
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:160px;
+      padding:12px 16px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      font-weight:900;
+      color:var(--text)!important;
+      cursor:pointer;
+      user-select:none;
+    }
+
+    .btn-primary{
+      border-color:transparent;
+      background:#2F6C3C;
+      color:#fff!important; /* ✅ green button always white font */
+    }
+
+    .btn:disabled{ opacity:.55; cursor:not-allowed; }
+
+    /* Combo core (copied pattern) */
+    .combo{ position:relative; }
+    .combo .combo-anchor{
+      position:relative;
+      display:inline-block;
+      width:100%;
+    }
+    .combo-panel{
+      position:absolute;
+      left:0;
+      right:0;
+      top:calc(100% + 4px);
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:12px;
+      box-shadow:0 12px 26px rgba(0,0,0,.18);
+      z-index:9999;
+      padding:8px;
+      display:none;
+    }
+    .combo-panel.show{ display:block; }
+    .combo-panel .search{ padding:4px 2px 8px; }
+    .combo-panel .search input{
+      width:100%;
+      padding:10px;
+      border:1px solid var(--border);
+      border-radius:10px;
+      font:inherit;
+      font-size:14px;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+    }
+    .combo-panel .list{
+      max-height:52vh;
+      overflow:auto;
+      border-top:1px solid var(--border);
+    }
+    .combo-item{
+      padding:10px 8px;
+      border-bottom:1px solid var(--border);
+      cursor:pointer;
+      font-size:14px;
+      display:flex;
+      gap:10px;
       align-items:flex-start;
       justify-content:space-between;
-      gap:12px;
     }
-    .title{
-      font-size: 18px;
-      font-weight: 800;
-      letter-spacing: .2px;
-      margin: 0;
-    }
-    .sub{
-      margin: 4px 0 0 0;
-      font-size: 13px;
-      color: var(--muted);
-      line-height: 1.35;
-    }
-
-    .grid{
-      display:grid;
-      grid-template-columns: 1fr;
-      gap: 12px;
-      margin-top: 12px;
-    }
-
-    @media (min-width: 980px){
-      .grid{
-        grid-template-columns: 420px 1fr;
-        align-items: start;
-      }
-    }
-
-    .card{
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      background: rgba(255,255,255,.03);
-      box-shadow: var(--shadow);
-      padding: 12px;
-    }
-
-    .card h3{
-      margin: 0 0 10px 0;
-      font-size: 13px;
-      letter-spacing: .2px;
-      text-transform: uppercase;
-      color: rgba(255,255,255,.82);
-    }
-
-    /* Controls */
-    .row{
-      display:flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      align-items: center;
-    }
-    .row + .row{ margin-top: 10px; }
-
-    .field{
-      display:flex;
-      flex-direction: column;
-      gap: 6px;
-      min-width: 160px;
-      flex: 1;
-    }
-    .field label{
-      font-size: 12px;
-      color: rgba(255,255,255,.72);
-    }
-    select, input[type="text"], input[type="number"]{
-      appearance: none;
-      border: 1px solid var(--border);
-      background: rgba(0,0,0,.18);
-      color: rgba(255,255,255,.92);
-      border-radius: 12px;
-      padding: 10px 10px;
-      outline: none;
-      width: 100%;
-      font-size: 14px;
-    }
-    select:focus, input:focus{
-      border-color: rgba(47,108,60,.65);
-      box-shadow: 0 0 0 3px rgba(47,108,60,.18);
-    }
-
-    /* Buttons (no blue; green = white text) */
-    .btn{
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,.06);
-      color: rgba(255,255,255,.92);
-      padding: 10px 12px;
-      border-radius: 12px;
-      font-weight: 700;
-      cursor: pointer;
-      user-select: none;
-      transition: transform .05s ease, background .12s ease, border-color .12s ease;
-      white-space: nowrap;
-    }
-    .btn:active{ transform: translateY(1px); }
-    .btn:hover{ background: rgba(255,255,255,.09); }
-
-    .btnPrimary{
-      background: var(--ok);
-      border-color: rgba(255,255,255,.10);
-      color: #fff !important; /* Dane rule: white font on green */
-    }
-    .btnPrimary:hover{ filter: brightness(1.02); }
-    .btnDanger{
-      background: rgba(185,74,72,.18);
-      border-color: rgba(185,74,72,.55);
-      color: rgba(255,255,255,.94);
-    }
-    .btnGhost{
-      background: transparent;
-      border-color: var(--border);
-      color: rgba(255,255,255,.90);
-    }
-    .btn:disabled{
-      opacity: .55;
-      cursor: not-allowed;
-      transform: none;
-    }
-
-    /* Chips / stats */
-    .chips{
-      display:flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 10px;
-    }
-    .chip{
-      display:inline-flex;
-      gap: 8px;
-      align-items:center;
-      padding: 8px 10px;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      background: var(--chip);
-      font-size: 13px;
-      color: rgba(255,255,255,.88);
-    }
-    .chip b{ font-weight: 900; color:#fff; }
-
-    .summaryGrid{
-      display:grid;
-      grid-template-columns: 1fr;
-      gap: 10px;
-      margin-top: 10px;
-    }
-    @media (min-width: 640px){
-      .summaryGrid{ grid-template-columns: 1fr 1fr 1fr; }
-    }
-    .sumBox{
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,.03);
-      border-radius: 14px;
-      padding: 10px 10px;
-    }
-    .sumTop{
-      display:flex;
-      align-items:center;
-      justify-content: space-between;
-      gap: 10px;
-      margin-bottom: 6px;
-    }
-    .sumName{
-      font-weight: 900;
-      letter-spacing: .2px;
-    }
-    .sumMeta{
-      color: rgba(255,255,255,.72);
-      font-size: 12px;
-    }
-    .sumNums{
-      display:flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      font-size: 13px;
-      color: rgba(255,255,255,.88);
+    .combo-item:hover{ background:rgba(0,0,0,.04); }
+    .combo-item:last-child{ border-bottom:none; }
+    .combo-empty{
+      padding:10px 8px;
+      color:#67706B;
+      font-size:14px;
     }
     .pill{
-      padding: 3px 8px;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,.06);
-      font-size: 12px;
-      color: rgba(255,255,255,.88);
-      white-space: nowrap;
+      font-size:12px;
+      border:1px solid var(--border);
+      padding:4px 8px;
+      border-radius:999px;
+      background:var(--surface);
+      color:var(--muted,#67706B);
+      white-space:nowrap;
     }
-    .pillCorn{ border-color: rgba(255,205,60,.35); background: rgba(255,205,60,.10); }
-    .pillSoy{ border-color: rgba(120,210,120,.35); background: rgba(120,210,120,.10); }
-    .pillNone{ border-color: rgba(255,255,255,.20); background: rgba(255,255,255,.05); }
 
-    /* Field list table */
-    .listTop{
+    /* Board */
+    .board{
+      display:grid;
+      grid-template-columns:1fr 1fr 1fr;
+      gap:var(--col-gap);
+      align-items:start;
+    }
+    @media (max-width:980px){
+      .board{
+        grid-template-columns:1fr;
+      }
+      .desktop-only{ display:none !important; }
+    }
+
+    .col{
+      border:1px solid var(--border);
+      border-radius:var(--col-radius);
+      background:var(--card-surface,var(--surface));
+      overflow:hidden;
+      min-height:260px;
       display:flex;
-      align-items:center;
-      justify-content: space-between;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-bottom: 10px;
+      flex-direction:column;
     }
-    .listTop .left{
+    .col-head{
+      padding:12px 12px 10px;
+      border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg, rgba(47,108,60,.08), transparent);
       display:flex;
-      gap: 8px;
-      flex-wrap: wrap;
+      gap:10px;
+      align-items:flex-start;
+      justify-content:space-between;
+    }
+    .col-title{
+      font-weight:900;
+      font-size:15px;
+      line-height:1.2;
+    }
+    .col-sub{
+      margin-top:4px;
+      font-size:12px;
+      color:var(--muted,#67706B);
+      font-weight:800;
+      letter-spacing:.2px;
+      text-transform:uppercase;
+    }
+
+    .dropzone{
+      padding:var(--col-pad);
+      display:grid;
+      gap:10px;
+      align-content:start;
+      min-height:220px;
+    }
+
+    .dropzone.is-over{
+      outline:2px solid color-mix(in srgb, var(--ok) 45%, transparent);
+      outline-offset:-4px;
+      background:color-mix(in srgb, var(--surface) 88%, rgba(47,108,60,.08));
+    }
+
+    .cardRow{
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:var(--surface);
+      padding:10px 10px;
+      display:grid;
+      grid-template-columns:22px 1fr auto;
+      gap:10px;
       align-items:center;
     }
-    .listTop .right{
+    .dragGrip{
+      width:22px;height:22px;
+      border:1px solid var(--border);
+      border-radius:8px;
+      display:grid;
+      place-items:center;
+      color:var(--muted,#67706B);
+      cursor:grab;
+      user-select:none;
+    }
+    .dragGrip:active{ cursor:grabbing; }
+
+    .cardMain{
+      min-width:0;
+    }
+    .cardName{
+      font-weight:900;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .cardFarm{
+      margin-top:2px;
+      font-size:12px;
+      color:var(--muted,#67706B);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .cardMeta{
       display:flex;
-      gap: 8px;
-      flex-wrap: wrap;
+      gap:8px;
       align-items:center;
+      justify-content:flex-end;
+      white-space:nowrap;
     }
 
-    .tableWrap{
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      overflow: hidden;
-      background: rgba(0,0,0,.12);
+    .miniBtn{
+      border:1px solid var(--border);
+      background:var(--surface);
+      color:var(--text);
+      border-radius:10px;
+      padding:8px 10px;
+      font-weight:900;
+      cursor:pointer;
+      user-select:none;
+      font-size:13px;
     }
-    table{
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-    }
-    thead{
-      background: rgba(255,255,255,.06);
-    }
-    th, td{
-      padding: 10px 10px;
-      border-bottom: 1px solid rgba(255,255,255,.06);
-      vertical-align: middle;
-      color: rgba(255,255,255,.90);
-    }
-    th{
-      font-size: 12px;
-      letter-spacing: .2px;
-      text-transform: uppercase;
-      color: rgba(255,255,255,.70);
-      font-weight: 900;
-    }
-    tbody tr:hover{
-      background: rgba(255,255,255,.04);
+    .miniBtnPrimary{
+      border-color:transparent;
+      background:#2F6C3C;
+      color:#fff !important;
     }
 
-    .tdName{
-      max-width: 420px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      font-weight: 800;
+    /* Mobile quick set (only visible < 980px) */
+    .mobileSet{
+      display:none;
+      gap:8px;
+      margin-top:8px;
     }
-    .tdFarm{
-      max-width: 240px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      color: rgba(255,255,255,.78);
-    }
-    .tdAcres{
-      text-align: right;
-      font-variant-numeric: tabular-nums;
-      white-space: nowrap;
-    }
-    .tdPlan{
-      white-space: nowrap;
-    }
-
-    .mutedSmall{
-      font-size: 12px;
-      color: rgba(255,255,255,.70);
-      line-height: 1.35;
+    @media (max-width:980px){
+      .mobileSet{ display:flex; }
+      .cardRow{ grid-template-columns:1fr; }
+      .dragGrip{ display:none; }
+      .cardMeta{ justify-content:flex-start; }
     }
 
     /* Toast */
-    .toast{
-      position: fixed;
-      left: 50%;
-      bottom: calc(18px + env(safe-area-inset-bottom));
-      transform: translateX(-50%);
-      z-index: 9999;
-      background: rgba(0,0,0,.85);
-      border: 1px solid rgba(255,255,255,.18);
-      color: rgba(255,255,255,.92);
-      padding: 10px 12px;
-      border-radius: 12px;
-      box-shadow: var(--shadow);
-      display: none;
-      max-width: min(680px, calc(100vw - 24px));
-      font-size: 13px;
+    #fv-toast{
+      position:fixed;
+      left:50%;
+      bottom:24px;
+      transform:translate(-50%,12px);
+      background:#2F6C3C;
+      color:#fff;
+      padding:10px 16px;
+      border-radius:999px;
+      font-size:14px;
+      box-shadow:0 10px 24px rgba(0,0,0,.25);
+      opacity:0;
+      pointer-events:none;
+      transition:opacity .18s ease, transform .18s ease;
+      z-index:10000;
+      white-space:nowrap;
     }
+    #fv-toast.show{ opacity:1; transform:translate(-50%,0); }
+
+    .no-scroll{ overflow:hidden !important; }
   </style>
 </head>
 
 <body>
-  <div class="page">
+  <fv-shell>
     <div class="wrap">
-
-      <div class="hero">
-        <div class="heroTop">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"
+                 fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                 aria-hidden="true">
+              <path d="M3 7h6l2 3h10v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
+              <path d="M8 7V5a2 2 0 0 1 2-2h2"/>
+            </svg>
+          </div>
           <div>
-            <h1 class="title">Crop Planning Selector</h1>
-            <p class="sub">
-              Filter fields by farm + status, multi-select, then bulk-assign the planned crop for a selected year.
-              Live totals show field count + tillable acres by crop.
-            </p>
+            <h1>Crop Planning Selector</h1>
+            <p class="muted">Pick a year, filter fields, then drag fields into Corn or Soybeans. Totals update instantly.</p>
           </div>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <button id="btnRefresh" class="btn btnGhost" type="button">Refresh</button>
-          </div>
-        </div>
+        </header>
 
-        <div class="chips" id="topChips">
-          <div class="chip"><span>Year:</span> <b id="chipYear">—</b></div>
-          <div class="chip"><span>Fields loaded:</span> <b id="chipLoaded">—</b></div>
-          <div class="chip"><span>Filtered:</span> <b id="chipFiltered">—</b></div>
-          <div class="chip"><span>Selected:</span> <b id="chipSelected">0</b></div>
-          <div class="chip"><span>Selected acres:</span> <b id="chipSelAcres">0.00</b></div>
-        </div>
+        <div class="body">
 
-        <div class="summaryGrid" id="summaryGrid">
-          <div class="sumBox">
-            <div class="sumTop">
-              <div class="sumName">Corn</div>
-              <div class="sumMeta"><span class="pill pillCorn">corn</span></div>
-            </div>
-            <div class="sumNums">
-              <div>Fields: <b id="sumCornFields">0</b></div>
-              <div>Acres: <b id="sumCornAcres">0.00</b></div>
-            </div>
-          </div>
-          <div class="sumBox">
-            <div class="sumTop">
-              <div class="sumName">Soybeans</div>
-              <div class="sumMeta"><span class="pill pillSoy">soybeans</span></div>
-            </div>
-            <div class="sumNums">
-              <div>Fields: <b id="sumSoyFields">0</b></div>
-              <div>Acres: <b id="sumSoyAcres">0.00</b></div>
-            </div>
-          </div>
-          <div class="sumBox">
-            <div class="sumTop">
-              <div class="sumName">Unplanned</div>
-              <div class="sumMeta"><span class="pill pillNone">none</span></div>
-            </div>
-            <div class="sumNums">
-              <div>Fields: <b id="sumNoneFields">0</b></div>
-              <div>Acres: <b id="sumNoneAcres">0.00</b></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="grid">
-        <!-- LEFT: Filters + Bulk apply -->
-        <div class="card">
-          <h3>Filters</h3>
-
-          <div class="row">
-            <div class="field" style="min-width:220px;">
-              <label for="selFarm">Farm</label>
-              <select id="selFarm">
-                <option value="">All Farms</option>
-              </select>
+          <!-- Filters -->
+          <div class="row3">
+            <!-- Farm combo -->
+            <div class="field combo">
+              <label for="farmBtn">Farm</label>
+              <div class="combo-anchor">
+                <button id="farmBtn" class="buttonish has-caret" type="button">— All farms —</button>
+                <div class="combo-panel" id="farmPanel" role="listbox" aria-label="Farm list">
+                  <div class="search">
+                    <input id="farmSearch" type="search" placeholder="Search farms…" />
+                  </div>
+                  <div class="list" id="farmList"></div>
+                </div>
+              </div>
+              <div class="help" id="farmHelp">0 farms</div>
+              <input type="hidden" id="farmId" />
+              <input type="hidden" id="farmName" />
             </div>
 
-            <div class="field" style="min-width:180px;">
-              <label for="selStatus">Field Status</label>
-              <select id="selStatus">
+            <div class="field">
+              <label for="status">Field Status</label>
+              <select id="status" class="select">
                 <option value="active" selected>Active</option>
                 <option value="archived">Archived</option>
                 <option value="all">All</option>
               </select>
+              <div class="help">Archived fields are shown only when selected.</div>
+            </div>
+
+            <div class="field">
+              <label for="year">Crop Year</label>
+              <select id="year" class="select"></select>
+              <div class="help">Planning writes to: <strong>field_crop_plans/{year}/fields/{fieldId}</strong></div>
             </div>
           </div>
 
           <div class="row">
             <div class="field">
-              <label for="txtSearch">Search Fields</label>
-              <input id="txtSearch" type="text" placeholder="Type to filter field names…"/>
+              <label for="search">Search fields</label>
+              <input id="search" class="input" type="search" placeholder="Type to filter field names…" />
+              <div class="help" id="scopeHelp">Showing 0 fields</div>
+            </div>
+
+            <div class="field">
+              <label>Actions</label>
+              <div class="actions" style="margin:0">
+                <button id="btnRefresh" class="btn" type="button">Refresh</button>
+                <button id="btnUndo" class="btn btn-primary" type="button" disabled>Undo last move</button>
+              </div>
+              <div class="help desktop-only">Drag using the small grip icon on each card.</div>
+              <div class="help" style="display:none" id="mobileHint">On mobile: tap Corn/Beans buttons on each card.</div>
             </div>
           </div>
 
-          <div class="row">
-            <button id="btnSelectAllFiltered" class="btn" type="button">Select All (Filtered)</button>
-            <button id="btnClearSelection" class="btn" type="button">Clear Selection</button>
-          </div>
-
-          <div style="height:12px;"></div>
-
-          <h3>Bulk Planning</h3>
-
-          <div class="row">
-            <div class="field" style="min-width:160px;">
-              <label for="selYear">Crop Year</label>
-              <select id="selYear"></select>
+          <!-- KPI -->
+          <div class="kpi-line" role="status" aria-live="polite">
+            <div class="kpi">
+              <div class="v" id="kpiUnplannedFields">0</div>
+              <div class="l">Unplanned fields</div>
+            </div>
+            <div class="kpi">
+              <div class="v" id="kpiUnplannedAcres">0.00</div>
+              <div class="l">Unplanned acres</div>
             </div>
 
-            <div class="field" style="min-width:220px;">
-              <label for="selCrop">Crop</label>
-              <select id="selCrop">
-                <option value="corn">Corn</option>
-                <option value="soybeans">Soybeans</option>
-              </select>
+            <div class="kpi" style="margin-left:auto">
+              <div class="v" id="kpiCornFields">0</div>
+              <div class="l">Corn fields</div>
+            </div>
+            <div class="kpi">
+              <div class="v" id="kpiCornAcres">0.00</div>
+              <div class="l">Corn acres</div>
+            </div>
+
+            <div class="kpi" style="margin-left:auto">
+              <div class="v" id="kpiSoyFields">0</div>
+              <div class="l">Beans fields</div>
+            </div>
+            <div class="kpi">
+              <div class="v" id="kpiSoyAcres">0.00</div>
+              <div class="l">Beans acres</div>
             </div>
           </div>
 
-          <div class="row">
-            <button id="btnApply" class="btn btnPrimary" type="button" disabled>Apply Plan to Selected</button>
-            <button id="btnUnplan" class="btn btnDanger" type="button" disabled>Clear Plan (Selected)</button>
-          </div>
+          <!-- Board -->
+          <div class="board" id="board">
+            <div class="col" data-crop="">
+              <div class="col-head">
+                <div>
+                  <div class="col-title">Unplanned</div>
+                  <div class="col-sub"><span id="subUnplanned">0 fields • 0.00 ac</span></div>
+                </div>
+                <span class="pill">none</span>
+              </div>
+              <div class="dropzone" id="zoneUnplanned" data-crop=""></div>
+            </div>
 
-          <div class="row">
-            <div class="mutedSmall" id="bulkHint">
-              Applies to the selected fields only. Totals update instantly after save.
+            <div class="col" data-crop="corn">
+              <div class="col-head">
+                <div>
+                  <div class="col-title">Corn</div>
+                  <div class="col-sub"><span id="subCorn">0 fields • 0.00 ac</span></div>
+                </div>
+                <span class="pill">corn</span>
+              </div>
+              <div class="dropzone" id="zoneCorn" data-crop="corn"></div>
+            </div>
+
+            <div class="col" data-crop="soybeans">
+              <div class="col-head">
+                <div>
+                  <div class="col-title">Soybeans</div>
+                  <div class="col-sub"><span id="subSoy">0 fields • 0.00 ac</span></div>
+                </div>
+                <span class="pill">soybeans</span>
+              </div>
+              <div class="dropzone" id="zoneSoy" data-crop="soybeans"></div>
             </div>
           </div>
+
         </div>
-
-        <!-- RIGHT: Field list -->
-        <div class="card">
-          <h3>Fields</h3>
-
-          <div class="listTop">
-            <div class="left mutedSmall" id="listMeta">Loading…</div>
-            <div class="right">
-              <span class="pill pillNone" id="pillFilter">Active</span>
-            </div>
-          </div>
-
-          <div class="tableWrap">
-            <table>
-              <thead>
-                <tr>
-                  <th style="width:44px;">
-                    <input id="chkHeader" type="checkbox" title="Toggle all filtered"/>
-                  </th>
-                  <th>Field</th>
-                  <th>Farm</th>
-                  <th style="text-align:right;">Tillable</th>
-                  <th>Planned (Year)</th>
-                </tr>
-              </thead>
-              <tbody id="tbodyFields"></tbody>
-            </table>
-          </div>
-
-          <div class="mutedSmall" style="margin-top:10px;">
-            Tip: use the Farm filter first to keep scrolling fast. “Unplanned” is based on the current filters + chosen year.
-          </div>
-        </div>
-      </div>
-
+      </section>
     </div>
-  </div>
+  </fv-shell>
 
-  <div class="toast" id="toast"></div>
+  <div id="fv-toast" role="status" aria-live="polite"></div>
 
-  <script type="module">
-    'use strict';
-
-    // ---- Firebase imports (matches your current pattern of importing from firebase-init.js) ----
-    // If this path differs in your repo, change it here only.
-    import {
-      getFirestore, collection, getDocs, doc, setDoc, deleteDoc,
-      serverTimestamp
-    } from '/Farm-vista/js/firebase-init.js';
-
-    // ---- DOM ----
-    const els = {
-      btnRefresh:  document.getElementById('btnRefresh'),
-      selFarm:     document.getElementById('selFarm'),
-      selStatus:   document.getElementById('selStatus'),
-      txtSearch:   document.getElementById('txtSearch'),
-      btnSelectAllFiltered: document.getElementById('btnSelectAllFiltered'),
-      btnClearSelection: document.getElementById('btnClearSelection'),
-      selYear:     document.getElementById('selYear'),
-      selCrop:     document.getElementById('selCrop'),
-      btnApply:    document.getElementById('btnApply'),
-      btnUnplan:   document.getElementById('btnUnplan'),
-      bulkHint:    document.getElementById('bulkHint'),
-
-      chipYear:    document.getElementById('chipYear'),
-      chipLoaded:  document.getElementById('chipLoaded'),
-      chipFiltered:document.getElementById('chipFiltered'),
-      chipSelected:document.getElementById('chipSelected'),
-      chipSelAcres:document.getElementById('chipSelAcres'),
-
-      sumCornFields: document.getElementById('sumCornFields'),
-      sumCornAcres:  document.getElementById('sumCornAcres'),
-      sumSoyFields:  document.getElementById('sumSoyFields'),
-      sumSoyAcres:   document.getElementById('sumSoyAcres'),
-      sumNoneFields: document.getElementById('sumNoneFields'),
-      sumNoneAcres:  document.getElementById('sumNoneAcres'),
-
-      listMeta:    document.getElementById('listMeta'),
-      pillFilter:  document.getElementById('pillFilter'),
-      tbody:       document.getElementById('tbodyFields'),
-      chkHeader:   document.getElementById('chkHeader'),
-
-      toast:       document.getElementById('toast'),
-    };
-
-    // ---- State ----
-    const state = {
-      db: null,
-      farms: new Map(),       // farmId -> {id,name,status}
-      fields: [],             // [{id, name, farmId, status, tillable, nameLower}]
-      plans: new Map(),       // fieldId -> {crop, acres, ...} for selected year
-      filtered: [],           // current filtered fields
-      selected: new Set(),    // selected fieldIds
-      year: null,
-    };
-
-    // ---- Helpers ----
-    const norm = (s) => (s || '').toString().trim().toLowerCase();
-    const fmt2 = (n) => (Number(n || 0)).toFixed(2);
-
-    function toast(msg){
-      els.toast.textContent = msg;
-      els.toast.style.display = 'block';
-      clearTimeout(toast._t);
-      toast._t = setTimeout(()=>{ els.toast.style.display = 'none'; }, 1800);
-    }
-
-    function getUserEmail(){
-      try{
-        // common FV patterns:
-        if (window.FV && window.FV.user && window.FV.user.email) return window.FV.user.email;
-        if (window.__auth && window.__auth.currentUser && window.__auth.currentUser.email) return window.__auth.currentUser.email;
-      }catch{}
-      return null;
-    }
-
-    function buildYearOptions(){
-      const now = new Date();
-      const y = now.getFullYear();
-      const list = [];
-      for (let i = -1; i <= 5; i++) list.push(y + i);
-
-      els.selYear.innerHTML = list.map(yy => `<option value="${yy}">${yy}</option>`).join('');
-      // planning default = next year
-      const defaultYear = y + 1;
-      els.selYear.value = String(defaultYear);
-      state.year = String(defaultYear);
-      els.chipYear.textContent = state.year;
-    }
-
-    function statusLabel(v){
-      if (v === 'all') return 'All';
-      if (v === 'archived') return 'Archived';
-      return 'Active';
-    }
-
-    function cropPill(crop){
-      if (crop === 'corn') return `<span class="pill pillCorn">corn</span>`;
-      if (crop === 'soybeans') return `<span class="pill pillSoy">soybeans</span>`;
-      return `<span class="pill pillNone">none</span>`;
-    }
-
-    function getPlanColRef(year){
-      // field_crop_plans/{YEAR}/fields/{FIELD_ID}
-      return collection(state.db, 'field_crop_plans', String(year), 'fields');
-    }
-
-    // ---- Loaders ----
-    async function initDb(){
-      state.db = getFirestore();
-    }
-
-    async function loadFarms(){
-      state.farms.clear();
-      const snap = await getDocs(collection(state.db, 'farms'));
-      snap.forEach(d=>{
-        const x = d.data() || {};
-        state.farms.set(d.id, { id: d.id, name: x.name || '(Unnamed Farm)', status: x.status || 'active' });
-      });
-
-      // Populate dropdown (active farms first)
-      const farmsArr = Array.from(state.farms.values())
-        .sort((a,b)=>{
-          const sa = (a.status==='active')?0:1;
-          const sb = (b.status==='active')?0:1;
-          if (sa!==sb) return sa-sb;
-          return (a.name||'').localeCompare(b.name||'');
-        });
-
-      const opts = farmsArr.map(f=>{
-        const sfx = (f.status && f.status !== 'active') ? ` (${f.status})` : '';
-        return `<option value="${f.id}">${f.name}${sfx}</option>`;
-      }).join('');
-
-      // Keep current selection if still exists
-      const cur = els.selFarm.value;
-      els.selFarm.innerHTML = `<option value="">All Farms</option>${opts}`;
-      if (cur && state.farms.has(cur)) els.selFarm.value = cur;
-    }
-
-    async function loadFields(){
-      const snap = await getDocs(collection(state.db, 'fields'));
-      const arr = [];
-      snap.forEach(d=>{
-        const x = d.data() || {};
-        const till = Number(x.tillable || 0);
-        arr.push({
-          id: d.id,
-          name: x.name || '(Unnamed Field)',
-          nameLower: norm(x.name),
-          farmId: x.farmId || '',
-          status: (x.status || 'active'),
-          tillable: isFinite(till) ? till : 0
-        });
-      });
-
-      // Stable sort by farm name then field name
-      arr.sort((a,b)=>{
-        const fa = (state.farms.get(a.farmId)?.name || '').toLowerCase();
-        const fb = (state.farms.get(b.farmId)?.name || '').toLowerCase();
-        if (fa !== fb) return fa.localeCompare(fb);
-        return (a.nameLower).localeCompare(b.nameLower);
-      });
-
-      state.fields = arr;
-      els.chipLoaded.textContent = String(arr.length);
-    }
-
-    async function loadPlansForYear(year){
-      state.plans.clear();
-      const snap = await getDocs(getPlanColRef(year));
-      snap.forEach(d=>{
-        const x = d.data() || {};
-        state.plans.set(d.id, {
-          crop: norm(x.crop),
-          acres: Number(x.acres || 0),
-          farmId: x.farmId || '',
-          fieldName: x.fieldName || '',
-          status: x.status || '',
-        });
-      });
-    }
-
-    // ---- Filtering + Rendering ----
-    function applyFilters(){
-      const farmId = els.selFarm.value || '';
-      const status = els.selStatus.value || 'active';
-      const q = norm(els.txtSearch.value);
-
-      const out = state.fields.filter(f=>{
-        if (farmId && f.farmId !== farmId) return false;
-        if (status !== 'all' && norm(f.status) !== status) return false;
-        if (q && !f.nameLower.includes(q)) return false;
-        return true;
-      });
-
-      state.filtered = out;
-      els.chipFiltered.textContent = String(out.length);
-      els.pillFilter.textContent = statusLabel(status);
-      els.listMeta.textContent = `${out.length} fields shown • ${statusLabel(status)} • ${farmId ? (state.farms.get(farmId)?.name || 'Farm') : 'All farms'}`;
-
-      // Header checkbox state
-      syncHeaderCheckbox();
-
-      renderTable();
-      renderTotals();
-      renderSelectionChips();
-      syncBulkButtons();
-    }
-
-    function renderTable(){
-      const year = state.year;
-      const rows = state.filtered.map(f=>{
-        const checked = state.selected.has(f.id) ? 'checked' : '';
-        const farmName = state.farms.get(f.farmId)?.name || '(Unknown Farm)';
-
-        const plan = state.plans.get(f.id);
-        const crop = plan?.crop || '';
-        const planCell = crop ? cropPill(crop) : cropPill('');
-
-        return `
-          <tr data-id="${f.id}">
-            <td>
-              <input class="chkRow" type="checkbox" ${checked} aria-label="Select field"/>
-            </td>
-            <td class="tdName" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</td>
-            <td class="tdFarm" title="${escapeHtml(farmName)}">${escapeHtml(farmName)}</td>
-            <td class="tdAcres">${fmt2(f.tillable)}</td>
-            <td class="tdPlan">${planCell}</td>
-          </tr>
-        `;
-      }).join('');
-
-      els.tbody.innerHTML = rows || `
-        <tr><td colspan="5" class="mutedSmall" style="padding:14px 10px;">
-          No fields match your filters.
-        </td></tr>
-      `;
-
-      // bind row checkbox clicks
-      els.tbody.querySelectorAll('.chkRow').forEach(chk=>{
-        chk.addEventListener('change', (e)=>{
-          const tr = e.target.closest('tr');
-          const id = tr?.getAttribute('data-id');
-          if (!id) return;
-          if (e.target.checked) state.selected.add(id);
-          else state.selected.delete(id);
-          syncHeaderCheckbox();
-          renderSelectionChips();
-          syncBulkButtons();
-        });
-      });
-    }
-
-    function renderSelectionChips(){
-      const ids = Array.from(state.selected);
-      let acres = 0;
-      for (const id of ids){
-        const f = state.fields.find(x=>x.id===id);
-        if (f) acres += Number(f.tillable||0);
-      }
-      els.chipSelected.textContent = String(ids.length);
-      els.chipSelAcres.textContent = fmt2(acres);
-    }
-
-    function renderTotals(){
-      // Totals are based on current FILTERED set + chosen year plans
-      let cornFields = 0, cornAcres = 0;
-      let soyFields = 0, soyAcres = 0;
-      let noneFields = 0, noneAcres = 0;
-
-      for (const f of state.filtered){
-        const plan = state.plans.get(f.id);
-        const crop = norm(plan?.crop);
-        const acres = Number(f.tillable||0);
-
-        if (crop === 'corn'){
-          cornFields++; cornAcres += acres;
-        } else if (crop === 'soybeans'){
-          soyFields++; soyAcres += acres;
-        } else {
-          noneFields++; noneAcres += acres;
-        }
-      }
-
-      els.sumCornFields.textContent = String(cornFields);
-      els.sumCornAcres.textContent  = fmt2(cornAcres);
-      els.sumSoyFields.textContent  = String(soyFields);
-      els.sumSoyAcres.textContent   = fmt2(soyAcres);
-      els.sumNoneFields.textContent = String(noneFields);
-      els.sumNoneAcres.textContent  = fmt2(noneAcres);
-    }
-
-    function syncHeaderCheckbox(){
-      const filteredIds = state.filtered.map(f=>f.id);
-      if (filteredIds.length === 0){
-        els.chkHeader.checked = false;
-        els.chkHeader.indeterminate = false;
-        return;
-      }
-      let selCount = 0;
-      for (const id of filteredIds) if (state.selected.has(id)) selCount++;
-
-      els.chkHeader.checked = (selCount === filteredIds.length);
-      els.chkHeader.indeterminate = (selCount > 0 && selCount < filteredIds.length);
-    }
-
-    function syncBulkButtons(){
-      const hasSel = state.selected.size > 0;
-      els.btnApply.disabled = !hasSel;
-      els.btnUnplan.disabled = !hasSel;
-    }
-
-    function escapeHtml(s){
-      return (s || '').toString()
-        .replaceAll('&','&amp;')
-        .replaceAll('<','&lt;')
-        .replaceAll('>','&gt;')
-        .replaceAll('"','&quot;')
-        .replaceAll("'","&#039;");
-    }
-
-    // ---- Actions ----
-    function selectAllFiltered(){
-      for (const f of state.filtered) state.selected.add(f.id);
-      syncHeaderCheckbox();
-      renderTable();
-      renderSelectionChips();
-      syncBulkButtons();
-    }
-
-    function clearSelection(){
-      state.selected.clear();
-      syncHeaderCheckbox();
-      renderTable();
-      renderSelectionChips();
-      syncBulkButtons();
-    }
-
-    async function applyPlanToSelected(){
-      const year = String(els.selYear.value || state.year || '');
-      const crop = norm(els.selCrop.value);
-      if (!year) return;
-
-      const email = getUserEmail();
-      const planCol = getPlanColRef(year);
-
-      const ids = Array.from(state.selected);
-      if (ids.length === 0) return;
-
-      els.btnApply.disabled = true;
-
-      let ok = 0;
-      for (const id of ids){
-        const f = state.fields.find(x=>x.id===id);
-        if (!f) continue;
-
-        // snapshot acres from tillable
-        const payload = {
-          crop,
-          acres: Number(f.tillable || 0),
-          farmId: f.farmId || '',
-          fieldName: f.name || '',
-          status: f.status || '',
-          updatedAt: serverTimestamp()
-        };
-        if (email) payload.updatedBy = email;
-
-        try{
-          await setDoc(doc(planCol, id), payload, { merge: true });
-          // Update local cache immediately
-          state.plans.set(id, { crop, acres: payload.acres, farmId: payload.farmId, fieldName: payload.fieldName, status: payload.status });
-          ok++;
-        }catch(e){
-          console.error('[Crop Planning] setDoc failed', id, e);
-        }
-      }
-
-      renderTable();
-      renderTotals();
-      toast(`Saved ${ok}/${ids.length} planned crop entries (${crop})`);
-      syncBulkButtons();
-    }
-
-    async function clearPlanForSelected(){
-      const year = String(els.selYear.value || state.year || '');
-      if (!year) return;
-
-      const planCol = getPlanColRef(year);
-      const ids = Array.from(state.selected);
-      if (ids.length === 0) return;
-
-      els.btnUnplan.disabled = true;
-
-      let ok = 0;
-      for (const id of ids){
-        try{
-          await deleteDoc(doc(planCol, id));
-          state.plans.delete(id);
-          ok++;
-        }catch(e){
-          console.error('[Crop Planning] deleteDoc failed', id, e);
-        }
-      }
-
-      renderTable();
-      renderTotals();
-      toast(`Cleared ${ok}/${ids.length} planned crop entries`);
-      syncBulkButtons();
-    }
-
-    async function refreshAll(){
-      try{
-        els.listMeta.textContent = 'Refreshing…';
-        await loadFarms();
-        await loadFields();
-        await loadPlansForYear(state.year);
-        applyFilters();
-        toast('Refreshed');
-      }catch(e){
-        console.error(e);
-        toast('Refresh failed (see console)');
-        els.listMeta.textContent = 'Refresh failed';
-      }
-    }
-
-    // ---- Events ----
-    function bind(){
-      els.btnRefresh.addEventListener('click', refreshAll);
-
-      els.selFarm.addEventListener('change', ()=>{
-        // when farm filter changes, keep selections but update view
-        applyFilters();
-      });
-
-      els.selStatus.addEventListener('change', ()=>{
-        applyFilters();
-      });
-
-      let tSearch = null;
-      els.txtSearch.addEventListener('input', ()=>{
-        clearTimeout(tSearch);
-        tSearch = setTimeout(applyFilters, 120);
-      });
-
-      els.btnSelectAllFiltered.addEventListener('click', selectAllFiltered);
-      els.btnClearSelection.addEventListener('click', clearSelection);
-
-      els.selYear.addEventListener('change', async ()=>{
-        state.year = String(els.selYear.value || '');
-        els.chipYear.textContent = state.year || '—';
-        state.selected.clear(); // optional: safer so you don’t bulk-apply across a year swap accidentally
-        renderSelectionChips();
-        syncBulkButtons();
-        els.listMeta.textContent = 'Loading plans…';
-        await loadPlansForYear(state.year);
-        applyFilters();
-      });
-
-      els.btnApply.addEventListener('click', applyPlanToSelected);
-      els.btnUnplan.addEventListener('click', clearPlanForSelected);
-
-      els.chkHeader.addEventListener('change', (e)=>{
-        if (e.target.checked) selectAllFiltered();
-        else {
-          // uncheck all filtered (leave selections from other filters alone)
-          for (const f of state.filtered) state.selected.delete(f.id);
-          syncHeaderCheckbox();
-          renderTable();
-          renderSelectionChips();
-          syncBulkButtons();
-        }
-      });
-    }
-
-    // ---- Boot ----
-    async function boot(){
-      buildYearOptions();
-      bind();
-
-      try{
-        await initDb();
-        await loadFarms();
-        await loadFields();
-        await loadPlansForYear(state.year);
-        applyFilters();
-        toast('Ready');
-      }catch(e){
-        console.error(e);
-        els.listMeta.textContent = 'Failed to load (see console)';
-        toast('Failed to load (see console)');
-      }
-    }
-
-    boot();
-  </script>
+  <script type="module" src="/Farm-vista/js/crop-planning/crop-planning-selector.js"></script>
 </body>
 </html>
-
