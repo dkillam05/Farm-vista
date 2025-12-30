@@ -1,16 +1,13 @@
 /* =====================================================================
 /Farm-vista/js/crop-planning/crop-planning-selector.js  (FULL FILE)
-Rev: 2025-12-30d
+Rev: 2025-12-30e
 
 Changes in this rev:
+✅ Bulk actions moved into the 3 lower boxes (small buttons)
+✅ Removed farm helper text “22 farms” (farmHelp kept blank)
+✅ Removed year helper text “Only 2026 and 2027”
 ✅ Year dropdown is ONLY 2026 + 2027 (default 2026)
-✅ Removed Refresh + Undo completely
-✅ Farm dropdown list no longer shows "active" status pills
-✅ Board columns are scrollable (handled in CSS)
-✅ Added bulk actions for ALL shown:
-   - ALL → Corn
-   - ALL → Soybeans
-   - Clear ALL
+✅ Farm dropdown list no longer shows any status labels
 ✅ Page ALWAYS shows ACTIVE fields only
 ===================================================================== */
 'use strict';
@@ -35,7 +32,7 @@ function showToast(msg){
   el.textContent = msg;
   el.classList.add('show');
   clearTimeout(showToast._t);
-  showToast._t = setTimeout(()=> el.classList.remove('show'), 1200);
+  showToast._t = setTimeout(()=> el.classList.remove('show'), 1100);
 }
 
 function closeAllCombos(except=null){
@@ -49,17 +46,14 @@ document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos();
 async function runWithConcurrency(items, limit, worker){
   const arr = Array.from(items || []);
   let idx = 0;
-  let done = 0;
   const total = arr.length;
   const runners = new Array(Math.max(1, limit)).fill(0).map(async ()=>{
     while(idx < total){
       const i = idx++;
       await worker(arr[i], i);
-      done++;
     }
   });
   await Promise.all(runners);
-  return done;
 }
 
 /* ========= DOM ========= */
@@ -101,7 +95,6 @@ let db = null;
 let farms = [];
 let fields = [];
 let farmNameById = new Map();
-
 let plans = new Map();
 let currentYear = '2026';
 
@@ -327,6 +320,14 @@ async function handleDrop({ fieldId, fromCrop, toCrop }){
 }
 
 /* ========= Bulk actions (ALL shown) ========= */
+function disableBulk(disabled){
+  btnAllCorn.disabled = !!disabled;
+  btnAllSoy.disabled = !!disabled;
+  btnAllClear.disabled = !!disabled;
+  yearEl.disabled = !!disabled;
+  if(disabled) closeAllCombos();
+}
+
 async function bulkSetAllShown(targetCrop){
   const list = getShownFields();
   if(!list.length) return;
@@ -343,7 +344,7 @@ async function bulkSetAllShown(targetCrop){
     });
 
     renderAll();
-    showToast(`Planned ${list.length} → ${targetCrop}`);
+    showToast(`Moved ALL shown → ${targetCrop}`);
   }catch(e){
     console.error(e);
     showToast('Bulk save failed (see console)');
@@ -368,7 +369,7 @@ async function bulkClearAllShown(){
     });
 
     renderAll();
-    showToast(`Cleared ${list.length} plans`);
+    showToast(`Cleared ALL shown`);
   }catch(e){
     console.error(e);
     showToast('Bulk clear failed (see console)');
@@ -377,27 +378,19 @@ async function bulkClearAllShown(){
   }
 }
 
-function disableBulk(disabled){
-  btnAllCorn.disabled = !!disabled;
-  btnAllSoy.disabled = !!disabled;
-  btnAllClear.disabled = !!disabled;
-  yearEl.disabled = !!disabled;
-  // farm combo is still usable visually but we prevent accidental mid-bulk edits by closing it
-  if(disabled) closeAllCombos();
-}
-
 /* ========= Load ========= */
 async function loadAll(){
-  farmHelp.textContent = 'Loading farms…';
+  // ✅ No farm count helper text
+  if(farmHelp) farmHelp.textContent = '';
+
   farms = await loadFarms(db);
   farmNameById = new Map(farms.map(f=>[String(f.id), String(f.name)]));
-  farmHelp.textContent = `${farms.length} farms`;
+
   renderFarmList('');
 
   fields = await loadFields(db);
   plans = await loadPlansForYear(db, currentYear);
 
-  // if selected farm no longer exists, reset
   if(farmIdEl.value && !farmNameById.get(String(farmIdEl.value))){
     farmIdEl.value = '';
     farmNameEl.value = '';
@@ -438,5 +431,4 @@ btnAllClear.addEventListener('click', bulkClearAllShown);
   });
 
   await loadAll();
-  showToast('Ready');
 })();
