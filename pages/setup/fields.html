@@ -2,11 +2,17 @@
 /Farm-vista/pages/setup/fields.html
 Fields setup – farms, counties, acres + optional GPS location (add + edit)
 
-CHANGE (2025-12-30):
-✅ After any successful Save (Add Field, Save Changes, Import) -> auto RELOAD page
-   - This resets ALL dropdowns back to their default placeholders reliably.
-✅ RTK Tower dropdown will NOT be clipped/hidden by the “hero box”
-   - Add section now allows overflow + sits above the next section (z-index)
+UI UPDATES (2025-12-19):
+1) ✅ Any green button => force WHITE text (add + edit)
+2) ✅ Delete button in Field modal now matches Archive button styling (like Farms)
+3) ✅ If field is used => Delete disabled/greyed (only Archive allowed)
+4) ✅ FV themed delete confirm modal => must type YES to confirm (no X close; Cancel only)
+5) ✅ NEW: Simple status filter (Active / Archived) — defaults to Active
+6) ✅ NEW: When Archive/Unarchive is clicked and succeeds, close the modal (toast still shows)
+
+UI UPDATES (2025-12-22):
+7) ✅ Soil Wetness + Drainage sliders now 0–100 (granular)
+8) ✅ Subtle left/right labels under sliders + subtle live value next to name
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -43,43 +49,6 @@ CHANGE (2025-12-30):
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;
     }
     .section + .section{ margin-top:14px; }
-
-    /* ✅ FIX: allow dropdowns (RTK select menu) to render over the next section */
-    .section.section-add{
-      position:relative;
-      z-index:20;        /* above the next section */
-      overflow:visible;  /* do NOT clip dropdown menus */
-    }
-    .section.section-add .section-head{
-      border-top-left-radius:14px;
-      border-top-right-radius:14px;
-    }
-    .section.section-add .section-body{
-      position:relative;
-      z-index:25;
-    }
-    .section.section-add .field{
-      position:relative;
-      z-index:30;
-    }
-     /* ✅ RTK dropdown should always appear above other labels/controls */
-.field:has(#rtkSelect),
-.field:has(#editRtkSelect){
-  position: relative;
-  z-index: 200;
-}
-
-/* keep the control itself above siblings */
-#rtkSelect, #editRtkSelect{
-  position: relative;
-  z-index: 210;
-}
-
-/* if any ancestor still clips, force visible on the add section */
-.section.section-add,
-.section.section-add .section-body{
-  overflow: visible !important;
-}
 
     .section-head{
       display:grid;grid-template-columns:36px 1fr;gap:12px;align-items:center;
@@ -118,6 +87,7 @@ CHANGE (2025-12-30):
 
     /* ==========================================================
        ✅ ANY GREEN BUTTON MUST HAVE WHITE TEXT (hard override)
+       (add + edit + confirm modal)
        ========================================================== */
     .btn-primary{ color:#fff !important; -webkit-text-fill-color:#fff !important; }
     button[style*="background:#2F6C3C"], button[style*="background: #2F6C3C"],
@@ -281,6 +251,7 @@ CHANGE (2025-12-30):
 
     /* ==========================================================
        ✅ FORCE: Archive + Delete identical in Field modal
+       Matches Farms styling
        ========================================================== */
     .left-btns .btn.btn-modal-action,
     #mdArchive.btn.btn-modal-action,
@@ -438,7 +409,13 @@ CHANGE (2025-12-30):
 
     /* ==========================================================
        🔒 HARD LOCK: GREEN BUTTONS = WHITE TEXT (NO EXCEPTIONS)
+       This overrides:
+       - inline styles
+       - autofill weirdness
+       - Safari / iOS text-fill bugs
        ========================================================== */
+
+    /* All standard green buttons */
     .btn-primary,
     .btn-primary *,
     button.btn-primary,
@@ -447,6 +424,7 @@ CHANGE (2025-12-30):
       -webkit-text-fill-color: #fff !important;
     }
 
+    /* Any element with green background inline */
     button[style*="background:#2F6C3C"],
     button[style*="background: #2F6C3C"],
     button[style*="background:#3B7E46"],
@@ -461,11 +439,13 @@ CHANGE (2025-12-30):
       -webkit-text-fill-color:#fff !important;
     }
 
+    /* Active / pressed green pills */
     .pill-toggle[aria-pressed="true"] {
       color:#fff !important;
       -webkit-text-fill-color:#fff !important;
     }
 
+    /* Disabled green buttons should STILL be white text */
     .btn-primary:disabled,
     .btn-primary:disabled * {
       color:#fff !important;
@@ -515,7 +495,7 @@ CHANGE (2025-12-30):
       <h1 class="page-title">Fields</h1>
       <p class="page-sub">Assign fields to farms, track county and acres (tillable, HEL, CRP), and optionally set a GPS center.</p>
 
-      <section class="section section-add">
+      <section class="section">
         <header class="section-head">
           <div class="icon" aria-hidden="true">🗺️</div>
           <div><strong>Add Field</strong></div>
@@ -967,21 +947,6 @@ CHANGE (2025-12-30):
     // defaults to ACTIVE every load
     let STATUS_FILTER = "active"; // "active" | "archived"
 
-    /* ==========================================================
-       ✅ NEW: hard reset after saves
-       - Reload the page so dropdowns go back to placeholders/defaults
-       ========================================================== */
-    function reloadToDefaults(){
-      try{
-        // close any dropdown UI first
-        document.querySelectorAll(".dd").forEach(d=>d.classList.remove("open"));
-      }catch{}
-      // small delay so toast can flash and Firestore write finishes cleanly
-      setTimeout(()=> {
-        window.location.reload();
-      }, 450);
-    }
-
     const CENSUS_KEY = "14a8ad456efef642983bd8e830809694965b003f";
     const STATES = [
       ["AL","Alabama"],["AK","Alaska"],["AZ","Arizona"],["AR","Arkansas"],["CA","California"],["CO","Colorado"],
@@ -1345,8 +1310,35 @@ CHANGE (2025-12-30):
       await addDoc(fieldsRef(), payload);
       showToast("Successfully saved.");
 
-      // ✅ Per request: reload to reset all dropdowns to defaults
-      reloadToDefaults();
+      $("farmSelect").value = "";
+      $("fieldName").value = "";
+      $("tillable").value = "";
+      $("rtkSelect").value = "";
+
+      setToggle($("helToggle"), $("hasHEL"), false, $("helAcreWrap"), $("helAcres"));
+      setToggle($("crpToggle"), $("hasCRP"), false, $("crpAcreWrap"), $("crpAcres"));
+
+      ddCounty.btn.textContent = "Select a county…";
+      ddCounty.btn.disabled = true;
+      ddCounty.search.value = ""; ddCounty.search.disabled = true; ddCounty.list.innerHTML = "";
+      $("countySelect").value = "";
+
+      $("fieldLat").value = "";
+      $("fieldLng").value = "";
+      const locLabel = $("fieldLocationLabel");
+      if(locLabel) locLabel.textContent = "No location set.";
+      fieldMapLatLng = null;
+      if(fieldMapMarker){
+        fieldMapMarker.setMap(null);
+        fieldMapMarker = null;
+      }
+
+      // reset sliders
+      setRange0100("soilWetness", 50);
+      setRange0100("drainageIndex", 50);
+
+      await renderList();
+      window.scrollTo({top:0, behavior:"smooth"});
     }
 
     function normStatus(s){
@@ -1417,6 +1409,7 @@ CHANGE (2025-12-30):
         return;
       }
 
+      // when filtered by status already, sort by name naturally
       filtered.sort((a,b)=>{
         const nameA = String(a.name||"");
         const nameB = String(b.name||"");
@@ -1481,6 +1474,7 @@ CHANGE (2025-12-30):
       $("editCrpAcres").value = it.crpAcres ?? "";
       setToggle($("editCrpToggle"), $("editHasCRP"), !!it.hasCRP, $("editCrpAcreWrap"), $("editCrpAcres"));
 
+      // sliders (default 50)
       setRange0100("editSoilWetness", (it.soilWetness ?? 50));
       setRange0100("editDrainageIndex", (it.drainageIndex ?? 50));
 
@@ -1500,6 +1494,7 @@ CHANGE (2025-12-30):
 
       mdArchive.textContent = (normStatus(it.status)==='archived') ? "Unarchive" : "Archive";
 
+      // ✅ lock delete if used (grey out like farms)
       mdDelete.disabled = !!it.used;
       mdDelete.title = it.used ? "This field is in use and cannot be deleted. Archive instead." : "Delete this field";
 
@@ -1578,11 +1573,9 @@ CHANGE (2025-12-30):
         updatedAt: serverTimestamp()
       });
 
+      await renderList();
       showToast("Changes saved.");
       closeModal();
-
-      // ✅ Per request: reload to reset dropdowns to defaults
-      reloadToDefaults();
     });
 
     mdArchive.addEventListener("click", async ()=>{
@@ -1600,6 +1593,7 @@ CHANGE (2025-12-30):
       await updateDoc(ref, { status: next, updatedAt: serverTimestamp() });
       await renderList();
 
+      // ✅ toast + CLOSE MODAL (per your request)
       showToast(next==='archived' ? "Field archived." : "Field unarchived.");
       closeModal();
     });
@@ -1665,6 +1659,7 @@ CHANGE (2025-12-30):
       if(!pendingDelete.id) return;
 
       try{
+        // Re-check used lock server-side via fresh read
         const ref = doc(db, 'fields', pendingDelete.id);
         const snap = await getDoc(ref);
         if(!snap.exists()){
@@ -1700,6 +1695,7 @@ CHANGE (2025-12-30):
         return;
       }
 
+      // UI lock already blocks if used, but keep a safe guard
       const ref = doc(db, 'fields', editId);
       const snap = await getDoc(ref);
       if(!snap.exists()) return;
@@ -2295,6 +2291,7 @@ CHANGE (2025-12-30):
           hasCRP: row.hasCRP,
           crpAcres: row.crpAcres,
           rtkTowerId: row.rtkTowerId || "",
+          // defaults for sliders on import:
           soilWetness: 50,
           drainageIndex: 50,
           status: "active",
@@ -2307,9 +2304,7 @@ CHANGE (2025-12-30):
       }
 
       showToast(`Imported ${imported} fields.`);
-
-      // ✅ Per request: reload to reset dropdowns to defaults
-      reloadToDefaults();
+      await renderList();
     }
 
     const importModal = $("importModal");
@@ -2433,6 +2428,7 @@ CHANGE (2025-12-30):
         fieldMapMarker = null;
       }
 
+      // reset sliders
       setRange0100("soilWetness", 50);
       setRange0100("drainageIndex", 50);
     });
@@ -2441,6 +2437,7 @@ CHANGE (2025-12-30):
       fieldSearch.addEventListener("input", ()=> renderList());
     }
 
+    // ✅ NEW: status toggle events
     if(statusActiveBtn){
       statusActiveBtn.addEventListener("click", ()=> setStatusFilter("active"));
     }
@@ -2463,6 +2460,7 @@ CHANGE (2025-12-30):
       wireToggle($("editHelToggle"), $("editHasHEL"), $("editHelAcreWrap"), $("editHelAcres"));
       wireToggle($("editCrpToggle"), $("editHasCRP"), $("editCrpAcreWrap"), $("editCrpAcres"));
 
+      // sliders: wire live values
       wireRangeValue("soilWetness", "soilWetnessVal");
       wireRangeValue("drainageIndex", "drainageIndexVal");
       wireRangeValue("editSoilWetness", "editSoilWetnessVal");
@@ -2499,8 +2497,10 @@ CHANGE (2025-12-30):
       setupFieldLocationPicker();
       setupEditFieldLocationPicker();
 
+      // ✅ default to ACTIVE on page load
       setStatusFilter("active", true);
 
+      // default slider values on load
       setRange0100("soilWetness", 50);
       setRange0100("drainageIndex", 50);
       setRange0100("editSoilWetness", 50);
