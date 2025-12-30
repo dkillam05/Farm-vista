@@ -480,7 +480,8 @@
       filteredFarms: [],
       selectedFarmId: null,
 
-      // ✅ SOURCE OF TRUTH (Field Maintenance pattern)
+      // ✅ SOURCE OF TRUTH
+      // IMPORTANT: this page must always default to Active when you leave/return
       statusFilter: 'active'
     };
 
@@ -566,6 +567,7 @@
       const farm   = ($('#filterFarm')?.value || 'all');
       const q      = ($('#filterSearch')?.value || '').trim();
       try{
+        // NOTE: we still store status for completeness, but boot ALWAYS forces "active"
         localStorage.setItem(LS_KEY, JSON.stringify({
           status: STATE.statusFilter,
           county,
@@ -575,7 +577,6 @@
       }catch(_){}
     }
 
-    // ✅ REPLACED: Strong sync like we discussed (value + selectedIndex + option.selected)
     function syncStatusUI(){
       const sel = $('#filterStatus');
       if(!sel) return;
@@ -596,7 +597,15 @@
       }
     }
 
-    // ✅ ADDED: Guard to prevent the select from drifting back to "All"
+    // ✅ Hard rule: whenever the page is (re)shown, default back to ACTIVE
+    function forceDefaultActive(reason){
+      STATE.statusFilter = 'active';
+      syncStatusUI();
+      hydrateFarmDropdown();
+      applyFilters();
+      saveFilters();
+    }
+
     function installStatusGuard(){
       const sel = $('#filterStatus');
       if(!sel) return;
@@ -617,42 +626,37 @@
       setTimeout(enforce, 50);
       setTimeout(enforce, 200);
 
-      window.addEventListener('pageshow', enforce);
-      document.addEventListener('visibilitychange', () => {
-        if(!document.hidden) enforce();
+      // IMPORTANT:
+      // If user navigates away/back (bfcache), browsers often restore <select> to "All".
+      // We always reset to Active on pageshow.
+      window.addEventListener('pageshow', (e) => {
+        // Always force Active when the page is shown again (including bfcache)
+        forceDefaultActive(e && e.persisted ? 'pageshow:bfcache' : 'pageshow');
       });
 
-      // Watch for external attribute toggles (some browsers/shell flows)
+      document.addEventListener('visibilitychange', () => {
+        if(!document.hidden){
+          // When you come back to the tab, keep it Active by default
+          forceDefaultActive('visibility');
+        }
+      });
+
+      // Watch for external attribute toggles
       const mo = new MutationObserver(enforce);
       mo.observe(sel, { attributes:true, attributeFilter:['value'] });
 
-      // If something toggles option.selected behind the scenes, this catches it too
       const mo2 = new MutationObserver(enforce);
       mo2.observe(sel, { subtree:true, childList:true, attributes:true, attributeFilter:['selected'] });
 
-      // Keep state in sync if user changes it
+      // User change = real change (during this visit)
       sel.addEventListener('change', () => {
         STATE.statusFilter = sel.value || 'active';
         syncStatusUI();
+        hydrateFarmDropdown();
+        applyFilters();
+        saveFilters();
         enforce();
       });
-    }
-
-    function chooseDefaultFieldStatusFromData(){
-      let hasActive = false;
-      let hasArchived = false;
-      for(const farm of (STATE.farms || [])){
-        for(const fl of (farm.fields || [])){
-          const st = normalizeFieldStatus(fl.status);
-          if(st === 'active') hasActive = true;
-          if(st === 'archived') hasArchived = true;
-          if(hasActive) break;
-        }
-        if(hasActive) break;
-      }
-      if(hasActive) return 'active';
-      if(hasArchived) return 'archived';
-      return 'all';
     }
 
     async function loadCompanyHeader(){
@@ -1044,22 +1048,10 @@
     }
 
     function wireFilterEvents(){
-      const statusSel = $('#filterStatus');
       const countySel = $('#filterCounty');
       const farmSel = $('#filterFarm');
       const searchEl = $('#filterSearch');
       const clearBtn = $('#filterClear');
-
-      if(statusSel){
-        statusSel.addEventListener('change', () => {
-          STATE.statusFilter = statusSel.value || 'active';
-          syncStatusUI();
-
-          hydrateFarmDropdown();
-          applyFilters();
-          saveFilters();
-        });
-      }
 
       if(countySel){
         countySel.addEventListener('change', () => {
@@ -1391,20 +1383,16 @@
 
       buildEnriched();
 
-      // ✅ Field Maintenance style: set status after data load, using smart default unless saved
-      const saved = loadSavedFilters();
-      const defaultStatus = chooseDefaultFieldStatusFromData();
-      STATE.statusFilter = (saved && ['all','active','archived'].includes(String(saved.status)))
-        ? String(saved.status)
-        : defaultStatus;
-
-      // set the select from STATE (single truth)
+      // ✅ HARD REQUIREMENT:
+      // This page ALWAYS defaults to Active when opened or when you return to it.
+      STATE.statusFilter = 'active';
       syncStatusUI();
 
       // Counties list
       hydrateCountyDropdown();
 
-      // Restore county/farm/search like before
+      // Restore county/farm/search (BUT NOT status)
+      const saved = loadSavedFilters();
       const countySel = $('#filterCounty');
       const farmSel   = $('#filterFarm');
       const searchEl  = $('#filterSearch');
@@ -1431,7 +1419,7 @@
       applyFilters();
       saveFilters();
 
-      // ✅ ADDED: lock the dropdown so it can’t drift back to "All"
+      // ✅ Lock + force default Active on return
       installStatusGuard();
       syncStatusUI();
     })();
@@ -1491,7 +1479,8 @@
                 <label class="filter-label" for="filterStatus">Field Status</label>
                 <select id="filterStatus" class="filter-select">
                   <option value="all">All</option>
-                  <option value="active">Active</option>
+                  <!-- ✅ default selected in markup too (helps browser restore) -->
+                  <option value="active" selected>Active</option>
                   <!-- DB value archived; label shows Inactive -->
                   <option value="archived">Inactive</option>
                 </select>
