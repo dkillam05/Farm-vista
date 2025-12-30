@@ -1,17 +1,20 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/crop-planning-selector.html  (FULL FILE)
-Rev: 2025-12-30c
+Rev: 2025-12-30d
 Purpose:
  • Desktop-first Crop Planning Selector (Year + Corn/Soybeans)
- • FV-native theme/shell (based on your crop-aerial-add template)
- • Drag & drop board:
+ • FV-native theme/shell
+ • Drag & drop board with scrollable columns:
     - Unplanned  |  Corn  |  Soybeans
  • Filters:
     - Farm (combo)
-    - Year selector
+    - Year selector (2026-2027 only)
     - Search
  • IMPORTANT:
     - ONLY ACTIVE fields are shown (no status filter)
+ • Bulk actions:
+    - Plan ALL shown -> Corn / Soybeans
+    - Clear plan for ALL shown
  • Writes plans to:
     field_crop_plans/{YEAR}/fields/{FIELD_ID}
 ===================================================================== -->
@@ -56,6 +59,9 @@ Purpose:
       --col-gap:12px;
       --col-radius:14px;
       --col-pad:12px;
+
+      /* 👇 Column scroll height (keeps All Farms from being a mile long) */
+      --board-max-h: 62vh;
 
       --danger:#b00020;
       --ok:#2F6C3C;
@@ -310,7 +316,7 @@ Purpose:
     }
     @media (max-width:980px){
       .board{ grid-template-columns:1fr; }
-      .desktop-only{ display:none !important; }
+      :root{ --board-max-h: 48vh; }
     }
 
     .col{
@@ -318,9 +324,9 @@ Purpose:
       border-radius:var(--col-radius);
       background:var(--card-surface,var(--surface));
       overflow:hidden;
-      min-height:260px;
       display:flex;
       flex-direction:column;
+      min-height:240px;
     }
     .col-head{
       padding:12px 12px 10px;
@@ -341,12 +347,15 @@ Purpose:
       text-transform:uppercase;
     }
 
+    /* ✅ Scroll container for each section */
     .dropzone{
       padding:var(--col-pad);
       display:grid;
       gap:10px;
       align-content:start;
-      min-height:220px;
+      max-height: var(--board-max-h);
+      overflow:auto;
+      -webkit-overflow-scrolling: touch;
     }
 
     .dropzone.is-over{
@@ -429,18 +438,6 @@ Purpose:
       .cardMeta{ justify-content:flex-start; }
     }
 
-    /* Error banner */
-    .errBanner{
-      border:1px solid color-mix(in srgb, var(--danger) 55%, var(--border));
-      background: color-mix(in srgb, var(--surface) 92%, rgba(176,0,32,.10));
-      border-radius:12px;
-      padding:10px 12px;
-      font-weight:900;
-      color: color-mix(in srgb, var(--danger) 80%, var(--text));
-      display:none;
-    }
-    .errBanner.show{ display:block; }
-
     /* Toast */
     #fv-toast{
       position:fixed;
@@ -478,14 +475,11 @@ Purpose:
           </div>
           <div>
             <h1>Crop Planning Selector</h1>
-            <p class="muted">Active fields only. Pick a year, filter by farm, then drag fields into Corn or Soybeans.</p>
+            <p class="muted">Active fields only. Drag fields into Corn or Soybeans. Columns scroll to stay compact.</p>
           </div>
         </header>
 
         <div class="body">
-
-          <div id="errBanner" class="errBanner" role="status" aria-live="polite"></div>
-
           <!-- Filters -->
           <div class="row3">
             <!-- Farm combo -->
@@ -508,17 +502,17 @@ Purpose:
             <div class="field">
               <label for="year">Crop Year</label>
               <select id="year" class="select"></select>
-              <div class="help">Writes to: <strong>field_crop_plans/{year}/fields/{fieldId}</strong></div>
+              <div class="help">Only: <strong>2026</strong> and <strong>2027</strong></div>
             </div>
 
             <div class="field">
-              <label>Actions</label>
+              <label>Plan ALL shown</label>
               <div class="actions" style="margin:0">
-                <button id="btnRefresh" class="btn" type="button">Refresh</button>
-                <button id="btnUndo" class="btn btn-primary" type="button" disabled>Undo last move</button>
+                <button id="btnAllCorn" class="btn btn-primary" type="button">ALL → Corn</button>
+                <button id="btnAllSoy" class="btn btn-primary" type="button">ALL → Soybeans</button>
+                <button id="btnAllClear" class="btn" type="button">Clear ALL</button>
               </div>
-              <div class="help desktop-only">Drag using the small grip icon on each card.</div>
-              <div class="help" style="display:none" id="mobileHint">On mobile: tap Corn/Beans buttons on each card.</div>
+              <div class="help">Uses current Farm + Search. (Active fields only.)</div>
             </div>
           </div>
 
@@ -526,14 +520,12 @@ Purpose:
             <div class="field">
               <label for="search">Search fields</label>
               <input id="search" class="input" type="search" placeholder="Type to filter field names…" />
-              <div class="help" id="scopeHelp">Showing 0 fields</div>
+              <div class="help" id="scopeHelp">Showing 0 active fields</div>
             </div>
 
             <div class="field">
-              <label>Active Fields Only</label>
-              <div class="help">
-                This page intentionally hides archived fields. Use Setup → Fields to archive/unarchive.
-              </div>
+              <label>Drag & drop</label>
+              <div class="help">Use the grip icon on desktop. On mobile, use the buttons on each card.</div>
             </div>
           </div>
 
@@ -611,15 +603,5 @@ Purpose:
   <div id="fv-toast" role="status" aria-live="polite"></div>
 
   <script type="module" src="/Farm-vista/js/crop-planning/crop-planning-selector.js"></script>
-
-  <!-- If the module 404s or crashes before running, show a visible banner -->
-  <script>
-    window.addEventListener('error', function(e){
-      const b = document.getElementById('errBanner');
-      if(!b) return;
-      b.classList.add('show');
-      b.textContent = 'Crop Planning Selector failed to load. Open console: likely missing JS file path (/Farm-vista/js/crop-planning/...).';
-    });
-  </script>
 </body>
 </html>
