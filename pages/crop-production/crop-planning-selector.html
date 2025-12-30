@@ -1,6 +1,6 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/crop-planning-selector.html  (FULL FILE)
-Rev: 2025-12-30b
+Rev: 2025-12-30c
 Purpose:
  • Desktop-first Crop Planning Selector (Year + Corn/Soybeans)
  • FV-native theme/shell (based on your crop-aerial-add template)
@@ -8,11 +8,10 @@ Purpose:
     - Unplanned  |  Corn  |  Soybeans
  • Filters:
     - Farm (combo)
-    - Field Status (active/archived/all)  (defaults active)
     - Year selector
     - Search
- • KPIs:
-    - Per column: field count + tillable acres
+ • IMPORTANT:
+    - ONLY ACTIVE fields are shown (no status filter)
  • Writes plans to:
     field_crop_plans/{YEAR}/fields/{FIELD_ID}
 ===================================================================== -->
@@ -54,7 +53,6 @@ Purpose:
       --hero-icon-col:36px;
       --hero-icon-size:24px;
 
-      /* Board */
       --col-gap:12px;
       --col-radius:14px;
       --col-pad:12px;
@@ -237,10 +235,9 @@ Purpose:
       background:#2F6C3C;
       color:#fff!important; /* ✅ green button always white font */
     }
-
     .btn:disabled{ opacity:.55; cursor:not-allowed; }
 
-    /* Combo core (copied pattern) */
+    /* Combo core */
     .combo{ position:relative; }
     .combo .combo-anchor{
       position:relative;
@@ -312,9 +309,7 @@ Purpose:
       align-items:start;
     }
     @media (max-width:980px){
-      .board{
-        grid-template-columns:1fr;
-      }
+      .board{ grid-template-columns:1fr; }
       .desktop-only{ display:none !important; }
     }
 
@@ -336,11 +331,7 @@ Purpose:
       align-items:flex-start;
       justify-content:space-between;
     }
-    .col-title{
-      font-weight:900;
-      font-size:15px;
-      line-height:1.2;
-    }
+    .col-title{ font-weight:900; font-size:15px; line-height:1.2; }
     .col-sub{
       margin-top:4px;
       font-size:12px;
@@ -386,9 +377,7 @@ Purpose:
     }
     .dragGrip:active{ cursor:grabbing; }
 
-    .cardMain{
-      min-width:0;
-    }
+    .cardMain{ min-width:0; }
     .cardName{
       font-weight:900;
       white-space:nowrap;
@@ -428,7 +417,6 @@ Purpose:
       color:#fff !important;
     }
 
-    /* Mobile quick set (only visible < 980px) */
     .mobileSet{
       display:none;
       gap:8px;
@@ -440,6 +428,18 @@ Purpose:
       .dragGrip{ display:none; }
       .cardMeta{ justify-content:flex-start; }
     }
+
+    /* Error banner */
+    .errBanner{
+      border:1px solid color-mix(in srgb, var(--danger) 55%, var(--border));
+      background: color-mix(in srgb, var(--surface) 92%, rgba(176,0,32,.10));
+      border-radius:12px;
+      padding:10px 12px;
+      font-weight:900;
+      color: color-mix(in srgb, var(--danger) 80%, var(--text));
+      display:none;
+    }
+    .errBanner.show{ display:block; }
 
     /* Toast */
     #fv-toast{
@@ -460,8 +460,6 @@ Purpose:
       white-space:nowrap;
     }
     #fv-toast.show{ opacity:1; transform:translate(-50%,0); }
-
-    .no-scroll{ overflow:hidden !important; }
   </style>
 </head>
 
@@ -480,11 +478,13 @@ Purpose:
           </div>
           <div>
             <h1>Crop Planning Selector</h1>
-            <p class="muted">Pick a year, filter fields, then drag fields into Corn or Soybeans. Totals update instantly.</p>
+            <p class="muted">Active fields only. Pick a year, filter by farm, then drag fields into Corn or Soybeans.</p>
           </div>
         </header>
 
         <div class="body">
+
+          <div id="errBanner" class="errBanner" role="status" aria-live="polite"></div>
 
           <!-- Filters -->
           <div class="row3">
@@ -500,25 +500,25 @@ Purpose:
                   <div class="list" id="farmList"></div>
                 </div>
               </div>
-              <div class="help" id="farmHelp">0 farms</div>
+              <div class="help" id="farmHelp">Loading farms…</div>
               <input type="hidden" id="farmId" />
               <input type="hidden" id="farmName" />
             </div>
 
             <div class="field">
-              <label for="status">Field Status</label>
-              <select id="status" class="select">
-                <option value="active" selected>Active</option>
-                <option value="archived">Archived</option>
-                <option value="all">All</option>
-              </select>
-              <div class="help">Archived fields are shown only when selected.</div>
+              <label for="year">Crop Year</label>
+              <select id="year" class="select"></select>
+              <div class="help">Writes to: <strong>field_crop_plans/{year}/fields/{fieldId}</strong></div>
             </div>
 
             <div class="field">
-              <label for="year">Crop Year</label>
-              <select id="year" class="select"></select>
-              <div class="help">Planning writes to: <strong>field_crop_plans/{year}/fields/{fieldId}</strong></div>
+              <label>Actions</label>
+              <div class="actions" style="margin:0">
+                <button id="btnRefresh" class="btn" type="button">Refresh</button>
+                <button id="btnUndo" class="btn btn-primary" type="button" disabled>Undo last move</button>
+              </div>
+              <div class="help desktop-only">Drag using the small grip icon on each card.</div>
+              <div class="help" style="display:none" id="mobileHint">On mobile: tap Corn/Beans buttons on each card.</div>
             </div>
           </div>
 
@@ -530,13 +530,10 @@ Purpose:
             </div>
 
             <div class="field">
-              <label>Actions</label>
-              <div class="actions" style="margin:0">
-                <button id="btnRefresh" class="btn" type="button">Refresh</button>
-                <button id="btnUndo" class="btn btn-primary" type="button" disabled>Undo last move</button>
+              <label>Active Fields Only</label>
+              <div class="help">
+                This page intentionally hides archived fields. Use Setup → Fields to archive/unarchive.
               </div>
-              <div class="help desktop-only">Drag using the small grip icon on each card.</div>
-              <div class="help" style="display:none" id="mobileHint">On mobile: tap Corn/Beans buttons on each card.</div>
             </div>
           </div>
 
@@ -614,5 +611,15 @@ Purpose:
   <div id="fv-toast" role="status" aria-live="polite"></div>
 
   <script type="module" src="/Farm-vista/js/crop-planning/crop-planning-selector.js"></script>
+
+  <!-- If the module 404s or crashes before running, show a visible banner -->
+  <script>
+    window.addEventListener('error', function(e){
+      const b = document.getElementById('errBanner');
+      if(!b) return;
+      b.classList.add('show');
+      b.textContent = 'Crop Planning Selector failed to load. Open console: likely missing JS file path (/Farm-vista/js/crop-planning/...).';
+    });
+  </script>
 </body>
 </html>
