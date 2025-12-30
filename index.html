@@ -1438,17 +1438,16 @@
   </script>
 
   <!-- ==========================
-       FarmVista Copilot JS (AI UI)
-       - respects cap-chatbot (section may be hidden)
-       - Local chat history (messages only)
-       - Uses NEW Cloud Run Copilot backend:
-         https://farmvista-copilot-300398089669.us-central1.run.app/chat
-       - Keeps threadId for continuity
-       - NO button needed for reports:
-         If backend returns { action:"report", meta:{reportUrl,reportMode} }
-         ✅ Auto-opens PDF
-         ✅ Also prints a link in chat (plain text, not blue HTML link)
-       ========================== -->
+     FarmVista Copilot JS (AI UI)
+     - respects cap-chatbot (section may be hidden)
+     - Local chat history (messages only)
+     - Uses NEW Cloud Run Copilot backend:
+       https://farmvista-copilot-300398089669.us-central1.run.app/chat
+     - Keeps threadId for continuity
+     - Reports:
+       ✅ Opens PDF in an in-page modal (NOT new tab)
+       ✅ Chat shows "View PDF" button (no ugly URLs)
+     ========================== -->
 <script>
 (function(){
   "use strict";
@@ -1467,13 +1466,9 @@
     return sectionEl.classList.contains("perm-hidden") || sectionEl.getAttribute("aria-hidden") === "true";
   }
 
-  // Desktop rule for mic
   const IS_DESKTOP = (() => {
-    try{
-      return window.matchMedia && window.matchMedia("(min-width: 900px)").matches;
-    }catch{
-      return false;
-    }
+    try{ return window.matchMedia && window.matchMedia("(min-width: 900px)").matches; }
+    catch{ return false; }
   })();
 
   let wired = false;
@@ -1481,7 +1476,6 @@
   function wireUp(){
     if (wired) return;
     if (isHidden()) return;
-
     wired = true;
 
     let isThinking = false;
@@ -1492,15 +1486,18 @@
       micEl.disabled = true;
     }
 
-    // ===== Local chat persistence (messages only) =====
-    const STORE_KEY = "fv_copilot_chat_v1";
+    // ===== Settings =====
+    const STORE_KEY  = "fv_copilot_chat_v1";
     const THREAD_KEY = "fv_copilot_threadId_v1";
-    const MAX_KEEP  = 80;
+    const MAX_KEEP   = 80;
 
-    // ✅ NEW backend endpoint
     const COPILOT_ENDPOINT = "https://farmvista-copilot-300398089669.us-central1.run.app/chat";
     const REPORT_ENDPOINT  = "https://farmvista-copilot-300398089669.us-central1.run.app/report";
 
+    // We store PDF messages as text starting with this marker
+    const PDF_MARKER = "[[FV_PDF]]:";
+
+    // ===== Helpers =====
     function safeHtml(s){
       return String(s ?? "")
         .replace(/&/g,"&amp;")
@@ -1518,7 +1515,11 @@
         if (!Array.isArray(arr)) return [];
         return arr
           .filter(m => m && (m.role === "user" || m.role === "assistant"))
-          .map(m => ({ role: m.role, text: String(m.text ?? ""), ts: Number(m.ts) || Date.now() }));
+          .map(m => ({
+            role: m.role,
+            text: String(m.text ?? ""),
+            ts: Number(m.ts) || Date.now()
+          }));
       }catch{
         return [];
       }
@@ -1532,83 +1533,20 @@
     }
 
     function getThreadId(){
-      try{
-        return (localStorage.getItem(THREAD_KEY) || "").toString().trim() || "";
-      }catch{
-        return "";
-      }
+      try{ return (localStorage.getItem(THREAD_KEY) || "").toString().trim() || ""; }
+      catch{ return ""; }
     }
 
     function setThreadId(id){
       const v = (id || "").toString().trim();
       if (!v) return;
-      try{
-        localStorage.setItem(THREAD_KEY, v);
-      }catch{}
+      try{ localStorage.setItem(THREAD_KEY, v); }catch{}
     }
-
-    let history = loadHistory();
 
     function clearEmptyState(){
       const empty = logEl.querySelector(".ai-empty");
       if (empty) empty.remove();
     }
-
-    function renderHistory(){
-      if (!history.length) return;
-      clearEmptyState();
-
-      for (const m of history){
-        const who = m.role === "user" ? "You" : "Copilot";
-
-        const wrap = document.createElement("div");
-        wrap.className = "ai-msg-wrap";
-
-        const bubble = document.createElement("div");
-        bubble.className = "ai-msg " + (m.role === "user" ? "ai-msg-user" : "ai-msg-assistant");
-        bubble.innerHTML = safeHtml(m.text);
-
-        const meta = document.createElement("div");
-        meta.className = "ai-msg-meta " + (m.role === "user" ? "user" : "assistant");
-        meta.textContent = who;
-
-        wrap.appendChild(bubble);
-        wrap.appendChild(meta);
-        logEl.appendChild(wrap);
-      }
-
-      logEl.scrollTop = logEl.scrollHeight;
-    }
-
-    function appendMessage(role, text){
-      clearEmptyState();
-
-      const msgText = String(text || "");
-      const who = role === "user" ? "You" : "Copilot";
-
-      const wrap = document.createElement("div");
-      wrap.className = "ai-msg-wrap";
-
-      const bubble = document.createElement("div");
-      bubble.className = "ai-msg " + (role === "user" ? "ai-msg-user" : "ai-msg-assistant");
-      bubble.innerHTML = safeHtml(msgText);
-
-      const meta = document.createElement("div");
-      meta.className = "ai-msg-meta " + (role === "user" ? "user" : "assistant");
-      meta.textContent = who;
-
-      wrap.appendChild(bubble);
-      wrap.appendChild(meta);
-
-      logEl.appendChild(wrap);
-      logEl.scrollTop = logEl.scrollHeight;
-
-      history.push({ role, text: msgText, ts: Date.now() });
-      saveHistory(history);
-    }
-
-    // Hydrate on first wire
-    renderHistory();
 
     function setStatus(msg){
       statusEl.textContent = msg || "";
@@ -1618,54 +1556,172 @@
       isThinking = !!on;
       sendEl.disabled = isThinking;
       inputEl.disabled = isThinking;
-
-      // ✅ Desktop already disables mic
       if (!IS_DESKTOP) micEl.disabled = isThinking;
-
       setStatus(isThinking ? "Thinking…" : "");
     }
 
     function buildReportUrl(threadId, mode){
-      const m = (mode || "recent").toString().trim() || "recent";
       const qs = new URLSearchParams();
       if (threadId) qs.set("threadId", threadId);
-      qs.set("mode", m);
+      qs.set("mode", (mode || "recent").toString().trim() || "recent");
       return `${REPORT_ENDPOINT}?${qs.toString()}`;
     }
 
-    function openReport(threadId, mode, reportUrlFromServer){
-      const url = reportUrlFromServer
-        ? (() => {
-            // server may return "/report?mode=recent" style — normalize to absolute and add threadId if missing
-            try{
-              const u = new URL(reportUrlFromServer, REPORT_ENDPOINT);
-              if (threadId && !u.searchParams.get("threadId")) u.searchParams.set("threadId", threadId);
-              if (!u.searchParams.get("mode") && mode) u.searchParams.set("mode", mode);
-              return u.toString();
-            }catch{
-              return buildReportUrl(threadId, mode);
-            }
-          })()
-        : buildReportUrl(threadId, mode);
-
-      try{
-        window.open(url, "_blank", "noopener");
-      }catch{
-        // If popup blocked, still show the URL in chat
+    // ===== PDF Modal (in-page popup) =====
+    const modal = document.createElement("div");
+    modal.className = "fv-pdf-modal";
+    modal.innerHTML = `
+      <div class="fv-pdf-backdrop"></div>
+      <div class="fv-pdf-sheet" role="dialog" aria-modal="true" aria-label="PDF Report">
+        <div class="fv-pdf-top">
+          <div class="fv-pdf-title">Report PDF</div>
+          <button type="button" class="fv-pdf-close">Close</button>
+        </div>
+        <iframe class="fv-pdf-frame" title="Report PDF"></iframe>
+      </div>
+    `;
+    // minimal styles (uses your theme vibe; no blue links)
+    const style = document.createElement("style");
+    style.textContent = `
+      .fv-pdf-modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:100000; padding:16px; }
+      .fv-pdf-modal.show{ display:flex; }
+      .fv-pdf-backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.55); }
+      .fv-pdf-sheet{
+        position:relative;
+        width:min(1100px, 96vw);
+        height:min(86vh, 860px);
+        background:var(--surface, #fff);
+        border:1px solid var(--border, #D1D5DB);
+        border-radius:14px;
+        box-shadow:0 20px 40px rgba(0,0,0,.35);
+        overflow:hidden;
+        display:flex;
+        flex-direction:column;
+        z-index:1;
       }
-      return url;
+      .fv-pdf-top{
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:10px;
+        padding:10px 12px;
+        border-bottom:1px solid var(--border, #D1D5DB);
+        background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      }
+      .fv-pdf-title{ font-weight:900; letter-spacing:.06em; text-transform:uppercase; font-size:12px; color:var(--text, #111827); }
+      .fv-pdf-close{
+        border:none;
+        border-radius:999px;
+        padding:6px 12px;
+        font-size:0.85rem;
+        cursor:pointer;
+        background:color-mix(in srgb, var(--surface, #fff) 70%, var(--border, #D1D5DB) 30%);
+        color:var(--text, #111827);
+        font-weight:800;
+      }
+      .fv-pdf-frame{ flex:1; width:100%; height:100%; border:0; background:#fff; }
+      .ai-pdf-btn{
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        padding:10px 12px;
+        border-radius:12px;
+        border:1px solid var(--border,#D1D5DB);
+        font-weight:900;
+        letter-spacing:.02em;
+        cursor:pointer;
+        background:var(--card-surface, var(--surface, #fff));
+        color:var(--text,#111827);
+        gap:8px;
+        user-select:none;
+      }
+      .ai-pdf-btn:active{ transform:scale(.995); }
+    `;
+    document.head.appendChild(style);
+    document.body.appendChild(modal);
+
+    const modalBackdrop = modal.querySelector(".fv-pdf-backdrop");
+    const modalCloseBtn = modal.querySelector(".fv-pdf-close");
+    const modalFrame    = modal.querySelector(".fv-pdf-frame");
+
+    function openPdfModal(url){
+      if (!url) return;
+      modalFrame.src = url;
+      modal.classList.add("show");
+    }
+    function closePdfModal(){
+      modal.classList.remove("show");
+      // keep src so back/forward works; if you prefer blank it:
+      // modalFrame.src = "about:blank";
     }
 
+    modalBackdrop.addEventListener("click", closePdfModal);
+    modalCloseBtn.addEventListener("click", closePdfModal);
+    document.addEventListener("keydown", (e)=>{
+      if (e.key === "Escape" && modal.classList.contains("show")) closePdfModal();
+    });
+
+    // ===== Rendering =====
+    let history = loadHistory();
+
+    function renderMessage(role, text){
+      clearEmptyState();
+
+      const who = role === "user" ? "You" : "Copilot";
+      const wrap = document.createElement("div");
+      wrap.className = "ai-msg-wrap";
+
+      const bubble = document.createElement("div");
+      bubble.className = "ai-msg " + (role === "user" ? "ai-msg-user" : "ai-msg-assistant");
+
+      const meta = document.createElement("div");
+      meta.className = "ai-msg-meta " + (role === "user" ? "user" : "assistant");
+      meta.textContent = who;
+
+      // PDF marker handling
+      if (role === "assistant" && typeof text === "string" && text.startsWith(PDF_MARKER)) {
+        const url = text.slice(PDF_MARKER.length).trim();
+
+        // clean assistant bubble: just a View PDF button
+        bubble.innerHTML = "";
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "ai-pdf-btn";
+        btn.textContent = "View PDF";
+        btn.addEventListener("click", ()=> openPdfModal(url));
+        bubble.appendChild(btn);
+      } else {
+        bubble.innerHTML = safeHtml(String(text || ""));
+      }
+
+      wrap.appendChild(bubble);
+      wrap.appendChild(meta);
+      logEl.appendChild(wrap);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function renderHistory(){
+      if (!history.length) return;
+      for (const m of history){
+        renderMessage(m.role, m.text);
+      }
+    }
+
+    function appendMessage(role, text){
+      renderMessage(role, text);
+      history.push({ role, text: String(text || ""), ts: Date.now() });
+      saveHistory(history);
+    }
+
+    // Hydrate
+    renderHistory();
+
+    // ===== Backend call =====
     async function callAssistant(prompt){
-      const threadId = getThreadId();
+      const existingThreadId = getThreadId();
 
-      const payload = {
-        question: String(prompt || "")
-      };
-
-      // Optional: send threadId if you ever choose to accept it server-side
-      // (Backend already generates threadId from request, but this doesn't hurt.)
-      if (threadId) payload.threadId = threadId;
+      const payload = { question: String(prompt || "") };
+      if (existingThreadId) payload.threadId = existingThreadId; // optional
 
       const res = await fetch(COPILOT_ENDPOINT, {
         method: "POST",
@@ -1679,31 +1735,28 @@
 
       const data = await res.json();
 
-      // Persist threadId if backend returns it
-      if (data && data.meta && data.meta.threadId) {
-        setThreadId(String(data.meta.threadId));
-      }
+      // Persist threadId
+      if (data?.meta?.threadId) setThreadId(String(data.meta.threadId));
 
-      // Handle report action: auto-open + provide link in chat
+      // Report action
       if (data && data.action === "report") {
-        const tid = (data.meta && data.meta.threadId) ? String(data.meta.threadId) : getThreadId();
-        const mode = (data.meta && (data.meta.reportMode || data.meta.mode)) ? String(data.meta.reportMode || data.meta.mode) : "recent";
-        const reportUrl = (data.meta && data.meta.reportUrl) ? String(data.meta.reportUrl) : "";
+        const tid = data?.meta?.threadId ? String(data.meta.threadId) : getThreadId();
+        const mode = data?.meta?.reportMode ? String(data.meta.reportMode) : "recent";
 
-        const openedUrl = openReport(tid, mode, reportUrl);
+        // Build URL (do NOT display it in chat)
+        const url = buildReportUrl(tid, mode);
 
-        // Return a plain-text message (no HTML link styling)
-        return (
-          (data.answer ? String(data.answer) : "✅ Report ready.") +
-          "\n\nOpen PDF:\n" + openedUrl
-        );
+        // Open popup modal (NOT new tab)
+        openPdfModal(url);
+
+        // Return a special marker so chat shows "View PDF"
+        return PDF_MARKER + url;
       }
 
-      // Normal answer
-      const ans = data && data.answer ? String(data.answer) : "(No response)";
-      return ans;
+      return (data && data.answer) ? String(data.answer) : "(No response)";
     }
 
+    // ===== Submit =====
     formEl.addEventListener("submit", async (evt)=>{
       evt.preventDefault();
       if (isThinking) return;
@@ -1787,11 +1840,7 @@
             recognition.stop();
             return;
           }
-          try{
-            recognition.start();
-          }catch(e){
-            console.warn("[copilot] recognition error:", e);
-          }
+          try{ recognition.start(); }catch(e){ console.warn("[copilot] recognition error:", e); }
         });
       }else{
         micEl.disabled = true;
@@ -1799,12 +1848,10 @@
     }
   }
 
-  // Try now (in case perms already resolved), and again after perms event
   wireUp();
   document.addEventListener("fv:dash-perms-ready", wireUp);
 })();
 </script>
-
 
   <!-- One-time SW reset for path change -->
   <script>
