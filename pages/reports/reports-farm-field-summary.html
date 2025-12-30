@@ -198,12 +198,12 @@
 
     .kpi-row{
       display:grid;
-      grid-template-columns:repeat(6, minmax(0,1fr));
+      grid-template-columns:repeat(4, minmax(0,1fr));
       gap:10px;
       margin-top:2px;
     }
     @media (max-width:980px){
-      .kpi-row{ grid-template-columns:repeat(3, minmax(0,1fr)); }
+      .kpi-row{ grid-template-columns:repeat(2, minmax(0,1fr)); }
     }
     @media (max-width:520px){
       .kpi-row{ grid-template-columns:repeat(2, minmax(0,1fr)); }
@@ -389,7 +389,7 @@
     table{
       width:100%;
       border-collapse:collapse;
-      min-width: 780px;
+      min-width: 640px;
       font-size:0.9rem;
     }
     thead th{
@@ -526,13 +526,6 @@
       catch{ return ''; }
     }
 
-    function fmtNum(n, digits=2){
-      const v = Number(n);
-      if(!Number.isFinite(v)) return '0';
-      const dp = (digits == null) ? 2 : digits;
-      return v.toLocaleString(undefined, { maximumFractionDigits: dp, minimumFractionDigits: 0 });
-    }
-
     function fmtAcres(n){
       const v = Number(n);
       if(!Number.isFinite(v)) return '0';
@@ -558,17 +551,9 @@
       return v || '—';
     }
 
-    function boolLabel(b){
-      return b ? 'Yes' : 'No';
-    }
-
     function truncateLabel(str, max = 52){
       const s = String(str || '');
       return s.length > max ? s.slice(0, max - 1) + '…' : s;
-    }
-
-    function safeLower(s){
-      return String(s || '').trim().toLowerCase();
     }
 
     async function loadCompanyHeader(){
@@ -615,42 +600,31 @@
           id: f.id,
           name: (f.data?.name || f.id || '—').trim(),
           status: normalizeStatus(f.data?.status) || '',
-          used: !!f.data?.used,
           updatedAt: toDateMaybe(f.data?.updatedAt) || toDateMaybe(f.data?.createdAt) || null,
           fields: [],
 
           // aggregates (computed)
           fieldsCount: 0,
-          usedFieldsCount: 0,
           totalTillable: 0,
           totalCrp: 0,
           totalHel: 0,
-          hasCrpAny: 0,
-          hasHelAny: 0,
-          counties: new Set(),
-          states: new Set()
+          counties: new Set()
         });
       });
 
-      // Ensure fields whose farmId doesn't exist still show under "Unknown farm"
       const UNKNOWN_ID = '__unknown__';
       if(!farmsById.has(UNKNOWN_ID)){
         farmsById.set(UNKNOWN_ID, {
           id: UNKNOWN_ID,
           name: 'Unknown / Unassigned',
           status: '',
-          used: false,
           updatedAt: null,
           fields: [],
           fieldsCount: 0,
-          usedFieldsCount: 0,
           totalTillable: 0,
           totalCrp: 0,
           totalHel: 0,
-          hasCrpAny: 0,
-          hasHelAny: 0,
-          counties: new Set(),
-          states: new Set()
+          counties: new Set()
         });
       }
 
@@ -662,50 +636,36 @@
         const field = {
           id: f.id,
           name: (d.name || f.id || '—').trim(),
-          status: normalizeStatus(d.status) || '',
           county: (d.county || '').trim(),
-          state: (d.state || '').trim(),
-          rtkTowerId: (d.rtkTowerId || '').trim(),
-          used: !!d.used,
-          usedAt: toDateMaybe(d.usedAt) || null,
-          updatedAt: toDateMaybe(d.updatedAt) || toDateMaybe(d.createdAt) || null,
-
           tillable: Number(d.tillable) || 0,
           crpAcres: Number(d.crpAcres) || 0,
           helAcres: Number(d.helAcres) || 0,
-          hasCRP: !!d.hasCRP,
-          hasHEL: !!d.hasHEL,
-
+          rtkTowerId: (d.rtkTowerId || '').trim(),
           soilWetness: (Number.isFinite(d.soilWetness) ? Number(d.soilWetness) : null),
           drainageIndex: (Number.isFinite(d.drainageIndex) ? Number(d.drainageIndex) : null),
-          location: d.location || null
+          updatedAt: toDateMaybe(d.updatedAt) || toDateMaybe(d.createdAt) || null
         };
 
         farm.fields.push(field);
 
-        // farm aggregates
         farm.fieldsCount += 1;
-        if(field.used) farm.usedFieldsCount += 1;
         farm.totalTillable += field.tillable;
         farm.totalCrp += field.crpAcres;
         farm.totalHel += field.helAcres;
-        if(field.hasCRP) farm.hasCrpAny += 1;
-        if(field.hasHEL) farm.hasHelAny += 1;
         if(field.county) farm.counties.add(field.county);
-        if(field.state) farm.states.add(field.state);
       });
 
-      // finalize (sort fields)
+      // finalize: sort fields ABC (name)
       const farms = Array.from(farmsById.values()).map(f => {
-        f.fields.sort((a,b) => (b.tillable - a.tillable) || (a.name||'').localeCompare(b.name||''));
+        f.fields.sort((a,b) => (a.name||'').localeCompare(b.name||''));
         return f;
       });
 
       // hide unknown if empty
       const out = farms.filter(f => f.id !== UNKNOWN_ID || f.fieldsCount > 0);
 
-      // sort farms by acres desc, then name
-      out.sort((a,b) => (b.totalTillable - a.totalTillable) || (a.name||'').localeCompare(b.name||''));
+      // sort farms ABC (name)
+      out.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
 
       STATE.farms = out;
     }
@@ -722,6 +682,8 @@
         return true;
       });
 
+      // ABC
+      list.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
       return list;
     }
 
@@ -805,14 +767,16 @@
         if(q){
           const hay = [
             f.name,
-            ...f.fields.map(fl => `${fl.name} ${fl.county} ${fl.state} ${fl.rtkTowerId}`)
+            ...f.fields.map(fl => `${fl.name} ${fl.county} ${fl.rtkTowerId}`)
           ].join(' ').toLowerCase();
           if(!hay.includes(q)) return false;
         }
         return true;
       });
 
-      // keep selection valid
+      // Keep ABC
+      filtered.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+
       if(STATE.selectedFarmId){
         const still = filtered.some(f => f.id === STATE.selectedFarmId);
         if(!still){
@@ -832,31 +796,25 @@
       let farmCount = farms.length;
 
       let fieldCount = 0;
-      let usedFieldCount = 0;
       let acres = 0;
       let crp = 0;
       let hel = 0;
-      let crpFields = 0;
-      let helFields = 0;
 
       farms.forEach(f => {
         fieldCount += f.fieldsCount;
-        usedFieldCount += f.usedFieldsCount;
         acres += f.totalTillable;
         crp += f.totalCrp;
         hel += f.totalHel;
-        crpFields += f.hasCrpAny;
-        helFields += f.hasHelAny;
       });
 
       $('#kpiFarms').textContent = String(farmCount);
       $('#kpiFields').textContent = String(fieldCount);
       $('#kpiTillable').textContent = fmtAcres(acres);
-      $('#kpiUsed').textContent = String(usedFieldCount);
       $('#kpiCRP').textContent = fmtAcres(crp);
-      $('#kpiHEL').textContent = fmtAcres(hel);
 
-      // meta line
+      const helEl = $('#kpiHEL');
+      if(helEl) helEl.textContent = fmtAcres(hel);
+
       const meta = $('#ffCount');
       if(meta){
         const county = ($('#filterCounty')?.value || 'all');
@@ -878,11 +836,6 @@
 
         meta.textContent = parts.join(' • ') + (filt.length ? `  —  ${filt.join(' • ')}` : '');
       }
-
-      // little notes under kpis
-      $('#kpiNoteUsed').textContent = 'Fields flagged used=true';
-      $('#kpiNoteCRP').textContent = `${crpFields} field${crpFields===1?'':'s'} with hasCRP`;
-      $('#kpiNoteHEL').textContent = `${helFields} field${helFields===1?'':'s'} with hasHEL`;
     }
 
     function renderList(){
@@ -901,10 +854,8 @@
       emptyEl.style.display = 'none';
 
       for(const f of farms){
-        const counties = Array.from(f.counties || []).slice(0,4);
+        const counties = Array.from(f.counties || []).sort((a,b)=>a.localeCompare(b)).slice(0,4);
         const countyLine = counties.length ? counties.join(', ') + (f.counties.size > 4 ? '…' : '') : '—';
-
-        const activeFields = f.fields.filter(x => normalizeStatus(x.status) === 'active').length;
         const stPill = normalizeStatus(f.status) ? `<span class="pill">${escapeHtml(statusLabel(f.status))}</span>` : '';
 
         const card = document.createElement('article');
@@ -920,9 +871,8 @@
               </div>
 
               <div class="meta">
-                <span><span class="meta-label">Fields</span> <span class="meta-val">${escapeHtml(String(f.fieldsCount))} (${escapeHtml(String(activeFields))} active)</span></span>
+                <span><span class="meta-label">Fields</span> <span class="meta-val">${escapeHtml(String(f.fieldsCount))}</span></span>
                 <span><span class="meta-label">Tillable</span> <span class="meta-val">${escapeHtml(fmtAcres(f.totalTillable))} ac</span></span>
-                <span><span class="meta-label">Used</span> <span class="meta-val">${escapeHtml(String(f.usedFieldsCount))}</span></span>
                 <span><span class="meta-label">Counties</span> <span class="meta-val">${escapeHtml(countyLine)}</span></span>
               </div>
             </div>
@@ -959,7 +909,6 @@
       $('.detail-title', panel).textContent = f.name;
 
       const counties = Array.from(f.counties || []).sort((a,b)=>a.localeCompare(b));
-      const states = Array.from(f.states || []).sort((a,b)=>a.localeCompare(b));
 
       const grid = $('.detail-grid', panel);
       grid.innerHTML = `
@@ -970,10 +919,6 @@
         <div>
           <div class="detail-item-label">Fields</div>
           <div class="detail-item-value">${escapeHtml(String(f.fieldsCount))}</div>
-        </div>
-        <div>
-          <div class="detail-item-label">Used Fields</div>
-          <div class="detail-item-value">${escapeHtml(String(f.usedFieldsCount))}</div>
         </div>
         <div>
           <div class="detail-item-label">Tillable Acres</div>
@@ -991,19 +936,12 @@
           <div class="detail-item-label">Counties</div>
           <div class="detail-item-value">${escapeHtml(counties.length ? counties.join(', ') : '—')}</div>
         </div>
-        <div>
-          <div class="detail-item-label">States</div>
-          <div class="detail-item-value">${escapeHtml(states.length ? states.join(', ') : '—')}</div>
-        </div>
-        <div>
-          <div class="detail-item-label">Updated</div>
-          <div class="detail-item-value">${escapeHtml(f.updatedAt ? formatDateTime(f.updatedAt) : '—')}</div>
-        </div>
       `;
 
       const tbody = $('#fieldTableBody');
       tbody.innerHTML = '';
 
+      // Fields ABC already; render minimal columns
       for(const fl of (f.fields || [])){
         const sw = (fl.soilWetness == null) ? '—' : String(fl.soilWetness);
         const di = (fl.drainageIndex == null) ? '—' : String(fl.drainageIndex);
@@ -1011,15 +949,11 @@
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td>${escapeHtml(fl.name)}</td>
-          <td>${escapeHtml(statusLabel(fl.status) || '—')}</td>
           <td>${escapeHtml(fl.county || '—')}</td>
-          <td>${escapeHtml(fl.state || '—')}</td>
           <td>${escapeHtml(fmtAcres(fl.tillable))}</td>
           <td>${escapeHtml(fmtAcres(fl.crpAcres))}</td>
           <td>${escapeHtml(fmtAcres(fl.helAcres))}</td>
-          <td>${escapeHtml(boolLabel(fl.hasCRP))}</td>
-          <td>${escapeHtml(boolLabel(fl.hasHEL))}</td>
-          <td>${escapeHtml(fl.used ? 'Yes' : 'No')}</td>
+          <td>${escapeHtml(fl.rtkTowerId || '—')}</td>
           <td>${escapeHtml(sw)}</td>
           <td>${escapeHtml(di)}</td>
         `;
@@ -1090,11 +1024,10 @@
 
     function buildPrintHtml({ company, runStr, runDateOnly, filterSummary, totals, farms }){
       const {
-        farmCount, fieldCount, usedFieldCount,
+        farmCount, fieldCount,
         tillable, crp, hel
       } = totals;
 
-      // Build grouped output: Farm -> fields
       return `<!doctype html>
 <html>
 <head>
@@ -1142,7 +1075,7 @@
     .k{font-size:10px; text-transform:uppercase; letter-spacing:0.10em; color:var(--fv-muted); font-weight:700;}
     .v{font-weight:800; color:var(--fv-text);}
 
-    .kpis{ margin-top:12px; display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:10px; }
+    .kpis{ margin-top:12px; display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:10px; }
     .kpi{ border:1px solid var(--fv-border); border-radius:12px; padding:9px 10px; background:linear-gradient(135deg, rgba(59,126,70,0.06), #fff); }
     .kpi .lab{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--fv-muted);font-weight:900;}
     .kpi .val{font-size:18px;font-weight:950;margin-top:2px;}
@@ -1162,7 +1095,7 @@
     .footer .r{text-align:right;}
 
     @media (max-width:980px){
-      .kpis{ grid-template-columns:repeat(3, minmax(0,1fr)); }
+      .kpis{ grid-template-columns:repeat(2, minmax(0,1fr)); }
       .meta{white-space:normal;}
     }
 
@@ -1200,7 +1133,7 @@
     </header>
 
     <h1 class="title">Farm &amp; Field Summary</h1>
-    <p class="subtitle">Farm totals + field list (tillable, CRP, HEL, used flag, county/state).</p>
+    <p class="subtitle">Farm totals + field list (tillable, CRP, HEL, county, RTK tower, soil wetness, drainage index).</p>
 
     <div class="summary">
       <div class="pill"><span class="k">Filters</span><span class="v">${escapeHtml(filterSummary)}</span></div>
@@ -1212,43 +1145,34 @@
       <div class="kpi"><div class="lab">Farms</div><div class="val">${farmCount}</div><div class="note">Matching filters</div></div>
       <div class="kpi"><div class="lab">Fields</div><div class="val">${fieldCount}</div><div class="note">Matching filters</div></div>
       <div class="kpi"><div class="lab">Tillable Acres</div><div class="val">${escapeHtml(String(tillable))}</div><div class="note">Sum of fields.tillable</div></div>
-      <div class="kpi"><div class="lab">Used Fields</div><div class="val">${usedFieldCount}</div><div class="note">fields.used = true</div></div>
       <div class="kpi"><div class="lab">CRP Acres</div><div class="val">${escapeHtml(String(crp))}</div><div class="note">Sum of fields.crpAcres</div></div>
       <div class="kpi"><div class="lab">HEL Acres</div><div class="val">${escapeHtml(String(hel))}</div><div class="note">Sum of fields.helAcres</div></div>
     </div>
 
     ${farms.map(f => {
       const counties = Array.from(f.counties || []).sort((a,b)=>a.localeCompare(b));
-      const states = Array.from(f.states || []).sort((a,b)=>a.localeCompare(b));
-      const activeFields = (f.fields||[]).filter(x => (String(x.status||'').toLowerCase()==='active')).length;
-
       return `
       <section class="section">
         <div class="farm-title">
           <span>${escapeHtml(f.name)}</span>
           <span style="font-size:11px;color:var(--fv-muted);letter-spacing:0.06em;text-transform:none;font-weight:900;">
-            ${activeFields} active / ${f.fieldsCount} total • ${escapeHtml(String(f.totalTillable))} ac
+            ${f.fieldsCount} fields • ${escapeHtml(String(f.totalTillable))} ac
           </span>
         </div>
         <p class="farm-sub">
           Status: <strong>${escapeHtml(statusLabel(f.status) || '—')}</strong>
           ${counties.length ? ` • Counties: ${escapeHtml(counties.join(', '))}` : ''}
-          ${states.length ? ` • States: ${escapeHtml(states.join(', '))}` : ''}
         </p>
 
         <table>
           <thead>
             <tr>
               <th>Field</th>
-              <th>Status</th>
               <th>County</th>
-              <th>State</th>
               <th class="num">Tillable</th>
               <th class="num">CRP</th>
               <th class="num">HEL</th>
-              <th>hasCRP</th>
-              <th>hasHEL</th>
-              <th>Used</th>
+              <th>RTK</th>
               <th class="num">SoilWet</th>
               <th class="num">DrainIdx</th>
             </tr>
@@ -1257,15 +1181,11 @@
             ${(f.fields||[]).map(fl => `
               <tr>
                 <td>${escapeHtml(fl.name)}</td>
-                <td>${escapeHtml(statusLabel(fl.status) || '—')}</td>
                 <td>${escapeHtml(fl.county || '—')}</td>
-                <td>${escapeHtml(fl.state || '—')}</td>
                 <td class="num">${escapeHtml(fmtAcres(fl.tillable))}</td>
                 <td class="num">${escapeHtml(fmtAcres(fl.crpAcres))}</td>
                 <td class="num">${escapeHtml(fmtAcres(fl.helAcres))}</td>
-                <td>${escapeHtml(fl.hasCRP ? 'Yes' : 'No')}</td>
-                <td>${escapeHtml(fl.hasHEL ? 'Yes' : 'No')}</td>
-                <td>${escapeHtml(fl.used ? 'Yes' : 'No')}</td>
+                <td>${escapeHtml(fl.rtkTowerId || '—')}</td>
                 <td class="num">${escapeHtml(fl.soilWetness == null ? '—' : String(fl.soilWetness))}</td>
                 <td class="num">${escapeHtml(fl.drainageIndex == null ? '—' : String(fl.drainageIndex))}</td>
               </tr>
@@ -1295,14 +1215,12 @@
       const totals = (() => {
         let farmCount = farms.length;
         let fieldCount = 0;
-        let usedFieldCount = 0;
         let tillable = 0;
         let crp = 0;
         let hel = 0;
 
         farms.forEach(f => {
           fieldCount += f.fieldsCount;
-          usedFieldCount += f.usedFieldsCount;
           tillable += f.totalTillable;
           crp += f.totalCrp;
           hel += f.totalHel;
@@ -1311,7 +1229,6 @@
         return {
           farmCount,
           fieldCount,
-          usedFieldCount,
           tillable: fmtAcres(tillable),
           crp: fmtAcres(crp),
           hel: fmtAcres(hel)
@@ -1420,7 +1337,7 @@
             <p class="muted">
               Summary report based on your Firestore collections:
               <strong>farms</strong> and <strong>fields</strong>.
-              Filter by farm status / county / farm, then print a clean PDF.
+              All lists are alphabetical (ABC).
             </p>
           </div>
         </header>
@@ -1451,19 +1368,14 @@
               <div class="note">Sum of fields.tillable</div>
             </div>
             <div class="kpi">
-              <div class="lab">Used Fields</div>
-              <div class="val" id="kpiUsed">—</div>
-              <div class="note" id="kpiNoteUsed">—</div>
-            </div>
-            <div class="kpi">
               <div class="lab">CRP Acres</div>
               <div class="val" id="kpiCRP">—</div>
-              <div class="note" id="kpiNoteCRP">—</div>
+              <div class="note">Sum of fields.crpAcres</div>
             </div>
-            <div class="kpi">
+            <div class="kpi" style="display:none;">
               <div class="lab">HEL Acres</div>
               <div class="val" id="kpiHEL">—</div>
-              <div class="note" id="kpiNoteHEL">—</div>
+              <div class="note">Sum of fields.helAcres</div>
             </div>
           </div>
 
@@ -1530,15 +1442,11 @@
                 <thead>
                   <tr>
                     <th>Field</th>
-                    <th>Status</th>
                     <th>County</th>
-                    <th>State</th>
                     <th>Tillable</th>
                     <th>CRP</th>
                     <th>HEL</th>
-                    <th>hasCRP</th>
-                    <th>hasHEL</th>
-                    <th>Used</th>
+                    <th>RTK</th>
                     <th>SoilWet</th>
                     <th>DrainIdx</th>
                   </tr>
