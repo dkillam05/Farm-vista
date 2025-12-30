@@ -464,7 +464,7 @@
       COMPANY_DOC_PATH: ['company','main']
     };
 
-    // bump key so old “stuck all” values don’t keep fighting you
+    // keep your key
     const LS_KEY = 'fv_farm_field_summary_filters_v4';
 
     const $ = (sel, root=document) => root.querySelector(sel);
@@ -478,7 +478,10 @@
       rtkMap: new Map(),
       farms: [],
       filteredFarms: [],
-      selectedFarmId: null
+      selectedFarmId: null,
+
+      // ✅ SOURCE OF TRUTH (Field Maintenance pattern)
+      statusFilter: 'active'
     };
 
     function escapeHtml(str){
@@ -519,7 +522,6 @@
       return v.toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 0 });
     }
 
-    // FIELD statuses: active / archived (archived is shown as “Inactive” in UI)
     function normalizeFieldStatus(s){
       const v = String(s || '').trim().toLowerCase().replace(/\.+$/,'');
       if(!v) return 'active';
@@ -560,36 +562,43 @@
     }
 
     function saveFilters(){
-      const status = ($('#filterStatus')?.value || 'active');
       const county = ($('#filterCounty')?.value || 'all');
       const farm   = ($('#filterFarm')?.value || 'all');
       const q      = ($('#filterSearch')?.value || '').trim();
-      try{ localStorage.setItem(LS_KEY, JSON.stringify({ status, county, farm, q })); }catch(_){}
+      try{
+        localStorage.setItem(LS_KEY, JSON.stringify({
+          status: STATE.statusFilter,
+          county,
+          farm,
+          q
+        }));
+      }catch(_){}
     }
 
-    // ✅ FIX: force select UI to match value (value + selectedIndex + option.selected)
-    function forceStatusUI(desired){
-      const el = $('#filterStatus');
-      if(!el) return;
-      const v = ['all','active','archived'].includes(String(desired)) ? String(desired) : 'active';
+    // ✅ This is the Field Maintenance structure: set select value AFTER data load, from our state.
+    function syncStatusUI(){
+      const sel = $('#filterStatus');
+      if(!sel) return;
+      const v = ['all','active','archived'].includes(String(STATE.statusFilter)) ? String(STATE.statusFilter) : 'active';
+      if(sel.value !== v) sel.value = v;
+    }
 
-      const setIt = () => {
-        const optIndex = Array.from(el.options).findIndex(o => o.value === v);
-        if(optIndex >= 0){
-          el.selectedIndex = optIndex;
-          el.value = v;
-          // ensure option.selected is aligned too
-          Array.from(el.options).forEach((o, i) => { o.selected = (i === optIndex); });
-        }else{
-          el.value = v;
+    function chooseDefaultFieldStatusFromData(){
+      // smart default like your “chooseDefaultStatusFromData”
+      let hasActive = false;
+      let hasArchived = false;
+      for(const farm of (STATE.farms || [])){
+        for(const fl of (farm.fields || [])){
+          const st = normalizeFieldStatus(fl.status);
+          if(st === 'active') hasActive = true;
+          if(st === 'archived') hasArchived = true;
+          if(hasActive) break;
         }
-      };
-
-      setIt();
-      Promise.resolve().then(setIt);
-      requestAnimationFrame(setIt);
-      setTimeout(setIt, 50);
-      setTimeout(setIt, 200);
+        if(hasActive) break;
+      }
+      if(hasActive) return 'active';
+      if(hasArchived) return 'archived';
+      return 'all';
     }
 
     async function loadCompanyHeader(){
@@ -687,7 +696,6 @@
         if(field.county) farm.counties.add(field.county);
       });
 
-      // ABC farms + fields
       const out = Array.from(farmsById.values())
         .filter(f => f.id !== UNKNOWN_ID || f.fields.length > 0)
         .map(f => {
@@ -725,24 +733,23 @@
       setSelectOptions(countySel, opts, cur);
     }
 
-    function fieldPassesStatus(fieldStatus, statusFilter){
+    function fieldPassesStatus(fieldStatus){
       const fs = normalizeFieldStatus(fieldStatus);
-      const st = String(statusFilter || 'active').toLowerCase();
+      const st = String(STATE.statusFilter || 'active').toLowerCase();
       if(st === 'all') return true;
       return fs === st;
     }
 
     function hydrateFarmDropdown(){
       const farmSel = $('#filterFarm');
-      const st = ($('#filterStatus')?.value || 'active');
       const county = ($('#filterCounty')?.value || 'all');
       const cur = farmSel?.value || 'all';
 
       const farms = [];
       for(const f of STATE.farms){
         if(county !== 'all' && (!f.counties || !f.counties.has(county))) continue;
-        const viewFields = f.fields.filter(fl => fieldPassesStatus(fl.status, st));
-        if(st !== 'all' && viewFields.length === 0) continue;
+        const viewFields = f.fields.filter(fl => fieldPassesStatus(fl.status));
+        if(STATE.statusFilter !== 'all' && viewFields.length === 0) continue;
 
         const viewTillable = viewFields.reduce((s,fl)=> s + (Number(fl.tillable)||0), 0);
 
@@ -769,12 +776,13 @@
     }
 
     function applyFilters(){
-      const status = ($('#filterStatus')?.value || 'active');
+      // ✅ always sync UI from state right before filtering (Field Maintenance behavior)
+      syncStatusUI();
+
       const county = ($('#filterCounty')?.value || 'all');
       const farmId = ($('#filterFarm')?.value || 'all');
       const q = ( ($('#filterSearch')?.value || '').trim().toLowerCase() );
 
-      const st = String(status).toLowerCase();
       const countyFilter = String(county || 'all');
       const farmFilter = String(farmId || 'all');
 
@@ -783,8 +791,8 @@
         if(farmFilter !== 'all' && String(f.id) !== farmFilter) continue;
         if(countyFilter !== 'all' && (!f.counties || !f.counties.has(countyFilter))) continue;
 
-        const viewFields = f.fields.filter(fl => fieldPassesStatus(fl.status, st));
-        if(st !== 'all' && viewFields.length === 0) continue;
+        const viewFields = f.fields.filter(fl => fieldPassesStatus(fl.status));
+        if(STATE.statusFilter !== 'all' && viewFields.length === 0) continue;
 
         if(q){
           const hay = [
@@ -841,7 +849,6 @@
       const meta = $('#ffCount');
       if(meta){
         const county = ($('#filterCounty')?.value || 'all');
-        const st = ($('#filterStatus')?.value || 'active');
         const farmSel = ($('#filterFarm')?.value || 'all');
 
         const parts = [];
@@ -850,7 +857,7 @@
         parts.push(`${fmtAcres(acres)} ac`);
 
         const filt = [];
-        if(st !== 'all') filt.push(`Status: ${statusLabel(st)}`);
+        if(STATE.statusFilter !== 'all') filt.push(`Status: ${statusLabel(STATE.statusFilter)}`);
         if(county !== 'all') filt.push(`County: ${county}`);
         if(farmSel !== 'all'){
           const f0 = STATE.farms.find(x => x.id === farmSel);
@@ -992,7 +999,12 @@
 
       if(statusSel){
         statusSel.addEventListener('change', () => {
-          forceStatusUI(statusSel.value);
+          // ✅ update the source of truth
+          STATE.statusFilter = statusSel.value || 'active';
+
+          // ✅ match the Field Maintenance pattern: set the dropdown + then filter
+          syncStatusUI();
+
           hydrateFarmDropdown();
           applyFilters();
           saveFilters();
@@ -1030,12 +1042,11 @@
     }
 
     function summarizeFilters(){
-      const status = ($('#filterStatus')?.value || 'active');
       const county = ($('#filterCounty')?.value || 'all');
       const farm   = ($('#filterFarm')?.value || 'all');
       const q      = ( ($('#filterSearch')?.value || '').trim().toLowerCase() );
 
-      const statusTxt = (status === 'all') ? 'All statuses' : `Status: ${statusLabel(status)}`;
+      const statusTxt = (STATE.statusFilter === 'all') ? 'All statuses' : `Status: ${statusLabel(STATE.statusFilter)}`;
       const countyTxt = (county === 'all') ? 'All counties' : `County: ${county}`;
       let farmTxt = (farm === 'all') ? 'All farms' : 'Selected farm';
       if(farm !== 'all'){
@@ -1330,21 +1341,23 @@
 
       buildEnriched();
 
+      // ✅ Field Maintenance style: set status after data load, using smart default unless saved
       const saved = loadSavedFilters();
+      const defaultStatus = chooseDefaultFieldStatusFromData();
+      STATE.statusFilter = (saved && ['all','active','archived'].includes(String(saved.status)))
+        ? String(saved.status)
+        : defaultStatus;
 
-      const statusSel = $('#filterStatus');
+      // set the select from STATE (single truth)
+      syncStatusUI();
+
+      // Counties list
+      hydrateCountyDropdown();
+
+      // Restore county/farm/search like before
       const countySel = $('#filterCounty');
       const farmSel   = $('#filterFarm');
       const searchEl  = $('#filterSearch');
-
-      const desiredStatus = (saved && ['all','active','archived'].includes(String(saved.status)))
-        ? String(saved.status)
-        : 'active';
-
-      if(statusSel) statusSel.value = desiredStatus;
-      forceStatusUI(desiredStatus);
-
-      hydrateCountyDropdown();
 
       if(countySel && saved && saved.county){
         const c = String(saved.county);
@@ -1368,8 +1381,11 @@
       applyFilters();
       saveFilters();
 
-      // final "truth" pass
-      forceStatusUI($('#filterStatus')?.value || desiredStatus);
+      // ✅ If browser tries to "restore" a different visible option on return, resync from STATE.
+      window.addEventListener('pageshow', () => { syncStatusUI(); });
+      document.addEventListener('visibilitychange', () => {
+        if(!document.hidden) syncStatusUI();
+      });
     })();
   </script>
 </head>
@@ -1425,12 +1441,11 @@
             <div class="filters-row">
               <div class="filter-field">
                 <label class="filter-label" for="filterStatus">Field Status</label>
-
-                <!-- ✅ CHANGE: make Active the first option and the HTML default -->
                 <select id="filterStatus" class="filter-select">
-                  <option value="active" selected>Active</option>
-                  <option value="archived">Inactive</option>
                   <option value="all">All</option>
+                  <option value="active">Active</option>
+                  <!-- DB value archived; label shows Inactive -->
+                  <option value="archived">Inactive</option>
                 </select>
               </div>
 
