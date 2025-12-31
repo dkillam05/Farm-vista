@@ -1,13 +1,17 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-29c
+Rev: 2025-12-31d
 
-Fixes:
-✅ Farm dropdown filtering works again
-✅ Swipe "Details" is edit-gated (same as dblclick)
-✅ Removed invalid tokens from prior paste (no "\`" sequences)
+Fixes (NEW):
+✅ Tiles now use cached 7-day forecast (field_weather_cache.dailySeriesFcst) to predict “Dry in next 72h”
+   - If within 72h => countdown “Est: ~XX hours”
+   - If not within 72h => “> 72 hours” (and if we can, “Est: ~XXh”)
+✅ Falls back safely to old etaFor() if forecast isn’t available yet
+✅ Keeps everything else exactly the same (UI, selection, edit gating, sorting, calibration)
 
 Keeps:
+✅ Farm dropdown filtering works
+✅ Swipe "Details" is edit-gated (same as dblclick)
 ✅ Desktop dblclick works (edit-gated)
 ✅ Readiness mismatch fix (tiles vs details)
 ✅ GLOBAL ONLY calibration (wetBias only)
@@ -134,12 +138,21 @@ function getCalForDeps(state){
   return { wetBias: wb, opWetBias: {} };
 }
 
-/* ---------- module loader (model/weather) ---------- */
+/* ---------- module loader (model/weather/forecast) ---------- */
 export async function ensureModelWeatherModules(state){
-  if (state._mods.model && state._mods.weather) return;
-  const [weather, model] = await Promise.all([ import(PATHS.WEATHER), import(PATHS.MODEL) ]);
+  if (state._mods.model && state._mods.weather && state._mods.forecast) return;
+
+  const pWeather = import(PATHS.WEATHER);
+  const pModel   = import(PATHS.MODEL);
+
+  // Forecast helper (new file). We keep it local (not in PATHS) to avoid breaking other pages.
+  const pForecast = import('./forecast.js');
+
+  const [weather, model, forecast] = await Promise.all([pWeather, pModel, pForecast]);
+
   state._mods.weather = weather;
   state._mods.model = model;
+  state._mods.forecast = forecast;
 }
 
 /* ---------- colors (ported) ---------- */
@@ -412,6 +425,53 @@ function updateDetailsHeaderPanel(state){
   `;
 }
 
+/* =====================================================================
+   NEW: forecast-based ETA helper for tiles
+   - Uses forecast.js when available (cached dailySeriesFcst)
+   - Falls back to model.etaFor() when forecast is missing
+===================================================================== */
+async function getTileEtaText(state, fieldId, run0, thr){
+  try{
+    // pull current field params
+    const p = getFieldParams(state, fieldId) || {};
+    const soilWetness = Number.isFinite(Number(p.soilWetness)) ? Number(p.soilWetness) : 60;
+    const drainageIndex = Number.isFinite(Number(p.drainageIndex)) ? Number(p.drainageIndex) : 45;
+
+    // forecast module present?
+    if (state && state._mods && state._mods.forecast && typeof state._mods.forecast.predictDryForField === 'function'){
+      const pred = await state._mods.forecast.predictDryForField(
+        fieldId,
+        { soilWetness, drainageIndex },
+        {
+          threshold: thr,
+          horizonHours: 72,
+          maxSimDays: 7
+        }
+      );
+
+      // If forecast exists, use it. If not, fall back.
+      if (pred && pred.ok){
+        if (pred.status === 'dryNow') return ''; // already dry; no need for ETA line
+        if (pred.status === 'within72') return pred.message || '';
+        if (pred.status === 'notWithin72') return pred.message || `> 72 hours`;
+        if (pred.status === 'noForecast') {
+          // fall back
+        } else {
+          // pred.ok but unknown status: don’t break UI
+          return pred.message || '';
+        }
+      }
+    }
+  }catch(_){}
+
+  // Fallback to legacy “past-only” ETA
+  try{
+    return state._mods.model.etaFor(run0, thr, CONST.ETA_MAX_HOURS) || '';
+  }catch(_){
+    return '';
+  }
+}
+
 /* ---------- internal: patch a single tile DOM in-place ---------- */
 async function updateTileForField(state, fieldId){
   try{
@@ -483,9 +543,22 @@ async function updateTileForField(state, fieldId){
     const rainLine = tile.querySelector('.subline .mono');
     if (rainLine) rainLine.textContent = rainRange.toFixed(2);
 
-    const eta = state._mods.model.etaFor(run0, thr, CONST.ETA_MAX_HOURS);
-    const help = tile.querySelector('.help b');
-    if (help) help.textContent = eta ? String(eta) : '';
+    // ✅ NEW: forecast-based ETA
+    const etaTxt = await getTileEtaText(state, fid, run0, thr);
+
+    // If help container exists already, update it; else create/remove as needed
+    let help = tile.querySelector('.help');
+    if (etaTxt){
+      if (!help){
+        help = document.createElement('div');
+        help.className = 'help';
+        const gw = tile.querySelector('.gauge-wrap');
+        if (gw) gw.appendChild(help);
+      }
+      help.innerHTML = `<b>${esc(String(etaTxt))}</b>`;
+    } else {
+      if (help) help.remove();
+    }
 
     if (String(state.selectedFieldId) === fid){
       tile.classList.add('fv-selected');
@@ -574,7 +647,10 @@ export async function renderTiles(state){
     if (!run0) continue;
 
     const readiness = run0.readinessR;
-    const eta = state._mods.model.etaFor(run0, thr, CONST.ETA_MAX_HOURS);
+
+    // ✅ NEW: forecast-based ETA text
+    const etaTxt = await getTileEtaText(state, f.id, run0, thr);
+
     const rainRange = rainInRange(run0, range);
 
     const leftPos = state._mods.model.markerLeftCSS(readiness);
@@ -617,7 +693,7 @@ export async function renderTiles(state){
         </div>
 
         <div class="ticks"><span>0</span><span>50</span><span>100</span></div>
-        ${eta ? `<div class="help"><b>${esc(eta)}</b></div>` : ``}
+        ${etaTxt ? `<div class="help"><b>${esc(String(etaTxt))}</b></div>` : ``}
       </div>
     `;
 
