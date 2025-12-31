@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>FarmVista • Crop Plan — By Crop Type</title>
+  <title>FarmVista • Crop Plan — Flexible View</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#3B7E46" />
 
@@ -21,9 +21,7 @@
       --page-bottom-gap: 72px;
       --accent: #2F6C3C;
     }
-
     body{ background: var(--app-bg, var(--surface)); }
-
     .wrap{
       max-width: var(--card-max);
       margin: 0 auto;
@@ -408,34 +406,24 @@
       return Number.isFinite(n) ? n : 0;
     }
 
-    // ✅ FIX: stronger normalization + treat “unknown-ish” values as unplanned
     function normCrop(c){
       let s = String(c ?? '').trim().toLowerCase();
-
-      // normalize common punctuation/spacing
       s = s.replace(/[_]+/g, ' ');
       s = s.replace(/\s+/g, ' ').trim();
 
-      // treat these as "no crop"
       const NONE = new Set([
         '', 'none', 'no', 'na', 'n/a', 'null', 'nil',
         '-', '—', '--', '?',
-        'tbd', 'tb d', 'unknown', 'unplanned', 'not set', 'unset'
+        'tbd', 'unknown', 'unplanned', 'not set', 'unset'
       ]);
       if(NONE.has(s)) return '';
 
-      // corn aliases
-      if(s === 'corn' || s.startsWith('corn ')) return 'corn';
-      if(s === 'maize') return 'corn';
-
-      // soybean aliases
-      // handle: soybean, soy bean, soybeans, soy, beans
+      if(s === 'corn' || s.startsWith('corn ') || s === 'maize') return 'corn';
       if(s === 'soy' || s === 'soybean' || s === 'soybeans' || s === 'soy bean' || s === 'beans' || s.startsWith('soy ')) return 'soybeans';
 
-      return s; // unknown crop name (we'll treat as unplanned below)
+      return s; // unknown
     }
 
-    // ✅ FIX: anything not recognized as corn/soybeans becomes unplanned (per your request)
     function cropKeyForRow(r){
       const n = normCrop(r?.crop);
       if(n === 'corn') return 'corn';
@@ -465,7 +453,6 @@
         </svg>
       `;
     }
-
     function svgSoy(){
       return `
         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -474,7 +461,6 @@
         </svg>
       `;
     }
-
     function svgUnplanned(){
       return `
         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -484,7 +470,6 @@
         </svg>
       `;
     }
-
     function cropIconForKey(k){
       const kk = String(k||'').toLowerCase();
       if(kk === 'corn') return svgCorn();
@@ -524,9 +509,8 @@
         const snap = await getDocs(collection(STATE.db, CONFIG.FARMS_COLLECTION));
         snap.docs.forEach(ds=>{
           const d = ds.data() || {};
-          const archived = !!d.archived || String(d.status||'').toLowerCase()==='archived';
           const name = (d.name || d.farmName || d.title || ds.id || '').toString().trim();
-          STATE.farmsById.set(ds.id, { id: ds.id, name, archived });
+          STATE.farmsById.set(ds.id, { id: ds.id, name });
         });
       }catch(e){
         console.warn('[crop-plan-report] farms load failed (farmId fallback)', e);
@@ -535,7 +519,6 @@
 
     async function loadAvailableYears(){
       STATE.years = [];
-
       try{
         const snap = await getDocs(collection(STATE.db, CONFIG.PLANS_ROOT));
         const yrs = snap.docs
@@ -559,7 +542,6 @@
             if(!s.empty) found.push(y);
           }catch(_e){}
         }
-
         found.sort((a,b)=>b-a);
         STATE.years = found;
       }
@@ -601,7 +583,7 @@
             farmId: d.farmId || '',
             fieldName: d.fieldName || ds.id,
             acres: safeNum(d.acres),
-            crop: d.crop, // keep raw; we normalize on demand
+            crop: d.crop,
             status: String(d.status || '').trim().toLowerCase(),
             updatedAt: toDateMaybe(d.updatedAt),
             updatedBy: d.updatedBy || ''
@@ -651,34 +633,12 @@
       };
     }
 
-    function applyFilters(){
-      const { farm, crop } = getFilters();
-      const f = String(farm || 'all');
-      const c = String(crop || 'all').toLowerCase();
-
-      let out = (STATE.rows || []);
-
-      if(f !== 'all'){
-        out = out.filter(r => String(r.farmId||'') === f);
-      }
-
-      if(c !== 'all'){
-        out = out.filter(r => cropKeyForRow(r) === c);
-      }
-
-      STATE.filtered = out;
-      render();
-    }
-
-    // ✅ FIX: KPI buckets now use cropKeyForRow() so totals align with your expectation
     function calcKpis(rows){
       const totalFields = rows.length;
       const totalAcres = rows.reduce((s,r)=>s + safeNum(r.acres), 0);
-
       const cornAcres = rows.filter(r=>cropKeyForRow(r)==='corn').reduce((s,r)=>s + safeNum(r.acres), 0);
       const soyAcres  = rows.filter(r=>cropKeyForRow(r)==='soybeans').reduce((s,r)=>s + safeNum(r.acres), 0);
       const unpAcres  = rows.filter(r=>cropKeyForRow(r)==='unplanned').reduce((s,r)=>s + safeNum(r.acres), 0);
-
       const farmCount = new Set(rows.map(r=>String(r.farmId||'')).filter(Boolean)).size;
 
       let last = null;
@@ -691,7 +651,7 @@
     }
 
     function groupCropThenFarm(rows){
-      const cropMap = new Map();
+      const cropMap = new Map(); // cropKey -> farmName -> rows
       rows.forEach(r=>{
         const c = cropKeyForRow(r);
         if(!cropMap.has(c)) cropMap.set(c, new Map());
@@ -715,7 +675,7 @@
     }
 
     function groupFarmThenCrop(rows){
-      const farmMap = new Map();
+      const farmMap = new Map(); // farmName -> cropKey -> rows
       rows.forEach(r=>{
         const farmName = farmNameForId(r.farmId);
         if(!farmMap.has(farmName)) farmMap.set(farmName, new Map());
@@ -738,9 +698,7 @@
     }
 
     function buildTableFieldAcres(rows){
-      if(!rows.length) return `<div class="empty">No fields match the current filters.</div>`;
       const acres = rows.reduce((s,r)=>s + safeNum(r.acres), 0);
-
       return `
         <div class="card">
           <table class="table" role="table">
@@ -767,6 +725,25 @@
           </table>
         </div>
       `;
+    }
+
+    function applyFilters(){
+      const { farm, crop } = getFilters();
+      const f = String(farm || 'all');
+      const c = String(crop || 'all').toLowerCase();
+
+      let out = (STATE.rows || []);
+
+      if(f !== 'all'){
+        out = out.filter(r => String(r.farmId||'') === f);
+      }
+
+      if(c !== 'all'){
+        out = out.filter(r => cropKeyForRow(r) === c);
+      }
+
+      STATE.filtered = out;
+      render();
     }
 
     function render(){
@@ -798,43 +775,40 @@
 
       if(view === 'farmFirst'){
         const farms = groupFarmThenCrop(rows);
-
         farms.forEach(([farmName, crops])=>{
-          const farmAc = crops.flatMap(([,arr])=>arr).reduce((s,r)=>s + safeNum(r.acres), 0);
-          const farmCt = crops.flatMap(([,arr])=>arr).length;
+          const flat = crops.flatMap(([,arr])=>arr);
+          const farmAc = flat.reduce((s,r)=>s + safeNum(r.acres), 0);
 
-          const farmHead = document.createElement('div');
-          farmHead.className = 'section';
-          farmHead.innerHTML = `
+          const sec = document.createElement('section');
+          sec.className = 'section';
+          sec.innerHTML = `
             <div class="farm-head" style="margin-top:0;">
               <div>${escapeHtml(farmName)}</div>
-              <small>${fmt0.format(farmCt)} fields • ${fmt2.format(farmAc)} ac</small>
+              <small>${fmt0.format(flat.length)} fields • ${fmt2.format(farmAc)} ac</small>
             </div>
           `;
-          body.appendChild(farmHead);
+          body.appendChild(sec);
 
           crops.forEach(([cropKey, arr])=>{
             const ac = arr.reduce((s,r)=>s + safeNum(r.acres), 0);
-            const cropHead = document.createElement('div');
-            cropHead.className = 'crop-row-head';
-            cropHead.innerHTML = `
+            const head = document.createElement('div');
+            head.className = 'crop-row-head';
+            head.innerHTML = `
               <div style="display:flex;align-items:center;gap:10px;">
                 <span class="crop-icon">${cropIconForKey(cropKey)}</span>
                 <span>${escapeHtml(cropLabelFromKey(cropKey))}</span>
               </div>
               <small>${fmt0.format(arr.length)} fields • ${fmt2.format(ac)} ac</small>
             `;
-            body.appendChild(cropHead);
+            body.appendChild(head);
 
             const wrap = document.createElement('div');
             wrap.innerHTML = buildTableFieldAcres(arr);
             body.appendChild(wrap);
           });
         });
-
       } else {
         const grouped = groupCropThenFarm(rows);
-
         grouped.forEach(([cropKey, farms])=>{
           const flat = farms.flatMap(([,arr])=>arr);
           const cropAc = flat.reduce((s,r)=>s + safeNum(r.acres), 0);
@@ -854,7 +828,6 @@
 
           farms.forEach(([farmName, arr])=>{
             const farmAc = arr.reduce((s,r)=>s + safeNum(r.acres), 0);
-
             const head = document.createElement('div');
             head.className = 'farm-head';
             head.innerHTML = `
@@ -882,18 +855,12 @@
 
     function groupForPdf(rows){
       const { view } = getFilters();
-      if(view === 'farmFirst'){
-        return { mode:'farmFirst', data: groupFarmThenCrop(rows) };
-      }
+      if(view === 'farmFirst') return { mode:'farmFirst', data: groupFarmThenCrop(rows) };
       return { mode:'cropFirst', data: groupCropThenFarm(rows) };
     }
 
     function buildPrintHtml({ company, runStr, runDateOnly, filterSummary, kpis, grouped }){
-      // keep your existing print template behavior (unchanged from earlier)
-      // (same as your previous version — not repeating extra logic here beyond functional output)
-      // For now, print uses current grouping and the same cropKeyForRow() logic.
       const esc = escapeHtml;
-
       const fmtA2 = (n)=> fmt2.format(Number.isFinite(+n)?+n:0);
 
       const renderTable = (rows)=>`
@@ -1013,20 +980,16 @@
     .meta strong{color:var(--fv-text);}
     .title{ margin:0; font-size:18px; font-weight:950; letter-spacing:0.06em; text-transform:uppercase; }
     .subtitle{ margin:4px 0 0; font-size:12px; color:var(--fv-muted); line-height:1.35; }
-
     .summary{ margin-top:10px; padding:8px 10px; border-radius:12px; background:linear-gradient(90deg, rgba(59,126,70,0.10), transparent); border:1px solid rgba(59,126,70,0.22); display:flex; flex-wrap:wrap; gap:6px 14px; font-size:11px; }
     .pill{display:inline-flex; gap:6px; align-items:baseline; white-space:nowrap;}
     .k{font-size:10px; text-transform:uppercase; letter-spacing:0.10em; color:var(--fv-muted); font-weight:700;}
     .v{font-weight:800; color:var(--fv-text);}
-
     .kpis{ margin-top:12px; display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px; }
     .kpi{ border:1px solid var(--fv-border); border-radius:12px; padding:9px 10px; background:linear-gradient(135deg, rgba(59,126,70,0.06), #fff); }
     .kpi .lab{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--fv-muted);font-weight:900;}
     .kpi .val{font-size:18px;font-weight:950;margin-top:2px;}
     .kpi .note{font-size:10px;color:var(--fv-muted);margin-top:2px;line-height:1.25;}
-
     .footer{ margin-top:16px; padding-top:10px; border-top:1px solid var(--fv-border); display:flex; justify-content:space-between; gap:12px; font-size:10px; color:var(--fv-muted); line-height:1.3; }
-
     @media (max-width:860px){
       .kpis{grid-template-columns:repeat(2, minmax(0,1fr));}
       .meta{white-space:normal;}
@@ -1149,23 +1112,6 @@
       $('#btnPrintBottom')?.addEventListener('click', handlePrintClick);
     }
 
-    function summarizeFilters(){
-      const { year, farm, crop, view } = getFilters();
-      const yTxt = year ? `Crop Year: ${year}` : 'Crop Year: —';
-      const fTxt = (farm === 'all') ? 'All farms' : `Farm: ${farmNameForId(farm)}`;
-      const cTxt = (crop === 'all') ? 'All crops' : `Crop: ${cropLabelFromKey(crop)}`;
-      const vTxt = (view === 'farmFirst') ? 'View: Farm → Crop' : 'View: Crop → Farm';
-      return `${yTxt} • ${fTxt} • ${cTxt} • ${vTxt}`;
-    }
-
-    function groupForPdf(rows){
-      const { view } = getFilters();
-      if(view === 'farmFirst'){
-        return { mode:'farmFirst', data: groupFarmThenCrop(rows) };
-      }
-      return { mode:'cropFirst', data: groupCropThenFarm(rows) };
-    }
-
     (async function boot(){
       await ready;
       STATE.db = getFirestore();
@@ -1200,7 +1146,6 @@
             <p class="muted">
               Filters: <strong>Crop Year</strong>, <strong>Farm</strong>, <strong>Crop Type</strong>.
               View Mode toggles <strong>Crop → Farm</strong> or <strong>Farm → Crop</strong>.
-              “Unplanned” now includes blank/TBD/unknown values and any crop not recognized as Corn/Soybeans.
             </p>
           </div>
         </header>
