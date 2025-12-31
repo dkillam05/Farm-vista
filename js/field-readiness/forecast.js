@@ -1,14 +1,18 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/forecast.js  (FULL FILE)
-Rev: 2025-12-31c
+Rev: 2025-12-31e
 
-Change:
-✅ Replace ">" wording with "Greater Than" (exact casing requested)
-   - Example: "Greater Than 72 hours"
-   - Example w/ ETA: "Greater Than 72 hours (Est: ~96h)"
+Change (per Dane):
+✅ HARD CAP at 72 hours for displaying estimates:
+   - If predicted dry time is within 72h => show "Est: ~XX hours"
+   - If predicted dry time is beyond 72h OR unknown => show ONLY "Greater Than 72 hours"
+   - NO "Est:" text is ever shown past the 72h window
 
 Keeps:
+✅ "Greater Than" wording (exact casing requested)
 ✅ Forecast predictor applies SAME wetBias (calibration) used by tiles.
+✅ Option A saturation-aware effective rain
+✅ No breaking changes to API shape for render.js
 ===================================================================== */
 'use strict';
 
@@ -234,7 +238,6 @@ function applyWetBiasToWetness(wetnessPhysical, wetBiasPoints){
 
 /* =====================================================================
    Compute "current" storage from HISTORY series (<= today)
-   Returns { readinessNow, wetnessNow, storage, factors }
 ===================================================================== */
 function computeNowFromHistory(histSeries, soilWetness, drainageIndex, phys, wetBias){
   if (!Array.isArray(histSeries) || !histSeries.length) return null;
@@ -392,6 +395,7 @@ export async function predictDryForField(fieldId, params, opts){
   const crossing = sim ? sim.crossingHours : null;
   const readinessAt72 = sim ? sim.readinessAtHorizon : null;
 
+  // ✅ Within 72h => show estimate
   if (crossing !== null && crossing <= horizonHours){
     return {
       ok: true,
@@ -405,19 +409,15 @@ export async function predictDryForField(fieldId, params, opts){
     };
   }
 
-  const eta = (crossing !== null) ? crossing : null;
-
-  // ✅ CHANGED: "Greater Than" text
+  // ✅ Beyond 72h OR unknown => NO estimate shown
   return {
     ok: true,
     status: 'notWithin72',
     fieldId,
     readinessNow,
     readinessAt72,
-    hoursUntilDry: eta,
+    hoursUntilDry: null,
     threshold,
-    message: (eta !== null)
-      ? (eta > horizonHours ? `Greater Than ${horizonHours} hours (Est: ~${eta}h)` : `Greater Than ${horizonHours} hours`)
-      : `Greater Than ${horizonHours} hours`
+    message: `Greater Than ${horizonHours} hours`
   };
 }
