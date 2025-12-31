@@ -1,25 +1,29 @@
 /* =====================================================================
 /Farm-vista/js/crop-planning/crop-planning-dnd.js  (FULL FILE)
-Rev: 2025-12-30j
+Rev: 2025-12-31a
 
-Fix:
-✅ Explicit drag intent via data-drag-type:
-   - farm grip: data-drag-type="farm"
-   - field grip: data-drag-type="field"
+DnD types:
+- field   : single field
+- fields  : multi-selected fields
+- bucket  : all fields in a farm bucket (unplanned/corn/soybeans)
+- farm    : all fields in a farm (in-scope)
 
-✅ Event delegation for dropzones (no rebind issues after render).
+Uses explicit drag intent:
+- data-drag-type="field"  (on field grip)
+- data-drag-type="bucket" (on bucket grip)
+- data-drag-type="farm"   (on farm grip)
 ===================================================================== */
 'use strict';
 
-export function wireDnd({ root, onDrop }) {
+export function wireDnd({ root, onDrop, isEnabled }) {
   if (!root) throw new Error('wireDnd: missing root');
   if (typeof onDrop !== 'function') throw new Error('wireDnd: missing onDrop');
 
-  const isDesktop = () => window.matchMedia('(min-width: 981px)').matches;
+  const enabled = () => (typeof isEnabled === 'function' ? !!isEnabled() : true);
 
-  // ---------------- Drag start (explicit) ----------------
+  // ---- Drag start (delegated) ----
   root.addEventListener('dragstart', (e) => {
-    if (!isDesktop()) return;
+    if (!enabled()) return;
 
     const grip = e.target.closest('[data-drag-type]');
     if (!grip) return;
@@ -30,9 +34,30 @@ export function wireDnd({ root, onDrop }) {
       const row = grip.closest('[data-field-id]');
       if (!row) return;
 
+      // if dragging a selected row, allow multi-drag via dataset on row
+      const selectedJson = row.dataset.selectedIds || '';
+
+      if (selectedJson) {
+        e.dataTransfer.setData('text/fv-type', 'fields');
+        e.dataTransfer.setData('text/fv-field-ids', selectedJson);
+        e.dataTransfer.effectAllowed = 'move';
+        return;
+      }
+
       e.dataTransfer.setData('text/fv-type', 'field');
       e.dataTransfer.setData('text/fv-field-id', row.dataset.fieldId || '');
       e.dataTransfer.setData('text/fv-from-crop', row.dataset.crop || '');
+      e.dataTransfer.effectAllowed = 'move';
+      return;
+    }
+
+    if (type === 'bucket') {
+      const bucket = grip.closest('[data-bucket-crop][data-bucket-farm]');
+      if (!bucket) return;
+
+      e.dataTransfer.setData('text/fv-type', 'bucket');
+      e.dataTransfer.setData('text/fv-bucket-crop', bucket.dataset.bucketCrop || '');
+      e.dataTransfer.setData('text/fv-bucket-farm', bucket.dataset.bucketFarm || '');
       e.dataTransfer.effectAllowed = 'move';
       return;
     }
@@ -48,9 +73,10 @@ export function wireDnd({ root, onDrop }) {
     }
   });
 
-  // ---------------- Dropzone highlighting (delegated) ----------------
+  // ---- Dropzone highlight (delegated) ----
   root.addEventListener('dragover', (e) => {
-    if (!isDesktop()) return;
+    if (!enabled()) return;
+
     const zone = e.target.closest('.bucketBody');
     if (!zone) return;
     e.preventDefault();
@@ -63,9 +89,9 @@ export function wireDnd({ root, onDrop }) {
     zone.classList.remove('is-over');
   });
 
-  // ---------------- Drop (delegated) ----------------
+  // ---- Drop (delegated) ----
   root.addEventListener('drop', async (e) => {
-    if (!isDesktop()) return;
+    if (!enabled()) return;
 
     const zone = e.target.closest('.bucketBody');
     if (!zone) return;
@@ -81,6 +107,21 @@ export function wireDnd({ root, onDrop }) {
       const fromCrop = e.dataTransfer.getData('text/fv-from-crop');
       if (!fieldId) return;
       await onDrop({ type: 'field', fieldId, fromCrop, toCrop });
+      return;
+    }
+
+    if (type === 'fields') {
+      const idsJson = e.dataTransfer.getData('text/fv-field-ids');
+      if (!idsJson) return;
+      await onDrop({ type: 'fields', fieldIdsJson: idsJson, toCrop });
+      return;
+    }
+
+    if (type === 'bucket') {
+      const bucketCrop = e.dataTransfer.getData('text/fv-bucket-crop');
+      const bucketFarm = e.dataTransfer.getData('text/fv-bucket-farm');
+      if (!bucketFarm && bucketFarm !== '') return;
+      await onDrop({ type: 'bucket', bucketCrop, bucketFarm, toCrop });
       return;
     }
 
