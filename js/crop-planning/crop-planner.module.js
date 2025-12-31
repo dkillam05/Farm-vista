@@ -1,14 +1,18 @@
 /* =====================================================================
 /Farm-vista/js/crop-planning/crop-planner.module.js  (FULL FILE)
-Rev: 2025-12-31c
+Rev: 2025-12-31d
 
 Fixes per Dane:
 ✅ Farm lane header shows (Corn X • Beans Y) when any assigned exists; otherwise shows nothing extra.
 ✅ "Drop farm" header row redesigned to be obviously bulk action.
 ✅ On viewOnly (phone), hides the bulk drop header entirely.
 
-Exports:
-  mount(hostEl, opts) -> returns { unmount() }
+NEW:
+✅ Add plan LOCK (padlock SVG) per Crop Year (localStorage).
+   - Click lock to prevent fat-finger DnD moves.
+   - When locked: grips grey out + DnD disabled.
+
+DnD fix also requires crop-planning-dnd.js Rev 2025-12-31b
 ===================================================================== */
 'use strict';
 
@@ -46,6 +50,22 @@ function chevSvg(){
   `;
 }
 
+function lockSvg(locked){
+  // simple, readable lock/unlock icon
+  return locked ? `
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="5" y="11" width="14" height="10" rx="2"></rect>
+      <path d="M8 11V8a4 4 0 0 1 8 0v3"></path>
+    </svg>
+  ` : `
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="5" y="11" width="14" height="10" rx="2"></rect>
+      <path d="M8 11V8a4 4 0 0 1 7.5-1.9"></path>
+      <path d="M16 3l5 5"></path>
+    </svg>
+  `;
+}
+
 export async function mount(hostEl, opts = {}){
   const viewOnly = !!opts.viewOnly;
 
@@ -64,6 +84,20 @@ export async function mount(hostEl, opts = {}){
     laneOpen[farmId] = !!open;
     try{ localStorage.setItem(OPEN_KEY, JSON.stringify(laneOpen)); }catch{}
   };
+
+  // ---- Plan Lock (per year) ----
+  const LOCK_KEY = 'fv:cropplan:lockedByYear:v1';
+  let lockedByYear = {};
+  try{ lockedByYear = JSON.parse(localStorage.getItem(LOCK_KEY) || '{}') || {}; }catch{ lockedByYear = {}; }
+  let isLocked = !!lockedByYear[currentYear];
+
+  const setLockedForYear = (year, locked) => {
+    lockedByYear[String(year)] = !!locked;
+    try{ localStorage.setItem(LOCK_KEY, JSON.stringify(lockedByYear)); }catch{}
+    isLocked = !!lockedByYear[String(year)];
+  };
+
+  const canDragNow = () => (!viewOnly && !isLocked);
 
   // render skeleton inside host
   hostEl.innerHTML = `
@@ -97,7 +131,26 @@ export async function mount(hostEl, opts = {}){
             </div>
 
             <div class="field">
-              <label style="display:block;font-weight:800;margin:0 0 6px;">Crop Year</label>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 6px;">
+                <label style="display:block;font-weight:800;margin:0;">Crop Year</label>
+
+                <button data-el="lockBtn" type="button"
+                        title="Lock plan (prevents drag moves)"
+                        style="display:inline-flex;align-items:center;gap:8px;
+                               border:1px solid var(--border);
+                               background:var(--card-surface,var(--surface));
+                               color:var(--text);
+                               border-radius:999px;
+                               padding:7px 10px;
+                               font-weight:900;
+                               cursor:${viewOnly ? 'not-allowed' : 'pointer'};
+                               opacity:${viewOnly ? '.45' : '1'};
+                               user-select:none;">
+                  <span data-el="lockIcon" style="display:grid;place-items:center;"></span>
+                  <span data-el="lockLabel" style="font-size:12px;letter-spacing:.2px;text-transform:uppercase;">Unlocked</span>
+                </button>
+              </div>
+
               <select data-el="year" class="select"
                       style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));border:1px solid var(--border);border-radius:10px;padding:12px;outline:none;">
                 <option value="2026">2026</option>
@@ -202,6 +255,9 @@ export async function mount(hostEl, opts = {}){
     farmId: q('[data-el="farmId"]'),
     farmName: q('[data-el="farmName"]'),
     year: q('[data-el="year"]'),
+    lockBtn: q('[data-el="lockBtn"]'),
+    lockIcon: q('[data-el="lockIcon"]'),
+    lockLabel: q('[data-el="lockLabel"]'),
     search: q('[data-el="search"]'),
     scopeHelp: q('[data-el="scopeHelp"]'),
     laneHeader: q('[data-el="laneHeader"]'),
@@ -281,14 +337,33 @@ export async function mount(hostEl, opts = {}){
     renderAll(true);
   }, { signal });
 
+  const renderLockUI = () => {
+    el.lockIcon.innerHTML = lockSvg(isLocked);
+    el.lockLabel.textContent = isLocked ? 'Locked' : 'Unlocked';
+    el.lockBtn.style.borderColor = isLocked ? 'color-mix(in srgb, var(--border) 60%, rgba(47,108,60,.25))' : 'var(--border)';
+  };
+
+  el.lockBtn.addEventListener('click', ()=>{
+    if (viewOnly) return;
+    setLockedForYear(currentYear, !isLocked);
+    renderLockUI();
+    renderAll(true);
+    toast(isLocked ? `Locked ${currentYear}` : `Unlocked ${currentYear}`);
+  }, { signal });
+
   el.year.value = '2026';
   currentYear = '2026';
+  isLocked = !!lockedByYear[currentYear];
+  renderLockUI();
 
   el.year.addEventListener('change', async ()=>{
     currentYear = String(el.year.value || '2026');
+    isLocked = !!lockedByYear[currentYear];
+    renderLockUI();
+
     plans = await loadPlansForYear(db, currentYear);
     renderAll(true);
-    toast(`Year: ${currentYear}`);
+    toast(`Year: ${currentYear}${isLocked ? ' (Locked)' : ''}`);
   }, { signal });
 
   // crop lookup
@@ -312,13 +387,15 @@ export async function mount(hostEl, opts = {}){
 
   // render
   const renderBucket = (farmId, title, crop, arr, acres) => {
+    const canDrag = canDragNow();
+    const draggable = canDrag ? 'true' : 'false';
+
     const rows = arr.length ? arr.map(f=>{
-      const draggable = viewOnly ? 'false' : 'true';
       return `
         <div class="cardRow" data-field-id="${esc(f.id)}" data-farm-id="${esc(farmId)}" data-crop="${esc(crop)}"
              style="border:1px solid var(--border);border-radius:12px;background:var(--surface);padding:10px;display:grid;grid-template-columns:22px 1fr auto;gap:10px;align-items:center;">
           <div class="dragGrip" data-drag-type="field" draggable="${draggable}"
-               style="width:22px;height:22px;border:1px solid var(--border);border-radius:8px;display:grid;place-items:center;color:var(--muted,#67706B);cursor:${viewOnly?'not-allowed':'grab'};opacity:${viewOnly?'.45':'1'};">
+               style="width:22px;height:22px;border:1px solid var(--border);border-radius:8px;display:grid;place-items:center;color:var(--muted,#67706B);cursor:${canDrag?'grab':'not-allowed'};opacity:${canDrag?'1':'.35'};">
             ${gripSvg()}
           </div>
           <div style="font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(f.name)}</div>
@@ -327,15 +404,17 @@ export async function mount(hostEl, opts = {}){
       `;
     }).join('') : `<div class="muted" style="font-weight:900">—</div>`;
 
+    // IMPORTANT: data-dropzone="1" makes the whole bucket a drop target (header OR body)
     return `
-      <div class="bucket" style="border:1px solid var(--border);border-radius:12px;background:var(--card-surface,var(--surface));overflow:hidden;">
+      <div class="bucket" data-dropzone="1" data-crop="${esc(crop)}" data-farm-id="${esc(farmId)}"
+           style="border:1px solid var(--border);border-radius:12px;background:var(--card-surface,var(--surface));overflow:hidden;">
         <div class="bucketHead" style="padding:10px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px;">
           <div style="font-weight:900;">${esc(title)}</div>
           <div style="font-size:12px;color:var(--muted,#67706B);font-weight:900;letter-spacing:.2px;text-transform:uppercase;white-space:nowrap;">
             ${fmt0.format(arr.length)} • ${fmt2.format(acres)} ac
           </div>
         </div>
-        <div class="bucketBody" data-crop="${esc(crop)}" data-farm-id="${esc(farmId)}"
+        <div class="bucketBody"
              style="padding:10px;display:grid;gap:10px;max-height:260px;overflow:auto;-webkit-overflow-scrolling:touch;">
           ${rows}
         </div>
@@ -345,7 +424,7 @@ export async function mount(hostEl, opts = {}){
 
   const renderAll = (preserveScroll=false) => {
     const list = getShownFields();
-    el.scopeHelp.textContent = `Showing ${fmt0.format(list.length)} active fields`;
+    el.scopeHelp.textContent = `Showing ${fmt0.format(list.length)} active fields${isLocked ? ' • Locked' : ''}`;
 
     let unCnt=0, coCnt=0, soCnt=0;
     let unAc=0, coAc=0, soAc=0;
@@ -377,10 +456,13 @@ export async function mount(hostEl, opts = {}){
     const snap = preserveScroll ? {
       boardTop: el.boardScroll.scrollTop,
       buckets: Object.fromEntries([...hostEl.querySelectorAll('.bucketBody')].map(b=>{
-        const k = `${b.dataset.farmId}::${b.dataset.crop}`;
+        const bucket = b.closest('[data-dropzone="1"]');
+        const k = `${bucket?.dataset.farmId || ''}::${bucket?.dataset.crop || ''}`;
         return [k, b.scrollTop||0];
       }))
     } : null;
+
+    const canDrag = canDragNow();
 
     el.boardScroll.innerHTML = farmsArr.map(g=>{
       g.fields.sort((a,b)=> String(a.name||'').localeCompare(String(b.name||'')));
@@ -398,7 +480,7 @@ export async function mount(hostEl, opts = {}){
         else { un.push(f); unA+=a; }
       }
 
-      const farmDrag = viewOnly ? 'false' : 'true';
+      const farmDrag = canDrag ? 'true' : 'false';
 
       // ✅ planned counts in () — only if any assigned exists
       const plannedBadge = (coN + soN) > 0
@@ -411,7 +493,7 @@ export async function mount(hostEl, opts = {}){
           <div class="farmLaneHead" data-farm-toggle="1"
                style="display:grid;grid-template-columns:22px 1fr auto 18px;gap:10px;align-items:center;padding:12px;border-bottom:1px solid var(--border);background:linear-gradient(90deg, rgba(0,0,0,.02), transparent);user-select:none;">
             <div class="farmGrip" data-drag-type="farm" draggable="${farmDrag}"
-                 style="width:22px;height:22px;border:1px solid var(--border);border-radius:8px;display:grid;place-items:center;color:var(--muted,#67706B);cursor:${viewOnly?'not-allowed':'grab'};opacity:${viewOnly?'.45':'1'};">
+                 style="width:22px;height:22px;border:1px solid var(--border);border-radius:8px;display:grid;place-items:center;color:var(--muted,#67706B);cursor:${canDrag?'grab':'not-allowed'};opacity:${canDrag?'1':'.35'};">
               ${gripSvg()}
             </div>
             <div style="font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
@@ -453,11 +535,24 @@ export async function mount(hostEl, opts = {}){
       }, { signal });
     });
 
+    // simple hover style for drop zones (DnD module toggles .is-over)
+    hostEl.querySelectorAll('[data-dropzone="1"]').forEach(b=>{
+      b.style.transition = 'box-shadow .10s ease, transform .10s ease';
+      if (b.classList.contains('is-over')){
+        b.style.boxShadow = '0 0 0 3px color-mix(in srgb, rgba(47,108,60,.22) 70%, transparent)';
+        b.style.transform = 'translateY(-1px)';
+      }else{
+        b.style.boxShadow = '';
+        b.style.transform = '';
+      }
+    });
+
     if(snap){
       el.boardScroll.scrollTop = snap.boardTop || 0;
-      hostEl.querySelectorAll('.bucketBody').forEach(b=>{
-        const k = `${b.dataset.farmId}::${b.dataset.crop}`;
-        if(snap.buckets[k] != null) b.scrollTop = snap.buckets[k];
+      hostEl.querySelectorAll('.bucketBody').forEach(body=>{
+        const bucket = body.closest('[data-dropzone="1"]');
+        const k = `${bucket?.dataset.farmId || ''}::${bucket?.dataset.crop || ''}`;
+        if(snap.buckets[k] != null) body.scrollTop = snap.buckets[k];
       });
     }
   };
@@ -465,6 +560,10 @@ export async function mount(hostEl, opts = {}){
   // Drop actions (field + farm)
   const onDrop = async ({ type, fieldId, farmId, toCrop }) => {
     if(viewOnly) return;
+    if(isLocked){
+      toast(`Locked ${currentYear}`);
+      return;
+    }
 
     if(type === 'field'){
       const f = fields.find(x=> x.id === fieldId);
@@ -518,10 +617,10 @@ export async function mount(hostEl, opts = {}){
   wireDnd({
     root: hostEl,
     onDrop,
-    isEnabled: () => !viewOnly
+    isEnabled: () => canDragNow()
   });
 
-  toast(viewOnly ? 'View only' : 'Ready');
+  toast(viewOnly ? 'View only' : (isLocked ? `Ready (Locked ${currentYear})` : 'Ready'));
 
   return {
     unmount(){
