@@ -1,18 +1,23 @@
 /* =====================================================================
 /Farm-vista/js/crop-planning/crop-planner.module.js  (FULL FILE)
-Rev: 2025-12-31d
+Rev: 2025-12-31f
 
 Fixes per Dane:
 ✅ Farm lane header shows (Corn X • Beans Y) when any assigned exists; otherwise shows nothing extra.
 ✅ "Drop farm" header row redesigned to be obviously bulk action.
 ✅ On viewOnly (phone), hides the bulk drop header entirely.
 
-NEW:
-✅ Add plan LOCK (padlock SVG) per Crop Year (localStorage).
-   - Click lock to prevent fat-finger DnD moves.
-   - When locked: grips grey out + DnD disabled.
+REQUIRES (DnD drop fix):
+✅ /Farm-vista/js/crop-planning/crop-planning-dnd.js  Rev: 2025-12-31b
+   (whole bucket is a dropzone, not just bucketBody)
 
-DnD fix also requires crop-planning-dnd.js Rev 2025-12-31b
+GLOBAL PADLOCK (per Dane):
+✅ Lock is GLOBAL for all users (fat-finger protection)
+✅ Stored in Firestore: crop_plan_locks/{year}
+   - { locked: true/false, updatedAt, updatedBy }
+✅ Anyone can lock/unlock (rules must allow)
+✅ Realtime updates (onSnapshot if available); polling fallback if not
+✅ When locked: DnD disabled + grips greyed + drops show toast “Locked {year}”
 ===================================================================== */
 'use strict';
 
@@ -51,7 +56,6 @@ function chevSvg(){
 }
 
 function lockSvg(locked){
-  // simple, readable lock/unlock icon
   return locked ? `
     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <rect x="5" y="11" width="14" height="10" rx="2"></rect>
@@ -64,6 +68,56 @@ function lockSvg(locked){
       <path d="M16 3l5 5"></path>
     </svg>
   `;
+}
+
+/* ---------- Firestore modular helpers (best-effort) ----------
+We already get a Firestore db from initDB().
+We try to obtain doc/getDoc/setDoc/onSnapshot/serverTimestamp without hard-failing.
+------------------------------------------------------------ */
+async function getFirestoreFns(){
+  const g = globalThis || window;
+
+  // If your app exposes a modular bundle somewhere on FV:
+  if (g.FV?.firestore?.doc && g.FV?.firestore?.getDoc && g.FV?.firestore?.setDoc){
+    return g.FV.firestore;
+  }
+
+  // If modular fns are hoisted globally (less common)
+  if (g.doc && g.getDoc && g.setDoc){
+    return {
+      doc: g.doc,
+      getDoc: g.getDoc,
+      setDoc: g.setDoc,
+      onSnapshot: g.onSnapshot,
+      serverTimestamp: g.serverTimestamp
+    };
+  }
+
+  // Try importing from your firebase-init.js (common in FarmVista)
+  try{
+    const m = await import('/Farm-vista/js/firebase-init.js');
+    if (m.doc && m.getDoc && m.setDoc){
+      return {
+        doc: m.doc,
+        getDoc: m.getDoc,
+        setDoc: m.setDoc,
+        onSnapshot: m.onSnapshot,
+        serverTimestamp: m.serverTimestamp
+      };
+    }
+  }catch{}
+
+  return null;
+}
+
+function getUserTag(){
+  const g = globalThis || window;
+  const email =
+    g.FV?.user?.email ||
+    g.FV?.auth?.currentUser?.email ||
+    g.firebase?.auth?.().currentUser?.email ||
+    '';
+  return String(email || '').trim();
 }
 
 export async function mount(hostEl, opts = {}){
@@ -85,17 +139,13 @@ export async function mount(hostEl, opts = {}){
     try{ localStorage.setItem(OPEN_KEY, JSON.stringify(laneOpen)); }catch{}
   };
 
-  // ---- Plan Lock (per year) ----
-  const LOCK_KEY = 'fv:cropplan:lockedByYear:v1';
-  let lockedByYear = {};
-  try{ lockedByYear = JSON.parse(localStorage.getItem(LOCK_KEY) || '{}') || {}; }catch{ lockedByYear = {}; }
-  let isLocked = !!lockedByYear[currentYear];
+  // ---- GLOBAL LOCK state ----
+  let fs = null;               // firestore fns
+  let isLocked = false;        // current year's lock value
+  let lockUnsub = null;        // onSnapshot unsubscribe
+  let lockPollT = null;        // polling interval handle
 
-  const setLockedForYear = (year, locked) => {
-    lockedByYear[String(year)] = !!locked;
-    try{ localStorage.setItem(LOCK_KEY, JSON.stringify(lockedByYear)); }catch{}
-    isLocked = !!lockedByYear[String(year)];
-  };
+  const lockPath = (year) => ['crop_plan_locks', String(year)];
 
   const canDragNow = () => (!viewOnly && !isLocked);
 
@@ -135,7 +185,7 @@ export async function mount(hostEl, opts = {}){
                 <label style="display:block;font-weight:800;margin:0;">Crop Year</label>
 
                 <button data-el="lockBtn" type="button"
-                        title="Lock plan (prevents drag moves)"
+                        title="Global lock (prevents drag moves for everyone)"
                         style="display:inline-flex;align-items:center;gap:8px;
                                border:1px solid var(--border);
                                background:var(--card-surface,var(--surface));
@@ -198,13 +248,9 @@ export async function mount(hostEl, opts = {}){
           <!-- Bulk farm drop header (hidden on viewOnly) -->
           <div data-el="bulkWrap" style="display:${viewOnly ? 'none' : 'grid'};gap:8px;">
             <div style="display:flex;gap:8px;align-items:center;">
-              <div style="width:28px;height:28px;border-radius:10px;border:1px solid var(--border);display:grid;place-items:center;color:var(--accent);">
-                ⇄
-              </div>
+              <div style="width:28px;height:28px;border-radius:10px;border:1px solid var(--border);display:grid;place-items:center;color:var(--accent);">⇄</div>
               <div style="font-weight:900;">Bulk: drop a FARM here</div>
-              <div class="muted" style="font-weight:800;font-size:12px;letter-spacing:.2px;text-transform:uppercase;">
-                Moves every active field in that farm
-              </div>
+              <div class="muted" style="font-weight:800;font-size:12px;letter-spacing:.2px;text-transform:uppercase;">Moves every active field in that farm</div>
             </div>
 
             <div data-el="laneHeader" class="laneHeader"
@@ -227,7 +273,6 @@ export async function mount(hostEl, opts = {}){
   `;
 
   function bulkBox(label, crop){
-    // styled so it looks like a special drop target (not a normal card)
     return `
       <div class="hbox" data-header-drop="1" data-crop="${crop}"
            style="border:1px dashed color-mix(in srgb, var(--border) 60%, transparent);
@@ -337,29 +382,124 @@ export async function mount(hostEl, opts = {}){
     renderAll(true);
   }, { signal });
 
+  // ---------- GLOBAL LOCK (Firestore) ----------
   const renderLockUI = () => {
     el.lockIcon.innerHTML = lockSvg(isLocked);
     el.lockLabel.textContent = isLocked ? 'Locked' : 'Unlocked';
-    el.lockBtn.style.borderColor = isLocked ? 'color-mix(in srgb, var(--border) 60%, rgba(47,108,60,.25))' : 'var(--border)';
+    el.lockBtn.style.borderColor = isLocked
+      ? 'color-mix(in srgb, var(--border) 60%, rgba(47,108,60,.25))'
+      : 'var(--border)';
   };
 
-  el.lockBtn.addEventListener('click', ()=>{
-    if (viewOnly) return;
-    setLockedForYear(currentYear, !isLocked);
+  const stopLockWatch = () => {
+    try{ if (typeof lockUnsub === 'function') lockUnsub(); }catch{}
+    lockUnsub = null;
+    if (lockPollT) clearInterval(lockPollT);
+    lockPollT = null;
+  };
+
+  const readLockOnce = async (year) => {
+    if (!fs || !db) return false;
+    try{
+      const ref = fs.doc(db, ...lockPath(year));
+      const snap = await fs.getDoc(ref);
+      const data = snap?.data?.() || {};
+      return !!data.locked;
+    }catch{
+      return false;
+    }
+  };
+
+  const writeLock = async (year, nextLocked) => {
+    if (!fs || !db) throw new Error('Missing Firestore fns/db');
+    const ref = fs.doc(db, ...lockPath(year));
+    const payload = {
+      locked: !!nextLocked,
+      updatedAt: fs.serverTimestamp ? fs.serverTimestamp() : new Date(),
+      updatedBy: getUserTag() || ''
+    };
+    await fs.setDoc(ref, payload, { merge: true });
+  };
+
+  const startLockWatch = async (year) => {
+    stopLockWatch();
+
+    // default unlocked if we can't reach Firestore helper fns
+    if (!fs || !db){
+      isLocked = false;
+      renderLockUI();
+      return;
+    }
+
+    // Realtime listener if available
+    if (typeof fs.onSnapshot === 'function'){
+      try{
+        const ref = fs.doc(db, ...lockPath(year));
+        lockUnsub = fs.onSnapshot(ref, (snap)=>{
+          const data = snap?.data?.() || {};
+          const next = !!data.locked;
+          const changed = next !== isLocked;
+          isLocked = next;
+          renderLockUI();
+          if (changed) renderAll(true);
+        }, async ()=>{
+          // If listener fails (permissions/network), fall back to polling
+          stopLockWatch();
+          isLocked = await readLockOnce(year);
+          renderLockUI();
+          renderAll(true);
+          lockPollT = setInterval(async ()=>{
+            const v = await readLockOnce(year);
+            if (v !== isLocked){
+              isLocked = v;
+              renderLockUI();
+              renderAll(true);
+            }
+          }, 6000);
+        });
+
+        // Prime UI quickly
+        isLocked = await readLockOnce(year);
+        renderLockUI();
+        return;
+      }catch{
+        // fall through to polling
+      }
+    }
+
+    // Polling fallback
+    isLocked = await readLockOnce(year);
     renderLockUI();
-    renderAll(true);
-    toast(isLocked ? `Locked ${currentYear}` : `Unlocked ${currentYear}`);
+    lockPollT = setInterval(async ()=>{
+      const v = await readLockOnce(year);
+      if (v !== isLocked){
+        isLocked = v;
+        renderLockUI();
+        renderAll(true);
+      }
+    }, 6000);
+  };
+
+  el.lockBtn.addEventListener('click', async ()=>{
+    if (viewOnly) return;
+    try{
+      const current = await readLockOnce(currentYear);
+      await writeLock(currentYear, !current);
+      toast(!current ? `Locked ${currentYear}` : `Unlocked ${currentYear}`);
+      // watcher will refresh UI for everyone
+    }catch(e){
+      console.warn('[crop-planner] lock toggle failed', e);
+      toast('Lock failed');
+    }
   }, { signal });
 
+  // ---------- Crop Year ----------
   el.year.value = '2026';
   currentYear = '2026';
-  isLocked = !!lockedByYear[currentYear];
-  renderLockUI();
 
   el.year.addEventListener('change', async ()=>{
     currentYear = String(el.year.value || '2026');
-    isLocked = !!lockedByYear[currentYear];
-    renderLockUI();
+    await startLockWatch(currentYear);
 
     plans = await loadPlansForYear(db, currentYear);
     renderAll(true);
@@ -404,7 +544,7 @@ export async function mount(hostEl, opts = {}){
       `;
     }).join('') : `<div class="muted" style="font-weight:900">—</div>`;
 
-    // IMPORTANT: data-dropzone="1" makes the whole bucket a drop target (header OR body)
+    // data-dropzone makes the whole bucket (header/body/empty) droppable
     return `
       <div class="bucket" data-dropzone="1" data-crop="${esc(crop)}" data-farm-id="${esc(farmId)}"
            style="border:1px solid var(--border);border-radius:12px;background:var(--card-surface,var(--surface));overflow:hidden;">
@@ -455,10 +595,10 @@ export async function mount(hostEl, opts = {}){
 
     const snap = preserveScroll ? {
       boardTop: el.boardScroll.scrollTop,
-      buckets: Object.fromEntries([...hostEl.querySelectorAll('.bucketBody')].map(b=>{
-        const bucket = b.closest('[data-dropzone="1"]');
+      buckets: Object.fromEntries([...hostEl.querySelectorAll('.bucketBody')].map(body=>{
+        const bucket = body.closest('[data-dropzone="1"]');
         const k = `${bucket?.dataset.farmId || ''}::${bucket?.dataset.crop || ''}`;
-        return [k, b.scrollTop||0];
+        return [k, body.scrollTop||0];
       }))
     } : null;
 
@@ -482,7 +622,6 @@ export async function mount(hostEl, opts = {}){
 
       const farmDrag = canDrag ? 'true' : 'false';
 
-      // ✅ planned counts in () — only if any assigned exists
       const plannedBadge = (coN + soN) > 0
         ? ` <span style="color:var(--muted,#67706B);font-weight:900;">(${coN ? `Corn ${fmt0.format(coN)}` : ''}${coN && soN ? ' • ' : ''}${soN ? `Beans ${fmt0.format(soN)}` : ''})</span>`
         : '';
@@ -535,18 +674,6 @@ export async function mount(hostEl, opts = {}){
       }, { signal });
     });
 
-    // simple hover style for drop zones (DnD module toggles .is-over)
-    hostEl.querySelectorAll('[data-dropzone="1"]').forEach(b=>{
-      b.style.transition = 'box-shadow .10s ease, transform .10s ease';
-      if (b.classList.contains('is-over')){
-        b.style.boxShadow = '0 0 0 3px color-mix(in srgb, rgba(47,108,60,.22) 70%, transparent)';
-        b.style.transform = 'translateY(-1px)';
-      }else{
-        b.style.boxShadow = '';
-        b.style.transform = '';
-      }
-    });
-
     if(snap){
       el.boardScroll.scrollTop = snap.boardTop || 0;
       hostEl.querySelectorAll('.bucketBody').forEach(body=>{
@@ -560,6 +687,7 @@ export async function mount(hostEl, opts = {}){
   // Drop actions (field + farm)
   const onDrop = async ({ type, fieldId, farmId, toCrop }) => {
     if(viewOnly) return;
+
     if(isLocked){
       toast(`Locked ${currentYear}`);
       return;
@@ -603,17 +731,25 @@ export async function mount(hostEl, opts = {}){
     el.search._t = setTimeout(()=> renderAll(true), 120);
   }, { signal });
 
-  // Init
+  // ---------- INIT ----------
   db = await initDB();
+  fs = await getFirestoreFns();
+
   farms = await loadFarms(db);
   fields = await loadFields(db);
   farmNameById = new Map(farms.map(f=>[String(f.id), String(f.name)]));
 
   renderFarmList('');
   plans = await loadPlansForYear(db, currentYear);
+
+  // Start GLOBAL lock watch for initial year BEFORE first full render
+  isLocked = await readLockOnce(currentYear);
+  renderLockUI();
+  await startLockWatch(currentYear);
+
   renderAll(false);
 
-  // Wire DnD inside host
+  // Wire DnD inside host (lock-aware)
   wireDnd({
     root: hostEl,
     onDrop,
@@ -624,6 +760,7 @@ export async function mount(hostEl, opts = {}){
 
   return {
     unmount(){
+      stopLockWatch();
       controller.abort();
       hostEl.innerHTML = '';
     }
