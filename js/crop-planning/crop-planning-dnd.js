@@ -1,9 +1,13 @@
 /* =====================================================================
 /Farm-vista/js/crop-planning/crop-planning-dnd.js  (FULL FILE)
-Rev: 2025-12-30f
-DnD supports dragging BOTH:
-- field (data-field-id)
-- farm  (data-farm-id)
+Rev: 2025-12-30g
+
+DnD supports:
+- field drag (data-field-id)
+- farm drag  (data-farm-id)
+
+Drop targets:
+- bucket bodies: .bucketBody (data-crop + data-farm-id)
 ===================================================================== */
 'use strict';
 
@@ -14,40 +18,44 @@ export function wireDnd(opts){
 
   const isDesktop = () => window.matchMedia('(min-width: 981px)').matches;
 
-  // Dropzone behavior
-  const zones = root.querySelectorAll('.dropzone');
-  zones.forEach(zone=>{
-    zone.addEventListener('dragover', (e)=>{
-      if(!isDesktop()) return;
-      e.preventDefault();
-      zone.classList.add('is-over');
+  // Bucket dropzones
+  const bindZones = () => {
+    root.querySelectorAll('.bucketBody').forEach(zone=>{
+      zone.addEventListener('dragover', (e)=>{
+        if(!isDesktop()) return;
+        e.preventDefault();
+        zone.classList.add('is-over');
+      });
+      zone.addEventListener('dragleave', ()=>{
+        zone.classList.remove('is-over');
+      });
+      zone.addEventListener('drop', async (e)=>{
+        zone.classList.remove('is-over');
+        if(!isDesktop()) return;
+        e.preventDefault();
+
+        const type = e.dataTransfer?.getData('text/fv-type') || 'field';
+        const toCrop = zone.getAttribute('data-crop') || '';
+        const toFarmId = zone.getAttribute('data-farm-id') || '';
+
+        if(type === 'farm'){
+          const farmId = e.dataTransfer?.getData('text/fv-farm-id') || '';
+          if(!farmId) return;
+          if(typeof onDrop === 'function') await onDrop({ type:'farm', farmId, toCrop, toFarmId });
+          return;
+        }
+
+        const fieldId = e.dataTransfer?.getData('text/fv-field-id') || '';
+        const fromCrop = e.dataTransfer?.getData('text/fv-from-crop') || '';
+        const fromFarmId = e.dataTransfer?.getData('text/fv-from-farm-id') || '';
+        if(!fieldId) return;
+
+        if(typeof onDrop === 'function') await onDrop({ type:'field', fieldId, fromCrop, toCrop, fromFarmId, toFarmId });
+      });
     });
-    zone.addEventListener('dragleave', ()=>{
-      zone.classList.remove('is-over');
-    });
-    zone.addEventListener('drop', async (e)=>{
-      zone.classList.remove('is-over');
-      if(!isDesktop()) return;
-      e.preventDefault();
+  };
 
-      const type = e.dataTransfer?.getData('text/fv-type') || 'field';
-      const toCrop = zone.getAttribute('data-crop') || '';
-
-      if(type === 'farm'){
-        const farmId = e.dataTransfer?.getData('text/fv-farm-id') || '';
-        if(!farmId) return;
-        if(typeof onDrop === 'function') await onDrop({ type:'farm', farmId, toCrop });
-        return;
-      }
-
-      const fieldId = e.dataTransfer?.getData('text/fv-field-id') || '';
-      const fromCrop = e.dataTransfer?.getData('text/fv-from-crop') || '';
-      if(!fieldId) return;
-      if(typeof onDrop === 'function') await onDrop({ type:'field', fieldId, fromCrop, toCrop });
-    });
-  });
-
-  // Drag start: detect field grip OR farm grip
+  // Drag start from grips
   root.addEventListener('dragstart', (e)=>{
     if(!isDesktop()) return;
 
@@ -65,16 +73,25 @@ export function wireDnd(opts){
       return;
     }
 
-    // Field drag
+    // Field drag?
     const card = grip.closest('[data-field-id]');
     if(!card) return;
+
     const fieldId = card.getAttribute('data-field-id') || '';
     const fromCrop = card.getAttribute('data-crop') || '';
+    const fromFarmId = card.getAttribute('data-farm-id') || '';
     if(!fieldId) return;
 
     e.dataTransfer.setData('text/fv-type', 'field');
     e.dataTransfer.setData('text/fv-field-id', fieldId);
     e.dataTransfer.setData('text/fv-from-crop', fromCrop);
+    e.dataTransfer.setData('text/fv-from-farm-id', fromFarmId);
     e.dataTransfer.effectAllowed = 'move';
   });
+
+  // Allow rebind after rerenders
+  if(typeof opts?.onNeedBind === 'function'){
+    opts.onNeedBind(bindZones);
+  }
+  bindZones();
 }
