@@ -1,27 +1,19 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/crop-planning-selector.html  (FULL FILE)
-Rev: 2025-12-30g
-Purpose:
- • Farm-first planner (NO duplicate farm headings)
- • Each farm renders once as a collapsible "lane"
- • Inside each farm lane: 3 buckets side-by-side
-    Unplanned | Corn | Soybeans
- • Drag field between buckets to set plan
- • Drag farm header onto top column headers to move whole farm
- • Active fields only
- • Year dropdown: 2026–2027 only
+Rev: 2025-12-31b
+
+Thin wrapper that mounts the crop planner module.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>FarmVista • Crop Planning Selector</title>
+  <title>FarmVista • Crop Planner</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#3B7E46" />
 
   <script src="/Farm-vista/js/theme-boot.js"></script>
 
-  <!-- Standard includes (ABSOLUTE paths) -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
@@ -29,7 +21,6 @@ Purpose:
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
-  <!-- Ensure fv-shell -->
   <script>
     (function(){
       if(!customElements.get('fv-shell')){
@@ -42,506 +33,28 @@ Purpose:
   </script>
 
   <style>
-    :root{
-      --card-max:1200px;
-      --page-bottom-gap:96px;
-      --accent:#2F6C3C;
-      --hero-icon-col:36px;
-      --hero-icon-size:24px;
-
-      --ok:#2F6C3C;
-
-      /* Board overall height (keeps All Farms compact) */
-      --board-h: 64vh;
-
-      /* Buckets inside a farm lane */
-      --lane-gap:10px;
-      --bucket-h: 260px;
-    }
-
+    :root{ --card-max:1200px; --page-bottom-gap:96px; }
     body{ background:var(--app-bg,var(--surface)); }
-
     .wrap{
       max-width:var(--card-max);
       margin:0 auto;
       padding:clamp(14px,3vw,22px);
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
     }
-
-    .hero{
-      border:1px solid var(--border);
-      border-radius:14px;
-      background:var(--surface);
-      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      overflow:visible;
-      margin-bottom:var(--page-bottom-gap);
-    }
-
-    .hero-head{
-      display:grid;
-      grid-template-columns:var(--hero-icon-col) 1fr;
-      gap:12px;
-      align-items:center;
-      padding:14px 16px;
-      background:linear-gradient(90deg,rgba(47,108,60,.12),transparent);
-      border-bottom:1px solid var(--border);
-    }
-
-    .hero-head .icon{
-      width:var(--hero-icon-size);
-      height:var(--hero-icon-size);
-      color:var(--accent);
-      display:grid;
-      place-items:center;
-    }
-
-    .hero-head h1{
-      margin:0;
-      font-size:clamp(20px,3.2vw,26px);
-      line-height:1.2;
-    }
-
-    .muted{ color:var(--muted,#67706B); }
-
-    .body{
-      padding:16px;
-      display:grid;
-      gap:14px;
-    }
-
-    .row3{
-      display:grid;
-      gap:10px;
-      grid-template-columns:1fr 1fr 1fr;
-    }
-    @media (max-width:1100px){
-      .row3{ grid-template-columns:1fr; }
-    }
-
-    .field{ position:relative; }
-    .field label{
-      display:block;
-      font-weight:800;
-      margin:0 0 6px;
-    }
-
-    .input,
-    .select,
-    .buttonish{
-      width:100%;
-      font:inherit;
-      font-size:16px;
-      color:var(--text);
-      background:var(--card-surface,var(--surface));
-      border:1px solid var(--border);
-      border-radius:10px;
-      padding:12px;
-      outline:none;
-    }
-
-    .buttonish{
-      cursor:pointer;
-      text-align:left;
-      position:relative;
-      padding-right:44px;
-      user-select:none;
-    }
-    .buttonish.has-caret::after{
-      content:"";
-      position:absolute;
-      right:14px;
-      top:50%;
-      width:0;height:0;
-      border-left:6px solid transparent;
-      border-right:6px solid transparent;
-      border-top:7px solid var(--muted,#67706B);
-      transform:translateY(-50%);
-      pointer-events:none;
-    }
-
-    .help{
-      font-size:13px;
-      color:var(--muted,#67706B);
-      margin-top:6px;
-      line-height:1.25;
-    }
-
-    .kpi-line{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-      align-items:center;
-      padding:10px 12px;
-      border:1px dashed color-mix(in srgb, var(--border) 65%, transparent);
-      border-radius:12px;
-      background:color-mix(in srgb, var(--surface) 92%, rgba(47,108,60,.08));
-    }
-    .kpi{
-      display:flex;
-      gap:8px;
-      align-items:baseline;
-      flex-wrap:wrap;
-    }
-    .kpi .v{ font-weight:900; font-size:18px; }
-    .kpi .l{
-      font-weight:800;
-      color:var(--muted,#67706B);
-      font-size:12px;
-      letter-spacing:.2px;
-      text-transform:uppercase;
-    }
-
-    /* Combo core */
-    .combo{ position:relative; }
-    .combo .combo-anchor{ position:relative; display:inline-block; width:100%; }
-    .combo-panel{
-      position:absolute; left:0; right:0; top:calc(100% + 4px);
-      background:var(--surface);
-      border:1px solid var(--border);
-      border-radius:12px;
-      box-shadow:0 12px 26px rgba(0,0,0,.18);
-      z-index:9999;
-      padding:8px;
-      display:none;
-    }
-    .combo-panel.show{ display:block; }
-    .combo-panel .search{ padding:4px 2px 8px; }
-    .combo-panel .search input{
-      width:100%;
-      padding:10px;
-      border:1px solid var(--border);
-      border-radius:10px;
-      font:inherit;
-      font-size:14px;
-      color:var(--text);
-      background:var(--card-surface,var(--surface));
-    }
-    .combo-panel .list{ max-height:52vh; overflow:auto; border-top:1px solid var(--border); }
-    .combo-item{
-      padding:10px 8px;
-      border-bottom:1px solid var(--border);
-      cursor:pointer;
-      font-size:14px;
-      display:flex;
-      gap:10px;
-      align-items:flex-start;
-      justify-content:space-between;
-    }
-    .combo-item:hover{ background:rgba(0,0,0,.04); }
-    .combo-item:last-child{ border-bottom:none; }
-    .combo-empty{ padding:10px 8px; color:#67706B; font-size:14px; }
-
-    .pill{
-      font-size:12px;
-      border:1px solid var(--border);
-      padding:4px 8px;
-      border-radius:999px;
-      background:var(--surface);
-      color:var(--muted,#67706B);
-      white-space:nowrap;
-    }
-
-    /* ==== Column headers (drop targets for whole-farm drag) ==== */
-    .laneHeader{
-      border:1px solid var(--border);
-      border-radius:14px;
-      background:var(--card-surface,var(--surface));
-      padding:10px 12px;
-      display:grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap:var(--lane-gap);
-      align-items:center;
-    }
-    .laneHeader .hbox{
-      border:1px dashed color-mix(in srgb, var(--border) 70%, transparent);
-      border-radius:12px;
-      padding:10px 10px;
-      font-weight:900;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      user-select:none;
-    }
-    .hbox.is-over{
-      outline:2px solid color-mix(in srgb, var(--ok) 45%, transparent);
-      outline-offset:-4px;
-      background:color-mix(in srgb, var(--surface) 88%, rgba(47,108,60,.08));
-    }
-
-    /* ==== Board scroll ==== */
-    .board{
-      border:1px solid var(--border);
-      border-radius:14px;
-      background:var(--card-surface,var(--surface));
-      overflow:hidden;
-    }
-    .boardScroll{
-      max-height: var(--board-h);
-      overflow:auto;
-      padding:12px;
-      display:grid;
-      gap:12px;
-      -webkit-overflow-scrolling: touch;
-    }
-
-    /* ==== Farm lane ==== */
-    .farmLane{
-      border:1px solid var(--border);
-      border-radius:14px;
-      background:var(--surface);
-      overflow:hidden;
-    }
-    .farmLaneHead{
-      display:grid;
-      grid-template-columns: 22px 1fr auto 18px;
-      gap:10px;
-      align-items:center;
-      padding:12px;
-      border-bottom:1px solid var(--border);
-      background:linear-gradient(90deg, rgba(0,0,0,.02), transparent);
-      user-select:none;
-    }
-    .farmGrip{
-      width:22px;height:22px;
-      border:1px solid var(--border);
-      border-radius:8px;
-      display:grid;
-      place-items:center;
-      color:var(--muted,#67706B);
-      cursor:grab;
-    }
-    .farmGrip:active{ cursor:grabbing; }
-
-    .farmLaneTitle{
-      font-weight:900;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-    .farmLaneMeta{
-      color:var(--muted,#67706B);
-      font-size:12px;
-      font-weight:900;
-      letter-spacing:.2px;
-      text-transform:uppercase;
-      white-space:nowrap;
-    }
-    .chev{
-      width:18px;height:18px;
-      display:grid;
-      place-items:center;
-      color:var(--muted,#67706B);
-      transition:transform .12s ease;
-    }
-    .farmLane[data-open="1"] .chev{ transform:rotate(180deg); }
-
-    .farmLaneBody{
-      padding:12px;
-      display:grid;
-      gap:10px;
-    }
-    .farmLane[data-open="0"] .farmLaneBody{ display:none; }
-
-    .buckets{
-      display:grid;
-      grid-template-columns:1fr 1fr 1fr;
-      gap:var(--lane-gap);
-      align-items:start;
-    }
-    @media (max-width:980px){
-      :root{ --board-h: 60vh; --bucket-h: 220px; }
-      .buckets{ grid-template-columns:1fr; }
-      .farmLaneHead{ grid-template-columns: 1fr auto 18px; }
-      .farmGrip{ display:none; }
-      .laneHeader{ grid-template-columns:1fr; }
-    }
-
-    .bucket{
-      border:1px solid var(--border);
-      border-radius:12px;
-      background:var(--card-surface,var(--surface));
-      overflow:hidden;
-    }
-    .bucketHead{
-      padding:10px 10px;
-      border-bottom:1px solid var(--border);
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-    }
-    .bucketTitle{ font-weight:900; }
-    .bucketSub{
-      font-size:12px;
-      color:var(--muted,#67706B);
-      font-weight:900;
-      letter-spacing:.2px;
-      text-transform:uppercase;
-      white-space:nowrap;
-    }
-    .bucketBody{
-      padding:10px;
-      display:grid;
-      gap:10px;
-      max-height: var(--bucket-h);
-      overflow:auto;
-      -webkit-overflow-scrolling: touch;
-    }
-    .bucketBody.is-over{
-      outline:2px solid color-mix(in srgb, var(--ok) 45%, transparent);
-      outline-offset:-4px;
-      background:color-mix(in srgb, var(--surface) 88%, rgba(47,108,60,.08));
-    }
-
-    /* Field card */
-    .cardRow{
-      border:1px solid var(--border);
-      border-radius:12px;
-      background:var(--surface);
-      padding:10px;
-      display:grid;
-      grid-template-columns:22px 1fr auto;
-      gap:10px;
-      align-items:center;
-    }
-    .dragGrip{
-      width:22px;height:22px;
-      border:1px solid var(--border);
-      border-radius:8px;
-      display:grid;
-      place-items:center;
-      color:var(--muted,#67706B);
-      cursor:grab;
-      user-select:none;
-    }
-    .dragGrip:active{ cursor:grabbing; }
-    .cardName{
-      font-weight:900;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-
-    /* Mobile quick-set */
-    .miniBtn{
-      border:1px solid var(--border);
-      background:var(--surface);
-      color:var(--text);
-      border-radius:10px;
-      padding:8px 10px;
-      font-weight:900;
-      cursor:pointer;
-      user-select:none;
-      font-size:13px;
-    }
-    .miniBtnPrimary{
-      border-color:transparent;
-      background:#2F6C3C;
-      color:#fff !important;
-    }
-    .mobileSet{ display:none; gap:8px; margin-top:8px; }
-    @media (max-width:980px){
-      .cardRow{ grid-template-columns:1fr; }
-      .dragGrip{ display:none; }
-      .mobileSet{ display:flex; }
-    }
-
-    /* Toast */
-    #fv-toast{
-      position:fixed;
-      left:50%;
-      bottom:24px;
-      transform:translate(-50%,12px);
-      background:#2F6C3C;
-      color:#fff;
-      padding:10px 16px;
-      border-radius:999px;
-      font-size:14px;
-      box-shadow:0 10px 24px rgba(0,0,0,.25));
-      opacity:0;
-      pointer-events:none;
-      transition:opacity .18s ease, transform .18s ease;
-      z-index:10000;
-      white-space:nowrap;
-    }
-    #fv-toast.show{ opacity:1; transform:translate(-50%,0); }
   </style>
 </head>
 
 <body>
   <fv-shell>
     <div class="wrap">
-      <section class="hero">
-        <header class="hero-head">
-          <div class="icon" aria-hidden="true">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"
-                 fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                 aria-hidden="true">
-              <path d="M3 7h6l2 3h10v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
-              <path d="M8 7V5a2 2 0 0 1 2-2h2"/>
-            </svg>
-          </div>
-          <div>
-            <h1>Crop Planning Selector</h1>
-            <p class="muted">Each farm appears once. Drag fields between buckets, or drag a farm header onto the top column headers.</p>
-          </div>
-        </header>
-
-        <div class="body">
-          <div class="row3">
-            <div class="field combo">
-              <label for="farmBtn">Farm</label>
-              <div class="combo-anchor">
-                <button id="farmBtn" class="buttonish has-caret" type="button">— All farms —</button>
-                <div class="combo-panel" id="farmPanel" role="listbox" aria-label="Farm list">
-                  <div class="search">
-                    <input id="farmSearch" type="search" placeholder="Search farms…" />
-                  </div>
-                  <div class="list" id="farmList"></div>
-                </div>
-              </div>
-              <div class="help" id="farmHelp"></div>
-              <input type="hidden" id="farmId" />
-              <input type="hidden" id="farmName" />
-            </div>
-
-            <div class="field">
-              <label for="year">Crop Year</label>
-              <select id="year" class="select"></select>
-              <div class="help"></div>
-            </div>
-
-            <div class="field">
-              <label for="search">Search fields</label>
-              <input id="search" class="input" type="search" placeholder="Type to filter field names…" />
-              <div class="help" id="scopeHelp">Showing 0 active fields</div>
-            </div>
-          </div>
-
-          <div class="kpi-line" role="status" aria-live="polite">
-            <div class="kpi"><div class="v" id="kpiUnplannedFields">0</div><div class="l">Unplanned fields</div></div>
-            <div class="kpi"><div class="v" id="kpiUnplannedAcres">0.00</div><div class="l">Unplanned acres</div></div>
-            <div class="kpi" style="margin-left:auto"><div class="v" id="kpiCornFields">0</div><div class="l">Corn fields</div></div>
-            <div class="kpi"><div class="v" id="kpiCornAcres">0.00</div><div class="l">Corn acres</div></div>
-            <div class="kpi" style="margin-left:auto"><div class="v" id="kpiSoyFields">0</div><div class="l">Beans fields</div></div>
-            <div class="kpi"><div class="v" id="kpiSoyAcres">0.00</div><div class="l">Beans acres</div></div>
-          </div>
-
-          <div class="laneHeader" id="laneHeader">
-            <div class="hbox" data-header-drop="1" data-crop=""><span>Unplanned</span><span class="pill">drop farm</span></div>
-            <div class="hbox" data-header-drop="1" data-crop="corn"><span>Corn</span><span class="pill">drop farm</span></div>
-            <div class="hbox" data-header-drop="1" data-crop="soybeans"><span>Soybeans</span><span class="pill">drop farm</span></div>
-          </div>
-
-          <div class="board">
-            <div class="boardScroll" id="boardScroll"></div>
-          </div>
-        </div>
-      </section>
+      <div id="cropPlannerHost"></div>
     </div>
   </fv-shell>
 
-  <div id="fv-toast" role="status" aria-live="polite"></div>
-  <script type="module" src="/Farm-vista/js/crop-planning/crop-planning-selector.js"></script>
+  <script type="module">
+    import { mount } from '/Farm-vista/js/crop-planning/crop-planner.module.js';
+    const host = document.getElementById('cropPlannerHost');
+    mount(host, { viewOnly: window.matchMedia('(max-width: 980px)').matches });
+  </script>
 </body>
 </html>
