@@ -1,15 +1,18 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/planning/index.html  (FULL FILE)
-Rev: 2025-12-31b
+Rev: 2025-12-31c
 
-NO IFRAME VERSION
-• Tiles on top
-• Click tile -> dynamically import module + mount into host
-• Each module exports: mount(hostEl, opts) -> returns { unmount() }
+DESKTOP: ✅ unchanged (looks perfect)
 
-Initial modules:
-• Crop Planner -> /Farm-vista/js/crop-planning/crop-planner.module.js
-• Anhydrous Planner -> placeholder (later)
+MOBILE / NARROW SCREENS (PHONE VIEW MODE):
+✅ “View-only” reading mode (no fighting with DnD UI)
+✅ Auto-fit scale so nothing sticks out past the hero card
+✅ Still scrollable (vertical) to read the data
+✅ Prevents drag-start on phone (so it behaves like a report)
+
+Notes:
+- We do NOT change the crop-planner module code here.
+- We mount the module into #plannerInner and then scale/fix overflow on phones.
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -48,6 +51,10 @@ Initial modules:
       --accent:#2F6C3C;
       --hero-icon-col:36px;
       --hero-icon-size:24px;
+
+      /* Phone read-mode tuning */
+      --phone-fit-max: 1;     /* computed in JS */
+      --phone-fit-min: .72;   /* don't shrink into unreadable dust */
     }
 
     body{ background:var(--app-bg,var(--surface)); }
@@ -195,14 +202,71 @@ Initial modules:
       text-transform:uppercase;
     }
 
-    #plannerHost{
-      padding: 0; /* module renders its own padding/hero */
-    }
+    /* Module mount area: keep desktop same */
+    #plannerHost{ padding:0; }
 
     .hostEmpty{
       padding:16px;
       color:var(--muted,#67706B);
       font-weight:900;
+    }
+
+    /* =====================================================================
+       PHONE READ MODE (VIEW-ONLY)
+       - Auto-fit scale so content never overflows the hero card
+       - Still scrolls vertically
+    ===================================================================== */
+    .phoneRead #plannerHost{
+      padding: 10px 10px 12px 10px;
+      background: var(--surface);
+    }
+
+    .phoneRead .hostTop{
+      /* keep the header (so user knows what they're viewing), but tighten it up */
+      padding:10px 10px;
+      gap:8px;
+    }
+
+    /* the viewport that scrolls */
+    .plannerViewport{
+      overflow-y:auto;
+      overflow-x:hidden;
+      -webkit-overflow-scrolling:touch;
+      padding: 0;
+    }
+
+    /* the inner content gets scaled down if needed */
+    #plannerInner{
+      transform-origin: top left;
+      will-change: transform;
+    }
+
+    .phoneRead #plannerInner{
+      /* JS sets --phone-fit-max */
+      transform: scale(var(--phone-fit-max));
+      width: calc(100% / var(--phone-fit-max));
+    }
+
+    /* Make sure nothing can force horizontal overflow on phone */
+    .phoneRead #plannerInner,
+    .phoneRead #plannerInner *{
+      max-width:100% !important;
+      box-sizing:border-box !important;
+    }
+
+    /* Prevent accidental drag behaviors on phone (still allows scrolling & taps) */
+    .phoneRead *{
+      -webkit-user-drag: none;
+    }
+
+    /* Only apply “phoneRead” on actual phone-ish widths */
+    @media (max-width: 620px){
+      /* optional: hide the tiles on phone so it’s just a clean viewer */
+      .phoneRead #tiles{ display:none !important; }
+      .phoneRead .body{ padding:12px; }
+      .phoneRead .hero-head{ padding:12px 14px; }
+      .phoneRead .hero-head h1{ font-size:20px; }
+      .phoneRead .muted{ font-size:13px; }
     }
   </style>
 </head>
@@ -223,7 +287,7 @@ Initial modules:
           </div>
           <div>
             <h1>Planning Dashboard</h1>
-            <p class="muted">Pick a planner tool below. It opens inline (no popup, no iframe).</p>
+            <p class="muted" id="subHint">Pick a planner tool below. It opens inline (no popup, no iframe).</p>
           </div>
         </header>
 
@@ -279,9 +343,15 @@ Initial modules:
             </div>
 
             <div id="plannerHost">
-              <div class="hostEmpty">Loading…</div>
+              <!-- On phone we use this viewport to keep it scrollable while scaling the inner content -->
+              <div class="plannerViewport" id="plannerViewport">
+                <div id="plannerInner">
+                  <div class="hostEmpty">Loading…</div>
+                </div>
+              </div>
             </div>
           </div>
+
         </div>
       </section>
     </div>
@@ -289,11 +359,60 @@ Initial modules:
 
   <script type="module">
     const tiles = document.getElementById('tiles');
-    const host = document.getElementById('plannerHost');
     const hostTitle = document.getElementById('hostTitle');
     const hostModuleHint = document.getElementById('hostModuleHint');
+    const subHint = document.getElementById('subHint');
+
+    const viewport = document.getElementById('plannerViewport');
+    const inner = document.getElementById('plannerInner');
 
     let current = null;
+
+    const mqPhone = window.matchMedia('(max-width: 620px)');
+    function applyPhoneClass(){
+      document.body.classList.toggle('phoneRead', mqPhone.matches);
+      subHint.textContent = mqPhone.matches
+        ? 'Phone mode: view-only (auto-fit to screen).'
+        : 'Pick a planner tool below. It opens inline (no popup, no iframe).';
+    }
+
+    // Prevent drag starts on phone (keeps it from feeling “junk” / DnD-ish)
+    function wireViewOnlyGuards(){
+      const onDragStart = (e) => { if (mqPhone.matches) e.preventDefault(); };
+      const onDrop = (e) => { if (mqPhone.matches) e.preventDefault(); };
+      document.addEventListener('dragstart', onDragStart, { capture:true });
+      document.addEventListener('drop', onDrop, { capture:true });
+    }
+
+    // Auto-fit: if module content is wider than viewport, scale it down to fit.
+    function fitPhoneWidth(){
+      if(!mqPhone.matches){
+        document.documentElement.style.setProperty('--phone-fit-max', '1');
+        return;
+      }
+
+      // Let layout settle (module builds DOM async sometimes)
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const vw = viewport.clientWidth || 1;
+
+          // Temporarily reset scale to measure true width
+          document.documentElement.style.setProperty('--phone-fit-max', '1');
+
+          requestAnimationFrame(() => {
+            const contentW = inner.scrollWidth || inner.getBoundingClientRect().width || vw;
+            let s = vw / Math.max(1, contentW);
+
+            // Clamp scale so it's readable
+            const min = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--phone-fit-min')) || 0.72;
+            if(!isFinite(s) || s > 1) s = 1;
+            if(s < min) s = min;
+
+            document.documentElement.style.setProperty('--phone-fit-max', String(s));
+          });
+        });
+      });
+    }
 
     async function mountTile(tile){
       [...tiles.querySelectorAll('.tile')].forEach(t=>t.classList.remove('active'));
@@ -309,21 +428,29 @@ Initial modules:
       try { if(current && typeof current.unmount === 'function') current.unmount(); } catch(e){ console.warn(e); }
       current = null;
 
-      host.innerHTML = modPath
+      inner.innerHTML = modPath
         ? '<div class="hostEmpty">Loading…</div>'
         : '<div class="hostEmpty">Not wired yet.</div>';
 
-      if(!modPath) return;
-
-      const mod = await import(modPath);
-      if(!mod || typeof mod.mount !== 'function'){
-        host.innerHTML = '<div class="hostEmpty">Module missing mount(host, opts).</div>';
+      if(!modPath){
+        fitPhoneWidth();
         return;
       }
 
-      current = await mod.mount(host, {
+      const mod = await import(modPath);
+      if(!mod || typeof mod.mount !== 'function'){
+        inner.innerHTML = '<div class="hostEmpty">Module missing mount(host, opts).</div>';
+        fitPhoneWidth();
+        return;
+      }
+
+      current = await mod.mount(inner, {
+        // Keep your existing signal, but we also enforce phoneRead behavior here.
         viewOnly: window.matchMedia('(max-width: 980px)').matches
       });
+
+      // After mount, fit it to phone width (only on phone)
+      fitPhoneWidth();
     }
 
     tiles.addEventListener('click', (e)=>{
@@ -331,6 +458,14 @@ Initial modules:
       if(!tile) return;
       mountTile(tile);
     });
+
+    // Re-fit on resize/orientation changes
+    window.addEventListener('resize', () => fitPhoneWidth(), { passive:true });
+    mqPhone.addEventListener?.('change', () => { applyPhoneClass(); fitPhoneWidth(); });
+
+    // Init
+    applyPhoneClass();
+    wireViewOnlyGuards();
 
     // Mount default (first tile)
     mountTile(tiles.querySelector('.tile.active'));
