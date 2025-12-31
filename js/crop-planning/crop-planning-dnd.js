@@ -1,6 +1,11 @@
 /* =====================================================================
 /Farm-vista/js/crop-planning/crop-planning-dnd.js  (FULL FILE)
-Rev: 2025-12-31a
+Rev: 2025-12-31b
+
+Fixes:
+✅ Drop now works when you drop on the bucket CARD (header/body/empty state),
+   not just inside .bucketBody. This is what usually makes "Unplanned" feel broken.
+✅ Highlight applies to the whole bucket while hovering.
 
 DnD types:
 - field   : single field
@@ -20,6 +25,18 @@ export function wireDnd({ root, onDrop, isEnabled }) {
   if (typeof onDrop !== 'function') throw new Error('wireDnd: missing onDrop');
 
   const enabled = () => (typeof isEnabled === 'function' ? !!isEnabled() : true);
+
+  const getZone = (target) => {
+    // We mark the entire bucket as a drop zone in the module (data-dropzone="1")
+    // so dropping on header / empty state / body all works.
+    return target?.closest?.('[data-dropzone="1"]') || null;
+  };
+
+  const setOver = (zone, on) => {
+    if (!zone) return;
+    if (on) zone.classList.add('is-over');
+    else zone.classList.remove('is-over');
+  };
 
   // ---- Drag start (delegated) ----
   root.addEventListener('dragstart', (e) => {
@@ -77,27 +94,28 @@ export function wireDnd({ root, onDrop, isEnabled }) {
   root.addEventListener('dragover', (e) => {
     if (!enabled()) return;
 
-    const zone = e.target.closest('.bucketBody');
+    const zone = getZone(e.target);
     if (!zone) return;
+
     e.preventDefault();
-    zone.classList.add('is-over');
+    setOver(zone, true);
   });
 
   root.addEventListener('dragleave', (e) => {
-    const zone = e.target.closest?.('.bucketBody');
+    const zone = getZone(e.target);
     if (!zone) return;
-    zone.classList.remove('is-over');
+    setOver(zone, false);
   });
 
   // ---- Drop (delegated) ----
   root.addEventListener('drop', async (e) => {
     if (!enabled()) return;
 
-    const zone = e.target.closest('.bucketBody');
+    const zone = getZone(e.target);
     if (!zone) return;
 
     e.preventDefault();
-    zone.classList.remove('is-over');
+    setOver(zone, false);
 
     const type = e.dataTransfer.getData('text/fv-type');
     const toCrop = zone.dataset.crop || '';
