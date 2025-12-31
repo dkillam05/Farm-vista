@@ -1,21 +1,16 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-31g
+Rev: 2025-12-31e
 
-Fix (CRITICAL):
-✅ Remove broken import of ./paths.js (file does not exist)
-✅ Load modules via real, known paths:
-   - Weather: /Farm-vista/js/field-readiness.weather.js
-   - Model:   /Farm-vista/js/field-readiness.model.js
-   - Forecast: ./forecast.js (same folder as this file)
+Fix:
+✅ Passes GLOBAL wetBias (same as tiles) into forecast predictor
+   so “within 72h” matches fields close to threshold.
 
-Keeps:
-✅ Render gate (prevents “double load” flicker)
-✅ Passes GLOBAL wetBias into forecast predictor
-✅ Existing UI/selection/edit gating/sort/refresh listeners
+Everything else kept.
 ===================================================================== */
 'use strict';
 
+import { PATHS } from './paths.js';
 import { EXTRA, CONST, buildWxCtx } from './state.js';
 import { $, esc, clamp } from './utils.js';
 import { getFieldParams, ensureSelectedParamsToSliders } from './params.js';
@@ -26,68 +21,6 @@ import { initSwipeOnTiles } from './swipe.js';
 import { parseRangeFromInput, rainInRange } from './rain.js';
 import { fetchAndHydrateFieldParams } from './data.js';
 import { getAPI } from './firebase.js';
-
-/* =====================================================================
-   Render gate (prevents double-load flicker)
-===================================================================== */
-function ensureRenderGate(state){
-  if (!state) return null;
-  if (!state._renderGate){
-    state._renderGate = {
-      inFlight: false,
-      pendingAll: false,
-      pendingDetails: false,
-      lastReqAt: 0,
-      timer: null
-    };
-  }
-  return state._renderGate;
-}
-
-async function runRenderCoalesced(state, mode){
-  const g = ensureRenderGate(state);
-  if (!g) return;
-
-  const now = Date.now();
-  g.lastReqAt = now;
-
-  if (mode === 'all') g.pendingAll = true;
-  if (mode === 'details') g.pendingDetails = true;
-
-  if (g.inFlight) return;
-
-  if (g.timer) clearTimeout(g.timer);
-  g.timer = setTimeout(async ()=>{
-    g.timer = null;
-    if (g.inFlight) return;
-
-    g.inFlight = true;
-    try{
-      const doAll = !!g.pendingAll;
-      const doDetails = !!g.pendingDetails;
-
-      g.pendingAll = false;
-      g.pendingDetails = false;
-
-      if (doAll){
-        await _renderTilesInternal(state);
-        await _renderDetailsInternal(state);
-      } else if (doDetails){
-        await _renderDetailsInternal(state);
-        try{
-          if (state && state.selectedFieldId) await updateTileForField(state, state.selectedFieldId);
-        }catch(_){}
-      }
-    }catch(_){
-      // swallow
-    }finally{
-      g.inFlight = false;
-      if (g.pendingAll || g.pendingDetails){
-        runRenderCoalesced(state, g.pendingAll ? 'all' : 'details');
-      }
-    }
-  }, 30);
-}
 
 /* =====================================================================
    Calibration from adjustments collection (GLOBAL ONLY)
@@ -189,34 +122,19 @@ function getCalForDeps(state){
   return { wetBias: wb, opWetBias: {} };
 }
 
-/* =====================================================================
-   Module loader (model/weather/forecast)
-   IMPORTANT: We DO NOT use paths.js (it does not exist).
-===================================================================== */
+/* ---------- module loader (model/weather/forecast) ---------- */
 export async function ensureModelWeatherModules(state){
-  if (state._mods && state._mods.model && state._mods.weather && state._mods.forecast) return;
+  if (state._mods.model && state._mods.weather && state._mods.forecast) return;
 
-  if (!state._mods) state._mods = {};
+  const pWeather = import(PATHS.WEATHER);
+  const pModel   = import(PATHS.MODEL);
+  const pForecast = import('./forecast.js');
 
-  const WEATHER_URL = '/Farm-vista/js/field-readiness.weather.js';
-  const MODEL_URL   = '/Farm-vista/js/field-readiness.model.js';
+  const [weather, model, forecast] = await Promise.all([pWeather, pModel, pForecast]);
 
-  try{
-    const [weather, model, forecast] = await Promise.all([
-      import(WEATHER_URL),
-      import(MODEL_URL),
-      import('./forecast.js')
-    ]);
-
-    state._mods.weather = weather;
-    state._mods.model = model;
-    state._mods.forecast = forecast;
-  }catch(e){
-    // DO NOT swallow this — this is what causes “Waiting for JS”
-    console.error('[FieldReadiness] module load failed:', e);
-    console.error('[FieldReadiness] attempted:', { WEATHER_URL, MODEL_URL, FORECAST_URL:'./forecast.js' });
-    throw e;
-  }
+  state._mods.weather = weather;
+  state._mods.model = model;
+  state._mods.forecast = forecast;
 }
 
 /* ---------- colors (ported) ---------- */
@@ -449,6 +367,47 @@ function setSelectedField(state, fieldId){
 }
 
 /* =====================================================================
+   Details header panel (Farm • Field)
+===================================================================== */
+function ensureDetailsHeaderPanel(){
+  const details = document.getElementById('detailsPanel');
+  if (!details) return null;
+
+  const body = details.querySelector('.details-body');
+  if (!body) return null;
+
+  let panel = document.getElementById('frDetailsHeaderPanel');
+  if (panel && panel.parentElement === body) return panel;
+
+  panel = document.createElement('div');
+  panel.id = 'frDetailsHeaderPanel';
+  panel.className = 'panel';
+  panel.style.margin = '0';
+  panel.style.display = 'grid';
+  panel.style.gap = '4px';
+
+  body.prepend(panel);
+  return panel;
+}
+
+function updateDetailsHeaderPanel(state){
+  const f = (state.fields || []).find(x=>x.id === state.selectedFieldId);
+  if (!f) return;
+
+  const panel = ensureDetailsHeaderPanel();
+  if (!panel) return;
+
+  const farmName = (state.farmsById && state.farmsById.get) ? (state.farmsById.get(f.farmId) || '') : '';
+  const title = farmName ? `${farmName} • ${f.name || ''}` : (f.name || '—');
+  const loc = (f.county || f.state) ? `${String(f.county||'—')} / ${String(f.state||'—')}` : '';
+
+  panel.innerHTML = `
+    <div class="frdh-title">${esc(title)}</div>
+    ${loc ? `<div class="frdh-sub">${esc(loc)}</div>` : ``}
+  `;
+}
+
+/* =====================================================================
    Forecast-based ETA helper for tiles (with wetBias passed in)
 ===================================================================== */
 async function getTileEtaText(state, fieldId, run0, thr){
@@ -476,7 +435,8 @@ async function getTileEtaText(state, fieldId, run0, thr){
       if (pred && pred.ok){
         if (pred.status === 'dryNow') return '';
         if (pred.status === 'within72') return pred.message || '';
-        if (pred.status === 'notWithin72') return pred.message || `Greater Than 72 hours`;
+        if (pred.status === 'notWithin72') return pred.message || `> 72 hours`;
+        // noForecast/noData => fall back
       }
     }
   }catch(_){}
@@ -621,10 +581,8 @@ function wireTileInteractions(state, tileEl, fieldId){
   });
 }
 
-/* =====================================================================
-   Internal renders (used by render gate)
-===================================================================== */
-async function _renderTilesInternal(state){
+/* ---------- tile render ---------- */
+export async function renderTiles(state){
   await ensureModelWeatherModules(state);
   ensureSelectionStyleOnce();
   await loadCalibrationFromAdjustments(state);
@@ -655,9 +613,7 @@ async function _renderTilesInternal(state){
   const thr = getThresholdForOp(state, opKey);
   const range = parseRangeFromInput();
 
-  const cap = (String(state.pageSize) === '__all__' || state.pageSize === -1)
-    ? sorted.length
-    : Math.min(sorted.length, Number(state.pageSize || 25));
+  const cap = (String(state.pageSize) === '__all__' || state.pageSize === -1) ? sorted.length : Math.min(sorted.length, Number(state.pageSize || 25));
   const show = sorted.slice(0, cap);
 
   for (const f of show){
@@ -727,24 +683,6 @@ async function _renderTilesInternal(state){
   });
 }
 
-async function _renderDetailsInternal(state){
-  await ensureModelWeatherModules(state);
-
-  const f = state.fields.find(x=>x.id === state.selectedFieldId);
-  if (!f) return;
-
-  // Your existing details logic lives elsewhere in this file (not shown in the snippet you pasted).
-  // We leave it untouched here by keeping this internal function minimal.
-}
-
-/* ---------- public render API (now gated) ---------- */
-export async function renderTiles(state){
-  await runRenderCoalesced(state, 'all');
-}
-export async function renderDetails(state){
-  await runRenderCoalesced(state, 'details');
-}
-
 /* ---------- select field ---------- */
 export function selectField(state, id){
   const f = state.fields.find(x=>x.id === id);
@@ -768,12 +706,221 @@ export function selectField(state, id){
   })();
 }
 
-/* ---------- refresh (gated) ---------- */
+/* ---------- beta panel ---------- */
+function renderBetaInputs(state){
+  const box = $('betaInputs');
+  const meta = $('betaInputsMeta');
+  if (!box || !meta) return;
+
+  const fid = state.selectedFieldId;
+  const info = fid ? state.wxInfoByFieldId.get(fid) : null;
+
+  if (!info){
+    meta.textContent = 'Weather is loading…';
+    box.innerHTML = '';
+    return;
+  }
+
+  const when = info.fetchedAt ? new Date(info.fetchedAt) : null;
+  const whenTxt = when ? when.toLocaleString() : '—';
+
+  meta.textContent =
+    `Source: ${info.source || '—'} • Updated: ${whenTxt} • Primary + light-influence variables are used now; weights are still being tuned.`;
+
+  const unitsHourly = info.units && info.units.hourly ? info.units.hourly : null;
+  const unitsDaily = info.units && info.units.daily ? info.units.daily : null;
+
+  const a = info.availability || { vars:{} };
+  const vars = a.vars || {};
+
+  const usedPrimary = [
+    ['rain_mm','Precipitation (hourly → daily sum)', unitsHourly?.precipitation || 'mm → in'],
+    ['temp_c','Air temperature (hourly avg)', unitsHourly?.temperature_2m || '°C → °F'],
+    ['wind_mph','Wind speed (hourly avg)', 'mph (converted)'],
+    ['rh_pct','Relative humidity (hourly avg)', unitsHourly?.relative_humidity_2m || '%'],
+    ['solar_wm2','Shortwave radiation (hourly avg)', unitsHourly?.shortwave_radiation || 'W/m²']
+  ];
+
+  const usedLight = [
+    ['vapour_pressure_deficit_kpa','VPD (hourly avg)', unitsHourly?.vapour_pressure_deficit || 'kPa'],
+    ['cloud_cover_pct','Cloud cover (hourly avg)', unitsHourly?.cloud_cover || '%'],
+    ['soil_moisture_0_10','Soil moisture 0–10cm (hourly avg)', unitsHourly?.soil_moisture_0_to_10cm || 'm³/m³'],
+    ['soil_temp_c_0_10','Soil temp 0–10cm (hourly avg)', unitsHourly?.soil_temperature_0_to_10cm || '°C → °F'],
+    ['et0_mm','ET₀ (daily)', unitsDaily?.et0_fao_evapotranspiration || 'mm/day → in/day'],
+    ['daylight_s','Daylight duration (daily)', unitsDaily?.daylight_duration || 's/day → hr/day'],
+    ['sunshine_s','Sunshine duration (daily)', unitsDaily?.sunshine_duration || 's/day → hr/day']
+  ];
+
+  const pulledNotUsed = [
+    ['soil_temp_c_10_40','Soil temp 10–40cm (hourly)', unitsHourly?.soil_temperature_10_to_40cm || '°C'],
+    ['soil_temp_c_40_100','Soil temp 40–100cm (hourly)', unitsHourly?.soil_temperature_40_to_100cm || '°C'],
+    ['soil_temp_c_100_200','Soil temp 100–200cm (hourly)', unitsHourly?.soil_temperature_100_to_200cm || '°C'],
+    ['soil_moisture_10_40','Soil moisture 10–40cm (hourly)', unitsHourly?.soil_moisture_10_to_40cm || 'm³/m³'],
+    ['soil_moisture_40_100','Soil moisture 40–100cm (hourly)', unitsHourly?.soil_moisture_40_to_100cm || 'm³/m³'],
+    ['soil_moisture_100_200','Soil moisture 100–200cm (hourly)', unitsHourly?.soil_moisture_100_to_200cm || 'm³/m³']
+  ];
+
+  function itemRow(k,label,u,tagClass,tagText){
+    const ok = vars[k] ? !!vars[k].ok : true;
+    const tag = ok ? `<div class="vtag ${tagClass}">${esc(tagText)}</div>` : `<div class="vtag tag-missing">Not in response</div>`;
+    return `
+      <div class="vitem">
+        <div>
+          <div class="vname">${esc(label)}</div>
+          <div class="vmeta">${esc(u || '')}</div>
+        </div>
+        ${tag}
+      </div>
+    `;
+  }
+  function groupHtml(title, rows, tagClass, tagText){
+    const items = rows.map(([k,label,u])=> itemRow(k,label,u,tagClass,tagText)).join('');
+    return `
+      <div class="vgroup">
+        <div class="vgroup-title">${esc(title)}</div>
+        <div class="vitems">${items}</div>
+      </div>
+    `;
+  }
+
+  box.innerHTML =
+    groupHtml('Used now (primary drivers)', usedPrimary, 'tag-primary', 'Used') +
+    groupHtml('Used now (light influence / nudges)', usedLight, 'tag-light', 'Light') +
+    groupHtml('Pulled (not yet used)', pulledNotUsed, 'tag-pulled', 'Pulled');
+}
+
+/* ---------- details render (beta + tables) ---------- */
+export async function renderDetails(state){
+  await ensureModelWeatherModules(state);
+
+  const f = state.fields.find(x=>x.id === state.selectedFieldId);
+  if (!f) return;
+
+  updateDetailsHeaderPanel(state);
+
+  await loadCalibrationFromAdjustments(state);
+
+  const opKey = getCurrentOp();
+
+  const wxCtx = buildWxCtx(state);
+  const deps = {
+    getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
+    getFieldParams: (fid)=> getFieldParams(state, fid),
+    LOSS_SCALE: CONST.LOSS_SCALE,
+    EXTRA,
+    opKey,
+    CAL: getCalForDeps(state)
+  };
+
+  const run = state._mods.model.runField(f, deps);
+  if (!run) return;
+
+  try{ state.lastRuns && state.lastRuns.set(f.id, run); }catch(_){}
+
+  renderBetaInputs(state);
+
+  const trb = $('traceRows');
+  if (trb){
+    trb.innerHTML = '';
+    const rows = Array.isArray(run.trace) ? run.trace : [];
+    if (!rows.length){
+      trb.innerHTML = `<tr><td colspan="7" class="muted">No trace rows.</td></tr>`;
+    } else {
+      for (const t of rows){
+        const dateISO = String(t.dateISO || '');
+        const rain = Number(t.rain ?? 0);
+        const infilMult = Number(t.infilMult ?? 0);
+        const add = Number(t.add ?? 0);
+        const dryPwr = Number(t.dryPwr ?? 0);
+        const loss = Number(t.loss ?? 0);
+        const before = Number(t.before ?? 0);
+        const after = Number(t.after ?? 0);
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${esc(dateISO)}</td>
+          <td class="right mono">${rain.toFixed(2)}</td>
+          <td class="right mono">${infilMult.toFixed(2)}</td>
+          <td class="right mono">${add.toFixed(2)}</td>
+          <td class="right mono">${dryPwr.toFixed(2)}</td>
+          <td class="right mono">${loss.toFixed(2)}</td>
+          <td class="right mono">${before.toFixed(2)}→${after.toFixed(2)}</td>
+        `;
+        trb.appendChild(tr);
+      }
+    }
+  }
+
+  const drb = $('dryRows');
+  if (drb){
+    drb.innerHTML = '';
+    const rows = Array.isArray(run.rows) ? run.rows : [];
+    if (!rows.length){
+      drb.innerHTML = `<tr><td colspan="15" class="muted">No rows.</td></tr>`;
+    } else {
+      for (const r of rows){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${esc(r.dateISO)}</td>
+          <td class="right mono">${Math.round(Number(r.temp||0))}</td>
+          <td class="right mono">${Number(r.tempN||0).toFixed(2)}</td>
+          <td class="right mono">${Math.round(Number(r.wind||0))}</td>
+          <td class="right mono">${Number(r.windN||0).toFixed(2)}</td>
+          <td class="right mono">${Math.round(Number(r.rh||0))}</td>
+          <td class="right mono">${Number(r.rhN||0).toFixed(2)}</td>
+          <td class="right mono">${Math.round(Number(r.solar||0))}</td>
+          <td class="right mono">${Number(r.solarN||0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.vpd||0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.vpdN||0).toFixed(2)}</td>
+          <td class="right mono">${Math.round(Number(r.cloud||0))}</td>
+          <td class="right mono">${Number(r.cloudN||0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.raw||0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.dryPwr||0).toFixed(2)}</td>
+        `;
+        drb.appendChild(tr);
+      }
+    }
+  }
+
+  const wxb = $('wxRows');
+  if (wxb){
+    wxb.innerHTML = '';
+    const rows = Array.isArray(run.rows) ? run.rows : [];
+    if (!rows.length){
+      wxb.innerHTML = `<tr><td colspan="9" class="muted">No weather rows.</td></tr>`;
+    } else {
+      for (const r of rows){
+        const rain = Number(r.rainInAdj ?? r.rainIn ?? 0);
+        const et0 = (r.et0 == null ? '—' : Number(r.et0).toFixed(2));
+        const sm010 = (r.sm010 == null ? '—' : Number(r.sm010).toFixed(3));
+        const st010F = (r.st010F == null ? '—' : String(Math.round(Number(r.st010F))));
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${esc(r.dateISO)}</td>
+          <td class="right mono">${rain.toFixed(2)}</td>
+          <td class="right mono">${Math.round(Number(r.temp||0))}</td>
+          <td class="right mono">${Math.round(Number(r.wind||0))}</td>
+          <td class="right mono">${Math.round(Number(r.rh||0))}</td>
+          <td class="right mono">${Math.round(Number(r.solar||0))}</td>
+          <td class="right mono">${esc(et0)}</td>
+          <td class="right mono">${esc(sm010)}</td>
+          <td class="right mono">${esc(st010F)}</td>
+        `;
+        wxb.appendChild(tr);
+      }
+    }
+  }
+}
+
+/* ---------- refresh ---------- */
 export async function refreshAll(state){
-  await runRenderCoalesced(state, 'all');
+  await renderTiles(state);
+  await renderDetails(state);
 }
 export async function refreshDetailsOnly(state){
-  await runRenderCoalesced(state, 'details');
+  await renderDetails(state);
+  try{ if (state && state.selectedFieldId) await updateTileForField(state, state.selectedFieldId); }catch(_){}
 }
 
 /* =====================================================================
@@ -810,7 +957,6 @@ export async function refreshDetailsOnly(state){
         if (!state) return;
         state._calLoadedAt = 0;
         await loadCalibrationFromAdjustments(state, { force:true });
-        await refreshAll(state);
       }catch(_){}
     });
 
