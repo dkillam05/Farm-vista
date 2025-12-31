@@ -1,15 +1,14 @@
 /* =====================================================================
 /Farm-vista/js/crop-planning/crop-planner.module.js  (FULL FILE)
-Rev: 2025-12-31b
+Rev: 2025-12-31c
+
+Fixes per Dane:
+✅ Farm lane header shows (Corn X • Beans Y) when any assigned exists; otherwise shows nothing extra.
+✅ "Drop farm" header row redesigned to be obviously bulk action.
+✅ On viewOnly (phone), hides the bulk drop header entirely.
 
 Exports:
   mount(hostEl, opts) -> returns { unmount() }
-
-Notes:
-- No iframe.
-- Fully in-page.
-- Scoped DOM queries to hostEl.
-- Uses your existing planner engine: crop-planning-data.js + crop-planning-dnd.js
 ===================================================================== */
 'use strict';
 
@@ -66,9 +65,6 @@ export async function mount(hostEl, opts = {}){
     try{ localStorage.setItem(OPEN_KEY, JSON.stringify(laneOpen)); }catch{}
   };
 
-  // selection per farm
-  const selection = new Map(); // farmId -> Set(fieldId)
-
   // render skeleton inside host
   hostEl.innerHTML = `
     <section style="padding:16px;">
@@ -87,7 +83,8 @@ export async function mount(hostEl, opts = {}){
                         style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));border:1px solid var(--border);border-radius:10px;padding:12px;outline:none;cursor:pointer;text-align:left;position:relative;padding-right:44px;user-select:none;">
                   — All farms —
                 </button>
-                <div data-el="farmPanel" class="combo-panel" style="position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 26px rgba(0,0,0,.18);z-index:9999;padding:8px;display:none;">
+                <div data-el="farmPanel" class="combo-panel"
+                     style="position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 26px rgba(0,0,0,.18);z-index:9999;padding:8px;display:none;">
                   <div class="search" style="padding:4px 2px 8px;">
                     <input data-el="farmSearch" type="search" placeholder="Search farms…"
                            style="width:100%;padding:10px;border:1px solid var(--border);border-radius:10px;font:inherit;font-size:14px;color:var(--text);background:var(--card-surface,var(--surface));" />
@@ -145,15 +142,24 @@ export async function mount(hostEl, opts = {}){
             </div>
           </div>
 
-          <div data-el="laneHeader" class="laneHeader" style="border:1px solid var(--border);border-radius:14px;background:var(--card-surface,var(--surface));padding:10px 12px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;align-items:center;">
-            <div class="hbox" data-header-drop="1" data-crop="" style="border:1px dashed color-mix(in srgb, var(--border) 70%, transparent);border-radius:12px;padding:10px 10px;font-weight:900;display:flex;align-items:center;justify-content:space-between;user-select:none;">
-              <span>Unplanned</span><span class="pill">drop farm</span>
+          <!-- Bulk farm drop header (hidden on viewOnly) -->
+          <div data-el="bulkWrap" style="display:${viewOnly ? 'none' : 'grid'};gap:8px;">
+            <div style="display:flex;gap:8px;align-items:center;">
+              <div style="width:28px;height:28px;border-radius:10px;border:1px solid var(--border);display:grid;place-items:center;color:var(--accent);">
+                ⇄
+              </div>
+              <div style="font-weight:900;">Bulk: drop a FARM here</div>
+              <div class="muted" style="font-weight:800;font-size:12px;letter-spacing:.2px;text-transform:uppercase;">
+                Moves every active field in that farm
+              </div>
             </div>
-            <div class="hbox" data-header-drop="1" data-crop="corn" style="border:1px dashed color-mix(in srgb, var(--border) 70%, transparent);border-radius:12px;padding:10px 10px;font-weight:900;display:flex;align-items:center;justify-content:space-between;user-select:none;">
-              <span>Corn</span><span class="pill">drop farm</span>
-            </div>
-            <div class="hbox" data-header-drop="1" data-crop="soybeans" style="border:1px dashed color-mix(in srgb, var(--border) 70%, transparent);border-radius:12px;padding:10px 10px;font-weight:900;display:flex;align-items:center;justify-content:space-between;user-select:none;">
-              <span>Soybeans</span><span class="pill">drop farm</span>
+
+            <div data-el="laneHeader" class="laneHeader"
+                 style="border:1px solid var(--border);border-radius:14px;background:var(--card-surface,var(--surface));
+                        padding:10px 12px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;align-items:center;">
+              ${bulkBox('Unplanned', '')}
+              ${bulkBox('Corn', 'corn')}
+              ${bulkBox('Soybeans', 'soybeans')}
             </div>
           </div>
 
@@ -166,6 +172,25 @@ export async function mount(hostEl, opts = {}){
 
     <div data-el="toast" style="position:fixed;left:50%;bottom:24px;transform:translate(-50%,12px);background:#2F6C3C;color:#fff;padding:10px 16px;border-radius:999px;font-size:14px;box-shadow:0 10px 24px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:opacity .18s ease, transform .18s ease;z-index:10000;white-space:nowrap;"></div>
   `;
+
+  function bulkBox(label, crop){
+    // styled so it looks like a special drop target (not a normal card)
+    return `
+      <div class="hbox" data-header-drop="1" data-crop="${crop}"
+           style="border:1px dashed color-mix(in srgb, var(--border) 60%, transparent);
+                  border-radius:12px;
+                  padding:10px 10px;
+                  font-weight:900;
+                  display:flex;
+                  align-items:center;
+                  justify-content:space-between;
+                  user-select:none;
+                  background: color-mix(in srgb, var(--surface) 92%, rgba(47,108,60,.05));">
+        <span>${label}</span>
+        <span class="pill" style="font-size:11px;">drop farm</span>
+      </div>
+    `;
+  }
 
   // element getters scoped to host
   const q = (sel) => hostEl.querySelector(sel);
@@ -319,7 +344,6 @@ export async function mount(hostEl, opts = {}){
   };
 
   const renderAll = (preserveScroll=false) => {
-    // KPIs and layout
     const list = getShownFields();
     el.scopeHelp.textContent = `Showing ${fmt0.format(list.length)} active fields`;
 
@@ -350,7 +374,6 @@ export async function mount(hostEl, opts = {}){
     const farmsArr = Array.from(byFarm.values()).sort((a,b)=> a.farmName.localeCompare(b.farmName));
     const defaultOpen = !!el.farmId.value;
 
-    // scroll snapshot
     const snap = preserveScroll ? {
       boardTop: el.boardScroll.scrollTop,
       buckets: Object.fromEntries([...hostEl.querySelectorAll('.bucketBody')].map(b=>{
@@ -365,16 +388,22 @@ export async function mount(hostEl, opts = {}){
 
       const un = [], co = [], so = [];
       let unA=0, coA=0, soA=0;
+      let coN=0, soN=0;
 
       for(const f of g.fields){
         const b = cropForField(f.id);
         const a = Number(f.tillable||0);
-        if(b === 'corn'){ co.push(f); coA+=a; }
-        else if(b === 'soybeans'){ so.push(f); soA+=a; }
+        if(b === 'corn'){ co.push(f); coA+=a; coN++; }
+        else if(b === 'soybeans'){ so.push(f); soA+=a; soN++; }
         else { un.push(f); unA+=a; }
       }
 
       const farmDrag = viewOnly ? 'false' : 'true';
+
+      // ✅ planned counts in () — only if any assigned exists
+      const plannedBadge = (coN + soN) > 0
+        ? ` <span style="color:var(--muted,#67706B);font-weight:900;">(${coN ? `Corn ${fmt0.format(coN)}` : ''}${coN && soN ? ' • ' : ''}${soN ? `Beans ${fmt0.format(soN)}` : ''})</span>`
+        : '';
 
       return `
         <div class="farmLane" data-farm-id="${esc(g.farmId)}" data-open="${open?'1':'0'}"
@@ -385,7 +414,9 @@ export async function mount(hostEl, opts = {}){
                  style="width:22px;height:22px;border:1px solid var(--border);border-radius:8px;display:grid;place-items:center;color:var(--muted,#67706B);cursor:${viewOnly?'not-allowed':'grab'};opacity:${viewOnly?'.45':'1'};">
               ${gripSvg()}
             </div>
-            <div style="font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(g.farmName)}</div>
+            <div style="font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+              ${esc(g.farmName)}${plannedBadge}
+            </div>
             <div style="color:var(--muted,#67706B);font-size:12px;font-weight:900;letter-spacing:.2px;text-transform:uppercase;white-space:nowrap;">
               ${fmt0.format(g.fields.length)} • ${fmt2.format(unA+coA+soA)} ac
             </div>
@@ -422,7 +453,6 @@ export async function mount(hostEl, opts = {}){
       }, { signal });
     });
 
-    // restore scroll
     if(snap){
       el.boardScroll.scrollTop = snap.boardTop || 0;
       hostEl.querySelectorAll('.bucketBody').forEach(b=>{
@@ -432,17 +462,9 @@ export async function mount(hostEl, opts = {}){
     }
   };
 
-  // drops
+  // Drop actions (field + farm)
   const onDrop = async ({ type, fieldId, farmId, toCrop }) => {
     if(viewOnly) return;
-
-    const snap = {
-      boardTop: el.boardScroll.scrollTop,
-      buckets: Object.fromEntries([...hostEl.querySelectorAll('.bucketBody')].map(b=>{
-        const k = `${b.dataset.farmId}::${b.dataset.crop}`;
-        return [k, b.scrollTop||0];
-      }))
-    };
 
     if(type === 'field'){
       const f = fields.find(x=> x.id === fieldId);
@@ -456,12 +478,6 @@ export async function mount(hostEl, opts = {}){
 
       plans = await loadPlansForYear(db, currentYear);
       renderAll(true);
-      // restore scroll precisely
-      el.boardScroll.scrollTop = snap.boardTop || 0;
-      hostEl.querySelectorAll('.bucketBody').forEach(b=>{
-        const k = `${b.dataset.farmId}::${b.dataset.crop}`;
-        if(snap.buckets[k] != null) b.scrollTop = snap.buckets[k];
-      });
       return;
     }
 
@@ -482,13 +498,13 @@ export async function mount(hostEl, opts = {}){
     }
   };
 
-  // search
+  // Search
   el.search.addEventListener('input', ()=>{
     clearTimeout(el.search._t);
     el.search._t = setTimeout(()=> renderAll(true), 120);
   }, { signal });
 
-  // init
+  // Init
   db = await initDB();
   farms = await loadFarms(db);
   fields = await loadFields(db);
@@ -498,19 +514,12 @@ export async function mount(hostEl, opts = {}){
   plans = await loadPlansForYear(db, currentYear);
   renderAll(false);
 
-  // wire DnD inside host
+  // Wire DnD inside host
   wireDnd({
     root: hostEl,
     onDrop,
     isEnabled: () => !viewOnly
   });
-
-  // resize rerender (keeps layout sane)
-  const onResize = ()=> renderAll(true);
-  hostEl.ownerDocument.defaultView.addEventListener('resize', ()=>{
-    clearTimeout(onResize._t);
-    onResize._t = setTimeout(onResize, 150);
-  }, { signal });
 
   toast(viewOnly ? 'View only' : 'Ready');
 
