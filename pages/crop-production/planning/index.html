@@ -1,0 +1,326 @@
+<!-- =====================================================================
+/Farm-vista/pages/crop-production/planning/index.html  (FULL FILE)
+Rev: 2025-12-31a
+
+Purpose:
+ • Crop Year Planning Dashboard
+ • Top tile row selects a module
+ • Module opens INLINE (not a popup) below tiles
+ • Uses iframes so each module stays isolated + easy to build
+
+Modules (initial):
+ 1) Crop Planner (existing): /Farm-vista/pages/crop-production/crop-planning-selector.html
+ 2) Anhydrous Planner (placeholder): /Farm-vista/pages/crop-production/anhydrous-planner.html
+===================================================================== -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FarmVista • Planning Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#3B7E46" />
+
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+
+  <!-- Standard includes (ABSOLUTE paths) -->
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
+
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+
+  <!-- Ensure fv-shell -->
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s=document.createElement('script');
+        s.src='/Farm-vista/js/fv-shell.js';
+        s.defer=true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <style>
+    :root{
+      --card-max:1200px;
+      --page-bottom-gap:96px;
+      --accent:#2F6C3C;
+      --hero-icon-col:36px;
+      --hero-icon-size:24px;
+    }
+
+    body{ background:var(--app-bg,var(--surface)); }
+
+    .wrap{
+      max-width:var(--card-max);
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+    }
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+    }
+
+    .hero-head{
+      display:grid;
+      grid-template-columns:var(--hero-icon-col) 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      background:linear-gradient(90deg,rgba(47,108,60,.12),transparent);
+      border-bottom:1px solid var(--border);
+    }
+
+    .hero-head .icon{
+      width:var(--hero-icon-size);
+      height:var(--hero-icon-size);
+      color:var(--accent);
+      display:grid;
+      place-items:center;
+    }
+
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+
+    .muted{ color:var(--muted,#67706B); }
+
+    .body{
+      padding:16px;
+      display:grid;
+      gap:14px;
+    }
+
+    /* Tiles */
+    .tiles{
+      display:grid;
+      gap:10px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    @media (max-width:980px){
+      .tiles{ grid-template-columns:1fr; }
+    }
+
+    .tile{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--card-surface,var(--surface));
+      padding:12px;
+      cursor:pointer;
+      user-select:none;
+      display:flex;
+      gap:12px;
+      align-items:center;
+      justify-content:space-between;
+      transition: transform .06s ease, border-color .12s ease, background .12s ease;
+    }
+    .tile:active{ transform: translateY(1px); }
+    .tile:hover{ background: color-mix(in srgb, var(--surface) 92%, rgba(47,108,60,.05)); }
+
+    .tile .left{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      min-width:0;
+    }
+
+    .tileIcon{
+      width:38px;
+      height:38px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background: var(--surface);
+      display:grid;
+      place-items:center;
+      color: var(--accent);
+      flex:0 0 auto;
+      font-weight:900;
+    }
+
+    .tileText{ min-width:0; }
+    .tileTitle{
+      font-weight:900;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .tileSub{
+      margin-top:3px;
+      font-size:12px;
+      color: var(--muted,#67706B);
+      font-weight:800;
+      letter-spacing:.2px;
+      text-transform:uppercase;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    .tile.active{
+      border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+      background: color-mix(in srgb, var(--surface) 88%, rgba(47,108,60,.10));
+      box-shadow: 0 10px 20px rgba(0,0,0,.10);
+    }
+
+    /* Module area */
+    .moduleWrap{
+      border:1px solid var(--border);
+      border-radius:14px;
+      overflow:hidden;
+      background:var(--surface);
+    }
+    .moduleTop{
+      padding:12px 12px;
+      border-bottom:1px solid var(--border);
+      display:flex;
+      gap:10px;
+      align-items:center;
+      justify-content:space-between;
+      flex-wrap:wrap;
+    }
+    .moduleTop .title{
+      font-weight:900;
+    }
+    .moduleTop .hint{
+      color: var(--muted,#67706B);
+      font-size:12px;
+      font-weight:800;
+      letter-spacing:.2px;
+      text-transform:uppercase;
+    }
+
+    iframe{
+      width:100%;
+      height: calc(100vh - 340px); /* good default; keeps it “in page” */
+      border:0;
+      display:block;
+      background:var(--surface);
+    }
+    @media (max-width:980px){
+      iframe{ height: calc(100vh - 420px); }
+    }
+  </style>
+</head>
+
+<body>
+  <fv-shell>
+    <div class="wrap">
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"
+                 fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                 aria-hidden="true">
+              <path d="M4 19V5"></path>
+              <path d="M20 19V5"></path>
+              <path d="M4 12h16"></path>
+            </svg>
+          </div>
+          <div>
+            <h1>Planning Dashboard</h1>
+            <p class="muted">Pick a planner tool below. It opens inline (no popup). Built for clean expansion over time.</p>
+          </div>
+        </header>
+
+        <div class="body">
+          <div class="tiles" id="tiles">
+            <div class="tile active" data-title="Crop Planner" data-src="/Farm-vista/pages/crop-production/crop-planning-selector.html">
+              <div class="left">
+                <div class="tileIcon">🌽</div>
+                <div class="tileText">
+                  <div class="tileTitle">Crop Planner</div>
+                  <div class="tileSub">Assign corn/beans</div>
+                </div>
+              </div>
+              <div class="muted" style="font-weight:900;">Open</div>
+            </div>
+
+            <div class="tile" data-title="Anhydrous Planner" data-src="/Farm-vista/pages/crop-production/anhydrous-planner.html">
+              <div class="left">
+                <div class="tileIcon">🧯</div>
+                <div class="tileText">
+                  <div class="tileTitle">Anhydrous</div>
+                  <div class="tileSub">Vendors + complete</div>
+                </div>
+              </div>
+              <div class="muted" style="font-weight:900;">Open</div>
+            </div>
+
+            <div class="tile" data-title="Coming soon" data-src="">
+              <div class="left">
+                <div class="tileIcon">🛠️</div>
+                <div class="tileText">
+                  <div class="tileTitle">More Planners</div>
+                  <div class="tileSub">dry fert • liquid • spray</div>
+                </div>
+              </div>
+              <div class="muted" style="font-weight:900;">Soon</div>
+            </div>
+          </div>
+
+          <div class="moduleWrap">
+            <div class="moduleTop">
+              <div>
+                <div class="title" id="moduleTitle">Crop Planner</div>
+                <div class="hint" id="moduleHint">Loaded inline</div>
+              </div>
+              <div class="hint" id="moduleUrlHint">/Farm-vista/pages/crop-production/crop-planning-selector.html</div>
+            </div>
+
+            <iframe id="moduleFrame" src="/Farm-vista/pages/crop-production/crop-planning-selector.html" loading="lazy"></iframe>
+          </div>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
+
+  <script>
+    (function(){
+      const tiles = document.getElementById('tiles');
+      const frame = document.getElementById('moduleFrame');
+      const title = document.getElementById('moduleTitle');
+      const urlHint = document.getElementById('moduleUrlHint');
+
+      function setActive(tile){
+        [...tiles.querySelectorAll('.tile')].forEach(t=>t.classList.remove('active'));
+        tile.classList.add('active');
+
+        const src = tile.getAttribute('data-src') || '';
+        const t  = tile.getAttribute('data-title') || 'Planner';
+
+        title.textContent = t;
+        urlHint.textContent = src || '(not set)';
+
+        if(!src){
+          frame.removeAttribute('src');
+          frame.srcdoc = `
+            <div style="font-family:system-ui;padding:18px;">
+              <h2 style="margin:0 0 8px 0;">Not wired yet</h2>
+              <div>When this planner is ready, this tile will load it inline.</div>
+            </div>
+          `;
+          return;
+        }
+
+        frame.removeAttribute('srcdoc');
+        frame.src = src;
+      }
+
+      tiles.addEventListener('click', (e)=>{
+        const tile = e.target.closest('.tile');
+        if(!tile) return;
+        setActive(tile);
+      });
+    })();
+  </script>
+</body>
+</html>
