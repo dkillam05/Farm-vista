@@ -1,33 +1,22 @@
 /* =====================================================================
 /Farm-vista/js/crop-planning/crop-planner.module.js  (FULL FILE)
-Rev: 2025-12-31h.1
+Rev: 2025-12-31i
 
-Fixes per Dane:
-✅ Farm lane header shows (Corn X • Beans Y) when any assigned exists; otherwise shows nothing extra.
-✅ "Drop farm" header row redesigned to be obviously bulk action.
-✅ On viewOnly (phone), hides the bulk drop header entirely.
+PHONE FIX (VIEW-ONLY):
+✅ Completely different “viewer” layout rules when opts.viewOnly=true
+   - Filters stack 1-column
+   - KPI line wraps cleanly
+   - NO nested scroll traps (one natural page scroll)
+   - Farm lanes become clean accordions
+   - Buckets become 1-column (Unplanned / Corn / Beans stacked)
+   - Field rows become 2-column (name + acres)
+   - ALL grips/drag affordances hidden on phone
+
+DESKTOP:
+✅ unchanged behavior/layout (DnD + bulk + lock)
 
 REQUIRES (DnD drop fix):
 ✅ /Farm-vista/js/crop-planning/crop-planning-dnd.js  Rev: 2025-12-31b
-
-GLOBAL PADLOCK:
-✅ Lock is GLOBAL for all users (fat-finger protection)
-✅ Stored in Firestore: crop_plan_locks/{year}
-✅ Anyone can lock/unlock (rules must allow)
-✅ Realtime updates (onSnapshot if available); polling fallback if not
-✅ When locked: DnD disabled + grips greyed + drops show toast “Locked {year}”
-
-UI CHANGE (per Dane):
-✅ Lock button moved to the far right of the “Bulk: drop a FARM here …” row
-   (same size as before; does not disturb layout)
-
-Bug fix:
-✅ Removed duplicate declarations of stopLockWatch/readLockOnce/writeLock/startLockWatch
-   (was causing “Identifier 'stopLockWatch' has already been declared”)
-
-NEW FIX:
-✅ Bulk header boxes are now REAL dropzones so you can drop FARM onto them again
-   (adds data-dropzone="1" in bulkBox()).
 ===================================================================== */
 'use strict';
 
@@ -152,13 +141,76 @@ export async function mount(hostEl, opts = {}){
   const lockPath = (year) => ['crop_plan_locks', String(year)];
   const canDragNow = () => (!viewOnly && !isLocked);
 
+  // ✅ FIX: add data-dropzone="1" so farm drags can drop here
+  function bulkBox(label, crop){
+    return `
+      <div class="hbox" data-header-drop="1" data-dropzone="1" data-crop="${crop}"
+           style="border:1px dashed color-mix(in srgb, var(--border) 60%, transparent);
+                  border-radius:12px;
+                  padding:10px 10px;
+                  font-weight:900;
+                  display:flex;
+                  align-items:center;
+                  justify-content:space-between;
+                  user-select:none;
+                  background: color-mix(in srgb, var(--surface) 92%, rgba(47,108,60,.05));">
+        <span>${label}</span>
+        <span class="pill" style="font-size:11px;">drop farm</span>
+      </div>
+    `;
+  }
+
   // render skeleton inside host
   hostEl.innerHTML = `
-    <section style="padding:16px;">
+    <section class="cpRoot ${viewOnly ? 'viewOnly' : ''}" style="padding:16px;">
+      <style>
+        /* ==========================================================
+           VIEW-ONLY PHONE MODE: make this a clean READ-ONLY VIEWER
+           (Overrides inline styles with !important)
+        ========================================================== */
+        .cpRoot.viewOnly .row3{ grid-template-columns:1fr !important; }
+        .cpRoot.viewOnly .kpi-line{ gap:8px !important; padding:10px 10px !important; }
+        .cpRoot.viewOnly .kpi-line .kpi{ margin-left:0 !important; }
+        .cpRoot.viewOnly .boardScroll{
+          max-height:none !important;
+          overflow:visible !important;
+          padding:10px !important;
+        }
+        .cpRoot.viewOnly .farmLaneHead{
+          grid-template-columns: 1fr auto !important;
+          gap:10px !important;
+        }
+        .cpRoot.viewOnly .farmGrip{ display:none !important; }
+        .cpRoot.viewOnly .dragGrip{ display:none !important; }
+        .cpRoot.viewOnly .chev{ justify-self:end !important; }
+        .cpRoot.viewOnly .farmLaneBody{ padding:10px !important; }
+        .cpRoot.viewOnly .buckets{ grid-template-columns:1fr !important; gap:10px !important; }
+        .cpRoot.viewOnly .bucketBody{
+          max-height:none !important;
+          overflow:visible !important;
+          padding:10px !important;
+        }
+        .cpRoot.viewOnly .cardRow{
+          grid-template-columns: 1fr auto !important;
+          gap:10px !important;
+          padding:10px !important;
+        }
+        .cpRoot.viewOnly .cardRow > div:nth-child(2){
+          white-space:normal !important;
+          overflow:visible !important;
+          text-overflow:clip !important;
+          line-height:1.15 !important;
+        }
+        .cpRoot.viewOnly .combo-panel{ max-height:70vh !important; }
+        .cpRoot.viewOnly .pill{ white-space:nowrap !important; }
+      </style>
+
       <div class="hero" style="margin:0;border:1px solid var(--border);border-radius:14px;background:var(--surface);box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;">
         <div style="padding:14px 16px;border-bottom:1px solid var(--border);background:linear-gradient(90deg,rgba(47,108,60,.12),transparent);">
           <div style="font-weight:900;font-size:18px;">Crop Planner</div>
-          <div class="muted" style="margin-top:4px;font-weight:800;">Assign corn/beans. ${viewOnly ? 'View only on phone.' : 'Desktop for drag + bulk.'}</div>
+          <div class="muted" style="margin-top:4px;font-weight:800;">
+            ${viewOnly ? 'Phone mode: view-only (scroll to read).' : 'Desktop for drag + bulk.'}
+          </div>
         </div>
 
         <div style="padding:16px;display:grid;gap:14px;">
@@ -231,7 +283,6 @@ export async function mount(hostEl, opts = {}){
 
           <!-- Bulk farm drop header (hidden on viewOnly) -->
           <div data-el="bulkWrap" style="display:${viewOnly ? 'none' : 'grid'};gap:8px;">
-            <!-- SAME ROW: bulk text on left, lock button on far right -->
             <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;">
               <div style="display:flex;gap:8px;align-items:center;min-width:0;">
                 <div style="width:28px;height:28px;border-radius:10px;border:1px solid var(--border);display:grid;place-items:center;color:var(--accent);flex:0 0 auto;">⇄</div>
@@ -278,25 +329,6 @@ export async function mount(hostEl, opts = {}){
 
     <div data-el="toast" style="position:fixed;left:50%;bottom:24px;transform:translate(-50%,12px);background:#2F6C3C;color:#fff;padding:10px 16px;border-radius:999px;font-size:14px;box-shadow:0 10px 24px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:opacity .18s ease, transform .18s ease;z-index:10000;white-space:nowrap;"></div>
   `;
-
-  // ✅ FIX: add data-dropzone="1" so farm drags can drop here
-  function bulkBox(label, crop){
-    return `
-      <div class="hbox" data-header-drop="1" data-dropzone="1" data-crop="${crop}"
-           style="border:1px dashed color-mix(in srgb, var(--border) 60%, transparent);
-                  border-radius:12px;
-                  padding:10px 10px;
-                  font-weight:900;
-                  display:flex;
-                  align-items:center;
-                  justify-content:space-between;
-                  user-select:none;
-                  background: color-mix(in srgb, var(--surface) 92%, rgba(47,108,60,.05));">
-        <span>${label}</span>
-        <span class="pill" style="font-size:11px;">drop farm</span>
-      </div>
-    `;
-  }
 
   // element getters scoped to host
   const q = (sel) => hostEl.querySelector(sel);
@@ -657,7 +689,8 @@ export async function mount(hostEl, opts = {}){
       }, { signal });
     });
 
-    if(snap){
+    if(snap && !viewOnly){
+      // preserve nested scroll only on desktop (phone has no nested scroll now)
       el.boardScroll.scrollTop = snap.boardTop || 0;
       hostEl.querySelectorAll('.bucketBody').forEach(body=>{
         const bucket = body.closest('[data-dropzone="1"]');
@@ -711,6 +744,12 @@ export async function mount(hostEl, opts = {}){
     clearTimeout(el.search._t);
     el.search._t = setTimeout(()=> renderAll(true), 120);
   }, { signal });
+
+  // Extra: on viewOnly, prevent any dragstart in this module subtree (stops iOS weirdness)
+  if(viewOnly){
+    hostEl.addEventListener('dragstart', (e)=> e.preventDefault(), { capture:true, signal });
+    hostEl.addEventListener('drop', (e)=> e.preventDefault(), { capture:true, signal });
+  }
 
   db = await initDB();
   fs = await getFirestoreFns();
