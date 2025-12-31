@@ -1,16 +1,29 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-31e
+Rev: 2025-12-31h
 
-Fix:
+Fixes (per Dane):
+✅ Stop “double load” / flicker:
+   - Coalesce rapid refresh calls into a single render pass
+   - Prevent overlapping renderTiles/renderDetails
+
+✅ ETA sanity near threshold:
+   - If forecast says "Greater Than 72 hours" but the field is very close to the threshold,
+     and legacy etaFor() says <72h, we show the legacy estimate instead.
+   - Prevents cliff-jumps like ">72" -> "22h" from tiny threshold changes.
+
+✅ Remove dependency on ./paths.js (some builds don’t have it):
+   - Weather: /Farm-vista/js/field-readiness.weather.js
+   - Model:   /Farm-vista/js/field-readiness.model.js
+   - Forecast: ./forecast.js
+
+Keeps:
 ✅ Passes GLOBAL wetBias (same as tiles) into forecast predictor
-   so “within 72h” matches fields close to threshold.
-
-Everything else kept.
+✅ Everything else from your provided file (UI/selection/edit gating/sort/refresh listeners)
 ===================================================================== */
 'use strict';
 
-import { PATHS } from './paths.js';
+// NOTE: do NOT import PATHS; some builds don't have paths.js
 import { EXTRA, CONST, buildWxCtx } from './state.js';
 import { $, esc, clamp } from './utils.js';
 import { getFieldParams, ensureSelectedParamsToSliders } from './params.js';
@@ -21,6 +34,68 @@ import { initSwipeOnTiles } from './swipe.js';
 import { parseRangeFromInput, rainInRange } from './rain.js';
 import { fetchAndHydrateFieldParams } from './data.js';
 import { getAPI } from './firebase.js';
+
+/* =====================================================================
+   Render gate (prevents double-load flicker)
+===================================================================== */
+function ensureRenderGate(state){
+  if (!state) return null;
+  if (!state._renderGate){
+    state._renderGate = {
+      inFlight: false,
+      wantAll: false,
+      wantDetails: false,
+      timer: null
+    };
+  }
+  return state._renderGate;
+}
+
+async function scheduleRender(state, mode){
+  const g = ensureRenderGate(state);
+  if (!g) return;
+
+  if (mode === 'all') g.wantAll = true;
+  if (mode === 'details') g.wantDetails = true;
+
+  // already rendering; it'll loop once more if anything was requested
+  if (g.inFlight) return;
+
+  // coalesce bursts
+  if (g.timer) clearTimeout(g.timer);
+  g.timer = setTimeout(async ()=>{
+    g.timer = null;
+    if (g.inFlight) return;
+
+    g.inFlight = true;
+    try{
+      const doAll = !!g.wantAll;
+      const doDetails = !!g.wantDetails;
+
+      g.wantAll = false;
+      g.wantDetails = false;
+
+      if (doAll){
+        await _renderTilesInternal(state);
+        await _renderDetailsInternal(state);
+      } else if (doDetails){
+        await _renderDetailsInternal(state);
+        try{
+          if (state && state.selectedFieldId) await updateTileForField(state, state.selectedFieldId);
+        }catch(_){}
+      }
+    }catch(_){
+      // swallow: render should not crash page
+    }finally{
+      g.inFlight = false;
+
+      // run once more if queued during render
+      if (g.wantAll || g.wantDetails){
+        scheduleRender(state, g.wantAll ? 'all' : 'details');
+      }
+    }
+  }, 25);
+}
 
 /* =====================================================================
    Calibration from adjustments collection (GLOBAL ONLY)
@@ -124,13 +199,18 @@ function getCalForDeps(state){
 
 /* ---------- module loader (model/weather/forecast) ---------- */
 export async function ensureModelWeatherModules(state){
-  if (state._mods.model && state._mods.weather && state._mods.forecast) return;
+  if (state._mods && state._mods.model && state._mods.weather && state._mods.forecast) return;
 
-  const pWeather = import(PATHS.WEATHER);
-  const pModel   = import(PATHS.MODEL);
-  const pForecast = import('./forecast.js');
+  if (!state._mods) state._mods = {};
 
-  const [weather, model, forecast] = await Promise.all([pWeather, pModel, pForecast]);
+  const WEATHER_URL = '/Farm-vista/js/field-readiness.weather.js';
+  const MODEL_URL   = '/Farm-vista/js/field-readiness.model.js';
+
+  const [weather, model, forecast] = await Promise.all([
+    import(WEATHER_URL),
+    import(MODEL_URL),
+    import('./forecast.js')
+  ]);
 
   state._mods.weather = weather;
   state._mods.model = model;
@@ -410,7 +490,28 @@ function updateDetailsHeaderPanel(state){
 /* =====================================================================
    Forecast-based ETA helper for tiles (with wetBias passed in)
 ===================================================================== */
+function parseEtaHoursFromText(txt){
+  // Accept: "Est: ~22 hours" or "Est: ~22 hours" etc
+  const s = String(txt || '');
+  const m = s.match(/~\s*(\d+)\s*hours/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
+}
+
 async function getTileEtaText(state, fieldId, run0, thr){
+  // If you're within a few points of the threshold, trust the legacy etaFor()
+  // as a sanity fallback if forecast gives "Greater Than 72 hours".
+  const NEAR_THR_POINTS = 5;
+
+  let legacyTxt = '';
+  try{
+    legacyTxt = state._mods.model.etaFor(run0, thr, CONST.ETA_MAX_HOURS) || '';
+  }catch(_){
+    legacyTxt = '';
+  }
+  const legacyHours = parseEtaHoursFromText(legacyTxt);
+
   try{
     const p = getFieldParams(state, fieldId) || {};
     const soilWetness = Number.isFinite(Number(p.soilWetness)) ? Number(p.soilWetness) : 60;
@@ -434,18 +535,30 @@ async function getTileEtaText(state, fieldId, run0, thr){
 
       if (pred && pred.ok){
         if (pred.status === 'dryNow') return '';
-        if (pred.status === 'within72') return pred.message || '';
-        if (pred.status === 'notWithin72') return pred.message || `> 72 hours`;
+
+        if (pred.status === 'within72'){
+          return pred.message || '';
+        }
+
+        if (pred.status === 'notWithin72'){
+          // ✅ Sanity fallback near threshold:
+          // if you're close to threshold AND legacy says <72h, show legacy instead.
+          const rNow = Number(run0 && run0.readinessR);
+          const near = Number.isFinite(rNow) ? ((thr - rNow) >= 0 && (thr - rNow) <= NEAR_THR_POINTS) : false;
+
+          if (near && legacyHours !== null && legacyHours <= 72){
+            return legacyTxt;
+          }
+
+          return pred.message || `Greater Than 72 hours`;
+        }
+
         // noForecast/noData => fall back
       }
     }
   }catch(_){}
 
-  try{
-    return state._mods.model.etaFor(run0, thr, CONST.ETA_MAX_HOURS) || '';
-  }catch(_){
-    return '';
-  }
+  return legacyTxt || '';
 }
 
 /* ---------- internal: patch a single tile DOM in-place ---------- */
@@ -581,8 +694,8 @@ function wireTileInteractions(state, tileEl, fieldId){
   });
 }
 
-/* ---------- tile render ---------- */
-export async function renderTiles(state){
+/* ---------- tile render (CORE) ---------- */
+async function _renderTilesInternal(state){
   await ensureModelWeatherModules(state);
   ensureSelectionStyleOnce();
   await loadCalibrationFromAdjustments(state);
@@ -681,6 +794,12 @@ export async function renderTiles(state){
       await openQuickView(state, fieldId);
     }
   });
+}
+
+/* ---------- tile render (PUBLIC) ---------- */
+export async function renderTiles(state){
+  // Tiles render is expensive; coalesce with details
+  await scheduleRender(state, 'all');
 }
 
 /* ---------- select field ---------- */
@@ -789,8 +908,8 @@ function renderBetaInputs(state){
     groupHtml('Pulled (not yet used)', pulledNotUsed, 'tag-pulled', 'Pulled');
 }
 
-/* ---------- details render (beta + tables) ---------- */
-export async function renderDetails(state){
+/* ---------- details render (CORE) ---------- */
+async function _renderDetailsInternal(state){
   await ensureModelWeatherModules(state);
 
   const f = state.fields.find(x=>x.id === state.selectedFieldId);
@@ -913,14 +1032,17 @@ export async function renderDetails(state){
   }
 }
 
+/* ---------- details render (PUBLIC) ---------- */
+export async function renderDetails(state){
+  await scheduleRender(state, 'details');
+}
+
 /* ---------- refresh ---------- */
 export async function refreshAll(state){
-  await renderTiles(state);
-  await renderDetails(state);
+  await scheduleRender(state, 'all');
 }
 export async function refreshDetailsOnly(state){
-  await renderDetails(state);
-  try{ if (state && state.selectedFieldId) await updateTileForField(state, state.selectedFieldId); }catch(_){}
+  await scheduleRender(state, 'details');
 }
 
 /* =====================================================================
@@ -957,6 +1079,7 @@ export async function refreshDetailsOnly(state){
         if (!state) return;
         state._calLoadedAt = 0;
         await loadCalibrationFromAdjustments(state, { force:true });
+        await refreshAll(state);
       }catch(_){}
     });
 
