@@ -1,24 +1,18 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/forecast.js  (FULL FILE)
-Rev: 2025-12-31g
+Rev: 2025-12-31h
 
 Fix (per Dane):
-✅ ETA now uses SAME FarmVista daily weather modeling, but simulates in sub-daily steps
-   to eliminate “cliff jumps”.
-   - Inputs remain your canonical daily rows (same as the rest of the app):
-       rainIn, tempF, windMph, rh, solarWm2, cloudPct, vpdKpa, sm010, et0In
-   - We simulate forward in STEP_HOURS increments up to 72 hours.
-   - Rain for each day is distributed across the day (uniform) for sub-steps.
-   - Drying/loss is scaled per-step (stepHours/24).
+✅ Extend ETA horizon to full 7-day forecast (168 hours)
+✅ Mobile-friendly ETA text:
+   - Within horizon: "~XXh"
+   - Beyond horizon: ">168h"
+✅ Keeps SAME FarmVista daily weather modeling + sub-daily simulation (STEP_HOURS)
+✅ Keeps wetBias applied exactly like tiles
+✅ Keeps Option A saturation-aware rain effectiveness
 
-Rules:
-✅ Show "Est: ~X hours" ONLY if X <= 72
-✅ Else show "Greater Than 72 hours"
-✅ "Greater Than" casing kept
-
-Keeps:
-✅ wetBias applied exactly like tiles
-✅ Option A saturation-aware rain effectiveness
+Notes:
+- Status strings kept as-is ("within72", "notWithin72") to avoid touching render.js.
 ===================================================================== */
 'use strict';
 
@@ -28,11 +22,14 @@ Keeps:
 export const FV_FORECAST_TUNE = {
   WEATHER_CACHE_COLLECTION: 'field_weather_cache',
   DEFAULT_THRESHOLD: 70,
-  HORIZON_HOURS: 72,
+
+  // ✅ 7-day horizon for ETA display + simulation window
+  HORIZON_HOURS: 168,
+
+  // ✅ We want full 7 days of forecast rows available
   MAX_SIM_DAYS: 7,
 
-  // Key change: sub-daily simulation step (smaller => smoother)
-  // 3 is a good balance; 1 is very smooth but more compute.
+  // Sub-daily simulation step (smaller => smoother)
   STEP_HOURS: 3
 };
 
@@ -258,7 +255,6 @@ function computeNowFromHistory(histSeries, soilWetness, drainageIndex, phys, wet
 
     const before = storage;
 
-    // history uses daily rain already (this matches your model)
     const rain = Number(day.rainIn || 0);
     const rainEff = effectiveRainInches(rain, before, f.Smax, f, phys.rainTune);
 
@@ -282,8 +278,6 @@ function computeNowFromHistory(histSeries, soilWetness, drainageIndex, phys, wet
 ===================================================================== */
 function lerp(a,b,t){ return a + (b-a)*t; }
 
-// Build an “effective day row” at fractional position between day i and i+1.
-// This stays in the SAME canonical daily modeling universe.
 function interpDayRow(d0, d1, frac){
   const a = d0 || {};
   const b = d1 || d0 || {};
@@ -304,7 +298,6 @@ function interpDayRow(d0, d1, frac){
   }
 
   return {
-    // for our math, we only need these:
     rainIn: lerpNum('rainIn', 0),
     tempF:  lerpNum('tempF', 0),
     windMph:lerpNum('windMph', 0),
@@ -331,12 +324,9 @@ function simulateEtaHoursSubdaily(nowState, fcstSeries, threshold, phys, wetBias
   let prevReadiness = Number(nowState.readinessNow);
   let prevT = 0;
 
-  // Ensure we have enough forecast rows for the horizon. (72h => up to 3 days)
   const fcst = (fcstSeries || []).filter(d => d && d.dateISO).slice();
   if (!fcst.length) return null;
 
-  // We simulate along the forecast day index.
-  // tHours -> dayFloat = tHours/24. i = floor(dayFloat), frac = dayFloat - i
   for (let s=1; s<=steps; s++){
     const tHours = Math.min(horizonHours, s * stepH);
     const dayFloat = tHours / 24;
@@ -347,8 +337,6 @@ function simulateEtaHoursSubdaily(nowState, fcstSeries, threshold, phys, wetBias
     const d1 = fcst[Math.min(i + 1, fcst.length - 1)];
     const row = interpDayRow(d0, d1, frac);
 
-    // Distribute daily rain across day for sub-steps.
-    // Convert row.rainIn (daily) to rain for this step.
     const stepRain = (toNum(row.rainIn, 0) / 24) * stepH;
 
     const parts = calcDryPartsDay(row, EXTRA);
@@ -357,11 +345,9 @@ function simulateEtaHoursSubdaily(nowState, fcstSeries, threshold, phys, wetBias
 
     const rainEff = effectiveRainInches(stepRain, before, f.Smax, f, phys.rainTune);
 
-    // Scale the “soil moisture nudge” for sub-steps (it was per-day in model)
     let add = rainEff * f.infilMult;
     add += ((EXTRA.ADD_SM010_W * parts.smN_day) * 0.05) * (stepH / 24);
 
-    // Scale loss to the step duration
     const lossDay = Number(parts.dryPwr||0) * LOSS_SCALE * f.dryMult * (1 + EXTRA.LOSS_ET0_W * parts.et0N);
     const loss = lossDay * (stepH / 24);
 
@@ -371,7 +357,6 @@ function simulateEtaHoursSubdaily(nowState, fcstSeries, threshold, phys, wetBias
     const wet = applyWetBiasToWetness(wetPhys, wetBias);
     const readiness = clamp(100 - wet, 0, 100);
 
-    // Cross upward?
     if (prevReadiness < threshold && readiness >= threshold){
       const denom = readiness - prevReadiness;
       const fracCross = denom <= 1e-6 ? 1 : clamp((threshold - prevReadiness) / denom, 0, 1);
@@ -413,7 +398,7 @@ export async function predictDryForField(fieldId, params, opts){
     return { ok:false, status:'noData', fieldId, readinessNow:null, hoursUntilDry:null, message:'Weather history series is empty.' };
   }
 
-  // limit forecast days to what caller requests (still uses your canonical daily forecast series)
+  // ✅ Use up to 7 days of forecast (or caller override)
   const fcst = fcstRaw
     .filter(d => d && d.dateISO)
     .slice(0, clamp(maxSimDays, 1, 16));
@@ -451,27 +436,29 @@ export async function predictDryForField(fieldId, params, opts){
     stepH
   );
 
+  // ✅ Compact output: "~XXh" if within horizon
   if (eta !== null && eta <= horizonHours){
     return {
       ok: true,
-      status: 'within72',
+      status: 'within72', // kept for compatibility with render.js
       fieldId,
       readinessNow,
       readinessAt72: null,
       hoursUntilDry: eta,
       threshold,
-      message: `Est: ~${eta} hours`
+      message: `~${eta}h`
     };
   }
 
+  // ✅ Compact output: ">168h" if beyond horizon
   return {
     ok: true,
-    status: 'notWithin72',
+    status: 'notWithin72', // kept for compatibility with render.js
     fieldId,
     readinessNow,
     readinessAt72: null,
     hoursUntilDry: null,
     threshold,
-    message: `Greater Than ${horizonHours} hours`
+    message: `>${Math.round(horizonHours)}h`
   };
 }
