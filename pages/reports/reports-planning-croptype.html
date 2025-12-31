@@ -21,7 +21,9 @@
       --page-bottom-gap: 72px;
       --accent: #2F6C3C;
     }
+
     body{ background: var(--app-bg, var(--surface)); }
+
     .wrap{
       max-width: var(--card-max);
       margin: 0 auto;
@@ -421,7 +423,8 @@
       if(s === 'corn' || s.startsWith('corn ') || s === 'maize') return 'corn';
       if(s === 'soy' || s === 'soybean' || s === 'soybeans' || s === 'soy bean' || s === 'beans' || s.startsWith('soy ')) return 'soybeans';
 
-      return s; // unknown -> treated as unplanned
+      // unknown values treated as unplanned
+      return '';
     }
 
     function cropKeyForRow(r){
@@ -645,7 +648,7 @@
     }
 
     function groupCropThenFarm(rows){
-      const cropMap = new Map();
+      const cropMap = new Map(); // cropKey -> farmName -> rows
       rows.forEach(r=>{
         const c = cropKeyForRow(r);
         if(!cropMap.has(c)) cropMap.set(c, new Map());
@@ -669,7 +672,7 @@
     }
 
     function groupFarmThenCrop(rows){
-      const farmMap = new Map();
+      const farmMap = new Map(); // farmName -> cropKey -> rows
       rows.forEach(r=>{
         const farmName = farmNameForId(r.farmId);
         if(!farmMap.has(farmName)) farmMap.set(farmName, new Map());
@@ -691,29 +694,30 @@
       });
     }
 
-    function buildTableFieldAcres(rows){
+    // On-screen table can use tfoot if you want — NOT important.
+    // Print uses special builder below.
+    function buildTableOnScreen(rows){
       const acres = rows.reduce((s,r)=>s + safeNum(r.acres), 0);
       return `
         <div class="card">
           <table class="table" role="table">
             <thead>
-              <tr>
-                <th>Field</th>
-                <th class="right">Acres</th>
-              </tr>
+              <tr><th>Field</th><th class="right">Acres</th></tr>
             </thead>
             <tbody>
-              ${rows.map(r => `
+              ${rows.map(r=>`
                 <tr>
                   <td>${escapeHtml(r.fieldName || '—')}</td>
                   <td class="right mono">${fmt2.format(safeNum(r.acres))}</td>
                 </tr>
               `).join('')}
+            </tbody>
+            <tfoot>
               <tr>
                 <td style="font-weight:950;">Total</td>
                 <td class="right mono" style="font-weight:950;">${fmt2.format(acres)}</td>
               </tr>
-            </tbody>
+            </tfoot>
           </table>
         </div>
       `;
@@ -789,7 +793,7 @@
             body.appendChild(head);
 
             const wrap = document.createElement('div');
-            wrap.innerHTML = buildTableFieldAcres(arr);
+            wrap.innerHTML = buildTableOnScreen(arr);
             body.appendChild(wrap);
           });
         });
@@ -823,13 +827,14 @@
             body.appendChild(head);
 
             const wrap = document.createElement('div');
-            wrap.innerHTML = buildTableFieldAcres(arr);
+            wrap.innerHTML = buildTableOnScreen(arr);
             body.appendChild(wrap);
           });
         });
       }
     }
 
+    // ✅ SINGLE INSTANCE — this is the only summarizeFilters() in the file
     function summarizeFilters(){
       const { year, farm, crop, view } = getFilters();
       const yTxt = year ? `Crop Year: ${year}` : 'Crop Year: —';
@@ -839,93 +844,84 @@
       return `${yTxt} • ${fTxt} • ${cTxt} • ${vTxt}`;
     }
 
-    function groupForPdf(rows){
+    function groupForPrint(rows){
       const { view } = getFilters();
       if(view === 'farmFirst') return { mode:'farmFirst', data: groupFarmThenCrop(rows) };
       return { mode:'cropFirst', data: groupCropThenFarm(rows) };
     }
 
-    // ✅ PRINT FIX: remove <tfoot> entirely; put Total row in <tbody> so it NEVER repeats per page
-    function buildPrintHtml({ company, runStr, runDateOnly, filterSummary, kpis, grouped }){
-      const esc = escapeHtml;
-      const fmtA2 = (n)=> fmt2.format(Number.isFinite(+n)?+n:0);
-
-      const renderTable = (rows)=>`
-        <table role="table" style="width:100%; border-collapse:separate; border-spacing:0; border:1px solid #D1D5DB; border-radius:12px; overflow:hidden;">
+    // ✅ PRINT TABLE: Total row is in TBODY (no TF OOT) so it does NOT repeat when page breaks.
+    function printTableHtml(rows){
+      const total = rows.reduce((s,r)=>s + safeNum(r.acres), 0);
+      return `
+        <table class="t">
           <thead>
-            <tr>
-              <th style="padding:9px 10px; border-bottom:1px solid #EEF2F7; font-size:11px; text-transform:uppercase; letter-spacing:.10em; font-weight:950; color:#6B7280; background:rgba(59,126,70,0.06);">Field</th>
-              <th style="padding:9px 10px; border-bottom:1px solid #EEF2F7; font-size:11px; text-transform:uppercase; letter-spacing:.10em; font-weight:950; color:#6B7280; background:rgba(59,126,70,0.06); text-align:right;">Acres</th>
-            </tr>
+            <tr><th>Field</th><th class="r">Acres</th></tr>
           </thead>
           <tbody>
             ${rows.map(r=>`
               <tr>
-                <td style="padding:9px 10px; border-bottom:1px solid #EEF2F7; font-size:11px;">${esc(r.fieldName || '—')}</td>
-                <td style="padding:9px 10px; border-bottom:1px solid #EEF2F7; font-size:11px; text-align:right; font-variant-numeric:tabular-nums;">${esc(fmtA2(r.acres))}</td>
+                <td>${escapeHtml(r.fieldName || '—')}</td>
+                <td class="r mono">${fmt2.format(safeNum(r.acres))}</td>
               </tr>
             `).join('')}
-            <tr style="break-inside:avoid; page-break-inside:avoid;">
-              <td style="padding:9px 10px; font-size:11px; font-weight:950;">Total</td>
-              <td style="padding:9px 10px; font-size:11px; font-weight:950; text-align:right; font-variant-numeric:tabular-nums;">${esc(fmtA2(rows.reduce((s,r)=>s+safeNum(r.acres),0)))}</td>
+            <tr class="tot">
+              <td>Total</td>
+              <td class="r mono">${fmt2.format(total)}</td>
             </tr>
           </tbody>
         </table>
       `;
+    }
 
-      const renderCropFirst = () => grouped.data.map(([cropKey, farms])=>{
-        const flat = farms.flatMap(([,arr])=>arr);
-        const cropAc = flat.reduce((s,r)=>s+safeNum(r.acres),0);
-        return `
-          <section style="margin-top:16px; border-top:1px solid #EEF2F7; padding-top:14px;">
-            <div style="display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:12px; font-weight:950; letter-spacing:.10em; text-transform:uppercase; margin:0 0 8px;">
-              <span>${esc(cropLabelFromKey(cropKey))}</span>
-              <span style="font-size:11px; color:#6B7280; letter-spacing:.06em; text-transform:none; font-weight:900;">
-                ${flat.length} fields • ${esc(fmtA2(cropAc))} ac
-              </span>
-            </div>
-            ${farms.map(([farmName, arr])=>{
-              const farmAc = arr.reduce((s,r)=>s+safeNum(r.acres),0);
-              return `
-                <div style="margin:10px 0 6px; display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:11px; font-weight:950; letter-spacing:.10em; text-transform:uppercase;">
-                  <span>${esc(farmName)}</span>
-                  <span style="font-size:11px; color:#6B7280; letter-spacing:.06em; text-transform:none; font-weight:900; white-space:nowrap;">
-                    ${arr.length} fields • ${esc(fmtA2(farmAc))} ac
-                  </span>
-                </div>
-                ${renderTable(arr)}
-              `;
-            }).join('')}
-          </section>
-        `;
-      }).join('');
+    function buildPrintHtml({ company, runStr, runDateOnly, filterSummary, kpis, grouped }){
+      const esc = escapeHtml;
 
-      const renderFarmFirst = () => grouped.data.map(([farmName, crops])=>{
-        const flat = crops.flatMap(([,arr])=>arr);
-        const farmAc = flat.reduce((s,r)=>s+safeNum(r.acres),0);
-        return `
-          <section style="margin-top:16px; border-top:1px solid #EEF2F7; padding-top:14px;">
-            <div style="display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:12px; font-weight:950; letter-spacing:.10em; text-transform:uppercase; margin:0 0 8px;">
-              <span>${esc(farmName)}</span>
-              <span style="font-size:11px; color:#6B7280; letter-spacing:.06em; text-transform:none; font-weight:900;">
-                ${flat.length} fields • ${esc(fmtA2(farmAc))} ac
-              </span>
-            </div>
-            ${crops.map(([cropKey, arr])=>{
-              const ac = arr.reduce((s,r)=>s+safeNum(r.acres),0);
-              return `
-                <div style="margin:10px 0 6px; display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:11px; font-weight:950; letter-spacing:.10em; text-transform:uppercase;">
-                  <span>${esc(cropLabelFromKey(cropKey))}</span>
-                  <span style="font-size:11px; color:#6B7280; letter-spacing:.06em; text-transform:none; font-weight:900; white-space:nowrap;">
-                    ${arr.length} fields • ${esc(fmtA2(ac))} ac
-                  </span>
+      const blocks = (grouped.mode === 'farmFirst')
+        ? grouped.data.map(([farmName, crops])=>{
+            const flat = crops.flatMap(([,arr])=>arr);
+            const farmAc = flat.reduce((s,r)=>s + safeNum(r.acres), 0);
+            return `
+              <section class="sec">
+                <div class="h2">
+                  <div>${esc(farmName)}</div>
+                  <div class="sm">${flat.length} fields • ${esc(fmt2.format(farmAc))} ac</div>
                 </div>
-                ${renderTable(arr)}
-              `;
-            }).join('')}
-          </section>
-        `;
-      }).join('');
+                ${crops.map(([cropKey, arr])=>{
+                  const ac = arr.reduce((s,r)=>s + safeNum(r.acres), 0);
+                  return `
+                    <div class="h3">
+                      <div>${esc(cropLabelFromKey(cropKey))}</div>
+                      <div class="sm">${arr.length} fields • ${esc(fmt2.format(ac))} ac</div>
+                    </div>
+                    ${printTableHtml(arr)}
+                  `;
+                }).join('')}
+              </section>
+            `;
+          }).join('')
+        : grouped.data.map(([cropKey, farms])=>{
+            const flat = farms.flatMap(([,arr])=>arr);
+            const cropAc = flat.reduce((s,r)=>s + safeNum(r.acres), 0);
+            return `
+              <section class="sec">
+                <div class="h2">
+                  <div>${esc(cropLabelFromKey(cropKey))}</div>
+                  <div class="sm">${flat.length} fields • ${esc(fmt2.format(cropAc))} ac</div>
+                </div>
+                ${farms.map(([farmName, arr])=>{
+                  const farmAc = arr.reduce((s,r)=>s + safeNum(r.acres), 0);
+                  return `
+                    <div class="h3">
+                      <div>${esc(farmName)}</div>
+                      <div class="sm">${arr.length} fields • ${esc(fmt2.format(farmAc))} ac</div>
+                    </div>
+                    ${printTableHtml(arr)}
+                  `;
+                }).join('')}
+              </section>
+            `;
+          }).join('');
 
       return `<!doctype html>
 <html>
@@ -934,57 +930,56 @@
   <title>Crop Plan — Summary</title>
   <style>
     :root{
-      --fv-green:#3B7E46;
-      --fv-border:#D1D5DB;
-      --fv-text:#111827;
-      --fv-muted:#6B7280;
-      --fv-bg:#F3F4F6;
+      --g:#3B7E46;
+      --b:#D1D5DB;
+      --t:#111827;
+      --m:#6B7280;
+      --bg:#F3F4F6;
     }
     *{box-sizing:border-box;}
-    html,body{ margin:0; padding:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--fv-text); background:var(--fv-bg); }
-    body{ display:flex; justify-content:center; padding:22px 12px; }
-    .page{ width:100%; max-width:920px; background:#fff; border-radius:14px; box-shadow:0 10px 30px rgba(15,23,42,0.12); padding:20px 22px 22px; }
-    .hdr{ display:grid; grid-template-columns:auto 1fr auto; gap:14px; align-items:center; border-bottom:2px solid var(--fv-green); padding-bottom:12px; margin-bottom:14px; }
-    .logo{
-      width:60px;height:60px;border-radius:16px;
-      border:1px solid var(--fv-border);
-      display:flex;align-items:center;justify-content:center;
-      overflow:hidden;background:#fff;
-    }
-    .logo img{ width:100%; height:100%; object-fit:cover; display:block; }
-    .logo-fallback{
-      width:60px;height:60px;border-radius:16px;
-      border:1px solid var(--fv-border);
-      display:flex;align-items:center;justify-content:center;
-      font-size:24px;font-weight:900;color:#fff;
-      background:radial-gradient(circle at 30% 0%, #4CAF50, var(--fv-green));
-    }
+    html,body{margin:0;padding:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--t);background:var(--bg);}
+    body{display:flex;justify-content:center;padding:22px 12px;}
+    .page{width:100%;max-width:920px;background:#fff;border-radius:14px;box-shadow:0 10px 30px rgba(15,23,42,0.12);padding:20px 22px 22px;}
+    .hdr{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;border-bottom:2px solid var(--g);padding-bottom:12px;margin-bottom:14px;}
+    .logo{width:60px;height:60px;border-radius:16px;border:1px solid var(--b);overflow:hidden;background:#fff;display:flex;align-items:center;justify-content:center;}
+    .logo img{width:100%;height:100%;object-fit:cover;display:block;}
+    .logo-fallback{width:60px;height:60px;border-radius:16px;border:1px solid var(--b);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:900;color:#fff;background:radial-gradient(circle at 30% 0%, #4CAF50, var(--g));}
     .co-name{font-size:16px;font-weight:900;margin:0 0 2px;}
-    .co-line{font-size:11px;color:var(--fv-muted);margin:0;line-height:1.35;}
-    .meta{ text-align:right; font-size:11px; color:var(--fv-muted); line-height:1.35; white-space:nowrap; }
-    .meta strong{color:var(--fv-text);}
-    .title{ margin:0; font-size:18px; font-weight:950; letter-spacing:0.06em; text-transform:uppercase; }
-    .subtitle{ margin:4px 0 0; font-size:12px; color:var(--fv-muted); line-height:1.35; }
-    .summary{ margin-top:10px; padding:8px 10px; border-radius:12px; background:linear-gradient(90deg, rgba(59,126,70,0.10), transparent); border:1px solid rgba(59,126,70,0.22); display:flex; flex-wrap:wrap; gap:6px 14px; font-size:11px; }
-    .pill{display:inline-flex; gap:6px; align-items:baseline; white-space:nowrap;}
-    .k{font-size:10px; text-transform:uppercase; letter-spacing:0.10em; color:var(--fv-muted); font-weight:700;}
-    .v{font-weight:800; color:var(--fv-text);}
-    .kpis{ margin-top:12px; display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px; }
-    .kpi{ border:1px solid var(--fv-border); border-radius:12px; padding:9px 10px; background:linear-gradient(135deg, rgba(59,126,70,0.06), #fff); }
-    .kpi .lab{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--fv-muted);font-weight:900;}
+    .co-line{font-size:11px;color:var(--m);margin:0;line-height:1.35;}
+    .meta{text-align:right;font-size:11px;color:var(--m);line-height:1.35;white-space:nowrap;}
+    .meta strong{color:var(--t);}
+    .title{margin:0;font-size:18px;font-weight:950;letter-spacing:0.06em;text-transform:uppercase;}
+    .subtitle{margin:4px 0 0;font-size:12px;color:var(--m);line-height:1.35;}
+    .summary{margin-top:10px;padding:8px 10px;border-radius:12px;background:linear-gradient(90deg, rgba(59,126,70,0.10), transparent);border:1px solid rgba(59,126,70,0.22);display:flex;flex-wrap:wrap;gap:6px 14px;font-size:11px;}
+    .pill{display:inline-flex;gap:6px;align-items:baseline;white-space:nowrap;}
+    .k{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--m);font-weight:700;}
+    .v{font-weight:800;color:var(--t);}
+    .kpis{margin-top:12px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;}
+    .kpi{border:1px solid var(--b);border-radius:12px;padding:9px 10px;background:linear-gradient(135deg, rgba(59,126,70,0.06), #fff);}
+    .kpi .lab{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--m);font-weight:900;}
     .kpi .val{font-size:18px;font-weight:950;margin-top:2px;}
-    .kpi .note{font-size:10px;color:var(--fv-muted);margin-top:2px;line-height:1.25;}
-    .footer{ margin-top:16px; padding-top:10px; border-top:1px solid var(--fv-border); display:flex; justify-content:space-between; gap:12px; font-size:10px; color:var(--fv-muted); line-height:1.3; }
-
+    .kpi .note{font-size:10px;color:var(--m);margin-top:2px;line-height:1.25;}
+    .sec{margin-top:16px;border-top:1px solid #EEF2F7;padding-top:14px;}
+    .h2{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:12px;font-weight:950;letter-spacing:0.10em;text-transform:uppercase;margin:0 0 8px;}
+    .h3{margin:10px 0 6px;display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:11px;font-weight:950;letter-spacing:0.10em;text-transform:uppercase;}
+    .sm{font-size:11px;color:var(--m);letter-spacing:0.06em;text-transform:none;font-weight:900;white-space:nowrap;}
+    .t{width:100%;border-collapse:separate;border-spacing:0;border:1px solid var(--b);border-radius:12px;overflow:hidden;}
+    .t th,.t td{padding:9px 10px;border-bottom:1px solid #EEF2F7;font-size:11px;}
+    .t th{text-transform:uppercase;letter-spacing:0.10em;font-weight:950;color:var(--m);background:rgba(59,126,70,0.06);}
+    .t tr:last-child td{border-bottom:0;}
+    .r{text-align:right;}
+    .mono{font-variant-numeric:tabular-nums;}
+    .tot td{font-weight:950;}
+    .footer{margin-top:16px;padding-top:10px;border-top:1px solid var(--b);display:flex;justify-content:space-between;gap:12px;font-size:10px;color:var(--m);line-height:1.3;}
     @media (max-width:860px){
-      .kpis{grid-template-columns:repeat(2, minmax(0,1fr));}
+      .kpis{grid-template-columns:repeat(2,minmax(0,1fr));}
       .meta{white-space:normal;}
     }
     @media print{
       html,body{background:#fff;padding:0;}
       body{box-shadow:none;}
-      .page{ max-width:none; border-radius:0; box-shadow:none; padding:9mm 10mm; }
-      thead{ display: table-header-group; } /* keep headers repeating */
+      .page{max-width:none;border-radius:0;box-shadow:none;padding:9mm 10mm;}
+      thead{display:table-header-group;}
     }
   </style>
 </head>
@@ -1012,7 +1007,7 @@
     </header>
 
     <h1 class="title">Crop Plan — Summary</h1>
-    <p class="subtitle">Totals appear only once per table (end of crop/farm section), even across page breaks.</p>
+    <p class="subtitle">Totals print only once per table (end of crop/farm), even across page breaks.</p>
 
     <div class="summary">
       <div class="pill"><span class="k">Filters</span><span class="v">${esc(filterSummary)}</span></div>
@@ -1027,7 +1022,7 @@
       <div class="kpi"><div class="lab">Soy Acres</div><div class="val">${esc(fmt2.format(kpis.soyAcres))}</div><div class="note">Recognized soybeans</div></div>
     </div>
 
-    ${grouped.mode === 'farmFirst' ? renderFarmFirst() : renderCropFirst()}
+    ${blocks}
 
     <footer class="footer">
       <div>Generated from Firestore: ${esc(CONFIG.PLANS_ROOT)}/{year}/fields</div>
@@ -1052,7 +1047,7 @@
 
       const filterSummary = summarizeFilters();
       const kpis = calcKpis(rows);
-      const grouped = groupForPdf(rows);
+      const grouped = groupForPrint(rows);
 
       const html = buildPrintHtml({ company, runStr, runDateOnly, filterSummary, kpis, grouped });
 
@@ -1077,21 +1072,6 @@
           window.print();
         }
       }, 450);
-    }
-
-    function summarizeFilters(){
-      const { year, farm, crop, view } = getFilters();
-      const yTxt = year ? `Crop Year: ${year}` : 'Crop Year: —';
-      const fTxt = (farm === 'all') ? 'All farms' : `Farm: ${farmNameForId(farm)}`;
-      const cTxt = (crop === 'all') ? 'All crops' : `Crop: ${cropLabelFromKey(crop)}`;
-      const vTxt = (view === 'farmFirst') ? 'View: Farm → Crop' : 'View: Crop → Farm';
-      return `${yTxt} • ${fTxt} • ${cTxt} • ${vTxt}`;
-    }
-
-    function groupForPdf(rows){
-      const { view } = getFilters();
-      if(view === 'farmFirst') return { mode:'farmFirst', data: groupFarmThenCrop(rows) };
-      return { mode:'cropFirst', data: groupCropThenFarm(rows) };
     }
 
     function wireEvents(){
@@ -1148,7 +1128,7 @@
             <p class="muted">
               Filters: <strong>Crop Year</strong>, <strong>Farm</strong>, <strong>Crop Type</strong>.
               View Mode toggles <strong>Crop → Farm</strong> or <strong>Farm → Crop</strong>.
-              PDF totals now print only once per crop/farm section.
+              PDF totals now print only once per section (no duplicates across pages).
             </p>
           </div>
         </header>
