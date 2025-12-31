@@ -347,8 +347,8 @@
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const CONFIG = {
-      // ✅ UPDATED: v2 only (no fallback)
-      PLANS_ROOT: 'field_crop_plans_v2',
+      PLANS_ROOT: 'field_crop_plans_v2',     // ✅ v2 only
+      FIELDS_COLLECTION: 'fields',           // ✅ used to compute "unplanned"
       FARMS_COLLECTION: 'farms',
       COMPANY_DOC_PATH: ['company','main']
     };
@@ -363,6 +363,7 @@
       company: null,
       farmsById: new Map(),
       years: [],
+      fields: [],            // ✅ active fields cache
       rows: [],
       filtered: []
     };
@@ -424,7 +425,6 @@
       if(s === 'corn' || s.startsWith('corn ') || s === 'maize') return 'corn';
       if(s === 'soy' || s === 'soybean' || s === 'soybeans' || s === 'soy bean' || s === 'beans' || s.startsWith('soy ')) return 'soybeans';
 
-      // unknown values treated as unplanned
       return '';
     }
 
@@ -519,6 +519,31 @@
       }
     }
 
+    // ✅ NEW: load all ACTIVE fields once (used to compute unplanned)
+    async function loadFields(){
+      STATE.fields = [];
+      try{
+        const snap = await getDocs(collection(STATE.db, CONFIG.FIELDS_COLLECTION));
+        const rows = snap.docs.map(ds=>{
+          const d = ds.data() || {};
+          const status = String(d.status || '').trim().toLowerCase();
+          return {
+            id: ds.id,
+            status,
+            farmId: d.farmId || '',
+            name: (d.name || d.fieldName || d.title || ds.id || '').toString().trim(),
+            tillable: safeNum(d.tillable),
+            acres: safeNum(d.acres)
+          };
+        });
+        // active only (planner matches active-only)
+        STATE.fields = rows.filter(f => !f.status || f.status === 'active');
+      }catch(e){
+        console.error('[crop-plan-report] loadFields failed:', e);
+        STATE.fields = [];
+      }
+    }
+
     async function loadAvailableYears(){
       STATE.years = [];
       try{
@@ -570,38 +595,61 @@
       setSelectOptions(yearSel, opts || `<option value="">No crop years found</option>`, cur);
     }
 
+    // ✅ UPDATED: build rows from ALL ACTIVE FIELDS + plan overlay for selected year
     async function loadPlansForYear(yearStr){
       STATE.rows = [];
       const y = String(yearStr || '').trim();
       if(!y) return;
 
+      let planByField = new Map();
+
       try{
         const snap = await getDocs(collection(STATE.db, CONFIG.PLANS_ROOT, y, 'fields'));
-        const rows = snap.docs.map(ds=>{
+        snap.docs.forEach(ds=>{
           const d = ds.data() || {};
-          return {
-            id: ds.id,
-            year: y,
-            farmId: d.farmId || '',
-            fieldName: d.fieldName || ds.id,
-            acres: safeNum(d.acres),
+          planByField.set(ds.id, {
             crop: d.crop,
-            status: String(d.status || '').trim().toLowerCase(),
             updatedAt: toDateMaybe(d.updatedAt),
-            updatedBy: d.updatedBy || ''
-          };
-        });
-
-        STATE.rows = rows.filter(r => !r.status || r.status === 'active');
-        STATE.rows.sort((a,b)=>{
-          const fa = farmNameForId(a.farmId).localeCompare(farmNameForId(b.farmId));
-          if(fa) return fa;
-          return (a.fieldName||'').localeCompare(b.fieldName||'');
+            updatedBy: d.updatedBy || '',
+            // allow plan doc to override these if you store them there too
+            farmId: d.farmId || '',
+            fieldName: d.fieldName || '',
+            acres: safeNum(d.acres)
+          });
         });
       }catch(e){
-        console.error('[crop-plan-report] loadPlansForYear failed:', e);
-        STATE.rows = [];
+        console.error('[crop-plan-report] loadPlansForYear plan read failed:', e);
       }
+
+      // Build full rows from active fields (unplanned if missing plan)
+      const rows = (STATE.fields || []).map(f=>{
+        const p = planByField.get(f.id) || null;
+
+        const farmId = (p?.farmId || f.farmId || '');
+        const fieldName = (p?.fieldName || f.name || f.id);
+        const acres = (p && Number.isFinite(p.acres) && p.acres > 0)
+          ? p.acres
+          : (f.tillable || f.acres || 0);
+
+        return {
+          id: f.id,
+          year: y,
+          farmId,
+          fieldName,
+          acres: safeNum(acres),
+          crop: p?.crop ?? '',            // missing => unplanned
+          status: 'active',
+          updatedAt: p?.updatedAt || null,
+          updatedBy: p?.updatedBy || ''
+        };
+      });
+
+      STATE.rows = rows;
+      STATE.rows.sort((a,b)=>{
+        const fa = farmNameForId(a.farmId).localeCompare(farmNameForId(b.farmId));
+        if(fa) return fa;
+        return (a.fieldName||'').localeCompare(b.fieldName||'');
+      });
     }
 
     function computeFarmsFromRows(rows){
@@ -1022,7 +1070,7 @@
     ${blocks}
 
     <footer class="footer">
-      <div>Generated from Firestore: ${esc(CONFIG.PLANS_ROOT)}/{year}/fields</div>
+      <div>Computed from Firestore: ${esc(CONFIG.FIELDS_COLLECTION)} + ${esc(CONFIG.PLANS_ROOT)}/{year}/fields</div>
       <div>FarmVista • Crop Planning • ${esc(runDateOnly || '')}</div>
     </footer>
   </div>
@@ -1098,7 +1146,8 @@
       const shell = document.querySelector('fv-shell');
       if (shell) shell.nav = NAV_MENU;
 
-      await Promise.all([ loadFarms(), loadAvailableYears() ]);
+      // ✅ load farms + years + active fields (for computed unplanned)
+      await Promise.all([ loadFarms(), loadAvailableYears(), loadFields() ]);
       hydrateYearDropdown();
 
       const yearSel = $('#filterYear');
