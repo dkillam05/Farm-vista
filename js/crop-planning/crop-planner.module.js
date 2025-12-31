@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/crop-planning/crop-planner.module.js  (FULL FILE)
-Rev: 2025-12-31h
+Rev: 2025-12-31h.1
 
 Fixes per Dane:
 ✅ Farm lane header shows (Corn X • Beans Y) when any assigned exists; otherwise shows nothing extra.
@@ -24,6 +24,10 @@ UI CHANGE (per Dane):
 Bug fix:
 ✅ Removed duplicate declarations of stopLockWatch/readLockOnce/writeLock/startLockWatch
    (was causing “Identifier 'stopLockWatch' has already been declared”)
+
+NEW FIX:
+✅ Bulk header boxes are now REAL dropzones so you can drop FARM onto them again
+   (adds data-dropzone="1" in bulkBox()).
 ===================================================================== */
 'use strict';
 
@@ -275,9 +279,10 @@ export async function mount(hostEl, opts = {}){
     <div data-el="toast" style="position:fixed;left:50%;bottom:24px;transform:translate(-50%,12px);background:#2F6C3C;color:#fff;padding:10px 16px;border-radius:999px;font-size:14px;box-shadow:0 10px 24px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:opacity .18s ease, transform .18s ease;z-index:10000;white-space:nowrap;"></div>
   `;
 
+  // ✅ FIX: add data-dropzone="1" so farm drags can drop here
   function bulkBox(label, crop){
     return `
-      <div class="hbox" data-header-drop="1" data-crop="${crop}"
+      <div class="hbox" data-header-drop="1" data-dropzone="1" data-crop="${crop}"
            style="border:1px dashed color-mix(in srgb, var(--border) 60%, transparent);
                   border-radius:12px;
                   padding:10px 10px;
@@ -319,7 +324,6 @@ export async function mount(hostEl, opts = {}){
     kpiSoyAcres: q('[data-el="kpiSoyAcres"]'),
   };
 
-  // On viewOnly (phone), bulkWrap is hidden => lockBtn won't exist
   const hasLockUI = !!el.lockBtn;
 
   const controller = new AbortController();
@@ -338,14 +342,12 @@ export async function mount(hostEl, opts = {}){
 
   const closeCombo = () => { el.farmPanel.style.display = 'none'; };
 
-  // Close combo when clicking outside THIS host’s combo
   hostEl.ownerDocument.addEventListener('click', (e)=>{
     if (!hostEl.contains(e.target)) return;
     if (e.target.closest('.combo')) return;
     closeCombo();
   }, { signal });
 
-  // Combo
   const renderFarmList = (qtext) => {
     const qq = norm(qtext);
     const items = farms
@@ -388,7 +390,6 @@ export async function mount(hostEl, opts = {}){
     renderAll(true);
   }, { signal });
 
-  // ---------- GLOBAL LOCK helpers (defined ONCE) ----------
   const renderLockUI = () => {
     if (!hasLockUI) return;
     el.lockIcon.innerHTML = lockSvg(isLocked);
@@ -448,7 +449,6 @@ export async function mount(hostEl, opts = {}){
           renderLockUI();
           if (changed) renderAll(true);
         }, async ()=>{
-          // fallback to polling
           stopLockWatch();
           isLocked = await readLockOnce(year);
           renderLockUI();
@@ -463,16 +463,12 @@ export async function mount(hostEl, opts = {}){
           }, 6000);
         });
 
-        // prime UI quickly
         isLocked = await readLockOnce(year);
         renderLockUI();
         return;
-      }catch{
-        // fall through to polling
-      }
+      }catch{}
     }
 
-    // polling fallback
     isLocked = await readLockOnce(year);
     renderLockUI();
     lockPollT = setInterval(async ()=>{
@@ -485,7 +481,6 @@ export async function mount(hostEl, opts = {}){
     }, 6000);
   };
 
-  // ---------- Crop Year ----------
   el.year.value = '2026';
   currentYear = '2026';
 
@@ -498,7 +493,6 @@ export async function mount(hostEl, opts = {}){
     toast(`Year: ${currentYear}${isLocked ? ' (Locked)' : ''}`);
   }, { signal });
 
-  // crop lookup
   const cropForField = (fieldId) => {
     const c = norm(plans.get(fieldId)?.crop);
     if (c === 'corn' || c === 'soybeans') return c;
@@ -517,7 +511,6 @@ export async function mount(hostEl, opts = {}){
     });
   };
 
-  // render bucket
   const renderBucket = (farmId, title, crop, arr, acres) => {
     const canDrag = canDragNow();
     const draggable = canDrag ? 'true' : 'false';
@@ -553,7 +546,6 @@ export async function mount(hostEl, opts = {}){
     `;
   };
 
-  // main render
   const renderAll = (preserveScroll=false) => {
     const list = getShownFields();
     el.scopeHelp.textContent = `Showing ${fmt0.format(list.length)} active fields${isLocked ? ' • Locked' : ''}`;
@@ -649,7 +641,6 @@ export async function mount(hostEl, opts = {}){
       `;
     }).join('') || `<div class="muted" style="font-weight:900;padding:12px">No fields match your filters.</div>`;
 
-    // collapse toggles
     hostEl.querySelectorAll('[data-farm-toggle="1"]').forEach(head=>{
       if(head._fvBound) return;
       head._fvBound = true;
@@ -676,7 +667,6 @@ export async function mount(hostEl, opts = {}){
     }
   };
 
-  // Drop actions (field + farm)
   const onDrop = async ({ type, fieldId, farmId, toCrop }) => {
     if(viewOnly) return;
 
@@ -717,13 +707,11 @@ export async function mount(hostEl, opts = {}){
     }
   };
 
-  // Search
   el.search.addEventListener('input', ()=>{
     clearTimeout(el.search._t);
     el.search._t = setTimeout(()=> renderAll(true), 120);
   }, { signal });
 
-  // ---------- INIT ----------
   db = await initDB();
   fs = await getFirestoreFns();
 
@@ -734,7 +722,6 @@ export async function mount(hostEl, opts = {}){
   renderFarmList('');
   plans = await loadPlansForYear(db, currentYear);
 
-  // lock UI + watch (desktop only)
   if (hasLockUI){
     el.lockBtn.addEventListener('click', async ()=>{
       try{
@@ -754,7 +741,6 @@ export async function mount(hostEl, opts = {}){
 
   renderAll(false);
 
-  // DnD (lock-aware)
   wireDnd({
     root: hostEl,
     onDrop,
