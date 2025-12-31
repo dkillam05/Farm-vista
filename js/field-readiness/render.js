@@ -1,25 +1,15 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-31h
+Rev: 2025-12-31i
 
 Fixes (per Dane):
-✅ Stop “double load” / flicker:
-   - Coalesce rapid refresh calls into a single render pass
-   - Prevent overlapping renderTiles/renderDetails
-
-✅ ETA sanity near threshold:
-   - If forecast says "Greater Than 72 hours" but the field is very close to the threshold,
-     and legacy etaFor() says <72h, we show the legacy estimate instead.
-   - Prevents cliff-jumps like ">72" -> "22h" from tiny threshold changes.
-
-✅ Remove dependency on ./paths.js (some builds don’t have it):
-   - Weather: /Farm-vista/js/field-readiness.weather.js
-   - Model:   /Farm-vista/js/field-readiness.model.js
-   - Forecast: ./forecast.js
+✅ ETA text on mobile: use ">" sign (not "Greater Than ...")
+✅ Extend ETA horizon to full 7-day forecast:
+   - show "~XXh" if within 168h
+   - show ">168h" if not within 168h
 
 Keeps:
-✅ Passes GLOBAL wetBias (same as tiles) into forecast predictor
-✅ Everything else from your provided file (UI/selection/edit gating/sort/refresh listeners)
+✅ Everything else unchanged from your provided render.js
 ===================================================================== */
 'use strict';
 
@@ -491,22 +481,44 @@ function updateDetailsHeaderPanel(state){
    Forecast-based ETA helper for tiles (with wetBias passed in)
 ===================================================================== */
 function parseEtaHoursFromText(txt){
-  // Accept: "Est: ~22 hours" or "Est: ~22 hours" etc
+  // Accept: "Est: ~22 hours" OR "~22h"
   const s = String(txt || '');
-  const m = s.match(/~\s*(\d+)\s*hours/i);
-  if (!m) return null;
-  const n = Number(m[1]);
-  return Number.isFinite(n) ? n : null;
+  let m = s.match(/~\s*(\d+)\s*hours/i);
+  if (m){
+    const n = Number(m[1]);
+    return Number.isFinite(n) ? n : null;
+  }
+  m = s.match(/~\s*(\d+)\s*h\b/i);
+  if (m){
+    const n = Number(m[1]);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function compactEtaForMobile(txt, horizonHours){
+  const s = String(txt || '');
+  const h = parseEtaHoursFromText(s);
+
+  if (h != null && Number.isFinite(h)){
+    if (h <= horizonHours) return `~${Math.round(h)}h`;
+    return `>${Math.round(horizonHours)}h`;
+  }
+
+  if (/greater\s+than/i.test(s) || />\s*\d+/.test(s)){
+    return `>${Math.round(horizonHours)}h`;
+  }
+
+  return s;
 }
 
 async function getTileEtaText(state, fieldId, run0, thr){
-  // If you're within a few points of the threshold, trust the legacy etaFor()
-  // as a sanity fallback if forecast gives "Greater Than 72 hours".
+  const HORIZON_HOURS = 168; // ✅ 7-day
   const NEAR_THR_POINTS = 5;
 
   let legacyTxt = '';
   try{
-    legacyTxt = state._mods.model.etaFor(run0, thr, CONST.ETA_MAX_HOURS) || '';
+    legacyTxt = state._mods.model.etaFor(run0, thr, HORIZON_HOURS) || '';
   }catch(_){
     legacyTxt = '';
   }
@@ -527,7 +539,7 @@ async function getTileEtaText(state, fieldId, run0, thr){
         { soilWetness, drainageIndex },
         {
           threshold: thr,
-          horizonHours: 72,
+          horizonHours: HORIZON_HOURS,
           maxSimDays: 7,
           wetBias
         }
@@ -542,15 +554,16 @@ async function getTileEtaText(state, fieldId, run0, thr){
 
         if (pred.status === 'notWithin72'){
           // ✅ Sanity fallback near threshold:
-          // if you're close to threshold AND legacy says <72h, show legacy instead.
+          // if you're close to threshold AND legacy says <=168h, show legacy (but compact it)
           const rNow = Number(run0 && run0.readinessR);
           const near = Number.isFinite(rNow) ? ((thr - rNow) >= 0 && (thr - rNow) <= NEAR_THR_POINTS) : false;
 
-          if (near && legacyHours !== null && legacyHours <= 72){
-            return legacyTxt;
+          if (near && legacyHours !== null && legacyHours <= HORIZON_HOURS){
+            return compactEtaForMobile(legacyTxt, HORIZON_HOURS);
           }
 
-          return pred.message || `Greater Than 72 hours`;
+          // ✅ Force compact > sign for mobile
+          return pred.message || `>${HORIZON_HOURS}h`;
         }
 
         // noForecast/noData => fall back
@@ -558,7 +571,8 @@ async function getTileEtaText(state, fieldId, run0, thr){
     }
   }catch(_){}
 
-  return legacyTxt || '';
+  // Fall back to model ETA but compact it (no "Greater Than ...")
+  return legacyTxt ? compactEtaForMobile(legacyTxt, HORIZON_HOURS) : '';
 }
 
 /* ---------- internal: patch a single tile DOM in-place ---------- */
