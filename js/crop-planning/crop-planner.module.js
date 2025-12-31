@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/crop-planning/crop-planner.module.js  (FULL FILE)
-Rev: 2025-12-31g
+Rev: 2025-12-31h
 
 Fixes per Dane:
 ✅ Farm lane header shows (Corn X • Beans Y) when any assigned exists; otherwise shows nothing extra.
@@ -18,10 +18,12 @@ GLOBAL PADLOCK:
 ✅ When locked: DnD disabled + grips greyed + drops show toast “Locked {year}”
 
 UI CHANGE (per Dane):
-✅ Lock button moved OFF the Crop Year row
-✅ Lock button now sits on SAME row as:
-   “Bulk: drop a FARM here … Moves every active field…”
-   positioned far right, same pill size, doesn’t disturb layout.
+✅ Lock button moved to the far right of the “Bulk: drop a FARM here …” row
+   (same size as before; does not disturb layout)
+
+Bug fix:
+✅ Removed duplicate declarations of stopLockWatch/readLockOnce/writeLock/startLockWatch
+   (was causing “Identifier 'stopLockWatch' has already been declared”)
 ===================================================================== */
 'use strict';
 
@@ -194,7 +196,7 @@ export async function mount(hostEl, opts = {}){
             </div>
           </div>
 
-          <div class="kpi-line" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:10px 12px;border:1px dashed color-mix(in srgb, var(--border) 65%, transparent);border-radius:12px;background:color-mix(in srgb, var(--surface) 92%, rgba(47,108,60,.08));">
+          <div class="kpi-line" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--card-surface,var(--surface));">
             <div class="kpi" style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;">
               <div class="v" data-el="kpiUnplannedFields" style="font-weight:900;font-size:18px;">0</div>
               <div class="l" style="font-weight:800;color:var(--muted,#67706B);font-size:12px;letter-spacing:.2px;text-transform:uppercase;">Unplanned</div>
@@ -317,7 +319,7 @@ export async function mount(hostEl, opts = {}){
     kpiSoyAcres: q('[data-el="kpiSoyAcres"]'),
   };
 
-  // If viewOnly, the bulkWrap is hidden, so lockBtn won't exist. Guard it.
+  // On viewOnly (phone), bulkWrap is hidden => lockBtn won't exist
   const hasLockUI = !!el.lockBtn;
 
   const controller = new AbortController();
@@ -386,7 +388,7 @@ export async function mount(hostEl, opts = {}){
     renderAll(true);
   }, { signal });
 
-  // ---------- GLOBAL LOCK (Firestore) ----------
+  // ---------- GLOBAL LOCK helpers (defined ONCE) ----------
   const renderLockUI = () => {
     if (!hasLockUI) return;
     el.lockIcon.innerHTML = lockSvg(isLocked);
@@ -446,6 +448,7 @@ export async function mount(hostEl, opts = {}){
           renderLockUI();
           if (changed) renderAll(true);
         }, async ()=>{
+          // fallback to polling
           stopLockWatch();
           isLocked = await readLockOnce(year);
           renderLockUI();
@@ -460,6 +463,7 @@ export async function mount(hostEl, opts = {}){
           }, 6000);
         });
 
+        // prime UI quickly
         isLocked = await readLockOnce(year);
         renderLockUI();
         return;
@@ -468,6 +472,7 @@ export async function mount(hostEl, opts = {}){
       }
     }
 
+    // polling fallback
     isLocked = await readLockOnce(year);
     renderLockUI();
     lockPollT = setInterval(async ()=>{
@@ -479,19 +484,6 @@ export async function mount(hostEl, opts = {}){
       }
     }, 6000);
   };
-
-  if (hasLockUI){
-    el.lockBtn.addEventListener('click', async ()=>{
-      try{
-        const current = await readLockOnce(currentYear);
-        await writeLock(currentYear, !current);
-        toast(!current ? `Locked ${currentYear}` : `Unlocked ${currentYear}`);
-      }catch(e){
-        console.warn('[crop-planner] lock toggle failed', e);
-        toast('Lock failed');
-      }
-    }, { signal });
-  }
 
   // ---------- Crop Year ----------
   el.year.value = '2026';
@@ -525,7 +517,7 @@ export async function mount(hostEl, opts = {}){
     });
   };
 
-  // render
+  // render bucket
   const renderBucket = (farmId, title, crop, arr, acres) => {
     const canDrag = canDragNow();
     const draggable = canDrag ? 'true' : 'false';
@@ -544,7 +536,6 @@ export async function mount(hostEl, opts = {}){
       `;
     }).join('') : `<div class="muted" style="font-weight:900">—</div>`;
 
-    // data-dropzone makes the whole bucket droppable
     return `
       <div class="bucket" data-dropzone="1" data-crop="${esc(crop)}" data-farm-id="${esc(farmId)}"
            style="border:1px solid var(--border);border-radius:12px;background:var(--card-surface,var(--surface));overflow:hidden;">
@@ -562,6 +553,7 @@ export async function mount(hostEl, opts = {}){
     `;
   };
 
+  // main render
   const renderAll = (preserveScroll=false) => {
     const list = getShownFields();
     el.scopeHelp.textContent = `Showing ${fmt0.format(list.length)} active fields${isLocked ? ' • Locked' : ''}`;
@@ -742,92 +734,7 @@ export async function mount(hostEl, opts = {}){
   renderFarmList('');
   plans = await loadPlansForYear(db, currentYear);
 
-  // Lock watch
-  const stopLockWatch = () => {
-    try{ if (typeof lockUnsub === 'function') lockUnsub(); }catch{}
-    lockUnsub = null;
-    if (lockPollT) clearInterval(lockPollT);
-    lockPollT = null;
-  };
-
-  const readLockOnce = async (year) => {
-    if (!fs || !db) return false;
-    try{
-      const ref = fs.doc(db, ...lockPath(year));
-      const snap = await fs.getDoc(ref);
-      const data = snap?.data?.() || {};
-      return !!data.locked;
-    }catch{
-      return false;
-    }
-  };
-
-  const writeLock = async (year, nextLocked) => {
-    if (!fs || !db) throw new Error('Missing Firestore fns/db');
-    const ref = fs.doc(db, ...lockPath(year));
-    const payload = {
-      locked: !!nextLocked,
-      updatedAt: fs.serverTimestamp ? fs.serverTimestamp() : new Date(),
-      updatedBy: getUserTag() || ''
-    };
-    await fs.setDoc(ref, payload, { merge: true });
-  };
-
-  const startLockWatch = async (year) => {
-    stopLockWatch();
-
-    if (!fs || !db){
-      isLocked = false;
-      renderLockUI();
-      return;
-    }
-
-    if (typeof fs.onSnapshot === 'function'){
-      try{
-        const ref = fs.doc(db, ...lockPath(year));
-        lockUnsub = fs.onSnapshot(ref, (snap)=>{
-          const data = snap?.data?.() || {};
-          const next = !!data.locked;
-          const changed = next !== isLocked;
-          isLocked = next;
-          renderLockUI();
-          if (changed) renderAll(true);
-        }, async ()=>{
-          stopLockWatch();
-          isLocked = await readLockOnce(year);
-          renderLockUI();
-          renderAll(true);
-          lockPollT = setInterval(async ()=>{
-            const v = await readLockOnce(year);
-            if (v !== isLocked){
-              isLocked = v;
-              renderLockUI();
-              renderAll(true);
-            }
-          }, 6000);
-        });
-
-        isLocked = await readLockOnce(year);
-        renderLockUI();
-        return;
-      }catch{
-        // fall through to polling
-      }
-    }
-
-    isLocked = await readLockOnce(year);
-    renderLockUI();
-    lockPollT = setInterval(async ()=>{
-      const v = await readLockOnce(year);
-      if (v !== isLocked){
-        isLocked = v;
-        renderLockUI();
-        renderAll(true);
-      }
-    }, 6000);
-  };
-
-  // wire lock button (only exists on desktop)
+  // lock UI + watch (desktop only)
   if (hasLockUI){
     el.lockBtn.addEventListener('click', async ()=>{
       try{
@@ -841,7 +748,6 @@ export async function mount(hostEl, opts = {}){
     }, { signal });
   }
 
-  // start watch before first render
   isLocked = await readLockOnce(currentYear);
   renderLockUI();
   await startLockWatch(currentYear);
