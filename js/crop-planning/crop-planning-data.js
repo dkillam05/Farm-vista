@@ -1,12 +1,12 @@
 /* =====================================================================
 /Farm-vista/js/crop-planning/crop-planning-data.js  (FULL FILE)
-Rev: 2025-12-30c
-Firestore data helpers for Crop Planning Selector
+Rev: 2025-12-31a
 
-Collections:
-- farms
-- fields
-- field_crop_plans/{year}/fields/{fieldId}
+Changes:
+✅ Use NEW collection root for planning:
+   field_crop_plans_v2/{year}/fields/{fieldId}
+✅ Fallback-read old collection if v2 is empty:
+   field_crop_plans/{year}/fields/{fieldId}
 ===================================================================== */
 'use strict';
 
@@ -19,6 +19,9 @@ import {
 } from '/Farm-vista/js/firebase-init.js';
 
 const norm = (s) => String(s || '').trim().toLowerCase();
+
+const PLAN_ROOT_NEW = 'field_crop_plans_v2';
+const PLAN_ROOT_OLD = 'field_crop_plans';
 
 function getEmail(){
   try{
@@ -42,11 +45,7 @@ export async function loadFarms(db){
     const x = d.data() || {};
     const name = String(x.name || '').trim();
     if(!name) return;
-    out.push({
-      id: d.id,
-      name,
-      status: String(x.status || 'active')
-    });
+    out.push({ id: d.id, name, status: String(x.status || 'active') });
   });
   out.sort((a,b)=> a.name.localeCompare(b.name));
   return out;
@@ -74,12 +73,12 @@ export async function loadFields(db){
   return out;
 }
 
-export async function loadPlansForYear(db, year){
+async function loadPlansFromRoot(db, root, year){
   const y = String(year || '').trim();
   const plans = new Map();
   if(!y) return plans;
 
-  const snap = await getDocs(collection(db, 'field_crop_plans', y, 'fields'));
+  const snap = await getDocs(collection(db, root, y, 'fields'));
   snap.forEach(d=>{
     const x = d.data() || {};
     plans.set(d.id, {
@@ -93,6 +92,15 @@ export async function loadPlansForYear(db, year){
   return plans;
 }
 
+export async function loadPlansForYear(db, year){
+  // Prefer NEW collection; if empty, fallback to OLD.
+  const pNew = await loadPlansFromRoot(db, PLAN_ROOT_NEW, year);
+  if(pNew.size > 0) return pNew;
+
+  const pOld = await loadPlansFromRoot(db, PLAN_ROOT_OLD, year);
+  return pOld;
+}
+
 export async function setPlan(db, year, field, crop){
   const y = String(year || '').trim();
   const c = norm(crop);
@@ -100,7 +108,7 @@ export async function setPlan(db, year, field, crop){
   if(c !== 'corn' && c !== 'soybeans') throw new Error('Invalid crop');
 
   const email = getEmail();
-  const ref = doc(db, 'field_crop_plans', y, 'fields', field.id);
+  const ref = doc(db, PLAN_ROOT_NEW, y, 'fields', field.id);
 
   const payload = {
     crop: c,
@@ -121,5 +129,7 @@ export async function clearPlan(db, year, fieldId){
   if(!y) throw new Error('Missing year');
   const id = String(fieldId || '').trim();
   if(!id) return;
-  await deleteDoc(doc(db, 'field_crop_plans', y, 'fields', id));
+
+  // Only clear in NEW collection (v2). Old data stays as historical.
+  await deleteDoc(doc(db, PLAN_ROOT_NEW, y, 'fields', id));
 }
