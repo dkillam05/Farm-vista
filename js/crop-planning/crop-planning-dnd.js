@@ -1,115 +1,98 @@
 /* =====================================================================
 /Farm-vista/js/crop-planning/crop-planning-dnd.js  (FULL FILE)
-Rev: 2025-12-30h
+Rev: 2025-12-30i
 
-Fix:
-✅ Field drags must NOT be misclassified as farm drags.
-   - We now detect FIELD first (closest [data-field-id])
-   - Only if no field wrapper, detect FARM (closest [data-farm-id] lane)
+CRITICAL FIX:
+- Drag intent is EXPLICIT.
+- Field drag ≠ Farm drag.
+- No parent guessing. No bubbling ambiguity.
 
-DnD supports:
-- field drag (data-field-id + data-farm-id + data-crop)
-- farm drag  (farm lane [data-farm-id])
-
-Drop targets:
-- bucket bodies: .bucketBody (data-crop + data-farm-id)
+Rules:
+- data-drag-type="field" → move ONE field
+- data-drag-type="farm"  → move ENTIRE farm
 ===================================================================== */
 'use strict';
 
-export function wireDnd(opts){
-  const root = opts?.root;
-  const onDrop = opts?.onDrop;
-  if(!root) throw new Error('wireDnd: missing root');
+export function wireDnd({ root, onDrop }) {
+  if (!root) throw new Error('wireDnd: missing root');
 
   const isDesktop = () => window.matchMedia('(min-width: 981px)').matches;
 
-  // Bind dropzones (bucket bodies)
-  function bindZones(){
-    root.querySelectorAll('.bucketBody').forEach(zone=>{
-      if(zone._fvBound) return;
-      zone._fvBound = true;
+  /* ---------------- Drag Start ---------------- */
+  root.addEventListener('dragstart', (e) => {
+    if (!isDesktop()) return;
 
-      zone.addEventListener('dragover', (e)=>{
-        if(!isDesktop()) return;
-        e.preventDefault();
-        zone.classList.add('is-over');
-      });
+    const grip = e.target.closest('[data-drag-type]');
+    if (!grip) return;
 
-      zone.addEventListener('dragleave', ()=>{
-        zone.classList.remove('is-over');
-      });
+    const type = grip.dataset.dragType;
 
-      zone.addEventListener('drop', async (e)=>{
-        zone.classList.remove('is-over');
-        if(!isDesktop()) return;
-        e.preventDefault();
-
-        const type = e.dataTransfer?.getData('text/fv-type') || 'field';
-        const toCrop = zone.getAttribute('data-crop') || '';
-        const toFarmId = zone.getAttribute('data-farm-id') || '';
-
-        if(type === 'farm'){
-          const farmId = e.dataTransfer?.getData('text/fv-farm-id') || '';
-          if(!farmId) return;
-          if(typeof onDrop === 'function'){
-            await onDrop({ type:'farm', farmId, toCrop, toFarmId });
-          }
-          return;
-        }
-
-        const fieldId = e.dataTransfer?.getData('text/fv-field-id') || '';
-        const fromCrop = e.dataTransfer?.getData('text/fv-from-crop') || '';
-        const fromFarmId = e.dataTransfer?.getData('text/fv-from-farm-id') || '';
-        if(!fieldId) return;
-
-        if(typeof onDrop === 'function'){
-          await onDrop({ type:'field', fieldId, fromCrop, toCrop, fromFarmId, toFarmId });
-        }
-      });
-    });
-  }
-
-  // Drag start from grips (FIELD first, then FARM)
-  root.addEventListener('dragstart', (e)=>{
-    if(!isDesktop()) return;
-
-    const grip = e.target?.closest?.('[data-drag-grip="1"]');
-    if(!grip) return;
-
-    // 1) FIELD drag takes priority
-    const fieldWrap = grip.closest('[data-field-id]');
-    if(fieldWrap){
-      const fieldId = fieldWrap.getAttribute('data-field-id') || '';
-      const fromCrop = fieldWrap.getAttribute('data-crop') || '';
-      const fromFarmId = fieldWrap.getAttribute('data-farm-id') || '';
-      if(!fieldId) return;
+    if (type === 'field') {
+      const row = grip.closest('[data-field-id]');
+      if (!row) return;
 
       e.dataTransfer.setData('text/fv-type', 'field');
-      e.dataTransfer.setData('text/fv-field-id', fieldId);
-      e.dataTransfer.setData('text/fv-from-crop', fromCrop);
-      e.dataTransfer.setData('text/fv-from-farm-id', fromFarmId);
+      e.dataTransfer.setData('text/fv-field-id', row.dataset.fieldId || '');
+      e.dataTransfer.setData('text/fv-from-crop', row.dataset.crop || '');
       e.dataTransfer.effectAllowed = 'move';
       return;
     }
 
-    // 2) FARM drag (only if not a field)
-    const farmLane = grip.closest('.farmLane[data-farm-id]');
-    if(farmLane){
-      const farmId = farmLane.getAttribute('data-farm-id') || '';
-      if(!farmId) return;
+    if (type === 'farm') {
+      const lane = grip.closest('[data-farm-id]');
+      if (!lane) return;
 
       e.dataTransfer.setData('text/fv-type', 'farm');
-      e.dataTransfer.setData('text/fv-farm-id', farmId);
+      e.dataTransfer.setData('text/fv-farm-id', lane.dataset.farmId || '');
       e.dataTransfer.effectAllowed = 'move';
       return;
     }
   });
 
-  // Initial bind
-  bindZones();
+  /* ---------------- Drop Zones ---------------- */
+  function bindZones() {
+    root.querySelectorAll('.bucketBody').forEach(zone => {
+      if (zone._fvBound) return;
+      zone._fvBound = true;
 
-  // Optional hook (if caller wants to rebind after rerender)
-  if(typeof opts?.onNeedBind === 'function'){
-    opts.onNeedBind(bindZones);
+      zone.addEventListener('dragover', (e) => {
+        if (!isDesktop()) return;
+        e.preventDefault();
+        zone.classList.add('is-over');
+      });
+
+      zone.addEventListener('dragleave', () => {
+        zone.classList.remove('is-over');
+      });
+
+      zone.addEventListener('drop', async (e) => {
+        if (!isDesktop()) return;
+        e.preventDefault();
+        zone.classList.remove('is-over');
+
+        const type = e.dataTransfer.getData('text/fv-type');
+        const toCrop = zone.dataset.crop || '';
+
+        if (!type) return;
+
+        if (type === 'field') {
+          const fieldId = e.dataTransfer.getData('text/fv-field-id');
+          const fromCrop = e.dataTransfer.getData('text/fv-from-crop');
+          if (!fieldId) return;
+
+          await onDrop({ type: 'field', fieldId, fromCrop, toCrop });
+          return;
+        }
+
+        if (type === 'farm') {
+          const farmId = e.dataTransfer.getData('text/fv-farm-id');
+          if (!farmId) return;
+
+          await onDrop({ type: 'farm', farmId, toCrop });
+        }
+      });
+    });
   }
+
+  bindZones();
 }
