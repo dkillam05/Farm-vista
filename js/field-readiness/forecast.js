@@ -1,14 +1,14 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/forecast.js  (FULL FILE)
-Rev: 2025-12-31b
+Rev: 2025-12-31c
 
-Fix:
-✅ Forecast predictor now applies the SAME wetBias (calibration) used by tiles.
-   - Pass opts.wetBias (points on 0..100 wetness scale; + = wetter, - = drier)
-   - Applied AFTER physics wetness, BEFORE readiness compare
-   - Makes “within 72h” match tile reality
+Change:
+✅ Replace ">" wording with "Greater Than" (exact casing requested)
+   - Example: "Greater Than 72 hours"
+   - Example w/ ETA: "Greater Than 72 hours (Est: ~96h)"
 
-Everything else unchanged.
+Keeps:
+✅ Forecast predictor applies SAME wetBias (calibration) used by tiles.
 ===================================================================== */
 'use strict';
 
@@ -347,7 +347,6 @@ export async function predictDryForField(fieldId, params, opts){
   const soilWetness = isNum(params && params.soilWetness) ? Number(params.soilWetness) : 60;
   const drainageIndex = isNum(params && params.drainageIndex) ? Number(params.drainageIndex) : 45;
 
-  // ✅ NEW: wetBias points (same meaning as CAL.wetBias)
   const wetBias = isNum(opts && opts.wetBias) ? clamp(Number(opts.wetBias), -25, 25) : 0;
 
   const wx = await readWxSeriesFromCache(fieldId, { collectionName: opts && opts.collectionName, tune: T });
@@ -408,6 +407,7 @@ export async function predictDryForField(fieldId, params, opts){
 
   const eta = (crossing !== null) ? crossing : null;
 
+  // ✅ CHANGED: "Greater Than" text
   return {
     ok: true,
     status: 'notWithin72',
@@ -417,7 +417,7 @@ export async function predictDryForField(fieldId, params, opts){
     hoursUntilDry: eta,
     threshold,
     message: (eta !== null)
-      ? (eta > horizonHours ? `> ${horizonHours} hours (Est: ~${eta}h)` : `> ${horizonHours} hours`)
-      : `> ${horizonHours} hours`
+      ? (eta > horizonHours ? `Greater Than ${horizonHours} hours (Est: ~${eta}h)` : `Greater Than ${horizonHours} hours`)
+      : `Greater Than ${horizonHours} hours`
   };
 }
