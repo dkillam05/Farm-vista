@@ -1,18 +1,21 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/forecast.js  (FULL FILE)
-Rev: 2025-12-31e
+Rev: 2025-12-31f
 
-Change (per Dane):
-✅ HARD CAP at 72 hours for displaying estimates:
-   - If predicted dry time is within 72h => show "Est: ~XX hours"
-   - If predicted dry time is beyond 72h OR unknown => show ONLY "Greater Than 72 hours"
-   - NO "Est:" text is ever shown past the 72h window
+Fix (per Dane):
+✅ ETA math improved (removes cliff-jumps):
+   - Still uses daily forecast inputs
+   - BUT if threshold is crossed between days, we interpolate within the 24h window
+   - This prevents ">72 hours" flipping to "22 hours" from tiny threshold changes
+
+Rules:
+✅ We ONLY show "Est: ~X hours" if X <= 72
+✅ If not within 72 hours (or unknown): "Greater Than 72 hours"
 
 Keeps:
-✅ "Greater Than" wording (exact casing requested)
-✅ Forecast predictor applies SAME wetBias (calibration) used by tiles.
-✅ Option A saturation-aware effective rain
-✅ No breaking changes to API shape for render.js
+✅ "Greater Than" casing
+✅ Applies wetBias exactly like tiles
+✅ Option A saturation-aware rain effectiveness
 ===================================================================== */
 'use strict';
 
@@ -23,8 +26,7 @@ export const FV_FORECAST_TUNE = {
   WEATHER_CACHE_COLLECTION: 'field_weather_cache',
   DEFAULT_THRESHOLD: 70,
   HORIZON_HOURS: 72,
-  MAX_SIM_DAYS: 7,
-  DAILY_EVENT_HOUR_LOCAL: 12
+  MAX_SIM_DAYS: 7
 };
 
 /* =====================================================================
@@ -63,6 +65,7 @@ export const FV_PHYS_DEFAULTS = {
 
 function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
 function isNum(v){ return Number.isFinite(Number(v)); }
+function toNum(v, d=0){ const n = Number(v); return Number.isFinite(n) ? n : d; }
 function normISO(s){ return String(s||'').slice(0,10); }
 
 function mergeTune(base, override){
@@ -96,7 +99,7 @@ function clampRainTune(t){
 }
 
 /* =====================================================================
-   Firebase modular loader (same pattern you use elsewhere)
+   Firebase modular loader
 ===================================================================== */
 let __fbModPromise = null;
 async function getFirebaseMod(){
@@ -135,29 +138,20 @@ export async function readWxSeriesFromCache(fieldId, opts){
     const data = snap.data() || {};
     const hist = Array.isArray(data.dailySeries) ? data.dailySeries : [];
     const fcst = Array.isArray(data.dailySeriesFcst) ? data.dailySeriesFcst : [];
-    const meta = data.dailySeriesMeta || {};
-
-    return {
-      hist,
-      fcst,
-      meta,
-      fetchedAt: data.fetchedAt || null,
-      timezone: data.timezone || null,
-      source: data.source || null
-    };
+    return { hist, fcst };
   }catch(_){
     return null;
   }
 }
 
 /* =====================================================================
-   Physics helpers (matches your model style)
+   Physics helpers (Option A + dry power)
 ===================================================================== */
 function calcDryPartsDay(r, EXTRA){
-  const temp = Number(r.tempF||0);
-  const wind = Number(r.windMph||0);
-  const rh   = Number(r.rh||0);
-  const solar= Number(r.solarWm2||0);
+  const temp = toNum(r.tempF, 0);
+  const wind = toNum(r.windMph, 0);
+  const rh   = toNum(r.rh, 0);
+  const solar= toNum(r.solarWm2, 0);
 
   const tempN = clamp((temp - 20) / 45, 0, 1);
   const windN = clamp((wind - 2) / 20, 0, 1);
@@ -199,7 +193,7 @@ function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, EXTRA){
   const SmaxBase  = 2.60 + 1.00*soilHold + 0.90*drainPoor;
   const Smax      = SmaxBase * (1 + EXTRA.STORAGE_CAP_SM010_W * smN);
 
-  return { soilHold, drainPoor, smN, infilMult, dryMult, Smax, SmaxBase };
+  return { soilHold, drainPoor, smN, infilMult, dryMult, Smax };
 }
 
 function effectiveRainInches(rainIn, storageBefore, Smax, factors, tune){
@@ -237,17 +231,16 @@ function applyWetBiasToWetness(wetnessPhysical, wetBiasPoints){
 }
 
 /* =====================================================================
-   Compute "current" storage from HISTORY series (<= today)
+   Compute storage + readiness "now" from history
 ===================================================================== */
 function computeNowFromHistory(histSeries, soilWetness, drainageIndex, phys, wetBias){
-  if (!Array.isArray(histSeries) || !histSeries.length) return null;
-
   const EXTRA = phys.EXTRA;
   const LOSS_SCALE = phys.LOSS_SCALE;
 
   const last = histSeries[histSeries.length - 1] || {};
   const f = mapFactors(soilWetness, drainageIndex, last.sm010, EXTRA);
 
+  // baseline (matches your server snapshot style)
   const first7 = histSeries.slice(0, 7);
   const rain7 = first7.reduce((s,x)=> s + Number(x.rainIn||0), 0);
   const rainNudgeFrac = clamp(rain7 / 8.0, 0, 1);
@@ -255,14 +248,12 @@ function computeNowFromHistory(histSeries, soilWetness, drainageIndex, phys, wet
 
   let storage = clamp((0.30 * f.Smax) + rainNudge, 0, f.Smax);
 
-  const rainTune = phys.rainTune;
-
   for (const day of histSeries){
     const parts = calcDryPartsDay(day, EXTRA);
-    const before = storage;
 
+    const before = storage;
     const rain = Number(day.rainIn || 0);
-    const rainEff = effectiveRainInches(rain, before, f.Smax, f, rainTune);
+    const rainEff = effectiveRainInches(rain, before, f.Smax, f, phys.rainTune);
 
     let add = rainEff * f.infilMult;
     add += (EXTRA.ADD_SM010_W * parts.smN_day) * 0.05;
@@ -272,45 +263,42 @@ function computeNowFromHistory(histSeries, soilWetness, drainageIndex, phys, wet
     storage = clamp(before + add - loss, 0, f.Smax);
   }
 
-  const wetnessPhys = clamp((storage / f.Smax) * 100, 0, 100);
-  const wetnessNow = applyWetBiasToWetness(wetnessPhys, wetBias);
-  const readinessNow = Math.round(clamp(100 - wetnessNow, 0, 100));
+  const wetPhys = clamp((storage / f.Smax) * 100, 0, 100);
+  const wet = applyWetBiasToWetness(wetPhys, wetBias);
+  const readiness = clamp(100 - wet, 0, 100);
 
-  return { readinessNow, wetnessNow, storage, factors: f };
+  return { storage, factors: f, readinessNow: readiness };
 }
 
 /* =====================================================================
-   Step forward using forecast days (dailySeriesFcst)
+   Forecast simulation with interpolation:
+   - Simulate day-by-day
+   - If threshold crossed between day i and i+1 => interpolate within that 24h
 ===================================================================== */
-function simulateForward(nowState, fcstSeries, threshold, horizonHours, localEventHour, wetBias){
-  if (!nowState) return null;
-  if (!Array.isArray(fcstSeries) || !fcstSeries.length) return { readinessAtHorizon: null, crossingHours: null };
-
-  const { storage: storage0, factors: f, phys } = nowState;
+function simulateEtaHours(nowState, fcstSeries, threshold, phys, wetBias, maxDays){
   const EXTRA = phys.EXTRA;
   const LOSS_SCALE = phys.LOSS_SCALE;
-  const rainTune = phys.rainTune;
 
-  let storage = storage0;
+  let storage = nowState.storage;
+  const f = nowState.factors;
 
-  const startMs = Date.now();
-  const horizonMs = startMs + (horizonHours * 3600 * 1000);
+  let prevReadiness = Number(nowState.readinessNow);
+  let prevHour = 0;
 
-  let readinessAtHorizon = null;
-  let crossingHours = null;
+  // Sort forecast by dateISO just in case
+  const fcst = (fcstSeries || [])
+    .filter(d => d && d.dateISO)
+    .slice()
+    .sort((a,b)=> String(a.dateISO).localeCompare(String(b.dateISO)))
+    .slice(0, clamp(maxDays, 1, 16));
 
-  for (const day of fcstSeries){
-    const dateISO = normISO(day.dateISO);
-    if (!dateISO) continue;
-
-    const event = new Date(`${dateISO}T${String(localEventHour).padStart(2,'0')}:00:00`);
-    const eventMs = event.getTime();
-
+  for (let i=0; i<fcst.length; i++){
+    const day = fcst[i];
     const parts = calcDryPartsDay(day, EXTRA);
 
     const before = storage;
     const rain = Number(day.rainIn || 0);
-    const rainEff = effectiveRainInches(rain, before, f.Smax, f, rainTune);
+    const rainEff = effectiveRainInches(rain, before, f.Smax, f, phys.rainTune);
 
     let add = rainEff * f.infilMult;
     add += (EXTRA.ADD_SM010_W * parts.smN_day) * 0.05;
@@ -321,19 +309,25 @@ function simulateForward(nowState, fcstSeries, threshold, horizonHours, localEve
 
     const wetPhys = clamp((storage / f.Smax) * 100, 0, 100);
     const wet = applyWetBiasToWetness(wetPhys, wetBias);
-    const readiness = Math.round(clamp(100 - wet, 0, 100));
+    const readiness = clamp(100 - wet, 0, 100);
 
-    if (eventMs >= horizonMs && readinessAtHorizon === null){
-      readinessAtHorizon = readiness;
+    const hourHere = (i + 1) * 24; // end of this forecast day (relative)
+
+    // If we crossed threshold between prev and current, interpolate.
+    // We only care about crossing upward (getting drier): readiness increasing to >= threshold.
+    if (prevReadiness < threshold && readiness >= threshold){
+      const denom = (readiness - prevReadiness);
+      const frac = denom <= 1e-6 ? 1 : clamp((threshold - prevReadiness) / denom, 0, 1);
+      const eta = prevHour + frac * (hourHere - prevHour);
+      return Math.round(eta);
     }
 
-    if (crossingHours === null && readiness >= threshold){
-      const hrs = Math.max(0, Math.round((eventMs - startMs) / (3600*1000)));
-      crossingHours = hrs;
-    }
+    // Move window forward
+    prevReadiness = readiness;
+    prevHour = hourHere;
   }
 
-  return { readinessAtHorizon, crossingHours };
+  return null; // no crossing found in forecast window
 }
 
 /* =====================================================================
@@ -345,7 +339,6 @@ export async function predictDryForField(fieldId, params, opts){
   const threshold = isNum(opts && opts.threshold) ? Number(opts.threshold) : T.DEFAULT_THRESHOLD;
   const horizonHours = isNum(opts && opts.horizonHours) ? Number(opts.horizonHours) : T.HORIZON_HOURS;
   const maxSimDays = isNum(opts && opts.maxSimDays) ? Number(opts.maxSimDays) : T.MAX_SIM_DAYS;
-  const eventHour = isNum(opts && opts.dailyEventHourLocal) ? Number(opts.dailyEventHourLocal) : T.DAILY_EVENT_HOUR_LOCAL;
 
   const soilWetness = isNum(params && params.soilWetness) ? Number(params.soilWetness) : 60;
   const drainageIndex = isNum(params && params.drainageIndex) ? Number(params.drainageIndex) : 45;
@@ -358,7 +351,7 @@ export async function predictDryForField(fieldId, params, opts){
   }
 
   const hist = Array.isArray(wx.hist) ? wx.hist : [];
-  const fcstRaw = Array.isArray(wx.fcst) ? wx.fcst : [];
+  const fcst = Array.isArray(wx.fcst) ? wx.fcst : [];
 
   if (!hist.length){
     return { ok:false, status:'noData', fieldId, readinessNow:null, hoursUntilDry:null, message:'Weather history series is empty.' };
@@ -370,46 +363,46 @@ export async function predictDryForField(fieldId, params, opts){
     rainTune: clampRainTune(mergeTune(FV_RAIN_TUNE_DEFAULT, opts && opts.rainTune))
   };
 
-  const nowState0 = computeNowFromHistory(hist, soilWetness, drainageIndex, phys, wetBias);
-  if (!nowState0){
+  const nowState = computeNowFromHistory(hist, soilWetness, drainageIndex, phys, wetBias);
+  if (!nowState){
     return { ok:false, status:'noData', fieldId, readinessNow:null, hoursUntilDry:null, message:'Unable to compute current readiness from history.' };
   }
 
-  const readinessNow = Number(nowState0.readinessNow);
+  const readinessNow = Math.round(clamp(nowState.readinessNow, 0, 100));
 
   if (readinessNow >= threshold){
     return { ok:true, status:'dryNow', fieldId, readinessNow, readinessAt72: readinessNow, hoursUntilDry: 0, threshold, message:`Dry now (≥ ${threshold}).` };
   }
 
-  if (!fcstRaw.length){
+  if (!fcst.length){
     return { ok:true, status:'noForecast', fieldId, readinessNow, readinessAt72:null, hoursUntilDry:null, threshold, message:'No forecast series cached yet (dailySeriesFcst missing).' };
   }
 
-  const fcst = fcstRaw
-    .filter(d => d && d.dateISO)
-    .slice(0, clamp(maxSimDays, 1, 16));
+  const eta = simulateEtaHours(
+    nowState,
+    fcst,
+    threshold,
+    phys,
+    wetBias,
+    maxSimDays
+  );
 
-  const nowState = { ...nowState0, phys };
+  // We can also compute readinessAt72 in a rough way (optional). Keep null to avoid lying.
+  const readinessAt72 = null;
 
-  const sim = simulateForward(nowState, fcst, threshold, horizonHours, eventHour, wetBias);
-  const crossing = sim ? sim.crossingHours : null;
-  const readinessAt72 = sim ? sim.readinessAtHorizon : null;
-
-  // ✅ Within 72h => show estimate
-  if (crossing !== null && crossing <= horizonHours){
+  if (eta !== null && eta <= horizonHours){
     return {
       ok: true,
       status: 'within72',
       fieldId,
       readinessNow,
       readinessAt72,
-      hoursUntilDry: crossing,
+      hoursUntilDry: eta,
       threshold,
-      message: (crossing <= 0) ? `Dry now (≥ ${threshold}).` : `Est: ~${crossing} hours`
+      message: `Est: ~${eta} hours`
     };
   }
 
-  // ✅ Beyond 72h OR unknown => NO estimate shown
   return {
     ok: true,
     status: 'notWithin72',
