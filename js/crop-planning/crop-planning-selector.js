@@ -1,13 +1,17 @@
 /* =====================================================================
 /Farm-vista/js/crop-planning/crop-planning-selector.js  (FULL FILE)
-Rev: 2025-12-30j
+Rev: 2025-12-30k
 
-Fixes:
-✅ Field moves are truly per-field (data-drag-type="field")
-✅ Farm moves are truly per-farm (data-drag-type="farm")
-✅ Farm/year dropdowns don’t auto-close on click
+Adds:
+✅ Farm tile header shows (Corn X • Beans Y) when any planned exists
+✅ Narrow screens: view-only mode
+   - disables drag
+   - shows "View only on phone" hint
+Keeps:
 ✅ Active fields only
 ✅ Years: 2026–2027 only (default 2026)
+✅ Field drag vs farm drag works (explicit data-drag-type)
+✅ Dropdown behavior stable
 ===================================================================== */
 'use strict';
 
@@ -20,6 +24,10 @@ const esc = (s) => String(s || '').replace(/[&<>"']/g, m => ({
   '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
 }[m]));
 const to2 = (n) => (Number(n || 0)).toFixed(2);
+
+function isNarrow(){
+  return window.matchMedia('(max-width: 980px)').matches;
+}
 
 function showToast(msg){
   const el = $('fv-toast');
@@ -70,10 +78,8 @@ function setLaneOpen(farmId, open){
   try{ localStorage.setItem(OPEN_KEY, JSON.stringify(laneOpen)); }catch{}
 }
 
-/* ---------- Combo closing FIX (scope to outside .combo only) ---------- */
-function closeAllCombos(){
-  farmPanel.classList.remove('show');
-}
+/* ---------- Combo closing (outside .combo only) ---------- */
+function closeAllCombos(){ farmPanel.classList.remove('show'); }
 document.addEventListener('click', (e)=>{
   if (e.target.closest('.combo')) return;
   closeAllCombos();
@@ -124,7 +130,7 @@ farmList.addEventListener('mousedown', (e)=>{
   renderAll();
 });
 
-/* ---------- Year options ---------- */
+/* ---------- Year ---------- */
 function buildYearOptions(){
   yearEl.innerHTML = `<option value="2026">2026</option><option value="2027">2027</option>`;
   yearEl.value = '2026';
@@ -161,7 +167,7 @@ searchEl.addEventListener('input', ()=>{
   searchEl._t = setTimeout(renderAll, 120);
 });
 
-/* ---------- Rendering ---------- */
+/* ---------- Render helpers ---------- */
 function gripSvg(){
   return `
     <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
@@ -185,10 +191,15 @@ function chevSvg(){
 function renderAll(){
   if (farmHelp) farmHelp.textContent = ''; // keep blank per your preference
 
+  const narrow = isNarrow();
+
+  // Add a "view only" hint above the board on narrow screens (without changing HTML)
+  ensureViewOnlyHint(narrow);
+
   const list = getShownFields();
   scopeHelp.textContent = `Showing ${list.length} active fields` + (farmNameEl.value ? ` in ${farmNameEl.value}` : '');
 
-  // KPI totals (across shown fields)
+  // KPI totals across shown
   let unCnt=0, coCnt=0, soCnt=0;
   let unAc=0, coAc=0, soAc=0;
 
@@ -215,7 +226,6 @@ function renderAll(){
   kpiSoyAcres.textContent        = to2(soAc);
 
   const farmsArr = Array.from(byFarm.values()).sort((a,b)=> a.farmName.localeCompare(b.farmName));
-
   const defaultOpen = !!farmIdEl.value;
 
   boardScroll.innerHTML = farmsArr.map(g=>{
@@ -225,32 +235,39 @@ function renderAll(){
 
     const un = [], co = [], so = [];
     let unA=0, coA=0, soA=0;
+    let coN=0, soN=0;
 
     for(const f of g.fields){
       const b = cropForField(f.id);
       const a = Number(f.tillable||0);
-      if(b === 'corn'){ co.push(f); coA+=a; }
-      else if(b === 'soybeans'){ so.push(f); soA+=a; }
+      if(b === 'corn'){ co.push(f); coA+=a; coN++; }
+      else if(b === 'soybeans'){ so.push(f); soA+=a; soN++; }
       else { un.push(f); unA+=a; }
     }
+
+    // ✅ Only show (Corn X • Beans Y) if there is any planned crop in this farm
+    const plannedBadge = (coN + soN) > 0 ? ` <span class="muted">(${coN ? `Corn ${coN}` : ''}${coN && soN ? ' • ' : ''}${soN ? `Beans ${soN}` : ''})</span>` : '';
 
     return `
       <div class="farmLane" data-farm-id="${esc(g.farmId)}" data-open="${open ? '1':'0'}">
         <div class="farmLaneHead" data-farm-toggle="1">
-          <!-- ✅ FARM drag grip (explicit) -->
-          <div class="farmGrip" data-drag-type="farm" draggable="true" title="Drag farm">
+          <!-- Farm drag grip: disabled on narrow screens -->
+          <div class="farmGrip" data-drag-type="farm" draggable="${narrow ? 'false' : 'true'}" title="${narrow ? 'View only' : 'Drag farm'}"
+               style="${narrow ? 'opacity:.45;cursor:not-allowed;' : ''}">
             ${gripSvg()}
           </div>
-          <div class="farmLaneTitle" title="${esc(g.farmName)}">${esc(g.farmName)}</div>
+
+          <div class="farmLaneTitle" title="${esc(g.farmName)}">${esc(g.farmName)}${plannedBadge}</div>
+
           <div class="farmLaneMeta">${g.fields.length} • ${to2(unA+coA+soA)} ac</div>
           <div class="chev" aria-hidden="true">${chevSvg()}</div>
         </div>
 
         <div class="farmLaneBody">
           <div class="buckets">
-            ${renderBucket(g.farmId, 'Unplanned', '', un, unA)}
-            ${renderBucket(g.farmId, 'Corn', 'corn', co, coA)}
-            ${renderBucket(g.farmId, 'Soybeans', 'soybeans', so, soA)}
+            ${renderBucket(g.farmId, 'Unplanned', '', un, unA, narrow)}
+            ${renderBucket(g.farmId, 'Corn', 'corn', co, coA, narrow)}
+            ${renderBucket(g.farmId, 'Soybeans', 'soybeans', so, soA, narrow)}
           </div>
         </div>
       </div>
@@ -258,11 +275,11 @@ function renderAll(){
   }).join('') || `<div class="muted" style="font-weight:900;padding:12px">No fields match your filters.</div>`;
 
   bindLaneToggles();
-  bindHeaderFarmDrops();
+  bindHeaderFarmDrops(narrow);
 }
 
-function renderBucket(farmId, title, crop, arr, acres){
-  const rows = arr.length ? arr.map(f=> renderFieldRow(farmId, crop, f)).join('')
+function renderBucket(farmId, title, crop, arr, acres, narrow){
+  const rows = arr.length ? arr.map(f=> renderFieldRow(farmId, crop, f, narrow)).join('')
                           : `<div class="muted" style="font-weight:900">—</div>`;
 
   return `
@@ -271,24 +288,46 @@ function renderBucket(farmId, title, crop, arr, acres){
         <div class="bucketTitle">${esc(title)}</div>
         <div class="bucketSub">${arr.length} • ${to2(acres)} ac</div>
       </div>
-      <div class="bucketBody" data-crop="${esc(crop)}" data-farm-id="${esc(farmId)}">
+      <div class="bucketBody" data-crop="${esc(crop)}" data-farm-id="${esc(farmId)}" ${narrow ? 'style="opacity:.92;"' : ''}>
         ${rows}
       </div>
     </div>
   `;
 }
 
-function renderFieldRow(farmId, crop, f){
+function renderFieldRow(farmId, crop, f, narrow){
   return `
     <div class="cardRow" data-field-id="${esc(f.id)}" data-farm-id="${esc(farmId)}" data-crop="${esc(crop)}">
-      <!-- ✅ FIELD drag grip (explicit) -->
-      <div class="dragGrip" data-drag-type="field" draggable="true" title="Drag field">
+      <!-- Field drag grip: disabled on narrow screens -->
+      <div class="dragGrip" data-drag-type="field" draggable="${narrow ? 'false' : 'true'}" title="${narrow ? 'View only' : 'Drag field'}"
+           style="${narrow ? 'opacity:.45;cursor:not-allowed;' : ''}">
         ${gripSvg()}
       </div>
       <div class="cardName" title="${esc(f.name)}">${esc(f.name)}</div>
       <div class="pill">${to2(f.tillable)} ac</div>
     </div>
   `;
+}
+
+/* ---------- View-only hint injection ---------- */
+function ensureViewOnlyHint(narrow){
+  let hint = document.getElementById('fvViewOnlyHint');
+  if(!hint){
+    hint = document.createElement('div');
+    hint.id = 'fvViewOnlyHint';
+    hint.className = 'help';
+    hint.style.display = 'none';
+    hint.style.fontWeight = '900';
+    hint.style.marginTop = '-4px';
+    hint.style.marginBottom = '4px';
+    hint.textContent = 'View only on phone — use desktop for planning.';
+    // insert under filters (after row3)
+    const row3 = document.querySelector('.row3');
+    if(row3 && row3.parentNode){
+      row3.parentNode.insertBefore(hint, row3.nextSibling);
+    }
+  }
+  hint.style.display = narrow ? 'block' : 'none';
 }
 
 /* ---------- Lane collapse ---------- */
@@ -298,8 +337,7 @@ function bindLaneToggles(){
     head._fvBound = true;
 
     head.addEventListener('click', (e)=>{
-      // don’t toggle when grabbing drag grip
-      if(e.target.closest('[data-drag-type]')) return;
+      if(e.target.closest('[data-drag-type]')) return; // don't toggle when grabbing grip
 
       const lane = head.closest('.farmLane');
       if(!lane) return;
@@ -313,17 +351,20 @@ function bindLaneToggles(){
 }
 
 /* ---------- Header drop targets for farm drag ---------- */
-function bindHeaderFarmDrops(){
+function bindHeaderFarmDrops(narrow){
+  // On narrow screens: disable the "drop farm" headers
   laneHeader.querySelectorAll('[data-header-drop="1"]').forEach(box=>{
     if(box._fvBound) return;
     box._fvBound = true;
 
     box.addEventListener('dragover', (e)=>{
+      if(narrow) return;
       e.preventDefault();
       box.classList.add('is-over');
     });
     box.addEventListener('dragleave', ()=> box.classList.remove('is-over'));
     box.addEventListener('drop', async (e)=>{
+      if(narrow) return;
       box.classList.remove('is-over');
       e.preventDefault();
 
@@ -341,6 +382,8 @@ function bindHeaderFarmDrops(){
 
 /* ---------- Drop handling from DnD module ---------- */
 async function onDrop(payload){
+  if(isNarrow()) return; // view-only protection
+
   if(payload.type === 'field'){
     await moveField(payload.fieldId, payload.toCrop);
     return;
@@ -373,16 +416,15 @@ async function moveFarmInScope(farmId, toCrop){
   const fid = String(farmId||'').trim();
   if(!fid) return;
 
-  // Scope to current view (active + farm filter + search), then this farm
   const visible = getShownFields().filter(f=> String(f.farmId||'') === fid);
   if(!visible.length) return;
 
   showToast(`Moving ${visible.length}…`);
+
   const concurrency = 10;
+  let idx = 0;
 
   try{
-    // parallel-ish with small concurrency
-    let idx = 0;
     const runners = new Array(concurrency).fill(0).map(async ()=>{
       while(idx < visible.length){
         const f = visible[idx++];
@@ -412,8 +454,6 @@ async function loadAll(){
   renderFarmList('');
 
   fields = await loadFields(db);
-
-  // normalize some expected props
   fields = fields.map(x=>({
     ...x,
     farmId: String(x.farmId||''),
@@ -423,7 +463,6 @@ async function loadAll(){
 
   plans = await loadPlansForYear(db, currentYear);
 
-  // keep farm selection valid
   if(farmIdEl.value && !farmNameById.get(String(farmIdEl.value))){
     farmIdEl.value = '';
     farmNameEl.value = '';
@@ -438,8 +477,14 @@ async function loadAll(){
   buildYearOptions();
   db = await initDB();
 
-  // DnD is delegated; root=document is fine.
+  // Delegated DnD
   wireDnd({ root: document, onDrop });
 
   await loadAll();
+
+  // If screen size changes, re-render to toggle view-only
+  window.addEventListener('resize', ()=>{
+    clearTimeout(window.__fvResizeT);
+    window.__fvResizeT = setTimeout(renderAll, 120);
+  });
 })();
