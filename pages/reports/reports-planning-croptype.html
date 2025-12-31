@@ -356,11 +356,10 @@
     }
 
     /* --------------------------
-       FV modal: MATCH Trial Summary chooser look
+       FV modal: match Trial Summary chooser (compact, green faded header, no Cancel)
        -------------------------- */
     .fv-modal-backdrop{
-      position:fixed;
-      inset:0;
+      position:fixed; inset:0;
       background:rgba(0,0,0,.35);
       display:none;
       z-index:12000;
@@ -375,23 +374,46 @@
       border:1px solid var(--border);
       background:var(--card-surface, var(--surface));
       box-shadow:0 18px 50px rgba(0,0,0,.28);
-      padding:16px 18px 14px;
+      overflow:hidden;
     }
-    .fv-modal .row{
+    .fv-modal-head{
       display:flex;
-      align-items:flex-start;
       justify-content:space-between;
+      align-items:flex-start;
       gap:10px;
+      padding:12px 14px;
+      border-bottom:1px solid color-mix(in srgb, var(--border) 70%, transparent);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
     }
-    .fv-modal .title{
+    .fv-modal-title{
       font-weight:950;
-      font-size:1.02rem;
+      font-size:0.98rem;
+      line-height:1.15;
       margin:0;
-      line-height:1.2;
     }
-    .fv-modal .x{
-      width:34px;
-      height:34px;
+    .fv-modal-body{
+      padding:12px 14px 14px;
+    }
+    .fv-modal-sub{
+      margin:0 0 10px;
+      color:var(--muted,#67706B);
+      font-weight:800;
+      font-size:0.84rem;
+      line-height:1.35;
+    }
+    .fv-modal-help{
+      margin:0 0 12px;
+      color:var(--muted,#67706B);
+      font-weight:700;
+      font-size:0.82rem;
+      line-height:1.35;
+      opacity:.95;
+    }
+
+    /* exact-style X button: icon-only, tight */
+    .fv-x{
+      width:30px;
+      height:30px;
       display:grid;
       place-items:center;
       border-radius:999px;
@@ -399,26 +421,20 @@
       background:color-mix(in srgb, var(--surface) 85%, var(--border) 15%);
       cursor:pointer;
       user-select:none;
+      flex:0 0 auto;
     }
-    .fv-modal .x svg{ width:16px; height:16px; opacity:.75; }
-    .fv-modal .sub{
-      margin:6px 0 10px;
-      color:var(--muted,#67706B);
-      font-weight:800;
-      font-size:0.86rem;
-      line-height:1.35;
-    }
-    .fv-modal .actions{
+    .fv-x svg{ width:14px; height:14px; opacity:.8; }
+
+    .fv-modal-actions{
       display:flex;
       gap:10px;
-      margin-top:10px;
     }
     .fv-choose-btn{
       flex:1 1 0;
       border-radius:12px;
-      padding:11px 14px;
+      padding:10px 12px;
       font-weight:900;
-      font-size:0.95rem;
+      font-size:0.92rem;
       border:1px solid var(--border);
       background:var(--card-surface, var(--surface));
       color:var(--text);
@@ -432,8 +448,8 @@
       color:#fff;
     }
     @media (max-width:520px){
-      .fv-modal{ padding:14px 14px 12px; }
-      .fv-modal .actions{ flex-direction:column; }
+      .fv-modal{ width:calc(100vw - 24px); }
+      .fv-modal-actions{ flex-direction:column; }
       .fv-choose-btn{ width:100%; }
     }
   </style>
@@ -477,7 +493,7 @@
       company: null,
       farmsById: new Map(),
       years: [],
-      fields: [],            // ✅ active fields cache
+      fields: [],
       rows: [],
       filtered: []
     };
@@ -1085,15 +1101,14 @@
             `;
           }).join('');
 
+      // footer "Computed..." removed per your request
       return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
   <title>Crop Plan — Detailed</title>
   <style>
-    :root{
-      --g:#3B7E46; --b:#D1D5DB; --t:#111827; --m:#6B7280; --bg:#F3F4F6;
-    }
+    :root{--g:#3B7E46;--b:#D1D5DB;--t:#111827;--m:#6B7280;--bg:#F3F4F6;}
     *{box-sizing:border-box;}
     html,body{margin:0;padding:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--t);background:var(--bg);}
     body{display:flex;justify-content:center;padding:22px 12px;}
@@ -1205,6 +1220,7 @@
       const farms = Array.from(byFarm.values()).sort((a,b)=>a.name.localeCompare(b.name));
       const esc = escapeHtml;
 
+      // footer "Computed..." removed per your request
       return `<!doctype html>
 <html>
 <head>
@@ -1386,9 +1402,14 @@
       $('#btnPrint')?.addEventListener('click', handlePrintClick);
       $('#btnPrintBottom')?.addEventListener('click', handlePrintClick);
 
-      // modal close + actions (match trial summary behavior)
+      // close with X, backdrop, ESC
       document.getElementById('btnPrintX')?.addEventListener('click', closePrintChoice);
-      document.getElementById('btnPrintCancel')?.addEventListener('click', closePrintChoice);
+      document.getElementById('fvPrintChoice')?.addEventListener('click', (e)=>{
+        if(e.target && e.target.id === 'fvPrintChoice') closePrintChoice();
+      });
+      window.addEventListener('keydown', (e)=>{
+        if(e.key === 'Escape') closePrintChoice();
+      });
 
       document.getElementById('btnPrintSummary')?.addEventListener('click', async ()=>{
         closePrintChoice();
@@ -1397,14 +1418,6 @@
       document.getElementById('btnPrintDetailed')?.addEventListener('click', async ()=>{
         closePrintChoice();
         await runPrintDetailed();
-      });
-
-      document.getElementById('fvPrintChoice')?.addEventListener('click', (e)=>{
-        if(e.target && e.target.id === 'fvPrintChoice') closePrintChoice();
-      });
-
-      window.addEventListener('keydown', (e)=>{
-        if(e.key === 'Escape') closePrintChoice();
       });
     }
 
@@ -1525,27 +1538,30 @@
         </div>
       </section>
 
-      <!-- FV modal print chooser (Trial Summary styled) -->
+      <!-- FV modal print chooser (NO Cancel button; X only) -->
       <div id="fvPrintChoice" class="fv-modal-backdrop" role="dialog" aria-modal="true" aria-hidden="true">
         <div class="fv-modal">
-          <div class="row">
-            <div class="title">Choose report type</div>
-            <button id="btnPrintX" type="button" class="x" aria-label="Close">
+          <div class="fv-modal-head">
+            <div class="fv-modal-title">Choose report type</div>
+
+            <!-- SVG X (icon-only) -->
+            <button id="btnPrintX" type="button" class="fv-x" aria-label="Close">
               <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
               </svg>
             </button>
           </div>
-          <div class="sub">How do you want to print this crop plan?</div>
-          <div class="sub" style="margin-top:0;">
-            Summary reports match your other FarmVista PDF reports. Detailed reports include the field lists.
-          </div>
-          <div class="actions">
-            <button id="btnPrintSummary" type="button" class="fv-choose-btn primary">Summary report</button>
-            <button id="btnPrintDetailed" type="button" class="fv-choose-btn">Detailed report</button>
-          </div>
-          <div style="display:flex;justify-content:flex-end;margin-top:10px;">
-            <button id="btnPrintCancel" type="button" class="btn btn-quiet">Cancel</button>
+
+          <div class="fv-modal-body">
+            <div class="fv-modal-sub">How do you want to print this crop plan?</div>
+            <div class="fv-modal-help">
+              Summary reports match your other FarmVista PDF reports. Detailed reports include the field lists.
+            </div>
+
+            <div class="fv-modal-actions">
+              <button id="btnPrintSummary" type="button" class="fv-choose-btn primary">Summary report</button>
+              <button id="btnPrintDetailed" type="button" class="fv-choose-btn">Detailed report</button>
+            </div>
           </div>
         </div>
       </div>
