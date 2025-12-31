@@ -1,14 +1,22 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2025-12-28a
+Rev: 2025-12-31a
 Model math (dry power, storage, readiness) + helpers
 
-TUNING (per Dane):
-✅ Reduce "too wet" baseline by lowering starting storage
-✅ Reduce rain nudge strength so fields don't default overly wet
+What changed (Option A: saturation-aware effective rain):
+✅ Rain now depends on antecedent saturation (bucket level BEFORE rain):
+   - When already wet/saturated => more runoff (less rain counts)
+   - When very dry => more “bypass” (rain doesn’t keep top wet as long)
+✅ DrainageIndex influences both:
+   - Poor drainage => MORE runoff + LESS bypass (sticks around more)
+   - Good drainage => LESS runoff + MORE bypass (leaves top sooner)
 
-NEW (Calibration hook):
-✅ Optional calibration bias applied AFTER physics model:
+TUNING:
+✅ All tweakable variables are listed together below in FV_TUNE.
+   - Change these numbers to adjust behavior without touching model math.
+
+Calibration hook (unchanged):
+✅ Optional wetBias applied AFTER physics model:
    - deps.CAL.wetBias (number, wetness points; + = wetter, - = drier)
    - deps.CAL.opWetBias[opKey] (optional per-op wetBias)
    - deps.opKey (optional current operation key)
@@ -16,6 +24,113 @@ NEW (Calibration hook):
 'use strict';
 
 function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+
+/* =====================================================================
+   FV_TUNE — ALL ADJUSTABLE VARIABLES (Option A)
+   ------------------------------------------------
+   These are the knobs you tweak.
+
+   1) SAT_RUNOFF_START
+      - Saturation (0..1) where runoff begins ramping up.
+      - Higher => allow more rain to count before runoff.
+      - Lower  => fields “top out” sooner in wet spells.
+
+   2) RUNOFF_EXP
+      - Shape of runoff ramp after SAT_RUNOFF_START.
+      - Higher => sharper cliff near saturation.
+      - Lower  => smoother ramp.
+
+   3) RUNOFF_DRAINPOOR_W
+      - How much poor drainage INCREASES runoff (multiplier effect).
+      - 0.35 means poor drainage increases runoff up to +35%.
+
+   4) DRY_BYPASS_END
+      - Saturation (0..1) below which “dry bypass” is active.
+      - Higher => bypass affects a wider range of dry conditions.
+      - Lower  => bypass only when truly very dry.
+
+   5) DRY_EXP
+      - Shape of bypass curve as it approaches bone-dry.
+      - Higher => bypass spikes strongly at very dry conditions.
+
+   6) DRY_BYPASS_BASE
+      - Max fraction of post-runoff rain that can bypass the “top bucket”
+        when extremely dry (0..1). Example: 0.45 => up to 45% bypass.
+
+   7) BYPASS_GOODDRAIN_W
+      - Good drainage (low drainPoor) increases bypass.
+      - 0.15 means very good drainage can increase bypass up to +15%.
+
+   8) SAT_DRYBYPASS_FLOOR
+      - Minimum saturation used inside bypass math (avoid extreme behavior).
+      - Raise to reduce “too much bypass” spikes.
+
+   9) SAT_RUNOFF_CAP
+      - Max runoff fraction allowed (guardrail).
+      - 0.85 means even in extreme saturation, at least 15% of rain can count.
+
+   10) RAIN_EFF_MIN
+      - Minimum effective rain fraction (guardrail) after runoff+bypass.
+      - 0.05 means at least 5% of measured rain always counts.
+
+   Notes:
+   - “drainPoor” in this model = drainageIndex/100
+     (1 = poorer drainage, 0 = better drainage)
+===================================================================== */
+const FV_TUNE = {
+  // Wet spell / saturation behavior
+  SAT_RUNOFF_START: 0.75,
+  RUNOFF_EXP: 2.2,
+  RUNOFF_DRAINPOOR_W: 0.35,   // poor drainage increases runoff
+
+  // Dry spell behavior
+  DRY_BYPASS_END: 0.35,
+  DRY_EXP: 1.6,
+  DRY_BYPASS_BASE: 0.45,      // max bypass when extremely dry
+  BYPASS_GOODDRAIN_W: 0.15,   // good drainage increases bypass
+
+  // Guardrails / stability
+  SAT_DRYBYPASS_FLOOR: 0.02,
+  SAT_RUNOFF_CAP: 0.85,
+  RAIN_EFF_MIN: 0.05
+};
+
+// Allows ops to override without editing file:
+// - deps.EXTRA can include any FV_TUNE keys to override.
+// - or deps.FV_TUNE can be passed directly.
+function getTune(deps){
+  const t = { ...FV_TUNE };
+  const srcA = (deps && deps.FV_TUNE && typeof deps.FV_TUNE === 'object') ? deps.FV_TUNE : null;
+  const srcB = (deps && deps.EXTRA && typeof deps.EXTRA === 'object') ? deps.EXTRA : null;
+
+  // Apply overrides from FV_TUNE first, then EXTRA
+  for (const src of [srcA, srcB]){
+    if (!src) continue;
+    for (const k of Object.keys(t)){
+      if (src[k] === null || src[k] === undefined) continue;
+      const v = Number(src[k]);
+      if (isFinite(v)) t[k] = v;
+    }
+  }
+
+  // Clamp obvious ranges
+  t.SAT_RUNOFF_START   = clamp(t.SAT_RUNOFF_START, 0.40, 0.95);
+  t.RUNOFF_EXP         = clamp(t.RUNOFF_EXP, 0.8, 6.0);
+  t.RUNOFF_DRAINPOOR_W = clamp(t.RUNOFF_DRAINPOOR_W, 0.0, 0.8);
+
+  t.DRY_BYPASS_END     = clamp(t.DRY_BYPASS_END, 0.10, 0.70);
+  t.DRY_EXP            = clamp(t.DRY_EXP, 0.8, 6.0);
+  t.DRY_BYPASS_BASE    = clamp(t.DRY_BYPASS_BASE, 0.0, 0.85);
+  t.BYPASS_GOODDRAIN_W = clamp(t.BYPASS_GOODDRAIN_W, 0.0, 0.6);
+
+  t.SAT_DRYBYPASS_FLOOR= clamp(t.SAT_DRYBYPASS_FLOOR, 0.0, 0.20);
+  t.SAT_RUNOFF_CAP     = clamp(t.SAT_RUNOFF_CAP, 0.20, 0.95);
+  t.RAIN_EFF_MIN       = clamp(t.RAIN_EFF_MIN, 0.0, 0.20);
+
+  return t;
+}
+
+/* ===================================================================== */
 
 export function modelClassFromRun(run){
   if (!run) return 'ok';
@@ -68,6 +183,7 @@ export function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, EXTRA){
     ? 0
     : clamp((Number(sm010) - 0.10) / 0.25, 0, 1);
 
+  // Note: these were your existing mappings. Keeping intact.
   const infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor;
   const dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor;
 
@@ -78,10 +194,7 @@ export function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, EXTRA){
 }
 
 /* =====================================================================
-   Calibration hook
-   - We keep the physical model intact
-   - Apply a small bias to wetness AFTER storage/Smax computed
-   - Bias units are "wetness points" (0..100 scale)
+   Calibration hook (unchanged)
 ===================================================================== */
 function getWetBiasFromDeps(deps){
   try{
@@ -90,13 +203,11 @@ function getWetBiasFromDeps(deps){
 
     const opKey = (deps && typeof deps.opKey === 'string') ? deps.opKey : '';
 
-    // optional per-op override
     if (opKey && CAL.opWetBias && typeof CAL.opWetBias === 'object'){
       const vOp = CAL.opWetBias[opKey];
       if (isFinite(Number(vOp))) return Number(vOp);
     }
 
-    // global bias
     const v = CAL.wetBias;
     if (isFinite(Number(v))) return Number(v);
 
@@ -104,6 +215,49 @@ function getWetBiasFromDeps(deps){
   }catch(_){
     return 0;
   }
+}
+
+/* =====================================================================
+   NEW: Saturation-aware rain effectiveness (Option A)
+===================================================================== */
+function effectiveRainInches(rainIn, storageBefore, Smax, factors, tune){
+  const rain = Math.max(0, Number(rainIn||0));
+  if (!rain || !isFinite(rain) || !isFinite(storageBefore) || !isFinite(Smax) || Smax <= 0) return 0;
+
+  // Antecedent saturation
+  const satRaw = storageBefore / Smax;
+  const sat = clamp(satRaw, 0, 1);
+
+  // Poor drainage (1) = more runoff, less bypass; good drainage (0) = less runoff, more bypass
+  const drainPoor = clamp(Number(factors && factors.drainPoor), 0, 1);
+
+  // --- Runoff when saturated ---
+  const sr = clamp((sat - tune.SAT_RUNOFF_START) / Math.max(1e-6, (1 - tune.SAT_RUNOFF_START)), 0, 1);
+  let runoffFrac = Math.pow(sr, tune.RUNOFF_EXP);
+
+  // Poor drainage increases runoff (up to +RUNOFF_DRAINPOOR_W)
+  runoffFrac = runoffFrac * (1 + tune.RUNOFF_DRAINPOOR_W * drainPoor);
+  runoffFrac = clamp(runoffFrac, 0, tune.SAT_RUNOFF_CAP);
+
+  const rainAfterRunoff = rain * (1 - runoffFrac);
+
+  // --- Dry bypass when very dry ---
+  // Bypass strongest when sat is near 0, fades to 0 by DRY_BYPASS_END.
+  const satB = Math.max(tune.SAT_DRYBYPASS_FLOOR, sat);
+  const db = clamp((tune.DRY_BYPASS_END - satB) / Math.max(1e-6, tune.DRY_BYPASS_END), 0, 1);
+  const dryBypassCurve = Math.pow(db, tune.DRY_EXP);
+
+  // Base bypass fraction, then adjust for drainage:
+  // good drainage (low drainPoor) increases bypass
+  const goodDrain = 1 - drainPoor;
+  let bypassFrac = tune.DRY_BYPASS_BASE * dryBypassCurve * (1 + tune.BYPASS_GOODDRAIN_W * goodDrain);
+  bypassFrac = clamp(bypassFrac, 0, 0.90);
+
+  const rainEffective = rainAfterRunoff * (1 - bypassFrac);
+
+  // Guardrail: ensure some small portion always counts if rain occurred
+  const minEff = tune.RAIN_EFF_MIN * rain;
+  return Math.max(minEff, rainEffective);
 }
 
 /**
@@ -116,6 +270,7 @@ function getWetBiasFromDeps(deps){
  * - OPTIONAL:
  *   - opKey (string): current operation key (for per-op bias)
  *   - CAL: { wetBias?: number, opWetBias?: { [opKey]: number } }
+ *   - FV_TUNE: override tuning variables in this file
  */
 export function runField(field, deps){
   const wx = deps.getWeatherSeriesForFieldId(field.id);
@@ -125,6 +280,8 @@ export function runField(field, deps){
 
   const last = wx[wx.length-1] || {};
   const f = mapFactors(p.soilWetness, p.drainageIndex, last.sm010, deps.EXTRA);
+
+  const tune = getTune(deps);
 
   const rows = wx.map(w=>{
     const parts = calcDryParts(w, deps.EXTRA);
@@ -147,8 +304,7 @@ export function runField(field, deps){
   });
 
   // -------------------------------------------------------------------
-  // TUNING: rain nudge + starting storage baseline
-  // New: rain7/8.0 and 0.10*Smax (softer) + start at 0.30*Smax (drier baseline)
+  // Existing tuning: rain nudge + starting storage baseline (unchanged)
   // -------------------------------------------------------------------
   const first7 = rows.slice(0,7);
   const rain7 = first7.reduce((s,x)=> s + Number(x.rainInAdj||0), 0);
@@ -162,24 +318,41 @@ export function runField(field, deps){
   for (const d of rows){
     const rain = Number(d.rainInAdj||0);
 
-    let add = rain * f.infilMult;
+    const before = storage;
+
+    // ✅ NEW: saturation-aware effective rain inches
+    const rainEff = effectiveRainInches(rain, before, f.Smax, f, tune);
+
+    // Base add from effective rain
+    let add = rainEff * f.infilMult;
+
+    // Keep your SM010 helper term intact
     add += (deps.EXTRA.ADD_SM010_W * d.smN_day) * 0.05;
 
     const loss = Number(d.dryPwr||0) * deps.LOSS_SCALE * f.dryMult * (1 + deps.EXTRA.LOSS_ET0_W * d.et0N);
 
-    const before = storage;
     const after = clamp(before + add - loss, 0, f.Smax);
     storage = after;
 
-    trace.push({ dateISO:d.dateISO, rain, infilMult:f.infilMult, add, dryPwr:d.dryPwr, loss, before, after });
+    trace.push({
+      dateISO: d.dateISO,
+      rain,
+      rainEff,
+      satBefore: (f.Smax>0 ? clamp(before/f.Smax,0,1) : 0),
+      infilMult: f.infilMult,
+      add,
+      dryPwr: d.dryPwr,
+      loss,
+      before,
+      after
+    });
   }
 
   // Physical wetness (0..100)
   let wetness = clamp((storage / f.Smax) * 100, 0, 100);
 
-  // ✅ Calibration wetness bias (from adjustments aggregation via deps.CAL)
-  // Positive = wetter, Negative = drier
-  const wetBias = clamp(getWetBiasFromDeps(deps), -25, 25); // guardrail
+  // ✅ Calibration wetness bias (unchanged)
+  const wetBias = clamp(getWetBiasFromDeps(deps), -25, 25);
   wetness = clamp(wetness + wetBias, 0, 100);
 
   const wetnessR = Math.round(wetness);
@@ -190,16 +363,19 @@ export function runField(field, deps){
 
   return {
     field,
-    factors:f,
+    factors: f,
     rows,
     trace,
-    storageFinal:storage,
+    storageFinal: storage,
     wetnessR,
     readinessR,
     avgLossDay,
 
     // helpful for debugging calibration
-    wetBiasApplied: wetBias
+    wetBiasApplied: wetBias,
+
+    // helpful for debugging tuning
+    tuneUsed: tune
   };
 }
 
