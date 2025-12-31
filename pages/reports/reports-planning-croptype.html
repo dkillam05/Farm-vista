@@ -421,7 +421,7 @@
       if(s === 'corn' || s.startsWith('corn ') || s === 'maize') return 'corn';
       if(s === 'soy' || s === 'soybean' || s === 'soybeans' || s === 'soy bean' || s === 'beans' || s.startsWith('soy ')) return 'soybeans';
 
-      return s; // unknown
+      return s; // unknown -> treated as unplanned
     }
 
     function cropKeyForRow(r){
@@ -484,7 +484,6 @@
         const ref = doc(STATE.db, col, id);
         const snap = await getDoc(ref);
         const d = snap.exists() ? (snap.data() || {}) : {};
-
         const name = d.name || '';
         const address = [
           d.addressStreet || '',
@@ -494,7 +493,6 @@
         const phone = d.phone || '';
         const email = d.email || '';
         const logoUrl = d?.logo?.url || d?.logoUrl || '';
-
         STATE.company = { name, address, phone, email: (email || ''), logoUrl };
       }catch(e){
         console.warn('[crop-plan-report] company header load failed', e);
@@ -591,7 +589,6 @@
         });
 
         STATE.rows = rows.filter(r => !r.status || r.status === 'active');
-
         STATE.rows.sort((a,b)=>{
           const fa = farmNameForId(a.farmId).localeCompare(farmNameForId(b.farmId));
           if(fa) return fa;
@@ -614,13 +611,11 @@
     function hydrateFarmDropdown(){
       const farmSel = $('#filterFarm');
       const cur = farmSel?.value || 'all';
-
       const farms = computeFarmsFromRows(STATE.rows);
       const opts = [
         `<option value="all">All farms</option>`,
         ...farms.map(id => `<option value="${escapeHtml(id)}">${escapeHtml(farmNameForId(id))}</option>`)
       ].join('');
-
       setSelectOptions(farmSel, opts, cur);
     }
 
@@ -638,7 +633,6 @@
       const totalAcres = rows.reduce((s,r)=>s + safeNum(r.acres), 0);
       const cornAcres = rows.filter(r=>cropKeyForRow(r)==='corn').reduce((s,r)=>s + safeNum(r.acres), 0);
       const soyAcres  = rows.filter(r=>cropKeyForRow(r)==='soybeans').reduce((s,r)=>s + safeNum(r.acres), 0);
-      const unpAcres  = rows.filter(r=>cropKeyForRow(r)==='unplanned').reduce((s,r)=>s + safeNum(r.acres), 0);
       const farmCount = new Set(rows.map(r=>String(r.farmId||'')).filter(Boolean)).size;
 
       let last = null;
@@ -647,11 +641,11 @@
         if(d && (!last || d.getTime() > last.getTime())) last = d;
       });
 
-      return { totalFields, totalAcres, cornAcres, soyAcres, unpAcres, farmCount, lastUpdated:last };
+      return { totalFields, totalAcres, cornAcres, soyAcres, farmCount, lastUpdated:last };
     }
 
     function groupCropThenFarm(rows){
-      const cropMap = new Map(); // cropKey -> farmName -> rows
+      const cropMap = new Map();
       rows.forEach(r=>{
         const c = cropKeyForRow(r);
         if(!cropMap.has(c)) cropMap.set(c, new Map());
@@ -675,7 +669,7 @@
     }
 
     function groupFarmThenCrop(rows){
-      const farmMap = new Map(); // farmName -> cropKey -> rows
+      const farmMap = new Map();
       rows.forEach(r=>{
         const farmName = farmNameForId(r.farmId);
         if(!farmMap.has(farmName)) farmMap.set(farmName, new Map());
@@ -715,13 +709,11 @@
                   <td class="right mono">${fmt2.format(safeNum(r.acres))}</td>
                 </tr>
               `).join('')}
-            </tbody>
-            <tfoot>
               <tr>
                 <td style="font-weight:950;">Total</td>
                 <td class="right mono" style="font-weight:950;">${fmt2.format(acres)}</td>
               </tr>
-            </tfoot>
+            </tbody>
           </table>
         </div>
       `;
@@ -733,14 +725,8 @@
       const c = String(crop || 'all').toLowerCase();
 
       let out = (STATE.rows || []);
-
-      if(f !== 'all'){
-        out = out.filter(r => String(r.farmId||'') === f);
-      }
-
-      if(c !== 'all'){
-        out = out.filter(r => cropKeyForRow(r) === c);
-      }
+      if(f !== 'all') out = out.filter(r => String(r.farmId||'') === f);
+      if(c !== 'all') out = out.filter(r => cropKeyForRow(r) === c);
 
       STATE.filtered = out;
       render();
@@ -859,6 +845,7 @@
       return { mode:'cropFirst', data: groupCropThenFarm(rows) };
     }
 
+    // ✅ PRINT FIX: remove <tfoot> entirely; put Total row in <tbody> so it NEVER repeats per page
     function buildPrintHtml({ company, runStr, runDateOnly, filterSummary, kpis, grouped }){
       const esc = escapeHtml;
       const fmtA2 = (n)=> fmt2.format(Number.isFinite(+n)?+n:0);
@@ -878,13 +865,11 @@
                 <td style="padding:9px 10px; border-bottom:1px solid #EEF2F7; font-size:11px; text-align:right; font-variant-numeric:tabular-nums;">${esc(fmtA2(r.acres))}</td>
               </tr>
             `).join('')}
-          </tbody>
-          <tfoot>
-            <tr>
+            <tr style="break-inside:avoid; page-break-inside:avoid;">
               <td style="padding:9px 10px; font-size:11px; font-weight:950;">Total</td>
               <td style="padding:9px 10px; font-size:11px; font-weight:950; text-align:right; font-variant-numeric:tabular-nums;">${esc(fmtA2(rows.reduce((s,r)=>s+safeNum(r.acres),0)))}</td>
             </tr>
-          </tfoot>
+          </tbody>
         </table>
       `;
 
@@ -990,6 +975,7 @@
     .kpi .val{font-size:18px;font-weight:950;margin-top:2px;}
     .kpi .note{font-size:10px;color:var(--fv-muted);margin-top:2px;line-height:1.25;}
     .footer{ margin-top:16px; padding-top:10px; border-top:1px solid var(--fv-border); display:flex; justify-content:space-between; gap:12px; font-size:10px; color:var(--fv-muted); line-height:1.3; }
+
     @media (max-width:860px){
       .kpis{grid-template-columns:repeat(2, minmax(0,1fr));}
       .meta{white-space:normal;}
@@ -998,6 +984,7 @@
       html,body{background:#fff;padding:0;}
       body{box-shadow:none;}
       .page{ max-width:none; border-radius:0; box-shadow:none; padding:9mm 10mm; }
+      thead{ display: table-header-group; } /* keep headers repeating */
     }
   </style>
 </head>
@@ -1025,7 +1012,7 @@
     </header>
 
     <h1 class="title">Crop Plan — Summary</h1>
-    <p class="subtitle">Planned crop assignments including Unplanned. Layout follows current View Mode.</p>
+    <p class="subtitle">Totals appear only once per table (end of crop/farm section), even across page breaks.</p>
 
     <div class="summary">
       <div class="pill"><span class="k">Filters</span><span class="v">${esc(filterSummary)}</span></div>
@@ -1092,6 +1079,21 @@
       }, 450);
     }
 
+    function summarizeFilters(){
+      const { year, farm, crop, view } = getFilters();
+      const yTxt = year ? `Crop Year: ${year}` : 'Crop Year: —';
+      const fTxt = (farm === 'all') ? 'All farms' : `Farm: ${farmNameForId(farm)}`;
+      const cTxt = (crop === 'all') ? 'All crops' : `Crop: ${cropLabelFromKey(crop)}`;
+      const vTxt = (view === 'farmFirst') ? 'View: Farm → Crop' : 'View: Crop → Farm';
+      return `${yTxt} • ${fTxt} • ${cTxt} • ${vTxt}`;
+    }
+
+    function groupForPdf(rows){
+      const { view } = getFilters();
+      if(view === 'farmFirst') return { mode:'farmFirst', data: groupFarmThenCrop(rows) };
+      return { mode:'cropFirst', data: groupCropThenFarm(rows) };
+    }
+
     function wireEvents(){
       $('#btnBack')?.addEventListener('click', () => {
         location.href = '/Farm-vista/pages/reports/reports-predefined.html';
@@ -1146,6 +1148,7 @@
             <p class="muted">
               Filters: <strong>Crop Year</strong>, <strong>Farm</strong>, <strong>Crop Type</strong>.
               View Mode toggles <strong>Crop → Farm</strong> or <strong>Farm → Crop</strong>.
+              PDF totals now print only once per crop/farm section.
             </p>
           </div>
         </header>
