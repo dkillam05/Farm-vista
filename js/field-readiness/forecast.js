@@ -1,32 +1,39 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/forecast.js  (FULL FILE)
-Rev: 2025-12-31f
+Rev: 2025-12-31g
 
 Fix (per Dane):
-✅ ETA math improved (removes cliff-jumps):
-   - Still uses daily forecast inputs
-   - BUT if threshold is crossed between days, we interpolate within the 24h window
-   - This prevents ">72 hours" flipping to "22 hours" from tiny threshold changes
+✅ ETA now uses SAME FarmVista daily weather modeling, but simulates in sub-daily steps
+   to eliminate “cliff jumps”.
+   - Inputs remain your canonical daily rows (same as the rest of the app):
+       rainIn, tempF, windMph, rh, solarWm2, cloudPct, vpdKpa, sm010, et0In
+   - We simulate forward in STEP_HOURS increments up to 72 hours.
+   - Rain for each day is distributed across the day (uniform) for sub-steps.
+   - Drying/loss is scaled per-step (stepHours/24).
 
 Rules:
-✅ We ONLY show "Est: ~X hours" if X <= 72
-✅ If not within 72 hours (or unknown): "Greater Than 72 hours"
+✅ Show "Est: ~X hours" ONLY if X <= 72
+✅ Else show "Greater Than 72 hours"
+✅ "Greater Than" casing kept
 
 Keeps:
-✅ "Greater Than" casing
-✅ Applies wetBias exactly like tiles
+✅ wetBias applied exactly like tiles
 ✅ Option A saturation-aware rain effectiveness
 ===================================================================== */
 'use strict';
 
 /* =====================================================================
-   TUNING — tweak these if needed
+   TUNING
 ===================================================================== */
 export const FV_FORECAST_TUNE = {
   WEATHER_CACHE_COLLECTION: 'field_weather_cache',
   DEFAULT_THRESHOLD: 70,
   HORIZON_HOURS: 72,
-  MAX_SIM_DAYS: 7
+  MAX_SIM_DAYS: 7,
+
+  // Key change: sub-daily simulation step (smaller => smoother)
+  // 3 is a good balance; 1 is very smooth but more compute.
+  STEP_HOURS: 3
 };
 
 /* =====================================================================
@@ -66,7 +73,6 @@ export const FV_PHYS_DEFAULTS = {
 function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
 function isNum(v){ return Number.isFinite(Number(v)); }
 function toNum(v, d=0){ const n = Number(v); return Number.isFinite(n) ? n : d; }
-function normISO(s){ return String(s||'').slice(0,10); }
 
 function mergeTune(base, override){
   const out = { ...(base||{}) };
@@ -145,7 +151,7 @@ export async function readWxSeriesFromCache(fieldId, opts){
 }
 
 /* =====================================================================
-   Physics helpers (Option A + dry power)
+   Physics helpers (same as model.js approach)
 ===================================================================== */
 function calcDryPartsDay(r, EXTRA){
   const temp = toNum(r.tempF, 0);
@@ -231,7 +237,7 @@ function applyWetBiasToWetness(wetnessPhysical, wetBiasPoints){
 }
 
 /* =====================================================================
-   Compute storage + readiness "now" from history
+   Compute storage + readiness "now" from history (same baseline style)
 ===================================================================== */
 function computeNowFromHistory(histSeries, soilWetness, drainageIndex, phys, wetBias){
   const EXTRA = phys.EXTRA;
@@ -240,7 +246,6 @@ function computeNowFromHistory(histSeries, soilWetness, drainageIndex, phys, wet
   const last = histSeries[histSeries.length - 1] || {};
   const f = mapFactors(soilWetness, drainageIndex, last.sm010, EXTRA);
 
-  // baseline (matches your server snapshot style)
   const first7 = histSeries.slice(0, 7);
   const rain7 = first7.reduce((s,x)=> s + Number(x.rainIn||0), 0);
   const rainNudgeFrac = clamp(rain7 / 8.0, 0, 1);
@@ -252,6 +257,8 @@ function computeNowFromHistory(histSeries, soilWetness, drainageIndex, phys, wet
     const parts = calcDryPartsDay(day, EXTRA);
 
     const before = storage;
+
+    // history uses daily rain already (this matches your model)
     const rain = Number(day.rainIn || 0);
     const rainEff = effectiveRainInches(rain, before, f.Smax, f, phys.rainTune);
 
@@ -271,39 +278,92 @@ function computeNowFromHistory(histSeries, soilWetness, drainageIndex, phys, wet
 }
 
 /* =====================================================================
-   Forecast simulation with interpolation:
-   - Simulate day-by-day
-   - If threshold crossed between day i and i+1 => interpolate within that 24h
+   Sub-daily forward simulation (FarmVista daily inputs, scaled per step)
 ===================================================================== */
-function simulateEtaHours(nowState, fcstSeries, threshold, phys, wetBias, maxDays){
+function lerp(a,b,t){ return a + (b-a)*t; }
+
+// Build an “effective day row” at fractional position between day i and i+1.
+// This stays in the SAME canonical daily modeling universe.
+function interpDayRow(d0, d1, frac){
+  const a = d0 || {};
+  const b = d1 || d0 || {};
+  const f = clamp(frac, 0, 1);
+
+  function lerpNum(k, fallback=0){
+    const va = toNum(a[k], fallback);
+    const vb = toNum(b[k], va);
+    return lerp(va, vb, f);
+  }
+  function lerpNullable(k){
+    const va = a[k];
+    const vb = b[k];
+    if (va == null && vb == null) return null;
+    if (va == null) return vb;
+    if (vb == null) return va;
+    return lerpNum(k, 0);
+  }
+
+  return {
+    // for our math, we only need these:
+    rainIn: lerpNum('rainIn', 0),
+    tempF:  lerpNum('tempF', 0),
+    windMph:lerpNum('windMph', 0),
+    rh:     lerpNum('rh', 0),
+    solarWm2: lerpNum('solarWm2', 0),
+
+    cloudPct: lerpNullable('cloudPct'),
+    vpdKpa:   lerpNullable('vpdKpa'),
+    sm010:    lerpNullable('sm010'),
+    et0In:    lerpNullable('et0In')
+  };
+}
+
+function simulateEtaHoursSubdaily(nowState, fcstSeries, threshold, phys, wetBias, horizonHours, stepHours){
   const EXTRA = phys.EXTRA;
   const LOSS_SCALE = phys.LOSS_SCALE;
+
+  const stepH = clamp(Number(stepHours||3), 1, 12);
+  const steps = Math.ceil(horizonHours / stepH);
 
   let storage = nowState.storage;
   const f = nowState.factors;
 
   let prevReadiness = Number(nowState.readinessNow);
-  let prevHour = 0;
+  let prevT = 0;
 
-  // Sort forecast by dateISO just in case
-  const fcst = (fcstSeries || [])
-    .filter(d => d && d.dateISO)
-    .slice()
-    .sort((a,b)=> String(a.dateISO).localeCompare(String(b.dateISO)))
-    .slice(0, clamp(maxDays, 1, 16));
+  // Ensure we have enough forecast rows for the horizon. (72h => up to 3 days)
+  const fcst = (fcstSeries || []).filter(d => d && d.dateISO).slice();
+  if (!fcst.length) return null;
 
-  for (let i=0; i<fcst.length; i++){
-    const day = fcst[i];
-    const parts = calcDryPartsDay(day, EXTRA);
+  // We simulate along the forecast day index.
+  // tHours -> dayFloat = tHours/24. i = floor(dayFloat), frac = dayFloat - i
+  for (let s=1; s<=steps; s++){
+    const tHours = Math.min(horizonHours, s * stepH);
+    const dayFloat = tHours / 24;
+    const i = Math.floor(dayFloat);
+    const frac = dayFloat - i;
+
+    const d0 = fcst[Math.min(i, fcst.length - 1)];
+    const d1 = fcst[Math.min(i + 1, fcst.length - 1)];
+    const row = interpDayRow(d0, d1, frac);
+
+    // Distribute daily rain across day for sub-steps.
+    // Convert row.rainIn (daily) to rain for this step.
+    const stepRain = (toNum(row.rainIn, 0) / 24) * stepH;
+
+    const parts = calcDryPartsDay(row, EXTRA);
 
     const before = storage;
-    const rain = Number(day.rainIn || 0);
-    const rainEff = effectiveRainInches(rain, before, f.Smax, f, phys.rainTune);
 
+    const rainEff = effectiveRainInches(stepRain, before, f.Smax, f, phys.rainTune);
+
+    // Scale the “soil moisture nudge” for sub-steps (it was per-day in model)
     let add = rainEff * f.infilMult;
-    add += (EXTRA.ADD_SM010_W * parts.smN_day) * 0.05;
+    add += ((EXTRA.ADD_SM010_W * parts.smN_day) * 0.05) * (stepH / 24);
 
-    const loss = Number(parts.dryPwr||0) * LOSS_SCALE * f.dryMult * (1 + EXTRA.LOSS_ET0_W * parts.et0N);
+    // Scale loss to the step duration
+    const lossDay = Number(parts.dryPwr||0) * LOSS_SCALE * f.dryMult * (1 + EXTRA.LOSS_ET0_W * parts.et0N);
+    const loss = lossDay * (stepH / 24);
 
     storage = clamp(before + add - loss, 0, f.Smax);
 
@@ -311,23 +371,19 @@ function simulateEtaHours(nowState, fcstSeries, threshold, phys, wetBias, maxDay
     const wet = applyWetBiasToWetness(wetPhys, wetBias);
     const readiness = clamp(100 - wet, 0, 100);
 
-    const hourHere = (i + 1) * 24; // end of this forecast day (relative)
-
-    // If we crossed threshold between prev and current, interpolate.
-    // We only care about crossing upward (getting drier): readiness increasing to >= threshold.
+    // Cross upward?
     if (prevReadiness < threshold && readiness >= threshold){
-      const denom = (readiness - prevReadiness);
-      const frac = denom <= 1e-6 ? 1 : clamp((threshold - prevReadiness) / denom, 0, 1);
-      const eta = prevHour + frac * (hourHere - prevHour);
-      return Math.round(eta);
+      const denom = readiness - prevReadiness;
+      const fracCross = denom <= 1e-6 ? 1 : clamp((threshold - prevReadiness) / denom, 0, 1);
+      const eta = prevT + fracCross * (tHours - prevT);
+      return Math.max(0, Math.round(eta));
     }
 
-    // Move window forward
     prevReadiness = readiness;
-    prevHour = hourHere;
+    prevT = tHours;
   }
 
-  return null; // no crossing found in forecast window
+  return null;
 }
 
 /* =====================================================================
@@ -351,11 +407,16 @@ export async function predictDryForField(fieldId, params, opts){
   }
 
   const hist = Array.isArray(wx.hist) ? wx.hist : [];
-  const fcst = Array.isArray(wx.fcst) ? wx.fcst : [];
+  const fcstRaw = Array.isArray(wx.fcst) ? wx.fcst : [];
 
   if (!hist.length){
     return { ok:false, status:'noData', fieldId, readinessNow:null, hoursUntilDry:null, message:'Weather history series is empty.' };
   }
+
+  // limit forecast days to what caller requests (still uses your canonical daily forecast series)
+  const fcst = fcstRaw
+    .filter(d => d && d.dateISO)
+    .slice(0, clamp(maxSimDays, 1, 16));
 
   const phys = {
     LOSS_SCALE: isNum(opts && opts.LOSS_SCALE) ? Number(opts.LOSS_SCALE) : FV_PHYS_DEFAULTS.LOSS_SCALE,
@@ -378,17 +439,17 @@ export async function predictDryForField(fieldId, params, opts){
     return { ok:true, status:'noForecast', fieldId, readinessNow, readinessAt72:null, hoursUntilDry:null, threshold, message:'No forecast series cached yet (dailySeriesFcst missing).' };
   }
 
-  const eta = simulateEtaHours(
+  const stepH = clamp(Number(T.STEP_HOURS || 3), 1, 12);
+
+  const eta = simulateEtaHoursSubdaily(
     nowState,
     fcst,
     threshold,
     phys,
     wetBias,
-    maxSimDays
+    horizonHours,
+    stepH
   );
-
-  // We can also compute readinessAt72 in a rough way (optional). Keep null to avoid lying.
-  const readinessAt72 = null;
 
   if (eta !== null && eta <= horizonHours){
     return {
@@ -396,7 +457,7 @@ export async function predictDryForField(fieldId, params, opts){
       status: 'within72',
       fieldId,
       readinessNow,
-      readinessAt72,
+      readinessAt72: null,
       hoursUntilDry: eta,
       threshold,
       message: `Est: ~${eta} hours`
@@ -408,7 +469,7 @@ export async function predictDryForField(fieldId, params, opts){
     status: 'notWithin72',
     fieldId,
     readinessNow,
-    readinessAt72,
+    readinessAt72: null,
     hoursUntilDry: null,
     threshold,
     message: `Greater Than ${horizonHours} hours`
