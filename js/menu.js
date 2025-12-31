@@ -84,7 +84,7 @@ export const NAV_MENU = {
               perm: 'crop-planning-selector',
               icon: '🧭',
               label: 'Crop Planning Selector',
-              href: '/Farm-vista/pages/crop-production/crop-planning-selector.html',
+              href: '/Farm-vista/pages/crop-production/planning/indec.html',
               activeMatch: 'exact'
             },
             {
