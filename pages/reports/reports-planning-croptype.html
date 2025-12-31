@@ -84,6 +84,7 @@
       color:var(--accent);
       display:grid;
       place-items:center;
+      font-size:18px;
     }
     .hero-head h1{
       margin:0;
@@ -217,6 +218,9 @@
       font-weight:950;
       letter-spacing:0.10em;
       text-transform:uppercase;
+      display:flex;
+      align-items:center;
+      gap:10px;
     }
     .section-title .small{
       font-size:12px;
@@ -261,6 +265,27 @@
       white-space:nowrap;
     }
 
+    .crop-row-head{
+      display:flex;
+      justify-content:space-between;
+      align-items:baseline;
+      gap:10px;
+      margin:10px 0 8px;
+      font-size:12px;
+      font-weight:950;
+      letter-spacing:0.10em;
+      text-transform:uppercase;
+      opacity:0.95;
+    }
+    .crop-row-head small{
+      font-size:11px;
+      letter-spacing:0.06em;
+      text-transform:none;
+      opacity:0.78;
+      font-weight:900;
+      white-space:nowrap;
+    }
+
     .table{
       width:100%;
       border-collapse:separate;
@@ -288,6 +313,25 @@
     .table tr:last-child td{ border-bottom:0; }
     .right{ text-align:right; }
     .mono{ font-variant-numeric: tabular-nums; }
+
+    .crop-icon{
+      width:26px;
+      height:26px;
+      border-radius:999px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      background:rgba(59,126,70,0.10);
+      border:1px solid color-mix(in srgb, var(--border) 70%, transparent);
+      flex:0 0 auto;
+    }
+    .crop-icon svg{
+      width:16px;
+      height:16px;
+      display:block;
+      fill:currentColor;
+      color:var(--accent);
+    }
 
     .bottom-actions{ margin-top:16px; display:flex; justify-content:flex-end; }
 
@@ -393,18 +437,60 @@
       if(s.startsWith('soy')) return 'soybeans';
       return s;
     }
-    function cropLabel(c){
-      const n = normCrop(c);
-      if(n === 'corn') return 'Corn';
-      if(n === 'soybeans') return 'Soybeans';
-      if(!n) return 'Other';
-      return (n.charAt(0).toUpperCase() + n.slice(1));
+    function cropKeyForRow(r){
+      const k = normCrop(r?.crop);
+      return k ? k : 'unplanned';
+    }
+    function cropLabelFromKey(k){
+      const kk = String(k||'').toLowerCase();
+      if(kk === 'corn') return 'Corn';
+      if(kk === 'soybeans') return 'Soybeans';
+      if(kk === 'unplanned') return 'Unplanned';
+      return kk ? (kk.charAt(0).toUpperCase() + kk.slice(1)) : 'Unplanned';
     }
 
     function farmNameForId(farmId){
       const id = String(farmId||'').trim();
       const f = id ? (STATE.farmsById.get(id) || null) : null;
       return (f?.name || id || 'Unknown farm');
+    }
+
+    function svgCorn(){
+      // simple ear/leaf glyph
+      return `
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 2c2.8 1.5 5 4.8 5 8.7 0 4.6-3 8.4-5 10.8-2-2.4-5-6.2-5-10.8C7 6.8 9.2 3.5 12 2z"/>
+          <path d="M6.5 9.5c-2.6 1.4-3.8 4.2-3.5 7.2 2.8-.2 5.2-1.3 6.9-3.2-1.4-1.2-2.4-2.5-3.4-4z" opacity=".65"/>
+          <path d="M17.5 9.5c2.6 1.4 3.8 4.2 3.5 7.2-2.8-.2-5.2-1.3-6.9-3.2 1.4-1.2 2.4-2.5 3.4-4z" opacity=".65"/>
+        </svg>
+      `;
+    }
+
+    function svgSoy(){
+      // two-bean glyph
+      return `
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M9.2 3.8c3 0 5.4 2.9 5.4 6.5S12.2 18.6 9.2 18.6 3.8 15.7 3.8 12.1 6.2 3.8 9.2 3.8z"/>
+          <path d="M15.8 5.4c2.5.6 4 3.5 3.4 6.6-.6 3.1-3.1 5-5.6 4.4-2.5-.6-4-3.5-3.4-6.6.6-3.1 3.1-5 5.6-4.4z" opacity=".75"/>
+        </svg>
+      `;
+    }
+
+    function svgUnplanned(){
+      return `
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 2 1.8 20.2c-.4.7.1 1.6.9 1.6h18.6c.8 0 1.3-.9.9-1.6L12 2z"/>
+          <path d="M12 8.2c.6 0 1 .4 1 1v5.7c0 .6-.4 1-1 1s-1-.4-1-1V9.2c0-.6.4-1 1-1z" fill="#fff" opacity=".95"/>
+          <path d="M12 17.7a1.2 1.2 0 1 1 0 2.4 1.2 1.2 0 0 1 0-2.4z" fill="#fff" opacity=".95"/>
+        </svg>
+      `;
+    }
+
+    function cropIconForKey(k){
+      const kk = String(k||'').toLowerCase();
+      if(kk === 'corn') return svgCorn();
+      if(kk === 'soybeans') return svgSoy();
+      return svgUnplanned();
     }
 
     async function loadCompanyHeader(){
@@ -452,7 +538,6 @@
     async function loadAvailableYears(){
       STATE.years = [];
 
-      // try normal listing
       try{
         const snap = await getDocs(collection(STATE.db, CONFIG.PLANS_ROOT));
         const yrs = snap.docs
@@ -463,7 +548,6 @@
         STATE.years = yrs;
       }catch(_){}
 
-      // fallback probe
       if(!STATE.years.length){
         const nowY = new Date().getFullYear();
         const candidates = [];
@@ -482,7 +566,6 @@
         STATE.years = found;
       }
 
-      // last resort: keep UI alive
       if(!STATE.years.length){
         STATE.years = [new Date().getFullYear() + 1];
       }
@@ -501,7 +584,6 @@
       const yearSel = $('#filterYear');
       const years = STATE.years || [];
       const cur = yearSel?.value || '';
-
       const opts = years.map(y => `<option value="${y}">${y}</option>`).join('');
       setSelectOptions(yearSel, opts || `<option value="">No crop years found</option>`, cur);
     }
@@ -531,10 +613,8 @@
         // keep active (or missing status)
         STATE.rows = rows.filter(r => !r.status || r.status === 'active');
 
-        // stable sort (crop > farm > field)
+        // stable sort (farm > field) (we regroup in render anyway)
         STATE.rows.sort((a,b)=>{
-          const ca = (a.crop||'').localeCompare(b.crop||'');
-          if(ca) return ca;
           const fa = farmNameForId(a.farmId).localeCompare(farmNameForId(b.farmId));
           if(fa) return fa;
           return (a.fieldName||'').localeCompare(b.fieldName||'');
@@ -569,27 +649,38 @@
     function getFilters(){
       return {
         year: ($('#filterYear')?.value || ''),
-        farm: ($('#filterFarm')?.value || 'all')
+        farm: ($('#filterFarm')?.value || 'all'),
+        crop: ($('#filterCrop')?.value || 'all'),     // all | corn | soybeans | unplanned
+        view: ($('#filterView')?.value || 'cropFirst') // cropFirst | farmFirst
       };
     }
 
     function applyFilters(){
-      const { farm } = getFilters();
+      const { farm, crop } = getFilters();
       const f = String(farm || 'all');
+      const c = String(crop || 'all').toLowerCase();
 
-      const rows = STATE.rows || [];
-      STATE.filtered = (f === 'all')
-        ? rows.slice()
-        : rows.filter(r => String(r.farmId||'') === f);
+      let out = (STATE.rows || []);
 
+      if(f !== 'all'){
+        out = out.filter(r => String(r.farmId||'') === f);
+      }
+
+      if(c !== 'all'){
+        out = out.filter(r => cropKeyForRow(r) === c);
+      }
+
+      STATE.filtered = out;
       render();
     }
 
     function calcKpis(rows){
       const totalFields = rows.length;
       const totalAcres = rows.reduce((s,r)=>s + safeNum(r.acres), 0);
-      const cornAcres = rows.filter(r=>r.crop==='corn').reduce((s,r)=>s + safeNum(r.acres), 0);
-      const soyAcres  = rows.filter(r=>r.crop==='soybeans').reduce((s,r)=>s + safeNum(r.acres), 0);
+
+      const cornAcres = rows.filter(r=>cropKeyForRow(r)==='corn').reduce((s,r)=>s + safeNum(r.acres), 0);
+      const soyAcres  = rows.filter(r=>cropKeyForRow(r)==='soybeans').reduce((s,r)=>s + safeNum(r.acres), 0);
+      const unpAcres  = rows.filter(r=>cropKeyForRow(r)==='unplanned').reduce((s,r)=>s + safeNum(r.acres), 0);
 
       const farmCount = new Set(rows.map(r=>String(r.farmId||'')).filter(Boolean)).size;
 
@@ -599,13 +690,13 @@
         if(d && (!last || d.getTime() > last.getTime())) last = d;
       });
 
-      return { totalFields, totalAcres, cornAcres, soyAcres, farmCount, lastUpdated:last };
+      return { totalFields, totalAcres, cornAcres, soyAcres, unpAcres, farmCount, lastUpdated:last };
     }
 
-    function groupByCropThenFarm(rows){
-      const cropMap = new Map(); // crop -> farmName -> rows
+    function groupCropThenFarm(rows){
+      const cropMap = new Map(); // cropKey -> farmName -> rows
       rows.forEach(r=>{
-        const c = r.crop || 'other';
+        const c = cropKeyForRow(r);
         if(!cropMap.has(c)) cropMap.set(c, new Map());
         const farmName = farmNameForId(r.farmId);
         const fm = cropMap.get(c);
@@ -613,25 +704,46 @@
         fm.get(farmName).push(r);
       });
 
-      // sort crops (corn, soybeans, other)
-      const keys = Array.from(cropMap.keys()).sort((a,b)=>{
-        const order = (x)=> x==='corn'?0 : x==='soybeans'?1 : 2;
-        return order(a) - order(b) || String(a).localeCompare(String(b));
-      });
+      const cropOrder = (k)=> k==='corn'?0 : k==='soybeans'?1 : k==='unplanned'?2 : 3;
+      const cropKeys = Array.from(cropMap.keys()).sort((a,b)=> cropOrder(a)-cropOrder(b) || a.localeCompare(b));
 
-      return keys.map(k=>{
-        const fm = cropMap.get(k);
+      return cropKeys.map(c=>{
+        const fm = cropMap.get(c);
         const farms = Array.from(fm.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
         farms.forEach(([_, arr])=>{
           arr.sort((a,b)=>(a.fieldName||'').localeCompare(b.fieldName||''));
         });
-        return [k, farms];
+        return [c, farms];
       });
     }
 
-    function buildFarmTable(rows){
+    function groupFarmThenCrop(rows){
+      const farmMap = new Map(); // farmName -> cropKey -> rows
+      rows.forEach(r=>{
+        const farmName = farmNameForId(r.farmId);
+        if(!farmMap.has(farmName)) farmMap.set(farmName, new Map());
+        const cm = farmMap.get(farmName);
+        const c = cropKeyForRow(r);
+        if(!cm.has(c)) cm.set(c, []);
+        cm.get(c).push(r);
+      });
+
+      const farms = Array.from(farmMap.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
+      const cropOrder = (k)=> k==='corn'?0 : k==='soybeans'?1 : k==='unplanned'?2 : 3;
+
+      return farms.map(([farmName, cm])=>{
+        const crops = Array.from(cm.entries()).sort((a,b)=> cropOrder(a[0]) - cropOrder(b[0]) || a[0].localeCompare(b[0]));
+        crops.forEach(([_, arr])=>{
+          arr.sort((a,b)=>(a.fieldName||'').localeCompare(b.fieldName||''));
+        });
+        return [farmName, crops];
+      });
+    }
+
+    function buildTableFieldAcres(rows){
       if(!rows.length) return `<div class="empty">No fields match the current filters.</div>`;
       const acres = rows.reduce((s,r)=>s + safeNum(r.acres), 0);
+
       return `
         <div class="card">
           <table class="table" role="table">
@@ -663,6 +775,7 @@
     function render(){
       const rows = STATE.filtered || [];
       const k = calcKpis(rows);
+      const { view } = getFilters();
 
       const metaEl = $('#cpCount');
       if(metaEl){
@@ -678,81 +791,202 @@
       $('#kpiCorn').textContent   = fmt2.format(k.cornAcres);
       $('#kpiSoy').textContent    = fmt2.format(k.soyAcres);
 
-      const grouped = groupByCropThenFarm(rows);
+      const body = $('#reportBody');
+      body.innerHTML = '';
 
-      // clear sections
-      $('#secCorn').innerHTML = '';
-      $('#secSoy').innerHTML = '';
-      $('#secOther').innerHTML = '';
-
-      let cornRows = rows.filter(r=>r.crop==='corn');
-      let soyRows  = rows.filter(r=>r.crop==='soybeans');
-      let othRows  = rows.filter(r=>r.crop && r.crop!=='corn' && r.crop!=='soybeans');
-      if(!othRows.length){
-        // include "other" also for empty crop string
-        othRows = rows.filter(r=>!r.crop || (r.crop!=='corn' && r.crop!=='soybeans'));
+      if(!rows.length){
+        body.innerHTML = `<div class="empty">No crop plan fields match the current filters.</div>`;
+        return;
       }
 
-      const cornAc = cornRows.reduce((s,r)=>s + safeNum(r.acres), 0);
-      const soyAc  = soyRows.reduce((s,r)=>s + safeNum(r.acres), 0);
-      const othAc  = othRows.reduce((s,r)=>s + safeNum(r.acres), 0);
+      if(view === 'farmFirst'){
+        // Farm → Crop
+        const farms = groupFarmThenCrop(rows);
 
-      $('#cornSmall').textContent = `${fmt0.format(cornRows.length)} field${cornRows.length===1?'':'s'} • ${fmt2.format(cornAc)} ac`;
-      $('#soySmall').textContent  = `${fmt0.format(soyRows.length)} field${soyRows.length===1?'':'s'} • ${fmt2.format(soyAc)} ac`;
-      $('#othWrap').style.display = othRows.length ? 'block' : 'none';
-      $('#othSmall').textContent  = `${fmt0.format(othRows.length)} field${othRows.length===1?'':'s'} • ${fmt2.format(othAc)} ac`;
+        farms.forEach(([farmName, crops])=>{
+          const farmAc = crops.flatMap(([,arr])=>arr).reduce((s,r)=>s + safeNum(r.acres), 0);
+          const farmCt = crops.flatMap(([,arr])=>arr).length;
 
-      // build each section from grouped (so farms are inside crop)
-      grouped.forEach(([cropKey, farms])=>{
-        const label = cropLabel(cropKey);
-        const host =
-          (cropKey === 'corn') ? $('#secCorn') :
-          (cropKey === 'soybeans') ? $('#secSoy') :
-          $('#secOther');
-
-        if(!host) return;
-
-        // If host is other and other is hidden, still allow build (it won't show)
-        farms.forEach(([farmName, arr])=>{
-          const farmAc = arr.reduce((s,r)=>s + safeNum(r.acres), 0);
-
-          const head = document.createElement('div');
-          head.className = 'farm-head';
-          head.innerHTML = `
-            <div>${escapeHtml(farmName)}</div>
-            <small>${fmt0.format(arr.length)} field${arr.length===1?'':'s'} • ${fmt2.format(farmAc)} ac</small>
+          const farmHead = document.createElement('div');
+          farmHead.className = 'section';
+          farmHead.innerHTML = `
+            <div class="section-title" style="margin-bottom:10px;">
+              <h2 style="text-transform:uppercase; letter-spacing:.10em; font-weight:950;">
+                <span class="crop-icon" style="background:rgba(59,126,70,0.08);"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v2H4zM4 11h16v2H4zM4 16h10v2H4z"/></svg></span>
+                ${escapeHtml(farmName)}
+              </h2>
+              <div class="small">${fmt0.format(farmCt)} fields • ${fmt2.format(farmAc)} ac</div>
+            </div>
           `;
-          host.appendChild(head);
+          body.appendChild(farmHead);
 
-          const wrap = document.createElement('div');
-          wrap.innerHTML = buildFarmTable(arr);
-          host.appendChild(wrap);
+          crops.forEach(([cropKey, arr])=>{
+            const ac = arr.reduce((s,r)=>s + safeNum(r.acres), 0);
+            const cropHead = document.createElement('div');
+            cropHead.className = 'crop-row-head';
+            cropHead.innerHTML = `
+              <div style="display:flex;align-items:center;gap:10px;">
+                <span class="crop-icon">${cropIconForKey(cropKey)}</span>
+                <span>${escapeHtml(cropLabelFromKey(cropKey))}</span>
+              </div>
+              <small>${fmt0.format(arr.length)} fields • ${fmt2.format(ac)} ac</small>
+            `;
+            body.appendChild(cropHead);
+
+            const wrap = document.createElement('div');
+            wrap.innerHTML = buildTableFieldAcres(arr);
+            body.appendChild(wrap);
+          });
         });
-      });
 
-      // If corn/soy have no farms, show empty
-      if(!cornRows.length) $('#secCorn').innerHTML = `<div class="empty">No planned corn fields match the current filters.</div>`;
-      if(!soyRows.length)  $('#secSoy').innerHTML  = `<div class="empty">No planned soybean fields match the current filters.</div>`;
-      if($('#secOther').innerHTML.trim()==='' && othRows.length){
-        // should not happen, but safe
-        $('#secOther').innerHTML = `<div class="empty">No “other crop” fields match the current filters.</div>`;
+      } else {
+        // Crop → Farm
+        const grouped = groupCropThenFarm(rows);
+
+        grouped.forEach(([cropKey, farms])=>{
+          const flat = farms.flatMap(([,arr])=>arr);
+          const cropAc = flat.reduce((s,r)=>s + safeNum(r.acres), 0);
+
+          const sec = document.createElement('section');
+          sec.className = 'section';
+          sec.innerHTML = `
+            <div class="section-title">
+              <h2>
+                <span class="crop-icon">${cropIconForKey(cropKey)}</span>
+                ${escapeHtml(cropLabelFromKey(cropKey))}
+              </h2>
+              <div class="small">${fmt0.format(flat.length)} fields • ${fmt2.format(cropAc)} ac</div>
+            </div>
+          `;
+          body.appendChild(sec);
+
+          farms.forEach(([farmName, arr])=>{
+            const farmAc = arr.reduce((s,r)=>s + safeNum(r.acres), 0);
+
+            const head = document.createElement('div');
+            head.className = 'farm-head';
+            head.innerHTML = `
+              <div>${escapeHtml(farmName)}</div>
+              <small>${fmt0.format(arr.length)} fields • ${fmt2.format(farmAc)} ac</small>
+            `;
+            body.appendChild(head);
+
+            const wrap = document.createElement('div');
+            wrap.innerHTML = buildTableFieldAcres(arr);
+            body.appendChild(wrap);
+          });
+        });
       }
     }
 
     function summarizeFilters(){
-      const { year, farm } = getFilters();
+      const { year, farm, crop, view } = getFilters();
       const yTxt = year ? `Crop Year: ${year}` : 'Crop Year: —';
       const fTxt = (farm === 'all') ? 'All farms' : `Farm: ${farmNameForId(farm)}`;
-      return `${yTxt} • ${fTxt}`;
+      const cTxt = (crop === 'all') ? 'All crops' : `Crop: ${cropLabelFromKey(crop)}`;
+      const vTxt = (view === 'farmFirst') ? 'View: Farm → Crop' : 'View: Crop → Farm';
+      return `${yTxt} • ${fTxt} • ${cTxt} • ${vTxt}`;
     }
 
     function groupForPdf(rows){
-      // crop -> farm -> rows
-      return groupByCropThenFarm(rows);
+      const { view } = getFilters();
+      if(view === 'farmFirst'){
+        return { mode:'farmFirst', data: groupFarmThenCrop(rows) };
+      }
+      return { mode:'cropFirst', data: groupCropThenFarm(rows) };
     }
 
     function buildPrintHtml({ company, runStr, runDateOnly, filterSummary, kpis, grouped }){
       const esc = escapeHtml;
+
+      const fmtA2 = (n)=> fmt2.format(Number.isFinite(+n)?+n:0);
+
+      const renderTable = (rows)=>`
+        <table role="table" style="width:100%; border-collapse:separate; border-spacing:0; border:1px solid #D1D5DB; border-radius:12px; overflow:hidden;">
+          <thead>
+            <tr>
+              <th style="padding:9px 10px; border-bottom:1px solid #EEF2F7; font-size:11px; text-transform:uppercase; letter-spacing:.10em; font-weight:950; color:#6B7280; background:rgba(59,126,70,0.06);">Field</th>
+              <th style="padding:9px 10px; border-bottom:1px solid #EEF2F7; font-size:11px; text-transform:uppercase; letter-spacing:.10em; font-weight:950; color:#6B7280; background:rgba(59,126,70,0.06); text-align:right;">Acres</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(r=>`
+              <tr>
+                <td style="padding:9px 10px; border-bottom:1px solid #EEF2F7; font-size:11px;">${esc(r.fieldName || '—')}</td>
+                <td style="padding:9px 10px; border-bottom:1px solid #EEF2F7; font-size:11px; text-align:right; font-variant-numeric:tabular-nums;">${esc(fmtA2(r.acres))}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td style="padding:9px 10px; font-size:11px; font-weight:950;">Total</td>
+              <td style="padding:9px 10px; font-size:11px; font-weight:950; text-align:right; font-variant-numeric:tabular-nums;">${esc(fmtA2(rows.reduce((s,r)=>s+safeNum(r.acres),0)))}</td>
+            </tr>
+          </tfoot>
+        </table>
+      `;
+
+      const renderCropFirst = () => {
+        const blocks = grouped.data.map(([cropKey, farms])=>{
+          const flat = farms.flatMap(([,arr])=>arr);
+          const cropAc = flat.reduce((s,r)=>s+safeNum(r.acres),0);
+          return `
+            <section style="margin-top:16px; border-top:1px solid #EEF2F7; padding-top:14px;">
+              <div style="display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:12px; font-weight:950; letter-spacing:.10em; text-transform:uppercase; margin:0 0 8px;">
+                <span>${esc(cropLabelFromKey(cropKey))}</span>
+                <span style="font-size:11px; color:#6B7280; letter-spacing:.06em; text-transform:none; font-weight:900;">
+                  ${flat.length} fields • ${esc(fmtA2(cropAc))} ac
+                </span>
+              </div>
+
+              ${farms.map(([farmName, arr])=>{
+                const farmAc = arr.reduce((s,r)=>s+safeNum(r.acres),0);
+                return `
+                  <div style="margin:10px 0 6px; display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:11px; font-weight:950; letter-spacing:.10em; text-transform:uppercase;">
+                    <span>${esc(farmName)}</span>
+                    <span style="font-size:11px; color:#6B7280; letter-spacing:.06em; text-transform:none; font-weight:900; white-space:nowrap;">
+                      ${arr.length} fields • ${esc(fmtA2(farmAc))} ac
+                    </span>
+                  </div>
+                  ${renderTable(arr)}
+                `;
+              }).join('')}
+            </section>
+          `;
+        }).join('');
+        return blocks;
+      };
+
+      const renderFarmFirst = () => {
+        const blocks = grouped.data.map(([farmName, crops])=>{
+          const flat = crops.flatMap(([,arr])=>arr);
+          const farmAc = flat.reduce((s,r)=>s+safeNum(r.acres),0);
+          return `
+            <section style="margin-top:16px; border-top:1px solid #EEF2F7; padding-top:14px;">
+              <div style="display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:12px; font-weight:950; letter-spacing:.10em; text-transform:uppercase; margin:0 0 8px;">
+                <span>${esc(farmName)}</span>
+                <span style="font-size:11px; color:#6B7280; letter-spacing:.06em; text-transform:none; font-weight:900;">
+                  ${flat.length} fields • ${esc(fmtA2(farmAc))} ac
+                </span>
+              </div>
+
+              ${crops.map(([cropKey, arr])=>{
+                const ac = arr.reduce((s,r)=>s+safeNum(r.acres),0);
+                return `
+                  <div style="margin:10px 0 6px; display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:11px; font-weight:950; letter-spacing:.10em; text-transform:uppercase;">
+                    <span>${esc(cropLabelFromKey(cropKey))}</span>
+                    <span style="font-size:11px; color:#6B7280; letter-spacing:.06em; text-transform:none; font-weight:900; white-space:nowrap;">
+                      ${arr.length} fields • ${esc(fmtA2(ac))} ac
+                    </span>
+                  </div>
+                  ${renderTable(arr)}
+                `;
+              }).join('')}
+            </section>
+          `;
+        }).join('');
+        return blocks;
+      };
 
       return `<!doctype html>
 <html>
@@ -805,18 +1039,6 @@
     .kpi .val{font-size:18px;font-weight:950;margin-top:2px;}
     .kpi .note{font-size:10px;color:var(--fv-muted);margin-top:2px;line-height:1.25;}
 
-    .section{ margin-top:16px; border-top:1px solid #EEF2F7; padding-top:14px; }
-    .sec-title{ font-size:12px; font-weight:950; letter-spacing:0.10em; text-transform:uppercase; margin:0 0 8px; display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
-    .farm-title{ font-size:11px; font-weight:950; letter-spacing:0.10em; text-transform:uppercase; margin:10px 0 6px; display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
-    .farm-title small{ font-size:11px; color:var(--fv-muted); letter-spacing:0.06em; text-transform:none; font-weight:900; white-space:nowrap; }
-
-    table{ width:100%; border-collapse:separate; border-spacing:0; border:1px solid var(--fv-border); border-radius:12px; overflow:hidden; }
-    th, td{ padding:9px 10px; border-bottom:1px solid #EEF2F7; font-size:11px; }
-    th{ text-transform:uppercase; letter-spacing:0.10em; font-weight:950; color:var(--fv-muted); background:rgba(59,126,70,0.06); }
-    tr:last-child td{ border-bottom:0; }
-    .right{text-align:right;}
-    .mono{font-variant-numeric:tabular-nums;}
-
     .footer{ margin-top:16px; padding-top:10px; border-top:1px solid var(--fv-border); display:flex; justify-content:space-between; gap:12px; font-size:10px; color:var(--fv-muted); line-height:1.3; }
 
     @media (max-width:860px){
@@ -854,8 +1076,8 @@
       </div>
     </header>
 
-    <h1 class="title">Crop Plan — By Crop Type</h1>
-    <p class="subtitle">Planned crop assignments by crop type, grouped by farm.</p>
+    <h1 class="title">Crop Plan — Summary</h1>
+    <p class="subtitle">Planned crop assignments with optional Unplanned view. Layout follows your chosen View Mode.</p>
 
     <div class="summary">
       <div class="pill"><span class="k">Filters</span><span class="v">${esc(filterSummary)}</span></div>
@@ -870,54 +1092,7 @@
       <div class="kpi"><div class="lab">Soy Acres</div><div class="val">${esc(fmt2.format(kpis.soyAcres))}</div><div class="note">Planned soybeans</div></div>
     </div>
 
-    ${grouped.map(([cropKey, farms]) => {
-      const flat = farms.flatMap(([,arr])=>arr);
-      const cropAc = flat.reduce((s,r)=>s + (Number.isFinite(+r.acres)?+r.acres:0), 0);
-
-      return `
-        <section class="section">
-          <div class="sec-title">
-            <span>${esc(cropLabel(cropKey))}</span>
-            <span style="font-size:11px;color:var(--fv-muted);letter-spacing:0.06em;text-transform:none;font-weight:900;">
-              ${flat.length} field${flat.length===1?'':'s'} • ${esc(fmt2.format(cropAc))} ac
-            </span>
-          </div>
-
-          ${farms.map(([farmName, arr]) => {
-            const farmAc = arr.reduce((s,r)=>s + (Number.isFinite(+r.acres)?+r.acres:0), 0);
-            return `
-              <div class="farm-title">
-                <span>${esc(farmName)}</span>
-                <small>${arr.length} field${arr.length===1?'':'s'} • ${esc(fmt2.format(farmAc))} ac</small>
-              </div>
-
-              <table role="table">
-                <thead>
-                  <tr>
-                    <th>Field</th>
-                    <th class="right">Acres</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${arr.map(r => `
-                    <tr>
-                      <td>${esc(r.fieldName || '—')}</td>
-                      <td class="right mono">${esc(fmt2.format(Number.isFinite(+r.acres)?+r.acres:0))}</td>
-                    </tr>
-                  `).join('')}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td style="font-weight:950;">Total</td>
-                    <td class="right mono" style="font-weight:950;">${esc(fmt2.format(farmAc))}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            `;
-          }).join('')}
-        </section>
-      `;
-    }).join('')}
+    ${grouped.mode === 'farmFirst' ? renderFarmFirst() : renderCropFirst()}
 
     <footer class="footer">
       <div>Generated from Firestore: ${esc(CONFIG.PLANS_ROOT)}/{year}/fields</div>
@@ -971,32 +1146,23 @@
     }
 
     function wireEvents(){
-      const backBtn = $('#btnBack');
-      if(backBtn){
-        backBtn.addEventListener('click', () => {
-          location.href = '/Farm-vista/pages/reports/reports-predefined.html';
-        });
-      }
+      $('#btnBack')?.addEventListener('click', () => {
+        location.href = '/Farm-vista/pages/reports/reports-predefined.html';
+      });
 
-      const yearSel = $('#filterYear');
-      if(yearSel){
-        yearSel.addEventListener('change', async () => {
-          const { year } = getFilters();
-          await loadPlansForYear(year);
-          hydrateFarmDropdown();
-          applyFilters();
-        });
-      }
+      $('#filterYear')?.addEventListener('change', async () => {
+        const { year } = getFilters();
+        await loadPlansForYear(year);
+        hydrateFarmDropdown();
+        applyFilters();
+      });
 
-      const farmSel = $('#filterFarm');
-      if(farmSel){
-        farmSel.addEventListener('change', () => applyFilters());
-      }
+      $('#filterFarm')?.addEventListener('change', () => applyFilters());
+      $('#filterCrop')?.addEventListener('change', () => applyFilters());
+      $('#filterView')?.addEventListener('change', () => render());
 
-      const printTop = $('#btnPrint');
-      const printBottom = $('#btnPrintBottom');
-      if (printTop)    printTop.addEventListener('click', handlePrintClick);
-      if (printBottom) printBottom.addEventListener('click', handlePrintClick);
+      $('#btnPrint')?.addEventListener('click', handlePrintClick);
+      $('#btnPrintBottom')?.addEventListener('click', handlePrintClick);
     }
 
     (async function boot(){
@@ -1009,7 +1175,7 @@
       await Promise.all([ loadFarms(), loadAvailableYears() ]);
       hydrateYearDropdown();
 
-      // default to newest
+      // default to newest year
       const yearSel = $('#filterYear');
       const defaultYear = yearSel?.value || String(STATE.years?.[0] || '');
       if(yearSel && defaultYear) yearSel.value = defaultYear;
@@ -1030,10 +1196,10 @@
         <header class="hero-head">
           <div class="icon" aria-hidden="true">🗂️</div>
           <div>
-            <h1>Crop Plan — By Crop Type</h1>
+            <h1>Crop Plan — Flexible View</h1>
             <p class="muted">
-              Pulls planned crop assignments from <strong>field_crop_plans</strong>.
-              Filters are <strong>Crop Year</strong> and <strong>Farm</strong> only.
+              Filters: <strong>Crop Year</strong>, <strong>Farm</strong>, <strong>Crop Type</strong>.
+              View Mode lets you switch between <strong>Crop → Farm</strong> and <strong>Farm → Crop</strong>.
             </p>
           </div>
         </header>
@@ -1062,6 +1228,24 @@
                   <option value="all">All farms</option>
                 </select>
               </div>
+
+              <div class="filter-field">
+                <label class="filter-label" for="filterCrop">Crop Type</label>
+                <select id="filterCrop" class="filter-select">
+                  <option value="all">All</option>
+                  <option value="corn">Corn</option>
+                  <option value="soybeans">Soybeans</option>
+                  <option value="unplanned">Unplanned</option>
+                </select>
+              </div>
+
+              <div class="filter-field">
+                <label class="filter-label" for="filterView">View Mode</label>
+                <select id="filterView" class="filter-select">
+                  <option value="cropFirst">Crop → Farm</option>
+                  <option value="farmFirst">Farm → Crop</option>
+                </select>
+              </div>
             </div>
           </div>
 
@@ -1088,33 +1272,10 @@
             </div>
           </div>
 
-          <section class="section" aria-label="Corn plan">
-            <div class="section-title">
-              <h2>🌽 Corn</h2>
-              <div class="small" id="cornSmall">0 fields • 0.00 ac</div>
-            </div>
-            <div id="secCorn">
-              <div class="empty">Loading crop plan…</div>
-            </div>
-          </section>
-
-          <section class="section" aria-label="Soybean plan">
-            <div class="section-title">
-              <h2>🫘 Soybeans</h2>
-              <div class="small" id="soySmall">0 fields • 0.00 ac</div>
-            </div>
-            <div id="secSoy">
-              <div class="empty">Loading crop plan…</div>
-            </div>
-          </section>
-
-          <section class="section" id="othWrap" aria-label="Other crops" style="display:none;">
-            <div class="section-title">
-              <h2>📌 Other</h2>
-              <div class="small" id="othSmall">0 fields • 0.00 ac</div>
-            </div>
-            <div id="secOther"></div>
-          </section>
+          <!-- Dynamic body (Crop→Farm or Farm→Crop) -->
+          <div id="reportBody">
+            <div class="empty">Loading crop plan…</div>
+          </div>
 
           <div class="bottom-actions">
             <button id="btnPrintBottom" type="button" class="btn btn-primary">Print / Save PDF</button>
