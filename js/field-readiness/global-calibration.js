@@ -1,16 +1,17 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/global-calibration.js  (FULL FILE)
-Rev: 2025-12-28f
+Rev: 2025-12-31a
 
 Change (per Dane):
-✅ Global calibration "wet vs dry" is now OPERATION-INDEPENDENT.
-   - We do NOT use operation threshold to decide wet/dry status anymore.
-   - We use the model wetness itself as the truth:
-       wetnessR >= 50  -> status = 'wet'
-       wetnessR <  50  -> status = 'dry'
-   This keeps the same guardrail rule you wanted:
-   - If status is wet  -> "Wet" is disabled; only "Dry" allowed; slider can't move wetter.
-   - If status is dry  -> "Dry" is disabled; only "Wet" allowed; slider can't move drier.
+✅ Global calibration "wet vs dry" is now OPERATION-THRESHOLD DRIVEN (dynamic).
+   - Uses CURRENT operation threshold as the wet/dry trigger:
+       readinessR >= threshold  -> status = 'dry'
+       readinessR <  threshold  -> status = 'wet'
+   - Includes small hysteresis band so it doesn’t flip-flop near the threshold.
+
+Guardrail rule (kept):
+- If status is wet  -> "Wet" is disabled; only "Dry" allowed; slider can't move wetter.
+- If status is dry  -> "Dry" is disabled; only "Wet" allowed; slider can't move drier.
 
 Keeps:
 ✅ Lock logic (field_readiness_model_weights) unchanged
@@ -18,10 +19,10 @@ Keeps:
 ✅ Uses selected field as reference and shows it under "Adjust"
 ✅ Still logs op + threshold for context in the adjustment doc
 ✅ Still writes to field_readiness_adjustments (global:true) + dispatches fr:soft-reload
+✅ Model run still passes CAL + opKey for consistency
 
 NOTE:
-- For consistency with your newly calibrated model, we also pass CAL into the model
-  if state._cal exists (set by render.js).
+- This is a “trigger” for calibration UI only. It does NOT change the physics model.
 ===================================================================== */
 'use strict';
 
@@ -38,6 +39,16 @@ function esc(s){
     .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
     .replaceAll('"','&quot;').replaceAll("'","&#039;");
 }
+
+/* =====================================================================
+   OP-THRESHOLD WET/DRY TRIGGER TUNING
+   - HYSTERESIS prevents flip-flop when readiness is near threshold.
+   - Example: threshold 70, band 2:
+       dry if readiness >= 72
+       wet if readiness <= 68
+       69-71 => keep previous status
+===================================================================== */
+const STATUS_HYSTERESIS = 2;
 
 /* =========================
    FV THEME PATCH (Adjust + Confirm)
@@ -224,7 +235,6 @@ function getSelectedField(state){
 }
 
 function getCalForModel(state){
-  // render.js may set state._cal for calibration; if not present, default to none
   try{
     if (state && state._cal && typeof state._cal === 'object') return state._cal;
   }catch(_){}
@@ -237,7 +247,6 @@ function getRunForField(state, f){
 
   const wxCtx = buildWxCtx(state);
 
-  // IMPORTANT: we pass CAL + opKey so the run matches what users see elsewhere
   const opKey = getCurrentOp();
 
   const deps = {
@@ -255,13 +264,35 @@ function getRunForField(state, f){
 }
 
 /* =========================
-   OPERATION-INDEPENDENT wet/dry truth
-   - Uses model wetness itself
-   - Fixed split at wetnessR >= 50 (wet) else dry
+   CURRENT OP THRESHOLD (dynamic)
 ========================= */
-function statusFromWetness(run){
-  const w = clamp(Math.round(Number(run?.wetnessR ?? 0)), 0, 100);
-  return (w >= 50) ? 'wet' : 'dry';
+function currentThreshold(state){
+  const opKey = getCurrentOp();
+  const v = state.thresholdsByOp && state.thresholdsByOp.get ? state.thresholdsByOp.get(opKey) : null;
+  const thr = isFinite(Number(v)) ? Number(v) : 70;
+  return clamp(Math.round(thr), 0, 100);
+}
+
+/* =========================
+   OP-THRESHOLD wet/dry truth (dynamic + hysteresis)
+   - Uses readiness and current op threshold
+========================= */
+function statusFromReadinessAndThreshold(state, run, thr){
+  const r = clamp(Math.round(Number(run?.readinessR ?? 0)), 0, 100);
+  const t = clamp(Math.round(Number(thr ?? 70)), 0, 100);
+  const band = clamp(Math.round(Number(STATUS_HYSTERESIS)), 0, 10);
+
+  // If far enough above threshold -> dry
+  if (r >= (t + band)) return 'dry';
+
+  // If far enough below threshold -> wet
+  if (r <= (t - band)) return 'wet';
+
+  // In the middle band -> keep previous if we have it; otherwise decide by simple compare
+  const prev = String(state?._adjStatus || '');
+  if (prev === 'wet' || prev === 'dry') return prev;
+
+  return (r >= t) ? 'dry' : 'wet';
 }
 
 /* =========================
@@ -377,7 +408,6 @@ function renderCooldownCard(state){
 
 /* =========================
    Slider anchoring + clamp (YOUR RULE)
-   (anchor is readiness; clamp prevents making it worse)
 ========================= */
 function sliderEl(){ return $('adjIntensity'); }
 function sliderVal(){
@@ -498,11 +528,21 @@ function updatePills(state, run){
   const fid = state.selectedFieldId;
   const p = getFieldParams(state, fid);
 
+  const thr = currentThreshold(state);
+
   setText('adjReadiness', run ? run.readinessR : '—');
   setText('adjWetness', run ? run.wetnessR : '—');
   setText('adjSoil', `${p.soilWetness}/100`);
   setText('adjDrain', `${p.drainageIndex}/100`);
+
+  // Status now tied to OP threshold trigger
   setText('adjModelClass', (state._adjStatus || '—').toUpperCase());
+
+  // If you have a spot in the modal for threshold, you can wire it. Otherwise harmless.
+  try{
+    const thrEl = $('adjThreshold');
+    if (thrEl) thrEl.textContent = String(thr);
+  }catch(_){}
 }
 
 function updateUI(state){
@@ -513,8 +553,6 @@ function updateUI(state){
   const applyBtn = $('btnAdjApply');
   const s = sliderEl();
 
-  // If status is wet -> Wet disabled, only Dry allowed
-  // If status is dry -> Dry disabled, only Wet allowed
   if (bWet) bWet.disabled = locked || (state._adjStatus === 'wet');
   if (bDry) bDry.disabled = locked || (state._adjStatus === 'dry');
 
@@ -555,12 +593,19 @@ function updateUI(state){
 
   const hint = $('adjHint');
   if (hint){
+    const thr = currentThreshold(state);
+    const band = clamp(Math.round(Number(STATUS_HYSTERESIS)), 0, 10);
+
     if (locked){
       hint.textContent = 'Global calibration is locked (72h rule). Use field-specific Soil Wetness and Drainage sliders instead.';
     } else if (state._adjStatus === 'wet'){
-      hint.textContent = 'This reference field is WET (based on wetness). Only “Dry” is allowed, and the slider cannot move wetter than the current reading.';
+      hint.textContent =
+        `This reference field is WET for the current operation (Readiness below threshold ${thr}). ` +
+        `Only “Dry” is allowed. (Stability band ±${band} around threshold)`;
     } else if (state._adjStatus === 'dry'){
-      hint.textContent = 'This reference field is DRY (based on wetness). Only “Wet” is allowed, and the slider cannot move drier than the current reading.';
+      hint.textContent =
+        `This reference field is DRY for the current operation (Readiness at/above threshold ${thr}). ` +
+        `Only “Wet” is allowed. (Stability band ±${band} around threshold)`;
     } else {
       hint.textContent = 'Choose Wet or Dry.';
     }
@@ -682,13 +727,14 @@ async function openAdjust(state){
   const run = getRunForField(state, f);
   if (!run) return;
 
-  // ✅ NEW: op-independent wet/dry status
-  const status = statusFromWetness(run);
+  // ✅ NEW: op-threshold dynamic wet/dry status (with hysteresis)
+  const thr = currentThreshold(state);
+  const status = statusFromReadinessAndThreshold(state, run, thr);
 
   state._adjStatus = status;
   state._adjFeel = null;
 
-  // Anchor remains readiness (matches your current UI)
+  // Anchor remains readiness (your rule)
   state._adjAnchorReadiness = clamp(Math.round(Number(run?.readinessR ?? 50)), 0, 100);
 
   setAnchor(state, state._adjAnchorReadiness);
@@ -701,11 +747,17 @@ async function openAdjust(state){
 
   try{ if (state._cooldownTimer) clearInterval(state._cooldownTimer); }catch(_){}
   state._cooldownTimer = setInterval(async ()=>{
-    renderCooldownCard(state);
-    updateUI(state);
-
+    // refresh lock + status (in case op or readiness changed while open)
     try{ await loadCooldown(state); }catch(_){}
     renderCooldownCard(state);
+
+    const f2 = getSelectedField(state);
+    const run2 = getRunForField(state, f2);
+    if (run2){
+      const thr2 = currentThreshold(state);
+      state._adjStatus = statusFromReadinessAndThreshold(state, run2, thr2);
+      updatePills(state, run2);
+    }
     updateUI(state);
   }, 30000);
 }
@@ -721,10 +773,7 @@ function closeAdjust(state){
    Apply
 ========================= */
 function currentThresholdForLogging(state){
-  const opKey = getCurrentOp();
-  const v = state.thresholdsByOp && state.thresholdsByOp.get ? state.thresholdsByOp.get(opKey) : null;
-  const thr = isFinite(Number(v)) ? Number(v) : 70;
-  return clamp(Math.round(thr), 0, 100);
+  return currentThreshold(state);
 }
 
 async function applyAdjustment(state){
@@ -735,6 +784,10 @@ async function applyAdjustment(state){
 
   const run = getRunForField(state, f);
   if (!run) return;
+
+  // Re-evaluate status at apply time (operation might have changed)
+  const thr = currentThreshold(state);
+  state._adjStatus = statusFromReadinessAndThreshold(state, run, thr);
 
   const feel = state._adjFeel;
   if (!(feel === 'wet' || feel === 'dry')) return;
@@ -750,12 +803,10 @@ async function applyAdjustment(state){
     fieldId: f.id,
     fieldName: f.name || '',
 
-    // keep for context (doesn't control wet/dry logic anymore)
     op: getCurrentOp(),
-    threshold: currentThresholdForLogging(state),
+    threshold: thr,
 
-    // truth + direction
-    status: state._adjStatus, // wet/dry based on wetness
+    status: state._adjStatus, // wet/dry driven by op-threshold trigger
     feel,
 
     readinessAnchor: clamp(Math.round(Number(run.readinessR)), 0, 100),
@@ -815,7 +866,7 @@ function wireOnce(state){
       if (feel !== 'wet' && feel !== 'dry') return;
       if (isLocked(state)) return;
 
-      // Opposite-only enforcement
+      // Opposite-only enforcement based on current status
       if (state._adjStatus === 'wet'){
         state._adjFeel = 'dry';
       } else if (state._adjStatus === 'dry'){
