@@ -223,6 +223,9 @@
       padding:12px 14px;
     }
 
+    /* --------------------------
+       Clarity: FARM vs CROP totals
+       -------------------------- */
     .farm-head{
       display:flex;
       justify-content:space-between;
@@ -233,6 +236,11 @@
       font-weight:950;
       letter-spacing:0.10em;
       text-transform:uppercase;
+
+      padding:8px 10px;
+      border-bottom:1px solid color-mix(in srgb, var(--border) 70%, transparent);
+      background:linear-gradient(90deg, rgba(47,108,60,.07), transparent);
+      border-radius:12px;
     }
     .farm-head small{
       font-size:11px;
@@ -253,7 +261,11 @@
       font-weight:950;
       letter-spacing:0.10em;
       text-transform:uppercase;
-      opacity:0.95;
+      opacity:0.98;
+
+      padding:6px 8px;
+      border-bottom:1px dashed color-mix(in srgb, var(--border) 70%, transparent);
+      border-radius:10px;
     }
     .crop-row-head small{
       font-size:11px;
@@ -262,6 +274,26 @@
       opacity:0.78;
       font-weight:900;
       white-space:nowrap;
+    }
+
+    .tag{
+      margin-left:8px;
+      font-size:10px;
+      font-weight:950;
+      letter-spacing:.14em;
+      text-transform:uppercase;
+      color:var(--muted,#67706B);
+      padding:3px 8px;
+      border-radius:999px;
+      border:1px solid color-mix(in srgb, var(--border) 70%, transparent);
+      background:color-mix(in srgb, var(--surface) 92%, rgba(47,108,60,.08));
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      white-space:nowrap;
+    }
+    .tag.crop{
+      background:color-mix(in srgb, var(--surface) 94%, rgba(0,0,0,.02));
     }
 
     .table{
@@ -321,6 +353,44 @@
       height:0;
       border:0;
       visibility:hidden;
+    }
+
+    /* --------------------------
+       FV modal: choose Summary vs Detailed
+       -------------------------- */
+    .fv-modal-backdrop{
+      position:fixed; inset:0;
+      background:rgba(0,0,0,.35);
+      display:none;
+      z-index:12000;
+    }
+    .fv-modal{
+      position:absolute; left:50%; top:14%;
+      transform:translateX(-50%);
+      width:min(520px, calc(100vw - 28px));
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:16px;
+      box-shadow:0 16px 40px rgba(0,0,0,.25);
+      padding:14px;
+    }
+    .fv-modal h3{
+      margin:0;
+      font-size:16px;
+      font-weight:950;
+    }
+    .fv-modal p{
+      margin:6px 0 12px;
+      color:var(--muted,#67706B);
+      font-weight:800;
+      font-size:13px;
+      line-height:1.35;
+    }
+    .fv-modal .actions{
+      display:flex;
+      gap:10px;
+      justify-content:flex-end;
+      flex-wrap:wrap;
     }
   </style>
 
@@ -519,7 +589,6 @@
       }
     }
 
-    // ✅ NEW: load all ACTIVE fields once (used to compute unplanned)
     async function loadFields(){
       STATE.fields = [];
       try{
@@ -536,7 +605,6 @@
             acres: safeNum(d.acres)
           };
         });
-        // active only (planner matches active-only)
         STATE.fields = rows.filter(f => !f.status || f.status === 'active');
       }catch(e){
         console.error('[crop-plan-report] loadFields failed:', e);
@@ -595,13 +663,12 @@
       setSelectOptions(yearSel, opts || `<option value="">No crop years found</option>`, cur);
     }
 
-    // ✅ UPDATED: build rows from ALL ACTIVE FIELDS + plan overlay for selected year
     async function loadPlansForYear(yearStr){
       STATE.rows = [];
       const y = String(yearStr || '').trim();
       if(!y) return;
 
-      let planByField = new Map();
+      const planByField = new Map();
 
       try{
         const snap = await getDocs(collection(STATE.db, CONFIG.PLANS_ROOT, y, 'fields'));
@@ -611,7 +678,6 @@
             crop: d.crop,
             updatedAt: toDateMaybe(d.updatedAt),
             updatedBy: d.updatedBy || '',
-            // allow plan doc to override these if you store them there too
             farmId: d.farmId || '',
             fieldName: d.fieldName || '',
             acres: safeNum(d.acres)
@@ -621,7 +687,6 @@
         console.error('[crop-plan-report] loadPlansForYear plan read failed:', e);
       }
 
-      // Build full rows from active fields (unplanned if missing plan)
       const rows = (STATE.fields || []).map(f=>{
         const p = planByField.get(f.id) || null;
 
@@ -637,7 +702,7 @@
           farmId,
           fieldName,
           acres: safeNum(acres),
-          crop: p?.crop ?? '',            // missing => unplanned
+          crop: p?.crop ?? '',
           status: 'active',
           updatedAt: p?.updatedAt || null,
           updatedBy: p?.updatedBy || ''
@@ -820,7 +885,10 @@
           sec.className = 'section';
           sec.innerHTML = `
             <div class="farm-head" style="margin-top:0;">
-              <div>${escapeHtml(farmName)}</div>
+              <div>
+                ${escapeHtml(farmName)}
+                <span class="tag">Farm total</span>
+              </div>
               <small>${fmt0.format(flat.length)} fields • ${fmt2.format(farmAc)} ac</small>
             </div>
           `;
@@ -834,6 +902,7 @@
               <div style="display:flex;align-items:center;gap:10px;">
                 <span class="crop-icon">${cropIconForKey(cropKey)}</span>
                 <span>${escapeHtml(cropLabelFromKey(cropKey))}</span>
+                <span class="tag crop">Crop total</span>
               </div>
               <small>${fmt0.format(arr.length)} fields • ${fmt2.format(ac)} ac</small>
             `;
@@ -857,6 +926,7 @@
               <div style="display:flex;align-items:center;gap:10px;">
                 <span class="crop-icon">${cropIconForKey(cropKey)}</span>
                 <span>${escapeHtml(cropLabelFromKey(cropKey))}</span>
+                <span class="tag crop">Crop total</span>
               </div>
               <small>${fmt0.format(flat.length)} fields • ${fmt2.format(cropAc)} ac</small>
             </div>
@@ -866,9 +936,12 @@
           farms.forEach(([farmName, arr])=>{
             const farmAc = arr.reduce((s,r)=>s + safeNum(r.acres), 0);
             const head = document.createElement('div');
-            head.className = 'farm-head';
+            head.className = 'crop-row-head';
             head.innerHTML = `
-              <div>${escapeHtml(farmName)}</div>
+              <div>
+                ${escapeHtml(farmName)}
+                <span class="tag">Farm total</span>
+              </div>
               <small>${fmt0.format(arr.length)} fields • ${fmt2.format(farmAc)} ac</small>
             `;
             body.appendChild(head);
@@ -972,7 +1045,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Crop Plan — Summary</title>
+  <title>Crop Plan — Detailed</title>
   <style>
     :root{
       --g:#3B7E46;
@@ -1051,7 +1124,7 @@
       </div>
     </header>
 
-    <h1 class="title">Crop Plan — Summary</h1>
+    <h1 class="title">Crop Plan — Detailed</h1>
     <p class="subtitle">Totals print only once per table (end of crop/farm), even across page breaks.</p>
 
     <div class="summary">
@@ -1078,24 +1151,134 @@
 </html>`;
     }
 
-    async function handlePrintClick(){
-      const rows = STATE.filtered || [];
-      if(!rows.length){
-        alert('No crop plan fields match the current filters to print.');
-        return;
-      }
+    function buildPrintHtmlSummary({ company, runStr, runDateOnly, filterSummary, kpis, rows }){
+      const byFarm = new Map();
 
-      const company = await loadCompanyHeader();
-      const now = new Date();
-      const runStr = formatDateTime(now);
-      const runDateOnly = formatDate(now);
+      rows.forEach(r=>{
+        const farmName = farmNameForId(r.farmId);
+        if(!byFarm.has(farmName)){
+          byFarm.set(farmName, { name:farmName, acres:0, fields:0, corn:0, soy:0, unp:0 });
+        }
+        const o = byFarm.get(farmName);
+        const ac = safeNum(r.acres);
+        o.acres += ac;
+        o.fields += 1;
 
-      const filterSummary = summarizeFilters();
-      const kpis = calcKpis(rows);
-      const grouped = groupForPrint(rows);
+        const ck = cropKeyForRow(r);
+        if(ck === 'corn') o.corn += ac;
+        else if(ck === 'soybeans') o.soy += ac;
+        else o.unp += ac;
+      });
 
-      const html = buildPrintHtml({ company, runStr, runDateOnly, filterSummary, kpis, grouped });
+      const farms = Array.from(byFarm.values()).sort((a,b)=>a.name.localeCompare(b.name));
+      const esc = escapeHtml;
 
+      return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Crop Plan — Summary</title>
+  <style>
+    :root{--g:#3B7E46;--b:#D1D5DB;--t:#111827;--m:#6B7280;--bg:#F3F4F6;}
+    *{box-sizing:border-box;}
+    html,body{margin:0;padding:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--t);background:var(--bg);}
+    body{display:flex;justify-content:center;padding:22px 12px;}
+    .page{width:100%;max-width:920px;background:#fff;border-radius:14px;box-shadow:0 10px 30px rgba(15,23,42,0.12);padding:20px 22px 22px;}
+    .hdr{display:flex;justify-content:space-between;gap:12px;align-items:flex-end;border-bottom:2px solid var(--g);padding-bottom:12px;margin-bottom:14px;}
+    .title{margin:0;font-size:18px;font-weight:950;letter-spacing:0.06em;text-transform:uppercase;}
+    .sub{margin:4px 0 0;font-size:12px;color:var(--m);line-height:1.35;}
+    .meta{text-align:right;font-size:11px;color:var(--m);line-height:1.35;white-space:nowrap;}
+    .summary{margin-top:10px;padding:8px 10px;border-radius:12px;background:linear-gradient(90deg, rgba(59,126,70,0.10), transparent);border:1px solid rgba(59,126,70,0.22);font-size:11px;}
+    .kpis{margin-top:12px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;}
+    .kpi{border:1px solid var(--b);border-radius:12px;padding:9px 10px;background:linear-gradient(135deg, rgba(59,126,70,0.06), #fff);}
+    .kpi .lab{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--m);font-weight:900;}
+    .kpi .val{font-size:18px;font-weight:950;margin-top:2px;}
+    table{width:100%;border-collapse:separate;border-spacing:0;border:1px solid var(--b);border-radius:12px;overflow:hidden;margin-top:14px;}
+    th,td{padding:9px 10px;border-bottom:1px solid #EEF2F7;font-size:11px;}
+    th{text-transform:uppercase;letter-spacing:0.10em;font-weight:950;color:var(--m);background:rgba(59,126,70,0.06);}
+    tr:last-child td{border-bottom:0;}
+    .r{text-align:right;}
+    .mono{font-variant-numeric:tabular-nums;}
+    .footer{margin-top:12px;color:var(--m);font-size:10px;display:flex;justify-content:space-between;gap:12px;}
+    @media (max-width:860px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr));}.meta{white-space:normal;}}
+    @media print{
+      html,body{background:#fff;padding:0;}
+      body{box-shadow:none;}
+      .page{max-width:none;border-radius:0;box-shadow:none;padding:9mm 10mm;}
+      thead{display:table-header-group;}
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="hdr">
+      <div>
+        <h1 class="title">Crop Plan — Summary</h1>
+        <div class="sub">${esc(filterSummary)}</div>
+      </div>
+      <div class="meta">
+        <div><strong>${esc(company.name || 'FarmVista')}</strong></div>
+        <div>Generated: ${esc(runStr)}</div>
+      </div>
+    </div>
+
+    <div class="summary"><strong>Totals</strong> • Fields: ${kpis.totalFields} • Total Acres: ${esc(fmt2.format(kpis.totalAcres))}</div>
+
+    <div class="kpis">
+      <div class="kpi"><div class="lab">Fields</div><div class="val">${kpis.totalFields}</div></div>
+      <div class="kpi"><div class="lab">Total Acres</div><div class="val">${esc(fmt2.format(kpis.totalAcres))}</div></div>
+      <div class="kpi"><div class="lab">Corn Acres</div><div class="val">${esc(fmt2.format(kpis.cornAcres))}</div></div>
+      <div class="kpi"><div class="lab">Soy Acres</div><div class="val">${esc(fmt2.format(kpis.soyAcres))}</div></div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Farm</th>
+          <th class="r">Fields</th>
+          <th class="r">Total Acres</th>
+          <th class="r">Corn</th>
+          <th class="r">Soybeans</th>
+          <th class="r">Unplanned</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${farms.map(f=>`
+          <tr>
+            <td>${esc(f.name)}</td>
+            <td class="r mono">${fmt0.format(f.fields)}</td>
+            <td class="r mono">${esc(fmt2.format(f.acres))}</td>
+            <td class="r mono">${esc(fmt2.format(f.corn))}</td>
+            <td class="r mono">${esc(fmt2.format(f.soy))}</td>
+            <td class="r mono">${esc(fmt2.format(f.unp))}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+
+    <div class="footer">
+      <div>Computed: ${esc(CONFIG.FIELDS_COLLECTION)} + ${esc(CONFIG.PLANS_ROOT)}/{year}/fields</div>
+      <div>FarmVista • ${esc(runDateOnly || '')}</div>
+    </div>
+  </div>
+</body>
+</html>`;
+    }
+
+    function openPrintChoice(){
+      const m = document.getElementById('fvPrintChoice');
+      if(!m) return;
+      m.style.display = 'block';
+      m.setAttribute('aria-hidden','false');
+    }
+    function closePrintChoice(){
+      const m = document.getElementById('fvPrintChoice');
+      if(!m) return;
+      m.style.display = 'none';
+      m.setAttribute('aria-hidden','true');
+    }
+
+    async function printHtmlViaIframe(html){
       let iframe = document.getElementById('fv-print-frame');
       if (!iframe){
         iframe = document.createElement('iframe');
@@ -1119,6 +1302,44 @@
       }, 450);
     }
 
+    async function runPrintDetailed(){
+      const rows = STATE.filtered || [];
+      const company = await loadCompanyHeader();
+      const now = new Date();
+      const runStr = formatDateTime(now);
+      const runDateOnly = formatDate(now);
+
+      const filterSummary = summarizeFilters();
+      const kpis = calcKpis(rows);
+      const grouped = groupForPrint(rows);
+
+      const html = buildPrintHtml({ company, runStr, runDateOnly, filterSummary, kpis, grouped });
+      await printHtmlViaIframe(html);
+    }
+
+    async function runPrintSummary(){
+      const rows = STATE.filtered || [];
+      const company = await loadCompanyHeader();
+      const now = new Date();
+      const runStr = formatDateTime(now);
+      const runDateOnly = formatDate(now);
+
+      const filterSummary = summarizeFilters();
+      const kpis = calcKpis(rows);
+
+      const html = buildPrintHtmlSummary({ company, runStr, runDateOnly, filterSummary, kpis, rows });
+      await printHtmlViaIframe(html);
+    }
+
+    async function handlePrintClick(){
+      const rows = STATE.filtered || [];
+      if(!rows.length){
+        alert('No crop plan fields match the current filters to print.');
+        return;
+      }
+      openPrintChoice();
+    }
+
     function wireEvents(){
       $('#btnBack')?.addEventListener('click', () => {
         location.href = '/Farm-vista/pages/reports/reports-predefined.html';
@@ -1137,6 +1358,22 @@
 
       $('#btnPrint')?.addEventListener('click', handlePrintClick);
       $('#btnPrintBottom')?.addEventListener('click', handlePrintClick);
+
+      // FV modal buttons
+      document.getElementById('btnPrintCancel')?.addEventListener('click', closePrintChoice);
+      document.getElementById('btnPrintDetailed')?.addEventListener('click', async ()=>{
+        closePrintChoice();
+        await runPrintDetailed();
+      });
+      document.getElementById('btnPrintSummary')?.addEventListener('click', async ()=>{
+        closePrintChoice();
+        await runPrintSummary();
+      });
+
+      // close modal by clicking backdrop
+      document.getElementById('fvPrintChoice')?.addEventListener('click', (e)=>{
+        if(e.target && e.target.id === 'fvPrintChoice') closePrintChoice();
+      });
     }
 
     (async function boot(){
@@ -1146,7 +1383,6 @@
       const shell = document.querySelector('fv-shell');
       if (shell) shell.nav = NAV_MENU;
 
-      // ✅ load farms + years + active fields (for computed unplanned)
       await Promise.all([ loadFarms(), loadAvailableYears(), loadFields() ]);
       hydrateYearDropdown();
 
@@ -1256,6 +1492,19 @@
           </div>
         </div>
       </section>
+
+      <!-- FV modal print chooser -->
+      <div id="fvPrintChoice" class="fv-modal-backdrop" role="dialog" aria-modal="true" aria-hidden="true">
+        <div class="fv-modal">
+          <h3>Print Crop Plan</h3>
+          <p>Choose a PDF style. Summary is quick totals. Detailed includes field lists.</p>
+          <div class="actions">
+            <button id="btnPrintCancel" type="button" class="btn btn-quiet">Cancel</button>
+            <button id="btnPrintSummary" type="button" class="btn">Summary PDF</button>
+            <button id="btnPrintDetailed" type="button" class="btn btn-primary">Detailed PDF</button>
+          </div>
+        </div>
+      </div>
 
       <iframe id="fv-print-frame"></iframe>
     </div>
