@@ -1,19 +1,23 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-01-01e
+Rev: 2026-01-01f
 
 Fix (per Dane):
 ✅ Mobile “Details” blocks + swipe broken after caching:
    - When caching tiles DOM, sanitize out swipe underlay/action elements
-   - On restore, strip any swipe artifacts + reset transforms
+   - On restore, strip swipe artifacts + reset transforms
    - If tiles are restored and signature matches, DO NOT rebuild tiles
      BUT DO re-init swipe wiring (so swipe works)
+
+Also fixes:
+✅ Remove accidental duplicate renderBetaInputs() from a bad merge
+✅ Fix sort typo (nameB was using a.name)
 
 Keeps:
 ✅ ETA text on mobile uses ">" sign
 ✅ Extend ETA horizon to full 7-day forecast (168h)
 ✅ Render gate prevents double-load flicker
-✅ All existing model/math behavior
+✅ Existing model/math behavior + details tables
 ===================================================================== */
 'use strict';
 
@@ -54,7 +58,6 @@ function stripSwipeArtifacts(rootEl){
   try{
     if (!rootEl) return;
 
-    // Remove common swipe layers/buttons/underlays (best-effort, safe)
     const killSelectors = [
       '.fv-swipe-actions',
       '.fv-swipe-action',
@@ -74,18 +77,15 @@ function stripSwipeArtifacts(rootEl){
       rootEl.querySelectorAll(sel).forEach(n => n.remove());
     }
 
-    // Any element whose class contains "swipe" but is NOT the tile itself
     rootEl.querySelectorAll('[class]').forEach(el=>{
       const c = String(el.className || '');
       if (!c) return;
       if (c.includes('swipe') && !c.includes('tile') && !c.includes('fv-swipe-item')){
-        // Don't remove the actual tile nodes
         if (el.classList.contains('tile')) return;
         el.remove();
       }
     });
 
-    // Reset transforms that can leave tiles visually shifted/open
     rootEl.querySelectorAll('.tile').forEach(t=>{
       try{
         t.style.transform = '';
@@ -94,7 +94,6 @@ function stripSwipeArtifacts(rootEl){
         t.style.right = '';
       }catch(_){}
     });
-
   }catch(_){}
 }
 
@@ -102,12 +101,10 @@ function buildSanitizedTilesHTML(){
   try{
     const wrap = $('fieldsGrid');
     if (!wrap) return '';
-
     const clone = wrap.cloneNode(true);
     stripSwipeArtifacts(clone);
 
-    // Also remove any accidental “Details action blocks” that got inserted as siblings
-    // (these usually are not .tile)
+    // remove any non-tile siblings (those “Details” blocks)
     Array.from(clone.children || []).forEach(ch=>{
       const isTile = ch && ch.classList && ch.classList.contains('tile');
       if (!isTile) ch.remove();
@@ -123,7 +120,6 @@ function restoreTilesDom(state){
   try{
     const wrap = $('fieldsGrid');
     if (!wrap) return false;
-
     if (wrap.children && wrap.children.length) return false;
 
     const raw = localStorage.getItem(LS_TILES_KEY);
@@ -137,8 +133,6 @@ function restoreTilesDom(state){
     if (!html || !sig) return false;
 
     wrap.innerHTML = html;
-
-    // Strip any leftover artifacts + reset transforms
     stripSwipeArtifacts(wrap);
 
     state._tilesDomSig = sig;
@@ -178,12 +172,7 @@ function persistTilesDom(state){
 function ensureRenderGate(state){
   if (!state) return null;
   if (!state._renderGate){
-    state._renderGate = {
-      inFlight: false,
-      wantAll: false,
-      wantDetails: false,
-      timer: null
-    };
+    state._renderGate = { inFlight:false, wantAll:false, wantDetails:false, timer:null };
   }
   return state._renderGate;
 }
@@ -194,7 +183,6 @@ async function scheduleRender(state, mode){
 
   if (mode === 'all') g.wantAll = true;
   if (mode === 'details') g.wantDetails = true;
-
   if (g.inFlight) return;
 
   if (g.timer) clearTimeout(g.timer);
@@ -206,7 +194,6 @@ async function scheduleRender(state, mode){
     try{
       const doAll = !!g.wantAll;
       const doDetails = !!g.wantDetails;
-
       g.wantAll = false;
       g.wantDetails = false;
 
@@ -256,15 +243,9 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
 
       let snap = null;
       try{
-        snap = await db.collection(CONST.ADJ_COLLECTION)
-          .orderBy('createdAt', 'desc')
-          .limit(CAL_MAX_DOCS)
-          .get();
+        snap = await db.collection(CONST.ADJ_COLLECTION).orderBy('createdAt', 'desc').limit(CAL_MAX_DOCS).get();
       }catch(_){
-        snap = await db.collection(CONST.ADJ_COLLECTION)
-          .orderBy('ts', 'desc')
-          .limit(CAL_MAX_DOCS)
-          .get();
+        snap = await db.collection(CONST.ADJ_COLLECTION).orderBy('ts', 'desc').limit(CAL_MAX_DOCS).get();
       }
 
       snap.forEach(doc=>{
@@ -276,7 +257,6 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
       });
 
       out.wetBias = clamp(out.wetBias, -CAL_CLAMP, CAL_CLAMP);
-
       state._cal = out;
       state._calLoadedAt = now;
       return out;
@@ -287,17 +267,9 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
 
       let q = null;
       try{
-        q = api.query(
-          api.collection(db, CONST.ADJ_COLLECTION),
-          api.orderBy('createdAt', 'desc'),
-          api.limit(CAL_MAX_DOCS)
-        );
+        q = api.query(api.collection(db, CONST.ADJ_COLLECTION), api.orderBy('createdAt','desc'), api.limit(CAL_MAX_DOCS));
       }catch(_){
-        q = api.query(
-          api.collection(db, CONST.ADJ_COLLECTION),
-          api.orderBy('ts', 'desc'),
-          api.limit(CAL_MAX_DOCS)
-        );
+        q = api.query(api.collection(db, CONST.ADJ_COLLECTION), api.orderBy('ts','desc'), api.limit(CAL_MAX_DOCS));
       }
 
       const snap = await api.getDocs(q);
@@ -310,7 +282,6 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
       });
 
       out.wetBias = clamp(out.wetBias, -CAL_CLAMP, CAL_CLAMP);
-
       state._cal = out;
       state._calLoadedAt = now;
       return out;
@@ -332,7 +303,6 @@ function getCalForDeps(state){
 /* ---------- module loader (model/weather/forecast) ---------- */
 export async function ensureModelWeatherModules(state){
   if (state._mods && state._mods.model && state._mods.weather && state._mods.forecast) return;
-
   if (!state._mods) state._mods = {};
 
   const WEATHER_URL = '/Farm-vista/js/field-readiness.weather.js';
@@ -349,7 +319,7 @@ export async function ensureModelWeatherModules(state){
   state._mods.forecast = forecast;
 }
 
-/* ---------- colors (ported) ---------- */
+/* ---------- colors ---------- */
 function perceivedFromThreshold(readiness, thr){
   const r = clamp(Math.round(Number(readiness)), 0, 100);
   const t = clamp(Math.round(Number(thr)), 0, 100);
@@ -403,7 +373,7 @@ function sortFields(fields, runsById){
     const rb = runsById.get(b.id);
 
     const nameA = `${a.name||''}`;
-    const nameB = `${a.name||''}`;
+    const nameB = `${b.name||''}`; // ✅ FIX
 
     const readyA = ra ? ra.readinessR : 0;
     const readyB = rb ? rb.readinessR : 0;
@@ -733,7 +703,6 @@ function wireTileInteractions(state, tileEl, fieldId){
 
 /* ---------- tile render (CORE) ---------- */
 async function _renderTilesInternal(state){
-  // Restore cached tiles instantly if possible
   restoreTilesDom(state);
 
   const wrap0 = $('fieldsGrid');
@@ -783,7 +752,10 @@ async function _renderTilesInternal(state){
   const thr = getThresholdForOp(state, opKey);
   const range = parseRangeFromInput();
 
-  const cap = (String(state.pageSize) === '__all__' || state.pageSize === -1) ? sorted.length : Math.min(sorted.length, Number(state.pageSize || 25));
+  const cap = (String(state.pageSize) === '__all__' || state.pageSize === -1)
+    ? sorted.length
+    : Math.min(sorted.length, Number(state.pageSize || 25));
+
   const show = sorted.slice(0, cap);
 
   for (const f of show){
@@ -883,92 +855,6 @@ export function selectField(state, id){
   })();
 }
 
-/* ---------- beta panel ---------- */
-function renderBetaInputs(state){
-  const box = $('betaInputs');
-  const meta = $('betaInputsMeta');
-  if (!box || !meta) return;
-
-  const fid = state.selectedFieldId;
-  const info = fid ? state.wxInfoByFieldId.get(fid) : null;
-
-  if (!info){
-    meta.textContent = 'Weather is loading…';
-    box.innerHTML = '';
-    return;
-  }
-
-  const when = info.fetchedAt ? new Date(info.fetchedAt) : null;
-  const whenTxt = when ? when.toLocaleString() : '—';
-
-  meta.textContent =
-    `Source: ${info.source || '—'} • Updated: ${whenTxt} • Primary + light-influence variables are used now; weights are still being tuned.`;
-
-  const unitsHourly = info.units && info.units.hourly ? info.units.hourly : null;
-  const unitsDaily = info.units && info.units.daily ? info.units.daily : null;
-
-  const a = info.availability || { vars:{} };
-  const vars = a.vars || {};
-
-  const usedPrimary = [
-    ['rain_mm','Precipitation (hourly → daily sum)', unitsHourly?.precipitation || 'mm → in'],
-    ['temp_c','Air temperature (hourly avg)', unitsHourly?.temperature_2m || '°C → °F'],
-    ['wind_mph','Wind speed (hourly avg)', 'mph (converted)'],
-    ['rh_pct','Relative humidity (hourly avg)', unitsHourly?.relative_humidity_2m || '%'],
-    ['solar_wm2','Shortwave radiation (hourly avg)', unitsHourly?.shortwave_radiation || 'W/m²']
-  ];
-
-  const usedLight = [
-    ['vapour_pressure_deficit_kpa','VPD (hourly avg)', unitsHourly?.vapour_pressure_deficit || 'kPa'],
-    ['cloud_cover_pct','Cloud cover (hourly avg)', unitsHourly?.cloud_cover || '%'],
-    ['soil_moisture_0_10','Soil moisture 0–10cm (hourly avg)', unitsHourly?.soil_moisture_0_to_10cm || 'm³/m³'],
-    ['soil_temp_c_0_10','Soil temp 0–10cm (hourly avg)', unitsHourly?.soil_temperature_0_to_10cm || '°C → °F'],
-    ['et0_mm','ET₀ (daily)', unitsDaily?.et0_fao_evapotranspiration || 'mm/day → in/day'],
-    ['daylight_s','Daylight duration (daily)', unitsDaily?.daylight_duration || 's/day → hr/day'],
-    ['sunshine_s','Sunshine duration (daily)', unitsDaily?.sunshine_duration || 's/day → hr/day']
-  ];
-
-  const pulledNotUsed = [
-    ['soil_temp_c_10_40','Soil temp 10–40cm (hourly)', unitsHourly?.soil_temperature_10_to_40cm || '°C'],
-    ['soil_temp_c_40_100','Soil temp 40–100cm (hourly)', unitsHourly?.soil_temperature_40_to_100cm || '°C'],
-    ['soil_temp_c_100_200','Soil temp 100–200cm (hourly)', unitsHourly?.soil_temperature_100_to_200cm || '°C'],
-    ['soil_moisture_10_40','Soil moisture 10–40cm (hourly)', unitsHourly?.soil_moisture_10_to_40cm || 'm³/m³'],
-    ['soil_moisture_40_100','Soil moisture 40–100cm (hourly)', unitsHourly?.soil_moisture_40_to_100cm || 'm³/m³'],
-    ['soil_moisture_100_200','Soil moisture 100–200cm (hourly)', unitsHourly?.soil_moisture_100_to_200cm || 'm³/m³']
-  ];
-
-  function itemRow(k,label,u,tagClass,tagText){
-    const ok = vars[k] ? !!vars[k].ok : true;
-    const tag = ok ? `<div class="vtag ${tagClass}">${esc(tagText)}</div>` : `<div class="vtag tag-missing">Not in response</div>`;
-    return `
-      <div class="vitem">
-        <div>
-          <div class="vname">${esc(label)}</div>
-          <div class="vmeta">${esc(u || '')}</div>
-        </div>
-        ${tag}
-      </div>
-    `;
-  }
-  function groupHtml(title, rows, tagClass, tagText){
-    const items = rows.map(([k,label,u])=> itemRow(k,label,u,tagClass,tagText)).join('');
-    return `
-      (kept)
-    `;
-  }
-
-  // NOTE: leaving your existing beta renderer unchanged is fine; this page is about tile caching/swipe.
-  // If your current file had the full beta HTML builder, keep it as-is.
-}
-
-/* ---------- details render (CORE)
-   IMPORTANT: your original file continues below here. Keep it exactly as it was.
-   (I’m not rewriting the entire details section again in this replacement block to avoid accidental drift.)
-===================================================================== */
-
-// ⚠️ Dane: paste back in the remainder of your existing _renderDetailsInternal + exports + listeners
-// from your current file starting at: "async function _renderDetailsInternal(state){ ... }"
-// (unchanged), OR tell me and I’ll re-compose the full remainder verbatim.
 /* ---------- beta panel ---------- */
 function renderBetaInputs(state){
   const box = $('betaInputs');
