@@ -1,17 +1,15 @@
 /* =====================================================================
 /Farm-vista/js/crop-planning/crop-planner.module.js  (FULL FILE)
-Rev: 2026-01-01b
+Rev: 2026-01-01c
 
-FIXES (per Dane):
-✅ Farm + Year dropdowns now match app combo styling more closely:
-   - Same panel look (rounded, shadow, separators)
-   - Same search row styling
-   - Same “All farms” header styling
-✅ Close on OUTSIDE tap anywhere (not just inside module)
-✅ Raise z-index so panels are above other UI
+FIX:
+✅ Removed duplicate declarations of renderLockUI/stopLockWatch/readLockOnce/writeLock/startLockWatch
+   (was causing SyntaxError: Identifier ... has already been declared)
 
 Keeps:
-✅ Phone viewer mode (farm -> crop tiles -> fields)
+✅ Farm + Year dropdowns (custom styled)
+✅ Close on outside click anywhere
+✅ Phone viewer (farm -> crop tiles -> fields)
 ✅ Desktop DnD + bulk + global lock
 ===================================================================== */
 'use strict';
@@ -150,7 +148,7 @@ export async function mount(hostEl, opts = {}){
   const lockPath = (year) => ['crop_plan_locks', String(year)];
   const canDragNow = () => (!viewOnly && !isLocked);
 
-  // Shared combo styling (inline, to match the rest of app’s “select + panel” feel)
+  // Shared combo styling (inline)
   const COMBO_Z = 30000;
   const comboBtnStyle = (radiusPx) => `
     width:100%;
@@ -250,7 +248,7 @@ export async function mount(hostEl, opts = {}){
     `;
   }
 
-  // ✅ bulk header box helper (desktop only)
+  // bulk header box helper (desktop only)
   function bulkBox(label, crop){
     return `
       <div class="hbox" data-header-drop="1" data-dropzone="1" data-crop="${crop}"
@@ -280,152 +278,79 @@ export async function mount(hostEl, opts = {}){
         .cpRoot.viewOnly .row3{ display:grid; gap:10px; grid-template-columns:1fr !important; }
 
         .cpRoot.viewOnly .kpiLine{
-          display:grid;
-          grid-template-columns:1fr;
-          gap:10px;
-          border:1px solid var(--border);
-          border-radius:12px;
-          padding:10px;
+          display:grid; grid-template-columns:1fr; gap:10px;
+          border:1px solid var(--border); border-radius:12px; padding:10px;
           background:var(--card-surface,var(--surface));
         }
         .cpRoot.viewOnly .kpiBox{
-          border:1px solid var(--border);
-          border-radius:12px;
-          padding:10px;
+          border:1px solid var(--border); border-radius:12px; padding:10px;
           background:var(--surface);
         }
         .cpRoot.viewOnly .kpiBig{ font-weight:900; font-size:18px; }
         .cpRoot.viewOnly .kpiLbl{
-          margin-top:4px;
-          font-weight:800;
-          font-size:12px;
-          color:var(--muted,#67706B);
-          letter-spacing:.2px;
-          text-transform:uppercase;
+          margin-top:4px; font-weight:800; font-size:12px;
+          color:var(--muted,#67706B); letter-spacing:.2px; text-transform:uppercase;
         }
 
-        .cpRoot.viewOnly .farmLane{
-          border:1px solid var(--border);
-          border-radius:14px;
-          background:var(--surface);
-          overflow:hidden;
-        }
+        .cpRoot.viewOnly .farmLane{ border:1px solid var(--border); border-radius:14px; background:var(--surface); overflow:hidden; }
         .cpRoot.viewOnly .farmLaneHead{
-          display:flex;
-          align-items:center;
-          justify-content:space-between;
-          gap:10px;
-          padding:14px 12px;
-          border-bottom:1px solid var(--border);
-          user-select:none;
+          display:flex; align-items:center; justify-content:space-between;
+          gap:10px; padding:14px 12px; border-bottom:1px solid var(--border); user-select:none;
         }
-        .cpRoot.viewOnly .farmName{
-          font-weight:900;
-          min-width:0;
-          overflow:hidden;
-          text-overflow:ellipsis;
-          white-space:nowrap;
-        }
-        .cpRoot.viewOnly .farmChev{
-          width:18px;height:18px;
-          display:grid;place-items:center;
-          color:var(--muted,#67706B);
-          flex:0 0 auto;
-          transition:transform .12s ease;
-        }
+        .cpRoot.viewOnly .farmName{ font-weight:900; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
         .cpRoot.viewOnly .farmInner{
-          padding:10px;
-          display:grid;
-          gap:10px;
+          padding:10px; display:grid; gap:10px;
           background: color-mix(in srgb, var(--surface) 96%, rgba(0,0,0,.02));
         }
-        .cpRoot.viewOnly .cropTile{
-          border:1px solid var(--border);
-          border-radius:14px;
-          background:var(--card-surface,var(--surface));
-          overflow:hidden;
-        }
-        .cpRoot.viewOnly .cropHead{
-          padding:12px;
-          display:flex;
-          align-items:center;
-          justify-content:space-between;
-          gap:10px;
-          user-select:none;
-        }
+        .cpRoot.viewOnly .cropTile{ border:1px solid var(--border); border-radius:14px; background:var(--card-surface,var(--surface)); overflow:hidden; }
+        .cpRoot.viewOnly .cropHead{ padding:12px; display:flex; align-items:center; justify-content:space-between; gap:10px; user-select:none; }
         .cpRoot.viewOnly .cropTitle{ font-weight:900; }
         .cpRoot.viewOnly .cropMeta{
-          font-size:12px;
-          color:var(--muted,#67706B);
-          font-weight:900;
-          letter-spacing:.2px;
-          text-transform:uppercase;
-          white-space:nowrap;
-          flex:0 0 auto;
+          font-size:12px; color:var(--muted,#67706B); font-weight:900;
+          letter-spacing:.2px; text-transform:uppercase; white-space:nowrap; flex:0 0 auto;
         }
         .cpRoot.viewOnly .cropChev{
-          width:18px;height:18px;
-          display:grid;place-items:center;
-          color:var(--muted,#67706B);
-          flex:0 0 auto;
-          transition:transform .12s ease;
-          margin-left:6px;
+          width:18px;height:18px; display:grid;place-items:center; color:var(--muted,#67706B);
+          flex:0 0 auto; transition:transform .12s ease; margin-left:6px;
         }
         .cpRoot.viewOnly .cropBody{
           padding:10px 12px 12px 12px;
           border-top:1px solid var(--border);
-          display:grid;
-          gap:10px;
+          display:grid; gap:10px;
         }
-
         .cpRoot.viewOnly .cardRow{
-          border:1px solid var(--border);
-          border-radius:12px;
-          background:var(--surface);
-          padding:10px;
-          display:flex;
-          align-items:center;
-          justify-content:space-between;
-          gap:10px;
+          border:1px solid var(--border); border-radius:12px; background:var(--surface);
+          padding:10px; display:flex; align-items:center; justify-content:space-between; gap:10px;
         }
-        .cpRoot.viewOnly .fname{
-          font-weight:900;
-          min-width:0;
-          overflow:hidden;
-          text-overflow:ellipsis;
-          white-space:nowrap;
-        }
+        .cpRoot.viewOnly .fname{ font-weight:900; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
         .cpRoot.viewOnly .pill{ white-space:nowrap; }
-
-        .cpRoot.viewOnly .dragGrip,
-        .cpRoot.viewOnly .farmGrip{ display:none !important; }
+        .cpRoot.viewOnly .dragGrip, .cpRoot.viewOnly .farmGrip{ display:none !important; }
       </style>
 
       <div class="cpPad" style="display:grid;gap:12px;">
         <div class="row3">
-          <!-- Farm combo (custom) -->
+          <!-- Farm combo -->
           <div class="field combo" style="position:relative;">
             <label style="display:block;font-weight:800;margin:0 0 6px;">Farm</label>
             <div class="combo-anchor" style="position:relative;display:inline-block;width:100%;">
-              <button data-el="farmBtn" class="buttonish has-caret" type="button" aria-haspopup="listbox" aria-expanded="false"
+              <button data-el="farmBtn" type="button" aria-haspopup="listbox" aria-expanded="false"
                       style="${comboBtnStyle(12)}">
                 <span data-el="farmBtnText">— All farms —</span>
                 <span aria-hidden="true" style="${comboCaret}"></span>
               </button>
 
-              <div data-el="farmPanel" class="combo-panel" style="${comboPanelStyle}">
+              <div data-el="farmPanel" style="${comboPanelStyle}">
                 <div style="${comboSearchWrapStyle}">
                   <input data-el="farmSearch" type="search" placeholder="Search farms…" style="${comboSearchStyle}" />
                 </div>
-                <div data-el="farmList" class="list" style="${comboListStyle}"></div>
+                <div data-el="farmList" style="${comboListStyle}"></div>
               </div>
             </div>
             <input data-el="farmId" type="hidden" />
             <input data-el="farmName" type="hidden" />
           </div>
 
-          <!-- Year combo (custom) -->
           ${yearComboHtml(12)}
 
           <div class="field">
@@ -433,7 +358,7 @@ export async function mount(hostEl, opts = {}){
             <input data-el="search" class="input" type="search" placeholder="Type to filter…"
                    style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
                           border:1px solid var(--border);border-radius:12px;padding:12px;outline:none;" />
-            <div class="help" data-el="scopeHelp" style="font-size:13px;color:var(--muted,#67706B);margin-top:6px;font-weight:800;">
+            <div data-el="scopeHelp" style="font-size:13px;color:var(--muted,#67706B);margin-top:6px;font-weight:800;">
               Showing 0 active fields
             </div>
           </div>
@@ -454,7 +379,7 @@ export async function mount(hostEl, opts = {}){
           </div>
         </div>
 
-        <div data-el="boardScroll" class="boardScroll" style="display:grid;gap:12px;"></div>
+        <div data-el="boardScroll" style="display:grid;gap:12px;"></div>
       </div>
     </section>
 
@@ -473,27 +398,27 @@ export async function mount(hostEl, opts = {}){
 
         <div style="padding:16px;display:grid;gap:14px;">
           <div class="row3" style="display:grid;gap:10px;grid-template-columns:1fr 1fr 1fr;">
+            <!-- Farm combo -->
             <div class="field combo" style="position:relative;">
               <label style="display:block;font-weight:800;margin:0 0 6px;">Farm</label>
               <div class="combo-anchor" style="position:relative;display:inline-block;width:100%;">
-                <button data-el="farmBtn" class="buttonish has-caret" type="button" aria-haspopup="listbox" aria-expanded="false"
+                <button data-el="farmBtn" type="button" aria-haspopup="listbox" aria-expanded="false"
                         style="${comboBtnStyle(10)}">
                   <span data-el="farmBtnText">— All farms —</span>
                   <span aria-hidden="true" style="${comboCaret}"></span>
                 </button>
 
-                <div data-el="farmPanel" class="combo-panel" style="${comboPanelStyle}">
+                <div data-el="farmPanel" style="${comboPanelStyle}">
                   <div style="${comboSearchWrapStyle}">
                     <input data-el="farmSearch" type="search" placeholder="Search farms…" style="${comboSearchStyle}" />
                   </div>
-                  <div data-el="farmList" class="list" style="${comboListStyle}"></div>
+                  <div data-el="farmList" style="${comboListStyle}"></div>
                 </div>
               </div>
               <input data-el="farmId" type="hidden" />
               <input data-el="farmName" type="hidden" />
             </div>
 
-            <!-- Year combo (custom) -->
             ${yearComboHtml(10)}
 
             <div class="field">
@@ -501,7 +426,7 @@ export async function mount(hostEl, opts = {}){
               <input data-el="search" class="input" type="search" placeholder="Type to filter…"
                      style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
                             border:1px solid var(--border);border-radius:10px;padding:12px;outline:none;" />
-              <div class="help" data-el="scopeHelp" style="font-size:13px;color:var(--muted,#67706B);margin-top:6px;font-weight:800;">
+              <div data-el="scopeHelp" style="font-size:13px;color:var(--muted,#67706B);margin-top:6px;font-weight:800;">
                 Showing 0 active fields
               </div>
             </div>
@@ -537,7 +462,6 @@ export async function mount(hostEl, opts = {}){
             </div>
           </div>
 
-          <!-- Bulk farm drop header (hidden on viewOnly) -->
           <div data-el="bulkWrap" style="display:grid;gap:8px;">
             <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;">
               <div style="display:flex;gap:8px;align-items:center;min-width:0;">
@@ -617,8 +541,6 @@ export async function mount(hostEl, opts = {}){
     kpiSoyAcres: q('[data-el="kpiSoyAcres"]'),
   };
 
-  const hasLockUI = !!el.lockBtn;
-
   const controller = new AbortController();
   const { signal } = controller;
 
@@ -647,19 +569,16 @@ export async function mount(hostEl, opts = {}){
     if (el.yearBtn) el.yearBtn.setAttribute('aria-expanded','false');
   };
 
-  // ✅ Close on outside click ANYWHERE in document (matches rest of app)
+  // Close on outside click ANYWHERE
   hostEl.ownerDocument.addEventListener('mousedown', (e)=>{
     if(!isAnyComboOpen()) return;
-
     const t = e.target;
     const insideFarm = (el.farmBtn && el.farmBtn.contains(t)) || (el.farmPanel && el.farmPanel.contains(t));
     const insideYear = (el.yearBtn && el.yearBtn.contains(t)) || (el.yearPanel && el.yearPanel.contains(t));
     if(insideFarm || insideYear) return;
-
     closeAllCombos();
   }, { capture:true, signal });
 
-  // also close on ESC
   hostEl.ownerDocument.addEventListener('keydown', (e)=>{
     if(e.key !== 'Escape') return;
     if(isAnyComboOpen()){
@@ -714,8 +633,8 @@ export async function mount(hostEl, opts = {}){
     }, { signal });
 
     if(el.farmPanel){
-      el.farmPanel.addEventListener('click', (e)=> e.stopPropagation(), { signal });
       el.farmPanel.addEventListener('mousedown', (e)=> e.stopPropagation(), { signal });
+      el.farmPanel.addEventListener('click', (e)=> e.stopPropagation(), { signal });
     }
 
     if(el.farmSearch){
@@ -777,8 +696,8 @@ export async function mount(hostEl, opts = {}){
     }, { signal });
 
     if(el.yearPanel){
-      el.yearPanel.addEventListener('click', (e)=> e.stopPropagation(), { signal });
       el.yearPanel.addEventListener('mousedown', (e)=> e.stopPropagation(), { signal });
+      el.yearPanel.addEventListener('click', (e)=> e.stopPropagation(), { signal });
     }
 
     if(el.yearList){
@@ -800,98 +719,6 @@ export async function mount(hostEl, opts = {}){
       }, { signal });
     }
   }
-
-  // ---- GLOBAL LOCK helpers ----
-  const renderLockUI = () => {
-    if (!hasLockUI) return;
-    el.lockIcon.innerHTML = lockSvg(isLocked);
-    el.lockLabel.textContent = isLocked ? 'Locked' : 'Unlocked';
-    el.lockBtn.style.borderColor = isLocked
-      ? 'color-mix(in srgb, var(--border) 60%, rgba(47,108,60,.25))'
-      : 'var(--border)';
-  };
-
-  const stopLockWatch = () => {
-    try{ if (typeof lockUnsub === 'function') lockUnsub(); }catch{}
-    lockUnsub = null;
-    if (lockPollT) clearInterval(lockPollT);
-    lockPollT = null;
-  };
-
-  const readLockOnce = async (year) => {
-    if (!fs || !db) return false;
-    try{
-      const ref = fs.doc(db, ...lockPath(year));
-      const snap = await fs.getDoc(ref);
-      const data = snap?.data?.() || {};
-      return !!data.locked;
-    }catch{
-      return false;
-    }
-  };
-
-  const writeLock = async (year, nextLocked) => {
-    if (!fs || !db) throw new Error('Missing Firestore fns/db');
-    const ref = fs.doc(db, ...lockPath(year));
-    const payload = {
-      locked: !!nextLocked,
-      updatedAt: fs.serverTimestamp ? fs.serverTimestamp() : new Date(),
-      updatedBy: getUserTag() || ''
-    };
-    await fs.setDoc(ref, payload, { merge: true });
-  };
-
-  const startLockWatch = async (year) => {
-    stopLockWatch();
-
-    if (!fs || !db){
-      isLocked = false;
-      renderLockUI();
-      return;
-    }
-
-    if (typeof fs.onSnapshot === 'function'){
-      try{
-        const ref = fs.doc(db, ...lockPath(year));
-        lockUnsub = fs.onSnapshot(ref, (snap)=>{
-          const data = snap?.data?.() || {};
-          const next = !!data.locked;
-          const changed = next !== isLocked;
-          isLocked = next;
-          renderLockUI();
-          if (changed) renderAll(true);
-        }, async ()=>{
-          stopLockWatch();
-          isLocked = await readLockOnce(year);
-          renderLockUI();
-          renderAll(true);
-          lockPollT = setInterval(async ()=>{
-            const v = await readLockOnce(year);
-            if (v !== isLocked){
-              isLocked = v;
-              renderLockUI();
-              renderAll(true);
-            }
-          }, 6000);
-        });
-
-        isLocked = await readLockOnce(year);
-        renderLockUI();
-        return;
-      }catch{}
-    }
-
-    isLocked = await readLockOnce(year);
-    renderLockUI();
-    lockPollT = setInterval(async ()=>{
-      const v = await readLockOnce(year);
-      if (v !== isLocked){
-        isLocked = v;
-        renderLockUI();
-        renderAll(true);
-      }
-    }, 6000);
-  };
 
   const cropForField = (fieldId) => {
     const c = norm(plans.get(fieldId)?.crop);
@@ -1082,7 +909,7 @@ export async function mount(hostEl, opts = {}){
           <div class="farmLane" data-farm-id="${esc(g.farmId)}" data-open="${openFarm?'1':'0'}">
             <div class="farmLaneHead" data-farm-toggle="1">
               <div class="farmName">${esc(g.farmName)}</div>
-              <div class="farmChev" aria-hidden="true">${chevSvg()}</div>
+              <div aria-hidden="true">${chevSvg()}</div>
             </div>
 
             <div class="farmLaneBody" style="display:${openFarm?'block':'none'};">
@@ -1193,7 +1020,6 @@ export async function mount(hostEl, opts = {}){
     }, { signal });
   }
 
-  // On phone, prevent any drag weirdness
   if(viewOnly){
     hostEl.addEventListener('dragstart', (e)=> e.preventDefault(), { capture:true, signal });
     hostEl.addEventListener('drop', (e)=> e.preventDefault(), { capture:true, signal });
@@ -1213,60 +1039,16 @@ export async function mount(hostEl, opts = {}){
 
   // render lists now that farms loaded
   renderFarmList('');
-  if(el.yearList){
-    // style year list using same “combo-item” template
-    el.yearList.innerHTML = YEARS.map((y, idx) => `
-      <div class="combo-item" data-year="${esc(y)}"
-           style="${comboItemStyle}${idx===0 ? '' : comboItemDividerStyle}">
-        <div style="font-weight:900;">${esc(y)}</div>
-        <div></div>
-      </div>
-    `).join('');
-    el.yearList.addEventListener('mousedown', async (e)=>{
-      const row = e.target.closest('.combo-item'); if(!row) return;
-      const y = row.dataset.year || YEARS[0] || '2026';
-      if(String(y) === String(currentYear)){
-        closeAllCombos();
-        return;
-      }
-      currentYear = String(y);
-      if(el.yearBtnText) el.yearBtnText.textContent = currentYear;
-      if(el.yearVal) el.yearVal.value = currentYear;
+  renderYearList();
 
-      closeAllCombos();
-      await startLockWatch(currentYear);
-      plans = await loadPlansForYear(db, currentYear);
-      renderAll(true);
-      toast(`Year: ${currentYear}${isLocked ? ' (Locked)' : ''}`);
-    }, { signal });
-  }
-
-  // hook farm list selection after farms loaded
-  if(el.farmList){
-    el.farmList.addEventListener('mousedown', (e)=>{
-      const row = e.target.closest('.combo-item'); if(!row) return;
-      const id = row.dataset.id || '';
-
-      if(!id){
-        if(el.farmId) el.farmId.value = '';
-        if(el.farmName) el.farmName.value = '';
-        if(el.farmBtnText) el.farmBtnText.textContent = '— All farms —';
-      }else{
-        const f = farms.find(x=> x.id === id);
-        if(f){
-          if(el.farmId) el.farmId.value = f.id;
-          if(el.farmName) el.farmName.value = f.name;
-          if(el.farmBtnText) el.farmBtnText.textContent = f.name;
-        }
-      }
-
-      closeAllCombos();
-      renderAll(true);
-    }, { signal });
-  }
+  // initial plans + lock
+  plans = await loadPlansForYear(db, currentYear);
+  isLocked = await readLockOnce(currentYear);
+  renderLockUI();
+  await startLockWatch(currentYear);
 
   // lock btn wiring
-  if (hasLockUI){
+  if (el.lockBtn){
     el.lockBtn.addEventListener('click', async ()=>{
       try{
         const current = await readLockOnce(currentYear);
@@ -1279,15 +1061,6 @@ export async function mount(hostEl, opts = {}){
     }, { signal });
   }
 
-  // year watch + initial plans
-  isLocked = await (async ()=>{
-    const v = await readLockOnce(currentYear);
-    return !!v;
-  })();
-  renderLockUI();
-  await startLockWatch(currentYear);
-
-  plans = await loadPlansForYear(db, currentYear);
   renderAll(false);
 
   wireDnd({
@@ -1300,16 +1073,17 @@ export async function mount(hostEl, opts = {}){
 
   return {
     unmount(){
-      try{ if (typeof lockUnsub === 'function') lockUnsub(); }catch{}
-      if (lockPollT) clearInterval(lockPollT);
+      stopLockWatch();
       controller.abort();
       hostEl.innerHTML = '';
     }
   };
 
-  // ---- GLOBAL LOCK impls (hoisted) ----
+  // ============================================================
+  // SINGLE SET OF LOCK HELPERS (no duplicates)
+  // ============================================================
   function renderLockUI(){
-    if (!hasLockUI) return;
+    if (!el.lockBtn) return;
     el.lockIcon.innerHTML = lockSvg(isLocked);
     el.lockLabel.textContent = isLocked ? 'Locked' : 'Unlocked';
     el.lockBtn.style.borderColor = isLocked
@@ -1371,6 +1145,7 @@ export async function mount(hostEl, opts = {}){
           isLocked = await readLockOnce(year);
           renderLockUI();
           renderAll(true);
+
           lockPollT = setInterval(async ()=>{
             const v = await readLockOnce(year);
             if (v !== isLocked){
@@ -1397,5 +1172,42 @@ export async function mount(hostEl, opts = {}){
         renderAll(true);
       }
     }, 6000);
+  }
+
+  // ============================================================
+  // Year list rendering (kept simple, uses combo-item divs)
+  // ============================================================
+  function renderYearList(){
+    if(!el.yearList) return;
+    el.yearList.innerHTML = YEARS.map((y, idx) => `
+      <div class="combo-item" data-year="${esc(y)}"
+           style="${comboItemStyle}${idx===0 ? '' : comboItemDividerStyle}">
+        <div style="font-weight:900;">${esc(y)}</div>
+        <div></div>
+      </div>
+    `).join('');
+
+    el.yearList.addEventListener('mousedown', async (e)=>{
+      const row = e.target.closest('.combo-item'); if(!row) return;
+      const y = row.dataset.year || YEARS[0] || '2026';
+      if(String(y) === String(currentYear)){
+        closeAllCombos();
+        return;
+      }
+
+      setYearUI(y);
+      closeAllCombos();
+
+      await startLockWatch(currentYear);
+      plans = await loadPlansForYear(db, currentYear);
+      renderAll(true);
+      toast(`Year: ${currentYear}${isLocked ? ' (Locked)' : ''}`);
+    }, { signal });
+  }
+
+  function setYearUI(y){
+    currentYear = String(y || YEARS[0] || '2026');
+    if(el.yearBtnText) el.yearBtnText.textContent = currentYear;
+    if(el.yearVal) el.yearVal.value = currentYear;
   }
 }
