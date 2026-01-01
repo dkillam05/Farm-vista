@@ -1,21 +1,21 @@
 /* =====================================================================
 /Farm-vista/js/crop-planning/crop-planner.module.js  (FULL FILE)
-Rev: 2025-12-31i
+Rev: 2025-12-31j
 
-PHONE FIX (VIEW-ONLY):
-✅ Completely different “viewer” layout rules when opts.viewOnly=true
-   - Filters stack 1-column
-   - KPI line wraps cleanly
-   - NO nested scroll traps (one natural page scroll)
-   - Farm lanes become clean accordions
-   - Buckets become 1-column (Unplanned / Corn / Beans stacked)
-   - Field rows become 2-column (name + acres)
-   - ALL grips/drag affordances hidden on phone
+PHONE “VIEWER” MODE (viewOnly):
+✅ NO nested hero card inside planning page hero
+✅ Uses full width (no extra outer padding)
+✅ Filters stack 1 column
+✅ Board is NOT inside a scroll box (one natural page scroll)
+✅ Farm lanes are simple accordions
+✅ Buckets stack vertically (Unplanned / Corn / Beans)
+✅ No grips, no drag affordances, no dropzones used
+✅ Still shows the same data
 
 DESKTOP:
 ✅ unchanged behavior/layout (DnD + bulk + lock)
 
-REQUIRES (DnD drop fix):
+REQUIRES:
 ✅ /Farm-vista/js/crop-planning/crop-planning-dnd.js  Rev: 2025-12-31b
 ===================================================================== */
 'use strict';
@@ -133,15 +133,14 @@ export async function mount(hostEl, opts = {}){
   };
 
   // ---- GLOBAL LOCK state ----
-  let fs = null;               // firestore fns
-  let isLocked = false;        // current year's lock value
-  let lockUnsub = null;        // onSnapshot unsubscribe
-  let lockPollT = null;        // polling interval handle
+  let fs = null;
+  let isLocked = false;
+  let lockUnsub = null;
+  let lockPollT = null;
 
   const lockPath = (year) => ['crop_plan_locks', String(year)];
   const canDragNow = () => (!viewOnly && !isLocked);
 
-  // ✅ FIX: add data-dropzone="1" so farm drags can drop here
   function bulkBox(label, crop){
     return `
       <div class="hbox" data-header-drop="1" data-dropzone="1" data-crop="${crop}"
@@ -160,57 +159,198 @@ export async function mount(hostEl, opts = {}){
     `;
   }
 
-  // render skeleton inside host
-  hostEl.innerHTML = `
-    <section class="cpRoot ${viewOnly ? 'viewOnly' : ''}" style="padding:16px;">
+  // ============================================================
+  // RENDER: DESKTOP keeps “hero card” (unchanged).
+  // PHONE viewOnly: FLAT viewer (full width, no nested hero).
+  // ============================================================
+  hostEl.innerHTML = viewOnly ? `
+    <section class="cpRoot viewOnly" style="padding:0;margin:0;">
       <style>
-        /* ==========================================================
-           VIEW-ONLY PHONE MODE: make this a clean READ-ONLY VIEWER
-           (Overrides inline styles with !important)
-        ========================================================== */
-        .cpRoot.viewOnly .row3{ grid-template-columns:1fr !important; }
-        .cpRoot.viewOnly .kpi-line{ gap:8px !important; padding:10px 10px !important; }
-        .cpRoot.viewOnly .kpi-line .kpi{ margin-left:0 !important; }
-        .cpRoot.viewOnly .boardScroll{
-          max-height:none !important;
-          overflow:visible !important;
-          padding:10px !important;
+        .cpRoot.viewOnly{ width:100%; }
+        .cpRoot.viewOnly .cpPad{ padding:10px 10px 12px 10px; }
+        .cpRoot.viewOnly .row3{ display:grid; gap:10px; grid-template-columns:1fr !important; }
+        .cpRoot.viewOnly .kpiLine{
+          display:grid;
+          grid-template-columns:1fr 1fr;
+          gap:10px;
+          border:1px solid var(--border);
+          border-radius:12px;
+          padding:10px;
+          background:var(--card-surface,var(--surface));
+        }
+        .cpRoot.viewOnly .kpiBox{
+          border:1px solid var(--border);
+          border-radius:12px;
+          padding:10px;
+          background:var(--surface);
+        }
+        .cpRoot.viewOnly .kpiBig{ font-weight:900; font-size:18px; }
+        .cpRoot.viewOnly .kpiLbl{
+          margin-top:4px;
+          font-weight:800;
+          font-size:12px;
+          color:var(--muted,#67706B);
+          letter-spacing:.2px;
+          text-transform:uppercase;
+        }
+
+        /* Farm accordion list */
+        .cpRoot.viewOnly .farmLane{
+          border:1px solid var(--border);
+          border-radius:14px;
+          background:var(--surface);
+          overflow:hidden;
         }
         .cpRoot.viewOnly .farmLaneHead{
-          grid-template-columns: 1fr auto !important;
-          gap:10px !important;
+          display:flex !important;
+          align-items:center;
+          justify-content:space-between;
+          gap:10px;
+          padding:12px;
+          border-bottom:1px solid var(--border);
+          user-select:none;
         }
-        .cpRoot.viewOnly .farmGrip{ display:none !important; }
-        .cpRoot.viewOnly .dragGrip{ display:none !important; }
-        .cpRoot.viewOnly .chev{ justify-self:end !important; }
-        .cpRoot.viewOnly .farmLaneBody{ padding:10px !important; }
-        .cpRoot.viewOnly .buckets{ grid-template-columns:1fr !important; gap:10px !important; }
-        .cpRoot.viewOnly .bucketBody{
-          max-height:none !important;
-          overflow:visible !important;
-          padding:10px !important;
+        .cpRoot.viewOnly .farmName{
+          font-weight:900;
+          min-width:0;
+          overflow:hidden;
+          text-overflow:ellipsis;
+          white-space:nowrap;
         }
+        .cpRoot.viewOnly .farmMeta{
+          font-size:12px;
+          color:var(--muted,#67706B);
+          font-weight:900;
+          letter-spacing:.2px;
+          text-transform:uppercase;
+          white-space:nowrap;
+          flex:0 0 auto;
+        }
+
+        /* Buckets stacked, minimal “card depth” */
+        .cpRoot.viewOnly .buckets{ display:grid; gap:10px; padding:10px; }
+        .cpRoot.viewOnly .bucket{
+          border:1px solid var(--border);
+          border-radius:14px;
+          overflow:hidden;
+          background:var(--card-surface,var(--surface));
+        }
+        .cpRoot.viewOnly .bucketHead{
+          padding:10px 12px;
+          border-bottom:1px solid var(--border);
+          display:flex;
+          align-items:baseline;
+          justify-content:space-between;
+          gap:10px;
+        }
+        .cpRoot.viewOnly .bucketTitle{ font-weight:900; }
+        .cpRoot.viewOnly .bucketMeta{
+          font-size:12px;
+          color:var(--muted,#67706B);
+          font-weight:900;
+          letter-spacing:.2px;
+          text-transform:uppercase;
+          white-space:nowrap;
+        }
+
+        /* Field rows: 2 columns, no grips, no nested scroll */
+        .cpRoot.viewOnly .bucketBody{ padding:10px; display:grid; gap:10px; }
         .cpRoot.viewOnly .cardRow{
-          grid-template-columns: 1fr auto !important;
-          gap:10px !important;
-          padding:10px !important;
+          border:1px solid var(--border);
+          border-radius:12px;
+          background:var(--surface);
+          padding:10px;
+          display:flex !important;
+          align-items:center;
+          justify-content:space-between;
+          gap:10px;
         }
-        .cpRoot.viewOnly .cardRow > div:nth-child(2){
-          white-space:normal !important;
-          overflow:visible !important;
-          text-overflow:clip !important;
-          line-height:1.15 !important;
+        .cpRoot.viewOnly .fname{
+          font-weight:900;
+          min-width:0;
+          overflow:hidden;
+          text-overflow:ellipsis;
+          white-space:nowrap;
         }
-        .cpRoot.viewOnly .combo-panel{ max-height:70vh !important; }
-        .cpRoot.viewOnly .pill{ white-space:nowrap !important; }
+        .cpRoot.viewOnly .pill{ white-space:nowrap; }
+
+        /* Hide any drag affordances if they exist */
+        .cpRoot.viewOnly .dragGrip,
+        .cpRoot.viewOnly .farmGrip{ display:none !important; }
       </style>
 
+      <div class="cpPad">
+        <div style="font-weight:900;font-size:18px;">Crop Planner</div>
+        <div class="muted" style="margin-top:4px;font-weight:800;">Phone mode: view-only</div>
+      </div>
+
+      <div class="cpPad" style="display:grid;gap:12px;">
+        <div class="row3">
+          <div class="field combo" style="position:relative;">
+            <label style="display:block;font-weight:800;margin:0 0 6px;">Farm</label>
+            <div class="combo-anchor" style="position:relative;display:inline-block;width:100%;">
+              <button data-el="farmBtn" class="buttonish has-caret" type="button"
+                      style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));border:1px solid var(--border);border-radius:12px;padding:12px;outline:none;cursor:pointer;text-align:left;position:relative;padding-right:44px;user-select:none;">
+                — All farms —
+              </button>
+              <div data-el="farmPanel" class="combo-panel"
+                   style="position:absolute;left:0;right:0;top:calc(100% + 6px);background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 26px rgba(0,0,0,.18);z-index:9999;padding:8px;display:none;">
+                <div class="search" style="padding:4px 2px 8px;">
+                  <input data-el="farmSearch" type="search" placeholder="Search farms…"
+                         style="width:100%;padding:10px;border:1px solid var(--border);border-radius:10px;font:inherit;font-size:14px;color:var(--text);background:var(--card-surface,var(--surface));" />
+                </div>
+                <div data-el="farmList" class="list" style="max-height:70vh;overflow:auto;border-top:1px solid var(--border);"></div>
+              </div>
+            </div>
+            <input data-el="farmId" type="hidden" />
+            <input data-el="farmName" type="hidden" />
+          </div>
+
+          <div class="field">
+            <label style="display:block;font-weight:800;margin:0 0 6px;">Crop Year</label>
+            <select data-el="year" class="select"
+                    style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));border:1px solid var(--border);border-radius:12px;padding:12px;outline:none;">
+              <option value="2026">2026</option>
+              <option value="2027">2027</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label style="display:block;font-weight:800;margin:0 0 6px;">Search fields</label>
+            <input data-el="search" class="input" type="search" placeholder="Type to filter…"
+                   style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));border:1px solid var(--border);border-radius:12px;padding:12px;outline:none;" />
+            <div class="help" data-el="scopeHelp" style="font-size:13px;color:var(--muted,#67706B);margin-top:6px;font-weight:800;">Showing 0 active fields</div>
+          </div>
+        </div>
+
+        <div class="kpiLine">
+          <div class="kpiBox">
+            <div class="kpiBig"><span data-el="kpiUnplannedFields">0</span> • <span data-el="kpiUnplannedAcres">0.00</span></div>
+            <div class="kpiLbl">Unplanned (fields • acres)</div>
+          </div>
+          <div class="kpiBox">
+            <div class="kpiBig"><span data-el="kpiCornFields">0</span> • <span data-el="kpiCornAcres">0.00</span></div>
+            <div class="kpiLbl">Corn (fields • acres)</div>
+          </div>
+          <div class="kpiBox" style="grid-column:1 / -1;">
+            <div class="kpiBig"><span data-el="kpiSoyFields">0</span> • <span data-el="kpiSoyAcres">0.00</span></div>
+            <div class="kpiLbl">Beans (fields • acres)</div>
+          </div>
+        </div>
+
+        <div data-el="boardScroll" class="boardScroll" style="display:grid;gap:12px;"></div>
+      </div>
+    </section>
+
+    <div data-el="toast" style="position:fixed;left:50%;bottom:24px;transform:translate(-50%,12px);background:#2F6C3C;color:#fff;padding:10px 16px;border-radius:999px;font-size:14px;box-shadow:0 10px 24px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:opacity .18s ease, transform .18s ease;z-index:10000;white-space:nowrap;"></div>
+  `
+  :
+  `
+    <section style="padding:16px;">
       <div class="hero" style="margin:0;border:1px solid var(--border);border-radius:14px;background:var(--surface);box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;">
         <div style="padding:14px 16px;border-bottom:1px solid var(--border);background:linear-gradient(90deg,rgba(47,108,60,.12),transparent);">
           <div style="font-weight:900;font-size:18px;">Crop Planner</div>
-          <div class="muted" style="margin-top:4px;font-weight:800;">
-            ${viewOnly ? 'Phone mode: view-only (scroll to read).' : 'Desktop for drag + bulk.'}
-          </div>
+          <div class="muted" style="margin-top:4px;font-weight:800;">Assign corn/beans. Desktop for drag + bulk.</div>
         </div>
 
         <div style="padding:16px;display:grid;gap:14px;">
@@ -281,8 +421,7 @@ export async function mount(hostEl, opts = {}){
             </div>
           </div>
 
-          <!-- Bulk farm drop header (hidden on viewOnly) -->
-          <div data-el="bulkWrap" style="display:${viewOnly ? 'none' : 'grid'};gap:8px;">
+          <div data-el="bulkWrap" style="display:grid;gap:8px;">
             <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;">
               <div style="display:flex;gap:8px;align-items:center;min-width:0;">
                 <div style="width:28px;height:28px;border-radius:10px;border:1px solid var(--border);display:grid;place-items:center;color:var(--accent);flex:0 0 auto;">⇄</div>
@@ -548,6 +687,15 @@ export async function mount(hostEl, opts = {}){
     const draggable = canDrag ? 'true' : 'false';
 
     const rows = arr.length ? arr.map(f=>{
+      if(viewOnly){
+        return `
+          <div class="cardRow" data-field-id="${esc(f.id)}">
+            <div class="fname">${esc(f.name)}</div>
+            <div class="pill">${fmt2.format(Number(f.tillable||0))} ac</div>
+          </div>
+        `;
+      }
+
       return `
         <div class="cardRow" data-field-id="${esc(f.id)}" data-farm-id="${esc(farmId)}" data-crop="${esc(crop)}"
              style="border:1px solid var(--border);border-radius:12px;background:var(--surface);padding:10px;display:grid;grid-template-columns:22px 1fr auto;gap:10px;align-items:center;">
@@ -560,6 +708,18 @@ export async function mount(hostEl, opts = {}){
         </div>
       `;
     }).join('') : `<div class="muted" style="font-weight:900">—</div>`;
+
+    if(viewOnly){
+      return `
+        <div class="bucket">
+          <div class="bucketHead">
+            <div class="bucketTitle">${esc(title)}</div>
+            <div class="bucketMeta">${fmt0.format(arr.length)} • ${fmt2.format(acres)} ac</div>
+          </div>
+          <div class="bucketBody">${rows}</div>
+        </div>
+      `;
+    }
 
     return `
       <div class="bucket" data-dropzone="1" data-crop="${esc(crop)}" data-farm-id="${esc(farmId)}"
@@ -609,7 +769,7 @@ export async function mount(hostEl, opts = {}){
     const farmsArr = Array.from(byFarm.values()).sort((a,b)=> a.farmName.localeCompare(b.farmName));
     const defaultOpen = !!el.farmId.value;
 
-    const snap = preserveScroll ? {
+    const snap = (!viewOnly && preserveScroll) ? {
       boardTop: el.boardScroll.scrollTop,
       buckets: Object.fromEntries([...hostEl.querySelectorAll('.bucketBody')].map(body=>{
         const bucket = body.closest('[data-dropzone="1"]');
@@ -636,11 +796,37 @@ export async function mount(hostEl, opts = {}){
         else { un.push(f); unA+=a; }
       }
 
-      const farmDrag = canDrag ? 'true' : 'false';
-
       const plannedBadge = (coN + soN) > 0
         ? ` <span style="color:var(--muted,#67706B);font-weight:900;">(${coN ? `Corn ${fmt0.format(coN)}` : ''}${coN && soN ? ' • ' : ''}${soN ? `Beans ${fmt0.format(soN)}` : ''})</span>`
         : '';
+
+      if(viewOnly){
+        return `
+          <div class="farmLane" data-farm-id="${esc(g.farmId)}" data-open="${open?'1':'0'}">
+            <div class="farmLaneHead" data-farm-toggle="1">
+              <div style="min-width:0;">
+                <div class="farmName">${esc(g.farmName)}${plannedBadge}</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;flex:0 0 auto;">
+                <div class="farmMeta">${fmt0.format(g.fields.length)} • ${fmt2.format(unA+coA+soA)} ac</div>
+                <div class="chev" aria-hidden="true" style="width:18px;height:18px;display:grid;place-items:center;color:var(--muted,#67706B);transition:transform .12s ease;">
+                  ${chevSvg()}
+                </div>
+              </div>
+            </div>
+
+            <div class="farmLaneBody" style="display:${open?'block':'none'};">
+              <div class="buckets">
+                ${renderBucket(g.farmId, 'Unplanned', '', un, unA)}
+                ${renderBucket(g.farmId, 'Corn', 'corn', co, coA)}
+                ${renderBucket(g.farmId, 'Beans', 'soybeans', so, soA)}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      const farmDrag = canDrag ? 'true' : 'false';
 
       return `
         <div class="farmLane" data-farm-id="${esc(g.farmId)}" data-open="${open?'1':'0'}"
@@ -677,20 +863,20 @@ export async function mount(hostEl, opts = {}){
       if(head._fvBound) return;
       head._fvBound = true;
       head.addEventListener('click', (e)=>{
-        if(e.target.closest('[data-drag-type]')) return;
+        if(!viewOnly && e.target.closest('[data-drag-type]')) return;
         const lane = head.closest('.farmLane');
         if(!lane) return;
         const farmId = lane.dataset.farmId || '';
         const open = lane.dataset.open === '1';
         const next = !open;
         lane.dataset.open = next ? '1' : '0';
-        lane.querySelector('.farmLaneBody').style.display = next ? 'grid' : 'none';
+        const body = lane.querySelector('.farmLaneBody');
+        if(body) body.style.display = next ? (viewOnly ? 'block' : 'grid') : 'none';
         setLaneOpen(farmId, next);
       }, { signal });
     });
 
-    if(snap && !viewOnly){
-      // preserve nested scroll only on desktop (phone has no nested scroll now)
+    if(snap){
       el.boardScroll.scrollTop = snap.boardTop || 0;
       hostEl.querySelectorAll('.bucketBody').forEach(body=>{
         const bucket = body.closest('[data-dropzone="1"]');
@@ -745,7 +931,7 @@ export async function mount(hostEl, opts = {}){
     el.search._t = setTimeout(()=> renderAll(true), 120);
   }, { signal });
 
-  // Extra: on viewOnly, prevent any dragstart in this module subtree (stops iOS weirdness)
+  // On phone, prevent any drag weirdness
   if(viewOnly){
     hostEl.addEventListener('dragstart', (e)=> e.preventDefault(), { capture:true, signal });
     hostEl.addEventListener('drop', (e)=> e.preventDefault(), { capture:true, signal });
