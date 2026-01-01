@@ -1,14 +1,18 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-31i
+Rev: 2026-01-01a
 
-Fixes (per Dane):
+New (per Dane):
+✅ Instant tiles on return (500-field friendly):
+   - Cache rendered tiles HTML for the current view (op/farm/sort/page/range)
+   - On first paint: if cache matches, inject HTML + rewire interactions instantly
+   - Then normal refreshAll() will rebuild with fresh data as usual
+
+Keeps:
 ✅ ETA text on mobile: use ">" sign (not "Greater Than ...")
 ✅ Extend ETA horizon to full 7-day forecast:
    - show "~XXh" if within 168h
    - show ">168h" if not within 168h
-
-Keeps:
 ✅ Everything else unchanged from your provided render.js
 ===================================================================== */
 'use strict';
@@ -24,6 +28,120 @@ import { initSwipeOnTiles } from './swipe.js';
 import { parseRangeFromInput, rainInRange } from './rain.js';
 import { fetchAndHydrateFieldParams } from './data.js';
 import { getAPI } from './firebase.js';
+
+/* =====================================================================
+   NEW: Tile HTML cache (fast paint for large field counts)
+   - We cache ONLY the current visible tile list (respecting page size).
+   - Cache key includes op + farm filter + sort + pageSize + range text.
+===================================================================== */
+const LS_TILES_CACHE_KEY = 'fv_fr_tiles_html_cache_v1';
+const TILES_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 24; // 24 hours
+
+function _tilesCacheKey(state){
+  try{
+    const sortSel = $('sortSel');
+    const sort = String(sortSel ? sortSel.value : 'name_az');
+    const opKey = getCurrentOp();
+    const farmFilter = String(state && state.farmFilter ? state.farmFilter : '__all__');
+    const pageSize = String(state && state.pageSize != null ? state.pageSize : '');
+    const rangeStr = String(($('jobRangeInput') && $('jobRangeInput').value) ? $('jobRangeInput').value : '');
+
+    // Keep it stable + compact
+    return JSON.stringify({ opKey, farmFilter, sort, pageSize, rangeStr });
+  }catch(_){
+    return '';
+  }
+}
+
+function _loadTilesHtmlCache(state){
+  try{
+    const wrap = $('fieldsGrid');
+    if (!wrap) return false;
+
+    // Only use cache if grid is empty / first paint OR state indicates it loaded fields from cache
+    const okToUse =
+      !wrap.childElementCount ||
+      !!(state && state._fvFieldsFromCache);
+
+    if (!okToUse) return false;
+
+    const raw = String(localStorage.getItem(LS_TILES_CACHE_KEY) || '').trim();
+    if (!raw) return false;
+
+    const payload = JSON.parse(raw);
+    if (!payload || typeof payload !== 'object') return false;
+
+    const ts = Number(payload.ts || 0);
+    if (!ts || !Number.isFinite(ts)) return false;
+    if ((Date.now() - ts) > TILES_CACHE_MAX_AGE_MS) return false;
+
+    const key = String(payload.key || '');
+    const want = _tilesCacheKey(state);
+    if (!key || !want || key !== want) return false;
+
+    const html = String(payload.html || '');
+    if (!html) return false;
+
+    // Inject tiles instantly
+    wrap.innerHTML = html;
+
+    // Rewire handlers on injected tiles
+    ensureSelectionStyleOnce();
+    const tiles = wrap.querySelectorAll('.tile[data-field-id]');
+    tiles.forEach(tile=>{
+      const fid = String(tile.getAttribute('data-field-id') || '');
+      if (!fid) return;
+      wireTileInteractions(state, tile, fid);
+    });
+
+    // Restore selected underline/highlight if possible
+    try{
+      if (state && state.selectedFieldId){
+        setSelectedTileClass(state, state.selectedFieldId);
+      }
+    }catch(_){}
+
+    // Re-enable swipe actions
+    try{
+      initSwipeOnTiles(state, {
+        onDetails: async (fieldId)=>{
+          if (!canEdit(state)) return;
+          await openQuickView(state, fieldId);
+        }
+      });
+    }catch(_){}
+
+    // Empty msg handling (best effort)
+    try{
+      const empty = $('emptyMsg');
+      if (empty) empty.style.display = wrap.childElementCount ? 'none' : 'block';
+    }catch(_){}
+
+    return true;
+  }catch(_){
+    return false;
+  }
+}
+
+function _saveTilesHtmlCache(state){
+  try{
+    const wrap = $('fieldsGrid');
+    if (!wrap) return;
+
+    // Only cache if we actually have some tiles
+    if (!wrap.childElementCount) return;
+
+    const key = _tilesCacheKey(state);
+    if (!key) return;
+
+    const payload = {
+      ts: Date.now(),
+      key,
+      html: wrap.innerHTML
+    };
+    localStorage.setItem(LS_TILES_CACHE_KEY, JSON.stringify(payload));
+  }catch(_){}
+}
 
 /* =====================================================================
    Render gate (prevents double-load flicker)
@@ -710,6 +828,10 @@ function wireTileInteractions(state, tileEl, fieldId){
 
 /* ---------- tile render (CORE) ---------- */
 async function _renderTilesInternal(state){
+  // ✅ Fast paint: if cache matches this view, paint instantly and then continue.
+  // We still proceed to build fresh tiles so the numbers update normally.
+  try{ _loadTilesHtmlCache(state); }catch(_){}
+
   await ensureModelWeatherModules(state);
   ensureSelectionStyleOnce();
   await loadCalibrationFromAdjustments(state);
@@ -808,6 +930,9 @@ async function _renderTilesInternal(state){
       await openQuickView(state, fieldId);
     }
   });
+
+  // ✅ Save the fresh HTML for next time
+  _saveTilesHtmlCache(state);
 }
 
 /* ---------- tile render (PUBLIC) ---------- */
