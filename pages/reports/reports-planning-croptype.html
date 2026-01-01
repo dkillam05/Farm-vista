@@ -1297,7 +1297,7 @@
     ${buildHeaderBlock({ company, runStr, titleRight: 'Crop Planning' })}
 
     <h1 class="title">Crop Plan — Detailed</h1>
-    <p class="subtitle">Totals print only once per table (end of crop/farm), even across page breaks.</p>
+    <p class="subtitle">Detailed includes field lists under each crop/farm section.</p>
 
     <div class="summary">
       <div class="pill"><span class="k">Filters</span><span class="v">${esc(filterSummary)}</span></div>
@@ -1323,7 +1323,166 @@
 </html>`;
     }
 
-    function buildPrintHtmlSummary(){ return ''; } // (unchanged in your original file; kept outside snippet scope)
+    // ✅ REAL summary PDF (by farm totals; no field lists)
+    function buildPrintHtmlSummary({ company, runStr, runDateOnly, filterSummary, kpis, rows }){
+      const esc = escapeHtml;
+
+      // Summarize by farm
+      const byFarm = new Map();
+      (rows || []).forEach(r=>{
+        const farmName = farmNameForId(r.farmId);
+        if(!byFarm.has(farmName)){
+          byFarm.set(farmName, {
+            farmName,
+            fields: 0,
+            total: 0,
+            corn: 0,
+            soy: 0,
+            unplanned: 0
+          });
+        }
+        const f = byFarm.get(farmName);
+        const ac = safeNum(r.acres);
+        const ck = cropKeyForRow(r);
+        f.fields += 1;
+        f.total += ac;
+        if(ck === 'corn') f.corn += ac;
+        else if(ck === 'soybeans') f.soy += ac;
+        else f.unplanned += ac;
+      });
+
+      const farms = Array.from(byFarm.values()).sort((a,b)=> (a.farmName||'').localeCompare(b.farmName||''));
+
+      const totals = farms.reduce((acc,f)=>{
+        acc.fields += f.fields;
+        acc.total += f.total;
+        acc.corn += f.corn;
+        acc.soy += f.soy;
+        acc.unplanned += f.unplanned;
+        return acc;
+      }, { fields:0, total:0, corn:0, soy:0, unplanned:0 });
+
+      return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Crop Plan — Summary</title>
+  <style>
+    :root{
+      --g:#3B7E46;
+      --b:#D1D5DB;
+      --t:#111827;
+      --m:#6B7280;
+      --bg:#F3F4F6;
+    }
+    *{box-sizing:border-box;}
+    html,body{margin:0;padding:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--t);background:var(--bg);}
+    body{display:flex;justify-content:center;padding:22px 12px;}
+    .page{width:100%;max-width:920px;background:#fff;border-radius:14px;box-shadow:0 10px 30px rgba(15,23,42,0.12);padding:20px 22px 22px;}
+    .hdr{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;border-bottom:2px solid var(--g);padding-bottom:12px;margin-bottom:14px;}
+    .logo{width:60px;height:60px;border-radius:16px;border:1px solid var(--b);overflow:hidden;background:#fff;display:flex;align-items:center;justify-content:center;}
+    .logo img{width:100%;height:100%;object-fit:cover;display:block;}
+    .logo-fallback{width:60px;height:60px;border-radius:16px;border:1px solid var(--b);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:900;color:#fff;background:radial-gradient(circle at 30% 0%, #4CAF50, var(--g));}
+    .co-name{font-size:16px;font-weight:900;margin:0 0 2px;}
+    .co-line{font-size:11px;color:var(--m);margin:0;line-height:1.35;}
+    .meta{text-align:right;font-size:11px;color:var(--m);line-height:1.35;white-space:nowrap;}
+    .meta strong{color:var(--t);}
+    .title{margin:0;font-size:18px;font-weight:950;letter-spacing:0.06em;text-transform:uppercase;}
+    .subtitle{margin:4px 0 0;font-size:12px;color:var(--m);line-height:1.35;}
+    .summary{margin-top:10px;padding:8px 10px;border-radius:12px;background:linear-gradient(90deg, rgba(59,126,70,0.10), transparent);border:1px solid rgba(59,126,70,0.22);display:flex;flex-wrap:wrap;gap:6px 14px;font-size:11px;}
+    .pill{display:inline-flex;gap:6px;align-items:baseline;white-space:nowrap;}
+    .k{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--m);font-weight:700;}
+    .v{font-weight:800;color:var(--t);}
+    .kpis{margin-top:12px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;}
+    .kpi{border:1px solid var(--b);border-radius:12px;padding:9px 10px;background:linear-gradient(135deg, rgba(59,126,70,0.06), #fff);}
+    .kpi .lab{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--m);font-weight:900;}
+    .kpi .val{font-size:18px;font-weight:950;margin-top:2px;}
+    .kpi .note{font-size:10px;color:var(--m);margin-top:2px;line-height:1.25;}
+    .sec{margin-top:16px;border-top:1px solid #EEF2F7;padding-top:14px;}
+    .h2{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:12px;font-weight:950;letter-spacing:0.10em;text-transform:uppercase;margin:0 0 8px;}
+    .t{width:100%;border-collapse:separate;border-spacing:0;border:1px solid var(--b);border-radius:12px;overflow:hidden;}
+    .t th,.t td{padding:9px 10px;border-bottom:1px solid #EEF2F7;font-size:11px;}
+    .t th{text-transform:uppercase;letter-spacing:0.10em;font-weight:950;color:var(--m);background:rgba(59,126,70,0.06);}
+    .t tr:last-child td{border-bottom:0;}
+    .r{text-align:right;}
+    .mono{font-variant-numeric:tabular-nums;}
+    .tot td{font-weight:950;}
+    .footer{margin-top:16px;padding-top:10px;border-top:1px solid var(--b);display:flex;justify-content:space-between;gap:12px;font-size:10px;color:var(--m);line-height:1.3;}
+    @media (max-width:860px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr));}.meta{white-space:normal;}}
+    @media print{html,body{background:#fff;padding:0;} body{box-shadow:none;} .page{max-width:none;border-radius:0;box-shadow:none;padding:9mm 10mm;} thead{display:table-header-group;}}
+  </style>
+</head>
+<body>
+  <div class="page">
+    ${buildHeaderBlock({ company, runStr, titleRight: 'Crop Planning' })}
+
+    <h1 class="title">Crop Plan — Summary</h1>
+    <p class="subtitle">Summary totals by farm (no field lists).</p>
+
+    <div class="summary">
+      <div class="pill"><span class="k">Filters</span><span class="v">${esc(filterSummary)}</span></div>
+      <div class="pill"><span class="k">Farms</span><span class="v">${esc(String(kpis.farmCount))}</span></div>
+      <div class="pill"><span class="k">Fields</span><span class="v">${esc(String(kpis.totalFields))}</span></div>
+      <div class="pill"><span class="k">Total acres</span><span class="v">${esc(fmt2.format(kpis.totalAcres))}</span></div>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi"><div class="lab">Farms</div><div class="val">${esc(String(kpis.farmCount))}</div><div class="note">Matching filters</div></div>
+      <div class="kpi"><div class="lab">Total Acres</div><div class="val">${esc(fmt2.format(kpis.totalAcres))}</div><div class="note">All crops</div></div>
+      <div class="kpi"><div class="lab">Corn Acres</div><div class="val">${esc(fmt2.format(kpis.cornAcres))}</div><div class="note">Recognized corn</div></div>
+      <div class="kpi"><div class="lab">Soy Acres</div><div class="val">${esc(fmt2.format(kpis.soyAcres))}</div><div class="note">Recognized soybeans</div></div>
+    </div>
+
+    <section class="sec">
+      <div class="h2">
+        <div>Farm totals</div>
+        <div style="font-size:11px;color:var(--m);letter-spacing:0.06em;text-transform:none;font-weight:900;white-space:nowrap;">
+          ${esc(String(totals.fields))} fields • ${esc(fmt2.format(totals.total))} ac
+        </div>
+      </div>
+
+      <table class="t">
+        <thead>
+          <tr>
+            <th>Farm</th>
+            <th class="r">Fields</th>
+            <th class="r">Corn</th>
+            <th class="r">Soy</th>
+            <th class="r">Unplanned</th>
+            <th class="r">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${farms.map(f=>`
+            <tr>
+              <td>${esc(f.farmName || '—')}</td>
+              <td class="r mono">${esc(String(f.fields))}</td>
+              <td class="r mono">${esc(fmt2.format(f.corn))}</td>
+              <td class="r mono">${esc(fmt2.format(f.soy))}</td>
+              <td class="r mono">${esc(fmt2.format(f.unplanned))}</td>
+              <td class="r mono" style="font-weight:900;">${esc(fmt2.format(f.total))}</td>
+            </tr>
+          `).join('')}
+          <tr class="tot">
+            <td>Total</td>
+            <td class="r mono">${esc(String(totals.fields))}</td>
+            <td class="r mono">${esc(fmt2.format(totals.corn))}</td>
+            <td class="r mono">${esc(fmt2.format(totals.soy))}</td>
+            <td class="r mono">${esc(fmt2.format(totals.unplanned))}</td>
+            <td class="r mono">${esc(fmt2.format(totals.total))}</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer class="footer">
+      <div></div>
+      <div>FarmVista • Crop Planning • ${esc(runDateOnly || '')}</div>
+    </footer>
+  </div>
+</body>
+</html>`;
+    }
 
     function openPrintModal(){
       const b = document.getElementById('print-modal-backdrop');
@@ -1378,8 +1537,17 @@
     }
 
     async function runPrintSummary(){
-      // keep your original summary printer (omitted here) — you can paste yours back if you want.
-      await runPrintDetailed();
+      const rows = STATE.filtered || [];
+      const company = await loadCompanyHeader();
+      const now = new Date();
+      const runStr = formatDateTime(now);
+      const runDateOnly = formatDate(now);
+
+      const filterSummary = summarizeFilters();
+      const kpis = calcKpis(rows);
+
+      const html = buildPrintHtmlSummary({ company, runStr, runDateOnly, filterSummary, kpis, rows });
+      await printHtmlViaIframe(html);
     }
 
     function wireEvents(){
