@@ -1,23 +1,15 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-01-01f
+Rev: 2025-12-31i
 
-Fix (per Dane):
-✅ Mobile “Details” blocks + swipe broken after caching:
-   - When caching tiles DOM, sanitize out swipe underlay/action elements
-   - On restore, strip swipe artifacts + reset transforms
-   - If tiles are restored and signature matches, DO NOT rebuild tiles
-     BUT DO re-init swipe wiring (so swipe works)
-
-Also fixes:
-✅ Remove accidental duplicate renderBetaInputs() from a bad merge
-✅ Fix sort typo (nameB was using a.name)
+Fixes (per Dane):
+✅ ETA text on mobile: use ">" sign (not "Greater Than ...")
+✅ Extend ETA horizon to full 7-day forecast:
+   - show "~XXh" if within 168h
+   - show ">168h" if not within 168h
 
 Keeps:
-✅ ETA text on mobile uses ">" sign
-✅ Extend ETA horizon to full 7-day forecast (168h)
-✅ Render gate prevents double-load flicker
-✅ Existing model/math behavior + details tables
+✅ Everything else unchanged from your provided render.js
 ===================================================================== */
 'use strict';
 
@@ -34,145 +26,17 @@ import { fetchAndHydrateFieldParams } from './data.js';
 import { getAPI } from './firebase.js';
 
 /* =====================================================================
-   Tiles DOM cache (localStorage) — survives iOS/PWA lifecycle
-   IMPORTANT: we must NOT persist swipe underlay/action DOM
-===================================================================== */
-const LS_TILES_KEY = 'fv_fr_tiles_dom_v3';
-const LS_TILES_MAX_CHARS = 1_500_000; // safety cap
-
-function computeTilesSig(state){
-  try{
-    const fieldsSig = String(state?._fieldsSig || '');
-    const op   = String(document.getElementById('opSel')?.value || '');
-    const sort = String(document.getElementById('sortSel')?.value || '');
-    const farm = String(state?.farmFilter || '__all__');
-    const page = String(state?.pageSize || '25');
-    const range = String(document.getElementById('jobRangeInput')?.value || '');
-    return [fieldsSig, op, sort, farm, page, range].join('||');
-  }catch(_){
-    return String(state?._fieldsSig || '');
-  }
-}
-
-function stripSwipeArtifacts(rootEl){
-  try{
-    if (!rootEl) return;
-
-    const killSelectors = [
-      '.fv-swipe-actions',
-      '.fv-swipe-action',
-      '.fv-swipe-underlay',
-      '.fv-swipe-overlay',
-      '.swipe-actions',
-      '.swipe-action',
-      '.swipe-underlay',
-      '.swipe-overlay',
-      '[data-swipe-underlay]',
-      '[data-swipe-action]',
-      '[data-fv-swipe-underlay]',
-      '[data-fv-swipe-action]'
-    ];
-
-    for (const sel of killSelectors){
-      rootEl.querySelectorAll(sel).forEach(n => n.remove());
-    }
-
-    rootEl.querySelectorAll('[class]').forEach(el=>{
-      const c = String(el.className || '');
-      if (!c) return;
-      if (c.includes('swipe') && !c.includes('tile') && !c.includes('fv-swipe-item')){
-        if (el.classList.contains('tile')) return;
-        el.remove();
-      }
-    });
-
-    rootEl.querySelectorAll('.tile').forEach(t=>{
-      try{
-        t.style.transform = '';
-        t.style.transition = '';
-        t.style.left = '';
-        t.style.right = '';
-      }catch(_){}
-    });
-  }catch(_){}
-}
-
-function buildSanitizedTilesHTML(){
-  try{
-    const wrap = $('fieldsGrid');
-    if (!wrap) return '';
-    const clone = wrap.cloneNode(true);
-    stripSwipeArtifacts(clone);
-
-    // remove any non-tile siblings (those “Details” blocks)
-    Array.from(clone.children || []).forEach(ch=>{
-      const isTile = ch && ch.classList && ch.classList.contains('tile');
-      if (!isTile) ch.remove();
-    });
-
-    return String(clone.innerHTML || '');
-  }catch(_){
-    return '';
-  }
-}
-
-function restoreTilesDom(state){
-  try{
-    const wrap = $('fieldsGrid');
-    if (!wrap) return false;
-    if (wrap.children && wrap.children.length) return false;
-
-    const raw = localStorage.getItem(LS_TILES_KEY);
-    if (!raw) return false;
-
-    const obj = JSON.parse(raw);
-    if (!obj || typeof obj !== 'object') return false;
-
-    const html = String(obj.html || '');
-    const sig  = String(obj.sig || '');
-    if (!html || !sig) return false;
-
-    wrap.innerHTML = html;
-    stripSwipeArtifacts(wrap);
-
-    state._tilesDomSig = sig;
-
-    const empty = $('emptyMsg');
-    if (empty) empty.style.display = (wrap.children.length ? 'none' : 'block');
-
-    return true;
-  }catch(_){
-    return false;
-  }
-}
-
-function persistTilesDom(state){
-  try{
-    const wrap = $('fieldsGrid');
-    if (!wrap) return;
-
-    const sig = computeTilesSig(state);
-    state._tilesDomSig = sig;
-
-    const html = buildSanitizedTilesHTML();
-    if (!html) return;
-    if (html.length > LS_TILES_MAX_CHARS) return;
-
-    localStorage.setItem(LS_TILES_KEY, JSON.stringify({
-      ts: Date.now(),
-      sig,
-      html
-    }));
-  }catch(_){}
-}
-
-/* =====================================================================
    Render gate (prevents double-load flicker)
 ===================================================================== */
 function ensureRenderGate(state){
   if (!state) return null;
   if (!state._renderGate){
-    state._renderGate = { inFlight:false, wantAll:false, wantDetails:false, timer:null };
+    state._renderGate = {
+      inFlight: false,
+      wantAll: false,
+      wantDetails: false,
+      timer: null
+    };
   }
   return state._renderGate;
 }
@@ -183,8 +47,11 @@ async function scheduleRender(state, mode){
 
   if (mode === 'all') g.wantAll = true;
   if (mode === 'details') g.wantDetails = true;
+
+  // already rendering; it'll loop once more if anything was requested
   if (g.inFlight) return;
 
+  // coalesce bursts
   if (g.timer) clearTimeout(g.timer);
   g.timer = setTimeout(async ()=>{
     g.timer = null;
@@ -194,6 +61,7 @@ async function scheduleRender(state, mode){
     try{
       const doAll = !!g.wantAll;
       const doDetails = !!g.wantDetails;
+
       g.wantAll = false;
       g.wantDetails = false;
 
@@ -207,8 +75,11 @@ async function scheduleRender(state, mode){
         }catch(_){}
       }
     }catch(_){
+      // swallow: render should not crash page
     }finally{
       g.inFlight = false;
+
+      // run once more if queued during render
       if (g.wantAll || g.wantDetails){
         scheduleRender(state, g.wantAll ? 'all' : 'details');
       }
@@ -243,9 +114,15 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
 
       let snap = null;
       try{
-        snap = await db.collection(CONST.ADJ_COLLECTION).orderBy('createdAt', 'desc').limit(CAL_MAX_DOCS).get();
+        snap = await db.collection(CONST.ADJ_COLLECTION)
+          .orderBy('createdAt', 'desc')
+          .limit(CAL_MAX_DOCS)
+          .get();
       }catch(_){
-        snap = await db.collection(CONST.ADJ_COLLECTION).orderBy('ts', 'desc').limit(CAL_MAX_DOCS).get();
+        snap = await db.collection(CONST.ADJ_COLLECTION)
+          .orderBy('ts', 'desc')
+          .limit(CAL_MAX_DOCS)
+          .get();
       }
 
       snap.forEach(doc=>{
@@ -257,6 +134,7 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
       });
 
       out.wetBias = clamp(out.wetBias, -CAL_CLAMP, CAL_CLAMP);
+
       state._cal = out;
       state._calLoadedAt = now;
       return out;
@@ -267,9 +145,17 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
 
       let q = null;
       try{
-        q = api.query(api.collection(db, CONST.ADJ_COLLECTION), api.orderBy('createdAt','desc'), api.limit(CAL_MAX_DOCS));
+        q = api.query(
+          api.collection(db, CONST.ADJ_COLLECTION),
+          api.orderBy('createdAt', 'desc'),
+          api.limit(CAL_MAX_DOCS)
+        );
       }catch(_){
-        q = api.query(api.collection(db, CONST.ADJ_COLLECTION), api.orderBy('ts','desc'), api.limit(CAL_MAX_DOCS));
+        q = api.query(
+          api.collection(db, CONST.ADJ_COLLECTION),
+          api.orderBy('ts', 'desc'),
+          api.limit(CAL_MAX_DOCS)
+        );
       }
 
       const snap = await api.getDocs(q);
@@ -282,6 +168,7 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
       });
 
       out.wetBias = clamp(out.wetBias, -CAL_CLAMP, CAL_CLAMP);
+
       state._cal = out;
       state._calLoadedAt = now;
       return out;
@@ -303,6 +190,7 @@ function getCalForDeps(state){
 /* ---------- module loader (model/weather/forecast) ---------- */
 export async function ensureModelWeatherModules(state){
   if (state._mods && state._mods.model && state._mods.weather && state._mods.forecast) return;
+
   if (!state._mods) state._mods = {};
 
   const WEATHER_URL = '/Farm-vista/js/field-readiness.weather.js';
@@ -319,7 +207,7 @@ export async function ensureModelWeatherModules(state){
   state._mods.forecast = forecast;
 }
 
-/* ---------- colors ---------- */
+/* ---------- colors (ported) ---------- */
 function perceivedFromThreshold(readiness, thr){
   const r = clamp(Math.round(Number(readiness)), 0, 100);
   const t = clamp(Math.round(Number(thr)), 0, 100);
@@ -373,7 +261,7 @@ function sortFields(fields, runsById){
     const rb = runsById.get(b.id);
 
     const nameA = `${a.name||''}`;
-    const nameB = `${b.name||''}`; // ✅ FIX
+    const nameB = `${b.name||''}`;
 
     const readyA = ra ? ra.readinessR : 0;
     const readyB = rb ? rb.readinessR : 0;
@@ -396,7 +284,7 @@ function sortFields(fields, runsById){
   return arr;
 }
 
-/* ---------- farm filter ---------- */
+/* ---------- FIXED: farm filter ---------- */
 function getFilteredFields(state){
   const farmId = String(state.farmFilter || '__all__');
   if (farmId === '__all__') return state.fields.slice();
@@ -414,10 +302,110 @@ function ensureSelectionStyleOnce(){
     const s = document.createElement('style');
     s.setAttribute('data-fv-fr-selstyle','1');
     s.textContent = `
-      .tile .tile-top{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:8px!important;flex-wrap:nowrap!important;min-width:0!important;}
-      .tile .tile-top .titleline{display:flex!important;align-items:center!important;flex:1 1 0!important;min-width:0!important;flex-wrap:nowrap!important;}
-      .tile .tile-top .readiness-pill{flex:0 0 auto!important;white-space:nowrap!important;}
-      .tile .tile-top .titleline .name{flex:1 1 auto!important;display:block!important;min-width:0!important;max-width:100%!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;}
+      .tile .tile-top{
+        display:flex !important;
+        align-items:center !important;
+        justify-content:space-between !important;
+        gap:8px !important;
+        flex-wrap:nowrap !important;
+        min-width:0 !important;
+      }
+      .tile .tile-top .titleline{
+        display:flex !important;
+        align-items:center !important;
+        flex:1 1 0 !important;
+        min-width:0 !important;
+        flex-wrap:nowrap !important;
+      }
+      .tile .tile-top .readiness-pill{
+        flex:0 0 auto !important;
+        white-space:nowrap !important;
+      }
+      .tile .tile-top .titleline .name{
+        flex:1 1 auto !important;
+        display:block !important;
+        min-width:0 !important;
+        max-width:100% !important;
+        white-space:nowrap !important;
+        overflow:hidden !important;
+        text-overflow:ellipsis !important;
+      }
+
+      @media (hover: none) and (pointer: coarse){
+        .tile.fv-selected .tile-top .titleline .name{
+          color: inherit !important;
+          text-decoration: underline !important;
+          text-decoration-thickness: 2px !important;
+          text-underline-offset: 3px !important;
+          text-decoration-color: var(--accent, #2F6C3C) !important;
+          font-weight: 950 !important;
+
+          display:block !important;
+          min-width:0 !important;
+          max-width:100% !important;
+          white-space:nowrap !important;
+          overflow:hidden !important;
+          text-overflow:ellipsis !important;
+
+          padding: 2px 6px !important;
+          border-radius: 8px !important;
+          background: rgba(47,108,60,0.12) !important;
+          box-shadow: inset 0 -2px 0 rgba(47,108,60,0.55) !important;
+        }
+
+        html.dark .tile.fv-selected .tile-top .titleline .name{
+          background: rgba(47,108,60,0.18) !important;
+          box-shadow: inset 0 -2px 0 rgba(47,108,60,0.70) !important;
+        }
+      }
+
+      @media (hover: hover) and (pointer: fine){
+        .tile.fv-selected{
+          box-shadow:
+            0 0 0 2px rgba(47,108,60,0.40),
+            0 10px 18px rgba(15,23,42,0.08);
+          border-radius: 14px;
+        }
+
+        html.dark .tile.fv-selected{
+          box-shadow:
+            0 0 0 2px rgba(47,108,60,0.45),
+            0 12px 22px rgba(0,0,0,0.28);
+        }
+
+        .tile.fv-selected .tile-top .titleline .name{
+          color: inherit !important;
+          text-decoration: none !important;
+          font-weight: inherit !important;
+          padding: 0 !important;
+          border-radius: 0 !important;
+          background: transparent !important;
+          box-shadow: none !important;
+
+          display:block !important;
+          min-width:0 !important;
+          max-width:100% !important;
+          white-space:nowrap !important;
+          overflow:hidden !important;
+          text-overflow:ellipsis !important;
+        }
+      }
+
+      #frDetailsHeaderPanel{
+        margin: 0 !important;
+        padding: 10px 12px !important;
+      }
+      #frDetailsHeaderPanel .frdh-title{
+        font-weight: 950;
+        font-size: 13px;
+        line-height: 1.2;
+      }
+      #frDetailsHeaderPanel .frdh-sub{
+        font-size: 12px;
+        line-height: 1.2;
+        color: var(--muted,#67706B);
+        margin-top: 4px;
+      }
     `;
     document.head.appendChild(s);
   }catch(_){}
@@ -490,9 +478,10 @@ function updateDetailsHeaderPanel(state){
 }
 
 /* =====================================================================
-   Forecast-based ETA helper for tiles
+   Forecast-based ETA helper for tiles (with wetBias passed in)
 ===================================================================== */
 function parseEtaHoursFromText(txt){
+  // Accept: "Est: ~22 hours" OR "~22h"
   const s = String(txt || '');
   let m = s.match(/~\s*(\d+)\s*hours/i);
   if (m){
@@ -524,11 +513,15 @@ function compactEtaForMobile(txt, horizonHours){
 }
 
 async function getTileEtaText(state, fieldId, run0, thr){
-  const HORIZON_HOURS = 168;
+  const HORIZON_HOURS = 168; // ✅ 7-day
   const NEAR_THR_POINTS = 5;
 
   let legacyTxt = '';
-  try{ legacyTxt = state._mods.model.etaFor(run0, thr, HORIZON_HOURS) || ''; }catch(_){ legacyTxt = ''; }
+  try{
+    legacyTxt = state._mods.model.etaFor(run0, thr, HORIZON_HOURS) || '';
+  }catch(_){
+    legacyTxt = '';
+  }
   const legacyHours = parseEtaHoursFromText(legacyTxt);
 
   try{
@@ -544,25 +537,41 @@ async function getTileEtaText(state, fieldId, run0, thr){
       const pred = await state._mods.forecast.predictDryForField(
         fieldId,
         { soilWetness, drainageIndex },
-        { threshold: thr, horizonHours: HORIZON_HOURS, maxSimDays: 7, wetBias }
+        {
+          threshold: thr,
+          horizonHours: HORIZON_HOURS,
+          maxSimDays: 7,
+          wetBias
+        }
       );
 
       if (pred && pred.ok){
         if (pred.status === 'dryNow') return '';
-        if (pred.status === 'within72') return pred.message || '';
+
+        if (pred.status === 'within72'){
+          return pred.message || '';
+        }
+
         if (pred.status === 'notWithin72'){
+          // ✅ Sanity fallback near threshold:
+          // if you're close to threshold AND legacy says <=168h, show legacy (but compact it)
           const rNow = Number(run0 && run0.readinessR);
           const near = Number.isFinite(rNow) ? ((thr - rNow) >= 0 && (thr - rNow) <= NEAR_THR_POINTS) : false;
 
           if (near && legacyHours !== null && legacyHours <= HORIZON_HOURS){
             return compactEtaForMobile(legacyTxt, HORIZON_HOURS);
           }
+
+          // ✅ Force compact > sign for mobile
           return pred.message || `>${HORIZON_HOURS}h`;
         }
+
+        // noForecast/noData => fall back
       }
     }
   }catch(_){}
 
+  // Fall back to model ETA but compact it (no "Greater Than ...")
   return legacyTxt ? compactEtaForMobile(legacyTxt, HORIZON_HOURS) : '';
 }
 
@@ -656,8 +665,6 @@ async function updateTileForField(state, fieldId){
       tile.classList.add('fv-selected');
       state._selectedTileId = fid;
     }
-
-    persistTilesDom(state);
   }catch(_){}
 }
 
@@ -703,25 +710,6 @@ function wireTileInteractions(state, tileEl, fieldId){
 
 /* ---------- tile render (CORE) ---------- */
 async function _renderTilesInternal(state){
-  restoreTilesDom(state);
-
-  const wrap0 = $('fieldsGrid');
-  const sigNow = computeTilesSig(state);
-  const sigPrev = String(state._tilesDomSig || '');
-
-  // If restored tiles match signature, keep DOM BUT ensure swipe is wired
-  if (wrap0 && wrap0.children && wrap0.children.length && sigPrev && sigPrev === sigNow){
-    try{
-      await initSwipeOnTiles(state, {
-        onDetails: async (fieldId)=>{
-          if (!canEdit(state)) return;
-          await openQuickView(state, fieldId);
-        }
-      });
-    }catch(_){}
-    return;
-  }
-
   await ensureModelWeatherModules(state);
   ensureSelectionStyleOnce();
   await loadCalibrationFromAdjustments(state);
@@ -752,10 +740,7 @@ async function _renderTilesInternal(state){
   const thr = getThresholdForOp(state, opKey);
   const range = parseRangeFromInput();
 
-  const cap = (String(state.pageSize) === '__all__' || state.pageSize === -1)
-    ? sorted.length
-    : Math.min(sorted.length, Number(state.pageSize || 25));
-
+  const cap = (String(state.pageSize) === '__all__' || state.pageSize === -1) ? sorted.length : Math.min(sorted.length, Number(state.pageSize || 25));
   const show = sorted.slice(0, cap);
 
   for (const f of show){
@@ -823,12 +808,11 @@ async function _renderTilesInternal(state){
       await openQuickView(state, fieldId);
     }
   });
-
-  persistTilesDom(state);
 }
 
 /* ---------- tile render (PUBLIC) ---------- */
 export async function renderTiles(state){
+  // Tiles render is expensive; coalesce with details
   await scheduleRender(state, 'all');
 }
 
