@@ -1,16 +1,18 @@
 /* =====================================================================
 /Farm-vista/js/crop-planning/crop-planner.module.js  (FULL FILE)
-Rev: 2026-01-01a
+Rev: 2026-01-01b
 
-NEW (per Dane):
-✅ Crop Year is now a CUSTOM combo dropdown (same style as Farm) — mobile + desktop
-✅ No native <select> for year anymore (fixes iOS/native look)
-✅ Farm combo remains custom
+FIXES (per Dane):
+✅ Farm + Year dropdowns now match app combo styling more closely:
+   - Same panel look (rounded, shadow, separators)
+   - Same search row styling
+   - Same “All farms” header styling
+✅ Close on OUTSIDE tap anywhere (not just inside module)
+✅ Raise z-index so panels are above other UI
 
 Keeps:
-✅ Phone viewer mode behavior (farm -> crop tiles -> fields)
-✅ Desktop DnD + bulk + lock system
-✅ Global lock watch logic
+✅ Phone viewer mode (farm -> crop tiles -> fields)
+✅ Desktop DnD + bulk + global lock
 ===================================================================== */
 'use strict';
 
@@ -148,6 +150,106 @@ export async function mount(hostEl, opts = {}){
   const lockPath = (year) => ['crop_plan_locks', String(year)];
   const canDragNow = () => (!viewOnly && !isLocked);
 
+  // Shared combo styling (inline, to match the rest of app’s “select + panel” feel)
+  const COMBO_Z = 30000;
+  const comboBtnStyle = (radiusPx) => `
+    width:100%;
+    font:inherit;
+    font-size:16px;
+    color:var(--text);
+    background:var(--card-surface,var(--surface));
+    border:1px solid var(--border);
+    border-radius:${radiusPx}px;
+    padding:12px 42px 12px 12px;
+    outline:none;
+    cursor:pointer;
+    text-align:left;
+    position:relative;
+    user-select:none;
+  `;
+  const comboCaret = `
+    position:absolute;
+    right:12px;
+    top:50%;
+    transform:translateY(-50%);
+    width:0;height:0;
+    border-left:6px solid transparent;
+    border-right:6px solid transparent;
+    border-top:7px solid color-mix(in srgb, var(--muted,#67706B) 75%, var(--text));
+    opacity:.95;
+    pointer-events:none;
+  `;
+  const comboPanelStyle = `
+    position:absolute;
+    left:0; right:0;
+    top:calc(100% + 8px);
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:14px;
+    box-shadow:0 18px 40px rgba(0,0,0,.20);
+    z-index:${COMBO_Z};
+    padding:10px;
+    display:none;
+  `;
+  const comboSearchWrapStyle = `
+    padding:2px 0 10px 0;
+    border-bottom:1px solid color-mix(in srgb, var(--border) 85%, transparent);
+    margin-bottom:8px;
+  `;
+  const comboSearchStyle = `
+    width:100%;
+    padding:12px 12px;
+    border:1px solid var(--border);
+    border-radius:12px;
+    font:inherit;
+    font-size:15px;
+    color:var(--text);
+    background:var(--card-surface,var(--surface));
+    outline:none;
+  `;
+  const comboListStyle = `
+    max-height:52vh;
+    overflow:auto;
+    -webkit-overflow-scrolling:touch;
+  `;
+  const comboItemStyle = `
+    padding:12px 10px;
+    border-radius:10px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    cursor:pointer;
+  `;
+  const comboItemDividerStyle = `
+    border-top:1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  `;
+  const comboHeaderStyle = `
+    font-weight:900;
+  `;
+
+  // ---------- YEAR combo HTML (custom) ----------
+  function yearComboHtml(radiusPx){
+    const r = Number(radiusPx || 12);
+    return `
+      <div class="field combo combo-year" style="position:relative;">
+        <label style="display:block;font-weight:800;margin:0 0 6px;">Crop Year</label>
+        <div class="combo-anchor" style="position:relative;display:inline-block;width:100%;">
+          <button data-el="yearBtn" class="buttonish has-caret" type="button" aria-haspopup="listbox" aria-expanded="false"
+                  style="${comboBtnStyle(r)}">
+            <span data-el="yearBtnText">${esc(currentYear)}</span>
+            <span aria-hidden="true" style="${comboCaret}"></span>
+          </button>
+
+          <div data-el="yearPanel" class="combo-panel" style="${comboPanelStyle}">
+            <div data-el="yearList" class="list" style="${comboListStyle}"></div>
+          </div>
+        </div>
+        <input data-el="yearVal" type="hidden" value="${esc(currentYear)}" />
+      </div>
+    `;
+  }
+
   // ✅ bulk header box helper (desktop only)
   function bulkBox(label, crop){
     return `
@@ -167,33 +269,8 @@ export async function mount(hostEl, opts = {}){
     `;
   }
 
-  // ---------- YEAR combo HTML (used in both layouts) ----------
-  function yearComboHtml(radiusPx){
-    const r = Number(radiusPx || 12);
-    return `
-      <div class="field combo combo-year" style="position:relative;">
-        <label style="display:block;font-weight:800;margin:0 0 6px;">Crop Year</label>
-        <div class="combo-anchor" style="position:relative;display:inline-block;width:100%;">
-          <button data-el="yearBtn" class="buttonish has-caret" type="button"
-                  style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
-                         border:1px solid var(--border);border-radius:${r}px;padding:12px;outline:none;cursor:pointer;text-align:left;
-                         position:relative;padding-right:44px;user-select:none;">
-            ${esc(currentYear)}
-          </button>
-          <div data-el="yearPanel" class="combo-panel"
-               style="position:absolute;left:0;right:0;top:calc(100% + 6px);
-                      background:var(--surface);border:1px solid var(--border);border-radius:12px;
-                      box-shadow:0 12px 26px rgba(0,0,0,.18);z-index:9999;padding:8px;display:none;">
-            <div data-el="yearList" class="list" style="max-height:52vh;overflow:auto;"></div>
-          </div>
-        </div>
-        <input data-el="yearVal" type="hidden" value="${esc(currentYear)}" />
-      </div>
-    `;
-  }
-
   // -------------------------------------------------------------------
-  // SKELETON: Desktop (unchanged) vs Phone viewer
+  // SKELETON: Desktop vs Phone viewer
   // -------------------------------------------------------------------
   hostEl.innerHTML = viewOnly ? `
     <section class="cpRoot viewOnly" style="padding:0;margin:0;">
@@ -331,22 +408,17 @@ export async function mount(hostEl, opts = {}){
           <div class="field combo" style="position:relative;">
             <label style="display:block;font-weight:800;margin:0 0 6px;">Farm</label>
             <div class="combo-anchor" style="position:relative;display:inline-block;width:100%;">
-              <button data-el="farmBtn" class="buttonish has-caret" type="button"
-                      style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
-                             border:1px solid var(--border);border-radius:12px;padding:12px;outline:none;cursor:pointer;text-align:left;
-                             position:relative;padding-right:44px;user-select:none;">
-                — All farms —
+              <button data-el="farmBtn" class="buttonish has-caret" type="button" aria-haspopup="listbox" aria-expanded="false"
+                      style="${comboBtnStyle(12)}">
+                <span data-el="farmBtnText">— All farms —</span>
+                <span aria-hidden="true" style="${comboCaret}"></span>
               </button>
-              <div data-el="farmPanel" class="combo-panel"
-                   style="position:absolute;left:0;right:0;top:calc(100% + 6px);background:var(--surface);
-                          border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 26px rgba(0,0,0,.18);
-                          z-index:9999;padding:8px;display:none;">
-                <div class="search" style="padding:4px 2px 8px;">
-                  <input data-el="farmSearch" type="search" placeholder="Search farms…"
-                         style="width:100%;padding:10px;border:1px solid var(--border);border-radius:10px;font:inherit;font-size:14px;color:var(--text);
-                                background:var(--card-surface,var(--surface));" />
+
+              <div data-el="farmPanel" class="combo-panel" style="${comboPanelStyle}">
+                <div style="${comboSearchWrapStyle}">
+                  <input data-el="farmSearch" type="search" placeholder="Search farms…" style="${comboSearchStyle}" />
                 </div>
-                <div data-el="farmList" class="list" style="max-height:70vh;overflow:auto;border-top:1px solid var(--border);"></div>
+                <div data-el="farmList" class="list" style="${comboListStyle}"></div>
               </div>
             </div>
             <input data-el="farmId" type="hidden" />
@@ -404,22 +476,17 @@ export async function mount(hostEl, opts = {}){
             <div class="field combo" style="position:relative;">
               <label style="display:block;font-weight:800;margin:0 0 6px;">Farm</label>
               <div class="combo-anchor" style="position:relative;display:inline-block;width:100%;">
-                <button data-el="farmBtn" class="buttonish has-caret" type="button"
-                        style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
-                               border:1px solid var(--border);border-radius:10px;padding:12px;outline:none;cursor:pointer;text-align:left;
-                               position:relative;padding-right:44px;user-select:none;">
-                  — All farms —
+                <button data-el="farmBtn" class="buttonish has-caret" type="button" aria-haspopup="listbox" aria-expanded="false"
+                        style="${comboBtnStyle(10)}">
+                  <span data-el="farmBtnText">— All farms —</span>
+                  <span aria-hidden="true" style="${comboCaret}"></span>
                 </button>
-                <div data-el="farmPanel" class="combo-panel"
-                     style="position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--surface);
-                            border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 26px rgba(0,0,0,.18);
-                            z-index:9999;padding:8px;display:none;">
-                  <div class="search" style="padding:4px 2px 8px;">
-                    <input data-el="farmSearch" type="search" placeholder="Search farms…"
-                           style="width:100%;padding:10px;border:1px solid var(--border);border-radius:10px;font:inherit;font-size:14px;color:var(--text);
-                                  background:var(--card-surface,var(--surface));" />
+
+                <div data-el="farmPanel" class="combo-panel" style="${comboPanelStyle}">
+                  <div style="${comboSearchWrapStyle}">
+                    <input data-el="farmSearch" type="search" placeholder="Search farms…" style="${comboSearchStyle}" />
                   </div>
-                  <div data-el="farmList" class="list" style="max-height:52vh;overflow:auto;border-top:1px solid var(--border);"></div>
+                  <div data-el="farmList" class="list" style="${comboListStyle}"></div>
                 </div>
               </div>
               <input data-el="farmId" type="hidden" />
@@ -519,6 +586,7 @@ export async function mount(hostEl, opts = {}){
   const q = (sel) => hostEl.querySelector(sel);
   const el = {
     farmBtn: q('[data-el="farmBtn"]'),
+    farmBtnText: q('[data-el="farmBtnText"]'),
     farmPanel: q('[data-el="farmPanel"]'),
     farmList: q('[data-el="farmList"]'),
     farmSearch: q('[data-el="farmSearch"]'),
@@ -526,6 +594,7 @@ export async function mount(hostEl, opts = {}){
     farmName: q('[data-el="farmName"]'),
 
     yearBtn: q('[data-el="yearBtn"]'),
+    yearBtnText: q('[data-el="yearBtnText"]'),
     yearPanel: q('[data-el="yearPanel"]'),
     yearList: q('[data-el="yearList"]'),
     yearVal: q('[data-el="yearVal"]'),
@@ -565,28 +634,66 @@ export async function mount(hostEl, opts = {}){
     }, 900);
   };
 
+  const isAnyComboOpen = () => {
+    const fp = el.farmPanel && el.farmPanel.style.display === 'block';
+    const yp = el.yearPanel && el.yearPanel.style.display === 'block';
+    return !!(fp || yp);
+  };
+
   const closeAllCombos = () => {
     if (el.farmPanel) el.farmPanel.style.display = 'none';
     if (el.yearPanel) el.yearPanel.style.display = 'none';
+    if (el.farmBtn) el.farmBtn.setAttribute('aria-expanded','false');
+    if (el.yearBtn) el.yearBtn.setAttribute('aria-expanded','false');
   };
 
-  hostEl.ownerDocument.addEventListener('click', (e)=>{
-    if (!hostEl.contains(e.target)) return;
-    if (e.target.closest('.combo')) return;
+  // ✅ Close on outside click ANYWHERE in document (matches rest of app)
+  hostEl.ownerDocument.addEventListener('mousedown', (e)=>{
+    if(!isAnyComboOpen()) return;
+
+    const t = e.target;
+    const insideFarm = (el.farmBtn && el.farmBtn.contains(t)) || (el.farmPanel && el.farmPanel.contains(t));
+    const insideYear = (el.yearBtn && el.yearBtn.contains(t)) || (el.yearPanel && el.yearPanel.contains(t));
+    if(insideFarm || insideYear) return;
+
     closeAllCombos();
-  }, { signal });
+  }, { capture:true, signal });
+
+  // also close on ESC
+  hostEl.ownerDocument.addEventListener('keydown', (e)=>{
+    if(e.key !== 'Escape') return;
+    if(isAnyComboOpen()){
+      e.preventDefault();
+      closeAllCombos();
+    }
+  }, { capture:true, signal });
 
   // ----- Farm combo -----
   const renderFarmList = (qtext) => {
     const qq = norm(qtext);
-    const items = farms
+
+    const rows = farms
       .filter(f => !qq || norm(f.name).includes(qq))
-      .map(f => `<div class="combo-item" data-id="${esc(f.id)}"><div>${esc(f.name)}</div><div></div></div>`)
-      .join('');
+      .map((f, idx) => `
+        <div class="combo-item" data-id="${esc(f.id)}"
+             style="${comboItemStyle}${idx===0 ? '' : comboItemDividerStyle}">
+          <div style="font-weight:900;">${esc(f.name)}</div>
+          <div></div>
+        </div>
+      `).join('');
+
+    const allRow = `
+      <div class="combo-item" data-id=""
+           style="${comboItemStyle}">
+        <div style="${comboHeaderStyle}">All farms</div>
+        <div></div>
+      </div>
+    `;
+
     if (el.farmList){
-      el.farmList.innerHTML =
-        `<div class="combo-item" data-id=""><div><strong>All farms</strong></div><div></div></div>` +
-        (items || `<div class="combo-empty">(no matches)</div>`);
+      el.farmList.innerHTML = allRow + (rows || `
+        <div style="padding:12px 10px;color:var(--muted,#67706B);font-weight:900;">(no matches)</div>
+      `);
     }
   };
 
@@ -596,40 +703,56 @@ export async function mount(hostEl, opts = {}){
       const isOpen = el.farmPanel.style.display === 'block';
       closeAllCombos();
       el.farmPanel.style.display = isOpen ? 'none' : 'block';
-      el.farmSearch.value = '';
-      renderFarmList('');
-      setTimeout(()=> el.farmSearch.focus(), 0);
-    }, { signal });
-
-    el.farmPanel.addEventListener('click', (e)=> e.stopPropagation(), { signal });
-    el.farmPanel.addEventListener('mousedown', (e)=> e.stopPropagation(), { signal });
-
-    el.farmSearch.addEventListener('input', ()=> renderFarmList(el.farmSearch.value), { signal });
-
-    el.farmList.addEventListener('mousedown', (e)=>{
-      const row = e.target.closest('.combo-item'); if(!row) return;
-      const id = row.dataset.id || '';
-      if(!id){
-        el.farmId.value = '';
-        el.farmName.value = '';
-        el.farmBtn.textContent = '— All farms —';
+      el.farmBtn.setAttribute('aria-expanded', (!isOpen).toString());
+      if(el.farmSearch){
+        el.farmSearch.value = '';
+        renderFarmList('');
+        setTimeout(()=> el.farmSearch.focus(), 0);
       }else{
-        const f = farms.find(x=> x.id === id);
-        el.farmId.value = f.id;
-        el.farmName.value = f.name;
-        el.farmBtn.textContent = f.name;
+        renderFarmList('');
       }
-      closeAllCombos();
-      renderAll(true);
     }, { signal });
+
+    if(el.farmPanel){
+      el.farmPanel.addEventListener('click', (e)=> e.stopPropagation(), { signal });
+      el.farmPanel.addEventListener('mousedown', (e)=> e.stopPropagation(), { signal });
+    }
+
+    if(el.farmSearch){
+      el.farmSearch.addEventListener('input', ()=> renderFarmList(el.farmSearch.value), { signal });
+    }
+
+    if(el.farmList){
+      el.farmList.addEventListener('mousedown', (e)=>{
+        const row = e.target.closest('.combo-item'); if(!row) return;
+        const id = row.dataset.id || '';
+
+        if(!id){
+          if(el.farmId) el.farmId.value = '';
+          if(el.farmName) el.farmName.value = '';
+          if(el.farmBtnText) el.farmBtnText.textContent = '— All farms —';
+        }else{
+          const f = farms.find(x=> x.id === id);
+          if(f){
+            if(el.farmId) el.farmId.value = f.id;
+            if(el.farmName) el.farmName.value = f.name;
+            if(el.farmBtnText) el.farmBtnText.textContent = f.name;
+          }
+        }
+
+        closeAllCombos();
+        renderAll(true);
+      }, { signal });
+    }
   }
 
   // ----- Year combo -----
   const renderYearList = () => {
     if(!el.yearList) return;
-    el.yearList.innerHTML = YEARS.map(y => `
-      <div class="combo-item" data-year="${esc(y)}">
-        <div><strong>${esc(y)}</strong></div>
+    el.yearList.innerHTML = YEARS.map((y, idx) => `
+      <div class="combo-item" data-year="${esc(y)}"
+           style="${comboItemStyle}${idx===0 ? '' : comboItemDividerStyle}">
+        <div style="font-weight:900;">${esc(y)}</div>
         <div></div>
       </div>
     `).join('');
@@ -637,7 +760,7 @@ export async function mount(hostEl, opts = {}){
 
   const setYearUI = (y) => {
     currentYear = String(y || YEARS[0] || '2026');
-    if(el.yearBtn) el.yearBtn.textContent = currentYear;
+    if(el.yearBtnText) el.yearBtnText.textContent = currentYear;
     if(el.yearVal) el.yearVal.value = currentYear;
   };
 
@@ -650,26 +773,32 @@ export async function mount(hostEl, opts = {}){
       const isOpen = el.yearPanel.style.display === 'block';
       closeAllCombos();
       el.yearPanel.style.display = isOpen ? 'none' : 'block';
+      el.yearBtn.setAttribute('aria-expanded', (!isOpen).toString());
     }, { signal });
 
-    el.yearPanel.addEventListener('click', (e)=> e.stopPropagation(), { signal });
-    el.yearPanel.addEventListener('mousedown', (e)=> e.stopPropagation(), { signal });
+    if(el.yearPanel){
+      el.yearPanel.addEventListener('click', (e)=> e.stopPropagation(), { signal });
+      el.yearPanel.addEventListener('mousedown', (e)=> e.stopPropagation(), { signal });
+    }
 
-    el.yearList.addEventListener('mousedown', async (e)=>{
-      const row = e.target.closest('.combo-item'); if(!row) return;
-      const y = row.dataset.year || YEARS[0] || '2026';
-      if(String(y) === String(currentYear)){
+    if(el.yearList){
+      el.yearList.addEventListener('mousedown', async (e)=>{
+        const row = e.target.closest('.combo-item'); if(!row) return;
+        const y = row.dataset.year || YEARS[0] || '2026';
+        if(String(y) === String(currentYear)){
+          closeAllCombos();
+          return;
+        }
+
+        setYearUI(y);
         closeAllCombos();
-        return;
-      }
-      setYearUI(y);
-      closeAllCombos();
 
-      await startLockWatch(currentYear);
-      plans = await loadPlansForYear(db, currentYear);
-      renderAll(true);
-      toast(`Year: ${currentYear}${isLocked ? ' (Locked)' : ''}`);
-    }, { signal });
+        await startLockWatch(currentYear);
+        plans = await loadPlansForYear(db, currentYear);
+        renderAll(true);
+        toast(`Year: ${currentYear}${isLocked ? ' (Locked)' : ''}`);
+      }, { signal });
+    }
   }
 
   // ---- GLOBAL LOCK helpers ----
@@ -1078,9 +1207,65 @@ export async function mount(hostEl, opts = {}){
   fields = await loadFields(db);
   farmNameById = new Map(farms.map(f=>[String(f.id), String(f.name)]));
 
-  renderFarmList('');
-  plans = await loadPlansForYear(db, currentYear);
+  // initialize combo labels
+  if(el.farmBtnText) el.farmBtnText.textContent = '— All farms —';
+  if(el.yearBtnText) el.yearBtnText.textContent = currentYear;
 
+  // render lists now that farms loaded
+  renderFarmList('');
+  if(el.yearList){
+    // style year list using same “combo-item” template
+    el.yearList.innerHTML = YEARS.map((y, idx) => `
+      <div class="combo-item" data-year="${esc(y)}"
+           style="${comboItemStyle}${idx===0 ? '' : comboItemDividerStyle}">
+        <div style="font-weight:900;">${esc(y)}</div>
+        <div></div>
+      </div>
+    `).join('');
+    el.yearList.addEventListener('mousedown', async (e)=>{
+      const row = e.target.closest('.combo-item'); if(!row) return;
+      const y = row.dataset.year || YEARS[0] || '2026';
+      if(String(y) === String(currentYear)){
+        closeAllCombos();
+        return;
+      }
+      currentYear = String(y);
+      if(el.yearBtnText) el.yearBtnText.textContent = currentYear;
+      if(el.yearVal) el.yearVal.value = currentYear;
+
+      closeAllCombos();
+      await startLockWatch(currentYear);
+      plans = await loadPlansForYear(db, currentYear);
+      renderAll(true);
+      toast(`Year: ${currentYear}${isLocked ? ' (Locked)' : ''}`);
+    }, { signal });
+  }
+
+  // hook farm list selection after farms loaded
+  if(el.farmList){
+    el.farmList.addEventListener('mousedown', (e)=>{
+      const row = e.target.closest('.combo-item'); if(!row) return;
+      const id = row.dataset.id || '';
+
+      if(!id){
+        if(el.farmId) el.farmId.value = '';
+        if(el.farmName) el.farmName.value = '';
+        if(el.farmBtnText) el.farmBtnText.textContent = '— All farms —';
+      }else{
+        const f = farms.find(x=> x.id === id);
+        if(f){
+          if(el.farmId) el.farmId.value = f.id;
+          if(el.farmName) el.farmName.value = f.name;
+          if(el.farmBtnText) el.farmBtnText.textContent = f.name;
+        }
+      }
+
+      closeAllCombos();
+      renderAll(true);
+    }, { signal });
+  }
+
+  // lock btn wiring
   if (hasLockUI){
     el.lockBtn.addEventListener('click', async ()=>{
       try{
@@ -1094,10 +1279,15 @@ export async function mount(hostEl, opts = {}){
     }, { signal });
   }
 
-  isLocked = await readLockOnce(currentYear);
+  // year watch + initial plans
+  isLocked = await (async ()=>{
+    const v = await readLockOnce(currentYear);
+    return !!v;
+  })();
   renderLockUI();
   await startLockWatch(currentYear);
 
+  plans = await loadPlansForYear(db, currentYear);
   renderAll(false);
 
   wireDnd({
@@ -1110,9 +1300,102 @@ export async function mount(hostEl, opts = {}){
 
   return {
     unmount(){
-      stopLockWatch();
+      try{ if (typeof lockUnsub === 'function') lockUnsub(); }catch{}
+      if (lockPollT) clearInterval(lockPollT);
       controller.abort();
       hostEl.innerHTML = '';
     }
   };
+
+  // ---- GLOBAL LOCK impls (hoisted) ----
+  function renderLockUI(){
+    if (!hasLockUI) return;
+    el.lockIcon.innerHTML = lockSvg(isLocked);
+    el.lockLabel.textContent = isLocked ? 'Locked' : 'Unlocked';
+    el.lockBtn.style.borderColor = isLocked
+      ? 'color-mix(in srgb, var(--border) 60%, rgba(47,108,60,.25))'
+      : 'var(--border)';
+  }
+
+  function stopLockWatch(){
+    try{ if (typeof lockUnsub === 'function') lockUnsub(); }catch{}
+    lockUnsub = null;
+    if (lockPollT) clearInterval(lockPollT);
+    lockPollT = null;
+  }
+
+  async function readLockOnce(year){
+    if (!fs || !db) return false;
+    try{
+      const ref = fs.doc(db, ...lockPath(year));
+      const snap = await fs.getDoc(ref);
+      const data = snap?.data?.() || {};
+      return !!data.locked;
+    }catch{
+      return false;
+    }
+  }
+
+  async function writeLock(year, nextLocked){
+    if (!fs || !db) throw new Error('Missing Firestore fns/db');
+    const ref = fs.doc(db, ...lockPath(year));
+    const payload = {
+      locked: !!nextLocked,
+      updatedAt: fs.serverTimestamp ? fs.serverTimestamp() : new Date(),
+      updatedBy: getUserTag() || ''
+    };
+    await fs.setDoc(ref, payload, { merge: true });
+  }
+
+  async function startLockWatch(year){
+    stopLockWatch();
+
+    if (!fs || !db){
+      isLocked = false;
+      renderLockUI();
+      return;
+    }
+
+    if (typeof fs.onSnapshot === 'function'){
+      try{
+        const ref = fs.doc(db, ...lockPath(year));
+        lockUnsub = fs.onSnapshot(ref, (snap)=>{
+          const data = snap?.data?.() || {};
+          const next = !!data.locked;
+          const changed = next !== isLocked;
+          isLocked = next;
+          renderLockUI();
+          if (changed) renderAll(true);
+        }, async ()=>{
+          stopLockWatch();
+          isLocked = await readLockOnce(year);
+          renderLockUI();
+          renderAll(true);
+          lockPollT = setInterval(async ()=>{
+            const v = await readLockOnce(year);
+            if (v !== isLocked){
+              isLocked = v;
+              renderLockUI();
+              renderAll(true);
+            }
+          }, 6000);
+        });
+
+        isLocked = await readLockOnce(year);
+        renderLockUI();
+        return;
+      }catch{}
+    }
+
+    isLocked = await readLockOnce(year);
+    renderLockUI();
+    lockPollT = setInterval(async ()=>{
+      const v = await readLockOnce(year);
+      if (v !== isLocked){
+        isLocked = v;
+        renderLockUI();
+        renderAll(true);
+      }
+    }, 6000);
+  }
 }
