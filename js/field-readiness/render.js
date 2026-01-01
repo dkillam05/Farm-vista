@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-01-01a
+Rev: 2026-01-01b
 
 Fix (per Dane):
 ✅ STOP full page/tile re-render flicker:
@@ -8,6 +8,11 @@ Fix (per Dane):
    - Tiles are created once, then UPDATED in-place (diff/signature)
    - DOM order is re-sorted by moving existing nodes (no rebuild)
    - Remove/add only when the visible set changes (filters/page size)
+
+✅ CRITICAL: Guard first-load state so tiles ALWAYS render:
+   - Ensure state.lastRuns is a Map before .clear()
+   - Ensure state.fields exists before loops
+   - Ensure details signature doesn’t block first details build
 
 Keeps:
 ✅ ETA text on mobile: use ">" sign (not "Greater Than ...")
@@ -29,6 +34,20 @@ import { initSwipeOnTiles } from './swipe.js';
 import { parseRangeFromInput, rainInRange } from './rain.js';
 import { fetchAndHydrateFieldParams } from './data.js';
 import { getAPI } from './firebase.js';
+
+/* =====================================================================
+   Small state guards (first-load safety)
+===================================================================== */
+function ensureLastRuns(state){
+  if (!state) return new Map();
+  if (!(state.lastRuns instanceof Map)) state.lastRuns = new Map();
+  return state.lastRuns;
+}
+function ensureFieldsArray(state){
+  if (!state) return [];
+  if (!Array.isArray(state.fields)) state.fields = [];
+  return state.fields;
+}
 
 /* =====================================================================
    Render gate (prevents double-load flicker)
@@ -79,8 +98,8 @@ async function scheduleRender(state, mode){
           if (state && state.selectedFieldId) await updateTileForField(state, state.selectedFieldId);
         }catch(_){}
       }
-    }catch(_){
-      // swallow: render should not crash page
+    }catch(e){
+      console.warn('[FieldReadiness] scheduleRender failed:', e);
     }finally{
       g.inFlight = false;
 
@@ -291,9 +310,10 @@ function sortFields(fields, runsById){
 
 /* ---------- FIXED: farm filter ---------- */
 function getFilteredFields(state){
+  const fields = ensureFieldsArray(state);
   const farmId = String(state.farmFilter || '__all__');
-  if (farmId === '__all__') return state.fields.slice();
-  return state.fields.filter(f => String(f.farmId || '') === farmId);
+  if (farmId === '__all__') return fields.slice();
+  return fields.filter(f => String(f.farmId || '') === farmId);
 }
 
 /* =====================================================================
@@ -466,7 +486,8 @@ function ensureDetailsHeaderPanel(){
 }
 
 function updateDetailsHeaderPanel(state){
-  const f = (state.fields || []).find(x=>x.id === state.selectedFieldId);
+  const fields = ensureFieldsArray(state);
+  const f = fields.find(x=>x.id === state.selectedFieldId);
   if (!f) return;
 
   const panel = ensureDetailsHeaderPanel();
@@ -486,7 +507,6 @@ function updateDetailsHeaderPanel(state){
    Forecast-based ETA helper for tiles (with wetBias passed in)
 ===================================================================== */
 function parseEtaHoursFromText(txt){
-  // Accept: "Est: ~22 hours" OR "~22h"
   const s = String(txt || '');
   let m = s.match(/~\s*(\d+)\s*hours/i);
   if (m){
@@ -518,7 +538,7 @@ function compactEtaForMobile(txt, horizonHours){
 }
 
 async function getTileEtaText(state, fieldId, run0, thr){
-  const HORIZON_HOURS = 168; // ✅ 7-day
+  const HORIZON_HOURS = 168;
   const NEAR_THR_POINTS = 5;
 
   let legacyTxt = '';
@@ -542,41 +562,26 @@ async function getTileEtaText(state, fieldId, run0, thr){
       const pred = await state._mods.forecast.predictDryForField(
         fieldId,
         { soilWetness, drainageIndex },
-        {
-          threshold: thr,
-          horizonHours: HORIZON_HOURS,
-          maxSimDays: 7,
-          wetBias
-        }
+        { threshold: thr, horizonHours: HORIZON_HOURS, maxSimDays: 7, wetBias }
       );
 
       if (pred && pred.ok){
         if (pred.status === 'dryNow') return '';
-
-        if (pred.status === 'within72'){
-          return pred.message || '';
-        }
+        if (pred.status === 'within72') return pred.message || '';
 
         if (pred.status === 'notWithin72'){
-          // ✅ Sanity fallback near threshold:
-          // if you're close to threshold AND legacy says <=168h, show legacy (but compact it)
           const rNow = Number(run0 && run0.readinessR);
           const near = Number.isFinite(rNow) ? ((thr - rNow) >= 0 && (thr - rNow) <= NEAR_THR_POINTS) : false;
 
           if (near && legacyHours !== null && legacyHours <= HORIZON_HOURS){
             return compactEtaForMobile(legacyTxt, HORIZON_HOURS);
           }
-
-          // ✅ Force compact > sign for mobile
           return pred.message || `>${HORIZON_HOURS}h`;
         }
-
-        // noForecast/noData => fall back
       }
     }
   }catch(_){}
 
-  // Fall back to model ETA but compact it (no "Greater Than ...")
   return legacyTxt ? compactEtaForMobile(legacyTxt, HORIZON_HOURS) : '';
 }
 
@@ -585,8 +590,8 @@ async function getTileEtaText(state, fieldId, run0, thr){
 ===================================================================== */
 function ensureTileCaches(state){
   if (!state) return;
-  if (!state._tileEls) state._tileEls = new Map();       // fieldId -> tileEl
-  if (!state._tileSig) state._tileSig = new Map();       // fieldId -> signature string
+  if (!state._tileEls) state._tileEls = new Map();
+  if (!state._tileSig) state._tileSig = new Map();
   if (!state._tileSwipeBound) state._tileSwipeBound = false;
 }
 
@@ -619,7 +624,6 @@ function createTileEl(state, f){
       </div>
 
       <div class="ticks"><span>0</span><span>50</span><span>100</span></div>
-      <!-- help appended only if needed -->
     </div>
   `;
 
@@ -628,7 +632,6 @@ function createTileEl(state, f){
 }
 
 function tileSignature({ readiness, rainRange, thr, etaTxt, gradKey }){
-  // gradKey is a cheap way to avoid rebuilding gauge bg when thr unchanged
   const rr = Number.isFinite(Number(rainRange)) ? Number(rainRange).toFixed(2) : '0.00';
   const r = Number.isFinite(Number(readiness)) ? String(readiness) : '0';
   const t = Number.isFinite(Number(thr)) ? String(thr) : '0';
@@ -659,7 +662,6 @@ function updateTileElInPlace(state, tile, f, run0, thr, range, etaTxt){
   const fid = String(f.id);
   const prevSig = state._tileSig.get(fid);
   if (prevSig === sig){
-    // still need to keep selection class correct if selection changed
     if (String(state.selectedFieldId) === fid){
       tile.classList.add('fv-selected');
       state._selectedTileId = fid;
@@ -670,7 +672,6 @@ function updateTileElInPlace(state, tile, f, run0, thr, range, etaTxt){
   }
   state._tileSig.set(fid, sig);
 
-  // Name
   const nameEl = tile.querySelector('.name');
   if (nameEl){
     const nm = String(f.name || '');
@@ -678,7 +679,6 @@ function updateTileElInPlace(state, tile, f, run0, thr, range, etaTxt){
     nameEl.title = nm;
   }
 
-  // Gauge bg + markers
   const gauge = tile.querySelector('.gauge');
   if (gauge) gauge.style.background = grad;
 
@@ -688,7 +688,6 @@ function updateTileElInPlace(state, tile, f, run0, thr, range, etaTxt){
   const markerEl = tile.querySelector('.marker');
   if (markerEl) markerEl.style.left = leftPos;
 
-  // Pill + badge
   const pill = tile.querySelector('.readiness-pill');
   if (pill){
     pill.style.background = pillBg;
@@ -704,11 +703,9 @@ function updateTileElInPlace(state, tile, f, run0, thr, range, etaTxt){
     badge.textContent = `Field Readiness ${readiness}`;
   }
 
-  // Rain number
   const rainEl = tile.querySelector('.subline .mono');
   if (rainEl) rainEl.textContent = Number(rainRange || 0).toFixed(2);
 
-  // ETA help (create/remove only if changed)
   let help = tile.querySelector('.help');
   if (etaTxt){
     if (!help){
@@ -722,7 +719,6 @@ function updateTileElInPlace(state, tile, f, run0, thr, range, etaTxt){
     if (help) help.remove();
   }
 
-  // Selection class
   if (String(state.selectedFieldId) === fid){
     tile.classList.add('fv-selected');
     state._selectedTileId = fid;
@@ -745,7 +741,8 @@ async function updateTileForField(state, fieldId){
     await ensureModelWeatherModules(state);
     await loadCalibrationFromAdjustments(state);
 
-    const f = (state.fields || []).find(x=>x.id === fid);
+    const fields = ensureFieldsArray(state);
+    const f = fields.find(x=>x.id === fid);
     if (!f) return;
 
     const opKey = getCurrentOp();
@@ -763,7 +760,7 @@ async function updateTileForField(state, fieldId){
     const run0 = state._mods.model.runField(f, deps);
     if (!run0) return;
 
-    try{ state.lastRuns && state.lastRuns.set(fid, run0); }catch(_){}
+    try{ ensureLastRuns(state).set(fid, run0); }catch(_){}
 
     const thr = getThresholdForOp(state, opKey);
     const range = parseRangeFromInput();
@@ -771,9 +768,10 @@ async function updateTileForField(state, fieldId){
 
     updateTileElInPlace(state, tile, f, run0, thr, range, etaTxt);
 
-    // keep map in sync if tile existed via querySelector
     try{ state._tileEls.set(fid, tile); }catch(_){}
-  }catch(_){}
+  }catch(e){
+    console.warn('[FieldReadiness] updateTileForField failed:', e);
+  }
 }
 
 /* ---------- click vs dblclick separation ---------- */
@@ -826,6 +824,9 @@ async function _renderTilesInternal(state){
   const wrap = $('fieldsGrid');
   if (!wrap) return;
 
+  const fields = ensureFieldsArray(state);
+  const lastRuns = ensureLastRuns(state);
+
   const opKey = getCurrentOp();
 
   const wxCtx = buildWxCtx(state);
@@ -838,24 +839,26 @@ async function _renderTilesInternal(state){
     CAL: getCalForDeps(state)
   };
 
-  state.lastRuns.clear();
-  for (const f of state.fields){
-    state.lastRuns.set(f.id, state._mods.model.runField(f, deps));
+  lastRuns.clear();
+  for (const f of fields){
+    lastRuns.set(f.id, state._mods.model.runField(f, deps));
   }
 
   const filtered = getFilteredFields(state);
-  const sorted = sortFields(filtered, state.lastRuns);
+  const sorted = sortFields(filtered, lastRuns);
   const thr = getThresholdForOp(state, opKey);
   const range = parseRangeFromInput();
 
-  const cap = (String(state.pageSize) === '__all__' || state.pageSize === -1) ? sorted.length : Math.min(sorted.length, Number(state.pageSize || 25));
+  const cap = (String(state.pageSize) === '__all__' || state.pageSize === -1)
+    ? sorted.length
+    : Math.min(sorted.length, Number(state.pageSize || 25));
+
   const show = sorted.slice(0, cap);
 
-  // Visible set for diff/removals
   const visible = new Set(show.map(f=>String(f.id)));
 
-  // Remove tiles not visible anymore (filters/page size changed)
   let structureChanged = false;
+
   for (const [fid, el] of Array.from(state._tileEls.entries())){
     if (!visible.has(String(fid))){
       try{ el.remove(); }catch(_){}
@@ -865,10 +868,10 @@ async function _renderTilesInternal(state){
     }
   }
 
-  // Ensure + update tiles, and re-order by moving existing nodes (no rebuild)
   const frag = document.createDocumentFragment();
+
   for (const f of show){
-    const run0 = state.lastRuns.get(f.id);
+    const run0 = lastRuns.get(f.id);
     if (!run0) continue;
 
     const fid = String(f.id);
@@ -880,21 +883,17 @@ async function _renderTilesInternal(state){
       structureChanged = true;
     }
 
-    // Update in place only if values changed
     const etaTxt = await getTileEtaText(state, f.id, run0, thr);
     updateTileElInPlace(state, tile, f, run0, thr, range, etaTxt);
 
-    frag.appendChild(tile); // moves existing node into correct order
+    frag.appendChild(tile);
   }
 
-  // One append puts everything in the right order without clearing the container
-  // (existing nodes were moved; removed nodes already deleted)
   wrap.appendChild(frag);
 
   const empty = $('emptyMsg');
   if (empty) empty.style.display = show.length ? 'none' : 'block';
 
-  // Swipe wiring is expensive; only re-init if structure changed (add/remove) or first time
   if (!state._tileSwipeBound || structureChanged){
     await initSwipeOnTiles(state, {
       onDetails: async (fieldId)=>{
@@ -908,13 +907,13 @@ async function _renderTilesInternal(state){
 
 /* ---------- tile render (PUBLIC) ---------- */
 export async function renderTiles(state){
-  // Tiles render is expensive; coalesce with details
   await scheduleRender(state, 'all');
 }
 
 /* ---------- select field ---------- */
 export function selectField(state, id){
-  const f = state.fields.find(x=>x.id === id);
+  const fields = ensureFieldsArray(state);
+  const f = fields.find(x=>x.id === id);
   if (!f) return;
 
   setSelectedField(state, id);
@@ -1022,7 +1021,8 @@ function renderBetaInputs(state){
 async function _renderDetailsInternal(state){
   await ensureModelWeatherModules(state);
 
-  const f = state.fields.find(x=>x.id === state.selectedFieldId);
+  const fields = ensureFieldsArray(state);
+  const f = fields.find(x=>x.id === state.selectedFieldId);
   if (!f) return;
 
   updateDetailsHeaderPanel(state);
@@ -1044,9 +1044,9 @@ async function _renderDetailsInternal(state){
   const run = state._mods.model.runField(f, deps);
   if (!run) return;
 
-  try{ state.lastRuns && state.lastRuns.set(f.id, run); }catch(_){}
+  try{ ensureLastRuns(state).set(f.id, run); }catch(_){}
 
-  // ✅ Prevent needless table redraw if nothing changed materially
+  // Prevent needless redraw if identical
   try{
     const sig = [
       String(f.id),
@@ -1058,7 +1058,6 @@ async function _renderDetailsInternal(state){
     ].join('|');
 
     if (state._detailsSig === sig){
-      // Still update beta meta quickly (it can change fetchedAt/source) without nuking tables
       renderBetaInputs(state);
       return;
     }
@@ -1208,7 +1207,6 @@ export async function refreshDetailsOnly(state){
         if (!state) return;
         state._calLoadedAt = 0;
         await loadCalibrationFromAdjustments(state, { force:true });
-        // Clear signatures so a soft-reload actually repaints values (but still no full rebuild)
         try{
           if (state._tileSig) state._tileSig.clear();
           state._detailsSig = '';
