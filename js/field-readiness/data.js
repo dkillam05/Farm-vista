@@ -1,29 +1,19 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/data.js  (FULL FILE)
-Rev: 2026-01-01b
+Rev: 2025-12-27b
 
-GOAL (per Dane):
-✅ Fields load instantly from local cache (no blank screen)
-✅ Firestore refresh runs silently in background
-✅ UI/state only updates when field data actually changed
-✅ Prevent false "changed" detection (NO updatedAt in signature)
-✅ Avoid heavy warmups when nothing changed
-
-Keeps:
+IMPORTANT FIX:
 ✅ Breaks circular import:
    - render.js can import from data.js
    - data.js NO LONGER imports from render.js
+
+Keeps:
 ✅ farms/fields loading
 ✅ per-field params hydration from field docs
-✅ weather warmup (only when needed)
-✅ fetchAndHydrateFieldParams(state, fieldId) — one-doc background pull for sliders
+✅ weather warmup
 
-How it works:
-- On open: apply cached fields immediately (if any)
-- Then: fetch from Firestore in background
-- Compute signature from meaningful field values ONLY (id/name/farmId/status/location/soilWetness/drainageIndex/county/state)
-- If signature differs: update state + cache + dispatch 'fr:soft-reload' (render.js refresh listener)
-- If signature same: do nothing (no UI churn; no extra warmup)
+Adds:
+✅ fetchAndHydrateFieldParams(state, fieldId) — one-doc background pull for sliders
 
 ===================================================================== */
 'use strict';
@@ -34,101 +24,7 @@ import { hydrateParamsFromFieldDoc, saveParamsToLocal, ensureSelectedParamsToSli
 import { buildWxCtx, CONST } from './state.js';
 import { PATHS } from './paths.js';
 
-/* =====================================================================
-   Local cache (fields)
-===================================================================== */
-const FIELDS_CACHE_KEY = 'fv_fr_fields_cache_v2'; // bump key to avoid old signature mismatch
-const FIELDS_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
-
-/* small fast hash */
-function fnv1a(str){
-  let h = 0x811c9dc5;
-  for (let i = 0; i < str.length; i++){
-    h ^= str.charCodeAt(i);
-    h = (h + ((h<<1) + (h<<4) + (h<<7) + (h<<8) + (h<<24))) >>> 0;
-  }
-  return ('00000000' + h.toString(16)).slice(-8);
-}
-
-function readFieldsCache(){
-  try{
-    const raw = localStorage.getItem(FIELDS_CACHE_KEY);
-    if (!raw) return null;
-    const obj = JSON.parse(raw);
-    if (!obj || typeof obj !== 'object') return null;
-    if (!Array.isArray(obj.fields) || typeof obj.sig !== 'string') return null;
-
-    const ts = Number(obj.ts || 0);
-    if (ts && (Date.now() - ts) > FIELDS_CACHE_TTL_MS) return null;
-
-    return obj; // { ts, sig, fields }
-  }catch(_){
-    return null;
-  }
-}
-
-function writeFieldsCache(fields, sig){
-  try{
-    localStorage.setItem(FIELDS_CACHE_KEY, JSON.stringify({
-      ts: Date.now(),
-      sig: String(sig || ''),
-      fields: Array.isArray(fields) ? fields : []
-    }));
-  }catch(_){}
-}
-
-/* IMPORTANT:
-   Signature uses ONLY stable, meaningful data.
-   Do NOT include Firestore Timestamp objects (updatedAt) because cache JSON + Firestore Timestamp
-   can serialize differently and cause false changes every load.
-*/
-function buildFieldsSignature(fields){
-  const parts = [];
-  for (const f of (fields || [])){
-    const loc = f.location || null;
-    const lat = loc && typeof loc.lat === 'number' ? f.location.lat.toFixed(6) : '';
-    const lng = loc && typeof loc.lng === 'number' ? f.location.lng.toFixed(6) : '';
-    parts.push([
-      f.id || '',
-      f.farmId || '',
-      f.name || '',
-      normalizeStatus(f.status || ''),
-      f.county || '',
-      f.state || '',
-      lat, lng,
-      (f.soilWetness == null ? '' : String(f.soilWetness)),
-      (f.drainageIndex == null ? '' : String(f.drainageIndex)),
-      (Number.isFinite(Number(f.tillable)) ? String(Number(f.tillable)) : '')
-    ].join('|'));
-  }
-  parts.sort();
-  return fnv1a(parts.join('~~'));
-}
-
-function applyFieldsToState(state, fields, sig){
-  const arr = Array.isArray(fields) ? fields : [];
-  state.fields = arr;
-  state._fieldsSig = String(sig || buildFieldsSignature(arr));
-
-  // hydrate params from field docs (keeps existing behavior)
-  for (const f of arr){
-    try{ hydrateParamsFromFieldDoc(state, f); }catch(_){}
-  }
-  saveParamsToLocal(state);
-
-  if (!state.selectedFieldId || !arr.find(x => x.id === state.selectedFieldId)){
-    state.selectedFieldId = arr.length ? arr[0].id : null;
-  }
-
-  const empty = document.getElementById('emptyMsg');
-  if (empty) empty.style.display = arr.length ? 'none' : 'block';
-
-  ensureSelectedParamsToSliders(state);
-}
-
-/* =====================================================================
-   Local module loader (avoids importing render.js)
-===================================================================== */
+/* ---------- local module loader (avoids importing render.js) ---------- */
 async function ensureModelWeatherModulesLocal(state){
   if (state._mods && state._mods.model && state._mods.weather) return;
   const [weather, model] = await Promise.all([ import(PATHS.WEATHER), import(PATHS.MODEL) ]);
@@ -185,7 +81,7 @@ function extractFieldDoc(docId, d){
   const lat = Number(loc.lat);
   const lng = Number(loc.lng);
 
-  // Support common storage paths
+  // Support common storage paths (keeps you compatible with Fields Settings variations)
   const soilWetness = pickFirstNumber(d, [
     'soilWetness',
     'fieldReadiness.soilWetness',
@@ -219,7 +115,7 @@ function extractFieldDoc(docId, d){
 }
 
 /* =====================================================================
-   One-doc background fetch for selected field params
+   NEW: One-doc background fetch for selected field params
 ===================================================================== */
 export async function fetchAndHydrateFieldParams(state, fieldId){
   const fid = String(fieldId || '').trim();
@@ -250,17 +146,13 @@ export async function fetchAndHydrateFieldParams(state, fieldId){
     const idx = (state.fields || []).findIndex(x=>x.id === fid);
     if (idx >= 0){
       state.fields[idx] = { ...state.fields[idx], ...f };
-      // update signature + cache because we pulled fresh doc fields
-      try{
-        const sig = buildFieldsSignature(state.fields);
-        state._fieldsSig = sig;
-        writeFieldsCache(state.fields, sig);
-      }catch(_){}
     }
 
+    // Hydrate params map from Firestore values
     hydrateParamsFromFieldDoc(state, f);
     saveParamsToLocal(state);
 
+    // If selected, update sliders immediately
     if (state.selectedFieldId === fid){
       ensureSelectedParamsToSliders(state);
     }
@@ -272,9 +164,6 @@ export async function fetchAndHydrateFieldParams(state, fieldId){
   }
 }
 
-/* =====================================================================
-   Farms optional
-===================================================================== */
 export async function loadFarmsOptional(state){
   const api = getAPI(state);
   if (!api || api.kind === 'compat') return;
@@ -290,67 +179,6 @@ export async function loadFarmsOptional(state){
   }catch(_){}
 }
 
-/* =====================================================================
-   Firestore fetch (raw -> filtered fields)
-===================================================================== */
-async function fetchFieldsRawDocs(api){
-  const rawDocs = [];
-
-  if (api.kind !== 'compat'){
-    const db = api.getFirestore();
-
-    // Prefer active-only query (fast)
-    try{
-      const q = api.query(api.collection(db,'fields'), api.where('status','==','active'));
-      const snap = await api.getDocs(q);
-      snap.forEach(doc=> rawDocs.push({ id: doc.id, data: doc.data() || {} }));
-    }catch(_){}
-
-    // Fallback to full collection if active query returned nothing
-    if (rawDocs.length === 0){
-      const snap2 = await api.getDocs(api.collection(db,'fields'));
-      snap2.forEach(doc=> rawDocs.push({ id: doc.id, data: doc.data() || {} }));
-    }
-    return rawDocs;
-  }
-
-  // compat
-  const db = window.firebase.firestore();
-  try{
-    let snap = await db.collection('fields').where('status','==','active').get();
-    snap.forEach(doc=> rawDocs.push({ id: doc.id, data: doc.data() || {} }));
-    if (rawDocs.length === 0){
-      snap = await db.collection('fields').get();
-      snap.forEach(doc=> rawDocs.push({ id: doc.id, data: doc.data() || {} }));
-    }
-  }catch(e){
-    const snap = await db.collection('fields').get();
-    snap.forEach(doc=> rawDocs.push({ id: doc.id, data: doc.data() || {} }));
-  }
-
-  return rawDocs;
-}
-
-function buildFilteredActiveLocatedFieldsFromRaw(rawDocs, state){
-  const arr = [];
-  for (const r of (rawDocs || [])){
-    const f = extractFieldDoc(r.id, r.data || {});
-    if (normalizeStatus(f.status) !== 'active') continue;
-    if (!f.location) continue;
-    arr.push(f);
-    hydrateParamsFromFieldDoc(state, f);
-  }
-
-  arr.sort((a,b)=> String(a.name).localeCompare(String(b.name), undefined, {numeric:true, sensitivity:'base'}));
-  return arr;
-}
-
-/* =====================================================================
-   loadFields(state)
-   - Instant paint from cache (if available)
-   - Silent Firestore refresh in background
-   - Only update if changed (signature)
-===================================================================== */
 export async function loadFields(state){
   const api = getAPI(state);
   if (!api){
@@ -359,63 +187,59 @@ export async function loadFields(state){
     return;
   }
 
-  // 1) Apply cached fields immediately (if any)
-  const cached = readFieldsCache();
-  if (cached && Array.isArray(cached.fields) && cached.fields.length){
-    try{
-      applyFieldsToState(state, cached.fields, cached.sig);
-      // Do NOT warm weather here; render.js will request weather as needed.
-      // (Warmup only when we actually receive new data from Firestore.)
-    }catch(_){}
-  }
+  try{
+    let rawDocs = [];
 
-  // 2) Silent background refresh from Firestore
-  const runRemoteRefresh = async ()=>{
-    try{
-      const rawDocs = await fetchFieldsRawDocs(api);
-      const arr = buildFilteredActiveLocatedFieldsFromRaw(rawDocs, state);
-      saveParamsToLocal(state);
-
-      const sig = buildFieldsSignature(arr);
-      const prev = String(state._fieldsSig || (cached ? cached.sig : ''));
-
-      if (sig !== prev){
-        applyFieldsToState(state, arr, sig);
-        writeFieldsCache(arr, sig);
-
-        // Warm weather ONLY when fields list actually changed (or first time with no cache)
-        try{
-          await ensureModelWeatherModulesLocal(state);
-          const wxCtx = buildWxCtx(state);
-          await state._mods.weather.warmWeatherForFields(state.fields, wxCtx, { force:false, onEach:()=>{} });
-        }catch(_){}
-
-        // Tell render.js to refresh using updated state (no circular import)
-        try{
-          document.dispatchEvent(new CustomEvent('fr:soft-reload'));
-        }catch(_){}
-      } else {
-        // No change -> do nothing (silent)
+    if (api.kind !== 'compat'){
+      const db = api.getFirestore();
+      const q = api.query(api.collection(db,'fields'), api.where('status','==','active'));
+      const snap = await api.getDocs(q);
+      snap.forEach(doc=> rawDocs.push({ id: doc.id, data: doc.data() || {} }));
+      if (rawDocs.length === 0){
+        const snap2 = await api.getDocs(api.collection(db,'fields'));
+        snap2.forEach(doc=> rawDocs.push({ id: doc.id, data: doc.data() || {} }));
       }
-    }catch(e){
-      // If we had cache, keep UI and just log; if no cache, show error
-      if (!cached || !cached.fields || !cached.fields.length){
-        setErr(`Failed to load fields: ${e.message}`);
-        state.fields = [];
-        const empty = document.getElementById('emptyMsg');
-        if (empty) empty.style.display = 'block';
-      } else {
-        console.warn('[FieldReadiness] background fields refresh failed:', e);
+    } else {
+      const db = window.firebase.firestore();
+      let snap = await db.collection('fields').where('status','==','active').get();
+      snap.forEach(doc=> rawDocs.push({ id: doc.id, data: doc.data() || {} }));
+      if (rawDocs.length === 0){
+        snap = await db.collection('fields').get();
+        snap.forEach(doc=> rawDocs.push({ id: doc.id, data: doc.data() || {} }));
       }
     }
-  };
 
-  // If cache existed: do not block UI
-  if (cached && Array.isArray(cached.fields) && cached.fields.length){
-    runRemoteRefresh();
-    return;
+    const arr = [];
+    for (const r of rawDocs){
+      const f = extractFieldDoc(r.id, r.data);
+      if (normalizeStatus(f.status) !== 'active') continue;
+      if (!f.location) continue;
+      arr.push(f);
+      hydrateParamsFromFieldDoc(state, f);
+    }
+
+    arr.sort((a,b)=> String(a.name).localeCompare(String(b.name), undefined, {numeric:true, sensitivity:'base'}));
+    state.fields = arr;
+    saveParamsToLocal(state);
+
+    if (!state.selectedFieldId || !state.fields.find(x=>x.id===state.selectedFieldId)){
+      state.selectedFieldId = state.fields.length ? state.fields[0].id : null;
+    }
+
+    const empty = document.getElementById('emptyMsg');
+    if (empty) empty.style.display = state.fields.length ? 'none' : 'block';
+
+    ensureSelectedParamsToSliders(state);
+
+    // weather warmup (uses existing weather module)
+    await ensureModelWeatherModulesLocal(state);
+    const wxCtx = buildWxCtx(state);
+    await state._mods.weather.warmWeatherForFields(state.fields, wxCtx, { force:false, onEach:()=>{} });
+
+  }catch(e){
+    setErr(`Failed to load fields: ${e.message}`);
+    state.fields = [];
+    const empty = document.getElementById('emptyMsg');
+    if (empty) empty.style.display = 'block';
   }
-
-  // No cache: block once to get initial list + warmup
-  await runRemoteRefresh();
 }
