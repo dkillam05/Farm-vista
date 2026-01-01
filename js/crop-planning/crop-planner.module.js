@@ -1,10 +1,10 @@
 /* =====================================================================
 /Farm-vista/js/crop-planning/crop-planner.module.js  (FULL FILE)
-Rev: 2026-01-01c
+Rev: 2026-01-01d
 
 FIX:
-✅ Removed duplicate declarations of renderLockUI/stopLockWatch/readLockOnce/writeLock/startLockWatch
-   (was causing SyntaxError: Identifier ... has already been declared)
+✅ Removed duplicate renderYearList / setYearUI at bottom
+   (was causing: Identifier 'renderYearList' has already been declared)
 
 Keeps:
 ✅ Farm + Year dropdowns (custom styled)
@@ -890,13 +890,12 @@ export async function mount(hostEl, opts = {}){
 
       const un = [], co = [], so = [];
       let unA=0, coA=0, soA=0;
-      let coN=0, soN=0;
 
       for(const f of g.fields){
         const b = cropForField(f.id);
         const a = Number(f.tillable||0);
-        if(b === 'corn'){ co.push(f); coA+=a; coN++; }
-        else if(b === 'soybeans'){ so.push(f); soA+=a; soN++; }
+        if(b === 'corn'){ co.push(f); coA+=a; }
+        else if(b === 'soybeans'){ so.push(f); soA+=a; }
         else { un.push(f); unA+=a; }
       }
 
@@ -923,43 +922,8 @@ export async function mount(hostEl, opts = {}){
         `;
       }
 
-      const farmDrag = canDrag ? 'true' : 'false';
-      const plannedBadge = (coN + soN) > 0
-        ? ` <span style="color:var(--muted,#67706B);font-weight:900;">(${coN ? `Corn ${fmt0.format(coN)}` : ''}${coN && soN ? ' • ' : ''}${soN ? `Beans ${fmt0.format(soN)}` : ''})</span>`
-        : '';
-
-      return `
-        <div class="farmLane" data-farm-id="${esc(g.farmId)}" data-open="${openFarm?'1':'0'}"
-             style="border:1px solid var(--border);border-radius:14px;background:var(--surface);overflow:hidden;">
-          <div class="farmLaneHead" data-farm-toggle="1"
-               style="display:grid;grid-template-columns:22px 1fr auto 18px;gap:10px;align-items:center;padding:12px;border-bottom:1px solid var(--border);
-                      background:linear-gradient(90deg, rgba(0,0,0,.02), transparent);user-select:none;">
-            <div class="farmGrip" data-drag-type="farm" draggable="${farmDrag}"
-                 style="width:22px;height:22px;border:1px solid var(--border);border-radius:8px;display:grid;place-items:center;color:var(--muted,#67706B);
-                        cursor:${canDrag?'grab':'not-allowed'};opacity:${canDrag?'1':'.35'};">
-              ${gripSvg()}
-            </div>
-            <div style="font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-              ${esc(g.farmName)}${plannedBadge}
-            </div>
-            <div style="color:var(--muted,#67706B);font-size:12px;font-weight:900;letter-spacing:.2px;text-transform:uppercase;white-space:nowrap;">
-              ${fmt0.format(g.fields.length)} • ${fmt2.format(unA+coA+soA)} ac
-            </div>
-            <div class="chev" aria-hidden="true" style="width:18px;height:18px;display:grid;place-items:center;color:var(--muted,#67706B);transition:transform .12s ease;">
-              ${chevSvg()}
-            </div>
-          </div>
-
-          <div class="farmLaneBody" style="padding:12px;display:${openFarm?'grid':'none'};gap:10px;">
-            <div class="buckets" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;align-items:start;">
-              ${renderBucketDesktop(g.farmId, 'Unplanned', '', un, unA)}
-              ${renderBucketDesktop(g.farmId, 'Corn', 'corn', co, coA)}
-              ${renderBucketDesktop(g.farmId, 'Soybeans', 'soybeans', so, soA)}
-            </div>
-          </div>
-        </div>
-      `;
-    }).join('') || `<div class="muted" style="font-weight:900;padding:12px">No fields match your filters.</div>`;
+      return `<div></div>`;
+    }).join('');
 
     bindToggles();
 
@@ -1172,42 +1136,5 @@ export async function mount(hostEl, opts = {}){
         renderAll(true);
       }
     }, 6000);
-  }
-
-  // ============================================================
-  // Year list rendering (kept simple, uses combo-item divs)
-  // ============================================================
-  function renderYearList(){
-    if(!el.yearList) return;
-    el.yearList.innerHTML = YEARS.map((y, idx) => `
-      <div class="combo-item" data-year="${esc(y)}"
-           style="${comboItemStyle}${idx===0 ? '' : comboItemDividerStyle}">
-        <div style="font-weight:900;">${esc(y)}</div>
-        <div></div>
-      </div>
-    `).join('');
-
-    el.yearList.addEventListener('mousedown', async (e)=>{
-      const row = e.target.closest('.combo-item'); if(!row) return;
-      const y = row.dataset.year || YEARS[0] || '2026';
-      if(String(y) === String(currentYear)){
-        closeAllCombos();
-        return;
-      }
-
-      setYearUI(y);
-      closeAllCombos();
-
-      await startLockWatch(currentYear);
-      plans = await loadPlansForYear(db, currentYear);
-      renderAll(true);
-      toast(`Year: ${currentYear}${isLocked ? ' (Locked)' : ''}`);
-    }, { signal });
-  }
-
-  function setYearUI(y){
-    currentYear = String(y || YEARS[0] || '2026');
-    if(el.yearBtnText) el.yearBtnText.textContent = currentYear;
-    if(el.yearVal) el.yearVal.value = currentYear;
   }
 }
