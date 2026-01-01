@@ -1,15 +1,20 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-31i
+Rev: 2026-01-01a
 
-Fixes (per Dane):
+Fix (per Dane):
+✅ STOP full page/tile re-render flicker:
+   - No more wrap.innerHTML='' on every refresh
+   - Tiles are created once, then UPDATED in-place (diff/signature)
+   - DOM order is re-sorted by moving existing nodes (no rebuild)
+   - Remove/add only when the visible set changes (filters/page size)
+
+Keeps:
 ✅ ETA text on mobile: use ">" sign (not "Greater Than ...")
 ✅ Extend ETA horizon to full 7-day forecast:
    - show "~XXh" if within 168h
    - show ">168h" if not within 168h
-
-Keeps:
-✅ Everything else unchanged from your provided render.js
+✅ Everything else unchanged in behavior
 ===================================================================== */
 'use strict';
 
@@ -575,13 +580,166 @@ async function getTileEtaText(state, fieldId, run0, thr){
   return legacyTxt ? compactEtaForMobile(legacyTxt, HORIZON_HOURS) : '';
 }
 
+/* =====================================================================
+   TILE DOM: create once, then update in place (NO REBUILD)
+===================================================================== */
+function ensureTileCaches(state){
+  if (!state) return;
+  if (!state._tileEls) state._tileEls = new Map();       // fieldId -> tileEl
+  if (!state._tileSig) state._tileSig = new Map();       // fieldId -> signature string
+  if (!state._tileSwipeBound) state._tileSwipeBound = false;
+}
+
+function createTileEl(state, f){
+  const tile = document.createElement('div');
+  tile.className = 'tile fv-swipe-item';
+  tile.dataset.fieldId = f.id;
+  tile.setAttribute('data-field-id', f.id);
+
+  tile.innerHTML = `
+    <div class="tile-top">
+      <div class="titleline">
+        <div class="name" title=""></div>
+      </div>
+      <div class="readiness-pill" style="color:#fff;"></div>
+    </div>
+
+    <p class="subline">Rain (range): <span class="mono"></span> in</p>
+
+    <div class="gauge-wrap">
+      <div class="chips">
+        <div class="chip wet">Wet</div>
+        <div class="chip readiness">Readiness</div>
+      </div>
+
+      <div class="gauge">
+        <div class="thr"></div>
+        <div class="marker"></div>
+        <div class="badge" style="color:#fff;border:1px solid rgba(255,255,255,.18);"></div>
+      </div>
+
+      <div class="ticks"><span>0</span><span>50</span><span>100</span></div>
+      <!-- help appended only if needed -->
+    </div>
+  `;
+
+  wireTileInteractions(state, tile, f.id);
+  return tile;
+}
+
+function tileSignature({ readiness, rainRange, thr, etaTxt, gradKey }){
+  // gradKey is a cheap way to avoid rebuilding gauge bg when thr unchanged
+  const rr = Number.isFinite(Number(rainRange)) ? Number(rainRange).toFixed(2) : '0.00';
+  const r = Number.isFinite(Number(readiness)) ? String(readiness) : '0';
+  const t = Number.isFinite(Number(thr)) ? String(thr) : '0';
+  const e = String(etaTxt || '');
+  const g = String(gradKey || '');
+  return `${r}|${rr}|${t}|${e}|${g}`;
+}
+
+function updateTileElInPlace(state, tile, f, run0, thr, range, etaTxt){
+  const readiness = run0.readinessR;
+  const rainRange = rainInRange(run0, range);
+
+  const leftPos = state._mods.model.markerLeftCSS(readiness);
+  const thrPos  = state._mods.model.markerLeftCSS(thr);
+
+  const perceived = perceivedFromThreshold(readiness, thr);
+  const pillBg = colorForPerceived(perceived);
+  const grad = gradientForThreshold(thr);
+
+  const sig = tileSignature({
+    readiness,
+    rainRange,
+    thr,
+    etaTxt,
+    gradKey: Math.round(Number(thr) || 0)
+  });
+
+  const fid = String(f.id);
+  const prevSig = state._tileSig.get(fid);
+  if (prevSig === sig){
+    // still need to keep selection class correct if selection changed
+    if (String(state.selectedFieldId) === fid){
+      tile.classList.add('fv-selected');
+      state._selectedTileId = fid;
+    } else {
+      tile.classList.remove('fv-selected');
+    }
+    return;
+  }
+  state._tileSig.set(fid, sig);
+
+  // Name
+  const nameEl = tile.querySelector('.name');
+  if (nameEl){
+    const nm = String(f.name || '');
+    nameEl.textContent = nm;
+    nameEl.title = nm;
+  }
+
+  // Gauge bg + markers
+  const gauge = tile.querySelector('.gauge');
+  if (gauge) gauge.style.background = grad;
+
+  const thrEl = tile.querySelector('.thr');
+  if (thrEl) thrEl.style.left = thrPos;
+
+  const markerEl = tile.querySelector('.marker');
+  if (markerEl) markerEl.style.left = leftPos;
+
+  // Pill + badge
+  const pill = tile.querySelector('.readiness-pill');
+  if (pill){
+    pill.style.background = pillBg;
+    pill.style.color = '#fff';
+    pill.textContent = `Field Readiness ${readiness}`;
+  }
+
+  const badge = tile.querySelector('.badge');
+  if (badge){
+    badge.style.left = leftPos;
+    badge.style.background = pillBg;
+    badge.style.color = '#fff';
+    badge.textContent = `Field Readiness ${readiness}`;
+  }
+
+  // Rain number
+  const rainEl = tile.querySelector('.subline .mono');
+  if (rainEl) rainEl.textContent = Number(rainRange || 0).toFixed(2);
+
+  // ETA help (create/remove only if changed)
+  let help = tile.querySelector('.help');
+  if (etaTxt){
+    if (!help){
+      help = document.createElement('div');
+      help.className = 'help';
+      const gw = tile.querySelector('.gauge-wrap');
+      if (gw) gw.appendChild(help);
+    }
+    help.innerHTML = `<b>${esc(String(etaTxt))}</b>`;
+  } else {
+    if (help) help.remove();
+  }
+
+  // Selection class
+  if (String(state.selectedFieldId) === fid){
+    tile.classList.add('fv-selected');
+    state._selectedTileId = fid;
+  } else {
+    tile.classList.remove('fv-selected');
+  }
+}
+
 /* ---------- internal: patch a single tile DOM in-place ---------- */
 async function updateTileForField(state, fieldId){
   try{
     if (!fieldId) return;
     const fid = String(fieldId);
 
-    const tile = document.querySelector('.tile[data-field-id="' + CSS.escape(fid) + '"]');
+    ensureTileCaches(state);
+
+    const tile = state._tileEls.get(fid) || document.querySelector('.tile[data-field-id="' + CSS.escape(fid) + '"]');
     if (!tile) return;
 
     await ensureModelWeatherModules(state);
@@ -608,63 +766,13 @@ async function updateTileForField(state, fieldId){
     try{ state.lastRuns && state.lastRuns.set(fid, run0); }catch(_){}
 
     const thr = getThresholdForOp(state, opKey);
-    const readiness = run0.readinessR;
-
-    const leftPos = state._mods.model.markerLeftCSS(readiness);
-    const thrPos  = state._mods.model.markerLeftCSS(thr);
-
-    const perceived = perceivedFromThreshold(readiness, thr);
-    const pillBg = colorForPerceived(perceived);
-    const grad = gradientForThreshold(thr);
-
-    const gauge = tile.querySelector('.gauge');
-    if (gauge) gauge.style.background = grad;
-
-    const thrEl = tile.querySelector('.thr');
-    if (thrEl) thrEl.style.left = thrPos;
-
-    const markerEl = tile.querySelector('.marker');
-    if (markerEl) markerEl.style.left = leftPos;
-
-    const pill = tile.querySelector('.readiness-pill');
-    if (pill){
-      pill.style.background = pillBg;
-      pill.style.color = '#fff';
-      pill.textContent = `Field Readiness ${readiness}`;
-    }
-
-    const badge = tile.querySelector('.badge');
-    if (badge){
-      badge.style.left = leftPos;
-      badge.style.background = pillBg;
-      badge.style.color = '#fff';
-      badge.textContent = `Field Readiness ${readiness}`;
-    }
-
     const range = parseRangeFromInput();
-    const rainRange = rainInRange(run0, range);
-    const rainLine = tile.querySelector('.subline .mono');
-    if (rainLine) rainLine.textContent = rainRange.toFixed(2);
-
     const etaTxt = await getTileEtaText(state, fid, run0, thr);
 
-    let help = tile.querySelector('.help');
-    if (etaTxt){
-      if (!help){
-        help = document.createElement('div');
-        help.className = 'help';
-        const gw = tile.querySelector('.gauge-wrap');
-        if (gw) gw.appendChild(help);
-      }
-      help.innerHTML = `<b>${esc(String(etaTxt))}</b>`;
-    } else {
-      if (help) help.remove();
-    }
+    updateTileElInPlace(state, tile, f, run0, thr, range, etaTxt);
 
-    if (String(state.selectedFieldId) === fid){
-      tile.classList.add('fv-selected');
-      state._selectedTileId = fid;
-    }
+    // keep map in sync if tile existed via querySelector
+    try{ state._tileEls.set(fid, tile); }catch(_){}
   }catch(_){}
 }
 
@@ -713,10 +821,10 @@ async function _renderTilesInternal(state){
   await ensureModelWeatherModules(state);
   ensureSelectionStyleOnce();
   await loadCalibrationFromAdjustments(state);
+  ensureTileCaches(state);
 
   const wrap = $('fieldsGrid');
   if (!wrap) return;
-  wrap.innerHTML = '';
 
   const opKey = getCurrentOp();
 
@@ -743,71 +851,59 @@ async function _renderTilesInternal(state){
   const cap = (String(state.pageSize) === '__all__' || state.pageSize === -1) ? sorted.length : Math.min(sorted.length, Number(state.pageSize || 25));
   const show = sorted.slice(0, cap);
 
+  // Visible set for diff/removals
+  const visible = new Set(show.map(f=>String(f.id)));
+
+  // Remove tiles not visible anymore (filters/page size changed)
+  let structureChanged = false;
+  for (const [fid, el] of Array.from(state._tileEls.entries())){
+    if (!visible.has(String(fid))){
+      try{ el.remove(); }catch(_){}
+      state._tileEls.delete(fid);
+      state._tileSig.delete(fid);
+      structureChanged = true;
+    }
+  }
+
+  // Ensure + update tiles, and re-order by moving existing nodes (no rebuild)
+  const frag = document.createDocumentFragment();
   for (const f of show){
     const run0 = state.lastRuns.get(f.id);
     if (!run0) continue;
 
-    const readiness = run0.readinessR;
-    const etaTxt = await getTileEtaText(state, f.id, run0, thr);
-    const rainRange = rainInRange(run0, range);
+    const fid = String(f.id);
 
-    const leftPos = state._mods.model.markerLeftCSS(readiness);
-    const thrPos  = state._mods.model.markerLeftCSS(thr);
-
-    const perceived = perceivedFromThreshold(readiness, thr);
-    const pillBg = colorForPerceived(perceived);
-    const grad = gradientForThreshold(thr);
-
-    const tile = document.createElement('div');
-    tile.className = 'tile fv-swipe-item';
-    tile.dataset.fieldId = f.id;
-    tile.setAttribute('data-field-id', f.id);
-
-    if (String(state.selectedFieldId) === String(f.id)){
-      tile.classList.add('fv-selected');
-      state._selectedTileId = String(f.id);
+    let tile = state._tileEls.get(fid);
+    if (!tile){
+      tile = createTileEl(state, f);
+      state._tileEls.set(fid, tile);
+      structureChanged = true;
     }
 
-    tile.innerHTML = `
-      <div class="tile-top">
-        <div class="titleline">
-          <div class="name" title="${esc(f.name)}">${esc(f.name)}</div>
-        </div>
-        <div class="readiness-pill" style="background:${pillBg};color:#fff;">Field Readiness ${readiness}</div>
-      </div>
+    // Update in place only if values changed
+    const etaTxt = await getTileEtaText(state, f.id, run0, thr);
+    updateTileElInPlace(state, tile, f, run0, thr, range, etaTxt);
 
-      <p class="subline">Rain (range): <span class="mono">${rainRange.toFixed(2)}</span> in</p>
-
-      <div class="gauge-wrap">
-        <div class="chips">
-          <div class="chip wet">Wet</div>
-          <div class="chip readiness">Readiness</div>
-        </div>
-
-        <div class="gauge" style="background:${grad};">
-          <div class="thr" style="left:${thrPos};"></div>
-          <div class="marker" style="left:${leftPos};"></div>
-          <div class="badge" style="left:${leftPos};background:${pillBg};color:#fff;border:1px solid rgba(255,255,255,.18);">Field Readiness ${readiness}</div>
-        </div>
-
-        <div class="ticks"><span>0</span><span>50</span><span>100</span></div>
-        ${etaTxt ? `<div class="help"><b>${esc(String(etaTxt))}</b></div>` : ``}
-      </div>
-    `;
-
-    wireTileInteractions(state, tile, f.id);
-    wrap.appendChild(tile);
+    frag.appendChild(tile); // moves existing node into correct order
   }
+
+  // One append puts everything in the right order without clearing the container
+  // (existing nodes were moved; removed nodes already deleted)
+  wrap.appendChild(frag);
 
   const empty = $('emptyMsg');
   if (empty) empty.style.display = show.length ? 'none' : 'block';
 
-  await initSwipeOnTiles(state, {
-    onDetails: async (fieldId)=>{
-      if (!canEdit(state)) return;
-      await openQuickView(state, fieldId);
-    }
-  });
+  // Swipe wiring is expensive; only re-init if structure changed (add/remove) or first time
+  if (!state._tileSwipeBound || structureChanged){
+    await initSwipeOnTiles(state, {
+      onDetails: async (fieldId)=>{
+        if (!canEdit(state)) return;
+        await openQuickView(state, fieldId);
+      }
+    });
+    state._tileSwipeBound = true;
+  }
 }
 
 /* ---------- tile render (PUBLIC) ---------- */
@@ -949,6 +1045,25 @@ async function _renderDetailsInternal(state){
   if (!run) return;
 
   try{ state.lastRuns && state.lastRuns.set(f.id, run); }catch(_){}
+
+  // ✅ Prevent needless table redraw if nothing changed materially
+  try{
+    const sig = [
+      String(f.id),
+      String(run.readinessR ?? ''),
+      String(run.rows ? run.rows.length : 0),
+      String(run.trace ? run.trace.length : 0),
+      String(opKey || ''),
+      String(getThresholdForOp(state, opKey) || '')
+    ].join('|');
+
+    if (state._detailsSig === sig){
+      // Still update beta meta quickly (it can change fetchedAt/source) without nuking tables
+      renderBetaInputs(state);
+      return;
+    }
+    state._detailsSig = sig;
+  }catch(_){}
 
   renderBetaInputs(state);
 
@@ -1093,6 +1208,11 @@ export async function refreshDetailsOnly(state){
         if (!state) return;
         state._calLoadedAt = 0;
         await loadCalibrationFromAdjustments(state, { force:true });
+        // Clear signatures so a soft-reload actually repaints values (but still no full rebuild)
+        try{
+          if (state._tileSig) state._tileSig.clear();
+          state._detailsSig = '';
+        }catch(_){}
         await refreshAll(state);
       }catch(_){}
     });
