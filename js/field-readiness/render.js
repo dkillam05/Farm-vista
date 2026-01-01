@@ -1,15 +1,18 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-31i
+Rev: 2026-01-01c
 
-Fixes (per Dane):
-✅ ETA text on mobile: use ">" sign (not "Greater Than ...")
-✅ Extend ETA horizon to full 7-day forecast:
-   - show "~XXh" if within 168h
-   - show ">168h" if not within 168h
+Fix (per Dane):
+✅ Tiles no longer “repopulate” every time you enter the page:
+   - Persist rendered tiles DOM in sessionStorage
+   - Restore instantly on next entry (index.js can restore early too, but render.js is now self-sufficient)
+   - Skip rebuilding tiles if nothing materially changed (fieldsSig + op + sort + farm + page + range)
 
 Keeps:
-✅ Everything else unchanged from your provided render.js
+✅ ETA text on mobile uses ">" sign
+✅ Extend ETA horizon to full 7-day forecast (168h)
+✅ Render gate prevents flicker
+✅ All existing tile rendering, details rendering, selection, swipe, calibration, quickview unchanged
 ===================================================================== */
 'use strict';
 
@@ -24,6 +27,73 @@ import { initSwipeOnTiles } from './swipe.js';
 import { parseRangeFromInput, rainInRange } from './rain.js';
 import { fetchAndHydrateFieldParams } from './data.js';
 import { getAPI } from './firebase.js';
+
+/* =====================================================================
+   Tiles DOM cache (sessionStorage)
+   - Goal: instant tiles when re-entering page
+   - Skip rebuild if signature unchanged
+===================================================================== */
+const SS_TILES_KEY = 'fv_fr_tiles_dom_v1';
+
+function computeTilesSig(state){
+  try{
+    const fieldsSig = String(state?._fieldsSig || '');
+    const op   = String(document.getElementById('opSel')?.value || '');
+    const sort = String(document.getElementById('sortSel')?.value || '');
+    const farm = String(state?.farmFilter || '__all__');
+    const page = String(state?.pageSize || '25');
+    const range = String(document.getElementById('jobRangeInput')?.value || '');
+    return [fieldsSig, op, sort, farm, page, range].join('||');
+  }catch(_){
+    return String(state?._fieldsSig || '');
+  }
+}
+
+function restoreTilesDomIfEmpty(state){
+  try{
+    const wrap = $('fieldsGrid');
+    if (!wrap) return false;
+
+    // Only restore if grid is empty (don’t stomp real UI)
+    if (wrap.children && wrap.children.length) return false;
+
+    const raw = sessionStorage.getItem(SS_TILES_KEY);
+    if (!raw) return false;
+
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== 'object') return false;
+
+    const html = String(obj.html || '');
+    const sig  = String(obj.sig || '');
+    if (!html || !sig) return false;
+
+    wrap.innerHTML = html;
+    state._tilesDomSig = sig;
+
+    const empty = $('emptyMsg');
+    if (empty) empty.style.display = (wrap.children.length ? 'none' : 'block');
+
+    return true;
+  }catch(_){
+    return false;
+  }
+}
+
+function persistTilesDom(state){
+  try{
+    const wrap = $('fieldsGrid');
+    if (!wrap) return;
+
+    const sig = computeTilesSig(state);
+    state._tilesDomSig = sig;
+
+    sessionStorage.setItem(SS_TILES_KEY, JSON.stringify({
+      ts: Date.now(),
+      sig,
+      html: wrap.innerHTML
+    }));
+  }catch(_){}
+}
 
 /* =====================================================================
    Render gate (prevents double-load flicker)
@@ -481,7 +551,6 @@ function updateDetailsHeaderPanel(state){
    Forecast-based ETA helper for tiles (with wetBias passed in)
 ===================================================================== */
 function parseEtaHoursFromText(txt){
-  // Accept: "Est: ~22 hours" OR "~22h"
   const s = String(txt || '');
   let m = s.match(/~\s*(\d+)\s*hours/i);
   if (m){
@@ -513,7 +582,7 @@ function compactEtaForMobile(txt, horizonHours){
 }
 
 async function getTileEtaText(state, fieldId, run0, thr){
-  const HORIZON_HOURS = 168; // ✅ 7-day
+  const HORIZON_HOURS = 168;
   const NEAR_THR_POINTS = 5;
 
   let legacyTxt = '';
@@ -553,8 +622,6 @@ async function getTileEtaText(state, fieldId, run0, thr){
         }
 
         if (pred.status === 'notWithin72'){
-          // ✅ Sanity fallback near threshold:
-          // if you're close to threshold AND legacy says <=168h, show legacy (but compact it)
           const rNow = Number(run0 && run0.readinessR);
           const near = Number.isFinite(rNow) ? ((thr - rNow) >= 0 && (thr - rNow) <= NEAR_THR_POINTS) : false;
 
@@ -562,16 +629,12 @@ async function getTileEtaText(state, fieldId, run0, thr){
             return compactEtaForMobile(legacyTxt, HORIZON_HOURS);
           }
 
-          // ✅ Force compact > sign for mobile
           return pred.message || `>${HORIZON_HOURS}h`;
         }
-
-        // noForecast/noData => fall back
       }
     }
   }catch(_){}
 
-  // Fall back to model ETA but compact it (no "Greater Than ...")
   return legacyTxt ? compactEtaForMobile(legacyTxt, HORIZON_HOURS) : '';
 }
 
@@ -665,6 +728,9 @@ async function updateTileForField(state, fieldId){
       tile.classList.add('fv-selected');
       state._selectedTileId = fid;
     }
+
+    // Update cached DOM after a tile patch (cheap)
+    persistTilesDom(state);
   }catch(_){}
 }
 
@@ -710,6 +776,21 @@ function wireTileInteractions(state, tileEl, fieldId){
 
 /* ---------- tile render (CORE) ---------- */
 async function _renderTilesInternal(state){
+  // Restore last tiles immediately if grid is empty (helps on re-entry)
+  restoreTilesDomIfEmpty(state);
+
+  // If we already have tiles and signature matches, skip a full rebuild
+  // (Details can still update separately via _renderDetailsInternal)
+  const sigNow = computeTilesSig(state);
+  const wrapPre = $('fieldsGrid');
+  if (wrapPre && wrapPre.children && wrapPre.children.length){
+    const sigPrev = String(state._tilesDomSig || '');
+    if (sigPrev && sigPrev === sigNow){
+      // Keep as-is; no repopulation
+      return;
+    }
+  }
+
   await ensureModelWeatherModules(state);
   ensureSelectionStyleOnce();
   await loadCalibrationFromAdjustments(state);
@@ -808,11 +889,13 @@ async function _renderTilesInternal(state){
       await openQuickView(state, fieldId);
     }
   });
+
+  // Persist DOM after successful rebuild
+  persistTilesDom(state);
 }
 
 /* ---------- tile render (PUBLIC) ---------- */
 export async function renderTiles(state){
-  // Tiles render is expensive; coalesce with details
   await scheduleRender(state, 'all');
 }
 
