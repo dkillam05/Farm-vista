@@ -1,19 +1,16 @@
 /* =====================================================================
 /Farm-vista/js/crop-planning/crop-planner.module.js  (FULL FILE)
-Rev: 2025-12-31j
+Rev: 2025-12-31k
 
-PHONE “VIEWER” MODE (viewOnly):
-✅ NO nested hero card inside planning page hero
-✅ Uses full width (no extra outer padding)
-✅ Filters stack 1 column
-✅ Board is NOT inside a scroll box (one natural page scroll)
-✅ Farm lanes are simple accordions
-✅ Buckets stack vertically (Unplanned / Corn / Beans)
-✅ No grips, no drag affordances, no dropzones used
-✅ Still shows the same data
+PHONE (viewOnly) CHANGES per Dane:
+✅ KPI tiles: Unplanned + Corn now full-width like Beans (stacked)
+✅ Farm list: shows ONLY farm name (clean)
+✅ Open farm -> shows 3 tiles (Unplanned/Corn/Beans)
+✅ Open tile -> shows fields for that crop only (nested accordion)
+✅ Still view-only: no DnD, no grips, no bulk header
 
 DESKTOP:
-✅ unchanged behavior/layout (DnD + bulk + lock)
+✅ unchanged (DnD + bulk + lock + 3 buckets visible)
 
 REQUIRES:
 ✅ /Farm-vista/js/crop-planning/crop-planning-dnd.js  Rev: 2025-12-31b
@@ -132,15 +129,27 @@ export async function mount(hostEl, opts = {}){
     try{ localStorage.setItem(OPEN_KEY, JSON.stringify(laneOpen)); }catch{}
   };
 
+  // nested crop-open state (phone only)
+  const CROP_OPEN_KEY = 'fv:cropplan:cropOpen:v1';
+  let cropOpen = {};
+  try{ cropOpen = JSON.parse(localStorage.getItem(CROP_OPEN_KEY) || '{}') || {}; }catch{ cropOpen = {}; }
+  const cropKey = (farmId, crop) => `${String(farmId||'')}::${String(crop||'')}`;
+  const isCropOpen = (farmId, crop) => !!cropOpen[cropKey(farmId,crop)];
+  const setCropOpen = (farmId, crop, open) => {
+    cropOpen[cropKey(farmId,crop)] = !!open;
+    try{ localStorage.setItem(CROP_OPEN_KEY, JSON.stringify(cropOpen)); }catch{}
+  };
+
   // ---- GLOBAL LOCK state ----
-  let fs = null;
-  let isLocked = false;
-  let lockUnsub = null;
-  let lockPollT = null;
+  let fs = null;               // firestore fns
+  let isLocked = false;        // current year's lock value
+  let lockUnsub = null;        // onSnapshot unsubscribe
+  let lockPollT = null;        // polling interval handle
 
   const lockPath = (year) => ['crop_plan_locks', String(year)];
   const canDragNow = () => (!viewOnly && !isLocked);
 
+  // ✅ FIX: add data-dropzone="1" so farm drags can drop here
   function bulkBox(label, crop){
     return `
       <div class="hbox" data-header-drop="1" data-dropzone="1" data-crop="${crop}"
@@ -159,19 +168,20 @@ export async function mount(hostEl, opts = {}){
     `;
   }
 
-  // ============================================================
-  // RENDER: DESKTOP keeps “hero card” (unchanged).
-  // PHONE viewOnly: FLAT viewer (full width, no nested hero).
-  // ============================================================
+  // -------------------------------------------------------------------
+  // SKELETON: Desktop (unchanged) vs Phone (viewOnly viewer)
+  // -------------------------------------------------------------------
   hostEl.innerHTML = viewOnly ? `
     <section class="cpRoot viewOnly" style="padding:0;margin:0;">
       <style>
         .cpRoot.viewOnly{ width:100%; }
         .cpRoot.viewOnly .cpPad{ padding:10px 10px 12px 10px; }
         .cpRoot.viewOnly .row3{ display:grid; gap:10px; grid-template-columns:1fr !important; }
+
+        /* KPI: stacked full width (per Dane) */
         .cpRoot.viewOnly .kpiLine{
           display:grid;
-          grid-template-columns:1fr 1fr;
+          grid-template-columns:1fr;
           gap:10px;
           border:1px solid var(--border);
           border-radius:12px;
@@ -194,7 +204,7 @@ export async function mount(hostEl, opts = {}){
           text-transform:uppercase;
         }
 
-        /* Farm accordion list */
+        /* Farm list (ONLY name) */
         .cpRoot.viewOnly .farmLane{
           border:1px solid var(--border);
           border-radius:14px;
@@ -202,11 +212,11 @@ export async function mount(hostEl, opts = {}){
           overflow:hidden;
         }
         .cpRoot.viewOnly .farmLaneHead{
-          display:flex !important;
+          display:flex;
           align-items:center;
           justify-content:space-between;
           gap:10px;
-          padding:12px;
+          padding:14px 12px;
           border-bottom:1px solid var(--border);
           user-select:none;
         }
@@ -217,7 +227,37 @@ export async function mount(hostEl, opts = {}){
           text-overflow:ellipsis;
           white-space:nowrap;
         }
-        .cpRoot.viewOnly .farmMeta{
+        .cpRoot.viewOnly .farmChev{
+          width:18px;height:18px;
+          display:grid;place-items:center;
+          color:var(--muted,#67706B);
+          flex:0 0 auto;
+          transition:transform .12s ease;
+        }
+
+        /* Inside farm: crop tiles */
+        .cpRoot.viewOnly .farmInner{
+          padding:10px;
+          display:grid;
+          gap:10px;
+          background: color-mix(in srgb, var(--surface) 96%, rgba(0,0,0,.02));
+        }
+        .cpRoot.viewOnly .cropTile{
+          border:1px solid var(--border);
+          border-radius:14px;
+          background:var(--card-surface,var(--surface));
+          overflow:hidden;
+        }
+        .cpRoot.viewOnly .cropHead{
+          padding:12px;
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          gap:10px;
+          user-select:none;
+        }
+        .cpRoot.viewOnly .cropTitle{ font-weight:900; }
+        .cpRoot.viewOnly .cropMeta{
           font-size:12px;
           color:var(--muted,#67706B);
           font-weight:900;
@@ -226,41 +266,28 @@ export async function mount(hostEl, opts = {}){
           white-space:nowrap;
           flex:0 0 auto;
         }
-
-        /* Buckets stacked, minimal “card depth” */
-        .cpRoot.viewOnly .buckets{ display:grid; gap:10px; padding:10px; }
-        .cpRoot.viewOnly .bucket{
-          border:1px solid var(--border);
-          border-radius:14px;
-          overflow:hidden;
-          background:var(--card-surface,var(--surface));
+        .cpRoot.viewOnly .cropChev{
+          width:18px;height:18px;
+          display:grid;place-items:center;
+          color:var(--muted,#67706B);
+          flex:0 0 auto;
+          transition:transform .12s ease;
+          margin-left:6px;
         }
-        .cpRoot.viewOnly .bucketHead{
-          padding:10px 12px;
-          border-bottom:1px solid var(--border);
-          display:flex;
-          align-items:baseline;
-          justify-content:space-between;
+        .cpRoot.viewOnly .cropBody{
+          padding:10px 12px 12px 12px;
+          border-top:1px solid var(--border);
+          display:grid;
           gap:10px;
         }
-        .cpRoot.viewOnly .bucketTitle{ font-weight:900; }
-        .cpRoot.viewOnly .bucketMeta{
-          font-size:12px;
-          color:var(--muted,#67706B);
-          font-weight:900;
-          letter-spacing:.2px;
-          text-transform:uppercase;
-          white-space:nowrap;
-        }
 
-        /* Field rows: 2 columns, no grips, no nested scroll */
-        .cpRoot.viewOnly .bucketBody{ padding:10px; display:grid; gap:10px; }
+        /* Field rows */
         .cpRoot.viewOnly .cardRow{
           border:1px solid var(--border);
           border-radius:12px;
           background:var(--surface);
           padding:10px;
-          display:flex !important;
+          display:flex;
           align-items:center;
           justify-content:space-between;
           gap:10px;
@@ -279,7 +306,7 @@ export async function mount(hostEl, opts = {}){
         .cpRoot.viewOnly .farmGrip{ display:none !important; }
       </style>
 
-      <div class="cpPad">
+      <div class="cpPad" style="display:none;">
         <div style="font-weight:900;font-size:18px;">Crop Planner</div>
         <div class="muted" style="margin-top:4px;font-weight:800;">Phone mode: view-only</div>
       </div>
@@ -332,7 +359,7 @@ export async function mount(hostEl, opts = {}){
             <div class="kpiBig"><span data-el="kpiCornFields">0</span> • <span data-el="kpiCornAcres">0.00</span></div>
             <div class="kpiLbl">Corn (fields • acres)</div>
           </div>
-          <div class="kpiBox" style="grid-column:1 / -1;">
+          <div class="kpiBox">
             <div class="kpiBig"><span data-el="kpiSoyFields">0</span> • <span data-el="kpiSoyAcres">0.00</span></div>
             <div class="kpiLbl">Beans (fields • acres)</div>
           </div>
@@ -343,9 +370,7 @@ export async function mount(hostEl, opts = {}){
     </section>
 
     <div data-el="toast" style="position:fixed;left:50%;bottom:24px;transform:translate(-50%,12px);background:#2F6C3C;color:#fff;padding:10px 16px;border-radius:999px;font-size:14px;box-shadow:0 10px 24px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:opacity .18s ease, transform .18s ease;z-index:10000;white-space:nowrap;"></div>
-  `
-  :
-  `
+  ` : `
     <section style="padding:16px;">
       <div class="hero" style="margin:0;border:1px solid var(--border);border-radius:14px;background:var(--surface);box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;">
         <div style="padding:14px 16px;border-bottom:1px solid var(--border);background:linear-gradient(90deg,rgba(47,108,60,.12),transparent);">
@@ -421,6 +446,7 @@ export async function mount(hostEl, opts = {}){
             </div>
           </div>
 
+          <!-- Bulk farm drop header (hidden on viewOnly) -->
           <div data-el="bulkWrap" style="display:grid;gap:8px;">
             <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;">
               <div style="display:flex;gap:8px;align-items:center;min-width:0;">
@@ -511,7 +537,7 @@ export async function mount(hostEl, opts = {}){
     }, 900);
   };
 
-  const closeCombo = () => { el.farmPanel.style.display = 'none'; };
+  const closeCombo = () => { if (el.farmPanel) el.farmPanel.style.display = 'none'; };
 
   hostEl.ownerDocument.addEventListener('click', (e)=>{
     if (!hostEl.contains(e.target)) return;
@@ -525,41 +551,45 @@ export async function mount(hostEl, opts = {}){
       .filter(f => !qq || norm(f.name).includes(qq))
       .map(f => `<div class="combo-item" data-id="${esc(f.id)}"><div>${esc(f.name)}</div><div></div></div>`)
       .join('');
-    el.farmList.innerHTML =
-      `<div class="combo-item" data-id=""><div><strong>All farms</strong></div><div></div></div>` +
-      (items || `<div class="combo-empty">(no matches)</div>`);
+    if (el.farmList){
+      el.farmList.innerHTML =
+        `<div class="combo-item" data-id=""><div><strong>All farms</strong></div><div></div></div>` +
+        (items || `<div class="combo-empty">(no matches)</div>`);
+    }
   };
 
-  el.farmBtn.addEventListener('click', (e)=>{
-    e.stopPropagation();
-    const isOpen = el.farmPanel.style.display === 'block';
-    el.farmPanel.style.display = isOpen ? 'none' : 'block';
-    el.farmSearch.value = '';
-    renderFarmList('');
-    setTimeout(()=> el.farmSearch.focus(), 0);
-  }, { signal });
+  if (el.farmBtn){
+    el.farmBtn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      const isOpen = el.farmPanel.style.display === 'block';
+      el.farmPanel.style.display = isOpen ? 'none' : 'block';
+      el.farmSearch.value = '';
+      renderFarmList('');
+      setTimeout(()=> el.farmSearch.focus(), 0);
+    }, { signal });
 
-  el.farmPanel.addEventListener('click', (e)=> e.stopPropagation(), { signal });
-  el.farmPanel.addEventListener('mousedown', (e)=> e.stopPropagation(), { signal });
+    el.farmPanel.addEventListener('click', (e)=> e.stopPropagation(), { signal });
+    el.farmPanel.addEventListener('mousedown', (e)=> e.stopPropagation(), { signal });
 
-  el.farmSearch.addEventListener('input', ()=> renderFarmList(el.farmSearch.value), { signal });
+    el.farmSearch.addEventListener('input', ()=> renderFarmList(el.farmSearch.value), { signal });
 
-  el.farmList.addEventListener('mousedown', (e)=>{
-    const row = e.target.closest('.combo-item'); if(!row) return;
-    const id = row.dataset.id || '';
-    if(!id){
-      el.farmId.value = '';
-      el.farmName.value = '';
-      el.farmBtn.textContent = '— All farms —';
-    }else{
-      const f = farms.find(x=> x.id === id);
-      el.farmId.value = f.id;
-      el.farmName.value = f.name;
-      el.farmBtn.textContent = f.name;
-    }
-    closeCombo();
-    renderAll(true);
-  }, { signal });
+    el.farmList.addEventListener('mousedown', (e)=>{
+      const row = e.target.closest('.combo-item'); if(!row) return;
+      const id = row.dataset.id || '';
+      if(!id){
+        el.farmId.value = '';
+        el.farmName.value = '';
+        el.farmBtn.textContent = '— All farms —';
+      }else{
+        const f = farms.find(x=> x.id === id);
+        el.farmId.value = f.id;
+        el.farmName.value = f.name;
+        el.farmBtn.textContent = f.name;
+      }
+      closeCombo();
+      renderAll(true);
+    }, { signal });
+  }
 
   const renderLockUI = () => {
     if (!hasLockUI) return;
@@ -652,17 +682,19 @@ export async function mount(hostEl, opts = {}){
     }, 6000);
   };
 
-  el.year.value = '2026';
-  currentYear = '2026';
+  if (el.year){
+    el.year.value = '2026';
+    currentYear = '2026';
 
-  el.year.addEventListener('change', async ()=>{
-    currentYear = String(el.year.value || '2026');
-    await startLockWatch(currentYear);
+    el.year.addEventListener('change', async ()=>{
+      currentYear = String(el.year.value || '2026');
+      await startLockWatch(currentYear);
 
-    plans = await loadPlansForYear(db, currentYear);
-    renderAll(true);
-    toast(`Year: ${currentYear}${isLocked ? ' (Locked)' : ''}`);
-  }, { signal });
+      plans = await loadPlansForYear(db, currentYear);
+      renderAll(true);
+      toast(`Year: ${currentYear}${isLocked ? ' (Locked)' : ''}`);
+    }, { signal });
+  }
 
   const cropForField = (fieldId) => {
     const c = norm(plans.get(fieldId)?.crop);
@@ -671,8 +703,8 @@ export async function mount(hostEl, opts = {}){
   };
 
   const getShownFields = () => {
-    const farmId = String(el.farmId.value || '').trim();
-    const qtext = norm(el.search.value);
+    const farmId = String(el.farmId?.value || '').trim();
+    const qtext = norm(el.search?.value);
 
     return fields.filter(f=>{
       if (norm(f.status) !== 'active') return false;
@@ -682,20 +714,21 @@ export async function mount(hostEl, opts = {}){
     });
   };
 
-  const renderBucket = (farmId, title, crop, arr, acres) => {
+  const renderFieldRowsPhone = (arr) => {
+    if (!arr.length) return `<div class="muted" style="font-weight:900">—</div>`;
+    return arr.map(f=>`
+      <div class="cardRow" data-field-id="${esc(f.id)}">
+        <div class="fname">${esc(f.name)}</div>
+        <div class="pill">${fmt2.format(Number(f.tillable||0))} ac</div>
+      </div>
+    `).join('');
+  };
+
+  const renderBucketDesktop = (farmId, title, crop, arr, acres) => {
     const canDrag = canDragNow();
     const draggable = canDrag ? 'true' : 'false';
 
     const rows = arr.length ? arr.map(f=>{
-      if(viewOnly){
-        return `
-          <div class="cardRow" data-field-id="${esc(f.id)}">
-            <div class="fname">${esc(f.name)}</div>
-            <div class="pill">${fmt2.format(Number(f.tillable||0))} ac</div>
-          </div>
-        `;
-      }
-
       return `
         <div class="cardRow" data-field-id="${esc(f.id)}" data-farm-id="${esc(farmId)}" data-crop="${esc(crop)}"
              style="border:1px solid var(--border);border-radius:12px;background:var(--surface);padding:10px;display:grid;grid-template-columns:22px 1fr auto;gap:10px;align-items:center;">
@@ -708,18 +741,6 @@ export async function mount(hostEl, opts = {}){
         </div>
       `;
     }).join('') : `<div class="muted" style="font-weight:900">—</div>`;
-
-    if(viewOnly){
-      return `
-        <div class="bucket">
-          <div class="bucketHead">
-            <div class="bucketTitle">${esc(title)}</div>
-            <div class="bucketMeta">${fmt0.format(arr.length)} • ${fmt2.format(acres)} ac</div>
-          </div>
-          <div class="bucketBody">${rows}</div>
-        </div>
-      `;
-    }
 
     return `
       <div class="bucket" data-dropzone="1" data-crop="${esc(crop)}" data-farm-id="${esc(farmId)}"
@@ -740,7 +761,7 @@ export async function mount(hostEl, opts = {}){
 
   const renderAll = (preserveScroll=false) => {
     const list = getShownFields();
-    el.scopeHelp.textContent = `Showing ${fmt0.format(list.length)} active fields${isLocked ? ' • Locked' : ''}`;
+    if (el.scopeHelp) el.scopeHelp.textContent = `Showing ${fmt0.format(list.length)} active fields${isLocked ? ' • Locked' : ''}`;
 
     let unCnt=0, coCnt=0, soCnt=0;
     let unAc=0, coAc=0, soAc=0;
@@ -759,15 +780,15 @@ export async function mount(hostEl, opts = {}){
       else { unCnt++; unAc += a; }
     }
 
-    el.kpiUnplannedFields.textContent = fmt0.format(unCnt);
-    el.kpiUnplannedAcres.textContent  = fmt2.format(unAc);
-    el.kpiCornFields.textContent      = fmt0.format(coCnt);
-    el.kpiCornAcres.textContent       = fmt2.format(coAc);
-    el.kpiSoyFields.textContent       = fmt0.format(soCnt);
-    el.kpiSoyAcres.textContent        = fmt2.format(soAc);
+    if (el.kpiUnplannedFields) el.kpiUnplannedFields.textContent = fmt0.format(unCnt);
+    if (el.kpiUnplannedAcres)  el.kpiUnplannedAcres.textContent  = fmt2.format(unAc);
+    if (el.kpiCornFields)      el.kpiCornFields.textContent      = fmt0.format(coCnt);
+    if (el.kpiCornAcres)       el.kpiCornAcres.textContent       = fmt2.format(coAc);
+    if (el.kpiSoyFields)       el.kpiSoyFields.textContent       = fmt0.format(soCnt);
+    if (el.kpiSoyAcres)        el.kpiSoyAcres.textContent        = fmt2.format(soAc);
 
     const farmsArr = Array.from(byFarm.values()).sort((a,b)=> a.farmName.localeCompare(b.farmName));
-    const defaultOpen = !!el.farmId.value;
+    const defaultOpen = !!el.farmId?.value;
 
     const snap = (!viewOnly && preserveScroll) ? {
       boardTop: el.boardScroll.scrollTop,
@@ -782,7 +803,7 @@ export async function mount(hostEl, opts = {}){
 
     el.boardScroll.innerHTML = farmsArr.map(g=>{
       g.fields.sort((a,b)=> String(a.name||'').localeCompare(String(b.name||'')));
-      const open = (laneOpen[g.farmId] != null) ? !!laneOpen[g.farmId] : defaultOpen;
+      const openFarm = (laneOpen[g.farmId] != null) ? !!laneOpen[g.farmId] : defaultOpen;
 
       const un = [], co = [], so = [];
       let unA=0, coA=0, soA=0;
@@ -796,40 +817,43 @@ export async function mount(hostEl, opts = {}){
         else { un.push(f); unA+=a; }
       }
 
-      const plannedBadge = (coN + soN) > 0
-        ? ` <span style="color:var(--muted,#67706B);font-weight:900;">(${coN ? `Corn ${fmt0.format(coN)}` : ''}${coN && soN ? ' • ' : ''}${soN ? `Beans ${fmt0.format(soN)}` : ''})</span>`
-        : '';
-
+      // ----------------------------------------------------------------
+      // PHONE VIEW: farm name only, then 3 crop tiles, each expandable
+      // ----------------------------------------------------------------
       if(viewOnly){
+        const unOpen = isCropOpen(g.farmId, 'unplanned');
+        const coOpen = isCropOpen(g.farmId, 'corn');
+        const soOpen = isCropOpen(g.farmId, 'soybeans');
+
         return `
-          <div class="farmLane" data-farm-id="${esc(g.farmId)}" data-open="${open?'1':'0'}">
+          <div class="farmLane" data-farm-id="${esc(g.farmId)}" data-open="${openFarm?'1':'0'}">
             <div class="farmLaneHead" data-farm-toggle="1">
-              <div style="min-width:0;">
-                <div class="farmName">${esc(g.farmName)}${plannedBadge}</div>
-              </div>
-              <div style="display:flex;align-items:center;gap:10px;flex:0 0 auto;">
-                <div class="farmMeta">${fmt0.format(g.fields.length)} • ${fmt2.format(unA+coA+soA)} ac</div>
-                <div class="chev" aria-hidden="true" style="width:18px;height:18px;display:grid;place-items:center;color:var(--muted,#67706B);transition:transform .12s ease;">
-                  ${chevSvg()}
-                </div>
-              </div>
+              <div class="farmName">${esc(g.farmName)}</div>
+              <div class="farmChev" aria-hidden="true">${chevSvg()}</div>
             </div>
 
-            <div class="farmLaneBody" style="display:${open?'block':'none'};">
-              <div class="buckets">
-                ${renderBucket(g.farmId, 'Unplanned', '', un, unA)}
-                ${renderBucket(g.farmId, 'Corn', 'corn', co, coA)}
-                ${renderBucket(g.farmId, 'Beans', 'soybeans', so, soA)}
+            <div class="farmLaneBody" style="display:${openFarm?'block':'none'};">
+              <div class="farmInner">
+                ${renderCropTilePhone(g.farmId, 'Unplanned', 'unplanned', un, unA, unOpen)}
+                ${renderCropTilePhone(g.farmId, 'Corn', 'corn', co, coA, coOpen)}
+                ${renderCropTilePhone(g.farmId, 'Beans', 'soybeans', so, soA, soOpen)}
               </div>
             </div>
           </div>
         `;
       }
 
+      // ----------------------------------------------------------------
+      // DESKTOP VIEW: unchanged (grip + 3 buckets)
+      // ----------------------------------------------------------------
       const farmDrag = canDrag ? 'true' : 'false';
 
+      const plannedBadge = (coN + soN) > 0
+        ? ` <span style="color:var(--muted,#67706B);font-weight:900;">(${coN ? `Corn ${fmt0.format(coN)}` : ''}${coN && soN ? ' • ' : ''}${soN ? `Beans ${fmt0.format(soN)}` : ''})</span>`
+        : '';
+
       return `
-        <div class="farmLane" data-farm-id="${esc(g.farmId)}" data-open="${open?'1':'0'}"
+        <div class="farmLane" data-farm-id="${esc(g.farmId)}" data-open="${openFarm?'1':'0'}"
              style="border:1px solid var(--border);border-radius:14px;background:var(--surface);overflow:hidden;">
           <div class="farmLaneHead" data-farm-toggle="1"
                style="display:grid;grid-template-columns:22px 1fr auto 18px;gap:10px;align-items:center;padding:12px;border-bottom:1px solid var(--border);background:linear-gradient(90deg, rgba(0,0,0,.02), transparent);user-select:none;">
@@ -848,33 +872,19 @@ export async function mount(hostEl, opts = {}){
             </div>
           </div>
 
-          <div class="farmLaneBody" style="padding:12px;display:${open?'grid':'none'};gap:10px;">
+          <div class="farmLaneBody" style="padding:12px;display:${openFarm?'grid':'none'};gap:10px;">
             <div class="buckets" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;align-items:start;">
-              ${renderBucket(g.farmId, 'Unplanned', '', un, unA)}
-              ${renderBucket(g.farmId, 'Corn', 'corn', co, coA)}
-              ${renderBucket(g.farmId, 'Soybeans', 'soybeans', so, soA)}
+              ${renderBucketDesktop(g.farmId, 'Unplanned', '', un, unA)}
+              ${renderBucketDesktop(g.farmId, 'Corn', 'corn', co, coA)}
+              ${renderBucketDesktop(g.farmId, 'Soybeans', 'soybeans', so, soA)}
             </div>
           </div>
         </div>
       `;
     }).join('') || `<div class="muted" style="font-weight:900;padding:12px">No fields match your filters.</div>`;
 
-    hostEl.querySelectorAll('[data-farm-toggle="1"]').forEach(head=>{
-      if(head._fvBound) return;
-      head._fvBound = true;
-      head.addEventListener('click', (e)=>{
-        if(!viewOnly && e.target.closest('[data-drag-type]')) return;
-        const lane = head.closest('.farmLane');
-        if(!lane) return;
-        const farmId = lane.dataset.farmId || '';
-        const open = lane.dataset.open === '1';
-        const next = !open;
-        lane.dataset.open = next ? '1' : '0';
-        const body = lane.querySelector('.farmLaneBody');
-        if(body) body.style.display = next ? (viewOnly ? 'block' : 'grid') : 'none';
-        setLaneOpen(farmId, next);
-      }, { signal });
-    });
+    // bind toggles (farm + crop tiles in phone)
+    bindToggles();
 
     if(snap){
       el.boardScroll.scrollTop = snap.boardTop || 0;
@@ -885,6 +895,71 @@ export async function mount(hostEl, opts = {}){
       });
     }
   };
+
+  function renderCropTilePhone(farmId, label, cropKeyName, arr, acres, isOpen){
+    const meta = `${fmt0.format(arr.length)} • ${fmt2.format(acres)} ac`;
+    const body = isOpen ? `<div class="cropBody">${renderFieldRowsPhone(arr)}</div>` : '';
+    const r = isOpen ? 'rotate(180deg)' : 'rotate(0deg)';
+    return `
+      <div class="cropTile" data-crop-tile="1" data-farm-id="${esc(farmId)}" data-crop-key="${esc(cropKeyName)}" data-open="${isOpen?'1':'0'}">
+        <div class="cropHead">
+          <div class="cropTitle">${esc(label)}</div>
+          <div style="display:flex;align-items:center;gap:0;">
+            <div class="cropMeta">${meta}</div>
+            <div class="cropChev" aria-hidden="true" style="transform:${r};">${chevSvg()}</div>
+          </div>
+        </div>
+        ${body}
+      </div>
+    `;
+  }
+
+  function bindToggles(){
+    // Farm open/close
+    hostEl.querySelectorAll('[data-farm-toggle="1"]').forEach(head=>{
+      if(head._fvBound) return;
+      head._fvBound = true;
+      head.addEventListener('click', (e)=>{
+        // desktop: ignore clicks on grips
+        if(!viewOnly && e.target.closest('[data-drag-type]')) return;
+
+        const lane = head.closest('.farmLane');
+        if(!lane) return;
+        const farmId = lane.dataset.farmId || '';
+        const open = lane.dataset.open === '1';
+        const next = !open;
+
+        lane.dataset.open = next ? '1' : '0';
+        const body = lane.querySelector('.farmLaneBody');
+        if(body) body.style.display = next ? (viewOnly ? 'block' : 'grid') : 'none';
+        setLaneOpen(farmId, next);
+      }, { signal });
+    });
+
+    // Crop tile open/close (phone only)
+    if(viewOnly){
+      hostEl.querySelectorAll('[data-crop-tile="1"]').forEach(tile=>{
+        if(tile._fvBound) return;
+        tile._fvBound = true;
+        tile.addEventListener('click', (e)=>{
+          // only toggle when clicking the header area (not on rows)
+          const head = e.target.closest('.cropHead');
+          if(!head) return;
+
+          const farmId = tile.dataset.farmId || '';
+          const ck = tile.dataset.cropKey || '';
+          const open = tile.dataset.open === '1';
+          const next = !open;
+
+          tile.dataset.open = next ? '1' : '0';
+          setCropOpen(farmId, ck, next);
+
+          // re-render for simplicity (keeps counts correct and avoids DOM diff headaches)
+          renderAll(true);
+        }, { signal });
+      });
+    }
+  }
 
   const onDrop = async ({ type, fieldId, farmId, toCrop }) => {
     if(viewOnly) return;
@@ -926,10 +1001,12 @@ export async function mount(hostEl, opts = {}){
     }
   };
 
-  el.search.addEventListener('input', ()=>{
-    clearTimeout(el.search._t);
-    el.search._t = setTimeout(()=> renderAll(true), 120);
-  }, { signal });
+  if (el.search){
+    el.search.addEventListener('input', ()=>{
+      clearTimeout(el.search._t);
+      el.search._t = setTimeout(()=> renderAll(true), 120);
+    }, { signal });
+  }
 
   // On phone, prevent any drag weirdness
   if(viewOnly){
