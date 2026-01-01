@@ -1,16 +1,23 @@
 /* =====================================================================
 /Farm-vista/js/crop-planning/crop-planner.module.js  (FULL FILE)
-Rev: 2026-01-01d
+Rev: 2026-01-01e
 
-FIX:
-✅ Removed duplicate renderYearList / setYearUI at bottom
-   (was causing: Identifier 'renderYearList' has already been declared)
+GOAL (per Dane):
+✅ Use FarmVista’s existing combo look (no custom “invented” dropdown styling)
+✅ Dropdown items are NORMAL weight (including “All farms”)
+✅ Dropdown closes when tapping ANYWHERE outside (even outside module / on nav)
+✅ Phone view-only viewer:
+   - Farms list shows farm name only
+   - Open farm -> 3 crop tiles (Unplanned/Corn/Beans)
+   - Open crop tile -> field rows
+✅ Desktop stays full planner:
+   - Bulk header + lock
+   - 3 buckets per farm + DnD enabled when unlocked
+✅ No duplicate function declarations (no SyntaxErrors)
 
-Keeps:
-✅ Farm + Year dropdowns (custom styled)
-✅ Close on outside click anywhere
-✅ Phone viewer (farm -> crop tiles -> fields)
-✅ Desktop DnD + bulk + global lock
+NOTE:
+- For the dropdown to visually extend outside the HERO card, the HOST page must not clip it.
+  If the host page’s hero has overflow:hidden, the panel will still be clipped.
 ===================================================================== */
 'use strict';
 
@@ -42,7 +49,7 @@ function gripSvg(){
 
 function chevSvg(){
   return `
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M6 9l6 6 6-6"></path>
     </svg>
   `;
@@ -148,369 +155,15 @@ export async function mount(hostEl, opts = {}){
   const lockPath = (year) => ['crop_plan_locks', String(year)];
   const canDragNow = () => (!viewOnly && !isLocked);
 
-  // Shared combo styling (inline)
-  const COMBO_Z = 30000;
-  const comboBtnStyle = (radiusPx) => `
-    width:100%;
-    font:inherit;
-    font-size:16px;
-    color:var(--text);
-    background:var(--card-surface,var(--surface));
-    border:1px solid var(--border);
-    border-radius:${radiusPx}px;
-    padding:12px 42px 12px 12px;
-    outline:none;
-    cursor:pointer;
-    text-align:left;
-    position:relative;
-    user-select:none;
-  `;
-  const comboCaret = `
-    position:absolute;
-    right:12px;
-    top:50%;
-    transform:translateY(-50%);
-    width:0;height:0;
-    border-left:6px solid transparent;
-    border-right:6px solid transparent;
-    border-top:7px solid color-mix(in srgb, var(--muted,#67706B) 75%, var(--text));
-    opacity:.95;
-    pointer-events:none;
-  `;
-  const comboPanelStyle = `
-    position:absolute;
-    left:0; right:0;
-    top:calc(100% + 8px);
-    background:var(--surface);
-    border:1px solid var(--border);
-    border-radius:14px;
-    box-shadow:0 18px 40px rgba(0,0,0,.20);
-    z-index:${COMBO_Z};
-    padding:10px;
-    display:none;
-  `;
-  const comboSearchWrapStyle = `
-    padding:2px 0 10px 0;
-    border-bottom:1px solid color-mix(in srgb, var(--border) 85%, transparent);
-    margin-bottom:8px;
-  `;
-  const comboSearchStyle = `
-    width:100%;
-    padding:12px 12px;
-    border:1px solid var(--border);
-    border-radius:12px;
-    font:inherit;
-    font-size:15px;
-    color:var(--text);
-    background:var(--card-surface,var(--surface));
-    outline:none;
-  `;
-  const comboListStyle = `
-    max-height:52vh;
-    overflow:auto;
-    -webkit-overflow-scrolling:touch;
-  `;
-  const comboItemStyle = `
-    padding:12px 10px;
-    border-radius:10px;
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    gap:10px;
-    cursor:pointer;
-  `;
-  const comboItemDividerStyle = `
-    border-top:1px solid color-mix(in srgb, var(--border) 85%, transparent);
-  `;
-  const comboHeaderStyle = `
-    font-weight:900;
-  `;
-
-  // ---------- YEAR combo HTML (custom) ----------
-  function yearComboHtml(radiusPx){
-    const r = Number(radiusPx || 12);
-    return `
-      <div class="field combo combo-year" style="position:relative;">
-        <label style="display:block;font-weight:800;margin:0 0 6px;">Crop Year</label>
-        <div class="combo-anchor" style="position:relative;display:inline-block;width:100%;">
-          <button data-el="yearBtn" class="buttonish has-caret" type="button" aria-haspopup="listbox" aria-expanded="false"
-                  style="${comboBtnStyle(r)}">
-            <span data-el="yearBtnText">${esc(currentYear)}</span>
-            <span aria-hidden="true" style="${comboCaret}"></span>
-          </button>
-
-          <div data-el="yearPanel" class="combo-panel" style="${comboPanelStyle}">
-            <div data-el="yearList" class="list" style="${comboListStyle}"></div>
-          </div>
-        </div>
-        <input data-el="yearVal" type="hidden" value="${esc(currentYear)}" />
-      </div>
-    `;
-  }
-
-  // bulk header box helper (desktop only)
-  function bulkBox(label, crop){
-    return `
-      <div class="hbox" data-header-drop="1" data-dropzone="1" data-crop="${crop}"
-           style="border:1px dashed color-mix(in srgb, var(--border) 60%, transparent);
-                  border-radius:12px;
-                  padding:10px 10px;
-                  font-weight:900;
-                  display:flex;
-                  align-items:center;
-                  justify-content:space-between;
-                  user-select:none;
-                  background: color-mix(in srgb, var(--surface) 92%, rgba(47,108,60,.05));">
-        <span>${label}</span>
-        <span class="pill" style="font-size:11px;">drop farm</span>
-      </div>
-    `;
-  }
-
   // -------------------------------------------------------------------
-  // SKELETON: Desktop vs Phone viewer
+  // UI skeleton (phone vs desktop)
   // -------------------------------------------------------------------
-  hostEl.innerHTML = viewOnly ? `
-    <section class="cpRoot viewOnly" style="padding:0;margin:0;">
-      <style>
-        .cpRoot.viewOnly{ width:100%; }
-        .cpRoot.viewOnly .cpPad{ padding:10px 10px 12px 10px; }
-        .cpRoot.viewOnly .row3{ display:grid; gap:10px; grid-template-columns:1fr !important; }
+  hostEl.innerHTML = viewOnly ? phoneSkeleton() : desktopSkeleton();
 
-        .cpRoot.viewOnly .kpiLine{
-          display:grid; grid-template-columns:1fr; gap:10px;
-          border:1px solid var(--border); border-radius:12px; padding:10px;
-          background:var(--card-surface,var(--surface));
-        }
-        .cpRoot.viewOnly .kpiBox{
-          border:1px solid var(--border); border-radius:12px; padding:10px;
-          background:var(--surface);
-        }
-        .cpRoot.viewOnly .kpiBig{ font-weight:900; font-size:18px; }
-        .cpRoot.viewOnly .kpiLbl{
-          margin-top:4px; font-weight:800; font-size:12px;
-          color:var(--muted,#67706B); letter-spacing:.2px; text-transform:uppercase;
-        }
-
-        .cpRoot.viewOnly .farmLane{ border:1px solid var(--border); border-radius:14px; background:var(--surface); overflow:hidden; }
-        .cpRoot.viewOnly .farmLaneHead{
-          display:flex; align-items:center; justify-content:space-between;
-          gap:10px; padding:14px 12px; border-bottom:1px solid var(--border); user-select:none;
-        }
-        .cpRoot.viewOnly .farmName{ font-weight:900; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-
-        .cpRoot.viewOnly .farmInner{
-          padding:10px; display:grid; gap:10px;
-          background: color-mix(in srgb, var(--surface) 96%, rgba(0,0,0,.02));
-        }
-        .cpRoot.viewOnly .cropTile{ border:1px solid var(--border); border-radius:14px; background:var(--card-surface,var(--surface)); overflow:hidden; }
-        .cpRoot.viewOnly .cropHead{ padding:12px; display:flex; align-items:center; justify-content:space-between; gap:10px; user-select:none; }
-        .cpRoot.viewOnly .cropTitle{ font-weight:900; }
-        .cpRoot.viewOnly .cropMeta{
-          font-size:12px; color:var(--muted,#67706B); font-weight:900;
-          letter-spacing:.2px; text-transform:uppercase; white-space:nowrap; flex:0 0 auto;
-        }
-        .cpRoot.viewOnly .cropChev{
-          width:18px;height:18px; display:grid;place-items:center; color:var(--muted,#67706B);
-          flex:0 0 auto; transition:transform .12s ease; margin-left:6px;
-        }
-        .cpRoot.viewOnly .cropBody{
-          padding:10px 12px 12px 12px;
-          border-top:1px solid var(--border);
-          display:grid; gap:10px;
-        }
-        .cpRoot.viewOnly .cardRow{
-          border:1px solid var(--border); border-radius:12px; background:var(--surface);
-          padding:10px; display:flex; align-items:center; justify-content:space-between; gap:10px;
-        }
-        .cpRoot.viewOnly .fname{ font-weight:900; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-        .cpRoot.viewOnly .pill{ white-space:nowrap; }
-        .cpRoot.viewOnly .dragGrip, .cpRoot.viewOnly .farmGrip{ display:none !important; }
-      </style>
-
-      <div class="cpPad" style="display:grid;gap:12px;">
-        <div class="row3">
-          <!-- Farm combo -->
-          <div class="field combo" style="position:relative;">
-            <label style="display:block;font-weight:800;margin:0 0 6px;">Farm</label>
-            <div class="combo-anchor" style="position:relative;display:inline-block;width:100%;">
-              <button data-el="farmBtn" type="button" aria-haspopup="listbox" aria-expanded="false"
-                      style="${comboBtnStyle(12)}">
-                <span data-el="farmBtnText">— All farms —</span>
-                <span aria-hidden="true" style="${comboCaret}"></span>
-              </button>
-
-              <div data-el="farmPanel" style="${comboPanelStyle}">
-                <div style="${comboSearchWrapStyle}">
-                  <input data-el="farmSearch" type="search" placeholder="Search farms…" style="${comboSearchStyle}" />
-                </div>
-                <div data-el="farmList" style="${comboListStyle}"></div>
-              </div>
-            </div>
-            <input data-el="farmId" type="hidden" />
-            <input data-el="farmName" type="hidden" />
-          </div>
-
-          ${yearComboHtml(12)}
-
-          <div class="field">
-            <label style="display:block;font-weight:800;margin:0 0 6px;">Search fields</label>
-            <input data-el="search" class="input" type="search" placeholder="Type to filter…"
-                   style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
-                          border:1px solid var(--border);border-radius:12px;padding:12px;outline:none;" />
-            <div data-el="scopeHelp" style="font-size:13px;color:var(--muted,#67706B);margin-top:6px;font-weight:800;">
-              Showing 0 active fields
-            </div>
-          </div>
-        </div>
-
-        <div class="kpiLine">
-          <div class="kpiBox">
-            <div class="kpiBig"><span data-el="kpiUnplannedFields">0</span> • <span data-el="kpiUnplannedAcres">0.00</span></div>
-            <div class="kpiLbl">Unplanned (fields • acres)</div>
-          </div>
-          <div class="kpiBox">
-            <div class="kpiBig"><span data-el="kpiCornFields">0</span> • <span data-el="kpiCornAcres">0.00</span></div>
-            <div class="kpiLbl">Corn (fields • acres)</div>
-          </div>
-          <div class="kpiBox">
-            <div class="kpiBig"><span data-el="kpiSoyFields">0</span> • <span data-el="kpiSoyAcres">0.00</span></div>
-            <div class="kpiLbl">Beans (fields • acres)</div>
-          </div>
-        </div>
-
-        <div data-el="boardScroll" style="display:grid;gap:12px;"></div>
-      </div>
-    </section>
-
-    <div data-el="toast" style="position:fixed;left:50%;bottom:24px;transform:translate(-50%,12px);
-         background:#2F6C3C;color:#fff;padding:10px 16px;border-radius:999px;font-size:14px;
-         box-shadow:0 10px 24px rgba(0,0,0,.25);opacity:0;pointer-events:none;
-         transition:opacity .18s ease, transform .18s ease;z-index:10000;white-space:nowrap;"></div>
-  ` : `
-    <section style="padding:16px;">
-      <div class="hero" style="margin:0;border:1px solid var(--border);border-radius:14px;background:var(--surface);
-           box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;">
-        <div style="padding:14px 16px;border-bottom:1px solid var(--border);background:linear-gradient(90deg,rgba(47,108,60,.12),transparent);">
-          <div style="font-weight:900;font-size:18px;">Crop Planner</div>
-          <div class="muted" style="margin-top:4px;font-weight:800;">Assign corn/beans. Desktop for drag + bulk.</div>
-        </div>
-
-        <div style="padding:16px;display:grid;gap:14px;">
-          <div class="row3" style="display:grid;gap:10px;grid-template-columns:1fr 1fr 1fr;">
-            <!-- Farm combo -->
-            <div class="field combo" style="position:relative;">
-              <label style="display:block;font-weight:800;margin:0 0 6px;">Farm</label>
-              <div class="combo-anchor" style="position:relative;display:inline-block;width:100%;">
-                <button data-el="farmBtn" type="button" aria-haspopup="listbox" aria-expanded="false"
-                        style="${comboBtnStyle(10)}">
-                  <span data-el="farmBtnText">— All farms —</span>
-                  <span aria-hidden="true" style="${comboCaret}"></span>
-                </button>
-
-                <div data-el="farmPanel" style="${comboPanelStyle}">
-                  <div style="${comboSearchWrapStyle}">
-                    <input data-el="farmSearch" type="search" placeholder="Search farms…" style="${comboSearchStyle}" />
-                  </div>
-                  <div data-el="farmList" style="${comboListStyle}"></div>
-                </div>
-              </div>
-              <input data-el="farmId" type="hidden" />
-              <input data-el="farmName" type="hidden" />
-            </div>
-
-            ${yearComboHtml(10)}
-
-            <div class="field">
-              <label style="display:block;font-weight:800;margin:0 0 6px;">Search fields</label>
-              <input data-el="search" class="input" type="search" placeholder="Type to filter…"
-                     style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
-                            border:1px solid var(--border);border-radius:10px;padding:12px;outline:none;" />
-              <div data-el="scopeHelp" style="font-size:13px;color:var(--muted,#67706B);margin-top:6px;font-weight:800;">
-                Showing 0 active fields
-              </div>
-            </div>
-          </div>
-
-          <div class="kpi-line" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:10px 12px;border:1px solid var(--border);
-               border-radius:12px;background:var(--card-surface,var(--surface));">
-            <div class="kpi" style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;">
-              <div class="v" data-el="kpiUnplannedFields" style="font-weight:900;font-size:18px;">0</div>
-              <div class="l" style="font-weight:800;color:var(--muted,#67706B);font-size:12px;letter-spacing:.2px;text-transform:uppercase;">Unplanned</div>
-            </div>
-            <div class="kpi" style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;">
-              <div class="v" data-el="kpiUnplannedAcres" style="font-weight:900;font-size:18px;">0.00</div>
-              <div class="l" style="font-weight:800;color:var(--muted,#67706B);font-size:12px;letter-spacing:.2px;text-transform:uppercase;">Acres</div>
-            </div>
-
-            <div class="kpi" style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;margin-left:auto;">
-              <div class="v" data-el="kpiCornFields" style="font-weight:900;font-size:18px;">0</div>
-              <div class="l" style="font-weight:800;color:var(--muted,#67706B);font-size:12px;letter-spacing:.2px;text-transform:uppercase;">Corn</div>
-            </div>
-            <div class="kpi" style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;">
-              <div class="v" data-el="kpiCornAcres" style="font-weight:900;font-size:18px;">0.00</div>
-              <div class="l" style="font-weight:800;color:var(--muted,#67706B);font-size:12px;letter-spacing:.2px;text-transform:uppercase;">Acres</div>
-            </div>
-
-            <div class="kpi" style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;margin-left:auto;">
-              <div class="v" data-el="kpiSoyFields" style="font-weight:900;font-size:18px;">0</div>
-              <div class="l" style="font-weight:800;color:var(--muted,#67706B);font-size:12px;letter-spacing:.2px;text-transform:uppercase;">Beans</div>
-            </div>
-            <div class="kpi" style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;">
-              <div class="v" data-el="kpiSoyAcres" style="font-weight:900;font-size:18px;">0.00</div>
-              <div class="l" style="font-weight:800;color:var(--muted,#67706B);font-size:12px;letter-spacing:.2px;text-transform:uppercase;">Acres</div>
-            </div>
-          </div>
-
-          <div data-el="bulkWrap" style="display:grid;gap:8px;">
-            <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;">
-              <div style="display:flex;gap:8px;align-items:center;min-width:0;">
-                <div style="width:28px;height:28px;border-radius:10px;border:1px solid var(--border);display:grid;place-items:center;color:var(--accent);flex:0 0 auto;">⇄</div>
-                <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;min-width:0;">
-                  <div style="font-weight:900;white-space:nowrap;">Bulk: drop a FARM here</div>
-                  <div class="muted" style="font-weight:800;font-size:12px;letter-spacing:.2px;text-transform:uppercase;white-space:nowrap;">
-                    Moves every active field in that farm
-                  </div>
-                </div>
-              </div>
-
-              <button data-el="lockBtn" type="button"
-                      title="Global lock (prevents drag moves for everyone)"
-                      style="display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);
-                             background:var(--card-surface,var(--surface));color:var(--text);border-radius:999px;
-                             padding:7px 10px;font-weight:900;cursor:pointer;user-select:none;flex:0 0 auto;">
-                <span data-el="lockIcon" style="display:grid;place-items:center;"></span>
-                <span data-el="lockLabel" style="font-size:12px;letter-spacing:.2px;text-transform:uppercase;">Unlocked</span>
-              </button>
-            </div>
-
-            <div data-el="laneHeader" class="laneHeader"
-                 style="border:1px solid var(--border);border-radius:14px;background:var(--card-surface,var(--surface));
-                        padding:10px 12px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;align-items:center;">
-              ${bulkBox('Unplanned', '')}
-              ${bulkBox('Corn', 'corn')}
-              ${bulkBox('Soybeans', 'soybeans')}
-            </div>
-          </div>
-
-          <div class="board" style="border:1px solid var(--border);border-radius:14px;background:var(--card-surface,var(--surface));overflow:hidden;">
-            <div data-el="boardScroll" class="boardScroll" style="max-height:64vh;overflow:auto;padding:12px;display:grid;gap:12px;-webkit-overflow-scrolling:touch;"></div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <div data-el="toast" style="position:fixed;left:50%;bottom:24px;transform:translate(-50%,12px);
-         background:#2F6C3C;color:#fff;padding:10px 16px;border-radius:999px;font-size:14px;
-         box-shadow:0 10px 24px rgba(0,0,0,.25);opacity:0;pointer-events:none;
-         transition:opacity .18s ease, transform .18s ease;z-index:10000;white-space:nowrap;"></div>
-  `;
-
-  // element getters scoped to host
+  // scoped getters
   const q = (sel) => hostEl.querySelector(sel);
   const el = {
     farmBtn: q('[data-el="farmBtn"]'),
-    farmBtnText: q('[data-el="farmBtnText"]'),
     farmPanel: q('[data-el="farmPanel"]'),
     farmList: q('[data-el="farmList"]'),
     farmSearch: q('[data-el="farmSearch"]'),
@@ -518,10 +171,10 @@ export async function mount(hostEl, opts = {}){
     farmName: q('[data-el="farmName"]'),
 
     yearBtn: q('[data-el="yearBtn"]'),
-    yearBtnText: q('[data-el="yearBtnText"]'),
     yearPanel: q('[data-el="yearPanel"]'),
     yearList: q('[data-el="yearList"]'),
     yearVal: q('[data-el="yearVal"]'),
+    yearBtnText: q('[data-el="yearBtnText"]'),
 
     lockBtn: q('[data-el="lockBtn"]'),
     lockIcon: q('[data-el="lockIcon"]'),
@@ -529,7 +182,6 @@ export async function mount(hostEl, opts = {}){
 
     search: q('[data-el="search"]'),
     scopeHelp: q('[data-el="scopeHelp"]'),
-    laneHeader: q('[data-el="laneHeader"]'),
     boardScroll: q('[data-el="boardScroll"]'),
     toast: q('[data-el="toast"]'),
 
@@ -544,6 +196,9 @@ export async function mount(hostEl, opts = {}){
   const controller = new AbortController();
   const { signal } = controller;
 
+  // -------------------------------------------------------------------
+  // Toast
+  // -------------------------------------------------------------------
   const toast = (msg) => {
     if(!el.toast) return;
     el.toast.textContent = msg;
@@ -556,11 +211,12 @@ export async function mount(hostEl, opts = {}){
     }, 900);
   };
 
-  const isAnyComboOpen = () => {
-    const fp = el.farmPanel && el.farmPanel.style.display === 'block';
-    const yp = el.yearPanel && el.yearPanel.style.display === 'block';
-    return !!(fp || yp);
-  };
+  // -------------------------------------------------------------------
+  // Combos (Farm + Year) — use existing app look; only minimal positioning
+  // -------------------------------------------------------------------
+  const isAnyComboOpen = () =>
+    (el.farmPanel && el.farmPanel.style.display === 'block') ||
+    (el.yearPanel && el.yearPanel.style.display === 'block');
 
   const closeAllCombos = () => {
     if (el.farmPanel) el.farmPanel.style.display = 'none';
@@ -569,8 +225,8 @@ export async function mount(hostEl, opts = {}){
     if (el.yearBtn) el.yearBtn.setAttribute('aria-expanded','false');
   };
 
-  // Close on outside click ANYWHERE
-  hostEl.ownerDocument.addEventListener('mousedown', (e)=>{
+  // ✅ Close on outside click ANYWHERE (not just inside module)
+  hostEl.ownerDocument.addEventListener('pointerdown', (e)=>{
     if(!isAnyComboOpen()) return;
     const t = e.target;
     const insideFarm = (el.farmBtn && el.farmBtn.contains(t)) || (el.farmPanel && el.farmPanel.contains(t));
@@ -587,35 +243,32 @@ export async function mount(hostEl, opts = {}){
     }
   }, { capture:true, signal });
 
-  // ----- Farm combo -----
+  // list renderers (NORMAL weight text)
   const renderFarmList = (qtext) => {
     const qq = norm(qtext);
-
-    const rows = farms
+    const items = farms
       .filter(f => !qq || norm(f.name).includes(qq))
-      .map((f, idx) => `
-        <div class="combo-item" data-id="${esc(f.id)}"
-             style="${comboItemStyle}${idx===0 ? '' : comboItemDividerStyle}">
-          <div style="font-weight:400;">${esc(f.name)}</div>
-          <div></div>
-        </div>
-      `).join('');
+      .map(f => `<div class="combo-item" data-id="${esc(f.id)}"><div>${esc(f.name)}</div><div></div></div>`)
+      .join('');
 
-    const allRow = `
-      <div class="combo-item" data-id=""
-           style="${comboItemStyle}">
-        <div style="${comboHeaderStyle}">All farms</div>
-        <div></div>
-      </div>
-    `;
-
-    if (el.farmList){
-      el.farmList.innerHTML = allRow + (rows || `
-        <div style="padding:12px 10px;color:var(--muted,#67706B);font-weight:400;">(no matches)</div>
-      `);
-    }
+    el.farmList.innerHTML =
+      `<div class="combo-item" data-id=""><div>All farms</div><div></div></div>` +
+      (items || `<div class="combo-empty">(no matches)</div>`);
   };
 
+  const renderYearList = () => {
+    el.yearList.innerHTML = YEARS
+      .map(y => `<div class="combo-item" data-year="${esc(y)}"><div>${esc(y)}</div><div></div></div>`)
+      .join('');
+  };
+
+  const setYearUI = (y) => {
+    currentYear = String(y || YEARS[0] || '2026');
+    if(el.yearBtnText) el.yearBtnText.textContent = currentYear;
+    if(el.yearVal) el.yearVal.value = currentYear;
+  };
+
+  // wire Farm combo
   if (el.farmBtn){
     el.farmBtn.addEventListener('click', (e)=>{
       e.stopPropagation();
@@ -631,62 +284,37 @@ export async function mount(hostEl, opts = {}){
         renderFarmList('');
       }
     }, { signal });
-
-    if(el.farmPanel){
-      el.farmPanel.addEventListener('mousedown', (e)=> e.stopPropagation(), { signal });
-      el.farmPanel.addEventListener('click', (e)=> e.stopPropagation(), { signal });
-    }
-
-    if(el.farmSearch){
-      el.farmSearch.addEventListener('input', ()=> renderFarmList(el.farmSearch.value), { signal });
-    }
-
-    if(el.farmList){
-      el.farmList.addEventListener('mousedown', (e)=>{
-        const row = e.target.closest('.combo-item'); if(!row) return;
-        const id = row.dataset.id || '';
-
-        if(!id){
-          if(el.farmId) el.farmId.value = '';
-          if(el.farmName) el.farmName.value = '';
-          if(el.farmBtnText) el.farmBtnText.textContent = '— All farms —';
-        }else{
-          const f = farms.find(x=> x.id === id);
-          if(f){
-            if(el.farmId) el.farmId.value = f.id;
-            if(el.farmName) el.farmName.value = f.name;
-            if(el.farmBtnText) el.farmBtnText.textContent = f.name;
-          }
-        }
-
-        closeAllCombos();
-        renderAll(true);
-      }, { signal });
-    }
   }
 
-  // ----- Year combo -----
-  const renderYearList = () => {
-    if(!el.yearList) return;
-    el.yearList.innerHTML = YEARS.map((y, idx) => `
-      <div class="combo-item" data-year="${esc(y)}"
-           style="${comboItemStyle}${idx===0 ? '' : comboItemDividerStyle}">
-        <div style="font-weight:400;">${esc(y)}</div>
-        <div></div>
-      </div>
-    `).join('');
-  };
+  if(el.farmPanel){
+    el.farmPanel.addEventListener('pointerdown', (e)=> e.stopPropagation(), { signal });
+  }
+  if(el.farmSearch){
+    el.farmSearch.addEventListener('input', ()=> renderFarmList(el.farmSearch.value), { signal });
+  }
+  if(el.farmList){
+    el.farmList.addEventListener('pointerdown', (e)=>{
+      const row = e.target.closest('.combo-item'); if(!row) return;
+      const id = row.dataset.id || '';
+      if(!id){
+        el.farmId.value = '';
+        el.farmName.value = '';
+        el.farmBtn.textContent = '— All farms —';
+      }else{
+        const f = farms.find(x=> x.id === id);
+        if(f){
+          el.farmId.value = f.id;
+          el.farmName.value = f.name;
+          el.farmBtn.textContent = f.name;
+        }
+      }
+      closeAllCombos();
+      renderAll(true);
+    }, { signal });
+  }
 
-  const setYearUI = (y) => {
-    currentYear = String(y || YEARS[0] || '2026');
-    if(el.yearBtnText) el.yearBtnText.textContent = currentYear;
-    if(el.yearVal) el.yearVal.value = currentYear;
-  };
-
+  // wire Year combo
   if (el.yearBtn){
-    renderYearList();
-    setYearUI(currentYear);
-
     el.yearBtn.addEventListener('click', (e)=>{
       e.stopPropagation();
       const isOpen = el.yearPanel.style.display === 'block';
@@ -694,32 +322,31 @@ export async function mount(hostEl, opts = {}){
       el.yearPanel.style.display = isOpen ? 'none' : 'block';
       el.yearBtn.setAttribute('aria-expanded', (!isOpen).toString());
     }, { signal });
-
-    if(el.yearPanel){
-      el.yearPanel.addEventListener('mousedown', (e)=> e.stopPropagation(), { signal });
-      el.yearPanel.addEventListener('click', (e)=> e.stopPropagation(), { signal });
-    }
-
-    if(el.yearList){
-      el.yearList.addEventListener('mousedown', async (e)=>{
-        const row = e.target.closest('.combo-item'); if(!row) return;
-        const y = row.dataset.year || YEARS[0] || '2026';
-        if(String(y) === String(currentYear)){
-          closeAllCombos();
-          return;
-        }
-
-        setYearUI(y);
+  }
+  if(el.yearPanel){
+    el.yearPanel.addEventListener('pointerdown', (e)=> e.stopPropagation(), { signal });
+  }
+  if(el.yearList){
+    el.yearList.addEventListener('pointerdown', async (e)=>{
+      const row = e.target.closest('.combo-item'); if(!row) return;
+      const y = row.dataset.year || YEARS[0] || '2026';
+      if(String(y) === String(currentYear)){
         closeAllCombos();
+        return;
+      }
+      setYearUI(y);
+      closeAllCombos();
 
-        await startLockWatch(currentYear);
-        plans = await loadPlansForYear(db, currentYear);
-        renderAll(true);
-        toast(`Year: ${currentYear}${isLocked ? ' (Locked)' : ''}`);
-      }, { signal });
-    }
+      await startLockWatch(currentYear);
+      plans = await loadPlansForYear(db, currentYear);
+      renderAll(true);
+      toast(`Year: ${currentYear}${isLocked ? ' (Locked)' : ''}`);
+    }, { signal });
   }
 
+  // -------------------------------------------------------------------
+  // Data helpers
+  // -------------------------------------------------------------------
   const cropForField = (fieldId) => {
     const c = norm(plans.get(fieldId)?.crop);
     if (c === 'corn' || c === 'soybeans') return c;
@@ -738,6 +365,9 @@ export async function mount(hostEl, opts = {}){
     });
   };
 
+  // -------------------------------------------------------------------
+  // Render helpers
+  // -------------------------------------------------------------------
   const renderFieldRowsPhone = (arr) => {
     if (!arr.length) return `<div class="muted" style="font-weight:900">—</div>`;
     return arr.map(f=>`
@@ -746,6 +376,24 @@ export async function mount(hostEl, opts = {}){
         <div class="pill">${fmt2.format(Number(f.tillable||0))} ac</div>
       </div>
     `).join('');
+  };
+
+  const renderCropTilePhone = (farmId, label, cropKeyName, arr, acres, isOpen) => {
+    const meta = `${fmt0.format(arr.length)} • ${fmt2.format(acres)} ac`;
+    const body = isOpen ? `<div class="cropBody">${renderFieldRowsPhone(arr)}</div>` : '';
+    const r = isOpen ? 'rotate(180deg)' : 'rotate(0deg)';
+    return `
+      <div class="cropTile" data-crop-tile="1" data-farm-id="${esc(farmId)}" data-crop-key="${esc(cropKeyName)}" data-open="${isOpen?'1':'0'}">
+        <div class="cropHead">
+          <div class="cropTitle">${esc(label)}</div>
+          <div style="display:flex;align-items:center;gap:0;">
+            <div class="cropMeta">${meta}</div>
+            <div class="cropChev" aria-hidden="true" style="transform:${r};">${chevSvg()}</div>
+          </div>
+        </div>
+        ${body}
+      </div>
+    `;
   };
 
   const renderBucketDesktop = (farmId, title, crop, arr, acres) => {
@@ -783,25 +431,10 @@ export async function mount(hostEl, opts = {}){
     `;
   };
 
-  function renderCropTilePhone(farmId, label, cropKeyName, arr, acres, isOpen){
-    const meta = `${fmt0.format(arr.length)} • ${fmt2.format(acres)} ac`;
-    const body = isOpen ? `<div class="cropBody">${renderFieldRowsPhone(arr)}</div>` : '';
-    const r = isOpen ? 'rotate(180deg)' : 'rotate(0deg)';
-    return `
-      <div class="cropTile" data-crop-tile="1" data-farm-id="${esc(farmId)}" data-crop-key="${esc(cropKeyName)}" data-open="${isOpen?'1':'0'}">
-        <div class="cropHead">
-          <div class="cropTitle">${esc(label)}</div>
-          <div style="display:flex;align-items:center;gap:0;">
-            <div class="cropMeta">${meta}</div>
-            <div class="cropChev" aria-hidden="true" style="transform:${r};">${chevSvg()}</div>
-          </div>
-        </div>
-        ${body}
-      </div>
-    `;
-  }
-
-  function bindToggles(){
+  // -------------------------------------------------------------------
+  // Toggle bindings (farm accordion + phone crop tiles)
+  // -------------------------------------------------------------------
+  const bindToggles = () => {
     hostEl.querySelectorAll('[data-farm-toggle="1"]').forEach(head=>{
       if(head._fvBound) return;
       head._fvBound = true;
@@ -840,8 +473,11 @@ export async function mount(hostEl, opts = {}){
         }, { signal });
       });
     }
-  }
+  };
 
+  // -------------------------------------------------------------------
+  // Main render
+  // -------------------------------------------------------------------
   const renderAll = (preserveScroll=false) => {
     const list = getShownFields();
     if (el.scopeHelp) el.scopeHelp.textContent = `Showing ${fmt0.format(list.length)} active fields${isLocked ? ' • Locked' : ''}`;
@@ -882,20 +518,19 @@ export async function mount(hostEl, opts = {}){
       }))
     } : null;
 
-    const canDrag = canDragNow();
-
     el.boardScroll.innerHTML = farmsArr.map(g=>{
       g.fields.sort((a,b)=> String(a.name||'').localeCompare(String(b.name||'')));
       const openFarm = (laneOpen[g.farmId] != null) ? !!laneOpen[g.farmId] : defaultOpen;
 
       const un = [], co = [], so = [];
       let unA=0, coA=0, soA=0;
+      let coN=0, soN=0;
 
       for(const f of g.fields){
         const b = cropForField(f.id);
         const a = Number(f.tillable||0);
-        if(b === 'corn'){ co.push(f); coA+=a; }
-        else if(b === 'soybeans'){ so.push(f); soA+=a; }
+        if(b === 'corn'){ co.push(f); coA+=a; coN++; }
+        else if(b === 'soybeans'){ so.push(f); soA+=a; soN++; }
         else { un.push(f); unA+=a; }
       }
 
@@ -905,14 +540,16 @@ export async function mount(hostEl, opts = {}){
         const soOpen = isCropOpen(g.farmId, 'soybeans');
 
         return `
-          <div class="farmLane" data-farm-id="${esc(g.farmId)}" data-open="${openFarm?'1':'0'}">
-            <div class="farmLaneHead" data-farm-toggle="1">
-              <div class="farmName">${esc(g.farmName)}</div>
-              <div aria-hidden="true">${chevSvg()}</div>
+          <div class="farmLane" data-farm-id="${esc(g.farmId)}" data-open="${openFarm?'1':'0'}"
+               style="border:1px solid var(--border);border-radius:14px;background:var(--surface);overflow:hidden;">
+            <div class="farmLaneHead" data-farm-toggle="1"
+                 style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 12px;border-bottom:1px solid var(--border);user-select:none;">
+              <div class="farmName" style="font-weight:900;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(g.farmName)}</div>
+              <div aria-hidden="true" style="width:18px;height:18px;display:grid;place-items:center;color:var(--muted,#67706B);">${chevSvg()}</div>
             </div>
 
             <div class="farmLaneBody" style="display:${openFarm?'block':'none'};">
-              <div class="farmInner">
+              <div class="farmInner" style="padding:10px;display:grid;gap:10px;background:color-mix(in srgb, var(--surface) 96%, rgba(0,0,0,.02));">
                 ${renderCropTilePhone(g.farmId, 'Unplanned', 'unplanned', un, unA, unOpen)}
                 ${renderCropTilePhone(g.farmId, 'Corn', 'corn', co, coA, coOpen)}
                 ${renderCropTilePhone(g.farmId, 'Beans', 'soybeans', so, soA, soOpen)}
@@ -922,8 +559,42 @@ export async function mount(hostEl, opts = {}){
         `;
       }
 
-      return `<div></div>`;
-    }).join('');
+      const plannedBadge = (coN + soN) > 0
+        ? ` <span style="color:var(--muted,#67706B);font-weight:900;">(${coN ? `Corn ${fmt0.format(coN)}` : ''}${coN && soN ? ' • ' : ''}${soN ? `Beans ${fmt0.format(soN)}` : ''})</span>`
+        : '';
+
+      return `
+        <div class="farmLane" data-farm-id="${esc(g.farmId)}" data-open="${openFarm?'1':'0'}"
+             style="border:1px solid var(--border);border-radius:14px;background:var(--surface);overflow:hidden;">
+          <div class="farmLaneHead" data-farm-toggle="1"
+               style="display:grid;grid-template-columns:22px 1fr auto 18px;gap:10px;align-items:center;padding:12px;border-bottom:1px solid var(--border);
+                      background:linear-gradient(90deg, rgba(0,0,0,.02), transparent);user-select:none;">
+            <div class="farmGrip" data-drag-type="farm" draggable="${canDragNow() ? 'true' : 'false'}"
+                 style="width:22px;height:22px;border:1px solid var(--border);border-radius:8px;display:grid;place-items:center;color:var(--muted,#67706B);
+                        cursor:${canDragNow()?'grab':'not-allowed'};opacity:${canDragNow()?'1':'.35'};">
+              ${gripSvg()}
+            </div>
+            <div style="font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+              ${esc(g.farmName)}${plannedBadge}
+            </div>
+            <div style="color:var(--muted,#67706B);font-size:12px;font-weight:900;letter-spacing:.2px;text-transform:uppercase;white-space:nowrap;">
+              ${fmt0.format(g.fields.length)} • ${fmt2.format(unA+coA+soA)} ac
+            </div>
+            <div class="chev" aria-hidden="true" style="width:18px;height:18px;display:grid;place-items:center;color:var(--muted,#67706B);transition:transform .12s ease;">
+              ${chevSvg()}
+            </div>
+          </div>
+
+          <div class="farmLaneBody" style="padding:12px;display:${openFarm?'grid':'none'};gap:10px;">
+            <div class="buckets" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;align-items:start;">
+              ${renderBucketDesktop(g.farmId, 'Unplanned', '', un, unA)}
+              ${renderBucketDesktop(g.farmId, 'Corn', 'corn', co, coA)}
+              ${renderBucketDesktop(g.farmId, 'Soybeans', 'soybeans', so, soA)}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('') || `<div class="muted" style="font-weight:900;padding:12px">No fields match your filters.</div>`;
 
     bindToggles();
 
@@ -937,6 +608,9 @@ export async function mount(hostEl, opts = {}){
     }
   };
 
+  // -------------------------------------------------------------------
+  // DnD drop handler (desktop only)
+  // -------------------------------------------------------------------
   const onDrop = async ({ type, fieldId, farmId, toCrop }) => {
     if(viewOnly) return;
 
@@ -977,6 +651,7 @@ export async function mount(hostEl, opts = {}){
     }
   };
 
+  // search filter
   if (el.search){
     el.search.addEventListener('input', ()=>{
       clearTimeout(el.search._t);
@@ -984,12 +659,15 @@ export async function mount(hostEl, opts = {}){
     }, { signal });
   }
 
+  // prevent drag weirdness on phone
   if(viewOnly){
     hostEl.addEventListener('dragstart', (e)=> e.preventDefault(), { capture:true, signal });
     hostEl.addEventListener('drop', (e)=> e.preventDefault(), { capture:true, signal });
   }
 
-  // boot data
+  // -------------------------------------------------------------------
+  // Boot data
+  // -------------------------------------------------------------------
   db = await initDB();
   fs = await getFirestoreFns();
 
@@ -997,13 +675,10 @@ export async function mount(hostEl, opts = {}){
   fields = await loadFields(db);
   farmNameById = new Map(farms.map(f=>[String(f.id), String(f.name)]));
 
-  // initialize combo labels
-  if(el.farmBtnText) el.farmBtnText.textContent = '— All farms —';
-  if(el.yearBtnText) el.yearBtnText.textContent = currentYear;
-
-  // render lists now that farms loaded
+  // init lists
   renderFarmList('');
   renderYearList();
+  setYearUI(currentYear);
 
   // initial plans + lock
   plans = await loadPlansForYear(db, currentYear);
@@ -1011,7 +686,7 @@ export async function mount(hostEl, opts = {}){
   renderLockUI();
   await startLockWatch(currentYear);
 
-  // lock btn wiring
+  // lock btn wiring (desktop only – button not present on phone)
   if (el.lockBtn){
     el.lockBtn.addEventListener('click', async ()=>{
       try{
@@ -1025,8 +700,10 @@ export async function mount(hostEl, opts = {}){
     }, { signal });
   }
 
+  // first render
   renderAll(false);
 
+  // dnd wiring (safe even on phone; isEnabled returns false there)
   wireDnd({
     root: hostEl,
     onDrop,
@@ -1044,7 +721,7 @@ export async function mount(hostEl, opts = {}){
   };
 
   // ============================================================
-  // SINGLE SET OF LOCK HELPERS (no duplicates)
+  // Lock helpers (single set)
   // ============================================================
   function renderLockUI(){
     if (!el.lockBtn) return;
@@ -1136,5 +813,232 @@ export async function mount(hostEl, opts = {}){
         renderAll(true);
       }
     }, 6000);
+  }
+
+  // ============================================================
+  // Skeleton builders
+  // ============================================================
+  function farmComboBlock(radiusPx){
+    const r = Number(radiusPx || 10);
+    return `
+      <div class="field combo" style="position:relative;">
+        <label style="display:block;font-weight:800;margin:0 0 6px;">Farm</label>
+        <div class="combo-anchor" style="position:relative;display:inline-block;width:100%;">
+          <button data-el="farmBtn" class="buttonish has-caret" type="button" aria-haspopup="listbox" aria-expanded="false"
+                  style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
+                         border:1px solid var(--border);border-radius:${r}px;padding:12px;outline:none;cursor:pointer;text-align:left;
+                         position:relative;padding-right:44px;user-select:none;">
+            — All farms —
+          </button>
+
+          <div data-el="farmPanel" class="combo-panel"
+               style="position:absolute;left:0;right:0;top:calc(100% + 6px);
+                      background:var(--surface);border:1px solid var(--border);border-radius:12px;
+                      box-shadow:0 12px 26px rgba(0,0,0,.18);
+                      z-index:99999;padding:8px;display:none;">
+            <div class="search" style="padding:4px 2px 8px;">
+              <input data-el="farmSearch" type="search" placeholder="Search farms…"
+                     style="width:100%;padding:10px;border:1px solid var(--border);border-radius:10px;font:inherit;font-size:14px;color:var(--text);
+                            background:var(--card-surface,var(--surface));" />
+            </div>
+            <div data-el="farmList" class="list" style="max-height:52vh;overflow:auto;border-top:1px solid var(--border);"></div>
+          </div>
+        </div>
+        <input data-el="farmId" type="hidden" />
+        <input data-el="farmName" type="hidden" />
+      </div>
+    `;
+  }
+
+  function yearComboBlock(radiusPx){
+    const r = Number(radiusPx || 10);
+    return `
+      <div class="field combo" style="position:relative;">
+        <label style="display:block;font-weight:800;margin:0 0 6px;">Crop Year</label>
+        <div class="combo-anchor" style="position:relative;display:inline-block;width:100%;">
+          <button data-el="yearBtn" class="buttonish has-caret" type="button" aria-haspopup="listbox" aria-expanded="false"
+                  style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
+                         border:1px solid var(--border);border-radius:${r}px;padding:12px;outline:none;cursor:pointer;text-align:left;
+                         position:relative;padding-right:44px;user-select:none;">
+            <span data-el="yearBtnText">${esc(currentYear)}</span>
+          </button>
+
+          <div data-el="yearPanel" class="combo-panel"
+               style="position:absolute;left:0;right:0;top:calc(100% + 6px);
+                      background:var(--surface);border:1px solid var(--border);border-radius:12px;
+                      box-shadow:0 12px 26px rgba(0,0,0,.18);
+                      z-index:99999;padding:8px;display:none;">
+            <div data-el="yearList" class="list" style="max-height:52vh;overflow:auto;border-top:1px solid var(--border);"></div>
+          </div>
+        </div>
+        <input data-el="yearVal" type="hidden" value="${esc(currentYear)}" />
+      </div>
+    `;
+  }
+
+  function phoneSkeleton(){
+    return `
+      <section class="cpRoot viewOnly" style="padding:0;margin:0;">
+        <style>
+          .cpRoot.viewOnly{ width:100%; }
+          .cpRoot.viewOnly .cpPad{ padding:10px 10px 12px 10px; }
+          .cpRoot.viewOnly .row3{ display:grid; gap:10px; grid-template-columns:1fr !important; }
+          .cpRoot.viewOnly .kpiLine{
+            display:grid; grid-template-columns:1fr; gap:10px;
+            border:1px solid var(--border); border-radius:12px; padding:10px;
+            background:var(--card-surface,var(--surface));
+          }
+          .cpRoot.viewOnly .kpiBox{
+            border:1px solid var(--border); border-radius:12px; padding:10px;
+            background:var(--surface);
+          }
+          .cpRoot.viewOnly .kpiBig{ font-weight:900; font-size:18px; }
+          .cpRoot.viewOnly .kpiLbl{
+            margin-top:4px; font-weight:800; font-size:12px;
+            color:var(--muted,#67706B); letter-spacing:.2px; text-transform:uppercase;
+          }
+          .cpRoot.viewOnly .cropTile{ border:1px solid var(--border); border-radius:14px; background:var(--card-surface,var(--surface)); overflow:hidden; }
+          .cpRoot.viewOnly .cropHead{ padding:12px; display:flex; align-items:center; justify-content:space-between; gap:10px; user-select:none; }
+          .cpRoot.viewOnly .cropTitle{ font-weight:900; }
+          .cpRoot.viewOnly .cropMeta{
+            font-size:12px; color:var(--muted,#67706B); font-weight:900;
+            letter-spacing:.2px; text-transform:uppercase; white-space:nowrap;
+          }
+          .cpRoot.viewOnly .cropBody{ padding:10px 12px 12px 12px; border-top:1px solid var(--border); display:grid; gap:10px; }
+          .cpRoot.viewOnly .cardRow{
+            border:1px solid var(--border); border-radius:12px; background:var(--surface);
+            padding:10px; display:flex; align-items:center; justify-content:space-between; gap:10px;
+          }
+          .cpRoot.viewOnly .fname{ font-weight:900; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+          .cpRoot.viewOnly .pill{ white-space:nowrap; }
+        </style>
+
+        <div class="cpPad" style="display:grid;gap:12px;">
+          <div class="row3">
+            ${farmComboBlock(12)}
+            ${yearComboBlock(12)}
+            <div class="field">
+              <label style="display:block;font-weight:800;margin:0 0 6px;">Search fields</label>
+              <input data-el="search" class="input" type="search" placeholder="Type to filter…"
+                     style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
+                            border:1px solid var(--border);border-radius:12px;padding:12px;outline:none;" />
+              <div class="help" data-el="scopeHelp" style="font-size:13px;color:var(--muted,#67706B);margin-top:6px;font-weight:800;">Showing 0 active fields</div>
+            </div>
+          </div>
+
+          <div class="kpiLine">
+            <div class="kpiBox">
+              <div class="kpiBig"><span data-el="kpiUnplannedFields">0</span> • <span data-el="kpiUnplannedAcres">0.00</span></div>
+              <div class="kpiLbl">Unplanned (fields • acres)</div>
+            </div>
+            <div class="kpiBox">
+              <div class="kpiBig"><span data-el="kpiCornFields">0</span> • <span data-el="kpiCornAcres">0.00</span></div>
+              <div class="kpiLbl">Corn (fields • acres)</div>
+            </div>
+            <div class="kpiBox">
+              <div class="kpiBig"><span data-el="kpiSoyFields">0</span> • <span data-el="kpiSoyAcres">0.00</span></div>
+              <div class="kpiLbl">Beans (fields • acres)</div>
+            </div>
+          </div>
+
+          <div data-el="boardScroll" style="display:grid;gap:12px;"></div>
+        </div>
+      </section>
+
+      <div data-el="toast" style="position:fixed;left:50%;bottom:24px;transform:translate(-50%,12px);
+           background:#2F6C3C;color:#fff;padding:10px 16px;border-radius:999px;font-size:14px;
+           box-shadow:0 10px 24px rgba(0,0,0,.25);opacity:0;pointer-events:none;
+           transition:opacity .18s ease, transform .18s ease;z-index:10000;white-space:nowrap;"></div>
+    `;
+  }
+
+  function desktopSkeleton(){
+    return `
+      <section style="padding:16px;">
+        <div class="hero" style="margin:0;border:1px solid var(--border);border-radius:14px;background:var(--surface);
+             box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;">
+          <div style="padding:14px 16px;border-bottom:1px solid var(--border);background:linear-gradient(90deg,rgba(47,108,60,.12),transparent);">
+            <div style="font-weight:900;font-size:18px;">Crop Planner</div>
+            <div class="muted" style="margin-top:4px;font-weight:800;">Assign corn/beans. Desktop for drag + bulk.</div>
+          </div>
+
+          <div style="padding:16px;display:grid;gap:14px;">
+            <div class="row3" style="display:grid;gap:10px;grid-template-columns:1fr 1fr 1fr;">
+              ${farmComboBlock(10)}
+              ${yearComboBlock(10)}
+              <div class="field">
+                <label style="display:block;font-weight:800;margin:0 0 6px;">Search fields</label>
+                <input data-el="search" class="input" type="search" placeholder="Type to filter…"
+                       style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
+                              border:1px solid var(--border);border-radius:10px;padding:12px;outline:none;" />
+                <div class="help" data-el="scopeHelp" style="font-size:13px;color:var(--muted,#67706B);margin-top:6px;font-weight:800;">Showing 0 active fields</div>
+              </div>
+            </div>
+
+            <div class="kpi-line" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:10px 12px;border:1px solid var(--border);
+                 border-radius:12px;background:var(--card-surface,var(--surface));">
+              <div class="kpi" style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;">
+                <div class="v" data-el="kpiUnplannedFields" style="font-weight:900;font-size:18px;">0</div>
+                <div class="l" style="font-weight:800;color:var(--muted,#67706B);font-size:12px;letter-spacing:.2px;text-transform:uppercase;">Unplanned</div>
+              </div>
+              <div class="kpi" style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;">
+                <div class="v" data-el="kpiUnplannedAcres" style="font-weight:900;font-size:18px;">0.00</div>
+                <div class="l" style="font-weight:800;color:var(--muted,#67706B);font-size:12px;letter-spacing:.2px;text-transform:uppercase;">Acres</div>
+              </div>
+
+              <div class="kpi" style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;margin-left:auto;">
+                <div class="v" data-el="kpiCornFields" style="font-weight:900;font-size:18px;">0</div>
+                <div class="l" style="font-weight:800;color:var(--muted,#67706B);font-size:12px;letter-spacing:.2px;text-transform:uppercase;">Corn</div>
+              </div>
+              <div class="kpi" style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;">
+                <div class="v" data-el="kpiCornAcres" style="font-weight:900;font-size:18px;">0.00</div>
+                <div class="l" style="font-weight:800;color:var(--muted,#67706B);font-size:12px;letter-spacing:.2px;text-transform:uppercase;">Acres</div>
+              </div>
+
+              <div class="kpi" style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;margin-left:auto;">
+                <div class="v" data-el="kpiSoyFields" style="font-weight:900;font-size:18px;">0</div>
+                <div class="l" style="font-weight:800;color:var(--muted,#67706B);font-size:12px;letter-spacing:.2px;text-transform:uppercase;">Beans</div>
+              </div>
+              <div class="kpi" style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;">
+                <div class="v" data-el="kpiSoyAcres" style="font-weight:900;font-size:18px;">0.00</div>
+                <div class="l" style="font-weight:800;color:var(--muted,#67706B);font-size:12px;letter-spacing:.2px;text-transform:uppercase;">Acres</div>
+              </div>
+            </div>
+
+            <div data-el="bulkWrap" style="display:grid;gap:8px;">
+              <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;">
+                <div style="display:flex;gap:8px;align-items:center;min-width:0;">
+                  <div style="width:28px;height:28px;border-radius:10px;border:1px solid var(--border);display:grid;place-items:center;color:var(--accent,#2F6C3C);flex:0 0 auto;">⇄</div>
+                  <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;min-width:0;">
+                    <div style="font-weight:900;white-space:nowrap;">Bulk: drop a FARM here</div>
+                    <div class="muted" style="font-weight:800;font-size:12px;letter-spacing:.2px;text-transform:uppercase;white-space:nowrap;">
+                      Moves every active field in that farm
+                    </div>
+                  </div>
+                </div>
+
+                <button data-el="lockBtn" type="button"
+                        title="Global lock (prevents drag moves for everyone)"
+                        style="display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);
+                               background:var(--card-surface,var(--surface));color:var(--text);border-radius:999px;
+                               padding:7px 10px;font-weight:900;cursor:pointer;user-select:none;flex:0 0 auto;">
+                  <span data-el="lockIcon" style="display:grid;place-items:center;"></span>
+                  <span data-el="lockLabel" style="font-size:12px;letter-spacing:.2px;text-transform:uppercase;">Unlocked</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="board" style="border:1px solid var(--border);border-radius:14px;background:var(--card-surface,var(--surface));overflow:hidden;">
+              <div data-el="boardScroll" style="max-height:64vh;overflow:auto;padding:12px;display:grid;gap:12px;-webkit-overflow-scrolling:touch;"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div data-el="toast" style="position:fixed;left:50%;bottom:24px;transform:translate(-50%,12px);
+           background:#2F6C3C;color:#fff;padding:10px 16px;border-radius:999px;font-size:14px;
+           box-shadow:0 10px 24px rgba(0,0,0,.25);opacity:0;pointer-events:none;
+           transition:opacity .18s ease, transform .18s ease;z-index:10000;white-space:nowrap;"></div>
+    `;
   }
 }
