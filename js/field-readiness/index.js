@@ -1,13 +1,19 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/index.js  (FULL FILE)
-Rev: 2025-12-29a
+Rev: 2026-01-01b
 
-Changes (per Dane):
-✅ Edit permission controls interactivity:
-   - Details panel is ALWAYS shown, but cannot be opened when edit is false
-   - Gate is applied on boot and whenever perms update (fv:user-ready)
+Fix (per Dane):
+✅ Stop “loads every time” / flashing:
+   - Remove redundant initial renders (renderTiles + renderDetails + refreshAll)
+   - Do ONE initial paint: refreshAll(state)
+✅ Prevent double-refresh on background updates:
+   - render.js already listens for 'fr:soft-reload'
+   - index.js no longer adds a second listener
 
 Keeps:
+✅ Edit permission controls interactivity:
+   - Details panel is ALWAYS shown, but cannot be opened when edit is false
+   - Gate applied on boot and whenever perms update (fv:user-ready)
 ✅ Persist + restore (iOS/Safari BFCache safe): Operation, Farm, Sort, Rain range
 ✅ Re-apply on pageshow + visibilitychange
 ===================================================================== */
@@ -21,7 +27,7 @@ import { loadPrefsFromLocalToUI, applySavedOpToUI, applySavedSortToUI } from './
 import { loadRangeFromLocalToUI, enforceCalendarNoFuture } from './range.js';
 import { loadFarmsOptional, loadFields } from './data.js';
 import { wireUIOnce } from './wiring.js';
-import { renderTiles, renderDetails, refreshAll, ensureModelWeatherModules } from './render.js';
+import { refreshAll } from './render.js';
 import { wireFieldsHiddenTap } from './adjust.js';
 import { loadFieldReadinessPerms, canView, canEdit } from './perm.js';
 import { buildFarmFilterOptions } from './farm-filter.js';
@@ -166,7 +172,7 @@ function applyDetailsEditGateState(state){
   await loadRangeFromLocalToUI();
   enforceCalendarNoFuture();
 
-  // Load remote thresholds + data
+  // Load remote thresholds + data (fields now load from cache first, then refresh silently)
   await loadThresholdsFromFirestore(state);
   await loadFarmsOptional(state);
   await loadFields(state);
@@ -178,12 +184,8 @@ function applyDetailsEditGateState(state){
     state.selectedFieldId = state.fields[0].id;
   }
 
-  await ensureModelWeatherModules(state);
-
   initMap(state);
   initOpThresholds(state);
-
-  document.addEventListener('fr:soft-reload', async ()=>{ try{ await refreshAll(state); }catch(_){ } });
 
   document.addEventListener('fv:user-ready', async ()=>{
     try{
@@ -245,12 +247,10 @@ function applyDetailsEditGateState(state){
     }
   });
 
-  // Initial paint
-  await renderTiles(state);
-  await renderDetails(state);
+  // ✅ Initial paint (ONE pass)
   await refreshAll(state);
 
-  // global calibration wiring (will show Fields always; only wires when edit allowed)
+  // global calibration wiring (Fields tap)
   wireFieldsHiddenTap(state);
 
   // Re-apply details gate again after all wiring (safe)
