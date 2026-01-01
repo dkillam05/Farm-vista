@@ -223,7 +223,7 @@ export async function mount(hostEl, opts = {}){
     border-top:1px solid color-mix(in srgb, var(--border) 85%, transparent);
   `;
   const comboHeaderStyle = `
-    font-weight:900;
+    font-weight:400;
   `;
 
   // ---------- YEAR combo HTML (custom) ----------
