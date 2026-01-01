@@ -1,21 +1,19 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/index.js  (FULL FILE)
-Rev: 2026-01-01b
+Rev: 2026-01-01c
 
 Fix (per Dane):
-✅ Stop “loads every time” / flashing:
-   - Remove redundant initial renders (renderTiles + renderDetails + refreshAll)
+✅ Instant tiles on page entry:
+   - Restore last rendered tiles HTML from sessionStorage (fast paint)
+✅ Stop extra re-renders:
    - Do ONE initial paint: refreshAll(state)
-✅ Prevent double-refresh on background updates:
+✅ Avoid duplicate soft-reload listeners:
    - render.js already listens for 'fr:soft-reload'
-   - index.js no longer adds a second listener
 
 Keeps:
-✅ Edit permission controls interactivity:
-   - Details panel is ALWAYS shown, but cannot be opened when edit is false
-   - Gate applied on boot and whenever perms update (fv:user-ready)
-✅ Persist + restore (iOS/Safari BFCache safe): Operation, Farm, Sort, Rain range
-✅ Re-apply on pageshow + visibilitychange
+✅ Details gate (cannot open unless edit)
+✅ Persist + restore prefs (Operation, Farm, Sort, Rain range)
+✅ BFCache safe reapply on pageshow + visibilitychange
 ===================================================================== */
 'use strict';
 
@@ -37,18 +35,52 @@ import { initOpThresholds } from './op-thresholds.js';
 
 const LS_RANGE_KEY = 'fv_fr_range_v1';
 
+// ✅ tiles DOM cache (session only — perfect for “when I come into the page”)
+const SS_TILES_KEY = 'fv_fr_tiles_dom_v1';
+
 function applySavedRangeToUI(){
   try{
     const inp = document.getElementById('jobRangeInput');
     if (!inp) return false;
 
     const raw = String(localStorage.getItem(LS_RANGE_KEY) || '').trim();
-    // allow empty (meaning default 30d) but still apply if it differs
     if (String(inp.value || '').trim() !== raw){
       inp.value = raw;
       return true;
     }
     return false;
+  }catch(_){
+    return false;
+  }
+}
+
+/* =====================================================================
+   Restore tiles instantly (DOM cache)
+===================================================================== */
+function restoreTilesDomFast(state){
+  try{
+    const wrap = document.getElementById('fieldsGrid');
+    if (!wrap) return false;
+
+    const raw = sessionStorage.getItem(SS_TILES_KEY);
+    if (!raw) return false;
+
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== 'object') return false;
+
+    const html = String(obj.html || '');
+    const sig  = String(obj.sig || '');
+    if (!html || !sig) return false;
+
+    // Paint instantly
+    wrap.innerHTML = html;
+    state._restoredTilesSig = sig;
+
+    // Hide empty msg if we have tiles
+    const empty = document.getElementById('emptyMsg');
+    if (empty) empty.style.display = (wrap.children.length ? 'none' : '');
+
+    return true;
   }catch(_){
     return false;
   }
@@ -68,7 +100,6 @@ function ensureDetailsEditGateWired(){
     if (dp._fvEditGateWired) return;
     dp._fvEditGateWired = true;
 
-    // Capture-phase so we beat the native <details> toggle reliably.
     sum.addEventListener('click', (e)=>{
       try{
         const st = window.__FV_FR;
@@ -77,8 +108,6 @@ function ensureDetailsEditGateWired(){
         if (!canEdit(st)){
           e.preventDefault();
           e.stopPropagation();
-
-          // Force closed (native toggle might already have flipped)
           dp.open = false;
           dp.removeAttribute('open');
         }
@@ -95,11 +124,9 @@ function applyDetailsEditGateState(state){
     ensureDetailsEditGateWired();
 
     if (!canEdit(state)){
-      // Keep visible, but never open
       dp.open = false;
       dp.removeAttribute('open');
 
-      // Optional subtle disabled feel on the summary
       const sum = dp.querySelector('summary');
       if (sum){
         sum.style.opacity = '0.72';
@@ -120,6 +147,9 @@ function applyDetailsEditGateState(state){
   window.__FV_FR = state;
 
   initLayoutFix();
+
+  // ✅ Restore tiles ASAP (before we do anything heavy)
+  restoreTilesDomFast(state);
 
   // FORCE details closed on boot
   try{
@@ -146,7 +176,7 @@ function applyDetailsEditGateState(state){
   // Initial perms read (may be provisional)
   await loadFieldReadinessPerms(state);
 
-  // Apply details edit gating immediately (covers provisional + loaded)
+  // Apply details edit gating immediately
   applyDetailsEditGateState(state);
 
   if (!canView(state)){
@@ -168,16 +198,15 @@ function applyDetailsEditGateState(state){
   // Apply saved range string (if any)
   applySavedRangeToUI();
 
-  // Range UI module (calendar behavior) + enforcement
+  // Range UI module + enforcement
   await loadRangeFromLocalToUI();
   enforceCalendarNoFuture();
 
-  // Load remote thresholds + data (fields now load from cache first, then refresh silently)
+  // Load remote thresholds + data (data.js now loads fields from cache first, then silent refresh)
   await loadThresholdsFromFirestore(state);
   await loadFarmsOptional(state);
   await loadFields(state);
 
-  // Farm options can change after farms/fields load
   buildFarmFilterOptions(state);
 
   if (!state.selectedFieldId && state.fields.length){
@@ -193,8 +222,6 @@ function applyDetailsEditGateState(state){
       const prevEdit = !!(state.perm && state.perm.edit);
 
       await loadFieldReadinessPerms(state);
-
-      // Re-apply details gate anytime perms might have changed
       applyDetailsEditGateState(state);
 
       if (state.perm && state.perm.loaded && !state.perm.view){
@@ -217,20 +244,14 @@ function applyDetailsEditGateState(state){
     }catch(_){}
   });
 
-  // ✅ iOS/Safari: re-apply selects + range after returning to page
   const reapplyPrefs = async ()=>{
     try{
       const opChanged = applySavedOpToUI(state, { fire:false });
       const sortChanged = applySavedSortToUI({ fire:false });
       const rangeChanged = applySavedRangeToUI();
 
-      // keep farm/page in sync too
       await loadPrefsFromLocalToUI(state);
-
-      // range module constraints (safe)
       enforceCalendarNoFuture();
-
-      // Re-apply details gate on return (covers BFCache + perms already known)
       applyDetailsEditGateState(state);
 
       if (opChanged || sortChanged || rangeChanged){
@@ -247,16 +268,12 @@ function applyDetailsEditGateState(state){
     }
   });
 
-  // ✅ Initial paint (ONE pass)
+  // ✅ One initial paint
   await refreshAll(state);
 
-  // global calibration wiring (Fields tap)
   wireFieldsHiddenTap(state);
-
-  // Re-apply details gate again after all wiring (safe)
   applyDetailsEditGateState(state);
 
-  // re-close details (edge cases)
   try{
     const dp2 = document.getElementById('detailsPanel');
     if (dp2){
