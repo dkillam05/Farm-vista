@@ -596,7 +596,7 @@ export async function mount(hostEl, opts = {}){
       .map((f, idx) => `
         <div class="combo-item" data-id="${esc(f.id)}"
              style="${comboItemStyle}${idx===0 ? '' : comboItemDividerStyle}">
-          <div style="font-weight:900;">${esc(f.name)}</div>
+          <div style="font-weight:400;">${esc(f.name)}</div>
           <div></div>
         </div>
       `).join('');
@@ -671,7 +671,7 @@ export async function mount(hostEl, opts = {}){
     el.yearList.innerHTML = YEARS.map((y, idx) => `
       <div class="combo-item" data-year="${esc(y)}"
            style="${comboItemStyle}${idx===0 ? '' : comboItemDividerStyle}">
-        <div style="font-weight:900;">${esc(y)}</div>
+        <div style="font-weight:400;">${esc(y)}</div>
         <div></div>
       </div>
     `).join('');
