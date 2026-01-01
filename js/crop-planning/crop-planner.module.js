@@ -231,7 +231,7 @@ export async function mount(hostEl, opts = {}){
     const r = Number(radiusPx || 12);
     return `
       <div class="field combo combo-year" style="position:relative;">
-        <label style="display:block;font-weight:800;margin:0 0 6px;">Crop Year</label>
+        <label style="display:block;font-weight:400;margin:0 0 6px;">Crop Year</label>
         <div class="combo-anchor" style="position:relative;display:inline-block;width:100%;">
           <button data-el="yearBtn" class="buttonish has-caret" type="button" aria-haspopup="listbox" aria-expanded="false"
                   style="${comboBtnStyle(r)}">
@@ -611,7 +611,7 @@ export async function mount(hostEl, opts = {}){
 
     if (el.farmList){
       el.farmList.innerHTML = allRow + (rows || `
-        <div style="padding:12px 10px;color:var(--muted,#67706B);font-weight:400;">(no matches)</div>
+        <div style="padding:12px 10px;color:var(--muted,#67706B);font-weight:900;">(no matches)</div>
       `);
     }
   };
