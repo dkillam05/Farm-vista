@@ -1,18 +1,19 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-01-01c
+Rev: 2026-01-01d
 
 Fix (per Dane):
-✅ Tiles no longer “repopulate” every time you enter the page:
-   - Persist rendered tiles DOM in sessionStorage
-   - Restore instantly on next entry (index.js can restore early too, but render.js is now self-sufficient)
-   - Skip rebuilding tiles if nothing materially changed (fieldsSig + op + sort + farm + page + range)
+✅ Tiles stop “repopulating” every time you enter the page:
+   - Persist rendered tiles DOM in localStorage (survives iOS/PWA reloads)
+   - Restore instantly on entry
+   - Skip rebuilding tiles if nothing changed:
+     signature = fieldsSig + op + sort + farm + page + range
 
 Keeps:
 ✅ ETA text on mobile uses ">" sign
 ✅ Extend ETA horizon to full 7-day forecast (168h)
-✅ Render gate prevents flicker
-✅ All existing tile rendering, details rendering, selection, swipe, calibration, quickview unchanged
+✅ Render gate prevents double-load flicker
+✅ All existing logic otherwise unchanged
 ===================================================================== */
 'use strict';
 
@@ -29,11 +30,10 @@ import { fetchAndHydrateFieldParams } from './data.js';
 import { getAPI } from './firebase.js';
 
 /* =====================================================================
-   Tiles DOM cache (sessionStorage)
-   - Goal: instant tiles when re-entering page
-   - Skip rebuild if signature unchanged
+   Tiles DOM cache (localStorage) — survives iOS/PWA lifecycle
 ===================================================================== */
-const SS_TILES_KEY = 'fv_fr_tiles_dom_v1';
+const LS_TILES_KEY = 'fv_fr_tiles_dom_v2';
+const LS_TILES_MAX_CHARS = 2_000_000; // safety cap (~2MB)
 
 function computeTilesSig(state){
   try{
@@ -49,15 +49,15 @@ function computeTilesSig(state){
   }
 }
 
-function restoreTilesDomIfEmpty(state){
+function restoreTilesDom(state){
   try{
     const wrap = $('fieldsGrid');
     if (!wrap) return false;
 
-    // Only restore if grid is empty (don’t stomp real UI)
+    // don’t stomp real UI
     if (wrap.children && wrap.children.length) return false;
 
-    const raw = sessionStorage.getItem(SS_TILES_KEY);
+    const raw = localStorage.getItem(LS_TILES_KEY);
     if (!raw) return false;
 
     const obj = JSON.parse(raw);
@@ -87,10 +87,16 @@ function persistTilesDom(state){
     const sig = computeTilesSig(state);
     state._tilesDomSig = sig;
 
-    sessionStorage.setItem(SS_TILES_KEY, JSON.stringify({
+    const html = String(wrap.innerHTML || '');
+    if (!html) return;
+
+    // cap size so we don’t blow localStorage
+    if (html.length > LS_TILES_MAX_CHARS) return;
+
+    localStorage.setItem(LS_TILES_KEY, JSON.stringify({
       ts: Date.now(),
       sig,
-      html: wrap.innerHTML
+      html
     }));
   }catch(_){}
 }
@@ -118,10 +124,8 @@ async function scheduleRender(state, mode){
   if (mode === 'all') g.wantAll = true;
   if (mode === 'details') g.wantDetails = true;
 
-  // already rendering; it'll loop once more if anything was requested
   if (g.inFlight) return;
 
-  // coalesce bursts
   if (g.timer) clearTimeout(g.timer);
   g.timer = setTimeout(async ()=>{
     g.timer = null;
@@ -145,11 +149,9 @@ async function scheduleRender(state, mode){
         }catch(_){}
       }
     }catch(_){
-      // swallow: render should not crash page
     }finally{
       g.inFlight = false;
 
-      // run once more if queued during render
       if (g.wantAll || g.wantDetails){
         scheduleRender(state, g.wantAll ? 'all' : 'details');
       }
@@ -372,34 +374,10 @@ function ensureSelectionStyleOnce(){
     const s = document.createElement('style');
     s.setAttribute('data-fv-fr-selstyle','1');
     s.textContent = `
-      .tile .tile-top{
-        display:flex !important;
-        align-items:center !important;
-        justify-content:space-between !important;
-        gap:8px !important;
-        flex-wrap:nowrap !important;
-        min-width:0 !important;
-      }
-      .tile .tile-top .titleline{
-        display:flex !important;
-        align-items:center !important;
-        flex:1 1 0 !important;
-        min-width:0 !important;
-        flex-wrap:nowrap !important;
-      }
-      .tile .tile-top .readiness-pill{
-        flex:0 0 auto !important;
-        white-space:nowrap !important;
-      }
-      .tile .tile-top .titleline .name{
-        flex:1 1 auto !important;
-        display:block !important;
-        min-width:0 !important;
-        max-width:100% !important;
-        white-space:nowrap !important;
-        overflow:hidden !important;
-        text-overflow:ellipsis !important;
-      }
+      .tile .tile-top{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:8px!important;flex-wrap:nowrap!important;min-width:0!important;}
+      .tile .tile-top .titleline{display:flex!important;align-items:center!important;flex:1 1 0!important;min-width:0!important;flex-wrap:nowrap!important;}
+      .tile .tile-top .readiness-pill{flex:0 0 auto!important;white-space:nowrap!important;}
+      .tile .tile-top .titleline .name{flex:1 1 auto!important;display:block!important;min-width:0!important;max-width:100%!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;}
 
       @media (hover: none) and (pointer: coarse){
         .tile.fv-selected .tile-top .titleline .name{
@@ -409,20 +387,11 @@ function ensureSelectionStyleOnce(){
           text-underline-offset: 3px !important;
           text-decoration-color: var(--accent, #2F6C3C) !important;
           font-weight: 950 !important;
-
-          display:block !important;
-          min-width:0 !important;
-          max-width:100% !important;
-          white-space:nowrap !important;
-          overflow:hidden !important;
-          text-overflow:ellipsis !important;
-
-          padding: 2px 6px !important;
-          border-radius: 8px !important;
-          background: rgba(47,108,60,0.12) !important;
-          box-shadow: inset 0 -2px 0 rgba(47,108,60,0.55) !important;
+          display:block!important;min-width:0!important;max-width:100%!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;
+          padding:2px 6px!important;border-radius:8px!important;
+          background:rgba(47,108,60,0.12)!important;
+          box-shadow:inset 0 -2px 0 rgba(47,108,60,0.55)!important;
         }
-
         html.dark .tile.fv-selected .tile-top .titleline .name{
           background: rgba(47,108,60,0.18) !important;
           box-shadow: inset 0 -2px 0 rgba(47,108,60,0.70) !important;
@@ -431,51 +400,24 @@ function ensureSelectionStyleOnce(){
 
       @media (hover: hover) and (pointer: fine){
         .tile.fv-selected{
-          box-shadow:
-            0 0 0 2px rgba(47,108,60,0.40),
-            0 10px 18px rgba(15,23,42,0.08);
-          border-radius: 14px;
+          box-shadow:0 0 0 2px rgba(47,108,60,0.40),0 10px 18px rgba(15,23,42,0.08);
+          border-radius:14px;
         }
-
         html.dark .tile.fv-selected{
-          box-shadow:
-            0 0 0 2px rgba(47,108,60,0.45),
-            0 12px 22px rgba(0,0,0,0.28);
+          box-shadow:0 0 0 2px rgba(47,108,60,0.45),0 12px 22px rgba(0,0,0,0.28);
         }
-
         .tile.fv-selected .tile-top .titleline .name{
           color: inherit !important;
-          text-decoration: none !important;
-          font-weight: inherit !important;
-          padding: 0 !important;
-          border-radius: 0 !important;
-          background: transparent !important;
-          box-shadow: none !important;
-
-          display:block !important;
-          min-width:0 !important;
-          max-width:100% !important;
-          white-space:nowrap !important;
-          overflow:hidden !important;
-          text-overflow:ellipsis !important;
+          text-decoration:none!important;
+          font-weight:inherit!important;
+          padding:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;
+          display:block!important;min-width:0!important;max-width:100%!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;
         }
       }
 
-      #frDetailsHeaderPanel{
-        margin: 0 !important;
-        padding: 10px 12px !important;
-      }
-      #frDetailsHeaderPanel .frdh-title{
-        font-weight: 950;
-        font-size: 13px;
-        line-height: 1.2;
-      }
-      #frDetailsHeaderPanel .frdh-sub{
-        font-size: 12px;
-        line-height: 1.2;
-        color: var(--muted,#67706B);
-        margin-top: 4px;
-      }
+      #frDetailsHeaderPanel{margin:0!important;padding:10px 12px!important;}
+      #frDetailsHeaderPanel .frdh-title{font-weight:950;font-size:13px;line-height:1.2;}
+      #frDetailsHeaderPanel .frdh-sub{font-size:12px;line-height:1.2;color:var(--muted,#67706B);margin-top:4px;}
     `;
     document.head.appendChild(s);
   }catch(_){}
@@ -586,11 +528,7 @@ async function getTileEtaText(state, fieldId, run0, thr){
   const NEAR_THR_POINTS = 5;
 
   let legacyTxt = '';
-  try{
-    legacyTxt = state._mods.model.etaFor(run0, thr, HORIZON_HOURS) || '';
-  }catch(_){
-    legacyTxt = '';
-  }
+  try{ legacyTxt = state._mods.model.etaFor(run0, thr, HORIZON_HOURS) || ''; }catch(_){ legacyTxt = ''; }
   const legacyHours = parseEtaHoursFromText(legacyTxt);
 
   try{
@@ -606,21 +544,12 @@ async function getTileEtaText(state, fieldId, run0, thr){
       const pred = await state._mods.forecast.predictDryForField(
         fieldId,
         { soilWetness, drainageIndex },
-        {
-          threshold: thr,
-          horizonHours: HORIZON_HOURS,
-          maxSimDays: 7,
-          wetBias
-        }
+        { threshold: thr, horizonHours: HORIZON_HOURS, maxSimDays: 7, wetBias }
       );
 
       if (pred && pred.ok){
         if (pred.status === 'dryNow') return '';
-
-        if (pred.status === 'within72'){
-          return pred.message || '';
-        }
-
+        if (pred.status === 'within72') return pred.message || '';
         if (pred.status === 'notWithin72'){
           const rNow = Number(run0 && run0.readinessR);
           const near = Number.isFinite(rNow) ? ((thr - rNow) >= 0 && (thr - rNow) <= NEAR_THR_POINTS) : false;
@@ -628,7 +557,6 @@ async function getTileEtaText(state, fieldId, run0, thr){
           if (near && legacyHours !== null && legacyHours <= HORIZON_HOURS){
             return compactEtaForMobile(legacyTxt, HORIZON_HOURS);
           }
-
           return pred.message || `>${HORIZON_HOURS}h`;
         }
       }
@@ -729,7 +657,6 @@ async function updateTileForField(state, fieldId){
       state._selectedTileId = fid;
     }
 
-    // Update cached DOM after a tile patch (cheap)
     persistTilesDom(state);
   }catch(_){}
 }
@@ -776,19 +703,16 @@ function wireTileInteractions(state, tileEl, fieldId){
 
 /* ---------- tile render (CORE) ---------- */
 async function _renderTilesInternal(state){
-  // Restore last tiles immediately if grid is empty (helps on re-entry)
-  restoreTilesDomIfEmpty(state);
+  // Try to restore instantly (works across iOS/PWA lifecycles)
+  restoreTilesDom(state);
 
-  // If we already have tiles and signature matches, skip a full rebuild
-  // (Details can still update separately via _renderDetailsInternal)
+  // If we have tiles and signature matches, skip a full rebuild
+  const wrap0 = $('fieldsGrid');
   const sigNow = computeTilesSig(state);
-  const wrapPre = $('fieldsGrid');
-  if (wrapPre && wrapPre.children && wrapPre.children.length){
-    const sigPrev = String(state._tilesDomSig || '');
-    if (sigPrev && sigPrev === sigNow){
-      // Keep as-is; no repopulation
-      return;
-    }
+  const sigPrev = String(state._tilesDomSig || '');
+
+  if (wrap0 && wrap0.children && wrap0.children.length && sigPrev && sigPrev === sigNow){
+    return;
   }
 
   await ensureModelWeatherModules(state);
@@ -890,7 +814,6 @@ async function _renderTilesInternal(state){
     }
   });
 
-  // Persist DOM after successful rebuild
   persistTilesDom(state);
 }
 
