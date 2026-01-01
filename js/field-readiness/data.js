@@ -1,24 +1,29 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/data.js  (FULL FILE)
-Rev: 2026-01-01a
+Rev: 2026-01-01b
 
-IMPORTANT FIX (per Dane):
-✅ Fields now use a local cache (instant load)
-✅ Firestore refresh runs in the background
-✅ UI/state only updates when fields data is actually different ("new data")
+GOAL (per Dane):
+✅ Fields load instantly from local cache (no blank screen)
+✅ Firestore refresh runs silently in background
+✅ UI/state only updates when field data actually changed
+✅ Prevent false "changed" detection (NO updatedAt in signature)
+✅ Avoid heavy warmups when nothing changed
 
 Keeps:
-✅ Breaks circular import (data.js never imports render.js)
+✅ Breaks circular import:
+   - render.js can import from data.js
+   - data.js NO LONGER imports from render.js
 ✅ farms/fields loading
 ✅ per-field params hydration from field docs
-✅ weather warmup
-✅ fetchAndHydrateFieldParams(state, fieldId)
+✅ weather warmup (only when needed)
+✅ fetchAndHydrateFieldParams(state, fieldId) — one-doc background pull for sliders
 
-Notes:
-- Cache is stored in localStorage (fields list + signature + timestamp)
-- Signature changes when any field’s id/name/farmId/status/location/soilWetness/drainageIndex/updatedAt changes
-- When remote changes are detected, we update state + cache, then dispatch 'fr:soft-reload'
-  (render.js already listens for that and does refreshAll)
+How it works:
+- On open: apply cached fields immediately (if any)
+- Then: fetch from Firestore in background
+- Compute signature from meaningful field values ONLY (id/name/farmId/status/location/soilWetness/drainageIndex/county/state)
+- If signature differs: update state + cache + dispatch 'fr:soft-reload' (render.js refresh listener)
+- If signature same: do nothing (no UI churn; no extra warmup)
 
 ===================================================================== */
 'use strict';
@@ -32,8 +37,8 @@ import { PATHS } from './paths.js';
 /* =====================================================================
    Local cache (fields)
 ===================================================================== */
-const FIELDS_CACHE_KEY = 'fv_fr_fields_cache_v1';
-const FIELDS_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days (safe + generous)
+const FIELDS_CACHE_KEY = 'fv_fr_fields_cache_v2'; // bump key to avoid old signature mismatch
+const FIELDS_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 
 /* small fast hash */
 function fnv1a(str){
@@ -72,29 +77,17 @@ function writeFieldsCache(fields, sig){
   }catch(_){}
 }
 
-function updatedAtKey(v){
-  // Accept Firestore Timestamp, compat Timestamp, number, string, etc.
-  try{
-    if (!v) return '';
-    if (typeof v === 'number') return String(v);
-    if (typeof v === 'string') return v;
-    if (v && typeof v === 'object'){
-      if (typeof v.toMillis === 'function') return String(v.toMillis());
-      if (typeof v.seconds === 'number') return String(v.seconds);
-      if (v.__time__) return String(v.__time__);
-      if (v._seconds) return String(v._seconds);
-      if (v.value && (typeof v.value === 'number' || typeof v.value === 'string')) return String(v.value);
-    }
-  }catch(_){}
-  return '';
-}
-
+/* IMPORTANT:
+   Signature uses ONLY stable, meaningful data.
+   Do NOT include Firestore Timestamp objects (updatedAt) because cache JSON + Firestore Timestamp
+   can serialize differently and cause false changes every load.
+*/
 function buildFieldsSignature(fields){
   const parts = [];
   for (const f of (fields || [])){
     const loc = f.location || null;
-    const lat = loc && typeof loc.lat === 'number' ? loc.lat.toFixed(6) : '';
-    const lng = loc && typeof loc.lng === 'number' ? loc.lng.toFixed(6) : '';
+    const lat = loc && typeof loc.lat === 'number' ? f.location.lat.toFixed(6) : '';
+    const lng = loc && typeof loc.lng === 'number' ? f.location.lng.toFixed(6) : '';
     parts.push([
       f.id || '',
       f.farmId || '',
@@ -105,7 +98,7 @@ function buildFieldsSignature(fields){
       lat, lng,
       (f.soilWetness == null ? '' : String(f.soilWetness)),
       (f.drainageIndex == null ? '' : String(f.drainageIndex)),
-      updatedAtKey(f.updatedAt)
+      (Number.isFinite(Number(f.tillable)) ? String(Number(f.tillable)) : '')
     ].join('|'));
   }
   parts.sort();
@@ -117,7 +110,7 @@ function applyFieldsToState(state, fields, sig){
   state.fields = arr;
   state._fieldsSig = String(sig || buildFieldsSignature(arr));
 
-  // hydrate params map from fields (keeps existing behavior)
+  // hydrate params from field docs (keeps existing behavior)
   for (const f of arr){
     try{ hydrateParamsFromFieldDoc(state, f); }catch(_){}
   }
@@ -192,7 +185,7 @@ function extractFieldDoc(docId, d){
   const lat = Number(loc.lat);
   const lng = Number(loc.lng);
 
-  // Support common storage paths (keeps you compatible with Fields Settings variations)
+  // Support common storage paths
   const soilWetness = pickFirstNumber(d, [
     'soilWetness',
     'fieldReadiness.soilWetness',
@@ -211,9 +204,6 @@ function extractFieldDoc(docId, d){
     'field_readiness.drainageIndex'
   ]);
 
-  // NEW: pull updatedAt for cache signature freshness
-  const updatedAt = d.updatedAt || d.modifiedAt || d.lastUpdatedAt || d.ts || d.createdAt || null;
-
   return {
     id: docId,
     name: String(d.name||''),
@@ -224,13 +214,12 @@ function extractFieldDoc(docId, d){
     tillable: Number(d.tillable||0),
     location: (isFinite(lat) && isFinite(lng)) ? { lat, lng } : null,
     soilWetness: (soilWetness == null) ? null : soilWetness,
-    drainageIndex: (drainageIndex == null) ? null : drainageIndex,
-    updatedAt
+    drainageIndex: (drainageIndex == null) ? null : drainageIndex
   };
 }
 
 /* =====================================================================
-   NEW: One-doc background fetch for selected field params
+   One-doc background fetch for selected field params
 ===================================================================== */
 export async function fetchAndHydrateFieldParams(state, fieldId){
   const fid = String(fieldId || '').trim();
@@ -269,11 +258,9 @@ export async function fetchAndHydrateFieldParams(state, fieldId){
       }catch(_){}
     }
 
-    // Hydrate params map from Firestore values
     hydrateParamsFromFieldDoc(state, f);
     saveParamsToLocal(state);
 
-    // If selected, update sliders immediately
     if (state.selectedFieldId === fid){
       ensureSelectedParamsToSliders(state);
     }
@@ -337,7 +324,6 @@ async function fetchFieldsRawDocs(api){
       snap.forEach(doc=> rawDocs.push({ id: doc.id, data: doc.data() || {} }));
     }
   }catch(e){
-    // last resort
     const snap = await db.collection('fields').get();
     snap.forEach(doc=> rawDocs.push({ id: doc.id, data: doc.data() || {} }));
   }
@@ -352,8 +338,6 @@ function buildFilteredActiveLocatedFieldsFromRaw(rawDocs, state){
     if (normalizeStatus(f.status) !== 'active') continue;
     if (!f.location) continue;
     arr.push(f);
-
-    // keep old behavior: hydrate params from field doc while building
     hydrateParamsFromFieldDoc(state, f);
   }
 
@@ -364,8 +348,8 @@ function buildFilteredActiveLocatedFieldsFromRaw(rawDocs, state){
 /* =====================================================================
    loadFields(state)
    - Instant paint from cache (if available)
-   - Background refresh from Firestore
-   - Only update if changed
+   - Silent Firestore refresh in background
+   - Only update if changed (signature)
 ===================================================================== */
 export async function loadFields(state){
   const api = getAPI(state);
@@ -375,35 +359,21 @@ export async function loadFields(state){
     return;
   }
 
-  // 1) Try cache first (instant)
+  // 1) Apply cached fields immediately (if any)
   const cached = readFieldsCache();
   if (cached && Array.isArray(cached.fields) && cached.fields.length){
     try{
       applyFieldsToState(state, cached.fields, cached.sig);
-
-      // Warm weather in background (don’t block UI)
-      (async ()=>{
-        try{
-          await ensureModelWeatherModulesLocal(state);
-          const wxCtx = buildWxCtx(state);
-          await state._mods.weather.warmWeatherForFields(state.fields, wxCtx, { force:false, onEach:()=>{} });
-        }catch(_){}
-      })();
-
+      // Do NOT warm weather here; render.js will request weather as needed.
+      // (Warmup only when we actually receive new data from Firestore.)
     }catch(_){}
   }
 
-  // 2) Background Firestore refresh (non-blocking if cache was used)
+  // 2) Silent background refresh from Firestore
   const runRemoteRefresh = async ()=>{
     try{
-      // Rebuild from remote docs
       const rawDocs = await fetchFieldsRawDocs(api);
-
-      // Reset params hydration (like old behavior) before building
-      // (hydrateParamsFromFieldDoc will re-fill map)
       const arr = buildFilteredActiveLocatedFieldsFromRaw(rawDocs, state);
-
-      // Save params (old behavior)
       saveParamsToLocal(state);
 
       const sig = buildFieldsSignature(arr);
@@ -413,7 +383,7 @@ export async function loadFields(state){
         applyFieldsToState(state, arr, sig);
         writeFieldsCache(arr, sig);
 
-        // Warm weather again (new list)
+        // Warm weather ONLY when fields list actually changed (or first time with no cache)
         try{
           await ensureModelWeatherModulesLocal(state);
           const wxCtx = buildWxCtx(state);
@@ -425,17 +395,10 @@ export async function loadFields(state){
           document.dispatchEvent(new CustomEvent('fr:soft-reload'));
         }catch(_){}
       } else {
-        // Signature same: no UI churn, no re-render
-        // Still do a gentle warmup if modules exist (optional)
-        try{
-          await ensureModelWeatherModulesLocal(state);
-          const wxCtx = buildWxCtx(state);
-          await state._mods.weather.warmWeatherForFields(state.fields, wxCtx, { force:false, onEach:()=>{} });
-        }catch(_){}
+        // No change -> do nothing (silent)
       }
     }catch(e){
-      // If we had cache, don’t blow up UI; just log.
-      // If no cache, show error like before.
+      // If we had cache, keep UI and just log; if no cache, show error
       if (!cached || !cached.fields || !cached.fields.length){
         setErr(`Failed to load fields: ${e.message}`);
         state.fields = [];
@@ -447,12 +410,12 @@ export async function loadFields(state){
     }
   };
 
-  // If we loaded cache, don’t block the caller
+  // If cache existed: do not block UI
   if (cached && Array.isArray(cached.fields) && cached.fields.length){
-    runRemoteRefresh(); // fire-and-forget
+    runRemoteRefresh();
     return;
   }
 
-  // No cache: do normal blocking fetch (but still caches result)
+  // No cache: block once to get initial list + warmup
   await runRemoteRefresh();
 }
