@@ -1,19 +1,16 @@
 /* =====================================================================
 /Farm-vista/js/crop-planning/crop-planner.module.js  (FULL FILE)
-Rev: 2025-12-31k
+Rev: 2026-01-01a
 
-PHONE (viewOnly) CHANGES per Dane:
-✅ KPI tiles: Unplanned + Corn now full-width like Beans (stacked)
-✅ Farm list: shows ONLY farm name (clean)
-✅ Open farm -> shows 3 tiles (Unplanned/Corn/Beans)
-✅ Open tile -> shows fields for that crop only (nested accordion)
-✅ Still view-only: no DnD, no grips, no bulk header
+NEW (per Dane):
+✅ Crop Year is now a CUSTOM combo dropdown (same style as Farm) — mobile + desktop
+✅ No native <select> for year anymore (fixes iOS/native look)
+✅ Farm combo remains custom
 
-DESKTOP:
-✅ unchanged (DnD + bulk + lock + 3 buckets visible)
-
-REQUIRES:
-✅ /Farm-vista/js/crop-planning/crop-planning-dnd.js  Rev: 2025-12-31b
+Keeps:
+✅ Phone viewer mode behavior (farm -> crop tiles -> fields)
+✅ Desktop DnD + bulk + lock system
+✅ Global lock watch logic
 ===================================================================== */
 'use strict';
 
@@ -121,6 +118,8 @@ export async function mount(hostEl, opts = {}){
   let farmNameById = new Map();
   let currentYear = '2026';
 
+  const YEARS = ['2026','2027'];
+
   const OPEN_KEY = 'fv:cropplan:lanesOpen:v1';
   let laneOpen = {};
   try{ laneOpen = JSON.parse(localStorage.getItem(OPEN_KEY) || '{}') || {}; }catch{ laneOpen = {}; }
@@ -141,15 +140,15 @@ export async function mount(hostEl, opts = {}){
   };
 
   // ---- GLOBAL LOCK state ----
-  let fs = null;               // firestore fns
-  let isLocked = false;        // current year's lock value
-  let lockUnsub = null;        // onSnapshot unsubscribe
-  let lockPollT = null;        // polling interval handle
+  let fs = null;
+  let isLocked = false;
+  let lockUnsub = null;
+  let lockPollT = null;
 
   const lockPath = (year) => ['crop_plan_locks', String(year)];
   const canDragNow = () => (!viewOnly && !isLocked);
 
-  // ✅ FIX: add data-dropzone="1" so farm drags can drop here
+  // ✅ bulk header box helper (desktop only)
   function bulkBox(label, crop){
     return `
       <div class="hbox" data-header-drop="1" data-dropzone="1" data-crop="${crop}"
@@ -168,8 +167,33 @@ export async function mount(hostEl, opts = {}){
     `;
   }
 
+  // ---------- YEAR combo HTML (used in both layouts) ----------
+  function yearComboHtml(radiusPx){
+    const r = Number(radiusPx || 12);
+    return `
+      <div class="field combo combo-year" style="position:relative;">
+        <label style="display:block;font-weight:800;margin:0 0 6px;">Crop Year</label>
+        <div class="combo-anchor" style="position:relative;display:inline-block;width:100%;">
+          <button data-el="yearBtn" class="buttonish has-caret" type="button"
+                  style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
+                         border:1px solid var(--border);border-radius:${r}px;padding:12px;outline:none;cursor:pointer;text-align:left;
+                         position:relative;padding-right:44px;user-select:none;">
+            ${esc(currentYear)}
+          </button>
+          <div data-el="yearPanel" class="combo-panel"
+               style="position:absolute;left:0;right:0;top:calc(100% + 6px);
+                      background:var(--surface);border:1px solid var(--border);border-radius:12px;
+                      box-shadow:0 12px 26px rgba(0,0,0,.18);z-index:9999;padding:8px;display:none;">
+            <div data-el="yearList" class="list" style="max-height:52vh;overflow:auto;"></div>
+          </div>
+        </div>
+        <input data-el="yearVal" type="hidden" value="${esc(currentYear)}" />
+      </div>
+    `;
+  }
+
   // -------------------------------------------------------------------
-  // SKELETON: Desktop (unchanged) vs Phone (viewOnly viewer)
+  // SKELETON: Desktop (unchanged) vs Phone viewer
   // -------------------------------------------------------------------
   hostEl.innerHTML = viewOnly ? `
     <section class="cpRoot viewOnly" style="padding:0;margin:0;">
@@ -178,7 +202,6 @@ export async function mount(hostEl, opts = {}){
         .cpRoot.viewOnly .cpPad{ padding:10px 10px 12px 10px; }
         .cpRoot.viewOnly .row3{ display:grid; gap:10px; grid-template-columns:1fr !important; }
 
-        /* KPI: stacked full width (per Dane) */
         .cpRoot.viewOnly .kpiLine{
           display:grid;
           grid-template-columns:1fr;
@@ -204,7 +227,6 @@ export async function mount(hostEl, opts = {}){
           text-transform:uppercase;
         }
 
-        /* Farm list (ONLY name) */
         .cpRoot.viewOnly .farmLane{
           border:1px solid var(--border);
           border-radius:14px;
@@ -235,7 +257,6 @@ export async function mount(hostEl, opts = {}){
           transition:transform .12s ease;
         }
 
-        /* Inside farm: crop tiles */
         .cpRoot.viewOnly .farmInner{
           padding:10px;
           display:grid;
@@ -281,7 +302,6 @@ export async function mount(hostEl, opts = {}){
           gap:10px;
         }
 
-        /* Field rows */
         .cpRoot.viewOnly .cardRow{
           border:1px solid var(--border);
           border-radius:12px;
@@ -301,30 +321,30 @@ export async function mount(hostEl, opts = {}){
         }
         .cpRoot.viewOnly .pill{ white-space:nowrap; }
 
-        /* Hide any drag affordances if they exist */
         .cpRoot.viewOnly .dragGrip,
         .cpRoot.viewOnly .farmGrip{ display:none !important; }
       </style>
 
-      <div class="cpPad" style="display:none;">
-        <div style="font-weight:900;font-size:18px;">Crop Planner</div>
-        <div class="muted" style="margin-top:4px;font-weight:800;">Phone mode: view-only</div>
-      </div>
-
       <div class="cpPad" style="display:grid;gap:12px;">
         <div class="row3">
+          <!-- Farm combo (custom) -->
           <div class="field combo" style="position:relative;">
             <label style="display:block;font-weight:800;margin:0 0 6px;">Farm</label>
             <div class="combo-anchor" style="position:relative;display:inline-block;width:100%;">
               <button data-el="farmBtn" class="buttonish has-caret" type="button"
-                      style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));border:1px solid var(--border);border-radius:12px;padding:12px;outline:none;cursor:pointer;text-align:left;position:relative;padding-right:44px;user-select:none;">
+                      style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
+                             border:1px solid var(--border);border-radius:12px;padding:12px;outline:none;cursor:pointer;text-align:left;
+                             position:relative;padding-right:44px;user-select:none;">
                 — All farms —
               </button>
               <div data-el="farmPanel" class="combo-panel"
-                   style="position:absolute;left:0;right:0;top:calc(100% + 6px);background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 26px rgba(0,0,0,.18);z-index:9999;padding:8px;display:none;">
+                   style="position:absolute;left:0;right:0;top:calc(100% + 6px);background:var(--surface);
+                          border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 26px rgba(0,0,0,.18);
+                          z-index:9999;padding:8px;display:none;">
                 <div class="search" style="padding:4px 2px 8px;">
                   <input data-el="farmSearch" type="search" placeholder="Search farms…"
-                         style="width:100%;padding:10px;border:1px solid var(--border);border-radius:10px;font:inherit;font-size:14px;color:var(--text);background:var(--card-surface,var(--surface));" />
+                         style="width:100%;padding:10px;border:1px solid var(--border);border-radius:10px;font:inherit;font-size:14px;color:var(--text);
+                                background:var(--card-surface,var(--surface));" />
                 </div>
                 <div data-el="farmList" class="list" style="max-height:70vh;overflow:auto;border-top:1px solid var(--border);"></div>
               </div>
@@ -333,20 +353,17 @@ export async function mount(hostEl, opts = {}){
             <input data-el="farmName" type="hidden" />
           </div>
 
-          <div class="field">
-            <label style="display:block;font-weight:800;margin:0 0 6px;">Crop Year</label>
-            <select data-el="year" class="select"
-                    style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));border:1px solid var(--border);border-radius:12px;padding:12px;outline:none;">
-              <option value="2026">2026</option>
-              <option value="2027">2027</option>
-            </select>
-          </div>
+          <!-- Year combo (custom) -->
+          ${yearComboHtml(12)}
 
           <div class="field">
             <label style="display:block;font-weight:800;margin:0 0 6px;">Search fields</label>
             <input data-el="search" class="input" type="search" placeholder="Type to filter…"
-                   style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));border:1px solid var(--border);border-radius:12px;padding:12px;outline:none;" />
-            <div class="help" data-el="scopeHelp" style="font-size:13px;color:var(--muted,#67706B);margin-top:6px;font-weight:800;">Showing 0 active fields</div>
+                   style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
+                          border:1px solid var(--border);border-radius:12px;padding:12px;outline:none;" />
+            <div class="help" data-el="scopeHelp" style="font-size:13px;color:var(--muted,#67706B);margin-top:6px;font-weight:800;">
+              Showing 0 active fields
+            </div>
           </div>
         </div>
 
@@ -369,10 +386,14 @@ export async function mount(hostEl, opts = {}){
       </div>
     </section>
 
-    <div data-el="toast" style="position:fixed;left:50%;bottom:24px;transform:translate(-50%,12px);background:#2F6C3C;color:#fff;padding:10px 16px;border-radius:999px;font-size:14px;box-shadow:0 10px 24px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:opacity .18s ease, transform .18s ease;z-index:10000;white-space:nowrap;"></div>
+    <div data-el="toast" style="position:fixed;left:50%;bottom:24px;transform:translate(-50%,12px);
+         background:#2F6C3C;color:#fff;padding:10px 16px;border-radius:999px;font-size:14px;
+         box-shadow:0 10px 24px rgba(0,0,0,.25);opacity:0;pointer-events:none;
+         transition:opacity .18s ease, transform .18s ease;z-index:10000;white-space:nowrap;"></div>
   ` : `
     <section style="padding:16px;">
-      <div class="hero" style="margin:0;border:1px solid var(--border);border-radius:14px;background:var(--surface);box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;">
+      <div class="hero" style="margin:0;border:1px solid var(--border);border-radius:14px;background:var(--surface);
+           box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;">
         <div style="padding:14px 16px;border-bottom:1px solid var(--border);background:linear-gradient(90deg,rgba(47,108,60,.12),transparent);">
           <div style="font-weight:900;font-size:18px;">Crop Planner</div>
           <div class="muted" style="margin-top:4px;font-weight:800;">Assign corn/beans. Desktop for drag + bulk.</div>
@@ -384,14 +405,19 @@ export async function mount(hostEl, opts = {}){
               <label style="display:block;font-weight:800;margin:0 0 6px;">Farm</label>
               <div class="combo-anchor" style="position:relative;display:inline-block;width:100%;">
                 <button data-el="farmBtn" class="buttonish has-caret" type="button"
-                        style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));border:1px solid var(--border);border-radius:10px;padding:12px;outline:none;cursor:pointer;text-align:left;position:relative;padding-right:44px;user-select:none;">
+                        style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
+                               border:1px solid var(--border);border-radius:10px;padding:12px;outline:none;cursor:pointer;text-align:left;
+                               position:relative;padding-right:44px;user-select:none;">
                   — All farms —
                 </button>
                 <div data-el="farmPanel" class="combo-panel"
-                     style="position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 26px rgba(0,0,0,.18);z-index:9999;padding:8px;display:none;">
+                     style="position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--surface);
+                            border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 26px rgba(0,0,0,.18);
+                            z-index:9999;padding:8px;display:none;">
                   <div class="search" style="padding:4px 2px 8px;">
                     <input data-el="farmSearch" type="search" placeholder="Search farms…"
-                           style="width:100%;padding:10px;border:1px solid var(--border);border-radius:10px;font:inherit;font-size:14px;color:var(--text);background:var(--card-surface,var(--surface));" />
+                           style="width:100%;padding:10px;border:1px solid var(--border);border-radius:10px;font:inherit;font-size:14px;color:var(--text);
+                                  background:var(--card-surface,var(--surface));" />
                   </div>
                   <div data-el="farmList" class="list" style="max-height:52vh;overflow:auto;border-top:1px solid var(--border);"></div>
                 </div>
@@ -400,24 +426,22 @@ export async function mount(hostEl, opts = {}){
               <input data-el="farmName" type="hidden" />
             </div>
 
-            <div class="field">
-              <label style="display:block;font-weight:800;margin:0 0 6px;">Crop Year</label>
-              <select data-el="year" class="select"
-                      style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));border:1px solid var(--border);border-radius:10px;padding:12px;outline:none;">
-                <option value="2026">2026</option>
-                <option value="2027">2027</option>
-              </select>
-            </div>
+            <!-- Year combo (custom) -->
+            ${yearComboHtml(10)}
 
             <div class="field">
               <label style="display:block;font-weight:800;margin:0 0 6px;">Search fields</label>
               <input data-el="search" class="input" type="search" placeholder="Type to filter…"
-                     style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));border:1px solid var(--border);border-radius:10px;padding:12px;outline:none;" />
-              <div class="help" data-el="scopeHelp" style="font-size:13px;color:var(--muted,#67706B);margin-top:6px;font-weight:800;">Showing 0 active fields</div>
+                     style="width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));
+                            border:1px solid var(--border);border-radius:10px;padding:12px;outline:none;" />
+              <div class="help" data-el="scopeHelp" style="font-size:13px;color:var(--muted,#67706B);margin-top:6px;font-weight:800;">
+                Showing 0 active fields
+              </div>
             </div>
           </div>
 
-          <div class="kpi-line" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--card-surface,var(--surface));">
+          <div class="kpi-line" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:10px 12px;border:1px solid var(--border);
+               border-radius:12px;background:var(--card-surface,var(--surface));">
             <div class="kpi" style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;">
               <div class="v" data-el="kpiUnplannedFields" style="font-weight:900;font-size:18px;">0</div>
               <div class="l" style="font-weight:800;color:var(--muted,#67706B);font-size:12px;letter-spacing:.2px;text-transform:uppercase;">Unplanned</div>
@@ -461,16 +485,9 @@ export async function mount(hostEl, opts = {}){
 
               <button data-el="lockBtn" type="button"
                       title="Global lock (prevents drag moves for everyone)"
-                      style="display:inline-flex;align-items:center;gap:8px;
-                             border:1px solid var(--border);
-                             background:var(--card-surface,var(--surface));
-                             color:var(--text);
-                             border-radius:999px;
-                             padding:7px 10px;
-                             font-weight:900;
-                             cursor:pointer;
-                             user-select:none;
-                             flex:0 0 auto;">
+                      style="display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);
+                             background:var(--card-surface,var(--surface));color:var(--text);border-radius:999px;
+                             padding:7px 10px;font-weight:900;cursor:pointer;user-select:none;flex:0 0 auto;">
                 <span data-el="lockIcon" style="display:grid;place-items:center;"></span>
                 <span data-el="lockLabel" style="font-size:12px;letter-spacing:.2px;text-transform:uppercase;">Unlocked</span>
               </button>
@@ -492,7 +509,10 @@ export async function mount(hostEl, opts = {}){
       </div>
     </section>
 
-    <div data-el="toast" style="position:fixed;left:50%;bottom:24px;transform:translate(-50%,12px);background:#2F6C3C;color:#fff;padding:10px 16px;border-radius:999px;font-size:14px;box-shadow:0 10px 24px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:opacity .18s ease, transform .18s ease;z-index:10000;white-space:nowrap;"></div>
+    <div data-el="toast" style="position:fixed;left:50%;bottom:24px;transform:translate(-50%,12px);
+         background:#2F6C3C;color:#fff;padding:10px 16px;border-radius:999px;font-size:14px;
+         box-shadow:0 10px 24px rgba(0,0,0,.25);opacity:0;pointer-events:none;
+         transition:opacity .18s ease, transform .18s ease;z-index:10000;white-space:nowrap;"></div>
   `;
 
   // element getters scoped to host
@@ -504,15 +524,22 @@ export async function mount(hostEl, opts = {}){
     farmSearch: q('[data-el="farmSearch"]'),
     farmId: q('[data-el="farmId"]'),
     farmName: q('[data-el="farmName"]'),
-    year: q('[data-el="year"]'),
+
+    yearBtn: q('[data-el="yearBtn"]'),
+    yearPanel: q('[data-el="yearPanel"]'),
+    yearList: q('[data-el="yearList"]'),
+    yearVal: q('[data-el="yearVal"]'),
+
     lockBtn: q('[data-el="lockBtn"]'),
     lockIcon: q('[data-el="lockIcon"]'),
     lockLabel: q('[data-el="lockLabel"]'),
+
     search: q('[data-el="search"]'),
     scopeHelp: q('[data-el="scopeHelp"]'),
     laneHeader: q('[data-el="laneHeader"]'),
     boardScroll: q('[data-el="boardScroll"]'),
     toast: q('[data-el="toast"]'),
+
     kpiUnplannedFields: q('[data-el="kpiUnplannedFields"]'),
     kpiUnplannedAcres: q('[data-el="kpiUnplannedAcres"]'),
     kpiCornFields: q('[data-el="kpiCornFields"]'),
@@ -527,6 +554,7 @@ export async function mount(hostEl, opts = {}){
   const { signal } = controller;
 
   const toast = (msg) => {
+    if(!el.toast) return;
     el.toast.textContent = msg;
     el.toast.style.opacity = '1';
     el.toast.style.transform = 'translate(-50%,0)';
@@ -537,14 +565,18 @@ export async function mount(hostEl, opts = {}){
     }, 900);
   };
 
-  const closeCombo = () => { if (el.farmPanel) el.farmPanel.style.display = 'none'; };
+  const closeAllCombos = () => {
+    if (el.farmPanel) el.farmPanel.style.display = 'none';
+    if (el.yearPanel) el.yearPanel.style.display = 'none';
+  };
 
   hostEl.ownerDocument.addEventListener('click', (e)=>{
     if (!hostEl.contains(e.target)) return;
     if (e.target.closest('.combo')) return;
-    closeCombo();
+    closeAllCombos();
   }, { signal });
 
+  // ----- Farm combo -----
   const renderFarmList = (qtext) => {
     const qq = norm(qtext);
     const items = farms
@@ -562,6 +594,7 @@ export async function mount(hostEl, opts = {}){
     el.farmBtn.addEventListener('click', (e)=>{
       e.stopPropagation();
       const isOpen = el.farmPanel.style.display === 'block';
+      closeAllCombos();
       el.farmPanel.style.display = isOpen ? 'none' : 'block';
       el.farmSearch.value = '';
       renderFarmList('');
@@ -586,11 +619,60 @@ export async function mount(hostEl, opts = {}){
         el.farmName.value = f.name;
         el.farmBtn.textContent = f.name;
       }
-      closeCombo();
+      closeAllCombos();
       renderAll(true);
     }, { signal });
   }
 
+  // ----- Year combo -----
+  const renderYearList = () => {
+    if(!el.yearList) return;
+    el.yearList.innerHTML = YEARS.map(y => `
+      <div class="combo-item" data-year="${esc(y)}">
+        <div><strong>${esc(y)}</strong></div>
+        <div></div>
+      </div>
+    `).join('');
+  };
+
+  const setYearUI = (y) => {
+    currentYear = String(y || YEARS[0] || '2026');
+    if(el.yearBtn) el.yearBtn.textContent = currentYear;
+    if(el.yearVal) el.yearVal.value = currentYear;
+  };
+
+  if (el.yearBtn){
+    renderYearList();
+    setYearUI(currentYear);
+
+    el.yearBtn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      const isOpen = el.yearPanel.style.display === 'block';
+      closeAllCombos();
+      el.yearPanel.style.display = isOpen ? 'none' : 'block';
+    }, { signal });
+
+    el.yearPanel.addEventListener('click', (e)=> e.stopPropagation(), { signal });
+    el.yearPanel.addEventListener('mousedown', (e)=> e.stopPropagation(), { signal });
+
+    el.yearList.addEventListener('mousedown', async (e)=>{
+      const row = e.target.closest('.combo-item'); if(!row) return;
+      const y = row.dataset.year || YEARS[0] || '2026';
+      if(String(y) === String(currentYear)){
+        closeAllCombos();
+        return;
+      }
+      setYearUI(y);
+      closeAllCombos();
+
+      await startLockWatch(currentYear);
+      plans = await loadPlansForYear(db, currentYear);
+      renderAll(true);
+      toast(`Year: ${currentYear}${isLocked ? ' (Locked)' : ''}`);
+    }, { signal });
+  }
+
+  // ---- GLOBAL LOCK helpers ----
   const renderLockUI = () => {
     if (!hasLockUI) return;
     el.lockIcon.innerHTML = lockSvg(isLocked);
@@ -682,20 +764,6 @@ export async function mount(hostEl, opts = {}){
     }, 6000);
   };
 
-  if (el.year){
-    el.year.value = '2026';
-    currentYear = '2026';
-
-    el.year.addEventListener('change', async ()=>{
-      currentYear = String(el.year.value || '2026');
-      await startLockWatch(currentYear);
-
-      plans = await loadPlansForYear(db, currentYear);
-      renderAll(true);
-      toast(`Year: ${currentYear}${isLocked ? ' (Locked)' : ''}`);
-    }, { signal });
-  }
-
   const cropForField = (fieldId) => {
     const c = norm(plans.get(fieldId)?.crop);
     if (c === 'corn' || c === 'soybeans') return c;
@@ -759,6 +827,65 @@ export async function mount(hostEl, opts = {}){
     `;
   };
 
+  function renderCropTilePhone(farmId, label, cropKeyName, arr, acres, isOpen){
+    const meta = `${fmt0.format(arr.length)} • ${fmt2.format(acres)} ac`;
+    const body = isOpen ? `<div class="cropBody">${renderFieldRowsPhone(arr)}</div>` : '';
+    const r = isOpen ? 'rotate(180deg)' : 'rotate(0deg)';
+    return `
+      <div class="cropTile" data-crop-tile="1" data-farm-id="${esc(farmId)}" data-crop-key="${esc(cropKeyName)}" data-open="${isOpen?'1':'0'}">
+        <div class="cropHead">
+          <div class="cropTitle">${esc(label)}</div>
+          <div style="display:flex;align-items:center;gap:0;">
+            <div class="cropMeta">${meta}</div>
+            <div class="cropChev" aria-hidden="true" style="transform:${r};">${chevSvg()}</div>
+          </div>
+        </div>
+        ${body}
+      </div>
+    `;
+  }
+
+  function bindToggles(){
+    hostEl.querySelectorAll('[data-farm-toggle="1"]').forEach(head=>{
+      if(head._fvBound) return;
+      head._fvBound = true;
+      head.addEventListener('click', (e)=>{
+        if(!viewOnly && e.target.closest('[data-drag-type]')) return;
+
+        const lane = head.closest('.farmLane');
+        if(!lane) return;
+        const farmId = lane.dataset.farmId || '';
+        const open = lane.dataset.open === '1';
+        const next = !open;
+
+        lane.dataset.open = next ? '1' : '0';
+        const body = lane.querySelector('.farmLaneBody');
+        if(body) body.style.display = next ? (viewOnly ? 'block' : 'grid') : 'none';
+        setLaneOpen(farmId, next);
+      }, { signal });
+    });
+
+    if(viewOnly){
+      hostEl.querySelectorAll('[data-crop-tile="1"]').forEach(tile=>{
+        if(tile._fvBound) return;
+        tile._fvBound = true;
+        tile.addEventListener('click', (e)=>{
+          const head = e.target.closest('.cropHead');
+          if(!head) return;
+
+          const farmId = tile.dataset.farmId || '';
+          const ck = tile.dataset.cropKey || '';
+          const open = tile.dataset.open === '1';
+          const next = !open;
+
+          tile.dataset.open = next ? '1' : '0';
+          setCropOpen(farmId, ck, next);
+          renderAll(true);
+        }, { signal });
+      });
+    }
+  }
+
   const renderAll = (preserveScroll=false) => {
     const list = getShownFields();
     if (el.scopeHelp) el.scopeHelp.textContent = `Showing ${fmt0.format(list.length)} active fields${isLocked ? ' • Locked' : ''}`;
@@ -817,9 +944,6 @@ export async function mount(hostEl, opts = {}){
         else { un.push(f); unA+=a; }
       }
 
-      // ----------------------------------------------------------------
-      // PHONE VIEW: farm name only, then 3 crop tiles, each expandable
-      // ----------------------------------------------------------------
       if(viewOnly){
         const unOpen = isCropOpen(g.farmId, 'unplanned');
         const coOpen = isCropOpen(g.farmId, 'corn');
@@ -843,11 +967,7 @@ export async function mount(hostEl, opts = {}){
         `;
       }
 
-      // ----------------------------------------------------------------
-      // DESKTOP VIEW: unchanged (grip + 3 buckets)
-      // ----------------------------------------------------------------
       const farmDrag = canDrag ? 'true' : 'false';
-
       const plannedBadge = (coN + soN) > 0
         ? ` <span style="color:var(--muted,#67706B);font-weight:900;">(${coN ? `Corn ${fmt0.format(coN)}` : ''}${coN && soN ? ' • ' : ''}${soN ? `Beans ${fmt0.format(soN)}` : ''})</span>`
         : '';
@@ -856,9 +976,11 @@ export async function mount(hostEl, opts = {}){
         <div class="farmLane" data-farm-id="${esc(g.farmId)}" data-open="${openFarm?'1':'0'}"
              style="border:1px solid var(--border);border-radius:14px;background:var(--surface);overflow:hidden;">
           <div class="farmLaneHead" data-farm-toggle="1"
-               style="display:grid;grid-template-columns:22px 1fr auto 18px;gap:10px;align-items:center;padding:12px;border-bottom:1px solid var(--border);background:linear-gradient(90deg, rgba(0,0,0,.02), transparent);user-select:none;">
+               style="display:grid;grid-template-columns:22px 1fr auto 18px;gap:10px;align-items:center;padding:12px;border-bottom:1px solid var(--border);
+                      background:linear-gradient(90deg, rgba(0,0,0,.02), transparent);user-select:none;">
             <div class="farmGrip" data-drag-type="farm" draggable="${farmDrag}"
-                 style="width:22px;height:22px;border:1px solid var(--border);border-radius:8px;display:grid;place-items:center;color:var(--muted,#67706B);cursor:${canDrag?'grab':'not-allowed'};opacity:${canDrag?'1':'.35'};">
+                 style="width:22px;height:22px;border:1px solid var(--border);border-radius:8px;display:grid;place-items:center;color:var(--muted,#67706B);
+                        cursor:${canDrag?'grab':'not-allowed'};opacity:${canDrag?'1':'.35'};">
               ${gripSvg()}
             </div>
             <div style="font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
@@ -883,7 +1005,6 @@ export async function mount(hostEl, opts = {}){
       `;
     }).join('') || `<div class="muted" style="font-weight:900;padding:12px">No fields match your filters.</div>`;
 
-    // bind toggles (farm + crop tiles in phone)
     bindToggles();
 
     if(snap){
@@ -895,71 +1016,6 @@ export async function mount(hostEl, opts = {}){
       });
     }
   };
-
-  function renderCropTilePhone(farmId, label, cropKeyName, arr, acres, isOpen){
-    const meta = `${fmt0.format(arr.length)} • ${fmt2.format(acres)} ac`;
-    const body = isOpen ? `<div class="cropBody">${renderFieldRowsPhone(arr)}</div>` : '';
-    const r = isOpen ? 'rotate(180deg)' : 'rotate(0deg)';
-    return `
-      <div class="cropTile" data-crop-tile="1" data-farm-id="${esc(farmId)}" data-crop-key="${esc(cropKeyName)}" data-open="${isOpen?'1':'0'}">
-        <div class="cropHead">
-          <div class="cropTitle">${esc(label)}</div>
-          <div style="display:flex;align-items:center;gap:0;">
-            <div class="cropMeta">${meta}</div>
-            <div class="cropChev" aria-hidden="true" style="transform:${r};">${chevSvg()}</div>
-          </div>
-        </div>
-        ${body}
-      </div>
-    `;
-  }
-
-  function bindToggles(){
-    // Farm open/close
-    hostEl.querySelectorAll('[data-farm-toggle="1"]').forEach(head=>{
-      if(head._fvBound) return;
-      head._fvBound = true;
-      head.addEventListener('click', (e)=>{
-        // desktop: ignore clicks on grips
-        if(!viewOnly && e.target.closest('[data-drag-type]')) return;
-
-        const lane = head.closest('.farmLane');
-        if(!lane) return;
-        const farmId = lane.dataset.farmId || '';
-        const open = lane.dataset.open === '1';
-        const next = !open;
-
-        lane.dataset.open = next ? '1' : '0';
-        const body = lane.querySelector('.farmLaneBody');
-        if(body) body.style.display = next ? (viewOnly ? 'block' : 'grid') : 'none';
-        setLaneOpen(farmId, next);
-      }, { signal });
-    });
-
-    // Crop tile open/close (phone only)
-    if(viewOnly){
-      hostEl.querySelectorAll('[data-crop-tile="1"]').forEach(tile=>{
-        if(tile._fvBound) return;
-        tile._fvBound = true;
-        tile.addEventListener('click', (e)=>{
-          // only toggle when clicking the header area (not on rows)
-          const head = e.target.closest('.cropHead');
-          if(!head) return;
-
-          const farmId = tile.dataset.farmId || '';
-          const ck = tile.dataset.cropKey || '';
-          const open = tile.dataset.open === '1';
-          const next = !open;
-
-          tile.dataset.open = next ? '1' : '0';
-          setCropOpen(farmId, ck, next);
-
-          // re-render for simplicity (keeps counts correct and avoids DOM diff headaches)
-          renderAll(true);
-        }, { signal });
-      });
-    }
-  }
 
   const onDrop = async ({ type, fieldId, farmId, toCrop }) => {
     if(viewOnly) return;
@@ -1014,6 +1070,7 @@ export async function mount(hostEl, opts = {}){
     hostEl.addEventListener('drop', (e)=> e.preventDefault(), { capture:true, signal });
   }
 
+  // boot data
   db = await initDB();
   fs = await getFirestoreFns();
 
