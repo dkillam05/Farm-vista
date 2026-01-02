@@ -1487,9 +1487,13 @@
     }
 
     // ===== Settings =====
-    const STORE_KEY  = "fv_copilot_chat_v1";
-    const THREAD_KEY = "fv_copilot_threadId_v1";
-    const MAX_KEEP   = 80;
+    const STORE_KEY   = "fv_copilot_chat_v1";
+    const THREAD_KEY  = "fv_copilot_threadId_v1";
+    const LAST_KEY    = "fv_copilot_lastChatAt_v1";   // ✅ NEW
+    const MAX_KEEP    = 80;
+
+    const TTL_HOURS   = 12;                            // ✅ NEW
+    const TTL_MS      = TTL_HOURS * 60 * 60 * 1000;    // ✅ NEW
 
     const COPILOT_ENDPOINT = "https://farmvista-copilot-300398089669.us-central1.run.app/chat";
     const REPORT_ENDPOINT  = "https://farmvista-copilot-300398089669.us-central1.run.app/report";
@@ -1507,6 +1511,36 @@
         .replace(/'/g,"&#39;");
     }
 
+    function nowMs(){ return Date.now(); }
+
+    function touchLastChat(){
+      try{ localStorage.setItem(LAST_KEY, String(nowMs())); }catch{}
+    }
+
+    function clearStoredChat(){
+      try{ localStorage.removeItem(STORE_KEY); }catch{}
+      try{ localStorage.removeItem(THREAD_KEY); }catch{}
+      try{ localStorage.removeItem(LAST_KEY); }catch{}
+    }
+
+    // ✅ NEW: expire chat if inactive > 12 hours
+    function enforceTtlOnLoad(){
+      try{
+        const lastRaw = localStorage.getItem(LAST_KEY);
+        const last = lastRaw ? Number(lastRaw) : 0;
+        if (!Number.isFinite(last) || last <= 0){
+          // No last activity recorded — keep whatever is there (but don't set last)
+          return;
+        }
+        const age = nowMs() - last;
+        if (age > TTL_MS){
+          clearStoredChat();
+        }
+      }catch{
+        // If anything goes weird, fail-open and do nothing.
+      }
+    }
+
     function loadHistory(){
       try{
         const raw = localStorage.getItem(STORE_KEY);
@@ -1518,7 +1552,7 @@
           .map(m => ({
             role: m.role,
             text: String(m.text ?? ""),
-            ts: Number(m.ts) || Date.now()
+            ts: Number(m.ts) || nowMs()
           }));
       }catch{
         return [];
@@ -1529,6 +1563,7 @@
       try{
         const trimmed = (list || []).slice(-MAX_KEEP);
         localStorage.setItem(STORE_KEY, JSON.stringify(trimmed));
+        touchLastChat(); // ✅ NEW: any save counts as "active"
       }catch{}
     }
 
@@ -1541,6 +1576,7 @@
       const v = (id || "").toString().trim();
       if (!v) return;
       try{ localStorage.setItem(THREAD_KEY, v); }catch{}
+      touchLastChat(); // ✅ NEW: thread continuity also counts as activity
     }
 
     function clearEmptyState(){
@@ -1549,7 +1585,7 @@
     }
 
     function setStatus(msg){
-      statusEl.textContent = msg || "";
+      if (statusEl) statusEl.textContent = msg || "";
     }
 
     function setThinking(on){
@@ -1580,7 +1616,7 @@
         <iframe class="fv-pdf-frame" title="Report PDF"></iframe>
       </div>
     `;
-    // minimal styles (uses your theme vibe; no blue links)
+
     const style = document.createElement("style");
     style.textContent = `
       .fv-pdf-modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:100000; padding:16px; }
@@ -1651,8 +1687,6 @@
     }
     function closePdfModal(){
       modal.classList.remove("show");
-      // keep src so back/forward works; if you prefer blank it:
-      // modalFrame.src = "about:blank";
     }
 
     modalBackdrop.addEventListener("click", closePdfModal);
@@ -1660,6 +1694,9 @@
     document.addEventListener("keydown", (e)=>{
       if (e.key === "Escape" && modal.classList.contains("show")) closePdfModal();
     });
+
+    // ✅ Enforce TTL before reading history/thread
+    enforceTtlOnLoad();
 
     // ===== Rendering =====
     let history = loadHistory();
@@ -1682,7 +1719,6 @@
       if (role === "assistant" && typeof text === "string" && text.startsWith(PDF_MARKER)) {
         const url = text.slice(PDF_MARKER.length).trim();
 
-        // clean assistant bubble: just a View PDF button
         bubble.innerHTML = "";
         const btn = document.createElement("button");
         btn.type = "button";
@@ -1709,8 +1745,8 @@
 
     function appendMessage(role, text){
       renderMessage(role, text);
-      history.push({ role, text: String(text || ""), ts: Date.now() });
-      saveHistory(history);
+      history.push({ role, text: String(text || ""), ts: nowMs() });
+      saveHistory(history); // updates LAST_KEY too
     }
 
     // Hydrate
@@ -1721,7 +1757,7 @@
       const existingThreadId = getThreadId();
 
       const payload = { question: String(prompt || "") };
-      if (existingThreadId) payload.threadId = existingThreadId; // optional
+      if (existingThreadId) payload.threadId = existingThreadId;
 
       const res = await fetch(COPILOT_ENDPOINT, {
         method: "POST",
@@ -1743,13 +1779,9 @@
         const tid = data?.meta?.threadId ? String(data.meta.threadId) : getThreadId();
         const mode = data?.meta?.reportMode ? String(data.meta.reportMode) : "recent";
 
-        // Build URL (do NOT display it in chat)
         const url = buildReportUrl(tid, mode);
-
-        // Open popup modal (NOT new tab)
         openPdfModal(url);
 
-        // Return a special marker so chat shows "View PDF"
         return PDF_MARKER + url;
       }
 
