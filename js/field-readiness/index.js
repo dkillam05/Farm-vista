@@ -246,9 +246,11 @@ function applyDetailsEditGateState(state){
   });
 
   // Initial paint
-  await renderTiles(state);
-  await renderDetails(state);
-  await refreshAll(state);
+await renderTiles(state);
+await renderDetails(state);
+
+// ✅ refresh without destroying tiles
+setTimeout(()=>{ refreshAll(state).catch(()=>{}); }, 0);
 
   // global calibration wiring (will show Fields always; only wires when edit allowed)
   wireFieldsHiddenTap(state);
