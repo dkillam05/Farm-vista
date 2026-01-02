@@ -475,6 +475,8 @@
       // Soft retry timers
       this._softMenuRetryTimer = null;
       this._softNameRetryTimer = null;
+      this._bootHoldTimer = null;
+
 
       // Toast timer
       this._toastTimer = null;
@@ -713,6 +715,45 @@
       this._isIOSStandaloneFlag = !!(isIOS && isStandalone);
       return this._isIOSStandaloneFlag;
     }
+     /* ============================== */
+/* Boot overlay hold (page-only)  */
+/* ============================== */
+_bootHoldMs(){
+  try{
+    // <fv-shell data-boot-hold-ms="1500">
+    const raw = this.getAttribute('data-boot-hold-ms');
+    const n = Number(raw);
+    if (!isFinite(n)) return 0;
+    return Math.max(0, Math.min(60000, Math.floor(n))); // clamp 0..60s
+  }catch{
+    return 0;
+  }
+}
+
+_hideBootOverlayWithOptionalHold(){
+  try{
+    if (!this._boot) return;
+
+    if (this._bootHoldTimer){
+      clearTimeout(this._bootHoldTimer);
+      this._bootHoldTimer = null;
+    }
+
+    const hold = this._bootHoldMs();
+    if (hold > 0){
+      // Keep visible a bit longer for this page only
+      this._boot.hidden = false;
+      this._bootHoldTimer = setTimeout(()=>{
+        try{ if (this._boot) this._boot.hidden = true; }catch(_){}
+        this._bootHoldTimer = null;
+      }, hold);
+      return;
+    }
+
+    // default behavior
+    this._boot.hidden = true;
+  }catch(_){}
+}
 
     /* =============================== */
     /* Boot: phased, auth-only hard gate */
@@ -741,7 +782,7 @@
       this._watchUserContextForSwaps();
 
       // Hide overlay as soon as auth is confirmed (menu/context can finish in background)
-      if (this._boot) this._boot.hidden = true;
+      this._hideBootOverlayWithOptionalHold();
       sessionStorage.setItem('fv:boot:hydrated', '1');
 
       const upd = this.shadowRoot.querySelector('.js-update-row');
