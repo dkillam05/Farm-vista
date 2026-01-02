@@ -1,20 +1,22 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/data.js  (FULL FILE)
-Rev: 2025-12-27b
+Rev: 2026-01-02a
 
-IMPORTANT FIX:
-✅ Breaks circular import:
-   - render.js can import from data.js
-   - data.js NO LONGER imports from render.js
+Fix (per Dane):
+✅ Do NOT block initial tile paint on weather warmup:
+   - loadFields() loads fields + hydrates params and returns immediately
+   - weather warmup runs in the background (fire-and-forget)
+
+✅ As weather warms per-field, trigger lightweight tile refresh:
+   - dispatches fr:tile-refresh { fieldId } so render.js updates that tile in place
 
 Keeps:
 ✅ farms/fields loading
 ✅ per-field params hydration from field docs
-✅ weather warmup
+✅ weather warmup (still happens, just not blocking)
 
 Adds:
-✅ fetchAndHydrateFieldParams(state, fieldId) — one-doc background pull for sliders
-
+✅ safe background warmup guard + throttle
 ===================================================================== */
 'use strict';
 
@@ -179,6 +181,47 @@ export async function loadFarmsOptional(state){
   }catch(_){}
 }
 
+/* =====================================================================
+   Background warmup runner (non-blocking)
+===================================================================== */
+function startWeatherWarmupNonBlocking(state){
+  try{
+    // avoid duplicate warmups (BFCache return, etc.)
+    if (state._wxWarmStarted) return;
+    state._wxWarmStarted = true;
+
+    // Defer a tick so initial tile render can happen ASAP
+    setTimeout(async ()=>{
+      try{
+        await ensureModelWeatherModulesLocal(state);
+        const wxCtx = buildWxCtx(state);
+
+        // Throttle tile refresh dispatch (avoid spamming)
+        let lastTick = 0;
+        const minGapMs = 120;
+
+        await state._mods.weather.warmWeatherForFields(state.fields, wxCtx, {
+          force:false,
+          onEach: (fieldId)=>{
+            try{
+              const fid = String(fieldId || '').trim();
+              if (!fid) return;
+
+              const now = Date.now();
+              if ((now - lastTick) < minGapMs) return;
+              lastTick = now;
+
+              document.dispatchEvent(new CustomEvent('fr:tile-refresh', { detail:{ fieldId: fid } }));
+            }catch(_){}
+          }
+        });
+      }catch(e){
+        console.warn('[FieldReadiness] weather warmup failed:', e?.message || e);
+      }
+    }, 0);
+  }catch(_){}
+}
+
 export async function loadFields(state){
   const api = getAPI(state);
   if (!api){
@@ -231,10 +274,8 @@ export async function loadFields(state){
 
     ensureSelectedParamsToSliders(state);
 
-    // weather warmup (uses existing weather module)
-    await ensureModelWeatherModulesLocal(state);
-    const wxCtx = buildWxCtx(state);
-    await state._mods.weather.warmWeatherForFields(state.fields, wxCtx, { force:false, onEach:()=>{} });
+    // ✅ IMPORTANT: Start warmup but DO NOT await it (tiles should paint immediately)
+    startWeatherWarmupNonBlocking(state);
 
   }catch(e){
     setErr(`Failed to load fields: ${e.message}`);
