@@ -1,8 +1,15 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/wiring.js  (FULL FILE)
-Rev: 2025-12-27b
+Rev: 2026-01-01a
 
-Fix:
+Fix (per Dane):
+✅ Prevent “refresh storms” that cause blank → slowly rebuild tiles:
+   - Debounce refreshAll calls (single refresh after rapid UI events)
+   - Support optional boot hold:
+       state._fvHoldRefresh = true  => queue refresh (state._fvRefreshPending = true)
+       state._fvHoldRefresh = false => next scheduleRefresh() runs normally
+
+Keeps:
 ✅ Persist + restore:
    - Sort (localStorage via prefs.js)
    - Rain range (localStorage key: fv_fr_range_v1)
@@ -10,7 +17,6 @@ Fix:
    - op save on change/input
    - farm/page size save
    - tooltip close logic
-
 ===================================================================== */
 'use strict';
 
@@ -36,12 +42,35 @@ export async function wireUIOnce(state){
   await waitForEl('opSel', 3000);
   await waitForEl('sortSel', 3000);
 
+  /* -------------------------------------------------------------
+     Debounced refresh (prevents rapid re-renders while UI restores)
+     - If state._fvHoldRefresh is true, queue a single refresh
+       by setting state._fvRefreshPending = true.
+  -------------------------------------------------------------- */
+  const scheduleRefresh = (()=>{
+    let t = null;
+    return ()=>{
+      try{
+        if (state && state._fvHoldRefresh){
+          state._fvRefreshPending = true;
+          return;
+        }
+      }catch(_){}
+
+      if (t) clearTimeout(t);
+      t = setTimeout(()=>{
+        t = null;
+        try{ refreshAll(state); }catch(_){}
+      }, 140);
+    };
+  })();
+
   // Sort (persist + refresh)
   const sortSel = document.getElementById('sortSel');
   if (sortSel){
     sortSel.addEventListener('change', ()=>{
       saveSortDefault();
-      refreshAll(state);
+      scheduleRefresh();
     });
   }
 
@@ -50,7 +79,7 @@ export async function wireUIOnce(state){
   if (opSel){
     const handler = ()=>{
       saveOpDefault();
-      refreshAll(state);
+      scheduleRefresh();
     };
     opSel.addEventListener('change', handler);
     opSel.addEventListener('input', handler);
@@ -75,7 +104,7 @@ export async function wireUIOnce(state){
         }
       }
 
-      refreshAll(state);
+      scheduleRefresh();
     });
   }
 
@@ -84,7 +113,7 @@ export async function wireUIOnce(state){
   if (pageSel){
     pageSel.addEventListener('change', ()=>{
       savePageSizeDefault(state);
-      refreshAll(state);
+      scheduleRefresh();
     });
   }
 
@@ -92,7 +121,7 @@ export async function wireUIOnce(state){
   const applyRangeBtn = document.getElementById('applyRangeBtn');
   if (applyRangeBtn) applyRangeBtn.addEventListener('click', ()=>{
     saveRangeToLocal();
-    setTimeout(()=>refreshAll(state), 0);
+    setTimeout(()=>scheduleRefresh(), 0);
   });
 
   const clearRangeBtn = document.getElementById('clearRangeBtn');
@@ -100,7 +129,7 @@ export async function wireUIOnce(state){
     // let the picker clear the input, then save
     setTimeout(()=>{
       saveRangeToLocal();
-      refreshAll(state);
+      scheduleRefresh();
     }, 0);
   });
 
@@ -108,11 +137,11 @@ export async function wireUIOnce(state){
   if (jobRangeInput){
     jobRangeInput.addEventListener('change', ()=>{
       saveRangeToLocal();
-      refreshAll(state);
+      scheduleRefresh();
     });
     jobRangeInput.addEventListener('input', ()=>{
       saveRangeToLocal();
-      refreshAll(state);
+      scheduleRefresh();
     });
   }
 
