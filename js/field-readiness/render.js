@@ -1,15 +1,25 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2025-12-31i
+Rev: 2026-01-01c
 
 Fixes (per Dane):
-✅ ETA text on mobile: use ">" sign (not "Greater Than ...")
-✅ Extend ETA horizon to full 7-day forecast:
-   - show "~XXh" if within 168h
-   - show ">168h" if not within 168h
+✅ Tiles appear immediately on return:
+   - Build all visible tile DOM first (FAST) — no per-tile ETA awaits in the loop
+   - Then fill ETA asynchronously after paint (no “slowly building in” feel)
+
+✅ Stop rebuilding tiles when the “view” is unchanged:
+   - If op/farm/sort/page/range unchanged AND tiles already exist:
+     -> do NOT clear/recreate tiles
+     -> update numbers/markers/ETA in place via updateTileForField (batched)
+
+✅ Remove the 0 / 50 / 100 scale under the gauge on tiles
+   - (removes only those tick labels, keeps gauge + marker)
 
 Keeps:
-✅ Everything else unchanged from your provided render.js
+✅ ETA text on mobile uses ">" sign
+✅ 7-day ETA horizon (168h)
+✅ Swipe + details behavior intact (no markup breaking)
+✅ Everything else unchanged from Rev: 2025-12-31i
 ===================================================================== */
 'use strict';
 
@@ -481,7 +491,6 @@ function updateDetailsHeaderPanel(state){
    Forecast-based ETA helper for tiles (with wetBias passed in)
 ===================================================================== */
 function parseEtaHoursFromText(txt){
-  // Accept: "Est: ~22 hours" OR "~22h"
   const s = String(txt || '');
   let m = s.match(/~\s*(\d+)\s*hours/i);
   if (m){
@@ -553,8 +562,6 @@ async function getTileEtaText(state, fieldId, run0, thr){
         }
 
         if (pred.status === 'notWithin72'){
-          // ✅ Sanity fallback near threshold:
-          // if you're close to threshold AND legacy says <=168h, show legacy (but compact it)
           const rNow = Number(run0 && run0.readinessR);
           const near = Number.isFinite(rNow) ? ((thr - rNow) >= 0 && (thr - rNow) <= NEAR_THR_POINTS) : false;
 
@@ -562,17 +569,52 @@ async function getTileEtaText(state, fieldId, run0, thr){
             return compactEtaForMobile(legacyTxt, HORIZON_HOURS);
           }
 
-          // ✅ Force compact > sign for mobile
           return pred.message || `>${HORIZON_HOURS}h`;
         }
-
-        // noForecast/noData => fall back
       }
     }
   }catch(_){}
 
-  // Fall back to model ETA but compact it (no "Greater Than ...")
   return legacyTxt ? compactEtaForMobile(legacyTxt, HORIZON_HOURS) : '';
+}
+
+/* =====================================================================
+   View key: if unchanged, we update numbers only (no rebuild)
+===================================================================== */
+function getTilesViewKey(state){
+  const opKey = getCurrentOp();
+  const farmId = String(state && state.farmFilter ? state.farmFilter : '__all__');
+  const pageSize = String(state && state.pageSize != null ? state.pageSize : '');
+  const sortSel = $('sortSel');
+  const sort = String(sortSel ? sortSel.value : 'name_az');
+  const rangeStr = String(($('jobRangeInput') && $('jobRangeInput').value) ? $('jobRangeInput').value : '');
+  return `${opKey}__${farmId}__${pageSize}__${sort}__${rangeStr}`;
+}
+
+async function updateVisibleTilesBatched(state, ids){
+  const list = Array.isArray(ids) ? ids.slice() : [];
+  if (!list.length) return;
+
+  const BATCH = 6;
+
+  return new Promise((resolve)=>{
+    const step = async ()=>{
+      try{
+        const n = Math.min(BATCH, list.length);
+        for (let i=0; i<n; i++){
+          const fid = list.shift();
+          if (fid) await updateTileForField(state, fid);
+        }
+      }catch(_){}
+
+      if (list.length){
+        setTimeout(step, 0);
+      } else {
+        resolve();
+      }
+    };
+    setTimeout(step, 0);
+  });
 }
 
 /* ---------- internal: patch a single tile DOM in-place ---------- */
@@ -716,10 +758,27 @@ async function _renderTilesInternal(state){
 
   const wrap = $('fieldsGrid');
   if (!wrap) return;
-  wrap.innerHTML = '';
 
+  const viewKey = getTilesViewKey(state);
+  const prevKey = String(state._fvTilesViewKey || '');
+  const hasTiles = !!wrap.querySelector('.tile[data-field-id]');
+  const sameView = (prevKey === viewKey) && hasTiles;
+
+  state._fvTilesViewKey = viewKey;
+
+  // ✅ SAME VIEW: update numbers only (no clear/rebuild)
+  if (sameView){
+    const tiles = Array.from(wrap.querySelectorAll('.tile[data-field-id]'));
+    const cap = (String(state.pageSize) === '__all__' || state.pageSize === -1)
+      ? tiles.length
+      : Math.min(tiles.length, Number(state.pageSize || 25));
+    const ids = tiles.slice(0, cap).map(t=>String(t.getAttribute('data-field-id')||'')).filter(Boolean);
+    await updateVisibleTilesBatched(state, ids);
+    return;
+  }
+
+  // ⛔ View changed OR first build: rebuild list order, but do it FAST (no ETA awaits in loop)
   const opKey = getCurrentOp();
-
   const wxCtx = buildWxCtx(state);
   const deps = {
     getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
@@ -730,25 +789,33 @@ async function _renderTilesInternal(state){
     CAL: getCalForDeps(state)
   };
 
+  const filtered = getFilteredFields(state);
+
+  // compute runs for sorting + numbers
   state.lastRuns.clear();
   for (const f of state.fields){
+    // keep original behavior (you were computing for all state.fields)
     state.lastRuns.set(f.id, state._mods.model.runField(f, deps));
   }
 
-  const filtered = getFilteredFields(state);
   const sorted = sortFields(filtered, state.lastRuns);
   const thr = getThresholdForOp(state, opKey);
   const range = parseRangeFromInput();
 
-  const cap = (String(state.pageSize) === '__all__' || state.pageSize === -1) ? sorted.length : Math.min(sorted.length, Number(state.pageSize || 25));
+  const cap = (String(state.pageSize) === '__all__' || state.pageSize === -1)
+    ? sorted.length
+    : Math.min(sorted.length, Number(state.pageSize || 25));
   const show = sorted.slice(0, cap);
+
+  // Build DOM in one shot so it appears immediately
+  const frag = document.createDocumentFragment();
+  const idsForEta = [];
 
   for (const f of show){
     const run0 = state.lastRuns.get(f.id);
     if (!run0) continue;
 
     const readiness = run0.readinessR;
-    const etaTxt = await getTileEtaText(state, f.id, run0, thr);
     const rainRange = rainInRange(run0, range);
 
     const leftPos = state._mods.model.markerLeftCSS(readiness);
@@ -790,17 +857,20 @@ async function _renderTilesInternal(state){
           <div class="badge" style="left:${leftPos};background:${pillBg};color:#fff;border:1px solid rgba(255,255,255,.18);">Field Readiness ${readiness}</div>
         </div>
 
-        <div class="ticks"><span>0</span><span>50</span><span>100</span></div>
-        ${etaTxt ? `<div class="help"><b>${esc(String(etaTxt))}</b></div>` : ``}
+        <!-- ✅ Removed 0/50/100 tick labels -->
+        <div class="etaSlot"></div>
       </div>
     `;
 
     wireTileInteractions(state, tile, f.id);
-    wrap.appendChild(tile);
+    frag.appendChild(tile);
+    idsForEta.push(String(f.id));
   }
 
+  wrap.replaceChildren(frag);
+
   const empty = $('emptyMsg');
-  if (empty) empty.style.display = show.length ? 'none' : 'block';
+  if (empty) empty.style.display = idsForEta.length ? 'none' : 'block';
 
   await initSwipeOnTiles(state, {
     onDetails: async (fieldId)=>{
@@ -808,6 +878,14 @@ async function _renderTilesInternal(state){
       await openQuickView(state, fieldId);
     }
   });
+
+  // Fill ETA after the tiles exist (avoids slow “building in”)
+  // We do NOT depend on .etaSlot existing (updateTileForField uses .help in gauge-wrap)
+  setTimeout(async ()=>{
+    try{
+      await updateVisibleTilesBatched(state, idsForEta);
+    }catch(_){}
+  }, 0);
 }
 
 /* ---------- tile render (PUBLIC) ---------- */
