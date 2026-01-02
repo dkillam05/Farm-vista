@@ -1,20 +1,16 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/data.js  (FULL FILE)
-Rev: 2025-12-27b
+Rev: 2026-01-02b
 
-IMPORTANT FIX:
-✅ Breaks circular import:
-   - render.js can import from data.js
-   - data.js NO LONGER imports from render.js
+Fix (per Dane):
+✅ Keep correct initial tile count (ex: 25) AND speed up:
+   - Warm weather for ONLY the initial visible set (awaited)
+   - Warm the remaining fields in the background (not awaited)
 
-Keeps:
-✅ farms/fields loading
-✅ per-field params hydration from field docs
-✅ weather warmup
-
-Adds:
-✅ fetchAndHydrateFieldParams(state, fieldId) — one-doc background pull for sliders
-
+Notes:
+- Uses state.pageSize if present (set by prefs before loadFields in index.js)
+- Falls back to 25 if unknown
+- If pageSize is "__all__", we still only await a reasonable slice (50)
 ===================================================================== */
 'use strict';
 
@@ -179,6 +175,21 @@ export async function loadFarmsOptional(state){
   }catch(_){}
 }
 
+/* ---------- decide how many fields to warm before first paint ---------- */
+function initialWarmCount(state){
+  try{
+    const v = state && state.pageSize != null ? state.pageSize : null;
+
+    // "__all__" can be huge; don't block on it
+    if (String(v) === '__all__' || Number(v) === -1) return 50;
+
+    const n = Number(v);
+    if (isFinite(n) && n > 0) return Math.min(250, Math.max(10, Math.floor(n)));
+  }catch(_){}
+
+  return 25; // sensible default
+}
+
 export async function loadFields(state){
   const api = getAPI(state);
   if (!api){
@@ -234,7 +245,23 @@ export async function loadFields(state){
     // weather warmup (uses existing weather module)
     await ensureModelWeatherModulesLocal(state);
     const wxCtx = buildWxCtx(state);
-    await state._mods.weather.warmWeatherForFields(state.fields, wxCtx, { force:false, onEach:()=>{} });
+
+    // ✅ Warm a small "first paint" slice (awaited so tiles aren't skipped)
+    const cap = Math.min(state.fields.length, initialWarmCount(state));
+    const first = state.fields.slice(0, cap);
+    const rest  = state.fields.slice(cap);
+
+    await state._mods.weather.warmWeatherForFields(first, wxCtx, { force:false, onEach:()=>{} });
+
+    // ✅ Warm the remainder in background (keeps caches building, but no blocking)
+    if (rest.length){
+      setTimeout(()=>{
+        try{
+          state._mods.weather.warmWeatherForFields(rest, wxCtx, { force:false, onEach:()=>{} })
+            .catch(()=>{});
+        }catch(_){}
+      }, 0);
+    }
 
   }catch(e){
     setErr(`Failed to load fields: ${e.message}`);
