@@ -1,16 +1,15 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/index.js  (FULL FILE)
-Rev: 2026-01-01b
+Rev: 2025-12-29a
 
-Fix (per Dane):
-✅ Stop immediate double-render (blank/rebuild):
-   - Do initial render once
-   - Kick refreshAll async (non-blocking) so UI stays visible
+Changes (per Dane):
+✅ Edit permission controls interactivity:
+   - Details panel is ALWAYS shown, but cannot be opened when edit is false
+   - Gate is applied on boot and whenever perms update (fv:user-ready)
 
 Keeps:
-✅ Details edit gate behavior
-✅ BFCache reapply
-✅ Everything else unchanged from your provided Rev: 2025-12-29a
+✅ Persist + restore (iOS/Safari BFCache safe): Operation, Farm, Sort, Rain range
+✅ Re-apply on pageshow + visibilitychange
 ===================================================================== */
 'use strict';
 
@@ -38,6 +37,7 @@ function applySavedRangeToUI(){
     if (!inp) return false;
 
     const raw = String(localStorage.getItem(LS_RANGE_KEY) || '').trim();
+    // allow empty (meaning default 30d) but still apply if it differs
     if (String(inp.value || '').trim() !== raw){
       inp.value = raw;
       return true;
@@ -62,6 +62,7 @@ function ensureDetailsEditGateWired(){
     if (dp._fvEditGateWired) return;
     dp._fvEditGateWired = true;
 
+    // Capture-phase so we beat the native <details> toggle reliably.
     sum.addEventListener('click', (e)=>{
       try{
         const st = window.__FV_FR;
@@ -70,6 +71,8 @@ function ensureDetailsEditGateWired(){
         if (!canEdit(st)){
           e.preventDefault();
           e.stopPropagation();
+
+          // Force closed (native toggle might already have flipped)
           dp.open = false;
           dp.removeAttribute('open');
         }
@@ -86,9 +89,11 @@ function applyDetailsEditGateState(state){
     ensureDetailsEditGateWired();
 
     if (!canEdit(state)){
+      // Keep visible, but never open
       dp.open = false;
       dp.removeAttribute('open');
 
+      // Optional subtle disabled feel on the summary
       const sum = dp.querySelector('summary');
       if (sum){
         sum.style.opacity = '0.72';
@@ -110,6 +115,7 @@ function applyDetailsEditGateState(state){
 
   initLayoutFix();
 
+  // FORCE details closed on boot
   try{
     const dp = document.getElementById('detailsPanel');
     if (dp){
@@ -121,14 +127,20 @@ function applyDetailsEditGateState(state){
   const br = document.getElementById('btnRegen');
   if (br){ br.style.display = 'none'; br.disabled = true; }
 
+  // Local caches
   loadParamsFromLocal(state);
   loadThresholdsFromLocal(state);
 
+  // Wire UI early
   await wireUIOnce(state);
 
+  // Firebase
   await importFirebaseInit(state);
+
+  // Initial perms read (may be provisional)
   await loadFieldReadinessPerms(state);
 
+  // Apply details edit gating immediately (covers provisional + loaded)
   applyDetailsEditGateState(state);
 
   if (!canView(state)){
@@ -144,16 +156,22 @@ function applyDetailsEditGateState(state){
     return;
   }
 
+  // Apply prefs once on boot
   await loadPrefsFromLocalToUI(state);
+
+  // Apply saved range string (if any)
   applySavedRangeToUI();
 
+  // Range UI module (calendar behavior) + enforcement
   await loadRangeFromLocalToUI();
   enforceCalendarNoFuture();
 
+  // Load remote thresholds + data
   await loadThresholdsFromFirestore(state);
   await loadFarmsOptional(state);
   await loadFields(state);
 
+  // Farm options can change after farms/fields load
   buildFarmFilterOptions(state);
 
   if (!state.selectedFieldId && state.fields.length){
@@ -173,6 +191,8 @@ function applyDetailsEditGateState(state){
       const prevEdit = !!(state.perm && state.perm.edit);
 
       await loadFieldReadinessPerms(state);
+
+      // Re-apply details gate anytime perms might have changed
       applyDetailsEditGateState(state);
 
       if (state.perm && state.perm.loaded && !state.perm.view){
@@ -190,23 +210,29 @@ function applyDetailsEditGateState(state){
 
       const nowEdit = !!(state.perm && state.perm.loaded && state.perm.edit);
       if (!prevLoaded || (prevEdit !== nowEdit)){
-        refreshAll(state).catch(()=>{});
+        await refreshAll(state);
       }
     }catch(_){}
   });
 
+  // ✅ iOS/Safari: re-apply selects + range after returning to page
   const reapplyPrefs = async ()=>{
     try{
       const opChanged = applySavedOpToUI(state, { fire:false });
       const sortChanged = applySavedSortToUI({ fire:false });
       const rangeChanged = applySavedRangeToUI();
 
+      // keep farm/page in sync too
       await loadPrefsFromLocalToUI(state);
+
+      // range module constraints (safe)
       enforceCalendarNoFuture();
+
+      // Re-apply details gate on return (covers BFCache + perms already known)
       applyDetailsEditGateState(state);
 
       if (opChanged || sortChanged || rangeChanged){
-        refreshAll(state).catch(()=>{});
+        await refreshAll(state);
       }
     }catch(_){}
   };
@@ -219,16 +245,18 @@ function applyDetailsEditGateState(state){
     }
   });
 
-  // ✅ Initial paint once
+  // Initial paint
   await renderTiles(state);
   await renderDetails(state);
+  await refreshAll(state);
 
-  // ✅ Kick refresh async so UI stays visible (no blank wait)
-  setTimeout(()=>{ refreshAll(state).catch(()=>{}); }, 0);
-
+  // global calibration wiring (will show Fields always; only wires when edit allowed)
   wireFieldsHiddenTap(state);
+
+  // Re-apply details gate again after all wiring (safe)
   applyDetailsEditGateState(state);
 
+  // re-close details (edge cases)
   try{
     const dp2 = document.getElementById('detailsPanel');
     if (dp2){
