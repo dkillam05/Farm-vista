@@ -1,12 +1,14 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.weather.js  (FULL FILE)
-Rev: 2025-12-23w2
+Rev: 2026-01-02a
 
-Weather proxy fetch + cache + normalize (Open-Meteo via your Cloud Run)
-✅ Keeps existing: localStorage cache + Cloud Run fetch + normalize
-✅ NEW: Firestore cache read first (field_weather_cache/{fieldId})
-    - Uses firebase-init.js module if available
-    - Falls back silently if Firestore isn’t available
+Change (per Dane):
+✅ warmWeatherForFields onEach now receives fieldId
+   - enables incremental tile refresh without blocking initial paint
+
+Keeps:
+✅ localStorage cache + Firestore cache + Cloud Run fetch fallback
+✅ normalize + aggregate logic unchanged
 ===================================================================== */
 'use strict';
 
@@ -401,12 +403,15 @@ export async function warmWeatherForFields(fields, ctx, opts){
   async function worker(){
     while (idx < list.length){
       const my = list[idx++];
+      const fid = String(my && my.id ? my.id : '');
+
       try{
         await fetchWeatherForField(my, ctx, force);
       }catch(e){
         console.warn('[FieldReadiness] weather fetch failed for', my?.name, e?.message || e);
       }finally{
-        if (onEach) onEach();
+        // ✅ pass fieldId so caller can refresh just that tile
+        if (onEach) onEach(fid);
       }
     }
   }
