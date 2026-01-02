@@ -1437,450 +1437,465 @@
     })();
   </script>
 
-  <!-- ==========================
-     FarmVista Copilot JS (AI UI)
-     - respects cap-chatbot (section may be hidden)
-     - Local chat history (messages only)
-     - Uses NEW Cloud Run Copilot backend:
+<!-- ==========================
+   FarmVista Copilot JS (AI UI)  ✅ NEW SETUP (AUTH TOKEN)
+   - respects cap-chatbot (section may be hidden)
+   - Local chat history (messages only) + 12h TTL
+   - Uses Cloud Run Copilot backend:
        https://farmvista-copilot-300398089669.us-central1.run.app/chat
-     - Keeps threadId for continuity
-     - Reports:
-       ✅ Opens PDF in an in-page modal (NOT new tab)
-       ✅ Chat shows "View PDF" button (no ugly URLs)
-     ========================== -->
-<script>
-(function(){
-  "use strict";
+   - ✅ Sends Firebase ID token in Authorization header
+   - Keeps threadId for continuity
+   - Reports:
+     ✅ Opens PDF in an in-page modal (NOT new tab)
+     ✅ Chat shows "View PDF" button (no ugly URLs)
+   ========================== -->
+<script type="module">
+  import {
+    ready,
+    getAuth
+    // NOTE: if your firebase-init exports getIdToken, we’ll use it safely via currentUser.getIdToken()
+  } from '/Farm-vista/js/firebase-init.js';
 
-  const sectionEl = document.getElementById("ai-section");
-  const logEl   = document.getElementById("ai-chat-log");
-  const formEl  = document.getElementById("ai-chat-form");
-  const inputEl = document.getElementById("ai-input");
-  const micEl   = document.getElementById("ai-mic");
-  const sendEl  = document.getElementById("ai-send");
-  const statusEl= document.getElementById("ai-status");
+  (function(){
+    "use strict";
 
-  if (!sectionEl || !logEl || !formEl || !inputEl || !micEl || !sendEl) return;
+    const sectionEl = document.getElementById("ai-section");
+    const logEl   = document.getElementById("ai-chat-log");
+    const formEl  = document.getElementById("ai-chat-form");
+    const inputEl = document.getElementById("ai-input");
+    const micEl   = document.getElementById("ai-mic");
+    const sendEl  = document.getElementById("ai-send");
+    const statusEl= document.getElementById("ai-status");
 
-  function isHidden(){
-    return sectionEl.classList.contains("perm-hidden") || sectionEl.getAttribute("aria-hidden") === "true";
-  }
+    if (!sectionEl || !logEl || !formEl || !inputEl || !micEl || !sendEl) return;
 
-  const IS_DESKTOP = (() => {
-    try{ return window.matchMedia && window.matchMedia("(min-width: 900px)").matches; }
-    catch{ return false; }
-  })();
-
-  let wired = false;
-
-  function wireUp(){
-    if (wired) return;
-    if (isHidden()) return;
-    wired = true;
-
-    let isThinking = false;
-
-    // ✅ Desktop: hard-hide mic button + do not show "not supported" status
-    if (IS_DESKTOP){
-      micEl.style.display = "none";
-      micEl.disabled = true;
+    function isHidden(){
+      return sectionEl.classList.contains("perm-hidden") || sectionEl.getAttribute("aria-hidden") === "true";
     }
 
-    // ===== Settings =====
-    const STORE_KEY   = "fv_copilot_chat_v1";
-    const THREAD_KEY  = "fv_copilot_threadId_v1";
-    const LAST_KEY    = "fv_copilot_lastChatAt_v1";   // ✅ NEW
-    const MAX_KEEP    = 80;
+    const IS_DESKTOP = (() => {
+      try{ return window.matchMedia && window.matchMedia("(min-width: 900px)").matches; }
+      catch{ return false; }
+    })();
 
-    const TTL_HOURS   = 12;                            // ✅ NEW
-    const TTL_MS      = TTL_HOURS * 60 * 60 * 1000;    // ✅ NEW
+    let wired = false;
 
-    const COPILOT_ENDPOINT = "https://farmvista-copilot-300398089669.us-central1.run.app/chat";
-    const REPORT_ENDPOINT  = "https://farmvista-copilot-300398089669.us-central1.run.app/report";
-
-    // We store PDF messages as text starting with this marker
-    const PDF_MARKER = "[[FV_PDF]]:";
-
-    // ===== Helpers =====
-    function safeHtml(s){
-      return String(s ?? "")
-        .replace(/&/g,"&amp;")
-        .replace(/</g,"&lt;")
-        .replace(/>/g,"&gt;")
-        .replace(/"/g,"&quot;")
-        .replace(/'/g,"&#39;");
-    }
-
-    function nowMs(){ return Date.now(); }
-
-    function touchLastChat(){
-      try{ localStorage.setItem(LAST_KEY, String(nowMs())); }catch{}
-    }
-
-    function clearStoredChat(){
-      try{ localStorage.removeItem(STORE_KEY); }catch{}
-      try{ localStorage.removeItem(THREAD_KEY); }catch{}
-      try{ localStorage.removeItem(LAST_KEY); }catch{}
-    }
-
-    // ✅ NEW: expire chat if inactive > 12 hours
-    function enforceTtlOnLoad(){
-  try{
-    const lastRaw = localStorage.getItem(LAST_KEY);
-    const last = lastRaw ? Number(lastRaw) : 0;
-    if (!Number.isFinite(last) || last <= 0){
-      return;
-    }
-    const age = nowMs() - last;
-    if (age > TTL_MS){
-      clearStoredChat();
-    }
-  }catch{}
-}
-
-
-    function loadHistory(){
-      try{
-        const raw = localStorage.getItem(STORE_KEY);
-        if (!raw) return [];
-        const arr = JSON.parse(raw);
-        if (!Array.isArray(arr)) return [];
-        return arr
-          .filter(m => m && (m.role === "user" || m.role === "assistant"))
-          .map(m => ({
-            role: m.role,
-            text: String(m.text ?? ""),
-            ts: Number(m.ts) || nowMs()
-          }));
-      }catch{
-        return [];
-      }
-    }
-
-    function saveHistory(list){
-      try{
-        const trimmed = (list || []).slice(-MAX_KEEP);
-        localStorage.setItem(STORE_KEY, JSON.stringify(trimmed));
-        touchLastChat(); // ✅ NEW: any save counts as "active"
-      }catch{}
-    }
-
-    function getThreadId(){
-      try{ return (localStorage.getItem(THREAD_KEY) || "").toString().trim() || ""; }
-      catch{ return ""; }
-    }
-
-    function setThreadId(id){
-      const v = (id || "").toString().trim();
-      if (!v) return;
-      try{ localStorage.setItem(THREAD_KEY, v); }catch{}
-      touchLastChat(); // ✅ NEW: thread continuity also counts as activity
-    }
-
-    function clearEmptyState(){
-      const empty = logEl.querySelector(".ai-empty");
-      if (empty) empty.remove();
-    }
-
-    function setStatus(msg){
-      if (statusEl) statusEl.textContent = msg || "";
-    }
-
-    function setThinking(on){
-      isThinking = !!on;
-      sendEl.disabled = isThinking;
-      inputEl.disabled = isThinking;
-      if (!IS_DESKTOP) micEl.disabled = isThinking;
-      setStatus(isThinking ? "Thinking…" : "");
-    }
-
-    function buildReportUrl(threadId, mode){
-      const qs = new URLSearchParams();
-      if (threadId) qs.set("threadId", threadId);
-      qs.set("mode", (mode || "recent").toString().trim() || "recent");
-      return `${REPORT_ENDPOINT}?${qs.toString()}`;
-    }
-
-    // ===== PDF Modal (in-page popup) =====
-    const modal = document.createElement("div");
-    modal.className = "fv-pdf-modal";
-    modal.innerHTML = `
-      <div class="fv-pdf-backdrop"></div>
-      <div class="fv-pdf-sheet" role="dialog" aria-modal="true" aria-label="PDF Report">
-        <div class="fv-pdf-top">
-          <div class="fv-pdf-title">Report PDF</div>
-          <button type="button" class="fv-pdf-close">Close</button>
-        </div>
-        <iframe class="fv-pdf-frame" title="Report PDF"></iframe>
-      </div>
-    `;
-
-    const style = document.createElement("style");
-    style.textContent = `
-      .fv-pdf-modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:100000; padding:16px; }
-      .fv-pdf-modal.show{ display:flex; }
-      .fv-pdf-backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.55); }
-      .fv-pdf-sheet{
-        position:relative;
-        width:min(1100px, 96vw);
-        height:min(86vh, 860px);
-        background:var(--surface, #fff);
-        border:1px solid var(--border, #D1D5DB);
-        border-radius:14px;
-        box-shadow:0 20px 40px rgba(0,0,0,.35);
-        overflow:hidden;
-        display:flex;
-        flex-direction:column;
-        z-index:1;
-      }
-      .fv-pdf-top{
-        display:flex;
-        align-items:center;
-        justify-content:space-between;
-        gap:10px;
-        padding:10px 12px;
-        border-bottom:1px solid var(--border, #D1D5DB);
-        background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
-      }
-      .fv-pdf-title{ font-weight:900; letter-spacing:.06em; text-transform:uppercase; font-size:12px; color:var(--text, #111827); }
-      .fv-pdf-close{
-        border:none;
-        border-radius:999px;
-        padding:6px 12px;
-        font-size:0.85rem;
-        cursor:pointer;
-        background:color-mix(in srgb, var(--surface, #fff) 70%, var(--border, #D1D5DB) 30%);
-        color:var(--text, #111827);
-        font-weight:800;
-      }
-      .fv-pdf-frame{ flex:1; width:100%; height:100%; border:0; background:#fff; }
-      .ai-pdf-btn{
-        display:inline-flex;
-        align-items:center;
-        justify-content:center;
-        padding:10px 12px;
-        border-radius:12px;
-        border:1px solid var(--border,#D1D5DB);
-        font-weight:900;
-        letter-spacing:.02em;
-        cursor:pointer;
-        background:var(--card-surface, var(--surface, #fff));
-        color:var(--text,#111827);
-        gap:8px;
-        user-select:none;
-      }
-      .ai-pdf-btn:active{ transform:scale(.995); }
-    `;
-    document.head.appendChild(style);
-    document.body.appendChild(modal);
-
-    const modalBackdrop = modal.querySelector(".fv-pdf-backdrop");
-    const modalCloseBtn = modal.querySelector(".fv-pdf-close");
-    const modalFrame    = modal.querySelector(".fv-pdf-frame");
-
-    function openPdfModal(url){
-      if (!url) return;
-      modalFrame.src = url;
-      modal.classList.add("show");
-    }
-    function closePdfModal(){
-      modal.classList.remove("show");
-    }
-
-    modalBackdrop.addEventListener("click", closePdfModal);
-    modalCloseBtn.addEventListener("click", closePdfModal);
-    document.addEventListener("keydown", (e)=>{
-      if (e.key === "Escape" && modal.classList.contains("show")) closePdfModal();
-    });
-
-    // ✅ Enforce TTL before reading history/thread
-    enforceTtlOnLoad();
-
-    // ===== Rendering =====
-    let history = loadHistory();
-
-    function renderMessage(role, text){
-      clearEmptyState();
-
-      const who = role === "user" ? "You" : "Copilot";
-      const wrap = document.createElement("div");
-      wrap.className = "ai-msg-wrap";
-
-      const bubble = document.createElement("div");
-      bubble.className = "ai-msg " + (role === "user" ? "ai-msg-user" : "ai-msg-assistant");
-
-      const meta = document.createElement("div");
-      meta.className = "ai-msg-meta " + (role === "user" ? "user" : "assistant");
-      meta.textContent = who;
-
-      // PDF marker handling
-      if (role === "assistant" && typeof text === "string" && text.startsWith(PDF_MARKER)) {
-        const url = text.slice(PDF_MARKER.length).trim();
-
-        bubble.innerHTML = "";
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "ai-pdf-btn";
-        btn.textContent = "View PDF";
-        btn.addEventListener("click", ()=> openPdfModal(url));
-        bubble.appendChild(btn);
-      } else {
-        bubble.innerHTML = safeHtml(String(text || ""));
-      }
-
-      wrap.appendChild(bubble);
-      wrap.appendChild(meta);
-      logEl.appendChild(wrap);
-      logEl.scrollTop = logEl.scrollHeight;
-    }
-
-    function renderHistory(){
-      if (!history.length) return;
-      for (const m of history){
-        renderMessage(m.role, m.text);
-      }
-    }
-
-    function appendMessage(role, text){
-      renderMessage(role, text);
-      history.push({ role, text: String(text || ""), ts: nowMs() });
-      saveHistory(history); // updates LAST_KEY too
-    }
-
-    // Hydrate
-    renderHistory();
-
-    // ===== Backend call =====
-    async function callAssistant(prompt){
-      const existingThreadId = getThreadId();
-
-      const payload = { question: String(prompt || "") };
-      if (existingThreadId) payload.threadId = existingThreadId;
-
-      const res = await fetch(COPILOT_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-
-      if (!res.ok){
-        throw new Error("API error " + res.status);
-      }
-
-      const data = await res.json();
-
-      // Persist threadId
-      if (data?.meta?.threadId) setThreadId(String(data.meta.threadId));
-
-      // Report action
-      if (data && data.action === "report") {
-        const tid = data?.meta?.threadId ? String(data.meta.threadId) : getThreadId();
-        const mode = data?.meta?.reportMode ? String(data.meta.reportMode) : "recent";
-
-        const url = buildReportUrl(tid, mode);
-        openPdfModal(url);
-
-        return PDF_MARKER + url;
-      }
-
-      return (data && data.answer) ? String(data.answer) : "(No response)";
-    }
-
-    // ===== Submit =====
-    formEl.addEventListener("submit", async (evt)=>{
-      evt.preventDefault();
-      if (isThinking) return;
+    function wireUp(){
+      if (wired) return;
       if (isHidden()) return;
+      wired = true;
 
-      const text = (inputEl.value || "").trim();
-      if (!text) return;
+      let isThinking = false;
 
-      appendMessage("user", text);
-      inputEl.value = "";
-      inputEl.style.height = "auto";
-
-      setThinking(true);
-      try{
-        const reply = await callAssistant(text);
-        appendMessage("assistant", reply || "(No response)");
-      }catch(e){
-        console.warn("[copilot] error:", e);
-        appendMessage("assistant", "Sorry, I couldn't process that request right now.");
-      }finally{
-        setThinking(false);
-      }
-    });
-
-    inputEl.addEventListener("input", ()=>{
-      inputEl.style.height = "auto";
-      inputEl.style.height = Math.min(inputEl.scrollHeight, 96) + "px";
-    });
-
-    inputEl.addEventListener("keydown", (evt)=>{
-      if (evt.key === "Enter" && !evt.shiftKey){
-        evt.preventDefault();
-        if (!isThinking){
-          if (typeof formEl.requestSubmit === "function"){
-            formEl.requestSubmit();
-          }else{
-            formEl.dispatchEvent(new Event("submit", { cancelable:true, bubbles:true }));
-          }
-        }
-      }
-    });
-
-    // ✅ Mobile-only voice dictation
-    if (!IS_DESKTOP){
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      let recognition = null;
-      let isRecording = false;
-
-      if (SpeechRecognition){
-        recognition = new SpeechRecognition();
-        recognition.lang = "en-US";
-        recognition.interimResults = false;
-        recognition.maxAlternatives = 1;
-
-        recognition.addEventListener("start", ()=>{
-          isRecording = true;
-          micEl.classList.add("recording");
-          setStatus("Listening…");
-        });
-
-        recognition.addEventListener("end", ()=>{
-          isRecording = false;
-          micEl.classList.remove("recording");
-          if (!isThinking) setStatus("");
-        });
-
-        recognition.addEventListener("result", (event)=>{
-          const result = event.results && event.results[0] && event.results[0][0];
-          const t = result ? result.transcript : "";
-          if (t){
-            const existing = inputEl.value.trim();
-            inputEl.value = existing ? (existing + " " + t) : t;
-            inputEl.dispatchEvent(new Event("input"));
-            inputEl.focus();
-          }
-        });
-
-        micEl.addEventListener("click", ()=>{
-          if (isThinking) return;
-          if (isRecording){
-            recognition.stop();
-            return;
-          }
-          try{ recognition.start(); }catch(e){ console.warn("[copilot] recognition error:", e); }
-        });
-      }else{
+      // ✅ Desktop: hide mic
+      if (IS_DESKTOP){
+        micEl.style.display = "none";
         micEl.disabled = true;
       }
-    }
-  }
 
-  wireUp();
-  document.addEventListener("fv:dash-perms-ready", wireUp);
-})();
+      // ===== Settings =====
+      const STORE_KEY   = "fv_copilot_chat_v1";
+      const THREAD_KEY  = "fv_copilot_threadId_v1";
+      const LAST_KEY    = "fv_copilot_lastChatAt_v1";
+      const MAX_KEEP    = 80;
+
+      const TTL_HOURS   = 12;
+      const TTL_MS      = TTL_HOURS * 60 * 60 * 1000;
+
+      // Allow overriding endpoints without editing the file
+      const COPILOT_ENDPOINT = (window.FV_COPILOT_ENDPOINT || "https://farmvista-copilot-300398089669.us-central1.run.app/chat").toString();
+      const REPORT_ENDPOINT  = (window.FV_COPILOT_REPORT_ENDPOINT || "https://farmvista-copilot-300398089669.us-central1.run.app/report").toString();
+
+      // We store PDF messages as text starting with this marker
+      const PDF_MARKER = "[[FV_PDF]]:";
+
+      // ===== Helpers =====
+      function safeHtml(s){
+        return String(s ?? "")
+          .replace(/&/g,"&amp;")
+          .replace(/</g,"&lt;")
+          .replace(/>/g,"&gt;")
+          .replace(/"/g,"&quot;")
+          .replace(/'/g,"&#39;");
+      }
+
+      function nowMs(){ return Date.now(); }
+
+      function touchLastChat(){
+        try{ localStorage.setItem(LAST_KEY, String(nowMs())); }catch{}
+      }
+
+      function clearStoredChat(){
+        try{ localStorage.removeItem(STORE_KEY); }catch{}
+        try{ localStorage.removeItem(THREAD_KEY); }catch{}
+        try{ localStorage.removeItem(LAST_KEY); }catch{}
+      }
+
+      function enforceTtlOnLoad(){
+        try{
+          const lastRaw = localStorage.getItem(LAST_KEY);
+          const last = lastRaw ? Number(lastRaw) : 0;
+          if (!Number.isFinite(last) || last <= 0) return;
+          const age = nowMs() - last;
+          if (age > TTL_MS) clearStoredChat();
+        }catch{}
+      }
+
+      function loadHistory(){
+        try{
+          const raw = localStorage.getItem(STORE_KEY);
+          if (!raw) return [];
+          const arr = JSON.parse(raw);
+          if (!Array.isArray(arr)) return [];
+          return arr
+            .filter(m => m && (m.role === "user" || m.role === "assistant"))
+            .map(m => ({
+              role: m.role,
+              text: String(m.text ?? ""),
+              ts: Number(m.ts) || nowMs()
+            }));
+        }catch{
+          return [];
+        }
+      }
+
+      function saveHistory(list){
+        try{
+          const trimmed = (list || []).slice(-MAX_KEEP);
+          localStorage.setItem(STORE_KEY, JSON.stringify(trimmed));
+          touchLastChat();
+        }catch{}
+      }
+
+      function getThreadId(){
+        try{ return (localStorage.getItem(THREAD_KEY) || "").toString().trim() || ""; }
+        catch{ return ""; }
+      }
+
+      function setThreadId(id){
+        const v = (id || "").toString().trim();
+        if (!v) return;
+        try{ localStorage.setItem(THREAD_KEY, v); }catch{}
+        touchLastChat();
+      }
+
+      function clearEmptyState(){
+        const empty = logEl.querySelector(".ai-empty");
+        if (empty) empty.remove();
+      }
+
+      function setStatus(msg){
+        if (statusEl) statusEl.textContent = msg || "";
+      }
+
+      function setThinking(on){
+        isThinking = !!on;
+        sendEl.disabled = isThinking;
+        inputEl.disabled = isThinking;
+        if (!IS_DESKTOP) micEl.disabled = isThinking;
+        setStatus(isThinking ? "Thinking…" : "");
+      }
+
+      function buildReportUrl(threadId, mode){
+        const qs = new URLSearchParams();
+        if (threadId) qs.set("threadId", threadId);
+        qs.set("mode", (mode || "recent").toString().trim() || "recent");
+        return `${REPORT_ENDPOINT}?${qs.toString()}`;
+      }
+
+      // ===== PDF Modal (in-page popup) =====
+      const modal = document.createElement("div");
+      modal.className = "fv-pdf-modal";
+      modal.innerHTML = `
+        <div class="fv-pdf-backdrop"></div>
+        <div class="fv-pdf-sheet" role="dialog" aria-modal="true" aria-label="PDF Report">
+          <div class="fv-pdf-top">
+            <div class="fv-pdf-title">Report PDF</div>
+            <button type="button" class="fv-pdf-close">Close</button>
+          </div>
+          <iframe class="fv-pdf-frame" title="Report PDF"></iframe>
+        </div>
+      `;
+
+      const style = document.createElement("style");
+      style.textContent = `
+        .fv-pdf-modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:100000; padding:16px; }
+        .fv-pdf-modal.show{ display:flex; }
+        .fv-pdf-backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.55); }
+        .fv-pdf-sheet{
+          position:relative;
+          width:min(1100px, 96vw);
+          height:min(86vh, 860px);
+          background:var(--surface, #fff);
+          border:1px solid var(--border, #D1D5DB);
+          border-radius:14px;
+          box-shadow:0 20px 40px rgba(0,0,0,.35);
+          overflow:hidden;
+          display:flex;
+          flex-direction:column;
+          z-index:1;
+        }
+        .fv-pdf-top{
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          gap:10px;
+          padding:10px 12px;
+          border-bottom:1px solid var(--border, #D1D5DB);
+          background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+        }
+        .fv-pdf-title{ font-weight:900; letter-spacing:.06em; text-transform:uppercase; font-size:12px; color:var(--text, #111827); }
+        .fv-pdf-close{
+          border:none;
+          border-radius:999px;
+          padding:6px 12px;
+          font-size:0.85rem;
+          cursor:pointer;
+          background:color-mix(in srgb, var(--surface, #fff) 70%, var(--border, #D1D5DB) 30%);
+          color:var(--text, #111827);
+          font-weight:800;
+        }
+        .fv-pdf-frame{ flex:1; width:100%; height:100%; border:0; background:#fff; }
+        .ai-pdf-btn{
+          display:inline-flex;
+          align-items:center;
+          justify-content:center;
+          padding:10px 12px;
+          border-radius:12px;
+          border:1px solid var(--border,#D1D5DB);
+          font-weight:900;
+          letter-spacing:.02em;
+          cursor:pointer;
+          background:var(--card-surface, var(--surface, #fff));
+          color:var(--text,#111827);
+          gap:8px;
+          user-select:none;
+        }
+        .ai-pdf-btn:active{ transform:scale(.995); }
+      `;
+      document.head.appendChild(style);
+      document.body.appendChild(modal);
+
+      const modalBackdrop = modal.querySelector(".fv-pdf-backdrop");
+      const modalCloseBtn = modal.querySelector(".fv-pdf-close");
+      const modalFrame    = modal.querySelector(".fv-pdf-frame");
+
+      function openPdfModal(url){
+        if (!url) return;
+        modalFrame.src = url;
+        modal.classList.add("show");
+      }
+      function closePdfModal(){
+        modal.classList.remove("show");
+      }
+
+      modalBackdrop.addEventListener("click", closePdfModal);
+      modalCloseBtn.addEventListener("click", closePdfModal);
+      document.addEventListener("keydown", (e)=>{
+        if (e.key === "Escape" && modal.classList.contains("show")) closePdfModal();
+      });
+
+      // ✅ Enforce TTL before reading history/thread
+      enforceTtlOnLoad();
+
+      // ===== Rendering =====
+      let history = loadHistory();
+
+      function renderMessage(role, text){
+        clearEmptyState();
+
+        const who = role === "user" ? "You" : "Copilot";
+        const wrap = document.createElement("div");
+        wrap.className = "ai-msg-wrap";
+
+        const bubble = document.createElement("div");
+        bubble.className = "ai-msg " + (role === "user" ? "ai-msg-user" : "ai-msg-assistant");
+
+        const meta = document.createElement("div");
+        meta.className = "ai-msg-meta " + (role === "user" ? "user" : "assistant");
+        meta.textContent = who;
+
+        if (role === "assistant" && typeof text === "string" && text.startsWith(PDF_MARKER)) {
+          const url = text.slice(PDF_MARKER.length).trim();
+          bubble.innerHTML = "";
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "ai-pdf-btn";
+          btn.textContent = "View PDF";
+          btn.addEventListener("click", ()=> openPdfModal(url));
+          bubble.appendChild(btn);
+        } else {
+          bubble.innerHTML = safeHtml(String(text || ""));
+        }
+
+        wrap.appendChild(bubble);
+        wrap.appendChild(meta);
+        logEl.appendChild(wrap);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function renderHistory(){
+        if (!history.length) return;
+        for (const m of history){
+          renderMessage(m.role, m.text);
+        }
+      }
+
+      function appendMessage(role, text){
+        renderMessage(role, text);
+        history.push({ role, text: String(text || ""), ts: nowMs() });
+        saveHistory(history);
+      }
+
+      // Hydrate
+      renderHistory();
+
+      async function getAuthToken(){
+        try{
+          await ready;
+          const auth = getAuth();
+          const user = auth?.currentUser || null;
+          if (!user) return "";
+          // safest: use instance method (works even if getIdToken isn’t exported)
+          const tok = await user.getIdToken();
+          return (tok || "").toString();
+        }catch{
+          return "";
+        }
+      }
+
+      // ===== Backend call =====
+      async function callAssistant(prompt){
+        const existingThreadId = getThreadId();
+
+        const payload = { question: String(prompt || "") };
+        if (existingThreadId) payload.threadId = existingThreadId;
+
+        const idToken = await getAuthToken();
+
+        const headers = { "Content-Type": "application/json" };
+        if (idToken) headers["Authorization"] = `Bearer ${idToken}`;
+
+        const res = await fetch(COPILOT_ENDPOINT, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok){
+          throw new Error("API error " + res.status);
+        }
+
+        const data = await res.json();
+
+        if (data?.meta?.threadId) setThreadId(String(data.meta.threadId));
+
+        if (data && data.action === "report") {
+          const tid = data?.meta?.threadId ? String(data.meta.threadId) : getThreadId();
+          const mode = data?.meta?.reportMode ? String(data.meta.reportMode) : "recent";
+          const url = buildReportUrl(tid, mode);
+          openPdfModal(url);
+          return PDF_MARKER + url;
+        }
+
+        return (data && data.answer) ? String(data.answer) : "(No response)";
+      }
+
+      // ===== Submit =====
+      formEl.addEventListener("submit", async (evt)=>{
+        evt.preventDefault();
+        if (isThinking) return;
+        if (isHidden()) return;
+
+        const text = (inputEl.value || "").trim();
+        if (!text) return;
+
+        appendMessage("user", text);
+        inputEl.value = "";
+        inputEl.style.height = "auto";
+
+        setThinking(true);
+        try{
+          const reply = await callAssistant(text);
+          appendMessage("assistant", reply || "(No response)");
+        }catch(e){
+          console.warn("[copilot] error:", e);
+          appendMessage("assistant", "Sorry, I couldn't process that request right now.");
+        }finally{
+          setThinking(false);
+        }
+      });
+
+      inputEl.addEventListener("input", ()=>{
+        inputEl.style.height = "auto";
+        inputEl.style.height = Math.min(inputEl.scrollHeight, 96) + "px";
+      });
+
+      inputEl.addEventListener("keydown", (evt)=>{
+        if (evt.key === "Enter" && !evt.shiftKey){
+          evt.preventDefault();
+          if (!isThinking){
+            if (typeof formEl.requestSubmit === "function"){
+              formEl.requestSubmit();
+            }else{
+              formEl.dispatchEvent(new Event("submit", { cancelable:true, bubbles:true }));
+            }
+          }
+        }
+      });
+
+      // ✅ Mobile-only voice dictation
+      if (!IS_DESKTOP){
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition = null;
+        let isRecording = false;
+
+        if (SpeechRecognition){
+          recognition = new SpeechRecognition();
+          recognition.lang = "en-US";
+          recognition.interimResults = false;
+          recognition.maxAlternatives = 1;
+
+          recognition.addEventListener("start", ()=>{
+            isRecording = true;
+            micEl.classList.add("recording");
+            setStatus("Listening…");
+          });
+
+          recognition.addEventListener("end", ()=>{
+            isRecording = false;
+            micEl.classList.remove("recording");
+            if (!isThinking) setStatus("");
+          });
+
+          recognition.addEventListener("result", (event)=>{
+            const result = event.results && event.results[0] && event.results[0][0];
+            const t = result ? result.transcript : "";
+            if (t){
+              const existing = inputEl.value.trim();
+              inputEl.value = existing ? (existing + " " + t) : t;
+              inputEl.dispatchEvent(new Event("input"));
+              inputEl.focus();
+            }
+          });
+
+          micEl.addEventListener("click", ()=>{
+            if (isThinking) return;
+            if (isRecording){
+              recognition.stop();
+              return;
+            }
+            try{ recognition.start(); }catch(e){ console.warn("[copilot] recognition error:", e); }
+          });
+        }else{
+          micEl.disabled = true;
+        }
+      }
+    }
+
+    wireUp();
+    document.addEventListener("fv:dash-perms-ready", wireUp);
+  })();
 </script>
 
   <!-- One-time SW reset for path change -->
