@@ -707,6 +707,19 @@ function wireTileInteractions(state, tileEl, fieldId){
     openQuickView(state, fieldId);
   });
 }
+function getTilesViewKey(state){
+  const opKey = getCurrentOp();
+  const farmId = String(state?.farmFilter || '__all__');
+  const pageSize = String(state?.pageSize ?? '25');
+  const sortSel = $('sortSel');
+  const sort = String(sortSel ? sortSel.value : 'name_az');
+  const rangeStr = String(
+    ($('jobRangeInput') && $('jobRangeInput').value)
+      ? $('jobRangeInput').value
+      : ''
+  );
+  return `${opKey}__${farmId}__${pageSize}__${sort}__${rangeStr}`;
+}
 
 /* ---------- tile render (CORE) ---------- */
 async function _renderTilesInternal(state){
@@ -716,32 +729,52 @@ async function _renderTilesInternal(state){
 
   const wrap = $('fieldsGrid');
   if (!wrap) return;
-  wrap.innerHTML = '';
+
+  const viewKey = getTilesViewKey(state);
+  const sameView = (state._fvTilesViewKey === viewKey);
+  state._fvTilesViewKey = viewKey;
 
   const opKey = getCurrentOp();
-
   const wxCtx = buildWxCtx(state);
   const deps = {
-    getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
-    getFieldParams: (fid)=> getFieldParams(state, fid),
+    getWeatherSeriesForFieldId: (id)=> state._mods.weather.getWeatherSeriesForFieldId(id, wxCtx),
+    getFieldParams: (id)=> getFieldParams(state, id),
     LOSS_SCALE: CONST.LOSS_SCALE,
     EXTRA,
     opKey,
     CAL: getCalForDeps(state)
   };
 
+  const filtered = getFilteredFields(state);
+  const cap = (String(state.pageSize) === '__all__' || state.pageSize === -1)
+    ? filtered.length
+    : Math.min(filtered.length, Number(state.pageSize || 25));
+
+  const sortSel = $('sortSel');
+  const mode = String(sortSel ? sortSel.value : 'name_az');
+
+  // ✅ SAME VIEW → DO NOT REBUILD → UPDATE NUMBERS ONLY
+  if (sameView){
+    const tiles = wrap.querySelectorAll('.tile[data-field-id]');
+    for (let i = 0; i < tiles.length && i < cap; i++){
+      const fid = tiles[i].getAttribute('data-field-id');
+      if (fid) await updateTileForField(state, fid);
+    }
+    return;
+  }
+
+  // ⛔ VIEW CHANGED → FULL REBUILD (allowed)
   state.lastRuns.clear();
-  for (const f of state.fields){
+  for (const f of filtered){
     state.lastRuns.set(f.id, state._mods.model.runField(f, deps));
   }
 
-  const filtered = getFilteredFields(state);
   const sorted = sortFields(filtered, state.lastRuns);
+  const show = sorted.slice(0, cap);
   const thr = getThresholdForOp(state, opKey);
   const range = parseRangeFromInput();
 
-  const cap = (String(state.pageSize) === '__all__' || state.pageSize === -1) ? sorted.length : Math.min(sorted.length, Number(state.pageSize || 25));
-  const show = sorted.slice(0, cap);
+  wrap.innerHTML = '';
 
   for (const f of show){
     const run0 = state.lastRuns.get(f.id);
@@ -763,51 +796,30 @@ async function _renderTilesInternal(state){
     tile.dataset.fieldId = f.id;
     tile.setAttribute('data-field-id', f.id);
 
-    if (String(state.selectedFieldId) === String(f.id)){
-      tile.classList.add('fv-selected');
-      state._selectedTileId = String(f.id);
-    }
-
     tile.innerHTML = `
       <div class="tile-top">
         <div class="titleline">
-          <div class="name" title="${esc(f.name)}">${esc(f.name)}</div>
+          <div class="name">${esc(f.name)}</div>
         </div>
-        <div class="readiness-pill" style="background:${pillBg};color:#fff;">Field Readiness ${readiness}</div>
+        <div class="readiness-pill" style="background:${pillBg};color:#fff;">
+          Field Readiness ${readiness}
+        </div>
       </div>
 
       <p class="subline">Rain (range): <span class="mono">${rainRange.toFixed(2)}</span> in</p>
 
       <div class="gauge-wrap">
-        <div class="chips">
-          <div class="chip wet">Wet</div>
-          <div class="chip readiness">Readiness</div>
-        </div>
-
         <div class="gauge" style="background:${grad};">
           <div class="thr" style="left:${thrPos};"></div>
           <div class="marker" style="left:${leftPos};"></div>
-          <div class="badge" style="left:${leftPos};background:${pillBg};color:#fff;border:1px solid rgba(255,255,255,.18);">Field Readiness ${readiness}</div>
         </div>
-
-        <div class="ticks"><span>0</span><span>50</span><span>100</span></div>
-        ${etaTxt ? `<div class="help"><b>${esc(String(etaTxt))}</b></div>` : ``}
+        ${etaTxt ? `<div class="help"><b>${esc(etaTxt)}</b></div>` : ``}
       </div>
     `;
 
     wireTileInteractions(state, tile, f.id);
     wrap.appendChild(tile);
   }
-
-  const empty = $('emptyMsg');
-  if (empty) empty.style.display = show.length ? 'none' : 'block';
-
-  await initSwipeOnTiles(state, {
-    onDetails: async (fieldId)=>{
-      if (!canEdit(state)) return;
-      await openQuickView(state, fieldId);
-    }
-  });
 }
 
 /* ---------- tile render (PUBLIC) ---------- */
