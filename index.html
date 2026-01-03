@@ -1377,33 +1377,40 @@
     })();
   </script>
 
-  <!-- ==========================
-       Copilot UI module (NEW)
-       ========================== -->
-  <script type="module">
-    import { FVCopilotUI } from 'js/copilot-ui.js';
 
-    // Init once on load, and again after perms are resolved (if chatbot is hidden initially)
-    let _copilotInited = false;
-
-    function initCopilot(){
-      if (_copilotInited) return;
-      _copilotInited = true;
-      try{
-        FVCopilotUI.init();
-      }catch(e){
-        console.warn("[dashboard] copilot-ui init failed:", e);
+<!-- ==========================
+     Copilot UI module (NEW)
+     ========================== -->
+<script>
+  // Prevent page reload if Copilot JS fails to load for any reason.
+  // If the module wires successfully it will set window.__FV_COPILOT_WIRED = true.
+  (function(){
+    const f = document.getElementById('ai-chat-form');
+    if (!f) return;
+    f.addEventListener('submit', function(e){
+      if (!window.__FV_COPILOT_WIRED) {
+        e.preventDefault();
+        e.stopPropagation();
       }
-    }
+    }, true);
+  })();
+</script>
 
-    // Try immediately (fail-safe)
-    initCopilot();
+<script type="module">
+  import { FVCopilotUI } from '/Farm-vista/js/copilot-ui.js';
 
-    // Also try after permission gating runs
-    document.addEventListener("fv:dash-perms-ready", ()=>{
-      initCopilot();
-    });
-  </script>
+  let _copilotInited = false;
+
+  function initCopilot(){
+    if (_copilotInited) return;
+    _copilotInited = true;
+    try{ FVCopilotUI.init(); }
+    catch(e){ console.warn("[dashboard] copilot-ui init failed:", e); }
+  }
+
+  initCopilot();
+  document.addEventListener("fv:dash-perms-ready", initCopilot);
+</script>
 
   <!-- One-time SW reset for path change -->
   <script>
