@@ -1438,12 +1438,13 @@
   </script>
 
 <!-- ==========================
-   FarmVista Copilot JS (AI UI)  ✅ NEW SETUP (AUTH TOKEN)
+   FarmVista Copilot JS (AI UI)  ✅ STATE-AWARE (PICK LIST FIX)
    - respects cap-chatbot (section may be hidden)
    - Local chat history (messages only) + 12h TTL
    - Uses Cloud Run Copilot backend:
        https://farmvista-copilot-300398089669.us-central1.run.app/chat
    - ✅ Sends Firebase ID token in Authorization header
+   - ✅ Sends/receives resolver "state" so "first one / 2 / Stone Seed" works
    - Keeps threadId for continuity
    - Reports:
      ✅ Opens PDF in an in-page modal (NOT new tab)
@@ -1453,7 +1454,6 @@
   import {
     ready,
     getAuth
-    // NOTE: if your firebase-init exports getIdToken, we’ll use it safely via currentUser.getIdToken()
   } from '/Farm-vista/js/firebase-init.js';
 
   (function(){
@@ -1497,6 +1497,7 @@
       const STORE_KEY   = "fv_copilot_chat_v1";
       const THREAD_KEY  = "fv_copilot_threadId_v1";
       const LAST_KEY    = "fv_copilot_lastChatAt_v1";
+      const STATE_KEY   = "fv_copilot_state_v1";     // ✅ NEW: resolver state
       const MAX_KEEP    = 80;
 
       const TTL_HOURS   = 12;
@@ -1529,6 +1530,7 @@
         try{ localStorage.removeItem(STORE_KEY); }catch{}
         try{ localStorage.removeItem(THREAD_KEY); }catch{}
         try{ localStorage.removeItem(LAST_KEY); }catch{}
+        try{ localStorage.removeItem(STATE_KEY); }catch{} // ✅ NEW
       }
 
       function enforceTtlOnLoad(){
@@ -1577,6 +1579,25 @@
         if (!v) return;
         try{ localStorage.setItem(THREAD_KEY, v); }catch{}
         touchLastChat();
+      }
+
+      // ✅ Resolver state persistence
+      function getResolverState(){
+        try{
+          const raw = localStorage.getItem(STATE_KEY);
+          if (!raw) return null;
+          const obj = JSON.parse(raw);
+          return (obj && typeof obj === "object") ? obj : null;
+        }catch{
+          return null;
+        }
+      }
+      function setResolverState(st){
+        try{
+          if (!st) { localStorage.removeItem(STATE_KEY); return; }
+          localStorage.setItem(STATE_KEY, JSON.stringify(st));
+          touchLastChat();
+        }catch{}
       }
 
       function clearEmptyState(){
@@ -1695,7 +1716,7 @@
         if (e.key === "Escape" && modal.classList.contains("show")) closePdfModal();
       });
 
-      // ✅ Enforce TTL before reading history/thread
+      // ✅ Enforce TTL before reading history/thread/state
       enforceTtlOnLoad();
 
       // ===== Rendering =====
@@ -1756,7 +1777,6 @@
           const auth = getAuth();
           const user = auth?.currentUser || null;
           if (!user) return "";
-          // safest: use instance method (works even if getIdToken isn’t exported)
           const tok = await user.getIdToken();
           return (tok || "").toString();
         }catch{
@@ -1767,9 +1787,11 @@
       // ===== Backend call =====
       async function callAssistant(prompt){
         const existingThreadId = getThreadId();
+        const resolverState = getResolverState(); // ✅ NEW
 
         const payload = { question: String(prompt || "") };
         if (existingThreadId) payload.threadId = existingThreadId;
+        if (resolverState) payload.state = resolverState; // ✅ NEW: send state back
 
         const idToken = await getAuthToken();
 
@@ -1788,8 +1810,16 @@
 
         const data = await res.json();
 
+        // ✅ Save threadId
         if (data?.meta?.threadId) setThreadId(String(data.meta.threadId));
 
+        // ✅ Save/clear resolver state based on response
+        // Server returns: state: {...} or null
+        if (Object.prototype.hasOwnProperty.call(data || {}, "state")) {
+          setResolverState(data.state || null);
+        }
+
+        // Report handling (unchanged)
         if (data && data.action === "report") {
           const tid = data?.meta?.threadId ? String(data.meta.threadId) : getThreadId();
           const mode = data?.meta?.reportMode ? String(data.meta.reportMode) : "recent";
