@@ -1,18 +1,9 @@
 /* /Farm-vista/js/copilot-ui.js  (FULL FILE)
-   Rev: 2026-01-03-copilot-ui1
+   Rev: 2026-01-03-copilot-ui2-noreload
 
-   FarmVista Copilot UI module
-   - Keeps dashboard HTML stable (you import + call init once)
-   - Sends questions to Cloud Run Copilot backend
-   - Persists:
-     • chat history (messages only) with 12h TTL
-     • threadId (required for follow-ups like "show all", "more", etc.)
-   - Sends Firebase ID token in Authorization header
-   - Supports report action => opens in-page PDF modal + shows "View PDF" bubble
-   - Does NOT implement any "intent" logic in the front end (backend is the brain)
-
-   Expected DOM IDs by default:
-     #ai-section, #ai-chat-log, #ai-chat-form, #ai-input, #ai-mic, #ai-send, #ai-status
+   Adds:
+   ✅ window.__FV_COPILOT_WIRED = true when wired
+   ✅ safer init + clearer failures (console only)
 */
 
 'use strict';
@@ -21,11 +12,9 @@ import { ready, getAuth } from '/Farm-vista/js/firebase-init.js';
 
 export const FVCopilotUI = (() => {
   const DEFAULTS = {
-    // endpoints
     copilotEndpoint: (window.FV_COPILOT_ENDPOINT || 'https://farmvista-copilot-300398089669.us-central1.run.app/chat').toString(),
     reportEndpoint:  (window.FV_COPILOT_REPORT_ENDPOINT || 'https://farmvista-copilot-300398089669.us-central1.run.app/report').toString(),
 
-    // selectors
     sectionSel: '#ai-section',
     logSel: '#ai-chat-log',
     formSel: '#ai-chat-form',
@@ -34,21 +23,17 @@ export const FVCopilotUI = (() => {
     sendSel: '#ai-send',
     statusSel: '#ai-status',
 
-    // storage
     storageKey: 'fv_copilot_chat_v1',
     threadKey:  'fv_copilot_threadId_v2',
     lastKey:    'fv_copilot_lastChatAt_v1',
 
-    // retention
     ttlHours: 12,
     maxKeep: 80,
 
-    // UI behavior
     desktopMinWidth: 900,
     pdfTitle: 'Report PDF',
     pdfButtonLabel: 'View PDF',
 
-    // debug (console only)
     debug: false
   };
 
@@ -72,18 +57,65 @@ export const FVCopilotUI = (() => {
 
   function getEl(sel){ return document.querySelector(sel); }
 
-  function toMs(v){
-    if (v == null || v === '') return null;
-    if (typeof v === 'number') return v;
-    const t = Date.parse(v);
-    return Number.isFinite(t) ? t : null;
-  }
-
   function buildReportUrl(reportEndpoint, threadId, mode){
     const qs = new URLSearchParams();
     if (threadId) qs.set('threadId', threadId);
     qs.set('mode', (mode || 'recent').toString().trim() || 'recent');
     return `${reportEndpoint}?${qs.toString()}`;
+  }
+
+  function loadJson(key, fallback){
+    try{
+      const raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      return JSON.parse(raw);
+    }catch{
+      return fallback;
+    }
+  }
+
+  function saveJson(key, val){
+    try{ localStorage.setItem(key, JSON.stringify(val)); }catch{}
+  }
+
+  function setLS(key, val){
+    try{ localStorage.setItem(key, String(val)); }catch{}
+  }
+
+  function getLS(key){
+    try{ return (localStorage.getItem(key) || '').toString(); }catch{ return ''; }
+  }
+
+  function removeLS(key){
+    try{ localStorage.removeItem(key); }catch{}
+  }
+
+  async function getAuthToken(){
+    try{
+      await ready;
+      const auth = getAuth();
+      const user = auth?.currentUser || null;
+      if (!user) return '';
+      const tok = await user.getIdToken();
+      return (tok || '').toString();
+    }catch{
+      return '';
+    }
+  }
+
+  function enforceTtl(opts){
+    try{
+      const lastRaw = getLS(opts.lastKey);
+      const last = lastRaw ? Number(lastRaw) : 0;
+      if (!Number.isFinite(last) || last <= 0) return;
+
+      const ttlMs = (Number(opts.ttlHours) || 12) * 60 * 60 * 1000;
+      if ((nowMs() - last) > ttlMs){
+        removeLS(opts.storageKey);
+        removeLS(opts.threadKey);
+        removeLS(opts.lastKey);
+      }
+    }catch{}
   }
 
   function makePdfModal(opts){
@@ -171,8 +203,6 @@ export const FVCopilotUI = (() => {
     }
     function close(){
       modal.classList.remove('show');
-      // keep frame src (optional); you can clear if you want:
-      // frame.src = 'about:blank';
     }
 
     backdrop.addEventListener('click', close);
@@ -182,60 +212,6 @@ export const FVCopilotUI = (() => {
     });
 
     return { open, close };
-  }
-
-  function loadJson(key, fallback){
-    try{
-      const raw = localStorage.getItem(key);
-      if (!raw) return fallback;
-      return JSON.parse(raw);
-    }catch{
-      return fallback;
-    }
-  }
-
-  function saveJson(key, val){
-    try{ localStorage.setItem(key, JSON.stringify(val)); }catch{}
-  }
-
-  function setLS(key, val){
-    try{ localStorage.setItem(key, String(val)); }catch{}
-  }
-
-  function getLS(key){
-    try{ return (localStorage.getItem(key) || '').toString(); }catch{ return ''; }
-  }
-
-  function removeLS(key){
-    try{ localStorage.removeItem(key); }catch{}
-  }
-
-  async function getAuthToken(){
-    try{
-      await ready;
-      const auth = getAuth();
-      const user = auth?.currentUser || null;
-      if (!user) return '';
-      const tok = await user.getIdToken();
-      return (tok || '').toString();
-    }catch{
-      return '';
-    }
-  }
-
-  function enforceTtl(opts){
-    try{
-      const lastRaw = getLS(opts.lastKey);
-      const last = lastRaw ? Number(lastRaw) : 0;
-      if (!Number.isFinite(last) || last <= 0) return;
-
-      const ttlMs = (Number(opts.ttlHours) || 12) * 60 * 60 * 1000;
-      if ((nowMs() - last) > ttlMs){
-        removeLS(opts.storageKey);
-        removeLS(opts.threadKey);
-        removeLS(opts.lastKey);
-      }
-    }catch{}
   }
 
   function init(userOpts = {}){
@@ -254,8 +230,10 @@ export const FVCopilotUI = (() => {
       return { ok:false, reason:'missing_dom' };
     }
 
-    const desktop = isDesktop(opts.desktopMinWidth);
+    // ✅ mark wired once we attach listeners
+    window.__FV_COPILOT_WIRED = false;
 
+    const desktop = isDesktop(opts.desktopMinWidth);
     if (desktop){
       micEl.style.display = 'none';
       micEl.disabled = true;
@@ -266,9 +244,7 @@ export const FVCopilotUI = (() => {
     let history = loadJson(opts.storageKey, []);
     if (!Array.isArray(history)) history = [];
 
-    function touch(){
-      setLS(opts.lastKey, String(nowMs()));
-    }
+    function touch(){ setLS(opts.lastKey, String(nowMs())); }
 
     function saveHistory(){
       const trimmed = history.slice(-Math.max(10, Number(opts.maxKeep) || 80));
@@ -276,10 +252,7 @@ export const FVCopilotUI = (() => {
       touch();
     }
 
-    function getThreadId(){
-      return getLS(opts.threadKey).trim();
-    }
-
+    function getThreadId(){ return getLS(opts.threadKey).trim(); }
     function setThreadId(id){
       const v = (id || '').toString().trim();
       if (!v) return;
@@ -347,7 +320,7 @@ export const FVCopilotUI = (() => {
       saveHistory();
     }
 
-    // hydrate history
+    // hydrate
     for (const m of history){
       if (!m || (m.role !== 'user' && m.role !== 'assistant')) continue;
       renderMessage(m.role, m.text);
@@ -373,10 +346,8 @@ export const FVCopilotUI = (() => {
 
       const data = await res.json();
 
-      // save threadId (needed for follow-ups like "show all"/"more")
       if (data?.meta?.threadId) setThreadId(String(data.meta.threadId));
 
-      // report action -> open modal and return a pdf marker bubble
       if (data && data.action === 'report') {
         const tid2 = data?.meta?.threadId ? String(data.meta.threadId) : getThreadId();
         const mode = data?.meta?.reportMode ? String(data.meta.reportMode) : 'recent';
@@ -388,9 +359,11 @@ export const FVCopilotUI = (() => {
       return (data && data.answer) ? String(data.answer) : '(No response)';
     }
 
-    // submit
+    // ✅ WIRE SUBMIT (prevents reload)
     formEl.addEventListener('submit', async (evt)=>{
       evt.preventDefault();
+      evt.stopPropagation();
+
       if (sendEl.disabled) return;
       if (sectionEl.classList.contains('perm-hidden') || sectionEl.getAttribute('aria-hidden') === 'true') return;
 
@@ -411,7 +384,7 @@ export const FVCopilotUI = (() => {
       }finally{
         setThinking(false);
       }
-    });
+    }, true);
 
     // autosize
     inputEl.addEventListener('input', ()=>{
@@ -430,7 +403,7 @@ export const FVCopilotUI = (() => {
       }
     });
 
-    // mobile voice dictation (optional)
+    // mobile voice (optional)
     if (!desktop){
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       let recognition = null;
@@ -478,18 +451,8 @@ export const FVCopilotUI = (() => {
       }
     }
 
-    return {
-      ok: true,
-      getThreadId,
-      setThreadId,
-      clearThreadId: () => removeLS(opts.threadKey),
-      clearHistory: () => { history = []; removeLS(opts.storageKey); removeLS(opts.lastKey); },
-      openReport: (mode='recent') => {
-        const tid = getThreadId();
-        const url = buildReportUrl(opts.reportEndpoint, tid, mode);
-        pdfModal.open(url);
-      }
-    };
+    window.__FV_COPILOT_WIRED = true;
+    return { ok:true };
   }
 
   return { init };
