@@ -1,25 +1,29 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2025-12-31a
+Rev: 2026-01-04-stateful1
 Model math (dry power, storage, readiness) + helpers
 
-What changed (Option A: saturation-aware effective rain):
-✅ Rain now depends on antecedent saturation (bucket level BEFORE rain):
-   - When already wet/saturated => more runoff (less rain counts)
-   - When very dry => more “bypass” (rain doesn’t keep top wet as long)
-✅ DrainageIndex influences both:
-   - Poor drainage => MORE runoff + LESS bypass (sticks around more)
-   - Good drainage => LESS runoff + MORE bypass (leaves top sooner)
+STATEFUL OPTION 1 (per Dane):
+✅ “30th day drops off” has ZERO effect on today *when persisted state is present*
+   because we seed from persisted storage (yesterday) and only simulate forward.
 
-TUNING:
-✅ All tweakable variables are listed together below in FV_TUNE.
-   - Change these numbers to adjust behavior without touching model math.
+How it works (sync, caller-provided state):
+- If deps.getPersistedState(fieldId) returns { storageFinal, asOfDateISO }, we:
+  • start from that storageFinal
+  • simulate ONLY days after asOfDateISO in the current series
+- If there is no persisted state (first bootstrap), we fall back to the old
+  baseline seed (rain7 nudge).
 
-Calibration hook (unchanged):
-✅ Optional wetBias applied AFTER physics model:
-   - deps.CAL.wetBias (number, wetness points; + = wetter, - = drier)
-   - deps.CAL.opWetBias[opKey] (optional per-op wetBias)
-   - deps.opKey (optional current operation key)
+Caller responsibilities (outside this file):
+- Provide ONE of:
+  • deps.getPersistedState(fieldId) -> { storageFinal, asOfDateISO }
+  • OR deps.persistedStateByFieldId[fieldId] = { storageFinal, asOfDateISO }
+- After calling runField(), persist run.stateOut for next time.
+
+Everything else kept:
+✅ Option A saturation-aware effective rain
+✅ Tuning knobs FV_TUNE + overrides
+✅ WetBias calibration hook
 ===================================================================== */
 'use strict';
 
@@ -27,55 +31,6 @@ function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
 
 /* =====================================================================
    FV_TUNE — ALL ADJUSTABLE VARIABLES (Option A)
-   ------------------------------------------------
-   These are the knobs you tweak.
-
-   1) SAT_RUNOFF_START
-      - Saturation (0..1) where runoff begins ramping up.
-      - Higher => allow more rain to count before runoff.
-      - Lower  => fields “top out” sooner in wet spells.
-
-   2) RUNOFF_EXP
-      - Shape of runoff ramp after SAT_RUNOFF_START.
-      - Higher => sharper cliff near saturation.
-      - Lower  => smoother ramp.
-
-   3) RUNOFF_DRAINPOOR_W
-      - How much poor drainage INCREASES runoff (multiplier effect).
-      - 0.35 means poor drainage increases runoff up to +35%.
-
-   4) DRY_BYPASS_END
-      - Saturation (0..1) below which “dry bypass” is active.
-      - Higher => bypass affects a wider range of dry conditions.
-      - Lower  => bypass only when truly very dry.
-
-   5) DRY_EXP
-      - Shape of bypass curve as it approaches bone-dry.
-      - Higher => bypass spikes strongly at very dry conditions.
-
-   6) DRY_BYPASS_BASE
-      - Max fraction of post-runoff rain that can bypass the “top bucket”
-        when extremely dry (0..1). Example: 0.45 => up to 45% bypass.
-
-   7) BYPASS_GOODDRAIN_W
-      - Good drainage (low drainPoor) increases bypass.
-      - 0.15 means very good drainage can increase bypass up to +15%.
-
-   8) SAT_DRYBYPASS_FLOOR
-      - Minimum saturation used inside bypass math (avoid extreme behavior).
-      - Raise to reduce “too much bypass” spikes.
-
-   9) SAT_RUNOFF_CAP
-      - Max runoff fraction allowed (guardrail).
-      - 0.85 means even in extreme saturation, at least 15% of rain can count.
-
-   10) RAIN_EFF_MIN
-      - Minimum effective rain fraction (guardrail) after runoff+bypass.
-      - 0.05 means at least 5% of measured rain always counts.
-
-   Notes:
-   - “drainPoor” in this model = drainageIndex/100
-     (1 = poorer drainage, 0 = better drainage)
 ===================================================================== */
 const FV_TUNE = {
   // Wet spell / saturation behavior
@@ -218,7 +173,7 @@ function getWetBiasFromDeps(deps){
 }
 
 /* =====================================================================
-   NEW: Saturation-aware rain effectiveness (Option A)
+   Saturation-aware rain effectiveness (Option A)
 ===================================================================== */
 function effectiveRainInches(rainIn, storageBefore, Smax, factors, tune){
   const rain = Math.max(0, Number(rainIn||0));
@@ -260,6 +215,106 @@ function effectiveRainInches(rainIn, storageBefore, Smax, factors, tune){
   return Math.max(minEff, rainEffective);
 }
 
+/* =====================================================================
+   Persisted state helpers (STATEFUL OPTION 1)
+===================================================================== */
+function isoDay(iso){
+  if (!iso) return '';
+  const s = String(iso);
+  return (s.length >= 10) ? s.slice(0,10) : s;
+}
+
+function getPersistedState(deps, fieldId){
+  try{
+    if (!deps || !fieldId) return null;
+
+    if (typeof deps.getPersistedState === 'function'){
+      const s = deps.getPersistedState(fieldId);
+      return (s && typeof s === 'object') ? s : null;
+    }
+
+    const map = deps.persistedStateByFieldId;
+    if (map && typeof map === 'object'){
+      const s = map[fieldId];
+      return (s && typeof s === 'object') ? s : null;
+    }
+
+    return null;
+  }catch(_){
+    return null;
+  }
+}
+
+function buildStateOut(fieldId, storageFinal, asOfDateISO, f){
+  return {
+    fieldId: String(fieldId || ''),
+    storageFinal: Number(storageFinal || 0),
+    asOfDateISO: isoDay(asOfDateISO || ''),
+    // helpful debug (optional)
+    SmaxAtSave: Number(f && f.Smax ? f.Smax : 0)
+  };
+}
+
+/**
+ * Decide seed + which index to start simulating from.
+ * - persisted state => start after its asOfDateISO
+ * - fallback => original baseline seed from first7 rain nudge
+ */
+function pickSeed(rows, f, deps, fieldId){
+  const persisted = getPersistedState(deps, fieldId);
+
+  const firstDate = rows.length ? isoDay(rows[0].dateISO) : '';
+  const lastDate  = rows.length ? isoDay(rows[rows.length-1].dateISO) : '';
+
+  if (persisted && isFinite(Number(persisted.storageFinal)) && persisted.asOfDateISO){
+    const asOf = isoDay(persisted.asOfDateISO);
+
+    // If our series is entirely older than the saved state, we can skip simulation.
+    if (lastDate && asOf > lastDate){
+      return {
+        seedMethod: 'persisted_no_sim',
+        seedStorage: clamp(Number(persisted.storageFinal), 0, f.Smax),
+        startIdx: rows.length,
+        seedDebug: { asOfDateISO: asOf, firstDateISO: firstDate, lastDateISO: lastDate }
+      };
+    }
+
+    // Find the matching date in the series, then start after it
+    const idx = rows.findIndex(r => isoDay(r.dateISO) === asOf);
+    if (idx >= 0){
+      return {
+        seedMethod: 'persisted_storage',
+        seedStorage: clamp(Number(persisted.storageFinal), 0, f.Smax),
+        startIdx: idx + 1,
+        seedDebug: { asOfDateISO: asOf, matchIdx: idx, firstDateISO: firstDate, lastDateISO: lastDate }
+      };
+    }
+
+    // If series starts AFTER asOf but doesn't contain it, that's a mismatch (window changed too far).
+    // Fall back to baseline seed (bootstrap) rather than guessing.
+    if (firstDate && asOf < firstDate){
+      // state older than series start but not present => mismatch
+      // baseline seed is safest
+    }
+  }
+
+  // Fallback baseline seed (original behavior)
+  const first7 = rows.slice(0,7);
+  const rain7 = first7.reduce((s,x)=> s + Number(x.rainInAdj||0), 0);
+
+  const rainNudgeFrac = clamp(rain7 / 8.0, 0, 1);
+  const rainNudge = rainNudgeFrac * (0.1 * f.Smax);
+
+  const storage0 = clamp((0.30 * f.Smax) + rainNudge, 0, f.Smax);
+
+  return {
+    seedMethod: 'baseline_rain7_nudge',
+    seedStorage: storage0,
+    startIdx: 0,
+    seedDebug: { rain7, rainNudgeFrac, rainNudge, firstDateISO: firstDate, lastDateISO: lastDate }
+  };
+}
+
 /**
  * runField(field, deps)
  * deps:
@@ -267,6 +322,9 @@ function effectiveRainInches(rainIn, storageBefore, Smax, factors, tune){
  * - getFieldParams(fieldId) -> { soilWetness, drainageIndex }
  * - LOSS_SCALE
  * - EXTRA (object)
+ * - OPTIONAL (STATEFUL):
+ *   - getPersistedState(fieldId) -> { storageFinal, asOfDateISO }   (sync)
+ *   - OR persistedStateByFieldId[fieldId] with same shape
  * - OPTIONAL:
  *   - opKey (string): current operation key (for per-op bias)
  *   - CAL: { wetBias?: number, opWetBias?: { [opKey]: number } }
@@ -274,7 +332,7 @@ function effectiveRainInches(rainIn, storageBefore, Smax, factors, tune){
  */
 export function runField(field, deps){
   const wx = deps.getWeatherSeriesForFieldId(field.id);
-  if (!wx.length) return null;
+  if (!wx || !wx.length) return null;
 
   const p = deps.getFieldParams(field.id);
 
@@ -304,26 +362,59 @@ export function runField(field, deps){
   });
 
   // -------------------------------------------------------------------
-  // Existing tuning: rain nudge + starting storage baseline (unchanged)
+  // ✅ STATEFUL seed + partial-forward simulation
   // -------------------------------------------------------------------
-  const first7 = rows.slice(0,7);
-  const rain7 = first7.reduce((s,x)=> s + Number(x.rainInAdj||0), 0);
-
-  const rainNudgeFrac = clamp(rain7 / 8.0, 0, 1);
-  const rainNudge = rainNudgeFrac * (0.1 * f.Smax);
-
-  let storage = clamp((0.30 * f.Smax) + rainNudge, 0, f.Smax);
+  const seedPick = pickSeed(rows, f, deps, field.id);
+  let storage = clamp(seedPick.seedStorage, 0, f.Smax);
 
   const trace = [];
-  for (const d of rows){
+
+  // If no sim needed (state newer than our series), return stable result
+  if (seedPick.startIdx >= rows.length){
+    let wetness = clamp((storage / f.Smax) * 100, 0, 100);
+
+    const wetBias = clamp(getWetBiasFromDeps(deps), -25, 25);
+    wetness = clamp(wetness + wetBias, 0, 100);
+
+    const wetnessR = Math.round(wetness);
+    const readinessR = Math.round(clamp(100 - wetness, 0, 100));
+    const avgLossDay = 0.08;
+
+    const lastDateISO = rows.length ? rows[rows.length-1].dateISO : '';
+
+    return {
+      field,
+      factors: f,
+      rows,
+      trace,
+      storageFinal: storage,
+      wetnessR,
+      readinessR,
+      avgLossDay,
+      wetBiasApplied: wetBias,
+      tuneUsed: tune,
+
+      // ✅ NEW: caller should persist this for next run
+      stateOut: buildStateOut(field.id, storage, (lastDateISO || seedPick.seedDebug.asOfDateISO || ''), f),
+
+      // ✅ helpful: prove seed path + start index
+      seedDebug: {
+        seedMethod: seedPick.seedMethod,
+        seedStorage: seedPick.seedStorage,
+        startIdx: seedPick.startIdx,
+        ...(seedPick.seedDebug || {})
+      }
+    };
+  }
+
+  for (let i = seedPick.startIdx; i < rows.length; i++){
+    const d = rows[i];
     const rain = Number(d.rainInAdj||0);
 
     const before = storage;
 
-    // ✅ NEW: saturation-aware effective rain inches
     const rainEff = effectiveRainInches(rain, before, f.Smax, f, tune);
 
-    // Base add from effective rain
     let add = rainEff * f.infilMult;
 
     // Keep your SM010 helper term intact
@@ -361,6 +452,8 @@ export function runField(field, deps){
   const last7 = trace.slice(-7);
   const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
 
+  const lastDateISO = rows.length ? rows[rows.length-1].dateISO : '';
+
   return {
     field,
     factors: f,
@@ -375,7 +468,18 @@ export function runField(field, deps){
     wetBiasApplied: wetBias,
 
     // helpful for debugging tuning
-    tuneUsed: tune
+    tuneUsed: tune,
+
+    // ✅ NEW: caller should persist this for next run
+    stateOut: buildStateOut(field.id, storage, lastDateISO, f),
+
+    // ✅ helpful: prove seed path + start index
+    seedDebug: {
+      seedMethod: seedPick.seedMethod,
+      seedStorage: seedPick.seedStorage,
+      startIdx: seedPick.startIdx,
+      ...(seedPick.seedDebug || {})
+    }
   };
 }
 
