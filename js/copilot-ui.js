@@ -1,9 +1,9 @@
 /* /Farm-vista/js/copilot-ui.js  (FULL FILE)
-   Rev: 2026-01-03-copilot-ui2-noreload
+   Rev: 2026-01-03-copilot-ui3-continuation
 
-   Adds:
-   ✅ window.__FV_COPILOT_WIRED = true when wired
-   ✅ safer init + clearer failures (console only)
+   CHANGE:
+   ✅ Stores meta.continuation per threadId and sends it back each request.
+   This makes "show all / more" work across Cloud Run instances.
 */
 
 'use strict';
@@ -25,6 +25,7 @@ export const FVCopilotUI = (() => {
 
     storageKey: 'fv_copilot_chat_v1',
     threadKey:  'fv_copilot_threadId_v2',
+    contKey:    'fv_copilot_continuation_v1',   // ✅ NEW
     lastKey:    'fv_copilot_lastChatAt_v1',
 
     ttlHours: 12,
@@ -113,6 +114,7 @@ export const FVCopilotUI = (() => {
       if ((nowMs() - last) > ttlMs){
         removeLS(opts.storageKey);
         removeLS(opts.threadKey);
+        removeLS(opts.contKey);
         removeLS(opts.lastKey);
       }
     }catch{}
@@ -230,7 +232,6 @@ export const FVCopilotUI = (() => {
       return { ok:false, reason:'missing_dom' };
     }
 
-    // ✅ mark wired once we attach listeners
     window.__FV_COPILOT_WIRED = false;
 
     const desktop = isDesktop(opts.desktopMinWidth);
@@ -257,6 +258,24 @@ export const FVCopilotUI = (() => {
       const v = (id || '').toString().trim();
       if (!v) return;
       setLS(opts.threadKey, v);
+      touch();
+    }
+
+    function getContinuation(){
+      const tid = getThreadId();
+      if (!tid) return null;
+      const bag = loadJson(opts.contKey, {});
+      return bag && typeof bag === "object" ? (bag[tid] || null) : null;
+    }
+
+    function setContinuationForThread(cont){
+      const tid = getThreadId();
+      if (!tid) return;
+      const bag = loadJson(opts.contKey, {});
+      const next = (bag && typeof bag === "object") ? bag : {};
+      if (cont) next[tid] = cont;
+      else delete next[tid];
+      saveJson(opts.contKey, next);
       touch();
     }
 
@@ -320,7 +339,6 @@ export const FVCopilotUI = (() => {
       saveHistory();
     }
 
-    // hydrate
     for (const m of history){
       if (!m || (m.role !== 'user' && m.role !== 'assistant')) continue;
       renderMessage(m.role, m.text);
@@ -331,6 +349,9 @@ export const FVCopilotUI = (() => {
 
       const tid = getThreadId();
       if (tid) payload.threadId = tid;
+
+      const cont = getContinuation();
+      if (cont) payload.continuation = cont; // ✅ NEW: send paging state each call
 
       const idToken = await getAuthToken();
       const headers = { 'Content-Type': 'application/json' };
@@ -348,6 +369,11 @@ export const FVCopilotUI = (() => {
 
       if (data?.meta?.threadId) setThreadId(String(data.meta.threadId));
 
+      // ✅ NEW: store continuation returned by backend (both normal and followup responses)
+      if (Object.prototype.hasOwnProperty.call(data?.meta || {}, "continuation")) {
+        setContinuationForThread(data.meta.continuation || null);
+      }
+
       if (data && data.action === 'report') {
         const tid2 = data?.meta?.threadId ? String(data.meta.threadId) : getThreadId();
         const mode = data?.meta?.reportMode ? String(data.meta.reportMode) : 'recent';
@@ -359,7 +385,6 @@ export const FVCopilotUI = (() => {
       return (data && data.answer) ? String(data.answer) : '(No response)';
     }
 
-    // ✅ WIRE SUBMIT (prevents reload)
     formEl.addEventListener('submit', async (evt)=>{
       evt.preventDefault();
       evt.stopPropagation();
@@ -386,13 +411,11 @@ export const FVCopilotUI = (() => {
       }
     }, true);
 
-    // autosize
     inputEl.addEventListener('input', ()=>{
       inputEl.style.height = 'auto';
       inputEl.style.height = Math.min(inputEl.scrollHeight, 96) + 'px';
     });
 
-    // enter-to-send
     inputEl.addEventListener('keydown', (evt)=>{
       if (evt.key === 'Enter' && !evt.shiftKey){
         evt.preventDefault();
@@ -403,7 +426,6 @@ export const FVCopilotUI = (() => {
       }
     });
 
-    // mobile voice (optional)
     if (!desktop){
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       let recognition = null;
