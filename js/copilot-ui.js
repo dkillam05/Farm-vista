@@ -1,9 +1,8 @@
 /* /Farm-vista/js/copilot-ui.js  (FULL FILE)
-   Rev: 2026-01-03-copilot-ui3-continuation
+   Rev: 2026-01-04-copilot-ui-debug-visible1
 
-   CHANGE:
-   ✅ Stores meta.continuation per threadId and sends it back each request.
-   This makes "show all / more" work across Cloud Run instances.
+   Adds phone-friendly debug:
+   ✅ Shows: tid + continuation yes/no in #ai-status
 */
 
 'use strict';
@@ -25,7 +24,7 @@ export const FVCopilotUI = (() => {
 
     storageKey: 'fv_copilot_chat_v1',
     threadKey:  'fv_copilot_threadId_v2',
-    contKey:    'fv_copilot_continuation_v1',   // ✅ NEW
+    contKey:    'fv_copilot_continuation_v1',
     lastKey:    'fv_copilot_lastChatAt_v1',
 
     ttlHours: 12,
@@ -35,7 +34,8 @@ export const FVCopilotUI = (() => {
     pdfTitle: 'Report PDF',
     pdfButtonLabel: 'View PDF',
 
-    debug: false
+    // ✅ set true to always show tid/cont in status on phone
+    showDebugStatus: true
   };
 
   const PDF_MARKER = '[[FV_PDF]]:';
@@ -228,7 +228,6 @@ export const FVCopilotUI = (() => {
     const statusEl  = getEl(opts.statusSel);
 
     if (!sectionEl || !logEl || !formEl || !inputEl || !micEl || !sendEl) {
-      if (opts.debug) console.warn('[FVCopilotUI] missing DOM elements, not initializing.');
       return { ok:false, reason:'missing_dom' };
     }
 
@@ -283,12 +282,21 @@ export const FVCopilotUI = (() => {
       if (statusEl) statusEl.textContent = msg || '';
     }
 
+    function setDebugStatus(){
+      if (!opts.showDebugStatus) return;
+      const tid = getThreadId();
+      const cont = getContinuation();
+      const tidShort = tid ? tid.slice(0, 8) : "(none)";
+      setStatus(`tid:${tidShort} • cont:${cont ? "yes" : "no"}`);
+    }
+
     function setThinking(on){
       const t = !!on;
       sendEl.disabled = t;
       inputEl.disabled = t;
       if (!desktop) micEl.disabled = t;
-      setStatus(t ? 'Thinking…' : '');
+      if (t) setStatus('Thinking…');
+      else setDebugStatus();
     }
 
     function clearEmptyState(){
@@ -344,6 +352,8 @@ export const FVCopilotUI = (() => {
       renderMessage(m.role, m.text);
     }
 
+    setDebugStatus();
+
     async function callAssistant(prompt){
       const payload = { question: String(prompt || '') };
 
@@ -351,7 +361,7 @@ export const FVCopilotUI = (() => {
       if (tid) payload.threadId = tid;
 
       const cont = getContinuation();
-      if (cont) payload.continuation = cont; // ✅ NEW: send paging state each call
+      if (cont) payload.continuation = cont;
 
       const idToken = await getAuthToken();
       const headers = { 'Content-Type': 'application/json' };
@@ -369,10 +379,11 @@ export const FVCopilotUI = (() => {
 
       if (data?.meta?.threadId) setThreadId(String(data.meta.threadId));
 
-      // ✅ NEW: store continuation returned by backend (both normal and followup responses)
       if (Object.prototype.hasOwnProperty.call(data?.meta || {}, "continuation")) {
         setContinuationForThread(data.meta.continuation || null);
       }
+
+      setDebugStatus();
 
       if (data && data.action === 'report') {
         const tid2 = data?.meta?.threadId ? String(data.meta.threadId) : getThreadId();
@@ -403,8 +414,7 @@ export const FVCopilotUI = (() => {
       try{
         const reply = await callAssistant(text);
         append('assistant', reply || '(No response)');
-      }catch(e){
-        if (opts.debug) console.warn('[FVCopilotUI] error:', e);
+      }catch{
         append('assistant', "Sorry, I couldn't process that request right now.");
       }finally{
         setThinking(false);
@@ -428,26 +438,14 @@ export const FVCopilotUI = (() => {
 
     if (!desktop){
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      let recognition = null;
-      let isRecording = false;
-
       if (SpeechRecognition){
-        recognition = new SpeechRecognition();
+        const recognition = new SpeechRecognition();
         recognition.lang = 'en-US';
         recognition.interimResults = false;
         recognition.maxAlternatives = 1;
 
-        recognition.addEventListener('start', ()=>{
-          isRecording = true;
-          micEl.classList.add('recording');
-          setStatus('Listening…');
-        });
-
-        recognition.addEventListener('end', ()=>{
-          isRecording = false;
-          micEl.classList.remove('recording');
-          if (!sendEl.disabled) setStatus('');
-        });
+        recognition.addEventListener('start', ()=> micEl.classList.add('recording'));
+        recognition.addEventListener('end', ()=> micEl.classList.remove('recording'));
 
         recognition.addEventListener('result', (event)=>{
           const result = event.results && event.results[0] && event.results[0][0];
@@ -462,11 +460,7 @@ export const FVCopilotUI = (() => {
 
         micEl.addEventListener('click', ()=>{
           if (sendEl.disabled) return;
-          if (isRecording){
-            recognition.stop();
-            return;
-          }
-          try{ recognition.start(); }catch(e){ if (opts.debug) console.warn('[FVCopilotUI] recognition error:', e); }
+          try{ recognition.start(); }catch{}
         });
       } else {
         micEl.disabled = true;
