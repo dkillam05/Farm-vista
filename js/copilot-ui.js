@@ -1,8 +1,11 @@
 /* /Farm-vista/js/copilot-ui.js  (FULL FILE)
-   Rev: 2026-01-04-copilot-ui-debug-visible1
+   Rev: 2026-01-04-copilot-ui4-memory-thread
 
-   Adds phone-friendly debug:
-   ✅ Shows: tid + continuation yes/no in #ai-status
+   Fix:
+   ✅ ThreadId is kept in-memory as the primary source (survives localStorage failures on iOS)
+   ✅ Still attempts to persist to localStorage when available
+   ✅ Continuation stored per-thread (memory + localStorage best-effort)
+   ✅ Shows phone-friendly status: tid + cont yes/no in #ai-status
 */
 
 'use strict';
@@ -34,11 +37,14 @@ export const FVCopilotUI = (() => {
     pdfTitle: 'Report PDF',
     pdfButtonLabel: 'View PDF',
 
-    // ✅ set true to always show tid/cont in status on phone
     showDebugStatus: true
   };
 
   const PDF_MARKER = '[[FV_PDF]]:';
+
+  // ===== In-memory session state (critical for iOS localStorage failures) =====
+  let MEM_THREAD_ID = '';
+  let MEM_CONTINUATION_BY_TID = Object.create(null);
 
   function safeHtml(s){
     return String(s ?? '')
@@ -65,6 +71,15 @@ export const FVCopilotUI = (() => {
     return `${reportEndpoint}?${qs.toString()}`;
   }
 
+  function lsGet(key){
+    try { return (localStorage.getItem(key) || '').toString(); } catch { return ''; }
+  }
+  function lsSet(key, val){
+    try { localStorage.setItem(key, String(val)); return true; } catch { return false; }
+  }
+  function lsRemove(key){
+    try { localStorage.removeItem(key); } catch {}
+  }
   function loadJson(key, fallback){
     try{
       const raw = localStorage.getItem(key);
@@ -74,21 +89,8 @@ export const FVCopilotUI = (() => {
       return fallback;
     }
   }
-
   function saveJson(key, val){
-    try{ localStorage.setItem(key, JSON.stringify(val)); }catch{}
-  }
-
-  function setLS(key, val){
-    try{ localStorage.setItem(key, String(val)); }catch{}
-  }
-
-  function getLS(key){
-    try{ return (localStorage.getItem(key) || '').toString(); }catch{ return ''; }
-  }
-
-  function removeLS(key){
-    try{ localStorage.removeItem(key); }catch{}
+    try{ localStorage.setItem(key, JSON.stringify(val)); return true; }catch{ return false; }
   }
 
   async function getAuthToken(){
@@ -106,18 +108,26 @@ export const FVCopilotUI = (() => {
 
   function enforceTtl(opts){
     try{
-      const lastRaw = getLS(opts.lastKey);
+      const lastRaw = lsGet(opts.lastKey);
       const last = lastRaw ? Number(lastRaw) : 0;
       if (!Number.isFinite(last) || last <= 0) return;
 
       const ttlMs = (Number(opts.ttlHours) || 12) * 60 * 60 * 1000;
       if ((nowMs() - last) > ttlMs){
-        removeLS(opts.storageKey);
-        removeLS(opts.threadKey);
-        removeLS(opts.contKey);
-        removeLS(opts.lastKey);
+        lsRemove(opts.storageKey);
+        lsRemove(opts.threadKey);
+        lsRemove(opts.contKey);
+        lsRemove(opts.lastKey);
+
+        // also clear memory
+        MEM_THREAD_ID = '';
+        MEM_CONTINUATION_BY_TID = Object.create(null);
       }
     }catch{}
+  }
+
+  function touch(opts){
+    lsSet(opts.lastKey, String(nowMs()));
   }
 
   function makePdfModal(opts){
@@ -241,41 +251,59 @@ export const FVCopilotUI = (() => {
 
     enforceTtl(opts);
 
+    // ===== Load history =====
     let history = loadJson(opts.storageKey, []);
     if (!Array.isArray(history)) history = [];
-
-    function touch(){ setLS(opts.lastKey, String(nowMs())); }
 
     function saveHistory(){
       const trimmed = history.slice(-Math.max(10, Number(opts.maxKeep) || 80));
       saveJson(opts.storageKey, trimmed);
-      touch();
+      touch(opts);
     }
 
-    function getThreadId(){ return getLS(opts.threadKey).trim(); }
+    // ===== ThreadId (memory first, storage best-effort) =====
+    function getThreadId(){
+      if (MEM_THREAD_ID) return MEM_THREAD_ID;
+      const v = lsGet(opts.threadKey).trim();
+      if (v) MEM_THREAD_ID = v;
+      return MEM_THREAD_ID;
+    }
+
     function setThreadId(id){
       const v = (id || '').toString().trim();
       if (!v) return;
-      setLS(opts.threadKey, v);
-      touch();
+      MEM_THREAD_ID = v;
+      lsSet(opts.threadKey, v); // best-effort
+      touch(opts);
     }
 
+    // ===== Continuation (memory first; storage best-effort) =====
     function getContinuation(){
       const tid = getThreadId();
       if (!tid) return null;
+
+      if (MEM_CONTINUATION_BY_TID[tid]) return MEM_CONTINUATION_BY_TID[tid];
+
       const bag = loadJson(opts.contKey, {});
-      return bag && typeof bag === "object" ? (bag[tid] || null) : null;
+      const c = (bag && typeof bag === "object") ? (bag[tid] || null) : null;
+      if (c) MEM_CONTINUATION_BY_TID[tid] = c;
+      return c || null;
     }
 
     function setContinuationForThread(cont){
       const tid = getThreadId();
       if (!tid) return;
+
+      if (cont) MEM_CONTINUATION_BY_TID[tid] = cont;
+      else delete MEM_CONTINUATION_BY_TID[tid];
+
+      // best-effort persist
       const bag = loadJson(opts.contKey, {});
       const next = (bag && typeof bag === "object") ? bag : {};
       if (cont) next[tid] = cont;
       else delete next[tid];
       saveJson(opts.contKey, next);
-      touch();
+      touch(opts);
     }
 
     function setStatus(msg){
