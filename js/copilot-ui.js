@@ -1,11 +1,14 @@
 /* /Farm-vista/js/copilot-ui.js  (FULL FILE)
-   Rev: 2026-01-04-copilot-ui5-client-threadid
+   Rev: 2026-01-05-copilot-ui6-debugai
 
    FIX (critical):
    ✅ Client generates a threadId ONCE and ALWAYS sends it (payload.threadId always present).
    ✅ We DO NOT overwrite it with server meta.threadId.
-   ✅ This guarantees stable tid across messages even if iOS localStorage is flaky.
    ✅ Continuation is stored per client threadId and sent every request.
+
+   NEW:
+   ✅ Sends debugAI:true in every request so backend can show visible AI proof footer
+      (no Cloud Run env needed)
 
    Debug (phone-friendly):
    ✅ #ai-status shows: tid:<first8> • cont:yes/no
@@ -29,7 +32,7 @@ export const FVCopilotUI = (() => {
     statusSel: '#ai-status',
 
     storageKey: 'fv_copilot_chat_v1',
-    threadKey:  'fv_copilot_threadId_client_v1',   // ✅ new key to avoid any old interference
+    threadKey:  'fv_copilot_threadId_client_v1',
     contKey:    'fv_copilot_continuation_v1',
     lastKey:    'fv_copilot_lastChatAt_v1',
 
@@ -40,7 +43,10 @@ export const FVCopilotUI = (() => {
     pdfTitle: 'Report PDF',
     pdfButtonLabel: 'View PDF',
 
-    showDebugStatus: true
+    showDebugStatus: true,
+
+    // ✅ NEW: request-controlled AI debug proof (backend appends footer)
+    debugAI: true
   };
 
   const PDF_MARKER = '[[FV_PDF]]:';
@@ -268,7 +274,7 @@ export const FVCopilotUI = (() => {
         return MEM_TID;
       }
       MEM_TID = makeClientTid();
-      lsSet(opts.threadKey, MEM_TID); // best-effort
+      lsSet(opts.threadKey, MEM_TID);
       touch(opts);
       return MEM_TID;
     }
@@ -384,7 +390,9 @@ export const FVCopilotUI = (() => {
     async function callAssistant(prompt){
       const payload = {
         question: String(prompt || ''),
-        threadId: getThreadId()               // ✅ ALWAYS PRESENT
+        threadId: getThreadId(),
+        // ✅ NEW: request-controlled AI proof/debug
+        debugAI: !!opts.debugAI
       };
 
       const cont = getContinuation();
@@ -404,10 +412,6 @@ export const FVCopilotUI = (() => {
 
       const data = await res.json();
 
-      // ✅ Do NOT overwrite client threadId with server threadId.
-      // Server should echo ours once it’s consistently included.
-
-      // ✅ Update continuation (if present)
       if (Object.prototype.hasOwnProperty.call(data?.meta || {}, 'continuation')) {
         setContinuation(data.meta.continuation || null);
       }
