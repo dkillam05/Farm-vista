@@ -415,8 +415,8 @@
       ready,
       getFirestore,
       collection, query, where, getDocs,
-      doc, updateDoc,
-      serverTimestamp
+      doc, updateDoc, setDoc, writeBatch,
+      serverTimestamp, limit
     } from '/Farm-vista/js/firebase-init.js';
 
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
@@ -428,6 +428,14 @@
       PENDING_STATUS:       'pending'
     };
 
+    const CONFIG_WO = {
+      COLLECTION_PATH: 'equipmentWorkOrders',
+      STATUS_FIELD: 'status',
+      STATUS_PENDING: 'pending',
+      STATUS_INPROG: 'in_progress',
+      STATUS_COMPLETED: 'completed'
+    };
+
     const STATE = {
       db: null,
       items: [],
@@ -435,6 +443,9 @@
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
+
+    const norm = (v) => String(v ?? '').trim();
+    const normLc = (v) => norm(v).toLowerCase();
 
     function getTime(ts){
       if(!ts) return 0;
@@ -515,7 +526,7 @@
       }
 
       if(emptyEl) emptyEl.style.display = 'block';
-      emptyEl.textContent = 'Slide the toggle to approve each request (status will become Pending). Work Orders will be created/updated automatically by the server.';
+      emptyEl.textContent = 'Slide the toggle to approve each request (status will become Pending). A Work Order will be created or updated automatically.';
 
       STATE.items.forEach(item=>{
         const d  = item.data;
@@ -586,8 +597,8 @@
             }
             renderList();
           }catch(err){
-            console.error('Error approving request (client-only update):', err);
-            alert('Failed to approve service request. Check console / Firestore rules for equipmentServiceRequests update.');
+            console.error('Error approving request (create/update WO):', err);
+            alert('Failed to approve service request / create work order. Check console + Firestore rules.');
             input.checked = false;
             toggle.dataset.on = 'false';
           }finally{
@@ -669,17 +680,123 @@
       panel.style.display = 'flex';
     }
 
+    // ✅ Restore the missing behavior:
+    // - On approve: create a NEW WO if none open, otherwise append to existing open WO
+    // - Then set request status -> pending
     async function approveRequestClientOnly(item){
       const db = STATE.db;
-      const id = item.id;
+      const reqId = item.id;
+      const d = item.data || {};
 
-      const reqRef = doc(db, CONFIG_REQUESTS.COLLECTION_PATH, id);
+      const equipmentId =
+        norm(d.equipmentId) ||
+        norm(d.equipmentDocId) ||
+        norm(d.equipment_id) ||
+        '';
 
-      await updateDoc(reqRef, {
+      const equipmentName = norm(d.equipmentName) || 'Equipment (unknown)';
+      const equipmentType = normLc(d.equipmentType) || null;
+
+      const submittedByName =
+        norm(d?.submittedBy?.name) ||
+        norm(d?.submittedByName) ||
+        '';
+
+      const lineItem = {
+        serviceRequestId: reqId,
+        origin: 'request',
+        serviceTopic: norm(d.serviceTopic) || null,
+        serviceTopicOther: norm(d.serviceTopicOther) || null,
+        notes: norm(d.notes) || '',
+        partsNeeded: norm(d.partsNeeded) || null,
+        submittedByName: submittedByName || null,
+        completed: false,
+        completedByEmployeeId: null,
+        completedByEmployeeName: null,
+        completedAt: null
+      };
+
+      // Find an existing open WO
+      const woCol = collection(db, CONFIG_WO.COLLECTION_PATH);
+
+      let q;
+      if(equipmentId){
+        q = query(
+          woCol,
+          where('equipmentId', '==', equipmentId),
+          where(CONFIG_WO.STATUS_FIELD, 'in', [CONFIG_WO.STATUS_PENDING, CONFIG_WO.STATUS_INPROG]),
+          limit(1)
+        );
+      }else{
+        // Fallback if older data doesn't have equipmentId: match by equipmentName
+        q = query(
+          woCol,
+          where('equipmentName', '==', equipmentName),
+          where(CONFIG_WO.STATUS_FIELD, 'in', [CONFIG_WO.STATUS_PENDING, CONFIG_WO.STATUS_INPROG]),
+          limit(1)
+        );
+      }
+
+      const snap = await getDocs(q);
+
+      const batch = writeBatch(db);
+
+      let linkedWorkOrderId = null;
+
+      if(!snap.empty){
+        const woDoc = snap.docs[0];
+        linkedWorkOrderId = woDoc.id;
+
+        const woData = woDoc.data() || {};
+        const oldLines = Array.isArray(woData.lineItems) ? woData.lineItems : [];
+
+        // Prevent duplicate append if already linked
+        const already = oldLines.some(li => String(li?.serviceRequestId || '') === String(reqId));
+        const newLines = already ? oldLines : [...oldLines, lineItem];
+
+        batch.update(woDoc.ref, {
+          lineItems: newLines,
+          [CONFIG_WO.STATUS_FIELD]: CONFIG_WO.STATUS_PENDING,
+          updatedAt: serverTimestamp()
+        });
+      }else{
+        // Create WO with a fixed ID we can reference
+        const woDocRef = doc(woCol);
+        linkedWorkOrderId = woDocRef.id;
+
+        batch.set(woDocRef, {
+          equipmentId: equipmentId || null,
+          equipmentName,
+          equipmentType: equipmentType || 'other',
+          equipmentSerialLast6: norm(d.equipmentSerialLast6) || null,
+
+          [CONFIG_WO.STATUS_FIELD]: CONFIG_WO.STATUS_PENDING,
+
+          lineItems: [lineItem],
+
+          // Optional carry-through if present
+          equipmentStatus: normLc(d.equipmentStatus) || null,
+          equipment_state: normLc(d.equipment_state) || null,
+          isEquipmentActive: (typeof d.isEquipmentActive === 'boolean') ? d.isEquipmentActive : null,
+
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+
+          // Helpful linkage
+          createdFromServiceRequestId: reqId
+        });
+      }
+
+      // Update the service request status + link it to the WO we created/updated
+      const reqRef = doc(db, CONFIG_REQUESTS.COLLECTION_PATH, reqId);
+      batch.update(reqRef, {
         [CONFIG_REQUESTS.STATUS_FIELD]: CONFIG_REQUESTS.PENDING_STATUS,
         approvedAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
+        linkedWorkOrderId: linkedWorkOrderId || null
       });
+
+      await batch.commit();
     }
 
     (async function boot(){
@@ -726,7 +843,7 @@
             <h1>Approve Equipment Service Requests</h1>
             <p class="muted">
               Review service requests saved with status “needs approved”. Slide the toggle to mark each as
-              <strong>Pending</strong>. Work Orders are created/updated automatically by the server after approval.
+              <strong>Pending</strong>. A Work Order will be created or updated automatically after approval.
             </p>
           </div>
         </header>
