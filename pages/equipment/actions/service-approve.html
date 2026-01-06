@@ -392,7 +392,8 @@
     /* kill Safari blue */
     button, input, select, textarea{ color:var(--text) !important; }
     a, a:visited{ color:var(--text) !important; text-decoration:none; }
-    button:focus, input:focus, select:focus, textarea:focus{
+    button:focus, input:focus, select:focus, textarea:focus,
+    a:focus{
       outline:none !important;
       border-color:var(--border) !important;
       box-shadow:none !important;
@@ -808,14 +809,20 @@
       const shell = document.querySelector('fv-shell');
       if(shell) shell.nav = NAV_MENU;
 
-      // ✅ Match WO page "smart back" behavior
-      const backBtn = document.getElementById('btnBack');
-      if(backBtn){
-        backBtn.addEventListener('click', () => {
-          if (document.referrer && document.referrer !== window.location.href) {
-            history.back();
-          } else {
-            location.href = '/Farm-vista/pages/equipment/maintenance-index.html';
+      // ✅ Smart back, but DO NOT break fallback navigation.
+      // Because btnBack is a real <a href="...">, it will always work.
+      const backEl = document.getElementById('btnBack');
+      if(backEl){
+        backEl.addEventListener('click', (ev) => {
+          try{
+            const hasHistory = (window.history && typeof window.history.length === 'number' && window.history.length > 1);
+            const hasRef = !!(document.referrer && document.referrer !== window.location.href);
+            if(hasHistory && hasRef){
+              ev.preventDefault();
+              history.back();
+            }
+          }catch{
+            // let the link work
           }
         });
       }
@@ -851,9 +858,10 @@
         <div class="body">
           <div class="toolbar">
             <div class="toolbar-left">
-              <button id="btnBack" type="button" class="btn btn-quiet">
+              <!-- ✅ Real link fallback so Back always works -->
+              <a id="btnBack" class="btn btn-quiet" href="/Farm-vista/pages/equipment/maintenance-index.html">
                 ← Back to Equipment Maintenance
-              </button>
+              </a>
             </div>
             <div class="page-header-meta" id="reqCount">0 needing approval</div>
           </div>
