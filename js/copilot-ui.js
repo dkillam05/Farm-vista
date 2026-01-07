@@ -1,5 +1,5 @@
 /* /Farm-vista/js/copilot-ui.js  (FULL FILE)
-   Rev: 2026-01-07-copilot-ui9-mic-green-only
+   Rev: 2026-01-07-copilot-ui10-bugs-mic-green-dictation-no-overlay
 
    Base: your last good file (2026-01-05-copilot-ui6-debugai)
 
@@ -14,11 +14,13 @@
    Debug (phone-friendly) — unchanged:
    ✅ #ai-status shows: tid:<first8> • cont:yes/no
 
-   MIC UX — simplified per Dane:
-   ✅ Mic button toggles GREEN + CIRCULAR (visual indicator only)
-   ✅ NO dictation / NO SpeechRecognition usage
-   ✅ NO “meter” overlay inside the input
-   ✅ Nothing added that can shift layout
+   MIC UX — final per Dane:
+   ✅ Dictation works (SpeechRecognition)
+   ✅ Mic toggles GREEN + CIRCULAR while active (like Bugs file)
+   ✅ Live typing while speaking (interimResults=true)
+   ✅ NO overlay object / NO “Listening…” pill / NO layout shifts
+   ✅ Reliability on iOS: create a NEW SpeechRecognition instance per start,
+      hard cleanup on stop/end/error
 */
 
 'use strict';
@@ -222,7 +224,7 @@ export const FVCopilotUI = (() => {
       }
       .ai-pdf-btn:active{ transform:scale(.995); }
 
-      /* Mic indicator only: GREEN + CIRCULAR */
+      /* Mic active (Bugs-style) — GREEN + CIRCULAR */
       #ai-mic.mic-active{
         background:#2F6C3C !important;
         color:#fff !important;
@@ -485,22 +487,101 @@ export const FVCopilotUI = (() => {
     });
 
     /* ==========================
-       MIC — VISUAL INDICATOR ONLY
-       (no SpeechRecognition)
+       MIC — Dictation (no overlay)
     ========================== */
     if (!desktop){
-      let micOn = false;
+      const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-      function setMic(on){
-        micOn = !!on;
-        micEl.classList.toggle('mic-active', micOn);
-        micEl.setAttribute('aria-label', micOn ? 'Mic active' : 'Mic inactive');
+      if (!Rec){
+        micEl.disabled = true;
+      } else {
+        let active = false;
+        let rec = null;
+
+        function setMic(on){
+          active = !!on;
+          micEl.classList.toggle('mic-active', active);
+          micEl.setAttribute('aria-label', active ? 'Stop dictation' : 'Start dictation');
+        }
+
+        function cleanup(){
+          try{
+            if (rec){
+              rec.onresult = null;
+              rec.onend = null;
+              rec.onerror = null;
+            }
+          }catch{}
+          rec = null;
+        }
+
+        function stop(){
+          try{ if (rec) rec.stop(); }catch{}
+          try{ if (rec) rec.abort(); }catch{}
+          cleanup();
+          setMic(false);
+          if (!sendEl.disabled) setDebugStatus();
+        }
+
+        function start(){
+          // iOS reliability: NEW instance each time
+          rec = new Rec();
+          rec.lang = 'en-US';
+          rec.interimResults = true;
+          rec.continuous = false;
+          rec.maxAlternatives = 1;
+
+          const base = inputEl.value ? (inputEl.value.trim() + ' ') : '';
+          let finalSoFar = '';
+
+          rec.onresult = (ev)=>{
+            let interim = '';
+            for (let i = ev.resultIndex; i < ev.results.length; i++){
+              const r = ev.results[i];
+              const t = r && r[0] ? (r[0].transcript || '') : '';
+              if (!t) continue;
+              if (r.isFinal) finalSoFar += (finalSoFar ? ' ' : '') + t.trim();
+              else interim += (interim ? ' ' : '') + t.trim();
+            }
+
+            const parts = [];
+            if (base) parts.push(base.trim());
+            if (finalSoFar) parts.push(finalSoFar.trim());
+            if (interim) parts.push(interim.trim());
+
+            inputEl.value = parts.join(' ').trim();
+            inputEl.dispatchEvent(new Event('input'));
+            inputEl.focus();
+          };
+
+          rec.onend = ()=> stop();
+          rec.onerror = ()=> stop();
+
+          try{
+            rec.start();
+            setMic(true);
+          }catch{
+            stop();
+          }
+        }
+
+        micEl.addEventListener('click', ()=>{
+          if (sendEl.disabled) return;
+          if (!active) {
+            // ensure any stuck state is cleared
+            stop();
+            start();
+          } else {
+            stop();
+          }
+        }, { passive:true });
+
+        // If iOS backgrounds the page, reset any active state
+        document.addEventListener('visibilitychange', ()=>{
+          if (document.visibilityState !== 'visible') return;
+          if (active) stop();
+        });
       }
-
-      micEl.addEventListener('click', ()=>{
-        if (sendEl.disabled) return;
-        setMic(!micOn);
-      }, { passive:true });
     }
 
     window.__FV_COPILOT_WIRED = true;
