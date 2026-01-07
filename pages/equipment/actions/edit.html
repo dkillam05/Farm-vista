@@ -734,7 +734,7 @@
 
     /* ================================================================
        Extras engine (equipment-forms.js)
-       ✅ StarFire capable toggle honors DB boolean true/false
+       FIX: starfireCapable must reflect Firestore boolean true/false
        ================================================================ */
     let extras = null;
 
@@ -758,9 +758,7 @@
       return extras;
     }
 
-    // IMPORTANT:
-    // Firestore might contain boolean true/false, OR old data might contain strings.
-    // We must treat "false" (string) as false, NOT truthy.
+    // Normalize Firestore values to real booleans (so "false" string stays OFF).
     function boolify(v){
       if (v === true || v === false) return v;
       if (v == null) return false;
@@ -771,25 +769,52 @@
       if (['true','t','yes','y','1','on'].includes(s)) return true;
       if (['false','f','no','n','0','off'].includes(s)) return false;
 
-      // fallback: any other non-empty string -> true
+      // Any other non-empty string: treat as true
       return true;
     }
 
-    function setExtraValue(fieldId, value){
-      const el = document.getElementById('extra-' + fieldId);
-      if (!el) return;
+    function findExtraEl(fieldId){
+      // primary contract
+      let el = document.getElementById('extra-' + fieldId);
+      if (el) return el;
 
-      // Toggle (pill button)
+      // fallback contracts (in case equipment-forms.js uses different ids)
+      el = document.querySelector(`[data-extra-id="${fieldId}"]`) ||
+           document.querySelector(`[name="${fieldId}"]`) ||
+           document.querySelector(`[data-field="${fieldId}"]`);
+      return el || null;
+    }
+
+    function setExtraValue(fieldId, value){
+      const el = findExtraEl(fieldId);
+      if (!el) return false;
+
+      // Pill toggle button
       if (el.tagName === 'BUTTON' && el.classList.contains('pill-toggle')){
-        // ✅ Use boolify so DB false stays OFF
         const isOn = boolify(value);
         el.dataset.state = isOn ? 'on' : 'off';
         el.classList.toggle('on', isOn);
         el.textContent = isOn ? 'Yes' : 'No';
-        return;
+        return true;
       }
 
-      el.value = (value === undefined || value === null) ? '' : String(value);
+      // Checkbox / switch input
+      if (el.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio')){
+        el.checked = boolify(value);
+        el.dispatchEvent(new Event('change', { bubbles:true }));
+        el.dispatchEvent(new Event('input', { bubbles:true }));
+        return true;
+      }
+
+      // Any other input/select/textarea
+      try{
+        el.value = (value === undefined || value === null) ? '' : String(value);
+        el.dispatchEvent(new Event('change', { bubbles:true }));
+        el.dispatchEvent(new Event('input', { bubbles:true }));
+        return true;
+      }catch{
+        return false;
+      }
     }
 
     function readAny(d, keys){
@@ -809,7 +834,7 @@
         const impType = readAny(d, ['implementType','implement_type','subType','subtype','implementSubtype','implement_subtype']);
         if (impType){
           setExtraValue('implementType', impType);
-          const ctrl = document.getElementById('extra-implementType');
+          const ctrl = findExtraEl('implementType');
           if (ctrl) ctrl.dispatchEvent(new Event('change', { bubbles:true }));
         }
       }
@@ -818,12 +843,11 @@
         const conType = readAny(d, ['constructionType','construction_type','subType','subtype']);
         if (conType){
           setExtraValue('constructionType', conType);
-          const ctrl = document.getElementById('extra-constructionType');
+          const ctrl = findExtraEl('constructionType');
           if (ctrl) ctrl.dispatchEvent(new Event('change', { bubbles:true }));
         }
       }
 
-      // Now hydrate other extras
       const keys = [
         'engineHours','separatorHours','odometerMiles','boomWidthFt','tankSizeGal','starfireCapable',
         'implementType','workingWidthFt','numRows','rowSpacingIn','totalAcres','totalHours','bushelCapacityBu','augerDiameterIn','augerLengthFt',
@@ -834,13 +858,40 @@
         'activationLevel','firmwareVersion'
       ];
 
-      keys.forEach(k=>{
-        if (Object.prototype.hasOwnProperty.call(d, k)){
-          // ✅ Force StarFire capable to be treated as a real boolean for the toggle
-          if (k === 'starfireCapable') setExtraValue(k, boolify(d[k]));
-          else setExtraValue(k, d[k]);
+      // IMPORTANT:
+      // Some extras UIs render on the next frame; so we retry a few frames until the element exists.
+      const triesMax = 8;
+      let tries = 0;
+
+      const apply = ()=>{
+        let anySet = false;
+
+        keys.forEach(k=>{
+          if (!Object.prototype.hasOwnProperty.call(d, k)) return;
+
+          if (k === 'starfireCapable') anySet = setExtraValue(k, boolify(d[k])) || anySet;
+          else anySet = setExtraValue(k, d[k]) || anySet;
+        });
+
+        // If StarFire element wasn't present yet, try again a few frames.
+        const starElNow = !!findExtraEl('starfireCapable');
+        if ((!starElNow || !anySet) && tries < triesMax){
+          tries++;
+          requestAnimationFrame(apply);
+          return;
         }
-      });
+
+        // Hard guarantee: if Firestore says true, force ON once element exists.
+        if (starElNow && boolify(d.starfireCapable) === true){
+          setExtraValue('starfireCapable', true);
+        }
+        // If Firestore says false, force OFF once element exists.
+        if (starElNow && boolify(d.starfireCapable) === false){
+          setExtraValue('starfireCapable', false);
+        }
+      };
+
+      requestAnimationFrame(apply);
     }
 
     /* ================================================================
@@ -881,7 +932,7 @@
       f.notes.value = d.notes || '';
       f.sn.oninput = ()=> (f.sn6.textContent = (f.sn.value||'').slice(-6) || '—');
 
-      // Extras hydrate (StarFire capable fixed here)
+      // Extras hydrate (StarFire capable follows Firestore true/false)
       hydrateExtrasFromDoc(d);
 
       // Delete guard
@@ -914,7 +965,7 @@
 
       const extraData = (extras && typeof extras.read === 'function') ? extras.read() : {};
 
-      // ✅ Write back a real boolean, not "true"/"false" strings
+      // Ensure starfireCapable is stored as real boolean if present.
       if (Object.prototype.hasOwnProperty.call(extraData, 'starfireCapable')){
         extraData.starfireCapable = boolify(extraData.starfireCapable);
       }
