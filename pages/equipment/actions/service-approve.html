@@ -412,14 +412,7 @@
   </script>
 
   <script type="module">
-    import {
-      ready,
-      getFirestore,
-      collection, query, where, getDocs,
-      doc, updateDoc, setDoc, writeBatch,
-      serverTimestamp, limit
-    } from '/Farm-vista/js/firebase-init.js';
-
+    import * as FB from '/Farm-vista/js/firebase-init.js';
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const CONFIG_REQUESTS = {
@@ -433,8 +426,7 @@
       COLLECTION_PATH: 'equipmentWorkOrders',
       STATUS_FIELD: 'status',
       STATUS_PENDING: 'pending',
-      STATUS_INPROG: 'in_progress',
-      STATUS_COMPLETED: 'completed'
+      STATUS_INPROG: 'in_progress'
     };
 
     const STATE = {
@@ -486,11 +478,11 @@
 
     async function loadRequests(){
       const db  = STATE.db;
-      const ref = collection(db, CONFIG_REQUESTS.COLLECTION_PATH);
+      const ref = FB.collection(db, CONFIG_REQUESTS.COLLECTION_PATH);
 
       try{
-        const qRef = query(ref, where(CONFIG_REQUESTS.STATUS_FIELD, '==', CONFIG_REQUESTS.NEEDS_APPROVAL_STATUS));
-        const snap = await getDocs(qRef);
+        const qRef = FB.query(ref, FB.where(CONFIG_REQUESTS.STATUS_FIELD, '==', CONFIG_REQUESTS.NEEDS_APPROVAL_STATUS));
+        const snap = await FB.getDocs(qRef);
 
         const items = snap.docs.map(d => ({ id: d.id, data: d.data() }));
         items.sort((a,b)=> getTime(b.data.createdAt) - getTime(a.data.createdAt));
@@ -501,7 +493,7 @@
         console.error('Error loading service requests needing approval:', err);
         const emptyEl = $('.req-empty');
         if(emptyEl){
-          emptyEl.textContent = 'Error loading service requests. Check console or Firestore indexes.';
+          emptyEl.textContent = 'Error loading service requests. Check console.';
           emptyEl.style.display = 'block';
         }
         const countEl = $('#reqCount');
@@ -598,8 +590,8 @@
             }
             renderList();
           }catch(err){
-            console.error('Error approving request (create/update WO):', err);
-            alert('Failed to approve service request / create work order. Check console + Firestore rules.');
+            console.error('Error approving request:', err);
+            alert('Failed to approve / create work order. Check console.');
             input.checked = false;
             toggle.dataset.on = 'false';
           }finally{
@@ -681,9 +673,23 @@
       panel.style.display = 'flex';
     }
 
-    // ✅ Restore the missing behavior:
-    // - On approve: create a NEW WO if none open, otherwise append to existing open WO
-    // - Then set request status -> pending
+    async function createWorkOrderDoc(db, payload){
+      // Try addDoc first
+      if(typeof FB.addDoc === 'function'){
+        const colRef = FB.collection(db, CONFIG_WO.COLLECTION_PATH);
+        const docRef = await FB.addDoc(colRef, payload);
+        return docRef.id;
+      }
+      // Then try setDoc with a generated doc ref
+      if(typeof FB.setDoc === 'function'){
+        const colRef = FB.collection(db, CONFIG_WO.COLLECTION_PATH);
+        const docRef = FB.doc(colRef);
+        await FB.setDoc(docRef, payload);
+        return docRef.id;
+      }
+      throw new Error('Missing Firestore writer: addDoc/setDoc not available from firebase-init.js');
+    }
+
     async function approveRequestClientOnly(item){
       const db = STATE.db;
       const reqId = item.id;
@@ -696,7 +702,7 @@
         '';
 
       const equipmentName = norm(d.equipmentName) || 'Equipment (unknown)';
-      const equipmentType = normLc(d.equipmentType) || null;
+      const equipmentType = normLc(d.equipmentType) || 'other';
 
       const submittedByName =
         norm(d?.submittedBy?.name) ||
@@ -709,7 +715,7 @@
         serviceTopic: norm(d.serviceTopic) || null,
         serviceTopicOther: norm(d.serviceTopicOther) || null,
         notes: norm(d.notes) || '',
-        partsNeeded: norm(d.partsNeeded) || null,
+        partsNeeded: (d.partsNeeded === null || d.partsNeeded === undefined) ? null : norm(d.partsNeeded),
         submittedByName: submittedByName || null,
         completed: false,
         completedByEmployeeId: null,
@@ -717,100 +723,115 @@
         completedAt: null
       };
 
-      // Find an existing open WO
-      const woCol = collection(db, CONFIG_WO.COLLECTION_PATH);
-
+      // Find an existing open WO (no limit() dependency)
+      const woCol = FB.collection(db, CONFIG_WO.COLLECTION_PATH);
       let q;
+
       if(equipmentId){
-        q = query(
+        q = FB.query(
           woCol,
-          where('equipmentId', '==', equipmentId),
-          where(CONFIG_WO.STATUS_FIELD, 'in', [CONFIG_WO.STATUS_PENDING, CONFIG_WO.STATUS_INPROG]),
-          limit(1)
+          FB.where('equipmentId', '==', equipmentId),
+          FB.where(CONFIG_WO.STATUS_FIELD, 'in', [CONFIG_WO.STATUS_PENDING, CONFIG_WO.STATUS_INPROG])
         );
       }else{
-        // Fallback if older data doesn't have equipmentId: match by equipmentName
-        q = query(
+        q = FB.query(
           woCol,
-          where('equipmentName', '==', equipmentName),
-          where(CONFIG_WO.STATUS_FIELD, 'in', [CONFIG_WO.STATUS_PENDING, CONFIG_WO.STATUS_INPROG]),
-          limit(1)
+          FB.where('equipmentName', '==', equipmentName),
+          FB.where(CONFIG_WO.STATUS_FIELD, 'in', [CONFIG_WO.STATUS_PENDING, CONFIG_WO.STATUS_INPROG])
         );
       }
 
-      const snap = await getDocs(q);
+      const snap = await FB.getDocs(q);
+      const first = snap.docs && snap.docs.length ? snap.docs[0] : null;
 
-      const batch = writeBatch(db);
+      // Prefer writeBatch if available
+      const canBatch = (typeof FB.writeBatch === 'function');
 
       let linkedWorkOrderId = null;
 
-      if(!snap.empty){
-        const woDoc = snap.docs[0];
+      if(first){
+        const woDoc = first;
         linkedWorkOrderId = woDoc.id;
 
         const woData = woDoc.data() || {};
         const oldLines = Array.isArray(woData.lineItems) ? woData.lineItems : [];
-
-        // Prevent duplicate append if already linked
         const already = oldLines.some(li => String(li?.serviceRequestId || '') === String(reqId));
         const newLines = already ? oldLines : [...oldLines, lineItem];
 
-        batch.update(woDoc.ref, {
+        if(canBatch){
+          const batch = FB.writeBatch(db);
+          batch.update(woDoc.ref, {
+            lineItems: newLines,
+            [CONFIG_WO.STATUS_FIELD]: CONFIG_WO.STATUS_PENDING,
+            updatedAt: FB.serverTimestamp()
+          });
+
+          const reqRef = FB.doc(db, CONFIG_REQUESTS.COLLECTION_PATH, reqId);
+          batch.update(reqRef, {
+            [CONFIG_REQUESTS.STATUS_FIELD]: CONFIG_REQUESTS.PENDING_STATUS,
+            approvedAt: FB.serverTimestamp(),
+            updatedAt: FB.serverTimestamp(),
+            linkedWorkOrderId: linkedWorkOrderId || null
+          });
+
+          await batch.commit();
+          return;
+        }
+
+        // Non-batch fallback
+        await FB.updateDoc(woDoc.ref, {
           lineItems: newLines,
           [CONFIG_WO.STATUS_FIELD]: CONFIG_WO.STATUS_PENDING,
-          updatedAt: serverTimestamp()
+          updatedAt: FB.serverTimestamp()
         });
-      }else{
-        // Create WO with a fixed ID we can reference
-        const woDocRef = doc(woCol);
-        linkedWorkOrderId = woDocRef.id;
 
-        batch.set(woDocRef, {
-          equipmentId: equipmentId || null,
-          equipmentName,
-          equipmentType: equipmentType || 'other',
-          equipmentSerialLast6: norm(d.equipmentSerialLast6) || null,
-
-          [CONFIG_WO.STATUS_FIELD]: CONFIG_WO.STATUS_PENDING,
-
-          lineItems: [lineItem],
-
-          // Optional carry-through if present
-          equipmentStatus: normLc(d.equipmentStatus) || null,
-          equipment_state: normLc(d.equipment_state) || null,
-          isEquipmentActive: (typeof d.isEquipmentActive === 'boolean') ? d.isEquipmentActive : null,
-
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-
-          // Helpful linkage
-          createdFromServiceRequestId: reqId
+        const reqRef = FB.doc(db, CONFIG_REQUESTS.COLLECTION_PATH, reqId);
+        await FB.updateDoc(reqRef, {
+          [CONFIG_REQUESTS.STATUS_FIELD]: CONFIG_REQUESTS.PENDING_STATUS,
+          approvedAt: FB.serverTimestamp(),
+          updatedAt: FB.serverTimestamp(),
+          linkedWorkOrderId: linkedWorkOrderId || null
         });
+
+        return;
       }
 
-      // Update the service request status + link it to the WO we created/updated
-      const reqRef = doc(db, CONFIG_REQUESTS.COLLECTION_PATH, reqId);
-      batch.update(reqRef, {
+      // No open WO -> create one
+      const woPayload = {
+        equipmentId: equipmentId || null,
+        equipmentName,
+        equipmentType,
+        equipmentSerialLast6: norm(d.equipmentSerialLast6) || null,
+
+        [CONFIG_WO.STATUS_FIELD]: CONFIG_WO.STATUS_PENDING,
+        lineItems: [lineItem],
+
+        createdAt: FB.serverTimestamp(),
+        updatedAt: FB.serverTimestamp(),
+        createdFromServiceRequestId: reqId
+      };
+
+      linkedWorkOrderId = await createWorkOrderDoc(db, woPayload);
+
+      const reqRef = FB.doc(db, CONFIG_REQUESTS.COLLECTION_PATH, reqId);
+      await FB.updateDoc(reqRef, {
         [CONFIG_REQUESTS.STATUS_FIELD]: CONFIG_REQUESTS.PENDING_STATUS,
-        approvedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        approvedAt: FB.serverTimestamp(),
+        updatedAt: FB.serverTimestamp(),
         linkedWorkOrderId: linkedWorkOrderId || null
       });
-
-      await batch.commit();
     }
 
     (async function boot(){
       // ✅ Works whether ready is a Promise or a function
-      await (typeof ready === 'function' ? ready() : ready);
+      await (typeof FB.ready === 'function' ? FB.ready() : FB.ready);
 
-      STATE.db = getFirestore();
+      STATE.db = FB.getFirestore();
 
       const shell = document.querySelector('fv-shell');
       if(shell) shell.nav = NAV_MENU;
 
-      // ✅ Smart back, but DO NOT break fallback navigation.
-      // Because btnBack is a real <a href="...">, it will always work.
+      // Smart back: use history if it makes sense; otherwise let the link work
       const backEl = document.getElementById('btnBack');
       if(backEl){
         backEl.addEventListener('click', (ev) => {
@@ -821,9 +842,7 @@
               ev.preventDefault();
               history.back();
             }
-          }catch{
-            // let the link work
-          }
+          }catch{}
         });
       }
 
@@ -858,7 +877,7 @@
         <div class="body">
           <div class="toolbar">
             <div class="toolbar-left">
-              <!-- ✅ Real link fallback so Back always works -->
+              <!-- Real link fallback so Back ALWAYS works -->
               <a id="btnBack" class="btn btn-quiet" href="/Farm-vista/pages/equipment/maintenance-index.html">
                 ← Back to Equipment Maintenance
               </a>
