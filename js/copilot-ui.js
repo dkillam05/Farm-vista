@@ -1,24 +1,27 @@
 /* /Farm-vista/js/copilot-ui.js  (FULL FILE)
-   Rev: 2026-01-07-copilot-ui7-mic-ioslike
+   Rev: 2026-01-07-copilot-ui7-bugs-mic-plus-voice-meter
 
-   FIX (critical):
+   Base: your last good file (2026-01-05-copilot-ui6-debugai)
+
+   FIX (critical) — unchanged:
    ✅ Client generates a threadId ONCE and ALWAYS sends it (payload.threadId always present).
    ✅ We DO NOT overwrite it with server meta.threadId.
    ✅ Continuation is stored per client threadId and sent every request.
 
-   NEW:
+   NEW — unchanged:
    ✅ Sends debugAI:true in every request so backend can show visible AI proof footer
-      (no Cloud Run env needed)
 
-   Debug (phone-friendly):
+   Debug (phone-friendly) — unchanged:
    ✅ #ai-status shows: tid:<first8> • cont:yes/no
 
-   Mic UX (requested):
-   ✅ No mic moving / no layout changes
-   ✅ Mic turns subtle gray while engaged
-   ✅ Small "Listening…" pill appears by the input
+   MIC UX — updated to match Feedback Bugs (and optional ChatGPT-like meter):
+   ✅ No layout changes (does NOT move mic)
+   ✅ No “Listening…” pill added near input (nothing that shifts alignment)
+   ✅ Mic toggles green on/off (like Bugs file) via class "mic-active"
    ✅ Live typing while speaking (interimResults=true)
-   ✅ Tap mic again to stop
+   ✅ Optional: full-width bottom voice meter overlay (bars react to mic audio)
+      - Fixed overlay; does NOT affect layout
+      - If mic audio access is blocked, dictation still works (green mic only)
 */
 
 'use strict';
@@ -52,7 +55,7 @@ export const FVCopilotUI = (() => {
 
     showDebugStatus: true,
 
-    // ✅ NEW: request-controlled AI debug proof (backend appends footer)
+    // ✅ request-controlled AI debug proof (backend appends footer)
     debugAI: true
   };
 
@@ -222,31 +225,67 @@ export const FVCopilotUI = (() => {
       }
       .ai-pdf-btn:active{ transform:scale(.995); }
 
-      /* ✅ Mic UX (NO layout changes) */
-      .ai-mic-pill{
+      /* ==========================
+         MIC — Bugs-style active (green)
+         (NO layout / positioning changes)
+      ========================== */
+      #ai-mic.mic-active{
+        background:#2F6C3C !important;
+        color:#fff !important;
+        border-color:#2F6C3C !important;
+      }
+
+      /* ==========================
+         Voice Meter HUD (ChatGPT-ish)
+         Fixed overlay, never affects layout
+      ========================== */
+      .fv-voicehud{
+        position:fixed;
+        left:50%;
+        bottom:calc(env(safe-area-inset-bottom,0px) + 12px);
+        transform:translateX(-50%);
+        width:min(720px, calc(100vw - 24px));
+        border-radius:14px;
+        border:1px solid var(--border,#D1D5DB);
+        background:color-mix(in srgb, var(--surface, #fff) 86%, rgba(47,108,60,.22) 14%);
+        box-shadow:0 14px 30px rgba(0,0,0,.22);
+        z-index:110000;
+        padding:10px 12px;
         display:none;
         align-items:center;
-        gap:8px;
-        padding:7px 10px;
-        border-radius:999px;
-        border:1px solid var(--border, #D1D5DB);
-        background:color-mix(in srgb, var(--surface, #fff) 88%, var(--border, #D1D5DB) 12%);
-        color:var(--text, #111827);
-        font-weight:900;
-        font-size:12px;
-        letter-spacing:.02em;
-        margin-top:8px;
+        gap:12px;
         user-select:none;
+        pointer-events:none;
       }
-      .ai-mic-pill.show{ display:inline-flex; }
-      .ai-mic-pill .dot{
-        width:9px; height:9px; border-radius:999px;
-        background:#9CA3AF;
+      .fv-voicehud.show{ display:flex; }
+      .fv-voicehud .lbl{
+        font-weight:900;
+        letter-spacing:.02em;
+        font-size:12px;
+        color:var(--text,#111827);
+        white-space:nowrap;
       }
-      /* mic turns gray (subtle) */
-      #ai-mic.recording{
-        filter:grayscale(1);
-        opacity:.75;
+      .fv-voicehud .bars{
+        flex:1;
+        display:flex;
+        align-items:flex-end;
+        gap:4px;
+        height:18px;
+      }
+      .fv-voicehud .bar{
+        flex:1;
+        min-width:3px;
+        border-radius:999px;
+        background:#2F6C3C;
+        opacity:.9;
+        height:4px;
+        transform:translateZ(0);
+      }
+      .fv-voicehud .hint{
+        font-weight:800;
+        font-size:12px;
+        color:var(--muted,#67706B);
+        white-space:nowrap;
       }
     `;
     document.head.appendChild(style);
@@ -274,6 +313,112 @@ export const FVCopilotUI = (() => {
     return { open, close };
   }
 
+  function createVoiceHud(){
+    const hud = document.createElement('div');
+    hud.className = 'fv-voicehud';
+    hud.innerHTML = `
+      <div class="lbl">Dictating</div>
+      <div class="bars" aria-hidden="true">
+        <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+        <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+        <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+        <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+      </div>
+      <div class="hint">Tap mic to stop</div>
+    `;
+    document.body.appendChild(hud);
+
+    const bars = Array.from(hud.querySelectorAll('.bar'));
+
+    let raf = 0;
+    let ctx = null;
+    let analyser = null;
+    let data = null;
+    let stream = null;
+    let srcNode = null;
+
+    function show(on){
+      hud.classList.toggle('show', !!on);
+    }
+
+    function resetBars(){
+      for (const b of bars) b.style.height = '4px';
+    }
+
+    function stopMeter(){
+      try{ if (raf) cancelAnimationFrame(raf); }catch{}
+      raf = 0;
+
+      try{ if (srcNode) srcNode.disconnect(); }catch{}
+      srcNode = null;
+
+      analyser = null;
+      data = null;
+
+      try{
+        if (ctx && ctx.state !== 'closed') ctx.close();
+      }catch{}
+      ctx = null;
+
+      try{
+        if (stream){
+          for (const t of stream.getTracks()) t.stop();
+        }
+      }catch{}
+      stream = null;
+
+      resetBars();
+    }
+
+    async function startMeter(){
+      try{
+        const getUM = navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!getUM || !AC) return false;
+
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+        ctx = new AC();
+        analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+
+        srcNode = ctx.createMediaStreamSource(stream);
+        srcNode.connect(analyser);
+
+        data = new Uint8Array(analyser.frequencyBinCount);
+
+        const tick = ()=>{
+          raf = requestAnimationFrame(tick);
+          if (!analyser || !data) return;
+
+          analyser.getByteFrequencyData(data);
+
+          const n = bars.length;
+          const binN = data.length;
+          const step = Math.max(1, Math.floor(binN / n));
+
+          for (let i = 0; i < n; i++){
+            let sum = 0;
+            const start = i * step;
+            const end = Math.min(binN, start + step);
+            for (let j = start; j < end; j++) sum += data[j];
+            const avg = sum / Math.max(1, (end - start)); // 0..255
+            const h = 4 + Math.min(14, (avg / 255) * 14); // 4..18px
+            bars[i].style.height = h.toFixed(1) + 'px';
+          }
+        };
+
+        tick();
+        return true;
+      }catch{
+        stopMeter();
+        return false;
+      }
+    }
+
+    return { show, startMeter, stopMeter };
+  }
+
   function init(userOpts = {}){
     const opts = { ...DEFAULTS, ...(userOpts || {}) };
 
@@ -298,23 +443,6 @@ export const FVCopilotUI = (() => {
     }
 
     enforceTtl(opts);
-
-    // ✅ Create "Listening…" pill right after the input (no positioning, no moving)
-    let micPill = null;
-    try{
-      micPill = document.createElement('div');
-      micPill.className = 'ai-mic-pill';
-      micPill.innerHTML = `<span class="dot"></span><span>Listening…</span>`;
-      inputEl.insertAdjacentElement('afterend', micPill);
-    }catch{
-      micPill = null;
-    }
-
-    function showMicPill(on){
-      if (!micPill) return;
-      if (on) micPill.classList.add('show');
-      else micPill.classList.remove('show');
-    }
 
     // ===== ThreadId: CLIENT OWNS IT =====
     function getThreadId(){
@@ -442,7 +570,6 @@ export const FVCopilotUI = (() => {
       const payload = {
         question: String(prompt || ''),
         threadId: getThreadId(),
-        // ✅ NEW: request-controlled AI proof/debug
         debugAI: !!opts.debugAI
       };
 
@@ -519,72 +646,119 @@ export const FVCopilotUI = (() => {
       }
     });
 
+    /* ==========================
+       MIC dictation (Bugs-style)
+       + optional voice meter HUD
+    ========================== */
     if (!desktop){
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+      // Build HUD lazily (only if needed)
+      let hud = null;
+
+      function ensureHud(){
+        if (hud) return hud;
+        try{
+          hud = createVoiceHud();
+          return hud;
+        }catch{
+          hud = null;
+          return null;
+        }
+      }
+
+      function setMic(on){
+        micEl.classList.toggle('mic-active', !!on);
+        micEl.setAttribute('aria-label', on ? 'Stop dictation' : 'Start dictation');
+      }
+
       if (SpeechRecognition){
-        const recognition = new SpeechRecognition();
-        recognition.lang = 'en-US';
+        const Rec = SpeechRecognition;
+        const rec = new Rec();
+        rec.lang = 'en-US';
+        rec.interimResults = true;  // ✅ live typing like Bugs file
+        rec.continuous = false;
+        rec.maxAlternatives = 1;
 
-        // ✅ live typing
-        recognition.interimResults = true;
-        recognition.maxAlternatives = 1;
-
-        let micActive = false;
+        let active = false;
         let base = '';
         let finalSoFar = '';
 
-        function setMicActive(on){
-          micActive = !!on;
-          if (micActive){
-            micEl.classList.add('recording');
-            showMicPill(true);
-            base = (inputEl.value || '').trim();
-            finalSoFar = '';
-          } else {
-            micEl.classList.remove('recording');
-            showMicPill(false);
-            if (!sendEl.disabled) setDebugStatus();
-          }
+        async function startHud(){
+          const h = ensureHud();
+          if (!h) return;
+          h.show(true);
+          try{ await h.startMeter(); }catch{}
         }
 
-        recognition.addEventListener('start', ()=> setMicActive(true));
-        recognition.addEventListener('end',   ()=> setMicActive(false));
+        function stopHud(){
+          if (!hud) return;
+          try{ hud.stopMeter(); }catch{}
+          hud.show(false);
+        }
 
-        recognition.addEventListener('result', (event)=>{
+        micEl.addEventListener('click', async ()=>{
+          if (sendEl.disabled) return;
+
+          if (!active){
+            base = inputEl.value ? (inputEl.value.trim() + ' ') : '';
+            finalSoFar = '';
+
+            try{
+              rec.start();
+              active = true;
+              setMic(true);
+              startHud();
+            }catch{
+              // If start throws, ensure we don't get stuck "on"
+              active = false;
+              setMic(false);
+              stopHud();
+            }
+          } else {
+            try{
+              rec.stop();
+              rec.abort();
+            }catch{}
+            active = false;
+            setMic(false);
+            stopHud();
+          }
+        });
+
+        rec.onresult = (ev)=>{
           let interim = '';
-
-          for (let i = event.resultIndex; i < event.results.length; i++){
-            const res = event.results[i];
-            const alt = res && res[0] ? (res[0].transcript || '') : '';
-            if (!alt) continue;
-
-            if (res.isFinal) finalSoFar += (finalSoFar ? ' ' : '') + alt.trim();
-            else interim += (interim ? ' ' : '') + alt.trim();
+          for (let i = ev.resultIndex; i < ev.results.length; i++){
+            const r = ev.results[i];
+            const t = r && r[0] ? (r[0].transcript || '') : '';
+            if (!t) continue;
+            if (r.isFinal) finalSoFar += (finalSoFar ? ' ' : '') + t.trim();
+            else interim += (interim ? ' ' : '') + t.trim();
           }
 
           const parts = [];
-          if (base) parts.push(base);
-          if (finalSoFar) parts.push(finalSoFar);
-          if (interim) parts.push(interim);
+          if (base) parts.push(base.trim());
+          if (finalSoFar) parts.push(finalSoFar.trim());
+          if (interim) parts.push(interim.trim());
 
           inputEl.value = parts.join(' ').trim();
           inputEl.dispatchEvent(new Event('input'));
           inputEl.focus();
-        });
+        };
 
-        recognition.addEventListener('error', ()=>{
-          try{ recognition.stop(); }catch{}
-          setMicActive(false);
-        });
+        rec.onend = ()=>{
+          active = false;
+          setMic(false);
+          stopHud();
+          if (!sendEl.disabled) setDebugStatus();
+        };
 
-        micEl.addEventListener('click', ()=>{
-          if (sendEl.disabled) return;
-          try{
-            // toggle stop/start
-            if (micActive) recognition.stop();
-            else recognition.start();
-          }catch{}
-        });
+        rec.onerror = ()=>{
+          active = false;
+          setMic(false);
+          stopHud();
+          if (!sendEl.disabled) setDebugStatus();
+        };
       } else {
         micEl.disabled = true;
       }
