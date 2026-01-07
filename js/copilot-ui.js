@@ -1,5 +1,5 @@
 /* /Farm-vista/js/copilot-ui.js  (FULL FILE)
-   Rev: 2026-01-07-copilot-ui7-mic-indicator
+   Rev: 2026-01-05-copilot-ui6-debugai
 
    FIX (critical):
    ✅ Client generates a threadId ONCE and ALWAYS sends it (payload.threadId always present).
@@ -12,13 +12,6 @@
 
    Debug (phone-friendly):
    ✅ #ai-status shows: tid:<first8> • cont:yes/no
-
-   NEW (Mic UX):
-   ✅ Clear "engaged" indicator when mic is active:
-      - Mic button gets .recording style (red dot + pulsing ring)
-      - Status shows "Listening…" while active
-      - Mic toggles start/stop if tapped again
-      - aria-pressed updated for accessibility
 */
 
 'use strict';
@@ -247,51 +240,6 @@ export const FVCopilotUI = (() => {
     return { open, close };
   }
 
-  // ✅ NEW: mic “recording” indicator styling (injected once)
-  function ensureMicIndicatorStyles(){
-    try{
-      if (document.getElementById('fv-copilot-mic-indicator-style')) return;
-      const style = document.createElement('style');
-      style.id = 'fv-copilot-mic-indicator-style';
-      style.textContent = `
-        /* Mic engaged indicator (no blue) */
-        ${DEFAULTS.micSel}{
-          position:relative;
-          -webkit-tap-highlight-color: transparent;
-        }
-        ${DEFAULTS.micSel}.recording{
-          outline: none;
-          box-shadow: 0 0 0 2px rgba(220,38,38,.35), 0 10px 22px rgba(0,0,0,.18);
-          transform: translateZ(0);
-        }
-        ${DEFAULTS.micSel}.recording::after{
-          content:"";
-          position:absolute;
-          width:10px; height:10px;
-          border-radius:999px;
-          right:10px; top:10px;
-          background: rgb(220,38,38);
-          box-shadow: 0 0 0 2px rgba(255,255,255,.85), 0 0 0 4px rgba(220,38,38,.25);
-        }
-        ${DEFAULTS.micSel}.recording::before{
-          content:"";
-          position:absolute;
-          inset:-6px;
-          border-radius:14px;
-          border:2px solid rgba(220,38,38,.35);
-          animation: fvMicPulse 1.1s ease-in-out infinite;
-          pointer-events:none;
-        }
-        @keyframes fvMicPulse{
-          0%{ transform:scale(.98); opacity:.35; }
-          50%{ transform:scale(1.02); opacity:.10; }
-          100%{ transform:scale(.98); opacity:.35; }
-        }
-      `;
-      document.head.appendChild(style);
-    }catch{}
-  }
-
   function init(userOpts = {}){
     const opts = { ...DEFAULTS, ...(userOpts || {}) };
 
@@ -316,9 +264,6 @@ export const FVCopilotUI = (() => {
     }
 
     enforceTtl(opts);
-
-    // Ensure mic indicator CSS is present (harmless on desktop since mic hidden)
-    ensureMicIndicatorStyles();
 
     // ===== ThreadId: CLIENT OWNS IT =====
     function getThreadId(){
@@ -531,33 +476,8 @@ export const FVCopilotUI = (() => {
         recognition.interimResults = false;
         recognition.maxAlternatives = 1;
 
-        let micActive = false;
-
-        function setMicActive(on){
-          micActive = !!on;
-          if (micActive){
-            micEl.classList.add('recording');
-            micEl.setAttribute('aria-pressed', 'true');
-            micEl.setAttribute('title', 'Listening… Tap to stop');
-            setStatus('Listening…');
-          } else {
-            micEl.classList.remove('recording');
-            micEl.setAttribute('aria-pressed', 'false');
-            micEl.setAttribute('title', 'Tap to диктate');
-            // If we're not "Thinking…", restore debug status
-            if (!sendEl.disabled) setDebugStatus();
-          }
-        }
-
-        recognition.addEventListener('start', ()=> setMicActive(true));
-        recognition.addEventListener('end', ()=> setMicActive(false));
-
-        recognition.addEventListener('error', ()=>{
-          // Clear indicator & show a brief status, then revert
-          setMicActive(false);
-          setStatus('Mic error');
-          setTimeout(()=> { if (!sendEl.disabled) setDebugStatus(); }, 1200);
-        });
+        recognition.addEventListener('start', ()=> micEl.classList.add('recording'));
+        recognition.addEventListener('end', ()=> micEl.classList.remove('recording'));
 
         recognition.addEventListener('result', (event)=>{
           const result = event.results && event.results[0] && event.results[0][0];
@@ -572,21 +492,8 @@ export const FVCopilotUI = (() => {
 
         micEl.addEventListener('click', ()=>{
           if (sendEl.disabled) return;
-          try{
-            // Toggle so user gets immediate feedback and control
-            if (micActive) recognition.stop();
-            else recognition.start();
-          }catch{
-            // If start() throws (common on rapid taps), ensure state is sane
-            setMicActive(false);
-            setStatus('Mic blocked');
-            setTimeout(()=> { if (!sendEl.disabled) setDebugStatus(); }, 1200);
-          }
+          try{ recognition.start(); }catch{}
         });
-
-        // initialize a11y defaults
-        micEl.setAttribute('aria-pressed', 'false');
-        if (!micEl.getAttribute('title')) micEl.setAttribute('title', 'Tap to диктate');
       } else {
         micEl.disabled = true;
       }
