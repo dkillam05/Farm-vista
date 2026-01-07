@@ -1,5 +1,5 @@
 /* /Farm-vista/js/copilot-ui.js  (FULL FILE)
-   Rev: 2026-01-05-copilot-ui6-debugai
+   Rev: 2026-01-07-copilot-ui7-mic-ioslike
 
    FIX (critical):
    ✅ Client generates a threadId ONCE and ALWAYS sends it (payload.threadId always present).
@@ -12,6 +12,13 @@
 
    Debug (phone-friendly):
    ✅ #ai-status shows: tid:<first8> • cont:yes/no
+
+   Mic UX (requested):
+   ✅ No mic moving / no layout changes
+   ✅ Mic turns subtle gray while engaged
+   ✅ Small "Listening…" pill appears by the input
+   ✅ Live typing while speaking (interimResults=true)
+   ✅ Tap mic again to stop
 */
 
 'use strict';
@@ -214,6 +221,33 @@ export const FVCopilotUI = (() => {
         user-select:none;
       }
       .ai-pdf-btn:active{ transform:scale(.995); }
+
+      /* ✅ Mic UX (NO layout changes) */
+      .ai-mic-pill{
+        display:none;
+        align-items:center;
+        gap:8px;
+        padding:7px 10px;
+        border-radius:999px;
+        border:1px solid var(--border, #D1D5DB);
+        background:color-mix(in srgb, var(--surface, #fff) 88%, var(--border, #D1D5DB) 12%);
+        color:var(--text, #111827);
+        font-weight:900;
+        font-size:12px;
+        letter-spacing:.02em;
+        margin-top:8px;
+        user-select:none;
+      }
+      .ai-mic-pill.show{ display:inline-flex; }
+      .ai-mic-pill .dot{
+        width:9px; height:9px; border-radius:999px;
+        background:#9CA3AF;
+      }
+      /* mic turns gray (subtle) */
+      #ai-mic.recording{
+        filter:grayscale(1);
+        opacity:.75;
+      }
     `;
     document.head.appendChild(style);
     document.body.appendChild(modal);
@@ -264,6 +298,23 @@ export const FVCopilotUI = (() => {
     }
 
     enforceTtl(opts);
+
+    // ✅ Create "Listening…" pill right after the input (no positioning, no moving)
+    let micPill = null;
+    try{
+      micPill = document.createElement('div');
+      micPill.className = 'ai-mic-pill';
+      micPill.innerHTML = `<span class="dot"></span><span>Listening…</span>`;
+      inputEl.insertAdjacentElement('afterend', micPill);
+    }catch{
+      micPill = null;
+    }
+
+    function showMicPill(on){
+      if (!micPill) return;
+      if (on) micPill.classList.add('show');
+      else micPill.classList.remove('show');
+    }
 
     // ===== ThreadId: CLIENT OWNS IT =====
     function getThreadId(){
@@ -473,26 +524,66 @@ export const FVCopilotUI = (() => {
       if (SpeechRecognition){
         const recognition = new SpeechRecognition();
         recognition.lang = 'en-US';
-        recognition.interimResults = false;
+
+        // ✅ live typing
+        recognition.interimResults = true;
         recognition.maxAlternatives = 1;
 
-        recognition.addEventListener('start', ()=> micEl.classList.add('recording'));
-        recognition.addEventListener('end', ()=> micEl.classList.remove('recording'));
+        let micActive = false;
+        let base = '';
+        let finalSoFar = '';
+
+        function setMicActive(on){
+          micActive = !!on;
+          if (micActive){
+            micEl.classList.add('recording');
+            showMicPill(true);
+            base = (inputEl.value || '').trim();
+            finalSoFar = '';
+          } else {
+            micEl.classList.remove('recording');
+            showMicPill(false);
+            if (!sendEl.disabled) setDebugStatus();
+          }
+        }
+
+        recognition.addEventListener('start', ()=> setMicActive(true));
+        recognition.addEventListener('end',   ()=> setMicActive(false));
 
         recognition.addEventListener('result', (event)=>{
-          const result = event.results && event.results[0] && event.results[0][0];
-          const t = result ? result.transcript : '';
-          if (t){
-            const existing = inputEl.value.trim();
-            inputEl.value = existing ? (existing + ' ' + t) : t;
-            inputEl.dispatchEvent(new Event('input'));
-            inputEl.focus();
+          let interim = '';
+
+          for (let i = event.resultIndex; i < event.results.length; i++){
+            const res = event.results[i];
+            const alt = res && res[0] ? (res[0].transcript || '') : '';
+            if (!alt) continue;
+
+            if (res.isFinal) finalSoFar += (finalSoFar ? ' ' : '') + alt.trim();
+            else interim += (interim ? ' ' : '') + alt.trim();
           }
+
+          const parts = [];
+          if (base) parts.push(base);
+          if (finalSoFar) parts.push(finalSoFar);
+          if (interim) parts.push(interim);
+
+          inputEl.value = parts.join(' ').trim();
+          inputEl.dispatchEvent(new Event('input'));
+          inputEl.focus();
+        });
+
+        recognition.addEventListener('error', ()=>{
+          try{ recognition.stop(); }catch{}
+          setMicActive(false);
         });
 
         micEl.addEventListener('click', ()=>{
           if (sendEl.disabled) return;
-          try{ recognition.start(); }catch{}
+          try{
+            // toggle stop/start
+            if (micActive) recognition.stop();
+            else recognition.start();
+          }catch{}
         });
       } else {
         micEl.disabled = true;
