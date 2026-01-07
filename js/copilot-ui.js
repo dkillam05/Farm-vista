@@ -1,5 +1,5 @@
 /* /Farm-vista/js/copilot-ui.js  (FULL FILE)
-   Rev: 2026-01-07-copilot-ui7-bugs-mic-plus-voice-meter
+   Rev: 2026-01-07-copilot-ui8-bugs-mic-circle-input-meter
 
    Base: your last good file (2026-01-05-copilot-ui6-debugai)
 
@@ -14,14 +14,15 @@
    Debug (phone-friendly) — unchanged:
    ✅ #ai-status shows: tid:<first8> • cont:yes/no
 
-   MIC UX — updated to match Feedback Bugs (and optional ChatGPT-like meter):
+   MIC UX — aligned to Feedback Bugs + requested polish:
    ✅ No layout changes (does NOT move mic)
-   ✅ No “Listening…” pill added near input (nothing that shifts alignment)
-   ✅ Mic toggles green on/off (like Bugs file) via class "mic-active"
+   ✅ No “Listening…” pill inserted in-flow (nothing that shifts alignment)
+   ✅ Mic toggles GREEN + CIRCULAR via class "mic-active"
    ✅ Live typing while speaking (interimResults=true)
-   ✅ Optional: full-width bottom voice meter overlay (bars react to mic audio)
-      - Fixed overlay; does NOT affect layout
-      - If mic audio access is blocked, dictation still works (green mic only)
+   ✅ “Voice meter” overlay is drawn INSIDE the input area (on top of placeholder)
+      - fixed-position overlay (never affects layout)
+      - hides placeholder while active, restores after
+   ✅ Reliability: create a NEW SpeechRecognition instance on every start
 */
 
 'use strict';
@@ -225,63 +226,54 @@ export const FVCopilotUI = (() => {
       }
       .ai-pdf-btn:active{ transform:scale(.995); }
 
-      /* ==========================
-         MIC — Bugs-style active (green)
-         (NO layout / positioning changes)
-      ========================== */
+      /* Mic active (Bugs-style) — make it CIRCULAR */
       #ai-mic.mic-active{
         background:#2F6C3C !important;
         color:#fff !important;
         border-color:#2F6C3C !important;
+        border-radius:999px !important;
       }
 
-      /* ==========================
-         Voice Meter HUD (ChatGPT-ish)
-         Fixed overlay, never affects layout
-      ========================== */
-      .fv-voicehud{
+      /* Input voice meter overlay — fixed, so it never changes layout */
+      .fv-inputmeter{
         position:fixed;
-        left:50%;
-        bottom:calc(env(safe-area-inset-bottom,0px) + 12px);
-        transform:translateX(-50%);
-        width:min(720px, calc(100vw - 24px));
-        border-radius:14px;
+        z-index:120000;
+        display:none;
+        pointer-events:none;
+        align-items:center;
+        justify-content:space-between;
+        gap:10px;
+        padding:8px 10px;
+        border-radius:12px;
         border:1px solid var(--border,#D1D5DB);
         background:color-mix(in srgb, var(--surface, #fff) 86%, rgba(47,108,60,.22) 14%);
-        box-shadow:0 14px 30px rgba(0,0,0,.22);
-        z-index:110000;
-        padding:10px 12px;
-        display:none;
-        align-items:center;
-        gap:12px;
-        user-select:none;
-        pointer-events:none;
+        box-shadow:0 10px 22px rgba(0,0,0,.18);
+        backdrop-filter:saturate(1.2) blur(6px);
       }
-      .fv-voicehud.show{ display:flex; }
-      .fv-voicehud .lbl{
+      .fv-inputmeter.show{ display:flex; }
+      .fv-inputmeter .lbl{
         font-weight:900;
-        letter-spacing:.02em;
         font-size:12px;
+        letter-spacing:.02em;
         color:var(--text,#111827);
         white-space:nowrap;
       }
-      .fv-voicehud .bars{
-        flex:1;
+      .fv-inputmeter .bars{
         display:flex;
         align-items:flex-end;
-        gap:4px;
-        height:18px;
-      }
-      .fv-voicehud .bar{
+        gap:3px;
+        height:16px;
         flex:1;
-        min-width:3px;
+        min-width:90px;
+      }
+      .fv-inputmeter .bar{
+        width:4px;
         border-radius:999px;
         background:#2F6C3C;
         opacity:.9;
         height:4px;
-        transform:translateZ(0);
       }
-      .fv-voicehud .hint{
+      .fv-inputmeter .hint{
         font-weight:800;
         font-size:12px;
         color:var(--muted,#67706B);
@@ -313,47 +305,127 @@ export const FVCopilotUI = (() => {
     return { open, close };
   }
 
-  function createVoiceHud(){
-    const hud = document.createElement('div');
-    hud.className = 'fv-voicehud';
-    hud.innerHTML = `
+  // Fixed overlay meter that is positioned ON TOP of the input rect
+  function createInputMeterOverlay(inputEl){
+    const wrap = document.createElement('div');
+    wrap.className = 'fv-inputmeter';
+    wrap.innerHTML = `
       <div class="lbl">Dictating</div>
       <div class="bars" aria-hidden="true">
-        <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
         <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
         <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
         <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
       </div>
       <div class="hint">Tap mic to stop</div>
     `;
-    document.body.appendChild(hud);
+    document.body.appendChild(wrap);
 
-    const bars = Array.from(hud.querySelectorAll('.bar'));
+    const bars = Array.from(wrap.querySelectorAll('.bar'));
 
-    let raf = 0;
-    let ctx = null;
-    let analyser = null;
-    let data = null;
-    let stream = null;
-    let srcNode = null;
+    let rafPos = 0;
 
-    function show(on){
-      hud.classList.toggle('show', !!on);
+    function positionNow(){
+      const r = inputEl.getBoundingClientRect();
+
+      // Put overlay INSIDE the input area: centered vertically, padded from left,
+      // and leave room on the right for the mic+send (we don’t know exact widths,
+      // so we just reserve a conservative chunk).
+      const rightReserve = 110; // room for mic/send in most layouts
+      const pad = 8;
+
+      const width = Math.max(160, r.width - rightReserve - pad*2);
+      const height = 34;
+
+      const left = r.left + pad;
+      const top = r.top + (r.height - height) / 2;
+
+      wrap.style.left = left + 'px';
+      wrap.style.top = top + 'px';
+      wrap.style.width = width + 'px';
+      wrap.style.height = height + 'px';
     }
 
-    function resetBars(){
+    function startPositioning(){
+      stopPositioning();
+      const tick = ()=>{
+        rafPos = requestAnimationFrame(tick);
+        positionNow();
+      };
+      tick();
+      window.addEventListener('resize', positionNow, { passive:true });
+      window.addEventListener('scroll', positionNow, { passive:true });
+    }
+
+    function stopPositioning(){
+      try{ if (rafPos) cancelAnimationFrame(rafPos); }catch{}
+      rafPos = 0;
+      window.removeEventListener('resize', positionNow);
+      window.removeEventListener('scroll', positionNow);
+    }
+
+    function show(on){
+      if (on){
+        positionNow();
+        wrap.classList.add('show');
+        startPositioning();
+      } else {
+        wrap.classList.remove('show');
+        stopPositioning();
+      }
+    }
+
+    function setLevel(level01){
+      const n = bars.length;
+      for (let i = 0; i < n; i++){
+        const x = (i + 1) / n; // 0..1
+        // add some shaping so low levels still show a little movement
+        const v = Math.max(0, Math.min(1, (level01 * 1.15) - (x * 0.35)));
+        const h = 4 + v * 12; // 4..16 px
+        bars[i].style.height = h.toFixed(1) + 'px';
+      }
+    }
+
+    function reset(){
       for (const b of bars) b.style.height = '4px';
     }
 
-    function stopMeter(){
-      try{ if (raf) cancelAnimationFrame(raf); }catch{}
-      raf = 0;
+    return { show, setLevel, reset };
+  }
 
-      try{ if (srcNode) srcNode.disconnect(); }catch{}
-      srcNode = null;
+  async function createMicAnalyser(){
+    // Optional: only for meter. If this fails, dictation still works.
+    const getUM = navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!getUM || !AC) return null;
 
-      analyser = null;
-      data = null;
+    let stream = null;
+    let ctx = null;
+    let analyser = null;
+    let data = null;
+    let src = null;
+
+    async function start(){
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      ctx = new AC();
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      data = new Uint8Array(analyser.frequencyBinCount);
+      src = ctx.createMediaStreamSource(stream);
+      src.connect(analyser);
+    }
+
+    function level(){
+      if (!analyser || !data) return 0;
+      analyser.getByteFrequencyData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) sum += data[i];
+      const avg = sum / Math.max(1, data.length); // 0..255
+      return Math.max(0, Math.min(1, avg / 140)); // normalize-ish
+    }
+
+    function stop(){
+      try{ if (src) src.disconnect(); }catch{}
+      src = null;
 
       try{
         if (ctx && ctx.state !== 'closed') ctx.close();
@@ -367,56 +439,12 @@ export const FVCopilotUI = (() => {
       }catch{}
       stream = null;
 
-      resetBars();
+      analyser = null;
+      data = null;
     }
 
-    async function startMeter(){
-      try{
-        const getUM = navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
-        const AC = window.AudioContext || window.webkitAudioContext;
-        if (!getUM || !AC) return false;
-
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-        ctx = new AC();
-        analyser = ctx.createAnalyser();
-        analyser.fftSize = 256;
-
-        srcNode = ctx.createMediaStreamSource(stream);
-        srcNode.connect(analyser);
-
-        data = new Uint8Array(analyser.frequencyBinCount);
-
-        const tick = ()=>{
-          raf = requestAnimationFrame(tick);
-          if (!analyser || !data) return;
-
-          analyser.getByteFrequencyData(data);
-
-          const n = bars.length;
-          const binN = data.length;
-          const step = Math.max(1, Math.floor(binN / n));
-
-          for (let i = 0; i < n; i++){
-            let sum = 0;
-            const start = i * step;
-            const end = Math.min(binN, start + step);
-            for (let j = start; j < end; j++) sum += data[j];
-            const avg = sum / Math.max(1, (end - start)); // 0..255
-            const h = 4 + Math.min(14, (avg / 255) * 14); // 4..18px
-            bars[i].style.height = h.toFixed(1) + 'px';
-          }
-        };
-
-        tick();
-        return true;
-      }catch{
-        stopMeter();
-        return false;
-      }
-    }
-
-    return { show, startMeter, stopMeter };
+    await start();
+    return { level, stop };
   }
 
   function init(userOpts = {}){
@@ -434,6 +462,8 @@ export const FVCopilotUI = (() => {
       return { ok:false, reason:'missing_dom' };
     }
 
+    // Prevent double-wiring if init() gets called twice
+    if (window.__FV_COPILOT_WIRED) return { ok:true, already:true };
     window.__FV_COPILOT_WIRED = false;
 
     const desktop = isDesktop(opts.desktopMinWidth);
@@ -646,121 +676,151 @@ export const FVCopilotUI = (() => {
       }
     });
 
-    /* ==========================
-       MIC dictation (Bugs-style)
-       + optional voice meter HUD
-    ========================== */
+    // ==========================
+    // MIC: Bugs-style + input meter overlay (no layout shifting)
+    // ==========================
     if (!desktop){
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-      // Build HUD lazily (only if needed)
-      let hud = null;
-
-      function ensureHud(){
-        if (hud) return hud;
-        try{
-          hud = createVoiceHud();
-          return hud;
-        }catch{
-          hud = null;
-          return null;
-        }
-      }
-
-      function setMic(on){
-        micEl.classList.toggle('mic-active', !!on);
-        micEl.setAttribute('aria-label', on ? 'Stop dictation' : 'Start dictation');
-      }
-
-      if (SpeechRecognition){
-        const Rec = SpeechRecognition;
-        const rec = new Rec();
-        rec.lang = 'en-US';
-        rec.interimResults = true;  // ✅ live typing like Bugs file
-        rec.continuous = false;
-        rec.maxAlternatives = 1;
+      if (!Rec){
+        micEl.disabled = true;
+      } else {
+        const meter = createInputMeterOverlay(inputEl);
 
         let active = false;
-        let base = '';
-        let finalSoFar = '';
+        let rec = null;              // current recognition instance (new each start)
+        let analyser = null;         // optional audio analyser for meter
+        let rafMeter = 0;
 
-        async function startHud(){
-          const h = ensureHud();
-          if (!h) return;
-          h.show(true);
-          try{ await h.startMeter(); }catch{}
+        const originalPlaceholder = (inputEl.getAttribute('placeholder') || '');
+
+        function setMic(on){
+          micEl.classList.toggle('mic-active', !!on);
+          micEl.setAttribute('aria-label', on ? 'Stop dictation' : 'Start dictation');
         }
 
-        function stopHud(){
-          if (!hud) return;
-          try{ hud.stopMeter(); }catch{}
-          hud.show(false);
+        function stopMeterLoop(){
+          try{ if (rafMeter) cancelAnimationFrame(rafMeter); }catch{}
+          rafMeter = 0;
+          meter.reset();
+        }
+
+        function startMeterLoop(){
+          stopMeterLoop();
+          const tick = ()=>{
+            rafMeter = requestAnimationFrame(tick);
+            if (!analyser) {
+              meter.setLevel(0.12);
+              return;
+            }
+            const lvl = analyser.level();
+            meter.setLevel(lvl);
+          };
+          tick();
+        }
+
+        async function startAnalyserSafe(){
+          try{
+            analyser = await createMicAnalyser();
+          }catch{
+            analyser = null;
+          }
+        }
+
+        function stopAnalyser(){
+          try{ if (analyser) analyser.stop(); }catch{}
+          analyser = null;
+        }
+
+        function hardStop(){
+          // Stop speech
+          try{ if (rec) { rec.onresult = rec.onend = rec.onerror = null; } }catch{}
+          try{ if (rec) rec.stop(); }catch{}
+          try{ if (rec) rec.abort(); }catch{}
+          rec = null;
+
+          // Stop meter
+          stopMeterLoop();
+          stopAnalyser();
+          meter.show(false);
+
+          // Restore placeholder
+          try{ inputEl.setAttribute('placeholder', originalPlaceholder); }catch{}
+
+          active = false;
+          setMic(false);
+          if (!sendEl.disabled) setDebugStatus();
+        }
+
+        async function start(){
+          // iOS reliability: create a NEW recognition each start
+          rec = new Rec();
+          rec.lang = 'en-US';
+          rec.interimResults = true;
+          rec.continuous = false;
+          rec.maxAlternatives = 1;
+
+          let base = inputEl.value ? (inputEl.value.trim() + ' ') : '';
+          let finalSoFar = '';
+
+          // Hide placeholder so meter “replaces” it visually
+          try{ inputEl.setAttribute('placeholder', ''); }catch{}
+
+          setMic(true);
+          meter.show(true);
+
+          // Try to start analyser (optional)
+          await startAnalyserSafe();
+          startMeterLoop();
+
+          rec.onresult = (ev)=>{
+            let interim = '';
+            for (let i = ev.resultIndex; i < ev.results.length; i++){
+              const r = ev.results[i];
+              const t = r && r[0] ? (r[0].transcript || '') : '';
+              if (!t) continue;
+              if (r.isFinal) finalSoFar += (finalSoFar ? ' ' : '') + t.trim();
+              else interim += (interim ? ' ' : '') + t.trim();
+            }
+            const parts = [];
+            if (base) parts.push(base.trim());
+            if (finalSoFar) parts.push(finalSoFar.trim());
+            if (interim) parts.push(interim.trim());
+            inputEl.value = parts.join(' ').trim();
+            inputEl.dispatchEvent(new Event('input'));
+            inputEl.focus();
+          };
+
+          rec.onend = ()=> hardStop();
+          rec.onerror = ()=> hardStop();
+
+          // Start must happen in direct click gesture; if it throws, recover
+          try{
+            rec.start();
+            active = true;
+          }catch{
+            hardStop();
+          }
         }
 
         micEl.addEventListener('click', async ()=>{
           if (sendEl.disabled) return;
 
+          // Toggle
           if (!active){
-            base = inputEl.value ? (inputEl.value.trim() + ' ') : '';
-            finalSoFar = '';
-
-            try{
-              rec.start();
-              active = true;
-              setMic(true);
-              startHud();
-            }catch{
-              // If start throws, ensure we don't get stuck "on"
-              active = false;
-              setMic(false);
-              stopHud();
-            }
+            // If something got stuck previously, clear it
+            hardStop();
+            await start();
           } else {
-            try{
-              rec.stop();
-              rec.abort();
-            }catch{}
-            active = false;
-            setMic(false);
-            stopHud();
+            hardStop();
           }
+        }, { passive:true });
+
+        // If the page is backgrounded then resumed, reset any stuck state
+        document.addEventListener('visibilitychange', ()=>{
+          if (document.visibilityState !== 'visible') return;
+          if (active) hardStop();
         });
-
-        rec.onresult = (ev)=>{
-          let interim = '';
-          for (let i = ev.resultIndex; i < ev.results.length; i++){
-            const r = ev.results[i];
-            const t = r && r[0] ? (r[0].transcript || '') : '';
-            if (!t) continue;
-            if (r.isFinal) finalSoFar += (finalSoFar ? ' ' : '') + t.trim();
-            else interim += (interim ? ' ' : '') + t.trim();
-          }
-
-          const parts = [];
-          if (base) parts.push(base.trim());
-          if (finalSoFar) parts.push(finalSoFar.trim());
-          if (interim) parts.push(interim.trim());
-
-          inputEl.value = parts.join(' ').trim();
-          inputEl.dispatchEvent(new Event('input'));
-          inputEl.focus();
-        };
-
-        rec.onend = ()=>{
-          active = false;
-          setMic(false);
-          stopHud();
-          if (!sendEl.disabled) setDebugStatus();
-        };
-
-        rec.onerror = ()=>{
-          active = false;
-          setMic(false);
-          stopHud();
-          if (!sendEl.disabled) setDebugStatus();
-        };
-      } else {
-        micEl.disabled = true;
       }
     }
 
