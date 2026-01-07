@@ -733,7 +733,8 @@
     }
 
     /* ================================================================
-       Extras engine (equipment-forms.js) — FIXED
+       Extras engine (equipment-forms.js)
+       ✅ StarFire capable toggle honors DB boolean true/false
        ================================================================ */
     let extras = null;
 
@@ -757,13 +758,31 @@
       return extras;
     }
 
+    // IMPORTANT:
+    // Firestore might contain boolean true/false, OR old data might contain strings.
+    // We must treat "false" (string) as false, NOT truthy.
+    function boolify(v){
+      if (v === true || v === false) return v;
+      if (v == null) return false;
+      if (typeof v === 'number') return v !== 0;
+
+      const s = String(v).trim().toLowerCase();
+      if (s === '') return false;
+      if (['true','t','yes','y','1','on'].includes(s)) return true;
+      if (['false','f','no','n','0','off'].includes(s)) return false;
+
+      // fallback: any other non-empty string -> true
+      return true;
+    }
+
     function setExtraValue(fieldId, value){
       const el = document.getElementById('extra-' + fieldId);
       if (!el) return;
 
       // Toggle (pill button)
       if (el.tagName === 'BUTTON' && el.classList.contains('pill-toggle')){
-        const isOn = !!value;
+        // ✅ Use boolify so DB false stays OFF
+        const isOn = boolify(value);
         el.dataset.state = isOn ? 'on' : 'off';
         el.classList.toggle('on', isOn);
         el.textContent = isOn ? 'Yes' : 'No';
@@ -817,7 +836,9 @@
 
       keys.forEach(k=>{
         if (Object.prototype.hasOwnProperty.call(d, k)){
-          setExtraValue(k, d[k]);
+          // ✅ Force StarFire capable to be treated as a real boolean for the toggle
+          if (k === 'starfireCapable') setExtraValue(k, boolify(d[k]));
+          else setExtraValue(k, d[k]);
         }
       });
     }
@@ -860,7 +881,7 @@
       f.notes.value = d.notes || '';
       f.sn.oninput = ()=> (f.sn6.textContent = (f.sn.value||'').slice(-6) || '—');
 
-      // Extras hydrate (planter fix lives here)
+      // Extras hydrate (StarFire capable fixed here)
       hydrateExtrasFromDoc(d);
 
       // Delete guard
@@ -892,6 +913,11 @@
       const modelName = (MODELS.find(m=>m.id===f.mdId.value)?.name) || '';
 
       const extraData = (extras && typeof extras.read === 'function') ? extras.read() : {};
+
+      // ✅ Write back a real boolean, not "true"/"false" strings
+      if (Object.prototype.hasOwnProperty.call(extraData, 'starfireCapable')){
+        extraData.starfireCapable = boolify(extraData.starfireCapable);
+      }
 
       return {
         makeId: f.mkId.value || null,
