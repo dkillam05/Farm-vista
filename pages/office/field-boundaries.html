@@ -919,45 +919,60 @@
     }
 
     async function loadFarmsAndFields(db){
-      if(farmHelp) farmHelp.textContent = "Loading…";
-      try{
-        const snap = await getDocs(collection(db,'farms'));
-        const items = [];
-        snap.forEach(d=>{
-          const data = d.data() || {};
-          const name = String(data.name||"").trim();
-          if(name) items.push({ id:d.id, name });
-        });
-        items.sort((a,b)=>a.name.localeCompare(b.name));
-        allFarms = items;
-        if(farmCombo) farmCombo.setItems(allFarms);
-        if(farmHelp) farmHelp.textContent = `${allFarms.length} farms`;
-      }catch(e){
-        console.error(e);
-        if(farmHelp) farmHelp.textContent = "0 farms";
-      }
+  if(farmHelp) farmHelp.textContent = "Loading…";
+  try{
+    const farmsQ = query(
+      collection(db,'farms'),
+      where('status','==','active')
+    );
+    const snap = await getDocs(farmsQ);
 
-      if(fieldHelp) fieldHelp.textContent = "Loading…";
-      try{
-        const snap = await getDocs(collection(db,'fields'));
-        const items = [];
-        snap.forEach(d=>{
-          const data = d.data() || {};
-          const name = String(data.name||"").trim();
-          if(!name) return;
-          const farmId = String(data.farmId || data.farm || "").trim();
-          const farmName = String(data.farmName || data.farm || "").trim();
-          items.push({ id:d.id, name, farmId, farmName });
-        });
-        items.sort((a,b)=>a.name.localeCompare(b.name));
-        allFields = items;
-        if(fieldCombo) fieldCombo.setItems(allFields);
-        if(fieldHelp) fieldHelp.textContent = `${allFields.length} fields`;
-      }catch(e){
-        console.error(e);
-        if(fieldHelp) fieldHelp.textContent = "0 fields";
-      }
-    }
+    const items = [];
+    snap.forEach(d=>{
+      const data = d.data() || {};
+      const name = String(data.name||"").trim();
+      if(name) items.push({ id:d.id, name });
+    });
+
+    items.sort((a,b)=>a.name.localeCompare(b.name));
+    allFarms = items;
+
+    if(farmCombo) farmCombo.setItems(allFarms);
+    if(farmHelp) farmHelp.textContent = `${allFarms.length} farms`;
+  }catch(e){
+    console.error(e);
+    if(farmHelp) farmHelp.textContent = "0 farms";
+  }
+
+  if(fieldHelp) fieldHelp.textContent = "Loading…";
+  try{
+    const fieldsQ = query(
+      collection(db,'fields'),
+      where('status','==','active')
+    );
+    const snap = await getDocs(fieldsQ);
+
+    const items = [];
+    snap.forEach(d=>{
+      const data = d.data() || {};
+      const name = String(data.name||"").trim();
+      if(!name) return;
+
+      const farmId = String(data.farmId || data.farm || "").trim();
+      const farmName = String(data.farmName || data.farm || "").trim();
+      items.push({ id:d.id, name, farmId, farmName });
+    });
+
+    items.sort((a,b)=>a.name.localeCompare(b.name));
+    allFields = items;
+
+    if(fieldCombo) fieldCombo.setItems(allFields);
+    if(fieldHelp) fieldHelp.textContent = `${allFields.length} fields`;
+  }catch(e){
+    console.error(e);
+    if(fieldHelp) fieldHelp.textContent = "0 fields";
+  }
+}
 
     /* ===== Photos & Annotations ===== */
     let selectedFiles = [];
