@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/eta-helper.js  (FULL FILE)
-Rev: 2026-01-08a
+Rev: 2026-01-08b
 
 Field ETA Helper (per Dane):
 ✅ Listens for "fr:eta-help"
@@ -10,8 +10,10 @@ Field ETA Helper (per Dane):
    - Snapshot (operation threshold, readiness now, ETA, horizon)
    - Forecast inputs table (next 7 days INCLUDING today remaining hours if available)
 
-Uses existing page CSS:
-- .modal-backdrop, .modal, .modal-h, .modal-b, .xbtn, .table-scroll
+FIXES (this rev):
+✅ Modal owns vertical scroll
+✅ Background page scroll locked while modal open
+✅ Forecast grid keeps horizontal scroll
 ===================================================================== */
 'use strict';
 
@@ -182,8 +184,22 @@ function ensureModal(){
     </div>
   `;
 
+  // scroll lock helpers
+  bd._lockScroll = ()=>{
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  };
+  bd._unlockScroll = ()=>{
+    document.documentElement.style.overflow = '';
+    document.body.style.overflow = '';
+  };
+
   // close behaviors
-  const close = ()=>{ bd.classList.add('pv-hide'); };
+  const close = ()=>{
+    bd.classList.add('pv-hide');
+    bd._unlockScroll();
+  };
+
   bd.querySelector('.xbtn')?.addEventListener('click', close);
   bd.addEventListener('click', (e)=>{ if (e.target === bd) close(); });
   document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape' && !bd.classList.contains('pv-hide')) close(); });
@@ -195,6 +211,17 @@ function ensureModal(){
 function showModal(){
   const bd = ensureModal();
   bd.classList.remove('pv-hide');
+  bd._lockScroll();
+
+  // ensure modal body scrolls vertically
+  const body = bd.querySelector('#fvEtaHelpBody');
+  if (body){
+    body.style.maxHeight = '70vh';
+    body.style.overflowY = 'auto';
+    body.style.overscrollBehavior = 'contain';
+    body.style.webkitOverflowScrolling = 'touch';
+  }
+
   return bd;
 }
 
@@ -204,13 +231,11 @@ function showModal(){
 async function getForecastRows7(fieldId){
   const state = window.__FV_FR || null;
 
-  // preferred cache collection name if available; fallback default
   const colName =
     (state && state.CONST && state.CONST.WEATHER_CACHE_COLLECTION) ? String(state.CONST.WEATHER_CACHE_COLLECTION) :
     (window.FV_FORECAST_TUNE && window.FV_FORECAST_TUNE.WEATHER_CACHE_COLLECTION) ? String(window.FV_FORECAST_TUNE.WEATHER_CACHE_COLLECTION) :
     'field_weather_cache';
 
-  // Read the same doc forecast.js uses
   const data = await readForecastCacheDoc(fieldId, colName);
   const norm = (data && data.normalized) ? data.normalized : null;
 
@@ -264,10 +289,10 @@ async function getForecastRows7(fieldId){
             <b>What does this ETA mean?</b><br/>
             This is the <b>forecast-based time until the field reaches your selected operation threshold</b>.
             We start from your <b>current readiness</b> (based on recent weather history), then simulate the next <b>${esc(horizon)} hours</b>
-            using the <b>7_toggle-Word-Short</b> forecast inputs. Forecast rain pushes the field wetter; forecast drying conditions pull it drier.
+            using the <b>7-day</b> forecast inputs. Forecast rain pushes the field wetter; forecast drying conditions pull it drier.
             The ETA is the first time the simulation reaches the threshold for <b>${esc(opKey || 'the selected operation')}</b>.
           </div>
-        `.replace('Togg le-Word-Short','7-day'); // keeps iOS voice dictation edge cases from breaking hyphen
+        `;
 
         let tableHtml = '';
         const rows = await getForecastRows7(fieldId);
@@ -293,7 +318,7 @@ async function getForecastRows7(fieldId){
           tableHtml = `
             <div style="margin-top:14px;">
               <div style="font-weight:900; font-size:13px; margin-bottom:8px;">Forecast inputs (next 7 days)</div>
-              <div class="table-scroll">
+              <div class="table-scroll" style="overflow-x:auto;">
                 <table aria-label="ETA Forecast Inputs">
                   <thead>
                     <tr>
