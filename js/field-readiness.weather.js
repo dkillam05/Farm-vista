@@ -1,14 +1,16 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.weather.js  (FULL FILE)
-Rev: 2026-01-02a
+Rev: 2026-01-08a
 
-Change (per Dane):
-✅ warmWeatherForFields onEach now receives fieldId
-   - enables incremental tile refresh without blocking initial paint
+Fix (per Dane):
+✅ Prevent forecast rain (later today) from being counted as "already rained"
+   - For dateISO === today, only include hourly rows whose timestamp <= now.
+   - Keeps: history-only daily series (<= today) + last 30 days.
 
 Keeps:
+✅ warmWeatherForFields onEach receives fieldId
 ✅ localStorage cache + Firestore cache + Cloud Run fetch fallback
-✅ normalize + aggregate logic unchanged
+✅ normalize + aggregate logic unchanged (except today's-hour cutoff)
 ===================================================================== */
 'use strict';
 
@@ -38,9 +40,23 @@ function tsToMs(ts){
   return 0;
 }
 
+// Parse "2026-01-08T14:00" or ISO-like strings as local time (Open-Meteo timezone param makes this correct)
+function timeToMsLocal(t){
+  try{
+    if (!t || typeof t !== 'string') return NaN;
+    const ms = Date.parse(t);
+    return isFinite(ms) ? ms : NaN;
+  }catch(_){
+    return NaN;
+  }
+}
+
 /* ---------- normalize hourly -> daily ---------- */
 export function aggregateHourlyToDaily(hourlyCore, hourlyExt, dailyArr){
   const map = new Map();
+
+  const tISO = todayISO();
+  const nowMs = Date.now();
 
   function ensure(dateISO){
     let row = map.get(dateISO);
@@ -70,9 +86,21 @@ export function aggregateHourlyToDaily(hourlyCore, hourlyExt, dailyArr){
     return row;
   }
 
+  // ✅ Only count "today" hours that have already occurred (prevents forecast rain showing as already rained)
+  function includeHour(timeStr){
+    if (!timeStr || typeof timeStr !== 'string' || timeStr.length < 10) return false;
+    const dateISO = timeStr.slice(0,10);
+    if (dateISO !== tISO) return true; // past days (and any other day we later filter out) unchanged
+    const ms = timeToMsLocal(timeStr);
+    if (!isFinite(ms)) return true; // if parse fails, don't accidentally drop data
+    return ms <= nowMs;
+  }
+
   for (const h of (hourlyCore||[])){
     const t = String(h.time||'');
     if (t.length < 10) continue;
+    if (!includeHour(t)) continue;
+
     const dateISO = t.slice(0,10);
     const row = ensure(dateISO);
 
@@ -94,6 +122,8 @@ export function aggregateHourlyToDaily(hourlyCore, hourlyExt, dailyArr){
   for (const h of (hourlyExt||[])){
     const t = String(h.time||'');
     if (t.length < 10) continue;
+    if (!includeHour(t)) continue;
+
     const dateISO = t.slice(0,10);
     const row = ensure(dateISO);
 
@@ -164,7 +194,6 @@ export function aggregateHourlyToDaily(hourlyCore, hourlyExt, dailyArr){
     });
 
   // Keep your existing model behavior: history only (<= today)
-  const tISO = todayISO();
   const hist = out.filter(d=> d.dateISO && d.dateISO <= tISO);
   return hist.slice(-30);
 }
