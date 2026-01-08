@@ -1,19 +1,23 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-01-08d
+Rev: 2026-01-08e
 
 RECOVERY (critical):
 ✅ Fix syntax issues so module loads and tiles render again.
 
-Keeps (from your Rev: 2026-01-01c):
+NEW (per new thread goals):
+✅ ETA text on each tile is now the ONLY tappable target for ETA help
+✅ Tapping ETA dispatches a single consistent event: "fr:eta-help"
+✅ Auto-loads /Farm-vista/js/field-readiness/eta-helper.js (one-time) so the listener exists
+✅ ETA tap does NOT trigger tile select / dblclick (stops propagation)
+
+Keeps (from your Rev: 2026-01-08d):
 ✅ Tiles appear immediately on return (fast DOM build, ETA later)
 ✅ Stop rebuilding tiles when view unchanged (in-place updates)
 ✅ No 0/50/100 labels under gauge
 ✅ ETA text on mobile uses ">" sign
 ✅ 7-day ETA horizon (168h)
 ✅ Swipe + details behavior intact (no markup breaking)
-
-Keeps (from our prior change):
 ✅ Weather Inputs details table appends forecast rows (next 7 days)
    - Divider row: “Forecast (next 7 days)”
    - Forecast from Firestore cache dailySeriesFcst via forecast.readWxSeriesFromCache()
@@ -212,6 +216,39 @@ export async function ensureModelWeatherModules(state){
   state._mods.weather = weather;
   state._mods.model = model;
   state._mods.forecast = forecast;
+}
+
+/* =====================================================================
+   ETA helper loader + dispatcher
+===================================================================== */
+const ETA_HELPER_URL = '/Farm-vista/js/field-readiness/eta-helper.js';
+const ETA_HELP_EVENT = 'fr:eta-help';
+const ETA_HORIZON_HOURS = 168;
+
+async function ensureEtaHelperModule(state){
+  try{
+    if (!state) return;
+    if (!state._mods) state._mods = {};
+    if (state._mods.etaHelperLoaded) return;
+
+    // best-effort dynamic import so its listener exists
+    await import(ETA_HELPER_URL);
+    state._mods.etaHelperLoaded = true;
+  }catch(e){
+    // Do not crash the page if helper fails; still allow tiles/details to render.
+    console.warn('[FieldReadiness] eta-helper load failed:', e);
+  }
+}
+
+function dispatchEtaHelp(state, payload){
+  try{
+    // Ensure listener is likely there (best effort). Do not await; we want instant UI response.
+    ensureEtaHelperModule(state);
+  }catch(_){}
+
+  try{
+    document.dispatchEvent(new CustomEvent(ETA_HELP_EVENT, { detail: payload || {} }));
+  }catch(_){}
 }
 
 /* ---------- colors (ported) ---------- */
@@ -413,6 +450,41 @@ function ensureSelectionStyleOnce(){
         color: var(--muted,#67706B);
         margin-top: 4px;
       }
+
+      /* ETA clickable target (tile only) */
+      .tile .help{
+        display:flex;
+        justify-content:flex-end;
+        margin-top: 6px;
+      }
+      .tile .eta-help-btn{
+        -webkit-tap-highlight-color: transparent;
+        border: 0;
+        background: transparent;
+        padding: 2px 6px;
+        margin: 0;
+        border-radius: 10px;
+        font-weight: 950;
+        font-size: 13px;
+        line-height: 1.1;
+        color: var(--text, #111);
+        cursor: pointer;
+      }
+      html.dark .tile .eta-help-btn{
+        color: var(--text, #f1f5f9);
+      }
+      @media (hover: none) and (pointer: coarse){
+        .tile .eta-help-btn{
+          padding: 6px 8px;
+        }
+      }
+      .tile .eta-help-btn:active{
+        transform: scale(0.99);
+      }
+      .tile .eta-help-btn:focus{
+        outline: none;
+        box-shadow: 0 0 0 2px rgba(47,108,60,0.25);
+      }
     `;
     document.head.appendChild(s);
   }catch(_){}
@@ -519,7 +591,7 @@ function compactEtaForMobile(txt, horizonHours){
 }
 
 async function getTileEtaText(state, fieldId, run0, thr){
-  const HORIZON_HOURS = 168; // ✅ 7-day
+  const HORIZON_HOURS = ETA_HORIZON_HOURS; // ✅ 7-day
   const NEAR_THR_POINTS = 5;
 
   let legacyTxt = '';
@@ -614,6 +686,61 @@ async function updateVisibleTilesBatched(state, ids){
   });
 }
 
+/* =====================================================================
+   ETA help UI in tile (render + tap wiring)
+===================================================================== */
+function upsertEtaHelp(state, tile, ctx){
+  try{
+    const etaTxt = String(ctx.etaText || '').trim();
+    let help = tile.querySelector('.help');
+
+    if (!etaTxt){
+      if (help) help.remove();
+      return;
+    }
+
+    if (!help){
+      help = document.createElement('div');
+      help.className = 'help';
+      const gw = tile.querySelector('.gauge-wrap');
+      if (gw) gw.appendChild(help);
+      else tile.appendChild(help);
+    }
+
+    // Build a real tap target (only the ETA text is clickable)
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'eta-help-btn';
+    btn.setAttribute('aria-label', 'Open ETA helper');
+    btn.textContent = etaTxt;
+
+    btn.addEventListener('click', (e)=>{
+      try{
+        e.preventDefault();
+        e.stopPropagation(); // do NOT select the tile
+      }catch(_){}
+
+      const payload = {
+        fieldId: String(ctx.fieldId || ''),
+        fieldName: String(ctx.fieldName || ''),
+        opKey: String(ctx.opKey || ''),
+        threshold: Number(ctx.threshold),
+        readinessNow: Number(ctx.readinessNow),
+        etaText: etaTxt,
+        horizonHours: Number(ctx.horizonHours || ETA_HORIZON_HOURS),
+
+        // Optional context for helper if it wants it:
+        nowTs: Date.now(),
+        note: 'ReadinessNow uses history-only; ETA uses forecast drying/forecast rain until threshold.'
+      };
+
+      dispatchEtaHelp(state, payload);
+    }, { passive:false });
+
+    help.replaceChildren(btn);
+  }catch(_){}
+}
+
 /* ---------- internal: patch a single tile DOM in-place ---------- */
 async function updateTileForField(state, fieldId){
   try{
@@ -624,7 +751,10 @@ async function updateTileForField(state, fieldId){
     if (!tile) return;
 
     await ensureModelWeatherModules(state);
+    ensureSelectionStyleOnce();
     await loadCalibrationFromAdjustments(state);
+    // Best-effort: ensure helper listener exists
+    ensureEtaHelperModule(state);
 
     const f = (state.fields || []).find(x=>x.id === fid);
     if (!f) return;
@@ -687,18 +817,16 @@ async function updateTileForField(state, fieldId){
 
     const etaTxt = await getTileEtaText(state, fid, run0, thr);
 
-    let help = tile.querySelector('.help');
-    if (etaTxt){
-      if (!help){
-        help = document.createElement('div');
-        help.className = 'help';
-        const gw = tile.querySelector('.gauge-wrap');
-        if (gw) gw.appendChild(help);
-      }
-      help.innerHTML = `<b>${esc(String(etaTxt))}</b>`;
-    } else {
-      if (help) help.remove();
-    }
+    // ✅ Render ETA as the only clickable target and dispatch event to helper
+    upsertEtaHelp(state, tile, {
+      fieldId: fid,
+      fieldName: String(f.name || ''),
+      opKey,
+      threshold: thr,
+      readinessNow: readiness,
+      etaText: etaTxt,
+      horizonHours: ETA_HORIZON_HOURS
+    });
 
     if (String(state.selectedFieldId) === fid){
       tile.classList.add('fv-selected');
@@ -752,6 +880,8 @@ async function _renderTilesInternal(state){
   await ensureModelWeatherModules(state);
   ensureSelectionStyleOnce();
   await loadCalibrationFromAdjustments(state);
+  // Best-effort: load helper now so tap works immediately
+  ensureEtaHelperModule(state);
 
   const wrap = $('fieldsGrid');
   if (!wrap) return;
@@ -999,6 +1129,8 @@ function renderBetaInputs(state){
 /* ---------- details render (CORE) ---------- */
 async function _renderDetailsInternal(state){
   await ensureModelWeatherModules(state);
+  // Best-effort: ensure helper listener exists
+  ensureEtaHelperModule(state);
 
   const f = state.fields.find(x=>x.id === state.selectedFieldId);
   if (!f) return;
