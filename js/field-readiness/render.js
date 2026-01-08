@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-01-01c
+Rev: 2026-01-08b
 
 Fixes (per Dane):
 ✅ Tiles appear immediately on return:
@@ -15,11 +15,17 @@ Fixes (per Dane):
 ✅ Remove the 0 / 50 / 100 scale under the gauge on tiles
    - (removes only those tick labels, keeps gauge + marker)
 
+NEW (per Dane):
+✅ Weather Inputs table in Details now appends 7-day forecast inputs
+   - Divider row: "Forecast (next 7 days)"
+   - Forecast rows render with SAME formatting as history (per Dane: option A)
+   - Forecast source: Firestore cache dailySeriesFcst via forecast.readWxSeriesFromCache()
+
 Keeps:
 ✅ ETA text on mobile uses ">" sign
 ✅ 7-day ETA horizon (168h)
 ✅ Swipe + details behavior intact (no markup breaking)
-✅ Everything else unchanged from Rev: 2025-12-31i
+✅ Everything else unchanged from Rev: 2026-01-01c
 ===================================================================== */
 'use strict';
 
@@ -777,7 +783,7 @@ async function _renderTilesInternal(state){
     return;
   }
 
-  // ⛔ View changed OR first build: rebuild list order, but do it FAST (no ETA awaits in loop)
+  // ⛔ View changed OR first build: rebuild list order, but do it FAST (no ETA awaits in the loop)
   const opKey = getCurrentOp();
   const wxCtx = buildWxCtx(state);
   const deps = {
@@ -1097,28 +1103,65 @@ async function _renderDetailsInternal(state){
   if (wxb){
     wxb.innerHTML = '';
     const rows = Array.isArray(run.rows) ? run.rows : [];
+
+    // helper: render a single "Weather Inputs" row
+    function addWxRow(row){
+      const r = row || {};
+      const dateISO = String(r.dateISO || '').slice(0,10) || '—';
+
+      // history rows use temp/wind/solar; forecast rows use tempF/windMph/solarWm2 — handle both
+      const rain = Number(r.rainInAdj ?? r.rainIn ?? 0);
+      const temp = Math.round(Number(r.temp ?? r.tempF ?? 0));
+      const wind = Math.round(Number(r.wind ?? r.windMph ?? 0));
+      const rh = Math.round(Number(r.rh ?? 0));
+      const solar = Math.round(Number(r.solar ?? r.solarWm2 ?? 0));
+
+      // history rows store et0 (already numeric), forecast rows store et0In
+      const et0Num = (r.et0In == null ? r.et0 : r.et0In);
+      const et0 = (et0Num == null ? '—' : Number(et0Num).toFixed(2));
+
+      const sm010 = (r.sm010 == null ? '—' : Number(r.sm010).toFixed(3));
+      const st010F = (r.st010F == null ? '—' : String(Math.round(Number(r.st010F))));
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="mono">${esc(dateISO)}</td>
+        <td class="right mono">${rain.toFixed(2)}</td>
+        <td class="right mono">${temp}</td>
+        <td class="right mono">${wind}</td>
+        <td class="right mono">${rh}</td>
+        <td class="right mono">${solar}</td>
+        <td class="right mono">${esc(et0)}</td>
+        <td class="right mono">${esc(sm010)}</td>
+        <td class="right mono">${esc(st010F)}</td>
+      `;
+      wxb.appendChild(tr);
+    }
+
     if (!rows.length){
       wxb.innerHTML = `<tr><td colspan="9" class="muted">No weather rows.</td></tr>`;
     } else {
-      for (const r of rows){
-        const rain = Number(r.rainInAdj ?? r.rainIn ?? 0);
-        const et0 = (r.et0 == null ? '—' : Number(r.et0).toFixed(2));
-        const sm010 = (r.sm010 == null ? '—' : Number(r.sm010).toFixed(3));
-        const st010F = (r.st010F == null ? '—' : String(Math.round(Number(r.st010F))));
+      // 1) History rows (what the model used)
+      for (const r of rows) addWxRow(r);
 
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td class="mono">${esc(r.dateISO)}</td>
-          <td class="right mono">${rain.toFixed(2)}</td>
-          <td class="right mono">${Math.round(Number(r.temp||0))}</td>
-          <td class="right mono">${Math.round(Number(r.wind||0))}</td>
-          <td class="right mono">${Math.round(Number(r.rh||0))}</td>
-          <td class="right mono">${Math.round(Number(r.solar||0))}</td>
-          <td class="right mono">${esc(et0)}</td>
-          <td class="right mono">${esc(sm010)}</td>
-          <td class="right mono">${esc(st010F)}</td>
-        `;
-        wxb.appendChild(tr);
+      // 2) Forecast rows (inputs used by ETA) — same formatting as history (per Dane)
+      try{
+        const fc = state && state._mods ? state._mods.forecast : null;
+        if (fc && typeof fc.readWxSeriesFromCache === 'function'){
+          const wx = await fc.readWxSeriesFromCache(String(f.id), {});
+          const fcst = (wx && Array.isArray(wx.fcst)) ? wx.fcst : [];
+          if (fcst.length){
+            const div = document.createElement('tr');
+            div.innerHTML = `<td colspan="9" class="muted" style="font-weight:900;">Forecast (next 7 days)</td>`;
+            wxb.appendChild(div);
+
+            for (const d of fcst.slice(0, 7)){
+              addWxRow(d);
+            }
+          }
+        }
+      }catch(_){
+        // do not crash details if forecast cache missing
       }
     }
   }
