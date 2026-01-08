@@ -451,31 +451,41 @@ function ensureSelectionStyleOnce(){
         margin-top: 4px;
       }
 
-      /* ETA clickable target (tile only) */
+      /* ETA clickable target (tile only) — lower-left, smaller, not bold */
+      .tile .etaSlot{
+        display:flex;
+        justify-content:flex-start;
+        align-items:center;
+        margin-top: 6px;
+        min-height: 18px;
+      }
       .tile .help{
         display:flex;
-        justify-content:flex-end;
-        margin-top: 6px;
+        justify-content:flex-start;
+        align-items:center;
+        width: 100%;
+        margin: 0;
       }
       .tile .eta-help-btn{
         -webkit-tap-highlight-color: transparent;
         border: 0;
         background: transparent;
-        padding: 2px 6px;
+        padding: 2px 4px;
         margin: 0;
         border-radius: 10px;
-        font-weight: 950;
-        font-size: 13px;
+        font-weight: 500; /* not bold */
+        font-size: 12px;  /* smaller */
         line-height: 1.1;
         color: var(--text, #111);
         cursor: pointer;
+        text-align: left;
       }
       html.dark .tile .eta-help-btn{
         color: var(--text, #f1f5f9);
       }
       @media (hover: none) and (pointer: coarse){
         .tile .eta-help-btn{
-          padding: 6px 8px;
+          padding: 6px 6px;
         }
       }
       .tile .eta-help-btn:active{
@@ -702,9 +712,15 @@ function upsertEtaHelp(state, tile, ctx){
     if (!help){
       help = document.createElement('div');
       help.className = 'help';
-      const gw = tile.querySelector('.gauge-wrap');
-      if (gw) gw.appendChild(help);
-      else tile.appendChild(help);
+
+      // Prefer the dedicated slot at the bottom of the tile (lower-left)
+      const slot = tile.querySelector('.etaSlot');
+      if (slot) slot.appendChild(help);
+      else {
+        const gw = tile.querySelector('.gauge-wrap');
+        if (gw) gw.appendChild(help);
+        else tile.appendChild(help);
+      }
     }
 
     // Build a real tap target (only the ETA text is clickable)
@@ -1091,7 +1107,7 @@ function renderBetaInputs(state){
   const pulledNotUsed = [
     ['soil_temp_c_10_40','Soil temp 10–40cm (hourly)', unitsHourly?.soil_temperature_10_to_40cm || '°C'],
     ['soil_temp_c_40_100','Soil temp 40–100cm (hourly)', unitsHourly?.soil_temperature_40_to_100cm || '°C'],
-    ['soil_temp_c_100_200','Soil temp 100–200cm (hourly)', unitsHourly?.soil_temperature_100_to_200cm || '°C'],
+    ['soil_temp_c_100_200','Soil temp 100–200cm (hourly)', unitsHourly?.soil_temperature_100_to_200cm || '°C → °F'],
     ['soil_moisture_10_40','Soil moisture 10–40cm (hourly)', unitsHourly?.soil_moisture_10_to_40cm || 'm³/m³'],
     ['soil_moisture_40_100','Soil moisture 40–100cm (hourly)', unitsHourly?.soil_moisture_40_to_100cm || 'm³/m³'],
     ['soil_moisture_100_200','Soil moisture 100–200cm (hourly)', unitsHourly?.soil_moisture_100_to_200cm || 'm³/m³']
@@ -1232,9 +1248,9 @@ async function _renderDetailsInternal(state){
 
       const rain = Number(r.rainInAdj ?? r.rainIn ?? 0);
       const temp = Math.round(Number(r.temp ?? r.tempF ?? 0));
-      const wind = Math.round(Number(r.wind ?? r.windMph ?? 0));
+      const wind = Math.round(Number(r.wind ?? 0));
       const rh = Math.round(Number(r.rh ?? 0));
-      const solar = Math.round(Number(r.solar ?? r.solarWm2 ?? 0));
+      const solar = Math.round(Number(r.solar ?? 0));
 
       const et0Num = (r.et0In == null ? r.et0 : r.et0In);
       const et0 = (et0Num == null ? '—' : Number(et0Num).toFixed(2));
