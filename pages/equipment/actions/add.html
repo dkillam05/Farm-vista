@@ -1,15 +1,18 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2026-01-09b
+Rev: 2026-01-09c
 
-FIX:
-✅ Remove syntax error that prevented module execution (dropdowns stuck on “Loading…”)
-✅ Keep Make/Model Manager popups (add/edit/archive/categories)
-✅ Use setDoc() only (no addDoc/updateDoc dependency)
-✅ Preserve dropdown refresh + selection after saving
+UPGRADE (per Dane):
+✅ “Make” / “Model” label links ONLY edit the currently selected item
+✅ Adding NEW Make/Model happens from the dropdown list via “➕ Add new …”
+✅ Category visibility is controlled by per-category ON/OFF sliders (no archive anywhere)
+✅ Keeps old behavior: if categories[] is empty/missing => treat as “visible everywhere”
+✅ Save writes:
+   - equipment-makes: { name, categories[], updatedAt, createdAt }
+   - equipment-models: { makeId, name, categories[], updatedAt, createdAt }
 
 Keeps:
-✅ Label/PDF/QR flow unchanged
+✅ Existing dropdown UX + label/PDF/QR flow unchanged
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -198,6 +201,17 @@ Keeps:
     .dd-list li:hover{background:#f0f1f0}
     .dd-btn[disabled]{opacity:.6;cursor:not-allowed}
 
+    /* “Add new…” row in dropdown */
+    .dd-list li.add-row{
+      font-weight:900;
+      color:var(--brand);
+      border-bottom:1px solid var(--border);
+      background:color-mix(in srgb, var(--brand) 8%, transparent);
+    }
+    .dd-list li.add-row:hover{
+      background:color-mix(in srgb, var(--brand) 12%, transparent);
+    }
+
     /* QR thumb */
     .qr-area{
       border:1px solid var(--border); border-radius:12px; background:var(--surface);
@@ -249,6 +263,7 @@ Keeps:
     }
     #labelChoice footer{ justify-content:center; }
 
+    /* Preview sizing */
     dialog.sheet.sheet-print{
       width:min(980px, 96vw);
       max-width:calc(100vw - 16px);
@@ -284,6 +299,7 @@ Keeps:
 
     #pPreviewHost{ flex:0 0 auto; }
 
+    /* Desktop/Preview (landscape label) */
     .pv-long{
       width:fit-content;
       height:62mm;
@@ -366,6 +382,7 @@ Keeps:
 
     #fv-print-frame{ position:fixed; right:0; bottom:0; width:0; height:0; border:0; visibility:hidden; }
 
+    /* Overlay */
     .pdf-loading{
       position:fixed;
       inset:0;
@@ -384,7 +401,7 @@ Keeps:
       border-radius:16px;
       background:var(--surface,#ffffff);
       padding:16px 18px 14px;
-      box-shadow:0 18px 45px rgba(0,0,0,0.26);
+      box-shadow:0 18px 45px rgba(0,0,0,.26);
       text-align:center;
       border:1px solid var(--border);
     }
@@ -432,6 +449,7 @@ Keeps:
     .radio-row input{ accent-color:var(--brand); outline:none !important; box-shadow:none !important; }
     .radio-row input:focus{ outline:none !important; box-shadow:none !important; }
 
+    /* Bottom actions layout */
     .actions{
       display:grid;
       grid-template-columns: minmax(140px, 220px) minmax(140px, 220px);
@@ -456,6 +474,7 @@ Keeps:
       #btnCreateLabel{ width:100%; }
     }
 
+    /* Slider toggle */
     .pv-switch-row{ display:flex; align-items:center; justify-content:flex-start; gap:12px; min-height:var(--ctl-h); }
     .pv-switch{ position:relative; display:inline-flex; align-items:center; gap:10px; user-select:none; -webkit-tap-highlight-color: transparent; }
     .pv-switch input{
@@ -491,116 +510,41 @@ Keeps:
       outline-offset: 2px;
     }
 
-    /* ===== Make/Model Manager Sheets ===== */
-    dialog.sheet.sheet-manager{
-      width:min(980px, 94vw);
-      max-width:calc(100vw - 16px);
-    }
-    .mgr-grid{
+    /* ===== Category slider grid inside manager dialogs ===== */
+    .cat-grid{
       display:grid;
-      grid-template-columns: minmax(260px, 1fr) minmax(280px, 1.1fr);
-      gap:14px;
-      align-items:start;
+      grid-template-columns:1fr;
+      gap:10px;
+      margin-top:8px;
     }
-    @media (max-width:860px){
-      .mgr-grid{ grid-template-columns:1fr; }
-    }
-    .mgr-card{
-      border:1px solid var(--border);
-      border-radius:14px;
-      background:var(--surface);
-      overflow:hidden;
-    }
-    .mgr-card .mh{
-      padding:10px 12px;
-      border-bottom:1px solid var(--border);
-      display:flex; align-items:center; justify-content:space-between; gap:10px;
-      background:var(--surface);
-    }
-    .mgr-card .mh strong{ font-weight:900; }
-    .mgr-card .mc{ padding:10px 12px; }
-    .mgr-search{
-      width:100%;
-      height:44px;
-      border:1px solid var(--border);
-      border-radius:12px;
-      padding:10px 12px;
-      font:inherit;
-      color:var(--text);
-      background:var(--card-surface,var(--surface));
-      outline:none;
-      box-sizing:border-box;
-    }
-    .mgr-list{
-      list-style:none;
-      margin:10px 0 0;
-      padding:0;
-      border:1px solid var(--border);
-      border-radius:12px;
-      overflow:hidden;
-      max-height:360px;
-      overflow-y:auto;
-      background:var(--surface);
-      -webkit-overflow-scrolling:touch;
-    }
-    .mgr-item{
-      padding:10px 12px;
+    .cat-row{
       display:flex;
       align-items:center;
       justify-content:space-between;
-      gap:10px;
-      cursor:pointer;
-      border-bottom:1px solid color-mix(in srgb, var(--border) 70%, transparent);
-      color:var(--text);
-      background:transparent;
-    }
-    .mgr-item:last-child{ border-bottom:none; }
-    .mgr-item:hover{ background:var(--surface-2, rgba(127,127,127,.08)); }
-    .mgr-item.active{
-      background: color-mix(in srgb, var(--brand) 10%, transparent);
-      box-shadow: inset 3px 0 0 var(--brand);
-    }
-    .mgr-badge{
-      font-size:12px;
-      font-weight:800;
-      color:var(--muted,#67706B);
+      gap:12px;
       border:1px solid var(--border);
-      border-radius:999px;
-      padding:4px 8px;
-      white-space:nowrap;
-      background:var(--card-surface,var(--surface));
+      border-radius:12px;
+      padding:10px 12px;
+      background:var(--surface);
     }
-    .mgr-form{
+    .cat-row .left{
       display:grid;
-      gap:10px;
+      gap:2px;
     }
-    .mgr-form label{
+    .cat-row .left b{
       font-weight:900;
-      display:block;
-      margin:0 0 6px;
     }
-    .mgr-row{
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:10px;
-    }
-    @media (max-width:520px){
-      .mgr-row{ grid-template-columns:1fr; }
+    .cat-row .left span{
+      font-size:12px;
+      color:var(--muted,#67706B);
+      font-weight:700;
     }
     .mgr-help{
-      font-size:13px;
       color:var(--muted,#67706B);
+      font-size:13px;
       line-height:1.35;
       margin:0;
     }
-    .mgr-actions{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-      justify-content:flex-end;
-      margin-top:2px;
-    }
-    .mgr-actions .btn{ min-width:140px; }
   </style>
 </head>
 
@@ -736,140 +680,50 @@ Keeps:
     </footer>
   </dialog>
 
-  <!-- ===== Make Manager (Cancel only) ===== -->
-  <dialog id="makeManager" class="sheet sheet-manager" aria-modal="true">
+  <!-- Make Manager (Add/Edit only; Cancel + Save) -->
+  <dialog id="makeManager" class="sheet" aria-modal="true">
     <header>
-      <strong>Manage Makes</strong>
+      <strong id="mmTitle">Make</strong>
       <span></span>
     </header>
     <div class="body">
-      <div class="mgr-grid">
-        <div class="mgr-card">
-          <div class="mh">
-            <strong>Makes</strong>
-            <span class="mgr-badge" id="mmCount">0</span>
-          </div>
-          <div class="mc">
-            <input id="mmSearch" class="mgr-search" type="text" placeholder="Search makes…">
-            <ul id="mmList" class="mgr-list"></ul>
-          </div>
-        </div>
+      <p class="mgr-help">Toggle which equipment categories this Make appears under.</p>
 
-        <div class="mgr-card">
-          <div class="mh">
-            <strong id="mmFormTitle">New Make</strong>
-            <span class="mgr-badge" id="mmSelected">None</span>
-          </div>
-          <div class="mc">
-            <div class="mgr-form">
-              <div>
-                <label for="mmName">Name</label>
-                <input id="mmName" class="input" placeholder="e.g., John Deere">
-              </div>
-
-              <div class="mgr-row">
-                <div>
-                  <label for="mmCats">Categories</label>
-                  <input id="mmCats" class="input" placeholder="e.g., tractor,combine">
-                  <p class="mgr-help">Comma-separated type slugs. If blank, it’s visible everywhere. This page will default-add “TYPE”.</p>
-                </div>
-                <div>
-                  <label for="mmArchived">Archived</label>
-                  <div class="pv-switch-row">
-                    <label class="pv-switch" for="mmArchived" aria-label="Archived">
-                      <input id="mmArchived" type="checkbox" />
-                      <span class="pv-switch-track" aria-hidden="true">
-                        <span class="pv-switch-thumb" aria-hidden="true"></span>
-                      </span>
-                      <span class="pv-switch-text" id="mmArchivedText">Off</span>
-                    </label>
-                  </div>
-                  <p class="mgr-help">Archived makes won’t show in dropdowns.</p>
-                </div>
-              </div>
-
-              <div class="mgr-actions">
-                <button id="mmNew" class="btn" type="button">New</button>
-                <button id="mmSave" class="btn btn-primary" type="button">Save</button>
-              </div>
-
-              <div id="mmErr" class="error" hidden></div>
-            </div>
-          </div>
-        </div>
+      <div class="field" style="margin-top:10px;">
+        <label for="mmName" class="req">Name</label>
+        <input id="mmName" class="input" placeholder="e.g., John Deere">
       </div>
+
+      <div id="mmCats" class="cat-grid"></div>
+
+      <div id="mmErr" class="error" hidden></div>
     </div>
     <footer>
+      <button id="mmSave" class="btn btn-primary" type="button">Save</button>
       <button id="mmClose" class="btn" type="button">Cancel</button>
     </footer>
   </dialog>
 
-  <!-- ===== Model Manager (Cancel only) ===== -->
-  <dialog id="modelManager" class="sheet sheet-manager" aria-modal="true">
+  <!-- Model Manager (Add/Edit only; Cancel + Save) -->
+  <dialog id="modelManager" class="sheet" aria-modal="true">
     <header>
-      <strong>Manage Models</strong>
+      <strong id="mdlTitle">Model</strong>
       <span></span>
     </header>
     <div class="body">
-      <p class="mgr-help" id="mdlHdrHelp" style="margin:0 0 10px;"></p>
+      <p class="mgr-help" id="mdlHelp">Toggle which equipment categories this Model appears under.</p>
 
-      <div class="mgr-grid">
-        <div class="mgr-card">
-          <div class="mh">
-            <strong>Models</strong>
-            <span class="mgr-badge" id="mdlCount">0</span>
-          </div>
-          <div class="mc">
-            <input id="mdlSearch" class="mgr-search" type="text" placeholder="Search models…">
-            <ul id="mdlList" class="mgr-list"></ul>
-          </div>
-        </div>
-
-        <div class="mgr-card">
-          <div class="mh">
-            <strong id="mdlFormTitle">New Model</strong>
-            <span class="mgr-badge" id="mdlSelected">None</span>
-          </div>
-          <div class="mc">
-            <div class="mgr-form">
-              <div>
-                <label for="mdlName">Name</label>
-                <input id="mdlName" class="input" placeholder="e.g., 8R370">
-              </div>
-
-              <div class="mgr-row">
-                <div>
-                  <label for="mdlCats">Categories</label>
-                  <input id="mdlCats" class="input" placeholder="e.g., tractor,combine">
-                  <p class="mgr-help">Comma-separated type slugs. If blank, it’s visible everywhere. This page will default-add “TYPE”.</p>
-                </div>
-                <div>
-                  <label for="mdlArchived">Archived</label>
-                  <div class="pv-switch-row">
-                    <label class="pv-switch" for="mdlArchived" aria-label="Archived">
-                      <input id="mdlArchived" type="checkbox" />
-                      <span class="pv-switch-track" aria-hidden="true">
-                        <span class="pv-switch-thumb" aria-hidden="true"></span>
-                      </span>
-                      <span class="pv-switch-text" id="mdlArchivedText">Off</span>
-                    </label>
-                  </div>
-                  <p class="mgr-help">Archived models won’t show in dropdowns.</p>
-                </div>
-              </div>
-
-              <div class="mgr-actions">
-                <button id="mdlNew" class="btn" type="button">New</button>
-                <button id="mdlSave" class="btn btn-primary" type="button">Save</button>
-              </div>
-
-              <div id="mdlErr" class="error" hidden></div>
-            </div>
-          </div>
-        </div>
+      <div class="field" style="margin-top:10px;">
+        <label for="mdlName" class="req">Name</label>
+        <input id="mdlName" class="input" placeholder="e.g., 8R370">
       </div>
+
+      <div id="mdlCats" class="cat-grid"></div>
+
+      <div id="mdlErr" class="error" hidden></div>
     </div>
     <footer>
+      <button id="mdlSave" class="btn btn-primary" type="button">Save</button>
       <button id="mdlClose" class="btn" type="button">Cancel</button>
     </footer>
   </dialog>
@@ -897,6 +751,18 @@ Keeps:
     const IS_STARFIRE = TYPE === 'starfire';
 
     const ENTRY_REFERRER = document.referrer || '';
+
+    const CATEGORY_TYPES = [
+      { id:'tractor',      label:'Tractor' },
+      { id:'combine',      label:'Combine' },
+      { id:'implement',    label:'Implement' },
+      { id:'sprayer',      label:'Sprayer' },
+      { id:'construction', label:'Construction' },
+      { id:'truck',        label:'Truck' },
+      { id:'trailer',      label:'Trailer' },
+      { id:'fertilizer',   label:'Fertilizer' },
+      { id:'starfire',     label:'StarFire' }
+    ];
 
     function portalFallbackForType(type){
       const map = {
@@ -966,6 +832,7 @@ Keeps:
       return /iphone|ipad|ipod|android|mobi/.test(ua);
     }
 
+    // Overlay
     const pdfLoading = $("pdfLoading");
     const pdfLoadingText = $("pdfLoadingText");
     const pdfLoadingSub = $("pdfLoadingSub");
@@ -984,6 +851,7 @@ Keeps:
     function openDialog(d){ try{ d.showModal(); }catch{ d.setAttribute('open',''); } }
     function closeDialog(d){ try{ d.close(); }catch{ d.removeAttribute('open'); } }
 
+    /* ===== MATCH LOOKUP: center only for summary ===== */
     async function setPrintWrapCentered(isSummary){
       const wrapEl = $("printWrap");
       if(!wrapEl) return;
@@ -993,10 +861,14 @@ Keeps:
       wrapEl.scrollLeft = 0;
     }
 
+    /* =========================
+       LABEL HTML BUILDERS (MATCH LOOKUP)
+       ========================= */
     function esc(s){
       return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
     }
 
+    // ---- calibrated px <-> mm (avoids 96dpi assumptions on iOS/PDF) ----
     let __pxPerMm = null;
     function getPxPerMm(){
       if (__pxPerMm) return __pxPerMm;
@@ -1014,7 +886,7 @@ Keeps:
     }
     function pxToMm(px){ return px / getPxPerMm(); }
     function clampMm(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
-    function roundUpMm(v){ return Math.ceil(v * 10) / 10; }
+    function roundUpMm(v){ return Math.ceil(v * 10) / 10; } // 0.1mm
 
     function buildMobilePortraitHtml({ mode, qrSrc, make, model, serial6, cutLenMm }){
       const isSummary = mode === 'summary';
@@ -1162,6 +1034,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 </body></html>`;
     }
 
+    // Year combo
     function buildYearOptions(){
       const sel=$("year"); const now=new Date().getFullYear();
       sel.innerHTML='<option value="">— Select —</option>';
@@ -1206,6 +1079,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     }
     function onEscClose(e){ if(e.key==='Escape') closeYearPanel(); }
 
+    // Dropdowns
     function wireDropdownOpenClose(root){
       const btn = root.querySelector(".dd-btn");
       btn.addEventListener("click",()=>{
@@ -1227,16 +1101,6 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         listEl.querySelectorAll("li").forEach(li=>{
           li.style.display = li.textContent.toLowerCase().includes(term) ? "" : "none";
         });
-      });
-    }
-    function buildList(listEl, items, onPick){
-      listEl.innerHTML="";
-      items.forEach(([val,label])=>{
-        const li=document.createElement("li");
-        li.textContent=label;
-        li.dataset.value=val;
-        li.onclick=()=>onPick(val,label);
-        listEl.appendChild(li);
       });
     }
 
@@ -1290,6 +1154,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       $("btnCreateLabel").disabled = !ok;
     }
 
+    // QR generation
     let pendingToken = null;
     let pendingEquipId = null;
 
@@ -1361,6 +1226,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       return pendingEquipId;
     }
 
+    /* Print flow */
     const pDlg = $("printPrev");
     const pHost = $("pPreviewHost");
     const pCancel = $("pCancel");
@@ -1541,8 +1407,10 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         pCreate.disabled = false;
       }
     }
+
     pCreate.addEventListener('click', createPdf);
 
+    /* SAVE */
     let saving = false;
 
     async function saveAll(db){
@@ -1630,22 +1498,24 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       }
     }
 
+    /* Data */
     function docCats(v){ return Array.isArray(v?.categories) ? v.categories.map(String) : undefined; }
 
     async function getMakes(db){
       const items=[];
       try{
-        const snap=await getDocs(query(collection(db,'equipment-makes'), where('archived','!=',true), orderBy('archived'), orderBy('name')));
+        // NOTE: we no longer use archived; keep query fallback-friendly
+        const snap=await getDocs(query(collection(db,'equipment-makes'), orderBy('name')));
         snap.forEach(d=>{
           const v=d.data()||{}; const name=String(v.name||'').trim();
-          if(name) items.push({id:d.id,name, categories:docCats(v), archived:!!v.archived});
+          if(name) items.push({id:d.id,name, categories:docCats(v)});
         });
       }catch{
         const snap=await getDocs(collection(db,'equipment-makes'));
         snap.forEach(d=>{
           const v=d.data()||{};
           const name=String(v.name||'').trim();
-          if(name) items.push({id:d.id,name, categories:docCats(v), archived:!!v.archived});
+          if(name) items.push({id:d.id,name, categories:docCats(v)});
         });
         items.sort((a,b)=>a.name.localeCompare(b.name));
       }
@@ -1656,17 +1526,17 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       if(!makeId) return [];
       const items=[];
       try{
-        const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId), where('archived','!=',true), orderBy('archived'), orderBy('name')));
+        const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId), orderBy('name')));
         snap.forEach(d=>{
           const v=d.data()||{}; const name=String(v.name||'').trim();
-          if(name) items.push({id:d.id,name, categories:docCats(v), archived:!!v.archived, makeId:String(v.makeId||'')});
+          if(name) items.push({id:d.id,name, categories:docCats(v), makeId:String(v.makeId||'')});
         });
       }catch{
         const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId)));
         snap.forEach(d=>{
           const v=d.data()||{};
           const name=String(v.name||'').trim();
-          if(name) items.push({id:d.id,name, categories:docCats(v), archived:!!v.archived, makeId:String(v.makeId||'')});
+          if(name) items.push({id:d.id,name, categories:docCats(v), makeId:String(v.makeId||'')});
         });
         items.sort((a,b)=>a.name.localeCompare(b.name));
       }
@@ -1675,7 +1545,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 
     function visibleForType(doc){
       const cats = Array.isArray(doc.categories) ? doc.categories.map(s=>String(s).toLowerCase()) : null;
-      if(!cats || cats.length===0) return true;
+      if(!cats || cats.length===0) return true; // legacy: empty => all
       return cats.includes(TYPE);
     }
 
@@ -1689,41 +1559,69 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       setupSearch(ddModel.search, ddModel.list);
     }
 
-    async function populateMakes(db, preserveMakeId=null){
-      const allMakes = await getMakes(db);
-      const makes = allMakes.filter(m => !m.archived).filter(visibleForType);
+    function buildListWithAdd(listEl, items, addLabel, onAdd, onPick){
+      listEl.innerHTML = "";
 
-      buildList(ddMake.list, makes.map(m=>[m.id, m.name]), (val,label)=>setMake(val,label));
+      const liAdd = document.createElement("li");
+      liAdd.textContent = addLabel;
+      liAdd.className = "add-row";
+      liAdd.onclick = ()=> onAdd();
+      listEl.appendChild(liAdd);
+
+      items.forEach(([val,label])=>{
+        const li=document.createElement("li");
+        li.textContent=label;
+        li.dataset.value=val;
+        li.onclick=()=>onPick(val,label);
+        listEl.appendChild(li);
+      });
+    }
+
+    let __cachedMakes = [];
+    let __cachedModels = [];
+
+    async function populateMakes(db){
+      const allMakes = await getMakes(db);
+      __cachedMakes = allMakes.slice();
+      const makes = allMakes.filter(visibleForType);
+
+      buildListWithAdd(
+        ddMake.list,
+        makes.map(m=>[m.id, m.name]),
+        "➕ Add new make…",
+        ()=> openMakeManagerNew(),
+        (val,label)=> setMake(val,label)
+      );
+
       ddMake.hidden.value = "";
       ddMake.btn.textContent = "— Select —";
 
-      const keep = preserveMakeId && makes.find(m=>m.id===preserveMakeId);
-      if(keep){
-        setMake(keep.id, keep.name);
-      }else{
-        ddModel.hidden.value = "";
-        ddModel.btn.textContent = "— Select a Make first —";
-        ddModel.btn.disabled = true;
-        ddModel.search.disabled = true;
-        ddModel.list.innerHTML = "";
-        validateForm();
-      }
+      // reset models
+      ddModel.hidden.value = "";
+      ddModel.btn.textContent = "— Select a Make first —";
+      ddModel.btn.disabled = true;
+      ddModel.search.disabled = true;
+      ddModel.list.innerHTML = "";
+      validateForm();
     }
 
-    async function populateModels(db, makeId, preserveModelId=null){
+    async function populateModels(db, makeId){
       const allModels = await getModels(db, makeId);
-      const models = allModels.filter(m => !m.archived).filter(visibleForType);
+      __cachedModels = allModels.slice();
+      const models = allModels.filter(visibleForType);
 
-      buildList(ddModel.list, models.map(m=>[m.id, m.name]), (val,label)=>setModel(val,label));
+      buildListWithAdd(
+        ddModel.list,
+        models.map(m=>[m.id, m.name]),
+        "➕ Add new model…",
+        ()=> openModelManagerNew(makeId),
+        (val,label)=> setModel(val,label)
+      );
+
       ddModel.btn.disabled = false;
       ddModel.search.disabled = false;
       ddModel.hidden.value = "";
       ddModel.btn.textContent = "— Select —";
-
-      const keep = preserveModelId && models.find(m=>m.id===preserveModelId);
-      if(keep){
-        setModel(keep.id, keep.name);
-      }
     }
 
     function setMake(id, label){
@@ -1809,66 +1707,34 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     }
 
     /* ============================
-       Make/Model Manager (FIXED)
+       Make/Model Manager (NEW RULES)
+       - Label opens edit for CURRENT selected only
+       - Add new via dropdown row
+       - Per-category toggles (sliders)
+       - No archive
        ============================ */
-    function normCsvCats(s){
-      const raw = String(s||'').split(',').map(x=>x.trim().toLowerCase()).filter(Boolean);
-      return [...new Set(raw)];
-    }
-    function catsToCsv(arr){
-      const a = Array.isArray(arr) ? arr.map(x=>String(x).trim().toLowerCase()).filter(Boolean) : [];
-      return [...new Set(a)].join(',');
-    }
-    function ensureTypeCat(cats){
-      const c = Array.isArray(cats) ? [...cats] : [];
-      const low = c.map(x=>String(x).toLowerCase());
-      if(!low.includes(TYPE)) low.push(TYPE);
-      return [...new Set(low)];
-    }
-
     const makeDlg = $("makeManager");
-    const mmList = $("mmList");
-    const mmSearch = $("mmSearch");
-    const mmCount = $("mmCount");
-    const mmFormTitle = $("mmFormTitle");
-    const mmSelected = $("mmSelected");
+    const mmTitle = $("mmTitle");
     const mmName = $("mmName");
-    const mmCats = $("mmCats");
-    const mmArchived = $("mmArchived");
-    const mmArchivedText = $("mmArchivedText");
-    const mmNew = $("mmNew");
+    const mmCatsHost = $("mmCats");
+    const mmErr = $("mmErr");
     const mmSave = $("mmSave");
     const mmClose = $("mmClose");
-    const mmErr = $("mmErr");
 
     const modelDlg = $("modelManager");
-    const mdlList = $("mdlList");
-    const mdlSearch = $("mdlSearch");
-    const mdlCount = $("mdlCount");
-    const mdlHdrHelp = $("mdlHdrHelp");
-    const mdlFormTitle = $("mdlFormTitle");
-    const mdlSelected = $("mdlSelected");
+    const mdlTitle = $("mdlTitle");
+    const mdlHelp = $("mdlHelp");
     const mdlName = $("mdlName");
-    const mdlCats = $("mdlCats");
-    const mdlArchived = $("mdlArchived");
-    const mdlArchivedText = $("mdlArchivedText");
-    const mdlNew = $("mdlNew");
+    const mdlCatsHost = $("mdlCats");
+    const mdlErr = $("mdlErr");
     const mdlSave = $("mdlSave");
     const mdlClose = $("mdlClose");
-    const mdlErr = $("mdlErr");
 
-    function syncSwitchLabel(cb, lblEl){
-      if(!cb || !lblEl) return;
-      const sync = ()=>{ lblEl.textContent = cb.checked ? "On" : "Off"; };
-      cb.addEventListener('change', sync);
-      sync();
-    }
+    let __mmMode = 'edit';      // 'edit' | 'new'
+    let __mmId = null;
 
-    let __mmAll = [];
-    let __mmSelectedId = null;
-
-    let __mdlAll = [];
-    let __mdlSelectedId = null;
+    let __mdlMode = 'edit';     // 'edit' | 'new'
+    let __mdlId = null;
     let __mdlMakeId = null;
 
     function setErr(el, msg){
@@ -1878,77 +1744,137 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     }
     function clearErr(el){ setErr(el, ""); }
 
-    function renderMgrList(ul, items, activeId){
-      ul.innerHTML = "";
-      items.forEach(it=>{
-        const li = document.createElement('li');
-        li.className = 'mgr-item' + (it.id === activeId ? ' active' : '');
+    function catsToSet(catsArr){
+      const a = Array.isArray(catsArr) ? catsArr.map(x=>String(x).toLowerCase()) : [];
+      if(a.length === 0){
+        // legacy: empty => all visible
+        return new Set(CATEGORY_TYPES.map(x=>x.id));
+      }
+      return new Set(a);
+    }
+
+    function setToCatsArray(set){
+      const all = CATEGORY_TYPES.map(x=>x.id);
+      const picked = all.filter(k => set.has(k));
+      // if all on, store [] (legacy "all")
+      if(picked.length === all.length) return [];
+      return picked;
+    }
+
+    function renderCategoryToggles(hostEl, set, prefix){
+      hostEl.innerHTML = "";
+      CATEGORY_TYPES.forEach(cat=>{
+        const row = document.createElement('div');
+        row.className = 'cat-row';
+
         const left = document.createElement('div');
-        left.style.display = 'grid';
-        left.style.gap = '2px';
+        left.className = 'left';
+        const b = document.createElement('b');
+        b.textContent = cat.label;
+        const s = document.createElement('span');
+        s.textContent = cat.id === TYPE ? 'Default for this page' : cat.id;
+        left.append(b, s);
 
-        const nm = document.createElement('div');
-        nm.style.fontWeight = '900';
-        nm.textContent = it.name || '—';
+        const right = document.createElement('div');
+        right.className = 'pv-switch-row';
 
-        const sub = document.createElement('div');
-        sub.style.fontSize = '12px';
-        sub.style.color = 'var(--muted,#67706B)';
-        const cats = Array.isArray(it.categories) ? it.categories.map(s=>String(s).toLowerCase()) : [];
-        sub.textContent = (it.archived ? 'Archived' : 'Active') + (cats.length ? ` • ${cats.join(',')}` : '');
+        const id = `${prefix}_${cat.id}`;
+        const lblId = `${id}_txt`;
 
-        left.append(nm, sub);
+        const wrap = document.createElement('label');
+        wrap.className = 'pv-switch';
+        wrap.setAttribute('for', id);
+        wrap.setAttribute('aria-label', `${cat.label} on/off`);
 
-        const badge = document.createElement('span');
-        badge.className = 'mgr-badge';
-        badge.textContent = it.archived ? 'Archived' : 'Active';
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.id = id;
+        input.checked = set.has(cat.id);
 
-        li.append(left, badge);
-        li.addEventListener('click', ()=> ul.dispatchEvent(new CustomEvent('mgr:pick', { detail: it })));
-        ul.appendChild(li);
+        const track = document.createElement('span');
+        track.className = 'pv-switch-track';
+        track.setAttribute('aria-hidden','true');
+
+        const thumb = document.createElement('span');
+        thumb.className = 'pv-switch-thumb';
+        thumb.setAttribute('aria-hidden','true');
+        track.appendChild(thumb);
+
+        const txt = document.createElement('span');
+        txt.className = 'pv-switch-text';
+        txt.id = lblId;
+        txt.textContent = input.checked ? 'On' : 'Off';
+
+        input.addEventListener('change', ()=>{
+          txt.textContent = input.checked ? 'On' : 'Off';
+        });
+
+        wrap.append(input, track, txt);
+        right.appendChild(wrap);
+
+        row.append(left, right);
+        hostEl.appendChild(row);
       });
     }
 
-    function filterByTerm(items, term){
-      const t = String(term||'').trim().toLowerCase();
-      if(!t) return items;
-      return items.filter(it => String(it.name||'').toLowerCase().includes(t));
+    function readCategorySet(prefix){
+      const set = new Set();
+      CATEGORY_TYPES.forEach(cat=>{
+        const el = document.getElementById(`${prefix}_${cat.id}`);
+        if(el && el.checked) set.add(cat.id);
+      });
+      // safety: never allow 0 categories — force current TYPE on
+      if(set.size === 0) set.add(TYPE);
+      return set;
     }
 
-    async function loadMakeManager(db){
+    async function openMakeManagerNew(){
       clearErr(mmErr);
-      __mmAll = await getMakes(db);
-      __mmAll.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
-
-      const filtered = filterByTerm(__mmAll, mmSearch.value);
-      mmCount.textContent = String(filtered.length);
-      renderMgrList(mmList, filtered, __mmSelectedId);
+      __mmMode = 'new';
+      __mmId = null;
+      mmTitle.textContent = "Add new Make";
+      mmName.value = "";
+      const set = new Set([TYPE]); // default this page on
+      renderCategoryToggles(mmCatsHost, set, 'mmCat');
+      openDialog(makeDlg);
+      setTimeout(()=>{ try{ mmName.focus(); }catch{} }, 50);
     }
 
-    function mmSelect(it){
-      __mmSelectedId = it ? it.id : null;
+    async function openMakeManagerEditCurrent(){
       clearErr(mmErr);
-
-      if(!it){
-        mmFormTitle.textContent = "New Make";
-        mmSelected.textContent = "None";
-        mmName.value = "";
-        mmCats.value = catsToCsv([TYPE]);
-        mmArchived.checked = false;
-      } else {
-        mmFormTitle.textContent = "Edit Make";
-        mmSelected.textContent = (it.name || it.id || 'Selected').slice(0, 22);
-        mmName.value = it.name || "";
-        const cats = Array.isArray(it.categories) ? it.categories : [];
-        mmCats.value = catsToCsv(cats.length ? cats : [TYPE]);
-        mmArchived.checked = !!it.archived;
+      const id = $("makeId").value || '';
+      if(!id){
+        alert("Select a Make first (or use “Add new make…” in the dropdown).");
+        return;
       }
 
-      const filtered = filterByTerm(__mmAll, mmSearch.value);
-      renderMgrList(mmList, filtered, __mmSelectedId);
+      __mmMode = 'edit';
+      __mmId = id;
+
+      // Try cached first, then fetch
+      let docData = __cachedMakes.find(x=>x.id===id) || null;
+      if(!docData){
+        try{
+          const snap = await getDoc(doc(window.__db,'equipment-makes', id));
+          if(snap.exists()){
+            const v = snap.data() || {};
+            docData = { id, name:String(v.name||'').trim(), categories:docCats(v) };
+          }
+        }catch(e){
+          console.warn("make fetch failed", e);
+        }
+      }
+
+      mmTitle.textContent = "Edit Make";
+      mmName.value = docData?.name || '';
+      const set = catsToSet(docData?.categories);
+      renderCategoryToggles(mmCatsHost, set, 'mmCat');
+
+      openDialog(makeDlg);
+      setTimeout(()=>{ try{ mmName.focus(); }catch{} }, 50);
     }
 
-    async function mmSaveNow(db){
+    async function saveMakeFromDialog(){
       clearErr(mmErr);
       const name = String(mmName.value||'').trim();
       if(!name){
@@ -1956,203 +1882,161 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         return;
       }
 
-      let cats = normCsvCats(mmCats.value);
-      if(!mmCats.value.trim()){
-        cats = [TYPE];
-      } else {
-        cats = ensureTypeCat(cats);
-      }
-
-      const archived = !!mmArchived.checked;
+      const set = readCategorySet('mmCat');
+      const categories = setToCatsArray(set);
 
       try{
-        const ref = __mmSelectedId
-          ? doc(db,'equipment-makes', __mmSelectedId)
-          : doc(collection(db,'equipment-makes'));
+        const ref = __mmId
+          ? doc(window.__db, 'equipment-makes', __mmId)
+          : doc(collection(window.__db, 'equipment-makes'));
 
         const payload = {
           name,
-          categories: cats.length ? cats : [],
-          archived,
+          categories,
           updatedAt: serverTimestamp()
         };
-        if(!__mmSelectedId) payload.createdAt = serverTimestamp();
+        if(!__mmId) payload.createdAt = serverTimestamp();
 
         await setDoc(ref, payload, { merge:true });
-        __mmSelectedId = ref.id;
 
-        showToast(__mmSelectedId ? "Make saved" : "Make saved");
+        const savedId = ref.id;
 
-        await loadMakeManager(db);
+        // Refresh dropdown list and preserve selection to saved make
+        await populateMakes(window.__db);
+        const savedName = name;
 
-        const keepId = __mmSelectedId;
-        await populateMakes(db, keepId);
+        // Select the saved make after refresh
+        setMake(savedId, savedName);
 
-        const curModelId = $("modelId").value || null;
-        const curMakeId = $("makeId").value || null;
-        if(curMakeId){
-          await populateModels(db, curMakeId, curModelId);
-        }
+        // If we were adding new make, immediately load models list for it
+        await populateModels(window.__db, savedId);
 
-        const fresh = __mmAll.find(x=>x.id===keepId) || null;
-        mmSelect(fresh);
+        showToast("Make saved");
+        closeDialog(makeDlg);
       }catch(e){
         console.error(e);
         setErr(mmErr, "Save failed.");
       }
     }
 
-    async function loadModelManager(db, makeId){
+    async function openModelManagerNew(makeId){
       clearErr(mdlErr);
-      __mdlMakeId = makeId || null;
-      __mdlSelectedId = null;
-
-      const makeLabel = ddMake?.btn?.textContent?.trim() || '';
-      mdlHdrHelp.textContent = makeId ? `Make: ${makeLabel}` : 'Make: —';
-
-      __mdlAll = makeId ? await getModels(db, makeId) : [];
-      __mdlAll.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
-
-      const filtered = filterByTerm(__mdlAll, mdlSearch.value);
-      mdlCount.textContent = String(filtered.length);
-      renderMgrList(mdlList, filtered, __mdlSelectedId);
-
-      mdlSelect(null);
-    }
-
-    function mdlSelect(it){
-      __mdlSelectedId = it ? it.id : null;
-      clearErr(mdlErr);
-
-      if(!it){
-        mdlFormTitle.textContent = "New Model";
-        mdlSelected.textContent = "None";
-        mdlName.value = "";
-        mdlCats.value = catsToCsv([TYPE]);
-        mdlArchived.checked = false;
-      } else {
-        mdlFormTitle.textContent = "Edit Model";
-        mdlSelected.textContent = (it.name || it.id || 'Selected').slice(0, 22);
-        mdlName.value = it.name || "";
-        const cats = Array.isArray(it.categories) ? it.categories : [];
-        mdlCats.value = catsToCsv(cats.length ? cats : [TYPE]);
-        mdlArchived.checked = !!it.archived;
-      }
-
-      const filtered = filterByTerm(__mdlAll, mdlSearch.value);
-      renderMgrList(mdlList, filtered, __mdlSelectedId);
-    }
-
-    async function mdlSaveNow(db){
-      clearErr(mdlErr);
-      if(!__mdlMakeId){
-        setErr(mdlErr, "Select a Make first.");
+      if(!makeId){
+        alert("Select a Make first.");
         return;
       }
 
+      __mdlMode = 'new';
+      __mdlId = null;
+      __mdlMakeId = makeId;
+
+      const makeLabel = ddMake?.btn?.textContent?.trim() || '';
+      mdlTitle.textContent = "Add new Model";
+      mdlHelp.textContent = `Make: ${makeLabel || '—'} • Toggle which categories this Model appears under.`;
+      mdlName.value = "";
+      const set = new Set([TYPE]);
+      renderCategoryToggles(mdlCatsHost, set, 'mdlCat');
+
+      openDialog(modelDlg);
+      setTimeout(()=>{ try{ mdlName.focus(); }catch{} }, 50);
+    }
+
+    async function openModelManagerEditCurrent(){
+      clearErr(mdlErr);
+      const makeId = $("makeId").value || '';
+      const modelId = $("modelId").value || '';
+      if(!makeId){
+        alert("Select a Make first.");
+        return;
+      }
+      if(!modelId){
+        alert("Select a Model first (or use “Add new model…” in the dropdown).");
+        return;
+      }
+
+      __mdlMode = 'edit';
+      __mdlMakeId = makeId;
+      __mdlId = modelId;
+
+      const makeLabel = ddMake?.btn?.textContent?.trim() || '';
+      mdlTitle.textContent = "Edit Model";
+      mdlHelp.textContent = `Make: ${makeLabel || '—'} • Toggle which categories this Model appears under.`;
+
+      // Try cached first, then fetch
+      let docData = __cachedModels.find(x=>x.id===modelId) || null;
+      if(!docData){
+        try{
+          const snap = await getDoc(doc(window.__db,'equipment-models', modelId));
+          if(snap.exists()){
+            const v = snap.data() || {};
+            docData = { id:modelId, name:String(v.name||'').trim(), categories:docCats(v), makeId:String(v.makeId||makeId) };
+          }
+        }catch(e){
+          console.warn("model fetch failed", e);
+        }
+      }
+
+      mdlName.value = docData?.name || '';
+      const set = catsToSet(docData?.categories);
+      renderCategoryToggles(mdlCatsHost, set, 'mdlCat');
+
+      openDialog(modelDlg);
+      setTimeout(()=>{ try{ mdlName.focus(); }catch{} }, 50);
+    }
+
+    async function saveModelFromDialog(){
+      clearErr(mdlErr);
       const name = String(mdlName.value||'').trim();
       if(!name){
         setErr(mdlErr, "Name is required.");
         return;
       }
-
-      let cats = normCsvCats(mdlCats.value);
-      if(!mdlCats.value.trim()){
-        cats = [TYPE];
-      } else {
-        cats = ensureTypeCat(cats);
+      if(!__mdlMakeId){
+        setErr(mdlErr, "Make is missing. Close and re-open from the dropdown.");
+        return;
       }
 
-      const archived = !!mdlArchived.checked;
+      const set = readCategorySet('mdlCat');
+      const categories = setToCatsArray(set);
 
       try{
-        const ref = __mdlSelectedId
-          ? doc(db,'equipment-models', __mdlSelectedId)
-          : doc(collection(db,'equipment-models'));
+        const ref = __mdlId
+          ? doc(window.__db, 'equipment-models', __mdlId)
+          : doc(collection(window.__db, 'equipment-models'));
 
         const payload = {
           makeId: __mdlMakeId,
           name,
-          categories: cats.length ? cats : [],
-          archived,
+          categories,
           updatedAt: serverTimestamp()
         };
-        if(!__mdlSelectedId) payload.createdAt = serverTimestamp();
+        if(!__mdlId) payload.createdAt = serverTimestamp();
 
         await setDoc(ref, payload, { merge:true });
-        __mdlSelectedId = ref.id;
+
+        const savedId = ref.id;
+        const savedName = name;
+
+        // Refresh models dropdown for this make and select saved model
+        await populateModels(window.__db, __mdlMakeId);
+        setModel(savedId, savedName);
 
         showToast("Model saved");
-
-        await loadModelManager(db, __mdlMakeId);
-
-        const keepMakeId = __mdlMakeId;
-        const keepModelId = __mdlSelectedId;
-
-        const curMakeId = $("makeId").value || null;
-        if(curMakeId === keepMakeId){
-          await populateModels(db, keepMakeId, keepModelId);
-        }
-
-        const fresh = __mdlAll.find(x=>x.id===keepModelId) || null;
-        mdlSelect(fresh);
+        closeDialog(modelDlg);
       }catch(e){
         console.error(e);
         setErr(mdlErr, "Save failed.");
       }
     }
 
-    function wireManagers(){
-      syncSwitchLabel(mmArchived, mmArchivedText);
-      syncSwitchLabel(mdlArchived, mdlArchivedText);
+    mmSave.addEventListener('click', saveMakeFromDialog);
+    mmClose.addEventListener('click', ()=> closeDialog(makeDlg));
+    mdlSave.addEventListener('click', saveModelFromDialog);
+    mdlClose.addEventListener('click', ()=> closeDialog(modelDlg));
 
-      mmList.addEventListener('mgr:pick', (e)=> mmSelect(e.detail));
-      mdlList.addEventListener('mgr:pick', (e)=> mdlSelect(e.detail));
-
-      mmSearch.addEventListener('input', ()=>{
-        const filtered = filterByTerm(__mmAll, mmSearch.value);
-        mmCount.textContent = String(filtered.length);
-        renderMgrList(mmList, filtered, __mmSelectedId);
-      });
-      mdlSearch.addEventListener('input', ()=>{
-        const filtered = filterByTerm(__mdlAll, mdlSearch.value);
-        mdlCount.textContent = String(filtered.length);
-        renderMgrList(mdlList, filtered, __mdlSelectedId);
-      });
-
-      mmNew.addEventListener('click', ()=> mmSelect(null));
-      mmSave.addEventListener('click', ()=> mmSaveNow(window.__db));
-      mmClose.addEventListener('click', ()=> closeDialog(makeDlg));
-
-      mdlNew.addEventListener('click', ()=> mdlSelect(null));
-      mdlSave.addEventListener('click', ()=> mdlSaveNow(window.__db));
-      mdlClose.addEventListener('click', ()=> closeDialog(modelDlg));
-
-      $("openMakes").addEventListener('click', async ()=>{
-        __mmSelectedId = $("makeId").value || null;
-        openDialog(makeDlg);
-        await loadMakeManager(window.__db);
-        const cur = __mmAll.find(x=>x.id===__mmSelectedId) || null;
-        mmSelect(cur);
-      });
-
-      $("openModels").addEventListener('click', async ()=>{
-        const makeId = $("makeId").value || null;
-        if(!makeId){
-          alert("Select a Make first.");
-          return;
-        }
-        openDialog(modelDlg);
-        await loadModelManager(window.__db, makeId);
-        const curModelId = $("modelId").value || null;
-        if(curModelId){
-          const cur = __mdlAll.find(x=>x.id===curModelId) || null;
-          if(cur) mdlSelect(cur);
-        }
-      });
-    }
-
-    /* Boot */
+    /* ============================
+       Boot
+       ============================ */
     (async()=>{
       await ready;
       const db  = getFirestore();
@@ -2172,9 +2056,11 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 
       buildDdObjects();
       initExtras();
-      wireManagers();
-
       await populateMakes(db);
+
+      // Label links: edit current selected only
+      $("openMakes").addEventListener('click', openMakeManagerEditCurrent);
+      $("openModels").addEventListener('click', openModelManagerEditCurrent);
 
       $("serial").addEventListener("input", validateForm);
 
