@@ -1,31 +1,19 @@
 /* /Farm-vista/js/copilot-ui.js  (FULL FILE)
-   Rev: 2026-01-09-copilot-ui11-debugfoot-openai-proof
+   Rev: 2026-01-09-copilot-ui12-dictation-send-clear-fix
 
-   Base: 2026-01-07-copilot-ui10-bugs-mic-green-dictation-no-overlay
+   Base: 2026-01-09-copilot-ui11-debugfoot-openai-proof (the file I sent you last)
 
-   FIX (critical) — unchanged:
-   ✅ Client generates a threadId ONCE and ALWAYS sends it (payload.threadId always present).
-   ✅ We DO NOT overwrite it with server meta.threadId.
-   ✅ Continuation is stored per client threadId and sent every request.
+   FIX (per Dane):
+   ✅ Dictation no longer re-populates the input after you hit Send
+      - Force-stop dictation on submit
+      - Guard against late iOS SpeechRecognition results for ~500ms after Send
 
-   NEW — debug footer (per Dane):
-   ✅ Adds a visible “AI proof” footer UNDER assistant messages when backend indicates OpenAI was used
-   ✅ Robust to multiple backend meta shapes (provider/model/usedOpenAI/etc.)
-   ✅ Stores proof in chat history so it persists across reloads
-
-   NEW — unchanged:
-   ✅ Sends debugAI:true in every request so backend can include AI proof meta
-
-   Debug (phone-friendly) — unchanged:
-   ✅ #ai-status shows: tid:<first8> • cont:yes/no
-
-   MIC UX — unchanged:
-   ✅ Dictation works (SpeechRecognition)
-   ✅ Mic toggles GREEN + CIRCULAR while active (like Bugs file)
-   ✅ Live typing while speaking (interimResults=true)
-   ✅ NO overlay object / NO “Listening…” pill / NO layout shifts
-   ✅ Reliability on iOS: create a NEW SpeechRecognition instance per start,
-      hard cleanup on stop/end/error
+   Keeps:
+   ✅ Client-owned threadId (never overwritten)
+   ✅ Continuation stored per thread
+   ✅ debugAI:true in every request
+   ✅ Visible AI proof footer under assistant messages when backend indicates OpenAI was used
+   ✅ Mic UX: green circular active state, live typing, no overlay/pill/layout shifts
 */
 
 'use strict';
@@ -360,6 +348,12 @@ export const FVCopilotUI = (() => {
       micEl.disabled = true;
     }
 
+    // Dictation control hook (set only on mobile when SpeechRecognition exists)
+    let stopDictation = null;
+
+    // Guard against late SpeechRecognition results repopulating the input after Send
+    let ignoreDictationUntil = 0;
+
     enforceTtl(opts);
 
     // ===== ThreadId: CLIENT OWNS IT =====
@@ -544,6 +538,9 @@ export const FVCopilotUI = (() => {
       evt.preventDefault();
       evt.stopPropagation();
 
+      // ✅ FIX: stop dictation so late results can't repopulate the input after Send
+      try { if (typeof stopDictation === 'function') stopDictation(); } catch {}
+
       if (sendEl.disabled) return;
       if (sectionEl.classList.contains('perm-hidden') || sectionEl.getAttribute('aria-hidden') === 'true') return;
 
@@ -551,6 +548,10 @@ export const FVCopilotUI = (() => {
       if (!text) return;
 
       append('user', text);
+
+      // ✅ FIX: ignore any late SpeechRecognition onresult callbacks (iOS timing)
+      ignoreDictationUntil = Date.now() + 500;
+
       inputEl.value = '';
       inputEl.style.height = 'auto';
 
@@ -617,6 +618,9 @@ export const FVCopilotUI = (() => {
           if (!sendEl.disabled) setDebugStatus();
         }
 
+        // ✅ expose to submit handler
+        stopDictation = stop;
+
         function start(){
           // iOS reliability: NEW instance each time
           rec = new Rec();
@@ -629,6 +633,9 @@ export const FVCopilotUI = (() => {
           let finalSoFar = '';
 
           rec.onresult = (ev)=>{
+            // ✅ FIX: ignore late results right after Send clears the input
+            if (Date.now() < ignoreDictationUntil) return;
+
             let interim = '';
             for (let i = ev.resultIndex; i < ev.results.length; i++){
               const r = ev.results[i];
