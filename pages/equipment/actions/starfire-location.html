@@ -40,7 +40,9 @@
       --combo-btn-radius:10px;
       --combo-shadow:0 12px 26px rgba(0,0,0,.18);
       --combo-item-pad:10px 8px;
-      --combo-max-h:50vh;
+
+      /* “graceful” default: ~8–10 rows visible before scrolling */
+      --combo-max-h:360px;
     }
 
     body{ background:var(--app-bg,var(--surface)); }
@@ -132,13 +134,14 @@
       pointer-events:none;
     }
 
-    /* Standard inline combo – EXACTLY like dev.html */
+    /* Standard inline combo – improved: panel height constrained, list scrolls */
     .combo{ position:relative; }
     .combo .combo-anchor{
       position:relative;
       display:inline-block;
       width:100%;
     }
+
     .combo-panel{
       position:absolute;
       left:0; right:0;
@@ -150,13 +153,23 @@
       padding:8px;
       display:none;
 
-      /* keep above footer/app chrome */
-      z-index:100000;
+      /* IMPORTANT:
+         Keep this LOWER than the FarmVista green footer, so the footer sits on top. */
+      z-index:400;
+
+      /* constrain overall dropdown size; JS further tightens on open */
+      max-height:var(--combo-max-h);
+      overflow:hidden;
     }
-    .combo-panel.show{ display:block; }
+    .combo-panel.show{
+      display:flex;
+      flex-direction:column;
+      gap:0;
+    }
 
     .combo-panel .search{
       padding:4px 2px 8px;
+      flex:0 0 auto;
     }
     .combo-panel .search input{
       width:100%;
@@ -168,25 +181,23 @@
     }
 
     .combo-panel .list{
-      max-height:var(--combo-max-h);
+      /* the list scrolls INSIDE the constrained panel */
+      flex:1 1 auto;
+      min-height:120px;
       overflow:auto;
+      border-top:1px solid var(--border);
 
       /* iOS smooth scroll */
       -webkit-overflow-scrolling: touch;
 
-      /* don't "chain" scroll to page while inside list */
+      /* avoid scroll “passing through” to the page */
       overscroll-behavior: contain;
       touch-action: pan-y;
 
-      border-top:1px solid var(--border);
-
-      /*
-        CRITICAL FIX:
-        The FarmVista footer is fixed and can cover the last rows.
-        This padding creates “breathing room” so the last option can scroll ABOVE the footer.
-      */
-      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 18px);
+      /* small breathing room only */
+      padding-bottom:10px;
     }
+
     .combo-item{
       padding:var(--combo-item-pad);
       border-bottom:1px solid var(--border);
@@ -275,11 +286,9 @@
       100%{opacity:0}
     }
 
-    /* Mobile: let the list be taller so you can reach the bottom options comfortably */
+    /* Mobile: slightly taller than desktop, but still “about 10 rows” */
     @media (max-width: 640px){
-      :root{
-        --combo-max-h:72vh;
-      }
+      :root{ --combo-max-h:420px; }
     }
   </style>
 </head>
@@ -478,7 +487,35 @@
       return Math.floor(diffMs / (1000*60*60*24));
     }
 
-    /* ---------- global combo closer (same as dev.html) ---------- */
+    /* ---------- footer-aware dropdown sizing ---------- */
+    function numCssPx(v){
+      const n = parseFloat(String(v||"").trim());
+      return Number.isFinite(n) ? n : 0;
+    }
+    function getFooterHeightPx(){
+      // Prefer the app’s CSS var (your wrap already uses it)
+      const root = getComputedStyle(document.documentElement);
+      const v = root.getPropertyValue('--ftr-h');
+      const h = numCssPx(v);
+      return h || 42;
+    }
+    function fitPanelToViewport({ btn, panel }){
+      if(!btn || !panel) return;
+      const rect = btn.getBoundingClientRect();
+
+      const footerH = getFooterHeightPx();
+      const gap = 6;          // extra breathing room
+      const safeB = 10;       // conservative; footer already includes safe-area in your shell in practice
+
+      // space from bottom of button to “top edge” of footer area
+      const avail = Math.floor(window.innerHeight - footerH - safeB - rect.bottom - gap);
+
+      // target “graceful” height: about 8–10 rows, but never exceed available space
+      const target = Math.min(420, Math.max(260, avail)); // 260–420 feels right on iPhone
+      panel.style.maxHeight = `${target}px`;
+    }
+
+    /* ---------- global combo closer ---------- */
     function closeAllCombos(exceptPanel=null){
       document.querySelectorAll('.combo-panel.show').forEach(p=>{
         if(p!==exceptPanel) p.classList.remove('show');
@@ -486,12 +523,18 @@
     }
     document.addEventListener('click', ()=> closeAllCombos());
     document.addEventListener('keydown', e=>{
-      if(e.key==='Escape'){
-        closeAllCombos();
-      }
+      if(e.key==='Escape') closeAllCombos();
     });
+    window.addEventListener('resize', ()=>{
+      // if any open, re-fit it
+      const open = document.querySelector('.combo-panel.show');
+      if(open){
+        const btn = open.closest('.combo-anchor')?.querySelector('button.buttonish');
+        if(btn) fitPanelToViewport({ btn, panel: open });
+      }
+    }, { passive:true });
 
-    /* ---------- generic combo helper (same as dev.html) ---------- */
+    /* ---------- generic combo helper ---------- */
     function makeCombo({ btn, panel, list, searchInput=null, items=[], searchable=false, formatter=x=>String(x.label||x.name||x), onPick }) {
       if(!btn || !panel || !list) return;
 
@@ -513,8 +556,13 @@
 
       function open(){
         closeAllCombos(panel);
+
+        // IMPORTANT: size panel so it ends at/above the green footer area
+        fitPanelToViewport({ btn, panel });
+
         panel.classList.add('show');
         render("");
+
         if(searchable && searchInput){
           searchInput.value="";
           searchInput.focus();
