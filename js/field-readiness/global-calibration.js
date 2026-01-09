@@ -1,23 +1,19 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/global-calibration.js  (FULL FILE)
-Rev: 2025-12-31a
+Rev: 2026-01-09a
 
-Change (per Dane):
-✅ Global calibration "wet vs dry" is now OPERATION-THRESHOLD DRIVEN (dynamic).
-   - Uses CURRENT operation threshold as the wet/dry trigger:
-       readinessR >= threshold  -> status = 'dry'
-       readinessR <  threshold  -> status = 'wet'
-   - Includes small hysteresis band so it doesn’t flip-flop near the threshold.
+Change (per Dane TODAY):
+✅ Global calibration delta is now SLIDER-DIFFERENCE DRIVEN (absolute correction).
+   - Slider represents where you believe readiness should be for the reference field.
+   - Delta magnitude is based on the actual distance moved (anchor -> slider).
+   - Delta is applied globally (as before) via field_readiness_adjustments (global:true).
+   - Guardrails KEPT: opposite-only Wet/Dry + slider clamp direction + 72h lock.
 
-Guardrail rule (kept):
-- If status is wet  -> "Wet" is disabled; only "Dry" allowed; slider can't move wetter.
-- If status is dry  -> "Dry" is disabled; only "Wet" allowed; slider can't move drier.
-
-Keeps:
+Keeps (unchanged):
+✅ OP-threshold driven wet/dry status + hysteresis
 ✅ Lock logic (field_readiness_model_weights) unchanged
 ✅ UI theme patch (Wet/Dry centered, slider full width, FV buttons)
-✅ Uses selected field as reference and shows it under "Adjust"
-✅ Still logs op + threshold for context in the adjustment doc
+✅ Still logs op + threshold + anchor/slider + intensity
 ✅ Still writes to field_readiness_adjustments (global:true) + dispatches fr:soft-reload
 ✅ Model run still passes CAL + opKey for consistency
 
@@ -485,28 +481,58 @@ function normalizedIntensity0100(state){
   return 0;
 }
 
+/* =====================================================================
+   NEW DELTA (per Dane):
+   - Delta magnitude is the ACTUAL points moved on the slider from anchor.
+   - Applies globally via the existing adjustment pipeline (global:true).
+   - Still guardrailed by:
+       • opposite-only feel buttons
+       • slider clamp direction (cannot move “the wrong way”)
+       • max delta clamp below
+===================================================================== */
+const MAX_GLOBAL_DELTA = 35; // guardrail: max points shifted per global calibration
+
 function computeDelta(state){
   const feel = state._adjFeel;
-  if (!feel) return 0;
+  if (!(feel === 'wet' || feel === 'dry')) return 0;
 
-  let sign = 0;
-  if (feel === 'wet') sign = +1;
-  if (feel === 'dry') sign = -1;
+  const anchor = clamp(Math.round(Number(state._adjAnchorReadiness ?? 50)), 0, 100);
+  const target = clamp(Math.round(Number(sliderVal())), 0, 100);
 
-  const intensity = normalizedIntensity0100(state);
-  const mag = 8 + Math.round((intensity/100) * 10);
-  return clamp(sign * mag, -18, +18);
+  // Directional distance (must be positive to count)
+  // - Feel WET means you moved readiness DOWN (toward wetter)
+  // - Feel DRY means you moved readiness UP (toward drier)
+  const dirDiff = (feel === 'wet') ? (anchor - target) : (target - anchor);
+  const dist = Math.round(Math.max(0, dirDiff));
+
+  if (!dist) return 0;
+
+  const mag = clamp(dist, 1, MAX_GLOBAL_DELTA);
+
+  // Keep sign convention used by the rest of the system:
+  // +delta = wetter, -delta = drier
+  const sign = (feel === 'wet') ? +1 : -1;
+
+  return clamp(sign * mag, -MAX_GLOBAL_DELTA, +MAX_GLOBAL_DELTA);
 }
 
 function updateGuardText(state){
   const el = $('adjGuard');
   if (!el) return;
+
   const d = computeDelta(state);
   if (d === 0){
-    el.textContent = 'Choose Wet or Dry to submit a global calibration.';
+    el.textContent = 'Choose Wet or Dry, then move the slider to set how far off the model is.';
     return;
   }
-  el.textContent = `This will nudge the model by ${d > 0 ? '+' : ''}${d} (guardrailed).`;
+
+  const anchor = clamp(Math.round(Number(state._adjAnchorReadiness ?? 50)), 0, 100);
+  const target = sliderVal();
+  const dist = Math.abs(anchor - target);
+
+  el.textContent =
+    `This will shift the model by ${d > 0 ? '+' : ''}${d} globally ` +
+    `(based on moving this field ${dist} point${dist === 1 ? '' : 's'}).`;
 }
 
 /* =========================
@@ -812,7 +838,11 @@ async function applyAdjustment(state){
     readinessAnchor: clamp(Math.round(Number(run.readinessR)), 0, 100),
     readinessSlider: sliderVal(),
     intensity: normalizedIntensity0100(state),
+
+    // ✅ Now driven by slider difference (absolute correction), applied globally
     delta: d,
+    deltaMax: MAX_GLOBAL_DELTA,
+    deltaMode: 'slider-diff',
 
     global: true,
 
