@@ -308,7 +308,7 @@
           <div class="icon" aria-hidden="true">🔁</div>
           <div>
             <h1>Assign New Location</h1>
-            <p class="muted">Send this globe to a machine or back to storage.</p>
+            <p class="muted">Send this globe to a machine, an RTK tower, or back to storage.</p>
           </div>
         </header>
 
@@ -317,13 +317,13 @@
           <div class="field combo">
             <label for="locBtn">New Location</label>
             <div class="combo-anchor">
-              <button id="locBtn" class="buttonish has-caret" type="button">— Select equipment or "In Storage" —</button>
+              <button id="locBtn" class="buttonish has-caret" type="button">— Select equipment, RTK tower, or "In Storage" —</button>
               <div class="combo-panel" id="locPanel" role="listbox" aria-label="Location list">
-                <div class="search"><input id="locSearch" type="search" placeholder="Search equipment…"></div>
+                <div class="search"><input id="locSearch" type="search" placeholder="Search…"></div>
                 <div class="list" id="locList"></div>
               </div>
             </div>
-            <div id="locCount" class="status">Loading GPS-capable equipment…</div>
+            <div id="locCount" class="status">Loading GPS-capable equipment and RTK towers…</div>
           </div>
 
           <!-- Who is moving it -->
@@ -365,8 +365,6 @@
       getAuth,
       collection,
       getDocs,
-      query,
-      where,
       addDoc,
       doc,
       updateDoc,
@@ -383,6 +381,7 @@
       auth: null,
       receivers: [],
       equipment: [],
+      rtkTowers: [],
       employees: [],
       receiver: null,
       currentLoc: null,
@@ -410,6 +409,18 @@
       const mm = [make, model].filter(Boolean).join(" ").trim() || "Unit";
       const ls = last6(row.serial || "");
       return ls ? `${mm} (#${ls})` : mm;
+    }
+
+    function labelRTK(row){
+      // Per request: use rtkTowers.name in the dropdown
+      return (row?.name || row?.towerName || row?.label || row?.id || "RTK Tower").toString().trim();
+    }
+
+    // Unified unique key for combo rows (prevents ID collisions between collections)
+    function itemKey(it){
+      const t = (it?.type || "").toString();
+      const id = (it?.id || "").toString();
+      return it?.key || `${t}:${id}`;
     }
 
     const todayISO = ()=>{
@@ -469,7 +480,7 @@
           return !qq || label.includes(qq);
         });
         list.innerHTML = rows.length
-          ? rows.map(x=>`<div class="combo-item" data-id="${esc(String(x.id))}">${esc(formatter(x))}</div>`).join('')
+          ? rows.map(x=>`<div class="combo-item" data-id="${esc(String(itemKey(x)))}">${esc(formatter(x))}</div>`).join('')
           : `<div class="combo-empty">(no matches)</div>`;
       }
 
@@ -492,7 +503,7 @@
       list.addEventListener('mousedown', e=>{
         const row = e.target.closest('.combo-item');
         if(!row) return;
-        const it = (DATA || []).find(x => String(x.id) === row.dataset.id);
+        const it = (DATA || []).find(x => String(itemKey(x)) === row.dataset.id);
         if(!it) return;
         onPick?.(it);
         close();
@@ -524,8 +535,15 @@
         list.push({ id:d.id, ...x });
 
         // If this StarFire is mounted on a machine, mark that machine as "occupied"
+        // New data will set starfireCurrentLocationType; keep backward compatibility:
+        const locType = String(x.starfireCurrentLocationType || "").toLowerCase();
         const locId = x.starfireCurrentLocationId || x.starfireMountedOnId || null;
-        if(locId) occupied.add(String(locId));
+
+        if(locId){
+          if(locType === "equipment" || (!locType && (x.starfireCurrentLocationName || "") !== "In Storage")){
+            occupied.add(String(locId));
+          }
+        }
       });
       list.sort((a,b)=> labelStarFire(a).localeCompare(labelStarFire(b)));
       state.receivers = list;
@@ -548,11 +566,24 @@
         // skip it so there can only be 1 StarFire per machine.
         if(occupied.has(String(d.id))) return;
 
-        list.push({ id:d.id, ...x });
+        list.push({ id:d.id, type:"equipment", key:`equipment:${d.id}`, ...x });
       });
       list.sort((a,b)=> labelEquipment(a).localeCompare(labelEquipment(b)));
       state.equipment = list;
-      $("locCount").textContent = `${list.length} GPS-capable unit(s) plus "In Storage".`;
+      return list;
+    }
+
+    async function loadRTKTowers(){
+      const db = state.db;
+      const snap = await getDocs(collection(db,'rtkTowers'));
+      const list = [];
+      snap.forEach(d=>{
+        const x = d.data() || {};
+        // no status rules assumed; include all
+        list.push({ id:d.id, type:"rtk", key:`rtk:${d.id}`, ...x });
+      });
+      list.sort((a,b)=> labelRTK(a).localeCompare(labelRTK(b)));
+      state.rtkTowers = list;
       return list;
     }
 
@@ -588,9 +619,11 @@
       const x = receiver;
       const label = x.starfireCurrentLocationName || "In Storage";
       const sinceISO = x.starfireCurrentLocationSince || null;
+      const locType = String(x.starfireCurrentLocationType || (label === "In Storage" ? "storage" : "equipment")).toLowerCase();
 
       state.currentLoc = {
-        id: x.starfireCurrentLocationId || (label === "In Storage" ? "storage" : null),
+        type: locType,
+        id: (locType === "storage") ? "storage" : (x.starfireCurrentLocationId || null),
         label,
         sinceISO
       };
@@ -626,10 +659,16 @@
         list: $("locList"),
         searchInput: $("locSearch"),
         searchable: true,
-        formatter: x => x.id === "storage" ? "In Storage" : labelEquipment(x),
+        formatter: x=>{
+          if(x.type === "storage") return "In Storage";
+          if(x.type === "rtk") return labelRTK(x);          // <-- request: show rtkTowers.name
+          return labelEquipment(x);                         // equipment
+        },
         onPick: it=>{
           state.newLoc = it;
-          $("locBtn").textContent = it.id === "storage" ? "In Storage" : labelEquipment(it);
+          if(it.type === "storage") $("locBtn").textContent = "In Storage";
+          else if(it.type === "rtk") $("locBtn").textContent = labelRTK(it);
+          else $("locBtn").textContent = labelEquipment(it);
         }
       });
 
@@ -648,10 +687,18 @@
 
     function hydrateCombos(){
       if(sfCombo) sfCombo.setItems(state.receivers);
+
       if(locCombo){
-        const items = [{ id:"storage", name:"In Storage" }, ...state.equipment];
+        const storage = { id:"storage", type:"storage", key:"storage:storage", name:"In Storage" };
+        // Order: storage, then equipment, then RTK towers (all searchable)
+        const items = [storage, ...state.equipment, ...state.rtkTowers];
         locCombo.setItems(items);
+
+        const eqN = state.equipment?.length || 0;
+        const rtkN = state.rtkTowers?.length || 0;
+        $("locCount").textContent = `${eqN} GPS-capable unit(s), ${rtkN} RTK tower(s), plus "In Storage".`;
       }
+
       if(empCombo) empCombo.setItems(state.employees);
     }
 
@@ -709,12 +756,15 @@
       const auth = state.auth;
       const me = auth.currentUser;
 
-      const toName = loc.id === "storage" ? "In Storage" : labelEquipment(loc);
-      const toId   = loc.id === "storage" ? null : loc.id;
+      const toType = (loc.type || "equipment").toLowerCase();
+      const toName = (toType === "storage") ? "In Storage"
+                   : (toType === "rtk") ? labelRTK(loc)
+                   : labelEquipment(loc);
+      const toId   = (toType === "storage") ? null : loc.id;
 
       const cur = state.currentLoc;
       const fromName = cur?.label || "In Storage";
-      const fromId   = cur?.id && cur.id !== "storage" ? cur.id : null;
+      const fromId   = (cur?.type && cur.type !== "storage" && cur?.id && cur.id !== "storage") ? cur.id : null;
 
       const movedBy = {
         employeeId: mover.id,
@@ -730,6 +780,7 @@
         fromLocationName: fromName,
         toLocationId: toId,
         toLocationName: toName,
+        toLocationType: toType,               // <-- new
         moveDate,
         movedBy,
         createdAt: serverTimestamp(),
@@ -747,6 +798,7 @@
         await updateDoc(ref, {
           starfireCurrentLocationId: toId,
           starfireCurrentLocationName: toName,
+          starfireCurrentLocationType: toType, // <-- new (storage/equipment/rtk)
           starfireCurrentLocationSince: moveDate,
           updatedAt: serverTimestamp()
         });
@@ -756,6 +808,7 @@
         // refresh local receiver snapshot
         receiver.starfireCurrentLocationId = toId;
         receiver.starfireCurrentLocationName = toName;
+        receiver.starfireCurrentLocationType = toType;
         receiver.starfireCurrentLocationSince = moveDate;
         await loadCurrentLocation(receiver);
 
@@ -783,8 +836,10 @@
 
         // Load StarFire first so we know which equipment ids are occupied
         const receivers = await loadStarFireReceivers();
-        const [equipment, employees] = await Promise.all([
+
+        const [equipment, rtkTowers, employees] = await Promise.all([
           loadEquipment(),
+          loadRTKTowers(),
           loadEmployees()
         ]);
 
@@ -797,6 +852,7 @@
       }catch(err){
         console.error("StarFire location init error:", err);
         $("sfStatus").textContent = "Could not connect to database.";
+        $("locCount").textContent = "Could not load locations.";
       }
 
       $("btnSave").addEventListener("click", saveMove);
