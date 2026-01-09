@@ -1,29 +1,33 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-01-04-stateful1
+Rev: 2026-01-09b-readinessShift1
+
 Model math (dry power, storage, readiness) + helpers
 
 STATEFUL OPTION 1 (per Dane):
 ✅ “30th day drops off” has ZERO effect on today *when persisted state is present*
    because we seed from persisted storage (yesterday) and only simulate forward.
 
-How it works (sync, caller-provided state):
-- If deps.getPersistedState(fieldId) returns { storageFinal, asOfDateISO }, we:
-  • start from that storageFinal
-  • simulate ONLY days after asOfDateISO in the current series
-- If there is no persisted state (first bootstrap), we fall back to the old
-  baseline seed (rain7 nudge).
+NEW (per Dane GLOBAL CAL goal):
+✅ Support DIRECT readiness shift via CAL, so global calibration can move
+   readiness by real points (1:1) in addition to the wetBias physics lean.
+
+How it works:
+- Wetness is still computed from storage + wetBias (unchanged).
+- Readiness is computed as (100 - wetness), THEN we apply:
+    readinessShift = CAL.opReadinessShift[opKey] OR CAL.readinessShift
+  and clamp 0..100.
+- wetnessR remains the physical wetness+wetBias result (unchanged).
+
+CAL shape supported:
+- CAL.wetBias?: number
+- CAL.opWetBias?: { [opKey]: number }
+- CAL.readinessShift?: number
+- CAL.opReadinessShift?: { [opKey]: number }
 
 Caller responsibilities (outside this file):
-- Provide ONE of:
-  • deps.getPersistedState(fieldId) -> { storageFinal, asOfDateISO }
-  • OR deps.persistedStateByFieldId[fieldId] = { storageFinal, asOfDateISO }
-- After calling runField(), persist run.stateOut for next time.
-
-Everything else kept:
-✅ Option A saturation-aware effective rain
-✅ Tuning knobs FV_TUNE + overrides
-✅ WetBias calibration hook
+- Ensure state._cal includes readinessShift/opReadinessShift when you want
+  slider “98 -> 78” to land exactly at 78 for all fields.
 ===================================================================== */
 'use strict';
 
@@ -149,7 +153,7 @@ export function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, EXTRA){
 }
 
 /* =====================================================================
-   Calibration hook (unchanged)
+   Calibration hooks
 ===================================================================== */
 function getWetBiasFromDeps(deps){
   try{
@@ -164,6 +168,27 @@ function getWetBiasFromDeps(deps){
     }
 
     const v = CAL.wetBias;
+    if (isFinite(Number(v))) return Number(v);
+
+    return 0;
+  }catch(_){
+    return 0;
+  }
+}
+
+function getReadinessShiftFromDeps(deps){
+  try{
+    const CAL = deps && deps.CAL ? deps.CAL : null;
+    if (!CAL || typeof CAL !== 'object') return 0;
+
+    const opKey = (deps && typeof deps.opKey === 'string') ? deps.opKey : '';
+
+    if (opKey && CAL.opReadinessShift && typeof CAL.opReadinessShift === 'object'){
+      const vOp = CAL.opReadinessShift[opKey];
+      if (isFinite(Number(vOp))) return Number(vOp);
+    }
+
+    const v = CAL.readinessShift;
     if (isFinite(Number(v))) return Number(v);
 
     return 0;
@@ -293,7 +318,6 @@ function pickSeed(rows, f, deps, fieldId){
     // If series starts AFTER asOf but doesn't contain it, that's a mismatch (window changed too far).
     // Fall back to baseline seed (bootstrap) rather than guessing.
     if (firstDate && asOf < firstDate){
-      // state older than series start but not present => mismatch
       // baseline seed is safest
     }
   }
@@ -326,8 +350,13 @@ function pickSeed(rows, f, deps, fieldId){
  *   - getPersistedState(fieldId) -> { storageFinal, asOfDateISO }   (sync)
  *   - OR persistedStateByFieldId[fieldId] with same shape
  * - OPTIONAL:
- *   - opKey (string): current operation key (for per-op bias)
- *   - CAL: { wetBias?: number, opWetBias?: { [opKey]: number } }
+ *   - opKey (string): current operation key (for per-op bias/shift)
+ *   - CAL: {
+ *       wetBias?: number,
+ *       opWetBias?: { [opKey]: number },
+ *       readinessShift?: number,
+ *       opReadinessShift?: { [opKey]: number }
+ *     }
  *   - FV_TUNE: override tuning variables in this file
  */
 export function runField(field, deps){
@@ -377,7 +406,12 @@ export function runField(field, deps){
     wetness = clamp(wetness + wetBias, 0, 100);
 
     const wetnessR = Math.round(wetness);
-    const readinessR = Math.round(clamp(100 - wetness, 0, 100));
+
+    // readinessShift applies directly (1:1 readiness points)
+    const readinessShift = clamp(getReadinessShiftFromDeps(deps), -50, 50);
+    const readinessBase = clamp(100 - wetness, 0, 100);
+    const readinessR = Math.round(clamp(readinessBase + readinessShift, 0, 100));
+
     const avgLossDay = 0.08;
 
     const lastDateISO = rows.length ? rows[rows.length-1].dateISO : '';
@@ -391,7 +425,10 @@ export function runField(field, deps){
       wetnessR,
       readinessR,
       avgLossDay,
+
       wetBiasApplied: wetBias,
+      readinessShiftApplied: readinessShift,
+
       tuneUsed: tune,
 
       // ✅ NEW: caller should persist this for next run
@@ -447,7 +484,11 @@ export function runField(field, deps){
   wetness = clamp(wetness + wetBias, 0, 100);
 
   const wetnessR = Math.round(wetness);
-  const readinessR = Math.round(clamp(100 - wetness, 0, 100));
+
+  // ✅ NEW: readiness shift applied directly (1:1 readiness points)
+  const readinessShift = clamp(getReadinessShiftFromDeps(deps), -50, 50);
+  const readinessBase = clamp(100 - wetness, 0, 100);
+  const readinessR = Math.round(clamp(readinessBase + readinessShift, 0, 100));
 
   const last7 = trace.slice(-7);
   const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
@@ -466,6 +507,7 @@ export function runField(field, deps){
 
     // helpful for debugging calibration
     wetBiasApplied: wetBias,
+    readinessShiftApplied: readinessShift,
 
     // helpful for debugging tuning
     tuneUsed: tune,
