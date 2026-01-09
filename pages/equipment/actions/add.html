@@ -1,13 +1,20 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2025-12-22o
+Rev: 2026-01-09a
 
-FIX (LABEL ONLY, MATCH LOOKUP + FIXES):
-✅ Keeps lookup-style label flow (sheet-print sizing + wrap + builders) => 2-page issue stays fixed
-✅ QR preview works for data: URLs (no broken cache-bust)
-✅ Preview centering fixed again (apply centering AFTER preview is inserted + layout settles)
-✅ QR is truly centered inside the summary square (img or canvas)
-🚫 Everything else untouched.
+RESTORE (Make/Model Manager):
+✅ Restores popup sheet dialogs to Add/Edit Makes + Models (no “X” close, Cancel only)
+✅ “Make” label opens Make Manager (add/edit/archive, categories)
+✅ “Model” label opens Model Manager (requires Make selected; add/edit/archive, categories)
+✅ Saves to Firestore:
+   - equipment-makes
+   - equipment-models (includes makeId)
+✅ After save, dropdown lists refresh and preserve selection when possible
+
+Keeps:
+✅ Label/PDF flow exactly as-is
+✅ QR preview/data URL handling
+✅ Existing dropdowns, validation, save logic
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -251,18 +258,17 @@ FIX (LABEL ONLY, MATCH LOOKUP + FIXES):
     /* ============================
        LABEL PREVIEW (MATCH LOOKUP)
        ============================ */
-    /* Bigger preview dialog (still responsive) */
-dialog.sheet.sheet-print{
-  width:min(980px, 96vw);
-  max-width:calc(100vw - 16px);
-}
-dialog.sheet.sheet-print .body{
-  width:100%;
-  max-width:100%;
-  overflow-x:hidden;   /* wrap handles horizontal scroll */
-  overflow-y:auto;
-  -webkit-overflow-scrolling:touch;
-}
+    dialog.sheet.sheet-print{
+      width:min(980px, 96vw);
+      max-width:calc(100vw - 16px);
+    }
+    dialog.sheet.sheet-print .body{
+      width:100%;
+      max-width:100%;
+      overflow-x:hidden;
+      overflow-y:auto;
+      -webkit-overflow-scrolling:touch;
+    }
 
     .print-help{
       color:var(--muted,#6f7772);
@@ -272,55 +278,50 @@ dialog.sheet.sheet-print .body{
       max-width: min(560px, calc(100vw - 48px));
       text-align:center;
     }
-    /* Always center the label in the preview area */
-#printWrap{
-  display:flex;
-  width:100%;
-  max-width:100%;
-  overflow-x:auto;
-  overflow-y:hidden;
-  -webkit-overflow-scrolling:touch;
-
-  justify-content:center; /* <-- always centered */
-  padding: 6px 8px;
-  box-sizing:border-box;
-}
-
-/* keep the class so old JS doesn't break, but it's now redundant */
-#printWrap.center{ justify-content:center; }
+    #printWrap{
+      display:flex;
+      width:100%;
+      max-width:100%;
+      overflow-x:auto;
+      overflow-y:hidden;
+      -webkit-overflow-scrolling:touch;
+      justify-content:center;
+      padding: 6px 8px;
+      box-sizing:border-box;
+    }
+    #printWrap.center{ justify-content:center; }
 
     #pPreviewHost{ flex:0 0 auto; }
-/* Desktop/Preview (landscape label) — MATCH LOOKUP */
-.pv-long{
-  width:fit-content;
-  height:62mm;
-  border:1px dashed var(--border);
-  border-radius:10px;
-  background:#fff;
-  color:#000;
-  display:grid;
-  grid-template-columns: max-content 48mm max-content;
-  align-items:center;
-  gap:2mm;
-  padding:2.2mm;
-  box-sizing:border-box;
-  white-space:nowrap;
-}
-.pv-long .left,
-.pv-long .right{
-  display:flex;
-  flex-direction:column;
-  justify-content:center;
-  min-width:max-content;
-}
-.pv-long .make{ font-weight:900; font-size:18pt; line-height:1.05; }
-.pv-long .model{ font-weight:800; font-size:16pt; line-height:1.05; margin-top:1mm; }
-.pv-long .mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; background:#fff; }
-.pv-long .mid img{ width:100%; height:100%; image-rendering:pixelated; display:block; }
-.pv-long .right{ align-items:flex-end; text-align:right; padding-right:1mm; } /* safety */
-.pv-long .lab{ font-weight:800; font-size:12pt; line-height:1.05; opacity:.85; }
-.pv-long .val{ font-weight:900; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; }
-    
+
+    .pv-long{
+      width:fit-content;
+      height:62mm;
+      border:1px dashed var(--border);
+      border-radius:10px;
+      background:#fff;
+      color:#000;
+      display:grid;
+      grid-template-columns: max-content 48mm max-content;
+      align-items:center;
+      gap:2mm;
+      padding:2.2mm;
+      box-sizing:border-box;
+      white-space:nowrap;
+    }
+    .pv-long .left,
+    .pv-long .right{
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      min-width:max-content;
+    }
+    .pv-long .make{ font-weight:900; font-size:18pt; line-height:1.05; }
+    .pv-long .model{ font-weight:800; font-size:16pt; line-height:1.05; margin-top:1mm; }
+    .pv-long .mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; background:#fff; }
+    .pv-long .mid img{ width:100%; height:100%; image-rendering:pixelated; display:block; }
+    .pv-long .right{ align-items:flex-end; text-align:right; padding-right:1mm; }
+    .pv-long .lab{ font-weight:800; font-size:12pt; line-height:1.05; opacity:.85; }
+    .pv-long .val{ font-weight:900; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; }
 
     .pv-sf{
       width:62mm;
@@ -339,8 +340,6 @@ dialog.sheet.sheet-print .body{
       overflow:hidden;
       font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
     }
-
-    /* ✅ true center for QR block (img or canvas) */
     .pv-sf .qr{ width:46mm; height:46mm; display:grid; place-items:center; background:#fff; }
     .pv-sf .qr img,
     .pv-sf .qr canvas{
@@ -350,7 +349,6 @@ dialog.sheet.sheet-print .body{
       display:block;
       margin:0 !important;
     }
-
     .pv-sf .lab{
       width:100%;
       text-align:center;
@@ -504,6 +502,117 @@ dialog.sheet.sheet-print .body{
       outline: 3px solid color-mix(in srgb, var(--brand) 55%, transparent);
       outline-offset: 2px;
     }
+
+    /* ===== Make/Model Manager Sheets ===== */
+    dialog.sheet.sheet-manager{
+      width:min(980px, 94vw);
+      max-width:calc(100vw - 16px);
+    }
+    .mgr-grid{
+      display:grid;
+      grid-template-columns: minmax(260px, 1fr) minmax(280px, 1.1fr);
+      gap:14px;
+      align-items:start;
+    }
+    @media (max-width:860px){
+      .mgr-grid{ grid-template-columns:1fr; }
+    }
+    .mgr-card{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      overflow:hidden;
+    }
+    .mgr-card .mh{
+      padding:10px 12px;
+      border-bottom:1px solid var(--border);
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      background:var(--surface);
+    }
+    .mgr-card .mh strong{ font-weight:900; }
+    .mgr-card .mc{ padding:10px 12px; }
+    .mgr-search{
+      width:100%;
+      height:44px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:10px 12px;
+      font:inherit;
+      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      outline:none;
+      box-sizing:border-box;
+    }
+    .mgr-list{
+      list-style:none;
+      margin:10px 0 0;
+      padding:0;
+      border:1px solid var(--border);
+      border-radius:12px;
+      overflow:hidden;
+      max-height:360px;
+      overflow-y:auto;
+      background:var(--surface);
+      -webkit-overflow-scrolling:touch;
+    }
+    .mgr-item{
+      padding:10px 12px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      cursor:pointer;
+      border-bottom:1px solid color-mix(in srgb, var(--border) 70%, transparent);
+      color:var(--text);
+      background:transparent;
+    }
+    .mgr-item:last-child{ border-bottom:none; }
+    .mgr-item:hover{ background:var(--surface-2, rgba(127,127,127,.08)); }
+    .mgr-item.active{
+      background: color-mix(in srgb, var(--brand) 10%, transparent);
+      box-shadow: inset 3px 0 0 var(--brand);
+    }
+    .mgr-badge{
+      font-size:12px;
+      font-weight:800;
+      color:var(--muted,#67706B);
+      border:1px solid var(--border);
+      border-radius:999px;
+      padding:4px 8px;
+      white-space:nowrap;
+      background:var(--card-surface,var(--surface));
+    }
+    .mgr-form{
+      display:grid;
+      gap:10px;
+    }
+    .mgr-form label{
+      font-weight:900;
+      display:block;
+      margin:0 0 6px;
+    }
+    .mgr-row{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+    }
+    @media (max-width:520px){
+      .mgr-row{ grid-template-columns:1fr; }
+    }
+    .mgr-help{
+      font-size:13px;
+      color:var(--muted,#67706B);
+      line-height:1.35;
+      margin:0;
+    }
+    .mgr-actions{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+      margin-top:2px;
+    }
+    .mgr-actions .btn{ min-width:140px; }
   </style>
 </head>
 
@@ -639,6 +748,144 @@ dialog.sheet.sheet-print .body{
     </footer>
   </dialog>
 
+  <!-- ===== Make Manager (NO Close button; Cancel only) ===== -->
+  <dialog id="makeManager" class="sheet sheet-manager" aria-modal="true">
+    <header>
+      <strong>Manage Makes</strong>
+      <span></span>
+    </header>
+    <div class="body">
+      <div class="mgr-grid">
+        <div class="mgr-card">
+          <div class="mh">
+            <strong>Makes</strong>
+            <span class="mgr-badge" id="mmCount">0</span>
+          </div>
+          <div class="mc">
+            <input id="mmSearch" class="mgr-search" type="text" placeholder="Search makes…">
+            <ul id="mmList" class="mgr-list"></ul>
+          </div>
+        </div>
+
+        <div class="mgr-card">
+          <div class="mh">
+            <strong id="mmFormTitle">New Make</strong>
+            <span class="mgr-badge" id="mmSelected">None</span>
+          </div>
+          <div class="mc">
+            <div class="mgr-form">
+              <div>
+                <label for="mmName">Name</label>
+                <input id="mmName" class="input" placeholder="e.g., John Deere">
+              </div>
+
+              <div class="mgr-row">
+                <div>
+                  <label for="mmCats">Categories</label>
+                  <input id="mmCats" class="input" placeholder="e.g., tractor,combine">
+                  <p class="mgr-help">Comma-separated type slugs. If blank, it’s visible everywhere. This page will default-add “TYPE”.</p>
+                </div>
+                <div>
+                  <label for="mmArchived">Archived</label>
+                  <div class="pv-switch-row">
+                    <label class="pv-switch" for="mmArchived" aria-label="Archived">
+                      <input id="mmArchived" type="checkbox" />
+                      <span class="pv-switch-track" aria-hidden="true">
+                        <span class="pv-switch-thumb" aria-hidden="true"></span>
+                      </span>
+                      <span class="pv-switch-text" id="mmArchivedText">Off</span>
+                    </label>
+                  </div>
+                  <p class="mgr-help">Archived makes won’t show in dropdowns.</p>
+                </div>
+              </div>
+
+              <div class="mgr-actions">
+                <button id="mmNew" class="btn" type="button">New</button>
+                <button id="mmSave" class="btn btn-primary" type="button">Save</button>
+              </div>
+
+              <div id="mmErr" class="error" hidden></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <footer>
+      <button id="mmClose" class="btn" type="button">Cancel</button>
+    </footer>
+  </dialog>
+
+  <!-- ===== Model Manager (NO Close button; Cancel only) ===== -->
+  <dialog id="modelManager" class="sheet sheet-manager" aria-modal="true">
+    <header>
+      <strong>Manage Models</strong>
+      <span></span>
+    </header>
+    <div class="body">
+      <p class="mgr-help" id="mdlHdrHelp" style="margin:0 0 10px;"></p>
+
+      <div class="mgr-grid">
+        <div class="mgr-card">
+          <div class="mh">
+            <strong>Models</strong>
+            <span class="mgr-badge" id="mdlCount">0</span>
+          </div>
+          <div class="mc">
+            <input id="mdlSearch" class="mgr-search" type="text" placeholder="Search models…">
+            <ul id="mdlList" class="mgr-list"></ul>
+          </div>
+        </div>
+
+        <div class="mgr-card">
+          <div class="mh">
+            <strong id="mdlFormTitle">New Model</strong>
+            <span class="mgr-badge" id="mdlSelected">None</span>
+          </div>
+          <div class="mc">
+            <div class="mgr-form">
+              <div>
+                <label for="mdlName">Name</label>
+                <input id="mdlName" class="input" placeholder="e.g., 8R370">
+              </div>
+
+              <div class="mgr-row">
+                <div>
+                  <label for="mdlCats">Categories</label>
+                  <input id="mdlCats" class="input" placeholder="e.g., tractor,combine">
+                  <p class="mgr-help">Comma-separated type slugs. If blank, it’s visible everywhere. This page will default-add “TYPE”.</p>
+                </div>
+                <div>
+                  <label for="mdlArchived">Archived</label>
+                  <div class="pv-switch-row">
+                    <label class="pv-switch" for="mdlArchived" aria-label="Archived">
+                      <input id="mdlArchived" type="checkbox" />
+                      <span class="pv-switch-track" aria-hidden="true">
+                        <span class="pv-switch-thumb" aria-hidden="true"></span>
+                      </span>
+                      <span class="pv-switch-text" id="mdlArchivedText">Off</span>
+                    </label>
+                  </div>
+                  <p class="mgr-help">Archived models won’t show in dropdowns.</p>
+                </div>
+              </div>
+
+              <div class="mgr-actions">
+                <button id="mdlNew" class="btn" type="button">New</button>
+                <button id="mdlSave" class="btn btn-primary" type="button">Save</button>
+              </div>
+
+              <div id="mdlErr" class="error" hidden></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <footer>
+      <button id="mdlClose" class="btn" type="button">Cancel</button>
+    </footer>
+  </dialog>
+
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
@@ -647,7 +894,7 @@ dialog.sheet.sheet-print .body{
     import {
       ready,
       getFirestore,
-      collection, setDoc, doc, getDocs, getDoc,
+      collection, setDoc, doc, getDocs, getDoc, addDoc, updateDoc,
       query, orderBy, where,
       serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
@@ -766,42 +1013,33 @@ dialog.sheet.sheet-print .body{
     function esc(s){
       return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
     }
+
     // ---- calibrated px <-> mm (avoids 96dpi assumptions on iOS/PDF) ----
-let __pxPerMm = null;
-
-function getPxPerMm(){
-  if (__pxPerMm) return __pxPerMm;
-  const d = document.createElement('div');
-  d.style.width = '100mm';
-  d.style.position = 'absolute';
-  d.style.left = '-1000mm';
-  d.style.top = '0';
-  d.style.visibility = 'hidden';
-  document.body.appendChild(d);
-  const px = d.getBoundingClientRect().width;
-  document.body.removeChild(d);
-  __pxPerMm = px / 100;
-  return __pxPerMm;
-}
-
-function pxToMm(px){
-  return px / getPxPerMm();
-}
-
-function clampMm(v, lo, hi){
-  return Math.max(lo, Math.min(hi, v));
-}
-
-function roundUpMm(v){
-  return Math.ceil(v * 10) / 10; // 0.1mm
-}
+    let __pxPerMm = null;
+    function getPxPerMm(){
+      if (__pxPerMm) return __pxPerMm;
+      const d = document.createElement('div');
+      d.style.width = '100mm';
+      d.style.position = 'absolute';
+      d.style.left = '-1000mm';
+      d.style.top = '0';
+      d.style.visibility = 'hidden';
+      document.body.appendChild(d);
+      const px = d.getBoundingClientRect().width;
+      document.body.removeChild(d);
+      __pxPerMm = px / 100;
+      return __pxPerMm;
+    }
+    function pxToMm(px){ return px / getPxPerMm(); }
+    function clampMm(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+    function roundUpMm(v){ return Math.ceil(v * 10) / 10; } // 0.1mm
 
     function buildMobilePortraitHtml({ mode, qrSrc, make, model, serial6, cutLenMm }){
-  const isSummary = mode === 'summary';
-  const pad = 2.2;
+      const isSummary = mode === 'summary';
+      const pad = 2.2;
 
-  if (isSummary){
-    return `<!doctype html><html><head><meta charset="utf-8"><style>
+      if (isSummary){
+        return `<!doctype html><html><head><meta charset="utf-8"><style>
 @page{ margin:0; }
 html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; overflow:hidden; }
 .page{ width:100%; height:100%; display:block; overflow:hidden; position:relative; }
@@ -835,10 +1073,9 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; overfl
   <div class="val">${esc(serial6 || '—')}</div>
 </div></div></div>
 </body></html>`;
-  }
+      }
 
-  // DETAILED — MATCH LOOKUP/PREVIEW (max-content columns, nowrap, same gap/pad)
-  return `<!doctype html><html><head><meta charset="utf-8"><style>
+      return `<!doctype html><html><head><meta charset="utf-8"><style>
 @page{ margin:0; }
 html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; overflow:hidden; }
 .page{ width:100%; height:100%; display:block; overflow:hidden; position:relative; }
@@ -870,15 +1107,14 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; overfl
   <div class="right"><div class="lab">VIN/Serial</div><div class="val">${esc(serial6||'—')}</div></div>
 </div></div></div>
 </body></html>`;
-}
-
+    }
 
     function buildDesktopHtml({ mode, qrSrc, make, model, serial6 }){
-  const isSummary = mode === 'summary';
-  const pad = 2.2;
+      const isSummary = mode === 'summary';
+      const pad = 2.2;
 
-  if (isSummary){
-    return `<!doctype html><html><head><meta charset="utf-8"><style>
+      if (isSummary){
+        return `<!doctype html><html><head><meta charset="utf-8"><style>
 @page{ margin:0; }
 html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 .label{
@@ -910,10 +1146,9 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
   <div class="val">${esc(serial6 || '—')}</div>
 </div>
 </body></html>`;
-  }
+      }
 
-  // DETAILED — MATCH LOOKUP/PREVIEW (max-content columns, nowrap, same gap/pad)
-  return `<!doctype html><html><head><meta charset="utf-8"><style>
+      return `<!doctype html><html><head><meta charset="utf-8"><style>
 @page{ margin:0; }
 html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 .label{
@@ -943,8 +1178,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
   <div class="right"><div class="lab">VIN/Serial</div><div class="val">${esc(serial6||'—')}</div></div>
 </div>
 </body></html>`;
-}
-
+    }
 
     // Year combo
     function buildYearOptions(){
@@ -1170,7 +1404,6 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       __previewQrSrc = '';
     }
 
-    // Safe QR src for preview: bust only for http(s), never for data:
     function safeQrSrcForPreview(url){
       const s = String(url || '');
       if(!s) return '';
@@ -1180,72 +1413,57 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     }
 
     async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
-  const qrSrc = safeQrSrcForPreview(url);
+      const qrSrc = safeQrSrcForPreview(url);
 
-  clearPreviewHost();
-  __previewQrSrc = qrSrc;
+      clearPreviewHost();
+      __previewQrSrc = qrSrc;
 
-  // Build preview FIRST (so layout exists), then center toggle
-  if (mode === 'summary'){
-    const wrap = document.createElement('div');
-    wrap.className = 'pv-sf';
+      if (mode === 'summary'){
+        const wrap = document.createElement('div');
+        wrap.className = 'pv-sf';
 
-    const q = document.createElement('div'); q.className='qr';
+        const q = document.createElement('div'); q.className='qr';
+        const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc;
+        q.appendChild(img);
 
-    // Use <img> for both data: and http(s) – css covers centering
-    const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc;
-    q.appendChild(img);
+        const lab = document.createElement('div'); lab.className='lab'; lab.textContent = 'VIN/Serial';
+        const val = document.createElement('div'); val.className='val'; val.textContent = serial6 || '—';
 
-    const lab = document.createElement('div'); lab.className='lab'; lab.textContent = 'VIN/Serial';
-    const val = document.createElement('div'); val.className='val'; val.textContent = serial6 || '—';
+        wrap.append(q, lab, val);
+        pHost.appendChild(wrap);
 
-    wrap.append(q, lab, val);
-    pHost.appendChild(wrap);
+        __cutLenMm = 62;
+      } else {
+        const wrap = document.createElement('div');
+        wrap.className = 'pv-long';
+        wrap.style.width = 'fit-content';
 
-    // Summary cut is fixed
-    __cutLenMm = 62;
-  } else {
-    const wrap = document.createElement('div');
-    wrap.className = 'pv-long';
+        const left = document.createElement('div'); left.className='left';
+        const mk = document.createElement('div'); mk.className='make'; mk.textContent = make || '—';
+        const md = document.createElement('div'); md.className='model'; md.textContent = model || '—';
+        left.append(mk,md);
 
-    // Start shrink-to-fit so we can measure true content width (not a forced 140mm box)
-    wrap.style.width = 'fit-content';
+        const mid = document.createElement('div'); mid.className='mid';
+        const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc; mid.appendChild(img);
 
-    const left = document.createElement('div'); left.className='left';
-    const mk = document.createElement('div'); mk.className='make'; mk.textContent = make || '—';
-    const md = document.createElement('div'); md.className='model'; md.textContent = model || '—';
-    left.append(mk,md);
+        const right = document.createElement('div'); right.className='right';
+        const lab = document.createElement('div'); lab.className='lab'; lab.textContent='VIN/Serial';
+        const val = document.createElement('div'); val.className='val'; val.textContent = serial6 || '—';
+        right.append(lab,val);
 
-    const mid = document.createElement('div'); mid.className='mid';
-    const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc; mid.appendChild(img);
+        wrap.append(left,mid,right);
+        pHost.appendChild(wrap);
 
-    const right = document.createElement('div'); right.className='right';
-    const lab = document.createElement('div'); lab.className='lab'; lab.textContent='VIN/Serial';
-    const val = document.createElement('div'); val.className='val'; val.textContent = serial6 || '—';
-    right.append(lab,val);
+        await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
 
-    wrap.append(left,mid,right);
-    pHost.appendChild(wrap);
+        let measuredMm = pxToMm(wrap.getBoundingClientRect().width);
+        measuredMm = measuredMm + 3.0;
+        measuredMm = clampMm(measuredMm, 62, 240);
 
-    // Let layout settle so measurement is accurate (iOS needs this)
-    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+        __cutLenMm = roundUpMm(measuredMm);
+        wrap.style.width = `${__cutLenMm}mm`;
+      }
 
-    // Measure natural width and convert to mm
-    let measuredMm = pxToMm(wrap.getBoundingClientRect().width);
-
-    // White buffer knob (safety so VIN doesn't kiss the cut)
-    measuredMm = measuredMm + 3.0;
-
-    // Clamp sane bounds (allow short + long)
-    measuredMm = clampMm(measuredMm, 62, 240);
-
-    __cutLenMm = roundUpMm(measuredMm);
-
-    // Now force preview to the computed cut length
-    wrap.style.width = `${__cutLenMm}mm`;
-  }
-
-      // Now apply centering AFTER the DOM exists + layout settles
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
       await setPrintWrapCentered(mode === 'summary');
     }
@@ -1283,76 +1501,70 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     }
 
     async function createPdf(){
-  if (!__pending) return;
+      if (!__pending) return;
 
-  pCreate.disabled = true;
-  await showOverlayAndYield();
+      pCreate.disabled = true;
+      await showOverlayAndYield();
 
-  try{
-    const mobile = isMobileLike();
-    const cutLenMm = (__mode === 'summary') ? 62 : (__cutLenMm + 1);
+      try{
+        const mobile = isMobileLike();
+        const cutLenMm = (__mode === 'summary') ? 62 : (__cutLenMm + 1);
 
-    // Page dims:
-    // Desktop: landscape page cutLen x 62
-    // Mobile: portrait page 62 x cutLen (so the PDF LOOKS vertical on screen)
-    const widthMm  = mobile ? 62 : cutLenMm;
-    const heightMm = mobile ? cutLenMm : 62;
-    const landscape = false;
+        const widthMm  = mobile ? 62 : cutLenMm;
+        const heightMm = mobile ? cutLenMm : 62;
+        const landscape = false;
 
-    const html = mobile
-      ? buildMobilePortraitHtml({
-          mode: __mode,
-          qrSrc: __previewQrSrc || __pending.url,
-          make: __pending.make,
-          model: __pending.model,
-          serial6: __pending.serial6,
-          cutLenMm
-        })
-      : buildDesktopHtml({
-          mode: __mode,
-          qrSrc: __previewQrSrc || __pending.url,
-          make: __pending.make,
-          model: __pending.model,
-          serial6: __pending.serial6
+        const html = mobile
+          ? buildMobilePortraitHtml({
+              mode: __mode,
+              qrSrc: __previewQrSrc || __pending.url,
+              make: __pending.make,
+              model: __pending.model,
+              serial6: __pending.serial6,
+              cutLenMm
+            })
+          : buildDesktopHtml({
+              mode: __mode,
+              qrSrc: __previewQrSrc || __pending.url,
+              make: __pending.make,
+              model: __pending.model,
+              serial6: __pending.serial6
+            });
+
+        const resp = await fetch(FV_LABEL_PDF_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type':'application/json' },
+          body: JSON.stringify({
+            html,
+            widthMm,
+            heightMm,
+            landscape,
+            filename: (__mode === 'summary' ? 'fv-qr-summary.pdf' : 'fv-qr-detailed.pdf')
+          })
         });
 
-    const resp = await fetch(FV_LABEL_PDF_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({
-        html,
-        widthMm,
-        heightMm,
-        landscape,
-        filename: (__mode === 'summary' ? 'fv-qr-summary.pdf' : 'fv-qr-detailed.pdf')
-      })
-    });
+        const errText = !resp.ok ? await resp.text().catch(()=> '') : '';
+        if (!resp.ok){
+          console.warn('[label-pdf] failed', resp.status, errText);
+          alert('Label PDF failed. Check Cloud Run logs.');
+          return;
+        }
 
-    const errText = !resp.ok ? await resp.text().catch(()=> '') : '';
-    if (!resp.ok){
-      console.warn('[label-pdf] failed', resp.status, errText);
-      alert('Label PDF failed. Check Cloud Run logs.');
-      return;
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+
+        if (mobile){
+          window.location.assign(url);
+        } else {
+          printFrame.onload = ()=> { try{ printFrame.contentWindow.focus(); printFrame.contentWindow.print(); } catch {} };
+          printFrame.src = url;
+        }
+      } finally {
+        setPdfLoading(false);
+        pCreate.disabled = false;
+      }
     }
-
-    const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-
-    // Desktop: print via iframe. Mobile: open in this tab so you can Share → Print.
-    if (mobile){
-      window.location.assign(url);
-    } else {
-      printFrame.onload = ()=> { try{ printFrame.contentWindow.focus(); printFrame.contentWindow.print(); } catch {} };
-      printFrame.src = url;
-    }
-  } finally {
-    setPdfLoading(false);
-    pCreate.disabled = false;
-  }
-}
-
-pCreate.addEventListener('click', createPdf);
-
+    pCreate.addEventListener('click', createPdf);
 
     /* SAVE */
     let saving = false;
@@ -1377,9 +1589,9 @@ pCreate.addEventListener('click', createPdf);
       const tokenRef = doc(db, 'qr-tokens', token);
 
       const qrImage =
-  ($("qrThumb")?.src || "").startsWith("data:")
-    ? $("qrThumb").src
-    : null;
+        ($("qrThumb")?.src || "").startsWith("data:")
+          ? $("qrThumb").src
+          : null;
 
       let runTransaction;
       try{
@@ -1451,16 +1663,14 @@ pCreate.addEventListener('click', createPdf);
         const snap=await getDocs(query(collection(db,'equipment-makes'), where('archived','!=',true), orderBy('archived'), orderBy('name')));
         snap.forEach(d=>{
           const v=d.data()||{}; const name=String(v.name||'').trim();
-          if(name) items.push({id:d.id,name, categories:docCats(v)});
+          if(name) items.push({id:d.id,name, categories:docCats(v), archived:!!v.archived});
         });
       }catch{
         const snap=await getDocs(collection(db,'equipment-makes'));
         snap.forEach(d=>{
           const v=d.data()||{};
-          if(!v.archived){
-            const name=String(v.name||'').trim();
-            if(name) items.push({id:d.id,name, categories:docCats(v)});
-          }
+          const name=String(v.name||'').trim();
+          if(name) items.push({id:d.id,name, categories:docCats(v), archived:!!v.archived});
         });
         items.sort((a,b)=>a.name.localeCompare(b.name));
       }
@@ -1474,16 +1684,14 @@ pCreate.addEventListener('click', createPdf);
         const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId), where('archived','!=',true), orderBy('archived'), orderBy('name')));
         snap.forEach(d=>{
           const v=d.data()||{}; const name=String(v.name||'').trim();
-          if(name) items.push({id:d.id,name, categories:docCats(v)});
+          if(name) items.push({id:d.id,name, categories:docCats(v), archived:!!v.archived, makeId:String(v.makeId||'')});
         });
       }catch{
         const snap=await getDocs(query(collection(db,'equipment-models'), where('makeId','==',makeId)));
         snap.forEach(d=>{
           const v=d.data()||{};
-          if(!v.archived){
-            const name=String(v.name||'').trim();
-            if(name) items.push({id:d.id,name, categories:docCats(v)});
-          }
+          const name=String(v.name||'').trim();
+          if(name) items.push({id:d.id,name, categories:docCats(v), archived:!!v.archived, makeId:String(v.makeId||'')});
         });
         items.sort((a,b)=>a.name.localeCompare(b.name));
       }
@@ -1506,22 +1714,42 @@ pCreate.addEventListener('click', createPdf);
       setupSearch(ddModel.search, ddModel.list);
     }
 
-    async function populateMakes(db){
+    async function populateMakes(db, preserveMakeId=null){
       const allMakes = await getMakes(db);
-      const makes = allMakes.filter(visibleForType);
+      const makes = allMakes.filter(m => !m.archived).filter(visibleForType);
+
       buildList(ddMake.list, makes.map(m=>[m.id, m.name]), (val,label)=>setMake(val,label));
       ddMake.hidden.value = "";
       ddMake.btn.textContent = "— Select —";
+
+      const keep = preserveMakeId && makes.find(m=>m.id===preserveMakeId);
+      if(keep){
+        setMake(keep.id, keep.name);
+      }else{
+        // reset models
+        ddModel.hidden.value = "";
+        ddModel.btn.textContent = "— Select a Make first —";
+        ddModel.btn.disabled = true;
+        ddModel.search.disabled = true;
+        ddModel.list.innerHTML = "";
+        validateForm();
+      }
     }
 
-    async function populateModels(db, makeId){
+    async function populateModels(db, makeId, preserveModelId=null){
       const allModels = await getModels(db, makeId);
-      const models = allModels.filter(visibleForType);
+      const models = allModels.filter(m => !m.archived).filter(visibleForType);
+
       buildList(ddModel.list, models.map(m=>[m.id, m.name]), (val,label)=>setModel(val,label));
       ddModel.btn.disabled = false;
       ddModel.search.disabled = false;
       ddModel.hidden.value = "";
       ddModel.btn.textContent = "— Select —";
+
+      const keep = preserveModelId && models.find(m=>m.id===preserveModelId);
+      if(keep){
+        setModel(keep.id, keep.name);
+      }
     }
 
     function setMake(id, label){
@@ -1606,6 +1834,383 @@ pCreate.addEventListener('click', createPdf);
       }
     }
 
+    /* ============================
+       Make/Model Manager (RESTORED)
+       ============================ */
+    function normCsvCats(s){
+      const raw = String(s||'').split(',').map(x=>x.trim().toLowerCase()).filter(Boolean);
+      // de-dupe
+      return [...new Set(raw)];
+    }
+    function catsToCsv(arr){
+      const a = Array.isArray(arr) ? arr.map(x=>String(x).trim().toLowerCase()).filter(Boolean) : [];
+      return [...new Set(a)].join(',');
+    }
+    function ensureTypeCat(cats){
+      const c = Array.isArray(cats) ? [...cats] : [];
+      if(!c.map(x=>String(x).toLowerCase()).includes(TYPE)) c.push(TYPE);
+      return [...new Set(c.map(x=>String(x).toLowerCase())))];
+    }
+
+    // NOTE: The line above had a parenthesis mismatch; fix it:
+    function ensureTypeCat(cats){
+      const c = Array.isArray(cats) ? [...cats] : [];
+      const low = c.map(x=>String(x).toLowerCase());
+      if(!low.includes(TYPE)) low.push(TYPE);
+      return [...new Set(low)];
+    }
+
+    const makeDlg = $("makeManager");
+    const mmList = $("mmList");
+    const mmSearch = $("mmSearch");
+    const mmCount = $("mmCount");
+    const mmFormTitle = $("mmFormTitle");
+    const mmSelected = $("mmSelected");
+    const mmName = $("mmName");
+    const mmCats = $("mmCats");
+    const mmArchived = $("mmArchived");
+    const mmArchivedText = $("mmArchivedText");
+    const mmNew = $("mmNew");
+    const mmSave = $("mmSave");
+    const mmClose = $("mmClose");
+    const mmErr = $("mmErr");
+
+    const modelDlg = $("modelManager");
+    const mdlList = $("mdlList");
+    const mdlSearch = $("mdlSearch");
+    const mdlCount = $("mdlCount");
+    const mdlHdrHelp = $("mdlHdrHelp");
+    const mdlFormTitle = $("mdlFormTitle");
+    const mdlSelected = $("mdlSelected");
+    const mdlName = $("mdlName");
+    const mdlCats = $("mdlCats");
+    const mdlArchived = $("mdlArchived");
+    const mdlArchivedText = $("mdlArchivedText");
+    const mdlNew = $("mdlNew");
+    const mdlSave = $("mdlSave");
+    const mdlClose = $("mdlClose");
+    const mdlErr = $("mdlErr");
+
+    function syncSwitchLabel(cb, lblEl){
+      if(!cb || !lblEl) return;
+      const sync = ()=>{ lblEl.textContent = cb.checked ? "On" : "Off"; };
+      cb.addEventListener('change', sync);
+      sync();
+    }
+
+    let __mmAll = [];      // [{id,name,categories,archived}]
+    let __mmSelectedId = null;
+
+    let __mdlAll = [];     // [{id,name,categories,archived,makeId}]
+    let __mdlSelectedId = null;
+    let __mdlMakeId = null;
+
+    function clearErr(el){
+      if(!el) return;
+      el.hidden = true;
+      el.textContent = "";
+    }
+    function setErr(el, msg){
+      if(!el) return;
+      el.hidden = !msg;
+      el.textContent = msg || "";
+    }
+
+    function renderMgrList(ul, items, activeId){
+      ul.innerHTML = "";
+      items.forEach(it=>{
+        const li = document.createElement('li');
+        li.className = 'mgr-item' + (it.id === activeId ? ' active' : '');
+        const left = document.createElement('div');
+        left.style.display = 'grid';
+        left.style.gap = '2px';
+
+        const nm = document.createElement('div');
+        nm.style.fontWeight = '900';
+        nm.textContent = it.name || '—';
+
+        const sub = document.createElement('div');
+        sub.style.fontSize = '12px';
+        sub.style.color = 'var(--muted,#67706B)';
+        const cats = Array.isArray(it.categories) ? it.categories.map(s=>String(s).toLowerCase()) : [];
+        sub.textContent = (it.archived ? 'Archived' : 'Active') + (cats.length ? ` • ${cats.join(',')}` : '');
+
+        left.append(nm, sub);
+
+        const badge = document.createElement('span');
+        badge.className = 'mgr-badge';
+        badge.textContent = it.archived ? 'Archived' : 'Active';
+
+        li.append(left, badge);
+        li.addEventListener('click', ()=> ul.dispatchEvent(new CustomEvent('mgr:pick', { detail: it })));
+        ul.appendChild(li);
+      });
+    }
+
+    function filterByTerm(items, term){
+      const t = String(term||'').trim().toLowerCase();
+      if(!t) return items;
+      return items.filter(it => String(it.name||'').toLowerCase().includes(t));
+    }
+
+    async function loadMakeManager(db){
+      clearErr(mmErr);
+      __mmAll = await getMakes(db);
+      // show ALL (including archived) in manager
+      __mmAll.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
+
+      const filtered = filterByTerm(__mmAll, mmSearch.value);
+      mmCount.textContent = String(filtered.length);
+
+      renderMgrList(mmList, filtered, __mmSelectedId);
+    }
+
+    function mmSelect(it){
+      __mmSelectedId = it ? it.id : null;
+      clearErr(mmErr);
+
+      if(!it){
+        mmFormTitle.textContent = "New Make";
+        mmSelected.textContent = "None";
+        mmName.value = "";
+        mmCats.value = catsToCsv([TYPE]);
+        mmArchived.checked = false;
+      } else {
+        mmFormTitle.textContent = "Edit Make";
+        mmSelected.textContent = (it.name || it.id || 'Selected').slice(0, 22);
+        mmName.value = it.name || "";
+        const cats = Array.isArray(it.categories) ? it.categories : [];
+        mmCats.value = catsToCsv(cats.length ? cats : [TYPE]);
+        mmArchived.checked = !!it.archived;
+      }
+      // update list highlight
+      const filtered = filterByTerm(__mmAll, mmSearch.value);
+      renderMgrList(mmList, filtered, __mmSelectedId);
+      mmSearch.focus();
+    }
+
+    async function mmSaveNow(db){
+      clearErr(mmErr);
+      const name = String(mmName.value||'').trim();
+      if(!name){
+        setErr(mmErr, "Name is required.");
+        return;
+      }
+
+      let cats = normCsvCats(mmCats.value);
+      // If user left blank: store [] (means visible everywhere) — BUT this page expects TYPE visible, so default-add TYPE only if blank input.
+      if(!mmCats.value.trim()){
+        cats = [TYPE];
+      } else {
+        // ensure this page's type is included
+        cats = ensureTypeCat(cats);
+      }
+
+      const archived = !!mmArchived.checked;
+
+      const payload = {
+        name,
+        categories: cats.length ? cats : [],
+        archived,
+        updatedAt: serverTimestamp()
+      };
+
+      try{
+        if(__mmSelectedId){
+          await updateDoc(doc(db,'equipment-makes', __mmSelectedId), payload);
+          showToast("Make updated");
+        } else {
+          payload.createdAt = serverTimestamp();
+          const ref = await addDoc(collection(db,'equipment-makes'), payload);
+          __mmSelectedId = ref.id;
+          showToast("Make added");
+        }
+
+        // Refresh manager list + dropdown list, preserve selection
+        await loadMakeManager(db);
+        const keepId = __mmSelectedId;
+
+        // Refresh dropdown makes (filtered to not archived)
+        await populateMakes(db, keepId);
+
+        // If we have a selected make, refresh models dropdown too (keep current model if valid)
+        const curModelId = $("modelId").value || null;
+        const curMakeId = $("makeId").value || null;
+        if(curMakeId){
+          await populateModels(db, curMakeId, curModelId);
+        }
+
+        // Re-select in manager form with latest data
+        const fresh = __mmAll.find(x=>x.id===keepId) || null;
+        mmSelect(fresh);
+      }catch(e){
+        console.error(e);
+        setErr(mmErr, "Save failed.");
+      }
+    }
+
+    async function loadModelManager(db, makeId){
+      clearErr(mdlErr);
+      __mdlMakeId = makeId || null;
+      __mdlSelectedId = null;
+
+      const makeLabel = ddMake?.btn?.textContent?.trim() || '';
+      mdlHdrHelp.textContent = makeId ? `Make: ${makeLabel}` : 'Make: —';
+
+      __mdlAll = makeId ? await getModels(db, makeId) : [];
+      __mdlAll.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
+
+      const filtered = filterByTerm(__mdlAll, mdlSearch.value);
+      mdlCount.textContent = String(filtered.length);
+
+      renderMgrList(mdlList, filtered, __mdlSelectedId);
+      mdlSelect(null);
+    }
+
+    function mdlSelect(it){
+      __mdlSelectedId = it ? it.id : null;
+      clearErr(mdlErr);
+
+      if(!it){
+        mdlFormTitle.textContent = "New Model";
+        mdlSelected.textContent = "None";
+        mdlName.value = "";
+        mdlCats.value = catsToCsv([TYPE]);
+        mdlArchived.checked = false;
+      } else {
+        mdlFormTitle.textContent = "Edit Model";
+        mdlSelected.textContent = (it.name || it.id || 'Selected').slice(0, 22);
+        mdlName.value = it.name || "";
+        const cats = Array.isArray(it.categories) ? it.categories : [];
+        mdlCats.value = catsToCsv(cats.length ? cats : [TYPE]);
+        mdlArchived.checked = !!it.archived;
+      }
+
+      const filtered = filterByTerm(__mdlAll, mdlSearch.value);
+      renderMgrList(mdlList, filtered, __mdlSelectedId);
+      mdlSearch.focus();
+    }
+
+    async function mdlSaveNow(db){
+      clearErr(mdlErr);
+      if(!__mdlMakeId){
+        setErr(mdlErr, "Select a Make first.");
+        return;
+      }
+      const name = String(mdlName.value||'').trim();
+      if(!name){
+        setErr(mdlErr, "Name is required.");
+        return;
+      }
+
+      let cats = normCsvCats(mdlCats.value);
+      if(!mdlCats.value.trim()){
+        cats = [TYPE];
+      } else {
+        cats = ensureTypeCat(cats);
+      }
+
+      const archived = !!mdlArchived.checked;
+
+      const payload = {
+        makeId: __mdlMakeId,
+        name,
+        categories: cats.length ? cats : [],
+        archived,
+        updatedAt: serverTimestamp()
+      };
+
+      try{
+        if(__mdlSelectedId){
+          await updateDoc(doc(db,'equipment-models', __mdlSelectedId), payload);
+          showToast("Model updated");
+        } else {
+          payload.createdAt = serverTimestamp();
+          const ref = await addDoc(collection(db,'equipment-models'), payload);
+          __mdlSelectedId = ref.id;
+          showToast("Model added");
+        }
+
+        // Refresh manager list + dropdown list, preserve selection
+        await loadModelManager(db, __mdlMakeId);
+
+        const keepMakeId = __mdlMakeId;
+        const keepModelId = __mdlSelectedId;
+
+        // Refresh dropdown models for currently selected make
+        const curMakeId = $("makeId").value || null;
+        if(curMakeId === keepMakeId){
+          await populateModels(db, keepMakeId, keepModelId);
+        }
+
+        // Re-select in manager form with latest data
+        const fresh = __mdlAll.find(x=>x.id===keepModelId) || null;
+        mdlSelect(fresh);
+      }catch(e){
+        console.error(e);
+        setErr(mdlErr, "Save failed.");
+      }
+    }
+
+    function wireManagers(){
+      // Switch labels
+      syncSwitchLabel(mmArchived, mmArchivedText);
+      syncSwitchLabel(mdlArchived, mdlArchivedText);
+
+      // List pick events
+      mmList.addEventListener('mgr:pick', (e)=> mmSelect(e.detail));
+      mdlList.addEventListener('mgr:pick', (e)=> mdlSelect(e.detail));
+
+      // Search filters
+      mmSearch.addEventListener('input', ()=>{
+        const filtered = filterByTerm(__mmAll, mmSearch.value);
+        mmCount.textContent = String(filtered.length);
+        renderMgrList(mmList, filtered, __mmSelectedId);
+      });
+      mdlSearch.addEventListener('input', ()=>{
+        const filtered = filterByTerm(__mdlAll, mdlSearch.value);
+        mdlCount.textContent = String(filtered.length);
+        renderMgrList(mdlList, filtered, __mdlSelectedId);
+      });
+
+      // New / Save / Close
+      mmNew.addEventListener('click', ()=> mmSelect(null));
+      mmSave.addEventListener('click', ()=> mmSaveNow(window.__db));
+      mmClose.addEventListener('click', ()=> closeDialog(makeDlg));
+
+      mdlNew.addEventListener('click', ()=> mdlSelect(null));
+      mdlSave.addEventListener('click', ()=> mdlSaveNow(window.__db));
+      mdlClose.addEventListener('click', ()=> closeDialog(modelDlg));
+
+      // Open from labels
+      $("openMakes").addEventListener('click', async ()=>{
+        __mmSelectedId = $("makeId").value || null;
+        openDialog(makeDlg);
+        await loadMakeManager(window.__db);
+        const cur = __mmAll.find(x=>x.id===__mmSelectedId) || null;
+        mmSelect(cur);
+      });
+
+      $("openModels").addEventListener('click', async ()=>{
+        const makeId = $("makeId").value || null;
+        if(!makeId){
+          alert("Select a Make first.");
+          return;
+        }
+        openDialog(modelDlg);
+        await loadModelManager(window.__db, makeId);
+        // preselect current model if any
+        const curModelId = $("modelId").value || null;
+        if(curModelId){
+          const cur = __mdlAll.find(x=>x.id===curModelId) || null;
+          if(cur) mdlSelect(cur);
+        }
+      });
+    }
+
+    /* ============================
+       Boot
+       ============================ */
     (async()=>{
       await ready;
       const db  = getFirestore();
@@ -1625,6 +2230,8 @@ pCreate.addEventListener('click', createPdf);
 
       buildDdObjects();
       initExtras();
+      wireManagers();
+
       await populateMakes(db);
 
       $("serial").addEventListener("input", validateForm);
