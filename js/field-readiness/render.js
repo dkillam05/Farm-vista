@@ -1,26 +1,18 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-01-08e
+Rev: 2026-01-09b-readinessShift-cal1
 
 RECOVERY (critical):
 ✅ Fix syntax issues so module loads and tiles render again.
 
-NEW (per new thread goals):
-✅ ETA text on each tile is now the ONLY tappable target for ETA help
-✅ Tapping ETA dispatches a single consistent event: "fr:eta-help"
-✅ Auto-loads /Farm-vista/js/field-readiness/eta-helper.js (one-time) so the listener exists
-✅ ETA tap does NOT trigger tile select / dblclick (stops propagation)
+NEW (per Dane global calibration goal):
+✅ Calibration loader now supports DIRECT readiness shift (1:1 points):
+   - Uses newest global calibration doc’s (readinessSlider - readinessAnchor)
+   - Applies to ALL fields immediately (via model CAL.readinessShift)
+✅ Keeps existing wetBias behavior (physics lean) unchanged.
 
-Keeps (from your Rev: 2026-01-08d):
-✅ Tiles appear immediately on return (fast DOM build, ETA later)
-✅ Stop rebuilding tiles when view unchanged (in-place updates)
-✅ No 0/50/100 labels under gauge
-✅ ETA text on mobile uses ">" sign
-✅ 7-day ETA horizon (168h)
-✅ Swipe + details behavior intact (no markup breaking)
-✅ Weather Inputs details table appends forecast rows (next 7 days)
-   - Divider row: “Forecast (next 7 days)”
-   - Forecast from Firestore cache dailySeriesFcst via forecast.readWxSeriesFromCache()
+Keeps:
+✅ ETA tap behavior, fast tile build, in-place updates, forecast rows, etc.
 ===================================================================== */
 'use strict';
 
@@ -100,17 +92,61 @@ async function scheduleRender(state, mode){
 
 /* =====================================================================
    Calibration from adjustments collection (GLOBAL ONLY)
+
+   Existing:
+   - wetBias accumulates recent deltas (scaled) for physics lean.
+
+   NEW:
+   - readinessShift is taken from the NEWEST global adjustment that includes:
+       readinessAnchor + readinessSlider
+     and is applied 1:1 to readiness (ALL fields).
 ===================================================================== */
 const CAL_MAX_DOCS = 12;
 const CAL_SCALE = 0.25;
 const CAL_CLAMP = 12;
+
+// Direct readiness shift clamp (1:1 points)
+const READY_SHIFT_CLAMP = 35;
+
+function safeNum(v){
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function computeReadinessShiftFromDoc(d){
+  // Prefer explicit anchor/slider if present (your current global-calibration.js writes these)
+  const a = safeNum(d && d.readinessAnchor);
+  const s = safeNum(d && d.readinessSlider);
+
+  if (a != null && s != null){
+    // slider is the “truth” for readiness; anchor is what model said at time of adjust
+    const shift = Math.round(s - a);
+    return clamp(shift, -READY_SHIFT_CLAMP, READY_SHIFT_CLAMP);
+  }
+
+  // Fallback if older docs stored readinessBefore
+  const before = safeNum(d && d.model && d.model.readinessBefore);
+  const s2 = safeNum(d && d.readinessSlider);
+  if (before != null && s2 != null){
+    const shift = Math.round(s2 - before);
+    return clamp(shift, -READY_SHIFT_CLAMP, READY_SHIFT_CLAMP);
+  }
+
+  return null;
+}
 
 async function loadCalibrationFromAdjustments(state, { force=false } = {}){
   const now = Date.now();
   const last = Number(state._calLoadedAt || 0);
   if (!force && state._cal && (now - last) < 30000) return state._cal;
 
-  const out = { wetBias: 0, opWetBias: {} };
+  // ✅ expanded CAL shape
+  const out = {
+    wetBias: 0,
+    opWetBias: {},
+    readinessShift: 0,
+    opReadinessShift: {}
+  };
 
   try{
     const api = getAPI(state);
@@ -119,6 +155,45 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
       state._calLoadedAt = now;
       return out;
     }
+
+    // Helper: apply docs (common logic)
+    const applyDocs = (docs)=>{
+      let pickedGlobalShift = false;
+
+      // Newest first (query already desc)
+      for (const d0 of docs){
+        const d = d0 || {};
+        if (d.global !== true) continue;
+
+        // ---- wetBias accumulate (existing) ----
+        const delta = Number(d.delta);
+        if (Number.isFinite(delta)){
+          out.wetBias += (delta * CAL_SCALE);
+        }
+
+        // ---- readinessShift pick newest (NEW) ----
+        if (!pickedGlobalShift){
+          const rs = computeReadinessShiftFromDoc(d);
+          if (rs != null){
+            out.readinessShift = rs;
+            pickedGlobalShift = true;
+          }
+        }
+
+        // Optional: per-op readiness shift (if you ever want it)
+        // (kept harmless — only sets if doc has op and a usable shift)
+        try{
+          const op = String(d.op || '');
+          if (op && out.opReadinessShift && out.opReadinessShift[op] == null){
+            const rsOp = computeReadinessShiftFromDoc(d);
+            if (rsOp != null) out.opReadinessShift[op] = rsOp;
+          }
+        }catch(_){}
+      }
+
+      out.wetBias = clamp(out.wetBias, -CAL_CLAMP, CAL_CLAMP);
+      out.readinessShift = clamp(out.readinessShift, -READY_SHIFT_CLAMP, READY_SHIFT_CLAMP);
+    };
 
     if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
       const db = window.firebase.firestore();
@@ -136,15 +211,9 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
           .get();
       }
 
-      snap.forEach(doc=>{
-        const d = doc.data() || {};
-        if (d.global !== true) return;
-        const delta = Number(d.delta);
-        if (!isFinite(delta)) return;
-        out.wetBias += (delta * CAL_SCALE);
-      });
-
-      out.wetBias = clamp(out.wetBias, -CAL_CLAMP, CAL_CLAMP);
+      const docs = [];
+      snap.forEach(doc => docs.push(doc.data() || {}));
+      applyDocs(docs);
 
       state._cal = out;
       state._calLoadedAt = now;
@@ -170,15 +239,9 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
       }
 
       const snap = await api.getDocs(q);
-      snap.forEach(doc=>{
-        const d = doc.data() || {};
-        if (d.global !== true) return;
-        const delta = Number(d.delta);
-        if (!isFinite(delta)) return;
-        out.wetBias += (delta * CAL_SCALE);
-      });
-
-      out.wetBias = clamp(out.wetBias, -CAL_CLAMP, CAL_CLAMP);
+      const docs = [];
+      snap.forEach(doc => docs.push(doc.data() || {}));
+      applyDocs(docs);
 
       state._cal = out;
       state._calLoadedAt = now;
@@ -194,8 +257,19 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
 }
 
 function getCalForDeps(state){
-  const wb = (state && state._cal && isFinite(Number(state._cal.wetBias))) ? Number(state._cal.wetBias) : 0;
-  return { wetBias: wb, opWetBias: {} };
+  const cal = (state && state._cal && typeof state._cal === 'object') ? state._cal : {};
+  const wb = Number.isFinite(Number(cal.wetBias)) ? Number(cal.wetBias) : 0;
+  const rs = Number.isFinite(Number(cal.readinessShift)) ? Number(cal.readinessShift) : 0;
+
+  const opWB = (cal.opWetBias && typeof cal.opWetBias === 'object') ? cal.opWetBias : {};
+  const opRS = (cal.opReadinessShift && typeof cal.opReadinessShift === 'object') ? cal.opReadinessShift : {};
+
+  return {
+    wetBias: wb,
+    opWetBias: opWB,
+    readinessShift: rs,
+    opReadinessShift: opRS
+  };
 }
 
 /* ---------- module loader (model/weather/forecast) ---------- */
@@ -1106,7 +1180,7 @@ function renderBetaInputs(state){
 
   const pulledNotUsed = [
     ['soil_temp_c_10_40','Soil temp 10–40cm (hourly)', unitsHourly?.soil_temperature_10_to_40cm || '°C'],
-    ['soil_temp_c_40_100','Soil temp 40–100cm (hourly)', unitsHourly?.soil_temperature_40_to_100cm || '°C'],
+    ['soil_temp_c_40_100','Soil temp 40–100cm (hourly)', unitsHourly?.soil_temperature_40_to_100cm || '°C → °F'],
     ['soil_temp_c_100_200','Soil temp 100–200cm (hourly)', unitsHourly?.soil_temperature_100_to_200cm || '°C → °F'],
     ['soil_moisture_10_40','Soil moisture 10–40cm (hourly)', unitsHourly?.soil_moisture_10_to_40cm || 'm³/m³'],
     ['soil_moisture_40_100','Soil moisture 40–100cm (hourly)', unitsHourly?.soil_moisture_40_to_100cm || 'm³/m³'],
