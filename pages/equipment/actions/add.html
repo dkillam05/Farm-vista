@@ -1,20 +1,15 @@
 <!-- =====================================================================
 /Farm-vista/pages/equipment/actions/add.html  (FULL FILE)
-Rev: 2026-01-09a
+Rev: 2026-01-09b
 
-RESTORE (Make/Model Manager):
-✅ Restores popup sheet dialogs to Add/Edit Makes + Models (no “X” close, Cancel only)
-✅ “Make” label opens Make Manager (add/edit/archive, categories)
-✅ “Model” label opens Model Manager (requires Make selected; add/edit/archive, categories)
-✅ Saves to Firestore:
-   - equipment-makes
-   - equipment-models (includes makeId)
-✅ After save, dropdown lists refresh and preserve selection when possible
+FIX:
+✅ Remove syntax error that prevented module execution (dropdowns stuck on “Loading…”)
+✅ Keep Make/Model Manager popups (add/edit/archive/categories)
+✅ Use setDoc() only (no addDoc/updateDoc dependency)
+✅ Preserve dropdown refresh + selection after saving
 
 Keeps:
-✅ Label/PDF flow exactly as-is
-✅ QR preview/data URL handling
-✅ Existing dropdowns, validation, save logic
+✅ Label/PDF/QR flow unchanged
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -213,7 +208,6 @@ Keeps:
     .qr-row{ display:flex; align-items:center; gap:12px; }
     .qr-row .btn{ min-width:160px; }
 
-    /* ✅ RESTORED: File input styling */
     input[type="file"].input{
       height:auto;
       line-height:normal;
@@ -255,9 +249,6 @@ Keeps:
     }
     #labelChoice footer{ justify-content:center; }
 
-    /* ============================
-       LABEL PREVIEW (MATCH LOOKUP)
-       ============================ */
     dialog.sheet.sheet-print{
       width:min(980px, 96vw);
       max-width:calc(100vw - 16px);
@@ -375,7 +366,6 @@ Keeps:
 
     #fv-print-frame{ position:fixed; right:0; bottom:0; width:0; height:0; border:0; visibility:hidden; }
 
-    /* Overlay */
     .pdf-loading{
       position:fixed;
       inset:0;
@@ -442,7 +432,6 @@ Keeps:
     .radio-row input{ accent-color:var(--brand); outline:none !important; box-shadow:none !important; }
     .radio-row input:focus{ outline:none !important; box-shadow:none !important; }
 
-    /* Bottom actions layout */
     .actions{
       display:grid;
       grid-template-columns: minmax(140px, 220px) minmax(140px, 220px);
@@ -467,7 +456,6 @@ Keeps:
       #btnCreateLabel{ width:100%; }
     }
 
-    /* Slider toggle (kept) */
     .pv-switch-row{ display:flex; align-items:center; justify-content:flex-start; gap:12px; min-height:var(--ctl-h); }
     .pv-switch{ position:relative; display:inline-flex; align-items:center; gap:10px; user-select:none; -webkit-tap-highlight-color: transparent; }
     .pv-switch input{
@@ -748,7 +736,7 @@ Keeps:
     </footer>
   </dialog>
 
-  <!-- ===== Make Manager (NO Close button; Cancel only) ===== -->
+  <!-- ===== Make Manager (Cancel only) ===== -->
   <dialog id="makeManager" class="sheet sheet-manager" aria-modal="true">
     <header>
       <strong>Manage Makes</strong>
@@ -816,7 +804,7 @@ Keeps:
     </footer>
   </dialog>
 
-  <!-- ===== Model Manager (NO Close button; Cancel only) ===== -->
+  <!-- ===== Model Manager (Cancel only) ===== -->
   <dialog id="modelManager" class="sheet sheet-manager" aria-modal="true">
     <header>
       <strong>Manage Models</strong>
@@ -894,7 +882,7 @@ Keeps:
     import {
       ready,
       getFirestore,
-      collection, setDoc, doc, getDocs, getDoc, addDoc, updateDoc,
+      collection, setDoc, doc, getDocs, getDoc,
       query, orderBy, where,
       serverTimestamp
     } from '/Farm-vista/js/firebase-init.js';
@@ -978,7 +966,6 @@ Keeps:
       return /iphone|ipad|ipod|android|mobi/.test(ua);
     }
 
-    // Overlay
     const pdfLoading = $("pdfLoading");
     const pdfLoadingText = $("pdfLoadingText");
     const pdfLoadingSub = $("pdfLoadingSub");
@@ -997,7 +984,6 @@ Keeps:
     function openDialog(d){ try{ d.showModal(); }catch{ d.setAttribute('open',''); } }
     function closeDialog(d){ try{ d.close(); }catch{ d.removeAttribute('open'); } }
 
-    /* ===== MATCH LOOKUP: center only for summary ===== */
     async function setPrintWrapCentered(isSummary){
       const wrapEl = $("printWrap");
       if(!wrapEl) return;
@@ -1007,14 +993,10 @@ Keeps:
       wrapEl.scrollLeft = 0;
     }
 
-    /* =========================
-       LABEL HTML BUILDERS (MATCH LOOKUP)
-       ========================= */
     function esc(s){
       return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
     }
 
-    // ---- calibrated px <-> mm (avoids 96dpi assumptions on iOS/PDF) ----
     let __pxPerMm = null;
     function getPxPerMm(){
       if (__pxPerMm) return __pxPerMm;
@@ -1032,7 +1014,7 @@ Keeps:
     }
     function pxToMm(px){ return px / getPxPerMm(); }
     function clampMm(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
-    function roundUpMm(v){ return Math.ceil(v * 10) / 10; } // 0.1mm
+    function roundUpMm(v){ return Math.ceil(v * 10) / 10; }
 
     function buildMobilePortraitHtml({ mode, qrSrc, make, model, serial6, cutLenMm }){
       const isSummary = mode === 'summary';
@@ -1180,7 +1162,6 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 </body></html>`;
     }
 
-    // Year combo
     function buildYearOptions(){
       const sel=$("year"); const now=new Date().getFullYear();
       sel.innerHTML='<option value="">— Select —</option>';
@@ -1225,7 +1206,6 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     }
     function onEscClose(e){ if(e.key==='Escape') closeYearPanel(); }
 
-    // Dropdowns
     function wireDropdownOpenClose(root){
       const btn = root.querySelector(".dd-btn");
       btn.addEventListener("click",()=>{
@@ -1310,7 +1290,6 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       $("btnCreateLabel").disabled = !ok;
     }
 
-    // QR generation
     let pendingToken = null;
     let pendingEquipId = null;
 
@@ -1382,7 +1361,6 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       return pendingEquipId;
     }
 
-    /* Print flow */
     const pDlg = $("printPrev");
     const pHost = $("pPreviewHost");
     const pCancel = $("pCancel");
@@ -1412,7 +1390,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       return s + bust;
     }
 
-    async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
+    async function setPreview({ mode, url, make, model, serial6 }){
       const qrSrc = safeQrSrcForPreview(url);
 
       clearPreviewHost();
@@ -1486,8 +1464,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         url: __pending.url,
         make: __pending.make,
         model: __pending.model,
-        serial6: __pending.serial6,
-        cutLenMm: __cutLenMm
+        serial6: __pending.serial6
       });
     });
 
@@ -1566,7 +1543,6 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     }
     pCreate.addEventListener('click', createPdf);
 
-    /* SAVE */
     let saving = false;
 
     async function saveAll(db){
@@ -1654,7 +1630,6 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       }
     }
 
-    /* Data */
     function docCats(v){ return Array.isArray(v?.categories) ? v.categories.map(String) : undefined; }
 
     async function getMakes(db){
@@ -1726,7 +1701,6 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       if(keep){
         setMake(keep.id, keep.name);
       }else{
-        // reset models
         ddModel.hidden.value = "";
         ddModel.btn.textContent = "— Select a Make first —";
         ddModel.btn.disabled = true;
@@ -1835,24 +1809,16 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     }
 
     /* ============================
-       Make/Model Manager (RESTORED)
+       Make/Model Manager (FIXED)
        ============================ */
     function normCsvCats(s){
       const raw = String(s||'').split(',').map(x=>x.trim().toLowerCase()).filter(Boolean);
-      // de-dupe
       return [...new Set(raw)];
     }
     function catsToCsv(arr){
       const a = Array.isArray(arr) ? arr.map(x=>String(x).trim().toLowerCase()).filter(Boolean) : [];
       return [...new Set(a)].join(',');
     }
-    function ensureTypeCat(cats){
-      const c = Array.isArray(cats) ? [...cats] : [];
-      if(!c.map(x=>String(x).toLowerCase()).includes(TYPE)) c.push(TYPE);
-      return [...new Set(c.map(x=>String(x).toLowerCase())))];
-    }
-
-    // NOTE: The line above had a parenthesis mismatch; fix it:
     function ensureTypeCat(cats){
       const c = Array.isArray(cats) ? [...cats] : [];
       const low = c.map(x=>String(x).toLowerCase());
@@ -1898,23 +1864,19 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       sync();
     }
 
-    let __mmAll = [];      // [{id,name,categories,archived}]
+    let __mmAll = [];
     let __mmSelectedId = null;
 
-    let __mdlAll = [];     // [{id,name,categories,archived,makeId}]
+    let __mdlAll = [];
     let __mdlSelectedId = null;
     let __mdlMakeId = null;
 
-    function clearErr(el){
-      if(!el) return;
-      el.hidden = true;
-      el.textContent = "";
-    }
     function setErr(el, msg){
       if(!el) return;
       el.hidden = !msg;
       el.textContent = msg || "";
     }
+    function clearErr(el){ setErr(el, ""); }
 
     function renderMgrList(ul, items, activeId){
       ul.innerHTML = "";
@@ -1956,12 +1918,10 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     async function loadMakeManager(db){
       clearErr(mmErr);
       __mmAll = await getMakes(db);
-      // show ALL (including archived) in manager
       __mmAll.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
 
       const filtered = filterByTerm(__mmAll, mmSearch.value);
       mmCount.textContent = String(filtered.length);
-
       renderMgrList(mmList, filtered, __mmSelectedId);
     }
 
@@ -1983,10 +1943,9 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         mmCats.value = catsToCsv(cats.length ? cats : [TYPE]);
         mmArchived.checked = !!it.archived;
       }
-      // update list highlight
+
       const filtered = filterByTerm(__mmAll, mmSearch.value);
       renderMgrList(mmList, filtered, __mmSelectedId);
-      mmSearch.focus();
     }
 
     async function mmSaveNow(db){
@@ -1998,49 +1957,43 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       }
 
       let cats = normCsvCats(mmCats.value);
-      // If user left blank: store [] (means visible everywhere) — BUT this page expects TYPE visible, so default-add TYPE only if blank input.
       if(!mmCats.value.trim()){
         cats = [TYPE];
       } else {
-        // ensure this page's type is included
         cats = ensureTypeCat(cats);
       }
 
       const archived = !!mmArchived.checked;
 
-      const payload = {
-        name,
-        categories: cats.length ? cats : [],
-        archived,
-        updatedAt: serverTimestamp()
-      };
-
       try{
-        if(__mmSelectedId){
-          await updateDoc(doc(db,'equipment-makes', __mmSelectedId), payload);
-          showToast("Make updated");
-        } else {
-          payload.createdAt = serverTimestamp();
-          const ref = await addDoc(collection(db,'equipment-makes'), payload);
-          __mmSelectedId = ref.id;
-          showToast("Make added");
-        }
+        const ref = __mmSelectedId
+          ? doc(db,'equipment-makes', __mmSelectedId)
+          : doc(collection(db,'equipment-makes'));
 
-        // Refresh manager list + dropdown list, preserve selection
+        const payload = {
+          name,
+          categories: cats.length ? cats : [],
+          archived,
+          updatedAt: serverTimestamp()
+        };
+        if(!__mmSelectedId) payload.createdAt = serverTimestamp();
+
+        await setDoc(ref, payload, { merge:true });
+        __mmSelectedId = ref.id;
+
+        showToast(__mmSelectedId ? "Make saved" : "Make saved");
+
         await loadMakeManager(db);
-        const keepId = __mmSelectedId;
 
-        // Refresh dropdown makes (filtered to not archived)
+        const keepId = __mmSelectedId;
         await populateMakes(db, keepId);
 
-        // If we have a selected make, refresh models dropdown too (keep current model if valid)
         const curModelId = $("modelId").value || null;
         const curMakeId = $("makeId").value || null;
         if(curMakeId){
           await populateModels(db, curMakeId, curModelId);
         }
 
-        // Re-select in manager form with latest data
         const fresh = __mmAll.find(x=>x.id===keepId) || null;
         mmSelect(fresh);
       }catch(e){
@@ -2062,8 +2015,8 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 
       const filtered = filterByTerm(__mdlAll, mdlSearch.value);
       mdlCount.textContent = String(filtered.length);
-
       renderMgrList(mdlList, filtered, __mdlSelectedId);
+
       mdlSelect(null);
     }
 
@@ -2088,7 +2041,6 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 
       const filtered = filterByTerm(__mdlAll, mdlSearch.value);
       renderMgrList(mdlList, filtered, __mdlSelectedId);
-      mdlSearch.focus();
     }
 
     async function mdlSaveNow(db){
@@ -2097,6 +2049,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         setErr(mdlErr, "Select a Make first.");
         return;
       }
+
       const name = String(mdlName.value||'').trim();
       if(!name){
         setErr(mdlErr, "Name is required.");
@@ -2112,38 +2065,35 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 
       const archived = !!mdlArchived.checked;
 
-      const payload = {
-        makeId: __mdlMakeId,
-        name,
-        categories: cats.length ? cats : [],
-        archived,
-        updatedAt: serverTimestamp()
-      };
-
       try{
-        if(__mdlSelectedId){
-          await updateDoc(doc(db,'equipment-models', __mdlSelectedId), payload);
-          showToast("Model updated");
-        } else {
-          payload.createdAt = serverTimestamp();
-          const ref = await addDoc(collection(db,'equipment-models'), payload);
-          __mdlSelectedId = ref.id;
-          showToast("Model added");
-        }
+        const ref = __mdlSelectedId
+          ? doc(db,'equipment-models', __mdlSelectedId)
+          : doc(collection(db,'equipment-models'));
 
-        // Refresh manager list + dropdown list, preserve selection
+        const payload = {
+          makeId: __mdlMakeId,
+          name,
+          categories: cats.length ? cats : [],
+          archived,
+          updatedAt: serverTimestamp()
+        };
+        if(!__mdlSelectedId) payload.createdAt = serverTimestamp();
+
+        await setDoc(ref, payload, { merge:true });
+        __mdlSelectedId = ref.id;
+
+        showToast("Model saved");
+
         await loadModelManager(db, __mdlMakeId);
 
         const keepMakeId = __mdlMakeId;
         const keepModelId = __mdlSelectedId;
 
-        // Refresh dropdown models for currently selected make
         const curMakeId = $("makeId").value || null;
         if(curMakeId === keepMakeId){
           await populateModels(db, keepMakeId, keepModelId);
         }
 
-        // Re-select in manager form with latest data
         const fresh = __mdlAll.find(x=>x.id===keepModelId) || null;
         mdlSelect(fresh);
       }catch(e){
@@ -2153,15 +2103,12 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     }
 
     function wireManagers(){
-      // Switch labels
       syncSwitchLabel(mmArchived, mmArchivedText);
       syncSwitchLabel(mdlArchived, mdlArchivedText);
 
-      // List pick events
       mmList.addEventListener('mgr:pick', (e)=> mmSelect(e.detail));
       mdlList.addEventListener('mgr:pick', (e)=> mdlSelect(e.detail));
 
-      // Search filters
       mmSearch.addEventListener('input', ()=>{
         const filtered = filterByTerm(__mmAll, mmSearch.value);
         mmCount.textContent = String(filtered.length);
@@ -2173,7 +2120,6 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         renderMgrList(mdlList, filtered, __mdlSelectedId);
       });
 
-      // New / Save / Close
       mmNew.addEventListener('click', ()=> mmSelect(null));
       mmSave.addEventListener('click', ()=> mmSaveNow(window.__db));
       mmClose.addEventListener('click', ()=> closeDialog(makeDlg));
@@ -2182,7 +2128,6 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       mdlSave.addEventListener('click', ()=> mdlSaveNow(window.__db));
       mdlClose.addEventListener('click', ()=> closeDialog(modelDlg));
 
-      // Open from labels
       $("openMakes").addEventListener('click', async ()=>{
         __mmSelectedId = $("makeId").value || null;
         openDialog(makeDlg);
@@ -2199,7 +2144,6 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         }
         openDialog(modelDlg);
         await loadModelManager(window.__db, makeId);
-        // preselect current model if any
         const curModelId = $("modelId").value || null;
         if(curModelId){
           const cur = __mdlAll.find(x=>x.id===curModelId) || null;
@@ -2208,9 +2152,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       });
     }
 
-    /* ============================
-       Boot
-       ============================ */
+    /* Boot */
     (async()=>{
       await ready;
       const db  = getFirestore();
