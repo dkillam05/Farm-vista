@@ -149,7 +149,9 @@
       box-shadow:var(--combo-shadow);
       padding:8px;
       display:none;
-      z-index:9999;
+
+      /* keep above footer/app chrome */
+      z-index:100000;
     }
     .combo-panel.show{ display:block; }
 
@@ -169,12 +171,21 @@
       max-height:var(--combo-max-h);
       overflow:auto;
 
-      /* iOS smooth scroll + prevent page behind from scrolling */
+      /* iOS smooth scroll */
       -webkit-overflow-scrolling: touch;
+
+      /* don't "chain" scroll to page while inside list */
       overscroll-behavior: contain;
       touch-action: pan-y;
 
       border-top:1px solid var(--border);
+
+      /*
+        CRITICAL FIX:
+        The FarmVista footer is fixed and can cover the last rows.
+        This padding creates “breathing room” so the last option can scroll ABOVE the footer.
+      */
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 18px);
     }
     .combo-item{
       padding:var(--combo-item-pad);
@@ -263,6 +274,13 @@
       85%{opacity:1}
       100%{opacity:0}
     }
+
+    /* Mobile: let the list be taller so you can reach the bottom options comfortably */
+    @media (max-width: 640px){
+      :root{
+        --combo-max-h:72vh;
+      }
+    }
   </style>
 </head>
 
@@ -328,7 +346,6 @@
           <div class="field combo">
             <label for="locBtn">New Location</label>
             <div class="combo-anchor">
-              <!-- shortened to fit one line -->
               <button id="locBtn" class="buttonish has-caret" type="button">— Select location —</button>
               <div class="combo-panel" id="locPanel" role="listbox" aria-label="Location list">
                 <div class="search"><input id="locSearch" type="search" placeholder="Search…"></div>
@@ -424,11 +441,9 @@
     }
 
     function labelRTK(row){
-      // Per request: use rtkTowers.name in the dropdown
       return (row?.name || row?.towerName || row?.label || row?.id || "RTK Tower").toString().trim();
     }
 
-    // Unified unique key for combo rows (prevents ID collisions between collections)
     function itemKey(it){
       const t = (it?.type || "").toString();
       const id = (it?.id || "").toString();
@@ -463,44 +478,11 @@
       return Math.floor(diffMs / (1000*60*60*24));
     }
 
-    /* ---------- iOS: lock page scroll when a combo is open ---------- */
-    let __scrollLockY = 0;
-    function lockPageScroll(){
-      if(document.documentElement.classList.contains('fv-scroll-locked')) return;
-      __scrollLockY = window.scrollY || 0;
-      document.documentElement.classList.add('fv-scroll-locked');
-      // fixed lock
-      document.body.style.position = 'fixed';
-      document.body.style.top = `-${__scrollLockY}px`;
-      document.body.style.left = '0';
-      document.body.style.right = '0';
-      document.body.style.width = '100%';
-      document.body.style.overflow = 'hidden';
-      document.body.style.touchAction = 'none';
-    }
-    function unlockPageScroll(){
-      if(!document.documentElement.classList.contains('fv-scroll-locked')) return;
-      document.documentElement.classList.remove('fv-scroll-locked');
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.left = '';
-      document.body.style.right = '';
-      document.body.style.width = '';
-      document.body.style.overflow = '';
-      document.body.style.touchAction = '';
-      window.scrollTo(0, __scrollLockY || 0);
-      __scrollLockY = 0;
-    }
-    function anyComboOpen(){
-      return !!document.querySelector('.combo-panel.show');
-    }
-
     /* ---------- global combo closer (same as dev.html) ---------- */
     function closeAllCombos(exceptPanel=null){
       document.querySelectorAll('.combo-panel.show').forEach(p=>{
         if(p!==exceptPanel) p.classList.remove('show');
       });
-      if(!anyComboOpen()) unlockPageScroll();
     }
     document.addEventListener('click', ()=> closeAllCombos());
     document.addEventListener('keydown', e=>{
@@ -515,9 +497,6 @@
 
       panel.addEventListener('click', e=> e.stopPropagation());
       panel.addEventListener('mousedown', e=> e.stopPropagation());
-
-      // keep swipe/scroll inside list on iOS
-      list.addEventListener('touchmove', e=> e.stopPropagation(), { passive:true });
 
       let DATA = items || [];
 
@@ -535,17 +514,13 @@
       function open(){
         closeAllCombos(panel);
         panel.classList.add('show');
-        lockPageScroll();          // <- key: stops background page from stealing the swipe
         render("");
         if(searchable && searchInput){
           searchInput.value="";
           searchInput.focus();
         }
       }
-      function close(){
-        panel.classList.remove('show');
-        if(!anyComboOpen()) unlockPageScroll();
-      }
+      function close(){ panel.classList.remove('show'); }
 
       btn.addEventListener('click', e=>{
         e.stopPropagation();
@@ -586,8 +561,6 @@
         if(String(x.status||'active').toLowerCase() === 'archived') return;
         list.push({ id:d.id, ...x });
 
-        // If this StarFire is mounted on a machine, mark that machine as "occupied"
-        // New data will set starfireCurrentLocationType; keep backward compatibility:
         const locType = String(x.starfireCurrentLocationType || "").toLowerCase();
         const locId = x.starfireCurrentLocationId || x.starfireMountedOnId || null;
 
@@ -613,11 +586,7 @@
         const x = d.data() || {};
         if(x.starfireCapable !== true) return;
         if(String(x.status||'active').toLowerCase() === 'archived') return;
-
-        // If ANY StarFire has this equipment id as its current location,
-        // skip it so there can only be 1 StarFire per machine.
         if(occupied.has(String(d.id))) return;
-
         list.push({ id:d.id, type:"equipment", key:`equipment:${d.id}`, ...x });
       });
       list.sort((a,b)=> labelEquipment(a).localeCompare(labelEquipment(b)));
@@ -843,7 +812,6 @@
       try{
         await addDoc(collection(db,"starfireMoves"), payload);
 
-        // Patch equipment doc with summary so Location hero has something to show
         const ref = doc(db,"equipment", receiver.id);
         await updateDoc(ref, {
           starfireCurrentLocationId: toId,
@@ -855,14 +823,12 @@
 
         toast("Location updated.");
 
-        // refresh local receiver snapshot
         receiver.starfireCurrentLocationId = toId;
         receiver.starfireCurrentLocationName = toName;
         receiver.starfireCurrentLocationType = toType;
         receiver.starfireCurrentLocationSince = moveDate;
         await loadCurrentLocation(receiver);
 
-        // Small delay, then return to StarFire list
         setTimeout(()=>{ window.location.href = STARFIRE_LIST_URL; }, 900);
       }catch(err){
         console.error("saveMove error", err);
@@ -884,7 +850,6 @@
 
         initCombos();
 
-        // Load StarFire first so we know which equipment ids are occupied
         const receivers = await loadStarFireReceivers();
 
         await Promise.all([
