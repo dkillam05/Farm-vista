@@ -1,20 +1,25 @@
 /* /Farm-vista/js/copilot-ui.js  (FULL FILE)
-   Rev: 2026-01-07-copilot-ui10-bugs-mic-green-dictation-no-overlay
+   Rev: 2026-01-09-copilot-ui11-debugfoot-openai-proof
 
-   Base: your last good file (2026-01-05-copilot-ui6-debugai)
+   Base: 2026-01-07-copilot-ui10-bugs-mic-green-dictation-no-overlay
 
    FIX (critical) — unchanged:
    ✅ Client generates a threadId ONCE and ALWAYS sends it (payload.threadId always present).
    ✅ We DO NOT overwrite it with server meta.threadId.
    ✅ Continuation is stored per client threadId and sent every request.
 
+   NEW — debug footer (per Dane):
+   ✅ Adds a visible “AI proof” footer UNDER assistant messages when backend indicates OpenAI was used
+   ✅ Robust to multiple backend meta shapes (provider/model/usedOpenAI/etc.)
+   ✅ Stores proof in chat history so it persists across reloads
+
    NEW — unchanged:
-   ✅ Sends debugAI:true in every request so backend can show visible AI proof footer
+   ✅ Sends debugAI:true in every request so backend can include AI proof meta
 
    Debug (phone-friendly) — unchanged:
    ✅ #ai-status shows: tid:<first8> • cont:yes/no
 
-   MIC UX — final per Dane:
+   MIC UX — unchanged:
    ✅ Dictation works (SpeechRecognition)
    ✅ Mic toggles GREEN + CIRCULAR while active (like Bugs file)
    ✅ Live typing while speaking (interimResults=true)
@@ -54,7 +59,7 @@ export const FVCopilotUI = (() => {
 
     showDebugStatus: true,
 
-    // ✅ request-controlled AI debug proof (backend appends footer)
+    // ✅ request-controlled AI debug proof (backend may append meta)
     debugAI: true
   };
 
@@ -231,6 +236,21 @@ export const FVCopilotUI = (() => {
         border-color:#2F6C3C !important;
         border-radius:999px !important;
       }
+
+      /* AI proof footer (under assistant messages) */
+      .ai-proof{
+        margin-top:8px;
+        padding-top:6px;
+        border-top:1px solid color-mix(in srgb, var(--border,#D1D5DB) 70%, transparent);
+        font-size:11px;
+        line-height:1.25;
+        letter-spacing:.02em;
+        color:color-mix(in srgb, var(--text,#111827) 65%, transparent);
+        text-transform:uppercase;
+        font-weight:900;
+        user-select:none;
+      }
+      .ai-proof .dot{ padding:0 6px; opacity:.7; }
     `;
     document.head.appendChild(style);
     document.body.appendChild(modal);
@@ -255,6 +275,64 @@ export const FVCopilotUI = (() => {
     });
 
     return { open, close };
+  }
+
+  // Build a short proof footer string from whatever the backend returns.
+  // We intentionally support a bunch of possible meta shapes so you don't have to match one exact field name.
+  function buildAiProof(meta){
+    try{
+      const m = (meta && typeof meta === 'object') ? meta : null;
+      if (!m) return null;
+
+      // Common booleans
+      const usedOpenAI = (m.usedOpenAI === true) || (m.openai === true) || (m.aiUsed === true);
+
+      // Provider / model fields (common patterns)
+      const providerRaw =
+        (m.provider || m.aiProvider || m.llmProvider || (m.ai && m.ai.provider) || (m.model && m.model.provider) || '').toString().trim();
+      const modelRaw =
+        (m.model || m.aiModel || m.llmModel || (m.ai && m.ai.model) || (m.model && m.model.name) || '').toString().trim();
+
+      // Sometimes backend gives a “proof” string directly
+      const proofRaw =
+        (m.aiProof || m.proof || m.debugProof || '').toString().trim();
+
+      // If they handed us a proof string, use it (but keep it short & safe)
+      if (proofRaw){
+        const s = proofRaw.replace(/\s+/g,' ').trim();
+        if (!s) return null;
+        return s.length > 120 ? (s.slice(0,117) + '…') : s;
+      }
+
+      // If provider says OpenAI or boolean indicates OpenAI usage, show footer
+      const providerLower = providerRaw.toLowerCase();
+      const modelLower = modelRaw.toLowerCase();
+
+      const providerIsOpenAI =
+        providerLower.includes('openai') ||
+        modelLower.startsWith('gpt') ||
+        modelLower.includes('openai');
+
+      if (!usedOpenAI && !providerIsOpenAI) return null;
+
+      const provider = providerRaw || 'OpenAI';
+      const parts = [];
+      parts.push('AI: ' + provider);
+
+      if (modelRaw) parts.push('Model: ' + modelRaw);
+
+      // Optional extras if present
+      const route = (m.route || m.path || m.pipeline || '').toString().trim();
+      if (route) parts.push('Route: ' + route);
+
+      const cached = (m.cacheHit === true || m.cached === true);
+      if (cached) parts.push('Cache: yes');
+
+      // Join into one line, uppercase styling done via CSS
+      return parts.join(' • ');
+    }catch{
+      return null;
+    }
   }
 
   function init(userOpts = {}){
@@ -356,7 +434,7 @@ export const FVCopilotUI = (() => {
 
     const pdfModal = makePdfModal({ pdfTitle: opts.pdfTitle });
 
-    function renderMessage(role, text){
+    function renderMessage(role, text, proof){
       clearEmptyState();
 
       const who = role === 'user' ? 'You' : 'Copilot';
@@ -384,6 +462,14 @@ export const FVCopilotUI = (() => {
         bubble.innerHTML = safeHtml(String(text || ''));
       }
 
+      // ✅ AI proof footer (assistant only)
+      if (role === 'assistant' && proof && String(proof).trim()){
+        const foot = document.createElement('div');
+        foot.className = 'ai-proof';
+        foot.textContent = String(proof).trim();
+        bubble.appendChild(foot);
+      }
+
       wrap.appendChild(bubble);
       wrap.appendChild(meta);
 
@@ -391,15 +477,20 @@ export const FVCopilotUI = (() => {
       logEl.scrollTop = logEl.scrollHeight;
     }
 
-    function append(role, text){
-      renderMessage(role, text);
-      history.push({ role, text: String(text || ''), ts: nowMs() });
+    function append(role, text, proof){
+      renderMessage(role, text, proof);
+
+      // Keep backward compatibility with older stored shapes
+      const entry = { role, text: String(text || ''), ts: nowMs() };
+      if (role === 'assistant' && proof && String(proof).trim()) entry.proof = String(proof).trim();
+
+      history.push(entry);
       saveHistory();
     }
 
     for (const m of history){
       if (!m || (m.role !== 'user' && m.role !== 'assistant')) continue;
-      renderMessage(m.role, m.text);
+      renderMessage(m.role, m.text, m.proof || null);
     }
 
     // ensure tid exists immediately
@@ -436,14 +527,17 @@ export const FVCopilotUI = (() => {
 
       setDebugStatus();
 
+      const proof = buildAiProof(data?.meta || null);
+
       if (data && data.action === 'report') {
         const mode = data?.meta?.reportMode ? String(data.meta.reportMode) : 'recent';
         const url = buildReportUrl(opts.reportEndpoint, getThreadId(), mode);
         pdfModal.open(url);
-        return PDF_MARKER + url;
+        return { text: (PDF_MARKER + url), proof };
       }
 
-      return (data && data.answer) ? String(data.answer) : '(No response)';
+      const answer = (data && data.answer) ? String(data.answer) : '(No response)';
+      return { text: answer, proof };
     }
 
     formEl.addEventListener('submit', async (evt)=>{
@@ -462,8 +556,8 @@ export const FVCopilotUI = (() => {
 
       setThinking(true);
       try{
-        const reply = await callAssistant(text);
-        append('assistant', reply || '(No response)');
+        const out = await callAssistant(text);
+        append('assistant', (out && out.text) ? out.text : '(No response)', out ? out.proof : null);
       }catch{
         append('assistant', "Sorry, I couldn't process that request right now.");
       }finally{
