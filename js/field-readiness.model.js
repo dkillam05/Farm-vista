@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-01-09b-readinessShift1
+Rev: 2026-01-10c-eta-uses-readinessR
 
 Model math (dry power, storage, readiness) + helpers
 
@@ -12,12 +12,20 @@ NEW (per Dane GLOBAL CAL goal):
 ✅ Support DIRECT readiness shift via CAL, so global calibration can move
    readiness by real points (1:1) in addition to the wetBias physics lean.
 
+FIX TODAY (per Dane observation):
+✅ ETA must respond to readinessShift (slider) too.
+   - Previously etaFor() used run.storageFinal (physical) only, so a readiness-only shift
+     changed tile readiness but did not change ETA.
+   - Now etaFor() derives an “effective” current storage from run.readinessR (shifted),
+     so ETA moves 1:1 with the slider as users expect.
+
 How it works:
 - Wetness is still computed from storage + wetBias (unchanged).
 - Readiness is computed as (100 - wetness), THEN we apply:
     readinessShift = CAL.opReadinessShift[opKey] OR CAL.readinessShift
   and clamp 0..100.
 - wetnessR remains the physical wetness+wetBias result (unchanged).
+- ETA uses shifted readinessR as the “current condition” so slider affects ETA.
 
 CAL shape supported:
 - CAL.wetBias?: number
@@ -551,15 +559,30 @@ export function markerLeftCSS(pct){
 
 export function etaFor(run, threshold, ETA_MAX_HOURS){
   if (!run) return '';
+
+  // If shifted readiness is already at/above threshold, no ETA
   if (run.readinessR >= threshold) return '';
 
+  const Smax = run.factors && isFinite(Number(run.factors.Smax)) ? Number(run.factors.Smax) : 0;
+  if (!isFinite(Smax) || Smax <= 0) return '';
+
+  // Target wetness/storage at the threshold (unchanged)
   const wetTarget = clamp(100 - threshold, 0, 100);
-  const storageTarget = run.factors.Smax * (wetTarget / 100);
-  const delta = run.storageFinal - storageTarget;
+  const storageTarget = Smax * (wetTarget / 100);
+
+  // ✅ KEY FIX:
+  // Use shifted readiness as the “current condition” for ETA.
+  // Convert readinessR -> effective wetness -> effective storage.
+  // This makes ETA move 1:1 when readinessShift changes.
+  const readinessNow = clamp(Number(run.readinessR), 0, 100);
+  const wetNowEff = clamp(100 - readinessNow, 0, 100);
+  const storageNowEff = Smax * (wetNowEff / 100);
+
+  const delta = storageNowEff - storageTarget;
 
   if (!isFinite(delta) || delta <= 0) return '';
 
-  const dailyLoss = Math.max(0.02, run.avgLossDay);
+  const dailyLoss = Math.max(0.02, Number(run.avgLossDay || 0.08));
   let hours = Math.ceil((delta / dailyLoss) * 24);
 
   if (!isFinite(hours) || hours <= 0) hours = 1;
