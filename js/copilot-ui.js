@@ -1,19 +1,15 @@
 /* /Farm-vista/js/copilot-ui.js  (FULL FILE)
-   Rev: 2026-01-09-copilot-ui12-dictation-send-clear-fix
+   Rev: 2026-01-10-copilot-ui13-chat-text-wireup
 
-   Base: 2026-01-09-copilot-ui11-debugfoot-openai-proof (the file I sent you last)
+   CHANGE (per new SQL-first Copilot backend):
+   ✅ Send payload.text (NOT payload.question)
+   ✅ Read response.text (NOT response.answer)
+   ✅ Keep debugAI:true in every request
+   ✅ Keep client-owned threadId + TTL + mic UX + AI proof footer
 
-   FIX (per Dane):
-   ✅ Dictation no longer re-populates the input after you hit Send
-      - Force-stop dictation on submit
-      - Guard against late iOS SpeechRecognition results for ~500ms after Send
-
-   Keeps:
-   ✅ Client-owned threadId (never overwritten)
-   ✅ Continuation stored per thread
-   ✅ debugAI:true in every request
-   ✅ Visible AI proof footer under assistant messages when backend indicates OpenAI was used
-   ✅ Mic UX: green circular active state, live typing, no overlay/pill/layout shifts
+   Notes:
+   - Backend currently returns { ok:true, text:"..." , meta:{...} }
+   - Continuation is kept in payload for backward compatibility; backend can ignore it safely.
 */
 
 'use strict';
@@ -265,34 +261,27 @@ export const FVCopilotUI = (() => {
     return { open, close };
   }
 
-  // Build a short proof footer string from whatever the backend returns.
-  // We intentionally support a bunch of possible meta shapes so you don't have to match one exact field name.
   function buildAiProof(meta){
     try{
       const m = (meta && typeof meta === 'object') ? meta : null;
       if (!m) return null;
 
-      // Common booleans
       const usedOpenAI = (m.usedOpenAI === true) || (m.openai === true) || (m.aiUsed === true);
 
-      // Provider / model fields (common patterns)
       const providerRaw =
         (m.provider || m.aiProvider || m.llmProvider || (m.ai && m.ai.provider) || (m.model && m.model.provider) || '').toString().trim();
       const modelRaw =
         (m.model || m.aiModel || m.llmModel || (m.ai && m.ai.model) || (m.model && m.model.name) || '').toString().trim();
 
-      // Sometimes backend gives a “proof” string directly
       const proofRaw =
         (m.aiProof || m.proof || m.debugProof || '').toString().trim();
 
-      // If they handed us a proof string, use it (but keep it short & safe)
       if (proofRaw){
         const s = proofRaw.replace(/\s+/g,' ').trim();
         if (!s) return null;
         return s.length > 120 ? (s.slice(0,117) + '…') : s;
       }
 
-      // If provider says OpenAI or boolean indicates OpenAI usage, show footer
       const providerLower = providerRaw.toLowerCase();
       const modelLower = modelRaw.toLowerCase();
 
@@ -309,14 +298,12 @@ export const FVCopilotUI = (() => {
 
       if (modelRaw) parts.push('Model: ' + modelRaw);
 
-      // Optional extras if present
       const route = (m.route || m.path || m.pipeline || '').toString().trim();
       if (route) parts.push('Route: ' + route);
 
       const cached = (m.cacheHit === true || m.cached === true);
       if (cached) parts.push('Cache: yes');
 
-      // Join into one line, uppercase styling done via CSS
       return parts.join(' • ');
     }catch{
       return null;
@@ -338,7 +325,6 @@ export const FVCopilotUI = (() => {
       return { ok:false, reason:'missing_dom' };
     }
 
-    // Prevent double-wiring if init() gets called twice
     if (window.__FV_COPILOT_WIRED) return { ok:true, already:true };
     window.__FV_COPILOT_WIRED = false;
 
@@ -348,15 +334,11 @@ export const FVCopilotUI = (() => {
       micEl.disabled = true;
     }
 
-    // Dictation control hook (set only on mobile when SpeechRecognition exists)
     let stopDictation = null;
-
-    // Guard against late SpeechRecognition results repopulating the input after Send
     let ignoreDictationUntil = 0;
 
     enforceTtl(opts);
 
-    // ===== ThreadId: CLIENT OWNS IT =====
     function getThreadId(){
       if (MEM_TID) return MEM_TID;
       const saved = lsGet(opts.threadKey).trim();
@@ -370,7 +352,6 @@ export const FVCopilotUI = (() => {
       return MEM_TID;
     }
 
-    // ===== Continuation per thread =====
     function getContinuation(){
       if (MEM_CONT) return MEM_CONT;
       const tid = getThreadId();
@@ -416,7 +397,6 @@ export const FVCopilotUI = (() => {
       if (empty) empty.remove();
     }
 
-    // ===== history =====
     let history = loadJson(opts.storageKey, []);
     if (!Array.isArray(history)) history = [];
 
@@ -456,7 +436,6 @@ export const FVCopilotUI = (() => {
         bubble.innerHTML = safeHtml(String(text || ''));
       }
 
-      // ✅ AI proof footer (assistant only)
       if (role === 'assistant' && proof && String(proof).trim()){
         const foot = document.createElement('div');
         foot.className = 'ai-proof';
@@ -474,7 +453,6 @@ export const FVCopilotUI = (() => {
     function append(role, text, proof){
       renderMessage(role, text, proof);
 
-      // Keep backward compatibility with older stored shapes
       const entry = { role, text: String(text || ''), ts: nowMs() };
       if (role === 'assistant' && proof && String(proof).trim()) entry.proof = String(proof).trim();
 
@@ -487,17 +465,18 @@ export const FVCopilotUI = (() => {
       renderMessage(m.role, m.text, m.proof || null);
     }
 
-    // ensure tid exists immediately
     getThreadId();
     setDebugStatus();
 
     async function callAssistant(prompt){
+      // ✅ NEW BACKEND expects `text`
       const payload = {
-        question: String(prompt || ''),
+        text: String(prompt || ''),
         threadId: getThreadId(),
         debugAI: !!opts.debugAI
       };
 
+      // keep continuation (backend may ignore safely)
       const cont = getContinuation();
       if (cont) payload.continuation = cont;
 
@@ -515,6 +494,7 @@ export const FVCopilotUI = (() => {
 
       const data = await res.json();
 
+      // optional continuation support if backend returns it
       if (Object.prototype.hasOwnProperty.call(data?.meta || {}, 'continuation')) {
         setContinuation(data.meta.continuation || null);
       }
@@ -523,6 +503,7 @@ export const FVCopilotUI = (() => {
 
       const proof = buildAiProof(data?.meta || null);
 
+      // Report pathway (kept; backend may or may not use it)
       if (data && data.action === 'report') {
         const mode = data?.meta?.reportMode ? String(data.meta.reportMode) : 'recent';
         const url = buildReportUrl(opts.reportEndpoint, getThreadId(), mode);
@@ -530,7 +511,13 @@ export const FVCopilotUI = (() => {
         return { text: (PDF_MARKER + url), proof };
       }
 
-      const answer = (data && data.answer) ? String(data.answer) : '(No response)';
+      // ✅ NEW BACKEND returns `text`
+      const answer = (data && typeof data.text === 'string' && data.text.trim())
+        ? String(data.text)
+        : (data && typeof data.answer === 'string' && data.answer.trim())
+          ? String(data.answer) // fallback if backend ever sends old shape
+          : '(No response)';
+
       return { text: answer, proof };
     }
 
@@ -538,7 +525,6 @@ export const FVCopilotUI = (() => {
       evt.preventDefault();
       evt.stopPropagation();
 
-      // ✅ FIX: stop dictation so late results can't repopulate the input after Send
       try { if (typeof stopDictation === 'function') stopDictation(); } catch {}
 
       if (sendEl.disabled) return;
@@ -549,7 +535,6 @@ export const FVCopilotUI = (() => {
 
       append('user', text);
 
-      // ✅ FIX: ignore any late SpeechRecognition onresult callbacks (iOS timing)
       ignoreDictationUntil = Date.now() + 500;
 
       inputEl.value = '';
@@ -618,11 +603,9 @@ export const FVCopilotUI = (() => {
           if (!sendEl.disabled) setDebugStatus();
         }
 
-        // ✅ expose to submit handler
         stopDictation = stop;
 
         function start(){
-          // iOS reliability: NEW instance each time
           rec = new Rec();
           rec.lang = 'en-US';
           rec.interimResults = true;
@@ -633,7 +616,6 @@ export const FVCopilotUI = (() => {
           let finalSoFar = '';
 
           rec.onresult = (ev)=>{
-            // ✅ FIX: ignore late results right after Send clears the input
             if (Date.now() < ignoreDictationUntil) return;
 
             let interim = '';
@@ -669,7 +651,6 @@ export const FVCopilotUI = (() => {
         micEl.addEventListener('click', ()=>{
           if (sendEl.disabled) return;
           if (!active) {
-            // ensure any stuck state is cleared
             stop();
             start();
           } else {
@@ -677,7 +658,6 @@ export const FVCopilotUI = (() => {
           }
         }, { passive:true });
 
-        // If iOS backgrounds the page, reset any active state
         document.addEventListener('visibilitychange', ()=>{
           if (document.visibilityState !== 'visible') return;
           if (active) stop();
