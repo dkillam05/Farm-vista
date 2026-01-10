@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-01-09c-cal-compensate1
+Rev: 2026-01-10b-eta-guard
 
 RECOVERY (critical):
 ✅ Fix syntax issues so module loads and tiles render again.
@@ -16,8 +16,8 @@ NEW (per Dane):
    - If forecast predictor says "dryNow" but shifted readiness is below threshold,
      fall back to legacy ETA so ETA never disappears when below threshold.
 
-Keeps:
-✅ Everything else unchanged (ETA tap target, fast tile build, forecast rows, etc.)
+✅ FIX TODAY:
+   - If readiness is already >= threshold, ETA MUST be blank (no ETA on dry fields).
 ===================================================================== */
 'use strict';
 
@@ -667,6 +667,9 @@ function compactEtaForMobile(txt, horizonHours){
 async function getTileEtaText(state, fieldId, run0, thr){
   const HORIZON_HOURS = ETA_HORIZON_HOURS; // ✅ 7-day
   const NEAR_THR_POINTS = 5;
+
+  // ✅ FIX: never show ETA if already dry enough
+  if (Number(run0 && run0.readinessR) >= Number(thr)) return '';
 
   let legacyTxt = '';
   try{
