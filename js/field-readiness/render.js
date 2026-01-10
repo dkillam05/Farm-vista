@@ -1,18 +1,23 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-01-09b-readinessShift-cal1
+Rev: 2026-01-09c-cal-compensate1
 
 RECOVERY (critical):
 ✅ Fix syntax issues so module loads and tiles render again.
 
-NEW (per Dane global calibration goal):
-✅ Calibration loader now supports DIRECT readiness shift (1:1 points):
-   - Uses newest global calibration doc’s (readinessSlider - readinessAnchor)
-   - Applies to ALL fields immediately (via model CAL.readinessShift)
-✅ Keeps existing wetBias behavior (physics lean) unchanged.
+NEW (per Dane):
+✅ Global calibration now lands EXACTLY on the slider:
+   - We still apply wetBias (physics lean) from recent deltas (scaled).
+   - We also compute readinessShift (1:1 points) from the newest global adjustment,
+     BUT we compensate for the wetBias delta introduced by that newest adjustment,
+     so the final readiness matches the slider value.
+
+✅ ETA after calibration:
+   - If forecast predictor says "dryNow" but shifted readiness is below threshold,
+     fall back to legacy ETA so ETA never disappears when below threshold.
 
 Keeps:
-✅ ETA tap behavior, fast tile build, in-place updates, forecast rows, etc.
+✅ Everything else unchanged (ETA tap target, fast tile build, forecast rows, etc.)
 ===================================================================== */
 'use strict';
 
@@ -92,20 +97,12 @@ async function scheduleRender(state, mode){
 
 /* =====================================================================
    Calibration from adjustments collection (GLOBAL ONLY)
-
-   Existing:
-   - wetBias accumulates recent deltas (scaled) for physics lean.
-
-   NEW:
-   - readinessShift is taken from the NEWEST global adjustment that includes:
-       readinessAnchor + readinessSlider
-     and is applied 1:1 to readiness (ALL fields).
 ===================================================================== */
 const CAL_MAX_DOCS = 12;
 const CAL_SCALE = 0.25;
 const CAL_CLAMP = 12;
 
-// Direct readiness shift clamp (1:1 points)
+// direct readiness shift clamp (1:1 points)
 const READY_SHIFT_CLAMP = 35;
 
 function safeNum(v){
@@ -113,26 +110,17 @@ function safeNum(v){
   return Number.isFinite(n) ? n : null;
 }
 
-function computeReadinessShiftFromDoc(d){
-  // Prefer explicit anchor/slider if present (your current global-calibration.js writes these)
+function docHasAnchorSlider(d){
   const a = safeNum(d && d.readinessAnchor);
   const s = safeNum(d && d.readinessSlider);
+  return (a != null && s != null);
+}
 
-  if (a != null && s != null){
-    // slider is the “truth” for readiness; anchor is what model said at time of adjust
-    const shift = Math.round(s - a);
-    return clamp(shift, -READY_SHIFT_CLAMP, READY_SHIFT_CLAMP);
-  }
-
-  // Fallback if older docs stored readinessBefore
-  const before = safeNum(d && d.model && d.model.readinessBefore);
-  const s2 = safeNum(d && d.readinessSlider);
-  if (before != null && s2 != null){
-    const shift = Math.round(s2 - before);
-    return clamp(shift, -READY_SHIFT_CLAMP, READY_SHIFT_CLAMP);
-  }
-
-  return null;
+function shiftFromDoc(d){
+  const a = safeNum(d && d.readinessAnchor);
+  const s = safeNum(d && d.readinessSlider);
+  if (a == null || s == null) return null;
+  return Math.round(s - a);
 }
 
 async function loadCalibrationFromAdjustments(state, { force=false } = {}){
@@ -140,13 +128,8 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
   const last = Number(state._calLoadedAt || 0);
   if (!force && state._cal && (now - last) < 30000) return state._cal;
 
-  // ✅ expanded CAL shape
-  const out = {
-    wetBias: 0,
-    opWetBias: {},
-    readinessShift: 0,
-    opReadinessShift: {}
-  };
+  // Expanded shape for deps.CAL
+  const out = { wetBias: 0, opWetBias: {}, readinessShift: 0, opReadinessShift: {} };
 
   try{
     const api = getAPI(state);
@@ -156,43 +139,61 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
       return out;
     }
 
-    // Helper: apply docs (common logic)
     const applyDocs = (docs)=>{
-      let pickedGlobalShift = false;
+      const list = Array.isArray(docs) ? docs : [];
 
-      // Newest first (query already desc)
-      for (const d0 of docs){
-        const d = d0 || {};
-        if (d.global !== true) continue;
+      // Find newest global doc with anchor/slider (this is the one user just did)
+      const shiftDoc = list.find(d => d && d.global === true && docHasAnchorSlider(d)) || null;
 
-        // ---- wetBias accumulate (existing) ----
+      // Compute wetBias (existing behavior): sum recent deltas (scaled), clamp
+      let wbAll = 0;
+      for (const d of list){
+        if (!d || d.global !== true) continue;
         const delta = Number(d.delta);
-        if (Number.isFinite(delta)){
-          out.wetBias += (delta * CAL_SCALE);
-        }
+        if (!Number.isFinite(delta)) continue;
+        wbAll += (delta * CAL_SCALE);
+      }
+      wbAll = clamp(wbAll, -CAL_CLAMP, CAL_CLAMP);
+      out.wetBias = wbAll;
 
-        // ---- readinessShift pick newest (NEW) ----
-        if (!pickedGlobalShift){
-          const rs = computeReadinessShiftFromDoc(d);
-          if (rs != null){
-            out.readinessShift = rs;
-            pickedGlobalShift = true;
+      // Compute readinessShift (NEW, compensated):
+      // We want final readiness to match slider AFTER wetBias changes.
+      // The only wetBias change introduced "just now" is from the newest adjustment doc.
+      // So we compute:
+      //   wbBefore = wetBias from docs EXCLUDING shiftDoc (clamped)
+      //   wbAfter  = wetBias from docs INCLUDING shiftDoc (clamped)  (this is wbAll)
+      //   wbDelta  = wbAfter - wbBefore
+      // And then:
+      //   readinessShift = (slider - anchor) + wbDelta
+      //
+      // This cancels the “double move” you observed.
+      if (shiftDoc){
+        const rawShift = shiftFromDoc(shiftDoc); // slider - anchor (your intent)
+        if (rawShift != null){
+          let wbBefore = 0;
+          for (const d of list){
+            if (!d || d.global !== true) continue;
+            if (d === shiftDoc) continue; // exclude newest
+            const delta = Number(d.delta);
+            if (!Number.isFinite(delta)) continue;
+            wbBefore += (delta * CAL_SCALE);
           }
-        }
+          wbBefore = clamp(wbBefore, -CAL_CLAMP, CAL_CLAMP);
 
-        // Optional: per-op readiness shift (if you ever want it)
-        // (kept harmless — only sets if doc has op and a usable shift)
-        try{
-          const op = String(d.op || '');
-          if (op && out.opReadinessShift && out.opReadinessShift[op] == null){
-            const rsOp = computeReadinessShiftFromDoc(d);
-            if (rsOp != null) out.opReadinessShift[op] = rsOp;
-          }
-        }catch(_){}
+          const wbDelta = wbAll - wbBefore;
+          const compensated = rawShift + wbDelta;
+
+          out.readinessShift = clamp(Math.round(compensated), -READY_SHIFT_CLAMP, READY_SHIFT_CLAMP);
+
+          // Optional per-op shift (harmless; only sets for that op)
+          try{
+            const op = String(shiftDoc.op || '');
+            if (op) out.opReadinessShift[op] = out.readinessShift;
+          }catch(_){}
+        }
       }
 
-      out.wetBias = clamp(out.wetBias, -CAL_CLAMP, CAL_CLAMP);
-      out.readinessShift = clamp(out.readinessShift, -READY_SHIFT_CLAMP, READY_SHIFT_CLAMP);
+      out.readinessShift = clamp(Number(out.readinessShift || 0), -READY_SHIFT_CLAMP, READY_SHIFT_CLAMP);
     };
 
     if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
@@ -212,7 +213,7 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
       }
 
       const docs = [];
-      snap.forEach(doc => docs.push(doc.data() || {}));
+      snap.forEach(doc=> docs.push(doc.data() || {}));
       applyDocs(docs);
 
       state._cal = out;
@@ -240,7 +241,7 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
 
       const snap = await api.getDocs(q);
       const docs = [];
-      snap.forEach(doc => docs.push(doc.data() || {}));
+      snap.forEach(doc=> docs.push(doc.data() || {}));
       applyDocs(docs);
 
       state._cal = out;
@@ -264,12 +265,7 @@ function getCalForDeps(state){
   const opWB = (cal.opWetBias && typeof cal.opWetBias === 'object') ? cal.opWetBias : {};
   const opRS = (cal.opReadinessShift && typeof cal.opReadinessShift === 'object') ? cal.opReadinessShift : {};
 
-  return {
-    wetBias: wb,
-    opWetBias: opWB,
-    readinessShift: rs,
-    opReadinessShift: opRS
-  };
+  return { wetBias: wb, opWetBias: opWB, readinessShift: rs, opReadinessShift: opRS };
 }
 
 /* ---------- module loader (model/weather/forecast) ---------- */
@@ -315,14 +311,8 @@ async function ensureEtaHelperModule(state){
 }
 
 function dispatchEtaHelp(state, payload){
-  try{
-    // Ensure listener is likely there (best effort). Do not await; we want instant UI response.
-    ensureEtaHelperModule(state);
-  }catch(_){}
-
-  try{
-    document.dispatchEvent(new CustomEvent(ETA_HELP_EVENT, { detail: payload || {} }));
-  }catch(_){}
+  try{ ensureEtaHelperModule(state); }catch(_){}
+  try{ document.dispatchEvent(new CustomEvent(ETA_HELP_EVENT, { detail: payload || {} })); }catch(_){}
 }
 
 /* ---------- colors (ported) ---------- */
@@ -708,7 +698,14 @@ async function getTileEtaText(state, fieldId, run0, thr){
       );
 
       if (pred && pred.ok){
-        if (pred.status === 'dryNow') return '';
+        // ✅ FIX: if readiness (after shift) is below threshold, NEVER return blank ETA
+        // just because predictor thinks dryNow (it doesn't know readinessShift).
+        if (pred.status === 'dryNow'){
+          if (Number(run0 && run0.readinessR) < Number(thr)){
+            return legacyTxt ? compactEtaForMobile(legacyTxt, HORIZON_HOURS) : '';
+          }
+          return '';
+        }
 
         if (pred.status === 'within72'){
           return pred.message || '';
@@ -1370,9 +1367,7 @@ async function _renderDetailsInternal(state){
             }
           }
         }
-      }catch(_){
-        // ignore forecast failures; details should never crash page
-      }
+      }catch(_){}
     }
   }
 }
