@@ -1,24 +1,20 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/global-calibration.js  (FULL FILE)
-Rev: 2026-01-09a
+Rev: 2026-01-10a
 
-Change (per Dane TODAY):
-✅ Global calibration delta is now SLIDER-DIFFERENCE DRIVEN (absolute correction).
-   - Slider represents where you believe readiness should be for the reference field.
-   - Delta magnitude is based on the actual distance moved (anchor -> slider).
-   - Delta is applied globally (as before) via field_readiness_adjustments (global:true).
-   - Guardrails KEPT: opposite-only Wet/Dry + slider clamp direction + 72h lock.
+Fix (per Dane):
+✅ Slider/anchor behavior is now consistent with “set readiness to what I picked”.
+   - UI anchor + status uses the CURRENT displayed readiness (what you’re seeing on tiles).
+   - BUT the saved readinessAnchor is computed from a RAW run with readinessShift disabled,
+     so calibration math doesn’t “double apply” and drift away from your slider.
 
-Keeps (unchanged):
-✅ OP-threshold driven wet/dry status + hysteresis
-✅ Lock logic (field_readiness_model_weights) unchanged
-✅ UI theme patch (Wet/Dry centered, slider full width, FV buttons)
-✅ Still logs op + threshold + anchor/slider + intensity
-✅ Still writes to field_readiness_adjustments (global:true) + dispatches fr:soft-reload
-✅ Model run still passes CAL + opKey for consistency
-
-NOTE:
-- This is a “trigger” for calibration UI only. It does NOT change the physics model.
+Keeps:
+✅ Global calibration delta is SLIDER-DIFFERENCE DRIVEN (absolute correction).
+✅ Guardrails: opposite-only Wet/Dry + slider clamp direction + 72h lock.
+✅ OP-threshold driven wet/dry status + hysteresis.
+✅ Lock logic unchanged
+✅ Theme patch unchanged
+✅ Still writes to field_readiness_adjustments (global:true) + fr:soft-reload
 ===================================================================== */
 'use strict';
 
@@ -237,12 +233,25 @@ function getCalForModel(state){
   return { wetBias:0, opWetBias:{} };
 }
 
-function getRunForField(state, f){
+// ✅ NEW: Use current CAL for “shown” values (matches tiles)
+function getCalForShown(state){
+  return getCalForModel(state);
+}
+
+// ✅ NEW: Use CAL with readinessShift OFF for “saved anchor”
+function getCalForAnchor(state){
+  const c = getCalForModel(state) || {};
+  const out = { ...c };
+  out.readinessShift = 0;
+  out.opReadinessShift = {};
+  return out;
+}
+
+function runFieldWithCal(state, f, calObj){
   if (!f) return null;
   if (!state._mods || !state._mods.model || !state._mods.weather) return null;
 
   const wxCtx = buildWxCtx(state);
-
   const opKey = getCurrentOp();
 
   const deps = {
@@ -251,12 +260,20 @@ function getRunForField(state, f){
     LOSS_SCALE: CONST.LOSS_SCALE,
     EXTRA,
     opKey,
-    CAL: getCalForModel(state)
+    CAL: calObj
   };
 
   const run = state._mods.model.runField(f, deps);
   try{ state.lastRuns && state.lastRuns.set(f.id, run); }catch(_){}
   return run;
+}
+
+function getRunForFieldShown(state, f){
+  return runFieldWithCal(state, f, getCalForShown(state));
+}
+
+function getRunForFieldAnchor(state, f){
+  return runFieldWithCal(state, f, getCalForAnchor(state));
 }
 
 /* =========================
@@ -481,16 +498,7 @@ function normalizedIntensity0100(state){
   return 0;
 }
 
-/* =====================================================================
-   NEW DELTA (per Dane):
-   - Delta magnitude is the ACTUAL points moved on the slider from anchor.
-   - Applies globally via the existing adjustment pipeline (global:true).
-   - Still guardrailed by:
-       • opposite-only feel buttons
-       • slider clamp direction (cannot move “the wrong way”)
-       • max delta clamp below
-===================================================================== */
-const MAX_GLOBAL_DELTA = 35; // guardrail: max points shifted per global calibration
+const MAX_GLOBAL_DELTA = 35;
 
 function computeDelta(state){
   const feel = state._adjFeel;
@@ -499,18 +507,12 @@ function computeDelta(state){
   const anchor = clamp(Math.round(Number(state._adjAnchorReadiness ?? 50)), 0, 100);
   const target = clamp(Math.round(Number(sliderVal())), 0, 100);
 
-  // Directional distance (must be positive to count)
-  // - Feel WET means you moved readiness DOWN (toward wetter)
-  // - Feel DRY means you moved readiness UP (toward drier)
   const dirDiff = (feel === 'wet') ? (anchor - target) : (target - anchor);
   const dist = Math.round(Math.max(0, dirDiff));
 
   if (!dist) return 0;
 
   const mag = clamp(dist, 1, MAX_GLOBAL_DELTA);
-
-  // Keep sign convention used by the rest of the system:
-  // +delta = wetter, -delta = drier
   const sign = (feel === 'wet') ? +1 : -1;
 
   return clamp(sign * mag, -MAX_GLOBAL_DELTA, +MAX_GLOBAL_DELTA);
@@ -561,10 +563,8 @@ function updatePills(state, run){
   setText('adjSoil', `${p.soilWetness}/100`);
   setText('adjDrain', `${p.drainageIndex}/100`);
 
-  // Status now tied to OP threshold trigger
   setText('adjModelClass', (state._adjStatus || '—').toUpperCase());
 
-  // If you have a spot in the modal for threshold, you can wire it. Otherwise harmless.
   try{
     const thrEl = $('adjThreshold');
     if (thrEl) thrEl.textContent = String(thr);
@@ -581,7 +581,6 @@ function updateUI(state){
 
   if (bWet) bWet.disabled = locked || (state._adjStatus === 'wet');
   if (bDry) bDry.disabled = locked || (state._adjStatus === 'dry');
-
   if (s) s.disabled = locked;
 
   if (locked){
@@ -723,7 +722,7 @@ async function writeWeightsLock(state, nowMs){
     const ref = api.doc(db, CONST.WEIGHTS_COLLECTION, CONST.WEIGHTS_DOC);
     await api.setDoc(ref, {
       lastAppliedAt: api.serverTimestamp ? api.serverTimestamp() : new Date(nowMs).toISOString(),
-      nextAllowedAt: new Date(nextMs).toISOString(),
+      nextAllowedAt: api.serverTimestamp ? api.serverTimestamp() : new Date(nextMs).toISOString(),
       cooldownHours: cdH
     }, { merge:true });
   }catch(e){
@@ -750,35 +749,34 @@ async function openAdjust(state){
   await loadCooldown(state);
   renderCooldownCard(state);
 
-  const run = getRunForField(state, f);
-  if (!run) return;
+  // ✅ use SHOWN run for UI (matches tiles)
+  const runShown = getRunForFieldShown(state, f);
+  if (!runShown) return;
 
-  // ✅ NEW: op-threshold dynamic wet/dry status (with hysteresis)
   const thr = currentThreshold(state);
-  const status = statusFromReadinessAndThreshold(state, run, thr);
+  const status = statusFromReadinessAndThreshold(state, runShown, thr);
 
   state._adjStatus = status;
   state._adjFeel = null;
 
-  // Anchor remains readiness (your rule)
-  state._adjAnchorReadiness = clamp(Math.round(Number(run?.readinessR ?? 50)), 0, 100);
+  // ✅ anchor UI to SHOWN readiness
+  state._adjAnchorReadiness = clamp(Math.round(Number(runShown?.readinessR ?? 50)), 0, 100);
 
   setAnchor(state, state._adjAnchorReadiness);
   setSliderVal(state._adjAnchorReadiness);
 
-  updatePills(state, run);
+  updatePills(state, runShown);
   updateUI(state);
 
   showModal('adjustBackdrop', true);
 
   try{ if (state._cooldownTimer) clearInterval(state._cooldownTimer); }catch(_){}
   state._cooldownTimer = setInterval(async ()=>{
-    // refresh lock + status (in case op or readiness changed while open)
     try{ await loadCooldown(state); }catch(_){}
     renderCooldownCard(state);
 
     const f2 = getSelectedField(state);
-    const run2 = getRunForField(state, f2);
+    const run2 = getRunForFieldShown(state, f2);
     if (run2){
       const thr2 = currentThreshold(state);
       state._adjStatus = statusFromReadinessAndThreshold(state, run2, thr2);
@@ -808,17 +806,20 @@ async function applyAdjustment(state){
   const f = getSelectedField(state);
   if (!f) return;
 
-  const run = getRunForField(state, f);
-  if (!run) return;
+  // ✅ shown run (what user is reacting to)
+  const runShown = getRunForFieldShown(state, f);
+  if (!runShown) return;
 
-  // Re-evaluate status at apply time (operation might have changed)
+  // ✅ raw anchor run (shift OFF) for saved anchor values
+  const runAnchor = getRunForFieldAnchor(state, f);
+  if (!runAnchor) return;
+
   const thr = currentThreshold(state);
-  state._adjStatus = statusFromReadinessAndThreshold(state, run, thr);
+  state._adjStatus = statusFromReadinessAndThreshold(state, runShown, thr);
 
   const feel = state._adjFeel;
   if (!(feel === 'wet' || feel === 'dry')) return;
 
-  // Enforce opposite-only
   if (state._adjStatus === 'wet' && feel !== 'dry') return;
   if (state._adjStatus === 'dry' && feel !== 'wet') return;
 
@@ -832,14 +833,17 @@ async function applyAdjustment(state){
     op: getCurrentOp(),
     threshold: thr,
 
-    status: state._adjStatus, // wet/dry driven by op-threshold trigger
+    status: state._adjStatus,
     feel,
 
-    readinessAnchor: clamp(Math.round(Number(run.readinessR)), 0, 100),
+    // ✅ SAVE RAW ANCHOR (shift OFF) so render.js can compute shift correctly
+    readinessAnchor: clamp(Math.round(Number(runAnchor.readinessR)), 0, 100),
+
+    // Slider is the user's target readiness
     readinessSlider: sliderVal(),
+
     intensity: normalizedIntensity0100(state),
 
-    // ✅ Now driven by slider difference (absolute correction), applied globally
     delta: d,
     deltaMax: MAX_GLOBAL_DELTA,
     deltaMode: 'slider-diff',
@@ -847,8 +851,8 @@ async function applyAdjustment(state){
     global: true,
 
     model: {
-      readinessBefore: run.readinessR,
-      wetnessBefore: run.wetnessR
+      readinessBefore: runAnchor.readinessR,
+      wetnessBefore: runAnchor.wetnessR
     },
 
     ts: Date.now()
@@ -896,7 +900,6 @@ function wireOnce(state){
       if (feel !== 'wet' && feel !== 'dry') return;
       if (isLocked(state)) return;
 
-      // Opposite-only enforcement based on current status
       if (state._adjStatus === 'wet'){
         state._adjFeel = 'dry';
       } else if (state._adjStatus === 'dry'){
