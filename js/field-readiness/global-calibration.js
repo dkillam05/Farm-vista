@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/global-calibration.js  (FULL FILE)
-Rev: 2026-01-10a
+Rev: 2026-01-10b-nextAllowedAt72h
 
 Fix (per Dane):
 ✅ Slider/anchor behavior is now consistent with “set readiness to what I picked”.
@@ -8,11 +8,17 @@ Fix (per Dane):
    - BUT the saved readinessAnchor is computed from a RAW run with readinessShift disabled,
      so calibration math doesn’t “double apply” and drift away from your slider.
 
+FIX TODAY (lockout nextAllowedAt):
+✅ nextAllowedAt MUST be now + cooldownHours (default 72h)
+   - Previous bug: non-compat path wrote nextAllowedAt as serverTimestamp() (= now),
+     so Firestore never showed +72h.
+   - Now: lastAppliedAt stays server time; nextAllowedAt is written as a real future timestamp.
+
 Keeps:
 ✅ Global calibration delta is SLIDER-DIFFERENCE DRIVEN (absolute correction).
 ✅ Guardrails: opposite-only Wet/Dry + slider clamp direction + 72h lock.
 ✅ OP-threshold driven wet/dry status + hysteresis.
-✅ Lock logic unchanged
+✅ Lock logic unchanged (except fixing nextAllowedAt write)
 ✅ Theme patch unchanged
 ✅ Still writes to field_readiness_adjustments (global:true) + fr:soft-reload
 ===================================================================== */
@@ -34,11 +40,6 @@ function esc(s){
 
 /* =====================================================================
    OP-THRESHOLD WET/DRY TRIGGER TUNING
-   - HYSTERESIS prevents flip-flop when readiness is near threshold.
-   - Example: threshold 70, band 2:
-       dry if readiness >= 72
-       wet if readiness <= 68
-       69-71 => keep previous status
 ===================================================================== */
 const STATUS_HYSTERESIS = 2;
 
@@ -288,20 +289,15 @@ function currentThreshold(state){
 
 /* =========================
    OP-THRESHOLD wet/dry truth (dynamic + hysteresis)
-   - Uses readiness and current op threshold
 ========================= */
 function statusFromReadinessAndThreshold(state, run, thr){
   const r = clamp(Math.round(Number(run?.readinessR ?? 0)), 0, 100);
   const t = clamp(Math.round(Number(thr ?? 70)), 0, 100);
   const band = clamp(Math.round(Number(STATUS_HYSTERESIS)), 0, 10);
 
-  // If far enough above threshold -> dry
   if (r >= (t + band)) return 'dry';
-
-  // If far enough below threshold -> wet
   if (r <= (t - band)) return 'wet';
 
-  // In the middle band -> keep previous if we have it; otherwise decide by simple compare
   const prev = String(state?._adjStatus || '');
   if (prev === 'wet' || prev === 'dry') return prev;
 
@@ -463,11 +459,9 @@ function enforceSliderClamp(state){
     return;
   }
 
-  // WET -> only DRY allowed -> readiness can only increase (cannot move below anchor)
   if (status === 'wet' && feel === 'dry'){
     if (v < anchor) v = anchor;
   }
-  // DRY -> only WET allowed -> readiness can only decrease (cannot move above anchor)
   else if (status === 'dry' && feel === 'wet'){
     if (v > anchor) v = anchor;
   } else {
@@ -693,6 +687,16 @@ async function writeAdjustment(state, entry){
   }
 }
 
+function futureTimestamp(api, ms){
+  // Prefer Firestore Timestamp if wrapper exposes it; otherwise Date is valid for Firestore too.
+  try{
+    if (api && api.Timestamp && typeof api.Timestamp.fromMillis === 'function'){
+      return api.Timestamp.fromMillis(ms);
+    }
+  }catch(_){}
+  return new Date(ms);
+}
+
 async function writeWeightsLock(state, nowMs){
   const api = getAPI(state);
   const cdH = Number(state._cooldownHours || 72);
@@ -720,9 +724,12 @@ async function writeWeightsLock(state, nowMs){
   try{
     const db = api.getFirestore();
     const ref = api.doc(db, CONST.WEIGHTS_COLLECTION, CONST.WEIGHTS_DOC);
+
+    // ✅ lastAppliedAt can be server time
+    // ✅ nextAllowedAt must be a real FUTURE time (now + 72h)
     await api.setDoc(ref, {
       lastAppliedAt: api.serverTimestamp ? api.serverTimestamp() : new Date(nowMs).toISOString(),
-      nextAllowedAt: api.serverTimestamp ? api.serverTimestamp() : new Date(nextMs).toISOString(),
+      nextAllowedAt: futureTimestamp(api, nextMs),
       cooldownHours: cdH
     }, { merge:true });
   }catch(e){
@@ -796,10 +803,6 @@ function closeAdjust(state){
 /* =========================
    Apply
 ========================= */
-function currentThresholdForLogging(state){
-  return currentThreshold(state);
-}
-
 async function applyAdjustment(state){
   if (isLocked(state)) return;
 
