@@ -1,14 +1,18 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2025-12-29a
+Rev: 2026-01-10a-quickview-cal-readinessShift
 
 Change (per Dane):
 ✅ Last-line-of-defense permission gate:
    - openQuickView() will NOT open unless canEdit(state) is true
 
+NEW (tie into latest global calibration setup):
+✅ Quick View now passes BOTH wetBias + readinessShift into model CAL,
+   so Quick View readiness + ETA preview matches tiles/details.
+   (GLOBAL ONLY: op maps remain empty)
+
 Keeps:
-✅ Calibration is GLOBAL ONLY (matches render.js)
-✅ Quick View readiness matches tiles (CAL global-only)
+✅ Calibration is GLOBAL ONLY (matches render.js intent)
 ✅ Map stacking fix + in-page map modal
 ✅ Mobile fit, sticky header, X reachable
 ✅ Save & Close, live preview updates, Firestore save, refresh events
@@ -67,11 +71,21 @@ function gradientForThreshold(thr){
 }
 
 /* =====================================================================
-   GLOBAL-ONLY calibration helper
+   GLOBAL-ONLY calibration helper (match render.js CAL shape)
 ===================================================================== */
 function getCalForDeps(state){
-  const wb = (state && state._cal && isFinite(Number(state._cal.wetBias))) ? Number(state._cal.wetBias) : 0;
-  return { wetBias: wb, opWetBias: {} };
+  const cal = (state && state._cal && typeof state._cal === 'object') ? state._cal : {};
+
+  const wb = Number.isFinite(Number(cal.wetBias)) ? Number(cal.wetBias) : 0;
+  const rs = Number.isFinite(Number(cal.readinessShift)) ? Number(cal.readinessShift) : 0;
+
+  // GLOBAL ONLY (per file header): op maps intentionally empty
+  return {
+    wetBias: wb,
+    opWetBias: {},
+    readinessShift: rs,
+    opReadinessShift: {}
+  };
 }
 
 /* =====================================================================
@@ -706,3 +720,4 @@ async function saveAndClose(state){
   if (btn){ btn.disabled = false; btn.textContent = 'Save & Close'; }
   if (hint) hint.textContent = 'Saved.';
 }
+
