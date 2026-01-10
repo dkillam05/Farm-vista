@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-01-10b-eta-guard
+Rev: 2026-01-10c-eta-lockout-timefix
 
 RECOVERY (critical):
 ✅ Fix syntax issues so module loads and tiles render again.
@@ -18,6 +18,11 @@ NEW (per Dane):
 
 ✅ FIX TODAY:
    - If readiness is already >= threshold, ETA MUST be blank (no ETA on dry fields).
+
+✅ FIX (lockout time not updating):
+   - When predictor returns within72/notWithin72, prefer legacy ETA hours (if available)
+     so ETA text updates when readinessShift changes.
+   - Pass readinessNow/readinessShift into predictor so it can reason about calibration.
 ===================================================================== */
 'use strict';
 
@@ -688,6 +693,12 @@ async function getTileEtaText(state, fieldId, run0, thr){
       ? Number(state._cal.wetBias)
       : 0;
 
+    const readinessShift = (state && state._cal && Number.isFinite(Number(state._cal.readinessShift)))
+      ? Number(state._cal.readinessShift)
+      : 0;
+
+    const readinessNow = Number(run0 && run0.readinessR);
+
     if (state && state._mods && state._mods.forecast && typeof state._mods.forecast.predictDryForField === 'function'){
       const pred = await state._mods.forecast.predictDryForField(
         fieldId,
@@ -696,7 +707,11 @@ async function getTileEtaText(state, fieldId, run0, thr){
           threshold: thr,
           horizonHours: HORIZON_HOURS,
           maxSimDays: 7,
-          wetBias
+          wetBias,
+
+          // ✅ NEW: allow predictor to understand calibration context if it supports it
+          readinessNow,
+          readinessShift
         }
       );
 
@@ -710,13 +725,24 @@ async function getTileEtaText(state, fieldId, run0, thr){
           return '';
         }
 
+        // ✅ LOCKOUT TIME FIX:
+        // If we have a numeric legacy ETA (which now moves with readinessShift),
+        // prefer it so the displayed time updates when slider changes.
         if (pred.status === 'within72'){
-          return pred.message || '';
+          if (legacyTxt && legacyHours != null && legacyHours <= HORIZON_HOURS){
+            return compactEtaForMobile(legacyTxt, HORIZON_HOURS);
+          }
+          return pred.message || (legacyTxt ? compactEtaForMobile(legacyTxt, HORIZON_HOURS) : '');
         }
 
         if (pred.status === 'notWithin72'){
           const rNow = Number(run0 && run0.readinessR);
           const near = Number.isFinite(rNow) ? ((thr - rNow) >= 0 && (thr - rNow) <= NEAR_THR_POINTS) : false;
+
+          // Prefer legacy if it is in-horizon (even if not "near") so time keeps updating.
+          if (legacyTxt && legacyHours != null && legacyHours <= HORIZON_HOURS){
+            return compactEtaForMobile(legacyTxt, HORIZON_HOURS);
+          }
 
           if (near && legacyHours !== null && legacyHours <= HORIZON_HOURS){
             return compactEtaForMobile(legacyTxt, HORIZON_HOURS);
