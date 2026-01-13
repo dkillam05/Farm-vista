@@ -507,6 +507,64 @@
     const isHidden = (el) =>
       !el || el.classList.contains("perm-hidden") || el.getAttribute("aria-hidden") === "true";
 
+    function eventCropKey(d){
+      const raw = d && (d.cropType || d.crop || d.commodity || '');
+      const c = norm(raw);
+      if (!c) return '';
+      if (c === 'soy' || c === 'soybean') return 'soybeans';
+      if (c === 'beans') return 'soybeans';
+      if (c === 'corn') return 'corn';
+      if (c === 'soybeans') return 'soybeans';
+      return c;
+    }
+
+    function getPutDownFull(d){
+      const counts = d && d.counts ? d.counts : {};
+      const v = (counts && counts.full != null) ? counts.full : (d && d.full);
+      return num(v) || 0;
+    }
+
+    function getPutDownPartialFeetList(d){
+      const counts = d && d.counts ? d.counts : {};
+      const pfRaw =
+        (counts && counts.partialFeet != null) ? counts.partialFeet :
+        (d && d.partialFeet != null) ? d.partialFeet :
+        (d && d.partialFeetJson != null) ? d.partialFeetJson :
+        null;
+
+      const out = [];
+      if (Array.isArray(pfRaw)){
+        pfRaw.forEach(v => {
+          const n = num(v);
+          if (n && n > 0) out.push(n);
+        });
+        return out;
+      }
+      const n = num(pfRaw);
+      if (n && n > 0) out.push(n);
+      return out;
+    }
+
+    function getBagInvIdFromEvent(d){
+      const bagSku = (d && d.bagSku && typeof d.bagSku === 'object') ? d.bagSku : {};
+      return (bagSku && bagSku.id) ? bagSku.id : (d && d.bagSkuId) ? d.bagSkuId : null;
+    }
+
+    function getPickUpApplications(d){
+      const arr = (d && Array.isArray(d.appliedTo)) ? d.appliedTo : [];
+      const out = [];
+      for (const item of arr){
+        if (!item || typeof item !== 'object') continue;
+        const refPutDownId = (item.refPutDownId || item.refPutdownId || item.putDownId || item.refId || '').toString().trim();
+        const takeFull = num(item.takeFull) || 0;
+        const takePartial = num(item.takePartial) || 0; // you said this should always be 0; we ignore for inventory
+        if (refPutDownId && takeFull > 0){
+          out.push({ refPutDownId, takeFull, takePartial });
+        }
+      }
+      return out;
+    }
+
     (async () => {
       await ready;
       const db = getFirestore();
@@ -568,7 +626,7 @@
         }
       }
 
-      // ====== FIELD BAGS: full + partial bags (running totals, all years) ======
+      // ====== FIELD BAGS: CURRENT inventory = putDown full+partial minus pickUps (full only), by refPutDownId ======
       async function loadBagSummary() {
         if (!bagCountEl || !bagBushelsEl || isHidden(bagsSection)) return;
         bagCountEl.textContent   = '…';
@@ -616,55 +674,103 @@
             return;
           }
 
-          let totalBags = 0;
-          let totalBu   = 0;
+          // --- First pass: capture putDown inventory rows ---
+          // putDownMap[id] = {
+          //   cropKey, invId, fullInitial, fullRemaining, partialFeetList, meta, buPerBag, lengthFt
+          // }
+          const putDownMap = {};
 
           evSnap.forEach(ds => {
             const d = ds.data() || {};
+            const t = norm(d.type || d.eventType || d.action || d.kind || '');
+            if (t !== 'putdown' && t !== 'put_down' && t !== 'put down') return;
 
-            const evCrop = norm(d.cropType || d.crop || '');
-            if (cropFilter && cropFilter !== 'all' && evCrop && evCrop !== cropFilter) return;
+            const cropKey = eventCropKey(d);
+            if (cropFilter && cropFilter !== 'all' && cropKey && cropKey !== cropFilter) return;
 
-            const counts = d.counts || {};
-            const full = num(counts.full != null ? counts.full : d.full) || 0;
+            const fullInitial = getPutDownFull(d) || 0;
+            const partialFeetList = getPutDownPartialFeetList(d);
+            const partialCount = partialFeetList.length;
 
-            let partialFeetList = [];
-            const pfRaw = counts.partialFeet;
-            if (Array.isArray(pfRaw)) {
-              pfRaw.forEach(v => {
-                const n = num(v);
-                if (n && n > 0) partialFeetList.push(n);
-              });
-            } else {
-              const n = num(pfRaw);
-              if (n && n > 0) partialFeetList.push(n);
+            if (!fullInitial && !partialCount) return;
+
+            const invId = getBagInvIdFromEvent(d);
+            const meta = invId ? invMeta[invId] : null;
+
+            putDownMap[ds.id] = {
+              cropKey,
+              invId,
+              meta,
+              fullInitial: fullInitial,
+              fullRemaining: fullInitial,
+              partialFeetList
+            };
+          });
+
+          // --- Second pass: apply pickUps by refPutDownId ---
+          evSnap.forEach(ds => {
+            const d = ds.data() || {};
+            const t = norm(d.type || d.eventType || d.action || d.kind || '');
+            if (t !== 'pickup' && t !== 'pick_up' && t !== 'pick up') return;
+
+            // crop filter: your pickUp docs have "crop":"Corn"
+            const cropKey = eventCropKey(d);
+            if (cropFilter && cropFilter !== 'all' && cropKey && cropKey !== cropFilter) return;
+
+            const apps = getPickUpApplications(d);
+            if (!apps.length) return;
+
+            for (const a of apps){
+              const row = putDownMap[a.refPutDownId];
+              if (!row) {
+                // Either out-of-filter, missing putDown in this snapshot, or inconsistent data.
+                // We skip (fail-safe) rather than subtract from nothing.
+                console.warn('[grain] pickUp references missing putDown:', a.refPutDownId, 'in pickUp:', ds.id);
+                continue;
+              }
+
+              const takeFull = a.takeFull || 0;
+              if (takeFull <= 0) continue;
+
+              row.fullRemaining = Math.max(0, (row.fullRemaining || 0) - takeFull);
             }
+          });
 
-            const partialBagCount = partialFeetList.length;
-            if (!full && !partialBagCount) return;
+          // --- Final totals from remaining inventory ---
+          let totalFullRemaining = 0;
+          let totalPartialCount  = 0;
+          let totalBu            = 0;
 
-            totalBags += full + partialBagCount;
+          for (const id of Object.keys(putDownMap)){
+            const row = putDownMap[id];
+            if (!row) continue;
 
-            const bagSku = d.bagSku || {};
-            const invId  = bagSku.id || d.bagSkuId;
-            const meta   = invId ? invMeta[invId] : null;
+            const fullRem = Math.max(0, num(row.fullRemaining) || 0);
+            const partialFeetList = Array.isArray(row.partialFeetList) ? row.partialFeetList : [];
+            const partialCount = partialFeetList.length;
 
+            if (!fullRem && !partialCount) continue;
+
+            totalFullRemaining += fullRem;
+            totalPartialCount  += partialCount;
+
+            const meta = row.meta;
             if (meta && meta.buPerBag && meta.lengthFt) {
               const buPerBag = meta.buPerBag;
               const lengthFt = meta.lengthFt;
               const buPerFt  = buPerBag / lengthFt;
 
               let ratedCornBu = 0;
-              if (full > 0) ratedCornBu += full * buPerBag;
+              if (fullRem > 0) ratedCornBu += fullRem * buPerBag;
               if (partialFeetList.length) {
-                const totalPartialFt = partialFeetList.reduce((sum, ft) => sum + ft, 0);
-                ratedCornBu += totalPartialFt * buPerFt;
+                const totalPartialFt = partialFeetList.reduce((sum, ft) => sum + (num(ft) || 0), 0);
+                if (totalPartialFt > 0) ratedCornBu += totalPartialFt * buPerFt;
               }
 
               let eventBu = ratedCornBu;
               try {
                 if (window.FVGrainCapacity && typeof FVGrainCapacity.capacityForCrop === 'function') {
-                  const cropId = evCrop || 'corn';
+                  const cropId = row.cropKey || 'corn';
                   eventBu = FVGrainCapacity.capacityForCrop(ratedCornBu, cropId, { round:false });
                 }
               } catch (e) {
@@ -673,7 +779,9 @@
 
               if (eventBu && eventBu > 0) totalBu += eventBu;
             }
-          });
+          }
+
+          const totalBags = totalFullRemaining + totalPartialCount;
 
           bagCountEl.textContent   = totalBags ? fmtInt(totalBags) : '—';
           bagBushelsEl.textContent = totalBu   ? `${fmtInt(totalBu)} bu` : '— bu';
