@@ -1,6 +1,6 @@
 /* =======================================================================
 /Farm-vista/js/equipment-forms.js  (FULL FILE)
-Rev: 2025-12-20a  ✅ Slider toggle replacement (StarFire + all toggles)
+Rev: 2026-01-15a  ✅ Add StarFire toggle to TRUCKS
 
 Purpose:
   Shared "extras" engine for equipment forms.
@@ -236,6 +236,10 @@ Key update:
         step: '0.1',
         placeholder: 'e.g. 5400.5'
       }),
+
+      // ✅ Added: StarFire toggle for trucks
+      toggleField('starfireCapable', 'StarFire GPS Capable?', { onLabel:'On', offLabel:'Off' }),
+
       textField('licensePlate', 'License Plate #', {
         placeholder: 'e.g. ABC 1234'
       }),
