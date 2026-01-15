@@ -278,6 +278,20 @@
       font-weight:600;
     }
 
+    .warn-pill{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:2px 10px;
+      border-radius:999px;
+      border:1px solid rgba(245,158,11,0.35);
+      background:rgba(245,158,11,0.12);
+      font-size:0.78rem;
+      font-weight:900;
+      margin-left:6px;
+      white-space:nowrap;
+    }
+
     /* Detail panel */
     .wo-detail-panel {
       margin-top:10px;
@@ -423,6 +437,17 @@
       FARMS_COLLECTION: 'farms',
       COMPANY_DOC_PATH: ['company','main'],
 
+      // ✅ We will look up bag product by bagSku.id to read the "bushels" field you store.
+      // If your real collection name is one of these, it will work without changes.
+      BAG_PRODUCTS_COLLECTIONS: [
+        'products_grain_bags',
+        'productsGrainBags',
+        'grain_bag_products',
+        'grainBagProducts',
+        'products_bags',
+        'bag_products'
+      ],
+
       // Performance knobs (safe defaults)
       SEARCH_DEBOUNCE_MS: 250,
       FETCH_CONCURRENCY: 18,
@@ -439,6 +464,9 @@
       fieldMap: new Map(),
       farmMap: new Map(),
       cropSet: new Set(),
+
+      // ✅ Bag product cache: skuId -> product doc (or {_missing:true})
+      bagProductCache: new Map(),
 
       stats: { t0:0, eventsLoaded:0, fieldsResolved:0, farmsResolved:0 }
     };
@@ -469,19 +497,128 @@
       return num.toLocaleString();
     }
 
+    function fmt2(n){
+      const v = Number(n);
+      if(!Number.isFinite(v)) return '';
+      return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    }
+
     function getWorkingItems(){
       return (STATE.filteredItems && STATE.filteredItems.length) ? STATE.filteredItems : STATE.items;
     }
 
-    // === Bag bushel estimate (per-foot) ===
-    function estimateBuPerFoot(diameterFt){
-      const d = Number(diameterFt) || 0;
-      if(d >= 12) return 60;
-      if(d >= 11) return 50;
-      if(d >= 10) return 39;
-      if(d >= 9)  return 30;
-      if(d > 0)   return 25;
+    // ==========================================================
+    // ✅ NEW BUSHEL MATH (per Dane)
+    //
+    // Use:
+    //   - ratedBuPerBag = product.bushels  (NOT diameter table)
+    //   - lengthFeet    = bagSku.sizeFeet (or product.sizeFeet)
+    //   - buPerFoot     = ratedBuPerBag / lengthFeet
+    //   - fullBu        = full * ratedBuPerBag
+    //   - partialBu     = sum(partialFeet[]) * buPerFoot
+    //
+    // Your event schema example:
+    //   partialFeet: [250]
+    //   counts.partial: 1
+    //   bagSku.id: "m1mPrwjI8JX1Q6JsH0rM"   (lookup this in products collection to get bushels)
+    // ==========================================================
+
+    function toNum(v){
+      const n = Number(v);
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function pickNumber(...vals){
+      for(const v of vals){
+        const n = Number(v);
+        if(Number.isFinite(n) && n > 0) return n;
+      }
       return 0;
+    }
+
+    function getSkuId(x){
+      const sku = x.bagSku || {};
+      return sku && sku.id ? String(sku.id) : '';
+    }
+
+    function getSkuSizeFeet(x){
+      const sku = x.bagSku || {};
+      return pickNumber(sku.sizeFeet, sku.lengthFt, sku.lengthFeet);
+    }
+
+    function getPartialFeetList(x){
+      const raw = x.partialFeet ?? x.partialFeetList ?? (x.counts && x.counts.partialFeet) ?? null;
+      if(Array.isArray(raw)){
+        return raw.map(toNum).filter(n => n > 0);
+      }
+      const n = toNum(raw);
+      return n > 0 ? [n] : [];
+    }
+
+    async function fetchBagProductById(skuId){
+      if(!skuId) return null;
+      if(STATE.bagProductCache.has(skuId)) return STATE.bagProductCache.get(skuId);
+
+      const db = STATE.db;
+      for(const colName of CONFIG.BAG_PRODUCTS_COLLECTIONS){
+        try{
+          const snap = await getDoc(doc(db, colName, skuId));
+          if(snap.exists()){
+            const d = snap.data() || {};
+            const prod = Object.assign({ _id: skuId, _collection: colName }, d);
+            STATE.bagProductCache.set(skuId, prod);
+            return prod;
+          }
+        }catch(e){}
+      }
+
+      const missing = { _id: skuId, _missing: true };
+      STATE.bagProductCache.set(skuId, missing);
+      return missing;
+    }
+
+    function getRatedBushelsFromProductOrSku(product, x){
+      const sku = x.bagSku || {};
+      // Prefer product "bushels" (your intended source of truth)
+      return pickNumber(
+        product && !product._missing ? (product.bushels ?? product.bu ?? product.capacityBu ?? product.bushelsBu) : 0,
+        sku.bushels, sku.bu, sku.capacityBu, sku.bushelsBu
+      );
+    }
+
+    function getLengthFeetFromProductOrSku(product, x){
+      const skuLen = getSkuSizeFeet(x);
+      const prodLen = pickNumber(
+        product && !product._missing ? (product.sizeFeet ?? product.lengthFt ?? product.lengthFeet) : 0
+      );
+      return pickNumber(skuLen, prodLen);
+    }
+
+    function computeOnHandBushels({ full, partialCount, partialFeetList, ratedBuPerBag, lengthFeet }){
+      const len = toNum(lengthFeet);
+      const rated = toNum(ratedBuPerBag);
+
+      const buPerFoot = (rated > 0 && len > 0) ? (rated / len) : 0;
+
+      const partialFeetSum = (partialFeetList || []).reduce((s,v)=> s + toNum(v), 0);
+
+      const fullBu = rated > 0 ? toNum(full) * rated : 0;
+      const partialBu = buPerFoot > 0 ? partialFeetSum * buPerFoot : 0;
+
+      const missingRated = !(rated > 0 && len > 0);
+      const missingPartialFeet = (toNum(partialCount) > 0 && (!partialFeetList || partialFeetList.length === 0));
+      const partialCountMismatch = (partialFeetList && partialFeetList.length > 0 && toNum(partialCount) > 0 && partialFeetList.length !== toNum(partialCount));
+
+      return {
+        buPerFoot,
+        partialFeetSum,
+        fullBu,
+        partialBu,
+        onHandBu: fullBu + partialBu,
+        missingRated,
+        missingPartialFeet,
+        partialCountMismatch
+      };
     }
 
     function groupItemsByFarmCropField(items){
@@ -537,15 +674,17 @@
 
       listEl.innerHTML = '';
 
+      // ✅ IMPORTANT: Do NOT hide entries when bushels can't be computed yet.
+      // Show all open entries (totalBags>0). If missing bushels, it will show 0 + warning.
       const items = getWorkingItems().filter(it => {
         const d = it.data;
-        return (d.totalBags > 0) && (d.onHandBu > 0);
+        return (d.totalBags > 0);
       });
 
       if(!items.length){
         emptyEl.style.display = 'block';
-        emptyEl.textContent = 'No grain currently on hand in field grain bags for the selected filters.';
-        setSummaryText('0 bu estimated on hand');
+        emptyEl.textContent = 'No open grain bag entries found for the selected filters.';
+        setSummaryText('0 open bag entries');
         return;
       }
 
@@ -559,11 +698,14 @@
       const fields = new Set(items.map(it => it.data.fieldId || it.data.fieldName));
       const bagEntries = items.length;
 
+      const missRated = items.reduce((s,it)=> s + (it.data.missingRated ? 1 : 0), 0);
+      const missFeet = items.reduce((s,it)=> s + (it.data.missingPartialFeet ? 1 : 0), 0);
+
       setSummaryText(
         `${totalFull} full, ${totalPartial} partial • ${formatNumber(totalOnHandBu)} bu (estimated) on hand • ${bagEntries} bag entr${bagEntries===1?'y':'ies'} • ${fields.size} field${fields.size===1?'':'s'} • ${farms.size} farm${farms.size===1?'':'s'}`,
-        STATE.stats.eventsLoaded
+        (STATE.stats.eventsLoaded
           ? `Loaded ${STATE.stats.eventsLoaded} open bag entr${STATE.stats.eventsLoaded===1?'y':'ies'} • Resolved ${STATE.stats.fieldsResolved} fields / ${STATE.stats.farmsResolved} farms`
-          : ''
+          : '') + (missRated ? ` • ⚠ ${missRated} missing bag bushels/length` : '') + (missFeet ? ` • ⚠ ${missFeet} missing partial feet` : '')
       );
 
       const grouped = groupItemsByFarmCropField(items);
@@ -603,14 +745,18 @@
               card.className = 'wo-card';
               card.dataset.id = item.id;
 
-              // ✅ EXACTLY what you asked:
-              // The main “spot” is now: 2 full, 1 partial · approx 48,750 bu on hand
-              // Crop/year is moved to pills (kept), and Location is removed.
+              const warnBits = [];
+              if(d.missingRated) warnBits.push('missing bag bushels/length');
+              if(d.missingPartialFeet) warnBits.push('missing partial feet');
+              if(d.partialCountMismatch) warnBits.push('partial feet count mismatch');
+              const warnHtml = warnBits.length ? `<span class="warn-pill">⚠ ${warnBits.join(' • ')}</span>` : '';
+
               card.innerHTML = `
                 <div class="wo-row-top">
                   <div class="wo-main">
                     <div class="wo-title">
                       ${full} full, ${partial} partial · approx ${formatNumber(bu)} bu on hand
+                      ${warnHtml}
                     </div>
                     <div class="wo-sub">
                       ${d.cropType || 'Crop'}${d.cropYear ? ' • ' + d.cropYear : ''}${d.cropMoisture !== null && d.cropMoisture !== undefined ? ' • ' + d.cropMoisture + '% moisture' : ''}
@@ -669,7 +815,10 @@
 
       const grid = panel.querySelector('.wo-detail-grid');
       if(grid){
-        // ✅ no Bag SKU, no Location notes, no Capacity
+        const partialFeetTxt = (d.partialFeetList && d.partialFeetList.length)
+          ? d.partialFeetList.map(ft => `${formatNumber(ft)} ft`).join(', ')
+          : (d.partialBags > 0 ? 'Not recorded' : '');
+
         grid.innerHTML = `
           <div>
             <div class="wo-detail-item-label">Farm</div>
@@ -696,6 +845,26 @@
             <div class="wo-detail-item-value">${d.partialBags}</div>
           </div>
           <div>
+            <div class="wo-detail-item-label">Partial feet (each)</div>
+            <div class="wo-detail-item-value">${partialFeetTxt || '—'}</div>
+          </div>
+          <div>
+            <div class="wo-detail-item-label">Total partial feet</div>
+            <div class="wo-detail-item-value">${d.partialFeetSum ? formatNumber(d.partialFeetSum) + ' ft' : (d.partialBags > 0 ? 'Not recorded' : '0 ft')}</div>
+          </div>
+          <div>
+            <div class="wo-detail-item-label">Rated bushels (full bag)</div>
+            <div class="wo-detail-item-value">${d.ratedBuPerBag ? formatNumber(d.ratedBuPerBag) + ' bu' : 'Not recorded'}</div>
+          </div>
+          <div>
+            <div class="wo-detail-item-label">Bag length</div>
+            <div class="wo-detail-item-value">${d.lengthFeet ? formatNumber(d.lengthFeet) + ' ft' : 'Not recorded'}</div>
+          </div>
+          <div>
+            <div class="wo-detail-item-label">Bushels per foot</div>
+            <div class="wo-detail-item-value">${d.buPerFoot ? fmt2(d.buPerFoot) + ' bu/ft' : 'Not available'}</div>
+          </div>
+          <div>
             <div class="wo-detail-item-label">Estimated on hand</div>
             <div class="wo-detail-item-value">${formatNumber(d.onHandBu)} bu</div>
           </div>
@@ -718,13 +887,30 @@
               ${d.updatedBy ? '<br><span style="opacity:.8">By ' + d.updatedBy + '</span>' : ''}
             </div>
           </div>
+          <div>
+            <div class="wo-detail-item-label">Bag product</div>
+            <div class="wo-detail-item-value">
+              ${d.skuId ? d.skuId : 'Not recorded'}
+              ${d.productCollection ? '<br><span style="opacity:.8">From ' + d.productCollection + '</span>' : ''}
+            </div>
+          </div>
         `;
       }
 
       const notesEl = panel.querySelector('.wo-detail-notes-body');
       if(notesEl){
-        notesEl.textContent =
-          d.notes || 'This panel shows the last known crop, crop year, and estimated grain on hand for this grain bag entry.';
+        const lines = [];
+        if(d.missingRated){
+          lines.push('⚠ Missing bag bushels and/or bag length. This page expects the bag product (bagSku.id) doc to include a "bushels" field and a length (sizeFeet).');
+        }
+        if(d.missingPartialFeet){
+          lines.push('⚠ Partial bags exist but partialFeet[] was not recorded. Partial bushels are treated as 0 (never assumed).');
+        }
+        if(d.partialCountMismatch){
+          lines.push('⚠ counts.partial does not match number of partialFeet entries. Bushels use the SUM of partialFeet[].');
+        }
+        if(d.notes) lines.push(d.notes);
+        notesEl.textContent = lines.join('\n\n') || 'This panel shows the last known crop, crop year, and estimated grain on hand for this grain bag entry.';
       }
 
       const footer = panel.querySelector('.wo-detail-footer');
@@ -792,7 +978,8 @@
       const filtered = STATE.items.filter(it => {
         const d = it.data;
 
-        if(!(d.totalBags > 0 && d.onHandBu > 0)) return false;
+        // ✅ only require open entry
+        if(!(d.totalBags > 0)) return false;
 
         if(cropFilter !== 'all' && (d.cropType || 'Unknown crop') !== cropFilter) return false;
         if(farmFilter !== 'all' && (d.farmId || '') !== farmFilter) return false;
@@ -804,7 +991,8 @@
             d.fieldName,
             d.cropType,
             d.cropYear,
-            d.submittedByName
+            d.submittedByName,
+            d.skuId
           ].join(' ').toLowerCase();
           if(!hay.includes(q)) return false;
         }
@@ -924,7 +1112,8 @@
     }
 
     async function handlePrintClick(){
-      const items = getWorkingItems().filter(it => it.data.totalBags > 0 && it.data.onHandBu > 0);
+      // ✅ Print should include open entries even if onHandBu is 0 due to missing product bushels.
+      const items = getWorkingItems().filter(it => it.data.totalBags > 0);
       if (!items.length){
         alert('No grain bag inventory matches the current filters to print.');
         return;
@@ -1239,7 +1428,6 @@
     }
     tr:nth-child(even) td{ background:#F9FAFB; }
 
-    /* ✅ Center numbers under headings */
     .num, th.num{ text-align:center; }
     .right{ text-align:right; }
 
@@ -1309,7 +1497,7 @@
     <section class="section">
       <div class="section-heading-row">
         <div class="section-title-main">Key Metrics</div>
-        <div class="section-note">Snapshot at time of generation. Bushels are estimated.</div>
+        <div class="section-note">Snapshot at time of generation. Bushels are estimated from rated bag bushels and partial feet.</div>
       </div>
       <div class="kpi-row">
         <div class="kpi-card">
@@ -1327,7 +1515,7 @@
         <div class="kpi-card">
           <div class="kpi-label">Farms & fields</div>
           <div class="kpi-value">${farmCount} farms / ${fieldCount} fields</div>
-          <div class="kpi-footnote">With non-zero estimated grain on hand</div>
+          <div class="kpi-footnote">With open entries</div>
         </div>
       </div>
     </section>
@@ -1400,7 +1588,7 @@
 
     <footer class="report-footer">
       <div class="footer-left">
-        Internal use only. Values reflect open bag entries in FarmVista. Bushels are estimated.
+        Internal use only. Values reflect open bag entries in FarmVista. Bushels are estimated from rated bag bushels and partial feet.
       </div>
       <div class="footer-right">
         FarmVista • Grain Bag Inventory • ${escapeHtml(runDateOnly || '')}
@@ -1496,17 +1684,17 @@
         const snap = await getDocs(ref);
         const items = [];
 
-        snap.forEach(docSnap => {
+        for(const docSnap of snap.docs){
           const x = docSnap.data() || {};
 
-          if(x.type !== 'putDown') return;
-          if(x.status === 'pickedUp') return;
+          if(x.type !== 'putDown') continue;
+          if(x.status === 'pickedUp') continue;
 
           const counts = x.counts || {};
           const full = Number(counts.full || 0);
           const partial = Number(counts.partial || 0);
           const totalBags = full + partial;
-          if(totalBags <= 0) return;
+          if(totalBags <= 0) continue;
 
           const fieldId = x.field?.id || null;
           const fieldName = x.field?.name || 'Unknown field';
@@ -1518,15 +1706,23 @@
           const cropType = x.cropType || x.crop || 'Unknown crop';
           const cropYear = x.cropYear || null;
 
-          const sku = x.bagSku || {};
-          const sizeFeet = Number(sku.sizeFeet || sku.lengthFt || 0);
-          const diameterFt = Number(sku.diameterFt || sku.diameter || 0);
+          // ✅ Pull partial feet (your schema: partialFeet: [250])
+          const partialFeetList = getPartialFeetList(x);
 
-          const buPerFoot = estimateBuPerFoot(diameterFt);
-          const capPerBagBu = (sizeFeet > 0 && buPerFoot > 0) ? sizeFeet * buPerFoot : 0;
+          // ✅ Look up bag product (bagSku.id) to get rated bushels per full bag
+          const skuId = getSkuId(x);
+          const product = skuId ? await fetchBagProductById(skuId) : null;
 
-          const onHandBagEq = full + 0.5 * partial;
-          const onHandBu = capPerBagBu > 0 ? onHandBagEq * capPerBagBu : 0;
+          const ratedBuPerBag = getRatedBushelsFromProductOrSku(product, x);
+          const lengthFeet = getLengthFeetFromProductOrSku(product, x);
+
+          const math = computeOnHandBushels({
+            full,
+            partialCount: partial,
+            partialFeetList,
+            ratedBuPerBag,
+            lengthFeet
+          });
 
           let updatedAt = null;
           const rawUpdated = x.updatedAt || x.createdAt || null;
@@ -1556,10 +1752,19 @@
               partialBags: partial,
               totalBags,
 
-              // math only
-              buPerFoot,
-              capPerBagBu,
-              onHandBu,
+              // ✅ new math fields (kept internal but shown in detail)
+              skuId,
+              productCollection: (product && product._collection) ? product._collection : '',
+              ratedBuPerBag,
+              lengthFeet,
+              buPerFoot: math.buPerFoot,
+              partialFeetList,
+              partialFeetSum: math.partialFeetSum,
+              onHandBu: math.onHandBu,
+
+              missingRated: math.missingRated,
+              missingPartialFeet: math.missingPartialFeet,
+              partialCountMismatch: math.partialCountMismatch,
 
               priority: x.priority || null,
               notes: x.notes || '',
@@ -1570,7 +1775,7 @@
           });
 
           STATE.cropSet.add(cropType || 'Unknown crop');
-        });
+        }
 
         STATE.items = items;
         STATE.stats.eventsLoaded = items.length;
