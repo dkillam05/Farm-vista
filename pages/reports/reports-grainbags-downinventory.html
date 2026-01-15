@@ -242,6 +242,7 @@
       min-width:0;
     }
 
+    /* ✅ this is the “spot” you called out (replaces crop/year) */
     .wo-title {
       font-weight:900;
       font-size:1.02rem;
@@ -472,143 +473,15 @@
       return (STATE.filteredItems && STATE.filteredItems.length) ? STATE.filteredItems : STATE.items;
     }
 
-    // ==========================================================
-    // ✅ Correct bag math (per Dane):
-    // - Use SKU/Product "bushels" (rated FULL BAG capacity)
-    // - Use bag length feet (sizeFeet)
-    // - Partial bags are NOT "half". They are based on feet.
-    //
-    // fullBu    = fullBags * ratedBushelsPerBag
-    // partialBu = sum(partialFeetEachBag) * (ratedBushelsPerBag / bagLengthFeet)
-    // totalBu   = fullBu + partialBu
-    // ==========================================================
-
-    function toNum(v){
-      const n = Number(v);
-      return Number.isFinite(n) ? n : 0;
-    }
-
-    function sumNums(arr){
-      return (arr || []).reduce((s,v)=> s + (toNum(v) || 0), 0);
-    }
-
-    function coerceFeetList(v){
-      // Accept:
-      // - [100,300,400]
-      // - "100, 300, 400"
-      // - {a:100,b:300}
-      // - [{feet:100},{feet:300}] etc.
-      if(!v) return [];
-      if(Array.isArray(v)){
-        const out = [];
-        for(const item of v){
-          if(item == null) continue;
-          if(typeof item === 'number' || typeof item === 'string'){
-            out.push(toNum(item));
-            continue;
-          }
-          if(typeof item === 'object'){
-            // try common keys
-            const feet = (
-              item.feet ?? item.ft ?? item.lengthFt ?? item.lengthFeet ?? item.partialFeet ?? item.partialFt
-            );
-            if(feet != null) out.push(toNum(feet));
-            else{
-              // if it's a map-like object of numbers
-              for(const val of Object.values(item)){
-                if(typeof val === 'number' || typeof val === 'string') out.push(toNum(val));
-              }
-            }
-          }
-        }
-        return out.filter(n => n > 0);
-      }
-
-      if(typeof v === 'number') return v > 0 ? [v] : [];
-      if(typeof v === 'string'){
-        const s = v.trim();
-        if(!s) return [];
-        // split by commas or spaces
-        const parts = s.split(/[,\s]+/g).map(x => toNum(x)).filter(n => n > 0);
-        return parts;
-      }
-
-      if(typeof v === 'object'){
-        const out = [];
-        for(const val of Object.values(v)){
-          if(typeof val === 'number' || typeof val === 'string') out.push(toNum(val));
-        }
-        return out.filter(n => n > 0);
-      }
-
-      return [];
-    }
-
-    function extractPartialFeetList(eventDoc){
-      const x = eventDoc || {};
-      const c = x.counts || {};
-
-      // Try a bunch of likely places. First match wins.
-      const candidates = [
-        x.partialFeetList,
-        x.partialFeetByBag,
-        x.partialFeetEntries,
-        x.partialFeet,
-        x.partialsFeet,
-        x.partialsFt,
-        x.partials, // could be [100,300] or [{feet:100}]
-        c.partialFeetList,
-        c.partialFeetByBag,
-        c.partialFeetEntries,
-        c.partialFeet,
-        c.partialsFeet,
-        c.partialsFt,
-        c.partials
-      ];
-
-      for(const v of candidates){
-        const arr = coerceFeetList(v);
-        if(arr && arr.length) return arr;
-      }
-
-      // Fallback: "total partial feet" (still correct math even without per-bag list)
-      const totalCandidates = [
-        x.partialFeetTotal,
-        x.partialTotalFeet,
-        x.partialFeetSum,
-        c.partialFeetTotal,
-        c.partialTotalFeet,
-        c.partialFeetSum
-      ];
-
-      for(const v of totalCandidates){
-        const n = toNum(v);
-        if(n > 0) return [n];
-      }
-
-      return [];
-    }
-
-    function computeOnHandBushels({ fullBags, partialFeetList, bagLengthFeet, ratedBushelsPerBag }){
-      const full = toNum(fullBags);
-      const lengthFt = toNum(bagLengthFeet);
-      const ratedBu = toNum(ratedBushelsPerBag);
-
-      const buPerFoot = (lengthFt > 0 && ratedBu > 0) ? (ratedBu / lengthFt) : 0;
-
-      const partialFeetTotal = sumNums(partialFeetList);
-      const fullBu = (ratedBu > 0) ? full * ratedBu : 0;
-      const partialBu = (buPerFoot > 0) ? partialFeetTotal * buPerFoot : 0;
-
-      const totalBu = fullBu + partialBu;
-
-      return {
-        buPerFoot,
-        partialFeetTotal,
-        fullBu,
-        partialBu,
-        totalBu
-      };
+    // === Bag bushel estimate (per-foot) ===
+    function estimateBuPerFoot(diameterFt){
+      const d = Number(diameterFt) || 0;
+      if(d >= 12) return 60;
+      if(d >= 11) return 50;
+      if(d >= 10) return 39;
+      if(d >= 9)  return 30;
+      if(d > 0)   return 25;
+      return 0;
     }
 
     function groupItemsByFarmCropField(items){
@@ -730,6 +603,9 @@
               card.className = 'wo-card';
               card.dataset.id = item.id;
 
+              // ✅ EXACTLY what you asked:
+              // The main “spot” is now: 2 full, 1 partial · approx 48,750 bu on hand
+              // Crop/year is moved to pills (kept), and Location is removed.
               card.innerHTML = `
                 <div class="wo-row-top">
                   <div class="wo-main">
@@ -793,10 +669,7 @@
 
       const grid = panel.querySelector('.wo-detail-grid');
       if(grid){
-        const feetLine = (d.partialFeetList && d.partialFeetList.length)
-          ? d.partialFeetList.join(', ')
-          : '';
-
+        // ✅ no Bag SKU, no Location notes, no Capacity
         grid.innerHTML = `
           <div>
             <div class="wo-detail-item-label">Farm</div>
@@ -822,31 +695,6 @@
             <div class="wo-detail-item-label">Partial bags</div>
             <div class="wo-detail-item-value">${d.partialBags}</div>
           </div>
-
-          <div>
-            <div class="wo-detail-item-label">Rated bag capacity</div>
-            <div class="wo-detail-item-value">${d.ratedBushelsPerBag ? formatNumber(d.ratedBushelsPerBag) + ' bu (per full bag)' : 'Not recorded'}</div>
-          </div>
-          <div>
-            <div class="wo-detail-item-label">Bag length</div>
-            <div class="wo-detail-item-value">${d.bagLengthFeet ? formatNumber(d.bagLengthFeet) + ' ft' : 'Not recorded'}</div>
-          </div>
-
-          <div>
-            <div class="wo-detail-item-label">Bushels per foot</div>
-            <div class="wo-detail-item-value">${d.buPerFoot ? (formatNumber(d.buPerFoot) + ' bu/ft') : 'Not available'}</div>
-          </div>
-          <div>
-            <div class="wo-detail-item-label">Partial feet total</div>
-            <div class="wo-detail-item-value">${d.partialFeetTotal ? (formatNumber(d.partialFeetTotal) + ' ft') : '0 ft'}</div>
-          </div>
-
-          ${feetLine ? `
-          <div style="grid-column:1 / -1;">
-            <div class="wo-detail-item-label">Partial feet entries</div>
-            <div class="wo-detail-item-value">${feetLine}</div>
-          </div>` : ''}
-
           <div>
             <div class="wo-detail-item-label">Estimated on hand</div>
             <div class="wo-detail-item-value">${formatNumber(d.onHandBu)} bu</div>
@@ -876,7 +724,7 @@
       const notesEl = panel.querySelector('.wo-detail-notes-body');
       if(notesEl){
         notesEl.textContent =
-          d.notes || 'This panel shows the last known crop, crop year, and estimated grain on hand for this grain bag entry. Estimates use rated bushels-per-bag and partial feet.';
+          d.notes || 'This panel shows the last known crop, crop year, and estimated grain on hand for this grain bag entry.';
       }
 
       const footer = panel.querySelector('.wo-detail-footer');
@@ -1391,6 +1239,7 @@
     }
     tr:nth-child(even) td{ background:#F9FAFB; }
 
+    /* ✅ Center numbers under headings */
     .num, th.num{ text-align:center; }
     .right{ text-align:right; }
 
@@ -1551,7 +1400,7 @@
 
     <footer class="report-footer">
       <div class="footer-left">
-        Internal use only. Values reflect open bag entries in FarmVista. Bushels are estimated from rated bag capacity and partial feet.
+        Internal use only. Values reflect open bag entries in FarmVista. Bushels are estimated.
       </div>
       <div class="footer-right">
         FarmVista • Grain Bag Inventory • ${escapeHtml(runDateOnly || '')}
@@ -1655,16 +1504,8 @@
 
           const counts = x.counts || {};
           const full = Number(counts.full || 0);
-
-          // Partials:
-          // - We still keep a "partialBags" count for display,
-          //   but bushels are computed from partial FEET entries.
-          const partialFeetList = extractPartialFeetList(x);
-          const partialBags = partialFeetList.length > 0
-            ? partialFeetList.length
-            : Number(counts.partial || 0);
-
-          const totalBags = full + partialBags;
+          const partial = Number(counts.partial || 0);
+          const totalBags = full + partial;
           if(totalBags <= 0) return;
 
           const fieldId = x.field?.id || null;
@@ -1678,32 +1519,14 @@
           const cropYear = x.cropYear || null;
 
           const sku = x.bagSku || {};
+          const sizeFeet = Number(sku.sizeFeet || sku.lengthFt || 0);
+          const diameterFt = Number(sku.diameterFt || sku.diameter || 0);
 
-          // ✅ Pull rated full-bag bushels from product field "bushels"
-          const ratedBushelsPerBag =
-            toNum(sku.bushels) ||
-            toNum(sku.bushelsBu) ||
-            toNum(sku.capacityBu) ||
-            toNum(sku.cornBushels) ||
-            toNum(sku.cornBu) ||
-            0;
+          const buPerFoot = estimateBuPerFoot(diameterFt);
+          const capPerBagBu = (sizeFeet > 0 && buPerFoot > 0) ? sizeFeet * buPerFoot : 0;
 
-          // Bag length in feet
-          const bagLengthFeet =
-            toNum(sku.sizeFeet) ||
-            toNum(sku.lengthFt) ||
-            toNum(sku.lengthFeet) ||
-            0;
-
-          const math = computeOnHandBushels({
-            fullBags: full,
-            partialFeetList,
-            bagLengthFeet,
-            ratedBushelsPerBag
-          });
-
-          // If we have no rated bushels or no length, we cannot compute.
-          const onHandBu = math.totalBu;
+          const onHandBagEq = full + 0.5 * partial;
+          const onHandBu = capPerBagBu > 0 ? onHandBagEq * capPerBagBu : 0;
 
           let updatedAt = null;
           const rawUpdated = x.updatedAt || x.createdAt || null;
@@ -1730,15 +1553,12 @@
               cropMoisture: (x.cropMoisture !== undefined ? x.cropMoisture : null),
 
               fullBags: full,
-              partialBags: partialBags,
+              partialBags: partial,
               totalBags,
 
-              // math inputs/outputs (for transparency in details)
-              ratedBushelsPerBag,
-              bagLengthFeet,
-              buPerFoot: math.buPerFoot,
-              partialFeetList,
-              partialFeetTotal: math.partialFeetTotal,
+              // math only
+              buPerFoot,
+              capPerBagBu,
               onHandBu,
 
               priority: x.priority || null,
