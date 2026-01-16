@@ -419,6 +419,9 @@
 
     const CONFIG = {
       EVENTS_COLLECTION: 'grain_bag_events',
+      INVENTORY_MOVEMENTS_COLLECTION: 'inventoryGrainBagMovements',
+      PRODUCTS_COLLECTION: 'productsGrainBags',
+
       FIELDS_COLLECTION: 'fields',
       FARMS_COLLECTION: 'farms',
       COMPANY_DOC_PATH: ['company','main'],
@@ -440,7 +443,21 @@
       farmMap: new Map(),
       cropSet: new Set(),
 
-      stats: { t0:0, eventsLoaded:0, fieldsResolved:0, farmsResolved:0 }
+      // ✅ Product + movement maps for correct bushel math
+      productsById: new Map(),          // productsGrainBags/<id> -> data
+      movementByProductId: new Map(),   // productId -> movement doc data (latest-ish)
+      movementByKey: new Map(),         // "brand|diameter|length" -> movement doc data
+
+      stats: {
+        t0:0,
+        eventsLoaded:0,
+        fieldsResolved:0,
+        farmsResolved:0,
+        productsLoaded:0,
+        movementsLoaded:0,
+        productMatched:0,
+        productFallback:0
+      }
     };
 
     function nowMs(){ return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now(); }
@@ -473,7 +490,43 @@
       return (STATE.filteredItems && STATE.filteredItems.length) ? STATE.filteredItems : STATE.items;
     }
 
-    // === Bag bushel estimate (per-foot) ===
+    function norm(s){ return (s || '').toString().trim().toLowerCase(); }
+
+    function safeNum(v, def=0){
+      const n = Number(v);
+      return Number.isFinite(n) ? n : def;
+    }
+
+    function parseDocIdFromRef(ref){
+      // ref can be a Firestore DocumentReference or a string path like "/productsGrainBags/ABC"
+      if(!ref) return '';
+      try{
+        if(typeof ref.id === 'string' && ref.id) return ref.id;
+      }catch(e){}
+      const s = String(ref || '');
+      const parts = s.split('/').filter(Boolean);
+      return parts.length ? parts[parts.length - 1] : '';
+    }
+
+    function makeBagKey(brand, diameterFt, lengthFt){
+      return `${norm(brand)}|${safeNum(diameterFt,0)}|${safeNum(lengthFt,0)}`;
+    }
+
+    // === Crop factor relative to CORN bushel capacity ===
+    // You told me: productsGrainBags.bushels is CORN capacity for the full-length bag.
+    // Without a stored crop-density table in Firestore, the only safe default is 1.0.
+    // If you add a future table (ex: company/grainBagCropFactors), wire it here.
+    function cropFactorFromCorn(cropType){
+      const c = norm(cropType);
+      if(!c) return 1.0;
+      if(c.includes('corn')) return 1.0;
+      if(c.includes('soy')) return 1.0;      // default until you define a factor table
+      if(c.includes('wheat')) return 1.0;    // default
+      if(c.includes('milo')) return 1.0;     // default
+      return 1.0;
+    }
+
+    // === Legacy fallback (only used if product capacity cannot be resolved) ===
     function estimateBuPerFoot(diameterFt){
       const d = Number(diameterFt) || 0;
       if(d >= 12) return 60;
@@ -561,9 +614,7 @@
 
       setSummaryText(
         `${totalFull} full, ${totalPartial} partial • ${formatNumber(totalOnHandBu)} bu (estimated) on hand • ${bagEntries} bag entr${bagEntries===1?'y':'ies'} • ${fields.size} field${fields.size===1?'':'s'} • ${farms.size} farm${farms.size===1?'':'s'}`,
-        STATE.stats.eventsLoaded
-          ? `Loaded ${STATE.stats.eventsLoaded} open bag entr${STATE.stats.eventsLoaded===1?'y':'ies'} • Resolved ${STATE.stats.fieldsResolved} fields / ${STATE.stats.farmsResolved} farms`
-          : ''
+        `Loaded ${STATE.stats.eventsLoaded} putDown entr${STATE.stats.eventsLoaded===1?'y':'ies'} • Products ${STATE.stats.productsLoaded} • Moves ${STATE.stats.movementsLoaded} • Matched ${STATE.stats.productMatched} • Fallback ${STATE.stats.productFallback}`
       );
 
       const grouped = groupItemsByFarmCropField(items);
@@ -603,9 +654,6 @@
               card.className = 'wo-card';
               card.dataset.id = item.id;
 
-              // ✅ EXACTLY what you asked:
-              // The main “spot” is now: 2 full, 1 partial · approx 48,750 bu on hand
-              // Crop/year is moved to pills (kept), and Location is removed.
               card.innerHTML = `
                 <div class="wo-row-top">
                   <div class="wo-main">
@@ -669,7 +717,6 @@
 
       const grid = panel.querySelector('.wo-detail-grid');
       if(grid){
-        // ✅ no Bag SKU, no Location notes, no Capacity
         grid.innerHTML = `
           <div>
             <div class="wo-detail-item-label">Farm</div>
@@ -693,7 +740,7 @@
           </div>
           <div>
             <div class="wo-detail-item-label">Partial bags</div>
-            <div class="wo-detail-item-value">${d.partialBags}</div>
+            <div class="wo-detail-item-value">${d.partialBags}${d.partialFeetTotal > 0 ? ` <span style="opacity:.75">(${formatNumber(d.partialFeetTotal)} ft)</span>` : ''}</div>
           </div>
           <div>
             <div class="wo-detail-item-label">Estimated on hand</div>
@@ -729,9 +776,14 @@
 
       const footer = panel.querySelector('.wo-detail-footer');
       if(footer){
+        const src = d.capacitySource || 'unknown';
+        const srcLabel = (src === 'products') ? 'productsGrainBags' : (src === 'fallback' ? 'fallback estimate' : 'unknown');
         footer.innerHTML = `
           <span class="wo-detail-pill">
             ${formatNumber(d.onHandBu)} bu estimated • ${d.fullBags} full / ${d.partialBags} partial
+          </span>
+          <span class="wo-detail-pill" style="opacity:.85">
+            Capacity: ${srcLabel}${d.productId ? ` • product ${String(d.productId).slice(0,8)}…` : ''}
           </span>
         `;
       }
@@ -1315,7 +1367,7 @@
         <div class="kpi-card">
           <div class="kpi-label">Estimated grain on hand</div>
           <div class="kpi-value">${formatNumber(totalOnHandBu)} bu</div>
-          <div class="kpi-footnote">Across all open bag entries</div>
+          <div class="kpi-footnote">Across all putDown bag entries</div>
         </div>
 
         <div class="kpi-card">
@@ -1400,7 +1452,7 @@
 
     <footer class="report-footer">
       <div class="footer-left">
-        Internal use only. Values reflect open bag entries in FarmVista. Bushels are estimated.
+        Internal use only. Values reflect putDown bag entries in FarmVista. Bushels are estimated.
       </div>
       <div class="footer-right">
         FarmVista • Grain Bag Inventory • ${escapeHtml(runDateOnly || '')}
@@ -1488,6 +1540,154 @@
       }
     }
 
+    async function loadProductsAndMovements(){
+      const db = STATE.db;
+
+      // Products: productsGrainBags
+      try{
+        const pSnap = await getDocs(collection(db, CONFIG.PRODUCTS_COLLECTION));
+        let pCount = 0;
+        pSnap.forEach(ds => {
+          const d = ds.data() || {};
+          STATE.productsById.set(ds.id, d);
+          pCount++;
+        });
+        STATE.stats.productsLoaded = pCount;
+      }catch(e){
+        console.warn('[grain-bag-inventory] failed to load productsGrainBags', e);
+        STATE.stats.productsLoaded = 0;
+      }
+
+      // Movements: inventoryGrainBagMovements (used as an additional linking layer)
+      try{
+        const mSnap = await getDocs(collection(db, CONFIG.INVENTORY_MOVEMENTS_COLLECTION));
+        let mCount = 0;
+
+        // If multiple movement docs map to the same product, keep the most recently updated
+        function keepBetter(existing, candidate){
+          if(!existing) return candidate;
+          const a = existing.updatedAt?.toDate ? existing.updatedAt.toDate().getTime() : safeNum(existing.updatedAt, 0);
+          const b = candidate.updatedAt?.toDate ? candidate.updatedAt.toDate().getTime() : safeNum(candidate.updatedAt, 0);
+          return (b >= a) ? candidate : existing;
+        }
+
+        mSnap.forEach(ds => {
+          const d = ds.data() || {};
+          const productId = parseDocIdFromRef(d.productRef);
+          if(productId){
+            const cur = STATE.movementByProductId.get(productId);
+            STATE.movementByProductId.set(productId, keepBetter(cur, d));
+          }
+
+          const k = makeBagKey(d.brand, d.diameterFt, d.lengthFt);
+          if(k && k !== '||0|0'){
+            const cur2 = STATE.movementByKey.get(k);
+            STATE.movementByKey.set(k, keepBetter(cur2, d));
+          }
+
+          mCount++;
+        });
+
+        STATE.stats.movementsLoaded = mCount;
+      }catch(e){
+        console.warn('[grain-bag-inventory] failed to load inventoryGrainBagMovements', e);
+        STATE.stats.movementsLoaded = 0;
+      }
+    }
+
+    function resolveProductForEventSku(sku){
+      // sku is the grain_bag_events.bagSku map (your example includes sku.id)
+      const brand = sku?.brand || '';
+      const diameterFt = safeNum(sku?.diameterFt, safeNum(sku?.diameter, 0));
+      const lengthFt = safeNum(sku?.sizeFeet, safeNum(sku?.lengthFt, 0));
+      const skuId = (sku?.id || '').toString();
+
+      // 1) Direct: sku.id matches productsGrainBags doc id
+      if(skuId && STATE.productsById.has(skuId)){
+        return { productId: skuId, product: STATE.productsById.get(skuId), via:'products' };
+      }
+
+      // 2) Movement layer: match by key brand+diameter+length and then use its productRef id
+      const key = makeBagKey(brand, diameterFt, lengthFt);
+      const mv = STATE.movementByKey.get(key);
+      if(mv){
+        const pid = parseDocIdFromRef(mv.productRef);
+        if(pid && STATE.productsById.has(pid)){
+          return { productId: pid, product: STATE.productsById.get(pid), via:'products' };
+        }
+      }
+
+      // 3) If movements have productId map but skuId matches that productId (rare)
+      if(skuId && STATE.movementByProductId.has(skuId) && STATE.productsById.has(skuId)){
+        return { productId: skuId, product: STATE.productsById.get(skuId), via:'products' };
+      }
+
+      return { productId:'', product:null, via:'fallback' };
+    }
+
+    function computeBushelsForEvent({ cropType, sku, counts, partialFeet }){
+      const full = safeNum(counts?.full, 0);
+      const partialCount = safeNum(counts?.partial, 0);
+
+      const res = resolveProductForEventSku(sku || {});
+      let capacitySource = res.via;
+
+      // Determine bag length from product if available, else from event sku
+      const prodLengthFt = safeNum(res.product?.lengthFt, 0);
+      const eventLengthFt = safeNum(sku?.sizeFeet, safeNum(sku?.lengthFt, 0));
+      const lengthFt = prodLengthFt > 0 ? prodLengthFt : eventLengthFt;
+
+      // CORN capacity per full bag (from productsGrainBags.bushels)
+      const cornBuPerBag = safeNum(res.product?.bushels, 0);
+
+      // If product missing bushels, fallback to old estimate
+      let cornBuPerFoot = 0;
+      if(cornBuPerBag > 0 && lengthFt > 0){
+        cornBuPerFoot = cornBuPerBag / lengthFt;
+      }else{
+        // fallback estimate uses diameter tiers
+        const diameterFt = safeNum(sku?.diameterFt, safeNum(sku?.diameter, 0));
+        cornBuPerFoot = estimateBuPerFoot(diameterFt);
+        capacitySource = 'fallback';
+      }
+
+      // Crop adjustment (currently default 1.0 unless you define a table)
+      const factor = cropFactorFromCorn(cropType);
+      const cropBuPerFoot = cornBuPerFoot * factor;
+
+      // Partial feet handling:
+      // - If partialFeet[] exists, sum it.
+      // - Else estimate partialCount * 0.5 * lengthFt (legacy-ish) but only if lengthFt known.
+      let partialFeetTotal = 0;
+      if(Array.isArray(partialFeet) && partialFeet.length){
+        partialFeetTotal = partialFeet.reduce((s,v)=> s + safeNum(v,0), 0);
+      }else if(partialCount > 0 && lengthFt > 0){
+        partialFeetTotal = partialCount * 0.5 * lengthFt;
+      }
+
+      // Total bushels:
+      const onHandBu = (full * (cropBuPerFoot * lengthFt)) + (partialFeetTotal * cropBuPerFoot);
+
+      // Note: totalBags remains count-based (for UI), but bushels are foot-based for partials.
+      const totalBags = full + partialCount;
+
+      return {
+        onHandBu: Math.max(0, onHandBu),
+        totalBags,
+        fullBags: full,
+        partialBags: partialCount,
+        partialFeetTotal,
+
+        // debug-ish fields for detail panel footer/tooling
+        capacitySource,
+        productId: res.productId || '',
+        bagLengthFt: lengthFt,
+        cornBuPerBag: cornBuPerBag,
+        cornBuPerFoot: cornBuPerFoot,
+        cropFactor: factor
+      };
+    }
+
     async function loadGrainBagInventoryFastFirst(){
       const db = STATE.db;
       const ref = collection(db, CONFIG.EVENTS_COLLECTION);
@@ -1496,17 +1696,20 @@
         const snap = await getDocs(ref);
         const items = [];
 
+        let matched = 0;
+        let fallback = 0;
+
         snap.forEach(docSnap => {
           const x = docSnap.data() || {};
 
+          // ✅ HARD RULE: only putDown records matter here
           if(x.type !== 'putDown') return;
-          if(x.status === 'pickedUp') return;
 
           const counts = x.counts || {};
           const full = Number(counts.full || 0);
           const partial = Number(counts.partial || 0);
-          const totalBags = full + partial;
-          if(totalBags <= 0) return;
+          const totalBagsCount = full + partial;
+          if(totalBagsCount <= 0) return;
 
           const fieldId = x.field?.id || null;
           const fieldName = x.field?.name || 'Unknown field';
@@ -1519,14 +1722,15 @@
           const cropYear = x.cropYear || null;
 
           const sku = x.bagSku || {};
-          const sizeFeet = Number(sku.sizeFeet || sku.lengthFt || 0);
-          const diameterFt = Number(sku.diameterFt || sku.diameter || 0);
+          const partialFeet = Array.isArray(x.partialFeet) ? x.partialFeet : [];
 
-          const buPerFoot = estimateBuPerFoot(diameterFt);
-          const capPerBagBu = (sizeFeet > 0 && buPerFoot > 0) ? sizeFeet * buPerFoot : 0;
+          // ✅ Correct bushel math:
+          // - capacity from productsGrainBags (corn bushels for full bag)
+          // - partials are based on feet (partialFeet[])
+          const bus = computeBushelsForEvent({ cropType, sku, counts, partialFeet });
 
-          const onHandBagEq = full + 0.5 * partial;
-          const onHandBu = capPerBagBu > 0 ? onHandBagEq * capPerBagBu : 0;
+          if(bus.capacitySource === 'products') matched++;
+          else fallback++;
 
           let updatedAt = null;
           const rawUpdated = x.updatedAt || x.createdAt || null;
@@ -1552,14 +1756,19 @@
               datePlaced,
               cropMoisture: (x.cropMoisture !== undefined ? x.cropMoisture : null),
 
-              fullBags: full,
-              partialBags: partial,
-              totalBags,
+              fullBags: bus.fullBags,
+              partialBags: bus.partialBags,
+              totalBags: bus.totalBags,
 
-              // math only
-              buPerFoot,
-              capPerBagBu,
-              onHandBu,
+              // ✅ new partial tracking
+              partialFeetTotal: bus.partialFeetTotal,
+
+              // ✅ corrected bushels
+              onHandBu: bus.onHandBu,
+
+              // link/debug fields (kept minimal in UI)
+              capacitySource: bus.capacitySource,
+              productId: bus.productId || '',
 
               priority: x.priority || null,
               notes: x.notes || '',
@@ -1574,6 +1783,8 @@
 
         STATE.items = items;
         STATE.stats.eventsLoaded = items.length;
+        STATE.stats.productMatched = matched;
+        STATE.stats.productFallback = fallback;
 
       }catch(err){
         console.error('Error loading grain bag events:', err);
@@ -1651,6 +1862,10 @@
       if (printTop)    printTop.addEventListener('click', handlePrintClick);
       if (printBottom) printBottom.addEventListener('click', handlePrintClick);
 
+      // ✅ Load products + movements first so event->product linking is correct
+      setSummaryText('Loading grain bag inventory…', 'Loading products + movements…');
+      await loadProductsAndMovements();
+
       setSummaryText('Loading grain bag inventory…', 'Loading bag events…');
       await loadGrainBagInventoryFastFirst();
 
@@ -1672,7 +1887,7 @@
       const dt = Math.max(1, Math.round(nowMs() - STATE.stats.t0));
       setSummaryText(
         document.getElementById('gbSummary')?.firstChild?.textContent || 'Grain bag inventory loaded.',
-        `Loaded in ~${dt}ms • Resolved ${STATE.stats.fieldsResolved} fields / ${STATE.stats.farmsResolved} farms`
+        `Loaded in ~${dt}ms • Products ${STATE.stats.productsLoaded} • Moves ${STATE.stats.movementsLoaded} • Matched ${STATE.stats.productMatched} • Fallback ${STATE.stats.productFallback}`
       );
     })();
   </script>
