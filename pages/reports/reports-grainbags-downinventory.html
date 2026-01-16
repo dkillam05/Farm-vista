@@ -437,21 +437,31 @@
       FARMS_COLLECTION: 'farms',
       COMPANY_DOC_PATH: ['company','main'],
 
-      // ✅ We will look up bag product by bagSku.id to read the "bushels" field you store.
-      // If your real collection name is one of these, it will work without changes.
-      BAG_PRODUCTS_COLLECTIONS: [
-        'products_grain_bags',
+      // ✅ Capacity chain (matches your /chat/handleChat.js comment):
+      // v.bagSkuId -> inventoryGrainBagMovements.id -> productsGrainBags.id
+      // Here: event.bagSku.id is the "bagSkuId" (inventoryGrainBagMovements.id)
+      INVENTORY_SKU_COLLECTIONS: [
+        'inventoryGrainBagMovements',
+        'inventory_grain_bag_movements',
+        'inventory_grain_bags'
+      ],
+      PRODUCTS_BAG_COLLECTIONS: [
         'productsGrainBags',
-        'grain_bag_products',
-        'grainBagProducts',
-        'products_bags',
-        'bag_products'
+        'products_grain_bags'
       ],
 
       // Performance knobs (safe defaults)
       SEARCH_DEBOUNCE_MS: 250,
       FETCH_CONCURRENCY: 18,
       RENDER_YIELD_MS: 0
+    };
+
+    const CROP_FACTORS = {
+      corn: 1.00,
+      soybeans: 0.93,
+      wheat: 1.07,
+      milo: 1.02,
+      oats: 0.78
     };
 
     const STATE = {
@@ -465,8 +475,9 @@
       farmMap: new Map(),
       cropSet: new Set(),
 
-      // ✅ Bag product cache: skuId -> product doc (or {_missing:true})
-      bagProductCache: new Map(),
+      // caches
+      invSkuCache: new Map(),     // invSkuId -> doc or {_missing:true}
+      prodBagCache: new Map(),    // prodId   -> doc or {_missing:true}
 
       stats: { t0:0, eventsLoaded:0, fieldsResolved:0, farmsResolved:0 }
     };
@@ -507,118 +518,111 @@
       return (STATE.filteredItems && STATE.filteredItems.length) ? STATE.filteredItems : STATE.items;
     }
 
-    // ==========================================================
-    // ✅ NEW BUSHEL MATH (per Dane)
-    //
-    // Use:
-    //   - ratedBuPerBag = product.bushels  (NOT diameter table)
-    //   - lengthFeet    = bagSku.sizeFeet (or product.sizeFeet)
-    //   - buPerFoot     = ratedBuPerBag / lengthFeet
-    //   - fullBu        = full * ratedBuPerBag
-    //   - partialBu     = sum(partialFeet[]) * buPerFoot
-    //
-    // Your event schema example:
-    //   partialFeet: [250]
-    //   counts.partial: 1
-    //   bagSku.id: "m1mPrwjI8JX1Q6JsH0rM"   (lookup this in products collection to get bushels)
-    // ==========================================================
-
     function toNum(v){
       const n = Number(v);
       return Number.isFinite(n) ? n : 0;
     }
 
-    function pickNumber(...vals){
-      for(const v of vals){
-        const n = Number(v);
-        if(Number.isFinite(n) && n > 0) return n;
+    function normCrop(s){
+      const t = (s || '').toString().trim().toLowerCase();
+      if(!t) return 'corn';
+      if(t === 'soy' || t === 'beans' || t === 'sb') return 'soybeans';
+      return t;
+    }
+
+    function cropFactorFor(cropType){
+      const c = normCrop(cropType);
+      return (CROP_FACTORS[c] != null) ? CROP_FACTORS[c] : 1.0;
+    }
+
+    function sumFeet(arr){
+      if(!Array.isArray(arr)) return 0;
+      return arr.reduce((s,v)=> s + toNum(v), 0);
+    }
+
+    function getPartialFeetListFromEvent(x){
+      // Your example shows top-level: partialFeet: [250]
+      if(Array.isArray(x.partialFeet)) return x.partialFeet.map(toNum).filter(n => n > 0);
+      const c = x.counts || {};
+      if(Array.isArray(c.partialFeet)) return c.partialFeet.map(toNum).filter(n => n > 0);
+      if(Array.isArray(x.partialFeetList)) return x.partialFeetList.map(toNum).filter(n => n > 0);
+      if(Array.isArray(c.partialFeetList)) return c.partialFeetList.map(toNum).filter(n => n > 0);
+      return [];
+    }
+
+    function getPutDownCounts(x){
+      const c = x.counts || {};
+      return {
+        full: toNum(c.full),
+        partial: toNum(c.partial),
+        partialFeetSum: sumFeet(getPartialFeetListFromEvent(x))
+      };
+    }
+
+    function getPickUpCounts(x){
+      const c = x.counts || {};
+      return {
+        full: toNum(c.full),
+        partial: toNum(c.partial),
+        partialFeetSum: sumFeet(getPartialFeetListFromEvent(x))
+      };
+    }
+
+    function extractAppliedPutDownIds(pickupEvent){
+      // Pickups adjust putDown via appliedTo[].refPutDownId (per your earlier message)
+      const a = pickupEvent.appliedTo;
+      if(!Array.isArray(a)) return [];
+      const out = [];
+      for(const it of a){
+        const id = (it && (it.refPutDownId || it.putDownId || it.refId)) ? String(it.refPutDownId || it.putDownId || it.refId) : '';
+        if(id) out.push(id);
       }
-      return 0;
+      return out;
     }
 
-    function getSkuId(x){
-      const sku = x.bagSku || {};
-      return sku && sku.id ? String(sku.id) : '';
-    }
-
-    function getSkuSizeFeet(x){
-      const sku = x.bagSku || {};
-      return pickNumber(sku.sizeFeet, sku.lengthFt, sku.lengthFeet);
-    }
-
-    function getPartialFeetList(x){
-      const raw = x.partialFeet ?? x.partialFeetList ?? (x.counts && x.counts.partialFeet) ?? null;
-      if(Array.isArray(raw)){
-        return raw.map(toNum).filter(n => n > 0);
-      }
-      const n = toNum(raw);
-      return n > 0 ? [n] : [];
-    }
-
-    async function fetchBagProductById(skuId){
-      if(!skuId) return null;
-      if(STATE.bagProductCache.has(skuId)) return STATE.bagProductCache.get(skuId);
-
+    async function fetchFirstDocFromCollections(collectionNames, id){
       const db = STATE.db;
-      for(const colName of CONFIG.BAG_PRODUCTS_COLLECTIONS){
+      for(const colName of (collectionNames || [])){
         try{
-          const snap = await getDoc(doc(db, colName, skuId));
-          if(snap.exists()){
-            const d = snap.data() || {};
-            const prod = Object.assign({ _id: skuId, _collection: colName }, d);
-            STATE.bagProductCache.set(skuId, prod);
-            return prod;
-          }
+          const snap = await getDoc(doc(db, colName, id));
+          if(snap.exists()) return Object.assign({ _id:id, _collection: colName }, (snap.data() || {}));
         }catch(e){}
       }
-
-      const missing = { _id: skuId, _missing: true };
-      STATE.bagProductCache.set(skuId, missing);
-      return missing;
+      return { _id:id, _missing:true };
     }
 
-    function getRatedBushelsFromProductOrSku(product, x){
-      const sku = x.bagSku || {};
-      // Prefer product "bushels" (your intended source of truth)
-      return pickNumber(
-        product && !product._missing ? (product.bushels ?? product.bu ?? product.capacityBu ?? product.bushelsBu) : 0,
-        sku.bushels, sku.bu, sku.capacityBu, sku.bushelsBu
-      );
+    async function getInvSku(invSkuId){
+      if(!invSkuId) return { _missing:true };
+      if(STATE.invSkuCache.has(invSkuId)) return STATE.invSkuCache.get(invSkuId);
+      const d = await fetchFirstDocFromCollections(CONFIG.INVENTORY_SKU_COLLECTIONS, invSkuId);
+      STATE.invSkuCache.set(invSkuId, d);
+      return d;
     }
 
-    function getLengthFeetFromProductOrSku(product, x){
-      const skuLen = getSkuSizeFeet(x);
-      const prodLen = pickNumber(
-        product && !product._missing ? (product.sizeFeet ?? product.lengthFt ?? product.lengthFeet) : 0
-      );
-      return pickNumber(skuLen, prodLen);
+    async function getProdBag(prodId){
+      if(!prodId) return { _missing:true };
+      if(STATE.prodBagCache.has(prodId)) return STATE.prodBagCache.get(prodId);
+      const d = await fetchFirstDocFromCollections(CONFIG.PRODUCTS_BAG_COLLECTIONS, prodId);
+      STATE.prodBagCache.set(prodId, d);
+      return d;
     }
 
-    function computeOnHandBushels({ full, partialCount, partialFeetList, ratedBuPerBag, lengthFeet }){
-      const len = toNum(lengthFeet);
-      const rated = toNum(ratedBuPerBag);
+    function computeBushelsFromRemaining({ cropType, remainingFull, remainingPartial, remainingPartialFeetSum, bushelsCorn, lengthFt }){
+      const len = toNum(lengthFt);
+      const capCorn = toNum(bushelsCorn);
 
-      const buPerFoot = (rated > 0 && len > 0) ? (rated / len) : 0;
+      // partial cap rule (from handleChat.js):
+      // effectiveFeet = MIN(remainingPartialFeetSum, remainingPartial * lengthFt)
+      const effFeet = Math.min(toNum(remainingPartialFeetSum), toNum(remainingPartial) * len);
 
-      const partialFeetSum = (partialFeetList || []).reduce((s,v)=> s + toNum(v), 0);
+      const fullCornBu = toNum(remainingFull) * capCorn;
+      const partialCornBu = (len > 0) ? ((effFeet / len) * capCorn) : 0;
+      const totalCornBu = fullCornBu + partialCornBu;
 
-      const fullBu = rated > 0 ? toNum(full) * rated : 0;
-      const partialBu = buPerFoot > 0 ? partialFeetSum * buPerFoot : 0;
+      const factor = cropFactorFor(cropType);
+      const totalBu = totalCornBu * factor;
 
-      const missingRated = !(rated > 0 && len > 0);
-      const missingPartialFeet = (toNum(partialCount) > 0 && (!partialFeetList || partialFeetList.length === 0));
-      const partialCountMismatch = (partialFeetList && partialFeetList.length > 0 && toNum(partialCount) > 0 && partialFeetList.length !== toNum(partialCount));
-
-      return {
-        buPerFoot,
-        partialFeetSum,
-        fullBu,
-        partialBu,
-        onHandBu: fullBu + partialBu,
-        missingRated,
-        missingPartialFeet,
-        partialCountMismatch
-      };
+      return { effFeet, fullCornBu, partialCornBu, totalCornBu, factor, totalBu };
     }
 
     function groupItemsByFarmCropField(items){
@@ -674,8 +678,7 @@
 
       listEl.innerHTML = '';
 
-      // ✅ IMPORTANT: Do NOT hide entries when bushels can't be computed yet.
-      // Show all open entries (totalBags>0). If missing bushels, it will show 0 + warning.
+      // ✅ Show open remaining (putDown-adjusted truth). Do NOT hide rows when bushels are 0 (missing product link).
       const items = getWorkingItems().filter(it => {
         const d = it.data;
         return (d.totalBags > 0);
@@ -683,7 +686,7 @@
 
       if(!items.length){
         emptyEl.style.display = 'block';
-        emptyEl.textContent = 'No open grain bag entries found for the selected filters.';
+        emptyEl.textContent = 'No open grain bag inventory matches the selected filters.';
         setSummaryText('0 open bag entries');
         return;
       }
@@ -698,14 +701,13 @@
       const fields = new Set(items.map(it => it.data.fieldId || it.data.fieldName));
       const bagEntries = items.length;
 
-      const missRated = items.reduce((s,it)=> s + (it.data.missingRated ? 1 : 0), 0);
-      const missFeet = items.reduce((s,it)=> s + (it.data.missingPartialFeet ? 1 : 0), 0);
+      const missCap = items.reduce((s,it)=> s + (it.data.missingCapacity ? 1 : 0), 0);
 
       setSummaryText(
-        `${totalFull} full, ${totalPartial} partial • ${formatNumber(totalOnHandBu)} bu (estimated) on hand • ${bagEntries} bag entr${bagEntries===1?'y':'ies'} • ${fields.size} field${fields.size===1?'':'s'} • ${farms.size} farm${farms.size===1?'':'s'}`,
+        `${totalFull} full, ${totalPartial} partial • ${formatNumber(totalOnHandBu)} bu (estimated) on hand • ${bagEntries} open entr${bagEntries===1?'y':'ies'} • ${fields.size} field${fields.size===1?'':'s'} • ${farms.size} farm${farms.size===1?'':'s'}`,
         (STATE.stats.eventsLoaded
-          ? `Loaded ${STATE.stats.eventsLoaded} open bag entr${STATE.stats.eventsLoaded===1?'y':'ies'} • Resolved ${STATE.stats.fieldsResolved} fields / ${STATE.stats.farmsResolved} farms`
-          : '') + (missRated ? ` • ⚠ ${missRated} missing bag bushels/length` : '') + (missFeet ? ` • ⚠ ${missFeet} missing partial feet` : '')
+          ? `Loaded ${STATE.stats.eventsLoaded} putDown entr${STATE.stats.eventsLoaded===1?'y':'ies'} • Resolved ${STATE.stats.fieldsResolved} fields / ${STATE.stats.farmsResolved} farms`
+          : '') + (missCap ? ` • ⚠ ${missCap} missing capacity chain` : '')
       );
 
       const grouped = groupItemsByFarmCropField(items);
@@ -746,9 +748,8 @@
               card.dataset.id = item.id;
 
               const warnBits = [];
-              if(d.missingRated) warnBits.push('missing bag bushels/length');
-              if(d.missingPartialFeet) warnBits.push('missing partial feet');
-              if(d.partialCountMismatch) warnBits.push('partial feet count mismatch');
+              if(d.missingCapacity) warnBits.push('missing capacity');
+              if(d.partialCapApplied) warnBits.push('partial cap');
               const warnHtml = warnBits.length ? `<span class="warn-pill">⚠ ${warnBits.join(' • ')}</span>` : '';
 
               card.innerHTML = `
@@ -815,9 +816,13 @@
 
       const grid = panel.querySelector('.wo-detail-grid');
       if(grid){
-        const partialFeetTxt = (d.partialFeetList && d.partialFeetList.length)
-          ? d.partialFeetList.map(ft => `${formatNumber(ft)} ft`).join(', ')
-          : (d.partialBags > 0 ? 'Not recorded' : '');
+        const partialFeetTxt = (d.remainingPartialFeetSum > 0)
+          ? `${formatNumber(d.remainingPartialFeetSum)} ft (sum)`
+          : '0 ft';
+
+        const capLine = (d.bushelsCorn && d.lengthFt)
+          ? `${formatNumber(d.bushelsCorn)} corn bu per full bag • ${formatNumber(d.lengthFt)} ft`
+          : 'Not resolved';
 
         grid.innerHTML = `
           <div>
@@ -836,34 +841,38 @@
             <div class="wo-detail-item-label">Crop year</div>
             <div class="wo-detail-item-value">${d.cropYear || 'Not recorded'}</div>
           </div>
+
           <div>
-            <div class="wo-detail-item-label">Full bags</div>
+            <div class="wo-detail-item-label">Remaining full</div>
             <div class="wo-detail-item-value">${d.fullBags}</div>
           </div>
           <div>
-            <div class="wo-detail-item-label">Partial bags</div>
+            <div class="wo-detail-item-label">Remaining partial</div>
             <div class="wo-detail-item-value">${d.partialBags}</div>
           </div>
+
           <div>
-            <div class="wo-detail-item-label">Partial feet (each)</div>
-            <div class="wo-detail-item-value">${partialFeetTxt || '—'}</div>
+            <div class="wo-detail-item-label">Remaining partial feet sum</div>
+            <div class="wo-detail-item-value">${partialFeetTxt}</div>
           </div>
           <div>
-            <div class="wo-detail-item-label">Total partial feet</div>
-            <div class="wo-detail-item-value">${d.partialFeetSum ? formatNumber(d.partialFeetSum) + ' ft' : (d.partialBags > 0 ? 'Not recorded' : '0 ft')}</div>
+            <div class="wo-detail-item-label">Effective partial feet (capped)</div>
+            <div class="wo-detail-item-value">${formatNumber(d.effectiveFeet || 0)} ft</div>
+          </div>
+
+          <div>
+            <div class="wo-detail-item-label">Capacity chain</div>
+            <div class="wo-detail-item-value">
+              ${capLine}<br>
+              <span style="opacity:.8">bagSku.id: ${d.invSkuId || '—'}</span><br>
+              <span style="opacity:.8">productId: ${d.productId || '—'}</span>
+            </div>
           </div>
           <div>
-            <div class="wo-detail-item-label">Rated bushels (full bag)</div>
-            <div class="wo-detail-item-value">${d.ratedBuPerBag ? formatNumber(d.ratedBuPerBag) + ' bu' : 'Not recorded'}</div>
+            <div class="wo-detail-item-label">Crop factor</div>
+            <div class="wo-detail-item-value">${d.cropFactor ? fmt2(d.cropFactor) : '—'}</div>
           </div>
-          <div>
-            <div class="wo-detail-item-label">Bag length</div>
-            <div class="wo-detail-item-value">${d.lengthFeet ? formatNumber(d.lengthFeet) + ' ft' : 'Not recorded'}</div>
-          </div>
-          <div>
-            <div class="wo-detail-item-label">Bushels per foot</div>
-            <div class="wo-detail-item-value">${d.buPerFoot ? fmt2(d.buPerFoot) + ' bu/ft' : 'Not available'}</div>
-          </div>
+
           <div>
             <div class="wo-detail-item-label">Estimated on hand</div>
             <div class="wo-detail-item-value">${formatNumber(d.onHandBu)} bu</div>
@@ -872,6 +881,7 @@
             <div class="wo-detail-item-label">Moisture</div>
             <div class="wo-detail-item-value">${d.cropMoisture !== null && d.cropMoisture !== undefined ? d.cropMoisture + '%' : 'Not recorded'}</div>
           </div>
+
           <div>
             <div class="wo-detail-item-label">Date placed</div>
             <div class="wo-detail-item-value">${d.datePlaced ? formatDate(d.datePlaced) : 'Not recorded'}</div>
@@ -880,18 +890,12 @@
             <div class="wo-detail-item-label">Priority</div>
             <div class="wo-detail-item-value">${d.priority || 'Not set'}</div>
           </div>
+
           <div>
             <div class="wo-detail-item-label">Last updated</div>
             <div class="wo-detail-item-value">
               ${d.updatedAt ? formatDateTime(d.updatedAt) : 'Unknown'}
               ${d.updatedBy ? '<br><span style="opacity:.8">By ' + d.updatedBy + '</span>' : ''}
-            </div>
-          </div>
-          <div>
-            <div class="wo-detail-item-label">Bag product</div>
-            <div class="wo-detail-item-value">
-              ${d.skuId ? d.skuId : 'Not recorded'}
-              ${d.productCollection ? '<br><span style="opacity:.8">From ' + d.productCollection + '</span>' : ''}
             </div>
           </div>
         `;
@@ -900,17 +904,15 @@
       const notesEl = panel.querySelector('.wo-detail-notes-body');
       if(notesEl){
         const lines = [];
-        if(d.missingRated){
-          lines.push('⚠ Missing bag bushels and/or bag length. This page expects the bag product (bagSku.id) doc to include a "bushels" field and a length (sizeFeet).');
+        lines.push('This inventory is PUT DOWN only. Pickups adjust putDown via appliedTo.');
+        if(d.partialCapApplied){
+          lines.push('Partial feet are capped: effectiveFeet = MIN(remainingPartialFeetSum, remainingPartial * lengthFt).');
         }
-        if(d.missingPartialFeet){
-          lines.push('⚠ Partial bags exist but partialFeet[] was not recorded. Partial bushels are treated as 0 (never assumed).');
-        }
-        if(d.partialCountMismatch){
-          lines.push('⚠ counts.partial does not match number of partialFeet entries. Bushels use the SUM of partialFeet[].');
+        if(d.missingCapacity){
+          lines.push('⚠ Capacity chain missing: need inventoryGrainBagMovements + productsGrainBags docs for this bagSku.id.');
         }
         if(d.notes) lines.push(d.notes);
-        notesEl.textContent = lines.join('\n\n') || 'This panel shows the last known crop, crop year, and estimated grain on hand for this grain bag entry.';
+        notesEl.textContent = lines.join('\n\n');
       }
 
       const footer = panel.querySelector('.wo-detail-footer');
@@ -978,7 +980,6 @@
       const filtered = STATE.items.filter(it => {
         const d = it.data;
 
-        // ✅ only require open entry
         if(!(d.totalBags > 0)) return false;
 
         if(cropFilter !== 'all' && (d.cropType || 'Unknown crop') !== cropFilter) return false;
@@ -992,7 +993,8 @@
             d.cropType,
             d.cropYear,
             d.submittedByName,
-            d.skuId
+            d.invSkuId,
+            d.productId
           ].join(' ').toLowerCase();
           if(!hay.includes(q)) return false;
         }
@@ -1112,7 +1114,6 @@
     }
 
     async function handlePrintClick(){
-      // ✅ Print should include open entries even if onHandBu is 0 due to missing product bushels.
       const items = getWorkingItems().filter(it => it.data.totalBags > 0);
       if (!items.length){
         alert('No grain bag inventory matches the current filters to print.');
@@ -1189,6 +1190,7 @@
       totalFull,
       totalPartial
     }){
+      // (unchanged print template from your last working page)
       return `<!doctype html>
 <html>
 <head>
@@ -1429,7 +1431,6 @@
     tr:nth-child(even) td{ background:#F9FAFB; }
 
     .num, th.num{ text-align:center; }
-    .right{ text-align:right; }
 
     .report-footer{
       margin-top:18px;
@@ -1497,7 +1498,7 @@
     <section class="section">
       <div class="section-heading-row">
         <div class="section-title-main">Key Metrics</div>
-        <div class="section-note">Snapshot at time of generation. Bushels are estimated from rated bag bushels and partial feet.</div>
+        <div class="section-note">Snapshot at time of generation. Bushels are estimated.</div>
       </div>
       <div class="kpi-row">
         <div class="kpi-card">
@@ -1588,7 +1589,7 @@
 
     <footer class="report-footer">
       <div class="footer-left">
-        Internal use only. Values reflect open bag entries in FarmVista. Bushels are estimated from rated bag bushels and partial feet.
+        Internal use only. Values reflect open bag entries in FarmVista. Bushels are estimated.
       </div>
       <div class="footer-right">
         FarmVista • Grain Bag Inventory • ${escapeHtml(runDateOnly || '')}
@@ -1597,28 +1598,6 @@
   </div>
 </body>
 </html>`;
-    }
-
-    async function fetchDocsByIds(collectionName, ids, concurrency){
-      const db = STATE.db;
-      const list = Array.from(ids || []).filter(Boolean);
-      const out = new Map();
-      if(!list.length) return out;
-
-      let idx = 0;
-      const workers = new Array(Math.min(concurrency, list.length)).fill(0).map(async () => {
-        while(idx < list.length){
-          const my = idx++;
-          const id = list[my];
-          try{
-            const snap = await getDoc(doc(db, collectionName, id));
-            if(snap.exists()) out.set(id, snap.data() || {});
-          }catch(e){}
-        }
-      });
-
-      await Promise.allSettled(workers);
-      return out;
     }
 
     function hydrateNamesFromCaches(){
@@ -1649,7 +1628,27 @@
 
     async function resolveFieldAndFarmNamesFromEvents(){
       const fieldIds = new Set(STATE.items.map(it => it.data.fieldId).filter(Boolean));
-      const fieldDocs = await fetchDocsByIds(CONFIG.FIELDS_COLLECTION, fieldIds, CONFIG.FETCH_CONCURRENCY);
+      const fieldDocs = await (async () => {
+        const db = STATE.db;
+        const list = Array.from(fieldIds).filter(Boolean);
+        const out = new Map();
+        if(!list.length) return out;
+
+        let idx = 0;
+        const workers = new Array(Math.min(CONFIG.FETCH_CONCURRENCY, list.length)).fill(0).map(async () => {
+          while(idx < list.length){
+            const my = idx++;
+            const id = list[my];
+            try{
+              const snap = await getDoc(doc(db, CONFIG.FIELDS_COLLECTION, id));
+              if(snap.exists()) out.set(id, snap.data() || {});
+            }catch(e){}
+          }
+        });
+
+        await Promise.allSettled(workers);
+        return out;
+      })();
 
       const farmIds = new Set();
       for(const [fieldId, data] of fieldDocs.entries()){
@@ -1668,7 +1667,28 @@
         });
       }
 
-      const farmDocs = await fetchDocsByIds(CONFIG.FARMS_COLLECTION, farmIds, CONFIG.FETCH_CONCURRENCY);
+      const farmDocs = await (async () => {
+        const db = STATE.db;
+        const list = Array.from(farmIds).filter(Boolean);
+        const out = new Map();
+        if(!list.length) return out;
+
+        let idx = 0;
+        const workers = new Array(Math.min(CONFIG.FETCH_CONCURRENCY, list.length)).fill(0).map(async () => {
+          while(idx < list.length){
+            const my = idx++;
+            const id = list[my];
+            try{
+              const snap = await getDoc(doc(db, CONFIG.FARMS_COLLECTION, id));
+              if(snap.exists()) out.set(id, snap.data() || {});
+            }catch(e){}
+          }
+        });
+
+        await Promise.allSettled(workers);
+        return out;
+      })();
+
       for(const [farmId, data] of farmDocs.entries()){
         const label = data.name || data.farmName || 'Unnamed farm';
         const cur = STATE.farmMap.get(farmId);
@@ -1676,26 +1696,60 @@
       }
     }
 
-    async function loadGrainBagInventoryFastFirst(){
+    async function loadGrainBagInventoryPutDownAdjusted(){
       const db = STATE.db;
       const ref = collection(db, CONFIG.EVENTS_COLLECTION);
 
       try{
         const snap = await getDocs(ref);
+
+        // Collect putDown + pickUp
+        const putDown = new Map(); // id -> {x, remainingFull, remainingPartial, remainingPartialFeetSum}
+        const pickUps = [];
+
+        snap.forEach(docSnap => {
+          const x = docSnap.data() || {};
+          const id = docSnap.id;
+
+          if(x.type === 'putDown'){
+            const c = getPutDownCounts(x);
+            putDown.set(id, {
+              id,
+              x,
+              remainingFull: c.full,
+              remainingPartial: c.partial,
+              remainingPartialFeetSum: c.partialFeetSum
+            });
+          } else if (x.type === 'pickUp'){
+            pickUps.push({ id, x });
+          }
+        });
+
+        // Apply pickUps to referenced putDowns via appliedTo
+        for(const pu of pickUps){
+          const x = pu.x || {};
+          const applied = extractAppliedPutDownIds(x);
+          if(!applied.length) continue;
+
+          const c = getPickUpCounts(x);
+
+          // If pickup applies to multiple putDowns, we apply the same deltas to each referenced one.
+          // (If you later store per-appliedTo splits, we can refine this.)
+          for(const pdId of applied){
+            const cur = putDown.get(pdId);
+            if(!cur) continue;
+
+            cur.remainingFull = Math.max(0, cur.remainingFull - c.full);
+            cur.remainingPartial = Math.max(0, cur.remainingPartial - c.partial);
+            cur.remainingPartialFeetSum = Math.max(0, cur.remainingPartialFeetSum - c.partialFeetSum);
+          }
+        }
+
+        // Build visible items ONLY from putDown adjusted truth
         const items = [];
 
-        for(const docSnap of snap.docs){
-          const x = docSnap.data() || {};
-
-          if(x.type !== 'putDown') continue;
-          if(x.status === 'pickedUp') continue;
-
-          const counts = x.counts || {};
-          const full = Number(counts.full || 0);
-          const partial = Number(counts.partial || 0);
-          const totalBags = full + partial;
-          if(totalBags <= 0) continue;
-
+        for(const [putId, pd] of putDown.entries()){
+          const x = pd.x || {};
           const fieldId = x.field?.id || null;
           const fieldName = x.field?.name || 'Unknown field';
 
@@ -1705,24 +1759,6 @@
 
           const cropType = x.cropType || x.crop || 'Unknown crop';
           const cropYear = x.cropYear || null;
-
-          // ✅ Pull partial feet (your schema: partialFeet: [250])
-          const partialFeetList = getPartialFeetList(x);
-
-          // ✅ Look up bag product (bagSku.id) to get rated bushels per full bag
-          const skuId = getSkuId(x);
-          const product = skuId ? await fetchBagProductById(skuId) : null;
-
-          const ratedBuPerBag = getRatedBushelsFromProductOrSku(product, x);
-          const lengthFeet = getLengthFeetFromProductOrSku(product, x);
-
-          const math = computeOnHandBushels({
-            full,
-            partialCount: partial,
-            partialFeetList,
-            ratedBuPerBag,
-            lengthFeet
-          });
 
           let updatedAt = null;
           const rawUpdated = x.updatedAt || x.createdAt || null;
@@ -1736,8 +1772,31 @@
 
           const submittedByName = x.submittedBy?.name || x.submittedBy?.email || '';
 
+          const invSkuId = (x.bagSku && x.bagSku.id) ? String(x.bagSku.id) : '';
+          const invSku = invSkuId ? await getInvSku(invSkuId) : { _missing:true };
+          const productId = (!invSku._missing && (invSku.productId || invSku.product?.id)) ? String(invSku.productId || invSku.product.id) : '';
+          const prod = productId ? await getProdBag(productId) : { _missing:true };
+
+          // Capacity fields (from handleChat.js):
+          // - pgb.bushelsCorn
+          // - pgb.lengthFt
+          const bushelsCorn = (!prod._missing) ? (prod.bushelsCorn ?? prod.bushels ?? prod.cornBushels ?? prod.capacityCornBu) : 0;
+          const lengthFt = (!prod._missing) ? (prod.lengthFt ?? prod.lengthFeet ?? prod.sizeFeet ?? prod.length) : 0;
+
+          const math = computeBushelsFromRemaining({
+            cropType,
+            remainingFull: pd.remainingFull,
+            remainingPartial: pd.remainingPartial,
+            remainingPartialFeetSum: pd.remainingPartialFeetSum,
+            bushelsCorn,
+            lengthFt
+          });
+
+          const missingCapacity = !(toNum(bushelsCorn) > 0 && toNum(lengthFt) > 0);
+          const partialCapApplied = (toNum(lengthFt) > 0) && (toNum(pd.remainingPartialFeetSum) > (toNum(pd.remainingPartial) * toNum(lengthFt)));
+
           items.push({
-            id: docSnap.id,
+            id: putId,
             data: {
               farmId: farmId || 'unknown',
               farmName: farmName || 'Unknown farm',
@@ -1748,23 +1807,26 @@
               datePlaced,
               cropMoisture: (x.cropMoisture !== undefined ? x.cropMoisture : null),
 
-              fullBags: full,
-              partialBags: partial,
-              totalBags,
+              // remaining = inventory truth
+              fullBags: pd.remainingFull,
+              partialBags: pd.remainingPartial,
+              totalBags: pd.remainingFull + pd.remainingPartial,
 
-              // ✅ new math fields (kept internal but shown in detail)
-              skuId,
-              productCollection: (product && product._collection) ? product._collection : '',
-              ratedBuPerBag,
-              lengthFeet,
-              buPerFoot: math.buPerFoot,
-              partialFeetList,
-              partialFeetSum: math.partialFeetSum,
-              onHandBu: math.onHandBu,
+              remainingPartialFeetSum: pd.remainingPartialFeetSum,
+              effectiveFeet: math.effFeet,
 
-              missingRated: math.missingRated,
-              missingPartialFeet: math.missingPartialFeet,
-              partialCountMismatch: math.partialCountMismatch,
+              // capacity chain debug
+              invSkuId,
+              productId,
+              bushelsCorn: toNum(bushelsCorn),
+              lengthFt: toNum(lengthFt),
+              cropFactor: math.factor,
+
+              // outputs
+              onHandBu: missingCapacity ? 0 : math.totalBu,
+
+              missingCapacity,
+              partialCapApplied,
 
               priority: x.priority || null,
               notes: x.notes || '',
@@ -1857,7 +1919,7 @@
       if (printBottom) printBottom.addEventListener('click', handlePrintClick);
 
       setSummaryText('Loading grain bag inventory…', 'Loading bag events…');
-      await loadGrainBagInventoryFastFirst();
+      await loadGrainBagInventoryPutDownAdjusted();
 
       if(CONFIG.RENDER_YIELD_MS >= 0){
         await new Promise(r => setTimeout(r, CONFIG.RENDER_YIELD_MS));
