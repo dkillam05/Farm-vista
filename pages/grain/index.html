@@ -8,6 +8,9 @@
 
   <script src="/Farm-vista/js/theme-boot.js"></script>
 
+  <!-- ✅ Grain capacity helper (corn-rated → crop bushels via factors) -->
+  <script src="/Farm-vista/js/grain-capacity.js"></script>
+
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
@@ -132,7 +135,7 @@
           <div class="metric">
             <div class="muted">Bag Count (full + partial, in fields)</div>
             <div id="bag-count" class="big">—</div>
-            <div id="bag-stamp" class="kpi-stamp">bagKPI: report-match v1</div>
+            <div id="bag-stamp" class="kpi-stamp">bagKPI: report-match v2 (products+movements+grain-capacity)</div>
           </div>
           <div class="metric">
             <div class="muted">Total Bushels In Field Bags</div>
@@ -366,6 +369,25 @@
     const isHidden = (el) =>
       !el || el.classList.contains("perm-hidden") || el.getAttribute("aria-hidden") === "true";
 
+    function safeNum(v, def=0){
+      const n = Number(v);
+      return Number.isFinite(n) ? n : def;
+    }
+
+    function parseDocIdFromRef(ref){
+      if(!ref) return '';
+      try{
+        if(typeof ref.id === 'string' && ref.id) return ref.id;
+      }catch(e){}
+      const s = String(ref || '');
+      const parts = s.split('/').filter(Boolean);
+      return parts.length ? parts[parts.length - 1] : '';
+    }
+
+    function makeBagKey(brand, diameterFt, lengthFt){
+      return `${norm(brand)}|${safeNum(diameterFt,0)}|${safeNum(lengthFt,0)}`;
+    }
+
     function estimateBuPerFoot(diameterFt){
       const d = Number(diameterFt) || 0;
       if(d >= 12) return 60;
@@ -379,9 +401,20 @@
     function cropKeyFromAny(v){
       const c = norm(v);
       if (!c) return '';
-      if (c === 'soy' || c === 'soybean' || c === 'soybeans' || c === 'beans') return 'soybeans';
-      if (c === 'corn') return 'corn';
+      if (c === 'soy' || c === 'soybean' || c === 'soybeans' || c === 'beans' || c === 'sb') return 'soybeans';
+      if (c === 'corn' || c === 'maize') return 'corn';
       return c;
+    }
+
+    function cropFactorFromCorn(cropType){
+      try{
+        const api = (window && window.FVGrainCapacity) ? window.FVGrainCapacity : null;
+        if(api && typeof api.getFactor === 'function'){
+          const f = Number(api.getFactor(cropType));
+          return Number.isFinite(f) && f > 0 ? f : 1.0;
+        }
+      }catch(e){}
+      return 1.0;
     }
 
     (async () => {
@@ -446,42 +479,126 @@
         const cropFilter = cropKeyFromAny(bagSelCrop.value);
 
         try{
-          const evSnap = await getDocs(collection(db, 'grain_bag_events'));
+          // ✅ Load 3 collections (same as report):
+          const [evSnap, mvSnap, prSnap] = await Promise.all([
+            getDocs(collection(db, 'grain_bag_events')),
+            getDocs(collection(db, 'inventoryGrainBagMovements')),
+            getDocs(collection(db, 'productsGrainBags'))
+          ]);
+
+          // productsGrainBags
+          const productsById = new Map();
+          prSnap.forEach(ds => {
+            productsById.set(ds.id, ds.data() || {});
+          });
+
+          // inventoryGrainBagMovements
+          const movementByKey = new Map();
+          function keepBetter(existing, candidate){
+            if(!existing) return candidate;
+            const a = existing.updatedAt?.toDate ? existing.updatedAt.toDate().getTime() : safeNum(existing.updatedAt, 0);
+            const b = candidate.updatedAt?.toDate ? candidate.updatedAt.toDate().getTime() : safeNum(candidate.updatedAt, 0);
+            return (b >= a) ? candidate : existing;
+          }
+          mvSnap.forEach(ds => {
+            const d = ds.data() || {};
+            const k = makeBagKey(d.brand, d.diameterFt, d.lengthFt);
+            if(!k || k === '||0|0') return;
+            movementByKey.set(k, keepBetter(movementByKey.get(k), d));
+          });
+
+          function resolveProductForSku(sku){
+            const brand = sku?.brand || '';
+            const diameterFt = safeNum(sku?.diameterFt, safeNum(sku?.diameter, 0));
+            const lengthFt = safeNum(sku?.sizeFeet, safeNum(sku?.lengthFt, 0));
+            const skuId = (sku?.id || '').toString();
+
+            // 1) direct id match
+            if(skuId && productsById.has(skuId)){
+              return { productId: skuId, product: productsById.get(skuId), via:'products' };
+            }
+
+            // 2) movement key match -> productRef
+            const key = makeBagKey(brand, diameterFt, lengthFt);
+            const mv = movementByKey.get(key);
+            if(mv){
+              const pid = parseDocIdFromRef(mv.productRef);
+              if(pid && productsById.has(pid)){
+                return { productId: pid, product: productsById.get(pid), via:'products' };
+              }
+            }
+
+            return { productId:'', product:null, via:'fallback' };
+          }
+
+          function computeBushels({ cropType, sku, counts, partialFeet }){
+            const full = safeNum(counts?.full, 0);
+            const partialCount = safeNum(counts?.partial, 0);
+
+            const res = resolveProductForSku(sku || {});
+            let capacitySource = res.via;
+
+            const prodLengthFt = safeNum(res.product?.lengthFt, 0);
+            const eventLengthFt = safeNum(sku?.sizeFeet, safeNum(sku?.lengthFt, 0));
+            const lengthFt = prodLengthFt > 0 ? prodLengthFt : eventLengthFt;
+
+            const cornBuPerBag = safeNum(res.product?.bushels, 0);
+
+            let cornBuPerFoot = 0;
+            if(cornBuPerBag > 0 && lengthFt > 0){
+              cornBuPerFoot = cornBuPerBag / lengthFt;
+            }else{
+              const diameterFt = safeNum(sku?.diameterFt, safeNum(sku?.diameter, 0));
+              cornBuPerFoot = estimateBuPerFoot(diameterFt);
+              capacitySource = 'fallback';
+            }
+
+            const factor = cropFactorFromCorn(cropType);
+            const cropBuPerFoot = cornBuPerFoot * factor;
+
+            let partialFeetTotal = 0;
+            if(Array.isArray(partialFeet) && partialFeet.length){
+              partialFeetTotal = partialFeet.reduce((s,v)=> s + safeNum(v,0), 0);
+            }else if(partialCount > 0 && lengthFt > 0){
+              partialFeetTotal = partialCount * 0.5 * lengthFt;
+            }
+
+            const onHandBu = (full * (cropBuPerFoot * lengthFt)) + (partialFeetTotal * cropBuPerFoot);
+
+            return {
+              fullBags: full,
+              partialBags: partialCount,
+              partialFeetTotal,
+              onHandBu: Math.max(0, onHandBu),
+              capacitySource
+            };
+          }
 
           let totalFull = 0;
           let totalPartial = 0;
           let totalBu = 0;
 
+          // EXACT report filter: type=putDown only (ignore everything else)
           evSnap.forEach(ds => {
             const x = ds.data() || {};
-
-            // EXACT report filter:
             if (x.type !== 'putDown') return;
-            if (x.status === 'pickedUp') return;
 
             const cropKey = cropKeyFromAny(x.cropType || x.crop || '');
             if (cropFilter && cropFilter !== 'all' && cropKey && cropKey !== cropFilter) return;
 
             const counts = x.counts || {};
-            const full = Number(counts.full || 0);
-            const partial = Number(counts.partial || 0);
-            const totalBags = full + partial;
-            if (totalBags <= 0) return;
-
-            totalFull += full;
-            totalPartial += partial;
+            const full = safeNum(counts.full, 0);
+            const partial = safeNum(counts.partial, 0);
+            if((full + partial) <= 0) return;
 
             const sku = x.bagSku || {};
-            const sizeFeet = Number(sku.sizeFeet || sku.lengthFt || 0);
-            const diameterFt = Number(sku.diameterFt || sku.diameter || 0);
+            const partialFeet = Array.isArray(x.partialFeet) ? x.partialFeet : [];
 
-            const buPerFoot = estimateBuPerFoot(diameterFt);
-            const capPerBagBu = (sizeFeet > 0 && buPerFoot > 0) ? sizeFeet * buPerFoot : 0;
+            const bus = computeBushels({ cropType: (x.cropType || x.crop || ''), sku, counts, partialFeet });
 
-            const onHandBagEq = full + 0.5 * partial;
-            const onHandBu = capPerBagBu > 0 ? onHandBagEq * capPerBagBu : 0;
-
-            if (onHandBu > 0) totalBu += onHandBu;
+            totalFull += bus.fullBags;
+            totalPartial += bus.partialBags;
+            if(bus.onHandBu > 0) totalBu += bus.onHandBu;
           });
 
           const totalBags = totalFull + totalPartial;
