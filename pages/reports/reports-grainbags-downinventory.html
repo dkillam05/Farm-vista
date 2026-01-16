@@ -8,6 +8,9 @@
 
   <script src="/Farm-vista/js/theme-boot.js"></script>
 
+  <!-- ✅ Grain capacity helper (corn-rated → crop bushels via factors) -->
+  <script src="/Farm-vista/js/grain-capacity.js"></script>
+
   <!-- ABSOLUTE PATHS -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
@@ -512,17 +515,17 @@
       return `${norm(brand)}|${safeNum(diameterFt,0)}|${safeNum(lengthFt,0)}`;
     }
 
-    // === Crop factor relative to CORN bushel capacity ===
-    // You told me: productsGrainBags.bushels is CORN capacity for the full-length bag.
-    // Without a stored crop-density table in Firestore, the only safe default is 1.0.
-    // If you add a future table (ex: company/grainBagCropFactors), wire it here.
+    // ✅ Crop factor relative to CORN bushel capacity (uses your shared helper)
+    // - productsGrainBags.bushels = CORN capacity for the full-length bag
+    // - FVGrainCapacity.getFactor('soybeans') => 0.93, etc.
     function cropFactorFromCorn(cropType){
-      const c = norm(cropType);
-      if(!c) return 1.0;
-      if(c.includes('corn')) return 1.0;
-      if(c.includes('soy')) return 1.0;      // default until you define a factor table
-      if(c.includes('wheat')) return 1.0;    // default
-      if(c.includes('milo')) return 1.0;     // default
+      try{
+        const api = (window && window.FVGrainCapacity) ? window.FVGrainCapacity : null;
+        if(api && typeof api.getFactor === 'function'){
+          const f = Number(api.getFactor(cropType));
+          return Number.isFinite(f) && f > 0 ? f : 1.0;
+        }
+      }catch(e){}
       return 1.0;
     }
 
@@ -1651,7 +1654,7 @@
         capacitySource = 'fallback';
       }
 
-      // Crop adjustment (currently default 1.0 unless you define a table)
+      // ✅ Crop adjustment using FVGrainCapacity factors (soybeans=0.93, etc.)
       const factor = cropFactorFromCorn(cropType);
       const cropBuPerFoot = cornBuPerFoot * factor;
 
@@ -1668,7 +1671,6 @@
       // Total bushels:
       const onHandBu = (full * (cropBuPerFoot * lengthFt)) + (partialFeetTotal * cropBuPerFoot);
 
-      // Note: totalBags remains count-based (for UI), but bushels are foot-based for partials.
       const totalBags = full + partialCount;
 
       return {
@@ -1678,13 +1680,8 @@
         partialBags: partialCount,
         partialFeetTotal,
 
-        // debug-ish fields for detail panel footer/tooling
         capacitySource,
-        productId: res.productId || '',
-        bagLengthFt: lengthFt,
-        cornBuPerBag: cornBuPerBag,
-        cornBuPerFoot: cornBuPerFoot,
-        cropFactor: factor
+        productId: res.productId || ''
       };
     }
 
@@ -1726,6 +1723,7 @@
 
           // ✅ Correct bushel math:
           // - capacity from productsGrainBags (corn bushels for full bag)
+          // - convert to crop bushels via FVGrainCapacity factor
           // - partials are based on feet (partialFeet[])
           const bus = computeBushelsForEvent({ cropType, sku, counts, partialFeet });
 
@@ -1760,13 +1758,10 @@
               partialBags: bus.partialBags,
               totalBags: bus.totalBags,
 
-              // ✅ new partial tracking
               partialFeetTotal: bus.partialFeetTotal,
 
-              // ✅ corrected bushels
               onHandBu: bus.onHandBu,
 
-              // link/debug fields (kept minimal in UI)
               capacitySource: bus.capacitySource,
               productId: bus.productId || '',
 
