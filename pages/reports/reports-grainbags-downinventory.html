@@ -278,20 +278,6 @@
       font-weight:600;
     }
 
-    .warn-pill{
-      display:inline-flex;
-      align-items:center;
-      gap:6px;
-      padding:2px 10px;
-      border-radius:999px;
-      border:1px solid rgba(245,158,11,0.35);
-      background:rgba(245,158,11,0.12);
-      font-size:0.78rem;
-      font-weight:900;
-      margin-left:6px;
-      white-space:nowrap;
-    }
-
     /* Detail panel */
     .wo-detail-panel {
       margin-top:10px;
@@ -437,31 +423,10 @@
       FARMS_COLLECTION: 'farms',
       COMPANY_DOC_PATH: ['company','main'],
 
-      // ✅ Capacity chain (matches your /chat/handleChat.js comment):
-      // v.bagSkuId -> inventoryGrainBagMovements.id -> productsGrainBags.id
-      // Here: event.bagSku.id is the "bagSkuId" (inventoryGrainBagMovements.id)
-      INVENTORY_SKU_COLLECTIONS: [
-        'inventoryGrainBagMovements',
-        'inventory_grain_bag_movements',
-        'inventory_grain_bags'
-      ],
-      PRODUCTS_BAG_COLLECTIONS: [
-        'productsGrainBags',
-        'products_grain_bags'
-      ],
-
       // Performance knobs (safe defaults)
       SEARCH_DEBOUNCE_MS: 250,
       FETCH_CONCURRENCY: 18,
       RENDER_YIELD_MS: 0
-    };
-
-    const CROP_FACTORS = {
-      corn: 1.00,
-      soybeans: 0.93,
-      wheat: 1.07,
-      milo: 1.02,
-      oats: 0.78
     };
 
     const STATE = {
@@ -474,10 +439,6 @@
       fieldMap: new Map(),
       farmMap: new Map(),
       cropSet: new Set(),
-
-      // caches
-      invSkuCache: new Map(),     // invSkuId -> doc or {_missing:true}
-      prodBagCache: new Map(),    // prodId   -> doc or {_missing:true}
 
       stats: { t0:0, eventsLoaded:0, fieldsResolved:0, farmsResolved:0 }
     };
@@ -508,121 +469,19 @@
       return num.toLocaleString();
     }
 
-    function fmt2(n){
-      const v = Number(n);
-      if(!Number.isFinite(v)) return '';
-      return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
-    }
-
     function getWorkingItems(){
       return (STATE.filteredItems && STATE.filteredItems.length) ? STATE.filteredItems : STATE.items;
     }
 
-    function toNum(v){
-      const n = Number(v);
-      return Number.isFinite(n) ? n : 0;
-    }
-
-    function normCrop(s){
-      const t = (s || '').toString().trim().toLowerCase();
-      if(!t) return 'corn';
-      if(t === 'soy' || t === 'beans' || t === 'sb') return 'soybeans';
-      return t;
-    }
-
-    function cropFactorFor(cropType){
-      const c = normCrop(cropType);
-      return (CROP_FACTORS[c] != null) ? CROP_FACTORS[c] : 1.0;
-    }
-
-    function sumFeet(arr){
-      if(!Array.isArray(arr)) return 0;
-      return arr.reduce((s,v)=> s + toNum(v), 0);
-    }
-
-    function getPartialFeetListFromEvent(x){
-      // Your example shows top-level: partialFeet: [250]
-      if(Array.isArray(x.partialFeet)) return x.partialFeet.map(toNum).filter(n => n > 0);
-      const c = x.counts || {};
-      if(Array.isArray(c.partialFeet)) return c.partialFeet.map(toNum).filter(n => n > 0);
-      if(Array.isArray(x.partialFeetList)) return x.partialFeetList.map(toNum).filter(n => n > 0);
-      if(Array.isArray(c.partialFeetList)) return c.partialFeetList.map(toNum).filter(n => n > 0);
-      return [];
-    }
-
-    function getPutDownCounts(x){
-      const c = x.counts || {};
-      return {
-        full: toNum(c.full),
-        partial: toNum(c.partial),
-        partialFeetSum: sumFeet(getPartialFeetListFromEvent(x))
-      };
-    }
-
-    function getPickUpCounts(x){
-      const c = x.counts || {};
-      return {
-        full: toNum(c.full),
-        partial: toNum(c.partial),
-        partialFeetSum: sumFeet(getPartialFeetListFromEvent(x))
-      };
-    }
-
-    function extractAppliedPutDownIds(pickupEvent){
-      // Pickups adjust putDown via appliedTo[].refPutDownId (per your earlier message)
-      const a = pickupEvent.appliedTo;
-      if(!Array.isArray(a)) return [];
-      const out = [];
-      for(const it of a){
-        const id = (it && (it.refPutDownId || it.putDownId || it.refId)) ? String(it.refPutDownId || it.putDownId || it.refId) : '';
-        if(id) out.push(id);
-      }
-      return out;
-    }
-
-    async function fetchFirstDocFromCollections(collectionNames, id){
-      const db = STATE.db;
-      for(const colName of (collectionNames || [])){
-        try{
-          const snap = await getDoc(doc(db, colName, id));
-          if(snap.exists()) return Object.assign({ _id:id, _collection: colName }, (snap.data() || {}));
-        }catch(e){}
-      }
-      return { _id:id, _missing:true };
-    }
-
-    async function getInvSku(invSkuId){
-      if(!invSkuId) return { _missing:true };
-      if(STATE.invSkuCache.has(invSkuId)) return STATE.invSkuCache.get(invSkuId);
-      const d = await fetchFirstDocFromCollections(CONFIG.INVENTORY_SKU_COLLECTIONS, invSkuId);
-      STATE.invSkuCache.set(invSkuId, d);
-      return d;
-    }
-
-    async function getProdBag(prodId){
-      if(!prodId) return { _missing:true };
-      if(STATE.prodBagCache.has(prodId)) return STATE.prodBagCache.get(prodId);
-      const d = await fetchFirstDocFromCollections(CONFIG.PRODUCTS_BAG_COLLECTIONS, prodId);
-      STATE.prodBagCache.set(prodId, d);
-      return d;
-    }
-
-    function computeBushelsFromRemaining({ cropType, remainingFull, remainingPartial, remainingPartialFeetSum, bushelsCorn, lengthFt }){
-      const len = toNum(lengthFt);
-      const capCorn = toNum(bushelsCorn);
-
-      // partial cap rule (from handleChat.js):
-      // effectiveFeet = MIN(remainingPartialFeetSum, remainingPartial * lengthFt)
-      const effFeet = Math.min(toNum(remainingPartialFeetSum), toNum(remainingPartial) * len);
-
-      const fullCornBu = toNum(remainingFull) * capCorn;
-      const partialCornBu = (len > 0) ? ((effFeet / len) * capCorn) : 0;
-      const totalCornBu = fullCornBu + partialCornBu;
-
-      const factor = cropFactorFor(cropType);
-      const totalBu = totalCornBu * factor;
-
-      return { effFeet, fullCornBu, partialCornBu, totalCornBu, factor, totalBu };
+    // === Bag bushel estimate (per-foot) ===
+    function estimateBuPerFoot(diameterFt){
+      const d = Number(diameterFt) || 0;
+      if(d >= 12) return 60;
+      if(d >= 11) return 50;
+      if(d >= 10) return 39;
+      if(d >= 9)  return 30;
+      if(d > 0)   return 25;
+      return 0;
     }
 
     function groupItemsByFarmCropField(items){
@@ -678,16 +537,15 @@
 
       listEl.innerHTML = '';
 
-      // ✅ Show open remaining (putDown-adjusted truth). Do NOT hide rows when bushels are 0 (missing product link).
       const items = getWorkingItems().filter(it => {
         const d = it.data;
-        return (d.totalBags > 0);
+        return (d.totalBags > 0) && (d.onHandBu > 0);
       });
 
       if(!items.length){
         emptyEl.style.display = 'block';
-        emptyEl.textContent = 'No open grain bag inventory matches the selected filters.';
-        setSummaryText('0 open bag entries');
+        emptyEl.textContent = 'No grain currently on hand in field grain bags for the selected filters.';
+        setSummaryText('0 bu estimated on hand');
         return;
       }
 
@@ -701,13 +559,11 @@
       const fields = new Set(items.map(it => it.data.fieldId || it.data.fieldName));
       const bagEntries = items.length;
 
-      const missCap = items.reduce((s,it)=> s + (it.data.missingCapacity ? 1 : 0), 0);
-
       setSummaryText(
-        `${totalFull} full, ${totalPartial} partial • ${formatNumber(totalOnHandBu)} bu (estimated) on hand • ${bagEntries} open entr${bagEntries===1?'y':'ies'} • ${fields.size} field${fields.size===1?'':'s'} • ${farms.size} farm${farms.size===1?'':'s'}`,
-        (STATE.stats.eventsLoaded
-          ? `Loaded ${STATE.stats.eventsLoaded} putDown entr${STATE.stats.eventsLoaded===1?'y':'ies'} • Resolved ${STATE.stats.fieldsResolved} fields / ${STATE.stats.farmsResolved} farms`
-          : '') + (missCap ? ` • ⚠ ${missCap} missing capacity chain` : '')
+        `${totalFull} full, ${totalPartial} partial • ${formatNumber(totalOnHandBu)} bu (estimated) on hand • ${bagEntries} bag entr${bagEntries===1?'y':'ies'} • ${fields.size} field${fields.size===1?'':'s'} • ${farms.size} farm${farms.size===1?'':'s'}`,
+        STATE.stats.eventsLoaded
+          ? `Loaded ${STATE.stats.eventsLoaded} open bag entr${STATE.stats.eventsLoaded===1?'y':'ies'} • Resolved ${STATE.stats.fieldsResolved} fields / ${STATE.stats.farmsResolved} farms`
+          : ''
       );
 
       const grouped = groupItemsByFarmCropField(items);
@@ -747,17 +603,14 @@
               card.className = 'wo-card';
               card.dataset.id = item.id;
 
-              const warnBits = [];
-              if(d.missingCapacity) warnBits.push('missing capacity');
-              if(d.partialCapApplied) warnBits.push('partial cap');
-              const warnHtml = warnBits.length ? `<span class="warn-pill">⚠ ${warnBits.join(' • ')}</span>` : '';
-
+              // ✅ EXACTLY what you asked:
+              // The main “spot” is now: 2 full, 1 partial · approx 48,750 bu on hand
+              // Crop/year is moved to pills (kept), and Location is removed.
               card.innerHTML = `
                 <div class="wo-row-top">
                   <div class="wo-main">
                     <div class="wo-title">
                       ${full} full, ${partial} partial · approx ${formatNumber(bu)} bu on hand
-                      ${warnHtml}
                     </div>
                     <div class="wo-sub">
                       ${d.cropType || 'Crop'}${d.cropYear ? ' • ' + d.cropYear : ''}${d.cropMoisture !== null && d.cropMoisture !== undefined ? ' • ' + d.cropMoisture + '% moisture' : ''}
@@ -816,14 +669,7 @@
 
       const grid = panel.querySelector('.wo-detail-grid');
       if(grid){
-        const partialFeetTxt = (d.remainingPartialFeetSum > 0)
-          ? `${formatNumber(d.remainingPartialFeetSum)} ft (sum)`
-          : '0 ft';
-
-        const capLine = (d.bushelsCorn && d.lengthFt)
-          ? `${formatNumber(d.bushelsCorn)} corn bu per full bag • ${formatNumber(d.lengthFt)} ft`
-          : 'Not resolved';
-
+        // ✅ no Bag SKU, no Location notes, no Capacity
         grid.innerHTML = `
           <div>
             <div class="wo-detail-item-label">Farm</div>
@@ -841,38 +687,14 @@
             <div class="wo-detail-item-label">Crop year</div>
             <div class="wo-detail-item-value">${d.cropYear || 'Not recorded'}</div>
           </div>
-
           <div>
-            <div class="wo-detail-item-label">Remaining full</div>
+            <div class="wo-detail-item-label">Full bags</div>
             <div class="wo-detail-item-value">${d.fullBags}</div>
           </div>
           <div>
-            <div class="wo-detail-item-label">Remaining partial</div>
+            <div class="wo-detail-item-label">Partial bags</div>
             <div class="wo-detail-item-value">${d.partialBags}</div>
           </div>
-
-          <div>
-            <div class="wo-detail-item-label">Remaining partial feet sum</div>
-            <div class="wo-detail-item-value">${partialFeetTxt}</div>
-          </div>
-          <div>
-            <div class="wo-detail-item-label">Effective partial feet (capped)</div>
-            <div class="wo-detail-item-value">${formatNumber(d.effectiveFeet || 0)} ft</div>
-          </div>
-
-          <div>
-            <div class="wo-detail-item-label">Capacity chain</div>
-            <div class="wo-detail-item-value">
-              ${capLine}<br>
-              <span style="opacity:.8">bagSku.id: ${d.invSkuId || '—'}</span><br>
-              <span style="opacity:.8">productId: ${d.productId || '—'}</span>
-            </div>
-          </div>
-          <div>
-            <div class="wo-detail-item-label">Crop factor</div>
-            <div class="wo-detail-item-value">${d.cropFactor ? fmt2(d.cropFactor) : '—'}</div>
-          </div>
-
           <div>
             <div class="wo-detail-item-label">Estimated on hand</div>
             <div class="wo-detail-item-value">${formatNumber(d.onHandBu)} bu</div>
@@ -881,7 +703,6 @@
             <div class="wo-detail-item-label">Moisture</div>
             <div class="wo-detail-item-value">${d.cropMoisture !== null && d.cropMoisture !== undefined ? d.cropMoisture + '%' : 'Not recorded'}</div>
           </div>
-
           <div>
             <div class="wo-detail-item-label">Date placed</div>
             <div class="wo-detail-item-value">${d.datePlaced ? formatDate(d.datePlaced) : 'Not recorded'}</div>
@@ -890,7 +711,6 @@
             <div class="wo-detail-item-label">Priority</div>
             <div class="wo-detail-item-value">${d.priority || 'Not set'}</div>
           </div>
-
           <div>
             <div class="wo-detail-item-label">Last updated</div>
             <div class="wo-detail-item-value">
@@ -903,16 +723,8 @@
 
       const notesEl = panel.querySelector('.wo-detail-notes-body');
       if(notesEl){
-        const lines = [];
-        lines.push('This inventory is PUT DOWN only. Pickups adjust putDown via appliedTo.');
-        if(d.partialCapApplied){
-          lines.push('Partial feet are capped: effectiveFeet = MIN(remainingPartialFeetSum, remainingPartial * lengthFt).');
-        }
-        if(d.missingCapacity){
-          lines.push('⚠ Capacity chain missing: need inventoryGrainBagMovements + productsGrainBags docs for this bagSku.id.');
-        }
-        if(d.notes) lines.push(d.notes);
-        notesEl.textContent = lines.join('\n\n');
+        notesEl.textContent =
+          d.notes || 'This panel shows the last known crop, crop year, and estimated grain on hand for this grain bag entry.';
       }
 
       const footer = panel.querySelector('.wo-detail-footer');
@@ -980,7 +792,7 @@
       const filtered = STATE.items.filter(it => {
         const d = it.data;
 
-        if(!(d.totalBags > 0)) return false;
+        if(!(d.totalBags > 0 && d.onHandBu > 0)) return false;
 
         if(cropFilter !== 'all' && (d.cropType || 'Unknown crop') !== cropFilter) return false;
         if(farmFilter !== 'all' && (d.farmId || '') !== farmFilter) return false;
@@ -992,9 +804,7 @@
             d.fieldName,
             d.cropType,
             d.cropYear,
-            d.submittedByName,
-            d.invSkuId,
-            d.productId
+            d.submittedByName
           ].join(' ').toLowerCase();
           if(!hay.includes(q)) return false;
         }
@@ -1114,7 +924,7 @@
     }
 
     async function handlePrintClick(){
-      const items = getWorkingItems().filter(it => it.data.totalBags > 0);
+      const items = getWorkingItems().filter(it => it.data.totalBags > 0 && it.data.onHandBu > 0);
       if (!items.length){
         alert('No grain bag inventory matches the current filters to print.');
         return;
@@ -1190,7 +1000,6 @@
       totalFull,
       totalPartial
     }){
-      // (unchanged print template from your last working page)
       return `<!doctype html>
 <html>
 <head>
@@ -1430,7 +1239,9 @@
     }
     tr:nth-child(even) td{ background:#F9FAFB; }
 
+    /* ✅ Center numbers under headings */
     .num, th.num{ text-align:center; }
+    .right{ text-align:right; }
 
     .report-footer{
       margin-top:18px;
@@ -1516,7 +1327,7 @@
         <div class="kpi-card">
           <div class="kpi-label">Farms & fields</div>
           <div class="kpi-value">${farmCount} farms / ${fieldCount} fields</div>
-          <div class="kpi-footnote">With open entries</div>
+          <div class="kpi-footnote">With non-zero estimated grain on hand</div>
         </div>
       </div>
     </section>
@@ -1600,6 +1411,28 @@
 </html>`;
     }
 
+    async function fetchDocsByIds(collectionName, ids, concurrency){
+      const db = STATE.db;
+      const list = Array.from(ids || []).filter(Boolean);
+      const out = new Map();
+      if(!list.length) return out;
+
+      let idx = 0;
+      const workers = new Array(Math.min(concurrency, list.length)).fill(0).map(async () => {
+        while(idx < list.length){
+          const my = idx++;
+          const id = list[my];
+          try{
+            const snap = await getDoc(doc(db, collectionName, id));
+            if(snap.exists()) out.set(id, snap.data() || {});
+          }catch(e){}
+        }
+      });
+
+      await Promise.allSettled(workers);
+      return out;
+    }
+
     function hydrateNamesFromCaches(){
       let fieldsResolved = 0;
       let farmsResolved = 0;
@@ -1628,27 +1461,7 @@
 
     async function resolveFieldAndFarmNamesFromEvents(){
       const fieldIds = new Set(STATE.items.map(it => it.data.fieldId).filter(Boolean));
-      const fieldDocs = await (async () => {
-        const db = STATE.db;
-        const list = Array.from(fieldIds).filter(Boolean);
-        const out = new Map();
-        if(!list.length) return out;
-
-        let idx = 0;
-        const workers = new Array(Math.min(CONFIG.FETCH_CONCURRENCY, list.length)).fill(0).map(async () => {
-          while(idx < list.length){
-            const my = idx++;
-            const id = list[my];
-            try{
-              const snap = await getDoc(doc(db, CONFIG.FIELDS_COLLECTION, id));
-              if(snap.exists()) out.set(id, snap.data() || {});
-            }catch(e){}
-          }
-        });
-
-        await Promise.allSettled(workers);
-        return out;
-      })();
+      const fieldDocs = await fetchDocsByIds(CONFIG.FIELDS_COLLECTION, fieldIds, CONFIG.FETCH_CONCURRENCY);
 
       const farmIds = new Set();
       for(const [fieldId, data] of fieldDocs.entries()){
@@ -1667,28 +1480,7 @@
         });
       }
 
-      const farmDocs = await (async () => {
-        const db = STATE.db;
-        const list = Array.from(farmIds).filter(Boolean);
-        const out = new Map();
-        if(!list.length) return out;
-
-        let idx = 0;
-        const workers = new Array(Math.min(CONFIG.FETCH_CONCURRENCY, list.length)).fill(0).map(async () => {
-          while(idx < list.length){
-            const my = idx++;
-            const id = list[my];
-            try{
-              const snap = await getDoc(doc(db, CONFIG.FARMS_COLLECTION, id));
-              if(snap.exists()) out.set(id, snap.data() || {});
-            }catch(e){}
-          }
-        });
-
-        await Promise.allSettled(workers);
-        return out;
-      })();
-
+      const farmDocs = await fetchDocsByIds(CONFIG.FARMS_COLLECTION, farmIds, CONFIG.FETCH_CONCURRENCY);
       for(const [farmId, data] of farmDocs.entries()){
         const label = data.name || data.farmName || 'Unnamed farm';
         const cur = STATE.farmMap.get(farmId);
@@ -1696,60 +1488,26 @@
       }
     }
 
-    async function loadGrainBagInventoryPutDownAdjusted(){
+    async function loadGrainBagInventoryFastFirst(){
       const db = STATE.db;
       const ref = collection(db, CONFIG.EVENTS_COLLECTION);
 
       try{
         const snap = await getDocs(ref);
-
-        // Collect putDown + pickUp
-        const putDown = new Map(); // id -> {x, remainingFull, remainingPartial, remainingPartialFeetSum}
-        const pickUps = [];
+        const items = [];
 
         snap.forEach(docSnap => {
           const x = docSnap.data() || {};
-          const id = docSnap.id;
 
-          if(x.type === 'putDown'){
-            const c = getPutDownCounts(x);
-            putDown.set(id, {
-              id,
-              x,
-              remainingFull: c.full,
-              remainingPartial: c.partial,
-              remainingPartialFeetSum: c.partialFeetSum
-            });
-          } else if (x.type === 'pickUp'){
-            pickUps.push({ id, x });
-          }
-        });
+          if(x.type !== 'putDown') return;
+          if(x.status === 'pickedUp') return;
 
-        // Apply pickUps to referenced putDowns via appliedTo
-        for(const pu of pickUps){
-          const x = pu.x || {};
-          const applied = extractAppliedPutDownIds(x);
-          if(!applied.length) continue;
+          const counts = x.counts || {};
+          const full = Number(counts.full || 0);
+          const partial = Number(counts.partial || 0);
+          const totalBags = full + partial;
+          if(totalBags <= 0) return;
 
-          const c = getPickUpCounts(x);
-
-          // If pickup applies to multiple putDowns, we apply the same deltas to each referenced one.
-          // (If you later store per-appliedTo splits, we can refine this.)
-          for(const pdId of applied){
-            const cur = putDown.get(pdId);
-            if(!cur) continue;
-
-            cur.remainingFull = Math.max(0, cur.remainingFull - c.full);
-            cur.remainingPartial = Math.max(0, cur.remainingPartial - c.partial);
-            cur.remainingPartialFeetSum = Math.max(0, cur.remainingPartialFeetSum - c.partialFeetSum);
-          }
-        }
-
-        // Build visible items ONLY from putDown adjusted truth
-        const items = [];
-
-        for(const [putId, pd] of putDown.entries()){
-          const x = pd.x || {};
           const fieldId = x.field?.id || null;
           const fieldName = x.field?.name || 'Unknown field';
 
@@ -1759,6 +1517,16 @@
 
           const cropType = x.cropType || x.crop || 'Unknown crop';
           const cropYear = x.cropYear || null;
+
+          const sku = x.bagSku || {};
+          const sizeFeet = Number(sku.sizeFeet || sku.lengthFt || 0);
+          const diameterFt = Number(sku.diameterFt || sku.diameter || 0);
+
+          const buPerFoot = estimateBuPerFoot(diameterFt);
+          const capPerBagBu = (sizeFeet > 0 && buPerFoot > 0) ? sizeFeet * buPerFoot : 0;
+
+          const onHandBagEq = full + 0.5 * partial;
+          const onHandBu = capPerBagBu > 0 ? onHandBagEq * capPerBagBu : 0;
 
           let updatedAt = null;
           const rawUpdated = x.updatedAt || x.createdAt || null;
@@ -1772,31 +1540,8 @@
 
           const submittedByName = x.submittedBy?.name || x.submittedBy?.email || '';
 
-          const invSkuId = (x.bagSku && x.bagSku.id) ? String(x.bagSku.id) : '';
-          const invSku = invSkuId ? await getInvSku(invSkuId) : { _missing:true };
-          const productId = (!invSku._missing && (invSku.productId || invSku.product?.id)) ? String(invSku.productId || invSku.product.id) : '';
-          const prod = productId ? await getProdBag(productId) : { _missing:true };
-
-          // Capacity fields (from handleChat.js):
-          // - pgb.bushelsCorn
-          // - pgb.lengthFt
-          const bushelsCorn = (!prod._missing) ? (prod.bushelsCorn ?? prod.bushels ?? prod.cornBushels ?? prod.capacityCornBu) : 0;
-          const lengthFt = (!prod._missing) ? (prod.lengthFt ?? prod.lengthFeet ?? prod.sizeFeet ?? prod.length) : 0;
-
-          const math = computeBushelsFromRemaining({
-            cropType,
-            remainingFull: pd.remainingFull,
-            remainingPartial: pd.remainingPartial,
-            remainingPartialFeetSum: pd.remainingPartialFeetSum,
-            bushelsCorn,
-            lengthFt
-          });
-
-          const missingCapacity = !(toNum(bushelsCorn) > 0 && toNum(lengthFt) > 0);
-          const partialCapApplied = (toNum(lengthFt) > 0) && (toNum(pd.remainingPartialFeetSum) > (toNum(pd.remainingPartial) * toNum(lengthFt)));
-
           items.push({
-            id: putId,
+            id: docSnap.id,
             data: {
               farmId: farmId || 'unknown',
               farmName: farmName || 'Unknown farm',
@@ -1807,26 +1552,14 @@
               datePlaced,
               cropMoisture: (x.cropMoisture !== undefined ? x.cropMoisture : null),
 
-              // remaining = inventory truth
-              fullBags: pd.remainingFull,
-              partialBags: pd.remainingPartial,
-              totalBags: pd.remainingFull + pd.remainingPartial,
+              fullBags: full,
+              partialBags: partial,
+              totalBags,
 
-              remainingPartialFeetSum: pd.remainingPartialFeetSum,
-              effectiveFeet: math.effFeet,
-
-              // capacity chain debug
-              invSkuId,
-              productId,
-              bushelsCorn: toNum(bushelsCorn),
-              lengthFt: toNum(lengthFt),
-              cropFactor: math.factor,
-
-              // outputs
-              onHandBu: missingCapacity ? 0 : math.totalBu,
-
-              missingCapacity,
-              partialCapApplied,
+              // math only
+              buPerFoot,
+              capPerBagBu,
+              onHandBu,
 
               priority: x.priority || null,
               notes: x.notes || '',
@@ -1837,7 +1570,7 @@
           });
 
           STATE.cropSet.add(cropType || 'Unknown crop');
-        }
+        });
 
         STATE.items = items;
         STATE.stats.eventsLoaded = items.length;
@@ -1919,7 +1652,7 @@
       if (printBottom) printBottom.addEventListener('click', handlePrintClick);
 
       setSummaryText('Loading grain bag inventory…', 'Loading bag events…');
-      await loadGrainBagInventoryPutDownAdjusted();
+      await loadGrainBagInventoryFastFirst();
 
       if(CONFIG.RENDER_YIELD_MS >= 0){
         await new Promise(r => setTimeout(r, CONFIG.RENDER_YIELD_MS));
