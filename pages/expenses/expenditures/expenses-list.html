@@ -247,7 +247,7 @@
       color:#9A3412;
     }
     .exp-status-pill.rejected{
-      border-color:rgba(239,68,68,.7);
+      border-color:rgba(239,68,68,.12);
       background:rgba(239,68,68,.12);
       color:#991B1B;
     }
@@ -651,7 +651,19 @@
     </div>
   </div>
 
-  <script>
+  <!-- ✅ NEW: Firestore wiring (module) -->
+  <script type="module">
+    import {
+      ready,
+      getAuth,
+      getFirestore,
+      collection,
+      doc,
+      getDocs,
+      updateDoc,
+      serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
+
     (function(){
       'use strict';
 
@@ -694,6 +706,18 @@
       const btnSave = document.getElementById('exp-save-btn');
       const btnDelete = document.getElementById('exp-delete-btn');
 
+      // ✅ Add paymethod option for "reimb" (your live data uses it)
+      (function ensureReimbOption(){
+        if (!editPaymethod) return;
+        const has = Array.from(editPaymethod.options || []).some(o => (o.value||'') === 'reimb');
+        if (!has) {
+          const o = document.createElement('option');
+          o.value = 'reimb';
+          o.textContent = 'Reimb';
+          editPaymethod.appendChild(o);
+        }
+      })();
+
       const monthNames = [
         'All months',
         'January','February','March','April','May','June',
@@ -712,12 +736,40 @@
       function threeYearCutoff(){
         return new Date(Date.now() - THREE_YEARS_MS);
       }
-      function getRefDate(doc){
-        if(doc.createdAt instanceof Date) return doc.createdAt;
-        if(typeof doc.t === 'number') return new Date(doc.t);
-        if(doc.submitted) return parseDateSafe(doc.submitted);
+
+      // Supports:
+      // - Firestore Timestamp objects (if they ever come through)
+      // - Your stub date strings
+      // - Your existing numeric epoch "t"
+      function parseCreatedAtMaybe(v){
+        if(!v) return null;
+        if(v instanceof Date) return v;
+        // Firestore Timestamp shape can vary; your sample JSON uses {__time__:"..."}
+        if(typeof v === 'object'){
+          if(typeof v.toDate === 'function'){
+            try { return v.toDate(); } catch {}
+          }
+          if(typeof v.__time__ === 'string'){
+            const d = new Date(v.__time__);
+            return isNaN(d.getTime()) ? null : d;
+          }
+        }
+        if(typeof v === 'string'){
+          const d = new Date(v);
+          return isNaN(d.getTime()) ? null : d;
+        }
         return null;
       }
+
+      function getRefDate(doc){
+        const ca = parseCreatedAtMaybe(doc.createdAt);
+        if(ca) return ca;
+        if(typeof doc.t === 'number') return new Date(doc.t);
+        if(doc.submitted) return parseDateSafe(doc.submitted);
+        if(doc.rdate) return parseDateSafe(doc.rdate);
+        return null;
+      }
+
       function formatDisplayDate(doc){
         if(doc.submitted) return doc.submitted;
         if(doc.rdate) return doc.rdate;
@@ -1058,7 +1110,6 @@
         }
 
         const updated = {
-          ...allExpenditures[idx],
           merchant: editMerchant.value.trim(),
           total: Number(editTotal.value || 0),
           category: editCategory.value || '',
@@ -1067,15 +1118,23 @@
           status: editStatus.value || 'Submitted',
           rdate: editRdate.value || '',
           submitted: editSubmitted.value || '',
-          notes: editNotes.value.trim()
+          notes: editNotes.value.trim(),
+          updatedAt: serverTimestamp()
         };
 
-        // TODO: wire to Firestore / FVData.update('expenditures', id, updated)
-        console.log('TODO: save expenditure', id, updated);
+        try{
+          await ready;
+          const db = getFirestore();
+          await updateDoc(doc(db, 'expenditures', id), updated);
 
-        allExpenditures[idx] = updated;
-        applyFilters();
-        closeEdit();
+          // Update local state without reload
+          allExpenditures[idx] = { ...allExpenditures[idx], ...updated };
+          applyFilters();
+          closeEdit();
+        }catch(err){
+          console.error('Save failed:', err);
+          alert('Save failed. Check console for details.');
+        }
       }
 
       async function handleDelete(){
@@ -1089,20 +1148,25 @@
           return;
         }
 
-        const updated = {
-          ...allExpenditures[idx],
+        const patch = {
           isDeleted:true,
-          deletedAt:new Date()
+          deletedAt: serverTimestamp()
         };
 
-        // TODO: wire to Firestore / FVData.update('expenditures', id, { isDeleted:true, deletedAt: serverTimestamp() })
-        console.log('TODO: soft-delete expenditure', id);
+        try{
+          await ready;
+          const db = getFirestore();
+          await updateDoc(doc(db, 'expenditures', id), patch);
 
-        allExpenditures[idx] = updated;
-        allExpenditures = filterToUserAndWindow(allExpenditures);
-        buildFilterOptions();
-        applyFilters();
-        closeEdit();
+          allExpenditures[idx] = { ...allExpenditures[idx], ...patch };
+          allExpenditures = filterToUserAndWindow(allExpenditures);
+          buildFilterOptions();
+          applyFilters();
+          closeEdit();
+        }catch(err){
+          console.error('Delete failed:', err);
+          alert('Delete failed. Check console for details.');
+        }
       }
 
       function attachEvents(){
@@ -1125,20 +1189,50 @@
       }
 
       async function loadExpendituresForCurrentUser(){
-        // TODO: replace with real Firestore / FVData call.
-        console.warn('TODO: implement loadExpendituresForCurrentUser()');
-        return [];
+        await ready;
+
+        // Ensure we are not accidentally reading stub mode while online due to config timing.
+        // If auth isn't ready yet, we'll still fall back to submittedBy filtering after fetch.
+        const db = getFirestore();
+
+        // Read all docs (simple + robust). If you later want query(where) we can do it.
+        const colRef = collection(db, 'expenditures');
+        const snap = await getDocs(colRef);
+
+        const out = [];
+        snap.forEach(ds=>{
+          out.push({ id: ds.id, ...ds.data() });
+        });
+
+        // Sort newest first using epoch t if present, else ref date
+        out.sort((a,b)=>{
+          const at = (typeof a.t === 'number') ? a.t : (getRefDate(a)?.getTime() || 0);
+          const bt = (typeof b.t === 'number') ? b.t : (getRefDate(b)?.getTime() || 0);
+          return bt - at;
+        });
+
+        return out;
       }
 
       async function resolveCurrentUserEmail(){
+        // Your firebase-init exports getAuth() and also keeps window.__FV_USER updated.
+        // We'll prefer Auth currentUser, then window.__FV_USER, then legacy FVAuth if it exists.
         try{
+          await ready;
+
+          const a = getAuth();
+          const u = a && a.currentUser;
+          if(u && u.email) return u.email.toLowerCase();
+
+          if(window.__FV_USER && window.__FV_USER.email) return String(window.__FV_USER.email).toLowerCase();
+
           if(window.FVAuth && window.FVAuth.currentUser){
-            const u = window.FVAuth.currentUser;
-            if(u && u.email) return u.email.toLowerCase();
+            const u2 = window.FVAuth.currentUser;
+            if(u2 && u2.email) return u2.email.toLowerCase();
           }
           if(window.FVAuth && typeof window.FVAuth.getCurrentUser === 'function'){
-            const u = await window.FVAuth.getCurrentUser();
-            if(u && u.email) return u.email.toLowerCase();
+            const u3 = await window.FVAuth.getCurrentUser();
+            if(u3 && u3.email) return u3.email.toLowerCase();
           }
         }catch(err){
           console.error('Error getting current user:',err);
@@ -1148,6 +1242,10 @@
 
       async function init(){
         attachEvents();
+
+        // ✅ Critical: wait for firebase-init to finish so we don't read stub store by accident.
+        await ready;
+
         currentUserEmailLower = await resolveCurrentUserEmail();
 
         allExpenditures = await loadExpendituresForCurrentUser();
@@ -1157,7 +1255,13 @@
         applyFilters();
       }
 
-      document.addEventListener('DOMContentLoaded',init);
+      document.addEventListener('DOMContentLoaded', ()=>{
+        // init() is async; fire and log any errors
+        init().catch(err=>{
+          console.error('Expenditures init failed:', err);
+          alert('Expenditures failed to load. Check console for details.');
+        });
+      });
     })();
   </script>
 </body>
