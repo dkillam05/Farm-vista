@@ -322,10 +322,14 @@
       userEmailLower: '',
       userName: '',
       company: null,
-      expenditures: [],   // normalized list (already filtered to current user)
+      expenditures: [],
       loaded: false,
       selectedYear: null,
-      selectedMonth: null
+      selectedMonth: null,
+
+      /* PRINT FIX: track jobs + cleanup timer so old timers can't wipe a new print */
+      printJobId: 0,
+      printCleanupTimer: null
     };
 
     function escapeHtml(str){
@@ -388,17 +392,13 @@
     }
 
     function extractSubmitterEmail(d){
-      // Try all known patterns you’ve used in expenses docs
-      // (we only use this as a fallback/client-side check)
       if(!d) return '';
       if(d.submittedByEmail) return normalizeEmail(d.submittedByEmail);
       if(d.employeeEmail) return normalizeEmail(d.employeeEmail);
       if(d.email) return normalizeEmail(d.email);
 
       if(d.submittedBy){
-        if(typeof d.submittedBy === 'string'){
-          // sometimes submittedBy is a name only → not usable
-        }else if(typeof d.submittedBy === 'object'){
+        if(typeof d.submittedBy === 'object'){
           if(d.submittedBy.email) return normalizeEmail(d.submittedBy.email);
         }
       }
@@ -417,10 +417,6 @@
       }
       return '';
     }
-
-    /* ======================
-       Company header (static fallback)
-       ====================== */
 
     async function loadCompanyHeader(){
       if(STATE.company) return STATE.company;
@@ -443,10 +439,6 @@
       return STATE.company;
     }
 
-    /* ======================
-       Auth gate (required)
-       ====================== */
-
     function waitForUser(){
       return new Promise((resolve) => {
         const unsub = onAuthStateChanged(STATE.auth, (user) => {
@@ -460,16 +452,11 @@
       });
     }
 
-    /* ======================
-       Load expenditures (FILTERED to current user)
-       ====================== */
-
     async function getDocsSafely(q){
       try{
         const snap = await getDocs(q);
         return snap;
       }catch(err){
-        // If a query fails (missing index / field etc.), we don’t want to leak other people’s data by falling back to "get all".
         console.warn('[expenses-report] query failed (safe-empty):', err);
         return null;
       }
@@ -485,9 +472,6 @@
         return;
       }
 
-      // IMPORTANT:
-      // We DO NOT do: getDocs(collection(...))  (that would load everyone)
-      // We ONLY query by current user’s email.
       const expCol = collection(db, CONFIG.EXP_COLLECTION);
 
       const queries = [
@@ -498,7 +482,6 @@
 
       const snaps = await Promise.all(queries.map(getDocsSafely));
 
-      // Merge docs by id
       const docMap = new Map();
       snaps.forEach(snap => {
         if(!snap) return;
@@ -516,8 +499,6 @@
         const [y,m] = rdate.split('-').map(Number);
         if(!y || !m) continue;
 
-        // Extra safety: if the document has an email we can read, enforce it matches current user.
-        // (Prevents any weirdness if you later add broader queries.)
         const docEmail = extractSubmitterEmail(d);
         if(docEmail && docEmail !== STATE.userEmailLower){
           continue;
@@ -553,10 +534,6 @@
         count: STATE.expenditures.length
       });
     }
-
-    /* ======================
-       Build print HTML (StarFire-style)
-       ====================== */
 
     function buildMonthlyPrintHtml({
       company,
@@ -1018,7 +995,7 @@
     }
 
     /* ======================
-       Print handler
+       Print handler (FIXED: no double-open + safe cleanup)
        ====================== */
 
     async function printMonth(yearNum, monthNum, options = {}){
@@ -1029,7 +1006,6 @@
         return;
       }
 
-      // Already filtered to current user at load time
       const allMonthExpenses = STATE.expenditures.filter(e => e.year === yearNum && e.month === monthNum);
 
       let monthExpenses = allMonthExpenses;
@@ -1065,7 +1041,6 @@
         }
       });
 
-      // For this page: ALWAYS the signed-in user (even if a month has 0)
       const employeeName =
         STATE.userName ||
         STATE.userEmail ||
@@ -1116,38 +1091,43 @@
         return;
       }
 
-      // IMPORTANT FIX:
-      // Prevent "double print" (common when BOTH image-load completion AND fallback timeout fire).
+      // PRINT FIX: new job id; cancel any old cleanup timer so it can't wipe this run
+      const jobId = ++STATE.printJobId;
+      if(STATE.printCleanupTimer){
+        clearTimeout(STATE.printCleanupTimer);
+        STATE.printCleanupTimer = null;
+      }
+
       let printed = false;
       let fallbackTimer = null;
-      let finishTimer = null;
 
       const cleanupTimers = () => {
-        if(fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
-        if(finishTimer)   { clearTimeout(finishTimer);   finishTimer = null; }
+        if(fallbackTimer){ clearTimeout(fallbackTimer); fallbackTimer = null; }
       };
 
       const safePrintOnce = () => {
         if(printed) return;
         printed = true;
         cleanupTimers();
+
         try{
           win.focus();
           win.print();
         }catch(err){
           console.warn('[expenses-report] iframe print failed, falling back to window.print()', err);
           try{ window.print(); }catch(_){}
-        }finally{
-          // give the browser a moment, then detach heavy content
-          finishTimer = setTimeout(() => {
-            try{
-              // keep the iframe element, but clear its document to avoid reflow/reprint oddities
-              doc.open();
-              doc.write('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>');
-              doc.close();
-            }catch(_){}
-          }, 400);
         }
+
+        // Optional cleanup, but ONLY if it's still the same job.
+        // This prevents Print #1 cleanup from wiping Print #2.
+        STATE.printCleanupTimer = setTimeout(() => {
+          if(jobId !== STATE.printJobId) return;
+          try{
+            doc.open();
+            doc.write('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>');
+            doc.close();
+          }catch(_){}
+        }, 900);
       };
 
       doc.open();
@@ -1156,14 +1136,12 @@
 
       const imgs = Array.from(doc.images || []);
       if(!imgs.length){
-        // One simple schedule only
         fallbackTimer = setTimeout(safePrintOnce, 200);
       }else{
         let loaded = 0;
         const markDone = () => {
           loaded++;
           if(loaded >= imgs.length){
-            // cancel the fallback so it can't trigger a 2nd print
             if(fallbackTimer){ clearTimeout(fallbackTimer); fallbackTimer = null; }
             setTimeout(safePrintOnce, 150);
           }
@@ -1178,14 +1156,9 @@
           }
         });
 
-        // Fallback (but guarded + cleared when images finish)
         fallbackTimer = setTimeout(safePrintOnce, 5000);
       }
     }
-
-    /* ======================
-       Modal helpers
-       ====================== */
 
     function openReportModal(yearNum, monthNum){
       STATE.selectedYear = yearNum;
@@ -1213,10 +1186,6 @@
         modal.classList.remove('is-open');
       }
     }
-
-    /* ======================
-       Boot + tile wiring
-       ====================== */
 
     document.addEventListener('DOMContentLoaded', async () => {
       await ready;
@@ -1255,7 +1224,6 @@
         const monthNum = parseInt(monthStr,10);
         if(!yearNum || !monthNum) return;
 
-        // If not signed in, don’t open modal
         if(!STATE.userEmailLower){
           alert('You must be signed in to generate your monthly expense report.');
           return;
