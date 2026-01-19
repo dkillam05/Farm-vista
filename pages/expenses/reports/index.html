@@ -242,7 +242,7 @@
       border-radius:18px;
       border:1px solid rgba(31,41,55,0.12);
       background:var(--surface,#FFFFFF);
-      box-shadow:0 18px 45px rgba(0,0,0,0.27);
+      box-shadow:0 18px 45px rgba(0,0,0,0.27));
       overflow:hidden;
       display:flex;
       flex-direction:column;
@@ -327,9 +327,8 @@
       selectedYear: null,
       selectedMonth: null,
 
-      /* PRINT FIX: track jobs + cleanup timer so old timers can't wipe a new print */
-      printJobId: 0,
-      printCleanupTimer: null
+      // Conservative iPhone-safe print lock (no iframe cleanup/rewrites)
+      printBusy: false
     };
 
     function escapeHtml(str){
@@ -995,14 +994,29 @@
     }
 
     /* ======================
-       Print handler (FIXED: no double-open + safe cleanup)
+       Print handler (Conservative iPhone-safe: NO iframe cleanup/rewrites)
        ====================== */
 
     async function printMonth(yearNum, monthNum, options = {}){
       const { purposeLabel = 'General Expenses', filterType = null } = options;
 
+      if(STATE.printBusy){
+        return; // prevent double-trigger spam
+      }
+      STATE.printBusy = true;
+
+      // Always release the lock eventually (even if iOS print UI behaves weird)
+      let releaseTimer = setTimeout(() => { STATE.printBusy = false; }, 6000);
+
+      const release = () => {
+        try{ clearTimeout(releaseTimer); }catch(_){}
+        // give iOS a beat to return from the print sheet before allowing another print
+        setTimeout(() => { STATE.printBusy = false; }, 700);
+      };
+
       if(!STATE.loaded){
         alert('Expenses are still loading. Please try again in a moment.');
+        release();
         return;
       }
 
@@ -1087,63 +1101,50 @@
 
       if(!win || !doc){
         console.warn('[expenses-report] print iframe not ready; falling back to window.print()');
-        window.print();
+        try{ window.print(); }catch(_){}
+        release();
         return;
       }
 
-      // PRINT FIX: new job id; cancel any old cleanup timer so it can't wipe this run
-      const jobId = ++STATE.printJobId;
-      if(STATE.printCleanupTimer){
-        clearTimeout(STATE.printCleanupTimer);
-        STATE.printCleanupTimer = null;
-      }
+      // Write the report into the iframe
+      doc.open();
+      doc.write(html);
+      doc.close();
 
       let printed = false;
       let fallbackTimer = null;
 
-      const cleanupTimers = () => {
-        if(fallbackTimer){ clearTimeout(fallbackTimer); fallbackTimer = null; }
-      };
-
       const safePrintOnce = () => {
         if(printed) return;
         printed = true;
-        cleanupTimers();
+        if(fallbackTimer){ clearTimeout(fallbackTimer); fallbackTimer = null; }
 
         try{
+          // iPhone-safe rule: DO NOT rewrite/clear the iframe after this
           win.focus();
           win.print();
         }catch(err){
           console.warn('[expenses-report] iframe print failed, falling back to window.print()', err);
           try{ window.print(); }catch(_){}
+        }finally{
+          release();
         }
-
-        // Optional cleanup, but ONLY if it's still the same job.
-        // This prevents Print #1 cleanup from wiping Print #2.
-        STATE.printCleanupTimer = setTimeout(() => {
-          if(jobId !== STATE.printJobId) return;
-          try{
-            doc.open();
-            doc.write('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>');
-            doc.close();
-          }catch(_){}
-        }, 900);
       };
 
-      doc.open();
-      doc.write(html);
-      doc.close();
-
+      // Wait for images, but guard against “never loads” with fallback.
       const imgs = Array.from(doc.images || []);
       if(!imgs.length){
-        fallbackTimer = setTimeout(safePrintOnce, 200);
+        // Simple: print shortly after paint
+        setTimeout(safePrintOnce, 250);
       }else{
         let loaded = 0;
+
         const markDone = () => {
           loaded++;
           if(loaded >= imgs.length){
+            // Cancel fallback and print once
             if(fallbackTimer){ clearTimeout(fallbackTimer); fallbackTimer = null; }
-            setTimeout(safePrintOnce, 150);
+            setTimeout(safePrintOnce, 180);
           }
         };
 
@@ -1156,7 +1157,8 @@
           }
         });
 
-        fallbackTimer = setTimeout(safePrintOnce, 5000);
+        // Fallback if some receipt URLs are slow or blocked
+        fallbackTimer = setTimeout(safePrintOnce, 5500);
       }
     }
 
