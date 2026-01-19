@@ -1107,32 +1107,65 @@
         document.body.appendChild(iframe);
       }
 
-      const win = iframe.contentWindow || iframe.contentDocument;
-      const doc = iframe.contentDocument || iframe.contentWindow.document;
+      const win = iframe.contentWindow;
+      const doc = iframe.contentDocument || (win && win.document);
 
-      doc.open();
-      doc.write(html);
-      doc.close();
+      if(!win || !doc){
+        console.warn('[expenses-report] print iframe not ready; falling back to window.print()');
+        window.print();
+        return;
+      }
 
-      const tryPrint = () => {
+      // IMPORTANT FIX:
+      // Prevent "double print" (common when BOTH image-load completion AND fallback timeout fire).
+      let printed = false;
+      let fallbackTimer = null;
+      let finishTimer = null;
+
+      const cleanupTimers = () => {
+        if(fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
+        if(finishTimer)   { clearTimeout(finishTimer);   finishTimer = null; }
+      };
+
+      const safePrintOnce = () => {
+        if(printed) return;
+        printed = true;
+        cleanupTimers();
         try{
           win.focus();
           win.print();
         }catch(err){
           console.warn('[expenses-report] iframe print failed, falling back to window.print()', err);
-          window.print();
+          try{ window.print(); }catch(_){}
+        }finally{
+          // give the browser a moment, then detach heavy content
+          finishTimer = setTimeout(() => {
+            try{
+              // keep the iframe element, but clear its document to avoid reflow/reprint oddities
+              doc.open();
+              doc.write('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>');
+              doc.close();
+            }catch(_){}
+          }, 400);
         }
       };
 
+      doc.open();
+      doc.write(html);
+      doc.close();
+
       const imgs = Array.from(doc.images || []);
       if(!imgs.length){
-        setTimeout(tryPrint, 200);
+        // One simple schedule only
+        fallbackTimer = setTimeout(safePrintOnce, 200);
       }else{
         let loaded = 0;
         const markDone = () => {
           loaded++;
           if(loaded >= imgs.length){
-            setTimeout(tryPrint, 150);
+            // cancel the fallback so it can't trigger a 2nd print
+            if(fallbackTimer){ clearTimeout(fallbackTimer); fallbackTimer = null; }
+            setTimeout(safePrintOnce, 150);
           }
         };
 
@@ -1145,7 +1178,8 @@
           }
         });
 
-        setTimeout(tryPrint, 5000);
+        // Fallback (but guarded + cleared when images finish)
+        fallbackTimer = setTimeout(safePrintOnce, 5000);
       }
     }
 
