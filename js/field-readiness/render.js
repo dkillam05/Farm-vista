@@ -1,28 +1,29 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-01-10c-eta-lockout-timefix
+Rev: 2026-01-20a-truth-slider-state-seed
 
 RECOVERY (critical):
-✅ Fix syntax issues so module loads and tiles render again.
+✅ Keep module stable; tiles + details render.
 
-NEW (per Dane):
-✅ Global calibration now lands EXACTLY on the slider:
-   - We still apply wetBias (physics lean) from recent deltas (scaled).
-   - We also compute readinessShift (1:1 points) from the newest global adjustment,
-     BUT we compensate for the wetBias delta introduced by that newest adjustment,
-     so the final readiness matches the slider value.
+CHANGE (per Dane NEW MEANING):
+✅ Reframe “calibration slider” to mean: “this is the TRUE soil condition today”
+   - We seed the model from persisted per-field storage state (storageFinal/asOfDateISO).
+   - This lets physics drive future dry-down / wet-up naturally.
 
-✅ ETA after calibration:
-   - If forecast predictor says "dryNow" but shifted readiness is below threshold,
-     fall back to legacy ETA so ETA never disappears when below threshold.
+IMPORTANT (to prevent the “maxed at 82” ceiling):
+✅ ReadinessShift is now treated as 0 in the UI run path.
+   - We still support wetBias (physics lean) from adjustments (optional),
+     but we do NOT apply readinessShift here.
+   - Slider should write state (storageFinal) instead of readiness offsets.
 
-✅ FIX TODAY:
-   - If readiness is already >= threshold, ETA MUST be blank (no ETA on dry fields).
+ADDED:
+✅ Load persisted per-field state from Firestore collection:
+   - field_readiness_state/{fieldId} => { storageFinal, asOfDateISO, SmaxAtSave? }
 
-✅ FIX (lockout time not updating):
-   - When predictor returns within72/notWithin72, prefer legacy ETA hours (if available)
-     so ETA text updates when readinessShift changes.
-   - Pass readinessNow/readinessShift into predictor so it can reason about calibration.
+NOTES:
+- This file only reads persisted state and passes it into model deps.
+- Your slider/apply logic should WRITE to field_readiness_state (handled elsewhere).
+
 ===================================================================== */
 'use strict';
 
@@ -37,6 +38,126 @@ import { initSwipeOnTiles } from './swipe.js';
 import { parseRangeFromInput, rainInRange } from './rain.js';
 import { fetchAndHydrateFieldParams } from './data.js';
 import { getAPI } from './firebase.js';
+
+/* =====================================================================
+   Persisted soil truth state (per-field)
+===================================================================== */
+// Collection that stores the user-confirmed truth seed (storageFinal/asOfDateISO).
+// This is separate from field_readiness_latest which is computed output.
+const FR_STATE_COLLECTION = 'field_readiness_state';
+
+// Cache TTL for state loads (ms)
+const STATE_TTL_MS = 30000;
+
+function safeObj(x){
+  return (x && typeof x === 'object') ? x : null;
+}
+function safeStr(x){
+  const s = String(x || '');
+  return s ? s : '';
+}
+function safeISO10(x){
+  const s = safeStr(x);
+  return (s.length >= 10) ? s.slice(0,10) : s;
+}
+function safeNum(v){
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function loadPersistedState(state, { force=false } = {}){
+  try{
+    if (!state) return;
+
+    const now = Date.now();
+    const last = Number(state._persistLoadedAt || 0);
+    if (!force && state.persistedStateByFieldId && (now - last) < STATE_TTL_MS) return;
+
+    state.persistedStateByFieldId = state.persistedStateByFieldId || {};
+    const out = {};
+
+    const api = getAPI(state);
+    if (!api){
+      state.persistedStateByFieldId = out;
+      state._persistLoadedAt = now;
+      return;
+    }
+
+    // compat (firebase v8)
+    if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
+      const db = window.firebase.firestore();
+      const snap = await db.collection(FR_STATE_COLLECTION).get();
+
+      snap.forEach(doc=>{
+        const d = doc.data() || {};
+        const fid = safeStr(d.fieldId || doc.id);
+        if (!fid) return;
+
+        const storageFinal = safeNum(d.storageFinal);
+        const asOfDateISO = safeISO10(d.asOfDateISO);
+
+        if (storageFinal == null || !asOfDateISO) return;
+
+        out[fid] = {
+          fieldId: fid,
+          storageFinal: storageFinal,
+          asOfDateISO: asOfDateISO,
+          // optional debug
+          SmaxAtSave: safeNum(d.SmaxAtSave) ?? safeNum(d.SmaxAtSave || d.smaxAtSave) ?? 0
+        };
+      });
+
+      state.persistedStateByFieldId = out;
+      state._persistLoadedAt = now;
+      return;
+    }
+
+    // modular wrapper
+    if (api.kind !== 'compat'){
+      const db = api.getFirestore();
+      const col = api.collection(db, FR_STATE_COLLECTION);
+      const snap = await api.getDocs(col);
+
+      snap.forEach(doc=>{
+        const d = doc.data() || {};
+        const fid = safeStr(d.fieldId || doc.id);
+        if (!fid) return;
+
+        const storageFinal = safeNum(d.storageFinal);
+        const asOfDateISO = safeISO10(d.asOfDateISO);
+
+        if (storageFinal == null || !asOfDateISO) return;
+
+        out[fid] = {
+          fieldId: fid,
+          storageFinal: storageFinal,
+          asOfDateISO: asOfDateISO,
+          // optional debug
+          SmaxAtSave: safeNum(d.SmaxAtSave) ?? safeNum(d.SmaxAtSave || d.smaxAtSave) ?? 0
+        };
+      });
+
+      state.persistedStateByFieldId = out;
+      state._persistLoadedAt = now;
+      return;
+    }
+  }catch(e){
+    console.warn('[FieldReadiness] persisted state load failed:', e);
+    state.persistedStateByFieldId = state.persistedStateByFieldId || {};
+    state._persistLoadedAt = Date.now();
+  }
+}
+
+function getPersistedStateForDeps(state, fieldId){
+  try{
+    const map = safeObj(state && state.persistedStateByFieldId) || {};
+    const fid = safeStr(fieldId);
+    const s = map[fid];
+    return safeObj(s);
+  }catch(_){
+    return null;
+  }
+}
 
 /* =====================================================================
    Render gate (prevents double-load flicker)
@@ -102,18 +223,11 @@ async function scheduleRender(state, mode){
 
 /* =====================================================================
    Calibration from adjustments collection (GLOBAL ONLY)
+   NOTE: ReadinessShift is intentionally treated as 0 now.
 ===================================================================== */
 const CAL_MAX_DOCS = 12;
 const CAL_SCALE = 0.25;
 const CAL_CLAMP = 12;
-
-// direct readiness shift clamp (1:1 points)
-const READY_SHIFT_CLAMP = 35;
-
-function safeNum(v){
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
 
 function docHasAnchorSlider(d){
   const a = safeNum(d && d.readinessAnchor);
@@ -121,19 +235,13 @@ function docHasAnchorSlider(d){
   return (a != null && s != null);
 }
 
-function shiftFromDoc(d){
-  const a = safeNum(d && d.readinessAnchor);
-  const s = safeNum(d && d.readinessSlider);
-  if (a == null || s == null) return null;
-  return Math.round(s - a);
-}
-
 async function loadCalibrationFromAdjustments(state, { force=false } = {}){
   const now = Date.now();
   const last = Number(state._calLoadedAt || 0);
   if (!force && state._cal && (now - last) < 30000) return state._cal;
 
-  // Expanded shape for deps.CAL
+  // deps.CAL shape expected by model:
+  // We keep wetBias, but readinessShift is forced to 0 (truth slider uses persisted storage)
   const out = { wetBias: 0, opWetBias: {}, readinessShift: 0, opReadinessShift: {} };
 
   try{
@@ -147,10 +255,7 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
     const applyDocs = (docs)=>{
       const list = Array.isArray(docs) ? docs : [];
 
-      // Find newest global doc with anchor/slider (this is the one user just did)
-      const shiftDoc = list.find(d => d && d.global === true && docHasAnchorSlider(d)) || null;
-
-      // Compute wetBias (existing behavior): sum recent deltas (scaled), clamp
+      // wetBias: sum recent deltas (scaled), clamp
       let wbAll = 0;
       for (const d of list){
         if (!d || d.global !== true) continue;
@@ -161,44 +266,17 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
       wbAll = clamp(wbAll, -CAL_CLAMP, CAL_CLAMP);
       out.wetBias = wbAll;
 
-      // Compute readinessShift (NEW, compensated):
-      // We want final readiness to match slider AFTER wetBias changes.
-      // The only wetBias change introduced "just now" is from the newest adjustment doc.
-      // So we compute:
-      //   wbBefore = wetBias from docs EXCLUDING shiftDoc (clamped)
-      //   wbAfter  = wetBias from docs INCLUDING shiftDoc (clamped)  (this is wbAll)
-      //   wbDelta  = wbAfter - wbBefore
-      // And then:
-      //   readinessShift = (slider - anchor) + wbDelta
-      //
-      // This cancels the “double move” you observed.
-      if (shiftDoc){
-        const rawShift = shiftFromDoc(shiftDoc); // slider - anchor (your intent)
-        if (rawShift != null){
-          let wbBefore = 0;
-          for (const d of list){
-            if (!d || d.global !== true) continue;
-            if (d === shiftDoc) continue; // exclude newest
-            const delta = Number(d.delta);
-            if (!Number.isFinite(delta)) continue;
-            wbBefore += (delta * CAL_SCALE);
-          }
-          wbBefore = clamp(wbBefore, -CAL_CLAMP, CAL_CLAMP);
+      // Truth slider path: DO NOT apply readinessShift from anchor/slider
+      // (prevents “maxed at 82” ceilings).
+      out.readinessShift = 0;
+      out.opReadinessShift = {};
 
-          const wbDelta = wbAll - wbBefore;
-          const compensated = rawShift + wbDelta;
+      // Still harmless to keep opWetBias if you ever add it; currently unused.
+      out.opWetBias = out.opWetBias || {};
 
-          out.readinessShift = clamp(Math.round(compensated), -READY_SHIFT_CLAMP, READY_SHIFT_CLAMP);
-
-          // Optional per-op shift (harmless; only sets for that op)
-          try{
-            const op = String(shiftDoc.op || '');
-            if (op) out.opReadinessShift[op] = out.readinessShift;
-          }catch(_){}
-        }
-      }
-
-      out.readinessShift = clamp(Number(out.readinessShift || 0), -READY_SHIFT_CLAMP, READY_SHIFT_CLAMP);
+      // No-op anchor/slider consumption here by design.
+      // (We still tolerate docs that have anchor/slider; we just don’t use them.)
+      void list.find(d => d && d.global === true && docHasAnchorSlider(d));
     };
 
     if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
@@ -265,12 +343,9 @@ async function loadCalibrationFromAdjustments(state, { force=false } = {}){
 function getCalForDeps(state){
   const cal = (state && state._cal && typeof state._cal === 'object') ? state._cal : {};
   const wb = Number.isFinite(Number(cal.wetBias)) ? Number(cal.wetBias) : 0;
-  const rs = Number.isFinite(Number(cal.readinessShift)) ? Number(cal.readinessShift) : 0;
 
   const opWB = (cal.opWetBias && typeof cal.opWetBias === 'object') ? cal.opWetBias : {};
-  const opRS = (cal.opReadinessShift && typeof cal.opReadinessShift === 'object') ? cal.opReadinessShift : {};
-
-  return { wetBias: wb, opWetBias: opWB, readinessShift: rs, opReadinessShift: opRS };
+  return { wetBias: wb, opWetBias: opWB, readinessShift: 0, opReadinessShift: {} };
 }
 
 /* ---------- module loader (model/weather/forecast) ---------- */
@@ -673,7 +748,7 @@ async function getTileEtaText(state, fieldId, run0, thr){
   const HORIZON_HOURS = ETA_HORIZON_HOURS; // ✅ 7-day
   const NEAR_THR_POINTS = 5;
 
-  // ✅ FIX: never show ETA if already dry enough
+  // ✅ never show ETA if already dry enough
   if (Number(run0 && run0.readinessR) >= Number(thr)) return '';
 
   let legacyTxt = '';
@@ -693,9 +768,8 @@ async function getTileEtaText(state, fieldId, run0, thr){
       ? Number(state._cal.wetBias)
       : 0;
 
-    const readinessShift = (state && state._cal && Number.isFinite(Number(state._cal.readinessShift)))
-      ? Number(state._cal.readinessShift)
-      : 0;
+    // Truth slider path: readinessShift is 0
+    const readinessShift = 0;
 
     const readinessNow = Number(run0 && run0.readinessR);
 
@@ -709,15 +783,12 @@ async function getTileEtaText(state, fieldId, run0, thr){
           maxSimDays: 7,
           wetBias,
 
-          // ✅ NEW: allow predictor to understand calibration context if it supports it
           readinessNow,
           readinessShift
         }
       );
 
       if (pred && pred.ok){
-        // ✅ FIX: if readiness (after shift) is below threshold, NEVER return blank ETA
-        // just because predictor thinks dryNow (it doesn't know readinessShift).
         if (pred.status === 'dryNow'){
           if (Number(run0 && run0.readinessR) < Number(thr)){
             return legacyTxt ? compactEtaForMobile(legacyTxt, HORIZON_HOURS) : '';
@@ -725,9 +796,6 @@ async function getTileEtaText(state, fieldId, run0, thr){
           return '';
         }
 
-        // ✅ LOCKOUT TIME FIX:
-        // If we have a numeric legacy ETA (which now moves with readinessShift),
-        // prefer it so the displayed time updates when slider changes.
         if (pred.status === 'within72'){
           if (legacyTxt && legacyHours != null && legacyHours <= HORIZON_HOURS){
             return compactEtaForMobile(legacyTxt, HORIZON_HOURS);
@@ -739,7 +807,6 @@ async function getTileEtaText(state, fieldId, run0, thr){
           const rNow = Number(run0 && run0.readinessR);
           const near = Number.isFinite(rNow) ? ((thr - rNow) >= 0 && (thr - rNow) <= NEAR_THR_POINTS) : false;
 
-          // Prefer legacy if it is in-horizon (even if not "near") so time keeps updating.
           if (legacyTxt && legacyHours != null && legacyHours <= HORIZON_HOURS){
             return compactEtaForMobile(legacyTxt, HORIZON_HOURS);
           }
@@ -813,7 +880,6 @@ function upsertEtaHelp(state, tile, ctx){
       help = document.createElement('div');
       help.className = 'help';
 
-      // Prefer the dedicated slot at the bottom of the tile (lower-left)
       const slot = tile.querySelector('.etaSlot');
       if (slot) slot.appendChild(help);
       else {
@@ -823,7 +889,6 @@ function upsertEtaHelp(state, tile, ctx){
       }
     }
 
-    // Build a real tap target (only the ETA text is clickable)
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'eta-help-btn';
@@ -833,7 +898,7 @@ function upsertEtaHelp(state, tile, ctx){
     btn.addEventListener('click', (e)=>{
       try{
         e.preventDefault();
-        e.stopPropagation(); // do NOT select the tile
+        e.stopPropagation();
       }catch(_){}
 
       const payload = {
@@ -845,7 +910,6 @@ function upsertEtaHelp(state, tile, ctx){
         etaText: etaTxt,
         horizonHours: Number(ctx.horizonHours || ETA_HORIZON_HOURS),
 
-        // Optional context for helper if it wants it:
         nowTs: Date.now(),
         note: 'ReadinessNow uses history-only; ETA uses forecast drying/forecast rain until threshold.'
       };
@@ -868,8 +932,11 @@ async function updateTileForField(state, fieldId){
 
     await ensureModelWeatherModules(state);
     ensureSelectionStyleOnce();
+
+    // NEW: load persisted truth state (seed storage)
+    await loadPersistedState(state);
+
     await loadCalibrationFromAdjustments(state);
-    // Best-effort: ensure helper listener exists
     ensureEtaHelperModule(state);
 
     const f = (state.fields || []).find(x=>x.id === fid);
@@ -884,7 +951,10 @@ async function updateTileForField(state, fieldId){
       LOSS_SCALE: CONST.LOSS_SCALE,
       EXTRA,
       opKey,
-      CAL: getCalForDeps(state)
+      CAL: getCalForDeps(state),
+
+      // NEW: truth seed for the model
+      getPersistedState: (id)=> getPersistedStateForDeps(state, id)
     };
 
     const run0 = state._mods.model.runField(f, deps);
@@ -933,7 +1003,6 @@ async function updateTileForField(state, fieldId){
 
     const etaTxt = await getTileEtaText(state, fid, run0, thr);
 
-    // ✅ Render ETA as the only clickable target and dispatch event to helper
     upsertEtaHelp(state, tile, {
       fieldId: fid,
       fieldName: String(f.name || ''),
@@ -995,8 +1064,11 @@ function wireTileInteractions(state, tileEl, fieldId){
 async function _renderTilesInternal(state){
   await ensureModelWeatherModules(state);
   ensureSelectionStyleOnce();
+
+  // NEW: load persisted truth state (seed storage)
+  await loadPersistedState(state);
+
   await loadCalibrationFromAdjustments(state);
-  // Best-effort: load helper now so tap works immediately
   ensureEtaHelperModule(state);
 
   const wrap = $('fieldsGrid');
@@ -1020,7 +1092,6 @@ async function _renderTilesInternal(state){
     return;
   }
 
-  // ⛔ View changed OR first build: rebuild list order, but do it FAST (no ETA awaits in loop)
   const opKey = getCurrentOp();
   const wxCtx = buildWxCtx(state);
   const deps = {
@@ -1029,7 +1100,10 @@ async function _renderTilesInternal(state){
     LOSS_SCALE: CONST.LOSS_SCALE,
     EXTRA,
     opKey,
-    CAL: getCalForDeps(state)
+    CAL: getCalForDeps(state),
+
+    // NEW: truth seed for the model
+    getPersistedState: (id)=> getPersistedStateForDeps(state, id)
   };
 
   const filtered = getFilteredFields(state);
@@ -1037,7 +1111,6 @@ async function _renderTilesInternal(state){
   // compute runs for sorting + numbers
   state.lastRuns.clear();
   for (const f of state.fields){
-    // keep original behavior (compute for all fields)
     state.lastRuns.set(f.id, state._mods.model.runField(f, deps));
   }
 
@@ -1050,7 +1123,6 @@ async function _renderTilesInternal(state){
     : Math.min(sorted.length, Number(state.pageSize || 25));
   const show = sorted.slice(0, cap);
 
-  // Build DOM in one shot so it appears immediately
   const frag = document.createDocumentFragment();
   const idsForEta = [];
 
@@ -1100,7 +1172,6 @@ async function _renderTilesInternal(state){
           <div class="badge" style="left:${leftPos};background:${pillBg};color:#fff;border:1px solid rgba(255,255,255,.18);">Field Readiness ${readiness}</div>
         </div>
 
-        <!-- Removed 0/50/100 tick labels -->
         <div class="etaSlot"></div>
       </div>
     `;
@@ -1132,7 +1203,6 @@ async function _renderTilesInternal(state){
 
 /* ---------- tile render (PUBLIC) ---------- */
 export async function renderTiles(state){
-  // Tiles render is expensive; coalesce with details
   await scheduleRender(state, 'all');
 }
 
@@ -1245,8 +1315,10 @@ function renderBetaInputs(state){
 /* ---------- details render (CORE) ---------- */
 async function _renderDetailsInternal(state){
   await ensureModelWeatherModules(state);
-  // Best-effort: ensure helper listener exists
   ensureEtaHelperModule(state);
+
+  // NEW: load persisted truth state (seed storage)
+  await loadPersistedState(state);
 
   const f = state.fields.find(x=>x.id === state.selectedFieldId);
   if (!f) return;
@@ -1264,7 +1336,10 @@ async function _renderDetailsInternal(state){
     LOSS_SCALE: CONST.LOSS_SCALE,
     EXTRA,
     opKey,
-    CAL: getCalForDeps(state)
+    CAL: getCalForDeps(state),
+
+    // NEW: truth seed for the model
+    getPersistedState: (id)=> getPersistedStateForDeps(state, id)
   };
 
   const run = state._mods.model.runField(f, deps);
@@ -1376,10 +1451,8 @@ async function _renderDetailsInternal(state){
     if (!rows.length){
       wxb.innerHTML = `<tr><td colspan="9" class="muted">No weather rows.</td></tr>`;
     } else {
-      // 1) History rows (what model used)
       for (const r of rows) addWxRow(r);
 
-      // 2) Forecast rows (next 7 days) from cached dailySeriesFcst
       try{
         const fc = state && state._mods ? state._mods.forecast : null;
         if (fc && typeof fc.readWxSeriesFromCache === 'function'){
@@ -1446,8 +1519,14 @@ export async function refreshDetailsOnly(state){
       try{
         const state = window.__FV_FR;
         if (!state) return;
+
+        // Re-pull persisted truth + wetBias
+        state._persistLoadedAt = 0;
+        await loadPersistedState(state, { force:true });
+
         state._calLoadedAt = 0;
         await loadCalibrationFromAdjustments(state, { force:true });
+
         await refreshAll(state);
       }catch(_){}
     });
