@@ -1,21 +1,20 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-01-20b-quickview-storage-truth
+Rev: 2026-01-20c-quickview-rewind14-hybrid
 
 Fix (per Dane):
 ✅ Last-line-of-defense permission gate:
    - openQuickView() will NOT open unless canEdit(state) is true
 
-UPDATED TO MATCH NEW MODEL RULE (storage is truth):
-✅ Storage / Wetness / Readiness must ALWAYS match (invariant).
-✅ Quick View must match tiles/details by:
-   - Passing the same CAL object shape (wetBias/readinessShift allowed),
-     BUT the model now applies CAL by shifting STORAGE (not wetness/readiness directly),
-     so the invariant holds.
-   - Passing persisted state (if present) so the seed is consistent with tiles/details.
+HYBRID (per Dane, NON-NEGOTIABLE):
+✅ When Soil / Drainage sliders move, the CURRENT level MUST move immediately.
+   - Quick View runs the model in rewind mode:
+       seedMode: 'rewind'
+       rewindDays: 14
+   - Re-simulates last N days so parameter changes affect today’s storage.
 
 Keeps:
-✅ Calibration is GLOBAL ONLY (matches render.js intent)
+✅ Storage / Wetness / Readiness invariant (handled in model)
 ✅ Map stacking fix + in-page map modal
 ✅ Mobile fit, sticky header, X reachable
 ✅ Save & Close, live preview updates, Firestore save, refresh events
@@ -75,27 +74,30 @@ function gradientForThreshold(thr){
 
 /* =====================================================================
    GLOBAL-ONLY calibration helper (match render.js CAL shape)
-   NOTE:
-   - Model now enforces storage/wetness/readiness invariant.
-   - It interprets wetBias/readinessShift by shifting STORAGE, not outputs.
+   IMPORTANT:
+   - Quick View is an interactive “what-if” for soil/drain sliders.
+   - readinessShift MUST be 0 (storage is truth).
+   - wetBias can remain if you still want that global lean (model applies via storage).
 ===================================================================== */
 function getCalForDeps(state){
   const cal = (state && state._cal && typeof state._cal === 'object') ? state._cal : {};
-
   const wb = Number.isFinite(Number(cal.wetBias)) ? Number(cal.wetBias) : 0;
-  const rs = Number.isFinite(Number(cal.readinessShift)) ? Number(cal.readinessShift) : 0;
 
-  // GLOBAL ONLY (per file header): op maps intentionally empty
+  // Force readinessShift off in Quick View so it cannot cap / confuse preview.
   return {
     wetBias: wb,
     opWetBias: {},
-    readinessShift: rs,
+    readinessShift: 0,
     opReadinessShift: {}
   };
 }
 
 /* =====================================================================
-   Persisted truth state passthrough (seed consistency with tiles/details)
+   Persisted truth state passthrough
+   NOTE:
+   - In rewind mode, the model intentionally ignores persisted anchoring.
+   - We keep this helper in case you ever switch modes, but we do NOT pass it
+     in rewind mode to avoid any confusion.
 ===================================================================== */
 function getPersistedStateForDeps(state, fieldId){
   try{
