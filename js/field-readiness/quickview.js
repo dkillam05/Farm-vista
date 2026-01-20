@@ -1,15 +1,18 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-01-10a-quickview-cal-readinessShift
+Rev: 2026-01-20b-quickview-storage-truth
 
-Change (per Dane):
+Fix (per Dane):
 ✅ Last-line-of-defense permission gate:
    - openQuickView() will NOT open unless canEdit(state) is true
 
-NEW (tie into latest global calibration setup):
-✅ Quick View now passes BOTH wetBias + readinessShift into model CAL,
-   so Quick View readiness + ETA preview matches tiles/details.
-   (GLOBAL ONLY: op maps remain empty)
+UPDATED TO MATCH NEW MODEL RULE (storage is truth):
+✅ Storage / Wetness / Readiness must ALWAYS match (invariant).
+✅ Quick View must match tiles/details by:
+   - Passing the same CAL object shape (wetBias/readinessShift allowed),
+     BUT the model now applies CAL by shifting STORAGE (not wetness/readiness directly),
+     so the invariant holds.
+   - Passing persisted state (if present) so the seed is consistent with tiles/details.
 
 Keeps:
 ✅ Calibration is GLOBAL ONLY (matches render.js intent)
@@ -72,6 +75,9 @@ function gradientForThreshold(thr){
 
 /* =====================================================================
    GLOBAL-ONLY calibration helper (match render.js CAL shape)
+   NOTE:
+   - Model now enforces storage/wetness/readiness invariant.
+   - It interprets wetBias/readinessShift by shifting STORAGE, not outputs.
 ===================================================================== */
 function getCalForDeps(state){
   const cal = (state && state._cal && typeof state._cal === 'object') ? state._cal : {};
@@ -86,6 +92,24 @@ function getCalForDeps(state){
     readinessShift: rs,
     opReadinessShift: {}
   };
+}
+
+/* =====================================================================
+   Persisted truth state passthrough (seed consistency with tiles/details)
+===================================================================== */
+function getPersistedStateForDeps(state, fieldId){
+  try{
+    const fid = String(fieldId || '');
+    if (!fid) return null;
+    const map = (state && state.persistedStateByFieldId && typeof state.persistedStateByFieldId === 'object')
+      ? state.persistedStateByFieldId
+      : null;
+    if (!map) return null;
+    const s = map[fid];
+    return (s && typeof s === 'object') ? s : null;
+  }catch(_){
+    return null;
+  }
 }
 
 /* =====================================================================
@@ -523,6 +547,7 @@ function renderTilePreview(state, run, thr){
   const pillBg = colorForPerceived(perceived);
   const grad = gradientForThreshold(thr);
 
+  // ETA is consistent now because model enforces storage/readiness invariant
   const eta = state._mods.model.etaFor(run, thr, CONST.ETA_MAX_HOURS);
 
   wrap.innerHTML = `
@@ -570,7 +595,10 @@ function fillQuickView(state, { live=false } = {}){
     LOSS_SCALE: CONST.LOSS_SCALE,
     EXTRA,
     opKey,
-    CAL
+    CAL,
+
+    // ✅ IMPORTANT: seed from persisted truth state if the app has loaded it (matches tiles/details)
+    getPersistedState: (id)=> getPersistedStateForDeps(state, id)
   };
 
   const run = state._mods.model.runField(f, deps);
@@ -720,4 +748,3 @@ async function saveAndClose(state){
   if (btn){ btn.disabled = false; btn.textContent = 'Save & Close'; }
   if (hint) hint.textContent = 'Saved.';
 }
-
