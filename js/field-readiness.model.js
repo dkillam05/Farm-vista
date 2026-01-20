@@ -1,41 +1,51 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-01-10c-eta-uses-readinessR
+Rev: 2026-01-20a-storage-is-truth-invariant
 
 Model math (dry power, storage, readiness) + helpers
 
-STATEFUL OPTION 1 (per Dane):
-✅ “30th day drops off” has ZERO effect on today *when persisted state is present*
-   because we seed from persisted storage (yesterday) and only simulate forward.
+CRITICAL RULE (per Dane):
+✅ Storage, Wetness, and Field Readiness MUST ALWAYS match.
+   - wetness = (storage / Smax) * 100
+   - readiness = 100 - wetness
+   - Therefore: if storage === 0 -> wetness === 0 -> readiness === 100
 
-NEW (per Dane GLOBAL CAL goal):
-✅ Support DIRECT readiness shift via CAL, so global calibration can move
-   readiness by real points (1:1) in addition to the wetBias physics lean.
+CHANGE (fixes the “maxed at 89/82” ceiling):
+✅ Calibration (global + field) may NOT add directly to wetness or readiness.
+   That breaks the invariant.
+✅ Instead, ALL adjustments are applied by shifting STORAGE (the single truth),
+   then wetness/readiness are derived from that storage.
 
-FIX TODAY (per Dane observation):
-✅ ETA must respond to readinessShift (slider) too.
-   - Previously etaFor() used run.storageFinal (physical) only, so a readiness-only shift
-     changed tile readiness but did not change ETA.
-   - Now etaFor() derives an “effective” current storage from run.readinessR (shifted),
-     so ETA moves 1:1 with the slider as users expect.
+How CAL is interpreted now:
+- CAL.wetBias (and opWetBias) is treated as a desired wetness delta (points),
+  but it is applied as a storage delta:
+     storageDeltaFromWetBias = (wetBias/100) * Smax
 
-How it works:
-- Wetness is still computed from storage + wetBias (unchanged).
-- Readiness is computed as (100 - wetness), THEN we apply:
-    readinessShift = CAL.opReadinessShift[opKey] OR CAL.readinessShift
-  and clamp 0..100.
-- wetnessR remains the physical wetness+wetBias result (unchanged).
-- ETA uses shifted readinessR as the “current condition” so slider affects ETA.
+- CAL.readinessShift (and opReadinessShift) is treated as desired readiness delta (points),
+  which implies an opposite wetness delta:
+     wetnessDeltaFromReadinessShift = -readinessShift
+     storageDeltaFromReadinessShift = (-readinessShift/100) * Smax
 
-CAL shape supported:
-- CAL.wetBias?: number
-- CAL.opWetBias?: { [opKey]: number }
-- CAL.readinessShift?: number
-- CAL.opReadinessShift?: { [opKey]: number }
+Net effect (in wetness points):
+     wetnessDelta = wetBias - readinessShift
+Applied to storage:
+     storageEff = clamp(storagePhys + (wetnessDelta/100)*Smax, 0, Smax)
 
-Caller responsibilities (outside this file):
-- Ensure state._cal includes readinessShift/opReadinessShift when you want
-  slider “98 -> 78” to land exactly at 78 for all fields.
+Then:
+     wetnessR = round( (storageEff/Smax)*100 )
+     readinessR = round(100 - wetness)
+
+ETA:
+✅ ETA is now based on the SAME effective storage that drives readiness,
+   so slider/global/field adjustments move ETA consistently.
+
+STATEFUL OPTION 1 (unchanged concept):
+✅ Persisted storage seeds “today” and we only simulate forward.
+
+Caller responsibilities:
+- If you want “set truth today” behavior, write persisted storageFinal/asOfDateISO.
+- CAL can still exist, but it must be treated as storage-based as done here.
+
 ===================================================================== */
 'use strict';
 
@@ -161,7 +171,7 @@ export function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, EXTRA){
 }
 
 /* =====================================================================
-   Calibration hooks
+   Calibration hooks (now applied to STORAGE to preserve invariants)
 ===================================================================== */
 function getWetBiasFromDeps(deps){
   try{
@@ -203,6 +213,51 @@ function getReadinessShiftFromDeps(deps){
   }catch(_){
     return 0;
   }
+}
+
+/**
+ * Apply calibration to storage (single truth) so wetness/readiness remain tied.
+ * Returns:
+ *  - storageEff
+ *  - wetnessDeltaApplied (points)
+ *  - storageDeltaApplied (inches-equivalent storage units)
+ *  - wetBiasApplied, readinessShiftApplied (original cal inputs)
+ */
+function applyCalToStorage(storagePhys, Smax, deps){
+  const smax = Number(Smax);
+  const s0 = Number(storagePhys);
+
+  if (!isFinite(smax) || smax <= 0 || !isFinite(s0)){
+    return {
+      storageEff: isFinite(s0) ? s0 : 0,
+      wetBiasApplied: 0,
+      readinessShiftApplied: 0,
+      wetnessDeltaApplied: 0,
+      storageDeltaApplied: 0
+    };
+  }
+
+  // Clamp cal inputs (same spirit as before)
+  const wetBias = clamp(getWetBiasFromDeps(deps), -25, 25);
+  const readinessShift = clamp(getReadinessShiftFromDeps(deps), -50, 50);
+
+  // Net wetness delta in POINTS:
+  // - wetBias: +wetness means wetter
+  // - readinessShift: +readiness implies -wetness
+  const wetnessDelta = clamp((wetBias - readinessShift), -60, 60);
+
+  // Convert to storage delta
+  const storageDelta = (wetnessDelta / 100) * smax;
+
+  const storageEff = clamp(s0 + storageDelta, 0, smax);
+
+  return {
+    storageEff,
+    wetBiasApplied: wetBias,
+    readinessShiftApplied: readinessShift,
+    wetnessDeltaApplied: wetnessDelta,
+    storageDeltaApplied: storageDelta
+  };
 }
 
 /* =====================================================================
@@ -408,17 +463,15 @@ export function runField(field, deps){
 
   // If no sim needed (state newer than our series), return stable result
   if (seedPick.startIdx >= rows.length){
-    let wetness = clamp((storage / f.Smax) * 100, 0, 100);
+    // Apply CAL to STORAGE (truth)
+    const calRes = applyCalToStorage(storage, f.Smax, deps);
+    const storageEff = calRes.storageEff;
 
-    const wetBias = clamp(getWetBiasFromDeps(deps), -25, 25);
-    wetness = clamp(wetness + wetBias, 0, 100);
-
+    const wetness = (f.Smax > 0) ? clamp((storageEff / f.Smax) * 100, 0, 100) : 0;
     const wetnessR = Math.round(wetness);
 
-    // readinessShift applies directly (1:1 readiness points)
-    const readinessShift = clamp(getReadinessShiftFromDeps(deps), -50, 50);
     const readinessBase = clamp(100 - wetness, 0, 100);
-    const readinessR = Math.round(clamp(readinessBase + readinessShift, 0, 100));
+    const readinessR = Math.round(readinessBase);
 
     const avgLossDay = 0.08;
 
@@ -429,18 +482,24 @@ export function runField(field, deps){
       factors: f,
       rows,
       trace,
-      storageFinal: storage,
+
+      // ✅ storageFinal is the single truth used for wetness/readiness/ETA
+      storageFinal: storageEff,
+
       wetnessR,
       readinessR,
       avgLossDay,
 
-      wetBiasApplied: wetBias,
-      readinessShiftApplied: readinessShift,
+      // debug
+      wetBiasApplied: calRes.wetBiasApplied,
+      readinessShiftApplied: calRes.readinessShiftApplied,
+      wetnessDeltaApplied: calRes.wetnessDeltaApplied,
+      storageDeltaApplied: calRes.storageDeltaApplied,
 
       tuneUsed: tune,
 
-      // ✅ NEW: caller should persist this for next run
-      stateOut: buildStateOut(field.id, storage, (lastDateISO || seedPick.seedDebug.asOfDateISO || ''), f),
+      // ✅ NEW: caller should persist this for next run (truth storage)
+      stateOut: buildStateOut(field.id, storageEff, (lastDateISO || seedPick.seedDebug.asOfDateISO || ''), f),
 
       // ✅ helpful: prove seed path + start index
       seedDebug: {
@@ -484,19 +543,16 @@ export function runField(field, deps){
     });
   }
 
-  // Physical wetness (0..100)
-  let wetness = clamp((storage / f.Smax) * 100, 0, 100);
+  // Apply CAL to STORAGE (truth)
+  const calRes = applyCalToStorage(storage, f.Smax, deps);
+  const storageEff = calRes.storageEff;
 
-  // ✅ Calibration wetness bias (unchanged)
-  const wetBias = clamp(getWetBiasFromDeps(deps), -25, 25);
-  wetness = clamp(wetness + wetBias, 0, 100);
-
+  // Wetness/readiness derived ONLY from effective storage (invariant)
+  const wetness = (f.Smax > 0) ? clamp((storageEff / f.Smax) * 100, 0, 100) : 0;
   const wetnessR = Math.round(wetness);
 
-  // ✅ NEW: readiness shift applied directly (1:1 readiness points)
-  const readinessShift = clamp(getReadinessShiftFromDeps(deps), -50, 50);
   const readinessBase = clamp(100 - wetness, 0, 100);
-  const readinessR = Math.round(clamp(readinessBase + readinessShift, 0, 100));
+  const readinessR = Math.round(readinessBase);
 
   const last7 = trace.slice(-7);
   const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
@@ -508,22 +564,25 @@ export function runField(field, deps){
     factors: f,
     rows,
     trace,
-    storageFinal: storage,
+
+    // ✅ single truth storage
+    storageFinal: storageEff,
+
     wetnessR,
     readinessR,
     avgLossDay,
 
-    // helpful for debugging calibration
-    wetBiasApplied: wetBias,
-    readinessShiftApplied: readinessShift,
+    // debug for calibration mapping
+    wetBiasApplied: calRes.wetBiasApplied,
+    readinessShiftApplied: calRes.readinessShiftApplied,
+    wetnessDeltaApplied: calRes.wetnessDeltaApplied,
+    storageDeltaApplied: calRes.storageDeltaApplied,
 
-    // helpful for debugging tuning
     tuneUsed: tune,
 
-    // ✅ NEW: caller should persist this for next run
-    stateOut: buildStateOut(field.id, storage, lastDateISO, f),
+    // ✅ caller should persist this for next run
+    stateOut: buildStateOut(field.id, storageEff, lastDateISO, f),
 
-    // ✅ helpful: prove seed path + start index
     seedDebug: {
       seedMethod: seedPick.seedMethod,
       seedStorage: seedPick.seedStorage,
@@ -560,26 +619,20 @@ export function markerLeftCSS(pct){
 export function etaFor(run, threshold, ETA_MAX_HOURS){
   if (!run) return '';
 
-  // If shifted readiness is already at/above threshold, no ETA
-  if (run.readinessR >= threshold) return '';
+  // If readiness is already at/above threshold, no ETA
+  if (Number(run.readinessR) >= Number(threshold)) return '';
 
   const Smax = run.factors && isFinite(Number(run.factors.Smax)) ? Number(run.factors.Smax) : 0;
   if (!isFinite(Smax) || Smax <= 0) return '';
 
-  // Target wetness/storage at the threshold (unchanged)
+  // Target wetness/storage at the threshold (invariant)
   const wetTarget = clamp(100 - threshold, 0, 100);
   const storageTarget = Smax * (wetTarget / 100);
 
-  // ✅ KEY FIX:
-  // Use shifted readiness as the “current condition” for ETA.
-  // Convert readinessR -> effective wetness -> effective storage.
-  // This makes ETA move 1:1 when readinessShift changes.
-  const readinessNow = clamp(Number(run.readinessR), 0, 100);
-  const wetNowEff = clamp(100 - readinessNow, 0, 100);
-  const storageNowEff = Smax * (wetNowEff / 100);
+  // ✅ Use the same effective storage that created readinessR
+  const storageNow = isFinite(Number(run.storageFinal)) ? Number(run.storageFinal) : 0;
 
-  const delta = storageNowEff - storageTarget;
-
+  const delta = storageNow - storageTarget;
   if (!isFinite(delta) || delta <= 0) return '';
 
   const dailyLoss = Math.max(0.02, Number(run.avgLossDay || 0.08));
