@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-01-20c-quickview-rewind14-hybrid
+Rev: 2026-01-20d-quickview-rewind14-noWetBias
 
 Fix (per Dane):
 ✅ Last-line-of-defense permission gate:
@@ -11,10 +11,13 @@ HYBRID (per Dane, NON-NEGOTIABLE):
    - Quick View runs the model in rewind mode:
        seedMode: 'rewind'
        rewindDays: 14
-   - Re-simulates last N days so parameter changes affect today’s storage.
+
+CRITICAL (remove 89 ceiling):
+✅ wetBias + readinessShift must NOT cap “dry end” in Quick View preview.
+   - Force CAL to wetBias=0 and readinessShift=0 here.
+   - Storage/wetness/readiness remain tied by the model invariant.
 
 Keeps:
-✅ Storage / Wetness / Readiness invariant (handled in model)
 ✅ Map stacking fix + in-page map modal
 ✅ Mobile fit, sticky header, X reachable
 ✅ Save & Close, live preview updates, Firestore save, refresh events
@@ -73,19 +76,11 @@ function gradientForThreshold(thr){
 }
 
 /* =====================================================================
-   GLOBAL-ONLY calibration helper (match render.js CAL shape)
-   IMPORTANT:
-   - Quick View is an interactive “what-if” for soil/drain sliders.
-   - readinessShift MUST be 0 (storage is truth).
-   - wetBias can remain if you still want that global lean (model applies via storage).
+   CAL helper — FORCE OFF in Quick View to prevent 89 ceiling
 ===================================================================== */
-function getCalForDeps(state){
-  const cal = (state && state._cal && typeof state._cal === 'object') ? state._cal : {};
-  const wb = Number.isFinite(Number(cal.wetBias)) ? Number(cal.wetBias) : 0;
-
-  // Force readinessShift off in Quick View so it cannot cap / confuse preview.
+function getCalForDeps(_state){
   return {
-    wetBias: wb,
+    wetBias: 0,
     opWetBias: {},
     readinessShift: 0,
     opReadinessShift: {}
@@ -93,11 +88,7 @@ function getCalForDeps(state){
 }
 
 /* =====================================================================
-   Persisted truth state passthrough
-   NOTE:
-   - In rewind mode, the model intentionally ignores persisted anchoring.
-   - We keep this helper in case you ever switch modes, but we do NOT pass it
-     in rewind mode to avoid any confusion.
+   Persisted truth state passthrough (kept for compatibility, not used in rewind)
 ===================================================================== */
 function getPersistedStateForDeps(state, fieldId){
   try{
@@ -500,7 +491,6 @@ function ensureBuiltOnce(state){
 
 /* ---------- open/close ---------- */
 export function openQuickView(state, fieldId){
-  // ✅ Last-line-of-defense: do not open unless edit permission is allowed
   if (!canEdit(state)) return;
 
   ensureBuiltOnce(state);
@@ -549,7 +539,6 @@ function renderTilePreview(state, run, thr){
   const pillBg = colorForPerceived(perceived);
   const grad = gradientForThreshold(thr);
 
-  // ETA is consistent now because model enforces storage/readiness invariant
   const eta = state._mods.model.etaFor(run, thr, CONST.ETA_MAX_HOURS);
 
   wrap.innerHTML = `
@@ -599,8 +588,11 @@ function fillQuickView(state, { live=false } = {}){
     opKey,
     CAL,
 
-    // ✅ IMPORTANT: seed from persisted truth state if the app has loaded it (matches tiles/details)
-    getPersistedState: (id)=> getPersistedStateForDeps(state, id)
+    // ✅ HYBRID: re-simulate last 14 days so soil/drain changes move level NOW
+    seedMode: 'rewind',
+    rewindDays: 14
+
+    // NOTE: do NOT pass persisted state here; rewind mode intentionally ignores it.
   };
 
   const run = state._mods.model.runField(f, deps);
@@ -636,7 +628,7 @@ function fillQuickView(state, { live=false } = {}){
     if (saveBtn) saveBtn.disabled = true;
     if (inputsPanel) inputsPanel.style.opacity = '0.75';
   } else {
-    if (hint) hint.textContent = 'Adjust sliders → preview updates live → Save & Close.';
+    if (hint) hint.textContent = 'Adjust sliders → preview updates live (rewind 14d) → Save & Close.';
     if (saveBtn) saveBtn.disabled = false;
     if (inputsPanel) inputsPanel.style.opacity = '1';
   }
