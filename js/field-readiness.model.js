@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-01-20a-storage-is-truth-invariant
+Rev: 2026-01-20b-storage-truth-rewind14
 
 Model math (dry power, storage, readiness) + helpers
 
@@ -10,42 +10,30 @@ CRITICAL RULE (per Dane):
    - readiness = 100 - wetness
    - Therefore: if storage === 0 -> wetness === 0 -> readiness === 100
 
-CHANGE (fixes the “maxed at 89/82” ceiling):
-✅ Calibration (global + field) may NOT add directly to wetness or readiness.
-   That breaks the invariant.
-✅ Instead, ALL adjustments are applied by shifting STORAGE (the single truth),
-   then wetness/readiness are derived from that storage.
+HYBRID (per Dane, NON-NEGOTIABLE):
+✅ Weather + Soil + Drainage must determine the CURRENT level too.
+✅ When sliders (soil/drain) change, the level MUST move immediately.
+   - We achieve this by supporting a “rewind” seed mode:
+     deps.seedMode = 'rewind'
+     deps.rewindDays = 14
+   - In rewind mode we IGNORE persisted storage anchoring and re-simulate the last N days
+     so parameter changes alter today’s storage (not just future rates).
 
-How CAL is interpreted now:
-- CAL.wetBias (and opWetBias) is treated as a desired wetness delta (points),
-  but it is applied as a storage delta:
-     storageDeltaFromWetBias = (wetBias/100) * Smax
-
-- CAL.readinessShift (and opReadinessShift) is treated as desired readiness delta (points),
-  which implies an opposite wetness delta:
-     wetnessDeltaFromReadinessShift = -readinessShift
-     storageDeltaFromReadinessShift = (-readinessShift/100) * Smax
-
-Net effect (in wetness points):
-     wetnessDelta = wetBias - readinessShift
-Applied to storage:
-     storageEff = clamp(storagePhys + (wetnessDelta/100)*Smax, 0, Smax)
-
-Then:
-     wetnessR = round( (storageEff/Smax)*100 )
-     readinessR = round(100 - wetness)
+CAL / ADJUSTMENTS:
+✅ Calibration may NOT add directly to wetness/readiness (breaks invariant).
+✅ CAL (wetBias/readinessShift) is interpreted as a desired wetness delta,
+   applied by shifting STORAGE, then wetness/readiness derived from storage.
 
 ETA:
-✅ ETA is now based on the SAME effective storage that drives readiness,
-   so slider/global/field adjustments move ETA consistently.
+✅ ETA uses the SAME effective storage that drives readiness.
 
-STATEFUL OPTION 1 (unchanged concept):
-✅ Persisted storage seeds “today” and we only simulate forward.
+STATEFUL OPTION 1 (still supported):
+✅ Persisted storage seeds “today” and only simulate forward when seedMode is not rewind.
 
-Caller responsibilities:
-- If you want “set truth today” behavior, write persisted storageFinal/asOfDateISO.
-- CAL can still exist, but it must be treated as storage-based as done here.
-
+deps additions supported:
+- deps.seedMode?: 'persisted' | 'rewind' | 'baseline'
+  default: 'persisted' (existing behavior)
+- deps.rewindDays?: number (used when seedMode==='rewind')
 ===================================================================== */
 'use strict';
 
@@ -217,11 +205,6 @@ function getReadinessShiftFromDeps(deps){
 
 /**
  * Apply calibration to storage (single truth) so wetness/readiness remain tied.
- * Returns:
- *  - storageEff
- *  - wetnessDeltaApplied (points)
- *  - storageDeltaApplied (inches-equivalent storage units)
- *  - wetBiasApplied, readinessShiftApplied (original cal inputs)
  */
 function applyCalToStorage(storagePhys, Smax, deps){
   const smax = Number(Smax);
@@ -237,18 +220,14 @@ function applyCalToStorage(storagePhys, Smax, deps){
     };
   }
 
-  // Clamp cal inputs (same spirit as before)
   const wetBias = clamp(getWetBiasFromDeps(deps), -25, 25);
   const readinessShift = clamp(getReadinessShiftFromDeps(deps), -50, 50);
 
-  // Net wetness delta in POINTS:
-  // - wetBias: +wetness means wetter
-  // - readinessShift: +readiness implies -wetness
+  // wetBias: +wetness
+  // readinessShift: +readiness => -wetness
   const wetnessDelta = clamp((wetBias - readinessShift), -60, 60);
 
-  // Convert to storage delta
   const storageDelta = (wetnessDelta / 100) * smax;
-
   const storageEff = clamp(s0 + storageDelta, 0, smax);
 
   return {
@@ -285,20 +264,17 @@ function effectiveRainInches(rainIn, storageBefore, Smax, factors, tune){
   const rainAfterRunoff = rain * (1 - runoffFrac);
 
   // --- Dry bypass when very dry ---
-  // Bypass strongest when sat is near 0, fades to 0 by DRY_BYPASS_END.
   const satB = Math.max(tune.SAT_DRYBYPASS_FLOOR, sat);
   const db = clamp((tune.DRY_BYPASS_END - satB) / Math.max(1e-6, tune.DRY_BYPASS_END), 0, 1);
   const dryBypassCurve = Math.pow(db, tune.DRY_EXP);
 
   // Base bypass fraction, then adjust for drainage:
-  // good drainage (low drainPoor) increases bypass
   const goodDrain = 1 - drainPoor;
   let bypassFrac = tune.DRY_BYPASS_BASE * dryBypassCurve * (1 + tune.BYPASS_GOODDRAIN_W * goodDrain);
   bypassFrac = clamp(bypassFrac, 0, 0.90);
 
   const rainEffective = rainAfterRunoff * (1 - bypassFrac);
 
-  // Guardrail: ensure some small portion always counts if rain occurred
   const minEff = tune.RAIN_EFF_MIN * rain;
   return Math.max(minEff, rainEffective);
 }
@@ -338,89 +314,126 @@ function buildStateOut(fieldId, storageFinal, asOfDateISO, f){
     fieldId: String(fieldId || ''),
     storageFinal: Number(storageFinal || 0),
     asOfDateISO: isoDay(asOfDateISO || ''),
-    // helpful debug (optional)
     SmaxAtSave: Number(f && f.Smax ? f.Smax : 0)
   };
 }
 
+function getSeedMode(deps){
+  const m = deps && deps.seedMode ? String(deps.seedMode) : '';
+  if (m === 'rewind' || m === 'baseline' || m === 'persisted') return m;
+  return 'persisted';
+}
+function getRewindDays(deps){
+  const n = Number(deps && deps.rewindDays);
+  if (!isFinite(n)) return 14;
+  return clamp(Math.round(n), 3, 45);
+}
+
 /**
- * Decide seed + which index to start simulating from.
- * - persisted state => start after its asOfDateISO
- * - fallback => original baseline seed from first7 rain nudge
+ * Baseline seed computed from a rows window (same idea as original first7 nudge),
+ * but applied at an arbitrary starting point.
  */
-function pickSeed(rows, f, deps, fieldId){
-  const persisted = getPersistedState(deps, fieldId);
-
-  const firstDate = rows.length ? isoDay(rows[0].dateISO) : '';
-  const lastDate  = rows.length ? isoDay(rows[rows.length-1].dateISO) : '';
-
-  if (persisted && isFinite(Number(persisted.storageFinal)) && persisted.asOfDateISO){
-    const asOf = isoDay(persisted.asOfDateISO);
-
-    // If our series is entirely older than the saved state, we can skip simulation.
-    if (lastDate && asOf > lastDate){
-      return {
-        seedMethod: 'persisted_no_sim',
-        seedStorage: clamp(Number(persisted.storageFinal), 0, f.Smax),
-        startIdx: rows.length,
-        seedDebug: { asOfDateISO: asOf, firstDateISO: firstDate, lastDateISO: lastDate }
-      };
-    }
-
-    // Find the matching date in the series, then start after it
-    const idx = rows.findIndex(r => isoDay(r.dateISO) === asOf);
-    if (idx >= 0){
-      return {
-        seedMethod: 'persisted_storage',
-        seedStorage: clamp(Number(persisted.storageFinal), 0, f.Smax),
-        startIdx: idx + 1,
-        seedDebug: { asOfDateISO: asOf, matchIdx: idx, firstDateISO: firstDate, lastDateISO: lastDate }
-      };
-    }
-
-    // If series starts AFTER asOf but doesn't contain it, that's a mismatch (window changed too far).
-    // Fall back to baseline seed (bootstrap) rather than guessing.
-    if (firstDate && asOf < firstDate){
-      // baseline seed is safest
-    }
-  }
-
-  // Fallback baseline seed (original behavior)
-  const first7 = rows.slice(0,7);
-  const rain7 = first7.reduce((s,x)=> s + Number(x.rainInAdj||0), 0);
+function baselineSeedFromWindow(rowsWindow, f){
+  const first7 = rowsWindow.slice(0,7);
+  const rain7 = first7.reduce((s,x)=> s + Number(x && x.rainInAdj || 0), 0);
 
   const rainNudgeFrac = clamp(rain7 / 8.0, 0, 1);
   const rainNudge = rainNudgeFrac * (0.1 * f.Smax);
 
   const storage0 = clamp((0.30 * f.Smax) + rainNudge, 0, f.Smax);
 
+  return { storage0, rain7, rainNudgeFrac, rainNudge };
+}
+
+/**
+ * Decide seed + which index to start simulating from.
+ *
+ * Modes:
+ * - persisted (default): use persisted storage if present, simulate forward only.
+ * - rewind: ignore persisted anchor; re-simulate last N days so soil/drain affects today.
+ * - baseline: ignore persisted; seed from start of series (original baseline).
+ */
+function pickSeed(rows, f, deps, fieldId){
+  const mode = getSeedMode(deps);
+
+  const firstDate = rows.length ? isoDay(rows[0].dateISO) : '';
+  const lastDate  = rows.length ? isoDay(rows[rows.length-1].dateISO) : '';
+
+  // ---------------------------------------------------------------
+  // REWIND MODE (hybrid sliders): re-simulate last N days
+  // ---------------------------------------------------------------
+  if (mode === 'rewind'){
+    const N = getRewindDays(deps);
+    const startIdx = Math.max(0, rows.length - N);
+
+    const windowRows = rows.slice(startIdx);
+    const b = baselineSeedFromWindow(windowRows, f);
+
+    return {
+      seedMethod: 'rewind_baseline',
+      seedStorage: b.storage0,
+      startIdx,
+      seedDebug: {
+        rewindDays: N,
+        startIdx,
+        firstDateISO: firstDate,
+        lastDateISO: lastDate,
+        rain7: b.rain7,
+        rainNudgeFrac: b.rainNudgeFrac,
+        rainNudge: b.rainNudge
+      }
+    };
+  }
+
+  // ---------------------------------------------------------------
+  // PERSISTED MODE (existing)
+  // ---------------------------------------------------------------
+  if (mode === 'persisted'){
+    const persisted = getPersistedState(deps, fieldId);
+
+    if (persisted && isFinite(Number(persisted.storageFinal)) && persisted.asOfDateISO){
+      const asOf = isoDay(persisted.asOfDateISO);
+
+      if (lastDate && asOf > lastDate){
+        return {
+          seedMethod: 'persisted_no_sim',
+          seedStorage: clamp(Number(persisted.storageFinal), 0, f.Smax),
+          startIdx: rows.length,
+          seedDebug: { asOfDateISO: asOf, firstDateISO: firstDate, lastDateISO: lastDate }
+        };
+      }
+
+      const idx = rows.findIndex(r => isoDay(r.dateISO) === asOf);
+      if (idx >= 0){
+        return {
+          seedMethod: 'persisted_storage',
+          seedStorage: clamp(Number(persisted.storageFinal), 0, f.Smax),
+          startIdx: idx + 1,
+          seedDebug: { asOfDateISO: asOf, matchIdx: idx, firstDateISO: firstDate, lastDateISO: lastDate }
+        };
+      }
+
+      if (firstDate && asOf < firstDate){
+        // fall through to baseline
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // BASELINE MODE (or fallback)
+  // ---------------------------------------------------------------
+  const b0 = baselineSeedFromWindow(rows, f);
+
   return {
-    seedMethod: 'baseline_rain7_nudge',
-    seedStorage: storage0,
+    seedMethod: (mode === 'baseline') ? 'baseline_forced' : 'baseline_rain7_nudge',
+    seedStorage: b0.storage0,
     startIdx: 0,
-    seedDebug: { rain7, rainNudgeFrac, rainNudge, firstDateISO: firstDate, lastDateISO: lastDate }
+    seedDebug: { rain7: b0.rain7, rainNudgeFrac: b0.rainNudgeFrac, rainNudge: b0.rainNudge, firstDateISO: firstDate, lastDateISO: lastDate }
   };
 }
 
 /**
  * runField(field, deps)
- * deps:
- * - getWeatherSeriesForFieldId(fieldId) -> daily series
- * - getFieldParams(fieldId) -> { soilWetness, drainageIndex }
- * - LOSS_SCALE
- * - EXTRA (object)
- * - OPTIONAL (STATEFUL):
- *   - getPersistedState(fieldId) -> { storageFinal, asOfDateISO }   (sync)
- *   - OR persistedStateByFieldId[fieldId] with same shape
- * - OPTIONAL:
- *   - opKey (string): current operation key (for per-op bias/shift)
- *   - CAL: {
- *       wetBias?: number,
- *       opWetBias?: { [opKey]: number },
- *       readinessShift?: number,
- *       opReadinessShift?: { [opKey]: number }
- *     }
- *   - FV_TUNE: override tuning variables in this file
  */
 export function runField(field, deps){
   const wx = deps.getWeatherSeriesForFieldId(field.id);
@@ -453,17 +466,13 @@ export function runField(field, deps){
     };
   });
 
-  // -------------------------------------------------------------------
-  // ✅ STATEFUL seed + partial-forward simulation
-  // -------------------------------------------------------------------
   const seedPick = pickSeed(rows, f, deps, field.id);
   let storage = clamp(seedPick.seedStorage, 0, f.Smax);
 
   const trace = [];
 
-  // If no sim needed (state newer than our series), return stable result
+  // If no sim needed (persisted storage newer than our series)
   if (seedPick.startIdx >= rows.length){
-    // Apply CAL to STORAGE (truth)
     const calRes = applyCalToStorage(storage, f.Smax, deps);
     const storageEff = calRes.storageEff;
 
@@ -483,14 +492,12 @@ export function runField(field, deps){
       rows,
       trace,
 
-      // ✅ storageFinal is the single truth used for wetness/readiness/ETA
       storageFinal: storageEff,
 
       wetnessR,
       readinessR,
       avgLossDay,
 
-      // debug
       wetBiasApplied: calRes.wetBiasApplied,
       readinessShiftApplied: calRes.readinessShiftApplied,
       wetnessDeltaApplied: calRes.wetnessDeltaApplied,
@@ -498,10 +505,8 @@ export function runField(field, deps){
 
       tuneUsed: tune,
 
-      // ✅ NEW: caller should persist this for next run (truth storage)
       stateOut: buildStateOut(field.id, storageEff, (lastDateISO || seedPick.seedDebug.asOfDateISO || ''), f),
 
-      // ✅ helpful: prove seed path + start index
       seedDebug: {
         seedMethod: seedPick.seedMethod,
         seedStorage: seedPick.seedStorage,
@@ -543,11 +548,9 @@ export function runField(field, deps){
     });
   }
 
-  // Apply CAL to STORAGE (truth)
   const calRes = applyCalToStorage(storage, f.Smax, deps);
   const storageEff = calRes.storageEff;
 
-  // Wetness/readiness derived ONLY from effective storage (invariant)
   const wetness = (f.Smax > 0) ? clamp((storageEff / f.Smax) * 100, 0, 100) : 0;
   const wetnessR = Math.round(wetness);
 
@@ -565,14 +568,12 @@ export function runField(field, deps){
     rows,
     trace,
 
-    // ✅ single truth storage
     storageFinal: storageEff,
 
     wetnessR,
     readinessR,
     avgLossDay,
 
-    // debug for calibration mapping
     wetBiasApplied: calRes.wetBiasApplied,
     readinessShiftApplied: calRes.readinessShiftApplied,
     wetnessDeltaApplied: calRes.wetnessDeltaApplied,
@@ -580,7 +581,6 @@ export function runField(field, deps){
 
     tuneUsed: tune,
 
-    // ✅ caller should persist this for next run
     stateOut: buildStateOut(field.id, storageEff, lastDateISO, f),
 
     seedDebug: {
@@ -619,17 +619,14 @@ export function markerLeftCSS(pct){
 export function etaFor(run, threshold, ETA_MAX_HOURS){
   if (!run) return '';
 
-  // If readiness is already at/above threshold, no ETA
   if (Number(run.readinessR) >= Number(threshold)) return '';
 
   const Smax = run.factors && isFinite(Number(run.factors.Smax)) ? Number(run.factors.Smax) : 0;
   if (!isFinite(Smax) || Smax <= 0) return '';
 
-  // Target wetness/storage at the threshold (invariant)
   const wetTarget = clamp(100 - threshold, 0, 100);
   const storageTarget = Smax * (wetTarget / 100);
 
-  // ✅ Use the same effective storage that created readinessR
   const storageNow = isFinite(Number(run.storageFinal)) ? Number(run.storageFinal) : 0;
 
   const delta = storageNow - storageTarget;
