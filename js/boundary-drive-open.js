@@ -1,23 +1,20 @@
 /* =======================================================================
    /Farm-vista/js/boundary-drive-open.js   (FULL FILE)
-   Rev: 2026-01-21h-perfect-report-ui-and-rtk-join-drive-only
+   Rev: 2026-01-21i-report-clone-drive-only-perfect
 
-   GOAL (per Dane):
-     ✅ COPY the REPORT PAGE behavior + UI 1:1 for tiles + details panel
-     ✅ But with ONLY these differences:
-        - Only shows OPEN requests (drive queue)
-        - Clicking a tile opens the SAME style details panel (like report)
-        - NO "Mark Completed" button
-        - NO delete/trash button
-        - Instead: "Mark as Driven" -> updates status to "In Progress"
-        - Keep photos view-only, same modal viewer behavior
+   ✅ COPY OF reports-boundary-requests.html UI/behavior for SCREEN (tiles + details + photo viewer)
+   ✅ Drive-only differences (per Dane):
+      - Shows OPEN only (global queue, no field selection required)
+      - NO filters, NO print, NO delete
+      - Replace "Mark completed" with "Mark as Driven"
+      - Mark as Driven -> status: "In Progress", drivenAt: serverTimestamp()
+      - After marking driven: remove from list (reload)
 
-   IMPORTANT:
-     - This file injects its own UI after #woHero if present, else into .wrap/body.
-     - It performs the SAME RTK join logic as report page:
-         rtk stored on doc OR fetch tower doc by rtkTowerId from rtkTowers / rtk_towers
-     - Default mode: global queue (all OPEN across all fields)
-     - Optional: window.BOUNDARY_DRIVE_MODE = 'field' to filter to window.currentFieldId
+   ✅ RTK correctness:
+      - EXACT same RTK logic as report:
+        1) use request.rtk snapshot if present
+        2) else fetch tower doc by rtkTowerId from rtkTowers/rtk_towers
+        3) display: Name + "Net #### • ###.##### MHz"
 ======================================================================= */
 
 import {
@@ -30,15 +27,18 @@ import {
   serverTimestamp
 } from '/Farm-vista/js/firebase-init.js';
 
-/* ===================== CONFIG (MATCH REPORT PAGE) ===================== */
+/* ===========================
+   CONFIG (copied)
+   =========================== */
 const CONFIG = {
   COLLECTION_PATH: 'boundary_requests',
   TOWER_COLLECTIONS: ['rtkTowers','rtk_towers']
 };
 
-/* ===================== DOM HELPERS ===================== */
-const byId = (id) => document.getElementById(id);
-const qs   = (sel, root=document) => root.querySelector(sel);
+/* ===========================
+   DOM helpers
+   =========================== */
+const $ = (sel, root=document) => root.querySelector(sel);
 
 function escapeHtml(str){
   return String(str || '').replace(/[&<>"']/g, m => (
@@ -46,7 +46,410 @@ function escapeHtml(str){
   ));
 }
 
-/* ===================== REPORT HELPERS (COPY) ===================== */
+/* ===========================
+   CSS injection (report page styles needed for 1:1 look)
+   - Safe: uses same classnames as report page
+   =========================== */
+function ensureReportStyles(){
+  if(document.getElementById('bd-drive-report-clone-styles')) return;
+
+  const style = document.createElement('style');
+  style.id = 'bd-drive-report-clone-styles';
+  style.textContent = `
+    :root{
+      --card-max: 1200px;
+      --page-bottom-gap: 72px;
+      --accent: #2F6C3C;
+    }
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:visible;
+    }
+    .hero-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
+      border-bottom:1px solid var(--border);
+    }
+    .hero-head .icon{
+      width:24px;
+      height:24px;
+      color:var(--accent);
+      display:grid;
+      place-items:center;
+    }
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
+    }
+    .muted{ color:var(--muted,#67706B); }
+
+    .body{ padding:16px; display:grid; gap:14px; }
+
+    .toolbar{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+      justify-content:space-between;
+    }
+    .toolbar-left{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:120px;
+      padding:10px 14px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      font-weight:800;
+      text-decoration:none;
+      cursor:pointer;
+      user-select:none;
+      color:var(--text) !important;
+      background:var(--card-surface,var(--surface));
+      font-size:0.9rem;
+      gap:6px;
+    }
+    .btn-quiet{ min-width:auto; padding-inline:10px; }
+    .btn-primary{
+      border-color:transparent;
+      background:#2F6C3C;
+      color:#fff !important;
+    }
+    .btn-small{ min-width:auto; padding:8px 12px; font-size:0.85rem; }
+
+    .page-header-meta{ font-size:0.9rem; opacity:0.8; }
+
+    /* List cards */
+    .wo-list{ display:flex; flex-direction:column; gap:10px; margin-top:8px; }
+
+    .wo-empty{
+      padding:14px 16px;
+      border-radius:12px;
+      border:1px dashed var(--border);
+      background:var(--card-surface, var(--surface));
+      font-size:0.95rem;
+      opacity:0.9;
+    }
+
+    .wo-card{
+      position:relative;
+      border-radius:10px;
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
+      padding:12px 14px 10px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      cursor:pointer;
+      transition:transform .06s, box-shadow .12s, border-color .12s, background .12s;
+    }
+    .wo-card:active{
+      transform:scale(.995);
+      box-shadow:var(--shadow);
+    }
+
+    .wo-row-top{ display:flex; align-items:flex-start; gap:10px; }
+    .wo-main{ flex:1 1 auto; min-width:0; }
+
+    .wo-title{
+      font-weight:700;
+      font-size:0.98rem;
+      line-height:1.3;
+    }
+
+    .wo-sub{
+      font-size:0.86rem;
+      opacity:0.9;
+      margin-top:2px;
+    }
+
+    .wo-meta{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 10px;
+      margin-top:4px;
+      font-size:0.8rem;
+      opacity:0.9;
+    }
+
+    .wo-meta span{
+      display:inline-flex;
+      align-items:flex-start;
+      gap:6px;
+      padding:2px 7px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      max-width:100%;
+    }
+    .wo-meta span > span.wo-meta-label{
+      font-weight:800;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      font-size:0.72rem;
+      opacity:0.85;
+      margin-top:1px;
+    }
+    .wo-meta .wo-meta-val{
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      max-width:48ch;
+    }
+    @media (max-width:520px){
+      .wo-meta .wo-meta-val{ max-width:28ch; }
+    }
+
+    /* RTK block */
+    .rtk-block{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+      line-height:1.15;
+      max-width:min(62ch, 100%);
+    }
+    .rtk-block .rtk-name{
+      font-weight:600;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      max-width:100%;
+    }
+    .rtk-block .rtk-sub{
+      font-weight:600;
+      opacity:0.88;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      max-width:100%;
+    }
+
+    /* Detail panel */
+    .wo-detail-panel{
+      margin-top:10px;
+      border-radius:10px;
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
+      padding:14px 16px 12px;
+      display:none;
+      flex-direction:column;
+      gap:8px;
+      scroll-margin-top: 90px;
+    }
+
+    .wo-detail-header{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:10px;
+    }
+
+    .wo-detail-title{ font-weight:700; font-size:1rem; }
+
+    .wo-detail-close{
+      border:none;
+      outline:none;
+      border-radius:999px;
+      padding:4px 9px;
+      font-size:0.8rem;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      cursor:pointer;
+      color:var(--text);
+    }
+
+    .wo-detail-grid{
+      display:grid;
+      grid-template-columns:minmax(0,1fr);
+      gap:8px 16px;
+      font-size:0.9rem;
+      margin-top:4px;
+    }
+    @media (min-width:700px){
+      .wo-detail-grid{ grid-template-columns:repeat(2, minmax(0,1fr)); }
+    }
+
+    .wo-detail-item-label{
+      font-size:0.78rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:1px;
+    }
+    .wo-detail-item-value{ font-size:0.94rem; }
+
+    .wo-detail-notes{
+      margin-top:8px;
+      padding-top:8px;
+      border-top:1px solid var(--border);
+      font-size:0.92rem;
+      white-space:pre-wrap;
+    }
+    .wo-detail-notes-label{
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:2px;
+    }
+    .wo-detail-notes-body{ margin-top:2px; }
+
+    .wo-detail-photos{
+      margin-top:10px;
+      padding-top:10px;
+      border-top:1px solid var(--border);
+      display:none;
+      flex-direction:column;
+      gap:8px;
+    }
+    .wo-detail-photos.show{ display:flex; }
+    .wo-detail-photos-label{
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+    }
+    .wo-photo-grid{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0,1fr));
+      gap:10px;
+    }
+    @media (max-width:520px){
+      .wo-photo-grid{ grid-template-columns:1fr; }
+    }
+    .wo-photo{
+      border:1px solid var(--border);
+      border-radius:14px;
+      overflow:hidden;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      box-shadow:var(--shadow-soft, var(--shadow));
+      cursor:pointer;
+    }
+    .wo-photo img{
+      width:100%;
+      height:auto;
+      display:block;
+      max-height:520px;
+      object-fit:cover;
+    }
+
+    .wo-detail-footer{
+      margin-top:10px;
+      font-size:0.82rem;
+      opacity:0.85;
+    }
+    .wo-detail-pill{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 8px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      font-size:0.8rem;
+      margin-left:6px;
+    }
+
+    .wo-detail-actions{
+      margin-top:10px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+    }
+    .wo-detail-actions-left{ display:flex; align-items:center; gap:8px; }
+    .wo-detail-actions-right{ display:flex; align-items:center; gap:4px; }
+
+    .photo-modal{
+      position:fixed;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:100000;
+      padding:16px;
+    }
+    .photo-modal.show{ display:flex; }
+    .photo-backdrop{
+      position:absolute;
+      inset:0;
+      background:rgba(0,0,0,.65);
+    }
+    .photo-sheet{
+      position:relative;
+      max-width:min(1000px, 95vw);
+      max-height:90vh;
+      background:var(--surface);
+      border-radius:14px;
+      border:1px solid var(--border);
+      box-shadow:0 20px 40px rgba(0,0,0,.45);
+      padding:10px;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      z-index:1;
+      overflow:hidden;
+    }
+    .photo-close-row{
+      display:flex;
+      justify-content:flex-end;
+    }
+    .photo-close-btn{
+      border:none;
+      border-radius:999px;
+      padding:6px 12px;
+      font-size:0.85rem;
+      cursor:pointer;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      color:var(--text);
+    }
+    .photo-img-wrap{
+      border-radius:12px;
+      overflow:hidden;
+      background:#000;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      max-height:calc(90vh - 70px);
+    }
+    .photo-img-wrap img{
+      max-width:100%;
+      max-height:100%;
+      display:block;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+/* ===========================
+   STATE (report shape)
+   =========================== */
+const STATE = {
+  items: [],
+  selectedId: null,
+  db: null,
+  farmMap: new Map(),
+  towersById: new Map()
+};
+
+/* ===========================
+   Report helpers (copied)
+   =========================== */
 function normalizeStatus(s){
   return String(s || '').trim().replace(/\.+$/,'').toLowerCase();
 }
@@ -71,12 +474,11 @@ function fmtFreqMHz(freq){
   if(!s) return '';
   return `${s} MHz`;
 }
-
 function getTowerIdFromRequest(d){
   return coerceStr(d?.rtkTowerId || d?.towerId || d?.rtkId || '');
 }
 
-/* createdAt parsing EXACTLY like report page */
+/* createdAt parsing (copied) */
 function createdAtFromDoc(data){
   let createdIso = null;
 
@@ -93,17 +495,8 @@ function createdAtFromDoc(data){
   return createdIso ? new Date(createdIso) : null;
 }
 
-/* ===================== STATE (MATCH REPORT PAGE) ===================== */
-const STATE = {
-  db: null,
-  items: [],
-  selectedId: null,
-  farmMap: new Map(),
-  towersById: new Map()
-};
-
 /* ===========================
-   RTK join (COPY OF REPORT PAGE)
+   RTK join (copied)
    =========================== */
 async function fetchTowerFromAnyCollection(towerId){
   for (const colName of CONFIG.TOWER_COLLECTIONS){
@@ -140,7 +533,6 @@ async function loadRtkTowersForItems(items){
 }
 
 function getRtkForRequest(d){
-  // prefer embedded rtk snapshot if present
   if(d && typeof d === 'object' && d.rtk && typeof d.rtk === 'object'){
     const name = coerceStr(d.rtk.name);
     const networkId = coerceStr(d.rtk.networkId);
@@ -150,7 +542,6 @@ function getRtkForRequest(d){
     }
   }
 
-  // otherwise join from tower docs by id
   const towerId = getTowerIdFromRequest(d);
   if(towerId && STATE.towersById.has(towerId)){
     const t = STATE.towersById.get(towerId);
@@ -202,104 +593,96 @@ function getPhotosFromRequest(d){
   return out;
 }
 
-/* ===================== DOM INJECTION (REPORT-LIKE) ===================== */
-function ensureContainers(){
-  const anchor = byId('woHero') || qs('#woHero');
-  const wrap = qs('.wrap') || document.body;
+/* ===========================
+   UI injection (report-like)
+   =========================== */
+function ensureUI(){
+  if(byId('bdDriveHero')) return;
 
-  if(!byId('bdDriveOpenHero')){
-    const hero = document.createElement('section');
-    hero.id = 'bdDriveOpenHero';
-    hero.className = 'hero';
+  const anchor = byId('woHero') || $('#woHero');
+  const host = anchor?.parentElement || $('.wrap') || document.body;
 
-    // UI is intentionally the SAME structure/classes as report page:
-    // - .hero-head
-    // - .body
-    // - .toolbar with count meta
-    // - .wo-empty
-    // - .wo-list
-    // - .wo-detail-panel (same layout)
-    hero.innerHTML = `
-      <header class="hero-head">
-        <div class="icon" aria-hidden="true">🚜</div>
-        <div>
-          <h1>Open Boundary Drive Requests</h1>
-          <p class="muted">Tap a card to view details. Mark as Driven moves it to “In Progress”.</p>
-        </div>
-      </header>
-
-      <div class="body">
-        <div class="toolbar">
-          <div class="toolbar-left">
-            <!-- intentionally no filters / no print -->
-            <span class="muted" style="font-weight:800;">Drive Queue</span>
-          </div>
-          <div class="page-header-meta" id="bdDriveOpenCount">0 open</div>
-        </div>
-
-        <section aria-label="Open boundary drive requests">
-          <div class="wo-empty" id="bdDriveOpenEmpty">Loading open drive requests…</div>
-          <div class="wo-list" id="bdDriveOpenList"></div>
-        </section>
-
-        <!-- Details panel (COPY OF REPORT PANEL, drive-only actions) -->
-        <section class="wo-detail-panel" id="bdDriveDetailPanel" aria-label="Boundary request details">
-          <div class="wo-detail-header">
-            <div class="wo-detail-title" id="bdDriveDetailTitle">Boundary Request Details</div>
-            <button type="button" id="bdDriveDetailClose" class="wo-detail-close">Close</button>
-          </div>
-
-          <div class="wo-detail-grid" id="bdDriveDetailGrid"></div>
-
-          <div class="wo-detail-notes">
-            <div class="wo-detail-notes-label">Notes</div>
-            <div class="wo-detail-notes-body" id="bdDriveDetailNotes"></div>
-          </div>
-
-          <div id="bdDriveDetailPhotosWrap" class="wo-detail-photos" aria-label="Boundary request photos">
-            <div class="wo-detail-photos-label">Photos</div>
-            <div id="bdDriveDetailPhotoGrid" class="wo-photo-grid"></div>
-          </div>
-
-          <div class="wo-detail-footer" id="bdDriveDetailFooter"></div>
-
-          <div class="wo-detail-actions">
-            <div class="wo-detail-actions-left">
-              <button type="button" id="bdDriveBtnMarkDriven" class="btn btn-primary btn-small">
-                Mark as Driven
-              </button>
-            </div>
-            <div class="wo-detail-actions-right">
-              <!-- NO delete button here on purpose -->
-            </div>
-          </div>
-        </section>
+  const hero = document.createElement('section');
+  hero.id = 'bdDriveHero';
+  hero.className = 'hero';
+  hero.innerHTML = `
+    <header class="hero-head">
+      <div class="icon" aria-hidden="true">🚜</div>
+      <div>
+        <h1>Open Boundary Drive Requests</h1>
+        <p class="muted">Tap a card to see full notes. Mark as Driven moves it to “In Progress”.</p>
       </div>
-    `;
+    </header>
 
-    if(anchor && anchor.parentNode){
-      anchor.insertAdjacentElement('afterend', hero);
-    }else{
-      wrap.appendChild(hero);
-    }
+    <div class="body">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <span class="muted" style="font-weight:800;">Drive Queue</span>
+        </div>
+        <div class="page-header-meta" id="brCount">0 open</div>
+      </div>
+
+      <section aria-label="Boundary drive requests">
+        <div class="wo-empty">Loading boundary requests…</div>
+        <div class="wo-list"></div>
+      </section>
+
+      <section class="wo-detail-panel" aria-label="Boundary request details">
+        <div class="wo-detail-header">
+          <div class="wo-detail-title">Boundary Request Details</div>
+          <button type="button" id="woDetailClose" class="wo-detail-close">Close</button>
+        </div>
+
+        <div class="wo-detail-grid"></div>
+
+        <div class="wo-detail-notes">
+          <div class="wo-detail-notes-label">Notes</div>
+          <div class="wo-detail-notes-body"></div>
+        </div>
+
+        <div id="woDetailPhotos" class="wo-detail-photos" aria-label="Boundary request photos">
+          <div class="wo-detail-photos-label">Photos</div>
+          <div id="woDetailPhotoGrid" class="wo-photo-grid"></div>
+        </div>
+
+        <div class="wo-detail-footer"></div>
+
+        <div class="wo-detail-actions">
+          <div class="wo-detail-actions-left">
+            <button type="button" id="btnMarkDriven" class="btn btn-primary btn-small">
+              Mark as Driven
+            </button>
+          </div>
+          <div class="wo-detail-actions-right">
+            <!-- NO delete button -->
+          </div>
+        </div>
+      </section>
+    </div>
+  `;
+
+  if(anchor){
+    anchor.insertAdjacentElement('afterend', hero);
+  }else{
+    host.appendChild(hero);
   }
 
-  // Photo viewer modal (COPY STYLE/BEHAVIOR of report page modal)
-  if(!byId('bdDrivePhotoModal')){
+  // Photo modal (same as report)
+  if(!byId('photoModal')){
     const modal = document.createElement('div');
-    modal.id = 'bdDrivePhotoModal';
+    modal.id = 'photoModal';
     modal.className = 'photo-modal';
     modal.setAttribute('role','dialog');
     modal.setAttribute('aria-modal','true');
     modal.setAttribute('aria-label','Boundary request photo');
     modal.innerHTML = `
-      <div id="bdDrivePhotoBackdrop" class="photo-backdrop"></div>
+      <div id="photoModalBackdrop" class="photo-backdrop"></div>
       <div class="photo-sheet">
         <div class="photo-close-row">
-          <button id="bdDrivePhotoClose" type="button" class="photo-close-btn">Close</button>
+          <button id="photoModalClose" type="button" class="photo-close-btn">Close</button>
         </div>
         <div class="photo-img-wrap">
-          <img id="bdDrivePhotoImg" src="" alt="Boundary request photo"/>
+          <img id="photoModalImg" src="" alt="Boundary request photo"/>
         </div>
       </div>
     `;
@@ -307,15 +690,18 @@ function ensureContainers(){
   }
 }
 
-/* ===================== RENDER LIST (COPY REPORT TILE HTML) ===================== */
+function byId(id){ return document.getElementById(id); }
+
+/* ===========================
+   Rendering (screen) — COPY of report renderList/renderDetails
+   =========================== */
 function renderList(){
-  const listEl  = byId('bdDriveOpenList');
-  const emptyEl = byId('bdDriveOpenEmpty');
-  const countEl = byId('bdDriveOpenCount');
-  if(!listEl || !emptyEl) return;
+  const root = byId('bdDriveHero') || document;
+  const listEl  = $('.wo-list', root);
+  const emptyEl = $('.wo-empty', root);
+  const countEl = $('#brCount', root);
 
   listEl.innerHTML = '';
-
   const items = STATE.items;
 
   if(!items.length){
@@ -327,8 +713,7 @@ function renderList(){
 
   emptyEl.style.display = 'none';
 
-  // Count line EXACTLY like report page open view:
-  // "{openItems.length} open on {farmCountOpen} farms"
+  // count line matches report “open” view
   const farmCountOpen = new Set(items.map(it => it.data.farmId || it.data.farm).filter(Boolean)).size;
   if(countEl){
     countEl.textContent = `${items.length} open on ${farmCountOpen || 0} farm${farmCountOpen === 1 ? '' : 's'}`;
@@ -353,7 +738,7 @@ function renderList(){
     card.className = 'wo-card';
     card.dataset.id = item.id;
 
-    // ✅ THIS IS THE REPORT PAGE TILE HTML (verbatim)
+    // verbatim tile HTML from report
     card.innerHTML = `
       <div class="wo-row-top">
         <div class="wo-main">
@@ -374,12 +759,11 @@ function renderList(){
       </div>
     `;
 
-    // Only behavior difference: click opens our details panel (same feel), not report’s complete/delete
     card.addEventListener('click', () => {
       STATE.selectedId = item.id;
       renderDetails();
 
-      const panel = byId('bdDriveDetailPanel');
+      const panel = $('.wo-detail-panel', root);
       if(panel){
         panel.scrollIntoView({ behavior:'smooth', block:'start' });
       }
@@ -389,47 +773,45 @@ function renderList(){
   }
 }
 
-/* ===================== PHOTO VIEWER (COPY REPORT BEHAVIOR) ===================== */
-let photoModal=null, photoImg=null, photoBackdrop=null, photoCloseBtn=null;
+function clearDetails(){
+  const root = byId('bdDriveHero') || document;
+  const panel = $('.wo-detail-panel', root);
+  panel.style.display = 'none';
+  panel.dataset.id = '';
+  $('.wo-detail-title', panel).textContent = 'Boundary Request Details';
+  $('.wo-detail-grid', panel).innerHTML = '';
+  $('.wo-detail-notes-body', panel).textContent = '';
+  $('.wo-detail-footer', panel).innerHTML = '';
+
+  const photosWrap = $('#woDetailPhotos', root);
+  const photosGrid = $('#woDetailPhotoGrid', root);
+  if(photosWrap) photosWrap.classList.remove('show');
+  if(photosGrid) photosGrid.innerHTML = '';
+
+  const markBtn = $('#btnMarkDriven', root);
+  if (markBtn){
+    markBtn.disabled = true;
+    markBtn.textContent = 'Mark as Driven';
+  }
+}
+
+// photo viewer state (same ids as report)
+let photoModal=null, photoModalImg=null, photoModalBackdrop=null, photoModalCloseBtn=null;
 
 function openPhotoViewer(url){
-  if(!photoModal || !photoImg || !url) return;
-  photoImg.src = url;
+  if(!photoModal || !photoModalImg || !url) return;
+  photoModalImg.src = url;
   photoModal.classList.add('show');
 }
 function closePhotoViewer(){
   if(!photoModal) return;
   photoModal.classList.remove('show');
-  if(photoImg) photoImg.src = '';
-}
-
-/* ===================== DETAILS (COPY REPORT STRUCTURE + DRIVE BUTTON) ===================== */
-function clearDetails(){
-  const panel = byId('bdDriveDetailPanel');
-  if(!panel) return;
-
-  panel.style.display = 'none';
-  panel.dataset.id = '';
-  byId('bdDriveDetailTitle').textContent = 'Boundary Request Details';
-  byId('bdDriveDetailGrid').innerHTML = '';
-  byId('bdDriveDetailNotes').textContent = '';
-  byId('bdDriveDetailFooter').innerHTML = '';
-
-  const photosWrap = byId('bdDriveDetailPhotosWrap');
-  const photosGrid = byId('bdDriveDetailPhotoGrid');
-  if(photosWrap) photosWrap.classList.remove('show');
-  if(photosGrid) photosGrid.innerHTML = '';
-
-  const btn = byId('bdDriveBtnMarkDriven');
-  if(btn){
-    btn.disabled = true;
-    btn.textContent = 'Mark as Driven';
-  }
+  if(photoModalImg) photoModalImg.src = '';
 }
 
 function renderDetails(){
-  const panel = byId('bdDriveDetailPanel');
-  if(!panel) return;
+  const root = byId('bdDriveHero') || document;
+  const panel = $('.wo-detail-panel', root);
 
   const item = STATE.items.find(x => x.id === STATE.selectedId);
   if(!item){
@@ -455,12 +837,9 @@ function renderDetails(){
   const photos = getPhotosFromRequest(d);
 
   panel.dataset.id = item.id;
+  $('.wo-detail-title', panel).textContent = farm ? `${field} · ${farm}` : field;
 
-  // Title (same as report)
-  byId('bdDriveDetailTitle').textContent = farm ? `${field} · ${farm}` : field;
-
-  // Grid (same as report)
-  const grid = byId('bdDriveDetailGrid');
+  const grid = $('.wo-detail-grid', panel);
   grid.innerHTML = `
     <div>
       <div class="wo-detail-item-label">Scope</div>
@@ -499,20 +878,24 @@ function renderDetails(){
     </div>
   `;
 
-  // Notes (same as report)
-  byId('bdDriveDetailNotes').textContent = notes || 'No notes recorded for this request.';
+  $('.wo-detail-notes-body', panel).textContent = notes || 'No notes recorded for this request.';
 
-  // Footer (same style, plus Drive-only note)
-  const footer = byId('bdDriveDetailFooter');
+  const footer = $('.wo-detail-footer', panel);
   footer.innerHTML = `
     Current status:
     <span class="wo-detail-pill">${escapeHtml(status || 'unknown')}</span>
-    <span class="wo-detail-pill">Drive-only</span>
   `;
 
-  // Photos (same as report)
-  const photosWrap = byId('bdDriveDetailPhotosWrap');
-  const photosGrid = byId('bdDriveDetailPhotoGrid');
+  const markBtn = $('#btnMarkDriven', root);
+  if (markBtn){
+    const isOpen = normalizeStatus(status) === 'open';
+    markBtn.disabled = !isOpen;
+    markBtn.textContent = isOpen ? 'Mark as Driven' : (status ? `Status: ${status}` : 'Mark as Driven');
+  }
+
+  // big photos (same)
+  const photosWrap = $('#woDetailPhotos', root);
+  const photosGrid = $('#woDetailPhotoGrid', root);
   if(photosWrap && photosGrid){
     photosGrid.innerHTML = '';
     if(photos.length){
@@ -529,78 +912,45 @@ function renderDetails(){
     }
   }
 
-  // Drive button enabled only if OPEN (like report enables Mark completed only if open)
-  const btn = byId('bdDriveBtnMarkDriven');
-  if(btn){
-    const isOpen = normalizeStatus(status) === 'open';
-    btn.disabled = !isOpen;
-    btn.textContent = isOpen ? 'Mark as Driven' : (status ? `Status: ${status}` : 'Mark as Driven');
-  }
-
   panel.style.display = 'flex';
 }
 
-/* ===================== LOAD OPEN ITEMS (GLOBAL or FIELD) ===================== */
-function computeMode(){
-  const raw = String(window.BOUNDARY_DRIVE_MODE || 'global').toLowerCase().trim();
-  return (raw === 'field') ? 'field' : 'global';
-}
-
-async function loadOpenRequests(){
-  const mode = computeMode();
-  const fid = String(window.currentFieldId || '').trim();
-
-  // Primary: try indexed open query; fallback scan
-  // We keep it resilient because some docs have status "Open" etc.
+/* ===========================
+   Loading (OPEN ONLY; global queue)
+   - uses indexed query if possible, falls back to scan
+   =========================== */
+async function loadOpenBoundaryRequests(){
   const openVariants = ['open','Open','OPEN'];
 
   let items = [];
 
   try{
-    if(mode === 'field' && fid){
-      const qy = query(
-        collection(STATE.db, CONFIG.COLLECTION_PATH),
-        where('fieldId','==', fid),
-        orderBy('createdAt','desc')
-      );
-      const snap = await getDocs(qy);
-      items = snap.docs
-        .map(ds => {
-          const data = ds.data() || {};
-          const createdDate = createdAtFromDoc(data);
-          return { id: ds.id, data: { ...data, _createdAtDate: createdDate } };
-        })
-        .filter(it => normalizeStatus(it.data.status) === 'open');
-    }else{
-      const qy = query(
-        collection(STATE.db, CONFIG.COLLECTION_PATH),
-        where('status', 'in', openVariants),
-        orderBy('createdAt','desc')
-      );
-      const snap = await getDocs(qy);
-      items = snap.docs
-        .map(ds => {
-          const data = ds.data() || {};
-          const createdDate = createdAtFromDoc(data);
-          return { id: ds.id, data: { ...data, _createdAtDate: createdDate } };
-        })
-        .filter(it => normalizeStatus(it.data.status) === 'open');
-    }
+    const qy = query(
+      collection(STATE.db, CONFIG.COLLECTION_PATH),
+      where('status', 'in', openVariants),
+      orderBy('createdAt','desc')
+    );
+    const snap = await getDocs(qy);
+
+    items = snap.docs.map(docSnap => {
+      const data = docSnap.data() || {};
+      const createdDate = createdAtFromDoc(data);
+      return { id: docSnap.id, data: { ...data, _createdAtDate: createdDate } };
+    });
+
+    // normalize filter
+    items = items.filter(it => normalizeStatus(it.data.status) === 'open');
   }catch(e){
-    console.warn('[boundary-drive-open] query failed, fallback scan', e);
+    console.warn('[boundary-drive-open] open query failed, scanning all docs', e);
 
     const snap = await getDocs(collection(STATE.db, CONFIG.COLLECTION_PATH));
     items = snap.docs
-      .map(ds => {
-        const data = ds.data() || {};
+      .map(docSnap => {
+        const data = docSnap.data() || {};
         const createdDate = createdAtFromDoc(data);
-        return { id: ds.id, data: { ...data, _createdAtDate: createdDate } };
+        return { id: docSnap.id, data: { ...data, _createdAtDate: createdDate } };
       })
-      .filter(it => normalizeStatus(it.data.status) === 'open')
-      .filter(it => {
-        if(mode === 'field' && fid) return String(it.data.fieldId || '') === fid;
-        return true;
-      });
+      .filter(it => normalizeStatus(it.data.status) === 'open');
 
     items.sort((a,b) => {
       const ta = a.data._createdAtDate ? a.data._createdAtDate.getTime() : 0;
@@ -609,136 +959,83 @@ async function loadOpenRequests(){
     });
   }
 
-  // Build farm map (same as report)
-  STATE.farmMap = new Map();
-  items.forEach(it=>{
-    const d = it.data;
-    if(!d.farm) return;
-    const key = d.farmId || d.farm;
-    if(!key) return;
-    if(!STATE.farmMap.has(key)) STATE.farmMap.set(key, d.farm);
-  });
-
-  // RTK join (critical for “name • net • freq” format)
+  // RTK join (required for name/net/freq display)
   await loadRtkTowersForItems(items);
 
   STATE.items = items;
 }
 
-/* ===================== UPDATE (DRIVEN) ===================== */
-async function markDriven(){
-  if(!STATE.selectedId) return;
-
+/* ===========================
+   Action: Mark as Driven
+   =========================== */
+async function handleMarkDriven(){
+  if(!STATE.selectedId){
+    alert('Select a boundary request first.');
+    return;
+  }
   const item = STATE.items.find(it => it.id === STATE.selectedId);
-  if(!item) return;
-
-  // Only OPEN can be driven
-  if(normalizeStatus(item.data.status) !== 'open') return;
+  if(!item){
+    alert('Could not find this request in memory.');
+    return;
+  }
+  const currentStatus = item.data.status || '';
+  if (normalizeStatus(currentStatus) !== 'open') return;
 
   try{
-    await updateDoc(
-      doc(STATE.db, CONFIG.COLLECTION_PATH, STATE.selectedId),
-      { status: 'In Progress', drivenAt: serverTimestamp() }
-    );
+    const ref = doc(STATE.db, CONFIG.COLLECTION_PATH, STATE.selectedId);
+    await updateDoc(ref, {
+      status: 'In Progress',
+      drivenAt: serverTimestamp()
+    });
 
-    // Clear selection (like report would after state change)
+    // remove selection + reload list (so it disappears immediately)
     STATE.selectedId = null;
     clearDetails();
 
-    // Reload + rerender
-    await loadOpenRequests();
+    await loadOpenBoundaryRequests();
     renderList();
-
-  }catch(e){
-    console.error(e);
-    alert('Failed to mark as driven');
+  }catch(err){
+    console.error('Error marking driven:', err);
+    alert('Could not mark as driven. Check console for details.');
   }
 }
 
-/* ===================== WIRING ===================== */
+/* ===========================
+   Wire UI
+   =========================== */
 function wire(){
-  const closeBtn = byId('bdDriveDetailClose');
-  if(closeBtn){
-    closeBtn.addEventListener('click', () => {
-      STATE.selectedId = null;
-      clearDetails();
-    });
-  }
+  const root = byId('bdDriveHero') || document;
 
-  const drivenBtn = byId('bdDriveBtnMarkDriven');
-  if(drivenBtn){
-    drivenBtn.addEventListener('click', markDriven);
-  }
+  $('#woDetailClose', root)?.addEventListener('click', () => {
+    STATE.selectedId = null;
+    clearDetails();
+  });
 
-  // Photo modal wiring (copy report behavior)
-  photoModal = byId('bdDrivePhotoModal');
-  photoImg = byId('bdDrivePhotoImg');
-  photoBackdrop = byId('bdDrivePhotoBackdrop');
-  photoCloseBtn = byId('bdDrivePhotoClose');
+  $('#btnMarkDriven', root)?.addEventListener('click', handleMarkDriven);
 
-  if(photoBackdrop) photoBackdrop.addEventListener('click', closePhotoViewer);
-  if(photoCloseBtn) photoCloseBtn.addEventListener('click', closePhotoViewer);
+  // Photo viewer wiring (exact behavior)
+  photoModal = byId('photoModal');
+  photoModalImg = byId('photoModalImg');
+  photoModalBackdrop = byId('photoModalBackdrop');
+  photoModalCloseBtn = byId('photoModalClose');
+
+  if(photoModalBackdrop) photoModalBackdrop.addEventListener('click', closePhotoViewer);
+  if(photoModalCloseBtn) photoModalCloseBtn.addEventListener('click', closePhotoViewer);
   document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape') closePhotoViewer(); });
 }
 
-/* ===================== WATCHER (optional field mode) ===================== */
-let lastMode = null;
-let lastFieldId = null;
-
-function watchModeAndField(){
-  setInterval(async () => {
-    const mode = computeMode();
-    const fid = String(window.currentFieldId || '').trim();
-
-    // mode changed
-    if(mode !== lastMode){
-      lastMode = mode;
-      lastFieldId = fid || null;
-
-      await loadOpenRequests();
-      renderList();
-      clearDetails();
-      return;
-    }
-
-    // field changed (field mode only)
-    if(mode === 'field'){
-      if(fid && fid !== lastFieldId){
-        lastFieldId = fid;
-        await loadOpenRequests();
-        renderList();
-        clearDetails();
-      }
-      if(!fid){
-        // In field mode with no selected field, hide the module (matches your old “needs field” behavior)
-        const hero = byId('bdDriveOpenHero');
-        if(hero) hero.style.display = 'none';
-        clearDetails();
-      }else{
-        const hero = byId('bdDriveOpenHero');
-        if(hero) hero.style.display = '';
-      }
-    }
-  }, 600);
-}
-
-/* ===================== BOOT ===================== */
+/* ===========================
+   BOOT
+   =========================== */
 (async function boot(){
   await ready;
   STATE.db = getFirestore();
 
-  ensureContainers();
+  ensureReportStyles();
+  ensureUI();
   wire();
 
-  // default visible
-  const hero = byId('bdDriveOpenHero');
-  if(hero) hero.style.display = '';
-
-  await loadOpenRequests();
+  await loadOpenBoundaryRequests();
   renderList();
   clearDetails();
-
-  lastMode = computeMode();
-  lastFieldId = String(window.currentFieldId || '').trim() || null;
-  watchModeAndField();
 })();
