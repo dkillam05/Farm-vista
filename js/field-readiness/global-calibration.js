@@ -1,18 +1,27 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/global-calibration.js  (FULL FILE)
-Rev: 2026-01-20a-global-slider-truth-state
+Rev: 2026-01-21a-global-percent-shift-truth-state
 
 CHANGE (per Dane):
-✅ Reframe Global Calibration slider to mean:
-   “This is the TRUE soil condition today (readiness truth), seed the model from it.”
+✅ Global Calibration slider now performs a % shift across ALL fields (relative move),
+   based on the selected reference field.
 
-What this file does now:
-✅ Uses the slider value as TARGET READINESS (0..100).
-✅ Converts it to a per-field STORAGE seed (0..Smax) using each field’s Smax:
-     wet = 100 - readiness
-     storageFinal = Smax * (wet/100)
-✅ Writes that seed to Firestore:
-   field_readiness_state/{fieldId} => { storageFinal, asOfDateISO, SmaxAtSave, updatedAt, updatedBy, source }
+Meaning:
+- Let R_ref be the current (shown) readiness of the selected reference field.
+- Let R_target be the slider value you choose.
+- factor = R_target / R_ref   (percent move)
+- For every field:
+    R_new = clamp(round(R_now * factor), 0..100)
+    storageFinal = Smax * ((100 - R_new)/100)
+  Write to field_readiness_state/{fieldId}
+
+This preserves field-to-field spread (wet fields stay wetter than dry fields),
+while shifting the whole system by a consistent percentage.
+
+CRITICAL:
+✅ No wetBias/readinessShift overlays (no ceiling)
+✅ Uses persisted truth seed when running the model (matches tiles)
+✅ Writes truth storage state only
 
 Keeps:
 ✅ 72h lockout (nextAllowedAt = now + cooldownHours)
@@ -23,10 +32,6 @@ Keeps:
 No longer does:
 ❌ Does NOT write field_readiness_adjustments delta/anchor/slider entries
 ❌ Does NOT compute readinessShift / compensated shifts
-
-NOTE:
-- render.js must read field_readiness_state and pass getPersistedState into the model deps
-  (you already asked to do that there).
 ===================================================================== */
 'use strict';
 
@@ -45,9 +50,117 @@ function esc(s){
 }
 
 /* =====================================================================
-   PERSISTED TRUTH STATE COLLECTION (NEW)
+   PERSISTED TRUTH STATE COLLECTION (seed consistency with tiles)
 ===================================================================== */
 const FR_STATE_COLLECTION = 'field_readiness_state';
+const STATE_TTL_MS = 30000;
+
+function safeStr(x){
+  const s = String(x || '');
+  return s ? s : '';
+}
+function safeISO10(x){
+  const s = safeStr(x);
+  return (s.length >= 10) ? s.slice(0,10) : s;
+}
+function safeNum(v){
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function loadPersistedState(state, { force=false } = {}){
+  try{
+    if (!state) return;
+
+    const now = Date.now();
+    const last = Number(state._persistLoadedAt || 0);
+    if (!force && state.persistedStateByFieldId && (now - last) < STATE_TTL_MS) return;
+
+    state.persistedStateByFieldId = state.persistedStateByFieldId || {};
+    const out = {};
+
+    const api = getAPI(state);
+    if (!api){
+      state.persistedStateByFieldId = out;
+      state._persistLoadedAt = now;
+      return;
+    }
+
+    if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
+      const db = window.firebase.firestore();
+      const snap = await db.collection(FR_STATE_COLLECTION).get();
+
+      snap.forEach(doc=>{
+        const d = doc.data() || {};
+        const fid = safeStr(d.fieldId || doc.id);
+        if (!fid) return;
+
+        const storageFinal = safeNum(d.storageFinal);
+        const asOfDateISO = safeISO10(d.asOfDateISO);
+
+        if (storageFinal == null || !asOfDateISO) return;
+
+        out[fid] = {
+          fieldId: fid,
+          storageFinal,
+          asOfDateISO,
+          SmaxAtSave: safeNum(d.SmaxAtSave) ?? safeNum(d.SmaxAtSave || d.smaxAtSave) ?? 0
+        };
+      });
+
+      state.persistedStateByFieldId = out;
+      state._persistLoadedAt = now;
+      return;
+    }
+
+    if (api.kind !== 'compat'){
+      const db = api.getFirestore();
+      const col = api.collection(db, FR_STATE_COLLECTION);
+      const snap = await api.getDocs(col);
+
+      snap.forEach(doc=>{
+        const d = doc.data() || {};
+        const fid = safeStr(d.fieldId || doc.id);
+        if (!fid) return;
+
+        const storageFinal = safeNum(d.storageFinal);
+        const asOfDateISO = safeISO10(d.asOfDateISO);
+
+        if (storageFinal == null || !asOfDateISO) return;
+
+        out[fid] = {
+          fieldId: fid,
+          storageFinal,
+          asOfDateISO,
+          SmaxAtSave: safeNum(d.SmaxAtSave) ?? safeNum(d.SmaxAtSave || d.smaxAtSave) ?? 0
+        };
+      });
+
+      state.persistedStateByFieldId = out;
+      state._persistLoadedAt = now;
+      return;
+    }
+  }catch(e){
+    console.warn('[FieldReadiness] persisted state load failed:', e);
+    state.persistedStateByFieldId = state.persistedStateByFieldId || {};
+    state._persistLoadedAt = Date.now();
+  }
+}
+
+function getPersistedStateForDeps(state, fieldId){
+  try{
+    const fid = String(fieldId || '');
+    if (!fid) return null;
+    const map = (state && state.persistedStateByFieldId && typeof state.persistedStateByFieldId === 'object')
+      ? state.persistedStateByFieldId
+      : null;
+    if (!map) return null;
+    const s = map[fid];
+    return (s && typeof s === 'object') ? s : null;
+  }catch(_){
+    return null;
+  }
+}
 
 /* =====================================================================
    OP-THRESHOLD WET/DRY TRIGGER TUNING
@@ -243,28 +356,13 @@ function getSelectedField(state){
   return (state.fields || []).find(x=>x.id === fid) || null;
 }
 
-// For this modal we use the SAME cal object the tiles use, but we must ensure
-// readinessShift is OFF (truth slider writes state, not readiness offsets).
-function getCalForModel(state){
-  try{
-    if (state && state._cal && typeof state._cal === 'object') return state._cal;
-  }catch(_){}
-  return { wetBias:0, opWetBias:{} };
+// For this modal, CAL must match render.js: ALL ZERO.
+// No wetBias/readinessShift overlays (prevents ceilings).
+function getCalForShown(_state){
+  return { wetBias:0, opWetBias:{}, readinessShift:0, opReadinessShift:{} };
 }
-
-function getCalForShown(state){
-  const c = getCalForModel(state) || {};
-  // Shown values should reflect tiles; readinessShift should already be treated as 0 in render.js now.
-  // But keep safe: force it off here too.
-  return { ...c, readinessShift: 0, opReadinessShift: {} };
-}
-
-function getCalForAnchor(state){
-  const c = getCalForModel(state) || {};
-  const out = { ...c };
-  out.readinessShift = 0;
-  out.opReadinessShift = {};
-  return out;
+function getCalForAnchor(_state){
+  return { wetBias:0, opWetBias:{}, readinessShift:0, opReadinessShift:{} };
 }
 
 function runFieldWithCal(state, f, calObj){
@@ -280,7 +378,10 @@ function runFieldWithCal(state, f, calObj){
     LOSS_SCALE: CONST.LOSS_SCALE,
     EXTRA,
     opKey,
-    CAL: calObj
+    CAL: calObj,
+
+    // ✅ seed consistency with tiles
+    getPersistedState: (id)=> getPersistedStateForDeps(state, id)
   };
 
   const run = state._mods.model.runField(f, deps);
@@ -398,13 +499,12 @@ function renderCooldownCard(state){
   const since = lastMs ? fmtDur(now - lastMs) : '—';
   const nextAbs = nextMs ? fmtAbs(nextMs) : '—';
 
-  const title = locked ? 'Global truth set is locked' : 'Global truth set is available';
+  const title = locked ? 'Global percent shift is locked' : 'Global percent shift is available';
   const lastLine = lastMs
-    ? `Last global truth set: <span class="mono">${esc(since)}</span> ago`
-    : `Last global truth set: <span class="mono">—</span>`;
-  const sub = `Next global truth set allowed: <span class="mono">${esc(nextAbs)}</span>`;
-  const note =
-    `This sets today’s ground-truth readiness and seeds the soil model (storage) going forward.`;
+    ? `Last global shift: <span class="mono">${esc(since)}</span> ago`
+    : `Last global shift: <span class="mono">—</span>`;
+  const sub = `Next global shift allowed: <span class="mono">${esc(nextAbs)}</span>`;
+  const note = `This applies the same % readiness shift to ALL fields and writes truth storage for today.`;
 
   const cardStyle =
     'border:1px solid var(--border);border-radius:14px;padding:12px;' +
@@ -435,7 +535,7 @@ function renderCooldownCard(state){
 }
 
 /* =========================
-   Slider anchoring + clamp (YOUR RULE)
+   Slider anchoring + clamp
 ========================= */
 function sliderEl(){ return $('adjIntensity'); }
 function sliderVal(){
@@ -478,9 +578,6 @@ function enforceSliderClamp(state){
     return;
   }
 
-  // Same guardrail direction:
-  // - If model says WET and user says DRY, only allow moving UP (drier readiness)
-  // - If model says DRY and user says WET, only allow moving DOWN (wetter readiness)
   if (status === 'wet' && feel === 'dry'){
     if (v < anchor) v = anchor;
   }
@@ -500,17 +597,25 @@ function updateGuardText(state){
 
   const feel = state._adjFeel;
   if (!(feel === 'wet' || feel === 'dry')){
-    el.textContent = 'Choose Wet or Dry, then move the slider to set the TRUE readiness for today.';
+    el.textContent = 'Choose Wet or Dry, then move the slider to apply a % shift to ALL fields.';
     return;
   }
 
   const anchor = clamp(Math.round(Number(state._adjAnchorReadiness ?? 50)), 0, 100);
   const target = sliderVal();
-  const dist = Math.abs(anchor - target);
+
+  let factor = 1;
+  if (anchor > 0){
+    factor = target / anchor;
+  } else {
+    factor = (target <= 0) ? 1 : 1; // undefined; UI will still allow but apply will fall back to absolute set
+  }
+
+  const pct = Math.round((factor - 1) * 100);
+  const dir = (pct >= 0) ? 'up' : 'down';
 
   el.textContent =
-    `This will set today’s ground-truth readiness to ${target} ` +
-    `(${dist} point${dist === 1 ? '' : 's'} from current), and seed the soil model for ALL fields.`;
+    `This will shift ALL fields ${dir} by ~${Math.abs(pct)}% (factor ${factor.toFixed(3)}), based on this reference field.`;
 }
 
 /* =========================
@@ -522,9 +627,9 @@ function updateAdjustHeader(state){
   if (!sub) return;
 
   if (f && f.name){
-    sub.textContent = `Global truth set • ${f.name}`;
+    sub.textContent = `Global percent shift • ${f.name}`;
   } else {
-    sub.textContent = 'Global truth set';
+    sub.textContent = 'Global percent shift';
   }
 }
 
@@ -582,11 +687,11 @@ function updateUI(state){
   const right = $('intensityRight');
   if (opposite){
     if (state._adjStatus === 'wet'){
-      if (title) title.textContent = 'Set TRUE readiness (drier)';
+      if (title) title.textContent = 'How DRY is it?';
       if (left) left.textContent = 'Slightly drier';
       if (right) right.textContent = 'Extremely drier';
     } else {
-      if (title) title.textContent = 'Set TRUE readiness (wetter)';
+      if (title) title.textContent = 'How WET is it?';
       if (left) left.textContent = 'Slightly wetter';
       if (right) right.textContent = 'Extremely wetter';
     }
@@ -598,7 +703,7 @@ function updateUI(state){
     const band = clamp(Math.round(Number(STATUS_HYSTERESIS)), 0, 10);
 
     if (locked){
-      hint.textContent = 'Global truth set is locked (72h rule).';
+      hint.textContent = 'Global shift is locked (72h rule).';
     } else if (state._adjStatus === 'wet'){
       hint.textContent =
         `This reference field is WET for the current operation (Readiness below threshold ${thr}). ` +
@@ -690,11 +795,17 @@ async function writeTruthStateDocModern(api, db, fieldId, payload){
   await api.setDoc(ref, payload, { merge:true });
 }
 
-async function writeGlobalTruthState(state, targetReadiness, asOfDateISO){
+/**
+ * Apply a % shift to ALL fields:
+ * R_new = round(R_now * factor)
+ */
+async function writeGlobalTruthStatePercentShift(state, factor, asOfDateISO){
   const api = getAPI(state);
   if (!api) return;
 
-  // Need user identity for debug/audit only (non-blocking)
+  // Ensure persisted truth is loaded so runs match tiles.
+  await loadPersistedState(state);
+
   let createdBy = null;
 
   if (api.kind === 'compat'){
@@ -711,12 +822,13 @@ async function writeGlobalTruthState(state, targetReadiness, asOfDateISO){
     }catch(_){}
   }
 
-  // Use anchor-cal (shift off) to compute each field’s Smax reliably.
-  // Smax depends on soil/drain + last sm010, not on readiness.
   const calObj = getCalForAnchor(state);
 
   const fields = Array.isArray(state.fields) ? state.fields : [];
   if (!fields.length) return;
+
+  // Safety clamp so a bad slider/anchor can’t blow up the system
+  const fct = clamp(Number(factor || 1), 0.10, 2.50);
 
   if (api.kind === 'compat'){
     const db = window.firebase.firestore();
@@ -730,7 +842,10 @@ async function writeGlobalTruthState(state, targetReadiness, asOfDateISO){
         if (!run || !run.factors || !isFinite(Number(run.factors.Smax))) continue;
 
         const Smax = Number(run.factors.Smax);
-        const storageFinal = storageFromReadiness(targetReadiness, Smax);
+        const rNow = clamp(Math.round(Number(run.readinessR)), 0, 100);
+        const rNew = clamp(Math.round(rNow * fct), 0, 100);
+
+        const storageFinal = storageFromReadiness(rNew, Smax);
 
         const payload = {
           fieldId: String(f.id),
@@ -738,7 +853,10 @@ async function writeGlobalTruthState(state, targetReadiness, asOfDateISO){
           asOfDateISO: String(asOfDateISO || ''),
           storageFinal,
           SmaxAtSave: Smax,
-          source: 'global-truth-slider',
+          source: 'global-percent-shift',
+          shiftFactor: fct,
+          readinessBefore: rNow,
+          readinessAfter: rNew,
           updatedAt: nowISO,
           updatedBy: createdBy
         };
@@ -751,7 +869,6 @@ async function writeGlobalTruthState(state, targetReadiness, asOfDateISO){
     return;
   }
 
-  // modern wrapper
   try{
     const db = api.getFirestore();
 
@@ -763,7 +880,10 @@ async function writeGlobalTruthState(state, targetReadiness, asOfDateISO){
         if (!run || !run.factors || !isFinite(Number(run.factors.Smax))) continue;
 
         const Smax = Number(run.factors.Smax);
-        const storageFinal = storageFromReadiness(targetReadiness, Smax);
+        const rNow = clamp(Math.round(Number(run.readinessR)), 0, 100);
+        const rNew = clamp(Math.round(rNow * fct), 0, 100);
+
+        const storageFinal = storageFromReadiness(rNew, Smax);
 
         const payload = {
           fieldId: String(f.id),
@@ -771,7 +891,10 @@ async function writeGlobalTruthState(state, targetReadiness, asOfDateISO){
           asOfDateISO: String(asOfDateISO || ''),
           storageFinal,
           SmaxAtSave: Smax,
-          source: 'global-truth-slider',
+          source: 'global-percent-shift',
+          shiftFactor: fct,
+          readinessBefore: rNow,
+          readinessAfter: rNew,
           updatedAt: api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString(),
           updatedBy: createdBy
         };
@@ -794,6 +917,9 @@ async function openAdjust(state){
 
   if (!canEdit(state)) return;
 
+  // ensure truth seed is loaded for consistent “shown” value
+  await loadPersistedState(state);
+
   if (!state.selectedFieldId && (state.fields||[]).length){
     state.selectedFieldId = state.fields[0].id;
   }
@@ -805,7 +931,6 @@ async function openAdjust(state){
   await loadCooldown(state);
   renderCooldownCard(state);
 
-  // shown run (matches tiles; readinessShift off)
   const runShown = getRunForFieldShown(state, f);
   if (!runShown) return;
 
@@ -815,7 +940,6 @@ async function openAdjust(state){
   state._adjStatus = status;
   state._adjFeel = null;
 
-  // Anchor to shown readiness
   state._adjAnchorReadiness = clamp(Math.round(Number(runShown?.readinessR ?? 50)), 0, 100);
 
   setAnchor(state, state._adjAnchorReadiness);
@@ -850,13 +974,15 @@ function closeAdjust(state){
 }
 
 /* =========================
-   Apply (writes truth state)
+   Apply (writes percent-shift truth state)
 ========================= */
 async function applyAdjustment(state){
   if (isLocked(state)) return;
 
   const f = getSelectedField(state);
   if (!f) return;
+
+  await loadPersistedState(state);
 
   const runShown = getRunForFieldShown(state, f);
   if (!runShown) return;
@@ -867,15 +993,22 @@ async function applyAdjustment(state){
   const feel = state._adjFeel;
   if (!(feel === 'wet' || feel === 'dry')) return;
 
-  // enforce opposite-only rule
   if (state._adjStatus === 'wet' && feel !== 'dry') return;
   if (state._adjStatus === 'dry' && feel !== 'wet') return;
 
-  // target readiness for today (truth)
-  const targetR = sliderVal();
+  const anchorR = clamp(Math.round(Number(state._adjAnchorReadiness ?? runShown.readinessR ?? 0)), 0, 100);
+  const targetR = clamp(Math.round(Number(sliderVal())), 0, 100);
 
-  // Choose as-of date aligned to the weather series end (prevents seed mismatch).
-  // Use the selected field’s runShown rows as the global anchor date.
+  // % factor = target / anchor (undefined if anchor==0)
+  let factor = 1;
+  if (anchorR > 0){
+    factor = targetR / anchorR;
+  } else {
+    // If anchor is 0, percent shift is undefined; fall back to no-op.
+    factor = 1;
+  }
+
+  // Choose as-of date aligned to weather series end.
   let asOf = '';
   try{
     const rows = Array.isArray(runShown.rows) ? runShown.rows : [];
@@ -886,8 +1019,7 @@ async function applyAdjustment(state){
     asOf = isoDay(new Date().toISOString());
   }
 
-  // WRITE truth state for ALL fields
-  await writeGlobalTruthState(state, targetR, asOf);
+  await writeGlobalTruthStatePercentShift(state, factor, asOf);
 
   const nowMs = Date.now();
   await writeWeightsLock(state, nowMs);
@@ -897,7 +1029,6 @@ async function applyAdjustment(state){
 
   closeAdjust(state);
 
-  // Force the page to reload model deps/state + rerender.
   try{ document.dispatchEvent(new CustomEvent('fr:soft-reload')); }catch(_){}
 }
 
