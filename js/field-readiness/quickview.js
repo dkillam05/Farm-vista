@@ -1,32 +1,32 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-01-21g-quickview-truth-aligned-learningAppliedDryOnly-sliderHelp
+Rev: 2026-01-21h-quickview-learningAppliedDryOnly-previewRewind14-sliderHelp
 
 Fix (per Dane):
 ✅ Last-line-of-defense permission gate:
    - openQuickView() will NOT open unless canEdit(state) is true
 
-FINAL RULE (per Dane):
-✅ Quick View MUST match tiles/details exactly (same truth storage + same math).
-✅ NO rewind mode here (rewind guarantees mismatch).
-✅ Uses persisted truth seed (field_readiness_state) via state.persistedStateByFieldId.
+TRUTH:
+✅ Tiles + Details remain truth-driven (persisted storage).
+✅ Quick View is used to EDIT per-field physics params.
+
+CHANGE (per Dane, per user):
+✅ In Quick View, sliders MUST move “today” meaningfully and in the correct direction.
+   - Preview run uses seedMode:'rewind', rewindDays:14
+   - This makes soil/drain change the simulated current level (what users expect)
+   - This is a PREVIEW tool for params (not a truth setter)
 
 CRITICAL:
 ✅ CAL must match render.js (ALL ZERO).
 ✅ Storage/wetness/readiness remain tied by the model invariant.
 
-NEW (Learning APPLY — per Dane):
-✅ Read global tuning doc and APPLY ONLY drying-side learning:
-   - Reads: field_readiness_tuning/global
-   - Injects into deps.EXTRA:
-       DRY_LOSS_MULT
-   - Does NOT apply RAIN_EFF_MULT (kept for future/manual only)
+Learning:
+✅ Applies global learning DRY_LOSS_MULT (drying side only).
 
-NEW (UI clarity — per Dane):
-✅ Sliders show correct direction with helper text:
+UI:
+✅ Adds small helper text under sliders:
    - Soil Wetness: 0 = Dry, 100 = Wet
    - Drainage Index: 0 = Well-drained, 100 = Poor drainage
-   - Adds small helper text + end labels under sliders
 
 Keeps:
 ✅ Map stacking fix + in-page map modal
@@ -99,7 +99,7 @@ function getCalForDeps(_state){
 }
 
 /* =====================================================================
-   Persisted truth state passthrough (USED — must match tiles)
+   Persisted truth state passthrough (still available)
 ===================================================================== */
 function getPersistedStateForDeps(state, fieldId){
   try{
@@ -117,7 +117,7 @@ function getPersistedStateForDeps(state, fieldId){
 }
 
 /* =====================================================================
-   NEW: Global tuning read (learning apply) — DRY ONLY
+   Global tuning read (learning apply) — DRY ONLY
 ===================================================================== */
 const FR_TUNE_COLLECTION = 'field_readiness_tuning';
 const FR_TUNE_DOC = 'global';
@@ -204,11 +204,9 @@ async function getExtraForDeps(state){
   const t = await loadGlobalTuning(state);
   const dryLossMult = clamp(Number(t && t.DRY_LOSS_MULT ? t.DRY_LOSS_MULT : 1.0), DRY_LOSS_MULT_MIN, DRY_LOSS_MULT_MAX);
 
-  // IMPORTANT: do not mutate imported EXTRA object
   return {
     ...EXTRA,
     DRY_LOSS_MULT: dryLossMult
-    // Intentionally NOT applying RAIN_EFF_MULT in Quick View
   };
 }
 
@@ -442,7 +440,6 @@ function ensureBuiltOnce(state){
         white-space:nowrap;
       }
 
-      /* NEW: slider direction helpers */
       .fv-range-help{
         margin-top: 6px;
         font-size: 12px;
@@ -458,9 +455,7 @@ function ensureBuiltOnce(state){
         color: var(--muted,#67706B);
         opacity: .95;
       }
-      .fv-range-ends span{
-        white-space:nowrap;
-      }
+      .fv-range-ends span{ white-space:nowrap; }
 
       @media (max-width: 420px){
         #frQvBackdrop{ padding-left: 10px !important; padding-right: 10px !important; }
@@ -483,7 +478,10 @@ function ensureBuiltOnce(state){
         <div id="frQvTilePreview"></div>
 
         <div class="panel" style="margin:0;" id="frQvInputsPanel">
-          <h3 style="margin:0 0 8px;font-size:13px;font-weight:900;">Inputs (field-specific)</h3>
+          <h3 style="margin:0 0 6px;font-size:13px;font-weight:900;">Inputs (field-specific)</h3>
+          <div class="help muted" style="margin:0 0 10px;">
+            Preview re-simulates the last <span class="mono">14</span> days so these sliders change “today” immediately.
+          </div>
 
           <div style="display:grid;gap:12px;grid-template-columns:1fr 1fr;align-items:start;">
             <div class="field">
@@ -582,9 +580,6 @@ function ensureBuiltOnce(state){
     const fid = state._qvFieldId;
     if (!fid) return;
 
-    // Values are already correct direction:
-    // - Soil Wetness: 0 dry → 100 wet
-    // - Drainage Index: 0 well-drained → 100 poor drainage
     const p = getFieldParams(state, fid);
     p.soilWetness = clamp(Number(soil.value),0,100);
     p.drainageIndex = clamp(Number(drain.value),0,100);
@@ -714,6 +709,8 @@ async function fillQuickView(state, { live=false } = {}){
   const wxCtx = buildWxCtx(state);
   const extraWithLearning = await getExtraForDeps(state);
 
+  // IMPORTANT:
+  // Quick View PREVIEW uses rewind so slider changes affect “today” meaningfully.
   const deps = {
     getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
     getFieldParams: (id)=> getFieldParams(state, id),
@@ -722,8 +719,11 @@ async function fillQuickView(state, { live=false } = {}){
     opKey,
     CAL,
 
-    // ✅ MATCH render.js: use persisted truth seed so numbers match tiles/details
-    getPersistedState: (id)=> getPersistedStateForDeps(state, id)
+    // still provided (for consistency / future), but rewind mode ignores persisted anchor
+    getPersistedState: (id)=> getPersistedStateForDeps(state, id),
+
+    seedMode: 'rewind',
+    rewindDays: 14
   };
 
   const run = state._mods.model.runField(f, deps);
@@ -735,7 +735,7 @@ async function fillQuickView(state, { live=false } = {}){
   const title = $('frQvTitle');
   const sub = $('frQvSub');
   if (title) title.textContent = f.name || 'Field';
-  if (sub) sub.textContent = farmName ? `${farmName} • Field details` : 'Field details';
+  if (sub) sub.textContent = farmName ? `${farmName} • Physics preview` : 'Physics preview';
 
   const p = getFieldParams(state, f.id);
   const soil = $('frQvSoil');
@@ -857,6 +857,7 @@ async function saveAndClose(state){
       }, { merge:true });
     }
 
+    // Refresh UI (tiles/details use truth; quick view is preview tool)
     try{ document.dispatchEvent(new CustomEvent('fr:tile-refresh', { detail:{ fieldId: fid } })); }catch(_){}
     try{ document.dispatchEvent(new CustomEvent('fr:details-refresh', { detail:{ fieldId: fid } })); }catch(_){}
 
