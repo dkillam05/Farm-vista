@@ -1,16 +1,20 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-01-21j-quickview-gentleSliders-step05-saveAlsoTruthToday
+Rev: 2026-01-21k-quickview-gentlePreviewSensitivity-saveTruthToday
 
 Behavior:
 ✅ Quick View opens MATCHING tiles/details (Truth run: persisted seed).
-✅ When sliders move, Quick View previews with rewind (last 14 days) so “today” moves meaningfully.
-✅ Sliders are gentler: step=0.5 so small nudges are possible (95 → 94).
-
-Save behavior (per Dane):
+✅ When sliders move, Quick View previews with rewind (last 14 days).
 ✅ Save & Close updates:
-   1) field params (soilWetness / drainageIndex) in fields/{fieldId}
-   2) TODAY’S truth in field_readiness_state/{fieldId} (so tiles match immediately)
+   1) fields/{fieldId} params (raw values you set)
+   2) TODAY’S truth in field_readiness_state/{fieldId} based on PREVIEW run
+
+CRITICAL FIX (per Dane, per user):
+✅ Preview must be GENTLE so small slider nudge ≈ small readiness nudge.
+   - We DO NOT change saved field params meaning.
+   - We only soften preview influence around midpoint:
+       preview = 50 + (raw - 50) * K
+   - This prevents having to “lie” with drainage to hit 94 from 95.
 
 Learning:
 ✅ Applies global learning DRY_LOSS_MULT (drying side only).
@@ -33,7 +37,14 @@ import { parseRangeFromInput, rainInRange } from './rain.js';
 function $(id){ return document.getElementById(id); }
 
 /* =====================================================================
-   Truth state collection (single source of truth for tiles/details)
+   PREVIEW SENSITIVITY (tune here)
+   Smaller = gentler effect on readiness for small slider moves.
+===================================================================== */
+const PREVIEW_SOIL_K  = 0.12; // soil wetness sensitivity
+const PREVIEW_DRAIN_K = 0.10; // drainage sensitivity (was too strong)
+
+/* =====================================================================
+   Truth state collection
 ===================================================================== */
 const FR_STATE_COLLECTION = 'field_readiness_state';
 
@@ -189,6 +200,15 @@ async function getExtraForDeps(state){
 }
 
 /* =====================================================================
+   Preview param shaping (gentle around midpoint)
+===================================================================== */
+function gentleAround50(raw0_100, k){
+  const v = clamp(Number(raw0_100), 0, 100);
+  const kk = clamp(Number(k), 0, 1);
+  return clamp(50 + (v - 50) * kk, 0, 100);
+}
+
+/* =====================================================================
    Helpers: asOf date + truth write (single-field)
 ===================================================================== */
 function isoDay(iso){
@@ -239,7 +259,6 @@ async function writeTruthStateForField(state, field, runPreview){
     const Smax = Number(runPreview.factors.Smax);
     if (!isFinite(Smax) || Smax <= 0) return;
 
-    // asOf aligned to series end
     let asOf = '';
     try{
       const rows = Array.isArray(runPreview.rows) ? runPreview.rows : [];
@@ -267,7 +286,6 @@ async function writeTruthStateForField(state, field, runPreview){
         : (api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString())
     };
 
-    // Write Firestore
     if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
       const db = window.firebase.firestore();
       await db.collection(FR_STATE_COLLECTION).doc(String(field.id)).set(payload, { merge:true });
@@ -277,7 +295,6 @@ async function writeTruthStateForField(state, field, runPreview){
       await api.setDoc(ref, payload, { merge:true });
     }
 
-    // Update local truth map immediately so tile refresh sees it without waiting for reload
     state.persistedStateByFieldId = state.persistedStateByFieldId || {};
     state.persistedStateByFieldId[String(field.id)] = {
       fieldId: String(field.id),
@@ -285,7 +302,6 @@ async function writeTruthStateForField(state, field, runPreview){
       asOfDateISO: String(asOf),
       SmaxAtSave: Number(Smax)
     };
-    // keep cache “fresh”
     state._persistLoadedAt = Date.now();
   }catch(e){
     console.warn('[FieldReadiness] quickview truth write failed:', e);
@@ -306,10 +322,12 @@ function mapEls(){
     btnX: $('btnMapX')
   };
 }
+
 function showMapModal(on){
   const { backdrop } = mapEls();
   if (backdrop) backdrop.classList.toggle('pv-hide', !on);
 }
+
 function setMapError(msg){
   const { err, wrap } = mapEls();
   if (err){
@@ -323,6 +341,7 @@ function setMapError(msg){
   }
   if (wrap) wrap.style.opacity = msg ? '0.65' : '1';
 }
+
 function waitForGoogleMaps(timeoutMs=8000){
   const t0 = Date.now();
   return new Promise((resolve, reject)=>{
@@ -334,6 +353,7 @@ function waitForGoogleMaps(timeoutMs=8000){
     tick();
   });
 }
+
 async function openMapForField(state, field){
   const { canvas, sub, latlng } = mapEls();
   if (!field || !field.location || !canvas){
@@ -555,14 +575,14 @@ function ensureBuiltOnce(state){
           <div style="display:grid;gap:12px;grid-template-columns:1fr 1fr;align-items:start;">
             <div class="field">
               <label for="frQvSoil">Soil Wetness</label>
-              <input id="frQvSoil" type="range" min="0" max="100" step="0.5" value="60"/>
+              <input id="frQvSoil" type="range" min="0" max="100" step="1" value="60"/>
               <div class="fv-range-help">0 = Dry • 100 = Wet • Current: <span class="mono" id="frQvSoilVal">60</span>/100</div>
               <div class="fv-range-ends"><span>Dry (0)</span><span>Wet (100)</span></div>
             </div>
 
             <div class="field">
               <label for="frQvDrain">Drainage Index</label>
-              <input id="frQvDrain" type="range" min="0" max="100" step="0.5" value="45"/>
+              <input id="frQvDrain" type="range" min="0" max="100" step="1" value="45"/>
               <div class="fv-range-help">0 = Well-drained • 100 = Poor drainage • Current: <span class="mono" id="frQvDrainVal">45</span>/100</div>
               <div class="fv-range-ends"><span>Well-drained (0)</span><span>Poor (100)</span></div>
             </div>
@@ -639,18 +659,11 @@ function ensureBuiltOnce(state){
   const soilVal = $('frQvSoilVal');
   const drainVal = $('frQvDrainVal');
 
-  function fmtVal(v){
-    const n = Number(v);
-    if (!isFinite(n)) return '—';
-    // show 0.5 steps without clutter
-    return (Math.round(n * 2) / 2).toFixed(1).replace(/\.0$/,'');
-  }
-
   function onSliderChange(){
     state._qvDidAdjust = true;
 
-    if (soilVal) soilVal.textContent = fmtVal(soil.value);
-    if (drainVal) drainVal.textContent = fmtVal(drain.value);
+    if (soilVal) soilVal.textContent = String(Math.round(clamp(Number(soil.value),0,100)));
+    if (drainVal) drainVal.textContent = String(Math.round(clamp(Number(drain.value),0,100)));
 
     const fid = state._qvFieldId;
     if (!fid) return;
@@ -786,6 +799,7 @@ async function fillQuickView(state, { live=false } = {}){
   const wxCtx = buildWxCtx(state);
   const extraWithLearning = await getExtraForDeps(state);
 
+  // Truth: raw params + persisted truth (matches tiles)
   const depsTruth = {
     getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
     getFieldParams: (id)=> getFieldParams(state, id),
@@ -795,11 +809,23 @@ async function fillQuickView(state, { live=false } = {}){
     CAL,
     getPersistedState: (id)=> getPersistedStateForDeps(state, id)
   };
-
   const runTruth = state._mods.model.runField(f, depsTruth);
+
+  // Preview: SAME raw slider values are stored, but we feed softened params into the model
+  const getFieldParamsPreview = (id)=>{
+    const base = getFieldParams(state, id);
+    const p = { ...(base || {}) };
+
+    // soften influence around midpoint
+    p.soilWetness = gentleAround50(p.soilWetness, PREVIEW_SOIL_K);
+    p.drainageIndex = gentleAround50(p.drainageIndex, PREVIEW_DRAIN_K);
+
+    return p;
+  };
 
   const depsPreview = {
     ...depsTruth,
+    getFieldParams: getFieldParamsPreview,
     seedMode: 'rewind',
     rewindDays: 14
   };
@@ -817,27 +843,21 @@ async function fillQuickView(state, { live=false } = {}){
   if (title) title.textContent = f.name || 'Field';
   if (sub){
     sub.textContent = didAdjust
-      ? (farmName ? `${farmName} • Preview (rewind 14)` : 'Preview (rewind 14)')
+      ? (farmName ? `${farmName} • Preview (gentle)` : 'Preview (gentle)')
       : (farmName ? `${farmName} • Matches tiles (Truth)` : 'Matches tiles (Truth)');
   }
 
-  const p = getFieldParams(state, f.id);
+  const pRaw = getFieldParams(state, f.id);
   const soil = $('frQvSoil');
   const drain = $('frQvDrain');
   const soilVal = $('frQvSoilVal');
   const drainVal = $('frQvDrainVal');
 
-  function fmtVal(v){
-    const n = Number(v);
-    if (!isFinite(n)) return '—';
-    return (Math.round(n * 2) / 2).toFixed(1).replace(/\.0$/,'');
-  }
-
   if (!live){
-    if (soil) soil.value = String(p.soilWetness);
-    if (drain) drain.value = String(p.drainageIndex);
-    if (soilVal) soilVal.textContent = fmtVal(p.soilWetness);
-    if (drainVal) drainVal.textContent = fmtVal(p.drainageIndex);
+    if (soil) soil.value = String(pRaw.soilWetness);
+    if (drain) drain.value = String(pRaw.drainageIndex);
+    if (soilVal) soilVal.textContent = String(Math.round(Number(pRaw.soilWetness||0)));
+    if (drainVal) drainVal.textContent = String(Math.round(Number(pRaw.drainageIndex||0)));
   }
 
   const hint = $('frQvHint');
@@ -850,7 +870,7 @@ async function fillQuickView(state, { live=false } = {}){
     if (inputsPanel) inputsPanel.style.opacity = '0.75';
   } else {
     if (hint) hint.textContent = didAdjust
-      ? 'Previewing with rewind (last 14 days). Save will also update today’s truth for this field.'
+      ? 'Gentle preview. Save will update today’s truth for this field.'
       : 'Adjust sliders → preview updates live → Save & Close.';
     if (saveBtn) saveBtn.disabled = false;
     if (inputsPanel) inputsPanel.style.opacity = '1';
@@ -894,18 +914,20 @@ async function fillQuickView(state, { live=false } = {}){
   const pe = $('frQvParamExplain');
   if (pe && displayRun && displayRun.factors){
     const fac = displayRun.factors;
+
+    const soilPreview = gentleAround50(pRaw.soilWetness, PREVIEW_SOIL_K);
+    const drainPreview = gentleAround50(pRaw.drainageIndex, PREVIEW_DRAIN_K);
+
     pe.innerHTML =
-      `soilHold=soilWetness/100=<span class="mono">${fac.soilHold.toFixed(2)}</span> • ` +
-      `drainPoor=drainageIndex/100=<span class="mono">${fac.drainPoor.toFixed(2)}</span><br/>` +
-      `Smax=<span class="mono">${fac.Smax.toFixed(2)}</span> (base <span class="mono">${fac.SmaxBase.toFixed(2)}</span>) • ` +
-      `infilMult=<span class="mono">${fac.infilMult.toFixed(2)}</span> • dryMult=<span class="mono">${fac.dryMult.toFixed(2)}</span> • ` +
-      `LOSS_SCALE=<span class="mono">${CONST.LOSS_SCALE.toFixed(2)}</span> • ` +
+      `rawSoil=<span class="mono">${Math.round(Number(pRaw.soilWetness||0))}</span> → previewSoil=<span class="mono">${soilPreview.toFixed(1)}</span> • ` +
+      `rawDrain=<span class="mono">${Math.round(Number(pRaw.drainageIndex||0))}</span> → previewDrain=<span class="mono">${drainPreview.toFixed(1)}</span><br/>` +
+      `Smax=<span class="mono">${fac.Smax.toFixed(2)}</span> • infilMult=<span class="mono">${fac.infilMult.toFixed(2)}</span> • dryMult=<span class="mono">${fac.dryMult.toFixed(2)}</span> • ` +
       `DRY_LOSS_MULT=<span class="mono">${extraWithLearning.DRY_LOSS_MULT.toFixed(2)}</span>`;
   }
 
   renderTilePreview(state, displayRun, thr);
 
-  // Cache preview run for save (so save updates truth to the last preview)
+  // Cache preview run for save-truth (this uses gentle preview params)
   state._qvLastPreviewRun = runPreview || null;
 }
 
@@ -928,7 +950,7 @@ async function saveAndClose(state){
   if (hint) hint.textContent = 'Saving…';
 
   try{
-    // Save params locally
+    // Save params locally (RAW)
     const p = getFieldParams(state, fid);
     p.soilWetness = soilWetness;
     p.drainageIndex = drainageIndex;
@@ -962,14 +984,13 @@ async function saveAndClose(state){
       }, { merge:true });
     }
 
-    // ALSO: update today's truth for this one field using last preview run
+    // Update today's truth for this one field using the GENTLE preview run
     const runPreview = state._qvLastPreviewRun;
     await writeTruthStateForField(state, f, runPreview);
 
-    // Refresh UI — tile should match immediately now
+    // Refresh UI (tile should match immediately)
     try{ document.dispatchEvent(new CustomEvent('fr:tile-refresh', { detail:{ fieldId: fid } })); }catch(_){}
     try{ document.dispatchEvent(new CustomEvent('fr:details-refresh', { detail:{ fieldId: fid } })); }catch(_){}
-    // ensure any caches settle
     try{ document.dispatchEvent(new CustomEvent('fr:soft-reload')); }catch(_){}
 
     closeQuickView(state);
