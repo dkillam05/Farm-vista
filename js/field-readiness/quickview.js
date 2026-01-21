@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-01-21f-quickview-truth-aligned-learningAppliedDryOnly
+Rev: 2026-01-21g-quickview-truth-aligned-learningAppliedDryOnly-sliderHelp
 
 Fix (per Dane):
 ✅ Last-line-of-defense permission gate:
@@ -21,6 +21,12 @@ NEW (Learning APPLY — per Dane):
    - Injects into deps.EXTRA:
        DRY_LOSS_MULT
    - Does NOT apply RAIN_EFF_MULT (kept for future/manual only)
+
+NEW (UI clarity — per Dane):
+✅ Sliders show correct direction with helper text:
+   - Soil Wetness: 0 = Dry, 100 = Wet
+   - Drainage Index: 0 = Well-drained, 100 = Poor drainage
+   - Adds small helper text + end labels under sliders
 
 Keeps:
 ✅ Map stacking fix + in-page map modal
@@ -169,7 +175,6 @@ async function loadGlobalTuning(state, { force=false } = {}){
       const ref = api.doc(db, FR_TUNE_COLLECTION, FR_TUNE_DOC);
       const snap = await api.getDoc(ref);
 
-      // wrapper handles exists as fn or bool depending on build
       const ok =
         !!snap &&
         ((typeof snap.exists === 'function' && snap.exists()) || (snap.exists === true));
@@ -437,6 +442,26 @@ function ensureBuiltOnce(state){
         white-space:nowrap;
       }
 
+      /* NEW: slider direction helpers */
+      .fv-range-help{
+        margin-top: 6px;
+        font-size: 12px;
+        line-height: 1.25;
+        color: var(--muted,#67706B);
+      }
+      .fv-range-ends{
+        display:flex;
+        justify-content:space-between;
+        gap:10px;
+        margin-top: 4px;
+        font-size: 11px;
+        color: var(--muted,#67706B);
+        opacity: .95;
+      }
+      .fv-range-ends span{
+        white-space:nowrap;
+      }
+
       @media (max-width: 420px){
         #frQvBackdrop{ padding-left: 10px !important; padding-right: 10px !important; }
         #frQvBackdrop .modal{ width: 100%; }
@@ -462,15 +487,17 @@ function ensureBuiltOnce(state){
 
           <div style="display:grid;gap:12px;grid-template-columns:1fr 1fr;align-items:start;">
             <div class="field">
-              <label for="frQvSoil">Soil Wetness (0–100)</label>
+              <label for="frQvSoil">Soil Wetness</label>
               <input id="frQvSoil" type="range" min="0" max="100" step="1" value="60"/>
-              <div class="help muted" style="margin-top:6px;">Current: <span class="mono" id="frQvSoilVal">60</span>/100</div>
+              <div class="fv-range-help">0 = Dry • 100 = Wet • Current: <span class="mono" id="frQvSoilVal">60</span>/100</div>
+              <div class="fv-range-ends"><span>Dry (0)</span><span>Wet (100)</span></div>
             </div>
 
             <div class="field">
-              <label for="frQvDrain">Drainage Index (0–100)</label>
+              <label for="frQvDrain">Drainage Index</label>
               <input id="frQvDrain" type="range" min="0" max="100" step="1" value="45"/>
-              <div class="help muted" style="margin-top:6px;">Current: <span class="mono" id="frQvDrainVal">45</span>/100</div>
+              <div class="fv-range-help">0 = Well-drained • 100 = Poor drainage • Current: <span class="mono" id="frQvDrainVal">45</span>/100</div>
+              <div class="fv-range-ends"><span>Well-drained (0)</span><span>Poor (100)</span></div>
             </div>
           </div>
 
@@ -555,6 +582,9 @@ function ensureBuiltOnce(state){
     const fid = state._qvFieldId;
     if (!fid) return;
 
+    // Values are already correct direction:
+    // - Soil Wetness: 0 dry → 100 wet
+    // - Drainage Index: 0 well-drained → 100 poor drainage
     const p = getFieldParams(state, fid);
     p.soilWetness = clamp(Number(soil.value),0,100);
     p.drainageIndex = clamp(Number(drain.value),0,100);
