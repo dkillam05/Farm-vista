@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-01-20e-quickview-truth-aligned-full
+Rev: 2026-01-21f-quickview-truth-aligned-learningAppliedDryOnly
 
 Fix (per Dane):
 ✅ Last-line-of-defense permission gate:
@@ -14,6 +14,13 @@ FINAL RULE (per Dane):
 CRITICAL:
 ✅ CAL must match render.js (ALL ZERO).
 ✅ Storage/wetness/readiness remain tied by the model invariant.
+
+NEW (Learning APPLY — per Dane):
+✅ Read global tuning doc and APPLY ONLY drying-side learning:
+   - Reads: field_readiness_tuning/global
+   - Injects into deps.EXTRA:
+       DRY_LOSS_MULT
+   - Does NOT apply RAIN_EFF_MULT (kept for future/manual only)
 
 Keeps:
 ✅ Map stacking fix + in-page map modal
@@ -101,6 +108,103 @@ function getPersistedStateForDeps(state, fieldId){
   }catch(_){
     return null;
   }
+}
+
+/* =====================================================================
+   NEW: Global tuning read (learning apply) — DRY ONLY
+===================================================================== */
+const FR_TUNE_COLLECTION = 'field_readiness_tuning';
+const FR_TUNE_DOC = 'global';
+const TUNE_TTL_MS = 30000;
+
+const DRY_LOSS_MULT_MIN = 0.30;
+const DRY_LOSS_MULT_MAX = 3.00;
+
+function safeObj(x){ return (x && typeof x === 'object') ? x : null; }
+function safeNum(v){
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function normalizeTuneDoc(d){
+  const doc = safeObj(d) || {};
+  const dryLoss = safeNum(doc.DRY_LOSS_MULT);
+
+  return {
+    DRY_LOSS_MULT: clamp((dryLoss == null ? 1.0 : dryLoss), DRY_LOSS_MULT_MIN, DRY_LOSS_MULT_MAX),
+    updatedAt: doc.updatedAt || null
+  };
+}
+
+async function loadGlobalTuning(state, { force=false } = {}){
+  try{
+    if (!state) return normalizeTuneDoc(null);
+
+    const now = Date.now();
+    const last = Number(state._qvTuneLoadedAt || 0);
+    if (!force && state._qvGlobalTune && (now - last) < TUNE_TTL_MS){
+      return state._qvGlobalTune;
+    }
+
+    const api = getAPI(state);
+    const fallback = normalizeTuneDoc(null);
+
+    if (!api){
+      state._qvGlobalTune = fallback;
+      state._qvTuneLoadedAt = now;
+      return fallback;
+    }
+
+    if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
+      const db = window.firebase.firestore();
+      const snap = await db.collection(FR_TUNE_COLLECTION).doc(FR_TUNE_DOC).get();
+      const tuned = (snap && snap.exists) ? normalizeTuneDoc(snap.data() || {}) : fallback;
+      state._qvGlobalTune = tuned;
+      state._qvTuneLoadedAt = now;
+      return tuned;
+    }
+
+    if (api.kind !== 'compat'){
+      const db = api.getFirestore();
+      const ref = api.doc(db, FR_TUNE_COLLECTION, FR_TUNE_DOC);
+      const snap = await api.getDoc(ref);
+
+      // wrapper handles exists as fn or bool depending on build
+      const ok =
+        !!snap &&
+        ((typeof snap.exists === 'function' && snap.exists()) || (snap.exists === true));
+
+      const tuned = ok ? normalizeTuneDoc(snap.data() || {}) : fallback;
+      state._qvGlobalTune = tuned;
+      state._qvTuneLoadedAt = now;
+      return tuned;
+    }
+
+    state._qvGlobalTune = fallback;
+    state._qvTuneLoadedAt = now;
+    return fallback;
+
+  }catch(e){
+    console.warn('[FieldReadiness] quickview tuning load failed:', e);
+    const fallback = normalizeTuneDoc(null);
+    try{
+      state._qvGlobalTune = fallback;
+      state._qvTuneLoadedAt = Date.now();
+    }catch(_){}
+    return fallback;
+  }
+}
+
+async function getExtraForDeps(state){
+  const t = await loadGlobalTuning(state);
+  const dryLossMult = clamp(Number(t && t.DRY_LOSS_MULT ? t.DRY_LOSS_MULT : 1.0), DRY_LOSS_MULT_MIN, DRY_LOSS_MULT_MAX);
+
+  // IMPORTANT: do not mutate imported EXTRA object
+  return {
+    ...EXTRA,
+    DRY_LOSS_MULT: dryLossMult
+    // Intentionally NOT applying RAIN_EFF_MULT in Quick View
+  };
 }
 
 /* =====================================================================
@@ -569,7 +673,7 @@ function renderTilePreview(state, run, thr){
   `;
 }
 
-function fillQuickView(state, { live=false } = {}){
+async function fillQuickView(state, { live=false } = {}){
   const fid = state._qvFieldId;
   const f = state.fields.find(x=>x.id===fid);
   if (!f) return;
@@ -578,11 +682,13 @@ function fillQuickView(state, { live=false } = {}){
   const CAL = getCalForDeps(state);
 
   const wxCtx = buildWxCtx(state);
+  const extraWithLearning = await getExtraForDeps(state);
+
   const deps = {
     getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
     getFieldParams: (id)=> getFieldParams(state, id),
     LOSS_SCALE: CONST.LOSS_SCALE,
-    EXTRA,
+    EXTRA: extraWithLearning,
     opKey,
     CAL,
 
@@ -664,7 +770,8 @@ function fillQuickView(state, { live=false } = {}){
       `drainPoor=drainageIndex/100=<span class="mono">${fac.drainPoor.toFixed(2)}</span><br/>` +
       `Smax=<span class="mono">${fac.Smax.toFixed(2)}</span> (base <span class="mono">${fac.SmaxBase.toFixed(2)}</span>) • ` +
       `infilMult=<span class="mono">${fac.infilMult.toFixed(2)}</span> • dryMult=<span class="mono">${fac.dryMult.toFixed(2)}</span> • ` +
-      `LOSS_SCALE=<span class="mono">${CONST.LOSS_SCALE.toFixed(2)}</span>`;
+      `LOSS_SCALE=<span class="mono">${CONST.LOSS_SCALE.toFixed(2)}</span> • ` +
+      `DRY_LOSS_MULT=<span class="mono">${extraWithLearning.DRY_LOSS_MULT.toFixed(2)}</span>`;
   }
 
   renderTilePreview(state, run, thr);
