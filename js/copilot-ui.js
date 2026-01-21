@@ -1,15 +1,20 @@
 /* /Farm-vista/js/copilot-ui.js  (FULL FILE)
-   Rev: 2026-01-10-copilot-ui13-chat-text-wireup
+   Rev: 2026-01-20-copilot-ui14-better-errors-text-answer-ok
 
-   CHANGE (per new SQL-first Copilot backend):
-   ✅ Send payload.text (NOT payload.question)
-   ✅ Read response.text (NOT response.answer)
-   ✅ Keep debugAI:true in every request
-   ✅ Keep client-owned threadId + TTL + mic UX + AI proof footer
+   CHANGE:
+   ✅ Keep sending payload.text (NOT payload.question)
+   ✅ Prefer reading response.text; fallback to response.answer
+   ✅ If backend returns ok:false/error, show the error message to user
+   ✅ If HTTP non-2xx, include status in error message
+   ✅ Keep debugAI:true, threadId TTL, mic UX, AI proof footer, PDF flow
 
    Notes:
-   - Backend currently returns { ok:true, text:"..." , meta:{...} }
-   - Continuation is kept in payload for backward compatibility; backend can ignore it safely.
+   - Backend may return:
+     { ok:true, text:"...", meta:{...} }
+     OR legacy-ish:
+     { answer:"..." }
+     OR error:
+     { ok:false, error:"..." }
 */
 
 'use strict';
@@ -468,8 +473,13 @@ export const FVCopilotUI = (() => {
     getThreadId();
     setDebugStatus();
 
+    function extractAnswer(data){
+      const txt = (data && typeof data.text === 'string' && data.text.trim()) ? String(data.text) : '';
+      const ans = (data && typeof data.answer === 'string' && data.answer.trim()) ? String(data.answer) : '';
+      return txt || ans || '(No response)';
+    }
+
     async function callAssistant(prompt){
-      // ✅ NEW BACKEND expects `text`
       const payload = {
         text: String(prompt || ''),
         threadId: getThreadId(),
@@ -490,9 +500,20 @@ export const FVCopilotUI = (() => {
         body: JSON.stringify(payload)
       });
 
-      if (!res.ok) throw new Error('API error ' + res.status);
+      // Try to parse JSON even on error so we can show the real backend message
+      let data = null;
+      try { data = await res.json(); } catch { data = null; }
 
-      const data = await res.json();
+      if (!res.ok) {
+        const msg = (data && (data.error || data.message)) ? String(data.error || data.message) : '';
+        const detail = msg ? ` — ${msg}` : '';
+        throw new Error(`API error ${res.status}${detail}`);
+      }
+
+      if (data && data.ok === false) {
+        const msg = (data.error || data.message) ? String(data.error || data.message) : 'Unknown error';
+        throw new Error(msg);
+      }
 
       // optional continuation support if backend returns it
       if (Object.prototype.hasOwnProperty.call(data?.meta || {}, 'continuation')) {
@@ -503,7 +524,7 @@ export const FVCopilotUI = (() => {
 
       const proof = buildAiProof(data?.meta || null);
 
-      // Report pathway (kept; backend may or may not use it)
+      // Report pathway
       if (data && data.action === 'report') {
         const mode = data?.meta?.reportMode ? String(data.meta.reportMode) : 'recent';
         const url = buildReportUrl(opts.reportEndpoint, getThreadId(), mode);
@@ -511,14 +532,7 @@ export const FVCopilotUI = (() => {
         return { text: (PDF_MARKER + url), proof };
       }
 
-      // ✅ NEW BACKEND returns `text`
-      const answer = (data && typeof data.text === 'string' && data.text.trim())
-        ? String(data.text)
-        : (data && typeof data.answer === 'string' && data.answer.trim())
-          ? String(data.answer) // fallback if backend ever sends old shape
-          : '(No response)';
-
-      return { text: answer, proof };
+      return { text: extractAnswer(data), proof };
     }
 
     formEl.addEventListener('submit', async (evt)=>{
@@ -544,8 +558,9 @@ export const FVCopilotUI = (() => {
       try{
         const out = await callAssistant(text);
         append('assistant', (out && out.text) ? out.text : '(No response)', out ? out.proof : null);
-      }catch{
-        append('assistant', "Sorry, I couldn't process that request right now.");
+      }catch(e){
+        const msg = (e && e.message) ? String(e.message) : "Sorry, I couldn't process that request right now.";
+        append('assistant', msg);
       }finally{
         setThinking(false);
       }
