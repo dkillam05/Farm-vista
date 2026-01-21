@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-01-20b-truth-slider-state-seed-noLegacyCal
+Rev: 2026-01-21c-truth-slider-state-seed-noLegacyCal-learningAppliedDryOnly
 
 RECOVERY (critical):
 ✅ Keep module stable; tiles + details render.
@@ -10,15 +10,21 @@ TRUTH SYSTEM (per Dane):
 ✅ Model uses persisted storage seed + weather simulation.
 ✅ Quick View uses rewind 14 (separate file).
 
-CRITICAL FIX TODAY:
+CRITICAL FIX:
 ✅ REMOVE legacy calibration pipeline entirely.
    - No reading field_readiness_adjustments
    - No wetBias / readinessShift from deltas
    - CAL passed to model is ALWAYS ZERO
-   - This removes the hard cap (e.g. 89) caused by old wetBias docs.
+
+NEW (Learning APPLY — per Dane):
+✅ Read global tuning doc and APPLY ONLY drying-side learning:
+   - Reads: field_readiness_tuning/global
+   - Injects into deps.EXTRA:
+       DRY_LOSS_MULT
+   - Does NOT apply RAIN_EFF_MULT (kept for future/manual only)
 
 NOTES:
-- This file only reads persisted state and passes it into model deps.
+- This file reads persisted truth and tuning, then passes into model deps.
 - Global calibration works via field_readiness_state and fr:soft-reload.
 ===================================================================== */
 'use strict';
@@ -153,6 +159,96 @@ function getPersistedStateForDeps(state, fieldId){
   }catch(_){
     return null;
   }
+}
+
+/* =====================================================================
+   NEW: Global tuning read (learning apply)
+===================================================================== */
+const FR_TUNE_COLLECTION = 'field_readiness_tuning';
+const FR_TUNE_DOC = 'global';
+const TUNE_TTL_MS = 30000;
+
+// Safety clamp for DRY_LOSS_MULT applied to physics only
+const DRY_LOSS_MULT_MIN = 0.30;
+const DRY_LOSS_MULT_MAX = 3.00;
+
+function normalizeTuneDoc(d){
+  const doc = (d && typeof d === 'object') ? d : {};
+  const dryLoss = safeNum(doc.DRY_LOSS_MULT);
+  return {
+    DRY_LOSS_MULT: clamp((dryLoss == null ? 1.0 : dryLoss), DRY_LOSS_MULT_MIN, DRY_LOSS_MULT_MAX),
+    updatedAt: doc.updatedAt || null
+  };
+}
+
+async function loadGlobalTuning(state, { force=false } = {}){
+  try{
+    if (!state) return normalizeTuneDoc(null);
+
+    const now = Date.now();
+    const last = Number(state._tuneLoadedAt || 0);
+    if (!force && state._globalTune && (now - last) < TUNE_TTL_MS){
+      return state._globalTune;
+    }
+
+    const api = getAPI(state);
+    const fallback = normalizeTuneDoc(null);
+
+    if (!api){
+      state._globalTune = fallback;
+      state._tuneLoadedAt = now;
+      return fallback;
+    }
+
+    // compat (firebase v8)
+    if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
+      const db = window.firebase.firestore();
+      const snap = await db.collection(FR_TUNE_COLLECTION).doc(FR_TUNE_DOC).get();
+      const tuned = (snap && snap.exists) ? normalizeTuneDoc(snap.data() || {}) : fallback;
+      state._globalTune = tuned;
+      state._tuneLoadedAt = now;
+      return tuned;
+    }
+
+    // modular wrapper
+    if (api.kind !== 'compat'){
+      const db = api.getFirestore();
+      const ref = api.doc(db, FR_TUNE_COLLECTION, FR_TUNE_DOC);
+      const snap = await api.getDoc(ref);
+      const ok = (snap && (snap.exists ? snap.exists : (typeof snap.exists === 'function' ? snap.exists() : false)));
+      const tuned = ok ? normalizeTuneDoc(snap.data() || {}) : fallback;
+      state._globalTune = tuned;
+      state._tuneLoadedAt = now;
+      return tuned;
+    }
+
+    state._globalTune = fallback;
+    state._tuneLoadedAt = now;
+    return fallback;
+  }catch(e){
+    console.warn('[FieldReadiness] tuning load failed:', e);
+    const fallback = normalizeTuneDoc(null);
+    try{
+      state._globalTune = fallback;
+      state._tuneLoadedAt = Date.now();
+    }catch(_){}
+    return fallback;
+  }
+}
+
+// Build deps.EXTRA with learning applied (drying-side only)
+async function getExtraForDeps(state){
+  // Make sure we have something (fallback 1.0)
+  const t = await loadGlobalTuning(state);
+  const dryLossMult = clamp(Number(t && t.DRY_LOSS_MULT ? t.DRY_LOSS_MULT : 1.0), DRY_LOSS_MULT_MIN, DRY_LOSS_MULT_MAX);
+
+  // IMPORTANT: do not mutate imported EXTRA object
+  return {
+    ...EXTRA,
+    // Learning apply (drying side only)
+    DRY_LOSS_MULT: dryLossMult
+    // NOTE: We intentionally do NOT apply RAIN_EFF_MULT here.
+  };
 }
 
 /* =====================================================================
@@ -804,19 +900,22 @@ async function updateTileForField(state, fieldId){
     ensureSelectionStyleOnce();
 
     await loadPersistedState(state);
+    await loadGlobalTuning(state); // warm cache
     ensureEtaHelperModule(state);
 
     const f = (state.fields || []).find(x=>x.id === fid);
     if (!f) return;
 
     const opKey = getCurrentOp();
-
     const wxCtx = buildWxCtx(state);
+
+    const extraWithLearning = await getExtraForDeps(state);
+
     const deps = {
       getWeatherSeriesForFieldId: (id)=> state._mods.weather.getWeatherSeriesForFieldId(id, wxCtx),
       getFieldParams: (id)=> getFieldParams(state, id),
       LOSS_SCALE: CONST.LOSS_SCALE,
-      EXTRA,
+      EXTRA: extraWithLearning,
       opKey,
       CAL: getCalForDeps(state),
 
@@ -932,6 +1031,7 @@ async function _renderTilesInternal(state){
   ensureSelectionStyleOnce();
 
   await loadPersistedState(state);
+  await loadGlobalTuning(state); // warm cache
   ensureEtaHelperModule(state);
 
   const wrap = $('fieldsGrid');
@@ -957,11 +1057,14 @@ async function _renderTilesInternal(state){
 
   const opKey = getCurrentOp();
   const wxCtx = buildWxCtx(state);
+
+  const extraWithLearning = await getExtraForDeps(state);
+
   const deps = {
     getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
     getFieldParams: (fid)=> getFieldParams(state, fid),
     LOSS_SCALE: CONST.LOSS_SCALE,
-    EXTRA,
+    EXTRA: extraWithLearning,
     opKey,
     CAL: getCalForDeps(state),
     getPersistedState: (id)=> getPersistedStateForDeps(state, id)
@@ -1179,6 +1282,7 @@ async function _renderDetailsInternal(state){
   ensureEtaHelperModule(state);
 
   await loadPersistedState(state);
+  await loadGlobalTuning(state); // warm cache
 
   const f = state.fields.find(x=>x.id === state.selectedFieldId);
   if (!f) return;
@@ -1186,13 +1290,15 @@ async function _renderDetailsInternal(state){
   updateDetailsHeaderPanel(state);
 
   const opKey = getCurrentOp();
-
   const wxCtx = buildWxCtx(state);
+
+  const extraWithLearning = await getExtraForDeps(state);
+
   const deps = {
     getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
     getFieldParams: (fid)=> getFieldParams(state, fid),
     LOSS_SCALE: CONST.LOSS_SCALE,
-    EXTRA,
+    EXTRA: extraWithLearning,
     opKey,
     CAL: getCalForDeps(state),
     getPersistedState: (id)=> getPersistedStateForDeps(state, id)
@@ -1376,9 +1482,12 @@ export async function refreshDetailsOnly(state){
         const state = window.__FV_FR;
         if (!state) return;
 
-        // Re-pull persisted truth ONLY
+        // Re-pull persisted truth + tuning
         state._persistLoadedAt = 0;
+        state._tuneLoadedAt = 0;
+
         await loadPersistedState(state, { force:true });
+        await loadGlobalTuning(state, { force:true });
 
         await refreshAll(state);
       }catch(_){}
