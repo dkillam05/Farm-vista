@@ -1,37 +1,19 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-01-21h-quickview-learningAppliedDryOnly-previewRewind14-sliderHelp
+Rev: 2026-01-21i-quickview-truthMatchesOnOpen-previewRewindOnAdjust
 
-Fix (per Dane):
-✅ Last-line-of-defense permission gate:
-   - openQuickView() will NOT open unless canEdit(state) is true
-
-TRUTH:
-✅ Tiles + Details remain truth-driven (persisted storage).
-✅ Quick View is used to EDIT per-field physics params.
-
-CHANGE (per Dane, per user):
-✅ In Quick View, sliders MUST move “today” meaningfully and in the correct direction.
-   - Preview run uses seedMode:'rewind', rewindDays:14
-   - This makes soil/drain change the simulated current level (what users expect)
-   - This is a PREVIEW tool for params (not a truth setter)
-
-CRITICAL:
-✅ CAL must match render.js (ALL ZERO).
-✅ Storage/wetness/readiness remain tied by the model invariant.
+Behavior:
+✅ Quick View opens MATCHING tiles/details (Truth run: persisted seed).
+✅ When sliders move, Quick View previews with rewind (last 14 days) so “today” moves meaningfully.
+✅ Shows Truth vs Preview in small helper text so it’s never confusing.
 
 Learning:
 ✅ Applies global learning DRY_LOSS_MULT (drying side only).
 
 UI:
-✅ Adds small helper text under sliders:
+✅ Slider direction helper text:
    - Soil Wetness: 0 = Dry, 100 = Wet
    - Drainage Index: 0 = Well-drained, 100 = Poor drainage
-
-Keeps:
-✅ Map stacking fix + in-page map modal
-✅ Mobile fit, sticky header, X reachable
-✅ Save & Close, live preview updates, Firestore save, refresh events
 ===================================================================== */
 'use strict';
 
@@ -90,16 +72,11 @@ function gradientForThreshold(thr){
    CAL helper — MUST MATCH render.js (ALL ZERO)
 ===================================================================== */
 function getCalForDeps(_state){
-  return {
-    wetBias: 0,
-    opWetBias: {},
-    readinessShift: 0,
-    opReadinessShift: {}
-  };
+  return { wetBias:0, opWetBias:{}, readinessShift:0, opReadinessShift:{} };
 }
 
 /* =====================================================================
-   Persisted truth state passthrough (still available)
+   Persisted truth state passthrough (used by Truth run)
 ===================================================================== */
 function getPersistedStateForDeps(state, fieldId){
   try{
@@ -131,17 +108,14 @@ function safeNum(v){
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
-
 function normalizeTuneDoc(d){
   const doc = safeObj(d) || {};
   const dryLoss = safeNum(doc.DRY_LOSS_MULT);
-
   return {
     DRY_LOSS_MULT: clamp((dryLoss == null ? 1.0 : dryLoss), DRY_LOSS_MULT_MIN, DRY_LOSS_MULT_MAX),
     updatedAt: doc.updatedAt || null
   };
 }
-
 async function loadGlobalTuning(state, { force=false } = {}){
   try{
     if (!state) return normalizeTuneDoc(null);
@@ -188,7 +162,6 @@ async function loadGlobalTuning(state, { force=false } = {}){
     state._qvGlobalTune = fallback;
     state._qvTuneLoadedAt = now;
     return fallback;
-
   }catch(e){
     console.warn('[FieldReadiness] quickview tuning load failed:', e);
     const fallback = normalizeTuneDoc(null);
@@ -199,15 +172,10 @@ async function loadGlobalTuning(state, { force=false } = {}){
     return fallback;
   }
 }
-
 async function getExtraForDeps(state){
   const t = await loadGlobalTuning(state);
   const dryLossMult = clamp(Number(t && t.DRY_LOSS_MULT ? t.DRY_LOSS_MULT : 1.0), DRY_LOSS_MULT_MIN, DRY_LOSS_MULT_MAX);
-
-  return {
-    ...EXTRA,
-    DRY_LOSS_MULT: dryLossMult
-  };
+  return { ...EXTRA, DRY_LOSS_MULT: dryLossMult };
 }
 
 /* =====================================================================
@@ -224,12 +192,10 @@ function mapEls(){
     btnX: $('btnMapX')
   };
 }
-
 function showMapModal(on){
   const { backdrop } = mapEls();
   if (backdrop) backdrop.classList.toggle('pv-hide', !on);
 }
-
 function setMapError(msg){
   const { err, wrap } = mapEls();
   if (err){
@@ -243,7 +209,6 @@ function setMapError(msg){
   }
   if (wrap) wrap.style.opacity = msg ? '0.65' : '1';
 }
-
 function waitForGoogleMaps(timeoutMs=8000){
   const t0 = Date.now();
   return new Promise((resolve, reject)=>{
@@ -255,7 +220,6 @@ function waitForGoogleMaps(timeoutMs=8000){
     tick();
   });
 }
-
 async function openMapForField(state, field){
   const { canvas, sub, latlng } = mapEls();
   if (!field || !field.location || !canvas){
@@ -337,7 +301,9 @@ function restoreQuickViewAfterMap(state){
   }catch(_){}
 }
 
-/* ---------- modal build ---------- */
+/* =====================================================================
+   Build modal UI once
+===================================================================== */
 function ensureBuiltOnce(state){
   if (state._qvBuilt) return;
   state._qvBuilt = true;
@@ -401,11 +367,7 @@ function ensureBuiltOnce(state){
         box-shadow: 0 10px 26px rgba(47,108,60,.45) !important;
       }
       #frQvSaveClose:active{ transform: translateY(1px); }
-      #frQvSaveClose:disabled{
-        opacity: .55 !important;
-        cursor: not-allowed !important;
-        box-shadow: none !important;
-      }
+      #frQvSaveClose:disabled{ opacity: .55 !important; cursor: not-allowed !important; box-shadow: none !important; }
 
       #frQvMapBtn{
         border: 1px solid var(--border) !important;
@@ -420,10 +382,7 @@ function ensureBuiltOnce(state){
         user-select:none;
       }
       #frQvMapBtn:active{ transform: translateY(1px); }
-      #frQvMapBtn:disabled{
-        opacity:.55 !important;
-        cursor:not-allowed !important;
-      }
+      #frQvMapBtn:disabled{ opacity:.55 !important; cursor:not-allowed !important; }
 
       #frQvGpsRow{
         display:flex;
@@ -478,10 +437,7 @@ function ensureBuiltOnce(state){
         <div id="frQvTilePreview"></div>
 
         <div class="panel" style="margin:0;" id="frQvInputsPanel">
-          <h3 style="margin:0 0 6px;font-size:13px;font-weight:900;">Inputs (field-specific)</h3>
-          <div class="help muted" style="margin:0 0 10px;">
-            Preview re-simulates the last <span class="mono">14</span> days so these sliders change “today” immediately.
-          </div>
+          <h3 style="margin:0 0 8px;font-size:13px;font-weight:900;">Inputs (field-specific)</h3>
 
           <div style="display:grid;gap:12px;grid-template-columns:1fr 1fr;align-items:start;">
             <div class="field">
@@ -541,7 +497,6 @@ function ensureBuiltOnce(state){
   document.body.appendChild(wrap);
 
   const close = ()=> closeQuickView(state);
-
   const x = $('frQvX'); if (x) x.addEventListener('click', close);
 
   wrap.addEventListener('click', (e)=>{
@@ -553,14 +508,12 @@ function ensureBuiltOnce(state){
     state._qvMapWired = true;
 
     const { btnX, backdrop } = mapEls();
-
     function closeMapAndReturn(){
       showMapModal(false);
       restoreQuickViewAfterMap(state);
     }
 
     if (btnX) btnX.addEventListener('click', closeMapAndReturn);
-
     if (backdrop){
       backdrop.addEventListener('click', (e)=>{
         if (e.target && e.target.id === 'mapBackdrop') closeMapAndReturn();
@@ -574,6 +527,9 @@ function ensureBuiltOnce(state){
   const drainVal = $('frQvDrainVal');
 
   function onSliderChange(){
+    // mark that user has begun previewing
+    state._qvDidAdjust = true;
+
     if (soilVal) soilVal.textContent = String(clamp(Number(soil.value),0,100));
     if (drainVal) drainVal.textContent = String(clamp(Number(drain.value),0,100));
 
@@ -627,6 +583,9 @@ export function openQuickView(state, fieldId){
 
   state._qvFieldId = fieldId;
   state.selectedFieldId = fieldId;
+
+  // Reset adjustment flag so open matches truth
+  state._qvDidAdjust = false;
 
   const b = $('frQvBackdrop');
   if (b) b.classList.remove('pv-hide');
@@ -709,24 +668,29 @@ async function fillQuickView(state, { live=false } = {}){
   const wxCtx = buildWxCtx(state);
   const extraWithLearning = await getExtraForDeps(state);
 
-  // IMPORTANT:
-  // Quick View PREVIEW uses rewind so slider changes affect “today” meaningfully.
-  const deps = {
+  // Run 1: TRUTH (persisted) — matches tiles/details
+  const depsTruth = {
     getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
     getFieldParams: (id)=> getFieldParams(state, id),
     LOSS_SCALE: CONST.LOSS_SCALE,
     EXTRA: extraWithLearning,
     opKey,
     CAL,
+    getPersistedState: (id)=> getPersistedStateForDeps(state, id)
+  };
+  const runTruth = state._mods.model.runField(f, depsTruth);
 
-    // still provided (for consistency / future), but rewind mode ignores persisted anchor
-    getPersistedState: (id)=> getPersistedStateForDeps(state, id),
-
+  // Run 2: PREVIEW (rewind) — only used after slider move
+  const depsPreview = {
+    ...depsTruth,
     seedMode: 'rewind',
     rewindDays: 14
   };
+  const runPreview = state._mods.model.runField(f, depsPreview);
 
-  const run = state._mods.model.runField(f, deps);
+  // Decide which run is displayed
+  const didAdjust = !!state._qvDidAdjust;
+  const displayRun = (didAdjust ? runPreview : runTruth) || runTruth || runPreview;
 
   const farmName = state.farmsById.get(f.farmId) || '';
   const opLabel = (OPS.find(o=>o.key===opKey)?.label) || opKey;
@@ -735,7 +699,11 @@ async function fillQuickView(state, { live=false } = {}){
   const title = $('frQvTitle');
   const sub = $('frQvSub');
   if (title) title.textContent = f.name || 'Field';
-  if (sub) sub.textContent = farmName ? `${farmName} • Physics preview` : 'Physics preview';
+  if (sub){
+    sub.textContent = didAdjust
+      ? (farmName ? `${farmName} • Preview (rewind 14)` : 'Preview (rewind 14)')
+      : (farmName ? `${farmName} • Matches tiles (Truth)` : 'Matches tiles (Truth)');
+  }
 
   const p = getFieldParams(state, f.id);
   const soil = $('frQvSoil');
@@ -759,7 +727,9 @@ async function fillQuickView(state, { live=false } = {}){
     if (saveBtn) saveBtn.disabled = true;
     if (inputsPanel) inputsPanel.style.opacity = '0.75';
   } else {
-    if (hint) hint.textContent = 'Adjust sliders → preview updates live → Save & Close.';
+    if (hint) hint.textContent = didAdjust
+      ? 'Previewing with rewind (last 14 days). Save & Close writes ONLY slider values.'
+      : 'Adjust sliders → preview updates live → Save & Close.';
     if (saveBtn) saveBtn.disabled = false;
     if (inputsPanel) inputsPanel.style.opacity = '1';
   }
@@ -778,23 +748,30 @@ async function fillQuickView(state, { live=false } = {}){
   setText('frQvThr', thr);
 
   const range = parseRangeFromInput();
-  const rr = run ? rainInRange(run, range) : 0;
-  setText('frQvRain', run ? `${rr.toFixed(2)} in` : '—');
-  setText('frQvReadiness', run ? run.readinessR : '—');
-  setText('frQvWetness', run ? run.wetnessR : '—');
-  setText('frQvStorage', run ? `${run.storageFinal.toFixed(2)} / ${run.factors.Smax.toFixed(2)}` : '—');
+  const rr = displayRun ? rainInRange(displayRun, range) : 0;
+  setText('frQvRain', displayRun ? `${rr.toFixed(2)} in` : '—');
+  setText('frQvReadiness', displayRun ? displayRun.readinessR : '—');
+  setText('frQvWetness', displayRun ? displayRun.wetnessR : '—');
+  setText('frQvStorage', displayRun ? `${displayRun.storageFinal.toFixed(2)} / ${displayRun.factors.Smax.toFixed(2)}` : '—');
 
   const info = state.wxInfoByFieldId.get(f.id) || null;
   const when = (info && info.fetchedAt) ? new Date(info.fetchedAt) : null;
   const whenTxt = when ? when.toLocaleString() : '—';
   const wxMeta = $('frQvWxMeta');
+
+  const truthR = (runTruth && isFinite(Number(runTruth.readinessR))) ? Number(runTruth.readinessR) : null;
+  const prevR = (runPreview && isFinite(Number(runPreview.readinessR))) ? Number(runPreview.readinessR) : null;
+
   if (wxMeta){
-    wxMeta.innerHTML = `Weather updated: <span class="mono">${esc(whenTxt)}</span>`;
+    wxMeta.innerHTML =
+      `Weather updated: <span class="mono">${esc(whenTxt)}</span>` +
+      (truthR != null ? ` • Truth: <span class="mono">${truthR}</span>` : ``) +
+      (prevR != null ? ` • Preview: <span class="mono">${prevR}</span>` : ``);
   }
 
   const pe = $('frQvParamExplain');
-  if (pe && run && run.factors){
-    const fac = run.factors;
+  if (pe && displayRun && displayRun.factors){
+    const fac = displayRun.factors;
     pe.innerHTML =
       `soilHold=soilWetness/100=<span class="mono">${fac.soilHold.toFixed(2)}</span> • ` +
       `drainPoor=drainageIndex/100=<span class="mono">${fac.drainPoor.toFixed(2)}</span><br/>` +
@@ -804,7 +781,7 @@ async function fillQuickView(state, { live=false } = {}){
       `DRY_LOSS_MULT=<span class="mono">${extraWithLearning.DRY_LOSS_MULT.toFixed(2)}</span>`;
   }
 
-  renderTilePreview(state, run, thr);
+  renderTilePreview(state, displayRun, thr);
 }
 
 /* ---------- Save & Close ---------- */
@@ -857,7 +834,6 @@ async function saveAndClose(state){
       }, { merge:true });
     }
 
-    // Refresh UI (tiles/details use truth; quick view is preview tool)
     try{ document.dispatchEvent(new CustomEvent('fr:tile-refresh', { detail:{ fieldId: fid } })); }catch(_){}
     try{ document.dispatchEvent(new CustomEvent('fr:details-refresh', { detail:{ fieldId: fid } })); }catch(_){}
 
