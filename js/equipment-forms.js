@@ -1,6 +1,6 @@
 /* =======================================================================
 /Farm-vista/js/equipment-forms.js  (FULL FILE)
-Rev: 2026-01-21a  ✅ Add Unit ID/Unit # (optional) to all equipment types
+Rev: 2026-01-21b  ✅ Add Placed In Service Date (optional) to all equipment types
 
 Purpose:
   Shared "extras" engine for equipment forms.
@@ -13,6 +13,10 @@ Key updates:
   ✅ Unit ID / Unit # added to (nearly) all equipment types as OPTIONAL
      - Stored under extras.unitId
      - Helps standardize planters 1-14, semis unit #s, “white Chevy”, driver-name nicknames, etc.
+
+  ✅ Placed In Service Date added to ALL equipment types as OPTIONAL
+     - Stored under extras.placedInServiceDate
+     - Date this equipment was first put into regular use (may differ from purchase/model year)
 
 Keeps:
   ✅ All "toggle" fields now render as a real on/off slider switch
@@ -89,6 +93,13 @@ Keeps:
     }, opts || {}));
   }
 
+  // ✅ Placed In Service Date helper (optional everywhere)
+  function placedInServiceDateField(opts){
+    return dateField('placedInServiceDate', 'Placed In Service Date', Object.assign({
+      // Optional on purpose: represents first operational use, not purchase/model year
+    }, opts || {}));
+  }
+
   /** ------------------------------------------------------------------
    * Per-category field config
    * -------------------------------------------------------------------*/
@@ -97,6 +108,7 @@ Keeps:
     /* 1) TRACTORS ----------------------------------------------------- */
     tractor: [
       unitIdField(),
+      placedInServiceDateField(),
       numField('engineHours', 'Engine Hours', {
         step: '0.1',
         placeholder: 'e.g. 1250.5'
@@ -107,6 +119,7 @@ Keeps:
     /* 2) COMBINES ----------------------------------------------------- */
     combine: [
       unitIdField(),
+      placedInServiceDateField(),
       numField('engineHours', 'Engine Hours', {
         step: '0.1',
         placeholder: 'e.g. 2100.5'
@@ -121,6 +134,7 @@ Keeps:
     /* 3) SPRAYERS ----------------------------------------------------- */
     sprayer: [
       unitIdField(),
+      placedInServiceDateField(),
       numField('engineHours', 'Engine Hours', {
         step: '0.1',
         placeholder: 'e.g. 1800.0'
@@ -141,6 +155,7 @@ Keeps:
     /* 4) IMPLEMENTS --------------------------------------------------- */
     implement: [
       unitIdField(),
+      placedInServiceDateField(),
       selectField(
         'implementType',
         'Type',
@@ -223,6 +238,7 @@ Keeps:
     /* 5) FERTILIZER EQUIPMENT ---------------------------------------- */
     fertilizer: [
       unitIdField(),
+      placedInServiceDateField(),
       numField('engineHours', 'Engine Hours', {
         step: '0.1',
         placeholder: 'e.g. 1200.0'
@@ -245,6 +261,7 @@ Keeps:
     /* 6) TRUCKS ------------------------------------------------------- */
     truck: [
       unitIdField(),
+      placedInServiceDateField(),
       numField('odometerMiles', 'Odometer (miles)', {
         step: '1',
         inputmode: 'numeric',
@@ -286,6 +303,7 @@ Keeps:
     /* 7) TRAILERS ----------------------------------------------------- */
     trailer: [
       unitIdField(),
+      placedInServiceDateField(),
       selectField(
         'trailerType',
         'Trailer Type',
@@ -328,6 +346,7 @@ Keeps:
     /* 8) CONSTRUCTION ------------------------------------------------- */
     construction: [
       unitIdField(),
+      placedInServiceDateField(),
       selectField(
         'constructionType',
         'Construction Type',
@@ -374,6 +393,7 @@ Keeps:
     /* 9) STARFIRE / TECHNOLOGY ---------------------------------------- */
     starfire: [
       unitIdField({ placeholder: 'e.g. Receiver 3, StarFire 6000-2' }),
+      placedInServiceDateField(),
       selectField(
         'activationLevel',
         'Activation Level',
