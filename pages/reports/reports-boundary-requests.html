@@ -37,7 +37,7 @@
       border-radius:14px;
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      overflow:hidden;
+      overflow:visible;
     }
     .hero-head{
       display:grid;
@@ -135,6 +135,16 @@
       color:var(--text);
       min-height:32px;
     }
+    /* ✅ Farm dropdown: show ~8 items + scroll when opened (desktop/tablet) */
+.filter-select.farm-open{
+  border-radius:14px;
+  padding:8px 10px;
+  min-height:auto;
+}
+.filter-select.farm-open option{
+  padding:6px 8px;
+}
+
 
     /* List cards */
     .wo-list{ display:flex; flex-direction:column; gap:10px; margin-top:8px; }
@@ -1625,6 +1635,42 @@
 
       await loadBoundaryRequests();
       populateFarmFilterFromItems();
+            // ✅ Farm dropdown: open as an 8-row scroll list (desktop/tablet)
+      (function wireFarmDropdown(){
+        const farmSel = document.getElementById('filterFarm');
+        if(!farmSel) return;
+
+        const isDesktopLike = () =>
+          window.matchMedia && window.matchMedia('(min-width: 760px)').matches;
+
+        const openList = () => {
+          if(!isDesktopLike()) return;   // keep native picker on phones
+          farmSel.size = 8;              // ~8 farms visible
+          farmSel.classList.add('farm-open');
+        };
+
+        const closeList = () => {
+          farmSel.size = 1;
+          farmSel.classList.remove('farm-open');
+        };
+
+        // Default closed
+        closeList();
+
+        // Open on click/focus (desktop)
+        farmSel.addEventListener('mousedown', openList);
+        farmSel.addEventListener('focus', openList);
+
+        // Close after selection or leaving control
+        farmSel.addEventListener('change', closeList);
+        farmSel.addEventListener('blur', closeList);
+
+        // Safety: if screen becomes small, never stay "open"
+        window.addEventListener('resize', () => {
+          if(!isDesktopLike()) closeList();
+        }, { passive:true });
+      })();
+
 
       const statusSel = $('#filterStatus');
       const farmSel   = $('#filterFarm');
