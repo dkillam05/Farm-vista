@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/global-calibration.js  (FULL FILE)
-Rev: 2026-01-21a-global-percent-shift-truth-state
+Rev: 2026-01-21b-global-percent-shift-truth-state-learning
 
 CHANGE (per Dane):
 ✅ Global Calibration slider now performs a % shift across ALL fields (relative move),
@@ -22,6 +22,25 @@ CRITICAL:
 ✅ No wetBias/readinessShift overlays (no ceiling)
 ✅ Uses persisted truth seed when running the model (matches tiles)
 ✅ Writes truth storage state only
+
+NEW (Learning setup — Topic 2, FIRST STEP):
+✅ Also write a global tuning doc that can make the model closer next time.
+   - Writes to: field_readiness_tuning/global
+   - Stores:
+       DRY_LOSS_MULT (multiplies drying loss)
+       RAIN_EFF_MULT (multiplies effective rain)
+   - Update logic (safe + symmetric):
+       factor < 1  => you said “wetter than model”
+                    -> reduce drying (DRY_LOSS_MULT ↓)
+                    -> increase rain effectiveness (RAIN_EFF_MULT ↑)
+       factor > 1  => you said “drier than model”
+                    -> increase drying (DRY_LOSS_MULT ↑)
+                    -> reduce rain effectiveness (RAIN_EFF_MULT ↓)
+
+NOTE:
+- This file ONLY WRITES the tuning doc.
+- render.js + quickview.js must later READ this doc and feed the multipliers into deps.EXTRA
+  so learning actually affects the tiles/quick view.
 
 Keeps:
 ✅ 72h lockout (nextAllowedAt = now + cooldownHours)
@@ -55,6 +74,22 @@ function esc(s){
 const FR_STATE_COLLECTION = 'field_readiness_state';
 const STATE_TTL_MS = 30000;
 
+/* =====================================================================
+   NEW: LEARNING / TUNING DOC
+===================================================================== */
+const FR_TUNE_COLLECTION = 'field_readiness_tuning';
+const FR_TUNE_DOC = 'global';
+
+// Hard clamps for safety
+const DRY_LOSS_MULT_MIN = 0.30;
+const DRY_LOSS_MULT_MAX = 3.00;
+const RAIN_EFF_MULT_MIN = 0.30;
+const RAIN_EFF_MULT_MAX = 3.00;
+
+// How aggressively one global % shift changes tuning.
+// 0.50 = sqrt mapping (gentler)
+const TUNE_EXP = 0.50;
+
 function safeStr(x){
   const s = String(x || '');
   return s ? s : '';
@@ -68,6 +103,32 @@ function safeNum(v){
   return Number.isFinite(n) ? n : null;
 }
 
+function nowISO(){
+  try{ return new Date().toISOString(); }catch(_){ return ''; }
+}
+
+function getAuthUserIdCompat(){
+  try{
+    const auth = window.firebaseAuth || null;
+    const user = auth && auth.currentUser ? auth.currentUser : null;
+    return user ? (user.email || user.uid || null) : null;
+  }catch(_){
+    return null;
+  }
+}
+function getAuthUserIdModern(api){
+  try{
+    const auth = api && api.getAuth ? api.getAuth() : null;
+    const user = auth && auth.currentUser ? auth.currentUser : null;
+    return user ? (user.email || user.uid || null) : null;
+  }catch(_){
+    return null;
+  }
+}
+
+/* =====================================================================
+   Persisted truth-state load (for consistency)
+===================================================================== */
 async function loadPersistedState(state, { force=false } = {}){
   try{
     if (!state) return;
@@ -160,6 +221,103 @@ function getPersistedStateForDeps(state, fieldId){
   }catch(_){
     return null;
   }
+}
+
+/* =====================================================================
+   NEW: Tuning doc read/write (learning setup)
+===================================================================== */
+function normalizeTuneDoc(d){
+  const doc = (d && typeof d === 'object') ? d : {};
+  const dryLoss = safeNum(doc.DRY_LOSS_MULT);
+  const rainEff = safeNum(doc.RAIN_EFF_MULT);
+
+  return {
+    DRY_LOSS_MULT: clamp((dryLoss == null ? 1.0 : dryLoss), DRY_LOSS_MULT_MIN, DRY_LOSS_MULT_MAX),
+    RAIN_EFF_MULT: clamp((rainEff == null ? 1.0 : rainEff), RAIN_EFF_MULT_MIN, RAIN_EFF_MULT_MAX),
+
+    lastFactor: safeNum(doc.lastFactor),
+    lastAnchorReadiness: safeNum(doc.lastAnchorReadiness),
+    lastTargetReadiness: safeNum(doc.lastTargetReadiness),
+    lastOp: safeStr(doc.lastOp),
+    lastAsOfDateISO: safeStr(doc.lastAsOfDateISO),
+    updatedBy: safeStr(doc.updatedBy),
+    updatedAt: doc.updatedAt || null
+  };
+}
+
+async function loadGlobalTuning(state){
+  const api = getAPI(state);
+  const fallback = normalizeTuneDoc(null);
+
+  try{
+    if (!api) return fallback;
+
+    if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
+      const db = window.firebase.firestore();
+      const snap = await db.collection(FR_TUNE_COLLECTION).doc(FR_TUNE_DOC).get();
+      if (!snap || !snap.exists) return fallback;
+      return normalizeTuneDoc(snap.data() || {});
+    }
+
+    if (api.kind !== 'compat'){
+      const db = api.getFirestore();
+      const ref = api.doc(db, FR_TUNE_COLLECTION, FR_TUNE_DOC);
+      const snap = await api.getDoc(ref);
+      if (!snap || !snap.exists || !snap.exists()) return fallback;
+      return normalizeTuneDoc(snap.data() || {});
+    }
+  }catch(e){
+    console.warn('[FieldReadiness] tuning load failed:', e);
+  }
+  return fallback;
+}
+
+async function writeGlobalTuning(state, payload){
+  const api = getAPI(state);
+  if (!api) return;
+
+  if (api.kind === 'compat'){
+    try{
+      const db = window.firebase.firestore();
+      await db.collection(FR_TUNE_COLLECTION).doc(FR_TUNE_DOC).set(payload, { merge:true });
+    }catch(e){
+      console.warn('[FieldReadiness] tuning write failed (compat):', e);
+    }
+    return;
+  }
+
+  try{
+    const db = api.getFirestore();
+    const ref = api.doc(db, FR_TUNE_COLLECTION, FR_TUNE_DOC);
+    await api.setDoc(ref, payload, { merge:true });
+  }catch(e){
+    console.warn('[FieldReadiness] tuning write failed:', e);
+  }
+}
+
+/**
+ * Given factor = target/anchor, update tuning multipliers safely.
+ * - factor < 1 => wetter => dryLoss down, rainEff up
+ * - factor > 1 => drier  => dryLoss up, rainEff down
+ *
+ * Uses exponent (sqrt by default) so changes are not too aggressive.
+ */
+function computeNextTuning(prev, factor){
+  const fct = clamp(Number(factor || 1), 0.10, 2.50); // same safety clamp as state shift
+  const p = normalizeTuneDoc(prev);
+
+  // Gentle symmetric mapping
+  // dryLossMult *= fct^exp
+  // rainEffMult *= (1/fct)^exp
+  const exp = clamp(Number(TUNE_EXP || 0.5), 0.10, 1.00);
+
+  const dryMulStep = Math.pow(fct, exp);
+  const rainMulStep = Math.pow(1 / Math.max(1e-6, fct), exp);
+
+  const nextDry = clamp(p.DRY_LOSS_MULT * dryMulStep, DRY_LOSS_MULT_MIN, DRY_LOSS_MULT_MAX);
+  const nextRain = clamp(p.RAIN_EFF_MULT * rainMulStep, RAIN_EFF_MULT_MIN, RAIN_EFF_MULT_MAX);
+
+  return { DRY_LOSS_MULT: nextDry, RAIN_EFF_MULT: nextRain };
 }
 
 /* =====================================================================
@@ -357,7 +515,6 @@ function getSelectedField(state){
 }
 
 // For this modal, CAL must match render.js: ALL ZERO.
-// No wetBias/readinessShift overlays (prevents ceilings).
 function getCalForShown(_state){
   return { wetBias:0, opWetBias:{}, readinessShift:0, opReadinessShift:{} };
 }
@@ -608,7 +765,7 @@ function updateGuardText(state){
   if (anchor > 0){
     factor = target / anchor;
   } else {
-    factor = (target <= 0) ? 1 : 1; // undefined; UI will still allow but apply will fall back to absolute set
+    factor = 1;
   }
 
   const pct = Math.round((factor - 1) * 100);
@@ -727,7 +884,7 @@ function updateUI(state){
 }
 
 /* =========================
-   Firestore writes (TRUTH STATE)
+   Firestore writes (TRUTH STATE + LEARNING DOC)
 ========================= */
 function futureTimestamp(api, ms){
   try{
@@ -809,17 +966,9 @@ async function writeGlobalTruthStatePercentShift(state, factor, asOfDateISO){
   let createdBy = null;
 
   if (api.kind === 'compat'){
-    try{
-      const auth = window.firebaseAuth || null;
-      const user = auth && auth.currentUser ? auth.currentUser : null;
-      createdBy = user ? (user.email || user.uid || null) : null;
-    }catch(_){}
+    createdBy = getAuthUserIdCompat();
   } else {
-    try{
-      const auth = api.getAuth ? api.getAuth() : null;
-      const user = auth && auth.currentUser ? auth.currentUser : null;
-      createdBy = user ? (user.email || user.uid || null) : null;
-    }catch(_){}
+    createdBy = getAuthUserIdModern(api);
   }
 
   const calObj = getCalForAnchor(state);
@@ -832,7 +981,7 @@ async function writeGlobalTruthStatePercentShift(state, factor, asOfDateISO){
 
   if (api.kind === 'compat'){
     const db = window.firebase.firestore();
-    const nowISO = new Date().toISOString();
+    const nowISO = nowISO();
 
     for (const f of fields){
       try{
@@ -909,6 +1058,50 @@ async function writeGlobalTruthStatePercentShift(state, factor, asOfDateISO){
   }
 }
 
+/**
+ * NEW: write global tuning doc (learning setup).
+ * Stores DRY_LOSS_MULT / RAIN_EFF_MULT based on the same factor.
+ */
+async function writeLearningFromFactor(state, {
+  factor,
+  anchorR,
+  targetR,
+  asOfDateISO,
+  refFieldId,
+  refFieldName,
+  opKey
+}){
+  const api = getAPI(state);
+  if (!api) return;
+
+  const prev = await loadGlobalTuning(state);
+  const next = computeNextTuning(prev, factor);
+
+  const createdBy = (api.kind === 'compat') ? getAuthUserIdCompat() : getAuthUserIdModern(api);
+
+  const payload = {
+    // multipliers that model.js now supports via deps.EXTRA
+    DRY_LOSS_MULT: next.DRY_LOSS_MULT,
+    RAIN_EFF_MULT: next.RAIN_EFF_MULT,
+
+    // audit/debug
+    lastFactor: clamp(Number(factor || 1), 0.10, 2.50),
+    lastAnchorReadiness: clamp(Number(anchorR || 0), 0, 100),
+    lastTargetReadiness: clamp(Number(targetR || 0), 0, 100),
+    lastOp: String(opKey || ''),
+    lastAsOfDateISO: String(asOfDateISO || ''),
+    lastRefFieldId: String(refFieldId || ''),
+    lastRefFieldName: String(refFieldName || ''),
+
+    updatedBy: createdBy || null,
+    updatedAt: (api.kind === 'compat')
+      ? nowISO()
+      : (api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString())
+  };
+
+  await writeGlobalTuning(state, payload);
+}
+
 /* =========================
    Open / Close
 ========================= */
@@ -974,7 +1167,7 @@ function closeAdjust(state){
 }
 
 /* =========================
-   Apply (writes percent-shift truth state)
+   Apply (writes percent-shift truth state + writes learning doc)
 ========================= */
 async function applyAdjustment(state){
   if (isLocked(state)) return;
@@ -1004,7 +1197,6 @@ async function applyAdjustment(state){
   if (anchorR > 0){
     factor = targetR / anchorR;
   } else {
-    // If anchor is 0, percent shift is undefined; fall back to no-op.
     factor = 1;
   }
 
@@ -1019,7 +1211,19 @@ async function applyAdjustment(state){
     asOf = isoDay(new Date().toISOString());
   }
 
+  // 1) Write truth storage state (today) for all fields
   await writeGlobalTruthStatePercentShift(state, factor, asOf);
+
+  // 2) Write learning/tuning doc (so future runs can be closer)
+  await writeLearningFromFactor(state, {
+    factor,
+    anchorR,
+    targetR,
+    asOfDateISO: asOf,
+    refFieldId: String(f.id || ''),
+    refFieldName: String(f.name || ''),
+    opKey: String(getCurrentOp() || '')
+  });
 
   const nowMs = Date.now();
   await writeWeightsLock(state, nowMs);
