@@ -126,7 +126,6 @@
       letter-spacing:0.08em;
       opacity:0.78;
     }
-    .filter-input,
     .filter-select{
       border-radius:999px;
       border:1px solid var(--border);
@@ -136,7 +135,6 @@
       color:var(--text);
       min-height:32px;
     }
-    .filter-input::placeholder{ color:var(--muted,#9CA3AF); }
 
     /* List cards */
     .wo-list{ display:flex; flex-direction:column; gap:10px; margin-top:8px; }
@@ -679,19 +677,30 @@
       if(!items.length){
         emptyEl.style.display = 'block';
         emptyEl.textContent = 'No boundary fix requests have been submitted yet.';
-        if(countEl) countEl.textContent = '0 open requests';
+        if(countEl) countEl.textContent = '0 requests';
         return;
       }
 
       emptyEl.style.display = 'none';
 
-      const open = items.filter(it => normalizeStatus(it.data.status) === 'open');
-      const farmIds = new Set(open.map(it => it.data.farmId || it.data.farm).filter(Boolean));
+      const openItems = items.filter(it => normalizeStatus(it.data.status) === 'open');
+      const completedItems = items.filter(it => normalizeStatus(it.data.status) === 'completed');
+
+      const farmIds = new Set(items.map(it => it.data.farmId || it.data.farm).filter(Boolean));
+
+      const statusSel = $('#filterStatus');
+      const statusFilter = (statusSel?.value || 'open').toLowerCase();
 
       if(countEl){
-        const openCount = open.length;
-        const farmCount = farmIds.size;
-        countEl.textContent = `${openCount} open on ${farmCount || 0} farm${farmCount === 1 ? '' : 's'}`;
+        if(statusFilter === 'open'){
+          const farmCountOpen = new Set(openItems.map(it => it.data.farmId || it.data.farm).filter(Boolean)).size;
+          countEl.textContent = `${openItems.length} open on ${farmCountOpen || 0} farm${farmCountOpen === 1 ? '' : 's'}`;
+        }else if(statusFilter === 'completed'){
+          const farmCountComp = new Set(completedItems.map(it => it.data.farmId || it.data.farm).filter(Boolean)).size;
+          countEl.textContent = `${completedItems.length} completed on ${farmCountComp || 0} farm${farmCountComp === 1 ? '' : 's'}`;
+        }else{
+          countEl.textContent = `${openItems.length} open / ${completedItems.length} completed on ${farmIds.size || 0} farm${farmIds.size === 1 ? '' : 's'}`;
+        }
       }
 
       for(const item of items){
@@ -948,34 +957,22 @@
 
       const statusSel = $('#filterStatus');
       const farmSel   = $('#filterFarm');
-      const searchEl  = $('#filterSearch');
 
-      const statusFilter = (statusSel?.value || 'open').toLowerCase();
+      const statusFilter = (statusSel?.value || 'open').toLowerCase(); // open | completed | all
       const farmFilter   = farmSel?.value || 'all';
-      const q            = (searchEl?.value || '').trim().toLowerCase();
 
       const filtered = STATE.items.filter(it => {
         const d = it.data;
         const st = normalizeStatus(d.status);
 
         if(statusFilter === 'open' && st !== 'open') return false;
+        if(statusFilter === 'completed' && st !== 'completed') return false;
 
         if(farmFilter !== 'all'){
           const id = (d.farmId || d.farm || '').toString();
           if(id !== farmFilter) return false;
         }
 
-        if(q){
-          const rtk = getRtkForRequest(d);
-          const { nameLine, subLine } = rtkLines(rtk);
-          const hay = [
-            d.farm, d.field, d.scope, d.notes,
-            d.submittedBy, d.submittedByEmail,
-            d.rtkTowerId,
-            nameLine, subLine
-          ].join(' ').toLowerCase();
-          if(!hay.includes(q)) return false;
-        }
         return true;
       });
 
@@ -1027,10 +1024,6 @@
 
     /* ===========================
        Print / PDF
-       FIXES:
-       1) KPI already compact (single row)
-       2) Photo Appendix header cannot orphan at bottom of previous page
-       3) Best-effort URL suppression note: Browser print "Headers/Footers" controls that
        =========================== */
 
     function extractFieldNumber(field){
@@ -1067,18 +1060,17 @@
     function summarizeFilters(){
       const statusSel = $('#filterStatus');
       const farmSel   = $('#filterFarm');
-      const searchEl  = $('#filterSearch');
 
-      const statusLabel = statusSel?.value === 'all' ? 'All statuses' : 'Open only';
+      const v = (statusSel?.value || 'open').toLowerCase();
+      const statusLabel = (v === 'open') ? 'Status: Open' : (v === 'completed') ? 'Status: Completed' : 'Status: All';
+
       let farmLabel = 'All farms';
       if (farmSel && farmSel.value !== 'all'){
         const id = farmSel.value;
         farmLabel = STATE.farmMap.get(id) || 'Selected farm';
       }
-      const searchVal = (searchEl?.value || '').trim();
-      const searchLabel = searchVal ? `Search: "${searchVal}"` : 'No text filter';
 
-      return `${statusLabel} • ${farmLabel} • ${searchLabel}`;
+      return `${statusLabel} • ${farmLabel}`;
     }
 
     function computeDateRange(items){
@@ -1384,7 +1376,7 @@
     </header>
 
     <h1 class="title">Field Boundary Fix Requests</h1>
-    <p class="subtitle">Open and recent boundary correction requests grouped by farm and field, including RTK tower details (Name • Network ID • Frequency).</p>
+    <p class="subtitle">Boundary correction requests grouped by farm and field, including RTK tower details (Name • Network ID • Frequency).</p>
 
     <div class="summary">
       <div class="pill"><span class="k">Date range</span><span class="v">${escapeHtml(dateRange || 'All dates')}</span></div>
@@ -1636,20 +1628,9 @@
 
       const statusSel = $('#filterStatus');
       const farmSel   = $('#filterFarm');
-      const searchEl  = $('#filterSearch');
-      const clearBtn  = $('#filterClear');
 
       if(statusSel) statusSel.addEventListener('change', () => applyFilters());
       if(farmSel)   farmSel.addEventListener('change', () => applyFilters());
-      if(searchEl)  searchEl.addEventListener('input', () => applyFilters());
-      if(clearBtn){
-        clearBtn.addEventListener('click', () => {
-          if(statusSel) statusSel.value = 'open';
-          if(farmSel)   farmSel.value   = 'all';
-          if(searchEl)  searchEl.value  = '';
-          applyFilters();
-        });
-      }
 
       await applyFilters();
 
@@ -1670,7 +1651,7 @@
           <div>
             <h1>Field Boundary Fix Requests</h1>
             <p class="muted">
-              Review open and recent boundary correction requests by farm and field. Tap a card to see full notes
+              Review boundary correction requests by farm and field. Tap a card to see full notes
               so GIS can fix maps correctly.
             </p>
           </div>
@@ -1682,15 +1663,16 @@
               <button id="btnBack" type="button" class="btn btn-quiet">← Back to Reports</button>
               <button id="btnPrint" type="button" class="btn btn-primary">Print / Save PDF</button>
             </div>
-            <div class="page-header-meta" id="brCount">0 open requests</div>
+            <div class="page-header-meta" id="brCount">0 requests</div>
           </div>
 
           <div class="filters">
             <div class="filter-field">
               <label class="filter-label" for="filterStatus">Status</label>
               <select id="filterStatus" class="filter-select">
-                <option value="open">Open only</option>
-                <option value="all">All statuses</option>
+                <option value="open">Open</option>
+                <option value="completed">Completed</option>
+                <option value="all">All</option>
               </select>
             </div>
 
@@ -1700,13 +1682,6 @@
                 <option value="all">All farms</option>
               </select>
             </div>
-
-            <div class="filter-field">
-              <label class="filter-label" for="filterSearch">Search</label>
-              <input id="filterSearch" class="filter-input" type="search" placeholder="Search field, notes, submitter, RTK…" />
-            </div>
-
-            <button id="filterClear" type="button" class="btn btn-quiet">Clear filters</button>
           </div>
 
           <section aria-label="Boundary fix requests">
