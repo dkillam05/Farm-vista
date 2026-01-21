@@ -795,7 +795,7 @@
     /* Line item modal */
     .li-modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:100010; }
     .li-modal.show{ display:flex; }
-    .li-backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.55); }
+    .li-backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.55); overscroll-behavior: contain;  }
     .li-sheet{
       position:relative;
       z-index:1;
@@ -809,6 +809,8 @@
       flex-direction:column;
       gap:10px;
       min-width:0;
+      max-height: min(80vh, 640px);
+      overscroll-behavior: contain;
     }
     .li-header{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px; min-width:0; }
     .li-title{ font-size:1rem; font-weight:700; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -827,7 +829,7 @@
       flex:0 0 auto;
     }
     .li-close-btn svg{ width:16px; height:16px; }
-    .li-body{ font-size:0.9rem; display:flex; flex-direction:column; gap:8px; min-width:0; }
+    .li-body{ font-size:0.9rem; display:flex; flex-direction:column; gap:8px; min-width:0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
     .li-field-label{ font-size:0.8rem; text-transform:uppercase; letter-spacing:0.06em; opacity:0.75; }
     .li-field-value{ font-size:0.9rem; overflow-wrap:anywhere; word-break:break-word; }
     .li-meta{ font-size:0.8rem; opacity:0.8; overflow-wrap:anywhere; }
@@ -888,6 +890,13 @@
       .wo-type-title{ white-space:normal; }
       .wo-origin-head{ padding:2px 4px; }
     }
+    /* ✅ Modal-open body lock (prevents scroll bleed + layout jump) */
+body.fv-modal-open{
+  position: fixed;
+  width: 100%;
+  overflow: hidden;
+}
+
 
     /* Remove Safari blue text & focus outlines */
     button, input, select, textarea { color: var(--text) !important; }
@@ -951,6 +960,21 @@
     };
 
     const $  = (sel, root=document) => root.querySelector(sel);
+    function lockBodyScroll(){
+  const y = window.scrollY || window.pageYOffset || 0;
+  document.body.dataset.fvScrollY = String(y);
+  document.body.classList.add('fv-modal-open');
+  document.body.style.top = `-${y}px`;
+}
+
+function unlockBodyScroll(){
+  const y = Number(document.body.dataset.fvScrollY || '0') || 0;
+  document.body.classList.remove('fv-modal-open');
+  document.body.style.top = '';
+  delete document.body.dataset.fvScrollY;
+  window.scrollTo(0, y);
+}
+
 
     function setEmpty(mode, text){
       const emptyEl = $('.wo-empty');
@@ -2376,14 +2400,15 @@
       }
 
       modal.classList.add('show');
-      document.body.style.overflow = 'hidden';
+      lockBodyScroll();
+
     }
 
     function closeLineItemModal(){
       const modal = $('#liModal');
       if(modal) modal.classList.remove('show');
       STATE.currentLine = null;
-      document.body.style.overflow = '';
+      unlockBodyScroll();
     }
 
     async function saveLineItemFromModal(){
