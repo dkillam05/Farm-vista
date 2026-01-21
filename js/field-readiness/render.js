@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-01-21c-truth-slider-state-seed-noLegacyCal-learningAppliedDryOnly
+Rev: 2026-01-21d-truth-slider-state-seed-noLegacyCal-learningAppliedDryOnly-debugTraceRewind
 
 RECOVERY (critical):
 ✅ Keep module stable; tiles + details render.
@@ -22,6 +22,14 @@ NEW (Learning APPLY — per Dane):
    - Injects into deps.EXTRA:
        DRY_LOSS_MULT
    - Does NOT apply RAIN_EFF_MULT (kept for future/manual only)
+
+NEW (Option B — Debug Trace in Details):
+✅ When truth is anchored to "today" there are often 0 forward-sim days,
+   so run.trace can be empty. To still show history:
+   - If run.trace is empty, run a SECOND pass with:
+       seedMode:'rewind', rewindDays:14
+     and display that trace ONLY in the trace table.
+   - Truth numbers (readiness/storage/wetness) remain from persisted run.
 
 NOTES:
 - This file reads persisted truth and tuning, then passes into model deps.
@@ -1290,8 +1298,8 @@ async function _renderDetailsInternal(state){
   updateDetailsHeaderPanel(state);
 
   const opKey = getCurrentOp();
-  const wxCtx = buildWxCtx(state);
 
+  const wxCtx = buildWxCtx(state);
   const extraWithLearning = await getExtraForDeps(state);
 
   const deps = {
@@ -1311,10 +1319,29 @@ async function _renderDetailsInternal(state){
 
   renderBetaInputs(state);
 
+  // ============================================================
+  // Option B: Debug trace (rewind) when truth-anchored run has no trace
+  //   - Truth numbers remain from "run"
+  //   - Trace table may use "traceDisplay" from rewind pass
+  // ============================================================
+  let traceDisplay = Array.isArray(run.trace) ? run.trace : [];
+  if (!traceDisplay.length){
+    try{
+      const depsDbg = {
+        ...deps,
+        seedMode: 'rewind',
+        rewindDays: 14
+      };
+      const dbg = state._mods.model.runField(f, depsDbg);
+      const dbgTrace = Array.isArray(dbg && dbg.trace) ? dbg.trace : [];
+      if (dbgTrace.length) traceDisplay = dbgTrace;
+    }catch(_){}
+  }
+
   const trb = $('traceRows');
   if (trb){
     trb.innerHTML = '';
-    const rows = Array.isArray(run.trace) ? run.trace : [];
+    const rows = traceDisplay;
     if (!rows.length){
       trb.innerHTML = `<tr><td colspan="7" class="muted">No trace rows.</td></tr>`;
     } else {
