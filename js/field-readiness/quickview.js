@@ -1,21 +1,19 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-01-20d-quickview-rewind14-noWetBias
+Rev: 2026-01-20e-quickview-truth-aligned-full
 
 Fix (per Dane):
 ✅ Last-line-of-defense permission gate:
    - openQuickView() will NOT open unless canEdit(state) is true
 
-HYBRID (per Dane, NON-NEGOTIABLE):
-✅ When Soil / Drainage sliders move, the CURRENT level MUST move immediately.
-   - Quick View runs the model in rewind mode:
-       seedMode: 'rewind'
-       rewindDays: 14
+FINAL RULE (per Dane):
+✅ Quick View MUST match tiles/details exactly (same truth storage + same math).
+✅ NO rewind mode here (rewind guarantees mismatch).
+✅ Uses persisted truth seed (field_readiness_state) via state.persistedStateByFieldId.
 
-CRITICAL (remove 89 ceiling):
-✅ wetBias + readinessShift must NOT cap “dry end” in Quick View preview.
-   - Force CAL to wetBias=0 and readinessShift=0 here.
-   - Storage/wetness/readiness remain tied by the model invariant.
+CRITICAL:
+✅ CAL must match render.js (ALL ZERO).
+✅ Storage/wetness/readiness remain tied by the model invariant.
 
 Keeps:
 ✅ Map stacking fix + in-page map modal
@@ -76,7 +74,7 @@ function gradientForThreshold(thr){
 }
 
 /* =====================================================================
-   CAL helper — FORCE OFF in Quick View to prevent 89 ceiling
+   CAL helper — MUST MATCH render.js (ALL ZERO)
 ===================================================================== */
 function getCalForDeps(_state){
   return {
@@ -88,7 +86,7 @@ function getCalForDeps(_state){
 }
 
 /* =====================================================================
-   Persisted truth state passthrough (kept for compatibility, not used in rewind)
+   Persisted truth state passthrough (USED — must match tiles)
 ===================================================================== */
 function getPersistedStateForDeps(state, fieldId){
   try{
@@ -588,11 +586,8 @@ function fillQuickView(state, { live=false } = {}){
     opKey,
     CAL,
 
-    // ✅ HYBRID: re-simulate last 14 days so soil/drain changes move level NOW
-    seedMode: 'rewind',
-    rewindDays: 14
-
-    // NOTE: do NOT pass persisted state here; rewind mode intentionally ignores it.
+    // ✅ MATCH render.js: use persisted truth seed so numbers match tiles/details
+    getPersistedState: (id)=> getPersistedStateForDeps(state, id)
   };
 
   const run = state._mods.model.runField(f, deps);
@@ -628,7 +623,7 @@ function fillQuickView(state, { live=false } = {}){
     if (saveBtn) saveBtn.disabled = true;
     if (inputsPanel) inputsPanel.style.opacity = '0.75';
   } else {
-    if (hint) hint.textContent = 'Adjust sliders → preview updates live (rewind 14d) → Save & Close.';
+    if (hint) hint.textContent = 'Adjust sliders → preview updates live → Save & Close.';
     if (saveBtn) saveBtn.disabled = false;
     if (inputsPanel) inputsPanel.style.opacity = '1';
   }
