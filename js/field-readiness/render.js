@@ -1,29 +1,25 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-01-20a-truth-slider-state-seed
+Rev: 2026-01-20b-truth-slider-state-seed-noLegacyCal
 
 RECOVERY (critical):
 ✅ Keep module stable; tiles + details render.
 
-CHANGE (per Dane NEW MEANING):
-✅ Reframe “calibration slider” to mean: “this is the TRUE soil condition today”
-   - We seed the model from persisted per-field storage state (storageFinal/asOfDateISO).
-   - This lets physics drive future dry-down / wet-up naturally.
+TRUTH SYSTEM (per Dane):
+✅ Global adjustment writes truth storage to field_readiness_state.
+✅ Model uses persisted storage seed + weather simulation.
+✅ Quick View uses rewind 14 (separate file).
 
-IMPORTANT (to prevent the “maxed at 82” ceiling):
-✅ ReadinessShift is now treated as 0 in the UI run path.
-   - We still support wetBias (physics lean) from adjustments (optional),
-     but we do NOT apply readinessShift here.
-   - Slider should write state (storageFinal) instead of readiness offsets.
-
-ADDED:
-✅ Load persisted per-field state from Firestore collection:
-   - field_readiness_state/{fieldId} => { storageFinal, asOfDateISO, SmaxAtSave? }
+CRITICAL FIX TODAY:
+✅ REMOVE legacy calibration pipeline entirely.
+   - No reading field_readiness_adjustments
+   - No wetBias / readinessShift from deltas
+   - CAL passed to model is ALWAYS ZERO
+   - This removes the hard cap (e.g. 89) caused by old wetBias docs.
 
 NOTES:
 - This file only reads persisted state and passes it into model deps.
-- Your slider/apply logic should WRITE to field_readiness_state (handled elsewhere).
-
+- Global calibration works via field_readiness_state and fr:soft-reload.
 ===================================================================== */
 'use strict';
 
@@ -222,130 +218,10 @@ async function scheduleRender(state, mode){
 }
 
 /* =====================================================================
-   Calibration from adjustments collection (GLOBAL ONLY)
-   NOTE: ReadinessShift is intentionally treated as 0 now.
+   CAL (FINAL): legacy adjustments disabled
 ===================================================================== */
-const CAL_MAX_DOCS = 12;
-const CAL_SCALE = 0.25;
-const CAL_CLAMP = 12;
-
-function docHasAnchorSlider(d){
-  const a = safeNum(d && d.readinessAnchor);
-  const s = safeNum(d && d.readinessSlider);
-  return (a != null && s != null);
-}
-
-async function loadCalibrationFromAdjustments(state, { force=false } = {}){
-  const now = Date.now();
-  const last = Number(state._calLoadedAt || 0);
-  if (!force && state._cal && (now - last) < 30000) return state._cal;
-
-  // deps.CAL shape expected by model:
-  // We keep wetBias, but readinessShift is forced to 0 (truth slider uses persisted storage)
-  const out = { wetBias: 0, opWetBias: {}, readinessShift: 0, opReadinessShift: {} };
-
-  try{
-    const api = getAPI(state);
-    if (!api){
-      state._cal = out;
-      state._calLoadedAt = now;
-      return out;
-    }
-
-    const applyDocs = (docs)=>{
-      const list = Array.isArray(docs) ? docs : [];
-
-      // wetBias: sum recent deltas (scaled), clamp
-      let wbAll = 0;
-      for (const d of list){
-        if (!d || d.global !== true) continue;
-        const delta = Number(d.delta);
-        if (!Number.isFinite(delta)) continue;
-        wbAll += (delta * CAL_SCALE);
-      }
-      wbAll = clamp(wbAll, -CAL_CLAMP, CAL_CLAMP);
-      out.wetBias = wbAll;
-
-      // Truth slider path: DO NOT apply readinessShift from anchor/slider
-      // (prevents “maxed at 82” ceilings).
-      out.readinessShift = 0;
-      out.opReadinessShift = {};
-
-      // Still harmless to keep opWetBias if you ever add it; currently unused.
-      out.opWetBias = out.opWetBias || {};
-
-      // No-op anchor/slider consumption here by design.
-      // (We still tolerate docs that have anchor/slider; we just don’t use them.)
-      void list.find(d => d && d.global === true && docHasAnchorSlider(d));
-    };
-
-    if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
-      const db = window.firebase.firestore();
-
-      let snap = null;
-      try{
-        snap = await db.collection(CONST.ADJ_COLLECTION)
-          .orderBy('createdAt', 'desc')
-          .limit(CAL_MAX_DOCS)
-          .get();
-      }catch(_){
-        snap = await db.collection(CONST.ADJ_COLLECTION)
-          .orderBy('ts', 'desc')
-          .limit(CAL_MAX_DOCS)
-          .get();
-      }
-
-      const docs = [];
-      snap.forEach(doc=> docs.push(doc.data() || {}));
-      applyDocs(docs);
-
-      state._cal = out;
-      state._calLoadedAt = now;
-      return out;
-    }
-
-    if (api.kind !== 'compat'){
-      const db = api.getFirestore();
-
-      let q = null;
-      try{
-        q = api.query(
-          api.collection(db, CONST.ADJ_COLLECTION),
-          api.orderBy('createdAt', 'desc'),
-          api.limit(CAL_MAX_DOCS)
-        );
-      }catch(_){
-        q = api.query(
-          api.collection(db, CONST.ADJ_COLLECTION),
-          api.orderBy('ts', 'desc'),
-          api.limit(CAL_MAX_DOCS)
-        );
-      }
-
-      const snap = await api.getDocs(q);
-      const docs = [];
-      snap.forEach(doc=> docs.push(doc.data() || {}));
-      applyDocs(docs);
-
-      state._cal = out;
-      state._calLoadedAt = now;
-      return out;
-    }
-  }catch(e){
-    console.warn('[FieldReadiness] calibration load failed:', e);
-  }
-
-  state._cal = state._cal || out;
-  state._calLoadedAt = now;
-  return state._cal;
-}
-
-function getCalForDeps(state){
-  const cal = (state && state._cal && typeof state._cal === 'object') ? state._cal : {};
-  const wb = Number.isFinite(Number(cal.wetBias)) ? Number(cal.wetBias) : 0;
-
-  const opWB = (cal.opWetBias && typeof cal.opWetBias === 'object') ? cal.opWetBias : {};
-  return { wetBias: wb, opWetBias: opWB, readinessShift: 0, opReadinessShift: {} };
+function getCalForDeps(_state){
+  return { wetBias: 0, opWetBias: {}, readinessShift: 0, opReadinessShift: {} };
 }
 
 /* ---------- module loader (model/weather/forecast) ---------- */
@@ -385,7 +261,6 @@ async function ensureEtaHelperModule(state){
     await import(ETA_HELPER_URL);
     state._mods.etaHelperLoaded = true;
   }catch(e){
-    // Do not crash the page if helper fails; still allow tiles/details to render.
     console.warn('[FieldReadiness] eta-helper load failed:', e);
   }
 }
@@ -711,7 +586,8 @@ function updateDetailsHeaderPanel(state){
 }
 
 /* =====================================================================
-   Forecast-based ETA helper for tiles (with wetBias passed in)
+   Forecast-based ETA helper for tiles
+   NOTE: legacy cal removed; wetBias/readinessShift = 0 always.
 ===================================================================== */
 function parseEtaHoursFromText(txt){
   const s = String(txt || '');
@@ -764,13 +640,9 @@ async function getTileEtaText(state, fieldId, run0, thr){
     const soilWetness = Number.isFinite(Number(p.soilWetness)) ? Number(p.soilWetness) : 60;
     const drainageIndex = Number.isFinite(Number(p.drainageIndex)) ? Number(p.drainageIndex) : 45;
 
-    const wetBias = (state && state._cal && Number.isFinite(Number(state._cal.wetBias)))
-      ? Number(state._cal.wetBias)
-      : 0;
-
-    // Truth slider path: readinessShift is 0
+    // Legacy cal removed
+    const wetBias = 0;
     const readinessShift = 0;
-
     const readinessNow = Number(run0 && run0.readinessR);
 
     if (state && state._mods && state._mods.forecast && typeof state._mods.forecast.predictDryForField === 'function'){
@@ -782,7 +654,6 @@ async function getTileEtaText(state, fieldId, run0, thr){
           horizonHours: HORIZON_HOURS,
           maxSimDays: 7,
           wetBias,
-
           readinessNow,
           readinessShift
         }
@@ -909,7 +780,6 @@ function upsertEtaHelp(state, tile, ctx){
         readinessNow: Number(ctx.readinessNow),
         etaText: etaTxt,
         horizonHours: Number(ctx.horizonHours || ETA_HORIZON_HOURS),
-
         nowTs: Date.now(),
         note: 'ReadinessNow uses history-only; ETA uses forecast drying/forecast rain until threshold.'
       };
@@ -933,10 +803,7 @@ async function updateTileForField(state, fieldId){
     await ensureModelWeatherModules(state);
     ensureSelectionStyleOnce();
 
-    // NEW: load persisted truth state (seed storage)
     await loadPersistedState(state);
-
-    await loadCalibrationFromAdjustments(state);
     ensureEtaHelperModule(state);
 
     const f = (state.fields || []).find(x=>x.id === fid);
@@ -953,7 +820,6 @@ async function updateTileForField(state, fieldId){
       opKey,
       CAL: getCalForDeps(state),
 
-      // NEW: truth seed for the model
       getPersistedState: (id)=> getPersistedStateForDeps(state, id)
     };
 
@@ -1065,10 +931,7 @@ async function _renderTilesInternal(state){
   await ensureModelWeatherModules(state);
   ensureSelectionStyleOnce();
 
-  // NEW: load persisted truth state (seed storage)
   await loadPersistedState(state);
-
-  await loadCalibrationFromAdjustments(state);
   ensureEtaHelperModule(state);
 
   const wrap = $('fieldsGrid');
@@ -1101,8 +964,6 @@ async function _renderTilesInternal(state){
     EXTRA,
     opKey,
     CAL: getCalForDeps(state),
-
-    // NEW: truth seed for the model
     getPersistedState: (id)=> getPersistedStateForDeps(state, id)
   };
 
@@ -1317,15 +1178,12 @@ async function _renderDetailsInternal(state){
   await ensureModelWeatherModules(state);
   ensureEtaHelperModule(state);
 
-  // NEW: load persisted truth state (seed storage)
   await loadPersistedState(state);
 
   const f = state.fields.find(x=>x.id === state.selectedFieldId);
   if (!f) return;
 
   updateDetailsHeaderPanel(state);
-
-  await loadCalibrationFromAdjustments(state);
 
   const opKey = getCurrentOp();
 
@@ -1337,8 +1195,6 @@ async function _renderDetailsInternal(state){
     EXTRA,
     opKey,
     CAL: getCalForDeps(state),
-
-    // NEW: truth seed for the model
     getPersistedState: (id)=> getPersistedStateForDeps(state, id)
   };
 
@@ -1520,12 +1376,9 @@ export async function refreshDetailsOnly(state){
         const state = window.__FV_FR;
         if (!state) return;
 
-        // Re-pull persisted truth + wetBias
+        // Re-pull persisted truth ONLY
         state._persistLoadedAt = 0;
         await loadPersistedState(state, { force:true });
-
-        state._calLoadedAt = 0;
-        await loadCalibrationFromAdjustments(state, { force:true });
 
         await refreshAll(state);
       }catch(_){}
