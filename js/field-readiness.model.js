@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-01-20b-storage-truth-rewind14
+Rev: 2026-01-21a-storage-truth-rewind14-rateTuning
 
 Model math (dry power, storage, readiness) + helpers
 
@@ -24,6 +24,12 @@ CAL / ADJUSTMENTS:
 ✅ CAL (wetBias/readinessShift) is interpreted as a desired wetness delta,
    applied by shifting STORAGE, then wetness/readiness derived from storage.
 
+NEW (Learning hooks — NO ceilings):
+✅ Support rate tuning (affects physics, not outputs):
+   - deps.EXTRA.DRY_LOSS_MULT (default 1.0): multiplies drying loss term
+   - deps.EXTRA.RAIN_EFF_MULT (default 1.0): multiplies effective rain (after runoff/bypass)
+   These preserve invariants because they only change STORAGE evolution.
+
 ETA:
 ✅ ETA uses the SAME effective storage that drives readiness.
 
@@ -34,6 +40,8 @@ deps additions supported:
 - deps.seedMode?: 'persisted' | 'rewind' | 'baseline'
   default: 'persisted' (existing behavior)
 - deps.rewindDays?: number (used when seedMode==='rewind')
+- deps.EXTRA.DRY_LOSS_MULT?: number (0.3..3.0)
+- deps.EXTRA.RAIN_EFF_MULT?: number (0.3..3.0)
 ===================================================================== */
 'use strict';
 
@@ -93,6 +101,24 @@ function getTune(deps){
   t.RAIN_EFF_MIN       = clamp(t.RAIN_EFF_MIN, 0.0, 0.20);
 
   return t;
+}
+
+/* =====================================================================
+   NEW: Rate tuning multipliers (learning hooks)
+===================================================================== */
+function getRateMults(deps){
+  try{
+    const EXTRA = (deps && deps.EXTRA && typeof deps.EXTRA === 'object') ? deps.EXTRA : {};
+    const dryLossMult = Number(EXTRA.DRY_LOSS_MULT);
+    const rainEffMult = Number(EXTRA.RAIN_EFF_MULT);
+
+    return {
+      dryLossMult: clamp(isFinite(dryLossMult) ? dryLossMult : 1.0, 0.30, 3.00),
+      rainEffMult: clamp(isFinite(rainEffMult) ? rainEffMult : 1.0, 0.30, 3.00)
+    };
+  }catch(_){
+    return { dryLossMult: 1.0, rainEffMult: 1.0 };
+  }
 }
 
 /* ===================================================================== */
@@ -445,6 +471,7 @@ export function runField(field, deps){
   const f = mapFactors(p.soilWetness, p.drainageIndex, last.sm010, deps.EXTRA);
 
   const tune = getTune(deps);
+  const rate = getRateMults(deps);
 
   const rows = wx.map(w=>{
     const parts = calcDryParts(w, deps.EXTRA);
@@ -503,6 +530,10 @@ export function runField(field, deps){
       wetnessDeltaApplied: calRes.wetnessDeltaApplied,
       storageDeltaApplied: calRes.storageDeltaApplied,
 
+      // NEW: rate multipliers used
+      dryLossMultApplied: rate.dryLossMult,
+      rainEffMultApplied: rate.rainEffMult,
+
       tuneUsed: tune,
 
       stateOut: buildStateOut(field.id, storageEff, (lastDateISO || seedPick.seedDebug.asOfDateISO || ''), f),
@@ -522,14 +553,21 @@ export function runField(field, deps){
 
     const before = storage;
 
-    const rainEff = effectiveRainInches(rain, before, f.Smax, f, tune);
+    // Effective rain after runoff/bypass
+    let rainEff = effectiveRainInches(rain, before, f.Smax, f, tune);
+
+    // NEW: learning hook — rain effectiveness multiplier
+    rainEff = clamp(rainEff * rate.rainEffMult, 0, 1000);
 
     let add = rainEff * f.infilMult;
 
     // Keep your SM010 helper term intact
     add += (deps.EXTRA.ADD_SM010_W * d.smN_day) * 0.05;
 
-    const loss = Number(d.dryPwr||0) * deps.LOSS_SCALE * f.dryMult * (1 + deps.EXTRA.LOSS_ET0_W * d.et0N);
+    let loss = Number(d.dryPwr||0) * deps.LOSS_SCALE * f.dryMult * (1 + deps.EXTRA.LOSS_ET0_W * d.et0N);
+
+    // NEW: learning hook — drying loss multiplier
+    loss = Math.max(0, loss * rate.dryLossMult);
 
     const after = clamp(before + add - loss, 0, f.Smax);
     storage = after;
@@ -578,6 +616,10 @@ export function runField(field, deps){
     readinessShiftApplied: calRes.readinessShiftApplied,
     wetnessDeltaApplied: calRes.wetnessDeltaApplied,
     storageDeltaApplied: calRes.storageDeltaApplied,
+
+    // NEW: rate multipliers used
+    dryLossMultApplied: rate.dryLossMult,
+    rainEffMultApplied: rate.rainEffMult,
 
     tuneUsed: tune,
 
