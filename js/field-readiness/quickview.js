@@ -1,20 +1,18 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-01-21k-quickview-gentlePreviewSensitivity-saveTruthToday
+Rev: 2026-01-21l-quickview-happyMediumTwoStage-saveTruthToday
 
 Behavior:
 ✅ Quick View opens MATCHING tiles/details (Truth run: persisted seed).
 ✅ When sliders move, Quick View previews with rewind (last 14 days).
 ✅ Save & Close updates:
-   1) fields/{fieldId} params (raw values you set)
+   1) fields/{fieldId} params (RAW values you set)
    2) TODAY’S truth in field_readiness_state/{fieldId} based on PREVIEW run
 
-CRITICAL FIX (per Dane, per user):
-✅ Preview must be GENTLE so small slider nudge ≈ small readiness nudge.
-   - We DO NOT change saved field params meaning.
-   - We only soften preview influence around midpoint:
-       preview = 50 + (raw - 50) * K
-   - This prevents having to “lie” with drainage to hit 94 from 95.
+CRITICAL FIX:
+✅ Preview curve = "happy medium":
+   - First small movement around 50 is gentle (prevents big cliff jumps)
+   - After a small dead-band, sliders have stronger effect (so you can move readiness more)
 
 Learning:
 ✅ Applies global learning DRY_LOSS_MULT (drying side only).
@@ -37,11 +35,16 @@ import { parseRangeFromInput, rainInRange } from './rain.js';
 function $(id){ return document.getElementById(id); }
 
 /* =====================================================================
-   PREVIEW SENSITIVITY (tune here)
-   Smaller = gentler effect on readiness for small slider moves.
+   PREVIEW SENSITIVITY (HAPPY MEDIUM)
+
+   - Inside ±DEAD_BAND around 50 → very gentle (K1)
+   - Outside → stronger (K2) for the extra distance beyond dead band
 ===================================================================== */
-const PREVIEW_SOIL_K  = 0.12; // soil wetness sensitivity
-const PREVIEW_DRAIN_K = 0.10; // drainage sensitivity (was too strong)
+const PREVIEW_DEAD_BAND = 2;   // first ±2 points from 50 are gentle
+const PREVIEW_SOIL_K1   = 0.18;
+const PREVIEW_SOIL_K2   = 0.65;
+const PREVIEW_DRAIN_K1  = 0.15;
+const PREVIEW_DRAIN_K2  = 0.55;
 
 /* =====================================================================
    Truth state collection
@@ -200,12 +203,26 @@ async function getExtraForDeps(state){
 }
 
 /* =====================================================================
-   Preview param shaping (gentle around midpoint)
+   Preview param shaping (two-stage around midpoint)
 ===================================================================== */
-function gentleAround50(raw0_100, k){
+function twoStageAround50(raw0_100, deadBand, k1, k2){
   const v = clamp(Number(raw0_100), 0, 100);
-  const kk = clamp(Number(k), 0, 1);
-  return clamp(50 + (v - 50) * kk, 0, 100);
+  const d = v - 50;
+  const s = d < 0 ? -1 : 1;
+  const a = Math.abs(d);
+
+  const db  = clamp(Number(deadBand), 0, 20);
+  const kk1 = clamp(Number(k1), 0, 1);
+  const kk2 = clamp(Number(k2), 0, 1);
+
+  if (a <= db){
+    return clamp(50 + d * kk1, 0, 100);
+  }
+
+  const gentlePart = db * kk1;
+  const strongPart = (a - db) * kk2;
+
+  return clamp(50 + s * (gentlePart + strongPart), 0, 100);
 }
 
 /* =====================================================================
@@ -811,14 +828,13 @@ async function fillQuickView(state, { live=false } = {}){
   };
   const runTruth = state._mods.model.runField(f, depsTruth);
 
-  // Preview: SAME raw slider values are stored, but we feed softened params into the model
+  // Preview: apply two-stage shaping ONLY for preview math
   const getFieldParamsPreview = (id)=>{
     const base = getFieldParams(state, id);
     const p = { ...(base || {}) };
 
-    // soften influence around midpoint
-    p.soilWetness = gentleAround50(p.soilWetness, PREVIEW_SOIL_K);
-    p.drainageIndex = gentleAround50(p.drainageIndex, PREVIEW_DRAIN_K);
+    p.soilWetness = twoStageAround50(p.soilWetness, PREVIEW_DEAD_BAND, PREVIEW_SOIL_K1, PREVIEW_SOIL_K2);
+    p.drainageIndex = twoStageAround50(p.drainageIndex, PREVIEW_DEAD_BAND, PREVIEW_DRAIN_K1, PREVIEW_DRAIN_K2);
 
     return p;
   };
@@ -843,7 +859,7 @@ async function fillQuickView(state, { live=false } = {}){
   if (title) title.textContent = f.name || 'Field';
   if (sub){
     sub.textContent = didAdjust
-      ? (farmName ? `${farmName} • Preview (gentle)` : 'Preview (gentle)')
+      ? (farmName ? `${farmName} • Preview (balanced)` : 'Preview (balanced)')
       : (farmName ? `${farmName} • Matches tiles (Truth)` : 'Matches tiles (Truth)');
   }
 
@@ -870,7 +886,7 @@ async function fillQuickView(state, { live=false } = {}){
     if (inputsPanel) inputsPanel.style.opacity = '0.75';
   } else {
     if (hint) hint.textContent = didAdjust
-      ? 'Gentle preview. Save will update today’s truth for this field.'
+      ? 'Balanced preview. Save will update today’s truth for this field.'
       : 'Adjust sliders → preview updates live → Save & Close.';
     if (saveBtn) saveBtn.disabled = false;
     if (inputsPanel) inputsPanel.style.opacity = '1';
@@ -913,21 +929,16 @@ async function fillQuickView(state, { live=false } = {}){
 
   const pe = $('frQvParamExplain');
   if (pe && displayRun && displayRun.factors){
-    const fac = displayRun.factors;
-
-    const soilPreview = gentleAround50(pRaw.soilWetness, PREVIEW_SOIL_K);
-    const drainPreview = gentleAround50(pRaw.drainageIndex, PREVIEW_DRAIN_K);
-
+    const soilPreview = twoStageAround50(pRaw.soilWetness, PREVIEW_DEAD_BAND, PREVIEW_SOIL_K1, PREVIEW_SOIL_K2);
+    const drainPreview = twoStageAround50(pRaw.drainageIndex, PREVIEW_DEAD_BAND, PREVIEW_DRAIN_K1, PREVIEW_DRAIN_K2);
     pe.innerHTML =
       `rawSoil=<span class="mono">${Math.round(Number(pRaw.soilWetness||0))}</span> → previewSoil=<span class="mono">${soilPreview.toFixed(1)}</span> • ` +
-      `rawDrain=<span class="mono">${Math.round(Number(pRaw.drainageIndex||0))}</span> → previewDrain=<span class="mono">${drainPreview.toFixed(1)}</span><br/>` +
-      `Smax=<span class="mono">${fac.Smax.toFixed(2)}</span> • infilMult=<span class="mono">${fac.infilMult.toFixed(2)}</span> • dryMult=<span class="mono">${fac.dryMult.toFixed(2)}</span> • ` +
-      `DRY_LOSS_MULT=<span class="mono">${extraWithLearning.DRY_LOSS_MULT.toFixed(2)}</span>`;
+      `rawDrain=<span class="mono">${Math.round(Number(pRaw.drainageIndex||0))}</span> → previewDrain=<span class="mono">${drainPreview.toFixed(1)}</span>`;
   }
 
   renderTilePreview(state, displayRun, thr);
 
-  // Cache preview run for save-truth (this uses gentle preview params)
+  // Cache preview run for save-truth
   state._qvLastPreviewRun = runPreview || null;
 }
 
@@ -950,7 +961,7 @@ async function saveAndClose(state){
   if (hint) hint.textContent = 'Saving…';
 
   try{
-    // Save params locally (RAW)
+    // Save RAW params locally
     const p = getFieldParams(state, fid);
     p.soilWetness = soilWetness;
     p.drainageIndex = drainageIndex;
@@ -961,7 +972,7 @@ async function saveAndClose(state){
     f.soilWetness = soilWetness;
     f.drainageIndex = drainageIndex;
 
-    // Save params to Firestore fields/{fid}
+    // Save RAW params to Firestore fields/{fid}
     const api = getAPI(state);
     if (api && api.kind !== 'compat'){
       const db = api.getFirestore();
@@ -984,11 +995,11 @@ async function saveAndClose(state){
       }, { merge:true });
     }
 
-    // Update today's truth for this one field using the GENTLE preview run
+    // Update today’s truth for this field using BALANCED preview
     const runPreview = state._qvLastPreviewRun;
     await writeTruthStateForField(state, f, runPreview);
 
-    // Refresh UI (tile should match immediately)
+    // Refresh UI
     try{ document.dispatchEvent(new CustomEvent('fr:tile-refresh', { detail:{ fieldId: fid } })); }catch(_){}
     try{ document.dispatchEvent(new CustomEvent('fr:details-refresh', { detail:{ fieldId: fid } })); }catch(_){}
     try{ document.dispatchEvent(new CustomEvent('fr:soft-reload')); }catch(_){}
