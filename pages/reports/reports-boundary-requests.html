@@ -536,8 +536,10 @@
     }
 
     function getWorkingItems(){
-      return (STATE.filteredItems && STATE.filteredItems.length) ? STATE.filteredItems : STATE.items;
-    }
+  return (STATE.filteredItems !== null && STATE.filteredItems !== undefined)
+    ? STATE.filteredItems
+    : STATE.items;
+}
 
     function escapeHtml(str){
       return String(str || '').replace(/[&<>"']/g, m => (
@@ -953,36 +955,34 @@
     }
 
     async function applyFilters(){
-      await loadRtkTowersForItems(getWorkingItems());
+  const statusSel = $('#filterStatus');
+  const farmSel   = $('#filterFarm');
 
-      const statusSel = $('#filterStatus');
-      const farmSel   = $('#filterFarm');
+  const statusFilter = (statusSel?.value || 'open').toLowerCase();
+  const farmFilter   = farmSel?.value || 'all';
 
-      const statusFilter = (statusSel?.value || 'open').toLowerCase(); // open | completed | all
-      const farmFilter   = farmSel?.value || 'all';
+  const filtered = STATE.items.filter(it => {
+    const d = it.data;
+    const st = normalizeStatus(d.status);
 
-      const filtered = STATE.items.filter(it => {
-        const d = it.data;
-        const st = normalizeStatus(d.status);
+    if(statusFilter === 'open' && st !== 'open') return false;
+    if(statusFilter === 'completed' && st !== 'completed') return false;
 
-        if(statusFilter === 'open' && st !== 'open') return false;
-        if(statusFilter === 'completed' && st !== 'completed') return false;
-
-        if(farmFilter !== 'all'){
-          const id = (d.farmId || d.farm || '').toString();
-          if(id !== farmFilter) return false;
-        }
-
-        return true;
-      });
-
-      STATE.filteredItems = filtered;
-
-      await loadRtkTowersForItems(STATE.filteredItems);
-
-      renderList();
-      if(STATE.selectedId) renderDetails();
+    if(farmFilter !== 'all'){
+      const id = (d.farmId || d.farm || '').toString();
+      if(id !== farmFilter) return false;
     }
+    return true;
+  });
+
+  STATE.filteredItems = filtered;
+
+  await loadRtkTowersForItems(filtered);
+
+  renderList();
+  if(STATE.selectedId) renderDetails();
+}
+
 
     function populateFarmFilterFromItems(){
       const farmSelEl = $('#filterFarm');
