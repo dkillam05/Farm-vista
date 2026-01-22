@@ -1,18 +1,19 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>FarmVista • Field Boundary Fix Request</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta charset="utf-8"/>
+  <title>FarmVista • Shop Equipment</title>
+
+  <!-- ✅ MUST allow page pinch zoom (still enabled) -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=8, user-scalable=yes"/>
+
   <meta name="theme-color" content="#3B7E46"/>
 
-  <script src="/Farm-vista/js/theme-boot.js"></script>
-
-  <!-- Standard includes (ABSOLUTE paths) -->
+  <!-- ABSOLUTE PATHS -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
-  
+  <script src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
@@ -21,100 +22,402 @@
     (function(){
       if(!customElements.get('fv-shell')){
         const s=document.createElement('script');
-        s.src='/Farm-vista/js/fv-shell.js';
-        s.defer=true;
-        document.head.appendChild(s);
+        s.src='/Farm-vista/js/fv-shell.js'; s.defer=true; document.head.appendChild(s);
       }
     })();
   </script>
 
+  <!-- Firebase config FIRST (for firebase-init imports) -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+
   <style>
     :root{
-      --card-max:1100px;
-      --page-bottom-gap:96px;
-      --accent:#2F6C3C;
-      --hero-icon-col:36px;
-      --hero-icon-size:24px;
+      --green:#2F6C3C;
+      --danger:#b3261e;
 
-      /* FV Combo vars */
-      --combo-gap:4px;
-      --combo-radius:12px;
-      --combo-btn-radius:10px;
-      --combo-shadow:0 12px 26px rgba(0,0,0,.18);
-      --combo-item-pad:10px 8px;
-      --combo-max-h:50vh;
+      --gridline: rgba(0,0,0,.10);
+      --gridline-strong: rgba(0,0,0,.14);
+      --sheet-head-bg: #ffffff;
+      --sheet-cell-bg: #ffffff;
     }
 
-    body{ background:var(--app-bg,var(--surface)); }
+    /* ✅ HARD OVERRIDES: do not block gestures */
+    html, body{
+      touch-action:auto;
+      -webkit-text-size-adjust:100%;
+      text-size-adjust:100%;
+    }
 
-    .wrap{
-      max-width:var(--card-max);
+    /* Desktop / default */
+    .page{
+      max-width:1500px;
       margin:0 auto;
       padding:clamp(14px,3vw,22px);
-      padding-bottom:calc(env(safe-area-inset-bottom,0px)+var(--ftr-h,42px)+var(--page-bottom-gap))!important;
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 72px)!important;
     }
 
-    .hero{
+    .page-title{margin:0 0 6px 0;}
+    .page-sub{margin:0 0 14px 0;color:var(--muted,#67706B);font-weight:850;}
+
+    .alert{
+      display:none;margin:0 0 12px 0;border:1px solid #c62828;background:#fdecea;color:#8a1c1c;
+      border-radius:12px;padding:12px 14px;font-weight:950;
+    }
+    .alert.show{display:block;}
+
+    /* Hero container */
+    .section{
       border:1px solid var(--border);
       border-radius:14px;
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      overflow:hidden;
-      margin-bottom:var(--page-bottom-gap);
+      overflow:visible;
+      position:relative;
+      z-index:1;
     }
 
-    .hero-head{
-      display:grid;
-      grid-template-columns:var(--hero-icon-col) 1fr;
-      gap:12px;
-      align-items:center;
+    .section-head{
       padding:14px 16px;
-      background:linear-gradient(90deg,rgba(47,108,60,.12),transparent);
       border-bottom:1px solid var(--border);
-    }
-
-    .hero-head .icon{
-      width:var(--hero-icon-size);
-      height:var(--hero-icon-size);
-      color:var(--accent);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
       display:grid;
-      place-items:center;
+      gap:10px;
+      overflow:visible;
+      position:relative;
+      z-index:50;
     }
 
-    .hero-head h1{
+    /* Row 1: title only */
+    .head-row1{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .head-left{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+    .icon{width:24px;height:24px;display:grid;place-items:center;color:var(--green);flex:0 0 auto;}
+    .head-title{font-weight:950;}
+
+    /* Row 2 controls */
+    .head-row2{
+      display:flex;
+      align-items:flex-end;
+      gap:12px;
+      flex-wrap:nowrap;
+      min-width:0;
+      overflow:visible;
+      position:relative;
+      z-index:60;
+    }
+
+    /* ✅ Search styled like your report (square w/ rounded corners + icon) */
+    .filter-field{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      min-width:0;
+      flex:1 1 auto;
+    }
+    .filter-label{
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      opacity:0.78;
+      font-weight:900;
+      font-size:12px;
+      color:var(--muted,#67706B);
       margin:0;
-      font-size:clamp(20px,3.2vw,26px);
-      line-height:1.2;
+    }
+    .bar{ display:flex; align-items:center; gap:10px; }
+    .search{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      border:1px solid var(--border);
+      border-radius:12px;            /* ✅ NOT pill */
+      background:var(--surface);
+      padding:10px 12px;
+      flex:1 1 auto;
+      min-height:42px;
+      box-sizing:border-box;
+    }
+    .search svg{ opacity:.65; flex:0 0 auto; }
+    .search input{
+      flex:1 1 auto;
+      background:transparent;
+      border:0;
+      outline:none;
+      font:inherit;
+      color:var(--text);
+      min-width:0;
+      font-size:16px;
+    }
+    .search input::placeholder{ color:var(--muted,#9CA3AF); }
+
+    /* ✅ Category styled like report dropdowns */
+    .cat-field{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      flex: 0 0 520px;               /* bigger */
+      min-width: 380px;
+      max-width: 760px;
+      position:relative;
+      z-index:80;
+    }
+    .cat-select{
+      width:100%;
+      height:42px;
+      line-height:42px;
+      border-radius:12px;            /* match search shape */
+      border:1px solid var(--border);
+      padding:0 12px;
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+      font-size:16px;
+      font-weight:850;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      box-sizing:border-box;
+      position:relative;
+      z-index:90;
+      display:block;
+      appearance:auto;
+      -webkit-appearance: menulist;
+    }
+    .cat-select option{ white-space:nowrap; }
+
+    .section-body{
+      padding:16px;
+      position:relative;
+      z-index:1;
     }
 
-    .muted{ color:var(--muted,#67706B); }
+    /* ===== Spreadsheet table ===== */
+    .table-wrap{
+      border:1px solid var(--border);
+      border-radius:12px;
+      overflow:hidden;
+      background:var(--surface);
+      position:relative;
+      z-index:1;
+    }
 
-    .body{
-      padding:16px;
+    /* ✅ THIS is the zoomable/pannable viewport */
+    .grid-viewport{
+      overflow:auto;
+      -webkit-overflow-scrolling:touch;
+      background:var(--sheet-cell-bg);
+      touch-action:auto; /* JS handles 2-finger gestures */
+      width:100%;
+      max-width:100%;
+      position:relative;
+    }
+
+    /* inner gets scaled */
+    .grid-inner{
+      transform-origin: 0 0;
+      will-change: transform;
+      display:inline-block; /* keep width based on table */
+    }
+
+    table.grid{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+      min-width: 980px;
+      font-size:14px;
+      color:var(--text);
+      background:var(--sheet-cell-bg);
+    }
+    thead th{
+      position:sticky;
+      top:0;
+      z-index:2;
+      background:var(--sheet-head-bg);
+      border-bottom:1px solid var(--gridline-strong);
+      border-right:1px solid var(--gridline);
+      padding:10px 10px;
+      font-size:12px;
+      color:var(--muted,#67706B);
+      font-weight:950;
+      letter-spacing:.2px;
+      white-space:nowrap;
+      text-align:center;
+    }
+    thead th:last-child{border-right:none;}
+    tbody td{
+      border-bottom:1px solid var(--gridline);
+      border-right:1px solid var(--gridline);
+      padding:10px 10px;
+      vertical-align:middle;
+      white-space:nowrap;
+      text-align:center;
+      background:var(--sheet-cell-bg);
+    }
+    tbody td:last-child{border-right:none;}
+    tbody tr{cursor:pointer;background:transparent;}
+    tbody tr:hover{background:rgba(47,108,60,.06);}
+    tbody tr.activeRow{
+      outline:2px solid rgba(47,108,60,.35);
+      outline-offset:-2px;
+      background:rgba(47,108,60,.08);
+    }
+
+    .cell-title{font-weight:950;}
+    .cell-sub{font-size:12px;color:var(--muted,#67706B);font-weight:850;}
+    .stack{display:flex;flex-direction:column;gap:3px;align-items:center;}
+    .kpi{font-weight:950;}
+    .muted{color:var(--muted,#67706B);font-size:12px;font-weight:850;}
+
+    @media(min-width: 1200px){
+      table.grid{ min-width: 0; }
+      tbody td.wrap, thead th.wrap{ white-space: normal; }
+    }
+
+    /* ✅ MOBILE:
+       - use full screen for grid area
+       - search row first
+       - category row second, full-width
+       - tighter table */
+    @media(max-width: 820px){
+      .page{
+        max-width:none;
+        margin:0;
+        padding:0;
+        padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 72px)!important;
+      }
+      .page-title, .page-sub{ padding: 12px 12px 0 12px; }
+      .page-sub{ padding-bottom: 8px; }
+
+      .section{
+        border:none;
+        border-radius:0;
+        box-shadow:none;
+        background:transparent;
+        overflow:visible;
+      }
+      .section-head{
+        border-left:none;border-right:none;
+        border-radius:0;
+        padding:10px 12px;
+        background:transparent;
+        overflow:visible;
+      }
+      .section-body{
+        padding:0;
+      }
+      .table-wrap{
+        border:none;
+        border-radius:0;
+        background:transparent;
+      }
+
+      .head-row2{
+        flex-wrap:wrap;
+        gap:10px;
+      }
+      .filter-field{
+        flex: 1 1 100%;
+      }
+      .cat-field{
+        flex: 1 1 100%;
+        min-width: 0;
+        max-width:none;
+      }
+
+      /* ✅ make grid take as much phone screen as possible */
+      .grid-viewport{
+        height: calc(100vh - 220px); /* big, practical default */
+        max-height: calc(100vh - 220px);
+        border-top:1px solid var(--border);
+        background:var(--sheet-cell-bg);
+      }
+
+      table.grid{ min-width: 860px; font-size:12px; }
+      thead th{ padding:8px 8px; font-size:11px; }
+      tbody td{ padding:8px 8px; font-size:12px; }
+      .cell-sub{ display:none; }
+    }
+
+    /* Toast */
+    .toast{
+      position:fixed;
+      left:50%;
+      bottom:calc(env(safe-area-inset-bottom,0px)+72px);
+      transform:translateX(-50%);
+      background:var(--green);
+      color:#fff;
+      padding:10px 14px;
+      border-radius:10px;
+      box-shadow:0 6px 20px rgba(0,0,0,.25);
+      z-index:99999;
+      display:none;
+      font-weight:950;
+    }
+    .toast.show{display:block;animation:fadeout 2.8s forwards;}
+    @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+
+    /* Dialog (sheet) */
+    dialog.sheet{
+      width:min(860px, 94vw);
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:0;
+      background:var(--card-surface,var(--surface));
+      color:var(--text);
+      box-shadow:0 18px 40px rgba(0,0,0,.45);
+    }
+    .sheet::backdrop{ background:rgba(0,0,0,.55); }
+    .sheet header{
+      padding:14px 16px;
+      border-bottom:1px solid var(--border);
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+    }
+    .sheet header strong{font-weight:950;}
+    .sheet .body{
+      padding:14px 16px;
+      max-height:70vh;
+      overflow-y:auto;
+      overflow-x:hidden;
       display:grid;
       gap:14px;
     }
-
-    .row{
-      display:grid;
-      gap:10px;
-      grid-template-columns:1fr 1fr;
-    }
-    @media (max-width:880px){
-      .row{ grid-template-columns:1fr; }
-    }
-
-    .field{ position:relative; }
-    .field label{
-      display:block;
-      font-weight:800;
-      margin:0 0 6px;
+    .sheet footer{
+      padding:12px 16px;
+      border-top:1px solid var(--border);
+      display:flex;
+      justify-content:space-between;
+      gap:8px;
+      flex-wrap:wrap;
+      align-items:center;
     }
 
-    .input,
-    .select,
-    .textarea,
-    .buttonish{
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      padding:8px 14px;
+      border-radius:10px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      font-weight:950;
+      cursor:pointer;
+      font-size:14px;
+      text-decoration:none;
+      color:var(--text);
+    }
+    .btn-primary{border-color:transparent;background:var(--green);color:#fff !important;}
+
+    .grid-2{display:grid;gap:10px;grid-template-columns:1fr 1fr;}
+    @media(max-width:880px){ .grid-2{grid-template-columns:1fr;} }
+
+    .field label{display:block;font-weight:950;margin:0 0 6px 0;}
+    .input,.select,.textarea{
       width:100%;
       font:inherit;
       font-size:16px;
@@ -122,1361 +425,977 @@
       background:var(--card-surface,var(--surface));
       border:1px solid var(--border);
       border-radius:10px;
-      padding:12px;
+      padding:10px 12px;
       outline:none;
     }
+    .textarea{min-height:120px;resize:vertical;}
+    .help{font-size:13px;color:var(--muted,#67706B);font-weight:850;}
 
-    .buttonish{
-      cursor:pointer;
-      text-align:left;
-      position:relative;
-      padding-right:42px;
-      border-radius:var(--combo-btn-radius);
-    }
-
-    .buttonish.has-caret::after{
-      content:"";
-      position:absolute;
-      right:14px;
-      top:50%;
-      width:0;
-      height:0;
-      border-left:6px solid transparent;
-      border-right:6px solid transparent;
-      border-top:7px solid var(--muted,#67706B);
-      transform:translateY(-50%);
-      pointer-events:none;
-    }
-
-    .textarea{
-      min-height:110px;
-      resize:vertical;
-    }
-
-    .help{
-      font-size:13px;
-      color:var(--muted,#67706B);
-      margin-top:6px;
-    }
-
-    .actions{
-      display:flex;
-      gap:12px;
-      flex-wrap:wrap;
-      align-items:center;
-      margin-top:6px;
-    }
-
-    .btn{
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      min-width:160px;
-      padding:12px 16px;
+    .subcard{
+      border:1px solid var(--border);
       border-radius:12px;
-      border:1px solid var(--border);
-      background:var(--card-surface,var(--surface));
-      font-weight:800;
-      color:var(--text)!important;
-      cursor:pointer;
-    }
-
-    .btn-primary{
-      border-color:transparent;
-      background:#2F6C3C;
-      color:#fff!important;
-    }
-
-    .error{
-      color:#b00020;
-      font-weight:700;
-    }
-
-    /* Combo core */
-    .combo{ position:relative; }
-    .combo .combo-anchor{
-      position:relative;
-      display:inline-block;
-      width:100%;
-    }
-    .combo-panel{
-      position:absolute;
-      left:0;
-      right:0;
-      top:calc(100% + var(--combo-gap));
       background:var(--surface);
-      border:1px solid var(--border);
-      border-radius:var(--combo-radius);
-      box-shadow:var(--combo-shadow);
-      z-index:9999;
-      padding:8px;
-      display:none;
-    }
-    .combo-panel.show{ display:block; }
-    .combo-panel .search{
-      padding:4px 2px 8px;
-    }
-    .combo-panel .search input{
-      width:100%;
-      padding:10px;
-      border:1px solid var(--border);
-      border-radius:var(--combo-btn-radius);
-      font:inherit;
-      font-size:14px;
-    }
-    .combo-panel .list{
-      max-height:var(--combo-max-h);
-      overflow:auto;
-      border-top:1px solid var(--border);
-    }
-    .combo-item{
-      padding:var(--combo-item-pad);
-      border-bottom:1px solid var(--border);
-      cursor:pointer;
-      font-size:14px;
-    }
-    .combo-item:hover{
-      background:rgba(0,0,0,.04);
-    }
-    .combo-item:last-child{
-      border-bottom:none;
-    }
-    .combo-empty{
-      padding:var(--combo-item-pad);
-      color:#67706B;
-      font-size:14px;
-    }
-
-    /* Thumbs + annotate */
-    .thumbs{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-    }
-    .thumb{
-      width:92px;
-      height:92px;
-      border:1px solid var(--border);
-      border-radius:10px;
-      overflow:hidden;
-      display:grid;
-      place-items:center;
-      background:#f6f7f6;
-      position:relative;
-    }
-    .thumb img{
-      width:100%;
-      height:100%;
-      object-fit:cover;
-    }
-    .thumb .tools{
-      position:absolute;
-      inset:auto 6px 6px 6px;
-      display:flex;
-      gap:6px;
-    }
-    .thumb .tools button{
-      font-size:12px;
-      padding:4px 6px;
-      border-radius:8px;
-      border:1px solid var(--border);
-      background:var(--surface);
-      cursor:pointer;
-    }
-
-    /* Modal (Annotate & View) */
-    .modal{
-      position:fixed;
-      inset:0;
-      display:none;
-      place-items:center;
-      background:rgba(0,0,0,.42);
-      z-index:9999;
-      transition:opacity .15s;
-      opacity:0;
-    }
-    .modal[open]{
-      display:grid;
-      opacity:1;
-    }
-    .dialog{
-      width:min(880px,94vw);
-      max-height:88vh;
-      display:flex;
-      flex-direction:column;
-      background:var(--surface);
-      color:var(--text);
-      border-radius:14px;
-      border:1px solid var(--border);
-      box-shadow:0 16px 36px rgba(0,0,0,.28);
-    }
-    .dialog-head{
-      padding:12px 14px;
-      border-bottom:1px solid var(--border);
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:10px;
-      flex-wrap:wrap;
-    }
-    .dialog-body{
       padding:12px;
-      overflow:auto;
-      flex:1 1 auto;
-      min-height:0;
-      -webkit-overflow-scrolling:touch;
-    }
-    .dialog-foot{
-      display:flex;
-      gap:8px;
-      justify-content:space-between;
-      align-items:center;
-      padding:12px 14px;
-      border-top:1px solid var(--border);
-      flex-wrap:wrap;
-    }
-    .closex{
-      border:1px solid var(--border);
-      background:var(--surface);
-      border-radius:10px;
-      padding:8px 12px;
-      cursor:pointer;
-      font-weight:700;
-      color:var(--text)!important;
-    }
-    .toolrow{
-      display:flex;
-      gap:8px;
-      flex-wrap:wrap;
-      align-items:center;
-    }
-    .toolrow .btn{
-      min-width:auto;
-      padding:8px 10px;
-    }
-    .toolrow label{
-      font-size:13px;
-    }
-    .chip{
-      border:1px solid var(--border);
-      border-radius:999px;
-      padding:6px 10px;
-      font-weight:700;
-      background:var(--surface);
-      cursor:pointer;
-      user-select:none;
-    }
-    .chip.active{
-      background:#2F6C3C;
-      color:#fff;
-      border-color:#2F6C3C;
-    }
-
-    /* Work orders list */
-    .wo-list{
-      padding:14px;
       display:grid;
       gap:10px;
     }
-    .wo-item{
+
+    .srList{display:grid;gap:8px;}
+    .srItem{
       border:1px solid var(--border);
       border-radius:10px;
-      padding:10px;
       background:var(--card-surface,var(--surface));
-      cursor:pointer;
+      padding:10px 12px;
+      display:grid;
+      gap:4px;
     }
-    .wo-item:active{
-      transform:scale(.995);
-    }
-    .wo-head{
-      display:flex;
-      gap:8px;
-      align-items:center;
-      justify-content:space-between;
-      flex-wrap:wrap;
-    }
-    .pill{
-      font-size:12px;
-      border:1px solid var(--border);
-      padding:4px 8px;
-      border-radius:999px;
-      background:var(--surface);
-      color:var(--muted,#67706B);
-    }
-
-    /* View modal photos */
-    .vm-photos{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-      margin-top:8px;
-    }
-    .vm-photos a{
-      display:block;
-      border:1px solid var(--border);
-      border-radius:10px;
-      overflow:hidden;
-      background:#f6f7f6;
-    }
-    .vm-photos img{
-      width:96px;
-      height:96px;
-      object-fit:cover;
-      display:block;
-    }
-
-    /* Simple toast for this page */
-    #fv-toast{
-      position:fixed;
-      left:50%;
-      bottom:24px;
-      transform:translate(-50%,12px);
-      background:#2F6C3C;
-      color:#fff;
-      padding:10px 16px;
-      border-radius:999px;
-      font-size:14px;
-      box-shadow:0 10px 24px rgba(0,0,0,.25);
-      opacity:0;
-      pointer-events:none;
-      transition:opacity .18s ease, transform .18s ease;
-      z-index:10000;
-      white-space:nowrap;
-    }
-    #fv-toast.show{
-      opacity:1;
-      transform:translate(-50%,0);
-    }
+    .srTop{display:flex;gap:10px;justify-content:space-between;flex-wrap:wrap;align-items:flex-start;}
+    .srTitle{font-weight:950;}
+    .srMeta{color:var(--muted,#67706B);font-size:12px;font-weight:850;}
   </style>
 </head>
+
 <body>
   <fv-shell>
-    <div class="wrap">
-      <!-- Main request form -->
-      <section class="hero">
-        <header class="hero-head">
-          <div class="icon" aria-hidden="true">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="3" y="4" width="18" height="12" rx="2"/>
-              <path d="M7 20h10M9 16v4M15 16v4"/>
-              <circle cx="17.5" cy="9.5" r="2"/>
-              <path d="M17.5 6.5v1M17.5 11.5v1M14.9 9.5h1M19.1 9.5h1M15.6 7.6l.7.7M18.7 10.7l.7.7M15.6 11.4l.7-.7M18.7 8.3l.7-.7"/>
-            </svg>
+    <div class="page">
+      <h1 class="page-title">Shop Equipment</h1>
+      <p class="page-sub">Tap a row to view work orders and update lifetime notes.</p>
+
+      <div id="alert" class="alert" role="alert"></div>
+
+      <section class="section">
+        <header class="section-head">
+          <!-- Row 1 -->
+          <div class="head-row1">
+            <div class="head-left">
+              <div class="icon" aria-hidden="true">🧰</div>
+              <div class="head-title">Equipment List</div>
+            </div>
           </div>
-          <div>
-            <h1>Field Boundary Fix Request</h1>
-            <p class="muted">Pick a farm and field, mark Interior or Exterior, describe what’s off, and attach up to 3 annotated photos.</p>
+
+          <!-- Row 2 -->
+          <div class="head-row2">
+            <div class="filter-field" aria-label="Search equipment">
+              <label class="filter-label" for="q">Search</label>
+              <div class="bar">
+                <div class="search">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M21 21l-4.2-4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/>
+                  </svg>
+                  <input id="q" type="search" placeholder="unitId, name, serial, notes…" autocomplete="off">
+                </div>
+              </div>
+            </div>
+
+            <div class="cat-field" aria-label="Category filter">
+              <label class="filter-label" for="cat">Category</label>
+              <select id="cat" class="cat-select"></select>
+            </div>
           </div>
         </header>
 
-        <div class="body">
-          <!-- Row 1: Farm + Field (both searchable combos) -->
-          <div class="row">
-            <!-- Farm combo -->
-            <div class="field combo">
-              <label for="farmBtn">Farm</label>
-              <div class="combo-anchor">
-                <button id="farmBtn" class="buttonish has-caret" type="button">— Select farm —</button>
-                <div class="combo-panel" id="farmPanel" role="listbox" aria-label="Farm list">
-                  <div class="search">
-                    <input id="farmSearch" type="search" placeholder="Search farms…">
-                  </div>
-                  <div class="list" id="farmList"></div>
-                </div>
+        <div class="section-body">
+          <div class="table-wrap">
+            <!-- ✅ zoom/pan only this viewport -->
+            <div id="gridViewport" class="grid-viewport" aria-label="Equipment spreadsheet viewport">
+              <div id="gridInner" class="grid-inner">
+                <table class="grid" aria-label="Equipment spreadsheet">
+                  <thead id="thead"></thead>
+                  <tbody id="tbody">
+                    <tr><td class="muted" style="padding:12px;">Loading…</td></tr>
+                  </tbody>
+                </table>
               </div>
-              <div class="help" id="farmHelp">0 farms</div>
-              <!-- hidden data fields -->
-              <input type="hidden" id="farmId" data-field="farmId">
-              <input type="hidden" id="farmName" data-field="farm">
-            </div>
-
-            <!-- Field combo -->
-            <div class="field combo">
-              <label for="fieldBtn">Field</label>
-              <div class="combo-anchor">
-                <button id="fieldBtn" class="buttonish has-caret" type="button">— Select field —</button>
-                <div class="combo-panel" id="fieldPanel" role="listbox" aria-label="Field list">
-                  <div class="search">
-                    <input id="fieldSearch" type="search" placeholder="Search fields…">
-                  </div>
-                  <div class="list" id="fieldList"></div>
-                </div>
-              </div>
-              <div class="help" id="fieldHelp">0 fields</div>
-              <!-- hidden data fields -->
-              <input type="hidden" id="fieldId" data-field="fieldId">
-              <input type="hidden" id="fieldNameHidden" data-field="field">
             </div>
           </div>
-
-          <!-- Row 2: Boundary Type + Scope -->
-          <div class="row">
-            <div class="field">
-              <label for="boundaryType">Boundary Type</label>
-              <select id="boundaryType" class="select" data-field="boundaryType" data-label="Boundary Type">
-                <option value="">—</option>
-                <option>Exterior</option>
-                <option>Interior</option>
-              </select>
-            </div>
-
-            <div class="field">
-              <label for="scope">Scope</label>
-              <select id="scope" class="select" data-field="scope" data-label="Scope">
-                <option value="">—</option>
-                <option>Small section</option>
-                <option>Entire field</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Row 3: Date + Submitted By -->
-          <div class="row">
-            <div class="field">
-              <label for="when">Date</label>
-              <input id="when" type="date" class="input" data-field="when" data-label="Date">
-            </div>
-
-            <div class="field">
-              <label for="submittedBy">Submitted By</label>
-              <select id="submittedBy" class="select" data-field="submittedBy" data-label="Submitted By"></select>
-              <div class="help">Defaults to the currently signed-in user.</div>
-            </div>
-          </div>
-
-          <!-- Notes -->
-          <div class="field">
-            <label for="notes">Notes</label>
-            <textarea id="notes" class="textarea" placeholder="Describe what’s wrong and where (e.g., NW corner 50–80 ft too wide)" data-field="notes" data-label="Notes"></textarea>
-          </div>
-
-          <!-- Photos -->
-          <div class="field">
-            <label for="photos">Photos (up to 3)</label>
-            <!-- No 'capture' attribute so iOS shows Camera, Photo Library, and Files -->
-            <input id="photos" class="input" type="file" accept="image/*,.jpg,.jpeg,.png,.heic" multiple>
-            <div id="thumbs" class="thumbs" aria-live="polite"></div>
-            <div id="photoNote" class="help">You can draw arrows, write notes, or freehand markups before submitting.</div>
-          </div>
-
-          <!-- Actions -->
-          <div class="actions">
-            <button id="cancel" class="btn" type="button">Cancel</button>
-            <button id="primary" class="btn btn-primary" type="button">Submit Request</button>
-          </div>
-
-          <div id="err" class="help error" hidden></div>
-        </div>
-      </section>
-
-      <!-- Active work orders for the chosen field -->
-      <section id="woHero" class="hero" hidden>
-        <header class="hero-head">
-          <div class="icon" aria-hidden="true">🧾</div>
-          <div>
-            <h1 id="woTitle">Active Work Orders</h1>
-            <p class="muted" id="woSub">Open requests for this field.</p>
-          </div>
-        </header>
-        <div id="woList" class="wo-list">
-          <div class="muted">No active work orders.</div>
+          <!-- helper text removed -->
         </div>
       </section>
     </div>
   </fv-shell>
 
-  <!-- Modal (Annotate) -->
-  <div id="modal" class="modal" aria-hidden="true">
-    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
-      <div class="dialog-head">
-        <h3 id="mdTitle">Annotate Photo</h3>
-        <div class="toolrow">
-          <span id="tool-pen"    class="chip active">Pen</span>
-          <span id="tool-arrow"  class="chip">Arrow</span>
-          <span id="tool-text"   class="chip">Text</span>
-          <label>Size <input id="tool-size" type="range" min="2" max="16" value="4" style="vertical-align:middle"></label>
-          <label>Color <input id="tool-color" type="color" value="#ff0000" style="vertical-align:middle"></label>
-        </div>
-        <button class="closex" id="mdClose" type="button">Back</button>
+  <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
+
+  <!-- WORK ORDERS + NOTES SHEET -->
+  <dialog id="svcSheet" class="sheet" aria-modal="true">
+    <header>
+      <strong id="svcTitle">Equipment</strong>
+      <button id="svcClose" class="btn" type="button">Close</button>
+    </header>
+
+    <div class="body">
+      <div class="subcard">
+        <div class="muted" id="svcMeta">—</div>
       </div>
-      <div class="dialog-body" id="mdBody"></div>
-      <div class="dialog-foot" id="mdFoot">
-        <div class="toolrow">
-          <button class="btn" id="mdUndo" type="button">Undo</button>
-          <button class="btn" id="mdReset" type="button">Clear</button>
+
+      <div class="subcard">
+        <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;">
+          <strong>Lifetime Notes</strong>
+          <span class="pill">Firestore</span>
         </div>
-        <div class="toolrow">
-          <button class="btn btn-primary" id="mdSave" type="button">Save Annotation</button>
+        <textarea id="lifetimeNotes" class="textarea" placeholder="Lifetime notes for this unit…"></textarea>
+        <div class="help">Saved to Firestore field <code>lifetimeNotes</code> on this equipment doc.</div>
+        <div style="display:flex;justify-content:flex-end;">
+          <button id="btnSaveNotes" class="btn btn-primary" type="button">Save Notes</button>
+        </div>
+      </div>
+
+      <div class="subcard">
+        <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;">
+          <strong>Work Orders</strong>
+          <span class="muted" id="woCount">—</span>
+        </div>
+
+        <div class="srList" id="woList">
+          <div class="muted">Loading…</div>
+        </div>
+
+        <div class="help">Reads from <code>equipmentWorkOrders</code> where <code>equipmentId</code> matches.</div>
+
+        <div style="border-top:1px solid var(--border); padding-top:12px; display:grid; gap:10px;">
+          <strong>Add Work Order</strong>
+
+          <div class="grid-2">
+            <div class="field">
+              <label for="woDate">Date (YYYY-MM-DD)</label>
+              <input id="woDate" class="input" inputmode="numeric" placeholder="2026-01-21">
+            </div>
+            <div class="field">
+              <label for="woSummary">Summary</label>
+              <input id="woSummary" class="input" placeholder="e.g., Fix hydraulic leak">
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="woNotes">Details (optional)</label>
+            <textarea id="woNotes" class="textarea" placeholder="What’s wrong / parts / notes…"></textarea>
+          </div>
+
+          <div style="display:flex;justify-content:flex-end;">
+            <button id="btnAddWO" class="btn btn-primary" type="button">Add Work Order</button>
+          </div>
         </div>
       </div>
     </div>
-  </div>
 
-  <!-- Modal (READ-ONLY view of an existing work order) -->
-  <div id="viewModal" class="modal" aria-hidden="true">
-    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="vmTitle">
-      <div class="dialog-head">
-        <h3 id="vmTitle">Work Order</h3>
-        <button class="closex" id="vmClose" type="button">Back</button>
+    <footer>
+      <span class="muted">Tip: this is the bulk view. We’ll tune columns per category next.</span>
+      <button class="btn" id="svcClose2" type="button">Close</button>
+    </footer>
+  </dialog>
+
+  <!-- STARFIRE LOCATION SHEET -->
+  <dialog id="sfSheet" class="sheet" aria-modal="true">
+    <header>
+      <strong id="sfTitle">Change StarFire Location</strong>
+      <button id="sfClose" class="btn" type="button">Close</button>
+    </header>
+
+    <div class="body">
+      <div class="grid-2">
+        <div class="field">
+          <label>StarFire Serial</label>
+          <input id="sfSerial" class="input" readonly>
+          <div class="help">Read-only. You’re updating the current location.</div>
+        </div>
+        <div class="field">
+          <label for="sfSince">Location Since</label>
+          <input id="sfSince" class="input" inputmode="numeric" placeholder="YYYY-MM-DD">
+          <div class="help">Defaults to today.</div>
+        </div>
       </div>
-      <div class="dialog-body" id="vmBody">
-        <!-- filled dynamically -->
+
+      <div class="field">
+        <label for="sfLoc">New Location</label>
+        <select id="sfLoc" class="select"></select>
+        <div class="help">Includes quick options + all ACTIVE equipment.</div>
       </div>
-      <div class="dialog-foot">
-        <div class="muted">View only</div>
+
+      <div class="field">
+        <span class="pill" id="sfCurrentPill">Current: —</span>
       </div>
     </div>
-  </div>
 
-  <!-- Toast container -->
-  <div id="fv-toast" role="status" aria-live="polite"></div>
+    <footer>
+      <button id="sfCancel" class="btn" type="button">Cancel</button>
+      <button id="sfSave" class="btn btn-primary" type="button">Save Location</button>
+    </footer>
+  </dialog>
 
   <script type="module">
     import {
       ready,
-      getFirestore, getAuth,
-      collection, getDocs, addDoc, updateDoc, doc, getDoc, serverTimestamp,
-      query, where, orderBy
-    } from '/Farm-vista/js/firebase-init.js';
+      getFirestore,
+      collection,
+      doc,
+      getDocs,
+      updateDoc,
+      addDoc,
+      query,
+      where,
+      orderBy,
+      limit,
+      serverTimestamp
+    } from "/Farm-vista/js/firebase-init.js";
 
-    function goBack(){
-      if (window.history.length > 1) { window.history.back(); return; }
-      if (document.referrer) { window.location.href = document.referrer; return; }
-      window.location.href = '/Farm-vista/index.html';
-    }
+    const $ = s => document.querySelector(s);
 
-    /* ===== Helpers ===== */
-    const $ = id => document.getElementById(id);
-    const esc = s => String(s||"").replace(/[&<>"']/g, m=>({
-      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
-    }[m]));
-    const todayISO = ()=> new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
-    const titleCase = s => String(s||"").toLowerCase().split(/[\s._-]+/).filter(Boolean).map(w=>w[0].toUpperCase()+w.slice(1)).join(" ");
-    const safeName = name => (Date.now()+"-"+String(name||"image")).replace(/[^\w.\-]+/g,"_");
-    const fmtDate = (ts)=> {
-      const d = ts?.toDate ? ts.toDate() : (ts ? new Date(ts) : null);
-      return d ? d.toLocaleDateString() : "";
+    const alertBox = $("#alert");
+    const tbody = $("#tbody");
+    const thead = $("#thead");
+    const toast = $("#toast");
+
+    const catSelect = $("#cat");
+    const qInput = $("#q");
+
+    // grid zoom targets
+    const gridViewport = $("#gridViewport");
+    const gridInner = $("#gridInner");
+
+    // work order sheet
+    const svcSheet = $("#svcSheet");
+    const svcTitle = $("#svcTitle");
+    const svcClose = $("#svcClose");
+    const svcClose2 = $("#svcClose2");
+    const svcMeta = $("#svcMeta");
+    const lifetimeNotes = $("#lifetimeNotes");
+    const btnSaveNotes = $("#btnSaveNotes");
+    const woList = $("#woList");
+    const woCount = $("#woCount");
+    const woDate = $("#woDate");
+    const woSummary = $("#woSummary");
+    const woNotes = $("#woNotes");
+    const btnAddWO = $("#btnAddWO");
+
+    // starfire sheet
+    const sfSheet  = $("#sfSheet");
+    const sfTitle  = $("#sfTitle");
+    const sfClose  = $("#sfClose");
+    const sfCancel = $("#sfCancel");
+    const sfSave   = $("#sfSave");
+    const sfSerial = $("#sfSerial");
+    const sfSince  = $("#sfSince");
+    const sfLoc    = $("#sfLoc");
+    const sfCurrentPill = $("#sfCurrentPill");
+
+    const QUICK_LOCS = [
+      { id: null, name: "In Storage", type: "storage" },
+      { id: null, name: "Shop", type: "shop" }
+    ];
+
+    const FILTERS = [
+      { key:"planters", label:"Planters" },
+      { key:"combines", label:"Combines" },
+      { key:"sprayers", label:"Sprayers" },
+      { key:"grain",   label:"Grain Carts / Handling" },
+      { key:"tractors",label:"Tractors" },
+      { key:"trucks",  label:"Trucks" },
+      { key:"tillage", label:"Tillage" },
+      { key:"seeders", label:"Seeders / Drills" },
+      { key:"misc",    label:"Misc Implements" },
+      { key:"starfire",label:"StarFire" },
+      { key:"all",     label:"All" }
+    ];
+
+    const state = {
+      all: [],
+      equipActive: [],
+      filter: "planters",
+      q: "",
+      sfSelected: null,
+      svcSelected: null,
+      selectedRowId: null
     };
 
-    function showToast(msg){
-      const el = $("fv-toast");
-      if(!el) return;
-      el.textContent = msg;
-      el.classList.add("show");
-      setTimeout(()=> el.classList.remove("show"), 1100);
-    }
+    const norm = v => (v||"").toString().trim().toLowerCase();
+    const isActive = d => norm(d.status) === "active";
 
-    /* Combo helpers */
-    function closeAllCombos(except=null){
-      document.querySelectorAll('.combo-panel.show').forEach(p=>{
-        if(p!==except) p.classList.remove('show');
-      });
-    }
-    document.addEventListener('click', ()=> closeAllCombos());
-    document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
-
-    function makeCombo({ btn, panel, list, items=[], searchable=false, formatter=x=>String(x?.label??x), onPick }){
-      if(!btn || !panel || !list) return { setItems(){}, open(){}, close(){} };
-
-      panel.addEventListener('click', e=> e.stopPropagation());
-      panel.addEventListener('mousedown', e=> e.stopPropagation());
-
-      function render(q=""){
-        const qq=(q||"").toLowerCase();
-        list.innerHTML = (items||[])
-          .filter(x=>!qq || formatter(x).toLowerCase().includes(qq))
-          .map(x=>`<div class="combo-item" data-id="${String(x.id)}">${formatter(x)}</div>`)
-          .join('') || `<div class="combo-empty">(no matches)</div>`;
-      }
-      function open(){
-        closeAllCombos(panel);
-        panel.classList.add('show');
-        render("");
-        if(searchable){
-          const inp = panel.querySelector('input');
-          if(inp){ inp.value=""; inp.focus(); }
-        }
-      }
-      function close(){ panel.classList.remove('show'); }
-
-      btn.addEventListener('click', e=>{
-        e.stopPropagation();
-        panel.classList.contains('show') ? close() : open();
-      });
-
-      list.addEventListener('mousedown', e=>{
-        const row = e.target.closest('.combo-item'); if(!row) return;
-        const id  = row.dataset.id;
-        const it  = (items||[]).find(x=>String(x.id)===id);
-        if(!it) return;
-        onPick?.(it);
-        close();
-      });
-
-      if(searchable){
-        const s = panel.querySelector('input');
-        if(s){ s.addEventListener('input', e=> render(e.target.value)); }
-      }
-
-      return {
-        setItems(arr){
-          items = Array.isArray(arr) ? arr : [];
-          render("");
-        },
-        open,
-        close
-      };
-    }
-
-    /* UI refs */
-    const farmHelp = $("farmHelp");
-    const fieldHelp = $("fieldHelp");
-    const submittedBySel = $("submittedBy");
-    const when = $("when");
-    const photos = $("photos");
-    const thumbs = $("thumbs");
-    const photoNote = $("photoNote");
-    const woHero = $("woHero");
-    const woTitle = $("woTitle");
-    const woSub = $("woSub");
-    const woList = $("woList");
-    const farmIdInput = $("farmId");
-    const farmNameInput = $("farmName");
-    const fieldIdInput = $("fieldId");
-    const fieldNameHidden = $("fieldNameHidden");
-
-    when.value = todayISO();
-
-    let dbInstance = null;
-    let farmCombo = null;
-    let fieldCombo = null;
-    let allFarms = [];
-    let allFields = [];
-    let currentFieldId = "";
-    let currentFieldLabel = "";
-
-    /* ===== RTK snapshot (GUARANTEED at submit) ===== */
-    async function getRtkSnapshotForField(db, fieldId){
-      if(!db || !fieldId) return null;
-      try{
-        const fSnap = await getDoc(doc(db, 'fields', fieldId));
-        if(!fSnap.exists()) return null;
-        const f = fSnap.data() || {};
-        const towerId = String(f.rtkTowerId || '').trim();
-        if(!towerId) return null;
-
-        const tSnap = await getDoc(doc(db, 'rtk_towers', towerId));
-        if(!tSnap.exists()){
-          return { rtkTowerId: towerId };
-        }
-        const t = tSnap.data() || {};
-        return {
-          rtkTowerId: towerId,
-          rtk: {
-            name: String(t.name || ''),
-            networkId: String(t.networkId ?? ''),
-            frequencyMHz: String(t.frequencyMHz || '')
-          }
-        };
-      }catch(e){
-        console.warn('[RTK snapshot failed]', e);
-        return null;
-      }
-    }
-
-    /* ===== Current user ===== */
-    async function currentUser(){
-      const auth = getAuth();
-      const u = auth.currentUser;
-      if (u) return {
-        name: u.displayName || titleCase(String(u.email||"").replace(/@.*/,"").replace(/\./g," ")),
-        email: u.email||""
-      };
-      return {name:"",email:""};
-    }
-
-    /* ===== Employees / Submitted By ===== */
-    function empName(d){
-      const full = (d.fullName||"").trim();
-      if(full) return full;
-      const fn=(d.firstName||"").trim(), ln=(d.lastName||"").trim();
-      if(fn||ln) return (fn+" "+ln).trim();
-      if(d.displayName) return d.displayName;
-      if(d.name) return d.name;
-      return (d.email||"").replace(/@.*/,"");
-    }
-
-    async function loadEmployees(db){
-      const me = await currentUser();
-      let emps = [];
-      try{
-        const snap = await getDocs(collection(db, 'employees'));
-        snap.forEach(doc=>{
-          const d = doc.data()||{};
-          const nm = empName(d);
-          if(nm) emps.push({ name:nm, email:d.email||"" });
-        });
-      }catch(_){}
-
-      const norm = s => String(s||"").trim().toLowerCase();
-      const hasMe = emps.some(e => (e.email && norm(e.email)===norm(me.email)) || norm(e.name)===norm(me.name));
-      if(!hasMe && (me.name || me.email)){
-        emps.unshift({
-          name: me.name || titleCase(String(me.email||"").replace(/@.*/,"").replace(/\./g," ")),
-          email: me.email||""
-        });
-      }
-
-      emps = emps.filter(x=>x.name).sort((a,b)=>a.name.localeCompare(b.name));
-      submittedBySel.innerHTML = emps.map(e=>
-        `<option value="${esc(e.name)}" data-email="${esc(e.email)}">${esc(e.name)}</option>`
-      ).join("");
-
-      let idx = emps.findIndex(e => norm(e.email)===norm(me.email));
-      if (idx<0) idx = emps.findIndex(e => norm(e.name)===norm(me.name));
-      if (idx>=0) submittedBySel.selectedIndex = idx;
-    }
-
-    /* ===== Farms & Fields (combos) ===== */
-    function initCombos(){
-      farmCombo = makeCombo({
-        btn: $("farmBtn"),
-        panel: $("farmPanel"),
-        list: $("farmList"),
-        items: [],
-        searchable: true,
-        formatter: x => x.name,
-        onPick: farm => {
-          farmIdInput.value = farm.id;
-          farmNameInput.value = farm.name;
-          $("farmBtn").textContent = farm.name || "— Select farm —";
-
-          applyFarmFilter(farm.id);
-
-          currentFieldId = "";
-          currentFieldLabel = "";
-          fieldIdInput.value = "";
-          fieldNameHidden.value = "";
-          $("fieldBtn").textContent = "— Select field —";
-
-          woHero.hidden = true;
-          woList.innerHTML = '<div class="muted">No active work orders.</div>';
-        }
-      });
-
-      fieldCombo = makeCombo({
-        btn: $("fieldBtn"),
-        panel: $("fieldPanel"),
-        list: $("fieldList"),
-        items: [],
-        searchable: true,
-        formatter: x => x.name,
-        onPick: field => {
-          currentFieldId = field.id;
-          currentFieldLabel = field.name || "";
-          fieldIdInput.value = field.id;
-          fieldNameHidden.value = field.name || "";
-          $("fieldBtn").textContent = field.name || "— Select field —";
-
-          if (field.farmId || field.farmName){
-            let matchedFarm = null;
-            if (field.farmId){
-              matchedFarm = allFarms.find(f => String(f.id) === String(field.farmId));
-            }
-            if (!matchedFarm && field.farmName){
-              matchedFarm = allFarms.find(f => String(f.name) === String(field.farmName));
-            }
-
-            if (matchedFarm){
-              farmIdInput.value = matchedFarm.id;
-              farmNameInput.value = matchedFarm.name;
-              $("farmBtn").textContent = matchedFarm.name || "— Select farm —";
-            } else if (!farmIdInput.value && !farmNameInput.value){
-              farmIdInput.value = field.farmId || "";
-              farmNameInput.value = field.farmName || "";
-              if (field.farmName){
-                $("farmBtn").textContent = field.farmName;
-              }
-            }
-          }
-
-          if(dbInstance && currentFieldId){
-            renderActiveWorkOrders(dbInstance, currentFieldId, currentFieldLabel);
-          }
-        }
-      });
-    }
-
-    function applyFarmFilter(farmId){
-      let arr = allFields;
-      if(farmId){
-        arr = allFields.filter(f => (f.farmId || "") === farmId);
-      }
-      if(fieldCombo) fieldCombo.setItems(arr);
-      if(fieldHelp){
-        fieldHelp.textContent = farmId ? `${arr.length} fields in farm` : `${arr.length} fields`;
-      }
-    }
-
-    async function loadFarmsAndFields(db){
-  if(farmHelp) farmHelp.textContent = "Loading…";
-  try{
-    const farmsQ = query(
-      collection(db,'farms'),
-      where('status','==','active')
-    );
-    const snap = await getDocs(farmsQ);
-
-    const items = [];
-    snap.forEach(d=>{
-      const data = d.data() || {};
-      const name = String(data.name||"").trim();
-      if(name) items.push({ id:d.id, name });
-    });
-
-    items.sort((a,b)=>a.name.localeCompare(b.name));
-    allFarms = items;
-
-    if(farmCombo) farmCombo.setItems(allFarms);
-    if(farmHelp) farmHelp.textContent = `${allFarms.length} farms`;
-  }catch(e){
-    console.error(e);
-    if(farmHelp) farmHelp.textContent = "0 farms";
-  }
-
-  if(fieldHelp) fieldHelp.textContent = "Loading…";
-  try{
-    const fieldsQ = query(
-      collection(db,'fields'),
-      where('status','==','active')
-    );
-    const snap = await getDocs(fieldsQ);
-
-    const items = [];
-    snap.forEach(d=>{
-      const data = d.data() || {};
-      const name = String(data.name||"").trim();
-      if(!name) return;
-
-      const farmId = String(data.farmId || data.farm || "").trim();
-      const farmName = String(data.farmName || data.farm || "").trim();
-      items.push({ id:d.id, name, farmId, farmName });
-    });
-
-    items.sort((a,b)=>a.name.localeCompare(b.name));
-    allFields = items;
-
-    if(fieldCombo) fieldCombo.setItems(allFields);
-    if(fieldHelp) fieldHelp.textContent = `${allFields.length} fields`;
-  }catch(e){
-    console.error(e);
-    if(fieldHelp) fieldHelp.textContent = "0 fields";
-  }
-}
-
-    /* ===== Photos & Annotations ===== */
-    let selectedFiles = [];
-
-    photos.addEventListener("change", ()=>{
-      const list = Array.from(photos.files||[]);
-      selectedFiles = (selectedFiles || []).concat(list).slice(0,3);
-      renderThumbs();
-      photoNote.textContent = selectedFiles.length >= 3
-        ? "Max 3 photos attached."
-        : "You can draw arrows, write notes, or freehand markups before submitting.";
-    });
-
-    function renderThumbs(){
-      thumbs.innerHTML = "";
-      selectedFiles.forEach((file, idx)=>{
-        const div = document.createElement("div");
-        div.className="thumb";
-        const img = document.createElement("img");
-        img.alt=file.name;
-        img.src=URL.createObjectURL(file);
-        const tools = document.createElement("div");
-        tools.className="tools";
-        const btnAnn = document.createElement("button");
-        btnAnn.textContent="Annotate";
-        const btnRm  = document.createElement("button");
-        btnRm.textContent="Remove";
-        btnAnn.addEventListener("click", ()=> openAnnotate(idx));
-        btnRm.addEventListener("click", ()=>{ selectedFiles.splice(idx,1); renderThumbs(); });
-        tools.appendChild(btnAnn);
-        tools.appendChild(btnRm);
-        div.appendChild(img);
-        div.appendChild(tools);
-        thumbs.appendChild(div);
-      });
-    }
-
-    // Annotate modal state
-    const modal = $("modal"), mdBody=$("mdBody"), mdClose=$("mdClose");
-    const toolPen = $("tool-pen"), toolArrow=$("tool-arrow"), toolText=$("tool-text");
-    const toolSize = $("tool-size"), toolColor=$("tool-color");
-    const mdUndo=$("mdUndo"), mdReset=$("mdReset"), mdSave=$("mdSave");
-
-    let ann = {
-      canvas:null, ctx:null, img:null, idx:null,
-      tool:"pen", drawing:false, start:null,
-      undoStack:[], dpr: 1
+    const todayISO = ()=>{
+      const d=new Date(); const y=d.getFullYear();
+      const m=String(d.getMonth()+1).padStart(2,"0");
+      const da=String(d.getDate()).padStart(2,"0");
+      return `${y}-${m}-${da}`;
     };
 
-    function setTool(which){
-      ann.tool = which;
-      [toolPen,toolArrow,toolText].forEach(el=>el.classList.remove('active'));
-      if(which==="pen") toolPen.classList.add('active');
-      if(which==="arrow") toolArrow.classList.add('active');
-      if(which==="text") toolText.classList.add('active');
-    }
-    toolPen.addEventListener("click", ()=> setTool("pen"));
-    toolArrow.addEventListener("click", ()=> setTool("arrow"));
-    toolText.addEventListener("click", ()=> setTool("text"));
+    const serialLast4 = (s)=>{
+      if(!s) return "";
+      const t=String(s).trim();
+      return t.length<=4 ? t : t.slice(-4);
+    };
 
-    function openAnnotate(idx){
-      const file = selectedFiles[idx]; if(!file) return;
-      ann.idx=idx;
-      mdBody.innerHTML = `<canvas id="annCvs" style="max-width:100%;touch-action:none;display:block;margin:auto"></canvas>`;
-      const cvs = $("annCvs");
-      ann.canvas=cvs; ann.ctx=cvs.getContext("2d");
-      ann.undoStack.length=0;
+    const showToast = (msg="Saved.")=>{
+      toast.textContent = msg;
+      toast.classList.remove("show");
+      void toast.offsetWidth;
+      toast.classList.add("show");
+    };
 
-      const img = new Image(); ann.img=img;
-      img.onload = ()=>{
-        const maxW = Math.min(820, window.innerWidth*0.9);
-        const scale = Math.min(1, maxW / img.width);
-        const cssW = Math.round(img.width * scale);
-        const cssH = Math.round(img.height * scale);
-        const dpr = window.devicePixelRatio || 1; ann.dpr = dpr;
-        cvs.style.width = cssW+"px";
-        cvs.style.height = cssH+"px";
-        cvs.width = Math.round(cssW * dpr);
-        cvs.height= Math.round(cssH * dpr);
-        ann.ctx.setTransform(dpr,0,0,dpr,0,0);
-        ann.ctx.drawImage(img,0,0,cssW,cssH);
-        pushUndo();
-      };
-      img.src = URL.createObjectURL(file);
+    const showError = (msg)=>{
+      alertBox.textContent = msg;
+      alertBox.classList.add("show");
+      clearTimeout(showError._t);
+      showError._t = setTimeout(()=> alertBox.classList.remove("show"), 8000);
+    };
 
-      wireDrawHandlers(cvs);
-      openModal("Annotate Photo");
+    function escapeHtml(s){
+      return String(s ?? "").replace(/[&<>"']/g, c => ({
+        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+      }[c]));
     }
 
-    function pushUndo(){
-      try{
-        const w = ann.canvas.width/ann.dpr, h = ann.canvas.height/ann.dpr;
-        const snap = ann.ctx.getImageData(0,0,w,h);
-        ann.undoStack.push(snap);
-        if(ann.undoStack.length>30) ann.undoStack.shift();
-      }catch(_){}
-    }
-    function restoreLast(){
-      if(!ann.undoStack.length) return;
-      const last = ann.undoStack.pop();
-      if(last){
-        ann.ctx.setTransform(ann.dpr,0,0,ann.dpr,0,0);
-        ann.ctx.putImageData(last,0,0);
+    function detectCategory(d){
+      const t = norm(d.type);
+      const it = norm(d.implementType);
+
+      if(t === "starfire") return "starfire";
+      if(t === "tractor") return "tractors";
+      if(t === "truck") return "trucks";
+      if(t === "sprayer") return "sprayers";
+      if(t === "combine") return "combines";
+
+      if(t === "implement"){
+        if(it === "planter") return "planters";
+        if(it.includes("grain") || it.includes("cart") || it.includes("auger") || it.includes("bin")) return "grain";
+        if(it.includes("tillage")) return "tillage";
+        if(it.includes("drill") || it.includes("seeder")) return "seeders";
+        return "misc";
       }
+
+      const name = ((d.name||"") + " " + (d.modelName||"")).toLowerCase();
+      if(name.includes("planter")) return "planters";
+      if(name.includes("combine")) return "combines";
+      if(name.includes("sprayer")) return "sprayers";
+      return "misc";
     }
-    mdUndo.addEventListener("click", restoreLast);
-    mdReset.addEventListener("click", ()=>{
-      if(ann.img && ann.canvas){
-        const w = ann.canvas.width/ann.dpr, h = ann.canvas.height/ann.dpr;
-        ann.ctx.setTransform(ann.dpr,0,0,ann.dpr,0,0);
-        ann.ctx.clearRect(0,0,w,h);
-        ann.ctx.drawImage(ann.img,0,0,w,h);
-        ann.undoStack.length=0;
-        pushUndo();
+
+    function matchesSearch(d, q){
+      if(!q) return true;
+      const hay = [
+        d.unitId, d.name, d.makeName, d.modelName, d.serial, d.notes, d.lifetimeNotes,
+        d.type, d.implementType, d.year,
+        d.totalAcres, d.totalHours, d.engineHours,
+        d.odometerMiles, d.licensePlate,
+        d.placedInServiceDate
+      ].map(x => (x==null?"":String(x))).join(" ").toLowerCase();
+      return hay.includes(q);
+    }
+
+    function fmtNum(v){
+      if(v==null || v==="") return "";
+      const n = Number(v);
+      if(Number.isNaN(n)) return String(v);
+      return (Math.round(n*10)/10).toString();
+    }
+
+    function catLabel(d){
+      const c = detectCategory(d);
+      const map = {
+        planters:"Planter", combines:"Combine", sprayers:"Sprayer", grain:"Grain",
+        tractors:"Tractor", trucks:"Truck", tillage:"Tillage", seeders:"Seeder/Drill", misc:"Implement",
+        starfire:"StarFire"
+      };
+      return map[c] || "Equipment";
+    }
+
+    function serialShort6(s){
+      if(!s) return "";
+      const t = String(s);
+      return t.length <= 6 ? t : ("…" + t.slice(-6));
+    }
+
+    function hasAny(arr, pred){
+      for(const x of arr){ if(pred(x)) return true; }
+      return false;
+    }
+
+    function isPresent(v){
+      if(v === 0) return true;
+      if(v === false) return true;
+      return v !== null && v !== undefined && String(v).trim() !== "";
+    }
+
+    function renderFilterDropdown(){
+      catSelect.innerHTML = FILTERS.map(f=>(
+        `<option value="${escapeHtml(f.key)}">${escapeHtml(f.label)}</option>`
+      )).join("");
+      catSelect.value = state.filter;
+    }
+
+    function filteredRows(){
+      const q = norm(state.q);
+      const active = state.all;
+
+      if(state.filter === "starfire"){
+        let arr = active.filter(d => norm(d.type) === "starfire");
+        if(q) arr = arr.filter(d => matchesSearch(d, q));
+        arr.sort((a,b)=> String(a.serial||"").localeCompare(String(b.serial||"")));
+        return arr;
       }
-    });
-    mdSave.addEventListener("click", ()=>{
-      if(!ann.canvas || ann.idx==null) return;
-      ann.canvas.toBlob(b=>{
-        if(!b) return;
-        const orig = selectedFiles[ann.idx];
-        const ext = (orig?.name||"image").replace(/^.*(\.\w+)$/,'$1') || ".png";
-        const named = new File(
-          [b],
-          (orig?.name?.replace(/\.\w+$/,'')||"annotated") + "-annotated"+ext,
-          { type: "image/png" }
-        );
-        selectedFiles.splice(ann.idx,1,named);
-        renderThumbs();
-        closeModal();
-      }, "image/png", 0.92);
-    });
 
-    function openModal(title){
-      $("mdTitle").textContent = title || "Details";
-      modal.setAttribute("open",""); modal.setAttribute("aria-hidden","false");
-      document.documentElement.classList.add("no-scroll");
-      document.body.classList.add("no-scroll");
-    }
-    function closeModal(){
-      modal.removeAttribute("open"); modal.setAttribute("aria-hidden","true");
-      mdBody.innerHTML = "";
-      ann={canvas:null,ctx:null,img:null,idx:null,tool:"pen",drawing:false,start:null,undoStack:[],dpr:1};
-      document.documentElement.classList.remove("no-scroll");
-      document.body.classList.remove("no-scroll");
-    }
-    mdClose.addEventListener("click", closeModal);
-    modal.addEventListener("click", e=>{ if(e.target===modal) closeModal(); });
-    document.addEventListener("keydown", e=>{ if(e.key==="Escape" && modal.hasAttribute("open")) closeModal(); });
-
-    function wireDrawHandlers(cvs){
-      const ctx = ann.ctx;
-
-      const getPos = e=>{
-        const r=cvs.getBoundingClientRect();
-        const c = e.touches?.[0] || e;
-        return { x: (c.clientX - r.left), y: (c.clientY - r.top) };
-      };
-
-      const strokeStyle = ()=> {
-        ctx.lineWidth = Number(toolSize.value)||4;
-        ctx.strokeStyle = toolColor.value || "#ff0000";
-        ctx.fillStyle = toolColor.value || "#ff0000";
-        ctx.lineJoin = "round"; ctx.lineCap = "round";
-      };
-
-      const start = e=>{
-        e.preventDefault();
-        strokeStyle();
-        const p=getPos(e);
-        ann.drawing=true; ann.start=p;
-        if(ann.tool==="pen"){
-          ctx.beginPath(); ctx.moveTo(p.x, p.y);
-        }
-      };
-      const move = e=>{
-        if(!ann.drawing) return;
-        e.preventDefault();
-        const p=getPos(e);
-        if(ann.tool==="pen"){
-          ctx.lineTo(p.x, p.y); ctx.stroke();
-        }
-      };
-      const end = e=>{
-        if(!ann.drawing) return;
-        ann.drawing=false;
-        const pStart = ann.start;
-        const pEnd = e ? getPos(e) : pStart;
-        if(ann.tool==="arrow" && pStart && pEnd){
-          drawArrow(ctx, pStart, pEnd, Number(toolSize.value)||4, toolColor.value||"#ff0000");
-        }
-        if(ann.tool==="text" && pStart){
-          const txt = prompt("Enter note text:");
-          if(txt){
-            ctx.font = `bold ${Math.max(12,(Number(toolSize.value)||4)*4)}px system-ui,-apple-system,Segoe UI,Roboto,Arial`;
-            ctx.fillText(txt, pStart.x+4, pStart.y+4);
-          }
-        }
-        pushUndo();
-      };
-
-      cvs.addEventListener("mousedown", start);
-      cvs.addEventListener("mousemove", move);
-      window.addEventListener("mouseup", end);
-      cvs.addEventListener("touchstart", start, {passive:false});
-      cvs.addEventListener("touchmove", move, {passive:false});
-      window.addEventListener("touchend", end);
-    }
-
-    function drawArrow(ctx, p, q, width, color){
-      const headLen = Math.max(8, width*4);
-      const angle = Math.atan2(q.y - p.y, q.x - p.x);
-      ctx.save();
-      ctx.strokeStyle = color; ctx.fillStyle = color;
-      ctx.lineWidth = width; ctx.lineJoin="round"; ctx.lineCap="round";
-      ctx.beginPath();
-      ctx.moveTo(p.x, p.y);
-      ctx.lineTo(q.x, q.y);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(q.x, q.y);
-      ctx.lineTo(
-        q.x - headLen * Math.cos(angle - Math.PI/6),
-        q.y - headLen * Math.sin(angle - Math.PI/6)
-      );
-      ctx.lineTo(
-        q.x - headLen * Math.cos(angle + Math.PI/6),
-        q.y - headLen * Math.sin(angle + Math.PI/6)
-      );
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
-    }
-
-    /* ===== Lazy Storage loader ===== */
-    async function loadStorageFns(){
-      try{
-        const m = await import('/Farm-vista/js/firebase-init.js');
-        const fns = {
-          getStorage:m.getStorage,
-          ref:m.ref,
-          uploadBytes:m.uploadBytes,
-          getDownloadURL:m.getDownloadURL
-        };
-        if (fns.getStorage && fns.ref && fns.uploadBytes && fns.getDownloadURL) return fns;
-      }catch(_){}
-      throw new Error('Storage functions are not exported by /Farm-vista/js/firebase-init.js. Please export getStorage, ref, uploadBytes, getDownloadURL.');
-    }
-
-    /* ===== Collect / validate / save ===== */
-    const DATA_FIELDS = () => Array.from(document.querySelectorAll("[data-field]"));
-
-    function collect(){
-      const o={};
-      DATA_FIELDS().forEach(el=> o[el.dataset.field]=el.value);
-
-      const sbOpt = submittedBySel.options[submittedBySel.selectedIndex];
-      o.submittedByEmail = (sbOpt?.dataset?.email || "").trim();
-      o.status="Open";
-      o.t=Date.now();
-      o.timestampISO=new Date(o.t).toISOString();
-      return o;
-    }
-
-    function validate(o){
-      if(!o.farmId || !o.farm) return "Please select a farm.";
-      if(!o.fieldId || !o.field) return "Please select a field.";
-      if(!o.boundaryType) return "Please choose Interior or Exterior.";
-      if(!o.scope) return "Please choose Small section or Entire field.";
-      if(!o.submittedBy || !o.submittedBy.trim()) return "Please choose who is submitting this.";
-      if(!o.when) return "Please set the date.";
-      return "";
-    }
-
-    async function uploadPhotosLazy(docId, files){
-      if(!files || !files.length) return [];
-      const { getStorage, ref, uploadBytes, getDownloadURL } = await loadStorageFns();
-      const st = getStorage();
-      const out = [];
-      for (const f of files){
-        const safe = safeName(f.name);
-        const path = `boundary-requests/${docId}/${safe}`;
-        const r = ref(st, path);
-        await uploadBytes(r, f, { contentType: f.type || 'image/png' });
-        const url = await getDownloadURL(r);
-        out.push({ name: f.name, url, path });
+      let arr = active.filter(d => norm(d.type) !== "starfire");
+      if(state.filter !== "all"){
+        arr = arr.filter(d => detectCategory(d) === state.filter);
       }
-      return out;
+      if(q) arr = arr.filter(d => matchesSearch(d, q));
+
+      arr.sort((a,b)=>{
+        const an=(a.unitId||a.name||"").toLowerCase();
+        const bn=(b.unitId||b.name||"").toLowerCase();
+        if(an<bn) return -1;
+        if(an>bn) return 1;
+        return Number(b.year||0)-Number(a.year||0);
+      });
+
+      return arr;
     }
 
-    /* ✅ Submit (GUARANTEED RTK snapshot at submit time) */
-    $("primary").addEventListener("click", async ()=>{
-      const db = dbInstance || getFirestore();
+    function buildColumnsForCurrentView(rows){
+      if(state.filter === "starfire"){
+        return [
+          { key:"sfSerial", label:"Serial", w:260, wrap:false },
+          { key:"sfLast4",  label:"Last 4", w:90,  wrap:false },
+          { key:"sfLoc",    label:"Current Location", w:340, wrap:true },
+          { key:"sfSince",  label:"Since", w:140, wrap:false }
+        ];
+      }
 
-      const o = collect();
-      const err = validate(o);
-      if(err){
-        alert(err);
+      const showInService = hasAny(rows, r => isPresent(r.placedInServiceDate));
+      const showMileage   = hasAny(rows, r => isPresent(r.odometerMiles));
+      const showAcres     = hasAny(rows, r => isPresent(r.totalAcres));
+      const showHours     = hasAny(rows, r => isPresent(r.totalHours) || isPresent(r.engineHours));
+
+      const cols = [
+        { key:"unit",   label:"Unit", w:360, wrap:true },
+        { key:"unitId", label:"Unit ID", w:160, wrap:false },
+        { key:"cat",    label:"Category", w:140, wrap:false },
+        { key:"year",   label:"Year", w:80, wrap:false },
+        { key:"serial", label:"Serial", w:160, wrap:false }
+      ];
+
+      if(showInService){ cols.push({ key:"pis", label:"In Service", w:140, wrap:false }); }
+      if(showMileage){ cols.push({ key:"miles", label:"Mileage", w:120, wrap:false }); }
+      if(showHours){ cols.push({ key:"hours", label:"Hours", w:110, wrap:false }); }
+      if(showAcres){ cols.push({ key:"acres", label:"Acres", w:110, wrap:false }); }
+
+      cols.push({ key:"notes", label:"Notes", w:360, wrap:true });
+      return cols;
+    }
+
+    function scaleW(w){
+      return window.matchMedia("(max-width: 820px)").matches ? Math.max(72, Math.round(w * 0.78)) : w;
+    }
+
+    function renderHead(cols){
+      thead.innerHTML = `
+        <tr>
+          ${cols.map(c=>`<th class="${c.wrap ? 'wrap' : ''}" style="min-width:${scaleW(c.w)}px">${escapeHtml(c.label)}</th>`).join("")}
+        </tr>
+      `;
+    }
+
+    function renderTable(){
+      const rows = filteredRows();
+      const cols = buildColumnsForCurrentView(rows);
+      renderHead(cols);
+
+      if(!rows.length){
+        tbody.innerHTML = `<tr><td class="muted" colspan="${cols.length}" style="padding:12px;">No results.</td></tr>`;
         return;
       }
 
-      // GUARANTEED: read fields/{fieldId} -> tower -> snapshot into request
-      const rtkSnap = await getRtkSnapshotForField(db, o.fieldId);
-      if(rtkSnap){
-        if(rtkSnap.rtkTowerId) o.rtkTowerId = rtkSnap.rtkTowerId;
-        if(rtkSnap.rtk) o.rtk = rtkSnap.rtk;
-      }
-
-      try{
-        const refDoc = await addDoc(collection(db, 'boundary_requests'), {
-          ...o,
-          createdAt: serverTimestamp()
-        });
-
-        const id = refDoc.id;
-
-        if (selectedFiles.length){
-          try{
-            const uploaded = await uploadPhotosLazy(id, selectedFiles);
-            if (uploaded.length){
-              await updateDoc(doc(db,'boundary_requests',id), {
-                photos: uploaded,
-                updatedAt: serverTimestamp()
-              });
-            }
-          }catch(stErr){
-            console.error(stErr);
-            alert("Saved request, but photo upload failed:\n\n" + (stErr?.message||stErr));
-          }
+      tbody.innerHTML = rows.map(d=>{
+        if(state.filter === "starfire"){
+          const loc = d.starfireCurrentLocationName || "—";
+          const since = d.starfireCurrentLocationSince || "";
+          return `
+            <tr data-id="${escapeHtml(d.id)}" data-kind="starfire">
+              <td class="wrap"><div class="stack"><span class="cell-title">${escapeHtml(String(d.serial||""))}</span></div></td>
+              <td class="kpi">${escapeHtml(serialLast4(d.serial||""))}</td>
+              <td class="wrap">${escapeHtml(loc)}</td>
+              <td class="muted">${escapeHtml(String(since||""))}</td>
+            </tr>
+          `;
         }
 
-        showToast("Boundary request saved");
-        setTimeout(()=>{ goBack(); }, 1100);
-      }catch(e){
-        console.error(e);
-        alert("Save failed: " + e.message);
-      }
-    });
+        const hours = (d.totalHours ?? d.engineHours ?? "");
+        const acres = (d.totalAcres ?? "");
+        const unitId = d.unitId ? String(d.unitId) : "";
 
-    $("cancel").addEventListener("click", ()=> goBack());
+        const cells = cols.map(c=>{
+          switch(c.key){
+            case "unit":
+              return `
+                <td class="wrap">
+                  <div class="stack">
+                    <span class="cell-title">${escapeHtml(d.name || "(unnamed)")}</span>
+                    <span class="cell-sub">${escapeHtml([d.makeName,d.modelName].filter(Boolean).join(" • "))}</span>
+                  </div>
+                </td>
+              `;
+            case "unitId":
+              return `<td><span class="cell-title">${escapeHtml(unitId || "—")}</span></td>`;
+            case "cat":
+              return `<td class="muted">${escapeHtml(catLabel(d))}</td>`;
+            case "year":
+              return `<td class="muted">${escapeHtml(String(d.year||""))}</td>`;
+            case "serial":
+              return `<td class="muted">${escapeHtml(serialShort6(d.serial||""))}</td>`;
+            case "pis":
+              return `<td class="muted">${escapeHtml(String(d.placedInServiceDate||""))}</td>`;
+            case "miles":
+              return `<td class="kpi">${escapeHtml(fmtNum(d.odometerMiles ?? ""))}</td>`;
+            case "hours":
+              return `<td class="kpi">${escapeHtml(fmtNum(hours))}</td>`;
+            case "acres":
+              return `<td class="kpi">${escapeHtml(fmtNum(acres))}</td>`;
+            case "notes":
+              return `<td class="muted wrap">${escapeHtml(String(d.notes||""))}</td>`;
+            default:
+              return `<td></td>`;
+          }
+        }).join("");
 
-    /* ===== Active Work Orders (per field) ===== */
-    async function renderActiveWorkOrders(db, fieldId, fieldNameLabel){
-      if(!fieldId){
-        woHero.hidden=true;
-        return;
-      }
-      try{
-        const qy = query(
-          collection(db,'boundary_requests'),
-          where('fieldId','==',fieldId),
-          orderBy('createdAt','desc')
-        );
-        const snap = await getDocs(qy);
-        const items = [];
-        snap.forEach(s=>{
-          const d = s.data()||{};
-          const status = String(d.status||'Open');
-          if(status.toLowerCase() !== 'closed'){
-            items.push({ id:s.id, ...d });
+        return `<tr data-id="${escapeHtml(d.id)}" data-kind="equip">${cells}</tr>`;
+      }).join("");
+
+      tbody.querySelectorAll("tr[data-id]").forEach(tr=>{
+        const id = tr.getAttribute("data-id");
+        const kind = tr.getAttribute("data-kind");
+
+        tr.addEventListener("click", ()=>{
+          state.selectedRowId = id;
+          tbody.querySelectorAll("tr").forEach(r=>r.classList.remove("activeRow"));
+          tr.classList.add("activeRow");
+
+          if(kind === "equip"){
+            const eq = state.all.find(x => x.id === id);
+            if(eq) openServiceSheet(eq);
           }
         });
 
-        const label = fieldNameLabel || 'Selected Field';
-        woTitle.textContent = `Active Work Orders — ${label}`;
-        woSub.textContent = items.length
-          ? `${items.length} open request${items.length===1?'':'s'} for this field.`
-          : 'No open requests for this field.';
-        woHero.hidden = false;
+        if(kind === "starfire"){
+          const sf = state.all.find(x => x.id === id);
+          if(!sf) return;
 
-        if(!items.length){
-          woList.innerHTML = '<div class="muted">No active work orders.</div>';
+          tr.addEventListener("dblclick", (e)=>{
+            e.preventDefault();
+            openStarfireSheet(sf);
+          });
+
+          let pressTimer=null;
+          tr.addEventListener("touchstart", ()=>{
+            pressTimer=setTimeout(()=> openStarfireSheet(sf), 520);
+          }, {passive:true});
+          tr.addEventListener("touchend", ()=>{ if(pressTimer) clearTimeout(pressTimer); }, {passive:true});
+          tr.addEventListener("touchmove", ()=>{ if(pressTimer) clearTimeout(pressTimer); }, {passive:true});
+        }
+      });
+    }
+
+    // --- Work orders + notes sheet ---
+    function openSheet(dlg){
+      try{ dlg.showModal(); }catch{ dlg.setAttribute("open",""); }
+    }
+    function closeSheet(dlg){
+      try{ dlg.close(); }catch{ dlg.removeAttribute("open"); }
+    }
+
+    async function openServiceSheet(eq){
+      state.svcSelected = eq;
+
+      const unitId = eq.unitId ? `Unit ID ${eq.unitId}` : "Unit ID —";
+      svcTitle.textContent = eq.unitId ? `${eq.unitId} • ${eq.name || "Equipment"}` : (eq.name || "Equipment");
+
+      svcMeta.textContent = [
+        unitId,
+        catLabel(eq),
+        eq.year ? `Year ${eq.year}` : "",
+        eq.serial ? `Serial ${eq.serial}` : "",
+        eq.placedInServiceDate ? `In Service ${eq.placedInServiceDate}` : ""
+      ].filter(Boolean).join(" • ");
+
+      lifetimeNotes.value = eq.lifetimeNotes || "";
+
+      woList.innerHTML = `<div class="muted">Loading…</div>`;
+      woCount.textContent = "—";
+
+      woDate.value = todayISO();
+      woSummary.value = "";
+      woNotes.value = "";
+
+      openSheet(svcSheet);
+      await loadWorkOrders(eq.id);
+    }
+
+    async function loadWorkOrders(equipmentId){
+      try{
+        const db = getFirestore();
+        let rows = [];
+
+        try{
+          const qy = query(
+            collection(db, "equipmentWorkOrders"),
+            where("equipmentId", "==", equipmentId),
+            orderBy("createdAt", "desc"),
+            limit(50)
+          );
+          const snap = await getDocs(qy);
+          snap.forEach(d => rows.push({ id: d.id, ...d.data() }));
+        }catch(orderErr){
+          const qy2 = query(
+            collection(db, "equipmentWorkOrders"),
+            where("equipmentId", "==", equipmentId),
+            limit(50)
+          );
+          const snap2 = await getDocs(qy2);
+          snap2.forEach(d => rows.push({ id: d.id, ...d.data() }));
+          rows.sort((a,b)=>{
+            const ad = String(a.date||"");
+            const bd = String(b.date||"");
+            if(ad < bd) return 1;
+            if(ad > bd) return -1;
+            return 0;
+          });
+        }
+
+        woCount.textContent = rows.length ? `${rows.length} work order(s)` : "No work orders";
+
+        if(!rows.length){
+          woList.innerHTML = `<div class="muted">No work orders yet.</div>`;
           return;
         }
 
-        woList.innerHTML = "";
-        items.forEach(it=>{
-          const li = document.createElement('div');
-          li.className = 'wo-item';
-          li.setAttribute('role','button');
-          li.setAttribute('tabindex','0');
-          li.dataset.id = it.id;
-
-          const whenTxt = fmtDate(it.createdAt) || it.when || '';
-          li.innerHTML = `
-            <div class="wo-head">
-              <strong>${esc(it.boundaryType||'—')}</strong>
-              <span class="pill">${esc(whenTxt)}</span>
-              <span class="pill">${esc(it.status||'Open')}</span>
+        woList.innerHTML = rows.map(r=>{
+          const date = r.date || "";
+          const summary = r.summary || r.title || "(no summary)";
+          const status = r.status ? String(r.status) : "";
+          const meta = [status ? `status: ${status}` : ""].filter(Boolean).join(" • ");
+          const details = r.details || r.notes || "";
+          return `
+            <div class="srItem">
+              <div class="srTop">
+                <div class="srTitle">${escapeHtml(date)} — ${escapeHtml(summary)}</div>
+                <div class="srMeta">${escapeHtml(meta)}</div>
+              </div>
+              ${details ? `<div class="srMeta">${escapeHtml(details)}</div>` : ``}
             </div>
-            <div class="muted" style="margin-top:6px">
-              Submitted by ${esc(it.submittedBy||'Unknown')}${it.submittedByEmail?` • ${esc(it.submittedByEmail)}`:""}
-            </div>
-            ${it.notes? `<div style="margin-top:6px">${esc(it.notes)}</div>` : ''}
           `;
-          li.addEventListener('click', ()=> openWorkOrderView(db, it.id, label));
-          li.addEventListener('keydown', (e)=>{
-            if(e.key==='Enter' || e.key===' '){
-              e.preventDefault();
-              openWorkOrderView(db, it.id, label);
-            }
-          });
-          woList.appendChild(li);
-        });
+        }).join("");
       }catch(e){
         console.error(e);
-        woHero.hidden = false;
-        woTitle.textContent = "Active Work Orders";
-        woSub.textContent = "Open requests for this field.";
-        woList.innerHTML = `<div class="muted">Unable to load work orders: ${esc(e.message)}</div>`;
+        woList.innerHTML = `<div class="muted">Failed to load work orders.</div>`;
+        woCount.textContent = "—";
       }
     }
 
-    /* ===== View (read-only) modal for an existing request ===== */
-    const viewModal = $("viewModal"), vmClose = $("vmClose"), vmBody = $("vmBody"), vmTitle = $("vmTitle");
-
-    function openView(){
-      viewModal.setAttribute("open",""); viewModal.setAttribute("aria-hidden","false");
-      document.documentElement.classList.add("no-scroll");
-      document.body.classList.add("no-scroll");
-    }
-    function closeView(){
-      viewModal.removeAttribute("open"); viewModal.setAttribute("aria-hidden","true");
-      vmBody.innerHTML="";
-      document.documentElement.classList.remove("no-scroll");
-      document.body.classList.remove("no-scroll");
-    }
-    vmClose.addEventListener("click", closeView);
-    viewModal.addEventListener("click", e=>{ if(e.target===viewModal) closeView(); });
-    document.addEventListener("keydown", e=>{
-      if(e.key==="Escape" && viewModal.hasAttribute("open")) closeView();
+    btnSaveNotes.addEventListener("click", async ()=>{
+      if(!state.svcSelected) return;
+      try{
+        const db = getFirestore();
+        const txt = (lifetimeNotes.value || "").trim();
+        await updateDoc(doc(db, "equipment", state.svcSelected.id), { lifetimeNotes: txt });
+        state.svcSelected.lifetimeNotes = txt;
+        showToast("Notes saved.");
+      }catch(e){
+        console.error(e);
+        showError(e.message || "Save notes failed.");
+      }
     });
 
-    async function openWorkOrderView(db, id, fieldNameLabel){
+    btnAddWO.addEventListener("click", async ()=>{
+      if(!state.svcSelected) return;
+
+      const date = (woDate.value || "").trim() || todayISO();
+      const summary = (woSummary.value || "").trim();
+      const details = (woNotes.value || "").trim();
+
+      if(!summary){
+        alert("Need a summary.");
+        return;
+      }
+
+      const payload = {
+        equipmentId: state.svcSelected.id,
+        unitId: state.svcSelected.unitId || null,
+        equipmentName: state.svcSelected.name || null,
+        date,
+        summary,
+        details,
+        status: "open",
+        createdAt: serverTimestamp()
+      };
+
       try{
-        const ref = doc(db, 'boundary_requests', id);
-        const snap = await getDoc(ref);
-        if(!snap.exists()){ return; }
-        const it = snap.data() || {};
-        const whenTxt = fmtDate(it.createdAt) || it.when || '';
-        vmTitle.textContent = `Work Order — ${fieldNameLabel || it.field || ''}`;
-
-        const photos = Array.isArray(it.photos) ? it.photos : [];
-        const photoHTML = photos.length
-          ? `<div class="vm-photos">` + photos.map(p=>{
-              const url = esc(p.url || "");
-              const nm  = esc(p.name || "photo");
-              return `<a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="${nm}"/></a>`;
-            }).join("") + `</div>`
-          : `<div class="muted">No photos attached.</div>`;
-
-        vmBody.innerHTML = `
-          <div class="row" style="margin-bottom:8px">
-            <div class="field">
-              <label>Status</label>
-              <div class="pill">${esc(it.status||'Open')}</div>
-            </div>
-            <div class="field">
-              <label>Date</label>
-              <div class="pill">${esc(whenTxt)}</div>
-            </div>
-          </div>
-
-          <div class="field" style="margin-bottom:8px">
-            <label>Boundary Type</label>
-            <div><strong>${esc(it.boundaryType||'—')}</strong></div>
-          </div>
-
-          ${it.rtk ? `
-          <div class="field" style="margin-bottom:8px">
-            <label>RTK (Name • Network ID • Frequency)</label>
-            <div>${esc(String(it.rtk.name||""))}${it.rtk.networkId!=null?` • ${esc(String(it.rtk.networkId))}`:""}${it.rtk.frequencyMHz?` • ${esc(String(it.rtk.frequencyMHz))} MHz`:""}</div>
-          </div>` : ''}
-
-          <div class="field" style="margin-bottom:8px">
-            <label>Submitted By</label>
-            <div>${esc(it.submittedBy||'Unknown')}${it.submittedByEmail?` • ${esc(it.submittedByEmail)}`:""}</div>
-          </div>
-
-          ${it.notes ? `
-          <div class="field" style="margin-bottom:8px">
-            <label>Notes</label>
-            <div>${esc(it.notes)}</div>
-          </div>` : ''}
-
-          <div class="field">
-            <label>Photos</label>
-            ${photoHTML}
-            <div class="help" style="margin-top:6px">Tap a thumbnail to open the full image in a new tab.</div>
-          </div>
-        `;
-        openView();
+        const db = getFirestore();
+        await addDoc(collection(db, "equipmentWorkOrders"), payload);
+        showToast("Work order added.");
+        woSummary.value = "";
+        woNotes.value = "";
+        await loadWorkOrders(state.svcSelected.id);
       }catch(e){
-        alert("Unable to open work order: " + (e?.message||e));
+        console.error(e);
+        showError(e.message || "Add work order failed.");
+      }
+    });
+
+    svcClose.addEventListener("click", ()=> closeSheet(svcSheet));
+    svcClose2.addEventListener("click", ()=> closeSheet(svcSheet));
+
+    // --- StarFire sheet ---
+    function buildLocationOptions(){
+      sfLoc.innerHTML = "";
+
+      QUICK_LOCS.forEach(q=>{
+        const opt=document.createElement("option");
+        opt.value = JSON.stringify({ kind:"quick", id:q.id, name:q.name, type:q.type });
+        opt.textContent = q.name;
+        sfLoc.appendChild(opt);
+      });
+
+      const sep=document.createElement("option");
+      sep.disabled=true;
+      sep.textContent="────────";
+      sfLoc.appendChild(sep);
+
+      state.equipActive.forEach(e=>{
+        const opt=document.createElement("option");
+        const payload = {
+          kind:"equip",
+          id: e.id,
+          name: e.name || "(unnamed)",
+          unitId: e.unitId || "",
+          type: norm(e.type) || "equipment"
+        };
+        opt.value = JSON.stringify(payload);
+        const left = payload.unitId ? payload.unitId : payload.name;
+        const sn = e.serial ? ` • …${String(e.serial).slice(-4)}` : "";
+        opt.textContent = `${left}${sn}`;
+        sfLoc.appendChild(opt);
+      });
+    }
+
+    function openStarfireSheet(sf){
+      state.sfSelected = sf;
+      buildLocationOptions();
+      sfTitle.textContent = `Change StarFire Location • …${serialLast4(sf.serial||"")}`;
+      sfSerial.value = sf.serial || "";
+      sfSince.value = (sf.starfireCurrentLocationSince || todayISO());
+      sfCurrentPill.textContent = `Current: ${sf.starfireCurrentLocationName || "—"}`;
+      openSheet(sfSheet);
+    }
+
+    sfClose.addEventListener("click", ()=> closeSheet(sfSheet));
+    sfCancel.addEventListener("click", ()=> closeSheet(sfSheet));
+
+    sfSave.addEventListener("click", async ()=>{
+      if(!state.sfSelected) return;
+
+      let choice=null;
+      try{ choice = JSON.parse(sfLoc.value); }catch{ return; }
+      const since = (sfSince.value || "").trim() || todayISO();
+
+      const patch = {};
+      if(choice.kind === "quick"){
+        patch.starfireCurrentLocationId = null;
+        patch.starfireCurrentLocationName = choice.name;
+        patch.starfireCurrentLocationType = choice.type;
+        patch.starfireCurrentLocationSince = since;
+      } else if(choice.kind === "equip"){
+        const display = (choice.unitId && String(choice.unitId).trim())
+          ? String(choice.unitId).trim()
+          : choice.name;
+
+        patch.starfireCurrentLocationId = choice.id;
+        patch.starfireCurrentLocationName = display;
+        patch.starfireCurrentLocationType = choice.type;
+        patch.starfireCurrentLocationSince = since;
+      }
+
+      try{
+        const db = getFirestore();
+        await updateDoc(doc(db, "equipment", state.sfSelected.id), patch);
+        Object.assign(state.sfSelected, patch);
+        showToast("Location saved.");
+        closeSheet(sfSheet);
+        renderTable();
+      }catch(e){
+        console.error(e);
+        showError(e.message || "Save failed.");
+      }
+    });
+
+    // --- Grid pinch-zoom + two-finger pan (viewport only) ---
+    const ZOOM = {
+      scale: 1,
+      min: 0.55,   // allow zoom OUT like sheets
+      max: 3.0,    // allow zoom IN
+      active: false,
+      startDist: 0,
+      startScale: 1,
+      startMidX: 0,
+      startMidY: 0,
+      startScrollLeft: 0,
+      startScrollTop: 0,
+      lastMidX: 0,
+      lastMidY: 0
+    };
+
+    function setGridScale(s){
+      const clamped = Math.max(ZOOM.min, Math.min(ZOOM.max, s));
+      ZOOM.scale = clamped;
+      gridInner.style.transform = `scale(${clamped})`;
+    }
+
+    function getTouchMidAndDist(t1, t2){
+      const midX = (t1.clientX + t2.clientX) / 2;
+      const midY = (t1.clientY + t2.clientY) / 2;
+      const dx = t2.clientX - t1.clientX;
+      const dy = t2.clientY - t1.clientY;
+      const dist = Math.hypot(dx, dy);
+      return { midX, midY, dist };
+    }
+
+    function viewportPointToContentOffset(midX, midY){
+      const rect = gridViewport.getBoundingClientRect();
+      const xInViewport = midX - rect.left;
+      const yInViewport = midY - rect.top;
+      // content coords in scaled space
+      const contentX = (gridViewport.scrollLeft + xInViewport) / ZOOM.scale;
+      const contentY = (gridViewport.scrollTop + yInViewport) / ZOOM.scale;
+      return { rect, xInViewport, yInViewport, contentX, contentY };
+    }
+
+    function applyZoomKeepingPoint(newScale, midX, midY){
+      const { rect, xInViewport, yInViewport, contentX, contentY } = viewportPointToContentOffset(midX, midY);
+      setGridScale(newScale);
+      // after scaling, adjust scroll to keep same content under midpoint
+      gridViewport.scrollLeft = (contentX * ZOOM.scale) - xInViewport;
+      gridViewport.scrollTop  = (contentY * ZOOM.scale) - yInViewport;
+    }
+
+    function enableGridGestures(){
+      if(!gridViewport || !gridInner) return;
+
+      // start at a slightly zoomed-out default on phone so more fits
+      if(window.matchMedia("(max-width: 820px)").matches){
+        setGridScale(0.78);
+        // scroll to top-left cleanly
+        gridViewport.scrollLeft = 0;
+        gridViewport.scrollTop = 0;
+      } else {
+        setGridScale(1);
+      }
+
+      gridViewport.addEventListener("touchstart", (e)=>{
+        if(e.touches && e.touches.length === 2){
+          const { midX, midY, dist } = getTouchMidAndDist(e.touches[0], e.touches[1]);
+          ZOOM.active = true;
+          ZOOM.startDist = dist;
+          ZOOM.startScale = ZOOM.scale;
+          ZOOM.startMidX = midX;
+          ZOOM.startMidY = midY;
+          ZOOM.lastMidX = midX;
+          ZOOM.lastMidY = midY;
+          ZOOM.startScrollLeft = gridViewport.scrollLeft;
+          ZOOM.startScrollTop = gridViewport.scrollTop;
+        }
+      }, { passive: true });
+
+      gridViewport.addEventListener("touchmove", (e)=>{
+        if(!ZOOM.active) return;
+        if(!e.touches || e.touches.length !== 2) return;
+
+        // ✅ We handle zoom/pan for 2 fingers here
+        e.preventDefault();
+
+        const { midX, midY, dist } = getTouchMidAndDist(e.touches[0], e.touches[1]);
+
+        // scale
+        const ratio = dist / (ZOOM.startDist || dist);
+        const targetScale = ZOOM.startScale * ratio;
+
+        // keep the midpoint anchored while scaling
+        applyZoomKeepingPoint(targetScale, midX, midY);
+
+        // ✅ two-finger pan (midpoint movement adjusts scroll)
+        const dx = midX - ZOOM.lastMidX;
+        const dy = midY - ZOOM.lastMidY;
+        gridViewport.scrollLeft -= dx;
+        gridViewport.scrollTop  -= dy;
+
+        ZOOM.lastMidX = midX;
+        ZOOM.lastMidY = midY;
+      }, { passive: false });
+
+      gridViewport.addEventListener("touchend", (e)=>{
+        if(!e.touches || e.touches.length < 2){
+          ZOOM.active = false;
+        }
+      }, { passive: true });
+
+      gridViewport.addEventListener("touchcancel", ()=>{
+        ZOOM.active = false;
+      }, { passive: true });
+
+      // keep scale when rotating / resizing
+      window.addEventListener("resize", ()=>{
+        // do nothing heavy; keep current scale
+        gridInner.style.transform = `scale(${ZOOM.scale})`;
+      });
+    }
+
+    // Events
+    catSelect.addEventListener("change", ()=>{
+      state.filter = catSelect.value;
+      state.selectedRowId = null;
+      renderTable();
+      // keep current zoom
+      gridInner.style.transform = `scale(${ZOOM.scale})`;
+    });
+
+    qInput.addEventListener("input", ()=>{
+      state.q = qInput.value || "";
+      renderTable();
+      gridInner.style.transform = `scale(${ZOOM.scale})`;
+    });
+
+    async function loadAll(){
+      try{
+        const db = getFirestore();
+        const snap = await getDocs(collection(db, "equipment"));
+
+        const all = [];
+        snap.forEach(d=> all.push({ id: d.id, ...d.data() }));
+
+        // ACTIVE only
+        state.all = all.filter(isActive);
+
+        // ACTIVE equipment for StarFire location targets
+        state.equipActive = state.all
+          .filter(d => norm(d.type) !== "starfire")
+          .sort((a,b)=> String(a.unitId||a.name||"").localeCompare(String(b.unitId||b.name||""), undefined, { sensitivity:"base" }));
+
+        renderTable();
+      }catch(e){
+        console.error(e);
+        showError(e.message || "Load failed.");
+        tbody.innerHTML = `<tr><td class="muted" style="padding:12px;">Load failed.</td></tr>`;
       }
     }
 
-    /* ===== Boot ===== */
-    (async function(){
+    function startAutoRefresh(){
+      document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) loadAll(); });
+      window.addEventListener("focus", ()=> loadAll());
+      setInterval(()=>{ if(!document.hidden) loadAll(); }, 60000);
+    }
+
+    (async()=>{
       await ready;
-      dbInstance = getFirestore();
-      initCombos();
-      await loadFarmsAndFields(dbInstance);
-      await loadEmployees(dbInstance);
+      renderFilterDropdown();
+      enableGridGestures();
+      await loadAll();
+      startAutoRefresh();
     })();
   </script>
 </body>
