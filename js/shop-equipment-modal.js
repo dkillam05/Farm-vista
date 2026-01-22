@@ -1,16 +1,17 @@
 /* =====================================================================
 /Farm-vista/js/shop-equipment-modal.js  (FULL FILE)
-Rev: 2026-01-22f
-Fixes:
-✅ Remove duplicate Unit ID field (use ONLY extras "Unit ID / Unit #" from equipment-forms.js)
-✅ Modal layout + fonts aligned closer to Edit Tractors (cleaner spacing / labels)
-✅ Archive/Delete removed (safety)
-✅ Save maps extras.unitId -> root unitId so the Shop grid can show Unit ID
+Rev: 2026-01-22g
+Upgrade:
+✅ Edit modal now uses the SAME CSS system + class names as your Edit Tractors modal
+   (scoped to this dialog so it doesn't affect other pages)
+✅ No duplicate Unit ID (only Extras "Unit ID / Unit #")
+✅ Planter options auto-show (hydrate implementType controller)
+✅ Archive/Delete removed for safety
+✅ Save maps extras.unitId -> root unitId (grid consistency)
 
 Keeps:
 - svcSheet Lifetime Notes save
 - Service Records modal (list -> detail)
-- In-page Edit modal with Make/Model, Year, Serial, Status, Extras, Notes
 ===================================================================== */
 
 import {
@@ -121,6 +122,7 @@ import {
     }catch(_){}
     return null;
   }
+
   function formatDateTime(d){
     if(!d) return "—";
     try{ return d.toLocaleString(); }catch{ return "—"; }
@@ -195,7 +197,7 @@ import {
 
   function last6(v){ return String(v||"").slice(-6); }
 
-  // ----- extras hydration helpers (to make Planter show automatically) -----
+  // ----- extras hydration helpers (Planter auto-show) -----
   function boolify(v){
     if (v === true || v === false) return v;
     if (v == null) return false;
@@ -295,7 +297,7 @@ import {
     const apply = ()=>{
       let anySet = false;
 
-      // If doc has a root unitId, push it into extras unitId once (so it shows in that single field)
+      // Push root unitId into extras.unitId once so ONLY that field shows the unit id
       if(d && d.unitId){
         anySet = setExtraValue("unitId", d.unitId) || anySet;
       }
@@ -687,33 +689,34 @@ import {
   }
 
   // ===================================================================
-  //  EDIT MODAL
+  //  EDIT MODAL — now uses *exact* Edit Tractors classes + CSS (scoped)
   // ===================================================================
   function ensureEditSheet(){
     if(UI.editSheet) return UI.editSheet;
 
-    injectEditModalStyles();
+    injectEditTractorsModalCss();
 
     const dlg = document.createElement("dialog");
     dlg.id = "shopEquipEdit";
-    dlg.className = "sheet fv-edit-sheet";
+    dlg.className = "sheet fv-edit-tractor-skin";
     dlg.setAttribute("aria-modal","true");
 
-    // ✅ NO extra Unit ID field here — only the Extras Unit ID / Unit # exists
     dlg.innerHTML = `
       <header>
         <strong id="seTitle">Edit Equipment</strong>
-        <button id="seClose" class="btn" type="button">Close</button>
+        <div style="display:flex; gap:8px; align-items:center">
+          <button id="seClose" class="btn" type="button">Close</button>
+        </div>
       </header>
 
       <div class="body">
-        <div class="fv-kv">
+        <div class="kv">
           <div>
             <label>Make</label>
             <input type="hidden" id="seMakeId"/>
-            <div class="fv-dd" id="seDdMake">
-              <button type="button" id="seMakeBtn" class="fv-dd-btn">— Loading… —</button>
-              <div class="fv-dd-list">
+            <div id="seDdMake" class="dd">
+              <button type="button" id="seMakeBtn" class="dd-btn">— Loading… —</button>
+              <div class="dd-list">
                 <input type="text" id="seMakeSearch" placeholder="Search make…">
                 <ul id="seMakeList"></ul>
               </div>
@@ -723,45 +726,45 @@ import {
           <div>
             <label>Model</label>
             <input type="hidden" id="seModelId"/>
-            <div class="fv-dd" id="seDdModel">
-              <button type="button" id="seModelBtn" class="fv-dd-btn" disabled>— Select a Make first —</button>
-              <div class="fv-dd-list">
+            <div id="seDdModel" class="dd">
+              <button type="button" id="seModelBtn" class="dd-btn" disabled>— Select a Make first —</button>
+              <div class="dd-list">
                 <input type="text" id="seModelSearch" placeholder="Search model…" disabled>
                 <ul id="seModelList"></ul>
               </div>
             </div>
-            <div class="fv-tip">Models filter by the selected make.</div>
+            <div class="tip">Models filter by the selected make.</div>
           </div>
 
           <div>
             <label for="seYear">Year</label>
-            <div class="fv-combo" id="seYearCombo">
-              <button type="button" id="seYearTrigger" class="fv-combo-trigger" aria-haspopup="listbox" aria-expanded="false">— Select —</button>
-              <div id="seYearPanel" class="fv-combo-panel fv-hidden" role="listbox" aria-label="Year"></div>
+            <div class="combo" id="seYearCombo">
+              <button type="button" id="seYearTrigger" class="select combo-trigger" aria-haspopup="listbox" aria-expanded="false">— Select —</button>
+              <div id="seYearPanel" class="combo-panel combo-hidden" role="listbox" aria-label="Year"></div>
               <select id="seYear" aria-hidden="true" style="display:none"></select>
             </div>
           </div>
 
           <div>
             <label for="seSerial">Serial (full)</label>
-            <input id="seSerial" class="fv-input" placeholder="Full serial"/>
-            <div class="fv-tip">Last 6: <strong id="seSerial6">—</strong></div>
+            <input id="seSerial" class="input" placeholder="Full serial"/>
+            <div class="tip">Last 6 auto: <strong id="seSerial6">—</strong></div>
           </div>
 
           <div>
             <label for="seStatus">Status</label>
-            <select id="seStatus" class="fv-select">
+            <select id="seStatus" class="input" style="height:var(--ctl-h)">
               <option value="Active">Active</option>
               <option value="Archived">Archived</option>
               <option value="Out of Service">Out of Service</option>
             </select>
           </div>
 
-          <div id="seExtras" class="fv-extras" aria-label="Equipment extra fields"></div>
+          <div id="seExtras" class="extras" aria-label="Equipment extra fields"></div>
 
           <div style="grid-column:1/-1">
             <label for="seNotes">Notes</label>
-            <textarea id="seNotes" class="fv-textarea" placeholder="Notes (replaces equipment notes field)"></textarea>
+            <textarea id="seNotes" class="textarea" placeholder="Notes (replaces equipment notes field)"></textarea>
           </div>
         </div>
       </div>
@@ -776,7 +779,8 @@ import {
 
     dlg.querySelector("#seClose").addEventListener("click", ()=> closeSheet(dlg));
     dlg.addEventListener("close", ()=>{
-      document.querySelectorAll(".fv-dd").forEach(x=>x.classList.remove("open"));
+      // close dd
+      dlg.querySelectorAll(".dd").forEach(d=>d.classList.remove("open"));
       state.editEqId = null;
       state.editEqDoc = null;
       state.editExtras = null;
@@ -785,9 +789,11 @@ import {
     wireDd(dlg.querySelector("#seDdMake"));
     wireDd(dlg.querySelector("#seDdModel"));
     wireDdGlobalClose();
+
     wireYearCombo();
 
     dlg.querySelector("#seSave").addEventListener("click", saveEditModal);
+
     dlg.querySelector("#seSerial").addEventListener("input", ()=>{
       dlg.querySelector("#seSerial6").textContent = last6(dlg.querySelector("#seSerial").value || "");
     });
@@ -795,194 +801,153 @@ import {
     return dlg;
   }
 
-  function injectEditModalStyles(){
-    if(document.getElementById("fv-edit-modal-styles")) return;
+  function injectEditTractorsModalCss(){
+    if(document.getElementById("fv-edit-tractor-css")) return;
 
     const st = document.createElement("style");
-    st.id = "fv-edit-modal-styles";
+    st.id = "fv-edit-tractor-css";
+
+    // This is the Edit Tractors modal styling, scoped to .fv-edit-tractor-skin
     st.textContent = `
-      .fv-edit-sheet{ width:min(760px, 92vw); }
-      .fv-kv{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-      @media(max-width:700px){ .fv-kv{ grid-template-columns:1fr } }
+/* ===== Begin: Edit Tractors modal CSS (scoped) ===== */
+.fv-edit-tractor-skin{
+  width:min(760px, 92vw);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:0;
+  background:var(--card-surface,var(--surface));
+  color:var(--text);
+  box-shadow:0 18px 40px rgba(0,0,0,.45);
+}
+.fv-edit-tractor-skin::backdrop{ background:rgba(0,0,0,.55); }
+.fv-edit-tractor-skin header{
+  padding:14px 16px; border-bottom:1px solid var(--border);
+  display:flex; justify-content:space-between; align-items:center; gap:10px;
+}
+.fv-edit-tractor-skin .body{
+  padding:14px 16px; max-height:70vh;
+  overflow-y:auto; overflow-x:hidden;
+  -webkit-overflow-scrolling:touch;
+  touch-action: pan-y; overscroll-behavior: contain;
+}
+.fv-edit-tractor-skin footer{
+  padding:12px 16px; border-top:1px solid var(--border);
+  display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap;
+}
 
-      /* Match your Edit page label feel */
-      .fv-edit-sheet label{
-        display:block;
-        font-size:13px;
-        color:var(--muted,#6f7772);
-        margin:0 0 6px;
-        font-weight:800;
-      }
+.fv-edit-tractor-skin .kv{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+@media(max-width:700px){ .fv-edit-tractor-skin .kv{ grid-template-columns:1fr } }
+.fv-edit-tractor-skin label{ display:block; font-size:13px; color:var(--muted); margin:0 0 6px; }
 
-      .fv-input{
-        width:100%;
-        font:inherit;
-        color:inherit;
-        background:var(--card-surface,var(--surface));
-        border:1px solid var(--border);
-        border-radius:10px;
-        padding:12px;
-        height:48px;
-        line-height:46px;
-        outline:none;
-      }
+.fv-edit-tractor-skin .input,
+.fv-edit-tractor-skin .textarea{
+  width:100%; font:inherit; color:inherit; background:var(--card-surface,var(--surface));
+  border:1px solid var(--border); border-radius:var(--ctl-radius,10px);
+  padding:var(--ctl-pad-y,12px) var(--ctl-pad-x,12px);
+  height:var(--ctl-h,48px); line-height:calc(var(--ctl-h,48px) - 2px);
+}
+.fv-edit-tractor-skin .textarea{ min-height:110px; height:auto; line-height:1.35; resize:vertical; }
+.fv-edit-tractor-skin .tip{ font-size:12px; color:var(--muted); margin-top:6px; }
 
-      .fv-select{
-        width:100%;
-        font:inherit;
-        color:var(--text);
-        background:var(--card-surface,var(--surface));
-        border:1px solid var(--border);
-        border-radius:10px;
-        padding:10px 12px;
-        height:48px;
-        line-height:48px;
-        appearance:auto;
-        -webkit-appearance:menulist;
-        outline:none;
-      }
+.fv-edit-tractor-skin .btn{
+  display:inline-flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:12px;
+  background:var(--surface); color:var(--text)!important; padding:10px 14px; font-weight:800; cursor:pointer; text-decoration:none;
+}
+.fv-edit-tractor-skin .btn[disabled]{ opacity:.55; pointer-events:none; }
+.fv-edit-tractor-skin .btn-primary{ border-color:transparent; background:var(--green,#3B7E46); color:#fff!important }
 
-      .fv-textarea{
-        width:100%;
-        font:inherit;
-        color:inherit;
-        background:var(--card-surface,var(--surface));
-        border:1px solid var(--border);
-        border-radius:10px;
-        padding:12px;
-        min-height:110px;
-        resize:vertical;
-        outline:none;
-      }
+.fv-edit-tractor-skin .dd{position:relative}
+.fv-edit-tractor-skin .dd-btn{
+  width:100%; text-align:left; padding:12px; padding-right:40px; height:var(--ctl-h,48px);
+  border:1px solid var(--border); border-radius:10px; background:var(--card-surface,var(--surface));
+  font:inherit; color:var(--text)!important; display:flex; align-items:center; appearance:none; -webkit-appearance:none;
+  -webkit-text-fill-color: var(--text) !important;
+}
+.fv-edit-tractor-skin .dd-btn::after{
+  content:""; position:absolute; right:12px; top:50%; transform:translateY(-50%);
+  width:18px; height:18px; pointer-events:none; opacity:.7;
+  background:no-repeat center/18px 18px url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%2367706B' d='M7.41 8.58L12 13.17l4.59-4.59L18 10l-6 6-6-6z'/></svg>");
+}
+.fv-edit-tractor-skin .dd-list{
+  position:absolute;z-index:40;top:calc(100% + 4px);left:0;right:0;max-height:260px;overflow:auto;
+  border:1px solid var(--border);border-radius:10px;background:var(--surface);
+  box-shadow:0 4px 12px rgba(0,0,0,.1);display:none
+}
+.fv-edit-tractor-skin .dd.open .dd-list{display:block}
+.fv-edit-tractor-skin .dd-list input{
+  width:100%;box-sizing:border-box;padding:10px 12px;border:none;border-bottom:1px solid var(--border);
+  font:inherit;outline:none;background:var(--surface); color:var(--text);
+}
+.fv-edit-tractor-skin .dd-list ul{list-style:none;margin:0;padding:0;max-height:220px;overflow-y:auto}
+.fv-edit-tractor-skin .dd-list li{padding:10px 12px;cursor:pointer}
+.fv-edit-tractor-skin .dd-list li:hover{background:rgba(127,127,127,.08)}
+.fv-edit-tractor-skin .dd-btn[disabled]{opacity:.6;cursor:not-allowed}
 
-      .fv-tip{ font-size:12px; color:var(--muted,#6f7772); margin-top:6px; }
+.fv-edit-tractor-skin .combo{ position:relative; }
+.fv-edit-tractor-skin .combo-trigger{ width:100%; text-align:left; }
+.fv-edit-tractor-skin .combo-trigger.select{
+  position:relative; display:flex; align-items:center; height:var(--ctl-h,48px);
+  border:1px solid var(--border); border-radius:10px; background:var(--card-surface,var(--surface));
+  padding:var(--ctl-pad-y,12px) var(--ctl-pad-x,12px);
+  color:var(--text)!important; appearance:none; -webkit-appearance:none; -webkit-text-fill-color:var(--text)!important;
+}
+.fv-edit-tractor-skin .combo-trigger.select::after{
+  content:""; position:absolute; right:12px; top:50%; width:8px; height:8px; transform:translateY(-50%) rotate(45deg);
+  border-right:2px solid currentColor; border-bottom:2px solid currentColor; opacity:.75; pointer-events:none;
+}
+.fv-edit-tractor-skin .combo-panel{
+  position:absolute; left:0; right:0; z-index:1000; margin-top:6px; padding:6px;
+  background:var(--surface); border:1px solid var(--border); border-radius:12px;
+  box-shadow:0 12px 26px rgba(0,0,0,.18);
+  --row-h: 36px; max-height: calc(var(--row-h) * 5 + 12px); overflow:auto;
+}
+.fv-edit-tractor-skin .combo-item{
+  display:block; width:100%; text-align:left; font:inherit; color:var(--text);
+  background:transparent; border:none; border-radius:10px; padding:10px 12px; height:var(--row-h); cursor:pointer;
+}
+.fv-edit-tractor-skin .combo-item:hover, .fv-edit-tractor-skin .combo-item:focus{ background:rgba(127,127,127,.08); outline:none; }
+.fv-edit-tractor-skin .combo-hidden{ display:none !important; }
 
-      .fv-dd{ position:relative; }
-      .fv-dd-btn{
-        width:100%;
-        text-align:left;
-        padding:12px;
-        padding-right:40px;
-        height:48px;
-        border:1px solid var(--border);
-        border-radius:10px;
-        background:var(--card-surface,var(--surface));
-        font:inherit;
-        color:var(--text)!important;
-        display:flex;
-        align-items:center;
-        -webkit-text-fill-color: var(--text) !important;
-        cursor:pointer;
-      }
-      .fv-dd-btn[disabled]{opacity:.6;cursor:not-allowed;}
-      .fv-dd-btn::after{
-        content:"";
-        position:absolute;
-        right:12px; top:50%;
-        transform:translateY(-50%);
-        width:18px; height:18px;
-        pointer-events:none;
-        opacity:.7;
-        background:no-repeat center/18px 18px url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%2367706B' d='M7.41 8.58L12 13.17l4.59-4.59L18 10l-6 6-6-6z'/></svg>");
-      }
-
-      .fv-dd-list{
-        position:absolute; z-index:1000;
-        top:calc(100% + 4px); left:0; right:0;
-        max-height:260px; overflow:auto;
-        border:1px solid var(--border);
-        border-radius:10px;
-        background:var(--surface);
-        box-shadow:0 12px 26px rgba(0,0,0,.18);
-        display:none;
-      }
-      .fv-dd.open .fv-dd-list{ display:block; }
-      .fv-dd-list input{
-        width:100%; box-sizing:border-box;
-        padding:10px 12px;
-        border:none;
-        border-bottom:1px solid var(--border);
-        font:inherit; outline:none;
-        background:var(--surface);
-        color:var(--text);
-      }
-      .fv-dd-list ul{ list-style:none; margin:0; padding:0; max-height:220px; overflow-y:auto }
-      .fv-dd-list li{ padding:10px 12px; cursor:pointer }
-      .fv-dd-list li:hover{ background:rgba(127,127,127,.08) }
-
-      .fv-combo{ position:relative; }
-      .fv-combo-trigger{
-        position:relative;
-        width:100%;
-        text-align:left;
-        display:flex;
-        align-items:center;
-        height:48px;
-        border:1px solid var(--border);
-        border-radius:10px;
-        background:var(--card-surface,var(--surface));
-        padding:12px;
-        color:var(--text)!important;
-        cursor:pointer;
-        -webkit-text-fill-color:var(--text)!important;
-      }
-      .fv-combo-trigger::after{
-        content:"";
-        position:absolute;
-        right:12px; top:50%;
-        width:8px; height:8px;
-        transform:translateY(-50%) rotate(45deg);
-        border-right:2px solid currentColor;
-        border-bottom:2px solid currentColor;
-        opacity:.75;
-        pointer-events:none;
-      }
-      .fv-combo-panel{
-        position:absolute; left:0; right:0;
-        z-index:1000;
-        margin-top:6px;
-        padding:6px;
-        background:var(--surface);
-        border:1px solid var(--border);
-        border-radius:12px;
-        box-shadow:0 12px 26px rgba(0,0,0,.18);
-        --row-h:36px;
-        max-height: calc(var(--row-h) * 5 + 12px);
-        overflow:auto;
-      }
-      .fv-combo-item{
-        display:block; width:100%;
-        text-align:left;
-        font:inherit; color:var(--text);
-        background:transparent;
-        border:none;
-        border-radius:10px;
-        padding:10px 12px;
-        height:var(--row-h);
-        cursor:pointer;
-      }
-      .fv-combo-item:hover{ background:rgba(127,127,127,.08) }
-      .fv-hidden{ display:none !important; }
-
-      .fv-extras{
-        grid-column: 1 / -1;
-        border:1px solid var(--border);
-        border-radius:14px;
-        background:var(--surface);
-        padding:12px;
-      }
+.fv-edit-tractor-skin .extras{
+  grid-column: 1 / -1;
+  border:1px solid var(--border);
+  border-radius:14px;
+  background:var(--surface);
+  padding:12px;
+}
+.fv-edit-tractor-skin .extras .row{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:12px;
+  margin-bottom:12px;
+}
+@media(max-width:700px){ .fv-edit-tractor-skin .extras .row{ grid-template-columns:1fr; } }
+.fv-edit-tractor-skin .extras .field label{ margin:0 0 6px; }
+.fv-edit-tractor-skin .extras .select{
+  width:100%;
+  font:inherit;
+  color:inherit;
+  background:var(--card-surface,var(--surface));
+  border:1px solid var(--border);
+  border-radius:var(--ctl-radius,10px);
+  padding:var(--ctl-pad-y,12px) var(--ctl-pad-x,12px);
+  height:var(--ctl-h,48px);
+  line-height:calc(var(--ctl-h,48px) - 2px);
+  -webkit-text-fill-color: var(--text) !important;
+}
+/* ===== End: Edit Tractors modal CSS (scoped) ===== */
     `;
     document.head.appendChild(st);
   }
 
   function wireDd(root){
     if(!root) return;
-    const btn = root.querySelector(".fv-dd-btn");
+    const btn = root.querySelector(".dd-btn");
     btn.addEventListener("click", ()=>{
-      document.querySelectorAll(".fv-dd").forEach(d=>{ if(d!==root) d.classList.remove("open"); });
+      UI.editSheet.querySelectorAll(".dd").forEach(d=>{ if(d!==root) d.classList.remove("open"); });
       if(btn.disabled) return;
       root.classList.toggle("open");
-      const inp = root.querySelector(".fv-dd-list input");
+      const inp = root.querySelector(".dd-list input");
       if(root.classList.contains("open") && inp) setTimeout(()=> inp.focus(), 60);
     });
   }
@@ -992,13 +957,15 @@ import {
     wireDdGlobalClose._wired = true;
 
     document.addEventListener("click", (e)=>{
-      if(!e.target.closest(".fv-dd")){
-        document.querySelectorAll(".fv-dd").forEach(d=>d.classList.remove("open"));
+      if(!UI.editSheet) return;
+      if(UI.editSheet.open && !e.target.closest(".dd")){
+        UI.editSheet.querySelectorAll(".dd").forEach(d=>d.classList.remove("open"));
       }
     });
     window.addEventListener("keydown", (e)=>{
-      if(e.key === "Escape"){
-        document.querySelectorAll(".fv-dd").forEach(d=>d.classList.remove("open"));
+      if(!UI.editSheet) return;
+      if(e.key === "Escape" && UI.editSheet.open){
+        UI.editSheet.querySelectorAll(".dd").forEach(d=>d.classList.remove("open"));
       }
     });
   }
@@ -1014,12 +981,12 @@ import {
     if(!trigger || !panel || !sel || !combo) return;
 
     function closePanel(){
-      panel.classList.add("fv-hidden");
+      panel.classList.add("combo-hidden");
       trigger.setAttribute("aria-expanded","false");
       document.removeEventListener("keydown", onEsc);
     }
     function openPanel(){
-      panel.classList.remove("fv-hidden");
+      panel.classList.remove("combo-hidden");
       trigger.setAttribute("aria-expanded","true");
       document.addEventListener("keydown", onEsc);
       document.addEventListener("click", onDocOnce, { once:true });
@@ -1047,7 +1014,7 @@ import {
       [...sel.options].forEach(opt=>{
         const b = document.createElement("button");
         b.type="button";
-        b.className="fv-combo-item";
+        b.className="combo-item";
         b.dataset.val=opt.value;
         b.textContent=opt.textContent;
         b.addEventListener("click", ()=>{
@@ -1197,6 +1164,7 @@ import {
 
     buildList(makeList, state.makes, setMake);
 
+    // preselect make
     const byId = state.makes.find(m=>m.id===prefMakeIdOrName);
     const byNm = state.makes.find(m=>m.name===prefMakeIdOrName);
     if(byId) setMake(byId.id, byId.name);
@@ -1213,7 +1181,7 @@ import {
     host.innerHTML = "";
 
     if(!window.FVEquipForms || typeof window.FVEquipForms.initExtras !== "function"){
-      host.innerHTML = `<div class="muted">Extras engine missing (equipment-forms.js).</div>`;
+      host.innerHTML = `<div class="sub" style="margin:0">Extras engine missing (equipment-forms.js).</div>`;
       state.editExtras = null;
       return;
     }
@@ -1221,6 +1189,7 @@ import {
     const typeKey = detectTypeKeyFromEq(eqDoc);
     state.editTypeKey = typeKey;
 
+    // Use the SAME contract the edit page uses
     state.editExtras = window.FVEquipForms.initExtras({
       equipType: typeKey,
       container: host,
@@ -1228,46 +1197,6 @@ import {
     });
 
     hydrateExtrasFromDoc(eqDoc);
-  }
-
-  async function openEditModal(eqId){
-    bootstrap();
-    ensureSvcFooterButtons();
-    ensureEditSheet();
-
-    await ensureEquipmentFormsLoaded();
-    await loadMakesModels();
-
-    const db = getFirestore();
-    const snap = await getDoc(doc(db,"equipment", eqId));
-    if(!snap.exists()){
-      showError("Equipment not found.");
-      return;
-    }
-
-    const d = { id: snap.id, ...(snap.data()||{}) };
-    state.editEqId = eqId;
-    state.editEqDoc = d;
-
-    // header like your edit page style
-    UI.editSheet.querySelector("#seTitle").textContent = typeLabelForHeader(d);
-
-    if(typeof wireYearCombo._build === "function") wireYearCombo._build();
-    setupMakeModelDd(d.makeId || d.makeName || "", d.modelId || d.modelName || "");
-
-    const yearSel = UI.editSheet.querySelector("#seYear");
-    const yearTrigger = UI.editSheet.querySelector("#seYearTrigger");
-    yearSel.value = d.year ? String(d.year) : "";
-    yearTrigger.textContent = yearSel.value ? yearSel.value : "— Select —";
-
-    UI.editSheet.querySelector("#seSerial").value = d.serial || "";
-    UI.editSheet.querySelector("#seSerial6").textContent = last6(d.serial || "");
-    UI.editSheet.querySelector("#seStatus").value = (d.status || "Active");
-    UI.editSheet.querySelector("#seNotes").value = d.notes || "";
-
-    initExtrasEngineForEdit(d);
-
-    openSheet(UI.editSheet);
   }
 
   function readEditForm(){
@@ -1293,7 +1222,6 @@ import {
       ? (state.editExtras.read() || {})
       : {};
 
-    // ✅ Map extras.unitId -> root unitId for the grid
     const rootUnitId = String(extras?.unitId || state.editEqDoc?.unitId || "").trim();
 
     return { makeId, modelId, makeName, modelName, year, serial, status, notes, extras, rootUnitId };
@@ -1342,6 +1270,45 @@ import {
       console.error(e);
       alert("Save failed by Firestore rules.");
     }
+  }
+
+  async function openEditModal(eqId){
+    bootstrap();
+    ensureSvcFooterButtons();
+    ensureEditSheet();
+
+    await ensureEquipmentFormsLoaded();
+    await loadMakesModels();
+
+    const db = getFirestore();
+    const snap = await getDoc(doc(db,"equipment", eqId));
+    if(!snap.exists()){
+      showError("Equipment not found.");
+      return;
+    }
+
+    const d = { id: snap.id, ...(snap.data()||{}) };
+    state.editEqId = eqId;
+    state.editEqDoc = d;
+
+    UI.editSheet.querySelector("#seTitle").textContent = typeLabelForHeader(d);
+
+    if(typeof wireYearCombo._build === "function") wireYearCombo._build();
+    setupMakeModelDd(d.makeId || d.makeName || "", d.modelId || d.modelName || "");
+
+    const yearSel = UI.editSheet.querySelector("#seYear");
+    const yearTrigger = UI.editSheet.querySelector("#seYearTrigger");
+    yearSel.value = d.year ? String(d.year) : "";
+    yearTrigger.textContent = yearSel.value ? yearSel.value : "— Select —";
+
+    UI.editSheet.querySelector("#seSerial").value = d.serial || "";
+    UI.editSheet.querySelector("#seSerial6").textContent = last6(d.serial || "");
+    UI.editSheet.querySelector("#seStatus").value = (d.status || "Active");
+    UI.editSheet.querySelector("#seNotes").value = d.notes || "";
+
+    initExtrasEngineForEdit(d);
+
+    openSheet(UI.editSheet);
   }
 
   // ===================================================================
