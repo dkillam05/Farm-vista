@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-01-21a-storage-truth-rewind14-rateTuning
+Rev: 2026-01-21b-storage-truth-rewind14-rateTuning-dryTailFix-halfPointR
 
 Model math (dry power, storage, readiness) + helpers
 
@@ -30,6 +30,10 @@ NEW (Learning hooks — NO ceilings):
    - deps.EXTRA.RAIN_EFF_MULT (default 1.0): multiplies effective rain (after runoff/bypass)
    These preserve invariants because they only change STORAGE evolution.
 
+FIX (model issue: "cap-like" pile-up around storage ~0.18 and readiness ~95):
+✅ Add a DRY TAIL EASING so drying loss tapers when very dry (prevents convergence pile-ups).
+✅ Output readiness/wetness rounded to 0.5 points (still stable, removes identical stacking).
+
 ETA:
 ✅ ETA uses the SAME effective storage that drives readiness.
 
@@ -46,6 +50,11 @@ deps additions supported:
 'use strict';
 
 function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+function roundToHalf(x){
+  const n = Number(x);
+  if (!isFinite(n)) return 0;
+  return Math.round(n * 2) / 2;
+}
 
 /* =====================================================================
    FV_TUNE — ALL ADJUSTABLE VARIABLES (Option A)
@@ -65,7 +74,13 @@ const FV_TUNE = {
   // Guardrails / stability
   SAT_DRYBYPASS_FLOOR: 0.02,
   SAT_RUNOFF_CAP: 0.85,
-  RAIN_EFF_MIN: 0.05
+  RAIN_EFF_MIN: 0.05,
+
+  // ✅ NEW: Dry tail easing (prevents "cap-like" pile-ups at very dry end)
+  // When saturation (storage/Smax) is below DRY_TAIL_START, drying loss is tapered down
+  // toward DRY_TAIL_MIN_MULT at 0% saturation.
+  DRY_TAIL_START: 0.12,       // fraction of Smax where taper begins
+  DRY_TAIL_MIN_MULT: 0.55     // minimum loss multiplier at extreme dry
 };
 
 // Allows ops to override without editing file:
@@ -99,6 +114,10 @@ function getTune(deps){
   t.SAT_DRYBYPASS_FLOOR= clamp(t.SAT_DRYBYPASS_FLOOR, 0.0, 0.20);
   t.SAT_RUNOFF_CAP     = clamp(t.SAT_RUNOFF_CAP, 0.20, 0.95);
   t.RAIN_EFF_MIN       = clamp(t.RAIN_EFF_MIN, 0.0, 0.20);
+
+  // ✅ new clamps
+  t.DRY_TAIL_START     = clamp(t.DRY_TAIL_START, 0.03, 0.30);
+  t.DRY_TAIL_MIN_MULT  = clamp(t.DRY_TAIL_MIN_MULT, 0.20, 1.00);
 
   return t;
 }
@@ -373,11 +392,6 @@ function baselineSeedFromWindow(rowsWindow, f){
 
 /**
  * Decide seed + which index to start simulating from.
- *
- * Modes:
- * - persisted (default): use persisted storage if present, simulate forward only.
- * - rewind: ignore persisted anchor; re-simulate last N days so soil/drain affects today.
- * - baseline: ignore persisted; seed from start of series (original baseline).
  */
 function pickSeed(rows, f, deps, fieldId){
   const mode = getSeedMode(deps);
@@ -504,13 +518,12 @@ export function runField(field, deps){
     const storageEff = calRes.storageEff;
 
     const wetness = (f.Smax > 0) ? clamp((storageEff / f.Smax) * 100, 0, 100) : 0;
-    const wetnessR = Math.round(wetness);
+    const wetnessR = roundToHalf(wetness);
 
     const readinessBase = clamp(100 - wetness, 0, 100);
-    const readinessR = Math.round(readinessBase);
+    const readinessR = roundToHalf(readinessBase);
 
     const avgLossDay = 0.08;
-
     const lastDateISO = rows.length ? rows[rows.length-1].dateISO : '';
 
     return {
@@ -569,6 +582,16 @@ export function runField(field, deps){
     // NEW: learning hook — drying loss multiplier
     loss = Math.max(0, loss * rate.dryLossMult);
 
+    // ✅ DRY TAIL EASING: taper drying when very dry to prevent convergence pile-ups
+    if (f.Smax > 0 && isFinite(before)){
+      const sat = clamp(before / f.Smax, 0, 1);
+      if (sat < tune.DRY_TAIL_START){
+        const frac = clamp(sat / Math.max(1e-6, tune.DRY_TAIL_START), 0, 1);
+        const mult = tune.DRY_TAIL_MIN_MULT + (1 - tune.DRY_TAIL_MIN_MULT) * frac;
+        loss = loss * mult;
+      }
+    }
+
     const after = clamp(before + add - loss, 0, f.Smax);
     storage = after;
 
@@ -590,10 +613,10 @@ export function runField(field, deps){
   const storageEff = calRes.storageEff;
 
   const wetness = (f.Smax > 0) ? clamp((storageEff / f.Smax) * 100, 0, 100) : 0;
-  const wetnessR = Math.round(wetness);
+  const wetnessR = roundToHalf(wetness);
 
   const readinessBase = clamp(100 - wetness, 0, 100);
-  const readinessR = Math.round(readinessBase);
+  const readinessR = roundToHalf(readinessBase);
 
   const last7 = trace.slice(-7);
   const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
@@ -674,6 +697,7 @@ export function etaFor(run, threshold, ETA_MAX_HOURS){
   const delta = storageNow - storageTarget;
   if (!isFinite(delta) || delta <= 0) return '';
 
+  // keep ETA stable; do not allow a too-small daily loss
   const dailyLoss = Math.max(0.02, Number(run.avgLossDay || 0.08));
   let hours = Math.ceil((delta / dailyLoss) * 24);
 
