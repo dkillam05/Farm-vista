@@ -478,6 +478,7 @@ function runFieldWithCal(state, f, calObj, extraOpts){
 function getRunForFieldShown(state, f){
   return runFieldWithCal(state, f, getCalForShown(state));
 }
+const STATUS_HYSTERESIS = 2;
 
 /* =====================================================================
    Current threshold + status (kept)
