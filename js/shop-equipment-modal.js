@@ -1,7 +1,15 @@
 /* =====================================================================
 /Farm-vista/js/shop-equipment-modal.js  (FULL FILE)
-Rev: 2026-01-22h
+Rev: 2026-01-22i
 Updates:
+✅ Hide modal scrollbars (keep scrolling working) for:
+   - Edit modal body
+   - Combo/year panel
+   - Make/Model dropdown lists
+   - Service Records modal body + detail/list areas
+   (Chrome/Edge/Safari/Firefox)
+
+Keeps:
 ✅ After successful Lifetime Notes save, CLOSE the popup
 ✅ Dispatch event so Shop grid can update immediately:
    window.dispatchEvent(new CustomEvent("fv-shop-equip:lifetimeNotesSaved",{detail:{id,lifetimeNotes}}))
@@ -701,6 +709,7 @@ import {
   background:var(--card-surface,var(--surface));
   color:var(--text);
   box-shadow:0 18px 40px rgba(0,0,0,.45);
+  overflow:hidden; /* prevents dialog itself from showing its own scrollbar */
 }
 .fv-edit-tractor-skin::backdrop{ background:rgba(0,0,0,.55); }
 .fv-edit-tractor-skin header{
@@ -712,7 +721,13 @@ import {
   overflow-y:auto; overflow-x:hidden;
   -webkit-overflow-scrolling:touch;
   touch-action: pan-y; overscroll-behavior: contain;
+
+  /* hide scrollbar, keep scroll */
+  scrollbar-width:none;            /* Firefox */
+  -ms-overflow-style:none;         /* IE/Edge legacy */
 }
+.fv-edit-tractor-skin .body::-webkit-scrollbar{ width:0; height:0; } /* Chrome/Safari */
+
 .fv-edit-tractor-skin footer{
   padding:12px 16px; border-top:1px solid var(--border);
   display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap;
@@ -754,14 +769,26 @@ import {
 .fv-edit-tractor-skin .dd-list{
   position:absolute;z-index:40;top:calc(100% + 4px);left:0;right:0;max-height:260px;overflow:auto;
   border:1px solid var(--border);border-radius:10px;background:var(--surface);
-  box-shadow:0 4px 12px rgba(0,0,0,.1);display:none
+  box-shadow:0 4px 12px rgba(0,0,0,.1);display:none;
+
+  /* hide scrollbar, keep scroll */
+  scrollbar-width:none;
+  -ms-overflow-style:none;
 }
+.fv-edit-tractor-skin .dd-list::-webkit-scrollbar{ width:0; height:0; }
+
 .fv-edit-tractor-skin .dd.open .dd-list{display:block}
 .fv-edit-tractor-skin .dd-list input{
   width:100%;box-sizing:border-box;padding:10px 12px;border:none;border-bottom:1px solid var(--border);
   font:inherit;outline:none;background:var(--surface); color:var(--text);
 }
-.fv-edit-tractor-skin .dd-list ul{list-style:none;margin:0;padding:0;max-height:220px;overflow-y:auto}
+.fv-edit-tractor-skin .dd-list ul{list-style:none;margin:0;padding:0;max-height:220px;overflow-y:auto;
+  /* hide scrollbar, keep scroll */
+  scrollbar-width:none;
+  -ms-overflow-style:none;
+}
+.fv-edit-tractor-skin .dd-list ul::-webkit-scrollbar{ width:0; height:0; }
+
 .fv-edit-tractor-skin .dd-list li{padding:10px 12px;cursor:pointer}
 .fv-edit-tractor-skin .dd-list li:hover{background:rgba(127,127,127,.08)}
 .fv-edit-tractor-skin .dd-btn[disabled]{opacity:.6;cursor:not-allowed}
@@ -783,7 +810,13 @@ import {
   background:var(--surface); border:1px solid var(--border); border-radius:12px;
   box-shadow:0 12px 26px rgba(0,0,0,.18);
   --row-h: 36px; max-height: calc(var(--row-h) * 5 + 12px); overflow:auto;
+
+  /* hide scrollbar, keep scroll */
+  scrollbar-width:none;
+  -ms-overflow-style:none;
 }
+.fv-edit-tractor-skin .combo-panel::-webkit-scrollbar{ width:0; height:0; }
+
 .fv-edit-tractor-skin .combo-item{
   display:block; width:100%; text-align:left; font:inherit; color:var(--text);
   background:transparent; border:none; border-radius:10px; padding:10px 12px; height:var(--row-h); cursor:pointer;
@@ -818,6 +851,23 @@ import {
   line-height:calc(var(--ctl-h,48px) - 2px);
   -webkit-text-fill-color: var(--text) !important;
 }
+
+/* ===== Also hide scrollbars in other sheet modals (Service Records, etc.) ===== */
+.sheet .body{
+  scrollbar-width:none;
+  -ms-overflow-style:none;
+}
+.sheet .body::-webkit-scrollbar{ width:0; height:0; }
+.sheet .combo-panel,
+.sheet .dd-list,
+.sheet .dd-list ul{
+  scrollbar-width:none;
+  -ms-overflow-style:none;
+}
+.sheet .combo-panel::-webkit-scrollbar,
+.sheet .dd-list::-webkit-scrollbar,
+.sheet .dd-list ul::-webkit-scrollbar{ width:0; height:0; }
+
 /* ===== End: Edit Tractors modal CSS (scoped) ===== */
     `;
     document.head.appendChild(st);
