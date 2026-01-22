@@ -1,51 +1,21 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-01-21b-storage-truth-rewind14-rateTuning-dryTailFix-halfPointR
+Rev: 2026-01-22d-storage-truth-rewind14-rateTuning-dryTailFix-halfPointR-impactFactor
 
 Model math (dry power, storage, readiness) + helpers
 
-CRITICAL RULE (per Dane):
-✅ Storage, Wetness, and Field Readiness MUST ALWAYS match.
-   - wetness = (storage / Smax) * 100
-   - readiness = 100 - wetness
-   - Therefore: if storage === 0 -> wetness === 0 -> readiness === 100
+UPDATED RULE (per Dane — NEW INTENT):
+✅ Storage remains the single truth (inches of water).
+✅ Sliders set tank size (Smax) AND how impactful water is for readiness (subtle).
+✅ Calibration adjusts STORAGE only.
+✅ Readiness is derived from EFFECTIVE wetness (small impact factor), not purely % full.
 
-HYBRID (per Dane, NON-NEGOTIABLE):
-✅ Weather + Soil + Drainage must determine the CURRENT level too.
-✅ When sliders (soil/drain) change, the level MUST move immediately.
-   - We achieve this by supporting a “rewind” seed mode:
-     deps.seedMode = 'rewind'
-     deps.rewindDays = 14
-   - In rewind mode we IGNORE persisted storage anchoring and re-simulate the last N days
-     so parameter changes alter today’s storage (not just future rates).
+EFFECTIVE WETNESS:
+  rawWetnessPct = (storage / Smax) * 100
+  effectiveWetnessPct = clamp(rawWetnessPct * impactFactor, 0, 100)
+  readiness = 100 - effectiveWetnessPct
 
-CAL / ADJUSTMENTS:
-✅ Calibration may NOT add directly to wetness/readiness (breaks invariant).
-✅ CAL (wetBias/readinessShift) is interpreted as a desired wetness delta,
-   applied by shifting STORAGE, then wetness/readiness derived from storage.
-
-NEW (Learning hooks — NO ceilings):
-✅ Support rate tuning (affects physics, not outputs):
-   - deps.EXTRA.DRY_LOSS_MULT (default 1.0): multiplies drying loss term
-   - deps.EXTRA.RAIN_EFF_MULT (default 1.0): multiplies effective rain (after runoff/bypass)
-   These preserve invariants because they only change STORAGE evolution.
-
-FIX (model issue: "cap-like" pile-up around storage ~0.18 and readiness ~95):
-✅ Add a DRY TAIL EASING so drying loss tapers when very dry (prevents convergence pile-ups).
-✅ Output readiness/wetness rounded to 0.5 points (still stable, removes identical stacking).
-
-ETA:
-✅ ETA uses the SAME effective storage that drives readiness.
-
-STATEFUL OPTION 1 (still supported):
-✅ Persisted storage seeds “today” and only simulate forward when seedMode is not rewind.
-
-deps additions supported:
-- deps.seedMode?: 'persisted' | 'rewind' | 'baseline'
-  default: 'persisted' (existing behavior)
-- deps.rewindDays?: number (used when seedMode==='rewind')
-- deps.EXTRA.DRY_LOSS_MULT?: number (0.3..3.0)
-- deps.EXTRA.RAIN_EFF_MULT?: number (0.3..3.0)
+impactFactor is subtle (≈ 0.95..1.15), so bigger tank still matters a lot.
 ===================================================================== */
 'use strict';
 
@@ -76,7 +46,7 @@ const FV_TUNE = {
   SAT_RUNOFF_CAP: 0.85,
   RAIN_EFF_MIN: 0.05,
 
-  // ✅ NEW: Dry tail easing (prevents "cap-like" pile-ups at very dry end)
+  // ✅ Dry tail easing (prevents "cap-like" pile-ups at very dry end)
   // When saturation (storage/Smax) is below DRY_TAIL_START, drying loss is tapered down
   // toward DRY_TAIL_MIN_MULT at 0% saturation.
   DRY_TAIL_START: 0.12,       // fraction of Smax where taper begins
@@ -123,7 +93,7 @@ function getTune(deps){
 }
 
 /* =====================================================================
-   NEW: Rate tuning multipliers (learning hooks)
+   Rate tuning multipliers (learning hooks)
 ===================================================================== */
 function getRateMults(deps){
   try{
@@ -200,11 +170,24 @@ export function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, EXTRA){
   const SmaxBase  = 2.60 + 1.00*soilHold + 0.90*drainPoor;
   const Smax      = SmaxBase * (1 + EXTRA.STORAGE_CAP_SM010_W * smN);
 
-  return { soilHold, drainPoor, smN, infilMult, dryMult, Smax, SmaxBase };
+  // ============================================================
+  // NEW (subtle): Impact factor for readiness
+  // Bigger/wetter/poorer soils -> slightly higher impact (readiness lower)
+  //
+  // Range: ~0.95..1.15  (subtle; tank size still dominates)
+  // ============================================================
+  const impactRaw =
+    0.95 +
+    0.12 * soilHold +
+    0.10 * drainPoor;
+
+  const impactFactor = clamp(impactRaw, 0.95, 1.15);
+
+  return { soilHold, drainPoor, smN, infilMult, dryMult, Smax, SmaxBase, impactFactor };
 }
 
 /* =====================================================================
-   Calibration hooks (now applied to STORAGE to preserve invariants)
+   Calibration hooks (applied to STORAGE)
 ===================================================================== */
 function getWetBiasFromDeps(deps){
   try{
@@ -249,7 +232,7 @@ function getReadinessShiftFromDeps(deps){
 }
 
 /**
- * Apply calibration to storage (single truth) so wetness/readiness remain tied.
+ * Apply calibration to storage so wetness/readiness remain tied.
  */
 function applyCalToStorage(storagePhys, Smax, deps){
   const smax = Number(Smax);
@@ -285,7 +268,7 @@ function applyCalToStorage(storagePhys, Smax, deps){
 }
 
 /* =====================================================================
-   Saturation-aware rain effectiveness (Option A)
+   Saturation-aware rain effectiveness
 ===================================================================== */
 function effectiveRainInches(rainIn, storageBefore, Smax, factors, tune){
   const rain = Math.max(0, Number(rainIn||0));
@@ -374,10 +357,6 @@ function getRewindDays(deps){
   return clamp(Math.round(n), 3, 45);
 }
 
-/**
- * Baseline seed computed from a rows window (same idea as original first7 nudge),
- * but applied at an arbitrary starting point.
- */
 function baselineSeedFromWindow(rowsWindow, f){
   const first7 = rowsWindow.slice(0,7);
   const rain7 = first7.reduce((s,x)=> s + Number(x && x.rainInAdj || 0), 0);
@@ -390,18 +369,12 @@ function baselineSeedFromWindow(rowsWindow, f){
   return { storage0, rain7, rainNudgeFrac, rainNudge };
 }
 
-/**
- * Decide seed + which index to start simulating from.
- */
 function pickSeed(rows, f, deps, fieldId){
   const mode = getSeedMode(deps);
 
   const firstDate = rows.length ? isoDay(rows[0].dateISO) : '';
   const lastDate  = rows.length ? isoDay(rows[rows.length-1].dateISO) : '';
 
-  // ---------------------------------------------------------------
-  // REWIND MODE (hybrid sliders): re-simulate last N days
-  // ---------------------------------------------------------------
   if (mode === 'rewind'){
     const N = getRewindDays(deps);
     const startIdx = Math.max(0, rows.length - N);
@@ -425,9 +398,6 @@ function pickSeed(rows, f, deps, fieldId){
     };
   }
 
-  // ---------------------------------------------------------------
-  // PERSISTED MODE (existing)
-  // ---------------------------------------------------------------
   if (mode === 'persisted'){
     const persisted = getPersistedState(deps, fieldId);
 
@@ -459,9 +429,6 @@ function pickSeed(rows, f, deps, fieldId){
     }
   }
 
-  // ---------------------------------------------------------------
-  // BASELINE MODE (or fallback)
-  // ---------------------------------------------------------------
   const b0 = baselineSeedFromWindow(rows, f);
 
   return {
@@ -517,11 +484,14 @@ export function runField(field, deps){
     const calRes = applyCalToStorage(storage, f.Smax, deps);
     const storageEff = calRes.storageEff;
 
-    const wetness = (f.Smax > 0) ? clamp((storageEff / f.Smax) * 100, 0, 100) : 0;
-    const wetnessR = roundToHalf(wetness);
+    // ============================================================
+    // NEW: readiness uses EFFECTIVE wetness (subtle impactFactor)
+    // ============================================================
+    const rawWetness = (f.Smax > 0) ? clamp((storageEff / f.Smax) * 100, 0, 100) : 0;
+    const effWetness = clamp(rawWetness * Number(f.impactFactor || 1.0), 0, 100);
 
-    const readinessBase = clamp(100 - wetness, 0, 100);
-    const readinessR = roundToHalf(readinessBase);
+    const wetnessR = roundToHalf(effWetness);
+    const readinessR = roundToHalf(clamp(100 - effWetness, 0, 100));
 
     const avgLossDay = 0.08;
     const lastDateISO = rows.length ? rows[rows.length-1].dateISO : '';
@@ -543,11 +513,15 @@ export function runField(field, deps){
       wetnessDeltaApplied: calRes.wetnessDeltaApplied,
       storageDeltaApplied: calRes.storageDeltaApplied,
 
-      // NEW: rate multipliers used
       dryLossMultApplied: rate.dryLossMult,
       rainEffMultApplied: rate.rainEffMult,
 
       tuneUsed: tune,
+
+      // Helpful debug (won't break anything)
+      rawWetnessPct: rawWetness,
+      effWetnessPct: effWetness,
+      impactFactorApplied: Number(f.impactFactor || 1.0),
 
       stateOut: buildStateOut(field.id, storageEff, (lastDateISO || seedPick.seedDebug.asOfDateISO || ''), f),
 
@@ -566,23 +540,15 @@ export function runField(field, deps){
 
     const before = storage;
 
-    // Effective rain after runoff/bypass
     let rainEff = effectiveRainInches(rain, before, f.Smax, f, tune);
-
-    // NEW: learning hook — rain effectiveness multiplier
     rainEff = clamp(rainEff * rate.rainEffMult, 0, 1000);
 
     let add = rainEff * f.infilMult;
-
-    // Keep your SM010 helper term intact
     add += (deps.EXTRA.ADD_SM010_W * d.smN_day) * 0.05;
 
     let loss = Number(d.dryPwr||0) * deps.LOSS_SCALE * f.dryMult * (1 + deps.EXTRA.LOSS_ET0_W * d.et0N);
-
-    // NEW: learning hook — drying loss multiplier
     loss = Math.max(0, loss * rate.dryLossMult);
 
-    // ✅ DRY TAIL EASING: taper drying when very dry to prevent convergence pile-ups
     if (f.Smax > 0 && isFinite(before)){
       const sat = clamp(before / f.Smax, 0, 1);
       if (sat < tune.DRY_TAIL_START){
@@ -612,11 +578,14 @@ export function runField(field, deps){
   const calRes = applyCalToStorage(storage, f.Smax, deps);
   const storageEff = calRes.storageEff;
 
-  const wetness = (f.Smax > 0) ? clamp((storageEff / f.Smax) * 100, 0, 100) : 0;
-  const wetnessR = roundToHalf(wetness);
+  // ============================================================
+  // NEW: readiness uses EFFECTIVE wetness (subtle impactFactor)
+  // ============================================================
+  const rawWetness = (f.Smax > 0) ? clamp((storageEff / f.Smax) * 100, 0, 100) : 0;
+  const effWetness = clamp(rawWetness * Number(f.impactFactor || 1.0), 0, 100);
 
-  const readinessBase = clamp(100 - wetness, 0, 100);
-  const readinessR = roundToHalf(readinessBase);
+  const wetnessR = roundToHalf(effWetness);
+  const readinessR = roundToHalf(clamp(100 - effWetness, 0, 100));
 
   const last7 = trace.slice(-7);
   const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
@@ -640,11 +609,15 @@ export function runField(field, deps){
     wetnessDeltaApplied: calRes.wetnessDeltaApplied,
     storageDeltaApplied: calRes.storageDeltaApplied,
 
-    // NEW: rate multipliers used
     dryLossMultApplied: rate.dryLossMult,
     rainEffMultApplied: rate.rainEffMult,
 
     tuneUsed: tune,
+
+    // Helpful debug (won't break anything)
+    rawWetnessPct: rawWetness,
+    effWetnessPct: effWetness,
+    impactFactorApplied: Number(f.impactFactor || 1.0),
 
     stateOut: buildStateOut(field.id, storageEff, lastDateISO, f),
 
@@ -697,7 +670,6 @@ export function etaFor(run, threshold, ETA_MAX_HOURS){
   const delta = storageNow - storageTarget;
   if (!isFinite(delta) || delta <= 0) return '';
 
-  // keep ETA stable; do not allow a too-small daily loss
   const dailyLoss = Math.max(0.02, Number(run.avgLossDay || 0.08));
   let hours = Math.ceil((delta / dailyLoss) * 24);
 
