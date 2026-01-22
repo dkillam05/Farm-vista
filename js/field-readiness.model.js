@@ -1,29 +1,35 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-01-22d-storage-truth-rewind14-rateTuning-dryTailFix-halfPointR-impactFactor
+Rev: 2026-01-22e-storage-truth-rewind14-rateTuning-dryTailFix-impactFactor-intReadiness-Smax3to5
 
 Model math (dry power, storage, readiness) + helpers
 
-UPDATED RULE (per Dane — NEW INTENT):
-✅ Storage remains the single truth (inches of water).
-✅ Sliders set tank size (Smax) AND how impactful water is for readiness (subtle).
-✅ Calibration adjusts STORAGE only.
-✅ Readiness is derived from EFFECTIVE wetness (small impact factor), not purely % full.
+CRITICAL RULE (per Dane):
+✅ Storage is truth (inches of water). Calibration adjusts STORAGE only.
+✅ Sliders define:
+   - tank size (Smax)
+   - drying behavior
+   - subtle readiness impact factor (wetter/poorer -> slightly lower readiness)
 
-EFFECTIVE WETNESS:
-  rawWetnessPct = (storage / Smax) * 100
-  effectiveWetnessPct = clamp(rawWetnessPct * impactFactor, 0, 100)
-  readiness = 100 - effectiveWetnessPct
+READINESS:
+✅ Whole numbers only (no .5)
+✅ Derived from EFFECTIVE wetness:
+   rawWetnessPct = (storage / Smax) * 100
+   effectiveWetnessPct = clamp(rawWetnessPct * impactFactor, 0, 100)
+   readiness = 100 - effectiveWetnessPct
 
-impactFactor is subtle (≈ 0.95..1.15), so bigger tank still matters a lot.
+TANK SIZE (per Dane request):
+✅ Smax range is 3.0 .. 5.0 based on sliders
+   - low sliders -> 3.0
+   - high sliders -> 5.0
+✅ SM010 may influence Smax slightly, but NEVER breaks the 3..5 endpoints
 ===================================================================== */
 'use strict';
 
 function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
-function roundToHalf(x){
+function roundInt(x){
   const n = Number(x);
-  if (!isFinite(n)) return 0;
-  return Math.round(n * 2) / 2;
+  return Number.isFinite(n) ? Math.round(n) : 0;
 }
 
 /* =====================================================================
@@ -46,9 +52,7 @@ const FV_TUNE = {
   SAT_RUNOFF_CAP: 0.85,
   RAIN_EFF_MIN: 0.05,
 
-  // ✅ Dry tail easing (prevents "cap-like" pile-ups at very dry end)
-  // When saturation (storage/Smax) is below DRY_TAIL_START, drying loss is tapered down
-  // toward DRY_TAIL_MIN_MULT at 0% saturation.
+  // Dry tail easing (prevents "cap-like" pile-ups at very dry end)
   DRY_TAIL_START: 0.12,       // fraction of Smax where taper begins
   DRY_TAIL_MIN_MULT: 0.55     // minimum loss multiplier at extreme dry
 };
@@ -85,7 +89,7 @@ function getTune(deps){
   t.SAT_RUNOFF_CAP     = clamp(t.SAT_RUNOFF_CAP, 0.20, 0.95);
   t.RAIN_EFF_MIN       = clamp(t.RAIN_EFF_MIN, 0.0, 0.20);
 
-  // ✅ new clamps
+  // Dry-tail clamps
   t.DRY_TAIL_START     = clamp(t.DRY_TAIL_START, 0.03, 0.30);
   t.DRY_TAIL_MIN_MULT  = clamp(t.DRY_TAIL_MIN_MULT, 0.20, 1.00);
 
@@ -167,14 +171,26 @@ export function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, EXTRA){
   const infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor;
   const dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor;
 
-  const SmaxBase  = 2.60 + 1.00*soilHold + 0.90*drainPoor;
-  const Smax      = SmaxBase * (1 + EXTRA.STORAGE_CAP_SM010_W * smN);
+  // ============================================================
+  // Smax mapping (per Dane): 3.0 .. 5.0 from sliders
+  //   soilHold 0..1, drainPoor 0..1
+  //   base: 3.0 + soilHold + drainPoor  => 3..5
+  //
+  // SM010 effect: only applies when sliders are "engaged"
+  // so low-end stays exactly 3.0 when sliders are 0/0.
+  // ============================================================
+  const SmaxBase  = 3.00 + 1.00*soilHold + 1.00*drainPoor;
+
+  const sliderEngagement = 0.5 * (soilHold + drainPoor); // 0..1
+  const smBoost = 1 + (EXTRA.STORAGE_CAP_SM010_W * smN * sliderEngagement);
+
+  const SmaxRaw = SmaxBase * smBoost;
+  const Smax = clamp(SmaxRaw, 3.00, 5.00);
 
   // ============================================================
-  // NEW (subtle): Impact factor for readiness
-  // Bigger/wetter/poorer soils -> slightly higher impact (readiness lower)
-  //
-  // Range: ~0.95..1.15  (subtle; tank size still dominates)
+  // Subtle readiness impact factor
+  // Range: ~0.95..1.15 (small nudge; tank size still dominates)
+  // Wetter/poorer -> slightly higher impact -> readiness slightly lower
   // ============================================================
   const impactRaw =
     0.95 +
@@ -278,25 +294,20 @@ function effectiveRainInches(rainIn, storageBefore, Smax, factors, tune){
   const satRaw = storageBefore / Smax;
   const sat = clamp(satRaw, 0, 1);
 
-  // Poor drainage (1) = more runoff, less bypass; good drainage (0) = less runoff, more bypass
   const drainPoor = clamp(Number(factors && factors.drainPoor), 0, 1);
 
-  // --- Runoff when saturated ---
   const sr = clamp((sat - tune.SAT_RUNOFF_START) / Math.max(1e-6, (1 - tune.SAT_RUNOFF_START)), 0, 1);
   let runoffFrac = Math.pow(sr, tune.RUNOFF_EXP);
 
-  // Poor drainage increases runoff (up to +RUNOFF_DRAINPOOR_W)
   runoffFrac = runoffFrac * (1 + tune.RUNOFF_DRAINPOOR_W * drainPoor);
   runoffFrac = clamp(runoffFrac, 0, tune.SAT_RUNOFF_CAP);
 
   const rainAfterRunoff = rain * (1 - runoffFrac);
 
-  // --- Dry bypass when very dry ---
   const satB = Math.max(tune.SAT_DRYBYPASS_FLOOR, sat);
   const db = clamp((tune.DRY_BYPASS_END - satB) / Math.max(1e-6, tune.DRY_BYPASS_END), 0, 1);
   const dryBypassCurve = Math.pow(db, tune.DRY_EXP);
 
-  // Base bypass fraction, then adjust for drainage:
   const goodDrain = 1 - drainPoor;
   let bypassFrac = tune.DRY_BYPASS_BASE * dryBypassCurve * (1 + tune.BYPASS_GOODDRAIN_W * goodDrain);
   bypassFrac = clamp(bypassFrac, 0, 0.90);
@@ -460,7 +471,7 @@ export function runField(field, deps){
     const et0 = (w.et0In===null || w.et0In===undefined) ? null : Number(w.et0In);
     const et0N = (et0===null || !isFinite(et0)) ? 0 : clamp(et0 / 0.30, 0, 1);
 
-    const smN = (w.sm010===null || w.sm010===undefined || !isFinite(Number(w.sm010)))
+    const smN2 = (w.sm010===null || w.sm010===undefined || !isFinite(Number(w.sm010)))
       ? 0
       : clamp((Number(w.sm010)-0.10)/0.25, 0, 1);
 
@@ -469,7 +480,7 @@ export function runField(field, deps){
       rainInAdj: Number(w.rainIn||0),
       et0: (isFinite(et0)?et0:0),
       et0N,
-      smN_day: smN,
+      smN_day: smN2,
       ...parts
     };
   });
@@ -484,14 +495,11 @@ export function runField(field, deps){
     const calRes = applyCalToStorage(storage, f.Smax, deps);
     const storageEff = calRes.storageEff;
 
-    // ============================================================
-    // NEW: readiness uses EFFECTIVE wetness (subtle impactFactor)
-    // ============================================================
     const rawWetness = (f.Smax > 0) ? clamp((storageEff / f.Smax) * 100, 0, 100) : 0;
     const effWetness = clamp(rawWetness * Number(f.impactFactor || 1.0), 0, 100);
 
-    const wetnessR = roundToHalf(effWetness);
-    const readinessR = roundToHalf(clamp(100 - effWetness, 0, 100));
+    const wetnessR = roundInt(effWetness);
+    const readinessR = roundInt(clamp(100 - effWetness, 0, 100));
 
     const avgLossDay = 0.08;
     const lastDateISO = rows.length ? rows[rows.length-1].dateISO : '';
@@ -518,7 +526,6 @@ export function runField(field, deps){
 
       tuneUsed: tune,
 
-      // Helpful debug (won't break anything)
       rawWetnessPct: rawWetness,
       effWetnessPct: effWetness,
       impactFactorApplied: Number(f.impactFactor || 1.0),
@@ -578,14 +585,11 @@ export function runField(field, deps){
   const calRes = applyCalToStorage(storage, f.Smax, deps);
   const storageEff = calRes.storageEff;
 
-  // ============================================================
-  // NEW: readiness uses EFFECTIVE wetness (subtle impactFactor)
-  // ============================================================
   const rawWetness = (f.Smax > 0) ? clamp((storageEff / f.Smax) * 100, 0, 100) : 0;
   const effWetness = clamp(rawWetness * Number(f.impactFactor || 1.0), 0, 100);
 
-  const wetnessR = roundToHalf(effWetness);
-  const readinessR = roundToHalf(clamp(100 - effWetness, 0, 100));
+  const wetnessR = roundInt(effWetness);
+  const readinessR = roundInt(clamp(100 - effWetness, 0, 100));
 
   const last7 = trace.slice(-7);
   const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
@@ -614,7 +618,6 @@ export function runField(field, deps){
 
     tuneUsed: tune,
 
-    // Helpful debug (won't break anything)
     rawWetnessPct: rawWetness,
     effWetnessPct: effWetness,
     impactFactorApplied: Number(f.impactFactor || 1.0),
