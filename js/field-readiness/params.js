@@ -1,12 +1,48 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/params.js  (FULL FILE)
-Rev: 2025-12-26a
-Per-field sliders cache (same logic as your working file).
+Rev: 2026-01-22a-live-slide-refresh
+
+Per-field sliders cache + LIVE update while sliding.
+
+NEW:
+✅ wireParamSliders(state): on slider input, update in-memory params immediately
+   and trigger UI/model refresh via events already handled in render.js:
+   - fr:details-refresh (updates the weather=output section live)
+   - fr:tile-refresh    (updates the selected tile live)
+
+✅ Debounced localStorage save while sliding (does NOT require hitting Save)
 ===================================================================== */
 'use strict';
 
 import { CONST } from './state.js';
 import { clamp } from './utils.js';
+
+const LIVE_SAVE_DEBOUNCE_MS = 250;
+
+function getSoilEl(){ return document.getElementById('soilWet'); }
+function getDrainEl(){ return document.getElementById('drain'); }
+
+function dispatchDetailsRefresh(fieldId){
+  try{
+    document.dispatchEvent(new CustomEvent('fr:details-refresh', { detail:{ fieldId:String(fieldId||'') } }));
+  }catch(_){}
+}
+function dispatchTileRefresh(fieldId){
+  try{
+    document.dispatchEvent(new CustomEvent('fr:tile-refresh', { detail:{ fieldId:String(fieldId||'') } }));
+  }catch(_){}
+}
+
+function scheduleSaveLocal(state){
+  try{
+    if (!state) return;
+    if (state._paramsSaveTimer) clearTimeout(state._paramsSaveTimer);
+    state._paramsSaveTimer = setTimeout(()=>{
+      state._paramsSaveTimer = null;
+      try{ saveParamsToLocal(state); }catch(_){}
+    }, LIVE_SAVE_DEBOUNCE_MS);
+  }catch(_){}
+}
 
 export function loadParamsFromLocal(state){
   state.perFieldParams = new Map();
@@ -46,8 +82,8 @@ export function getFieldParams(state, fieldId){
 export function ensureSelectedParamsToSliders(state){
   if (!state.selectedFieldId) return;
   const p = getFieldParams(state, state.selectedFieldId);
-  const a = document.getElementById('soilWet');
-  const b = document.getElementById('drain');
+  const a = getSoilEl();
+  const b = getDrainEl();
   if (a) a.value = String(p.soilWetness);
   if (b) b.value = String(p.drainageIndex);
 }
@@ -60,3 +96,56 @@ export function hydrateParamsFromFieldDoc(state, field){
   state.perFieldParams.set(field.id, cur);
 }
 
+/* =====================================================================
+   NEW: Wire sliders for LIVE updates while dragging
+===================================================================== */
+export function wireParamSliders(state){
+  try{
+    if (!state) return;
+    if (state._paramsWired) return;
+    state._paramsWired = true;
+
+    const soil = getSoilEl();
+    const drain = getDrainEl();
+
+    if (!soil || !drain){
+      // If DOM not ready yet, retry once shortly
+      setTimeout(()=>{ try{ state._paramsWired = false; wireParamSliders(state); }catch(_){ } }, 60);
+      return;
+    }
+
+    function applyFromUI(){
+      try{
+        const fid = String(state.selectedFieldId || '');
+        if (!fid) return;
+
+        const p = getFieldParams(state, fid);
+
+        // Read live slider values
+        const sw = clamp(Number(soil.value), 0, 100);
+        const dr = clamp(Number(drain.value), 0, 100);
+
+        // Update in-memory immediately
+        p.soilWetness = sw;
+        p.drainageIndex = dr;
+        state.perFieldParams.set(fid, p);
+
+        // Debounced save to local so it persists even if they don't hit Save
+        scheduleSaveLocal(state);
+
+        // Trigger live re-render (render.js already listens)
+        dispatchDetailsRefresh(fid);
+        dispatchTileRefresh(fid);
+      }catch(_){}
+    }
+
+    // LIVE while sliding
+    soil.addEventListener('input', applyFromUI, { passive:true });
+    drain.addEventListener('input', applyFromUI, { passive:true });
+
+    // Also fire on "change" to catch non-drag interactions
+    soil.addEventListener('change', applyFromUI, { passive:true });
+    drain.addEventListener('change', applyFromUI, { passive:true });
+
+  }catch(_){}
+}
