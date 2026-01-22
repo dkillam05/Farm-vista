@@ -103,11 +103,12 @@
     .icon{width:24px;height:24px;display:grid;place-items:center;color:var(--green);flex:0 0 auto;}
     .head-title{font-weight:950;}
 
+    /* ✅ FIX: prevent overlap at in-between widths */
     .head-row2{
       display:flex;
       align-items:flex-end;
       gap:12px;
-      flex-wrap:nowrap;
+      flex-wrap:wrap; /* was nowrap */
       min-width:0;
       overflow:visible;
       position:relative;
@@ -118,8 +119,8 @@
       display:flex;
       flex-direction:column;
       gap:6px;
-      min-width:0;
-      flex:1 1 auto;
+      min-width:260px;        /* allow shrink, but not too small */
+      flex:1 1 420px;         /* was flex:1 1 auto */
     }
     .filter-label{
       text-transform:uppercase;
@@ -156,16 +157,16 @@
     }
     .search input::placeholder{color:var(--muted,#9CA3AF);}
 
+    /* ✅ FIX: category field is flexible so it never overlaps */
     .cat-field{
       display:flex;
       flex-direction:column;
       gap:6px;
-      flex:0 0 520px;
-      min-width:380px;
+      flex:1 1 360px;         /* was flex:0 0 520px */
+      min-width:260px;        /* was min-width:380px */
       max-width:760px;
       position:relative;
       z-index:80;
-      min-width:0;
     }
     .cat-select{
       width:100%;
@@ -199,6 +200,13 @@
       background:var(--surface);
       position:relative;
       z-index:1;
+    }
+
+    /* ✅ FIX: when controls wrap, avoid the “funky line” (double border look) */
+    @media (max-width:1120px){
+      .section-head{ border-bottom:none; }
+      .section-body{ padding-top:10px; }
+      .table-wrap{ margin-top:6px; }
     }
 
     .grid-viewport{
@@ -315,7 +323,7 @@
       }
 
       .head-row2{flex-wrap:wrap;gap:10px;}
-      .filter-field{flex:1 1 100%;}
+      .filter-field{flex:1 1 100%;min-width:0;}
       .cat-field{flex:1 1 100%;min-width:0;max-width:none;}
 
       .grid-viewport{
@@ -794,7 +802,7 @@
       const cols = [
         { key:"unit",   label:"Unit", w:420, wrap:true },
         { key:"unitId", label:"Unit ID", w:160, wrap:false },
-        { key:"notes",  label:"Notes", w:520, wrap:true }
+        { key:"notes",  label:"Notes", w:420, wrap:true }
       ];
 
       if(showCategoryCol){
@@ -938,6 +946,96 @@
         ZOOM.clampScroll();
       });
     }
+
+    function openSheet(dlg){
+      try{ dlg.showModal(); }catch{ dlg.setAttribute("open",""); }
+    }
+    function closeSheet(dlg){
+      try{ dlg.close(); }catch{ dlg.removeAttribute("open"); }
+    }
+
+    // --- StarFire sheet ---
+    function buildLocationOptions(){
+      sfLoc.innerHTML = "";
+
+      QUICK_LOCS.forEach(q=>{
+        const opt=document.createElement("option");
+        opt.value = JSON.stringify({ kind:"quick", id:q.id, name:q.name, type:q.type });
+        opt.textContent = q.name;
+        sfLoc.appendChild(opt);
+      });
+
+      const sep=document.createElement("option");
+      sep.disabled=true;
+      sep.textContent="────────";
+      sfLoc.appendChild(sep);
+
+      state.equipActive.forEach(e=>{
+        const opt=document.createElement("option");
+        const payload = {
+          kind:"equip",
+          id: e.id,
+          name: e.name || "(unnamed)",
+          unitId: e.unitId || "",
+          type: norm(e.type) || "equipment"
+        };
+        opt.value = JSON.stringify(payload);
+        const left = payload.unitId ? payload.unitId : payload.name;
+        const sn = e.serial ? ` • …${String(e.serial).slice(-4)}` : "";
+        opt.textContent = `${left}${sn}`;
+        sfLoc.appendChild(opt);
+      });
+    }
+
+    function openStarfireSheet(sf){
+      state.sfSelected = sf;
+      buildLocationOptions();
+      sfTitle.textContent = `Change StarFire Location • …${serialLast4(sf.serial||"")}`;
+      sfSerial.value = sf.serial || "";
+      sfSince.value = (sf.starfireCurrentLocationSince || todayISO());
+      sfCurrentPill.textContent = `Current: ${sf.starfireCurrentLocationName || "—"}`;
+      openSheet(sfSheet);
+    }
+
+    sfClose.addEventListener("click", ()=> closeSheet(sfSheet));
+    sfCancel.addEventListener("click", ()=> closeSheet(sfSheet));
+
+    sfSave.addEventListener("click", async ()=>{
+      if(!state.sfSelected) return;
+
+      let choice=null;
+      try{ choice = JSON.parse(sfLoc.value); }catch{ return; }
+      const since = (sfSince.value || "").trim() || todayISO();
+
+      const patch = {};
+      if(choice.kind === "quick"){
+        patch.starfireCurrentLocationId = null;
+        patch.starfireCurrentLocationName = choice.name;
+        patch.starfireCurrentLocationType = choice.type;
+        patch.starfireCurrentLocationSince = since;
+      } else if(choice.kind === "equip"){
+        const display = (choice.unitId && String(choice.unitId).trim())
+          ? String(choice.unitId).trim()
+          : choice.name;
+
+        patch.starfireCurrentLocationId = choice.id;
+        patch.starfireCurrentLocationName = display;
+        patch.starfireCurrentLocationType = choice.type;
+        patch.starfireCurrentLocationSince = since;
+      }
+
+      try{
+        const db = getFirestore();
+        await updateDoc(doc(db, "equipment", state.sfSelected.id), patch);
+        Object.assign(state.sfSelected, patch);
+        closeSheet(sfSheet);
+        renderTable();
+        ZOOM.recomputeBounds();
+      }catch(e){
+        console.error(e);
+        showError(e.message || "Save failed.");
+      }
+    });
 
     // --- Grid pinch zoom ---
     const ZOOM = {
@@ -1105,8 +1203,7 @@
       setInterval(()=>{ if(!document.hidden) loadAll(); }, 60000);
     }
 
-    // ✅ live update after lifetime notes save from JS file:
-    // the JS file should dispatch: window.dispatchEvent(new CustomEvent("fv:lifetimeNotesSaved",{detail:{id,lifetimeNotes}}))
+    // ✅ live update after lifetime notes save from JS file
     window.addEventListener("fv:lifetimeNotesSaved", (e)=>{
       try{
         const id = e?.detail?.id;
