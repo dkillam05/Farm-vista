@@ -335,6 +335,13 @@
       table.grid{min-width:860px;font-size:12px;}
       thead th{padding:10px 8px;font-size:12px;}
       tbody td{padding:8px 8px;font-size:12px;}
+
+      /* ✅ FIX: allow wrapped cells (Notes, Unit, etc.) to wrap on phones too */
+      tbody td.wrap, thead th.wrap{
+        white-space:normal !important;
+        overflow-wrap:anywhere;
+        word-break:break-word;
+      }
     }
 
     /* keep it (even if it doesn't trigger in your theme toggle) */
@@ -799,11 +806,19 @@
 
       const showCategoryCol = (state.filter === "all");
 
+      /* ✅ Column order requested:
+         Unit, Unit ID, Acres, Hours, Mileage, then the rest the same (Notes, Category(if all), Year, Serial, In Service)
+      */
       const cols = [
         { key:"unit",   label:"Unit", w:420, wrap:true },
-        { key:"unitId", label:"Unit ID", w:160, wrap:false },
-        { key:"notes",  label:"Notes", w:420, wrap:true }
+        { key:"unitId", label:"Unit ID", w:160, wrap:false }
       ];
+
+      if(showAcres){ cols.push({ key:"acres", label:"Acres", w:110, wrap:false }); }
+      if(showHours){ cols.push({ key:"hours", label:"Hours", w:110, wrap:false }); }
+      if(showMileage){ cols.push({ key:"miles", label:"Mileage", w:120, wrap:false }); }
+
+      cols.push({ key:"notes",  label:"Notes", w:420, wrap:true });
 
       if(showCategoryCol){
         cols.push({ key:"cat", label:"Category", w:140, wrap:false });
@@ -813,9 +828,6 @@
       cols.push({ key:"serial", label:"Serial", w:160, wrap:false });
 
       if(showInService){ cols.push({ key:"pis", label:"In Service", w:140, wrap:false }); }
-      if(showMileage){ cols.push({ key:"miles", label:"Mileage", w:120, wrap:false }); }
-      if(showHours){ cols.push({ key:"hours", label:"Hours", w:110, wrap:false }); }
-      if(showAcres){ cols.push({ key:"acres", label:"Acres", w:110, wrap:false }); }
 
       return cols;
     }
@@ -882,6 +894,12 @@
               return `<td class="wrap"><span class="cell-title">${escapeHtml(unitDisplay(d))}</span></td>`;
             case "unitId":
               return `<td><span class="cell-title">${escapeHtml(unitId || "—")}</span></td>`;
+            case "acres":
+              return `<td class="kpi">${escapeHtml(fmtNum(acres, 0))}</td>`;
+            case "hours":
+              return `<td class="kpi">${escapeHtml(fmtNum(hours, 1))}</td>`;
+            case "miles":
+              return `<td class="kpi">${escapeHtml(fmtNum(d.odometerMiles ?? "", 0))}</td>`;
             case "notes":
               return `<td class="muted wrap">${escapeHtml(combinedNotes(d))}</td>`;
             case "cat":
@@ -892,12 +910,6 @@
               return `<td class="muted">${escapeHtml(serialShort6(d.serial||""))}</td>`;
             case "pis":
               return `<td class="muted">${escapeHtml(String(d.placedInServiceDate||""))}</td>`;
-            case "miles":
-              return `<td class="kpi">${escapeHtml(fmtNum(d.odometerMiles ?? "", 0))}</td>`;
-            case "hours":
-              return `<td class="kpi">${escapeHtml(fmtNum(hours, 1))}</td>`;
-            case "acres":
-              return `<td class="kpi">${escapeHtml(fmtNum(acres, 0))}</td>`;
             default:
               return `<td></td>`;
           }
