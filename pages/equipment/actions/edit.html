@@ -447,10 +447,25 @@
       return 'active';
     }
     const isArchived = d => normStatus(d) === 'archived';
+
+    // Unit ID helper (supports either root unitId or extras.unitId)
+    function unitIdText(d){
+      const u = (d && (d.unitId ?? d?.extras?.unitId)) ?? '';
+      const s = String(u || '').trim();
+      return s;
+    }
+
     const mmText = d => [safe(d.makeName), safe(d.modelName)].filter(Boolean).join(' ').trim();
+
+    // Tile line: make/model (unitId) — #last6
     const displayLine = d => {
-      const mm = mmText(d), ls = last6(d.serial);
-      return mm ? (ls ? `${mm} — #${ls}` : mm) : (ls ? `#${ls}` : `(${TYPE_SINGULAR})`);
+      const mm = mmText(d);
+      const unit = unitIdText(d);
+      const unitParen = unit ? `(${unit})` : '';
+      const ls = last6(d.serial);
+
+      const left = [mm, unitParen].filter(Boolean).join(' ').trim();
+      return left ? (ls ? `${left} — #${ls}` : left) : (ls ? `#${ls}` : `(${TYPE_SINGULAR})`);
     };
 
     function looksLikeType(d){
@@ -504,15 +519,16 @@
       const q=(qInput.value||'').toLowerCase().trim();
 
       subEl.textContent =
-        mode === 'all' ? 'Showing Active + Archived. Search by make, model, serial, or year.'
-        : mode === 'archived' ? 'Showing Archived only. Search by make, model, serial, or year.'
-        : 'Showing Active only. Search by make, model, serial, or year.';
+        mode === 'all' ? 'Showing Active + Archived. Search by make, model, serial, year, or unit.'
+        : mode === 'archived' ? 'Showing Archived only. Search by make, model, serial, year, or unit.'
+        : 'Showing Active only. Search by make, model, serial, year, or unit.';
 
       const filtered = DATA.filter(d=> mode==='all' ? true : (mode==='archived' ? isArchived(d) : !isArchived(d)));
 
       const rows = filtered.filter(d=>{
         if (!q) return true;
-        const blob=[displayLine(d), d.makeName, d.modelName, d.serial, d.year, d.notes, d.status]
+        const unit = unitIdText(d);
+        const blob=[displayLine(d), d.makeName, d.modelName, unit, d.unitId, d?.extras?.unitId, d.serial, d.year, d.notes, d.status]
           .map(x=>String(x||'').toLowerCase()).join(' ');
         return blob.includes(q);
       });
@@ -849,6 +865,7 @@
       }
 
       const keys = [
+        'unitId', // <-- include if equipment-forms renders this directly (some do)
         'engineHours','separatorHours','odometerMiles','boomWidthFt','tankSizeGal','starfireCapable',
         'implementType','workingWidthFt','numRows','rowSpacingIn','totalAcres','totalHours','bushelCapacityBu','augerDiameterIn','augerLengthFt',
         'applicationType',
@@ -968,6 +985,11 @@
       // Ensure starfireCapable is stored as real boolean if present.
       if (Object.prototype.hasOwnProperty.call(extraData, 'starfireCapable')){
         extraData.starfireCapable = boolify(extraData.starfireCapable);
+      }
+
+      // Ensure unitId is stored as a trimmed string if present.
+      if (Object.prototype.hasOwnProperty.call(extraData, 'unitId')){
+        extraData.unitId = String(extraData.unitId || '').trim();
       }
 
       return {
