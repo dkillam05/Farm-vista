@@ -502,6 +502,77 @@ function statusFromReadinessAndThreshold(state, run, thr){
 
   return (r >= t) ? 'dry' : 'wet';
 }
+// =========================
+// Cooldown (72h)
+// =========================
+function isLocked(state){
+  const nextMs = Number(state && state._nextAllowedMs ? state._nextAllowedMs : 0);
+  if (!nextMs) return false;
+  return Date.now() < nextMs;
+}
+
+async function loadCooldown(state){
+  const api = getAPI(state);
+  state._cooldownHours = isFinite(Number(state._cooldownHours)) ? Number(state._cooldownHours) : 72;
+
+  if (!api){
+    state._nextAllowedMs = 0;
+    state._lastAppliedMs = 0;
+    return;
+  }
+
+  // compat
+  if (api.kind === 'compat'){
+    try{
+      const db = window.firebase.firestore();
+      const snap = await db.collection(CONST.WEIGHTS_COLLECTION).doc(CONST.WEIGHTS_DOC).get();
+      if (!snap.exists){
+        state._nextAllowedMs = 0;
+        state._lastAppliedMs = 0;
+        state._cooldownHours = 72;
+        return;
+      }
+      const d = snap.data() || {};
+      state._nextAllowedMs = tsToMs(d.nextAllowedAt);
+      state._lastAppliedMs = tsToMs(d.lastAppliedAt);
+      state._cooldownHours = isFinite(Number(d.cooldownHours)) ? Number(d.cooldownHours) : 72;
+      return;
+    }catch(_){
+      state._nextAllowedMs = 0;
+      state._lastAppliedMs = 0;
+      state._cooldownHours = 72;
+      return;
+    }
+  }
+
+  // modular
+  try{
+    const db = api.getFirestore();
+    const ref = api.doc(db, CONST.WEIGHTS_COLLECTION, CONST.WEIGHTS_DOC);
+    const snap = await api.getDoc(ref);
+
+    const ok =
+      !!snap &&
+      ((typeof snap.exists === 'function' && snap.exists()) || (snap.exists === true));
+
+    if (!ok){
+      state._nextAllowedMs = 0;
+      state._lastAppliedMs = 0;
+      state._cooldownHours = 72;
+      return;
+    }
+
+    const d = snap.data() || {};
+    state._nextAllowedMs = tsToMs(d.nextAllowedAt);
+    state._lastAppliedMs = tsToMs(d.lastAppliedAt);
+    state._cooldownHours = isFinite(Number(d.cooldownHours)) ? Number(d.cooldownHours) : 72;
+  }catch(_){
+    state._nextAllowedMs = 0;
+    state._lastAppliedMs = 0;
+    state._cooldownHours = 72;
+  }
+}
+
 
 /* =====================================================================
    Cooldown UI (kept)
