@@ -958,6 +958,7 @@ body.fv-modal-open{
     const STATE = {
       db: null,
       items: [],           // [{id,data}]
+      equipmentUnitById: new Map(),
       employees: [],       // [{id,name}]
       selectedId: null,
       filters: { status:'all', type:'all' },
@@ -1120,6 +1121,42 @@ function unlockBodyScroll(){
       if(v === 'completed')   return 'Completed';
       return s || 'Unknown';
     }
+    function unitIdTextFromWO(d){
+  const u = (d && (d.unitId ?? d?.equipmentUnitId ?? d?.extras?.unitId ?? d?.equipmentExtras?.unitId)) ?? '';
+  return String(u || '').trim();
+}
+
+    function unitIdTextFromEquipmentDoc(eq){
+  const u = (eq && (eq.unitId ?? eq?.extras?.unitId)) ?? '';
+  return String(u || '').trim();
+}
+
+async function warmEquipmentUnitCache(){
+  for(const it of (STATE.items || [])){
+    const d = it?.data || {};
+    const eqId = String(d.equipmentId || d.equipmentDocId || '').trim();
+    if(!eqId) continue;
+    if(STATE.equipmentUnitById.has(eqId)) continue;
+
+    try{
+      const snap = await getDoc(doc(STATE.db, 'equipment', eqId));
+      const eq = snap.exists() ? (snap.data() || {}) : null;
+      const unit = unitIdTextFromEquipmentDoc(eq);
+      if(unit) STATE.equipmentUnitById.set(eqId, unit);
+    }catch(_){}
+  }
+}
+
+function unitIdTextFromWOOrEquipment(d){
+  const direct = unitIdTextFromWO(d);
+  if(direct) return direct;
+
+  const eqId = String(d?.equipmentId || d?.equipmentDocId || '').trim();
+  if(!eqId) return '';
+
+  return String(STATE.equipmentUnitById.get(eqId) || '').trim();
+}
+
 
     function mapTypeLabel(t){
       const v = (t||'').toString().toLowerCase();
@@ -1285,6 +1322,7 @@ function unlockBodyScroll(){
         });
 
         STATE.items = items;
+        await warmEquipmentUnitCache();
       }catch(err){
         console.error('Error loading equipment work orders:', err);
         STATE.items = [];
@@ -1402,7 +1440,8 @@ function unlockBodyScroll(){
             const d  = item.data;
             const id = item.id;
 
-            const equipName = d.equipmentName || 'Equipment (unknown)';
+            const unit = unitIdTextFromWOOrEquipment(d);
+            const equipName = (d.equipmentName || 'Equipment (unknown)') + (unit ? ` (${unit})` : '');
             const typeLabel = d.equipmentType ? String(d.equipmentType).charAt(0).toUpperCase() + String(d.equipmentType).slice(1) : '';
             const serial6   = d.equipmentSerialLast6 ? `SN …${d.equipmentSerialLast6}` : '';
             const statusRaw = (d[CONFIG.STATUS_FIELD] || '').toString().toLowerCase();
