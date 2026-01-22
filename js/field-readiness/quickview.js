@@ -1,26 +1,21 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-01-21l-quickview-happyMediumTwoStage-saveTruthToday
+Rev: 2026-01-22a-quickview-ruleA-noRewind-noSaveTruth
 
-Behavior:
-✅ Quick View opens MATCHING tiles/details (Truth run: persisted seed).
-✅ When sliders move, Quick View previews with rewind (last 14 days).
-✅ Save & Close updates:
+RULE A (per Dane):
+✅ Sliders change TANK SIZE + RATES only (live preview)
+✅ Sliders do NOT change TODAY’S storage truth while sliding
+✅ Save & Close updates ONLY:
    1) fields/{fieldId} params (RAW values you set)
-   2) TODAY’S truth in field_readiness_state/{fieldId} based on PREVIEW run
-
-CRITICAL FIX:
-✅ Preview curve = "happy medium":
-   - First small movement around 50 is gentle (prevents big cliff jumps)
-   - After a small dead-band, sliders have stronger effect (so you can move readiness more)
+   2) local cache (perFieldParams + localStorage)
+❌ Save & Close does NOT write field_readiness_state (truth storage)
+   - truth storage is changed only by global calibration (and/or dedicated truth tools)
 
 Learning:
 ✅ Applies global learning DRY_LOSS_MULT (drying side only).
 
 UI:
-✅ Helper text:
-   - Soil Wetness: 0 = Dry, 100 = Wet
-   - Drainage Index: 0 = Well-drained, 100 = Poor drainage
+✅ Helper text stays the same
 ===================================================================== */
 'use strict';
 
@@ -35,19 +30,7 @@ import { parseRangeFromInput, rainInRange } from './rain.js';
 function $(id){ return document.getElementById(id); }
 
 /* =====================================================================
-   PREVIEW SENSITIVITY (HAPPY MEDIUM)
-
-   - Inside ±DEAD_BAND around 50 → very gentle (K1)
-   - Outside → stronger (K2) for the extra distance beyond dead band
-===================================================================== */
-const PREVIEW_DEAD_BAND = 2;   // first ±2 points from 50 are gentle
-const PREVIEW_SOIL_K1   = 0.18;
-const PREVIEW_SOIL_K2   = 0.65;
-const PREVIEW_DRAIN_K1  = 0.15;
-const PREVIEW_DRAIN_K2  = 0.55;
-
-/* =====================================================================
-   Truth state collection
+   Truth state collection (kept; read-only here)
 ===================================================================== */
 const FR_STATE_COLLECTION = 'field_readiness_state';
 
@@ -200,136 +183,6 @@ async function getExtraForDeps(state){
   const t = await loadGlobalTuning(state);
   const dryLossMult = clamp(Number(t && t.DRY_LOSS_MULT ? t.DRY_LOSS_MULT : 1.0), DRY_LOSS_MULT_MIN, DRY_LOSS_MULT_MAX);
   return { ...EXTRA, DRY_LOSS_MULT: dryLossMult };
-}
-
-/* =====================================================================
-   Preview param shaping (two-stage around midpoint)
-===================================================================== */
-function twoStageAround50(raw0_100, deadBand, k1, k2){
-  const v = clamp(Number(raw0_100), 0, 100);
-
-  // ✅ HARD ENDPOINTS (so tank size hits exact 3.00 / 5.00 in live preview)
-  // These thresholds allow for tiny UI rounding/drag quirks.
-  if (v <= 0.5) return 0;
-  if (v >= 99.5) return 100;
-
-  const d = v - 50;
-  const s = d < 0 ? -1 : 1;
-  const a = Math.abs(d);
-
-  const db  = clamp(Number(deadBand), 0, 20);
-  const kk1 = clamp(Number(k1), 0, 1);
-  const kk2 = clamp(Number(k2), 0, 1);
-
-  if (a <= db){
-    return clamp(50 + d * kk1, 0, 100);
-  }
-
-  const gentlePart = db * kk1;
-  const strongPart = (a - db) * kk2;
-
-  return clamp(50 + s * (gentlePart + strongPart), 0, 100);
-}
-
-
-/* =====================================================================
-   Helpers: asOf date + truth write (single-field)
-===================================================================== */
-function isoDay(iso){
-  if (!iso) return '';
-  const s = String(iso);
-  return (s.length >= 10) ? s.slice(0,10) : s;
-}
-
-function storageFromReadiness(readiness0_100, Smax){
-  const r = clamp(Number(readiness0_100), 0, 100);
-  const smax = Number(Smax);
-  if (!isFinite(smax) || smax <= 0) return 0;
-  const wet = clamp(100 - r, 0, 100);
-  const storage = smax * (wet / 100);
-  return clamp(storage, 0, smax);
-}
-
-function nowISO(){
-  try{ return new Date().toISOString(); }catch(_){ return ''; }
-}
-
-function getAuthUserIdCompat(){
-  try{
-    const auth = window.firebaseAuth || null;
-    const user = auth && auth.currentUser ? auth.currentUser : null;
-    return user ? (user.email || user.uid || null) : null;
-  }catch(_){
-    return null;
-  }
-}
-function getAuthUserIdModern(api){
-  try{
-    const auth = api && api.getAuth ? api.getAuth() : null;
-    const user = auth && auth.currentUser ? auth.currentUser : null;
-    return user ? (user.email || user.uid || null) : null;
-  }catch(_){
-    return null;
-  }
-}
-
-async function writeTruthStateForField(state, field, runPreview){
-  try{
-    if (!state || !field || !field.id || !runPreview || !runPreview.factors) return;
-
-    const api = getAPI(state);
-    if (!api) return;
-
-    const Smax = Number(runPreview.factors.Smax);
-    if (!isFinite(Smax) || Smax <= 0) return;
-
-    let asOf = '';
-    try{
-      const rows = Array.isArray(runPreview.rows) ? runPreview.rows : [];
-      const last = rows.length ? rows[rows.length - 1] : null;
-      asOf = isoDay(last && last.dateISO ? last.dateISO : '');
-    }catch(_){}
-    if (!asOf) asOf = isoDay(new Date().toISOString());
-
-    const readiness = clamp(Math.round(Number(runPreview.readinessR ?? 0)), 0, 100);
-    const storageFinal = storageFromReadiness(readiness, Smax);
-
-    const createdBy = (api.kind === 'compat') ? getAuthUserIdCompat() : getAuthUserIdModern(api);
-
-    const payload = {
-      fieldId: String(field.id),
-      fieldName: String(field.name || ''),
-      asOfDateISO: String(asOf),
-      storageFinal,
-      SmaxAtSave: Smax,
-      source: 'quickview-save-truth',
-      readinessAfter: readiness,
-      updatedBy: createdBy || null,
-      updatedAt: (api.kind === 'compat')
-        ? nowISO()
-        : (api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString())
-    };
-
-    if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
-      const db = window.firebase.firestore();
-      await db.collection(FR_STATE_COLLECTION).doc(String(field.id)).set(payload, { merge:true });
-    } else if (api.kind !== 'compat'){
-      const db = api.getFirestore();
-      const ref = api.doc(db, FR_STATE_COLLECTION, String(field.id));
-      await api.setDoc(ref, payload, { merge:true });
-    }
-
-    state.persistedStateByFieldId = state.persistedStateByFieldId || {};
-    state.persistedStateByFieldId[String(field.id)] = {
-      fieldId: String(field.id),
-      storageFinal: Number(storageFinal),
-      asOfDateISO: String(asOf),
-      SmaxAtSave: Number(Smax)
-    };
-    state._persistLoadedAt = Date.now();
-  }catch(e){
-    console.warn('[FieldReadiness] quickview truth write failed:', e);
-  }
 }
 
 /* =====================================================================
@@ -692,11 +545,16 @@ function ensureBuiltOnce(state){
     const fid = state._qvFieldId;
     if (!fid) return;
 
+    // Update in-memory params immediately (Rule A)
     const p = getFieldParams(state, fid);
     p.soilWetness = clamp(Number(soil.value), 0, 100);
     p.drainageIndex = clamp(Number(drain.value), 0, 100);
     state.perFieldParams.set(fid, p);
 
+    // Live-save local cache so Quick View stays consistent if closed without Save
+    saveParamsToLocal(state);
+
+    // Re-render inside modal (Rule A uses truth run only)
     fillQuickView(state, { live:true });
   }
 
@@ -823,7 +681,8 @@ async function fillQuickView(state, { live=false } = {}){
   const wxCtx = buildWxCtx(state);
   const extraWithLearning = await getExtraForDeps(state);
 
-  // Truth: raw params + persisted truth (matches tiles)
+  // RULE A: Always show TRUTH run (persisted seed + current params).
+  // Sliders update params live (tank size + rate response), but do not rewrite truth storage.
   const depsTruth = {
     getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
     getFieldParams: (id)=> getFieldParams(state, id),
@@ -833,29 +692,9 @@ async function fillQuickView(state, { live=false } = {}){
     CAL,
     getPersistedState: (id)=> getPersistedStateForDeps(state, id)
   };
+
   const runTruth = state._mods.model.runField(f, depsTruth);
-
-  // Preview: apply two-stage shaping ONLY for preview math
-  const getFieldParamsPreview = (id)=>{
-    const base = getFieldParams(state, id);
-    const p = { ...(base || {}) };
-
-    p.soilWetness = twoStageAround50(p.soilWetness, PREVIEW_DEAD_BAND, PREVIEW_SOIL_K1, PREVIEW_SOIL_K2);
-    p.drainageIndex = twoStageAround50(p.drainageIndex, PREVIEW_DEAD_BAND, PREVIEW_DRAIN_K1, PREVIEW_DRAIN_K2);
-
-    return p;
-  };
-
-  const depsPreview = {
-    ...depsTruth,
-    getFieldParams: getFieldParamsPreview,
-    seedMode: 'rewind',
-    rewindDays: 14
-  };
-  const runPreview = state._mods.model.runField(f, depsPreview);
-
-  const didAdjust = !!state._qvDidAdjust;
-  const displayRun = (didAdjust ? runPreview : runTruth) || runTruth || runPreview;
+  const displayRun = runTruth;
 
   const farmName = state.farmsById.get(f.farmId) || '';
   const opLabel = (OPS.find(o=>o.key===opKey)?.label) || opKey;
@@ -864,11 +703,7 @@ async function fillQuickView(state, { live=false } = {}){
   const title = $('frQvTitle');
   const sub = $('frQvSub');
   if (title) title.textContent = f.name || 'Field';
-  if (sub){
-    sub.textContent = didAdjust
-      ? (farmName ? `${farmName} • Preview (balanced)` : 'Preview (balanced)')
-      : (farmName ? `${farmName} • Matches tiles (Truth)` : 'Matches tiles (Truth)');
-  }
+  if (sub) sub.textContent = farmName ? `${farmName} • Truth (Rule A)` : 'Truth (Rule A)';
 
   const pRaw = getFieldParams(state, f.id);
   const soil = $('frQvSoil');
@@ -892,9 +727,7 @@ async function fillQuickView(state, { live=false } = {}){
     if (saveBtn) saveBtn.disabled = true;
     if (inputsPanel) inputsPanel.style.opacity = '0.75';
   } else {
-    if (hint) hint.textContent = didAdjust
-      ? 'Balanced preview. Save will update today’s truth for this field.'
-      : 'Adjust sliders → preview updates live → Save & Close.';
+    if (hint) hint.textContent = 'Rule A: sliders change tank + rates only. Save stores sliders (does not change truth storage).';
     if (saveBtn) saveBtn.disabled = false;
     if (inputsPanel) inputsPanel.style.opacity = '1';
   }
@@ -924,29 +757,21 @@ async function fillQuickView(state, { live=false } = {}){
   const whenTxt = when ? when.toLocaleString() : '—';
   const wxMeta = $('frQvWxMeta');
 
-  const truthR = (runTruth && isFinite(Number(runTruth.readinessR))) ? Number(runTruth.readinessR) : null;
-  const prevR = (runPreview && isFinite(Number(runPreview.readinessR))) ? Number(runPreview.readinessR) : null;
-
   if (wxMeta){
+    const truthR = (runTruth && isFinite(Number(runTruth.readinessR))) ? Number(runTruth.readinessR) : null;
     wxMeta.innerHTML =
       `Weather updated: <span class="mono">${esc(whenTxt)}</span>` +
-      (truthR != null ? ` • Truth: <span class="mono">${truthR}</span>` : ``) +
-      (prevR != null ? ` • Preview: <span class="mono">${prevR}</span>` : ``);
+      (truthR != null ? ` • Truth: <span class="mono">${truthR}</span>` : ``);
   }
 
   const pe = $('frQvParamExplain');
-  if (pe && displayRun && displayRun.factors){
-    const soilPreview = twoStageAround50(pRaw.soilWetness, PREVIEW_DEAD_BAND, PREVIEW_SOIL_K1, PREVIEW_SOIL_K2);
-    const drainPreview = twoStageAround50(pRaw.drainageIndex, PREVIEW_DEAD_BAND, PREVIEW_DRAIN_K1, PREVIEW_DRAIN_K2);
+  if (pe){
     pe.innerHTML =
-      `rawSoil=<span class="mono">${Math.round(Number(pRaw.soilWetness||0))}</span> → previewSoil=<span class="mono">${soilPreview.toFixed(1)}</span> • ` +
-      `rawDrain=<span class="mono">${Math.round(Number(pRaw.drainageIndex||0))}</span> → previewDrain=<span class="mono">${drainPreview.toFixed(1)}</span>`;
+      `soil=<span class="mono">${Math.round(Number(pRaw.soilWetness||0))}</span>/100 • ` +
+      `drain=<span class="mono">${Math.round(Number(pRaw.drainageIndex||0))}</span>/100`;
   }
 
   renderTilePreview(state, displayRun, thr);
-
-  // Cache preview run for save-truth
-  state._qvLastPreviewRun = runPreview || null;
 }
 
 /* ---------- Save & Close ---------- */
@@ -1002,14 +827,11 @@ async function saveAndClose(state){
       }, { merge:true });
     }
 
-    // Update today’s truth for this field using BALANCED preview
-    const runPreview = state._qvLastPreviewRun;
-    await writeTruthStateForField(state, f, runPreview);
-
-    // Refresh UI
+    // RULE A: DO NOT write truth storage here.
+    // Refresh UI to show new params effects (tank size/rates), but truth storage remains.
     try{ document.dispatchEvent(new CustomEvent('fr:tile-refresh', { detail:{ fieldId: fid } })); }catch(_){}
     try{ document.dispatchEvent(new CustomEvent('fr:details-refresh', { detail:{ fieldId: fid } })); }catch(_){}
-    try{ document.dispatchEvent(new CustomEvent('fr:soft-reload')); }catch(_){}
+    // no fr:soft-reload needed; we did not change persisted truth
 
     closeQuickView(state);
 
