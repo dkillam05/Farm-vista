@@ -1,1279 +1,1410 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness/global-calibration.js  (FULL FILE)
-Rev: 2026-01-22f-global-FORCE-target-readiness-scale-storage-reset30d
+/Farm-vista/js/shop-equipment-modal.js  (FULL FILE)
+Rev: 2026-01-22b  ✅ Edit button now opens an in-page EDIT MODAL (like Edit Tractors)
 
-THIS FIXES (per Dane):
-✅ Global Calibration now FORCES the reference field to the exact target readiness
-   (e.g. set slider to 90 => reference field becomes 90).
-✅ Then it scales ALL other fields by the SAME STORAGE multiplier (same % move).
-✅ Works with current model “dry-credit” reversal (REV_POINTS_MAX=15) by accounting for it
-   when computing the forced storage for the reference field.
+What changed vs 2026-01-22a:
+✅ “Edit” button opens a dialog modal inside Shop Equipment (no new tab)
+✅ Modal styling/UX matches your Edit Tractors sheet (same vibe)
+✅ Loads equipment-makes + equipment-models for Make/Model pickers
+✅ Supports Year picker, Serial, Status, Unit ID, Notes, Extras engine (equipment-forms.js)
+✅ Save writes to Firestore (merge) on equipment doc
+✅ Archive/Unarchive supported
+✅ Delete is shown but DISABLED (safe for now) — we can rebuild delete guard later
 
 Keeps:
-✅ Reset (rebuild) from last ~30 days weather
-✅ Existing modal + cooldown + guardrails
-✅ Learning/tuning doc write (optional)
-✅ fr:soft-reload after apply/reset
+✅ Lifetime Notes save in svcSheet
+✅ Service Records drill-down modal (list -> detail) stays in this file
 ===================================================================== */
-'use strict';
 
-import { getAPI } from './firebase.js';
-import { canEdit } from './perm.js';
-import { buildWxCtx, CONST, OPS, EXTRA } from './state.js';
-import { getFieldParams } from './params.js';
-import { getCurrentOp } from './thresholds.js';
+import {
+  getFirestore,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  query,
+  where,
+  orderBy,
+  limit,
+  serverTimestamp
+} from "/Farm-vista/js/firebase-init.js";
 
-function $(id){ return document.getElementById(id); }
-function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
-function esc(s){
-  return String(s||'')
-    .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
-    .replaceAll('"','&quot;').replaceAll("'","&#039;");
-}
+(function(){
+  const $ = (sel) => document.querySelector(sel);
 
-/* =====================================================================
-   Collections
-===================================================================== */
-const FR_STATE_COLLECTION = 'field_readiness_state';
-const STATE_TTL_MS = 30000;
+  const UI = {
+    // existing page pieces
+    svcSheet: null,
+    svcTitle: null,
+    svcMeta: null,
+    lifetimeNotes: null,
+    btnSaveNotes: null,
+    svcFooter: null,
+    toast: null,
+    alertBox: null,
+    btnClose1: null,
+    btnClose2: null,
 
-const FR_TUNE_COLLECTION = 'field_readiness_tuning';
-const FR_TUNE_DOC = 'global';
+    // injected buttons
+    btnSvcRecords: null,
+    btnEdit: null,
 
-/* =====================================================================
-   Learning doc clamps (kept)
-===================================================================== */
-const DRY_LOSS_MULT_MIN = 0.30;
-const DRY_LOSS_MULT_MAX = 3.00;
-const RAIN_EFF_MULT_MIN = 0.30;
-const RAIN_EFF_MULT_MAX = 3.00;
-
-// How aggressively one global shift changes tuning.
-const TUNE_EXP = 0.50;
-
-/* =====================================================================
-   Model reversal constants (MUST MATCH model.js)
-   model: dryCreditInches = tightness * (REV_POINTS_MAX/100) * Smax
-===================================================================== */
-const GCAL_SMAX_MIN = 3.0;
-const GCAL_SMAX_MAX = 5.0;
-const GCAL_REV_POINTS_MAX = 15;
-
-function gcalDryCreditInchesFromSmax(Smax){
-  const s = clamp(Number(Smax), GCAL_SMAX_MIN, GCAL_SMAX_MAX);
-  const tightness = (GCAL_SMAX_MAX - s) / (GCAL_SMAX_MAX - GCAL_SMAX_MIN); // 0@5, 1@3
-  return tightness * (GCAL_REV_POINTS_MAX / 100) * s;
-}
-
-/**
- * Compute storageFinal needed to FORCE readiness to target, accounting for dry-credit.
- * Model display uses:
- *   storageForReadiness = clamp(storageEff - creditIn, 0..Smax)
- *   wet% = (storageForReadiness/Smax)*100
- *   readiness = 100 - wet%
- */
-function gcalStorageNeededForTargetReadiness(targetR, Smax){
-  const r = clamp(Math.round(Number(targetR)), 0, 100);
-  const smax = clamp(Number(Smax), GCAL_SMAX_MIN, GCAL_SMAX_MAX);
-  const creditIn = gcalDryCreditInchesFromSmax(smax);
-
-  const wetPct = clamp(100 - r, 0, 100);
-  const storageForReadiness = smax * (wetPct / 100);
-
-  const storageEff = clamp(storageForReadiness + creditIn, 0, smax);
-
-  return { storageEff, creditIn, wetPct, storageForReadiness };
-}
-
-/* =====================================================================
-   Helpers
-===================================================================== */
-function safeStr(x){
-  const s = String(x || '');
-  return s ? s : '';
-}
-function safeISO10(x){
-  const s = safeStr(x);
-  return (s.length >= 10) ? s.slice(0,10) : s;
-}
-function safeNum(v){
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-function nowISO(){
-  try{ return new Date().toISOString(); }catch(_){ return ''; }
-}
-function isoDay(iso){
-  if (!iso) return '';
-  const s = String(iso);
-  return (s.length >= 10) ? s.slice(0,10) : s;
-}
-
-/* =========================
-   Auth helpers
-========================= */
-function getAuthUserIdCompat(){
-  try{
-    const auth = window.firebaseAuth || null;
-    const user = auth && auth.currentUser ? auth.currentUser : null;
-    return user ? (user.email || user.uid || null) : null;
-  }catch(_){
-    return null;
-  }
-}
-function getAuthUserIdModern(api){
-  try{
-    const auth = api && api.getAuth ? api.getAuth() : null;
-    const user = auth && auth.currentUser ? auth.currentUser : null;
-    return user ? (user.email || user.uid || null) : null;
-  }catch(_){
-    return null;
-  }
-}
-
-/* =========================
-   Timestamp helpers (cooldown UI)
-========================= */
-function tsToMs(ts){
-  if (!ts) return 0;
-  if (typeof ts.toMillis === 'function') return ts.toMillis();
-  if (ts.seconds && ts.nanoseconds != null){
-    return (Number(ts.seconds)*1000) + Math.floor(Number(ts.nanoseconds)/1e6);
-  }
-  if (typeof ts === 'string'){
-    const d = new Date(ts);
-    return isFinite(d.getTime()) ? d.getTime() : 0;
-  }
-  return 0;
-}
-function fmtDur(ms){
-  ms = Math.max(0, ms|0);
-  const totalMin = Math.floor(ms / 60000);
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  return `${h}h ${String(m).padStart(2,'0')}m`;
-}
-function fmtAbs(tsMs){
-  if (!tsMs) return '—';
-  try{
-    const d = new Date(tsMs);
-    return d.toLocaleString(undefined, {
-      year:'numeric', month:'short', day:'2-digit',
-      hour:'numeric', minute:'2-digit'
-    });
-  }catch(_){ return '—'; }
-}
-
-/* =========================
-   Modal helpers
-========================= */
-function showModal(id, on){
-  const el = $(id);
-  if (el) el.classList.toggle('pv-hide', !on);
-}
-function setText(id, val){
-  const el = $(id);
-  if (el) el.textContent = String(val);
-}
-function setHtml(id, html){
-  const el = $(id);
-  if (!el) return;
-  if (!html){
-    el.style.display = 'none';
-    el.innerHTML = '';
-  } else {
-    el.style.display = 'block';
-    el.innerHTML = html;
-  }
-}
-
-/* =====================================================================
-   Persisted truth-state load
-===================================================================== */
-async function loadPersistedState(state, { force=false } = {}){
-  try{
-    if (!state) return;
-
-    const now = Date.now();
-    const last = Number(state._persistLoadedAt || 0);
-    if (!force && state.persistedStateByFieldId && (now - last) < STATE_TTL_MS) return;
-
-    state.persistedStateByFieldId = state.persistedStateByFieldId || {};
-    const out = {};
-
-    const api = getAPI(state);
-    if (!api){
-      state.persistedStateByFieldId = out;
-      state._persistLoadedAt = now;
-      return;
-    }
-
-    if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
-      const db = window.firebase.firestore();
-      const snap = await db.collection(FR_STATE_COLLECTION).get();
-
-      snap.forEach(doc=>{
-        const d = doc.data() || {};
-        const fid = safeStr(d.fieldId || doc.id);
-        if (!fid) return;
-
-        const storageFinal = safeNum(d.storageFinal);
-        const asOfDateISO = safeISO10(d.asOfDateISO);
-        if (storageFinal == null || !asOfDateISO) return;
-
-        out[fid] = {
-          fieldId: fid,
-          storageFinal,
-          asOfDateISO,
-          SmaxAtSave: safeNum(d.SmaxAtSave) ?? safeNum(d.SmaxAtSave || d.smaxAtSave) ?? 0
-        };
-      });
-
-      state.persistedStateByFieldId = out;
-      state._persistLoadedAt = now;
-      return;
-    }
-
-    if (api.kind !== 'compat'){
-      const db = api.getFirestore();
-      const col = api.collection(db, FR_STATE_COLLECTION);
-      const snap = await api.getDocs(col);
-
-      snap.forEach(doc=>{
-        const d = doc.data() || {};
-        const fid = safeStr(d.fieldId || doc.id);
-        if (!fid) return;
-
-        const storageFinal = safeNum(d.storageFinal);
-        const asOfDateISO = safeISO10(d.asOfDateISO);
-        if (storageFinal == null || !asOfDateISO) return;
-
-        out[fid] = {
-          fieldId: fid,
-          storageFinal,
-          asOfDateISO,
-          SmaxAtSave: safeNum(d.SmaxAtSave) ?? safeNum(d.SmaxAtSave || d.smaxAtSave) ?? 0
-        };
-      });
-
-      state.persistedStateByFieldId = out;
-      state._persistLoadedAt = now;
-      return;
-    }
-  }catch(e){
-    console.warn('[FieldReadiness] persisted state load failed:', e);
-    state.persistedStateByFieldId = state.persistedStateByFieldId || {};
-    state._persistLoadedAt = Date.now();
-  }
-}
-
-function getPersistedStateForDeps(state, fieldId){
-  try{
-    const fid = String(fieldId || '');
-    if (!fid) return null;
-    const map = (state && state.persistedStateByFieldId && typeof state.persistedStateByFieldId === 'object')
-      ? state.persistedStateByFieldId
-      : null;
-    if (!map) return null;
-    const s = map[fid];
-    return (s && typeof s === 'object') ? s : null;
-  }catch(_){
-    return null;
-  }
-}
-
-/* =====================================================================
-   Tuning doc read/write (kept)
-===================================================================== */
-function normalizeTuneDoc(d){
-  const doc = (d && typeof d === 'object') ? d : {};
-  const dryLoss = safeNum(doc.DRY_LOSS_MULT);
-  const rainEff = safeNum(doc.RAIN_EFF_MULT);
-
-  return {
-    DRY_LOSS_MULT: clamp((dryLoss == null ? 1.0 : dryLoss), DRY_LOSS_MULT_MIN, DRY_LOSS_MULT_MAX),
-    RAIN_EFF_MULT: clamp((rainEff == null ? 1.0 : rainEff), RAIN_EFF_MULT_MIN, RAIN_EFF_MULT_MAX),
-    updatedAt: doc.updatedAt || null
+    // injected dialogs
+    srSheet: null,
+    editSheet: null
   };
-}
 
-async function loadGlobalTuning(state){
-  const api = getAPI(state);
-  const fallback = normalizeTuneDoc(null);
+  const state = {
+    eq: null,
 
-  try{
-    if (!api) return fallback;
+    // service records
+    srRows: [],
+    srSelectedId: null,
+    srMode: "list",
 
-    if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
-      const db = window.firebase.firestore();
-      const snap = await db.collection(FR_TUNE_COLLECTION).doc(FR_TUNE_DOC).get();
-      if (!snap || !snap.exists) return fallback;
-      return normalizeTuneDoc(snap.data() || {});
-    }
+    // editor data caches
+    makes: [],
+    models: [],
+    makesLoaded: false,
+    modelsLoaded: false,
 
-    if (api.kind !== 'compat'){
-      const db = api.getFirestore();
-      const ref = api.doc(db, FR_TUNE_COLLECTION, FR_TUNE_DOC);
-      const snap = await api.getDoc(ref);
-      if (!snap || !snap.exists || !snap.exists()) return fallback;
-      return normalizeTuneDoc(snap.data() || {});
-    }
-  }catch(e){
-    console.warn('[FieldReadiness] tuning load failed:', e);
+    // editor selection
+    editEqId: null,
+    editEqDoc: null,
+    editExtras: null,
+    editTypeKey: "equipment" // singular like tractor/combine/implement/etc.
+  };
+
+  // ---------- helpers ----------
+  const norm = (v) => (v||"").toString().trim().toLowerCase();
+
+  function escapeHtml(s){
+    return String(s ?? "").replace(/[&<>"']/g, c => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+    }[c]));
   }
-  return fallback;
-}
 
-async function writeGlobalTuning(state, payload){
-  const api = getAPI(state);
-  if (!api) return;
+  function showToast(msg="Saved."){
+    if(!UI.toast) return;
+    UI.toast.textContent = msg;
+    UI.toast.classList.remove("show");
+    void UI.toast.offsetWidth;
+    UI.toast.classList.add("show");
+  }
 
-  if (api.kind === 'compat'){
+  function showError(msg){
+    if(!UI.alertBox){
+      console.error(msg);
+      return;
+    }
+    UI.alertBox.textContent = msg;
+    UI.alertBox.classList.add("show");
+    clearTimeout(showError._t);
+    showError._t = setTimeout(()=> UI.alertBox.classList.remove("show"), 8000);
+  }
+
+  function openSheet(dlg){
+    if(!dlg) return;
+    try{ dlg.showModal(); }catch{ dlg.setAttribute("open",""); }
+  }
+  function closeSheet(dlg){
+    if(!dlg) return;
+    try{ dlg.close(); }catch{ dlg.removeAttribute("open"); }
+  }
+
+  function toDateMaybe(ts){
+    if(!ts) return null;
     try{
-      const db = window.firebase.firestore();
-      await db.collection(FR_TUNE_COLLECTION).doc(FR_TUNE_DOC).set(payload, { merge:true });
-    }catch(e){
-      console.warn('[FieldReadiness] tuning write failed (compat):', e);
-    }
-    return;
-  }
-
-  try{
-    const db = api.getFirestore();
-    const ref = api.doc(db, FR_TUNE_COLLECTION, FR_TUNE_DOC);
-    await api.setDoc(ref, payload, { merge:true });
-  }catch(e){
-    console.warn('[FieldReadiness] tuning write failed:', e);
-  }
-}
-
-function computeNextTuning(prev, intentFactor){
-  const fct = clamp(Number(intentFactor || 1), 0.10, 2.50);
-  const p = normalizeTuneDoc(prev);
-
-  const exp = clamp(Number(TUNE_EXP || 0.5), 0.10, 1.00);
-
-  const dryMulStep = Math.pow(fct, exp);
-  const rainMulStep = Math.pow(1 / Math.max(1e-6, fct), exp);
-
-  const nextDry = clamp(p.DRY_LOSS_MULT * dryMulStep, DRY_LOSS_MULT_MIN, DRY_LOSS_MULT_MAX);
-  const nextRain = clamp(p.RAIN_EFF_MULT * rainMulStep, RAIN_EFF_MULT_MIN, RAIN_EFF_MULT_MAX);
-
-  return { DRY_LOSS_MULT: nextDry, RAIN_EFF_MULT: nextRain };
-}
-
-/* =====================================================================
-   Cooldown doc (kept)
-===================================================================== */
-function futureTimestamp(api, ms){
-  try{
-    if (api && api.Timestamp && typeof api.Timestamp.fromMillis === 'function'){
-      return api.Timestamp.fromMillis(ms);
-    }
-  }catch(_){}
-  return new Date(ms);
-}
-
-async function writeWeightsLock(state, nowMs){
-  const api = getAPI(state);
-  const cdH = Number(state._cooldownHours || 72);
-  const nextMs = nowMs + Math.round(cdH * 3600 * 1000);
-
-  state._lastAppliedMs = nowMs;
-  state._nextAllowedMs = nextMs;
-
-  if (!api) return;
-
-  if (api.kind === 'compat'){
-    try{
-      const db = window.firebase.firestore();
-      await db.collection(CONST.WEIGHTS_COLLECTION).doc(CONST.WEIGHTS_DOC).set({
-        lastAppliedAt: new Date(nowMs).toISOString(),
-        nextAllowedAt: new Date(nextMs).toISOString(),
-        cooldownHours: cdH
-      }, { merge:true });
-    }catch(e){
-      console.warn('[FieldReadiness] weights update failed:', e);
-    }
-    return;
-  }
-
-  try{
-    const db = api.getFirestore();
-    const ref = api.doc(db, CONST.WEIGHTS_COLLECTION, CONST.WEIGHTS_DOC);
-
-    await api.setDoc(ref, {
-      lastAppliedAt: api.serverTimestamp ? api.serverTimestamp() : new Date(nowMs).toISOString(),
-      nextAllowedAt: futureTimestamp(api, nextMs),
-      cooldownHours: cdH
-    }, { merge:true });
-  }catch(e){
-    console.warn('[FieldReadiness] weights update failed:', e);
-  }
-}
-
-/* =====================================================================
-   Theme patch + reset button style (kept)
-===================================================================== */
-function ensureGlobalCalThemeCSSOnce(){
-  try{
-    if (window.__FV_FR_GCAL_THEME__) return;
-    window.__FV_FR_GCAL_THEME__ = true;
-
-    const st = document.createElement('style');
-    st.setAttribute('data-fv-fr-gcal-theme','1');
-    st.textContent = `
-      #btnAdjReset30{
-        border: 1px solid var(--border) !important;
-        background: color-mix(in srgb, var(--surface) 92%, #ffffff 8%) !important;
-        color: var(--text) !important;
-        border-radius: 12px !important;
-        padding: 10px 12px !important;
-        font-weight: 900 !important;
+      if(ts.toDate) return ts.toDate();
+      if(typeof ts === "object" && typeof ts.seconds === "number"){
+        const d = new Date(ts.seconds * 1000);
+        return Number.isFinite(d.getTime()) ? d : null;
       }
-      #btnAdjReset30:active{ transform: translateY(1px) !important; }
-      #btnAdjReset30:disabled{ opacity:.55 !important; cursor:not-allowed !important; }
+      if(typeof ts === "string" || typeof ts === "number"){
+        const d = new Date(ts);
+        return Number.isFinite(d.getTime()) ? d : null;
+      }
+    }catch(_){}
+    return null;
+  }
+
+  function formatDateTime(d){
+    if(!d) return "—";
+    try{ return d.toLocaleString(); }catch{ return "—"; }
+  }
+
+  function statusLabel(st){
+    const s = norm(st);
+    if(!s) return "—";
+    if(s === "open") return "Open";
+    if(s === "pending") return "Pending";
+    if(s === "in progress" || s === "in-progress" || s === "in_progress") return "In progress";
+    if(s === "completed" || s === "complete") return "Completed";
+    return st;
+  }
+
+  function bestRecordDate(r){
+    return (
+      toDateMaybe(r?.completedAt) ||
+      toDateMaybe(r?.updatedAt) ||
+      toDateMaybe(r?.createdAt) ||
+      toDateMaybe(r?.date) ||
+      null
+    );
+  }
+
+  function pickTitle(r){
+    return (
+      String(r?.title||"").trim() ||
+      String(r?.summary||"").trim() ||
+      String(r?.problem||"").trim() ||
+      String(r?.issue||"").trim() ||
+      "Service Record"
+    );
+  }
+
+  function pickNotes(r){
+    return (
+      String(r?.summaryNotes||"").trim() ||
+      String(r?.notes||"").trim() ||
+      String(r?.description||"").trim() ||
+      String(r?.details||"").trim() ||
+      ""
+    );
+  }
+
+  function detectTypeKeyFromEq(eq){
+    // We use singular keys because equipment-forms.js expects singular types.
+    const t = norm(eq?.type);
+    if(!t) return "equipment";
+    if(t === "tractors") return "tractor";
+    if(t === "combines") return "combine";
+    if(t === "sprayers") return "sprayer";
+    if(t === "trucks") return "truck";
+    if(t === "implements") return "implement";
+    return t; // already singular in most docs
+  }
+
+  function safeUnitId(eq){
+    const v = (eq && (eq.unitId ?? eq?.extras?.unitId)) ?? "";
+    return String(v || "").trim();
+  }
+
+  // ---------- bootstrap ----------
+  function bootstrap(){
+    if(UI.svcSheet) return;
+
+    UI.svcSheet = $("#svcSheet");
+    UI.svcTitle = $("#svcTitle");
+    UI.svcMeta = $("#svcMeta");
+    UI.lifetimeNotes = $("#lifetimeNotes");
+    UI.btnSaveNotes = $("#btnSaveNotes");
+    UI.svcFooter = UI.svcSheet ? UI.svcSheet.querySelector("footer") : null;
+
+    UI.toast = $("#toast");
+    UI.alertBox = $("#alert");
+
+    UI.btnClose1 = $("#svcClose");
+    UI.btnClose2 = $("#svcClose2");
+
+    if(UI.btnSaveNotes){
+      UI.btnSaveNotes.addEventListener("click", saveNotes);
+    }
+    if(UI.btnClose1){
+      UI.btnClose1.addEventListener("click", ()=> closeSheet(UI.svcSheet));
+    }
+    if(UI.btnClose2){
+      UI.btnClose2.addEventListener("click", ()=> closeSheet(UI.svcSheet));
+    }
+  }
+
+  // ---------- inject buttons into svcSheet footer ----------
+  function ensureSvcFooterButtons(){
+    if(!UI.svcFooter) return;
+    if(UI.svcFooter.querySelector("[data-fv='svcRecordsBtn']")) return;
+
+    const leftWrap = document.createElement("div");
+    leftWrap.style.display = "flex";
+    leftWrap.style.gap = "8px";
+    leftWrap.style.flexWrap = "wrap";
+    leftWrap.style.alignItems = "center";
+
+    const btnSvcRecords = document.createElement("button");
+    btnSvcRecords.type = "button";
+    btnSvcRecords.className = "btn";
+    btnSvcRecords.textContent = "Service Records";
+    btnSvcRecords.setAttribute("data-fv","svcRecordsBtn");
+
+    const btnEdit = document.createElement("button");
+    btnEdit.type = "button";
+    btnEdit.className = "btn";
+    btnEdit.textContent = "Edit";
+    btnEdit.setAttribute("data-fv","editBtn");
+
+    btnSvcRecords.addEventListener("click", async ()=>{
+      if(!state.eq) return;
+      try{
+        await openServiceRecordsModal(state.eq);
+      }catch(e){
+        console.error(e);
+        showError(e?.message || "Failed to load service records.");
+      }
+    });
+
+    btnEdit.addEventListener("click", async ()=>{
+      if(!state.eq) return;
+      try{
+        await openEditModal(state.eq.id);
+      }catch(e){
+        console.error(e);
+        showError(e?.message || "Failed to open editor.");
+      }
+    });
+
+    leftWrap.appendChild(btnSvcRecords);
+    leftWrap.appendChild(btnEdit);
+    UI.svcFooter.insertBefore(leftWrap, UI.svcFooter.firstChild);
+
+    UI.btnSvcRecords = btnSvcRecords;
+    UI.btnEdit = btnEdit;
+  }
+
+  // ===================================================================
+  //  SERVICE RECORDS MODAL (kept from previous version)
+  // ===================================================================
+  function ensureSrSheet(){
+    if(UI.srSheet) return UI.srSheet;
+
+    const dlg = document.createElement("dialog");
+    dlg.id = "srSheet";
+    dlg.className = "sheet";
+    dlg.setAttribute("aria-modal","true");
+
+    dlg.innerHTML = `
+      <header>
+        <strong id="srSheetTitle">Service Records</strong>
+        <button id="srSheetClose" class="btn" type="button">Close</button>
+      </header>
+
+      <div class="body" style="gap:12px;">
+        <div id="srBanner" class="muted" style="display:none;"></div>
+
+        <div id="srListView">
+          <div class="subcard">
+            <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;">
+              <strong>Records</strong>
+              <span class="muted" id="srCount">—</span>
+            </div>
+            <div id="srList" style="display:grid;gap:10px;"></div>
+          </div>
+        </div>
+
+        <div id="srDetailView" style="display:none;">
+          <div class="subcard">
+            <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;">
+              <button id="srBack" class="btn" type="button">← Back</button>
+              <span class="muted" id="srDetailStatus">—</span>
+            </div>
+            <div style="display:grid;gap:8px;">
+              <div style="font-weight:950;" id="srDetailTitle">—</div>
+              <div class="muted" id="srDetailWhen">—</div>
+            </div>
+          </div>
+
+          <div class="subcard" id="srDetailNotesBlock" style="display:none;">
+            <strong>Notes</strong>
+            <div id="srDetailNotes" style="white-space:pre-wrap;line-height:1.35;"></div>
+          </div>
+
+          <div class="subcard" id="srDetailLineItemsBlock" style="display:none;">
+            <strong>Line Items</strong>
+            <div id="srDetailLineItems" style="display:grid;gap:10px;"></div>
+          </div>
+        </div>
+      </div>
+
+      <footer>
+        <button id="srSheetClose2" class="btn" type="button">Close</button>
+      </footer>
+    `;
+
+    document.body.appendChild(dlg);
+
+    dlg.querySelector("#srSheetClose").addEventListener("click", ()=> closeSheet(dlg));
+    dlg.querySelector("#srSheetClose2").addEventListener("click", ()=> closeSheet(dlg));
+    dlg.querySelector("#srBack").addEventListener("click", ()=> srShowList());
+
+    dlg.addEventListener("close", ()=> srShowList(true));
+
+    UI.srSheet = dlg;
+    return dlg;
+  }
+
+  function srBanner(msg){
+    const el = UI.srSheet?.querySelector("#srBanner");
+    if(!el) return;
+    if(!msg){
+      el.style.display = "none";
+      el.textContent = "";
+      return;
+    }
+    el.style.display = "block";
+    el.textContent = msg;
+  }
+
+  function srShowList(reset=false){
+    const dlg = UI.srSheet;
+    if(!dlg) return;
+    dlg.querySelector("#srListView").style.display = "block";
+    dlg.querySelector("#srDetailView").style.display = "none";
+    state.srMode = "list";
+    if(reset) state.srSelectedId = null;
+  }
+
+  function srShowDetail(){
+    const dlg = UI.srSheet;
+    if(!dlg) return;
+    dlg.querySelector("#srListView").style.display = "none";
+    dlg.querySelector("#srDetailView").style.display = "block";
+    state.srMode = "detail";
+    const body = dlg.querySelector(".body");
+    if(body) body.scrollTop = 0;
+  }
+
+  function srRenderList(){
+    const dlg = UI.srSheet;
+    if(!dlg) return;
+
+    const list = dlg.querySelector("#srList");
+    const count = dlg.querySelector("#srCount");
+    list.innerHTML = "";
+
+    count.textContent = state.srRows.length ? `${state.srRows.length} record(s)` : "No records";
+
+    if(!state.srRows.length){
+      list.innerHTML = `<div class="muted">No service records found for this equipment.</div>`;
+      return;
+    }
+
+    state.srRows.forEach(row=>{
+      const r = row.data || {};
+      const when = bestRecordDate(r);
+      const title = pickTitle(r);
+      const notes = pickNotes(r);
+      const st = statusLabel(r.status);
+
+      const li = Array.isArray(r.lineItems) ? r.lineItems : [];
+      const openCount = li.filter(x => !x?.completed).length;
+      const tag2 = li.length ? `${li.length} items (${openCount} open)` : "";
+
+      const card = document.createElement("div");
+      card.className = "subcard";
+      card.style.cursor = "pointer";
+      card.style.userSelect = "none";
+      card.innerHTML = `
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;">
+          <div style="min-width:0;flex:1 1 auto;">
+            <div style="font-weight:950;line-height:1.15;">${escapeHtml(title)}</div>
+            <div class="muted" style="margin-top:2px;">${escapeHtml(when ? formatDateTime(when) : "—")}</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+            ${st && st!=="—" ? `<span class="muted" style="border:1px solid var(--border);border-radius:999px;padding:5px 10px;font-weight:850;">${escapeHtml(st)}</span>` : ``}
+            ${tag2 ? `<span class="muted" style="border:1px solid var(--border);border-radius:999px;padding:5px 10px;font-weight:850;">${escapeHtml(tag2)}</span>` : ``}
+          </div>
+        </div>
+        ${notes ? `<div style="white-space:pre-wrap;line-height:1.35;">${escapeHtml(notes)}</div>` : ``}
+      `;
+
+      card.addEventListener("click", ()=> srOpenDetail(row.id));
+      list.appendChild(card);
+    });
+  }
+
+  function srOpenDetail(rowId){
+    const dlg = UI.srSheet;
+    if(!dlg) return;
+
+    const row = state.srRows.find(x => x.id === rowId);
+    if(!row) return;
+
+    state.srSelectedId = rowId;
+
+    const r = row.data || {};
+    const when = bestRecordDate(r);
+    const title = pickTitle(r);
+    const notes = pickNotes(r);
+    const st = statusLabel(r.status);
+
+    dlg.querySelector("#srDetailTitle").textContent = title || "Service Record";
+    dlg.querySelector("#srDetailWhen").textContent = when ? formatDateTime(when) : "—";
+    dlg.querySelector("#srDetailStatus").textContent = st || "—";
+
+    const notesBlock = dlg.querySelector("#srDetailNotesBlock");
+    const notesEl = dlg.querySelector("#srDetailNotes");
+    if(notes){
+      notesEl.textContent = notes;
+      notesBlock.style.display = "grid";
+      notesBlock.style.gap = "8px";
+    }else{
+      notesEl.textContent = "";
+      notesBlock.style.display = "none";
+    }
+
+    const liBlock = dlg.querySelector("#srDetailLineItemsBlock");
+    const liHost = dlg.querySelector("#srDetailLineItems");
+    const lineItems = Array.isArray(r.lineItems) ? r.lineItems : [];
+
+    liHost.innerHTML = "";
+    if(!lineItems.length){
+      liBlock.style.display = "none";
+    }else{
+      liBlock.style.display = "grid";
+      liBlock.style.gap = "10px";
+
+      lineItems.forEach((li, idx)=>{
+        const isDone = !!li.completed;
+        const topic = (li.serviceTopicOther ? String(li.serviceTopicOther) : (li.serviceTopic ? String(li.serviceTopic) : "")) || li.label || li.title || `Item ${idx+1}`;
+        const parts = li.partsNeeded || li.parts || "";
+        const itemNotes = li.notes || li.details || "";
+
+        const submittedBy = li.submittedByName || li.submittedByEmployeeName || "—";
+        const completedBy = li.completedByEmployeeName || li.completedByEmployeeId || "—";
+        const doneAt = li.completedAt ? formatDateTime(toDateMaybe(li.completedAt)) : "—";
+
+        const el = document.createElement("div");
+        el.className = "subcard";
+        el.style.cursor = "pointer";
+        el.dataset.open = "0";
+        el.innerHTML = `
+          <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">
+            <div style="font-weight:950;min-width:0;flex:1 1 auto;">
+              <span class="sr-chev" style="opacity:.85;">▾</span> ${escapeHtml(String(topic))}
+            </div>
+            <div class="muted" style="border:1px solid var(--border);border-radius:999px;padding:5px 10px;font-weight:850;">
+              ${escapeHtml(isDone ? "Completed" : "Open")}
+            </div>
+          </div>
+
+          <div class="sr-li-body" style="display:none; margin-top:8px; gap:10px;">
+            <div style="display:grid;gap:8px;">
+              <div class="muted"><b>Submitted by:</b> ${escapeHtml(String(submittedBy))}</div>
+              <div class="muted"><b>Completed by:</b> ${escapeHtml(String(completedBy))}</div>
+              <div class="muted"><b>Completed at:</b> ${escapeHtml(String(doneAt))}</div>
+              ${parts ? `<div class="muted"><b>Parts:</b> ${escapeHtml(String(parts))}</div>` : ``}
+              ${itemNotes ? `<div style="white-space:pre-wrap;line-height:1.35;"><b class="muted">Notes:</b>\n${escapeHtml(String(itemNotes))}</div>` : ``}
+            </div>
+          </div>
+        `;
+
+        el.addEventListener("click", ()=>{
+          const open = (el.dataset.open === "1");
+          el.dataset.open = open ? "0" : "1";
+          const body = el.querySelector(".sr-li-body");
+          body.style.display = open ? "none" : "grid";
+          const chev = el.querySelector(".sr-chev");
+          if(chev) chev.textContent = open ? "▾" : "▴";
+        });
+
+        liHost.appendChild(el);
+      });
+    }
+
+    srShowDetail();
+  }
+
+  async function loadServiceRecords(eqId){
+    const db = getFirestore();
+    const candidates = ["equipmentWorkOrders","equipment_work_orders","equipment_service_records"];
+    const rows = [];
+
+    for(const colName of candidates){
+      try{
+        try{
+          const qy = query(
+            collection(db, colName),
+            where("equipmentId", "==", eqId),
+            orderBy("createdAt", "desc"),
+            limit(250)
+          );
+          const snap = await getDocs(qy);
+          if(!snap.empty){
+            snap.forEach(d => rows.push({ id: d.id, data: d.data(), _col: colName }));
+            return rows;
+          }
+        }catch(orderErr){
+          const qy2 = query(
+            collection(db, colName),
+            where("equipmentId", "==", eqId),
+            limit(250)
+          );
+          const snap2 = await getDocs(qy2);
+          if(!snap2.empty){
+            snap2.forEach(d => rows.push({ id: d.id, data: d.data(), _col: colName }));
+            return rows;
+          }
+        }
+      }catch(e){
+        console.warn("[shop-equip-modal] SR query failed:", colName, e?.code || e);
+      }
+    }
+    return rows;
+  }
+
+  async function openServiceRecordsModal(eq){
+    ensureSrSheet();
+
+    const titleEl = UI.srSheet.querySelector("#srSheetTitle");
+    const label = (eq?.unitId ? `${eq.unitId} • ` : "") + (eq?.name || "Equipment");
+    titleEl.textContent = `Service Records • ${label}`;
+
+    srBanner("Loading…");
+    srShowList(true);
+    openSheet(UI.srSheet);
+
+    const rows = await loadServiceRecords(eq.id);
+
+    rows.sort((a,b)=>{
+      const da = bestRecordDate(a.data);
+      const dbb = bestRecordDate(b.data);
+      const ta = da ? da.getTime() : 0;
+      const tb = dbb ? dbb.getTime() : 0;
+      return tb - ta;
+    });
+
+    state.srRows = rows;
+    srBanner("");
+    srRenderList();
+  }
+
+  // ===================================================================
+  //  EDIT MODAL (NEW: like Edit Tractors dialog)
+  // ===================================================================
+  function ensureEditSheet(){
+    if(UI.editSheet) return UI.editSheet;
+
+    injectEditModalStyles();
+    const dlg = document.createElement("dialog");
+    dlg.id = "shopEquipEdit";
+    dlg.className = "sheet fv-edit-sheet";
+    dlg.setAttribute("aria-modal","true");
+
+    dlg.innerHTML = `
+      <header>
+        <strong id="seTitle">Edit Equipment</strong>
+        <button id="seClose" class="btn" type="button">Close</button>
+      </header>
+
+      <div class="body">
+        <div class="fv-kv">
+          <div>
+            <label>Make</label>
+            <input type="hidden" id="seMakeId"/>
+            <div class="fv-dd" id="seDdMake">
+              <button type="button" id="seMakeBtn" class="fv-dd-btn">— Loading… —</button>
+              <div class="fv-dd-list">
+                <input type="text" id="seMakeSearch" placeholder="Search make…">
+                <ul id="seMakeList"></ul>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label>Model</label>
+            <input type="hidden" id="seModelId"/>
+            <div class="fv-dd" id="seDdModel">
+              <button type="button" id="seModelBtn" class="fv-dd-btn" disabled>— Select a Make first —</button>
+              <div class="fv-dd-list">
+                <input type="text" id="seModelSearch" placeholder="Search model…" disabled>
+                <ul id="seModelList"></ul>
+              </div>
+            </div>
+            <div class="fv-tip">Models filter by the selected make.</div>
+          </div>
+
+          <div>
+            <label for="seYear">Year</label>
+            <div class="fv-combo" id="seYearCombo">
+              <button type="button" id="seYearTrigger" class="fv-combo-trigger" aria-haspopup="listbox" aria-expanded="false">— Select —</button>
+              <div id="seYearPanel" class="fv-combo-panel fv-hidden" role="listbox" aria-label="Year"></div>
+              <select id="seYear" aria-hidden="true" style="display:none"></select>
+            </div>
+          </div>
+
+          <div>
+            <label for="seUnitId">Unit ID</label>
+            <input id="seUnitId" class="fv-input" placeholder="Optional unit ID"/>
+            <div class="fv-tip">This is the Unit ID shown in the grid.</div>
+          </div>
+
+          <div>
+            <label for="seSerial">Serial (full)</label>
+            <input id="seSerial" class="fv-input" placeholder="Full serial"/>
+            <div class="fv-tip">Last 6: <strong id="seSerial6">—</strong></div>
+          </div>
+
+          <div>
+            <label for="seStatus">Status</label>
+            <select id="seStatus" class="fv-input" style="height:48px">
+              <option value="Active">Active</option>
+              <option value="Archived">Archived</option>
+              <option value="Out of Service">Out of Service</option>
+            </select>
+          </div>
+
+          <div id="seExtras" class="fv-extras" aria-label="Equipment extra fields"></div>
+
+          <div style="grid-column:1/-1">
+            <label for="seNotes">Notes</label>
+            <textarea id="seNotes" class="fv-textarea" placeholder="Notes (replaces equipment notes field)"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <footer>
+        <button id="seArchive" class="btn fv-btn-warn" type="button">Archive</button>
+        <button id="seDelete" class="btn fv-btn-danger" type="button" disabled title="Disabled for now (we’ll add the safe delete-guard later)">Delete</button>
+        <button id="seSave" class="btn btn-primary" type="button">Save Changes</button>
+      </footer>
+    `;
+
+    document.body.appendChild(dlg);
+
+    dlg.querySelector("#seClose").addEventListener("click", ()=> closeSheet(dlg));
+    dlg.addEventListener("close", ()=> {
+      // close any open dropdowns
+      document.querySelectorAll(".fv-dd").forEach(x=>x.classList.remove("open"));
+      state.editEqId = null;
+      state.editEqDoc = null;
+      state.editExtras = null;
+    });
+
+    // dropdown open/close behavior
+    wireDd(dlg.querySelector("#seDdMake"));
+    wireDd(dlg.querySelector("#seDdModel"));
+    wireDdGlobalClose();
+
+    // year combo behavior
+    wireYearCombo();
+
+    // save/archive
+    dlg.querySelector("#seSave").addEventListener("click", saveEditModal);
+    dlg.querySelector("#seArchive").addEventListener("click", toggleArchiveEditModal);
+
+    // serial last6
+    dlg.querySelector("#seSerial").addEventListener("input", ()=>{
+      dlg.querySelector("#seSerial6").textContent = last6(dlg.querySelector("#seSerial").value || "");
+    });
+
+    UI.editSheet = dlg;
+    return dlg;
+  }
+
+  function injectEditModalStyles(){
+    if(document.getElementById("fv-edit-modal-styles")) return;
+
+    const st = document.createElement("style");
+    st.id = "fv-edit-modal-styles";
+    st.textContent = `
+      .fv-edit-sheet{ width:min(760px, 92vw); }
+      .fv-kv{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+      @media(max-width:700px){ .fv-kv{ grid-template-columns:1fr } }
+
+      .fv-input{
+        width:100%;
+        font:inherit;
+        color:inherit;
+        background:var(--card-surface,var(--surface));
+        border:1px solid var(--border);
+        border-radius:10px;
+        padding:12px;
+        height:48px;
+        line-height:46px;
+        outline:none;
+      }
+      .fv-textarea{
+        width:100%;
+        font:inherit;
+        color:inherit;
+        background:var(--card-surface,var(--surface));
+        border:1px solid var(--border);
+        border-radius:10px;
+        padding:12px;
+        min-height:110px;
+        resize:vertical;
+        outline:none;
+      }
+      .fv-tip{ font-size:12px; color:var(--muted,#6f7772); margin-top:6px; }
+
+      .fv-dd{ position:relative; }
+      .fv-dd-btn{
+        width:100%;
+        text-align:left;
+        padding:12px;
+        padding-right:40px;
+        height:48px;
+        border:1px solid var(--border);
+        border-radius:10px;
+        background:var(--card-surface,var(--surface));
+        font:inherit;
+        color:var(--text)!important;
+        display:flex;
+        align-items:center;
+        appearance:none;
+        -webkit-appearance:none;
+        -webkit-text-fill-color: var(--text) !important;
+        cursor:pointer;
+      }
+      .fv-dd-btn[disabled]{opacity:.6;cursor:not-allowed;}
+      .fv-dd-btn::after{
+        content:"";
+        position:absolute;
+        right:12px; top:50%;
+        transform:translateY(-50%);
+        width:18px; height:18px;
+        pointer-events:none;
+        opacity:.7;
+        background:no-repeat center/18px 18px url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%2367706B' d='M7.41 8.58L12 13.17l4.59-4.59L18 10l-6 6-6-6z'/></svg>");
+      }
+      .fv-dd-list{
+        position:absolute;
+        z-index:1000;
+        top:calc(100% + 4px);
+        left:0; right:0;
+        max-height:260px;
+        overflow:auto;
+        border:1px solid var(--border);
+        border-radius:10px;
+        background:var(--surface);
+        box-shadow:0 12px 26px rgba(0,0,0,.18);
+        display:none;
+      }
+      .fv-dd.open .fv-dd-list{ display:block; }
+      .fv-dd-list input{
+        width:100%;
+        box-sizing:border-box;
+        padding:10px 12px;
+        border:none;
+        border-bottom:1px solid var(--border);
+        font:inherit;
+        outline:none;
+        background:var(--surface);
+        color:var(--text);
+      }
+      .fv-dd-list ul{ list-style:none; margin:0; padding:0; max-height:220px; overflow-y:auto; }
+      .fv-dd-list li{ padding:10px 12px; cursor:pointer; }
+      .fv-dd-list li:hover{ background:rgba(127,127,127,.08); }
+
+      .fv-combo{ position:relative; }
+      .fv-combo-trigger{
+        position:relative;
+        width:100%;
+        text-align:left;
+        display:flex;
+        align-items:center;
+        height:48px;
+        border:1px solid var(--border);
+        border-radius:10px;
+        background:var(--card-surface,var(--surface));
+        padding:12px;
+        color:var(--text)!important;
+        cursor:pointer;
+        -webkit-text-fill-color:var(--text)!important;
+      }
+      .fv-combo-trigger::after{
+        content:"";
+        position:absolute;
+        right:12px; top:50%;
+        width:8px; height:8px;
+        transform:translateY(-50%) rotate(45deg);
+        border-right:2px solid currentColor;
+        border-bottom:2px solid currentColor;
+        opacity:.75;
+        pointer-events:none;
+      }
+      .fv-combo-panel{
+        position:absolute;
+        left:0; right:0;
+        z-index:1000;
+        margin-top:6px;
+        padding:6px;
+        background:var(--surface);
+        border:1px solid var(--border);
+        border-radius:12px;
+        box-shadow:0 12px 26px rgba(0,0,0,.18);
+        --row-h:36px;
+        max-height: calc(var(--row-h) * 5 + 12px);
+        overflow:auto;
+      }
+      .fv-combo-item{
+        display:block;
+        width:100%;
+        text-align:left;
+        font:inherit;
+        color:var(--text);
+        background:transparent;
+        border:none;
+        border-radius:10px;
+        padding:10px 12px;
+        height:var(--row-h);
+        cursor:pointer;
+      }
+      .fv-combo-item:hover{ background:rgba(127,127,127,.08); }
+      .fv-hidden{ display:none !important; }
+
+      .fv-extras{
+        grid-column: 1 / -1;
+        border:1px solid var(--border);
+        border-radius:14px;
+        background:var(--surface);
+        padding:12px;
+      }
+
+      .fv-btn-warn{
+        background:var(--brand-gold,#D0C542);
+        color:#2b2b2b !important;
+        border-color:var(--brand-gold,#D0C542);
+      }
+      .fv-btn-danger{
+        background:#B3261E;
+        color:#fff !important;
+        border-color:#B3261E;
+      }
     `;
     document.head.appendChild(st);
-  }catch(_){}
-}
-
-/* =====================================================================
-   Model run helper
-===================================================================== */
-function getSelectedField(state){
-  const fid = state.selectedFieldId;
-  if (!fid) return null;
-  return (state.fields || []).find(x=>x.id === fid) || null;
-}
-
-// CAL must match render.js: ALL ZERO.
-function getCalForShown(_state){
-  return { wetBias:0, opWetBias:{}, readinessShift:0, opReadinessShift:{} };
-}
-
-function runFieldWithCal(state, f, calObj, extraOpts){
-  if (!f) return null;
-  if (!state._mods || !state._mods.model || !state._mods.weather) return null;
-
-  const wxCtx = buildWxCtx(state);
-  const opKey = getCurrentOp();
-
-  const deps = {
-    getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
-    getFieldParams: (id)=> getFieldParams(state, id),
-    LOSS_SCALE: CONST.LOSS_SCALE,
-    EXTRA,
-    opKey,
-    CAL: calObj,
-    getPersistedState: (id)=> getPersistedStateForDeps(state, id),
-    ...(extraOpts && typeof extraOpts === 'object' ? extraOpts : {})
-  };
-
-  const run = state._mods.model.runField(f, deps);
-  try{ state.lastRuns && state.lastRuns.set(f.id, run); }catch(_){}
-  return run;
-}
-
-function getRunForFieldShown(state, f){
-  return runFieldWithCal(state, f, getCalForShown(state));
-}
-
-/* =====================================================================
-   Current threshold + status (kept)
-===================================================================== */
-function currentThreshold(state){
-  const opKey = getCurrentOp();
-  const v = state.thresholdsByOp && state.thresholdsByOp.get ? state.thresholdsByOp.get(opKey) : null;
-  const thr = isFinite(Number(v)) ? Number(v) : 70;
-  return clamp(Math.round(thr), 0, 100);
-}
-
-function statusFromReadinessAndThreshold(state, run, thr){
-  const r = clamp(Math.round(Number(run?.readinessR ?? 0)), 0, 100);
-  const t = clamp(Math.round(Number(thr ?? 70)), 0, 100);
-  const band = clamp(Math.round(Number(STATUS_HYSTERESIS)), 0, 10);
-
-  if (r >= (t + band)) return 'dry';
-  if (r <= (t - band)) return 'wet';
-
-  const prev = String(state?._adjStatus || '');
-  if (prev === 'wet' || prev === 'dry') return prev;
-
-  return (r >= t) ? 'dry' : 'wet';
-}
-
-/* =====================================================================
-   Cooldown UI (kept)
-===================================================================== */
-function renderCooldownCard(state){
-  const now = Date.now();
-  const lastMs = Number(state._lastAppliedMs || 0);
-  const nextMs = Number(state._nextAllowedMs || 0);
-  const cdH = Number(state._cooldownHours || 72);
-
-  const locked = isLocked(state);
-  const since = lastMs ? fmtDur(now - lastMs) : '—';
-  const nextAbs = nextMs ? fmtAbs(nextMs) : '—';
-
-  const title = locked ? 'Global calibration is locked' : 'Global calibration is available';
-  const lastLine = lastMs
-    ? `Last global shift: <span class="mono">${esc(since)}</span> ago`
-    : `Last global shift: <span class="mono">—</span>`;
-  const sub = `Next global shift allowed: <span class="mono">${esc(nextAbs)}</span>`;
-  const note = `Apply forces the reference field to the target readiness, then scales all fields storage by the same %. Reset rebuilds truth from the last ~30 days.`;
-
-  const cardStyle =
-    'border:1px solid var(--border);border-radius:14px;padding:12px;' +
-    'background:color-mix(in srgb, var(--surface) 96%, #ffffff 4%);' +
-    'display:grid;gap:8px;';
-  const headStyle = 'display:flex;align-items:flex-start;justify-content:space-between;gap:10px;';
-  const hStyle = 'margin:0;font-weight:900;font-size:12px;line-height:1.2;';
-  const badgeStyle =
-    'padding:4px 8px;border-radius:999px;border:1px solid var(--border);' +
-    'font-weight:900;font-size:12px;white-space:nowrap;' +
-    (locked ? 'background:color-mix(in srgb, #b00020 10%, var(--surface) 90%);'
-            : 'background:color-mix(in srgb, var(--accent) 12%, var(--surface) 88%);');
-
-  const lineStyle = 'font-size:12px;color:var(--text);opacity:.92;';
-  const mutedStyle = 'font-size:12px;color:var(--muted,#67706B);opacity:.95;line-height:1.35;';
-
-  setHtml('calibCooldownMsg', `
-    <div style="${cardStyle}">
-      <div style="${headStyle}">
-        <div style="${hStyle}">${esc(title)}</div>
-        <div style="${badgeStyle}">${locked ? `${cdH}h rule` : 'Unlocked'}</div>
-      </div>
-      <div style="${lineStyle}">${lastLine}</div>
-      <div style="${lineStyle}">${sub}</div>
-      <div style="${mutedStyle}">${note}</div>
-    </div>
-  `);
-}
-
-/* =====================================================================
-   Slider anchoring + clamp (kept)
-===================================================================== */
-function sliderEl(){ return $('adjIntensity'); }
-function sliderVal(){
-  const el = sliderEl();
-  const v = el ? Number(el.value) : 50;
-  return clamp(Math.round(isFinite(v) ? v : 50), 0, 100);
-}
-function setSliderVal(v){
-  const el = sliderEl();
-  if (el) el.value = String(clamp(Math.round(Number(v)), 0, 100));
-  const out = $('adjIntensityVal');
-  if (out) out.textContent = String(sliderVal());
-}
-function setAnchor(state, anchorReadiness){
-  state._adjAnchorReadiness = clamp(Math.round(Number(anchorReadiness)), 0, 100);
-  const el = sliderEl();
-  if (el){
-    el.min = '0';
-    el.max = '100';
-    el.value = String(state._adjAnchorReadiness);
-  }
-  const out = $('adjIntensityVal');
-  if (out) out.textContent = String(state._adjAnchorReadiness);
-}
-
-function enforceSliderClamp(state){
-  const el = sliderEl();
-  if (!el) return;
-
-  const anchor = clamp(Number(state._adjAnchorReadiness ?? 50), 0, 100);
-  let v = sliderVal();
-
-  const status = state._adjStatus;
-  const feel = state._adjFeel;
-
-  if (!feel){
-    v = anchor;
-    el.value = String(v);
-    setSliderVal(v);
-    return;
   }
 
-  if (status === 'wet' && feel === 'dry'){
-    if (v < anchor) v = anchor;
-  }
-  else if (status === 'dry' && feel === 'wet'){
-    if (v > anchor) v = anchor;
-  } else {
-    v = anchor;
-  }
-
-  el.value = String(v);
-  setSliderVal(v);
-}
-
-/* =====================================================================
-   UI State (kept)
-===================================================================== */
-function updateAdjustHeader(state){
-  const f = getSelectedField(state);
-  const sub = $('adjustSub');
-  if (!sub) return;
-
-  if (f && f.name){
-    sub.textContent = `Global storage shift • ${f.name}`;
-  } else {
-    sub.textContent = 'Global storage shift';
-  }
-}
-
-function updatePills(state, run){
-  const fid = state.selectedFieldId;
-  const p = getFieldParams(state, fid);
-
-  const thr = currentThreshold(state);
-
-  setText('adjReadiness', run ? run.readinessR : '—');
-  setText('adjWetness', run ? run.wetnessR : '—');
-  setText('adjSoil', `${p.soilWetness}/100`);
-  setText('adjDrain', `${p.drainageIndex}/100`);
-
-  setText('adjModelClass', (state._adjStatus || '—').toUpperCase());
-
-  try{
-    const thrEl = $('adjThreshold');
-    if (thrEl) thrEl.textContent = String(thr);
-  }catch(_){}
-}
-
-function updateUI(state){
-  const locked = isLocked(state);
-
-  const bWet = $('btnFeelWet');
-  const bDry = $('btnFeelDry');
-  const applyBtn = $('btnAdjApply');
-  const s = sliderEl();
-
-  if (bWet) bWet.disabled = locked || (state._adjStatus === 'wet');
-  if (bDry) bDry.disabled = locked || (state._adjStatus === 'dry');
-  if (s) s.disabled = locked;
-
-  // Reset is allowed anytime (it’s a rebuild, not a shift)
-  const resetBtn = $('btnAdjReset30');
-  if (resetBtn) resetBtn.disabled = false;
-
-  if (locked){
-    state._adjFeel = null;
-  }
-
-  const seg = $('feelSeg');
-  if (seg){
-    seg.querySelectorAll('.segbtn').forEach(btn=>{
-      const bf = btn.getAttribute('data-feel');
-      btn.classList.toggle('on', bf === state._adjFeel);
+  function wireDd(root){
+    if(!root) return;
+    const btn = root.querySelector(".fv-dd-btn");
+    btn.addEventListener("click", ()=>{
+      document.querySelectorAll(".fv-dd").forEach(d=>{ if(d!==root) d.classList.remove("open"); });
+      if(btn.disabled) return;
+      root.classList.toggle("open");
+      const inp = root.querySelector(".fv-dd-list input");
+      if(root.classList.contains("open") && inp){
+        setTimeout(()=> inp.focus(), 60);
+      }
     });
   }
 
-  const box = $('intensityBox');
-  const opposite =
-    (state._adjStatus === 'wet' && state._adjFeel === 'dry') ||
-    (state._adjStatus === 'dry' && state._adjFeel === 'wet');
-  if (box) box.classList.toggle('pv-hide', !opposite);
+  function wireDdGlobalClose(){
+    if(wireDdGlobalClose._wired) return;
+    wireDdGlobalClose._wired = true;
 
-  const hint = $('adjHint');
-  if (hint){
-    const thr = currentThreshold(state);
-    const band = clamp(Math.round(Number(STATUS_HYSTERESIS)), 0, 10);
+    document.addEventListener("click", (e)=>{
+      if(!e.target.closest(".fv-dd")){
+        document.querySelectorAll(".fv-dd").forEach(d=>d.classList.remove("open"));
+      }
+    });
+    window.addEventListener("keydown", (e)=>{
+      if(e.key === "Escape"){
+        document.querySelectorAll(".fv-dd").forEach(d=>d.classList.remove("open"));
+      }
+    });
+  }
 
-    if (locked){
-      hint.textContent = 'Global shift is locked (72h rule). Reset/rebuild is still available.';
-    } else if (state._adjStatus === 'wet'){
-      hint.textContent =
-        `This reference field is WET for the current operation (Readiness below threshold ${thr}). ` +
-        `Only “Dry” is allowed. (Stability band ±${band} around threshold)`;
-    } else if (state._adjStatus === 'dry'){
-      hint.textContent =
-        `This reference field is DRY for the current operation (Readiness at/above threshold ${thr}). ` +
-        `Only “Wet” is allowed. (Stability band ±${band} around threshold)`;
-    } else {
-      hint.textContent = 'Choose Wet or Dry.';
+  function wireYearCombo(){
+    const dlg = UI.editSheet;
+    const trigger = dlg.querySelector("#seYearTrigger");
+    const panel = dlg.querySelector("#seYearPanel");
+    const sel = dlg.querySelector("#seYear");
+
+    function closePanel(){
+      panel.classList.add("fv-hidden");
+      trigger.setAttribute("aria-expanded","false");
+      document.removeEventListener("keydown", onEsc);
+    }
+    function openPanel(){
+      panel.classList.remove("fv-hidden");
+      trigger.setAttribute("aria-expanded","true");
+      document.addEventListener("keydown", onEsc);
+      document.addEventListener("click", onDocOnce, { once:true });
+    }
+    function onDocOnce(e){
+      if(!dlg.querySelector("#seYearCombo").contains(e.target)) closePanel();
+      else document.addEventListener("click", onDocOnce, { once:true });
+    }
+    function onEsc(e){ if(e.key==="Escape") closePanel(); }
+
+    trigger.addEventListener("click", ()=>{
+      const open = trigger.getAttribute("aria-expanded") === "true";
+      if(open) closePanel(); else openPanel();
+    });
+
+    // build year options once per open (but safe)
+    wireYearCombo._build = ()=>{
+      const now = new Date().getFullYear();
+      sel.innerHTML = `<option value="">— Select —</option>`;
+      for(let y=now+1; y>=now-40; y--){
+        const o=document.createElement("option");
+        o.value=String(y); o.textContent=String(y);
+        sel.appendChild(o);
+      }
+      panel.innerHTML = "";
+      [...sel.options].forEach(opt=>{
+        const b = document.createElement("button");
+        b.type="button";
+        b.className="fv-combo-item";
+        b.dataset.val=opt.value;
+        b.textContent=opt.textContent;
+        b.addEventListener("click", ()=>{
+          sel.value = opt.value;
+          trigger.textContent = opt.value ? opt.textContent : "— Select —";
+          closePanel();
+        });
+        panel.appendChild(b);
+      });
+    };
+  }
+
+  function last6(v){ return String(v||"").slice(-6); }
+
+  async function ensureEquipmentFormsLoaded(){
+    if(window.FVEquipForms && typeof window.FVEquipForms.initExtras === "function") return;
+
+    // load script once
+    if(ensureEquipmentFormsLoaded._loading) return ensureEquipmentFormsLoaded._loading;
+
+    ensureEquipmentFormsLoaded._loading = new Promise((resolve)=>{
+      const s = document.createElement("script");
+      s.src = "/Farm-vista/js/equipment-forms.js";
+      s.defer = true;
+      s.onload = ()=> resolve();
+      s.onerror = ()=> resolve(); // don't hard fail; we will show message
+      document.head.appendChild(s);
+    });
+
+    return ensureEquipmentFormsLoaded._loading;
+  }
+
+  async function loadMakesModels(){
+    const db = getFirestore();
+
+    if(!state.makesLoaded){
+      state.makesLoaded = true;
+      try{
+        const snap = await getDocs(query(collection(db,"equipment-makes"), orderBy("name")));
+        const out = [];
+        snap.forEach(d=>{
+          const v = d.data() || {};
+          if(v.archived) return;
+          out.push({ id:d.id, name:(v.name || v.make || "").trim() });
+        });
+        out.sort((a,b)=>a.name.localeCompare(b.name));
+        state.makes = out;
+      }catch(e){
+        console.error("load makes failed", e);
+        state.makes = [];
+      }
+    }
+
+    if(!state.modelsLoaded){
+      state.modelsLoaded = true;
+      try{
+        const snap = await getDocs(query(collection(db,"equipment-models"), orderBy("name")));
+        const out = [];
+        snap.forEach(d=>{
+          const v = d.data() || {};
+          if(v.archived) return;
+          out.push({
+            id:d.id,
+            name:(v.name || v.model || "").trim(),
+            makeId:(v.makeId || "").trim(),
+            makeName:(v.makeName || v.make || "").trim()
+          });
+        });
+        out.sort((a,b)=>a.name.localeCompare(b.name));
+        state.models = out;
+      }catch(e){
+        console.error("load models failed", e);
+        state.models = [];
+      }
     }
   }
 
-  if (applyBtn){
-    const hasChoice = (state._adjFeel === 'wet' || state._adjFeel === 'dry');
-    applyBtn.disabled = locked || !hasChoice;
+  function setupMakeModelDd(prefMakeIdOrName, prefModelIdOrName){
+    const dlg = UI.editSheet;
+
+    const makeRoot = dlg.querySelector("#seDdMake");
+    const makeBtn  = dlg.querySelector("#seMakeBtn");
+    const makeSearch = dlg.querySelector("#seMakeSearch");
+    const makeList = dlg.querySelector("#seMakeList");
+    const makeIdHidden = dlg.querySelector("#seMakeId");
+
+    const modelRoot = dlg.querySelector("#seDdModel");
+    const modelBtn  = dlg.querySelector("#seModelBtn");
+    const modelSearch = dlg.querySelector("#seModelSearch");
+    const modelList = dlg.querySelector("#seModelList");
+    const modelIdHidden = dlg.querySelector("#seModelId");
+
+    function buildList(ul, items, onPick){
+      ul.innerHTML = "";
+      items.forEach(({id,name})=>{
+        const li = document.createElement("li");
+        li.textContent = name || "(unnamed)";
+        li.dataset.value = id;
+        li.addEventListener("click", ()=> onPick(id, name));
+        ul.appendChild(li);
+      });
+    }
+
+    function filterList(input, ul){
+      const term = (input.value || "").toLowerCase().trim();
+      ul.querySelectorAll("li").forEach(li=>{
+        li.style.display = li.textContent.toLowerCase().includes(term) ? "" : "none";
+      });
+    }
+
+    makeSearch.oninput = ()=> filterList(makeSearch, makeList);
+    modelSearch.oninput = ()=> filterList(modelSearch, modelList);
+
+    function setMake(id, name){
+      makeIdHidden.value = id || "";
+      makeBtn.textContent = id ? name : "— Select —";
+      makeRoot.classList.remove("open");
+
+      // reset model when make changes
+      setModel("", "");
+      refreshModels();
+    }
+
+    function setModel(id, name){
+      modelIdHidden.value = id || "";
+      modelBtn.textContent = id ? name : (makeIdHidden.value ? "— Select —" : "— Select a Make first —");
+      modelRoot.classList.remove("open");
+    }
+
+    function refreshMakes(){
+      buildList(makeList, state.makes, setMake);
+
+      // preselect
+      const byId = state.makes.find(m=>m.id===prefMakeIdOrName);
+      const byNm = state.makes.find(m=>m.name===prefMakeIdOrName);
+      if(byId) setMake(byId.id, byId.name);
+      else if(byNm) setMake(byNm.id, byNm.name);
+      else{
+        makeIdHidden.value = "";
+        makeBtn.textContent = "— Select —";
+      }
+    }
+
+    function modelsForMake(){
+      const mk = makeIdHidden.value;
+      if(!mk) return [];
+      return state.models.filter(m=>m.makeId === mk);
+    }
+
+    function refreshModels(){
+      const items = modelsForMake();
+      modelBtn.disabled = !items.length;
+      modelSearch.disabled = !items.length;
+
+      if(!items.length){
+        modelBtn.textContent = "— Select a Make first —";
+        modelIdHidden.value = "";
+        modelList.innerHTML = "";
+        return;
+      }
+
+      buildList(modelList, items, setModel);
+
+      // preselect
+      const byId = items.find(m=>m.id===prefModelIdOrName);
+      const byNm = items.find(m=>m.name===prefModelIdOrName);
+      if(byId) setModel(byId.id, byId.name);
+      else if(byNm) setModel(byNm.id, byNm.name);
+      else{
+        modelIdHidden.value = "";
+        modelBtn.textContent = "— Select —";
+      }
+    }
+
+    // make list click should refresh models (keep consistent)
+    makeList.addEventListener("click", ()=> setTimeout(refreshModels, 0));
+
+    refreshMakes();
+    refreshModels();
   }
 
-  enforceSliderClamp(state);
-}
+  function initExtrasEngineForEdit(eqDoc){
+    const host = UI.editSheet.querySelector("#seExtras");
+    host.innerHTML = "";
 
-/* =====================================================================
-   Firestore writes
-===================================================================== */
-async function writeTruthStateDocCompat(db, fieldId, payload){
-  await db.collection(FR_STATE_COLLECTION).doc(String(fieldId)).set(payload, { merge:true });
-}
-async function writeTruthStateDocModern(api, db, fieldId, payload){
-  const ref = api.doc(db, FR_STATE_COLLECTION, String(fieldId));
-  await api.setDoc(ref, payload, { merge:true });
-}
-
-/* =====================================================================
-   RESET / REBUILD TRUTH FROM LAST ~30 DAYS WEATHER (kept)
-===================================================================== */
-async function rebuildTruthFromLast30Days(state){
-  try{
-    if (!state) return;
-    if (!canEdit(state)) return;
-
-    const ok = window.confirm(
-      'Reset/Rebuild Truth?\n\nThis will recompute TODAY storage truth for ALL fields using the last ~30 days of weather and your current field sliders.\n\nProceed?'
-    );
-    if (!ok) return;
-
-    if (!state._mods || !state._mods.model || !state._mods.weather){
-      window.alert('Model/weather modules are not loaded yet. Open the readiness page and wait for tiles to load, then try again.');
+    if(!window.FVEquipForms || typeof window.FVEquipForms.initExtras !== "function"){
+      host.innerHTML = `<div class="muted">Extras engine missing (equipment-forms.js).</div>`;
+      state.editExtras = null;
       return;
     }
 
-    const api = getAPI(state);
-    if (!api){
-      window.alert('Firebase is not ready. Try again after the app finishes loading.');
-      return;
-    }
+    const typeKey = detectTypeKeyFromEq(eqDoc);
+    state.editTypeKey = typeKey;
 
-    let dryLossMult = 1.0;
+    state.editExtras = window.FVEquipForms.initExtras({
+      equipType: typeKey,
+      container: host,
+      document
+    });
+
+    // hydrate extras with doc values (best-effort)
     try{
-      const tuned = await loadGlobalTuning(state);
-      if (tuned && safeNum(tuned.DRY_LOSS_MULT) != null){
-        dryLossMult = clamp(Number(tuned.DRY_LOSS_MULT), DRY_LOSS_MULT_MIN, DRY_LOSS_MULT_MAX);
+      if(state.editExtras && typeof state.editExtras.reset === "function"){
+        state.editExtras.reset(eqDoc || {});
       }
     }catch(_){}
 
-    const wxCtx = buildWxCtx(state);
-    const opKey = getCurrentOp();
-    const CAL0 = { wetBias:0, opWetBias:{}, readinessShift:0, opReadinessShift:{} };
+    // If equipment-forms doesn't expose reset, we rely on read() on save only.
+  }
 
-    const depsRebuild = {
-      getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
-      getFieldParams: (id)=> getFieldParams(state, id),
-      LOSS_SCALE: CONST.LOSS_SCALE,
-      EXTRA: { ...EXTRA, DRY_LOSS_MULT: dryLossMult },
-      opKey,
-      CAL: CAL0,
-      seedMode: 'baseline'
+  async function openEditModal(eqId){
+    bootstrap();
+    ensureSvcFooterButtons();
+    const dlg = ensureEditSheet();
+
+    await ensureEquipmentFormsLoaded();
+    await loadMakesModels();
+
+    // load equipment doc fresh
+    const db = getFirestore();
+    const snap = await getDoc(doc(db,"equipment", eqId));
+    if(!snap.exists()){
+      showError("Equipment not found.");
+      return;
+    }
+    const d = { id: snap.id, ...(snap.data()||{}) };
+    state.editEqId = eqId;
+    state.editEqDoc = d;
+
+    // title
+    const title = d.unitId ? `${d.unitId} • ${d.name || "Equipment"}` : (d.name || "Equipment");
+    dlg.querySelector("#seTitle").textContent = `Edit • ${title}`;
+
+    // year build
+    if(typeof wireYearCombo._build === "function") wireYearCombo._build();
+
+    // make/model dropdowns (prefer ids first, then names)
+    setupMakeModelDd(d.makeId || d.makeName || "", d.modelId || d.modelName || "");
+
+    // year set
+    const yearSel = dlg.querySelector("#seYear");
+    const yearTrigger = dlg.querySelector("#seYearTrigger");
+    yearSel.value = d.year ? String(d.year) : "";
+    yearTrigger.textContent = yearSel.value ? yearSel.value : "— Select —";
+
+    // unitId / serial / status / notes
+    dlg.querySelector("#seUnitId").value = safeUnitId(d);
+    dlg.querySelector("#seSerial").value = d.serial || "";
+    dlg.querySelector("#seSerial6").textContent = last6(d.serial || "");
+    dlg.querySelector("#seStatus").value = (d.status || "Active");
+    dlg.querySelector("#seNotes").value = d.notes || "";
+
+    // archive button label
+    dlg.querySelector("#seArchive").textContent = (String(d.status||"").toLowerCase()==="archived") ? "Unarchive" : "Archive";
+
+    // extras
+    initExtrasEngineForEdit(d);
+
+    openSheet(dlg);
+  }
+
+  function readEditForm(){
+    const dlg = UI.editSheet;
+    const makeId = dlg.querySelector("#seMakeId").value || null;
+    const modelId = dlg.querySelector("#seModelId").value || null;
+
+    const makeObj = state.makes.find(m=>m.id===makeId);
+    const modelObj = state.models.find(m=>m.id===modelId);
+
+    const makeName = makeObj ? makeObj.name : (state.editEqDoc?.makeName || "");
+    const modelName = modelObj ? modelObj.name : (state.editEqDoc?.modelName || "");
+
+    const yearVal = dlg.querySelector("#seYear").value;
+    const year = yearVal ? Number(yearVal) : null;
+
+    const unitId = String(dlg.querySelector("#seUnitId").value || "").trim();
+    const serial = String(dlg.querySelector("#seSerial").value || "").trim();
+    const status = dlg.querySelector("#seStatus").value || "Active";
+    const notes = String(dlg.querySelector("#seNotes").value || "").trim();
+
+    const extras = (state.editExtras && typeof state.editExtras.read === "function")
+      ? (state.editExtras.read() || {})
+      : {};
+
+    // If extras contains unitId, prefer the explicit field (grid uses unitId)
+    if(Object.prototype.hasOwnProperty.call(extras, "unitId")){
+      extras.unitId = String(extras.unitId || "").trim();
+    }
+
+    return {
+      makeId, modelId, makeName, modelName,
+      year,
+      unitId,
+      serial,
+      status,
+      notes,
+      extras
+    };
+  }
+
+  function validateEditForm(p){
+    if(!p.makeId) return "Make is required.";
+    if(!p.modelId) return "Model is required.";
+    if(!p.year) return "Year is required.";
+    if(!p.serial || p.serial.length < 3) return "Serial looks short.";
+
+    if(state.editExtras && typeof state.editExtras.validate === "function"){
+      const v = state.editExtras.validate();
+      if(v && v.ok === false) return v.message || "Missing required extra field.";
+    }
+    return "";
+  }
+
+  async function saveEditModal(){
+    if(!state.editEqId) return;
+
+    const patchIn = readEditForm();
+    const err = validateEditForm(patchIn);
+    if(err){
+      alert(err);
+      return;
+    }
+
+    const payload = {
+      makeId: patchIn.makeId,
+      modelId: patchIn.modelId,
+      makeName: patchIn.makeName || null,
+      modelName: patchIn.modelName || null,
+      year: patchIn.year,
+      unitId: patchIn.unitId || null,
+      serial: patchIn.serial,
+      status: patchIn.status,
+      notes: patchIn.notes || "",
+      ...patchIn.extras,
+      updatedAt: serverTimestamp()
     };
 
-    const fields = Array.isArray(state.fields) ? state.fields : [];
-    if (!fields.length){
-      window.alert('No fields loaded.');
-      return;
-    }
+    try{
+      const db = getFirestore();
+      await setDoc(doc(db,"equipment", state.editEqId), payload, { merge:true });
 
-    const createdBy = (api.kind === 'compat') ? getAuthUserIdCompat() : getAuthUserIdModern(api);
+      // update cached doc for header + future modals
+      Object.assign(state.editEqDoc, payload);
 
-    if (api.kind === 'compat'){
-      const db = window.firebase.firestore();
-      const updatedAtISO = nowISO();
+      showToast("Saved ✓");
+      closeSheet(UI.editSheet);
 
-      for (const f of fields){
+      // also update the currently-open svcSheet display (if same equipment)
+      if(state.eq && state.eq.id === state.editEqId){
+        Object.assign(state.eq, payload);
+        // refresh svc title/meta quickly
         try{
-          if (!f || !f.id) continue;
-
-          const run = state._mods.model.runField(f, depsRebuild);
-          if (!run || safeNum(run.storageFinal) == null) continue;
-
-          let asOf = '';
-          try{
-            const rows = Array.isArray(run.rows) ? run.rows : [];
-            const last = rows.length ? rows[rows.length - 1] : null;
-            asOf = isoDay(last && last.dateISO ? last.dateISO : '');
-          }catch(_){}
-          if (!asOf) asOf = isoDay(new Date().toISOString());
-
-          const Smax = safeNum(run?.factors?.Smax) ?? 0;
-          const storageFinal = Math.max(0, Number(run.storageFinal));
-
-          await writeTruthStateDocCompat(db, String(f.id), {
-            fieldId: String(f.id),
-            fieldName: String(f.name || ''),
-            asOfDateISO: String(asOf),
-            storageFinal,
-            SmaxAtSave: Number(Smax || 0),
-            source: 'reset-rebuild-30days',
-            updatedAt: updatedAtISO,
-            updatedBy: createdBy || null
-          });
-
-          state.persistedStateByFieldId = state.persistedStateByFieldId || {};
-          state.persistedStateByFieldId[String(f.id)] = {
-            fieldId: String(f.id),
-            storageFinal: Number(storageFinal),
-            asOfDateISO: String(asOf),
-            SmaxAtSave: Number(Smax || 0)
-          };
-        }catch(e){
-          console.warn('[FieldReadiness] rebuild truth failed for field:', f?.name, e);
-        }
+          const unitIdLine = payload.unitId ? `Unit ID ${payload.unitId}` : "Unit ID —";
+          UI.svcTitle.textContent = payload.unitId ? `${payload.unitId} • ${payload.name || state.eq.name || "Equipment"}` : (payload.name || state.eq.name || "Equipment");
+          UI.svcMeta.textContent = [
+            unitIdLine,
+            payload.year ? `Year ${payload.year}` : "",
+            payload.serial ? `Serial ${payload.serial}` : ""
+          ].filter(Boolean).join(" • ");
+        }catch(_){}
       }
-
-      state._persistLoadedAt = Date.now();
-      try{ document.dispatchEvent(new CustomEvent('fr:soft-reload')); }catch(_){}
-      window.alert('Reset complete: truth rebuilt from last ~30 days weather.');
-      return;
+    }catch(e){
+      console.error(e);
+      alert("Save failed by Firestore rules.");
     }
+  }
 
-    if (api.kind !== 'compat'){
-      const db = api.getFirestore();
+  async function toggleArchiveEditModal(){
+    if(!state.editEqId) return;
+    try{
+      const db = getFirestore();
+      const ref = doc(db,"equipment", state.editEqId);
+      const snap = await getDoc(ref);
+      if(!snap.exists()) return;
 
-      for (const f of fields){
-        try{
-          if (!f || !f.id) continue;
+      const d = snap.data() || {};
+      const cur = String(d.status || "Active");
+      const next = (cur === "Archived") ? "Active" : "Archived";
 
-          const run = state._mods.model.runField(f, depsRebuild);
-          if (!run || safeNum(run.storageFinal) == null) continue;
+      await updateDoc(ref, { status: next, updatedAt: serverTimestamp() });
 
-          let asOf = '';
-          try{
-            const rows = Array.isArray(run.rows) ? run.rows : [];
-            const last = rows.length ? rows[rows.length - 1] : null;
-            asOf = isoDay(last && last.dateISO ? last.dateISO : '');
-          }catch(_){}
-          if (!asOf) asOf = isoDay(new Date().toISOString());
+      // update modal UI
+      const dlg = UI.editSheet;
+      dlg.querySelector("#seStatus").value = next;
+      dlg.querySelector("#seArchive").textContent = (next === "Archived") ? "Unarchive" : "Archive";
 
-          const Smax = safeNum(run?.factors?.Smax) ?? 0;
-          const storageFinal = Math.max(0, Number(run.storageFinal));
+      showToast(next === "Archived" ? "Archived ✓" : "Restored ✓");
+    }catch(e){
+      console.error(e);
+      alert("Archive/Unarchive failed.");
+    }
+  }
 
-          await writeTruthStateDocModern(api, db, String(f.id), {
-            fieldId: String(f.id),
-            fieldName: String(f.name || ''),
-            asOfDateISO: String(asOf),
-            storageFinal,
-            SmaxAtSave: Number(Smax || 0),
-            source: 'reset-rebuild-30days',
-            updatedAt: api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString(),
-            updatedBy: createdBy || null
-          });
+  // ===================================================================
+  //  svcSheet open + lifetime notes save (existing)
+  // ===================================================================
+  async function open(eq){
+    bootstrap();
+    state.eq = eq || null;
+    if(!eq) return;
 
-          state.persistedStateByFieldId = state.persistedStateByFieldId || {};
-          state.persistedStateByFieldId[String(f.id)] = {
-            fieldId: String(f.id),
-            storageFinal: Number(storageFinal),
-            asOfDateISO: String(asOf),
-            SmaxAtSave: Number(Smax || 0)
-          };
-        }catch(e){
-          console.warn('[FieldReadiness] rebuild truth failed for field:', f?.name, e);
-        }
+    ensureSvcFooterButtons();
+
+    const unitIdLine = eq.unitId ? `Unit ID ${eq.unitId}` : "Unit ID —";
+    UI.svcTitle.textContent = eq.unitId ? `${eq.unitId} • ${eq.name || "Equipment"}` : (eq.name || "Equipment");
+
+    const cat = (function(){
+      const t = norm(eq.type);
+      const it = norm(eq.implementType);
+      if(t === "starfire") return "StarFire";
+      if(t === "tractor") return "Tractor";
+      if(t === "truck") return "Truck";
+      if(t === "sprayer") return "Sprayer";
+      if(t === "combine") return "Combine";
+      if(t === "implement"){
+        if(it === "planter") return "Planter";
+        if(it.includes("grain") || it.includes("cart") || it.includes("auger") || it.includes("bin")) return "Grain";
+        if(it.includes("tillage")) return "Tillage";
+        if(it.includes("drill") || it.includes("seeder")) return "Seeder/Drill";
+        return "Implement";
       }
+      return "Equipment";
+    })();
 
-      state._persistLoadedAt = Date.now();
-      try{ document.dispatchEvent(new CustomEvent('fr:soft-reload')); }catch(_){}
-      window.alert('Reset complete: truth rebuilt from last ~30 days weather.');
+    UI.svcMeta.textContent = [
+      unitIdLine,
+      cat,
+      eq.year ? `Year ${eq.year}` : "",
+      eq.serial ? `Serial ${eq.serial}` : "",
+      eq.placedInServiceDate ? `In Service ${eq.placedInServiceDate}` : ""
+    ].filter(Boolean).join(" • ");
+
+    UI.lifetimeNotes.value = eq.lifetimeNotes || "";
+    openSheet(UI.svcSheet);
+  }
+
+  async function saveNotes(){
+    if(!state.eq) return;
+    try{
+      const db = getFirestore();
+      const txt = (UI.lifetimeNotes.value || "").trim();
+      await updateDoc(doc(db, "equipment", state.eq.id), { lifetimeNotes: txt, updatedAt: serverTimestamp() });
+      state.eq.lifetimeNotes = txt;
+      showToast("Notes saved.");
+    }catch(e){
+      console.error(e);
+      showError(e?.message || "Save notes failed.");
     }
-  }catch(e){
-    console.warn('[FieldReadiness] rebuildTruthFromLast30Days failed:', e);
-    try{ window.alert('Reset failed. Check console for details.'); }catch(_){}
-  }
-}
-
-/* =====================================================================
-   APPLY: FORCE ref field, scale all fields (THIS IS THE FIX)
-===================================================================== */
-async function applyAdjustment(state){
-  if (isLocked(state)) return;
-
-  const api = getAPI(state);
-  if (!api) return;
-
-  const fRef = getSelectedField(state);
-  if (!fRef) return;
-
-  await loadPersistedState(state, { force:true });
-
-  const runRef = getRunForFieldShown(state, fRef);
-  if (!runRef || !runRef.factors || !isFinite(Number(runRef.factors.Smax))) return;
-
-  const thr = currentThreshold(state);
-  state._adjStatus = statusFromReadinessAndThreshold(state, runRef, thr);
-
-  const feel = state._adjFeel;
-  if (!(feel === 'wet' || feel === 'dry')) return;
-
-  if (state._adjStatus === 'wet' && feel !== 'dry') return;
-  if (state._adjStatus === 'dry' && feel !== 'wet') return;
-
-  const anchorR = clamp(Math.round(Number(state._adjAnchorReadiness ?? runRef.readinessR ?? 0)), 0, 100);
-  const targetR = clamp(Math.round(Number(sliderVal())), 0, 100);
-
-  // Force storage for reference field to hit target readiness
-  const SmaxRef = Number(runRef.factors.Smax);
-  const forced = gcalStorageNeededForTargetReadiness(targetR, SmaxRef);
-  const forcedStorageRef = forced.storageEff;
-
-  // Compute multiplier based on reference field’s current truth storage
-  const curStorageRef = Math.max(1e-6, Number(runRef.storageFinal || 0));
-  let storageMult = forcedStorageRef / curStorageRef;
-
-  // safety clamp
-  storageMult = clamp(storageMult, 0.05, 5.0);
-
-  // asOf aligned to series end (today)
-  let asOf = '';
-  try{
-    const rows = Array.isArray(runRef.rows) ? runRef.rows : [];
-    const last = rows.length ? rows[rows.length - 1] : null;
-    asOf = isoDay(last && last.dateISO ? last.dateISO : '');
-  }catch(_){}
-  if (!asOf) asOf = isoDay(new Date().toISOString());
-
-  const createdBy = (api.kind === 'compat') ? getAuthUserIdCompat() : getAuthUserIdModern(api);
-
-  const fields = Array.isArray(state.fields) ? state.fields : [];
-  if (!fields.length) return;
-
-  // Write all fields
-  if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
-    const db = window.firebase.firestore();
-    const updatedAtISO = nowISO();
-
-    for (const f of fields){
-      try{
-        if (!f || !f.id) continue;
-
-        const run = getRunForFieldShown(state, f);
-        if (!run || !run.factors || !isFinite(Number(run.factors.Smax))) continue;
-
-        const smax = Number(run.factors.Smax);
-        const cur = Math.max(0, Number(run.storageFinal || 0));
-        let next = clamp(cur * storageMult, 0, smax);
-
-        if (String(f.id) === String(fRef.id)){
-          next = clamp(forcedStorageRef, 0, smax);
-        }
-
-        await writeTruthStateDocCompat(db, String(f.id), {
-          fieldId: String(f.id),
-          fieldName: String(f.name || ''),
-          asOfDateISO: String(asOf),
-          storageFinal: next,
-          SmaxAtSave: smax,
-          source: 'global-cal-force-target',
-          storageMult,
-          refFieldId: String(fRef.id),
-          anchorReadiness: anchorR,
-          targetReadiness: targetR,
-          updatedAt: updatedAtISO,
-          updatedBy: createdBy || null
-        });
-
-        state.persistedStateByFieldId = state.persistedStateByFieldId || {};
-        state.persistedStateByFieldId[String(f.id)] = {
-          fieldId: String(f.id),
-          storageFinal: Number(next),
-          asOfDateISO: String(asOf),
-          SmaxAtSave: Number(smax)
-        };
-      }catch(e){
-        console.warn('[FieldReadiness] force cal write failed (compat):', e);
-      }
-    }
-
-    state._persistLoadedAt = Date.now();
-  } else if (api.kind !== 'compat'){
-    const db = api.getFirestore();
-
-    for (const f of fields){
-      try{
-        if (!f || !f.id) continue;
-
-        const run = getRunForFieldShown(state, f);
-        if (!run || !run.factors || !isFinite(Number(run.factors.Smax))) continue;
-
-        const smax = Number(run.factors.Smax);
-        const cur = Math.max(0, Number(run.storageFinal || 0));
-        let next = clamp(cur * storageMult, 0, smax);
-
-        if (String(f.id) === String(fRef.id)){
-          next = clamp(forcedStorageRef, 0, smax);
-        }
-
-        await writeTruthStateDocModern(api, db, String(f.id), {
-          fieldId: String(f.id),
-          fieldName: String(f.name || ''),
-          asOfDateISO: String(asOf),
-          storageFinal: next,
-          SmaxAtSave: smax,
-          source: 'global-cal-force-target',
-          storageMult,
-          refFieldId: String(fRef.id),
-          anchorReadiness: anchorR,
-          targetReadiness: targetR,
-          updatedAt: api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString(),
-          updatedBy: createdBy || null
-        });
-
-        state.persistedStateByFieldId = state.persistedStateByFieldId || {};
-        state.persistedStateByFieldId[String(f.id)] = {
-          fieldId: String(f.id),
-          storageFinal: Number(next),
-          asOfDateISO: String(asOf),
-          SmaxAtSave: Number(smax)
-        };
-      }catch(e){
-        console.warn('[FieldReadiness] force cal write failed:', e);
-      }
-    }
-
-    state._persistLoadedAt = Date.now();
   }
 
-  // lock + refresh
-  await writeWeightsLock(state, Date.now());
-  renderCooldownCard(state);
-  updateUI(state);
+  // expose public API
+  window.FVShopEquipModal = {
+    open,
+    openServiceRecords: async (eq)=> openServiceRecordsModal(eq),
+    openEdit: async (id)=> openEditModal(id)
+  };
 
-  closeAdjust(state);
-
-  try{ document.dispatchEvent(new CustomEvent('fr:soft-reload')); }catch(_){}
-}
-
-/* =====================================================================
-   Update guard text (kept, now informative)
-===================================================================== */
-function updateGuardText(state){
-  const el = $('adjGuard');
-  if (!el) return;
-
-  const feel = state._adjFeel;
-  if (!(feel === 'wet' || feel === 'dry')){
-    el.textContent = 'Choose Wet or Dry, then move the slider to FORCE the reference field and scale ALL fields.';
-    return;
-  }
-
-  const fRef = getSelectedField(state);
-  const runRef = fRef ? getRunForFieldShown(state, fRef) : null;
-  if (!runRef || !runRef.factors) {
-    el.textContent = 'Move the slider to set target readiness.';
-    return;
-  }
-
-  const targetR = sliderVal();
-  const SmaxRef = Number(runRef.factors.Smax);
-  const forced = gcalStorageNeededForTargetReadiness(targetR, SmaxRef);
-
-  const curStorageRef = Math.max(1e-6, Number(runRef.storageFinal || 0));
-  const storageMult = clamp(forced.storageEff / curStorageRef, 0.05, 5.0);
-
-  el.textContent =
-    `Will FORCE ref storage to ${forced.storageEff.toFixed(2)} and scale all fields storage ×${storageMult.toFixed(3)}.`;
-}
-
-/* =====================================================================
-   Reset button injection (kept)
-===================================================================== */
-function ensureResetButtonExists(){
-  try{
-    const applyBtn = $('btnAdjApply');
-    if (!applyBtn) return;
-
-    if ($('btnAdjReset30')) return;
-
-    const btn = document.createElement('button');
-    btn.id = 'btnAdjReset30';
-    btn.className = 'btn';
-    btn.type = 'button';
-    btn.textContent = 'Reset (rebuild) • 30 days';
-
-    const parent = applyBtn.parentElement;
-    if (parent){
-      parent.insertBefore(btn, applyBtn);
-    }
-  }catch(_){}
-}
-
-/* =====================================================================
-   Open / Close
-===================================================================== */
-async function openAdjust(state){
-  ensureGlobalCalThemeCSSOnce();
-  if (!canEdit(state)) return;
-
-  await loadPersistedState(state, { force:true });
-
-  if (!state.selectedFieldId && (state.fields||[]).length){
-    state.selectedFieldId = state.fields[0].id;
-  }
-  const f = getSelectedField(state);
-  if (!f) return;
-
-  updateAdjustHeader(state);
-
-  await loadCooldown(state);
-  renderCooldownCard(state);
-
-  const runShown = getRunForFieldShown(state, f);
-  if (!runShown) return;
-
-  const thr = currentThreshold(state);
-  const status = statusFromReadinessAndThreshold(state, runShown, thr);
-
-  state._adjStatus = status;
-  state._adjFeel = null;
-
-  state._adjAnchorReadiness = clamp(Math.round(Number(runShown?.readinessR ?? 50)), 0, 100);
-
-  setAnchor(state, state._adjAnchorReadiness);
-  setSliderVal(state._adjAnchorReadiness);
-
-  updatePills(state, runShown);
-  updateUI(state);
-  updateGuardText(state);
-
-  showModal('adjustBackdrop', true);
-
-  try{ if (state._cooldownTimer) clearInterval(state._cooldownTimer); }catch(_){}
-  state._cooldownTimer = setInterval(async ()=>{
-    try{ await loadCooldown(state); }catch(_){}
-    renderCooldownCard(state);
-
-    const f2 = getSelectedField(state);
-    const run2 = getRunForFieldShown(state, f2);
-    if (run2){
-      const thr2 = currentThreshold(state);
-      state._adjStatus = statusFromReadinessAndThreshold(state, run2, thr2);
-      updatePills(state, run2);
-    }
-    updateUI(state);
-    updateGuardText(state);
-  }, 30000);
-}
-
-function closeAdjust(state){
-  showModal('adjustBackdrop', false);
-  showModal('confirmAdjBackdrop', false);
-  try{ if (state._cooldownTimer) clearInterval(state._cooldownTimer); }catch(_){}
-  state._cooldownTimer = null;
-}
-
-/* =====================================================================
-   Wiring
-===================================================================== */
-function wireOnce(state){
-  if (state._globalCalWired) return;
-  state._globalCalWired = true;
-
-  ensureResetButtonExists();
-
-  const btnX = $('btnAdjX');
-  if (btnX) btnX.addEventListener('click', ()=> closeAdjust(state));
-
-  const btnCancel = $('btnAdjCancel');
-  if (btnCancel) btnCancel.addEventListener('click', ()=> closeAdjust(state));
-
-  const back = $('adjustBackdrop');
-  if (back){
-    back.addEventListener('click', (e)=>{
-      if (e.target && e.target.id === 'adjustBackdrop') closeAdjust(state);
-    });
-  }
-
-  const seg = $('feelSeg');
-  if (seg){
-    seg.addEventListener('click', (e)=>{
-      const btn = e.target && e.target.closest ? e.target.closest('button[data-feel]') : null;
-      if (!btn) return;
-      const feel = btn.getAttribute('data-feel');
-      if (feel !== 'wet' && feel !== 'dry') return;
-      if (isLocked(state)) return;
-
-      if (state._adjStatus === 'wet'){
-        state._adjFeel = 'dry';
-      } else if (state._adjStatus === 'dry'){
-        state._adjFeel = 'wet';
-      } else {
-        state._adjFeel = feel;
-      }
-
-      setSliderVal(state._adjAnchorReadiness);
-      updateUI(state);
-      updateGuardText(state);
-    });
-  }
-
-  const s = sliderEl();
-  if (s){
-    s.addEventListener('input', ()=>{
-      enforceSliderClamp(state);
-      updateGuardText(state);
-    });
-  }
-
-  const btnApply = $('btnAdjApply');
-  if (btnApply){
-    btnApply.addEventListener('click', ()=>{
-      if (btnApply.disabled) return;
-      showModal('confirmAdjBackdrop', true);
-    });
-  }
-
-  const btnNo = $('btnAdjNo');
-  if (btnNo) btnNo.addEventListener('click', ()=> showModal('confirmAdjBackdrop', false));
-
-  const btnYes = $('btnAdjYes');
-  if (btnYes){
-    btnYes.addEventListener('click', async ()=>{
-      showModal('confirmAdjBackdrop', false);
-      await applyAdjustment(state);
-    });
-  }
-
-  const btnReset = $('btnAdjReset30');
-  if (btnReset){
-    btnReset.addEventListener('click', async ()=>{
-      await rebuildTruthFromLast30Days(state);
-      closeAdjust(state);
-    });
-  }
-
-  const hot = $('fieldsTitle');
-  if (hot){
-    hot.addEventListener('click', async (e)=>{
-      e.preventDefault();
-      e.stopPropagation();
-      if (!canEdit(state)) return;
-
-      ensureResetButtonExists();
-      await openAdjust(state);
-    }, { passive:false });
-  }
-}
-
-/* =====================================================================
-   Public init
-===================================================================== */
-export function initGlobalCalibration(state){
-  ensureGlobalCalThemeCSSOnce();
-
-  try{
-    const hot = $('fieldsTitle');
-    if (hot){
-      if (!canEdit(state)){
-        hot.style.display = 'none';
-        hot.style.pointerEvents = 'none';
-        hot.setAttribute('aria-hidden','true');
-      } else {
-        hot.style.display = 'inline';
-        hot.style.pointerEvents = 'auto';
-        hot.removeAttribute('aria-hidden');
-      }
-    }
-  }catch(_){}
-
-  if (!canEdit(state)) return;
-
-  ensureResetButtonExists();
-  wireOnce(state);
-
-  (async ()=>{
-    try{ await loadCooldown(state); }catch(_){}
-    renderCooldownCard(state);
-  })();
-}
+  // bootstrap now (safe)
+  try{ bootstrap(); }catch(e){ console.warn("[shop-equip-modal] bootstrap failed", e); }
+})();
