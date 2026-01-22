@@ -778,144 +778,147 @@
     }
 
     function clearDetails(){
-      const panel = $('.wo-detail-panel');
-      panel.style.display = 'none';
-      panel.dataset.id = '';
-      $('.wo-detail-title', panel).textContent = 'Boundary Request Details';
-      $('.wo-detail-grid', panel).innerHTML = '';
-      $('.wo-detail-notes-body', panel).textContent = '';
-      $('.wo-detail-footer', panel).innerHTML = '';
+  const panel = $('.wo-detail-panel');
+  panel.style.display = 'none';
+  panel.dataset.id = '';
+  $('.wo-detail-title', panel).textContent = 'Boundary Request Details';
+  $('.wo-detail-grid', panel).innerHTML = '';
+  $('.wo-detail-notes-body', panel).textContent = '';
+  $('.wo-detail-footer', panel).innerHTML = '';
 
-      const photosWrap = $('#woDetailPhotos');
-      const photosGrid = $('#woDetailPhotoGrid');
-      if(photosWrap) photosWrap.classList.remove('show');
-      if(photosGrid) photosGrid.innerHTML = '';
+  const photosWrap = $('#woDetailPhotos');
+  const photosGrid = $('#woDetailPhotoGrid');
+  if(photosWrap) photosWrap.classList.remove('show');
+  if(photosGrid) photosGrid.innerHTML = '';
 
-      const markBtn = $('#btnMarkCompleted');
-if (markBtn){
-  const st = normalizeStatus(status);
-  const canComplete = (st === 'open' || st === 'in progress');
-  markBtn.disabled = !canComplete;
-  markBtn.textContent = canComplete ? 'Mark completed' : (status ? `Status: ${status}` : 'Mark completed');
+  const markBtn = $('#btnMarkCompleted');
+  if (markBtn){
+    markBtn.disabled = true;
+    markBtn.textContent = 'Mark completed';
+  }
+} // ✅ IMPORTANT: close clearDetails()
+
+
+// photo viewer state
+let photoModal=null, photoModalImg=null, photoModalBackdrop=null, photoModalCloseBtn=null;
+
+function openPhotoViewer(url){
+  if(!photoModal || !photoModalImg || !url) return;
+  photoModalImg.src = url;
+  photoModal.classList.add('show');
+}
+function closePhotoViewer(){
+  if(!photoModal) return;
+  photoModal.classList.remove('show');
+  if(photoModalImg) photoModalImg.src = '';
 }
 
-    // photo viewer state
-    let photoModal=null, photoModalImg=null, photoModalBackdrop=null, photoModalCloseBtn=null;
+function renderDetails(){
+  const panel = $('.wo-detail-panel');
+  const item = STATE.items.find(x => x.id === STATE.selectedId);
+  if(!item){
+    clearDetails();
+    return;
+  }
 
-    function openPhotoViewer(url){
-      if(!photoModal || !photoModalImg || !url) return;
-      photoModalImg.src = url;
-      photoModal.classList.add('show');
+  const d = item.data;
+  const field = d.field || 'Field not set';
+  const farm  = d.farm  || '';
+  const scope = d.scope || '';
+  const bType = d.boundaryType || '';
+  const status = d.status || '';
+  const submittedBy = d.submittedBy || '';
+  const submittedByEmail = d.submittedByEmail || '';
+  const createdAt = d._createdAtDate || null;
+  const createdStr = formatDateTime(createdAt);
+  const notes = d.notes || '';
+
+  const rtk = getRtkForRequest(d);
+  const { nameLine, subLine } = rtkLines(rtk);
+
+  const photos = getPhotosFromRequest(d);
+
+  panel.dataset.id = item.id;
+  $('.wo-detail-title', panel).textContent = farm ? `${field} · ${farm}` : field;
+
+  const grid = $('.wo-detail-grid', panel);
+  grid.innerHTML = `
+    <div>
+      <div class="wo-detail-item-label">Scope</div>
+      <div class="wo-detail-item-value">${escapeHtml(scope || 'Not specified')}</div>
+    </div>
+    <div>
+      <div class="wo-detail-item-label">Boundary Type</div>
+      <div class="wo-detail-item-value">${escapeHtml(bType || 'Not specified')}</div>
+    </div>
+
+    <div style="grid-column:1 / -1;">
+      <div class="wo-detail-item-label">RTK</div>
+      <div class="wo-detail-item-value">
+        <span class="rtk-block">
+          <span class="rtk-name">${escapeHtml(nameLine || (d.rtkTowerId ? ('Tower ' + d.rtkTowerId) : 'Not set'))}</span>
+          ${subLine ? `<span class="rtk-sub">${escapeHtml(subLine)}</span>` : ``}
+        </span>
+      </div>
+    </div>
+
+    <div>
+      <div class="wo-detail-item-label">Submitted By</div>
+      <div class="wo-detail-item-value">
+        ${escapeHtml(submittedBy || 'Unknown')}
+        ${submittedByEmail ? `<br><span style="opacity:.8">${escapeHtml(submittedByEmail)}</span>` : ''}
+      </div>
+    </div>
+    <div>
+      <div class="wo-detail-item-label">Submitted</div>
+      <div class="wo-detail-item-value">${escapeHtml(createdStr || 'Unknown')}</div>
+    </div>
+
+    <div>
+      <div class="wo-detail-item-label">Photos</div>
+      <div class="wo-detail-item-value">${escapeHtml(String(photos.length))}</div>
+    </div>
+  `;
+
+  $('.wo-detail-notes-body', panel).textContent = notes || 'No notes recorded for this request.';
+
+  const footer = $('.wo-detail-footer', panel);
+  footer.innerHTML = `
+    Current status:
+    <span class="wo-detail-pill">${escapeHtml(status || 'unknown')}</span>
+  `;
+
+  // ✅ Allow Mark completed for Open OR In Progress
+  const markBtn = $('#btnMarkCompleted');
+  if (markBtn){
+    const st = normalizeStatus(status);
+    const canComplete = (st === 'open' || st === 'in progress');
+    markBtn.disabled = !canComplete;
+    markBtn.textContent = canComplete ? 'Mark completed' : (status ? `Status: ${status}` : 'Mark completed');
+  }
+
+  // big photos
+  const photosWrap = $('#woDetailPhotos');
+  const photosGrid = $('#woDetailPhotoGrid');
+  if(photosWrap && photosGrid){
+    photosGrid.innerHTML = '';
+    if(photos.length){
+      photosWrap.classList.add('show');
+      photos.forEach((p) => {
+        const box = document.createElement('div');
+        box.className = 'wo-photo';
+        box.innerHTML = `<img src="${escapeHtml(p.url)}" alt="${escapeHtml(p.name || 'Boundary request photo')}" loading="lazy" decoding="async">`;
+        box.addEventListener('click', () => openPhotoViewer(p.url));
+        photosGrid.appendChild(box);
+      });
+    }else{
+      photosWrap.classList.remove('show');
     }
-    function closePhotoViewer(){
-      if(!photoModal) return;
-      photoModal.classList.remove('show');
-      if(photoModalImg) photoModalImg.src = '';
-    }
+  }
 
-    function renderDetails(){
-      const panel = $('.wo-detail-panel');
-      const item = STATE.items.find(x => x.id === STATE.selectedId);
-      if(!item){
-        clearDetails();
-        return;
-      }
+  panel.style.display = 'flex';
+}
 
-      const d = item.data;
-      const field = d.field || 'Field not set';
-      const farm  = d.farm  || '';
-      const scope = d.scope || '';
-      const bType = d.boundaryType || '';
-      const status = d.status || '';
-      const submittedBy = d.submittedBy || '';
-      const submittedByEmail = d.submittedByEmail || '';
-      const createdAt = d._createdAtDate || null;
-      const createdStr = formatDateTime(createdAt);
-      const notes = d.notes || '';
-
-      const rtk = getRtkForRequest(d);
-      const { nameLine, subLine } = rtkLines(rtk);
-
-      const photos = getPhotosFromRequest(d);
-
-      panel.dataset.id = item.id;
-      $('.wo-detail-title', panel).textContent = farm ? `${field} · ${farm}` : field;
-
-      const grid = $('.wo-detail-grid', panel);
-      grid.innerHTML = `
-        <div>
-          <div class="wo-detail-item-label">Scope</div>
-          <div class="wo-detail-item-value">${escapeHtml(scope || 'Not specified')}</div>
-        </div>
-        <div>
-          <div class="wo-detail-item-label">Boundary Type</div>
-          <div class="wo-detail-item-value">${escapeHtml(bType || 'Not specified')}</div>
-        </div>
-
-        <div style="grid-column:1 / -1;">
-          <div class="wo-detail-item-label">RTK</div>
-          <div class="wo-detail-item-value">
-            <span class="rtk-block">
-              <span class="rtk-name">${escapeHtml(nameLine || (d.rtkTowerId ? ('Tower ' + d.rtkTowerId) : 'Not set'))}</span>
-              ${subLine ? `<span class="rtk-sub">${escapeHtml(subLine)}</span>` : ``}
-            </span>
-          </div>
-        </div>
-
-        <div>
-          <div class="wo-detail-item-label">Submitted By</div>
-          <div class="wo-detail-item-value">
-            ${escapeHtml(submittedBy || 'Unknown')}
-            ${submittedByEmail ? `<br><span style="opacity:.8">${escapeHtml(submittedByEmail)}</span>` : ''}
-          </div>
-        </div>
-        <div>
-          <div class="wo-detail-item-label">Submitted</div>
-          <div class="wo-detail-item-value">${escapeHtml(createdStr || 'Unknown')}</div>
-        </div>
-
-        <div>
-          <div class="wo-detail-item-label">Photos</div>
-          <div class="wo-detail-item-value">${escapeHtml(String(photos.length))}</div>
-        </div>
-      `;
-
-      $('.wo-detail-notes-body', panel).textContent = notes || 'No notes recorded for this request.';
-
-      const footer = $('.wo-detail-footer', panel);
-      footer.innerHTML = `
-        Current status:
-        <span class="wo-detail-pill">${escapeHtml(status || 'unknown')}</span>
-      `;
-
-      const markBtn = $('#btnMarkCompleted');
-      if (markBtn){
-        const isOpen = normalizeStatus(status) === 'open';
-        markBtn.disabled = !isOpen;
-        markBtn.textContent = isOpen ? 'Mark completed' : (status ? `Status: ${status}` : 'Mark completed');
-      }
-
-      // big photos
-      const photosWrap = $('#woDetailPhotos');
-      const photosGrid = $('#woDetailPhotoGrid');
-      if(photosWrap && photosGrid){
-        photosGrid.innerHTML = '';
-        if(photos.length){
-          photosWrap.classList.add('show');
-          photos.forEach((p) => {
-            const box = document.createElement('div');
-            box.className = 'wo-photo';
-            box.innerHTML = `<img src="${escapeHtml(p.url)}" alt="${escapeHtml(p.name || 'Boundary request photo')}" loading="lazy" decoding="async">`;
-            box.addEventListener('click', () => openPhotoViewer(p.url));
-            photosGrid.appendChild(box);
-          });
-        }else{
-          photosWrap.classList.remove('show');
-        }
-      }
-
-      panel.style.display = 'flex';
-    }
 
     /* ===========================
        Loading
@@ -1560,19 +1563,22 @@ if (markBtn){
     }
 
     async function handleMarkCompleted(){
-      if(!STATE.selectedId){
-        alert('Select a boundary fix request first.');
-        return;
-      }
-      const item = STATE.items.find(it => it.id === STATE.selectedId);
-      if(!item){
-        alert('Could not find this request in memory.');
-        return;
-      }
-      const currentStatus = item.data.status || '';
-const st = normalizeStatus(currentStatus);
-if (!(st === 'open' || st === 'in progress')) return;
-    }
+  if(!STATE.selectedId){
+    alert('Select a boundary fix request first.');
+    return;
+  }
+  const item = STATE.items.find(it => it.id === STATE.selectedId);
+  if(!item){
+    alert('Could not find this request in memory.');
+    return;
+  }
+
+  const currentStatus = item.data.status || '';
+  const st = normalizeStatus(currentStatus);
+  if (!(st === 'open' || st === 'in progress')) return;
+
+  // (your existing try/catch should start right here)
+}
 
       try{
         const ref = doc(STATE.db, CONFIG.COLLECTION_PATH, STATE.selectedId);
