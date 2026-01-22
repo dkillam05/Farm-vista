@@ -792,11 +792,13 @@
       if(photosGrid) photosGrid.innerHTML = '';
 
       const markBtn = $('#btnMarkCompleted');
-      if (markBtn){
-        markBtn.disabled = true;
-        markBtn.textContent = 'Mark completed';
-      }
-    }
+if (markBtn){
+  const st = normalizeStatus(status);
+  const canComplete = (st === 'open' || st === 'in progress');
+  markBtn.disabled = !canComplete;
+  markBtn.textContent = canComplete ? 'Mark completed' : (status ? `Status: ${status}` : 'Mark completed');
+}
+
 
     // photo viewer state
     let photoModal=null, photoModalImg=null, photoModalBackdrop=null, photoModalCloseBtn=null;
@@ -1569,11 +1571,13 @@
         return;
       }
       const currentStatus = item.data.status || '';
-      if (normalizeStatus(currentStatus) !== 'open') return;
+const st = normalizeStatus(currentStatus);
+if (!(st === 'open' || st === 'in progress')) return;
+;
 
       try{
         const ref = doc(STATE.db, CONFIG.COLLECTION_PATH, STATE.selectedId);
-        await updateDoc(ref, { status: 'Completed', updatedAt: new Date() });
+        await updateDoc(ref, { status: 'Completed', completedAt: serverTimestamp(), updatedAt: serverTimestamp() });
         item.data.status = 'Completed';
         item.data.updatedAt = new Date();
         await applyFilters();
