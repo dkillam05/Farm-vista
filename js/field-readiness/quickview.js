@@ -207,6 +207,12 @@ async function getExtraForDeps(state){
 ===================================================================== */
 function twoStageAround50(raw0_100, deadBand, k1, k2){
   const v = clamp(Number(raw0_100), 0, 100);
+
+  // ✅ HARD ENDPOINTS (so tank size hits exact 3.00 / 5.00 in live preview)
+  // These thresholds allow for tiny UI rounding/drag quirks.
+  if (v <= 0.5) return 0;
+  if (v >= 99.5) return 100;
+
   const d = v - 50;
   const s = d < 0 ? -1 : 1;
   const a = Math.abs(d);
@@ -224,6 +230,7 @@ function twoStageAround50(raw0_100, deadBand, k1, k2){
 
   return clamp(50 + s * (gentlePart + strongPart), 0, 100);
 }
+
 
 /* =====================================================================
    Helpers: asOf date + truth write (single-field)
