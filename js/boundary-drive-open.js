@@ -20,6 +20,7 @@
 import {
   ready,
   getFirestore,
+  getAuth,
   collection, getDocs,
   doc, getDoc,
   updateDoc,
@@ -964,6 +965,22 @@ async function loadOpenBoundaryRequests(){
 
   STATE.items = items;
 }
+function currentDriveUser(){
+  try{
+    const u = getAuth().currentUser;
+    if(!u) return { uid:'', email:'', name:'' };
+
+    const email = u.email || '';
+    const name =
+      u.displayName ||
+      (email ? email.replace(/@.*/,'').replace(/\./g,' ') : '');
+
+    return { uid: u.uid || '', email, name };
+  }catch(_){
+    return { uid:'', email:'', name:'' };
+  }
+}
+
 
 /* ===========================
    Action: Mark as Driven
@@ -982,11 +999,32 @@ async function handleMarkDriven(){
   if (normalizeStatus(currentStatus) !== 'open') return;
 
   try{
-    const ref = doc(STATE.db, CONFIG.COLLECTION_PATH, STATE.selectedId);
-    await updateDoc(ref, {
-      status: 'In Progress',
-      drivenAt: serverTimestamp()
-    });
+  const ref = doc(STATE.db, CONFIG.COLLECTION_PATH, STATE.selectedId);
+
+  // ✅ Capture who is driving (best-effort; blanks if not signed in)
+  let drivenBy = '';
+  let drivenByEmail = '';
+  let drivenByUid = '';
+  try{
+    const auth = getAuth();
+    const u = auth?.currentUser || null;
+    if(u){
+      drivenByUid = u.uid || '';
+      drivenByEmail = u.email || '';
+      drivenBy =
+        u.displayName ||
+        (drivenByEmail ? drivenByEmail.replace(/@.*/,'').replace(/\./g,' ') : '');
+    }
+  }catch(_){}
+
+  await updateDoc(ref, {
+    status: 'In Progress',
+    drivenAt: serverTimestamp(),
+    drivenBy,
+    drivenByEmail,
+    drivenByUid
+  });
+
 
     // remove selection + reload list (so it disappears immediately)
     STATE.selectedId = null;
