@@ -1,26 +1,22 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-01-22g-storage-truth-rewind14-rateTuning-dryTailFix-intReadiness-Smax3to5-hardEndpoints-REFTANK4
+Rev: 2026-01-22h-storage-truth-rewind14-rateTuning-dryTailFix-intReadiness-Smax3to5-hardEndpoints-STRONGREV15
 
-GOAL (per Dane):
-✅ Sliders feel REVERSED the way you want:
-   - sliders 100/100 => tank 5.0 (max)
-   - sliders 0/0     => tank 3.0 (min)
-   - when you slide DOWN (tank smaller), readiness should go UP (for same storage)
+CHANGES (per Dane):
+✅ Readiness whole numbers only
+✅ Tank size (Smax) HARD endpoints:
+   - sliders 0/0 => Smax EXACTLY 3.0
+   - sliders 100/100 => Smax EXACTLY 5.0
+✅ Sliders MUST move readiness LIVE in Quick View
+✅ Direction reversed the way you want:
+   - slide DOWN (smaller tank) => readiness goes UP
+✅ Strong range: up to +15 points from 5.0 -> 3.0
 
-HOW (simple + strong):
-✅ Remove impactFactor approach (it could not overpower storage/Smax math).
-✅ Compute readiness from a fixed reference tank size instead:
-   - `wetness = (storage / SREF) * 100`
-   - `readiness = 100 - wetness`
-   - SREF = 4.0 (midpoint of 3..5)
-
-This makes readiness respond in the “operational” direction you want,
-while keeping:
-✅ storage truth + weather physics
-✅ tank size (Smax) still used for simulation limits + rain/runoff/bypass
-✅ whole-number readiness
-✅ hard endpoints for Smax
+How:
+- baseReadiness = 100 - (storage/Smax)*100  (physics)
+- bonus = ((5 - Smax) / 2) * 15            (reversal)
+- readiness = clamp(baseReadiness + bonus, 0..100)
+- wetness = 100 - readiness
 ===================================================================== */
 'use strict';
 
@@ -43,37 +39,38 @@ function snap01(x){
   return v;
 }
 
-// ✅ NEW: Reference tank size for readiness mapping (drives the reversal feel)
-const READINESS_SREF = 4.0;
+// ✅ STRONG reversal settings
+const SMAX_MIN = 3.0;
+const SMAX_MAX = 5.0;
+const REV_BONUS_MAX = 15;
+
+function reversalBonusFromSmax(Smax){
+  const s = clamp(Number(Smax), SMAX_MIN, SMAX_MAX);
+  const frac = (SMAX_MAX - s) / (SMAX_MAX - SMAX_MIN); // 0 at 5.0, 1 at 3.0
+  return frac * REV_BONUS_MAX;
+}
 
 /* =====================================================================
    FV_TUNE — ALL ADJUSTABLE VARIABLES (Option A)
 ===================================================================== */
 const FV_TUNE = {
-  // Wet spell / saturation behavior
   SAT_RUNOFF_START: 0.75,
   RUNOFF_EXP: 2.2,
-  RUNOFF_DRAINPOOR_W: 0.35,   // poor drainage increases runoff
+  RUNOFF_DRAINPOOR_W: 0.35,
 
-  // Dry spell behavior
   DRY_BYPASS_END: 0.35,
   DRY_EXP: 1.6,
-  DRY_BYPASS_BASE: 0.45,      // max bypass when extremely dry
-  BYPASS_GOODDRAIN_W: 0.15,   // good drainage increases bypass
+  DRY_BYPASS_BASE: 0.45,
+  BYPASS_GOODDRAIN_W: 0.15,
 
-  // Guardrails / stability
   SAT_DRYBYPASS_FLOOR: 0.02,
   SAT_RUNOFF_CAP: 0.85,
   RAIN_EFF_MIN: 0.05,
 
-  // Dry tail easing (prevents "cap-like" pile-ups at very dry end)
-  DRY_TAIL_START: 0.12,       // fraction of Smax where taper begins
-  DRY_TAIL_MIN_MULT: 0.55     // minimum loss multiplier at extreme dry
+  DRY_TAIL_START: 0.12,
+  DRY_TAIL_MIN_MULT: 0.55
 };
 
-// Allows ops to override without editing file:
-// - deps.EXTRA can include any FV_TUNE keys to override.
-// - or deps.FV_TUNE can be passed directly.
 function getTune(deps){
   const t = { ...FV_TUNE };
   const srcA = (deps && deps.FV_TUNE && typeof deps.FV_TUNE === 'object') ? deps.FV_TUNE : null;
@@ -171,7 +168,6 @@ export function calcDryParts(r, EXTRA){
 }
 
 export function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, EXTRA){
-  // Sliders -> 0..1, with hard snapping at ends
   const soilHoldRaw = safePct01(soilWetness0_100);
   const drainPoorRaw= safePct01(drainageIndex0_100);
 
@@ -182,19 +178,12 @@ export function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, EXTRA){
     ? 0
     : clamp((Number(sm010) - 0.10) / 0.25, 0, 1);
 
-  // Existing mappings (kept)
   const infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor;
   const dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor;
 
-  // ============================================================
-  // Smax HARD endpoints: ONLY sliders control tank size.
-  //  soilHold=0 & drainPoor=0 => 3.0 exactly
-  //  soilHold=1 & drainPoor=1 => 5.0 exactly
-  // ============================================================
-  const SmaxBase = 3.00 + 1.00*soilHold + 1.00*drainPoor; // exact 3..5
+  const SmaxBase = 3.00 + 1.00*soilHold + 1.00*drainPoor;
   const Smax = clamp(SmaxBase, 3.00, 5.00);
 
-  // NOTE: impactFactor removed in favor of READINESS_SREF mapping (see runField).
   return { soilHold, drainPoor, smN, infilMult, dryMult, Smax, SmaxBase };
 }
 
@@ -484,13 +473,15 @@ export function runField(field, deps){
     const calRes = applyCalToStorage(storage, f.Smax, deps);
     const storageEff = calRes.storageEff;
 
-    // ✅ NEW readiness mapping uses reference tank (4.0), not current tank (Smax)
-    const rawWetnessRef = (READINESS_SREF > 0)
-      ? clamp((storageEff / READINESS_SREF) * 100, 0, 100)
-      : 0;
+    const baseWetness = (f.Smax > 0) ? clamp((storageEff / f.Smax) * 100, 0, 100) : 0;
+    const baseReadiness = clamp(100 - baseWetness, 0, 100);
 
-    const wetnessR = roundInt(rawWetnessRef);
-    const readinessR = roundInt(clamp(100 - rawWetnessRef, 0, 100));
+    const bonus = reversalBonusFromSmax(f.Smax);
+    const readinessFinal = clamp(baseReadiness + bonus, 0, 100);
+    const wetnessFinal = clamp(100 - readinessFinal, 0, 100);
+
+    const wetnessR = roundInt(wetnessFinal);
+    const readinessR = roundInt(readinessFinal);
 
     const avgLossDay = 0.08;
     const lastDateISO = rows.length ? rows[rows.length-1].dateISO : '';
@@ -518,8 +509,10 @@ export function runField(field, deps){
       tuneUsed: tune,
 
       // Debug:
-      rawWetnessRefPct: rawWetnessRef,
-      readinessSref: READINESS_SREF,
+      baseWetnessPct: baseWetness,
+      baseReadiness,
+      reversalBonus: bonus,
+      readinessFinal,
 
       stateOut: buildStateOut(field.id, storageEff, (lastDateISO || seedPick.seedDebug.asOfDateISO || ''), f),
 
@@ -576,13 +569,15 @@ export function runField(field, deps){
   const calRes = applyCalToStorage(storage, f.Smax, deps);
   const storageEff = calRes.storageEff;
 
-  // ✅ NEW readiness mapping uses reference tank (4.0)
-  const rawWetnessRef = (READINESS_SREF > 0)
-    ? clamp((storageEff / READINESS_SREF) * 100, 0, 100)
-    : 0;
+  const baseWetness = (f.Smax > 0) ? clamp((storageEff / f.Smax) * 100, 0, 100) : 0;
+  const baseReadiness = clamp(100 - baseWetness, 0, 100);
 
-  const wetnessR = roundInt(rawWetnessRef);
-  const readinessR = roundInt(clamp(100 - rawWetnessRef, 0, 100));
+  const bonus = reversalBonusFromSmax(f.Smax);
+  const readinessFinal = clamp(baseReadiness + bonus, 0, 100);
+  const wetnessFinal = clamp(100 - readinessFinal, 0, 100);
+
+  const wetnessR = roundInt(wetnessFinal);
+  const readinessR = roundInt(readinessFinal);
 
   const last7 = trace.slice(-7);
   const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
@@ -612,8 +607,10 @@ export function runField(field, deps){
     tuneUsed: tune,
 
     // Debug:
-    rawWetnessRefPct: rawWetnessRef,
-    readinessSref: READINESS_SREF,
+    baseWetnessPct: baseWetness,
+    baseReadiness,
+    reversalBonus: bonus,
+    readinessFinal,
 
     stateOut: buildStateOut(field.id, storageEff, lastDateISO, f),
 
