@@ -1,40 +1,25 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/global-calibration.js  (FULL FILE)
-Rev: 2026-01-22c-global-storage-scale-truth-state-learning
+Rev: 2026-01-22d-global-storage-scale-truth-state-learning-reset30d
 
-UPDATED (per Dane — NEW MODEL CONTRACT):
-✅ Global Calibration performs a % STORAGE shift across ALL fields (truth state).
-✅ Tank size comes from sliders/model — calibration does NOT change tank size.
-✅ Storage is truth — calibration scales storage.
-
-UI stays the same:
-- Reference field readiness (shown) = R_ref
-- Slider target readiness = R_target
-- percentMove = (R_target / R_ref - 1) * 100
-- storageMult = 1 - (percentMove / 100)
-
-Examples:
-- If you push target UP by +10% relative to ref:
-    percentMove = +10%
-    storageMult = 0.90  => storageFinal decreases 10% across all fields (drier)
-- If you push target DOWN by -10%:
-    storageMult = 1.10  => storageFinal increases 10% (wetter)
-
-Writes:
-- field_readiness_state/{fieldId}:
-    storageFinal = storageFinal_old * storageMult
-    (if missing old truth, seed from current truth run first)
+ADDED (per Dane):
+✅ RESET / REBUILD TRUTH from last ~30 days of weather
+   - For each field:
+       run model with seedMode:'baseline' over the existing history series (<= today)
+       write resulting storageFinal as TODAY truth in field_readiness_state/{fieldId}
+   - Uses current per-field sliders/params (tank + rates) while rebuilding
+   - Does NOT require global percent slider
+   - Intended to clean up truth after experimentation
 
 Keeps:
-✅ 72h lockout (nextAllowedAt = now + cooldownHours)
-✅ Opposite-only Wet/Dry guardrail + slider clamp direction
-✅ UI theme patch
-✅ fr:soft-reload after apply
-✅ Learning doc write (tuning) still supported (optional future use)
+✅ Global Calibration performs STORAGE % scaling across all fields
+✅ Cooldown + guardrails for percent shift remain
+✅ Learning doc write remains (optional)
 
-No longer does:
-❌ Does NOT rewrite readiness across all fields
-❌ Does NOT recompute storage from readiness targets
+NOTES:
+- The rebuild is launched via a new button injected into the existing modal:
+    "Reset (rebuild) from last 30 days"
+- Uses window.confirm for safety.
 ===================================================================== */
 'use strict';
 
@@ -277,14 +262,6 @@ async function writeGlobalTuning(state, payload){
   }
 }
 
-/**
- * Update tuning multipliers based on "drier/wetter intent".
- * We use "intentFactor" where:
- *  - intentFactor > 1 => you said drier (reduce storage)
- *  - intentFactor < 1 => you said wetter (increase storage)
- *
- * (This is optional future use; render.js currently reads DRY_LOSS_MULT only.)
- */
 function computeNextTuning(prev, intentFactor){
   const fct = clamp(Number(intentFactor || 1), 0.10, 2.50);
   const p = normalizeTuneDoc(prev);
@@ -410,9 +387,17 @@ function ensureGlobalCalThemeCSSOnce(){
         box-shadow: none !important;
       }
 
-      @media (max-width: 380px){
-        #adjustBackdrop #feelSeg .segbtn{ min-width: 104px; }
+      /* Reset button */
+      #btnAdjReset30{
+        border: 1px solid var(--border) !important;
+        background: color-mix(in srgb, var(--surface) 92%, #ffffff 8%) !important;
+        color: var(--text) !important;
+        border-radius: 12px !important;
+        padding: 10px 12px !important;
+        font-weight: 900 !important;
       }
+      #btnAdjReset30:active{ transform: translateY(1px) !important; }
+      #btnAdjReset30:disabled{ opacity:.55 !important; cursor:not-allowed !important; }
     `;
     document.head.appendChild(st);
   }catch(_){}
@@ -488,11 +473,11 @@ function getSelectedField(state){
   return (state.fields || []).find(x=>x.id === fid) || null;
 }
 
-// For this modal, CAL must match render.js: ALL ZERO.
 function getCalForShown(_state){
   return { wetBias:0, opWetBias:{}, readinessShift:0, opReadinessShift:{} };
 }
-function runFieldWithCal(state, f, calObj){
+
+function runFieldWithCal(state, f, calObj, extraOpts){
   if (!f) return null;
   if (!state._mods || !state._mods.model || !state._mods.weather) return null;
 
@@ -506,7 +491,8 @@ function runFieldWithCal(state, f, calObj){
     EXTRA,
     opKey,
     CAL: calObj,
-    getPersistedState: (id)=> getPersistedStateForDeps(state, id)
+    getPersistedState: (id)=> getPersistedStateForDeps(state, id),
+    ...(extraOpts && typeof extraOpts === 'object' ? extraOpts : {})
   };
 
   const run = state._mods.model.runField(f, deps);
@@ -528,9 +514,6 @@ function currentThreshold(state){
   return clamp(Math.round(thr), 0, 100);
 }
 
-/* =========================
-   OP-THRESHOLD wet/dry truth
-========================= */
 function statusFromReadinessAndThreshold(state, run, thr){
   const r = clamp(Math.round(Number(run?.readinessR ?? 0)), 0, 100);
   const t = clamp(Math.round(Number(thr ?? 70)), 0, 100);
@@ -625,7 +608,7 @@ function renderCooldownCard(state){
     ? `Last global shift: <span class="mono">${esc(since)}</span> ago`
     : `Last global shift: <span class="mono">—</span>`;
   const sub = `Next global shift allowed: <span class="mono">${esc(nextAbs)}</span>`;
-  const note = `This scales STORAGE truth for all fields and lets readiness update automatically.`;
+  const note = `Apply = scales STORAGE truth. Reset = rebuild truth from last ~30 days weather.`;
 
   const cardStyle =
     'border:1px solid var(--border);border-radius:14px;padding:12px;' +
@@ -782,6 +765,10 @@ function updateUI(state){
   if (bDry) bDry.disabled = locked || (state._adjStatus === 'dry');
   if (s) s.disabled = locked;
 
+  // Reset button is allowed even when locked (it’s a rebuild, not a shift)
+  const resetBtn = $('btnAdjReset30');
+  if (resetBtn) resetBtn.disabled = false;
+
   if (locked){
     state._adjFeel = null;
   }
@@ -821,7 +808,7 @@ function updateUI(state){
     const band = clamp(Math.round(Number(STATUS_HYSTERESIS)), 0, 10);
 
     if (locked){
-      hint.textContent = 'Global shift is locked (72h rule).';
+      hint.textContent = 'Global shift is locked (72h rule). Reset/rebuild is still available.';
     } else if (state._adjStatus === 'wet'){
       hint.textContent =
         `This reference field is WET for the current operation (Readiness below threshold ${thr}). ` +
@@ -903,10 +890,8 @@ async function writeTruthStateDocModern(api, db, fieldId, payload){
 }
 
 /**
- * NEW: Apply STORAGE scaling to ALL fields truth:
+ * Apply STORAGE scaling to ALL fields truth:
  * storageFinal_new = storageFinal_old * storageMult
- *
- * If a field has no truth yet, we seed it from the current truth run first.
  */
 async function writeGlobalTruthStateStorageScale(state, storageMult, asOfDateISO){
   const api = getAPI(state);
@@ -923,8 +908,6 @@ async function writeGlobalTruthStateStorageScale(state, storageMult, asOfDateISO
   if (api.kind === 'compat') createdBy = getAuthUserIdCompat();
   else createdBy = getAuthUserIdModern(api);
 
-  // Ensure we have model modules loaded (global-calibration runs from UI; model is usually ready)
-  // We’ll use the current truth run only to seed missing docs (rare).
   function seedFromRun(f){
     try{
       const run = getRunForFieldShown(state, f);
@@ -957,7 +940,6 @@ async function writeGlobalTruthStateStorageScale(state, storageMult, asOfDateISO
         const cur = state.persistedStateByFieldId ? state.persistedStateByFieldId[fid] : null;
         let baseStorage = safeNum(cur && cur.storageFinal);
         let asOf = safeISO10(cur && cur.asOfDateISO);
-
         let smaxAtSave = safeNum(cur && cur.SmaxAtSave);
 
         if (baseStorage == null || !asOf){
@@ -1057,12 +1039,181 @@ async function writeGlobalTruthStateStorageScale(state, storageMult, asOfDateISO
   }
 }
 
-/**
- * Learning write: record intent and update tuning doc.
- * intentFactor:
- *  - >1 means drier intent (we reduced storage)
- *  - <1 means wetter intent
- */
+/* =========================
+   NEW: RESET / REBUILD TRUTH FROM LAST ~30 DAYS WEATHER
+========================= */
+async function rebuildTruthFromLast30Days(state){
+  try{
+    if (!state) return;
+    if (!canEdit(state)) return;
+
+    // Safety confirm
+    const ok = window.confirm(
+      'Reset/Rebuild Truth?\n\nThis will recompute TODAY storage truth for ALL fields using the last ~30 days of weather and your current field sliders.\n\nProceed?'
+    );
+    if (!ok) return;
+
+    // Must have model/weather loaded
+    if (!state._mods || !state._mods.model || !state._mods.weather){
+      window.alert('Model/weather modules are not loaded yet. Open the readiness page and wait for tiles to load, then try again.');
+      return;
+    }
+
+    const api = getAPI(state);
+    if (!api){
+      window.alert('Firebase is not ready. Try again after the app finishes loading.');
+      return;
+    }
+
+    // Load tuning so DRY_LOSS_MULT is consistent (optional but keeps physics aligned)
+    let dryLossMult = 1.0;
+    try{
+      const tuned = await loadGlobalTuning(state);
+      if (tuned && safeNum(tuned.DRY_LOSS_MULT) != null){
+        dryLossMult = clamp(Number(tuned.DRY_LOSS_MULT), DRY_LOSS_MULT_MIN, DRY_LOSS_MULT_MAX);
+      }
+    }catch(_){}
+
+    const wxCtx = buildWxCtx(state);
+    const opKey = getCurrentOp();
+
+    // CAL always zero
+    const CAL0 = { wetBias:0, opWetBias:{}, readinessShift:0, opReadinessShift:{} };
+
+    // Baseline replay over the existing series (<= today), ignoring persisted truth.
+    const depsRebuild = {
+      getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
+      getFieldParams: (id)=> getFieldParams(state, id),
+      LOSS_SCALE: CONST.LOSS_SCALE,
+      EXTRA: { ...EXTRA, DRY_LOSS_MULT: dryLossMult },
+      opKey,
+      CAL: CAL0,
+
+      // Key: ignore persisted truth
+      seedMode: 'baseline'
+    };
+
+    const fields = Array.isArray(state.fields) ? state.fields : [];
+    if (!fields.length){
+      window.alert('No fields loaded.');
+      return;
+    }
+
+    const createdBy = (api.kind === 'compat') ? getAuthUserIdCompat() : getAuthUserIdModern(api);
+
+    // Write per-field
+    if (api.kind === 'compat'){
+      const db = window.firebase.firestore();
+      const updatedAtISO = nowISO();
+
+      for (const f of fields){
+        try{
+          if (!f || !f.id) continue;
+
+          const run = state._mods.model.runField(f, depsRebuild);
+          if (!run || safeNum(run.storageFinal) == null) continue;
+
+          // As-of is last date in the series (today)
+          let asOf = '';
+          try{
+            const rows = Array.isArray(run.rows) ? run.rows : [];
+            const last = rows.length ? rows[rows.length - 1] : null;
+            asOf = isoDay(last && last.dateISO ? last.dateISO : '');
+          }catch(_){}
+          if (!asOf) asOf = isoDay(new Date().toISOString());
+
+          const Smax = safeNum(run?.factors?.Smax) ?? 0;
+          const storageFinal = Math.max(0, Number(run.storageFinal));
+
+          await writeTruthStateDocCompat(db, String(f.id), {
+            fieldId: String(f.id),
+            fieldName: String(f.name || ''),
+            asOfDateISO: String(asOf),
+            storageFinal,
+            SmaxAtSave: Number(Smax || 0),
+            source: 'reset-rebuild-30days',
+            updatedAt: updatedAtISO,
+            updatedBy: createdBy || null
+          });
+
+          state.persistedStateByFieldId = state.persistedStateByFieldId || {};
+          state.persistedStateByFieldId[String(f.id)] = {
+            fieldId: String(f.id),
+            storageFinal: Number(storageFinal),
+            asOfDateISO: String(asOf),
+            SmaxAtSave: Number(Smax || 0)
+          };
+        }catch(e){
+          console.warn('[FieldReadiness] rebuild truth failed for field:', f?.name, e);
+        }
+      }
+
+      state._persistLoadedAt = Date.now();
+      try{ document.dispatchEvent(new CustomEvent('fr:soft-reload')); }catch(_){}
+      window.alert('Reset complete: truth rebuilt from last ~30 days weather.');
+      return;
+    }
+
+    // modular
+    if (api.kind !== 'compat'){
+      const db = api.getFirestore();
+
+      for (const f of fields){
+        try{
+          if (!f || !f.id) continue;
+
+          const run = state._mods.model.runField(f, depsRebuild);
+          if (!run || safeNum(run.storageFinal) == null) continue;
+
+          let asOf = '';
+          try{
+            const rows = Array.isArray(run.rows) ? run.rows : [];
+            const last = rows.length ? rows[rows.length - 1] : null;
+            asOf = isoDay(last && last.dateISO ? last.dateISO : '');
+          }catch(_){}
+          if (!asOf) asOf = isoDay(new Date().toISOString());
+
+          const Smax = safeNum(run?.factors?.Smax) ?? 0;
+          const storageFinal = Math.max(0, Number(run.storageFinal));
+
+          await writeTruthStateDocModern(api, db, String(f.id), {
+            fieldId: String(f.id),
+            fieldName: String(f.name || ''),
+            asOfDateISO: String(asOf),
+            storageFinal,
+            SmaxAtSave: Number(Smax || 0),
+            source: 'reset-rebuild-30days',
+            updatedAt: api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString(),
+            updatedBy: createdBy || null
+          });
+
+          state.persistedStateByFieldId = state.persistedStateByFieldId || {};
+          state.persistedStateByFieldId[String(f.id)] = {
+            fieldId: String(f.id),
+            storageFinal: Number(storageFinal),
+            asOfDateISO: String(asOf),
+            SmaxAtSave: Number(Smax || 0)
+          };
+        }catch(e){
+          console.warn('[FieldReadiness] rebuild truth failed for field:', f?.name, e);
+        }
+      }
+
+      state._persistLoadedAt = Date.now();
+      try{ document.dispatchEvent(new CustomEvent('fr:soft-reload')); }catch(_){}
+      window.alert('Reset complete: truth rebuilt from last ~30 days weather.');
+      return;
+    }
+
+  }catch(e){
+    console.warn('[FieldReadiness] rebuildTruthFromLast30Days failed:', e);
+    try{ window.alert('Reset failed. Check console for details.'); }catch(_){}
+  }
+}
+
+/* =========================
+   Learning write (kept)
+========================= */
 async function writeLearningFromStorageShift(state, {
   storageMult,
   percentMove,
@@ -1078,8 +1229,6 @@ async function writeLearningFromStorageShift(state, {
 
   const prev = await loadGlobalTuning(state);
 
-  // Convert storage multiplier to “intent factor”
-  // storageMult < 1 => drier => intentFactor > 1
   const sm = clamp(Number(storageMult || 1), 0.10, 2.50);
   const intentFactor = clamp(1 / Math.max(1e-6, sm), 0.10, 2.50);
 
@@ -1109,7 +1258,7 @@ async function writeLearningFromStorageShift(state, {
 }
 
 /* =========================
-   Apply
+   Apply (percent shift -> storage scale)
 ========================= */
 async function applyAdjustment(state){
   if (isLocked(state)) return;
@@ -1134,14 +1283,12 @@ async function applyAdjustment(state){
   const anchorR = clamp(Math.round(Number(state._adjAnchorReadiness ?? runShown.readinessR ?? 0)), 0, 100);
   const targetR = clamp(Math.round(Number(sliderVal())), 0, 100);
 
-  // percentMove from reference (kept)
   let factor = 1;
   if (anchorR > 0) factor = targetR / anchorR;
 
   const percentMove = clamp((factor - 1) * 100, -90, 90); // + => drier intent
   const storageMult = clamp(1 - (percentMove / 100), 0.10, 2.50); // +10% drier => 0.90
 
-  // Choose as-of date aligned to weather series end.
   let asOf = '';
   try{
     const rows = Array.isArray(runShown.rows) ? runShown.rows : [];
@@ -1150,10 +1297,8 @@ async function applyAdjustment(state){
   }catch(_){}
   if (!asOf) asOf = isoDay(new Date().toISOString());
 
-  // 1) Write truth storage state (today) for all fields (storage scaling)
   await writeGlobalTruthStateStorageScale(state, storageMult, asOf);
 
-  // 2) Write learning/tuning doc (optional future use)
   await writeLearningFromStorageShift(state, {
     storageMult,
     percentMove,
@@ -1241,9 +1386,33 @@ function closeAdjust(state){
 /* =========================
    Wiring
 ========================= */
+function ensureResetButtonExists(){
+  try{
+    // Try to place it next to Apply button if possible
+    const applyBtn = $('btnAdjApply');
+    if (!applyBtn) return;
+
+    if ($('btnAdjReset30')) return;
+
+    const btn = document.createElement('button');
+    btn.id = 'btnAdjReset30';
+    btn.className = 'btn';
+    btn.type = 'button';
+    btn.textContent = 'Reset (rebuild) • 30 days';
+
+    // Insert before Apply so it’s visible
+    const parent = applyBtn.parentElement;
+    if (parent){
+      parent.insertBefore(btn, applyBtn);
+    }
+  }catch(_){}
+}
+
 function wireOnce(state){
   if (state._globalCalWired) return;
   state._globalCalWired = true;
+
+  ensureResetButtonExists();
 
   const btnX = $('btnAdjX');
   if (btnX) btnX.addEventListener('click', ()=> closeAdjust(state));
@@ -1307,12 +1476,24 @@ function wireOnce(state){
     });
   }
 
+  // NEW: Reset button
+  const btnReset = $('btnAdjReset30');
+  if (btnReset){
+    btnReset.addEventListener('click', async ()=>{
+      await rebuildTruthFromLast30Days(state);
+      // Close modal after reset to avoid stale UI
+      try{ closeAdjust(state); }catch(_){}
+    });
+  }
+
   const hot = $('fieldsTitle');
   if (hot){
     hot.addEventListener('click', async (e)=>{
       e.preventDefault();
       e.stopPropagation();
       if (!canEdit(state)) return;
+
+      ensureResetButtonExists();
       await openAdjust(state);
     }, { passive:false });
   }
@@ -1341,6 +1522,7 @@ export function initGlobalCalibration(state){
 
   if (!canEdit(state)) return;
 
+  ensureResetButtonExists();
   wireOnce(state);
 
   (async ()=>{
