@@ -933,6 +933,56 @@ async function writeLearningFromStorageShift(state, {
 }
 
 /* =====================================================================
+   ✅ ADD BACK: writeWeightsLock + futureTimestamp (WAS MISSING)
+===================================================================== */
+function futureTimestamp(api, ms){
+  try{
+    if (api && api.Timestamp && typeof api.Timestamp.fromMillis === 'function'){
+      return api.Timestamp.fromMillis(ms);
+    }
+  }catch(_){}
+  return new Date(ms);
+}
+
+async function writeWeightsLock(state, nowMs){
+  const api = getAPI(state);
+  const cdH = Number(state._cooldownHours || 72);
+  const nextMs = nowMs + Math.round(cdH * 3600 * 1000);
+
+  state._lastAppliedMs = nowMs;
+  state._nextAllowedMs = nextMs;
+
+  if (!api) return;
+
+  if (api.kind === 'compat'){
+    try{
+      const db = window.firebase.firestore();
+      await db.collection(CONST.WEIGHTS_COLLECTION).doc(CONST.WEIGHTS_DOC).set({
+        lastAppliedAt: new Date(nowMs).toISOString(),
+        nextAllowedAt: new Date(nextMs).toISOString(),
+        cooldownHours: cdH
+      }, { merge:true });
+    }catch(e){
+      console.warn('[FieldReadiness] weights update failed:', e);
+    }
+    return;
+  }
+
+  try{
+    const db = api.getFirestore();
+    const ref = api.doc(db, CONST.WEIGHTS_COLLECTION, CONST.WEIGHTS_DOC);
+
+    await api.setDoc(ref, {
+      lastAppliedAt: api.serverTimestamp ? api.serverTimestamp() : new Date(nowMs).toISOString(),
+      nextAllowedAt: futureTimestamp(api, nextMs),
+      cooldownHours: cdH
+    }, { merge:true });
+  }catch(e){
+    console.warn('[FieldReadiness] weights update failed:', e);
+  }
+}
+
+/* =====================================================================
    APPLY (FIX): FORCE ref to target readiness + scale all fields by same %
 ===================================================================== */
 async function applyAdjustment(state){
