@@ -214,11 +214,19 @@
       position:relative;
     }
 
-    /* ✅ scaled content */
-    .grid-inner{
+    /* ✅ NEW: layout-sized sizer + separately scaled visual layer
+       This prevents iOS from letting you scroll into empty space when scaled. */
+    .grid-sizer{
+      position:relative;
+      display:block;
+      width:100%;
+      height:auto;
+    }
+    .grid-scaled{
+      position:absolute;
+      inset:0 auto auto 0;
       transform-origin:0 0;
       will-change:transform;
-      display:inline-block;
     }
 
     table.grid{
@@ -233,18 +241,19 @@
       color:var(--sheet-text);
     }
 
+    /* ✅ HEADER ROW: bigger + bolder + darker */
     thead th{
       position:sticky;
       top:0;
       z-index:2;
-      background:var(--sheet-head-bg);
+      background:linear-gradient(180deg, #ffffff, #fbfbfb);
       border-bottom:1px solid var(--gridline-strong);
       border-right:1px solid var(--gridline);
-      padding:10px 10px;
-      font-size:12px;
-      color:var(--sheet-muted);
-      font-weight:950;
-      letter-spacing:.2px;
+      padding:12px 10px;              /* bigger */
+      font-size:13px;                  /* bigger */
+      color:#374151;                   /* darker */
+      font-weight:1000;                /* bolder */
+      letter-spacing:.25px;
       white-space:nowrap;
       text-align:center;
     }
@@ -325,7 +334,7 @@
       }
 
       table.grid{min-width:860px;font-size:12px;}
-      thead th{padding:8px 8px;font-size:11px;}
+      thead th{padding:10px 8px;font-size:12px;} /* keep header bigger on mobile too */
       tbody td{padding:8px 8px;font-size:12px;}
       .cell-sub{display:none;}
     }
@@ -499,13 +508,17 @@
         <div class="section-body">
           <div class="table-wrap">
             <div id="gridViewport" class="grid-viewport" aria-label="Equipment spreadsheet viewport">
-              <div id="gridInner" class="grid-inner">
-                <table class="grid" aria-label="Equipment spreadsheet">
-                  <thead id="thead"></thead>
-                  <tbody id="tbody">
-                    <tr><td class="muted" style="padding:12px;">Loading…</td></tr>
-                  </tbody>
-                </table>
+              <!-- ✅ Sizer controls scroll bounds -->
+              <div id="gridInner" class="grid-sizer">
+                <!-- ✅ Scaled layer is visual only -->
+                <div id="gridScaled" class="grid-scaled">
+                  <table class="grid" aria-label="Equipment spreadsheet">
+                    <thead id="thead"></thead>
+                    <tbody id="tbody">
+                      <tr><td class="muted" style="padding:12px;">Loading…</td></tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </div>
@@ -650,7 +663,8 @@
     const qInput = $("#q");
 
     const gridViewport = $("#gridViewport");
-    const gridInner = $("#gridInner");
+    const gridInner = $("#gridInner");     // ✅ sizer
+    const gridScaled = $("#gridScaled");   // ✅ transformed layer
 
     // work order sheet
     const svcSheet = $("#svcSheet");
@@ -900,6 +914,7 @@
 
       if(!rows.length){
         tbody.innerHTML = `<tr><td class="muted" colspan="${cols.length}" style="padding:12px;">No results.</td></tr>`;
+        requestAnimationFrame(()=> ZOOM.recomputeBounds());
         return;
       }
 
@@ -989,6 +1004,12 @@
           tr.addEventListener("touchend", ()=>{ if(pressTimer) clearTimeout(pressTimer); }, {passive:true});
           tr.addEventListener("touchmove", ()=>{ if(pressTimer) clearTimeout(pressTimer); }, {passive:true});
         }
+      });
+
+      // after DOM update, fix bounds + clamp scroll
+      requestAnimationFrame(()=>{
+        ZOOM.recomputeBounds();
+        ZOOM.clampScroll();
       });
     }
 
@@ -1218,7 +1239,7 @@
         showToast("Location saved.");
         closeSheet(sfSheet);
         renderTable();
-        ZOOM.recomputeBounds(); // keep zoom bounds accurate
+        ZOOM.recomputeBounds();
       }catch(e){
         console.error(e);
         showError(e.message || "Save failed.");
@@ -1234,27 +1255,62 @@
       startDist: 0,
       startScale: 1,
 
+      _tableEl(){
+        return gridScaled ? gridScaled.querySelector("table") : null;
+      },
+
+      _syncSizer(){
+        const table = this._tableEl();
+        if(!table || !gridInner) return;
+
+        // Natural layout size of the table (unscaled)
+        const tw = Math.max(1, table.offsetWidth);
+        const th = Math.max(1, table.offsetHeight);
+
+        // Make the scrollable content match the VISUAL scaled size
+        gridInner.style.width = Math.ceil(tw * this.scale) + "px";
+        gridInner.style.height = Math.ceil(th * this.scale) + "px";
+      },
+
       setScale(s){
         const clamped = Math.max(this.min, Math.min(this.max, s));
         this.scale = clamped;
-        gridInner.style.transform = `scale(${clamped})`;
+        if(gridScaled){
+          gridScaled.style.transform = `scale(${clamped})`;
+        }
+        this._syncSizer();
+        this.clampScroll();
+      },
+
+      clampScroll(){
+        if(!gridViewport || !gridInner) return;
+
+        // Clamp scroll to the true content size (prevents empty right space)
+        const maxLeft = Math.max(0, gridInner.scrollWidth - gridViewport.clientWidth);
+        const maxTop  = Math.max(0, gridInner.scrollHeight - gridViewport.clientHeight);
+
+        if(gridViewport.scrollLeft > maxLeft) gridViewport.scrollLeft = maxLeft;
+        if(gridViewport.scrollTop  > maxTop)  gridViewport.scrollTop  = maxTop;
+        if(gridViewport.scrollLeft < 0) gridViewport.scrollLeft = 0;
+        if(gridViewport.scrollTop  < 0) gridViewport.scrollTop = 0;
       },
 
       recomputeBounds(){
-        // min scale = just enough to fit ALL columns (no zooming out past that)
-        // computed from viewport width / table width.
-        const table = gridInner.querySelector("table");
+        // min scale = just enough to fit ALL columns (so you can zoom OUT far enough)
+        const table = this._tableEl();
         if(!table || !gridViewport) return;
 
         const vw = Math.max(1, gridViewport.clientWidth);
         const tw = Math.max(1, table.offsetWidth);
 
-        // Fit-all-cols scale (<= 1). Clamp to a sane floor (avoid crazy tiny)
         const fit = Math.min(1, vw / tw);
-        this.min = Math.max(0.45, fit);
 
-        // If we're currently below min, pull back up
-        if(this.scale < this.min) this.setScale(this.min);
+        // ✅ allow smaller than before so you can see all columns on phone
+        this.min = Math.max(0.25, fit);
+
+        if(this.scale < this.min) this.scale = this.min;
+        this._syncSizer();
+        this.setScale(this.scale);
       }
     };
 
@@ -1271,6 +1327,8 @@
       const rect = gridViewport.getBoundingClientRect();
       const xInViewport = midX - rect.left;
       const yInViewport = midY - rect.top;
+
+      // Convert viewport point to "content space" (unscaled)
       const contentX = (gridViewport.scrollLeft + xInViewport) / ZOOM.scale;
       const contentY = (gridViewport.scrollTop  + yInViewport) / ZOOM.scale;
       return { xInViewport, yInViewport, contentX, contentY };
@@ -1281,10 +1339,11 @@
       ZOOM.setScale(newScale);
       gridViewport.scrollLeft = (contentX * ZOOM.scale) - xInViewport;
       gridViewport.scrollTop  = (contentY * ZOOM.scale) - yInViewport;
+      ZOOM.clampScroll();
     }
 
     function enableGridPinch(){
-      if(!gridViewport || !gridInner) return;
+      if(!gridViewport || !gridInner || !gridScaled) return;
 
       // initial scale: on phone, start at fit-all-cols so you can SEE everything immediately
       ZOOM.recomputeBounds();
@@ -1294,17 +1353,21 @@
         ZOOM.setScale(1);
       }
 
+      gridViewport.addEventListener("scroll", ()=>{
+        // ✅ stop iOS from drifting into empty scroll space
+        ZOOM.clampScroll();
+      }, { passive:true });
+
       gridViewport.addEventListener("touchstart", (e)=>{
         if(e.touches && e.touches.length === 2){
-          const { midX, midY, dist } = getTouchMidAndDist(e.touches[0], e.touches[1]);
+          const { dist } = getTouchMidAndDist(e.touches[0], e.touches[1]);
           ZOOM.active = true;
           ZOOM.startDist = dist;
           ZOOM.startScale = ZOOM.scale;
-          // anchor point handled in move via applyZoomKeepingPoint
         }
       }, { passive: true });
 
-      // NOTE: passive:false required so preventDefault works (only for 2 touches).
+      // passive:false required so preventDefault works (only for 2 touches).
       gridViewport.addEventListener("touchmove", (e)=>{
         if(!ZOOM.active) return;
         if(!e.touches || e.touches.length !== 2) return;
@@ -1329,10 +1392,8 @@
         ZOOM.active = false;
       }, { passive: true });
 
-      // keep bounds correct on resize/orientation + after layout changes
       window.addEventListener("resize", ()=>{
         ZOOM.recomputeBounds();
-        gridInner.style.transform = `scale(${ZOOM.scale})`;
       });
     }
 
@@ -1341,7 +1402,6 @@
       state.filter = catSelect.value;
       state.selectedRowId = null;
       renderTable();
-      // columns may change -> update min zoom
       requestAnimationFrame(()=> ZOOM.recomputeBounds());
     });
 
