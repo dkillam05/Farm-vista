@@ -71,16 +71,28 @@ const TUNE_EXP = 0.50;
 
 /* =====================================================================
    FORCE CALIBRATION helpers (must match model.js reversal)
-   model: creditInches = tightness * (REV_POINTS_MAX/100) * Smax
+   model (NEW extreme symmetric):
+     creditInches is SIGNED:
+       Smax=3 -> +credit (drier)
+       Smax=4 -> 0
+       Smax=5 -> -credit (wetter)
+     storageForReadiness = clamp(storageEff - creditInches, 0..Smax)
 ===================================================================== */
 const GCAL_SMAX_MIN = 3.0;
 const GCAL_SMAX_MAX = 5.0;
-const GCAL_REV_POINTS_MAX = 15;
+const GCAL_SMAX_MID = 4.0;
+
+// ✅ match model EXTREME setting
+const GCAL_REV_POINTS_MAX = 20;
 
 function gcalDryCreditInchesFromSmax(Smax){
+  // ✅ SIGNED credit (matches new model)
   const s = clamp(Number(Smax), GCAL_SMAX_MIN, GCAL_SMAX_MAX);
-  const tightness = (GCAL_SMAX_MAX - s) / (GCAL_SMAX_MAX - GCAL_SMAX_MIN); // 0@5, 1@3
-  return tightness * (GCAL_REV_POINTS_MAX / 100) * s;
+
+  // +1 at 3, 0 at 4, -1 at 5
+  const signed = clamp((GCAL_SMAX_MID - s) / 1.0, -1, 1);
+
+  return signed * (GCAL_REV_POINTS_MAX / 100) * s;
 }
 
 function gcalStorageNeededForTargetReadiness(targetR, Smax){
@@ -93,7 +105,7 @@ function gcalStorageNeededForTargetReadiness(targetR, Smax){
   const storageForReadiness = smax * (wetPct / 100);
 
   // storageForReadiness = clamp(storageEff - creditIn, 0..Smax)
-  // => storageEff = storageForReadiness + creditIn
+  // => storageEff = storageForReadiness + creditIn   (works for signed credit too)
   const storageEff = clamp(storageForReadiness + creditIn, 0, smax);
 
   return { storageEff, creditIn, wetPct, storageForReadiness };
@@ -1023,8 +1035,6 @@ async function applyAdjustment(state){
   const forcedStorageRef = forced.storageEff;
 
   // 2) multiplier based on reference’s current storage
-  // If storage is basically 0, scaling cannot move other fields.
-  // Use a small floor so we can recover from "everything is 0" situations.
   const curStorageRefRaw = Number(runRef.storageFinal || 0);
   const curStorageRef = Math.max(0.05, (isFinite(curStorageRefRaw) ? curStorageRefRaw : 0)); // floor = 0.05 in
 
@@ -1059,7 +1069,6 @@ async function applyAdjustment(state){
 
         const smax = Number(run.factors.Smax);
 
-        // Use a small floor so zeros can move (recovery from bad state)
         const curS = Number(run.storageFinal || 0);
         const cur = Math.max(0.05, (isFinite(curS) ? curS : 0));
 
