@@ -179,13 +179,36 @@ export function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, EXTRA){
   const SmaxBase = 3.00 + 1.00*soilHold + 1.00*drainPoor; // exact 3..5
   const Smax = clamp(SmaxBase, 3.00, 5.00);
 
-  // Subtle readiness impact factor (kept)
-  const impactRaw =
-    0.95 +
-    0.12 * soilHold +
-    0.10 * drainPoor;
+  // ============================================================
+// STRONG PARTIAL REVERSAL (per Dane)
+// Goal: when sliders go DOWN (smaller tank), readiness goes UP.
+// We implement this by making impactFactor DECREASE as the tank grows.
+//
+// Implementation:
+// - "tightness" = how small the tank is relative to 3..5 range
+// - tightness = 0 when Smax=5.0, tightness=1 when Smax=3.0
+// - Convert to a wetness multiplier range that yields up to +15 readiness points.
+//   If wetness is scaled by (1 - K*tightness), readiness increases.
+// ============================================================
+const tightness = clamp((5.00 - Smax) / 2.00, 0, 1); // 0..1 (5->0, 3->1)
 
-  const impactFactor = clamp(impactRaw, 0.95, 1.15);
+// Strong max boost = +15 readiness points at tightness=1.
+// That corresponds to reducing wetness by 15 points (out of 100),
+// so wetnessMult min = 0.85.
+const wetnessMult = 1.00 - (0.15 * tightness); // 1.00..0.85
+
+// Keep the same field-driven influence, but REVERSED:
+// when sliders are higher (soilHold/drainPoor higher), slightly MORE wetness impact,
+// when sliders lower, slightly LESS.
+const subtle = clamp(
+  1.00 + (0.03 * (soilHold + drainPoor - 1.0)), // ~0.97..1.03
+  0.95,
+  1.05
+);
+
+// Final impactFactor applied to wetness
+const impactFactor = clamp(wetnessMult * subtle, 0.85, 1.05);
+
 
   return { soilHold, drainPoor, smN, infilMult, dryMult, Smax, SmaxBase, impactFactor };
 }
