@@ -1,14 +1,16 @@
 /* =====================================================================
 /Farm-vista/js/shop-equipment-modal.js  (FULL FILE)
-Rev: 2026-01-22e
-Fix:
-✅ Removed accidental debugging call (confirmingAlive()) that caused runtime errors
+Rev: 2026-01-22f
+Fixes:
+✅ Remove duplicate Unit ID field (use ONLY extras "Unit ID / Unit #" from equipment-forms.js)
+✅ Modal layout + fonts aligned closer to Edit Tractors (cleaner spacing / labels)
+✅ Archive/Delete removed (safety)
+✅ Save maps extras.unitId -> root unitId so the Shop grid can show Unit ID
 
 Keeps:
-- svcSheet + Lifetime Notes save
+- svcSheet Lifetime Notes save
 - Service Records modal (list -> detail)
-- Edit modal (in-page) with Make/Model dd, Year combo, Unit ID, Serial, Status, Notes, Extras hydration
-- No Archive/Delete buttons in edit modal (safety)
+- In-page Edit modal with Make/Model, Year, Serial, Status, Extras, Notes
 ===================================================================== */
 
 import {
@@ -28,6 +30,7 @@ import {
 
 (function(){
   const $ = (sel) => document.querySelector(sel);
+  const norm = (v) => (v||"").toString().trim().toLowerCase();
 
   const UI = {
     svcSheet: null,
@@ -68,8 +71,6 @@ import {
     editExtras: null,
     editTypeKey: "equipment"
   };
-
-  const norm = (v) => (v||"").toString().trim().toLowerCase();
 
   function escapeHtml(s){
     return String(s ?? "").replace(/[&<>"']/g, c => ({
@@ -120,7 +121,6 @@ import {
     }catch(_){}
     return null;
   }
-
   function formatDateTime(d){
     if(!d) return "—";
     try{ return d.toLocaleString(); }catch{ return "—"; }
@@ -178,19 +178,28 @@ import {
     return t;
   }
 
-  function safeUnitId(eq){
-    const v = (eq && (eq.unitId ?? eq?.extras?.unitId)) ?? "";
-    return String(v || "").trim();
+  function typeLabelForHeader(eq){
+    const t = detectTypeKeyFromEq(eq);
+    const map = {
+      tractor:"Edit Tractor",
+      combine:"Edit Combine",
+      sprayer:"Edit Sprayer",
+      truck:"Edit Truck",
+      trailer:"Edit Trailer",
+      implement:"Edit Implement",
+      starfire:"Edit StarFire",
+      equipment:"Edit Equipment"
+    };
+    return map[t] || "Edit Equipment";
   }
 
   function last6(v){ return String(v||"").slice(-6); }
 
-  // ----- extras hydration helpers -----
+  // ----- extras hydration helpers (to make Planter show automatically) -----
   function boolify(v){
     if (v === true || v === false) return v;
     if (v == null) return false;
     if (typeof v === 'number') return v !== 0;
-
     const s = String(v).trim().toLowerCase();
     if (s === '') return false;
     if (['true','t','yes','y','1','on'].includes(s)) return true;
@@ -250,6 +259,7 @@ import {
   }
 
   function hydrateExtrasFromDoc(d){
+    // Force controller FIRST so planter fields appear immediately
     if (state.editTypeKey === "implement"){
       const impType = readAny(d, ['implementType','implement_type','subType','subtype','implementSubtype','implement_subtype']);
       if (impType){
@@ -269,7 +279,7 @@ import {
     }
 
     const keys = [
-      "unitId",
+      "placedInServiceDate",
       "engineHours","separatorHours","odometerMiles","boomWidthFt","tankSizeGal","starfireCapable",
       "workingWidthFt","numRows","rowSpacingIn","totalAcres","totalHours","bushelCapacityBu","augerDiameterIn","augerLengthFt",
       "applicationType",
@@ -285,8 +295,9 @@ import {
     const apply = ()=>{
       let anySet = false;
 
-      if (d && (d.unitId || d?.extras?.unitId)){
-        anySet = setExtraValue("unitId", d.unitId || d?.extras?.unitId) || anySet;
+      // If doc has a root unitId, push it into extras unitId once (so it shows in that single field)
+      if(d && d.unitId){
+        anySet = setExtraValue("unitId", d.unitId) || anySet;
       }
 
       keys.forEach(k=>{
@@ -688,6 +699,7 @@ import {
     dlg.className = "sheet fv-edit-sheet";
     dlg.setAttribute("aria-modal","true");
 
+    // ✅ NO extra Unit ID field here — only the Extras Unit ID / Unit # exists
     dlg.innerHTML = `
       <header>
         <strong id="seTitle">Edit Equipment</strong>
@@ -728,12 +740,6 @@ import {
               <div id="seYearPanel" class="fv-combo-panel fv-hidden" role="listbox" aria-label="Year"></div>
               <select id="seYear" aria-hidden="true" style="display:none"></select>
             </div>
-          </div>
-
-          <div>
-            <label for="seUnitId">Unit ID</label>
-            <input id="seUnitId" class="fv-input" placeholder="Optional unit ID"/>
-            <div class="fv-tip">This is the Unit ID shown in the grid.</div>
           </div>
 
           <div>
@@ -799,15 +805,28 @@ import {
       .fv-kv{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
       @media(max-width:700px){ .fv-kv{ grid-template-columns:1fr } }
 
+      /* Match your Edit page label feel */
+      .fv-edit-sheet label{
+        display:block;
+        font-size:13px;
+        color:var(--muted,#6f7772);
+        margin:0 0 6px;
+        font-weight:800;
+      }
+
       .fv-input{
-        width:100%; font:inherit; color:inherit;
+        width:100%;
+        font:inherit;
+        color:inherit;
         background:var(--card-surface,var(--surface));
         border:1px solid var(--border);
         border-radius:10px;
         padding:12px;
-        height:48px; line-height:46px;
+        height:48px;
+        line-height:46px;
         outline:none;
       }
+
       .fv-select{
         width:100%;
         font:inherit;
@@ -822,8 +841,11 @@ import {
         -webkit-appearance:menulist;
         outline:none;
       }
+
       .fv-textarea{
-        width:100%; font:inherit; color:inherit;
+        width:100%;
+        font:inherit;
+        color:inherit;
         background:var(--card-surface,var(--surface));
         border:1px solid var(--border);
         border-radius:10px;
@@ -832,18 +854,23 @@ import {
         resize:vertical;
         outline:none;
       }
+
       .fv-tip{ font-size:12px; color:var(--muted,#6f7772); margin-top:6px; }
 
       .fv-dd{ position:relative; }
       .fv-dd-btn{
-        width:100%; text-align:left;
-        padding:12px; padding-right:40px;
+        width:100%;
+        text-align:left;
+        padding:12px;
+        padding-right:40px;
         height:48px;
         border:1px solid var(--border);
         border-radius:10px;
         background:var(--card-surface,var(--surface));
-        font:inherit; color:var(--text)!important;
-        display:flex; align-items:center;
+        font:inherit;
+        color:var(--text)!important;
+        display:flex;
+        align-items:center;
         -webkit-text-fill-color: var(--text) !important;
         cursor:pointer;
       }
@@ -858,6 +885,7 @@ import {
         opacity:.7;
         background:no-repeat center/18px 18px url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%2367706B' d='M7.41 8.58L12 13.17l4.59-4.59L18 10l-6 6-6-6z'/></svg>");
       }
+
       .fv-dd-list{
         position:absolute; z-index:1000;
         top:calc(100% + 4px); left:0; right:0;
@@ -879,8 +907,8 @@ import {
         color:var(--text);
       }
       .fv-dd-list ul{ list-style:none; margin:0; padding:0; max-height:220px; overflow-y:auto }
-      .fv-dd-list li{ padding:10px 12px; cursor:pointer; }
-      .fv-dd-list li:hover{ background:rgba(127,127,127,.08); }
+      .fv-dd-list li{ padding:10px 12px; cursor:pointer }
+      .fv-dd-list li:hover{ background:rgba(127,127,127,.08) }
 
       .fv-combo{ position:relative; }
       .fv-combo-trigger{
@@ -933,7 +961,7 @@ import {
         height:var(--row-h);
         cursor:pointer;
       }
-      .fv-combo-item:hover{ background:rgba(127,127,127,.08); }
+      .fv-combo-item:hover{ background:rgba(127,127,127,.08) }
       .fv-hidden{ display:none !important; }
 
       .fv-extras{
@@ -1076,11 +1104,7 @@ import {
         snap.forEach(d=>{
           const v = d.data() || {};
           if(v.archived) return;
-          out.push({
-            id:d.id,
-            name:(v.name || v.model || "").trim(),
-            makeId:(v.makeId || "").trim()
-          });
+          out.push({ id:d.id, name:(v.name || v.model || "").trim(), makeId:(v.makeId||"").trim() });
         });
         out.sort((a,b)=>a.name.localeCompare(b.name));
         state.models = out;
@@ -1220,15 +1244,15 @@ import {
       showError("Equipment not found.");
       return;
     }
+
     const d = { id: snap.id, ...(snap.data()||{}) };
     state.editEqId = eqId;
     state.editEqDoc = d;
 
-    UI.editSheet.querySelector("#seTitle").textContent =
-      `Edit • ${d.unitId ? d.unitId : ""}${d.unitId ? " • " : ""}${d.name || "Equipment"}`;
+    // header like your edit page style
+    UI.editSheet.querySelector("#seTitle").textContent = typeLabelForHeader(d);
 
     if(typeof wireYearCombo._build === "function") wireYearCombo._build();
-
     setupMakeModelDd(d.makeId || d.makeName || "", d.modelId || d.modelName || "");
 
     const yearSel = UI.editSheet.querySelector("#seYear");
@@ -1236,7 +1260,6 @@ import {
     yearSel.value = d.year ? String(d.year) : "";
     yearTrigger.textContent = yearSel.value ? yearSel.value : "— Select —";
 
-    UI.editSheet.querySelector("#seUnitId").value = safeUnitId(d);
     UI.editSheet.querySelector("#seSerial").value = d.serial || "";
     UI.editSheet.querySelector("#seSerial6").textContent = last6(d.serial || "");
     UI.editSheet.querySelector("#seStatus").value = (d.status || "Active");
@@ -1249,6 +1272,7 @@ import {
 
   function readEditForm(){
     const dlg = UI.editSheet;
+
     const makeId = dlg.querySelector("#seMakeId").value || null;
     const modelId = dlg.querySelector("#seModelId").value || null;
 
@@ -1261,7 +1285,6 @@ import {
     const yearVal = dlg.querySelector("#seYear").value;
     const year = yearVal ? Number(yearVal) : null;
 
-    const unitId = String(dlg.querySelector("#seUnitId").value || "").trim();
     const serial = String(dlg.querySelector("#seSerial").value || "").trim();
     const status = dlg.querySelector("#seStatus").value || "Active";
     const notes = String(dlg.querySelector("#seNotes").value || "").trim();
@@ -1270,9 +1293,10 @@ import {
       ? (state.editExtras.read() || {})
       : {};
 
-    extras.unitId = unitId;
+    // ✅ Map extras.unitId -> root unitId for the grid
+    const rootUnitId = String(extras?.unitId || state.editEqDoc?.unitId || "").trim();
 
-    return { makeId, modelId, makeName, modelName, year, unitId, serial, status, notes, extras };
+    return { makeId, modelId, makeName, modelName, year, serial, status, notes, extras, rootUnitId };
   }
 
   function validateEditForm(p){
@@ -1290,21 +1314,21 @@ import {
   async function saveEditModal(){
     if(!state.editEqId) return;
 
-    const patchIn = readEditForm();
-    const err = validateEditForm(patchIn);
+    const p = readEditForm();
+    const err = validateEditForm(p);
     if(err){ alert(err); return; }
 
     const payload = {
-      makeId: patchIn.makeId,
-      modelId: patchIn.modelId,
-      makeName: patchIn.makeName || null,
-      modelName: patchIn.modelName || null,
-      year: patchIn.year,
-      unitId: patchIn.unitId || null,
-      serial: patchIn.serial,
-      status: patchIn.status,
-      notes: patchIn.notes || "",
-      ...patchIn.extras,
+      makeId: p.makeId,
+      modelId: p.modelId,
+      makeName: p.makeName || null,
+      modelName: p.modelName || null,
+      year: p.year,
+      serial: p.serial,
+      status: p.status,
+      notes: p.notes || "",
+      unitId: p.rootUnitId || null,
+      ...p.extras,
       updatedAt: serverTimestamp()
     };
 
@@ -1312,7 +1336,6 @@ import {
       const db = getFirestore();
       await setDoc(doc(db,"equipment", state.editEqId), payload, { merge:true });
       Object.assign(state.editEqDoc, payload);
-
       showToast("Saved ✓");
       closeSheet(UI.editSheet);
     }catch(e){
@@ -1378,6 +1401,7 @@ import {
     }
   }
 
+  // expose
   window.FVShopEquipModal = {
     open,
     openServiceRecords: async (eq)=> openServiceRecordsModal(eq),
