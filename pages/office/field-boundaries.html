@@ -846,16 +846,33 @@
         searchable: true,
         formatter: x => x.name,
         onPick: field => {
-          currentFieldId = field.id;
-          currentFieldLabel = field.name || "";
-          fieldIdInput.value = field.id;
-          fieldNameHidden.value = field.name || "";
-          $("fieldBtn").textContent = field.name || "— Select field —";
+  // 1) If the field has a farmId, auto-select that farm
+  const fid = String(field.farmId || "").trim();
+  if (fid){
+    // Find the farm name from the farm list (preferred)
+    const farmObj = (allFarms || []).find(f => String(f.id) === fid);
+    const farmName = farmObj?.name || field.farmName || "";
 
-          if(dbInstance && currentFieldId){
-            renderActiveWorkOrders(dbInstance, currentFieldId, currentFieldLabel);
-          }
-        }
+    farmIdInput.value = fid;
+    farmNameInput.value = farmName || "";
+    $("farmBtn").textContent = farmName || "— Select farm —";
+
+    // Keep the field list filtered to that farm (optional but usually desired)
+    applyFarmFilter(fid);
+  }
+
+  // 2) Set the chosen field
+  currentFieldId = field.id;
+  currentFieldLabel = field.name || "";
+  fieldIdInput.value = field.id;
+  fieldNameHidden.value = field.name || "";
+  $("fieldBtn").textContent = field.name || "— Select field —";
+
+  // 3) Load work orders for that field
+  if(dbInstance && currentFieldId){
+    renderActiveWorkOrders(dbInstance, currentFieldId, currentFieldLabel);
+  }
+}
       });
     }
 
