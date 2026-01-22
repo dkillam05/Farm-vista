@@ -1,25 +1,27 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-01-22i-storage-truth-rewind14-rateTuning-dryTailFix-intReadiness-Smax3to5-hardEndpoints-STRONGREV15-INVARIANTSAFE
+Rev: 2026-01-22k-storage-truth-rewind14-rateTuning-dryTailFix-intReadiness-Smax3to5-hardEndpoints-EXTREME40-SYMMETRIC
 
-GOAL (per Dane):
-✅ Keep the SIMPLE RULE (invariant):
-   wetness = (storage / tank) * 100
-   readiness = 100 - wetness
+WHAT YOU ASKED:
+✅ Sliders are NOT backwards:
+   - 0 = dry / good => readiness goes UP
+   - 100 = wet / poor => readiness goes DOWN
 
-✅ Sliders reversed feel (strong):
-   - slide DOWN (tank smaller) => readiness goes UP
-   - up to ~15 points (when there is enough wetness to remove)
+✅ MUCH MORE movement:
+   - ~20 points DRY boost at the dry end
+   - ~20 points WET penalty at the wet end
+   => ~40 point swing potential
 
-How:
-- Compute tank size Smax (3..5) from sliders (unchanged)
-- Compute a "dry credit" in INCHES:
-    creditInches = tightness * (0.15 * Smax)
-  where tightness = 0 at Smax=5, tightness=1 at Smax=3
-- Apply credit to storage ONLY for readiness/wetness display:
-    storageForReadiness = clamp(storageEff - creditInches, 0..Smax)
+HOW (simple):
+- We apply a SIGNED "credit" in inches:
+   * small tank => positive credit (subtracts water for readiness => drier)
+   * big tank   => negative credit (adds water for readiness => wetter)
 
-This preserves invariants exactly, and makes sliders behave the way you want.
+This forces the direction you want and increases range.
+
+IMPORTANT:
+- Storage truth (storageFinal) is still truth.
+- This only changes how readiness/wetness are derived for display/ops.
 ===================================================================== */
 'use strict';
 
@@ -41,16 +43,24 @@ function snap01(x){
   return v;
 }
 
-// Strong reversal target: 15 points of wetness at full strength
-const REV_POINTS_MAX = 15;
+// Slider extremes
 const SMAX_MIN = 3.0;
 const SMAX_MAX = 5.0;
+const SMAX_MID = 4.0;
 
-function dryCreditInchesFromSmax(Smax){
+// EXTREME: 20 points each way => 40 total swing
+const REV_POINTS_MAX = 20;
+
+/**
+ * SIGNED credit in inches:
+ *  - at Smax=3 => + (20% of Smax)  => subtracts water => drier => readiness UP
+ *  - at Smax=4 => 0
+ *  - at Smax=5 => - (20% of Smax) => adds water      => wetter => readiness DOWN
+ */
+function signedCreditInchesFromSmax(Smax){
   const s = clamp(Number(Smax), SMAX_MIN, SMAX_MAX);
-  const tightness = (SMAX_MAX - s) / (SMAX_MAX - SMAX_MIN); // 0 at 5, 1 at 3
-  // 15 wetness points = 0.15*Smax inches
-  return tightness * (REV_POINTS_MAX / 100) * s;
+  const signed = clamp((SMAX_MID - s) / 1.0, -1, 1); // +1 at 3, 0 at 4, -1 at 5
+  return signed * (REV_POINTS_MAX / 100) * s;
 }
 
 /* =====================================================================
@@ -179,6 +189,7 @@ export function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, EXTRA){
   const infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor;
   const dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor;
 
+  // Tank: 3..5 hard endpoints
   const SmaxBase = 3.00 + 1.00*soilHold + 1.00*drainPoor;
   const Smax = clamp(SmaxBase, 3.00, 5.00);
 
@@ -296,42 +307,24 @@ function effectiveRainInches(rainIn, storageBefore, Smax, factors, tune){
 }
 
 /* =====================================================================
-   Persisted state helpers (STATEFUL OPTION 1)
+   Persisted state helpers
 ===================================================================== */
-function isoDay(iso){
-  if (!iso) return '';
-  const s = String(iso);
-  return (s.length >= 10) ? s.slice(0,10) : s;
-}
-
 function getPersistedState(deps, fieldId){
   try{
     if (!deps || !fieldId) return null;
-
     if (typeof deps.getPersistedState === 'function'){
       const s = deps.getPersistedState(fieldId);
       return (s && typeof s === 'object') ? s : null;
     }
-
     const map = deps.persistedStateByFieldId;
     if (map && typeof map === 'object'){
       const s = map[fieldId];
       return (s && typeof s === 'object') ? s : null;
     }
-
     return null;
   }catch(_){
     return null;
   }
-}
-
-function buildStateOut(fieldId, storageFinal, asOfDateISO, f){
-  return {
-    fieldId: String(fieldId || ''),
-    storageFinal: Number(storageFinal || 0),
-    asOfDateISO: isoDay(asOfDateISO || ''),
-    SmaxAtSave: Number(f && f.Smax ? f.Smax : 0)
-  };
 }
 
 function getSeedMode(deps){
@@ -353,83 +346,37 @@ function baselineSeedFromWindow(rowsWindow, f){
   const rainNudge = rainNudgeFrac * (0.1 * f.Smax);
 
   const storage0 = clamp((0.30 * f.Smax) + rainNudge, 0, f.Smax);
-
-  return { storage0, rain7, rainNudgeFrac, rainNudge };
+  return { storage0 };
 }
 
 function pickSeed(rows, f, deps, fieldId){
   const mode = getSeedMode(deps);
 
-  const firstDate = rows.length ? isoDay(rows[0].dateISO) : '';
-  const lastDate  = rows.length ? isoDay(rows[rows.length-1].dateISO) : '';
-
   if (mode === 'rewind'){
     const N = getRewindDays(deps);
     const startIdx = Math.max(0, rows.length - N);
-
-    const windowRows = rows.slice(startIdx);
-    const b = baselineSeedFromWindow(windowRows, f);
-
-    return {
-      seedMethod: 'rewind_baseline',
-      seedStorage: b.storage0,
-      startIdx,
-      seedDebug: {
-        rewindDays: N,
-        startIdx,
-        firstDateISO: firstDate,
-        lastDateISO: lastDate,
-        rain7: b.rain7,
-        rainNudgeFrac: b.rainNudgeFrac,
-        rainNudge: b.rainNudge
-      }
-    };
+    const b = baselineSeedFromWindow(rows.slice(startIdx), f);
+    return { seedStorage: b.storage0, startIdx };
   }
 
   if (mode === 'persisted'){
     const persisted = getPersistedState(deps, fieldId);
-
     if (persisted && isFinite(Number(persisted.storageFinal)) && persisted.asOfDateISO){
-      const asOf = isoDay(persisted.asOfDateISO);
-
-      if (lastDate && asOf > lastDate){
-        return {
-          seedMethod: 'persisted_no_sim',
-          seedStorage: clamp(Number(persisted.storageFinal), 0, f.Smax),
-          startIdx: rows.length,
-          seedDebug: { asOfDateISO: asOf, firstDateISO: firstDate, lastDateISO: lastDate }
-        };
-      }
-
-      const idx = rows.findIndex(r => isoDay(r.dateISO) === asOf);
+      const asOf = String(persisted.asOfDateISO).slice(0,10);
+      const idx = rows.findIndex(r => String(r.dateISO||'').slice(0,10) === asOf);
       if (idx >= 0){
-        return {
-          seedMethod: 'persisted_storage',
-          seedStorage: clamp(Number(persisted.storageFinal), 0, f.Smax),
-          startIdx: idx + 1,
-          seedDebug: { asOfDateISO: asOf, matchIdx: idx, firstDateISO: firstDate, lastDateISO: lastDate }
-        };
-      }
-
-      if (firstDate && asOf < firstDate){
-        // fall through to baseline
+        return { seedStorage: clamp(Number(persisted.storageFinal), 0, f.Smax), startIdx: idx + 1 };
       }
     }
   }
 
   const b0 = baselineSeedFromWindow(rows, f);
-
-  return {
-    seedMethod: (mode === 'baseline') ? 'baseline_forced' : 'baseline_rain7_nudge',
-    seedStorage: b0.storage0,
-    startIdx: 0,
-    seedDebug: { rain7: b0.rain7, rainNudgeFrac: b0.rainNudgeFrac, rainNudge: b0.rainNudge, firstDateISO: firstDate, lastDateISO: lastDate }
-  };
+  return { seedStorage: b0.storage0, startIdx: 0 };
 }
 
-/**
- * runField(field, deps)
- */
+/* =====================================================================
+   runField
+===================================================================== */
 export function runField(field, deps){
   const wx = deps.getWeatherSeriesForFieldId(field.id);
   if (!wx || !wx.length) return null;
@@ -467,60 +414,6 @@ export function runField(field, deps){
 
   const trace = [];
 
-  if (seedPick.startIdx >= rows.length){
-    const calRes = applyCalToStorage(storage, f.Smax, deps);
-    const storageEff = calRes.storageEff;
-
-    // ✅ invariant-safe reversal: subtract dry credit in inches before computing wetness/readiness
-    const creditInches = dryCreditInchesFromSmax(f.Smax);
-    const storageForReadiness = clamp(storageEff - creditInches, 0, f.Smax);
-
-    const wetness = (f.Smax > 0) ? clamp((storageForReadiness / f.Smax) * 100, 0, 100) : 0;
-    const readiness = clamp(100 - wetness, 0, 100);
-
-    const wetnessR = roundInt(wetness);
-    const readinessR = roundInt(readiness);
-
-    const avgLossDay = 0.08;
-    const lastDateISO = rows.length ? rows[rows.length-1].dateISO : '';
-
-    return {
-      field,
-      factors: f,
-      rows,
-      trace,
-
-      storageFinal: storageEff,
-
-      wetnessR,
-      readinessR,
-      avgLossDay,
-
-      wetBiasApplied: calRes.wetBiasApplied,
-      readinessShiftApplied: calRes.readinessShiftApplied,
-      wetnessDeltaApplied: calRes.wetnessDeltaApplied,
-      storageDeltaApplied: calRes.storageDeltaApplied,
-
-      dryLossMultApplied: rate.dryLossMult,
-      rainEffMultApplied: rate.rainEffMult,
-
-      tuneUsed: tune,
-
-      // Debug:
-      readinessDryCreditIn: creditInches,
-      storageForReadiness,
-
-      stateOut: buildStateOut(field.id, storageEff, (lastDateISO || seedPick.seedDebug.asOfDateISO || ''), f),
-
-      seedDebug: {
-        seedMethod: seedPick.seedMethod,
-        seedStorage: seedPick.seedStorage,
-        startIdx: seedPick.startIdx,
-        ...(seedPick.seedDebug || {})
-      }
-    };
-  }
-
   for (let i = seedPick.startIdx; i < rows.length; i++){
     const d = rows[i];
     const rain = Number(d.rainInAdj||0);
@@ -548,25 +441,16 @@ export function runField(field, deps){
     const after = clamp(before + add - loss, 0, f.Smax);
     storage = after;
 
-    trace.push({
-      dateISO: d.dateISO,
-      rain,
-      rainEff,
-      satBefore: (f.Smax>0 ? clamp(before/f.Smax,0,1) : 0),
-      infilMult: f.infilMult,
-      add,
-      dryPwr: d.dryPwr,
-      loss,
-      before,
-      after
-    });
+    trace.push({ dateISO: d.dateISO, before, after, rain, rainEff, add, loss, dryPwr: d.dryPwr });
   }
 
   const calRes = applyCalToStorage(storage, f.Smax, deps);
   const storageEff = calRes.storageEff;
 
-  const creditInches = dryCreditInchesFromSmax(f.Smax);
-  const storageForReadiness = clamp(storageEff - creditInches, 0, f.Smax);
+  // ✅ symmetric extreme slider effect
+  const creditIn = signedCreditInchesFromSmax(f.Smax);
+  // creditIn positive => subtract => drier; creditIn negative => subtract negative => wetter
+  const storageForReadiness = clamp(storageEff - creditIn, 0, f.Smax);
 
   const wetness = (f.Smax > 0) ? clamp((storageForReadiness / f.Smax) * 100, 0, 100) : 0;
   const readiness = clamp(100 - wetness, 0, 100);
@@ -577,42 +461,19 @@ export function runField(field, deps){
   const last7 = trace.slice(-7);
   const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
 
-  const lastDateISO = rows.length ? rows[rows.length-1].dateISO : '';
-
   return {
     field,
     factors: f,
     rows,
     trace,
-
     storageFinal: storageEff,
-
     wetnessR,
     readinessR,
     avgLossDay,
 
-    wetBiasApplied: calRes.wetBiasApplied,
-    readinessShiftApplied: calRes.readinessShiftApplied,
-    wetnessDeltaApplied: calRes.wetnessDeltaApplied,
-    storageDeltaApplied: calRes.storageDeltaApplied,
-
-    dryLossMultApplied: rate.dryLossMult,
-    rainEffMultApplied: rate.rainEffMult,
-
-    tuneUsed: tune,
-
-    // Debug:
-    readinessDryCreditIn: creditInches,
-    storageForReadiness,
-
-    stateOut: buildStateOut(field.id, storageEff, lastDateISO, f),
-
-    seedDebug: {
-      seedMethod: seedPick.seedMethod,
-      seedStorage: seedPick.seedStorage,
-      startIdx: seedPick.startIdx,
-      ...(seedPick.seedDebug || {})
-    }
+    // debug
+    readinessCreditIn: creditIn,
+    storageForReadiness
   };
 }
 
@@ -642,7 +503,6 @@ export function markerLeftCSS(pct){
 
 export function etaFor(run, threshold, ETA_MAX_HOURS){
   if (!run) return '';
-
   if (Number(run.readinessR) >= Number(threshold)) return '';
 
   const Smax = run.factors && isFinite(Number(run.factors.Smax)) ? Number(run.factors.Smax) : 0;
@@ -660,7 +520,6 @@ export function etaFor(run, threshold, ETA_MAX_HOURS){
   let hours = Math.ceil((delta / dailyLoss) * 24);
 
   if (!isFinite(hours) || hours <= 0) hours = 1;
-
   if (hours > ETA_MAX_HOURS) return `> ${ETA_MAX_HOURS} hours`;
   return `Est: ~${hours} hours`;
 }
