@@ -205,14 +205,14 @@
       white-space:nowrap;
     }
     .pv-long .left, .pv-long .right{
-  display:flex;
-  flex-direction:column;
-  justify-content:center;
-  min-width:max-content;
-}
-.pv-long .right{
-  padding-right:1mm; /* extra safety so VIN never kisses the cut */
-}
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      min-width:max-content;
+    }
+    .pv-long .right{
+      padding-right:1mm; /* extra safety so VIN never kisses the cut */
+    }
     .pv-long .make{ font-weight:800; font-size:18pt; line-height:1.05; }
     .pv-long .model{ font-weight:800; font-size:16pt; line-height:1.05; margin-top:1mm; }
     .pv-long .mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; background:#fff; }
@@ -356,7 +356,7 @@
   <fv-shell>
     <div class="page">
       <h1 id="pageTitle" class="title">Equipment Lookup</h1>
-      <p id="subtitle" class="sub">Showing Active only. Search by make, model, serial, or year.</p>
+      <p id="subtitle" class="sub">Showing Active only. Search by make, model, serial, year, or unit.</p>
 
       <div class="bar">
         <div class="search">
@@ -514,18 +514,41 @@
     }
     const isArchived = d => normStatus(d) === 'archived';
 
+    // Unit ID helper (supports either root unitId or extras.unitId)
+    function unitIdText(d){
+      const u = (d && (d.unitId ?? d?.extras?.unitId)) ?? '';
+      const s = String(u || '').trim();
+      return s;
+    }
+
     const mmText = d => [safe(d.makeName), safe(d.modelName)].filter(Boolean).join(' ').trim();
+
+    // Tile line: make/model + unitId + last 6 serial/vin
     const displayLine = d => {
       const mm = mmText(d);
+      const unit = unitIdText(d);
       const ls = last6(d.serial);
       const fallback = `(${TYPE_META.sing.toLowerCase()})`;
-      return mm ? (ls ? `${mm} — #${ls}` : mm) : (ls ? `#${ls}` : fallback);
+
+      const leftParts = [mm, unit].filter(Boolean).join(' ');
+      if (leftParts){
+        return ls ? `${leftParts} — #${ls}` : leftParts;
+      }
+      return ls ? `#${ls}` : fallback;
     };
+
+    // Modal title: make/model + unitId + (#last6)
     const titleFor = d => {
       const mm = mmText(d);
+      const unit = unitIdText(d);
       const ls = last6(d.serial);
       const fallback = `(${TYPE_META.sing})`;
-      return mm ? (ls ? `${mm} (#${ls})` : mm) : (d.name || fallback);
+
+      const leftParts = [mm, unit].filter(Boolean).join(' ');
+      if (leftParts){
+        return ls ? `${leftParts} (#${ls})` : leftParts;
+      }
+      return d.name || fallback;
     };
 
     const hubUrl = (id) =>
@@ -541,15 +564,27 @@
 
       const rows = statusFiltered.filter(d=>{
         if (!q) return true;
-        const blob = [displayLine(d), d.makeName, d.modelName, d.serial, d.year, d.notes, d.starfireSerial]
+        const unit = unitIdText(d);
+        const blob = [
+          displayLine(d),
+          d.makeName,
+          d.modelName,
+          unit,
+          d.unitId,
+          d?.extras?.unitId,
+          d.serial,
+          d.year,
+          d.notes,
+          d.starfireSerial
+        ]
           .map(x=>String(x||'').toLowerCase()).join(' ');
         return blob.includes(q);
       });
 
       subtitle.textContent =
-        mode === 'all' ? `Showing Active + Archived. Search by make, model, serial, or year.`
-        : mode === 'archived' ? `Showing Archived only. Search by make, model, serial, or year.`
-        : `Showing Active only. Search by make, model, serial, or year.`;
+        mode === 'all' ? `Showing Active + Archived. Search by make, model, serial, year, or unit.`
+        : mode === 'archived' ? `Showing Archived only. Search by make, model, serial, year, or unit.`
+        : `Showing Active only. Search by make, model, serial, year, or unit.`;
 
       countEl.textContent = `${rows.length}/${statusFiltered.length} entries (${mode})`;
       list.innerHTML = '';
@@ -1032,6 +1067,7 @@ async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
       addRow('Type', TYPE_META.sing);
       addRow('Make', d.makeName);
       addRow('Model', d.modelName);
+      addRow('Unit ID / Unit #', unitIdText(d));
       addRow('Year', d.year);
 
       const ls = last6(d.serial);
