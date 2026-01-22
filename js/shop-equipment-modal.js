@@ -1,17 +1,14 @@
 /* =====================================================================
 /Farm-vista/js/shop-equipment-modal.js  (FULL FILE)
-Rev: 2026-01-22g
-Upgrade:
-✅ Edit modal now uses the SAME CSS system + class names as your Edit Tractors modal
-   (scoped to this dialog so it doesn't affect other pages)
-✅ No duplicate Unit ID (only Extras "Unit ID / Unit #")
-✅ Planter options auto-show (hydrate implementType controller)
-✅ Archive/Delete removed for safety
-✅ Save maps extras.unitId -> root unitId (grid consistency)
+Rev: 2026-01-22h
+Updates:
+✅ After successful Lifetime Notes save, CLOSE the popup
+✅ Dispatch event so Shop grid can update immediately:
+   window.dispatchEvent(new CustomEvent("fv-shop-equip:lifetimeNotesSaved",{detail:{id,lifetimeNotes}}))
 
 Keeps:
-- svcSheet Lifetime Notes save
-- Service Records modal (list -> detail)
+- Service Records modal
+- Edit modal (matching Edit Tractors CSS system)
 ===================================================================== */
 
 import {
@@ -197,7 +194,7 @@ import {
 
   function last6(v){ return String(v||"").slice(-6); }
 
-  // ----- extras hydration helpers (Planter auto-show) -----
+  // ----- extras hydration helpers -----
   function boolify(v){
     if (v === true || v === false) return v;
     if (v == null) return false;
@@ -261,7 +258,6 @@ import {
   }
 
   function hydrateExtrasFromDoc(d){
-    // Force controller FIRST so planter fields appear immediately
     if (state.editTypeKey === "implement"){
       const impType = readAny(d, ['implementType','implement_type','subType','subtype','implementSubtype','implement_subtype']);
       if (impType){
@@ -297,7 +293,6 @@ import {
     const apply = ()=>{
       let anySet = false;
 
-      // Push root unitId into extras.unitId once so ONLY that field shows the unit id
       if(d && d.unitId){
         anySet = setExtraValue("unitId", d.unitId) || anySet;
       }
@@ -389,7 +384,7 @@ import {
   }
 
   // ===================================================================
-  //  SERVICE RECORDS MODAL
+  //  SERVICE RECORDS MODAL (unchanged)
   // ===================================================================
   function ensureSrSheet(){
     if(UI.srSheet) return UI.srSheet;
@@ -689,125 +684,13 @@ import {
   }
 
   // ===================================================================
-  //  EDIT MODAL — now uses *exact* Edit Tractors classes + CSS (scoped)
+  //  EDIT MODAL (unchanged from your working "perfect" version)
   // ===================================================================
-  function ensureEditSheet(){
-    if(UI.editSheet) return UI.editSheet;
-
-    injectEditTractorsModalCss();
-
-    const dlg = document.createElement("dialog");
-    dlg.id = "shopEquipEdit";
-    dlg.className = "sheet fv-edit-tractor-skin";
-    dlg.setAttribute("aria-modal","true");
-
-    dlg.innerHTML = `
-      <header>
-        <strong id="seTitle">Edit Equipment</strong>
-        <div style="display:flex; gap:8px; align-items:center">
-          <button id="seClose" class="btn" type="button">Close</button>
-        </div>
-      </header>
-
-      <div class="body">
-        <div class="kv">
-          <div>
-            <label>Make</label>
-            <input type="hidden" id="seMakeId"/>
-            <div id="seDdMake" class="dd">
-              <button type="button" id="seMakeBtn" class="dd-btn">— Loading… —</button>
-              <div class="dd-list">
-                <input type="text" id="seMakeSearch" placeholder="Search make…">
-                <ul id="seMakeList"></ul>
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <label>Model</label>
-            <input type="hidden" id="seModelId"/>
-            <div id="seDdModel" class="dd">
-              <button type="button" id="seModelBtn" class="dd-btn" disabled>— Select a Make first —</button>
-              <div class="dd-list">
-                <input type="text" id="seModelSearch" placeholder="Search model…" disabled>
-                <ul id="seModelList"></ul>
-              </div>
-            </div>
-            <div class="tip">Models filter by the selected make.</div>
-          </div>
-
-          <div>
-            <label for="seYear">Year</label>
-            <div class="combo" id="seYearCombo">
-              <button type="button" id="seYearTrigger" class="select combo-trigger" aria-haspopup="listbox" aria-expanded="false">— Select —</button>
-              <div id="seYearPanel" class="combo-panel combo-hidden" role="listbox" aria-label="Year"></div>
-              <select id="seYear" aria-hidden="true" style="display:none"></select>
-            </div>
-          </div>
-
-          <div>
-            <label for="seSerial">Serial (full)</label>
-            <input id="seSerial" class="input" placeholder="Full serial"/>
-            <div class="tip">Last 6 auto: <strong id="seSerial6">—</strong></div>
-          </div>
-
-          <div>
-            <label for="seStatus">Status</label>
-            <select id="seStatus" class="input" style="height:var(--ctl-h)">
-              <option value="Active">Active</option>
-              <option value="Archived">Archived</option>
-              <option value="Out of Service">Out of Service</option>
-            </select>
-          </div>
-
-          <div id="seExtras" class="extras" aria-label="Equipment extra fields"></div>
-
-          <div style="grid-column:1/-1">
-            <label for="seNotes">Notes</label>
-            <textarea id="seNotes" class="textarea" placeholder="Notes (replaces equipment notes field)"></textarea>
-          </div>
-        </div>
-      </div>
-
-      <footer>
-        <button id="seSave" class="btn btn-primary" type="button">Save Changes</button>
-      </footer>
-    `;
-
-    document.body.appendChild(dlg);
-    UI.editSheet = dlg;
-
-    dlg.querySelector("#seClose").addEventListener("click", ()=> closeSheet(dlg));
-    dlg.addEventListener("close", ()=>{
-      // close dd
-      dlg.querySelectorAll(".dd").forEach(d=>d.classList.remove("open"));
-      state.editEqId = null;
-      state.editEqDoc = null;
-      state.editExtras = null;
-    });
-
-    wireDd(dlg.querySelector("#seDdMake"));
-    wireDd(dlg.querySelector("#seDdModel"));
-    wireDdGlobalClose();
-
-    wireYearCombo();
-
-    dlg.querySelector("#seSave").addEventListener("click", saveEditModal);
-
-    dlg.querySelector("#seSerial").addEventListener("input", ()=>{
-      dlg.querySelector("#seSerial6").textContent = last6(dlg.querySelector("#seSerial").value || "");
-    });
-
-    return dlg;
-  }
-
   function injectEditTractorsModalCss(){
     if(document.getElementById("fv-edit-tractor-css")) return;
 
     const st = document.createElement("style");
     st.id = "fv-edit-tractor-css";
-
-    // This is the Edit Tractors modal styling, scoped to .fv-edit-tractor-skin
     st.textContent = `
 /* ===== Begin: Edit Tractors modal CSS (scoped) ===== */
 .fv-edit-tractor-skin{
@@ -1164,7 +1047,6 @@ import {
 
     buildList(makeList, state.makes, setMake);
 
-    // preselect make
     const byId = state.makes.find(m=>m.id===prefMakeIdOrName);
     const byNm = state.makes.find(m=>m.name===prefMakeIdOrName);
     if(byId) setMake(byId.id, byId.name);
@@ -1189,7 +1071,6 @@ import {
     const typeKey = detectTypeKeyFromEq(eqDoc);
     state.editTypeKey = typeKey;
 
-    // Use the SAME contract the edit page uses
     state.editExtras = window.FVEquipForms.initExtras({
       equipType: typeKey,
       container: host,
@@ -1311,9 +1192,115 @@ import {
     openSheet(UI.editSheet);
   }
 
-  // ===================================================================
-  //  svcSheet open + lifetime notes save
-  // ===================================================================
+  function ensureEditSheet(){
+    if(UI.editSheet) return UI.editSheet;
+
+    injectEditTractorsModalCss();
+
+    const dlg = document.createElement("dialog");
+    dlg.id = "shopEquipEdit";
+    dlg.className = "sheet fv-edit-tractor-skin";
+    dlg.setAttribute("aria-modal","true");
+
+    dlg.innerHTML = `
+      <header>
+        <strong id="seTitle">Edit Equipment</strong>
+        <div style="display:flex; gap:8px; align-items:center">
+          <button id="seClose" class="btn" type="button">Close</button>
+        </div>
+      </header>
+
+      <div class="body">
+        <div class="kv">
+          <div>
+            <label>Make</label>
+            <input type="hidden" id="seMakeId"/>
+            <div id="seDdMake" class="dd">
+              <button type="button" id="seMakeBtn" class="dd-btn">— Loading… —</button>
+              <div class="dd-list">
+                <input type="text" id="seMakeSearch" placeholder="Search make…">
+                <ul id="seMakeList"></ul>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label>Model</label>
+            <input type="hidden" id="seModelId"/>
+            <div id="seDdModel" class="dd">
+              <button type="button" id="seModelBtn" class="dd-btn" disabled>— Select a Make first —</button>
+              <div class="dd-list">
+                <input type="text" id="seModelSearch" placeholder="Search model…" disabled>
+                <ul id="seModelList"></ul>
+              </div>
+            </div>
+            <div class="tip">Models filter by the selected make.</div>
+          </div>
+
+          <div>
+            <label for="seYear">Year</label>
+            <div class="combo" id="seYearCombo">
+              <button type="button" id="seYearTrigger" class="select combo-trigger" aria-haspopup="listbox" aria-expanded="false">— Select —</button>
+              <div id="seYearPanel" class="combo-panel combo-hidden" role="listbox" aria-label="Year"></div>
+              <select id="seYear" aria-hidden="true" style="display:none"></select>
+            </div>
+          </div>
+
+          <div>
+            <label for="seSerial">Serial (full)</label>
+            <input id="seSerial" class="input" placeholder="Full serial"/>
+            <div class="tip">Last 6 auto: <strong id="seSerial6">—</strong></div>
+          </div>
+
+          <div>
+            <label for="seStatus">Status</label>
+            <select id="seStatus" class="input" style="height:var(--ctl-h)">
+              <option value="Active">Active</option>
+              <option value="Archived">Archived</option>
+              <option value="Out of Service">Out of Service</option>
+            </select>
+          </div>
+
+          <div id="seExtras" class="extras" aria-label="Equipment extra fields"></div>
+
+          <div style="grid-column:1/-1">
+            <label for="seNotes">Notes</label>
+            <textarea id="seNotes" class="textarea" placeholder="Notes (replaces equipment notes field)"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <footer>
+        <button id="seSave" class="btn btn-primary" type="button">Save Changes</button>
+      </footer>
+    `;
+
+    document.body.appendChild(dlg);
+    UI.editSheet = dlg;
+
+    dlg.querySelector("#seClose").addEventListener("click", ()=> closeSheet(dlg));
+    dlg.addEventListener("close", ()=>{
+      dlg.querySelectorAll(".dd").forEach(d=>d.classList.remove("open"));
+      state.editEqId = null;
+      state.editEqDoc = null;
+      state.editExtras = null;
+    });
+
+    wireDd(dlg.querySelector("#seDdMake"));
+    wireDd(dlg.querySelector("#seDdModel"));
+    wireDdGlobalClose();
+    wireYearCombo();
+
+    dlg.querySelector("#seSave").addEventListener("click", saveEditModal);
+
+    dlg.querySelector("#seSerial").addEventListener("input", ()=>{
+      dlg.querySelector("#seSerial6").textContent = last6(dlg.querySelector("#seSerial").value || "");
+    });
+
+    return dlg;
+  }
+
+  // ---- Lifetime Notes popup open + save ----
   async function open(eq){
     bootstrap();
     state.eq = eq || null;
@@ -1354,14 +1341,27 @@ import {
     openSheet(UI.svcSheet);
   }
 
+  // ✅ UPDATED: close popup on success + notify grid
   async function saveNotes(){
     if(!state.eq) return;
     try{
       const db = getFirestore();
       const txt = (UI.lifetimeNotes.value || "").trim();
-      await updateDoc(doc(db, "equipment", state.eq.id), { lifetimeNotes: txt, updatedAt: serverTimestamp() });
+
+      await updateDoc(doc(db, "equipment", state.eq.id), {
+        lifetimeNotes: txt,
+        updatedAt: serverTimestamp()
+      });
+
       state.eq.lifetimeNotes = txt;
+
+      // tell the grid to update immediately
+      window.dispatchEvent(new CustomEvent("fv-shop-equip:lifetimeNotesSaved", {
+        detail: { id: state.eq.id, lifetimeNotes: txt }
+      }));
+
       showToast("Notes saved.");
+      closeSheet(UI.svcSheet); // ✅ close after successful save
     }catch(e){
       console.error(e);
       showError(e?.message || "Save notes failed.");
