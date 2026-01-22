@@ -1,13 +1,13 @@
 /* =====================================================================
 /Farm-vista/js/shop-equipment-modal.js  (FULL FILE)
-Rev: 2026-01-22c  ✅ Fix Edit modal crash (UI.editSheet null in wireYearCombo)
-
-Fix:
-✅ ensureEditSheet() sets UI.editSheet BEFORE calling wireYearCombo()
-✅ wireYearCombo() is defensive if dlg is missing
+Rev: 2026-01-22d
+Fixes:
+✅ Edit modal now hydrates Extras controllers (implementType / constructionType) so Planter options show automatically
+✅ Removed Archive + Delete buttons from Edit modal (safety)
+✅ Status select styling fixed (centered / readable)
 
 Keeps:
-- svcSheet + Lifetime Notes save
+- Lifetime Notes popup (svcSheet) + Save Notes
 - Service Records modal (list -> detail)
 - Edit modal (in-page) with Make/Model dd, Year combo, Unit ID, Serial, Status, Notes, Extras engine
 ===================================================================== */
@@ -52,15 +52,18 @@ import {
   const state = {
     eq: null,
 
+    // service records
     srRows: [],
     srSelectedId: null,
     srMode: "list",
 
+    // editor caches
     makes: [],
     models: [],
     makesLoaded: false,
     modelsLoaded: false,
 
+    // editor state
     editEqId: null,
     editEqDoc: null,
     editExtras: null,
@@ -167,11 +170,13 @@ import {
   function detectTypeKeyFromEq(eq){
     const t = norm(eq?.type);
     if(!t) return "equipment";
+    // normalize plural -> singular
     if(t === "tractors") return "tractor";
     if(t === "combines") return "combine";
     if(t === "sprayers") return "sprayer";
     if(t === "trucks") return "truck";
     if(t === "implements") return "implement";
+    if(t === "trailers") return "trailer";
     return t;
   }
 
@@ -181,6 +186,132 @@ import {
   }
 
   function last6(v){ return String(v||"").slice(-6); }
+
+  // ----- extras hydration helpers (copied concept from your Edit Tractors page) -----
+  function boolify(v){
+    if (v === true || v === false) return v;
+    if (v == null) return false;
+    if (typeof v === 'number') return v !== 0;
+
+    const s = String(v).trim().toLowerCase();
+    if (s === '') return false;
+    if (['true','t','yes','y','1','on'].includes(s)) return true;
+    if (['false','f','no','n','0','off'].includes(s)) return false;
+    return true;
+  }
+
+  function findExtraEl(fieldId){
+    const dlg = UI.editSheet;
+    if(!dlg) return null;
+
+    let el = dlg.querySelector("#extra-" + fieldId);
+    if(el) return el;
+
+    el = dlg.querySelector(`[data-extra-id="${fieldId}"]`)
+      || dlg.querySelector(`[name="${fieldId}"]`)
+      || dlg.querySelector(`[data-field="${fieldId}"]`);
+    return el || null;
+  }
+
+  function setExtraValue(fieldId, value){
+    const el = findExtraEl(fieldId);
+    if(!el) return false;
+
+    // pill toggle button
+    if (el.tagName === "BUTTON" && el.classList.contains("pill-toggle")){
+      const isOn = boolify(value);
+      el.dataset.state = isOn ? "on" : "off";
+      el.classList.toggle("on", isOn);
+      el.textContent = isOn ? "Yes" : "No";
+      return true;
+    }
+
+    // checkbox/switch
+    if (el.tagName === "INPUT" && (el.type === "checkbox" || el.type === "radio")){
+      el.checked = boolify(value);
+      el.dispatchEvent(new Event("change", { bubbles:true }));
+      el.dispatchEvent(new Event("input", { bubbles:true }));
+      return true;
+    }
+
+    // inputs/selects/textarea
+    try{
+      el.value = (value === undefined || value === null) ? "" : String(value);
+      el.dispatchEvent(new Event("change", { bubbles:true }));
+      el.dispatchEvent(new Event("input", { bubbles:true }));
+      return true;
+    }catch{
+      return false;
+    }
+  }
+
+  function readAny(d, keys){
+    for (const k of keys){
+      if (d && Object.prototype.hasOwnProperty.call(d, k) && d[k] != null && String(d[k]).trim() !== ""){
+        return d[k];
+      }
+    }
+    return null;
+  }
+
+  function hydrateExtrasFromDoc(d){
+    // Force controller fields first (this is the missing piece causing Planter not to show)
+    if (state.editTypeKey === "implement"){
+      const impType = readAny(d, ['implementType','implement_type','subType','subtype','implementSubtype','implement_subtype']);
+      if (impType){
+        setExtraValue("implementType", impType);
+        const ctrl = findExtraEl("implementType");
+        if (ctrl) ctrl.dispatchEvent(new Event("change", { bubbles:true }));
+      }
+    }
+
+    if (state.editTypeKey === "construction"){
+      const conType = readAny(d, ['constructionType','construction_type','subType','subtype']);
+      if (conType){
+        setExtraValue("constructionType", conType);
+        const ctrl = findExtraEl("constructionType");
+        if (ctrl) ctrl.dispatchEvent(new Event("change", { bubbles:true }));
+      }
+    }
+
+    // Then fill common extras keys
+    const keys = [
+      "unitId",
+      "engineHours","separatorHours","odometerMiles","boomWidthFt","tankSizeGal","starfireCapable",
+      "workingWidthFt","numRows","rowSpacingIn","totalAcres","totalHours","bushelCapacityBu","augerDiameterIn","augerLengthFt",
+      "applicationType",
+      "licensePlate","licensePlateExp","insuranceExp","tireSizes","dotRequired","dotExpiration",
+      "trailerType","trailerPlate","trailerPlateExp","trailerDotRequired","lastDotInspection","gvwrLb",
+      "attachmentType",
+      "activationLevel","firmwareVersion"
+    ];
+
+    const triesMax = 8;
+    let tries = 0;
+
+    const apply = ()=>{
+      let anySet = false;
+
+      // unitId: prefer root unitId
+      if (d && (d.unitId || d?.extras?.unitId)){
+        anySet = setExtraValue("unitId", d.unitId || d?.extras?.unitId) || anySet;
+      }
+
+      keys.forEach(k=>{
+        if(!d || !Object.prototype.hasOwnProperty.call(d, k)) return;
+        if(k === "starfireCapable") anySet = setExtraValue(k, boolify(d[k])) || anySet;
+        else anySet = setExtraValue(k, d[k]) || anySet;
+      });
+
+      // retry a few frames in case equipment-forms renders late
+      if(!anySet && tries < triesMax){
+        tries++;
+        requestAnimationFrame(apply);
+      }
+    };
+
+    requestAnimationFrame(apply);
+  }
 
   // ---------- bootstrap ----------
   function bootstrap(){
@@ -554,7 +685,7 @@ import {
   }
 
   // ===================================================================
-  //  EDIT MODAL (fix applied here)
+  //  EDIT MODAL
   // ===================================================================
   function ensureEditSheet(){
     if(UI.editSheet) return UI.editSheet;
@@ -622,7 +753,7 @@ import {
 
           <div>
             <label for="seStatus">Status</label>
-            <select id="seStatus" class="fv-input" style="height:48px">
+            <select id="seStatus" class="fv-select">
               <option value="Active">Active</option>
               <option value="Archived">Archived</option>
               <option value="Out of Service">Out of Service</option>
@@ -639,15 +770,11 @@ import {
       </div>
 
       <footer>
-        <button id="seArchive" class="btn fv-btn-warn" type="button">Archive</button>
-        <button id="seDelete" class="btn fv-btn-danger" type="button" disabled title="Disabled for now">Delete</button>
         <button id="seSave" class="btn btn-primary" type="button">Save Changes</button>
       </footer>
     `;
 
     document.body.appendChild(dlg);
-
-    // ✅ CRITICAL: set UI.editSheet NOW (before any helper that references it)
     UI.editSheet = dlg;
 
     dlg.querySelector("#seClose").addEventListener("click", ()=> closeSheet(dlg));
@@ -661,12 +788,9 @@ import {
     wireDd(dlg.querySelector("#seDdMake"));
     wireDd(dlg.querySelector("#seDdModel"));
     wireDdGlobalClose();
-
-    // ✅ now safe
     wireYearCombo();
 
     dlg.querySelector("#seSave").addEventListener("click", saveEditModal);
-    dlg.querySelector("#seArchive").addEventListener("click", toggleArchiveEditModal);
     dlg.querySelector("#seSerial").addEventListener("input", ()=>{
       dlg.querySelector("#seSerial6").textContent = last6(dlg.querySelector("#seSerial").value || "");
     });
@@ -676,12 +800,14 @@ import {
 
   function injectEditModalStyles(){
     if(document.getElementById("fv-edit-modal-styles")) return;
+
     const st = document.createElement("style");
     st.id = "fv-edit-modal-styles";
     st.textContent = `
       .fv-edit-sheet{ width:min(760px, 92vw); }
       .fv-kv{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
       @media(max-width:700px){ .fv-kv{ grid-template-columns:1fr } }
+
       .fv-input{
         width:100%; font:inherit; color:inherit;
         background:var(--card-surface,var(--surface));
@@ -689,6 +815,20 @@ import {
         border-radius:10px;
         padding:12px;
         height:48px; line-height:46px;
+        outline:none;
+      }
+      .fv-select{
+        width:100%;
+        font:inherit;
+        color:var(--text);
+        background:var(--card-surface,var(--surface));
+        border:1px solid var(--border);
+        border-radius:10px;
+        padding:10px 12px;
+        height:48px;
+        line-height:48px;
+        appearance:auto;
+        -webkit-appearance:menulist;
         outline:none;
       }
       .fv-textarea{
@@ -702,6 +842,7 @@ import {
         outline:none;
       }
       .fv-tip{ font-size:12px; color:var(--muted,#6f7772); margin-top:6px; }
+
       .fv-dd{ position:relative; }
       .fv-dd-btn{
         width:100%; text-align:left;
@@ -746,7 +887,7 @@ import {
         background:var(--surface);
         color:var(--text);
       }
-      .fv-dd-list ul{ list-style:none; margin:0; padding:0; max-height:220px; overflow-y:auto; }
+      .fv-dd-list ul{ list-style:none; margin:0; padding:0; max-height:220px; overflow-y:auto }
       .fv-dd-list li{ padding:10px 12px; cursor:pointer; }
       .fv-dd-list li:hover{ background:rgba(127,127,127,.08); }
 
@@ -811,16 +952,6 @@ import {
         background:var(--surface);
         padding:12px;
       }
-      .fv-btn-warn{
-        background:var(--brand-gold,#D0C542);
-        color:#2b2b2b !important;
-        border-color:var(--brand-gold,#D0C542);
-      }
-      .fv-btn-danger{
-        background:#B3261E;
-        color:#fff !important;
-        border-color:#B3261E;
-      }
     `;
     document.head.appendChild(st);
   }
@@ -855,13 +986,13 @@ import {
 
   function wireYearCombo(){
     const dlg = UI.editSheet || document.getElementById("shopEquipEdit");
-    if(!dlg) return; // ✅ defensive
+    if(!dlg) return;
 
     const trigger = dlg.querySelector("#seYearTrigger");
     const panel = dlg.querySelector("#seYearPanel");
     const sel = dlg.querySelector("#seYear");
     const combo = dlg.querySelector("#seYearCombo");
-    if(!trigger || !panel || !sel || !combo) return; // ✅ defensive
+    if(!trigger || !panel || !sel || !combo) return;
 
     function closePanel(){
       panel.classList.add("fv-hidden");
@@ -971,6 +1102,7 @@ import {
 
   function setupMakeModelDd(prefMakeIdOrName, prefModelIdOrName){
     const dlg = UI.editSheet;
+
     const makeRoot = dlg.querySelector("#seDdMake");
     const makeBtn  = dlg.querySelector("#seMakeBtn");
     const makeSearch = dlg.querySelector("#seMakeSearch");
@@ -992,6 +1124,7 @@ import {
         li.addEventListener("click", ()=> onPick(id, name));
         ul.appendChild(li);
       });
+    confirmingAlive();
     }
 
     function filterList(input, ul){
@@ -1082,11 +1215,8 @@ import {
       document
     });
 
-    try{
-      if(state.editExtras && typeof state.editExtras.reset === "function"){
-        state.editExtras.reset(eqDoc || {});
-      }
-    }catch(_){}
+    // NOW force hydration of implementType etc so the right options appear immediately
+    hydrateExtrasFromDoc(eqDoc);
   }
 
   async function openEditModal(eqId){
@@ -1124,7 +1254,6 @@ import {
     UI.editSheet.querySelector("#seSerial6").textContent = last6(d.serial || "");
     UI.editSheet.querySelector("#seStatus").value = (d.status || "Active");
     UI.editSheet.querySelector("#seNotes").value = d.notes || "";
-    UI.editSheet.querySelector("#seArchive").textContent = (String(d.status||"").toLowerCase()==="archived") ? "Unarchive" : "Archive";
 
     initExtrasEngineForEdit(d);
 
@@ -1153,6 +1282,9 @@ import {
     const extras = (state.editExtras && typeof state.editExtras.read === "function")
       ? (state.editExtras.read() || {})
       : {};
+
+    // ensure unitId stored at root and/or extras as your system expects
+    extras.unitId = unitId;
 
     return { makeId, modelId, makeName, modelName, year, unitId, serial, status, notes, extras };
   }
@@ -1200,29 +1332,6 @@ import {
     }catch(e){
       console.error(e);
       alert("Save failed by Firestore rules.");
-    }
-  }
-
-  async function toggleArchiveEditModal(){
-    if(!state.editEqId) return;
-    try{
-      const db = getFirestore();
-      const ref = doc(db,"equipment", state.editEqId);
-      const snap = await getDoc(ref);
-      if(!snap.exists()) return;
-
-      const d = snap.data() || {};
-      const cur = String(d.status || "Active");
-      const next = (cur === "Archived") ? "Active" : "Archived";
-
-      await updateDoc(ref, { status: next, updatedAt: serverTimestamp() });
-
-      UI.editSheet.querySelector("#seStatus").value = next;
-      UI.editSheet.querySelector("#seArchive").textContent = (next === "Archived") ? "Unarchive" : "Archive";
-      showToast(next === "Archived" ? "Archived ✓" : "Restored ✓");
-    }catch(e){
-      console.error(e);
-      alert("Archive/Unarchive failed.");
     }
   }
 
