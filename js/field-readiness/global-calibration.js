@@ -1,56 +1,40 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/global-calibration.js  (FULL FILE)
-Rev: 2026-01-21b-global-percent-shift-truth-state-learning
+Rev: 2026-01-22c-global-storage-scale-truth-state-learning
 
-CHANGE (per Dane):
-✅ Global Calibration slider now performs a % shift across ALL fields (relative move),
-   based on the selected reference field.
+UPDATED (per Dane — NEW MODEL CONTRACT):
+✅ Global Calibration performs a % STORAGE shift across ALL fields (truth state).
+✅ Tank size comes from sliders/model — calibration does NOT change tank size.
+✅ Storage is truth — calibration scales storage.
 
-Meaning:
-- Let R_ref be the current (shown) readiness of the selected reference field.
-- Let R_target be the slider value you choose.
-- factor = R_target / R_ref   (percent move)
-- For every field:
-    R_new = clamp(round(R_now * factor), 0..100)
-    storageFinal = Smax * ((100 - R_new)/100)
-  Write to field_readiness_state/{fieldId}
+UI stays the same:
+- Reference field readiness (shown) = R_ref
+- Slider target readiness = R_target
+- percentMove = (R_target / R_ref - 1) * 100
+- storageMult = 1 - (percentMove / 100)
 
-This preserves field-to-field spread (wet fields stay wetter than dry fields),
-while shifting the whole system by a consistent percentage.
+Examples:
+- If you push target UP by +10% relative to ref:
+    percentMove = +10%
+    storageMult = 0.90  => storageFinal decreases 10% across all fields (drier)
+- If you push target DOWN by -10%:
+    storageMult = 1.10  => storageFinal increases 10% (wetter)
 
-CRITICAL:
-✅ No wetBias/readinessShift overlays (no ceiling)
-✅ Uses persisted truth seed when running the model (matches tiles)
-✅ Writes truth storage state only
-
-NEW (Learning setup — Topic 2, FIRST STEP):
-✅ Also write a global tuning doc that can make the model closer next time.
-   - Writes to: field_readiness_tuning/global
-   - Stores:
-       DRY_LOSS_MULT (multiplies drying loss)
-       RAIN_EFF_MULT (multiplies effective rain)
-   - Update logic (safe + symmetric):
-       factor < 1  => you said “wetter than model”
-                    -> reduce drying (DRY_LOSS_MULT ↓)
-                    -> increase rain effectiveness (RAIN_EFF_MULT ↑)
-       factor > 1  => you said “drier than model”
-                    -> increase drying (DRY_LOSS_MULT ↑)
-                    -> reduce rain effectiveness (RAIN_EFF_MULT ↓)
-
-NOTE:
-- This file ONLY WRITES the tuning doc.
-- render.js + quickview.js must later READ this doc and feed the multipliers into deps.EXTRA
-  so learning actually affects the tiles/quick view.
+Writes:
+- field_readiness_state/{fieldId}:
+    storageFinal = storageFinal_old * storageMult
+    (if missing old truth, seed from current truth run first)
 
 Keeps:
 ✅ 72h lockout (nextAllowedAt = now + cooldownHours)
 ✅ Opposite-only Wet/Dry guardrail + slider clamp direction
 ✅ UI theme patch
 ✅ fr:soft-reload after apply
+✅ Learning doc write (tuning) still supported (optional future use)
 
 No longer does:
-❌ Does NOT write field_readiness_adjustments delta/anchor/slider entries
-❌ Does NOT compute readinessShift / compensated shifts
+❌ Does NOT rewrite readiness across all fields
+❌ Does NOT recompute storage from readiness targets
 ===================================================================== */
 'use strict';
 
@@ -69,25 +53,23 @@ function esc(s){
 }
 
 /* =====================================================================
-   PERSISTED TRUTH STATE COLLECTION (seed consistency with tiles)
+   PERSISTED TRUTH STATE COLLECTION
 ===================================================================== */
 const FR_STATE_COLLECTION = 'field_readiness_state';
 const STATE_TTL_MS = 30000;
 
 /* =====================================================================
-   NEW: LEARNING / TUNING DOC
+   LEARNING / TUNING DOC (kept)
 ===================================================================== */
 const FR_TUNE_COLLECTION = 'field_readiness_tuning';
 const FR_TUNE_DOC = 'global';
 
-// Hard clamps for safety
 const DRY_LOSS_MULT_MIN = 0.30;
 const DRY_LOSS_MULT_MAX = 3.00;
 const RAIN_EFF_MULT_MIN = 0.30;
 const RAIN_EFF_MULT_MAX = 3.00;
 
-// How aggressively one global % shift changes tuning.
-// 0.50 = sqrt mapping (gentler)
+// How aggressively one global shift changes tuning.
 const TUNE_EXP = 0.50;
 
 function safeStr(x){
@@ -102,7 +84,6 @@ function safeNum(v){
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
-
 function nowISO(){
   try{ return new Date().toISOString(); }catch(_){ return ''; }
 }
@@ -127,7 +108,7 @@ function getAuthUserIdModern(api){
 }
 
 /* =====================================================================
-   Persisted truth-state load (for consistency)
+   Persisted truth-state load
 ===================================================================== */
 async function loadPersistedState(state, { force=false } = {}){
   try{
@@ -224,7 +205,7 @@ function getPersistedStateForDeps(state, fieldId){
 }
 
 /* =====================================================================
-   NEW: Tuning doc read/write (learning setup)
+   Tuning doc read/write (kept)
 ===================================================================== */
 function normalizeTuneDoc(d){
   const doc = (d && typeof d === 'object') ? d : {};
@@ -235,7 +216,8 @@ function normalizeTuneDoc(d){
     DRY_LOSS_MULT: clamp((dryLoss == null ? 1.0 : dryLoss), DRY_LOSS_MULT_MIN, DRY_LOSS_MULT_MAX),
     RAIN_EFF_MULT: clamp((rainEff == null ? 1.0 : rainEff), RAIN_EFF_MULT_MIN, RAIN_EFF_MULT_MAX),
 
-    lastFactor: safeNum(doc.lastFactor),
+    lastStorageMult: safeNum(doc.lastStorageMult),
+    lastPercentMove: safeNum(doc.lastPercentMove),
     lastAnchorReadiness: safeNum(doc.lastAnchorReadiness),
     lastTargetReadiness: safeNum(doc.lastTargetReadiness),
     lastOp: safeStr(doc.lastOp),
@@ -296,19 +278,17 @@ async function writeGlobalTuning(state, payload){
 }
 
 /**
- * Given factor = target/anchor, update tuning multipliers safely.
- * - factor < 1 => wetter => dryLoss down, rainEff up
- * - factor > 1 => drier  => dryLoss up, rainEff down
+ * Update tuning multipliers based on "drier/wetter intent".
+ * We use "intentFactor" where:
+ *  - intentFactor > 1 => you said drier (reduce storage)
+ *  - intentFactor < 1 => you said wetter (increase storage)
  *
- * Uses exponent (sqrt by default) so changes are not too aggressive.
+ * (This is optional future use; render.js currently reads DRY_LOSS_MULT only.)
  */
-function computeNextTuning(prev, factor){
-  const fct = clamp(Number(factor || 1), 0.10, 2.50); // same safety clamp as state shift
+function computeNextTuning(prev, intentFactor){
+  const fct = clamp(Number(intentFactor || 1), 0.10, 2.50);
   const p = normalizeTuneDoc(prev);
 
-  // Gentle symmetric mapping
-  // dryLossMult *= fct^exp
-  // rainEffMult *= (1/fct)^exp
   const exp = clamp(Number(TUNE_EXP || 0.5), 0.10, 1.00);
 
   const dryMulStep = Math.pow(fct, exp);
@@ -321,12 +301,12 @@ function computeNextTuning(prev, factor){
 }
 
 /* =====================================================================
-   OP-THRESHOLD WET/DRY TRIGGER TUNING
+   STATUS / UI GUARDRAILS
 ===================================================================== */
 const STATUS_HYSTERESIS = 2;
 
 /* =========================
-   FV THEME PATCH (Adjust + Confirm)
+   FV THEME PATCH
 ========================= */
 function ensureGlobalCalThemeCSSOnce(){
   try{
@@ -336,7 +316,6 @@ function ensureGlobalCalThemeCSSOnce(){
     const st = document.createElement('style');
     st.setAttribute('data-fv-fr-gcal-theme','1');
     st.textContent = `
-      /* Modal X buttons: FV xbtn look */
       #adjustBackdrop .xbtn,
       #confirmAdjBackdrop .xbtn{
         background: color-mix(in srgb, var(--surface) 92%, #ffffff 8%) !important;
@@ -349,7 +328,6 @@ function ensureGlobalCalThemeCSSOnce(){
         transform: translateY(1px) !important;
       }
 
-      /* CENTER Wet/Dry */
       #adjustBackdrop #feelSeg{
         display:flex !important;
         justify-content:center !important;
@@ -364,7 +342,6 @@ function ensureGlobalCalThemeCSSOnce(){
         min-width: 120px;
       }
 
-      /* Seg buttons (Wet/Dry) */
       #adjustBackdrop .segbtn{
         border: 1px solid var(--border) !important;
         background: color-mix(in srgb, var(--surface) 94%, #ffffff 6%) !important;
@@ -387,7 +364,6 @@ function ensureGlobalCalThemeCSSOnce(){
         box-shadow: none !important;
       }
 
-      /* Intensity slider: FULL WIDTH */
       #adjustBackdrop #intensityBox{
         max-width: 620px;
         margin: 0 auto;
@@ -402,7 +378,6 @@ function ensureGlobalCalThemeCSSOnce(){
         justify-content:space-between !important;
       }
 
-      /* Buttons (Cancel / Apply) */
       #adjustBackdrop .btn,
       #confirmAdjBackdrop .btn{
         border: 1px solid var(--border) !important;
@@ -417,7 +392,6 @@ function ensureGlobalCalThemeCSSOnce(){
         transform: translateY(1px) !important;
       }
 
-      /* Primary buttons must be FV green with WHITE text */
       #adjustBackdrop .btn.btn-primary,
       #adjustBackdrop .btn-primary,
       #confirmAdjBackdrop .btn.btn-primary,
@@ -518,10 +492,6 @@ function getSelectedField(state){
 function getCalForShown(_state){
   return { wetBias:0, opWetBias:{}, readinessShift:0, opReadinessShift:{} };
 }
-function getCalForAnchor(_state){
-  return { wetBias:0, opWetBias:{}, readinessShift:0, opReadinessShift:{} };
-}
-
 function runFieldWithCal(state, f, calObj){
   if (!f) return null;
   if (!state._mods || !state._mods.model || !state._mods.weather) return null;
@@ -536,8 +506,6 @@ function runFieldWithCal(state, f, calObj){
     EXTRA,
     opKey,
     CAL: calObj,
-
-    // ✅ seed consistency with tiles
     getPersistedState: (id)=> getPersistedStateForDeps(state, id)
   };
 
@@ -550,12 +518,8 @@ function getRunForFieldShown(state, f){
   return runFieldWithCal(state, f, getCalForShown(state));
 }
 
-function getRunForFieldAnchor(state, f){
-  return runFieldWithCal(state, f, getCalForAnchor(state));
-}
-
 /* =========================
-   CURRENT OP THRESHOLD (dynamic)
+   CURRENT OP THRESHOLD
 ========================= */
 function currentThreshold(state){
   const opKey = getCurrentOp();
@@ -565,7 +529,7 @@ function currentThreshold(state){
 }
 
 /* =========================
-   OP-THRESHOLD wet/dry truth (dynamic + hysteresis)
+   OP-THRESHOLD wet/dry truth
 ========================= */
 function statusFromReadinessAndThreshold(state, run, thr){
   const r = clamp(Math.round(Number(run?.readinessR ?? 0)), 0, 100);
@@ -656,12 +620,12 @@ function renderCooldownCard(state){
   const since = lastMs ? fmtDur(now - lastMs) : '—';
   const nextAbs = nextMs ? fmtAbs(nextMs) : '—';
 
-  const title = locked ? 'Global percent shift is locked' : 'Global percent shift is available';
+  const title = locked ? 'Global calibration is locked' : 'Global calibration is available';
   const lastLine = lastMs
     ? `Last global shift: <span class="mono">${esc(since)}</span> ago`
     : `Last global shift: <span class="mono">—</span>`;
   const sub = `Next global shift allowed: <span class="mono">${esc(nextAbs)}</span>`;
-  const note = `This applies the same % readiness shift to ALL fields and writes truth storage for today.`;
+  const note = `This scales STORAGE truth for all fields and lets readiness update automatically.`;
 
   const cardStyle =
     'border:1px solid var(--border);border-radius:14px;padding:12px;' +
@@ -725,8 +689,8 @@ function enforceSliderClamp(state){
   const anchor = clamp(Number(state._adjAnchorReadiness ?? 50), 0, 100);
   let v = sliderVal();
 
-  const status = state._adjStatus; // wet|dry
-  const feel = state._adjFeel;     // wet|dry|null
+  const status = state._adjStatus;
+  const feel = state._adjFeel;
 
   if (!feel){
     v = anchor;
@@ -754,7 +718,7 @@ function updateGuardText(state){
 
   const feel = state._adjFeel;
   if (!(feel === 'wet' || feel === 'dry')){
-    el.textContent = 'Choose Wet or Dry, then move the slider to apply a % shift to ALL fields.';
+    el.textContent = 'Choose Wet or Dry, then move the slider to apply a STORAGE % shift to ALL fields.';
     return;
   }
 
@@ -762,17 +726,14 @@ function updateGuardText(state){
   const target = sliderVal();
 
   let factor = 1;
-  if (anchor > 0){
-    factor = target / anchor;
-  } else {
-    factor = 1;
-  }
+  if (anchor > 0) factor = target / anchor;
 
-  const pct = Math.round((factor - 1) * 100);
-  const dir = (pct >= 0) ? 'up' : 'down';
+  const pct = Math.round((factor - 1) * 100); // +pct => drier intent
+  const storageMult = clamp(1 - (pct / 100), 0.10, 2.50);
 
+  const dir = (pct >= 0) ? 'drier' : 'wetter';
   el.textContent =
-    `This will shift ALL fields ${dir} by ~${Math.abs(pct)}% (factor ${factor.toFixed(3)}), based on this reference field.`;
+    `This will make ALL fields ~${Math.abs(pct)}% ${dir} by scaling STORAGE (×${storageMult.toFixed(3)}).`;
 }
 
 /* =========================
@@ -784,9 +745,9 @@ function updateAdjustHeader(state){
   if (!sub) return;
 
   if (f && f.name){
-    sub.textContent = `Global percent shift • ${f.name}`;
+    sub.textContent = `Global storage shift • ${f.name}`;
   } else {
-    sub.textContent = 'Global percent shift';
+    sub.textContent = 'Global storage shift';
   }
 }
 
@@ -933,88 +894,110 @@ async function writeWeightsLock(state, nowMs){
   }
 }
 
-function storageFromReadiness(readiness0_100, Smax){
-  const r = clamp(Number(readiness0_100), 0, 100);
-  const smax = Number(Smax);
-  if (!isFinite(smax) || smax <= 0) return 0;
-
-  const wet = clamp(100 - r, 0, 100);
-  const storage = smax * (wet / 100);
-  return clamp(storage, 0, smax);
-}
-
 async function writeTruthStateDocCompat(db, fieldId, payload){
   await db.collection(FR_STATE_COLLECTION).doc(String(fieldId)).set(payload, { merge:true });
 }
-
 async function writeTruthStateDocModern(api, db, fieldId, payload){
   const ref = api.doc(db, FR_STATE_COLLECTION, String(fieldId));
   await api.setDoc(ref, payload, { merge:true });
 }
 
 /**
- * Apply a % shift to ALL fields:
- * R_new = round(R_now * factor)
+ * NEW: Apply STORAGE scaling to ALL fields truth:
+ * storageFinal_new = storageFinal_old * storageMult
+ *
+ * If a field has no truth yet, we seed it from the current truth run first.
  */
-async function writeGlobalTruthStatePercentShift(state, factor, asOfDateISO){
+async function writeGlobalTruthStateStorageScale(state, storageMult, asOfDateISO){
   const api = getAPI(state);
   if (!api) return;
 
-  // Ensure persisted truth is loaded so runs match tiles.
-  await loadPersistedState(state);
-
-  let createdBy = null;
-
-  if (api.kind === 'compat'){
-    createdBy = getAuthUserIdCompat();
-  } else {
-    createdBy = getAuthUserIdModern(api);
-  }
-
-  const calObj = getCalForAnchor(state);
+  await loadPersistedState(state, { force:true });
 
   const fields = Array.isArray(state.fields) ? state.fields : [];
   if (!fields.length) return;
 
-  // Safety clamp so a bad slider/anchor can’t blow up the system
-  const fct = clamp(Number(factor || 1), 0.10, 2.50);
+  const mult = clamp(Number(storageMult || 1), 0.10, 2.50);
+
+  let createdBy = null;
+  if (api.kind === 'compat') createdBy = getAuthUserIdCompat();
+  else createdBy = getAuthUserIdModern(api);
+
+  // Ensure we have model modules loaded (global-calibration runs from UI; model is usually ready)
+  // We’ll use the current truth run only to seed missing docs (rare).
+  function seedFromRun(f){
+    try{
+      const run = getRunForFieldShown(state, f);
+      if (!run) return null;
+      const s = safeNum(run.storageFinal);
+      const smax = safeNum(run?.factors?.Smax);
+      let asOf = '';
+      try{
+        const rows = Array.isArray(run.rows) ? run.rows : [];
+        const last = rows.length ? rows[rows.length - 1] : null;
+        asOf = isoDay(last && last.dateISO ? last.dateISO : '');
+      }catch(_){}
+      if (!asOf) asOf = isoDay(new Date().toISOString());
+
+      return { storageFinal: (s==null?0:s), SmaxAtSave: (smax==null?0:smax), asOfDateISO: asOf };
+    }catch(_){
+      return null;
+    }
+  }
 
   if (api.kind === 'compat'){
     const db = window.firebase.firestore();
-    const nowISO = nowISO();
+    const updatedAtISO = nowISO();
 
     for (const f of fields){
       try{
         if (!f || !f.id) continue;
+        const fid = String(f.id);
 
-        const run = runFieldWithCal(state, f, calObj);
-        if (!run || !run.factors || !isFinite(Number(run.factors.Smax))) continue;
+        const cur = state.persistedStateByFieldId ? state.persistedStateByFieldId[fid] : null;
+        let baseStorage = safeNum(cur && cur.storageFinal);
+        let asOf = safeISO10(cur && cur.asOfDateISO);
 
-        const Smax = Number(run.factors.Smax);
-        const rNow = clamp(Math.round(Number(run.readinessR)), 0, 100);
-        const rNew = clamp(Math.round(rNow * fct), 0, 100);
+        let smaxAtSave = safeNum(cur && cur.SmaxAtSave);
 
-        const storageFinal = storageFromReadiness(rNew, Smax);
+        if (baseStorage == null || !asOf){
+          const seed = seedFromRun(f);
+          if (!seed) continue;
+          baseStorage = safeNum(seed.storageFinal) ?? 0;
+          asOf = safeISO10(seed.asOfDateISO) || safeISO10(asOfDateISO) || isoDay(new Date().toISOString());
+          smaxAtSave = safeNum(seed.SmaxAtSave) ?? 0;
+        }
+
+        const nextStorage = Math.max(0, baseStorage * mult);
 
         const payload = {
-          fieldId: String(f.id),
+          fieldId: fid,
           fieldName: String(f.name || ''),
-          asOfDateISO: String(asOfDateISO || ''),
-          storageFinal,
-          SmaxAtSave: Smax,
-          source: 'global-percent-shift',
-          shiftFactor: fct,
-          readinessBefore: rNow,
-          readinessAfter: rNew,
-          updatedAt: nowISO,
-          updatedBy: createdBy
+          asOfDateISO: String(safeISO10(asOfDateISO) || asOf),
+          storageFinal: nextStorage,
+          SmaxAtSave: smaxAtSave || 0,
+          source: 'global-storage-scale',
+          storageMult: mult,
+          updatedAt: updatedAtISO,
+          updatedBy: createdBy || null
         };
 
-        await writeTruthStateDocCompat(db, f.id, payload);
+        await writeTruthStateDocCompat(db, fid, payload);
+
+        state.persistedStateByFieldId = state.persistedStateByFieldId || {};
+        state.persistedStateByFieldId[fid] = {
+          ...(state.persistedStateByFieldId[fid]||{}),
+          fieldId: fid,
+          storageFinal: nextStorage,
+          asOfDateISO: String(safeISO10(asOfDateISO) || asOf),
+          SmaxAtSave: smaxAtSave || 0
+        };
       }catch(e){
-        console.warn('[FieldReadiness] truth state write failed (compat):', e);
+        console.warn('[FieldReadiness] truth state storage-scale write failed (compat):', e);
       }
     }
+
+    state._persistLoadedAt = Date.now();
     return;
   }
 
@@ -1024,46 +1007,65 @@ async function writeGlobalTruthStatePercentShift(state, factor, asOfDateISO){
     for (const f of fields){
       try{
         if (!f || !f.id) continue;
+        const fid = String(f.id);
 
-        const run = runFieldWithCal(state, f, calObj);
-        if (!run || !run.factors || !isFinite(Number(run.factors.Smax))) continue;
+        const cur = state.persistedStateByFieldId ? state.persistedStateByFieldId[fid] : null;
+        let baseStorage = safeNum(cur && cur.storageFinal);
+        let asOf = safeISO10(cur && cur.asOfDateISO);
+        let smaxAtSave = safeNum(cur && cur.SmaxAtSave);
 
-        const Smax = Number(run.factors.Smax);
-        const rNow = clamp(Math.round(Number(run.readinessR)), 0, 100);
-        const rNew = clamp(Math.round(rNow * fct), 0, 100);
+        if (baseStorage == null || !asOf){
+          const seed = seedFromRun(f);
+          if (!seed) continue;
+          baseStorage = safeNum(seed.storageFinal) ?? 0;
+          asOf = safeISO10(seed.asOfDateISO) || safeISO10(asOfDateISO) || isoDay(new Date().toISOString());
+          smaxAtSave = safeNum(seed.SmaxAtSave) ?? 0;
+        }
 
-        const storageFinal = storageFromReadiness(rNew, Smax);
+        const nextStorage = Math.max(0, baseStorage * mult);
 
         const payload = {
-          fieldId: String(f.id),
+          fieldId: fid,
           fieldName: String(f.name || ''),
-          asOfDateISO: String(asOfDateISO || ''),
-          storageFinal,
-          SmaxAtSave: Smax,
-          source: 'global-percent-shift',
-          shiftFactor: fct,
-          readinessBefore: rNow,
-          readinessAfter: rNew,
+          asOfDateISO: String(safeISO10(asOfDateISO) || asOf),
+          storageFinal: nextStorage,
+          SmaxAtSave: smaxAtSave || 0,
+          source: 'global-storage-scale',
+          storageMult: mult,
           updatedAt: api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString(),
-          updatedBy: createdBy
+          updatedBy: createdBy || null
         };
 
-        await writeTruthStateDocModern(api, db, f.id, payload);
+        await writeTruthStateDocModern(api, db, fid, payload);
+
+        state.persistedStateByFieldId = state.persistedStateByFieldId || {};
+        state.persistedStateByFieldId[fid] = {
+          ...(state.persistedStateByFieldId[fid]||{}),
+          fieldId: fid,
+          storageFinal: nextStorage,
+          asOfDateISO: String(safeISO10(asOfDateISO) || asOf),
+          SmaxAtSave: smaxAtSave || 0
+        };
       }catch(e){
-        console.warn('[FieldReadiness] truth state write failed:', e);
+        console.warn('[FieldReadiness] truth state storage-scale write failed:', e);
       }
     }
+
+    state._persistLoadedAt = Date.now();
   }catch(e){
-    console.warn('[FieldReadiness] truth state write failed (setup):', e);
+    console.warn('[FieldReadiness] truth state storage-scale write failed (setup):', e);
   }
 }
 
 /**
- * NEW: write global tuning doc (learning setup).
- * Stores DRY_LOSS_MULT / RAIN_EFF_MULT based on the same factor.
+ * Learning write: record intent and update tuning doc.
+ * intentFactor:
+ *  - >1 means drier intent (we reduced storage)
+ *  - <1 means wetter intent
  */
-async function writeLearningFromFactor(state, {
-  factor,
+async function writeLearningFromStorageShift(state, {
+  storageMult,
+  percentMove,
   anchorR,
   targetR,
   asOfDateISO,
@@ -1075,17 +1077,21 @@ async function writeLearningFromFactor(state, {
   if (!api) return;
 
   const prev = await loadGlobalTuning(state);
-  const next = computeNextTuning(prev, factor);
 
+  // Convert storage multiplier to “intent factor”
+  // storageMult < 1 => drier => intentFactor > 1
+  const sm = clamp(Number(storageMult || 1), 0.10, 2.50);
+  const intentFactor = clamp(1 / Math.max(1e-6, sm), 0.10, 2.50);
+
+  const next = computeNextTuning(prev, intentFactor);
   const createdBy = (api.kind === 'compat') ? getAuthUserIdCompat() : getAuthUserIdModern(api);
 
   const payload = {
-    // multipliers that model.js now supports via deps.EXTRA
     DRY_LOSS_MULT: next.DRY_LOSS_MULT,
     RAIN_EFF_MULT: next.RAIN_EFF_MULT,
 
-    // audit/debug
-    lastFactor: clamp(Number(factor || 1), 0.10, 2.50),
+    lastStorageMult: sm,
+    lastPercentMove: clamp(Number(percentMove || 0), -90, 90),
     lastAnchorReadiness: clamp(Number(anchorR || 0), 0, 100),
     lastTargetReadiness: clamp(Number(targetR || 0), 0, 100),
     lastOp: String(opKey || ''),
@@ -1103,15 +1109,81 @@ async function writeLearningFromFactor(state, {
 }
 
 /* =========================
+   Apply
+========================= */
+async function applyAdjustment(state){
+  if (isLocked(state)) return;
+
+  const f = getSelectedField(state);
+  if (!f) return;
+
+  await loadPersistedState(state, { force:true });
+
+  const runShown = getRunForFieldShown(state, f);
+  if (!runShown) return;
+
+  const thr = currentThreshold(state);
+  state._adjStatus = statusFromReadinessAndThreshold(state, runShown, thr);
+
+  const feel = state._adjFeel;
+  if (!(feel === 'wet' || feel === 'dry')) return;
+
+  if (state._adjStatus === 'wet' && feel !== 'dry') return;
+  if (state._adjStatus === 'dry' && feel !== 'wet') return;
+
+  const anchorR = clamp(Math.round(Number(state._adjAnchorReadiness ?? runShown.readinessR ?? 0)), 0, 100);
+  const targetR = clamp(Math.round(Number(sliderVal())), 0, 100);
+
+  // percentMove from reference (kept)
+  let factor = 1;
+  if (anchorR > 0) factor = targetR / anchorR;
+
+  const percentMove = clamp((factor - 1) * 100, -90, 90); // + => drier intent
+  const storageMult = clamp(1 - (percentMove / 100), 0.10, 2.50); // +10% drier => 0.90
+
+  // Choose as-of date aligned to weather series end.
+  let asOf = '';
+  try{
+    const rows = Array.isArray(runShown.rows) ? runShown.rows : [];
+    const last = rows.length ? rows[rows.length - 1] : null;
+    asOf = isoDay(last && last.dateISO ? last.dateISO : '');
+  }catch(_){}
+  if (!asOf) asOf = isoDay(new Date().toISOString());
+
+  // 1) Write truth storage state (today) for all fields (storage scaling)
+  await writeGlobalTruthStateStorageScale(state, storageMult, asOf);
+
+  // 2) Write learning/tuning doc (optional future use)
+  await writeLearningFromStorageShift(state, {
+    storageMult,
+    percentMove,
+    anchorR,
+    targetR,
+    asOfDateISO: asOf,
+    refFieldId: String(f.id || ''),
+    refFieldName: String(f.name || ''),
+    opKey: String(getCurrentOp() || '')
+  });
+
+  const nowMs = Date.now();
+  await writeWeightsLock(state, nowMs);
+
+  renderCooldownCard(state);
+  updateUI(state);
+
+  closeAdjust(state);
+
+  try{ document.dispatchEvent(new CustomEvent('fr:soft-reload')); }catch(_){}
+}
+
+/* =========================
    Open / Close
 ========================= */
 async function openAdjust(state){
   ensureGlobalCalThemeCSSOnce();
-
   if (!canEdit(state)) return;
 
-  // ensure truth seed is loaded for consistent “shown” value
-  await loadPersistedState(state);
+  await loadPersistedState(state, { force:true });
 
   if (!state.selectedFieldId && (state.fields||[]).length){
     state.selectedFieldId = state.fields[0].id;
@@ -1164,76 +1236,6 @@ function closeAdjust(state){
   showModal('confirmAdjBackdrop', false);
   try{ if (state._cooldownTimer) clearInterval(state._cooldownTimer); }catch(_){}
   state._cooldownTimer = null;
-}
-
-/* =========================
-   Apply (writes percent-shift truth state + writes learning doc)
-========================= */
-async function applyAdjustment(state){
-  if (isLocked(state)) return;
-
-  const f = getSelectedField(state);
-  if (!f) return;
-
-  await loadPersistedState(state);
-
-  const runShown = getRunForFieldShown(state, f);
-  if (!runShown) return;
-
-  const thr = currentThreshold(state);
-  state._adjStatus = statusFromReadinessAndThreshold(state, runShown, thr);
-
-  const feel = state._adjFeel;
-  if (!(feel === 'wet' || feel === 'dry')) return;
-
-  if (state._adjStatus === 'wet' && feel !== 'dry') return;
-  if (state._adjStatus === 'dry' && feel !== 'wet') return;
-
-  const anchorR = clamp(Math.round(Number(state._adjAnchorReadiness ?? runShown.readinessR ?? 0)), 0, 100);
-  const targetR = clamp(Math.round(Number(sliderVal())), 0, 100);
-
-  // % factor = target / anchor (undefined if anchor==0)
-  let factor = 1;
-  if (anchorR > 0){
-    factor = targetR / anchorR;
-  } else {
-    factor = 1;
-  }
-
-  // Choose as-of date aligned to weather series end.
-  let asOf = '';
-  try{
-    const rows = Array.isArray(runShown.rows) ? runShown.rows : [];
-    const last = rows.length ? rows[rows.length - 1] : null;
-    asOf = isoDay(last && last.dateISO ? last.dateISO : '');
-  }catch(_){}
-  if (!asOf){
-    asOf = isoDay(new Date().toISOString());
-  }
-
-  // 1) Write truth storage state (today) for all fields
-  await writeGlobalTruthStatePercentShift(state, factor, asOf);
-
-  // 2) Write learning/tuning doc (so future runs can be closer)
-  await writeLearningFromFactor(state, {
-    factor,
-    anchorR,
-    targetR,
-    asOfDateISO: asOf,
-    refFieldId: String(f.id || ''),
-    refFieldName: String(f.name || ''),
-    opKey: String(getCurrentOp() || '')
-  });
-
-  const nowMs = Date.now();
-  await writeWeightsLock(state, nowMs);
-
-  renderCooldownCard(state);
-  updateUI(state);
-
-  closeAdjust(state);
-
-  try{ document.dispatchEvent(new CustomEvent('fr:soft-reload')); }catch(_){}
 }
 
 /* =========================
