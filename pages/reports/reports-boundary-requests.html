@@ -1567,6 +1567,7 @@ function renderDetails(){
     alert('Select a boundary fix request first.');
     return;
   }
+
   const item = STATE.items.find(it => it.id === STATE.selectedId);
   if(!item){
     alert('Could not find this request in memory.');
@@ -1577,21 +1578,22 @@ function renderDetails(){
   const st = normalizeStatus(currentStatus);
   if (!(st === 'open' || st === 'in progress')) return;
 
-  // (your existing try/catch should start right here)
-}
+  try{
+    const ref = doc(STATE.db, CONFIG.COLLECTION_PATH, STATE.selectedId);
+    await updateDoc(ref, {
+      status: 'Completed',
+      completedAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
 
-      try{
-        const ref = doc(STATE.db, CONFIG.COLLECTION_PATH, STATE.selectedId);
-        await updateDoc(ref, { status: 'Completed', completedAt: serverTimestamp(), updatedAt: serverTimestamp() });
-        item.data.status = 'Completed';
-        item.data.updatedAt = new Date();
-        await applyFilters();
-        renderDetails();
-      }catch(err){
-        console.error('Error marking boundary request completed:', err);
-        alert('Could not mark this request as completed. Check console for details.');
-      }
-    }
+    item.data.status = 'Completed';
+    await applyFilters();
+    renderDetails();
+  }catch(err){
+    console.error('Error marking boundary request completed:', err);
+    alert('Could not mark this request as completed. Check console for details.');
+  }
+}
 
     async function handleDeleteRequest(){
       if(!STATE.selectedId){
@@ -1613,7 +1615,6 @@ function renderDetails(){
         alert('Could not delete this request. Check console for details.');
       }
     }
-
     (async function boot(){
       await ready;
       STATE.db = getFirestore();
