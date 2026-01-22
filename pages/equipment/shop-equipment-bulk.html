@@ -208,14 +208,13 @@
       overflow:auto;
       -webkit-overflow-scrolling:touch;
       background:var(--sheet-cell-bg);
-      touch-action:auto;     /* allow normal scroll */
+      touch-action:auto;
       width:100%;
       max-width:100%;
       position:relative;
     }
 
-    /* ✅ NEW: layout-sized sizer + separately scaled visual layer
-       This prevents iOS from letting you scroll into empty space when scaled. */
+    /* ✅ layout-sized sizer + separately scaled visual layer */
     .grid-sizer{
       position:relative;
       display:block;
@@ -235,8 +234,6 @@
       border-spacing:0;
       min-width:980px;
       font-size:14px;
-
-      /* ✅ force readable sheet colors (even in dark mode) */
       background:var(--sheet-cell-bg);
       color:var(--sheet-text);
     }
@@ -249,10 +246,10 @@
       background:linear-gradient(180deg, #ffffff, #fbfbfb);
       border-bottom:1px solid var(--gridline-strong);
       border-right:1px solid var(--gridline);
-      padding:12px 10px;              /* bigger */
-      font-size:13px;                  /* bigger */
-      color:#374151;                   /* darker */
-      font-weight:1000;                /* bolder */
+      padding:12px 10px;
+      font-size:13px;
+      color:#374151;
+      font-weight:1000;
       letter-spacing:.25px;
       white-space:nowrap;
       text-align:center;
@@ -280,7 +277,6 @@
     }
 
     .cell-title{font-weight:950;}
-    .cell-sub{font-size:12px;color:var(--sheet-muted);font-weight:850;}
     .stack{display:flex;flex-direction:column;gap:3px;align-items:center;}
     .kpi{font-weight:950;}
     .muted{color:var(--sheet-muted);font-size:12px;font-weight:850;}
@@ -326,7 +322,6 @@
       .filter-field{flex:1 1 100%;}
       .cat-field{flex:1 1 100%;min-width:0;max-width:none;}
 
-      /* big viewport area */
       .grid-viewport{
         height:calc(100vh - 220px);
         max-height:calc(100vh - 220px);
@@ -334,9 +329,8 @@
       }
 
       table.grid{min-width:860px;font-size:12px;}
-      thead th{padding:10px 8px;font-size:12px;} /* keep header bigger on mobile too */
+      thead th{padding:10px 8px;font-size:12px;}
       tbody td{padding:8px 8px;font-size:12px;}
-      .cell-sub{display:none;}
     }
 
     /* ✅ Dark mode: keep grid readable (light sheet) */
@@ -663,8 +657,8 @@
     const qInput = $("#q");
 
     const gridViewport = $("#gridViewport");
-    const gridInner = $("#gridInner");     // ✅ sizer
-    const gridScaled = $("#gridScaled");   // ✅ transformed layer
+    const gridInner = $("#gridInner");     // sizer
+    const gridScaled = $("#gridScaled");   // transformed layer
 
     // work order sheet
     const svcSheet = $("#svcSheet");
@@ -794,11 +788,15 @@
       return hay.includes(q);
     }
 
-    function fmtNum(v){
+    // ✅ formatted number with commas (and optional decimals)
+    function fmtNum(v, decimals=0){
       if(v==null || v==="") return "";
       const n = Number(v);
       if(Number.isNaN(n)) return String(v);
-      return (Math.round(n*10)/10).toString();
+      return new Intl.NumberFormat("en-US", {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals
+      }).format(n);
     }
 
     function catLabel(d){
@@ -878,20 +876,30 @@
       const showAcres     = hasAny(rows, r => isPresent(r.totalAcres));
       const showHours     = hasAny(rows, r => isPresent(r.totalHours) || isPresent(r.engineHours));
 
+      // ✅ Category column ONLY when filter is "all"
+      const showCategoryCol = (state.filter === "all");
+
+      // ✅ First three columns: Unit, Unit ID, Notes
       const cols = [
-        { key:"unit",   label:"Unit", w:360, wrap:true },
+        { key:"unit",   label:"Unit", w:420, wrap:true },
         { key:"unitId", label:"Unit ID", w:160, wrap:false },
-        { key:"cat",    label:"Category", w:140, wrap:false },
-        { key:"year",   label:"Year", w:80, wrap:false },
-        { key:"serial", label:"Serial", w:160, wrap:false }
+        { key:"notes",  label:"Notes", w:420, wrap:true }
       ];
+
+      // Optional “category” (only on All)
+      if(showCategoryCol){
+        cols.push({ key:"cat", label:"Category", w:140, wrap:false });
+      }
+
+      // Remaining common fields
+      cols.push({ key:"year",   label:"Year", w:80, wrap:false });
+      cols.push({ key:"serial", label:"Serial", w:160, wrap:false });
 
       if(showInService){ cols.push({ key:"pis", label:"In Service", w:140, wrap:false }); }
       if(showMileage){ cols.push({ key:"miles", label:"Mileage", w:120, wrap:false }); }
       if(showHours){ cols.push({ key:"hours", label:"Hours", w:110, wrap:false }); }
       if(showAcres){ cols.push({ key:"acres", label:"Acres", w:110, wrap:false }); }
 
-      cols.push({ key:"notes", label:"Notes", w:360, wrap:true });
       return cols;
     }
 
@@ -905,6 +913,14 @@
           ${cols.map(c=>`<th class="${c.wrap ? 'wrap' : ''}" style="min-width:${scaleW(c.w)}px">${escapeHtml(c.label)}</th>`).join("")}
         </tr>
       `;
+    }
+
+    // ✅ Unit display: Make / Model / Unit ID (single line everywhere)
+    function unitDisplay(eq){
+      const mm = [eq.makeName, eq.modelName].filter(Boolean).join(" / ").trim();
+      const base = mm || (eq.name || "(unnamed)");
+      const uid = (eq.unitId!=null && String(eq.unitId).trim()) ? String(eq.unitId).trim() : "";
+      return uid ? `${base} / ${uid}` : base;
     }
 
     function renderTable(){
@@ -941,14 +957,13 @@
             case "unit":
               return `
                 <td class="wrap">
-                  <div class="stack">
-                    <span class="cell-title">${escapeHtml(d.name || "(unnamed)")}</span>
-                    <span class="cell-sub">${escapeHtml([d.makeName,d.modelName].filter(Boolean).join(" • "))}</span>
-                  </div>
+                  <span class="cell-title">${escapeHtml(unitDisplay(d))}</span>
                 </td>
               `;
             case "unitId":
               return `<td><span class="cell-title">${escapeHtml(unitId || "—")}</span></td>`;
+            case "notes":
+              return `<td class="muted wrap">${escapeHtml(String(d.notes||""))}</td>`;
             case "cat":
               return `<td class="muted">${escapeHtml(catLabel(d))}</td>`;
             case "year":
@@ -958,13 +973,14 @@
             case "pis":
               return `<td class="muted">${escapeHtml(String(d.placedInServiceDate||""))}</td>`;
             case "miles":
-              return `<td class="kpi">${escapeHtml(fmtNum(d.odometerMiles ?? ""))}</td>`;
+              // ✅ commas for mileage
+              return `<td class="kpi">${escapeHtml(fmtNum(d.odometerMiles ?? "", 0))}</td>`;
             case "hours":
-              return `<td class="kpi">${escapeHtml(fmtNum(hours))}</td>`;
+              // hours can be decimal sometimes
+              return `<td class="kpi">${escapeHtml(fmtNum(hours, 1))}</td>`;
             case "acres":
-              return `<td class="kpi">${escapeHtml(fmtNum(acres))}</td>`;
-            case "notes":
-              return `<td class="muted wrap">${escapeHtml(String(d.notes||""))}</td>`;
+              // ✅ commas for acres
+              return `<td class="kpi">${escapeHtml(fmtNum(acres, 0))}</td>`;
             default:
               return `<td></td>`;
           }
@@ -1006,7 +1022,6 @@
         }
       });
 
-      // after DOM update, fix bounds + clamp scroll
       requestAnimationFrame(()=>{
         ZOOM.recomputeBounds();
         ZOOM.clampScroll();
@@ -1246,7 +1261,7 @@
       }
     });
 
-    // --- Grid pinch zoom (NO two-finger pan; single-finger scroll stays native) ---
+    // --- Grid pinch zoom ---
     const ZOOM = {
       scale: 1,
       min: 0.8,
@@ -1263,11 +1278,9 @@
         const table = this._tableEl();
         if(!table || !gridInner) return;
 
-        // Natural layout size of the table (unscaled)
         const tw = Math.max(1, table.offsetWidth);
         const th = Math.max(1, table.offsetHeight);
 
-        // Make the scrollable content match the VISUAL scaled size
         gridInner.style.width = Math.ceil(tw * this.scale) + "px";
         gridInner.style.height = Math.ceil(th * this.scale) + "px";
       },
@@ -1285,7 +1298,6 @@
       clampScroll(){
         if(!gridViewport || !gridInner) return;
 
-        // Clamp scroll to the true content size (prevents empty right space)
         const maxLeft = Math.max(0, gridInner.scrollWidth - gridViewport.clientWidth);
         const maxTop  = Math.max(0, gridInner.scrollHeight - gridViewport.clientHeight);
 
@@ -1296,7 +1308,6 @@
       },
 
       recomputeBounds(){
-        // min scale = just enough to fit ALL columns (so you can zoom OUT far enough)
         const table = this._tableEl();
         if(!table || !gridViewport) return;
 
@@ -1304,8 +1315,6 @@
         const tw = Math.max(1, table.offsetWidth);
 
         const fit = Math.min(1, vw / tw);
-
-        // ✅ allow smaller than before so you can see all columns on phone
         this.min = Math.max(0.25, fit);
 
         if(this.scale < this.min) this.scale = this.min;
@@ -1328,7 +1337,6 @@
       const xInViewport = midX - rect.left;
       const yInViewport = midY - rect.top;
 
-      // Convert viewport point to "content space" (unscaled)
       const contentX = (gridViewport.scrollLeft + xInViewport) / ZOOM.scale;
       const contentY = (gridViewport.scrollTop  + yInViewport) / ZOOM.scale;
       return { xInViewport, yInViewport, contentX, contentY };
@@ -1345,7 +1353,6 @@
     function enableGridPinch(){
       if(!gridViewport || !gridInner || !gridScaled) return;
 
-      // initial scale: on phone, start at fit-all-cols so you can SEE everything immediately
       ZOOM.recomputeBounds();
       if(window.matchMedia("(max-width: 820px)").matches){
         ZOOM.setScale(ZOOM.min);
@@ -1354,7 +1361,6 @@
       }
 
       gridViewport.addEventListener("scroll", ()=>{
-        // ✅ stop iOS from drifting into empty scroll space
         ZOOM.clampScroll();
       }, { passive:true });
 
@@ -1367,12 +1373,10 @@
         }
       }, { passive: true });
 
-      // passive:false required so preventDefault works (only for 2 touches).
       gridViewport.addEventListener("touchmove", (e)=>{
         if(!ZOOM.active) return;
         if(!e.touches || e.touches.length !== 2) return;
 
-        // ✅ When pinching, prevent browser from interpreting it as page zoom.
         e.preventDefault();
 
         const { midX, midY, dist } = getTouchMidAndDist(e.touches[0], e.touches[1]);
@@ -1397,7 +1401,6 @@
       });
     }
 
-    // Events
     catSelect.addEventListener("change", ()=>{
       state.filter = catSelect.value;
       state.selectedRowId = null;
