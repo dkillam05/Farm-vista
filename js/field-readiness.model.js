@@ -1,28 +1,14 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-01-22e-storage-truth-rewind14-rateTuning-dryTailFix-impactFactor-intReadiness-Smax3to5
+Rev: 2026-01-22f-storage-truth-rewind14-rateTuning-dryTailFix-impactFactor-intReadiness-Smax3to5-hardEndpoints
 
-Model math (dry power, storage, readiness) + helpers
-
-CRITICAL RULE (per Dane):
-✅ Storage is truth (inches of water). Calibration adjusts STORAGE only.
-✅ Sliders define:
-   - tank size (Smax)
-   - drying behavior
-   - subtle readiness impact factor (wetter/poorer -> slightly lower readiness)
-
-READINESS:
-✅ Whole numbers only (no .5)
-✅ Derived from EFFECTIVE wetness:
-   rawWetnessPct = (storage / Smax) * 100
-   effectiveWetnessPct = clamp(rawWetnessPct * impactFactor, 0, 100)
-   readiness = 100 - effectiveWetnessPct
-
-TANK SIZE (per Dane request):
-✅ Smax range is 3.0 .. 5.0 based on sliders
-   - low sliders -> 3.0
-   - high sliders -> 5.0
-✅ SM010 may influence Smax slightly, but NEVER breaks the 3..5 endpoints
+CHANGES:
+✅ Readiness whole numbers only
+✅ Tank size (Smax) now has HARD endpoints:
+   - sliders 0/0 => Smax EXACTLY 3.0
+   - sliders 100/100 => Smax EXACTLY 5.0
+✅ Smax is now ONLY based on the two sliders (no SM010 influence)
+✅ Snap slider values near ends to true 0/100 so every field matches
 ===================================================================== */
 'use strict';
 
@@ -30,6 +16,19 @@ function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
 function roundInt(x){
   const n = Number(x);
   return Number.isFinite(n) ? Math.round(n) : 0;
+}
+function safePct01(v){
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return clamp(n / 100, 0, 1);
+}
+function snap01(x){
+  // Hard endpoint snapping so 0/100 is truly 3.0/5.0 for ALL fields
+  const v = Number(x);
+  if (!Number.isFinite(v)) return 0;
+  if (v <= 0.01) return 0;
+  if (v >= 0.99) return 1;
+  return v;
 }
 
 /* =====================================================================
@@ -65,7 +64,6 @@ function getTune(deps){
   const srcA = (deps && deps.FV_TUNE && typeof deps.FV_TUNE === 'object') ? deps.FV_TUNE : null;
   const srcB = (deps && deps.EXTRA && typeof deps.EXTRA === 'object') ? deps.EXTRA : null;
 
-  // Apply overrides from FV_TUNE first, then EXTRA
   for (const src of [srcA, srcB]){
     if (!src) continue;
     for (const k of Object.keys(t)){
@@ -75,7 +73,6 @@ function getTune(deps){
     }
   }
 
-  // Clamp obvious ranges
   t.SAT_RUNOFF_START   = clamp(t.SAT_RUNOFF_START, 0.40, 0.95);
   t.RUNOFF_EXP         = clamp(t.RUNOFF_EXP, 0.8, 6.0);
   t.RUNOFF_DRAINPOOR_W = clamp(t.RUNOFF_DRAINPOOR_W, 0.0, 0.8);
@@ -89,7 +86,6 @@ function getTune(deps){
   t.SAT_RUNOFF_CAP     = clamp(t.SAT_RUNOFF_CAP, 0.20, 0.95);
   t.RAIN_EFF_MIN       = clamp(t.RAIN_EFF_MIN, 0.0, 0.20);
 
-  // Dry-tail clamps
   t.DRY_TAIL_START     = clamp(t.DRY_TAIL_START, 0.03, 0.30);
   t.DRY_TAIL_MIN_MULT  = clamp(t.DRY_TAIL_MIN_MULT, 0.20, 1.00);
 
@@ -160,38 +156,30 @@ export function calcDryParts(r, EXTRA){
 }
 
 export function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, EXTRA){
-  const soilHold = clamp(Number(soilWetness0_100) / 100, 0, 1);
-  const drainPoor= clamp(Number(drainageIndex0_100) / 100, 0, 1);
+  // Sliders -> 0..1, with hard snapping at ends
+  const soilHoldRaw = safePct01(soilWetness0_100);
+  const drainPoorRaw= safePct01(drainageIndex0_100);
+
+  const soilHold = snap01(soilHoldRaw);
+  const drainPoor= snap01(drainPoorRaw);
 
   const smN = (sm010===null || sm010===undefined || !isFinite(Number(sm010)))
     ? 0
     : clamp((Number(sm010) - 0.10) / 0.25, 0, 1);
 
-  // Note: these were your existing mappings. Keeping intact.
+  // Existing mappings (kept)
   const infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor;
   const dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor;
 
   // ============================================================
-  // Smax mapping (per Dane): 3.0 .. 5.0 from sliders
-  //   soilHold 0..1, drainPoor 0..1
-  //   base: 3.0 + soilHold + drainPoor  => 3..5
-  //
-  // SM010 effect: only applies when sliders are "engaged"
-  // so low-end stays exactly 3.0 when sliders are 0/0.
+  // Smax HARD endpoints: ONLY sliders control tank size.
+  //  soilHold=0 & drainPoor=0 => 3.0 exactly
+  //  soilHold=1 & drainPoor=1 => 5.0 exactly
   // ============================================================
-  const SmaxBase  = 3.00 + 1.00*soilHold + 1.00*drainPoor;
+  const SmaxBase = 3.00 + 1.00*soilHold + 1.00*drainPoor; // exact 3..5
+  const Smax = clamp(SmaxBase, 3.00, 5.00);
 
-  const sliderEngagement = 0.5 * (soilHold + drainPoor); // 0..1
-  const smBoost = 1 + (EXTRA.STORAGE_CAP_SM010_W * smN * sliderEngagement);
-
-  const SmaxRaw = SmaxBase * smBoost;
-  const Smax = clamp(SmaxRaw, 3.00, 5.00);
-
-  // ============================================================
-  // Subtle readiness impact factor
-  // Range: ~0.95..1.15 (small nudge; tank size still dominates)
-  // Wetter/poorer -> slightly higher impact -> readiness slightly lower
-  // ============================================================
+  // Subtle readiness impact factor (kept)
   const impactRaw =
     0.95 +
     0.12 * soilHold +
@@ -247,9 +235,6 @@ function getReadinessShiftFromDeps(deps){
   }
 }
 
-/**
- * Apply calibration to storage so wetness/readiness remain tied.
- */
 function applyCalToStorage(storagePhys, Smax, deps){
   const smax = Number(Smax);
   const s0 = Number(storagePhys);
@@ -267,8 +252,6 @@ function applyCalToStorage(storagePhys, Smax, deps){
   const wetBias = clamp(getWetBiasFromDeps(deps), -25, 25);
   const readinessShift = clamp(getReadinessShiftFromDeps(deps), -50, 50);
 
-  // wetBias: +wetness
-  // readinessShift: +readiness => -wetness
   const wetnessDelta = clamp((wetBias - readinessShift), -60, 60);
 
   const storageDelta = (wetnessDelta / 100) * smax;
@@ -290,7 +273,6 @@ function effectiveRainInches(rainIn, storageBefore, Smax, factors, tune){
   const rain = Math.max(0, Number(rainIn||0));
   if (!rain || !isFinite(rain) || !isFinite(storageBefore) || !isFinite(Smax) || Smax <= 0) return 0;
 
-  // Antecedent saturation
   const satRaw = storageBefore / Smax;
   const sat = clamp(satRaw, 0, 1);
 
@@ -490,7 +472,6 @@ export function runField(field, deps){
 
   const trace = [];
 
-  // If no sim needed (persisted storage newer than our series)
   if (seedPick.startIdx >= rows.length){
     const calRes = applyCalToStorage(storage, f.Smax, deps);
     const storageEff = calRes.storageEff;
