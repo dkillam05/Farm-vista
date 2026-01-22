@@ -1,14 +1,26 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-01-22f-storage-truth-rewind14-rateTuning-dryTailFix-impactFactor-intReadiness-Smax3to5-hardEndpoints
+Rev: 2026-01-22g-storage-truth-rewind14-rateTuning-dryTailFix-intReadiness-Smax3to5-hardEndpoints-REFTANK4
 
-CHANGES:
-✅ Readiness whole numbers only
-✅ Tank size (Smax) now has HARD endpoints:
-   - sliders 0/0 => Smax EXACTLY 3.0
-   - sliders 100/100 => Smax EXACTLY 5.0
-✅ Smax is now ONLY based on the two sliders (no SM010 influence)
-✅ Snap slider values near ends to true 0/100 so every field matches
+GOAL (per Dane):
+✅ Sliders feel REVERSED the way you want:
+   - sliders 100/100 => tank 5.0 (max)
+   - sliders 0/0     => tank 3.0 (min)
+   - when you slide DOWN (tank smaller), readiness should go UP (for same storage)
+
+HOW (simple + strong):
+✅ Remove impactFactor approach (it could not overpower storage/Smax math).
+✅ Compute readiness from a fixed reference tank size instead:
+   - `wetness = (storage / SREF) * 100`
+   - `readiness = 100 - wetness`
+   - SREF = 4.0 (midpoint of 3..5)
+
+This makes readiness respond in the “operational” direction you want,
+while keeping:
+✅ storage truth + weather physics
+✅ tank size (Smax) still used for simulation limits + rain/runoff/bypass
+✅ whole-number readiness
+✅ hard endpoints for Smax
 ===================================================================== */
 'use strict';
 
@@ -30,6 +42,9 @@ function snap01(x){
   if (v >= 0.99) return 1;
   return v;
 }
+
+// ✅ NEW: Reference tank size for readiness mapping (drives the reversal feel)
+const READINESS_SREF = 4.0;
 
 /* =====================================================================
    FV_TUNE — ALL ADJUSTABLE VARIABLES (Option A)
@@ -179,38 +194,8 @@ export function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, EXTRA){
   const SmaxBase = 3.00 + 1.00*soilHold + 1.00*drainPoor; // exact 3..5
   const Smax = clamp(SmaxBase, 3.00, 5.00);
 
-  // ============================================================
-// STRONG PARTIAL REVERSAL (per Dane)
-// Goal: when sliders go DOWN (smaller tank), readiness goes UP.
-// We implement this by making impactFactor DECREASE as the tank grows.
-//
-// Implementation:
-// - "tightness" = how small the tank is relative to 3..5 range
-// - tightness = 0 when Smax=5.0, tightness=1 when Smax=3.0
-// - Convert to a wetness multiplier range that yields up to +15 readiness points.
-//   If wetness is scaled by (1 - K*tightness), readiness increases.
-// ============================================================
-const tightness = clamp((5.00 - Smax) / 2.00, 0, 1); // 0..1 (5->0, 3->1)
-
-// Strong max boost = +15 readiness points at tightness=1.
-// That corresponds to reducing wetness by 15 points (out of 100),
-// so wetnessMult min = 0.85.
-const wetnessMult = 1.00 - (0.15 * tightness); // 1.00..0.85
-
-// Keep the same field-driven influence, but REVERSED:
-// when sliders are higher (soilHold/drainPoor higher), slightly MORE wetness impact,
-// when sliders lower, slightly LESS.
-const subtle = clamp(
-  1.00 + (0.03 * (soilHold + drainPoor - 1.0)), // ~0.97..1.03
-  0.95,
-  1.05
-);
-
-// Final impactFactor applied to wetness
-const impactFactor = clamp(wetnessMult * subtle, 0.85, 1.05);
-
-
-  return { soilHold, drainPoor, smN, infilMult, dryMult, Smax, SmaxBase, impactFactor };
+  // NOTE: impactFactor removed in favor of READINESS_SREF mapping (see runField).
+  return { soilHold, drainPoor, smN, infilMult, dryMult, Smax, SmaxBase };
 }
 
 /* =====================================================================
@@ -499,11 +484,13 @@ export function runField(field, deps){
     const calRes = applyCalToStorage(storage, f.Smax, deps);
     const storageEff = calRes.storageEff;
 
-    const rawWetness = (f.Smax > 0) ? clamp((storageEff / f.Smax) * 100, 0, 100) : 0;
-    const effWetness = clamp(rawWetness * Number(f.impactFactor || 1.0), 0, 100);
+    // ✅ NEW readiness mapping uses reference tank (4.0), not current tank (Smax)
+    const rawWetnessRef = (READINESS_SREF > 0)
+      ? clamp((storageEff / READINESS_SREF) * 100, 0, 100)
+      : 0;
 
-    const wetnessR = roundInt(effWetness);
-    const readinessR = roundInt(clamp(100 - effWetness, 0, 100));
+    const wetnessR = roundInt(rawWetnessRef);
+    const readinessR = roundInt(clamp(100 - rawWetnessRef, 0, 100));
 
     const avgLossDay = 0.08;
     const lastDateISO = rows.length ? rows[rows.length-1].dateISO : '';
@@ -530,9 +517,9 @@ export function runField(field, deps){
 
       tuneUsed: tune,
 
-      rawWetnessPct: rawWetness,
-      effWetnessPct: effWetness,
-      impactFactorApplied: Number(f.impactFactor || 1.0),
+      // Debug:
+      rawWetnessRefPct: rawWetnessRef,
+      readinessSref: READINESS_SREF,
 
       stateOut: buildStateOut(field.id, storageEff, (lastDateISO || seedPick.seedDebug.asOfDateISO || ''), f),
 
@@ -589,11 +576,13 @@ export function runField(field, deps){
   const calRes = applyCalToStorage(storage, f.Smax, deps);
   const storageEff = calRes.storageEff;
 
-  const rawWetness = (f.Smax > 0) ? clamp((storageEff / f.Smax) * 100, 0, 100) : 0;
-  const effWetness = clamp(rawWetness * Number(f.impactFactor || 1.0), 0, 100);
+  // ✅ NEW readiness mapping uses reference tank (4.0)
+  const rawWetnessRef = (READINESS_SREF > 0)
+    ? clamp((storageEff / READINESS_SREF) * 100, 0, 100)
+    : 0;
 
-  const wetnessR = roundInt(effWetness);
-  const readinessR = roundInt(clamp(100 - effWetness, 0, 100));
+  const wetnessR = roundInt(rawWetnessRef);
+  const readinessR = roundInt(clamp(100 - rawWetnessRef, 0, 100));
 
   const last7 = trace.slice(-7);
   const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
@@ -622,9 +611,9 @@ export function runField(field, deps){
 
     tuneUsed: tune,
 
-    rawWetnessPct: rawWetness,
-    effWetnessPct: effWetness,
-    impactFactorApplied: Number(f.impactFactor || 1.0),
+    // Debug:
+    rawWetnessRefPct: rawWetnessRef,
+    readinessSref: READINESS_SREF,
 
     stateOut: buildStateOut(field.id, storageEff, lastDateISO, f),
 
