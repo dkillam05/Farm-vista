@@ -1,15 +1,14 @@
 /* =====================================================================
 /Farm-vista/js/shop-equipment-modal.js  (FULL FILE)
-Rev: 2026-01-22d
-Fixes:
-✅ Edit modal now hydrates Extras controllers (implementType / constructionType) so Planter options show automatically
-✅ Removed Archive + Delete buttons from Edit modal (safety)
-✅ Status select styling fixed (centered / readable)
+Rev: 2026-01-22e
+Fix:
+✅ Removed accidental debugging call (confirmingAlive()) that caused runtime errors
 
 Keeps:
-- Lifetime Notes popup (svcSheet) + Save Notes
+- svcSheet + Lifetime Notes save
 - Service Records modal (list -> detail)
-- Edit modal (in-page) with Make/Model dd, Year combo, Unit ID, Serial, Status, Notes, Extras engine
+- Edit modal (in-page) with Make/Model dd, Year combo, Unit ID, Serial, Status, Notes, Extras hydration
+- No Archive/Delete buttons in edit modal (safety)
 ===================================================================== */
 
 import {
@@ -170,7 +169,6 @@ import {
   function detectTypeKeyFromEq(eq){
     const t = norm(eq?.type);
     if(!t) return "equipment";
-    // normalize plural -> singular
     if(t === "tractors") return "tractor";
     if(t === "combines") return "combine";
     if(t === "sprayers") return "sprayer";
@@ -187,7 +185,7 @@ import {
 
   function last6(v){ return String(v||"").slice(-6); }
 
-  // ----- extras hydration helpers (copied concept from your Edit Tractors page) -----
+  // ----- extras hydration helpers -----
   function boolify(v){
     if (v === true || v === false) return v;
     if (v == null) return false;
@@ -217,7 +215,6 @@ import {
     const el = findExtraEl(fieldId);
     if(!el) return false;
 
-    // pill toggle button
     if (el.tagName === "BUTTON" && el.classList.contains("pill-toggle")){
       const isOn = boolify(value);
       el.dataset.state = isOn ? "on" : "off";
@@ -226,7 +223,6 @@ import {
       return true;
     }
 
-    // checkbox/switch
     if (el.tagName === "INPUT" && (el.type === "checkbox" || el.type === "radio")){
       el.checked = boolify(value);
       el.dispatchEvent(new Event("change", { bubbles:true }));
@@ -234,7 +230,6 @@ import {
       return true;
     }
 
-    // inputs/selects/textarea
     try{
       el.value = (value === undefined || value === null) ? "" : String(value);
       el.dispatchEvent(new Event("change", { bubbles:true }));
@@ -255,7 +250,6 @@ import {
   }
 
   function hydrateExtrasFromDoc(d){
-    // Force controller fields first (this is the missing piece causing Planter not to show)
     if (state.editTypeKey === "implement"){
       const impType = readAny(d, ['implementType','implement_type','subType','subtype','implementSubtype','implement_subtype']);
       if (impType){
@@ -274,7 +268,6 @@ import {
       }
     }
 
-    // Then fill common extras keys
     const keys = [
       "unitId",
       "engineHours","separatorHours","odometerMiles","boomWidthFt","tankSizeGal","starfireCapable",
@@ -292,7 +285,6 @@ import {
     const apply = ()=>{
       let anySet = false;
 
-      // unitId: prefer root unitId
       if (d && (d.unitId || d?.extras?.unitId)){
         anySet = setExtraValue("unitId", d.unitId || d?.extras?.unitId) || anySet;
       }
@@ -303,7 +295,6 @@ import {
         else anySet = setExtraValue(k, d[k]) || anySet;
       });
 
-      // retry a few frames in case equipment-forms renders late
       if(!anySet && tries < triesMax){
         tries++;
         requestAnimationFrame(apply);
@@ -1124,7 +1115,6 @@ import {
         li.addEventListener("click", ()=> onPick(id, name));
         ul.appendChild(li);
       });
-    confirmingAlive();
     }
 
     function filterList(input, ul){
@@ -1181,10 +1171,8 @@ import {
       refreshModels();
     }
 
-    // initial make list
     buildList(makeList, state.makes, setMake);
 
-    // preselect make
     const byId = state.makes.find(m=>m.id===prefMakeIdOrName);
     const byNm = state.makes.find(m=>m.name===prefMakeIdOrName);
     if(byId) setMake(byId.id, byId.name);
@@ -1215,7 +1203,6 @@ import {
       document
     });
 
-    // NOW force hydration of implementType etc so the right options appear immediately
     hydrateExtrasFromDoc(eqDoc);
   }
 
@@ -1283,7 +1270,6 @@ import {
       ? (state.editExtras.read() || {})
       : {};
 
-    // ensure unitId stored at root and/or extras as your system expects
     extras.unitId = unitId;
 
     return { makeId, modelId, makeName, modelName, year, unitId, serial, status, notes, extras };
