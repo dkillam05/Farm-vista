@@ -1,19 +1,15 @@
 /* =====================================================================
 /Farm-vista/js/shop-equipment-modal.js  (FULL FILE)
-Rev: 2026-01-22b  ✅ Edit button now opens an in-page EDIT MODAL (like Edit Tractors)
+Rev: 2026-01-22c  ✅ Fix Edit modal crash (UI.editSheet null in wireYearCombo)
 
-What changed vs 2026-01-22a:
-✅ “Edit” button opens a dialog modal inside Shop Equipment (no new tab)
-✅ Modal styling/UX matches your Edit Tractors sheet (same vibe)
-✅ Loads equipment-makes + equipment-models for Make/Model pickers
-✅ Supports Year picker, Serial, Status, Unit ID, Notes, Extras engine (equipment-forms.js)
-✅ Save writes to Firestore (merge) on equipment doc
-✅ Archive/Unarchive supported
-✅ Delete is shown but DISABLED (safe for now) — we can rebuild delete guard later
+Fix:
+✅ ensureEditSheet() sets UI.editSheet BEFORE calling wireYearCombo()
+✅ wireYearCombo() is defensive if dlg is missing
 
 Keeps:
-✅ Lifetime Notes save in svcSheet
-✅ Service Records drill-down modal (list -> detail) stays in this file
+- svcSheet + Lifetime Notes save
+- Service Records modal (list -> detail)
+- Edit modal (in-page) with Make/Model dd, Year combo, Unit ID, Serial, Status, Notes, Extras engine
 ===================================================================== */
 
 import {
@@ -24,7 +20,6 @@ import {
   getDocs,
   setDoc,
   updateDoc,
-  deleteDoc,
   query,
   where,
   orderBy,
@@ -36,7 +31,6 @@ import {
   const $ = (sel) => document.querySelector(sel);
 
   const UI = {
-    // existing page pieces
     svcSheet: null,
     svcTitle: null,
     svcMeta: null,
@@ -48,11 +42,9 @@ import {
     btnClose1: null,
     btnClose2: null,
 
-    // injected buttons
     btnSvcRecords: null,
     btnEdit: null,
 
-    // injected dialogs
     srSheet: null,
     editSheet: null
   };
@@ -60,25 +52,21 @@ import {
   const state = {
     eq: null,
 
-    // service records
     srRows: [],
     srSelectedId: null,
     srMode: "list",
 
-    // editor data caches
     makes: [],
     models: [],
     makesLoaded: false,
     modelsLoaded: false,
 
-    // editor selection
     editEqId: null,
     editEqDoc: null,
     editExtras: null,
-    editTypeKey: "equipment" // singular like tractor/combine/implement/etc.
+    editTypeKey: "equipment"
   };
 
-  // ---------- helpers ----------
   const norm = (v) => (v||"").toString().trim().toLowerCase();
 
   function escapeHtml(s){
@@ -177,7 +165,6 @@ import {
   }
 
   function detectTypeKeyFromEq(eq){
-    // We use singular keys because equipment-forms.js expects singular types.
     const t = norm(eq?.type);
     if(!t) return "equipment";
     if(t === "tractors") return "tractor";
@@ -185,13 +172,15 @@ import {
     if(t === "sprayers") return "sprayer";
     if(t === "trucks") return "truck";
     if(t === "implements") return "implement";
-    return t; // already singular in most docs
+    return t;
   }
 
   function safeUnitId(eq){
     const v = (eq && (eq.unitId ?? eq?.extras?.unitId)) ?? "";
     return String(v || "").trim();
   }
+
+  function last6(v){ return String(v||"").slice(-6); }
 
   // ---------- bootstrap ----------
   function bootstrap(){
@@ -246,22 +235,14 @@ import {
 
     btnSvcRecords.addEventListener("click", async ()=>{
       if(!state.eq) return;
-      try{
-        await openServiceRecordsModal(state.eq);
-      }catch(e){
-        console.error(e);
-        showError(e?.message || "Failed to load service records.");
-      }
+      try{ await openServiceRecordsModal(state.eq); }
+      catch(e){ console.error(e); showError(e?.message || "Failed to load service records."); }
     });
 
     btnEdit.addEventListener("click", async ()=>{
       if(!state.eq) return;
-      try{
-        await openEditModal(state.eq.id);
-      }catch(e){
-        console.error(e);
-        showError(e?.message || "Failed to open editor.");
-      }
+      try{ await openEditModal(state.eq.id); }
+      catch(e){ console.error(e); showError(e?.message || "Failed to open editor."); }
     });
 
     leftWrap.appendChild(btnSvcRecords);
@@ -273,7 +254,7 @@ import {
   }
 
   // ===================================================================
-  //  SERVICE RECORDS MODAL (kept from previous version)
+  //  SERVICE RECORDS MODAL
   // ===================================================================
   function ensureSrSheet(){
     if(UI.srSheet) return UI.srSheet;
@@ -336,7 +317,6 @@ import {
     dlg.querySelector("#srSheetClose").addEventListener("click", ()=> closeSheet(dlg));
     dlg.querySelector("#srSheetClose2").addEventListener("click", ()=> closeSheet(dlg));
     dlg.querySelector("#srBack").addEventListener("click", ()=> srShowList());
-
     dlg.addEventListener("close", ()=> srShowList(true));
 
     UI.srSheet = dlg;
@@ -346,12 +326,8 @@ import {
   function srBanner(msg){
     const el = UI.srSheet?.querySelector("#srBanner");
     if(!el) return;
-    if(!msg){
-      el.style.display = "none";
-      el.textContent = "";
-      return;
-    }
-    el.style.display = "block";
+    if(!msg){ el.style.display="none"; el.textContent=""; return; }
+    el.style.display="block";
     el.textContent = msg;
   }
 
@@ -417,7 +393,6 @@ import {
         </div>
         ${notes ? `<div style="white-space:pre-wrap;line-height:1.35;">${escapeHtml(notes)}</div>` : ``}
       `;
-
       card.addEventListener("click", ()=> srOpenDetail(row.id));
       list.appendChild(card);
     });
@@ -487,7 +462,6 @@ import {
               ${escapeHtml(isDone ? "Completed" : "Open")}
             </div>
           </div>
-
           <div class="sr-li-body" style="display:none; margin-top:8px; gap:10px;">
             <div style="display:grid;gap:8px;">
               <div class="muted"><b>Submitted by:</b> ${escapeHtml(String(submittedBy))}</div>
@@ -534,7 +508,7 @@ import {
             snap.forEach(d => rows.push({ id: d.id, data: d.data(), _col: colName }));
             return rows;
           }
-        }catch(orderErr){
+        }catch(_orderErr){
           const qy2 = query(
             collection(db, colName),
             where("equipmentId", "==", eqId),
@@ -580,12 +554,13 @@ import {
   }
 
   // ===================================================================
-  //  EDIT MODAL (NEW: like Edit Tractors dialog)
+  //  EDIT MODAL (fix applied here)
   // ===================================================================
   function ensureEditSheet(){
     if(UI.editSheet) return UI.editSheet;
 
     injectEditModalStyles();
+
     const dlg = document.createElement("dialog");
     dlg.id = "shopEquipEdit";
     dlg.className = "sheet fv-edit-sheet";
@@ -665,69 +640,59 @@ import {
 
       <footer>
         <button id="seArchive" class="btn fv-btn-warn" type="button">Archive</button>
-        <button id="seDelete" class="btn fv-btn-danger" type="button" disabled title="Disabled for now (we’ll add the safe delete-guard later)">Delete</button>
+        <button id="seDelete" class="btn fv-btn-danger" type="button" disabled title="Disabled for now">Delete</button>
         <button id="seSave" class="btn btn-primary" type="button">Save Changes</button>
       </footer>
     `;
 
     document.body.appendChild(dlg);
 
+    // ✅ CRITICAL: set UI.editSheet NOW (before any helper that references it)
+    UI.editSheet = dlg;
+
     dlg.querySelector("#seClose").addEventListener("click", ()=> closeSheet(dlg));
-    dlg.addEventListener("close", ()=> {
-      // close any open dropdowns
+    dlg.addEventListener("close", ()=>{
       document.querySelectorAll(".fv-dd").forEach(x=>x.classList.remove("open"));
       state.editEqId = null;
       state.editEqDoc = null;
       state.editExtras = null;
     });
 
-    // dropdown open/close behavior
     wireDd(dlg.querySelector("#seDdMake"));
     wireDd(dlg.querySelector("#seDdModel"));
     wireDdGlobalClose();
 
-    // year combo behavior
+    // ✅ now safe
     wireYearCombo();
 
-    // save/archive
     dlg.querySelector("#seSave").addEventListener("click", saveEditModal);
     dlg.querySelector("#seArchive").addEventListener("click", toggleArchiveEditModal);
-
-    // serial last6
     dlg.querySelector("#seSerial").addEventListener("input", ()=>{
       dlg.querySelector("#seSerial6").textContent = last6(dlg.querySelector("#seSerial").value || "");
     });
 
-    UI.editSheet = dlg;
     return dlg;
   }
 
   function injectEditModalStyles(){
     if(document.getElementById("fv-edit-modal-styles")) return;
-
     const st = document.createElement("style");
     st.id = "fv-edit-modal-styles";
     st.textContent = `
       .fv-edit-sheet{ width:min(760px, 92vw); }
       .fv-kv{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
       @media(max-width:700px){ .fv-kv{ grid-template-columns:1fr } }
-
       .fv-input{
-        width:100%;
-        font:inherit;
-        color:inherit;
+        width:100%; font:inherit; color:inherit;
         background:var(--card-surface,var(--surface));
         border:1px solid var(--border);
         border-radius:10px;
         padding:12px;
-        height:48px;
-        line-height:46px;
+        height:48px; line-height:46px;
         outline:none;
       }
       .fv-textarea{
-        width:100%;
-        font:inherit;
-        color:inherit;
+        width:100%; font:inherit; color:inherit;
         background:var(--card-surface,var(--surface));
         border:1px solid var(--border);
         border-radius:10px;
@@ -737,23 +702,16 @@ import {
         outline:none;
       }
       .fv-tip{ font-size:12px; color:var(--muted,#6f7772); margin-top:6px; }
-
       .fv-dd{ position:relative; }
       .fv-dd-btn{
-        width:100%;
-        text-align:left;
-        padding:12px;
-        padding-right:40px;
+        width:100%; text-align:left;
+        padding:12px; padding-right:40px;
         height:48px;
         border:1px solid var(--border);
         border-radius:10px;
         background:var(--card-surface,var(--surface));
-        font:inherit;
-        color:var(--text)!important;
-        display:flex;
-        align-items:center;
-        appearance:none;
-        -webkit-appearance:none;
+        font:inherit; color:var(--text)!important;
+        display:flex; align-items:center;
         -webkit-text-fill-color: var(--text) !important;
         cursor:pointer;
       }
@@ -769,12 +727,9 @@ import {
         background:no-repeat center/18px 18px url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%2367706B' d='M7.41 8.58L12 13.17l4.59-4.59L18 10l-6 6-6-6z'/></svg>");
       }
       .fv-dd-list{
-        position:absolute;
-        z-index:1000;
-        top:calc(100% + 4px);
-        left:0; right:0;
-        max-height:260px;
-        overflow:auto;
+        position:absolute; z-index:1000;
+        top:calc(100% + 4px); left:0; right:0;
+        max-height:260px; overflow:auto;
         border:1px solid var(--border);
         border-radius:10px;
         background:var(--surface);
@@ -783,13 +738,11 @@ import {
       }
       .fv-dd.open .fv-dd-list{ display:block; }
       .fv-dd-list input{
-        width:100%;
-        box-sizing:border-box;
+        width:100%; box-sizing:border-box;
         padding:10px 12px;
         border:none;
         border-bottom:1px solid var(--border);
-        font:inherit;
-        outline:none;
+        font:inherit; outline:none;
         background:var(--surface);
         color:var(--text);
       }
@@ -825,8 +778,7 @@ import {
         pointer-events:none;
       }
       .fv-combo-panel{
-        position:absolute;
-        left:0; right:0;
+        position:absolute; left:0; right:0;
         z-index:1000;
         margin-top:6px;
         padding:6px;
@@ -839,11 +791,9 @@ import {
         overflow:auto;
       }
       .fv-combo-item{
-        display:block;
-        width:100%;
+        display:block; width:100%;
         text-align:left;
-        font:inherit;
-        color:var(--text);
+        font:inherit; color:var(--text);
         background:transparent;
         border:none;
         border-radius:10px;
@@ -861,7 +811,6 @@ import {
         background:var(--surface);
         padding:12px;
       }
-
       .fv-btn-warn{
         background:var(--brand-gold,#D0C542);
         color:#2b2b2b !important;
@@ -884,9 +833,7 @@ import {
       if(btn.disabled) return;
       root.classList.toggle("open");
       const inp = root.querySelector(".fv-dd-list input");
-      if(root.classList.contains("open") && inp){
-        setTimeout(()=> inp.focus(), 60);
-      }
+      if(root.classList.contains("open") && inp) setTimeout(()=> inp.focus(), 60);
     });
   }
 
@@ -907,10 +854,14 @@ import {
   }
 
   function wireYearCombo(){
-    const dlg = UI.editSheet;
+    const dlg = UI.editSheet || document.getElementById("shopEquipEdit");
+    if(!dlg) return; // ✅ defensive
+
     const trigger = dlg.querySelector("#seYearTrigger");
     const panel = dlg.querySelector("#seYearPanel");
     const sel = dlg.querySelector("#seYear");
+    const combo = dlg.querySelector("#seYearCombo");
+    if(!trigger || !panel || !sel || !combo) return; // ✅ defensive
 
     function closePanel(){
       panel.classList.add("fv-hidden");
@@ -924,7 +875,7 @@ import {
       document.addEventListener("click", onDocOnce, { once:true });
     }
     function onDocOnce(e){
-      if(!dlg.querySelector("#seYearCombo").contains(e.target)) closePanel();
+      if(!combo.contains(e.target)) closePanel();
       else document.addEventListener("click", onDocOnce, { once:true });
     }
     function onEsc(e){ if(e.key==="Escape") closePanel(); }
@@ -934,7 +885,6 @@ import {
       if(open) closePanel(); else openPanel();
     });
 
-    // build year options once per open (but safe)
     wireYearCombo._build = ()=>{
       const now = new Date().getFullYear();
       sel.innerHTML = `<option value="">— Select —</option>`;
@@ -960,12 +910,8 @@ import {
     };
   }
 
-  function last6(v){ return String(v||"").slice(-6); }
-
   async function ensureEquipmentFormsLoaded(){
     if(window.FVEquipForms && typeof window.FVEquipForms.initExtras === "function") return;
-
-    // load script once
     if(ensureEquipmentFormsLoaded._loading) return ensureEquipmentFormsLoaded._loading;
 
     ensureEquipmentFormsLoaded._loading = new Promise((resolve)=>{
@@ -973,10 +919,9 @@ import {
       s.src = "/Farm-vista/js/equipment-forms.js";
       s.defer = true;
       s.onload = ()=> resolve();
-      s.onerror = ()=> resolve(); // don't hard fail; we will show message
+      s.onerror = ()=> resolve();
       document.head.appendChild(s);
     });
-
     return ensureEquipmentFormsLoaded._loading;
   }
 
@@ -1012,8 +957,7 @@ import {
           out.push({
             id:d.id,
             name:(v.name || v.model || "").trim(),
-            makeId:(v.makeId || "").trim(),
-            makeName:(v.makeName || v.make || "").trim()
+            makeId:(v.makeId || "").trim()
           });
         });
         out.sort((a,b)=>a.name.localeCompare(b.name));
@@ -1027,7 +971,6 @@ import {
 
   function setupMakeModelDd(prefMakeIdOrName, prefModelIdOrName){
     const dlg = UI.editSheet;
-
     const makeRoot = dlg.querySelector("#seDdMake");
     const makeBtn  = dlg.querySelector("#seMakeBtn");
     const makeSearch = dlg.querySelector("#seMakeSearch");
@@ -1061,34 +1004,10 @@ import {
     makeSearch.oninput = ()=> filterList(makeSearch, makeList);
     modelSearch.oninput = ()=> filterList(modelSearch, modelList);
 
-    function setMake(id, name){
-      makeIdHidden.value = id || "";
-      makeBtn.textContent = id ? name : "— Select —";
-      makeRoot.classList.remove("open");
-
-      // reset model when make changes
-      setModel("", "");
-      refreshModels();
-    }
-
     function setModel(id, name){
       modelIdHidden.value = id || "";
       modelBtn.textContent = id ? name : (makeIdHidden.value ? "— Select —" : "— Select a Make first —");
       modelRoot.classList.remove("open");
-    }
-
-    function refreshMakes(){
-      buildList(makeList, state.makes, setMake);
-
-      // preselect
-      const byId = state.makes.find(m=>m.id===prefMakeIdOrName);
-      const byNm = state.makes.find(m=>m.name===prefMakeIdOrName);
-      if(byId) setMake(byId.id, byId.name);
-      else if(byNm) setMake(byNm.id, byNm.name);
-      else{
-        makeIdHidden.value = "";
-        makeBtn.textContent = "— Select —";
-      }
     }
 
     function modelsForMake(){
@@ -1111,7 +1030,6 @@ import {
 
       buildList(modelList, items, setModel);
 
-      // preselect
       const byId = items.find(m=>m.id===prefModelIdOrName);
       const byNm = items.find(m=>m.name===prefModelIdOrName);
       if(byId) setModel(byId.id, byId.name);
@@ -1122,11 +1040,27 @@ import {
       }
     }
 
-    // make list click should refresh models (keep consistent)
-    makeList.addEventListener("click", ()=> setTimeout(refreshModels, 0));
+    function setMake(id, name){
+      makeIdHidden.value = id || "";
+      makeBtn.textContent = id ? name : "— Select —";
+      makeRoot.classList.remove("open");
+      setModel("", "");
+      refreshModels();
+    }
 
-    refreshMakes();
-    refreshModels();
+    // initial make list
+    buildList(makeList, state.makes, setMake);
+
+    // preselect make
+    const byId = state.makes.find(m=>m.id===prefMakeIdOrName);
+    const byNm = state.makes.find(m=>m.name===prefMakeIdOrName);
+    if(byId) setMake(byId.id, byId.name);
+    else if(byNm) setMake(byNm.id, byNm.name);
+    else{
+      makeIdHidden.value = "";
+      makeBtn.textContent = "— Select —";
+      refreshModels();
+    }
   }
 
   function initExtrasEngineForEdit(eqDoc){
@@ -1148,25 +1082,21 @@ import {
       document
     });
 
-    // hydrate extras with doc values (best-effort)
     try{
       if(state.editExtras && typeof state.editExtras.reset === "function"){
         state.editExtras.reset(eqDoc || {});
       }
     }catch(_){}
-
-    // If equipment-forms doesn't expose reset, we rely on read() on save only.
   }
 
   async function openEditModal(eqId){
     bootstrap();
     ensureSvcFooterButtons();
-    const dlg = ensureEditSheet();
+    ensureEditSheet();
 
     await ensureEquipmentFormsLoaded();
     await loadMakesModels();
 
-    // load equipment doc fresh
     const db = getFirestore();
     const snap = await getDoc(doc(db,"equipment", eqId));
     if(!snap.exists()){
@@ -1177,36 +1107,28 @@ import {
     state.editEqId = eqId;
     state.editEqDoc = d;
 
-    // title
-    const title = d.unitId ? `${d.unitId} • ${d.name || "Equipment"}` : (d.name || "Equipment");
-    dlg.querySelector("#seTitle").textContent = `Edit • ${title}`;
+    UI.editSheet.querySelector("#seTitle").textContent =
+      `Edit • ${d.unitId ? d.unitId : ""}${d.unitId ? " • " : ""}${d.name || "Equipment"}`;
 
-    // year build
     if(typeof wireYearCombo._build === "function") wireYearCombo._build();
 
-    // make/model dropdowns (prefer ids first, then names)
     setupMakeModelDd(d.makeId || d.makeName || "", d.modelId || d.modelName || "");
 
-    // year set
-    const yearSel = dlg.querySelector("#seYear");
-    const yearTrigger = dlg.querySelector("#seYearTrigger");
+    const yearSel = UI.editSheet.querySelector("#seYear");
+    const yearTrigger = UI.editSheet.querySelector("#seYearTrigger");
     yearSel.value = d.year ? String(d.year) : "";
     yearTrigger.textContent = yearSel.value ? yearSel.value : "— Select —";
 
-    // unitId / serial / status / notes
-    dlg.querySelector("#seUnitId").value = safeUnitId(d);
-    dlg.querySelector("#seSerial").value = d.serial || "";
-    dlg.querySelector("#seSerial6").textContent = last6(d.serial || "");
-    dlg.querySelector("#seStatus").value = (d.status || "Active");
-    dlg.querySelector("#seNotes").value = d.notes || "";
+    UI.editSheet.querySelector("#seUnitId").value = safeUnitId(d);
+    UI.editSheet.querySelector("#seSerial").value = d.serial || "";
+    UI.editSheet.querySelector("#seSerial6").textContent = last6(d.serial || "");
+    UI.editSheet.querySelector("#seStatus").value = (d.status || "Active");
+    UI.editSheet.querySelector("#seNotes").value = d.notes || "";
+    UI.editSheet.querySelector("#seArchive").textContent = (String(d.status||"").toLowerCase()==="archived") ? "Unarchive" : "Archive";
 
-    // archive button label
-    dlg.querySelector("#seArchive").textContent = (String(d.status||"").toLowerCase()==="archived") ? "Unarchive" : "Archive";
-
-    // extras
     initExtrasEngineForEdit(d);
 
-    openSheet(dlg);
+    openSheet(UI.editSheet);
   }
 
   function readEditForm(){
@@ -1232,20 +1154,7 @@ import {
       ? (state.editExtras.read() || {})
       : {};
 
-    // If extras contains unitId, prefer the explicit field (grid uses unitId)
-    if(Object.prototype.hasOwnProperty.call(extras, "unitId")){
-      extras.unitId = String(extras.unitId || "").trim();
-    }
-
-    return {
-      makeId, modelId, makeName, modelName,
-      year,
-      unitId,
-      serial,
-      status,
-      notes,
-      extras
-    };
+    return { makeId, modelId, makeName, modelName, year, unitId, serial, status, notes, extras };
   }
 
   function validateEditForm(p){
@@ -1253,7 +1162,6 @@ import {
     if(!p.modelId) return "Model is required.";
     if(!p.year) return "Year is required.";
     if(!p.serial || p.serial.length < 3) return "Serial looks short.";
-
     if(state.editExtras && typeof state.editExtras.validate === "function"){
       const v = state.editExtras.validate();
       if(v && v.ok === false) return v.message || "Missing required extra field.";
@@ -1266,10 +1174,7 @@ import {
 
     const patchIn = readEditForm();
     const err = validateEditForm(patchIn);
-    if(err){
-      alert(err);
-      return;
-    }
+    if(err){ alert(err); return; }
 
     const payload = {
       makeId: patchIn.makeId,
@@ -1288,27 +1193,10 @@ import {
     try{
       const db = getFirestore();
       await setDoc(doc(db,"equipment", state.editEqId), payload, { merge:true });
-
-      // update cached doc for header + future modals
       Object.assign(state.editEqDoc, payload);
 
       showToast("Saved ✓");
       closeSheet(UI.editSheet);
-
-      // also update the currently-open svcSheet display (if same equipment)
-      if(state.eq && state.eq.id === state.editEqId){
-        Object.assign(state.eq, payload);
-        // refresh svc title/meta quickly
-        try{
-          const unitIdLine = payload.unitId ? `Unit ID ${payload.unitId}` : "Unit ID —";
-          UI.svcTitle.textContent = payload.unitId ? `${payload.unitId} • ${payload.name || state.eq.name || "Equipment"}` : (payload.name || state.eq.name || "Equipment");
-          UI.svcMeta.textContent = [
-            unitIdLine,
-            payload.year ? `Year ${payload.year}` : "",
-            payload.serial ? `Serial ${payload.serial}` : ""
-          ].filter(Boolean).join(" • ");
-        }catch(_){}
-      }
     }catch(e){
       console.error(e);
       alert("Save failed by Firestore rules.");
@@ -1329,11 +1217,8 @@ import {
 
       await updateDoc(ref, { status: next, updatedAt: serverTimestamp() });
 
-      // update modal UI
-      const dlg = UI.editSheet;
-      dlg.querySelector("#seStatus").value = next;
-      dlg.querySelector("#seArchive").textContent = (next === "Archived") ? "Unarchive" : "Archive";
-
+      UI.editSheet.querySelector("#seStatus").value = next;
+      UI.editSheet.querySelector("#seArchive").textContent = (next === "Archived") ? "Unarchive" : "Archive";
       showToast(next === "Archived" ? "Archived ✓" : "Restored ✓");
     }catch(e){
       console.error(e);
@@ -1342,7 +1227,7 @@ import {
   }
 
   // ===================================================================
-  //  svcSheet open + lifetime notes save (existing)
+  //  svcSheet open + lifetime notes save
   // ===================================================================
   async function open(eq){
     bootstrap();
@@ -1398,13 +1283,11 @@ import {
     }
   }
 
-  // expose public API
   window.FVShopEquipModal = {
     open,
     openServiceRecords: async (eq)=> openServiceRecordsModal(eq),
     openEdit: async (id)=> openEditModal(id)
   };
 
-  // bootstrap now (safe)
   try{ bootstrap(); }catch(e){ console.warn("[shop-equip-modal] bootstrap failed", e); }
 })();
