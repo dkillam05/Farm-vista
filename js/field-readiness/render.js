@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-01-21d-truth-slider-state-seed-noLegacyCal-learningAppliedDryOnly-debugTraceRewind
+Rev: 2026-01-21e-truth-slider-state-seed-noLegacyCal-learningAppliedDryOnly-debugTraceRewind-swipeFix
 
 RECOVERY (critical):
 ✅ Keep module stable; tiles + details render.
@@ -30,6 +30,12 @@ NEW (Option B — Debug Trace in Details):
        seedMode:'rewind', rewindDays:14
      and display that trace ONLY in the trace table.
    - Truth numbers (readiness/storage/wetness) remain from persisted run.
+
+SWIPE FIX (mobile):
+✅ Add a robust fallback swipe handler for tiles (left-swipe opens Quick View)
+   - Prevents "ghost clicks" after a swipe
+   - Does not block vertical scrolling
+   - Works even if swipe.js fails or gets detached
 
 NOTES:
 - This file reads persisted truth and tuning, then passes into model deps.
@@ -895,6 +901,132 @@ function upsertEtaHelp(state, tile, ctx){
   }catch(_){}
 }
 
+/* =====================================================================
+   SWIPE FALLBACK (mobile): prevents swipe from getting "messed up"
+===================================================================== */
+function isCoarsePointer(){
+  try{
+    return window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+  }catch(_){
+    return false;
+  }
+}
+
+function initFallbackSwipeOnTiles(state, wrap, opts){
+  try{
+    if (!wrap) return;
+    if (!isCoarsePointer()) return;
+
+    const tiles = Array.from(wrap.querySelectorAll('.tile[data-field-id]'));
+    for (const tile of tiles){
+      if (!tile) continue;
+      if (tile.dataset && tile.dataset.fvSwipeWired === '1') continue;
+
+      // Mark wired to avoid duplicates across renders
+      if (tile.dataset) tile.dataset.fvSwipeWired = '1';
+
+      let startX = 0, startY = 0, lastX = 0, lastY = 0;
+      let tracking = false;
+      let horizLock = false;
+      let pid = null;
+
+      const SWIPE_MIN_PX = 42;     // how far left to count
+      const LOCK_PX = 10;          // decide if horizontal intent
+      const DOMINANCE = 1.15;      // dx must be > dy * this
+
+      function reset(){
+        tracking = false;
+        horizLock = false;
+        pid = null;
+      }
+
+      tile.addEventListener('pointerdown', (e)=>{
+        try{
+          if (!e) return;
+          if (e.pointerType !== 'touch') return;
+
+          // ignore presses on controls (ETA button, etc.)
+          const t = e.target;
+          if (t && (t.closest && t.closest('button, a, input, select, textarea'))) return;
+
+          tracking = true;
+          horizLock = false;
+          pid = e.pointerId;
+
+          startX = e.clientX;
+          startY = e.clientY;
+          lastX = startX;
+          lastY = startY;
+
+          // capture if possible (helps ensure pointerup fires)
+          try{ tile.setPointerCapture && tile.setPointerCapture(pid); }catch(_){}
+        }catch(_){}
+      }, { passive:true });
+
+      tile.addEventListener('pointermove', (e)=>{
+        try{
+          if (!tracking) return;
+          if (pid != null && e.pointerId !== pid) return;
+
+          lastX = e.clientX;
+          lastY = e.clientY;
+
+          const dx = lastX - startX;
+          const dy = lastY - startY;
+
+          if (!horizLock){
+            if (Math.abs(dx) < LOCK_PX && Math.abs(dy) < LOCK_PX) return;
+            if (Math.abs(dx) > Math.abs(dy) * DOMINANCE){
+              horizLock = true;
+            } else {
+              // user is scrolling vertically; stop tracking so we don't break scroll
+              reset();
+              return;
+            }
+          }
+
+          // If we're here, user intent is horizontal swipe.
+          // Prevent vertical scroll/jank while swiping.
+          if (horizLock){
+            try{ e.preventDefault(); }catch(_){}
+          }
+        }catch(_){}
+      }, { passive:false });
+
+      tile.addEventListener('pointerup', async (e)=>{
+        try{
+          if (!tracking) return;
+          if (pid != null && e.pointerId !== pid) return;
+
+          const dx = (e.clientX - startX);
+          const dy = (e.clientY - startY);
+
+          // Only count clean left-swipes
+          const left = (dx <= -SWIPE_MIN_PX) && (Math.abs(dx) > Math.abs(dy) * DOMINANCE);
+
+          if (left){
+            // suppress "ghost click" after swipe
+            const now = Date.now();
+            tile._fvSwipeJustTs = now;
+            if (state) state._suppressClickUntil = now + 500;
+
+            const fid = String(tile.getAttribute('data-field-id') || tile.dataset.fieldId || '');
+            if (fid && opts && typeof opts.onDetails === 'function'){
+              try{ await opts.onDetails(fid); }catch(_){}
+            }
+          }
+        }catch(_){
+        }finally{
+          reset();
+        }
+      }, { passive:true });
+
+      tile.addEventListener('pointercancel', ()=>{ reset(); }, { passive:true });
+      tile.addEventListener('lostpointercapture', ()=>{ reset(); }, { passive:true });
+    }
+  }catch(_){}
+}
+
 /* ---------- internal: patch a single tile DOM in-place ---------- */
 async function updateTileForField(state, fieldId){
   try{
@@ -1002,6 +1134,10 @@ function wireTileInteractions(state, tileEl, fieldId){
     const until = Number(state._suppressClickUntil || 0);
     if (Date.now() < until) return;
 
+    // If a swipe just happened on this tile, ignore the click (ghost click)
+    const swipeTs = Number(tileEl._fvSwipeJustTs || 0);
+    if (swipeTs && (Date.now() - swipeTs) < 650) return;
+
     if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
     tileEl._fvClickTimer = setTimeout(()=>{
       tileEl._fvClickTimer = null;
@@ -1059,6 +1195,15 @@ async function _renderTilesInternal(state){
       ? tiles.length
       : Math.min(tiles.length, Number(state.pageSize || 25));
     const ids = tiles.slice(0, cap).map(t=>String(t.getAttribute('data-field-id')||'')).filter(Boolean);
+
+    // Keep swipe alive even if some other code detached it:
+    initFallbackSwipeOnTiles(state, wrap, {
+      onDetails: async (fieldId)=>{
+        if (!canEdit(state)) return;
+        await openQuickView(state, fieldId);
+      }
+    });
+
     await updateVisibleTilesBatched(state, ids);
     return;
   }
@@ -1158,7 +1303,20 @@ async function _renderTilesInternal(state){
   const empty = $('emptyMsg');
   if (empty) empty.style.display = idsForEta.length ? 'none' : 'block';
 
-  await initSwipeOnTiles(state, {
+  // 1) Run your existing shared swipe system (if it works)
+  try{
+    await initSwipeOnTiles(state, {
+      onDetails: async (fieldId)=>{
+        if (!canEdit(state)) return;
+        await openQuickView(state, fieldId);
+      }
+    });
+  }catch(e){
+    console.warn('[FieldReadiness] initSwipeOnTiles failed; using fallback swipe.', e);
+  }
+
+  // 2) Always wire the fallback on mobile (safe + prevents “swipe got messed up”)
+  initFallbackSwipeOnTiles(state, wrap, {
     onDetails: async (fieldId)=>{
       if (!canEdit(state)) return;
       await openQuickView(state, fieldId);
