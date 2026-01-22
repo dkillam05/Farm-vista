@@ -1,22 +1,25 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-01-22h-storage-truth-rewind14-rateTuning-dryTailFix-intReadiness-Smax3to5-hardEndpoints-STRONGREV15
+Rev: 2026-01-22i-storage-truth-rewind14-rateTuning-dryTailFix-intReadiness-Smax3to5-hardEndpoints-STRONGREV15-INVARIANTSAFE
 
-CHANGES (per Dane):
-✅ Readiness whole numbers only
-✅ Tank size (Smax) HARD endpoints:
-   - sliders 0/0 => Smax EXACTLY 3.0
-   - sliders 100/100 => Smax EXACTLY 5.0
-✅ Sliders MUST move readiness LIVE in Quick View
-✅ Direction reversed the way you want:
-   - slide DOWN (smaller tank) => readiness goes UP
-✅ Strong range: up to +15 points from 5.0 -> 3.0
+GOAL (per Dane):
+✅ Keep the SIMPLE RULE (invariant):
+   wetness = (storage / tank) * 100
+   readiness = 100 - wetness
+
+✅ Sliders reversed feel (strong):
+   - slide DOWN (tank smaller) => readiness goes UP
+   - up to ~15 points (when there is enough wetness to remove)
 
 How:
-- baseReadiness = 100 - (storage/Smax)*100  (physics)
-- bonus = ((5 - Smax) / 2) * 15            (reversal)
-- readiness = clamp(baseReadiness + bonus, 0..100)
-- wetness = 100 - readiness
+- Compute tank size Smax (3..5) from sliders (unchanged)
+- Compute a "dry credit" in INCHES:
+    creditInches = tightness * (0.15 * Smax)
+  where tightness = 0 at Smax=5, tightness=1 at Smax=3
+- Apply credit to storage ONLY for readiness/wetness display:
+    storageForReadiness = clamp(storageEff - creditInches, 0..Smax)
+
+This preserves invariants exactly, and makes sliders behave the way you want.
 ===================================================================== */
 'use strict';
 
@@ -31,7 +34,6 @@ function safePct01(v){
   return clamp(n / 100, 0, 1);
 }
 function snap01(x){
-  // Hard endpoint snapping so 0/100 is truly 3.0/5.0 for ALL fields
   const v = Number(x);
   if (!Number.isFinite(v)) return 0;
   if (v <= 0.01) return 0;
@@ -39,19 +41,20 @@ function snap01(x){
   return v;
 }
 
-// ✅ STRONG reversal settings
+// Strong reversal target: 15 points of wetness at full strength
+const REV_POINTS_MAX = 15;
 const SMAX_MIN = 3.0;
 const SMAX_MAX = 5.0;
-const REV_BONUS_MAX = 15;
 
-function reversalBonusFromSmax(Smax){
+function dryCreditInchesFromSmax(Smax){
   const s = clamp(Number(Smax), SMAX_MIN, SMAX_MAX);
-  const frac = (SMAX_MAX - s) / (SMAX_MAX - SMAX_MIN); // 0 at 5.0, 1 at 3.0
-  return frac * REV_BONUS_MAX;
+  const tightness = (SMAX_MAX - s) / (SMAX_MAX - SMAX_MIN); // 0 at 5, 1 at 3
+  // 15 wetness points = 0.15*Smax inches
+  return tightness * (REV_POINTS_MAX / 100) * s;
 }
 
 /* =====================================================================
-   FV_TUNE — ALL ADJUSTABLE VARIABLES (Option A)
+   FV_TUNE
 ===================================================================== */
 const FV_TUNE = {
   SAT_RUNOFF_START: 0.75,
@@ -104,9 +107,6 @@ function getTune(deps){
   return t;
 }
 
-/* =====================================================================
-   Rate tuning multipliers (learning hooks)
-===================================================================== */
 function getRateMults(deps){
   try{
     const EXTRA = (deps && deps.EXTRA && typeof deps.EXTRA === 'object') ? deps.EXTRA : {};
@@ -121,8 +121,6 @@ function getRateMults(deps){
     return { dryLossMult: 1.0, rainEffMult: 1.0 };
   }
 }
-
-/* ===================================================================== */
 
 export function modelClassFromRun(run){
   if (!run) return 'ok';
@@ -473,15 +471,15 @@ export function runField(field, deps){
     const calRes = applyCalToStorage(storage, f.Smax, deps);
     const storageEff = calRes.storageEff;
 
-    const baseWetness = (f.Smax > 0) ? clamp((storageEff / f.Smax) * 100, 0, 100) : 0;
-    const baseReadiness = clamp(100 - baseWetness, 0, 100);
+    // ✅ invariant-safe reversal: subtract dry credit in inches before computing wetness/readiness
+    const creditInches = dryCreditInchesFromSmax(f.Smax);
+    const storageForReadiness = clamp(storageEff - creditInches, 0, f.Smax);
 
-    const bonus = reversalBonusFromSmax(f.Smax);
-    const readinessFinal = clamp(baseReadiness + bonus, 0, 100);
-    const wetnessFinal = clamp(100 - readinessFinal, 0, 100);
+    const wetness = (f.Smax > 0) ? clamp((storageForReadiness / f.Smax) * 100, 0, 100) : 0;
+    const readiness = clamp(100 - wetness, 0, 100);
 
-    const wetnessR = roundInt(wetnessFinal);
-    const readinessR = roundInt(readinessFinal);
+    const wetnessR = roundInt(wetness);
+    const readinessR = roundInt(readiness);
 
     const avgLossDay = 0.08;
     const lastDateISO = rows.length ? rows[rows.length-1].dateISO : '';
@@ -509,10 +507,8 @@ export function runField(field, deps){
       tuneUsed: tune,
 
       // Debug:
-      baseWetnessPct: baseWetness,
-      baseReadiness,
-      reversalBonus: bonus,
-      readinessFinal,
+      readinessDryCreditIn: creditInches,
+      storageForReadiness,
 
       stateOut: buildStateOut(field.id, storageEff, (lastDateISO || seedPick.seedDebug.asOfDateISO || ''), f),
 
@@ -569,15 +565,14 @@ export function runField(field, deps){
   const calRes = applyCalToStorage(storage, f.Smax, deps);
   const storageEff = calRes.storageEff;
 
-  const baseWetness = (f.Smax > 0) ? clamp((storageEff / f.Smax) * 100, 0, 100) : 0;
-  const baseReadiness = clamp(100 - baseWetness, 0, 100);
+  const creditInches = dryCreditInchesFromSmax(f.Smax);
+  const storageForReadiness = clamp(storageEff - creditInches, 0, f.Smax);
 
-  const bonus = reversalBonusFromSmax(f.Smax);
-  const readinessFinal = clamp(baseReadiness + bonus, 0, 100);
-  const wetnessFinal = clamp(100 - readinessFinal, 0, 100);
+  const wetness = (f.Smax > 0) ? clamp((storageForReadiness / f.Smax) * 100, 0, 100) : 0;
+  const readiness = clamp(100 - wetness, 0, 100);
 
-  const wetnessR = roundInt(wetnessFinal);
-  const readinessR = roundInt(readinessFinal);
+  const wetnessR = roundInt(wetness);
+  const readinessR = roundInt(readiness);
 
   const last7 = trace.slice(-7);
   const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
@@ -607,10 +602,8 @@ export function runField(field, deps){
     tuneUsed: tune,
 
     // Debug:
-    baseWetnessPct: baseWetness,
-    baseReadiness,
-    reversalBonus: bonus,
-    readinessFinal,
+    readinessDryCreditIn: creditInches,
+    storageForReadiness,
 
     stateOut: buildStateOut(field.id, storageEff, lastDateISO, f),
 
