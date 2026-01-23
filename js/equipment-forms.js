@@ -1,6 +1,6 @@
 /* =======================================================================
 /Farm-vista/js/equipment-forms.js  (FULL FILE)
-Rev: 2026-01-21b  ✅ Add Placed In Service Date (optional) to all equipment types
+Rev: 2026-01-23a  ✅ Add StarFire slider to CONSTRUCTION (machine)
 
 Purpose:
   Shared "extras" engine for equipment forms.
@@ -17,6 +17,9 @@ Key updates:
   ✅ Placed In Service Date added to ALL equipment types as OPTIONAL
      - Stored under extras.placedInServiceDate
      - Date this equipment was first put into regular use (may differ from purchase/model year)
+
+  ✅ StarFire GPS Capable? slider now also available for:
+     - construction (visible for "machine")
 
 Keeps:
   ✅ All "toggle" fields now render as a real on/off slider switch
@@ -360,6 +363,13 @@ Keeps:
       numField('engineHours', 'Engine Hours', {
         step: '0.1',
         placeholder: 'e.g. 3200.0',
+        visibleForTypes: ['machine']
+      }),
+
+      // ✅ Add StarFire slider for construction EQUIPMENT (machine)
+      toggleField('starfireCapable', 'StarFire GPS Capable?', {
+        onLabel:'On',
+        offLabel:'Off',
         visibleForTypes: ['machine']
       }),
 
