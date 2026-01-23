@@ -1,7 +1,14 @@
 /* =====================================================================
 /Farm-vista/js/shop-equipment-modal.js  (FULL FILE)
-Rev: 2026-01-22i
+Rev: 2026-01-22j
 Updates:
+✅ Add back Archive / Unarchive button in the Edit modal footer
+   - Toggles status Active <-> Archived
+   - Writes updatedAt serverTimestamp()
+   - Updates button label based on current status
+   - Keeps existing Edit modal look/feel + scrollbar hiding
+
+Keeps:
 ✅ Hide modal scrollbars (keep scrolling working) for:
    - Edit modal body
    - Combo/year panel
@@ -1235,6 +1242,11 @@ import {
     UI.editSheet.querySelector("#seSerial").value = d.serial || "";
     UI.editSheet.querySelector("#seSerial6").textContent = last6(d.serial || "");
     UI.editSheet.querySelector("#seStatus").value = (d.status || "Active");
+
+    // ✅ Archive button label based on current status
+    UI.editSheet.querySelector("#seArchive").textContent =
+      norm(d.status) === "archived" ? "Unarchive" : "Archive";
+
     UI.editSheet.querySelector("#seNotes").value = d.notes || "";
 
     initExtrasEngineForEdit(d);
@@ -1321,6 +1333,7 @@ import {
       </div>
 
       <footer>
+        <button id="seArchive" class="btn" type="button">Archive</button>
         <button id="seSave" class="btn btn-primary" type="button">Save Changes</button>
       </footer>
     `;
@@ -1342,6 +1355,43 @@ import {
     wireYearCombo();
 
     dlg.querySelector("#seSave").addEventListener("click", saveEditModal);
+
+    // ✅ Archive/Unarchive toggle button
+    dlg.querySelector("#seArchive").addEventListener("click", async ()=>{
+      if(!state.editEqId || !state.editEqDoc) return;
+
+      const isArchived = norm(state.editEqDoc.status) === "archived";
+      const nextStatus = isArchived ? "Active" : "Archived";
+
+      if(!confirm(`${isArchived ? "Unarchive" : "Archive"} this equipment?`)) return;
+
+      try{
+        const db = getFirestore();
+        await updateDoc(doc(db,"equipment", state.editEqId), {
+          status: nextStatus,
+          updatedAt: serverTimestamp()
+        });
+
+        state.editEqDoc.status = nextStatus;
+
+        // keep UI consistent if they reopen quickly
+        dlg.querySelector("#seStatus").value = nextStatus;
+        dlg.querySelector("#seArchive").textContent = isArchived ? "Archive" : "Unarchive";
+
+        showToast(isArchived ? "Unarchived ✓" : "Archived ✓");
+        closeSheet(UI.editSheet);
+      }catch(e){
+        console.error(e);
+        alert("Failed to update archive status.");
+      }
+    });
+
+    // Optional: keep button label in sync if user changes dropdown
+    dlg.querySelector("#seStatus").addEventListener("change", (e)=>{
+      const v = norm(e.target.value);
+      dlg.querySelector("#seArchive").textContent =
+        v === "archived" ? "Unarchive" : "Archive";
+    });
 
     dlg.querySelector("#seSerial").addEventListener("input", ()=>{
       dlg.querySelector("#seSerial6").textContent = last6(dlg.querySelector("#seSerial").value || "");
