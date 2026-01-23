@@ -420,6 +420,7 @@ import {
     if(UI.svcFooter.querySelector("[data-fv='svcRecordsBtn']")) return;
 
     const leftWrap = document.createElement("div");
+    leftWrap.className = "fv-svc-footer-left";
     leftWrap.style.display = "flex";
     leftWrap.style.gap = "8px";
     leftWrap.style.flexWrap = "wrap";
@@ -469,6 +470,7 @@ import {
     });
 
     const spacer = document.createElement("div");
+spacer.className = "fv-svc-footer-spacer";   // ✅ ADD THIS LINE
 spacer.style.flex = "1 1 auto";
 
 leftWrap.appendChild(btnAddWO);     // far left
