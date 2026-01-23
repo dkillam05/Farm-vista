@@ -740,7 +740,9 @@
 
         /* ✅ allow quick finds for these when you start using them */
         d.licensePlateExpiration,
+        d.licensePlateExp,
         d.insuranceExpiration,
+        d.insuranceExp,
         d.dotExpirationDate,
         d.dotExpiration
       ].map(x => (x==null?"":String(x))).join(" ").toLowerCase();
@@ -867,33 +869,38 @@
       const showAcres     = hasAny(rows, r => isPresent(r.totalAcres));
       const showHours     = hasAny(rows, r => isPresent(r.totalHours) || isPresent(r.engineHours));
 
+      /* ✅ NEW: Only show Unit ID column if ANY visible row has unitId (ALL categories) */
+      const showUnitIdCol = hasAny(rows, r => isPresent(r.unitId));
+
       const showCategoryCol = (state.filter === "all");
 
       /* ✅ Trucks/Trailers conditional expiration columns:
          Only show these columns when viewing Trucks
          AND at least one visible row has a valid value.
-         (Trailer support: if you store type='trailer' later and still use Trucks view,
-          the columns still work because it's based on rows.)
       */
       const isTruckTrailerView = (state.filter === "trucks");
-      const showLPExp  = isTruckTrailerView && hasAny(rows, r => isPresent(r.licensePlateExpiration));
-      const showInsExp = isTruckTrailerView && hasAny(rows, r => isPresent(r.insuranceExpiration));
-      const showDOTExp = isTruckTrailerView && hasAny(rows, r => isPresent(r.dotExpirationDate) || isPresent(r.dotExpiration));
 
-      /* ✅ Column order requested:
-         Unit, Unit ID, Acres, Hours, Mileage, then the rest the same (Notes, Category(if all), Year, Serial, In Service)
-         + (for Trucks view only) LP Exp / Ins Exp / DOT Exp (only if any value exists)
+      const showLPExp  = isTruckTrailerView && hasAny(rows, r => isPresent(r.licensePlateExp) || isPresent(r.licensePlateExpiration));
+      const showInsExp = isTruckTrailerView && hasAny(rows, r => isPresent(r.insuranceExp) || isPresent(r.insuranceExpiration));
+      const showDOTExp = isTruckTrailerView && hasAny(rows, r => isPresent(r.dotExpiration) || isPresent(r.dotExpirationDate));
+
+      /* ✅ Column order:
+         Unit, (Unit ID only if needed), Acres, Hours, Mileage, then:
+         (Trucks only) LP/Ins/DOT (only if any exist)
+         Notes, Category(if all), Year, Serial, In Service
       */
       const cols = [
-        { key:"unit",   label:"Unit", w:420, wrap:true },
-        { key:"unitId", label:"Unit ID", w:160, wrap:false }
+        { key:"unit",   label:"Unit", w:420, wrap:true }
       ];
+
+      if(showUnitIdCol){
+        cols.push({ key:"unitId", label:"Unit ID", w:160, wrap:false });
+      }
 
       if(showAcres){ cols.push({ key:"acres", label:"Acres", w:110, wrap:false }); }
       if(showHours){ cols.push({ key:"hours", label:"Hours", w:110, wrap:false }); }
       if(showMileage){ cols.push({ key:"miles", label:"Mileage", w:120, wrap:false }); }
 
-      /* ✅ New columns (abbreviated to stay narrow) */
       if(showLPExp){  cols.push({ key:"lpExp",  label:"LP Exp",  w:110, wrap:false }); }
       if(showInsExp){ cols.push({ key:"insExp", label:"Ins Exp", w:110, wrap:false }); }
       if(showDOTExp){ cols.push({ key:"dotExp", label:"DOT Exp", w:110, wrap:false }); }
@@ -978,9 +985,9 @@
         case "hours":  return Number(d.totalHours ?? d.engineHours ?? 0) || 0;
         case "miles":  return Number(d.odometerMiles ?? 0) || 0;
 
-        case "lpExp":  return dateSortNum(d.licensePlateExpiration);
-        case "insExp": return dateSortNum(d.insuranceExpiration);
-        case "dotExp": return dateSortNum(d.dotExpirationDate || d.dotExpiration);
+        case "lpExp":  return dateSortNum(d.licensePlateExp || d.licensePlateExpiration);
+        case "insExp": return dateSortNum(d.insuranceExp || d.insuranceExpiration);
+        case "dotExp": return dateSortNum(d.dotExpiration || d.dotExpirationDate);
 
         case "notes":  return combinedNotes(d).toLowerCase();
         case "cat":    return catLabel(d).toLowerCase();
@@ -1070,13 +1077,19 @@
             case "miles":
               return `<td class="kpi">${escapeHtml(fmtNum(d.odometerMiles ?? "", 0))}</td>`;
 
-            /* ✅ new truck/trailer expiration cells */
-            case "lpExp":
-              return `<td class="muted">${escapeHtml(fmtDateISO(d.licensePlateExpiration) || "—")}</td>`;
-            case "insExp":
-              return `<td class="muted">${escapeHtml(fmtDateISO(d.insuranceExpiration) || "—")}</td>`;
-            case "dotExp":
-              return `<td class="muted">${escapeHtml(fmtDateISO(d.dotExpirationDate || d.dotExpiration) || "—")}</td>`;
+            /* ✅ truck/trailer expiration cells (new field names, with backward support) */
+            case "lpExp": {
+              const v = d.licensePlateExp || d.licensePlateExpiration;
+              return `<td class="muted">${escapeHtml(fmtDateISO(v) || "—")}</td>`;
+            }
+            case "insExp": {
+              const v = d.insuranceExp || d.insuranceExpiration;
+              return `<td class="muted">${escapeHtml(fmtDateISO(v) || "—")}</td>`;
+            }
+            case "dotExp": {
+              const v = d.dotExpiration || d.dotExpirationDate;
+              return `<td class="muted">${escapeHtml(fmtDateISO(v) || "—")}</td>`;
+            }
 
             case "notes":
               return `<td class="muted wrap">${escapeHtml(combinedNotes(d))}</td>`;
