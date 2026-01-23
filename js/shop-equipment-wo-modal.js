@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/shop-equipment-wo-modal.js  (NEW FILE)
-Rev: 2026-01-23a
+Rev: 2026-01-23b
 Purpose:
 ✅ Standalone "Add New Work Order" modal (multi-task, attachments)
 ✅ Creates Work Order directly (NO approval flow):
@@ -8,6 +8,12 @@ Purpose:
 ✅ Uploads attachments to Storage (WO-level):
    - attachmentUrls[]
    - attachmentCount
+
+Update (per Dane):
+✅ Keep task UI very clean:
+   - Parts + Photos/Files remain hidden until "Additional info" is clicked
+   - When topic changes, auto-collapse Additional info
+
 Notes:
 - Designed to be lazy-loaded from shop-equipment-modal.js
 - Keeps main file small and editable
@@ -46,7 +52,7 @@ import {
     { v:"other", label:"Other (describe below)" }
   ];
 
-  const WO_COLLECTION = "equipmentWorkOrders"; // ✅ per Dane: option 1 is WO-level attachments
+  const WO_COLLECTION = "equipmentWorkOrders"; // ✅ per Dane: WO-level attachments
 
   const UI = {
     dlg: null
@@ -376,6 +382,7 @@ import {
           placeholder="Example: Rear axle vibration, cab door seal, etc.">
       </div>
 
+      <!-- Notes area stays clean. Additional info stays collapsed until button click. -->
       <div class="details-wrap" data-role="details" hidden>
         <div class="form-row">
           <label>
@@ -393,6 +400,7 @@ import {
           <div class="muted">Tap if you need parts, photos, files, or extra details.</div>
         </div>
 
+        <!-- ✅ Parts + Photos/Files live ONLY here and remain hidden until button click -->
         <div class="details-wrap" data-role="more" hidden>
           <div class="form-row">
             <label>Parts needed (if known)</label>
@@ -426,10 +434,20 @@ import {
 
     buildTopicSelect(topicSel);
 
+    const collapseAdditional = ()=>{
+      // Always collapse on topic changes so it stays clean
+      toggleMore.setAttribute("aria-expanded","false");
+      moreWrap.hidden = true;
+    };
+
     const onTopicChange = ()=>{
       const v = (topicSel.value || "").trim();
       topicOtherRow.hidden = (v !== "other");
       details.hidden = !v;
+
+      // keep additional info clean/collapsed every time they change topic
+      collapseAdditional();
+
       if(v){
         setTimeout(()=>{ try{ notes.focus(); }catch{} }, 50);
       }
@@ -571,7 +589,6 @@ import {
     const equipmentId = eq?.id || null;
     const equipmentName = eq?.name || null;
 
-    // keep consistent with your WO examples
     const equipmentSerialLast6 = last6(eq?.serial || eq?.equipmentSerial || "");
     const equipmentType = eq?.type || null;
 
@@ -580,7 +597,6 @@ import {
       const other = (t.refs.topicOther.value || "").trim();
       const notes = (t.refs.notes.value || "").trim();
 
-      // partsNeeded lives in "Additional info" section
       const partsNeeded = (t.el.querySelector('[data-role="partsNeeded"]')?.value || "").trim();
 
       return {
@@ -624,7 +640,6 @@ import {
       btnSubmit.textContent = "Create Work Order";
     }
 
-    // Start with one task
     addTask();
   }
 
@@ -694,7 +709,6 @@ import {
     });
 
     dlg.addEventListener("close", ()=>{
-      // wipe when closed so it always opens clean
       STATE.eq = null;
       STATE.tasks = [];
       STATE.isSaving = false;
@@ -722,14 +736,11 @@ import {
         await ready;
         const db = getFirestore();
 
-        // 1) Create WO first
         const payload = buildWoPayload(STATE.eq);
         const docRef = await addDoc(collection(db, WO_COLLECTION), payload);
 
-        // 2) Upload all files (WO-level)
         const up = await uploadAllWoFiles(docRef.id);
 
-        // 3) Patch WO with attachmentUrls/count
         if(up.urls.length || up.skipped){
           await updateDoc(doc(db, WO_COLLECTION, docRef.id), {
             attachmentUrls: up.urls,
@@ -738,7 +749,6 @@ import {
           });
         }
 
-        // notify any listeners
         window.dispatchEvent(new CustomEvent("fv-wo:created", {
           detail: { woId: docRef.id, equipmentId: STATE.eq.id, attachmentCount: up.urls.length }
         }));
@@ -786,6 +796,5 @@ import {
     openSheet(UI.dlg);
   }
 
-  // expose global API for lazy-loader caller
   window.FVShopEquipWOModal = { open };
 })();
