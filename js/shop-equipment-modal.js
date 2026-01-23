@@ -424,6 +424,8 @@ import {
     leftWrap.style.gap = "8px";
     leftWrap.style.flexWrap = "wrap";
     leftWrap.style.alignItems = "center";
+    leftWrap.style.flex = "1 1 auto";
+
 
     const btnSvcRecords = document.createElement("button");
     btnSvcRecords.type = "button";
@@ -441,7 +443,7 @@ import {
     const btnAddWO = document.createElement("button");
     btnAddWO.type = "button";
     btnAddWO.className = "btn";
-    btnAddWO.textContent = "+ Add New Work Order";
+    btnAddWO.textContent = "Add New Work Order";
     btnAddWO.setAttribute("data-fv","addWoBtn");
 
     btnSvcRecords.addEventListener("click", async ()=>{
@@ -466,9 +468,14 @@ import {
       }
     });
 
-    leftWrap.appendChild(btnSvcRecords);
-    leftWrap.appendChild(btnEdit);
-    leftWrap.appendChild(btnAddWO);
+    const spacer = document.createElement("div");
+spacer.style.flex = "1 1 auto";
+
+leftWrap.appendChild(btnAddWO);     // far left
+leftWrap.appendChild(spacer);      // big gap
+leftWrap.appendChild(btnSvcRecords);
+leftWrap.appendChild(btnEdit);
+
 
     UI.svcFooter.insertBefore(leftWrap, UI.svcFooter.firstChild);
 
