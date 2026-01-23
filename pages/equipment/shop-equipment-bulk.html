@@ -259,6 +259,24 @@
     }
     thead th:last-child{border-right:none;}
 
+    /* ✅ Spreadsheet-style header sort affordance */
+    thead th.th-sort{
+      cursor:pointer;
+      user-select:none;
+    }
+    .th-inner{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:6px;
+      width:100%;
+    }
+    .th-sort-ind{
+      font-size:11px;
+      opacity:.6;
+      line-height:1;
+    }
+
     tbody td{
       border-bottom:1px solid var(--gridline);
       border-right:1px solid var(--gridline);
@@ -583,6 +601,8 @@
       </div>
     </div>
 
+    <div class="body"></div>
+
     <footer>
       <button id="sfCancel" class="btn" type="button">Cancel</button>
       <button id="sfSave" class="btn btn-primary" type="button">Save Location</button>
@@ -648,7 +668,11 @@
       filter: "planters",
       q: "",
       sfSelected: null,
-      selectedRowId: null
+      selectedRowId: null,
+
+      /* ✅ Spreadsheet-style sort state */
+      sortKey: null,   // column key
+      sortDir: 1       // 1 asc, -1 desc
     };
 
     const norm = v => (v||"").toString().trim().toLowerCase();
@@ -712,7 +736,13 @@
         d.type, d.implementType, d.year,
         d.totalAcres, d.totalHours, d.engineHours,
         d.odometerMiles, d.licensePlate,
-        d.placedInServiceDate
+        d.placedInServiceDate,
+
+        /* ✅ allow quick finds for these when you start using them */
+        d.licensePlateExpiration,
+        d.insuranceExpiration,
+        d.dotExpirationDate,
+        d.dotExpiration
       ].map(x => (x==null?"":String(x))).join(" ").toLowerCase();
       return hay.includes(q);
     }
@@ -754,6 +784,33 @@
       return v !== null && v !== undefined && String(v).trim() !== "";
     }
 
+    /* ✅ robust date formatting for strings / Dates / Firestore Timestamps */
+    function toDateObj(v){
+      if(!v) return null;
+      if(v instanceof Date) return v;
+      if(typeof v === "object"){
+        if(typeof v.toDate === "function") return v.toDate();
+        if(typeof v.seconds === "number") return new Date(v.seconds * 1000);
+      }
+      const s = String(v).trim();
+      if(!s) return null;
+      const d = new Date(s);
+      if(Number.isNaN(d.getTime())) return null;
+      return d;
+    }
+    function fmtDateISO(v){
+      const d = toDateObj(v);
+      if(!d) return "";
+      const y = d.getFullYear();
+      const m = String(d.getMonth()+1).padStart(2,"0");
+      const da = String(d.getDate()).padStart(2,"0");
+      return `${y}-${m}-${da}`;
+    }
+    function dateSortNum(v){
+      const d = toDateObj(v);
+      return d ? d.getTime() : 0;
+    }
+
     function renderFilterDropdown(){
       catSelect.innerHTML = FILTERS.map(f=>(
         `<option value="${escapeHtml(f.key)}">${escapeHtml(f.label)}</option>`
@@ -768,7 +825,10 @@
       if(state.filter === "starfire"){
         let arr = active.filter(d => norm(d.type) === "starfire");
         if(q) arr = arr.filter(d => matchesSearch(d, q));
-        arr.sort((a,b)=> String(a.serial||"").localeCompare(String(b.serial||"")));
+        /* keep your default order unless a header sort is active */
+        if(!state.sortKey){
+          arr.sort((a,b)=> String(a.serial||"").localeCompare(String(b.serial||"")));
+        }
         return arr;
       }
 
@@ -778,13 +838,16 @@
       }
       if(q) arr = arr.filter(d => matchesSearch(d, q));
 
-      arr.sort((a,b)=>{
-        const an=(a.unitId||a.name||"").toLowerCase();
-        const bn=(b.unitId||b.name||"").toLowerCase();
-        if(an<bn) return -1;
-        if(an>bn) return 1;
-        return Number(b.year||0)-Number(a.year||0);
-      });
+      /* keep your default order unless a header sort is active */
+      if(!state.sortKey){
+        arr.sort((a,b)=>{
+          const an=(a.unitId||a.name||"").toLowerCase();
+          const bn=(b.unitId||b.name||"").toLowerCase();
+          if(an<bn) return -1;
+          if(an>bn) return 1;
+          return Number(b.year||0)-Number(a.year||0);
+        });
+      }
 
       return arr;
     }
@@ -806,8 +869,20 @@
 
       const showCategoryCol = (state.filter === "all");
 
+      /* ✅ Trucks/Trailers conditional expiration columns:
+         Only show these columns when viewing Trucks
+         AND at least one visible row has a valid value.
+         (Trailer support: if you store type='trailer' later and still use Trucks view,
+          the columns still work because it's based on rows.)
+      */
+      const isTruckTrailerView = (state.filter === "trucks");
+      const showLPExp  = isTruckTrailerView && hasAny(rows, r => isPresent(r.licensePlateExpiration));
+      const showInsExp = isTruckTrailerView && hasAny(rows, r => isPresent(r.insuranceExpiration));
+      const showDOTExp = isTruckTrailerView && hasAny(rows, r => isPresent(r.dotExpirationDate) || isPresent(r.dotExpiration));
+
       /* ✅ Column order requested:
          Unit, Unit ID, Acres, Hours, Mileage, then the rest the same (Notes, Category(if all), Year, Serial, In Service)
+         + (for Trucks view only) LP Exp / Ins Exp / DOT Exp (only if any value exists)
       */
       const cols = [
         { key:"unit",   label:"Unit", w:420, wrap:true },
@@ -817,6 +892,11 @@
       if(showAcres){ cols.push({ key:"acres", label:"Acres", w:110, wrap:false }); }
       if(showHours){ cols.push({ key:"hours", label:"Hours", w:110, wrap:false }); }
       if(showMileage){ cols.push({ key:"miles", label:"Mileage", w:120, wrap:false }); }
+
+      /* ✅ New columns (abbreviated to stay narrow) */
+      if(showLPExp){  cols.push({ key:"lpExp",  label:"LP Exp",  w:110, wrap:false }); }
+      if(showInsExp){ cols.push({ key:"insExp", label:"Ins Exp", w:110, wrap:false }); }
+      if(showDOTExp){ cols.push({ key:"dotExp", label:"DOT Exp", w:110, wrap:false }); }
 
       cols.push({ key:"notes",  label:"Notes", w:420, wrap:true });
 
@@ -839,9 +919,39 @@
     function renderHead(cols){
       thead.innerHTML = `
         <tr>
-          ${cols.map(c=>`<th class="${c.wrap ? 'wrap' : ''}" style="min-width:${scaleW(c.w)}px">${escapeHtml(c.label)}</th>`).join("")}
+          ${cols.map(c=>{
+            const isSorted = (state.sortKey === c.key);
+            const ind = isSorted ? (state.sortDir === 1 ? "▲" : "▼") : "";
+            return `
+              <th
+                class="${c.wrap ? 'wrap' : ''} th-sort"
+                data-key="${escapeHtml(c.key)}"
+                style="min-width:${scaleW(c.w)}px"
+                title="Sort"
+              ><span class="th-inner">${escapeHtml(c.label)}<span class="th-sort-ind">${escapeHtml(ind)}</span></span></th>
+            `;
+          }).join("")}
         </tr>
       `;
+
+      /* ✅ click-to-sort, like a spreadsheet header */
+      thead.querySelectorAll("th.th-sort[data-key]").forEach(th=>{
+        th.addEventListener("click", ()=>{
+          const key = th.getAttribute("data-key") || "";
+          if(!key) return;
+
+          if(state.sortKey === key){
+            state.sortDir = (state.sortDir === 1 ? -1 : 1);
+          } else {
+            state.sortKey = key;
+            state.sortDir = 1;
+          }
+
+          state.selectedRowId = null;
+          renderTable();
+          requestAnimationFrame(()=> ZOOM.recomputeBounds());
+        });
+      });
     }
 
     function unitDisplay(eq){
@@ -859,6 +969,63 @@
       return a || b || "";
     }
 
+    /* ✅ Sort helpers (numbers/dates/strings) */
+    function sortValue(d, key){
+      switch(key){
+        case "unit":   return unitDisplay(d).toLowerCase();
+        case "unitId": return String(d.unitId||"").toLowerCase();
+        case "acres":  return Number(d.totalAcres ?? 0) || 0;
+        case "hours":  return Number(d.totalHours ?? d.engineHours ?? 0) || 0;
+        case "miles":  return Number(d.odometerMiles ?? 0) || 0;
+
+        case "lpExp":  return dateSortNum(d.licensePlateExpiration);
+        case "insExp": return dateSortNum(d.insuranceExpiration);
+        case "dotExp": return dateSortNum(d.dotExpirationDate || d.dotExpiration);
+
+        case "notes":  return combinedNotes(d).toLowerCase();
+        case "cat":    return catLabel(d).toLowerCase();
+        case "year":   return Number(d.year ?? 0) || 0;
+        case "serial": return String(d.serial||"").toLowerCase();
+        case "pis":    return dateSortNum(d.placedInServiceDate);
+
+        // starfire keys (if user sorts on StarFire view)
+        case "sfSerial": return String(d.serial||"").toLowerCase();
+        case "sfLast4":  return serialLast4(d.serial||"");
+        case "sfLoc":    return String(d.starfireCurrentLocationName||"").toLowerCase();
+        case "sfSince":  return dateSortNum(d.starfireCurrentLocationSince);
+
+        default:
+          return String(d[key] ?? "").toLowerCase();
+      }
+    }
+
+    function applySort(rows){
+      if(!state.sortKey) return rows;
+
+      const key = state.sortKey;
+      const dir = state.sortDir || 1;
+
+      const arr = rows.slice();
+      arr.sort((a,b)=>{
+        const av = sortValue(a, key);
+        const bv = sortValue(b, key);
+
+        // numeric compare when both are numbers
+        if(typeof av === "number" && typeof bv === "number"){
+          if(av < bv) return -1 * dir;
+          if(av > bv) return  1 * dir;
+          return 0;
+        }
+
+        // fallback string compare
+        const as = String(av ?? "");
+        const bs = String(bv ?? "");
+        return as.localeCompare(bs, undefined, { sensitivity:"base" }) * dir;
+      });
+
+      return arr;
+    }
+
     function renderTable(){
       const rows = filteredRows();
       const cols = buildColumnsForCurrentView(rows);
@@ -870,7 +1037,9 @@
         return;
       }
 
-      tbody.innerHTML = rows.map(d=>{
+      const viewRows = applySort(rows);
+
+      tbody.innerHTML = viewRows.map(d=>{
         if(state.filter === "starfire"){
           const loc = d.starfireCurrentLocationName || "—";
           const since = d.starfireCurrentLocationSince || "";
@@ -879,7 +1048,7 @@
               <td class="wrap"><span class="cell-title">${escapeHtml(String(d.serial||""))}</span></td>
               <td class="kpi">${escapeHtml(serialLast4(d.serial||""))}</td>
               <td class="wrap">${escapeHtml(loc)}</td>
-              <td class="muted">${escapeHtml(String(since||""))}</td>
+              <td class="muted">${escapeHtml(String(fmtDateISO(since) || String(since||"")))}</td>
             </tr>
           `;
         }
@@ -900,6 +1069,15 @@
               return `<td class="kpi">${escapeHtml(fmtNum(hours, 1))}</td>`;
             case "miles":
               return `<td class="kpi">${escapeHtml(fmtNum(d.odometerMiles ?? "", 0))}</td>`;
+
+            /* ✅ new truck/trailer expiration cells */
+            case "lpExp":
+              return `<td class="muted">${escapeHtml(fmtDateISO(d.licensePlateExpiration) || "—")}</td>`;
+            case "insExp":
+              return `<td class="muted">${escapeHtml(fmtDateISO(d.insuranceExpiration) || "—")}</td>`;
+            case "dotExp":
+              return `<td class="muted">${escapeHtml(fmtDateISO(d.dotExpirationDate || d.dotExpiration) || "—")}</td>`;
+
             case "notes":
               return `<td class="muted wrap">${escapeHtml(combinedNotes(d))}</td>`;
             case "cat":
@@ -1176,12 +1354,18 @@
     catSelect.addEventListener("change", ()=>{
       state.filter = catSelect.value;
       state.selectedRowId = null;
+
+      /* ✅ Optional: keep sort across filters; comment out next 2 lines if you want sort to reset on filter */
+      // state.sortKey = null;
+      // state.sortDir = 1;
+
       renderTable();
       requestAnimationFrame(()=> ZOOM.recomputeBounds());
     });
 
     qInput.addEventListener("input", ()=>{
       state.q = qInput.value || "";
+      state.selectedRowId = null;
       renderTable();
       requestAnimationFrame(()=> ZOOM.recomputeBounds());
     });
