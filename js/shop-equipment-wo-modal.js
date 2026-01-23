@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/shop-equipment-wo-modal.js  (NEW FILE)
-Rev: 2026-01-23b
+Rev: 2026-01-23c
 Purpose:
 ✅ Standalone "Add New Work Order" modal (multi-task, attachments)
 ✅ Creates Work Order directly (NO approval flow):
@@ -9,10 +9,10 @@ Purpose:
    - attachmentUrls[]
    - attachmentCount
 
-Update (per Dane):
-✅ Keep task UI very clean:
-   - Parts + Photos/Files remain hidden until "Additional info" is clicked
-   - When topic changes, auto-collapse Additional info
+Fix (per Dane):
+✅ Keep Parts + Photos/Files hidden until "Additional info" is clicked
+   - Add scoped [hidden]{display:none!important} inside .fv-wo-skin (prevents global CSS overrides)
+   - Force-collapse Additional info in JS on init and topic changes
 
 Notes:
 - Designed to be lazy-loaded from shop-equipment-modal.js
@@ -52,7 +52,7 @@ import {
     { v:"other", label:"Other (describe below)" }
   ];
 
-  const WO_COLLECTION = "equipmentWorkOrders"; // ✅ per Dane: WO-level attachments
+  const WO_COLLECTION = "equipmentWorkOrders"; // ✅ WO-level attachments
 
   const UI = {
     dlg: null
@@ -88,6 +88,10 @@ import {
   overflow:hidden;
 }
 .fv-wo-skin::backdrop{ background:rgba(0,0,0,.55); }
+
+/* ✅ CRITICAL: prevent global CSS from breaking hidden panels */
+.fv-wo-skin [hidden]{ display:none !important; }
+
 .fv-wo-skin header{
   padding:14px 16px; border-bottom:1px solid var(--border);
   display:flex; justify-content:space-between; align-items:center; gap:10px;
@@ -382,7 +386,6 @@ import {
           placeholder="Example: Rear axle vibration, cab door seal, etc.">
       </div>
 
-      <!-- Notes area stays clean. Additional info stays collapsed until button click. -->
       <div class="details-wrap" data-role="details" hidden>
         <div class="form-row">
           <label>
@@ -400,7 +403,6 @@ import {
           <div class="muted">Tap if you need parts, photos, files, or extra details.</div>
         </div>
 
-        <!-- ✅ Parts + Photos/Files live ONLY here and remain hidden until button click -->
         <div class="details-wrap" data-role="more" hidden>
           <div class="form-row">
             <label>Parts needed (if known)</label>
@@ -434,8 +436,11 @@ import {
 
     buildTopicSelect(topicSel);
 
+    // ✅ Force a collapsed/clean initial state no matter what CSS does
+    toggleMore.setAttribute("aria-expanded","false");
+    moreWrap.hidden = true;
+
     const collapseAdditional = ()=>{
-      // Always collapse on topic changes so it stays clean
       toggleMore.setAttribute("aria-expanded","false");
       moreWrap.hidden = true;
     };
@@ -445,7 +450,7 @@ import {
       topicOtherRow.hidden = (v !== "other");
       details.hidden = !v;
 
-      // keep additional info clean/collapsed every time they change topic
+      // Always keep Additional info collapsed unless user expands it
       collapseAdditional();
 
       if(v){
