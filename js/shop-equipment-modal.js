@@ -1,7 +1,14 @@
 /* =====================================================================
 /Farm-vista/js/shop-equipment-modal.js  (FULL FILE)
-Rev: 2026-01-22j
+Rev: 2026-01-23b
 Updates:
+✅ Load external Work Order modal module:
+   /Farm-vista/js/shop-equipment-wo-modal.js
+✅ Add "+ Add New Work Order" button (lower-left) in Lifetime Notes footer
+   - Opens external WO modal for the currently-open equipment
+   - Keeps this file light (WO UI + uploads live in the external module)
+
+Keeps:
 ✅ Add back Archive / Unarchive button in the Edit modal footer
    - Toggles status Active <-> Archived
    - Writes updatedAt serverTimestamp()
@@ -59,6 +66,7 @@ import {
 
     btnSvcRecords: null,
     btnEdit: null,
+    btnAddWO: null, // ✅ NEW
 
     srSheet: null,
     editSheet: null
@@ -82,7 +90,11 @@ import {
     editEqId: null,
     editEqDoc: null,
     editExtras: null,
-    editTypeKey: "equipment"
+    editTypeKey: "equipment",
+
+    // ✅ NEW: lazy-loaded WO modal module (keeps this file small)
+    woModule: null,
+    woModuleLoading: null
   };
 
   function escapeHtml(s){
@@ -327,6 +339,53 @@ import {
     requestAnimationFrame(apply);
   }
 
+  // ===================================================================
+  //  ✅ NEW: External Work Order modal loader + opener
+  // ===================================================================
+  async function ensureWoModalLoaded(){
+    if(state.woModule) return state.woModule;
+    if(state.woModuleLoading) return state.woModuleLoading;
+
+    state.woModuleLoading = (async ()=>{
+      try{
+        const mod = await import("/Farm-vista/js/shop-equipment-wo-modal.js");
+        state.woModule = mod || {};
+        return state.woModule;
+      }catch(e){
+        console.error("[shop-equip-modal] failed to import shop-equipment-wo-modal.js", e);
+        state.woModule = null;
+        throw e;
+      }finally{
+        state.woModuleLoading = null;
+      }
+    })();
+
+    return state.woModuleLoading;
+  }
+
+  async function openWorkOrderModal(eq){
+    if(!eq) return;
+
+    await ensureWoModalLoaded();
+
+    // Prefer global (module may attach here)
+    const g = window.FVShopEquipWOModal || window.FVShopEquipmentWOModal || null;
+
+    // Or use exports from dynamic import
+    const mod = state.woModule || {};
+
+    const opener =
+      (g && (g.open || g.openModal || g.openWorkOrder)) ||
+      mod.open || mod.openModal || mod.openWorkOrder ||
+      (mod.default && (mod.default.open || mod.default.openModal || mod.default.openWorkOrder));
+
+    if(typeof opener !== "function"){
+      throw new Error("WO modal loaded but no open() function found. Expected window.FVShopEquipWOModal.open(...) or exported open().");
+    }
+
+    return await opener(eq);
+  }
+
   // ---------- bootstrap ----------
   function bootstrap(){
     if(UI.svcSheet) return;
@@ -378,6 +437,13 @@ import {
     btnEdit.textContent = "Edit";
     btnEdit.setAttribute("data-fv","editBtn");
 
+    // ✅ NEW: Add New Work Order (opens external module modal)
+    const btnAddWO = document.createElement("button");
+    btnAddWO.type = "button";
+    btnAddWO.className = "btn";
+    btnAddWO.textContent = "+ Add New Work Order";
+    btnAddWO.setAttribute("data-fv","addWoBtn");
+
     btnSvcRecords.addEventListener("click", async ()=>{
       if(!state.eq) return;
       try{ await openServiceRecordsModal(state.eq); }
@@ -390,12 +456,25 @@ import {
       catch(e){ console.error(e); showError(e?.message || "Failed to open editor."); }
     });
 
+    btnAddWO.addEventListener("click", async ()=>{
+      if(!state.eq) return;
+      try{
+        await openWorkOrderModal(state.eq);
+      }catch(e){
+        console.error(e);
+        showError(e?.message || "Failed to open Work Order modal.");
+      }
+    });
+
     leftWrap.appendChild(btnSvcRecords);
     leftWrap.appendChild(btnEdit);
+    leftWrap.appendChild(btnAddWO);
+
     UI.svcFooter.insertBefore(leftWrap, UI.svcFooter.firstChild);
 
     UI.btnSvcRecords = btnSvcRecords;
     UI.btnEdit = btnEdit;
+    UI.btnAddWO = btnAddWO;
   }
 
   // ===================================================================
