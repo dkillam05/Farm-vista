@@ -751,6 +751,7 @@
     /* ================================================================
        Extras engine (equipment-forms.js)
        FIX: starfireCapable must reflect Firestore boolean true/false
+       FIX: placedInServiceDate must hydrate into <input type="date"> as YYYY-MM-DD
        ================================================================ */
     let extras = null;
 
@@ -787,6 +788,30 @@
 
       // Any other non-empty string: treat as true
       return true;
+    }
+
+    // Normalize Firestore Timestamp/Date/ISO string to YYYY-MM-DD (for <input type="date">)
+    function toISODateOnly(v){
+      if (!v) return '';
+      // Firestore Timestamp
+      if (typeof v === 'object' && typeof v.toDate === 'function'){
+        const dt = v.toDate();
+        const y = dt.getFullYear();
+        const m = String(dt.getMonth()+1).padStart(2,'0');
+        const d = String(dt.getDate()).padStart(2,'0');
+        return `${y}-${m}-${d}`;
+      }
+      // Plain JS Date
+      if (v instanceof Date){
+        const y = v.getFullYear();
+        const m = String(v.getMonth()+1).padStart(2,'0');
+        const d = String(v.getDate()).padStart(2,'0');
+        return `${y}-${m}-${d}`;
+      }
+      // String: "2023-08-01" or "2023-08-01T00:00:00.000Z"
+      const s = String(v).trim();
+      if (s.includes('T')) return s.split('T')[0];
+      return s;
     }
 
     function findExtraEl(fieldId){
@@ -866,6 +891,10 @@
 
       const keys = [
         'unitId', // <-- include if equipment-forms renders this directly (some do)
+
+        // ✅ date field (string or Timestamp) -> YYYY-MM-DD
+        'placedInServiceDate',
+
         'engineHours','separatorHours','odometerMiles','boomWidthFt','tankSizeGal','starfireCapable',
         'implementType','workingWidthFt','numRows','rowSpacingIn','totalAcres','totalHours','bushelCapacityBu','augerDiameterIn','augerLengthFt',
         'applicationType',
@@ -886,8 +915,13 @@
         keys.forEach(k=>{
           if (!Object.prototype.hasOwnProperty.call(d, k)) return;
 
-          if (k === 'starfireCapable') anySet = setExtraValue(k, boolify(d[k])) || anySet;
-          else anySet = setExtraValue(k, d[k]) || anySet;
+          if (k === 'starfireCapable') {
+            anySet = setExtraValue(k, boolify(d[k])) || anySet;
+          } else if (k === 'placedInServiceDate') {
+            anySet = setExtraValue(k, toISODateOnly(d[k])) || anySet;
+          } else {
+            anySet = setExtraValue(k, d[k]) || anySet;
+          }
         });
 
         // If StarFire element wasn't present yet, try again a few frames.
@@ -933,6 +967,9 @@
       }
       const d=snap.data()||{};
 
+      // handy debug hook (does not affect app behavior)
+      window.__lastEquipDoc = d;
+
       refreshMakeSelect(d.makeId || d.makeName || '');
       refreshModelSelect(d.modelId || d.modelName || '');
 
@@ -949,7 +986,7 @@
       f.notes.value = d.notes || '';
       f.sn.oninput = ()=> (f.sn6.textContent = (f.sn.value||'').slice(-6) || '—');
 
-      // Extras hydrate (StarFire capable follows Firestore true/false)
+      // Extras hydrate (StarFire capable + placedInServiceDate follow Firestore)
       hydrateExtrasFromDoc(d);
 
       // Delete guard
