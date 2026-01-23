@@ -1,6 +1,6 @@
 /* =======================================================================
 /Farm-vista/js/equipment-forms.js  (FULL FILE)
-Rev: 2026-01-23a  ✅ Add StarFire slider to CONSTRUCTION (machine)
+Rev: 2026-01-23b  ✅ StarFire slider for CONSTRUCTION: machine + attachment
 
 Purpose:
   Shared "extras" engine for equipment forms.
@@ -19,7 +19,7 @@ Key updates:
      - Date this equipment was first put into regular use (may differ from purchase/model year)
 
   ✅ StarFire GPS Capable? slider now also available for:
-     - construction (visible for "machine")
+     - construction: machine + attachment (so it works for attachmentType="other")
 
 Keeps:
   ✅ All "toggle" fields now render as a real on/off slider switch
@@ -192,7 +192,7 @@ Keeps:
       numField('rowSpacingIn', 'Row Spacing (in)', {
         step: '1',
         inputmode: 'numeric',
-        placeholder: 'e.g. 30',
+       placeholder: 'e.g. 30',
         visibleForTypes: ['planter', 'corn-head']
       }),
 
@@ -366,11 +366,12 @@ Keeps:
         visibleForTypes: ['machine']
       }),
 
-      // ✅ Add StarFire slider for construction EQUIPMENT (machine)
+      // ✅ StarFire slider for construction MACHINE + ATTACHMENT
+      //    (Needed for your Landoll: constructionType="attachment", attachmentType="other")
       toggleField('starfireCapable', 'StarFire GPS Capable?', {
         onLabel:'On',
         offLabel:'Off',
-        visibleForTypes: ['machine']
+        visibleForTypes: ['machine','attachment']
       }),
 
       selectField(
