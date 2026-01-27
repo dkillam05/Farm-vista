@@ -790,6 +790,8 @@
     window.FV_MARKETS_BASE_URL = "https://farmvista-markets-300398089669.us-central1.run.app";
   </script>
   <script src="js/markets.js?v=PV1"></script>
+
+  <!-- ✅ Dashboard markets modal wiring (MATCHES /js/markets.js contractTap + fetchChart(symbol, mode)) -->
   <script>
   (function(){
     "use strict";
@@ -805,13 +807,20 @@
     const metaR     = document.getElementById("mkt-meta-right");
     const errBox    = document.getElementById("mkt-error");
 
-    let currentMarketKey = "corn";
-    let currentMode = "intraday"; // intraday | trend
+    // From markets.js contractTap event: detail.symbol
+    let currentSymbol = "";
+    let currentModeUi = "intraday"; // intraday | trend
+
+    // Map UI tabs -> backend "mode" values used by /js/markets.js
+    // markets.js comment: mode=daily|weekly|6mo|1y
+    function backendModeFor(uiMode){
+      return (uiMode === "trend") ? "6mo" : "daily";
+    }
 
     function setTab(mode){
-      currentMode = mode;
-      tabIntra.setAttribute("aria-pressed", mode === "intraday" ? "true" : "false");
-      tabTrend.setAttribute("aria-pressed", mode === "trend" ? "true" : "false");
+      currentModeUi = mode;
+      if(tabIntra) tabIntra.setAttribute("aria-pressed", mode === "intraday" ? "true" : "false");
+      if(tabTrend) tabTrend.setAttribute("aria-pressed", mode === "trend" ? "true" : "false");
     }
 
     function openModal(){
@@ -836,6 +845,17 @@
       errBox.textContent = "";
     }
 
+    function valClose(p){
+      const v = (p && (p.c ?? p.close ?? p.price ?? p.last ?? p.value));
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function valTime(p){
+      const t = (p && (p.tUtc ?? p.t ?? p.timeUtc ?? p.ts ?? p.time));
+      return t != null ? String(t) : "";
+    }
+
     function drawSeries(points){
       if(!canvas) return;
       const ctx = canvas.getContext("2d");
@@ -844,7 +864,6 @@
       const w = canvas.width;
       const h = canvas.height;
 
-      // background (transparent; rely on theme)
       ctx.clearRect(0,0,w,h);
 
       if(!points || !points.length){
@@ -856,8 +875,7 @@
         return;
       }
 
-      // extract closes
-      const vals = points.map(p => Number(p.c)).filter(n => Number.isFinite(n));
+      const vals = points.map(valClose).filter(n => n != null);
       if(!vals.length){
         ctx.save();
         ctx.globalAlpha = 0.7;
@@ -918,42 +936,54 @@
       }catch{ return ""; }
     }
 
+    function labelForSymbol(sym){
+      const s = (sym || "").toUpperCase();
+      if(s.startsWith("ZC")) return "Corn";
+      if(s.startsWith("ZS")) return "Soybeans";
+      return "Contract";
+    }
+
     async function loadChart(){
-      if(!window.FVMarkets || typeof FVMarkets.fetchChart !== "function") return;
+      if(!currentSymbol){
+        showError("No contract selected.");
+        return;
+      }
+      if(!window.FVMarkets || typeof FVMarkets.fetchChart !== "function"){
+        showError("Markets module not loaded.");
+        return;
+      }
 
       clearError();
 
-      const label = (currentMarketKey === "soy") ? "Soybeans" : "Corn";
-      const modeLabel = (currentMode === "trend") ? "Trend" : "Intraday";
-      titleEl.textContent = `${label} • ${modeLabel}`;
+      const backendMode = backendModeFor(currentModeUi);
+      const uiLabel = labelForSymbol(currentSymbol);
+      const modeLabel = (currentModeUi === "trend") ? "Trend" : "Intraday";
+      if(titleEl) titleEl.textContent = `${uiLabel} • ${currentSymbol.toUpperCase()} • ${modeLabel}`;
 
-      // Intraday: 1d / 5m
-      // Trend: 6mo / 1d
-      const range = (currentMode === "trend") ? "6mo" : "1d";
-      const interval = (currentMode === "trend") ? "1d" : "5m";
-
-      subEl.textContent = "Loading…";
+      if(subEl) subEl.textContent = "Loading…";
+      if(metaL) metaL.textContent = "";
+      if(metaR) metaR.textContent = "";
 
       try{
-        const data = await FVMarkets.fetchChart(currentMarketKey, range, interval);
+        const data = await FVMarkets.fetchChart(currentSymbol, backendMode);
         const pts = Array.isArray(data?.points) ? data.points : [];
 
         drawSeries(pts);
 
-        const last = pts.length ? pts[pts.length - 1] : null;
         const first = pts.length ? pts[0] : null;
+        const last  = pts.length ? pts[pts.length - 1] : null;
 
-        metaL.textContent = data?.delayNote || "Delayed quotes";
-        metaR.textContent = last?.tUtc
-          ? `Last point: ${formatLocalTime(last.tUtc)}`
-          : "";
+        const firstT = formatLocalTime(valTime(first));
+        const lastT  = formatLocalTime(valTime(last));
 
-        // remove loading
-        subEl.textContent = (first && last)
-          ? `${formatLocalTime(first.tUtc)} → ${formatLocalTime(last.tUtc)}`
-          : "";
+        if(subEl) subEl.textContent = (firstT && lastT) ? `${firstT} → ${lastT}` : "";
+        if(metaL) metaL.textContent = data?.delayNote || "Delayed quotes";
+        if(metaR){
+          const asOf = formatLocalTime(data?.asOfUtc || data?.asOf || "");
+          metaR.textContent = asOf ? `As of: ${asOf}` : (lastT ? `Last point: ${lastT}` : "");
+        }
       }catch(e){
-        subEl.textContent = "";
+        if(subEl) subEl.textContent = "";
         showError(e?.message || "Failed to load chart.");
         drawSeries([]);
       }
@@ -963,40 +993,46 @@
     document.addEventListener("DOMContentLoaded", function(){
       try{
         if(window.FVMarkets && typeof FVMarkets.start === "function"){
-          FVMarkets.start({ refreshMs: 30000 });
+          FVMarkets.start(); // markets.js ignores args; it owns refresh interval
         }
       }catch(e){
         console.warn("[dashboard] FVMarkets.start failed:", e);
       }
     });
 
-    // Tap on Corn/Soy card -> open modal and load chart
+    // Tap on any contract row -> open modal and load chart
     window.addEventListener("fv:markets:contractTap", (e)=>{
-      const mk = (e && e.detail && e.detail.marketKey) ? String(e.detail.marketKey) : "";
-      if(mk !== "corn" && mk !== "soy") return;
-      currentMarketKey = mk;
+      const sym = (e && e.detail && e.detail.symbol) ? String(e.detail.symbol) : "";
+      if(!sym) return;
+      currentSymbol = sym;
       setTab("intraday");
       openModal();
       loadChart();
     });
 
     // Tabs
-    tabIntra.addEventListener("click", ()=>{
-      if(!modal || modal.hasAttribute("hidden")) return;
-      setTab("intraday");
-      loadChart();
-    });
-    tabTrend.addEventListener("click", ()=>{
-      if(!modal || modal.hasAttribute("hidden")) return;
-      setTab("trend");
-      loadChart();
-    });
+    if(tabIntra){
+      tabIntra.addEventListener("click", ()=>{
+        if(!modal || modal.hasAttribute("hidden")) return;
+        setTab("intraday");
+        loadChart();
+      });
+    }
+    if(tabTrend){
+      tabTrend.addEventListener("click", ()=>{
+        if(!modal || modal.hasAttribute("hidden")) return;
+        setTab("trend");
+        loadChart();
+      });
+    }
 
     // Close handlers
-    closeBtn.addEventListener("click", closeModal);
-    modal.addEventListener("click", (evt)=>{
-      if(evt.target === modal) closeModal();
-    });
+    if(closeBtn) closeBtn.addEventListener("click", closeModal);
+    if(modal){
+      modal.addEventListener("click", (evt)=>{
+        if(evt.target === modal) closeModal();
+      });
+    }
     document.addEventListener("keydown", (evt)=>{
       if(evt.key === "Escape" && modal && !modal.hasAttribute("hidden")) closeModal();
     });
