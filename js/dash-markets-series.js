@@ -1,35 +1,35 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-series.js  (FULL FILE)
-Rev: 2026-01-28c
+Rev: 2026-01-28d
 Purpose:
 ✅ Time-range + series shaping helper for FarmVista Markets charts (standalone)
 ✅ Converts Cloud Run chart.points[] into normalized series rows for:
-   - Candles (OHLC) for: daily / weekly / monthly
-   - Line (close) for: 6mo / 1y
-✅ Enforces your rules:
-   - Daily = TODAY session only (no overnight) using America/Chicago buckets + RTH filter
-   - Weekly = last 7 trading sessions (last 7 Chicago day buckets)
-   - Monthly = last 30 trading sessions (last 30 Chicago day buckets)
-   - 6mo = last ~126 sessions
-   - 1y = last ~252 sessions
+   - Candles (OHLC)
+   - Line (close)
+✅ Enforces your rules + Yahoo-style labels:
+   - 1D  = TODAY session only (no overnight) using America/Chicago buckets + RTH filter (intraday)
+   - 5D  = last 5 trading sessions, HOURLY candlesticks (RTH only when intraday)  ✅ requested
+   - 1M  = last 30 trading sessions, DAILY candlesticks (1 candle per day)        ✅ requested
+   - 6M  = line (close), last ~126 sessions
+   - 1Y  = line (close), last ~252 sessions
+✅ Backward compatibility:
+   - Accepts legacy mode names: daily/weekly/monthly/6mo/1y
+   - Maps them to Yahoo equivalents internally:
+       daily   -> 1d
+       weekly  -> 5d
+       monthly -> 1m
+       6mo     -> 6m
+       1y      -> 1y
 ✅ Provides:
    - range label text (replaces "Points:")
    - x-axis label function appropriate to mode
 ✅ Safe global API:
    window.FVMarketsSeries.shape(points, mode, opts) -> { ok, mode, kind, label, rows, xLabelFn, xLabelCount, timeZone }
 
-IMPORTANT CHANGE (fix your complaint):
-✅ Weekly/Monthly now render TRUE session candles:
-   - 1 candle per Chicago session/day (RTH only when intraday)
-   - Weekly => 7 candles
-   - Monthly => 30 candles
-✅ Daily stays intraday (5m) but session-only, RTH only
-
-Notes:
-- Cloud Run modes:
-  - daily: 5m OHLC points (intraday)
-  - weekly: currently returns 6mo + 1wk candles (we still support it), BUT if it returns intraday we aggregate anyway
-  - monthly: often still comes back intraday (depends on backend). We aggregate to session candles regardless.
+IMPORTANT (why your monthly was blank earlier):
+- If the backend returns only 1 day of data for "monthly", you will still get no rows.
+- This file expects "1M" to be backed by a backend mode that returns ~30 days of data.
+  (When backend is fixed to return 1M data, this file renders it correctly as daily candles.)
 ===================================================================== */
 
 (function(){
@@ -40,14 +40,19 @@ Notes:
 
   const TZ = "America/Chicago";
 
-  const SESSIONS_WEEK = 7;
-  const SESSIONS_MONTH = 30;
-  const SESSIONS_6MO = 126; // ~21*6
-  const SESSIONS_1Y  = 252; // ~21*12
+  // Session counts
+  const SESSIONS_5D   = 5;
+  const SESSIONS_1M   = 30;
+  const SESSIONS_6M   = 126; // ~21*6
+  const SESSIONS_1Y   = 252; // ~21*12
 
   // RTH window: 08:30–13:20 America/Chicago (client-side)
-  const RTH_OPEN_MIN = 8 * 60 + 30;
+  // NOTE: This is what you asked for to remove overnight trades.
+  const RTH_OPEN_MIN  = 8 * 60 + 30;
   const RTH_CLOSE_MIN = 13 * 60 + 20;
+
+  // For 5D hourly candles, we bucket by hour (CT)
+  const HOUR_MINUTES = 60;
 
   function toNum(x){
     if (typeof x === "number" && isFinite(x)) return x;
@@ -64,6 +69,42 @@ Notes:
     return chartOrPoints.points || chartOrPoints.bars || chartOrPoints.data || chartOrPoints.series || [];
   }
 
+  // ---------------------------------------
+  // Mode normalization (Yahoo-style labels)
+  // ---------------------------------------
+  function normMode(mode){
+    const m = String(mode || "").toLowerCase().trim();
+
+    // Yahoo-style
+    if (m === "1d" || m === "1day") return "1d";
+    if (m === "5d" || m === "5day") return "5d";
+    if (m === "1m" || m === "1mo" || m === "1mon" || m === "month") return "1m";
+    if (m === "6m" || m === "6mo" || m === "6mon") return "6m";
+    if (m === "1y" || m === "1yr" || m === "year") return "1y";
+
+    // Legacy labels used earlier in this project
+    if (m === "daily") return "1d";
+    if (m === "weekly") return "5d";     // you want 5D like Yahoo, not weekly bars
+    if (m === "monthly") return "1m";
+    if (m === "6mo") return "6m";
+    if (m === "1y") return "1y";
+
+    // Fallback
+    return "1d";
+  }
+
+  function rangeLabel(mode){
+    if (mode === "1d") return "1D";
+    if (mode === "5d") return "5D";
+    if (mode === "1m") return "1M";
+    if (mode === "6m") return "6M";
+    if (mode === "1y") return "1Y";
+    return "";
+  }
+
+  // ---------------------------------------
+  // Time helpers (Chicago)
+  // ---------------------------------------
   function chicagoDayKeyFromUtc(iso){
     try{
       const d = new Date(iso);
@@ -170,10 +211,9 @@ Notes:
     return out;
   }
 
-  // ============================
+  // ---------------------------------------
   // Series builders
-  // ============================
-
+  // ---------------------------------------
   function makeIntradayCandleRows(points){
     // Keep each point as a candle (intraday bars)
     const rows = (points || []).map(p => ({
@@ -208,13 +248,11 @@ Notes:
 
     for (const k of keys){
       const arr = (buckets.get(k) || []).slice().sort((a,b)=>{
-        // chronological by tUtc
         const ta = Date.parse(a.tUtc || "") || 0;
         const tb = Date.parse(b.tUtc || "") || 0;
         return ta - tb;
       });
 
-      // Extract valid OHLC points
       const bars = arr.map(p => ({
         t: p?.tUtc ?? null,
         o: toNum(p?.o),
@@ -235,7 +273,72 @@ Notes:
       }
       if (!isFinite(h) || !isFinite(l)) continue;
 
-      // Use the session date as timestamp anchor (use last bar time)
+      out.push({
+        t: bars[bars.length - 1].t, // anchor
+        o, h, l, c
+      });
+    }
+
+    return out;
+  }
+
+  function aggregateToHourlyCandles(points){
+    // Build HOURLY candles within each Chicago day bucket.
+    // - If intraday, first apply RTH filter (requested).
+    // - Then bucket by Chicago day + Chicago hour.
+    const pts = (points || []).filter(p => p && p.tUtc);
+    if (!pts.length) return [];
+
+    const src = isIntraday(pts) ? filterRTH(pts) : pts;
+
+    // dayKey|hourKey -> bars[]
+    const buckets = new Map();
+
+    for (const p of src){
+      const t = p?.tUtc;
+      if (!t) continue;
+
+      const dayKey = chicagoDayKeyFromUtc(t);
+      const { hh, mm } = chicagoHourMinute(t);
+
+      // Hour bucket start (00..23)
+      const hourKey = String(hh).padStart(2, "0");
+
+      const key = `${dayKey}|${hourKey}`;
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(p);
+    }
+
+    const keys = Array.from(buckets.keys()).sort(); // chronological by day then hour (string sortable)
+
+    const out = [];
+    for (const k of keys){
+      const arr = (buckets.get(k) || []).slice().sort((a,b)=>{
+        const ta = Date.parse(a.tUtc || "") || 0;
+        const tb = Date.parse(b.tUtc || "") || 0;
+        return ta - tb;
+      });
+
+      const bars = arr.map(p => ({
+        t: p?.tUtc ?? null,
+        o: toNum(p?.o),
+        h: toNum(p?.h),
+        l: toNum(p?.l),
+        c: toNum(p?.c)
+      })).filter(b => b.t && b.o != null && b.h != null && b.l != null && b.c != null);
+
+      if (!bars.length) continue;
+
+      const o = bars[0].o;
+      const c = bars[bars.length - 1].c;
+      let h = -Infinity;
+      let l = Infinity;
+      for (const b of bars){
+        if (b.h != null) h = Math.max(h, b.h);
+        if (b.l != null) l = Math.min(l, b.l);
+      }
+      if (!isFinite(h) || !isFinite(l)) continue;
+
       out.push({
         t: bars[bars.length - 1].t,
         o, h, l, c
@@ -245,19 +348,9 @@ Notes:
     return out;
   }
 
-  // ============================
-  // Labels
-  // ============================
-
-  function rangeLabel(mode){
-    if (mode === "daily") return "Today";
-    if (mode === "weekly") return "Last 7 sessions";
-    if (mode === "monthly") return "Last 30 sessions";
-    if (mode === "6mo") return "Last 6 months";
-    if (mode === "1y") return "Last 12 months";
-    return "";
-  }
-
+  // ---------------------------------------
+  // X label formatters
+  // ---------------------------------------
   function fmtTimeCT(iso){
     try{
       const d = new Date(iso);
@@ -265,6 +358,18 @@ Notes:
         timeZone: TZ,
         hour:"numeric",
         minute:"2-digit"
+      }).format(d);
+    }catch{
+      return "";
+    }
+  }
+
+  function fmtHourCT(iso){
+    try{
+      const d = new Date(iso);
+      return new Intl.DateTimeFormat("en-US", {
+        timeZone: TZ,
+        hour:"numeric"
       }).format(d);
     }catch{
       return "";
@@ -298,118 +403,129 @@ Notes:
 
   function buildXLabelFn(rows, mode){
     if (!rows || rows.length < 2) return ()=>"";
-    if (mode === "daily"){
-      // intraday => times
+
+    // 1D: intraday (5m) => show times
+    if (mode === "1d"){
       return (idx)=> fmtTimeCT(rows[idx]?.t);
     }
-    if (mode === "weekly" || mode === "monthly"){
-      // session candles => dates
+
+    // 5D: hourly candles => show hours
+    if (mode === "5d"){
+      return (idx)=> fmtHourCT(rows[idx]?.t);
+    }
+
+    // 1M: daily candles => dates
+    if (mode === "1m"){
       return (idx)=> fmtDateCT(rows[idx]?.t);
     }
-    // 6mo / 1y => month names
+
+    // 6M / 1Y lines => months
     return (idx)=> fmtMonthCT(rows[idx]?.t);
   }
 
   function xLabelCountFor(mode){
-    if (mode === "daily") return 4;
-    if (mode === "weekly") return 4;
-    if (mode === "monthly") return 5;
-    if (mode === "6mo") return 5;
+    if (mode === "1d") return 4;
+    if (mode === "5d") return 5;
+    if (mode === "1m") return 5;
+    if (mode === "6m") return 5;
     if (mode === "1y") return 6;
     return 4;
   }
 
-  // ============================
+  // ---------------------------------------
   // Public API
-  // ============================
-
+  // ---------------------------------------
   API.shape = function(pointsOrChart, mode, opts){
-    const m = String(mode || "daily").toLowerCase();
+    const m = normMode(mode);
     const points = normalizePoints(pointsOrChart);
 
     let shaped = [];
     let kind = "candles";
     let rows = [];
 
-    // DAILY: intraday candles, session-only (RTH only when intraday)
-    if (m === "daily"){
+    // 1D: intraday candles, session-only (RTH only when intraday)
+    if (m === "1d"){
       shaped = sessionOnlyToday(points);
       kind = "candles";
       rows = makeIntradayCandleRows(shaped);
 
       return {
         ok: rows.length >= 2,
-        mode: "daily",
+        mode: "1d",
         kind,
-        label: rangeLabel("daily"),
+        label: rangeLabel("1d"),
         rows,
-        xLabelFn: buildXLabelFn(rows, "daily"),
-        xLabelCount: xLabelCountFor("daily"),
+        xLabelFn: buildXLabelFn(rows, "1d"),
+        xLabelCount: xLabelCountFor("1d"),
         timeZone: TZ
       };
     }
 
-    // WEEKLY: last 7 sessions => 7 session candles
-    if (m === "weekly"){
-      shaped = lastNSessions(points, SESSIONS_WEEK);
+    // 5D: last 5 sessions, HOURLY candles (Yahoo-like)
+    // - take last 5 sessions of intraday data
+    // - then aggregate to hourly OHLC
+    if (m === "5d"){
+      shaped = lastNSessions(points, SESSIONS_5D);
       kind = "candles";
 
-      // ✅ FIX: aggregate to 1 candle per session/day
-      rows = aggregateToSessionCandles(shaped);
-
-      // In case backend already sent 1wk candles (not intraday), aggregateToSessionCandles still works (1 per day bucket)
-      return {
-        ok: rows.length >= 2,
-        mode: "weekly",
-        kind,
-        label: rangeLabel("weekly"),
-        rows,
-        xLabelFn: buildXLabelFn(rows, "weekly"),
-        xLabelCount: xLabelCountFor("weekly"),
-        timeZone: TZ
-      };
-    }
-
-    // MONTHLY: last 30 sessions => 30 session candles
-    if (m === "monthly"){
-      shaped = lastNSessions(points, SESSIONS_MONTH);
-      kind = "candles";
-
-      // ✅ FIX: aggregate to 1 candle per session/day
-      rows = aggregateToSessionCandles(shaped);
+      // If backend already returns lower-resolution candles, this still works:
+      // - if it’s intraday, we go hourly
+      // - if it’s already daily candles, hourly aggregation will just yield very few rows
+      //   (which is why backend should return intraday data for 5D)
+      rows = aggregateToHourlyCandles(shaped);
 
       return {
         ok: rows.length >= 2,
-        mode: "monthly",
+        mode: "5d",
         kind,
-        label: rangeLabel("monthly"),
+        label: rangeLabel("5d"),
         rows,
-        xLabelFn: buildXLabelFn(rows, "monthly"),
-        xLabelCount: xLabelCountFor("monthly"),
+        xLabelFn: buildXLabelFn(rows, "5d"),
+        xLabelCount: xLabelCountFor("5d"),
         timeZone: TZ
       };
     }
 
-    // 6mo: line (last ~126 sessions)
-    if (m === "6mo"){
-      shaped = lastNSessions(points, SESSIONS_6MO);
+    // 1M: last 30 sessions, DAILY candles (1 candle per day)
+    if (m === "1m"){
+      shaped = lastNSessions(points, SESSIONS_1M);
+      kind = "candles";
+
+      // ✅ Exactly what you want for the screenshot: one candle per day, last ~30 trading days
+      rows = aggregateToSessionCandles(shaped);
+
+      return {
+        ok: rows.length >= 2,
+        mode: "1m",
+        kind,
+        label: rangeLabel("1m"),
+        rows,
+        xLabelFn: buildXLabelFn(rows, "1m"),
+        xLabelCount: xLabelCountFor("1m"),
+        timeZone: TZ
+      };
+    }
+
+    // 6M: line close
+    if (m === "6m"){
+      shaped = lastNSessions(points, SESSIONS_6M);
       kind = "line";
       rows = makeLineRows(shaped);
 
       return {
         ok: rows.length >= 2,
-        mode: "6mo",
+        mode: "6m",
         kind,
-        label: rangeLabel("6mo"),
+        label: rangeLabel("6m"),
         rows,
-        xLabelFn: buildXLabelFn(rows, "6mo"),
-        xLabelCount: xLabelCountFor("6mo"),
+        xLabelFn: buildXLabelFn(rows, "6m"),
+        xLabelCount: xLabelCountFor("6m"),
         timeZone: TZ
       };
     }
 
-    // 1y: line (last ~252 sessions)
-    if (m === "1y" || m === "1yr" || m === "year"){
+    // 1Y: line close
+    if (m === "1y"){
       shaped = lastNSessions(points, SESSIONS_1Y);
       kind = "line";
       rows = makeLineRows(shaped);
@@ -426,19 +542,19 @@ Notes:
       };
     }
 
-    // Fallback: daily
+    // Fallback: 1D
     shaped = sessionOnlyToday(points);
     kind = "candles";
     rows = makeIntradayCandleRows(shaped);
 
     return {
       ok: rows.length >= 2,
-      mode: "daily",
+      mode: "1d",
       kind,
-      label: rangeLabel("daily"),
+      label: rangeLabel("1d"),
       rows,
-      xLabelFn: buildXLabelFn(rows, "daily"),
-      xLabelCount: xLabelCountFor("daily"),
+      xLabelFn: buildXLabelFn(rows, "1d"),
+      xLabelCount: xLabelCountFor("1d"),
       timeZone: TZ
     };
   };
