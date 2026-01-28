@@ -1,11 +1,18 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-style.js  (FULL FILE)
-Rev: 2026-01-28a
+Rev: 2026-01-28b
 Purpose:
 ✅ Restores Markets modal styling after UI split
 ✅ Fixes badge styling:
    - green/red background depending on direction
    - white text ALWAYS
+
+CHANGE (critical):
+✅ Force badge colors to WIN even if older/yellow CSS exists elsewhere:
+   - background/border/color use !important
+   - targets both .fv-mktm-badge and [data-q="badge"]
+✅ Also covers legacy/alternate badge class names if they exist:
+   - .fv-mkt-badge, .fv-mkt-pill (safe no-op if unused)
 ===================================================================== */
 
 (function(){
@@ -124,8 +131,16 @@ Purpose:
 .fv-mktm-row-right{ display:flex; flex-direction:column; align-items:flex-end; gap:2px; flex:0 0 auto; }
 .fv-mktm-price{ font-weight:900; font-variant-numeric:tabular-nums; }
 
-/* Badge: red/green background, WHITE text always */
-.fv-mktm-badge{
+/* =========================================================
+   Badge: red/green background, WHITE text always
+   (Force override of any prior yellow/legacy badge CSS)
+   ========================================================= */
+
+/* Target both class + attribute so this works even if markup changes */
+.fv-mktm-badge,
+.fv-mktm-row [data-q="badge"],
+.fv-mkt-badge,
+.fv-mkt-pill{
   display:inline-flex;
   align-items:center;
   gap:6px;
@@ -135,22 +150,46 @@ Purpose:
   border:1px solid rgba(0,0,0,.12);
   font-variant-numeric:tabular-nums;
   color:#fff !important;
+  background: ${FLAT_BG} !important;
+  border-color:${FLAT_BG} !important;
 }
-.fv-mktm-badge *{ color:#fff !important; }
+.fv-mktm-badge *,
+.fv-mktm-row [data-q="badge"] *,
+.fv-mkt-badge *,
+.fv-mkt-pill *{ color:#fff !important; }
 
-.fv-mktm-badge.up{
-  background:${UP_BG};
-  border-color:${UP_BG};
+.fv-mktm-badge.up,
+.fv-mktm-row [data-q="badge"].up,
+.fv-mkt-badge.up,
+.fv-mkt-pill.up{
+  background:${UP_BG} !important;
+  border-color:${UP_BG} !important;
 }
-.fv-mktm-badge.down{
-  background:${DOWN_BG};
-  border-color:${DOWN_BG};
+
+.fv-mktm-badge.down,
+.fv-mktm-row [data-q="badge"].down,
+.fv-mkt-badge.down,
+.fv-mkt-pill.down{
+  background:${DOWN_BG} !important;
+  border-color:${DOWN_BG} !important;
 }
-.fv-mktm-badge.flat{
-  background:${FLAT_BG};
-  border-color:${FLAT_BG};
+
+.fv-mktm-badge.flat,
+.fv-mktm-row [data-q="badge"].flat,
+.fv-mkt-badge.flat,
+.fv-mkt-pill.flat{
+  background:${FLAT_BG} !important;
+  border-color:${FLAT_BG} !important;
 }
-.fv-mktm-badge .arr{ width:16px; text-align:center; font-weight:900; }
+
+.fv-mktm-badge .arr,
+.fv-mktm-row [data-q="badge"] .arr,
+.fv-mkt-badge .arr,
+.fv-mkt-pill .arr{
+  width:16px;
+  text-align:center;
+  font-weight:900;
+}
 
 /* Chart */
 .fv-mktm-chart{
