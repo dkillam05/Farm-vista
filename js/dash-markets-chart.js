@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-chart.js  (FULL FILE)
-Rev: 2026-01-28c
+Rev: 2026-01-28d
 Purpose:
 ✅ Canvas chart renderer for FarmVista Markets modal (standalone helper)
 ✅ Supports:
@@ -21,6 +21,13 @@ Fixes in this rev:
    - Compact content (time + one OHLC/Close line)
 ✅ No injected <style> tags inside tooltip (stability + avoids odd sizing)
 ✅ Keeps click-to-lock + hover preview behavior
+
+NEW mobile fixes:
+✅ iOS “tap flashes then disappears” fix:
+   - iOS sends synthetic mouse events after touchend
+   - We suppress mouse down for a short window after touch
+✅ Landscape/resize fix:
+   - Re-render active canvas on resize/orientationchange (debounced)
 ===================================================================== */
 
 (function(){
@@ -36,6 +43,9 @@ Fixes in this rev:
 
   // Tooltip singleton
   const TIP_ID = "fv-mkt-chart-tip";
+
+  // ✅ Suppress synthetic mouse events after touch (iOS)
+  const TOUCH_SUPPRESS_MS = 900;
 
   function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
 
@@ -283,11 +293,18 @@ Fixes in this rev:
     stateByCanvas.delete(canvas);
   }
 
+  // Track active canvas for resize rerender
+  function markActive(canvas){
+    window.__FV_MKT_ACTIVE_CANVAS = canvas;
+  }
+
   // -------------------------
   // Render engine
   // -------------------------
   function renderInternal(canvas, rows, opts){
     if (!canvas) return;
+
+    markActive(canvas);
 
     const kind = (opts && opts.kind) || "candles"; // "candles" | "line"
     const title = (opts && opts.title) || "";
@@ -465,7 +482,12 @@ Fixes in this rev:
       kind,
       padL, padR,
       data,
-      timeZone
+      timeZone,
+      lastTouchMs: 0,
+
+      // ✅ Store last render params for resize rerender
+      _lastRows: data.slice(),
+      _lastOpts: Object.assign({}, opts || {})
     };
     stateByCanvas.set(canvas, st);
 
@@ -531,20 +553,29 @@ Fixes in this rev:
 
     canvas.onmousemove = (e)=> handleMove(e.clientX, e.clientY);
     canvas.onmouseleave = ()=> handleLeave();
-    canvas.onmousedown = (e)=> handleClick(e.clientX, e.clientY);
+
+    canvas.onmousedown = (e)=>{
+      // ✅ Ignore synthetic mouse events right after touch
+      const now = Date.now();
+      if (now - (st.lastTouchMs || 0) < TOUCH_SUPPRESS_MS) return;
+      handleClick(e.clientX, e.clientY);
+    };
 
     canvas.ontouchstart = (e)=>{
       if (!e.touches || !e.touches[0]) return;
+      st.lastTouchMs = Date.now();
       const t = e.touches[0];
       handleMove(t.clientX, t.clientY);
     };
     canvas.ontouchmove = (e)=>{
       if (!e.touches || !e.touches[0]) return;
+      st.lastTouchMs = Date.now();
       const t = e.touches[0];
       handleMove(t.clientX, t.clientY);
     };
     canvas.ontouchend = (e)=>{
       try{
+        st.lastTouchMs = Date.now();
         const c = e.changedTouches && e.changedTouches[0] ? e.changedTouches[0] : null;
         if (c) handleClick(c.clientX, c.clientY);
         else handleLeave();
@@ -560,6 +591,38 @@ Fixes in this rev:
         if (e.key !== "Escape") return;
         hideTip();
       });
+    }
+
+    // ✅ Resize/orientation re-render (once)
+    if (!window.__FV_MKT_CHART_RESIZE_WIRED){
+      window.__FV_MKT_CHART_RESIZE_WIRED = true;
+
+      let t = null;
+      const rerender = ()=>{
+        const c = window.__FV_MKT_ACTIVE_CANVAS;
+        if (!c) return;
+        const s = stateByCanvas.get(c);
+        if (!s) return;
+
+        // If canvas is detached/hidden, skip
+        try{
+          const r = c.getBoundingClientRect();
+          if (!r || r.width < 10 || r.height < 10) return;
+        } catch {
+          return;
+        }
+
+        // Re-render using last saved series/options
+        renderInternal(c, s._lastRows || [], s._lastOpts || {});
+      };
+
+      const schedule = ()=>{
+        if (t) clearTimeout(t);
+        t = setTimeout(rerender, 80);
+      };
+
+      window.addEventListener("resize", schedule, { passive:true });
+      window.addEventListener("orientationchange", schedule, { passive:true });
     }
   }
 
