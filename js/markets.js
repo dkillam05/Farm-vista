@@ -1,11 +1,11 @@
 /* =====================================================================
 /Farm-vista/js/markets.js  (FULL FILE)
-Rev: 2026-01-28f
+Rev: 2026-01-28g
 Purpose:
 ✅ Dashboard Markets module
 ✅ /api/markets/contracts for contract lists (symbol + label)
-✅ /api/markets/chart/:symbol?mode=daily for OHLC bars
-✅ Derives QUOTE from last two non-null closes (tolerant of numeric strings)
+✅ /api/markets/chart/:symbol?mode=daily for OHLC points
+✅ Derives QUOTE from last two non-null closes
 ✅ Mobile: TWO tiles per crop:
    - Front + Dec
    - If Front is Dec → show Jan next year
@@ -27,7 +27,6 @@ Purpose:
   const REFRESH_FRONT_QUOTES_MS = 30_000;
   const REFRESH_OTHER_QUOTES_MS = 5 * 60_000;
 
-  // Limit concurrent chart fetches (avoid stampede)
   const MAX_CONCURRENCY = 6;
 
   function base(){
@@ -154,11 +153,7 @@ Purpose:
 
 .fv-mkt-meta{ display:flex; gap:8px; font-size:12px; opacity:.7; flex-wrap:wrap; margin-top:8px; }
 
-.fv-mkt-more{
-  margin-top:6px;
-  display:flex;
-  justify-content:flex-start;
-}
+.fv-mkt-more{ margin-top:6px; display:flex; justify-content:flex-start; }
 .fv-mkt-more button{
   appearance:none;
   border:1px solid rgba(0,0,0,.12);
@@ -185,23 +180,18 @@ Purpose:
 
   // ---------------------------
   // Symbol parsing (month/year) for mobile tile selection
-  // Supports ZCH26, ZCH26.CBT, etc.
   // ---------------------------
-  const MONTH_CODE = {
-    F:1, G:2, H:3, J:4, K:5, M:6, N:7, Q:8, U:9, V:10, X:11, Z:12
-  };
+  const MONTH_CODE = { F:1, G:2, H:3, J:4, K:5, M:6, N:7, Q:8, U:9, V:10, X:11, Z:12 };
 
   function parseSymbolYM(symbol){
     try{
       const s = String(symbol || "");
-      const core = s.split(".")[0];          // ZCH26
-      const mCode = core.slice(-3, -2);      // H
-      const yyStr = core.slice(-2);          // 26
+      const core = s.split(".")[0];
+      const mCode = core.slice(-3, -2);
+      const yyStr = core.slice(-2);
       const month = MONTH_CODE[mCode] || null;
       const yy = parseInt(yyStr, 10);
       if (!month || !isFinite(yy)) return null;
-
-      // Convert yy -> full year (simple rule)
       const year = (yy <= 50) ? (2000 + yy) : (1900 + yy);
       return { year, month };
     } catch {
@@ -230,11 +220,9 @@ Purpose:
   function pickMobileTwoTiles(list){
     if (!Array.isArray(list) || !list.length) return [];
     const front = list[0];
-
     const frontYM = parseSymbolYM(front?.symbol);
     const dec = findFirstByMonth(list, 12);
 
-    // If front is Dec -> show Jan next year as second tile
     if (frontYM && frontYM.month === 12){
       const jan = findJanNextYear(list, frontYM.year) || list[1] || null;
       const out = [front];
@@ -242,10 +230,8 @@ Purpose:
       return out;
     }
 
-    // Else: show Dec as second tile if available (and not same as front)
     if (dec && dec.symbol && dec.symbol !== front.symbol) return [front, dec];
 
-    // Fallback: just next contract
     const second = list[1] || null;
     const out = [front];
     if (second && second.symbol && second.symbol !== front.symbol) out.push(second);
@@ -253,7 +239,20 @@ Purpose:
   }
 
   // ---------------------------
-  // Quote cache derived from chart bars
+  // Chart normalization (YOUR API returns chart.points[])
+  // ---------------------------
+  function normalizePoints(chart){
+    if (Array.isArray(chart)) return chart;
+    if (!chart) return [];
+    return (
+      chart.points || chart.bars || chart.data || chart.series ||
+      chart.result || chart.items ||
+      []
+    );
+  }
+
+  // ---------------------------
+  // Quote cache derived from points
   // ---------------------------
   const quoteCache = new Map(); // symbol -> { price, chg, pct, updatedAtMs }
   const inflight = new Map();   // symbol -> Promise
@@ -267,15 +266,14 @@ Purpose:
     return null;
   }
 
-  function deriveQuoteFromBars(bars){
-    if (!Array.isArray(bars) || !bars.length) return null;
+  function deriveQuoteFromPoints(points){
+    if (!Array.isArray(points) || !points.length) return null;
 
-    // find last two non-null closes (accept number OR numeric-string)
     let last = null;
     let prev = null;
 
-    for (let i = bars.length - 1; i >= 0; i--){
-      const row = bars[i] || {};
+    for (let i = points.length - 1; i >= 0; i--){
+      const row = points[i] || {};
       const c = toNum(row.c ?? row.close ?? row.Close);
       if (c != null){
         if (last == null) last = c;
@@ -294,22 +292,16 @@ Purpose:
   async function refreshQuoteFor(symbol){
     if (!symbol) return;
 
-    // De-dupe concurrent requests
     if (inflight.has(symbol)) return inflight.get(symbol);
 
     const p = (async ()=>{
       try{
         const chart = await fetchChart(symbol, "daily");
-        const bars = Array.isArray(chart) ? chart : (chart && (chart.bars || chart.data || chart.series)) || [];
-        const q = deriveQuoteFromBars(bars);
+        const points = normalizePoints(chart);
+        const q = deriveQuoteFromPoints(points);
 
         if (q){
-          quoteCache.set(symbol, {
-            price: q.price,
-            chg: q.chg,
-            pct: q.pct,
-            updatedAtMs: Date.now()
-          });
+          quoteCache.set(symbol, { price:q.price, chg:q.chg, pct:q.pct, updatedAtMs: Date.now() });
         } else {
           if (!quoteCache.has(symbol)) quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now() });
         }
@@ -364,8 +356,8 @@ Purpose:
             const chg = q ? q.chg : null;
             const pct = q ? q.pct : null;
 
-            const dir = dirFrom(chg);
-            const arr = arrowFor(dir);
+            const dir = (typeof chg === "number" && isFinite(chg)) ? (chg > 0 ? "up" : chg < 0 ? "down" : "flat") : "flat";
+            const arr = (dir === "up") ? "▲" : (dir === "down") ? "▼" : "—";
 
             return `
               <button class="fv-mkt-btn" data-symbol="${escapeHtml(sym)}" aria-label="${escapeHtml(label || sym)}">
@@ -397,7 +389,6 @@ Purpose:
       </div>
     `;
 
-    // Tap contract → open chart
     container.querySelectorAll('[data-symbol]').forEach(btn=>{
       btn.addEventListener("click", ()=>{
         const sym = btn.getAttribute("data-symbol");
@@ -405,7 +396,6 @@ Purpose:
       });
     });
 
-    // Mobile "View more" → open contract list modal
     const moreBtn = container.querySelector('[data-fv-mkt-more]');
     if (moreBtn){
       moreBtn.addEventListener("click", ()=>{
@@ -434,7 +424,7 @@ Purpose:
   }
 
   // ---------------------------
-  // Lifecycle / timers
+  // Lifecycle
   // ---------------------------
   let timerContracts = null;
   let timerFrontQuotes = null;
@@ -445,13 +435,8 @@ Purpose:
   function mobileVisibleSymbols(payload){
     const out = [];
     if (!payload) return out;
-
-    const cornTiles = pickMobileTwoTiles(payload.corn || []);
-    const soyTiles  = pickMobileTwoTiles(payload.soy || []);
-
-    cornTiles.forEach(c => c?.symbol && out.push(c.symbol));
-    soyTiles.forEach(c => c?.symbol && out.push(c.symbol));
-
+    pickMobileTwoTiles(payload.corn || []).forEach(c => c?.symbol && out.push(c.symbol));
+    pickMobileTwoTiles(payload.soy || []).forEach(c => c?.symbol && out.push(c.symbol));
     return out;
   }
 
@@ -465,7 +450,6 @@ Purpose:
   function redraw(){
     const U = ui();
     if (!lastPayload) return;
-
     renderList(U.corn, "Corn", lastPayload.corn || [], "corn");
     renderList(U.soy,  "Soybeans", lastPayload.soy || [], "soy");
     renderMeta(lastPayload);
@@ -475,18 +459,13 @@ Purpose:
     const payload = await fetchContracts();
     lastPayload = payload;
 
-    // 1) Render immediately (placeholders until quotes arrive)
     redraw();
 
-    // 2) Fetch quotes:
-    // Mobile: fetch only visible tiles (2 per crop)
-    // Desktop: fetch fronts quickly, and the rest on slower cadence
     if (isMobile()){
       const vis = mobileVisibleSymbols(payload);
       await runQueue(vis);
       redraw();
     } else {
-      // Desktop: first items in each crop list are the “front-ish” contracts, refresh them immediately
       const fronts = [];
       if (payload?.corn?.[0]?.symbol) fronts.push(payload.corn[0].symbol);
       if (payload?.soy?.[0]?.symbol)  fronts.push(payload.soy[0].symbol);
@@ -510,24 +489,18 @@ Purpose:
     if (timerContracts) clearInterval(timerContracts);
     timerContracts = setInterval(()=>Markets.refresh().catch(()=>{}), REFRESH_CONTRACTS_MS);
 
-    // Refresh visible/mobile tiles every 30s
     if (timerFrontQuotes) clearInterval(timerFrontQuotes);
     timerFrontQuotes = setInterval(async ()=>{
       try{
         if (!lastPayload) return;
         const syms = isMobile()
           ? mobileVisibleSymbols(lastPayload)
-          : ([
-              lastPayload?.corn?.[0]?.symbol,
-              lastPayload?.soy?.[0]?.symbol
-            ].filter(Boolean));
-
+          : ([ lastPayload?.corn?.[0]?.symbol, lastPayload?.soy?.[0]?.symbol ].filter(Boolean));
         await runQueue(syms);
         redraw();
       }catch{}
     }, REFRESH_FRONT_QUOTES_MS);
 
-    // Desktop: refresh other quotes every 5 minutes
     if (timerOtherQuotes) clearInterval(timerOtherQuotes);
     timerOtherQuotes = setInterval(async ()=>{
       try{
