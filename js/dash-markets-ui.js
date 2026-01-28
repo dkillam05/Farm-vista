@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-ui.js  (FULL FILE)
-Rev: 2026-01-28k
+Rev: 2026-01-28l
 Purpose:
 ✅ Thin UI orchestrator for Markets
    - Opens/closes modal
@@ -15,18 +15,19 @@ Delegates:
    - Series shaping → FVMarketsSeries
    - Quote badges → FVMarketsQuotes
 
-Mobile fixes in this rev:
+Mobile fixes:
 ✅ View-more list shows quotes immediately (no more --- until tap)
    - Warm quotes on open (lite -> paint -> full -> paint)
    - Paint rows from FVMarkets.getQuote() so it works even if FVMarketsQuotes is slow
 ✅ Auto-scroll to chart after selecting a contract (mobile only)
    - Smooth scroll to chart panel so user sees the chart instantly
 
-NEW fixes in this rev:
+NEW fixes:
 ✅ View-more list filters like desktop:
    - Hides expired contracts (practical rule: same month + day>=21)
    - Hides dead/no-data contracts when FVMarkets.isSymbolUsable() is available
-✅ Adds an “X” close button in the top-right (in addition to Close)
+✅ Adds an “X” close button in the top-right
+✅ Removes the old "Close" button (no overlap / no duplicate controls)
 ✅ When switching charts/tabs, clears any locked tooltip immediately
 ===================================================================== */
 
@@ -178,9 +179,8 @@ NEW fixes in this rev:
                   style="position:absolute; right:0; top:0; width:30px; height:30px; padding:0; border-radius:999px; display:flex; align-items:center; justify-content:center;">
             ×
           </button>
-
-          <button class="fv-mktm-btn" id="fv-mktm-close">Close</button>
         </div>
+
         <div id="fv-mktm-body"></div>
       </div>
     `;
@@ -189,9 +189,6 @@ NEW fixes in this rev:
     back.addEventListener("click", e=>{
       if (e.target === back) closeModal();
     });
-
-    const closeBtn = qs("#fv-mktm-close", back);
-    if (closeBtn) closeBtn.addEventListener("click", closeModal);
 
     const closeX = qs("#fv-mktm-close-x", back);
     if (closeX) closeX.addEventListener("click", closeModal);
