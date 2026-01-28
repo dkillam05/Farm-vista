@@ -1,20 +1,20 @@
 /* =====================================================================
 /Farm-vista/js/markets.js  (FULL FILE)
-Rev: 2026-01-28e
+Rev: 2026-01-28f
 Purpose:
 ✅ Dashboard Markets module
 ✅ /api/markets/contracts for contract lists (symbol + label)
 ✅ /api/markets/chart/:symbol?mode=daily for OHLC bars
-✅ Derives QUOTE from last two non-null closes:
-   - price = last close
-   - change $ = last - prev
-   - change % = (last - prev) / prev * 100
-✅ Mobile: front contract only (Corn + Soy)
+✅ Derives QUOTE from last two non-null closes (tolerant of numeric strings)
+✅ Mobile: TWO tiles per crop:
+   - Front + Dec
+   - If Front is Dec → show Jan next year
+✅ "View more contracts" link on mobile opens contracts popup (event)
 ✅ Desktop: full lists (Corn left, Soy right)
 ✅ Refresh:
-   - front contracts every 30s
-   - other contracts every 5 minutes (to avoid too many calls)
-✅ NEW: robust numeric parsing (handles closes as numbers OR numeric strings)
+   - contracts every 30s
+   - visible/mobile tiles every 30s
+   - other contracts every 5 minutes (desktop)
 ===================================================================== */
 
 (function(){
@@ -154,6 +154,23 @@ Purpose:
 
 .fv-mkt-meta{ display:flex; gap:8px; font-size:12px; opacity:.7; flex-wrap:wrap; margin-top:8px; }
 
+.fv-mkt-more{
+  margin-top:6px;
+  display:flex;
+  justify-content:flex-start;
+}
+.fv-mkt-more button{
+  appearance:none;
+  border:1px solid rgba(0,0,0,.12);
+  background:var(--card-surface, var(--surface, #fff));
+  border-radius:999px;
+  padding:6px 10px;
+  font-size:12px;
+  color:var(--muted,#67706B);
+  cursor:pointer;
+}
+.fv-mkt-more button:active{ transform:scale(.99); }
+
 @media (max-width: 899px){
   .fv-mkt-row{ padding:12px 12px; border-radius:14px; }
   .fv-mkt-price{ font-size:18px; }
@@ -164,6 +181,75 @@ Purpose:
     st.id = "fv-markets-style";
     st.textContent = css;
     document.head.appendChild(st);
+  }
+
+  // ---------------------------
+  // Symbol parsing (month/year) for mobile tile selection
+  // Supports ZCH26, ZCH26.CBT, etc.
+  // ---------------------------
+  const MONTH_CODE = {
+    F:1, G:2, H:3, J:4, K:5, M:6, N:7, Q:8, U:9, V:10, X:11, Z:12
+  };
+
+  function parseSymbolYM(symbol){
+    try{
+      const s = String(symbol || "");
+      const core = s.split(".")[0];          // ZCH26
+      const mCode = core.slice(-3, -2);      // H
+      const yyStr = core.slice(-2);          // 26
+      const month = MONTH_CODE[mCode] || null;
+      const yy = parseInt(yyStr, 10);
+      if (!month || !isFinite(yy)) return null;
+
+      // Convert yy -> full year (simple rule)
+      const year = (yy <= 50) ? (2000 + yy) : (1900 + yy);
+      return { year, month };
+    } catch {
+      return null;
+    }
+  }
+
+  function findFirstByMonth(list, monthNum){
+    if (!Array.isArray(list)) return null;
+    for (const c of list){
+      const ym = parseSymbolYM(c?.symbol);
+      if (ym && ym.month === monthNum) return c;
+    }
+    return null;
+  }
+
+  function findJanNextYear(list, year){
+    if (!Array.isArray(list)) return null;
+    for (const c of list){
+      const ym = parseSymbolYM(c?.symbol);
+      if (ym && ym.month === 1 && ym.year === (year + 1)) return c;
+    }
+    return null;
+  }
+
+  function pickMobileTwoTiles(list){
+    if (!Array.isArray(list) || !list.length) return [];
+    const front = list[0];
+
+    const frontYM = parseSymbolYM(front?.symbol);
+    const dec = findFirstByMonth(list, 12);
+
+    // If front is Dec -> show Jan next year as second tile
+    if (frontYM && frontYM.month === 12){
+      const jan = findJanNextYear(list, frontYM.year) || list[1] || null;
+      const out = [front];
+      if (jan && jan.symbol && jan.symbol !== front.symbol) out.push(jan);
+      return out;
+    }
+
+    // Else: show Dec as second tile if available (and not same as front)
+    if (dec && dec.symbol && dec.symbol !== front.symbol) return [front, dec];
+
+    // Fallback: just next contract
+    const second = list[1] || null;
+    const out = [front];
+    if (second && second.symbol && second.symbol !== front.symbol) out.push(second);
+    return out;
   }
 
   // ---------------------------
@@ -190,7 +276,6 @@ Purpose:
 
     for (let i = bars.length - 1; i >= 0; i--){
       const row = bars[i] || {};
-      // Support common variants: c, close
       const c = toNum(row.c ?? row.close ?? row.Close);
       if (c != null){
         if (last == null) last = c;
@@ -215,7 +300,6 @@ Purpose:
     const p = (async ()=>{
       try{
         const chart = await fetchChart(symbol, "daily");
-        // chart might be { bars:[...] } or just [...]
         const bars = Array.isArray(chart) ? chart : (chart && (chart.bars || chart.data || chart.series)) || [];
         const q = deriveQuoteFromBars(bars);
 
@@ -227,11 +311,9 @@ Purpose:
             updatedAtMs: Date.now()
           });
         } else {
-          // keep existing if any; otherwise set blanks
           if (!quoteCache.has(symbol)) quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now() });
         }
-      } catch (e){
-        // don’t wipe out good cache on a temporary error
+      } catch {
         if (!quoteCache.has(symbol)) quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now() });
       } finally {
         inflight.delete(symbol);
@@ -259,17 +341,17 @@ Purpose:
   // ---------------------------
   // Rendering
   // ---------------------------
-  function renderList(container, title, list){
+  function renderList(container, title, list, cropKey){
     if(!container) return;
 
     const mobile = isMobile();
-    const shown = mobile ? (list && list.length ? [list[0]] : []) : (list || []);
+    const shown = mobile ? pickMobileTwoTiles(list || []) : (list || []);
 
     container.innerHTML = `
       <div class="fv-mkt-card">
         <div class="fv-mkt-head">
           <div class="fv-mkt-title">${escapeHtml(title)}</div>
-          <div class="fv-mkt-note">${mobile ? "Front contract" : "Tap contract for chart"}</div>
+          <div class="fv-mkt-note">${mobile ? "Front + Dec" : "Tap contract for chart"}</div>
         </div>
 
         <div class="fv-mkt-list">
@@ -306,15 +388,31 @@ Purpose:
             `;
           }).join("") : `<div class="fv-mkt-note">No contracts</div>`}
         </div>
+
+        ${mobile ? `
+          <div class="fv-mkt-more">
+            <button type="button" data-fv-mkt-more="${escapeHtml(cropKey)}">View more contracts</button>
+          </div>
+        ` : ``}
       </div>
     `;
 
+    // Tap contract → open chart
     container.querySelectorAll('[data-symbol]').forEach(btn=>{
       btn.addEventListener("click", ()=>{
         const sym = btn.getAttribute("data-symbol");
         window.dispatchEvent(new CustomEvent("fv:markets:contractTap", { detail:{ symbol:sym } }));
       });
     });
+
+    // Mobile "View more" → open contract list modal
+    const moreBtn = container.querySelector('[data-fv-mkt-more]');
+    if (moreBtn){
+      moreBtn.addEventListener("click", ()=>{
+        const crop = moreBtn.getAttribute("data-fv-mkt-more") || "";
+        window.dispatchEvent(new CustomEvent("fv:markets:viewMore", { detail:{ crop } }));
+      });
+    }
   }
 
   function renderMeta(payload){
@@ -344,10 +442,16 @@ Purpose:
 
   let lastPayload = null;
 
-  function frontSymbols(payload){
+  function mobileVisibleSymbols(payload){
     const out = [];
-    if (payload && Array.isArray(payload.corn) && payload.corn[0] && payload.corn[0].symbol) out.push(payload.corn[0].symbol);
-    if (payload && Array.isArray(payload.soy) && payload.soy[0] && payload.soy[0].symbol) out.push(payload.soy[0].symbol);
+    if (!payload) return out;
+
+    const cornTiles = pickMobileTwoTiles(payload.corn || []);
+    const soyTiles  = pickMobileTwoTiles(payload.soy || []);
+
+    cornTiles.forEach(c => c?.symbol && out.push(c.symbol));
+    soyTiles.forEach(c => c?.symbol && out.push(c.symbol));
+
     return out;
   }
 
@@ -362,8 +466,8 @@ Purpose:
     const U = ui();
     if (!lastPayload) return;
 
-    renderList(U.corn, "Corn", lastPayload.corn || []);
-    renderList(U.soy,  "Soybeans", lastPayload.soy || []);
+    renderList(U.corn, "Corn", lastPayload.corn || [], "corn");
+    renderList(U.soy,  "Soybeans", lastPayload.soy || [], "soy");
     renderMeta(lastPayload);
   }
 
@@ -371,20 +475,26 @@ Purpose:
     const payload = await fetchContracts();
     lastPayload = payload;
 
-    // 1) Render immediately (will show placeholders until quotes arrive)
+    // 1) Render immediately (placeholders until quotes arrive)
     redraw();
 
     // 2) Fetch quotes:
-    const fronts = frontSymbols(payload);
-    const all = allSymbols(payload);
+    // Mobile: fetch only visible tiles (2 per crop)
+    // Desktop: fetch fronts quickly, and the rest on slower cadence
+    if (isMobile()){
+      const vis = mobileVisibleSymbols(payload);
+      await runQueue(vis);
+      redraw();
+    } else {
+      // Desktop: first items in each crop list are the “front-ish” contracts, refresh them immediately
+      const fronts = [];
+      if (payload?.corn?.[0]?.symbol) fronts.push(payload.corn[0].symbol);
+      if (payload?.soy?.[0]?.symbol)  fronts.push(payload.soy[0].symbol);
 
-    // Fronts now
-    await runQueue(fronts);
-    redraw();
+      await runQueue(fronts);
+      redraw();
 
-    // Desktop: fetch all quotes (but not constantly)
-    if (!isMobile()){
-      // Exclude fronts already fetched
+      const all = allSymbols(payload);
       const rest = all.filter(s => !fronts.includes(s));
       runQueue(rest).then(redraw).catch(()=>{});
     }
@@ -395,31 +505,39 @@ Purpose:
   Markets.start = function(){
     ensureStyles();
 
-    // Initial load
     Markets.refresh().catch(()=>{});
 
-    // Refresh contract lists every 30s (labels/symbols/meta)
     if (timerContracts) clearInterval(timerContracts);
     timerContracts = setInterval(()=>Markets.refresh().catch(()=>{}), REFRESH_CONTRACTS_MS);
 
-    // Refresh front quotes every 30s (fast tiles)
+    // Refresh visible/mobile tiles every 30s
     if (timerFrontQuotes) clearInterval(timerFrontQuotes);
     timerFrontQuotes = setInterval(async ()=>{
       try{
         if (!lastPayload) return;
-        const fronts = frontSymbols(lastPayload);
-        await runQueue(fronts);
+        const syms = isMobile()
+          ? mobileVisibleSymbols(lastPayload)
+          : ([
+              lastPayload?.corn?.[0]?.symbol,
+              lastPayload?.soy?.[0]?.symbol
+            ].filter(Boolean));
+
+        await runQueue(syms);
         redraw();
       }catch{}
     }, REFRESH_FRONT_QUOTES_MS);
 
-    // Refresh other quotes every 5 minutes (desktop lists)
+    // Desktop: refresh other quotes every 5 minutes
     if (timerOtherQuotes) clearInterval(timerOtherQuotes);
     timerOtherQuotes = setInterval(async ()=>{
       try{
         if (!lastPayload) return;
-        if (isMobile()) return; // mobile shows fronts only anyway
-        const fronts = frontSymbols(lastPayload);
+        if (isMobile()) return;
+
+        const fronts = [];
+        if (lastPayload?.corn?.[0]?.symbol) fronts.push(lastPayload.corn[0].symbol);
+        if (lastPayload?.soy?.[0]?.symbol)  fronts.push(lastPayload.soy[0].symbol);
+
         const all = allSymbols(lastPayload);
         const rest = all.filter(s => !fronts.includes(s));
         await runQueue(rest);
