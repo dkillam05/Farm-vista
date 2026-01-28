@@ -1,14 +1,16 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-ui.js  (FULL FILE)
-Rev: 2026-01-28a
+Rev: 2026-01-28c
 Purpose:
-✅ Dashboard wiring for Markets:
-   - Tap contract tile => open chart modal
-   - "View more contracts" => open list modal for that crop
-   - Tap list item => open chart
-Uses:
-  window.FVMarkets.fetchChart(symbol, mode)
-  window.FVMarkets.getLast()
+✅ Markets modal + chart UI:
+   - Tap tile => open chart modal
+   - View more contracts => list modal; tap contract => chart
+✅ Chart modes:
+   - Daily (candles)
+   - Weekly (candles)
+   - 1Y (line)
+   - All (line)
+✅ Uses Cloud Run chart.points[] (o/h/l/c + tUtc)
 ===================================================================== */
 
 (function(){
@@ -26,11 +28,6 @@ Uses:
       .replaceAll("'","&#039;");
   }
 
-  function isMobile(){
-    try{ return window.matchMedia && window.matchMedia("(max-width: 899px)").matches; }
-    catch{ return false; }
-  }
-
   function ensureModalStyles(){
     if (document.getElementById("fv-mkt-modal-style")) return;
     const st = document.createElement("style");
@@ -45,7 +42,7 @@ Uses:
 #${BACKDROP_ID}.open{ display:flex; align-items:center; justify-content:center; }
 
 #${MODAL_ID}{
-  width:min(920px, calc(100vw - 24px));
+  width:min(960px, calc(100vw - 24px));
   max-height:calc(100vh - 120px);
   overflow:auto;
   background:var(--surface,#fff);
@@ -58,23 +55,9 @@ Uses:
 }
 #${MODAL_ID}::-webkit-scrollbar{ width:0; height:0; }
 
-.fv-mktm-head{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:10px;
-  margin:0 0 10px 0;
-}
-.fv-mktm-title{
-  font-size:15px;
-  font-weight:800;
-  margin:0;
-}
-.fv-mktm-actions{
-  display:flex;
-  gap:8px;
-  align-items:center;
-}
+.fv-mktm-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin:0 0 10px 0; }
+.fv-mktm-title{ font-size:15px; font-weight:800; margin:0; }
+.fv-mktm-actions{ display:flex; gap:8px; align-items:center; }
 .fv-mktm-btn{
   appearance:none;
   border:1px solid var(--border,#d1d5db);
@@ -85,22 +68,12 @@ Uses:
   color:var(--muted,#67706B);
   cursor:pointer;
 }
-.fv-mktm-btn.primary{
-  background:#3B7E46;
-  border-color:#3B7E46;
-  color:#fff;
-}
+.fv-mktm-btn.primary{ background:#3B7E46; border-color:#3B7E46; color:#fff; }
 .fv-mktm-btn.primary *{ color:#fff; }
 .fv-mktm-btn:active{ transform:scale(.99); }
 
-.fv-mktm-grid{
-  display:grid;
-  grid-template-columns: 1fr;
-  gap:12px;
-}
-@media (min-width: 900px){
-  .fv-mktm-grid{ grid-template-columns: 320px 1fr; }
-}
+.fv-mktm-grid{ display:grid; grid-template-columns: 1fr; gap:12px; }
+@media (min-width: 900px){ .fv-mktm-grid{ grid-template-columns: 320px 1fr; } }
 
 .fv-mktm-list{
   border:1px solid rgba(0,0,0,.12);
@@ -130,23 +103,30 @@ Uses:
   padding:10px 10px 12px;
   background:var(--card-surface, var(--surface,#fff));
 }
-.fv-mktm-sub{
+.fv-mktm-sub{ font-size:12px; color:var(--muted,#67706B); margin:4px 0 8px 0; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.fv-mktm-tabs{ display:flex; gap:6px; flex-wrap:wrap; }
+.fv-mktm-tab{
+  appearance:none;
+  border:1px solid rgba(0,0,0,.12);
+  background:var(--surface,#fff);
+  border-radius:999px;
+  padding:6px 10px;
   font-size:12px;
-  color:var(--muted,#67706B);
-  margin:4px 0 8px 0;
+  color:inherit;
+  cursor:pointer;
+}
+.fv-mktm-tab[aria-selected="true"]{
+  border-color:rgba(59,126,70,.70);
+  box-shadow:0 0 0 2px rgba(59,126,70,.22);
 }
 .fv-mktm-canvas{
   width:100%;
-  height:220px;
+  height:240px;
   display:block;
   border-radius:12px;
   background:rgba(0,0,0,0.02);
 }
-.fv-mktm-empty{
-  font-size:13px;
-  color:var(--muted,#67706B);
-  padding:10px 0;
-}
+.fv-mktm-empty{ font-size:13px; color:var(--muted,#67706B); padding:10px 0; }
 `;
     document.head.appendChild(st);
   }
@@ -172,23 +152,15 @@ Uses:
     `;
     document.body.appendChild(back);
 
-    back.addEventListener("click", (e)=>{
-      // click outside modal closes
-      if (e.target === back) closeModal();
-    });
-
+    back.addEventListener("click", (e)=>{ if (e.target === back) closeModal(); });
     back.querySelector("#fv-mktm-close").addEventListener("click", closeModal);
-
-    document.addEventListener("keydown", (e)=>{
-      if (e.key === "Escape") closeModal();
-    });
+    document.addEventListener("keydown", (e)=>{ if (e.key === "Escape") closeModal(); });
 
     return back;
   }
 
   function openModal(){
-    const back = ensureModal();
-    back.classList.add("open");
+    ensureModal().classList.add("open");
     document.body.style.overflow = "hidden";
   }
 
@@ -209,11 +181,10 @@ Uses:
     if (body) body.innerHTML = html || "";
   }
 
-  // ✅ FIX: Cloud Run returns chart.points[] (not bars)
-  function pickBars(chart){
-    return Array.isArray(chart)
-      ? chart
-      : (chart && (chart.points || chart.bars || chart.data || chart.series)) || [];
+  function normalizePoints(chart){
+    if (Array.isArray(chart)) return chart;
+    if (!chart) return [];
+    return chart.points || chart.bars || chart.data || chart.series || [];
   }
 
   function toNum(x){
@@ -225,15 +196,10 @@ Uses:
     return null;
   }
 
-  // ✅ FIX: Cloud Run uses tUtc for timestamps
-  function extractCloses(bars){
-    const out = [];
-    for (const b of (bars || [])){
-      const c = toNum(b?.c ?? b?.close ?? b?.Close);
-      const t = b?.tUtc ?? b?.t ?? b?.time ?? b?.date ?? null;
-      if (c != null) out.push({ c, t });
-    }
-    return out;
+  function getThemeStroke(){
+    // Use computed body text color so line is visible in dark mode.
+    const c = getComputedStyle(document.body).color || "rgb(240,240,240)";
+    return c;
   }
 
   function drawLine(canvas, points){
@@ -241,7 +207,6 @@ Uses:
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // size canvas to display size
     const rect = canvas.getBoundingClientRect();
     const dpr = Math.max(1, window.devicePixelRatio || 1);
     canvas.width = Math.floor(rect.width * dpr);
@@ -250,14 +215,17 @@ Uses:
 
     ctx.clearRect(0, 0, rect.width, rect.height);
 
-    if (!points || points.length < 2){
+    const closes = (points || []).map(p => ({ c: toNum(p?.c), t: p?.tUtc ?? p?.t ?? p?.time ?? p?.date ?? null }))
+      .filter(x => x.c != null);
+
+    if (closes.length < 2){
       ctx.globalAlpha = 0.75;
       ctx.font = "13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
       ctx.fillText("No chart data", 12, 24);
       return;
     }
 
-    const vals = points.map(p => p.c);
+    const vals = closes.map(p => p.c);
     let min = Math.min(...vals);
     let max = Math.max(...vals);
     if (!isFinite(min) || !isFinite(max)) return;
@@ -267,69 +235,191 @@ Uses:
     const W = rect.width;
     const H = rect.height;
 
-    // axes baseline (subtle)
-    ctx.globalAlpha = 0.35;
+    // baseline
+    ctx.globalAlpha = 0.25;
     ctx.beginPath();
     ctx.moveTo(pad, H - pad);
     ctx.lineTo(W - pad, H - pad);
+    ctx.strokeStyle = getThemeStroke();
     ctx.stroke();
-
     ctx.globalAlpha = 1;
 
-    const n = points.length;
+    const n = closes.length;
     const xFor = (i)=> pad + (i * (W - pad*2) / (n - 1));
     const yFor = (v)=> pad + ((max - v) * (H - pad*2) / (max - min));
 
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = getThemeStroke();
     ctx.beginPath();
-    ctx.moveTo(xFor(0), yFor(points[0].c));
+    ctx.moveTo(xFor(0), yFor(closes[0].c));
     for (let i = 1; i < n; i++){
-      ctx.lineTo(xFor(i), yFor(points[i].c));
+      ctx.lineTo(xFor(i), yFor(closes[i].c));
     }
     ctx.stroke();
 
-    // last value
-    const last = points[n-1].c;
-    ctx.globalAlpha = 0.8;
+    // last value label
+    const last = closes[n-1].c;
+    ctx.globalAlpha = 0.85;
     ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillStyle = getThemeStroke();
     ctx.fillText(`Last: ${last.toFixed(2)}`, pad, pad + 12);
     ctx.globalAlpha = 1;
   }
 
-  async function openChart(symbol){
+  function drawCandles(canvas, points){
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    canvas.width = Math.floor(rect.width * dpr);
+    canvas.height = Math.floor(rect.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    ctx.clearRect(0, 0, rect.width, rect.height);
+
+    const rows = (points || []).map(p => ({
+      o: toNum(p?.o), h: toNum(p?.h), l: toNum(p?.l), c: toNum(p?.c),
+      t: p?.tUtc ?? p?.t ?? p?.time ?? p?.date ?? null
+    })).filter(r => r.h != null && r.l != null && r.o != null && r.c != null);
+
+    if (rows.length < 2){
+      ctx.globalAlpha = 0.75;
+      ctx.font = "13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.fillStyle = getThemeStroke();
+      ctx.fillText("No candle data", 12, 24);
+      return;
+    }
+
+    const highs = rows.map(r => r.h);
+    const lows  = rows.map(r => r.l);
+    let min = Math.min(...lows);
+    let max = Math.max(...highs);
+    if (!isFinite(min) || !isFinite(max)) return;
+    if (min === max){ min -= 1; max += 1; }
+
+    const pad = 12;
+    const W = rect.width;
+    const H = rect.height;
+    const n = rows.length;
+
+    const yFor = (v)=> pad + ((max - v) * (H - pad*2) / (max - min));
+
+    // Candle width: fit to screen
+    const slot = (W - pad*2) / n;
+    const bodyW = Math.max(3, Math.min(10, slot * 0.55));
+    const xFor = (i)=> pad + i * slot + slot/2;
+
+    // baseline
+    ctx.globalAlpha = 0.20;
+    ctx.strokeStyle = getThemeStroke();
+    ctx.beginPath();
+    ctx.moveTo(pad, H - pad);
+    ctx.lineTo(W - pad, H - pad);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    for (let i = 0; i < n; i++){
+      const r = rows[i];
+      const x = xFor(i);
+      const yH = yFor(r.h);
+      const yL = yFor(r.l);
+      const yO = yFor(r.o);
+      const yC = yFor(r.c);
+
+      const up = r.c >= r.o;
+
+      // wick
+      ctx.strokeStyle = getThemeStroke();
+      ctx.globalAlpha = 0.65;
+      ctx.beginPath();
+      ctx.moveTo(x, yH);
+      ctx.lineTo(x, yL);
+      ctx.stroke();
+
+      // body (use theme stroke, with alpha differences; avoids bright neon)
+      const top = Math.min(yO, yC);
+      const bot = Math.max(yO, yC);
+      ctx.globalAlpha = up ? 0.85 : 0.60;
+      ctx.fillStyle = getThemeStroke();
+      ctx.fillRect(x - bodyW/2, top, bodyW, Math.max(2, bot - top));
+      ctx.globalAlpha = 1;
+    }
+
+    // last value
+    const last = rows[n-1].c;
+    ctx.globalAlpha = 0.85;
+    ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillStyle = getThemeStroke();
+    ctx.fillText(`Last: ${last.toFixed(2)}`, pad, pad + 12);
+    ctx.globalAlpha = 1;
+  }
+
+  async function loadAndRender(symbol, mode){
+    const note = document.getElementById("fv-mktm-note");
+    if (note) note.textContent = "Loading…";
+
+    try{
+      const chart = await window.FVMarkets.fetchChart(symbol, mode);
+      const points = normalizePoints(chart);
+      const canvas = document.getElementById("fv-mktm-canvas");
+
+      if (mode === "daily" || mode === "weekly"){
+        drawCandles(canvas, points);
+      } else {
+        drawLine(canvas, points);
+      }
+
+      if (note) note.textContent = points?.length ? `Points: ${points.length}` : "No points found.";
+    } catch (e){
+      if (note) note.textContent = `Chart failed: ${e?.message || "error"}`;
+      const canvas = document.getElementById("fv-mktm-canvas");
+      if (canvas){
+        const ctx = canvas.getContext("2d");
+        if (ctx){
+          const rect = canvas.getBoundingClientRect();
+          ctx.clearRect(0,0,rect.width,rect.height);
+        }
+      }
+    }
+  }
+
+  function renderChartModal(symbol){
     openModal();
     setModalTitle(symbol || "Chart");
     setModalBody(`
       <div class="fv-mktm-grid">
-        <div class="fv-mktm-list">
-          <div class="fv-mktm-empty">Loading chart…</div>
-        </div>
+        <div class="fv-mktm-list"><div class="fv-mktm-empty">Chart</div></div>
+
         <div class="fv-mktm-chart">
-          <div class="fv-mktm-sub">Daily (line from closes)</div>
+          <div class="fv-mktm-sub">
+            <div class="fv-mktm-tabs" role="tablist" aria-label="Chart range">
+              <button class="fv-mktm-tab" data-mode="daily" aria-selected="true">Daily</button>
+              <button class="fv-mktm-tab" data-mode="weekly" aria-selected="false">Weekly</button>
+              <button class="fv-mktm-tab" data-mode="1y" aria-selected="false">1Y</button>
+              <button class="fv-mktm-tab" data-mode="all" aria-selected="false">All</button>
+            </div>
+          </div>
+
           <canvas class="fv-mktm-canvas" id="fv-mktm-canvas"></canvas>
           <div class="fv-mktm-sub" id="fv-mktm-note"></div>
         </div>
       </div>
     `);
 
-    // left side empty for chart-only view on tile tap
-    const listEl = document.querySelector(".fv-mktm-list");
-    if (listEl) listEl.innerHTML = `<div class="fv-mktm-empty">Chart</div>`;
+    // default mode
+    loadAndRender(symbol, "daily");
 
-    try{
-      const chart = await window.FVMarkets.fetchChart(symbol, "daily");
-      const bars = pickBars(chart);
-      const closes = extractCloses(bars);
-      const canvas = document.getElementById("fv-mktm-canvas");
-      drawLine(canvas, closes.slice(-180)); // keep it light
-      const note = document.getElementById("fv-mktm-note");
-      if (note){
-        note.textContent = closes.length ? `Points: ${closes.length}` : "No closes found.";
-      }
-    } catch (e){
-      const note = document.getElementById("fv-mktm-note");
-      if (note) note.textContent = `Chart load failed: ${e?.message || "error"}`;
-    }
+    // wire tabs
+    document.querySelectorAll(".fv-mktm-tab").forEach(btn=>{
+      btn.addEventListener("click", ()=>{
+        document.querySelectorAll(".fv-mktm-tab").forEach(b=>b.setAttribute("aria-selected","false"));
+        btn.setAttribute("aria-selected","true");
+        const mode = btn.getAttribute("data-mode") || "daily";
+        loadAndRender(symbol, mode);
+      });
+    });
   }
 
   function openContractsList(crop){
@@ -356,40 +446,54 @@ Uses:
         <div class="fv-mktm-list">
           ${rows || `<div class="fv-mktm-empty">No contracts</div>`}
         </div>
+
         <div class="fv-mktm-chart">
-          <div class="fv-mktm-sub">Tap a contract to open chart</div>
+          <div class="fv-mktm-sub">
+            <div class="fv-mktm-tabs" role="tablist" aria-label="Chart range">
+              <button class="fv-mktm-tab" data-mode="daily" aria-selected="true">Daily</button>
+              <button class="fv-mktm-tab" data-mode="weekly" aria-selected="false">Weekly</button>
+              <button class="fv-mktm-tab" data-mode="1y" aria-selected="false">1Y</button>
+              <button class="fv-mktm-tab" data-mode="all" aria-selected="false">All</button>
+            </div>
+          </div>
+
           <canvas class="fv-mktm-canvas" id="fv-mktm-canvas"></canvas>
           <div class="fv-mktm-sub" id="fv-mktm-note"></div>
         </div>
       </div>
     `);
 
-    // wire list clicks
+    let currentSymbol = null;
+
+    const setActiveModeAndRender = ()=>{
+      const active = document.querySelector(".fv-mktm-tab[aria-selected='true']");
+      const mode = active ? (active.getAttribute("data-mode") || "daily") : "daily";
+      if (currentSymbol) loadAndRender(currentSymbol, mode);
+    };
+
+    document.querySelectorAll(".fv-mktm-tab").forEach(btn=>{
+      btn.addEventListener("click", ()=>{
+        document.querySelectorAll(".fv-mktm-tab").forEach(b=>b.setAttribute("aria-selected","false"));
+        btn.setAttribute("aria-selected","true");
+        setActiveModeAndRender();
+      });
+    });
+
     document.querySelectorAll("[data-mkt-sym]").forEach(btn=>{
-      btn.addEventListener("click", async ()=>{
+      btn.addEventListener("click", ()=>{
         const sym = btn.getAttribute("data-mkt-sym");
         if (!sym) return;
+        currentSymbol = sym;
         setModalTitle(sym);
-        const note = document.getElementById("fv-mktm-note");
-        if (note) note.textContent = "Loading chart…";
-        try{
-          const chart = await window.FVMarkets.fetchChart(sym, "daily");
-          const bars = pickBars(chart);
-          const closes = extractCloses(bars);
-          drawLine(document.getElementById("fv-mktm-canvas"), closes.slice(-180));
-          if (note) note.textContent = closes.length ? `Points: ${closes.length}` : "No closes found.";
-        } catch (e){
-          if (note) note.textContent = `Chart load failed: ${e?.message || "error"}`;
-        }
+        setActiveModeAndRender();
       });
     });
   }
 
-  // Event wiring
   function onContractTap(e){
     const sym = e?.detail?.symbol;
     if (!sym) return;
-    openChart(sym);
+    renderChartModal(sym);
   }
 
   function onViewMore(e){
