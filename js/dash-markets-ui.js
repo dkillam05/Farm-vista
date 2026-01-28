@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-ui.js  (FULL FILE)
-Rev: 2026-01-28i
+Rev: 2026-01-28j
 Purpose:
 ✅ Thin UI orchestrator for Markets
    - Opens/closes modal
@@ -14,6 +14,13 @@ Delegates:
    - Chart rendering → FVMarketsChart
    - Series shaping → FVMarketsSeries
    - Quote badges → FVMarketsQuotes
+
+Mobile fixes in this rev:
+✅ View-more list shows quotes immediately (no more --- until tap)
+   - Warm quotes on open (lite -> paint -> full -> paint)
+   - Paint rows from FVMarkets.getQuote() so it works even if FVMarketsQuotes is slow
+✅ Auto-scroll to chart after selecting a contract (mobile only)
+   - Smooth scroll to chart panel so user sees the chart instantly
 ===================================================================== */
 
 (function(){
@@ -34,6 +41,44 @@ Delegates:
   const DEFAULT_MODE = "1d";
 
   function qs(sel, root=document){ return root.querySelector(sel); }
+
+  function isMobile(){
+    try{ return window.matchMedia && window.matchMedia("(max-width: 899px)").matches; }
+    catch{ return false; }
+  }
+
+  function toNum(x){
+    if (typeof x === "number" && isFinite(x)) return x;
+    if (typeof x === "string"){
+      const v = parseFloat(x);
+      return isFinite(v) ? v : null;
+    }
+    return null;
+  }
+
+  function fmtPrice(v){
+    return (typeof v === "number" && isFinite(v)) ? v.toFixed(2) : "—";
+  }
+  function fmtSigned(v){
+    if (!(typeof v === "number" && isFinite(v))) return "—";
+    return (v > 0 ? "+" : "") + v.toFixed(2);
+  }
+  function fmtPct(v){
+    if (!(typeof v === "number" && isFinite(v))) return "—";
+    return (v > 0 ? "+" : "") + v.toFixed(2) + "%";
+  }
+
+  function dirFrom(chg){
+    if (typeof chg !== "number" || !isFinite(chg)) return "flat";
+    if (chg > 0) return "up";
+    if (chg < 0) return "down";
+    return "flat";
+  }
+  function arrowFor(dir){
+    if (dir === "up") return "▲";
+    if (dir === "down") return "▼";
+    return "—";
+  }
 
   function ensureModal(){
     let back = document.getElementById(BACKDROP_ID);
@@ -87,6 +132,103 @@ Delegates:
   }
 
   // --------------------------------------------------
+  // Quote painting for list rows (mobile + desktop)
+  // --------------------------------------------------
+  function paintRowQuote(rowEl, sym){
+    if (!rowEl || !sym) return;
+
+    const q = (window.FVMarkets && typeof window.FVMarkets.getQuote === "function")
+      ? window.FVMarkets.getQuote(sym)
+      : null;
+
+    const price = q ? toNum(q.price) : null;
+    const chg = q ? toNum(q.chg) : null;
+    const pct = q ? toNum(q.pct) : null;
+
+    const priceEl = rowEl.querySelector('[data-q="price"]');
+    const badgeEl = rowEl.querySelector('[data-q="badge"]');
+    const arrEl = rowEl.querySelector('[data-q="arr"]');
+    const chgEl = rowEl.querySelector('[data-q="chg"]');
+    const pctEl = rowEl.querySelector('[data-q="pct"]');
+
+    if (priceEl) priceEl.textContent = fmtPrice(price);
+
+    // If we don't have change/% yet, keep placeholders but still show price.
+    const hasChange = (chg != null) && (pct != null);
+    const dir = hasChange ? dirFrom(chg) : "flat";
+    const arr = hasChange ? arrowFor(dir) : "—";
+
+    if (badgeEl){
+      badgeEl.classList.remove("up","down","flat");
+      badgeEl.classList.add(dir);
+    }
+    if (arrEl) arrEl.textContent = arr;
+    if (chgEl) chgEl.textContent = hasChange ? fmtSigned(chg) : "—";
+    if (pctEl) pctEl.textContent = hasChange ? fmtPct(pct) : "—";
+  }
+
+  function paintAllListRows(symbols){
+    const list = (symbols || []).filter(Boolean);
+    if (!list.length) return;
+
+    for (const sym of list){
+      const row = document.querySelector(`.fv-mktm-row[data-mkt-sym="${CSS.escape(sym)}"]`);
+      if (row) paintRowQuote(row, sym);
+    }
+  }
+
+  async function warmAndPaintList(symbols){
+    const syms = Array.from(new Set((symbols || []).filter(Boolean)));
+    if (!syms.length) return;
+
+    // Paint anything already cached immediately
+    paintAllListRows(syms);
+
+    // If we have FVMarkets.warmQuotes, use it directly (fast + reliable)
+    if (window.FVMarkets && typeof window.FVMarkets.warmQuotes === "function"){
+      // 1) Lite warm first (gets price quickly)
+      try{
+        await window.FVMarkets.warmQuotes(syms, "lite");
+      } catch {}
+      paintAllListRows(syms);
+
+      // 2) Full warm (fills change/%)
+      try{
+        await window.FVMarkets.warmQuotes(syms, "full");
+      } catch {}
+      paintAllListRows(syms);
+      return;
+    }
+
+    // Fallback: try the quotes helper if present
+    if (window.FVMarketsQuotes && typeof window.FVMarketsQuotes.warmListRows === "function"){
+      try{
+        window.FVMarketsQuotes.warmListRows(syms.map(s=>({ symbol:s })), { wideFull:true });
+      } catch {}
+    }
+  }
+
+  // --------------------------------------------------
+  // Mobile: auto-scroll to chart panel after selection
+  // --------------------------------------------------
+  function scrollToChartPanel(){
+    if (!isMobile()) return;
+    const chart = qs(".fv-mktm-chart");
+    if (!chart) return;
+
+    // Let layout settle (especially after innerHTML updates)
+    setTimeout(()=>{
+      try{
+        chart.scrollIntoView({ behavior:"smooth", block:"start" });
+      } catch {
+        // fallback: manual scroll inside modal
+        const modal = qs("#" + MODAL_ID);
+        if (modal) modal.scrollTop = modal.scrollHeight;
+      }
+    }, 60);
+  }
+
+  // --------------------------------------------------
   // Chart modal (single contract)
   // --------------------------------------------------
   function openChart(symbol){
@@ -124,6 +266,7 @@ Delegates:
 
     const last = window.FVMarkets?.getLast?.() || {};
     const list = crop === "corn" ? (last.corn || []) : (last.soy || []);
+    const symbols = (list || []).map(x=>x && x.symbol).filter(Boolean);
 
     const rows = list.map(c => `
       <button class="fv-mktm-row" data-mkt-sym="${c.symbol}">
@@ -166,9 +309,12 @@ Delegates:
       </div>
     `);
 
-    // warm quote badges
+    // ✅ Mobile + desktop: warm & paint list rows so we don't show ---
+    warmAndPaintList(symbols).catch(()=>{});
+
+    // warm quote badges (keep your existing helper too; harmless)
     if (window.FVMarketsQuotes){
-      window.FVMarketsQuotes.warmListRows(list, { wideFull:true });
+      try{ window.FVMarketsQuotes.warmListRows(list, { wideFull:true }); } catch {}
     }
 
     let currentSymbol = null;
@@ -191,9 +337,20 @@ Delegates:
 
         loadChart(currentSymbol, mode);
 
-        if (window.FVMarketsQuotes){
-          window.FVMarketsQuotes.warmAndUpdate([currentSymbol], "full");
+        // Ensure selected row gets full quote info ASAP
+        if (window.FVMarkets && typeof window.FVMarkets.warmQuotes === "function"){
+          window.FVMarkets.warmQuotes([currentSymbol], "full")
+            .then(()=>{
+              const rowEl = document.querySelector(`.fv-mktm-row[data-mkt-sym="${CSS.escape(currentSymbol)}"]`);
+              if (rowEl) paintRowQuote(rowEl, currentSymbol);
+            })
+            .catch(()=>{});
+        } else if (window.FVMarketsQuotes){
+          try{ window.FVMarketsQuotes.warmAndUpdate([currentSymbol], "full"); } catch {}
         }
+
+        // ✅ Mobile: jump user to the chart after selection
+        scrollToChartPanel();
       });
     });
   }
@@ -234,6 +391,9 @@ Delegates:
         const sym = (typeof getSymbol === "function") ? getSymbol() : null;
         if (!sym) return; // in list mode, don’t auto-load until selection
         loadChart(sym, mode);
+
+        // On mobile, if user already selected a contract and taps a tab, keep them at chart
+        scrollToChartPanel();
       });
     });
   }
