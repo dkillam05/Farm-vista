@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/markets.js  (FULL FILE)
-Rev: 2026-01-28l
+Rev: 2026-01-28m
 
 Fixes:
 ✅ Front selection skips expired + dead symbols
@@ -16,6 +16,11 @@ NEW:
    - FVMarkets.getQuote(symbol)
    - FVMarkets.warmQuotes(symbols, level)
 ✅ Lite mode no longer lies with 0.00 change; uses null => UI shows "—"
+
+CHANGE (requested):
+✅ Remove yellow bubble
+✅ Bubble is GREEN when up, RED when down, GRAY when flat
+✅ Bubble text ALWAYS WHITE (including arrow + $chg + %chg)
 ===================================================================== */
 
 (function(){
@@ -147,17 +152,21 @@ NEW:
 .fv-mkt-right{ display:flex; flex-direction:column; align-items:flex-end; gap:2px; flex:0 0 auto; }
 .fv-mkt-price{ font-weight:900; font-variant-numeric:tabular-nums; }
 
+/* CHANGE CHIP (bubble) — no yellow, white text always */
 .fv-mkt-change{
   display:flex; align-items:center; gap:6px;
   font-size:12px; font-variant-numeric:tabular-nums;
-  opacity:.92;
+  opacity:1;
   border-radius:10px;
-  padding:2px 6px;
+  padding:3px 8px;
+  color:#fff !important;
 }
-.fv-mkt-arrow{ width:18px; text-align:center; font-weight:900; }
-.fv-mkt-change.up{ color:#2F6C3C; background:rgba(255,225,0,.40); }
-.fv-mkt-change.down{ color:#b42318; background:rgba(255,225,0,.40); }
-.fv-mkt-change.flat{ color:var(--muted,#67706B); background:rgba(255,225,0,.30); }
+.fv-mkt-change *{ color:#fff !important; }
+.fv-mkt-arrow{ width:18px; text-align:center; font-weight:900; color:#fff !important; }
+
+.fv-mkt-change.up{ background:#2F6C3C; }
+.fv-mkt-change.down{ background:#b42318; }
+.fv-mkt-change.flat{ background:#67706B; }
 
 .fv-mkt-meta{ display:flex; gap:8px; font-size:12px; opacity:.7; flex-wrap:wrap; margin-top:8px; }
 
@@ -250,7 +259,7 @@ NEW:
     return chart.points || chart.bars || chart.data || chart.series || [];
   }
 
-  function toNum(x){
+  function toNum2(x){
     if (typeof x === "number" && isFinite(x)) return x;
     if (typeof x === "string"){
       const v = parseFloat(x);
@@ -262,7 +271,7 @@ NEW:
   function lastNonNullClose(points){
     if (!Array.isArray(points) || !points.length) return null;
     for (let i = points.length - 1; i >= 0; i--){
-      const c = toNum(points[i]?.c);
+      const c = toNum2(points[i]?.c);
       if (c != null) return c;
     }
     return null;
@@ -273,7 +282,7 @@ NEW:
     let last = null;
     let prev = null;
     for (let i = points.length - 1; i >= 0; i--){
-      const c = toNum(points[i]?.c);
+      const c = toNum2(points[i]?.c);
       if (c != null){
         if (last == null) last = c;
         else { prev = c; break; }
@@ -304,7 +313,7 @@ NEW:
     return st !== "dead" && st !== "nodata";
   };
 
-  // ✅ NEW: expose quote access (used by dash-markets-ui tiles)
+  // ✅ Expose quote access
   Markets.getQuote = function(sym){
     return quoteCache.get(sym) || null;
   };
@@ -416,7 +425,7 @@ NEW:
             // fallback to last two intraday closes
             let last2 = null, prev2 = null;
             for (let i = dailyPts.length - 1; i >= 0; i--){
-              const c = toNum(dailyPts[i]?.c);
+              const c = toNum2(dailyPts[i]?.c);
               if (c != null){
                 if (last2 == null) last2 = c;
                 else { prev2 = c; break; }
@@ -611,9 +620,8 @@ NEW:
       await runQueue(vis, "full");
       redraw();
     } else {
-      // ✅ Desktop: warm ALL rows in FULL so every contract can show the highlighted change chip
+      // ✅ Desktop: warm ALL rows in FULL so every contract can show the change chip
       const all = allSymbols(payload);
-      // warm in background so page renders fast
       runQueue(all, "full").then(redraw).catch(()=>{});
     }
 
