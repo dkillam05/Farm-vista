@@ -362,9 +362,26 @@ NEW:
     return out;
   }
 
+  function isDeadishError(e){
+    const body = String(e?.body || "");
+    return (
+      e?.status === 404 ||
+      body.includes("No data found") ||
+      body.includes('"result":null') ||
+      body.includes('"code":"Not Found"') ||
+      body.includes('"chart_failed"')
+    );
+  }
+
   async function refreshQuoteFor(symbol, level){
     if (!symbol) return;
     if (inflight.has(symbol)) return inflight.get(symbol);
+
+    // small optimization: don’t keep hammering known-bad symbols
+    if (HIDE_BAD_CONTRACTS && !Markets.isSymbolUsable(symbol)) {
+      if (!quoteCache.has(symbol)) quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now() });
+      return;
+    }
 
     const modeLevel = (level === "lite") ? "lite" : "full";
 
@@ -385,6 +402,7 @@ NEW:
         let chg = null, pct = null;
 
         if (modeLevel === "full"){
+          // 2) Change/% from 6mo daily closes (prev close) like Yahoo
           const six = await fetchChart(symbol, "6mo");
           const sixPts = normalizePoints(six);
           const { prev } = lastTwoDailyCloses(sixPts);
@@ -419,16 +437,7 @@ NEW:
         quoteCache.set(symbol, { price, chg, pct, updatedAtMs: Date.now() });
 
       } catch (e){
-        // If Yahoo says 404/no data, mark dead and hide
-        const body = String(e?.body || "");
-        const isDead =
-          e?.status === 404 ||
-          body.includes("No data found") ||
-          body.includes('"result":null') ||
-          body.includes('"code":"Not Found"') ||
-          body.includes('"chart_failed"');
-
-        if (isDead) setState(symbol, "dead");
+        if (isDeadishError(e)) setState(symbol, "dead");
         else if (!symbolState.has(symbol)) setState(symbol, "unknown");
 
         if (!quoteCache.has(symbol)) quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now() });
