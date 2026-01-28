@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-ui.js  (FULL FILE)
-Rev: 2026-01-28j
+Rev: 2026-01-28k
 Purpose:
 ✅ Thin UI orchestrator for Markets
    - Opens/closes modal
@@ -21,6 +21,13 @@ Mobile fixes in this rev:
    - Paint rows from FVMarkets.getQuote() so it works even if FVMarketsQuotes is slow
 ✅ Auto-scroll to chart after selecting a contract (mobile only)
    - Smooth scroll to chart panel so user sees the chart instantly
+
+NEW fixes in this rev:
+✅ View-more list filters like desktop:
+   - Hides expired contracts (practical rule: same month + day>=21)
+   - Hides dead/no-data contracts when FVMarkets.isSymbolUsable() is available
+✅ Adds an “X” close button in the top-right (in addition to Close)
+✅ When switching charts/tabs, clears any locked tooltip immediately
 ===================================================================== */
 
 (function(){
@@ -80,6 +87,78 @@ Mobile fixes in this rev:
     return "—";
   }
 
+  // --------------------------------------------------
+  // Contract filtering (expired + dead/noData)
+  // --------------------------------------------------
+  const MONTH_CODE = { F:1, G:2, H:3, J:4, K:5, M:6, N:7, Q:8, U:9, V:10, X:11, Z:12 };
+
+  function parseSymbolYM(symbol){
+    try{
+      const s = String(symbol || "");
+      const core = s.split(".")[0];        // ZSH26 from ZSH26.CBT
+      const mCode = core.slice(-3, -2);    // H
+      const yyStr = core.slice(-2);        // 26
+      const month = MONTH_CODE[mCode] || null;
+      const yy = parseInt(yyStr, 10);
+      if (!month || !isFinite(yy)) return null;
+      const year = (yy <= 50) ? (2000 + yy) : (1900 + yy);
+      return { year, month };
+    }catch{
+      return null;
+    }
+  }
+
+  // Practical expired rule (matches what you’ve been using):
+  // - year < current => expired
+  // - year == current and month < currentMonth => expired
+  // - year == current and month == currentMonth and day >= 21 => expired
+  function isExpiredContract(symbol){
+    const ym = parseSymbolYM(symbol);
+    if (!ym) return false;
+
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth() + 1;
+    const d = now.getDate();
+
+    if (ym.year < y) return true;
+    if (ym.year > y) return false;
+
+    if (ym.month < m) return true;
+    if (ym.month > m) return false;
+
+    return d >= 21;
+  }
+
+  function isSymbolUsable(symbol){
+    try{
+      if (window.FVMarkets && typeof window.FVMarkets.isSymbolUsable === "function"){
+        return !!window.FVMarkets.isSymbolUsable(symbol);
+      }
+    }catch{}
+    return true; // if we can’t check, don’t hide
+  }
+
+  function filterContracts(list){
+    const out = [];
+    for (const c of (list || [])){
+      const sym = c?.symbol;
+      if (!sym) continue;
+
+      // hide expired
+      if (isExpiredContract(sym)) continue;
+
+      // hide dead/nodata (if available)
+      if (!isSymbolUsable(sym)) continue;
+
+      out.push(c);
+    }
+    return out;
+  }
+
+  // --------------------------------------------------
+  // Modal shell
+  // --------------------------------------------------
   function ensureModal(){
     let back = document.getElementById(BACKDROP_ID);
     if (back) return back;
@@ -88,8 +167,18 @@ Mobile fixes in this rev:
     back.id = BACKDROP_ID;
     back.innerHTML = `
       <div id="${MODAL_ID}" role="dialog" aria-modal="true">
-        <div class="fv-mktm-head">
+        <div class="fv-mktm-head" style="position:relative;">
           <h2 class="fv-mktm-title" id="fv-mktm-title">Markets</h2>
+
+          <!-- X close (top-right) -->
+          <button type="button"
+                  class="fv-mktm-btn"
+                  id="fv-mktm-close-x"
+                  aria-label="Close"
+                  style="position:absolute; right:0; top:0; width:30px; height:30px; padding:0; border-radius:999px; display:flex; align-items:center; justify-content:center;">
+            ×
+          </button>
+
           <button class="fv-mktm-btn" id="fv-mktm-close">Close</button>
         </div>
         <div id="fv-mktm-body"></div>
@@ -100,7 +189,12 @@ Mobile fixes in this rev:
     back.addEventListener("click", e=>{
       if (e.target === back) closeModal();
     });
-    qs("#fv-mktm-close", back).addEventListener("click", closeModal);
+
+    const closeBtn = qs("#fv-mktm-close", back);
+    if (closeBtn) closeBtn.addEventListener("click", closeModal);
+
+    const closeX = qs("#fv-mktm-close-x", back);
+    if (closeX) closeX.addEventListener("click", closeModal);
 
     document.addEventListener("keydown", e=>{
       if (e.key === "Escape") closeModal();
@@ -119,6 +213,13 @@ Mobile fixes in this rev:
     if (!back) return;
     back.classList.remove("open");
     document.body.style.overflow = "";
+
+    // Clear any tooltip/lock when closing
+    try{
+      if (window.FVMarketsChart && typeof window.FVMarketsChart.hideTip === "function"){
+        window.FVMarketsChart.hideTip();
+      }
+    }catch{}
   }
 
   function setTitle(t){
@@ -153,7 +254,6 @@ Mobile fixes in this rev:
 
     if (priceEl) priceEl.textContent = fmtPrice(price);
 
-    // If we don't have change/% yet, keep placeholders but still show price.
     const hasChange = (chg != null) && (pct != null);
     const dir = hasChange ? dirFrom(chg) : "flat";
     const arr = hasChange ? arrowFor(dir) : "—";
@@ -181,26 +281,17 @@ Mobile fixes in this rev:
     const syms = Array.from(new Set((symbols || []).filter(Boolean)));
     if (!syms.length) return;
 
-    // Paint anything already cached immediately
     paintAllListRows(syms);
 
-    // If we have FVMarkets.warmQuotes, use it directly (fast + reliable)
     if (window.FVMarkets && typeof window.FVMarkets.warmQuotes === "function"){
-      // 1) Lite warm first (gets price quickly)
-      try{
-        await window.FVMarkets.warmQuotes(syms, "lite");
-      } catch {}
+      try{ await window.FVMarkets.warmQuotes(syms, "lite"); } catch {}
       paintAllListRows(syms);
 
-      // 2) Full warm (fills change/%)
-      try{
-        await window.FVMarkets.warmQuotes(syms, "full");
-      } catch {}
+      try{ await window.FVMarkets.warmQuotes(syms, "full"); } catch {}
       paintAllListRows(syms);
       return;
     }
 
-    // Fallback: try the quotes helper if present
     if (window.FVMarketsQuotes && typeof window.FVMarketsQuotes.warmListRows === "function"){
       try{
         window.FVMarketsQuotes.warmListRows(syms.map(s=>({ symbol:s })), { wideFull:true });
@@ -216,12 +307,10 @@ Mobile fixes in this rev:
     const chart = qs(".fv-mktm-chart");
     if (!chart) return;
 
-    // Let layout settle (especially after innerHTML updates)
     setTimeout(()=>{
       try{
         chart.scrollIntoView({ behavior:"smooth", block:"start" });
       } catch {
-        // fallback: manual scroll inside modal
         const modal = qs("#" + MODAL_ID);
         if (modal) modal.scrollTop = modal.scrollHeight;
       }
@@ -265,7 +354,10 @@ Mobile fixes in this rev:
     setTitle(crop === "corn" ? "Corn contracts" : "Soybean contracts");
 
     const last = window.FVMarkets?.getLast?.() || {};
-    const list = crop === "corn" ? (last.corn || []) : (last.soy || []);
+    const rawList = crop === "corn" ? (last.corn || []) : (last.soy || []);
+
+    // ✅ Filter like desktop: hide expired + dead/nodata
+    const list = filterContracts(rawList);
     const symbols = (list || []).map(x=>x && x.symbol).filter(Boolean);
 
     const rows = list.map(c => `
@@ -289,11 +381,11 @@ Mobile fixes in this rev:
 
     setBody(`
       <div class="fv-mktm-grid fv-mktm-split">
-        <div class="fv-mktm-list">
+        <div class="fv-mktm-list" id="fv-mktm-listbox">
           ${rows || `<div class="fv-mktm-empty">No contracts</div>`}
         </div>
 
-        <div class="fv-mktm-chart">
+        <div class="fv-mktm-chart" id="fv-mktm-chartpanel">
           <div class="fv-mktm-chart-title" id="fv-mktm-chart-hdr">Select a contract</div>
 
           <div class="fv-mktm-sub">
@@ -309,17 +401,16 @@ Mobile fixes in this rev:
       </div>
     `);
 
-    // ✅ Mobile + desktop: warm & paint list rows so we don't show ---
+    // Warm & paint list rows so we don't show --- on mobile
     warmAndPaintList(symbols).catch(()=>{});
 
-    // warm quote badges (keep your existing helper too; harmless)
+    // Keep your existing helper too (harmless)
     if (window.FVMarketsQuotes){
       try{ window.FVMarketsQuotes.warmListRows(list, { wideFull:true }); } catch {}
     }
 
     let currentSymbol = null;
 
-    // Tabs should drive whatever is currently selected (or do nothing until selected)
     wireTabs(()=>currentSymbol);
 
     document.querySelectorAll("[data-mkt-sym]").forEach(btn=>{
@@ -331,7 +422,6 @@ Mobile fixes in this rev:
         setTitle(currentSymbol);
         setChartHeader(currentSymbol);
 
-        // Load using currently selected tab; default to 1D
         const active = qs(".fv-mktm-tab[aria-selected='true']");
         const mode = active ? (active.getAttribute("data-mode") || DEFAULT_MODE) : DEFAULT_MODE;
 
@@ -349,7 +439,6 @@ Mobile fixes in this rev:
           try{ window.FVMarketsQuotes.warmAndUpdate([currentSymbol], "full"); } catch {}
         }
 
-        // ✅ Mobile: jump user to the chart after selection
         scrollToChartPanel();
       });
     });
@@ -388,11 +477,17 @@ Mobile fixes in this rev:
         document.querySelectorAll(".fv-mktm-tab").forEach(b=>b.setAttribute("aria-selected","false"));
         btn.setAttribute("aria-selected","true");
 
+        // ✅ Clear any locked tooltip immediately on tab switch
+        try{
+          if (window.FVMarketsChart && typeof window.FVMarketsChart.hideTip === "function"){
+            window.FVMarketsChart.hideTip();
+          }
+        }catch{}
+
         const sym = (typeof getSymbol === "function") ? getSymbol() : null;
-        if (!sym) return; // in list mode, don’t auto-load until selection
+        if (!sym) return;
         loadChart(sym, mode);
 
-        // On mobile, if user already selected a contract and taps a tab, keep them at chart
         scrollToChartPanel();
       });
     });
@@ -406,10 +501,17 @@ Mobile fixes in this rev:
     if (!canvas || !window.FVMarketsSeries || !window.FVMarketsChart) return;
 
     const m = String(mode || DEFAULT_MODE).toLowerCase();
+
+    // ✅ Clear any locked tooltip immediately when loading a new series
+    try{
+      if (window.FVMarketsChart && typeof window.FVMarketsChart.hideTip === "function"){
+        window.FVMarketsChart.hideTip();
+      }
+    }catch{}
+
     if (note) note.textContent = "Loading…";
 
     try{
-      // IMPORTANT: Cloud Run now should accept mode=1d|5d|1m|6m|1y
       const raw = await window.FVMarkets.fetchChart(symbol, m);
       const shaped = window.FVMarketsSeries.shape(raw, m);
 
