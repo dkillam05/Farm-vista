@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/markets.js  (FULL FILE)
-Rev: 2026-01-28k
+Rev: 2026-01-28l
 
 Fixes:
 ✅ Front selection skips expired + dead symbols
@@ -9,7 +9,7 @@ Fixes:
    - change/% from 6mo daily closes (prev daily close) like Yahoo
 ✅ Auto-hide contracts that don’t fetch real data (dead/nodata)
 ✅ Mobile: two tiles per crop (Front + Dec; if Front=Dec then Jan next year)
-✅ Desktop: full lists, but hide unusable symbols
+✅ Desktop: full lists, hide unusable symbols, and show change chip for ALL rows
 
 NEW:
 ✅ Expose quote helpers for modal tiles:
@@ -151,11 +151,13 @@ NEW:
   display:flex; align-items:center; gap:6px;
   font-size:12px; font-variant-numeric:tabular-nums;
   opacity:.92;
+  border-radius:10px;
+  padding:2px 6px;
 }
 .fv-mkt-arrow{ width:18px; text-align:center; font-weight:900; }
-.fv-mkt-change.up{ color:#2F6C3C; }
-.fv-mkt-change.down{ color:#b42318; }
-.fv-mkt-change.flat{ color:var(--muted,#67706B); }
+.fv-mkt-change.up{ color:#2F6C3C; background:rgba(255,225,0,.40); }
+.fv-mkt-change.down{ color:#b42318; background:rgba(255,225,0,.40); }
+.fv-mkt-change.flat{ color:var(--muted,#67706B); background:rgba(255,225,0,.30); }
 
 .fv-mkt-meta{ display:flex; gap:8px; font-size:12px; opacity:.7; flex-wrap:wrap; margin-top:8px; }
 
@@ -424,11 +426,11 @@ NEW:
               chg = last2 - prev2;
               pct = (prev2 === 0) ? 0 : (chg / prev2) * 100;
             } else {
-              chg = 0; pct = 0;
+              chg = null; pct = null;
             }
           }
         } else {
-          // ✅ CHANGED: lite mode uses null => shows "—" instead of fake 0.00
+          // ✅ Lite mode uses null => UI can show "—" or hide chip
           chg = null;
           pct = null;
         }
@@ -464,7 +466,7 @@ NEW:
     await Promise.all(workers);
   }
 
-  // ✅ NEW: expose quote warmup for modal "View more" tiles
+  // ✅ Expose warmQuotes for dash-markets-ui
   Markets.warmQuotes = async function(symbols, level){
     await runQueue(symbols, level);
   };
@@ -609,18 +611,10 @@ NEW:
       await runQueue(vis, "full");
       redraw();
     } else {
-      const fronts = [];
-      const cf = pickFront(payload.corn || [])?.symbol;
-      const sf = pickFront(payload.soy || [])?.symbol;
-      if (cf) fronts.push(cf);
-      if (sf) fronts.push(sf);
-
-      await runQueue(fronts, "full");
-      redraw();
-
+      // ✅ Desktop: warm ALL rows in FULL so every contract can show the highlighted change chip
       const all = allSymbols(payload);
-      const rest = all.filter(s => !fronts.includes(s));
-      runQueue(rest, "lite").then(redraw).catch(()=>{});
+      // warm in background so page renders fast
+      runQueue(all, "full").then(redraw).catch(()=>{});
     }
 
     window.dispatchEvent(new CustomEvent("fv:markets:updated", { detail:{ payload } }));
@@ -638,9 +632,7 @@ NEW:
     timerFrontQuotes = setInterval(async ()=>{
       try{
         if (!lastPayload) return;
-        const syms = isMobile()
-          ? mobileVisibleSymbols(lastPayload)
-          : ([ pickFront(lastPayload.corn || [])?.symbol, pickFront(lastPayload.soy || [])?.symbol ].filter(Boolean));
+        const syms = isMobile() ? mobileVisibleSymbols(lastPayload) : allSymbols(lastPayload);
         await runQueue(syms, "full");
         redraw();
       }catch{}
@@ -650,10 +642,8 @@ NEW:
     timerOtherQuotes = setInterval(async ()=>{
       try{
         if (!lastPayload) return;
-        if (isMobile()) return;
-
         const all = allSymbols(lastPayload);
-        await runQueue(all, "lite");
+        await runQueue(all, "full");
         redraw();
       }catch{}
     }, REFRESH_OTHER_QUOTES_MS);
