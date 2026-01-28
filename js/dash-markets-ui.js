@@ -209,10 +209,11 @@ Uses:
     if (body) body.innerHTML = html || "";
   }
 
+  // ✅ FIX: Cloud Run returns chart.points[] (not bars)
   function pickBars(chart){
     return Array.isArray(chart)
       ? chart
-      : (chart && (chart.bars || chart.data || chart.series)) || [];
+      : (chart && (chart.points || chart.bars || chart.data || chart.series)) || [];
   }
 
   function toNum(x){
@@ -224,11 +225,12 @@ Uses:
     return null;
   }
 
+  // ✅ FIX: Cloud Run uses tUtc for timestamps
   function extractCloses(bars){
     const out = [];
     for (const b of (bars || [])){
       const c = toNum(b?.c ?? b?.close ?? b?.Close);
-      const t = b?.t ?? b?.time ?? b?.date ?? null;
+      const t = b?.tUtc ?? b?.t ?? b?.time ?? b?.date ?? null;
       if (c != null) out.push({ c, t });
     }
     return out;
