@@ -1,21 +1,15 @@
 /* =====================================================================
 /Farm-vista/js/markets.js  (FULL FILE)
-Rev: 2026-01-28h
-Purpose:
-✅ Dashboard Markets module
-✅ /api/markets/contracts for contract lists (symbol + label)
-✅ /api/markets/chart/:symbol?mode=daily for OHLC points (chart.points[])
-✅ Derives QUOTE from last two non-null closes
-✅ Mobile: TWO tiles per crop:
-   - Front + Dec
-   - If Front is Dec → show Jan of next year
-✅ "View more contracts" link on mobile opens contracts popup (event)
-✅ Desktop: full lists (Corn left, Soy right)
-✅ Refresh:
-   - contracts every 30s
-   - visible/mobile tiles every 30s
-   - other contracts every 5 minutes (desktop)
-✅ NEW: front-month selection skips expired contracts (e.g., Soy Jan after Jan 20+)
+Rev: 2026-01-28i
+
+Fixes:
+✅ Front selection skips expired + dead symbols
+✅ Quotes:
+   - price from daily (intraday last close)
+   - change/% from 6mo daily closes (prev daily close) like Yahoo
+✅ Auto-hide contracts that don’t fetch real data (dead/nodata)
+✅ Mobile: two tiles per crop (Front + Dec; if Front=Dec then Jan next year)
+✅ Desktop: full lists, but hide unusable symbols
 ===================================================================== */
 
 (function(){
@@ -29,6 +23,7 @@ Purpose:
   const REFRESH_OTHER_QUOTES_MS = 5 * 60_000;
 
   const MAX_CONCURRENCY = 6;
+  const HIDE_BAD_CONTRACTS = true; // ✅ requested
 
   function base(){
     const v = (window.FV_MARKETS_BASE_URL || "").trim();
@@ -58,29 +53,37 @@ Purpose:
     catch{ return false; }
   }
 
-  function fmtPrice(v){
-    return (typeof v === "number" && isFinite(v)) ? v.toFixed(2) : "—";
-  }
-
+  function fmtPrice(v){ return (typeof v === "number" && isFinite(v)) ? v.toFixed(2) : "—"; }
   function fmtSigned(v, decimals){
     if (!(typeof v === "number" && isFinite(v))) return "—";
     const d = (typeof decimals === "number") ? decimals : 2;
     const s = v.toFixed(d);
     return (v > 0 ? "+" : "") + s;
   }
-
   function fmtPct(v){
     return (typeof v === "number" && isFinite(v))
       ? ((v > 0 ? "+" : "") + v.toFixed(2) + "%")
       : "—";
   }
-
   function fmtTime(iso){
     try{
       if(!iso) return "";
       const d = new Date(iso);
       return d.toLocaleTimeString([], { hour:"numeric", minute:"2-digit", second:"2-digit" });
     }catch{ return ""; }
+  }
+
+  function dirFrom(change){
+    if (typeof change !== "number" || !isFinite(change)) return "flat";
+    if (change > 0) return "up";
+    if (change < 0) return "down";
+    return "flat";
+  }
+
+  function arrowFor(dir){
+    if (dir === "up") return "▲";
+    if (dir === "down") return "▼";
+    return "—";
   }
 
   async function fetchContracts(){
@@ -94,11 +97,11 @@ Purpose:
       `${base()}/api/markets/chart/${encodeURIComponent(symbol)}?mode=${encodeURIComponent(mode)}`,
       { cache:"no-store" }
     );
-    if(!r.ok) {
-      const msg = await r.text().catch(()=> "");
+    if(!r.ok){
+      const txt = await r.text().catch(()=> "");
       const e = new Error(`Failed to load chart (${r.status})`);
       e.status = r.status;
-      e.body = msg;
+      e.body = txt;
       throw e;
     }
     return r.json();
@@ -106,6 +109,9 @@ Purpose:
 
   Markets.fetchChart = fetchChart;
 
+  // ---------------------------
+  // Styles
+  // ---------------------------
   function ensureStyles(){
     if(document.getElementById("fv-markets-style")) return;
 
@@ -173,7 +179,7 @@ Purpose:
   }
 
   // ---------------------------
-  // Symbol parsing (month/year) + "expired" heuristic
+  // Contract parsing + “expired” heuristic
   // ---------------------------
   const MONTH_CODE = { F:1, G:2, H:3, J:4, K:5, M:6, N:7, Q:8, U:9, V:10, X:11, Z:12 };
 
@@ -188,15 +194,12 @@ Purpose:
       if (!month || !isFinite(yy)) return null;
       const year = (yy <= 50) ? (2000 + yy) : (1900 + yy);
       return { year, month };
-    } catch { return null; }
+    }catch{ return null; }
   }
 
-  // Simple rule: if contract month is before current month => expired
-  // If same month and day >= 21 => treat as expired (handles Jan contracts after late month)
   function isExpiredContract(symbol){
     const ym = parseSymbolYM(symbol);
     if (!ym) return false;
-
     const now = new Date();
     const y = now.getFullYear();
     const m = now.getMonth() + 1;
@@ -208,7 +211,7 @@ Purpose:
     if (ym.month < m) return true;
     if (ym.month > m) return false;
 
-    // same month
+    // same month: treat late month as expired (practical)
     return d >= 21;
   }
 
@@ -230,24 +233,107 @@ Purpose:
     return null;
   }
 
-  // Picks a "front" contract that is NOT expired (based on above heuristic).
+  // ---------------------------
+  // Chart normalization (Cloud Run returns chart.points[])
+  // ---------------------------
+  function normalizePoints(chart){
+    if (Array.isArray(chart)) return chart;
+    if (!chart) return [];
+    return chart.points || chart.bars || chart.data || chart.series || [];
+  }
+
+  function toNum(x){
+    if (typeof x === "number" && isFinite(x)) return x;
+    if (typeof x === "string"){
+      const v = parseFloat(x);
+      return (isFinite(v) ? v : null);
+    }
+    return null;
+  }
+
+  function lastNonNullClose(points){
+    if (!Array.isArray(points) || !points.length) return null;
+    for (let i = points.length - 1; i >= 0; i--){
+      const c = toNum(points[i]?.c);
+      if (c != null) return c;
+    }
+    return null;
+  }
+
+  function lastTwoDailyCloses(points){
+    // expects daily interval points; return { last, prev } from non-null closes
+    if (!Array.isArray(points) || !points.length) return { last:null, prev:null };
+    let last = null;
+    let prev = null;
+    for (let i = points.length - 1; i >= 0; i--){
+      const c = toNum(points[i]?.c);
+      if (c != null){
+        if (last == null) last = c;
+        else { prev = c; break; }
+      }
+    }
+    return { last, prev };
+  }
+
+  // ---------------------------
+  // Symbol state + quote cache
+  // ---------------------------
+  // state: ok | dead | nodata | unknown
+  const symbolState = new Map(); // symbol -> state
+
+  const quoteCache = new Map();  // symbol -> { price, chg, pct, updatedAtMs }
+  const inflight = new Map();    // symbol -> Promise
+
+  function setState(sym, st){
+    if (!sym) return;
+    symbolState.set(sym, st);
+  }
+
+  Markets.getSymbolState = function(sym){
+    return symbolState.get(sym) || "unknown";
+  };
+
+  Markets.isSymbolUsable = function(sym){
+    const st = Markets.getSymbolState(sym);
+    return st !== "dead" && st !== "nodata";
+  };
+
+  // Choose a front contract that is:
+  // - not expired
+  // - not dead/nodata if we know it already
   function pickFront(list){
     if (!Array.isArray(list) || !list.length) return null;
+
     for (const c of list){
       const sym = c?.symbol;
       if (!sym) continue;
-      if (!isExpiredContract(sym)) return c;
+      if (isExpiredContract(sym)) continue;
+      if (HIDE_BAD_CONTRACTS && !Markets.isSymbolUsable(sym)) continue;
+      return c;
     }
+
+    // fallback: first usable
+    for (const c of list){
+      const sym = c?.symbol;
+      if (!sym) continue;
+      if (HIDE_BAD_CONTRACTS && !Markets.isSymbolUsable(sym)) continue;
+      return c;
+    }
+
     return list[0] || null;
   }
 
-  function pickMobileTwoTiles(list){
-    if (!Array.isArray(list) || !list.length) return [];
-    const front = pickFront(list) || list[0];
-    if (!front) return [];
+  function filterList(list){
+    if (!HIDE_BAD_CONTRACTS) return list || [];
+    return (list || []).filter(c => c?.symbol && Markets.isSymbolUsable(c.symbol));
+  }
 
-    // Build a "list with front first" while preserving the rest order.
-    const reordered = [front, ...list.filter(x => x?.symbol && x.symbol !== front.symbol)];
+  function pickMobileTwoTiles(list){
+    const filtered = filterList(list || []);
+    if (!filtered.length) return [];
+
+    const front = pickFront(filtered) || filtered[0];
+    const reordered = [front, ...filtered.filter(x => x?.symbol && x.symbol !== front.symbol)];
 
     const frontYM = parseSymbolYM(front?.symbol);
     const dec = findFirstByMonth(reordered, 12);
@@ -267,77 +353,75 @@ Purpose:
     return out;
   }
 
-  // ---------------------------
-  // Chart normalization (Cloud Run returns chart.points[])
-  // ---------------------------
-  function normalizePoints(chart){
-    if (Array.isArray(chart)) return chart;
-    if (!chart) return [];
-    return chart.points || chart.bars || chart.data || chart.series || chart.result || chart.items || [];
-  }
-
-  // ---------------------------
-  // Quote cache derived from points
-  // ---------------------------
-  const quoteCache = new Map(); // symbol -> { price, chg, pct, updatedAtMs }
-  const inflight = new Map();   // symbol -> Promise
-  const deadSymbols = new Set(); // symbols that returned 404 chart_failed
-
-  function toNum(x){
-    if (typeof x === "number" && isFinite(x)) return x;
-    if (typeof x === "string"){
-      const v = parseFloat(x);
-      return (isFinite(v) ? v : null);
-    }
-    return null;
-  }
-
-  function deriveQuoteFromPoints(points){
-    if (!Array.isArray(points) || !points.length) return null;
-
-    let last = null;
-    let prev = null;
-
-    for (let i = points.length - 1; i >= 0; i--){
-      const row = points[i] || {};
-      const c = toNum(row.c ?? row.close ?? row.Close);
-      if (c != null){
-        if (last == null) last = c;
-        else { prev = c; break; }
-      }
-    }
-
-    if (last == null) return null;
-
-    const chg = (prev == null) ? 0 : (last - prev);
-    const pct = (prev == null || prev === 0) ? 0 : ((chg / prev) * 100);
-
-    return { price:last, chg, pct };
-  }
-
-  async function refreshQuoteFor(symbol){
+  async function refreshQuoteFor(symbol, level){
     if (!symbol) return;
-    if (deadSymbols.has(symbol)) return; // don’t hammer known-dead symbols
     if (inflight.has(symbol)) return inflight.get(symbol);
+
+    const modeLevel = (level === "lite") ? "lite" : "full";
 
     const p = (async ()=>{
       try{
-        const chart = await fetchChart(symbol, "daily");
-        const points = normalizePoints(chart);
-        const q = deriveQuoteFromPoints(points);
+        // 1) Price from intraday daily (fast)
+        const daily = await fetchChart(symbol, "daily");
+        const dailyPts = normalizePoints(daily);
+        const price = lastNonNullClose(dailyPts);
 
-        if (q){
-          quoteCache.set(symbol, { price:q.price, chg:q.chg, pct:q.pct, updatedAtMs: Date.now() });
+        // If daily has literally no closes, treat nodata
+        if (price == null){
+          setState(symbol, "nodata");
+          quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now() });
+          return;
+        }
+
+        // 2) Change/%:
+        // For visible/important symbols, compute change vs previous DAILY close (like Yahoo) using 6mo.
+        // For background symbols, we can skip the extra call (still show price).
+        let chg = null, pct = null;
+
+        if (modeLevel === "full"){
+          const six = await fetchChart(symbol, "6mo");
+          const sixPts = normalizePoints(six);
+          const { last, prev } = lastTwoDailyCloses(sixPts);
+          if (prev != null){
+            chg = price - prev;
+            pct = (prev === 0) ? 0 : (chg / prev) * 100;
+          } else {
+            // fallback to last two intraday closes (can be 0)
+            let last2 = null, prev2 = null;
+            for (let i = dailyPts.length - 1; i >= 0; i--){
+              const c = toNum(dailyPts[i]?.c);
+              if (c != null){
+                if (last2 == null) last2 = c;
+                else { prev2 = c; break; }
+              }
+            }
+            if (prev2 != null){
+              chg = last2 - prev2;
+              pct = (prev2 === 0) ? 0 : (chg / prev2) * 100;
+            } else {
+              chg = 0; pct = 0;
+            }
+          }
         } else {
-          if (!quoteCache.has(symbol)) quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now() });
+          chg = 0; pct = 0;
         }
+
+        setState(symbol, "ok");
+        quoteCache.set(symbol, { price, chg, pct, updatedAtMs: Date.now() });
+
       } catch (e){
-        // If backend says Yahoo 404 / chart_failed, mark dead so we can skip it in front selection.
-        const status = e?.status;
+        // If Yahoo says 404/no data, mark dead and hide
         const body = String(e?.body || "");
-        if (status === 404 || body.includes('"chart_failed"') || body.includes("No data found")) {
-          deadSymbols.add(symbol);
-        }
+        const isDead =
+          e?.status === 404 ||
+          body.includes("No data found") ||
+          body.includes('"result":null') ||
+          body.includes('"code":"Not Found"') ||
+          body.includes('"chart_failed"');
+
+        if (isDead) setState(symbol, "dead");
+        else if (!symbolState.has(symbol)) setState(symbol, "unknown");
+
         if (!quoteCache.has(symbol)) quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now() });
       } finally {
         inflight.delete(symbol);
@@ -348,15 +432,15 @@ Purpose:
     return p;
   }
 
-  async function runQueue(symbols){
-    const list = Array.from(new Set(symbols.filter(Boolean)));
+  async function runQueue(symbols, level){
+    const list = Array.from(new Set((symbols || []).filter(Boolean)));
     if (!list.length) return;
 
     let idx = 0;
     const workers = new Array(Math.min(MAX_CONCURRENCY, list.length)).fill(0).map(async ()=>{
       while (idx < list.length){
         const sym = list[idx++];
-        await refreshQuoteFor(sym);
+        await refreshQuoteFor(sym, level);
       }
     });
     await Promise.all(workers);
@@ -369,7 +453,8 @@ Purpose:
     if(!container) return;
 
     const mobile = isMobile();
-    const shown = mobile ? pickMobileTwoTiles(list || []) : (list || []);
+    const safeList = filterList(list || []);
+    const shown = mobile ? pickMobileTwoTiles(safeList) : safeList;
 
     container.innerHTML = `
       <div class="fv-mkt-card">
@@ -388,8 +473,8 @@ Purpose:
             const chg = q ? q.chg : null;
             const pct = q ? q.pct : null;
 
-            const dir = (typeof chg === "number" && isFinite(chg)) ? (chg > 0 ? "up" : chg < 0 ? "down" : "flat") : "flat";
-            const arr = (dir === "up") ? "▲" : (dir === "down") ? "▼" : "—";
+            const dir = dirFrom(chg);
+            const arr = arrowFor(dir);
 
             return `
               <button class="fv-mkt-btn" data-symbol="${escapeHtml(sym)}" aria-label="${escapeHtml(label || sym)}">
@@ -491,25 +576,28 @@ Purpose:
     const payload = await fetchContracts();
     lastPayload = payload;
 
+    // First render with whatever we have
     redraw();
 
     if (isMobile()){
+      // Visible tiles: full quote calc (daily price + 6mo change)
       const vis = mobileVisibleSymbols(payload);
-      await runQueue(vis);
+      await runQueue(vis, "full");
       redraw();
     } else {
+      // Desktop: do full calc for "fronts" only, lite for the rest
       const fronts = [];
-      const cornFront = pickFront(payload.corn || [])?.symbol;
-      const soyFront  = pickFront(payload.soy || [])?.symbol;
-      if (cornFront) fronts.push(cornFront);
-      if (soyFront) fronts.push(soyFront);
+      const cf = pickFront(payload.corn || [])?.symbol;
+      const sf = pickFront(payload.soy || [])?.symbol;
+      if (cf) fronts.push(cf);
+      if (sf) fronts.push(sf);
 
-      await runQueue(fronts);
+      await runQueue(fronts, "full");
       redraw();
 
       const all = allSymbols(payload);
       const rest = all.filter(s => !fronts.includes(s));
-      runQueue(rest).then(redraw).catch(()=>{});
+      runQueue(rest, "lite").then(redraw).catch(()=>{});
     }
 
     window.dispatchEvent(new CustomEvent("fv:markets:updated", { detail:{ payload } }));
@@ -529,11 +617,8 @@ Purpose:
         if (!lastPayload) return;
         const syms = isMobile()
           ? mobileVisibleSymbols(lastPayload)
-          : ([
-              pickFront(lastPayload.corn || [])?.symbol,
-              pickFront(lastPayload.soy || [])?.symbol
-            ].filter(Boolean));
-        await runQueue(syms);
+          : ([ pickFront(lastPayload.corn || [])?.symbol, pickFront(lastPayload.soy || [])?.symbol ].filter(Boolean));
+        await runQueue(syms, "full");
         redraw();
       }catch{}
     }, REFRESH_FRONT_QUOTES_MS);
@@ -544,15 +629,8 @@ Purpose:
         if (!lastPayload) return;
         if (isMobile()) return;
 
-        const fronts = [];
-        const cornFront = pickFront(lastPayload.corn || [])?.symbol;
-        const soyFront  = pickFront(lastPayload.soy || [])?.symbol;
-        if (cornFront) fronts.push(cornFront);
-        if (soyFront) fronts.push(soyFront);
-
         const all = allSymbols(lastPayload);
-        const rest = all.filter(s => !fronts.includes(s));
-        await runQueue(rest);
+        await runQueue(all, "lite");
         redraw();
       }catch{}
     }, REFRESH_OTHER_QUOTES_MS);
