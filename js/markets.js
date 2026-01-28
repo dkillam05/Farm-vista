@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/markets.js  (FULL FILE)
-Rev: 2026-01-28i
+Rev: 2026-01-28k
 
 Fixes:
 ✅ Front selection skips expired + dead symbols
@@ -10,6 +10,12 @@ Fixes:
 ✅ Auto-hide contracts that don’t fetch real data (dead/nodata)
 ✅ Mobile: two tiles per crop (Front + Dec; if Front=Dec then Jan next year)
 ✅ Desktop: full lists, but hide unusable symbols
+
+NEW:
+✅ Expose quote helpers for modal tiles:
+   - FVMarkets.getQuote(symbol)
+   - FVMarkets.warmQuotes(symbols, level)
+✅ Lite mode no longer lies with 0.00 change; uses null => UI shows "—"
 ===================================================================== */
 
 (function(){
@@ -261,7 +267,6 @@ Fixes:
   }
 
   function lastTwoDailyCloses(points){
-    // expects daily interval points; return { last, prev } from non-null closes
     if (!Array.isArray(points) || !points.length) return { last:null, prev:null };
     let last = null;
     let prev = null;
@@ -280,7 +285,6 @@ Fixes:
   // ---------------------------
   // state: ok | dead | nodata | unknown
   const symbolState = new Map(); // symbol -> state
-
   const quoteCache = new Map();  // symbol -> { price, chg, pct, updatedAtMs }
   const inflight = new Map();    // symbol -> Promise
 
@@ -296,6 +300,11 @@ Fixes:
   Markets.isSymbolUsable = function(sym){
     const st = Markets.getSymbolState(sym);
     return st !== "dead" && st !== "nodata";
+  };
+
+  // ✅ NEW: expose quote access (used by dash-markets-ui tiles)
+  Markets.getQuote = function(sym){
+    return quoteCache.get(sym) || null;
   };
 
   // Choose a front contract that is:
@@ -373,20 +382,18 @@ Fixes:
           return;
         }
 
-        // 2) Change/%:
-        // For visible/important symbols, compute change vs previous DAILY close (like Yahoo) using 6mo.
-        // For background symbols, we can skip the extra call (still show price).
         let chg = null, pct = null;
 
         if (modeLevel === "full"){
           const six = await fetchChart(symbol, "6mo");
           const sixPts = normalizePoints(six);
-          const { last, prev } = lastTwoDailyCloses(sixPts);
+          const { prev } = lastTwoDailyCloses(sixPts);
+
           if (prev != null){
             chg = price - prev;
             pct = (prev === 0) ? 0 : (chg / prev) * 100;
           } else {
-            // fallback to last two intraday closes (can be 0)
+            // fallback to last two intraday closes
             let last2 = null, prev2 = null;
             for (let i = dailyPts.length - 1; i >= 0; i--){
               const c = toNum(dailyPts[i]?.c);
@@ -403,7 +410,9 @@ Fixes:
             }
           }
         } else {
-          chg = 0; pct = 0;
+          // ✅ CHANGED: lite mode uses null => shows "—" instead of fake 0.00
+          chg = null;
+          pct = null;
         }
 
         setState(symbol, "ok");
@@ -445,6 +454,11 @@ Fixes:
     });
     await Promise.all(workers);
   }
+
+  // ✅ NEW: expose quote warmup for modal "View more" tiles
+  Markets.warmQuotes = async function(symbols, level){
+    await runQueue(symbols, level);
+  };
 
   // ---------------------------
   // Rendering
@@ -576,16 +590,13 @@ Fixes:
     const payload = await fetchContracts();
     lastPayload = payload;
 
-    // First render with whatever we have
     redraw();
 
     if (isMobile()){
-      // Visible tiles: full quote calc (daily price + 6mo change)
       const vis = mobileVisibleSymbols(payload);
       await runQueue(vis, "full");
       redraw();
     } else {
-      // Desktop: do full calc for "fronts" only, lite for the rest
       const fronts = [];
       const cf = pickFront(payload.corn || [])?.symbol;
       const sf = pickFront(payload.soy || [])?.symbol;
