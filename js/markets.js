@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/markets.js  (FULL FILE)
-Rev: 2026-01-28c
+Rev: 2026-01-28d
 Purpose:
 ✅ Dashboard Markets module
 ✅ /api/markets/contracts for contract lists (symbol + label)
@@ -14,6 +14,7 @@ Purpose:
 ✅ Refresh:
    - front contracts every 30s
    - other contracts every 5 minutes (to avoid too many calls)
+✅ NEW: never-blank UI + visible error reporting when API fails
 ===================================================================== */
 
 (function(){
@@ -95,18 +96,55 @@ Purpose:
     return "—";
   }
 
+  // ---------------------------
+  // Fetch helpers (with timeout + error details)
+  // ---------------------------
+  async function fetchWithTimeout(url, opts, timeoutMs){
+    const ms = Math.max(3_000, Number(timeoutMs || 12_000));
+    const ctrl = new AbortController();
+    const t = setTimeout(()=>ctrl.abort(), ms);
+    try{
+      const r = await fetch(url, { ...(opts||{}), signal: ctrl.signal });
+      return r;
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
+  async function readSmallBody(r){
+    try{
+      const txt = await r.text();
+      return (txt || "").slice(0, 400);
+    } catch {
+      return "";
+    }
+  }
+
   async function fetchContracts(){
-    const r = await fetch(`${base()}/api/markets/contracts`, { cache:"no-store" });
-    if(!r.ok) throw new Error("Failed to load contracts");
+    const url = `${base()}/api/markets/contracts`;
+    const r = await fetchWithTimeout(url, { cache:"no-store" }, 12_000);
+    if(!r.ok){
+      const body = await readSmallBody(r);
+      const err = new Error(`Contracts failed ${r.status}`);
+      err.status = r.status;
+      err.url = url;
+      err.body = body;
+      throw err;
+    }
     return r.json();
   }
 
   async function fetchChart(symbol, mode){
-    const r = await fetch(
-      `${base()}/api/markets/chart/${encodeURIComponent(symbol)}?mode=${encodeURIComponent(mode)}`,
-      { cache:"no-store" }
-    );
-    if(!r.ok) throw new Error("Failed to load chart");
+    const url = `${base()}/api/markets/chart/${encodeURIComponent(symbol)}?mode=${encodeURIComponent(mode)}`;
+    const r = await fetchWithTimeout(url, { cache:"no-store" }, 12_000);
+    if(!r.ok){
+      const body = await readSmallBody(r);
+      const err = new Error(`Chart failed ${r.status} (${symbol})`);
+      err.status = r.status;
+      err.url = url;
+      err.body = body;
+      throw err;
+    }
     return r.json();
   }
 
@@ -153,6 +191,15 @@ Purpose:
 
 .fv-mkt-meta{ display:flex; gap:8px; font-size:12px; opacity:.7; flex-wrap:wrap; margin-top:8px; }
 
+.fv-mkt-error{
+  border:1px solid rgba(180,35,24,.35);
+  background:rgba(180,35,24,.06);
+  border-radius:12px;
+  padding:10px 12px;
+  font-size:13px;
+}
+.fv-mkt-error strong{ font-weight:900; }
+
 @media (max-width: 899px){
   .fv-mkt-row{ padding:12px 12px; border-radius:14px; }
   .fv-mkt-price{ font-size:18px; }
@@ -168,8 +215,9 @@ Purpose:
   // ---------------------------
   // Quote cache derived from chart bars
   // ---------------------------
-  const quoteCache = new Map(); // symbol -> { price, chg, pct, asOfUtc, updatedAtMs }
+  const quoteCache = new Map(); // symbol -> { price, chg, pct, updatedAtMs }
   const inflight = new Map();   // symbol -> Promise
+  let lastError = null;         // { atMs, message, status, url, body }
 
   function deriveQuoteFromBars(bars){
     if (!Array.isArray(bars) || !bars.length) return null;
@@ -194,7 +242,7 @@ Purpose:
     return { price:last, chg, pct };
   }
 
-  async function refreshQuoteFor(symbol, priority){
+  async function refreshQuoteFor(symbol){
     if (!symbol) return;
 
     // De-dupe concurrent requests
@@ -215,7 +263,6 @@ Purpose:
             updatedAtMs: Date.now()
           });
         } else {
-          // keep existing if any; otherwise set blanks
           if (!quoteCache.has(symbol)) quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now() });
         }
       } catch (e){
@@ -230,7 +277,7 @@ Purpose:
     return p;
   }
 
-  async function runQueue(symbols, priorityLabel){
+  async function runQueue(symbols){
     const list = Array.from(new Set(symbols.filter(Boolean)));
     if (!list.length) return;
 
@@ -238,7 +285,7 @@ Purpose:
     const workers = new Array(Math.min(MAX_CONCURRENCY, list.length)).fill(0).map(async ()=>{
       while (idx < list.length){
         const sym = list[idx++];
-        await refreshQuoteFor(sym, priorityLabel);
+        await refreshQuoteFor(sym);
       }
     });
     await Promise.all(workers);
@@ -316,11 +363,35 @@ Purpose:
     if (delay) parts.push(escapeHtml(delay));
     if (asOf) parts.push(`Updated ${escapeHtml(fmtTime(asOf))}`);
 
+    // If we have an error, show it prominently
+    if (lastError){
+      const m = lastError.message || "Markets error";
+      const s = lastError.status ? ` (HTTP ${lastError.status})` : "";
+      parts.unshift(`<span class="fv-mkt-error"><strong>Markets unavailable</strong><br>${escapeHtml(m)}${escapeHtml(s)}</span>`);
+    }
+
     el.innerHTML = `
       <div class="fv-mkt-meta">
         ${parts.length ? parts.map((p,i)=> (i ? `<span>•</span><span>${p}</span>` : `<span>${p}</span>`)).join("") : `<span>Markets loaded</span>`}
       </div>
     `;
+  }
+
+  function renderLoadingSkeleton(){
+    const U = ui();
+    if (U.corn) U.corn.innerHTML = `<div class="fv-mkt-note">Loading…</div>`;
+    if (U.soy)  U.soy.innerHTML  = `<div class="fv-mkt-note">Loading…</div>`;
+    if (U.meta) U.meta.innerHTML = `<div class="fv-mkt-meta"><span>Loading markets…</span></div>`;
+  }
+
+  function renderFatalError(){
+    const U = ui();
+    const msg = lastError?.message || "Markets request failed";
+    const status = lastError?.status ? `HTTP ${lastError.status}` : "";
+    const url = lastError?.url || "";
+    if (U.corn) U.corn.innerHTML = `<div class="fv-mkt-error"><strong>Markets unavailable</strong><br>${escapeHtml(msg)}<br>${escapeHtml(status)}<br><span style="opacity:.75;font-size:12px;">${escapeHtml(url)}</span></div>`;
+    if (U.soy)  U.soy.innerHTML  = `<div class="fv-mkt-error"><strong>Markets unavailable</strong><br>${escapeHtml(msg)}<br>${escapeHtml(status)}<br><span style="opacity:.75;font-size:12px;">${escapeHtml(url)}</span></div>`;
+    renderMeta(null);
   }
 
   // ---------------------------
@@ -356,35 +427,55 @@ Purpose:
   }
 
   Markets.refresh = async function(){
-    const payload = await fetchContracts();
-    lastPayload = payload;
+    try{
+      lastError = null;
 
-    // 1) Render immediately (will show placeholders until quotes arrive)
-    redraw();
+      const payload = await fetchContracts();
+      lastPayload = payload;
 
-    // 2) Fetch quotes:
-    const fronts = frontSymbols(payload);
-    const all = allSymbols(payload);
+      // 1) Render immediately (will show placeholders until quotes arrive)
+      redraw();
 
-    // Fronts now
-    await runQueue(fronts, "front");
-    redraw();
+      // 2) Fetch quotes:
+      const fronts = frontSymbols(payload);
+      const all = allSymbols(payload);
 
-    // Desktop: fetch all quotes (but not constantly)
-    if (!isMobile()){
-      // Exclude fronts already fetched
-      const rest = all.filter(s => !fronts.includes(s));
-      runQueue(rest, "rest").then(redraw).catch(()=>{});
+      // Fronts now
+      await runQueue(fronts);
+      redraw();
+
+      // Desktop: fetch all quotes (but not constantly)
+      if (!isMobile()){
+        const rest = all.filter(s => !fronts.includes(s));
+        runQueue(rest).then(redraw).catch(()=>{});
+      }
+
+      window.dispatchEvent(new CustomEvent("fv:markets:updated", { detail:{ payload } }));
+    } catch (e){
+      // Capture + display the real failure
+      lastError = {
+        atMs: Date.now(),
+        message: e?.message || "Markets request failed",
+        status: e?.status || null,
+        url: e?.url || "",
+        body: e?.body || ""
+      };
+
+      // Log details so we can see CORS/403/404/500 clearly
+      console.warn("[markets] refresh failed:", lastError);
+      if (lastError.body) console.warn("[markets] response body (first 400 chars):", lastError.body);
+
+      renderFatalError();
+      throw e;
     }
-
-    window.dispatchEvent(new CustomEvent("fv:markets:updated", { detail:{ payload } }));
   };
 
   Markets.start = function(){
     ensureStyles();
+    renderLoadingSkeleton();
 
     // Initial load
-    Markets.refresh().catch(()=>{});
+    Markets.refresh().catch(()=>{ /* error rendered + logged */ });
 
     // Refresh contract lists every 30s (labels/symbols/meta)
     if (timerContracts) clearInterval(timerContracts);
@@ -396,7 +487,7 @@ Purpose:
       try{
         if (!lastPayload) return;
         const fronts = frontSymbols(lastPayload);
-        await runQueue(fronts, "front");
+        await runQueue(fronts);
         redraw();
       }catch{}
     }, REFRESH_FRONT_QUOTES_MS);
@@ -406,11 +497,11 @@ Purpose:
     timerOtherQuotes = setInterval(async ()=>{
       try{
         if (!lastPayload) return;
-        if (isMobile()) return; // mobile shows fronts only anyway
+        if (isMobile()) return;
         const fronts = frontSymbols(lastPayload);
         const all = allSymbols(lastPayload);
         const rest = all.filter(s => !fronts.includes(s));
-        await runQueue(rest, "rest");
+        await runQueue(rest);
         redraw();
       }catch{}
     }, REFRESH_OTHER_QUOTES_MS);
