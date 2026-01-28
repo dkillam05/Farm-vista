@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-ui.js  (FULL FILE)
-Rev: 2026-01-28d
+Rev: 2026-01-28f
 Purpose:
 ✅ Markets modal + chart UI:
    - Tap tile => open chart modal
@@ -12,6 +12,11 @@ Purpose:
    - Tooltip always stays on-screen (clamped)
    - View-more opens list FIRST (no auto chart until selection)
    - Chart header shows contract label + symbol
+✅ Desktop fixes:
+   - Chart-only modal is SINGLE column (no empty left pane)
+   - Larger chart height on desktop
+   - Candles are colored (green up / red down) + neutral wick
+✅ View-more list rows show price + change + % like main tiles (uses FVMarkets.getQuote + warmQuotes)
 ✅ Uses Cloud Run chart.points[] (o/h/l/c + tUtc)
 ===================================================================== */
 
@@ -21,6 +26,11 @@ Purpose:
   const MODAL_ID = "fv-mkt-modal";
   const BACKDROP_ID = "fv-mkt-backdrop";
 
+  // Candle colors (keep consistent with your app)
+  const CANDLE_UP = "#2F6C3C";
+  const CANDLE_DOWN = "#b42318";
+  const WICK_COLOR = "rgba(160,170,180,.70)";
+
   function escapeHtml(s){
     return String(s || "")
       .replaceAll("&","&amp;")
@@ -28,6 +38,11 @@ Purpose:
       .replaceAll(">","&gt;")
       .replaceAll('"',"&quot;")
       .replaceAll("'","&#039;");
+  }
+
+  function isWide(){
+    try{ return window.matchMedia && window.matchMedia("(min-width: 900px)").matches; }
+    catch{ return false; }
   }
 
   function ensureModalStyles(){
@@ -75,9 +90,16 @@ Purpose:
 .fv-mktm-btn.primary *{ color:#fff; }
 .fv-mktm-btn:active{ transform:scale(.99); }
 
+/* Base grid */
 .fv-mktm-grid{ display:grid; grid-template-columns: 1fr; gap:12px; }
-@media (min-width: 900px){ .fv-mktm-grid{ grid-template-columns: 340px 1fr; } }
 
+/* Split view: list + chart on wide screens */
+@media (min-width: 900px){ .fv-mktm-grid.fv-mktm-split{ grid-template-columns: 340px 1fr; } }
+
+/* Chart-only view: always single column */
+.fv-mktm-grid.fv-mktm-chartonly{ grid-template-columns: 1fr !important; }
+
+/* List */
 .fv-mktm-list{
   border:1px solid rgba(0,0,0,.12);
   border-radius:14px;
@@ -103,9 +125,26 @@ Purpose:
   border-color:rgba(59,126,70,.70);
   box-shadow:0 0 0 2px rgba(59,126,70,.22);
 }
-.fv-mktm-sym{ font-weight:900; letter-spacing:.02em; }
-.fv-mktm-label{ font-size:12px; opacity:.78; }
 
+/* View-more row layout with quote right side */
+.fv-mktm-row-inner{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+}
+.fv-mktm-row-left{ display:flex; flex-direction:column; min-width:0; }
+.fv-mktm-sym{ font-weight:900; letter-spacing:.02em; }
+.fv-mktm-label{ font-size:12px; opacity:.78; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.fv-mktm-row-right{ display:flex; flex-direction:column; align-items:flex-end; gap:2px; flex:0 0 auto; }
+.fv-mktm-price{ font-weight:900; font-variant-numeric:tabular-nums; }
+.fv-mktm-change{ display:flex; align-items:center; gap:8px; font-size:12px; opacity:.92; font-variant-numeric:tabular-nums; }
+.fv-mktm-change.up{ color:${CANDLE_UP}; }
+.fv-mktm-change.down{ color:${CANDLE_DOWN}; }
+.fv-mktm-change.flat{ color:var(--muted,#67706B); }
+.fv-mktm-change .arrow{ width:16px; text-align:center; font-weight:900; }
+
+/* Chart panel */
 .fv-mktm-chart{
   border:1px solid rgba(0,0,0,.12);
   border-radius:14px;
@@ -134,6 +173,8 @@ Purpose:
   border-color:rgba(59,126,70,.70);
   box-shadow:0 0 0 2px rgba(59,126,70,.22);
 }
+
+/* Chart size: bigger on desktop */
 .fv-mktm-canvas{
   width:100%;
   height:260px;
@@ -141,8 +182,13 @@ Purpose:
   border-radius:12px;
   background:rgba(0,0,0,0.02);
 }
+@media (min-width: 900px){
+  .fv-mktm-canvas{ height:420px; }
+}
+
 .fv-mktm-empty{ font-size:13px; color:var(--muted,#67706B); padding:10px 0; }
 
+/* Tooltip */
 .fv-mktm-tip{
   position:fixed;
   z-index:10000;
@@ -404,7 +450,7 @@ Purpose:
 
     // baseline
     ctx.globalAlpha = 0.18;
-    ctx.strokeStyle = getThemeStroke();
+    ctx.strokeStyle = "rgba(0,0,0,.12)";
     ctx.beginPath();
     ctx.moveTo(pad, H - pad);
     ctx.lineTo(W - pad, H - pad);
@@ -420,21 +466,19 @@ Purpose:
       const yC = yFor(r.c);
       const up = r.c >= r.o;
 
-      // wick
-      ctx.strokeStyle = getThemeStroke();
-      ctx.globalAlpha = 0.55;
+      // wick (neutral)
+      ctx.strokeStyle = WICK_COLOR;
+      ctx.globalAlpha = 1;
       ctx.beginPath();
       ctx.moveTo(x, yH);
       ctx.lineTo(x, yL);
       ctx.stroke();
 
-      // body
+      // body (colored)
       const top = Math.min(yO, yC);
       const bot = Math.max(yO, yC);
-      ctx.globalAlpha = up ? 0.88 : 0.62;
-      ctx.fillStyle = getThemeStroke();
+      ctx.fillStyle = up ? CANDLE_UP : CANDLE_DOWN;
       ctx.fillRect(x - bodyW/2, top, bodyW, Math.max(2, bot - top));
-      ctx.globalAlpha = 1;
     }
 
     // last label
@@ -575,13 +619,72 @@ Purpose:
     });
   }
 
+  // --- Quote helpers (View more rows) ---
+  function dirFrom(change){
+    if (typeof change !== "number" || !isFinite(change)) return "flat";
+    if (change > 0) return "up";
+    if (change < 0) return "down";
+    return "flat";
+  }
+  function arrowFor(dir){
+    if (dir === "up") return "▲";
+    if (dir === "down") return "▼";
+    return "—";
+  }
+  function fmtPrice(v){ return (typeof v === "number" && isFinite(v)) ? v.toFixed(2) : "—"; }
+  function fmtSigned(v){
+    if (!(typeof v === "number" && isFinite(v))) return "—";
+    return (v > 0 ? "+" : "") + v.toFixed(2);
+  }
+  function fmtPct(v){
+    if (!(typeof v === "number" && isFinite(v))) return "—";
+    return (v > 0 ? "+" : "") + v.toFixed(2) + "%";
+  }
+
+  function updateRowQuote(sym){
+    const row = document.querySelector(`.fv-mktm-row[data-mkt-sym="${CSS.escape(sym)}"]`);
+    if (!row) return;
+
+    const priceEl = row.querySelector('[data-q="price"]');
+    const chgWrap = row.querySelector('[data-q="chgWrap"]');
+    const chgEl = row.querySelector('[data-q="chg"]');
+    const pctEl = row.querySelector('[data-q="pct"]');
+    const arrEl = row.querySelector('[data-q="arr"]');
+
+    const q = window.FVMarkets?.getQuote ? window.FVMarkets.getQuote(sym) : null;
+    const price = q ? q.price : null;
+    const chg = q ? q.chg : null;
+    const pct = q ? q.pct : null;
+
+    if (priceEl) priceEl.textContent = fmtPrice(price);
+
+    // If lite mode => chg/pct null => hide the whole change row to avoid "— — —"
+    const hasChange = (typeof chg === "number" && isFinite(chg)) && (typeof pct === "number" && isFinite(pct));
+    if (!hasChange){
+      if (chgWrap) chgWrap.style.display = "none";
+      return;
+    }
+
+    if (chgWrap) chgWrap.style.display = "";
+    const dir = dirFrom(chg);
+    const arr = arrowFor(dir);
+
+    if (chgWrap){
+      chgWrap.classList.remove("up","down","flat");
+      chgWrap.classList.add(dir);
+    }
+    if (arrEl) arrEl.textContent = arr;
+    if (chgEl) chgEl.textContent = fmtSigned(chg);
+    if (pctEl) pctEl.textContent = fmtPct(pct);
+  }
+
   function renderChartModal(symbol){
     openModal();
     setModalTitle(symbol || "Chart");
-    setModalBody(`
-      <div class="fv-mktm-grid">
-        <div class="fv-mktm-list"><div class="fv-mktm-empty">Chart</div></div>
 
+    // ✅ Chart-only modal = single column (no blank left pane on desktop)
+    setModalBody(`
+      <div class="fv-mktm-grid fv-mktm-chartonly">
         <div class="fv-mktm-chart">
           <div class="fv-mktm-chart-title" id="fv-mktm-chart-hdr"></div>
           <div class="fv-mktm-sub">${renderTabs()}</div>
@@ -611,14 +714,27 @@ Purpose:
       const label = c?.label || "";
       return `
         <button class="fv-mktm-row" data-mkt-sym="${escapeHtml(sym)}">
-          <div class="fv-mktm-sym">${escapeHtml(sym)}</div>
-          <div class="fv-mktm-label">${escapeHtml(label)}</div>
+          <div class="fv-mktm-row-inner">
+            <div class="fv-mktm-row-left">
+              <div class="fv-mktm-sym">${escapeHtml(sym)}</div>
+              <div class="fv-mktm-label">${escapeHtml(label)}</div>
+            </div>
+            <div class="fv-mktm-row-right">
+              <div class="fv-mktm-price" data-q="price">—</div>
+              <div class="fv-mktm-change flat" data-q="chgWrap">
+                <span class="arrow" data-q="arr">—</span>
+                <span data-q="chg">—</span>
+                <span data-q="pct">—</span>
+              </div>
+            </div>
+          </div>
         </button>
       `;
     }).join("");
 
+    // ✅ View-more modal = list + chart (split on wide)
     setModalBody(`
-      <div class="fv-mktm-grid">
+      <div class="fv-mktm-grid fv-mktm-split">
         <div class="fv-mktm-list" id="fv-mktm-listbox">
           ${rows || `<div class="fv-mktm-empty">No contracts</div>`}
         </div>
@@ -639,6 +755,17 @@ Purpose:
     // IMPORTANT: no chart load until a contract is selected
     bindTooltip(null, [], "line");
 
+    // Warm quotes for list rows (lite first so it’s fast; rows will populate price quickly)
+    const symbols = (list || []).map(x => x?.symbol).filter(Boolean);
+    // render any cached quotes immediately
+    symbols.forEach(updateRowQuote);
+    // then warm the rest
+    if (window.FVMarkets?.warmQuotes){
+      window.FVMarkets.warmQuotes(symbols, "lite").then(()=>{
+        symbols.forEach(updateRowQuote);
+      }).catch(()=>{});
+    }
+
     document.querySelectorAll("[data-mkt-sym]").forEach(btn=>{
       btn.addEventListener("click", ()=>{
         document.querySelectorAll("[data-mkt-sym]").forEach(b=>b.setAttribute("aria-current","false"));
@@ -655,6 +782,13 @@ Purpose:
         const active = document.querySelector(".fv-mktm-tab[aria-selected='true']");
         const mode = active ? (active.getAttribute("data-mode") || "daily") : "daily";
         loadAndRender(sym, mode);
+
+        // For the selected symbol, warm FULL so change/% appears like Yahoo
+        if (window.FVMarkets?.warmQuotes){
+          window.FVMarkets.warmQuotes([sym], "full").then(()=>{
+            updateRowQuote(sym);
+          }).catch(()=>{});
+        }
 
         // keep list visible (don’t jump to chart)
         const modal = document.getElementById(MODAL_ID);
