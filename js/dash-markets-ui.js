@@ -1,12 +1,15 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-ui.js  (FULL FILE)
-Rev: 2026-01-28h
+Rev: 2026-01-28i
 Purpose:
 ✅ Thin UI orchestrator for Markets
    - Opens/closes modal
    - Handles contract taps
    - Handles "View more"
    - Wires chart tabs
+✅ Yahoo-style ranges + labels:
+   - 1D, 5D, 1M, 6M, 1Y
+✅ Default tab = 1D
 Delegates:
    - Chart rendering → FVMarketsChart
    - Series shaping → FVMarketsSeries
@@ -18,6 +21,17 @@ Delegates:
 
   const MODAL_ID = "fv-mkt-modal";
   const BACKDROP_ID = "fv-mkt-backdrop";
+
+  // Yahoo-style tab order
+  const TAB_MODES = [
+    { mode: "1d", label: "1D" },
+    { mode: "5d", label: "5D" },
+    { mode: "1m", label: "1M" },
+    { mode: "6m", label: "6M" },
+    { mode: "1y", label: "1Y" }
+  ];
+
+  const DEFAULT_MODE = "1d";
 
   function qs(sel, root=document){ return root.querySelector(sel); }
 
@@ -85,7 +99,7 @@ Delegates:
           <div class="fv-mktm-chart-title" id="fv-mktm-chart-hdr"></div>
 
           <div class="fv-mktm-sub">
-            ${renderTabs()}
+            ${renderTabs(DEFAULT_MODE)}
             <div id="fv-mktm-range"></div>
           </div>
 
@@ -96,9 +110,9 @@ Delegates:
     `);
 
     setChartHeader(symbol);
-    wireTabs(symbol);
+    wireTabs(()=>symbol);
 
-    loadChart(symbol, "daily");
+    loadChart(symbol, DEFAULT_MODE);
   }
 
   // --------------------------------------------------
@@ -140,7 +154,7 @@ Delegates:
           <div class="fv-mktm-chart-title" id="fv-mktm-chart-hdr">Select a contract</div>
 
           <div class="fv-mktm-sub">
-            ${renderTabs()}
+            ${renderTabs(DEFAULT_MODE)}
             <div id="fv-mktm-range"></div>
           </div>
 
@@ -158,6 +172,8 @@ Delegates:
     }
 
     let currentSymbol = null;
+
+    // Tabs should drive whatever is currently selected (or do nothing until selected)
     wireTabs(()=>currentSymbol);
 
     document.querySelectorAll("[data-mkt-sym]").forEach(btn=>{
@@ -168,7 +184,12 @@ Delegates:
         currentSymbol = btn.getAttribute("data-mkt-sym");
         setTitle(currentSymbol);
         setChartHeader(currentSymbol);
-        loadChart(currentSymbol, "daily");
+
+        // Load using currently selected tab; default to 1D
+        const active = qs(".fv-mktm-tab[aria-selected='true']");
+        const mode = active ? (active.getAttribute("data-mode") || DEFAULT_MODE) : DEFAULT_MODE;
+
+        loadChart(currentSymbol, mode);
 
         if (window.FVMarketsQuotes){
           window.FVMarketsQuotes.warmAndUpdate([currentSymbol], "full");
@@ -190,27 +211,28 @@ Delegates:
     hdr.textContent = hit ? `${hit.label} — ${symbol}` : symbol;
   }
 
-  function renderTabs(){
+  function renderTabs(selectedMode){
+    const sel = String(selectedMode || DEFAULT_MODE).toLowerCase();
     return `
       <div class="fv-mktm-tabs">
-        <button class="fv-mktm-tab" data-mode="daily" aria-selected="true">Daily</button>
-        <button class="fv-mktm-tab" data-mode="weekly">Weekly</button>
-        <button class="fv-mktm-tab" data-mode="monthly">Monthly</button>
-        <button class="fv-mktm-tab" data-mode="6mo">6mo</button>
-        <button class="fv-mktm-tab" data-mode="1y">1Y</button>
+        ${TAB_MODES.map(t => {
+          const on = (t.mode === sel);
+          return `<button class="fv-mktm-tab" data-mode="${t.mode}" aria-selected="${on ? "true" : "false"}">${t.label}</button>`;
+        }).join("")}
       </div>
     `;
   }
 
-  function wireTabs(symbolOrFn){
+  function wireTabs(getSymbol){
     document.querySelectorAll(".fv-mktm-tab").forEach(btn=>{
       btn.addEventListener("click", ()=>{
-        const mode = btn.getAttribute("data-mode");
+        const mode = (btn.getAttribute("data-mode") || DEFAULT_MODE).toLowerCase();
+
         document.querySelectorAll(".fv-mktm-tab").forEach(b=>b.setAttribute("aria-selected","false"));
         btn.setAttribute("aria-selected","true");
 
-        const sym = (typeof symbolOrFn === "function") ? symbolOrFn() : symbolOrFn;
-        if (!sym) return;
+        const sym = (typeof getSymbol === "function") ? getSymbol() : null;
+        if (!sym) return; // in list mode, don’t auto-load until selection
         loadChart(sym, mode);
       });
     });
@@ -223,17 +245,19 @@ Delegates:
 
     if (!canvas || !window.FVMarketsSeries || !window.FVMarketsChart) return;
 
-    note.textContent = "Loading…";
+    const m = String(mode || DEFAULT_MODE).toLowerCase();
+    if (note) note.textContent = "Loading…";
 
     try{
-      const raw = await window.FVMarkets.fetchChart(symbol, mode);
-      const shaped = window.FVMarketsSeries.shape(raw, mode);
+      // IMPORTANT: Cloud Run now should accept mode=1d|5d|1m|6m|1y
+      const raw = await window.FVMarkets.fetchChart(symbol, m);
+      const shaped = window.FVMarketsSeries.shape(raw, m);
 
-      range.textContent = shaped.label || "";
+      if (range) range.textContent = shaped.label || "";
 
       if (!shaped.ok){
         window.FVMarketsChart.clear(canvas);
-        note.textContent = "No chart data at this time";
+        if (note) note.textContent = "No chart data at this time";
         return;
       }
 
@@ -244,10 +268,11 @@ Delegates:
         timeZone: shaped.timeZone
       });
 
-      note.textContent = "";
+      if (note) note.textContent = "";
     } catch {
       window.FVMarketsChart.clear(canvas);
-      note.textContent = "No chart data at this time";
+      if (note) note.textContent = "No chart data at this time";
+      if (range) range.textContent = "";
     }
   }
 
