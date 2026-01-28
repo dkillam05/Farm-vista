@@ -1,20 +1,21 @@
 /* =====================================================================
 /Farm-vista/js/markets.js  (FULL FILE)
-Rev: 2026-01-28g
+Rev: 2026-01-28h
 Purpose:
 ✅ Dashboard Markets module
 ✅ /api/markets/contracts for contract lists (symbol + label)
-✅ /api/markets/chart/:symbol?mode=daily for OHLC points
+✅ /api/markets/chart/:symbol?mode=daily for OHLC points (chart.points[])
 ✅ Derives QUOTE from last two non-null closes
 ✅ Mobile: TWO tiles per crop:
    - Front + Dec
-   - If Front is Dec → show Jan next year
+   - If Front is Dec → show Jan of next year
 ✅ "View more contracts" link on mobile opens contracts popup (event)
 ✅ Desktop: full lists (Corn left, Soy right)
 ✅ Refresh:
    - contracts every 30s
    - visible/mobile tiles every 30s
    - other contracts every 5 minutes (desktop)
+✅ NEW: front-month selection skips expired contracts (e.g., Soy Jan after Jan 20+)
 ===================================================================== */
 
 (function(){
@@ -82,19 +83,6 @@ Purpose:
     }catch{ return ""; }
   }
 
-  function dirFrom(change){
-    if (typeof change !== "number" || !isFinite(change)) return "flat";
-    if (change > 0) return "up";
-    if (change < 0) return "down";
-    return "flat";
-  }
-
-  function arrowFor(dir){
-    if (dir === "up") return "▲";
-    if (dir === "down") return "▼";
-    return "—";
-  }
-
   async function fetchContracts(){
     const r = await fetch(`${base()}/api/markets/contracts`, { cache:"no-store" });
     if(!r.ok) throw new Error("Failed to load contracts");
@@ -106,7 +94,13 @@ Purpose:
       `${base()}/api/markets/chart/${encodeURIComponent(symbol)}?mode=${encodeURIComponent(mode)}`,
       { cache:"no-store" }
     );
-    if(!r.ok) throw new Error("Failed to load chart");
+    if(!r.ok) {
+      const msg = await r.text().catch(()=> "");
+      const e = new Error(`Failed to load chart (${r.status})`);
+      e.status = r.status;
+      e.body = msg;
+      throw e;
+    }
     return r.json();
   }
 
@@ -179,7 +173,7 @@ Purpose:
   }
 
   // ---------------------------
-  // Symbol parsing (month/year) for mobile tile selection
+  // Symbol parsing (month/year) + "expired" heuristic
   // ---------------------------
   const MONTH_CODE = { F:1, G:2, H:3, J:4, K:5, M:6, N:7, Q:8, U:9, V:10, X:11, Z:12 };
 
@@ -194,9 +188,28 @@ Purpose:
       if (!month || !isFinite(yy)) return null;
       const year = (yy <= 50) ? (2000 + yy) : (1900 + yy);
       return { year, month };
-    } catch {
-      return null;
-    }
+    } catch { return null; }
+  }
+
+  // Simple rule: if contract month is before current month => expired
+  // If same month and day >= 21 => treat as expired (handles Jan contracts after late month)
+  function isExpiredContract(symbol){
+    const ym = parseSymbolYM(symbol);
+    if (!ym) return false;
+
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth() + 1;
+    const d = now.getDate();
+
+    if (ym.year < y) return true;
+    if (ym.year > y) return false;
+
+    if (ym.month < m) return true;
+    if (ym.month > m) return false;
+
+    // same month
+    return d >= 21;
   }
 
   function findFirstByMonth(list, monthNum){
@@ -217,14 +230,30 @@ Purpose:
     return null;
   }
 
+  // Picks a "front" contract that is NOT expired (based on above heuristic).
+  function pickFront(list){
+    if (!Array.isArray(list) || !list.length) return null;
+    for (const c of list){
+      const sym = c?.symbol;
+      if (!sym) continue;
+      if (!isExpiredContract(sym)) return c;
+    }
+    return list[0] || null;
+  }
+
   function pickMobileTwoTiles(list){
     if (!Array.isArray(list) || !list.length) return [];
-    const front = list[0];
+    const front = pickFront(list) || list[0];
+    if (!front) return [];
+
+    // Build a "list with front first" while preserving the rest order.
+    const reordered = [front, ...list.filter(x => x?.symbol && x.symbol !== front.symbol)];
+
     const frontYM = parseSymbolYM(front?.symbol);
-    const dec = findFirstByMonth(list, 12);
+    const dec = findFirstByMonth(reordered, 12);
 
     if (frontYM && frontYM.month === 12){
-      const jan = findJanNextYear(list, frontYM.year) || list[1] || null;
+      const jan = findJanNextYear(reordered, frontYM.year) || reordered[1] || null;
       const out = [front];
       if (jan && jan.symbol && jan.symbol !== front.symbol) out.push(jan);
       return out;
@@ -232,23 +261,19 @@ Purpose:
 
     if (dec && dec.symbol && dec.symbol !== front.symbol) return [front, dec];
 
-    const second = list[1] || null;
+    const second = reordered[1] || null;
     const out = [front];
     if (second && second.symbol && second.symbol !== front.symbol) out.push(second);
     return out;
   }
 
   // ---------------------------
-  // Chart normalization (YOUR API returns chart.points[])
+  // Chart normalization (Cloud Run returns chart.points[])
   // ---------------------------
   function normalizePoints(chart){
     if (Array.isArray(chart)) return chart;
     if (!chart) return [];
-    return (
-      chart.points || chart.bars || chart.data || chart.series ||
-      chart.result || chart.items ||
-      []
-    );
+    return chart.points || chart.bars || chart.data || chart.series || chart.result || chart.items || [];
   }
 
   // ---------------------------
@@ -256,6 +281,7 @@ Purpose:
   // ---------------------------
   const quoteCache = new Map(); // symbol -> { price, chg, pct, updatedAtMs }
   const inflight = new Map();   // symbol -> Promise
+  const deadSymbols = new Set(); // symbols that returned 404 chart_failed
 
   function toNum(x){
     if (typeof x === "number" && isFinite(x)) return x;
@@ -291,7 +317,7 @@ Purpose:
 
   async function refreshQuoteFor(symbol){
     if (!symbol) return;
-
+    if (deadSymbols.has(symbol)) return; // don’t hammer known-dead symbols
     if (inflight.has(symbol)) return inflight.get(symbol);
 
     const p = (async ()=>{
@@ -305,7 +331,13 @@ Purpose:
         } else {
           if (!quoteCache.has(symbol)) quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now() });
         }
-      } catch {
+      } catch (e){
+        // If backend says Yahoo 404 / chart_failed, mark dead so we can skip it in front selection.
+        const status = e?.status;
+        const body = String(e?.body || "");
+        if (status === 404 || body.includes('"chart_failed"') || body.includes("No data found")) {
+          deadSymbols.add(symbol);
+        }
         if (!quoteCache.has(symbol)) quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now() });
       } finally {
         inflight.delete(symbol);
@@ -467,8 +499,10 @@ Purpose:
       redraw();
     } else {
       const fronts = [];
-      if (payload?.corn?.[0]?.symbol) fronts.push(payload.corn[0].symbol);
-      if (payload?.soy?.[0]?.symbol)  fronts.push(payload.soy[0].symbol);
+      const cornFront = pickFront(payload.corn || [])?.symbol;
+      const soyFront  = pickFront(payload.soy || [])?.symbol;
+      if (cornFront) fronts.push(cornFront);
+      if (soyFront) fronts.push(soyFront);
 
       await runQueue(fronts);
       redraw();
@@ -495,7 +529,10 @@ Purpose:
         if (!lastPayload) return;
         const syms = isMobile()
           ? mobileVisibleSymbols(lastPayload)
-          : ([ lastPayload?.corn?.[0]?.symbol, lastPayload?.soy?.[0]?.symbol ].filter(Boolean));
+          : ([
+              pickFront(lastPayload.corn || [])?.symbol,
+              pickFront(lastPayload.soy || [])?.symbol
+            ].filter(Boolean));
         await runQueue(syms);
         redraw();
       }catch{}
@@ -508,8 +545,10 @@ Purpose:
         if (isMobile()) return;
 
         const fronts = [];
-        if (lastPayload?.corn?.[0]?.symbol) fronts.push(lastPayload.corn[0].symbol);
-        if (lastPayload?.soy?.[0]?.symbol)  fronts.push(lastPayload.soy[0].symbol);
+        const cornFront = pickFront(lastPayload.corn || [])?.symbol;
+        const soyFront  = pickFront(lastPayload.soy || [])?.symbol;
+        if (cornFront) fronts.push(cornFront);
+        if (soyFront) fronts.push(soyFront);
 
         const all = allSymbols(lastPayload);
         const rest = all.filter(s => !fronts.includes(s));
