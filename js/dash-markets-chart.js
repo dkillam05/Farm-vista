@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-chart.js  (FULL FILE)
-Rev: 2026-01-28d
+Rev: 2026-01-28e
 Purpose:
 ✅ Canvas chart renderer for FarmVista Markets modal (standalone helper)
 ✅ Supports:
@@ -15,19 +15,10 @@ Purpose:
    window.FVMarketsChart.clear(canvas)
 
 Fixes in this rev:
-✅ Tooltip is SMALL + tight (no full-width)
-   - Removed whiteSpace:nowrap
-   - Added maxWidth clamp + wrapping
-   - Compact content (time + one OHLC/Close line)
-✅ No injected <style> tags inside tooltip (stability + avoids odd sizing)
-✅ Keeps click-to-lock + hover preview behavior
-
-NEW mobile fixes:
-✅ iOS “tap flashes then disappears” fix:
-   - iOS sends synthetic mouse events after touchend
-   - We suppress mouse down for a short window after touch
-✅ Landscape/resize fix:
-   - Re-render active canvas on resize/orientationchange (debounced)
+✅ Tooltip lock clears on ANY re-render (tab switch / contract change)
+✅ Public API: FVMarketsChart.hideTip() -> hides + unlocks
+✅ When chart is cleared, tooltip is also cleared + unlocked
+✅ Keeps iOS synthetic mouse suppression + resize/orientation re-render
 ===================================================================== */
 
 (function(){
@@ -49,7 +40,7 @@ NEW mobile fixes:
 
   function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
 
-  // ✅ FIX: escapeHtml (needed for tooltip safety + avoids crashes)
+  // ✅ escapeHtml (needed for tooltip safety + avoids crashes)
   function escapeHtml(s){
     return String(s ?? "")
       .replace(/&/g, "&amp;")
@@ -97,10 +88,7 @@ NEW mobile fixes:
     tip.style.color = "#fff";
     tip.style.boxShadow = "0 10px 28px rgba(0,0,0,.35)";
 
-    // ✅ IMPORTANT: prevent “full width”
-    // - allow wrapping
-    // - clamp max width
-    // - keep content compact
+    // ✅ prevent “full width”
     tip.style.maxWidth = "260px";
     tip.style.whiteSpace = "normal";
     tip.style.overflow = "hidden";
@@ -208,7 +196,6 @@ NEW mobile fixes:
   }
 
   function drawAxes(ctx, rect, frame){
-    // frame = { padL, padR, padT, padB, min, max, xLabelFn, xLabelCount, yTickCount, textColor, gridAlpha }
     const padL = frame.padL, padR = frame.padR, padT = frame.padT, padB = frame.padB;
     const W = rect.width, H = rect.height;
 
@@ -293,10 +280,25 @@ NEW mobile fixes:
     stateByCanvas.delete(canvas);
   }
 
-  // Track active canvas for resize rerender
+  // Track active canvas for resize rerender + allow hideTip() to unlock
   function markActive(canvas){
     window.__FV_MKT_ACTIVE_CANVAS = canvas;
+    const st = stateByCanvas.get(canvas);
+    if (st) window.__FV_MKT_ACTIVE_STATE = st;
   }
+
+  // ✅ Public: hide tip + unlock current chart
+  function hideTipAndUnlock(){
+    try{
+      const st = window.__FV_MKT_ACTIVE_STATE || null;
+      if (st) st.locked = false;
+    }catch{}
+    hideTip();
+  }
+
+  API.hideTip = function(){
+    hideTipAndUnlock();
+  };
 
   // -------------------------
   // Render engine
@@ -304,9 +306,13 @@ NEW mobile fixes:
   function renderInternal(canvas, rows, opts){
     if (!canvas) return;
 
+    // ✅ Key fix: switching ranges/contracts calls render() again.
+    // We must clear any locked tooltip from previous render.
+    hideTipAndUnlock();
+
     markActive(canvas);
 
-    const kind = (opts && opts.kind) || "candles"; // "candles" | "line"
+    const kind = (opts && opts.kind) || "candles";
     const title = (opts && opts.title) || "";
     const timeZone = (opts && opts.timeZone) || null;
 
@@ -315,7 +321,7 @@ NEW mobile fixes:
 
     if (n < 2){
       detach(canvas);
-      hideTip();
+      hideTipAndUnlock();
       noData(canvas, (opts && opts.noDataText) || "No chart data at this time");
       return;
     }
@@ -337,7 +343,7 @@ NEW mobile fixes:
     }
     if (!isFinite(min) || !isFinite(max)){
       detach(canvas);
-      hideTip();
+      hideTipAndUnlock();
       noData(canvas, (opts && opts.noDataText) || "No chart data at this time");
       return;
     }
@@ -485,18 +491,16 @@ NEW mobile fixes:
       timeZone,
       lastTouchMs: 0,
 
-      // ✅ Store last render params for resize rerender
+      // Store last render params for resize rerender
       _lastRows: data.slice(),
       _lastOpts: Object.assign({}, opts || {})
     };
     stateByCanvas.set(canvas, st);
+    window.__FV_MKT_ACTIVE_STATE = st;
 
-    // ✅ Tight tooltip HTML (no long strings, no huge width)
     function tipHtmlFor(idx){
       const r = data[idx] || {};
       const when = r.t ? fmtStamp(r.t, timeZone) : "—";
-
-      // keep it compact
       const lockNote = st.locked ? `<div style="opacity:.78; margin-top:2px;">Locked</div>` : "";
 
       if (kind === "candles"){
@@ -555,7 +559,7 @@ NEW mobile fixes:
     canvas.onmouseleave = ()=> handleLeave();
 
     canvas.onmousedown = (e)=>{
-      // ✅ Ignore synthetic mouse events right after touch
+      // Ignore synthetic mouse events right after touch
       const now = Date.now();
       if (now - (st.lastTouchMs || 0) < TOUCH_SUPPRESS_MS) return;
       handleClick(e.clientX, e.clientY);
@@ -584,16 +588,16 @@ NEW mobile fixes:
       }
     };
 
-    // ESC hides tooltip (and effectively clears “locked” from the user’s perspective)
+    // ESC hides tooltip (and clears lock)
     if (!window.__FV_MKT_CHART_ESC_WIRED){
       window.__FV_MKT_CHART_ESC_WIRED = true;
       document.addEventListener("keydown", (e)=>{
         if (e.key !== "Escape") return;
-        hideTip();
+        hideTipAndUnlock();
       });
     }
 
-    // ✅ Resize/orientation re-render (once)
+    // Resize/orientation re-render (once)
     if (!window.__FV_MKT_CHART_RESIZE_WIRED){
       window.__FV_MKT_CHART_RESIZE_WIRED = true;
 
@@ -604,7 +608,6 @@ NEW mobile fixes:
         const s = stateByCanvas.get(c);
         if (!s) return;
 
-        // If canvas is detached/hidden, skip
         try{
           const r = c.getBoundingClientRect();
           if (!r || r.width < 10 || r.height < 10) return;
@@ -612,7 +615,6 @@ NEW mobile fixes:
           return;
         }
 
-        // Re-render using last saved series/options
         renderInternal(c, s._lastRows || [], s._lastOpts || {});
       };
 
@@ -633,7 +635,7 @@ NEW mobile fixes:
   API.clear = function(canvas){
     if (!canvas) return;
     detach(canvas);
-    hideTip();
+    hideTipAndUnlock();
     const { rect, ctx } = sizeCanvas(canvas);
     if (ctx) ctx.clearRect(0,0,rect.width,rect.height);
   };
