@@ -496,8 +496,9 @@ NEW:
             const chg = q ? q.chg : null;
             const pct = q ? q.pct : null;
 
-            const dir = dirFrom(chg);
-            const arr = arrowFor(dir);
+            const hasChange = (typeof chg === "number" && isFinite(chg)) && (typeof pct === "number" && isFinite(pct));
+            const dir = hasChange ? dirFrom(chg) : "flat";
+            const arr = hasChange ? arrowFor(dir) : "";
 
             return `
               <button class="fv-mkt-btn" data-symbol="${escapeHtml(sym)}" aria-label="${escapeHtml(label || sym)}">
@@ -509,11 +510,13 @@ NEW:
 
                   <div class="fv-mkt-right">
                     <div class="fv-mkt-price">${escapeHtml(fmtPrice(price))}</div>
-                    <div class="fv-mkt-change ${dir}">
-                      <span class="fv-mkt-arrow" aria-hidden="true">${arr}</span>
-                      <span>${escapeHtml(fmtSigned(chg, 2))}</span>
-                      <span>${escapeHtml(fmtPct(pct))}</span>
-                    </div>
+                    ${hasChange ? `
+                      <div class="fv-mkt-change ${dir}">
+                        <span class="fv-mkt-arrow" aria-hidden="true">${arr}</span>
+                        <span>${escapeHtml(fmtSigned(chg, 2))}</span>
+                        <span>${escapeHtml(fmtPct(pct))}</span>
+                      </div>
+                    ` : ``}
                   </div>
                 </div>
               </button>
