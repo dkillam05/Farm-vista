@@ -1,15 +1,16 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-ui.js  (FULL FILE)
-Rev: 2026-01-28c
+Rev: 2026-01-28d
 Purpose:
 ✅ Markets modal + chart UI:
    - Tap tile => open chart modal
    - View more contracts => list modal; tap contract => chart
-✅ Chart modes:
-   - Daily (candles)
-   - Weekly (candles)
-   - 1Y (line)
-   - All (line)
+✅ Chart modes (backend-supported):
+   - daily (candles)
+   - weekly (candles)
+   - 6mo (line)
+   - 1y (line)
+   - all (line)
 ✅ Uses Cloud Run chart.points[] (o/h/l/c + tUtc)
 ===================================================================== */
 
@@ -33,12 +34,7 @@ Purpose:
     const st = document.createElement("style");
     st.id = "fv-mkt-modal-style";
     st.textContent = `
-#${BACKDROP_ID}{
-  position:fixed; inset:0;
-  background:rgba(15,23,42,0.45);
-  display:none;
-  z-index:9999;
-}
+#${BACKDROP_ID}{ position:fixed; inset:0; background:rgba(15,23,42,0.45); display:none; z-index:9999; }
 #${BACKDROP_ID}.open{ display:flex; align-items:center; justify-content:center; }
 
 #${MODAL_ID}{
@@ -59,73 +55,32 @@ Purpose:
 .fv-mktm-title{ font-size:15px; font-weight:800; margin:0; }
 .fv-mktm-actions{ display:flex; gap:8px; align-items:center; }
 .fv-mktm-btn{
-  appearance:none;
-  border:1px solid var(--border,#d1d5db);
-  background:var(--surface,#fff);
-  border-radius:999px;
-  padding:7px 10px;
-  font-size:12px;
-  color:var(--muted,#67706B);
-  cursor:pointer;
+  appearance:none; border:1px solid var(--border,#d1d5db); background:var(--surface,#fff);
+  border-radius:999px; padding:7px 10px; font-size:12px; color:var(--muted,#67706B); cursor:pointer;
 }
-.fv-mktm-btn.primary{ background:#3B7E46; border-color:#3B7E46; color:#fff; }
-.fv-mktm-btn.primary *{ color:#fff; }
 .fv-mktm-btn:active{ transform:scale(.99); }
 
-.fv-mktm-grid{ display:grid; grid-template-columns: 1fr; gap:12px; }
-@media (min-width: 900px){ .fv-mktm-grid{ grid-template-columns: 320px 1fr; } }
+.fv-mktm-grid{ display:grid; grid-template-columns:1fr; gap:12px; }
+@media (min-width: 900px){ .fv-mktm-grid{ grid-template-columns:320px 1fr; } }
 
-.fv-mktm-list{
-  border:1px solid rgba(0,0,0,.12);
-  border-radius:14px;
-  padding:10px;
-  background:var(--card-surface, var(--surface,#fff));
-}
+.fv-mktm-list{ border:1px solid rgba(0,0,0,.12); border-radius:14px; padding:10px; background:var(--card-surface, var(--surface,#fff)); }
 .fv-mktm-row{
-  width:100%;
-  text-align:left;
-  appearance:none;
-  border:1px solid rgba(0,0,0,.10);
-  background:var(--surface,#fff);
-  border-radius:12px;
-  padding:10px 10px;
-  cursor:pointer;
-  margin:0 0 8px 0;
-  color:inherit;
+  width:100%; text-align:left; appearance:none; border:1px solid rgba(0,0,0,.10); background:var(--surface,#fff);
+  border-radius:12px; padding:10px 10px; cursor:pointer; margin:0 0 8px 0; color:inherit;
 }
 .fv-mktm-row:last-child{ margin-bottom:0; }
 .fv-mktm-sym{ font-weight:900; letter-spacing:.02em; }
 .fv-mktm-label{ font-size:12px; opacity:.78; }
 
-.fv-mktm-chart{
-  border:1px solid rgba(0,0,0,.12);
-  border-radius:14px;
-  padding:10px 10px 12px;
-  background:var(--card-surface, var(--surface,#fff));
-}
+.fv-mktm-chart{ border:1px solid rgba(0,0,0,.12); border-radius:14px; padding:10px 10px 12px; background:var(--card-surface, var(--surface,#fff)); }
 .fv-mktm-sub{ font-size:12px; color:var(--muted,#67706B); margin:4px 0 8px 0; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
 .fv-mktm-tabs{ display:flex; gap:6px; flex-wrap:wrap; }
 .fv-mktm-tab{
-  appearance:none;
-  border:1px solid rgba(0,0,0,.12);
-  background:var(--surface,#fff);
-  border-radius:999px;
-  padding:6px 10px;
-  font-size:12px;
-  color:inherit;
-  cursor:pointer;
+  appearance:none; border:1px solid rgba(0,0,0,.12); background:var(--surface,#fff);
+  border-radius:999px; padding:6px 10px; font-size:12px; color:inherit; cursor:pointer;
 }
-.fv-mktm-tab[aria-selected="true"]{
-  border-color:rgba(59,126,70,.70);
-  box-shadow:0 0 0 2px rgba(59,126,70,.22);
-}
-.fv-mktm-canvas{
-  width:100%;
-  height:240px;
-  display:block;
-  border-radius:12px;
-  background:rgba(0,0,0,0.02);
-}
+.fv-mktm-tab[aria-selected="true"]{ border-color:rgba(59,126,70,.70); box-shadow:0 0 0 2px rgba(59,126,70,.22); }
+.fv-mktm-canvas{ width:100%; height:240px; display:block; border-radius:12px; background:rgba(0,0,0,0.02); }
 .fv-mktm-empty{ font-size:13px; color:var(--muted,#67706B); padding:10px 0; }
 `;
     document.head.appendChild(st);
@@ -196,31 +151,34 @@ Purpose:
     return null;
   }
 
-  function getThemeStroke(){
-    // Use computed body text color so line is visible in dark mode.
-    const c = getComputedStyle(document.body).color || "rgb(240,240,240)";
-    return c;
+  function themeStroke(){
+    // use computed text color so it stays visible in dark mode
+    return getComputedStyle(document.body).color || "rgb(240,240,240)";
   }
 
-  function drawLine(canvas, points){
-    if (!canvas) return;
+  function prepCanvas(canvas){
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
     const rect = canvas.getBoundingClientRect();
     const dpr = Math.max(1, window.devicePixelRatio || 1);
     canvas.width = Math.floor(rect.width * dpr);
     canvas.height = Math.floor(rect.height * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
     ctx.clearRect(0, 0, rect.width, rect.height);
+    return { ctx, rect };
+  }
 
-    const closes = (points || []).map(p => ({ c: toNum(p?.c), t: p?.tUtc ?? p?.t ?? p?.time ?? p?.date ?? null }))
+  function drawLine(canvas, points){
+    if (!canvas) return;
+    const { ctx, rect } = prepCanvas(canvas);
+
+    const closes = (points || [])
+      .map(p => ({ c: toNum(p?.c), t: p?.tUtc ?? p?.t ?? p?.time ?? p?.date ?? null }))
       .filter(x => x.c != null);
 
     if (closes.length < 2){
       ctx.globalAlpha = 0.75;
       ctx.font = "13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.fillStyle = themeStroke();
       ctx.fillText("No chart data", 12, 24);
       return;
     }
@@ -231,16 +189,13 @@ Purpose:
     if (!isFinite(min) || !isFinite(max)) return;
     if (min === max){ min -= 1; max += 1; }
 
-    const pad = 12;
-    const W = rect.width;
-    const H = rect.height;
+    const pad = 12, W = rect.width, H = rect.height;
 
-    // baseline
     ctx.globalAlpha = 0.25;
+    ctx.strokeStyle = themeStroke();
     ctx.beginPath();
     ctx.moveTo(pad, H - pad);
     ctx.lineTo(W - pad, H - pad);
-    ctx.strokeStyle = getThemeStroke();
     ctx.stroke();
     ctx.globalAlpha = 1;
 
@@ -249,45 +204,35 @@ Purpose:
     const yFor = (v)=> pad + ((max - v) * (H - pad*2) / (max - min));
 
     ctx.lineWidth = 2.5;
-    ctx.strokeStyle = getThemeStroke();
+    ctx.strokeStyle = themeStroke();
     ctx.beginPath();
     ctx.moveTo(xFor(0), yFor(closes[0].c));
-    for (let i = 1; i < n; i++){
-      ctx.lineTo(xFor(i), yFor(closes[i].c));
-    }
+    for (let i = 1; i < n; i++) ctx.lineTo(xFor(i), yFor(closes[i].c));
     ctx.stroke();
 
-    // last value label
     const last = closes[n-1].c;
     ctx.globalAlpha = 0.85;
     ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-    ctx.fillStyle = getThemeStroke();
+    ctx.fillStyle = themeStroke();
     ctx.fillText(`Last: ${last.toFixed(2)}`, pad, pad + 12);
     ctx.globalAlpha = 1;
   }
 
   function drawCandles(canvas, points){
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const { ctx, rect } = prepCanvas(canvas);
 
-    const rect = canvas.getBoundingClientRect();
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-    canvas.width = Math.floor(rect.width * dpr);
-    canvas.height = Math.floor(rect.height * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    ctx.clearRect(0, 0, rect.width, rect.height);
-
-    const rows = (points || []).map(p => ({
-      o: toNum(p?.o), h: toNum(p?.h), l: toNum(p?.l), c: toNum(p?.c),
-      t: p?.tUtc ?? p?.t ?? p?.time ?? p?.date ?? null
-    })).filter(r => r.h != null && r.l != null && r.o != null && r.c != null);
+    const rows = (points || [])
+      .map(p => ({
+        o: toNum(p?.o), h: toNum(p?.h), l: toNum(p?.l), c: toNum(p?.c),
+        t: p?.tUtc ?? p?.t ?? p?.time ?? p?.date ?? null
+      }))
+      .filter(r => r.o != null && r.h != null && r.l != null && r.c != null);
 
     if (rows.length < 2){
       ctx.globalAlpha = 0.75;
       ctx.font = "13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-      ctx.fillStyle = getThemeStroke();
+      ctx.fillStyle = themeStroke();
       ctx.fillText("No candle data", 12, 24);
       return;
     }
@@ -299,21 +244,16 @@ Purpose:
     if (!isFinite(min) || !isFinite(max)) return;
     if (min === max){ min -= 1; max += 1; }
 
-    const pad = 12;
-    const W = rect.width;
-    const H = rect.height;
+    const pad = 12, W = rect.width, H = rect.height;
     const n = rows.length;
 
     const yFor = (v)=> pad + ((max - v) * (H - pad*2) / (max - min));
-
-    // Candle width: fit to screen
     const slot = (W - pad*2) / n;
     const bodyW = Math.max(3, Math.min(10, slot * 0.55));
     const xFor = (i)=> pad + i * slot + slot/2;
 
-    // baseline
     ctx.globalAlpha = 0.20;
-    ctx.strokeStyle = getThemeStroke();
+    ctx.strokeStyle = themeStroke();
     ctx.beginPath();
     ctx.moveTo(pad, H - pad);
     ctx.lineTo(W - pad, H - pad);
@@ -331,27 +271,26 @@ Purpose:
       const up = r.c >= r.o;
 
       // wick
-      ctx.strokeStyle = getThemeStroke();
+      ctx.strokeStyle = themeStroke();
       ctx.globalAlpha = 0.65;
       ctx.beginPath();
       ctx.moveTo(x, yH);
       ctx.lineTo(x, yL);
       ctx.stroke();
 
-      // body (use theme stroke, with alpha differences; avoids bright neon)
+      // body
       const top = Math.min(yO, yC);
       const bot = Math.max(yO, yC);
       ctx.globalAlpha = up ? 0.85 : 0.60;
-      ctx.fillStyle = getThemeStroke();
+      ctx.fillStyle = themeStroke();
       ctx.fillRect(x - bodyW/2, top, bodyW, Math.max(2, bot - top));
       ctx.globalAlpha = 1;
     }
 
-    // last value
     const last = rows[n-1].c;
     ctx.globalAlpha = 0.85;
     ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-    ctx.fillStyle = getThemeStroke();
+    ctx.fillStyle = themeStroke();
     ctx.fillText(`Last: ${last.toFixed(2)}`, pad, pad + 12);
     ctx.globalAlpha = 1;
   }
@@ -359,29 +298,15 @@ Purpose:
   async function loadAndRender(symbol, mode){
     const note = document.getElementById("fv-mktm-note");
     if (note) note.textContent = "Loading…";
-
     try{
       const chart = await window.FVMarkets.fetchChart(symbol, mode);
       const points = normalizePoints(chart);
       const canvas = document.getElementById("fv-mktm-canvas");
-
-      if (mode === "daily" || mode === "weekly"){
-        drawCandles(canvas, points);
-      } else {
-        drawLine(canvas, points);
-      }
-
+      if (mode === "daily" || mode === "weekly") drawCandles(canvas, points);
+      else drawLine(canvas, points);
       if (note) note.textContent = points?.length ? `Points: ${points.length}` : "No points found.";
     } catch (e){
       if (note) note.textContent = `Chart failed: ${e?.message || "error"}`;
-      const canvas = document.getElementById("fv-mktm-canvas");
-      if (canvas){
-        const ctx = canvas.getContext("2d");
-        if (ctx){
-          const rect = canvas.getBoundingClientRect();
-          ctx.clearRect(0,0,rect.width,rect.height);
-        }
-      }
     }
   }
 
@@ -391,27 +316,24 @@ Purpose:
     setModalBody(`
       <div class="fv-mktm-grid">
         <div class="fv-mktm-list"><div class="fv-mktm-empty">Chart</div></div>
-
         <div class="fv-mktm-chart">
           <div class="fv-mktm-sub">
             <div class="fv-mktm-tabs" role="tablist" aria-label="Chart range">
               <button class="fv-mktm-tab" data-mode="daily" aria-selected="true">Daily</button>
               <button class="fv-mktm-tab" data-mode="weekly" aria-selected="false">Weekly</button>
+              <button class="fv-mktm-tab" data-mode="6mo" aria-selected="false">6mo</button>
               <button class="fv-mktm-tab" data-mode="1y" aria-selected="false">1Y</button>
               <button class="fv-mktm-tab" data-mode="all" aria-selected="false">All</button>
             </div>
           </div>
-
           <canvas class="fv-mktm-canvas" id="fv-mktm-canvas"></canvas>
           <div class="fv-mktm-sub" id="fv-mktm-note"></div>
         </div>
       </div>
     `);
 
-    // default mode
     loadAndRender(symbol, "daily");
 
-    // wire tabs
     document.querySelectorAll(".fv-mktm-tab").forEach(btn=>{
       btn.addEventListener("click", ()=>{
         document.querySelectorAll(".fv-mktm-tab").forEach(b=>b.setAttribute("aria-selected","false"));
@@ -446,17 +368,16 @@ Purpose:
         <div class="fv-mktm-list">
           ${rows || `<div class="fv-mktm-empty">No contracts</div>`}
         </div>
-
         <div class="fv-mktm-chart">
           <div class="fv-mktm-sub">
             <div class="fv-mktm-tabs" role="tablist" aria-label="Chart range">
               <button class="fv-mktm-tab" data-mode="daily" aria-selected="true">Daily</button>
               <button class="fv-mktm-tab" data-mode="weekly" aria-selected="false">Weekly</button>
+              <button class="fv-mktm-tab" data-mode="6mo" aria-selected="false">6mo</button>
               <button class="fv-mktm-tab" data-mode="1y" aria-selected="false">1Y</button>
               <button class="fv-mktm-tab" data-mode="all" aria-selected="false">All</button>
             </div>
           </div>
-
           <canvas class="fv-mktm-canvas" id="fv-mktm-canvas"></canvas>
           <div class="fv-mktm-sub" id="fv-mktm-note"></div>
         </div>
@@ -465,17 +386,21 @@ Purpose:
 
     let currentSymbol = null;
 
-    const setActiveModeAndRender = ()=>{
+    const renderCurrent = ()=>{
       const active = document.querySelector(".fv-mktm-tab[aria-selected='true']");
       const mode = active ? (active.getAttribute("data-mode") || "daily") : "daily";
       if (currentSymbol) loadAndRender(currentSymbol, mode);
+      else {
+        const note = document.getElementById("fv-mktm-note");
+        if (note) note.textContent = "Tap a contract to load chart.";
+      }
     };
 
     document.querySelectorAll(".fv-mktm-tab").forEach(btn=>{
       btn.addEventListener("click", ()=>{
         document.querySelectorAll(".fv-mktm-tab").forEach(b=>b.setAttribute("aria-selected","false"));
         btn.setAttribute("aria-selected","true");
-        setActiveModeAndRender();
+        renderCurrent();
       });
     });
 
@@ -485,9 +410,11 @@ Purpose:
         if (!sym) return;
         currentSymbol = sym;
         setModalTitle(sym);
-        setActiveModeAndRender();
+        renderCurrent();
       });
     });
+
+    renderCurrent();
   }
 
   function onContractTap(e){
