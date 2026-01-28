@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-chart.js  (FULL FILE)
-Rev: 2026-01-28b
+Rev: 2026-01-28c
 Purpose:
 ✅ Canvas chart renderer for FarmVista Markets modal (standalone helper)
 ✅ Supports:
@@ -13,6 +13,14 @@ Purpose:
 ✅ No dependencies on modal/UI files. Safe global API:
    window.FVMarketsChart.render(canvas, rows, opts)
    window.FVMarketsChart.clear(canvas)
+
+Fixes in this rev:
+✅ Tooltip is SMALL + tight (no full-width)
+   - Removed whiteSpace:nowrap
+   - Added maxWidth clamp + wrapping
+   - Compact content (time + one OHLC/Close line)
+✅ No injected <style> tags inside tooltip (stability + avoids odd sizing)
+✅ Keeps click-to-lock + hover preview behavior
 ===================================================================== */
 
 (function(){
@@ -31,7 +39,7 @@ Purpose:
 
   function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
 
-  // ✅ FIX: escapeHtml was missing (caused tooltip crash)
+  // ✅ FIX: escapeHtml (needed for tooltip safety + avoids crashes)
   function escapeHtml(s){
     return String(s ?? "")
       .replace(/&/g, "&amp;")
@@ -55,31 +63,42 @@ Purpose:
     catch{ return "rgb(20,20,20)"; }
   }
 
+  // -------------------------
+  // Tooltip DOM + positioning
+  // -------------------------
   function ensureTip(){
     let tip = document.getElementById(TIP_ID);
     if (tip) return tip;
 
     tip = document.createElement("div");
     tip.id = TIP_ID;
+
+    // Core layout / positioning
     tip.style.position = "fixed";
     tip.style.zIndex = "10000";
-    tip.style.padding = "10px 12px";
-    tip.style.borderRadius = "12px";
-    tip.style.border = "1px solid rgba(0,0,0,.16)";
-    tip.style.background = "rgba(15,23,42,.92)";
-    tip.style.color = "#fff";
-    tip.style.fontSize = "12px";
-    tip.style.lineHeight = "1.25";
-    tip.style.boxShadow = "0 10px 28px rgba(0,0,0,.35)";
-    tip.style.maxWidth = "min(320px, calc(100vw - 24px))";
     tip.style.pointerEvents = "none";
     tip.style.display = "none";
-    tip.style.whiteSpace = "nowrap";
 
-    // ✅ Make tooltip "muted" text readable without relying on page CSS
-    tip.innerHTML = `<style>
-      #${TIP_ID} .muted{ opacity:.78; }
-    </style>`;
+    // Tight “card”
+    tip.style.padding = "8px 10px";
+    tip.style.borderRadius = "10px";
+    tip.style.border = "1px solid rgba(0,0,0,.18)";
+    tip.style.background = "rgba(15,23,42,.92)";
+    tip.style.color = "#fff";
+    tip.style.boxShadow = "0 10px 28px rgba(0,0,0,.35)";
+
+    // ✅ IMPORTANT: prevent “full width”
+    // - allow wrapping
+    // - clamp max width
+    // - keep content compact
+    tip.style.maxWidth = "260px";
+    tip.style.whiteSpace = "normal";
+    tip.style.overflow = "hidden";
+
+    // Typography
+    tip.style.fontSize = "12px";
+    tip.style.lineHeight = "1.25";
+    tip.style.fontFamily = "system-ui, -apple-system, Segoe UI, Roboto, Arial";
 
     document.body.appendChild(tip);
     return tip;
@@ -87,14 +106,7 @@ Purpose:
 
   function showTip(clientX, clientY, html){
     const tip = ensureTip();
-
-    // Preserve the embedded style we injected once
-    // If the browser strips it, re-add on the fly.
-    if (!tip.querySelector("style")) {
-      tip.insertAdjacentHTML("afterbegin", `<style>#${TIP_ID} .muted{ opacity:.78; }</style>`);
-    }
-
-    tip.innerHTML = tip.querySelector("style").outerHTML + html;
+    tip.innerHTML = html;
     tip.style.display = "block";
 
     // measure after display
@@ -119,6 +131,9 @@ Purpose:
     tip.style.display = "none";
   }
 
+  // -------------------------
+  // Formatting helpers
+  // -------------------------
   function fmt2(x){
     const n = toNum(x);
     return (n == null) ? "—" : n.toFixed(2);
@@ -127,7 +142,6 @@ Purpose:
   function fmtStamp(iso, timeZone){
     try{
       const d = new Date(iso);
-      // If you pass timeZone, we’ll format in that TZ. Otherwise local.
       if (timeZone){
         return new Intl.DateTimeFormat("en-US", {
           timeZone,
@@ -135,7 +149,10 @@ Purpose:
           hour:"numeric", minute:"2-digit"
         }).format(d);
       }
-      return d.toLocaleString([], { month:"numeric", day:"numeric", year:"2-digit", hour:"numeric", minute:"2-digit" });
+      return d.toLocaleString([], {
+        month:"numeric", day:"numeric", year:"2-digit",
+        hour:"numeric", minute:"2-digit"
+      });
     }catch{
       return String(iso || "");
     }
@@ -165,7 +182,9 @@ Purpose:
     ctx.globalAlpha = 1;
   }
 
-  // Pick a nice set of ticks for Y axis
+  // -------------------------
+  // Axes + grid
+  // -------------------------
   function yTicks(min, max, count){
     const n = Math.max(2, Math.min(8, count || 5));
     if (!isFinite(min) || !isFinite(max)) return [];
@@ -186,7 +205,6 @@ Purpose:
     const axisColor = frame.textColor || getBodyTextColor();
     const gridA = (typeof frame.gridAlpha === "number") ? frame.gridAlpha : 0.18;
 
-    // grid + y labels
     const ticks = yTicks(frame.min, frame.max, frame.yTickCount || 5);
 
     ctx.save();
@@ -194,7 +212,7 @@ Purpose:
     ctx.fillStyle = axisColor;
     ctx.strokeStyle = axisColor;
 
-    // Horizontal grid lines + labels (left)
+    // horizontal grid
     ctx.globalAlpha = gridA;
     for (let i = 0; i < ticks.length; i++){
       const v = ticks[i];
@@ -204,23 +222,23 @@ Purpose:
       ctx.lineTo(W - padR, y);
       ctx.stroke();
     }
-    ctx.globalAlpha = 0.85;
 
+    // y labels
+    ctx.globalAlpha = 0.85;
     for (let i = 0; i < ticks.length; i++){
       const v = ticks[i];
       const y = padT + ((frame.max - v) * (H - padT - padB) / (frame.max - frame.min));
-      const label = v.toFixed(2);
-      ctx.fillText(label, 6, y + 4);
+      ctx.fillText(v.toFixed(2), 6, y + 4);
     }
 
-    // X axis baseline
+    // x baseline
     ctx.globalAlpha = gridA;
     ctx.beginPath();
     ctx.moveTo(padL, H - padB);
     ctx.lineTo(W - padR, H - padB);
     ctx.stroke();
 
-    // X labels
+    // x labels
     const xLabelFn = frame.xLabelFn;
     const xCount = Math.max(2, Math.min(6, frame.xLabelCount || 4));
     if (typeof xLabelFn === "function" && frame.nPoints >= 2){
@@ -230,7 +248,6 @@ Purpose:
         const idx = Math.round(t * (frame.nPoints - 1));
         const x = padL + (idx * (W - padL - padR) / (frame.nPoints - 1));
         const txt = String(xLabelFn(idx) || "");
-        // center-ish, but clamp
         const tw = ctx.measureText(txt).width;
         const tx = clamp(x - tw / 2, padL, W - padR - tw);
         ctx.fillText(txt, tx, H - 8);
@@ -248,7 +265,9 @@ Purpose:
     return clamp(idx, 0, n - 1);
   }
 
+  // -------------------------
   // Per-canvas state (handlers + lock)
+  // -------------------------
   const stateByCanvas = new WeakMap();
 
   function detach(canvas){
@@ -264,6 +283,9 @@ Purpose:
     stateByCanvas.delete(canvas);
   }
 
+  // -------------------------
+  // Render engine
+  // -------------------------
   function renderInternal(canvas, rows, opts){
     if (!canvas) return;
 
@@ -271,7 +293,6 @@ Purpose:
     const title = (opts && opts.title) || "";
     const timeZone = (opts && opts.timeZone) || null;
 
-    // Copy rows into normalized array
     const data = Array.isArray(rows) ? rows.slice() : [];
     const n = data.length;
 
@@ -308,7 +329,6 @@ Purpose:
     const { rect, ctx } = sizeCanvas(canvas);
     if (!ctx) return;
 
-    // Layout paddings (extra left for y labels)
     const padL = 56;
     const padR = 14;
     const padT = 16;
@@ -320,20 +340,15 @@ Purpose:
     const yFor = (v)=> padT + ((max - v) * (H - padT - padB) / (max - min));
     const xForIdx = (i)=> padL + (i * (W - padL - padR) / (n - 1));
 
-    // Build x label function if not provided
+    // X label fn fallback
     let xLabelFn = opts && opts.xLabelFn;
     if (typeof xLabelFn !== "function"){
-      // Default: show local time for dense series, or date for sparse
       xLabelFn = (idx)=>{
         const t = data[idx] && data[idx].t;
         if (!t) return "";
         const d = new Date(t);
-        // If timeZone provided, use Intl time formatting
         if (timeZone){
-          return new Intl.DateTimeFormat("en-US", {
-            timeZone,
-            month:"numeric", day:"numeric"
-          }).format(d);
+          return new Intl.DateTimeFormat("en-US", { timeZone, month:"numeric", day:"numeric" }).format(d);
         }
         return d.toLocaleDateString([], { month:"numeric", day:"numeric" });
       };
@@ -354,7 +369,7 @@ Purpose:
       gridAlpha: (opts && opts.gridAlpha) != null ? opts.gridAlpha : 0.16
     });
 
-    // Title (optional) inside canvas top-left
+    // Title (optional)
     if (title){
       ctx.save();
       ctx.globalAlpha = 0.85;
@@ -383,7 +398,7 @@ Purpose:
         const up = c >= o;
         const col = up ? UP : DOWN;
 
-        // Wick
+        // wick
         ctx.save();
         ctx.strokeStyle = WICK;
         ctx.lineWidth = 1;
@@ -393,7 +408,7 @@ Purpose:
         ctx.stroke();
         ctx.restore();
 
-        // Body
+        // body
         const top = Math.min(yO, yC);
         const bot = Math.max(yO, yC);
         ctx.save();
@@ -402,7 +417,7 @@ Purpose:
         ctx.restore();
       }
     } else {
-      // Line with glow
+      // line with glow
       const stroke = (opts && opts.lineColor) || "rgba(59,126,70,.95)";
       ctx.save();
       ctx.lineCap = "round";
@@ -412,12 +427,13 @@ Purpose:
       ctx.lineWidth = 6;
       ctx.strokeStyle = "rgba(59,126,70,.18)";
       ctx.beginPath();
+      let glowStarted = false;
       for (let i = 0; i < n; i++){
         const c = toNum(data[i].c);
         if (c == null) continue;
         const x = xForIdx(i);
         const y = yFor(c);
-        if (i === 0) ctx.moveTo(x, y);
+        if (!glowStarted){ ctx.moveTo(x, y); glowStarted = true; }
         else ctx.lineTo(x, y);
       }
       ctx.stroke();
@@ -453,19 +469,33 @@ Purpose:
     };
     stateByCanvas.set(canvas, st);
 
+    // ✅ Tight tooltip HTML (no long strings, no huge width)
     function tipHtmlFor(idx){
       const r = data[idx] || {};
       const when = r.t ? fmtStamp(r.t, timeZone) : "—";
-      const lockNote = st.locked ? `<div class="muted">Locked</div>` : "";
+
+      // keep it compact
+      const lockNote = st.locked ? `<div style="opacity:.78; margin-top:2px;">Locked</div>` : "";
+
       if (kind === "candles"){
-        return `<div><strong>${escapeHtml(when)}</strong></div>${lockNote}<div class="muted">O ${escapeHtml(fmt2(r.o))}  H ${escapeHtml(fmt2(r.h))}  L ${escapeHtml(fmt2(r.l))}  C ${escapeHtml(fmt2(r.c))}</div>`;
+        return `
+          <div style="font-weight:800; margin-bottom:3px;">${escapeHtml(when)}</div>
+          <div style="opacity:.85;">
+            O ${escapeHtml(fmt2(r.o))} · H ${escapeHtml(fmt2(r.h))} · L ${escapeHtml(fmt2(r.l))} · C ${escapeHtml(fmt2(r.c))}
+          </div>
+          ${lockNote}
+        `;
       }
-      return `<div><strong>${escapeHtml(when)}</strong></div>${lockNote}<div class="muted">Close ${escapeHtml(fmt2(r.c))}</div>`;
+
+      return `
+        <div style="font-weight:800; margin-bottom:3px;">${escapeHtml(when)}</div>
+        <div style="opacity:.85;">Close ${escapeHtml(fmt2(r.c))}</div>
+        ${lockNote}
+      `;
     }
 
     function handleMove(clientX, clientY){
       if (st.locked){
-        // still show at cursor position but locked content
         showTip(clientX, clientY, tipHtmlFor(st.lockedIdx));
         return;
       }
@@ -474,7 +504,7 @@ Purpose:
     }
 
     function handleLeave(){
-      if (st.locked) return; // keep visible when locked
+      if (st.locked) return;
       hideTip();
     }
 
@@ -485,7 +515,6 @@ Purpose:
         st.locked = true;
         st.lockedIdx = idx;
       } else {
-        // If clicking same point, unlock; else move lock
         if (idx === st.lockedIdx){
           st.locked = false;
         } else {
@@ -515,7 +544,6 @@ Purpose:
       handleMove(t.clientX, t.clientY);
     };
     canvas.ontouchend = (e)=>{
-      // Lock on end at last known touch position if available
       try{
         const c = e.changedTouches && e.changedTouches[0] ? e.changedTouches[0] : null;
         if (c) handleClick(c.clientX, c.clientY);
@@ -525,15 +553,12 @@ Purpose:
       }
     };
 
-    // Also unlock on ESC globally (lightweight)
-    // (We won’t attach global listeners per canvas; this is safe once.)
+    // ESC hides tooltip (and effectively clears “locked” from the user’s perspective)
     if (!window.__FV_MKT_CHART_ESC_WIRED){
       window.__FV_MKT_CHART_ESC_WIRED = true;
       document.addEventListener("keydown", (e)=>{
         if (e.key !== "Escape") return;
-        // Clear all locks we can see
         hideTip();
-        // We can’t iterate WeakMap; so just hide tooltip. Next move will show unlocked for each canvas.
       });
     }
   }
