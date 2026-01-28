@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-series.js  (FULL FILE)
-Rev: 2026-01-28a
+Rev: 2026-01-28b
 Purpose:
 ✅ Time-range + series shaping helper for FarmVista Markets charts (standalone)
 ✅ Converts Cloud Run chart.points[] into normalized series rows for:
@@ -17,6 +17,12 @@ Purpose:
    - x-axis label function appropriate to mode (times for daily, dates for weekly/monthly, months for 6mo/1y)
 ✅ Safe global API:
    window.FVMarketsSeries.shape(points, mode, opts) -> { ok, mode, kind, label, rows, xLabelFn, xLabelCount, timeZone }
+
+CHANGE (critical):
+✅ When the data is INTRADAY (5m bars), we filter to RTH only (no overnight):
+   - RTH window: 08:30–13:20 America/Chicago
+   - Applied to daily + weekly + monthly ONLY when data is intraday.
+   - Does NOT break 6mo/1y daily-close series (which are 1d interval timestamps).
 ===================================================================== */
 
 (function(){
@@ -61,6 +67,59 @@ Purpose:
     }
   }
 
+  // ============================
+  // RTH filtering (NO OVERNIGHT)
+  // ============================
+  // Grain RTH: 08:30–13:20 America/Chicago (client-side heuristic)
+  function chicagoHourMinute(iso){
+    try{
+      const d = new Date(iso);
+      const fmt = new Intl.DateTimeFormat("en-US", {
+        timeZone: TZ,
+        hour:"2-digit",
+        minute:"2-digit",
+        hour12:false
+      });
+      const parts = fmt.formatToParts(d);
+      const hh = parseInt(parts.find(p=>p.type==="hour")?.value || "0", 10);
+      const mm = parseInt(parts.find(p=>p.type==="minute")?.value || "0", 10);
+      if (!isFinite(hh) || !isFinite(mm)) return { hh:0, mm:0 };
+      return { hh, mm };
+    }catch{
+      return { hh:0, mm:0 };
+    }
+  }
+
+  function isRTHPoint(iso){
+    if (!iso) return false;
+    const { hh, mm } = chicagoHourMinute(iso);
+    const minutes = hh * 60 + mm;
+
+    const open = 8 * 60 + 30;   // 08:30
+    const close = 13 * 60 + 20; // 13:20 (keeps the chart clean; avoids late settle/stragglers)
+
+    return minutes >= open && minutes <= close;
+  }
+
+  // Detect whether points are intraday (many bars per day)
+  function isIntraday(points){
+    const pts = (points || []).filter(p => p && p.tUtc);
+    if (pts.length < 40) return false;
+
+    // Count max points in any Chicago day bucket
+    const counts = new Map();
+    for (const p of pts){
+      const k = chicagoDayKeyFromUtc(p.tUtc);
+      counts.set(k, (counts.get(k) || 0) + 1);
+      if ((counts.get(k) || 0) >= 12) return true; // 12+ points in a day => intraday
+    }
+    return false;
+  }
+
+  function filterRTH(points){
+    return (points || []).filter(p => p && p.tUtc && isRTHPoint(p.tUtc));
+  }
+
   function bucketByChicagoDay(points){
     const pts = (points || []).filter(p => p && p.tUtc);
     const buckets = new Map(); // key -> points[]
@@ -74,15 +133,34 @@ Purpose:
   }
 
   function sessionOnlyToday(points){
+    // ✅ Updated: if intraday, keep only latest Chicago day that has RTH points, and only RTH bars
     const pts = (points || []).filter(p => p && p.tUtc);
     if (!pts.length) return [];
+
+    if (isIntraday(pts)){
+      const rth = filterRTH(pts);
+      if (!rth.length) return [];
+      const { buckets, keys } = bucketByChicagoDay(rth);
+      if (!keys.length) return [];
+      const lastKey = keys[keys.length - 1];
+      return buckets.get(lastKey) || [];
+    }
+
+    // Non-intraday: keep latest Chicago day
     const lastKey = chicagoDayKeyFromUtc(pts[pts.length - 1].tUtc);
     return pts.filter(p => chicagoDayKeyFromUtc(p.tUtc) === lastKey);
   }
 
   function lastNSessions(points, n){
-    const { buckets, keys } = bucketByChicagoDay(points);
+    // ✅ Updated: for intraday sets, bucket on RTH only to avoid overnight pollution
+    const pts = (points || []).filter(p => p && p.tUtc);
+    if (!pts.length) return [];
+
+    const src = isIntraday(pts) ? filterRTH(pts) : pts;
+
+    const { buckets, keys } = bucketByChicagoDay(src);
     if (!keys.length) return [];
+
     const keepKeys = keys.slice(Math.max(0, keys.length - n));
     const out = [];
     for (const k of keepKeys){
