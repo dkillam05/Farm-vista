@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-chart.js  (FULL FILE)
-Rev: 2026-01-28a
+Rev: 2026-01-28b
 Purpose:
 ✅ Canvas chart renderer for FarmVista Markets modal (standalone helper)
 ✅ Supports:
@@ -30,6 +30,16 @@ Purpose:
   const TIP_ID = "fv-mkt-chart-tip";
 
   function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+
+  // ✅ FIX: escapeHtml was missing (caused tooltip crash)
+  function escapeHtml(s){
+    return String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
 
   function toNum(x){
     if (typeof x === "number" && isFinite(x)) return x;
@@ -65,13 +75,26 @@ Purpose:
     tip.style.pointerEvents = "none";
     tip.style.display = "none";
     tip.style.whiteSpace = "nowrap";
+
+    // ✅ Make tooltip "muted" text readable without relying on page CSS
+    tip.innerHTML = `<style>
+      #${TIP_ID} .muted{ opacity:.78; }
+    </style>`;
+
     document.body.appendChild(tip);
     return tip;
   }
 
   function showTip(clientX, clientY, html){
     const tip = ensureTip();
-    tip.innerHTML = html;
+
+    // Preserve the embedded style we injected once
+    // If the browser strips it, re-add on the fly.
+    if (!tip.querySelector("style")) {
+      tip.insertAdjacentHTML("afterbegin", `<style>#${TIP_ID} .muted{ opacity:.78; }</style>`);
+    }
+
+    tip.innerHTML = tip.querySelector("style").outerHTML + html;
     tip.style.display = "block";
 
     // measure after display
