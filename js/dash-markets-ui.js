@@ -75,6 +75,98 @@ NEW FIX (requested):
       return false;
     }
   }
+   // --------------------------------------------------
+// iOS PWA LANDSCAPE FIX: touch -> mouse bridge for chart canvas
+// (Only active in mobile landscape fullscreen)
+// --------------------------------------------------
+let _fvMktTouchBridgeOn = false;
+
+function _fvMktIsLandscapeFullscreenActive(){
+  const back = document.getElementById(BACKDROP_ID);
+  return !!(back && back.classList.contains("open") && back.classList.contains(LANDSCAPE_CLASS));
+}
+
+function _fvMktBindTouchBridge(canvas){
+  if (!canvas) return;
+
+  // Avoid double-binding when switching tabs/contracts
+  if (canvas._fvTouchBridgeBound) return;
+  canvas._fvTouchBridgeBound = true;
+
+  // Only apply when we are in the problematic mode (PWA landscape fullscreen)
+  function shouldBridge(){
+    return _fvMktIsLandscapeFullscreenActive() && isMobile() && isLandscape();
+  }
+
+  function pointFromTouch(ev){
+    const t = ev.changedTouches && ev.changedTouches[0];
+    if (!t) return null;
+    const r = canvas.getBoundingClientRect();
+    return {
+      clientX: t.clientX,
+      clientY: t.clientY,
+      // chart code typically uses offsetX/offsetY; we can approximate
+      offsetX: t.clientX - r.left,
+      offsetY: t.clientY - r.top
+    };
+  }
+
+  function fire(type, p){
+    try{
+      // Dispatch to canvas so existing chart handlers (mousemove/click) still work
+      const e = new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX: p.clientX,
+        clientY: p.clientY
+      });
+
+      // Some libs read offsetX/offsetY; define if possible
+      try{
+        Object.defineProperty(e, "offsetX", { value: p.offsetX });
+        Object.defineProperty(e, "offsetY", { value: p.offsetY });
+      }catch{}
+
+      canvas.dispatchEvent(e);
+    }catch{}
+  }
+
+  // Touch start => move (so crosshair/tooltip positions immediately)
+  canvas.addEventListener("touchstart", (ev)=>{
+    if (!shouldBridge()) return;
+    const p = pointFromTouch(ev);
+    if (!p) return;
+    _fvMktTouchBridgeOn = true;
+    // Prevent iOS PWA from treating this as scroll/gesture
+    ev.preventDefault();
+    fire("mousemove", p);
+  }, { passive:false });
+
+  // Touch move => mousemove
+  canvas.addEventListener("touchmove", (ev)=>{
+    if (!shouldBridge() || !_fvMktTouchBridgeOn) return;
+    const p = pointFromTouch(ev);
+    if (!p) return;
+    ev.preventDefault();
+    fire("mousemove", p);
+  }, { passive:false });
+
+  // Touch end => click (locks tooltip/details)
+  canvas.addEventListener("touchend", (ev)=>{
+    if (!shouldBridge()) return;
+    const p = pointFromTouch(ev);
+    if (!p) return;
+    ev.preventDefault();
+    fire("mousemove", p);
+    fire("click", p);
+    _fvMktTouchBridgeOn = false;
+  }, { passive:false });
+
+  // Touch cancel => stop bridging
+  canvas.addEventListener("touchcancel", ()=>{
+    _fvMktTouchBridgeOn = false;
+  }, { passive:true });
+}
 
   function toNum(x){
     if (typeof x === "number" && isFinite(x)) return x;
@@ -511,6 +603,10 @@ NEW FIX (requested):
         </div>
       </div>
     `);
+     // 🔴 ADD THESE LINES
+const canvas = qs("#fv-mktm-canvas");
+_fvMktBindTouchBridge(canvas);
+
 
     setChartHeader(symbol);
     wireTabs(()=>symbol);
@@ -572,6 +668,10 @@ NEW FIX (requested):
         </div>
       </div>
     `);
+     // 🔴 ADD THESE LINES
+const canvas = qs("#fv-mktm-canvas");
+_fvMktBindTouchBridge(canvas);
+
 
     warmAndPaintList(symbols).catch(()=>{});
 
@@ -666,6 +766,8 @@ NEW FIX (requested):
 
   async function loadChart(symbol, mode){
     const canvas = qs("#fv-mktm-canvas");
+     // ✅ Ensure touch->mouse bridge is bound for iOS PWA landscape fullscreen
+_fvMktBindTouchBridge(canvas);
     const note = qs("#fv-mktm-note");
     const range = qs("#fv-mktm-range");
 
