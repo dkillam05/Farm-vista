@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-chart.js  (FULL FILE)
-Rev: 2026-01-29b
+Rev: 2026-01-29c
 Purpose:
 ✅ Canvas chart renderer for FarmVista Markets modal (standalone helper)
 ✅ Supports:
@@ -20,10 +20,9 @@ Critical iOS PWA landscape fixes:
 ✅ Listen to visualViewport resize (iOS PWA can change viewport w/out window.resize)
 ✅ Prefer Pointer Events + canvas touch-action: manipulation (NOT none)
 
-Other:
-✅ Tooltip lock clears on ANY re-render (tab switch / contract change)
-✅ Public API: FVMarketsChart.hideTip() -> hides + unlocks
-✅ When chart is cleared, tooltip is also cleared + unlocked
+NEW FIX (no-visual “dead” tooltip):
+✅ Tooltip z-index is now set ABOVE the Markets fullscreen backdrop/modal stack
+   (your backdrop uses ~2147483000, tooltip was 10000 so it was hidden)
 ===================================================================== */
 
 (function(){
@@ -72,16 +71,38 @@ Other:
   // -------------------------
   // Tooltip DOM + positioning
   // -------------------------
+
+  // ✅ Ensure tooltip always appears ABOVE the Markets fullscreen backdrop/modal
+  // Backdrop in dash-markets-ui uses z-index ~2147483000; old tooltip was 10000 (hidden).
+  function tipZIndex(){
+    try{
+      const back = document.getElementById("fv-mkt-backdrop");
+      if (back){
+        const z = parseInt(getComputedStyle(back).zIndex || "0", 10);
+        if (isFinite(z) && z > 0){
+          // Above the backdrop, but still within int32 range
+          return String(Math.min(2147483647, z + 50));
+        }
+      }
+    }catch{}
+    // Safe high fallback
+    return "2147483600";
+  }
+
   function ensureTip(){
     let tip = document.getElementById(TIP_ID);
-    if (tip) return tip;
+    if (tip){
+      // ✅ keep it above modal stack even if backdrop is re-stacked
+      try{ tip.style.zIndex = tipZIndex(); }catch{}
+      return tip;
+    }
 
     tip = document.createElement("div");
     tip.id = TIP_ID;
 
     // Core layout / positioning
     tip.style.position = "fixed";
-    tip.style.zIndex = "10000";
+    tip.style.zIndex = tipZIndex(); // ✅ was "10000"
     tip.style.pointerEvents = "none";
     tip.style.display = "none";
 
@@ -559,6 +580,9 @@ Other:
     }
 
     function handleMove(clientX, clientY){
+      // ✅ Ensure tooltip stays above backdrop during fullscreen
+      ensureTip();
+
       if (st.locked){
         showTip(clientX, clientY, tipHtmlFor(st.lockedIdx));
         return;
