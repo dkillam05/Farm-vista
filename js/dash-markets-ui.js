@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-ui.js  (FULL FILE)
-Rev: 2026-01-29c
+Rev: 2026-01-29d
 Purpose:
 ✅ Thin UI orchestrator for Markets
    - Opens/closes modal
@@ -23,11 +23,13 @@ Landscape-only mobile improvement:
 PWA FIX:
 ✅ "Mobile" detection no longer flips false in iOS PWA landscape (width can exceed 899px)
 
+ROOT FIX:
+✅ Disable FV Shell PTR while modal is open by toggling body class:
+   document.body.classList.add/remove('fv-modal-open')
+   (fv-shell.js PTR must respect this flag)
+
 Tap / details (landscape):
 ✅ Touch bridge bound to the chart canvas in landscape fullscreen
-   - IMPORTANT FIX: dispatches MOUSE events (mousemove/mousedown/click)
-     because iOS PWA can block PointerEvent construction and the chart
-     binds with addEventListener (not canvas.onpointer*).
 ===================================================================== */
 
 (function(){
@@ -36,7 +38,6 @@ Tap / details (landscape):
   const MODAL_ID = "fv-mkt-modal";
   const BACKDROP_ID = "fv-mkt-backdrop";
 
-  // ✅ IMPORTANT: define these BEFORE bridge helpers (avoids TDZ / undefined usage)
   const LANDSCAPE_CLASS = "fv-mkt-landscape-full";
   const LANDSCAPE_STYLE_ID = "fv-mkt-landscape-full-style";
 
@@ -83,6 +84,16 @@ Tap / details (landscape):
   }
 
   // --------------------------------------------------
+  // Body flag so fv-shell PTR can disable itself
+  // --------------------------------------------------
+  function markModalOpen(on){
+    try{
+      if (!document.body) return;
+      document.body.classList.toggle("fv-modal-open", !!on);
+    }catch{}
+  }
+
+  // --------------------------------------------------
   // iOS PWA LANDSCAPE: Touch bridge for chart canvas
   // (Only active in mobile landscape fullscreen)
   // --------------------------------------------------
@@ -96,7 +107,6 @@ Tap / details (landscape):
   function _fvMktBindTouchBridge(canvas){
     if (!canvas) return;
 
-    // Avoid double-binding when switching tabs/contracts
     if (canvas._fvTouchBridgeBound) return;
     canvas._fvTouchBridgeBound = true;
 
@@ -123,7 +133,6 @@ Tap / details (landscape):
       }catch{}
     }
 
-    // ✅ Always dispatch MOUSE events (chart listens to these for sure)
     function dispatchMouse(type, p, target){
       try{
         const e = new MouseEvent(type, {
@@ -138,83 +147,36 @@ Tap / details (landscape):
       }catch{}
     }
 
-    // Optional: try PointerEvent if constructible (safe), but never rely on it.
-    function dispatchPointer(type, p, target){
-      try{
-        if (typeof PointerEvent !== "function") return false;
-        const e = new PointerEvent(type, {
-          bubbles: true,
-          cancelable: true,
-          clientX: p.clientX,
-          clientY: p.clientY,
-          pointerId: 1,
-          pointerType: "touch",
-          isPrimary: true,
-          buttons: 1
-        });
-        defineOffsets(e, p);
-        target.dispatchEvent(e);
-        return true;
-      }catch{
-        return false;
-      }
-    }
-
-    function fireMove(p){
-      // preview tooltip
-      dispatchMouse("mousemove", p, canvas);
-      dispatchPointer("pointermove", p, canvas);
-    }
-
-    function fireTap(p){
-      // lock/toggle tooltip (chart uses mousedown)
-      dispatchMouse("mousedown", p, canvas);
-      dispatchPointer("pointerdown", p, canvas);
-
-      // also click (some code paths use click)
-      dispatchMouse("click", p, canvas);
-    }
-
     canvas.addEventListener("touchstart", (ev)=>{
       if (!shouldBridge()) return;
       const p = pointFromTouch(ev);
       if (!p) return;
       _fvMktTouchBridgeOn = true;
-
-      // prevent page scrolling / gesture stealing in fullscreen
       ev.preventDefault();
-
-      fireMove(p);
+      dispatchMouse("mousemove", p, canvas);
     }, { passive:false });
 
     canvas.addEventListener("touchmove", (ev)=>{
       if (!shouldBridge() || !_fvMktTouchBridgeOn) return;
       const p = pointFromTouch(ev);
       if (!p) return;
-
       ev.preventDefault();
-      fireMove(p);
+      dispatchMouse("mousemove", p, canvas);
     }, { passive:false });
 
     canvas.addEventListener("touchend", (ev)=>{
       if (!shouldBridge()) return;
       const p = pointFromTouch(ev);
       if (!p) return;
-
       ev.preventDefault();
-
-      // final preview then tap lock
-      fireMove(p);
-      fireTap(p);
-
+      dispatchMouse("mousemove", p, canvas);
+      dispatchMouse("mousedown", p, canvas);
+      dispatchMouse("click", p, canvas);
       _fvMktTouchBridgeOn = false;
     }, { passive:false });
 
-    canvas.addEventListener("touchcancel", (ev)=>{
+    canvas.addEventListener("touchcancel", ()=>{
       _fvMktTouchBridgeOn = false;
-
-      const p = pointFromTouch(ev) || { clientX:0, clientY:0, offsetX:0, offsetY:0 };
-      dispatchPointer("pointercancel", p, canvas);
     }, { passive:true });
   }
 
@@ -252,7 +214,7 @@ Tap / details (landscape):
   }
 
   // --------------------------------------------------
-  // Contract filtering (expired + dead/noData)
+  // Contract filtering
   // --------------------------------------------------
   const MONTH_CODE = { F:1, G:2, H:3, J:4, K:5, M:6, N:7, Q:8, U:9, V:10, X:11, Z:12 };
 
@@ -371,7 +333,6 @@ Tap / details (landscape):
         flex-direction: column !important;
       }
 
-      /* Keep taps available on canvas in fullscreen landscape */
       #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-canvas{
         display: block !important;
         width: 100% !important;
@@ -381,7 +342,6 @@ Tap / details (landscape):
         touch-action: manipulation !important;
       }
 
-      /* In split view, prioritize chart in landscape (mobile only) */
       #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-split{
         grid-template-columns: 1fr !important;
       }
@@ -485,6 +445,11 @@ Tap / details (landscape):
 
     ensureLandscapeStyle();
 
+    // ✅ Touch-close too (avoid relying on click synthesis)
+    back.addEventListener("touchstart", (e)=>{
+      if (e.target === back) closeModal();
+    }, { passive:true });
+
     back.addEventListener("click", e=>{
       if (e.target === back) closeModal();
     });
@@ -501,6 +466,7 @@ Tap / details (landscape):
 
   function openModal(){
     ensureModal().classList.add("open");
+    markModalOpen(true);
     document.body.style.overflow = "hidden";
     updateLandscapeFullscreen();
   }
@@ -511,6 +477,7 @@ Tap / details (landscape):
     back.classList.remove("open");
     back.classList.remove(LANDSCAPE_CLASS);
     document.body.style.overflow = "";
+    markModalOpen(false);
 
     try{
       if (window.FVMarketsChart && typeof window.FVMarketsChart.hideTip === "function"){
@@ -644,7 +611,6 @@ Tap / details (landscape):
       </div>
     `);
 
-    // Bind bridge as soon as canvas exists
     _fvMktBindTouchBridge(qs("#fv-mktm-canvas"));
 
     setChartHeader(symbol);
@@ -708,7 +674,6 @@ Tap / details (landscape):
       </div>
     `);
 
-    // Bind bridge as soon as canvas exists
     _fvMktBindTouchBridge(qs("#fv-mktm-canvas"));
 
     warmAndPaintList(symbols).catch(()=>{});
@@ -809,7 +774,6 @@ Tap / details (landscape):
 
     if (!canvas || !window.FVMarketsSeries || !window.FVMarketsChart) return;
 
-    // Ensure bridge is bound for this canvas instance
     _fvMktBindTouchBridge(canvas);
 
     const m = String(mode || DEFAULT_MODE).toLowerCase();
