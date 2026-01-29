@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-ui.js  (FULL FILE)
-Rev: 2026-01-28r
+Rev: 2026-01-29c
 Purpose:
 ✅ Thin UI orchestrator for Markets
    - Opens/closes modal
@@ -24,8 +24,10 @@ PWA FIX:
 ✅ "Mobile" detection no longer flips false in iOS PWA landscape (width can exceed 899px)
 
 Tap / details (landscape):
-✅ Touch → Pointer bridge bound to the chart canvas in landscape fullscreen
-   (only runs in mobile landscape fullscreen, no desktop/portrait changes)
+✅ Touch bridge bound to the chart canvas in landscape fullscreen
+   - IMPORTANT FIX: dispatches MOUSE events (mousemove/mousedown/click)
+     because iOS PWA can block PointerEvent construction and the chart
+     binds with addEventListener (not canvas.onpointer*).
 ===================================================================== */
 
 (function(){
@@ -81,7 +83,7 @@ Tap / details (landscape):
   }
 
   // --------------------------------------------------
-  // iOS PWA LANDSCAPE: Touch -> Pointer bridge for chart canvas
+  // iOS PWA LANDSCAPE: Touch bridge for chart canvas
   // (Only active in mobile landscape fullscreen)
   // --------------------------------------------------
   let _fvMktTouchBridgeOn = false;
@@ -110,68 +112,67 @@ Tap / details (landscape):
         clientX: t.clientX,
         clientY: t.clientY,
         offsetX: t.clientX - r.left,
-        offsetY: t.clientY - r.top,
-        pointerId: (t.identifier != null ? (t.identifier + 1) : 1)
+        offsetY: t.clientY - r.top
       };
     }
 
-    function dispatchPointer(type, p, target){
+    function defineOffsets(e, p){
       try{
-        const Ctor = (typeof PointerEvent === "function") ? PointerEvent : MouseEvent;
+        Object.defineProperty(e, "offsetX", { value: p.offsetX });
+        Object.defineProperty(e, "offsetY", { value: p.offsetY });
+      }catch{}
+    }
 
-        const e = new Ctor(type, {
+    // ✅ Always dispatch MOUSE events (chart listens to these for sure)
+    function dispatchMouse(type, p, target){
+      try{
+        const e = new MouseEvent(type, {
           bubbles: true,
           cancelable: true,
           clientX: p.clientX,
           clientY: p.clientY,
-          pointerId: p.pointerId,
-          pointerType: "touch",
-          isPrimary: true,
-          buttons: 1
+          buttons: (type === "mousedown" ? 1 : 0)
         });
-
-        // Some chart code reads offsetX/offsetY
-        try{
-          Object.defineProperty(e, "offsetX", { value: p.offsetX });
-          Object.defineProperty(e, "offsetY", { value: p.offsetY });
-        }catch{}
-
+        defineOffsets(e, p);
         target.dispatchEvent(e);
       }catch{}
     }
 
-    function directCallPointer(type, p){
-      const evLike = {
-        type,
-        clientX: p.clientX,
-        clientY: p.clientY,
-        offsetX: p.offsetX,
-        offsetY: p.offsetY,
-        pointerId: p.pointerId,
-        pointerType: "touch",
-        isPrimary: true,
-        buttons: 1,
-        preventDefault(){},
-        stopPropagation(){}
-      };
-
+    // Optional: try PointerEvent if constructible (safe), but never rely on it.
+    function dispatchPointer(type, p, target){
       try{
-        if (type === "pointermove" && typeof canvas.onpointermove === "function") canvas.onpointermove(evLike);
-        if (type === "pointerdown" && typeof canvas.onpointerdown === "function") canvas.onpointerdown(evLike);
-        if (type === "pointerup" && typeof canvas.onpointerup === "function") canvas.onpointerup(evLike);
-        if (type === "pointercancel" && typeof canvas.onpointercancel === "function") canvas.onpointercancel(evLike);
-      }catch{}
+        if (typeof PointerEvent !== "function") return false;
+        const e = new PointerEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          clientX: p.clientX,
+          clientY: p.clientY,
+          pointerId: 1,
+          pointerType: "touch",
+          isPrimary: true,
+          buttons: 1
+        });
+        defineOffsets(e, p);
+        target.dispatchEvent(e);
+        return true;
+      }catch{
+        return false;
+      }
     }
 
-    function fire(type, p){
-      // Many libs bind pointer events on canvas
-      dispatchPointer(type, p, canvas);
+    function fireMove(p){
+      // preview tooltip
+      dispatchMouse("mousemove", p, canvas);
+      dispatchPointer("pointermove", p, canvas);
+    }
 
-      // Some bind globally
-      dispatchPointer(type, p, window);
+    function fireTap(p){
+      // lock/toggle tooltip (chart uses mousedown)
+      dispatchMouse("mousedown", p, canvas);
+      dispatchPointer("pointerdown", p, canvas);
 
-      // Fallback (rare)
-      directCallPointer(type, p);
+      // also click (some code paths use click)
+      dispatchMouse("click", p, canvas);
     }
 
     canvas.addEventListener("touchstart", (ev)=>{
@@ -180,18 +181,10 @@ Tap / details (landscape):
       if (!p) return;
       _fvMktTouchBridgeOn = true;
 
+      // prevent page scrolling / gesture stealing in fullscreen
       ev.preventDefault();
 
-      try{
-        if (typeof canvas.setPointerCapture === "function"){
-          canvas.setPointerCapture(p.pointerId);
-        }
-      }catch{}
-
-      fire("pointerover", p);
-      fire("pointerenter", p);
-      fire("pointerdown", p);
-      fire("pointermove", p);
+      fireMove(p);
     }, { passive:false });
 
     canvas.addEventListener("touchmove", (ev)=>{
@@ -200,7 +193,7 @@ Tap / details (landscape):
       if (!p) return;
 
       ev.preventDefault();
-      fire("pointermove", p);
+      fireMove(p);
     }, { passive:false });
 
     canvas.addEventListener("touchend", (ev)=>{
@@ -210,43 +203,18 @@ Tap / details (landscape):
 
       ev.preventDefault();
 
-      fire("pointermove", p);
-      fire("pointerup", p);
-
-      // Some libs lock tooltip on click as well
-      try{
-        const clickEv = new MouseEvent("click", { bubbles:true, cancelable:true, clientX:p.clientX, clientY:p.clientY });
-        try{
-          Object.defineProperty(clickEv, "offsetX", { value: p.offsetX });
-          Object.defineProperty(clickEv, "offsetY", { value: p.offsetY });
-        }catch{}
-        canvas.dispatchEvent(clickEv);
-        window.dispatchEvent(clickEv);
-        if (typeof canvas.onclick === "function"){
-          canvas.onclick({ clientX:p.clientX, clientY:p.clientY, offsetX:p.offsetX, offsetY:p.offsetY });
-        }
-      }catch{}
+      // final preview then tap lock
+      fireMove(p);
+      fireTap(p);
 
       _fvMktTouchBridgeOn = false;
-
-      try{
-        if (typeof canvas.releasePointerCapture === "function"){
-          canvas.releasePointerCapture(p.pointerId);
-        }
-      }catch{}
     }, { passive:false });
 
     canvas.addEventListener("touchcancel", (ev)=>{
       _fvMktTouchBridgeOn = false;
 
-      const p = pointFromTouch(ev) || { clientX:0, clientY:0, offsetX:0, offsetY:0, pointerId:1 };
-      fire("pointercancel", p);
-
-      try{
-        if (typeof canvas.releasePointerCapture === "function"){
-          canvas.releasePointerCapture(p.pointerId);
-        }
-      }catch{}
+      const p = pointFromTouch(ev) || { clientX:0, clientY:0, offsetX:0, offsetY:0 };
+      dispatchPointer("pointercancel", p, canvas);
     }, { passive:true });
   }
 
@@ -286,7 +254,6 @@ Tap / details (landscape):
   // --------------------------------------------------
   // Contract filtering (expired + dead/noData)
   // --------------------------------------------------
-  // ✅ Only declared ONCE (you had duplicates before)
   const MONTH_CODE = { F:1, G:2, H:3, J:4, K:5, M:6, N:7, Q:8, U:9, V:10, X:11, Z:12 };
 
   function parseSymbolYM(symbol){
@@ -409,7 +376,7 @@ Tap / details (landscape):
         display: block !important;
         width: 100% !important;
         position: relative !important;
-        z-index: 1 !important;
+        z-index: 50 !important;
         pointer-events: auto !important;
         touch-action: manipulation !important;
       }
@@ -462,12 +429,6 @@ Tap / details (landscape):
 
     canvas.style.height = `${Math.floor(avail)}px`;
     canvas.style.width = "100%";
-
-    try{
-      if (window.FVMarketsChart && typeof window.FVMarketsChart.resize === "function"){
-        window.FVMarketsChart.resize(canvas);
-      }
-    }catch{}
 
     try{
       if (LAST_RENDER.rows && LAST_RENDER.opts && window.FVMarketsChart && typeof window.FVMarketsChart.render === "function"){
