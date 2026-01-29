@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-chart.js  (FULL FILE)
-Rev: 2026-01-28e
+Rev: 2026-01-29a
 Purpose:
 ✅ Canvas chart renderer for FarmVista Markets modal (standalone helper)
 ✅ Supports:
@@ -19,6 +19,12 @@ Fixes in this rev:
 ✅ Public API: FVMarketsChart.hideTip() -> hides + unlocks
 ✅ When chart is cleared, tooltip is also cleared + unlocked
 ✅ Keeps iOS synthetic mouse suppression + resize/orientation re-render
+
+NEW (your issue):
+✅ Mobile landscape fullscreen: force “tap to see details” to work reliably
+   - Adds pointer event handlers (pointerdown/move/up) alongside mouse/touch
+   - Adds click handler fallback
+   - Disables post-touch synthetic mouse suppression ONLY when canvas is effectively fullscreen in landscape
 ===================================================================== */
 
 (function(){
@@ -62,6 +68,38 @@ Fixes in this rev:
   function getBodyTextColor(){
     try{ return getComputedStyle(document.body).color || "rgb(20,20,20)"; }
     catch{ return "rgb(20,20,20)"; }
+  }
+
+  // -------------------------
+  // NEW: detect the one problematic mode
+  // Mobile + landscape + canvas is basically fullscreen.
+  // This avoids any dependency on UI/modal files.
+  // -------------------------
+  function isCoarsePointer(){
+    try{ return !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches); }
+    catch{ return false; }
+  }
+  function isLandscape(){
+    try{ return !!(window.matchMedia && window.matchMedia("(orientation: landscape)").matches); }
+    catch{
+      try{ return (window.innerWidth || 0) > (window.innerHeight || 0); }catch{ return false; }
+    }
+  }
+  function isFullscreenLikeCanvas(canvas){
+    try{
+      const r = canvas.getBoundingClientRect();
+      const vw = window.innerWidth || 0;
+      const vh = window.innerHeight || 0;
+      if (!vw || !vh) return false;
+
+      // "Fullscreen-like": takes most of the viewport in both dimensions
+      return (r.width >= vw * 0.88) && (r.height >= vh * 0.70);
+    }catch{
+      return false;
+    }
+  }
+  function shouldForceLandscapeTap(canvas){
+    return isCoarsePointer() && isLandscape() && isFullscreenLikeCanvas(canvas);
   }
 
   // -------------------------
@@ -277,6 +315,14 @@ Fixes in this rev:
     canvas.ontouchmove = null;
     canvas.ontouchend = null;
     canvas.onclick = null;
+
+    // ✅ NEW: pointer handlers too (we set them below)
+    canvas.onpointermove = null;
+    canvas.onpointerdown = null;
+    canvas.onpointerup = null;
+    canvas.onpointerleave = null;
+    canvas.onpointercancel = null;
+
     stateByCanvas.delete(canvas);
   }
 
@@ -498,6 +544,9 @@ Fixes in this rev:
     stateByCanvas.set(canvas, st);
     window.__FV_MKT_ACTIVE_STATE = st;
 
+    // ✅ NEW: compute this once per render
+    const FORCE_LANDSCAPE_TAP = shouldForceLandscapeTap(canvas);
+
     function tipHtmlFor(idx){
       const r = data[idx] || {};
       const when = r.t ? fmtStamp(r.t, timeZone) : "—";
@@ -555,38 +604,114 @@ Fixes in this rev:
       }
     }
 
+    // -------------------------
+    // Existing mouse handlers
+    // -------------------------
     canvas.onmousemove = (e)=> handleMove(e.clientX, e.clientY);
     canvas.onmouseleave = ()=> handleLeave();
 
     canvas.onmousedown = (e)=>{
-      // Ignore synthetic mouse events right after touch
-      const now = Date.now();
-      if (now - (st.lastTouchMs || 0) < TOUCH_SUPPRESS_MS) return;
+      // Ignore synthetic mouse events right after touch (iOS)
+      // ✅ BUT: in fullscreen-like mobile landscape, we must NOT ignore (this is your bug)
+      if (!FORCE_LANDSCAPE_TAP){
+        const now = Date.now();
+        if (now - (st.lastTouchMs || 0) < TOUCH_SUPPRESS_MS) return;
+      }
       handleClick(e.clientX, e.clientY);
     };
 
+    // ✅ Click fallback (some environments fire click without mousedown)
+    canvas.onclick = (e)=>{
+      // If this is a synthetic click right after touch, suppression can kill it in some iOS cases.
+      // ✅ But in fullscreen-like landscape, allow it.
+      if (!FORCE_LANDSCAPE_TAP){
+        const now = Date.now();
+        if (now - (st.lastTouchMs || 0) < TOUCH_SUPPRESS_MS) return;
+      }
+      handleClick(e.clientX, e.clientY);
+    };
+
+    // -------------------------
+    // Existing touch handlers (kept)
+    // ✅ Add preventDefault ONLY in the forced landscape mode
+    // -------------------------
     canvas.ontouchstart = (e)=>{
       if (!e.touches || !e.touches[0]) return;
       st.lastTouchMs = Date.now();
       const t = e.touches[0];
+
+      if (FORCE_LANDSCAPE_TAP){
+        try{ e.preventDefault(); }catch{}
+      }
+
       handleMove(t.clientX, t.clientY);
     };
     canvas.ontouchmove = (e)=>{
       if (!e.touches || !e.touches[0]) return;
       st.lastTouchMs = Date.now();
       const t = e.touches[0];
+
+      if (FORCE_LANDSCAPE_TAP){
+        try{ e.preventDefault(); }catch{}
+      }
+
       handleMove(t.clientX, t.clientY);
     };
     canvas.ontouchend = (e)=>{
       try{
         st.lastTouchMs = Date.now();
         const c = e.changedTouches && e.changedTouches[0] ? e.changedTouches[0] : null;
+
+        if (FORCE_LANDSCAPE_TAP){
+          try{ e.preventDefault(); }catch{}
+        }
+
         if (c) handleClick(c.clientX, c.clientY);
         else handleLeave();
       } catch {
         handleLeave();
       }
     };
+
+    // -------------------------
+    // ✅ NEW: Pointer handlers (mobile fullscreen landscape tends to behave better with these)
+    // They call the same handlers; only really matters on iOS/PWA fullscreen.
+    // -------------------------
+    canvas.onpointermove = (e)=>{
+      // Only handle primary touch pointers for preview
+      // If it's a mouse, existing mousemove already covers it.
+      if (e && e.pointerType === "touch"){
+        handleMove(e.clientX, e.clientY);
+      }
+    };
+
+    canvas.onpointerdown = (e)=>{
+      if (!e) return;
+      if (e.pointerType === "touch"){
+        st.lastTouchMs = Date.now();
+        // In the forced mode, treat pointerdown as a click-lock
+        if (FORCE_LANDSCAPE_TAP){
+          handleClick(e.clientX, e.clientY);
+        } else {
+          // otherwise just preview
+          handleMove(e.clientX, e.clientY);
+        }
+      }
+    };
+
+    canvas.onpointerup = (e)=>{
+      if (!e) return;
+      if (e.pointerType === "touch"){
+        st.lastTouchMs = Date.now();
+        // In forced mode, pointerup can also lock (covers devices that don't deliver touchend reliably)
+        if (FORCE_LANDSCAPE_TAP){
+          handleClick(e.clientX, e.clientY);
+        }
+      }
+    };
+
+    canvas.onpointerleave = ()=> handleLeave();
+    canvas.onpointercancel = ()=> handleLeave();
 
     // ESC hides tooltip (and clears lock)
     if (!window.__FV_MKT_CHART_ESC_WIRED){
