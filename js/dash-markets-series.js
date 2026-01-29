@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-series.js  (FULL FILE)
-Rev: 2026-01-28e
+Rev: 2026-01-28f
 Purpose:
 ✅ Time-range + series shaping helper for FarmVista Markets charts (standalone)
 ✅ Converts Cloud Run chart.points[] into normalized series rows for:
@@ -8,8 +8,8 @@ Purpose:
    - Line (close)
 ✅ Enforces your rules + Yahoo-style labels:
    - 1D  = TODAY session only (no overnight) using America/Chicago buckets + RTH filter (intraday)
-   - 5D  = last 5 trading sessions, HOURLY candlesticks (RTH only when intraday)
-   - 1M  = last 30 trading sessions, DAILY candlesticks (1 candle per day)
+   - 5D  = last 5 trading sessions, HOURLY candlesticks (RTH only when intraday)  ✅ requested
+   - 1M  = last 30 trading sessions, DAILY candlesticks (1 candle per day)        ✅ requested
    - 6M  = line (close), last ~126 sessions
    - 1Y  = line (close), last ~252 sessions
 ✅ Backward compatibility:
@@ -23,15 +23,11 @@ Purpose:
 ✅ Provides:
    - range label text (replaces "Points:")
    - x-axis label function appropriate to mode
-
-Fixes in this rev:
-✅ 5D x-axis labels now include MONTH/DAY (not just “9am”)
-   - Labels are "M/D H" in America/Chicago
-   - So even if the sampled ticks land on the same hour each day, you still see the date
-✅ 5D label count slightly increased for readability
-
 ✅ Safe global API:
    window.FVMarketsSeries.shape(points, mode, opts) -> { ok, mode, kind, label, rows, xLabelFn, xLabelCount, timeZone }
+
+Fixes in this rev:
+✅ 5D x-axis labels now show DATE ONLY (M/D) — no hour
 ===================================================================== */
 
 (function(){
@@ -301,7 +297,7 @@ Fixes in this rev:
       if (!t) continue;
 
       const dayKey = chicagoDayKeyFromUtc(t);
-      const { hh } = chicagoHourMinute(t);
+      const { hh, mm } = chicagoHourMinute(t);
 
       // Hour bucket start (00..23)
       const hourKey = String(hh).padStart(2, "0");
@@ -366,24 +362,13 @@ Fixes in this rev:
     }
   }
 
-  // ✅ FIX: 5D labels should show date + hour, not just hour
-  // Example: "1/28 9a" or "1/28 9 AM" depending on locale.
-  function fmtDateHourCT(iso){
+  function fmtHourCT(iso){
     try{
       const d = new Date(iso);
-
-      const date = new Intl.DateTimeFormat("en-US", {
-        timeZone: TZ,
-        month:"numeric",
-        day:"numeric"
-      }).format(d);
-
-      const hour = new Intl.DateTimeFormat("en-US", {
+      return new Intl.DateTimeFormat("en-US", {
         timeZone: TZ,
         hour:"numeric"
       }).format(d);
-
-      return `${date} ${hour}`;
     }catch{
       return "";
     }
@@ -422,9 +407,9 @@ Fixes in this rev:
       return (idx)=> fmtTimeCT(rows[idx]?.t);
     }
 
-    // 5D: hourly candles => show "M/D H"
+    // ✅ 5D: DATE ONLY (M/D) — no hour
     if (mode === "5d"){
-      return (idx)=> fmtDateHourCT(rows[idx]?.t);
+      return (idx)=> fmtDateCT(rows[idx]?.t);
     }
 
     // 1M: daily candles => dates
@@ -438,10 +423,7 @@ Fixes in this rev:
 
   function xLabelCountFor(mode){
     if (mode === "1d") return 4;
-
-    // ✅ small bump so you see multiple days clearly on wide screens
-    if (mode === "5d") return 6;
-
+    if (mode === "5d") return 6; // keep your bumped count
     if (mode === "1m") return 5;
     if (mode === "6m") return 5;
     if (mode === "1y") return 6;
@@ -478,10 +460,16 @@ Fixes in this rev:
     }
 
     // 5D: last 5 sessions, HOURLY candles (Yahoo-like)
+    // - take last 5 sessions of intraday data
+    // - then aggregate to hourly OHLC
     if (m === "5d"){
       shaped = lastNSessions(points, SESSIONS_5D);
       kind = "candles";
 
+      // If backend already returns lower-resolution candles, this still works:
+      // - if it’s intraday, we go hourly
+      // - if it’s already daily candles, hourly aggregation will just yield very few rows
+      //   (which is why backend should return intraday data for 5D)
       rows = aggregateToHourlyCandles(shaped);
 
       return {
@@ -501,6 +489,7 @@ Fixes in this rev:
       shaped = lastNSessions(points, SESSIONS_1M);
       kind = "candles";
 
+      // ✅ Exactly what you want for the screenshot: one candle per day, last ~30 trading days
       rows = aggregateToSessionCandles(shaped);
 
       return {
