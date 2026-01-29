@@ -21,6 +21,11 @@ CHANGE (requested):
 ✅ Remove yellow bubble
 ✅ Bubble is GREEN when up, RED when down, GRAY when flat
 ✅ Bubble text ALWAYS WHITE (including arrow + $chg + %chg)
+
+NEW FIX (requested):
+✅ Mobile “View more” behaves like desktop:
+   - On mobile refresh, warm ALL contracts in LITE in background (fast)
+   - This marks dead/nodata early so “View more” filtering can hide them immediately
 ===================================================================== */
 
 (function(){
@@ -612,12 +617,20 @@ CHANGE (requested):
     const payload = await fetchContracts();
     lastPayload = payload;
 
+    // First paint quickly
     redraw();
 
     if (isMobile()){
+      // ✅ NEW: Mobile behaves like desktop for "View more"
+      // Warm ALL symbols in LITE ASAP so dead/nodata are marked quickly (fast)
+      const all = allSymbols(payload);
+      runQueue(all, "lite").then(redraw).catch(()=>{});
+
+      // Then warm the visible tiles in FULL (so bubbles have chg/%)
       const vis = mobileVisibleSymbols(payload);
       await runQueue(vis, "full");
       redraw();
+
     } else {
       // ✅ Desktop: warm ALL rows in FULL so every contract can show the change chip
       const all = allSymbols(payload);
