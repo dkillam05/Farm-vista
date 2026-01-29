@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/markets.js  (FULL FILE)
-Rev: 2026-01-28n
+Rev: 2026-01-28o
 
 Fixes:
 ✅ Front selection skips expired + dead symbols
@@ -32,6 +32,10 @@ CRITICAL FIX (your issue):
    - 1m -> monthly
    - 6m -> 6mo
    - 1y -> 1y
+
+NEW (requested by you):
+✅ Desktop: move "Delayed quotes • Updated hh:mm:ss" into the Markets header area (subtle),
+   while keeping mobile exactly as-is.
 ===================================================================== */
 
 (function(){
@@ -233,6 +237,16 @@ CRITICAL FIX (your issue):
 .fv-mkt-change.flat{ background:#67706B; }
 
 .fv-mkt-meta{ display:flex; gap:8px; font-size:12px; opacity:.7; flex-wrap:wrap; margin-top:8px; }
+
+/* ✅ Desktop subtle "header subtitle" styling */
+@media (min-width: 900px){
+  [data-fv="mktMeta"] .fv-mkt-meta{
+    margin-top: 2px;
+    margin-bottom: 8px;
+    font-size: 11px;
+    opacity: .55;
+  }
+}
 
 .fv-mkt-more{ margin-top:6px; display:flex; justify-content:flex-start; }
 .fv-mkt-more button{
@@ -622,6 +636,36 @@ CRITICAL FIX (your issue):
     }
   }
 
+  // ✅ Find a good “Markets header” container on desktop to tuck meta under the label.
+  function findDesktopMetaHost(){
+    // Most reliable anchor: the element wrapping the markets area (near corn/soy containers)
+    const U = ui();
+    const anchor = U.corn || U.soy || U.meta;
+    if (!anchor) return null;
+
+    // Walk up to a reasonable section/card boundary
+    let root = anchor;
+    for (let i=0; i<6; i++){
+      if (!root || !root.parentElement) break;
+      root = root.parentElement;
+      // If the container has both corn+soy (common), use it
+      const hasCorn = !!qs('[data-fv="mktCorn"]', root);
+      const hasSoy  = !!qs('[data-fv="mktSoy"]', root);
+      if (hasCorn && hasSoy) break;
+    }
+
+    // Try common header containers inside that root
+    const header =
+      qs('[data-fv="marketsHeader"]', root) ||
+      qs('#fv-markets-header', root) ||
+      qs('.fv-dash-head', root) ||
+      qs('.fv-card-head', root) ||
+      qs('.fv-section-head', root) ||
+      qs('header', root);
+
+    return header || null;
+  }
+
   function renderMeta(payload){
     const el = ui().meta;
     if(!el) return;
@@ -638,6 +682,17 @@ CRITICAL FIX (your issue):
         ${parts.length ? parts.map((p,i)=> (i ? `<span>•</span><span>${p}</span>` : `<span>${p}</span>`)).join("") : `<span>Markets loaded</span>`}
       </div>
     `;
+
+    // ✅ Desktop: move this meta line into the Markets header area if we can find it.
+    // Mobile: leave exactly as-is.
+    if (!isMobile()){
+      try{
+        const host = findDesktopMetaHost();
+        if (host && el.parentElement !== host){
+          host.appendChild(el);
+        }
+      }catch{}
+    }
   }
 
   // ---------------------------
