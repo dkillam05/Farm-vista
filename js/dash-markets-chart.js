@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-chart.js  (FULL FILE)
-Rev: 2026-01-28e
+Rev: 2026-01-29b
 Purpose:
 ✅ Canvas chart renderer for FarmVista Markets modal (standalone helper)
 ✅ Supports:
@@ -14,11 +14,16 @@ Purpose:
    window.FVMarketsChart.render(canvas, rows, opts)
    window.FVMarketsChart.clear(canvas)
 
-Fixes in this rev:
+Critical iOS PWA landscape fixes:
+✅ Do NOT rely on a single cached getBoundingClientRect() from render-time
+   - Recompute rect per interaction (move/click) so fullscreen/layout changes don’t break hit-testing
+✅ Listen to visualViewport resize (iOS PWA can change viewport w/out window.resize)
+✅ Prefer Pointer Events + canvas touch-action: manipulation (NOT none)
+
+Other:
 ✅ Tooltip lock clears on ANY re-render (tab switch / contract change)
 ✅ Public API: FVMarketsChart.hideTip() -> hides + unlocks
 ✅ When chart is cleared, tooltip is also cleared + unlocked
-✅ Keeps iOS synthetic mouse suppression + resize/orientation re-render
 ===================================================================== */
 
 (function(){
@@ -270,13 +275,31 @@ Fixes in this rev:
   function detach(canvas){
     const st = stateByCanvas.get(canvas);
     if (!st) return;
-    canvas.onmousemove = null;
-    canvas.onmouseleave = null;
-    canvas.onmousedown = null;
-    canvas.ontouchstart = null;
-    canvas.ontouchmove = null;
-    canvas.ontouchend = null;
-    canvas.onclick = null;
+
+    try{
+      if (st._handlers){
+        const h = st._handlers;
+
+        // pointer
+        if (h.pmove) canvas.removeEventListener("pointermove", h.pmove);
+        if (h.pleave) canvas.removeEventListener("pointerleave", h.pleave);
+        if (h.pdown) canvas.removeEventListener("pointerdown", h.pdown);
+        if (h.pup) canvas.removeEventListener("pointerup", h.pup);
+        if (h.pcancel) canvas.removeEventListener("pointercancel", h.pcancel);
+
+        // fallback touch
+        if (h.tstart) canvas.removeEventListener("touchstart", h.tstart);
+        if (h.tmove) canvas.removeEventListener("touchmove", h.tmove);
+        if (h.tend) canvas.removeEventListener("touchend", h.tend);
+        if (h.tcancel) canvas.removeEventListener("touchcancel", h.tcancel);
+
+        // mouse
+        if (h.mmove) canvas.removeEventListener("mousemove", h.mmove);
+        if (h.mleave) canvas.removeEventListener("mouseleave", h.mleave);
+        if (h.mdown) canvas.removeEventListener("mousedown", h.mdown);
+      }
+    }catch{}
+
     stateByCanvas.delete(canvas);
   }
 
@@ -309,6 +332,14 @@ Fixes in this rev:
     // ✅ Key fix: switching ranges/contracts calls render() again.
     // We must clear any locked tooltip from previous render.
     hideTipAndUnlock();
+
+    // iOS PWA: encourage proper tap/drag without killing click synthesis
+    try{
+      canvas.style.touchAction = "manipulation"; // NOT "none"
+      canvas.style.webkitUserSelect = "none";
+      canvas.style.userSelect = "none";
+      canvas.style.webkitTapHighlightColor = "transparent";
+    }catch{}
 
     markActive(canvas);
 
@@ -493,7 +524,9 @@ Fixes in this rev:
 
       // Store last render params for resize rerender
       _lastRows: data.slice(),
-      _lastOpts: Object.assign({}, opts || {})
+      _lastOpts: Object.assign({}, opts || {}),
+
+      _handlers: null
     };
     stateByCanvas.set(canvas, st);
     window.__FV_MKT_ACTIVE_STATE = st;
@@ -520,12 +553,18 @@ Fixes in this rev:
       `;
     }
 
+    function getRectNow(){
+      try{ return canvas.getBoundingClientRect(); }
+      catch{ return rect; }
+    }
+
     function handleMove(clientX, clientY){
       if (st.locked){
         showTip(clientX, clientY, tipHtmlFor(st.lockedIdx));
         return;
       }
-      const idx = nearestIndexFromClientX(canvas, rect, padL, padR, n, clientX);
+      const rNow = getRectNow();
+      const idx = nearestIndexFromClientX(canvas, rNow, padL, padR, n, clientX);
       showTip(clientX, clientY, tipHtmlFor(idx));
     }
 
@@ -535,7 +574,8 @@ Fixes in this rev:
     }
 
     function handleClick(clientX, clientY){
-      const idx = nearestIndexFromClientX(canvas, rect, padL, padR, n, clientX);
+      const rNow = getRectNow();
+      const idx = nearestIndexFromClientX(canvas, rNow, padL, padR, n, clientX);
 
       if (!st.locked){
         st.locked = true;
@@ -555,37 +595,54 @@ Fixes in this rev:
       }
     }
 
-    canvas.onmousemove = (e)=> handleMove(e.clientX, e.clientY);
-    canvas.onmouseleave = ()=> handleLeave();
+    // ✅ Prefer Pointer Events (best behavior on iOS PWA)
+    const handlers = {};
 
-    canvas.onmousedown = (e)=>{
+    handlers.pmove = (e)=>{
+      // pointermove should preview even while down
+      handleMove(e.clientX, e.clientY);
+    };
+    handlers.pleave = ()=> handleLeave();
+    handlers.pdown = (e)=>{
+      const now = Date.now();
+      // If iOS is generating synthetic mouse after touch, ignore the mouse version
+      if (e.pointerType === "mouse" && (now - (st.lastTouchMs || 0) < TOUCH_SUPPRESS_MS)) return;
+
+      if (e.pointerType === "touch") st.lastTouchMs = now;
+
+      // Keep interaction on-canvas (prevents scroll/gesture stealing)
+      try{ e.preventDefault(); }catch{}
+      handleMove(e.clientX, e.clientY);
+    };
+    handlers.pup = (e)=>{
+      const now = Date.now();
+      if (e.pointerType === "touch") st.lastTouchMs = now;
+
+      try{ e.preventDefault(); }catch{}
+      handleClick(e.clientX, e.clientY);
+    };
+    handlers.pcancel = ()=> handleLeave();
+
+    canvas.addEventListener("pointermove", handlers.pmove, { passive: true });
+    canvas.addEventListener("pointerleave", handlers.pleave, { passive: true });
+    canvas.addEventListener("pointerdown", handlers.pdown, { passive: false });
+    canvas.addEventListener("pointerup", handlers.pup, { passive: false });
+    canvas.addEventListener("pointercancel", handlers.pcancel, { passive: true });
+
+    // ✅ Mouse fallback (desktop)
+    handlers.mmove = (e)=> handleMove(e.clientX, e.clientY);
+    handlers.mleave = ()=> handleLeave();
+    handlers.mdown = (e)=>{
       const now = Date.now();
       if (now - (st.lastTouchMs || 0) < TOUCH_SUPPRESS_MS) return;
       handleClick(e.clientX, e.clientY);
     };
+    canvas.addEventListener("mousemove", handlers.mmove, { passive:true });
+    canvas.addEventListener("mouseleave", handlers.mleave, { passive:true });
+    canvas.addEventListener("mousedown", handlers.mdown, { passive:true });
 
-    canvas.ontouchstart = (e)=>{
-      if (!e.touches || !e.touches[0]) return;
-      st.lastTouchMs = Date.now();
-      const t = e.touches[0];
-      handleMove(t.clientX, t.clientY);
-    };
-    canvas.ontouchmove = (e)=>{
-      if (!e.touches || !e.touches[0]) return;
-      st.lastTouchMs = Date.now();
-      const t = e.touches[0];
-      handleMove(t.clientX, t.clientY);
-    };
-    canvas.ontouchend = (e)=>{
-      try{
-        st.lastTouchMs = Date.now();
-        const c = e.changedTouches && e.changedTouches[0] ? e.changedTouches[0] : null;
-        if (c) handleClick(c.clientX, c.clientY);
-        else handleLeave();
-      } catch {
-        handleLeave();
-      }
-    };
+    // Store handlers for detach()
+    st._handlers = handlers;
 
     // ESC hides tooltip (and clears lock)
     if (!window.__FV_MKT_CHART_ESC_WIRED){
@@ -596,7 +653,7 @@ Fixes in this rev:
       });
     }
 
-    // Resize/orientation re-render (once)
+    // Resize/orientation/viewport re-render (once)
     if (!window.__FV_MKT_CHART_RESIZE_WIRED){
       window.__FV_MKT_CHART_RESIZE_WIRED = true;
 
@@ -624,6 +681,12 @@ Fixes in this rev:
 
       window.addEventListener("resize", schedule, { passive:true });
       window.addEventListener("orientationchange", schedule, { passive:true });
+
+      // ✅ iOS PWA landscape fullscreen changes often show up here, not window.resize
+      if (window.visualViewport){
+        window.visualViewport.addEventListener("resize", schedule, { passive:true });
+        window.visualViewport.addEventListener("scroll", schedule, { passive:true });
+      }
     }
   }
 
