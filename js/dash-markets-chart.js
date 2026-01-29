@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-chart.js  (FULL FILE)
-Rev: 2026-01-29a
+Rev: 2026-01-29b
 Purpose:
 ✅ Canvas chart renderer for FarmVista Markets modal (standalone helper)
 ✅ Supports:
@@ -20,15 +20,23 @@ Fixes in this rev:
 ✅ When chart is cleared, tooltip is also cleared + unlocked
 ✅ Keeps iOS synthetic mouse suppression + resize/orientation re-render
 
-NEW (your issue):
-✅ Mobile landscape fullscreen: force “tap to see details” to work reliably
-   - Adds pointer event handlers (pointerdown/move/up) alongside mouse/touch
-   - Adds click handler fallback
-   - Disables post-touch synthetic mouse suppression ONLY when canvas is effectively fullscreen in landscape
+NEW (minimal + safe):
+✅ Mobile landscape fullscreen: do NOT let post-touch mouse suppression block taps
+✅ Add pointer handlers (pointerdown/move/up) as an additional path (touch devices)
+✅ Add a one-time console marker so you can confirm this file is truly loaded
 ===================================================================== */
 
 (function(){
   "use strict";
+
+  // ---- one-time load marker (helps confirm cache / SW issues) ----
+  try{
+    window.__FV_MKT_CHART_REV = "2026-01-29b";
+    if (!window.__FV_MKT_CHART_REV_LOGGED){
+      window.__FV_MKT_CHART_REV_LOGGED = true;
+      console.log("[FVMarketsChart] loaded rev", window.__FV_MKT_CHART_REV);
+    }
+  }catch{}
 
   const API = {};
   window.FVMarketsChart = API;
@@ -71,9 +79,8 @@ NEW (your issue):
   }
 
   // -------------------------
-  // NEW: detect the one problematic mode
-  // Mobile + landscape + canvas is basically fullscreen.
-  // This avoids any dependency on UI/modal files.
+  // NEW: detect the problematic case without depending on UI files
+  // Mobile-ish + landscape + chart canvas is fullscreen-ish
   // -------------------------
   function isCoarsePointer(){
     try{ return !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches); }
@@ -91,14 +98,12 @@ NEW (your issue):
       const vw = window.innerWidth || 0;
       const vh = window.innerHeight || 0;
       if (!vw || !vh) return false;
-
-      // "Fullscreen-like": takes most of the viewport in both dimensions
       return (r.width >= vw * 0.88) && (r.height >= vh * 0.70);
     }catch{
       return false;
     }
   }
-  function shouldForceLandscapeTap(canvas){
+  function allowTapEvenIfSuppressed(canvas){
     return isCoarsePointer() && isLandscape() && isFullscreenLikeCanvas(canvas);
   }
 
@@ -316,9 +321,9 @@ NEW (your issue):
     canvas.ontouchend = null;
     canvas.onclick = null;
 
-    // ✅ NEW: pointer handlers too (we set them below)
-    canvas.onpointermove = null;
+    // Added (safe) pointer handlers
     canvas.onpointerdown = null;
+    canvas.onpointermove = null;
     canvas.onpointerup = null;
     canvas.onpointerleave = null;
     canvas.onpointercancel = null;
@@ -352,10 +357,7 @@ NEW (your issue):
   function renderInternal(canvas, rows, opts){
     if (!canvas) return;
 
-    // ✅ Key fix: switching ranges/contracts calls render() again.
-    // We must clear any locked tooltip from previous render.
     hideTipAndUnlock();
-
     markActive(canvas);
 
     const kind = (opts && opts.kind) || "candles";
@@ -537,15 +539,13 @@ NEW (your issue):
       timeZone,
       lastTouchMs: 0,
 
-      // Store last render params for resize rerender
       _lastRows: data.slice(),
       _lastOpts: Object.assign({}, opts || {})
     };
     stateByCanvas.set(canvas, st);
     window.__FV_MKT_ACTIVE_STATE = st;
 
-    // ✅ NEW: compute this once per render
-    const FORCE_LANDSCAPE_TAP = shouldForceLandscapeTap(canvas);
+    const FORCE_TAP = allowTapEvenIfSuppressed(canvas);
 
     function tipHtmlFor(idx){
       const r = data[idx] || {};
@@ -604,68 +604,43 @@ NEW (your issue):
       }
     }
 
-    // -------------------------
-    // Existing mouse handlers
-    // -------------------------
+    // Mouse
     canvas.onmousemove = (e)=> handleMove(e.clientX, e.clientY);
     canvas.onmouseleave = ()=> handleLeave();
 
     canvas.onmousedown = (e)=>{
-      // Ignore synthetic mouse events right after touch (iOS)
-      // ✅ BUT: in fullscreen-like mobile landscape, we must NOT ignore (this is your bug)
-      if (!FORCE_LANDSCAPE_TAP){
-        const now = Date.now();
-        if (now - (st.lastTouchMs || 0) < TOUCH_SUPPRESS_MS) return;
-      }
+      const now = Date.now();
+      if (!FORCE_TAP && (now - (st.lastTouchMs || 0) < TOUCH_SUPPRESS_MS)) return;
       handleClick(e.clientX, e.clientY);
     };
 
-    // ✅ Click fallback (some environments fire click without mousedown)
+    // Click fallback
     canvas.onclick = (e)=>{
-      // If this is a synthetic click right after touch, suppression can kill it in some iOS cases.
-      // ✅ But in fullscreen-like landscape, allow it.
-      if (!FORCE_LANDSCAPE_TAP){
-        const now = Date.now();
-        if (now - (st.lastTouchMs || 0) < TOUCH_SUPPRESS_MS) return;
-      }
+      const now = Date.now();
+      if (!FORCE_TAP && (now - (st.lastTouchMs || 0) < TOUCH_SUPPRESS_MS)) return;
       handleClick(e.clientX, e.clientY);
     };
 
-    // -------------------------
-    // Existing touch handlers (kept)
-    // ✅ Add preventDefault ONLY in the forced landscape mode
-    // -------------------------
+    // Touch (existing behavior, unchanged except preventDefault in forced mode)
     canvas.ontouchstart = (e)=>{
       if (!e.touches || !e.touches[0]) return;
       st.lastTouchMs = Date.now();
       const t = e.touches[0];
-
-      if (FORCE_LANDSCAPE_TAP){
-        try{ e.preventDefault(); }catch{}
-      }
-
+      if (FORCE_TAP){ try{ e.preventDefault(); }catch{} }
       handleMove(t.clientX, t.clientY);
     };
     canvas.ontouchmove = (e)=>{
       if (!e.touches || !e.touches[0]) return;
       st.lastTouchMs = Date.now();
       const t = e.touches[0];
-
-      if (FORCE_LANDSCAPE_TAP){
-        try{ e.preventDefault(); }catch{}
-      }
-
+      if (FORCE_TAP){ try{ e.preventDefault(); }catch{} }
       handleMove(t.clientX, t.clientY);
     };
     canvas.ontouchend = (e)=>{
       try{
         st.lastTouchMs = Date.now();
         const c = e.changedTouches && e.changedTouches[0] ? e.changedTouches[0] : null;
-
-        if (FORCE_LANDSCAPE_TAP){
-          try{ e.preventDefault(); }catch{}
-        }
-
+        if (FORCE_TAP){ try{ e.preventDefault(); }catch{} }
         if (c) handleClick(c.clientX, c.clientY);
         else handleLeave();
       } catch {
@@ -673,43 +648,35 @@ NEW (your issue):
       }
     };
 
-    // -------------------------
-    // ✅ NEW: Pointer handlers (mobile fullscreen landscape tends to behave better with these)
-    // They call the same handlers; only really matters on iOS/PWA fullscreen.
-    // -------------------------
+    // Pointer (added, safe)
     canvas.onpointermove = (e)=>{
-      // Only handle primary touch pointers for preview
-      // If it's a mouse, existing mousemove already covers it.
-      if (e && e.pointerType === "touch"){
+      if (!e) return;
+      // If it's touch pointer, drive tooltip
+      if (e.pointerType === "touch"){
         handleMove(e.clientX, e.clientY);
       }
     };
-
     canvas.onpointerdown = (e)=>{
       if (!e) return;
       if (e.pointerType === "touch"){
         st.lastTouchMs = Date.now();
-        // In the forced mode, treat pointerdown as a click-lock
-        if (FORCE_LANDSCAPE_TAP){
+        // In forced mode, treat as click-to-lock too
+        if (FORCE_TAP){
           handleClick(e.clientX, e.clientY);
         } else {
-          // otherwise just preview
           handleMove(e.clientX, e.clientY);
         }
       }
     };
-
     canvas.onpointerup = (e)=>{
       if (!e) return;
       if (e.pointerType === "touch"){
         st.lastTouchMs = Date.now();
-        // In forced mode, pointerup can also lock (covers devices that don't deliver touchend reliably)
-        if (FORCE_LANDSCAPE_TAP){
+        if (FORCE_TAP){
           handleClick(e.clientX, e.clientY);
         }
       }
     };
-
     canvas.onpointerleave = ()=> handleLeave();
     canvas.onpointercancel = ()=> handleLeave();
 
