@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-ui.js  (FULL FILE)
-Rev: 2026-01-29a
+Rev: 2026-01-29b
 Purpose:
 ✅ Thin UI orchestrator for Markets
    - Opens/closes modal
@@ -41,6 +41,11 @@ NEW (this rev):
    - Pass { isLandscape } into FVMarketsSeries.shape so labels update on rotate
 ✅ 1D day label support (if series provides it):
    - If shaped.sessionLabel exists, show “1D • Wed 1/29” in the range area
+
+FIX (2026-01-29b):
+✅ Mobile portrait chart bottom no longer clipped:
+   - use 100dvh + safe-area insets
+   - canvas height set to 100% (not auto)
 ===================================================================== */
 
 (function(){
@@ -213,9 +218,8 @@ NEW (this rev):
   color:inherit;
 }
 
-/* Body region inside modal: flex so chart can fill viewport without scroll */
+/* Body region inside modal */
 #fv-mktm-body{
-  height:calc(100vh - 52px); /* header area */
   overflow:hidden;
 }
 
@@ -235,11 +239,11 @@ NEW (this rev):
   flex:0 0 auto;
 }
 
-/* Canvas fills remaining height */
+/* Canvas fills remaining height (DO NOT use height:auto; it causes clipping on mobile) */
 .fv-mktm-canvas{
   flex:1 1 auto;
   width:100% !important;
-  height:auto !important;
+  height:100% !important;
   min-height:0;
   display:block;
 }
@@ -249,8 +253,21 @@ NEW (this rev):
   flex:0 0 auto;
 }
 
-/* Split layout on mobile: allow list OR chart fullscreen */
+/* Mobile viewport correctness + safe-area handling */
 @media (max-width: 899px){
+  #${MODAL_ID}{
+    height:100dvh !important;
+    max-height:100dvh !important;
+  }
+
+  /* Use real viewport height and account for safe areas */
+  #fv-mktm-body{
+    height:calc(100dvh - 52px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) !important;
+    padding-bottom:env(safe-area-inset-bottom, 0px) !important;
+    overflow:hidden !important;
+  }
+
+  /* Split layout on mobile: allow list OR chart fullscreen */
   .fv-mktm-split{
     display:flex;
     flex-direction:column;
@@ -273,7 +290,7 @@ NEW (this rev):
 
   /* When fullchart, keep header/title visible but everything else uses viewport */
   #${BACKDROP_ID}.fv-mktm-fullchart #fv-mktm-body{
-    height:calc(100vh - 52px);
+    height:calc(100dvh - 52px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) !important;
   }
 }
 
@@ -439,7 +456,7 @@ NEW (this rev):
     if (!list.length) return;
 
     for (const sym of list){
-      const row = document.querySelector(`.fv-mktm-row[data-mkt-sym="${CSS.escape(sym)}"]`);
+      const row = document.querySelector(\`.fv-mktm-row[data-mkt-sym="\${CSS.escape(sym)}"]\`);
       if (row) paintRowQuote(row, sym);
     }
   }
@@ -616,7 +633,7 @@ NEW (this rev):
         if (window.FVMarkets && typeof window.FVMarkets.warmQuotes === "function"){
           window.FVMarkets.warmQuotes([currentSymbol], "full")
             .then(()=>{
-              const rowEl = document.querySelector(`.fv-mktm-row[data-mkt-sym="${CSS.escape(currentSymbol)}"]`);
+              const rowEl = document.querySelector(\`.fv-mktm-row[data-mkt-sym="\${CSS.escape(currentSymbol)}"]\`);
               if (rowEl) paintRowQuote(rowEl, currentSymbol);
             })
             .catch(()=>{});
@@ -767,7 +784,6 @@ NEW (this rev):
     // Re-render chart on rotate/resize so fullscreen always shows the full plot
     // (No refetch; we just re-render the last shaped rows.)
     window.addEventListener("resize", ()=>{
-      // slight delay allows viewport to settle after rotate
       setTimeout(rerenderIfOpen, 120);
     });
 
