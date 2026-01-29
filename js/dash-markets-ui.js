@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-ui.js  (FULL FILE)
-Rev: 2026-01-29c
+Rev: 2026-01-29a
 Purpose:
 ✅ Thin UI orchestrator for Markets
    - Opens/closes modal
@@ -41,12 +41,6 @@ NEW (this rev):
    - Pass { isLandscape } into FVMarketsSeries.shape so labels update on rotate
 ✅ 1D day label support (if series provides it):
    - If shaped.sessionLabel exists, show “1D • Wed 1/29” in the range area
-
-FIX (this rev):
-✅ Fix SyntaxError (bad escaped template literals)
-✅ Mobile portrait chart bottom no longer clipped:
-   - use 100dvh + safe-area insets
-   - canvas height set to 100% (not auto)
 ===================================================================== */
 
 (function(){
@@ -219,8 +213,9 @@ FIX (this rev):
   color:inherit;
 }
 
-/* Body region inside modal */
+/* Body region inside modal: flex so chart can fill viewport without scroll */
 #fv-mktm-body{
+  height:calc(100vh - 52px); /* header area */
   overflow:hidden;
 }
 
@@ -240,11 +235,11 @@ FIX (this rev):
   flex:0 0 auto;
 }
 
-/* Canvas fills remaining height (DO NOT use height:auto; it causes clipping on mobile) */
+/* Canvas fills remaining height */
 .fv-mktm-canvas{
   flex:1 1 auto;
   width:100% !important;
-  height:100% !important;
+  height:auto !important;
   min-height:0;
   display:block;
 }
@@ -254,21 +249,8 @@ FIX (this rev):
   flex:0 0 auto;
 }
 
-/* Mobile viewport correctness + safe-area handling */
+/* Split layout on mobile: allow list OR chart fullscreen */
 @media (max-width: 899px){
-  #${MODAL_ID}{
-    height:100dvh !important;
-    max-height:100dvh !important;
-  }
-
-  /* Use real viewport height and account for safe areas */
-  #fv-mktm-body{
-    height:calc(100dvh - 52px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) !important;
-    padding-bottom:env(safe-area-inset-bottom, 0px) !important;
-    overflow:hidden !important;
-  }
-
-  /* Split layout on mobile: allow list OR chart fullscreen */
   .fv-mktm-split{
     display:flex;
     flex-direction:column;
@@ -291,7 +273,7 @@ FIX (this rev):
 
   /* When fullchart, keep header/title visible but everything else uses viewport */
   #${BACKDROP_ID}.fv-mktm-fullchart #fv-mktm-body{
-    height:calc(100dvh - 52px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) !important;
+    height:calc(100vh - 52px);
   }
 }
 
