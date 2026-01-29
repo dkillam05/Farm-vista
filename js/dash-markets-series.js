@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-series.js  (FULL FILE)
-Rev: 2026-01-29e
+Rev: 2026-01-29f
 Purpose:
 ✅ Time-range + series shaping helper for FarmVista Markets charts (standalone)
 ✅ Converts Cloud Run chart.points[] into normalized series rows for:
@@ -33,10 +33,11 @@ Fixes in this rev:
 ✅ 5D x-axis is orientation-aware:
    - Portrait (vertical): DATE ONLY (M/D) — no hour (prevents overlap)
    - Landscape (horizontal): Hour labels, with DATE shown only at day breaks (Yahoo-like)
-✅ 1M “one day behind / missing Friday / Sunday trades” FIX:
-   - Daily bars from Yahoo can be timestamp-anchored near UTC boundaries.
-   - For DAILY bucketing (non-intraday), we compute dayKey using a +12h shift before Chicago-day conversion.
-   - This prevents daily candles from being filed under the prior Chicago day.
+✅ 1M “one day behind / missing Friday / Sunday trades” FIX (final):
+   - Daily bars can be timestamp-anchored near UTC midnight.
+   - We bucket daily bars using a +12h shifted dayKey (Chicago).
+   - AND we normalize EACH DAILY CANDLE'S OUTPUT TIMESTAMP `t` to MIDDAY CHICAGO of that dayKey,
+     so labels/click-details match the real calendar day.
 ===================================================================== */
 
 (function(){
@@ -147,9 +148,7 @@ Fixes in this rev:
     }
   }
 
-  // ✅ Daily-bar safety:
-  // Many “1d interval” points are timestamp-anchored near UTC midnight.
-  // Shifting +12h before converting to Chicago day prevents “one day behind” bucketing.
+  // Daily-bar safety: shift +12h before converting to Chicago day
   function chicagoDayKeyFromUtcShifted(iso, shiftHours){
     const hrs = (typeof shiftHours === "number" && isFinite(shiftHours)) ? shiftHours : 12;
     try{
@@ -164,6 +163,29 @@ Fixes in this rev:
       return `${y}-${m}-${da}`;
     }catch{
       return chicagoDayKeyFromUtc(iso);
+    }
+  }
+
+  // ✅ Normalized ISO for a given Chicago dayKey at MIDDAY (12:00 CT)
+  // Used for DAILY candle output timestamps so labels/clicks match calendar day.
+  function isoFromChicagoDayKeyMidday(dayKey){
+    try{
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dayKey || ""));
+      if (!m) return null;
+
+      const y = parseInt(m[1], 10);
+      const mo = parseInt(m[2], 10);
+      const da = parseInt(m[3], 10);
+      if (!isFinite(y) || !isFinite(mo) || !isFinite(da)) return null;
+
+      // We need an ISO that formats to that Chicago date at ~12:00.
+      // Build a UTC date that is safely inside the Chicago day:
+      // Choose 18:00 UTC which is 12:00 CT (standard) or 13:00 CT (DST),
+      // still safely same calendar day for our labeling.
+      const d = new Date(Date.UTC(y, mo - 1, da, 18, 0, 0));
+      return d.toISOString();
+    }catch{
+      return null;
     }
   }
 
@@ -224,19 +246,16 @@ Fixes in this rev:
   }
 
   function bucketByChicagoDay(points){
-    // Backward-compatible default (intraday-safe)
     return bucketByChicagoDayWith(points, chicagoDayKeyFromUtc);
   }
 
   function fmtSessionLabelFromDayKey(dayKey){
-    // dayKey: YYYY-MM-DD in Chicago
     try{
       const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dayKey || ""));
       if (!m) return "";
       const y = parseInt(m[1], 10);
       const mo = parseInt(m[2], 10);
       const da = parseInt(m[3], 10);
-      // Make a local date-like object (UTC noon) so format is stable
       const d = new Date(Date.UTC(y, mo - 1, da, 12, 0, 0));
       return new Intl.DateTimeFormat("en-US", {
         timeZone: TZ,
@@ -249,11 +268,6 @@ Fixes in this rev:
     }
   }
 
-  // ✅ 1D session selection that won't go blank:
-  // - Intraday: use RTH only
-  // - Prefer "today" if there are any RTH points today
-  // - Otherwise fall back to the most recent prior day with RTH points (yesterday/session)
-  // Returns { points:[], dayKey:"YYYY-MM-DD" }
   function session1dPreferTodayElsePrev(points){
     const pts = (points || []).filter(p => p && p.tUtc);
     if (!pts.length) return { points: [], dayKey: "" };
@@ -261,7 +275,6 @@ Fixes in this rev:
     const intraday = isIntraday(pts);
 
     if (!intraday){
-      // For daily-only data, use shifted day key so it's not off by one.
       const lastKey = chicagoDayKeyFromUtcShifted(pts[pts.length - 1].tUtc, 12);
       const out = pts.filter(p => chicagoDayKeyFromUtcShifted(p.tUtc, 12) === lastKey);
       return { points: out, dayKey: lastKey };
@@ -269,8 +282,6 @@ Fixes in this rev:
 
     const rth = filterRTH(pts);
     if (!rth.length){
-      // No RTH data at all (weekend/holiday/data issue)
-      // fall back to latest Chicago day in raw points (still avoids total blank)
       const lastKey = chicagoDayKeyFromUtc(pts[pts.length - 1].tUtc);
       const out = pts.filter(p => chicagoDayKeyFromUtc(p.tUtc) === lastKey);
       return { points: out, dayKey: lastKey };
@@ -291,7 +302,6 @@ Fixes in this rev:
     const intraday = isIntraday(pts);
     const src = intraday ? filterRTH(pts) : pts;
 
-    // ✅ If NOT intraday (daily bars), use shifted day keys to avoid off-by-one.
     const dayKeyFn = intraday
       ? chicagoDayKeyFromUtc
       : (iso)=>chicagoDayKeyFromUtcShifted(iso, 12);
@@ -311,7 +321,6 @@ Fixes in this rev:
   // Series builders
   // ---------------------------------------
   function makeIntradayCandleRows(points){
-    // Keep each point as a candle (intraday bars)
     const rows = (points || []).map(p => ({
       t: p?.tUtc ?? null,
       o: toNum(p?.o),
@@ -332,7 +341,6 @@ Fixes in this rev:
 
   function aggregateToSessionCandles(points){
     // Build ONE candle per Chicago day bucket:
-    // open = first bar open, close = last bar close, high=max high, low=min low
     const pts = (points || []).filter(p => p && p.tUtc);
     if (!pts.length) return [];
 
@@ -341,7 +349,7 @@ Fixes in this rev:
     // If intraday, force RTH only before bucketing
     const src = intraday ? filterRTH(pts) : pts;
 
-    // ✅ If daily bars, use shifted dayKey to avoid “one day behind”
+    // If daily bars, use shifted dayKey to avoid “one day behind”
     const dayKeyFn = intraday
       ? chicagoDayKeyFromUtc
       : (iso)=>chicagoDayKeyFromUtcShifted(iso, 12);
@@ -376,8 +384,16 @@ Fixes in this rev:
       }
       if (!isFinite(h) || !isFinite(l)) continue;
 
+      // ✅ IMPORTANT: for DAILY candles, normalize output timestamp to midday Chicago of the dayKey.
+      // This is what fixes the “still 1 day behind” when clicking/labeling.
+      let tOut = bars[bars.length - 1].t; // default anchor
+      if (!intraday){
+        const mid = isoFromChicagoDayKeyMidday(k);
+        if (mid) tOut = mid;
+      }
+
       out.push({
-        t: bars[bars.length - 1].t, // anchor
+        t: tOut,
         o, h, l, c
       });
     }
@@ -386,15 +402,11 @@ Fixes in this rev:
   }
 
   function aggregateToHourlyCandles(points){
-    // Build HOURLY candles within each Chicago day bucket.
-    // - If intraday, first apply RTH filter (requested).
-    // - Then bucket by Chicago day + Chicago hour.
     const pts = (points || []).filter(p => p && p.tUtc);
     if (!pts.length) return [];
 
     const src = isIntraday(pts) ? filterRTH(pts) : pts;
 
-    // dayKey|hourKey -> bars[]
     const buckets = new Map();
 
     for (const p of src){
@@ -404,7 +416,6 @@ Fixes in this rev:
       const dayKey = chicagoDayKeyFromUtc(t);
       const { hh, mm } = chicagoHourMinute(t);
 
-      // Hour bucket start (00..23)
       const hourKey = String(hh).padStart(2, "0");
 
       const key = `${dayKey}|${hourKey}`;
@@ -412,7 +423,7 @@ Fixes in this rev:
       buckets.get(key).push(p);
     }
 
-    const keys = Array.from(buckets.keys()).sort(); // chronological by day then hour (string sortable)
+    const keys = Array.from(buckets.keys()).sort();
 
     const out = [];
     for (const k of keys){
@@ -504,7 +515,6 @@ Fixes in this rev:
     }
   }
 
-  // 5D landscape: hours, but show DATE at day breaks only
   function build5dLandscapeLabelFn(rows){
     return (idx)=>{
       const t = rows[idx]?.t;
@@ -513,10 +523,7 @@ Fixes in this rev:
       const prevT = rows[idx - 1]?.t;
       const prevDay = prevT ? chicagoDayKeyFromUtc(prevT) : null;
 
-      // At start or day boundary: show M/D
       if (idx === 0 || (prevDay && prevDay !== curDay)) return fmtDateCT(t);
-
-      // Otherwise: show hour (no minutes)
       return fmtHourCT(t);
     };
   }
@@ -524,14 +531,10 @@ Fixes in this rev:
   function buildXLabelFn(rows, mode, opts){
     if (!rows || rows.length < 2) return ()=>"";
 
-    // 1D: intraday (5m) => show times
     if (mode === "1d"){
       return (idx)=> fmtTimeCT(rows[idx]?.t);
     }
 
-    // ✅ 5D:
-    // - Portrait (vertical): date only (M/D) to avoid overlap
-    // - Landscape (horizontal): hour labels + date only at day breaks
     if (mode === "5d"){
       const isLand = detectLandscape(opts);
       if (!isLand){
@@ -540,12 +543,10 @@ Fixes in this rev:
       return build5dLandscapeLabelFn(rows);
     }
 
-    // 1M: daily candles => dates
     if (mode === "1m"){
       return (idx)=> fmtDateCT(rows[idx]?.t);
     }
 
-    // 6M / 1Y lines => months
     return (idx)=> fmtMonthCT(rows[idx]?.t);
   }
 
@@ -553,7 +554,6 @@ Fixes in this rev:
     if (mode === "1d") return 4;
 
     if (mode === "5d"){
-      // Portrait: fewer labels (avoid overlap). Landscape: more labels.
       const isLand = detectLandscape(opts);
       return isLand ? 8 : 6;
     }
@@ -576,8 +576,6 @@ Fixes in this rev:
     let rows = [];
     let sessionLabel = "";
 
-    // 1D: intraday candles, session-only (RTH only when intraday)
-    // ✅ Now: keep yesterday until today has RTH points
     if (m === "1d"){
       const pick = session1dPreferTodayElsePrev(points);
       shaped = pick.points;
@@ -598,17 +596,9 @@ Fixes in this rev:
       };
     }
 
-    // 5D: last 5 sessions, HOURLY candles (Yahoo-like)
-    // - take last 5 sessions of intraday data
-    // - then aggregate to hourly OHLC
     if (m === "5d"){
       shaped = lastNSessions(points, SESSIONS_5D);
       kind = "candles";
-
-      // If backend already returns lower-resolution candles, this still works:
-      // - if it’s intraday, we go hourly
-      // - if it’s already daily candles, hourly aggregation will just yield very few rows
-      //   (which is why backend should return intraday data for 5D)
       rows = aggregateToHourlyCandles(shaped);
 
       return {
@@ -624,13 +614,9 @@ Fixes in this rev:
       };
     }
 
-    // 1M: last 30 sessions, DAILY candles (1 candle per day)
     if (m === "1m"){
       shaped = lastNSessions(points, SESSIONS_1M);
       kind = "candles";
-
-      // ✅ One candle per day, last ~30 trading sessions
-      // ✅ Daily bucketing uses shifted day keys to avoid off-by-one
       rows = aggregateToSessionCandles(shaped);
 
       return {
@@ -646,7 +632,6 @@ Fixes in this rev:
       };
     }
 
-    // 6M: line close
     if (m === "6m"){
       shaped = lastNSessions(points, SESSIONS_6M);
       kind = "line";
@@ -665,7 +650,6 @@ Fixes in this rev:
       };
     }
 
-    // 1Y: line close
     if (m === "1y"){
       shaped = lastNSessions(points, SESSIONS_1Y);
       kind = "line";
@@ -684,7 +668,6 @@ Fixes in this rev:
       };
     }
 
-    // Fallback: 1D
     const pick = session1dPreferTodayElsePrev(points);
     shaped = pick.points;
     sessionLabel = fmtSessionLabelFromDayKey(pick.dayKey);
