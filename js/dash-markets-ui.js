@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-ui.js  (FULL FILE)
-Rev: 2026-01-28p
+Rev: 2026-01-28q
 Purpose:
 ✅ Thin UI orchestrator for Markets
    - Opens/closes modal
@@ -20,9 +20,13 @@ Landscape-only mobile improvement:
 ✅ Canvas auto-fits the screen in landscape fullscreen
 ✅ DOES NOT affect desktop or mobile portrait
 
-PWA FIX (NEW):
+PWA FIX:
 ✅ "Mobile" detection no longer flips false in iOS PWA landscape (width can exceed 899px)
-   - uses (pointer: coarse) first, then max-width fallback
+
+NEW FIX (requested):
+✅ In iOS PWA landscape fullscreen, tap-to-see-details works again
+   - Avoid touch-action:none on the canvas (can block tap synthesis in standalone landscape)
+   - Use touch-action:manipulation + pointer-events:auto + z-index
 ===================================================================== */
 
 (function(){
@@ -41,7 +45,6 @@ PWA FIX (NEW):
 
   const DEFAULT_MODE = "1d";
 
-  // Cache last rendered chart so we can re-render after resize in fullscreen landscape
   const LAST_RENDER = {
     symbol: null,
     mode: null,
@@ -51,8 +54,7 @@ PWA FIX (NEW):
 
   function qs(sel, root=document){ return root.querySelector(sel); }
 
-  // ✅ PWA-safe mobile detection:
-  // iOS PWA in landscape can report >899px width. Coarse pointer keeps it "mobile".
+  // PWA-safe mobile detection
   function isMobile(){
     try{
       if (window.matchMedia){
@@ -230,10 +232,16 @@ PWA FIX (NEW):
         flex-direction: column !important;
       }
 
+      /* ✅ Tap fix for iOS PWA landscape:
+         - touch-action:none can break tap/click synthesis in standalone
+         - manipulation keeps taps working and avoids zoom/scroll junk */
       #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-canvas{
         display: block !important;
         width: 100% !important;
-        touch-action: none;
+        position: relative !important;
+        z-index: 1 !important;
+        pointer-events: auto !important;
+        touch-action: manipulation !important;
       }
 
       #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-split{
@@ -250,7 +258,7 @@ PWA FIX (NEW):
     const back = document.getElementById(BACKDROP_ID);
     if (!back) return false;
     if (!back.classList.contains("open")) return false;
-    if (!isMobile()) return false;      // ✅ now PWA-safe
+    if (!isMobile()) return false;
     if (!isLandscape()) return false;
     return true;
   }
@@ -397,7 +405,7 @@ PWA FIX (NEW):
   }
 
   // --------------------------------------------------
-  // Quote painting for list rows
+  // Quote painting
   // --------------------------------------------------
   function paintRowQuote(rowEl, sym){
     if (!rowEl || !sym) return;
@@ -464,7 +472,7 @@ PWA FIX (NEW):
   }
 
   // --------------------------------------------------
-  // Mobile: auto-scroll to chart panel after selection
+  // Mobile: auto-scroll
   // --------------------------------------------------
   function scrollToChartPanel(){
     if (!isMobile()) return;
