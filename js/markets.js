@@ -494,7 +494,6 @@ CHANGE (requested):
       <div class="fv-mkt-card">
         <div class="fv-mkt-head">
           <div class="fv-mkt-title">${escapeHtml(title)}</div>
-          <div class="fv-mkt-note">${mobile ? "Front + Dec" : "Tap contract for chart"}</div>
         </div>
 
         <div class="fv-mkt-list">
