@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-ui.js  (FULL FILE)
-Rev: 2026-01-28o
+Rev: 2026-01-28p
 Purpose:
 ✅ Thin UI orchestrator for Markets
    - Opens/closes modal
@@ -17,10 +17,12 @@ Delegates:
 
 Landscape-only mobile improvement:
 ✅ Mobile landscape modal is TRUE fullscreen (covers header/footer)
-✅ NEW: In mobile landscape fullscreen, canvas auto-fits the screen:
-   - Chart + axis labels stay visible without “scrolling around”
-   - Re-fits on tab change + orientation/viewport changes
+✅ Canvas auto-fits the screen in landscape fullscreen
 ✅ DOES NOT affect desktop or mobile portrait
+
+PWA FIX (NEW):
+✅ "Mobile" detection no longer flips false in iOS PWA landscape (width can exceed 899px)
+   - uses (pointer: coarse) first, then max-width fallback
 ===================================================================== */
 
 (function(){
@@ -29,7 +31,6 @@ Landscape-only mobile improvement:
   const MODAL_ID = "fv-mkt-modal";
   const BACKDROP_ID = "fv-mkt-backdrop";
 
-  // Yahoo-style tab order
   const TAB_MODES = [
     { mode: "1d", label: "1D" },
     { mode: "5d", label: "5D" },
@@ -50,9 +51,16 @@ Landscape-only mobile improvement:
 
   function qs(sel, root=document){ return root.querySelector(sel); }
 
+  // ✅ PWA-safe mobile detection:
+  // iOS PWA in landscape can report >899px width. Coarse pointer keeps it "mobile".
   function isMobile(){
-    try{ return window.matchMedia && window.matchMedia("(max-width: 899px)").matches; }
-    catch{ return false; }
+    try{
+      if (window.matchMedia){
+        if (window.matchMedia("(pointer: coarse)").matches) return true;
+        return window.matchMedia("(max-width: 899px)").matches;
+      }
+    }catch{}
+    return false;
   }
 
   function isLandscape(){
@@ -222,14 +230,12 @@ Landscape-only mobile improvement:
         flex-direction: column !important;
       }
 
-      /* Title + tabs/range remain natural height; canvas is flexed by JS-fit */
       #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-canvas{
         display: block !important;
         width: 100% !important;
         touch-action: none;
       }
 
-      /* In split view, prioritize chart in landscape (mobile only) */
       #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-split{
         grid-template-columns: 1fr !important;
       }
@@ -244,7 +250,7 @@ Landscape-only mobile improvement:
     const back = document.getElementById(BACKDROP_ID);
     if (!back) return false;
     if (!back.classList.contains("open")) return false;
-    if (!isMobile()) return false;
+    if (!isMobile()) return false;      // ✅ now PWA-safe
     if (!isLandscape()) return false;
     return true;
   }
@@ -255,16 +261,14 @@ Landscape-only mobile improvement:
   }
 
   function fitCanvasToPanel(){
-    // Only do this in landscape fullscreen (you asked: don’t touch portrait or desktop)
     if (!isLandscapeFullscreenActive()) return;
 
     const chart = qs(".fv-mktm-chart");
     const canvas = qs("#fv-mktm-canvas");
     if (!chart || !canvas) return;
 
-    // Measure fixed elements above/below the canvas within .fv-mktm-chart
     const title = qs("#fv-mktm-chart-hdr");
-    const sub = chart.querySelector(".fv-mktm-sub");  // first sub (tabs/range)
+    const sub = chart.querySelector(".fv-mktm-sub");
     const note = qs("#fv-mktm-note");
 
     const chartH = chart.clientHeight || 0;
@@ -273,24 +277,19 @@ Landscape-only mobile improvement:
       (sub ? sub.offsetHeight : 0) +
       (note ? note.offsetHeight : 0);
 
-    // Small padding allowance
     const pad = 16;
-
     let avail = chartH - used - pad;
     if (!isFinite(avail) || avail < 120) avail = 120;
 
-    // Force the CSS height so axis labels stay visible in the viewport
     canvas.style.height = `${Math.floor(avail)}px`;
     canvas.style.width = "100%";
 
-    // Prefer native resize hook if your chart lib has it
     try{
       if (window.FVMarketsChart && typeof window.FVMarketsChart.resize === "function"){
         window.FVMarketsChart.resize(canvas);
       }
     }catch{}
 
-    // If no resize() exists (or it doesn't redraw), re-render from our cache
     try{
       if (LAST_RENDER.rows && LAST_RENDER.opts && window.FVMarketsChart && typeof window.FVMarketsChart.render === "function"){
         window.FVMarketsChart.render(canvas, LAST_RENDER.rows, LAST_RENDER.opts);
@@ -304,14 +303,10 @@ Landscape-only mobile improvement:
 
     if (shouldGoLandscapeFullscreen()){
       back.classList.add(LANDSCAPE_CLASS);
-
-      // iOS: wait a tick for layout + address bar to settle, then fit canvas
       setTimeout(()=>{ fitCanvasToPanel(); }, 120);
       setTimeout(()=>{ fitCanvasToPanel(); }, 260);
     } else {
       back.classList.remove(LANDSCAPE_CLASS);
-
-      // Clear any forced height when leaving fullscreen
       const canvas = qs("#fv-mktm-canvas");
       if (canvas){
         canvas.style.height = "";
@@ -377,14 +372,12 @@ Landscape-only mobile improvement:
     back.classList.remove(LANDSCAPE_CLASS);
     document.body.style.overflow = "";
 
-    // Clear any tooltip/lock when closing
     try{
       if (window.FVMarketsChart && typeof window.FVMarketsChart.hideTip === "function"){
         window.FVMarketsChart.hideTip();
       }
     }catch{}
 
-    // Clear cache
     LAST_RENDER.symbol = null;
     LAST_RENDER.mode = null;
     LAST_RENDER.rows = null;
@@ -646,7 +639,6 @@ Landscape-only mobile improvement:
         document.querySelectorAll(".fv-mktm-tab").forEach(b=>b.setAttribute("aria-selected","false"));
         btn.setAttribute("aria-selected","true");
 
-        // Clear any locked tooltip immediately on tab switch
         try{
           if (window.FVMarketsChart && typeof window.FVMarketsChart.hideTip === "function"){
             window.FVMarketsChart.hideTip();
@@ -673,7 +665,6 @@ Landscape-only mobile improvement:
 
     const m = String(mode || DEFAULT_MODE).toLowerCase();
 
-    // Clear any locked tooltip immediately when loading a new series
     try{
       if (window.FVMarketsChart && typeof window.FVMarketsChart.hideTip === "function"){
         window.FVMarketsChart.hideTip();
@@ -698,7 +689,6 @@ Landscape-only mobile improvement:
         return;
       }
 
-      // Fit canvas BEFORE render (so renderer draws correct size)
       fitCanvasToPanel();
 
       const opts = {
@@ -710,7 +700,6 @@ Landscape-only mobile improvement:
 
       window.FVMarketsChart.render(canvas, shaped.rows, opts);
 
-      // Cache for resize re-render in fullscreen landscape
       LAST_RENDER.symbol = symbol;
       LAST_RENDER.mode = m;
       LAST_RENDER.rows = shaped.rows;
@@ -718,7 +707,6 @@ Landscape-only mobile improvement:
 
       if (note) note.textContent = "";
 
-      // One more fit after paint (iOS layout can shift)
       setTimeout(fitCanvasToPanel, 80);
     } catch {
       window.FVMarketsChart.clear(canvas);
