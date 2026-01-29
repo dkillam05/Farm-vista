@@ -1523,7 +1523,10 @@ _hideBootOverlayWithOptionalHold(){
       let armed=false, pulling=false, startY=0, startX=0, deltaY=0, lastEnd=0;
 
       const atTop  = ()=> (window.scrollY || 0) <= TOP_TOL;
-      const canUse = ()=> !this.classList.contains('drawer-open') && !this.classList.contains('top-open') && !this._ptrDisabled;
+      const canUse = ()=> !this.classList.contains('drawer-open')
+  && !this.classList.contains('top-open')
+  && !this._ptrDisabled
+  && !(document.body && document.body.classList.contains('fv-modal-open'));
 
       const showBar = ()=>{ bar.classList.add('show'); spin.hidden = true; dot.hidden = false; txt.textContent = 'Pull to refresh'; };
       const hideBar = ()=>{ bar.classList.remove('show'); spin.hidden = true; dot.hidden = true; txt.textContent = 'Pull to refresh'; };
