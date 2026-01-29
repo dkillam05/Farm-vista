@@ -105,15 +105,13 @@ function _fvMktBindTouchBridge(canvas){
     return {
       clientX: t.clientX,
       clientY: t.clientY,
-      // chart code typically uses offsetX/offsetY; we can approximate
       offsetX: t.clientX - r.left,
       offsetY: t.clientY - r.top
     };
   }
 
-  function fire(type, p){
+  function dispatchMouse(type, p, target){
     try{
-      // Dispatch to canvas so existing chart handlers (mousemove/click) still work
       const e = new MouseEvent(type, {
         bubbles: true,
         cancelable: true,
@@ -121,52 +119,89 @@ function _fvMktBindTouchBridge(canvas){
         clientY: p.clientY
       });
 
-      // Some libs read offsetX/offsetY; define if possible
+      // Some chart code reads offsetX/offsetY
       try{
         Object.defineProperty(e, "offsetX", { value: p.offsetX });
         Object.defineProperty(e, "offsetY", { value: p.offsetY });
       }catch{}
 
-      window.dispatchEvent(e);
+      target.dispatchEvent(e);
     }catch{}
   }
 
-  // Touch start => move (so crosshair/tooltip positions immediately)
+  function directCall(type, p){
+    // Build a simple event-like object with guaranteed offsetX/offsetY
+    const evLike = {
+      type,
+      clientX: p.clientX,
+      clientY: p.clientY,
+      offsetX: p.offsetX,
+      offsetY: p.offsetY,
+      buttons: 1,
+      preventDefault(){},
+      stopPropagation(){}
+    };
+
+    try{
+      if (type === "mousemove" && typeof canvas.onmousemove === "function") canvas.onmousemove(evLike);
+      if (type === "mousedown" && typeof canvas.onmousedown === "function") canvas.onmousedown(evLike);
+      if (type === "mouseup" && typeof canvas.onmouseup === "function") canvas.onmouseup(evLike);
+      if (type === "click" && typeof canvas.onclick === "function") canvas.onclick(evLike);
+    }catch{}
+  }
+
+  function fire(type, p){
+    // 1) Try dispatching to canvas (many libs bind here)
+    dispatchMouse(type, p, canvas);
+
+    // 2) Try dispatching to window (some libs bind globally)
+    dispatchMouse(type, p, window);
+
+    // 3) Guaranteed fallback: call property handlers directly if present
+    directCall(type, p);
+  }
+
+  // Touch start => position crosshair immediately
   canvas.addEventListener("touchstart", (ev)=>{
     if (!shouldBridge()) return;
     const p = pointFromTouch(ev);
     if (!p) return;
     _fvMktTouchBridgeOn = true;
-    // Prevent iOS PWA from treating this as scroll/gesture
+
     ev.preventDefault();
     fire("mousemove", p);
   }, { passive:false });
 
-  // Touch move => mousemove
+  // Touch move => move crosshair
   canvas.addEventListener("touchmove", (ev)=>{
     if (!shouldBridge() || !_fvMktTouchBridgeOn) return;
     const p = pointFromTouch(ev);
     if (!p) return;
+
     ev.preventDefault();
     fire("mousemove", p);
   }, { passive:false });
 
-  // Touch end => click (locks tooltip/details)
+  // Touch end => lock tooltip/details (down/up/click)
   canvas.addEventListener("touchend", (ev)=>{
     if (!shouldBridge()) return;
     const p = pointFromTouch(ev);
     if (!p) return;
+
     ev.preventDefault();
     fire("mousemove", p);
+    fire("mousedown", p);
+    fire("mouseup", p);
     fire("click", p);
+
     _fvMktTouchBridgeOn = false;
   }, { passive:false });
 
-  // Touch cancel => stop bridging
   canvas.addEventListener("touchcancel", ()=>{
     _fvMktTouchBridgeOn = false;
   }, { passive:true });
 }
+
 
   function toNum(x){
     if (typeof x === "number" && isFinite(x)) return x;
