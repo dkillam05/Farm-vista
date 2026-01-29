@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-ui.js  (FULL FILE)
-Rev: 2026-01-29b
+Rev: 2026-01-29c
 Purpose:
 ✅ Thin UI orchestrator for Markets
    - Opens/closes modal
@@ -42,7 +42,8 @@ NEW (this rev):
 ✅ 1D day label support (if series provides it):
    - If shaped.sessionLabel exists, show “1D • Wed 1/29” in the range area
 
-FIX (2026-01-29b):
+FIX (this rev):
+✅ Fix SyntaxError (bad escaped template literals)
 ✅ Mobile portrait chart bottom no longer clipped:
    - use 100dvh + safe-area insets
    - canvas height set to 100% (not auto)
@@ -456,7 +457,7 @@ FIX (2026-01-29b):
     if (!list.length) return;
 
     for (const sym of list){
-      const row = document.querySelector(\`.fv-mktm-row[data-mkt-sym="\${CSS.escape(sym)}"]\`);
+      const row = document.querySelector(`.fv-mktm-row[data-mkt-sym="${CSS.escape(sym)}"]`);
       if (row) paintRowQuote(row, sym);
     }
   }
@@ -633,7 +634,7 @@ FIX (2026-01-29b):
         if (window.FVMarkets && typeof window.FVMarkets.warmQuotes === "function"){
           window.FVMarkets.warmQuotes([currentSymbol], "full")
             .then(()=>{
-              const rowEl = document.querySelector(\`.fv-mktm-row[data-mkt-sym="\${CSS.escape(currentSymbol)}"]\`);
+              const rowEl = document.querySelector(`.fv-mktm-row[data-mkt-sym="${CSS.escape(currentSymbol)}"]`);
               if (rowEl) paintRowQuote(rowEl, currentSymbol);
             })
             .catch(()=>{});
@@ -784,6 +785,7 @@ FIX (2026-01-29b):
     // Re-render chart on rotate/resize so fullscreen always shows the full plot
     // (No refetch; we just re-render the last shaped rows.)
     window.addEventListener("resize", ()=>{
+      // slight delay allows viewport to settle after rotate
       setTimeout(rerenderIfOpen, 120);
     });
 
