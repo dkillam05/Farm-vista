@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-ui.js  (FULL FILE)
-Rev: 2026-01-28l
+Rev: 2026-01-28m
 Purpose:
 ✅ Thin UI orchestrator for Markets
    - Opens/closes modal
@@ -29,6 +29,11 @@ NEW fixes:
 ✅ Adds an “X” close button in the top-right
 ✅ Removes the old "Close" button (no overlap / no duplicate controls)
 ✅ When switching charts/tabs, clears any locked tooltip immediately
+
+Landscape-only mobile improvement (NEW):
+✅ When phone is rotated to landscape (mobile only), markets modal becomes true full-screen:
+   - Covers app header/footer for better chart visibility
+   - DOES NOT affect desktop or mobile portrait
 ===================================================================== */
 
 (function(){
@@ -53,6 +58,18 @@ NEW fixes:
   function isMobile(){
     try{ return window.matchMedia && window.matchMedia("(max-width: 899px)").matches; }
     catch{ return false; }
+  }
+
+  function isLandscape(){
+    // Robust: matchMedia + viewport dims
+    try{
+      if (window.matchMedia && window.matchMedia("(orientation: landscape)").matches) return true;
+    }catch{}
+    try{
+      return (window.innerWidth || 0) > (window.innerHeight || 0);
+    }catch{
+      return false;
+    }
   }
 
   function toNum(x){
@@ -158,6 +175,100 @@ NEW fixes:
   }
 
   // --------------------------------------------------
+  // Landscape-only fullscreen (mobile only)
+  // --------------------------------------------------
+  const LANDSCAPE_CLASS = "fv-mkt-landscape-full";
+  const LANDSCAPE_STYLE_ID = "fv-mkt-landscape-full-style";
+
+  function ensureLandscapeStyle(){
+    if (document.getElementById(LANDSCAPE_STYLE_ID)) return;
+
+    const st = document.createElement("style");
+    st.id = LANDSCAPE_STYLE_ID;
+    st.textContent = `
+      /* Markets modal: TRUE full-screen ONLY on mobile landscape when JS adds .${LANDSCAPE_CLASS} */
+      #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID}{
+        position: fixed !important;
+        inset: 0 !important;
+        width: 100vw !important;
+        height: 100dvh !important;
+        max-height: 100dvh !important;
+        border-radius: 0 !important;
+        margin: 0 !important;
+      }
+
+      /* Give chart area the whole screen height under the modal header */
+      #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-head{
+        position: sticky;
+        top: 0;
+        z-index: 5;
+      }
+      #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} #fv-mktm-body{
+        height: calc(100dvh - 48px); /* approx header row */
+        overflow: hidden;
+      }
+
+      /* Ensure chart panels stretch and canvas can fill */
+      #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-grid{
+        height: 100%;
+      }
+      #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-chart{
+        height: 100%;
+        overflow: hidden;
+      }
+      #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-canvas{
+        display: block;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+      }
+
+      /* In split view, prioritize chart space on mobile landscape */
+      #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-split{
+        grid-template-columns: 1fr !important;
+      }
+      #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-list{
+        display: none !important; /* chart-only focus in landscape */
+      }
+    `;
+    document.head.appendChild(st);
+  }
+
+  function shouldGoLandscapeFullscreen(){
+    // STRICT: only mobile + landscape + modal open
+    const back = document.getElementById(BACKDROP_ID);
+    if (!back) return false;
+    const isOpen = back.classList.contains("open");
+    if (!isOpen) return false;
+
+    if (!isMobile()) return false;
+    if (!isLandscape()) return false;
+
+    return true;
+  }
+
+  function updateLandscapeFullscreen(){
+    const back = document.getElementById(BACKDROP_ID);
+    if (!back) return;
+
+    if (shouldGoLandscapeFullscreen()){
+      back.classList.add(LANDSCAPE_CLASS);
+
+      // If chart renderer uses canvas client rect, nudge it after layout settles
+      setTimeout(()=> {
+        try{
+          const canvas = qs("#fv-mktm-canvas");
+          if (canvas && window.FVMarketsChart && typeof window.FVMarketsChart.resize === "function"){
+            window.FVMarketsChart.resize(canvas);
+          }
+        }catch{}
+      }, 80);
+    } else {
+      back.classList.remove(LANDSCAPE_CLASS);
+    }
+  }
+
+  // --------------------------------------------------
   // Modal shell
   // --------------------------------------------------
   function ensureModal(){
@@ -186,6 +297,8 @@ NEW fixes:
     `;
     document.body.appendChild(back);
 
+    ensureLandscapeStyle();
+
     back.addEventListener("click", e=>{
       if (e.target === back) closeModal();
     });
@@ -203,12 +316,16 @@ NEW fixes:
   function openModal(){
     ensureModal().classList.add("open");
     document.body.style.overflow = "hidden";
+
+    // Apply fullscreen rules immediately if we’re already in landscape
+    updateLandscapeFullscreen();
   }
 
   function closeModal(){
     const back = document.getElementById(BACKDROP_ID);
     if (!back) return;
     back.classList.remove("open");
+    back.classList.remove(LANDSCAPE_CLASS);
     document.body.style.overflow = "";
 
     // Clear any tooltip/lock when closing
@@ -227,6 +344,9 @@ NEW fixes:
   function setBody(html){
     const el = qs("#fv-mktm-body");
     if (el) el.innerHTML = html || "";
+
+    // After body swap, re-evaluate fullscreen layout
+    updateLandscapeFullscreen();
   }
 
   // --------------------------------------------------
@@ -528,6 +648,9 @@ NEW fixes:
       });
 
       if (note) note.textContent = "";
+
+      // After rendering, re-apply fullscreen (layout could change canvas size)
+      updateLandscapeFullscreen();
     } catch {
       window.FVMarketsChart.clear(canvas);
       if (note) note.textContent = "No chart data at this time";
@@ -540,6 +663,25 @@ NEW fixes:
   // --------------------------------------------------
   function init(){
     ensureModal();
+
+    // Keep fullscreen state synced with device rotation/resize (mobile only)
+    window.addEventListener("orientationchange", ()=>{
+      // iOS reports stale sizes immediately; delay a tick
+      setTimeout(updateLandscapeFullscreen, 120);
+    });
+
+    window.addEventListener("resize", ()=>{
+      updateLandscapeFullscreen();
+    });
+
+    // visualViewport catches address-bar / toolbar changes (iOS Safari)
+    if (window.visualViewport){
+      try{
+        window.visualViewport.addEventListener("resize", ()=>{
+          updateLandscapeFullscreen();
+        });
+      }catch{}
+    }
 
     window.addEventListener("fv:markets:contractTap", e=>{
       if (e?.detail?.symbol) openChart(e.detail.symbol);
