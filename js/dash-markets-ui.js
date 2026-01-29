@@ -127,7 +127,7 @@ function _fvMktBindTouchBridge(canvas){
         Object.defineProperty(e, "offsetY", { value: p.offsetY });
       }catch{}
 
-      canvas.dispatchEvent(e);
+      window.dispatchEvent(e);
     }catch{}
   }
 
