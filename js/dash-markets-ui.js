@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-chart.js  (FULL FILE)
-Rev: 2026-01-28e-zfix
+Rev: 2026-01-28e
 Purpose:
 ✅ Canvas chart renderer for FarmVista Markets modal (standalone helper)
 ✅ Supports:
@@ -19,9 +19,6 @@ Fixes in this rev:
 ✅ Public API: FVMarketsChart.hideTip() -> hides + unlocks
 ✅ When chart is cleared, tooltip is also cleared + unlocked
 ✅ Keeps iOS synthetic mouse suppression + resize/orientation re-render
-
-NEW (z-index fix only):
-✅ Tooltip z-index raised above fullscreen overlay so it stays visible in fullscreen landscape
 ===================================================================== */
 
 (function(){
@@ -79,10 +76,7 @@ NEW (z-index fix only):
 
     // Core layout / positioning
     tip.style.position = "fixed";
-
-    // ✅ ONLY CHANGE: tooltip must be above fullscreen overlay
-    tip.style.zIndex = "2147483647";
-
+    tip.style.zIndex = "10000";
     tip.style.pointerEvents = "none";
     tip.style.display = "none";
 
