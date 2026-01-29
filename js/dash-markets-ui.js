@@ -106,17 +106,26 @@ function _fvMktBindTouchBridge(canvas){
       clientX: t.clientX,
       clientY: t.clientY,
       offsetX: t.clientX - r.left,
-      offsetY: t.clientY - r.top
+      offsetY: t.clientY - r.top,
+      pointerId: (t.identifier != null ? (t.identifier + 1) : 1)
     };
   }
 
-  function dispatchMouse(type, p, target){
+  function dispatchPointer(type, p, target){
     try{
-      const e = new MouseEvent(type, {
+      // PointerEvent isn't available everywhere; fall back if needed.
+      const Ctor = (typeof PointerEvent === "function") ? PointerEvent : MouseEvent;
+
+      const e = new Ctor(type, {
         bubbles: true,
         cancelable: true,
         clientX: p.clientX,
-        clientY: p.clientY
+        clientY: p.clientY,
+        // PointerEvent fields (ignored by MouseEvent)
+        pointerId: p.pointerId,
+        pointerType: "touch",
+        isPrimary: true,
+        buttons: 1
       });
 
       // Some chart code reads offsetX/offsetY
@@ -129,39 +138,42 @@ function _fvMktBindTouchBridge(canvas){
     }catch{}
   }
 
-  function directCall(type, p){
-    // Build a simple event-like object with guaranteed offsetX/offsetY
+  function directCallPointer(type, p){
+    // If chart used property handlers (rare for pointer, but cheap to try)
     const evLike = {
       type,
       clientX: p.clientX,
       clientY: p.clientY,
       offsetX: p.offsetX,
       offsetY: p.offsetY,
+      pointerId: p.pointerId,
+      pointerType: "touch",
+      isPrimary: true,
       buttons: 1,
       preventDefault(){},
       stopPropagation(){}
     };
 
     try{
-      if (type === "mousemove" && typeof canvas.onmousemove === "function") canvas.onmousemove(evLike);
-      if (type === "mousedown" && typeof canvas.onmousedown === "function") canvas.onmousedown(evLike);
-      if (type === "mouseup" && typeof canvas.onmouseup === "function") canvas.onmouseup(evLike);
-      if (type === "click" && typeof canvas.onclick === "function") canvas.onclick(evLike);
+      if (type === "pointermove" && typeof canvas.onpointermove === "function") canvas.onpointermove(evLike);
+      if (type === "pointerdown" && typeof canvas.onpointerdown === "function") canvas.onpointerdown(evLike);
+      if (type === "pointerup" && typeof canvas.onpointerup === "function") canvas.onpointerup(evLike);
+      if (type === "pointercancel" && typeof canvas.onpointercancel === "function") canvas.onpointercancel(evLike);
     }catch{}
   }
 
   function fire(type, p){
-    // 1) Try dispatching to canvas (many libs bind here)
-    dispatchMouse(type, p, canvas);
+    // Many libs bind pointer events on canvas
+    dispatchPointer(type, p, canvas);
 
-    // 2) Try dispatching to window (some libs bind globally)
-    dispatchMouse(type, p, window);
+    // Some bind on window/document
+    dispatchPointer(type, p, window);
 
-    // 3) Guaranteed fallback: call property handlers directly if present
-    directCall(type, p);
+    // Last-ditch direct call
+    directCallPointer(type, p);
   }
 
-  // Touch start => position crosshair immediately
+  // iOS PWA sometimes treats touch events as scroll/gesture unless passive:false
   canvas.addEventListener("touchstart", (ev)=>{
     if (!shouldBridge()) return;
     const p = pointFromTouch(ev);
@@ -169,38 +181,75 @@ function _fvMktBindTouchBridge(canvas){
     _fvMktTouchBridgeOn = true;
 
     ev.preventDefault();
-    fire("mousemove", p);
+
+    // Make sure the canvas holds pointer capture if supported
+    try{
+      if (typeof canvas.setPointerCapture === "function"){
+        canvas.setPointerCapture(p.pointerId);
+      }
+    }catch{}
+
+    fire("pointerover", p);
+    fire("pointerenter", p);
+    fire("pointerdown", p);
+    fire("pointermove", p);
   }, { passive:false });
 
-  // Touch move => move crosshair
   canvas.addEventListener("touchmove", (ev)=>{
     if (!shouldBridge() || !_fvMktTouchBridgeOn) return;
     const p = pointFromTouch(ev);
     if (!p) return;
 
     ev.preventDefault();
-    fire("mousemove", p);
+    fire("pointermove", p);
   }, { passive:false });
 
-  // Touch end => lock tooltip/details (down/up/click)
   canvas.addEventListener("touchend", (ev)=>{
     if (!shouldBridge()) return;
     const p = pointFromTouch(ev);
     if (!p) return;
 
     ev.preventDefault();
-    fire("mousemove", p);
-    fire("mousedown", p);
-    fire("mouseup", p);
-    fire("click", p);
+
+    fire("pointermove", p);
+    fire("pointerup", p);
+
+    // Some libs only "lock" on click; also emit a click for good measure.
+    try{
+      const clickEv = new MouseEvent("click", { bubbles:true, cancelable:true, clientX:p.clientX, clientY:p.clientY });
+      try{
+        Object.defineProperty(clickEv, "offsetX", { value: p.offsetX });
+        Object.defineProperty(clickEv, "offsetY", { value: p.offsetY });
+      }catch{}
+      canvas.dispatchEvent(clickEv);
+      window.dispatchEvent(clickEv);
+      if (typeof canvas.onclick === "function") canvas.onclick({ clientX:p.clientX, clientY:p.clientY, offsetX:p.offsetX, offsetY:p.offsetY });
+    }catch{}
 
     _fvMktTouchBridgeOn = false;
+
+    try{
+      if (typeof canvas.releasePointerCapture === "function"){
+        canvas.releasePointerCapture(p.pointerId);
+      }
+    }catch{}
   }, { passive:false });
 
-  canvas.addEventListener("touchcancel", ()=>{
+  canvas.addEventListener("touchcancel", (ev)=>{
     _fvMktTouchBridgeOn = false;
+
+    // best effort cancel
+    const p = pointFromTouch(ev) || { clientX:0, clientY:0, offsetX:0, offsetY:0, pointerId:1 };
+    fire("pointercancel", p);
+
+    try{
+      if (typeof canvas.releasePointerCapture === "function"){
+        canvas.releasePointerCapture(p.pointerId);
+      }
+    }catch{}
   }, { passive:true });
 }
+
 
 
   function toNum(x){
