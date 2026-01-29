@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/markets.js  (FULL FILE)
-Rev: 2026-01-28p
+Rev: 2026-01-28o
 
 Fixes:
 ✅ Front selection skips expired + dead symbols
@@ -23,13 +23,19 @@ CHANGE (requested):
 ✅ Bubble text ALWAYS WHITE (including arrow + $chg + %chg)
 
 CRITICAL FIX (your issue):
-✅ Yahoo modes + fallback support:
-   - 1d/5d/1m/6m/1y with fallback to legacy if backend expects it
+✅ Change bubbles “barely showing” was caused by mode mismatch after switching UI to Yahoo tabs.
+   - markets.js was still requesting "daily" / "6mo"
+   - your backend + chart UI now uses "1d" / "6m" / "1y"
+✅ This file now speaks Yahoo modes and also FALLBACKS to legacy modes if needed:
+   - 1d -> daily
+   - 5d -> weekly
+   - 1m -> monthly
+   - 6m -> 6mo
+   - 1y -> 1y
 
-NEW (requested by you):
-✅ Desktop ONLY: move meta line ("Delayed quotes • Updated ...") into the Markets header,
-   subtle under the Markets label, using DOM-anchored detection (not class guessing).
-   Mobile stays exactly as-is.
+NEW (requested):
+✅ Desktop: move meta line ("Delayed quotes • Updated ...") into the Markets header,
+   subtle under the Markets label; mobile stays exactly as-is.
 ===================================================================== */
 
 (function(){
@@ -51,8 +57,6 @@ NEW (requested by you):
   }
 
   function qs(sel, root=document){ return root.querySelector(sel); }
-  function qsa(sel, root=document){ return Array.from(root.querySelectorAll(sel)); }
-
   function ui(){
     return {
       corn: qs('[data-fv="mktCorn"]'),
@@ -111,6 +115,8 @@ NEW (requested by you):
   // ---------------------------
   // Mode compatibility helpers
   // ---------------------------
+  // Your UI now uses Yahoo-style chart modes.
+  // Backend may support Yahoo modes OR legacy modes depending on deploy.
   const MODE_FALLBACK = {
     "1d": "daily",
     "5d": "weekly",
@@ -121,12 +127,18 @@ NEW (requested by you):
 
   function normMode(m){
     const s = String(m || "").toLowerCase().trim();
+
+    // Yahoo modes
     if (s === "1d" || s === "5d" || s === "1m" || s === "6m" || s === "1y") return s;
+
+    // Legacy modes we used earlier
     if (s === "daily") return "1d";
     if (s === "weekly") return "5d";
     if (s === "monthly") return "1m";
     if (s === "6mo") return "6m";
     if (s === "1y") return "1y";
+
+    // default
     return "1d";
   }
 
@@ -136,9 +148,14 @@ NEW (requested by you):
     return r.json();
   }
 
+  // Primary chart fetch used by UI + quotes.
+  // Tries Yahoo mode first, then falls back to legacy if needed.
   async function fetchChart(symbol, mode){
     const wanted = normMode(mode);
     const firstTry = wanted;
+
+    // If the caller passed legacy, we still normalize to Yahoo.
+    // But also preserve a sane legacy fallback:
     const fallback = MODE_FALLBACK[firstTry] || null;
 
     async function doFetch(m){
@@ -160,6 +177,8 @@ NEW (requested by you):
     try{
       return await doFetch(firstTry);
     }catch(e){
+      // Only fallback for “mode not supported / bad request / not found”
+      // (keeps real 500s visible)
       const st = e && typeof e.status === "number" ? e.status : 0;
       const canFallback = !!fallback && (st === 400 || st === 404);
       if (!canFallback) throw e;
@@ -217,16 +236,12 @@ NEW (requested by you):
 .fv-mkt-change.down{ background:#b42318; }
 .fv-mkt-change.flat{ background:#67706B; }
 
-.fv-mkt-meta{
-  display:flex; gap:8px; font-size:12px; opacity:.7; flex-wrap:wrap;
-  margin-top:8px;
-}
+.fv-mkt-meta{ display:flex; gap:8px; font-size:12px; opacity:.7; flex-wrap:wrap; margin-top:8px; }
 
-/* ✅ When we tuck it under the Markets title on desktop, make it subtle */
+/* ✅ Desktop header placement: make it subtle under "Markets" */
 @media (min-width: 900px){
-  .fv-mkt-meta{
-    margin-top:2px;
-    margin-bottom:8px;
+  #markets-section .section-head [data-fv="mktMeta"] .fv-mkt-meta{
+    margin-top:4px;
     font-size:11px;
     opacity:.55;
   }
@@ -286,8 +301,11 @@ NEW (requested by you):
 
     if (ym.year < y) return true;
     if (ym.year > y) return false;
+
     if (ym.month < m) return true;
     if (ym.month > m) return false;
+
+    // same month: treat late month as expired (practical)
     return d >= 21;
   }
 
@@ -310,7 +328,7 @@ NEW (requested by you):
   }
 
   // ---------------------------
-  // Chart normalization
+  // Chart normalization (Cloud Run returns chart.points[])
   // ---------------------------
   function normalizePoints(chart){
     if (Array.isArray(chart)) return chart;
@@ -353,9 +371,10 @@ NEW (requested by you):
   // ---------------------------
   // Symbol state + quote cache
   // ---------------------------
-  const symbolState = new Map();
-  const quoteCache = new Map();
-  const inflight = new Map();
+  // state: ok | dead | nodata | unknown
+  const symbolState = new Map(); // symbol -> state
+  const quoteCache = new Map();  // symbol -> { price, chg, pct, updatedAtMs }
+  const inflight = new Map();    // symbol -> Promise
 
   function setState(sym, st){
     if (!sym) return;
@@ -371,10 +390,14 @@ NEW (requested by you):
     return st !== "dead" && st !== "nodata";
   };
 
+  // ✅ Expose quote access
   Markets.getQuote = function(sym){
     return quoteCache.get(sym) || null;
   };
 
+  // Choose a front contract that is:
+  // - not expired
+  // - not dead/nodata if we know it already
   function pickFront(list){
     if (!Array.isArray(list) || !list.length) return null;
 
@@ -386,6 +409,7 @@ NEW (requested by you):
       return c;
     }
 
+    // fallback: first usable
     for (const c of list){
       const sym = c?.symbol;
       if (!sym) continue;
@@ -441,6 +465,7 @@ NEW (requested by you):
     if (!symbol) return;
     if (inflight.has(symbol)) return inflight.get(symbol);
 
+    // small optimization: don’t keep hammering known-bad symbols
     if (HIDE_BAD_CONTRACTS && !Markets.isSymbolUsable(symbol)) {
       if (!quoteCache.has(symbol)) quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now() });
       return;
@@ -450,10 +475,12 @@ NEW (requested by you):
 
     const p = (async ()=>{
       try{
+        // 1) Price from intraday 1D (fast)
         const daily = await fetchChart(symbol, "1d");
         const dailyPts = normalizePoints(daily);
         const price = lastNonNullClose(dailyPts);
 
+        // If intraday has literally no closes, treat nodata
         if (price == null){
           setState(symbol, "nodata");
           quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now() });
@@ -463,6 +490,7 @@ NEW (requested by you):
         let chg = null, pct = null;
 
         if (modeLevel === "full"){
+          // 2) Change/% from 6M daily closes (prev close) like Yahoo
           const six = await fetchChart(symbol, "6m");
           const sixPts = normalizePoints(six);
           const { prev } = lastTwoDailyCloses(sixPts);
@@ -471,6 +499,7 @@ NEW (requested by you):
             chg = price - prev;
             pct = (prev === 0) ? 0 : (chg / prev) * 100;
           } else {
+            // fallback to last two intraday closes
             let last2 = null, prev2 = null;
             for (let i = dailyPts.length - 1; i >= 0; i--){
               const c = toNum2(dailyPts[i]?.c);
@@ -487,6 +516,7 @@ NEW (requested by you):
             }
           }
         } else {
+          // ✅ Lite mode uses null => UI can show "—" or hide chip
           chg = null;
           pct = null;
         }
@@ -522,6 +552,7 @@ NEW (requested by you):
     await Promise.all(workers);
   }
 
+  // ✅ Expose warmQuotes for dash-markets-ui
   Markets.warmQuotes = async function(symbols, level){
     await runQueue(symbols, level);
   };
@@ -604,76 +635,36 @@ NEW (requested by you):
     }
   }
 
-  // ✅ Find the smallest container that contains both mktCorn + mktSoy
-  function findMarketsSectionRoot(){
-    const U = ui();
-    const corn = U.corn, soy = U.soy;
-    if (!corn || !soy) return null;
-
-    // Build ancestor chain for corn
-    const seen = new Set();
-    let n = corn;
-    for (let i=0; i<12 && n; i++){
-      seen.add(n);
-      n = n.parentElement;
-    }
-
-    // Walk soy ancestors until we hit a shared node
-    n = soy;
-    for (let i=0; i<12 && n; i++){
-      if (seen.has(n)) return n;
-      n = n.parentElement;
-    }
-
-    // fallback
-    return corn.parentElement || soy.parentElement || null;
-  }
-
-  // ✅ Find the actual visible "Markets" title element within that section
-  function findMarketsTitleEl(root){
-    if (!root) return null;
-
-    const candidates = qsa('h1,h2,h3,h4,[role="heading"],.title,.card-title,.section-title,.fv-card-title,.fv-section-title', root);
-    const norm = (s)=> String(s||"").replace(/\s+/g," ").trim().toLowerCase();
-
-    for (const el of candidates){
-      const t = norm(el.textContent);
-      if (t === "markets") return el;
-    }
-
-    // last-resort: any element whose direct text contains "Markets"
-    for (const el of candidates){
-      const t = norm(el.textContent);
-      if (t.includes("markets")) return el;
-    }
-
-    return null;
-  }
-
-  // ✅ Desktop-only move: place mktMeta directly under the Markets title
-  function placeMetaUnderMarketsTitle(){
-    if (isMobile()) return;
-
-    const U = ui();
-    const metaHost = U.meta;
+  // ✅ Guaranteed placement using your real DOM:
+  // Desktop: put meta inside header under <strong>Markets</strong>
+  // Mobile: keep meta in body after the grid (as you have now)
+  function placeMetaByLayout(){
+    const metaHost = ui().meta;
     if (!metaHost) return;
 
-    const root = findMarketsSectionRoot();
-    if (!root) return;
+    const headerRight = qs('#markets-section .section-head > div:nth-child(2)');
+    const headerTitle = headerRight ? qs('strong', headerRight) : null;
 
-    const titleEl = findMarketsTitleEl(root);
-    if (!titleEl) return;
+    const body = qs('#markets-section #fv-markets'); // section-body container
+    const grid = qs('#markets-section #fv-markets .fv-mkt-grid');
 
-    // Move the meta element itself (not the inner .fv-mkt-meta)
-    // so your UI placeholder stays consistent.
-    try{
-      // Ensure metaHost is visible and not constrained
-      metaHost.style.display = "";
-      metaHost.style.width = "";
+    if (isMobile()){
+      // Ensure it stays in the body under the grid
+      if (body && metaHost.parentElement !== body){
+        body.appendChild(metaHost);
+      } else if (body && grid && metaHost.previousElementSibling !== grid){
+        // keep it after grid for consistent flow
+        grid.insertAdjacentElement("afterend", metaHost);
+      }
+      return;
+    }
 
-      // Insert metaHost right after the title element
-      titleEl.insertAdjacentElement("afterend", metaHost);
-    }catch{}
+    // Desktop: tuck into header, right under the title
+    if (headerTitle){
+      headerTitle.insertAdjacentElement("afterend", metaHost);
+    } else if (headerRight){
+      headerRight.appendChild(metaHost);
+    }
   }
 
   function renderMeta(payload){
@@ -693,8 +684,8 @@ NEW (requested by you):
       </div>
     `;
 
-    // ✅ attempt to reposition on desktop every render (covers hot reloads + partial redraws)
-    placeMetaUnderMarketsTitle();
+    // ✅ Move it to the right spot based on desktop/mobile
+    placeMetaByLayout();
   }
 
   // ---------------------------
@@ -740,6 +731,7 @@ NEW (requested by you):
       await runQueue(vis, "full");
       redraw();
     } else {
+      // ✅ Desktop: warm ALL rows in FULL so every contract can show the change chip
       const all = allSymbols(payload);
       runQueue(all, "full").then(redraw).catch(()=>{});
     }
