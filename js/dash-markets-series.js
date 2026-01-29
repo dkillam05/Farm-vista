@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-series.js  (FULL FILE)
-Rev: 2026-01-29d
+Rev: 2026-01-29e
 Purpose:
 ✅ Time-range + series shaping helper for FarmVista Markets charts (standalone)
 ✅ Converts Cloud Run chart.points[] into normalized series rows for:
@@ -33,6 +33,10 @@ Fixes in this rev:
 ✅ 5D x-axis is orientation-aware:
    - Portrait (vertical): DATE ONLY (M/D) — no hour (prevents overlap)
    - Landscape (horizontal): Hour labels, with DATE shown only at day breaks (Yahoo-like)
+✅ 1M “one day behind / missing Friday / Sunday trades” FIX:
+   - Daily bars from Yahoo can be timestamp-anchored near UTC boundaries.
+   - For DAILY bucketing (non-intraday), we compute dayKey using a +12h shift before Chicago-day conversion.
+   - This prevents daily candles from being filed under the prior Chicago day.
 ===================================================================== */
 
 (function(){
@@ -143,6 +147,26 @@ Fixes in this rev:
     }
   }
 
+  // ✅ Daily-bar safety:
+  // Many “1d interval” points are timestamp-anchored near UTC midnight.
+  // Shifting +12h before converting to Chicago day prevents “one day behind” bucketing.
+  function chicagoDayKeyFromUtcShifted(iso, shiftHours){
+    const hrs = (typeof shiftHours === "number" && isFinite(shiftHours)) ? shiftHours : 12;
+    try{
+      const ms = Date.parse(iso || "");
+      if (!isFinite(ms)) return chicagoDayKeyFromUtc(iso);
+      const d = new Date(ms + hrs * 60 * 60 * 1000);
+      const fmt = new Intl.DateTimeFormat("en-US", { timeZone: TZ, year:"numeric", month:"2-digit", day:"2-digit" });
+      const parts = fmt.formatToParts(d);
+      const y = parts.find(p=>p.type==="year")?.value || "0000";
+      const m = parts.find(p=>p.type==="month")?.value || "00";
+      const da = parts.find(p=>p.type==="day")?.value || "00";
+      return `${y}-${m}-${da}`;
+    }catch{
+      return chicagoDayKeyFromUtc(iso);
+    }
+  }
+
   function chicagoHourMinute(iso){
     try{
       const d = new Date(iso);
@@ -187,16 +211,21 @@ Fixes in this rev:
     return (points || []).filter(p => p && p.tUtc && isRTHPoint(p.tUtc));
   }
 
-  function bucketByChicagoDay(points){
+  function bucketByChicagoDayWith(points, dayKeyFn){
     const pts = (points || []).filter(p => p && p.tUtc);
     const buckets = new Map(); // key -> points[]
     for (const p of pts){
-      const k = chicagoDayKeyFromUtc(p.tUtc);
+      const k = dayKeyFn(p.tUtc);
       if (!buckets.has(k)) buckets.set(k, []);
       buckets.get(k).push(p);
     }
     const keys = Array.from(buckets.keys()).sort(); // chronological
     return { buckets, keys };
+  }
+
+  function bucketByChicagoDay(points){
+    // Backward-compatible default (intraday-safe)
+    return bucketByChicagoDayWith(points, chicagoDayKeyFromUtc);
   }
 
   function fmtSessionLabelFromDayKey(dayKey){
@@ -232,8 +261,9 @@ Fixes in this rev:
     const intraday = isIntraday(pts);
 
     if (!intraday){
-      const lastKey = chicagoDayKeyFromUtc(pts[pts.length - 1].tUtc);
-      const out = pts.filter(p => chicagoDayKeyFromUtc(p.tUtc) === lastKey);
+      // For daily-only data, use shifted day key so it's not off by one.
+      const lastKey = chicagoDayKeyFromUtcShifted(pts[pts.length - 1].tUtc, 12);
+      const out = pts.filter(p => chicagoDayKeyFromUtcShifted(p.tUtc, 12) === lastKey);
       return { points: out, dayKey: lastKey };
     }
 
@@ -258,9 +288,15 @@ Fixes in this rev:
     const pts = (points || []).filter(p => p && p.tUtc);
     if (!pts.length) return [];
 
-    const src = isIntraday(pts) ? filterRTH(pts) : pts;
+    const intraday = isIntraday(pts);
+    const src = intraday ? filterRTH(pts) : pts;
 
-    const { buckets, keys } = bucketByChicagoDay(src);
+    // ✅ If NOT intraday (daily bars), use shifted day keys to avoid off-by-one.
+    const dayKeyFn = intraday
+      ? chicagoDayKeyFromUtc
+      : (iso)=>chicagoDayKeyFromUtcShifted(iso, 12);
+
+    const { buckets, keys } = bucketByChicagoDayWith(src, dayKeyFn);
     if (!keys.length) return [];
 
     const keepKeys = keys.slice(Math.max(0, keys.length - n));
@@ -300,10 +336,17 @@ Fixes in this rev:
     const pts = (points || []).filter(p => p && p.tUtc);
     if (!pts.length) return [];
 
-    // If intraday, force RTH only before bucketing
-    const src = isIntraday(pts) ? filterRTH(pts) : pts;
+    const intraday = isIntraday(pts);
 
-    const { buckets, keys } = bucketByChicagoDay(src);
+    // If intraday, force RTH only before bucketing
+    const src = intraday ? filterRTH(pts) : pts;
+
+    // ✅ If daily bars, use shifted dayKey to avoid “one day behind”
+    const dayKeyFn = intraday
+      ? chicagoDayKeyFromUtc
+      : (iso)=>chicagoDayKeyFromUtcShifted(iso, 12);
+
+    const { buckets, keys } = bucketByChicagoDayWith(src, dayKeyFn);
     const out = [];
 
     for (const k of keys){
@@ -561,6 +604,11 @@ Fixes in this rev:
     if (m === "5d"){
       shaped = lastNSessions(points, SESSIONS_5D);
       kind = "candles";
+
+      // If backend already returns lower-resolution candles, this still works:
+      // - if it’s intraday, we go hourly
+      // - if it’s already daily candles, hourly aggregation will just yield very few rows
+      //   (which is why backend should return intraday data for 5D)
       rows = aggregateToHourlyCandles(shaped);
 
       return {
@@ -580,6 +628,9 @@ Fixes in this rev:
     if (m === "1m"){
       shaped = lastNSessions(points, SESSIONS_1M);
       kind = "candles";
+
+      // ✅ One candle per day, last ~30 trading sessions
+      // ✅ Daily bucketing uses shifted day keys to avoid off-by-one
       rows = aggregateToSessionCandles(shaped);
 
       return {
