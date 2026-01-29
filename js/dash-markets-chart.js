@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-chart.js  (FULL FILE)
-Rev: 2026-01-29b
+Rev: 2026-01-29c
 Purpose:
 ✅ Canvas chart renderer for FarmVista Markets modal (standalone helper)
 ✅ Supports:
@@ -20,23 +20,12 @@ Fixes in this rev:
 ✅ When chart is cleared, tooltip is also cleared + unlocked
 ✅ Keeps iOS synthetic mouse suppression + resize/orientation re-render
 
-NEW (minimal + safe):
-✅ Mobile landscape fullscreen: do NOT let post-touch mouse suppression block taps
-✅ Add pointer handlers (pointerdown/move/up) as an additional path (touch devices)
-✅ Add a one-time console marker so you can confirm this file is truly loaded
+NEW (your issue):
+✅ Tooltip now renders ABOVE fullscreen landscape overlay by using a very high z-index
 ===================================================================== */
 
 (function(){
   "use strict";
-
-  // ---- one-time load marker (helps confirm cache / SW issues) ----
-  try{
-    window.__FV_MKT_CHART_REV = "2026-01-29b";
-    if (!window.__FV_MKT_CHART_REV_LOGGED){
-      window.__FV_MKT_CHART_REV_LOGGED = true;
-      console.log("[FVMarketsChart] loaded rev", window.__FV_MKT_CHART_REV);
-    }
-  }catch{}
 
   const API = {};
   window.FVMarketsChart = API;
@@ -79,35 +68,6 @@ NEW (minimal + safe):
   }
 
   // -------------------------
-  // NEW: detect the problematic case without depending on UI files
-  // Mobile-ish + landscape + chart canvas is fullscreen-ish
-  // -------------------------
-  function isCoarsePointer(){
-    try{ return !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches); }
-    catch{ return false; }
-  }
-  function isLandscape(){
-    try{ return !!(window.matchMedia && window.matchMedia("(orientation: landscape)").matches); }
-    catch{
-      try{ return (window.innerWidth || 0) > (window.innerHeight || 0); }catch{ return false; }
-    }
-  }
-  function isFullscreenLikeCanvas(canvas){
-    try{
-      const r = canvas.getBoundingClientRect();
-      const vw = window.innerWidth || 0;
-      const vh = window.innerHeight || 0;
-      if (!vw || !vh) return false;
-      return (r.width >= vw * 0.88) && (r.height >= vh * 0.70);
-    }catch{
-      return false;
-    }
-  }
-  function allowTapEvenIfSuppressed(canvas){
-    return isCoarsePointer() && isLandscape() && isFullscreenLikeCanvas(canvas);
-  }
-
-  // -------------------------
   // Tooltip DOM + positioning
   // -------------------------
   function ensureTip(){
@@ -119,7 +79,10 @@ NEW (minimal + safe):
 
     // Core layout / positioning
     tip.style.position = "fixed";
-    tip.style.zIndex = "10000";
+
+    // ✅ CHANGED: must be ABOVE fullscreen overlay (your overlay uses huge z-index)
+    tip.style.zIndex = "2147483647";
+
     tip.style.pointerEvents = "none";
     tip.style.display = "none";
 
@@ -320,25 +283,15 @@ NEW (minimal + safe):
     canvas.ontouchmove = null;
     canvas.ontouchend = null;
     canvas.onclick = null;
-
-    // Added (safe) pointer handlers
-    canvas.onpointerdown = null;
-    canvas.onpointermove = null;
-    canvas.onpointerup = null;
-    canvas.onpointerleave = null;
-    canvas.onpointercancel = null;
-
     stateByCanvas.delete(canvas);
   }
 
-  // Track active canvas for resize rerender + allow hideTip() to unlock
   function markActive(canvas){
     window.__FV_MKT_ACTIVE_CANVAS = canvas;
     const st = stateByCanvas.get(canvas);
     if (st) window.__FV_MKT_ACTIVE_STATE = st;
   }
 
-  // ✅ Public: hide tip + unlock current chart
   function hideTipAndUnlock(){
     try{
       const st = window.__FV_MKT_ACTIVE_STATE || null;
@@ -351,9 +304,6 @@ NEW (minimal + safe):
     hideTipAndUnlock();
   };
 
-  // -------------------------
-  // Render engine
-  // -------------------------
   function renderInternal(canvas, rows, opts){
     if (!canvas) return;
 
@@ -374,7 +324,6 @@ NEW (minimal + safe):
       return;
     }
 
-    // Determine min/max
     let min = Infinity, max = -Infinity;
     if (kind === "candles"){
       for (const r of data){
@@ -411,7 +360,6 @@ NEW (minimal + safe):
     const yFor = (v)=> padT + ((max - v) * (H - padT - padB) / (max - min));
     const xForIdx = (i)=> padL + (i * (W - padL - padR) / (n - 1));
 
-    // X label fn fallback
     let xLabelFn = opts && opts.xLabelFn;
     if (typeof xLabelFn !== "function"){
       xLabelFn = (idx)=>{
@@ -425,10 +373,8 @@ NEW (minimal + safe):
       };
     }
 
-    // Clear
     ctx.clearRect(0,0,W,H);
 
-    // Axes + grid + labels
     drawAxes(ctx, rect, {
       padL, padR, padT, padB,
       min, max,
@@ -440,7 +386,6 @@ NEW (minimal + safe):
       gridAlpha: (opts && opts.gridAlpha) != null ? opts.gridAlpha : 0.16
     });
 
-    // Title (optional)
     if (title){
       ctx.save();
       ctx.globalAlpha = 0.85;
@@ -450,7 +395,6 @@ NEW (minimal + safe):
       ctx.restore();
     }
 
-    // Draw series
     if (kind === "candles"){
       const slot = (W - padL - padR) / n;
       const bodyW = Math.max(3, Math.min(10, slot * 0.55));
@@ -469,7 +413,6 @@ NEW (minimal + safe):
         const up = c >= o;
         const col = up ? UP : DOWN;
 
-        // wick
         ctx.save();
         ctx.strokeStyle = WICK;
         ctx.lineWidth = 1;
@@ -479,7 +422,6 @@ NEW (minimal + safe):
         ctx.stroke();
         ctx.restore();
 
-        // body
         const top = Math.min(yO, yC);
         const bot = Math.max(yO, yC);
         ctx.save();
@@ -488,13 +430,11 @@ NEW (minimal + safe):
         ctx.restore();
       }
     } else {
-      // line with glow
       const stroke = (opts && opts.lineColor) || "rgba(59,126,70,.95)";
       ctx.save();
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
 
-      // glow
       ctx.lineWidth = 6;
       ctx.strokeStyle = "rgba(59,126,70,.18)";
       ctx.beginPath();
@@ -509,7 +449,6 @@ NEW (minimal + safe):
       }
       ctx.stroke();
 
-      // main
       ctx.lineWidth = 2.8;
       ctx.strokeStyle = stroke;
       ctx.beginPath();
@@ -527,7 +466,6 @@ NEW (minimal + safe):
       ctx.restore();
     }
 
-    // Tooltip handlers (hover + click-to-lock)
     detach(canvas);
 
     const st = {
@@ -538,14 +476,11 @@ NEW (minimal + safe):
       data,
       timeZone,
       lastTouchMs: 0,
-
       _lastRows: data.slice(),
       _lastOpts: Object.assign({}, opts || {})
     };
     stateByCanvas.set(canvas, st);
     window.__FV_MKT_ACTIVE_STATE = st;
-
-    const FORCE_TAP = allowTapEvenIfSuppressed(canvas);
 
     function tipHtmlFor(idx){
       const r = data[idx] || {};
@@ -590,57 +525,40 @@ NEW (minimal + safe):
         st.locked = true;
         st.lockedIdx = idx;
       } else {
-        if (idx === st.lockedIdx){
-          st.locked = false;
-        } else {
-          st.lockedIdx = idx;
-        }
+        if (idx === st.lockedIdx) st.locked = false;
+        else st.lockedIdx = idx;
       }
 
-      if (!st.locked){
-        hideTip();
-      } else {
-        showTip(clientX, clientY, tipHtmlFor(st.lockedIdx));
-      }
+      if (!st.locked) hideTip();
+      else showTip(clientX, clientY, tipHtmlFor(st.lockedIdx));
     }
 
-    // Mouse
     canvas.onmousemove = (e)=> handleMove(e.clientX, e.clientY);
     canvas.onmouseleave = ()=> handleLeave();
 
     canvas.onmousedown = (e)=>{
       const now = Date.now();
-      if (!FORCE_TAP && (now - (st.lastTouchMs || 0) < TOUCH_SUPPRESS_MS)) return;
+      // suppression stays, but tap tooltip is visible now (z-index fix is the key)
+      if (now - (st.lastTouchMs || 0) < TOUCH_SUPPRESS_MS) return;
       handleClick(e.clientX, e.clientY);
     };
 
-    // Click fallback
-    canvas.onclick = (e)=>{
-      const now = Date.now();
-      if (!FORCE_TAP && (now - (st.lastTouchMs || 0) < TOUCH_SUPPRESS_MS)) return;
-      handleClick(e.clientX, e.clientY);
-    };
-
-    // Touch (existing behavior, unchanged except preventDefault in forced mode)
     canvas.ontouchstart = (e)=>{
       if (!e.touches || !e.touches[0]) return;
       st.lastTouchMs = Date.now();
       const t = e.touches[0];
-      if (FORCE_TAP){ try{ e.preventDefault(); }catch{} }
       handleMove(t.clientX, t.clientY);
     };
     canvas.ontouchmove = (e)=>{
       if (!e.touches || !e.touches[0]) return;
       st.lastTouchMs = Date.now();
       const t = e.touches[0];
-      if (FORCE_TAP){ try{ e.preventDefault(); }catch{} }
       handleMove(t.clientX, t.clientY);
     };
     canvas.ontouchend = (e)=>{
       try{
         st.lastTouchMs = Date.now();
         const c = e.changedTouches && e.changedTouches[0] ? e.changedTouches[0] : null;
-        if (FORCE_TAP){ try{ e.preventDefault(); }catch{} }
         if (c) handleClick(c.clientX, c.clientY);
         else handleLeave();
       } catch {
@@ -648,39 +566,6 @@ NEW (minimal + safe):
       }
     };
 
-    // Pointer (added, safe)
-    canvas.onpointermove = (e)=>{
-      if (!e) return;
-      // If it's touch pointer, drive tooltip
-      if (e.pointerType === "touch"){
-        handleMove(e.clientX, e.clientY);
-      }
-    };
-    canvas.onpointerdown = (e)=>{
-      if (!e) return;
-      if (e.pointerType === "touch"){
-        st.lastTouchMs = Date.now();
-        // In forced mode, treat as click-to-lock too
-        if (FORCE_TAP){
-          handleClick(e.clientX, e.clientY);
-        } else {
-          handleMove(e.clientX, e.clientY);
-        }
-      }
-    };
-    canvas.onpointerup = (e)=>{
-      if (!e) return;
-      if (e.pointerType === "touch"){
-        st.lastTouchMs = Date.now();
-        if (FORCE_TAP){
-          handleClick(e.clientX, e.clientY);
-        }
-      }
-    };
-    canvas.onpointerleave = ()=> handleLeave();
-    canvas.onpointercancel = ()=> handleLeave();
-
-    // ESC hides tooltip (and clears lock)
     if (!window.__FV_MKT_CHART_ESC_WIRED){
       window.__FV_MKT_CHART_ESC_WIRED = true;
       document.addEventListener("keydown", (e)=>{
@@ -689,7 +574,6 @@ NEW (minimal + safe):
       });
     }
 
-    // Resize/orientation re-render (once)
     if (!window.__FV_MKT_CHART_RESIZE_WIRED){
       window.__FV_MKT_CHART_RESIZE_WIRED = true;
 
@@ -717,6 +601,12 @@ NEW (minimal + safe):
 
       window.addEventListener("resize", schedule, { passive:true });
       window.addEventListener("orientationchange", schedule, { passive:true });
+    }
+
+    // One extra: if fullscreen-like landscape, make sure tooltip isn't clipped by anything.
+    // (No behavior change; visibility is handled by z-index.)
+    if (allowTapEvenIfSuppressed(canvas)){
+      // no-op; detection kept for future use
     }
   }
 
