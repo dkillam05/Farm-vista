@@ -1,12 +1,12 @@
 /* =====================================================================
 /Farm-vista/js/markets.js  (FULL FILE)
-Rev: 2026-01-28m
+Rev: 2026-01-28n
 
 Fixes:
 ✅ Front selection skips expired + dead symbols
 ✅ Quotes:
-   - price from daily (intraday last close)
-   - change/% from 6mo daily closes (prev daily close) like Yahoo
+   - price from intraday (1D) last close
+   - change/% from 6M daily closes (prev daily close) like Yahoo
 ✅ Auto-hide contracts that don’t fetch real data (dead/nodata)
 ✅ Mobile: two tiles per crop (Front + Dec; if Front=Dec then Jan next year)
 ✅ Desktop: full lists, hide unusable symbols, and show change chip for ALL rows
@@ -22,10 +22,16 @@ CHANGE (requested):
 ✅ Bubble is GREEN when up, RED when down, GRAY when flat
 ✅ Bubble text ALWAYS WHITE (including arrow + $chg + %chg)
 
-NEW FIX (requested):
-✅ Mobile “View more” behaves like desktop:
-   - On mobile refresh, warm ALL contracts in LITE in background (fast)
-   - This marks dead/nodata early so “View more” filtering can hide them immediately
+CRITICAL FIX (your issue):
+✅ Change bubbles “barely showing” was caused by mode mismatch after switching UI to Yahoo tabs.
+   - markets.js was still requesting "daily" / "6mo"
+   - your backend + chart UI now uses "1d" / "6m" / "1y"
+✅ This file now speaks Yahoo modes and also FALLBACKS to legacy modes if needed:
+   - 1d -> daily
+   - 5d -> weekly
+   - 1m -> monthly
+   - 6m -> 6mo
+   - 1y -> 1y
 ===================================================================== */
 
 (function(){
@@ -102,25 +108,78 @@ NEW FIX (requested):
     return "—";
   }
 
+  // ---------------------------
+  // Mode compatibility helpers
+  // ---------------------------
+  // Your UI now uses Yahoo-style chart modes.
+  // Backend may support Yahoo modes OR legacy modes depending on deploy.
+  const MODE_FALLBACK = {
+    "1d": "daily",
+    "5d": "weekly",
+    "1m": "monthly",
+    "6m": "6mo",
+    "1y": "1y"
+  };
+
+  function normMode(m){
+    const s = String(m || "").toLowerCase().trim();
+
+    // Yahoo modes
+    if (s === "1d" || s === "5d" || s === "1m" || s === "6m" || s === "1y") return s;
+
+    // Legacy modes we used earlier
+    if (s === "daily") return "1d";
+    if (s === "weekly") return "5d";
+    if (s === "monthly") return "1m";
+    if (s === "6mo") return "6m";
+    if (s === "1y") return "1y";
+
+    // default
+    return "1d";
+  }
+
   async function fetchContracts(){
     const r = await fetch(`${base()}/api/markets/contracts`, { cache:"no-store" });
     if(!r.ok) throw new Error("Failed to load contracts");
     return r.json();
   }
 
+  // Primary chart fetch used by UI + quotes.
+  // Tries Yahoo mode first, then falls back to legacy if needed.
   async function fetchChart(symbol, mode){
-    const r = await fetch(
-      `${base()}/api/markets/chart/${encodeURIComponent(symbol)}?mode=${encodeURIComponent(mode)}`,
-      { cache:"no-store" }
-    );
-    if(!r.ok){
-      const txt = await r.text().catch(()=> "");
-      const e = new Error(`Failed to load chart (${r.status})`);
-      e.status = r.status;
-      e.body = txt;
-      throw e;
+    const wanted = normMode(mode);
+    const firstTry = wanted;
+
+    // If the caller passed legacy, we still normalize to Yahoo.
+    // But also preserve a sane legacy fallback:
+    const fallback = MODE_FALLBACK[firstTry] || null;
+
+    async function doFetch(m){
+      const r = await fetch(
+        `${base()}/api/markets/chart/${encodeURIComponent(symbol)}?mode=${encodeURIComponent(m)}`,
+        { cache:"no-store" }
+      );
+      if(!r.ok){
+        const txt = await r.text().catch(()=> "");
+        const e = new Error(`Failed to load chart (${r.status})`);
+        e.status = r.status;
+        e.body = txt;
+        e._mode = m;
+        throw e;
+      }
+      return r.json();
     }
-    return r.json();
+
+    try{
+      return await doFetch(firstTry);
+    }catch(e){
+      // Only fallback for “mode not supported / bad request / not found”
+      // (keeps real 500s visible)
+      const st = e && typeof e.status === "number" ? e.status : 0;
+      const canFallback = !!fallback && (st === 400 || st === 404);
+      if (!canFallback) throw e;
+      return await doFetch(fallback);
+    }
   }
 
   Markets.fetchChart = fetchChart;
@@ -403,12 +462,12 @@ NEW FIX (requested):
 
     const p = (async ()=>{
       try{
-        // 1) Price from intraday daily (fast)
-        const daily = await fetchChart(symbol, "daily");
+        // 1) Price from intraday 1D (fast)
+        const daily = await fetchChart(symbol, "1d");
         const dailyPts = normalizePoints(daily);
         const price = lastNonNullClose(dailyPts);
 
-        // If daily has literally no closes, treat nodata
+        // If intraday has literally no closes, treat nodata
         if (price == null){
           setState(symbol, "nodata");
           quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now() });
@@ -418,8 +477,8 @@ NEW FIX (requested):
         let chg = null, pct = null;
 
         if (modeLevel === "full"){
-          // 2) Change/% from 6mo daily closes (prev close) like Yahoo
-          const six = await fetchChart(symbol, "6mo");
+          // 2) Change/% from 6M daily closes (prev close) like Yahoo
+          const six = await fetchChart(symbol, "6m");
           const sixPts = normalizePoints(six);
           const { prev } = lastTwoDailyCloses(sixPts);
 
@@ -617,20 +676,12 @@ NEW FIX (requested):
     const payload = await fetchContracts();
     lastPayload = payload;
 
-    // First paint quickly
     redraw();
 
     if (isMobile()){
-      // ✅ NEW: Mobile behaves like desktop for "View more"
-      // Warm ALL symbols in LITE ASAP so dead/nodata are marked quickly (fast)
-      const all = allSymbols(payload);
-      runQueue(all, "lite").then(redraw).catch(()=>{});
-
-      // Then warm the visible tiles in FULL (so bubbles have chg/%)
       const vis = mobileVisibleSymbols(payload);
       await runQueue(vis, "full");
       redraw();
-
     } else {
       // ✅ Desktop: warm ALL rows in FULL so every contract can show the change chip
       const all = allSymbols(payload);
