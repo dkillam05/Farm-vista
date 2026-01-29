@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-ui.js  (FULL FILE)
-Rev: 2026-01-28n
+Rev: 2026-01-28o
 Purpose:
 ✅ Thin UI orchestrator for Markets
    - Opens/closes modal
@@ -15,26 +15,12 @@ Delegates:
    - Series shaping → FVMarketsSeries
    - Quote badges → FVMarketsQuotes
 
-Mobile fixes:
-✅ View-more list shows quotes immediately (no more --- until tap)
-   - Warm quotes on open (lite -> paint -> full -> paint)
-   - Paint rows from FVMarkets.getQuote() so it works even if FVMarketsQuotes is slow
-✅ Auto-scroll to chart after selecting a contract (mobile only)
-   - Smooth scroll to chart panel so user sees the chart instantly
-
-NEW fixes:
-✅ View-more list filters like desktop:
-   - Hides expired contracts (practical rule: same month + day>=21)
-   - Hides dead/no-data contracts when FVMarkets.isSymbolUsable() is available
-✅ Adds an “X” close button in the top-right
-✅ Removes the old "Close" button (no overlap / no duplicate controls)
-✅ When switching charts/tabs, clears any locked tooltip immediately
-
-Landscape-only mobile improvement (UPDATED):
-✅ When phone is rotated to landscape (mobile only), markets modal becomes TRUE full-screen:
-   - Backdrop becomes fixed inset 0 + very high z-index (covers app header/footer)
-   - Modal fills viewport, chart fits screen without page scrolling
-   - DOES NOT affect desktop or mobile portrait
+Landscape-only mobile improvement:
+✅ Mobile landscape modal is TRUE fullscreen (covers header/footer)
+✅ NEW: In mobile landscape fullscreen, canvas auto-fits the screen:
+   - Chart + axis labels stay visible without “scrolling around”
+   - Re-fits on tab change + orientation/viewport changes
+✅ DOES NOT affect desktop or mobile portrait
 ===================================================================== */
 
 (function(){
@@ -53,6 +39,14 @@ Landscape-only mobile improvement (UPDATED):
   ];
 
   const DEFAULT_MODE = "1d";
+
+  // Cache last rendered chart so we can re-render after resize in fullscreen landscape
+  const LAST_RENDER = {
+    symbol: null,
+    mode: null,
+    rows: null,
+    opts: null
+  };
 
   function qs(sel, root=document){ return root.querySelector(sel); }
 
@@ -113,9 +107,9 @@ Landscape-only mobile improvement (UPDATED):
   function parseSymbolYM(symbol){
     try{
       const s = String(symbol || "");
-      const core = s.split(".")[0];        // ZSH26 from ZSH26.CBT
-      const mCode = core.slice(-3, -2);    // H
-      const yyStr = core.slice(-2);        // 26
+      const core = s.split(".")[0];
+      const mCode = core.slice(-3, -2);
+      const yyStr = core.slice(-2);
       const month = MONTH_CODE[mCode] || null;
       const yy = parseInt(yyStr, 10);
       if (!month || !isFinite(yy)) return null;
@@ -126,7 +120,6 @@ Landscape-only mobile improvement (UPDATED):
     }
   }
 
-  // Practical expired rule:
   function isExpiredContract(symbol){
     const ym = parseSymbolYM(symbol);
     if (!ym) return false;
@@ -159,17 +152,15 @@ Landscape-only mobile improvement (UPDATED):
     for (const c of (list || [])){
       const sym = c?.symbol;
       if (!sym) continue;
-
       if (isExpiredContract(sym)) continue;
       if (!isSymbolUsable(sym)) continue;
-
       out.push(c);
     }
     return out;
   }
 
   // --------------------------------------------------
-  // Landscape-only fullscreen (mobile only)
+  // Landscape-only fullscreen + auto-fit canvas
   // --------------------------------------------------
   const LANDSCAPE_CLASS = "fv-mkt-landscape-full";
   const LANDSCAPE_STYLE_ID = "fv-mkt-landscape-full-style";
@@ -180,26 +171,19 @@ Landscape-only mobile improvement (UPDATED):
     const st = document.createElement("style");
     st.id = LANDSCAPE_STYLE_ID;
     st.textContent = `
-      /* ===============================
-         TRUE fullscreen takeover
-         ONLY when JS adds .${LANDSCAPE_CLASS}
-         =============================== */
-
-      /* Backdrop is the thing that must cover header/footer */
       #${BACKDROP_ID}.open.${LANDSCAPE_CLASS}{
         position: fixed !important;
         inset: 0 !important;
         width: 100vw !important;
         height: 100dvh !important;
-        z-index: 2147483000 !important; /* over any app header/footer */
+        z-index: 2147483000 !important;
         margin: 0 !important;
         padding: 0 !important;
         overflow: hidden !important;
         display: block !important;
-        background: rgba(0,0,0,0.35); /* optional dim */
+        background: rgba(0,0,0,0.35);
       }
 
-      /* Modal fills viewport */
       #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID}{
         position: absolute !important;
         inset: 0 !important;
@@ -213,24 +197,23 @@ Landscape-only mobile improvement (UPDATED):
         flex-direction: column !important;
       }
 
-      /* Header stays visible; body becomes the only scroll/space region */
       #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-head{
         flex: 0 0 auto !important;
         position: relative !important;
         z-index: 5 !important;
       }
+
       #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} #fv-mktm-body{
         flex: 1 1 auto !important;
-        height: auto !important;
-        overflow: hidden !important; /* prevent “scroll around” feeling */
+        overflow: hidden !important;
         min-height: 0 !important;
       }
 
-      /* Stretch grid + chart to fill remaining space */
       #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-grid{
         height: 100% !important;
         min-height: 0 !important;
       }
+
       #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-chart{
         height: 100% !important;
         min-height: 0 !important;
@@ -239,12 +222,10 @@ Landscape-only mobile improvement (UPDATED):
         flex-direction: column !important;
       }
 
-      /* Let the canvas take the remaining height under title/tabs */
+      /* Title + tabs/range remain natural height; canvas is flexed by JS-fit */
       #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-canvas{
-        flex: 1 1 auto !important;
-        width: 100% !important;
-        height: auto !important;
         display: block !important;
+        width: 100% !important;
         touch-action: none;
       }
 
@@ -268,6 +249,55 @@ Landscape-only mobile improvement (UPDATED):
     return true;
   }
 
+  function isLandscapeFullscreenActive(){
+    const back = document.getElementById(BACKDROP_ID);
+    return !!(back && back.classList.contains("open") && back.classList.contains(LANDSCAPE_CLASS));
+  }
+
+  function fitCanvasToPanel(){
+    // Only do this in landscape fullscreen (you asked: don’t touch portrait or desktop)
+    if (!isLandscapeFullscreenActive()) return;
+
+    const chart = qs(".fv-mktm-chart");
+    const canvas = qs("#fv-mktm-canvas");
+    if (!chart || !canvas) return;
+
+    // Measure fixed elements above/below the canvas within .fv-mktm-chart
+    const title = qs("#fv-mktm-chart-hdr");
+    const sub = chart.querySelector(".fv-mktm-sub");  // first sub (tabs/range)
+    const note = qs("#fv-mktm-note");
+
+    const chartH = chart.clientHeight || 0;
+    const used =
+      (title ? title.offsetHeight : 0) +
+      (sub ? sub.offsetHeight : 0) +
+      (note ? note.offsetHeight : 0);
+
+    // Small padding allowance
+    const pad = 16;
+
+    let avail = chartH - used - pad;
+    if (!isFinite(avail) || avail < 120) avail = 120;
+
+    // Force the CSS height so axis labels stay visible in the viewport
+    canvas.style.height = `${Math.floor(avail)}px`;
+    canvas.style.width = "100%";
+
+    // Prefer native resize hook if your chart lib has it
+    try{
+      if (window.FVMarketsChart && typeof window.FVMarketsChart.resize === "function"){
+        window.FVMarketsChart.resize(canvas);
+      }
+    }catch{}
+
+    // If no resize() exists (or it doesn't redraw), re-render from our cache
+    try{
+      if (LAST_RENDER.rows && LAST_RENDER.opts && window.FVMarketsChart && typeof window.FVMarketsChart.render === "function"){
+        window.FVMarketsChart.render(canvas, LAST_RENDER.rows, LAST_RENDER.opts);
+      }
+    }catch{}
+  }
+
   function updateLandscapeFullscreen(){
     const back = document.getElementById(BACKDROP_ID);
     if (!back) return;
@@ -275,17 +305,18 @@ Landscape-only mobile improvement (UPDATED):
     if (shouldGoLandscapeFullscreen()){
       back.classList.add(LANDSCAPE_CLASS);
 
-      // If chart renderer needs a nudge after layout change
-      setTimeout(()=> {
-        try{
-          const canvas = qs("#fv-mktm-canvas");
-          if (canvas && window.FVMarketsChart && typeof window.FVMarketsChart.resize === "function"){
-            window.FVMarketsChart.resize(canvas);
-          }
-        }catch{}
-      }, 120);
+      // iOS: wait a tick for layout + address bar to settle, then fit canvas
+      setTimeout(()=>{ fitCanvasToPanel(); }, 120);
+      setTimeout(()=>{ fitCanvasToPanel(); }, 260);
     } else {
       back.classList.remove(LANDSCAPE_CLASS);
+
+      // Clear any forced height when leaving fullscreen
+      const canvas = qs("#fv-mktm-canvas");
+      if (canvas){
+        canvas.style.height = "";
+        canvas.style.width = "";
+      }
     }
   }
 
@@ -303,7 +334,6 @@ Landscape-only mobile improvement (UPDATED):
         <div class="fv-mktm-head" style="position:relative;">
           <h2 class="fv-mktm-title" id="fv-mktm-title">Markets</h2>
 
-          <!-- X close (top-right) -->
           <button type="button"
                   class="fv-mktm-btn"
                   id="fv-mktm-close-x"
@@ -347,11 +377,18 @@ Landscape-only mobile improvement (UPDATED):
     back.classList.remove(LANDSCAPE_CLASS);
     document.body.style.overflow = "";
 
+    // Clear any tooltip/lock when closing
     try{
       if (window.FVMarketsChart && typeof window.FVMarketsChart.hideTip === "function"){
         window.FVMarketsChart.hideTip();
       }
     }catch{}
+
+    // Clear cache
+    LAST_RENDER.symbol = null;
+    LAST_RENDER.mode = null;
+    LAST_RENDER.rows = null;
+    LAST_RENDER.opts = null;
   }
 
   function setTitle(t){
@@ -363,10 +400,11 @@ Landscape-only mobile improvement (UPDATED):
     const el = qs("#fv-mktm-body");
     if (el) el.innerHTML = html || "";
     updateLandscapeFullscreen();
+    setTimeout(fitCanvasToPanel, 60);
   }
 
   // --------------------------------------------------
-  // Quote painting for list rows (mobile + desktop)
+  // Quote painting for list rows
   // --------------------------------------------------
   function paintRowQuote(rowEl, sym){
     if (!rowEl || !sym) return;
@@ -476,6 +514,7 @@ Landscape-only mobile improvement (UPDATED):
     setChartHeader(symbol);
     wireTabs(()=>symbol);
 
+    fitCanvasToPanel();
     loadChart(symbol, DEFAULT_MODE);
   }
 
@@ -555,6 +594,7 @@ Landscape-only mobile improvement (UPDATED):
         const active = qs(".fv-mktm-tab[aria-selected='true']");
         const mode = active ? (active.getAttribute("data-mode") || DEFAULT_MODE) : DEFAULT_MODE;
 
+        fitCanvasToPanel();
         loadChart(currentSymbol, mode);
 
         if (window.FVMarkets && typeof window.FVMarkets.warmQuotes === "function"){
@@ -606,6 +646,7 @@ Landscape-only mobile improvement (UPDATED):
         document.querySelectorAll(".fv-mktm-tab").forEach(b=>b.setAttribute("aria-selected","false"));
         btn.setAttribute("aria-selected","true");
 
+        // Clear any locked tooltip immediately on tab switch
         try{
           if (window.FVMarketsChart && typeof window.FVMarketsChart.hideTip === "function"){
             window.FVMarketsChart.hideTip();
@@ -614,6 +655,8 @@ Landscape-only mobile improvement (UPDATED):
 
         const sym = (typeof getSymbol === "function") ? getSymbol() : null;
         if (!sym) return;
+
+        fitCanvasToPanel();
         loadChart(sym, mode);
 
         scrollToChartPanel();
@@ -630,6 +673,7 @@ Landscape-only mobile improvement (UPDATED):
 
     const m = String(mode || DEFAULT_MODE).toLowerCase();
 
+    // Clear any locked tooltip immediately when loading a new series
     try{
       if (window.FVMarketsChart && typeof window.FVMarketsChart.hideTip === "function"){
         window.FVMarketsChart.hideTip();
@@ -647,23 +691,43 @@ Landscape-only mobile improvement (UPDATED):
       if (!shaped.ok){
         window.FVMarketsChart.clear(canvas);
         if (note) note.textContent = "No chart data at this time";
+        LAST_RENDER.symbol = symbol;
+        LAST_RENDER.mode = m;
+        LAST_RENDER.rows = null;
+        LAST_RENDER.opts = null;
         return;
       }
 
-      window.FVMarketsChart.render(canvas, shaped.rows, {
+      // Fit canvas BEFORE render (so renderer draws correct size)
+      fitCanvasToPanel();
+
+      const opts = {
         kind: shaped.kind,
         xLabelFn: shaped.xLabelFn,
         xLabelCount: shaped.xLabelCount,
         timeZone: shaped.timeZone
-      });
+      };
+
+      window.FVMarketsChart.render(canvas, shaped.rows, opts);
+
+      // Cache for resize re-render in fullscreen landscape
+      LAST_RENDER.symbol = symbol;
+      LAST_RENDER.mode = m;
+      LAST_RENDER.rows = shaped.rows;
+      LAST_RENDER.opts = opts;
 
       if (note) note.textContent = "";
 
-      updateLandscapeFullscreen();
+      // One more fit after paint (iOS layout can shift)
+      setTimeout(fitCanvasToPanel, 80);
     } catch {
       window.FVMarketsChart.clear(canvas);
       if (note) note.textContent = "No chart data at this time";
       if (range) range.textContent = "";
+      LAST_RENDER.symbol = symbol;
+      LAST_RENDER.mode = m;
+      LAST_RENDER.rows = null;
+      LAST_RENDER.opts = null;
     }
   }
 
@@ -674,17 +738,19 @@ Landscape-only mobile improvement (UPDATED):
     ensureModal();
 
     window.addEventListener("orientationchange", ()=>{
-      setTimeout(updateLandscapeFullscreen, 160);
+      setTimeout(()=>{ updateLandscapeFullscreen(); fitCanvasToPanel(); }, 180);
     });
 
     window.addEventListener("resize", ()=>{
       updateLandscapeFullscreen();
+      setTimeout(fitCanvasToPanel, 60);
     });
 
     if (window.visualViewport){
       try{
         window.visualViewport.addEventListener("resize", ()=>{
           updateLandscapeFullscreen();
+          setTimeout(fitCanvasToPanel, 60);
         });
       }catch{}
     }
