@@ -314,6 +314,23 @@
       font-size:18px;
       opacity:.85;
     }
+    /* ===== Desktop: tighten top drawer to right side ===== */
+@media (min-width: 900px) {
+  .topdrawer{
+    left: auto;
+    right: 16px;
+    width: 420px;
+    max-width: calc(100vw - 32px);
+    border-radius: 16px;
+    top: 8px;
+  }
+
+  .topwrap{
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+}
+
   </style>
 
   <header class="hdr" part="header">
