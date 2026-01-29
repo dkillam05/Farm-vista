@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-ui.js  (FULL FILE)
-Rev: 2026-01-28l
+Rev: 2026-01-29a
 Purpose:
 ✅ Thin UI orchestrator for Markets
    - Opens/closes modal
@@ -29,6 +29,18 @@ NEW fixes:
 ✅ Adds an “X” close button in the top-right
 ✅ Removes the old "Close" button (no overlap / no duplicate controls)
 ✅ When switching charts/tabs, clears any locked tooltip immediately
+
+NEW (this rev):
+✅ Mobile charts go TRUE fullscreen (no header/footer visible; no scrolling needed)
+   - Modal + backdrop are forced fixed/inset:0 with a very high z-index
+   - Chart layout uses flex so canvas fills remaining height
+✅ View-more (split) on mobile:
+   - Selecting a contract switches to fullscreen chart view automatically (hides the list)
+   - A “List” button appears so you can jump back to the contract list
+✅ Orientation-aware shaping:
+   - Pass { isLandscape } into FVMarketsSeries.shape so labels update on rotate
+✅ 1D day label support (if series provides it):
+   - If shaped.sessionLabel exists, show “1D • Wed 1/29” in the range area
 ===================================================================== */
 
 (function(){
@@ -53,6 +65,18 @@ NEW fixes:
   function isMobile(){
     try{ return window.matchMedia && window.matchMedia("(max-width: 899px)").matches; }
     catch{ return false; }
+  }
+
+  function isLandscape(){
+    try{
+      if (window.matchMedia){
+        const mq = window.matchMedia("(orientation: landscape)");
+        if (mq && typeof mq.matches === "boolean") return mq.matches;
+      }
+      return (window.innerWidth > window.innerHeight);
+    } catch {
+      return false;
+    }
   }
 
   function toNum(x){
@@ -158,9 +182,132 @@ NEW fixes:
   }
 
   // --------------------------------------------------
+  // Fullscreen mobile styling (injected once)
+  // --------------------------------------------------
+  function ensureStyles(){
+    if (document.getElementById("fv-mktm-style")) return;
+
+    const css = document.createElement("style");
+    css.id = "fv-mktm-style";
+    css.textContent = `
+/* Backdrop + modal should ALWAYS overlay app header/footer */
+#${BACKDROP_ID}{
+  position:fixed !important;
+  inset:0 !important;
+  z-index:999999 !important;
+  background:rgba(0,0,0,0.45);
+  display:none;
+}
+#${BACKDROP_ID}.open{ display:block; }
+
+#${MODAL_ID}{
+  position:fixed !important;
+  inset:0 !important;
+  width:100vw !important;
+  height:100vh !important;
+  max-height:100vh !important;
+  margin:0 !important;
+  border-radius:0 !important;
+  overflow:hidden !important;
+  background:var(--panel, #101513);
+  color:inherit;
+}
+
+/* Body region inside modal: flex so chart can fill viewport without scroll */
+#fv-mktm-body{
+  height:calc(100vh - 52px); /* header area */
+  overflow:hidden;
+}
+
+/* Default grid behaviors */
+.fv-mktm-grid{ height:100%; }
+
+/* Chart panel should fill available height */
+.fv-mktm-chart{
+  height:100%;
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+}
+
+/* Tabs + range row stays compact */
+.fv-mktm-sub{
+  flex:0 0 auto;
+}
+
+/* Canvas fills remaining height */
+.fv-mktm-canvas{
+  flex:1 1 auto;
+  width:100% !important;
+  height:auto !important;
+  min-height:0;
+  display:block;
+}
+
+/* Note area stays below but compact */
+#fv-mktm-note{
+  flex:0 0 auto;
+}
+
+/* Split layout on mobile: allow list OR chart fullscreen */
+@media (max-width: 899px){
+  .fv-mktm-split{
+    display:flex;
+    flex-direction:column;
+    height:100%;
+    min-height:0;
+  }
+  .fv-mktm-list{
+    overflow:auto;
+    -webkit-overflow-scrolling:touch;
+    height:100%;
+  }
+
+  /* Fullscreen chart mode (hide list, chart takes all) */
+  #${BACKDROP_ID}.fv-mktm-fullchart .fv-mktm-list{
+    display:none !important;
+  }
+  #${BACKDROP_ID}.fv-mktm-fullchart #fv-mktm-chartpanel{
+    height:100% !important;
+  }
+
+  /* When fullchart, keep header/title visible but everything else uses viewport */
+  #${BACKDROP_ID}.fv-mktm-fullchart #fv-mktm-body{
+    height:calc(100vh - 52px);
+  }
+}
+
+/* Small helper buttons */
+.fv-mktm-head-actions{
+  position:absolute;
+  left:0;
+  top:0;
+  display:flex;
+  gap:8px;
+  align-items:center;
+  height:30px;
+}
+.fv-mktm-btn-mini{
+  height:30px;
+  padding:0 10px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,0.18);
+  background:rgba(255,255,255,0.06);
+  color:inherit;
+  font-weight:600;
+  cursor:pointer;
+}
+.fv-mktm-btn-mini:active{ transform:scale(0.98); }
+`;
+    document.head.appendChild(css);
+  }
+
+  // --------------------------------------------------
   // Modal shell
   // --------------------------------------------------
   function ensureModal(){
+    ensureStyles();
+
     let back = document.getElementById(BACKDROP_ID);
     if (back) return back;
 
@@ -169,6 +316,8 @@ NEW fixes:
     back.innerHTML = `
       <div id="${MODAL_ID}" role="dialog" aria-modal="true">
         <div class="fv-mktm-head" style="position:relative;">
+          <div class="fv-mktm-head-actions" id="fv-mktm-head-actions"></div>
+
           <h2 class="fv-mktm-title" id="fv-mktm-title">Markets</h2>
 
           <!-- X close (top-right) -->
@@ -201,7 +350,9 @@ NEW fixes:
   }
 
   function openModal(){
-    ensureModal().classList.add("open");
+    const back = ensureModal();
+    back.classList.add("open");
+    back.classList.remove("fv-mktm-fullchart"); // reset
     document.body.style.overflow = "hidden";
   }
 
@@ -209,6 +360,7 @@ NEW fixes:
     const back = document.getElementById(BACKDROP_ID);
     if (!back) return;
     back.classList.remove("open");
+    back.classList.remove("fv-mktm-fullchart");
     document.body.style.overflow = "";
 
     // Clear any tooltip/lock when closing
@@ -227,6 +379,24 @@ NEW fixes:
   function setBody(html){
     const el = qs("#fv-mktm-body");
     if (el) el.innerHTML = html || "";
+  }
+
+  function setHeadActions(html){
+    const el = qs("#fv-mktm-head-actions");
+    if (el) el.innerHTML = html || "";
+  }
+
+  function enterFullChartMode(){
+    const back = document.getElementById(BACKDROP_ID);
+    if (!back) return;
+    if (!isMobile()) return;
+    back.classList.add("fv-mktm-fullchart");
+  }
+
+  function exitFullChartMode(){
+    const back = document.getElementById(BACKDROP_ID);
+    if (!back) return;
+    back.classList.remove("fv-mktm-fullchart");
   }
 
   // --------------------------------------------------
@@ -321,6 +491,9 @@ NEW fixes:
     openModal();
     setTitle(symbol);
 
+    // Single chart always “fullscreen chart” (there is no list to show)
+    setHeadActions("");
+
     setBody(`
       <div class="fv-mktm-grid fv-mktm-chartonly">
         <div class="fv-mktm-chart">
@@ -392,11 +565,26 @@ NEW fixes:
 
           <canvas class="fv-mktm-canvas" id="fv-mktm-canvas"></canvas>
           <div class="fv-mktm-sub" id="fv-mktm-note">
-            Tap a contract on the left to load the chart.
+            Tap a contract on the list to load the chart.
           </div>
         </div>
       </div>
     `);
+
+    // Head actions: “List” button (only useful on mobile after selecting a contract)
+    setHeadActions(`
+      <button type="button" class="fv-mktm-btn-mini" id="fv-mktm-show-list" style="display:none;">List</button>
+    `);
+
+    const listBtn = qs("#fv-mktm-show-list");
+    if (listBtn){
+      listBtn.addEventListener("click", ()=>{
+        // Return to list view
+        exitFullChartMode();
+        listBtn.style.display = "none";
+        setTitle(crop === "corn" ? "Corn contracts" : "Soybean contracts");
+      });
+    }
 
     // Warm & paint list rows so we don't show --- on mobile
     warmAndPaintList(symbols).catch(()=>{});
@@ -434,6 +622,12 @@ NEW fixes:
             .catch(()=>{});
         } else if (window.FVMarketsQuotes){
           try{ window.FVMarketsQuotes.warmAndUpdate([currentSymbol], "full"); } catch {}
+        }
+
+        // ✅ Mobile: switch to fullscreen chart view (no scrolling around)
+        if (isMobile()){
+          enterFullChartMode();
+          if (listBtn) listBtn.style.display = "inline-flex";
         }
 
         scrollToChartPanel();
@@ -490,6 +684,24 @@ NEW fixes:
     });
   }
 
+  // Keep last render so we can re-render on rotate/resize without refetch
+  let LAST_RENDER = null; // { canvas, rows, opts }
+
+  function rerenderIfOpen(){
+    const back = document.getElementById(BACKDROP_ID);
+    if (!back || !back.classList.contains("open")) return;
+    if (!LAST_RENDER) return;
+
+    const { canvas, rows, opts } = LAST_RENDER;
+    if (!canvas || !rows || !rows.length) return;
+
+    try{
+      if (window.FVMarketsChart && typeof window.FVMarketsChart.render === "function"){
+        window.FVMarketsChart.render(canvas, rows, opts);
+      }
+    }catch{}
+  }
+
   async function loadChart(symbol, mode){
     const canvas = qs("#fv-mktm-canvas");
     const note = qs("#fv-mktm-note");
@@ -510,26 +722,37 @@ NEW fixes:
 
     try{
       const raw = await window.FVMarkets.fetchChart(symbol, m);
-      const shaped = window.FVMarketsSeries.shape(raw, m);
 
-      if (range) range.textContent = shaped.label || "";
+      const shaped = window.FVMarketsSeries.shape(raw, m, { isLandscape: isLandscape() });
+
+      // Range label (and 1D session label if available)
+      if (range){
+        const hasSession = (m === "1d") && shaped && shaped.sessionLabel;
+        range.textContent = hasSession ? `${shaped.label || ""} • ${shaped.sessionLabel}` : (shaped.label || "");
+      }
 
       if (!shaped.ok){
         window.FVMarketsChart.clear(canvas);
+        LAST_RENDER = null;
         if (note) note.textContent = "No chart data at this time";
         return;
       }
 
-      window.FVMarketsChart.render(canvas, shaped.rows, {
+      const opts = {
         kind: shaped.kind,
         xLabelFn: shaped.xLabelFn,
         xLabelCount: shaped.xLabelCount,
         timeZone: shaped.timeZone
-      });
+      };
+
+      window.FVMarketsChart.render(canvas, shaped.rows, opts);
+
+      LAST_RENDER = { canvas, rows: shaped.rows, opts };
 
       if (note) note.textContent = "";
     } catch {
       window.FVMarketsChart.clear(canvas);
+      LAST_RENDER = null;
       if (note) note.textContent = "No chart data at this time";
       if (range) range.textContent = "";
     }
@@ -540,6 +763,17 @@ NEW fixes:
   // --------------------------------------------------
   function init(){
     ensureModal();
+
+    // Re-render chart on rotate/resize so fullscreen always shows the full plot
+    // (No refetch; we just re-render the last shaped rows.)
+    window.addEventListener("resize", ()=>{
+      // slight delay allows viewport to settle after rotate
+      setTimeout(rerenderIfOpen, 120);
+    });
+
+    window.addEventListener("orientationchange", ()=>{
+      setTimeout(rerenderIfOpen, 180);
+    });
 
     window.addEventListener("fv:markets:contractTap", e=>{
       if (e?.detail?.symbol) openChart(e.detail.symbol);
