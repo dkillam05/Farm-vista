@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-series.js  (FULL FILE)
-Rev: 2026-01-29c
+Rev: 2026-01-29d
 Purpose:
 ✅ Time-range + series shaping helper for FarmVista Markets charts (standalone)
 ✅ Converts Cloud Run chart.points[] into normalized series rows for:
@@ -24,9 +24,12 @@ Purpose:
    - range label text (replaces "Points:")
    - x-axis label function appropriate to mode
 ✅ Safe global API:
-   window.FVMarketsSeries.shape(points, mode, opts) -> { ok, mode, kind, label, rows, xLabelFn, xLabelCount, timeZone }
+   window.FVMarketsSeries.shape(points, mode, opts) -> { ok, mode, kind, label, rows, xLabelFn, xLabelCount, timeZone, sessionLabel }
 
 Fixes in this rev:
+✅ 1D will NOT go blank in the morning:
+   - If today has no RTH bars yet, it shows yesterday’s most recent RTH session instead.
+✅ Adds sessionLabel (e.g., "Thu 1/29" or "Wed 1/28") so UI can display what day is shown.
 ✅ 5D x-axis is orientation-aware:
    - Portrait (vertical): DATE ONLY (M/D) — no hour (prevents overlap)
    - Landscape (horizontal): Hour labels, with DATE shown only at day breaks (Yahoo-like)
@@ -196,23 +199,59 @@ Fixes in this rev:
     return { buckets, keys };
   }
 
-  function sessionOnlyToday(points){
-    const pts = (points || []).filter(p => p && p.tUtc);
-    if (!pts.length) return [];
+  function fmtSessionLabelFromDayKey(dayKey){
+    // dayKey: YYYY-MM-DD in Chicago
+    try{
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dayKey || ""));
+      if (!m) return "";
+      const y = parseInt(m[1], 10);
+      const mo = parseInt(m[2], 10);
+      const da = parseInt(m[3], 10);
+      // Make a local date-like object (UTC noon) so format is stable
+      const d = new Date(Date.UTC(y, mo - 1, da, 12, 0, 0));
+      return new Intl.DateTimeFormat("en-US", {
+        timeZone: TZ,
+        weekday: "short",
+        month: "numeric",
+        day: "numeric"
+      }).format(d);
+    }catch{
+      return "";
+    }
+  }
 
-    // If intraday, keep RTH only and most recent Chicago day that has RTH points
-    if (isIntraday(pts)){
-      const rth = filterRTH(pts);
-      if (!rth.length) return [];
-      const { buckets, keys } = bucketByChicagoDay(rth);
-      if (!keys.length) return [];
-      const lastKey = keys[keys.length - 1];
-      return (buckets.get(lastKey) || []).slice();
+  // ✅ 1D session selection that won't go blank:
+  // - Intraday: use RTH only
+  // - Prefer "today" if there are any RTH points today
+  // - Otherwise fall back to the most recent prior day with RTH points (yesterday/session)
+  // Returns { points:[], dayKey:"YYYY-MM-DD" }
+  function session1dPreferTodayElsePrev(points){
+    const pts = (points || []).filter(p => p && p.tUtc);
+    if (!pts.length) return { points: [], dayKey: "" };
+
+    const intraday = isIntraday(pts);
+
+    if (!intraday){
+      const lastKey = chicagoDayKeyFromUtc(pts[pts.length - 1].tUtc);
+      const out = pts.filter(p => chicagoDayKeyFromUtc(p.tUtc) === lastKey);
+      return { points: out, dayKey: lastKey };
     }
 
-    // Non-intraday: keep latest Chicago day
-    const lastKey = chicagoDayKeyFromUtc(pts[pts.length - 1].tUtc);
-    return pts.filter(p => chicagoDayKeyFromUtc(p.tUtc) === lastKey);
+    const rth = filterRTH(pts);
+    if (!rth.length){
+      // No RTH data at all (weekend/holiday/data issue)
+      // fall back to latest Chicago day in raw points (still avoids total blank)
+      const lastKey = chicagoDayKeyFromUtc(pts[pts.length - 1].tUtc);
+      const out = pts.filter(p => chicagoDayKeyFromUtc(p.tUtc) === lastKey);
+      return { points: out, dayKey: lastKey };
+    }
+
+    const { buckets, keys } = bucketByChicagoDay(rth);
+    if (!keys.length) return { points: [], dayKey: "" };
+
+    const lastKey = keys[keys.length - 1];
+    const out = (buckets.get(lastKey) || []).slice();
+    return { points: out, dayKey: lastKey };
   }
 
   function lastNSessions(points, n){
@@ -492,10 +531,14 @@ Fixes in this rev:
     let shaped = [];
     let kind = "candles";
     let rows = [];
+    let sessionLabel = "";
 
     // 1D: intraday candles, session-only (RTH only when intraday)
+    // ✅ Now: keep yesterday until today has RTH points
     if (m === "1d"){
-      shaped = sessionOnlyToday(points);
+      const pick = session1dPreferTodayElsePrev(points);
+      shaped = pick.points;
+      sessionLabel = fmtSessionLabelFromDayKey(pick.dayKey);
       kind = "candles";
       rows = makeIntradayCandleRows(shaped);
 
@@ -504,6 +547,7 @@ Fixes in this rev:
         mode: "1d",
         kind,
         label: rangeLabel("1d"),
+        sessionLabel,
         rows,
         xLabelFn: buildXLabelFn(rows, "1d", opts),
         xLabelCount: xLabelCountFor("1d", opts),
@@ -517,11 +561,6 @@ Fixes in this rev:
     if (m === "5d"){
       shaped = lastNSessions(points, SESSIONS_5D);
       kind = "candles";
-
-      // If backend already returns lower-resolution candles, this still works:
-      // - if it’s intraday, we go hourly
-      // - if it’s already daily candles, hourly aggregation will just yield very few rows
-      //   (which is why backend should return intraday data for 5D)
       rows = aggregateToHourlyCandles(shaped);
 
       return {
@@ -529,6 +568,7 @@ Fixes in this rev:
         mode: "5d",
         kind,
         label: rangeLabel("5d"),
+        sessionLabel: "",
         rows,
         xLabelFn: buildXLabelFn(rows, "5d", opts),
         xLabelCount: xLabelCountFor("5d", opts),
@@ -540,8 +580,6 @@ Fixes in this rev:
     if (m === "1m"){
       shaped = lastNSessions(points, SESSIONS_1M);
       kind = "candles";
-
-      // ✅ Exactly what you want for the screenshot: one candle per day, last ~30 trading days
       rows = aggregateToSessionCandles(shaped);
 
       return {
@@ -549,6 +587,7 @@ Fixes in this rev:
         mode: "1m",
         kind,
         label: rangeLabel("1m"),
+        sessionLabel: "",
         rows,
         xLabelFn: buildXLabelFn(rows, "1m", opts),
         xLabelCount: xLabelCountFor("1m", opts),
@@ -567,6 +606,7 @@ Fixes in this rev:
         mode: "6m",
         kind,
         label: rangeLabel("6m"),
+        sessionLabel: "",
         rows,
         xLabelFn: buildXLabelFn(rows, "6m", opts),
         xLabelCount: xLabelCountFor("6m", opts),
@@ -585,6 +625,7 @@ Fixes in this rev:
         mode: "1y",
         kind,
         label: rangeLabel("1y"),
+        sessionLabel: "",
         rows,
         xLabelFn: buildXLabelFn(rows, "1y", opts),
         xLabelCount: xLabelCountFor("1y", opts),
@@ -593,7 +634,9 @@ Fixes in this rev:
     }
 
     // Fallback: 1D
-    shaped = sessionOnlyToday(points);
+    const pick = session1dPreferTodayElsePrev(points);
+    shaped = pick.points;
+    sessionLabel = fmtSessionLabelFromDayKey(pick.dayKey);
     kind = "candles";
     rows = makeIntradayCandleRows(shaped);
 
@@ -602,6 +645,7 @@ Fixes in this rev:
       mode: "1d",
       kind,
       label: rangeLabel("1d"),
+      sessionLabel,
       rows,
       xLabelFn: buildXLabelFn(rows, "1d", opts),
       xLabelCount: xLabelCountFor("1d", opts),
