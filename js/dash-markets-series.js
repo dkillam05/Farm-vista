@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-series.js  (FULL FILE)
-Rev: 2026-01-28f
+Rev: 2026-01-29c
 Purpose:
 ✅ Time-range + series shaping helper for FarmVista Markets charts (standalone)
 ✅ Converts Cloud Run chart.points[] into normalized series rows for:
@@ -27,7 +27,9 @@ Purpose:
    window.FVMarketsSeries.shape(points, mode, opts) -> { ok, mode, kind, label, rows, xLabelFn, xLabelCount, timeZone }
 
 Fixes in this rev:
-✅ 5D x-axis labels now show DATE ONLY (M/D) — no hour
+✅ 5D x-axis is orientation-aware:
+   - Portrait (vertical): DATE ONLY (M/D) — no hour (prevents overlap)
+   - Landscape (horizontal): Hour labels, with DATE shown only at day breaks (Yahoo-like)
 ===================================================================== */
 
 (function(){
@@ -98,6 +100,27 @@ Fixes in this rev:
     if (mode === "6m") return "6M";
     if (mode === "1y") return "1Y";
     return "";
+  }
+
+  // ---------------------------------------
+  // Orientation helper (portrait vs landscape)
+  // ---------------------------------------
+  function detectLandscape(opts){
+    // Allow caller to force it: shape(points, mode, { isLandscape:true/false })
+    if (opts && typeof opts.isLandscape === "boolean") return opts.isLandscape;
+
+    try{
+      if (typeof window !== "undefined"){
+        if (window.matchMedia){
+          const mq = window.matchMedia("(orientation: landscape)");
+          if (mq && typeof mq.matches === "boolean") return mq.matches;
+        }
+        if (typeof window.innerWidth === "number" && typeof window.innerHeight === "number"){
+          return window.innerWidth > window.innerHeight;
+        }
+      }
+    }catch{}
+    return false; // default to portrait
   }
 
   // ---------------------------------------
@@ -399,7 +422,24 @@ Fixes in this rev:
     }
   }
 
-  function buildXLabelFn(rows, mode){
+  // 5D landscape: hours, but show DATE at day breaks only
+  function build5dLandscapeLabelFn(rows){
+    return (idx)=>{
+      const t = rows[idx]?.t;
+      if (!t) return "";
+      const curDay = chicagoDayKeyFromUtc(t);
+      const prevT = rows[idx - 1]?.t;
+      const prevDay = prevT ? chicagoDayKeyFromUtc(prevT) : null;
+
+      // At start or day boundary: show M/D
+      if (idx === 0 || (prevDay && prevDay !== curDay)) return fmtDateCT(t);
+
+      // Otherwise: show hour (no minutes)
+      return fmtHourCT(t);
+    };
+  }
+
+  function buildXLabelFn(rows, mode, opts){
     if (!rows || rows.length < 2) return ()=>"";
 
     // 1D: intraday (5m) => show times
@@ -407,9 +447,15 @@ Fixes in this rev:
       return (idx)=> fmtTimeCT(rows[idx]?.t);
     }
 
-    // ✅ 5D: DATE ONLY (M/D) — no hour
+    // ✅ 5D:
+    // - Portrait (vertical): date only (M/D) to avoid overlap
+    // - Landscape (horizontal): hour labels + date only at day breaks
     if (mode === "5d"){
-      return (idx)=> fmtDateCT(rows[idx]?.t);
+      const isLand = detectLandscape(opts);
+      if (!isLand){
+        return (idx)=> fmtDateCT(rows[idx]?.t);
+      }
+      return build5dLandscapeLabelFn(rows);
     }
 
     // 1M: daily candles => dates
@@ -421,9 +467,15 @@ Fixes in this rev:
     return (idx)=> fmtMonthCT(rows[idx]?.t);
   }
 
-  function xLabelCountFor(mode){
+  function xLabelCountFor(mode, opts){
     if (mode === "1d") return 4;
-    if (mode === "5d") return 6; // keep your bumped count
+
+    if (mode === "5d"){
+      // Portrait: fewer labels (avoid overlap). Landscape: more labels.
+      const isLand = detectLandscape(opts);
+      return isLand ? 8 : 6;
+    }
+
     if (mode === "1m") return 5;
     if (mode === "6m") return 5;
     if (mode === "1y") return 6;
@@ -453,8 +505,8 @@ Fixes in this rev:
         kind,
         label: rangeLabel("1d"),
         rows,
-        xLabelFn: buildXLabelFn(rows, "1d"),
-        xLabelCount: xLabelCountFor("1d"),
+        xLabelFn: buildXLabelFn(rows, "1d", opts),
+        xLabelCount: xLabelCountFor("1d", opts),
         timeZone: TZ
       };
     }
@@ -478,8 +530,8 @@ Fixes in this rev:
         kind,
         label: rangeLabel("5d"),
         rows,
-        xLabelFn: buildXLabelFn(rows, "5d"),
-        xLabelCount: xLabelCountFor("5d"),
+        xLabelFn: buildXLabelFn(rows, "5d", opts),
+        xLabelCount: xLabelCountFor("5d", opts),
         timeZone: TZ
       };
     }
@@ -498,8 +550,8 @@ Fixes in this rev:
         kind,
         label: rangeLabel("1m"),
         rows,
-        xLabelFn: buildXLabelFn(rows, "1m"),
-        xLabelCount: xLabelCountFor("1m"),
+        xLabelFn: buildXLabelFn(rows, "1m", opts),
+        xLabelCount: xLabelCountFor("1m", opts),
         timeZone: TZ
       };
     }
@@ -516,8 +568,8 @@ Fixes in this rev:
         kind,
         label: rangeLabel("6m"),
         rows,
-        xLabelFn: buildXLabelFn(rows, "6m"),
-        xLabelCount: xLabelCountFor("6m"),
+        xLabelFn: buildXLabelFn(rows, "6m", opts),
+        xLabelCount: xLabelCountFor("6m", opts),
         timeZone: TZ
       };
     }
@@ -534,8 +586,8 @@ Fixes in this rev:
         kind,
         label: rangeLabel("1y"),
         rows,
-        xLabelFn: buildXLabelFn(rows, "1y"),
-        xLabelCount: xLabelCountFor("1y"),
+        xLabelFn: buildXLabelFn(rows, "1y", opts),
+        xLabelCount: xLabelCountFor("1y", opts),
         timeZone: TZ
       };
     }
@@ -551,8 +603,8 @@ Fixes in this rev:
       kind,
       label: rangeLabel("1d"),
       rows,
-      xLabelFn: buildXLabelFn(rows, "1d"),
-      xLabelCount: xLabelCountFor("1d"),
+      xLabelFn: buildXLabelFn(rows, "1d", opts),
+      xLabelCount: xLabelCountFor("1d", opts),
       timeZone: TZ
     };
   };
