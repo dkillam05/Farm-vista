@@ -1,253 +1,56 @@
 /* =====================================================================
-/Farm-vista/js/dash-markets-ui.js  (FULL FILE)
-Rev: 2026-01-28r
+/Farm-vista/js/dash-markets-chart.js  (FULL FILE)
+Rev: 2026-01-28e-zfix
 Purpose:
-✅ Thin UI orchestrator for Markets
-   - Opens/closes modal
-   - Handles contract taps
-   - Handles "View more"
-   - Wires chart tabs
-✅ Yahoo-style ranges + labels:
-   - 1D, 5D, 1M, 6M, 1Y
-✅ Default tab = 1D
-Delegates:
-   - Chart rendering → FVMarketsChart
-   - Series shaping → FVMarketsSeries
-   - Quote badges → FVMarketsQuotes
+✅ Canvas chart renderer for FarmVista Markets modal (standalone helper)
+✅ Supports:
+   - Candlesticks (OHLC) with green/red bodies + neutral wicks
+   - Line charts (close) with high-contrast stroke + subtle glow
+   - X/Y axes labels drawn INSIDE the canvas (readable)
+   - Tooltip that follows pointer AND click-to-lock on a point
+   - Touch support (tap locks; drag previews; tap again toggles)
+   - "No chart data at this time" rendering
+✅ No dependencies on modal/UI files. Safe global API:
+   window.FVMarketsChart.render(canvas, rows, opts)
+   window.FVMarketsChart.clear(canvas)
 
-Landscape-only mobile improvement:
-✅ Mobile landscape modal is TRUE fullscreen (covers header/footer)
-✅ Canvas auto-fits the screen in landscape fullscreen
-✅ DOES NOT affect desktop or mobile portrait
+Fixes in this rev:
+✅ Tooltip lock clears on ANY re-render (tab switch / contract change)
+✅ Public API: FVMarketsChart.hideTip() -> hides + unlocks
+✅ When chart is cleared, tooltip is also cleared + unlocked
+✅ Keeps iOS synthetic mouse suppression + resize/orientation re-render
 
-PWA FIX:
-✅ "Mobile" detection no longer flips false in iOS PWA landscape (width can exceed 899px)
-
-Tap / details (landscape):
-✅ Touch → Pointer bridge bound to the chart canvas in landscape fullscreen
-   (only runs in mobile landscape fullscreen, no desktop/portrait changes)
+NEW (z-index fix only):
+✅ Tooltip z-index raised above fullscreen overlay so it stays visible in fullscreen landscape
 ===================================================================== */
 
 (function(){
   "use strict";
 
-  const MODAL_ID = "fv-mkt-modal";
-  const BACKDROP_ID = "fv-mkt-backdrop";
+  const API = {};
+  window.FVMarketsChart = API;
 
-  // ✅ IMPORTANT: define these BEFORE bridge helpers (avoids TDZ / undefined usage)
-  const LANDSCAPE_CLASS = "fv-mkt-landscape-full";
-  const LANDSCAPE_STYLE_ID = "fv-mkt-landscape-full-style";
+  // Default colors (match your scheme)
+  const UP = "#2F6C3C";
+  const DOWN = "#b42318";
+  const WICK = "rgba(160,170,180,.75)";
 
-  // Yahoo-style tab order
-  const TAB_MODES = [
-    { mode: "1d", label: "1D" },
-    { mode: "5d", label: "5D" },
-    { mode: "1m", label: "1M" },
-    { mode: "6m", label: "6M" },
-    { mode: "1y", label: "1Y" }
-  ];
+  // Tooltip singleton
+  const TIP_ID = "fv-mkt-chart-tip";
 
-  const DEFAULT_MODE = "1d";
+  // ✅ Suppress synthetic mouse events after touch (iOS)
+  const TOUCH_SUPPRESS_MS = 900;
 
-  const LAST_RENDER = {
-    symbol: null,
-    mode: null,
-    rows: null,
-    opts: null
-  };
+  function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
 
-  function qs(sel, root=document){ return root.querySelector(sel); }
-
-  // PWA-safe mobile detection
-  function isMobile(){
-    try{
-      if (window.matchMedia){
-        if (window.matchMedia("(pointer: coarse)").matches) return true;
-        return window.matchMedia("(max-width: 899px)").matches;
-      }
-    }catch{}
-    return false;
-  }
-
-  function isLandscape(){
-    try{
-      if (window.matchMedia && window.matchMedia("(orientation: landscape)").matches) return true;
-    }catch{}
-    try{
-      return (window.innerWidth || 0) > (window.innerHeight || 0);
-    }catch{
-      return false;
-    }
-  }
-
-  // --------------------------------------------------
-  // iOS PWA LANDSCAPE: Touch -> Pointer bridge for chart canvas
-  // (Only active in mobile landscape fullscreen)
-  // --------------------------------------------------
-  let _fvMktTouchBridgeOn = false;
-
-  function _fvMktIsLandscapeFullscreenActive(){
-    const back = document.getElementById(BACKDROP_ID);
-    return !!(back && back.classList.contains("open") && back.classList.contains(LANDSCAPE_CLASS));
-  }
-
-  function _fvMktBindTouchBridge(canvas){
-    if (!canvas) return;
-
-    // Avoid double-binding when switching tabs/contracts
-    if (canvas._fvTouchBridgeBound) return;
-    canvas._fvTouchBridgeBound = true;
-
-    function shouldBridge(){
-      return _fvMktIsLandscapeFullscreenActive() && isMobile() && isLandscape();
-    }
-
-    function pointFromTouch(ev){
-      const t = ev.changedTouches && ev.changedTouches[0];
-      if (!t) return null;
-      const r = canvas.getBoundingClientRect();
-      return {
-        clientX: t.clientX,
-        clientY: t.clientY,
-        offsetX: t.clientX - r.left,
-        offsetY: t.clientY - r.top,
-        pointerId: (t.identifier != null ? (t.identifier + 1) : 1)
-      };
-    }
-
-    function dispatchPointer(type, p, target){
-      try{
-        const Ctor = (typeof PointerEvent === "function") ? PointerEvent : MouseEvent;
-
-        const e = new Ctor(type, {
-          bubbles: true,
-          cancelable: true,
-          clientX: p.clientX,
-          clientY: p.clientY,
-          pointerId: p.pointerId,
-          pointerType: "touch",
-          isPrimary: true,
-          buttons: 1
-        });
-
-        // Some chart code reads offsetX/offsetY
-        try{
-          Object.defineProperty(e, "offsetX", { value: p.offsetX });
-          Object.defineProperty(e, "offsetY", { value: p.offsetY });
-        }catch{}
-
-        target.dispatchEvent(e);
-      }catch{}
-    }
-
-    function directCallPointer(type, p){
-      const evLike = {
-        type,
-        clientX: p.clientX,
-        clientY: p.clientY,
-        offsetX: p.offsetX,
-        offsetY: p.offsetY,
-        pointerId: p.pointerId,
-        pointerType: "touch",
-        isPrimary: true,
-        buttons: 1,
-        preventDefault(){},
-        stopPropagation(){}
-      };
-
-      try{
-        if (type === "pointermove" && typeof canvas.onpointermove === "function") canvas.onpointermove(evLike);
-        if (type === "pointerdown" && typeof canvas.onpointerdown === "function") canvas.onpointerdown(evLike);
-        if (type === "pointerup" && typeof canvas.onpointerup === "function") canvas.onpointerup(evLike);
-        if (type === "pointercancel" && typeof canvas.onpointercancel === "function") canvas.onpointercancel(evLike);
-      }catch{}
-    }
-
-    function fire(type, p){
-      // Many libs bind pointer events on canvas
-      dispatchPointer(type, p, canvas);
-
-      // Some bind globally
-      dispatchPointer(type, p, window);
-
-      // Fallback (rare)
-      directCallPointer(type, p);
-    }
-
-    canvas.addEventListener("touchstart", (ev)=>{
-      if (!shouldBridge()) return;
-      const p = pointFromTouch(ev);
-      if (!p) return;
-      _fvMktTouchBridgeOn = true;
-
-      ev.preventDefault();
-
-      try{
-        if (typeof canvas.setPointerCapture === "function"){
-          canvas.setPointerCapture(p.pointerId);
-        }
-      }catch{}
-
-      fire("pointerover", p);
-      fire("pointerenter", p);
-      fire("pointerdown", p);
-      fire("pointermove", p);
-    }, { passive:false });
-
-    canvas.addEventListener("touchmove", (ev)=>{
-      if (!shouldBridge() || !_fvMktTouchBridgeOn) return;
-      const p = pointFromTouch(ev);
-      if (!p) return;
-
-      ev.preventDefault();
-      fire("pointermove", p);
-    }, { passive:false });
-
-    canvas.addEventListener("touchend", (ev)=>{
-      if (!shouldBridge()) return;
-      const p = pointFromTouch(ev);
-      if (!p) return;
-
-      ev.preventDefault();
-
-      fire("pointermove", p);
-      fire("pointerup", p);
-
-      // Some libs lock tooltip on click as well
-      try{
-        const clickEv = new MouseEvent("click", { bubbles:true, cancelable:true, clientX:p.clientX, clientY:p.clientY });
-        try{
-          Object.defineProperty(clickEv, "offsetX", { value: p.offsetX });
-          Object.defineProperty(clickEv, "offsetY", { value: p.offsetY });
-        }catch{}
-        canvas.dispatchEvent(clickEv);
-        window.dispatchEvent(clickEv);
-        if (typeof canvas.onclick === "function"){
-          canvas.onclick({ clientX:p.clientX, clientY:p.clientY, offsetX:p.offsetX, offsetY:p.offsetY });
-        }
-      }catch{}
-
-      _fvMktTouchBridgeOn = false;
-
-      try{
-        if (typeof canvas.releasePointerCapture === "function"){
-          canvas.releasePointerCapture(p.pointerId);
-        }
-      }catch{}
-    }, { passive:false });
-
-    canvas.addEventListener("touchcancel", (ev)=>{
-      _fvMktTouchBridgeOn = false;
-
-      const p = pointFromTouch(ev) || { clientX:0, clientY:0, offsetX:0, offsetY:0, pointerId:1 };
-      fire("pointercancel", p);
-
-      try{
-        if (typeof canvas.releasePointerCapture === "function"){
-          canvas.releasePointerCapture(p.pointerId);
-        }
-      }catch{}
-    }, { passive:true });
+  // ✅ escapeHtml (needed for tooltip safety + avoids crashes)
+  function escapeHtml(s){
+    return String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
   }
 
   function toNum(x){
@@ -259,692 +62,587 @@ Tap / details (landscape):
     return null;
   }
 
-  function fmtPrice(v){
-    return (typeof v === "number" && isFinite(v)) ? v.toFixed(2) : "—";
-  }
-  function fmtSigned(v){
-    if (!(typeof v === "number" && isFinite(v))) return "—";
-    return (v > 0 ? "+" : "") + v.toFixed(2);
-  }
-  function fmtPct(v){
-    if (!(typeof v === "number" && isFinite(v))) return "—";
-    return (v > 0 ? "+" : "") + v.toFixed(2) + "%";
+  function getBodyTextColor(){
+    try{ return getComputedStyle(document.body).color || "rgb(20,20,20)"; }
+    catch{ return "rgb(20,20,20)"; }
   }
 
-  function dirFrom(chg){
-    if (typeof chg !== "number" || !isFinite(chg)) return "flat";
-    if (chg > 0) return "up";
-    if (chg < 0) return "down";
-    return "flat";
-  }
-  function arrowFor(dir){
-    if (dir === "up") return "▲";
-    if (dir === "down") return "▼";
-    return "—";
+  // -------------------------
+  // Tooltip DOM + positioning
+  // -------------------------
+  function ensureTip(){
+    let tip = document.getElementById(TIP_ID);
+    if (tip) return tip;
+
+    tip = document.createElement("div");
+    tip.id = TIP_ID;
+
+    // Core layout / positioning
+    tip.style.position = "fixed";
+
+    // ✅ ONLY CHANGE: tooltip must be above fullscreen overlay
+    tip.style.zIndex = "2147483647";
+
+    tip.style.pointerEvents = "none";
+    tip.style.display = "none";
+
+    // Tight “card”
+    tip.style.padding = "8px 10px";
+    tip.style.borderRadius = "10px";
+    tip.style.border = "1px solid rgba(0,0,0,.18)";
+    tip.style.background = "rgba(15,23,42,.92)";
+    tip.style.color = "#fff";
+    tip.style.boxShadow = "0 10px 28px rgba(0,0,0,.35)";
+
+    // ✅ prevent “full width”
+    tip.style.maxWidth = "260px";
+    tip.style.whiteSpace = "normal";
+    tip.style.overflow = "hidden";
+
+    // Typography
+    tip.style.fontSize = "12px";
+    tip.style.lineHeight = "1.25";
+    tip.style.fontFamily = "system-ui, -apple-system, Segoe UI, Roboto, Arial";
+
+    document.body.appendChild(tip);
+    return tip;
   }
 
-  // --------------------------------------------------
-  // Contract filtering (expired + dead/noData)
-  // --------------------------------------------------
-  // ✅ Only declared ONCE (you had duplicates before)
-  const MONTH_CODE = { F:1, G:2, H:3, J:4, K:5, M:6, N:7, Q:8, U:9, V:10, X:11, Z:12 };
+  function showTip(clientX, clientY, html){
+    const tip = ensureTip();
+    tip.innerHTML = html;
+    tip.style.display = "block";
 
-  function parseSymbolYM(symbol){
+    // measure after display
+    const r = tip.getBoundingClientRect();
+    const pad = 10;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    let x = clientX + 14;
+    let y = clientY + 14;
+
+    x = clamp(x, pad, vw - r.width - pad);
+    y = clamp(y, pad, vh - r.height - pad);
+
+    tip.style.left = `${x}px`;
+    tip.style.top = `${y}px`;
+  }
+
+  function hideTip(){
+    const tip = document.getElementById(TIP_ID);
+    if (!tip) return;
+    tip.style.display = "none";
+  }
+
+  // -------------------------
+  // Formatting helpers
+  // -------------------------
+  function fmt2(x){
+    const n = toNum(x);
+    return (n == null) ? "—" : n.toFixed(2);
+  }
+
+  function fmtStamp(iso, timeZone){
     try{
-      const s = String(symbol || "");
-      const core = s.split(".")[0];
-      const mCode = core.slice(-3, -2);
-      const yyStr = core.slice(-2);
-      const month = MONTH_CODE[mCode] || null;
-      const yy = parseInt(yyStr, 10);
-      if (!month || !isFinite(yy)) return null;
-      const year = (yy <= 50) ? (2000 + yy) : (1900 + yy);
-      return { year, month };
+      const d = new Date(iso);
+      if (timeZone){
+        return new Intl.DateTimeFormat("en-US", {
+          timeZone,
+          month:"numeric", day:"numeric", year:"2-digit",
+          hour:"numeric", minute:"2-digit"
+        }).format(d);
+      }
+      return d.toLocaleString([], {
+        month:"numeric", day:"numeric", year:"2-digit",
+        hour:"numeric", minute:"2-digit"
+      });
     }catch{
-      return null;
+      return String(iso || "");
     }
   }
 
-  function isExpiredContract(symbol){
-    const ym = parseSymbolYM(symbol);
-    if (!ym) return false;
+  function sizeCanvas(canvas){
+    const rect = canvas.getBoundingClientRect();
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    canvas.width = Math.floor(rect.width * dpr);
+    canvas.height = Math.floor(rect.height * dpr);
 
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = now.getMonth() + 1;
-    const d = now.getDate();
+    const ctx = canvas.getContext("2d");
+    if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    if (ym.year < y) return true;
-    if (ym.year > y) return false;
-
-    if (ym.month < m) return true;
-    if (ym.month > m) return false;
-
-    return d >= 21;
+    return { rect, ctx };
   }
 
-  function isSymbolUsable(symbol){
-    try{
-      if (window.FVMarkets && typeof window.FVMarkets.isSymbolUsable === "function"){
-        return !!window.FVMarkets.isSymbolUsable(symbol);
-      }
-    }catch{}
-    return true;
+  function noData(canvas, msg){
+    const { rect, ctx } = sizeCanvas(canvas);
+    if (!ctx) return;
+    ctx.clearRect(0,0,rect.width,rect.height);
+
+    ctx.globalAlpha = 0.9;
+    ctx.font = "14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillStyle = getBodyTextColor();
+    ctx.fillText(msg || "No chart data at this time", 12, 28);
+    ctx.globalAlpha = 1;
   }
 
-  function filterContracts(list){
+  // -------------------------
+  // Axes + grid
+  // -------------------------
+  function yTicks(min, max, count){
+    const n = Math.max(2, Math.min(8, count || 5));
+    if (!isFinite(min) || !isFinite(max)) return [];
+    if (min === max){ min -= 1; max += 1; }
+    const step = (max - min) / (n - 1);
     const out = [];
-    for (const c of (list || [])){
-      const sym = c?.symbol;
-      if (!sym) continue;
-      if (isExpiredContract(sym)) continue;
-      if (!isSymbolUsable(sym)) continue;
-      out.push(c);
+    for (let i = 0; i < n; i++){
+      out.push(min + step * i);
     }
     return out;
   }
 
-  // --------------------------------------------------
-  // Landscape-only fullscreen + auto-fit canvas
-  // --------------------------------------------------
-  function ensureLandscapeStyle(){
-    if (document.getElementById(LANDSCAPE_STYLE_ID)) return;
+  function drawAxes(ctx, rect, frame){
+    const padL = frame.padL, padR = frame.padR, padT = frame.padT, padB = frame.padB;
+    const W = rect.width, H = rect.height;
 
-    const st = document.createElement("style");
-    st.id = LANDSCAPE_STYLE_ID;
-    st.textContent = `
-      #${BACKDROP_ID}.open.${LANDSCAPE_CLASS}{
-        position: fixed !important;
-        inset: 0 !important;
-        width: 100vw !important;
-        height: 100dvh !important;
-        z-index: 2147483000 !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        overflow: hidden !important;
-        display: block !important;
-        background: rgba(0,0,0,0.35);
-      }
+    const axisColor = frame.textColor || getBodyTextColor();
+    const gridA = (typeof frame.gridAlpha === "number") ? frame.gridAlpha : 0.18;
 
-      #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID}{
-        position: absolute !important;
-        inset: 0 !important;
-        width: 100vw !important;
-        height: 100dvh !important;
-        max-height: 100dvh !important;
-        border-radius: 0 !important;
-        margin: 0 !important;
-        overflow: hidden !important;
-        display: flex !important;
-        flex-direction: column !important;
-      }
+    const ticks = yTicks(frame.min, frame.max, frame.yTickCount || 5);
 
-      #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-head{
-        flex: 0 0 auto !important;
-        position: relative !important;
-        z-index: 5 !important;
-      }
+    ctx.save();
+    ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillStyle = axisColor;
+    ctx.strokeStyle = axisColor;
 
-      #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} #fv-mktm-body{
-        flex: 1 1 auto !important;
-        overflow: hidden !important;
-        min-height: 0 !important;
-      }
+    // horizontal grid
+    ctx.globalAlpha = gridA;
+    for (let i = 0; i < ticks.length; i++){
+      const v = ticks[i];
+      const y = padT + ((frame.max - v) * (H - padT - padB) / (frame.max - frame.min));
+      ctx.beginPath();
+      ctx.moveTo(padL, y);
+      ctx.lineTo(W - padR, y);
+      ctx.stroke();
+    }
 
-      #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-grid{
-        height: 100% !important;
-        min-height: 0 !important;
-      }
+    // y labels
+    ctx.globalAlpha = 0.85;
+    for (let i = 0; i < ticks.length; i++){
+      const v = ticks[i];
+      const y = padT + ((frame.max - v) * (H - padT - padB) / (frame.max - frame.min));
+      ctx.fillText(v.toFixed(2), 6, y + 4);
+    }
 
-      #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-chart{
-        height: 100% !important;
-        min-height: 0 !important;
-        overflow: hidden !important;
-        display: flex !important;
-        flex-direction: column !important;
-      }
+    // x baseline
+    ctx.globalAlpha = gridA;
+    ctx.beginPath();
+    ctx.moveTo(padL, H - padB);
+    ctx.lineTo(W - padR, H - padB);
+    ctx.stroke();
 
-      /* Keep taps available on canvas in fullscreen landscape */
-      #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-canvas{
-        display: block !important;
-        width: 100% !important;
-        position: relative !important;
-        z-index: 1 !important;
-        pointer-events: auto !important;
-        touch-action: manipulation !important;
-      }
-
-      /* In split view, prioritize chart in landscape (mobile only) */
-      #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-split{
-        grid-template-columns: 1fr !important;
-      }
-      #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-list{
-        display: none !important;
-      }
-    `;
-    document.head.appendChild(st);
-  }
-
-  function shouldGoLandscapeFullscreen(){
-    const back = document.getElementById(BACKDROP_ID);
-    if (!back) return false;
-    if (!back.classList.contains("open")) return false;
-    if (!isMobile()) return false;
-    if (!isLandscape()) return false;
-    return true;
-  }
-
-  function isLandscapeFullscreenActive(){
-    const back = document.getElementById(BACKDROP_ID);
-    return !!(back && back.classList.contains("open") && back.classList.contains(LANDSCAPE_CLASS));
-  }
-
-  function fitCanvasToPanel(){
-    if (!isLandscapeFullscreenActive()) return;
-
-    const chart = qs(".fv-mktm-chart");
-    const canvas = qs("#fv-mktm-canvas");
-    if (!chart || !canvas) return;
-
-    const title = qs("#fv-mktm-chart-hdr");
-    const sub = chart.querySelector(".fv-mktm-sub");
-    const note = qs("#fv-mktm-note");
-
-    const chartH = chart.clientHeight || 0;
-    const used =
-      (title ? title.offsetHeight : 0) +
-      (sub ? sub.offsetHeight : 0) +
-      (note ? note.offsetHeight : 0);
-
-    const pad = 16;
-    let avail = chartH - used - pad;
-    if (!isFinite(avail) || avail < 120) avail = 120;
-
-    canvas.style.height = `${Math.floor(avail)}px`;
-    canvas.style.width = "100%";
-
-    try{
-      if (window.FVMarketsChart && typeof window.FVMarketsChart.resize === "function"){
-        window.FVMarketsChart.resize(canvas);
-      }
-    }catch{}
-
-    try{
-      if (LAST_RENDER.rows && LAST_RENDER.opts && window.FVMarketsChart && typeof window.FVMarketsChart.render === "function"){
-        window.FVMarketsChart.render(canvas, LAST_RENDER.rows, LAST_RENDER.opts);
-      }
-    }catch{}
-  }
-
-  function updateLandscapeFullscreen(){
-    const back = document.getElementById(BACKDROP_ID);
-    if (!back) return;
-
-    if (shouldGoLandscapeFullscreen()){
-      back.classList.add(LANDSCAPE_CLASS);
-      setTimeout(()=>{ fitCanvasToPanel(); }, 120);
-      setTimeout(()=>{ fitCanvasToPanel(); }, 260);
-    } else {
-      back.classList.remove(LANDSCAPE_CLASS);
-      const canvas = qs("#fv-mktm-canvas");
-      if (canvas){
-        canvas.style.height = "";
-        canvas.style.width = "";
+    // x labels
+    const xLabelFn = frame.xLabelFn;
+    const xCount = Math.max(2, Math.min(6, frame.xLabelCount || 4));
+    if (typeof xLabelFn === "function" && frame.nPoints >= 2){
+      ctx.globalAlpha = 0.85;
+      for (let i = 0; i < xCount; i++){
+        const t = i / (xCount - 1);
+        const idx = Math.round(t * (frame.nPoints - 1));
+        const x = padL + (idx * (W - padL - padR) / (frame.nPoints - 1));
+        const txt = String(xLabelFn(idx) || "");
+        const tw = ctx.measureText(txt).width;
+        const tx = clamp(x - tw / 2, padL, W - padR - tw);
+        ctx.fillText(txt, tx, H - 8);
       }
     }
+
+    ctx.restore();
   }
 
-  // --------------------------------------------------
-  // Modal shell
-  // --------------------------------------------------
-  function ensureModal(){
-    let back = document.getElementById(BACKDROP_ID);
-    if (back) return back;
-
-    back = document.createElement("div");
-    back.id = BACKDROP_ID;
-    back.innerHTML = `
-      <div id="${MODAL_ID}" role="dialog" aria-modal="true">
-        <div class="fv-mktm-head" style="position:relative;">
-          <h2 class="fv-mktm-title" id="fv-mktm-title">Markets</h2>
-
-          <button type="button"
-                  class="fv-mktm-btn"
-                  id="fv-mktm-close-x"
-                  aria-label="Close"
-                  style="position:absolute; right:0; top:0; width:30px; height:30px; padding:0; border-radius:999px; display:flex; align-items:center; justify-content:center;">
-            ×
-          </button>
-        </div>
-
-        <div id="fv-mktm-body"></div>
-      </div>
-    `;
-    document.body.appendChild(back);
-
-    ensureLandscapeStyle();
-
-    back.addEventListener("click", e=>{
-      if (e.target === back) closeModal();
-    });
-
-    const closeX = qs("#fv-mktm-close-x", back);
-    if (closeX) closeX.addEventListener("click", closeModal);
-
-    document.addEventListener("keydown", e=>{
-      if (e.key === "Escape") closeModal();
-    });
-
-    return back;
+  function nearestIndexFromClientX(canvas, rect, padL, padR, n, clientX){
+    const x = clamp(clientX - rect.left, padL, rect.width - padR);
+    if (n <= 1) return 0;
+    const t = (x - padL) / (rect.width - padL - padR);
+    const idx = Math.round(t * (n - 1));
+    return clamp(idx, 0, n - 1);
   }
 
-  function openModal(){
-    ensureModal().classList.add("open");
-    document.body.style.overflow = "hidden";
-    updateLandscapeFullscreen();
+  // -------------------------
+  // Per-canvas state (handlers + lock)
+  // -------------------------
+  const stateByCanvas = new WeakMap();
+
+  function detach(canvas){
+    const st = stateByCanvas.get(canvas);
+    if (!st) return;
+    canvas.onmousemove = null;
+    canvas.onmouseleave = null;
+    canvas.onmousedown = null;
+    canvas.ontouchstart = null;
+    canvas.ontouchmove = null;
+    canvas.ontouchend = null;
+    canvas.onclick = null;
+    stateByCanvas.delete(canvas);
   }
 
-  function closeModal(){
-    const back = document.getElementById(BACKDROP_ID);
-    if (!back) return;
-    back.classList.remove("open");
-    back.classList.remove(LANDSCAPE_CLASS);
-    document.body.style.overflow = "";
+  // Track active canvas for resize rerender + allow hideTip() to unlock
+  function markActive(canvas){
+    window.__FV_MKT_ACTIVE_CANVAS = canvas;
+    const st = stateByCanvas.get(canvas);
+    if (st) window.__FV_MKT_ACTIVE_STATE = st;
+  }
 
+  // ✅ Public: hide tip + unlock current chart
+  function hideTipAndUnlock(){
     try{
-      if (window.FVMarketsChart && typeof window.FVMarketsChart.hideTip === "function"){
-        window.FVMarketsChart.hideTip();
-      }
+      const st = window.__FV_MKT_ACTIVE_STATE || null;
+      if (st) st.locked = false;
     }catch{}
-
-    LAST_RENDER.symbol = null;
-    LAST_RENDER.mode = null;
-    LAST_RENDER.rows = null;
-    LAST_RENDER.opts = null;
+    hideTip();
   }
 
-  function setTitle(t){
-    const el = qs("#fv-mktm-title");
-    if (el) el.textContent = t || "Markets";
-  }
+  API.hideTip = function(){
+    hideTipAndUnlock();
+  };
 
-  function setBody(html){
-    const el = qs("#fv-mktm-body");
-    if (el) el.innerHTML = html || "";
-    updateLandscapeFullscreen();
-    setTimeout(fitCanvasToPanel, 60);
-  }
+  // -------------------------
+  // Render engine
+  // -------------------------
+  function renderInternal(canvas, rows, opts){
+    if (!canvas) return;
 
-  // --------------------------------------------------
-  // Quote painting
-  // --------------------------------------------------
-  function paintRowQuote(rowEl, sym){
-    if (!rowEl || !sym) return;
+    // ✅ Key fix: switching ranges/contracts calls render() again.
+    // We must clear any locked tooltip from previous render.
+    hideTipAndUnlock();
 
-    const q = (window.FVMarkets && typeof window.FVMarkets.getQuote === "function")
-      ? window.FVMarkets.getQuote(sym)
-      : null;
+    markActive(canvas);
 
-    const price = q ? toNum(q.price) : null;
-    const chg = q ? toNum(q.chg) : null;
-    const pct = q ? toNum(q.pct) : null;
+    const kind = (opts && opts.kind) || "candles";
+    const title = (opts && opts.title) || "";
+    const timeZone = (opts && opts.timeZone) || null;
 
-    const priceEl = rowEl.querySelector('[data-q="price"]');
-    const badgeEl = rowEl.querySelector('[data-q="badge"]');
-    const arrEl = rowEl.querySelector('[data-q="arr"]');
-    const chgEl = rowEl.querySelector('[data-q="chg"]');
-    const pctEl = rowEl.querySelector('[data-q="pct"]');
+    const data = Array.isArray(rows) ? rows.slice() : [];
+    const n = data.length;
 
-    if (priceEl) priceEl.textContent = fmtPrice(price);
-
-    const hasChange = (chg != null) && (pct != null);
-    const dir = hasChange ? dirFrom(chg) : "flat";
-    const arr = hasChange ? arrowFor(dir) : "—";
-
-    if (badgeEl){
-      badgeEl.classList.remove("up","down","flat");
-      badgeEl.classList.add(dir);
-    }
-    if (arrEl) arrEl.textContent = arr;
-    if (chgEl) chgEl.textContent = hasChange ? fmtSigned(chg) : "—";
-    if (pctEl) pctEl.textContent = hasChange ? fmtPct(pct) : "—";
-  }
-
-  function paintAllListRows(symbols){
-    const list = (symbols || []).filter(Boolean);
-    if (!list.length) return;
-
-    for (const sym of list){
-      const row = document.querySelector(`.fv-mktm-row[data-mkt-sym="${CSS.escape(sym)}"]`);
-      if (row) paintRowQuote(row, sym);
-    }
-  }
-
-  async function warmAndPaintList(symbols){
-    const syms = Array.from(new Set((symbols || []).filter(Boolean)));
-    if (!syms.length) return;
-
-    paintAllListRows(syms);
-
-    if (window.FVMarkets && typeof window.FVMarkets.warmQuotes === "function"){
-      try{ await window.FVMarkets.warmQuotes(syms, "lite"); } catch {}
-      paintAllListRows(syms);
-
-      try{ await window.FVMarkets.warmQuotes(syms, "full"); } catch {}
-      paintAllListRows(syms);
+    if (n < 2){
+      detach(canvas);
+      hideTipAndUnlock();
+      noData(canvas, (opts && opts.noDataText) || "No chart data at this time");
       return;
     }
 
-    if (window.FVMarketsQuotes && typeof window.FVMarketsQuotes.warmListRows === "function"){
-      try{
-        window.FVMarketsQuotes.warmListRows(syms.map(s=>({ symbol:s })), { wideFull:true });
-      } catch {}
-    }
-  }
-
-  // --------------------------------------------------
-  // Mobile: auto-scroll
-  // --------------------------------------------------
-  function scrollToChartPanel(){
-    if (!isMobile()) return;
-    const chart = qs(".fv-mktm-chart");
-    if (!chart) return;
-
-    setTimeout(()=>{
-      try{
-        chart.scrollIntoView({ behavior:"smooth", block:"start" });
-      } catch {
-        const modal = qs("#" + MODAL_ID);
-        if (modal) modal.scrollTop = modal.scrollHeight;
+    // Determine min/max
+    let min = Infinity, max = -Infinity;
+    if (kind === "candles"){
+      for (const r of data){
+        const h = toNum(r.h), l = toNum(r.l);
+        if (h != null) max = Math.max(max, h);
+        if (l != null) min = Math.min(min, l);
       }
-    }, 60);
-  }
-
-  // --------------------------------------------------
-  // Chart modal (single contract)
-  // --------------------------------------------------
-  function openChart(symbol){
-    openModal();
-    setTitle(symbol);
-
-    setBody(`
-      <div class="fv-mktm-grid fv-mktm-chartonly">
-        <div class="fv-mktm-chart">
-          <div class="fv-mktm-chart-title" id="fv-mktm-chart-hdr"></div>
-
-          <div class="fv-mktm-sub">
-            ${renderTabs(DEFAULT_MODE)}
-            <div id="fv-mktm-range"></div>
-          </div>
-
-          <canvas class="fv-mktm-canvas" id="fv-mktm-canvas"></canvas>
-          <div class="fv-mktm-sub" id="fv-mktm-note"></div>
-        </div>
-      </div>
-    `);
-
-    // Bind bridge as soon as canvas exists
-    _fvMktBindTouchBridge(qs("#fv-mktm-canvas"));
-
-    setChartHeader(symbol);
-    wireTabs(()=>symbol);
-
-    fitCanvasToPanel();
-    loadChart(symbol, DEFAULT_MODE);
-  }
-
-  // --------------------------------------------------
-  // View more (list + chart)
-  // --------------------------------------------------
-  function openContractsList(crop){
-    openModal();
-    setTitle(crop === "corn" ? "Corn contracts" : "Soybean contracts");
-
-    const last = window.FVMarkets?.getLast?.() || {};
-    const rawList = crop === "corn" ? (last.corn || []) : (last.soy || []);
-
-    const list = filterContracts(rawList);
-    const symbols = (list || []).map(x=>x && x.symbol).filter(Boolean);
-
-    const rows = list.map(c => `
-      <button class="fv-mktm-row" data-mkt-sym="${c.symbol}">
-        <div class="fv-mktm-row-inner">
-          <div class="fv-mktm-row-left">
-            <div class="fv-mktm-sym">${c.symbol}</div>
-            <div class="fv-mktm-label">${c.label || ""}</div>
-          </div>
-          <div class="fv-mktm-row-right">
-            <div class="fv-mktm-price" data-q="price">—</div>
-            <div class="fv-mktm-badge flat" data-q="badge">
-              <span class="arr" data-q="arr">—</span>
-              <span data-q="chg">—</span>
-              <span data-q="pct">—</span>
-            </div>
-          </div>
-        </div>
-      </button>
-    `).join("");
-
-    setBody(`
-      <div class="fv-mktm-grid fv-mktm-split">
-        <div class="fv-mktm-list" id="fv-mktm-listbox">
-          ${rows || `<div class="fv-mktm-empty">No contracts</div>`}
-        </div>
-
-        <div class="fv-mktm-chart" id="fv-mktm-chartpanel">
-          <div class="fv-mktm-chart-title" id="fv-mktm-chart-hdr">Select a contract</div>
-
-          <div class="fv-mktm-sub">
-            ${renderTabs(DEFAULT_MODE)}
-            <div id="fv-mktm-range"></div>
-          </div>
-
-          <canvas class="fv-mktm-canvas" id="fv-mktm-canvas"></canvas>
-          <div class="fv-mktm-sub" id="fv-mktm-note">
-            Tap a contract on the left to load the chart.
-          </div>
-        </div>
-      </div>
-    `);
-
-    // Bind bridge as soon as canvas exists
-    _fvMktBindTouchBridge(qs("#fv-mktm-canvas"));
-
-    warmAndPaintList(symbols).catch(()=>{});
-
-    if (window.FVMarketsQuotes){
-      try{ window.FVMarketsQuotes.warmListRows(list, { wideFull:true }); } catch {}
+    } else {
+      for (const r of data){
+        const c = toNum(r.c);
+        if (c != null) max = Math.max(max, c);
+        if (c != null) min = Math.min(min, c);
+      }
     }
+    if (!isFinite(min) || !isFinite(max)){
+      detach(canvas);
+      hideTipAndUnlock();
+      noData(canvas, (opts && opts.noDataText) || "No chart data at this time");
+      return;
+    }
+    if (min === max){ min -= 1; max += 1; }
 
-    let currentSymbol = null;
+    const { rect, ctx } = sizeCanvas(canvas);
+    if (!ctx) return;
 
-    wireTabs(()=>currentSymbol);
+    const padL = 56;
+    const padR = 14;
+    const padT = 16;
+    const padB = 26;
 
-    document.querySelectorAll("[data-mkt-sym]").forEach(btn=>{
-      btn.addEventListener("click", ()=>{
-        document.querySelectorAll("[data-mkt-sym]").forEach(b=>b.removeAttribute("aria-current"));
-        btn.setAttribute("aria-current","true");
+    const W = rect.width;
+    const H = rect.height;
 
-        currentSymbol = btn.getAttribute("data-mkt-sym");
-        setTitle(currentSymbol);
-        setChartHeader(currentSymbol);
+    const yFor = (v)=> padT + ((max - v) * (H - padT - padB) / (max - min));
+    const xForIdx = (i)=> padL + (i * (W - padL - padR) / (n - 1));
 
-        const active = qs(".fv-mktm-tab[aria-selected='true']");
-        const mode = active ? (active.getAttribute("data-mode") || DEFAULT_MODE) : DEFAULT_MODE;
-
-        fitCanvasToPanel();
-        loadChart(currentSymbol, mode);
-
-        if (window.FVMarkets && typeof window.FVMarkets.warmQuotes === "function"){
-          window.FVMarkets.warmQuotes([currentSymbol], "full")
-            .then(()=>{
-              const rowEl = document.querySelector(`.fv-mktm-row[data-mkt-sym="${CSS.escape(currentSymbol)}"]`);
-              if (rowEl) paintRowQuote(rowEl, currentSymbol);
-            })
-            .catch(()=>{});
-        } else if (window.FVMarketsQuotes){
-          try{ window.FVMarketsQuotes.warmAndUpdate([currentSymbol], "full"); } catch {}
+    // X label fn fallback
+    let xLabelFn = opts && opts.xLabelFn;
+    if (typeof xLabelFn !== "function"){
+      xLabelFn = (idx)=>{
+        const t = data[idx] && data[idx].t;
+        if (!t) return "";
+        const d = new Date(t);
+        if (timeZone){
+          return new Intl.DateTimeFormat("en-US", { timeZone, month:"numeric", day:"numeric" }).format(d);
         }
+        return d.toLocaleDateString([], { month:"numeric", day:"numeric" });
+      };
+    }
 
-        scrollToChartPanel();
-      });
+    // Clear
+    ctx.clearRect(0,0,W,H);
+
+    // Axes + grid + labels
+    drawAxes(ctx, rect, {
+      padL, padR, padT, padB,
+      min, max,
+      nPoints: n,
+      xLabelFn,
+      xLabelCount: (opts && opts.xLabelCount) || 4,
+      yTickCount: (opts && opts.yTickCount) || 5,
+      textColor: (opts && opts.axisColor) || getBodyTextColor(),
+      gridAlpha: (opts && opts.gridAlpha) != null ? opts.gridAlpha : 0.16
     });
-  }
 
-  // --------------------------------------------------
-  // Chart helpers
-  // --------------------------------------------------
-  function setChartHeader(symbol){
-    const hdr = qs("#fv-mktm-chart-hdr");
-    if (!hdr) return;
+    // Title (optional)
+    if (title){
+      ctx.save();
+      ctx.globalAlpha = 0.85;
+      ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.fillStyle = getBodyTextColor();
+      ctx.fillText(title, padL, 12);
+      ctx.restore();
+    }
 
-    const last = window.FVMarkets?.getLast?.();
-    const all = [].concat(last?.corn || [], last?.soy || []);
-    const hit = all.find(x => x.symbol === symbol);
-    hdr.textContent = hit ? `${hit.label} — ${symbol}` : symbol;
-  }
+    // Draw series
+    if (kind === "candles"){
+      const slot = (W - padL - padR) / n;
+      const bodyW = Math.max(3, Math.min(10, slot * 0.55));
 
-  function renderTabs(selectedMode){
-    const sel = String(selectedMode || DEFAULT_MODE).toLowerCase();
-    return `
-      <div class="fv-mktm-tabs">
-        ${TAB_MODES.map(t => {
-          const on = (t.mode === sel);
-          return `<button class="fv-mktm-tab" data-mode="${t.mode}" aria-selected="${on ? "true" : "false"}">${t.label}</button>`;
-        }).join("")}
-      </div>
-    `;
-  }
+      for (let i = 0; i < n; i++){
+        const r = data[i];
+        const o = toNum(r.o), h = toNum(r.h), l = toNum(r.l), c = toNum(r.c);
+        if (o == null || h == null || l == null || c == null) continue;
 
-  function wireTabs(getSymbol){
-    document.querySelectorAll(".fv-mktm-tab").forEach(btn=>{
-      btn.addEventListener("click", ()=>{
-        const mode = (btn.getAttribute("data-mode") || DEFAULT_MODE).toLowerCase();
+        const x = xForIdx(i);
+        const yH = yFor(h);
+        const yL = yFor(l);
+        const yO = yFor(o);
+        const yC = yFor(c);
 
-        document.querySelectorAll(".fv-mktm-tab").forEach(b=>b.setAttribute("aria-selected","false"));
-        btn.setAttribute("aria-selected","true");
+        const up = c >= o;
+        const col = up ? UP : DOWN;
 
-        try{
-          if (window.FVMarketsChart && typeof window.FVMarketsChart.hideTip === "function"){
-            window.FVMarketsChart.hideTip();
-          }
-        }catch{}
+        // wick
+        ctx.save();
+        ctx.strokeStyle = WICK;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, yH);
+        ctx.lineTo(x, yL);
+        ctx.stroke();
+        ctx.restore();
 
-        const sym = (typeof getSymbol === "function") ? getSymbol() : null;
-        if (!sym) return;
-
-        fitCanvasToPanel();
-        loadChart(sym, mode);
-
-        scrollToChartPanel();
-      });
-    });
-  }
-
-  async function loadChart(symbol, mode){
-    const canvas = qs("#fv-mktm-canvas");
-    const note = qs("#fv-mktm-note");
-    const range = qs("#fv-mktm-range");
-
-    if (!canvas || !window.FVMarketsSeries || !window.FVMarketsChart) return;
-
-    // Ensure bridge is bound for this canvas instance
-    _fvMktBindTouchBridge(canvas);
-
-    const m = String(mode || DEFAULT_MODE).toLowerCase();
-
-    try{
-      if (window.FVMarketsChart && typeof window.FVMarketsChart.hideTip === "function"){
-        window.FVMarketsChart.hideTip();
+        // body
+        const top = Math.min(yO, yC);
+        const bot = Math.max(yO, yC);
+        ctx.save();
+        ctx.fillStyle = col;
+        ctx.fillRect(x - bodyW/2, top, bodyW, Math.max(2, bot - top));
+        ctx.restore();
       }
-    }catch{}
+    } else {
+      // line with glow
+      const stroke = (opts && opts.lineColor) || "rgba(59,126,70,.95)";
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
 
-    if (note) note.textContent = "Loading…";
+      // glow
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = "rgba(59,126,70,.18)";
+      ctx.beginPath();
+      let glowStarted = false;
+      for (let i = 0; i < n; i++){
+        const c = toNum(data[i].c);
+        if (c == null) continue;
+        const x = xForIdx(i);
+        const y = yFor(c);
+        if (!glowStarted){ ctx.moveTo(x, y); glowStarted = true; }
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
 
-    try{
-      const raw = await window.FVMarkets.fetchChart(symbol, m);
-      const shaped = window.FVMarketsSeries.shape(raw, m);
+      // main
+      ctx.lineWidth = 2.8;
+      ctx.strokeStyle = stroke;
+      ctx.beginPath();
+      let started = false;
+      for (let i = 0; i < n; i++){
+        const c = toNum(data[i].c);
+        if (c == null) continue;
+        const x = xForIdx(i);
+        const y = yFor(c);
+        if (!started){ ctx.moveTo(x, y); started = true; }
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
 
-      if (range) range.textContent = shaped.label || "";
+      ctx.restore();
+    }
 
-      if (!shaped.ok){
-        window.FVMarketsChart.clear(canvas);
-        if (note) note.textContent = "No chart data at this time";
-        LAST_RENDER.symbol = symbol;
-        LAST_RENDER.mode = m;
-        LAST_RENDER.rows = null;
-        LAST_RENDER.opts = null;
+    // Tooltip handlers (hover + click-to-lock)
+    detach(canvas);
+
+    const st = {
+      locked: false,
+      lockedIdx: 0,
+      kind,
+      padL, padR,
+      data,
+      timeZone,
+      lastTouchMs: 0,
+
+      // Store last render params for resize rerender
+      _lastRows: data.slice(),
+      _lastOpts: Object.assign({}, opts || {})
+    };
+    stateByCanvas.set(canvas, st);
+    window.__FV_MKT_ACTIVE_STATE = st;
+
+    function tipHtmlFor(idx){
+      const r = data[idx] || {};
+      const when = r.t ? fmtStamp(r.t, timeZone) : "—";
+      const lockNote = st.locked ? `<div style="opacity:.78; margin-top:2px;">Locked</div>` : "";
+
+      if (kind === "candles"){
+        return `
+          <div style="font-weight:800; margin-bottom:3px;">${escapeHtml(when)}</div>
+          <div style="opacity:.85;">
+            O ${escapeHtml(fmt2(r.o))} · H ${escapeHtml(fmt2(r.h))} · L ${escapeHtml(fmt2(r.l))} · C ${escapeHtml(fmt2(r.c))}
+          </div>
+          ${lockNote}
+        `;
+      }
+
+      return `
+        <div style="font-weight:800; margin-bottom:3px;">${escapeHtml(when)}</div>
+        <div style="opacity:.85;">Close ${escapeHtml(fmt2(r.c))}</div>
+        ${lockNote}
+      `;
+    }
+
+    function handleMove(clientX, clientY){
+      if (st.locked){
+        showTip(clientX, clientY, tipHtmlFor(st.lockedIdx));
         return;
       }
+      const idx = nearestIndexFromClientX(canvas, rect, padL, padR, n, clientX);
+      showTip(clientX, clientY, tipHtmlFor(idx));
+    }
 
-      fitCanvasToPanel();
+    function handleLeave(){
+      if (st.locked) return;
+      hideTip();
+    }
 
-      const opts = {
-        kind: shaped.kind,
-        xLabelFn: shaped.xLabelFn,
-        xLabelCount: shaped.xLabelCount,
-        timeZone: shaped.timeZone
+    function handleClick(clientX, clientY){
+      const idx = nearestIndexFromClientX(canvas, rect, padL, padR, n, clientX);
+
+      if (!st.locked){
+        st.locked = true;
+        st.lockedIdx = idx;
+      } else {
+        if (idx === st.lockedIdx){
+          st.locked = false;
+        } else {
+          st.lockedIdx = idx;
+        }
+      }
+
+      if (!st.locked){
+        hideTip();
+      } else {
+        showTip(clientX, clientY, tipHtmlFor(st.lockedIdx));
+      }
+    }
+
+    canvas.onmousemove = (e)=> handleMove(e.clientX, e.clientY);
+    canvas.onmouseleave = ()=> handleLeave();
+
+    canvas.onmousedown = (e)=>{
+      const now = Date.now();
+      if (now - (st.lastTouchMs || 0) < TOUCH_SUPPRESS_MS) return;
+      handleClick(e.clientX, e.clientY);
+    };
+
+    canvas.ontouchstart = (e)=>{
+      if (!e.touches || !e.touches[0]) return;
+      st.lastTouchMs = Date.now();
+      const t = e.touches[0];
+      handleMove(t.clientX, t.clientY);
+    };
+    canvas.ontouchmove = (e)=>{
+      if (!e.touches || !e.touches[0]) return;
+      st.lastTouchMs = Date.now();
+      const t = e.touches[0];
+      handleMove(t.clientX, t.clientY);
+    };
+    canvas.ontouchend = (e)=>{
+      try{
+        st.lastTouchMs = Date.now();
+        const c = e.changedTouches && e.changedTouches[0] ? e.changedTouches[0] : null;
+        if (c) handleClick(c.clientX, c.clientY);
+        else handleLeave();
+      } catch {
+        handleLeave();
+      }
+    };
+
+    // ESC hides tooltip (and clears lock)
+    if (!window.__FV_MKT_CHART_ESC_WIRED){
+      window.__FV_MKT_CHART_ESC_WIRED = true;
+      document.addEventListener("keydown", (e)=>{
+        if (e.key !== "Escape") return;
+        hideTipAndUnlock();
+      });
+    }
+
+    // Resize/orientation re-render (once)
+    if (!window.__FV_MKT_CHART_RESIZE_WIRED){
+      window.__FV_MKT_CHART_RESIZE_WIRED = true;
+
+      let t = null;
+      const rerender = ()=>{
+        const c = window.__FV_MKT_ACTIVE_CANVAS;
+        if (!c) return;
+        const s = stateByCanvas.get(c);
+        if (!s) return;
+
+        try{
+          const r = c.getBoundingClientRect();
+          if (!r || r.width < 10 || r.height < 10) return;
+        } catch {
+          return;
+        }
+
+        renderInternal(c, s._lastRows || [], s._lastOpts || {});
       };
 
-      window.FVMarketsChart.render(canvas, shaped.rows, opts);
+      const schedule = ()=>{
+        if (t) clearTimeout(t);
+        t = setTimeout(rerender, 80);
+      };
 
-      LAST_RENDER.symbol = symbol;
-      LAST_RENDER.mode = m;
-      LAST_RENDER.rows = shaped.rows;
-      LAST_RENDER.opts = opts;
-
-      if (note) note.textContent = "";
-
-      setTimeout(fitCanvasToPanel, 80);
-    } catch {
-      window.FVMarketsChart.clear(canvas);
-      if (note) note.textContent = "No chart data at this time";
-      if (range) range.textContent = "";
-      LAST_RENDER.symbol = symbol;
-      LAST_RENDER.mode = m;
-      LAST_RENDER.rows = null;
-      LAST_RENDER.opts = null;
+      window.addEventListener("resize", schedule, { passive:true });
+      window.addEventListener("orientationchange", schedule, { passive:true });
     }
   }
 
-  // --------------------------------------------------
-  // Events from markets.js
-  // --------------------------------------------------
-  function init(){
-    ensureModal();
+  API.render = function(canvas, rows, opts){
+    renderInternal(canvas, rows, opts || {});
+  };
 
-    window.addEventListener("orientationchange", ()=>{
-      setTimeout(()=>{ updateLandscapeFullscreen(); fitCanvasToPanel(); }, 180);
-    });
-
-    window.addEventListener("resize", ()=>{
-      updateLandscapeFullscreen();
-      setTimeout(fitCanvasToPanel, 60);
-    });
-
-    if (window.visualViewport){
-      try{
-        window.visualViewport.addEventListener("resize", ()=>{
-          updateLandscapeFullscreen();
-          setTimeout(fitCanvasToPanel, 60);
-        });
-      }catch{}
-    }
-
-    window.addEventListener("fv:markets:contractTap", e=>{
-      if (e?.detail?.symbol) openChart(e.detail.symbol);
-    });
-
-    window.addEventListener("fv:markets:viewMore", e=>{
-      const crop = String(e?.detail?.crop || "").toLowerCase();
-      if (crop === "corn" || crop === "soy") openContractsList(crop);
-    });
-  }
-
-  if (document.readyState === "loading"){
-    document.addEventListener("DOMContentLoaded", init, { once:true });
-  } else {
-    init();
-  }
+  API.clear = function(canvas){
+    if (!canvas) return;
+    detach(canvas);
+    hideTipAndUnlock();
+    const { rect, ctx } = sizeCanvas(canvas);
+    if (ctx) ctx.clearRect(0,0,rect.width,rect.height);
+  };
 
 })();
