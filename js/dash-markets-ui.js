@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/dash-markets-ui.js  (FULL FILE)
-Rev: 2026-01-28q
+Rev: 2026-01-28r
 Purpose:
 ✅ Thin UI orchestrator for Markets
    - Opens/closes modal
@@ -23,10 +23,9 @@ Landscape-only mobile improvement:
 PWA FIX:
 ✅ "Mobile" detection no longer flips false in iOS PWA landscape (width can exceed 899px)
 
-NEW FIX (requested):
-✅ In iOS PWA landscape fullscreen, tap-to-see-details works again
-   - Avoid touch-action:none on the canvas (can block tap synthesis in standalone landscape)
-   - Use touch-action:manipulation + pointer-events:auto + z-index
+Tap / details (landscape):
+✅ Touch → Pointer bridge bound to the chart canvas in landscape fullscreen
+   (only runs in mobile landscape fullscreen, no desktop/portrait changes)
 ===================================================================== */
 
 (function(){
@@ -35,6 +34,11 @@ NEW FIX (requested):
   const MODAL_ID = "fv-mkt-modal";
   const BACKDROP_ID = "fv-mkt-backdrop";
 
+  // ✅ IMPORTANT: define these BEFORE bridge helpers (avoids TDZ / undefined usage)
+  const LANDSCAPE_CLASS = "fv-mkt-landscape-full";
+  const LANDSCAPE_STYLE_ID = "fv-mkt-landscape-full-style";
+
+  // Yahoo-style tab order
   const TAB_MODES = [
     { mode: "1d", label: "1D" },
     { mode: "5d", label: "5D" },
@@ -75,182 +79,176 @@ NEW FIX (requested):
       return false;
     }
   }
-   // --------------------------------------------------
-// iOS PWA LANDSCAPE FIX: touch -> mouse bridge for chart canvas
-// (Only active in mobile landscape fullscreen)
-// --------------------------------------------------
-let _fvMktTouchBridgeOn = false;
 
-function _fvMktIsLandscapeFullscreenActive(){
-  const back = document.getElementById(BACKDROP_ID);
-  return !!(back && back.classList.contains("open") && back.classList.contains(LANDSCAPE_CLASS));
-}
+  // --------------------------------------------------
+  // iOS PWA LANDSCAPE: Touch -> Pointer bridge for chart canvas
+  // (Only active in mobile landscape fullscreen)
+  // --------------------------------------------------
+  let _fvMktTouchBridgeOn = false;
 
-function _fvMktBindTouchBridge(canvas){
-  if (!canvas) return;
-
-  // Avoid double-binding when switching tabs/contracts
-  if (canvas._fvTouchBridgeBound) return;
-  canvas._fvTouchBridgeBound = true;
-
-  // Only apply when we are in the problematic mode (PWA landscape fullscreen)
-  function shouldBridge(){
-    return _fvMktIsLandscapeFullscreenActive() && isMobile() && isLandscape();
+  function _fvMktIsLandscapeFullscreenActive(){
+    const back = document.getElementById(BACKDROP_ID);
+    return !!(back && back.classList.contains("open") && back.classList.contains(LANDSCAPE_CLASS));
   }
 
-  function pointFromTouch(ev){
-    const t = ev.changedTouches && ev.changedTouches[0];
-    if (!t) return null;
-    const r = canvas.getBoundingClientRect();
-    return {
-      clientX: t.clientX,
-      clientY: t.clientY,
-      offsetX: t.clientX - r.left,
-      offsetY: t.clientY - r.top,
-      pointerId: (t.identifier != null ? (t.identifier + 1) : 1)
-    };
-  }
+  function _fvMktBindTouchBridge(canvas){
+    if (!canvas) return;
 
-  function dispatchPointer(type, p, target){
-    try{
-      // PointerEvent isn't available everywhere; fall back if needed.
-      const Ctor = (typeof PointerEvent === "function") ? PointerEvent : MouseEvent;
+    // Avoid double-binding when switching tabs/contracts
+    if (canvas._fvTouchBridgeBound) return;
+    canvas._fvTouchBridgeBound = true;
 
-      const e = new Ctor(type, {
-        bubbles: true,
-        cancelable: true,
+    function shouldBridge(){
+      return _fvMktIsLandscapeFullscreenActive() && isMobile() && isLandscape();
+    }
+
+    function pointFromTouch(ev){
+      const t = ev.changedTouches && ev.changedTouches[0];
+      if (!t) return null;
+      const r = canvas.getBoundingClientRect();
+      return {
+        clientX: t.clientX,
+        clientY: t.clientY,
+        offsetX: t.clientX - r.left,
+        offsetY: t.clientY - r.top,
+        pointerId: (t.identifier != null ? (t.identifier + 1) : 1)
+      };
+    }
+
+    function dispatchPointer(type, p, target){
+      try{
+        const Ctor = (typeof PointerEvent === "function") ? PointerEvent : MouseEvent;
+
+        const e = new Ctor(type, {
+          bubbles: true,
+          cancelable: true,
+          clientX: p.clientX,
+          clientY: p.clientY,
+          pointerId: p.pointerId,
+          pointerType: "touch",
+          isPrimary: true,
+          buttons: 1
+        });
+
+        // Some chart code reads offsetX/offsetY
+        try{
+          Object.defineProperty(e, "offsetX", { value: p.offsetX });
+          Object.defineProperty(e, "offsetY", { value: p.offsetY });
+        }catch{}
+
+        target.dispatchEvent(e);
+      }catch{}
+    }
+
+    function directCallPointer(type, p){
+      const evLike = {
+        type,
         clientX: p.clientX,
         clientY: p.clientY,
-        // PointerEvent fields (ignored by MouseEvent)
+        offsetX: p.offsetX,
+        offsetY: p.offsetY,
         pointerId: p.pointerId,
         pointerType: "touch",
         isPrimary: true,
-        buttons: 1
-      });
+        buttons: 1,
+        preventDefault(){},
+        stopPropagation(){}
+      };
 
-      // Some chart code reads offsetX/offsetY
       try{
-        Object.defineProperty(e, "offsetX", { value: p.offsetX });
-        Object.defineProperty(e, "offsetY", { value: p.offsetY });
+        if (type === "pointermove" && typeof canvas.onpointermove === "function") canvas.onpointermove(evLike);
+        if (type === "pointerdown" && typeof canvas.onpointerdown === "function") canvas.onpointerdown(evLike);
+        if (type === "pointerup" && typeof canvas.onpointerup === "function") canvas.onpointerup(evLike);
+        if (type === "pointercancel" && typeof canvas.onpointercancel === "function") canvas.onpointercancel(evLike);
+      }catch{}
+    }
+
+    function fire(type, p){
+      // Many libs bind pointer events on canvas
+      dispatchPointer(type, p, canvas);
+
+      // Some bind globally
+      dispatchPointer(type, p, window);
+
+      // Fallback (rare)
+      directCallPointer(type, p);
+    }
+
+    canvas.addEventListener("touchstart", (ev)=>{
+      if (!shouldBridge()) return;
+      const p = pointFromTouch(ev);
+      if (!p) return;
+      _fvMktTouchBridgeOn = true;
+
+      ev.preventDefault();
+
+      try{
+        if (typeof canvas.setPointerCapture === "function"){
+          canvas.setPointerCapture(p.pointerId);
+        }
       }catch{}
 
-      target.dispatchEvent(e);
-    }catch{}
-  }
+      fire("pointerover", p);
+      fire("pointerenter", p);
+      fire("pointerdown", p);
+      fire("pointermove", p);
+    }, { passive:false });
 
-  function directCallPointer(type, p){
-    // If chart used property handlers (rare for pointer, but cheap to try)
-    const evLike = {
-      type,
-      clientX: p.clientX,
-      clientY: p.clientY,
-      offsetX: p.offsetX,
-      offsetY: p.offsetY,
-      pointerId: p.pointerId,
-      pointerType: "touch",
-      isPrimary: true,
-      buttons: 1,
-      preventDefault(){},
-      stopPropagation(){}
-    };
+    canvas.addEventListener("touchmove", (ev)=>{
+      if (!shouldBridge() || !_fvMktTouchBridgeOn) return;
+      const p = pointFromTouch(ev);
+      if (!p) return;
 
-    try{
-      if (type === "pointermove" && typeof canvas.onpointermove === "function") canvas.onpointermove(evLike);
-      if (type === "pointerdown" && typeof canvas.onpointerdown === "function") canvas.onpointerdown(evLike);
-      if (type === "pointerup" && typeof canvas.onpointerup === "function") canvas.onpointerup(evLike);
-      if (type === "pointercancel" && typeof canvas.onpointercancel === "function") canvas.onpointercancel(evLike);
-    }catch{}
-  }
+      ev.preventDefault();
+      fire("pointermove", p);
+    }, { passive:false });
 
-  function fire(type, p){
-    // Many libs bind pointer events on canvas
-    dispatchPointer(type, p, canvas);
+    canvas.addEventListener("touchend", (ev)=>{
+      if (!shouldBridge()) return;
+      const p = pointFromTouch(ev);
+      if (!p) return;
 
-    // Some bind on window/document
-    dispatchPointer(type, p, window);
+      ev.preventDefault();
 
-    // Last-ditch direct call
-    directCallPointer(type, p);
-  }
+      fire("pointermove", p);
+      fire("pointerup", p);
 
-  // iOS PWA sometimes treats touch events as scroll/gesture unless passive:false
-  canvas.addEventListener("touchstart", (ev)=>{
-    if (!shouldBridge()) return;
-    const p = pointFromTouch(ev);
-    if (!p) return;
-    _fvMktTouchBridgeOn = true;
-
-    ev.preventDefault();
-
-    // Make sure the canvas holds pointer capture if supported
-    try{
-      if (typeof canvas.setPointerCapture === "function"){
-        canvas.setPointerCapture(p.pointerId);
-      }
-    }catch{}
-
-    fire("pointerover", p);
-    fire("pointerenter", p);
-    fire("pointerdown", p);
-    fire("pointermove", p);
-  }, { passive:false });
-
-  canvas.addEventListener("touchmove", (ev)=>{
-    if (!shouldBridge() || !_fvMktTouchBridgeOn) return;
-    const p = pointFromTouch(ev);
-    if (!p) return;
-
-    ev.preventDefault();
-    fire("pointermove", p);
-  }, { passive:false });
-
-  canvas.addEventListener("touchend", (ev)=>{
-    if (!shouldBridge()) return;
-    const p = pointFromTouch(ev);
-    if (!p) return;
-
-    ev.preventDefault();
-
-    fire("pointermove", p);
-    fire("pointerup", p);
-
-    // Some libs only "lock" on click; also emit a click for good measure.
-    try{
-      const clickEv = new MouseEvent("click", { bubbles:true, cancelable:true, clientX:p.clientX, clientY:p.clientY });
+      // Some libs lock tooltip on click as well
       try{
-        Object.defineProperty(clickEv, "offsetX", { value: p.offsetX });
-        Object.defineProperty(clickEv, "offsetY", { value: p.offsetY });
+        const clickEv = new MouseEvent("click", { bubbles:true, cancelable:true, clientX:p.clientX, clientY:p.clientY });
+        try{
+          Object.defineProperty(clickEv, "offsetX", { value: p.offsetX });
+          Object.defineProperty(clickEv, "offsetY", { value: p.offsetY });
+        }catch{}
+        canvas.dispatchEvent(clickEv);
+        window.dispatchEvent(clickEv);
+        if (typeof canvas.onclick === "function"){
+          canvas.onclick({ clientX:p.clientX, clientY:p.clientY, offsetX:p.offsetX, offsetY:p.offsetY });
+        }
       }catch{}
-      canvas.dispatchEvent(clickEv);
-      window.dispatchEvent(clickEv);
-      if (typeof canvas.onclick === "function") canvas.onclick({ clientX:p.clientX, clientY:p.clientY, offsetX:p.offsetX, offsetY:p.offsetY });
-    }catch{}
 
-    _fvMktTouchBridgeOn = false;
+      _fvMktTouchBridgeOn = false;
 
-    try{
-      if (typeof canvas.releasePointerCapture === "function"){
-        canvas.releasePointerCapture(p.pointerId);
-      }
-    }catch{}
-  }, { passive:false });
+      try{
+        if (typeof canvas.releasePointerCapture === "function"){
+          canvas.releasePointerCapture(p.pointerId);
+        }
+      }catch{}
+    }, { passive:false });
 
-  canvas.addEventListener("touchcancel", (ev)=>{
-    _fvMktTouchBridgeOn = false;
+    canvas.addEventListener("touchcancel", (ev)=>{
+      _fvMktTouchBridgeOn = false;
 
-    // best effort cancel
-    const p = pointFromTouch(ev) || { clientX:0, clientY:0, offsetX:0, offsetY:0, pointerId:1 };
-    fire("pointercancel", p);
+      const p = pointFromTouch(ev) || { clientX:0, clientY:0, offsetX:0, offsetY:0, pointerId:1 };
+      fire("pointercancel", p);
 
-    try{
-      if (typeof canvas.releasePointerCapture === "function"){
-        canvas.releasePointerCapture(p.pointerId);
-      }
-    }catch{}
-  }, { passive:true });
-}
-
-
+      try{
+        if (typeof canvas.releasePointerCapture === "function"){
+          canvas.releasePointerCapture(p.pointerId);
+        }
+      }catch{}
+    }, { passive:true });
+  }
 
   function toNum(x){
     if (typeof x === "number" && isFinite(x)) return x;
@@ -288,6 +286,7 @@ function _fvMktBindTouchBridge(canvas){
   // --------------------------------------------------
   // Contract filtering (expired + dead/noData)
   // --------------------------------------------------
+  // ✅ Only declared ONCE (you had duplicates before)
   const MONTH_CODE = { F:1, G:2, H:3, J:4, K:5, M:6, N:7, Q:8, U:9, V:10, X:11, Z:12 };
 
   function parseSymbolYM(symbol){
@@ -348,9 +347,6 @@ function _fvMktBindTouchBridge(canvas){
   // --------------------------------------------------
   // Landscape-only fullscreen + auto-fit canvas
   // --------------------------------------------------
-  const LANDSCAPE_CLASS = "fv-mkt-landscape-full";
-  const LANDSCAPE_STYLE_ID = "fv-mkt-landscape-full-style";
-
   function ensureLandscapeStyle(){
     if (document.getElementById(LANDSCAPE_STYLE_ID)) return;
 
@@ -408,9 +404,7 @@ function _fvMktBindTouchBridge(canvas){
         flex-direction: column !important;
       }
 
-      /* ✅ Tap fix for iOS PWA landscape:
-         - touch-action:none can break tap/click synthesis in standalone
-         - manipulation keeps taps working and avoids zoom/scroll junk */
+      /* Keep taps available on canvas in fullscreen landscape */
       #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-canvas{
         display: block !important;
         width: 100% !important;
@@ -420,6 +414,7 @@ function _fvMktBindTouchBridge(canvas){
         touch-action: manipulation !important;
       }
 
+      /* In split view, prioritize chart in landscape (mobile only) */
       #${BACKDROP_ID}.open.${LANDSCAPE_CLASS} #${MODAL_ID} .fv-mktm-split{
         grid-template-columns: 1fr !important;
       }
@@ -687,10 +682,9 @@ function _fvMktBindTouchBridge(canvas){
         </div>
       </div>
     `);
-     // 🔴 ADD THESE LINES
-const canvas = qs("#fv-mktm-canvas");
-_fvMktBindTouchBridge(canvas);
 
+    // Bind bridge as soon as canvas exists
+    _fvMktBindTouchBridge(qs("#fv-mktm-canvas"));
 
     setChartHeader(symbol);
     wireTabs(()=>symbol);
@@ -752,10 +746,9 @@ _fvMktBindTouchBridge(canvas);
         </div>
       </div>
     `);
-     // 🔴 ADD THESE LINES
-const canvas = qs("#fv-mktm-canvas");
-_fvMktBindTouchBridge(canvas);
 
+    // Bind bridge as soon as canvas exists
+    _fvMktBindTouchBridge(qs("#fv-mktm-canvas"));
 
     warmAndPaintList(symbols).catch(()=>{});
 
@@ -850,12 +843,13 @@ _fvMktBindTouchBridge(canvas);
 
   async function loadChart(symbol, mode){
     const canvas = qs("#fv-mktm-canvas");
-     // ✅ Ensure touch->mouse bridge is bound for iOS PWA landscape fullscreen
-_fvMktBindTouchBridge(canvas);
     const note = qs("#fv-mktm-note");
     const range = qs("#fv-mktm-range");
 
     if (!canvas || !window.FVMarketsSeries || !window.FVMarketsChart) return;
+
+    // Ensure bridge is bound for this canvas instance
+    _fvMktBindTouchBridge(canvas);
 
     const m = String(mode || DEFAULT_MODE).toLowerCase();
 
