@@ -22,6 +22,9 @@
       --page-bottom-gap: 72px;
       --accent: #2F6C3C;
 
+      /* ✅ scroll offset so detail lands nicely below FV header */
+      --details-scroll-offset: 92px;
+
       /* Combo globals (from FV combo template) */
       --combo-gap: 4px;
       --combo-radius: 12px;
@@ -351,6 +354,9 @@
       display:none;
       flex-direction:column;
       gap:8px;
+
+      /* ✅ makes scrollIntoView land below sticky header */
+      scroll-margin-top: var(--details-scroll-offset);
     }
 
     .wo-detail-header {
@@ -551,6 +557,36 @@
     }
 
     /* =========================
+       ✅ Smooth auto-scroll to details
+       ========================= */
+
+    function scrollToDetails(){
+      const panel = $('#towerDetails');
+      if(!panel || panel.style.display === 'none') return;
+
+      // Use scrollIntoView first (respects scroll-margin-top), then do a small
+      // safety adjust for browsers that ignore it in some layouts.
+      try{
+        panel.scrollIntoView({ behavior:'smooth', block:'start' });
+      }catch(_e){}
+
+      // Safety adjust (especially on iOS standalone / odd viewport situations)
+      requestAnimationFrame(() => {
+        const offset = Number(getComputedStyle(document.documentElement).getPropertyValue('--details-scroll-offset').replace('px','')) || 92;
+        const y = panel.getBoundingClientRect().top + (window.pageYOffset || document.documentElement.scrollTop || 0) - offset;
+        window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+      });
+    }
+
+    function focusDetails(){
+      const panel = $('#towerDetails');
+      if(!panel || panel.style.display === 'none') return;
+      try{
+        panel.focus({ preventScroll: true });
+      }catch(_e){}
+    }
+
+    /* =========================
        Combo helpers
        ========================= */
 
@@ -710,7 +746,7 @@
 
         card.addEventListener('click', () => {
           STATE.selectedId = tower.id;
-          renderDetails();
+          renderDetails({ scroll:true, focus:true });
         });
 
         listEl.appendChild(card);
@@ -727,7 +763,9 @@
       $('.wo-detail-footer', panel).innerHTML = '';
     }
 
-    function renderDetails(){
+    function renderDetails(opts = {}){
+      const { scroll=false, focus=false } = opts;
+
       const panel = $('.wo-detail-panel');
       const tower = getWorkingTowers().find(x => x.id === STATE.selectedId);
       if(!tower){
@@ -811,9 +849,18 @@
       footer.innerHTML = `
         Coverage summary:
         <span class="wo-detail-pill">${tower.fields.length} field${tower.fields.length === 1 ? '' : 's'} on ${tower.farmIds.size} farm${tower.farmIds.size === 1 ? '' : 's'}</span>
+        ${status ? `<span class="wo-detail-pill">Status: ${escapeHtml(status)}</span>` : ''}
       `;
 
       panel.style.display = 'flex';
+
+      // ✅ after panel is visible and filled, scroll to it
+      if(scroll){
+        requestAnimationFrame(() => {
+          scrollToDetails();
+          if(focus) focusDetails();
+        });
+      }
     }
 
     function showSummaryToast(tower){
@@ -1725,7 +1772,8 @@
             <div class="wo-list"></div>
           </section>
 
-          <section class="wo-detail-panel" aria-label="RTK tower details">
+          <!-- ✅ tabindex + id so we can focus/scroll reliably -->
+          <section id="towerDetails" class="wo-detail-panel" aria-label="RTK tower details" tabindex="-1">
             <div class="wo-detail-header">
               <div class="wo-detail-title">RTK Tower Details</div>
               <button type="button" id="woDetailClose" class="wo-detail-close">
