@@ -36,6 +36,11 @@ CRITICAL FIX (your issue):
 NEW (requested):
 ✅ Desktop: move meta line ("Delayed quotes • Updated ...") into the Markets header,
    subtle under the Markets label; mobile stays exactly as-is.
+
+UPDATE (requested):
+✅ Mobile Soybean 2-contract logic:
+   - Normal: Front + Nov (X)
+   - In November: Nov (X) + Jan (F)
 ===================================================================== */
 
 (function(){
@@ -318,6 +323,15 @@ NEW (requested):
     return null;
   }
 
+  function findByMonthYear(list, monthNum, year){
+    if (!Array.isArray(list)) return null;
+    for (const c of list){
+      const ym = parseSymbolYM(c?.symbol);
+      if (ym && ym.month === monthNum && ym.year === year) return c;
+    }
+    return null;
+  }
+
   function findJanNextYear(list, year){
     if (!Array.isArray(list)) return null;
     for (const c of list){
@@ -425,7 +439,11 @@ NEW (requested):
     return (list || []).filter(c => c?.symbol && Markets.isSymbolUsable(c.symbol));
   }
 
-  function pickMobileTwoTiles(list){
+  // ✅ MOBILE: choose exactly 2 contracts to show on the dashboard card
+  // corn rule stays: Front + Dec (if Front=Dec then Jan next year)
+  // soy rule: Front + Nov (if Front=Nov then Jan next year)
+  //          BUT if current month is November: Nov + Jan (next year)
+  function pickMobileTwoTiles(list, cropKey){
     const filtered = filterList(list || []);
     if (!filtered.length) return [];
 
@@ -433,6 +451,55 @@ NEW (requested):
     const reordered = [front, ...filtered.filter(x => x?.symbol && x.symbol !== front.symbol)];
 
     const frontYM = parseSymbolYM(front?.symbol);
+
+    // --- SOYBEANS special rule ---
+    if (String(cropKey || "").toLowerCase() === "soy"){
+      const now = new Date();
+      const curMonth = now.getMonth() + 1;
+
+      const nov = findFirstByMonth(reordered, 11);
+
+      // If we're in November, show Nov + Jan (next year)
+      if (curMonth === 11){
+        const novC = nov || front || null;
+        const novYM = parseSymbolYM(novC?.symbol);
+
+        if (novC && novYM && novYM.month === 11){
+          const jan = findByMonthYear(reordered, 1, novYM.year + 1) || findJanNextYear(reordered, novYM.year) || reordered.find(x => {
+            const ym = parseSymbolYM(x?.symbol);
+            return ym && ym.month === 1 && ym.year >= (novYM.year + 1);
+          }) || reordered[1] || null;
+
+          const out = [novC];
+          if (jan && jan.symbol && jan.symbol !== novC.symbol) out.push(jan);
+          return out;
+        }
+
+        // If we can't find a November contract for some reason, fall back to front + next
+        const secondFallback = reordered[1] || null;
+        const outFb = [front];
+        if (secondFallback && secondFallback.symbol && secondFallback.symbol !== front.symbol) outFb.push(secondFallback);
+        return outFb;
+      }
+
+      // Normal months: Front + Nov
+      // If the front IS November, then use Jan next year as the second tile
+      if (frontYM && frontYM.month === 11){
+        const jan = findJanNextYear(reordered, frontYM.year) || reordered[1] || null;
+        const out = [front];
+        if (jan && jan.symbol && jan.symbol !== front.symbol) out.push(jan);
+        return out;
+      }
+
+      if (nov && nov.symbol && nov.symbol !== front.symbol) return [front, nov];
+
+      const second = reordered[1] || null;
+      const out = [front];
+      if (second && second.symbol && second.symbol !== front.symbol) out.push(second);
+      return out;
+    }
+
+    // --- CORN (existing behavior) ---
     const dec = findFirstByMonth(reordered, 12);
 
     if (frontYM && frontYM.month === 12){
@@ -565,7 +632,7 @@ NEW (requested):
 
     const mobile = isMobile();
     const safeList = filterList(list || []);
-    const shown = mobile ? pickMobileTwoTiles(safeList) : safeList;
+    const shown = mobile ? pickMobileTwoTiles(safeList, cropKey) : safeList;
 
     container.innerHTML = `
       <div class="fv-mkt-card">
@@ -700,8 +767,8 @@ NEW (requested):
   function mobileVisibleSymbols(payload){
     const out = [];
     if (!payload) return out;
-    pickMobileTwoTiles(payload.corn || []).forEach(c => c?.symbol && out.push(c.symbol));
-    pickMobileTwoTiles(payload.soy || []).forEach(c => c?.symbol && out.push(c.symbol));
+    pickMobileTwoTiles(payload.corn || [], "corn").forEach(c => c?.symbol && out.push(c.symbol));
+    pickMobileTwoTiles(payload.soy || [], "soy").forEach(c => c?.symbol && out.push(c.symbol));
     return out;
   }
 
