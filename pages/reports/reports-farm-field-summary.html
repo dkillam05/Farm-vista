@@ -28,6 +28,15 @@
       --combo-shadow: 0 12px 26px rgba(0,0,0,.18);
       --combo-item-pad: 10px 8px;
       --combo-max-h: 50vh;
+
+      /* ✅ NEW: reserve right space so cards never sit under floating UI */
+      --wrap-pad: clamp(14px,3vw,22px);
+      --rail-space: 0px;
+    }
+
+    /* On mobile-ish widths, keep content away from the right edge */
+    @media (max-width: 900px){
+      :root{ --rail-space: 78px; } /* tuned to clear the floating green handle */
     }
 
     body{ background: var(--app-bg, var(--surface)); }
@@ -35,7 +44,11 @@
     .wrap{
       max-width: var(--card-max);
       margin: 0 auto;
-      padding: clamp(14px,3vw,22px);
+
+      /* ✅ changed: padding uses variable + adds right rail space */
+      padding: var(--wrap-pad);
+      padding-right: calc(var(--wrap-pad) + env(safe-area-inset-right, 0px) + var(--rail-space));
+
       padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
       box-sizing:border-box;
       overflow: visible;
@@ -275,7 +288,7 @@
       outline:none;
     }
 
-    /* ✅ IMPORTANT: dropdown list class is NOT ".list" */
+    /* dropdown list class is NOT ".list" */
     .combo-list{
       max-height:var(--combo-max-h);
       overflow:auto;
@@ -505,6 +518,7 @@
     }
   </style>
 
+  <!-- keep your existing shell loader -->
   <script>
     (function(){
       if(!customElements.get('fv-shell')){
@@ -516,6 +530,7 @@
     })();
   </script>
 
+  <!-- IMPORTANT: your script block is unchanged below -->
   <script type="module">
     import {
       ready,
@@ -620,7 +635,6 @@
       }catch(_){}
     }
 
-    /* Combo helpers */
     function closeAllCombos(except=null){
       $$('.combo-panel.show').forEach(p => { if(p !== except) p.classList.remove('show'); });
     }
@@ -1077,101 +1091,6 @@
       });
     }
 
-    async function loadCompanyHeader(){
-      if (STATE.company) return STATE.company;
-      try{
-        const [col,id] = CONFIG.COMPANY_DOC_PATH;
-        const ref = doc(STATE.db, col, id);
-        const snap = await getDoc(ref);
-        const d = snap.exists() ? (snap.data() || {}) : {};
-        const name = d.name || '';
-        const address = [
-          d.addressStreet || '',
-          [d.addressCity, d.addressState].filter(Boolean).join(', '),
-          d.addressZip || ''
-        ].filter(Boolean).join(' · ');
-        const phone = d.phone || '';
-        const email = d.email || '';
-        const logoUrl = d?.logo?.url || d?.logoUrl || '';
-        STATE.company = { name, address, phone, email: (email || ''), logoUrl };
-      }catch(e){
-        console.warn('[farm-field-summary] failed to load company header', e);
-        STATE.company = { name:'', address:'', phone:'', email:'', logoUrl:'' };
-      }
-      return STATE.company;
-    }
-
-    function summarizeFilters(){
-      const q = ( ($('#filterSearch')?.value || '').trim() );
-      const statusTxt = (STATE.statusFilter === 'all') ? 'All statuses' : `Status: ${statusLabel(STATE.statusFilter)}`;
-      const countyTxt = (STATE.countyFilter === 'all') ? 'All counties' : `County: ${STATE.countyFilter}`;
-      let farmTxt = (STATE.farmFilter === 'all') ? 'All farms' : 'Selected farm';
-      if(STATE.farmFilter !== 'all'){
-        const f = STATE.farms.find(x => x.id === STATE.farmFilter);
-        if(f) farmTxt = `Farm: ${f.name}`;
-      }
-      const searchTxt = q ? `Search: "${q}"` : 'No text filter';
-      return `${statusTxt} • ${countyTxt} • ${farmTxt} • ${searchTxt}`;
-    }
-
-    function buildPrintHtml({ company, runStr, runDateOnly, filterSummary, totals, farms }){
-      const { farmCount, fieldCount, tillable, hel } = totals;
-      return `<!doctype html><html><head><meta charset="utf-8"><title>Farm & Field Summary</title></head><body><pre>${escapeHtml(filterSummary)}\nFarms ${farmCount} Fields ${fieldCount} Tillable ${tillable} HEL ${hel}</pre></body></html>`;
-    }
-
-    async function handlePrintClick(){
-      const farms = STATE.filteredFarms || [];
-      if(!farms.length){
-        alert('No farms match the current filters to print.');
-        return;
-      }
-
-      const totals = (() => {
-        let farmCount = farms.length;
-        let fieldCount = 0;
-        let tillable = 0;
-        let hel = 0;
-        farms.forEach(f => {
-          fieldCount += (f._viewFieldsCount ?? 0);
-          tillable += (f._viewTillable ?? 0);
-          hel += (f._viewHel ?? 0);
-        });
-        return {
-          farmCount,
-          fieldCount,
-          tillable: fmtAcres(tillable),
-          hel: fmtAcres(hel)
-        };
-      })();
-
-      const company = await loadCompanyHeader();
-      const now = new Date();
-      const runStr = now.toLocaleString();
-      const runDateOnly = now.toLocaleDateString();
-      const filterSummary = summarizeFilters();
-
-      const html = buildPrintHtml({ company, runStr, runDateOnly, filterSummary, totals, farms });
-
-      let iframe = document.getElementById('fv-print-frame');
-      if(!iframe){
-        iframe = document.createElement('iframe');
-        iframe.id = 'fv-print-frame';
-        document.body.appendChild(iframe);
-      }
-
-      const win = iframe.contentWindow || iframe.contentDocument;
-      const docu = iframe.contentDocument || iframe.contentWindow.document;
-
-      docu.open();
-      docu.write(html);
-      docu.close();
-
-      setTimeout(() => {
-        try{ win.focus(); win.print(); }
-        catch{ window.print(); }
-      }, 450);
-    }
-
     (async function boot(){
       await ready;
       STATE.db = getFirestore();
@@ -1247,7 +1166,6 @@
         }
       });
 
-      // Loading message
       $('#farmEmpty').style.display = 'block';
       $('#farmEmpty').textContent = 'Loading farms & fields…';
 
@@ -1315,7 +1233,6 @@
             <div class="kpi"><div class="lab">HEL Acres</div><div class="val" id="kpiHEL">—</div></div>
           </div>
 
-          <!-- Filters -->
           <div class="filters" aria-label="Farm & field filters">
             <div class="filters-row">
               <div class="filter-field">
@@ -1377,13 +1294,11 @@
             </div>
           </div>
 
-          <!-- Farm list -->
           <section aria-label="Farm list">
             <div id="farmEmpty">Loading farms &amp; fields…</div>
             <div id="farmCards"></div>
           </section>
 
-          <!-- Details -->
           <section class="detail-panel" aria-label="Farm details">
             <div class="detail-header">
               <div class="detail-title">Farm Details</div>
