@@ -118,7 +118,7 @@
     }
     .page-header-meta{ font-size:0.9rem; opacity:0.8; }
 
-    /* ✅ Filters look EXACTLY like Field Maintenance page */
+    /* Filters look like Field Maintenance page */
     .filters{
       display:flex;
       flex-wrap:wrap;
@@ -162,22 +162,6 @@
       display:block;
     }
     .filter-select option{ white-space: nowrap; }
-
-    .filter-input{
-      width:100%;
-      max-width:100%;
-      min-width:0;
-      border-radius:999px;
-      border:1px solid var(--border);
-      padding:6px 10px;
-      font-size:0.9rem;
-      background:var(--card-surface,var(--surface));
-      color:var(--text);
-      min-height:34px;
-      position: relative;
-      z-index: 60;
-    }
-    .filter-input::placeholder{ color:var(--muted,#9CA3AF); }
 
     .filters-row{
       display:flex;
@@ -224,7 +208,97 @@
       min-width:0;
     }
 
-    /* List cards (same vibe) */
+    /* ✅ Toggle controls (HEL/CRP on/off) */
+    .toggles-row{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:flex-end;
+      width:100%;
+    }
+    .toggle{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      border:1px solid var(--border);
+      background:var(--card-surface,var(--surface));
+      border-radius:999px;
+      padding:6px 10px;
+      height:34px;
+      box-sizing:border-box;
+      width:100%;
+    }
+    .toggle .toggle-text{
+      display:flex;
+      flex-direction:column;
+      line-height:1.05;
+      min-width:0;
+    }
+    .toggle .toggle-title{
+      font-weight:900;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      font-size:0.72rem;
+      opacity:0.85;
+      white-space:nowrap;
+    }
+    .toggle .toggle-sub{
+      font-size:0.78rem;
+      opacity:0.75;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      max-width: 28ch;
+    }
+
+    /* Pure CSS switch */
+    .switch{
+      position:relative;
+      display:inline-block;
+      width:46px;
+      height:26px;
+      flex:0 0 auto;
+    }
+    .switch input{
+      opacity:0;
+      width:0;
+      height:0;
+    }
+    .slider{
+      position:absolute;
+      cursor:pointer;
+      inset:0;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      border:1px solid var(--border);
+      transition:.18s;
+      border-radius:999px;
+    }
+    .slider:before{
+      content:"";
+      position:absolute;
+      height:20px;
+      width:20px;
+      left:3px;
+      top:50%;
+      transform:translateY(-50%);
+      background:var(--surface);
+      border:1px solid color-mix(in srgb, var(--border) 70%, transparent);
+      transition:.18s;
+      border-radius:50%;
+      box-shadow:0 6px 14px rgba(0,0,0,.12);
+    }
+    .switch input:checked + .slider{
+      background: rgba(47,108,60,.20);
+      border-color: rgba(47,108,60,.45);
+    }
+    .switch input:checked + .slider:before{
+      transform:translate(20px, -50%);
+      background:#fff;
+      border-color: rgba(47,108,60,.35);
+    }
+
+    /* List cards */
     .wo-list{ display:flex; flex-direction:column; gap:10px; margin-top:8px; }
 
     .wo-empty{
@@ -303,6 +377,7 @@
     }
     @media (max-width:520px){
       .wo-meta .wo-meta-val{ max-width:30ch; }
+      .toggle .toggle-sub{ max-width: 20ch; }
     }
 
     /* Detail panel */
@@ -500,7 +575,9 @@
       filters: {
         county: 'all',
         farm: 'all',
-        flag: 'all', // all | hel | crp
+        // ✅ filter toggles:
+        requireHEL: false,
+        requireCRP: false,
         q: ''
       }
     };
@@ -532,17 +609,24 @@
       return s !== 'archived' && s !== 'inactive' && s !== 'deleted';
     }
 
+    // ✅ Your rule:
+    // - a field "has HEL" if hasHEL === true (and then we can look at helAcres for totals)
+    // - a field "has CRP" if hasCRP === true (and then we can look at crpAcres for totals)
+    function fieldHasHEL(fd){ return !!fd?.hasHEL; }
+    function fieldHasCRP(fd){ return !!fd?.hasCRP; }
+
     function computeFarmMetrics(fields){
       const activeFields = fields.filter(f => fieldIsActive(f.data));
       const fieldCount = activeFields.length;
       const tillable = activeFields.reduce((sum,f)=> sum + nnum(f.data?.tillable ?? f.data?.tillableAcres ?? f.data?.acres), 0);
 
-      const helFields = activeFields.filter(f => !!f.data?.hasHEL && nnum(f.data?.helAcres) > 0);
-      const crpFields = activeFields.filter(f => !!f.data?.hasCRP && nnum(f.data?.crpAcres) > 0);
+      const helFields = activeFields.filter(f => fieldHasHEL(f.data));
+      const crpFields = activeFields.filter(f => fieldHasCRP(f.data));
 
       const helCount = helFields.length;
       const crpCount = crpFields.length;
 
+      // Acres are summed for fields where the flag is true (even if acres is 0)
       const helAcres = helFields.reduce((sum,f)=> sum + nnum(f.data?.helAcres), 0);
       const crpAcres = crpFields.reduce((sum,f)=> sum + nnum(f.data?.crpAcres), 0);
 
@@ -557,7 +641,7 @@
         : STATE.farms;
     }
 
-    /* ✅ Smooth auto-scroll to details (same as RTK) */
+    /* ✅ Smooth auto-scroll to details */
     function scrollToDetails(){
       const panel = $('#farmDetails');
       if(!panel || panel.style.display === 'none') return;
@@ -680,7 +764,6 @@
       fields.sort((a,b)=> String(a.data?.name||'').localeCompare(String(b.data?.name||'')));
 
       const m = farm.metrics || computeFarmMetrics(fieldsAll);
-
       panel.dataset.id = farm.id;
       $('.wo-detail-title', panel).textContent = farmName;
 
@@ -705,11 +788,11 @@
           <div class="wo-detail-item-value">${m.counties && m.counties.size ? escapeHtml(Array.from(m.counties).sort().join(', ')) : '—'}</div>
         </div>
         <div>
-          <div class="wo-detail-item-label">HEL</div>
+          <div class="wo-detail-item-label">HEL (hasHEL = true)</div>
           <div class="wo-detail-item-value">${m.helCount} field${m.helCount===1?'':'s'} · ${fmt(m.helAcres,2)} ac</div>
         </div>
         <div>
-          <div class="wo-detail-item-label">CRP</div>
+          <div class="wo-detail-item-label">CRP (hasCRP = true)</div>
           <div class="wo-detail-item-value">${m.crpCount} field${m.crpCount===1?'':'s'} · ${fmt(m.crpAcres,2)} ac</div>
         </div>
       `;
@@ -722,6 +805,7 @@
       }else{
         const table = document.createElement('div');
         table.className = 'field-table';
+
         table.innerHTML = fields.map(f => {
           const fd = f.data || {};
           const name = fd.name || 'Unnamed field';
@@ -730,8 +814,8 @@
           const loc = [county, state].filter(Boolean).join(', ');
           const till = nnum(fd.tillable ?? fd.tillableAcres ?? fd.acres);
 
-          const hasHEL = !!fd.hasHEL && nnum(fd.helAcres) > 0;
-          const hasCRP = !!fd.hasCRP && nnum(fd.crpAcres) > 0;
+          const hasHEL = fieldHasHEL(fd);
+          const hasCRP = fieldHasCRP(fd);
 
           const chips = [];
           chips.push(`<span class="chip"><strong>Till</strong> <span class="wo-meta-val">${fmt(till,2)} ac</span></span>`);
@@ -746,6 +830,7 @@
             </div>
           `;
         }).join('');
+
         body.appendChild(table);
       }
 
@@ -803,7 +888,7 @@
     function hydrateFarmDropdown(){
       const sel = $('#filterFarm');
       const cur = sel?.value || 'all';
-      const county = ($('#filterCounty')?.value || 'all');
+      const county = ($('#filterCounty')?.value || 'all';
 
       let farms = STATE.farms.slice();
       if(county !== 'all'){
@@ -818,7 +903,6 @@
         })
       ].join('');
 
-      // If current farm not valid under county, reset to all
       const stillOk = (cur === 'all') || farms.some(f => f.id === cur);
       setSelectOptions(sel, opts, stillOk ? cur : 'all');
     }
@@ -827,13 +911,14 @@
       return {
         county: ($('#filterCounty')?.value || 'all'),
         farm:   ($('#filterFarm')?.value || 'all'),
-        flag:   ($('#filterFlag')?.value || 'all'),
+        requireHEL: !!($('#toggleHEL')?.checked),
+        requireCRP: !!($('#toggleCRP')?.checked),
         q:      ( ($('#filterSearch')?.value || '').trim().toLowerCase() )
       };
     }
 
     function applyFilters(){
-      const { county, farm, flag, q } = getFilters();
+      const { county, farm, requireHEL, requireCRP, q } = getFilters();
 
       const filtered = [];
 
@@ -841,12 +926,11 @@
         if(farm !== 'all' && f.id !== farm) continue;
         if(county !== 'all' && !(f.metrics?.counties && f.metrics.counties.has(county))) continue;
 
-        if(flag !== 'all'){
-          const hasHel = (f.metrics?.helCount || 0) > 0;
-          const hasCrp = (f.metrics?.crpCount || 0) > 0;
-          if(flag === 'hel' && !hasHel) continue;
-          if(flag === 'crp' && !hasCrp) continue;
-        }
+        // ✅ Toggle behavior:
+        // - If HEL toggle ON => require at least one field with hasHEL === true
+        // - If CRP toggle ON => require at least one field with hasCRP === true
+        if(requireHEL && (f.metrics?.helCount || 0) === 0) continue;
+        if(requireCRP && (f.metrics?.crpCount || 0) === 0) continue;
 
         if(q){
           const d = f.data || {};
@@ -899,14 +983,19 @@
     }
 
     function summarizeFilters(){
-      const { county, farm, flag, q } = getFilters();
+      const { county, farm, requireHEL, requireCRP, q } = getFilters();
 
       const farmLabel = (farm !== 'all')
         ? (STATE.farmNameMap.get(farm) || 'Selected farm')
         : 'All farms';
 
       const countyLabel = (county !== 'all') ? county : 'All counties';
-      const flagLabel = (flag === 'hel') ? 'HEL only' : (flag === 'crp' ? 'CRP only' : 'HEL + CRP');
+
+      const flagBits = [];
+      if(requireHEL) flagBits.push('HEL only');
+      if(requireCRP) flagBits.push('CRP only');
+      const flagLabel = flagBits.length ? flagBits.join(' + ') : 'HEL + CRP';
+
       const searchLabel = q ? `Search: "${q}"` : 'No text filter';
 
       return `${countyLabel} • ${farmLabel} • ${flagLabel} • ${searchLabel}`;
@@ -1075,15 +1164,15 @@
           const fd = x.data || {};
           const loc = [fd.county, fd.state].filter(Boolean).join(', ');
           const till = nnum(fd.tillable ?? fd.tillableAcres ?? fd.acres);
-          const hel = (!!fd.hasHEL && nnum(fd.helAcres) > 0) ? nnum(fd.helAcres) : 0;
-          const crp = (!!fd.hasCRP && nnum(fd.crpAcres) > 0) ? nnum(fd.crpAcres) : 0;
+          const hel = fieldHasHEL(fd) ? nnum(fd.helAcres) : 0;
+          const crp = fieldHasCRP(fd) ? nnum(fd.crpAcres) : 0;
           return `
             <tr>
               <td>${escapeHtml(fd.name || 'Unnamed field')}</td>
               <td>${escapeHtml(loc)}</td>
               <td>${till ? escapeHtml(fmt(till,2)) : ''}</td>
-              <td>${hel ? escapeHtml(fmt(hel,2)) : ''}</td>
-              <td>${crp ? escapeHtml(fmt(crp,2)) : ''}</td>
+              <td>${fieldHasHEL(fd) ? escapeHtml(fmt(hel,2)) : ''}</td>
+              <td>${fieldHasCRP(fd) ? escapeHtml(fmt(crp,2)) : ''}</td>
             </tr>
           `;
         }).join('');
@@ -1116,7 +1205,7 @@
     </section>
 
     <footer class="report-footer">
-      <div>Internal use only. HEL/CRP totals require hasHEL/hasCRP true and acres &gt; 0.</div>
+      <div>Internal use only. HEL/CRP totals are driven by hasHEL/hasCRP flags (true/false).</div>
       <div>FarmVista • Farm &amp; Field Summary • ${escapeHtml(runDateOnly || '')}</div>
     </footer>
   </div>
@@ -1189,7 +1278,6 @@
         fieldsByFarm.get(fid).push(f);
       });
 
-      // Build farm records
       const farms = activeFarms.map(f => {
         const fields = fieldsByFarm.get(f.id) || [];
         const metrics = computeFarmMetrics(fields);
@@ -1198,7 +1286,6 @@
 
       farms.sort((a,b)=> String(a.data?.name||'').localeCompare(String(b.data?.name||'')));
 
-      // County options from ACTIVE fields only
       const countySet = new Set();
       farms.forEach(f => f.metrics?.counties?.forEach(c => countySet.add(c)));
       STATE.countyOptions = Array.from(countySet).sort();
@@ -1209,7 +1296,8 @@
     function wireFilterEvents(){
       const countySel = $('#filterCounty');
       const farmSel = $('#filterFarm');
-      const flagSel = $('#filterFlag');
+      const helToggle = $('#toggleHEL');
+      const crpToggle = $('#toggleCRP');
       const searchEl = $('#filterSearch');
       const clearBtn = $('#filterClear');
 
@@ -1219,21 +1307,57 @@
           applyFilters();
         });
       }
-      if(farmSel){
-        farmSel.addEventListener('change', () => applyFilters());
-      }
-      if(flagSel){
-        flagSel.addEventListener('change', () => applyFilters());
-      }
-      if(searchEl){
-        searchEl.addEventListener('input', () => applyFilters());
-      }
+      if(farmSel) farmSel.addEventListener('change', () => applyFilters());
+
+      if(helToggle) helToggle.addEventListener('change', () => applyFilters());
+      if(crpToggle) crpToggle.addEventListener('change', () => applyFilters());
+
+      if(searchEl) searchEl.addEventListener('input', () => applyFilters());
+
       if(clearBtn){
-        clearBtn.addEventListener('click', () => {
-          // Same behavior as Field Maintenance page "Clear filters"
-          location.reload();
-        });
+        clearBtn.addEventListener('click', () => location.reload());
       }
+    }
+
+    function setSelectOptions(selectEl, optionsHtml, currentValue){
+      if(!selectEl) return;
+      selectEl.innerHTML = optionsHtml;
+      if(currentValue != null){
+        const exists = Array.from(selectEl.options).some(o => o.value === currentValue);
+        selectEl.value = exists ? currentValue : (selectEl.options[0]?.value || 'all');
+      }
+    }
+
+    function hydrateCountyDropdown(){
+      const sel = $('#filterCounty');
+      const cur = sel?.value || 'all';
+      const opts = [
+        `<option value="all">All counties</option>`,
+        ...STATE.countyOptions.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)
+      ].join('');
+      setSelectOptions(sel, opts, cur);
+    }
+
+    function hydrateFarmDropdown(){
+      const sel = $('#filterFarm');
+      const cur = sel?.value || 'all';
+      const county = ($('#filterCounty')?.value || 'all');
+
+      let farms = STATE.farms.slice();
+      if(county !== 'all'){
+        farms = farms.filter(f => f.metrics?.counties && f.metrics.counties.has(county));
+      }
+
+      const opts = [
+        `<option value="all">All farms</option>`,
+        ...farms.map(f => {
+          const name = f.data?.name || 'Unnamed farm';
+          return `<option value="${escapeHtml(f.id)}">${escapeHtml(name)}</option>`;
+        })
+      ].join('');
+
+      const stillOk = (cur === 'all') || farms.some(f => f.id === cur);
+      setSelectOptions(sel, opts, stillOk ? cur : 'all');
     }
 
     (async function boot(){
@@ -1259,10 +1383,15 @@
 
       try{
         await loadData();
-
         hydrateCountyDropdown();
         hydrateFarmDropdown();
         wireFilterEvents();
+
+        // Default toggles OFF
+        const helT = $('#toggleHEL');
+        const crpT = $('#toggleCRP');
+        if(helT) helT.checked = false;
+        if(crpT) crpT.checked = false;
 
         applyFilters();
       }catch(err){
@@ -1305,7 +1434,7 @@
             <div class="page-header-meta" id="reportMeta">Loading report…</div>
           </div>
 
-          <!-- ✅ Filters layout matches Field Maintenance page -->
+          <!-- Filters -->
           <div class="filters" aria-label="Farm & field filters">
             <div class="filters-row">
               <div class="filter-field">
@@ -1315,20 +1444,42 @@
                 </select>
               </div>
 
-              <div class="filter-field">
-                <label class="filter-label" for="filterFlag">Flag</label>
-                <select id="filterFlag" class="filter-select">
-                  <option value="all">HEL + CRP</option>
-                  <option value="hel">HEL only</option>
-                  <option value="crp">CRP only</option>
-                </select>
-              </div>
-
               <div class="filter-field field-wide">
                 <label class="filter-label" for="filterFarm">Farm</label>
                 <select id="filterFarm" class="filter-select">
                   <option value="all">All farms</option>
                 </select>
+              </div>
+            </div>
+
+            <!-- ✅ HEL/CRP toggles (true/false) -->
+            <div class="toggles-row">
+              <div class="filter-field">
+                <label class="filter-label">HEL</label>
+                <div class="toggle" role="group" aria-label="HEL toggle">
+                  <div class="toggle-text">
+                    <div class="toggle-title">Require HEL</div>
+                    <div class="toggle-sub">hasHEL = true</div>
+                  </div>
+                  <label class="switch" aria-label="Require HEL">
+                    <input id="toggleHEL" type="checkbox">
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="filter-field">
+                <label class="filter-label">CRP</label>
+                <div class="toggle" role="group" aria-label="CRP toggle">
+                  <div class="toggle-text">
+                    <div class="toggle-title">Require CRP</div>
+                    <div class="toggle-sub">hasCRP = true</div>
+                  </div>
+                  <label class="switch" aria-label="Require CRP">
+                    <input id="toggleCRP" type="checkbox">
+                    <span class="slider"></span>
+                  </label>
+                </div>
               </div>
             </div>
 
