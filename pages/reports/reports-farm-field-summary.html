@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>FarmVista • Farm/Field Summary</title>
+  <title>FarmVista • Farm &amp; Field Summary</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#3B7E46" />
 
@@ -542,6 +542,7 @@
       font-weight:700;
       word-break:break-word;
       line-height:1.25;
+      white-space:pre-line;
     }
     .field-sheet-actions{
       display:flex;
@@ -681,7 +682,6 @@
       const crpCount = crpFields.length;
       const patternCount = patternFields.length;
 
-      // Acres summed only after boolean true (can be 0)
       const helAcres = helFields.reduce((sum,f)=> sum + nnum(f.data?.helAcres), 0);
       const crpAcres = crpFields.reduce((sum,f)=> sum + nnum(f.data?.crpAcres), 0);
 
@@ -697,6 +697,44 @@
       return (STATE.filteredFarms && STATE.filteredFarms.length)
         ? STATE.filteredFarms
         : STATE.farms;
+    }
+
+    function getFieldsForFlag(fields, flag){
+      const f = String(flag || 'all').toLowerCase();
+      if(f === 'hel') return fields.filter(x => fieldHasHEL(x.data));
+      if(f === 'crp') return fields.filter(x => fieldHasCRP(x.data));
+      if(f === 'pattern') return fields.filter(x => fieldHasPattern(x.data));
+      return fields;
+    }
+
+    function computeFilteredTotalsForFlag(farms, flag){
+      const out = { farmCount: 0, fieldCount: 0, tillable: 0, helAcres: 0, crpAcres: 0, patternAcres: 0 };
+      const f = String(flag || 'all').toLowerCase();
+      out.farmCount = farms.length;
+
+      for(const farm of farms){
+        const fields = (farm.metrics?.activeFields || farm.fields || []);
+        const filteredFields = getFieldsForFlag(fields, flag);
+
+        if(f === 'all'){
+          out.fieldCount += (farm.metrics?.fieldCount || 0);
+          out.tillable += nnum(farm.metrics?.tillable);
+          out.helAcres += nnum(farm.metrics?.helAcres);
+          out.crpAcres += nnum(farm.metrics?.crpAcres);
+          out.patternAcres += nnum(farm.metrics?.patternAcres);
+        }else if(f === 'hel'){
+          out.fieldCount += filteredFields.length;
+          out.helAcres += filteredFields.reduce((s,x)=> s + nnum(x.data?.helAcres), 0);
+        }else if(f === 'crp'){
+          out.fieldCount += filteredFields.length;
+          out.crpAcres += filteredFields.reduce((s,x)=> s + nnum(x.data?.crpAcres), 0);
+        }else if(f === 'pattern'){
+          out.fieldCount += filteredFields.length;
+          out.patternAcres += filteredFields.reduce((s,x)=> s + nnum(x.data?.tillable ?? x.data?.tillableAcres ?? x.data?.acres), 0);
+        }
+      }
+
+      return out;
     }
 
     /* ✅ Smooth auto-scroll to details (same as RTK) */
@@ -722,22 +760,23 @@
     function renderMeta(){
       const metaEl = $('#reportMeta');
       const farms = getWorkingFarms();
+      const flag = ($('#filterFlag')?.value || 'all');
 
-      const farmCount = farms.length;
-      const fieldCount = farms.reduce((sum,f)=> sum + (f.metrics?.fieldCount || 0), 0);
-      const tillable = farms.reduce((sum,f)=> sum + nnum(f.metrics?.tillable), 0);
-      const helAcres = farms.reduce((sum,f)=> sum + nnum(f.metrics?.helAcres), 0);
-      const crpAcres = farms.reduce((sum,f)=> sum + nnum(f.metrics?.crpAcres), 0);
-      const patternAcres = farms.reduce((sum,f)=> sum + nnum(f.metrics?.patternAcres), 0);
+      const totals = computeFilteredTotalsForFlag(farms, flag);
+
+      const f = String(flag || 'all').toLowerCase();
+      let acresLabel = 'Tillable';
+      let acresVal = totals.tillable;
+
+      if(f === 'hel'){ acresLabel = 'HEL'; acresVal = totals.helAcres; }
+      if(f === 'crp'){ acresLabel = 'CRP'; acresVal = totals.crpAcres; }
+      if(f === 'pattern'){ acresLabel = 'Pattern'; acresVal = totals.patternAcres; }
 
       if(metaEl){
         metaEl.textContent =
-          `${farmCount} farm${farmCount===1?'':'s'} • ` +
-          `${fieldCount} field${fieldCount===1?'':'s'} • ` +
-          `${fmt(tillable,2)} tillable ac • ` +
-          `HEL ${fmt(helAcres,2)} ac • ` +
-          `CRP ${fmt(crpAcres,2)} ac • ` +
-          `Pattern ${fmt(patternAcres,2)} ac`;
+          `${totals.farmCount} farm${totals.farmCount===1?'':'s'} • ` +
+          `${totals.fieldCount} field${totals.fieldCount===1?'':'s'} • ` +
+          `${acresLabel} ${fmt(acresVal,2)} ac`;
       }
     }
 
@@ -748,6 +787,8 @@
       listEl.innerHTML = '';
 
       const farms = getWorkingFarms();
+      const flag = ($('#filterFlag')?.value || 'all');
+      const fflag = String(flag || 'all').toLowerCase();
 
       if(!farms.length){
         emptyEl.style.display = 'block';
@@ -760,26 +801,58 @@
 
       for(const farm of farms){
         const d = farm.data || {};
-        const m = farm.metrics || { fieldCount:0, tillable:0, helCount:0, helAcres:0, crpCount:0, crpAcres:0, patternCount:0, patternAcres:0, counties:new Set() };
+        const mAll = farm.metrics || { fieldCount:0, tillable:0, helCount:0, helAcres:0, crpCount:0, crpAcres:0, patternCount:0, patternAcres:0, counties:new Set(), activeFields:[] };
 
         const farmName = d.name || 'Unnamed farm';
-        const countyLabel = (m.counties && m.counties.size)
-          ? `${m.counties.size} count${m.counties.size===1?'y':'ies'}`
-          : 'No counties';
+
+        // ✅ When a flag is selected, show counts based on flagged fields only (so Pattern shows 1 field)
+        const fieldsForCard = getFieldsForFlag(mAll.activeFields || [], flag);
+        const fieldCount = (fflag === 'all') ? mAll.fieldCount : fieldsForCard.length;
+
+        // County label still comes from all active fields (keeps your “3 counties” behavior stable)
+        const countyLabel = (mAll.counties && mAll.counties.size)
+          ? `${mAll.counties.size} count${mAll.counties.size===1?'y':'ies'} • ${fieldCount} field${fieldCount===1?'':'s'}`
+          : `${fieldCount} field${fieldCount===1?'':'s'}`;
+
+        // Card chips:
+        // - All Acres => show Tillable/HEL/CRP (same as before)
+        // - HEL/CRP/Pattern => show just the relevant chip + Tillable chip (keeps layout stable but accurate)
+        const cardTillable = (fflag === 'all')
+          ? mAll.tillable
+          : fieldsForCard.reduce((s,x)=> s + nnum(x.data?.tillable ?? x.data?.tillableAcres ?? x.data?.acres), 0);
+
+        const cardHelAcres = (fflag === 'hel')
+          ? fieldsForCard.reduce((s,x)=> s + nnum(x.data?.helAcres), 0)
+          : mAll.helAcres;
+
+        const cardCrpAcres = (fflag === 'crp')
+          ? fieldsForCard.reduce((s,x)=> s + nnum(x.data?.crpAcres), 0)
+          : mAll.crpAcres;
+
+        const cardPatternAcres = (fflag === 'pattern')
+          ? fieldsForCard.reduce((s,x)=> s + nnum(x.data?.tillable ?? x.data?.tillableAcres ?? x.data?.acres), 0)
+          : mAll.patternAcres;
 
         const card = document.createElement('article');
         card.className = 'wo-card';
         card.dataset.id = farm.id;
 
+        // Always show 3 chips (stable): Tillable + HEL + CRP, and add Pattern as 4th (wraps if needed)
+        // Values are accurate under flag selections.
+        const helFldCount = (fflag === 'hel') ? fieldsForCard.length : mAll.helCount;
+        const crpFldCount = (fflag === 'crp') ? fieldsForCard.length : mAll.crpCount;
+        const patFldCount = (fflag === 'pattern') ? fieldsForCard.length : mAll.patternCount;
+
         card.innerHTML = `
           <div class="wo-row-top">
             <div class="wo-main">
               <div class="wo-title">${escapeHtml(farmName)}</div>
-              <div class="wo-sub">${escapeHtml(countyLabel)} · ${m.fieldCount} field${m.fieldCount===1?'':'s'}</div>
+              <div class="wo-sub">${escapeHtml(countyLabel)}</div>
               <div class="wo-meta">
-                <span><span class="wo-meta-label">Tillable</span> <span class="wo-meta-val">${fmt(m.tillable,2)} ac</span></span>
-                <span><span class="wo-meta-label">HEL</span> <span class="wo-meta-val">${m.helCount} fld · ${fmt(m.helAcres,2)} ac</span></span>
-                <span><span class="wo-meta-label">CRP</span> <span class="wo-meta-val">${m.crpCount} fld · ${fmt(m.crpAcres,2)} ac</span></span>
+                <span><span class="wo-meta-label">Tillable</span> <span class="wo-meta-val">${fmt(cardTillable,2)} ac</span></span>
+                <span><span class="wo-meta-label">HEL</span> <span class="wo-meta-val">${helFldCount} fld · ${fmt(cardHelAcres,2)} ac</span></span>
+                <span><span class="wo-meta-label">CRP</span> <span class="wo-meta-val">${crpFldCount} fld · ${fmt(cardCrpAcres,2)} ac</span></span>
+                <span><span class="wo-meta-label">Pattern</span> <span class="wo-meta-val">${patFldCount} fld · ${fmt(cardPatternAcres,2)} ac</span></span>
               </div>
             </div>
           </div>
@@ -806,14 +879,6 @@
       $('.wo-detail-footer', panel).innerHTML = '';
     }
 
-    function getFieldsForDetailByFlag(fields, flag){
-      const f = String(flag || 'all').toLowerCase();
-      if(f === 'hel') return fields.filter(x => fieldHasHEL(x.data));
-      if(f === 'crp') return fields.filter(x => fieldHasCRP(x.data));
-      if(f === 'pattern') return fields.filter(x => fieldHasPattern(x.data));
-      return fields; // all
-    }
-
     function renderDetails(opts = {}){
       const { scroll=false, focus=false } = opts;
 
@@ -834,8 +899,8 @@
       const activeFields = fieldsAll.filter(f => fieldIsActive(f.data));
       activeFields.sort((a,b)=> String(a.data?.name||'').localeCompare(String(b.data?.name||'')));
 
-      // For the bottom field list: optionally filter down to flagged fields
-      const detailFields = getFieldsForDetailByFlag(activeFields, flag);
+      // ✅ For the bottom field list: filter to only flagged fields when a flag is selected
+      const detailFields = getFieldsForFlag(activeFields, flag);
 
       const m = farm.metrics || computeFarmMetrics(fieldsAll);
 
@@ -1487,29 +1552,27 @@
       const towerId = fd.rtkTowerId || '';
       const tower = towerId ? (STATE.towerMap.get(towerId) || {}) : null;
 
-      const towerName = tower?.name || '';
-      const networkId = tower?.networkId != null ? String(tower.networkId) : '';
-      const freq = tower?.frequencyMHz != null ? String(tower.frequencyMHz) : '';
+      const towerName = tower?.name || (towerId || '—');
+      const networkId = tower?.networkId != null ? String(tower.networkId) : '—';
+      const freq = tower?.frequencyMHz != null ? (String(tower.frequencyMHz) + ' MHz') : '—';
 
-      const updated = formatDateTime(fd.updatedAt) || '';
-      const created = formatDateTime(fd.createdAt) || '';
+      // ✅ Group RTK info in ONE tile. Remove status/updated/created. Add county tile.
+      const rtkBlock = `${towerName}\nNetwork ${networkId}\n${freq}`;
 
       fieldModalTitle.textContent = title;
       fieldModalSub.textContent = farmName ? `${farmName}${loc ? ' • ' + loc : ''}` : (loc || '');
 
+      const countyVal = fd.county ? (fd.county + (fd.state ? `, ${fd.state}` : '')) : (fd.state || '—');
+
       const items = [
-        ['Tillable acres', fmt(till,2) + ' ac'],
+        ['Tillable Acres', fmt(till,2) + ' ac'],
         ['HEL', hasHEL ? (fmt(nnum(fd.helAcres),2) + ' ac') : '—'],
         ['CRP', hasCRP ? (fmt(nnum(fd.crpAcres),2) + ' ac') : '—'],
         ['Pattern Tiled', hasPAT ? (fmt(till,2) + ' ac') : '—'],
-        ['RTK Tower', (towerName || towerId || '—')],
-        ['RTK Network', (networkId || '—')],
-        ['RTK Frequency', (freq ? (freq + ' MHz') : '—')],
+        ['County', countyVal || '—'],
+        ['RTK', rtkBlock],
         ['Drainage Index', (fd.drainageIndex != null ? String(fd.drainageIndex) : '—')],
-        ['Soil Wetness', (fd.soilWetness != null ? String(fd.soilWetness) : '—')],
-        ['Status', (fd.status ? String(fd.status) : '—')],
-        ['Updated', (updated || '—')],
-        ['Created', (created || '—')]
+        ['Soil Wetness', (fd.soilWetness != null ? String(fd.soilWetness) : '—')]
       ];
 
       fieldModalBody.innerHTML = `
