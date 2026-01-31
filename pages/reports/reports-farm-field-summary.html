@@ -500,7 +500,7 @@
       filters: {
         county: 'all',
         farm: 'all',
-        flag: 'all', // all | hel | crp
+        flag: 'all', // all | hel | crp  (filters the FIELD LIST to those flagged)
         q: ''
       }
     };
@@ -532,17 +532,23 @@
       return s !== 'archived' && s !== 'inactive' && s !== 'deleted';
     }
 
+    /* ✅ Dane rule: ONLY count if boolean is true. Acres do NOT control inclusion. */
+    function fieldHasHEL(fd){ return fd?.hasHEL === true; }
+    function fieldHasCRP(fd){ return fd?.hasCRP === true; }
+
     function computeFarmMetrics(fields){
       const activeFields = fields.filter(f => fieldIsActive(f.data));
       const fieldCount = activeFields.length;
+
       const tillable = activeFields.reduce((sum,f)=> sum + nnum(f.data?.tillable ?? f.data?.tillableAcres ?? f.data?.acres), 0);
 
-      const helFields = activeFields.filter(f => !!f.data?.hasHEL && nnum(f.data?.helAcres) > 0);
-      const crpFields = activeFields.filter(f => !!f.data?.hasCRP && nnum(f.data?.crpAcres) > 0);
+      const helFields = activeFields.filter(f => fieldHasHEL(f.data));
+      const crpFields = activeFields.filter(f => fieldHasCRP(f.data));
 
       const helCount = helFields.length;
       const crpCount = crpFields.length;
 
+      // Acres summed only after boolean true (can be 0)
       const helAcres = helFields.reduce((sum,f)=> sum + nnum(f.data?.helAcres), 0);
       const crpAcres = crpFields.reduce((sum,f)=> sum + nnum(f.data?.crpAcres), 0);
 
@@ -661,6 +667,13 @@
       $('.wo-detail-footer', panel).innerHTML = '';
     }
 
+    function getFieldsForDetailByFlag(fields, flag){
+      const f = String(flag || 'all').toLowerCase();
+      if(f === 'hel') return fields.filter(x => fieldHasHEL(x.data));
+      if(f === 'crp') return fields.filter(x => fieldHasCRP(x.data));
+      return fields; // all
+    }
+
     function renderDetails(opts = {}){
       const { scroll=false, focus=false } = opts;
 
@@ -672,12 +685,17 @@
         return;
       }
 
+      const flag = ($('#filterFlag')?.value || 'all');
+
       const d = farm.data || {};
       const farmName = d.name || 'Unnamed farm';
 
       const fieldsAll = Array.isArray(farm.fields) ? farm.fields.slice() : [];
-      const fields = fieldsAll.filter(f => fieldIsActive(f.data));
-      fields.sort((a,b)=> String(a.data?.name||'').localeCompare(String(b.data?.name||'')));
+      const activeFields = fieldsAll.filter(f => fieldIsActive(f.data));
+      activeFields.sort((a,b)=> String(a.data?.name||'').localeCompare(String(b.data?.name||'')));
+
+      // ✅ For the bottom field list: optionally filter down to HEL or CRP flagged fields
+      const detailFields = getFieldsForDetailByFlag(activeFields, flag);
 
       const m = farm.metrics || computeFarmMetrics(fieldsAll);
 
@@ -705,11 +723,11 @@
           <div class="wo-detail-item-value">${m.counties && m.counties.size ? escapeHtml(Array.from(m.counties).sort().join(', ')) : '—'}</div>
         </div>
         <div>
-          <div class="wo-detail-item-label">HEL</div>
+          <div class="wo-detail-item-label">HEL (hasHEL=true)</div>
           <div class="wo-detail-item-value">${m.helCount} field${m.helCount===1?'':'s'} · ${fmt(m.helAcres,2)} ac</div>
         </div>
         <div>
-          <div class="wo-detail-item-label">CRP</div>
+          <div class="wo-detail-item-label">CRP (hasCRP=true)</div>
           <div class="wo-detail-item-value">${m.crpCount} field${m.crpCount===1?'':'s'} · ${fmt(m.crpAcres,2)} ac</div>
         </div>
       `;
@@ -717,12 +735,17 @@
       const body = $('#fieldsBody');
       body.innerHTML = '';
 
-      if(!fields.length){
-        body.innerHTML = `<div class="wo-empty" style="margin-top:6px;">No active fields found for this farm.</div>`;
+      if(!detailFields.length){
+        const msg =
+          (String(flag) === 'hel') ? 'No active fields in this farm are flagged HEL (hasHEL=true).' :
+          (String(flag) === 'crp') ? 'No active fields in this farm are flagged CRP (hasCRP=true).' :
+          'No active fields found for this farm.';
+        body.innerHTML = `<div class="wo-empty" style="margin-top:6px;">${escapeHtml(msg)}</div>`;
       }else{
         const table = document.createElement('div');
         table.className = 'field-table';
-        table.innerHTML = fields.map(f => {
+
+        table.innerHTML = detailFields.map(f => {
           const fd = f.data || {};
           const name = fd.name || 'Unnamed field';
           const county = fd.county || '';
@@ -730,8 +753,8 @@
           const loc = [county, state].filter(Boolean).join(', ');
           const till = nnum(fd.tillable ?? fd.tillableAcres ?? fd.acres);
 
-          const hasHEL = !!fd.hasHEL && nnum(fd.helAcres) > 0;
-          const hasCRP = !!fd.hasCRP && nnum(fd.crpAcres) > 0;
+          const hasHEL = fieldHasHEL(fd);
+          const hasCRP = fieldHasCRP(fd);
 
           const chips = [];
           chips.push(`<span class="chip"><strong>Till</strong> <span class="wo-meta-val">${fmt(till,2)} ac</span></span>`);
@@ -746,16 +769,19 @@
             </div>
           `;
         }).join('');
+
         body.appendChild(table);
       }
 
       const footer = $('.wo-detail-footer', panel);
+      const flagLabel = (String(flag)==='hel') ? 'Field list filtered: HEL only' : (String(flag)==='crp' ? 'Field list filtered: CRP only' : 'Field list: all active fields');
       footer.innerHTML = `
         Farm summary:
         <span class="wo-detail-pill">${m.fieldCount} field${m.fieldCount===1?'':'s'}</span>
         <span class="wo-detail-pill">${fmt(m.tillable,2)} tillable ac</span>
         <span class="wo-detail-pill">HEL ${fmt(m.helAcres,2)} ac</span>
         <span class="wo-detail-pill">CRP ${fmt(m.crpAcres,2)} ac</span>
+        <span class="wo-detail-pill">${escapeHtml(flagLabel)}</span>
       `;
 
       panel.style.display = 'flex';
@@ -803,7 +829,7 @@
     function hydrateFarmDropdown(){
       const sel = $('#filterFarm');
       const cur = sel?.value || 'all';
-      const county = ($('#filterCounty')?.value || 'all');
+      const county = ($('#filterCounty')?.value || 'all';
 
       let farms = STATE.farms.slice();
       if(county !== 'all'){
@@ -841,6 +867,7 @@
         if(farm !== 'all' && f.id !== farm) continue;
         if(county !== 'all' && !(f.metrics?.counties && f.metrics.counties.has(county))) continue;
 
+        // ✅ Farm-level filtering: when you pick HEL or CRP, only show farms that have that flag true on at least one field
         if(flag !== 'all'){
           const hasHel = (f.metrics?.helCount || 0) > 0;
           const hasCrp = (f.metrics?.crpCount || 0) > 0;
@@ -873,6 +900,11 @@
       renderList();
       clearDetails();
       renderMeta();
+
+      // If a farm is selected and we change flag, keep details synced (don’t auto-scroll)
+      if(STATE.selectedFarmId){
+        renderDetails({ scroll:false, focus:false });
+      }
     }
 
     async function loadCompanyHeader(){
@@ -906,18 +938,23 @@
         : 'All farms';
 
       const countyLabel = (county !== 'all') ? county : 'All counties';
-      const flagLabel = (flag === 'hel') ? 'HEL only' : (flag === 'crp' ? 'CRP only' : 'HEL + CRP');
+      const flagLabel = (flag === 'hel') ? 'HEL (hasHEL=true)' : (flag === 'crp' ? 'CRP (hasCRP=true)' : 'HEL + CRP');
       const searchLabel = q ? `Search: "${q}"` : 'No text filter';
 
       return `${countyLabel} • ${farmLabel} • ${flagLabel} • ${searchLabel}`;
     }
 
-    function buildPrintHtml({ company, runStr, runDateOnly, filterSummary, farms }){
+    function buildPrintHtml({ company, runStr, runDateOnly, filterSummary, farms, flag }){
       const farmCount = farms.length;
       const fieldCount = farms.reduce((sum,f)=> sum + (f.metrics?.fieldCount || 0), 0);
       const tillable = farms.reduce((sum,f)=> sum + nnum(f.metrics?.tillable), 0);
       const helAcres = farms.reduce((sum,f)=> sum + nnum(f.metrics?.helAcres), 0);
       const crpAcres = farms.reduce((sum,f)=> sum + nnum(f.metrics?.crpAcres), 0);
+
+      const flagTxt =
+        (String(flag)==='hel') ? 'HEL fields only (hasHEL=true)' :
+        (String(flag)==='crp') ? 'CRP fields only (hasCRP=true)' :
+        'All active fields';
 
       return `<!doctype html>
 <html>
@@ -1045,12 +1082,16 @@
 
     <section>
       <h1 class="report-title">Farm &amp; Field Summary</h1>
-      <p class="report-subtitle">Active farms and fields with tillable acres, HEL, and CRP totals (based on current filters).</p>
+      <p class="report-subtitle">Active farms and fields. HEL/CRP are driven by hasHEL/hasCRP booleans (true/false).</p>
 
       <div class="report-summary-strip">
         <div class="summary-pill">
           <span class="summary-label">Filters</span>
           <span class="summary-value">${escapeHtml(filterSummary)}</span>
+        </div>
+        <div class="summary-pill">
+          <span class="summary-label">Field list</span>
+          <span class="summary-value">${escapeHtml(flagTxt)}</span>
         </div>
         <div class="summary-pill"><span class="summary-label">Farms</span><span class="summary-value">${fmt(farmCount,0)}</span></div>
         <div class="summary-pill"><span class="summary-label">Fields</span><span class="summary-value">${fmt(fieldCount,0)}</span></div>
@@ -1071,22 +1112,32 @@
         const fields = (f.fields || []).filter(x => fieldIsActive(x.data))
           .sort((a,b)=> String(a.data?.name||'').localeCompare(String(b.data?.name||'')));
 
-        const rows = fields.map(x => {
+        const showFields = (String(flag)==='hel') ? fields.filter(x=>fieldHasHEL(x.data))
+                        : (String(flag)==='crp') ? fields.filter(x=>fieldHasCRP(x.data))
+                        : fields;
+
+        const rows = showFields.map(x => {
           const fd = x.data || {};
           const loc = [fd.county, fd.state].filter(Boolean).join(', ');
           const till = nnum(fd.tillable ?? fd.tillableAcres ?? fd.acres);
-          const hel = (!!fd.hasHEL && nnum(fd.helAcres) > 0) ? nnum(fd.helAcres) : 0;
-          const crp = (!!fd.hasCRP && nnum(fd.crpAcres) > 0) ? nnum(fd.crpAcres) : 0;
+          const hel = fieldHasHEL(fd) ? nnum(fd.helAcres) : 0;
+          const crp = fieldHasCRP(fd) ? nnum(fd.crpAcres) : 0;
+
           return `
             <tr>
               <td>${escapeHtml(fd.name || 'Unnamed field')}</td>
               <td>${escapeHtml(loc)}</td>
               <td>${till ? escapeHtml(fmt(till,2)) : ''}</td>
-              <td>${hel ? escapeHtml(fmt(hel,2)) : ''}</td>
-              <td>${crp ? escapeHtml(fmt(crp,2)) : ''}</td>
+              <td>${fieldHasHEL(fd) ? escapeHtml(fmt(hel,2)) : ''}</td>
+              <td>${fieldHasCRP(fd) ? escapeHtml(fmt(crp,2)) : ''}</td>
             </tr>
           `;
         }).join('');
+
+        const emptyRowMsg =
+          (String(flag)==='hel') ? 'No HEL fields (hasHEL=true) in this farm.' :
+          (String(flag)==='crp') ? 'No CRP fields (hasCRP=true) in this farm.' :
+          'No active fields in this farm.';
 
         return `
           <div class="farm-block">
@@ -1106,7 +1157,7 @@
                   </tr>
                 </thead>
                 <tbody>
-                  ${rows || `<tr><td colspan="5" style="padding:10px 8px;color:#6B7280;">No active fields in this farm.</td></tr>`}
+                  ${rows || `<tr><td colspan="5" style="padding:10px 8px;color:#6B7280;">${escapeHtml(emptyRowMsg)}</td></tr>`}
                 </tbody>
               </table>
             </div>
@@ -1116,7 +1167,7 @@
     </section>
 
     <footer class="report-footer">
-      <div>Internal use only. HEL/CRP totals require hasHEL/hasCRP true and acres &gt; 0.</div>
+      <div>Internal use only. HEL/CRP totals are driven by hasHEL/hasCRP booleans (true/false); acres are summed after the flag is true.</div>
       <div>FarmVista • Farm &amp; Field Summary • ${escapeHtml(runDateOnly || '')}</div>
     </footer>
   </div>
@@ -1136,8 +1187,9 @@
       const runStr = now.toLocaleString();
       const runDateOnly = now.toLocaleDateString();
       const filterSummary = summarizeFilters();
+      const flag = ($('#filterFlag')?.value || 'all');
 
-      const html = buildPrintHtml({ company, runStr, runDateOnly, filterSummary, farms });
+      const html = buildPrintHtml({ company, runStr, runDateOnly, filterSummary, farms, flag });
 
       let iframe = document.getElementById('fv-print-frame');
       if(!iframe){
@@ -1229,10 +1281,7 @@
         searchEl.addEventListener('input', () => applyFilters());
       }
       if(clearBtn){
-        clearBtn.addEventListener('click', () => {
-          // Same behavior as Field Maintenance page "Clear filters"
-          location.reload();
-        });
+        clearBtn.addEventListener('click', () => location.reload());
       }
     }
 
@@ -1319,8 +1368,8 @@
                 <label class="filter-label" for="filterFlag">Flag</label>
                 <select id="filterFlag" class="filter-select">
                   <option value="all">HEL + CRP</option>
-                  <option value="hel">HEL only</option>
-                  <option value="crp">CRP only</option>
+                  <option value="hel">HEL only (hasHEL=true)</option>
+                  <option value="crp">CRP only (hasCRP=true)</option>
                 </select>
               </div>
 
