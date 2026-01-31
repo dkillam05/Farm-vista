@@ -355,7 +355,9 @@
         fieldsWithYield: 0,
         fieldsNoYield: 0
       },
-      overlaps: [],     // [{farmId,farmName,trials:[{id,name,crop,cropYear}]}]
+      // overlaps: fields that appear in >1 active trial
+      // [{fieldKey, fieldName, farmId, farmName, trials:[{id,name,crop,cropYear}]}]
+      overlaps: [],
       company: null
     };
 
@@ -387,6 +389,18 @@
         }
       }
       return null;
+    }
+
+    // Best-effort stable field key:
+    // Prefer a real base-field id if you store one (recommended), otherwise fall back.
+    function getStableFieldKey(fieldDocId, fData){
+      const cand = [
+        fData?.sourceFieldId,
+        fData?.baseFieldId,
+        fData?.fieldRefId,
+        fData?.fieldId
+      ].filter(Boolean);
+      return String(cand[0] || fieldDocId || '').trim() || '__unknown_field__';
     }
 
     async function loadCompanyHeader(){
@@ -424,7 +438,10 @@
       };
 
       const globalFarmIds = new Set();
-      const globalFarmTrials = new Map(); // farmId -> {id,name,trialInfos: Map(trialId -> {id,name,crop,cropYear})}
+
+      // FIELD overlap tracking (the fix):
+      // fieldKey -> { fieldKey, fieldName, farmId, farmName, trialInfos: Map(trialId -> {id,name,crop,cropYear}) }
+      const globalFieldTrials = new Map();
 
       const trialsSnap = await getDocs(
         query(
@@ -458,16 +475,21 @@
 
         for(const fieldDoc of fieldsSnap.docs){
           const fData = fieldDoc.data() || {};
-          const fieldId   = fieldDoc.id;
+          const fieldDocId = fieldDoc.id;
+
           const farmId    = fData.farmId || '__unknown__';
           const farmName  = fData.farmName || 'Unknown farm';
+
           const fieldName = fData.fieldName || fData.name || 'Unnamed field';
           const tillable  = fData.tillable ?? fData.tillableAcres ?? null;
           const trialAc   = fData.trialAcres ?? null;
 
+          // stable field key across trials (best effort)
+          const fieldKey = getStableFieldKey(fieldDocId, fData);
+
           // yieldBlocks
           const ySnap = await getDocs(
-            collection(db, CONFIG.TRIAL_COLLECTION, trialId, 'fields', fieldId, 'yieldBlocks')
+            collection(db, CONFIG.TRIAL_COLLECTION, trialId, 'fields', fieldDocId, 'yieldBlocks')
           );
 
           const blockCount = ySnap.size || 0;
@@ -522,23 +544,37 @@
             cropYear,
             opTask,
             treatment,
-            fieldId,
+            fieldId: fieldKey,       // use stable key here for display/printing
+            fieldDocId,              // keep original subdoc id (internal)
             fieldName,
+            farmId,
+            farmName,
             tillable,
             trialAc,
             yieldSummary
           });
 
-          // global farm / trial tracking for overlap summary
+          // totals farms (still valid)
           globalFarmIds.add(farmId);
-          if(!globalFarmTrials.has(farmId)){
-            globalFarmTrials.set(farmId, {
-              id: farmId,
-              name: farmName,
+
+          // global FIELD / trial tracking for overlap summary (the fix)
+          if(!globalFieldTrials.has(fieldKey)){
+            globalFieldTrials.set(fieldKey, {
+              fieldKey,
+              fieldName,
+              farmId,
+              farmName,
               trialInfos: new Map()
             });
+          }else{
+            // If the same fieldKey shows up with different farm/name, keep the first non-empty but don't break.
+            const g = globalFieldTrials.get(fieldKey);
+            if(!g.fieldName && fieldName) g.fieldName = fieldName;
+            if((g.farmId === '__unknown__' || !g.farmId) && farmId) g.farmId = farmId;
+            if((g.farmName === 'Unknown farm' || !g.farmName) && farmName) g.farmName = farmName;
           }
-          const gf = globalFarmTrials.get(farmId);
+
+          const gf = globalFieldTrials.get(fieldKey);
           if(!gf.trialInfos.has(trialId)){
             gf.trialInfos.set(trialId, {
               id: trialId,
@@ -580,16 +616,29 @@
       totals.farms = globalFarmIds.size;
       totals.fieldsNoYield = totals.fields - totals.fieldsWithYield;
 
-      // Overlaps: farms that appear in more than one active trial
-      const overlaps = Array.from(globalFarmTrials.values())
+      // Overlaps: FIELDS that appear in more than one active trial
+      // Sort: farmName, then fieldName
+      const overlaps = Array.from(globalFieldTrials.values())
         .filter(g => g.trialInfos.size > 1)
         .map(g => ({
-          farmId: g.id,
-          farmName: g.name,
+          fieldKey: g.fieldKey,
+          fieldName: g.fieldName,
+          farmId: g.farmId,
+          farmName: g.farmName,
           trials: Array.from(g.trialInfos.values())
             .sort((a,b)=> (a.name || '').localeCompare(b.name || ''))
         }))
-        .sort((a,b)=> (a.farmName || '').localeCompare(b.farmName || ''));
+        .sort((a,b)=> {
+          const fa = (a.farmName || '').toLowerCase();
+          const fb = (b.farmName || '').toLowerCase();
+          if(fa < fb) return -1;
+          if(fa > fb) return 1;
+          const aa = (a.fieldName || '').toLowerCase();
+          const bb = (b.fieldName || '').toLowerCase();
+          if(aa < bb) return -1;
+          if(aa > bb) return 1;
+          return (a.fieldKey || '').localeCompare(b.fieldKey || '');
+        });
 
       return { trials, totals, overlaps };
     }
@@ -748,7 +797,7 @@
 
       if(!STATE.overlaps.length){
         emptyEl.style.display = 'block';
-        emptyEl.textContent = 'No farms are currently in more than one active trial.';
+        emptyEl.textContent = 'No fields are currently in more than one active trial.';
         return;
       }
 
@@ -757,6 +806,7 @@
       STATE.overlaps.forEach(entry => {
         const li = document.createElement('li');
         const count = entry.trials.length;
+
         const trialsText = entry.trials.map(t => {
           const bits = [t.name];
           const extra = [];
@@ -767,8 +817,9 @@
           return bits.filter(Boolean).join(' ');
         }).join('; ');
 
+        // Grouped/sorted by farm, but listed by field (your request)
         li.innerHTML = `
-          <strong>${escapeHtml(entry.farmName || 'Unknown farm')}</strong>
+          <strong>${escapeHtml(entry.farmName || 'Unknown farm')}</strong> — ${escapeHtml(entry.fieldName || 'Unnamed field')}
           – ${count} active trials:
           ${escapeHtml(trialsText)}
         `;
@@ -1102,10 +1153,10 @@
     }).join('')}
 
     <section class="overlap-section">
-      <h2 class="overlap-title">Farms with overlapping trials</h2>
-      <p class="overlap-note">Farms that appear in more than one active trial.</p>
+      <h2 class="overlap-title">Fields with overlapping trials</h2>
+      <p class="overlap-note">Fields that appear in more than one active trial (grouped/sorted by farm).</p>
       ${overlaps.length === 0
-        ? '<p class="overlap-note">No farms are currently enrolled in multiple active trials.</p>'
+        ? '<p class="overlap-note">No fields are currently enrolled in multiple active trials.</p>'
         : `<ul>${overlaps.map(entry => {
             const count = entry.trials.length;
             const trialsText = entry.trials.map(t => {
@@ -1117,7 +1168,7 @@
               if(sub) bits.push('(' + sub + ')');
               return bits.filter(Boolean).join(' ');
             }).join('; ');
-            return `<li><strong>${escapeHtml(entry.farmName || 'Unknown farm')}</strong> – ${count} trials: ${escapeHtml(trialsText)}</li>`;
+            return `<li><strong>${escapeHtml(entry.farmName || 'Unknown farm')}</strong> — ${escapeHtml(entry.fieldName || 'Unnamed field')}</strong> – ${count} trials: ${escapeHtml(trialsText)}</li>`;
           }).join('')}</ul>`
       }
     </section>
@@ -1197,7 +1248,7 @@
         if(metaEl) metaEl.textContent = 'Error loading active trials';
         const overlapEmpty = $('#overlapEmpty');
         if(overlapEmpty){
-          overlapEmpty.textContent = 'Error loading overlapping farms.';
+          overlapEmpty.textContent = 'Error loading overlapping fields.';
         }
       }
 
@@ -1245,11 +1296,11 @@
             <div class="wo-list"></div>
           </section>
 
-          <section class="overlap-section" aria-label="Farms with overlapping trials">
-            <h2 class="overlap-title">Farms with overlapping trials</h2>
-            <p class="overlap-sub">Farms that appear in more than one active trial.</p>
+          <section class="overlap-section" aria-label="Fields with overlapping trials">
+            <h2 class="overlap-title">Fields with overlapping trials</h2>
+            <p class="overlap-sub">Fields that appear in more than one active trial (sorted by farm).</p>
             <div id="overlapEmpty" class="overlap-empty">
-              Loading overlapping farms…
+              Loading overlapping fields…
             </div>
             <ul id="overlapList" class="overlap-list"></ul>
           </section>
