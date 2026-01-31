@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>FarmVista • Farm &amp; Field Summary</title>
+  <title>FarmVista • Farm/Field Summary</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#3B7E46" />
 
@@ -385,8 +385,13 @@
       padding:10px 12px;
       border-bottom:1px solid var(--border);
       background:var(--surface);
+      cursor:pointer;
     }
     .field-row:last-child{ border-bottom:none; }
+    .field-row:hover{
+      background:color-mix(in srgb, var(--surface) 86%, var(--border) 14%);
+    }
+
     .field-name{
       font-weight:900;
       font-size:0.95rem;
@@ -455,6 +460,95 @@
       border:0;
       visibility:hidden;
     }
+
+    /* Field modal (popup) */
+    .field-modal{
+      position:fixed;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:100000;
+      padding:16px;
+    }
+    .field-modal.show{ display:flex; }
+    .field-backdrop{
+      position:absolute;
+      inset:0;
+      background:rgba(0,0,0,.65);
+    }
+    .field-sheet{
+      position:relative;
+      max-width:min(980px, 95vw);
+      max-height:90vh;
+      background:var(--surface);
+      border-radius:14px;
+      border:1px solid var(--border);
+      box-shadow:0 20px 40px rgba(0,0,0,.45);
+      padding:12px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      z-index:1;
+      overflow:hidden;
+    }
+    .field-sheet-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:10px;
+      padding-bottom:8px;
+      border-bottom:1px solid var(--border);
+    }
+    .field-sheet-title{
+      font-weight:900;
+      font-size:1rem;
+      line-height:1.2;
+      margin:0;
+    }
+    .field-sheet-sub{
+      margin-top:4px;
+      font-size:0.86rem;
+      opacity:0.85;
+    }
+    .field-sheet-body{
+      overflow:auto;
+      padding-right:2px;
+    }
+    .field-info-grid{
+      display:grid;
+      grid-template-columns:minmax(0,1fr);
+      gap:10px 14px;
+      font-size:0.92rem;
+    }
+    @media (min-width:720px){
+      .field-info-grid{ grid-template-columns:repeat(2, minmax(0,1fr)); }
+    }
+    .fi{
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:var(--card-surface,var(--surface));
+      padding:10px 10px 9px;
+    }
+    .fi .k{
+      font-size:0.76rem;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      opacity:0.72;
+      font-weight:800;
+      margin-bottom:3px;
+    }
+    .fi .v{
+      font-weight:700;
+      word-break:break-word;
+      line-height:1.25;
+    }
+    .field-sheet-actions{
+      display:flex;
+      justify-content:flex-end;
+      padding-top:8px;
+      border-top:1px solid var(--border);
+    }
   </style>
 
   <script>
@@ -481,6 +575,7 @@
     const CONFIG = {
       FARM_COLLECTION:  'farms',
       FIELD_COLLECTION: 'fields',
+      TOWER_COLLECTION: 'rtkTowers',
       COMPANY_DOC_PATH: ['company','main']
     };
 
@@ -496,14 +591,23 @@
 
       farmNameMap: new Map(),
       countyOptions: [],
+      towerMap: new Map(), // towerId -> tower data
 
       filters: {
         county: 'all',
         farm: 'all',
-        flag: 'all', // all | hel | crp  (filters the FIELD LIST to those flagged)
+        flag: 'all', // all | hel | crp | pattern
         q: ''
       }
     };
+
+    // Field modal refs
+    let fieldModal = null;
+    let fieldModalBackdrop = null;
+    let fieldModalClose = null;
+    let fieldModalTitle = null;
+    let fieldModalSub = null;
+    let fieldModalBody = null;
 
     function escapeHtml(str){
       return String(str || '').replace(/[&<>"']/g, m => (
@@ -522,6 +626,32 @@
       return v.toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: digits });
     }
 
+    function toDateMaybe(ts){
+      if(!ts) return null;
+      try{
+        if(ts.toDate) return ts.toDate();
+        if(ts && typeof ts === 'object' && ts.__time__){
+          const d = new Date(ts.__time__);
+          return Number.isFinite(d.getTime()) ? d : null;
+        }
+        if(ts && typeof ts === 'object' && typeof ts.seconds === 'number'){
+          const d = new Date(ts.seconds * 1000);
+          return Number.isFinite(d.getTime()) ? d : null;
+        }
+        if(typeof ts === 'string' || typeof ts === 'number'){
+          const d = new Date(ts);
+          return Number.isFinite(d.getTime()) ? d : null;
+        }
+      }catch(_){}
+      return null;
+    }
+
+    function formatDateTime(ts){
+      const d = toDateMaybe(ts);
+      if(!d) return '';
+      try{ return d.toLocaleString(); }catch{ return ''; }
+    }
+
     function isActiveStatus(d){
       const s = String(d?.status || 'active').toLowerCase();
       return s !== 'archived' && s !== 'inactive' && s !== 'deleted';
@@ -535,6 +665,7 @@
     /* ✅ Dane rule: ONLY count if boolean is true. Acres do NOT control inclusion. */
     function fieldHasHEL(fd){ return fd?.hasHEL === true; }
     function fieldHasCRP(fd){ return fd?.hasCRP === true; }
+    function fieldHasPattern(fd){ return fd?.hasPatternTiled === true; }
 
     function computeFarmMetrics(fields){
       const activeFields = fields.filter(f => fieldIsActive(f.data));
@@ -544,17 +675,22 @@
 
       const helFields = activeFields.filter(f => fieldHasHEL(f.data));
       const crpFields = activeFields.filter(f => fieldHasCRP(f.data));
+      const patternFields = activeFields.filter(f => fieldHasPattern(f.data));
 
       const helCount = helFields.length;
       const crpCount = crpFields.length;
+      const patternCount = patternFields.length;
 
       // Acres summed only after boolean true (can be 0)
       const helAcres = helFields.reduce((sum,f)=> sum + nnum(f.data?.helAcres), 0);
       const crpAcres = crpFields.reduce((sum,f)=> sum + nnum(f.data?.crpAcres), 0);
 
+      // Pattern tiled acres = FULL TILLABLE acres for fields where hasPatternTiled === true
+      const patternAcres = patternFields.reduce((sum,f)=> sum + nnum(f.data?.tillable ?? f.data?.tillableAcres ?? f.data?.acres), 0);
+
       const counties = new Set(activeFields.map(f => f.data?.county).filter(Boolean));
 
-      return { fieldCount, tillable, helCount, helAcres, crpCount, crpAcres, counties, activeFields };
+      return { fieldCount, tillable, helCount, helAcres, crpCount, crpAcres, patternCount, patternAcres, counties, activeFields };
     }
 
     function getWorkingFarms(){
@@ -592,13 +728,16 @@
       const tillable = farms.reduce((sum,f)=> sum + nnum(f.metrics?.tillable), 0);
       const helAcres = farms.reduce((sum,f)=> sum + nnum(f.metrics?.helAcres), 0);
       const crpAcres = farms.reduce((sum,f)=> sum + nnum(f.metrics?.crpAcres), 0);
+      const patternAcres = farms.reduce((sum,f)=> sum + nnum(f.metrics?.patternAcres), 0);
 
       if(metaEl){
         metaEl.textContent =
           `${farmCount} farm${farmCount===1?'':'s'} • ` +
           `${fieldCount} field${fieldCount===1?'':'s'} • ` +
           `${fmt(tillable,2)} tillable ac • ` +
-          `HEL ${fmt(helAcres,2)} ac • CRP ${fmt(crpAcres,2)} ac`;
+          `HEL ${fmt(helAcres,2)} ac • ` +
+          `CRP ${fmt(crpAcres,2)} ac • ` +
+          `Pattern ${fmt(patternAcres,2)} ac`;
       }
     }
 
@@ -621,7 +760,7 @@
 
       for(const farm of farms){
         const d = farm.data || {};
-        const m = farm.metrics || { fieldCount:0, tillable:0, helCount:0, helAcres:0, crpCount:0, crpAcres:0, counties:new Set() };
+        const m = farm.metrics || { fieldCount:0, tillable:0, helCount:0, helAcres:0, crpCount:0, crpAcres:0, patternCount:0, patternAcres:0, counties:new Set() };
 
         const farmName = d.name || 'Unnamed farm';
         const countyLabel = (m.counties && m.counties.size)
@@ -671,6 +810,7 @@
       const f = String(flag || 'all').toLowerCase();
       if(f === 'hel') return fields.filter(x => fieldHasHEL(x.data));
       if(f === 'crp') return fields.filter(x => fieldHasCRP(x.data));
+      if(f === 'pattern') return fields.filter(x => fieldHasPattern(x.data));
       return fields; // all
     }
 
@@ -694,7 +834,7 @@
       const activeFields = fieldsAll.filter(f => fieldIsActive(f.data));
       activeFields.sort((a,b)=> String(a.data?.name||'').localeCompare(String(b.data?.name||'')));
 
-      // ✅ For the bottom field list: optionally filter down to HEL or CRP flagged fields
+      // For the bottom field list: optionally filter down to flagged fields
       const detailFields = getFieldsForDetailByFlag(activeFields, flag);
 
       const m = farm.metrics || computeFarmMetrics(fieldsAll);
@@ -711,7 +851,7 @@
           <div class="wo-detail-item-value">${escapeHtml(status)}</div>
         </div>
         <div>
-          <div class="wo-detail-item-label">Fields (active)</div>
+          <div class="wo-detail-item-label">Fields</div>
           <div class="wo-detail-item-value">${m.fieldCount}</div>
         </div>
         <div>
@@ -730,6 +870,10 @@
           <div class="wo-detail-item-label">CRP</div>
           <div class="wo-detail-item-value">${m.crpCount} field${m.crpCount===1?'':'s'} · ${fmt(m.crpAcres,2)} ac</div>
         </div>
+        <div>
+          <div class="wo-detail-item-label">Pattern Tiled</div>
+          <div class="wo-detail-item-value">${m.patternCount} field${m.patternCount===1?'':'s'} · ${fmt(m.patternAcres,2)} ac</div>
+        </div>
       `;
 
       const body = $('#fieldsBody');
@@ -737,8 +881,9 @@
 
       if(!detailFields.length){
         const msg =
-          (String(flag) === 'hel') ? 'No active fields in this farm are flagged HEL.' :
-          (String(flag) === 'crp') ? 'No active fields in this farm are flagged CRP.' :
+          (String(flag) === 'hel') ? 'No HEL fields in this farm.' :
+          (String(flag) === 'crp') ? 'No CRP fields in this farm.' :
+          (String(flag) === 'pattern') ? 'No Pattern Tiled fields in this farm.' :
           'No active fields found for this farm.';
         body.innerHTML = `<div class="wo-empty" style="margin-top:6px;">${escapeHtml(msg)}</div>`;
       }else{
@@ -755,15 +900,17 @@
 
           const hasHEL = fieldHasHEL(fd);
           const hasCRP = fieldHasCRP(fd);
+          const hasPAT = fieldHasPattern(fd);
 
           const chips = [];
           chips.push(`<span class="chip"><strong>Till</strong> <span class="wo-meta-val">${fmt(till,2)} ac</span></span>`);
           if(loc) chips.push(`<span class="chip"><span class="wo-meta-val">${escapeHtml(loc)}</span></span>`);
           if(hasHEL) chips.push(`<span class="chip"><strong>HEL</strong> <span class="wo-meta-val">${fmt(nnum(fd.helAcres),2)} ac</span></span>`);
           if(hasCRP) chips.push(`<span class="chip"><strong>CRP</strong> <span class="wo-meta-val">${fmt(nnum(fd.crpAcres),2)} ac</span></span>`);
+          if(hasPAT) chips.push(`<span class="chip"><strong>Pattern</strong> <span class="wo-meta-val">${fmt(till,2)} ac</span></span>`);
 
           return `
-            <div class="field-row">
+            <div class="field-row" data-field-id="${escapeHtml(f.id)}">
               <div class="field-name">${escapeHtml(name)}</div>
               <div class="field-chips">${chips.join('')}</div>
             </div>
@@ -771,15 +918,24 @@
         }).join('');
 
         body.appendChild(table);
+
+        // Wire field click -> modal
+        Array.from(table.querySelectorAll('.field-row')).forEach(row => {
+          row.addEventListener('click', () => {
+            const fid = row.getAttribute('data-field-id') || '';
+            const found = detailFields.find(x => x.id === fid) || null;
+            if(found) openFieldModal(found);
+          });
+        });
       }
 
       const footer = $('.wo-detail-footer', panel);
       footer.innerHTML = `
-        Farm summary:
         <span class="wo-detail-pill">${m.fieldCount} field${m.fieldCount===1?'':'s'}</span>
         <span class="wo-detail-pill">${fmt(m.tillable,2)} tillable ac</span>
         <span class="wo-detail-pill">HEL ${fmt(m.helAcres,2)} ac</span>
         <span class="wo-detail-pill">CRP ${fmt(m.crpAcres,2)} ac</span>
+        <span class="wo-detail-pill">Pattern ${fmt(m.patternAcres,2)} ac</span>
       `;
 
       panel.style.display = 'flex';
@@ -800,7 +956,7 @@
       const name = d.name || 'Unnamed farm';
       const m = farm.metrics || computeFarmMetrics(farm.fields || []);
 
-      toast.textContent = `${name}: ${m.fieldCount} field${m.fieldCount===1?'':'s'} • ${fmt(m.tillable,2)} tillable ac • HEL ${fmt(m.helAcres,2)} • CRP ${fmt(m.crpAcres,2)}`;
+      toast.textContent = `${name}: ${m.fieldCount} field${m.fieldCount===1?'':'s'} • ${fmt(m.tillable,2)} tillable ac • HEL ${fmt(m.helAcres,2)} • CRP ${fmt(m.crpAcres,2)} • Pattern ${fmt(m.patternAcres,2)}`;
       toast.classList.add('rtk-summary--show');
       setTimeout(()=> toast.classList.remove('rtk-summary--show'), 3500);
     }
@@ -865,12 +1021,14 @@
         if(farm !== 'all' && f.id !== farm) continue;
         if(county !== 'all' && !(f.metrics?.counties && f.metrics.counties.has(county))) continue;
 
-        // ✅ Farm-level filtering: when you pick HEL or CRP, only show farms that have that flag true on at least one field
+        // Farm-level filtering: when you pick a flag, only show farms that have that flag on at least one field
         if(flag !== 'all'){
           const hasHel = (f.metrics?.helCount || 0) > 0;
           const hasCrp = (f.metrics?.crpCount || 0) > 0;
+          const hasPat = (f.metrics?.patternCount || 0) > 0;
           if(flag === 'hel' && !hasHel) continue;
           if(flag === 'crp' && !hasCrp) continue;
+          if(flag === 'pattern' && !hasPat) continue;
         }
 
         if(q){
@@ -885,6 +1043,9 @@
             hay.push(fd.name, fd.county, fd.state);
             if(fd.hasHEL) hay.push('hel');
             if(fd.hasCRP) hay.push('crp');
+            if(fd.hasPatternTiled) hay.push('pattern');
+            const towerId = fd.rtkTowerId || '';
+            if(towerId) hay.push(towerId);
           });
 
           const big = hay.filter(Boolean).join(' ').toLowerCase();
@@ -936,7 +1097,13 @@
         : 'All farms';
 
       const countyLabel = (county !== 'all') ? county : 'All counties';
-      const flagLabel = (flag === 'hel') ? 'HEL Acres' : (flag === 'crp' ? 'CRP Acres' : 'All Acres');
+
+      const flagLabel =
+        (flag === 'hel') ? 'HEL Acres' :
+        (flag === 'crp') ? 'CRP Acres' :
+        (flag === 'pattern') ? 'Pattern Tiled' :
+        'All Acres';
+
       const searchLabel = q ? `Search: "${q}"` : 'No text filter';
 
       return `${countyLabel} • ${farmLabel} • ${flagLabel} • ${searchLabel}`;
@@ -948,10 +1115,12 @@
       const tillable = farms.reduce((sum,f)=> sum + nnum(f.metrics?.tillable), 0);
       const helAcres = farms.reduce((sum,f)=> sum + nnum(f.metrics?.helAcres), 0);
       const crpAcres = farms.reduce((sum,f)=> sum + nnum(f.metrics?.crpAcres), 0);
+      const patternAcres = farms.reduce((sum,f)=> sum + nnum(f.metrics?.patternAcres), 0);
 
       const flagTxt =
         (String(flag)==='hel') ? 'HEL Acres' :
         (String(flag)==='crp') ? 'CRP Acres' :
+        (String(flag)==='pattern') ? 'Pattern Tiled' :
         'All Acres';
 
       return `<!doctype html>
@@ -1004,7 +1173,6 @@
     .report-meta-top{text-align:right;font-size:11px;color:var(--fv-muted);}
     .report-meta-top strong{color:var(--fv-text);}
     .report-title{font-size:20px;font-weight:800;margin:4px 0 4px;letter-spacing:0.02em;text-transform:uppercase;}
-    .report-subtitle{font-size:13px;color:var(--fv-muted);margin:0;}
     .report-summary-strip{
       margin-top:12px;
       padding:8px 10px;
@@ -1095,6 +1263,7 @@
         <div class="summary-pill"><span class="summary-label">Tillable</span><span class="summary-value">${fmt(tillable,2)} ac</span></div>
         <div class="summary-pill"><span class="summary-label">HEL</span><span class="summary-value">${fmt(helAcres,2)} ac</span></div>
         <div class="summary-pill"><span class="summary-label">CRP</span><span class="summary-value">${fmt(crpAcres,2)} ac</span></div>
+        <div class="summary-pill"><span class="summary-label">Pattern</span><span class="summary-value">${fmt(patternAcres,2)} ac</span></div>
       </div>
     </section>
 
@@ -1111,6 +1280,7 @@
 
         const showFields = (String(flag)==='hel') ? fields.filter(x=>fieldHasHEL(x.data))
                         : (String(flag)==='crp') ? fields.filter(x=>fieldHasCRP(x.data))
+                        : (String(flag)==='pattern') ? fields.filter(x=>fieldHasPattern(x.data))
                         : fields;
 
         const rows = showFields.map(x => {
@@ -1119,6 +1289,7 @@
           const till = nnum(fd.tillable ?? fd.tillableAcres ?? fd.acres);
           const hel = fieldHasHEL(fd) ? nnum(fd.helAcres) : 0;
           const crp = fieldHasCRP(fd) ? nnum(fd.crpAcres) : 0;
+          const pat = fieldHasPattern(fd) ? till : 0;
 
           return `
             <tr>
@@ -1127,6 +1298,7 @@
               <td>${till ? escapeHtml(fmt(till,2)) : ''}</td>
               <td>${fieldHasHEL(fd) ? escapeHtml(fmt(hel,2)) : ''}</td>
               <td>${fieldHasCRP(fd) ? escapeHtml(fmt(crp,2)) : ''}</td>
+              <td>${fieldHasPattern(fd) ? escapeHtml(fmt(pat,2)) : ''}</td>
             </tr>
           `;
         }).join('');
@@ -1134,10 +1306,11 @@
         const emptyRowMsg =
           (String(flag)==='hel') ? 'No HEL fields in this farm.' :
           (String(flag)==='crp') ? 'No CRP fields in this farm.' :
+          (String(flag)==='pattern') ? 'No Pattern Tiled fields in this farm.' :
           'No active fields in this farm.';
 
         const emptyRowHtml =
-          '<tr><td colspan="5" style="padding:10px 8px;color:#6B7280;">' +
+          '<tr><td colspan="6" style="padding:10px 8px;color:#6B7280;">' +
           escapeHtml(emptyRowMsg) +
           '</td></tr>';
 
@@ -1145,17 +1318,18 @@
           <div class="farm-block">
             <div class="farm-title">${escapeHtml(farmName)}</div>
             <p class="farm-sub">
-              ${m.fieldCount} field${m.fieldCount===1?'':'s'} · ${fmt(m.tillable,2)} tillable ac · HEL ${fmt(m.helAcres,2)} · CRP ${fmt(m.crpAcres,2)}
+              ${m.fieldCount} field${m.fieldCount===1?'':'s'} · ${fmt(m.tillable,2)} tillable ac · HEL ${fmt(m.helAcres,2)} · CRP ${fmt(m.crpAcres,2)} · Pattern ${fmt(m.patternAcres,2)}
             </p>
             <div class="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th style="width:34%">Field</th>
-                    <th style="width:26%">County / State</th>
-                    <th style="width:14%">Tillable</th>
-                    <th style="width:13%">HEL</th>
-                    <th style="width:13%">CRP</th>
+                    <th style="width:30%">Field</th>
+                    <th style="width:22%">County / State</th>
+                    <th style="width:12%">Tillable</th>
+                    <th style="width:12%">HEL</th>
+                    <th style="width:12%">CRP</th>
+                    <th style="width:12%">Pattern</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1234,6 +1408,18 @@
         .map(s => ({ id: s.id, data: s.data() || {} }))
         .filter(f => fieldIsActive(f.data));
 
+      // RTK Towers (map)
+      try{
+        const towerSnap = await getDocs(collection(db, CONFIG.TOWER_COLLECTION));
+        STATE.towerMap = new Map();
+        towerSnap.docs.forEach(s => {
+          STATE.towerMap.set(s.id, s.data() || {});
+        });
+      }catch(e){
+        console.warn('[farm-field-summary] rtkTowers load failed', e);
+        STATE.towerMap = new Map();
+      }
+
       // Group fields by farm
       const fieldsByFarm = new Map();
       activeFields.forEach(f => {
@@ -1287,12 +1473,85 @@
       }
     }
 
+    function openFieldModal(fieldObj){
+      const fd = fieldObj?.data || {};
+      const farmName = STATE.farmNameMap.get(fd.farmId) || '';
+      const title = fd.name || 'Field';
+      const loc = [fd.county, fd.state].filter(Boolean).join(', ');
+      const till = nnum(fd.tillable ?? fd.tillableAcres ?? fd.acres);
+
+      const hasHEL = fieldHasHEL(fd);
+      const hasCRP = fieldHasCRP(fd);
+      const hasPAT = fieldHasPattern(fd);
+
+      const towerId = fd.rtkTowerId || '';
+      const tower = towerId ? (STATE.towerMap.get(towerId) || {}) : null;
+
+      const towerName = tower?.name || '';
+      const networkId = tower?.networkId != null ? String(tower.networkId) : '';
+      const freq = tower?.frequencyMHz != null ? String(tower.frequencyMHz) : '';
+
+      const updated = formatDateTime(fd.updatedAt) || '';
+      const created = formatDateTime(fd.createdAt) || '';
+
+      fieldModalTitle.textContent = title;
+      fieldModalSub.textContent = farmName ? `${farmName}${loc ? ' • ' + loc : ''}` : (loc || '');
+
+      const items = [
+        ['Tillable acres', fmt(till,2) + ' ac'],
+        ['HEL', hasHEL ? (fmt(nnum(fd.helAcres),2) + ' ac') : '—'],
+        ['CRP', hasCRP ? (fmt(nnum(fd.crpAcres),2) + ' ac') : '—'],
+        ['Pattern Tiled', hasPAT ? (fmt(till,2) + ' ac') : '—'],
+        ['RTK Tower', (towerName || towerId || '—')],
+        ['RTK Network', (networkId || '—')],
+        ['RTK Frequency', (freq ? (freq + ' MHz') : '—')],
+        ['Drainage Index', (fd.drainageIndex != null ? String(fd.drainageIndex) : '—')],
+        ['Soil Wetness', (fd.soilWetness != null ? String(fd.soilWetness) : '—')],
+        ['Status', (fd.status ? String(fd.status) : '—')],
+        ['Updated', (updated || '—')],
+        ['Created', (created || '—')]
+      ];
+
+      fieldModalBody.innerHTML = `
+        <div class="field-info-grid">
+          ${items.map(([k,v]) => `
+            <div class="fi">
+              <div class="k">${escapeHtml(k)}</div>
+              <div class="v">${escapeHtml(v)}</div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+
+      fieldModal.classList.add('show');
+    }
+
+    function closeFieldModal(){
+      if(!fieldModal) return;
+      fieldModal.classList.remove('show');
+      if(fieldModalBody) fieldModalBody.innerHTML = '';
+    }
+
     (async function boot(){
       await ready;
       STATE.db = getFirestore();
 
       const shell = document.querySelector('fv-shell');
       if(shell) shell.nav = NAV_MENU;
+
+      // Modal wiring
+      fieldModal = document.getElementById('fieldModal');
+      fieldModalBackdrop = document.getElementById('fieldModalBackdrop');
+      fieldModalClose = document.getElementById('fieldModalClose');
+      fieldModalTitle = document.getElementById('fieldModalTitle');
+      fieldModalSub = document.getElementById('fieldModalSub');
+      fieldModalBody = document.getElementById('fieldModalBody');
+
+      if(fieldModalBackdrop) fieldModalBackdrop.addEventListener('click', closeFieldModal);
+      if(fieldModalClose) fieldModalClose.addEventListener('click', closeFieldModal);
+      document.addEventListener('keydown', (e)=>{
+        if(e.key === 'Escape') closeFieldModal();
+      });
 
       const backBtn = $('#btnBack');
       if(backBtn){
@@ -1342,7 +1601,7 @@
           <div>
             <h1>Farm &amp; Field Summary</h1>
             <p class="muted">
-              Farm and field totals with HEL and CRP acres.
+              Farm and field totals with HEL, CRP, Pattern Tiled, and RTK info.
             </p>
           </div>
         </header>
@@ -1356,7 +1615,6 @@
             <div class="page-header-meta" id="reportMeta">Loading report…</div>
           </div>
 
-          <!-- ✅ Filters layout matches Field Maintenance page -->
           <div class="filters" aria-label="Farm & field filters">
             <div class="filters-row">
               <div class="filter-field">
@@ -1372,6 +1630,7 @@
                   <option value="all">All Acres</option>
                   <option value="hel">HEL Acres</option>
                   <option value="crp">CRP Acres</option>
+                  <option value="pattern">Pattern Tiled</option>
                 </select>
               </div>
 
@@ -1408,7 +1667,6 @@
             <div class="wo-list"></div>
           </section>
 
-          <!-- details lives at bottom; click tile auto-scrolls here -->
           <section id="farmDetails" class="wo-detail-panel" aria-label="Farm details" tabindex="-1">
             <div class="wo-detail-header">
               <div class="wo-detail-title">Farm Details</div>
@@ -1433,6 +1691,25 @@
     </div>
 
     <iframe id="fv-print-frame"></iframe>
+
+    <!-- Field details modal -->
+    <div id="fieldModal" class="field-modal" role="dialog" aria-modal="true" aria-label="Field details">
+      <div id="fieldModalBackdrop" class="field-backdrop"></div>
+      <div class="field-sheet">
+        <div class="field-sheet-head">
+          <div style="min-width:0;">
+            <div id="fieldModalTitle" class="field-sheet-title">Field</div>
+            <div id="fieldModalSub" class="field-sheet-sub"></div>
+          </div>
+        </div>
+
+        <div id="fieldModalBody" class="field-sheet-body"></div>
+
+        <div class="field-sheet-actions">
+          <button id="fieldModalClose" type="button" class="btn btn-quiet">Close</button>
+        </div>
+      </div>
+    </div>
   </fv-shell>
 </body>
 </html>
