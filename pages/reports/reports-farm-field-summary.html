@@ -180,14 +180,15 @@
       }
     }
 
+    /* ✅ Match Field Maintenance “kpi” feel (allow 5 KPIs cleanly) */
     .kpi-row{
       display:grid;
-      grid-template-columns:repeat(4, minmax(0,1fr));
+      grid-template-columns:repeat(5, minmax(0,1fr));
       gap:10px;
       margin-top:2px;
     }
     @media (max-width:980px){
-      .kpi-row{ grid-template-columns:repeat(2, minmax(0,1fr)); }
+      .kpi-row{ grid-template-columns:repeat(3, minmax(0,1fr)); }
     }
     @media (max-width:520px){
       .kpi-row{ grid-template-columns:repeat(2, minmax(0,1fr)); }
@@ -262,19 +263,6 @@
       gap:10px;
       align-items:baseline;
       flex-wrap:wrap;
-    }
-    .pill{
-      display:inline-flex;
-      align-items:center;
-      gap:6px;
-      padding:2px 8px;
-      border-radius:999px;
-      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
-      font-size:0.78rem;
-      font-weight:900;
-      letter-spacing:0.08em;
-      text-transform:uppercase;
-      opacity:0.95;
     }
 
     .meta{
@@ -373,7 +361,7 @@
     table{
       width:100%;
       border-collapse:collapse;
-      min-width: 640px;
+      min-width: 760px;
       font-size:0.9rem;
     }
     thead th{
@@ -464,8 +452,8 @@
       COMPANY_DOC_PATH: ['company','main']
     };
 
-    // keep your key
-    const LS_KEY = 'fv_farm_field_summary_filters_v4';
+    // keep your key (bumped for new HEL/CRP filter)
+    const LS_KEY = 'fv_farm_field_summary_filters_v5';
 
     const $ = (sel, root=document) => root.querySelector(sel);
 
@@ -565,6 +553,7 @@
     function saveFilters(){
       const county = ($('#filterCounty')?.value || 'all');
       const farm   = ($('#filterFarm')?.value || 'all');
+      const tag    = ($('#filterTag')?.value || 'all');
       const q      = ($('#filterSearch')?.value || '').trim();
       try{
         // NOTE: we still store status for completeness, but boot ALWAYS forces "active"
@@ -572,6 +561,7 @@
           status: STATE.statusFilter,
           county,
           farm,
+          tag,
           q
         }));
       }catch(_){}
@@ -620,35 +610,27 @@
         }
       };
 
-      // late restore / bfcache / UI settle
       requestAnimationFrame(enforce);
       setTimeout(enforce, 0);
       setTimeout(enforce, 50);
       setTimeout(enforce, 200);
 
-      // IMPORTANT:
-      // If user navigates away/back (bfcache), browsers often restore <select> to "All".
-      // We always reset to Active on pageshow.
       window.addEventListener('pageshow', (e) => {
-        // Always force Active when the page is shown again (including bfcache)
         forceDefaultActive(e && e.persisted ? 'pageshow:bfcache' : 'pageshow');
       });
 
       document.addEventListener('visibilitychange', () => {
         if(!document.hidden){
-          // When you come back to the tab, keep it Active by default
           forceDefaultActive('visibility');
         }
       });
 
-      // Watch for external attribute toggles
       const mo = new MutationObserver(enforce);
       mo.observe(sel, { attributes:true, attributeFilter:['value'] });
 
       const mo2 = new MutationObserver(enforce);
       mo2.observe(sel, { subtree:true, childList:true, attributes:true, attributeFilter:['selected'] });
 
-      // User change = real change (during this visit)
       sel.addEventListener('change', () => {
         STATE.statusFilter = sel.value || 'active';
         syncStatusUI();
@@ -798,16 +780,37 @@
       return fs === st;
     }
 
+    function tagPasses(field, tagVal){
+      const t = String(tagVal || 'all').toLowerCase();
+      if(t === 'all') return true;
+
+      const hel = Number(field?.helAcres) || 0;
+      const crp = Number(field?.crpAcres) || 0;
+
+      if(t === 'hel') return hel > 0;
+      if(t === 'crp') return crp > 0;
+      if(t === 'hel_or_crp') return (hel > 0) || (crp > 0);
+      if(t === 'neither') return (hel <= 0) && (crp <= 0);
+
+      return true;
+    }
+
     function hydrateFarmDropdown(){
       const farmSel = $('#filterFarm');
       const county = ($('#filterCounty')?.value || 'all');
+      const tagVal = ($('#filterTag')?.value || 'all');
       const cur = farmSel?.value || 'all';
 
       const farms = [];
       for(const f of STATE.farms){
         if(county !== 'all' && (!f.counties || !f.counties.has(county))) continue;
-        const viewFields = f.fields.filter(fl => fieldPassesStatus(fl.status));
+
+        const viewFields = f.fields
+          .filter(fl => fieldPassesStatus(fl.status))
+          .filter(fl => tagPasses(fl, tagVal));
+
         if(STATE.statusFilter !== 'all' && viewFields.length === 0) continue;
+        if(viewFields.length === 0) continue;
 
         const viewTillable = viewFields.reduce((s,fl)=> s + (Number(fl.tillable)||0), 0);
 
@@ -838,18 +841,23 @@
 
       const county = ($('#filterCounty')?.value || 'all');
       const farmId = ($('#filterFarm')?.value || 'all');
+      const tagVal = ($('#filterTag')?.value || 'all');
       const q = ( ($('#filterSearch')?.value || '').trim().toLowerCase() );
 
       const countyFilter = String(county || 'all');
       const farmFilter = String(farmId || 'all');
+      const tagFilter = String(tagVal || 'all');
 
       const filtered = [];
       for(const f of STATE.farms){
         if(farmFilter !== 'all' && String(f.id) !== farmFilter) continue;
         if(countyFilter !== 'all' && (!f.counties || !f.counties.has(countyFilter))) continue;
 
-        const viewFields = f.fields.filter(fl => fieldPassesStatus(fl.status));
-        if(STATE.statusFilter !== 'all' && viewFields.length === 0) continue;
+        const viewFields = f.fields
+          .filter(fl => fieldPassesStatus(fl.status))
+          .filter(fl => tagPasses(fl, tagFilter));
+
+        if(viewFields.length === 0) continue;
 
         if(q){
           const hay = [
@@ -861,13 +869,15 @@
 
         const viewTillable = viewFields.reduce((s,fl)=>s + (Number(fl.tillable)||0), 0);
         const viewHel = viewFields.reduce((s,fl)=>s + (Number(fl.helAcres)||0), 0);
+        const viewCrp = viewFields.reduce((s,fl)=>s + (Number(fl.crpAcres)||0), 0);
 
         filtered.push({
           ...f,
           _viewFields: viewFields,
           _viewFieldsCount: viewFields.length,
           _viewTillable: viewTillable,
-          _viewHel: viewHel
+          _viewHel: viewHel,
+          _viewCrp: viewCrp
         });
       }
 
@@ -891,22 +901,26 @@
       let fieldCount = 0;
       let acres = 0;
       let hel = 0;
+      let crp = 0;
 
       farms.forEach(f => {
         fieldCount += (f._viewFieldsCount ?? 0);
         acres += (f._viewTillable ?? 0);
         hel += (f._viewHel ?? 0);
+        crp += (f._viewCrp ?? 0);
       });
 
       $('#kpiFarms').textContent = String(farmCount);
       $('#kpiFields').textContent = String(fieldCount);
       $('#kpiTillable').textContent = fmtAcres(acres);
+      $('#kpiCRP').textContent = fmtAcres(crp);
       $('#kpiHEL').textContent = fmtAcres(hel);
 
       const meta = $('#ffCount');
       if(meta){
         const county = ($('#filterCounty')?.value || 'all');
         const farmSel = ($('#filterFarm')?.value || 'all');
+        const tagSel  = ($('#filterTag')?.value || 'all');
 
         const parts = [];
         parts.push(`${farmCount} farm${farmCount===1?'':'s'}`);
@@ -915,6 +929,15 @@
 
         const filt = [];
         if(STATE.statusFilter !== 'all') filt.push(`Status: ${statusLabel(STATE.statusFilter)}`);
+        if(tagSel !== 'all'){
+          const tagTxt =
+            tagSel === 'hel' ? 'HEL only' :
+            tagSel === 'crp' ? 'CRP only' :
+            tagSel === 'hel_or_crp' ? 'HEL or CRP' :
+            tagSel === 'neither' ? 'Neither HEL/CRP' :
+            'Tag filter';
+          filt.push(`Filter: ${tagTxt}`);
+        }
         if(county !== 'all') filt.push(`County: ${county}`);
         if(farmSel !== 'all'){
           const f0 = STATE.farms.find(x => x.id === farmSel);
@@ -946,6 +969,8 @@
 
         const fieldsShown = (f._viewFieldsCount ?? 0);
         const acresShown = (f._viewTillable ?? 0);
+        const helShown = (f._viewHel ?? 0);
+        const crpShown = (f._viewCrp ?? 0);
 
         const card = document.createElement('article');
         card.className = 'card';
@@ -961,6 +986,8 @@
               <div class="meta">
                 <span><span class="meta-label">Fields</span> <span class="meta-val">${escapeHtml(String(fieldsShown))}</span></span>
                 <span><span class="meta-label">Tillable</span> <span class="meta-val">${escapeHtml(fmtAcres(acresShown))} ac</span></span>
+                <span><span class="meta-label">CRP</span> <span class="meta-val">${escapeHtml(fmtAcres(crpShown))} ac</span></span>
+                <span><span class="meta-label">HEL</span> <span class="meta-val">${escapeHtml(fmtAcres(helShown))} ac</span></span>
                 <span><span class="meta-label">Counties</span> <span class="meta-val">${escapeHtml(countyLine)}</span></span>
               </div>
             </div>
@@ -1001,6 +1028,7 @@
       const fieldsShown = (f._viewFieldsCount ?? 0);
       const tillableShown = (f._viewTillable ?? 0);
       const helShown = (f._viewHel ?? 0);
+      const crpShown = (f._viewCrp ?? 0);
 
       const grid = $('.detail-grid', panel);
       grid.innerHTML = `
@@ -1013,10 +1041,14 @@
           <div class="detail-item-value">${escapeHtml(fmtAcres(tillableShown))}</div>
         </div>
         <div>
+          <div class="detail-item-label">CRP Acres</div>
+          <div class="detail-item-value">${escapeHtml(fmtAcres(crpShown))}</div>
+        </div>
+        <div>
           <div class="detail-item-label">HEL Acres</div>
           <div class="detail-item-value">${escapeHtml(fmtAcres(helShown))}</div>
         </div>
-        <div>
+        <div style="grid-column:1/-1;">
           <div class="detail-item-label">Counties</div>
           <div class="detail-item-value">${escapeHtml(counties.length ? counties.join(', ') : '—')}</div>
         </div>
@@ -1050,11 +1082,20 @@
     function wireFilterEvents(){
       const countySel = $('#filterCounty');
       const farmSel = $('#filterFarm');
+      const tagSel = $('#filterTag');
       const searchEl = $('#filterSearch');
       const clearBtn = $('#filterClear');
 
       if(countySel){
         countySel.addEventListener('change', () => {
+          hydrateFarmDropdown();
+          applyFilters();
+          saveFilters();
+        });
+      }
+
+      if(tagSel){
+        tagSel.addEventListener('change', () => {
           hydrateFarmDropdown();
           applyFilters();
           saveFilters();
@@ -1086,6 +1127,7 @@
     function summarizeFilters(){
       const county = ($('#filterCounty')?.value || 'all');
       const farm   = ($('#filterFarm')?.value || 'all');
+      const tag    = ($('#filterTag')?.value || 'all');
       const q      = ( ($('#filterSearch')?.value || '').trim().toLowerCase() );
 
       const statusTxt = (STATE.statusFilter === 'all') ? 'All statuses' : `Status: ${statusLabel(STATE.statusFilter)}`;
@@ -1095,13 +1137,31 @@
         const f = STATE.farms.find(x => x.id === farm);
         if(f) farmTxt = `Farm: ${f.name}`;
       }
+
+      const tagTxt =
+        (tag === 'all') ? 'All fields' :
+        (tag === 'hel') ? 'HEL only' :
+        (tag === 'crp') ? 'CRP only' :
+        (tag === 'hel_or_crp') ? 'HEL or CRP' :
+        (tag === 'neither') ? 'Neither HEL/CRP' :
+        'Tag filter';
+
       const searchTxt = q ? `Search: "${q}"` : 'No text filter';
 
-      return `${statusTxt} • ${countyTxt} • ${farmTxt} • ${searchTxt}`;
+      return `${statusTxt} • ${countyTxt} • ${farmTxt} • ${tagTxt} • ${searchTxt}`;
     }
 
+    /* =========================
+       ✅ PRINT LAYOUT
+       Updated to MATCH Field Maintenance report style:
+       - same header / summary / KPI style
+       - grouped sections
+       - field “cards” grid (instead of plain table)
+    ========================== */
     function buildPrintHtml({ company, runStr, runDateOnly, filterSummary, totals, farms }){
-      const { farmCount, fieldCount, tillable, hel } = totals;
+      const { farmCount, fieldCount, tillable, hel, crp } = totals;
+
+      const tagPill = (txt) => `<div class="pill"><span class="k">Filters</span><span class="v">${escapeHtml(txt)}</span></div>`;
 
       return `<!doctype html>
 <html>
@@ -1119,7 +1179,7 @@
     *{box-sizing:border-box;}
     html,body{ margin:0; padding:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--fv-text); background:var(--fv-bg); }
     body{ display:flex; justify-content:center; padding:22px 12px; }
-    .page{ width:100%; max-width:980px; background:#fff; border-radius:14px; box-shadow:0 10px 30px rgba(15,23,42,0.12); padding:20px 22px 22px; }
+    .page{ width:100%; max-width:920px; background:#fff; border-radius:14px; box-shadow:0 10px 30px rgba(15,23,42,0.12); padding:20px 22px 22px; }
     .hdr{ display:grid; grid-template-columns:auto 1fr auto; gap:14px; align-items:center; border-bottom:2px solid var(--fv-green); padding-bottom:12px; margin-bottom:14px; }
 
     .logo{
@@ -1150,27 +1210,58 @@
     .k{font-size:10px; text-transform:uppercase; letter-spacing:0.10em; color:var(--fv-muted); font-weight:700;}
     .v{font-weight:800; color:var(--fv-text);}
 
-    .kpis{ margin-top:12px; display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px; }
+    .kpis{ margin-top:12px; display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:10px; }
     .kpi{ border:1px solid var(--fv-border); border-radius:12px; padding:9px 10px; background:linear-gradient(135deg, rgba(59,126,70,0.06), #fff); }
     .kpi .lab{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--fv-muted);font-weight:900;}
     .kpi .val{font-size:18px;font-weight:950;margin-top:2px;}
     .kpi .note{font-size:10px;color:var(--fv-muted);margin-top:2px;line-height:1.25;}
 
     .section{ margin-top:16px; border-top:1px solid #EEF2F7; padding-top:14px; }
-    .farm-title{ font-size:12px; font-weight:950; letter-spacing:0.10em; text-transform:uppercase; color:#1F2937; margin:0 0 8px; display:flex; justify-content:space-between; gap:10px; align-items:baseline; }
+    .farm-title{ font-size:12px; font-weight:950; letter-spacing:0.10em; text-transform:uppercase; color:#1F2937; margin:0 0 6px; display:flex; justify-content:space-between; gap:10px; align-items:baseline; }
     .farm-sub{ margin:0 0 10px; font-size:11px; color:var(--fv-muted); }
 
-    table{ width:100%; border-collapse:collapse; font-size:11px; }
-    th,td{ border-bottom:1px solid #EEF2F7; padding:8px 6px; text-align:left; white-space:nowrap; vertical-align:top; }
-    th{ font-size:10px; text-transform:uppercase; letter-spacing:0.10em; color:var(--fv-muted); }
-    td.num{ text-align:right; font-variant-numeric: tabular-nums; }
+    .field-grid{ display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px; }
+    .field{
+      border:1px solid var(--fv-border);
+      border-radius:12px;
+      padding:10px 10px 9px;
+      break-inside:avoid;
+      page-break-inside:avoid;
+    }
+    .field-top{
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      align-items:flex-start;
+      padding-bottom:7px;
+      border-bottom:1px solid #EEF2F7;
+      margin-bottom:8px;
+    }
+    .field-name{ font-weight:950; font-size:13px; line-height:1.25; }
+    .badge{
+      font-size:10px;
+      font-weight:950;
+      letter-spacing:0.08em;
+      text-transform:uppercase;
+      padding:4px 8px;
+      border-radius:999px;
+      border:1px solid rgba(59,126,70,0.28);
+      background:rgba(59,126,70,0.07);
+      color:#0F172A;
+      white-space:nowrap;
+    }
+    .field-meta{ display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px 10px; font-size:11px; }
+    .pair .kk{font-size:10px;text-transform:uppercase;letter-spacing:0.10em;color:var(--fv-muted);font-weight:900;margin-bottom:2px;}
+    .pair .vv{font-weight:650; color:#111827; line-height:1.25; word-break:break-word;}
+    .pair.full{ grid-column:1/-1; }
 
     .footer{ margin-top:16px; padding-top:10px; border-top:1px solid var(--fv-border); display:flex; justify-content:space-between; gap:12px; font-size:10px; color:var(--fv-muted); line-height:1.3; }
     .footer .l{max-width:65%;}
     .footer .r{text-align:right;}
 
-    @media (max-width:980px){
-      .kpis{ grid-template-columns:repeat(2, minmax(0,1fr)); }
+    @media (max-width:860px){
+      .field-grid{grid-template-columns:1fr;}
+      .kpis{grid-template-columns:repeat(2, minmax(0,1fr));}
       .meta{white-space:normal;}
     }
 
@@ -1179,8 +1270,9 @@
       body{box-shadow:none;}
       .page{ max-width:none; border-radius:0; box-shadow:none; padding:9mm 10mm; }
       .hdr{ margin-bottom:10px; padding-bottom:10px; }
-      table{ page-break-inside:auto; }
-      tr{ break-inside:avoid; page-break-inside:avoid; }
+      .kpis{ margin-top:10px; gap:8px; }
+      .section{ margin-top:12px; padding-top:12px; }
+      .field{break-inside:avoid; page-break-inside:avoid;}
     }
   </style>
 </head>
@@ -1201,17 +1293,17 @@
         </p>
       </div>
       <div class="meta">
-        <div><strong>Farm & Field Summary</strong></div>
+        <div><strong>Farm &amp; Field Summary</strong></div>
         <div>Generated: ${escapeHtml(runStr)}</div>
         <div>Prepared by: ${escapeHtml(company.name || 'FarmVista')}</div>
       </div>
     </header>
 
     <h1 class="title">Farm &amp; Field Summary</h1>
-    <p class="subtitle">Filtered by Field Status (Active / Inactive / All).</p>
+    <p class="subtitle">Grouped by farm. Filters apply to the field list (Status + County + Farm + HEL/CRP).</p>
 
     <div class="summary">
-      <div class="pill"><span class="k">Filters</span><span class="v">${escapeHtml(filterSummary)}</span></div>
+      ${tagPill(filterSummary)}
       <div class="pill"><span class="k">Farms</span><span class="v">${farmCount}</span></div>
       <div class="pill"><span class="k">Fields</span><span class="v">${fieldCount}</span></div>
     </div>
@@ -1220,54 +1312,68 @@
       <div class="kpi"><div class="lab">Farms</div><div class="val">${farmCount}</div><div class="note"></div></div>
       <div class="kpi"><div class="lab">Fields</div><div class="val">${fieldCount}</div><div class="note"></div></div>
       <div class="kpi"><div class="lab">Tillable Acres</div><div class="val">${escapeHtml(String(tillable))}</div><div class="note"></div></div>
+      <div class="kpi"><div class="lab">CRP Acres</div><div class="val">${escapeHtml(String(crp))}</div><div class="note"></div></div>
       <div class="kpi"><div class="lab">HEL Acres</div><div class="val">${escapeHtml(String(hel))}</div><div class="note"></div></div>
     </div>
 
     ${farms.map(f => {
       const counties = Array.from(f.counties || []).sort((a,b)=>a.localeCompare(b));
-      const viewFields = f._viewFields || f.fields || [];
+      const viewFields = (f._viewFields || f.fields || []).slice().sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+
       const viewTillable = f._viewTillable ?? 0;
+      const viewCrp = f._viewCrp ?? 0;
+      const viewHel = f._viewHel ?? 0;
 
       return `
       <section class="section">
         <div class="farm-title">
           <span>${escapeHtml(f.name)}</span>
           <span style="font-size:11px;color:var(--fv-muted);letter-spacing:0.06em;text-transform:none;font-weight:900;">
-            ${viewFields.length} fields • ${escapeHtml(fmtAcres(viewTillable))} ac
+            ${viewFields.length} fields • ${escapeHtml(fmtAcres(viewTillable))} tillable ac
           </span>
         </div>
         <p class="farm-sub">
           ${counties.length ? `Counties: ${escapeHtml(counties.join(', '))}` : ''}
+          ${counties.length ? ' · ' : ''}
+          CRP: ${escapeHtml(fmtAcres(viewCrp))} ac · HEL: ${escapeHtml(fmtAcres(viewHel))} ac
         </p>
 
-        <table>
-          <thead>
-            <tr>
-              <th>Field</th>
-              <th>County</th>
-              <th class="num">Tillable</th>
-              <th class="num">CRP</th>
-              <th class="num">HEL</th>
-              <th>RTK</th>
-              <th class="num">SoilWet</th>
-              <th class="num">DrainIdx</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${viewFields.map(fl => `
-              <tr>
-                <td>${escapeHtml(fl.name)}</td>
-                <td>${escapeHtml(fl.county || '—')}</td>
-                <td class="num">${escapeHtml(fmtAcres(fl.tillable))}</td>
-                <td class="num">${escapeHtml(fmtAcres(fl.crpAcres))}</td>
-                <td class="num">${escapeHtml(fmtAcres(fl.helAcres))}</td>
-                <td>${escapeHtml(fl.rtkTowerName || '—')}</td>
-                <td class="num">${escapeHtml(fl.soilWetness == null ? '—' : String(fl.soilWetness))}</td>
-                <td class="num">${escapeHtml(fl.drainageIndex == null ? '—' : String(fl.drainageIndex))}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
+        <div class="field-grid">
+          ${viewFields.map(fl => {
+            const sw = (fl.soilWetness == null) ? '—' : String(fl.soilWetness);
+            const di = (fl.drainageIndex == null) ? '—' : String(fl.drainageIndex);
+
+            const hel = Number(fl.helAcres) || 0;
+            const crp = Number(fl.crpAcres) || 0;
+            const badgeTxt =
+              (hel > 0 && crp > 0) ? 'HEL + CRP' :
+              (hel > 0) ? 'HEL' :
+              (crp > 0) ? 'CRP' :
+              'Standard';
+
+            return `
+              <article class="field">
+                <div class="field-top">
+                  <div class="field-name">${escapeHtml(fl.name)}</div>
+                  <div class="badge">${escapeHtml(badgeTxt)}</div>
+                </div>
+
+                <div class="field-meta">
+                  <div class="pair"><div class="kk">County</div><div class="vv">${escapeHtml(fl.county || '—')}</div></div>
+                  <div class="pair"><div class="kk">RTK</div><div class="vv">${escapeHtml(fl.rtkTowerName || '—')}</div></div>
+
+                  <div class="pair"><div class="kk">Tillable</div><div class="vv">${escapeHtml(fmtAcres(fl.tillable))} ac</div></div>
+                  <div class="pair"><div class="kk">CRP</div><div class="vv">${escapeHtml(fmtAcres(fl.crpAcres))} ac</div></div>
+
+                  <div class="pair"><div class="kk">HEL</div><div class="vv">${escapeHtml(fmtAcres(fl.helAcres))} ac</div></div>
+                  <div class="pair"><div class="kk">SoilWet</div><div class="vv">${escapeHtml(sw)}</div></div>
+
+                  <div class="pair full"><div class="kk">DrainIdx</div><div class="vv">${escapeHtml(di)}</div></div>
+                </div>
+              </article>
+            `;
+          }).join('')}
+        </div>
       </section>
       `;
     }).join('')}
@@ -1293,17 +1399,20 @@
         let fieldCount = 0;
         let tillable = 0;
         let hel = 0;
+        let crp = 0;
 
         farms.forEach(f => {
           fieldCount += (f._viewFieldsCount ?? 0);
           tillable += (f._viewTillable ?? 0);
           hel += (f._viewHel ?? 0);
+          crp += (f._viewCrp ?? 0);
         });
 
         return {
           farmCount,
           fieldCount,
           tillable: fmtAcres(tillable),
+          crp: fmtAcres(crp),
           hel: fmtAcres(hel)
         };
       })();
@@ -1391,16 +1500,23 @@
       // Counties list
       hydrateCountyDropdown();
 
-      // Restore county/farm/search (BUT NOT status)
+      // Restore county/farm/tag/search (BUT NOT status)
       const saved = loadSavedFilters();
       const countySel = $('#filterCounty');
       const farmSel   = $('#filterFarm');
+      const tagSel    = $('#filterTag');
       const searchEl  = $('#filterSearch');
 
       if(countySel && saved && saved.county){
         const c = String(saved.county);
         const exists = Array.from(countySel.options).some(o => o.value === c);
         countySel.value = exists ? c : 'all';
+      }
+
+      if(tagSel && saved && saved.tag){
+        const t = String(saved.tag);
+        const exists = Array.from(tagSel.options).some(o => o.value === t);
+        tagSel.value = exists ? t : 'all';
       }
 
       hydrateFarmDropdown();
@@ -1435,7 +1551,7 @@
           <div>
             <h1>Farm &amp; Field Summary</h1>
             <p class="muted">
-              This report is filtered by <strong>Field Status</strong> to help you find fields to archive or add.
+              This report is filtered by <strong>Field Status</strong> and can optionally filter to only fields with <strong>HEL</strong> and/or <strong>CRP</strong>.
               All lists are alphabetical (ABC).
             </p>
           </div>
@@ -1467,6 +1583,11 @@
               <div class="note"></div>
             </div>
             <div class="kpi">
+              <div class="lab">CRP Acres</div>
+              <div class="val" id="kpiCRP">—</div>
+              <div class="note"></div>
+            </div>
+            <div class="kpi">
               <div class="lab">HEL Acres</div>
               <div class="val" id="kpiHEL">—</div>
               <div class="note"></div>
@@ -1483,6 +1604,17 @@
                   <option value="active" selected>Active</option>
                   <!-- DB value archived; label shows Inactive -->
                   <option value="archived">Inactive</option>
+                </select>
+              </div>
+
+              <div class="filter-field">
+                <label class="filter-label" for="filterTag">HEL / CRP</label>
+                <select id="filterTag" class="filter-select">
+                  <option value="all">All fields</option>
+                  <option value="hel_or_crp">HEL or CRP</option>
+                  <option value="hel">HEL only</option>
+                  <option value="crp">CRP only</option>
+                  <option value="neither">Neither HEL/CRP</option>
                 </select>
               </div>
 
