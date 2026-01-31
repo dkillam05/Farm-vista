@@ -586,18 +586,18 @@
       db: null,
       company: null,
 
-      farms: [],          // ACTIVE ONLY by default
+      farms: [],
       filteredFarms: null,
       selectedFarmId: null,
 
       farmNameMap: new Map(),
       countyOptions: [],
-      towerMap: new Map(), // towerId -> tower data
+      towerMap: new Map(),
 
       filters: {
         county: 'all',
         farm: 'all',
-        flag: 'all', // all | hel | crp | pattern
+        flag: 'all', // all | hel | crp | tiled
         q: ''
       }
     };
@@ -663,10 +663,10 @@
       return s !== 'archived' && s !== 'inactive' && s !== 'deleted';
     }
 
-    /* ✅ Dane rule: ONLY count if boolean is true. Acres do NOT control inclusion. */
+    /* ✅ Boolean flags drive inclusion. */
     function fieldHasHEL(fd){ return fd?.hasHEL === true; }
     function fieldHasCRP(fd){ return fd?.hasCRP === true; }
-    function fieldHasPattern(fd){ return fd?.hasPatternTiled === true; }
+    function fieldHasTiled(fd){ return fd?.hasPatternTiled === true; } // field stores hasPatternTiled
 
     function computeFarmMetrics(fields){
       const activeFields = fields.filter(f => fieldIsActive(f.data));
@@ -676,21 +676,21 @@
 
       const helFields = activeFields.filter(f => fieldHasHEL(f.data));
       const crpFields = activeFields.filter(f => fieldHasCRP(f.data));
-      const patternFields = activeFields.filter(f => fieldHasPattern(f.data));
+      const tiledFields = activeFields.filter(f => fieldHasTiled(f.data));
 
       const helCount = helFields.length;
       const crpCount = crpFields.length;
-      const patternCount = patternFields.length;
+      const tiledCount = tiledFields.length;
 
       const helAcres = helFields.reduce((sum,f)=> sum + nnum(f.data?.helAcres), 0);
       const crpAcres = crpFields.reduce((sum,f)=> sum + nnum(f.data?.crpAcres), 0);
 
-      // Pattern tiled acres = FULL TILLABLE acres for fields where hasPatternTiled === true
-      const patternAcres = patternFields.reduce((sum,f)=> sum + nnum(f.data?.tillable ?? f.data?.tillableAcres ?? f.data?.acres), 0);
+      // Tiled acres = FULL tillable acres for fields where hasPatternTiled === true
+      const tiledAcres = tiledFields.reduce((sum,f)=> sum + nnum(f.data?.tillable ?? f.data?.tillableAcres ?? f.data?.acres), 0);
 
       const counties = new Set(activeFields.map(f => f.data?.county).filter(Boolean));
 
-      return { fieldCount, tillable, helCount, helAcres, crpCount, crpAcres, patternCount, patternAcres, counties, activeFields };
+      return { fieldCount, tillable, helCount, helAcres, crpCount, crpAcres, tiledCount, tiledAcres, counties, activeFields };
     }
 
     function getWorkingFarms(){
@@ -703,12 +703,12 @@
       const f = String(flag || 'all').toLowerCase();
       if(f === 'hel') return fields.filter(x => fieldHasHEL(x.data));
       if(f === 'crp') return fields.filter(x => fieldHasCRP(x.data));
-      if(f === 'pattern') return fields.filter(x => fieldHasPattern(x.data));
+      if(f === 'tiled') return fields.filter(x => fieldHasTiled(x.data));
       return fields;
     }
 
     function computeFilteredTotalsForFlag(farms, flag){
-      const out = { farmCount: 0, fieldCount: 0, tillable: 0, helAcres: 0, crpAcres: 0, patternAcres: 0 };
+      const out = { farmCount: 0, fieldCount: 0, acres: 0 };
       const f = String(flag || 'all').toLowerCase();
       out.farmCount = farms.length;
 
@@ -718,26 +718,23 @@
 
         if(f === 'all'){
           out.fieldCount += (farm.metrics?.fieldCount || 0);
-          out.tillable += nnum(farm.metrics?.tillable);
-          out.helAcres += nnum(farm.metrics?.helAcres);
-          out.crpAcres += nnum(farm.metrics?.crpAcres);
-          out.patternAcres += nnum(farm.metrics?.patternAcres);
+          out.acres += nnum(farm.metrics?.tillable);
         }else if(f === 'hel'){
           out.fieldCount += filteredFields.length;
-          out.helAcres += filteredFields.reduce((s,x)=> s + nnum(x.data?.helAcres), 0);
+          out.acres += filteredFields.reduce((s,x)=> s + nnum(x.data?.helAcres), 0);
         }else if(f === 'crp'){
           out.fieldCount += filteredFields.length;
-          out.crpAcres += filteredFields.reduce((s,x)=> s + nnum(x.data?.crpAcres), 0);
-        }else if(f === 'pattern'){
+          out.acres += filteredFields.reduce((s,x)=> s + nnum(x.data?.crpAcres), 0);
+        }else if(f === 'tiled'){
           out.fieldCount += filteredFields.length;
-          out.patternAcres += filteredFields.reduce((s,x)=> s + nnum(x.data?.tillable ?? x.data?.tillableAcres ?? x.data?.acres), 0);
+          out.acres += filteredFields.reduce((s,x)=> s + nnum(x.data?.tillable ?? x.data?.tillableAcres ?? x.data?.acres), 0);
         }
       }
 
       return out;
     }
 
-    /* ✅ Smooth auto-scroll to details (same as RTK) */
+    /* ✅ Smooth auto-scroll to details */
     function scrollToDetails(){
       const panel = $('#farmDetails');
       if(!panel || panel.style.display === 'none') return;
@@ -761,22 +758,21 @@
       const metaEl = $('#reportMeta');
       const farms = getWorkingFarms();
       const flag = ($('#filterFlag')?.value || 'all');
+      const f = String(flag || 'all').toLowerCase();
 
       const totals = computeFilteredTotalsForFlag(farms, flag);
 
-      const f = String(flag || 'all').toLowerCase();
-      let acresLabel = 'Tillable';
-      let acresVal = totals.tillable;
-
-      if(f === 'hel'){ acresLabel = 'HEL'; acresVal = totals.helAcres; }
-      if(f === 'crp'){ acresLabel = 'CRP'; acresVal = totals.crpAcres; }
-      if(f === 'pattern'){ acresLabel = 'Pattern'; acresVal = totals.patternAcres; }
+      const label =
+        (f === 'hel') ? 'HEL' :
+        (f === 'crp') ? 'CRP' :
+        (f === 'tiled') ? 'Tiled' :
+        'Tillable';
 
       if(metaEl){
         metaEl.textContent =
           `${totals.farmCount} farm${totals.farmCount===1?'':'s'} • ` +
           `${totals.fieldCount} field${totals.fieldCount===1?'':'s'} • ` +
-          `${acresLabel} ${fmt(acresVal,2)} ac`;
+          `${label} ${fmt(totals.acres,2)} ac`;
       }
     }
 
@@ -801,22 +797,17 @@
 
       for(const farm of farms){
         const d = farm.data || {};
-        const mAll = farm.metrics || { fieldCount:0, tillable:0, helCount:0, helAcres:0, crpCount:0, crpAcres:0, patternCount:0, patternAcres:0, counties:new Set(), activeFields:[] };
+        const mAll = farm.metrics || { fieldCount:0, tillable:0, helCount:0, helAcres:0, crpCount:0, crpAcres:0, tiledCount:0, tiledAcres:0, counties:new Set(), activeFields:[] };
 
         const farmName = d.name || 'Unnamed farm';
 
-        // ✅ When a flag is selected, show counts based on flagged fields only (so Pattern shows 1 field)
         const fieldsForCard = getFieldsForFlag(mAll.activeFields || [], flag);
         const fieldCount = (fflag === 'all') ? mAll.fieldCount : fieldsForCard.length;
 
-        // County label still comes from all active fields (keeps your “3 counties” behavior stable)
         const countyLabel = (mAll.counties && mAll.counties.size)
           ? `${mAll.counties.size} count${mAll.counties.size===1?'y':'ies'} • ${fieldCount} field${fieldCount===1?'':'s'}`
           : `${fieldCount} field${fieldCount===1?'':'s'}`;
 
-        // Card chips:
-        // - All Acres => show Tillable/HEL/CRP (same as before)
-        // - HEL/CRP/Pattern => show just the relevant chip + Tillable chip (keeps layout stable but accurate)
         const cardTillable = (fflag === 'all')
           ? mAll.tillable
           : fieldsForCard.reduce((s,x)=> s + nnum(x.data?.tillable ?? x.data?.tillableAcres ?? x.data?.acres), 0);
@@ -829,19 +820,17 @@
           ? fieldsForCard.reduce((s,x)=> s + nnum(x.data?.crpAcres), 0)
           : mAll.crpAcres;
 
-        const cardPatternAcres = (fflag === 'pattern')
+        const cardTiledAcres = (fflag === 'tiled')
           ? fieldsForCard.reduce((s,x)=> s + nnum(x.data?.tillable ?? x.data?.tillableAcres ?? x.data?.acres), 0)
-          : mAll.patternAcres;
+          : mAll.tiledAcres;
+
+        const helFldCount = (fflag === 'hel') ? fieldsForCard.length : mAll.helCount;
+        const crpFldCount = (fflag === 'crp') ? fieldsForCard.length : mAll.crpCount;
+        const tiledFldCount = (fflag === 'tiled') ? fieldsForCard.length : mAll.tiledCount;
 
         const card = document.createElement('article');
         card.className = 'wo-card';
         card.dataset.id = farm.id;
-
-        // Always show 3 chips (stable): Tillable + HEL + CRP, and add Pattern as 4th (wraps if needed)
-        // Values are accurate under flag selections.
-        const helFldCount = (fflag === 'hel') ? fieldsForCard.length : mAll.helCount;
-        const crpFldCount = (fflag === 'crp') ? fieldsForCard.length : mAll.crpCount;
-        const patFldCount = (fflag === 'pattern') ? fieldsForCard.length : mAll.patternCount;
 
         card.innerHTML = `
           <div class="wo-row-top">
@@ -852,7 +841,7 @@
                 <span><span class="wo-meta-label">Tillable</span> <span class="wo-meta-val">${fmt(cardTillable,2)} ac</span></span>
                 <span><span class="wo-meta-label">HEL</span> <span class="wo-meta-val">${helFldCount} fld · ${fmt(cardHelAcres,2)} ac</span></span>
                 <span><span class="wo-meta-label">CRP</span> <span class="wo-meta-val">${crpFldCount} fld · ${fmt(cardCrpAcres,2)} ac</span></span>
-                <span><span class="wo-meta-label">Pattern</span> <span class="wo-meta-val">${patFldCount} fld · ${fmt(cardPatternAcres,2)} ac</span></span>
+                <span><span class="wo-meta-label">Tiled</span> <span class="wo-meta-val">${tiledFldCount} fld · ${fmt(cardTiledAcres,2)} ac</span></span>
               </div>
             </div>
           </div>
@@ -891,7 +880,6 @@
       }
 
       const flag = ($('#filterFlag')?.value || 'all');
-
       const d = farm.data || {};
       const farmName = d.name || 'Unnamed farm';
 
@@ -899,9 +887,7 @@
       const activeFields = fieldsAll.filter(f => fieldIsActive(f.data));
       activeFields.sort((a,b)=> String(a.data?.name||'').localeCompare(String(b.data?.name||'')));
 
-      // ✅ For the bottom field list: filter to only flagged fields when a flag is selected
       const detailFields = getFieldsForFlag(activeFields, flag);
-
       const m = farm.metrics || computeFarmMetrics(fieldsAll);
 
       panel.dataset.id = farm.id;
@@ -936,8 +922,8 @@
           <div class="wo-detail-item-value">${m.crpCount} field${m.crpCount===1?'':'s'} · ${fmt(m.crpAcres,2)} ac</div>
         </div>
         <div>
-          <div class="wo-detail-item-label">Pattern Tiled</div>
-          <div class="wo-detail-item-value">${m.patternCount} field${m.patternCount===1?'':'s'} · ${fmt(m.patternAcres,2)} ac</div>
+          <div class="wo-detail-item-label">Tiled</div>
+          <div class="wo-detail-item-value">${m.tiledCount} field${m.tiledCount===1?'':'s'} · ${fmt(m.tiledAcres,2)} ac</div>
         </div>
       `;
 
@@ -948,7 +934,7 @@
         const msg =
           (String(flag) === 'hel') ? 'No HEL fields in this farm.' :
           (String(flag) === 'crp') ? 'No CRP fields in this farm.' :
-          (String(flag) === 'pattern') ? 'No Pattern Tiled fields in this farm.' :
+          (String(flag) === 'tiled') ? 'No Tiled fields in this farm.' :
           'No active fields found for this farm.';
         body.innerHTML = `<div class="wo-empty" style="margin-top:6px;">${escapeHtml(msg)}</div>`;
       }else{
@@ -965,14 +951,14 @@
 
           const hasHEL = fieldHasHEL(fd);
           const hasCRP = fieldHasCRP(fd);
-          const hasPAT = fieldHasPattern(fd);
+          const hasTLD = fieldHasTiled(fd);
 
           const chips = [];
           chips.push(`<span class="chip"><strong>Till</strong> <span class="wo-meta-val">${fmt(till,2)} ac</span></span>`);
           if(loc) chips.push(`<span class="chip"><span class="wo-meta-val">${escapeHtml(loc)}</span></span>`);
           if(hasHEL) chips.push(`<span class="chip"><strong>HEL</strong> <span class="wo-meta-val">${fmt(nnum(fd.helAcres),2)} ac</span></span>`);
           if(hasCRP) chips.push(`<span class="chip"><strong>CRP</strong> <span class="wo-meta-val">${fmt(nnum(fd.crpAcres),2)} ac</span></span>`);
-          if(hasPAT) chips.push(`<span class="chip"><strong>Pattern</strong> <span class="wo-meta-val">${fmt(till,2)} ac</span></span>`);
+          if(hasTLD) chips.push(`<span class="chip"><strong>Tiled</strong> <span class="wo-meta-val">${fmt(till,2)} ac</span></span>`);
 
           return `
             <div class="field-row" data-field-id="${escapeHtml(f.id)}">
@@ -984,7 +970,6 @@
 
         body.appendChild(table);
 
-        // Wire field click -> modal
         Array.from(table.querySelectorAll('.field-row')).forEach(row => {
           row.addEventListener('click', () => {
             const fid = row.getAttribute('data-field-id') || '';
@@ -1000,7 +985,7 @@
         <span class="wo-detail-pill">${fmt(m.tillable,2)} tillable ac</span>
         <span class="wo-detail-pill">HEL ${fmt(m.helAcres,2)} ac</span>
         <span class="wo-detail-pill">CRP ${fmt(m.crpAcres,2)} ac</span>
-        <span class="wo-detail-pill">Pattern ${fmt(m.patternAcres,2)} ac</span>
+        <span class="wo-detail-pill">Tiled ${fmt(m.tiledAcres,2)} ac</span>
       `;
 
       panel.style.display = 'flex';
@@ -1021,7 +1006,7 @@
       const name = d.name || 'Unnamed farm';
       const m = farm.metrics || computeFarmMetrics(farm.fields || []);
 
-      toast.textContent = `${name}: ${m.fieldCount} field${m.fieldCount===1?'':'s'} • ${fmt(m.tillable,2)} tillable ac • HEL ${fmt(m.helAcres,2)} • CRP ${fmt(m.crpAcres,2)} • Pattern ${fmt(m.patternAcres,2)}`;
+      toast.textContent = `${name}: ${m.fieldCount} field${m.fieldCount===1?'':'s'} • ${fmt(m.tillable,2)} tillable ac • HEL ${fmt(m.helAcres,2)} • CRP ${fmt(m.crpAcres,2)} • Tiled ${fmt(m.tiledAcres,2)}`;
       toast.classList.add('rtk-summary--show');
       setTimeout(()=> toast.classList.remove('rtk-summary--show'), 3500);
     }
@@ -1063,7 +1048,6 @@
         })
       ].join('');
 
-      // If current farm not valid under county, reset to all
       const stillOk = (cur === 'all') || farms.some(f => f.id === cur);
       setSelectOptions(sel, opts, stillOk ? cur : 'all');
     }
@@ -1086,20 +1070,18 @@
         if(farm !== 'all' && f.id !== farm) continue;
         if(county !== 'all' && !(f.metrics?.counties && f.metrics.counties.has(county))) continue;
 
-        // Farm-level filtering: when you pick a flag, only show farms that have that flag on at least one field
         if(flag !== 'all'){
           const hasHel = (f.metrics?.helCount || 0) > 0;
           const hasCrp = (f.metrics?.crpCount || 0) > 0;
-          const hasPat = (f.metrics?.patternCount || 0) > 0;
+          const hasTiled = (f.metrics?.tiledCount || 0) > 0;
           if(flag === 'hel' && !hasHel) continue;
           if(flag === 'crp' && !hasCrp) continue;
-          if(flag === 'pattern' && !hasPat) continue;
+          if(flag === 'tiled' && !hasTiled) continue;
         }
 
         if(q){
           const d = f.data || {};
           const hay = [];
-
           hay.push(d.name, d.status);
 
           (f.fields || []).forEach(x => {
@@ -1108,7 +1090,7 @@
             hay.push(fd.name, fd.county, fd.state);
             if(fd.hasHEL) hay.push('hel');
             if(fd.hasCRP) hay.push('crp');
-            if(fd.hasPatternTiled) hay.push('pattern');
+            if(fd.hasPatternTiled) hay.push('tiled');
             const towerId = fd.rtkTowerId || '';
             if(towerId) hay.push(towerId);
           });
@@ -1125,7 +1107,6 @@
       clearDetails();
       renderMeta();
 
-      // If a farm is selected and we change flag, keep details synced (don’t auto-scroll)
       if(STATE.selectedFarmId){
         renderDetails({ scroll:false, focus:false });
       }
@@ -1166,7 +1147,7 @@
       const flagLabel =
         (flag === 'hel') ? 'HEL Acres' :
         (flag === 'crp') ? 'CRP Acres' :
-        (flag === 'pattern') ? 'Pattern Tiled' :
+        (flag === 'tiled') ? 'Tiled' :
         'All Acres';
 
       const searchLabel = q ? `Search: "${q}"` : 'No text filter';
@@ -1176,17 +1157,81 @@
 
     function buildPrintHtml({ company, runStr, runDateOnly, filterSummary, farms, flag }){
       const farmCount = farms.length;
-      const fieldCount = farms.reduce((sum,f)=> sum + (f.metrics?.fieldCount || 0), 0);
-      const tillable = farms.reduce((sum,f)=> sum + nnum(f.metrics?.tillable), 0);
-      const helAcres = farms.reduce((sum,f)=> sum + nnum(f.metrics?.helAcres), 0);
-      const crpAcres = farms.reduce((sum,f)=> sum + nnum(f.metrics?.crpAcres), 0);
-      const patternAcres = farms.reduce((sum,f)=> sum + nnum(f.metrics?.patternAcres), 0);
+
+      const f = String(flag || 'all').toLowerCase();
 
       const flagTxt =
-        (String(flag)==='hel') ? 'HEL Acres' :
-        (String(flag)==='crp') ? 'CRP Acres' :
-        (String(flag)==='pattern') ? 'Pattern Tiled' :
+        (f === 'hel') ? 'HEL Acres' :
+        (f === 'crp') ? 'CRP Acres' :
+        (f === 'tiled') ? 'Tiled' :
         'All Acres';
+
+      // ✅ dynamic columns:
+      // Always: Field, County/State, Tillable
+      // Then: only the selected flag column (HEL or CRP or Tiled). For All Acres: show HEL+CRP+Tiled.
+      const extraCols = (f === 'all') ? ['HEL','CRP','Tiled'] : (f === 'hel') ? ['HEL'] : (f === 'crp') ? ['CRP'] : (f === 'tiled') ? ['Tiled'] : [];
+      const extraColCount = extraCols.length;
+      const colspan = 3 + extraColCount;
+
+      // Summary numbers based on filtered set
+      let fieldCount = 0;
+      let tillable = 0;
+      let helAcres = 0;
+      let crpAcres = 0;
+      let tiledAcres = 0;
+
+      farms.forEach(fr=>{
+        const fields = (fr.metrics?.activeFields || fr.fields || []);
+        const fieldsFor = getFieldsForFlag(fields, flag);
+
+        if(f === 'all'){
+          fieldCount += (fr.metrics?.fieldCount || 0);
+          tillable += nnum(fr.metrics?.tillable);
+          helAcres += nnum(fr.metrics?.helAcres);
+          crpAcres += nnum(fr.metrics?.crpAcres);
+          tiledAcres += nnum(fr.metrics?.tiledAcres);
+        }else if(f === 'hel'){
+          fieldCount += fieldsFor.length;
+          helAcres += fieldsFor.reduce((s,x)=> s + nnum(x.data?.helAcres), 0);
+          tillable += fieldsFor.reduce((s,x)=> s + nnum(x.data?.tillable ?? x.data?.tillableAcres ?? x.data?.acres), 0);
+        }else if(f === 'crp'){
+          fieldCount += fieldsFor.length;
+          crpAcres += fieldsFor.reduce((s,x)=> s + nnum(x.data?.crpAcres), 0);
+          tillable += fieldsFor.reduce((s,x)=> s + nnum(x.data?.tillable ?? x.data?.tillableAcres ?? x.data?.acres), 0);
+        }else if(f === 'tiled'){
+          fieldCount += fieldsFor.length;
+          tiledAcres += fieldsFor.reduce((s,x)=> s + nnum(x.data?.tillable ?? x.data?.tillableAcres ?? x.data?.acres), 0);
+          tillable += tiledAcres;
+        }
+      });
+
+      function thForExtra(){
+        return extraCols.map(c => `<th style="width:${Math.floor(35/Math.max(1,extraCols.length))}%">${c}</th>`).join('');
+      }
+
+      function tdForExtra(fd, till){
+        const hel = fieldHasHEL(fd) ? nnum(fd.helAcres) : 0;
+        const crp = fieldHasCRP(fd) ? nnum(fd.crpAcres) : 0;
+        const tld = fieldHasTiled(fd) ? till : 0;
+
+        if(f === 'all'){
+          return `
+            <td>${fieldHasHEL(fd) ? escapeHtml(fmt(hel,2)) : ''}</td>
+            <td>${fieldHasCRP(fd) ? escapeHtml(fmt(crp,2)) : ''}</td>
+            <td>${fieldHasTiled(fd) ? escapeHtml(fmt(tld,2)) : ''}</td>
+          `;
+        }
+        if(f === 'hel'){
+          return `<td>${fieldHasHEL(fd) ? escapeHtml(fmt(hel,2)) : ''}</td>`;
+        }
+        if(f === 'crp'){
+          return `<td>${fieldHasCRP(fd) ? escapeHtml(fmt(crp,2)) : ''}</td>`;
+        }
+        if(f === 'tiled'){
+          return `<td>${fieldHasTiled(fd) ? escapeHtml(fmt(tld,2)) : ''}</td>`;
+        }
+        return '';
+      }
 
       return `<!doctype html>
 <html>
@@ -1326,75 +1371,79 @@
         <div class="summary-pill"><span class="summary-label">Farms</span><span class="summary-value">${fmt(farmCount,0)}</span></div>
         <div class="summary-pill"><span class="summary-label">Fields</span><span class="summary-value">${fmt(fieldCount,0)}</span></div>
         <div class="summary-pill"><span class="summary-label">Tillable</span><span class="summary-value">${fmt(tillable,2)} ac</span></div>
-        <div class="summary-pill"><span class="summary-label">HEL</span><span class="summary-value">${fmt(helAcres,2)} ac</span></div>
-        <div class="summary-pill"><span class="summary-label">CRP</span><span class="summary-value">${fmt(crpAcres,2)} ac</span></div>
-        <div class="summary-pill"><span class="summary-label">Pattern</span><span class="summary-value">${fmt(patternAcres,2)} ac</span></div>
+        ${f === 'hel' ? `<div class="summary-pill"><span class="summary-label">HEL</span><span class="summary-value">${fmt(helAcres,2)} ac</span></div>` : ``}
+        ${f === 'crp' ? `<div class="summary-pill"><span class="summary-label">CRP</span><span class="summary-value">${fmt(crpAcres,2)} ac</span></div>` : ``}
+        ${f === 'tiled' ? `<div class="summary-pill"><span class="summary-label">Tiled</span><span class="summary-value">${fmt(tiledAcres,2)} ac</span></div>` : ``}
+        ${f === 'all' ? `<div class="summary-pill"><span class="summary-label">HEL</span><span class="summary-value">${fmt(helAcres,2)} ac</span></div>` : ``}
+        ${f === 'all' ? `<div class="summary-pill"><span class="summary-label">CRP</span><span class="summary-value">${fmt(crpAcres,2)} ac</span></div>` : ``}
+        ${f === 'all' ? `<div class="summary-pill"><span class="summary-label">Tiled</span><span class="summary-value">${fmt(tiledAcres,2)} ac</span></div>` : ``}
       </div>
     </section>
 
     <section class="section">
       <h2 class="section-title">Detail by Farm</h2>
 
-      ${farms.map(f => {
-        const d = f.data || {};
-        const m = f.metrics || computeFarmMetrics(f.fields || []);
+      ${farms.map(fr => {
+        const d = fr.data || {};
         const farmName = d.name || 'Unnamed farm';
 
-        const fields = (f.fields || []).filter(x => fieldIsActive(x.data))
+        const fields = (fr.fields || []).filter(x => fieldIsActive(x.data))
           .sort((a,b)=> String(a.data?.name||'').localeCompare(String(b.data?.name||'')));
 
-        const showFields = (String(flag)==='hel') ? fields.filter(x=>fieldHasHEL(x.data))
-                        : (String(flag)==='crp') ? fields.filter(x=>fieldHasCRP(x.data))
-                        : (String(flag)==='pattern') ? fields.filter(x=>fieldHasPattern(x.data))
-                        : fields;
+        const showFields = getFieldsForFlag(fields, flag);
 
         const rows = showFields.map(x => {
           const fd = x.data || {};
           const loc = [fd.county, fd.state].filter(Boolean).join(', ');
           const till = nnum(fd.tillable ?? fd.tillableAcres ?? fd.acres);
-          const hel = fieldHasHEL(fd) ? nnum(fd.helAcres) : 0;
-          const crp = fieldHasCRP(fd) ? nnum(fd.crpAcres) : 0;
-          const pat = fieldHasPattern(fd) ? till : 0;
 
           return `
             <tr>
               <td>${escapeHtml(fd.name || 'Unnamed field')}</td>
               <td>${escapeHtml(loc)}</td>
               <td>${till ? escapeHtml(fmt(till,2)) : ''}</td>
-              <td>${fieldHasHEL(fd) ? escapeHtml(fmt(hel,2)) : ''}</td>
-              <td>${fieldHasCRP(fd) ? escapeHtml(fmt(crp,2)) : ''}</td>
-              <td>${fieldHasPattern(fd) ? escapeHtml(fmt(pat,2)) : ''}</td>
+              ${tdForExtra(fd, till)}
             </tr>
           `;
         }).join('');
 
         const emptyRowMsg =
-          (String(flag)==='hel') ? 'No HEL fields in this farm.' :
-          (String(flag)==='crp') ? 'No CRP fields in this farm.' :
-          (String(flag)==='pattern') ? 'No Pattern Tiled fields in this farm.' :
+          (f === 'hel') ? 'No HEL fields in this farm.' :
+          (f === 'crp') ? 'No CRP fields in this farm.' :
+          (f === 'tiled') ? 'No Tiled fields in this farm.' :
           'No active fields in this farm.';
 
         const emptyRowHtml =
-          '<tr><td colspan="6" style="padding:10px 8px;color:#6B7280;">' +
+          '<tr><td colspan="' + String(${colspan}) + '" style="padding:10px 8px;color:#6B7280;">' +
           escapeHtml(emptyRowMsg) +
           '</td></tr>';
+
+        // Per-farm subtotal line (only the filtered column besides the always-on columns)
+        const farmTill = showFields.reduce((s,x)=> s + nnum(x.data?.tillable ?? x.data?.tillableAcres ?? x.data?.acres), 0);
+        const farmHel  = showFields.reduce((s,x)=> s + (fieldHasHEL(x.data) ? nnum(x.data?.helAcres) : 0), 0);
+        const farmCrp  = showFields.reduce((s,x)=> s + (fieldHasCRP(x.data) ? nnum(x.data?.crpAcres) : 0), 0);
+        const farmTld  = showFields.reduce((s,x)=> s + (fieldHasTiled(x.data) ? nnum(x.data?.tillable ?? x.data?.tillableAcres ?? x.data?.acres) : 0), 0);
+
+        let subRight = '';
+        if(f === 'hel') subRight = 'HEL ' + fmt(farmHel,2) + ' ac';
+        else if(f === 'crp') subRight = 'CRP ' + fmt(farmCrp,2) + ' ac';
+        else if(f === 'tiled') subRight = 'Tiled ' + fmt(farmTld,2) + ' ac';
+        else subRight = 'HEL ' + fmt(fr.metrics?.helAcres || 0,2) + ' • CRP ' + fmt(fr.metrics?.crpAcres || 0,2) + ' • Tiled ' + fmt(fr.metrics?.tiledAcres || 0,2);
 
         return `
           <div class="farm-block">
             <div class="farm-title">${escapeHtml(farmName)}</div>
             <p class="farm-sub">
-              ${m.fieldCount} field${m.fieldCount===1?'':'s'} · ${fmt(m.tillable,2)} tillable ac · HEL ${fmt(m.helAcres,2)} · CRP ${fmt(m.crpAcres,2)} · Pattern ${fmt(m.patternAcres,2)}
+              ${showFields.length} field${showFields.length===1?'':'s'} · ${fmt(farmTill,2)} tillable ac · ${escapeHtml(subRight)}
             </p>
             <div class="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th style="width:30%">Field</th>
-                    <th style="width:22%">County / State</th>
-                    <th style="width:12%">Tillable</th>
-                    <th style="width:12%">HEL</th>
-                    <th style="width:12%">CRP</th>
-                    <th style="width:12%">Pattern</th>
+                    <th style="width:34%">Field</th>
+                    <th style="width:26%">County / State</th>
+                    <th style="width:14%">Tillable</th>
+                    ${thForExtra()}
                   </tr>
                 </thead>
                 <tbody>
@@ -1458,7 +1507,6 @@
     async function loadData(){
       const db = STATE.db;
 
-      // Farms (ACTIVE ONLY)
       const farmSnap = await getDocs(collection(db, CONFIG.FARM_COLLECTION));
       const activeFarms = farmSnap.docs
         .map(s => ({ id: s.id, data: s.data() || {} }))
@@ -1467,13 +1515,11 @@
       STATE.farmNameMap = new Map();
       activeFarms.forEach(f => STATE.farmNameMap.set(f.id, f.data?.name || 'Unnamed farm'));
 
-      // Fields (ACTIVE ONLY)
       const fieldSnap = await getDocs(collection(db, CONFIG.FIELD_COLLECTION));
       const activeFields = fieldSnap.docs
         .map(s => ({ id: s.id, data: s.data() || {} }))
         .filter(f => fieldIsActive(f.data));
 
-      // RTK Towers (map)
       try{
         const towerSnap = await getDocs(collection(db, CONFIG.TOWER_COLLECTION));
         STATE.towerMap = new Map();
@@ -1485,7 +1531,6 @@
         STATE.towerMap = new Map();
       }
 
-      // Group fields by farm
       const fieldsByFarm = new Map();
       activeFields.forEach(f => {
         const fid = f.data?.farmId || null;
@@ -1494,7 +1539,6 @@
         fieldsByFarm.get(fid).push(f);
       });
 
-      // Build farm records
       const farms = activeFarms.map(f => {
         const fields = fieldsByFarm.get(f.id) || [];
         const metrics = computeFarmMetrics(fields);
@@ -1503,7 +1547,6 @@
 
       farms.sort((a,b)=> String(a.data?.name||'').localeCompare(String(b.data?.name||'')));
 
-      // County options from ACTIVE fields only
       const countySet = new Set();
       farms.forEach(f => f.metrics?.counties?.forEach(c => countySet.add(c)));
       STATE.countyOptions = Array.from(countySet).sort();
@@ -1547,7 +1590,7 @@
 
       const hasHEL = fieldHasHEL(fd);
       const hasCRP = fieldHasCRP(fd);
-      const hasPAT = fieldHasPattern(fd);
+      const hasTLD = fieldHasTiled(fd);
 
       const towerId = fd.rtkTowerId || '';
       const tower = towerId ? (STATE.towerMap.get(towerId) || {}) : null;
@@ -1556,19 +1599,17 @@
       const networkId = tower?.networkId != null ? String(tower.networkId) : '—';
       const freq = tower?.frequencyMHz != null ? (String(tower.frequencyMHz) + ' MHz') : '—';
 
-      // ✅ Group RTK info in ONE tile. Remove status/updated/created. Add county tile.
       const rtkBlock = `${towerName}\nNetwork ${networkId}\n${freq}`;
+      const countyVal = fd.county ? (fd.county + (fd.state ? `, ${fd.state}` : '')) : (fd.state || '—');
 
       fieldModalTitle.textContent = title;
       fieldModalSub.textContent = farmName ? `${farmName}${loc ? ' • ' + loc : ''}` : (loc || '');
-
-      const countyVal = fd.county ? (fd.county + (fd.state ? `, ${fd.state}` : '')) : (fd.state || '—');
 
       const items = [
         ['Tillable Acres', fmt(till,2) + ' ac'],
         ['HEL', hasHEL ? (fmt(nnum(fd.helAcres),2) + ' ac') : '—'],
         ['CRP', hasCRP ? (fmt(nnum(fd.crpAcres),2) + ' ac') : '—'],
-        ['Pattern Tiled', hasPAT ? (fmt(till,2) + ' ac') : '—'],
+        ['Tiled', hasTLD ? (fmt(till,2) + ' ac') : '—'],
         ['County', countyVal || '—'],
         ['RTK', rtkBlock],
         ['Drainage Index', (fd.drainageIndex != null ? String(fd.drainageIndex) : '—')],
@@ -1602,7 +1643,6 @@
       const shell = document.querySelector('fv-shell');
       if(shell) shell.nav = NAV_MENU;
 
-      // Modal wiring
       fieldModal = document.getElementById('fieldModal');
       fieldModalBackdrop = document.getElementById('fieldModalBackdrop');
       fieldModalClose = document.getElementById('fieldModalClose');
@@ -1632,11 +1672,9 @@
 
       try{
         await loadData();
-
         hydrateCountyDropdown();
         hydrateFarmDropdown();
         wireFilterEvents();
-
         applyFilters();
       }catch(err){
         console.error('Error loading Farm & Field summary:', err);
@@ -1664,7 +1702,7 @@
           <div>
             <h1>Farm &amp; Field Summary</h1>
             <p class="muted">
-              Farm and field totals with HEL, CRP, Pattern Tiled, and RTK info.
+              Farm and field totals with HEL, CRP, Tiled, and RTK info.
             </p>
           </div>
         </header>
@@ -1693,7 +1731,7 @@
                   <option value="all">All Acres</option>
                   <option value="hel">HEL Acres</option>
                   <option value="crp">CRP Acres</option>
-                  <option value="pattern">Pattern Tiled</option>
+                  <option value="tiled">Tiled</option>
                 </select>
               </div>
 
