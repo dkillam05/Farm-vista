@@ -1,46 +1,19 @@
 /* =====================================================================
 /Farm-vista/js/markets.js  (FULL FILE)
-Rev: 2026-01-28o
+Rev: 2026-02-02a
 
-Fixes:
-✅ Front selection skips expired + dead symbols
-✅ Quotes:
-   - price from intraday (1D) last close
-   - change/% from 6M daily closes (prev daily close) like Yahoo
-✅ Auto-hide contracts that don’t fetch real data (dead/nodata)
-✅ Mobile: two tiles per crop (Front + Dec; if Front=Dec then Jan next year)
-✅ Desktop: full lists, hide unusable symbols, and show change chip for ALL rows
+FIX (your issue):
+✅ Contract lists are now SORTED chronologically (year, month) before any selection.
+   - Prevents “May 26” being chosen as front due to backend/source ordering changes.
+   - Prevents “Dec 27” being chosen instead of “Dec 26” due to list ordering.
 
-NEW:
-✅ Expose quote helpers for modal tiles:
-   - FVMarkets.getQuote(symbol)
-   - FVMarkets.warmQuotes(symbols, level)
-✅ Lite mode no longer lies with 0.00 change; uses null => UI shows "—"
+✅ Mobile tile rules now choose “Dec/Nov of the FRONT YEAR” (not the first Dec/Nov encountered).
 
-CHANGE (requested):
-✅ Remove yellow bubble
-✅ Bubble is GREEN when up, RED when down, GRAY when flat
-✅ Bubble text ALWAYS WHITE (including arrow + $chg + %chg)
-
-CRITICAL FIX (your issue):
-✅ Change bubbles “barely showing” was caused by mode mismatch after switching UI to Yahoo tabs.
-   - markets.js was still requesting "daily" / "6mo"
-   - your backend + chart UI now uses "1d" / "6m" / "1y"
-✅ This file now speaks Yahoo modes and also FALLBACKS to legacy modes if needed:
-   - 1d -> daily
-   - 5d -> weekly
-   - 1m -> monthly
-   - 6m -> 6mo
-   - 1y -> 1y
-
-NEW (requested):
-✅ Desktop: move meta line ("Delayed quotes • Updated ...") into the Markets header,
-   subtle under the Markets label; mobile stays exactly as-is.
-
-UPDATE (requested):
-✅ Mobile Soybean 2-contract logic:
-   - Normal: Front + Nov (X)
-   - In November: Nov (X) + Jan (F)
+Keeps:
+✅ Expired/dead symbol skipping
+✅ Quote logic + mode fallback
+✅ Mobile: 2 tiles per crop
+✅ Desktop: full lists + change chips
 ===================================================================== */
 
 (function(){
@@ -120,8 +93,6 @@ UPDATE (requested):
   // ---------------------------
   // Mode compatibility helpers
   // ---------------------------
-  // Your UI now uses Yahoo-style chart modes.
-  // Backend may support Yahoo modes OR legacy modes depending on deploy.
   const MODE_FALLBACK = {
     "1d": "daily",
     "5d": "weekly",
@@ -133,17 +104,14 @@ UPDATE (requested):
   function normMode(m){
     const s = String(m || "").toLowerCase().trim();
 
-    // Yahoo modes
     if (s === "1d" || s === "5d" || s === "1m" || s === "6m" || s === "1y") return s;
 
-    // Legacy modes we used earlier
     if (s === "daily") return "1d";
     if (s === "weekly") return "5d";
     if (s === "monthly") return "1m";
     if (s === "6mo") return "6m";
     if (s === "1y") return "1y";
 
-    // default
     return "1d";
   }
 
@@ -153,14 +121,9 @@ UPDATE (requested):
     return r.json();
   }
 
-  // Primary chart fetch used by UI + quotes.
-  // Tries Yahoo mode first, then falls back to legacy if needed.
   async function fetchChart(symbol, mode){
     const wanted = normMode(mode);
     const firstTry = wanted;
-
-    // If the caller passed legacy, we still normalize to Yahoo.
-    // But also preserve a sane legacy fallback:
     const fallback = MODE_FALLBACK[firstTry] || null;
 
     async function doFetch(m){
@@ -182,8 +145,6 @@ UPDATE (requested):
     try{
       return await doFetch(firstTry);
     }catch(e){
-      // Only fallback for “mode not supported / bad request / not found”
-      // (keeps real 500s visible)
       const st = e && typeof e.status === "number" ? e.status : 0;
       const canFallback = !!fallback && (st === 400 || st === 404);
       if (!canFallback) throw e;
@@ -285,15 +246,33 @@ UPDATE (requested):
   function parseSymbolYM(symbol){
     try{
       const s = String(symbol || "");
-      const core = s.split(".")[0];
-      const mCode = core.slice(-3, -2);
-      const yyStr = core.slice(-2);
+      const core = s.split(".")[0];     // e.g. ZCH26.CBT -> ZCH26
+      const mCode = core.slice(-3, -2); // month code
+      const yyStr = core.slice(-2);     // 2-digit year
       const month = MONTH_CODE[mCode] || null;
       const yy = parseInt(yyStr, 10);
       if (!month || !isFinite(yy)) return null;
       const year = (yy <= 50) ? (2000 + yy) : (1900 + yy);
       return { year, month };
     }catch{ return null; }
+  }
+
+  // ✅ NEW: chronological sort (year, month). Unknown YM goes to end, stable.
+  function sortContractsChrono(list){
+    const arr = Array.isArray(list) ? list.slice() : [];
+    const withIdx = arr.map((c, i)=> ({ c, i, ym: parseSymbolYM(c?.symbol) }));
+    withIdx.sort((a,b)=>{
+      const A = a.ym, B = b.ym;
+      if (A && B){
+        if (A.year !== B.year) return A.year - B.year;
+        if (A.month !== B.month) return A.month - B.month;
+        return a.i - b.i;
+      }
+      if (A && !B) return -1;
+      if (!A && B) return 1;
+      return a.i - b.i;
+    });
+    return withIdx.map(x=> x.c);
   }
 
   function isExpiredContract(symbol){
@@ -385,7 +364,6 @@ UPDATE (requested):
   // ---------------------------
   // Symbol state + quote cache
   // ---------------------------
-  // state: ok | dead | nodata | unknown
   const symbolState = new Map(); // symbol -> state
   const quoteCache = new Map();  // symbol -> { price, chg, pct, updatedAtMs }
   const inflight = new Map();    // symbol -> Promise
@@ -404,14 +382,11 @@ UPDATE (requested):
     return st !== "dead" && st !== "nodata";
   };
 
-  // ✅ Expose quote access
   Markets.getQuote = function(sym){
     return quoteCache.get(sym) || null;
   };
 
-  // Choose a front contract that is:
-  // - not expired
-  // - not dead/nodata if we know it already
+  // ✅ front pick now operates on a CHRONO-sorted list
   function pickFront(list){
     if (!Array.isArray(list) || !list.length) return null;
 
@@ -423,7 +398,6 @@ UPDATE (requested):
       return c;
     }
 
-    // fallback: first usable
     for (const c of list){
       const sym = c?.symbol;
       if (!sym) continue;
@@ -434,56 +408,49 @@ UPDATE (requested):
     return list[0] || null;
   }
 
+  // ✅ filter + chrono sort (the key fix)
   function filterList(list){
-    if (!HIDE_BAD_CONTRACTS) return list || [];
-    return (list || []).filter(c => c?.symbol && Markets.isSymbolUsable(c.symbol));
+    const baseList = (list || []).filter(c => c?.symbol);
+    const usable = HIDE_BAD_CONTRACTS ? baseList.filter(c => Markets.isSymbolUsable(c.symbol)) : baseList;
+    return sortContractsChrono(usable);
   }
 
-  // ✅ MOBILE: choose exactly 2 contracts to show on the dashboard card
-  // corn rule stays: Front + Dec (if Front=Dec then Jan next year)
-  // soy rule: Front + Nov (if Front=Nov then Jan next year)
-  //          BUT if current month is November: Nov + Jan (next year)
+  // ✅ MOBILE: choose exactly 2 contracts (now year-aware for Dec/Nov)
   function pickMobileTwoTiles(list, cropKey){
     const filtered = filterList(list || []);
     if (!filtered.length) return [];
 
     const front = pickFront(filtered) || filtered[0];
     const reordered = [front, ...filtered.filter(x => x?.symbol && x.symbol !== front.symbol)];
-
     const frontYM = parseSymbolYM(front?.symbol);
 
-    // --- SOYBEANS special rule ---
+    // --- SOYBEANS ---
     if (String(cropKey || "").toLowerCase() === "soy"){
       const now = new Date();
       const curMonth = now.getMonth() + 1;
 
-      const nov = findFirstByMonth(reordered, 11);
+      // We want NOV of the FRONT YEAR (not a random Nov)
+      const novSameYear = frontYM ? (findByMonthYear(reordered, 11, frontYM.year) || findFirstByMonth(reordered, 11)) : findFirstByMonth(reordered, 11);
 
-      // If we're in November, show Nov + Jan (next year)
+      // If we're in November: Nov (current) + Jan (next year)
       if (curMonth === 11){
-        const novC = nov || front || null;
+        const novC = novSameYear || front || null;
         const novYM = parseSymbolYM(novC?.symbol);
 
         if (novC && novYM && novYM.month === 11){
-          const jan = findByMonthYear(reordered, 1, novYM.year + 1) || findJanNextYear(reordered, novYM.year) || reordered.find(x => {
-            const ym = parseSymbolYM(x?.symbol);
-            return ym && ym.month === 1 && ym.year >= (novYM.year + 1);
-          }) || reordered[1] || null;
-
+          const jan = findByMonthYear(reordered, 1, novYM.year + 1) || findJanNextYear(reordered, novYM.year) || reordered[1] || null;
           const out = [novC];
           if (jan && jan.symbol && jan.symbol !== novC.symbol) out.push(jan);
           return out;
         }
 
-        // If we can't find a November contract for some reason, fall back to front + next
         const secondFallback = reordered[1] || null;
         const outFb = [front];
         if (secondFallback && secondFallback.symbol && secondFallback.symbol !== front.symbol) outFb.push(secondFallback);
         return outFb;
       }
 
-      // Normal months: Front + Nov
-      // If the front IS November, then use Jan next year as the second tile
+      // Normal months: Front + Nov (front-year aware)
       if (frontYM && frontYM.month === 11){
         const jan = findJanNextYear(reordered, frontYM.year) || reordered[1] || null;
         const out = [front];
@@ -491,7 +458,7 @@ UPDATE (requested):
         return out;
       }
 
-      if (nov && nov.symbol && nov.symbol !== front.symbol) return [front, nov];
+      if (novSameYear && novSameYear.symbol && novSameYear.symbol !== front.symbol) return [front, novSameYear];
 
       const second = reordered[1] || null;
       const out = [front];
@@ -499,8 +466,9 @@ UPDATE (requested):
       return out;
     }
 
-    // --- CORN (existing behavior) ---
-    const dec = findFirstByMonth(reordered, 12);
+    // --- CORN ---
+    // We want DEC of the FRONT YEAR (not a random Dec)
+    const decSameYear = frontYM ? (findByMonthYear(reordered, 12, frontYM.year) || findFirstByMonth(reordered, 12)) : findFirstByMonth(reordered, 12);
 
     if (frontYM && frontYM.month === 12){
       const jan = findJanNextYear(reordered, frontYM.year) || reordered[1] || null;
@@ -509,7 +477,7 @@ UPDATE (requested):
       return out;
     }
 
-    if (dec && dec.symbol && dec.symbol !== front.symbol) return [front, dec];
+    if (decSameYear && decSameYear.symbol && decSameYear.symbol !== front.symbol) return [front, decSameYear];
 
     const second = reordered[1] || null;
     const out = [front];
@@ -532,7 +500,6 @@ UPDATE (requested):
     if (!symbol) return;
     if (inflight.has(symbol)) return inflight.get(symbol);
 
-    // small optimization: don’t keep hammering known-bad symbols
     if (HIDE_BAD_CONTRACTS && !Markets.isSymbolUsable(symbol)) {
       if (!quoteCache.has(symbol)) quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now() });
       return;
@@ -542,12 +509,10 @@ UPDATE (requested):
 
     const p = (async ()=>{
       try{
-        // 1) Price from intraday 1D (fast)
         const daily = await fetchChart(symbol, "1d");
         const dailyPts = normalizePoints(daily);
         const price = lastNonNullClose(dailyPts);
 
-        // If intraday has literally no closes, treat nodata
         if (price == null){
           setState(symbol, "nodata");
           quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now() });
@@ -557,7 +522,6 @@ UPDATE (requested):
         let chg = null, pct = null;
 
         if (modeLevel === "full"){
-          // 2) Change/% from 6M daily closes (prev close) like Yahoo
           const six = await fetchChart(symbol, "6m");
           const sixPts = normalizePoints(six);
           const { prev } = lastTwoDailyCloses(sixPts);
@@ -566,7 +530,6 @@ UPDATE (requested):
             chg = price - prev;
             pct = (prev === 0) ? 0 : (chg / prev) * 100;
           } else {
-            // fallback to last two intraday closes
             let last2 = null, prev2 = null;
             for (let i = dailyPts.length - 1; i >= 0; i--){
               const c = toNum2(dailyPts[i]?.c);
@@ -583,7 +546,6 @@ UPDATE (requested):
             }
           }
         } else {
-          // ✅ Lite mode uses null => UI can show "—" or hide chip
           chg = null;
           pct = null;
         }
@@ -619,7 +581,6 @@ UPDATE (requested):
     await Promise.all(workers);
   }
 
-  // ✅ Expose warmQuotes for dash-markets-ui
   Markets.warmQuotes = async function(symbols, level){
     await runQueue(symbols, level);
   };
@@ -702,9 +663,6 @@ UPDATE (requested):
     }
   }
 
-  // ✅ Guaranteed placement using your real DOM:
-  // Desktop: put meta inside header under <strong>Markets</strong>
-  // Mobile: keep meta in body after the grid (as you have now)
   function placeMetaByLayout(){
     const metaHost = ui().meta;
     if (!metaHost) return;
@@ -712,21 +670,18 @@ UPDATE (requested):
     const headerRight = qs('#markets-section .section-head > div:nth-child(2)');
     const headerTitle = headerRight ? qs('strong', headerRight) : null;
 
-    const body = qs('#markets-section #fv-markets'); // section-body container
+    const body = qs('#markets-section #fv-markets');
     const grid = qs('#markets-section #fv-markets .fv-mkt-grid');
 
     if (isMobile()){
-      // Ensure it stays in the body under the grid
       if (body && metaHost.parentElement !== body){
         body.appendChild(metaHost);
       } else if (body && grid && metaHost.previousElementSibling !== grid){
-        // keep it after grid for consistent flow
         grid.insertAdjacentElement("afterend", metaHost);
       }
       return;
     }
 
-    // Desktop: tuck into header, right under the title
     if (headerTitle){
       headerTitle.insertAdjacentElement("afterend", metaHost);
     } else if (headerRight){
@@ -751,7 +706,6 @@ UPDATE (requested):
       </div>
     `;
 
-    // ✅ Move it to the right spot based on desktop/mobile
     placeMetaByLayout();
   }
 
@@ -798,7 +752,6 @@ UPDATE (requested):
       await runQueue(vis, "full");
       redraw();
     } else {
-      // ✅ Desktop: warm ALL rows in FULL so every contract can show the change chip
       const all = allSymbols(payload);
       runQueue(all, "full").then(redraw).catch(()=>{});
     }
