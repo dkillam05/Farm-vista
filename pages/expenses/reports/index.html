@@ -326,8 +326,6 @@
       loaded: false,
       selectedYear: null,
       selectedMonth: null,
-
-      // Conservative iPhone-safe print lock (no iframe cleanup/rewrites)
       printBusy: false
     };
 
@@ -420,20 +418,10 @@
     async function loadCompanyHeader(){
       if(STATE.company) return STATE.company;
       try{
-        STATE.company = {
-          name: 'Dowson Farms',
-          address: 'Divernon, IL',
-          phone: '',
-          email: ''
-        };
+        STATE.company = { name:'Dowson Farms', address:'Divernon, IL', phone:'', email:'' };
       }catch(e){
         console.warn('[expenses-report] failed to load company header', e);
-        STATE.company = {
-          name: 'Dowson Farms',
-          address: 'Divernon, IL',
-          phone: '',
-          email: ''
-        };
+        STATE.company = { name:'Dowson Farms', address:'Divernon, IL', phone:'', email:'' };
       }
       return STATE.company;
     }
@@ -467,7 +455,6 @@
       if(!STATE.userEmailLower){
         STATE.expenditures = [];
         STATE.loaded = true;
-        console.warn('[expenses-report] no signed-in email; returning empty list');
         return;
       }
 
@@ -484,9 +471,7 @@
       const docMap = new Map();
       snaps.forEach(snap => {
         if(!snap) return;
-        snap.forEach(docSnap => {
-          docMap.set(docSnap.id, docSnap);
-        });
+        snap.forEach(docSnap => docMap.set(docSnap.id, docSnap));
       });
 
       const list = [];
@@ -499,9 +484,7 @@
         if(!y || !m) continue;
 
         const docEmail = extractSubmitterEmail(d);
-        if(docEmail && docEmail !== STATE.userEmailLower){
-          continue;
-        }
+        if(docEmail && docEmail !== STATE.userEmailLower) continue;
 
         const total = Number(d.total) || 0;
         const receiptImage = d.receiptImage || null;
@@ -527,11 +510,6 @@
       list.sort((a,b) => (a.ymd || '').localeCompare(b.ymd || ''));
       STATE.expenditures = list;
       STATE.loaded = true;
-
-      console.log('[expenses-report] loaded USER expenditures:', {
-        user: STATE.userEmailLower,
-        count: STATE.expenditures.length
-      });
     }
 
     function buildMonthlyPrintHtml({
@@ -550,7 +528,6 @@
       const range = monthDateRange(year, monthNum);
       const filterSummaryText = filterSummary || `All expenditures for ${label}`;
 
-      // Build receipt list
       const receipts = [];
       expenses.forEach(e => {
         if(e.receiptUrl){
@@ -565,33 +542,51 @@
         }
       });
 
-      // NEW RECEIPT PAGINATION RULES:
-      // - Receipts are printed on NEW PAGES.
-      // - If total receipts <= 2 => 2 per page (half-page each).
-      // - Else => 4 per page (quarter-page each), including when total is 3.
+      // RULES:
+      // - If total receipts <= 2 => BOTH go on ONE receipts page (2-up half page)
+      // - If total receipts >= 3 => 4-up per page (2x2 quarters), including when total is 3
       const receiptLayout = (receipts.length > 0 && receipts.length <= 2) ? 'half' : 'quarter';
       const perPage = (receiptLayout === 'half') ? 2 : 4;
 
       const receiptPages = [];
       for(let i=0; i<receipts.length; i += perPage){
         const chunk = receipts.slice(i, i + perPage);
-        while(chunk.length < perPage) chunk.push(null); // placeholders to keep layout fixed
+        while(chunk.length < perPage) chunk.push(null);
         receiptPages.push(chunk);
       }
+
+      const purposeDisplay = purposeLabel || 'General Expenses';
+      const employeeDisplay = employeeName || 'Not specified';
+
+      const detailRowsHtml = expenses.length
+        ? expenses.map(e => `
+            <tr>
+              <td>${escapeHtml(formatDateYMD(e.ymd))}</td>
+              <td>${escapeHtml(e.merchant)}</td>
+              <td>${escapeHtml(e.category)}</td>
+              <td>${escapeHtml(payMethodLabel(e.paymethod))}</td>
+              <td class="cell-right">${escapeHtml(formatCurrency(e.total))}</td>
+              <td>${escapeHtml(e.notes)}</td>
+            </tr>
+          `).join('')
+        : `
+          <tr>
+            <td colspan="6" class="cell-center cell-muted">
+              No expenditures were recorded for this month for this purpose.
+            </td>
+          </tr>`;
 
       const receiptPagesHtml = receipts.length
         ? receiptPages.map((page, idx) => {
             const isHalf = (receiptLayout === 'half');
-            const pageClass = isHalf ? 'receipt-page receipt-page-half' : 'receipt-page receipt-page-quarter';
             const gridClass = isHalf ? 'receipt-grid-half' : 'receipt-grid-quarter';
+            const pageLabel = `Page ${idx + 1} of ${receiptPages.length}`;
 
             return `
-              <section class="${pageClass}">
+              <section class="receipt-page">
                 <div class="receipt-page-head">
                   <div class="receipt-page-title">Receipt Images</div>
-                  <div class="receipt-page-sub">
-                    Page ${idx + 1} of ${receiptPages.length} • ${escapeHtml(label)} • ${escapeHtml(purposeLabel || 'General Expenses')}
-                  </div>
+                  <div class="receipt-page-sub">${escapeHtml(pageLabel)} • ${escapeHtml(label)} • ${escapeHtml(purposeDisplay)}</div>
                 </div>
 
                 <div class="${gridClass}">
@@ -612,8 +607,11 @@
               </section>
             `;
           }).join('')
-        : `
-          <section class="receipts-none">
+        : '';
+
+      const receiptsNoneHtml = !receipts.length
+        ? `
+          <section class="section">
             <div class="section-heading-row">
               <div class="section-title-main">Receipt Images</div>
               <div class="section-note">No receipt images saved for this month.</div>
@@ -622,28 +620,20 @@
               <p class="no-receipts">No receipt images were attached to expenditures for this month.</p>
             </div>
           </section>
-        `;
+        `
+        : '';
 
-      const detailRowsHtml = expenses.length
-        ? expenses.map(e => `
-            <tr>
-              <td>${escapeHtml(formatDateYMD(e.ymd))}</td>
-              <td>${escapeHtml(e.merchant)}</td>
-              <td>${escapeHtml(e.category)}</td>
-              <td>${escapeHtml(payMethodLabel(e.paymethod))}</td>
-              <td class="cell-right">${escapeHtml(formatCurrency(e.total))}</td>
-              <td>${escapeHtml(e.notes)}</td>
-            </tr>
-          `).join('')
-        : `
-          <tr>
-            <td colspan="6" class="cell-center cell-muted">
-              No expenditures were recorded for this month for this purpose.
-            </td>
-          </tr>`;
-
-      const purposeDisplay = purposeLabel || 'General Expenses';
-      const employeeDisplay = employeeName || 'Not specified';
+      // NOTE: Footer stays with the MAIN REPORT PAGE only (prevents “footer-only extra page”)
+      const mainFooterHtml = `
+        <footer class="report-footer">
+          <div class="footer-left">
+            Internal management report for Dowson Farms records. Totals may not reflect unsubmitted or pending expenses.
+          </div>
+          <div class="footer-right">
+            FarmVista • Monthly Expenses • ${escapeHtml(runDateOnly || '')}
+          </div>
+        </footer>
+      `;
 
       return `<!doctype html>
 <html>
@@ -653,7 +643,6 @@
   <style>
     :root{
       --fv-green:#3B7E46;
-      --fv-gold:#D0C542;
       --fv-border:#D1D5DB;
       --fv-text:#111827;
       --fv-muted:#6B7280;
@@ -703,7 +692,6 @@
       background:radial-gradient(circle at 30% 0%, #4CAF50, var(--fv-green));
     }
     .report-logo span{letter-spacing:0.02em;}
-    .company-block{min-width:0;}
     .company-name{
       font-size:18px;
       font-weight:800;
@@ -720,7 +708,6 @@
       color:var(--fv-muted);
     }
     .report-meta-top strong{color:var(--fv-text);}
-    .report-title-block{margin-bottom:16px;}
     .report-title{
       font-size:20px;
       font-weight:800;
@@ -850,13 +837,24 @@
     .cell-center{text-align:center;}
     .cell-muted{color:var(--fv-muted);}
 
-    /* ===============================
-       RECEIPTS (NEW) — separate print pages
-       Rules:
-         - Receipts always start on a NEW printed page
-         - total receipts <= 2 => 2 per page (half page each)
-         - else => 4 per page (quarter page each)
-       =============================== */
+    .no-receipts{ font-size:11px; color:var(--fv-muted); }
+
+    .report-footer{
+      margin-top:18px;
+      padding-top:8px;
+      border-top:1px solid #D1D5DB;
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      font-size:10px;
+      color:#6B7280;
+    }
+    .footer-left{max-width:60%;}
+    .footer-right{text-align:right;}
+
+    /* =========================
+       RECEIPTS — fixed page sizing (prevents splitting)
+       ========================= */
 
     .receipt-page{
       margin-top:18px;
@@ -887,22 +885,17 @@
       white-space:nowrap;
     }
 
-    /* Quarter page layout (2 x 2) */
     .receipt-grid-quarter{
       display:grid;
       grid-template-columns:1fr 1fr;
       grid-template-rows:1fr 1fr;
       gap:10px;
-      min-height:720px; /* gives the 2x2 grid real “page presence” on screen */
     }
-
-    /* Half page layout (1 x 2 stacked) */
     .receipt-grid-half{
       display:grid;
       grid-template-columns:1fr;
       grid-template-rows:1fr 1fr;
       gap:10px;
-      min-height:720px;
     }
 
     .receipt-slot{
@@ -914,6 +907,7 @@
       flex-direction:column;
       gap:8px;
       overflow:hidden;
+      min-height:0;
     }
     .receipt-slot-empty{
       border:1px dashed #D1D5DB;
@@ -930,6 +924,7 @@
       justify-content:center;
       overflow:hidden;
       padding:6px;
+      min-height:0;
     }
     .receipt-slot img{
       width:100%;
@@ -944,24 +939,6 @@
       word-break:break-word;
     }
 
-    .no-receipts{
-      font-size:11px;
-      color:var(--fv-muted);
-    }
-
-    .report-footer{
-      margin-top:18px;
-      padding-top:8px;
-      border-top:1px solid #D1D5DB;
-      display:flex;
-      justify-content:space-between;
-      gap:10px;
-      font-size:10px;
-      color:#6B7280;
-    }
-    .footer-left{max-width:60%;}
-    .footer-right{text-align:right;}
-
     @media print{
       html,body{background:#fff;padding:0;}
       body{box-shadow:none;}
@@ -972,31 +949,36 @@
         padding:12mm 14mm;
       }
 
-      /* receipts start on a new page */
+      /* Receipts must ALWAYS start on a new printed page */
       .receipt-page{
         break-before: page;
         page-break-before: always;
         border:0;
         border-radius:0;
         padding:0;
+        margin-top:0;
+        break-inside: avoid;
+        page-break-inside: avoid;
       }
 
-      /* each receipt-page prints as its own page block (no “carryover”) */
-      .receipt-page + .receipt-page{
-        break-before: page;
-        page-break-before: always;
+      /* Lock each receipts section to one physical page height */
+      .receipt-page{
+        height: 10.5in;            /* keeps the browser from splitting inside */
       }
-
-      /* Make the receipt grids fill the printable page height better */
+      .receipt-page-head{
+        height: 0.55in;
+      }
       .receipt-grid-quarter,
       .receipt-grid-half{
-        min-height: calc(100vh - 55mm);
+        height: calc(10.5in - 0.55in);
       }
 
-      /* Prevent a receipt slot from splitting across pages */
       .receipt-slot{
         break-inside: avoid;
         page-break-inside: avoid;
+      }
+      .receipt-img-wrap{
+        height: calc(100% - 0.55in); /* reserves room for caption */
       }
     }
   </style>
@@ -1105,40 +1087,27 @@
       </div>
     </section>
 
-    <!-- Receipts are now rendered as separate print pages -->
-    ${receiptPagesHtml}
+    ${receiptsNoneHtml}
 
-    <footer class="report-footer">
-      <div class="footer-left">
-        Internal management report for Dowson Farms records. Totals may not reflect unsubmitted or pending expenses.
-      </div>
-      <div class="footer-right">
-        FarmVista • Monthly Expenses • ${escapeHtml(runDateOnly || '')}
-      </div>
-    </footer>
+    ${mainFooterHtml}
   </div>
+
+  <!-- receipts render OUTSIDE the main page container (prevents footer-only pages) -->
+  ${receiptPagesHtml}
 </body>
 </html>`;
     }
 
-    /* ======================
-       Print handler (Conservative iPhone-safe: NO iframe cleanup/rewrites)
-       ====================== */
-
     async function printMonth(yearNum, monthNum, options = {}){
       const { purposeLabel = 'General Expenses', filterType = null } = options;
 
-      if(STATE.printBusy){
-        return; // prevent double-trigger spam
-      }
+      if(STATE.printBusy) return;
       STATE.printBusy = true;
 
-      // Always release the lock eventually (even if iOS print UI behaves weird)
       let releaseTimer = setTimeout(() => { STATE.printBusy = false; }, 6000);
 
       const release = () => {
         try{ clearTimeout(releaseTimer); }catch(_){}
-        // give iOS a beat to return from the print sheet before allowing another print
         setTimeout(() => { STATE.printBusy = false; }, 700);
       };
 
@@ -1228,13 +1197,11 @@
       const doc = iframe.contentDocument || (win && win.document);
 
       if(!win || !doc){
-        console.warn('[expenses-report] print iframe not ready; falling back to window.print()');
         try{ window.print(); }catch(_){}
         release();
         return;
       }
 
-      // Write the report into the iframe
       doc.open();
       doc.write(html);
       doc.close();
@@ -1248,34 +1215,27 @@
         if(fallbackTimer){ clearTimeout(fallbackTimer); fallbackTimer = null; }
 
         try{
-          // iPhone-safe rule: DO NOT rewrite/clear the iframe after this
           win.focus();
           win.print();
         }catch(err){
-          console.warn('[expenses-report] iframe print failed, falling back to window.print()', err);
           try{ window.print(); }catch(_){}
         }finally{
           release();
         }
       };
 
-      // Wait for images, but guard against “never loads” with fallback.
       const imgs = Array.from(doc.images || []);
       if(!imgs.length){
-        // Simple: print shortly after paint
         setTimeout(safePrintOnce, 250);
       }else{
         let loaded = 0;
-
         const markDone = () => {
           loaded++;
           if(loaded >= imgs.length){
-            // Cancel fallback and print once
             if(fallbackTimer){ clearTimeout(fallbackTimer); fallbackTimer = null; }
             setTimeout(safePrintOnce, 180);
           }
         };
-
         imgs.forEach(img => {
           if(img.complete){
             markDone();
@@ -1284,8 +1244,6 @@
             img.addEventListener('error', markDone, { once:true });
           }
         });
-
-        // Fallback if some receipt URLs are slow or blocked
         fallbackTimer = setTimeout(safePrintOnce, 5500);
       }
     }
@@ -1298,23 +1256,16 @@
       const monthLabelEl = document.getElementById('modalMonthLabel');
       const purposeHintEl = document.getElementById('modalPurposeHint');
 
-      if(monthLabelEl){
-        monthLabelEl.textContent = monthLabel(yearNum, monthNum);
-      }
+      if(monthLabelEl) monthLabelEl.textContent = monthLabel(yearNum, monthNum);
       if(purposeHintEl){
         purposeHintEl.textContent = `Choose how you want the ${monthLabel(yearNum, monthNum)} report labeled for the office.`;
       }
-
-      if(modal){
-        modal.classList.add('is-open');
-      }
+      if(modal) modal.classList.add('is-open');
     }
 
     function closeReportModal(){
       const modal = document.querySelector('[data-report-modal]');
-      if(modal){
-        modal.classList.remove('is-open');
-      }
+      if(modal) modal.classList.remove('is-open');
     }
 
     document.addEventListener('DOMContentLoaded', async () => {
@@ -1395,9 +1346,7 @@
         }
 
         const cancelBtn = target.closest('[data-modal-cancel]');
-        if(cancelBtn){
-          closeReportModal();
-        }
+        if(cancelBtn) closeReportModal();
       }
 
       populateYears();
