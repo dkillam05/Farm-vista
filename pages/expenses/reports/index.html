@@ -565,11 +565,11 @@
         }
       });
 
-      // Your rule:
-      // - total receipts <= 2 => BOTH on ONE receipts page (2-up half page)
-      // - total receipts >= 3 => 4 per page (2x2), including when total is 3
-      const useHalf = (receipts.length > 0 && receipts.length <= 2);
-      const perPage = useHalf ? 2 : 4;
+      // Your rule, exactly:
+      // - If this month has ONLY 1 or 2 receipts: ONE receipts page, TOP and BOTTOM.
+      // - If 3+: use 4-per-page (2x2), always.
+      const useTwoUpPage = (receipts.length > 0 && receipts.length <= 2);
+      const perPage = useTwoUpPage ? 2 : 4;
 
       const receiptPages = [];
       for(let i=0; i<receipts.length; i += perPage){
@@ -580,35 +580,33 @@
 
       const receiptPagesHtml = receipts.length
         ? receiptPages.map((page, idx) => {
-            const gridClass = useHalf ? 'receipt-grid-half' : 'receipt-grid-quarter';
-            return `
-              <div class="print-page receipt-print-page">
-                <section class="receipt-page">
-                  <div class="receipt-page-head">
-                    <div class="receipt-page-title">Receipt Images</div>
-                    <div class="receipt-page-sub">
-                      Page ${idx + 1} of ${receiptPages.length} • ${escapeHtml(label)} • ${escapeHtml(purposeLabel || 'General Expenses')}
-                    </div>
-                  </div>
+            const gridClass = useTwoUpPage ? 'receipt-grid-two' : 'receipt-grid-quarter';
 
-                  <div class="${gridClass}">
-                    ${page.map(r => {
-                      if(!r){
-                        return `<div class="receipt-slot receipt-slot-empty" aria-hidden="true"></div>`;
-                      }
-                      return `
-                        <figure class="receipt-slot">
-                          <div class="receipt-img-wrap">
-                            <img src="${escapeHtml(r.url)}" alt="Receipt image">
-                          </div>
-                          <figcaption>${escapeHtml(r.caption)}</figcaption>
-                        </figure>
-                      `;
-                    }).join('')}
-                  </div>
-                </section>
+            return `
+  <div class="print-page print-page-receipts">
+    <section class="receipt-sheet">
+      <div class="receipt-head">
+        <div class="receipt-title">Receipt Images</div>
+        <div class="receipt-sub">Page ${idx + 1} of ${receiptPages.length} • ${escapeHtml(label)} • ${escapeHtml(purposeLabel || 'General Expenses')}</div>
+      </div>
+
+      <div class="${gridClass}">
+        ${page.map(r => {
+          if(!r){
+            return `<div class="receipt-slot receipt-slot-empty" aria-hidden="true"></div>`;
+          }
+          return `
+            <figure class="receipt-slot">
+              <div class="receipt-img">
+                <img src="${escapeHtml(r.url)}" alt="Receipt image">
               </div>
-            `;
+              <figcaption class="receipt-cap">${escapeHtml(r.caption)}</figcaption>
+            </figure>
+          `;
+        }).join('')}
+      </div>
+    </section>
+  </div>`;
           }).join('')
         : '';
 
@@ -633,9 +631,6 @@
       const purposeDisplay = purposeLabel || 'General Expenses';
       const employeeDisplay = employeeName || 'Not specified';
 
-      // IMPORTANT:
-      // - Page 1 is its own .print-page wrapper
-      // - Receipts pages are OUTSIDE the .page report container, so footer can’t become its own page
       return `<!doctype html>
 <html>
 <head>
@@ -658,20 +653,18 @@
       color:var(--fv-text);
       background:var(--fv-bg);
     }
-
-    /* Screen preview keeps your centered card look */
     body{
       display:flex;
       justify-content:center;
       padding:24px 12px;
     }
 
+    /* Stack of pages (screen preview uses cards; print uses page-break wrappers) */
     .print-stack{
       width:100%;
       max-width:900px;
     }
 
-    /* Each “print page” wrapper prevents Chrome from splitting content weirdly */
     .print-page{
       width:100%;
     }
@@ -683,7 +676,6 @@
       box-shadow:0 10px 30px rgba(15,23,42,0.15);
       padding:24px 28px 28px;
     }
-
     .report-header{
       display:grid;
       grid-template-columns:auto 1fr auto;
@@ -854,8 +846,27 @@
     .cell-center{text-align:center;}
     .cell-muted{color:var(--fv-muted);}
 
-    /* Receipts pages */
-    .receipt-page{
+    .report-footer{
+      margin-top:18px;
+      padding-top:8px;
+      border-top:1px solid #D1D5DB;
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      font-size:10px;
+      color:#6B7280;
+    }
+    .footer-left{max-width:60%;}
+    .footer-right{text-align:right;}
+
+    /* =========================
+       RECEIPTS SHEET (the key fix)
+       - Letter paper
+       - Known margins
+       - Fixed inner heights so it NEVER overflows into a 3rd page
+       ========================= */
+
+    .receipt-sheet{
       width:100%;
       background:#fff;
       border-radius:12px;
@@ -863,7 +874,7 @@
       padding:24px 28px 28px;
       margin-top:18px;
     }
-    .receipt-page-head{
+    .receipt-head{
       display:flex;
       align-items:baseline;
       justify-content:space-between;
@@ -872,31 +883,31 @@
       border-bottom:1px solid #E5E7EB;
       margin-bottom:10px;
     }
-    .receipt-page-title{
+    .receipt-title{
       font-size:14px;
-      font-weight:800;
+      font-weight:900;
       letter-spacing:0.03em;
       text-transform:uppercase;
     }
-    .receipt-page-sub{
+    .receipt-sub{
       font-size:11px;
       color:var(--fv-muted);
       text-align:right;
       white-space:nowrap;
     }
 
-    /* Quarter page layout (2 x 2) */
-    .receipt-grid-quarter{
+    /* 2 receipts: ONE page, stacked top/bottom */
+    .receipt-grid-two{
       display:grid;
-      grid-template-columns:1fr 1fr;
+      grid-template-columns:1fr;
       grid-template-rows:1fr 1fr;
       gap:12px;
     }
 
-    /* Half page layout (2 slots on ONE page) */
-    .receipt-grid-half{
+    /* 3+ receipts: 4 per page (2x2) */
+    .receipt-grid-quarter{
       display:grid;
-      grid-template-columns:1fr;
+      grid-template-columns:1fr 1fr;
       grid-template-rows:1fr 1fr;
       gap:12px;
     }
@@ -916,8 +927,7 @@
       border:1px dashed #D1D5DB;
       background:transparent;
     }
-
-    .receipt-img-wrap{
+    .receipt-img{
       flex:1 1 auto;
       border-radius:10px;
       background:#fff;
@@ -929,48 +939,27 @@
       padding:6px;
       min-height:0;
     }
-    .receipt-slot img{
+    .receipt-img img{
       width:100%;
       height:100%;
       object-fit:contain;
       display:block;
     }
-    .receipt-slot figcaption{
+    .receipt-cap{
       font-size:11px;
       color:var(--fv-muted);
       line-height:1.25;
       word-break:break-word;
     }
 
-    .no-receipts{
-      font-size:11px;
-      color:var(--fv-muted);
-    }
-
-    .report-footer{
-      margin-top:18px;
-      padding-top:8px;
-      border-top:1px solid #D1D5DB;
-      display:flex;
-      justify-content:space-between;
-      gap:10px;
-      font-size:10px;
-      color:#6B7280;
-    }
-    .footer-left{max-width:60%;}
-    .footer-right{text-align:right;}
-
     @media print{
-      @page { size: letter; margin: 12mm 14mm; }
+      /* Lock printer behavior */
+      @page { size: letter; margin: 0.5in; }
 
       html,body{ background:#fff; padding:0; margin:0; }
+      body{ display:block !important; }
 
-      /* Kill the flex centering in print to prevent column/flow weirdness */
-      body{ display:block !important; padding:0 !important; }
-
-      .print-stack{ max-width:none; }
-
-      /* Each wrapper is a real printed page */
+      /* Each wrapper becomes exactly one printed page */
       .print-page{
         page-break-after: always;
         break-after: page;
@@ -980,16 +969,36 @@
         break-after: auto;
       }
 
-      /* Remove shadows/border rounding for clean print */
-      .page,
-      .receipt-page{
+      /* Remove shadows/radius for clean print */
+      .page, .receipt-sheet{
         border-radius:0;
         box-shadow:none;
         margin:0;
-        padding:0;
       }
 
-      /* Keep receipt slots intact */
+      /* The magic: hard-fit the receipts content inside printable area */
+      .receipt-sheet{
+        /* Printable height = 11in - (top+bottom margins=1in) => 10in */
+        height: 10in;
+        padding: 0; /* padding is handled by inner fixed blocks below */
+      }
+
+      /* Put our own internal padding without changing total height */
+      .receipt-head{
+        margin:0;
+        padding:0.18in 0.18in 0.10in;
+        height: 0.70in; /* fixed header height */
+        box-sizing:border-box;
+      }
+
+      .receipt-grid-two,
+      .receipt-grid-quarter{
+        padding: 0.12in 0.18in 0.18in;
+        height: calc(10in - 0.70in);
+        box-sizing:border-box;
+      }
+
+      /* Ensure slots never split */
       .receipt-slot{
         break-inside: avoid;
         page-break-inside: avoid;
@@ -1000,7 +1009,7 @@
 
 <body>
   <div class="print-stack">
-    <!-- PAGE 1 (report only) -->
+    <!-- PAGE 1 -->
     <div class="print-page">
       <div class="page">
         <header class="report-header">
@@ -1116,25 +1125,8 @@
       </div>
     </div>
 
-    <!-- PAGE 2+ (receipts only, if any) -->
-    ${receiptPagesHtml || ''}
-
-    <!-- no receipts case (keeps behavior identical, but no extra pages) -->
-    ${(!receipts.length) ? `
-      <div class="print-page">
-        <div class="page">
-          <section class="section">
-            <div class="section-heading-row">
-              <div class="section-title-main">Receipt Images</div>
-              <div class="section-note">No receipt images saved for this month.</div>
-            </div>
-            <div class="section-body">
-              <p class="no-receipts">No receipt images were attached to expenditures for this month.</p>
-            </div>
-          </section>
-        </div>
-      </div>
-    ` : ''}
+    <!-- PAGE 2+ (receipts pages) -->
+    ${receiptPagesHtml}
   </div>
 </body>
 </html>`;
