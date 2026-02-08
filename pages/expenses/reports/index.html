@@ -549,8 +549,9 @@
       const label = monthLabel(year, monthNum);
       const range = monthDateRange(year, monthNum);
       const filterSummaryText = filterSummary || `All expenditures for ${label}`;
-      const receipts = [];
 
+      // Build receipt list
+      const receipts = [];
       expenses.forEach(e => {
         if(e.receiptUrl){
           receipts.push({
@@ -564,34 +565,64 @@
         }
       });
 
-      const receiptHtml = receipts.length
-        ? `
-      <section class="section">
-        <div class="section-heading-row">
-          <div class="section-title-main">Receipt Images</div>
-          <div class="section-note">Saved attachments for this month.</div>
-        </div>
-        <div class="section-body">
-          <div class="receipt-grid">
-            ${receipts.map(r => `
-              <figure class="receipt-thumb">
-                <img src="${escapeHtml(r.url)}" alt="Receipt image">
-                <figcaption>${escapeHtml(r.caption)}</figcaption>
-              </figure>
-            `).join('')}
-          </div>
-        </div>
-      </section>`
+      // NEW RECEIPT PAGINATION RULES:
+      // - Receipts are printed on NEW PAGES.
+      // - If total receipts <= 2 => 2 per page (half-page each).
+      // - Else => 4 per page (quarter-page each), including when total is 3.
+      const receiptLayout = (receipts.length > 0 && receipts.length <= 2) ? 'half' : 'quarter';
+      const perPage = (receiptLayout === 'half') ? 2 : 4;
+
+      const receiptPages = [];
+      for(let i=0; i<receipts.length; i += perPage){
+        const chunk = receipts.slice(i, i + perPage);
+        while(chunk.length < perPage) chunk.push(null); // placeholders to keep layout fixed
+        receiptPages.push(chunk);
+      }
+
+      const receiptPagesHtml = receipts.length
+        ? receiptPages.map((page, idx) => {
+            const isHalf = (receiptLayout === 'half');
+            const pageClass = isHalf ? 'receipt-page receipt-page-half' : 'receipt-page receipt-page-quarter';
+            const gridClass = isHalf ? 'receipt-grid-half' : 'receipt-grid-quarter';
+
+            return `
+              <section class="${pageClass}">
+                <div class="receipt-page-head">
+                  <div class="receipt-page-title">Receipt Images</div>
+                  <div class="receipt-page-sub">
+                    Page ${idx + 1} of ${receiptPages.length} • ${escapeHtml(label)} • ${escapeHtml(purposeLabel || 'General Expenses')}
+                  </div>
+                </div>
+
+                <div class="${gridClass}">
+                  ${page.map(r => {
+                    if(!r){
+                      return `<div class="receipt-slot receipt-slot-empty" aria-hidden="true"></div>`;
+                    }
+                    return `
+                      <figure class="receipt-slot">
+                        <div class="receipt-img-wrap">
+                          <img src="${escapeHtml(r.url)}" alt="Receipt image">
+                        </div>
+                        <figcaption>${escapeHtml(r.caption)}</figcaption>
+                      </figure>
+                    `;
+                  }).join('')}
+                </div>
+              </section>
+            `;
+          }).join('')
         : `
-      <section class="section">
-        <div class="section-heading-row">
-          <div class="section-title-main">Receipt Images</div>
-          <div class="section-note">No receipt images saved for this month.</div>
-        </div>
-        <div class="section-body">
-          <p class="no-receipts">No receipt images were attached to expenditures for this month.</p>
-        </div>
-      </section>`;
+          <section class="receipts-none">
+            <div class="section-heading-row">
+              <div class="section-title-main">Receipt Images</div>
+              <div class="section-note">No receipt images saved for this month.</div>
+            </div>
+            <div class="section-body">
+              <p class="no-receipts">No receipt images were attached to expenditures for this month.</p>
+            </div>
+          </section>
+        `;
 
       const detailRowsHtml = expenses.length
         ? expenses.map(e => `
@@ -819,37 +850,105 @@
     .cell-center{text-align:center;}
     .cell-muted{color:var(--fv-muted);}
 
-    .receipt-grid{
-      display:flex;
-      flex-wrap:wrap;
-      gap:8px;
-      margin-top:6px;
-    }
-    .receipt-thumb{
-      width:calc(25% - 6px);
+    /* ===============================
+       RECEIPTS (NEW) — separate print pages
+       Rules:
+         - Receipts always start on a NEW printed page
+         - total receipts <= 2 => 2 per page (half page each)
+         - else => 4 per page (quarter page each)
+       =============================== */
+
+    .receipt-page{
+      margin-top:18px;
       border:1px solid var(--fv-border);
-      border-radius:8px;
-      padding:4px;
-      background:#F9FAFB;
-      display:flex;
-      flex-direction:column;
-      gap:4px;
-    }
-    .receipt-thumb img{
-      width:100%;
-      height:240px;
-      object-fit:contain;
-      border-radius:4px;
+      border-radius:12px;
+      padding:12px;
       background:#fff;
     }
-    .receipt-thumb figcaption{
+    .receipt-page-head{
+      display:flex;
+      align-items:baseline;
+      justify-content:space-between;
+      gap:10px;
+      padding-bottom:8px;
+      border-bottom:1px solid #E5E7EB;
+      margin-bottom:10px;
+    }
+    .receipt-page-title{
+      font-size:14px;
+      font-weight:800;
+      letter-spacing:0.03em;
+      text-transform:uppercase;
+    }
+    .receipt-page-sub{
       font-size:11px;
       color:var(--fv-muted);
+      text-align:right;
+      white-space:nowrap;
     }
+
+    /* Quarter page layout (2 x 2) */
+    .receipt-grid-quarter{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      grid-template-rows:1fr 1fr;
+      gap:10px;
+      min-height:720px; /* gives the 2x2 grid real “page presence” on screen */
+    }
+
+    /* Half page layout (1 x 2 stacked) */
+    .receipt-grid-half{
+      display:grid;
+      grid-template-columns:1fr;
+      grid-template-rows:1fr 1fr;
+      gap:10px;
+      min-height:720px;
+    }
+
+    .receipt-slot{
+      border:1px solid var(--fv-border);
+      border-radius:12px;
+      background:#F9FAFB;
+      padding:10px;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      overflow:hidden;
+    }
+    .receipt-slot-empty{
+      border:1px dashed #D1D5DB;
+      background:transparent;
+    }
+
+    .receipt-img-wrap{
+      flex:1 1 auto;
+      border-radius:10px;
+      background:#fff;
+      border:1px solid #E5E7EB;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      overflow:hidden;
+      padding:6px;
+    }
+    .receipt-slot img{
+      width:100%;
+      height:100%;
+      object-fit:contain;
+      display:block;
+    }
+    .receipt-slot figcaption{
+      font-size:11px;
+      color:var(--fv-muted);
+      line-height:1.25;
+      word-break:break-word;
+    }
+
     .no-receipts{
       font-size:11px;
       color:var(--fv-muted);
     }
+
     .report-footer{
       margin-top:18px;
       padding-top:8px;
@@ -862,6 +961,7 @@
     }
     .footer-left{max-width:60%;}
     .footer-right{text-align:right;}
+
     @media print{
       html,body{background:#fff;padding:0;}
       body{box-shadow:none;}
@@ -870,6 +970,33 @@
         border-radius:0;
         box-shadow:none;
         padding:12mm 14mm;
+      }
+
+      /* receipts start on a new page */
+      .receipt-page{
+        break-before: page;
+        page-break-before: always;
+        border:0;
+        border-radius:0;
+        padding:0;
+      }
+
+      /* each receipt-page prints as its own page block (no “carryover”) */
+      .receipt-page + .receipt-page{
+        break-before: page;
+        page-break-before: always;
+      }
+
+      /* Make the receipt grids fill the printable page height better */
+      .receipt-grid-quarter,
+      .receipt-grid-half{
+        min-height: calc(100vh - 55mm);
+      }
+
+      /* Prevent a receipt slot from splitting across pages */
+      .receipt-slot{
+        break-inside: avoid;
+        page-break-inside: avoid;
       }
     }
   </style>
@@ -978,7 +1105,8 @@
       </div>
     </section>
 
-    ${receiptHtml}
+    <!-- Receipts are now rendered as separate print pages -->
+    ${receiptPagesHtml}
 
     <footer class="report-footer">
       <div class="footer-left">
