@@ -565,64 +565,52 @@
         }
       });
 
-      // NEW RECEIPT PAGINATION RULES:
-      // - Receipts are printed on NEW PAGES.
-      // - If total receipts <= 2 => 2 per page (half-page each).
-      // - Else => 4 per page (quarter-page each), including when total is 3.
-      const receiptLayout = (receipts.length > 0 && receipts.length <= 2) ? 'half' : 'quarter';
-      const perPage = (receiptLayout === 'half') ? 2 : 4;
+      // Your rule:
+      // - total receipts <= 2 => BOTH on ONE receipts page (2-up half page)
+      // - total receipts >= 3 => 4 per page (2x2), including when total is 3
+      const useHalf = (receipts.length > 0 && receipts.length <= 2);
+      const perPage = useHalf ? 2 : 4;
 
       const receiptPages = [];
       for(let i=0; i<receipts.length; i += perPage){
         const chunk = receipts.slice(i, i + perPage);
-        while(chunk.length < perPage) chunk.push(null); // placeholders to keep layout fixed
+        while(chunk.length < perPage) chunk.push(null);
         receiptPages.push(chunk);
       }
 
       const receiptPagesHtml = receipts.length
         ? receiptPages.map((page, idx) => {
-            const isHalf = (receiptLayout === 'half');
-            const pageClass = isHalf ? 'receipt-page receipt-page-half' : 'receipt-page receipt-page-quarter';
-            const gridClass = isHalf ? 'receipt-grid-half' : 'receipt-grid-quarter';
-
+            const gridClass = useHalf ? 'receipt-grid-half' : 'receipt-grid-quarter';
             return `
-              <section class="${pageClass}">
-                <div class="receipt-page-head">
-                  <div class="receipt-page-title">Receipt Images</div>
-                  <div class="receipt-page-sub">
-                    Page ${idx + 1} of ${receiptPages.length} • ${escapeHtml(label)} • ${escapeHtml(purposeLabel || 'General Expenses')}
+              <div class="print-page receipt-print-page">
+                <section class="receipt-page">
+                  <div class="receipt-page-head">
+                    <div class="receipt-page-title">Receipt Images</div>
+                    <div class="receipt-page-sub">
+                      Page ${idx + 1} of ${receiptPages.length} • ${escapeHtml(label)} • ${escapeHtml(purposeLabel || 'General Expenses')}
+                    </div>
                   </div>
-                </div>
 
-                <div class="${gridClass}">
-                  ${page.map(r => {
-                    if(!r){
-                      return `<div class="receipt-slot receipt-slot-empty" aria-hidden="true"></div>`;
-                    }
-                    return `
-                      <figure class="receipt-slot">
-                        <div class="receipt-img-wrap">
-                          <img src="${escapeHtml(r.url)}" alt="Receipt image">
-                        </div>
-                        <figcaption>${escapeHtml(r.caption)}</figcaption>
-                      </figure>
-                    `;
-                  }).join('')}
-                </div>
-              </section>
+                  <div class="${gridClass}">
+                    ${page.map(r => {
+                      if(!r){
+                        return `<div class="receipt-slot receipt-slot-empty" aria-hidden="true"></div>`;
+                      }
+                      return `
+                        <figure class="receipt-slot">
+                          <div class="receipt-img-wrap">
+                            <img src="${escapeHtml(r.url)}" alt="Receipt image">
+                          </div>
+                          <figcaption>${escapeHtml(r.caption)}</figcaption>
+                        </figure>
+                      `;
+                    }).join('')}
+                  </div>
+                </section>
+              </div>
             `;
           }).join('')
-        : `
-          <section class="receipts-none">
-            <div class="section-heading-row">
-              <div class="section-title-main">Receipt Images</div>
-              <div class="section-note">No receipt images saved for this month.</div>
-            </div>
-            <div class="section-body">
-              <p class="no-receipts">No receipt images were attached to expenditures for this month.</p>
-            </div>
-          </section>
-        `;
+        : '';
 
       const detailRowsHtml = expenses.length
         ? expenses.map(e => `
@@ -645,6 +633,9 @@
       const purposeDisplay = purposeLabel || 'General Expenses';
       const employeeDisplay = employeeName || 'Not specified';
 
+      // IMPORTANT:
+      // - Page 1 is its own .print-page wrapper
+      // - Receipts pages are OUTSIDE the .page report container, so footer can’t become its own page
       return `<!doctype html>
 <html>
 <head>
@@ -667,19 +658,32 @@
       color:var(--fv-text);
       background:var(--fv-bg);
     }
+
+    /* Screen preview keeps your centered card look */
     body{
       display:flex;
       justify-content:center;
       padding:24px 12px;
     }
-    .page{
+
+    .print-stack{
       width:100%;
       max-width:900px;
+    }
+
+    /* Each “print page” wrapper prevents Chrome from splitting content weirdly */
+    .print-page{
+      width:100%;
+    }
+
+    .page{
+      width:100%;
       background:#fff;
       border-radius:12px;
       box-shadow:0 10px 30px rgba(15,23,42,0.15);
       padding:24px 28px 28px;
     }
+
     .report-header{
       display:grid;
       grid-template-columns:auto 1fr auto;
@@ -850,20 +854,14 @@
     .cell-center{text-align:center;}
     .cell-muted{color:var(--fv-muted);}
 
-    /* ===============================
-       RECEIPTS (NEW) — separate print pages
-       Rules:
-         - Receipts always start on a NEW printed page
-         - total receipts <= 2 => 2 per page (half page each)
-         - else => 4 per page (quarter page each)
-       =============================== */
-
+    /* Receipts pages */
     .receipt-page{
-      margin-top:18px;
-      border:1px solid var(--fv-border);
-      border-radius:12px;
-      padding:12px;
+      width:100%;
       background:#fff;
+      border-radius:12px;
+      box-shadow:0 10px 30px rgba(15,23,42,0.15);
+      padding:24px 28px 28px;
+      margin-top:18px;
     }
     .receipt-page-head{
       display:flex;
@@ -892,17 +890,15 @@
       display:grid;
       grid-template-columns:1fr 1fr;
       grid-template-rows:1fr 1fr;
-      gap:10px;
-      min-height:720px; /* gives the 2x2 grid real “page presence” on screen */
+      gap:12px;
     }
 
-    /* Half page layout (1 x 2 stacked) */
+    /* Half page layout (2 slots on ONE page) */
     .receipt-grid-half{
       display:grid;
       grid-template-columns:1fr;
       grid-template-rows:1fr 1fr;
-      gap:10px;
-      min-height:720px;
+      gap:12px;
     }
 
     .receipt-slot{
@@ -914,6 +910,7 @@
       flex-direction:column;
       gap:8px;
       overflow:hidden;
+      min-height:0;
     }
     .receipt-slot-empty{
       border:1px dashed #D1D5DB;
@@ -930,6 +927,7 @@
       justify-content:center;
       overflow:hidden;
       padding:6px;
+      min-height:0;
     }
     .receipt-slot img{
       width:100%;
@@ -963,37 +961,35 @@
     .footer-right{text-align:right;}
 
     @media print{
-      html,body{background:#fff;padding:0;}
-      body{box-shadow:none;}
-      .page{
-        max-width:none;
-        border-radius:0;
-        box-shadow:none;
-        padding:12mm 14mm;
+      @page { size: letter; margin: 12mm 14mm; }
+
+      html,body{ background:#fff; padding:0; margin:0; }
+
+      /* Kill the flex centering in print to prevent column/flow weirdness */
+      body{ display:block !important; padding:0 !important; }
+
+      .print-stack{ max-width:none; }
+
+      /* Each wrapper is a real printed page */
+      .print-page{
+        page-break-after: always;
+        break-after: page;
+      }
+      .print-page:last-child{
+        page-break-after: auto;
+        break-after: auto;
       }
 
-      /* receipts start on a new page */
+      /* Remove shadows/border rounding for clean print */
+      .page,
       .receipt-page{
-        break-before: page;
-        page-break-before: always;
-        border:0;
         border-radius:0;
+        box-shadow:none;
+        margin:0;
         padding:0;
       }
 
-      /* each receipt-page prints as its own page block (no “carryover”) */
-      .receipt-page + .receipt-page{
-        break-before: page;
-        page-break-before: always;
-      }
-
-      /* Make the receipt grids fill the printable page height better */
-      .receipt-grid-quarter,
-      .receipt-grid-half{
-        min-height: calc(100vh - 55mm);
-      }
-
-      /* Prevent a receipt slot from splitting across pages */
+      /* Keep receipt slots intact */
       .receipt-slot{
         break-inside: avoid;
         page-break-inside: avoid;
@@ -1001,121 +997,144 @@
     }
   </style>
 </head>
+
 <body>
-  <div class="page">
-    <header class="report-header">
-      <div class="report-logo"><span>DF</span></div>
-      <div class="company-block">
-        <p class="company-name">${escapeHtml(company.name || '')}</p>
-        <p class="company-line">
-          ${company.address ? escapeHtml(company.address) + '<br>' : ''}
-          ${company.phone ? 'Phone: ' + escapeHtml(company.phone) : ''}${company.phone && company.email ? ' · ' : ''}
-          ${company.email ? 'Email: ' + escapeHtml(company.email) : ''}
-        </p>
-      </div>
-      <div class="report-meta-top">
-        <div><strong>Monthly Expense Report</strong></div>
-        <div>Generated: ${escapeHtml(runStr)}</div>
-        <div>Purpose: <strong>${escapeHtml(purposeDisplay)}</strong></div>
-        <div>Employee: <strong>${escapeHtml(employeeDisplay)}</strong></div>
-      </div>
-    </header>
+  <div class="print-stack">
+    <!-- PAGE 1 (report only) -->
+    <div class="print-page">
+      <div class="page">
+        <header class="report-header">
+          <div class="report-logo"><span>DF</span></div>
+          <div class="company-block">
+            <p class="company-name">${escapeHtml(company.name || '')}</p>
+            <p class="company-line">
+              ${company.address ? escapeHtml(company.address) + '<br>' : ''}
+              ${company.phone ? 'Phone: ' + escapeHtml(company.phone) : ''}${company.phone && company.email ? ' · ' : ''}
+              ${company.email ? 'Email: ' + escapeHtml(company.email) : ''}
+            </p>
+          </div>
+          <div class="report-meta-top">
+            <div><strong>Monthly Expense Report</strong></div>
+            <div>Generated: ${escapeHtml(runStr)}</div>
+            <div>Purpose: <strong>${escapeHtml(purposeDisplay)}</strong></div>
+            <div>Employee: <strong>${escapeHtml(employeeDisplay)}</strong></div>
+          </div>
+        </header>
 
-    <section class="report-title-block">
-      <h1 class="report-title">Monthly Expense Report</h1>
-      <p class="report-subtitle">
-        Summary of farm expenditures for ${escapeHtml(label)}.
-        Purpose: ${escapeHtml(purposeDisplay)}.
-      </p>
+        <section class="report-title-block">
+          <h1 class="report-title">Monthly Expense Report</h1>
+          <p class="report-subtitle">
+            Summary of farm expenditures for ${escapeHtml(label)}.
+            Purpose: ${escapeHtml(purposeDisplay)}.
+          </p>
 
-      <div class="report-summary-strip">
-        <div class="summary-pill">
-          <span class="summary-label">Date range</span>
-          <span class="summary-value">${escapeHtml(range)}</span>
-        </div>
-        <div class="summary-pill">
-          <span class="summary-label">Filters</span>
-          <span class="summary-value">${escapeHtml(filterSummaryText)}</span>
-        </div>
-        <div class="summary-pill">
-          <span class="summary-label">Purpose</span>
-          <span class="summary-value">${escapeHtml(purposeDisplay)}</span>
-        </div>
-        <div class="summary-pill">
-          <span class="summary-label">Employee</span>
-          <span class="summary-value">${escapeHtml(employeeDisplay)}</span>
-        </div>
-        <div class="summary-pill">
-          <span class="summary-label">Records</span>
-          <span class="summary-value">${totals.recordCount}</span>
+          <div class="report-summary-strip">
+            <div class="summary-pill">
+              <span class="summary-label">Date range</span>
+              <span class="summary-value">${escapeHtml(range)}</span>
+            </div>
+            <div class="summary-pill">
+              <span class="summary-label">Filters</span>
+              <span class="summary-value">${escapeHtml(filterSummaryText)}</span>
+            </div>
+            <div class="summary-pill">
+              <span class="summary-label">Purpose</span>
+              <span class="summary-value">${escapeHtml(purposeDisplay)}</span>
+            </div>
+            <div class="summary-pill">
+              <span class="summary-label">Employee</span>
+              <span class="summary-value">${escapeHtml(employeeDisplay)}</span>
+            </div>
+            <div class="summary-pill">
+              <span class="summary-label">Records</span>
+              <span class="summary-value">${totals.recordCount}</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-heading-row">
+            <div class="section-title-main">Key Metrics</div>
+            <div class="section-note">All figures in USD.</div>
+          </div>
+          <div class="kpi-row">
+            <div class="kpi-card">
+              <div class="kpi-label">Total Spend</div>
+              <div class="kpi-value">${escapeHtml(totals.totalSpendFormatted)}</div>
+              <div class="kpi-footnote">Total expenses recorded for this month</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Average Per Day</div>
+              <div class="kpi-value">${escapeHtml(totals.avgPerDayFormatted)}</div>
+              <div class="kpi-footnote">Average daily spend across the date range</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Largest Category</div>
+              <div class="kpi-value">${escapeHtml(totals.topCategoryLabel || 'None')}</div>
+              <div class="kpi-footnote">Category with the highest total spend</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2 class="section-title">Detail</h2>
+          <div class="section-body">
+            <p>${
+              expenses.length
+                ? 'Detailed list of recorded expenditures for ' + escapeHtml(label) + '.'
+                : 'No expenditures were recorded for ' + escapeHtml(label) + ' for this purpose.'
+            }</p>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Vendor / Merchant</th>
+                    <th>Category</th>
+                    <th>Payment Method</th>
+                    <th class="cell-right">Amount</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${detailRowsHtml}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <footer class="report-footer">
+          <div class="footer-left">
+            Internal management report for Dowson Farms records. Totals may not reflect unsubmitted or pending expenses.
+          </div>
+          <div class="footer-right">
+            FarmVista • Monthly Expenses • ${escapeHtml(runDateOnly || '')}
+          </div>
+        </footer>
+      </div>
+    </div>
+
+    <!-- PAGE 2+ (receipts only, if any) -->
+    ${receiptPagesHtml || ''}
+
+    <!-- no receipts case (keeps behavior identical, but no extra pages) -->
+    ${(!receipts.length) ? `
+      <div class="print-page">
+        <div class="page">
+          <section class="section">
+            <div class="section-heading-row">
+              <div class="section-title-main">Receipt Images</div>
+              <div class="section-note">No receipt images saved for this month.</div>
+            </div>
+            <div class="section-body">
+              <p class="no-receipts">No receipt images were attached to expenditures for this month.</p>
+            </div>
+          </section>
         </div>
       </div>
-    </section>
-
-    <section class="section">
-      <div class="section-heading-row">
-        <div class="section-title-main">Key Metrics</div>
-        <div class="section-note">All figures in USD.</div>
-      </div>
-      <div class="kpi-row">
-        <div class="kpi-card">
-          <div class="kpi-label">Total Spend</div>
-          <div class="kpi-value">${escapeHtml(totals.totalSpendFormatted)}</div>
-          <div class="kpi-footnote">Total expenses recorded for this month</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Average Per Day</div>
-          <div class="kpi-value">${escapeHtml(totals.avgPerDayFormatted)}</div>
-          <div class="kpi-footnote">Average daily spend across the date range</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Largest Category</div>
-          <div class="kpi-value">${escapeHtml(totals.topCategoryLabel || 'None')}</div>
-          <div class="kpi-footnote">Category with the highest total spend</div>
-        </div>
-      </div>
-    </section>
-
-    <section class="section">
-      <h2 class="section-title">Detail</h2>
-      <div class="section-body">
-        <p>${
-          expenses.length
-            ? 'Detailed list of recorded expenditures for ' + escapeHtml(label) + '.'
-            : 'No expenditures were recorded for ' + escapeHtml(label) + ' for this purpose.'
-        }</p>
-
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Vendor / Merchant</th>
-                <th>Category</th>
-                <th>Payment Method</th>
-                <th class="cell-right">Amount</th>
-                <th>Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${detailRowsHtml}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- Receipts are now rendered as separate print pages -->
-    ${receiptPagesHtml}
-
-    <footer class="report-footer">
-      <div class="footer-left">
-        Internal management report for Dowson Farms records. Totals may not reflect unsubmitted or pending expenses.
-      </div>
-      <div class="footer-right">
-        FarmVista • Monthly Expenses • ${escapeHtml(runDateOnly || '')}
-      </div>
-    </footer>
+    ` : ''}
   </div>
 </body>
 </html>`;
