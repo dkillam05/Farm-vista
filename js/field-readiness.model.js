@@ -1,27 +1,23 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-01-22k-storage-truth-rewind14-rateTuning-dryTailFix-intReadiness-Smax3to5-hardEndpoints-EXTREME40-SYMMETRIC
+Rev: 2026-02-10b-option1-model-eta-truth-consistent-legacy-etaFor-disabled-compat
 
-WHAT YOU ASKED:
-✅ Sliders are NOT backwards:
-   - 0 = dry / good => readiness goes UP
-   - 100 = wet / poor => readiness goes DOWN
+OPTION 1 (per Dane):
+✅ Model owns ETA and computes it from the SAME truth-seeded run + SAME physics.
+✅ Forward sim uses forecast daily rows when available (dailySeriesFcst).
+✅ No legacy ETA math (avgLossDay shortcut) anywhere.
+✅ Legacy etaFor() is kept ONLY as a compatibility stub returning '' (blank),
+   so older callers won't crash while we wire quickview/details to model ETA.
 
-✅ MUCH MORE movement:
-   - ~20 points DRY boost at the dry end
-   - ~20 points WET penalty at the wet end
-   => ~40 point swing potential
-
-HOW (simple):
-- We apply a SIGNED "credit" in inches:
-   * small tank => positive credit (subtracts water for readiness => drier)
-   * big tank   => negative credit (adds water for readiness => wetter)
-
-This forces the direction you want and increases range.
+ETA output format:
+- Within horizon: "~XXh"
+- Beyond horizon: ">168h"
+- Already ready: "" (blank)
+- No forecast cached: "" (blank; caller can choose to display a message)
 
 IMPORTANT:
-- Storage truth (storageFinal) is still truth.
-- This only changes how readiness/wetness are derived for display/ops.
+- Truth seed (storageFinal + asOfDateISO) still anchors "now"
+- Learning (EXTRA.DRY_LOSS_MULT) still applies to drying physics
 ===================================================================== */
 'use strict';
 
@@ -41,6 +37,17 @@ function snap01(x){
   if (v <= 0.01) return 0;
   if (v >= 0.99) return 1;
   return v;
+}
+function todayISO(){
+  try{
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
+  }catch(_){
+    return '';
+  }
 }
 
 // Slider extremes
@@ -375,6 +382,247 @@ function pickSeed(rows, f, deps, fieldId){
 }
 
 /* =====================================================================
+   Readiness from physical storage (truth-consistent)
+===================================================================== */
+function computeReadinessFromStorage(storagePhys, f, deps){
+  const calRes = applyCalToStorage(storagePhys, f.Smax, deps);
+  const storageEff = calRes.storageEff;
+
+  // Symmetric extreme slider effect (readiness derivation only)
+  const creditIn = signedCreditInchesFromSmax(f.Smax);
+  const storageForReadiness = clamp(storageEff - creditIn, 0, f.Smax);
+
+  const wetness = (f.Smax > 0) ? clamp((storageForReadiness / f.Smax) * 100, 0, 100) : 0;
+  const readiness = clamp(100 - wetness, 0, 100);
+
+  return {
+    readiness,
+    wetness,
+    creditIn,
+    storageEff,
+    storageForReadiness,
+    calRes
+  };
+}
+
+/* =====================================================================
+   Sub-daily forward simulation (Option 1 ETA)
+===================================================================== */
+function lerp(a,b,t){ return a + (b-a)*t; }
+function toNum(v, d=0){
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+}
+
+function interpDayRow(d0, d1, frac){
+  const a = d0 || {};
+  const b = d1 || d0 || {};
+  const f = clamp(frac, 0, 1);
+
+  function lerpNum(k, fallback=0){
+    const va = toNum(a[k], fallback);
+    const vb = toNum(b[k], va);
+    return lerp(va, vb, f);
+  }
+  function lerpNullable(k){
+    const va = a[k];
+    const vb = b[k];
+    if (va == null && vb == null) return null;
+    if (va == null) return vb;
+    if (vb == null) return va;
+    return lerpNum(k, 0);
+  }
+
+  return {
+    dateISO: String(a.dateISO || b.dateISO || '').slice(0,10),
+    rainIn: lerpNum('rainIn', 0),
+    tempF:  lerpNum('tempF', 0),
+    windMph:lerpNum('windMph', 0),
+    rh:     lerpNum('rh', 0),
+    solarWm2: lerpNum('solarWm2', 0),
+    cloudPct: lerpNullable('cloudPct'),
+    vpdKpa:   lerpNullable('vpdKpa'),
+    sm010:    lerpNullable('sm010'),
+    et0In:    lerpNullable('et0In')
+  };
+}
+
+function normalizeDailyRowForSim(w, EXTRA){
+  const parts = calcDryParts(w, EXTRA);
+
+  const et0 = (w.et0In===null || w.et0In===undefined) ? null : Number(w.et0In);
+  const et0N = (et0===null || !isFinite(et0)) ? 0 : clamp(et0 / 0.30, 0, 1);
+
+  const smN2 = (w.sm010===null || w.sm010===undefined || !isFinite(Number(w.sm010)))
+    ? 0
+    : clamp((Number(w.sm010)-0.10)/0.25, 0, 1);
+
+  return {
+    ...w,
+    rainInAdj: Number(w.rainIn||0),
+    et0: (isFinite(et0)?et0:0),
+    et0N,
+    smN_day: smN2,
+    ...parts
+  };
+}
+
+function splitHistFcstFromWx(wxSeries){
+  const arr = Array.isArray(wxSeries) ? wxSeries.slice() : [];
+  const tISO = todayISO();
+  if (!tISO) return { hist: arr, fcst: [] };
+
+  const hist = [];
+  const fcst = [];
+  for (const d of arr){
+    const iso = String(d && d.dateISO ? d.dateISO : '').slice(0,10);
+    if (!iso){
+      hist.push(d);
+      continue;
+    }
+    if (iso <= tISO) hist.push(d);
+    else fcst.push(d);
+  }
+  return { hist, fcst };
+}
+
+/**
+ * Model-owned ETA (Option 1).
+ * Requires caller to provide forecast via deps.getForecastSeriesForFieldId(fieldId)
+ * OR deps.getWxSeriesWithForecastForFieldId(fieldId).
+ */
+export async function etaToThreshold(field, deps, threshold, horizonHours=168, stepHours=3){
+  try{
+    if (!field || !deps) return { ok:false, status:'noData', hours:null, text:'' };
+
+    const thr = clamp(Number(threshold||0), 0, 100);
+    const H = clamp(Number(horizonHours||168), 1, 360);
+    const stepH = clamp(Number(stepHours||3), 1, 12);
+
+    const run = runField(field, deps);
+    if (!run) return { ok:false, status:'noData', hours:null, text:'' };
+
+    // Already ready
+    if (Number(run.readinessR) >= thr){
+      return { ok:true, status:'dryNow', hours:0, text:'' };
+    }
+
+    // Get forecast
+    let fcstDaily = [];
+    if (deps && typeof deps.getForecastSeriesForFieldId === 'function'){
+      const got = await deps.getForecastSeriesForFieldId(String(field.id));
+      fcstDaily = Array.isArray(got) ? got.slice() : [];
+    }
+
+    // Optional: if a caller provides combined series, split it
+    if (!fcstDaily.length && deps && typeof deps.getWxSeriesWithForecastForFieldId === 'function'){
+      const all = await deps.getWxSeriesWithForecastForFieldId(String(field.id));
+      const sp = splitHistFcstFromWx(all);
+      fcstDaily = sp.fcst || [];
+    }
+
+    if (!fcstDaily.length){
+      return { ok:true, status:'noForecast', hours:null, text:'' };
+    }
+
+    const fcst = fcstDaily
+      .filter(d => d && d.dateISO)
+      .slice(0, 16)
+      .map(d=> normalizeDailyRowForSim(d, deps.EXTRA || {}));
+
+    if (!fcst.length){
+      return { ok:true, status:'noForecast', hours:null, text:'' };
+    }
+
+    const f = run.factors;
+    const tune = getTune(deps);
+    const rate = getRateMults(deps);
+
+    // Starting physical storage is the history-sim final storage (truth physics)
+    let storagePhys = Number.isFinite(Number(run.storagePhysFinal))
+      ? Number(run.storagePhysFinal)
+      : Number(run.storageFinal || 0);
+
+    storagePhys = clamp(storagePhys, 0, f.Smax);
+
+    const nowR = computeReadinessFromStorage(storagePhys, f, deps).readiness;
+    if (Number(nowR) >= thr){
+      return { ok:true, status:'dryNow', hours:0, text:'' };
+    }
+
+    const steps = Math.ceil(H / stepH);
+
+    let prevR = Number(nowR);
+    let prevT = 0;
+
+    for (let s=1; s<=steps; s++){
+      const tHours = Math.min(H, s * stepH);
+      const dayFloat = tHours / 24;
+      const i = Math.floor(dayFloat);
+      const frac = dayFloat - i;
+
+      const d0 = fcst[Math.min(i, fcst.length - 1)];
+      const d1 = fcst[Math.min(i + 1, fcst.length - 1)];
+      const row = interpDayRow(d0, d1, frac);
+
+      const stepRain = (toNum(row.rainIn, 0) / 24) * stepH;
+
+      const parts = calcDryParts(row, deps.EXTRA || {});
+
+      const et0 = (row.et0In===null || row.et0In===undefined) ? null : Number(row.et0In);
+      const et0N = (et0===null || !isFinite(et0)) ? 0 : clamp(et0 / 0.30, 0, 1);
+
+      const smN = (row.sm010===null || row.sm010===undefined || !isFinite(Number(row.sm010)))
+        ? 0
+        : clamp((Number(row.sm010)-0.10)/0.25, 0, 1);
+
+      const before = storagePhys;
+
+      let rainEff = effectiveRainInches(stepRain, before, f.Smax, f, tune);
+      rainEff = clamp(rainEff * rate.rainEffMult, 0, 1000);
+
+      let add = rainEff * f.infilMult;
+      add += ((deps.EXTRA.ADD_SM010_W * smN) * 0.05) * (stepH / 24);
+
+      let lossDay = Number(parts.dryPwr||0) * deps.LOSS_SCALE * f.dryMult * (1 + deps.EXTRA.LOSS_ET0_W * et0N);
+      let loss = Math.max(0, lossDay * (stepH / 24));
+      loss = Math.max(0, loss * rate.dryLossMult);
+
+      // Dry tail
+      if (f.Smax > 0 && isFinite(before)){
+        const sat = clamp(before / f.Smax, 0, 1);
+        if (sat < tune.DRY_TAIL_START){
+          const frac2 = clamp(sat / Math.max(1e-6, tune.DRY_TAIL_START), 0, 1);
+          const mult = tune.DRY_TAIL_MIN_MULT + (1 - tune.DRY_TAIL_MIN_MULT) * frac2;
+          loss = loss * mult;
+        }
+      }
+
+      storagePhys = clamp(before + add - loss, 0, f.Smax);
+
+      const rNow = computeReadinessFromStorage(storagePhys, f, deps).readiness;
+
+      if (prevR < thr && rNow >= thr){
+        const denom = rNow - prevR;
+        const fracCross = denom <= 1e-6 ? 1 : clamp((thr - prevR) / denom, 0, 1);
+        const eta = prevT + fracCross * (tHours - prevT);
+        const hrs = Math.max(0, Math.round(eta));
+
+        if (hrs <= H) return { ok:true, status:'within', hours:hrs, text:`~${hrs}h` };
+        return { ok:true, status:'beyond', hours:null, text:`>${Math.round(H)}h` };
+      }
+
+      prevR = rNow;
+      prevT = tHours;
+    }
+
+    return { ok:true, status:'beyond', hours:null, text:`>${Math.round(H)}h` };
+  }catch(_){
+    return { ok:false, status:'error', hours:null, text:'' };
+  }
+}
+
+/* =====================================================================
    runField
 ===================================================================== */
 export function runField(field, deps){
@@ -444,12 +692,14 @@ export function runField(field, deps){
     trace.push({ dateISO: d.dateISO, before, after, rain, rainEff, add, loss, dryPwr: d.dryPwr });
   }
 
-  const calRes = applyCalToStorage(storage, f.Smax, deps);
+  // Physical storage final (truth physics)
+  const storagePhysFinal = storage;
+
+  // Derive readiness from cal + symmetric slider credit
+  const calRes = applyCalToStorage(storagePhysFinal, f.Smax, deps);
   const storageEff = calRes.storageEff;
 
-  // ✅ symmetric extreme slider effect
   const creditIn = signedCreditInchesFromSmax(f.Smax);
-  // creditIn positive => subtract => drier; creditIn negative => subtract negative => wetter
   const storageForReadiness = clamp(storageEff - creditIn, 0, f.Smax);
 
   const wetness = (f.Smax > 0) ? clamp((storageForReadiness / f.Smax) * 100, 0, 100) : 0;
@@ -466,7 +716,10 @@ export function runField(field, deps){
     factors: f,
     rows,
     trace,
-    storageFinal: storageEff,
+
+    storagePhysFinal,          // ✅ physical storage used by physics + ETA
+    storageFinal: storageEff,  // effective storage after cal (kept name)
+
     wetnessR,
     readinessR,
     avgLossDay,
@@ -501,25 +754,11 @@ export function markerLeftCSS(pct){
   return p.toFixed(2) + '%';
 }
 
-export function etaFor(run, threshold, ETA_MAX_HOURS){
-  if (!run) return '';
-  if (Number(run.readinessR) >= Number(threshold)) return '';
-
-  const Smax = run.factors && isFinite(Number(run.factors.Smax)) ? Number(run.factors.Smax) : 0;
-  if (!isFinite(Smax) || Smax <= 0) return '';
-
-  const wetTarget = clamp(100 - threshold, 0, 100);
-  const storageTarget = Smax * (wetTarget / 100);
-
-  const storageNow = isFinite(Number(run.storageFinal)) ? Number(run.storageFinal) : 0;
-
-  const delta = storageNow - storageTarget;
-  if (!isFinite(delta) || delta <= 0) return '';
-
-  const dailyLoss = Math.max(0.02, Number(run.avgLossDay || 0.08));
-  let hours = Math.ceil((delta / dailyLoss) * 24);
-
-  if (!isFinite(hours) || hours <= 0) hours = 1;
-  if (hours > ETA_MAX_HOURS) return `> ${ETA_MAX_HOURS} hours`;
-  return `Est: ~${hours} hours`;
+/**
+ * Legacy ETA function (COMPAT STUB ONLY):
+ * - returns blank so no legacy ETA ever shows
+ * - kept temporarily so older imports don't crash
+ */
+export function etaFor(_run, _threshold, _ETA_MAX_HOURS){
+  return '';
 }
