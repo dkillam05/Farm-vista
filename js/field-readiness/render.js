@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-01-21e-truth-slider-state-seed-noLegacyCal-learningAppliedDryOnly-debugTraceRewind-swipeFix
+Rev: 2026-02-10c-option1-model-eta-truth-consistent-tiles-no-legacy-eta
 
 RECOVERY (critical):
 ✅ Keep module stable; tiles + details render.
@@ -36,6 +36,14 @@ SWIPE FIX (mobile):
    - Prevents "ghost clicks" after a swipe
    - Does not block vertical scrolling
    - Works even if swipe.js fails or gets detached
+
+OPTION 1 ETA (per Dane):
+✅ ETA on tiles is computed by MODEL only (truth-consistent):
+   - Uses model.etaToThreshold()
+   - Uses forecast cache ONLY to supply dailySeriesFcst rows to model
+✅ Legacy ETA removed:
+   - No model.etaFor()
+   - No forecast.predictDryForField()
 
 NOTES:
 - This file reads persisted truth and tuning, then passes into model deps.
@@ -696,8 +704,7 @@ function updateDetailsHeaderPanel(state){
 }
 
 /* =====================================================================
-   Forecast-based ETA helper for tiles
-   NOTE: legacy cal removed; wetBias/readinessShift = 0 always.
+   ETA helper (Option 1 — Model-owned ETA)
 ===================================================================== */
 function parseEtaHoursFromText(txt){
   const s = String(txt || '');
@@ -730,79 +737,25 @@ function compactEtaForMobile(txt, horizonHours){
   return s;
 }
 
-async function getTileEtaText(state, fieldId, run0, thr){
-  const HORIZON_HOURS = ETA_HORIZON_HOURS; // ✅ 7-day
-  const NEAR_THR_POINTS = 5;
+async function getTileEtaText(state, fieldObj, deps, run0, thr){
+  const HORIZON_HOURS = ETA_HORIZON_HOURS;
 
-  // ✅ never show ETA if already dry enough
+  // never show ETA if already dry enough
   if (Number(run0 && run0.readinessR) >= Number(thr)) return '';
 
-  let legacyTxt = '';
   try{
-    legacyTxt = state._mods.model.etaFor(run0, thr, HORIZON_HOURS) || '';
+    const model = state && state._mods ? state._mods.model : null;
+    if (!model || typeof model.etaToThreshold !== 'function') return '';
+
+    const res = await model.etaToThreshold(fieldObj, deps, Number(thr), HORIZON_HOURS, 3);
+    if (!res || !res.ok) return '';
+
+    // Blank when no forecast cached (by design)
+    const txt = String(res.text || '').trim();
+    return compactEtaForMobile(txt, HORIZON_HOURS);
   }catch(_){
-    legacyTxt = '';
+    return '';
   }
-  const legacyHours = parseEtaHoursFromText(legacyTxt);
-
-  try{
-    const p = getFieldParams(state, fieldId) || {};
-    const soilWetness = Number.isFinite(Number(p.soilWetness)) ? Number(p.soilWetness) : 60;
-    const drainageIndex = Number.isFinite(Number(p.drainageIndex)) ? Number(p.drainageIndex) : 45;
-
-    // Legacy cal removed
-    const wetBias = 0;
-    const readinessShift = 0;
-    const readinessNow = Number(run0 && run0.readinessR);
-
-    if (state && state._mods && state._mods.forecast && typeof state._mods.forecast.predictDryForField === 'function'){
-      const pred = await state._mods.forecast.predictDryForField(
-        fieldId,
-        { soilWetness, drainageIndex },
-        {
-          threshold: thr,
-          horizonHours: HORIZON_HOURS,
-          maxSimDays: 7,
-          wetBias,
-          readinessNow,
-          readinessShift
-        }
-      );
-
-      if (pred && pred.ok){
-        if (pred.status === 'dryNow'){
-          if (Number(run0 && run0.readinessR) < Number(thr)){
-            return legacyTxt ? compactEtaForMobile(legacyTxt, HORIZON_HOURS) : '';
-          }
-          return '';
-        }
-
-        if (pred.status === 'within72'){
-          if (legacyTxt && legacyHours != null && legacyHours <= HORIZON_HOURS){
-            return compactEtaForMobile(legacyTxt, HORIZON_HOURS);
-          }
-          return pred.message || (legacyTxt ? compactEtaForMobile(legacyTxt, HORIZON_HOURS) : '');
-        }
-
-        if (pred.status === 'notWithin72'){
-          const rNow = Number(run0 && run0.readinessR);
-          const near = Number.isFinite(rNow) ? ((thr - rNow) >= 0 && (thr - rNow) <= NEAR_THR_POINTS) : false;
-
-          if (legacyTxt && legacyHours != null && legacyHours <= HORIZON_HOURS){
-            return compactEtaForMobile(legacyTxt, HORIZON_HOURS);
-          }
-
-          if (near && legacyHours !== null && legacyHours <= HORIZON_HOURS){
-            return compactEtaForMobile(legacyTxt, HORIZON_HOURS);
-          }
-
-          return pred.message || `>${HORIZON_HOURS}h`;
-        }
-      }
-    }
-  }catch(_){}
-
-  return legacyTxt ? compactEtaForMobile(legacyTxt, HORIZON_HOURS) : '';
 }
 
 /* =====================================================================
@@ -891,7 +844,7 @@ function upsertEtaHelp(state, tile, ctx){
         etaText: etaTxt,
         horizonHours: Number(ctx.horizonHours || ETA_HORIZON_HOURS),
         nowTs: Date.now(),
-        note: 'ReadinessNow uses history-only; ETA uses forecast drying/forecast rain until threshold.'
+        note: 'Option 1: ETA is computed by model.etaToThreshold() from truth-seeded state + forecast cache.'
       };
 
       dispatchEtaHelp(state, payload);
@@ -1059,7 +1012,18 @@ async function updateTileForField(state, fieldId){
       opKey,
       CAL: getCalForDeps(state),
 
-      getPersistedState: (id)=> getPersistedStateForDeps(state, id)
+      getPersistedState: (id)=> getPersistedStateForDeps(state, id),
+
+      // ✅ Option 1: model-owned ETA needs forecast rows (no forecast math here)
+      getForecastSeriesForFieldId: async (id)=>{
+        try{
+          const wx = await state._mods.forecast.readWxSeriesFromCache(String(id), {});
+          const fcst = (wx && Array.isArray(wx.fcst)) ? wx.fcst : [];
+          return fcst;
+        }catch(_){
+          return [];
+        }
+      }
     };
 
     const run0 = state._mods.model.runField(f, deps);
@@ -1106,7 +1070,7 @@ async function updateTileForField(state, fieldId){
     const rainLine = tile.querySelector('.subline .mono');
     if (rainLine) rainLine.textContent = rainRange.toFixed(2);
 
-    const etaTxt = await getTileEtaText(state, fid, run0, thr);
+    const etaTxt = await getTileEtaText(state, f, deps, run0, thr);
 
     upsertEtaHelp(state, tile, {
       fieldId: fid,
@@ -1220,7 +1184,18 @@ async function _renderTilesInternal(state){
     EXTRA: extraWithLearning,
     opKey,
     CAL: getCalForDeps(state),
-    getPersistedState: (id)=> getPersistedStateForDeps(state, id)
+    getPersistedState: (id)=> getPersistedStateForDeps(state, id),
+
+    // ✅ Option 1: supply forecast rows to model ETA
+    getForecastSeriesForFieldId: async (id)=>{
+      try{
+        const wx = await state._mods.forecast.readWxSeriesFromCache(String(id), {});
+        const fcst = (wx && Array.isArray(wx.fcst)) ? wx.fcst : [];
+        return fcst;
+      }catch(_){
+        return [];
+      }
+    }
   };
 
   const filtered = getFilteredFields(state);
