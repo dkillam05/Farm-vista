@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-01-22a-quickview-ruleA-noRewind-noSaveTruth
+Rev: 2026-02-10b-quickview-option1-model-eta-truth-consistent-no-legacy-etaFor
 
 RULE A (per Dane):
 ✅ Sliders change TANK SIZE + RATES only (live preview)
@@ -14,6 +14,12 @@ RULE A (per Dane):
 Learning:
 ✅ Applies global learning DRY_LOSS_MULT (drying side only).
 
+OPTION 1 ETA (per Dane):
+✅ Quick View preview ETA uses model.etaToThreshold() (truth-consistent)
+✅ Forecast cache is used ONLY to supply dailySeriesFcst rows to model ETA
+✅ No legacy ETA:
+   - No model.etaFor()
+
 UI:
 ✅ Helper text stays the same
 ===================================================================== */
@@ -26,6 +32,7 @@ import { getCurrentOp, getThresholdForOp } from './thresholds.js';
 import { esc, clamp } from './utils.js';
 import { canEdit } from './perm.js';
 import { parseRangeFromInput, rainInRange } from './rain.js';
+import { readWxSeriesFromCache } from './forecast.js';
 
 function $(id){ return document.getElementById(id); }
 
@@ -620,7 +627,7 @@ function setText(id,val){
   if (el) el.textContent = String(val);
 }
 
-function renderTilePreview(state, run, thr){
+function renderTilePreview(state, run, thr, etaTxt){
   const wrap = $('frQvTilePreview');
   if (!wrap) return;
 
@@ -638,7 +645,7 @@ function renderTilePreview(state, run, thr){
   const pillBg = colorForPerceived(perceived);
   const grad = gradientForThreshold(thr);
 
-  const eta = state._mods.model.etaFor(run, thr, CONST.ETA_MAX_HOURS);
+  const eta = String(etaTxt || '').trim();
 
   wrap.innerHTML = `
     <div class="tile" style="cursor:default; user-select:none;">
@@ -690,7 +697,18 @@ async function fillQuickView(state, { live=false } = {}){
     EXTRA: extraWithLearning,
     opKey,
     CAL,
-    getPersistedState: (id)=> getPersistedStateForDeps(state, id)
+    getPersistedState: (id)=> getPersistedStateForDeps(state, id),
+
+    // ✅ Option 1: provide forecast rows to model ETA (no legacy ETA)
+    getForecastSeriesForFieldId: async (id)=>{
+      try{
+        const wx = await readWxSeriesFromCache(String(id), {});
+        const fcst = (wx && Array.isArray(wx.fcst)) ? wx.fcst : [];
+        return fcst;
+      }catch(_){
+        return [];
+      }
+    }
   };
 
   const runTruth = state._mods.model.runField(f, depsTruth);
@@ -771,7 +789,19 @@ async function fillQuickView(state, { live=false } = {}){
       `drain=<span class="mono">${Math.round(Number(pRaw.drainageIndex||0))}</span>/100`;
   }
 
-  renderTilePreview(state, displayRun, thr);
+  // ✅ Option 1: model-owned ETA (truth-consistent)
+  let etaTxt = '';
+  try{
+    const horizon = 168;
+    if (state && state._mods && state._mods.model && typeof state._mods.model.etaToThreshold === 'function' && displayRun){
+      const res = await state._mods.model.etaToThreshold(f, depsTruth, thr, horizon, 3);
+      if (res && res.ok && res.text) etaTxt = String(res.text || '').trim();
+    }
+  }catch(_){
+    etaTxt = '';
+  }
+
+  renderTilePreview(state, displayRun, thr, etaTxt);
 }
 
 /* ---------- Save & Close ---------- */
