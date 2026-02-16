@@ -1,15 +1,22 @@
 /* =====================================================================
 /Farm-vista/js/markets.js  (FULL FILE)
-Rev: 2026-02-02a
+Rev: 2026-02-16a
 
-FIX (your issue):
-✅ Contract lists are now SORTED chronologically (year, month) before any selection.
-   - Prevents “May 26” being chosen as front due to backend/source ordering changes.
-   - Prevents “Dec 27” being chosen instead of “Dec 26” due to list ordering.
+UPDATES (per Dane):
+✅ Add PRIOR SETTLE fallback when markets aren’t open / 1D has no points
+   - If 1D has no close, use last DAILY close from 6M as price
+   - Prevents contracts being marked "nodata" just because it’s pre-open
+   - Keeps contracts visible (no more disappearing March/Dec26/Nov26 pre-open)
 
-✅ Mobile tile rules now choose “Dec/Nov of the FRONT YEAR” (not the first Dec/Nov encountered).
+✅ Mobile tile rule updated to your requested behavior:
+   - Tile 1 = Front month (first non-expired, usable)
+   - Tile 2 = CURRENT CALENDAR YEAR Dec (corn) / Nov (soy)
+   - If Tile 1 is already that Dec/Nov, Tile 2 = next open contract
+   - If Dec/Nov for current year is missing, Tile 2 = next open contract
+   - No more “random Dec/Nov a year later” fallback
 
 Keeps:
+✅ Contract lists sorted chronologically (year, month) before any selection
 ✅ Expired/dead symbol skipping
 ✅ Quote logic + mode fallback
 ✅ Mobile: 2 tiles per crop
@@ -246,9 +253,9 @@ Keeps:
   function parseSymbolYM(symbol){
     try{
       const s = String(symbol || "");
-      const core = s.split(".")[0];     // e.g. ZCH26.CBT -> ZCH26
-      const mCode = core.slice(-3, -2); // month code
-      const yyStr = core.slice(-2);     // 2-digit year
+      const core = s.split(".")[0];
+      const mCode = core.slice(-3, -2);
+      const yyStr = core.slice(-2);
       const month = MONTH_CODE[mCode] || null;
       const yy = parseInt(yyStr, 10);
       if (!month || !isFinite(yy)) return null;
@@ -257,7 +264,7 @@ Keeps:
     }catch{ return null; }
   }
 
-  // ✅ NEW: chronological sort (year, month). Unknown YM goes to end, stable.
+  // ✅ chronological sort (year, month). Unknown YM goes to end, stable.
   function sortContractsChrono(list){
     const arr = Array.isArray(list) ? list.slice() : [];
     const withIdx = arr.map((c, i)=> ({ c, i, ym: parseSymbolYM(c?.symbol) }));
@@ -278,6 +285,7 @@ Keeps:
   function isExpiredContract(symbol){
     const ym = parseSymbolYM(symbol);
     if (!ym) return false;
+
     const now = new Date();
     const y = now.getFullYear();
     const m = now.getMonth() + 1;
@@ -291,15 +299,6 @@ Keeps:
 
     // same month: treat late month as expired (practical)
     return d >= 21;
-  }
-
-  function findFirstByMonth(list, monthNum){
-    if (!Array.isArray(list)) return null;
-    for (const c of list){
-      const ym = parseSymbolYM(c?.symbol);
-      if (ym && ym.month === monthNum) return c;
-    }
-    return null;
   }
 
   function findByMonthYear(list, monthNum, year){
@@ -321,7 +320,7 @@ Keeps:
   }
 
   // ---------------------------
-  // Chart normalization (Cloud Run returns chart.points[])
+  // Chart normalization
   // ---------------------------
   function normalizePoints(chart){
     if (Array.isArray(chart)) return chart;
@@ -365,8 +364,9 @@ Keeps:
   // Symbol state + quote cache
   // ---------------------------
   const symbolState = new Map(); // symbol -> state
-  const quoteCache = new Map();  // symbol -> { price, chg, pct, updatedAtMs }
-  const inflight = new Map();    // symbol -> Promise
+  // quoteCache: symbol -> { price, chg, pct, updatedAtMs, isSettle? }
+  const quoteCache = new Map();
+  const inflight = new Map();
 
   function setState(sym, st){
     if (!sym) return;
@@ -377,16 +377,18 @@ Keeps:
     return symbolState.get(sym) || "unknown";
   };
 
+  // ✅ IMPORTANT: "nodata" should NOT hide contracts (pre-open happens).
+  // Only truly dead symbols should be hidden when HIDE_BAD_CONTRACTS is enabled.
   Markets.isSymbolUsable = function(sym){
     const st = Markets.getSymbolState(sym);
-    return st !== "dead" && st !== "nodata";
+    return st !== "dead";
   };
 
   Markets.getQuote = function(sym){
     return quoteCache.get(sym) || null;
   };
 
-  // ✅ front pick now operates on a CHRONO-sorted list
+  // ✅ front pick operates on a CHRONO-sorted list
   function pickFront(list){
     if (!Array.isArray(list) || !list.length) return null;
 
@@ -408,81 +410,63 @@ Keeps:
     return list[0] || null;
   }
 
-  // ✅ filter + chrono sort (the key fix)
+  // ✅ filter + chrono sort
   function filterList(list){
     const baseList = (list || []).filter(c => c?.symbol);
     const usable = HIDE_BAD_CONTRACTS ? baseList.filter(c => Markets.isSymbolUsable(c.symbol)) : baseList;
     return sortContractsChrono(usable);
   }
 
-  // ✅ MOBILE: choose exactly 2 contracts (now year-aware for Dec/Nov)
+  function nextOpenAfter(list, front){
+    if (!Array.isArray(list) || !list.length) return null;
+    const fSym = front?.symbol || "";
+    for (const c of list){
+      const sym = c?.symbol;
+      if (!sym) continue;
+      if (sym === fSym) continue;
+      if (isExpiredContract(sym)) continue;
+      if (HIDE_BAD_CONTRACTS && !Markets.isSymbolUsable(sym)) continue;
+      return c;
+    }
+    return null;
+  }
+
+  // ✅ MOBILE: choose exactly 2 contracts using YOUR requested rule
+  //   - Tile1: front month
+  //   - Tile2: current calendar year Nov (soy) / Dec (corn)
+  //            if tile1 already equals that target, show next open contract
+  //            if target missing, show next open contract
   function pickMobileTwoTiles(list, cropKey){
     const filtered = filterList(list || []);
     if (!filtered.length) return [];
 
     const front = pickFront(filtered) || filtered[0];
+
+    // reorder: front first, then the rest in chrono
     const reordered = [front, ...filtered.filter(x => x?.symbol && x.symbol !== front.symbol)];
+
+    const now = new Date();
+    const targetYear = now.getFullYear();
+    const isSoy = String(cropKey || "").toLowerCase() === "soy";
+    const targetMonth = isSoy ? 11 : 12;
+
     const frontYM = parseSymbolYM(front?.symbol);
+    const target = findByMonthYear(reordered, targetMonth, targetYear);
 
-    // --- SOYBEANS ---
-    if (String(cropKey || "").toLowerCase() === "soy"){
-      const now = new Date();
-      const curMonth = now.getMonth() + 1;
-
-      // We want NOV of the FRONT YEAR (not a random Nov)
-      const novSameYear = frontYM ? (findByMonthYear(reordered, 11, frontYM.year) || findFirstByMonth(reordered, 11)) : findFirstByMonth(reordered, 11);
-
-      // If we're in November: Nov (current) + Jan (next year)
-      if (curMonth === 11){
-        const novC = novSameYear || front || null;
-        const novYM = parseSymbolYM(novC?.symbol);
-
-        if (novC && novYM && novYM.month === 11){
-          const jan = findByMonthYear(reordered, 1, novYM.year + 1) || findJanNextYear(reordered, novYM.year) || reordered[1] || null;
-          const out = [novC];
-          if (jan && jan.symbol && jan.symbol !== novC.symbol) out.push(jan);
-          return out;
-        }
-
-        const secondFallback = reordered[1] || null;
-        const outFb = [front];
-        if (secondFallback && secondFallback.symbol && secondFallback.symbol !== front.symbol) outFb.push(secondFallback);
-        return outFb;
-      }
-
-      // Normal months: Front + Nov (front-year aware)
-      if (frontYM && frontYM.month === 11){
-        const jan = findJanNextYear(reordered, frontYM.year) || reordered[1] || null;
-        const out = [front];
-        if (jan && jan.symbol && jan.symbol !== front.symbol) out.push(jan);
-        return out;
-      }
-
-      if (novSameYear && novSameYear.symbol && novSameYear.symbol !== front.symbol) return [front, novSameYear];
-
-      const second = reordered[1] || null;
-      const out = [front];
-      if (second && second.symbol && second.symbol !== front.symbol) out.push(second);
-      return out;
+    // if front already is target month/year -> tile2 = next open contract
+    if (frontYM && frontYM.year === targetYear && frontYM.month === targetMonth){
+      const nxt = nextOpenAfter(reordered, front);
+      return nxt ? [front, nxt] : [front];
     }
 
-    // --- CORN ---
-    // We want DEC of the FRONT YEAR (not a random Dec)
-    const decSameYear = frontYM ? (findByMonthYear(reordered, 12, frontYM.year) || findFirstByMonth(reordered, 12)) : findFirstByMonth(reordered, 12);
-
-    if (frontYM && frontYM.month === 12){
-      const jan = findJanNextYear(reordered, frontYM.year) || reordered[1] || null;
-      const out = [front];
-      if (jan && jan.symbol && jan.symbol !== front.symbol) out.push(jan);
-      return out;
+    // if target exists and is distinct -> use it
+    if (target && target.symbol && target.symbol !== front.symbol){
+      return [front, target];
     }
 
-    if (decSameYear && decSameYear.symbol && decSameYear.symbol !== front.symbol) return [front, decSameYear];
-
-    const second = reordered[1] || null;
-    const out = [front];
-    if (second && second.symbol && second.symbol !== front.symbol) out.push(second);
-    return out;
+    // fallback: next open contract after front (no random Dec/Nov a year later)
+    const second = nextOpenAfter(reordered, front);
+    return second ? [front, second] : [front];
   }
 
   function isDeadishError(e){
@@ -496,12 +480,15 @@ Keeps:
     );
   }
 
+  // --------------------------------------------------
+  // QUOTES: add prior settle fallback when 1D has no points
+  // --------------------------------------------------
   async function refreshQuoteFor(symbol, level){
     if (!symbol) return;
     if (inflight.has(symbol)) return inflight.get(symbol);
 
     if (HIDE_BAD_CONTRACTS && !Markets.isSymbolUsable(symbol)) {
-      if (!quoteCache.has(symbol)) quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now() });
+      if (!quoteCache.has(symbol)) quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now(), isSettle:false });
       return;
     }
 
@@ -509,55 +496,81 @@ Keeps:
 
     const p = (async ()=>{
       try{
-        const daily = await fetchChart(symbol, "1d");
-        const dailyPts = normalizePoints(daily);
-        const price = lastNonNullClose(dailyPts);
+        // 1) Try 1D first (intraday)
+        let dailyPts = [];
+        try{
+          const daily = await fetchChart(symbol, "1d");
+          dailyPts = normalizePoints(daily);
+        }catch(e){
+          // If 1d fails, we'll still try settle fallback from 6m below (unless it's deadish).
+          if (isDeadishError(e)) throw e;
+        }
+
+        let price = lastNonNullClose(dailyPts);
+        let isSettle = false;
+
+        // 2) If 1D has no close (pre-open/weekend/holiday), fallback to last daily close from 6M
+        let sixPts = null;
+        let prevFromSix = null;
 
         if (price == null){
-          setState(symbol, "nodata");
-          quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now() });
-          return;
+          const six = await fetchChart(symbol, "6m");
+          sixPts = normalizePoints(six);
+
+          const last = lastNonNullClose(sixPts);
+          if (last != null){
+            price = last;
+            isSettle = true;
+          } else {
+            // truly no data
+            setState(symbol, "nodata");
+            quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now(), isSettle:false });
+            return;
+          }
         }
 
         let chg = null, pct = null;
 
         if (modeLevel === "full"){
-          const six = await fetchChart(symbol, "6m");
-          const sixPts = normalizePoints(six);
-          const { prev } = lastTwoDailyCloses(sixPts);
+          // ensure we have 6m points for prev-close calculation
+          if (!sixPts){
+            const six = await fetchChart(symbol, "6m");
+            sixPts = normalizePoints(six);
+          }
 
-          if (prev != null){
-            chg = price - prev;
-            pct = (prev === 0) ? 0 : (chg / prev) * 100;
+          const { prev } = lastTwoDailyCloses(sixPts || []);
+          prevFromSix = prev;
+
+          if (prevFromSix != null && price != null){
+            chg = price - prevFromSix;
+            pct = (prevFromSix === 0) ? 0 : (chg / prevFromSix) * 100;
           } else {
+            // fallback: try to compute from 1D if it has at least 2 closes
             let last2 = null, prev2 = null;
-            for (let i = dailyPts.length - 1; i >= 0; i--){
+            for (let i = (dailyPts || []).length - 1; i >= 0; i--){
               const c = toNum2(dailyPts[i]?.c);
               if (c != null){
                 if (last2 == null) last2 = c;
                 else { prev2 = c; break; }
               }
             }
-            if (prev2 != null){
+            if (last2 != null && prev2 != null){
               chg = last2 - prev2;
               pct = (prev2 === 0) ? 0 : (chg / prev2) * 100;
             } else {
               chg = null; pct = null;
             }
           }
-        } else {
-          chg = null;
-          pct = null;
         }
 
         setState(symbol, "ok");
-        quoteCache.set(symbol, { price, chg, pct, updatedAtMs: Date.now() });
+        quoteCache.set(symbol, { price, chg, pct, updatedAtMs: Date.now(), isSettle });
 
       } catch (e){
         if (isDeadishError(e)) setState(symbol, "dead");
         else if (!symbolState.has(symbol)) setState(symbol, "unknown");
 
-        if (!quoteCache.has(symbol)) quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now() });
+        if (!quoteCache.has(symbol)) quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now(), isSettle:false });
       } finally {
         inflight.delete(symbol);
       }
@@ -689,6 +702,22 @@ Keeps:
     }
   }
 
+  function anySettleInPayload(payload){
+    try{
+      if (!payload) return false;
+      const syms = [];
+      if (Array.isArray(payload.corn)) payload.corn.forEach(c=>c?.symbol && syms.push(c.symbol));
+      if (Array.isArray(payload.soy)) payload.soy.forEach(c=>c?.symbol && syms.push(c.symbol));
+      for (const s of syms){
+        const q = quoteCache.get(s);
+        if (q && q.isSettle) return true;
+      }
+      return false;
+    }catch{
+      return false;
+    }
+  }
+
   function renderMeta(payload){
     const el = ui().meta;
     if(!el) return;
@@ -698,6 +727,10 @@ Keeps:
 
     const parts = [];
     if (delay) parts.push(escapeHtml(delay));
+
+    // show settle hint when any quotes are using settle fallback
+    if (anySettleInPayload(payload)) parts.push("Prior settle");
+
     if (asOf) parts.push(`Updated ${escapeHtml(fmtTime(asOf))}`);
 
     el.innerHTML = `
