@@ -47,6 +47,10 @@
       --sheet-muted: #6B7280;
       --sheet-hover: rgba(47,108,60,.06);
       --sheet-active: rgba(47,108,60,.08);
+
+      /* ✅ NEW: season-ready row highlight */
+      --ready-row-bg: rgba(47,108,60,.14);     /* light mode */
+      --ready-row-bg-hover: rgba(47,108,60,.18);
     }
 
     html, body{
@@ -297,6 +301,18 @@
       background:var(--sheet-active);
     }
 
+    /* ✅ NEW: Ready row styling (works on cells too) */
+    tbody tr.readyRow td{
+      background:var(--ready-row-bg);
+    }
+    tbody tr.readyRow:hover td{
+      background:var(--ready-row-bg-hover);
+    }
+    /* keep active row look on top */
+    tbody tr.activeRow td{
+      background:var(--sheet-active);
+    }
+
     .cell-title{font-weight:950;}
     .kpi{font-weight:950;}
     .muted{color:var(--sheet-muted);font-size:12px;font-weight:850;}
@@ -386,6 +402,10 @@
         --gridline-strong: rgba(255,255,255,.16);
         --sheet-hover: rgba(255,255,255,.05);
         --sheet-active: rgba(47,108,60,.18);
+
+        /* ✅ NEW: darker ready row bg so text stays readable */
+        --ready-row-bg: rgba(47,108,60,.28);
+        --ready-row-bg-hover: rgba(47,108,60,.34);
       }
       .grid-viewport{ background:var(--surface) !important; }
       table.grid{ background:var(--surface) !important; color:var(--text) !important; }
@@ -401,6 +421,11 @@
         border-bottom:1px solid var(--gridline) !important;
         border-right:1px solid var(--gridline) !important;
       }
+
+      /* re-apply ready row bg in dark since tbody td overrides background */
+      tbody tr.readyRow td{ background:var(--ready-row-bg) !important; }
+      tbody tr.readyRow:hover td{ background:var(--ready-row-bg-hover) !important; }
+
       .muted{ color:var(--muted,#9CA3AF) !important; }
     }
 
@@ -754,8 +779,8 @@
         d.totalAcres, d.totalHours, d.engineHours,
         d.odometerMiles, d.licensePlate,
         d.placedInServiceDate,
+        d.fieldReady, // ✅ include fieldReady in search too
 
-        /* ✅ allow quick finds for these when you start using them */
         d.licensePlateExpiration,
         d.licensePlateExp,
         d.insuranceExpiration,
@@ -803,7 +828,6 @@
       return v !== null && v !== undefined && String(v).trim() !== "";
     }
 
-    /* ✅ robust date formatting for strings / Dates / Firestore Timestamps */
     function toDateObj(v){
       if(!v) return null;
       if(v instanceof Date) return v;
@@ -844,7 +868,6 @@
       if(state.filter === "starfire"){
         let arr = active.filter(d => norm(d.type) === "starfire");
         if(q) arr = arr.filter(d => matchesSearch(d, q));
-        /* keep your default order unless a header sort is active */
         if(!state.sortKey){
           arr.sort((a,b)=> String(a.serial||"").localeCompare(String(b.serial||"")));
         }
@@ -857,7 +880,6 @@
       }
       if(q) arr = arr.filter(d => matchesSearch(d, q));
 
-      /* keep your default order unless a header sort is active */
       if(!state.sortKey){
         arr.sort((a,b)=>{
           const an=(a.unitId||a.name||"").toLowerCase();
@@ -885,27 +907,14 @@
       const showMileage   = hasAny(rows, r => isPresent(r.odometerMiles));
       const showAcres     = hasAny(rows, r => isPresent(r.totalAcres));
       const showHours     = hasAny(rows, r => isPresent(r.totalHours) || isPresent(r.engineHours));
-
-      /* ✅ NEW: Only show Unit ID column if ANY visible row has unitId (ALL categories) */
       const showUnitIdCol = hasAny(rows, r => isPresent(r.unitId));
-
       const showCategoryCol = (state.filter === "all");
-
-      /* ✅ Trucks/Trailers conditional expiration columns:
-         Only show these columns when viewing Trucks
-         AND at least one visible row has a valid value.
-      */
       const isTruckTrailerView = (state.filter === "trucks");
 
       const showLPExp  = isTruckTrailerView && hasAny(rows, r => isPresent(r.licensePlateExp) || isPresent(r.licensePlateExpiration));
       const showInsExp = isTruckTrailerView && hasAny(rows, r => isPresent(r.insuranceExp) || isPresent(r.insuranceExpiration));
       const showDOTExp = isTruckTrailerView && hasAny(rows, r => isPresent(r.dotExpiration) || isPresent(r.dotExpirationDate));
 
-      /* ✅ Column order:
-         Unit, (Unit ID only if needed), Acres, Hours, Mileage, then:
-         (Trucks only) LP/Ins/DOT (only if any exist)
-         Notes, Category(if all), Year, Serial, In Service
-      */
       const cols = [
         { key:"unit",   label:"Unit", w:420, wrap:true }
       ];
@@ -958,7 +967,6 @@
         </tr>
       `;
 
-      /* ✅ click-to-sort, like a spreadsheet header */
       thead.querySelectorAll("th.th-sort[data-key]").forEach(th=>{
         th.addEventListener("click", ()=>{
           const key = th.getAttribute("data-key") || "";
@@ -985,7 +993,6 @@
       return uid ? `${base} / ${uid}` : base;
     }
 
-    // ✅ Notes column: equipment notes + lifetimeNotes, separated by ";"
     function combinedNotes(d){
       const a = String(d.notes || "").trim();
       const b = String(d.lifetimeNotes || "").trim();
@@ -993,7 +1000,6 @@
       return a || b || "";
     }
 
-    /* ✅ Sort helpers (numbers/dates/strings) */
     function sortValue(d, key){
       switch(key){
         case "unit":   return unitDisplay(d).toLowerCase();
@@ -1012,7 +1018,6 @@
         case "serial": return String(d.serial||"").toLowerCase();
         case "pis":    return dateSortNum(d.placedInServiceDate);
 
-        // starfire keys (if user sorts on StarFire view)
         case "sfSerial": return String(d.serial||"").toLowerCase();
         case "sfLast4":  return serialLast4(d.serial||"");
         case "sfLoc":    return String(d.starfireCurrentLocationName||"").toLowerCase();
@@ -1034,14 +1039,12 @@
         const av = sortValue(a, key);
         const bv = sortValue(b, key);
 
-        // numeric compare when both are numbers
         if(typeof av === "number" && typeof bv === "number"){
           if(av < bv) return -1 * dir;
           if(av > bv) return  1 * dir;
           return 0;
         }
 
-        // fallback string compare
         const as = String(av ?? "");
         const bs = String(bv ?? "");
         return as.localeCompare(bs, undefined, { sensitivity:"base" }) * dir;
@@ -1093,8 +1096,6 @@
               return `<td class="kpi">${escapeHtml(fmtNum(hours, 1))}</td>`;
             case "miles":
               return `<td class="kpi">${escapeHtml(fmtNum(d.odometerMiles ?? "", 0))}</td>`;
-
-            /* ✅ truck/trailer expiration cells (new field names, with backward support) */
             case "lpExp": {
               const v = d.licensePlateExp || d.licensePlateExpiration;
               return `<td class="muted">${escapeHtml(fmtDateISO(v) || "—")}</td>`;
@@ -1107,7 +1108,6 @@
               const v = d.dotExpiration || d.dotExpirationDate;
               return `<td class="muted">${escapeHtml(fmtDateISO(v) || "—")}</td>`;
             }
-
             case "notes":
               return `<td class="muted wrap">${escapeHtml(combinedNotes(d))}</td>`;
             case "cat":
@@ -1123,7 +1123,8 @@
           }
         }).join("");
 
-        return `<tr data-id="${escapeHtml(d.id)}" data-kind="equip">${cells}</tr>`;
+        const readyClass = d.fieldReady ? " readyRow" : "";
+        return `<tr data-id="${escapeHtml(d.id)}" data-kind="equip" class="${readyClass.trim()}">${cells}</tr>`;
       }).join("");
 
       tbody.querySelectorAll("tr[data-id]").forEach(tr=>{
@@ -1174,7 +1175,6 @@
       try{ dlg.close(); }catch{ dlg.removeAttribute("open"); }
     }
 
-    // --- StarFire sheet ---
     function buildLocationOptions(){
       sfLoc.innerHTML = "";
 
@@ -1257,7 +1257,6 @@
       }
     });
 
-    // --- Grid pinch zoom ---
     const ZOOM = {
       scale: 1,
       min: 0.8,
@@ -1298,7 +1297,7 @@
         const maxTop  = Math.max(0, gridInner.scrollHeight - gridViewport.clientHeight);
 
         if(gridViewport.scrollLeft > maxLeft) gridViewport.scrollLeft = maxLeft;
-        if(gridViewport.scrollTop  > maxTop)  gridViewport.scrollTop  = maxTop;
+        if(gridViewport.scrollTop  > maxTop)  gridViewport.scrollTop = maxTop;
         if(gridViewport.scrollLeft < 0) gridViewport.scrollLeft = 0;
         if(gridViewport.scrollTop  < 0) gridViewport.scrollTop = 0;
       },
@@ -1384,11 +1383,6 @@
     catSelect.addEventListener("change", ()=>{
       state.filter = catSelect.value;
       state.selectedRowId = null;
-
-      /* ✅ Optional: keep sort across filters; comment out next 2 lines if you want sort to reset on filter */
-      // state.sortKey = null;
-      // state.sortDir = 1;
-
       renderTable();
       requestAnimationFrame(()=> ZOOM.recomputeBounds());
     });
@@ -1429,8 +1423,8 @@
       setInterval(()=>{ if(!document.hidden) loadAll(); }, 60000);
     }
 
-    // ✅ live update after lifetime notes save from JS file
-    window.addEventListener("fv:lifetimeNotesSaved", (e)=>{
+    // ✅ live update after lifetime notes save from modal
+    window.addEventListener("fv-shop-equip:lifetimeNotesSaved", (e)=>{
       try{
         const id = e?.detail?.id;
         const txt = e?.detail?.lifetimeNotes ?? "";
@@ -1443,7 +1437,25 @@
         renderTable();
         requestAnimationFrame(()=> ZOOM.recomputeBounds());
       }catch(err){
-        console.warn("fv:lifetimeNotesSaved handler failed", err);
+        console.warn("fv-shop-equip:lifetimeNotesSaved handler failed", err);
+      }
+    });
+
+    // ✅ NEW: live update after Field Ready toggle save from modal
+    window.addEventListener("fv-shop-equip:fieldReadySaved", (e)=>{
+      try{
+        const id = e?.detail?.id;
+        const v = !!e?.detail?.fieldReady;
+        if(!id) return;
+
+        const row = state.all.find(x => x.id === id);
+        if(!row) return;
+
+        row.fieldReady = v;
+        renderTable();
+        requestAnimationFrame(()=> ZOOM.recomputeBounds());
+      }catch(err){
+        console.warn("fv-shop-equip:fieldReadySaved handler failed", err);
       }
     });
 
