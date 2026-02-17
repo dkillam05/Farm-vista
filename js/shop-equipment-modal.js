@@ -1,36 +1,20 @@
 /* =====================================================================
 /Farm-vista/js/shop-equipment-modal.js  (FULL FILE)
-Rev: 2026-01-23b
+Rev: 2026-02-17a
 Updates:
+✅ Add "Field Ready" slider toggle to the main svcSheet popup
+   - Writes equipment.fieldReady = true/false
+   - Writes updatedAt serverTimestamp()
+   - Dispatches:
+       window.dispatchEvent(new CustomEvent("fv-shop-equip:fieldReadySaved",{detail:{id,fieldReady}}))
+
+Keeps:
 ✅ Load external Work Order modal module:
    /Farm-vista/js/shop-equipment-wo-modal.js
 ✅ Add "+ Add New Work Order" button (lower-left) in Lifetime Notes footer
-   - Opens external WO modal for the currently-open equipment
-   - Keeps this file light (WO UI + uploads live in the external module)
-
-Keeps:
-✅ Add back Archive / Unarchive button in the Edit modal footer
-   - Toggles status Active <-> Archived
-   - Writes updatedAt serverTimestamp()
-   - Updates button label based on current status
-   - Keeps existing Edit modal look/feel + scrollbar hiding
-
-Keeps:
-✅ Hide modal scrollbars (keep scrolling working) for:
-   - Edit modal body
-   - Combo/year panel
-   - Make/Model dropdown lists
-   - Service Records modal body + detail/list areas
-   (Chrome/Edge/Safari/Firefox)
-
-Keeps:
-✅ After successful Lifetime Notes save, CLOSE the popup
-✅ Dispatch event so Shop grid can update immediately:
-   window.dispatchEvent(new CustomEvent("fv-shop-equip:lifetimeNotesSaved",{detail:{id,lifetimeNotes}}))
-
-Keeps:
-- Service Records modal
-- Edit modal (matching Edit Tractors CSS system)
+✅ Archive/Unarchive button in Edit modal footer
+✅ Hide modal scrollbars (keep scrolling working)
+✅ After Lifetime Notes save, CLOSE popup + dispatch immediate update event
 ===================================================================== */
 
 import {
@@ -56,6 +40,12 @@ import {
     svcSheet: null,
     svcTitle: null,
     svcMeta: null,
+
+    // ✅ NEW: Field Ready toggle UI
+    fieldReadyWrap: null,
+    fieldReadyToggle: null,
+    fieldReadyLabel: null,
+
     lifetimeNotes: null,
     btnSaveNotes: null,
     svcFooter: null,
@@ -66,7 +56,7 @@ import {
 
     btnSvcRecords: null,
     btnEdit: null,
-    btnAddWO: null, // ✅ NEW
+    btnAddWO: null,
 
     srSheet: null,
     editSheet: null
@@ -92,7 +82,7 @@ import {
     editExtras: null,
     editTypeKey: "equipment",
 
-    // ✅ NEW: lazy-loaded WO modal module (keeps this file small)
+    // lazy-loaded WO modal module
     woModule: null,
     woModuleLoading: null
   };
@@ -233,114 +223,169 @@ import {
     return true;
   }
 
-  function findExtraEl(fieldId){
-    const dlg = UI.editSheet;
-    if(!dlg) return null;
-
-    let el = dlg.querySelector("#extra-" + fieldId);
-    if(el) return el;
-
-    el = dlg.querySelector(`[data-extra-id="${fieldId}"]`)
-      || dlg.querySelector(`[name="${fieldId}"]`)
-      || dlg.querySelector(`[data-field="${fieldId}"]`);
-    return el || null;
+  // ===================================================================
+  // ✅ NEW: Field Ready toggle (svcSheet)
+  // ===================================================================
+  function ensureFieldReadyCss(){
+    if(document.getElementById("fv-field-ready-css")) return;
+    const st = document.createElement("style");
+    st.id = "fv-field-ready-css";
+    st.textContent = `
+/* Field Ready slider (scoped to svcSheet) */
+#svcSheet .fv-fr-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  flex-wrap:wrap;
+}
+#svcSheet .fv-fr-left{ display:flex; flex-direction:column; gap:4px; min-width:220px; }
+#svcSheet .fv-fr-title{ font-weight:950; }
+#svcSheet .fv-fr-sub{ color:var(--muted,#67706B); font-size:12px; font-weight:850; }
+#svcSheet .fv-switch{
+  position:relative;
+  width:56px;
+  height:32px;
+  flex:0 0 auto;
+}
+#svcSheet .fv-switch input{
+  opacity:0;
+  width:0;
+  height:0;
+}
+#svcSheet .fv-slider{
+  position:absolute;
+  inset:0;
+  border-radius:999px;
+  border:1px solid var(--border);
+  background:color-mix(in srgb, var(--surface) 92%, #000 8%);
+  transition:background .15s ease, border-color .15s ease;
+}
+#svcSheet .fv-slider:before{
+  content:"";
+  position:absolute;
+  height:26px;
+  width:26px;
+  left:2px;
+  top:2px;
+  border-radius:50%;
+  background:var(--card-surface,var(--surface));
+  border:1px solid var(--border);
+  box-shadow:0 2px 8px rgba(0,0,0,.18);
+  transition:transform .15s ease;
+}
+#svcSheet .fv-switch input:checked + .fv-slider{
+  background:color-mix(in srgb, var(--green,#3B7E46) 22%, var(--surface));
+  border-color:color-mix(in srgb, var(--green,#3B7E46) 35%, var(--border));
+}
+#svcSheet .fv-switch input:checked + .fv-slider:before{
+  transform:translateX(24px);
+}
+#svcSheet .fv-fr-pill{
+  border:1px solid var(--border);
+  border-radius:999px;
+  padding:6px 10px;
+  font-weight:900;
+  color:var(--muted,#67706B);
+}
+#svcSheet .fv-fr-pill.on{
+  color:var(--green,#3B7E46);
+  background:color-mix(in srgb, var(--green,#3B7E46) 10%, transparent);
+  border-color:color-mix(in srgb, var(--green,#3B7E46) 30%, var(--border));
+}
+    `;
+    document.head.appendChild(st);
   }
 
-  function setExtraValue(fieldId, value){
-    const el = findExtraEl(fieldId);
-    if(!el) return false;
+  function ensureFieldReadyRow(){
+    if(!UI.svcSheet) return;
+    ensureFieldReadyCss();
 
-    if (el.tagName === "BUTTON" && el.classList.contains("pill-toggle")){
-      const isOn = boolify(value);
-      el.dataset.state = isOn ? "on" : "off";
-      el.classList.toggle("on", isOn);
-      el.textContent = isOn ? "Yes" : "No";
-      return true;
+    // already injected?
+    if(UI.svcSheet.querySelector("[data-fv='fieldReadyCard']")) {
+      UI.fieldReadyWrap = UI.svcSheet.querySelector("[data-fv='fieldReadyCard']");
+      UI.fieldReadyToggle = UI.svcSheet.querySelector("#fvFieldReadyToggle");
+      UI.fieldReadyLabel = UI.svcSheet.querySelector("#fvFieldReadyPill");
+      return;
     }
 
-    if (el.tagName === "INPUT" && (el.type === "checkbox" || el.type === "radio")){
-      el.checked = boolify(value);
-      el.dispatchEvent(new Event("change", { bubbles:true }));
-      el.dispatchEvent(new Event("input", { bubbles:true }));
-      return true;
+    const body = UI.svcSheet.querySelector(".body");
+    if(!body) return;
+
+    const card = document.createElement("div");
+    card.className = "subcard";
+    card.setAttribute("data-fv","fieldReadyCard");
+    card.innerHTML = `
+      <div class="fv-fr-row">
+        <div class="fv-fr-left">
+          <div class="fv-fr-title">Field Ready</div>
+          <div class="fv-fr-sub">Season-ready flag for this unit.</div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span id="fvFieldReadyPill" class="fv-fr-pill">Off</span>
+          <label class="fv-switch" aria-label="Field Ready toggle">
+            <input id="fvFieldReadyToggle" type="checkbox">
+            <span class="fv-slider"></span>
+          </label>
+        </div>
+      </div>
+    `;
+
+    // Insert after the meta subcard (first card)
+    const firstCard = body.querySelector(".subcard");
+    if(firstCard && firstCard.nextSibling){
+      body.insertBefore(card, firstCard.nextSibling);
+    } else {
+      body.insertBefore(card, body.firstChild);
     }
 
-    try{
-      el.value = (value === undefined || value === null) ? "" : String(value);
-      el.dispatchEvent(new Event("change", { bubbles:true }));
-      el.dispatchEvent(new Event("input", { bubbles:true }));
-      return true;
-    }catch{
-      return false;
-    }
+    UI.fieldReadyWrap = card;
+    UI.fieldReadyToggle = card.querySelector("#fvFieldReadyToggle");
+    UI.fieldReadyLabel = card.querySelector("#fvFieldReadyPill");
+
+    UI.fieldReadyToggle.addEventListener("change", async ()=>{
+      if(!state.eq) return;
+
+      const nextVal = !!UI.fieldReadyToggle.checked;
+      UI.fieldReadyLabel.textContent = nextVal ? "On" : "Off";
+      UI.fieldReadyLabel.classList.toggle("on", nextVal);
+
+      try{
+        const db = getFirestore();
+        await updateDoc(doc(db, "equipment", state.eq.id), {
+          fieldReady: nextVal,
+          updatedAt: serverTimestamp()
+        });
+
+        state.eq.fieldReady = nextVal;
+
+        window.dispatchEvent(new CustomEvent("fv-shop-equip:fieldReadySaved", {
+          detail: { id: state.eq.id, fieldReady: nextVal }
+        }));
+
+        showToast(nextVal ? "Field Ready ✓" : "Field Ready off");
+      }catch(e){
+        console.error(e);
+        // revert UI if save fails
+        UI.fieldReadyToggle.checked = !nextVal;
+        UI.fieldReadyLabel.textContent = (!nextVal) ? "On" : "Off";
+        UI.fieldReadyLabel.classList.toggle("on", !nextVal);
+        showError(e?.message || "Failed to save Field Ready.");
+      }
+    });
   }
 
-  function readAny(d, keys){
-    for (const k of keys){
-      if (d && Object.prototype.hasOwnProperty.call(d, k) && d[k] != null && String(d[k]).trim() !== ""){
-        return d[k];
-      }
-    }
-    return null;
-  }
-
-  function hydrateExtrasFromDoc(d){
-    if (state.editTypeKey === "implement"){
-      const impType = readAny(d, ['implementType','implement_type','subType','subtype','implementSubtype','implement_subtype']);
-      if (impType){
-        setExtraValue("implementType", impType);
-        const ctrl = findExtraEl("implementType");
-        if (ctrl) ctrl.dispatchEvent(new Event("change", { bubbles:true }));
-      }
-    }
-
-    if (state.editTypeKey === "construction"){
-      const conType = readAny(d, ['constructionType','construction_type','subType','subtype']);
-      if (conType){
-        setExtraValue("constructionType", conType);
-        const ctrl = findExtraEl("constructionType");
-        if (ctrl) ctrl.dispatchEvent(new Event("change", { bubbles:true }));
-      }
-    }
-
-    const keys = [
-      "placedInServiceDate",
-      "engineHours","separatorHours","odometerMiles","boomWidthFt","tankSizeGal","starfireCapable",
-      "workingWidthFt","numRows","rowSpacingIn","totalAcres","totalHours","bushelCapacityBu","augerDiameterIn","augerLengthFt",
-      "applicationType",
-      "licensePlate","licensePlateExp","insuranceExp","tireSizes","dotRequired","dotExpiration",
-      "trailerType","trailerPlate","trailerPlateExp","trailerDotRequired","lastDotInspection","gvwrLb",
-      "attachmentType",
-      "activationLevel","firmwareVersion"
-    ];
-
-    const triesMax = 8;
-    let tries = 0;
-
-    const apply = ()=>{
-      let anySet = false;
-
-      if(d && d.unitId){
-        anySet = setExtraValue("unitId", d.unitId) || anySet;
-      }
-
-      keys.forEach(k=>{
-        if(!d || !Object.prototype.hasOwnProperty.call(d, k)) return;
-        if(k === "starfireCapable") anySet = setExtraValue(k, boolify(d[k])) || anySet;
-        else anySet = setExtraValue(k, d[k]) || anySet;
-      });
-
-      if(!anySet && tries < triesMax){
-        tries++;
-        requestAnimationFrame(apply);
-      }
-    };
-
-    requestAnimationFrame(apply);
+  function setFieldReadyUI(val){
+    if(!UI.fieldReadyToggle || !UI.fieldReadyLabel) return;
+    const on = !!val;
+    UI.fieldReadyToggle.checked = on;
+    UI.fieldReadyLabel.textContent = on ? "On" : "Off";
+    UI.fieldReadyLabel.classList.toggle("on", on);
   }
 
   // ===================================================================
-  //  ✅ NEW: External Work Order modal loader + opener
+  //  ✅ External Work Order modal loader + opener
   // ===================================================================
   async function ensureWoModalLoaded(){
     if(state.woModule) return state.woModule;
@@ -368,10 +413,7 @@ import {
 
     await ensureWoModalLoaded();
 
-    // Prefer global (module may attach here)
     const g = window.FVShopEquipWOModal || window.FVShopEquipmentWOModal || null;
-
-    // Or use exports from dynamic import
     const mod = state.woModule || {};
 
     const opener =
@@ -412,6 +454,9 @@ import {
     if(UI.btnClose2){
       UI.btnClose2.addEventListener("click", ()=> closeSheet(UI.svcSheet));
     }
+
+    // ✅ make sure our Field Ready row exists once
+    ensureFieldReadyRow();
   }
 
   // ---------- inject buttons into svcSheet footer ----------
@@ -427,7 +472,6 @@ import {
     leftWrap.style.alignItems = "center";
     leftWrap.style.flex = "1 1 auto";
 
-
     const btnSvcRecords = document.createElement("button");
     btnSvcRecords.type = "button";
     btnSvcRecords.className = "btn";
@@ -440,7 +484,6 @@ import {
     btnEdit.textContent = "Edit";
     btnEdit.setAttribute("data-fv","editBtn");
 
-    // ✅ NEW: Add New Work Order (opens external module modal)
     const btnAddWO = document.createElement("button");
     btnAddWO.type = "button";
     btnAddWO.className = "btn";
@@ -461,23 +504,18 @@ import {
 
     btnAddWO.addEventListener("click", async ()=>{
       if(!state.eq) return;
-      try{
-        await openWorkOrderModal(state.eq);
-      }catch(e){
-        console.error(e);
-        showError(e?.message || "Failed to open Work Order modal.");
-      }
+      try{ await openWorkOrderModal(state.eq); }
+      catch(e){ console.error(e); showError(e?.message || "Failed to open Work Order modal."); }
     });
 
     const spacer = document.createElement("div");
-spacer.className = "fv-svc-footer-spacer";   // ✅ ADD THIS LINE
-spacer.style.flex = "1 1 auto";
+    spacer.className = "fv-svc-footer-spacer";
+    spacer.style.flex = "1 1 auto";
 
-leftWrap.appendChild(btnAddWO);     // far left
-leftWrap.appendChild(spacer);      // big gap
-leftWrap.appendChild(btnSvcRecords);
-leftWrap.appendChild(btnEdit);
-
+    leftWrap.appendChild(btnAddWO);
+    leftWrap.appendChild(spacer);
+    leftWrap.appendChild(btnSvcRecords);
+    leftWrap.appendChild(btnEdit);
 
     UI.svcFooter.insertBefore(leftWrap, UI.svcFooter.firstChild);
 
@@ -804,7 +842,7 @@ leftWrap.appendChild(btnEdit);
   background:var(--card-surface,var(--surface));
   color:var(--text);
   box-shadow:0 18px 40px rgba(0,0,0,.45);
-  overflow:hidden; /* prevents dialog itself from showing its own scrollbar */
+  overflow:hidden;
 }
 .fv-edit-tractor-skin::backdrop{ background:rgba(0,0,0,.55); }
 .fv-edit-tractor-skin header{
@@ -816,12 +854,10 @@ leftWrap.appendChild(btnEdit);
   overflow-y:auto; overflow-x:hidden;
   -webkit-overflow-scrolling:touch;
   touch-action: pan-y; overscroll-behavior: contain;
-
-  /* hide scrollbar, keep scroll */
-  scrollbar-width:none;            /* Firefox */
-  -ms-overflow-style:none;         /* IE/Edge legacy */
+  scrollbar-width:none;
+  -ms-overflow-style:none;
 }
-.fv-edit-tractor-skin .body::-webkit-scrollbar{ width:0; height:0; } /* Chrome/Safari */
+.fv-edit-tractor-skin .body::-webkit-scrollbar{ width:0; height:0; }
 
 .fv-edit-tractor-skin footer{
   padding:12px 16px; border-top:1px solid var(--border);
@@ -865,8 +901,6 @@ leftWrap.appendChild(btnEdit);
   position:absolute;z-index:40;top:calc(100% + 4px);left:0;right:0;max-height:260px;overflow:auto;
   border:1px solid var(--border);border-radius:10px;background:var(--surface);
   box-shadow:0 4px 12px rgba(0,0,0,.1);display:none;
-
-  /* hide scrollbar, keep scroll */
   scrollbar-width:none;
   -ms-overflow-style:none;
 }
@@ -878,7 +912,6 @@ leftWrap.appendChild(btnEdit);
   font:inherit;outline:none;background:var(--surface); color:var(--text);
 }
 .fv-edit-tractor-skin .dd-list ul{list-style:none;margin:0;padding:0;max-height:220px;overflow-y:auto;
-  /* hide scrollbar, keep scroll */
   scrollbar-width:none;
   -ms-overflow-style:none;
 }
@@ -905,8 +938,6 @@ leftWrap.appendChild(btnEdit);
   background:var(--surface); border:1px solid var(--border); border-radius:12px;
   box-shadow:0 12px 26px rgba(0,0,0,.18);
   --row-h: 36px; max-height: calc(var(--row-h) * 5 + 12px); overflow:auto;
-
-  /* hide scrollbar, keep scroll */
   scrollbar-width:none;
   -ms-overflow-style:none;
 }
@@ -947,7 +978,6 @@ leftWrap.appendChild(btnEdit);
   -webkit-text-fill-color: var(--text) !important;
 }
 
-/* ===== Also hide scrollbars in other sheet modals (Service Records, etc.) ===== */
 .sheet .body{
   scrollbar-width:none;
   -ms-overflow-style:none;
@@ -1331,7 +1361,6 @@ leftWrap.appendChild(btnEdit);
     UI.editSheet.querySelector("#seSerial6").textContent = last6(d.serial || "");
     UI.editSheet.querySelector("#seStatus").value = (d.status || "Active");
 
-    // ✅ Archive button label based on current status
     UI.editSheet.querySelector("#seArchive").textContent =
       norm(d.status) === "archived" ? "Unarchive" : "Archive";
 
@@ -1444,7 +1473,6 @@ leftWrap.appendChild(btnEdit);
 
     dlg.querySelector("#seSave").addEventListener("click", saveEditModal);
 
-    // ✅ Archive/Unarchive toggle button
     dlg.querySelector("#seArchive").addEventListener("click", async ()=>{
       if(!state.editEqId || !state.editEqDoc) return;
 
@@ -1462,7 +1490,6 @@ leftWrap.appendChild(btnEdit);
 
         state.editEqDoc.status = nextStatus;
 
-        // keep UI consistent if they reopen quickly
         dlg.querySelector("#seStatus").value = nextStatus;
         dlg.querySelector("#seArchive").textContent = isArchived ? "Archive" : "Unarchive";
 
@@ -1474,11 +1501,9 @@ leftWrap.appendChild(btnEdit);
       }
     });
 
-    // Optional: keep button label in sync if user changes dropdown
     dlg.querySelector("#seStatus").addEventListener("change", (e)=>{
       const v = norm(e.target.value);
-      dlg.querySelector("#seArchive").textContent =
-        v === "archived" ? "Unarchive" : "Archive";
+      dlg.querySelector("#seArchive").textContent = v === "archived" ? "Unarchive" : "Archive";
     });
 
     dlg.querySelector("#seSerial").addEventListener("input", ()=>{
@@ -1495,6 +1520,8 @@ leftWrap.appendChild(btnEdit);
     if(!eq) return;
 
     ensureSvcFooterButtons();
+    ensureFieldReadyRow(); // ✅ make sure exists
+    setFieldReadyUI(!!eq.fieldReady); // ✅ set state on open
 
     const unitIdLine = eq.unitId ? `Unit ID ${eq.unitId}` : "Unit ID —";
     UI.svcTitle.textContent = eq.unitId ? `${eq.unitId} • ${eq.name || "Equipment"}` : (eq.name || "Equipment");
@@ -1529,7 +1556,6 @@ leftWrap.appendChild(btnEdit);
     openSheet(UI.svcSheet);
   }
 
-  // ✅ UPDATED: close popup on success + notify grid
   async function saveNotes(){
     if(!state.eq) return;
     try{
@@ -1543,13 +1569,12 @@ leftWrap.appendChild(btnEdit);
 
       state.eq.lifetimeNotes = txt;
 
-      // tell the grid to update immediately
       window.dispatchEvent(new CustomEvent("fv-shop-equip:lifetimeNotesSaved", {
         detail: { id: state.eq.id, lifetimeNotes: txt }
       }));
 
       showToast("Notes saved.");
-      closeSheet(UI.svcSheet); // ✅ close after successful save
+      closeSheet(UI.svcSheet);
     }catch(e){
       console.error(e);
       showError(e?.message || "Save notes failed.");
