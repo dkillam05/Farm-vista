@@ -1,20 +1,20 @@
 /* =====================================================================
 /Farm-vista/js/shop-equipment-modal.js  (FULL FILE)
-Rev: 2026-02-17a
+Rev: 2026-02-18a
 Updates:
-✅ Add "Field Ready" slider toggle to the main svcSheet popup
-   - Writes equipment.fieldReady = true/false
-   - Writes updatedAt serverTimestamp()
-   - Dispatches:
-       window.dispatchEvent(new CustomEvent("fv-shop-equip:fieldReadySaved",{detail:{id,fieldReady}}))
+✅ FIX: iOS/Safari dialog stacking
+   - When pressing Service Records / Edit / Add New Work Order from svcSheet:
+     close svcSheet first, then open next modal (small delay)
+   - Prevents “Edit button does nothing” on mobile
 
 Keeps:
-✅ Load external Work Order modal module:
-   /Farm-vista/js/shop-equipment-wo-modal.js
-✅ Add "+ Add New Work Order" button (lower-left) in Lifetime Notes footer
-✅ Archive/Unarchive button in Edit modal footer
-✅ Hide modal scrollbars (keep scrolling working)
-✅ After Lifetime Notes save, CLOSE popup + dispatch immediate update event
+✅ Field Ready slider toggle in svcSheet
+✅ External WO modal lazy-load
+✅ Service Records modal
+✅ Edit modal (extras engine)
+✅ Archive/Unarchive button
+✅ Scrollbar hiding
+✅ Notes save closes popup + dispatches events
 ===================================================================== */
 
 import {
@@ -41,7 +41,7 @@ import {
     svcTitle: null,
     svcMeta: null,
 
-    // ✅ NEW: Field Ready toggle UI
+    // Field Ready toggle UI
     fieldReadyWrap: null,
     fieldReadyToggle: null,
     fieldReadyLabel: null,
@@ -119,6 +119,15 @@ import {
   function closeSheet(dlg){
     if(!dlg) return;
     try{ dlg.close(); }catch{ dlg.removeAttribute("open"); }
+  }
+
+  // ✅ Safari/iOS: avoid stacking dialogs
+  function closeSvcThen(fn){
+    try{ closeSheet(UI.svcSheet); }catch(_){}
+    // Let Safari finish closing animation + focus cleanup
+    setTimeout(()=>{
+      try{ fn && fn(); }catch(e){ console.error(e); alert(e?.message || "Action failed."); }
+    }, 80);
   }
 
   function toDateMaybe(ts){
@@ -223,8 +232,114 @@ import {
     return true;
   }
 
+  function findExtraEl(fieldId){
+    const dlg = UI.editSheet;
+    if(!dlg) return null;
+
+    let el = dlg.querySelector("#extra-" + fieldId);
+    if(el) return el;
+
+    el = dlg.querySelector(`[data-extra-id="${fieldId}"]`)
+      || dlg.querySelector(`[name="${fieldId}"]`)
+      || dlg.querySelector(`[data-field="${fieldId}"]`);
+    return el || null;
+  }
+
+  function setExtraValue(fieldId, value){
+    const el = findExtraEl(fieldId);
+    if(!el) return false;
+
+    if (el.tagName === "BUTTON" && el.classList.contains("pill-toggle")){
+      const isOn = boolify(value);
+      el.dataset.state = isOn ? "on" : "off";
+      el.classList.toggle("on", isOn);
+      el.textContent = isOn ? "Yes" : "No";
+      return true;
+    }
+
+    if (el.tagName === "INPUT" && (el.type === "checkbox" || el.type === "radio")){
+      el.checked = boolify(value);
+      el.dispatchEvent(new Event("change", { bubbles:true }));
+      el.dispatchEvent(new Event("input", { bubbles:true }));
+      return true;
+    }
+
+    try{
+      el.value = (value === undefined || value === null) ? "" : String(value);
+      el.dispatchEvent(new Event("change", { bubbles:true }));
+      el.dispatchEvent(new Event("input", { bubbles:true }));
+      return true;
+    }catch{
+      return false;
+    }
+  }
+
+  function readAny(d, keys){
+    for (const k of keys){
+      if (d && Object.prototype.hasOwnProperty.call(d, k) && d[k] != null && String(d[k]).trim() !== ""){
+        return d[k];
+      }
+    }
+    return null;
+  }
+
+  function hydrateExtrasFromDoc(d){
+    if (state.editTypeKey === "implement"){
+      const impType = readAny(d, ['implementType','implement_type','subType','subtype','implementSubtype','implement_subtype']);
+      if (impType){
+        setExtraValue("implementType", impType);
+        const ctrl = findExtraEl("implementType");
+        if (ctrl) ctrl.dispatchEvent(new Event("change", { bubbles:true }));
+      }
+    }
+
+    if (state.editTypeKey === "construction"){
+      const conType = readAny(d, ['constructionType','construction_type','subType','subtype']);
+      if (conType){
+        setExtraValue("constructionType", conType);
+        const ctrl = findExtraEl("constructionType");
+        if (ctrl) ctrl.dispatchEvent(new Event("change", { bubbles:true }));
+      }
+    }
+
+    const keys = [
+      "placedInServiceDate",
+      "engineHours","separatorHours","odometerMiles","boomWidthFt","tankSizeGal","starfireCapable",
+      "workingWidthFt","numRows","rowSpacingIn","totalAcres","totalHours","bushelCapacityBu","augerDiameterIn","augerLengthFt",
+      "applicationType",
+      "licensePlate","licensePlateExp","insuranceExp","tireSizes","dotRequired","dotExpiration",
+      "trailerType","trailerPlate","trailerPlateExp","trailerDotRequired","lastDotInspection","gvwrLb",
+      "attachmentType",
+      "activationLevel","firmwareVersion"
+    ];
+
+    const triesMax = 8;
+    let tries = 0;
+
+    const apply = ()=>{
+      let anySet = false;
+
+      if(d && d.unitId){
+        anySet = setExtraValue("unitId", d.unitId) || anySet;
+      }
+
+      keys.forEach(k=>{
+        if(!d || !Object.prototype.hasOwnProperty.call(d, k)) return;
+        if(k === "starfireCapable") anySet = setExtraValue(k, boolify(d[k])) || anySet;
+        else anySet = setExtraValue(k, d[k]) || anySet;
+      });
+
+      if(!anySet && tries < triesMax){
+        tries++;
+        requestAnimationFrame(apply);
+      }
+    };
+
+    requestAnimationFrame(apply);
+  }
+
   // ===================================================================
-  // ✅ NEW: Field Ready toggle (svcSheet)
+  // Field Ready toggle (svcSheet)
   // ===================================================================
   function ensureFieldReadyCss(){
     if(document.getElementById("fv-field-ready-css")) return;
@@ -301,7 +416,6 @@ import {
     if(!UI.svcSheet) return;
     ensureFieldReadyCss();
 
-    // already injected?
     if(UI.svcSheet.querySelector("[data-fv='fieldReadyCard']")) {
       UI.fieldReadyWrap = UI.svcSheet.querySelector("[data-fv='fieldReadyCard']");
       UI.fieldReadyToggle = UI.svcSheet.querySelector("#fvFieldReadyToggle");
@@ -332,7 +446,6 @@ import {
       </div>
     `;
 
-    // Insert after the meta subcard (first card)
     const firstCard = body.querySelector(".subcard");
     if(firstCard && firstCard.nextSibling){
       body.insertBefore(card, firstCard.nextSibling);
@@ -367,7 +480,6 @@ import {
         showToast(nextVal ? "Field Ready ✓" : "Field Ready off");
       }catch(e){
         console.error(e);
-        // revert UI if save fails
         UI.fieldReadyToggle.checked = !nextVal;
         UI.fieldReadyLabel.textContent = (!nextVal) ? "On" : "Off";
         UI.fieldReadyLabel.classList.toggle("on", !nextVal);
@@ -385,7 +497,7 @@ import {
   }
 
   // ===================================================================
-  //  ✅ External Work Order modal loader + opener
+  // External Work Order modal loader + opener
   // ===================================================================
   async function ensureWoModalLoaded(){
     if(state.woModule) return state.woModule;
@@ -455,7 +567,6 @@ import {
       UI.btnClose2.addEventListener("click", ()=> closeSheet(UI.svcSheet));
     }
 
-    // ✅ make sure our Field Ready row exists once
     ensureFieldReadyRow();
   }
 
@@ -490,22 +601,29 @@ import {
     btnAddWO.textContent = "Add New Work Order";
     btnAddWO.setAttribute("data-fv","addWoBtn");
 
-    btnSvcRecords.addEventListener("click", async ()=>{
+    // ✅ FIX: close svcSheet before opening another dialog
+    btnSvcRecords.addEventListener("click", ()=>{
       if(!state.eq) return;
-      try{ await openServiceRecordsModal(state.eq); }
-      catch(e){ console.error(e); showError(e?.message || "Failed to load service records."); }
+      closeSvcThen(async ()=>{
+        try{ await openServiceRecordsModal(state.eq); }
+        catch(e){ console.error(e); alert(e?.message || "Failed to load service records."); }
+      });
     });
 
-    btnEdit.addEventListener("click", async ()=>{
+    btnEdit.addEventListener("click", ()=>{
       if(!state.eq) return;
-      try{ await openEditModal(state.eq.id); }
-      catch(e){ console.error(e); showError(e?.message || "Failed to open editor."); }
+      closeSvcThen(async ()=>{
+        try{ await openEditModal(state.eq.id); }
+        catch(e){ console.error(e); alert(e?.message || "Failed to open editor."); }
+      });
     });
 
-    btnAddWO.addEventListener("click", async ()=>{
+    btnAddWO.addEventListener("click", ()=>{
       if(!state.eq) return;
-      try{ await openWorkOrderModal(state.eq); }
-      catch(e){ console.error(e); showError(e?.message || "Failed to open Work Order modal."); }
+      closeSvcThen(async ()=>{
+        try{ await openWorkOrderModal(state.eq); }
+        catch(e){ console.error(e); alert(e?.message || "Failed to open Work Order modal."); }
+      });
     });
 
     const spacer = document.createElement("div");
@@ -525,7 +643,7 @@ import {
   }
 
   // ===================================================================
-  //  SERVICE RECORDS MODAL (unchanged)
+  // SERVICE RECORDS MODAL
   // ===================================================================
   function ensureSrSheet(){
     if(UI.srSheet) return UI.srSheet;
@@ -825,7 +943,7 @@ import {
   }
 
   // ===================================================================
-  //  EDIT MODAL (unchanged from your working "perfect" version)
+  // EDIT MODAL (kept)
   // ===================================================================
   function injectEditTractorsModalCss(){
     if(document.getElementById("fv-edit-tractor-css")) return;
@@ -992,8 +1110,7 @@ import {
 .sheet .combo-panel::-webkit-scrollbar,
 .sheet .dd-list::-webkit-scrollbar,
 .sheet .dd-list ul::-webkit-scrollbar{ width:0; height:0; }
-
-/* ===== End: Edit Tractors modal CSS (scoped) ===== */
+/* ===== End ===== */
     `;
     document.head.appendChild(st);
   }
@@ -1520,8 +1637,8 @@ import {
     if(!eq) return;
 
     ensureSvcFooterButtons();
-    ensureFieldReadyRow(); // ✅ make sure exists
-    setFieldReadyUI(!!eq.fieldReady); // ✅ set state on open
+    ensureFieldReadyRow();
+    setFieldReadyUI(!!eq.fieldReady);
 
     const unitIdLine = eq.unitId ? `Unit ID ${eq.unitId}` : "Unit ID —";
     UI.svcTitle.textContent = eq.unitId ? `${eq.unitId} • ${eq.name || "Equipment"}` : (eq.name || "Equipment");
