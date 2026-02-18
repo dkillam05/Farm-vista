@@ -48,7 +48,7 @@
       --sheet-hover: rgba(47,108,60,.06);
       --sheet-active: rgba(47,108,60,.08);
 
-      /* ✅ NEW: season-ready row highlight */
+      /* ✅ season-ready row highlight */
       --ready-row-bg: rgba(47,108,60,.14);     /* light mode */
       --ready-row-bg-hover: rgba(47,108,60,.18);
     }
@@ -112,7 +112,7 @@
       display:flex;
       align-items:flex-end;
       gap:12px;
-      flex-wrap:wrap; /* was nowrap */
+      flex-wrap:wrap;
       min-width:0;
       overflow:visible;
       position:relative;
@@ -123,8 +123,8 @@
       display:flex;
       flex-direction:column;
       gap:6px;
-      min-width:260px;        /* allow shrink, but not too small */
-      flex:1 1 420px;         /* was flex:1 1 auto */
+      min-width:260px;
+      flex:1 1 420px;
     }
     .filter-label{
       text-transform:uppercase;
@@ -161,13 +161,12 @@
     }
     .search input::placeholder{color:var(--muted,#9CA3AF);}
 
-    /* ✅ FIX: category field is flexible so it never overlaps */
     .cat-field{
       display:flex;
       flex-direction:column;
       gap:6px;
-      flex:1 1 360px;         /* was flex:0 0 520px */
-      min-width:260px;        /* was min-width:380px */
+      flex:1 1 360px;
+      min-width:260px;
       max-width:760px;
       position:relative;
       z-index:80;
@@ -206,7 +205,6 @@
       z-index:1;
     }
 
-    /* ✅ FIX: when controls wrap, avoid the “funky line” (double border look) */
     @media (max-width:1120px){
       .section-head{ border-bottom:none; }
       .section-body{ padding-top:10px; }
@@ -263,7 +261,6 @@
     }
     thead th:last-child{border-right:none;}
 
-    /* ✅ Spreadsheet-style header sort affordance */
     thead th.th-sort{
       cursor:pointer;
       user-select:none;
@@ -295,22 +292,30 @@
 
     tbody tr{cursor:pointer;background:transparent;}
     tbody tr:hover{background:var(--sheet-hover);}
+
+    /* ✅ FIX: Selected row should NOT look field-ready.
+       Selection = outline ONLY (no fill).
+    */
     tbody tr.activeRow{
-      outline:2px solid rgba(47,108,60,.35);
+      outline:2px solid var(--green,#3B7E46);
       outline-offset:-2px;
-      background:var(--sheet-active);
+      background:transparent;
+    }
+    tbody tr.activeRow td{
+      background:var(--sheet-cell-bg) !important; /* normal row look */
     }
 
-    /* ✅ NEW: Ready row styling (works on cells too) */
+    /* ✅ Field-ready rows get green fill */
     tbody tr.readyRow td{
       background:var(--ready-row-bg);
     }
     tbody tr.readyRow:hover td{
       background:var(--ready-row-bg-hover);
     }
-    /* keep active row look on top */
-    tbody tr.activeRow td{
-      background:var(--sheet-active);
+
+    /* ✅ If a row is both selected AND ready, keep it looking ready */
+    tbody tr.readyRow.activeRow td{
+      background:var(--ready-row-bg) !important;
     }
 
     .cell-title{font-weight:950;}
@@ -330,7 +335,6 @@
         padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 72px)!important;
       }
 
-      /* tighter left/right, still safe-area aware */
       .page-title, .page-sub{
         padding-left:max(2px, env(safe-area-inset-left, 0px));
         padding-right:max(2px, env(safe-area-inset-right, 0px));
@@ -347,7 +351,6 @@
         overflow:visible;
       }
 
-      /* make header tight to edges too (safe-area aware) */
       .section-head{
         border-left:none;border-right:none;
         border-radius:0;
@@ -361,7 +364,6 @@
 
       .section-body{padding:0;}
 
-      /* ✅ EDGE-TO-EDGE GRID on mobile */
       .table-wrap{
         margin:0;
         border-left:0;
@@ -375,19 +377,16 @@
       .filter-field{flex:1 1 100%;min-width:0;}
       .cat-field{flex:1 1 100%;min-width:0;max-width:none;}
 
-      /* taller viewing area (more rows visible) */
       .grid-viewport{
         height:auto;
         min-height:220px;
         max-height:calc(100vh - 210px);
       }
 
-      /* bigger, more spreadsheet-like text */
       table.grid{min-width:860px;font-size:13px;}
       thead th{padding:10px 7px;font-size:13px;}
       tbody td{padding:8px 7px;font-size:13px;}
 
-      /* ✅ FIX: allow wrapped cells (Notes, Unit, etc.) to wrap on phones too */
       tbody td.wrap, thead th.wrap{
         white-space:normal !important;
         overflow-wrap:anywhere;
@@ -395,7 +394,6 @@
       }
     }
 
-    /* keep it (even if it doesn't trigger in your theme toggle) */
     @media (prefers-color-scheme: dark){
       :root{
         --gridline: rgba(255,255,255,.10);
@@ -403,7 +401,6 @@
         --sheet-hover: rgba(255,255,255,.05);
         --sheet-active: rgba(47,108,60,.18);
 
-        /* ✅ NEW: darker ready row bg so text stays readable */
         --ready-row-bg: rgba(47,108,60,.28);
         --ready-row-bg-hover: rgba(47,108,60,.34);
       }
@@ -422,9 +419,15 @@
         border-right:1px solid var(--gridline) !important;
       }
 
+      /* keep selection normal in dark too */
+      tbody tr.activeRow td{
+        background:var(--surface) !important;
+      }
+
       /* re-apply ready row bg in dark since tbody td overrides background */
       tbody tr.readyRow td{ background:var(--ready-row-bg) !important; }
       tbody tr.readyRow:hover td{ background:var(--ready-row-bg-hover) !important; }
+      tbody tr.readyRow.activeRow td{ background:var(--ready-row-bg) !important; }
 
       .muted{ color:var(--muted,#9CA3AF) !important; }
     }
@@ -712,9 +715,8 @@
       sfSelected: null,
       selectedRowId: null,
 
-      /* ✅ Spreadsheet-style sort state */
-      sortKey: null,   // column key
-      sortDir: 1       // 1 asc, -1 desc
+      sortKey: null,
+      sortDir: 1
     };
 
     const norm = v => (v||"").toString().trim().toLowerCase();
@@ -779,7 +781,7 @@
         d.totalAcres, d.totalHours, d.engineHours,
         d.odometerMiles, d.licensePlate,
         d.placedInServiceDate,
-        d.fieldReady, // ✅ include fieldReady in search too
+        d.fieldReady,
 
         d.licensePlateExpiration,
         d.licensePlateExp,
@@ -1423,7 +1425,6 @@
       setInterval(()=>{ if(!document.hidden) loadAll(); }, 60000);
     }
 
-    // ✅ live update after lifetime notes save from modal
     window.addEventListener("fv-shop-equip:lifetimeNotesSaved", (e)=>{
       try{
         const id = e?.detail?.id;
@@ -1441,7 +1442,6 @@
       }
     });
 
-    // ✅ NEW: live update after Field Ready toggle save from modal
     window.addEventListener("fv-shop-equip:fieldReadySaved", (e)=>{
       try{
         const id = e?.detail?.id;
