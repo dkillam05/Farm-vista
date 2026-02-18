@@ -27,6 +27,9 @@
   <!-- Firebase CONFIG FIRST -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
 
+  <!-- QR lib (match Add page) -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" onload="window.__qrReady=true;"></script>
+
   <style>
     :root{ --card-max:1100px; }
     :root{
@@ -145,7 +148,7 @@
       image-rendering:crisp-edges; border-radius:8px;
       border:1px solid var(--border); background:#fff;
     }
-    .qrnote{ margin:0; color:var(--muted); font-size:13px; }
+    .qrnote{ margin:0; color:var(--muted); font-size:13px; text-align:center; }
 
     .sheet footer{
       padding:12px 16px; border-top:1px solid var(--border);
@@ -287,7 +290,7 @@
       border-radius:16px;
       background:var(--surface,#ffffff);
       padding:16px 18px 14px;
-      box-shadow:0 18px 45px rgba(0,0,0,0.26);
+      box-shadow:0 18px 45px rgba(0,0,0,.26);
       text-align:center;
       border:1px solid var(--border);
     }
@@ -454,7 +457,25 @@
   </dialog>
 
   <script type="module">
-    import { ready, getFirestore, collection, query, where, onSnapshot } from '/Farm-vista/js/firebase-init.js';
+    /* =====================================================================
+       /Farm-vista/pages/equipment/actions/lookup.html  (FULL FILE)
+       Rev: 2026-02-18a
+
+       UPGRADE (per Dane):
+       ✅ If equipment has no QR image, show "Create QR Code" right in Lookup
+       ✅ Create QR matches Add page behavior:
+          - QR encodes Hub URL
+          - Generates high ECC PNG (dataURL)
+          - Saves to Firestore: equipment/{id}.qr.image + qr.updatedAt
+          - Immediately enables "Reprint QR" flow after creation
+       ===================================================================== */
+
+    import {
+      ready,
+      getFirestore,
+      collection, query, where, onSnapshot,
+      doc, setDoc, serverTimestamp
+    } from '/Farm-vista/js/firebase-init.js';
 
     const FV_LABEL_PDF_ENDPOINT = 'https://farmvista-pdf-label-300398089669.us-central1.run.app/label';
 
@@ -707,21 +728,62 @@
     function esc(s){
       return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
     }
+
     // --- Dynamic cut helpers (px <-> mm) ---
-function pxToMm(px){
-  // CSS pixels assume 96 DPI
-  return (px * 25.4) / 96;
-}
-function mmToPx(mm){
-  return (mm * 96) / 25.4;
-}
-function clampMm(v, lo, hi){
-  return Math.max(lo, Math.min(hi, v));
-}
-function roundUpMm(v){
-  // Round UP so cutter never clips content
-  return Math.ceil(v * 10) / 10; // 0.1mm precision
-}
+    function pxToMm(px){
+      // CSS pixels assume 96 DPI
+      return (px * 25.4) / 96;
+    }
+    function mmToPx(mm){
+      return (mm * 96) / 25.4;
+    }
+    function clampMm(v, lo, hi){
+      return Math.max(lo, Math.min(hi, v));
+    }
+    function roundUpMm(v){
+      // Round UP so cutter never clips content
+      return Math.ceil(v * 10) / 10; // 0.1mm precision
+    }
+
+    // ===== QR create (MATCH Add page) =====
+    async function waitQRReady(){
+      let tries=0;
+      while(!(window.__qrReady && window.QRCode && window.QRCode.CorrectLevel) && tries++<200){
+        await new Promise(r=>setTimeout(r,50));
+      }
+      if(!(window.QRCode && window.QRCode.CorrectLevel)) throw new Error('qr-lib');
+    }
+
+    async function makeQRForUrl(absUrl){
+      await waitQRReady();
+      const size=512, ecc=window.QRCode.CorrectLevel.H;
+      const holder=document.createElement('div');
+      new QRCode(holder,{ text:absUrl, width:size, height:size, colorDark:"#000000", colorLight:"#ffffff", correctLevel:ecc });
+
+      const node = await new Promise((res,rej)=>{
+        const start=Date.now();
+        (function check(){
+          const n = holder.querySelector('canvas') || holder.querySelector('img');
+          if(n) res(n);
+          else if(Date.now()-start>4000) rej(new Error('qr-timeout'));
+          else requestAnimationFrame(check);
+        })();
+      });
+
+      let canvas;
+      if(node.tagName==='CANVAS'){
+        canvas=node;
+      }else{
+        canvas=document.createElement('canvas'); canvas.width=size; canvas.height=size;
+        const ctx=canvas.getContext('2d');
+        await new Promise((res,rej)=>{
+          const img=new Image(); img.crossOrigin='anonymous';
+          img.onload=()=>{ ctx.drawImage(img,0,0,size,size); res(); };
+          img.onerror=rej; img.src=node.src;
+        });
+      }
+      return canvas.toDataURL('image/png');
+    }
 
     // State
     let __pending = null;
@@ -842,7 +904,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 .left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
 .make{ font-weight:0; font-size:18pt; line-height:1.05; white-space:nowrap; }
 .model{ font-weight:800; font-size:16pt; line-height:1.05; white-space:nowrap; margin-top:1mm; }
-.mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; }
+.mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; background:#fff; }
 .mid img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
 .right{ align-items:flex-end; text-align:right; }
 .lab{ font-weight:800; font-size:12pt; line-height:1.05; opacity:.85; white-space:nowrap; }
@@ -857,86 +919,79 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
     }
 
     // PREVIEW render: ALWAYS landscape/horizontal (even on phone)
-async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
-  const bust = (url && url.includes('?') ? '&' : '?') + '_=' + Date.now();
-  const qrSrc = url ? (url.startsWith('data:') ? url : (url + bust)) : '';
+    async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
+      const bust = (url && url.includes('?') ? '&' : '?') + '_=' + Date.now();
+      const qrSrc = url ? (url.startsWith('data:') ? url : (url + bust)) : '';
 
-  clearPreviewHost();
-  __previewQrSrc = qrSrc;
+      clearPreviewHost();
+      __previewQrSrc = qrSrc;
 
-  // Disable Create until we compute dynamic cut
-  pCreate.disabled = true;
+      // Disable Create until we compute dynamic cut
+      pCreate.disabled = true;
 
-  // Keep preview horizontal on all devices
-  if (mode === 'summary'){
-    const wrap = document.createElement('div');
-    wrap.className = 'pv-sf';
+      // Keep preview horizontal on all devices
+      if (mode === 'summary'){
+        const wrap = document.createElement('div');
+        wrap.className = 'pv-sf';
 
-    const q = document.createElement('div'); q.className='qr';
-    const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc; q.appendChild(img);
+        const q = document.createElement('div'); q.className='qr';
+        const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc; q.appendChild(img);
 
-    const lab = document.createElement('div'); lab.className='lab'; lab.textContent = 'VIN/Serial';
-    const val = document.createElement('div'); val.className='val'; val.textContent = serial6 || '—';
+        const lab = document.createElement('div'); lab.className='lab'; lab.textContent = 'VIN/Serial';
+        const val = document.createElement('div'); val.className='val'; val.textContent = serial6 || '—';
 
-    wrap.append(q, lab, val);
-    pHost.appendChild(wrap);
+        wrap.append(q, lab, val);
+        pHost.appendChild(wrap);
 
-    // Summary is fixed 62mm cut
-    __cutLenMm = 62;
-    pCreate.disabled = false;
-    return;
-  }
+        // Summary is fixed 62mm cut
+        __cutLenMm = 62;
+        pCreate.disabled = false;
+        return;
+      }
 
-  // Detailed preview
-  const wrap = document.createElement('div');
-  wrap.className = 'pv-long';
+      // Detailed preview
+      const wrap = document.createElement('div');
+      wrap.className = 'pv-long';
 
-  // Use the incoming cutLen for the initial draw (we'll re-measure and set the real value)
-  wrap.style.width = `${cutLenMm}mm`;
+      // Use the incoming cutLen for the initial draw (we'll re-measure and set the real value)
+      wrap.style.width = `${cutLenMm}mm`;
 
-  const left = document.createElement('div'); left.className='left';
-  const mk = document.createElement('div'); mk.className='make'; mk.textContent = make || '—';
-  const md = document.createElement('div'); md.className='model'; md.textContent = model || '—';
-  left.append(mk,md);
+      const left = document.createElement('div'); left.className='left';
+      const mk = document.createElement('div'); mk.className='make'; mk.textContent = make || '—';
+      const md = document.createElement('div'); md.className='model'; md.textContent = model || '—';
+      left.append(mk,md);
 
-  const mid = document.createElement('div'); mid.className='mid';
-  const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc; mid.appendChild(img);
+      const mid = document.createElement('div'); mid.className='mid';
+      const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc; mid.appendChild(img);
 
-  const right = document.createElement('div'); right.className='right';
-  const lab = document.createElement('div'); lab.className='lab'; lab.textContent='VIN/Serial';
-  const val = document.createElement('div'); val.className='val'; val.textContent = serial6 || '—';
-  right.append(lab,val);
+      const right = document.createElement('div'); right.className='right';
+      const lab = document.createElement('div'); lab.className='lab'; lab.textContent='VIN/Serial';
+      const val = document.createElement('div'); val.className='val'; val.textContent = serial6 || '—';
+      right.append(lab,val);
 
-  wrap.append(left,mid,right);
-  pHost.appendChild(wrap);
+      wrap.append(left,mid,right);
+      pHost.appendChild(wrap);
 
-    // ---- Dynamic cut measurement (measure CONTENT, not the forced box) ----
-  // Let the preview shrink to content so we can measure the true needed width.
-  // (If we measure while width is forced to 140mm, we just "discover" 140mm.)
-  wrap.style.width = 'fit-content';
+      // ---- Dynamic cut measurement (measure CONTENT, not the forced box) ----
+      wrap.style.width = 'fit-content';
 
-  // Wait for layout
-  await new Promise(r=>requestAnimationFrame(r));
-  await new Promise(r=>requestAnimationFrame(r));
+      await new Promise(r=>requestAnimationFrame(r));
+      await new Promise(r=>requestAnimationFrame(r));
 
-  // Measure the *natural* content width
-  const rect = wrap.getBoundingClientRect();
-  let measuredMm = pxToMm(rect.width);
+      const rect = wrap.getBoundingClientRect();
+      let measuredMm = pxToMm(rect.width);
 
-  // CUT BUFFER TEST: 0mm (tight as possible)
-  measuredMm = measuredMm + 1.0;
+      // CUT BUFFER (tight)
+      measuredMm = measuredMm + 1.0;
 
-  // Allow tight cuts (you can raise max later)
-  measuredMm = clampMm(measuredMm, 70, 210);
+      measuredMm = clampMm(measuredMm, 70, 210);
 
-  __cutLenMm = roundUpMm(measuredMm);
+      __cutLenMm = roundUpMm(measuredMm);
 
-  // Now force the preview to the computed cut length (so you SEE the cut)
-  wrap.style.width = `${__cutLenMm}mm`;
+      wrap.style.width = `${__cutLenMm}mm`;
 
-  pCreate.disabled = false;
-}
-
+      pCreate.disabled = false;
+    }
 
     function openDialog(d){
       try{ d.showModal(); }catch{ d.setAttribute('open',''); }
@@ -970,17 +1025,12 @@ async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
     });
 
     async function showOverlayAndYield(){
-      // IMPORTANT FIX:
-      // On desktop, <dialog> is in the "top layer" and will sit ABOVE normal DOM,
-      // so the overlay div won't be visible unless we close dialogs first.
-      // Phone overlay already works; this keeps that behavior and makes desktop work too.
       closeDialog(pDlg);
       closeDialog(cDlg);
       closeDialog(dlg);
 
       setPdfLoading(true, 'Creating label PDF…', 'Please keep this tab open.');
 
-      // iOS needs time to paint the overlay (harmless on desktop)
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
       await new Promise(r=>setTimeout(r, 80));
     }
@@ -1056,7 +1106,33 @@ async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
 
     pCreate.addEventListener('click', createPdf);
 
-    // Detail open logic (Hub button fixed here)
+    // ===== Shared: wire "Reprint QR" click to label flow (existing behavior) =====
+    function wireReprintFlow(d, url){
+      btnPrintQR.disabled = false;
+      btnPrintQR.textContent = 'Reprint QR';
+      btnPrintQR.onclick = ()=>{
+        const rawSerial = IS_STARFIRE ? (pickStarfireSerial(d) || (d.serial || '')) : (d.serial || '');
+        const s6 = serialLast6(rawSerial) || serialLast6(d.serial) || '';
+
+        __pending = {
+          url,
+          make: d.makeName || '',
+          model: d.modelName || '',
+          serial6: s6
+        };
+
+        __mode = IS_STARFIRE ? 'summary' : 'detailed';
+        __cutLenMm = (__mode === 'summary') ? 62 : 140;
+        clearPreviewHost();
+
+        const r = cDlg.querySelector(`input[name="labelMode"][value="${__mode}"]`);
+        if (r) r.checked = true;
+
+        openDialog(cDlg);
+      };
+    }
+
+    // Detail open logic (Hub button fixed here) + QR create when missing
     function openDetail(d){
       btnHub.classList.remove('disabled');
       btnHub.removeAttribute('aria-disabled');
@@ -1074,42 +1150,58 @@ async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
       if(ls) addRow('Serial (last 6)', ls);
       addRow('Notes', d.notes);
 
-      const url = getQrUrl(d);
       const labelText = [safe(d.modelName)].filter(Boolean).join(' ') + (ls ? ` - #${ls}` : '');
+
+      // Always show QR section in modal (either QR image or Create flow)
+      qrSection.hidden = false;
+
+      const url = getQrUrl(d);
+
       if (url){
         const bust = (url.includes('?') ? '&' : '?') + '_=' + Date.now();
         qrImg.src = url.startsWith('data:') ? url : (url + bust);
         qrImg.alt = `QR for ${labelText || TYPE_META.sing}`;
         qrLbl.textContent = labelText || TYPE_META.sing;
-        qrSection.hidden = false;
+
+        wireReprintFlow(d, url);
+      } else {
+        // No QR on equipment -> show Create QR Code (match Add page behavior)
+        qrImg.removeAttribute('src');
+        qrImg.alt = 'Equipment QR';
+        qrLbl.textContent = 'No QR image saved for this equipment.';
 
         btnPrintQR.disabled = false;
-        btnPrintQR.onclick = ()=>{
-          const rawSerial = IS_STARFIRE ? (pickStarfireSerial(d) || (d.serial || '')) : (d.serial || '');
-          const s6 = serialLast6(rawSerial) || serialLast6(d.serial) || '';
+        btnPrintQR.textContent = 'Create QR Code';
 
-          __pending = {
-            url,
-            make: d.makeName || '',
-            model: d.modelName || '',
-            serial6: s6
-          };
+        btnPrintQR.onclick = async ()=>{
+          const prevText = btnPrintQR.textContent;
+          try{
+            btnPrintQR.disabled = true;
+            btnPrintQR.textContent = 'Creating…';
 
-          __mode = IS_STARFIRE ? 'summary' : 'detailed';
-          __cutLenMm = (__mode === 'summary') ? 62 : 140;
-          clearPreviewHost();
+            const hubAbs = location.origin + `/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(d.id)}`;
+            const dataURL = await makeQRForUrl(hubAbs);
 
-          const r = cDlg.querySelector(`input[name="labelMode"][value="${__mode}"]`);
-          if (r) r.checked = true;
+            const db = getFirestore();
+            await setDoc(
+              doc(db,'equipment', d.id),
+              { qr: { image: dataURL, updatedAt: serverTimestamp() } },
+              { merge:true }
+            );
 
-          openDialog(cDlg);
+            // Update UI immediately to show QR + enable reprint
+            qrImg.src = dataURL;
+            qrImg.alt = `QR for ${labelText || TYPE_META.sing}`;
+            qrLbl.textContent = labelText || TYPE_META.sing;
+
+            wireReprintFlow(d, dataURL);
+          }catch(e){
+            console.error(e);
+            alert('Could not create QR code.');
+            btnPrintQR.disabled = false;
+            btnPrintQR.textContent = prevText || 'Create QR Code';
+          }
         };
-      } else {
-        qrImg.removeAttribute('src');
-        qrLbl.textContent = 'No QR image saved for this equipment.';
-        qrSection.hidden = false;
-        btnPrintQR.disabled = true;
-        btnPrintQR.onclick = null;
       }
 
       openDialog(dlg);
