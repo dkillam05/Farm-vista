@@ -1349,6 +1349,43 @@ import {
       refreshModels();
     }
   }
+  
+  function hydrateExtrasFromDoc(d){
+  if (state.editTypeKey === "implement"){
+    const impType = readAny(d, ['implementType','implement_type','subType','subtype','implementSubtype','implement_subtype']);
+    if (impType){
+      setExtraValue("implementType", impType);
+      const ctrl = findExtraEl("implementType");
+      if (ctrl) ctrl.dispatchEvent(new Event("change", { bubbles:true }));
+    }
+  }
+
+  if (state.editTypeKey === "construction"){
+    const conType = readAny(d, ['constructionType','construction_type','subType','subtype']);
+    if (conType){
+      setExtraValue("constructionType", conType);
+      const ctrl = findExtraEl("constructionType");
+      if (ctrl) ctrl.dispatchEvent(new Event("change", { bubbles:true }));
+    }
+  }
+
+  const keys = [
+    "placedInServiceDate",
+    "engineHours","separatorHours","odometerMiles","boomWidthFt","tankSizeGal","starfireCapable",
+    "workingWidthFt","numRows","rowSpacingIn","totalAcres","totalHours","bushelCapacityBu","augerDiameterIn","augerLengthFt",
+    "applicationType",
+    "licensePlate","licensePlateExp","insuranceExp","tireSizes","dotRequired","dotExpiration",
+    "trailerType","trailerPlate","trailerPlateExp","trailerDotRequired","lastDotInspection","gvwrLb",
+    "attachmentType",
+    "activationLevel","firmwareVersion"
+  ];
+
+  keys.forEach(k=>{
+    if(!d || !Object.prototype.hasOwnProperty.call(d, k)) return;
+    if(k === "starfireCapable") setExtraValue(k, boolify(d[k]));
+    else setExtraValue(k, d[k]);
+  });
+}
 
   function initExtrasEngineForEdit(eqDoc){
     const host = UI.editSheet.querySelector("#seExtras");
