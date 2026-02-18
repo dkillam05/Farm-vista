@@ -18,7 +18,7 @@
     video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:translateZ(0)}
     .guide{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
       width:min(60vw,60vh);height:min(60vw,60vh);
-      border:3px solid rgba(255,255,255,.9);border-radius:16px;
+      border:3px solid rgba(255,215,0,.95);border-radius:16px;
       box-shadow:0 0 0 9999px rgba(0,0,0,.28) inset;pointer-events:none}
     .hud{position:absolute;left:0;right:0;bottom:0;padding:calc(env(safe-area-inset-bottom,0px)+18px) 16px;
       display:flex;justify-content:center;background:linear-gradient(to top,rgba(0,0,0,.5),transparent)}
@@ -35,7 +35,7 @@
 <body>
   <div id="view" aria-label="QR Scanner">
     <video id="video" autoplay playsinline muted></video>
-    <div class="guide" aria-hidden="true"></div>
+    <div id="guide" class="guide" aria-hidden="true"></div>
 
     <div class="hud">
       <button id="closeBtn" class="btn" type="button">Close</button>
@@ -54,9 +54,23 @@
   <script src="https://unpkg.com/@zxing/browser@latest"></script>
   <script>
     const videoEl = document.getElementById('video');
+    const guideEl = document.getElementById('guide');
     const unsupported = document.getElementById('unsupported');
     const closeBtn = document.getElementById('closeBtn');
+
     let codeReader = null, stream = null, navigating = false;
+
+    // ROI scanning loop state
+    let scanTimer = null;
+    let lastCrop = null; // {sx,sy,sw,sh} in VIDEO PIXELS
+    const ROI_CANVAS_SIZE = 520;         // smaller = faster; keep square for QR
+    const SCAN_EVERY_MS   = 140;         // throttle decode attempts
+
+    // Offscreen canvas used for ROI-only decoding
+    const roiCanvas = document.createElement('canvas');
+    roiCanvas.width = ROI_CANVAS_SIZE;
+    roiCanvas.height = ROI_CANVAS_SIZE;
+    const roiCtx = roiCanvas.getContext('2d', { willReadFrequently: true });
 
     // Build hub URL EXACTLY like the lookup "Open Hub" button does
     function hubUrlFromId(id){
@@ -130,6 +144,101 @@
       go(`${location.origin}/Farm-vista/pages/equipment/actions/hub.html?code=${encodeURIComponent(raw)}`);
     }
 
+    function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
+
+    // Map guide rectangle (CSS pixels) -> source video pixels, accounting for object-fit: cover.
+    function computeCropRect(){
+      const vw = videoEl.videoWidth || 0;
+      const vh = videoEl.videoHeight || 0;
+      if (!vw || !vh) return null;
+
+      const vRect = videoEl.getBoundingClientRect();
+      const gRect = guideEl.getBoundingClientRect();
+
+      // Guide rect relative to the video element box (CSS px)
+      const gx = gRect.left - vRect.left;
+      const gy = gRect.top  - vRect.top;
+      const gw = gRect.width;
+      const gh = gRect.height;
+
+      // object-fit: cover mapping:
+      // scale video to fill the element; crop overflow equally from center.
+      const scale = Math.max(vRect.width / vw, vRect.height / vh);
+      const dispW = vw * scale;
+      const dispH = vh * scale;
+
+      const offX = (vRect.width  - dispW) / 2; // negative when cropped
+      const offY = (vRect.height - dispH) / 2;
+
+      // Convert guide rect to source video px
+      let sx = (gx - offX) / scale;
+      let sy = (gy - offY) / scale;
+      let sw = gw / scale;
+      let sh = gh / scale;
+
+      // Clamp to video bounds
+      sx = clamp(sx, 0, vw - 1);
+      sy = clamp(sy, 0, vh - 1);
+      sw = clamp(sw, 1, vw - sx);
+      sh = clamp(sh, 1, vh - sy);
+
+      return { sx, sy, sw, sh };
+    }
+
+    async function decodeROIOnce(){
+      if (navigating) return;
+      if (!codeReader) return;
+
+      // Ensure we have an up-to-date crop (recompute frequently to handle rotation/resize)
+      const crop = computeCropRect();
+      if (!crop) return;
+      lastCrop = crop;
+
+      try {
+        // Draw only the ROI into a square canvas (ZXing decodes this, not the full frame)
+        roiCtx.drawImage(
+          videoEl,
+          crop.sx, crop.sy, crop.sw, crop.sh,
+          0, 0, roiCanvas.width, roiCanvas.height
+        );
+
+        const result = await codeReader.decodeFromCanvas(roiCanvas);
+        if (result && result.getText) {
+          routeFromQR(result.getText());
+        }
+      } catch (e) {
+        // NotFoundException is normal when no QR is in ROI.
+        // Any other errors we also ignore to keep scanning.
+      }
+    }
+
+    function startROILoop(){
+      stopROILoop();
+      // Recompute crop more often on iOS because orientation + safe-area changes can shift layout
+      const tick = () => decodeROIOnce();
+      scanTimer = setInterval(tick, SCAN_EVERY_MS);
+
+      // Also refresh crop after layout changes
+      const refreshCrop = () => { lastCrop = computeCropRect(); };
+      window.addEventListener('resize', refreshCrop, { passive: true });
+      window.addEventListener('orientationchange', refreshCrop, { passive: true });
+
+      // Save handlers so stopAll can remove them
+      startROILoop._refreshCrop = refreshCrop;
+    }
+
+    function stopROILoop(){
+      if (scanTimer){
+        clearInterval(scanTimer);
+        scanTimer = null;
+      }
+      if (startROILoop._refreshCrop){
+        window.removeEventListener('resize', startROILoop._refreshCrop);
+        window.removeEventListener('orientationchange', startROILoop._refreshCrop);
+        startROILoop._refreshCrop = null;
+      }
+    }
+
     async function start(){
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
@@ -155,18 +264,26 @@
           video: videoConstraints,
           audio: false
         });
+
         videoEl.srcObject = stream;
+
+        // Wait for metadata so videoWidth/videoHeight are valid
+        await new Promise((resolve) => {
+          if (videoEl.readyState >= 1) return resolve();
+          videoEl.onloadedmetadata = () => resolve();
+        });
+
         await videoEl.play().catch(()=>{});
 
-        // Use QR-only reader for faster detection
+        // QR-only reader (we will decode from ROI canvas, not from full video)
         codeReader = new ZXingBrowser.BrowserQRCodeReader();
 
-        await codeReader.decodeFromVideoDevice(deviceId || null, videoEl, (result, err)=>{
-          if (result && result.getText) {
-            routeFromQR(result.getText());
-          }
-          // We ignore per-frame errors; ZXing keeps scanning
-        });
+        // Prime crop once layout is stable
+        lastCrop = computeCropRect();
+
+        // Start ROI-only scanning loop
+        startROILoop();
+
       } catch(e){
         console.error(e);
         unsupported.classList.add('show');
@@ -174,13 +291,20 @@
     }
 
     function stopAll(){
+      stopROILoop();
+
       try { codeReader && codeReader.reset(); } catch {}
+      codeReader = null;
+
       if (stream){
         for (const t of stream.getTracks()){
           try { t.stop(); } catch {}
         }
         stream = null;
       }
+
+      // Release camera element
+      try { videoEl.srcObject = null; } catch {}
     }
 
     closeBtn.addEventListener('click', ()=>{
