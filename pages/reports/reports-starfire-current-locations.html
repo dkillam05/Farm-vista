@@ -12,7 +12,7 @@
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
-  
+
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
@@ -48,7 +48,6 @@
       border-radius:14px;
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      /* allow combo panels to extend outside hero */
       overflow:visible;
     }
     .hero-head{
@@ -80,7 +79,6 @@
       gap:14px;
     }
 
-    /* Toolbar + back / print buttons */
     .toolbar{
       display:flex;
       flex-wrap:wrap;
@@ -127,7 +125,6 @@
       opacity:0.8;
     }
 
-    /* Filters */
     .filters{
       display:flex;
       flex-wrap:wrap;
@@ -167,7 +164,6 @@
       max-width:420px;
     }
 
-    /* Combo styles (same pattern as RTK page) */
     .buttonish{
       width:100%;
       font:inherit;
@@ -215,7 +211,7 @@
       border:1px solid var(--border);
       border-radius:var(--combo-radius);
       box-shadow:var(--combo-shadow);
-      z-index:5; /* under footer but above hero */
+      z-index:5;
       padding:8px;
       display:none;
     }
@@ -245,7 +241,6 @@
       font-size:0.85rem;
     }
 
-    /* List + cards */
     .sf-list{
       display:flex;
       flex-direction:column;
@@ -327,6 +322,7 @@
     }
   </style>
 
+  <!-- Ensure fv-shell -->
   <script>
     (function(){
       if(!customElements.get('fv-shell')){
@@ -360,10 +356,10 @@
     const STATE = {
       db: null,
       company: null,
-      receivers: [],      // [{id,label,locName,locType,locSince,duration,lastMoveDate,lastMover}]
+      receivers: [],      // [{id,label,locName,locType,locSince,durationDays,lastMoveDate,lastMover}]
       filtered: null,
       filters: {
-        location: 'all',  // 'all' | 'mounted' | 'storage'
+        location: 'all',  // all | equipment | rtk | storage | loaned
         search: ''
       }
     };
@@ -411,6 +407,41 @@
       return Array.isArray(STATE.filtered) ? STATE.filtered : STATE.receivers;
     }
 
+    // ✅ Normalize receiver location types to the new world:
+    // storage | loaned | rtk | equipment
+    // legacy implement/truck/tractor/... => equipment
+    function normalizeReceiverLocType(rawType, locName){
+      const t = String(rawType || '').toLowerCase().trim();
+      const name = String(locName || '').trim();
+
+      if(t === 'storage' || t === 'loaned' || t === 'rtk' || t === 'equipment') return t;
+      if(!t){
+        // infer from name (legacy / missing fields)
+        if(/^loaned out/i.test(name)) return 'loaned';
+        if(name === 'In Storage' || name === '') return 'storage';
+        // if it has a non-storage label, treat as equipment
+        return 'equipment';
+      }
+      // implement/truck/tractor/sprayer/combine/etc -> equipment
+      return 'equipment';
+    }
+
+    function locTypeLabel(t){
+      const tt = String(t || '').toLowerCase();
+      if(tt === 'equipment') return 'Mounted on equipment';
+      if(tt === 'rtk') return 'Mounted on RTK tower';
+      if(tt === 'loaned') return 'Loaned out';
+      return 'In Storage';
+    }
+
+    function locTypeShort(t){
+      const tt = String(t || '').toLowerCase();
+      if(tt === 'equipment') return 'Equipment';
+      if(tt === 'rtk') return 'RTK';
+      if(tt === 'loaned') return 'Loaned';
+      return 'Storage';
+    }
+
     /* ======================
        Company header / print
        ====================== */
@@ -441,7 +472,9 @@
     function summarizeFilters(){
       const rawLoc = (STATE.filters.location || 'all').toString().toLowerCase();
       let locLabel = 'All locations';
-      if(rawLoc === 'mounted') locLabel = 'Mounted on equipment';
+      if(rawLoc === 'equipment') locLabel = 'Mounted on equipment';
+      if(rawLoc === 'rtk') locLabel = 'Mounted on RTK tower';
+      if(rawLoc === 'loaned') locLabel = 'Loaned out';
       if(rawLoc === 'storage') locLabel = 'In storage only';
 
       const search = STATE.filters.search || '';
@@ -716,11 +749,19 @@
           <span class="summary-value">${formatNumber(totals.total)}</span>
         </div>
         <div class="summary-pill">
-          <span class="summary-label">Mounted</span>
-          <span class="summary-value">${formatNumber(totals.mounted)}</span>
+          <span class="summary-label">Equipment</span>
+          <span class="summary-value">${formatNumber(totals.equipment)}</span>
         </div>
         <div class="summary-pill">
-          <span class="summary-label">In Storage</span>
+          <span class="summary-label">RTK</span>
+          <span class="summary-value">${formatNumber(totals.rtk)}</span>
+        </div>
+        <div class="summary-pill">
+          <span class="summary-label">Loaned</span>
+          <span class="summary-value">${formatNumber(totals.loaned)}</span>
+        </div>
+        <div class="summary-pill">
+          <span class="summary-label">Storage</span>
           <span class="summary-value">${formatNumber(totals.storage)}</span>
         </div>
       </div>
@@ -738,14 +779,24 @@
           <div class="kpi-footnote">Active, non-archived receivers</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">Mounted On Equipment</div>
-          <div class="kpi-value">${formatNumber(totals.mounted)}</div>
-          <div class="kpi-footnote">Receivers currently assigned to a machine</div>
+          <div class="kpi-label">Mounted on Equipment</div>
+          <div class="kpi-value">${formatNumber(totals.equipment)}</div>
+          <div class="kpi-footnote">Receivers assigned to machines</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Mounted on RTK</div>
+          <div class="kpi-value">${formatNumber(totals.rtk)}</div>
+          <div class="kpi-footnote">Receivers assigned to RTK towers</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Loaned Out</div>
+          <div class="kpi-value">${formatNumber(totals.loaned)}</div>
+          <div class="kpi-footnote">Receivers currently loaned out</div>
         </div>
         <div class="kpi-card">
           <div class="kpi-label">In Storage</div>
           <div class="kpi-value">${formatNumber(totals.storage)}</div>
-          <div class="kpi-footnote">Receivers with no current machine assignment</div>
+          <div class="kpi-footnote">Receivers in storage</div>
         </div>
       </div>
     </section>
@@ -757,12 +808,12 @@
           <table>
             <thead>
               <tr>
-                <th style="width:26%">Receiver</th>
-                <th style="width:28%">Current location</th>
-                <th style="width:12%">Location type</th>
+                <th style="width:24%">Receiver</th>
+                <th style="width:30%">Current location</th>
+                <th style="width:12%">Type</th>
                 <th style="width:14%">Since</th>
-                <th style="width:10%">Days</th>
-                <th style="width:20%">Last moved by</th>
+                <th style="width:8%">Days</th>
+                <th style="width:12%">Last moved by</th>
               </tr>
             </thead>
             <tbody>
@@ -770,7 +821,7 @@
                 <tr>
                   <td>${escapeHtml(r.label)}</td>
                   <td>${escapeHtml(r.locName || 'In Storage')}</td>
-                  <td>${r.locType === 'mounted' ? 'Mounted' : 'Storage'}</td>
+                  <td>${escapeHtml(r.locTypeShort || '')}</td>
                   <td>${escapeHtml(r.locSince || r.lastMoveDate || '')}</td>
                   <td>${r.durationDays ?? ''}</td>
                   <td>${
@@ -815,10 +866,12 @@
 
       const totals = receivers.reduce((acc,r) => {
         acc.total++;
-        if(r.locType === 'mounted') acc.mounted++;
-        if(r.locType === 'storage') acc.storage++;
+        if(r.locType === 'equipment') acc.equipment++;
+        else if(r.locType === 'rtk') acc.rtk++;
+        else if(r.locType === 'loaned') acc.loaned++;
+        else acc.storage++;
         return acc;
-      }, { total:0, mounted:0, storage:0 });
+      }, { total:0, equipment:0, rtk:0, loaned:0, storage:0 });
 
       const html = buildPrintHtml({
         company,
@@ -855,7 +908,7 @@
     }
 
     /* ======================
-       Combo helpers (copied from RTK report pattern)
+       Combo helpers
        ====================== */
 
     function closeAllCombos(except=null){
@@ -868,7 +921,7 @@
       btn,
       panel,
       list,
-      searchInput = null,           // not used here, but kept for signature parity
+      searchInput = null,
       placeholder = 'All',
       includeAll = false,
       items = [],
@@ -948,7 +1001,6 @@
         searchInput.addEventListener('input', e => render(e.target.value));
       }
 
-      // initial render
       render('');
 
       return {
@@ -1025,7 +1077,8 @@
           effective,
           moveDate: m.moveDate || null,
           movedBy: m.movedBy || null,
-          toLocationName: m.toLocationName || null
+          toLocationName: m.toLocationName || null,
+          toLocationType: m.toLocationType || null
         });
       });
 
@@ -1033,10 +1086,20 @@
       const receivers = receiversRaw.map(r => {
         const d = r.data;
         const label = labelStarFire(d);
-        const locId   = d.starfireCurrentLocationId || null;
-        const locName = d.starfireCurrentLocationName || (locId ? 'Mounted on equipment' : 'In Storage');
+
+        const rawType = d.starfireCurrentLocationType || '';
+        const rawName = d.starfireCurrentLocationName || '';
+        const locType = normalizeReceiverLocType(rawType, rawName);
+
+        let locName = String(rawName || '').trim();
+        if(!locName){
+          if(locType === 'storage') locName = 'In Storage';
+          else if(locType === 'loaned') locName = 'Loaned Out';
+          else if(locType === 'rtk') locName = 'RTK Tower';
+          else locName = 'Mounted on equipment';
+        }
+
         const locSince = d.starfireCurrentLocationSince || null;
-        const locType = locId ? 'mounted' : 'storage';
 
         const moveInfo = latestMoveByReceiver.get(r.id) || null;
         const lastMoveDate = moveInfo?.moveDate || null;
@@ -1047,9 +1110,10 @@
         return {
           id: r.id,
           label,
-          locId,
           locName,
-          locType,
+          locType,                 // equipment|rtk|storage|loaned
+          locTypeLabel: locTypeLabel(locType),
+          locTypeShort: locTypeShort(locType),
           locSince,
           durationDays,
           lastMoveDate,
@@ -1069,22 +1133,26 @@
     function renderSummary(){
       const metaEl = $('#sfMeta');
       const list = getWorkingReceivers();
-      const total = list.length;
-      let mounted = 0;
-      let storage = 0;
-      list.forEach(r => {
-        if(r.locType === 'mounted') mounted++;
-        if(r.locType === 'storage') storage++;
-      });
+
+      const totals = list.reduce((acc,r) => {
+        acc.total++;
+        if(r.locType === 'equipment') acc.equipment++;
+        else if(r.locType === 'rtk') acc.rtk++;
+        else if(r.locType === 'loaned') acc.loaned++;
+        else acc.storage++;
+        return acc;
+      }, { total:0, equipment:0, rtk:0, loaned:0, storage:0 });
 
       if(!metaEl) return;
 
-      if(!total){
+      if(!totals.total){
         metaEl.textContent = '0 receivers';
         return;
       }
 
-      metaEl.textContent = `${total} receiver${total === 1 ? '' : 's'} • ${mounted} mounted • ${storage} in storage`;
+      metaEl.textContent =
+        `${totals.total} receiver${totals.total === 1 ? '' : 's'} • ` +
+        `${totals.equipment} equipment • ${totals.rtk} rtk • ${totals.loaned} loaned • ${totals.storage} storage`;
     }
 
     function renderList(){
@@ -1108,8 +1176,6 @@
         const card = document.createElement('article');
         card.className = 'sf-card';
 
-        const locTypeLabel = r.locType === 'mounted' ? 'Mounted on equipment' : 'In Storage';
-
         const sinceText = r.locSince || r.lastMoveDate || '—';
         const durText = durationLabel(r.locSince || r.lastMoveDate || null);
 
@@ -1123,7 +1189,7 @@
           </div>
           <div class="sf-sub">
             Currently: ${escapeHtml(r.locName || 'In Storage')}
-            · ${locTypeLabel}
+            · ${escapeHtml(r.locTypeLabel || '')}
           </div>
           <div class="sf-meta">
             <span class="sf-meta-pill">
@@ -1151,8 +1217,7 @@
       const q = (STATE.filters.search || '').trim().toLowerCase();
 
       const filtered = STATE.receivers.filter(r => {
-        if(location === 'mounted' && r.locType !== 'mounted') return false;
-        if(location === 'storage' && r.locType !== 'storage') return false;
+        if(location !== 'all' && r.locType !== location) return false;
 
         if(q){
           const hay = [
@@ -1198,15 +1263,17 @@
         });
       }
 
-      // Location dropdown combo (using same helper as RTK report)
+      // Location dropdown combo
       const locBtn   = $('#locBtn');
       const locPanel = $('#locPanel');
       const locList  = $('#locList');
 
       const locItems = [
-        { id: 'all',     label: 'All locations' },
-        { id: 'mounted', label: 'Mounted on equipment' },
-        { id: 'storage', label: 'In storage only' }
+        { id: 'all',       label: 'All locations' },
+        { id: 'equipment', label: 'Mounted on equipment' },
+        { id: 'rtk',       label: 'Mounted on RTK tower' },
+        { id: 'loaned',    label: 'Loaned out' },
+        { id: 'storage',   label: 'In storage only' }
       ];
 
       const locCombo = makeCombo({
