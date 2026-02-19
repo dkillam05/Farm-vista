@@ -286,6 +286,21 @@
       100%{opacity:0}
     }
 
+    /* Loaned out box */
+    .loanBox{
+      border:1px dashed var(--border);
+      border-radius:12px;
+      padding:12px;
+      background:rgba(47,108,60,.04);
+      display:none;
+    }
+    .loanBox.show{ display:block; }
+    .loanHint{
+      margin-top:6px;
+      font-size:0.8rem;
+      color:var(--muted,#67706B);
+    }
+
     /* Mobile: slightly taller than desktop, but still “about 10 rows” */
     @media (max-width: 640px){
       :root{ --combo-max-h:420px; }
@@ -346,7 +361,7 @@
           <div class="icon" aria-hidden="true">🔁</div>
           <div>
             <h1>Assign New Location</h1>
-            <p class="muted">Send this globe to a machine, an RTK tower, or back to storage.</p>
+            <p class="muted">Send this globe to a machine, an RTK tower, back to storage, or loan it out.</p>
           </div>
         </header>
 
@@ -362,6 +377,15 @@
               </div>
             </div>
             <div id="locCount" class="status">Loading GPS-capable equipment and RTK towers…</div>
+          </div>
+
+          <!-- Loaned Out extra -->
+          <div id="loanBox" class="loanBox" aria-live="polite">
+            <div class="field">
+              <label for="loanTo">Whom is it loaned to?</label>
+              <input id="loanTo" class="input" type="text" maxlength="20" placeholder="Type name (max 20)"/>
+              <div class="loanHint">This will show as: <strong>Loaned Out (Name)</strong> everywhere the location is displayed.</div>
+            </div>
           </div>
 
           <!-- Who is moving it -->
@@ -485,6 +509,17 @@
       const diffMs = now - d;
       if(diffMs < 0) return 0;
       return Math.floor(diffMs / (1000*60*60*24));
+    }
+
+    function cleanLoanName(v){
+      const s = String(v ?? "").trim();
+      // 20 chars max, hard stop
+      return s.length > 20 ? s.slice(0,20) : s;
+    }
+
+    function loanedLabel(name){
+      const n = cleanLoanName(name);
+      return n ? `Loaned Out (${n})` : "Loaned Out";
     }
 
     /* ---------- footer-aware dropdown sizing ---------- */
@@ -612,6 +647,7 @@
         const locType = String(x.starfireCurrentLocationType || "").toLowerCase();
         const locId = x.starfireCurrentLocationId || x.starfireMountedOnId || null;
 
+        // Only consider "occupied" when mounted on equipment with an ID
         if(locId){
           if(locType === "equipment" || (!locType && (x.starfireCurrentLocationName || "") !== "In Storage")){
             occupied.add(String(locId));
@@ -672,6 +708,30 @@
       return list;
     }
 
+    function syncLoanUIForSelection(){
+      const box = $("loanBox");
+      const inp = $("loanTo");
+      const loc = state.newLoc;
+      const isLoan = (loc && String(loc.type||"").toLowerCase() === "loaned");
+      box.classList.toggle("show", !!isLoan);
+
+      if(isLoan){
+        // keep current value but enforce max
+        inp.value = cleanLoanName(inp.value);
+        setTimeout(()=> inp.focus(), 0);
+      }else{
+        // do not keep stale name if user changes away; safer
+        inp.value = "";
+      }
+    }
+
+    function parseLoanNameFromLocationName(name){
+      const s = String(name || "").trim();
+      // Loaned Out (NAME)
+      const m = s.match(/^Loaned Out\s*\((.{1,20})\)\s*$/i);
+      return m ? String(m[1]).trim() : "";
+    }
+
     async function loadCurrentLocation(receiver){
       state.currentLoc = null;
       $("locMounted").textContent  = "Mounted On: —";
@@ -685,15 +745,31 @@
       }
 
       const x = receiver;
-      const label = x.starfireCurrentLocationName || "In Storage";
+
+      // Prefer explicit storage/loaned/equipment type. Fall back to label inference.
+      const rawType = String(x.starfireCurrentLocationType || "").toLowerCase();
+
+      // Loan name stored explicitly, but also recoverable from the label if older docs exist
+      const loanTo = cleanLoanName(x.starfireLoanedToName || parseLoanNameFromLocationName(x.starfireCurrentLocationName));
+
+      let label = x.starfireCurrentLocationName || "In Storage";
+      if(rawType === "loaned"){
+        label = loanedLabel(loanTo);
+      }
+
       const sinceISO = x.starfireCurrentLocationSince || null;
-      const locType = String(x.starfireCurrentLocationType || (label === "In Storage" ? "storage" : "equipment")).toLowerCase();
+
+      const locType = String(
+        rawType ||
+        (label === "In Storage" ? "storage" : "equipment")
+      ).toLowerCase();
 
       state.currentLoc = {
         type: locType,
-        id: (locType === "storage") ? "storage" : (x.starfireCurrentLocationId || null),
+        id: (locType === "storage" || locType === "loaned") ? locType : (x.starfireCurrentLocationId || null),
         label,
-        sinceISO
+        sinceISO,
+        loanTo: (locType === "loaned") ? loanTo : ""
       };
 
       $("locMounted").textContent = `Mounted On: ${label}`;
@@ -729,14 +805,19 @@
         searchable: true,
         formatter: x=>{
           if(x.type === "storage") return "In Storage";
+          if(x.type === "loaned") return "Loaned Out";
           if(x.type === "rtk") return labelRTK(x);
           return labelEquipment(x);
         },
         onPick: it=>{
           state.newLoc = it;
+
           if(it.type === "storage") $("locBtn").textContent = "In Storage";
+          else if(it.type === "loaned") $("locBtn").textContent = "Loaned Out";
           else if(it.type === "rtk") $("locBtn").textContent = labelRTK(it);
           else $("locBtn").textContent = labelEquipment(it);
+
+          syncLoanUIForSelection();
         }
       });
 
@@ -758,12 +839,15 @@
 
       if(locCombo){
         const storage = { id:"storage", type:"storage", key:"storage:storage", name:"In Storage" };
-        const items = [storage, ...state.equipment, ...state.rtkTowers];
+        const loaned  = { id:"loaned",  type:"loaned",  key:"loaned:loaned",  name:"Loaned Out" };
+
+        // Order: Storage + Loaned Out at the top (hard-coded), then equipment/towers
+        const items = [storage, loaned, ...state.equipment, ...state.rtkTowers];
         locCombo.setItems(items);
 
         const eqN = state.equipment?.length || 0;
         const rtkN = state.rtkTowers?.length || 0;
-        $("locCount").textContent = `${eqN} GPS-capable unit(s), ${rtkN} RTK tower(s), plus "In Storage".`;
+        $("locCount").textContent = `${eqN} GPS-capable unit(s), ${rtkN} RTK tower(s), plus "In Storage" and "Loaned Out".`;
       }
 
       if(empCombo) empCombo.setItems(state.employees);
@@ -824,14 +908,29 @@
       const me = auth.currentUser;
 
       const toType = (loc.type || "equipment").toLowerCase();
+
+      // Loaned Out requires a name
+      let loanTo = "";
+      if(toType === "loaned"){
+        loanTo = cleanLoanName($("loanTo").value);
+        if(!loanTo){
+          errEl.textContent = "Enter whom it is loaned to (max 20 characters).";
+          errEl.hidden = false;
+          $("loanTo").focus();
+          return;
+        }
+      }
+
       const toName = (toType === "storage") ? "In Storage"
+                   : (toType === "loaned") ? loanedLabel(loanTo)
                    : (toType === "rtk") ? labelRTK(loc)
                    : labelEquipment(loc);
-      const toId   = (toType === "storage") ? null : loc.id;
+
+      const toId   = (toType === "storage" || toType === "loaned") ? null : loc.id;
 
       const cur = state.currentLoc;
       const fromName = cur?.label || "In Storage";
-      const fromId   = (cur?.type && cur.type !== "storage" && cur?.id && cur.id !== "storage") ? cur.id : null;
+      const fromId   = (cur?.type && cur.type !== "storage" && cur.type !== "loaned" && cur?.id && cur.id !== "storage") ? cur.id : null;
 
       const movedBy = {
         employeeId: mover.id,
@@ -848,6 +947,7 @@
         toLocationId: toId,
         toLocationName: toName,
         toLocationType: toType,
+        toLoanedToName: (toType === "loaned") ? loanTo : null,
         moveDate,
         movedBy,
         createdAt: serverTimestamp(),
@@ -861,13 +961,25 @@
         await addDoc(collection(db,"starfireMoves"), payload);
 
         const ref = doc(db,"equipment", receiver.id);
-        await updateDoc(ref, {
+
+        // Keep a dedicated field for the loan name (filtering/future UI),
+        // but ALSO bake it into starfireCurrentLocationName so it shows everywhere immediately.
+        const receiverUpdate = {
           starfireCurrentLocationId: toId,
           starfireCurrentLocationName: toName,
           starfireCurrentLocationType: toType,
           starfireCurrentLocationSince: moveDate,
           updatedAt: serverTimestamp()
-        });
+        };
+
+        if(toType === "loaned"){
+          receiverUpdate.starfireLoanedToName = loanTo;
+        }else{
+          // clear prior loan name when not loaned
+          receiverUpdate.starfireLoanedToName = null;
+        }
+
+        await updateDoc(ref, receiverUpdate);
 
         toast("Location updated.");
 
@@ -875,6 +987,8 @@
         receiver.starfireCurrentLocationName = toName;
         receiver.starfireCurrentLocationType = toType;
         receiver.starfireCurrentLocationSince = moveDate;
+        receiver.starfireLoanedToName = (toType === "loaned") ? loanTo : null;
+
         await loadCurrentLocation(receiver);
 
         setTimeout(()=>{ window.location.href = STARFIRE_LIST_URL; }, 900);
@@ -908,6 +1022,15 @@
 
         hydrateCombos();
         autoDefaults();
+
+        // keep loan input trimmed live
+        $("loanTo").addEventListener("input", ()=>{
+          const v = cleanLoanName($("loanTo").value);
+          if($("loanTo").value !== v) $("loanTo").value = v;
+        });
+
+        // Hide loan UI until selected
+        syncLoanUIForSelection();
 
         if(!receivers.length){
           $("sfStatus").textContent = "No StarFire receivers found.";
