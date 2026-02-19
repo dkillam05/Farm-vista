@@ -51,6 +51,10 @@
       /* ✅ season-ready row highlight */
       --ready-row-bg: rgba(47,108,60,.14);     /* light mode */
       --ready-row-bg-hover: rgba(47,108,60,.18);
+
+      /* ✅ Unknown/Missing row highlight (light reddish) */
+      --missing-row-bg: rgba(179, 38, 30, .12);
+      --missing-row-bg-hover: rgba(179, 38, 30, .16);
     }
 
     html, body{
@@ -173,16 +177,17 @@
     }
     .cat-select{
       width:100%;
-      height:42px;
-      line-height:42px;
+      height:auto;
+      min-height:42px;
+      line-height:1.2;
       border-radius:12px;
       border:1px solid var(--border);
-      padding:0 12px;
+      padding:10px 12px;
       background:var(--card-surface,var(--surface));
       color:var(--text);
       font-size:16px;
       font-weight:850;
-      white-space:nowrap;
+      white-space:normal;
       overflow:hidden;
       text-overflow:ellipsis;
       box-sizing:border-box;
@@ -308,9 +313,19 @@
     tbody tr.readyRow:hover td{
       background:var(--ready-row-bg-hover);
     }
-
     tbody tr.readyRow.activeRow td{
       background:var(--ready-row-bg) !important;
+    }
+
+    /* ✅ Unknown/Missing row styling */
+    tbody tr.missingRow td{
+      background:var(--missing-row-bg);
+    }
+    tbody tr.missingRow:hover td{
+      background:var(--missing-row-bg-hover);
+    }
+    tbody tr.missingRow.activeRow td{
+      background:var(--missing-row-bg) !important;
     }
 
     .cell-title{font-weight:950;}
@@ -398,6 +413,10 @@
 
         --ready-row-bg: rgba(47,108,60,.28);
         --ready-row-bg-hover: rgba(47,108,60,.34);
+
+        /* ✅ Unknown/Missing row (dark mode) */
+        --missing-row-bg: rgba(179, 38, 30, .22);
+        --missing-row-bg-hover: rgba(179, 38, 30, .28);
       }
       .grid-viewport{ background:var(--surface) !important; }
       table.grid{ background:var(--surface) !important; color:var(--text) !important; }
@@ -421,6 +440,10 @@
       tbody tr.readyRow td{ background:var(--ready-row-bg) !important; }
       tbody tr.readyRow:hover td{ background:var(--ready-row-bg-hover) !important; }
       tbody tr.readyRow.activeRow td{ background:var(--ready-row-bg) !important; }
+
+      tbody tr.missingRow td{ background:var(--missing-row-bg) !important; }
+      tbody tr.missingRow:hover td{ background:var(--missing-row-bg-hover) !important; }
+      tbody tr.missingRow.activeRow td{ background:var(--missing-row-bg) !important; }
 
       .muted{ color:var(--muted,#9CA3AF) !important; }
     }
@@ -1101,12 +1124,27 @@
       );
     }
 
+    // ✅ NEW: treat "missing" like storage/loaned (not occupying a unit/tower)
+    function normalizeReceiverLocType(raw){
+      const t = String(raw || "").toLowerCase().trim();
+      if(!t) return "";
+      if(t === "storage" || t === "loaned" || t === "missing" || t === "rtk" || t === "equipment") return t;
+      return "equipment";
+    }
+
     function isStarfireNotInStorage(sf){
-      const t = norm(sf.starfireCurrentLocationType || "");
+      const t = normalizeReceiverLocType(sf.starfireCurrentLocationType || "");
       const name = String(sf.starfireCurrentLocationName || "").trim();
-      if(t === "storage") return false;
-      if(name === "In Storage") return false;
+      if(t === "storage" || t === "missing") return false;
+      if(name === "In Storage" || name === "Unknown / Missing") return false;
       return !!name;
+    }
+
+    function isStarfireMissing(sf){
+      const t = normalizeReceiverLocType(sf.starfireCurrentLocationType || "");
+      const name = String(sf.starfireCurrentLocationName || "").trim();
+      if(t === "missing") return true;
+      return name.toLowerCase() === "unknown / missing";
     }
 
     function sortValue(d, key){
@@ -1179,9 +1217,10 @@
         if(state.filter === "starfire"){
           const loc = d.starfireCurrentLocationName || "—";
           const since = d.starfireCurrentLocationSince || "";
-          const readyClass = isStarfireNotInStorage(d) ? " readyRow" : "";
+          const missingClass = isStarfireMissing(d) ? " missingRow" : "";
+          const readyClass = (!missingClass && isStarfireNotInStorage(d)) ? " readyRow" : "";
           return `
-            <tr data-id="${escapeHtml(d.id)}" data-kind="starfire" class="${readyClass.trim()}">
+            <tr data-id="${escapeHtml(d.id)}" data-kind="starfire" class="${(missingClass + readyClass).trim()}">
               <td class="wrap"><span class="cell-title">${escapeHtml(String(d.serial||""))}</span></td>
               <td class="kpi">${escapeHtml(serialLast4(d.serial||""))}</td>
               <td class="wrap">${escapeHtml(loc)}</td>
@@ -1312,10 +1351,11 @@
     }
 
     function currentLocationKind(sf){
-      const t = norm(sf?.starfireCurrentLocationType || "");
+      const t = normalizeReceiverLocType(sf?.starfireCurrentLocationType || "");
       const locId = sf?.starfireCurrentLocationId ? String(sf.starfireCurrentLocationId) : "";
       const name = String(sf?.starfireCurrentLocationName || "").trim();
 
+      if(t === "missing" || name === "Unknown / Missing") return { kind:"missing" };
       if(t === "loaned") return { kind:"loaned" };
       if(t === "storage" || name === "In Storage" || (!t && !locId)) return { kind:"storage" };
       if(t === "rtk" && locId) return { kind:"rtk", id: locId };
@@ -1324,100 +1364,102 @@
     }
 
     function buildLocationOptionsFor(sf){
-  sfLoc.innerHTML = "";
+      sfLoc.innerHTML = "";
 
-  const cur = currentLocationKind(sf);
-  const curKind = cur.kind;
-  const curId = cur.id ? String(cur.id) : "";
+      const cur = currentLocationKind(sf);
+      const curKind = cur.kind;
+      const curId = cur.id ? String(cur.id) : "";
 
-  const mkOpt = (payload, text)=>{
-    const opt=document.createElement("option");
-    opt.value = JSON.stringify(payload);
-    opt.textContent = text;
-    return opt;
-  };
+      const mkOpt = (payload, text)=>{
+        const opt=document.createElement("option");
+        opt.value = JSON.stringify(payload);
+        opt.textContent = text;
+        return opt;
+      };
 
-  // Group 1: Quick (always first)
-  const ogQuick = document.createElement("optgroup");
-  ogQuick.label = "Quick";
+      // Group 1: Quick (always first)
+      const ogQuick = document.createElement("optgroup");
+      ogQuick.label = "Quick";
 
-  if(curKind !== "storage"){
-    ogQuick.appendChild(mkOpt({ kind:"storage" }, "In Storage"));
-  }
-  if(curKind !== "loaned"){
-    ogQuick.appendChild(mkOpt({ kind:"loaned" }, "Loaned Out"));
-  }
-  if(ogQuick.children.length){
-    sfLoc.appendChild(ogQuick);
-  }
+      if(curKind !== "storage"){
+        ogQuick.appendChild(mkOpt({ kind:"storage" }, "In Storage"));
+      }
+      if(curKind !== "missing"){
+        ogQuick.appendChild(mkOpt({ kind:"missing" }, "Unknown / Missing"));
+      }
+      if(curKind !== "loaned"){
+        ogQuick.appendChild(mkOpt({ kind:"loaned" }, "Loaned Out"));
+      }
+      if(ogQuick.children.length){
+        sfLoc.appendChild(ogQuick);
+      }
 
-  // Group 2: Equipment (GPS Capable)  ✅ A→Z
-  const ogEquip = document.createElement("optgroup");
-  ogEquip.label = "Equipment (GPS Capable)";
+      // Group 2: Equipment (GPS Capable)  ✅ A→Z
+      const ogEquip = document.createElement("optgroup");
+      ogEquip.label = "Equipment (GPS Capable)";
 
-  const occEqIds = state.occupiedEquipmentIds || new Set();
-  const occEqLabels = state.occupiedEquipmentLabels || new Set();
+      const occEqIds = state.occupiedEquipmentIds || new Set();
+      const occEqLabels = state.occupiedEquipmentLabels || new Set();
 
-  const equipCandidates = (state.equipActive || [])
-    .filter(e=>{
-      const id = String(e?.id || "");
-      if(!id) return false;
+      const equipCandidates = (state.equipActive || [])
+        .filter(e=>{
+          const id = String(e?.id || "");
+          if(!id) return false;
 
-      if(!isEligibleStarfireMount(e)) return false;
+          if(!isEligibleStarfireMount(e)) return false;
 
-      if(curKind === "equip" && id === curId) return false;
+          if(curKind === "equip" && id === curId) return false;
 
-      if(occEqIds.has(id)) return false;
+          if(occEqIds.has(id)) return false;
 
-      const lbl = normSp(labelEquipment(e));
-      if(lbl && occEqLabels.has(lbl)) return false;
+          const lbl = normSp(labelEquipment(e));
+          if(lbl && occEqLabels.has(lbl)) return false;
 
-      return true;
-    })
-    .sort((a,b)=> labelEquipment(a).localeCompare(labelEquipment(b), undefined, { sensitivity:"base" }));
+          return true;
+        })
+        .sort((a,b)=> labelEquipment(a).localeCompare(labelEquipment(b), undefined, { sensitivity:"base" }));
 
-  equipCandidates.forEach(e=>{
-    ogEquip.appendChild(mkOpt({ kind:"equip", id: e.id }, labelEquipment(e)));
-  });
+      equipCandidates.forEach(e=>{
+        ogEquip.appendChild(mkOpt({ kind:"equip", id: e.id }, labelEquipment(e)));
+      });
 
-  if(ogEquip.children.length){
-    sfLoc.appendChild(ogEquip);
-  }
+      if(ogEquip.children.length){
+        sfLoc.appendChild(ogEquip);
+      }
 
-  // Group 3: RTK Towers  ✅ A→Z  ✅ ALWAYS LAST
-  const ogRTK = document.createElement("optgroup");
-  ogRTK.label = "RTK Towers";
+      // Group 3: RTK Towers  ✅ A→Z  ✅ ALWAYS LAST
+      const ogRTK = document.createElement("optgroup");
+      ogRTK.label = "RTK Towers";
 
-  const occRtkIds = state.occupiedRTKIds || new Set();
-  const occRtkNames = state.occupiedRTKNames || new Set();
+      const occRtkIds = state.occupiedRTKIds || new Set();
+      const occRtkNames = state.occupiedRTKNames || new Set();
 
-  const rtkCandidates = (state.rtkTowers || [])
-    .filter(t=>{
-      const id = String(t?.id || "");
-      if(!id) return false;
+      const rtkCandidates = (state.rtkTowers || [])
+        .filter(t=>{
+          const id = String(t?.id || "");
+          if(!id) return false;
 
-      if(curKind === "rtk" && id === curId) return false;
+          if(curKind === "rtk" && id === curId) return false;
 
-      if(occRtkIds.has(id)) return false;
+          if(occRtkIds.has(id)) return false;
 
-      const nm = normalizeRTKNameMaybe(t.name || t.towerName || t.label || t.id);
-      if(nm && occRtkNames.has(nm)) return false;
+          const nm = normalizeRTKNameMaybe(t.name || t.towerName || t.label || t.id);
+          if(nm && occRtkNames.has(nm)) return false;
 
-      return true;
-    })
-    .sort((a,b)=> labelRTK(a).localeCompare(labelRTK(b), undefined, { sensitivity:"base" }));
+          return true;
+        })
+        .sort((a,b)=> labelRTK(a).localeCompare(labelRTK(b), undefined, { sensitivity:"base" }));
 
-  rtkCandidates.forEach(t=>{
-    ogRTK.appendChild(mkOpt({ kind:"rtk", id: t.id }, labelRTK(t)));
-  });
+      rtkCandidates.forEach(t=>{
+        ogRTK.appendChild(mkOpt({ kind:"rtk", id: t.id }, labelRTK(t)));
+      });
 
-  if(ogRTK.children.length){
-    sfLoc.appendChild(ogRTK);
-  }
+      if(ogRTK.children.length){
+        sfLoc.appendChild(ogRTK);
+      }
 
-  sfLoc.selectedIndex = 0;
-}
-
+      sfLoc.selectedIndex = 0;
+    }
 
     function openStarfireSheet(sf){
       state.sfSelected = sf;
@@ -1452,7 +1494,7 @@
       state.all.forEach(x=>{
         if(norm(x.type) !== "starfire") return;
 
-        const t = norm(x.starfireCurrentLocationType || "");
+        const t = normalizeReceiverLocType(x.starfireCurrentLocationType || "");
         const locId = x.starfireCurrentLocationId || x.starfireMountedOnId || null;
         const locName = String(x.starfireCurrentLocationName || "").trim();
 
@@ -1462,10 +1504,11 @@
           return;
         }
 
-        if(t === "storage" || t === "loaned") return;
+        // ✅ treat missing like storage/loaned: no occupancy
+        if(t === "storage" || t === "loaned" || t === "missing") return;
 
         if(locId) occEqIds.add(String(locId));
-        if(locName && normSp(locName) !== normSp("In Storage") && !/^loaned out/i.test(locName)){
+        if(locName && normSp(locName) !== normSp("In Storage") && normSp(locName) !== normSp("Unknown / Missing") && !/^loaned out/i.test(locName)){
           occEqLabels.add(normSp(locName));
         }
       });
@@ -1518,11 +1561,11 @@
 
       const moveDate = (sfSince.value || "").trim() || todayISO();
 
-      const curTypeRaw = norm(state.sfSelected.starfireCurrentLocationType || "");
+      const curTypeRaw = normalizeReceiverLocType(state.sfSelected.starfireCurrentLocationType || "");
       const curName = String(state.sfSelected.starfireCurrentLocationName || "In Storage").trim() || "In Storage";
       const curId = state.sfSelected.starfireCurrentLocationId || null;
 
-      const fromId = (curTypeRaw && curTypeRaw !== "storage" && curTypeRaw !== "loaned") ? curId : null;
+      const fromId = (curTypeRaw && curTypeRaw !== "storage" && curTypeRaw !== "loaned" && curTypeRaw !== "missing") ? curId : null;
       const fromName = curName;
 
       const patch = {};
@@ -1542,6 +1585,17 @@
         patch.starfireCurrentLocationId = null;
         patch.starfireCurrentLocationName = "In Storage";
         patch.starfireCurrentLocationType = "storage";
+        patch.starfireCurrentLocationSince = moveDate;
+        patch.starfireLoanedToName = null;
+      } else if(kind === "missing"){
+        toType = "missing";
+        toId = null;
+        toName = "Unknown / Missing";
+        loanTo = null;
+
+        patch.starfireCurrentLocationId = null;
+        patch.starfireCurrentLocationName = "Unknown / Missing";
+        patch.starfireCurrentLocationType = "missing";
         patch.starfireCurrentLocationSince = moveDate;
         patch.starfireLoanedToName = null;
       } else if(kind === "loaned"){
