@@ -844,6 +844,7 @@
         searchable: true,
         formatter: x=>{
           if(x.type === "storage") return "In Storage";
+          if(x.type === "missing") return "Unknown / Missing";
           if(x.type === "loaned") return "Loaned Out";
           if(x.type === "rtk") return labelRTK(x);
           return labelEquipment(x);
@@ -852,6 +853,7 @@
           state.newLoc = it;
 
           if(it.type === "storage") $("locBtn").textContent = "In Storage";
+          else if(it.type === "missing") $("locBtn").textContent = "Unknown / Missing";
           else if(it.type === "loaned") $("locBtn").textContent = "Loaned Out";
           else if(it.type === "rtk") $("locBtn").textContent = labelRTK(it);
           else $("locBtn").textContent = labelEquipment(it);
@@ -878,14 +880,15 @@
 
       if(locCombo){
         const storage = { id:"storage", type:"storage", key:"storage:storage", name:"In Storage" };
+        const missing = { id:"missing", type:"missing", key:"missing:missing", name:"Unknown / Missing" };
         const loaned  = { id:"loaned",  type:"loaned",  key:"loaned:loaned",  name:"Loaned Out" };
 
-        const items = [storage, loaned, ...state.equipment, ...state.rtkTowers];
+        const items = [storage, missing, loaned, ...state.equipment, ...state.rtkTowers];
         locCombo.setItems(items);
 
         const eqN = state.equipment?.length || 0;
         const rtkN = state.rtkTowers?.length || 0;
-        $("locCount").textContent = `${eqN} eligible unit(s), ${rtkN} available RTK tower(s), plus "In Storage" and "Loaned Out".`;
+        $("locCount").textContent = `${eqN} eligible unit(s), ${rtkN} available RTK tower(s), plus "In Storage", "Unknown / Missing", and "Loaned Out".`;
       }
 
       if(empCombo) empCombo.setItems(state.employees);
@@ -944,7 +947,7 @@
       const auth = state.auth;
       const me = auth.currentUser;
 
-      // ✅ normalize outgoing type to match grid page: storage/loaned/rtk/equipment
+      // ✅ normalize outgoing type to match grid page: storage/missing/loaned/rtk/equipment
       const toType = (loc.type || "equipment").toLowerCase();
 
       let loanTo = "";
@@ -959,15 +962,16 @@
       }
 
       const toName = (toType === "storage") ? "In Storage"
+                   : (toType === "missing") ? "Unknown / Missing"
                    : (toType === "loaned") ? loanedLabel(loanTo)
                    : (toType === "rtk") ? labelRTK(loc)
                    : labelEquipment(loc);
 
-      const toId   = (toType === "storage" || toType === "loaned") ? null : loc.id;
+      const toId   = (toType === "storage" || toType === "loaned" || toType === "missing") ? null : loc.id;
 
       const cur = state.currentLoc;
       const fromName = cur?.label || "In Storage";
-      const fromId   = (cur?.type && cur.type !== "storage" && cur.type !== "loaned" && cur?.id && cur.id !== "storage") ? cur.id : null;
+      const fromId   = (cur?.type && cur.type !== "storage" && cur.type !== "loaned" && cur.type !== "missing" && cur?.id && cur.id !== "storage") ? cur.id : null;
 
       const movedBy = {
         employeeId: mover.id,
