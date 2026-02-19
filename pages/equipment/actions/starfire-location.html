@@ -423,7 +423,6 @@
       newLoc: null,
       mover: null,
 
-      // occupancy by ID + by label/name
       occupiedEquipmentIds: new Set(),
       occupiedEquipmentLabels: new Set(),
       occupiedRTKIds: new Set(),
@@ -436,6 +435,14 @@
 
     const last6 = v => String(v||"").slice(-6);
     const norm = s => String(s ?? "").toLowerCase().replace(/\s+/g," ").trim();
+
+    function normalizeReceiverLocType(raw){
+      const t = String(raw || "").toLowerCase().trim();
+      if(!t) return "";
+      if(t === "storage" || t === "loaned" || t === "rtk" || t === "equipment") return t;
+      // ✅ legacy / messy: implement/truck/tractor/etc all count as equipment-mounted
+      return "equipment";
+    }
 
     function labelStarFire(row){
       const model = row.modelName || row.model || row.name || "StarFire";
@@ -457,10 +464,6 @@
     }
 
     function normalizeRTKNameMaybe(raw){
-      // We want to match:
-      //  - "De Land"
-      //  - "RTK Tower (De Land)"
-      //  - "RTK Tower De Land"
       const s = String(raw || "").trim();
       if(!s) return "";
       const m = s.match(/^rtk\s*tower\s*\((.+)\)\s*$/i);
@@ -515,7 +518,6 @@
     }
 
     function isTruthyFlag(v){
-      // handles: true, "true", 1, "1", "yes"
       if(v === true) return true;
       if(v === 1) return true;
       const s = String(v ?? "").toLowerCase().trim();
@@ -523,8 +525,6 @@
     }
 
     function isEligibleStarfireMount(eq){
-      // Your data may store this flag in different places.
-      // Keep this permissive so we don't "randomly" drop planters.
       return (
         isTruthyFlag(eq?.starfireCapable) ||
         isTruthyFlag(eq?.gpsCapable) ||
@@ -534,7 +534,6 @@
       );
     }
 
-    /* ---------- footer-aware dropdown sizing ---------- */
     function numCssPx(v){
       const n = parseFloat(String(v||"").trim());
       return Number.isFinite(n) ? n : 0;
@@ -633,7 +632,6 @@
       };
     }
 
-    /* ---------- Firestore loading ---------- */
     async function loadStarFireReceivers(){
       const db = state.db;
       const snap = await getDocs(collection(db,'equipment'));
@@ -652,23 +650,23 @@
 
         list.push({ id:d.id, ...x });
 
-        const locType = String(x.starfireCurrentLocationType || "").toLowerCase();
+        const locTypeRaw = String(x.starfireCurrentLocationType || "").toLowerCase();
+        const locType = normalizeReceiverLocType(locTypeRaw);
         const locId = x.starfireCurrentLocationId || x.starfireMountedOnId || null;
         const locName = String(x.starfireCurrentLocationName || "").trim();
 
-        // EQUIPMENT occupancy
-        if(locType === "equipment"){
-          if(locId) occEqIds.add(String(locId));
-          if(locName) occEqLabels.add(norm(locName));
-        } else if(!locType && locName && norm(locName) !== norm("In Storage") && !/^loaned out/i.test(locName)){
-          // legacy: treat any non-storage, non-loaned label as "occupied equipment label"
-          occEqLabels.add(norm(locName));
-        }
-
-        // RTK occupancy (by id and by name)
         if(locType === "rtk"){
           if(locId) occRtkIds.add(String(locId));
           if(locName) occRtkNames.add(normalizeRTKNameMaybe(locName));
+          return;
+        }
+
+        if(locType === "storage" || locType === "loaned") return;
+
+        // ✅ equipment-mounted (includes legacy implement/truck/tractor/etc)
+        if(locId) occEqIds.add(String(locId));
+        if(locName && norm(locName) !== norm("In Storage") && !/^loaned out/i.test(locName)){
+          occEqLabels.add(norm(locName));
         }
       });
 
@@ -695,19 +693,13 @@
       snap.forEach(d=>{
         const x = d.data() || {};
 
-        // hide starfire units from equipment list
         if(String(x.type||"").toLowerCase() === "starfire") return;
-
-        // hide archived
         if(String(x.status||'active').toLowerCase() === 'archived') return;
 
-        // eligibility (permissive)
         if(!isEligibleStarfireMount(x)) return;
 
-        // occupied by ID
         if(occupiedIds.has(String(d.id))) return;
 
-        // occupied by label (match your UI reality)
         const thisLabel = norm(labelEquipment({ id:d.id, ...x }));
         if(thisLabel && occupiedLabels.has(thisLabel)) return;
 
@@ -730,7 +722,6 @@
       snap.forEach(d=>{
         const x = d.data() || {};
 
-        // Filter towers already occupied by a StarFire:
         if(occIds.has(String(d.id))) return;
 
         const towerName = normalizeRTKNameMaybe(x.name || x.towerName || x.label || d.id);
@@ -795,7 +786,10 @@
       }
 
       const x = receiver;
-      const rawType = String(x.starfireCurrentLocationType || "").toLowerCase();
+
+      // ✅ normalize legacy types to equipment
+      const rawType = normalizeReceiverLocType(x.starfireCurrentLocationType);
+
       const loanTo = cleanLoanName(x.starfireLoanedToName || parseLoanNameFromLocationName(x.starfireCurrentLocationName));
 
       let label = x.starfireCurrentLocationName || "In Storage";
@@ -950,6 +944,7 @@
       const auth = state.auth;
       const me = auth.currentUser;
 
+      // ✅ normalize outgoing type to match grid page: storage/loaned/rtk/equipment
       const toType = (loc.type || "equipment").toLowerCase();
 
       let loanTo = "";
