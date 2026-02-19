@@ -449,7 +449,8 @@
       currentLoc: null,
       newLoc: null,
       mover: null,
-      occupiedEquipmentIds: new Set()
+      occupiedEquipmentIds: new Set(),
+      occupiedEquipmentLabels: new Set()
     };
 
     const qs = new URLSearchParams(location.search);
@@ -458,6 +459,7 @@
 
     /* ---------- helpers ---------- */
     const last6 = v => String(v||"").slice(-6);
+    const norm = s => String(s ?? "").toLowerCase().replace(/\s+/g," ").trim();
 
     function labelStarFire(row){
       const model = row.modelName || row.model || row.name || "StarFire";
@@ -474,7 +476,8 @@
     }
 
     function labelRTK(row){
-      return (row?.name || row?.towerName || row?.label || row?.id || "RTK Tower").toString().trim();
+      const name = (row?.name || row?.towerName || row?.label || row?.id || "").toString().trim();
+      return name ? `RTK Tower (${name})` : "RTK Tower";
     }
 
     function itemKey(it){
@@ -636,27 +639,47 @@
       const db = state.db;
       const snap = await getDocs(collection(db,'equipment'));
       const list = [];
-      const occupied = new Set();
+      const occupiedIds = new Set();
+      const occupiedLabels = new Set();
+
       snap.forEach(d=>{
         const x = d.data() || {};
         const type = String(x.type||'').toLowerCase();
         if(type !== 'starfire') return;
         if(String(x.status||'active').toLowerCase() === 'archived') return;
+
         list.push({ id:d.id, ...x });
 
+        // Occupancy sources:
+        // 1) ID-based (best when present)
+        // 2) Label-based (critical for your current dataset where many StarFires only have a location NAME)
         const locType = String(x.starfireCurrentLocationType || "").toLowerCase();
         const locId = x.starfireCurrentLocationId || x.starfireMountedOnId || null;
+        const locName = String(x.starfireCurrentLocationName || "").trim();
 
-        // Only consider "occupied" when mounted on equipment with an ID
-        if(locId){
-          if(locType === "equipment" || (!locType && (x.starfireCurrentLocationName || "") !== "In Storage")){
-            occupied.add(String(locId));
-          }
+        // ID-based occupancy when mounted on equipment with an ID
+        if(locId && (locType === "equipment")){
+          occupiedIds.add(String(locId));
+        }
+
+        // Label-based occupancy (covers cases where the receiver only stored the equipment label)
+        // If it's explicitly equipment, trust the name.
+        if(locType === "equipment" && locName){
+          occupiedLabels.add(norm(locName));
+        }
+
+        // Backward-compat: if type missing but name looks like a real mount (not storage/loaned),
+        // treat it as occupied-by-label. This helps legacy docs.
+        if(!locType && locName && norm(locName) !== norm("In Storage") && !/^loaned out/i.test(locName)){
+          occupiedLabels.add(norm(locName));
         }
       });
+
       list.sort((a,b)=> labelStarFire(a).localeCompare(labelStarFire(b)));
       state.receivers = list;
-      state.occupiedEquipmentIds = occupied;
+      state.occupiedEquipmentIds = occupiedIds;
+      state.occupiedEquipmentLabels = occupiedLabels;
+
       $("sfStatus").textContent = `${list.length} StarFire receiver(s) found.`;
       return list;
     }
@@ -665,14 +688,30 @@
       const db = state.db;
       const snap = await getDocs(collection(db,'equipment'));
       const list = [];
-      const occupied = state.occupiedEquipmentIds || new Set();
+
+      const occupiedIds = state.occupiedEquipmentIds || new Set();
+      const occupiedLabels = state.occupiedEquipmentLabels || new Set();
+
       snap.forEach(d=>{
         const x = d.data() || {};
+
+        // only GPS-capable equipment is eligible
         if(x.starfireCapable !== true) return;
+
+        // hide archived
         if(String(x.status||'active').toLowerCase() === 'archived') return;
-        if(occupied.has(String(d.id))) return;
+
+        // Exclude units already occupied by a StarFire:
+        // 1) block by equipment doc ID (when StarFires stored a reliable toId)
+        if(occupiedIds.has(String(d.id))) return;
+
+        // 2) block by equipment display label (covers your current reality: StarFires store locationName strings)
+        const thisLabel = norm(labelEquipment({ id:d.id, ...x }));
+        if(thisLabel && occupiedLabels.has(thisLabel)) return;
+
         list.push({ id:d.id, type:"equipment", key:`equipment:${d.id}`, ...x });
       });
+
       list.sort((a,b)=> labelEquipment(a).localeCompare(labelEquipment(b)));
       state.equipment = list;
       return list;
@@ -988,6 +1027,18 @@
         receiver.starfireCurrentLocationType = toType;
         receiver.starfireCurrentLocationSince = moveDate;
         receiver.starfireLoanedToName = (toType === "loaned") ? loanTo : null;
+
+        // Rebuild occupancy sets so the dropdown instantly reflects the new assignment
+        // (important: label-based blocking)
+        state.occupiedEquipmentIds = state.occupiedEquipmentIds || new Set();
+        state.occupiedEquipmentLabels = state.occupiedEquipmentLabels || new Set();
+
+        if(toType === "equipment" && toId){
+          state.occupiedEquipmentIds.add(String(toId));
+        }
+        if(toType === "equipment" && toName){
+          state.occupiedEquipmentLabels.add(norm(toName));
+        }
 
         await loadCurrentLocation(receiver);
 
