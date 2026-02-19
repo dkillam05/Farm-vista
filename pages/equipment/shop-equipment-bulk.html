@@ -916,7 +916,7 @@
         let arr = active.filter(d => norm(d.type) === "starfire");
         if(q) arr = arr.filter(d => matchesSearch(d, q));
         if(!state.sortKey){
-          arr.sort((a,b)=> String(a.serial||"").localeCompare(String(b.serial||"")));
+          arr.sort((a,b)=> String(a.serial||"").localeCompare(String(b.serial||""), undefined, { sensitivity:"base" }));
         }
         return arr;
       }
@@ -1061,7 +1061,6 @@
       return ls ? `${model} (#${ls})` : model;
     }
 
-    // ✅ Requested format
     function labelRTK(row){
       const name = (row?.name || row?.towerName || row?.label || row?.id || "").toString().trim();
       return name ? `RTK Tower (${name})` : "RTK Tower";
@@ -1086,7 +1085,6 @@
       return n ? `Loaned Out (${n})` : "Loaned Out";
     }
 
-    // ✅ permissive GPS flag (prevents "random missing planters")
     function isTruthyFlag(v){
       if(v === true) return true;
       if(v === 1) return true;
@@ -1353,50 +1351,62 @@
       }
 
       // RTK Towers: exclude occupied (ID + normalized name), hide current
+      // ✅ SORT A→Z by labelRTK
       const ogRTK = document.createElement("optgroup");
       ogRTK.label = "RTK Towers";
 
       const occRtkIds = state.occupiedRTKIds || new Set();
       const occRtkNames = state.occupiedRTKNames || new Set();
 
-      if(state.rtkTowers && state.rtkTowers.length){
-        state.rtkTowers.forEach(t=>{
-          const id = String(t.id||"");
-          if(!id) return;
-          if(curKind === "rtk" && id === curId) return;
-
-          if(occRtkIds.has(id)) return;
+      const rtkCandidates = (state.rtkTowers || [])
+        .filter(t=>{
+          const id = String(t?.id || "");
+          if(!id) return false;
+          if(curKind === "rtk" && id === curId) return false;
+          if(occRtkIds.has(id)) return false;
 
           const nm = normalizeRTKNameMaybe(t.name || t.towerName || t.label || t.id);
-          if(nm && occRtkNames.has(nm)) return;
+          if(nm && occRtkNames.has(nm)) return false;
 
-          ogRTK.appendChild(mkOpt({ kind:"rtk", id: t.id }, labelRTK(t)));
-        });
-      }
+          return true;
+        })
+        .sort((a,b)=> labelRTK(a).localeCompare(labelRTK(b), undefined, { sensitivity:"base" }));
+
+      rtkCandidates.forEach(t=>{
+        ogRTK.appendChild(mkOpt({ kind:"rtk", id: t.id }, labelRTK(t)));
+      });
+
       if(ogRTK.children.length){
         sfLoc.appendChild(ogRTK);
       }
 
       // Equipment: permissive eligible + exclude occupied (ID + label), hide current
+      // ✅ SORT A→Z by labelEquipment
       const ogEquip = document.createElement("optgroup");
       ogEquip.label = "Equipment (GPS Capable)";
 
       const occEqIds = state.occupiedEquipmentIds || new Set();
       const occEqLabels = state.occupiedEquipmentLabels || new Set();
 
-      state.equipActive.forEach(e=>{
-        const id = String(e.id || "");
-        if(!id) return;
+      const equipCandidates = (state.equipActive || [])
+        .filter(e=>{
+          const id = String(e?.id || "");
+          if(!id) return false;
 
-        if(!isEligibleStarfireMount(e)) return;
+          if(!isEligibleStarfireMount(e)) return false;
 
-        if(curKind === "equip" && id === curId) return;
+          if(curKind === "equip" && id === curId) return false;
 
-        if(occEqIds.has(id)) return;
+          if(occEqIds.has(id)) return false;
 
-        const lbl = normSp(labelEquipment(e));
-        if(lbl && occEqLabels.has(lbl)) return;
+          const lbl = normSp(labelEquipment(e));
+          if(lbl && occEqLabels.has(lbl)) return false;
 
+          return true;
+        })
+        .sort((a,b)=> labelEquipment(a).localeCompare(labelEquipment(b), undefined, { sensitivity:"base" }));
+
+      equipCandidates.forEach(e=>{
         ogEquip.appendChild(mkOpt({ kind:"equip", id: e.id }, labelEquipment(e)));
       });
 
@@ -1431,7 +1441,6 @@
       if(sfLoanTo.value !== v) sfLoanTo.value = v;
     });
 
-    // ✅ Rebuild BOTH equipment+rtk occupancy sets from receiver docs
     function rebuildOccupiedSets(){
       const occEqIds = new Set();
       const occEqLabels = new Set();
@@ -1453,7 +1462,6 @@
 
         if(t === "storage" || t === "loaned") return;
 
-        // equipment-mounted: ANY type other than storage/loaned/rtk counts (covers messy legacy)
         if(locId) occEqIds.add(String(locId));
         if(locName && normSp(locName) !== normSp("In Storage") && !/^loaned out/i.test(locName)){
           occEqLabels.add(normSp(locName));
@@ -1489,7 +1497,7 @@
         fromLocationName: fromName || "In Storage",
         toLocationId: toId || null,
         toLocationName: toName || "In Storage",
-        toLocationType: toType, // normalized: storage/loaned/rtk/equipment
+        toLocationType: toType,
         toLoanedToName: loanToName || null,
         moveDate,
         movedBy: moverFromAuth(),
@@ -1508,12 +1516,10 @@
 
       const moveDate = (sfSince.value || "").trim() || todayISO();
 
-      // current (before change)
       const curTypeRaw = norm(state.sfSelected.starfireCurrentLocationType || "");
       const curName = String(state.sfSelected.starfireCurrentLocationName || "In Storage").trim() || "In Storage";
       const curId = state.sfSelected.starfireCurrentLocationId || null;
 
-      // Normalize "from" id: only keep for equipment/rtk, not storage/loaned
       const fromId = (curTypeRaw && curTypeRaw !== "storage" && curTypeRaw !== "loaned") ? curId : null;
       const fromName = curName;
 
@@ -1585,7 +1591,6 @@
           return;
         }
 
-        // occupied guard: Equipment (ID + label)
         const id = String(e.id||"");
         const lbl = normSp(labelEquipment(e));
         if((state.occupiedEquipmentIds||new Set()).has(id) || (lbl && (state.occupiedEquipmentLabels||new Set()).has(lbl))){
@@ -1593,7 +1598,6 @@
           return;
         }
 
-        // ✅ normalize "toType" to equipment, regardless of actual equipment type
         toType = "equipment";
         toId = e.id;
         toName = labelEquipment(e);
@@ -1611,7 +1615,6 @@
       try{
         const db = getFirestore();
 
-        // 1) Write move log (same as StarFire Update page)
         await writeStarfireMoveLog({
           receiver: state.sfSelected,
           fromName,
@@ -1623,16 +1626,13 @@
           loanToName: loanTo
         });
 
-        // 2) Update receiver doc
         await updateDoc(doc(db, "equipment", state.sfSelected.id), {
           ...patch,
           updatedAt: serverTimestamp()
         });
 
-        // update local row
         Object.assign(state.sfSelected, patch);
 
-        // rebuild occupied sets after changes so dropdown is instantly right
         rebuildOccupiedSets();
 
         closeSheet(sfSheet);
@@ -1857,10 +1857,7 @@
 
     (async()=>{
       await ready;
-
-      // Ensure auth is initialized so movedBy is correct
       getAuth();
-
       renderFilterDropdown();
       enableGridPinch();
       await loadAll();
