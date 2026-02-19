@@ -1324,98 +1324,100 @@
     }
 
     function buildLocationOptionsFor(sf){
-      sfLoc.innerHTML = "";
+  sfLoc.innerHTML = "";
 
-      const cur = currentLocationKind(sf);
-      const curKind = cur.kind;
-      const curId = cur.id ? String(cur.id) : "";
+  const cur = currentLocationKind(sf);
+  const curKind = cur.kind;
+  const curId = cur.id ? String(cur.id) : "";
 
-      const mkOpt = (payload, text)=>{
-        const opt=document.createElement("option");
-        opt.value = JSON.stringify(payload);
-        opt.textContent = text;
-        return opt;
-      };
+  const mkOpt = (payload, text)=>{
+    const opt=document.createElement("option");
+    opt.value = JSON.stringify(payload);
+    opt.textContent = text;
+    return opt;
+  };
 
-      const ogQuick = document.createElement("optgroup");
-      ogQuick.label = "Quick";
+  // Group 1: Quick (always first)
+  const ogQuick = document.createElement("optgroup");
+  ogQuick.label = "Quick";
 
-      if(curKind !== "storage"){
-        ogQuick.appendChild(mkOpt({ kind:"storage" }, "In Storage"));
-      }
-      if(curKind !== "loaned"){
-        ogQuick.appendChild(mkOpt({ kind:"loaned" }, "Loaned Out"));
-      }
-      if(ogQuick.children.length){
-        sfLoc.appendChild(ogQuick);
-      }
+  if(curKind !== "storage"){
+    ogQuick.appendChild(mkOpt({ kind:"storage" }, "In Storage"));
+  }
+  if(curKind !== "loaned"){
+    ogQuick.appendChild(mkOpt({ kind:"loaned" }, "Loaned Out"));
+  }
+  if(ogQuick.children.length){
+    sfLoc.appendChild(ogQuick);
+  }
 
-      // RTK Towers: exclude occupied (ID + normalized name), hide current
-      // ✅ SORT A→Z by labelRTK
-      const ogRTK = document.createElement("optgroup");
-      ogRTK.label = "RTK Towers";
+  // Group 2: Equipment (GPS Capable)  ✅ A→Z
+  const ogEquip = document.createElement("optgroup");
+  ogEquip.label = "Equipment (GPS Capable)";
 
-      const occRtkIds = state.occupiedRTKIds || new Set();
-      const occRtkNames = state.occupiedRTKNames || new Set();
+  const occEqIds = state.occupiedEquipmentIds || new Set();
+  const occEqLabels = state.occupiedEquipmentLabels || new Set();
 
-      const rtkCandidates = (state.rtkTowers || [])
-        .filter(t=>{
-          const id = String(t?.id || "");
-          if(!id) return false;
-          if(curKind === "rtk" && id === curId) return false;
-          if(occRtkIds.has(id)) return false;
+  const equipCandidates = (state.equipActive || [])
+    .filter(e=>{
+      const id = String(e?.id || "");
+      if(!id) return false;
 
-          const nm = normalizeRTKNameMaybe(t.name || t.towerName || t.label || t.id);
-          if(nm && occRtkNames.has(nm)) return false;
+      if(!isEligibleStarfireMount(e)) return false;
 
-          return true;
-        })
-        .sort((a,b)=> labelRTK(a).localeCompare(labelRTK(b), undefined, { sensitivity:"base" }));
+      if(curKind === "equip" && id === curId) return false;
 
-      rtkCandidates.forEach(t=>{
-        ogRTK.appendChild(mkOpt({ kind:"rtk", id: t.id }, labelRTK(t)));
-      });
+      if(occEqIds.has(id)) return false;
 
-      if(ogRTK.children.length){
-        sfLoc.appendChild(ogRTK);
-      }
+      const lbl = normSp(labelEquipment(e));
+      if(lbl && occEqLabels.has(lbl)) return false;
 
-      // Equipment: permissive eligible + exclude occupied (ID + label), hide current
-      // ✅ SORT A→Z by labelEquipment
-      const ogEquip = document.createElement("optgroup");
-      ogEquip.label = "Equipment (GPS Capable)";
+      return true;
+    })
+    .sort((a,b)=> labelEquipment(a).localeCompare(labelEquipment(b), undefined, { sensitivity:"base" }));
 
-      const occEqIds = state.occupiedEquipmentIds || new Set();
-      const occEqLabels = state.occupiedEquipmentLabels || new Set();
+  equipCandidates.forEach(e=>{
+    ogEquip.appendChild(mkOpt({ kind:"equip", id: e.id }, labelEquipment(e)));
+  });
 
-      const equipCandidates = (state.equipActive || [])
-        .filter(e=>{
-          const id = String(e?.id || "");
-          if(!id) return false;
+  if(ogEquip.children.length){
+    sfLoc.appendChild(ogEquip);
+  }
 
-          if(!isEligibleStarfireMount(e)) return false;
+  // Group 3: RTK Towers  ✅ A→Z  ✅ ALWAYS LAST
+  const ogRTK = document.createElement("optgroup");
+  ogRTK.label = "RTK Towers";
 
-          if(curKind === "equip" && id === curId) return false;
+  const occRtkIds = state.occupiedRTKIds || new Set();
+  const occRtkNames = state.occupiedRTKNames || new Set();
 
-          if(occEqIds.has(id)) return false;
+  const rtkCandidates = (state.rtkTowers || [])
+    .filter(t=>{
+      const id = String(t?.id || "");
+      if(!id) return false;
 
-          const lbl = normSp(labelEquipment(e));
-          if(lbl && occEqLabels.has(lbl)) return false;
+      if(curKind === "rtk" && id === curId) return false;
 
-          return true;
-        })
-        .sort((a,b)=> labelEquipment(a).localeCompare(labelEquipment(b), undefined, { sensitivity:"base" }));
+      if(occRtkIds.has(id)) return false;
 
-      equipCandidates.forEach(e=>{
-        ogEquip.appendChild(mkOpt({ kind:"equip", id: e.id }, labelEquipment(e)));
-      });
+      const nm = normalizeRTKNameMaybe(t.name || t.towerName || t.label || t.id);
+      if(nm && occRtkNames.has(nm)) return false;
 
-      if(ogEquip.children.length){
-        sfLoc.appendChild(ogEquip);
-      }
+      return true;
+    })
+    .sort((a,b)=> labelRTK(a).localeCompare(labelRTK(b), undefined, { sensitivity:"base" }));
 
-      sfLoc.selectedIndex = 0;
-    }
+  rtkCandidates.forEach(t=>{
+    ogRTK.appendChild(mkOpt({ kind:"rtk", id: t.id }, labelRTK(t)));
+  });
+
+  if(ogRTK.children.length){
+    sfLoc.appendChild(ogRTK);
+  }
+
+  sfLoc.selectedIndex = 0;
+}
+
 
     function openStarfireSheet(sf){
       state.sfSelected = sf;
