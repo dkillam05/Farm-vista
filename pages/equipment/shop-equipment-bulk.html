@@ -1267,97 +1267,86 @@
       }
     }
 
+    // ✅ NEW: determine current location "kind" so we can HIDE it from the dropdown
+    function currentLocationKind(sf){
+      const t = norm(sf?.starfireCurrentLocationType || "");
+      const locId = sf?.starfireCurrentLocationId ? String(sf.starfireCurrentLocationId) : "";
+      const name = String(sf?.starfireCurrentLocationName || "").trim();
+
+      if(t === "loaned") return { kind:"loaned" };
+      if(t === "storage" || name === "In Storage" || (!t && !locId)) return { kind:"storage" };
+      if(t === "rtk" && locId) return { kind:"rtk", id: locId };
+      if(locId) return { kind:"equip", id: locId };
+      return { kind:"storage" };
+    }
+
+    // ✅ Updated: Grouped dropdown + hide current location option to shorten list
     function buildLocationOptionsFor(sf){
       sfLoc.innerHTML = "";
 
-      // Hard-coded options first
-      const optStorage = document.createElement("option");
-      optStorage.value = JSON.stringify({ kind:"storage" });
-      optStorage.textContent = "In Storage";
-      sfLoc.appendChild(optStorage);
+      const cur = currentLocationKind(sf);
+      const curKind = cur.kind;
+      const curId = cur.id ? String(cur.id) : "";
 
-      const optLoaned = document.createElement("option");
-      optLoaned.value = JSON.stringify({ kind:"loaned" });
-      optLoaned.textContent = "Loaned Out";
-      sfLoc.appendChild(optLoaned);
+      const mkOpt = (payload, text)=>{
+        const opt=document.createElement("option");
+        opt.value = JSON.stringify(payload);
+        opt.textContent = text;
+        return opt;
+      };
 
-      const sep=document.createElement("option");
-      sep.disabled=true;
-      sep.textContent="────────";
-      sfLoc.appendChild(sep);
+      // Group 1: Quick
+      const ogQuick = document.createElement("optgroup");
+      ogQuick.label = "Quick";
 
-      // RTK towers
-      if(state.rtkTowers && state.rtkTowers.length){
-        state.rtkTowers.forEach(t=>{
-          const opt=document.createElement("option");
-          opt.value = JSON.stringify({ kind:"rtk", id: t.id });
-          opt.textContent = labelRTK(t);
-          sfLoc.appendChild(opt);
-        });
-
-        const sep2=document.createElement("option");
-        sep2.disabled=true;
-        sep2.textContent="────────";
-        sfLoc.appendChild(sep2);
+      if(curKind !== "storage"){
+        ogQuick.appendChild(mkOpt({ kind:"storage" }, "In Storage"));
+      }
+      if(curKind !== "loaned"){
+        ogQuick.appendChild(mkOpt({ kind:"loaned" }, "Loaned Out"));
+      }
+      if(ogQuick.children.length){
+        sfLoc.appendChild(ogQuick);
       }
 
-      // Equipment options (GPS-capable only, active-only, not occupied by other StarFires)
+      // Group 2: RTK Towers (hide current tower)
+      const ogRTK = document.createElement("optgroup");
+      ogRTK.label = "RTK Towers";
+
+      if(state.rtkTowers && state.rtkTowers.length){
+        state.rtkTowers.forEach(t=>{
+          const id = String(t.id||"");
+          if(!id) return;
+          if(curKind === "rtk" && id === curId) return;
+          ogRTK.appendChild(mkOpt({ kind:"rtk", id: t.id }, labelRTK(t)));
+        });
+      }
+      if(ogRTK.children.length){
+        sfLoc.appendChild(ogRTK);
+      }
+
+      // Group 3: Equipment (GPS-capable only, active-only, NOT occupied, and hide current equipment)
+      const ogEquip = document.createElement("optgroup");
+      ogEquip.label = "Equipment (GPS Capable)";
+
       const occupied = state.occupiedEquipmentIds || new Set();
-      const currentEquipId = sf?.starfireCurrentLocationId ? String(sf.starfireCurrentLocationId) : "";
 
       state.equipActive.forEach(e=>{
         const id = String(e.id || "");
         if(!id) return;
         if(e.starfireCapable !== true) return;
-        if(occupied.has(id) && id !== currentEquipId) return;
+        if(curKind === "equip" && id === curId) return;
+        if(occupied.has(id)) return;
 
-        const opt=document.createElement("option");
-        opt.value = JSON.stringify({ kind:"equip", id: e.id });
-        opt.textContent = labelEquipment(e);
-        sfLoc.appendChild(opt);
+        ogEquip.appendChild(mkOpt({ kind:"equip", id: e.id }, labelEquipment(e)));
       });
-    }
 
-    function pickCurrentOptionFor(sf){
-      const t = norm(sf.starfireCurrentLocationType || "");
-      const locId = sf.starfireCurrentLocationId ? String(sf.starfireCurrentLocationId) : "";
-      const name = String(sf.starfireCurrentLocationName || "").trim();
-
-      // Loan: pre-fill name
-      if(t === "loaned"){
-        sfLoc.value = JSON.stringify({ kind:"loaned" });
-        sfLoanTo.value = cleanLoanName(sf.starfireLoanedToName || "");
-        if(!sfLoanTo.value){
-          // try to parse Loaned Out (Name)
-          const m = name.match(/^Loaned Out\s*\((.{1,20})\)\s*$/i);
-          if(m) sfLoanTo.value = cleanLoanName(m[1]);
-        }
-        syncLoanUI();
-        return;
+      if(ogEquip.children.length){
+        sfLoc.appendChild(ogEquip);
       }
 
-      // Storage
-      if(t === "storage" || name === "In Storage" || (!t && !locId)){
-        sfLoc.value = JSON.stringify({ kind:"storage" });
-        syncLoanUI();
-        return;
-      }
-
-      // RTK
-      if(t === "rtk" && locId){
-        const v = JSON.stringify({ kind:"rtk", id: locId });
-        if([...sfLoc.options].some(o=>o.value === v)) sfLoc.value = v;
-        syncLoanUI();
-        return;
-      }
-
-      // Equipment
-      if(locId){
-        const v = JSON.stringify({ kind:"equip", id: locId });
-        if([...sfLoc.options].some(o=>o.value === v)) sfLoc.value = v;
-      }
-
-      syncLoanUI();
+      // Default selection: first available option
+      sfLoc.selectedIndex = 0;
     }
 
     function openStarfireSheet(sf){
@@ -1370,7 +1359,10 @@
       sfSince.value = (sf.starfireCurrentLocationSince || todayISO());
       sfCurrentPill.textContent = `Current: ${sf.starfireCurrentLocationName || "—"}`;
 
-      pickCurrentOptionFor(sf);
+      // Since we hide the current option, start clean
+      sfLoanTo.value = "";
+      syncLoanUI();
+
       openSheet(sfSheet);
     }
 
@@ -1443,8 +1435,7 @@
         if(patch.starfireCurrentLocationType === "equipment" && patch.starfireCurrentLocationId){
           const occ = state.occupiedEquipmentIds || new Set();
           const id = String(patch.starfireCurrentLocationId);
-          const currentEquipId = state.sfSelected?.starfireCurrentLocationId ? String(state.sfSelected.starfireCurrentLocationId) : "";
-          if(occ.has(id) && id !== currentEquipId){
+          if(occ.has(id)){
             showError("That unit already has a StarFire mounted.");
             return;
           }
