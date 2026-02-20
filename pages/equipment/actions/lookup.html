@@ -47,6 +47,12 @@
       --sf-serial-font: 16pt;
       --sf-serial-font-sm: 13pt;
       --sf-lab-font: 10pt;
+
+      /* ✅ Tile font behavior:
+         - Default stays the same
+         - JS will shrink ONLY when text doesn't fit */
+      --tile-title-font: 16px;        /* current default */
+      --tile-title-font-min: 12px;    /* smallest allowed */
     }
 
     html,body{ max-width:100vw; overflow-x:hidden; }
@@ -104,7 +110,16 @@
       -webkit-tap-highlight-color: transparent;
     }
     .card:hover{ transform:translateY(-1px); box-shadow:0 12px 28px rgba(0,0,0,.12); }
-    .card-title{ font-weight:800; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+    /* ✅ Title stays 16px unless it doesn't fit, then JS shrinks it per-row */
+    .card-title{
+      font-weight:800;
+      font-size:var(--tile-title-font);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      min-width:0;
+    }
 
     .badge{
       display:inline-flex; align-items:center; gap:6px;
@@ -459,7 +474,7 @@
   <script type="module">
     /* =====================================================================
        /Farm-vista/pages/equipment/actions/lookup.html  (FULL FILE)
-       Rev: 2026-02-18a
+       Rev: 2026-02-20a
 
        UPGRADE (per Dane):
        ✅ If equipment has no QR image, show "Create QR Code" right in Lookup
@@ -468,6 +483,10 @@
           - Generates high ECC PNG (dataURL)
           - Saves to Firestore: equipment/{id}.qr.image + qr.updatedAt
           - Immediately enables "Reprint QR" flow after creation
+
+       ✅ NEW: Tile titles auto-shrink ONLY when needed (so the full line fits)
+          - Default font stays the same
+          - If the row would ellipsis, we reduce font down to a minimum
        ===================================================================== */
 
     import {
@@ -575,6 +594,46 @@
     const hubUrl = (id) =>
       `${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}`;
 
+    // ✅ Auto-shrink titles ONLY when needed (per-row)
+    function fitCardTitles(){
+      const root = list;
+      if (!root) return;
+
+      const cs = getComputedStyle(document.documentElement);
+      const base = parseFloat(cs.getPropertyValue('--tile-title-font')) || 16;
+      const min  = parseFloat(cs.getPropertyValue('--tile-title-font-min')) || 12;
+
+      const titles = root.querySelectorAll('.card-title');
+      if (!titles.length) return;
+
+      // Run after layout (important on iOS)
+      requestAnimationFrame(()=>requestAnimationFrame(()=>{
+        titles.forEach(el=>{
+          // Reset to default first
+          el.style.fontSize = base + 'px';
+
+          // If it fits at default, we're done
+          if (el.scrollWidth <= el.clientWidth) return;
+
+          // Binary search font-size between min..base
+          let lo = min, hi = base, best = min;
+          for (let i=0;i<10;i++){
+            const mid = (lo + hi) / 2;
+            el.style.fontSize = mid + 'px';
+            // Force a read (layout)
+            const fits = el.scrollWidth <= el.clientWidth;
+            if (fits){
+              best = mid;
+              lo = mid;
+            } else {
+              hi = mid;
+            }
+          }
+          el.style.fontSize = Math.max(min, Math.min(base, best)) + 'px';
+        });
+      }));
+    }
+
     function render(){
       const q = (qInput.value || '').toLowerCase().trim();
 
@@ -646,6 +705,9 @@
         });
         list.appendChild(wrap);
       });
+
+      // ✅ After DOM paint, shrink only the ones that would ellipsis
+      fitCardTitles();
     }
 
     // Overlay
@@ -1272,6 +1334,8 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 
     function resume(){
       attachListener();
+      // Re-fit titles on return / orientation changes
+      fitCardTitles();
     }
 
     (async()=>{
@@ -1280,6 +1344,10 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       syncRadios();
 
       qInput.addEventListener('input', render);
+
+      // ✅ Re-fit on resize/orientation (iOS especially)
+      window.addEventListener('resize', fitCardTitles, { passive:true });
+      window.addEventListener('orientationchange', ()=>setTimeout(fitCardTitles, 60), { passive:true });
 
       // keep listener stable across iOS/backgrounding
       window.addEventListener('pageshow', resume);
