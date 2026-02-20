@@ -118,16 +118,22 @@
     }
     .card:hover{ transform:translateY(-1px); box-shadow:0 12px 28px rgba(0,0,0,.12); }
 
+    /* ✅ Container clips; NO ellipsis (so iOS never forces "...") */
     .card-title{
       font-weight:800;
       font-size:var(--tile-title-font);
       line-height:1.15;
       white-space:nowrap;
       overflow:hidden;
-      text-overflow:ellipsis; /* should not show once JS fits */
+      /* text-overflow:ellipsis;  <-- REMOVED on purpose */
       min-width:0;
       width:100%;
       display:block;
+    }
+
+    /* ✅ Scale/shrink happens on the inner span (transform affects visual) */
+    .card-title-text{
+      display:inline-block;
       transform-origin:left center;
       will-change:transform;
     }
@@ -481,13 +487,13 @@
   <script type="module">
     /* =====================================================================
        /Farm-vista/pages/equipment/actions/lookup.html  (FULL FILE)
-       Rev: 2026-02-20e
+       Rev: 2026-02-20f
 
        FIX (per Dane):
-       ✅ Titles NEVER wrap (single line).
-       ✅ Default 16px; shrink only when needed (down to 8px).
-       ✅ If still too long at 8px, apply light scaleX squeeze (capped) so no "...".
-       ✅ Removed syntax/runtime errors that stopped the page from loading.
+       ✅ NEVER wraps. Single line only.
+       ✅ NO ellipsis ever (we removed text-overflow:ellipsis).
+       ✅ Shrink that one row (down to --tile-title-font-min).
+       ✅ If still too long, scaleX the INNER span so it visually fits.
        ===================================================================== */
 
     import {
@@ -498,7 +504,6 @@
     } from '/Farm-vista/js/firebase-init.js';
 
     const FV_LABEL_PDF_ENDPOINT = 'https://farmvista-pdf-label-300398089669.us-central1.run.app/label';
-
     const $ = (sel, root=document) => root.querySelector(sel);
 
     // Page elements
@@ -643,7 +648,7 @@
       try{ d.close(); }catch{ d.removeAttribute('open'); }
     }
 
-    // ✅ shrink-to-fit + (rare) scaleX squeeze
+    // ✅ shrink-to-fit + scaleX squeeze ON INNER SPAN
     function fitCardTitles(){
       if (!list) return;
 
@@ -651,33 +656,40 @@
       const BASE = parseFloat(cs.getPropertyValue('--tile-title-font')) || 16;
       const MIN  = parseFloat(cs.getPropertyValue('--tile-title-font-min')) || 8;
 
-      const titles = list.querySelectorAll('.card-title');
-      if (!titles.length) return;
+      const spans = list.querySelectorAll('.card-title-text');
+      if (!spans.length) return;
 
       requestAnimationFrame(()=>requestAnimationFrame(()=>{
-        titles.forEach(el=>{
-          el.style.transform = '';
-          el.style.fontSize = BASE + 'px';
+        spans.forEach(span=>{
+          const wrap = span.closest('.card-title');
+          if (!wrap) return;
 
-          if (el.scrollWidth <= el.clientWidth) return;
+          // reset
+          span.style.transform = '';
+          span.style.fontSize = BASE + 'px';
 
+          // if fits, done
+          if (span.scrollWidth <= wrap.clientWidth) return;
+
+          // binary search font size down to MIN
           let low = MIN, high = BASE, best = MIN;
           for (let i=0;i<16;i++){
             const mid = (low + high) / 2;
-            el.style.fontSize = mid + 'px';
-            if (el.scrollWidth <= el.clientWidth){
+            span.style.fontSize = mid + 'px';
+            if (span.scrollWidth <= wrap.clientWidth){
               best = mid;
               low = mid;
             } else {
               high = mid;
             }
           }
-          el.style.fontSize = Math.max(MIN, Math.min(BASE, best)) + 'px';
+          span.style.fontSize = Math.max(MIN, Math.min(BASE, best)) + 'px';
 
-          if (el.scrollWidth > el.clientWidth){
-            const ratio = el.clientWidth / el.scrollWidth;
-            const clamped = Math.max(0.75, Math.min(1, ratio));
-            el.style.transform = `scaleX(${clamped})`;
+          // if still too wide, scaleX (visual) to fit
+          if (span.scrollWidth > wrap.clientWidth){
+            const ratio = wrap.clientWidth / span.scrollWidth;
+            const clamped = Math.max(0.60, Math.min(1, ratio)); // allow heavy squeeze if needed
+            span.style.transform = `scaleX(${clamped})`;
           }
         });
       }));
@@ -745,7 +757,12 @@
 
           const title = document.createElement('div');
           title.className='card-title';
-          title.textContent = displayLine(d);
+
+          const span = document.createElement('span');
+          span.className = 'card-title-text';
+          span.textContent = displayLine(d);
+          title.appendChild(span);
+
           left.append(title);
 
           const right = document.createElement('div');
