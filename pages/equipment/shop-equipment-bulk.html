@@ -663,7 +663,6 @@
         </div>
         <div class="field">
           <label for="sfSince">Location Since</label>
-          <!-- ✅ MUST NOT be editable on this page -->
           <input id="sfSince" class="input" readonly>
         </div>
       </div>
@@ -708,6 +707,9 @@
     } from "/Farm-vista/js/firebase-init.js";
 
     const $ = s => document.querySelector(s);
+
+    // ✅ Natural sort (so #2 comes before #10)
+    const COLLATOR = new Intl.Collator(undefined, { numeric:true, sensitivity:"base" });
 
     const alertBox = $("#alert");
     const tbody = $("#tbody");
@@ -776,7 +778,6 @@
     const norm = v => (v||"").toString().trim().toLowerCase();
     const normSp = s => String(s ?? "").toLowerCase().replace(/\s+/g," ").trim();
 
-    // ✅ FIX: treat missing status and "Active" as active; only exclude archived
     const isActive = d => norm(d.status || "active") !== "archived";
 
     const todayISO = ()=>{
@@ -958,7 +959,7 @@
         let arr = active.filter(d => norm(d.type) === "starfire");
         if(q) arr = arr.filter(d => matchesSearch(d, q));
         if(!state.sortKey){
-          arr.sort((a,b)=> String(a.serial||"").localeCompare(String(b.serial||""), undefined, { sensitivity:"base" }));
+          arr.sort((a,b)=> COLLATOR.compare(String(a.serial||""), String(b.serial||"")));
         }
         return arr;
       }
@@ -973,9 +974,9 @@
         arr.sort((a,b)=>{
           const an=(a.unitId||a.name||"").toLowerCase();
           const bn=(b.unitId||b.name||"").toLowerCase();
-          if(an<bn) return -1;
-          if(an>bn) return 1;
-          return Number(b.year||0)-Number(a.year||0);
+          const c = COLLATOR.compare(an, bn);
+          if(c !== 0) return c;
+          return (Number(b.year||0)-Number(a.year||0));
         });
       }
 
@@ -1097,13 +1098,11 @@
       return ls ? `${mm} (#${ls})` : mm;
     }
 
-    // ✅ NEW: same label, but also includes Unit ID / Unit # when present
     function labelEquipmentWithUnitId(row){
       const base = labelEquipment(row);
       const uid = (row?.unitId != null && String(row.unitId).trim()) ? String(row.unitId).trim() : "";
       if(!uid) return base;
 
-      // insert " / UNIT" before " (#xxxxxx)" if present
       const idx = base.indexOf(" (#");
       if(idx > 0){
         return base.slice(0, idx) + ` / ${uid}` + base.slice(idx);
@@ -1157,7 +1156,6 @@
       );
     }
 
-    // ✅ treat "missing" like storage/loaned (not occupying a unit/tower)
     function normalizeReceiverLocType(raw){
       const t = String(raw || "").toLowerCase().trim();
       if(!t) return "";
@@ -1180,7 +1178,7 @@
       return name.toLowerCase() === "unknown / missing";
     }
 
-    // ✅ NEW: unified "current location" display that can include Unit ID/Unit #
+    // ✅ EXACT DISPLAY LABEL used for BOTH rendering and sorting
     function starfireCurrentLocationDisplay(sf, { includeUnitId=false } = {}){
       const t = normalizeReceiverLocType(sf?.starfireCurrentLocationType || "");
       const id = sf?.starfireCurrentLocationId ? String(sf.starfireCurrentLocationId) : "";
@@ -1194,7 +1192,6 @@
         return tw ? labelRTK(tw) : (name || "RTK Tower");
       }
 
-      // equipment-mounted
       const eq = id ? state.equipById.get(id) : null;
       if(eq){
         return includeUnitId ? labelEquipmentWithUnitId(eq) : labelEquipment(eq);
@@ -1204,8 +1201,8 @@
 
     function sortValue(d, key){
       switch(key){
-        case "unit":   return unitDisplay(d).toLowerCase();
-        case "unitId": return String(d.unitId||"").toLowerCase();
+        case "unit":   return unitDisplay(d);
+        case "unitId": return String(d.unitId||"");
         case "acres":  return Number(d.totalAcres ?? 0) || 0;
         case "hours":  return Number(d.totalHours ?? d.engineHours ?? 0) || 0;
         case "miles":  return Number(d.odometerMiles ?? 0) || 0;
@@ -1214,19 +1211,20 @@
         case "insExp": return dateSortNum(d.insuranceExp || d.insuranceExpiration);
         case "dotExp": return dateSortNum(d.dotExpiration || d.dotExpirationDate);
 
-        case "notes":  return combinedNotes(d).toLowerCase();
-        case "cat":    return catLabel(d).toLowerCase();
+        case "notes":  return combinedNotes(d);
+        case "cat":    return catLabel(d);
         case "year":   return Number(d.year ?? 0) || 0;
-        case "serial": return String(d.serial||"").toLowerCase();
+        case "serial": return String(d.serial||"");
         case "pis":    return dateSortNum(d.placedInServiceDate);
 
-        case "sfSerial": return String(d.serial||"").toLowerCase();
+        case "sfSerial": return String(d.serial||"");
         case "sfLast4":  return serialLast4(d.serial||"");
-        case "sfLoc":    return String(d.starfireCurrentLocationName||"").toLowerCase();
+        // ✅ KEY FIX: sort by EXACT display string (includes RTK Tower prefix + Unit ID natural order)
+        case "sfLoc":    return starfireCurrentLocationDisplay(d, { includeUnitId:true }) || "";
         case "sfSince":  return dateSortNum(d.starfireCurrentLocationSince);
 
         default:
-          return String(d[key] ?? "").toLowerCase();
+          return String(d[key] ?? "");
       }
     }
 
@@ -1249,7 +1247,7 @@
 
         const as = String(av ?? "");
         const bs = String(bv ?? "");
-        return as.localeCompare(bs, undefined, { sensitivity:"base" }) * dir;
+        return COLLATOR.compare(as, bs) * dir;
       });
 
       return arr;
@@ -1270,7 +1268,6 @@
 
       tbody.innerHTML = viewRows.map(d=>{
         if(state.filter === "starfire"){
-          // ✅ include Unit ID / Unit # in "Current Location"
           const loc = starfireCurrentLocationDisplay(d, { includeUnitId:true }) || "—";
           const since = d.starfireCurrentLocationSince || "";
           const missingClass = isStarfireMissing(d) ? " missingRow" : "";
@@ -1433,7 +1430,6 @@
         return opt;
       };
 
-      // Group 1: Quick (always first)
       const ogQuick = document.createElement("optgroup");
       ogQuick.label = "Quick";
 
@@ -1450,7 +1446,6 @@
         sfLoc.appendChild(ogQuick);
       }
 
-      // Group 2: Equipment (GPS Capable)  ✅ A→Z
       const ogEquip = document.createElement("optgroup");
       ogEquip.label = "Equipment (GPS Capable)";
 
@@ -1473,7 +1468,7 @@
 
           return true;
         })
-        .sort((a,b)=> labelEquipment(a).localeCompare(labelEquipment(b), undefined, { sensitivity:"base" }));
+        .sort((a,b)=> COLLATOR.compare(labelEquipment(a), labelEquipment(b)));
 
       equipCandidates.forEach(e=>{
         ogEquip.appendChild(mkOpt({ kind:"equip", id: e.id }, labelEquipment(e)));
@@ -1483,7 +1478,6 @@
         sfLoc.appendChild(ogEquip);
       }
 
-      // Group 3: RTK Towers  ✅ A→Z  ✅ ALWAYS LAST
       const ogRTK = document.createElement("optgroup");
       ogRTK.label = "RTK Towers";
 
@@ -1504,7 +1498,7 @@
 
           return true;
         })
-        .sort((a,b)=> labelRTK(a).localeCompare(labelRTK(b), undefined, { sensitivity:"base" }));
+        .sort((a,b)=> COLLATOR.compare(labelRTK(a), labelRTK(b)));
 
       rtkCandidates.forEach(t=>{
         ogRTK.appendChild(mkOpt({ kind:"rtk", id: t.id }, labelRTK(t)));
@@ -1538,14 +1532,10 @@
       sfTitle.textContent = `Change StarFire Location • …${serialLast4(sf.serial||"")}`;
       sfSerial.value = sf.serial || "";
 
-      // ✅ NOT editable; display current truth only
       const since = sf.starfireCurrentLocationSince || "";
       sfSince.value = fmtDateISO(since) || String(since || "—");
 
-      // ✅ Current location now includes Unit ID / Unit # when mounted to equipment
-      const curLocLabel = starfireCurrentLocationDisplay(sf, { includeUnitId:true }) || "—";
-      sfCurrentPill.textContent = `Current: ${curLocLabel}`;
-
+      sfCurrentPill.textContent = `Current: ${starfireCurrentLocationDisplay(sf, { includeUnitId:true }) || "—"}`;
       sfDurationPill.textContent = pillDurationText(since);
       sfMovedByPill.textContent = pillMovedByText(sf);
 
@@ -1582,7 +1572,6 @@
           return;
         }
 
-        // ✅ treat missing like storage/loaned: no occupancy
         if(t === "storage" || t === "loaned" || t === "missing") return;
 
         if(locId) occEqIds.add(String(locId));
@@ -1637,8 +1626,6 @@
       let choice=null;
       try{ choice = JSON.parse(sfLoc.value); }catch{ return; }
 
-      // ✅ MUST MATCH main StarFire move page behavior:
-      //    move date is TODAY (not user editable here)
       const moveDate = todayISO();
 
       const curTypeRaw = normalizeReceiverLocType(state.sfSelected.starfireCurrentLocationType || "");
@@ -1750,8 +1737,6 @@
 
       try{
         const db = getFirestore();
-
-        // ✅ record who did it + date (backend)
         const movedBy = moverFromAuth();
 
         await writeStarfireMoveLog({
@@ -1766,7 +1751,6 @@
           movedBy
         });
 
-        // ✅ also stamp the receiver doc (backend)
         await updateDoc(doc(db, "equipment", state.sfSelected.id), {
           ...patch,
           starfireLastMovedBy: movedBy,
@@ -1775,7 +1759,6 @@
           updatedAt: serverTimestamp()
         });
 
-        // ✅ keep local object in sync so pills/table update immediately
         Object.assign(state.sfSelected, patch, {
           starfireLastMovedBy: movedBy,
           starfireLastMoveDate: moveDate
@@ -1835,7 +1818,7 @@
         if(gridViewport.scrollLeft > maxLeft) gridViewport.scrollLeft = maxLeft;
         if(gridViewport.scrollTop  > maxTop)  gridViewport.scrollTop = maxTop;
         if(gridViewport.scrollLeft < 0) gridViewport.scrollLeft = 0;
-        if(gridViewport.scrollTop  < 0) gridViewport.scrollTop  = 0;
+        if(gridViewport.scrollTop  < 0) gridViewport.scrollTop = 0;
       },
 
       recomputeBounds(){
@@ -1950,9 +1933,9 @@
 
         state.equipActive = state.all
           .filter(d => norm(d.type) !== "starfire")
-          .sort((a,b)=> String(a.unitId||a.name||"").localeCompare(String(b.unitId||b.name||""), undefined, { sensitivity:"base" }));
+          .sort((a,b)=> COLLATOR.compare(String(a.unitId||a.name||""), String(b.unitId||b.name||"")));
 
-        // ✅ build lookup maps for "current location" display
+        // lookup maps for display
         state.equipById = new Map();
         state.equipActive.forEach(e => { if(e?.id) state.equipById.set(String(e.id), e); });
 
