@@ -754,6 +754,10 @@
       equipActive: [],
       rtkTowers: [],
 
+      // fast lookup for "current location" display
+      equipById: new Map(),
+      rtkById: new Map(),
+
       // Occupancy sets (match StarFire Update page behavior)
       occupiedEquipmentIds: new Set(),
       occupiedEquipmentLabels: new Set(),
@@ -1093,6 +1097,20 @@
       return ls ? `${mm} (#${ls})` : mm;
     }
 
+    // ✅ NEW: same label, but also includes Unit ID / Unit # when present
+    function labelEquipmentWithUnitId(row){
+      const base = labelEquipment(row);
+      const uid = (row?.unitId != null && String(row.unitId).trim()) ? String(row.unitId).trim() : "";
+      if(!uid) return base;
+
+      // insert " / UNIT" before " (#xxxxxx)" if present
+      const idx = base.indexOf(" (#");
+      if(idx > 0){
+        return base.slice(0, idx) + ` / ${uid}` + base.slice(idx);
+      }
+      return `${base} / ${uid}`;
+    }
+
     function labelStarFire(row){
       const model = row.modelName || row.model || row.name || "StarFire";
       const ls = last6(row.serial || row.sn || "");
@@ -1139,7 +1157,7 @@
       );
     }
 
-    // ✅ NEW: treat "missing" like storage/loaned (not occupying a unit/tower)
+    // ✅ treat "missing" like storage/loaned (not occupying a unit/tower)
     function normalizeReceiverLocType(raw){
       const t = String(raw || "").toLowerCase().trim();
       if(!t) return "";
@@ -1160,6 +1178,28 @@
       const name = String(sf.starfireCurrentLocationName || "").trim();
       if(t === "missing") return true;
       return name.toLowerCase() === "unknown / missing";
+    }
+
+    // ✅ NEW: unified "current location" display that can include Unit ID/Unit #
+    function starfireCurrentLocationDisplay(sf, { includeUnitId=false } = {}){
+      const t = normalizeReceiverLocType(sf?.starfireCurrentLocationType || "");
+      const id = sf?.starfireCurrentLocationId ? String(sf.starfireCurrentLocationId) : "";
+      const name = String(sf?.starfireCurrentLocationName || "").trim();
+
+      if(t === "storage" || (!t && !id) || name === "In Storage") return "In Storage";
+      if(t === "missing" || name === "Unknown / Missing") return "Unknown / Missing";
+      if(t === "loaned") return name || "Loaned Out";
+      if(t === "rtk"){
+        const tw = id ? state.rtkById.get(id) : null;
+        return tw ? labelRTK(tw) : (name || "RTK Tower");
+      }
+
+      // equipment-mounted
+      const eq = id ? state.equipById.get(id) : null;
+      if(eq){
+        return includeUnitId ? labelEquipmentWithUnitId(eq) : labelEquipment(eq);
+      }
+      return name || "—";
     }
 
     function sortValue(d, key){
@@ -1230,7 +1270,8 @@
 
       tbody.innerHTML = viewRows.map(d=>{
         if(state.filter === "starfire"){
-          const loc = d.starfireCurrentLocationName || "—";
+          // ✅ include Unit ID / Unit # in "Current Location"
+          const loc = starfireCurrentLocationDisplay(d, { includeUnitId:true }) || "—";
           const since = d.starfireCurrentLocationSince || "";
           const missingClass = isStarfireMissing(d) ? " missingRow" : "";
           const readyClass = (!missingClass && isStarfireNotInStorage(d)) ? " readyRow" : "";
@@ -1501,7 +1542,10 @@
       const since = sf.starfireCurrentLocationSince || "";
       sfSince.value = fmtDateISO(since) || String(since || "—");
 
-      sfCurrentPill.textContent = `Current: ${sf.starfireCurrentLocationName || "—"}`;
+      // ✅ Current location now includes Unit ID / Unit # when mounted to equipment
+      const curLocLabel = starfireCurrentLocationDisplay(sf, { includeUnitId:true }) || "—";
+      sfCurrentPill.textContent = `Current: ${curLocLabel}`;
+
       sfDurationPill.textContent = pillDurationText(since);
       sfMovedByPill.textContent = pillMovedByText(sf);
 
@@ -1791,7 +1835,7 @@
         if(gridViewport.scrollLeft > maxLeft) gridViewport.scrollLeft = maxLeft;
         if(gridViewport.scrollTop  > maxTop)  gridViewport.scrollTop = maxTop;
         if(gridViewport.scrollLeft < 0) gridViewport.scrollLeft = 0;
-        if(gridViewport.scrollTop  < 0) gridViewport.scrollTop = 0;
+        if(gridViewport.scrollTop  < 0) gridViewport.scrollTop  = 0;
       },
 
       recomputeBounds(){
@@ -1907,6 +1951,13 @@
         state.equipActive = state.all
           .filter(d => norm(d.type) !== "starfire")
           .sort((a,b)=> String(a.unitId||a.name||"").localeCompare(String(b.unitId||b.name||""), undefined, { sensitivity:"base" }));
+
+        // ✅ build lookup maps for "current location" display
+        state.equipById = new Map();
+        state.equipActive.forEach(e => { if(e?.id) state.equipById.set(String(e.id), e); });
+
+        state.rtkById = new Map();
+        state.rtkTowers.forEach(t => { if(t?.id) state.rtkById.set(String(t.id), t); });
 
         rebuildOccupiedSets();
 
