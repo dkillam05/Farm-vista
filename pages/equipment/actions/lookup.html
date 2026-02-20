@@ -52,9 +52,9 @@
          - Default stays 16px
          - NEVER wraps to another row
          - If it doesn’t fit, shrink that ONE row until it fits
-         - If it STILL doesn’t fit, last-resort horizontal squeeze (scaleX) so you can read ALL of it */
+         - If it STILL doesn’t fit, apply a light horizontal squeeze (scaleX) */
       --tile-title-font: 16px;
-      --tile-title-font-min: 8px; /* was 10; needed smaller for very long names */
+      --tile-title-font-min: 8px;
     }
 
     html,body{ max-width:100vw; overflow-x:hidden; }
@@ -118,19 +118,17 @@
     }
     .card:hover{ transform:translateY(-1px); box-shadow:0 12px 28px rgba(0,0,0,.12); }
 
-    /* ✅ SINGLE LINE ONLY; JS will shrink-to-fit (and last-resort squeeze) */
     .card-title{
       font-weight:800;
       font-size:var(--tile-title-font);
       line-height:1.15;
       white-space:nowrap;
       overflow:hidden;
-      text-overflow:ellipsis; /* should only happen if someone disables JS */
+      text-overflow:ellipsis; /* should not show once JS fits */
       min-width:0;
       width:100%;
       display:block;
-
-      transform-origin:left center; /* for last-resort squeeze */
+      transform-origin:left center;
       will-change:transform;
     }
 
@@ -296,7 +294,7 @@
     /* Hidden print iframe */
     #fv-print-frame{ position:fixed; right:0; bottom:0; width:0; height:0; border:0; visibility:hidden; }
 
-    /* Overlay — EXACT style copied + iPhone-safe */
+    /* Overlay */
     .pdf-loading{
       position:fixed;
       inset:0;
@@ -361,7 +359,6 @@
     }
     .radio-row:hover{ background:var(--surface-2, rgba(127,127,127,.08)); }
 
-    /* Fix: remove the green focus/selection “box” around the row on iOS/desktop */
     .radio-row,
     .radio-row:focus,
     .radio-row:focus-within{
@@ -484,14 +481,13 @@
   <script type="module">
     /* =====================================================================
        /Farm-vista/pages/equipment/actions/lookup.html  (FULL FILE)
-       Rev: 2026-02-20d
+       Rev: 2026-02-20e
 
        FIX (per Dane):
-       ✅ List rows NEVER wrap to a second line.
-       ✅ Font stays at 16px unless it doesn't fit.
-       ✅ Only the rows that don't fit auto-shrink (down to 8px) to show all text.
-       ✅ If a row STILL won't fit at 8px, we apply a light horizontal squeeze (scaleX)
-          so the whole line is readable instead of "...".
+       ✅ Titles NEVER wrap (single line).
+       ✅ Default 16px; shrink only when needed (down to 8px).
+       ✅ If still too long at 8px, apply light scaleX squeeze (capped) so no "...".
+       ✅ Removed syntax/runtime errors that stopped the page from loading.
        ===================================================================== */
 
     import {
@@ -505,12 +501,46 @@
 
     const $ = (sel, root=document) => root.querySelector(sel);
 
+    // Page elements
     const list = $('#list');
     const countEl = $('#count');
     const qInput = $('#q');
     const subtitle = $('#subtitle');
     const pageTitleEl = $('#pageTitle');
 
+    const filterBtn = $('#filterBtn');
+    const filterPop = $('#filterPop');
+
+    // Overlay
+    const pdfLoading = $('#pdfLoading');
+    const pdfLoadingText = $('#pdfLoadingText');
+    const pdfLoadingSub = $('#pdfLoadingSub');
+
+    // Detail modal
+    const dlg = $('#detail');
+    const dTitle = $('#dTitle');
+    const dKV = $('#dKV');
+    const btnHub = $('#openHub');
+    const btnPrintQR = $('#btnPrintQR');
+    const qrSection = $('#qrSection');
+    const qrImg = $('#qrImg');
+    const qrLbl = $('#qrLbl');
+
+    // Label choice
+    const cDlg = $('#labelChoice');
+    const cOk = $('#cOk');
+    const cCancel = $('#cCancel');
+
+    // Preview modal
+    const pDlg = $('#printPrev');
+    const pHost = $('#pPreviewHost');
+    const pClose = $('#pClose');
+    const pCancel = $('#pCancel');
+    const pCreate = $('#pCreate');
+
+    const printFrame = $('#fv-print-frame');
+
+    // Query params
     const qs = new URLSearchParams(location.search);
     const TYPE = (qs.get('type') || 'tractor').toLowerCase();
     const IS_STARFIRE = TYPE === 'starfire';
@@ -536,13 +566,12 @@
     document.title = `FarmVista • ${TYPE_META.plural}`;
     if (pageTitleEl) pageTitleEl.textContent = `${TYPE_META.sing} Lookup`;
 
-    const filterBtn = $('#filterBtn');
-    const filterPop = $('#filterPop');
-
+    // Data
     let DATA = [];
     let unsub = null;
     let mode = 'active';
 
+    // Utils
     const last6 = v => String(v||'').slice(-6);
     const safe = v => (v==null ? '' : String(v));
 
@@ -559,7 +588,6 @@
     }
     const isArchived = d => normStatus(d) === 'archived';
 
-    // Unit ID helper (supports either root unitId or extras.unitId)
     function unitIdText(d){
       const u = (d && (d.unitId ?? d?.extras?.unitId)) ?? '';
       return String(u || '').trim();
@@ -567,7 +595,6 @@
 
     const mmText = d => [safe(d.makeName), safe(d.modelName)].filter(Boolean).join(' ').trim();
 
-    // Tile line: make/model + unitId + last 6 serial/vin
     const displayLine = d => {
       const mm = mmText(d);
       const unit = unitIdText(d);
@@ -581,7 +608,6 @@
       return ls ? `#${ls}` : fallback;
     };
 
-    // Modal title: make/model + unitId + (#last6)
     const titleFor = d => {
       const mm = mmText(d);
       const unit = unitIdText(d);
@@ -598,8 +624,26 @@
     const hubUrl = (id) =>
       `${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}`;
 
-    // ✅ Auto-shrink titles ONLY when needed (single line).
-    // If it still doesn't fit at MIN, apply scaleX squeeze (rare).
+    function setPdfLoading(active, text, sub){
+      if (pdfLoadingText && text) pdfLoadingText.textContent = text;
+      if (pdfLoadingSub && sub) pdfLoadingSub.textContent = sub;
+      if (active){
+        pdfLoading.classList.remove('hidden');
+        pdfLoading.setAttribute('aria-hidden','false');
+      } else {
+        pdfLoading.classList.add('hidden');
+        pdfLoading.setAttribute('aria-hidden','true');
+      }
+    }
+
+    function openDialog(d){
+      try{ d.showModal(); }catch{ d.setAttribute('open',''); }
+    }
+    function closeDialog(d){
+      try{ d.close(); }catch{ d.removeAttribute('open'); }
+    }
+
+    // ✅ shrink-to-fit + (rare) scaleX squeeze
     function fitCardTitles(){
       if (!list) return;
 
@@ -612,22 +656,15 @@
 
       requestAnimationFrame(()=>requestAnimationFrame(()=>{
         titles.forEach(el=>{
-          // Reset baseline (important when re-rendering/filtering)
           el.style.transform = '';
           el.style.fontSize = BASE + 'px';
 
-          // Fits at base
           if (el.scrollWidth <= el.clientWidth) return;
 
-          // Binary search font size down to MIN
-          let low = MIN;
-          let high = BASE;
-          let best = MIN;
-
+          let low = MIN, high = BASE, best = MIN;
           for (let i=0;i<16;i++){
             const mid = (low + high) / 2;
             el.style.fontSize = mid + 'px';
-
             if (el.scrollWidth <= el.clientWidth){
               best = mid;
               low = mid;
@@ -635,20 +672,18 @@
               high = mid;
             }
           }
-
           el.style.fontSize = Math.max(MIN, Math.min(BASE, best)) + 'px';
 
-          // If STILL doesn't fit, do a light horizontal squeeze so it never ellipses
-          // (we cap the squeeze so it doesn't look crazy)
           if (el.scrollWidth > el.clientWidth){
-            const ratio = el.clientWidth / el.scrollWidth; // < 1
-            const clamped = Math.max(0.82, Math.min(1, ratio)); // don't squeeze past 82%
+            const ratio = el.clientWidth / el.scrollWidth;
+            const clamped = Math.max(0.82, Math.min(1, ratio));
             el.style.transform = `scaleX(${clamped})`;
           }
         });
       }));
     }
 
+    // Search + render
     function render(){
       const q = (qInput.value || '').toLowerCase().trim();
 
@@ -737,54 +772,7 @@
       fitCardTitles();
     }
 
-    // Overlay
-    const pdfLoading = $('#pdfLoading');
-    const pdfLoadingText = $('#pdfLoadingText');
-    const pdfLoadingSub = $('#pdfLoadingSub');
-    function setPdfLoading(active, text, sub){
-      if (pdfLoadingText && text) pdfLoadingText.textContent = text;
-      if (pdfLoadingSub && sub) pdfLoadingSub.textContent = sub;
-      if (active){
-        pdfLoading.classList.remove('hidden');
-        pdfLoading.setAttribute('aria-hidden','false');
-      } else {
-        pdfLoading.classList.add('hidden');
-        pdfLoading.setAttribute('aria-hidden','true');
-      }
-    }
-
-    // Modals + elements
-    const dlg = $('#detail');
-    const dTitle = $('#dTitle');
-    const dKV = $('#dKV');
-    const btnHub = $('#openHub');
-    const btnPrintQR = $('#btnPrintQR');
-    const qrSection = $('#qrSection');
-    const qrImg = $('#qrImg');
-    const qrLbl = $('#qrLbl');
-
-    const pDlg = $('#printPrev');
-    const pHost = $('#pPreviewHost');
-    const pClose = $('#pClose');
-    const pCancel = $('#pCancel');
-    const pCreate = $('#pCreate');
-
-    const cDlg = $('#labelChoice');
-    const cOk = $('#cOk');
-    const cCancel = $('#cCancel');
-
-    const printFrame = $('#fv-print-frame');
-
-    // Hub button: always enable when we have an id
-    btnHub.addEventListener('click', (e)=>{
-      const href = btnHub.getAttribute('href') || '';
-      if (!href.includes('id=')) e.preventDefault();
-    });
-
-    const closeDetail = ()=> { try{ dlg.close(); }catch{ dlg.removeAttribute('open'); } };
-    $('#dClose').addEventListener('click', closeDetail);
-    $('#dClose2').addEventListener('click', closeDetail);
-
+    // Detail modal helpers
     const has = v => !(v===undefined || v===null || v==='');
     function addRow(k, v){
       if(!has(v)) return;
@@ -814,6 +802,7 @@
       const raw = normalizeSerial(d?.starfireSerial || d?.serial || '');
       return raw || '';
     }
+
     function esc(s){
       return String(s||'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
     }
@@ -863,7 +852,7 @@
       return canvas.toDataURL('image/png');
     }
 
-    // State
+    // Label/print state
     let __pending = null;
     let __mode = 'detailed';
     let __cutLenMm = 140;
@@ -1056,47 +1045,6 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       pCreate.disabled = false;
     }
 
-    function openDialog(d){
-      try{ d.showModal(); }catch{ d.setAttribute('open',''); }
-    }
-    function closeDialog(d){
-      try{ d.close(); }catch{ d.removeAttribute('open'); }
-    }
-
-    const pDlg = $('#printPrev');
-    const pClose = $('#pClose');
-    const pCancel = $('#pCancel');
-    const pCreate = $('#pCreate');
-    const pHost = $('#pPreviewHost');
-
-    const cDlg = $('#labelChoice');
-    const cOk = $('#cOk');
-    const cCancel = $('#cCancel');
-
-    pClose.addEventListener('click', ()=> closeDialog(pDlg));
-    pCancel.addEventListener('click', ()=> closeDialog(pDlg));
-    cCancel.addEventListener('click', ()=> closeDialog(cDlg));
-
-    cOk.addEventListener('click', ()=>{
-      const picked = cDlg.querySelector('input[name="labelMode"]:checked');
-      __mode = picked ? picked.value : __mode;
-      closeDialog(cDlg);
-
-      if (!__pending) return;
-
-      __cutLenMm = (__mode === 'summary') ? 62 : 140;
-
-      openDialog(pDlg);
-      setPreview({
-        mode: __mode,
-        url: __pending.url,
-        make: __pending.make,
-        model: __pending.model,
-        serial6: __pending.serial6,
-        cutLenMm: __cutLenMm
-      });
-    });
-
     async function showOverlayAndYield(){
       closeDialog(pDlg);
       closeDialog(cDlg);
@@ -1106,8 +1054,6 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
       await new Promise(r=>setTimeout(r, 80));
     }
-
-    const printFrame = $('#fv-print-frame');
 
     async function createPdf(){
       if (!__pending) return;
@@ -1173,28 +1119,6 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         pCreate.disabled = false;
       }
     }
-
-    pCreate.addEventListener('click', createPdf);
-
-    // Detail modal
-    const dlg = $('#detail');
-    const dTitle = $('#dTitle');
-    const dKV = $('#dKV');
-    const btnHub = $('#openHub');
-    const btnPrintQR = $('#btnPrintQR');
-    const qrSection = $('#qrSection');
-    const qrImg = $('#qrImg');
-    const qrLbl = $('#qrLbl');
-
-    // Hub button
-    btnHub.addEventListener('click', (e)=>{
-      const href = btnHub.getAttribute('href') || '';
-      if (!href.includes('id=')) e.preventDefault();
-    });
-
-    const closeDetail = ()=> { try{ dlg.close(); }catch{ dlg.removeAttribute('open'); } };
-    $('#dClose').addEventListener('click', closeDetail);
-    $('#dClose2').addEventListener('click', closeDetail);
 
     function wireReprintFlow(d, url){
       btnPrintQR.disabled = false;
@@ -1292,7 +1216,43 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       openDialog(dlg);
     }
 
-    // Filter popover logic
+    // Hub button click guard
+    btnHub.addEventListener('click', (e)=>{
+      const href = btnHub.getAttribute('href') || '';
+      if (!href.includes('id=')) e.preventDefault();
+    });
+
+    // Close buttons
+    const closeDetail = ()=> closeDialog(dlg);
+    $('#dClose').addEventListener('click', closeDetail);
+    $('#dClose2').addEventListener('click', closeDetail);
+
+    pClose.addEventListener('click', ()=> closeDialog(pDlg));
+    pCancel.addEventListener('click', ()=> closeDialog(pDlg));
+    cCancel.addEventListener('click', ()=> closeDialog(cDlg));
+    pCreate.addEventListener('click', createPdf);
+
+    cOk.addEventListener('click', ()=>{
+      const picked = cDlg.querySelector('input[name="labelMode"]:checked');
+      __mode = picked ? picked.value : __mode;
+      closeDialog(cDlg);
+
+      if (!__pending) return;
+
+      __cutLenMm = (__mode === 'summary') ? 62 : 140;
+
+      openDialog(pDlg);
+      setPreview({
+        mode: __mode,
+        url: __pending.url,
+        make: __pending.make,
+        model: __pending.model,
+        serial6: __pending.serial6,
+        cutLenMm: __cutLenMm
+      });
+    });
+
+    // Filter popover
     function openPop(){
       if (!filterPop.hidden) return;
       const r = filterBtn.getBoundingClientRect();
@@ -1331,7 +1291,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       if (r) r.checked = true;
     }
 
-    // Firestore listener (ONLY ONE attach)
+    // Firestore listener
     function attachListener(){
       if (unsub) return;
       const db = getFirestore();
@@ -1360,6 +1320,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       fitCardTitles();
     }
 
+    // Boot
     (async()=>{
       await ready;
       attachListener();
@@ -1367,11 +1328,9 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 
       qInput.addEventListener('input', render);
 
-      // Re-fit on resize/orientation (iOS)
       window.addEventListener('resize', fitCardTitles, { passive:true });
       window.addEventListener('orientationchange', ()=>setTimeout(fitCardTitles, 80), { passive:true });
 
-      // keep listener stable across iOS/backgrounding
       window.addEventListener('pageshow', resume);
       document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') resume(); });
       window.addEventListener('focus', resume);
