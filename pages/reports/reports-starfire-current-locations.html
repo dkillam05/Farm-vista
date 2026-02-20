@@ -179,6 +179,9 @@
       position:relative;
       padding-right:42px;
       min-height:32px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
     }
     .buttonish.has-caret::after{
       content:"";
@@ -273,15 +276,47 @@
     }
 
     .sf-title{
-      font-weight:700;
+      font-weight:750;
       font-size:0.98rem;
-      line-height:1.3;
+      line-height:1.25;
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px 10px;
+      align-items:baseline;
+      justify-content:space-between;
+    }
+    .sf-title .left{
+      min-width:0;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .sf-title .right{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      align-items:center;
+      justify-content:flex-end;
+      font-size:0.82rem;
+      opacity:0.9;
+    }
+    .badge{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:3px 10px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      white-space:nowrap;
+      font-weight:800;
     }
 
     .sf-sub{
-      font-size:0.86rem;
-      opacity:0.9;
+      font-size:0.88rem;
+      opacity:0.92;
       margin-top:2px;
+      line-height:1.25;
     }
 
     .sf-meta{
@@ -290,18 +325,20 @@
       gap:6px 10px;
       margin-top:4px;
       font-size:0.8rem;
-      opacity:0.9;
+      opacity:0.92;
     }
     .sf-meta-pill{
       display:inline-flex;
       align-items:center;
-      gap:4px;
-      padding:2px 7px;
+      gap:6px;
+      padding:2px 8px;
       border-radius:999px;
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      white-space:nowrap;
     }
     .sf-meta-label{
-      font-weight:600;
+      font-weight:800;
+      opacity:0.9;
     }
 
     .bottom-actions{
@@ -358,8 +395,9 @@
       company: null,
       receivers: [],      // [{id,label,locName,locType,locSince,durationDays,lastMoveDate,lastMover}]
       filtered: null,
+      equipmentById: new Map(),  // id -> labelWithUnit
       filters: {
-        location: 'all',  // all | equipment | rtk | storage | loaned
+        location: 'all',  // all | equipment | rtk | storage | loaned | missing
         search: ''
       }
     };
@@ -382,6 +420,29 @@
       const model = row.modelName || row.model || row.name || 'StarFire';
       const ls = last6(row.serial || row.sn || '');
       return ls ? `${model} (#${ls})` : model;
+    }
+
+    function last6FromAny(v){
+      const s = String(v||'').trim();
+      if(!s) return '';
+      return s.length <= 6 ? s : s.slice(-6);
+    }
+
+    function labelEquipmentWithUnit(row){
+      const make = (row?.makeName || row?.make || '').toString().trim();
+      const model = (row?.modelName || row?.model || row?.name || '').toString().trim();
+      const mm = [make, model].filter(Boolean).join(' ').trim() || 'Unit';
+
+      const unitId = (row?.unitId ?? row?.extras?.unitId ?? row?.unitNumber ?? row?.unitNo ?? '').toString().trim();
+      const serial = (row?.serial || row?.sn || '').toString().trim();
+
+      const ls = last6FromAny(serial);
+      const serialPart = ls ? ` (#${ls})` : '';
+
+      // Prefer Unit ID/Unit # if present, appended as " / <unit>"
+      const unitPart = unitId ? ` / ${unitId}` : '';
+
+      return `${mm}${serialPart}${unitPart}`;
     }
 
     function daysSince(iso){
@@ -407,22 +468,21 @@
       return Array.isArray(STATE.filtered) ? STATE.filtered : STATE.receivers;
     }
 
-    // ✅ Normalize receiver location types to the new world:
-    // storage | loaned | rtk | equipment
+    // ✅ Normalize receiver location types to:
+    // storage | loaned | rtk | equipment | missing
     // legacy implement/truck/tractor/... => equipment
     function normalizeReceiverLocType(rawType, locName){
       const t = String(rawType || '').toLowerCase().trim();
       const name = String(locName || '').trim();
 
-      if(t === 'storage' || t === 'loaned' || t === 'rtk' || t === 'equipment') return t;
+      if(t === 'storage' || t === 'loaned' || t === 'rtk' || t === 'equipment' || t === 'missing') return t;
+
       if(!t){
-        // infer from name (legacy / missing fields)
         if(/^loaned out/i.test(name)) return 'loaned';
+        if(name === 'Unknown / Missing') return 'missing';
         if(name === 'In Storage' || name === '') return 'storage';
-        // if it has a non-storage label, treat as equipment
         return 'equipment';
       }
-      // implement/truck/tractor/sprayer/combine/etc -> equipment
       return 'equipment';
     }
 
@@ -431,6 +491,7 @@
       if(tt === 'equipment') return 'Mounted on equipment';
       if(tt === 'rtk') return 'Mounted on RTK tower';
       if(tt === 'loaned') return 'Loaned out';
+      if(tt === 'missing') return 'Unknown / Missing';
       return 'In Storage';
     }
 
@@ -439,6 +500,7 @@
       if(tt === 'equipment') return 'Equipment';
       if(tt === 'rtk') return 'RTK';
       if(tt === 'loaned') return 'Loaned';
+      if(tt === 'missing') return 'Missing';
       return 'Storage';
     }
 
@@ -476,6 +538,7 @@
       if(rawLoc === 'rtk') locLabel = 'Mounted on RTK tower';
       if(rawLoc === 'loaned') locLabel = 'Loaned out';
       if(rawLoc === 'storage') locLabel = 'In storage only';
+      if(rawLoc === 'missing') locLabel = 'Unknown / Missing';
 
       const search = STATE.filters.search || '';
       const searchLabel = search
@@ -485,7 +548,141 @@
       return `${locLabel} • ${searchLabel}`;
     }
 
+    function computeTotals(receivers){
+      return receivers.reduce((acc,r) => {
+        acc.total++;
+        if(r.locType === 'equipment') acc.equipment++;
+        else if(r.locType === 'rtk') acc.rtk++;
+        else if(r.locType === 'loaned') acc.loaned++;
+        else if(r.locType === 'missing') acc.missing++;
+        else acc.storage++;
+        return acc;
+      }, { total:0, equipment:0, rtk:0, loaned:0, storage:0, missing:0 });
+    }
+
+    function buildKpiCardsHtml({ totals, filterLoc }){
+      const want = (filterLoc || 'all').toLowerCase();
+
+      const cards = [];
+
+      // Always show total
+      cards.push(`
+        <div class="kpi-card">
+          <div class="kpi-label">StarFire Receivers</div>
+          <div class="kpi-value">${formatNumber(totals.total)}</div>
+          <div class="kpi-footnote">Active, non-archived receivers</div>
+        </div>
+      `);
+
+      if(want === 'all'){
+        cards.push(`
+          <div class="kpi-card">
+            <div class="kpi-label">Mounted on Equipment</div>
+            <div class="kpi-value">${formatNumber(totals.equipment)}</div>
+            <div class="kpi-footnote">Receivers assigned to machines</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Mounted on RTK</div>
+            <div class="kpi-value">${formatNumber(totals.rtk)}</div>
+            <div class="kpi-footnote">Receivers assigned to RTK towers</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Loaned Out</div>
+            <div class="kpi-value">${formatNumber(totals.loaned)}</div>
+            <div class="kpi-footnote">Receivers currently loaned out</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">In Storage</div>
+            <div class="kpi-value">${formatNumber(totals.storage)}</div>
+            <div class="kpi-footnote">Receivers in storage</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Unknown / Missing</div>
+            <div class="kpi-value">${formatNumber(totals.missing)}</div>
+            <div class="kpi-footnote">Receivers needing attention</div>
+          </div>
+        `);
+        return cards.join('');
+      }
+
+      if(want === 'equipment'){
+        cards.push(`
+          <div class="kpi-card">
+            <div class="kpi-label">Mounted on Equipment</div>
+            <div class="kpi-value">${formatNumber(totals.equipment)}</div>
+            <div class="kpi-footnote">Receivers assigned to machines</div>
+          </div>
+        `);
+      } else if(want === 'rtk'){
+        cards.push(`
+          <div class="kpi-card">
+            <div class="kpi-label">Mounted on RTK</div>
+            <div class="kpi-value">${formatNumber(totals.rtk)}</div>
+            <div class="kpi-footnote">Receivers assigned to RTK towers</div>
+          </div>
+        `);
+      } else if(want === 'loaned'){
+        cards.push(`
+          <div class="kpi-card">
+            <div class="kpi-label">Loaned Out</div>
+            <div class="kpi-value">${formatNumber(totals.loaned)}</div>
+            <div class="kpi-footnote">Receivers currently loaned out</div>
+          </div>
+        `);
+      } else if(want === 'storage'){
+        cards.push(`
+          <div class="kpi-card">
+            <div class="kpi-label">In Storage</div>
+            <div class="kpi-value">${formatNumber(totals.storage)}</div>
+            <div class="kpi-footnote">Receivers in storage</div>
+          </div>
+        `);
+      } else if(want === 'missing'){
+        cards.push(`
+          <div class="kpi-card">
+            <div class="kpi-label">Unknown / Missing</div>
+            <div class="kpi-value">${formatNumber(totals.missing)}</div>
+            <div class="kpi-footnote">Receivers needing attention</div>
+          </div>
+        `);
+      }
+
+      return cards.join('');
+    }
+
     function buildPrintHtml({ company, runStr, runDateOnly, filterSummary, totals, receivers }){
+      const filterLoc = (STATE.filters.location || 'all').toString().toLowerCase();
+
+      // Summary strip pills should also respect filter a bit (avoid noise)
+      const pill = (label, val) => `
+        <div class="summary-pill">
+          <span class="summary-label">${escapeHtml(label)}</span>
+          <span class="summary-value">${escapeHtml(String(val))}</span>
+        </div>
+      `;
+
+      const pills = [];
+      pills.push(pill('Filters', filterSummary));
+      pills.push(pill('Receivers', formatNumber(totals.total)));
+
+      if(filterLoc === 'all'){
+        pills.push(pill('Equipment', formatNumber(totals.equipment)));
+        pills.push(pill('RTK', formatNumber(totals.rtk)));
+        pills.push(pill('Loaned', formatNumber(totals.loaned)));
+        pills.push(pill('Storage', formatNumber(totals.storage)));
+        pills.push(pill('Missing', formatNumber(totals.missing)));
+      } else if(filterLoc === 'equipment'){
+        pills.push(pill('Equipment', formatNumber(totals.equipment)));
+      } else if(filterLoc === 'rtk'){
+        pills.push(pill('RTK', formatNumber(totals.rtk)));
+      } else if(filterLoc === 'loaned'){
+        pills.push(pill('Loaned', formatNumber(totals.loaned)));
+      } else if(filterLoc === 'storage'){
+        pills.push(pill('Storage', formatNumber(totals.storage)));
+      } else if(filterLoc === 'missing'){
+        pills.push(pill('Missing', formatNumber(totals.missing)));
+      }
+
       return `<!doctype html>
 <html>
 <head>
@@ -587,18 +784,18 @@
     .summary-pill{
       display:inline-flex;
       align-items:center;
-      gap:4px;
+      gap:6px;
       white-space:nowrap;
     }
     .summary-label{
       text-transform:uppercase;
       letter-spacing:0.08em;
-      font-weight:600;
+      font-weight:700;
       font-size:10px;
       color:var(--fv-muted);
     }
     .summary-value{
-      font-weight:600;
+      font-weight:700;
       font-size:11px;
     }
     .section{margin-top:18px;}
@@ -611,7 +808,7 @@
     }
     .section-title-main{
       font-size:15px;
-      font-weight:700;
+      font-weight:800;
       letter-spacing:0.03em;
       text-transform:uppercase;
     }
@@ -626,11 +823,12 @@
       margin-top:6px;
     }
     .kpi-card{
-      flex:1 1 140px;
+      flex:1 1 160px;
       border-radius:10px;
       border:1px solid var(--fv-border);
       padding:8px 10px;
       background:linear-gradient(135deg, rgba(59,126,70,0.06), #ffffff);
+      min-width:160px;
     }
     .kpi-label{
       font-size:10px;
@@ -638,10 +836,11 @@
       letter-spacing:0.08em;
       color:var(--fv-muted);
       margin-bottom:2px;
+      font-weight:700;
     }
     .kpi-value{
       font-size:16px;
-      font-weight:800;
+      font-weight:900;
     }
     .kpi-footnote{
       font-size:10px;
@@ -654,6 +853,7 @@
       letter-spacing:0.12em;
       color:var(--fv-muted);
       margin:0 0 4px;
+      font-weight:800;
     }
     .section-body{
       font-size:12px;
@@ -669,18 +869,22 @@
       width:100%;
       border-collapse:collapse;
       font-size:11px;
+      table-layout:fixed;
     }
     thead{
       background:#F9FAFB;
     }
     th, td{
-      padding:6px 8px;
+      padding:5px 7px;
       border-bottom:1px solid #E5E7EB;
       text-align:left;
       vertical-align:top;
+      line-height:1.25;
+      word-break:break-word;
+      overflow-wrap:anywhere;
     }
     th{
-      font-weight:700;
+      font-weight:800;
       text-transform:uppercase;
       letter-spacing:0.08em;
       font-size:10px;
@@ -690,6 +894,15 @@
     tr:nth-child(even) td{
       background:#F9FAFB;
     }
+
+    /* Make rows fit: keep compact columns tight, allow location to wrap */
+    td.col-receiver{white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+    td.col-type{white-space:nowrap;}
+    td.col-since{white-space:nowrap;}
+    td.col-days{white-space:nowrap; text-align:right;}
+    td.col-mover{white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+    td.col-location{white-space:normal;}
+
     .report-footer{
       margin-top:18px;
       padding-top:8px;
@@ -740,30 +953,7 @@
       <p class="report-subtitle">Current location snapshot for all active StarFire receivers.</p>
 
       <div class="report-summary-strip">
-        <div class="summary-pill">
-          <span class="summary-label">Filters</span>
-          <span class="summary-value">${escapeHtml(filterSummary)}</span>
-        </div>
-        <div class="summary-pill">
-          <span class="summary-label">Receivers</span>
-          <span class="summary-value">${formatNumber(totals.total)}</span>
-        </div>
-        <div class="summary-pill">
-          <span class="summary-label">Equipment</span>
-          <span class="summary-value">${formatNumber(totals.equipment)}</span>
-        </div>
-        <div class="summary-pill">
-          <span class="summary-label">RTK</span>
-          <span class="summary-value">${formatNumber(totals.rtk)}</span>
-        </div>
-        <div class="summary-pill">
-          <span class="summary-label">Loaned</span>
-          <span class="summary-value">${formatNumber(totals.loaned)}</span>
-        </div>
-        <div class="summary-pill">
-          <span class="summary-label">Storage</span>
-          <span class="summary-value">${formatNumber(totals.storage)}</span>
-        </div>
+        ${pills.join('')}
       </div>
     </section>
 
@@ -773,31 +963,7 @@
         <div class="section-note">Snapshot at the time of report generation.</div>
       </div>
       <div class="kpi-row">
-        <div class="kpi-card">
-          <div class="kpi-label">StarFire Receivers</div>
-          <div class="kpi-value">${formatNumber(totals.total)}</div>
-          <div class="kpi-footnote">Active, non-archived receivers</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Mounted on Equipment</div>
-          <div class="kpi-value">${formatNumber(totals.equipment)}</div>
-          <div class="kpi-footnote">Receivers assigned to machines</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Mounted on RTK</div>
-          <div class="kpi-value">${formatNumber(totals.rtk)}</div>
-          <div class="kpi-footnote">Receivers assigned to RTK towers</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Loaned Out</div>
-          <div class="kpi-value">${formatNumber(totals.loaned)}</div>
-          <div class="kpi-footnote">Receivers currently loaned out</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">In Storage</div>
-          <div class="kpi-value">${formatNumber(totals.storage)}</div>
-          <div class="kpi-footnote">Receivers in storage</div>
-        </div>
+        ${buildKpiCardsHtml({ totals, filterLoc })}
       </div>
     </section>
 
@@ -808,23 +974,23 @@
           <table>
             <thead>
               <tr>
-                <th style="width:24%">Receiver</th>
-                <th style="width:30%">Current location</th>
-                <th style="width:12%">Type</th>
-                <th style="width:14%">Since</th>
-                <th style="width:8%">Days</th>
+                <th style="width:26%">Receiver</th>
+                <th style="width:34%">Current location</th>
+                <th style="width:10%">Type</th>
+                <th style="width:12%">Since</th>
+                <th style="width:6%; text-align:right;">Days</th>
                 <th style="width:12%">Last moved by</th>
               </tr>
             </thead>
             <tbody>
               ${receivers.map(r => `
                 <tr>
-                  <td>${escapeHtml(r.label)}</td>
-                  <td>${escapeHtml(r.locName || 'In Storage')}</td>
-                  <td>${escapeHtml(r.locTypeShort || '')}</td>
-                  <td>${escapeHtml(r.locSince || r.lastMoveDate || '')}</td>
-                  <td>${r.durationDays ?? ''}</td>
-                  <td>${
+                  <td class="col-receiver">${escapeHtml(r.label)}</td>
+                  <td class="col-location">${escapeHtml(r.locName || 'In Storage')}</td>
+                  <td class="col-type">${escapeHtml(r.locTypeShort || '')}</td>
+                  <td class="col-since">${escapeHtml(r.locSince || r.lastMoveDate || '')}</td>
+                  <td class="col-days">${r.durationDays ?? ''}</td>
+                  <td class="col-mover">${
                     r.lastMover
                       ? escapeHtml(r.lastMover + (r.lastMoveDate ? ' (' + r.lastMoveDate + ')' : ''))
                       : ''
@@ -864,14 +1030,7 @@
 
       const filterSummary = summarizeFilters();
 
-      const totals = receivers.reduce((acc,r) => {
-        acc.total++;
-        if(r.locType === 'equipment') acc.equipment++;
-        else if(r.locType === 'rtk') acc.rtk++;
-        else if(r.locType === 'loaned') acc.loaned++;
-        else acc.storage++;
-        return acc;
-      }, { total:0, equipment:0, rtk:0, loaned:0, storage:0 });
+      const totals = computeTotals(receivers);
 
       const html = buildPrintHtml({
         company,
@@ -1027,8 +1186,28 @@
        Firestore load
        ====================== */
 
+    async function loadEquipmentIndex(){
+      const db = STATE.db;
+      const snap = await getDocs(collection(db, CONFIG.EQUIPMENT_COLLECTION));
+      const map = new Map();
+
+      snap.forEach(docSnap => {
+        const d = docSnap.data() || {};
+        const type = String(d.type || '').toLowerCase();
+        if(type === 'starfire') return;
+        if(String(d.status || 'active').toLowerCase() === 'archived') return;
+
+        map.set(docSnap.id, labelEquipmentWithUnit(d));
+      });
+
+      STATE.equipmentById = map;
+    }
+
     async function loadData(){
       const db = STATE.db;
+
+      // Preload equipment index so we can enrich equipment-mounted labels.
+      await loadEquipmentIndex();
 
       // 1) Load all StarFire receivers from equipment
       const eqSnap = await getDocs(collection(db, CONFIG.EQUIPMENT_COLLECTION));
@@ -1091,10 +1270,20 @@
         const rawName = d.starfireCurrentLocationName || '';
         const locType = normalizeReceiverLocType(rawType, rawName);
 
+        const locId = d.starfireCurrentLocationId ? String(d.starfireCurrentLocationId) : '';
+
         let locName = String(rawName || '').trim();
+
+        // Enrich equipment label with Unit ID/Unit # if possible
+        if(locType === 'equipment' && locId){
+          const better = STATE.equipmentById.get(locId);
+          if(better) locName = better;
+        }
+
         if(!locName){
           if(locType === 'storage') locName = 'In Storage';
           else if(locType === 'loaned') locName = 'Loaned Out';
+          else if(locType === 'missing') locName = 'Unknown / Missing';
           else if(locType === 'rtk') locName = 'RTK Tower';
           else locName = 'Mounted on equipment';
         }
@@ -1111,7 +1300,7 @@
           id: r.id,
           label,
           locName,
-          locType,                 // equipment|rtk|storage|loaned
+          locType,                 // equipment|rtk|storage|loaned|missing
           locTypeLabel: locTypeLabel(locType),
           locTypeShort: locTypeShort(locType),
           locSince,
@@ -1133,26 +1322,33 @@
     function renderSummary(){
       const metaEl = $('#sfMeta');
       const list = getWorkingReceivers();
-
-      const totals = list.reduce((acc,r) => {
-        acc.total++;
-        if(r.locType === 'equipment') acc.equipment++;
-        else if(r.locType === 'rtk') acc.rtk++;
-        else if(r.locType === 'loaned') acc.loaned++;
-        else acc.storage++;
-        return acc;
-      }, { total:0, equipment:0, rtk:0, loaned:0, storage:0 });
+      const totals = computeTotals(list);
 
       if(!metaEl) return;
+
+      const loc = (STATE.filters.location || 'all').toLowerCase();
 
       if(!totals.total){
         metaEl.textContent = '0 receivers';
         return;
       }
 
-      metaEl.textContent =
-        `${totals.total} receiver${totals.total === 1 ? '' : 's'} • ` +
-        `${totals.equipment} equipment • ${totals.rtk} rtk • ${totals.loaned} loaned • ${totals.storage} storage`;
+      if(loc === 'all'){
+        metaEl.textContent =
+          `${totals.total} receiver${totals.total === 1 ? '' : 's'} • ` +
+          `${totals.equipment} equipment • ${totals.rtk} rtk • ${totals.loaned} loaned • ${totals.storage} storage • ${totals.missing} missing`;
+        return;
+      }
+
+      const one =
+        (loc === 'equipment') ? `${totals.equipment} equipment` :
+        (loc === 'rtk') ? `${totals.rtk} rtk` :
+        (loc === 'loaned') ? `${totals.loaned} loaned` :
+        (loc === 'storage') ? `${totals.storage} storage` :
+        (loc === 'missing') ? `${totals.missing} missing` :
+        `${totals.total} receivers`;
+
+      metaEl.textContent = `${totals.total} receiver${totals.total === 1 ? '' : 's'} • ${one}`;
     }
 
     function renderList(){
@@ -1185,11 +1381,13 @@
 
         card.innerHTML = `
           <div class="sf-title">
-            ${escapeHtml(r.label)}
+            <div class="left">${escapeHtml(r.label)}</div>
+            <div class="right">
+              <span class="badge">${escapeHtml(r.locTypeShort || '')}</span>
+            </div>
           </div>
           <div class="sf-sub">
-            Currently: ${escapeHtml(r.locName || 'In Storage')}
-            · ${escapeHtml(r.locTypeLabel || '')}
+            Currently: <strong>${escapeHtml(r.locName || 'In Storage')}</strong>
           </div>
           <div class="sf-meta">
             <span class="sf-meta-pill">
@@ -1199,7 +1397,7 @@
               <span class="sf-meta-label">Duration</span> ${escapeHtml(durText)}
             </span>
             <span class="sf-meta-pill">
-              <span class="sf-meta-label">Last moved by</span> ${escapeHtml(moverText)}
+              <span class="sf-meta-label">Last moved</span> ${escapeHtml(moverText)}
             </span>
           </div>
         `;
@@ -1273,7 +1471,8 @@
         { id: 'equipment', label: 'Mounted on equipment' },
         { id: 'rtk',       label: 'Mounted on RTK tower' },
         { id: 'loaned',    label: 'Loaned out' },
-        { id: 'storage',   label: 'In storage only' }
+        { id: 'storage',   label: 'In storage only' },
+        { id: 'missing',   label: 'Unknown / Missing' }
       ];
 
       const locCombo = makeCombo({
