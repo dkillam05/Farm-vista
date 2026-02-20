@@ -663,7 +663,8 @@
         </div>
         <div class="field">
           <label for="sfSince">Location Since</label>
-          <input id="sfSince" class="input" inputmode="numeric" placeholder="YYYY-MM-DD">
+          <!-- ✅ MUST NOT be editable on this page -->
+          <input id="sfSince" class="input" readonly>
         </div>
       </div>
 
@@ -680,8 +681,10 @@
         </div>
       </div>
 
-      <div class="field">
+      <div class="field" style="display:flex;flex-wrap:wrap;gap:8px;">
         <span class="pill" id="sfCurrentPill">Current: —</span>
+        <span class="pill" id="sfDurationPill">Duration: —</span>
+        <span class="pill" id="sfMovedByPill">Moved By: —</span>
       </div>
     </div>
 
@@ -727,6 +730,8 @@
     const sfSince  = $("#sfSince");
     const sfLoc    = $("#sfLoc");
     const sfCurrentPill = $("#sfCurrentPill");
+    const sfDurationPill = $("#sfDurationPill");
+    const sfMovedByPill = $("#sfMovedByPill");
     const sfLoanBox = $("#sfLoanBox");
     const sfLoanTo  = $("#sfLoanTo");
 
@@ -776,6 +781,16 @@
       const da=String(d.getDate()).padStart(2,"0");
       return `${y}-${m}-${da}`;
     };
+
+    function daysSince(iso){
+      if(!iso) return null;
+      const d = new Date(String(iso));
+      if(Number.isNaN(d.getTime())) return null;
+      const now = new Date();
+      const diffMs = now - d;
+      if(diffMs < 0) return 0;
+      return Math.floor(diffMs / (1000*60*60*24));
+    }
 
     const last6 = (s)=>{
       const t = String(s||"").trim();
@@ -1461,6 +1476,19 @@
       sfLoc.selectedIndex = 0;
     }
 
+    function pillDurationText(sinceISO){
+      const days = daysSince(sinceISO);
+      if(days == null) return "Duration: —";
+      if(days === 0) return "Duration: Today";
+      return `Duration: ${days} day${days===1 ? "" : "s"}`;
+    }
+
+    function pillMovedByText(sf){
+      const mb = sf?.starfireLastMovedBy || null;
+      const nm = (mb?.name || mb?.email || "").toString().trim();
+      return `Moved By: ${nm || "—"}`;
+    }
+
     function openStarfireSheet(sf){
       state.sfSelected = sf;
 
@@ -1468,8 +1496,14 @@
 
       sfTitle.textContent = `Change StarFire Location • …${serialLast4(sf.serial||"")}`;
       sfSerial.value = sf.serial || "";
-      sfSince.value = (sf.starfireCurrentLocationSince || todayISO());
+
+      // ✅ NOT editable; display current truth only
+      const since = sf.starfireCurrentLocationSince || "";
+      sfSince.value = fmtDateISO(since) || String(since || "—");
+
       sfCurrentPill.textContent = `Current: ${sf.starfireCurrentLocationName || "—"}`;
+      sfDurationPill.textContent = pillDurationText(since);
+      sfMovedByPill.textContent = pillMovedByText(sf);
 
       sfLoanTo.value = "";
       syncLoanUI();
@@ -1559,7 +1593,9 @@
       let choice=null;
       try{ choice = JSON.parse(sfLoc.value); }catch{ return; }
 
-      const moveDate = (sfSince.value || "").trim() || todayISO();
+      // ✅ MUST MATCH main StarFire move page behavior:
+      //    move date is TODAY (not user editable here)
+      const moveDate = todayISO();
 
       const curTypeRaw = normalizeReceiverLocType(state.sfSelected.starfireCurrentLocationType || "");
       const curName = String(state.sfSelected.starfireCurrentLocationName || "In Storage").trim() || "In Storage";
@@ -1695,7 +1731,11 @@
           updatedAt: serverTimestamp()
         });
 
-        Object.assign(state.sfSelected, patch);
+        // ✅ keep local object in sync so pills/table update immediately
+        Object.assign(state.sfSelected, patch, {
+          starfireLastMovedBy: movedBy,
+          starfireLastMoveDate: moveDate
+        });
 
         rebuildOccupiedSets();
 
