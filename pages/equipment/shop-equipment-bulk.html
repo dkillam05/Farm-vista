@@ -1531,7 +1531,7 @@
       };
     }
 
-    async function writeStarfireMoveLog({ receiver, fromName, fromId, toType, toName, toId, moveDate, loanToName }){
+    async function writeStarfireMoveLog({ receiver, fromName, fromId, toType, toName, toId, moveDate, loanToName, movedBy }) {
       const db = getFirestore();
 
       const payload = {
@@ -1545,7 +1545,7 @@
         toLocationType: toType,
         toLoanedToName: loanToName || null,
         moveDate,
-        movedBy: moverFromAuth(),
+        movedBy: movedBy || moverFromAuth(),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
@@ -1671,6 +1671,9 @@
       try{
         const db = getFirestore();
 
+        // ✅ record who did it + date (backend)
+        const movedBy = moverFromAuth();
+
         await writeStarfireMoveLog({
           receiver: state.sfSelected,
           fromName,
@@ -1679,11 +1682,16 @@
           toName,
           toId,
           moveDate,
-          loanToName: loanTo
+          loanToName: loanTo,
+          movedBy
         });
 
+        // ✅ also stamp the receiver doc (backend)
         await updateDoc(doc(db, "equipment", state.sfSelected.id), {
           ...patch,
+          starfireLastMovedBy: movedBy,
+          starfireLastMoveDate: moveDate,
+          starfireLastMovedAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         });
 
