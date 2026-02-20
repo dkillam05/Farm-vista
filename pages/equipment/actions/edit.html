@@ -36,6 +36,13 @@
       --page-bottom-gap:96px;
       --brand: var(--green,#3B7E46);
       --ctl-h:48px; --ctl-pad-x:12px; --ctl-pad-y:12px; --ctl-radius:10px;
+
+      /* ✅ Same shrink-to-fit rules as lookup:
+         - Default 16px
+         - NEVER wrap
+         - If needed shrink this ONE row down to min, then scaleX the inner span */
+      --tile-title-font: 16px;
+      --tile-title-font-min: 5px;
     }
     html,body{ max-width:100vw; overflow-x:hidden; }
     body{ background:var(--app-bg, var(--bg)); color:var(--text); scrollbar-gutter:stable; }
@@ -86,7 +93,25 @@
       padding:14px 16px; display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer;
     }
     .card:hover{ transform:translateY(-1px); box-shadow:0 12px 28px rgba(0,0,0,.12); }
-    .card-title{ font-weight:800; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+    /* ✅ Container clips; NO ellipsis so iOS never forces "..." */
+    .card-title{
+      font-weight:800;
+      font-size:var(--tile-title-font);
+      white-space:nowrap;
+      overflow:hidden;
+      /* text-overflow:ellipsis;  <-- removed */
+      min-width:0;
+      width:100%;
+      display:block;
+    }
+    /* ✅ Transform + font-size applied to inner span (visual fit) */
+    .card-title-text{
+      display:inline-block;
+      transform-origin:left center;
+      will-change:transform;
+    }
+
     .badge{ font-size:12px; padding:4px 8px; border:1px solid var(--border); border-radius:999px; color:var(--muted); }
 
     dialog.sheet{
@@ -515,6 +540,46 @@
       }
     }
 
+    /* ✅ shrink-to-fit titles: apply to inner span (no ellipsis) */
+    function fitCardTitles(){
+      const cs = getComputedStyle(document.documentElement);
+      const BASE = parseFloat(cs.getPropertyValue('--tile-title-font')) || 16;
+      const MIN  = parseFloat(cs.getPropertyValue('--tile-title-font-min')) || 8;
+
+      const spans = list.querySelectorAll('.card-title-text');
+      if (!spans.length) return;
+
+      requestAnimationFrame(()=>requestAnimationFrame(()=>{
+        spans.forEach(span=>{
+          const wrap = span.closest('.card-title');
+          if (!wrap) return;
+
+          span.style.transform = '';
+          span.style.fontSize = BASE + 'px';
+
+          if (span.scrollWidth <= wrap.clientWidth) return;
+
+          let low = MIN, high = BASE, best = MIN;
+          for (let i=0;i<16;i++){
+            const mid = (low + high) / 2;
+            span.style.fontSize = mid + 'px';
+            if (span.scrollWidth <= wrap.clientWidth){
+              best = mid; low = mid;
+            } else {
+              high = mid;
+            }
+          }
+          span.style.fontSize = Math.max(MIN, Math.min(BASE, best)) + 'px';
+
+          if (span.scrollWidth > wrap.clientWidth){
+            const ratio = wrap.clientWidth / span.scrollWidth;
+            const clamped = Math.max(0.60, Math.min(1, ratio));
+            span.style.transform = `scaleX(${clamped})`;
+          }
+        });
+      }));
+    }
+
     function render(){
       const q=(qInput.value||'').toLowerCase().trim();
 
@@ -556,7 +621,10 @@
 
         by[letter].forEach(d=>{
           const card=document.createElement('div'); card.className='card'; card.setAttribute('role','button');
-          const ttl=document.createElement('div'); ttl.className='card-title'; ttl.textContent=displayLine(d);
+
+          const ttl=document.createElement('div'); ttl.className='card-title';
+          const span=document.createElement('span'); span.className='card-title-text'; span.textContent=displayLine(d);
+          ttl.appendChild(span);
 
           let badge=null;
           if (isArchived(d)){
@@ -574,8 +642,14 @@
 
         list.appendChild(wrap);
       });
+
+      fitCardTitles();
     }
     qInput.addEventListener('input', render);
+
+    // Re-fit on resize/orientation (iOS)
+    window.addEventListener('resize', ()=>fitCardTitles(), { passive:true });
+    window.addEventListener('orientationchange', ()=>setTimeout(fitCardTitles, 80), { passive:true });
 
     /*
     ===================================================================
@@ -750,8 +824,6 @@
 
     /* ================================================================
        Extras engine (equipment-forms.js)
-       FIX: starfireCapable must reflect Firestore boolean true/false
-       FIX: placedInServiceDate must hydrate into <input type="date"> as YYYY-MM-DD
        ================================================================ */
     let extras = null;
 
@@ -775,7 +847,6 @@
       return extras;
     }
 
-    // Normalize Firestore values to real booleans (so "false" string stays OFF).
     function boolify(v){
       if (v === true || v === false) return v;
       if (v == null) return false;
@@ -785,15 +856,11 @@
       if (s === '') return false;
       if (['true','t','yes','y','1','on'].includes(s)) return true;
       if (['false','f','no','n','0','off'].includes(s)) return false;
-
-      // Any other non-empty string: treat as true
       return true;
     }
 
-    // Normalize Firestore Timestamp/Date/ISO string to YYYY-MM-DD (for <input type="date">)
     function toISODateOnly(v){
       if (!v) return '';
-      // Firestore Timestamp
       if (typeof v === 'object' && typeof v.toDate === 'function'){
         const dt = v.toDate();
         const y = dt.getFullYear();
@@ -801,25 +868,20 @@
         const d = String(dt.getDate()).padStart(2,'0');
         return `${y}-${m}-${d}`;
       }
-      // Plain JS Date
       if (v instanceof Date){
         const y = v.getFullYear();
         const m = String(v.getMonth()+1).padStart(2,'0');
         const d = String(v.getDate()).padStart(2,'0');
         return `${y}-${m}-${d}`;
       }
-      // String: "2023-08-01" or "2023-08-01T00:00:00.000Z"
       const s = String(v).trim();
       if (s.includes('T')) return s.split('T')[0];
       return s;
     }
 
     function findExtraEl(fieldId){
-      // primary contract
       let el = document.getElementById('extra-' + fieldId);
       if (el) return el;
-
-      // fallback contracts (in case equipment-forms.js uses different ids)
       el = document.querySelector(`[data-extra-id="${fieldId}"]`) ||
            document.querySelector(`[name="${fieldId}"]`) ||
            document.querySelector(`[data-field="${fieldId}"]`);
@@ -830,7 +892,6 @@
       const el = findExtraEl(fieldId);
       if (!el) return false;
 
-      // Pill toggle button
       if (el.tagName === 'BUTTON' && el.classList.contains('pill-toggle')){
         const isOn = boolify(value);
         el.dataset.state = isOn ? 'on' : 'off';
@@ -839,7 +900,6 @@
         return true;
       }
 
-      // Checkbox / switch input
       if (el.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio')){
         el.checked = boolify(value);
         el.dispatchEvent(new Event('change', { bubbles:true }));
@@ -847,7 +907,6 @@
         return true;
       }
 
-      // Any other input/select/textarea
       try{
         el.value = (value === undefined || value === null) ? '' : String(value);
         el.dispatchEvent(new Event('change', { bubbles:true }));
@@ -870,7 +929,6 @@
     function hydrateExtrasFromDoc(d){
       ensureExtrasEngine();
 
-      // Controller FIRST, then dispatch change so conditional fields appear.
       if (TYPE_SINGULAR === 'implement'){
         const impType = readAny(d, ['implementType','implement_type','subType','subtype','implementSubtype','implement_subtype']);
         if (impType){
@@ -890,11 +948,8 @@
       }
 
       const keys = [
-        'unitId', // <-- include if equipment-forms renders this directly (some do)
-
-        // ✅ date field (string or Timestamp) -> YYYY-MM-DD
+        'unitId',
         'placedInServiceDate',
-
         'engineHours','separatorHours','odometerMiles','boomWidthFt','tankSizeGal','starfireCapable',
         'implementType','workingWidthFt','numRows','rowSpacingIn','totalAcres','totalHours','bushelCapacityBu','augerDiameterIn','augerLengthFt',
         'applicationType',
@@ -904,8 +959,6 @@
         'activationLevel','firmwareVersion'
       ];
 
-      // IMPORTANT:
-      // Some extras UIs render on the next frame; so we retry a few frames until the element exists.
       const triesMax = 8;
       let tries = 0;
 
@@ -924,7 +977,6 @@
           }
         });
 
-        // If StarFire element wasn't present yet, try again a few frames.
         const starElNow = !!findExtraEl('starfireCapable');
         if ((!starElNow || !anySet) && tries < triesMax){
           tries++;
@@ -932,11 +984,9 @@
           return;
         }
 
-        // Hard guarantee: if Firestore says true, force ON once element exists.
         if (starElNow && boolify(d.starfireCapable) === true){
           setExtraValue('starfireCapable', true);
         }
-        // If Firestore says false, force OFF once element exists.
         if (starElNow && boolify(d.starfireCapable) === false){
           setExtraValue('starfireCapable', false);
         }
@@ -967,7 +1017,6 @@
       }
       const d=snap.data()||{};
 
-      // handy debug hook (does not affect app behavior)
       window.__lastEquipDoc = d;
 
       refreshMakeSelect(d.makeId || d.makeName || '');
@@ -986,10 +1035,8 @@
       f.notes.value = d.notes || '';
       f.sn.oninput = ()=> (f.sn6.textContent = (f.sn.value||'').slice(-6) || '—');
 
-      // Extras hydrate (StarFire capable + placedInServiceDate follow Firestore)
       hydrateExtrasFromDoc(d);
 
-      // Delete guard
       dependencyGuard(id).then(ok=>{ deleteClean = ok; }).catch(()=>{ deleteClean=false; });
 
       eTitle.textContent = MODAL_TITLE;
@@ -1019,12 +1066,10 @@
 
       const extraData = (extras && typeof extras.read === 'function') ? extras.read() : {};
 
-      // Ensure starfireCapable is stored as real boolean if present.
       if (Object.prototype.hasOwnProperty.call(extraData, 'starfireCapable')){
         extraData.starfireCapable = boolify(extraData.starfireCapable);
       }
 
-      // Ensure unitId is stored as a trimmed string if present.
       if (Object.prototype.hasOwnProperty.call(extraData, 'unitId')){
         extraData.unitId = String(extraData.unitId || '').trim();
       }
