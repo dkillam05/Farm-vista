@@ -48,12 +48,12 @@
       --sf-serial-font-sm: 13pt;
       --sf-lab-font: 10pt;
 
-      /* ✅ Tile font behavior:
-         - Default stays the same
-         - Wraps up to 2 lines by default (no ellipsis)
-         - JS will only shrink if it still can’t fit within the allowed lines */
-      --tile-title-font: 16px;        /* current default */
-      --tile-title-font-min: 12px;    /* smallest allowed */
+      /* ✅ Tile font behavior (per Dane):
+         - Default stays 16px
+         - NEVER wraps to another row
+         - If it doesn’t fit, shrink that ONE row until it fits */
+      --tile-title-font: 16px;
+      --tile-title-font-min: 10px;
     }
 
     html,body{ max-width:100vw; overflow-x:hidden; }
@@ -109,7 +109,7 @@
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
       padding:14px 16px;
       display:flex;
-      align-items:flex-start;     /* ✅ allow multi-line titles without vertical squeeze */
+      align-items:center;
       justify-content:space-between;
       gap:12px;
       cursor:pointer;
@@ -117,22 +117,15 @@
     }
     .card:hover{ transform:translateY(-1px); box-shadow:0 12px 28px rgba(0,0,0,.12); }
 
-    /* ✅ Title: SAME size by default, WRAPS (no truncation),
-       JS shrinks only if it still doesn’t fit in 2–3 lines */
+    /* ✅ SINGLE LINE ONLY + shrink-to-fit handled by JS */
     .card-title{
       font-weight:800;
       font-size:var(--tile-title-font);
-      line-height:1.18;
-      min-width:0;
-
-      white-space:normal;
+      line-height:1.15;
+      white-space:nowrap;
       overflow:hidden;
-
-      display:-webkit-box;
-      -webkit-box-orient:vertical;
-      -webkit-line-clamp:2;       /* default 2 lines */
-      word-break:break-word;
-      hyphens:auto;
+      text-overflow:ellipsis; /* fallback only if min font still can’t fit */
+      min-width:0;
     }
 
     .badge{
@@ -141,7 +134,6 @@
       border:1px solid var(--border); background:var(--surface);
       color:var(--muted);
       flex:0 0 auto;
-      margin-top:2px;
     }
     .badge.arch{ border-color:rgba(200,80,80,.35); color:rgba(200,80,80,.9); }
 
@@ -295,8 +287,10 @@
       font-size:16pt;
     }
 
+    /* Hidden print iframe */
     #fv-print-frame{ position:fixed; right:0; bottom:0; width:0; height:0; border:0; visibility:hidden; }
 
+    /* Overlay — EXACT style copied + iPhone-safe */
     .pdf-loading{
       position:fixed;
       inset:0;
@@ -341,6 +335,7 @@
     }
     @keyframes pdf-spin{ to{ transform:rotate(360deg); } }
 
+    /* Narrow label type popup */
     dialog#labelChoice.sheet{ width:fit-content; max-width:min(260px, 92vw); }
     .radio-box{
       display:grid;
@@ -360,6 +355,7 @@
     }
     .radio-row:hover{ background:var(--surface-2, rgba(127,127,127,.08)); }
 
+    /* Fix: remove the green focus/selection “box” around the row on iOS/desktop */
     .radio-row,
     .radio-row:focus,
     .radio-row:focus-within{
@@ -482,13 +478,12 @@
   <script type="module">
     /* =====================================================================
        /Farm-vista/pages/equipment/actions/lookup.html  (FULL FILE)
-       Rev: 2026-02-20b
+       Rev: 2026-02-20c
 
        FIX (per Dane):
-       ✅ List rows no longer cut off your data.
-          - Titles WRAP (2 lines default) at the same font size.
-          - ONLY if still too long, we auto-shrink that ONE row.
-          - If it STILL can’t fit, we allow 3 lines and shrink only if needed.
+       ✅ List rows NEVER wrap to a second line.
+       ✅ Font stays at 16px unless it doesn't fit.
+       ✅ Only the rows that don't fit auto-shrink (down to 10px) to show all text.
        ===================================================================== */
 
     import {
@@ -559,8 +554,7 @@
     // Unit ID helper (supports either root unitId or extras.unitId)
     function unitIdText(d){
       const u = (d && (d.unitId ?? d?.extras?.unitId)) ?? '';
-      const s = String(u || '').trim();
-      return s;
+      return String(u || '').trim();
     }
 
     const mmText = d => [safe(d.makeName), safe(d.modelName)].filter(Boolean).join(' ').trim();
@@ -596,70 +590,44 @@
     const hubUrl = (id) =>
       `${location.origin}/Farm-vista/pages/equipment/actions/hub.html?id=${encodeURIComponent(id)}`;
 
-    // ✅ Wrap first (2 lines), shrink only if still too tall; if needed, allow 3 lines.
+    // ✅ Auto-shrink titles ONLY when needed (single line)
     function fitCardTitles(){
       if (!list) return;
 
       const cs = getComputedStyle(document.documentElement);
-      const base = parseFloat(cs.getPropertyValue('--tile-title-font')) || 16;
-      const min  = parseFloat(cs.getPropertyValue('--tile-title-font-min')) || 12;
+      const BASE = parseFloat(cs.getPropertyValue('--tile-title-font')) || 16;
+      const MIN  = parseFloat(cs.getPropertyValue('--tile-title-font-min')) || 10;
 
       const titles = list.querySelectorAll('.card-title');
       if (!titles.length) return;
 
-      const fitOne = (el, maxLines) => {
-        el.style.fontSize = base + 'px';
-        el.style.webkitLineClamp = String(maxLines);
-
-        // Measure line height (fallback safe)
-        const gcs = getComputedStyle(el);
-        let lh = parseFloat(gcs.lineHeight);
-        if (!isFinite(lh) || lh <= 0) lh = base * 1.18;
-
-        const maxH = (lh * maxLines) + 1; // small fudge
-
-        // If it fits at default font, done
-        if (el.scrollHeight <= maxH) return true;
-
-        // Binary search font size down to min
-        let lo = min, hi = base, best = min;
-        for (let i=0;i<12;i++){
-          const mid = (lo + hi) / 2;
-          el.style.fontSize = mid + 'px';
-
-          // re-read line height at this size
-          const g2 = getComputedStyle(el);
-          let lh2 = parseFloat(g2.lineHeight);
-          if (!isFinite(lh2) || lh2 <= 0) lh2 = mid * 1.18;
-
-          const maxH2 = (lh2 * maxLines) + 1;
-          const fits = el.scrollHeight <= maxH2;
-
-          if (fits){
-            best = mid;
-            lo = mid;
-          } else {
-            hi = mid;
-          }
-        }
-        el.style.fontSize = Math.max(min, Math.min(base, best)) + 'px';
-
-        // Final check
-        const gf = getComputedStyle(el);
-        let lhf = parseFloat(gf.lineHeight);
-        if (!isFinite(lhf) || lhf <= 0) lhf = parseFloat(el.style.fontSize) * 1.18;
-
-        return el.scrollHeight <= ((lhf * maxLines) + 1);
-      };
-
+      // iOS needs double-rAF to get correct scrollWidth/clientWidth after DOM paint
       requestAnimationFrame(()=>requestAnimationFrame(()=>{
         titles.forEach(el=>{
-          // Try 2 lines first
-          const ok2 = fitOne(el, 2);
-          if (ok2) return;
+          // Reset
+          el.style.fontSize = BASE + 'px';
 
-          // If still too long even at min, allow 3 lines and try again
-          fitOne(el, 3);
+          // If fits, done
+          if (el.scrollWidth <= el.clientWidth) return;
+
+          // Binary search size down to MIN
+          let low = MIN;
+          let high = BASE;
+          let best = MIN;
+
+          for (let i=0;i<14;i++){
+            const mid = (low + high) / 2;
+            el.style.fontSize = mid + 'px';
+
+            if (el.scrollWidth <= el.clientWidth){
+              best = mid;
+              low = mid;
+            } else {
+              high = mid;
+            }
+          }
+
+          el.style.fontSize = Math.max(MIN, Math.min(BASE, best)) + 'px';
         });
       }));
     }
@@ -686,8 +654,7 @@
           d.year,
           d.notes,
           d.starfireSerial
-        ]
-          .map(x=>String(x||'').toLowerCase()).join(' ');
+        ].map(x=>String(x||'').toLowerCase()).join(' ');
         return blob.includes(q);
       });
 
@@ -716,21 +683,29 @@
       Object.keys(by).sort().forEach(letter=>{
         const wrap = document.createElement('div'); wrap.className='group';
         const h = document.createElement('h3'); h.textContent = letter; wrap.appendChild(h);
+
         by[letter].forEach(d=>{
           const card = document.createElement('div'); card.className='card'; card.setAttribute('role','button');
 
-          const left = document.createElement('div'); left.style.minWidth='0'; left.style.flex='1 1 auto';
-          const title = document.createElement('div'); title.className='card-title'; title.textContent = displayLine(d);
+          const left = document.createElement('div');
+          left.style.minWidth='0';
+          left.style.flex='1 1 auto';
+
+          const title = document.createElement('div');
+          title.className='card-title';
+          title.textContent = displayLine(d);
           left.append(title);
 
           const right = document.createElement('div');
           right.style.display='flex';
           right.style.gap='8px';
-          right.style.alignItems='flex-start';
+          right.style.alignItems='center';
           right.style.flex='0 0 auto';
 
           if (isArchived(d)) {
-            const badge = document.createElement('span'); badge.className='badge arch'; badge.textContent='Archived';
+            const badge = document.createElement('span');
+            badge.className='badge arch';
+            badge.textContent='Archived';
             right.append(badge);
           }
 
@@ -738,6 +713,7 @@
           card.addEventListener('click', ()=> openDetail(d));
           wrap.appendChild(card);
         });
+
         list.appendChild(wrap);
       });
 
@@ -833,7 +809,7 @@
       return Math.max(lo, Math.min(hi, v));
     }
     function roundUpMm(v){
-      return Math.ceil(v * 10) / 10;
+      return Math.ceil(v * 10) / 10; // 0.1mm
     }
 
     // ===== QR create (MATCH Add page) =====
@@ -879,7 +855,7 @@
     // State
     let __pending = null;
     let __mode = 'detailed';
-    let __cutLenMm = 140;
+    let __cutLenMm = 140;     // long label default
     let __previewQrSrc = '';
 
     function clearPreviewHost(){
@@ -887,6 +863,8 @@
       __previewQrSrc = '';
     }
 
+    // PRINT HTML (Mobile PDF stays portrait 62 x cutLen; Desktop stays landscape cutLen x 62)
+    // Summary label MUST show "VIN/Serial" + last 6
     function buildMobilePortraitHtml({ mode, qrSrc, make, model, serial6, cutLenMm }){
       const isSummary = mode === 'summary';
       const pad = 2.2;
@@ -1007,6 +985,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 </body></html>`;
     }
 
+    // PREVIEW render: ALWAYS landscape/horizontal (even on phone)
     async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
       const bust = (url && url.includes('?') ? '&' : '?') + '_=' + Date.now();
       const qrSrc = url ? (url.startsWith('data:') ? url : (url + bust)) : '';
@@ -1014,8 +993,10 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       clearPreviewHost();
       __previewQrSrc = qrSrc;
 
+      // Disable Create until we compute dynamic cut
       pCreate.disabled = true;
 
+      // Keep preview horizontal on all devices
       if (mode === 'summary'){
         const wrap = document.createElement('div');
         wrap.className = 'pv-sf';
@@ -1029,13 +1010,17 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         wrap.append(q, lab, val);
         pHost.appendChild(wrap);
 
+        // Summary is fixed 62mm cut
         __cutLenMm = 62;
         pCreate.disabled = false;
         return;
       }
 
+      // Detailed preview
       const wrap = document.createElement('div');
       wrap.className = 'pv-long';
+
+      // Use the incoming cutLen for the initial draw (we'll re-measure and set the real value)
       wrap.style.width = `${cutLenMm}mm`;
 
       const left = document.createElement('div'); left.className='left';
@@ -1054,18 +1039,24 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       wrap.append(left,mid,right);
       pHost.appendChild(wrap);
 
+      // ---- Dynamic cut measurement (measure CONTENT, not the forced box) ----
       wrap.style.width = 'fit-content';
+
       await new Promise(r=>requestAnimationFrame(r));
       await new Promise(r=>requestAnimationFrame(r));
 
       const rect = wrap.getBoundingClientRect();
       let measuredMm = pxToMm(rect.width);
 
+      // CUT BUFFER (tight)
       measuredMm = measuredMm + 1.0;
+
       measuredMm = clampMm(measuredMm, 70, 210);
+
       __cutLenMm = roundUpMm(measuredMm);
 
       wrap.style.width = `${__cutLenMm}mm`;
+
       pCreate.disabled = false;
     }
 
@@ -1087,7 +1078,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 
       if (!__pending) return;
 
-      __cutLenMm = (__mode === 'summary') ? 62 : 140;
+      __cutLenMm = (__mode === 'summary') ? 62 : 140; // provisional; setPreview() will compute dynamic cut
 
       openDialog(pDlg);
       setPreview({
@@ -1121,6 +1112,9 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         const mobile = isMobileLike();
         const cutLenMm = (__mode === 'summary') ? 62 : __cutLenMm;
 
+        // Page dims:
+        // Desktop: landscape page cutLen x 62
+        // Mobile: portrait page 62 x cutLen (so the PDF LOOKS vertical on screen)
         const widthMm  = mobile ? 62 : cutLenMm;
         const heightMm = mobile ? cutLenMm : 62;
         const landscape = false;
@@ -1164,6 +1158,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         const blob = await resp.blob();
         const url = URL.createObjectURL(blob);
 
+        // Desktop: print via iframe. Mobile: open in this tab so you can Share → Print.
         if (mobile){
           window.location.assign(url);
         } else {
@@ -1178,6 +1173,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 
     pCreate.addEventListener('click', createPdf);
 
+    // ===== Shared: wire "Reprint QR" click to label flow (existing behavior) =====
     function wireReprintFlow(d, url){
       btnPrintQR.disabled = false;
       btnPrintQR.textContent = 'Reprint QR';
@@ -1203,6 +1199,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       };
     }
 
+    // Detail open logic (Hub button fixed here) + QR create when missing
     function openDetail(d){
       btnHub.classList.remove('disabled');
       btnHub.removeAttribute('aria-disabled');
@@ -1222,6 +1219,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 
       const labelText = [safe(d.modelName)].filter(Boolean).join(' ') + (ls ? ` - #${ls}` : '');
 
+      // Always show QR section in modal (either QR image or Create flow)
       qrSection.hidden = false;
 
       const url = getQrUrl(d);
@@ -1234,6 +1232,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 
         wireReprintFlow(d, url);
       } else {
+        // No QR on equipment -> show Create QR Code (match Add page behavior)
         qrImg.removeAttribute('src');
         qrImg.alt = 'Equipment QR';
         qrLbl.textContent = 'No QR image saved for this equipment.';
@@ -1257,6 +1256,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
               { merge:true }
             );
 
+            // Update UI immediately to show QR + enable reprint
             qrImg.src = dataURL;
             qrImg.alt = `QR for ${labelText || TYPE_META.sing}`;
             qrLbl.textContent = labelText || TYPE_META.sing;
@@ -1274,6 +1274,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       openDialog(dlg);
     }
 
+    // Filter popover logic
     function openPop(){
       if (!filterPop.hidden) return;
       const r = filterBtn.getBoundingClientRect();
@@ -1312,6 +1313,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       if (r) r.checked = true;
     }
 
+    // Firestore listener (ONLY ONE attach)
     function attachListener(){
       if (unsub) return;
       const db = getFirestore();
@@ -1347,9 +1349,11 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 
       qInput.addEventListener('input', render);
 
+      // ✅ Re-fit on resize/orientation (iOS especially)
       window.addEventListener('resize', fitCardTitles, { passive:true });
       window.addEventListener('orientationchange', ()=>setTimeout(fitCardTitles, 80), { passive:true });
 
+      // keep listener stable across iOS/backgrounding
       window.addEventListener('pageshow', resume);
       document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') resume(); });
       window.addEventListener('focus', resume);
