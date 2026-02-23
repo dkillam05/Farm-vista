@@ -1,27 +1,24 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-02-10b-quickview-option1-model-eta-truth-consistent-no-legacy-etaFor
+Rev: 2026-02-23a-unify-with-global-no-learning-force-truth-refresh
 
-RULE A (per Dane):
-✅ Sliders change TANK SIZE + RATES only (live preview)
-✅ Sliders do NOT change TODAY’S storage truth while sliding
-✅ Save & Close updates ONLY:
-   1) fields/{fieldId} params (RAW values you set)
-   2) local cache (perFieldParams + localStorage)
-❌ Save & Close does NOT write field_readiness_state (truth storage)
-   - truth storage is changed only by global calibration (and/or dedicated truth tools)
+GOAL (per Dane, Feb 2026):
+✅ Make Quick View readiness MATCH Global Calibration readiness.
 
-Learning:
-✅ Applies global learning DRY_LOSS_MULT (drying side only).
+CHANGES:
+✅ REMOVE learning injection entirely:
+   - No read of field_readiness_tuning/global
+   - No DRY_LOSS_MULT applied in Quick View
+✅ Force-refresh persisted truth on open + on live slider updates:
+   - Reads field_readiness_state directly with TTL, supports force:true
+✅ Keep Rule A:
+   - Sliders change params only (soil/drain) and do NOT write truth storage
+   - Save writes only fields/{fieldId} params + local cache
 
-OPTION 1 ETA (per Dane):
-✅ Quick View preview ETA uses model.etaToThreshold() (truth-consistent)
-✅ Forecast cache is used ONLY to supply dailySeriesFcst rows to model ETA
-✅ No legacy ETA:
-   - No model.etaFor()
-
-UI:
-✅ Helper text stays the same
+Keeps:
+✅ CAL is always ZERO (matches render.js)
+✅ ETA uses model.etaToThreshold() (forecast rows only; no legacy ETA)
+✅ UI unchanged
 ===================================================================== */
 'use strict';
 
@@ -40,6 +37,98 @@ function $(id){ return document.getElementById(id); }
    Truth state collection (kept; read-only here)
 ===================================================================== */
 const FR_STATE_COLLECTION = 'field_readiness_state';
+const STATE_TTL_MS = 30000;
+
+function safeObj(x){ return (x && typeof x === 'object') ? x : null; }
+function safeStr(x){
+  const s = String(x || '');
+  return s ? s : '';
+}
+function safeISO10(x){
+  const s = safeStr(x);
+  return (s.length >= 10) ? s.slice(0,10) : s;
+}
+function safeNum(v){
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function loadPersistedState(state, { force=false } = {}){
+  try{
+    if (!state) return;
+
+    const now = Date.now();
+    const last = Number(state._qvPersistLoadedAt || 0);
+    if (!force && state.persistedStateByFieldId && (now - last) < STATE_TTL_MS) return;
+
+    state.persistedStateByFieldId = state.persistedStateByFieldId || {};
+    const out = {};
+
+    const api = getAPI(state);
+    if (!api){
+      state.persistedStateByFieldId = out;
+      state._qvPersistLoadedAt = now;
+      return;
+    }
+
+    if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
+      const db = window.firebase.firestore();
+      const snap = await db.collection(FR_STATE_COLLECTION).get();
+
+      snap.forEach(doc=>{
+        const d = doc.data() || {};
+        const fid = safeStr(d.fieldId || doc.id);
+        if (!fid) return;
+
+        const storageFinal = safeNum(d.storageFinal);
+        const asOfDateISO = safeISO10(d.asOfDateISO);
+        if (storageFinal == null || !asOfDateISO) return;
+
+        out[fid] = {
+          fieldId: fid,
+          storageFinal,
+          asOfDateISO,
+          SmaxAtSave: safeNum(d.SmaxAtSave) ?? safeNum(d.SmaxAtSave || d.smaxAtSave) ?? 0
+        };
+      });
+
+      state.persistedStateByFieldId = out;
+      state._qvPersistLoadedAt = now;
+      return;
+    }
+
+    if (api.kind !== 'compat'){
+      const db = api.getFirestore();
+      const col = api.collection(db, FR_STATE_COLLECTION);
+      const snap = await api.getDocs(col);
+
+      snap.forEach(doc=>{
+        const d = doc.data() || {};
+        const fid = safeStr(d.fieldId || doc.id);
+        if (!fid) return;
+
+        const storageFinal = safeNum(d.storageFinal);
+        const asOfDateISO = safeISO10(d.asOfDateISO);
+        if (storageFinal == null || !asOfDateISO) return;
+
+        out[fid] = {
+          fieldId: fid,
+          storageFinal,
+          asOfDateISO,
+          SmaxAtSave: safeNum(d.SmaxAtSave) ?? safeNum(d.SmaxAtSave || d.smaxAtSave) ?? 0
+        };
+      });
+
+      state.persistedStateByFieldId = out;
+      state._qvPersistLoadedAt = now;
+      return;
+    }
+  }catch(e){
+    console.warn('[FieldReadiness] quickview persisted state load failed:', e);
+    state.persistedStateByFieldId = state.persistedStateByFieldId || {};
+    state._qvPersistLoadedAt = Date.now();
+  }
+}
 
 /* ---------- tile preview color helpers (match tiles) ---------- */
 function perceivedFromThreshold(readiness, thr){
@@ -105,91 +194,6 @@ function getPersistedStateForDeps(state, fieldId){
   }catch(_){
     return null;
   }
-}
-
-/* =====================================================================
-   Global tuning read (learning apply) — DRY ONLY
-===================================================================== */
-const FR_TUNE_COLLECTION = 'field_readiness_tuning';
-const FR_TUNE_DOC = 'global';
-const TUNE_TTL_MS = 30000;
-
-const DRY_LOSS_MULT_MIN = 0.30;
-const DRY_LOSS_MULT_MAX = 3.00;
-
-function safeObj(x){ return (x && typeof x === 'object') ? x : null; }
-function safeNum(v){
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-function normalizeTuneDoc(d){
-  const doc = safeObj(d) || {};
-  const dryLoss = safeNum(doc.DRY_LOSS_MULT);
-  return {
-    DRY_LOSS_MULT: clamp((dryLoss == null ? 1.0 : dryLoss), DRY_LOSS_MULT_MIN, DRY_LOSS_MULT_MAX),
-    updatedAt: doc.updatedAt || null
-  };
-}
-async function loadGlobalTuning(state, { force=false } = {}){
-  try{
-    if (!state) return normalizeTuneDoc(null);
-
-    const now = Date.now();
-    const last = Number(state._qvTuneLoadedAt || 0);
-    if (!force && state._qvGlobalTune && (now - last) < TUNE_TTL_MS){
-      return state._qvGlobalTune;
-    }
-
-    const api = getAPI(state);
-    const fallback = normalizeTuneDoc(null);
-
-    if (!api){
-      state._qvGlobalTune = fallback;
-      state._qvTuneLoadedAt = now;
-      return fallback;
-    }
-
-    if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
-      const db = window.firebase.firestore();
-      const snap = await db.collection(FR_TUNE_COLLECTION).doc(FR_TUNE_DOC).get();
-      const tuned = (snap && snap.exists) ? normalizeTuneDoc(snap.data() || {}) : fallback;
-      state._qvGlobalTune = tuned;
-      state._qvTuneLoadedAt = now;
-      return tuned;
-    }
-
-    if (api.kind !== 'compat'){
-      const db = api.getFirestore();
-      const ref = api.doc(db, FR_TUNE_COLLECTION, FR_TUNE_DOC);
-      const snap = await api.getDoc(ref);
-
-      const ok =
-        !!snap &&
-        ((typeof snap.exists === 'function' && snap.exists()) || (snap.exists === true));
-
-      const tuned = ok ? normalizeTuneDoc(snap.data() || {}) : fallback;
-      state._qvGlobalTune = tuned;
-      state._qvTuneLoadedAt = now;
-      return tuned;
-    }
-
-    state._qvGlobalTune = fallback;
-    state._qvTuneLoadedAt = now;
-    return fallback;
-  }catch(e){
-    console.warn('[FieldReadiness] quickview tuning load failed:', e);
-    const fallback = normalizeTuneDoc(null);
-    try{
-      state._qvGlobalTune = fallback;
-      state._qvTuneLoadedAt = Date.now();
-    }catch(_){}
-    return fallback;
-  }
-}
-async function getExtraForDeps(state){
-  const t = await loadGlobalTuning(state);
-  const dryLossMult = clamp(Number(t && t.DRY_LOSS_MULT ? t.DRY_LOSS_MULT : 1.0), DRY_LOSS_MULT_MIN, DRY_LOSS_MULT_MAX);
-  return { ...EXTRA, DRY_LOSS_MULT: dryLossMult };
 }
 
 /* =====================================================================
@@ -682,11 +686,13 @@ async function fillQuickView(state, { live=false } = {}){
   const f = state.fields.find(x=>x.id===fid);
   if (!f) return;
 
+  // ✅ Force truth refresh so QV matches Global Calibration (prevents stale mismatch)
+  await loadPersistedState(state, { force:true });
+
   const opKey = getCurrentOp();
   const CAL = getCalForDeps(state);
 
   const wxCtx = buildWxCtx(state);
-  const extraWithLearning = await getExtraForDeps(state);
 
   // RULE A: Always show TRUTH run (persisted seed + current params).
   // Sliders update params live (tank size + rate response), but do not rewrite truth storage.
@@ -694,7 +700,7 @@ async function fillQuickView(state, { live=false } = {}){
     getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
     getFieldParams: (id)=> getFieldParams(state, id),
     LOSS_SCALE: CONST.LOSS_SCALE,
-    EXTRA: extraWithLearning,
+    EXTRA: EXTRA,
     opKey,
     CAL,
     getPersistedState: (id)=> getPersistedStateForDeps(state, id),
@@ -858,10 +864,9 @@ async function saveAndClose(state){
     }
 
     // RULE A: DO NOT write truth storage here.
-    // Refresh UI to show new params effects (tank size/rates), but truth storage remains.
+    // Refresh UI to show new params effects, but truth storage remains.
     try{ document.dispatchEvent(new CustomEvent('fr:tile-refresh', { detail:{ fieldId: fid } })); }catch(_){}
     try{ document.dispatchEvent(new CustomEvent('fr:details-refresh', { detail:{ fieldId: fid } })); }catch(_){}
-    // no fr:soft-reload needed; we did not change persisted truth
 
     closeQuickView(state);
 
