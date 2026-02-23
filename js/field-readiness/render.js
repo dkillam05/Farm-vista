@@ -1,53 +1,25 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-02-10c-option1-model-eta-truth-consistent-tiles-no-legacy-eta
+Rev: 2026-02-23a-unify-with-global-no-learning-force-truth-refresh
 
-RECOVERY (critical):
-✅ Keep module stable; tiles + details render.
+GOAL (per Dane, Feb 2026):
+✅ Make tiles + details MATCH the Global Calibration readiness number.
+✅ Treat Global Calibration as the authoritative "truth math" view.
 
-TRUTH SYSTEM (per Dane):
-✅ Global adjustment writes truth storage to field_readiness_state.
-✅ Model uses persisted storage seed + weather simulation.
-✅ Quick View uses rewind 14 (separate file).
-
-CRITICAL FIX:
-✅ REMOVE legacy calibration pipeline entirely.
-   - No reading field_readiness_adjustments
-   - No wetBias / readinessShift from deltas
-   - CAL passed to model is ALWAYS ZERO
-
-NEW (Learning APPLY — per Dane):
-✅ Read global tuning doc and APPLY ONLY drying-side learning:
-   - Reads: field_readiness_tuning/global
-   - Injects into deps.EXTRA:
-       DRY_LOSS_MULT
-   - Does NOT apply RAIN_EFF_MULT (kept for future/manual only)
-
-NEW (Option B — Debug Trace in Details):
-✅ When truth is anchored to "today" there are often 0 forward-sim days,
-   so run.trace can be empty. To still show history:
-   - If run.trace is empty, run a SECOND pass with:
-       seedMode:'rewind', rewindDays:14
-     and display that trace ONLY in the trace table.
-   - Truth numbers (readiness/storage/wetness) remain from persisted run.
-
-SWIPE FIX (mobile):
-✅ Add a robust fallback swipe handler for tiles (left-swipe opens Quick View)
-   - Prevents "ghost clicks" after a swipe
-   - Does not block vertical scrolling
-   - Works even if swipe.js fails or gets detached
-
-OPTION 1 ETA (per Dane):
-✅ ETA on tiles is computed by MODEL only (truth-consistent):
-   - Uses model.etaToThreshold()
-   - Uses forecast cache ONLY to supply dailySeriesFcst rows to model
-✅ Legacy ETA removed:
-   - No model.etaFor()
-   - No forecast.predictDryForField()
+CHANGES:
+✅ REMOVE learning injection entirely:
+   - No read of field_readiness_tuning/global
+   - No DRY_LOSS_MULT applied anywhere in render.js
+✅ FORCE truth refresh more aggressively (prevents stale mismatch):
+   - loadPersistedState(..., {force:true}) in tile updates + renders + details
+✅ Keep: persisted truth seed (field_readiness_state) + model simulation
+✅ Keep: CAL always ZERO (no legacy adjustments)
+✅ Keep: Option 1 ETA (model-owned) + forecast rows only
+✅ Keep: Option B trace table fallback (rewind 14) for display only
 
 NOTES:
-- This file reads persisted truth and tuning, then passes into model deps.
-- Global calibration works via field_readiness_state and fr:soft-reload.
+- Quick View is separate file. This file now matches Global Calibration math inputs
+  by using EXTRA directly (no learning multipliers).
 ===================================================================== */
 'use strict';
 
@@ -181,96 +153,6 @@ function getPersistedStateForDeps(state, fieldId){
   }catch(_){
     return null;
   }
-}
-
-/* =====================================================================
-   NEW: Global tuning read (learning apply)
-===================================================================== */
-const FR_TUNE_COLLECTION = 'field_readiness_tuning';
-const FR_TUNE_DOC = 'global';
-const TUNE_TTL_MS = 30000;
-
-// Safety clamp for DRY_LOSS_MULT applied to physics only
-const DRY_LOSS_MULT_MIN = 0.30;
-const DRY_LOSS_MULT_MAX = 3.00;
-
-function normalizeTuneDoc(d){
-  const doc = (d && typeof d === 'object') ? d : {};
-  const dryLoss = safeNum(doc.DRY_LOSS_MULT);
-  return {
-    DRY_LOSS_MULT: clamp((dryLoss == null ? 1.0 : dryLoss), DRY_LOSS_MULT_MIN, DRY_LOSS_MULT_MAX),
-    updatedAt: doc.updatedAt || null
-  };
-}
-
-async function loadGlobalTuning(state, { force=false } = {}){
-  try{
-    if (!state) return normalizeTuneDoc(null);
-
-    const now = Date.now();
-    const last = Number(state._tuneLoadedAt || 0);
-    if (!force && state._globalTune && (now - last) < TUNE_TTL_MS){
-      return state._globalTune;
-    }
-
-    const api = getAPI(state);
-    const fallback = normalizeTuneDoc(null);
-
-    if (!api){
-      state._globalTune = fallback;
-      state._tuneLoadedAt = now;
-      return fallback;
-    }
-
-    // compat (firebase v8)
-    if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
-      const db = window.firebase.firestore();
-      const snap = await db.collection(FR_TUNE_COLLECTION).doc(FR_TUNE_DOC).get();
-      const tuned = (snap && snap.exists) ? normalizeTuneDoc(snap.data() || {}) : fallback;
-      state._globalTune = tuned;
-      state._tuneLoadedAt = now;
-      return tuned;
-    }
-
-    // modular wrapper
-    if (api.kind !== 'compat'){
-      const db = api.getFirestore();
-      const ref = api.doc(db, FR_TUNE_COLLECTION, FR_TUNE_DOC);
-      const snap = await api.getDoc(ref);
-      const ok = (snap && (snap.exists ? snap.exists : (typeof snap.exists === 'function' ? snap.exists() : false)));
-      const tuned = ok ? normalizeTuneDoc(snap.data() || {}) : fallback;
-      state._globalTune = tuned;
-      state._tuneLoadedAt = now;
-      return tuned;
-    }
-
-    state._globalTune = fallback;
-    state._tuneLoadedAt = now;
-    return fallback;
-  }catch(e){
-    console.warn('[FieldReadiness] tuning load failed:', e);
-    const fallback = normalizeTuneDoc(null);
-    try{
-      state._globalTune = fallback;
-      state._tuneLoadedAt = Date.now();
-    }catch(_){}
-    return fallback;
-  }
-}
-
-// Build deps.EXTRA with learning applied (drying-side only)
-async function getExtraForDeps(state){
-  // Make sure we have something (fallback 1.0)
-  const t = await loadGlobalTuning(state);
-  const dryLossMult = clamp(Number(t && t.DRY_LOSS_MULT ? t.DRY_LOSS_MULT : 1.0), DRY_LOSS_MULT_MIN, DRY_LOSS_MULT_MAX);
-
-  // IMPORTANT: do not mutate imported EXTRA object
-  return {
-    ...EXTRA,
-    // Learning apply (drying side only)
-    DRY_LOSS_MULT: dryLossMult
-    // NOTE: We intentionally do NOT apply RAIN_EFF_MULT here.
-  };
 }
 
 /* =====================================================================
@@ -992,8 +874,9 @@ async function updateTileForField(state, fieldId){
     await ensureModelWeatherModules(state);
     ensureSelectionStyleOnce();
 
-    await loadPersistedState(state);
-    await loadGlobalTuning(state); // warm cache
+    // ✅ Force truth refresh so this matches Global Calibration (prevents stale mismatch)
+    await loadPersistedState(state, { force:true });
+
     ensureEtaHelperModule(state);
 
     const f = (state.fields || []).find(x=>x.id === fid);
@@ -1002,13 +885,11 @@ async function updateTileForField(state, fieldId){
     const opKey = getCurrentOp();
     const wxCtx = buildWxCtx(state);
 
-    const extraWithLearning = await getExtraForDeps(state);
-
     const deps = {
       getWeatherSeriesForFieldId: (id)=> state._mods.weather.getWeatherSeriesForFieldId(id, wxCtx),
       getFieldParams: (id)=> getFieldParams(state, id),
       LOSS_SCALE: CONST.LOSS_SCALE,
-      EXTRA: extraWithLearning,
+      EXTRA: EXTRA,
       opKey,
       CAL: getCalForDeps(state),
 
@@ -1138,8 +1019,9 @@ async function _renderTilesInternal(state){
   await ensureModelWeatherModules(state);
   ensureSelectionStyleOnce();
 
-  await loadPersistedState(state);
-  await loadGlobalTuning(state); // warm cache
+  // ✅ Force truth refresh so tiles align with Global Calibration
+  await loadPersistedState(state, { force:true });
+
   ensureEtaHelperModule(state);
 
   const wrap = $('fieldsGrid');
@@ -1175,13 +1057,11 @@ async function _renderTilesInternal(state){
   const opKey = getCurrentOp();
   const wxCtx = buildWxCtx(state);
 
-  const extraWithLearning = await getExtraForDeps(state);
-
   const deps = {
     getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
     getFieldParams: (fid)=> getFieldParams(state, fid),
     LOSS_SCALE: CONST.LOSS_SCALE,
-    EXTRA: extraWithLearning,
+    EXTRA: EXTRA,
     opKey,
     CAL: getCalForDeps(state),
     getPersistedState: (id)=> getPersistedStateForDeps(state, id),
@@ -1422,8 +1302,8 @@ async function _renderDetailsInternal(state){
   await ensureModelWeatherModules(state);
   ensureEtaHelperModule(state);
 
-  await loadPersistedState(state);
-  await loadGlobalTuning(state); // warm cache
+  // ✅ Force truth refresh so details align with Global Calibration
+  await loadPersistedState(state, { force:true });
 
   const f = state.fields.find(x=>x.id === state.selectedFieldId);
   if (!f) return;
@@ -1433,13 +1313,12 @@ async function _renderDetailsInternal(state){
   const opKey = getCurrentOp();
 
   const wxCtx = buildWxCtx(state);
-  const extraWithLearning = await getExtraForDeps(state);
 
   const deps = {
     getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
     getFieldParams: (fid)=> getFieldParams(state, fid),
     LOSS_SCALE: CONST.LOSS_SCALE,
-    EXTRA: extraWithLearning,
+    EXTRA: EXTRA,
     opKey,
     CAL: getCalForDeps(state),
     getPersistedState: (id)=> getPersistedStateForDeps(state, id)
@@ -1642,12 +1521,10 @@ export async function refreshDetailsOnly(state){
         const state = window.__FV_FR;
         if (!state) return;
 
-        // Re-pull persisted truth + tuning
+        // Re-pull persisted truth
         state._persistLoadedAt = 0;
-        state._tuneLoadedAt = 0;
 
         await loadPersistedState(state, { force:true });
-        await loadGlobalTuning(state, { force:true });
 
         await refreshAll(state);
       }catch(_){}
