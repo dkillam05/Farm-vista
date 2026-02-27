@@ -247,6 +247,7 @@
     .pv-long .right{ padding-right:1mm; }
     .pv-long .make{ font-weight:800; font-size:18pt; line-height:1.05; }
     .pv-long .model{ font-weight:800; font-size:16pt; line-height:1.05; margin-top:1mm; }
+    .pv-long .unit{ font-weight:800; font-size:14pt; line-height:1.05; margin-top:1mm; }
     .pv-long .mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; background:#fff; }
     .pv-long .mid img{ width:100%; height:100%; image-rendering:pixelated; display:block; }
     .pv-long .right{ align-items:flex-end; text-align:right; }
@@ -487,13 +488,16 @@
   <script type="module">
     /* =====================================================================
        /Farm-vista/pages/equipment/actions/lookup.html  (FULL FILE)
-       Rev: 2026-02-20f
+       Rev: 2026-02-20f+unit-on-label
 
        FIX (per Dane):
        ✅ NEVER wraps. Single line only.
        ✅ NO ellipsis ever (we removed text-overflow:ellipsis).
        ✅ Shrink that one row (down to --tile-title-font-min).
        ✅ If still too long, scaleX the INNER span so it visually fits.
+
+       UPDATE (per Dane):
+       ✅ Detailed label LEFT column now includes Unit ID / Unit # under Make + Model.
        ===================================================================== */
 
     import {
@@ -880,7 +884,7 @@
       __previewQrSrc = '';
     }
 
-    function buildMobilePortraitHtml({ mode, qrSrc, make, model, serial6, cutLenMm }){
+    function buildMobilePortraitHtml({ mode, qrSrc, make, model, unit, serial6, cutLenMm }){
       const isSummary = mode === 'summary';
       const pad = 2.2;
 
@@ -928,6 +932,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; overfl
 .left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
 .make{ font-weight:0; font-size:18pt; line-height:1.05; white-space:nowrap; }
 .model{ font-weight:800; font-size:16pt; line-height:1.05; white-space:nowrap; margin-top:1mm; }
+.unit{ font-weight:800; font-size:14pt; line-height:1.05; white-space:nowrap; margin-top:1mm; }
 .mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; }
 .mid img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
 .right{ align-items:flex-end; text-align:right; }
@@ -935,14 +940,18 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; overfl
 .val{ font-weight:0; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; white-space:nowrap; }
 </style></head><body>
 <div class="page"><div class="rot"><div class="label">
-  <div class="left"><div class="make">${esc(make||'—')}</div><div class="model">${esc(model||'—')}</div></div>
+  <div class="left">
+    <div class="make">${esc(make||'—')}</div>
+    <div class="model">${esc(model||'—')}</div>
+    <div class="unit">${esc(unit||'')}</div>
+  </div>
   <div class="mid"><img alt="QR" src="${qrSrc}"></div>
   <div class="right"><div class="lab">VIN/Serial</div><div class="val">${esc(serial6||'—')}</div></div>
 </div></div></div>
 </body></html>`;
     }
 
-    function buildDesktopHtml({ mode, qrSrc, make, model, serial6 }){
+    function buildDesktopHtml({ mode, qrSrc, make, model, unit, serial6 }){
       const isSummary = mode === 'summary';
       const pad = 2.2;
 
@@ -986,6 +995,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 .left,.right{ display:flex; flex-direction:column; justify-content:center; min-width:max-content; }
 .make{ font-weight:0; font-size:18pt; line-height:1.05; white-space:nowrap; }
 .model{ font-weight:800; font-size:16pt; line-height:1.05; white-space:nowrap; margin-top:1mm; }
+.unit{ font-weight:800; font-size:14pt; line-height:1.05; white-space:nowrap; margin-top:1mm; }
 .mid{ width:48mm; height:48mm; display:flex; align-items:center; justify-content:center; background:#fff; }
 .mid img{ width:100%; height:100%; display:block; image-rendering:pixelated; }
 .right{ align-items:flex-end; text-align:right; }
@@ -993,14 +1003,18 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
 .val{ font-weight:0; font-size:18pt; line-height:1.05; letter-spacing:.6px; margin-top:1mm; white-space:nowrap; }
 </style></head><body>
 <div class="label">
-  <div class="left"><div class="make">${esc(make||'—')}</div><div class="model">${esc(model||'—')}</div></div>
+  <div class="left">
+    <div class="make">${esc(make||'—')}</div>
+    <div class="model">${esc(model||'—')}</div>
+    <div class="unit">${esc(unit||'')}</div>
+  </div>
   <div class="mid"><img alt="QR" src="${qrSrc}"></div>
   <div class="right"><div class="lab">VIN/Serial</div><div class="val">${esc(serial6||'—')}</div></div>
 </div>
 </body></html>`;
     }
 
-    async function setPreview({ mode, url, make, model, serial6, cutLenMm }){
+    async function setPreview({ mode, url, make, model, unit, serial6, cutLenMm }){
       const bust = (url && url.includes('?') ? '&' : '?') + '_=' + Date.now();
       const qrSrc = url ? (url.startsWith('data:') ? url : (url + bust)) : '';
 
@@ -1034,7 +1048,8 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
       const left = document.createElement('div'); left.className='left';
       const mk = document.createElement('div'); mk.className='make'; mk.textContent = make || '—';
       const md = document.createElement('div'); md.className='model'; md.textContent = model || '—';
-      left.append(mk,md);
+      const un = document.createElement('div'); un.className='unit'; un.textContent = unit || '';
+      left.append(mk,md,un);
 
       const mid = document.createElement('div'); mid.className='mid';
       const img = document.createElement('img'); img.alt='QR'; img.src=qrSrc; mid.appendChild(img);
@@ -1092,6 +1107,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
               qrSrc: __previewQrSrc || __pending.url,
               make: __pending.make,
               model: __pending.model,
+              unit: __pending.unit,
               serial6: __pending.serial6,
               cutLenMm
             })
@@ -1100,6 +1116,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
               qrSrc: __previewQrSrc || __pending.url,
               make: __pending.make,
               model: __pending.model,
+              unit: __pending.unit,
               serial6: __pending.serial6
             });
 
@@ -1148,6 +1165,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
           url,
           make: d.makeName || '',
           model: d.modelName || '',
+          unit: unitIdText(d) || '',
           serial6: s6
         };
 
@@ -1264,6 +1282,7 @@ html,body{ margin:0; padding:0; width:100%; height:100%; background:#fff; }
         url: __pending.url,
         make: __pending.make,
         model: __pending.model,
+        unit: __pending.unit,
         serial6: __pending.serial6,
         cutLenMm: __cutLenMm
       });
