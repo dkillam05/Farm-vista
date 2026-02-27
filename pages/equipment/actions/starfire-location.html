@@ -439,7 +439,7 @@
     function normalizeReceiverLocType(raw){
       const t = String(raw || "").toLowerCase().trim();
       if(!t) return "";
-      if(t === "storage" || t === "loaned" || t === "rtk" || t === "equipment") return t;
+      if(t === "storage" || t === "loaned" || t === "rtk" || t === "equipment" || t === "missing" || t === "broken") return t;
       // ✅ legacy / messy: implement/truck/tractor/etc all count as equipment-mounted
       return "equipment";
     }
@@ -661,7 +661,7 @@
           return;
         }
 
-        if(locType === "storage" || locType === "loaned") return;
+        if(locType === "storage" || locType === "loaned" || locType === "missing" || locType === "broken") return;
 
         // ✅ equipment-mounted (includes legacy implement/truck/tractor/etc)
         if(locId) occEqIds.add(String(locId));
@@ -795,6 +795,10 @@
       let label = x.starfireCurrentLocationName || "In Storage";
       if(rawType === "loaned"){
         label = loanedLabel(loanTo);
+      }else if(rawType === "missing"){
+        label = "Unknown / Missing";
+      }else if(rawType === "broken"){
+        label = "Broken/Needs Repaired";
       }
 
       const sinceISO = x.starfireCurrentLocationSince || null;
@@ -806,7 +810,7 @@
 
       state.currentLoc = {
         type: locType,
-        id: (locType === "storage" || locType === "loaned") ? locType : (x.starfireCurrentLocationId || null),
+        id: (locType === "storage" || locType === "loaned" || locType === "missing" || locType === "broken") ? locType : (x.starfireCurrentLocationId || null),
         label,
         sinceISO,
         loanTo: (locType === "loaned") ? loanTo : ""
@@ -845,6 +849,7 @@
         formatter: x=>{
           if(x.type === "storage") return "In Storage";
           if(x.type === "missing") return "Unknown / Missing";
+          if(x.type === "broken") return "Broken/Needs Repaired";
           if(x.type === "loaned") return "Loaned Out";
           if(x.type === "rtk") return labelRTK(x);
           return labelEquipment(x);
@@ -854,6 +859,7 @@
 
           if(it.type === "storage") $("locBtn").textContent = "In Storage";
           else if(it.type === "missing") $("locBtn").textContent = "Unknown / Missing";
+          else if(it.type === "broken") $("locBtn").textContent = "Broken/Needs Repaired";
           else if(it.type === "loaned") $("locBtn").textContent = "Loaned Out";
           else if(it.type === "rtk") $("locBtn").textContent = labelRTK(it);
           else $("locBtn").textContent = labelEquipment(it);
@@ -881,14 +887,15 @@
       if(locCombo){
         const storage = { id:"storage", type:"storage", key:"storage:storage", name:"In Storage" };
         const missing = { id:"missing", type:"missing", key:"missing:missing", name:"Unknown / Missing" };
+        const broken  = { id:"broken",  type:"broken",  key:"broken:broken",  name:"Broken/Needs Repaired" };
         const loaned  = { id:"loaned",  type:"loaned",  key:"loaned:loaned",  name:"Loaned Out" };
 
-        const items = [storage, missing, loaned, ...state.equipment, ...state.rtkTowers];
+        const items = [storage, missing, broken, loaned, ...state.equipment, ...state.rtkTowers];
         locCombo.setItems(items);
 
         const eqN = state.equipment?.length || 0;
         const rtkN = state.rtkTowers?.length || 0;
-        $("locCount").textContent = `${eqN} eligible unit(s), ${rtkN} available RTK tower(s), plus "In Storage", "Unknown / Missing", and "Loaned Out".`;
+        $("locCount").textContent = `${eqN} eligible unit(s), ${rtkN} available RTK tower(s), plus "In Storage", "Unknown / Missing", "Broken/Needs Repaired", and "Loaned Out".`;
       }
 
       if(empCombo) empCombo.setItems(state.employees);
@@ -947,7 +954,7 @@
       const auth = state.auth;
       const me = auth.currentUser;
 
-      // ✅ normalize outgoing type to match grid page: storage/missing/loaned/rtk/equipment
+      // ✅ normalize outgoing type to match grid page: storage/missing/broken/loaned/rtk/equipment
       const toType = (loc.type || "equipment").toLowerCase();
 
       let loanTo = "";
@@ -963,15 +970,16 @@
 
       const toName = (toType === "storage") ? "In Storage"
                    : (toType === "missing") ? "Unknown / Missing"
+                   : (toType === "broken") ? "Broken/Needs Repaired"
                    : (toType === "loaned") ? loanedLabel(loanTo)
                    : (toType === "rtk") ? labelRTK(loc)
                    : labelEquipment(loc);
 
-      const toId   = (toType === "storage" || toType === "loaned" || toType === "missing") ? null : loc.id;
+      const toId   = (toType === "storage" || toType === "loaned" || toType === "missing" || toType === "broken") ? null : loc.id;
 
       const cur = state.currentLoc;
       const fromName = cur?.label || "In Storage";
-      const fromId   = (cur?.type && cur.type !== "storage" && cur.type !== "loaned" && cur.type !== "missing" && cur?.id && cur.id !== "storage") ? cur.id : null;
+      const fromId   = (cur?.type && cur.type !== "storage" && cur.type !== "loaned" && cur.type !== "missing" && cur.type !== "broken" && cur?.id && cur.id !== "storage") ? cur.id : null;
 
       const movedBy = {
         employeeId: mover.id,
