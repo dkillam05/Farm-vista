@@ -1,26 +1,19 @@
 /* =====================================================================
 /Farm-vista/js/markets.js  (FULL FILE)
-Rev: 2026-02-16a
+Rev: 2026-03-04a
 
-UPDATES (per Dane):
-✅ Add PRIOR SETTLE fallback when markets aren’t open / 1D has no points
-   - If 1D has no close, use last DAILY close from 6M as price
-   - Prevents contracts being marked "nodata" just because it’s pre-open
-   - Keeps contracts visible (no more disappearing March/Dec26/Nov26 pre-open)
-
-✅ Mobile tile rule updated to your requested behavior:
-   - Tile 1 = Front month (first non-expired, usable)
-   - Tile 2 = CURRENT CALENDAR YEAR Dec (corn) / Nov (soy)
-   - If Tile 1 is already that Dec/Nov, Tile 2 = next open contract
-   - If Dec/Nov for current year is missing, Tile 2 = next open contract
-   - No more “random Dec/Nov a year later” fallback
+FIX (per Dane):
+✅ Desktop was still showing expired contracts (e.g., Soybeans Jan 2026) because
+   filterList() did NOT remove expired symbols. Desktop renders full list.
+✅ Now filterList() removes expired contracts for BOTH desktop + mobile + quote warming.
+   - Prevents tiles with "—" for invalid/expired contracts on desktop.
 
 Keeps:
-✅ Contract lists sorted chronologically (year, month) before any selection
-✅ Expired/dead symbol skipping
-✅ Quote logic + mode fallback
-✅ Mobile: 2 tiles per crop
-✅ Desktop: full lists + change chips
+✅ Prior settle fallback
+✅ Mobile 2-tile rule (front + current-year Nov/Dec)
+✅ Chronological sort
+✅ Dead-symbol skipping
+✅ Desktop shows full lists + change chips
 ===================================================================== */
 
 (function(){
@@ -310,15 +303,6 @@ Keeps:
     return null;
   }
 
-  function findJanNextYear(list, year){
-    if (!Array.isArray(list)) return null;
-    for (const c of list){
-      const ym = parseSymbolYM(c?.symbol);
-      if (ym && ym.month === 1 && ym.year === (year + 1)) return c;
-    }
-    return null;
-  }
-
   // ---------------------------
   // Chart normalization
   // ---------------------------
@@ -411,9 +395,14 @@ Keeps:
   }
 
   // ✅ filter + chrono sort
+  // FIX: also remove expired contracts so desktop full list never includes invalid contracts
   function filterList(list){
     const baseList = (list || []).filter(c => c?.symbol);
-    const usable = HIDE_BAD_CONTRACTS ? baseList.filter(c => Markets.isSymbolUsable(c.symbol)) : baseList;
+
+    // ✅ remove expired always (this fixes Jan 2026 showing on desktop)
+    const notExpired = baseList.filter(c => !isExpiredContract(c.symbol));
+
+    const usable = HIDE_BAD_CONTRACTS ? notExpired.filter(c => Markets.isSymbolUsable(c.symbol)) : notExpired;
     return sortContractsChrono(usable);
   }
 
@@ -432,10 +421,6 @@ Keeps:
   }
 
   // ✅ MOBILE: choose exactly 2 contracts using YOUR requested rule
-  //   - Tile1: front month
-  //   - Tile2: current calendar year Nov (soy) / Dec (corn)
-  //            if tile1 already equals that target, show next open contract
-  //            if target missing, show next open contract
   function pickMobileTwoTiles(list, cropKey){
     const filtered = filterList(list || []);
     if (!filtered.length) return [];
@@ -453,18 +438,15 @@ Keeps:
     const frontYM = parseSymbolYM(front?.symbol);
     const target = findByMonthYear(reordered, targetMonth, targetYear);
 
-    // if front already is target month/year -> tile2 = next open contract
     if (frontYM && frontYM.year === targetYear && frontYM.month === targetMonth){
       const nxt = nextOpenAfter(reordered, front);
       return nxt ? [front, nxt] : [front];
     }
 
-    // if target exists and is distinct -> use it
     if (target && target.symbol && target.symbol !== front.symbol){
       return [front, target];
     }
 
-    // fallback: next open contract after front (no random Dec/Nov a year later)
     const second = nextOpenAfter(reordered, front);
     return second ? [front, second] : [front];
   }
@@ -496,20 +478,17 @@ Keeps:
 
     const p = (async ()=>{
       try{
-        // 1) Try 1D first (intraday)
         let dailyPts = [];
         try{
           const daily = await fetchChart(symbol, "1d");
           dailyPts = normalizePoints(daily);
         }catch(e){
-          // If 1d fails, we'll still try settle fallback from 6m below (unless it's deadish).
           if (isDeadishError(e)) throw e;
         }
 
         let price = lastNonNullClose(dailyPts);
         let isSettle = false;
 
-        // 2) If 1D has no close (pre-open/weekend/holiday), fallback to last daily close from 6M
         let sixPts = null;
         let prevFromSix = null;
 
@@ -522,7 +501,6 @@ Keeps:
             price = last;
             isSettle = true;
           } else {
-            // truly no data
             setState(symbol, "nodata");
             quoteCache.set(symbol, { price:null, chg:null, pct:null, updatedAtMs: Date.now(), isSettle:false });
             return;
@@ -532,7 +510,6 @@ Keeps:
         let chg = null, pct = null;
 
         if (modeLevel === "full"){
-          // ensure we have 6m points for prev-close calculation
           if (!sixPts){
             const six = await fetchChart(symbol, "6m");
             sixPts = normalizePoints(six);
@@ -545,7 +522,6 @@ Keeps:
             chg = price - prevFromSix;
             pct = (prevFromSix === 0) ? 0 : (chg / prevFromSix) * 100;
           } else {
-            // fallback: try to compute from 1D if it has at least 2 closes
             let last2 = null, prev2 = null;
             for (let i = (dailyPts || []).length - 1; i >= 0; i--){
               const c = toNum2(dailyPts[i]?.c);
@@ -728,7 +704,6 @@ Keeps:
     const parts = [];
     if (delay) parts.push(escapeHtml(delay));
 
-    // show settle hint when any quotes are using settle fallback
     if (anySettleInPayload(payload)) parts.push("Prior settle");
 
     if (asOf) parts.push(`Updated ${escapeHtml(fmtTime(asOf))}`);
@@ -754,15 +729,20 @@ Keeps:
   function mobileVisibleSymbols(payload){
     const out = [];
     if (!payload) return out;
-    pickMobileTwoTiles(payload.corn || [], "corn").forEach(c => c?.symbol && out.push(c.symbol));
-    pickMobileTwoTiles(payload.soy || [], "soy").forEach(c => c?.symbol && out.push(c.symbol));
+
+    // ✅ filter expired first so we never warm invalid contracts
+    pickMobileTwoTiles(filterList(payload.corn || []), "corn").forEach(c => c?.symbol && out.push(c.symbol));
+    pickMobileTwoTiles(filterList(payload.soy || []), "soy").forEach(c => c?.symbol && out.push(c.symbol));
     return out;
   }
 
   function allSymbols(payload){
     const out = [];
-    if (payload && Array.isArray(payload.corn)) payload.corn.forEach(c => c && c.symbol && out.push(c.symbol));
-    if (payload && Array.isArray(payload.soy)) payload.soy.forEach(c => c && c.symbol && out.push(c.symbol));
+    if (!payload) return out;
+
+    // ✅ filter expired first so we never warm invalid contracts
+    filterList(payload.corn || []).forEach(c => c?.symbol && out.push(c.symbol));
+    filterList(payload.soy || []).forEach(c => c?.symbol && out.push(c.symbol));
     return out;
   }
 
