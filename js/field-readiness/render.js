@@ -1,32 +1,30 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-02-23a-unify-with-global-no-learning-force-truth-refresh
+Rev: 2026-03-04a-use-formula-single-source-of-truth
 
 GOAL (per Dane, Feb 2026):
 ✅ Make tiles + details MATCH the Global Calibration readiness number.
 ✅ Treat Global Calibration as the authoritative "truth math" view.
 
-CHANGES:
-✅ REMOVE learning injection entirely:
-   - No read of field_readiness_tuning/global
-   - No DRY_LOSS_MULT applied anywhere in render.js
-✅ FORCE truth refresh more aggressively (prevents stale mismatch):
-   - loadPersistedState(..., {force:true}) in tile updates + renders + details
-✅ Keep: persisted truth seed (field_readiness_state) + model simulation
-✅ Keep: CAL always ZERO (no legacy adjustments)
-✅ Keep: Option 1 ETA (model-owned) + forecast rows only
-✅ Keep: Option B trace table fallback (rewind 14) for display only
+CHANGES (THIS REV):
+✅ Use /Farm-vista/js/field-readiness/formula.js as the single wiring source:
+   - ensureFRModules()
+   - buildFRDeps()
+   - runFieldReadiness()
+✅ render.js keeps persisted truth loading (Firestore) + UI logic.
+✅ CAL remains ZERO (via formula.js).
+✅ Forecast rows still provided (ETA helper keeps working).
+✅ Option B trace fallback (rewind 14) preserved.
 
 NOTES:
-- Quick View is separate file. This file now matches Global Calibration math inputs
-  by using EXTRA directly (no learning multipliers).
+- Quick View + Global Calibration will be updated next to use the same formula.js.
 ===================================================================== */
 'use strict';
 
 // NOTE: do NOT import PATHS; some builds don't have paths.js
-import { EXTRA, CONST, buildWxCtx } from './state.js';
+import { buildWxCtx } from './state.js';
 import { $, esc, clamp } from './utils.js';
-import { getFieldParams, ensureSelectedParamsToSliders } from './params.js';
+import { ensureSelectedParamsToSliders } from './params.js';
 import { getCurrentOp, getThresholdForOp } from './thresholds.js';
 import { canEdit } from './perm.js';
 import { openQuickView } from './quickview.js';
@@ -34,6 +32,9 @@ import { initSwipeOnTiles } from './swipe.js';
 import { parseRangeFromInput, rainInRange } from './rain.js';
 import { fetchAndHydrateFieldParams } from './data.js';
 import { getAPI } from './firebase.js';
+
+// ✅ SINGLE SOURCE OF TRUTH: readiness wiring lives here
+import { ensureFRModules, buildFRDeps, runFieldReadiness } from './formula.js';
 
 /* =====================================================================
    Persisted soil truth state (per-field)
@@ -217,31 +218,12 @@ async function scheduleRender(state, mode){
   }, 25);
 }
 
-/* =====================================================================
-   CAL (FINAL): legacy adjustments disabled
-===================================================================== */
-function getCalForDeps(_state){
-  return { wetBias: 0, opWetBias: {}, readinessShift: 0, opReadinessShift: {} };
-}
-
-/* ---------- module loader (model/weather/forecast) ---------- */
+/* ---------- module loader (model/weather/forecast) ----------
+   Kept for compatibility with any external import that expects it,
+   but now delegates to formula.js.
+----------------------------------------------------------- */
 export async function ensureModelWeatherModules(state){
-  if (state._mods && state._mods.model && state._mods.weather && state._mods.forecast) return;
-
-  if (!state._mods) state._mods = {};
-
-  const WEATHER_URL = '/Farm-vista/js/field-readiness.weather.js';
-  const MODEL_URL   = '/Farm-vista/js/field-readiness.model.js';
-
-  const [weather, model, forecast] = await Promise.all([
-    import(WEATHER_URL),
-    import(MODEL_URL),
-    import('./forecast.js')
-  ]);
-
-  state._mods.weather = weather;
-  state._mods.model = model;
-  state._mods.forecast = forecast;
+  await ensureFRModules(state);
 }
 
 /* =====================================================================
@@ -862,6 +844,18 @@ function initFallbackSwipeOnTiles(state, wrap, opts){
   }catch(_){}
 }
 
+/* =====================================================================
+   Helper: build deps via formula.js (exact same wiring everywhere)
+===================================================================== */
+function buildDepsForState(state, opKey){
+  const wxCtx = buildWxCtx(state);
+  return buildFRDeps(state, {
+    opKey: String(opKey),
+    wxCtx,
+    persistedGetter: (id)=> getPersistedStateForDeps(state, id)
+  });
+}
+
 /* ---------- internal: patch a single tile DOM in-place ---------- */
 async function updateTileForField(state, fieldId){
   try{
@@ -871,7 +865,7 @@ async function updateTileForField(state, fieldId){
     const tile = document.querySelector('.tile[data-field-id="' + CSS.escape(fid) + '"]');
     if (!tile) return;
 
-    await ensureModelWeatherModules(state);
+    await ensureFRModules(state);
     ensureSelectionStyleOnce();
 
     // ✅ Force truth refresh so this matches Global Calibration (prevents stale mismatch)
@@ -883,31 +877,13 @@ async function updateTileForField(state, fieldId){
     if (!f) return;
 
     const opKey = getCurrentOp();
-    const wxCtx = buildWxCtx(state);
+    const deps = buildDepsForState(state, opKey);
 
-    const deps = {
-      getWeatherSeriesForFieldId: (id)=> state._mods.weather.getWeatherSeriesForFieldId(id, wxCtx),
-      getFieldParams: (id)=> getFieldParams(state, id),
-      LOSS_SCALE: CONST.LOSS_SCALE,
-      EXTRA: EXTRA,
+    const run0 = await runFieldReadiness(state, f, {
       opKey,
-      CAL: getCalForDeps(state),
-
-      getPersistedState: (id)=> getPersistedStateForDeps(state, id),
-
-      // ✅ Option 1: model-owned ETA needs forecast rows (no forecast math here)
-      getForecastSeriesForFieldId: async (id)=>{
-        try{
-          const wx = await state._mods.forecast.readWxSeriesFromCache(String(id), {});
-          const fcst = (wx && Array.isArray(wx.fcst)) ? wx.fcst : [];
-          return fcst;
-        }catch(_){
-          return [];
-        }
-      }
-    };
-
-    const run0 = state._mods.model.runField(f, deps);
+      wxCtx: buildWxCtx(state),
+      persistedGetter: (id)=> getPersistedStateForDeps(state, id)
+    });
     if (!run0) return;
 
     try{ state.lastRuns && state.lastRuns.set(fid, run0); }catch(_){}
@@ -1016,7 +992,7 @@ function wireTileInteractions(state, tileEl, fieldId){
 
 /* ---------- tile render (CORE) ---------- */
 async function _renderTilesInternal(state){
-  await ensureModelWeatherModules(state);
+  await ensureFRModules(state);
   ensureSelectionStyleOnce();
 
   // ✅ Force truth refresh so tiles align with Global Calibration
@@ -1055,34 +1031,16 @@ async function _renderTilesInternal(state){
   }
 
   const opKey = getCurrentOp();
-  const wxCtx = buildWxCtx(state);
 
-  const deps = {
-    getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
-    getFieldParams: (fid)=> getFieldParams(state, fid),
-    LOSS_SCALE: CONST.LOSS_SCALE,
-    EXTRA: EXTRA,
-    opKey,
-    CAL: getCalForDeps(state),
-    getPersistedState: (id)=> getPersistedStateForDeps(state, id),
-
-    // ✅ Option 1: supply forecast rows to model ETA
-    getForecastSeriesForFieldId: async (id)=>{
-      try{
-        const wx = await state._mods.forecast.readWxSeriesFromCache(String(id), {});
-        const fcst = (wx && Array.isArray(wx.fcst)) ? wx.fcst : [];
-        return fcst;
-      }catch(_){
-        return [];
-      }
-    }
-  };
+  // ✅ deps built in ONE place (formula.js)
+  const deps = buildDepsForState(state, opKey);
 
   const filtered = getFilteredFields(state);
 
   // compute runs for sorting + numbers
   state.lastRuns.clear();
   for (const f of state.fields){
+    // Run via model directly (same as runFieldReadiness would do) but deps is now unified:
     state.lastRuns.set(f.id, state._mods.model.runField(f, deps));
   }
 
@@ -1299,7 +1257,7 @@ function renderBetaInputs(state){
 
 /* ---------- details render (CORE) ---------- */
 async function _renderDetailsInternal(state){
-  await ensureModelWeatherModules(state);
+  await ensureFRModules(state);
   ensureEtaHelperModule(state);
 
   // ✅ Force truth refresh so details align with Global Calibration
@@ -1312,17 +1270,7 @@ async function _renderDetailsInternal(state){
 
   const opKey = getCurrentOp();
 
-  const wxCtx = buildWxCtx(state);
-
-  const deps = {
-    getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
-    getFieldParams: (fid)=> getFieldParams(state, fid),
-    LOSS_SCALE: CONST.LOSS_SCALE,
-    EXTRA: EXTRA,
-    opKey,
-    CAL: getCalForDeps(state),
-    getPersistedState: (id)=> getPersistedStateForDeps(state, id)
-  };
+  const deps = buildDepsForState(state, opKey);
 
   const run = state._mods.model.runField(f, deps);
   if (!run) return;
