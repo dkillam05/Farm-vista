@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/global-calibration.js  (FULL FILE)
-Rev: 2026-01-22g-global-force-target-scale-storage-reset30d-keepUI
+Rev: 2026-03-04a-use-formula-single-source-of-truth-keepUI
 
 KEEP UI (per Dane):
 ✅ Preserve the exact Rev 2026-01-22c modal look/feel (theme patch + layout + wording)
@@ -32,6 +32,12 @@ Keeps:
 ✅ 72h lockout + guardrails
 ✅ Learning doc write (kept, optional)
 ✅ fr:soft-reload after apply/reset
+
+CHANGES (THIS REV):
+✅ Uses /Farm-vista/js/field-readiness/formula.js for the STANDARD readiness wiring:
+   - ensureFRModules()
+   - buildFRDeps()
+✅ Reset/Rebuild still overrides EXTRA + seedMode, but starts from buildFRDeps()
 ===================================================================== */
 'use strict';
 
@@ -40,6 +46,9 @@ import { canEdit } from './perm.js';
 import { buildWxCtx, CONST, OPS, EXTRA } from './state.js';
 import { getFieldParams } from './params.js';
 import { getCurrentOp } from './thresholds.js';
+
+// ✅ SINGLE SOURCE OF TRUTH: deps wiring lives here
+import { ensureFRModules, buildFRDeps } from './formula.js';
 
 function $(id){ return document.getElementById(id); }
 function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
@@ -532,22 +541,24 @@ function getSelectedField(state){
 function getCalForShown(_state){
   return { wetBias:0, opWetBias:{}, readinessShift:0, opReadinessShift:{} };
 }
-function runFieldWithCal(state, f, calObj){
-  if (!f) return null;
-  if (!state._mods || !state._mods.model || !state._mods.weather) return null;
 
+function buildShownDeps(state, opKey){
   const wxCtx = buildWxCtx(state);
-  const opKey = getCurrentOp();
+  return buildFRDeps(state, {
+    opKey: String(opKey),
+    wxCtx,
+    persistedGetter: (id)=> getPersistedStateForDeps(state, id)
+  });
+}
 
-  const deps = {
-    getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
-    getFieldParams: (id)=> getFieldParams(state, id),
-    LOSS_SCALE: CONST.LOSS_SCALE,
-    EXTRA, // (render.js already applies learning on tiles; keep UI stable here)
-    opKey,
-    CAL: calObj,
-    getPersistedState: (id)=> getPersistedStateForDeps(state, id)
-  };
+function runFieldWithCal(state, f, _calObj){
+  // CAL is always zero; formula.js already supplies CAL=0.
+  if (!f) return null;
+  if (!state) return null;
+  if (!state._mods || !state._mods.model) return null;
+
+  const opKey = getCurrentOp();
+  const deps = buildShownDeps(state, opKey);
 
   const run = state._mods.model.runField(f, deps);
   try{ state.lastRuns && state.lastRuns.set(f.id, run); }catch(_){}
@@ -1006,6 +1017,9 @@ async function applyAdjustment(state){
   const fRef = getSelectedField(state);
   if (!fRef) return;
 
+  // ✅ Ensure model/weather modules exist
+  await ensureFRModules(state);
+
   await loadPersistedState(state, { force:true });
 
   const runRef = getRunForFieldShown(state, fRef);
@@ -1193,8 +1207,11 @@ async function rebuildTruthFromLast30Days(state){
     );
     if (!ok) return;
 
+    // ✅ Ensure modules exist (do NOT require tiles to have loaded)
+    await ensureFRModules(state);
+
     if (!state._mods || !state._mods.model || !state._mods.weather){
-      window.alert('Model/weather modules are not loaded yet. Open the readiness page and wait for tiles to load, then try again.');
+      window.alert('Model/weather modules are not loaded yet. Try again after the app finishes loading.');
       return;
     }
 
@@ -1215,15 +1232,17 @@ async function rebuildTruthFromLast30Days(state){
 
     const wxCtx = buildWxCtx(state);
     const opKey = getCurrentOp();
-    const CAL0 = { wetBias:0, opWetBias:{}, readinessShift:0, opReadinessShift:{} };
+
+    // ✅ Start from formula deps, then override EXTRA + seedMode for baseline rebuild
+    const depsBase = buildFRDeps(state, {
+      opKey,
+      wxCtx,
+      persistedGetter: (id)=> getPersistedStateForDeps(state, id)
+    });
 
     const depsRebuild = {
-      getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
-      getFieldParams: (id)=> getFieldParams(state, id),
-      LOSS_SCALE: CONST.LOSS_SCALE,
-      EXTRA: { ...EXTRA, DRY_LOSS_MULT: dryLossMult },
-      opKey,
-      CAL: CAL0,
+      ...depsBase,
+      EXTRA: { ...(depsBase.EXTRA || EXTRA), DRY_LOSS_MULT: dryLossMult },
       seedMode: 'baseline'
     };
 
@@ -1370,6 +1389,9 @@ function ensureResetButtonExists(){
 async function openAdjust(state){
   ensureGlobalCalThemeCSSOnce();
   if (!canEdit(state)) return;
+
+  // ✅ Ensure model/weather modules exist
+  await ensureFRModules(state);
 
   await loadPersistedState(state, { force:true });
 
@@ -1545,6 +1567,10 @@ export function initGlobalCalibration(state){
   wireOnce(state);
 
   (async ()=>{
+    try{
+      // ✅ Ensure modules exist for “open adjust” usage even before tiles
+      await ensureFRModules(state);
+    }catch(_){}
     try{ await loadCooldown(state); }catch(_){}
     renderCooldownCard(state);
   })();
