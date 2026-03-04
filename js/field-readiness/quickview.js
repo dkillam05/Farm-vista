@@ -1,35 +1,35 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-02-23a-unify-with-global-no-learning-force-truth-refresh
+Rev: 2026-03-04a-use-formula-single-source-of-truth
 
 GOAL (per Dane, Feb 2026):
 ✅ Make Quick View readiness MATCH Global Calibration readiness.
 
-CHANGES:
-✅ REMOVE learning injection entirely:
-   - No read of field_readiness_tuning/global
-   - No DRY_LOSS_MULT applied in Quick View
-✅ Force-refresh persisted truth on open + on live slider updates:
-   - Reads field_readiness_state directly with TTL, supports force:true
+CHANGES (THIS REV):
+✅ Use /Farm-vista/js/field-readiness/formula.js as the single wiring source:
+   - ensureFRModules()
+   - buildFRDeps()
+✅ Keep Quick View persisted truth loader (read-only) with TTL + force:true
 ✅ Keep Rule A:
    - Sliders change params only (soil/drain) and do NOT write truth storage
    - Save writes only fields/{fieldId} params + local cache
 
 Keeps:
-✅ CAL is always ZERO (matches render.js)
-✅ ETA uses model.etaToThreshold() (forecast rows only; no legacy ETA)
 ✅ UI unchanged
+✅ ETA uses model.etaToThreshold() with the SAME deps as readiness
 ===================================================================== */
 'use strict';
 
-import { buildWxCtx, EXTRA, CONST, OPS } from './state.js';
+import { buildWxCtx, OPS } from './state.js';
 import { getAPI } from './firebase.js';
 import { getFieldParams, saveParamsToLocal } from './params.js';
 import { getCurrentOp, getThresholdForOp } from './thresholds.js';
 import { esc, clamp } from './utils.js';
 import { canEdit } from './perm.js';
 import { parseRangeFromInput, rainInRange } from './rain.js';
-import { readWxSeriesFromCache } from './forecast.js';
+
+// ✅ SINGLE SOURCE OF TRUTH: readiness wiring lives here
+import { ensureFRModules, buildFRDeps } from './formula.js';
 
 function $(id){ return document.getElementById(id); }
 
@@ -172,14 +172,7 @@ function gradientForThreshold(thr){
 }
 
 /* =====================================================================
-   CAL helper — MUST MATCH render.js (ALL ZERO)
-===================================================================== */
-function getCalForDeps(_state){
-  return { wetBias:0, opWetBias:{}, readinessShift:0, opReadinessShift:{} };
-}
-
-/* =====================================================================
-   Persisted truth state passthrough (used by Truth run)
+   Persisted truth state passthrough (used by deps via formula.js)
 ===================================================================== */
 function getPersistedStateForDeps(state, fieldId){
   try{
@@ -686,36 +679,22 @@ async function fillQuickView(state, { live=false } = {}){
   const f = state.fields.find(x=>x.id===fid);
   if (!f) return;
 
+  // ✅ Ensure modules exist even if QV opened before render loaded them
+  await ensureFRModules(state);
+
   // ✅ Force truth refresh so QV matches Global Calibration (prevents stale mismatch)
   await loadPersistedState(state, { force:true });
 
   const opKey = getCurrentOp();
-  const CAL = getCalForDeps(state);
-
   const wxCtx = buildWxCtx(state);
 
-  // RULE A: Always show TRUTH run (persisted seed + current params).
-  // Sliders update params live (tank size + rate response), but do not rewrite truth storage.
-  const depsTruth = {
-    getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx),
-    getFieldParams: (id)=> getFieldParams(state, id),
-    LOSS_SCALE: CONST.LOSS_SCALE,
-    EXTRA: EXTRA,
+  // ✅ RULE A: Always show TRUTH run (persisted seed + current params).
+  // Sliders update params live (soil/drain), but do not rewrite truth storage.
+  const depsTruth = buildFRDeps(state, {
     opKey,
-    CAL,
-    getPersistedState: (id)=> getPersistedStateForDeps(state, id),
-
-    // ✅ Option 1: provide forecast rows to model ETA (no legacy ETA)
-    getForecastSeriesForFieldId: async (id)=>{
-      try{
-        const wx = await readWxSeriesFromCache(String(id), {});
-        const fcst = (wx && Array.isArray(wx.fcst)) ? wx.fcst : [];
-        return fcst;
-      }catch(_){
-        return [];
-      }
-    }
-  };
+    wxCtx,
+    persistedGetter: (id)=> getPersistedStateForDeps(state, id)
+  });
 
   const runTruth = state._mods.model.runField(f, depsTruth);
   const displayRun = runTruth;
@@ -795,7 +774,7 @@ async function fillQuickView(state, { live=false } = {}){
       `drain=<span class="mono">${Math.round(Number(pRaw.drainageIndex||0))}</span>/100`;
   }
 
-  // ✅ Option 1: model-owned ETA (truth-consistent)
+  // ✅ Option 1: model-owned ETA (truth-consistent, SAME deps as readiness)
   let etaTxt = '';
   try{
     const horizon = 168;
