@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-02-10b-option1-model-eta-truth-consistent-legacy-etaFor-disabled-compat
+Rev: 2026-03-04a-display-infil-right-boost-dry-rain-to-storage
 
 OPTION 1 (per Dane):
 ✅ Model owns ETA and computes it from the SAME truth-seeded run + SAME physics.
@@ -9,15 +9,18 @@ OPTION 1 (per Dane):
 ✅ Legacy etaFor() is kept ONLY as a compatibility stub returning '' (blank),
    so older callers won't crash while we wire quickview/details to model ETA.
 
-ETA output format:
-- Within horizon: "~XXh"
-- Beyond horizon: ">168h"
-- Already ready: "" (blank)
-- No forecast cached: "" (blank; caller can choose to display a message)
+THIS REV:
+✅ Fix infiltration DISPLAY: trace rows now include:
+   - infilMult (effective from raw rain → addRain)
+   - addRain (rain-only storage add)
+   - addSm (sm010 nudge add)
+✅ Make 1" rain affect storage MORE when very dry:
+   - cap dry-bypass fraction when sat is very low (storage/Smax under threshold)
+   - keeps wet/saturated behavior unchanged
 
 IMPORTANT:
 - Truth seed (storageFinal + asOfDateISO) still anchors "now"
-- Learning (EXTRA.DRY_LOSS_MULT) still applies to drying physics
+- Learning (EXTRA.DRY_LOSS_MULT / EXTRA.RAIN_EFF_MULT) still applies
 ===================================================================== */
 'use strict';
 
@@ -83,6 +86,10 @@ const FV_TUNE = {
   DRY_BYPASS_BASE: 0.45,
   BYPASS_GOODDRAIN_W: 0.15,
 
+  // NEW: when VERY DRY, cap bypass so rain affects storage more
+  DRY_BYPASS_CAP_SAT: 0.15,     // if sat < this, treat as "very dry"
+  DRY_BYPASS_CAP_MAX: 0.12,     // max bypass fraction allowed in very dry zone
+
   SAT_DRYBYPASS_FLOOR: 0.02,
   SAT_RUNOFF_CAP: 0.85,
   RAIN_EFF_MIN: 0.05,
@@ -113,6 +120,9 @@ function getTune(deps){
   t.DRY_EXP            = clamp(t.DRY_EXP, 0.8, 6.0);
   t.DRY_BYPASS_BASE    = clamp(t.DRY_BYPASS_BASE, 0.0, 0.85);
   t.BYPASS_GOODDRAIN_W = clamp(t.BYPASS_GOODDRAIN_W, 0.0, 0.6);
+
+  t.DRY_BYPASS_CAP_SAT = clamp(t.DRY_BYPASS_CAP_SAT, 0.03, 0.35);
+  t.DRY_BYPASS_CAP_MAX = clamp(t.DRY_BYPASS_CAP_MAX, 0.0, 0.35);
 
   t.SAT_DRYBYPASS_FLOOR= clamp(t.SAT_DRYBYPASS_FLOOR, 0.0, 0.20);
   t.SAT_RUNOFF_CAP     = clamp(t.SAT_RUNOFF_CAP, 0.20, 0.95);
@@ -306,6 +316,11 @@ function effectiveRainInches(rainIn, storageBefore, Smax, factors, tune){
   const goodDrain = 1 - drainPoor;
   let bypassFrac = tune.DRY_BYPASS_BASE * dryBypassCurve * (1 + tune.BYPASS_GOODDRAIN_W * goodDrain);
   bypassFrac = clamp(bypassFrac, 0, 0.90);
+
+  // ✅ NEW: if VERY DRY, don't throw away half the rain — cap bypass
+  if (sat < tune.DRY_BYPASS_CAP_SAT){
+    bypassFrac = Math.min(bypassFrac, tune.DRY_BYPASS_CAP_MAX);
+  }
 
   const rainEffective = rainAfterRunoff * (1 - bypassFrac);
 
@@ -581,8 +596,9 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
       let rainEff = effectiveRainInches(stepRain, before, f.Smax, f, tune);
       rainEff = clamp(rainEff * rate.rainEffMult, 0, 1000);
 
-      let add = rainEff * f.infilMult;
-      add += ((deps.EXTRA.ADD_SM010_W * smN) * 0.05) * (stepH / 24);
+      let addRain = rainEff * f.infilMult;
+      const addSm = ((deps.EXTRA.ADD_SM010_W * smN) * 0.05) * (stepH / 24);
+      let add = addRain + addSm;
 
       let lossDay = Number(parts.dryPwr||0) * deps.LOSS_SCALE * f.dryMult * (1 + deps.EXTRA.LOSS_ET0_W * et0N);
       let loss = Math.max(0, lossDay * (stepH / 24));
@@ -671,8 +687,10 @@ export function runField(field, deps){
     let rainEff = effectiveRainInches(rain, before, f.Smax, f, tune);
     rainEff = clamp(rainEff * rate.rainEffMult, 0, 1000);
 
-    let add = rainEff * f.infilMult;
-    add += (deps.EXTRA.ADD_SM010_W * d.smN_day) * 0.05;
+    const addSm = (deps.EXTRA.ADD_SM010_W * d.smN_day) * 0.05;
+
+    let addRain = rainEff * f.infilMult;
+    let add = addRain + addSm;
 
     let loss = Number(d.dryPwr||0) * deps.LOSS_SCALE * f.dryMult * (1 + deps.EXTRA.LOSS_ET0_W * d.et0N);
     loss = Math.max(0, loss * rate.dryLossMult);
@@ -689,7 +707,29 @@ export function runField(field, deps){
     const after = clamp(before + add - loss, 0, f.Smax);
     storage = after;
 
-    trace.push({ dateISO: d.dateISO, before, after, rain, rainEff, add, loss, dryPwr: d.dryPwr });
+    // ✅ infilMult display: represent the EFFECTIVE multiplier from raw rain → addRain
+    // This includes runoff/bypass via rainEff (so it matches what you expect to see)
+    const infilMultEff = (rain > 0)
+      ? clamp((addRain / Math.max(1e-6, rain)), 0, 5)
+      : 0;
+
+    trace.push({
+      dateISO: d.dateISO,
+      before,
+      after,
+      rain,
+
+      // helpful debug
+      rainEff,
+      infilMult: infilMultEff,
+
+      addRain,
+      addSm,
+      add,
+
+      loss,
+      dryPwr: d.dryPwr
+    });
   }
 
   // Physical storage final (truth physics)
