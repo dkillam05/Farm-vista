@@ -63,6 +63,12 @@
       text-size-adjust:100%;
     }
 
+    /* ✅ When the category dropdown is opened, add extra bottom room so the last option
+       isn’t trapped behind the footer (iOS/PWA can render expanded <select> in-page). */
+    body.catOpen .page{
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 280px)!important;
+    }
+
     .page{
       max-width:1500px;
       margin:0 auto;
@@ -343,6 +349,10 @@
         margin:0;
         padding:0;
         padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 72px)!important;
+      }
+
+      body.catOpen .page{
+        padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 320px)!important;
       }
 
       .page-title, .page-sub{
@@ -711,6 +721,9 @@
     // ✅ Natural sort (so #2 comes before #10)
     const COLLATOR = new Intl.Collator(undefined, { numeric:true, sensitivity:"base" });
 
+    // ✅ Persist last selected category
+    const LS_FILTER_KEY = "fv.shopEquipment.categoryFilter";
+
     const alertBox = $("#alert");
     const tbody = $("#tbody");
     const thead = $("#thead");
@@ -944,10 +957,37 @@
       return d ? d.getTime() : 0;
     }
 
+    function getSavedFilter(){
+      try{
+        const v = localStorage.getItem(LS_FILTER_KEY);
+        return (v || "").trim();
+      }catch{
+        return "";
+      }
+    }
+
+    function setSavedFilter(v){
+      try{ localStorage.setItem(LS_FILTER_KEY, String(v||"")); }catch{}
+    }
+
     function renderFilterDropdown(){
-      catSelect.innerHTML = FILTERS.map(f=>(
+      // ✅ Alphabetical order by label, but keep "All" at the bottom.
+      const opts = FILTERS.slice().sort((a,b)=>{
+        if(a.key === "all" && b.key !== "all") return 1;
+        if(b.key === "all" && a.key !== "all") return -1;
+        return COLLATOR.compare(String(a.label||""), String(b.label||""));
+      });
+
+      catSelect.innerHTML = opts.map(f=>(
         `<option value="${escapeHtml(f.key)}">${escapeHtml(f.label)}</option>`
       )).join("");
+
+      // ✅ Keep last used selection (if valid); otherwise keep current state.filter (fallback).
+      const saved = getSavedFilter();
+      const validKeys = new Set(FILTERS.map(x=>x.key));
+      if(saved && validKeys.has(saved)){
+        state.filter = saved;
+      }
       catSelect.value = state.filter;
     }
 
@@ -1899,8 +1939,25 @@
       window.addEventListener("resize", ()=>{ ZOOM.recomputeBounds(); });
     }
 
+    // ✅ Open dropdown: add extra bottom space + scroll it into view
+    function beginCatOpen(){
+      document.body.classList.add("catOpen");
+      setTimeout(()=>{
+        try{ catSelect.scrollIntoView({ block:"center", inline:"nearest" }); }catch{}
+      }, 0);
+    }
+    function endCatOpen(){
+      document.body.classList.remove("catOpen");
+    }
+
+    catSelect.addEventListener("focus", beginCatOpen);
+    catSelect.addEventListener("blur", endCatOpen);
+    catSelect.addEventListener("mousedown", beginCatOpen);
+    catSelect.addEventListener("touchstart", beginCatOpen, { passive:true });
+
     catSelect.addEventListener("change", ()=>{
       state.filter = catSelect.value;
+      setSavedFilter(state.filter);   // ✅ remember last selected category
       state.selectedRowId = null;
       renderTable();
       requestAnimationFrame(()=> ZOOM.recomputeBounds());
@@ -1996,6 +2053,14 @@
     (async()=>{
       await ready;
       getAuth();
+
+      // ✅ Load saved filter BEFORE rendering dropdown/table
+      const saved = getSavedFilter();
+      if(saved){
+        const validKeys = new Set(FILTERS.map(x=>x.key));
+        if(validKeys.has(saved)) state.filter = saved;
+      }
+
       renderFilterDropdown();
       enableGridPinch();
       await loadAll();
