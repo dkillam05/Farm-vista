@@ -1,13 +1,15 @@
 /* =====================================================================
 /Farm-vista/js/shop-equipment-modal.js  (FULL FILE)
-Rev: 2026-02-18a
-Updates:
-✅ FIX: iOS/Safari dialog stacking
-   - When pressing Service Records / Edit / Add New Work Order from svcSheet:
-     close svcSheet first, then open next modal (small delay)
-   - Prevents “Edit button does nothing” on mobile
+Rev: 2026-03-05a
+Updates (per Dane):
+✅ FIX: Shop Equipment popup Edit modal now correctly hydrates + saves Unit ID
+   - Unit ID canonical path is extras.unitId (per equipment-forms.js)
+   - Hydrate from extras.unitId first, fallback to legacy root unitId
+   - Save writes extras object under `extras` (no longer spreads extras into root)
+   - Never wipes unitId on save if left blank (preserves existing value)
 
 Keeps:
+✅ iOS/Safari dialog stacking fix (close svcSheet before opening others)
 ✅ Field Ready slider toggle in svcSheet
 ✅ External WO modal lazy-load
 ✅ Service Records modal
@@ -220,6 +222,20 @@ import {
 
   function last6(v){ return String(v||"").slice(-6); }
 
+  // ==========================================================
+  // Unit ID canonical accessors (extras.unitId)
+  // ==========================================================
+  function getUnitIdFromDoc(d){
+    // Canonical: extras.unitId
+    const ex = (d && typeof d === "object" ? d.extras : null) || null;
+    const a = (ex && ex.unitId != null) ? String(ex.unitId).trim() : "";
+    if(a) return a;
+
+    // Legacy fallback: root unitId
+    const b = (d && d.unitId != null) ? String(d.unitId).trim() : "";
+    return b || "";
+  }
+
   // ----- extras hydration helpers -----
   function boolify(v){
     if (v === true || v === false) return v;
@@ -284,8 +300,12 @@ import {
   }
 
   function hydrateExtrasFromDoc(d){
+    // Extras are canonical under d.extras
+    const ex = (d && typeof d === "object" ? d.extras : null) || {};
+
+    // Implement/construction type selectors are stored as extras too (if present)
     if (state.editTypeKey === "implement"){
-      const impType = readAny(d, ['implementType','implement_type','subType','subtype','implementSubtype','implement_subtype']);
+      const impType = readAny(ex, ['implementType','implement_type','subType','subtype','implementSubtype','implement_subtype']);
       if (impType){
         setExtraValue("implementType", impType);
         const ctrl = findExtraEl("implementType");
@@ -294,7 +314,7 @@ import {
     }
 
     if (state.editTypeKey === "construction"){
-      const conType = readAny(d, ['constructionType','construction_type','subType','subtype']);
+      const conType = readAny(ex, ['constructionType','construction_type','subType','subtype']);
       if (conType){
         setExtraValue("constructionType", conType);
         const ctrl = findExtraEl("constructionType");
@@ -303,7 +323,10 @@ import {
     }
 
     const keys = [
+      // ✅ include unitId + placedInServiceDate (both are extras in equipment-forms.js)
+      "unitId",
       "placedInServiceDate",
+
       "engineHours","separatorHours","odometerMiles","boomWidthFt","tankSizeGal","starfireCapable",
       "workingWidthFt","numRows","rowSpacingIn","totalAcres","totalHours","bushelCapacityBu","augerDiameterIn","augerLengthFt",
       "applicationType",
@@ -313,22 +336,26 @@ import {
       "activationLevel","firmwareVersion"
     ];
 
-    const triesMax = 8;
+    const triesMax = 10;
     let tries = 0;
 
     const apply = ()=>{
       let anySet = false;
 
-      if(d && d.unitId){
-        anySet = setExtraValue("unitId", d.unitId) || anySet;
+      // Always try to set unitId from canonical path first (and fallback)
+      const uid = getUnitIdFromDoc(d);
+      if (uid){
+        anySet = setExtraValue("unitId", uid) || anySet;
       }
 
       keys.forEach(k=>{
-        if(!d || !Object.prototype.hasOwnProperty.call(d, k)) return;
-        if(k === "starfireCapable") anySet = setExtraValue(k, boolify(d[k])) || anySet;
-        else anySet = setExtraValue(k, d[k]) || anySet;
+        if(!ex || !Object.prototype.hasOwnProperty.call(ex, k)) return;
+
+        if(k === "starfireCapable") anySet = setExtraValue(k, boolify(ex[k])) || anySet;
+        else anySet = setExtraValue(k, ex[k]) || anySet;
       });
 
+      // If extras engine hasn't rendered inputs yet, retry a few frames
       if(!anySet && tries < triesMax){
         tries++;
         requestAnimationFrame(apply);
@@ -920,7 +947,8 @@ import {
     ensureSrSheet();
 
     const titleEl = UI.srSheet.querySelector("#srSheetTitle");
-    const label = (eq?.unitId ? `${eq.unitId} • ` : "") + (eq?.name || "Equipment");
+    const uid = getUnitIdFromDoc(eq);
+    const label = (uid ? `${uid} • ` : "") + (eq?.name || "Equipment");
     titleEl.textContent = `Service Records • ${label}`;
 
     srBanner("Loading…");
@@ -1349,43 +1377,6 @@ import {
       refreshModels();
     }
   }
-  
-  function hydrateExtrasFromDoc(d){
-  if (state.editTypeKey === "implement"){
-    const impType = readAny(d, ['implementType','implement_type','subType','subtype','implementSubtype','implement_subtype']);
-    if (impType){
-      setExtraValue("implementType", impType);
-      const ctrl = findExtraEl("implementType");
-      if (ctrl) ctrl.dispatchEvent(new Event("change", { bubbles:true }));
-    }
-  }
-
-  if (state.editTypeKey === "construction"){
-    const conType = readAny(d, ['constructionType','construction_type','subType','subtype']);
-    if (conType){
-      setExtraValue("constructionType", conType);
-      const ctrl = findExtraEl("constructionType");
-      if (ctrl) ctrl.dispatchEvent(new Event("change", { bubbles:true }));
-    }
-  }
-
-  const keys = [
-    "placedInServiceDate",
-    "engineHours","separatorHours","odometerMiles","boomWidthFt","tankSizeGal","starfireCapable",
-    "workingWidthFt","numRows","rowSpacingIn","totalAcres","totalHours","bushelCapacityBu","augerDiameterIn","augerLengthFt",
-    "applicationType",
-    "licensePlate","licensePlateExp","insuranceExp","tireSizes","dotRequired","dotExpiration",
-    "trailerType","trailerPlate","trailerPlateExp","trailerDotRequired","lastDotInspection","gvwrLb",
-    "attachmentType",
-    "activationLevel","firmwareVersion"
-  ];
-
-  keys.forEach(k=>{
-    if(!d || !Object.prototype.hasOwnProperty.call(d, k)) return;
-    if(k === "starfireCapable") setExtraValue(k, boolify(d[k]));
-    else setExtraValue(k, d[k]);
-  });
-}
 
   function initExtrasEngineForEdit(eqDoc){
     const host = UI.editSheet.querySelector("#seExtras");
@@ -1432,9 +1423,18 @@ import {
       ? (state.editExtras.read() || {})
       : {};
 
-    const rootUnitId = String(extras?.unitId || state.editEqDoc?.unitId || "").trim();
+    // Extras engine returns plain object with keys like { unitId, placedInServiceDate, ... }
+    const typedUnitId = String(extras?.unitId || "").trim();
 
-    return { makeId, modelId, makeName, modelName, year, serial, status, notes, extras, rootUnitId };
+    // Preserve existing if blank
+    const existingUnitId = getUnitIdFromDoc(state.editEqDoc || {});
+    const unitIdFinal = typedUnitId || existingUnitId || "";
+
+    // Ensure extras.unitId reflects final (but only if user typed or existing exists)
+    // We will still avoid writing blank below.
+    extras.unitId = unitIdFinal || null;
+
+    return { makeId, modelId, makeName, modelName, year, serial, status, notes, extras, unitIdFinal };
   }
 
   function validateEditForm(p){
@@ -1456,6 +1456,24 @@ import {
     const err = validateEditForm(p);
     if(err){ alert(err); return; }
 
+    // Build extras payload (canonical). Do NOT write blanks that would erase values.
+    const extrasOut = Object.assign({}, (state.editEqDoc?.extras || {}), (p.extras || {}));
+
+    // Normalize unitId: if still blank, remove so we don't wipe existing
+    const uid = String(p.unitIdFinal || "").trim();
+    if(uid){
+      extrasOut.unitId = uid;
+    }else{
+      // preserve existing (already in extrasOut from state.editEqDoc?.extras)
+      // if there was none, leave undefined
+      if(!extrasOut.unitId) delete extrasOut.unitId;
+    }
+
+    // Clean nulls from extras (optional: keep it conservative)
+    Object.keys(extrasOut).forEach(k=>{
+      if(extrasOut[k] === null) delete extrasOut[k];
+    });
+
     const payload = {
       makeId: p.makeId,
       modelId: p.modelId,
@@ -1465,15 +1483,16 @@ import {
       serial: p.serial,
       status: p.status,
       notes: p.notes || "",
-      unitId: p.rootUnitId || null,
-      ...p.extras,
+      extras: extrasOut,
       updatedAt: serverTimestamp()
     };
 
     try{
       const db = getFirestore();
       await setDoc(doc(db,"equipment", state.editEqId), payload, { merge:true });
-      Object.assign(state.editEqDoc, payload);
+
+      // Update local doc mirror safely
+      state.editEqDoc = Object.assign({}, state.editEqDoc || {}, payload);
       showToast("Saved ✓");
       closeSheet(UI.editSheet);
     }catch(e){
@@ -1677,8 +1696,9 @@ import {
     ensureFieldReadyRow();
     setFieldReadyUI(!!eq.fieldReady);
 
-    const unitIdLine = eq.unitId ? `Unit ID ${eq.unitId}` : "Unit ID —";
-    UI.svcTitle.textContent = eq.unitId ? `${eq.unitId} • ${eq.name || "Equipment"}` : (eq.name || "Equipment");
+    const uid = getUnitIdFromDoc(eq);
+    const unitIdLine = uid ? `Unit ID ${uid}` : "Unit ID —";
+    UI.svcTitle.textContent = uid ? `${uid} • ${eq.name || "Equipment"}` : (eq.name || "Equipment");
 
     const cat = (function(){
       const t = norm(eq.type);
@@ -1698,12 +1718,14 @@ import {
       return "Equipment";
     })();
 
+    const pis = (eq?.extras && eq.extras.placedInServiceDate) ? eq.extras.placedInServiceDate : (eq.placedInServiceDate || "");
+
     UI.svcMeta.textContent = [
       unitIdLine,
       cat,
       eq.year ? `Year ${eq.year}` : "",
       eq.serial ? `Serial ${eq.serial}` : "",
-      eq.placedInServiceDate ? `In Service ${eq.placedInServiceDate}` : ""
+      pis ? `In Service ${pis}` : ""
     ].filter(Boolean).join(" • ");
 
     UI.lifetimeNotes.value = eq.lifetimeNotes || "";
