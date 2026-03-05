@@ -65,8 +65,13 @@
 
     /* ✅ When the category dropdown is opened, add extra bottom room so the last option
        isn’t trapped behind the footer (iOS/PWA can render expanded <select> in-page). */
+    body.catOpen{
+      /* extra scroll room for iOS native select list */
+      padding-bottom:620px;
+      overflow-y:auto;
+    }
     body.catOpen .page{
-      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 280px)!important;
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 620px)!important;
     }
 
     .page{
@@ -351,8 +356,11 @@
         padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 72px)!important;
       }
 
+      body.catOpen{
+        padding-bottom:720px;
+      }
       body.catOpen .page{
-        padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 320px)!important;
+        padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 720px)!important;
       }
 
       .page-title, .page-sub{
@@ -1259,7 +1267,6 @@
 
         case "sfSerial": return String(d.serial||"");
         case "sfLast4":  return serialLast4(d.serial||"");
-        // ✅ KEY FIX: sort by EXACT display string (includes RTK Tower prefix + Unit ID natural order)
         case "sfLoc":    return starfireCurrentLocationDisplay(d, { includeUnitId:true }) || "";
         case "sfSince":  return dateSortNum(d.starfireCurrentLocationSince);
 
@@ -1954,6 +1961,14 @@
     catSelect.addEventListener("blur", endCatOpen);
     catSelect.addEventListener("mousedown", beginCatOpen);
     catSelect.addEventListener("touchstart", beginCatOpen, { passive:true });
+
+    /* ✅ iOS: blur isn't always reliable for native selects */
+    catSelect.addEventListener("change", endCatOpen);
+    document.addEventListener("click", (e)=>{
+      if(document.body.classList.contains("catOpen") && !catSelect.contains(e.target)){
+        endCatOpen();
+      }
+    }, { passive:true });
 
     catSelect.addEventListener("change", ()=>{
       state.filter = catSelect.value;
