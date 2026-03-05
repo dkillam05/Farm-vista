@@ -1,22 +1,20 @@
 /* =====================================================================
 /Farm-vista/js/shop-equipment-modal.js  (FULL FILE)
-Rev: 2026-03-05a
+Rev: 2026-03-05b
 Updates (per Dane):
-✅ FIX: Shop Equipment popup Edit modal now correctly hydrates + saves Unit ID
-   - Unit ID canonical path is extras.unitId (per equipment-forms.js)
-   - Hydrate from extras.unitId first, fallback to legacy root unitId
-   - Save writes extras object under `extras` (no longer spreads extras into root)
-   - Never wipes unitId on save if left blank (preserves existing value)
+✅ FIX: Unit ID now hydrates/saves correctly (canonical extras.unitId, mirrored to root unitId for compatibility)
+✅ FIX: Implement/Construction "Type" dropdown now hydrates from existing saved value
+   - Reads from root first (implementType / constructionType), then extras fallback
+✅ Compatibility: when saving, we mirror implementType/constructionType/attachmentType to ROOT fields too
+   (because other parts of the app currently read these from root)
 
 Keeps:
-✅ iOS/Safari dialog stacking fix (close svcSheet before opening others)
-✅ Field Ready slider toggle in svcSheet
-✅ External WO modal lazy-load
+✅ iOS/Safari dialog stacking fix
+✅ Field Ready toggle
 ✅ Service Records modal
 ✅ Edit modal (extras engine)
-✅ Archive/Unarchive button
-✅ Scrollbar hiding
-✅ Notes save closes popup + dispatches events
+✅ Archive/Unarchive
+✅ Notes save closes popup + dispatch events
 ===================================================================== */
 
 import {
@@ -126,7 +124,6 @@ import {
   // ✅ Safari/iOS: avoid stacking dialogs
   function closeSvcThen(fn){
     try{ closeSheet(UI.svcSheet); }catch(_){}
-    // Let Safari finish closing animation + focus cleanup
     setTimeout(()=>{
       try{ fn && fn(); }catch(e){ console.error(e); alert(e?.message || "Action failed."); }
     }, 80);
@@ -223,16 +220,37 @@ import {
   function last6(v){ return String(v||"").slice(-6); }
 
   // ==========================================================
-  // Unit ID canonical accessors (extras.unitId)
+  // Canonical field accessors
   // ==========================================================
   function getUnitIdFromDoc(d){
-    // Canonical: extras.unitId
     const ex = (d && typeof d === "object" ? d.extras : null) || null;
     const a = (ex && ex.unitId != null) ? String(ex.unitId).trim() : "";
     if(a) return a;
-
-    // Legacy fallback: root unitId
     const b = (d && d.unitId != null) ? String(d.unitId).trim() : "";
+    return b || "";
+  }
+
+  function getImplementTypeFromDoc(d){
+    const a = (d && d.implementType != null) ? String(d.implementType).trim() : "";
+    if(a) return a;
+    const ex = (d && typeof d === "object" ? d.extras : null) || null;
+    const b = (ex && ex.implementType != null) ? String(ex.implementType).trim() : "";
+    return b || "";
+  }
+
+  function getConstructionTypeFromDoc(d){
+    const a = (d && d.constructionType != null) ? String(d.constructionType).trim() : "";
+    if(a) return a;
+    const ex = (d && typeof d === "object" ? d.extras : null) || null;
+    const b = (ex && ex.constructionType != null) ? String(ex.constructionType).trim() : "";
+    return b || "";
+  }
+
+  function getAttachmentTypeFromDoc(d){
+    const a = (d && d.attachmentType != null) ? String(d.attachmentType).trim() : "";
+    if(a) return a;
+    const ex = (d && typeof d === "object" ? d.extras : null) || null;
+    const b = (ex && ex.attachmentType != null) ? String(ex.attachmentType).trim() : "";
     return b || "";
   }
 
@@ -300,12 +318,16 @@ import {
   }
 
   function hydrateExtrasFromDoc(d){
-    // Extras are canonical under d.extras
     const ex = (d && typeof d === "object" ? d.extras : null) || {};
 
-    // Implement/construction type selectors are stored as extras too (if present)
+    // IMPORTANT: Type dropdowns (implementType / constructionType) have historically been stored at ROOT.
+    // We set from root first, then fallback to extras, then fire change so visibility logic runs.
     if (state.editTypeKey === "implement"){
-      const impType = readAny(ex, ['implementType','implement_type','subType','subtype','implementSubtype','implement_subtype']);
+      const impType =
+        readAny(d, ['implementType','implement_type','subType','subtype','implementSubtype','implement_subtype']) ||
+        readAny(ex, ['implementType','implement_type','subType','subtype','implementSubtype','implement_subtype']) ||
+        getImplementTypeFromDoc(d);
+
       if (impType){
         setExtraValue("implementType", impType);
         const ctrl = findExtraEl("implementType");
@@ -314,7 +336,11 @@ import {
     }
 
     if (state.editTypeKey === "construction"){
-      const conType = readAny(ex, ['constructionType','construction_type','subType','subtype']);
+      const conType =
+        readAny(d, ['constructionType','construction_type','subType','subtype']) ||
+        readAny(ex, ['constructionType','construction_type','subType','subtype']) ||
+        getConstructionTypeFromDoc(d);
+
       if (conType){
         setExtraValue("constructionType", conType);
         const ctrl = findExtraEl("constructionType");
@@ -323,7 +349,6 @@ import {
     }
 
     const keys = [
-      // ✅ include unitId + placedInServiceDate (both are extras in equipment-forms.js)
       "unitId",
       "placedInServiceDate",
 
@@ -342,20 +367,36 @@ import {
     const apply = ()=>{
       let anySet = false;
 
-      // Always try to set unitId from canonical path first (and fallback)
+      // UnitId: canonical extras.unitId, fallback root unitId
       const uid = getUnitIdFromDoc(d);
-      if (uid){
+      if(uid){
         anySet = setExtraValue("unitId", uid) || anySet;
       }
 
-      keys.forEach(k=>{
-        if(!ex || !Object.prototype.hasOwnProperty.call(ex, k)) return;
+      // Attachment type often exists at root historically too
+      if (state.editTypeKey === "construction"){
+        const att = getAttachmentTypeFromDoc(d);
+        if(att){
+          anySet = setExtraValue("attachmentType", att) || anySet;
+          const ctrl = findExtraEl("attachmentType");
+          if (ctrl) ctrl.dispatchEvent(new Event("change", { bubbles:true }));
+        }
+      }
 
-        if(k === "starfireCapable") anySet = setExtraValue(k, boolify(ex[k])) || anySet;
-        else anySet = setExtraValue(k, ex[k]) || anySet;
+      keys.forEach(k=>{
+        // Prefer extras storage
+        if(Object.prototype.hasOwnProperty.call(ex, k)){
+          if(k === "starfireCapable") anySet = setExtraValue(k, boolify(ex[k])) || anySet;
+          else anySet = setExtraValue(k, ex[k]) || anySet;
+          return;
+        }
+        // Fallback: legacy root
+        if(d && Object.prototype.hasOwnProperty.call(d, k)){
+          if(k === "starfireCapable") anySet = setExtraValue(k, boolify(d[k])) || anySet;
+          else anySet = setExtraValue(k, d[k]) || anySet;
+        }
       });
 
-      // If extras engine hasn't rendered inputs yet, retry a few frames
       if(!anySet && tries < triesMax){
         tries++;
         requestAnimationFrame(apply);
@@ -628,7 +669,6 @@ import {
     btnAddWO.textContent = "Add New Work Order";
     btnAddWO.setAttribute("data-fv","addWoBtn");
 
-    // ✅ FIX: close svcSheet before opening another dialog
     btnSvcRecords.addEventListener("click", ()=>{
       if(!state.eq) return;
       closeSvcThen(async ()=>{
@@ -971,7 +1011,7 @@ import {
   }
 
   // ===================================================================
-  // EDIT MODAL (kept)
+  // EDIT MODAL
   // ===================================================================
   function injectEditTractorsModalCss(){
     if(document.getElementById("fv-edit-tractor-css")) return;
@@ -1423,18 +1463,34 @@ import {
       ? (state.editExtras.read() || {})
       : {};
 
-    // Extras engine returns plain object with keys like { unitId, placedInServiceDate, ... }
     const typedUnitId = String(extras?.unitId || "").trim();
-
-    // Preserve existing if blank
     const existingUnitId = getUnitIdFromDoc(state.editEqDoc || {});
     const unitIdFinal = typedUnitId || existingUnitId || "";
 
-    // Ensure extras.unitId reflects final (but only if user typed or existing exists)
-    // We will still avoid writing blank below.
-    extras.unitId = unitIdFinal || null;
+    // Keep type selectors for compatibility mirror
+    const implementTypeFinal =
+      (state.editTypeKey === "implement")
+        ? (String(extras?.implementType || "").trim() || getImplementTypeFromDoc(state.editEqDoc || {}))
+        : "";
 
-    return { makeId, modelId, makeName, modelName, year, serial, status, notes, extras, unitIdFinal };
+    const constructionTypeFinal =
+      (state.editTypeKey === "construction")
+        ? (String(extras?.constructionType || "").trim() || getConstructionTypeFromDoc(state.editEqDoc || {}))
+        : "";
+
+    const attachmentTypeFinal =
+      (state.editTypeKey === "construction")
+        ? (String(extras?.attachmentType || "").trim() || getAttachmentTypeFromDoc(state.editEqDoc || {}))
+        : "";
+
+    return {
+      makeId, modelId, makeName, modelName, year, serial, status, notes,
+      extras,
+      unitIdFinal,
+      implementTypeFinal,
+      constructionTypeFinal,
+      attachmentTypeFinal
+    };
   }
 
   function validateEditForm(p){
@@ -1456,20 +1512,33 @@ import {
     const err = validateEditForm(p);
     if(err){ alert(err); return; }
 
-    // Build extras payload (canonical). Do NOT write blanks that would erase values.
-    const extrasOut = Object.assign({}, (state.editEqDoc?.extras || {}), (p.extras || {}));
+    const existingExtras = (state.editEqDoc && state.editEqDoc.extras && typeof state.editEqDoc.extras === "object")
+      ? state.editEqDoc.extras
+      : {};
 
-    // Normalize unitId: if still blank, remove so we don't wipe existing
+    const extrasOut = Object.assign({}, existingExtras, (p.extras || {}));
+
+    // Never wipe unitId (canonical extras.unitId) if blank
     const uid = String(p.unitIdFinal || "").trim();
     if(uid){
       extrasOut.unitId = uid;
     }else{
-      // preserve existing (already in extrasOut from state.editEqDoc?.extras)
-      // if there was none, leave undefined
       if(!extrasOut.unitId) delete extrasOut.unitId;
     }
 
-    // Clean nulls from extras (optional: keep it conservative)
+    // Mirror type selectors to keep other parts of app working (root fields)
+    // (Also keep in extrasOut, since extras engine reads/writes them)
+    if(p.implementTypeFinal){
+      extrasOut.implementType = p.implementTypeFinal;
+    }
+    if(p.constructionTypeFinal){
+      extrasOut.constructionType = p.constructionTypeFinal;
+    }
+    if(p.attachmentTypeFinal){
+      extrasOut.attachmentType = p.attachmentTypeFinal;
+    }
+
+    // Clean nulls
     Object.keys(extrasOut).forEach(k=>{
       if(extrasOut[k] === null) delete extrasOut[k];
     });
@@ -1487,11 +1556,16 @@ import {
       updatedAt: serverTimestamp()
     };
 
+    // Compatibility mirrors (ROOT)
+    if(uid) payload.unitId = uid;
+    if(p.implementTypeFinal) payload.implementType = p.implementTypeFinal;
+    if(p.constructionTypeFinal) payload.constructionType = p.constructionTypeFinal;
+    if(p.attachmentTypeFinal) payload.attachmentType = p.attachmentTypeFinal;
+
     try{
       const db = getFirestore();
       await setDoc(doc(db,"equipment", state.editEqId), payload, { merge:true });
 
-      // Update local doc mirror safely
       state.editEqDoc = Object.assign({}, state.editEqDoc || {}, payload);
       showToast("Saved ✓");
       closeSheet(UI.editSheet);
