@@ -63,29 +63,17 @@
       text-size-adjust:100%;
     }
 
-    /* ✅ IMPORTANT:
-       iOS native <select> dropdown often renders "in-page" and ignores padding tricks,
-       then rubber-bands back (what you're seeing).
-       This page uses a TEMP spacer element at the bottom while the dropdown is open.
-       CSS below just ensures the spacer doesn't visually show. */
-    #catSpacer{
-      display:block;
-      width:100%;
-      height:620px; /* default; JS may change */
-      pointer-events:none;
-      background:transparent;
-    }
-
-    /* ✅ (keep your original behavior too) */
+    /* ✅ When the category dropdown is opened, add extra bottom room so the last option
+       isn’t trapped behind the footer (iOS/PWA can render expanded <select> in-page). */
     body.catOpen .page{
-      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 280px)!important;
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 520px)!important;
     }
 
     .page{
       max-width:1500px;
       margin:0 auto;
       padding:clamp(14px,3vw,22px);
-      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 72px)!important;
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 140px)!important;
     }
 
     .page-title{margin:0 0 6px 0;}
@@ -356,15 +344,19 @@
     }
 
     @media(max-width:820px){
+      html, body{
+        min-height:100%;
+      }
+
       .page{
         max-width:none;
         margin:0;
         padding:0;
-        padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 72px)!important;
+        padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 420px)!important;
       }
 
       body.catOpen .page{
-        padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 320px)!important;
+        padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 900px)!important;
       }
 
       .page-title, .page-sub{
@@ -636,10 +628,6 @@
           <!-- helper text removed -->
         </div>
       </section>
-
-      <!-- ✅ TEMP SPACER (injected/removed by JS while dropdown is open) -->
-      <!-- (kept empty here; JS creates/removes #catSpacer) -->
-
     </div>
   </fv-shell>
 
@@ -1956,72 +1944,20 @@
     }
 
     // ✅ Open dropdown: add extra bottom space + scroll it into view
-    // IMPORTANT: Use a real spacer node (not just padding) so iOS doesn't rubber-band back.
-    let _catSpacer = null;
-
-    function ensureCatSpacer(){
-      if(_catSpacer) return _catSpacer;
-      const host = document.querySelector(".page");
-      if(!host) return null;
-
-      const sp = document.createElement("div");
-      sp.id = "catSpacer";
-      sp.setAttribute("aria-hidden","true");
-
-      // Use a bit more than footer + safe area so there is always a visible gap
-      // even if Safari renders the list "inside" the page.
-      const base = 720;
-      sp.style.height = base + "px";
-
-      host.appendChild(sp);
-      _catSpacer = sp;
-      return sp;
-    }
-
-    function removeCatSpacer(){
-      if(_catSpacer && _catSpacer.parentNode){
-        _catSpacer.parentNode.removeChild(_catSpacer);
-      }
-      _catSpacer = null;
-    }
-
     function beginCatOpen(){
-      if(document.body.classList.contains("catOpen")) return;
       document.body.classList.add("catOpen");
-
-      ensureCatSpacer();
-
-      // Force the browser to acknowledge the new scrollHeight, then scroll the select
-      // into a position where the native list has room above the footer.
-      requestAnimationFrame(()=>{
-        requestAnimationFrame(()=>{
-          try{
-            // Nudge the page down slightly so iOS doesn’t snap back
-            window.scrollTo({ top: window.scrollY + 240, left: 0, behavior: "instant" });
-          }catch(_){}
-          try{ catSelect.scrollIntoView({ block:"center", inline:"nearest" }); }catch(_){}
-        });
-      });
+      setTimeout(()=>{
+        try{ catSelect.scrollIntoView({ block:"center", inline:"nearest" }); }catch{}
+      }, 0);
     }
-
     function endCatOpen(){
       document.body.classList.remove("catOpen");
-      removeCatSpacer();
     }
 
     catSelect.addEventListener("focus", beginCatOpen);
+    catSelect.addEventListener("blur", endCatOpen);
     catSelect.addEventListener("mousedown", beginCatOpen);
     catSelect.addEventListener("touchstart", beginCatOpen, { passive:true });
-
-    // blur isn't reliable for iOS native select; close on change + outside tap
-    catSelect.addEventListener("blur", endCatOpen);
-    catSelect.addEventListener("change", ()=>{ endCatOpen(); });
-
-    document.addEventListener("click", (e)=>{
-      if(!document.body.classList.contains("catOpen")) return;
-      if(e.target === catSelect || catSelect.contains(e.target)) return;
-      endCatOpen();
-    }, { passive:true });
 
     catSelect.addEventListener("change", ()=>{
       state.filter = catSelect.value;
