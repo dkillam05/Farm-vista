@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-04a-use-formula-single-source-of-truth
+Rev: 2026-03-10a-use-formula-single-source-of-truth-plus-mrms
 
 GOAL (per Dane, Feb 2026):
 ✅ Make tiles + details MATCH the Global Calibration readiness number.
@@ -15,9 +15,8 @@ CHANGES (THIS REV):
 ✅ CAL remains ZERO (via formula.js).
 ✅ Forecast rows still provided (ETA helper keeps working).
 ✅ Option B trace fallback (rewind 14) preserved.
-
-NOTES:
-- Quick View + Global Calibration will be updated next to use the same formula.js.
+✅ Added MRMS details rendering from field_mrms_weather/{fieldId}
+✅ Daily MRMS table shows inches converted from stored mm
 ===================================================================== */
 'use strict';
 
@@ -30,7 +29,7 @@ import { canEdit } from './perm.js';
 import { openQuickView } from './quickview.js';
 import { initSwipeOnTiles } from './swipe.js';
 import { parseRangeFromInput, rainInRange } from './rain.js';
-import { fetchAndHydrateFieldParams } from './data.js';
+import { fetchAndHydrateFieldParams, loadFieldMrmsDoc } from './data.js';
 import { getAPI } from './firebase.js';
 
 // ✅ SINGLE SOURCE OF TRUTH: readiness wiring lives here
@@ -1255,6 +1254,126 @@ function renderBetaInputs(state){
     groupHtml('Pulled (not yet used)', pulledNotUsed, 'tag-pulled', 'Pulled');
 }
 
+/* ---------- MRMS helpers ---------- */
+function numOrZero(v){
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+function mmToIn(mm){
+  return numOrZero(mm) / 25.4;
+}
+function fmt2(v){
+  return numOrZero(v).toFixed(2);
+}
+function sumMrmsMm(rows){
+  return (Array.isArray(rows) ? rows : []).reduce((a, r)=> a + numOrZero(r && r.rainMm), 0);
+}
+function localTs(iso){
+  try{
+    if (!iso) return '—';
+    const d = new Date(String(iso));
+    if (!Number.isFinite(d.getTime())) return String(iso);
+    return d.toLocaleString();
+  }catch(_){
+    return String(iso || '—');
+  }
+}
+function setText(id, txt){
+  const el = $(id);
+  if (el) el.textContent = String(txt ?? '—');
+}
+function renderMrmsPanelEmpty(msg){
+  setText('mrmsMeta', msg || 'No MRMS data found for this field.');
+  setText('mrmsLatestHour', '—');
+  setText('mrmsLast24Total', '—');
+  setText('mrmsLast7dTotal', '—');
+  setText('mrmsUnits', 'mm');
+
+  const hourly = $('mrmsHourlyRows');
+  if (hourly){
+    hourly.innerHTML = `<tr><td colspan="5" class="muted">${esc(msg || 'No MRMS hourly data.')}</td></tr>`;
+  }
+
+  const daily = $('mrmsDailyRows');
+  if (daily){
+    daily.innerHTML = `<tr><td colspan="4" class="muted">${esc(msg || 'No MRMS daily data.')}</td></tr>`;
+  }
+}
+
+function renderMrmsPanelFromDoc(doc){
+  if (!doc || typeof doc !== 'object'){
+    renderMrmsPanelEmpty('No MRMS data found for this field.');
+    return;
+  }
+
+  const meta = doc.mrmsHistoryMeta || {};
+  const hourly = Array.isArray(doc.mrmsHourlyLast24) ? doc.mrmsHourlyLast24.slice() : [];
+  const daily = Array.isArray(doc.mrmsDailySeries30d) ? doc.mrmsDailySeries30d.slice() : [];
+  const latest = doc.mrmsHourlyLatest || {};
+
+  const units = String(meta.units || 'mm');
+  const latestHourMm = numOrZero(
+    latest.weightedHourlyRainMm != null ? latest.weightedHourlyRainMm :
+    latest.rainMm != null ? latest.rainMm :
+    hourly.length ? hourly[0].rainMm : 0
+  );
+  const last24Mm = hourly.length ? sumMrmsMm(hourly) : 0;
+  const last7Mm = sumMrmsMm(daily.slice(-7));
+
+  const latestTs = latest.fileTimestampUtc || meta.latestFileTimestampUtc || '';
+  const latestProduct = latest.selectedProduct || meta.latestSelectedProduct || '—';
+
+  setText(
+    'mrmsMeta',
+    `Latest file: ${latestTs ? localTs(latestTs) : '—'} • Product: ${latestProduct} • Daily rows: ${daily.length} • Hourly rows: ${hourly.length}`
+  );
+  setText('mrmsLatestHour', `${fmt2(latestHourMm)} mm`);
+  setText('mrmsLast24Total', `${fmt2(mmToIn(last24Mm))} in`);
+  setText('mrmsLast7dTotal', `${fmt2(mmToIn(last7Mm))} in`);
+  setText('mrmsUnits', units);
+
+  const hourlyBody = $('mrmsHourlyRows');
+  if (hourlyBody){
+    hourlyBody.innerHTML = '';
+    if (!hourly.length){
+      hourlyBody.innerHTML = `<tr><td colspan="5" class="muted">No MRMS hourly data.</td></tr>`;
+    } else {
+      for (const r of hourly){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${esc(localTs(r.fileTimestampUtc || r.hourKey || '—'))}</td>
+          <td class="right mono">${fmt2(r.rainMm)}</td>
+          <td class="mono">${esc(String(r.selectedProduct || '—'))}</td>
+          <td class="mono">${esc(String(r.mode || '—'))}</td>
+          <td class="mono">${esc(String(r.source || '—'))}</td>
+        `;
+        hourlyBody.appendChild(tr);
+      }
+    }
+  }
+
+  const dailyBody = $('mrmsDailyRows');
+  if (dailyBody){
+    dailyBody.innerHTML = '';
+    if (!daily.length){
+      dailyBody.innerHTML = `<tr><td colspan="4" class="muted">No MRMS daily data.</td></tr>`;
+    } else {
+      for (const r of daily){
+        const mm = numOrZero(r.rainMm);
+        const inches = mmToIn(mm);
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${esc(String(r.dateISO || '—'))}</td>
+          <td class="right mono">${Math.round(numOrZero(r.hoursCount))}</td>
+          <td class="right mono">${fmt2(mm)}</td>
+          <td class="right mono">${fmt2(inches)}</td>
+        `;
+        dailyBody.appendChild(tr);
+      }
+    }
+  }
+}
+
 /* ---------- details render (CORE) ---------- */
 async function _renderDetailsInternal(state){
   await ensureFRModules(state);
@@ -1420,6 +1539,15 @@ async function _renderDetailsInternal(state){
         }
       }catch(_){}
     }
+  }
+
+  // ✅ NEW: MRMS panel
+  try{
+    const mrmsDoc = await loadFieldMrmsDoc(state, String(f.id), { force:false });
+    renderMrmsPanelFromDoc(mrmsDoc);
+  }catch(e){
+    console.warn('[FieldReadiness] MRMS render failed:', e);
+    renderMrmsPanelEmpty('MRMS data could not be loaded.');
   }
 }
 
