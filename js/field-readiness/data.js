@@ -1,16 +1,13 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/data.js  (FULL FILE)
-Rev: 2026-01-02b
+Rev: 2026-03-10a
 
-Fix (per Dane):
+Changes (per Dane):
 ✅ Keep correct initial tile count (ex: 25) AND speed up:
    - Warm weather for ONLY the initial visible set (awaited)
    - Warm the remaining fields in the background (not awaited)
-
-Notes:
-- Uses state.pageSize if present (set by prefs before loadFields in index.js)
-- Falls back to 25 if unknown
-- If pageSize is "__all__", we still only await a reasonable slice (50)
+✅ Added MRMS doc loader for field_mrms_weather/{fieldId}
+✅ Caches MRMS docs by fieldId for details rendering
 ===================================================================== */
 'use strict';
 
@@ -108,6 +105,83 @@ function extractFieldDoc(docId, d){
     soilWetness: (soilWetness == null) ? null : soilWetness,
     drainageIndex: (drainageIndex == null) ? null : drainageIndex
   };
+}
+
+function safeMrmsDocData(d){
+  return (d && typeof d === 'object') ? d : null;
+}
+
+/* =====================================================================
+   NEW: MRMS one-doc fetch/cache
+===================================================================== */
+const MRMS_TTL_MS = 5 * 60 * 1000;
+
+export async function loadFieldMrmsDoc(state, fieldId, { force=false } = {}){
+  const fid = String(fieldId || '').trim();
+  if (!fid) return null;
+
+  state.mrmsByFieldId = state.mrmsByFieldId || new Map();
+  state.mrmsInfoByFieldId = state.mrmsInfoByFieldId || new Map();
+
+  try{
+    const cached = state.mrmsByFieldId.get(fid) || null;
+    const info = state.mrmsInfoByFieldId.get(fid) || null;
+    const loadedAt = Number(info && info.loadedAt ? info.loadedAt : 0);
+
+    if (!force && cached && loadedAt && (Date.now() - loadedAt) < MRMS_TTL_MS){
+      return cached;
+    }
+
+    const api = getAPI(state);
+    if (!api){
+      state.mrmsByFieldId.set(fid, null);
+      state.mrmsInfoByFieldId.set(fid, {
+        ok: false,
+        loadedAt: Date.now(),
+        source: 'firestore',
+        reason: 'api-missing'
+      });
+      return null;
+    }
+
+    let data = null;
+
+    if (api.kind !== 'compat'){
+      const db = api.getFirestore();
+      const ref = api.doc(db, CONST.MRMS_FIRESTORE_COLLECTION, fid);
+      const snap = await api.getDoc(ref);
+      if (snap && snap.exists && snap.exists()){
+        data = safeMrmsDocData(snap.data());
+      }
+    } else {
+      const db = window.firebase.firestore();
+      const snap = await db.collection(CONST.MRMS_FIRESTORE_COLLECTION).doc(fid).get();
+      if (snap && snap.exists){
+        data = safeMrmsDocData(snap.data());
+      }
+    }
+
+    state.mrmsByFieldId.set(fid, data || null);
+    state.mrmsInfoByFieldId.set(fid, {
+      ok: !!data,
+      loadedAt: Date.now(),
+      source: 'firestore',
+      collection: CONST.MRMS_FIRESTORE_COLLECTION
+    });
+
+    return data || null;
+  }catch(e){
+    console.warn('[FieldReadiness] loadFieldMrmsDoc failed:', e);
+    state.mrmsByFieldId.set(fid, null);
+    state.mrmsInfoByFieldId.set(fid, {
+      ok: false,
+      loadedAt: Date.now(),
+      source: 'firestore',
+      collection: CONST.MRMS_FIRESTORE_COLLECTION,
+      error: String(e && e.message ? e.message : e || '')
+    });
+    return null;
+  }
 }
 
 /* =====================================================================
