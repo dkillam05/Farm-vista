@@ -1,16 +1,17 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/rain.js  (FULL FILE)
-Rev: 2025-12-26b
+Rev: 2026-03-10a
 
-Fix:
-- Range input can be "Dec 1, 2025 – Dec 26, 2025" or "12/1/2025 – 12/26/2025"
-  not just YYYY-MM-DD.
-- Now parses both formats reliably (local noon to avoid day shift).
+Changes (per Dane):
+✅ Rain range can now use MRMS daily rainfall data
+✅ If MRMS backfill is not complete for current day back through past 30 days,
+   range rainfall is treated as NOT READY
+✅ Exposes helpers for render.js to show:
+   "Rainfall data still in queue"
 
-Used by:
-- render.js (tiles)
-- quickview.js (popup)
-
+Keeps:
+✅ Existing flexible date-range parsing
+✅ Existing legacy run-row rain fallback helper
 ===================================================================== */
 'use strict';
 
@@ -45,7 +46,7 @@ function parseDateLocalLoose(s){
     return d;
   }
 
-  // Try MM/DD/YYYY manually (some browsers are picky)
+  // Try MM/DD/YYYY manually
   const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (m){
     const mm = Number(m[1]) - 1;
@@ -63,7 +64,7 @@ export function parseRangeFromInput(){
   const raw = String(inp ? inp.value : '').trim();
   if (!raw) return { start:null, end:null };
 
-  // Split on en dash used by your UI: " – "
+  // Split on en dash used by your UI
   const parts = raw.split('–').map(s=>s.trim());
 
   if (parts.length === 2){
@@ -89,7 +90,6 @@ export function parseRangeFromInput(){
 }
 
 function parseISODateFromRun(dateISO){
-  // run rows are "YYYY-MM-DD"
   return parseYMDLocal(dateISO);
 }
 
@@ -97,17 +97,16 @@ export function isDateInRange(dateISO, range){
   if (!range || !range.start || !range.end) return true;
 
   const d = parseISODateFromRun(dateISO);
-  if (!d) return true; // fail-open (should not happen)
+  if (!d) return true; // fail-open
   return d >= range.start && d <= range.end;
 }
 
+/* =====================================================================
+   Legacy run-row rainfall helper (kept for compatibility)
+===================================================================== */
 export function rainInRange(run, range){
   if (!run || !run.rows) return 0;
 
-  // If range failed to parse, do NOT pretend everything is in range.
-  // Instead treat as "no range" (0 effect) by returning the existing behavior:
-  // In your UI, blank range means totals might be full period; but user expects range to work.
-  // We'll keep legacy: if no valid range, include all.
   const hasRange = !!(range && range.start && range.end);
 
   let sum = 0;
@@ -117,4 +116,126 @@ export function rainInRange(run, range){
     }
   }
   return round(sum, 2);
+}
+
+/* =====================================================================
+   MRMS helpers
+===================================================================== */
+function num(v){
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function toYMDLocal(d){
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function startOfDayLocal(d){
+  const out = new Date(d);
+  out.setHours(0,0,0,0);
+  return out;
+}
+
+function endOfDayLocal(d){
+  const out = new Date(d);
+  out.setHours(23,59,59,999);
+  return out;
+}
+
+function addDaysLocal(d, delta){
+  const out = new Date(d);
+  out.setDate(out.getDate() + delta);
+  return out;
+}
+
+export function getDefaultRainRange30d(){
+  const today = startOfDayLocal(new Date());
+  const start = startOfDayLocal(addDaysLocal(today, -29));
+  const end = endOfDayLocal(today);
+  return { start, end };
+}
+
+function normalizeRange(range){
+  if (range && range.start && range.end) return range;
+  return getDefaultRainRange30d();
+}
+
+function getMrmsDailySeries(doc){
+  return Array.isArray(doc && doc.mrmsDailySeries30d) ? doc.mrmsDailySeries30d : [];
+}
+
+function getMrmsDailyMap(doc){
+  const rows = getMrmsDailySeries(doc);
+  const map = new Map();
+  for (const r of rows){
+    const key = String(r && r.dateISO || '').trim();
+    if (!key) continue;
+    map.set(key, r);
+  }
+  return map;
+}
+
+/**
+ * Backfill is considered ready only when we have a full contiguous set of
+ * current day back through the prior 29 days.
+ */
+export function mrmsBackfillReady(doc){
+  if (!doc || typeof doc !== 'object') return false;
+
+  const map = getMrmsDailyMap(doc);
+  if (!map.size) return false;
+
+  const meta = doc.mrmsHistoryMeta || {};
+  if (meta && meta.fullBackfillComplete === true) return true;
+
+  const def = getDefaultRainRange30d();
+  let cursor = startOfDayLocal(def.start);
+  const end = startOfDayLocal(def.end);
+
+  while (cursor <= end){
+    const key = toYMDLocal(cursor);
+    if (!map.has(key)) return false;
+    cursor = addDaysLocal(cursor, 1);
+  }
+
+  return true;
+}
+
+/**
+ * Returns MRMS rainfall in the requested range, but only if the full rolling
+ * 30-day MRMS daily history is ready.
+ */
+export function mrmsRainInRange(doc, range){
+  if (!doc || typeof doc !== 'object'){
+    return { ready:false, inches:null, mm:null, reason:'missing-doc' };
+  }
+
+  if (!mrmsBackfillReady(doc)){
+    return { ready:false, inches:null, mm:null, reason:'backfill-incomplete' };
+  }
+
+  const useRange = normalizeRange(range);
+  const map = getMrmsDailyMap(doc);
+
+  let mm = 0;
+  let cursor = startOfDayLocal(useRange.start);
+  const end = startOfDayLocal(useRange.end);
+
+  while (cursor <= end){
+    const key = toYMDLocal(cursor);
+    const row = map.get(key);
+    mm += num(row && row.rainMm);
+    cursor = addDaysLocal(cursor, 1);
+  }
+
+  const inches = mm / 25.4;
+  return {
+    ready:true,
+    mm: round(mm, 2),
+    inches: round(inches, 2),
+    reason:'ok'
+  };
 }
