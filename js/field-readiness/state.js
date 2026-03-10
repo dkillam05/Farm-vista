@@ -1,8 +1,11 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/state.js  (FULL FILE)
-Rev: 2025-12-26c
+Rev: 2026-03-10a
 
-Permission key switched to: crop-weather
+Changes (per Dane):
+✅ Added MRMS state caches
+✅ Added MRMS Firestore collection constant
+✅ Keeps existing crop-weather permission key
 ===================================================================== */
 'use strict';
 
@@ -28,6 +31,8 @@ export const CONST = {
   WX_TTL_MS: 4 * 60 * 60 * 1000,
   WX_CACHE_PREFIX: 'fv_fr_wx_daily_cache_v2_',
   WX_FIRESTORE_COLLECTION: 'field_weather_cache',
+
+  MRMS_FIRESTORE_COLLECTION: 'field_mrms_weather',
 
   LOSS_SCALE: 0.55,
   ETA_MAX_HOURS: 72,
@@ -65,6 +70,10 @@ export function createState(){
     weather30: [],
     weatherByFieldId: new Map(),
     wxInfoByFieldId: new Map(),
+
+    mrmsByFieldId: new Map(),
+    mrmsInfoByFieldId: new Map(),
+
     seed: Date.now() % 1000000,
     selectedFieldId: null,
     lastRuns: new Map(),
