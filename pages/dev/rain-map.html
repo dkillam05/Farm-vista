@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>FarmVista Dev • Rain Map</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<meta name="theme-color" content="#3B7E46"/>
+
+<script src="/Farm-vista/js/theme-boot.js"></script>
+
+<link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+<link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+<link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
+<link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+<link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+<style>
+
+body{
+  margin:0;
+  background:var(--bg);
+}
+
+#map{
+  width:100%;
+  height:100vh;
+}
+
+.legend{
+  position:absolute;
+  bottom:20px;
+  left:20px;
+  background:white;
+  padding:12px;
+  border-radius:10px;
+  font-size:13px;
+  box-shadow:0 4px 14px rgba(0,0,0,.2);
+}
+
+.legend div{
+  display:flex;
+  align-items:center;
+  margin:4px 0;
+}
+
+.legend span{
+  width:18px;
+  height:18px;
+  border-radius:50%;
+  margin-right:8px;
+  display:inline-block;
+}
+
+</style>
+
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="legend">
+  <div><span style="background:#ffd400"></span> &lt; 0.5"</div>
+  <div><span style="background:#6bd46b"></span> 0.5-1"</div>
+  <div><span style="background:#2fa62f"></span> 1-2"</div>
+  <div><span style="background:#3388ff"></span> 2-3"</div>
+  <div><span style="background:#ff3333"></span> 3-4"</div>
+  <div><span style="background:#7a00cc"></span> 4"+</div>
+</div>
+
+<script>
+
+function getMapsKey(){
+  const k1 = window.FV_GOOGLE_MAPS_KEY || '';
+  const k2 = localStorage.getItem('fv_google_maps_key') || '';
+  return (k1 || k2 || '').trim();
+}
+
+function rainColor(v){
+
+  if(v < 0.5) return "#ffd400";
+  if(v < 1) return "#6bd46b";
+  if(v < 2) return "#2fa62f";
+  if(v < 3) return "#3388ff";
+  if(v < 4) return "#ff3333";
+
+  return "#7a00cc";
+}
+
+async function loadFields(){
+
+  const r = await fetch("/api/fields");
+
+  if(!r.ok) throw new Error("Failed loading fields");
+
+  return r.json();
+}
+
+async function loadRain(){
+
+  const r = await fetch("/api/rain/latest");
+
+  if(!r.ok) throw new Error("Failed loading rain");
+
+  return r.json();
+}
+
+async function init(){
+
+  const fields = await loadFields();
+  const rain = await loadRain();
+
+  const map = new google.maps.Map(document.getElementById("map"),{
+    zoom:7,
+    mapTypeId:"hybrid",
+    streetViewControl:false,
+    fullscreenControl:false,
+    mapTypeControl:true
+  });
+
+  const bounds = new google.maps.LatLngBounds();
+
+  fields.forEach(field=>{
+
+    const r = rain[field.id];
+
+    if(!r) return;
+
+    r.points.forEach(p=>{
+
+      const pos = {lat:p.lat, lng:p.lng};
+
+      const color = rainColor(p.rain);
+
+      new google.maps.Circle({
+
+        strokeColor:color,
+        strokeOpacity:0.9,
+        strokeWeight:1,
+
+        fillColor:color,
+        fillOpacity:0.6,
+
+        map:map,
+
+        center:pos,
+
+        radius:600
+
+      });
+
+      const marker = new google.maps.Marker({
+        position:pos,
+        map:map,
+        opacity:0
+      });
+
+      const info = new google.maps.InfoWindow({
+        content:
+        "<b>"+field.name+"</b><br>"+
+        p.rain.toFixed(2)+" inches"
+      });
+
+      marker.addListener("click",()=>{
+        info.open(map,marker);
+      });
+
+      bounds.extend(pos);
+
+    });
+
+  });
+
+  map.fitBounds(bounds);
+
+}
+
+function loadGoogle(){
+
+  const key = getMapsKey();
+
+  const s = document.createElement("script");
+
+  s.src = "https://maps.googleapis.com/maps/api/js?key="+key;
+
+  s.async=true;
+
+  s.onload=init;
+
+  document.head.appendChild(s);
+
+}
+
+loadGoogle();
+
+</script>
+
+</body>
+</html>
