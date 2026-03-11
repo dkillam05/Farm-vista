@@ -1,22 +1,25 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-03-10b-use-mrms-rain-range-queue-aware
+Rev: 2026-03-10c-show-model-rain-source-and-mrms-range-status
 
 GOAL (per Dane, Feb 2026):
 ✅ Make Quick View readiness MATCH Global Calibration readiness.
-✅ Keep Quick View rain-range display aligned with new MRMS tile logic.
+✅ Show which rainfall source the MODEL is using now.
+✅ Keep Range rain display aligned with MRMS tile logic.
 
 CHANGES (THIS REV):
-✅ Use /Farm-vista/js/field-readiness/formula.js as the single wiring source:
-   - ensureFRModules()
-   - buildFRDeps()
-✅ Keep Quick View persisted truth loader (read-only) with TTL + force:true
-✅ Keep Rule A:
+✅ Uses formula.js single source of truth wiring
+✅ Quick View "Range rain" still uses MRMS daily rainfall range display
+✅ If MRMS range data is not fully ready, shows "Processing Data"
+✅ Adds model rainfall source to Weather meta:
+   - "Model rain: MRMS"
+   - "Model rain: Open-Meteo"
+✅ Rule for model source:
+   - if MRMS fully ready => model uses MRMS
+   - else => model uses Open-Meteo
+✅ Keeps Rule A:
    - Sliders change params only (soil/drain) and do NOT write truth storage
    - Save writes only fields/{fieldId} params + local cache
-✅ Quick View "Range rain" now uses MRMS daily rainfall
-✅ If MRMS current-day-through-past-30-days is not complete, shows:
-   "Rainfall data still in queue"
 
 Keeps:
 ✅ UI unchanged
@@ -318,7 +321,7 @@ function restoreQuickViewAfterMap(state){
 }
 
 /* =====================================================================
-   MRMS rain helpers
+   Rain helpers
 ===================================================================== */
 async function getQuickViewMrmsRainText(state, fieldId, range){
   try{
@@ -327,7 +330,29 @@ async function getQuickViewMrmsRainText(state, fieldId, range){
     if (!res || res.ready !== true) return 'Processing Data';
     return `${Number(res.inches || 0).toFixed(2)} in`;
   }catch(_){
-    return 'Rainfall data still in queue';
+    return 'Processing Data';
+  }
+}
+
+function getModelRainSourceLabel(run){
+  try{
+    const rows = Array.isArray(run && run.rows) ? run.rows : [];
+    if (!rows.length) return 'Open-Meteo';
+
+    let mrmsCount = 0;
+    let omCount = 0;
+
+    for (const r of rows){
+      const src = String(r && r.rainSource || '').toLowerCase();
+      if (src === 'mrms') mrmsCount++;
+      else if (src) omCount++;
+    }
+
+    if (mrmsCount > 0 && omCount === 0) return 'MRMS';
+    if (mrmsCount > 0 && omCount > 0) return 'Mixed';
+    return 'Open-Meteo';
+  }catch(_){
+    return 'Open-Meteo';
   }
 }
 
@@ -768,8 +793,10 @@ async function fillQuickView(state, { live=false } = {}){
 
   if (wxMeta){
     const truthR = (runTruth && isFinite(Number(runTruth.readinessR))) ? Number(runTruth.readinessR) : null;
+    const rainSource = getModelRainSourceLabel(runTruth);
     wxMeta.innerHTML =
       `Weather updated: <span class="mono">${esc(whenTxt)}</span>` +
+      ` • Model rain: <span class="mono">${esc(rainSource)}</span>` +
       (truthR != null ? ` • Truth: <span class="mono">${truthR}</span>` : ``);
   }
 
