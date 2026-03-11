@@ -246,6 +246,7 @@
       opacity:.78;
       line-height:1.2;
       margin-top:2px;
+      word-break:break-word;
     }
 
     .left-legend{
@@ -794,16 +795,27 @@
     function buildFieldPoints(field, parentDoc, range){
       const totalMm = totalRainMmForRange(parentDoc, range);
       const totalInches = totalMm / 25.4;
-      const geom = buildSampleGeometry(field, parentDoc);
 
-      return geom.map(g => ({
-        fieldId: field.id,
-        fieldName: field.name || 'Field',
-        pointLabel: pointLabelFromKey(g.key),
-        lat: g.lat,
-        lng: g.lng,
-        rainInches: totalInches
-      }));
+      let geom = buildSampleGeometry(field, parentDoc);
+
+      if (!Array.isArray(geom) || !geom.length){
+        geom = [{
+          key: 'center',
+          lat: field.location.lat,
+          lng: field.location.lng
+        }];
+      }
+
+      return geom
+        .filter(g => Number.isFinite(Number(g.lat)) && Number.isFinite(Number(g.lng)))
+        .map(g => ({
+          fieldId: field.id,
+          fieldName: field.name || 'Field',
+          pointLabel: pointLabelFromKey(g.key),
+          lat: Number(g.lat),
+          lng: Number(g.lng),
+          rainInches: Number.isFinite(totalInches) ? totalInches : 0
+        }));
     }
 
     function buildFieldSummary(field, parentDoc, range){
@@ -813,7 +825,7 @@
         fieldName: field.name || 'Field',
         lat: field.location.lat,
         lng: field.location.lng,
-        rainInches: totalMm / 25.4
+        rainInches: Number.isFinite(totalMm / 25.4) ? (totalMm / 25.4) : 0
       };
     }
 
@@ -1021,7 +1033,6 @@
 
       setPointMeta(points.length);
       fitToFields(fields);
-      setDebug('rendered ' + points.length + ' points • soft blend mode');
     }
 
     function handleMapTap(ev){
@@ -1030,7 +1041,8 @@
       const lat = ev.latLng.lat();
       const lng = ev.latLng.lng();
       const nearest = nearestFieldSummary(lat, lng);
-      if (!nearest || nearest.rainInches == null) {
+
+      if (!nearest || nearest.rainInches == null){
         if (infoWindow) infoWindow.close();
         return;
       }
@@ -1079,14 +1091,26 @@
 
       let docsAttempted = 0;
       let docsLoaded = 0;
+      let docsMissing = 0;
+      let workerErrors = 0;
       let docsWithSamples = 0;
-      let docsWithRain = 0;
+      let fieldsWithRain = 0;
 
       const results = await runPool(fields, FETCH_CONCURRENCY, async (field)=>{
         docsAttempted++;
+
         try{
           const parentDoc = await loadParentMrmsDoc(field.id, force);
-          if (!parentDoc) return null;
+
+          if (!parentDoc){
+            docsMissing++;
+            return {
+              field,
+              parentDoc: null,
+              points: buildFieldPoints(field, {}, range),
+              summary: buildFieldSummary(field, {}, range)
+            };
+          }
 
           docsLoaded++;
 
@@ -1094,7 +1118,7 @@
           const summary = buildFieldSummary(field, parentDoc, range);
 
           if (points.length) docsWithSamples++;
-          if ((summary.rainInches || 0) > 0) docsWithRain++;
+          if ((summary.rainInches || 0) > 0) fieldsWithRain++;
 
           return {
             field,
@@ -1103,8 +1127,15 @@
             summary
           };
         }catch(err){
+          workerErrors++;
           console.warn('[Dev Rain Map] parent MRMS load failed for field:', field && field.id, err);
-          return null;
+
+          return {
+            field,
+            parentDoc: null,
+            points: buildFieldPoints(field, {}, range),
+            summary: buildFieldSummary(field, {}, range)
+          };
         }
       });
 
@@ -1113,17 +1144,19 @@
       const loadedFields = [];
 
       results.forEach(row=>{
-        if (!row) return;
+        if (!row || !row.field) return;
         loadedFields.push(row.field);
-        summaries.push(row.summary);
-        allPoints.push(...row.points);
+        if (row.summary) summaries.push(row.summary);
+        if (Array.isArray(row.points) && row.points.length) allPoints.push(...row.points);
       });
 
       setDebug(
         'attempted ' + docsAttempted +
         ' • docs ' + docsLoaded +
+        ' • missing ' + docsMissing +
+        ' • errors ' + workerErrors +
         ' • sample sets ' + docsWithSamples +
-        ' • fields w/rain ' + docsWithRain +
+        ' • fields w/rain ' + fieldsWithRain +
         ' • points ' + allPoints.length
       );
 
@@ -1131,7 +1164,16 @@
         points: allPoints,
         fields,
         summaries,
-        loadedFields
+        loadedFields,
+        stats: {
+          docsAttempted,
+          docsLoaded,
+          docsMissing,
+          workerErrors,
+          docsWithSamples,
+          fieldsWithRain,
+          points: allPoints.length
+        }
       };
     }
 
@@ -1171,32 +1213,58 @@
         const finalPoints = Array.isArray(finalData.points) ? finalData.points : [];
         const finalFields = Array.isArray(finalData.fields) ? finalData.fields : fields;
         const finalLoadedFields = Array.isArray(finalData.loadedFields) ? finalData.loadedFields : loadedFields;
+        const fitFields = finalLoadedFields.length ? finalLoadedFields : finalFields;
+
         lastFieldSummaries = Array.isArray(finalData.summaries) ? finalData.summaries : summaries;
         lastFieldDocs = finalFields;
 
         if (!finalPoints.length){
           clearMapOverlays();
           setPointMeta(0);
-          updateLegendDynamic(0.1, 1.0);
-          fitToFields(finalLoadedFields.length ? finalLoadedFields : finalFields);
+          updateLegendDynamic(0.0, 1.0);
+          fitToFields(fitFields);
           setStatus('No points');
-          setDebug('parent docs loaded but no usable points for this range');
+          setDebug(
+            'no drawable points • range=' + currentRange +
+            ' • fields=' + finalFields.length +
+            ' • loaded=' + finalLoadedFields.length +
+            ' • summaries=' + lastFieldSummaries.length
+          );
           return;
         }
 
-        drawRadarLikeBlobs(finalPoints, finalLoadedFields.length ? finalLoadedFields : finalFields);
-        setStatus(points.length ? 'Live' : 'Cached');
+        drawRadarLikeBlobs(finalPoints, fitFields);
+
+        const hasAnyRain = finalPoints.some(p => Number(p.rainInches || 0) > 0);
+        if (points.length){
+          setStatus(hasAnyRain ? 'Live' : 'Live (0 rain)');
+        } else {
+          setStatus('Cached');
+        }
+
+        setDebug(
+          'range=' + currentRange +
+          ' • fields=' + finalFields.length +
+          ' • loaded=' + finalLoadedFields.length +
+          ' • points=' + finalPoints.length +
+          ' • rendered=' + (hasAnyRain ? 'rain map' : '0-rain field map')
+        );
       }catch(e){
         console.warn('[Dev Rain Map] render failed:', e);
+
         const cached = getCachedRangeResult(currentRange);
         if (cached){
           lastFieldSummaries = Array.isArray(cached.summaries) ? cached.summaries : [];
           lastFieldDocs = Array.isArray(cached.fields) ? cached.fields : [];
-          drawRadarLikeBlobs(cached.points || [], (cached.loadedFields && cached.loadedFields.length) ? cached.loadedFields : (cached.fields || []));
+          drawRadarLikeBlobs(
+            cached.points || [],
+            (cached.loadedFields && cached.loadedFields.length) ? cached.loadedFields : (cached.fields || [])
+          );
           setStatus('Cached');
           setDebug('live failed • showing cached');
           return;
         }
+
         clearMapOverlays();
         setPointMeta(0);
         setStatus('Load failed');
@@ -1255,7 +1323,7 @@
         await waitForGoogleMaps();
         ensureMap();
         wireUi();
-        updateLegendDynamic(0.1, 1.0);
+        updateLegendDynamic(0.0, 1.0);
         renderRain(true);
       }catch(e){
         console.warn('[Dev Rain Map] startup failed:', e);
