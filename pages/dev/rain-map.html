@@ -58,9 +58,7 @@
       background:#253327;
     }
 
-    body{
-      color:var(--text-dark);
-    }
+    body{ color:var(--text-dark); }
 
     fv-shell,
     .rain-page,
@@ -342,17 +340,10 @@
       display:none;
     }
 
-    .panel-menu.open{
-      display:block;
-    }
+    .panel-menu.open{ display:block; }
 
-    .menu-field{
-      margin-bottom:10px;
-    }
-
-    .menu-field:last-child{
-      margin-bottom:0;
-    }
+    .menu-field{ margin-bottom:10px; }
+    .menu-field:last-child{ margin-bottom:0; }
 
     .menu-field label{
       display:block;
@@ -580,16 +571,12 @@
   <script type="module">
     import { initializeApp, getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
     import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
-    import { getFirestore, collection, getDocs } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
-    import { loadFieldMrmsDoc } from '/Farm-vista/js/field-readiness/data.js';
-    import { mrmsRainInRange } from '/Farm-vista/js/field-readiness/rain.js';
+    import { getFirestore, collection, getDocs, doc, getDoc } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
     'use strict';
 
-    const state = {
-      fields: [],
-      _mrmsDocByFieldId: Object.create(null)
-    };
+    const FIELDS_COLLECTION = 'fields';
+    const MRMS_COLLECTION = 'field_mrms_weather';
 
     let map = null;
     let heatmap = null;
@@ -597,6 +584,8 @@
     let clickMarkers = [];
     let currentRange = '48h';
     let currentRequestId = 0;
+    let dbRef = null;
+    let authRef = null;
 
     function $(id){ return document.getElementById(id); }
 
@@ -635,6 +624,20 @@
         .replaceAll("'", '&#39;');
     }
 
+    function getByPath(obj, path){
+      try{
+        const parts = String(path || '').split('.');
+        let cur = obj;
+        for (const p of parts){
+          if (!cur || typeof cur !== 'object') return undefined;
+          cur = cur[p];
+        }
+        return cur;
+      }catch(_){
+        return undefined;
+      }
+    }
+
     function waitForGoogleMaps(timeoutMs=20000){
       const started = Date.now();
       return new Promise((resolve, reject)=>{
@@ -655,19 +658,19 @@
 
     function firebaseConfig(){
       const cfg = window.FV_FIREBASE_CONFIG || null;
-      if (!cfg || typeof cfg !== 'object') throw new Error('Firebase config is missing.');
+      if (!cfg || typeof cfg !== 'object') throw new Error('Firebase config missing.');
       return cfg;
     }
 
-    async function getFirebaseClients(){
+    async function initFirebase(){
       const cfg = firebaseConfig();
       const app = getApps().length ? getApp() : initializeApp(cfg);
-      const auth = getAuth(app);
-      const db = getFirestore(app);
+      authRef = getAuth(app);
+      dbRef = getFirestore(app);
 
       await new Promise(resolve=>{
         let done = false;
-        const off = onAuthStateChanged(auth, ()=>{
+        const off = onAuthStateChanged(authRef, ()=>{
           if (done) return;
           done = true;
           try{ off(); }catch(_){}
@@ -686,39 +689,12 @@
         }, 2500);
       });
 
-      return { app, auth, db };
-    }
-
-    async function loadActiveFields(){
-      const { db } = await getFirebaseClients();
-      const snap = await getDocs(collection(db, 'fields'));
-      const out = [];
-
-      snap.forEach(docSnap=>{
-        const d = docSnap.data() || {};
-        const lat = toNum(d && d.location && d.location.lat);
-        const lng = toNum(d && d.location && d.location.lng);
-        if (lat == null || lng == null) return;
-
-        const archived = !!(d.archived === true || d.isArchived === true || d.inactive === true);
-        const status = lower(d.status);
-        if (archived) return;
-        if (status === 'archived' || status === 'inactive') return;
-
-        out.push({
-          id: docSnap.id,
-          name: String(d.name || d.fieldName || 'Field'),
-          farmId: String(d.farmId || ''),
-          location: { lat, lng }
-        });
-      });
-
-      return out;
+      return { app, auth: authRef, db: dbRef };
     }
 
     function ensureMap(){
       if (map) return map;
-      if (!(window.google && window.google.maps)) throw new Error('Google Maps is not loaded.');
+      if (!(window.google && window.google.maps)) throw new Error('Google Maps not loaded.');
 
       map = new google.maps.Map($('rainMap'), {
         center: { lat:39.800, lng:-91.150 },
@@ -741,16 +717,16 @@
         opacity: 0.72,
         radius: Number($('radiusSel')?.value || 52),
         gradient: [
-          'rgba(52, 119, 255, 0.00)',
-          'rgba(90, 167, 255, 0.24)',
-          'rgba(108, 199, 255, 0.34)',
-          'rgba(99, 223, 137, 0.46)',
-          'rgba(73, 201, 74, 0.58)',
-          'rgba(205, 227, 74, 0.72)',
-          'rgba(240, 216, 74, 0.82)',
-          'rgba(245, 168, 60, 0.90)',
-          'rgba(238, 90, 70, 0.96)',
-          'rgba(214, 42, 198, 1.00)'
+          'rgba(52,119,255,0.00)',
+          'rgba(88,168,255,0.24)',
+          'rgba(108,199,255,0.34)',
+          'rgba(99,223,137,0.46)',
+          'rgba(73,201,74,0.58)',
+          'rgba(205,227,74,0.72)',
+          'rgba(240,216,74,0.82)',
+          'rgba(245,168,60,0.90)',
+          'rgba(238,90,70,0.96)',
+          'rgba(214,42,198,1.00)'
         ]
       });
 
@@ -763,61 +739,6 @@
       if (v === 'terrain') map.setMapTypeId(google.maps.MapTypeId.TERRAIN);
       else if (v === 'roadmap') map.setMapTypeId(google.maps.MapTypeId.ROADMAP);
       else map.setMapTypeId(google.maps.MapTypeId.HYBRID);
-    }
-
-    function milesToLat(miles){
-      return miles / 69.0;
-    }
-
-    function milesToLng(miles, lat){
-      const denom = Math.max(0.01, 69.172 * Math.cos((Number(lat || 0) * Math.PI) / 180));
-      return miles / denom;
-    }
-
-    function coordsForLabel(field, label, miles=0.50){
-      const baseLat = toNum(field && field.location && field.location.lat);
-      const baseLng = toNum(field && field.location && field.location.lng);
-      if (baseLat == null || baseLng == null) return null;
-
-      const dLat = milesToLat(miles);
-      const dLng = milesToLng(miles, baseLat);
-      const norm = lower(label);
-
-      if (!norm || norm === 'center' || norm === 'centre') return { lat: baseLat, lng: baseLng };
-      if (norm === 'north' || norm === 'n') return { lat: baseLat + dLat, lng: baseLng };
-      if (norm === 'south' || norm === 's') return { lat: baseLat - dLat, lng: baseLng };
-      if (norm === 'east' || norm === 'e') return { lat: baseLat, lng: baseLng + dLng };
-      if (norm === 'west' || norm === 'w') return { lat: baseLat, lng: baseLng - dLng };
-      if (norm === 'northeast' || norm === 'ne') return { lat: baseLat + (dLat * 0.72), lng: baseLng + (dLng * 0.72) };
-      if (norm === 'northwest' || norm === 'nw') return { lat: baseLat + (dLat * 0.72), lng: baseLng - (dLng * 0.72) };
-      if (norm === 'southeast' || norm === 'se') return { lat: baseLat - (dLat * 0.72), lng: baseLng + (dLng * 0.72) };
-      if (norm === 'southwest' || norm === 'sw') return { lat: baseLat - (dLat * 0.72), lng: baseLng - (dLng * 0.72) };
-      return { lat: baseLat, lng: baseLng };
-    }
-
-    function valueToInches(raw, unitsHint){
-      const n = toNum(raw);
-      if (n == null) return null;
-      const u = lower(unitsHint);
-      if (u === 'mm' || u === 'millimeters' || u === 'millimetres') return n / 25.4;
-      return n;
-    }
-
-    function rangeHours(range){
-      if (range === '24h') return 24;
-      if (range === '48h') return 48;
-      if (range === '72h') return 72;
-      if (range === '7d') return 24 * 7;
-      return null;
-    }
-
-    function rangeDays(range){
-      if (range === '7d') return 7;
-      if (range === 'mtd') return null;
-      if (range === '24h') return 1;
-      if (range === '48h') return 2;
-      if (range === '72h') return 3;
-      return 30;
     }
 
     function rangeTitle(range){
@@ -890,6 +811,94 @@
       }
 
       setPointMeta(heatData.length);
+    }
+
+    function normalizeFieldDoc(docId, d){
+      const lat = toNum(getByPath(d, 'location.lat'));
+      const lng = toNum(getByPath(d, 'location.lng'));
+      if (lat == null || lng == null) return null;
+
+      const archived = !!(d.archived === true || d.isArchived === true || d.inactive === true);
+      const status = lower(d.status);
+      if (archived) return null;
+      if (status && status !== 'active') return null;
+
+      return {
+        id: String(docId || ''),
+        name: String(d.name || d.fieldName || 'Field'),
+        location: { lat, lng }
+      };
+    }
+
+    async function loadActiveFields(){
+      if (!dbRef) await initFirebase();
+
+      const snap = await getDocs(collection(dbRef, FIELDS_COLLECTION));
+      const out = [];
+
+      snap.forEach(docSnap=>{
+        const d = docSnap.data() || {};
+        const f = normalizeFieldDoc(docSnap.id, d);
+        if (f) out.push(f);
+      });
+
+      out.sort((a,b)=> String(a.name).localeCompare(String(b.name), undefined, { numeric:true, sensitivity:'base' }));
+      return out;
+    }
+
+    function valueToInches(raw, unitsHint){
+      const n = toNum(raw);
+      if (n == null) return null;
+      const u = lower(unitsHint);
+      if (u === 'mm' || u === 'millimeters' || u === 'millimetres') return n / 25.4;
+      return n;
+    }
+
+    function milesToLat(miles){
+      return miles / 69.0;
+    }
+
+    function milesToLng(miles, lat){
+      const denom = Math.max(0.01, 69.172 * Math.cos((Number(lat || 0) * Math.PI) / 180));
+      return miles / denom;
+    }
+
+    function coordsForLabel(field, label, miles=0.50){
+      const baseLat = toNum(field && field.location && field.location.lat);
+      const baseLng = toNum(field && field.location && field.location.lng);
+      if (baseLat == null || baseLng == null) return null;
+
+      const dLat = milesToLat(miles);
+      const dLng = milesToLng(miles, baseLat);
+      const norm = lower(label);
+
+      if (!norm || norm === 'center' || norm === 'centre') return { lat: baseLat, lng: baseLng };
+      if (norm === 'north' || norm === 'n') return { lat: baseLat + dLat, lng: baseLng };
+      if (norm === 'south' || norm === 's') return { lat: baseLat - dLat, lng: baseLng };
+      if (norm === 'east' || norm === 'e') return { lat: baseLat, lng: baseLng + dLng };
+      if (norm === 'west' || norm === 'w') return { lat: baseLat, lng: baseLng - dLng };
+      if (norm === 'northeast' || norm === 'ne') return { lat: baseLat + (dLat * 0.72), lng: baseLng + (dLng * 0.72) };
+      if (norm === 'northwest' || norm === 'nw') return { lat: baseLat + (dLat * 0.72), lng: baseLng - (dLng * 0.72) };
+      if (norm === 'southeast' || norm === 'se') return { lat: baseLat - (dLat * 0.72), lng: baseLng + (dLng * 0.72) };
+      if (norm === 'southwest' || norm === 'sw') return { lat: baseLat - (dLat * 0.72), lng: baseLng - (dLng * 0.72) };
+      return { lat: baseLat, lng: baseLng };
+    }
+
+    function rangeHours(range){
+      if (range === '24h') return 24;
+      if (range === '48h') return 48;
+      if (range === '72h') return 72;
+      if (range === '7d') return 24 * 7;
+      return null;
+    }
+
+    function rangeDays(range){
+      if (range === '7d') return 7;
+      if (range === 'mtd') return null;
+      if (range === '24h') return 1;
+      if (range === '48h') return 2;
+      if (range === '72h') return 3;
+      return 30;
     }
 
     function dayStartLocalTs(isoish){
@@ -1073,7 +1082,7 @@
       });
     }
 
-    function extractRealPointsFromDoc(doc, field, range){
+    function extractRealPointsFromDoc(docData, field, range){
       const out = [];
       const seen = new Set();
 
@@ -1091,14 +1100,14 @@
       ];
 
       for (const key of candidateKeys){
-        const v = doc && doc[key];
+        const v = docData && docData[key];
         extractArrayPoints(v, field, range, out, seen);
         extractObjectMapPoints(v, field, range, out, seen);
       }
 
       const nestedKeys = ['mrms', 'rain', 'rainfall', 'sampling', 'samplingPoints', 'detail'];
       for (const key of nestedKeys){
-        const v = doc && doc[key];
+        const v = docData && docData[key];
         if (!v || typeof v !== 'object') continue;
         for (const inner of candidateKeys){
           extractArrayPoints(v[inner], field, range, out, seen);
@@ -1109,36 +1118,58 @@
       return out;
     }
 
-    function fallbackWeightedCenterPoint(doc, field, range){
-      try{
-        const supported = (range === '24h' || range === '48h' || range === '7d') ? range : '30d';
-        const res = mrmsRainInRange(doc, supported);
-        if (!res || res.ready !== true) return null;
+    function fallbackWeightedCenterPoint(docData, field, range){
+      const pos = coordsForLabel(field, 'center', 0);
+      if (!pos) return null;
 
-        const pos = coordsForLabel(field, 'center', 0);
-        if (!pos) return null;
+      let inches =
+        pickDirectRangeValue(docData, range) ??
+        sumLatestHourlyRows(docData && (docData.hourly || docData.hours || docData.hourlyRows), range) ??
+        sumDailyRows(docData && (docData.daily || docData.days || docData.dailyRows), range);
 
-        const inches = toNum(res.inches);
-        if (inches == null) return null;
+      if (inches == null){
+        const nestedPools = [
+          docData && docData.mrms,
+          docData && docData.rain,
+          docData && docData.rainfall,
+          docData && docData.summary,
+          docData && docData.accumulations
+        ];
 
-        return [{
-          fieldId: field.id,
-          fieldName: field.name || 'Field',
-          pointLabel: 'Center',
-          lat: pos.lat,
-          lng: pos.lng,
-          rainInches: inches
-        }];
-      }catch(_){
-        return null;
+        for (const pool of nestedPools){
+          inches =
+            pickDirectRangeValue(pool, range) ??
+            sumLatestHourlyRows(pool && (pool.hourly || pool.hours || pool.hourlyRows), range) ??
+            sumDailyRows(pool && (pool.daily || pool.days || pool.dailyRows), range);
+
+          if (inches != null) break;
+        }
       }
+
+      if (inches == null) return null;
+
+      return [{
+        fieldId: field.id,
+        fieldName: field.name || 'Field',
+        pointLabel: 'Center',
+        lat: pos.lat,
+        lng: pos.lng,
+        rainInches: inches
+      }];
+    }
+
+    async function loadMrmsDoc(fieldId){
+      if (!dbRef) await initFirebase();
+      const ref = doc(dbRef, MRMS_COLLECTION, String(fieldId));
+      const snap = await getDoc(ref);
+      if (!snap.exists()) return null;
+      return snap.data() || null;
     }
 
     async function loadLivePoints(range, requestId){
       const fields = await loadActiveFields();
       if (requestId !== currentRequestId) return { cancelled:true };
 
-      state.fields = fields;
       setFieldsMeta(fields.length);
 
       const points = [];
@@ -1146,16 +1177,16 @@
 
       const jobs = fields.map(async (field)=>{
         try{
-          const doc = await loadFieldMrmsDoc(state, String(field.id), { force:false });
-          if (!doc || typeof doc !== 'object') return;
+          const docData = await loadMrmsDoc(field.id);
+          if (!docData || typeof docData !== 'object') return;
 
-          const realPoints = extractRealPointsFromDoc(doc, field, range);
+          const realPoints = extractRealPointsFromDoc(docData, field, range);
           if (realPoints.length){
             points.push(...realPoints);
             return;
           }
 
-          const fallback = fallbackWeightedCenterPoint(doc, field, range);
+          const fallback = fallbackWeightedCenterPoint(docData, field, range);
           if (fallback && fallback.length){
             fallbackCount += 1;
             points.push(...fallback);
@@ -1234,9 +1265,7 @@
 
       btnRefresh?.addEventListener('click', renderRain);
 
-      $('viewSel')?.addEventListener('change', ()=>{
-        updateMapStyle();
-      });
+      $('viewSel')?.addEventListener('change', updateMapStyle);
 
       $('radiusSel')?.addEventListener('change', ()=>{
         if (heatmap) heatmap.set('radius', Number($('radiusSel')?.value || 52));
@@ -1254,6 +1283,7 @@
 
     async function startRainMap(){
       try{
+        await initFirebase();
         await waitForGoogleMaps();
         ensureMap();
         wireUi();
