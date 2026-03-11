@@ -469,6 +469,9 @@
     let currentRequestId = 0;
     let dbRef = null;
     let authRef = null;
+    let hasWiredUi = false;
+    let startRequested = false;
+    let startFinished = false;
 
     let mrmsCache = { loadedAt: 0, data: [] };
 
@@ -1026,39 +1029,38 @@
       return R * c;
     }
 
-    function getTapThresholdMeters(){
-      const z = Number(map && map.getZoom ? map.getZoom() : 11);
+    function getTapHitRadiusMeters(){
       const radius = blendRadiusMeters();
+      const z = Number(map && map.getZoom ? map.getZoom() : 11);
 
-      if (z >= 14) return clamp(radius * 0.35, 260, 700);
-      if (z >= 13) return clamp(radius * 0.45, 350, 950);
-      if (z >= 12) return clamp(radius * 0.60, 500, 1300);
-      if (z >= 11) return clamp(radius * 0.80, 700, 1900);
-      if (z >= 10) return clamp(radius * 1.00, 900, 2600);
-      return clamp(radius * 1.30, 1200, 3600);
+      if (z >= 14) return radius * 0.78;
+      if (z >= 13) return radius * 0.88;
+      if (z >= 12) return radius * 1.00;
+      if (z >= 11) return radius * 1.12;
+      if (z >= 10) return radius * 1.22;
+      return radius * 1.35;
     }
 
     function nearestTapTarget(lat, lng){
       if (!lastTapTargets.length) return null;
 
-      let best = null;
-      let bestDist = Infinity;
+      const hits = [];
 
       lastTapTargets.forEach(item=>{
         const dist = metersBetween(lat, lng, Number(item.lat), Number(item.lng));
-        if (dist < bestDist){
-          bestDist = dist;
-          best = item;
+        const hitRadius = Number(item.tapRadiusMeters || 0);
+        if (Number.isFinite(dist) && Number.isFinite(hitRadius) && dist <= hitRadius){
+          hits.push({
+            ...item,
+            tapDistanceMeters: dist
+          });
         }
       });
 
-      const threshold = getTapThresholdMeters();
-      if (!best || !Number.isFinite(bestDist) || bestDist > threshold) return null;
+      if (!hits.length) return null;
 
-      return {
-        ...best,
-        tapDistanceMeters: bestDist
-      };
+      hits.sort((a, b)=> a.tapDistanceMeters - b.tapDistanceMeters);
+      return hits[0];
     }
 
     function drawRadarLikeBlobs(points, fields){
@@ -1069,6 +1071,7 @@
       const maxVal = values.length ? Math.max(...values) : 0;
       const scale = getScaleMode(maxVal);
       const radius = blendRadiusMeters();
+      const tapRadiusMeters = getTapHitRadiusMeters();
 
       updateLegendDynamic(scale);
 
@@ -1138,7 +1141,8 @@
           fieldName: p.fieldName,
           pointLabel: p.pointLabel,
           lat: p.lat,
-          lng: p.lng
+          lng: p.lng,
+          tapRadiusMeters
         });
       });
 
@@ -1151,6 +1155,7 @@
         'range=' + currentRange +
         ' • fields=' + fields.length +
         ' • points=' + points.length +
+        ' • tap=' + Math.round(tapRadiusMeters) + 'm' +
         ' • ' + modeLabel
       );
     }
@@ -1362,6 +1367,9 @@
     }
 
     function wireUi(){
+      if (hasWiredUi) return;
+      hasWiredUi = true;
+
       const btnMenu = $('btnMenu');
       const menuPanel = $('menuPanel');
       const btnRefresh = $('btnRefresh');
@@ -1401,6 +1409,11 @@
     }
 
     async function startRainMap(){
+      if (startRequested && startFinished) return;
+      if (startRequested && !startFinished) return;
+
+      startRequested = true;
+
       try{
         detectLayoutMode();
         await initFirebase();
@@ -1408,8 +1421,11 @@
         ensureMap();
         wireUi();
         updateLegendDynamic(getScaleMode(0.10));
-        renderRain(false);
+        await renderRain(false);
+        startFinished = true;
       }catch(e){
+        startRequested = false;
+        startFinished = false;
         console.warn('[Dev Rain Map] startup failed:', e);
         setStatus('Startup failed');
         setDebug(String(e && e.message ? e.message : e || 'startup error'));
@@ -1417,8 +1433,22 @@
     }
 
     window.startRainMap = startRainMap;
+
+    window.addEventListener('load', ()=>{
+      setTimeout(()=>{
+        startRainMap().catch(err=>{
+          console.warn('[Dev Rain Map] delayed boot failed:', err);
+        });
+      }, 250);
+    });
+
+    document.addEventListener('visibilitychange', ()=>{
+      if (document.visibilityState === 'visible' && !startFinished){
+        startRainMap().catch(()=>{});
+      }
+    });
   </script>
 
-  <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY&callback=startRainMap"></script>
+  <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY"></script>
 </body>
 </html>
