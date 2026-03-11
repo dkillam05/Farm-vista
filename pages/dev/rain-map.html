@@ -39,6 +39,7 @@
       --safe-top:calc(env(safe-area-inset-top, 0px) + 8px);
       --safe-bottom:calc(env(safe-area-inset-bottom, 0px) + 8px);
       --blur:blur(14px);
+      --dock-bottom-extra:8px;
     }
 
     html.dark{
@@ -59,6 +60,18 @@
     }
 
     body{ color:var(--text-dark); }
+
+    body.mobile-browser{
+      --dock-bottom-extra:54px;
+    }
+
+    body.pwa-standalone{
+      --dock-bottom-extra:8px;
+    }
+
+    body.desktop-view{
+      --dock-bottom-extra:10px;
+    }
 
     fv-shell,
     .rain-page,
@@ -195,14 +208,13 @@
         linear-gradient(
           to top,
           #58a8ff 0%,
-          #6cc7ff 10%,
-          #63df89 24%,
-          #49c94a 40%,
-          #cde34a 56%,
-          #f0d84a 70%,
-          #f5a83c 82%,
-          #ee5a46 92%,
-          #d62ac6 100%
+          #6cc7ff 12%,
+          #55d79a 24%,
+          #46d14d 38%,
+          #d7df49 54%,
+          #f0b843 72%,
+          #ef6b46 88%,
+          #d92cc6 100%
         );
       border:1px solid rgba(255,255,255,.35);
       box-shadow:0 8px 18px rgba(0,0,0,.18);
@@ -231,7 +243,7 @@
     .bottom-dock{
       position:absolute;
       left:50%;
-      bottom:calc(var(--safe-bottom) + var(--ftr-h, 42px) + 8px);
+      bottom:calc(var(--safe-bottom) + var(--ftr-h, 42px) + var(--dock-bottom-extra));
       transform:translateX(-50%);
       z-index:20;
       width:min(760px, calc(100vw - 18px));
@@ -293,7 +305,7 @@
     .mini-meta{
       position:absolute;
       right:8px;
-      bottom:calc(var(--safe-bottom) + var(--ftr-h, 42px) + 118px);
+      bottom:calc(var(--safe-bottom) + var(--ftr-h, 42px) + 118px + var(--dock-bottom-extra) - 8px);
       z-index:18;
       display:grid;
       gap:8px;
@@ -400,6 +412,23 @@
       opacity:.96;
     }
 
+    .popup-card{
+      max-width:220px;
+      font-size:13px;
+      line-height:1.25;
+      color:#18211b;
+    }
+
+    .popup-card .name{
+      font-weight:900;
+      margin:0 0 4px;
+    }
+
+    .popup-card .mono{
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+      font-weight:800;
+    }
+
     .mono{
       font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
     }
@@ -438,7 +467,6 @@
 
       .mini-meta{
         right:6px;
-        bottom:calc(var(--safe-bottom) + var(--ftr-h, 42px) + 104px);
         gap:6px;
       }
 
@@ -509,12 +537,12 @@
               </div>
 
               <div class="menu-field">
-                <label for="radiusSel">Smoothing</label>
+                <label for="radiusSel">Blend radius</label>
                 <select id="radiusSel" class="menu-select">
-                  <option value="650" selected>Medium</option>
-                  <option value="450">Tight</option>
-                  <option value="900">Broad</option>
-                  <option value="1200">Max</option>
+                  <option value="700">Medium</option>
+                  <option value="950" selected>Blended</option>
+                  <option value="1250">Broad</option>
+                  <option value="1600">Extra Broad</option>
                 </select>
               </div>
             </div>
@@ -529,19 +557,19 @@
         </div>
 
         <div class="glass hint-chip">
-          <span>Drag with one finger • pinch to zoom</span>
+          <span>Drag with one finger • pinch to zoom • tap field area for rainfall</span>
         </div>
 
         <div class="left-legend" aria-label="Rainfall legend">
           <div class="legend-wrap">
             <div class="legend-bar"></div>
-            <span class="legend-label l1">10"+</span>
-            <span class="legend-label l2">6"</span>
-            <span class="legend-label l3">4"</span>
-            <span class="legend-label l4">2"</span>
-            <span class="legend-label l5">1"</span>
-            <span class="legend-label l6">.5"</span>
-            <span class="legend-label l7">.1"</span>
+            <span class="legend-label l1" id="legendTop">Max</span>
+            <span class="legend-label l2" id="legendQ5"> </span>
+            <span class="legend-label l3" id="legendQ4"> </span>
+            <span class="legend-label l4" id="legendMid"> </span>
+            <span class="legend-label l5" id="legendQ2"> </span>
+            <span class="legend-label l6" id="legendQ1"> </span>
+            <span class="legend-label l7" id="legendBottom">Min</span>
           </div>
         </div>
 
@@ -571,7 +599,7 @@
   <script type="module">
     import { initializeApp, getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
     import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
-    import { getFirestore, collection, getDocs, doc, getDoc } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+    import { getFirestore, collection, getDocs } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
     'use strict';
 
@@ -590,7 +618,9 @@
     const hourlyCache = new Map();
     let rainCircles = [];
     let clickMarkers = [];
-    let fieldMarkers = [];
+    let lastFields = [];
+    let lastFieldPointSummaries = [];
+    let mapTapMarker = null;
 
     function $(id){ return document.getElementById(id); }
 
@@ -640,6 +670,22 @@
         return cur;
       }catch(_){
         return undefined;
+      }
+    }
+
+    function detectLayoutMode(){
+      const ua = navigator.userAgent || '';
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+      const isMobile = /iPhone|Android|Mobile|iPad|iPod/i.test(ua);
+
+      document.body.classList.remove('desktop-view', 'mobile-browser', 'pwa-standalone');
+
+      if (isStandalone){
+        document.body.classList.add('pwa-standalone');
+      } else if (isMobile){
+        document.body.classList.add('mobile-browser');
+      } else {
+        document.body.classList.add('desktop-view');
       }
     }
 
@@ -714,6 +760,11 @@
       });
 
       infoWindow = new google.maps.InfoWindow();
+
+      map.addListener('click', (ev)=>{
+        handleMapTap(ev);
+      });
+
       return map;
     }
 
@@ -888,6 +939,7 @@
 
           if (!out.has(key)){
             out.set(key, {
+              fieldId: field.id,
               fieldName: field.name || 'Field',
               pointLabel: pointLabelFromKey(sample.key),
               lat,
@@ -904,6 +956,7 @@
       });
 
       return Array.from(out.values()).map(x => ({
+        fieldId: x.fieldId,
         fieldName: x.fieldName,
         pointLabel: x.pointLabel,
         lat: x.lat,
@@ -912,42 +965,105 @@
       }));
     }
 
-    function rainColor(inches){
-      const v = Number(inches) || 0;
-      if (v >= 10) return '#d62ac6';
-      if (v >= 6) return '#ee5a46';
-      if (v >= 4) return '#f5a83c';
-      if (v >= 2) return '#cde34a';
-      if (v >= 1) return '#49c94a';
-      if (v >= 0.5) return '#63df89';
-      return '#58a8ff';
+    function getFieldValueMap(points){
+      const out = new Map();
+      points.forEach(p=>{
+        const key = String(p.fieldId || '');
+        if (!key) return;
+        if (!out.has(key)) out.set(key, []);
+        out.get(key).push(Number(p.rainInches || 0));
+      });
+      return out;
     }
 
-    function rainOpacity(inches){
-      const v = Number(inches) || 0;
-      if (v >= 6) return 0.34;
-      if (v >= 4) return 0.30;
-      if (v >= 2) return 0.26;
-      if (v >= 1) return 0.22;
-      if (v >= 0.5) return 0.18;
-      return 0.14;
+    function buildFieldSummaries(fields, points){
+      const valueMap = getFieldValueMap(points);
+      return fields.map(f=>{
+        const vals = valueMap.get(String(f.id)) || [];
+        const avg = vals.length ? vals.reduce((a,b)=> a+b, 0) / vals.length : null;
+        return {
+          fieldId: f.id,
+          fieldName: f.name,
+          lat: f.location.lat,
+          lng: f.location.lng,
+          rainInches: avg
+        };
+      });
+    }
+
+    function blendRadiusMeters(){
+      const n = Number($('radiusSel')?.value || 950);
+      return Number.isFinite(n) ? n : 950;
     }
 
     function clearMapOverlays(){
       rainCircles.forEach(x => { try{ x.setMap(null); }catch(_){} });
       clickMarkers.forEach(x => { try{ x.setMap(null); }catch(_){} });
-      fieldMarkers.forEach(x => { try{ x.setMap(null); }catch(_){} });
       rainCircles = [];
       clickMarkers = [];
-      fieldMarkers = [];
     }
 
-    function smoothingRadiusMeters(){
-      const n = Number($('radiusSel')?.value || 650);
-      return Number.isFinite(n) ? n : 650;
+    function quantizeValue(v, min, max){
+      const denom = Math.max(0.0001, max - min);
+      return Math.max(0, Math.min(1, (v - min) / denom));
     }
 
-    function buildInitialBounds(fields){
+    function lerp(a,b,t){
+      return a + ((b - a) * t);
+    }
+
+    function colorFromNormalized(t){
+      const stops = [
+        { t:0.00, c:[88,168,255] },  // blue
+        { t:0.16, c:[108,199,255] }, // cyan
+        { t:0.34, c:[99,223,137] },  // aqua green
+        { t:0.52, c:[73,201,74] },   // green
+        { t:0.70, c:[215,223,73] },  // yellow-green
+        { t:0.84, c:[240,184,67] },  // amber
+        { t:0.94, c:[239,107,70] },  // orange-red
+        { t:1.00, c:[217,44,198] }   // magenta
+      ];
+
+      for (let i=1;i<stops.length;i++){
+        if (t <= stops[i].t){
+          const a = stops[i-1];
+          const b = stops[i];
+          const u = (t - a.t) / Math.max(0.0001, (b.t - a.t));
+          const r = Math.round(lerp(a.c[0], b.c[0], u));
+          const g = Math.round(lerp(a.c[1], b.c[1], u));
+          const bl = Math.round(lerp(a.c[2], b.c[2], u));
+          return `rgb(${r}, ${g}, ${bl})`;
+        }
+      }
+      return 'rgb(217, 44, 198)';
+    }
+
+    function updateLegendDynamic(min, max){
+      const fmt = (n)=>{
+        const v = Number(n || 0);
+        if (v >= 10) return v.toFixed(0) + '"+';
+        if (v >= 1) return v.toFixed(1) + '"';
+        return '.' + String(Math.round(v * 10));
+      };
+
+      const top = max;
+      const q5 = min + ((max - min) * 0.83);
+      const q4 = min + ((max - min) * 0.68);
+      const mid = min + ((max - min) * 0.50);
+      const q2 = min + ((max - min) * 0.34);
+      const q1 = min + ((max - min) * 0.18);
+      const bot = min;
+
+      $('legendTop').textContent = fmt(top);
+      $('legendQ5').textContent = fmt(q5);
+      $('legendQ4').textContent = fmt(q4);
+      $('legendMid').textContent = fmt(mid);
+      $('legendQ2').textContent = fmt(q2);
+      $('legendQ1').textContent = fmt(q1);
+      $('legendBottom').textContent = fmt(bot);
+    }
+
+    function computeFieldBounds(fields){
       const bounds = new google.maps.LatLngBounds();
       fields.forEach(f=>{
         const lat = toNum(f && f.location && f.location.lat);
@@ -961,27 +1077,32 @@
     function fitToFields(fields){
       if (!map || !fields || !fields.length) return;
 
-      const bounds = buildInitialBounds(fields);
+      const bounds = computeFieldBounds(fields);
       if (bounds.isEmpty()) return;
 
       map.fitBounds(bounds, {
         top: 120,
-        right: 110,
-        bottom: 160,
-        left: 70
+        right: 90,
+        bottom: 180,
+        left: 65
       });
 
       google.maps.event.addListenerOnce(map, 'idle', ()=>{
         const z = map.getZoom();
-        if (Number.isFinite(z) && z > 11) map.setZoom(11);
+        if (Number.isFinite(z) && z > 14) map.setZoom(14);
       });
     }
 
-    function drawRainPoints(points, fields){
+    function drawRadarLikeBlobs(points, fields){
       ensureMap();
       clearMapOverlays();
 
-      const radius = smoothingRadiusMeters();
+      const values = points.map(p => Number(p.rainInches || 0)).filter(v => Number.isFinite(v));
+      const min = values.length ? Math.min(...values) : 0;
+      const max = values.length ? Math.max(...values) : 1;
+      const radius = blendRadiusMeters();
+
+      updateLegendDynamic(min, max);
 
       points.forEach(p=>{
         const lat = toNum(p.lat);
@@ -989,21 +1110,30 @@
         const rain = Number(p.rainInches || 0);
         if (lat == null || lng == null) return;
 
-        const color = rainColor(rain);
-        const fillOpacity = rainOpacity(rain);
+        const n = quantizeValue(rain, min, max);
+        const color = colorFromNormalized(n);
         const center = { lat, lng };
 
-        const circle = new google.maps.Circle({
-          map,
-          center,
-          radius,
-          strokeColor: color,
-          strokeOpacity: Math.min(0.95, fillOpacity + 0.20),
-          strokeWeight: 1,
-          fillColor: color,
-          fillOpacity
+        const layers = [
+          { scale:1.70, opacity:0.05 + (n * 0.10), stroke:0 },
+          { scale:1.28, opacity:0.08 + (n * 0.12), stroke:0 },
+          { scale:0.98, opacity:0.11 + (n * 0.14), stroke:0 },
+          { scale:0.70, opacity:0.14 + (n * 0.16), stroke:0 }
+        ];
+
+        layers.forEach(layer=>{
+          const circle = new google.maps.Circle({
+            map,
+            center,
+            radius: radius * layer.scale,
+            strokeColor: color,
+            strokeOpacity: 0,
+            strokeWeight: layer.stroke,
+            fillColor: color,
+            fillOpacity: Math.min(0.35, layer.opacity)
+          });
+          rainCircles.push(circle);
         });
-        rainCircles.push(circle);
 
         const marker = new google.maps.Marker({
           position: center,
@@ -1013,10 +1143,10 @@
 
         marker.addListener('click', ()=>{
           infoWindow.setContent(
-            '<div style="min-width:190px">' +
-              '<b>' + escapeHtml(p.fieldName || 'Field') + '</b><br/>' +
-              'Point: ' + escapeHtml(p.pointLabel || 'Center') + '<br/>' +
-              'Rain: <span class="mono">' + rain.toFixed(2) + ' in</span>' +
+            '<div class="popup-card">' +
+              '<div class="name">' + escapeHtml(p.fieldName || 'Field') + '</div>' +
+              '<div>Point: ' + escapeHtml(p.pointLabel || 'Center') + '</div>' +
+              '<div>Rain: <span class="mono">' + rain.toFixed(2) + ' in</span></div>' +
             '</div>'
           );
           infoWindow.open(map, marker);
@@ -1025,21 +1155,54 @@
         clickMarkers.push(marker);
       });
 
-      fields.forEach(f=>{
-        const lat = toNum(f && f.location && f.location.lat);
-        const lng = toNum(f && f.location && f.location.lng);
-        if (lat == null || lng == null) return;
+      setPointMeta(points.length);
+      fitToFields(fields);
+    }
 
-        const marker = new google.maps.Marker({
-          position: { lat, lng },
+    function nearestFieldSummary(lat, lng){
+      if (!lastFieldPointSummaries.length) return null;
+
+      let best = null;
+      let bestDist = Infinity;
+
+      lastFieldPointSummaries.forEach(item=>{
+        const dLat = Number(item.lat) - lat;
+        const dLng = Number(item.lng) - lng;
+        const dist = (dLat * dLat) + (dLng * dLng);
+        if (dist < bestDist){
+          bestDist = dist;
+          best = item;
+        }
+      });
+
+      return best;
+    }
+
+    function handleMapTap(ev){
+      if (!ev || !ev.latLng || !lastFieldPointSummaries.length) return;
+
+      const lat = ev.latLng.lat();
+      const lng = ev.latLng.lng();
+      const nearest = nearestFieldSummary(lat, lng);
+      if (!nearest || nearest.rainInches == null) return;
+
+      if (!mapTapMarker){
+        mapTapMarker = new google.maps.Marker({
           map,
           opacity: 0.001
         });
-        fieldMarkers.push(marker);
-      });
+      }
 
-      setPointMeta(points.length);
-      fitToFields(fields);
+      mapTapMarker.setPosition(ev.latLng);
+
+      infoWindow.setContent(
+        '<div class="popup-card">' +
+          '<div class="name">' + escapeHtml(nearest.fieldName || 'Field') + '</div>' +
+          '<div>' + escapeHtml(rangeTitle(currentRange)) + '</div>' +
+          '<div>Rain: <span class="mono">' + Number(nearest.rainInches).toFixed(2) + ' in</span></div>' +
+        '</div>'
+      );
+      infoWindow.open(map, mapTapMarker);
     }
 
     async function loadLivePoints(range, requestId, force=false){
@@ -1049,7 +1212,6 @@
       setFieldsMeta(fields.length);
 
       const points = [];
-      let fieldsWithPoints = 0;
 
       const jobs = fields.map(async (field)=>{
         try{
@@ -1057,7 +1219,6 @@
           const fieldPoints = aggregatePointSamples(field, hourlyRows, range);
 
           if (fieldPoints.length){
-            fieldsWithPoints += 1;
             points.push(...fieldPoints);
           }
         }catch(err){
@@ -1069,9 +1230,7 @@
 
       return {
         points,
-        fields,
-        fieldCount: fields.length,
-        fieldsWithPoints
+        fields
       };
     }
 
@@ -1096,15 +1255,19 @@
         const points = Array.isArray(res.points) ? res.points : [];
         const fields = Array.isArray(res.fields) ? res.fields : [];
 
+        lastFields = fields.slice();
+        lastFieldPointSummaries = buildFieldSummaries(fields, points);
+
         if (!points.length){
           clearMapOverlays();
           setPointMeta(0);
+          updateLegendDynamic(0.1, 1.0);
           fitToFields(fields);
           setStatus('No points', true);
           return;
         }
 
-        drawRainPoints(points, fields);
+        drawRadarLikeBlobs(points, fields);
         setStatus('Live', false);
       }catch(e){
         console.warn('[Dev Rain Map] render failed:', e);
@@ -1151,15 +1314,21 @@
           renderRain(false);
         });
       });
+
+      window.addEventListener('resize', ()=>{
+        detectLayoutMode();
+      });
     }
 
     async function startRainMap(){
       try{
+        detectLayoutMode();
         await initFirebase();
         await waitForGoogleMaps();
         ensureMap();
         wireUi();
         updateRangeUi();
+        updateLegendDynamic(0.1, 1.0);
         renderRain(false);
       }catch(e){
         console.warn('[Dev Rain Map] startup failed:', e);
