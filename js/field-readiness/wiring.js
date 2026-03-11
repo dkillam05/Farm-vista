@@ -1,13 +1,20 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/wiring.js  (FULL FILE)
-Rev: 2026-01-01a
+Rev: 2026-03-10b-range-persistence-hardened-no-trim
 
-Fix (per Dane):
+Fixes (per Dane):
 ✅ Prevent “refresh storms” that cause blank → slowly rebuild tiles:
    - Debounce refreshAll calls (single refresh after rapid UI events)
    - Support optional boot hold:
        state._fvHoldRefresh = true  => queue refresh (state._fvRefreshPending = true)
        state._fvHoldRefresh = false => next scheduleRefresh() runs normally
+
+✅ Harden rain-range persistence so selected dates do NOT clear when leaving page:
+   - Save on change/input as before
+   - Save on blur/focusout
+   - Save on pagehide / beforeunload / visibilitychange
+   - Save shortly after pointer/key interactions in case the picker updates value
+     after the immediate event cycle
 
 Keeps:
 ✅ Persist + restore:
@@ -62,6 +69,22 @@ export async function wireUIOnce(state){
         t = null;
         try{ refreshAll(state); }catch(_){}
       }, 140);
+    };
+  })();
+
+  /* -------------------------------------------------------------
+     Range persistence hardening
+  -------------------------------------------------------------- */
+  const scheduleRangeSave = (()=>{
+    let t = null;
+    return (delay = 0)=>{
+      try{
+        if (t) clearTimeout(t);
+        t = setTimeout(()=>{
+          t = null;
+          saveRangeToLocal();
+        }, Math.max(0, Number(delay) || 0));
+      }catch(_){}
     };
   })();
 
@@ -135,15 +158,65 @@ export async function wireUIOnce(state){
 
   const jobRangeInput = document.getElementById('jobRangeInput');
   if (jobRangeInput){
+    // Standard events
     jobRangeInput.addEventListener('change', ()=>{
       saveRangeToLocal();
       scheduleRefresh();
     });
+
     jobRangeInput.addEventListener('input', ()=>{
       saveRangeToLocal();
       scheduleRefresh();
     });
+
+    // Extra persistence for picker flows that don’t always emit the same event timing
+    jobRangeInput.addEventListener('blur', ()=>{
+      saveRangeToLocal();
+    });
+
+    jobRangeInput.addEventListener('focusout', ()=>{
+      saveRangeToLocal();
+    });
+
+    jobRangeInput.addEventListener('keyup', ()=>{
+      scheduleRangeSave(0);
+    });
+
+    jobRangeInput.addEventListener('pointerup', ()=>{
+      // many calendar pickers finalize the text right after pointer interaction
+      scheduleRangeSave(20);
+    });
+
+    jobRangeInput.addEventListener('click', ()=>{
+      scheduleRangeSave(20);
+    });
+
+    // Some pickers update the value after the current event loop
+    jobRangeInput.addEventListener('mousedown', ()=>{
+      scheduleRangeSave(60);
+    });
+
+    jobRangeInput.addEventListener('touchend', ()=>{
+      scheduleRangeSave(60);
+    });
   }
+
+  // Save range when leaving / backgrounding page
+  window.addEventListener('pagehide', ()=>{
+    saveRangeToLocal();
+  });
+
+  window.addEventListener('beforeunload', ()=>{
+    saveRangeToLocal();
+  });
+
+  document.addEventListener('visibilitychange', ()=>{
+    if (document.hidden){
+      saveRangeToLocal();
+    } else {
+      scheduleRangeSave(0);
+    }
+  });
 
   // Rain help tooltip
   (function(){
