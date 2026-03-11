@@ -289,7 +289,7 @@ async function getMrmsRainResultForField(state, fieldId, range, { force=false } 
 }
 
 function rainTileTextFromMrmsResult(res){
-  if (!res || res.ready !== true) return 'Rainfall data still in queue';
+  if (!res || res.ready !== true) return 'Processing Data';
   return `${Number(res.inches || 0).toFixed(2)} in`;
 }
 
