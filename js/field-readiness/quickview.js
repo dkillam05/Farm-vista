@@ -1,11 +1,12 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-03-10c-show-model-rain-source-and-mrms-range-status
+Rev: 2026-03-10d-show-model-rain-source-and-mrms-range-status-no-trim
 
 GOAL (per Dane, Feb 2026):
 ✅ Make Quick View readiness MATCH Global Calibration readiness.
 ✅ Show which rainfall source the MODEL is using now.
 ✅ Keep Range rain display aligned with MRMS tile logic.
+✅ Support lightweight MRMS UI refresh while Quick View is open.
 
 CHANGES (THIS REV):
 ✅ Uses formula.js single source of truth wiring
@@ -14,12 +15,17 @@ CHANGES (THIS REV):
 ✅ Adds model rainfall source to Weather meta:
    - "Model rain: MRMS"
    - "Model rain: Open-Meteo"
+   - "Model rain: Mixed"
 ✅ Rule for model source:
-   - if MRMS fully ready => model uses MRMS
-   - else => model uses Open-Meteo
+   - if run rows are MRMS only => MRMS
+   - if mixed rows exist => Mixed
+   - else => Open-Meteo
 ✅ Keeps Rule A:
    - Sliders change params only (soil/drain) and do NOT write truth storage
    - Save writes only fields/{fieldId} params + local cache
+✅ Adds lightweight listeners so open Quick View refreshes when:
+   - fr:tile-refresh fires for this field
+   - fr:details-refresh fires for this field
 
 Keeps:
 ✅ UI unchanged
@@ -623,6 +629,33 @@ function ensureBuiltOnce(state){
 
       hideQuickViewForMap(state);
       await openMapForField(state, f);
+    });
+  }
+
+  /* ================================================================
+     Lightweight refresh listeners while QV is open
+     ================================================================ */
+  if (!state._qvRefreshWired){
+    state._qvRefreshWired = true;
+
+    document.addEventListener('fr:tile-refresh', async (e)=>{
+      try{
+        if (!state._qvOpen) return;
+        const fid = e && e.detail ? String(e.detail.fieldId || '') : '';
+        if (!fid) return;
+        if (String(state._qvFieldId || '') !== fid) return;
+        await fillQuickView(state, { live:true });
+      }catch(_){}
+    });
+
+    document.addEventListener('fr:details-refresh', async (e)=>{
+      try{
+        if (!state._qvOpen) return;
+        const fid = e && e.detail ? String(e.detail.fieldId || '') : '';
+        if (!fid) return;
+        if (String(state._qvFieldId || '') !== fid) return;
+        await fillQuickView(state, { live:true });
+      }catch(_){}
     });
   }
 }
