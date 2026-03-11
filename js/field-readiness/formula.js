@@ -1,15 +1,21 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness/formula.js  (NEW FILE)
-Rev: 2026-03-04a-single-source-of-truth
+/Farm-vista/js/field-readiness/formula.js  (FULL FILE)
+Rev: 2026-03-10b-single-source-of-truth-mrms-model-fallback
 
 PURPOSE:
 ✅ Single source of truth for Field Readiness computation wiring.
 ✅ render.js / quickview.js / global calibration should ALL use this module.
 
+THIS REV:
+✅ Model now prefers MRMS DAILY rainfall when MRMS backfill is fully ready
+✅ If MRMS is still processing / incomplete, model uses Open-Meteo rainfall
+✅ Forecast rainfall remains Open-Meteo (MRMS is observed/history only)
+✅ Exposes model weather rows so UI can later show which rainfall source was used
+
 This module:
 - Ensures model/weather/forecast modules are loaded
 - Builds deps consistently:
-  - weather series
+  - model weather series (MRMS-ready => MRMS history; else Open-Meteo history)
   - field params
   - persisted truth seed (field_readiness_state)
   - CAL legacy adjustments => ALWAYS ZERO
@@ -20,6 +26,9 @@ This module:
 NOTES:
 - This DOES NOT change the math inside field-readiness.model.js.
 - It standardizes the inputs so every UI gets the same output.
+- Rainfall switch rule is intentionally simple:
+    * MRMS ready for rolling 30d => use MRMS daily rain for model history
+    * MRMS not ready            => use Open-Meteo rain for model history
 ===================================================================== */
 'use strict';
 
@@ -27,12 +36,16 @@ NOTES:
 import { EXTRA, CONST, buildWxCtx } from './state.js';
 import { getFieldParams } from './params.js';
 import { getCurrentOp, getThresholdForOp } from './thresholds.js';
+import { getAPI } from './firebase.js';
+import { mrmsBackfillReady } from './rain.js';
 
 /* =====================================================================
    Module loading (same approach as render.js)
 ===================================================================== */
 const WEATHER_URL = '/Farm-vista/js/field-readiness.weather.js';
 const MODEL_URL   = '/Farm-vista/js/field-readiness.model.js';
+const MRMS_COLLECTION = 'field_mrms_weather';
+const MRMS_DOC_TTL_MS = 5 * 60 * 1000;
 
 export async function ensureFRModules(state){
   if (!state) return;
@@ -59,14 +72,6 @@ function getCalZero(){
 
 /* =====================================================================
    Persisted truth seed helpers
-
-IMPORTANT:
-This module does NOT decide HOW you load persisted state.
-It expects the caller to have already loaded state.persistedStateByFieldId
-(or provide a getter).
-That way we don't duplicate Firestore code in multiple places.
-
-So: render.js can keep loadPersistedState() and just call formula.js after.
 ===================================================================== */
 function safeObj(x){
   return (x && typeof x === 'object') ? x : null;
@@ -74,6 +79,17 @@ function safeObj(x){
 function safeStr(x){
   const s = String(x || '');
   return s ? s : '';
+}
+function num(v, d=0){
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+}
+function round3(v){
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.round(n * 1000) / 1000 : 0;
+}
+function mmToIn(mm){
+  return num(mm, 0) / 25.4;
 }
 
 export function getPersistedTruthFromState(state, fieldId){
@@ -85,6 +101,156 @@ export function getPersistedTruthFromState(state, fieldId){
   }catch(_){
     return null;
   }
+}
+
+/* =====================================================================
+   MRMS doc loading + cache
+===================================================================== */
+function ensureMrmsCaches(state){
+  if (!state._mrmsDocByFieldId) state._mrmsDocByFieldId = new Map();
+  if (!state._mrmsDocLoadedAtByFieldId) state._mrmsDocLoadedAtByFieldId = new Map();
+}
+
+async function loadFieldMrmsDocLocal(state, fieldId, { force=false } = {}){
+  try{
+    if (!state || !fieldId) return null;
+    ensureMrmsCaches(state);
+
+    const fid = String(fieldId);
+    const loadedAt = Number(state._mrmsDocLoadedAtByFieldId.get(fid) || 0);
+    const cached = state._mrmsDocByFieldId.get(fid) || null;
+    const fresh = loadedAt > 0 && ((Date.now() - loadedAt) < MRMS_DOC_TTL_MS);
+
+    if (!force && fresh) return cached;
+
+    const api = getAPI(state);
+    if (!api){
+      state._mrmsDocByFieldId.set(fid, null);
+      state._mrmsDocLoadedAtByFieldId.set(fid, Date.now());
+      return null;
+    }
+
+    let out = null;
+
+    if (api.kind !== 'compat'){
+      const db = api.getFirestore();
+      const ref = api.doc(db, MRMS_COLLECTION, fid);
+      const snap = await api.getDoc(ref);
+      if (snap && snap.exists && snap.exists()){
+        out = snap.data() || null;
+      }
+    } else if (window.firebase && window.firebase.firestore){
+      const db = window.firebase.firestore();
+      const snap = await db.collection(MRMS_COLLECTION).doc(fid).get();
+      if (snap && snap.exists){
+        out = snap.data() || null;
+      }
+    }
+
+    state._mrmsDocByFieldId.set(fid, out);
+    state._mrmsDocLoadedAtByFieldId.set(fid, Date.now());
+    return out;
+  }catch(e){
+    console.warn('[FieldReadiness] MRMS doc load failed:', e);
+    try{
+      ensureMrmsCaches(state);
+      state._mrmsDocByFieldId.set(String(fieldId), null);
+      state._mrmsDocLoadedAtByFieldId.set(String(fieldId), Date.now());
+    }catch(_){}
+    return null;
+  }
+}
+
+/* =====================================================================
+   Build model weather rows
+===================================================================== */
+function getBaseWeatherRows(state, fieldId, wxCtx){
+  try{
+    const rows = state._mods.weather.getWeatherSeriesForFieldId(fieldId, wxCtx);
+    return Array.isArray(rows) ? rows.slice() : [];
+  }catch(_){
+    return [];
+  }
+}
+
+function buildMrmsDailyMap(doc){
+  const map = new Map();
+  const rows = Array.isArray(doc && doc.mrmsDailySeries30d) ? doc.mrmsDailySeries30d : [];
+  for (const r of rows){
+    const iso = String(r && r.dateISO || '').slice(0,10);
+    if (!iso) continue;
+    map.set(iso, {
+      dateISO: iso,
+      rainMm: num(r && r.rainMm, 0),
+      rainIn: mmToIn(r && r.rainMm),
+      hoursCount: Math.round(num(r && r.hoursCount, 0))
+    });
+  }
+  return map;
+}
+
+function withRainSource(rows, source){
+  return (Array.isArray(rows) ? rows : []).map(r => ({
+    ...r,
+    rainInAdj: num(r && r.rainInAdj, num(r && r.rainIn, 0)),
+    rainSource: String(source || 'open-meteo')
+  }));
+}
+
+function overlayMrmsRainOntoWeatherRows(baseRows, mrmsDoc){
+  const rows = Array.isArray(baseRows) ? baseRows.slice() : [];
+  if (!rows.length) return [];
+
+  const mrmsMap = buildMrmsDailyMap(mrmsDoc);
+  if (!mrmsMap.size) return withRainSource(rows, 'open-meteo');
+
+  return rows.map(r=>{
+    const iso = String(r && r.dateISO || '').slice(0,10);
+    const m = mrmsMap.get(iso);
+
+    if (!m){
+      return {
+        ...r,
+        rainInAdj: num(r && r.rainInAdj, num(r && r.rainIn, 0)),
+        rainSource: String(r && (r.rainSource || r.precipSource) || 'open-meteo')
+      };
+    }
+
+    return {
+      ...r,
+      rainMrmsMm: round3(m.rainMm),
+      rainMrmsIn: round3(m.rainIn),
+      rainInAdj: round3(m.rainIn),
+      rainSource: 'mrms',
+      mrmsHoursCount: m.hoursCount
+    };
+  });
+}
+
+async function buildModelWeatherSeriesForFieldId(state, fieldId, wxCtx){
+  const baseRows = getBaseWeatherRows(state, fieldId, wxCtx);
+  if (!baseRows.length){
+    return { rows: [], mode: 'none', mrmsReady: false };
+  }
+
+  const mrmsDoc = await loadFieldMrmsDocLocal(state, fieldId, { force:false });
+  const ready = !!mrmsBackfillReady(mrmsDoc);
+
+  if (!ready){
+    return {
+      rows: withRainSource(baseRows, 'open-meteo'),
+      mode: 'open-meteo',
+      mrmsReady: false,
+      mrmsDoc: mrmsDoc || null
+    };
+  }
+
+  return {
+    rows: overlayMrmsRainOntoWeatherRows(baseRows, mrmsDoc),
+    mode: 'mrms',
+    mrmsReady: true,
+    mrmsDoc: mrmsDoc || null
+  };
 }
 
 /* =====================================================================
@@ -105,7 +271,41 @@ export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=nul
       : (id)=> getPersistedTruthFromState(state, String(id));
 
   return {
+    // legacy/base weather getter still exposed
     getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, okWxCtx),
+
+    // new preferred getter for the model
+    getModelWeatherSeriesForFieldId: (fieldId)=>{
+      const fid = String(fieldId);
+      const cacheKey = `modelwx:${fid}`;
+      state._frModelWxCache = state._frModelWxCache || new Map();
+
+      const hit = state._frModelWxCache.get(cacheKey);
+      if (hit && Array.isArray(hit.rows)) return hit.rows;
+
+      // synchronous fallback if caller forgot to prewarm:
+      // use open-meteo rows immediately
+      const rows = withRainSource(
+        state._mods.weather.getWeatherSeriesForFieldId(fid, okWxCtx),
+        'open-meteo'
+      );
+      state._frModelWxCache.set(cacheKey, { rows, mode:'open-meteo', mrmsReady:false });
+      return rows;
+    },
+
+    // optional richer merged getter
+    getMergedWeatherSeriesForFieldId: (fieldId)=>{
+      const fid = String(fieldId);
+      const cacheKey = `modelwx:${fid}`;
+      state._frModelWxCache = state._frModelWxCache || new Map();
+      const hit = state._frModelWxCache.get(cacheKey);
+      if (hit && Array.isArray(hit.rows)) return hit.rows;
+      return withRainSource(
+        state._mods.weather.getWeatherSeriesForFieldId(fid, okWxCtx),
+        'open-meteo'
+      );
+    },
+
     getFieldParams: (fid)=> getFieldParams(state, fid),
     LOSS_SCALE: CONST.LOSS_SCALE,
     EXTRA: EXTRA,
@@ -120,12 +320,41 @@ export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=nul
         if (!fc || typeof fc.readWxSeriesFromCache !== 'function') return [];
         const wx = await fc.readWxSeriesFromCache(String(id), {});
         const rows = (wx && Array.isArray(wx.fcst)) ? wx.fcst : [];
-        return rows;
+        return rows.map(r=>({
+          ...r,
+          rainInAdj: num(r && r.rainInAdj, num(r && r.rainIn, 0)),
+          rainSource: String(r && (r.rainSource || r.precipSource) || 'open-meteo')
+        }));
       }catch(_){
         return [];
       }
     }
   };
+}
+
+/* =====================================================================
+   Internal prewarm for model weather rows
+===================================================================== */
+async function prewarmModelWeatherForField(state, fieldObj, wxCtx){
+  try{
+    if (!state || !fieldObj || !fieldObj.id) return;
+    state._frModelWxCache = state._frModelWxCache || new Map();
+
+    const fid = String(fieldObj.id);
+    const cacheKey = `modelwx:${fid}`;
+
+    const built = await buildModelWeatherSeriesForFieldId(state, fid, wxCtx);
+    state._frModelWxCache.set(cacheKey, built);
+
+    state._frModelWxMetaByFieldId = state._frModelWxMetaByFieldId || new Map();
+    state._frModelWxMetaByFieldId.set(fid, {
+      mode: String(built.mode || 'open-meteo'),
+      mrmsReady: !!built.mrmsReady,
+      updatedAt: Date.now()
+    });
+  }catch(e){
+    console.warn('[FieldReadiness] prewarmModelWeatherForField failed:', e);
+  }
 }
 
 /* =====================================================================
@@ -137,7 +366,12 @@ export async function runFieldReadiness(state, fieldObj, opts = {}){
 
   await ensureFRModules(state);
 
-  const deps = buildFRDeps(state, opts);
+  const wxCtx = opts.wxCtx || buildWxCtx(state);
+
+  // Prewarm merged/model weather so model gets MRMS rows when ready
+  await prewarmModelWeatherForField(state, fieldObj, wxCtx);
+
+  const deps = buildFRDeps(state, { ...opts, wxCtx });
   const run = state._mods.model.runField(fieldObj, deps);
   return run || null;
 }
