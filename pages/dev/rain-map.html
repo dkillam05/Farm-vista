@@ -102,8 +102,11 @@
       pointer-events:none;
     }
 
-    .icon-btn{
+    .top-tools > *{
       pointer-events:auto;
+    }
+
+    .icon-btn{
       width:48px;
       height:48px;
       border:none;
@@ -139,6 +142,7 @@
       padding:12px;
       border-radius:18px;
       display:none;
+      pointer-events:auto;
     }
 
     .panel-menu.open{
@@ -395,11 +399,11 @@
             <div class="menu-field">
               <label for="radiusSel">Blend radius</label>
               <select id="radiusSel" class="menu-select">
-                <option value="4500">Tight</option>
-                <option value="7000">Medium</option>
-                <option value="10000" selected>Blended</option>
-                <option value="14000">Broad</option>
-                <option value="18000">Extra Broad</option>
+                <option value="900">Tight</option>
+                <option value="1300">Medium</option>
+                <option value="1800" selected>Blended</option>
+                <option value="2400">Broad</option>
+                <option value="3200">Extra Broad</option>
               </select>
             </div>
 
@@ -459,6 +463,7 @@
     const FETCH_CONCURRENCY = 6;
     const PARENT_TTL_MS = 2 * 60 * 1000;
     const RANGE_CACHE = new Map();
+    const FIELD_TAP_MAX_METERS = 1400;
 
     let map = null;
     let infoWindow = null;
@@ -813,8 +818,8 @@
     }
 
     function blendRadiusMeters(){
-      const n = Number($('radiusSel')?.value || 10000);
-      return Number.isFinite(n) ? n : 10000;
+      const n = Number($('radiusSel')?.value || 1800);
+      return Number.isFinite(n) ? n : 1800;
     }
 
     function clearMapOverlays(){
@@ -826,8 +831,8 @@
 
     function quantizeValue(v, min, max){
       if (!Number.isFinite(v)) return 0;
-      if (!Number.isFinite(min) || !Number.isFinite(max)) return 0;
-      if (Math.abs(max - min) < 0.0001) return 0.72;
+      if (!Number.isFinite(min) || !Number.isFinite(max)) return 0.5;
+      if (Math.abs(max - min) < 0.0001) return 0.55;
       return Math.max(0, Math.min(1, (v - min) / (max - min)));
     }
 
@@ -923,6 +928,40 @@
       );
     }
 
+    function metersBetween(lat1, lng1, lat2, lng2){
+      const R = 6371000;
+      const toRad = d => d * Math.PI / 180;
+      const dLat = toRad(lat2 - lat1);
+      const dLng = toRad(lng2 - lng1);
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+        Math.sin(dLng / 2) * Math.sin(dLng / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    }
+
+    function nearestFieldSummary(lat, lng){
+      if (!lastFieldSummaries.length) return null;
+
+      let best = null;
+      let bestDist = Infinity;
+
+      lastFieldSummaries.forEach(item=>{
+        const dist = metersBetween(lat, lng, Number(item.lat), Number(item.lng));
+        if (dist < bestDist){
+          bestDist = dist;
+          best = item;
+        }
+      });
+
+      if (!best || !Number.isFinite(bestDist) || bestDist > FIELD_TAP_MAX_METERS){
+        return null;
+      }
+
+      return { ...best, tapDistanceMeters: bestDist };
+    }
+
     function drawRadarLikeBlobs(points, fields){
       ensureMap();
       clearMapOverlays();
@@ -945,11 +984,10 @@
         const center = { lat, lng };
 
         const layers = [
-          { scale:2.8, opacity:0.18 + (n * 0.10) },
-          { scale:2.1, opacity:0.16 + (n * 0.09) },
-          { scale:1.55, opacity:0.14 + (n * 0.08) },
-          { scale:1.10, opacity:0.12 + (n * 0.07) },
-          { scale:0.72, opacity:0.10 + (n * 0.06) }
+          { scale:1.90, opacity:0.025 + (n * 0.020) },
+          { scale:1.45, opacity:0.038 + (n * 0.024) },
+          { scale:1.08, opacity:0.055 + (n * 0.028) },
+          { scale:0.76, opacity:0.072 + (n * 0.032) }
         ];
 
         layers.forEach(layer=>{
@@ -960,24 +998,11 @@
             strokeOpacity: 0,
             strokeWeight: 0,
             fillColor: color,
-            fillOpacity: Math.min(0.40, layer.opacity),
+            fillOpacity: Math.min(0.13, layer.opacity),
             zIndex: 10
           });
           rainCircles.push(circle);
         });
-
-        const core = new google.maps.Circle({
-          map,
-          center,
-          radius: Math.max(550, radius * 0.18),
-          strokeColor: color,
-          strokeOpacity: 0.95,
-          strokeWeight: 1.6,
-          fillColor: color,
-          fillOpacity: 0.80,
-          zIndex: 25
-        });
-        rainCircles.push(core);
 
         const marker = new google.maps.Marker({
           position: center,
@@ -996,26 +1021,7 @@
 
       setPointMeta(points.length);
       fitToFields(fields);
-      setDebug('rendered ' + points.length + ' visible points');
-    }
-
-    function nearestFieldSummary(lat, lng){
-      if (!lastFieldSummaries.length) return null;
-
-      let best = null;
-      let bestDist = Infinity;
-
-      lastFieldSummaries.forEach(item=>{
-        const dLat = Number(item.lat) - lat;
-        const dLng = Number(item.lng) - lng;
-        const dist = (dLat * dLat) + (dLng * dLng);
-        if (dist < bestDist){
-          bestDist = dist;
-          best = item;
-        }
-      });
-
-      return best;
+      setDebug('rendered ' + points.length + ' points • soft blend mode');
     }
 
     function handleMapTap(ev){
@@ -1024,7 +1030,10 @@
       const lat = ev.latLng.lat();
       const lng = ev.latLng.lng();
       const nearest = nearestFieldSummary(lat, lng);
-      if (!nearest || nearest.rainInches == null) return;
+      if (!nearest || nearest.rainInches == null) {
+        if (infoWindow) infoWindow.close();
+        return;
+      }
 
       if (!mapTapMarker){
         mapTapMarker = new google.maps.Marker({
@@ -1033,7 +1042,10 @@
         });
       }
 
-      mapTapMarker.setPosition(ev.latLng);
+      mapTapMarker.setPosition({
+        lat: Number(nearest.lat),
+        lng: Number(nearest.lng)
+      });
 
       infoWindow.setContent(
         '<div class="popup-card">' +
@@ -1192,15 +1204,25 @@
       }
     }
 
+    function stopMenuEvent(e){
+      if (!e) return;
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
     function wireUi(){
       const btnMenu = $('btnMenu');
       const menuPanel = $('menuPanel');
       const btnRefresh = $('btnRefresh');
 
+      const panelStopEvents = ['click', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'touchstart', 'touchend'];
+      panelStopEvents.forEach(evt=>{
+        btnMenu?.addEventListener(evt, stopMenuEvent);
+        menuPanel?.addEventListener(evt, stopMenuEvent);
+      });
+
       if (btnMenu && menuPanel){
-        btnMenu.addEventListener('click', (e)=>{
-          e.preventDefault();
-          e.stopPropagation();
+        btnMenu.addEventListener('click', ()=>{
           menuPanel.classList.toggle('open');
         });
 
@@ -1215,7 +1237,9 @@
         renderRain(true);
       });
 
-      $('viewSel')?.addEventListener('change', updateMapStyle);
+      $('viewSel')?.addEventListener('change', ()=>{
+        updateMapStyle();
+      });
 
       $('radiusSel')?.addEventListener('change', ()=>{
         renderRain(false);
