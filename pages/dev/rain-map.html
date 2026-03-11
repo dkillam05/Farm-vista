@@ -905,8 +905,7 @@
             { t:0.40, c:[108,199,255] },
             { t:0.75, c:[99,223,137] },
             { t:1.00, c:[73,201,74] }
-          ],
-          legendMax: 0.10
+          ]
         };
       }
 
@@ -921,8 +920,7 @@
             { t:0.55, c:[99,223,137] },
             { t:0.82, c:[215,223,73] },
             { t:1.00, c:[240,184,67] }
-          ],
-          legendMax: 0.50
+          ]
         };
       }
 
@@ -939,8 +937,7 @@
           { t:0.84, c:[240,184,67] },
           { t:0.94, c:[239,107,70] },
           { t:1.00, c:[217,44,198] }
-        ],
-        legendMax: maxInches
+        ]
       };
     }
 
@@ -1029,16 +1026,14 @@
       return R * c;
     }
 
-    function getTapHitRadiusMeters(){
-      const radius = blendRadiusMeters();
+    function getTapPaddingMeters(){
       const z = Number(map && map.getZoom ? map.getZoom() : 11);
-
-      if (z >= 14) return radius * 0.78;
-      if (z >= 13) return radius * 0.88;
-      if (z >= 12) return radius * 1.00;
-      if (z >= 11) return radius * 1.12;
-      if (z >= 10) return radius * 1.22;
-      return radius * 1.35;
+      if (z >= 14) return 80;
+      if (z >= 13) return 140;
+      if (z >= 12) return 210;
+      if (z >= 11) return 300;
+      if (z >= 10) return 420;
+      return 540;
     }
 
     function nearestTapTarget(lat, lng){
@@ -1048,7 +1043,7 @@
 
       lastTapTargets.forEach(item=>{
         const dist = metersBetween(lat, lng, Number(item.lat), Number(item.lng));
-        const hitRadius = Number(item.tapRadiusMeters || 0);
+        const hitRadius = Number(item.hitRadiusMeters || 0);
         if (Number.isFinite(dist) && Number.isFinite(hitRadius) && dist <= hitRadius){
           hits.push({
             ...item,
@@ -1063,6 +1058,30 @@
       return hits[0];
     }
 
+    function buildLayersForScale(scaleName, n){
+      if (scaleName === 'trace'){
+        return [
+          { scale:1.70, opacity:0.018 + (n * 0.012) },
+          { scale:1.25, opacity:0.028 + (n * 0.014) },
+          { scale:0.92, opacity:0.040 + (n * 0.016) }
+        ];
+      }
+      if (scaleName === 'light'){
+        return [
+          { scale:1.85, opacity:0.022 + (n * 0.016) },
+          { scale:1.35, opacity:0.034 + (n * 0.020) },
+          { scale:0.98, opacity:0.048 + (n * 0.022) },
+          { scale:0.72, opacity:0.060 + (n * 0.024) }
+        ];
+      }
+      return [
+        { scale:1.90, opacity:0.025 + (n * 0.020) },
+        { scale:1.45, opacity:0.038 + (n * 0.024) },
+        { scale:1.08, opacity:0.055 + (n * 0.028) },
+        { scale:0.76, opacity:0.072 + (n * 0.032) }
+      ];
+    }
+
     function drawRadarLikeBlobs(points, fields){
       ensureMap();
       clearMapOverlays();
@@ -1071,7 +1090,7 @@
       const maxVal = values.length ? Math.max(...values) : 0;
       const scale = getScaleMode(maxVal);
       const radius = blendRadiusMeters();
-      const tapRadiusMeters = getTapHitRadiusMeters();
+      const tapPaddingMeters = getTapPaddingMeters();
 
       updateLegendDynamic(scale);
 
@@ -1085,28 +1104,8 @@
         const color = colorFromGradientStops(n, scale.stops);
         const center = { lat, lng };
 
-        let layers;
-        if (scale.name === 'trace'){
-          layers = [
-            { scale:1.70, opacity:0.018 + (n * 0.012) },
-            { scale:1.25, opacity:0.028 + (n * 0.014) },
-            { scale:0.92, opacity:0.040 + (n * 0.016) }
-          ];
-        } else if (scale.name === 'light'){
-          layers = [
-            { scale:1.85, opacity:0.022 + (n * 0.016) },
-            { scale:1.35, opacity:0.034 + (n * 0.020) },
-            { scale:0.98, opacity:0.048 + (n * 0.022) },
-            { scale:0.72, opacity:0.060 + (n * 0.024) }
-          ];
-        } else {
-          layers = [
-            { scale:1.90, opacity:0.025 + (n * 0.020) },
-            { scale:1.45, opacity:0.038 + (n * 0.024) },
-            { scale:1.08, opacity:0.055 + (n * 0.028) },
-            { scale:0.76, opacity:0.072 + (n * 0.032) }
-          ];
-        }
+        const layers = buildLayersForScale(scale.name, n);
+        const outerScale = layers.reduce((m, layer)=> Math.max(m, Number(layer.scale || 0)), 1);
 
         layers.forEach(layer=>{
           const circle = new google.maps.Circle({
@@ -1142,7 +1141,7 @@
           pointLabel: p.pointLabel,
           lat: p.lat,
           lng: p.lng,
-          tapRadiusMeters
+          hitRadiusMeters: (radius * outerScale) + tapPaddingMeters
         });
       });
 
@@ -1155,7 +1154,7 @@
         'range=' + currentRange +
         ' • fields=' + fields.length +
         ' • points=' + points.length +
-        ' • tap=' + Math.round(tapRadiusMeters) + 'm' +
+        ' • pad=' + Math.round(tapPaddingMeters) + 'm' +
         ' • ' + modeLabel
       );
     }
@@ -1185,11 +1184,7 @@
         });
       }
 
-      mapTapMarker.setPosition({
-        lat: Number(summary.lat),
-        lng: Number(summary.lng)
-      });
-
+      mapTapMarker.setPosition(ev.latLng);
       infoWindow.setContent(buildPopupHtml(summary, hit.pointLabel));
       infoWindow.open(map, mapTapMarker);
     }
@@ -1337,7 +1332,6 @@
         }
 
         drawRadarLikeBlobs(points, renderedFields);
-
         const hasAnyRain = points.some(p => Number(p.rainInches || 0) > 0);
         setStatus(hasAnyRain ? 'Live' : 'Live (0 rain)');
       }catch(e){
