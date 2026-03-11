@@ -854,36 +854,6 @@
       return n;
     }
 
-    function milesToLat(miles){
-      return miles / 69.0;
-    }
-
-    function milesToLng(miles, lat){
-      const denom = Math.max(0.01, 69.172 * Math.cos((Number(lat || 0) * Math.PI) / 180));
-      return miles / denom;
-    }
-
-    function coordsForLabel(field, label, miles=0.50){
-      const baseLat = toNum(field && field.location && field.location.lat);
-      const baseLng = toNum(field && field.location && field.location.lng);
-      if (baseLat == null || baseLng == null) return null;
-
-      const dLat = milesToLat(miles);
-      const dLng = milesToLng(miles, baseLat);
-      const norm = lower(label);
-
-      if (!norm || norm === 'center' || norm === 'centre') return { lat: baseLat, lng: baseLng };
-      if (norm === 'north' || norm === 'n') return { lat: baseLat + dLat, lng: baseLng };
-      if (norm === 'south' || norm === 's') return { lat: baseLat - dLat, lng: baseLng };
-      if (norm === 'east' || norm === 'e') return { lat: baseLat, lng: baseLng + dLng };
-      if (norm === 'west' || norm === 'w') return { lat: baseLat, lng: baseLng - dLng };
-      if (norm === 'northeast' || norm === 'ne') return { lat: baseLat + (dLat * 0.72), lng: baseLng + (dLng * 0.72) };
-      if (norm === 'northwest' || norm === 'nw') return { lat: baseLat + (dLat * 0.72), lng: baseLng - (dLng * 0.72) };
-      if (norm === 'southeast' || norm === 'se') return { lat: baseLat - (dLat * 0.72), lng: baseLng + (dLng * 0.72) };
-      if (norm === 'southwest' || norm === 'sw') return { lat: baseLat - (dLat * 0.72), lng: baseLng - (dLng * 0.72) };
-      return { lat: baseLat, lng: baseLng };
-    }
-
     function rangeHours(range){
       if (range === '24h') return 24;
       if (range === '48h') return 48;
@@ -892,270 +862,100 @@
       return null;
     }
 
-    function rangeDays(range){
-      if (range === '7d') return 7;
-      if (range === 'mtd') return null;
-      if (range === '24h') return 1;
-      if (range === '48h') return 2;
-      if (range === '72h') return 3;
-      return 30;
+    function pointLabelFromKey(key){
+      const k = lower(key);
+      if (!k) return 'Center';
+      if (k === 'center') return 'Center';
+      if (k === 'north') return 'North';
+      if (k === 'south') return 'South';
+      if (k === 'east') return 'East';
+      if (k === 'west') return 'West';
+      if (k === 'northeast') return 'Northeast';
+      if (k === 'northwest') return 'Northwest';
+      if (k === 'southeast') return 'Southeast';
+      if (k === 'southwest') return 'Southwest';
+      return String(key || 'Point');
     }
 
-    function dayStartLocalTs(isoish){
-      const dt = new Date(isoish);
-      if (!Number.isFinite(dt.getTime())) return NaN;
-      return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime();
-    }
+    function directSamplesFromResult(docData, field){
+      const samples = getByPath(docData, 'result.samples');
+      if (!Array.isArray(samples) || !samples.length) return [];
 
-    function monthKeyNow(){
-      const now = new Date();
-      return { y: now.getFullYear(), m: now.getMonth() };
-    }
-
-    function sumLatestHourlyRows(rows, range){
-      const hours = rangeHours(range);
-      if (!hours || !Array.isArray(rows) || !rows.length) return null;
-
-      const usable = rows
-        .map(r => ({
-          ts: Date.parse(r && (r.ts || r.time || r.hour || r.iso || r.date || r.datetime || '')),
-          inches: valueToInches(
-            r && (r.rainInches ?? r.inches ?? r.rain_in ?? r.totalIn ?? r.rain ?? r.value ?? r.mm),
-            r && (r.units || r.unit || ((r && r.mm != null) ? 'mm' : 'in'))
-          )
-        }))
-        .filter(x => Number.isFinite(x.ts) && x.inches != null)
-        .sort((a,b) => a.ts - b.ts);
-
-      if (!usable.length) return null;
-      return usable.slice(-hours).reduce((sum, x) => sum + Number(x.inches || 0), 0);
-    }
-
-    function sumDailyRows(rows, range){
-      if (!Array.isArray(rows) || !rows.length) return null;
-
-      const usable = rows
-        .map(r => ({
-          ts: dayStartLocalTs(r && (r.date || r.day || r.ts || r.time || '')),
-          inches: valueToInches(
-            r && (r.rainInches ?? r.inches ?? r.rain_in ?? r.totalIn ?? r.rain ?? r.value ?? r.mm),
-            r && (r.units || r.unit || ((r && r.mm != null) ? 'mm' : 'in'))
-          )
-        }))
-        .filter(x => Number.isFinite(x.ts) && x.inches != null)
-        .sort((a,b) => a.ts - b.ts);
-
-      if (!usable.length) return null;
-
-      if (range === 'mtd'){
-        const now = monthKeyNow();
-        const sum = usable
-          .filter(x => {
-            const d = new Date(x.ts);
-            return d.getFullYear() === now.y && d.getMonth() === now.m;
-          })
-          .reduce((s, x) => s + Number(x.inches || 0), 0);
-
-        return sum > 0 ? sum : null;
-      }
-
-      const days = rangeDays(range);
-      if (!days) return null;
-      return usable.slice(-days).reduce((sum, x) => sum + Number(x.inches || 0), 0);
-    }
-
-    function pickDirectRangeValue(obj, range){
-      if (!obj || typeof obj !== 'object') return null;
-
-      const lookup = {
-        '24h': ['24h','last24h','last24','in24h','rain24h','rain24hIn','rain24In','total24h','total24In','last24hIn','last24In'],
-        '48h': ['48h','last48h','last48','in48h','rain48h','rain48hIn','rain48In','total48h','total48In','last48hIn','last48In'],
-        '72h': ['72h','last72h','last72','in72h','rain72h','rain72hIn','rain72In','total72h','total72In','last72hIn','last72In'],
-        '7d':  ['7d','last7d','last7','in7d','rain7d','rain7dIn','rain7In','total7d','total7In','last7dIn','last7In'],
-        'mtd': ['mtd','monthToDate','month_to_date','monthtodate','rainMtd','mtdIn','mtd_inches']
-      };
-
-      const keys = lookup[range] || [];
-      for (const k of keys){
-        if (obj[k] != null) return valueToInches(obj[k], obj.units || obj.unit);
-      }
-
-      const pools = [obj.rangeTotals, obj.totals, obj.totalsIn, obj.summary, obj.accumulations];
-      for (const pool of pools){
-        if (!pool || typeof pool !== 'object') continue;
-        for (const k of keys){
-          if (pool[k] != null) return valueToInches(pool[k], pool.units || obj.units || obj.unit);
-        }
-      }
-
-      return null;
-    }
-
-    function resolvePointLatLng(field, point){
-      const lat =
-        toNum(point && point.lat) ??
-        toNum(point && point.latitude) ??
-        toNum(point && point.location && point.location.lat) ??
-        toNum(point && point.location && point.location.latitude);
-
-      const lng =
-        toNum(point && point.lng) ??
-        toNum(point && point.lon) ??
-        toNum(point && point.longitude) ??
-        toNum(point && point.location && (point.location.lng ?? point.location.lon ?? point.location.longitude));
-
-      if (lat != null && lng != null) return { lat, lng };
-
-      const label = point && (point.label || point.name || point.point || point.sample || point.key);
-      return coordsForLabel(field, label, 0.50);
-    }
-
-    function pointLabel(point, fallbackKey=''){
-      return String(
-        (point && (point.label || point.name || point.point || point.sample || point.key)) ||
-        fallbackKey ||
-        'Center'
-      ).trim();
-    }
-
-    function pushPoint(out, seen, field, label, lat, lng, rainInches){
-      if (lat == null || lng == null || rainInches == null) return;
-      const key = String(field.id) + '|' + lower(label);
-      if (seen.has(key)) return;
-      seen.add(key);
-
-      out.push({
-        fieldId: field.id,
-        fieldName: field.name || 'Field',
-        pointLabel: label || 'Center',
-        lat: Number(lat),
-        lng: Number(lng),
-        rainInches: Number(rainInches)
-      });
-    }
-
-    function extractArrayPoints(container, field, range, out, seen){
-      if (!Array.isArray(container)) return;
-
-      container.forEach((point, idx)=>{
-        if (!point || typeof point !== 'object') return;
-
-        const label = pointLabel(point, idx === 0 ? 'Center' : ('Point ' + (idx + 1)));
-        const pos = resolvePointLatLng(field, point);
-
-        let inches =
-          pickDirectRangeValue(point, range) ??
-          sumLatestHourlyRows(point.hourly || point.hours || point.hourlyRows, range) ??
-          sumDailyRows(point.daily || point.days || point.dailyRows, range);
-
-        if (inches == null && point.inches != null) inches = valueToInches(point.inches, point.units || point.unit);
-        if (inches == null && point.rainInches != null) inches = valueToInches(point.rainInches, point.units || point.unit);
-        if (inches == null && point.mm != null) inches = valueToInches(point.mm, 'mm');
-
-        if (pos && inches != null){
-          pushPoint(out, seen, field, label, pos.lat, pos.lng, inches);
-        }
-      });
-    }
-
-    function extractObjectMapPoints(container, field, range, out, seen){
-      if (!container || typeof container !== 'object' || Array.isArray(container)) return;
-
-      Object.entries(container).forEach(([key, raw])=>{
-        if (!raw || typeof raw !== 'object') return;
-
-        const label = pointLabel(raw, key);
-        const pos = resolvePointLatLng(field, raw);
-
-        let inches =
-          pickDirectRangeValue(raw, range) ??
-          sumLatestHourlyRows(raw.hourly || raw.hours || raw.hourlyRows, range) ??
-          sumDailyRows(raw.daily || raw.days || raw.dailyRows, range);
-
-        if (inches == null && raw.inches != null) inches = valueToInches(raw.inches, raw.units || raw.unit);
-        if (inches == null && raw.rainInches != null) inches = valueToInches(raw.rainInches, raw.units || raw.unit);
-        if (inches == null && raw.mm != null) inches = valueToInches(raw.mm, 'mm');
-
-        if (pos && inches != null){
-          pushPoint(out, seen, field, label, pos.lat, pos.lng, inches);
-        }
-      });
-    }
-
-    function extractRealPointsFromDoc(docData, field, range){
       const out = [];
-      const seen = new Set();
+      samples.forEach(sample=>{
+        if (!sample || sample.ok === false) return;
 
-      const candidateKeys = [
-        'points',
-        'samplePoints',
-        'samples',
-        'sample_points',
-        'gridPoints',
-        'pointTotals',
-        'latestPoints',
-        'rangePoints',
-        'pointData',
-        'sampleData'
-      ];
+        const lat = toNum(sample.lat);
+        const lng = toNum(sample.lon ?? sample.lng);
+        const mm  = toNum(sample.mm);
 
-      for (const key of candidateKeys){
-        const v = docData && docData[key];
-        extractArrayPoints(v, field, range, out, seen);
-        extractObjectMapPoints(v, field, range, out, seen);
-      }
+        if (lat == null || lng == null || mm == null) return;
 
-      const nestedKeys = ['mrms', 'rain', 'rainfall', 'sampling', 'samplingPoints', 'detail'];
-      for (const key of nestedKeys){
-        const v = docData && docData[key];
-        if (!v || typeof v !== 'object') continue;
-        for (const inner of candidateKeys){
-          extractArrayPoints(v[inner], field, range, out, seen);
-          extractObjectMapPoints(v[inner], field, range, out, seen);
-        }
-      }
+        out.push({
+          fieldName: field.name || 'Field',
+          pointLabel: pointLabelFromKey(sample.key),
+          lat,
+          lng,
+          rainInches: mm / 25.4
+        });
+      });
 
       return out;
     }
 
-    function fallbackWeightedCenterPoint(docData, field, range){
-      const pos = coordsForLabel(field, 'center', 0);
-      if (!pos) return null;
+    function hourlySamplesFromDoc(docData, field, range){
+      const hoursNeeded = rangeHours(range);
+      if (!hoursNeeded) return [];
 
-      let inches =
-        pickDirectRangeValue(docData, range) ??
-        sumLatestHourlyRows(docData && (docData.hourly || docData.hours || docData.hourlyRows), range) ??
-        sumDailyRows(docData && (docData.daily || docData.days || docData.dailyRows), range);
+      const hourly = Array.isArray(docData && docData.hourly) ? docData.hourly : null;
+      if (!hourly || !hourly.length) return [];
 
-      if (inches == null){
-        const nestedPools = [
-          docData && docData.mrms,
-          docData && docData.rain,
-          docData && docData.rainfall,
-          docData && docData.summary,
-          docData && docData.accumulations
-        ];
+      const sorted = hourly
+        .filter(row => row && row.result && Array.isArray(row.result.samples))
+        .sort((a,b)=>{
+          const ta = Date.parse(a.fileTimestampUtc || a.ts || a.time || a.iso || '');
+          const tb = Date.parse(b.fileTimestampUtc || b.ts || b.time || b.iso || '');
+          return ta - tb;
+        });
 
-        for (const pool of nestedPools){
-          inches =
-            pickDirectRangeValue(pool, range) ??
-            sumLatestHourlyRows(pool && (pool.hourly || pool.hours || pool.hourlyRows), range) ??
-            sumDailyRows(pool && (pool.daily || pool.days || pool.dailyRows), range);
+      if (!sorted.length) return [];
 
-          if (inches != null) break;
-        }
-      }
+      const latestRows = sorted.slice(-hoursNeeded);
+      const mapByKey = new Map();
 
-      if (inches == null) return null;
+      latestRows.forEach(row=>{
+        const samples = row.result.samples || [];
+        samples.forEach(sample=>{
+          if (!sample || sample.ok === false) return;
 
-      return [{
-        fieldId: field.id,
-        fieldName: field.name || 'Field',
-        pointLabel: 'Center',
-        lat: pos.lat,
-        lng: pos.lng,
-        rainInches: inches
-      }];
+          const key = lower(sample.key);
+          const lat = toNum(sample.lat);
+          const lng = toNum(sample.lon ?? sample.lng);
+          const mm = toNum(sample.mm);
+
+          if (!key || lat == null || lng == null || mm == null) return;
+
+          if (!mapByKey.has(key)){
+            mapByKey.set(key, {
+              fieldName: field.name || 'Field',
+              pointLabel: pointLabelFromKey(sample.key),
+              lat,
+              lng,
+              rainMm: 0
+            });
+          }
+
+          mapByKey.get(key).rainMm += mm;
+        });
+      });
+
+      return Array.from(mapByKey.values()).map(x => ({
+        fieldName: x.fieldName,
+        pointLabel: x.pointLabel,
+        lat: x.lat,
+        lng: x.lng,
+        rainInches: x.rainMm / 25.4
+      }));
     }
 
     async function loadMrmsDoc(fieldId){
@@ -1173,23 +973,24 @@
       setFieldsMeta(fields.length);
 
       const points = [];
-      let fallbackCount = 0;
 
       const jobs = fields.map(async (field)=>{
         try{
           const docData = await loadMrmsDoc(field.id);
           if (!docData || typeof docData !== 'object') return;
 
-          const realPoints = extractRealPointsFromDoc(docData, field, range);
-          if (realPoints.length){
-            points.push(...realPoints);
-            return;
+          let fieldPoints = [];
+
+          if (range === '24h' || range === '48h' || range === '72h'){
+            fieldPoints = hourlySamplesFromDoc(docData, field, range);
           }
 
-          const fallback = fallbackWeightedCenterPoint(docData, field, range);
-          if (fallback && fallback.length){
-            fallbackCount += 1;
-            points.push(...fallback);
+          if (!fieldPoints.length){
+            fieldPoints = directSamplesFromResult(docData, field);
+          }
+
+          if (fieldPoints.length){
+            points.push(...fieldPoints);
           }
         }catch(err){
           console.warn('[Dev Rain Map] MRMS load failed for field:', field && field.id, err);
@@ -1200,8 +1001,7 @@
 
       return {
         points,
-        fieldCount: fields.length,
-        fallbackCount
+        fieldCount: fields.length
       };
     }
 
@@ -1231,12 +1031,7 @@
         }
 
         applyHeatmap(points);
-
-        if (Number(res.fallbackCount || 0) > 0){
-          setStatus('Loaded with fallback', false);
-        } else {
-          setStatus('Live', false);
-        }
+        setStatus('Live', false);
       }catch(e){
         console.warn('[Dev Rain Map] render failed:', e);
         applyHeatmap([]);
