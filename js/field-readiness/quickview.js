@@ -324,7 +324,7 @@ async function getQuickViewMrmsRainText(state, fieldId, range){
   try{
     const doc = await loadFieldMrmsDoc(state, String(fieldId), { force:false });
     const res = mrmsRainInRange(doc, range);
-    if (!res || res.ready !== true) return 'Rainfall data still in queue';
+    if (!res || res.ready !== true) return 'Processing Data';
     return `${Number(res.inches || 0).toFixed(2)} in`;
   }catch(_){
     return 'Rainfall data still in queue';
