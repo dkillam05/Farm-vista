@@ -511,10 +511,10 @@
               <div class="menu-field">
                 <label for="radiusSel">Smoothing</label>
                 <select id="radiusSel" class="menu-select">
-                  <option value="34">Tight</option>
-                  <option value="52" selected>Medium</option>
-                  <option value="74">Broad</option>
-                  <option value="96">Max</option>
+                  <option value="650" selected>Medium</option>
+                  <option value="450">Tight</option>
+                  <option value="900">Broad</option>
+                  <option value="1200">Max</option>
                 </select>
               </div>
             </div>
@@ -581,15 +581,16 @@
     const HOURLY_TTL_MS = 5 * 60 * 1000;
 
     let map = null;
-    let heatmap = null;
     let infoWindow = null;
-    let clickMarkers = [];
     let currentRange = '48h';
     let currentRequestId = 0;
     let dbRef = null;
     let authRef = null;
 
     const hourlyCache = new Map();
+    let rainCircles = [];
+    let clickMarkers = [];
+    let fieldMarkers = [];
 
     function $(id){ return document.getElementById(id); }
 
@@ -646,7 +647,7 @@
       const started = Date.now();
       return new Promise((resolve, reject)=>{
         const tick = ()=>{
-          if (window.google && window.google.maps && window.google.maps.visualization){
+          if (window.google && window.google.maps){
             resolve(window.google.maps);
             return;
           }
@@ -713,27 +714,6 @@
       });
 
       infoWindow = new google.maps.InfoWindow();
-
-      heatmap = new google.maps.visualization.HeatmapLayer({
-        data: [],
-        map,
-        dissipating: true,
-        opacity: 0.72,
-        radius: Number($('radiusSel')?.value || 52),
-        gradient: [
-          'rgba(52,119,255,0.00)',
-          'rgba(88,168,255,0.24)',
-          'rgba(108,199,255,0.34)',
-          'rgba(99,223,137,0.46)',
-          'rgba(73,201,74,0.58)',
-          'rgba(205,227,74,0.72)',
-          'rgba(240,216,74,0.82)',
-          'rgba(245,168,60,0.90)',
-          'rgba(238,90,70,0.96)',
-          'rgba(214,42,198,1.00)'
-        ]
-      });
-
       return map;
     }
 
@@ -760,61 +740,6 @@
       document.querySelectorAll('.range-btn').forEach(btn=>{
         btn.classList.toggle('active', String(btn.dataset.range || '') === currentRange);
       });
-    }
-
-    function clearClickMarkers(){
-      clickMarkers.forEach(m => { try{ m.setMap(null); }catch(_){} });
-      clickMarkers = [];
-    }
-
-    function applyHeatmap(points){
-      ensureMap();
-      clearClickMarkers();
-
-      const bounds = new google.maps.LatLngBounds();
-      const heatData = [];
-      const radius = Number($('radiusSel')?.value || 52);
-
-      points.forEach(p=>{
-        const lat = toNum(p.lat);
-        const lng = toNum(p.lng);
-        const rain = Math.max(0, Number(p.rainInches || 0));
-        if (lat == null || lng == null) return;
-
-        const pos = new google.maps.LatLng(lat, lng);
-        const weight = Math.max(1, Math.min(100, rain * 16));
-
-        heatData.push({ location: pos, weight });
-        bounds.extend(pos);
-
-        const marker = new google.maps.Marker({
-          position: pos,
-          map,
-          opacity: 0.001
-        });
-
-        marker.addListener('click', ()=>{
-          infoWindow.setContent(
-            '<div style="min-width:180px">' +
-              '<b>' + escapeHtml(p.fieldName || 'Field') + '</b><br/>' +
-              'Point: ' + escapeHtml(p.pointLabel || 'Center') + '<br/>' +
-              'Rain: <span class="mono">' + rain.toFixed(2) + ' in</span>' +
-            '</div>'
-          );
-          infoWindow.open(map, marker);
-        });
-
-        clickMarkers.push(marker);
-      });
-
-      heatmap.setData(heatData);
-      heatmap.set('radius', radius);
-
-      if (!bounds.isEmpty()){
-        map.fitBounds(bounds);
-      }
-
-      setPointMeta(heatData.length);
     }
 
     function normalizeFieldDoc(docId, d){
@@ -848,14 +773,6 @@
 
       out.sort((a,b)=> String(a.name).localeCompare(String(b.name), undefined, { numeric:true, sensitivity:'base' }));
       return out;
-    }
-
-    function valueToInches(raw, unitsHint){
-      const n = toNum(raw);
-      if (n == null) return null;
-      const u = lower(unitsHint);
-      if (u === 'mm' || u === 'millimeters' || u === 'millimetres') return n / 25.4;
-      return n;
     }
 
     function hoursForRange(range){
@@ -995,6 +912,136 @@
       }));
     }
 
+    function rainColor(inches){
+      const v = Number(inches) || 0;
+      if (v >= 10) return '#d62ac6';
+      if (v >= 6) return '#ee5a46';
+      if (v >= 4) return '#f5a83c';
+      if (v >= 2) return '#cde34a';
+      if (v >= 1) return '#49c94a';
+      if (v >= 0.5) return '#63df89';
+      return '#58a8ff';
+    }
+
+    function rainOpacity(inches){
+      const v = Number(inches) || 0;
+      if (v >= 6) return 0.34;
+      if (v >= 4) return 0.30;
+      if (v >= 2) return 0.26;
+      if (v >= 1) return 0.22;
+      if (v >= 0.5) return 0.18;
+      return 0.14;
+    }
+
+    function clearMapOverlays(){
+      rainCircles.forEach(x => { try{ x.setMap(null); }catch(_){} });
+      clickMarkers.forEach(x => { try{ x.setMap(null); }catch(_){} });
+      fieldMarkers.forEach(x => { try{ x.setMap(null); }catch(_){} });
+      rainCircles = [];
+      clickMarkers = [];
+      fieldMarkers = [];
+    }
+
+    function smoothingRadiusMeters(){
+      const n = Number($('radiusSel')?.value || 650);
+      return Number.isFinite(n) ? n : 650;
+    }
+
+    function buildInitialBounds(fields){
+      const bounds = new google.maps.LatLngBounds();
+      fields.forEach(f=>{
+        const lat = toNum(f && f.location && f.location.lat);
+        const lng = toNum(f && f.location && f.location.lng);
+        if (lat == null || lng == null) return;
+        bounds.extend({ lat, lng });
+      });
+      return bounds;
+    }
+
+    function fitToFields(fields){
+      if (!map || !fields || !fields.length) return;
+
+      const bounds = buildInitialBounds(fields);
+      if (bounds.isEmpty()) return;
+
+      map.fitBounds(bounds, {
+        top: 120,
+        right: 110,
+        bottom: 160,
+        left: 70
+      });
+
+      google.maps.event.addListenerOnce(map, 'idle', ()=>{
+        const z = map.getZoom();
+        if (Number.isFinite(z) && z > 11) map.setZoom(11);
+      });
+    }
+
+    function drawRainPoints(points, fields){
+      ensureMap();
+      clearMapOverlays();
+
+      const radius = smoothingRadiusMeters();
+
+      points.forEach(p=>{
+        const lat = toNum(p.lat);
+        const lng = toNum(p.lng);
+        const rain = Number(p.rainInches || 0);
+        if (lat == null || lng == null) return;
+
+        const color = rainColor(rain);
+        const fillOpacity = rainOpacity(rain);
+        const center = { lat, lng };
+
+        const circle = new google.maps.Circle({
+          map,
+          center,
+          radius,
+          strokeColor: color,
+          strokeOpacity: Math.min(0.95, fillOpacity + 0.20),
+          strokeWeight: 1,
+          fillColor: color,
+          fillOpacity
+        });
+        rainCircles.push(circle);
+
+        const marker = new google.maps.Marker({
+          position: center,
+          map,
+          opacity: 0.001
+        });
+
+        marker.addListener('click', ()=>{
+          infoWindow.setContent(
+            '<div style="min-width:190px">' +
+              '<b>' + escapeHtml(p.fieldName || 'Field') + '</b><br/>' +
+              'Point: ' + escapeHtml(p.pointLabel || 'Center') + '<br/>' +
+              'Rain: <span class="mono">' + rain.toFixed(2) + ' in</span>' +
+            '</div>'
+          );
+          infoWindow.open(map, marker);
+        });
+
+        clickMarkers.push(marker);
+      });
+
+      fields.forEach(f=>{
+        const lat = toNum(f && f.location && f.location.lat);
+        const lng = toNum(f && f.location && f.location.lng);
+        if (lat == null || lng == null) return;
+
+        const marker = new google.maps.Marker({
+          position: { lat, lng },
+          map,
+          opacity: 0.001
+        });
+        fieldMarkers.push(marker);
+      });
+
+      setPointMeta(points.length);
+      fitToFields(fields);
+    }
+
     async function loadLivePoints(range, requestId, force=false){
       const fields = await loadActiveFields();
       if (requestId !== currentRequestId) return { cancelled:true };
@@ -1022,6 +1069,7 @@
 
       return {
         points,
+        fields,
         fieldCount: fields.length,
         fieldsWithPoints
       };
@@ -1046,17 +1094,22 @@
         if (!res || res.cancelled || requestId !== currentRequestId) return;
 
         const points = Array.isArray(res.points) ? res.points : [];
+        const fields = Array.isArray(res.fields) ? res.fields : [];
+
         if (!points.length){
-          applyHeatmap([]);
+          clearMapOverlays();
+          setPointMeta(0);
+          fitToFields(fields);
           setStatus('No points', true);
           return;
         }
 
-        applyHeatmap(points);
+        drawRainPoints(points, fields);
         setStatus('Live', false);
       }catch(e){
         console.warn('[Dev Rain Map] render failed:', e);
-        applyHeatmap([]);
+        clearMapOverlays();
+        setPointMeta(0);
         setStatus('Load failed', true);
       }
     }
@@ -1087,7 +1140,7 @@
       $('viewSel')?.addEventListener('change', updateMapStyle);
 
       $('radiusSel')?.addEventListener('change', ()=>{
-        if (heatmap) heatmap.set('radius', Number($('radiusSel')?.value || 52));
+        renderRain(false);
       });
 
       document.querySelectorAll('.range-btn').forEach(btn=>{
@@ -1117,6 +1170,6 @@
     window.startRainMap = startRainMap;
   </script>
 
-  <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY&libraries=visualization&callback=startRainMap"></script>
+  <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY&callback=startRainMap"></script>
 </body>
 </html>
