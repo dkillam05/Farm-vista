@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-10b-use-mrms-for-rain-range-queue-aware
+Rev: 2026-03-10c-use-mrms-for-rain-range-queue-aware-no-trim
 
 GOAL (per Dane, Feb 2026):
 ✅ Make tiles + details MATCH the Global Calibration readiness number.
@@ -17,9 +17,12 @@ CHANGES (THIS REV):
 ✅ Option B trace fallback (rewind 14) preserved.
 ✅ Tile "Rain (range)" now uses MRMS daily rainfall
 ✅ If MRMS current-day-through-past-30-days is not complete, tile shows:
-   "Rainfall data still in queue"
+   "Processing Data"
 ✅ Rain-range sort now uses MRMS when ready
 ✅ MRMS details panel remains supported
+✅ fr:tile-refresh / fr:details-refresh now support lightweight rainfall-only UI refresh
+✅ No trimmed sections
+
 ===================================================================== */
 'use strict';
 
@@ -865,6 +868,23 @@ function buildDepsForState(state, opKey){
   });
 }
 
+/* =====================================================================
+   Lightweight rainfall-only patch helpers
+===================================================================== */
+async function patchTileRainOnly(state, fieldId){
+  try{
+    if (!fieldId) return;
+    const fid = String(fieldId);
+    const tile = document.querySelector('.tile[data-field-id="' + CSS.escape(fid) + '"]');
+    if (!tile) return;
+
+    const range = parseRangeFromInput();
+    const mrmsRes = await getMrmsRainResultForField(state, fid, range, { force:false });
+    const rainLine = tile.querySelector('.subline .mono');
+    if (rainLine) rainLine.textContent = rainTileTextFromMrmsResult(mrmsRes);
+  }catch(_){}
+}
+
 /* ---------- internal: patch a single tile DOM in-place ---------- */
 async function updateTileForField(state, fieldId){
   try{
@@ -1561,6 +1581,11 @@ export async function refreshDetailsOnly(state){
         if (!state) return;
         const fid = e && e.detail ? String(e.detail.fieldId || '') : '';
         if (!fid) return;
+
+        // Lightweight patch first so rainfall can update quickly
+        await patchTileRainOnly(state, fid);
+
+        // Full tile refresh still supported
         await updateTileForField(state, fid);
       }catch(_){}
     });
