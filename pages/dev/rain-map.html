@@ -30,27 +30,21 @@
 
   <style>
     :root{
-      --accent:#2F6C3C;
-      --glass:rgba(255,255,255,.70);
-      --glass-strong:rgba(255,255,255,.82);
-      --glass-border:rgba(255,255,255,.20);
+      --glass:rgba(255,255,255,.82);
+      --glass-border:rgba(255,255,255,.18);
       --glass-shadow:0 14px 36px rgba(0,0,0,.18);
       --text-dark:#18211b;
-      --safe-top:calc(env(safe-area-inset-top, 0px) + 8px);
-      --safe-bottom:calc(env(safe-area-inset-bottom, 0px) + 8px);
       --blur:blur(14px);
-      --dock-bottom-extra:8px;
     }
 
     html.dark{
-      --glass:rgba(22,28,24,.66);
-      --glass-strong:rgba(22,28,24,.78);
+      --glass:rgba(22,28,24,.78);
       --glass-border:rgba(255,255,255,.08);
       --glass-shadow:0 16px 44px rgba(0,0,0,.38);
       --text-dark:#f3f7f2;
     }
 
-    html, body{
+    html,body{
       margin:0;
       padding:0;
       width:100%;
@@ -61,35 +55,31 @@
 
     body{ color:var(--text-dark); }
 
-    body.mobile-browser{ --dock-bottom-extra:54px; }
-    body.pwa-standalone{ --dock-bottom-extra:8px; }
-    body.desktop-view{ --dock-bottom-extra:12px; }
-
-    fv-shell,
-    .rain-page,
-    .map-stage{
+    fv-shell{
       display:block;
       width:100%;
-      height:100svh;
-      min-height:100svh;
+      height:100%;
     }
 
     .rain-page{
-      position:relative;
+      position:fixed;
+      left:0;
+      right:0;
+      top:calc(var(--hdr-h, 74px) + env(safe-area-inset-top, 0px));
+      bottom:calc(var(--ftr-h, 42px));
       overflow:hidden;
       background:#233125;
     }
 
-    .map-stage{
-      position:relative;
-      overflow:hidden;
-    }
-
+    .map-stage,
     #rainMap{
       position:absolute;
       inset:0;
       width:100%;
       height:100%;
+    }
+
+    #rainMap{
       background:#dfe5dd;
     }
 
@@ -103,9 +93,9 @@
 
     .top-tools{
       position:absolute;
-      top:var(--safe-top);
+      top:10px;
       right:10px;
-      z-index:25;
+      z-index:30;
       pointer-events:none;
     }
 
@@ -119,7 +109,7 @@
       place-items:center;
       cursor:pointer;
       color:var(--text-dark);
-      background:var(--glass-strong);
+      background:var(--glass);
       border:1px solid var(--glass-border);
       box-shadow:var(--glass-shadow);
       backdrop-filter:var(--blur);
@@ -139,8 +129,8 @@
       position:absolute;
       top:58px;
       right:0;
-      z-index:30;
-      width:min(280px, calc(100vw - 20px));
+      z-index:31;
+      width:min(290px, calc(100vw - 20px));
       padding:12px;
       border-radius:18px;
       display:none;
@@ -196,7 +186,7 @@
       min-height:44px;
       border:none;
       border-radius:14px;
-      background:color-mix(in srgb, var(--accent) 88%, #ffffff 12%);
+      background:color-mix(in srgb, #2F6C3C 88%, #ffffff 12%);
       color:#fff;
       font:inherit;
       font-size:15px;
@@ -234,7 +224,7 @@
 
     .left-legend{
       position:absolute;
-      left:6px;
+      left:8px;
       top:50%;
       transform:translateY(-50%);
       z-index:18;
@@ -294,24 +284,6 @@
     .legend-label.l6{ bottom:18%; }
     .legend-label.l7{ bottom:0; transform:translateY(0); }
 
-    @media (max-width:680px){
-      .left-legend{
-        left:4px;
-        width:30px;
-      }
-      .legend-wrap{
-        height:min(38vh, 280px);
-        min-height:180px;
-      }
-      .legend-bar{
-        width:10px;
-      }
-      .legend-label{
-        left:15px;
-        font-size:9px;
-      }
-    }
-
     .popup-card{
       max-width:220px;
       font-size:13px;
@@ -324,13 +296,9 @@
       margin:0 0 4px;
     }
 
-    .popup-card .mono{
-      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
-      font-weight:800;
-    }
-
     .mono{
       font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+      font-weight:800;
     }
 
     @media (max-width:680px){
@@ -338,9 +306,29 @@
         width:44px;
         height:44px;
       }
+
       .panel-menu{
         top:52px;
         width:min(270px, calc(100vw - 16px));
+      }
+
+      .left-legend{
+        left:4px;
+        width:30px;
+      }
+
+      .legend-wrap{
+        height:min(38vh, 280px);
+        min-height:180px;
+      }
+
+      .legend-bar{
+        width:10px;
+      }
+
+      .legend-label{
+        left:15px;
+        font-size:9px;
       }
     }
   </style>
@@ -432,16 +420,24 @@
   </fv-shell>
 
   <script type="module">
-    import { initializeApp, getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-    import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
-    import { getFirestore, collection, getDocs } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+    import {
+      initializeApp, getApps, getApp
+    } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+    import {
+      getAuth, onAuthStateChanged
+    } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+    import {
+      getFirestore, collection, getDocs, query, orderBy, limit, documentId
+    } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
     'use strict';
 
     const FIELDS_COLLECTION = 'fields';
     const MRMS_COLLECTION = 'field_mrms_weather';
     const MRMS_HOURLY_SUBCOLLECTION = 'mrms_hourly';
-    const HOURLY_TTL_MS = 90 * 1000;
+    const HOURLY_TTL_MS = 2 * 60 * 1000;
+    const RANGE_CACHE = new Map();
+    const HOURLY_CONCURRENCY = 4;
 
     let map = null;
     let infoWindow = null;
@@ -482,6 +478,10 @@
       return Number.isFinite(n) ? n : null;
     }
 
+    function sleep(ms){
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
     function escapeHtml(s){
       return String(s || '')
         .replaceAll('&', '&amp;')
@@ -503,6 +503,38 @@
       }catch(_){
         return undefined;
       }
+    }
+
+    async function retry(fn, tries=3, waitMs=300){
+      let lastErr = null;
+      for (let i=0;i<tries;i++){
+        try{
+          return await fn();
+        }catch(err){
+          lastErr = err;
+          if (i < tries - 1) await sleep(waitMs * (i + 1));
+        }
+      }
+      throw lastErr;
+    }
+
+    async function runPool(items, limitCount, worker){
+      const out = [];
+      let idx = 0;
+
+      async function next(){
+        while (idx < items.length){
+          const my = idx++;
+          out[my] = await worker(items[my], my);
+        }
+      }
+
+      const runners = [];
+      for (let i=0;i<Math.min(limitCount, items.length);i++){
+        runners.push(next());
+      }
+      await Promise.all(runners);
+      return out;
     }
 
     function detectLayoutMode(){
@@ -636,7 +668,7 @@
     async function loadActiveFields(){
       if (!dbRef) await initFirebase();
 
-      const snap = await getDocs(collection(dbRef, FIELDS_COLLECTION));
+      const snap = await retry(() => getDocs(collection(dbRef, FIELDS_COLLECTION)), 3, 250);
       const out = [];
 
       snap.forEach(docSnap=>{
@@ -649,12 +681,12 @@
       return out;
     }
 
-    function hoursForRange(range){
-      if (range === '24h') return 24;
-      if (range === '48h') return 48;
-      if (range === '72h') return 72;
-      if (range === '7d') return 24 * 7;
-      return null;
+    function docsNeededForRange(range){
+      if (range === '24h') return 26;
+      if (range === '48h') return 52;
+      if (range === '72h') return 76;
+      if (range === '7d') return 176;
+      return 24 * 35;
     }
 
     function isCurrentMonth(ts){
@@ -704,19 +736,23 @@
       return NaN;
     }
 
-    async function loadHourlyDocsForField(fieldId, { force=false } = {}){
+    async function loadHourlyDocsForField(fieldId, range, { force=false } = {}){
       const fid = String(fieldId || '');
       if (!fid) return [];
 
-      const cached = hourlyCache.get(fid);
+      const cacheKey = fid + '|' + range;
+      const cached = hourlyCache.get(cacheKey);
       if (!force && cached && (Date.now() - cached.loadedAt) < HOURLY_TTL_MS){
         return cached.rows;
       }
 
       if (!dbRef) await initFirebase();
 
+      const docsNeeded = docsNeededForRange(range);
       const colRef = collection(dbRef, MRMS_COLLECTION, fid, MRMS_HOURLY_SUBCOLLECTION);
-      const snap = await getDocs(colRef);
+      const q = query(colRef, orderBy(documentId(), 'desc'), limit(docsNeeded));
+
+      const snap = await retry(() => getDocs(q), 3, 250);
       const rows = [];
 
       snap.forEach(docSnap=>{
@@ -728,7 +764,7 @@
 
       rows.sort((a,b)=> parseHourlyDocTimestamp(a.id, a.data) - parseHourlyDocTimestamp(b.id, b.data));
 
-      hourlyCache.set(fid, {
+      hourlyCache.set(cacheKey, {
         loadedAt: Date.now(),
         rows
       });
@@ -738,14 +774,10 @@
 
     function aggregatePointSamples(field, hourlyRows, range){
       const out = new Map();
-      const needHours = hoursForRange(range);
 
       let rows = hourlyRows.slice();
-
       if (range === 'mtd'){
         rows = rows.filter(r => isCurrentMonth(parseHourlyDocTimestamp(r.id, r.data)));
-      } else if (needHours){
-        rows = rows.slice(-needHours);
       }
 
       rows.forEach(row=>{
@@ -903,17 +935,12 @@
       const bounds = computeFieldBounds(fields);
       if (bounds.isEmpty()) return;
 
-      map.fitBounds(bounds, {
-        top: 24,
-        right: 24,
-        bottom: 24,
-        left: 24
-      });
+      map.fitBounds(bounds, 0);
 
       google.maps.event.addListenerOnce(map, 'idle', ()=>{
         const z = map.getZoom();
-        if (Number.isFinite(z) && z < 11) map.setZoom(11);
-        if (Number.isFinite(z) && z > 14) map.setZoom(14);
+        if (Number.isFinite(z) && z < 10) map.setZoom(10);
+        if (Number.isFinite(z) && z > 13) map.setZoom(13);
       });
     }
 
@@ -939,11 +966,11 @@
         const center = { lat, lng };
 
         const layers = [
-          { scale:2.05, opacity:0.035 + (n * 0.060) },
-          { scale:1.60, opacity:0.055 + (n * 0.085) },
-          { scale:1.20, opacity:0.080 + (n * 0.110) },
-          { scale:0.90, opacity:0.110 + (n * 0.130) },
-          { scale:0.62, opacity:0.130 + (n * 0.140) }
+          { scale:2.15, opacity:0.035 + (n * 0.060) },
+          { scale:1.68, opacity:0.055 + (n * 0.085) },
+          { scale:1.26, opacity:0.080 + (n * 0.110) },
+          { scale:0.92, opacity:0.110 + (n * 0.130) },
+          { scale:0.64, opacity:0.130 + (n * 0.140) }
         ];
 
         layers.forEach(layer=>{
@@ -1037,22 +1064,31 @@
 
       const points = [];
 
-      const jobs = fields.map(async (field)=>{
+      await runPool(fields, HOURLY_CONCURRENCY, async (field)=>{
         try{
-          const hourlyRows = await loadHourlyDocsForField(field.id, { force });
+          const hourlyRows = await loadHourlyDocsForField(field.id, range, { force });
           const fieldPoints = aggregatePointSamples(field, hourlyRows, range);
-
-          if (fieldPoints.length){
-            points.push(...fieldPoints);
-          }
+          if (fieldPoints.length) points.push(...fieldPoints);
         }catch(err){
           console.warn('[Dev Rain Map] hourly MRMS load failed for field:', field && field.id, err);
         }
       });
 
-      await Promise.allSettled(jobs);
-
       return { points, fields };
+    }
+
+    function cacheRangeResult(range, data){
+      RANGE_CACHE.set(range, {
+        ts: Date.now(),
+        data
+      });
+    }
+
+    function getCachedRangeResult(range){
+      const hit = RANGE_CACHE.get(range);
+      if (!hit) return null;
+      if ((Date.now() - hit.ts) > (5 * 60 * 1000)) return null;
+      return hit.data;
     }
 
     async function renderRain(force=false){
@@ -1076,21 +1112,36 @@
         const points = Array.isArray(res.points) ? res.points : [];
         const fields = Array.isArray(res.fields) ? res.fields : [];
 
-        lastFieldPointSummaries = buildFieldSummaries(fields, points);
+        if (points.length){
+          cacheRangeResult(currentRange, { points, fields });
+        }
 
-        if (!points.length){
+        const finalData = points.length ? { points, fields } : getCachedRangeResult(currentRange) || { points, fields };
+        const finalPoints = Array.isArray(finalData.points) ? finalData.points : [];
+        const finalFields = Array.isArray(finalData.fields) ? finalData.fields : fields;
+
+        lastFieldPointSummaries = buildFieldSummaries(finalFields, finalPoints);
+
+        if (!finalPoints.length){
           clearMapOverlays();
           setPointMeta(0);
           updateLegendDynamic(0.1, 1.0);
-          fitToFields(fields);
+          fitToFields(finalFields);
           setStatus('No points');
           return;
         }
 
-        drawRadarLikeBlobs(points, fields);
-        setStatus('Live');
+        drawRadarLikeBlobs(finalPoints, finalFields);
+        setStatus(points.length ? 'Live' : 'Cached');
       }catch(e){
         console.warn('[Dev Rain Map] render failed:', e);
+        const cached = getCachedRangeResult(currentRange);
+        if (cached){
+          lastFieldPointSummaries = buildFieldSummaries(cached.fields, cached.points);
+          drawRadarLikeBlobs(cached.points, cached.fields);
+          setStatus('Cached');
+          return;
+        }
         clearMapOverlays();
         setPointMeta(0);
         setStatus('Load failed');
