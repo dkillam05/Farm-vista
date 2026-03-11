@@ -14,7 +14,6 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- Use same app boot/config path as the working app -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
   <script src="/Farm-vista/js/firebase-init.js"></script>
 
@@ -32,47 +31,52 @@
   <style>
     :root{
       --accent:#2F6C3C;
-      --overlay-bg:rgba(255,255,255,.94);
-      --overlay-border:rgba(0,0,0,.08);
-      --overlay-shadow:0 16px 42px rgba(0,0,0,.20);
-      --safe-top:calc(env(safe-area-inset-top, 0px) + 10px);
+      --glass:rgba(255,255,255,.78);
+      --glass-border:rgba(255,255,255,.22);
+      --glass-shadow:0 18px 48px rgba(0,0,0,.22);
+      --text-dark:#1B231E;
+      --safe-top:calc(env(safe-area-inset-top, 0px) + 8px);
       --safe-bottom:calc(env(safe-area-inset-bottom, 0px) + 10px);
+      --dock-blur:blur(14px);
     }
 
     html.dark{
-      --overlay-bg:rgba(28,32,29,.92);
-      --overlay-border:rgba(255,255,255,.08);
-      --overlay-shadow:0 18px 50px rgba(0,0,0,.42);
+      --glass:rgba(24,29,26,.72);
+      --glass-border:rgba(255,255,255,.10);
+      --glass-shadow:0 18px 56px rgba(0,0,0,.45);
+      --text-dark:#F3F6F2;
+    }
+
+    html, body{
+      margin:0;
+      height:100%;
+      overflow:hidden;
+      background:#1f2e21;
     }
 
     body{
-      margin:0;
-      background:var(--app-bg,var(--surface));
-      overflow:hidden;
+      color:var(--text-dark);
     }
 
     fv-shell,
-    fv-shell > .dev-shell{
+    fv-shell > .page,
+    .page,
+    .map-stage{
       display:block;
+      width:100%;
       height:100svh;
       min-height:100svh;
     }
 
-    .dev-shell{
+    .page{
       position:relative;
-      width:100%;
-      height:100svh;
-      min-height:100svh;
       overflow:hidden;
-      background:var(--surface);
+      background:#223126;
     }
 
     .map-stage{
       position:relative;
-      width:100%;
-      height:100%;
-      min-height:100%;
-      background:#e8ede7;
+      overflow:hidden;
     }
 
     #rainMap{
@@ -80,34 +84,33 @@
       inset:0;
       width:100%;
       height:100%;
-      background:#e8ede7;
+      background:#dfe6dc;
     }
 
-    .overlay{
+    .glass{
+      background:var(--glass);
+      border:1px solid var(--glass-border);
+      box-shadow:var(--glass-shadow);
+      backdrop-filter:var(--dock-blur);
+      -webkit-backdrop-filter:var(--dock-blur);
+    }
+
+    .topbar{
       position:absolute;
-      z-index:10;
-      border:1px solid var(--overlay-border);
-      background:var(--overlay-bg);
-      color:var(--text);
-      box-shadow:var(--overlay-shadow);
-      backdrop-filter:blur(10px);
-      -webkit-backdrop-filter:blur(10px);
-    }
-
-    .controls{
       top:var(--safe-top);
       left:50%;
       transform:translateX(-50%);
-      width:min(940px, calc(100vw - 24px));
-      border-radius:18px;
+      z-index:20;
+      width:min(780px, calc(100vw - 18px));
+      border-radius:24px;
       padding:10px;
     }
 
-    .controls-grid{
+    .topbar-grid{
       display:grid;
-      grid-template-columns:minmax(150px, 200px) minmax(150px, 200px) minmax(110px, 130px) 1fr;
+      grid-template-columns:1fr 1fr auto auto;
       gap:10px;
-      align-items:end;
+      align-items:center;
     }
 
     .field{
@@ -116,131 +119,228 @@
 
     .field label{
       display:block;
-      margin:0 0 6px;
-      font-size:12px;
+      font-size:11px;
+      line-height:1.1;
       font-weight:900;
-      color:var(--text);
+      margin:0 0 5px;
+      color:var(--text-dark);
+      opacity:.90;
+      letter-spacing:.02em;
+      text-transform:uppercase;
     }
 
     .select,
-    .input,
     .btn{
       width:100%;
       font:inherit;
       font-size:16px;
-      border-radius:12px;
-      outline:none;
+      border-radius:16px;
       box-sizing:border-box;
+      outline:none;
     }
 
-    .select,
-    .input{
-      color:var(--text);
-      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
-      border:1px solid var(--border);
-      padding:12px;
-    }
-
-    .btn{
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      gap:8px;
-      padding:12px 14px;
-      border:1px solid transparent;
-      background:var(--accent);
-      color:#fff !important;
-      font-weight:900;
-      cursor:pointer;
-      user-select:none;
-      -webkit-tap-highlight-color:transparent;
-    }
-
-    .btn:active{ transform:translateY(1px); }
-    .btn:disabled{ opacity:.6; cursor:not-allowed; transform:none; }
-
-    .status-pill{
-      display:flex;
-      align-items:center;
-      justify-content:flex-start;
-      min-height:48px;
-      padding:12px 14px;
-      border-radius:12px;
-      border:1px solid var(--border);
-      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
-      color:var(--text);
-      font-size:13px;
-      line-height:1.2;
+    .select{
+      appearance:none;
+      -webkit-appearance:none;
+      border:1px solid rgba(0,0,0,.08);
+      background:
+        linear-gradient(45deg, transparent 50%, rgba(0,0,0,.45) 50%),
+        linear-gradient(135deg, rgba(0,0,0,.45) 50%, transparent 50%),
+        color-mix(in srgb, var(--surface) 90%, #ffffff 10%);
+      background-position:
+        calc(100% - 22px) calc(50% - 3px),
+        calc(100% - 14px) calc(50% - 3px),
+        0 0;
+      background-size:8px 8px, 8px 8px, 100% 100%;
+      background-repeat:no-repeat;
+      color:var(--text-dark);
+      padding:13px 40px 13px 14px;
       font-weight:800;
     }
 
-    .status-pill.error{
-      color:#b00020;
-      border-color:rgba(176,0,32,.20);
-      background:color-mix(in srgb, #b00020 7%, var(--surface) 93%);
+    .btn{
+      border:1px solid rgba(0,0,0,.06);
+      background:#2F6C3C;
+      color:#fff !important;
+      padding:13px 16px;
+      font-weight:900;
+      cursor:pointer;
+      white-space:nowrap;
     }
 
-    .legend{
-      right:12px;
-      bottom:var(--safe-bottom);
-      width:min(220px, calc(100vw - 24px));
+    .btn:active{ transform:translateY(1px); }
+    .btn:disabled{ opacity:.65; cursor:not-allowed; }
+
+    .status-pill{
+      min-width:120px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:13px 14px;
       border-radius:16px;
-      padding:12px 14px;
+      font-size:13px;
+      font-weight:900;
+      line-height:1.15;
+      color:var(--text-dark);
+      background:color-mix(in srgb, var(--surface) 87%, #ffffff 13%);
+      border:1px solid rgba(0,0,0,.06);
+      text-align:center;
+    }
+
+    .status-pill.error{
+      color:#8f1028;
+      background:color-mix(in srgb, #ffdfe5 70%, #ffffff 30%);
+      border-color:rgba(143,16,40,.16);
+    }
+
+    .legend-rail{
+      position:absolute;
+      left:10px;
+      top:50%;
+      transform:translateY(-50%);
+      z-index:18;
+      width:64px;
+      border-radius:22px;
+      padding:10px 8px 12px;
+      text-align:center;
     }
 
     .legend-title{
-      font-size:12px;
+      font-size:10px;
       font-weight:900;
+      letter-spacing:.08em;
+      text-transform:uppercase;
       margin:0 0 8px;
-      color:var(--text);
+      color:var(--text-dark);
+      opacity:.80;
     }
 
-    .legend-sub{
-      margin:0 0 8px;
-      font-size:11px;
-      color:var(--muted,#67706B);
-      line-height:1.25;
-    }
-
-    .legend-row{
+    .legend-bar-wrap{
       display:flex;
-      align-items:center;
+      align-items:stretch;
+      justify-content:center;
       gap:8px;
-      font-size:12px;
-      margin:6px 0;
-      color:var(--text);
     }
 
-    .swatch{
-      width:16px;
-      height:16px;
+    .legend-bar{
+      width:18px;
+      height:min(48vh, 380px);
+      min-height:220px;
       border-radius:999px;
-      border:1px solid rgba(0,0,0,.15);
-      flex:0 0 auto;
+      border:1px solid rgba(255,255,255,.24);
+      background:
+        linear-gradient(
+          to top,
+          #5aa7ff 0%,
+          #69c6ff 8%,
+          #61dd84 20%,
+          #54cf4f 34%,
+          #cfe34a 48%,
+          #f3d948 62%,
+          #f6ae37 76%,
+          #f56045 88%,
+          #9f37e8 100%
+        );
+      box-shadow:inset 0 0 0 1px rgba(0,0,0,.04);
+    }
+
+    .legend-labels{
+      display:flex;
+      flex-direction:column;
+      justify-content:space-between;
+      align-items:flex-start;
+      height:min(48vh, 380px);
+      min-height:220px;
+      padding:3px 0;
+    }
+
+    .legend-labels span{
+      font-size:11px;
+      font-weight:900;
+      color:var(--text-dark);
+      line-height:1;
+      white-space:nowrap;
+      text-shadow:0 1px 0 rgba(255,255,255,.20);
+    }
+
+    .bottom-dock{
+      position:absolute;
+      left:50%;
+      bottom:calc(var(--safe-bottom) + var(--ftr-h, 42px) + 6px);
+      transform:translateX(-50%);
+      z-index:20;
+      width:min(690px, calc(100vw - 18px));
+      border-radius:28px;
+      padding:10px 10px 12px;
+    }
+
+    .bottom-head{
+      text-align:center;
+      font-size:11px;
+      font-weight:900;
+      letter-spacing:.16em;
+      text-transform:uppercase;
+      color:var(--text-dark);
+      opacity:.72;
+      margin-bottom:8px;
+    }
+
+    .range-row{
+      display:grid;
+      grid-template-columns:repeat(5, 1fr);
+      gap:8px;
+    }
+
+    .range-btn{
+      appearance:none;
+      -webkit-appearance:none;
+      border:none;
+      border-radius:999px;
+      padding:13px 8px;
+      font:inherit;
+      font-size:16px;
+      font-weight:900;
+      color:rgba(0,0,0,.58);
+      background:rgba(255,255,255,.48);
+      cursor:pointer;
+      transition:transform .08s ease, background .12s ease, color .12s ease, box-shadow .12s ease;
+    }
+
+    html.dark .range-btn{
+      color:rgba(255,255,255,.72);
+      background:rgba(255,255,255,.10);
+    }
+
+    .range-btn:active{ transform:translateY(1px); }
+
+    .range-btn.active{
+      color:#1678ff;
+      background:#f6fbff;
+      box-shadow:inset 0 0 0 3px #2da1ff;
+    }
+
+    html.dark .range-btn.active{
+      color:#fff;
+      background:rgba(64,133,255,.26);
+      box-shadow:inset 0 0 0 3px #4fa3ff;
     }
 
     .mini-meta{
       position:absolute;
-      left:12px;
-      bottom:var(--safe-bottom);
-      z-index:10;
-      display:flex;
-      flex-wrap:wrap;
+      right:10px;
+      top:calc(var(--safe-top) + 86px);
+      z-index:18;
+      display:grid;
       gap:8px;
-      max-width:calc(100vw - 260px);
+      justify-items:end;
     }
 
     .mini-chip{
-      border:1px solid var(--overlay-border);
-      background:var(--overlay-bg);
-      color:var(--text);
-      box-shadow:var(--overlay-shadow);
-      backdrop-filter:blur(10px);
-      -webkit-backdrop-filter:blur(10px);
+      padding:9px 12px;
       border-radius:999px;
-      padding:8px 12px;
       font-size:12px;
       font-weight:900;
+      color:var(--text-dark);
       white-space:nowrap;
     }
 
@@ -248,35 +348,103 @@
       font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
     }
 
-    @media (max-width:980px){
-      .controls-grid{
+    @media (max-width:860px){
+      .topbar{
+        width:calc(100vw - 14px);
+      }
+
+      .topbar-grid{
         grid-template-columns:1fr 1fr;
+      }
+
+      .status-pill{
+        min-height:48px;
+      }
+
+      .mini-meta{
+        top:auto;
+        right:10px;
+        bottom:calc(var(--safe-bottom) + var(--ftr-h, 42px) + 106px);
       }
     }
 
     @media (max-width:640px){
-      .controls{
-        top:calc(env(safe-area-inset-top, 0px) + 8px);
-        width:calc(100vw - 16px);
+      .topbar{
+        top:calc(env(safe-area-inset-top, 0px) + 6px);
         padding:8px;
-        border-radius:16px;
+        border-radius:22px;
+        width:calc(100vw - 12px);
       }
 
-      .controls-grid{
+      .topbar-grid{
         grid-template-columns:1fr;
         gap:8px;
       }
 
-      .legend{
-        right:8px;
-        bottom:calc(env(safe-area-inset-bottom, 0px) + 8px);
-        width:min(190px, calc(100vw - 16px));
+      .field label{
+        font-size:10px;
+        margin-bottom:4px;
+      }
+
+      .select,
+      .btn{
+        font-size:15px;
+        border-radius:14px;
+        padding-top:12px;
+        padding-bottom:12px;
+      }
+
+      .status-pill{
+        font-size:12px;
+        padding:11px 12px;
+      }
+
+      .legend-rail{
+        left:6px;
+        width:56px;
+        padding:8px 6px 10px;
+        border-radius:18px;
+      }
+
+      .legend-bar{
+        width:15px;
+        min-height:180px;
+        height:min(38vh, 300px);
+      }
+
+      .legend-labels{
+        min-height:180px;
+        height:min(38vh, 300px);
+      }
+
+      .legend-labels span{
+        font-size:10px;
+      }
+
+      .bottom-dock{
+        width:calc(100vw - 12px);
+        padding:8px 8px 10px;
+        border-radius:22px;
+        bottom:calc(var(--safe-bottom) + var(--ftr-h, 42px) + 4px);
+      }
+
+      .bottom-head{
+        font-size:10px;
+        margin-bottom:6px;
+      }
+
+      .range-row{
+        gap:6px;
+      }
+
+      .range-btn{
+        font-size:15px;
+        padding:12px 4px;
       }
 
       .mini-meta{
-        left:8px;
-        bottom:calc(env(safe-area-inset-bottom, 0px) + 8px);
-        max-width:calc(100vw - 214px);
+        right:6px;
+        bottom:calc(var(--safe-bottom) + var(--ftr-h, 42px) + 96px);
         gap:6px;
       }
 
@@ -290,34 +458,34 @@
 
 <body>
   <fv-shell data-boot-hold-ms="3000">
-    <div class="dev-shell">
+    <div class="page">
       <div class="map-stage">
         <div id="rainMap" aria-label="Rain map"></div>
 
-        <div class="overlay controls" aria-label="Rain map controls">
-          <div class="controls-grid">
+        <div class="glass topbar">
+          <div class="topbar-grid">
             <div class="field">
-              <label for="rainRangeSel">Rain range</label>
-              <select id="rainRangeSel" class="select">
-                <option value="24h">Last 24 hours</option>
-                <option value="48h" selected>Last 48 hours</option>
-                <option value="7d">Last 7 days</option>
-                <option value="30d">Last 30 days</option>
+              <label for="viewSel">Map style</label>
+              <select id="viewSel" class="select">
+                <option value="hybrid" selected>Satellite Hybrid</option>
+                <option value="roadmap">Road Map</option>
+                <option value="terrain">Terrain</option>
               </select>
             </div>
 
             <div class="field">
-              <label for="radiusSel">Circle radius</label>
+              <label for="radiusSel">Smoothing</label>
               <select id="radiusSel" class="select">
-                <option value="350">Small</option>
-                <option value="550" selected>Medium</option>
-                <option value="800">Large</option>
+                <option value="34">Tight</option>
+                <option value="52" selected>Medium</option>
+                <option value="74">Broad</option>
+                <option value="96">Max</option>
               </select>
             </div>
 
             <div class="field">
               <label for="btnRefresh">Refresh</label>
-              <button id="btnRefresh" class="btn" type="button">Reload Map</button>
+              <button id="btnRefresh" class="btn" type="button">Reload</button>
             </div>
 
             <div class="field">
@@ -327,28 +495,45 @@
           </div>
         </div>
 
-        <div class="mini-meta">
-          <div class="mini-chip">Basemap: <span class="mono">HYBRID</span></div>
-          <div class="mini-chip" id="fieldsMeta">Fields: <span class="mono">0</span></div>
-          <div class="mini-chip" id="pointCountMeta">Points: <span class="mono">0</span></div>
+        <div class="glass legend-rail" aria-label="Rainfall legend">
+          <div class="legend-title">Rain</div>
+          <div class="legend-bar-wrap">
+            <div class="legend-bar" aria-hidden="true"></div>
+            <div class="legend-labels">
+              <span>10"+</span>
+              <span>6"</span>
+              <span>4"</span>
+              <span>2"</span>
+              <span>1"</span>
+              <span>.5"</span>
+              <span>.1"</span>
+            </div>
+          </div>
         </div>
 
-        <div class="overlay legend" aria-label="Rainfall legend">
-          <div class="legend-title">Rainfall scale</div>
-          <div class="legend-sub">Live MRMS point totals by selected range.</div>
-          <div class="legend-row"><span class="swatch" style="background:#ffd400;"></span><span>&lt; 0.50 in</span></div>
-          <div class="legend-row"><span class="swatch" style="background:#6bd46b;"></span><span>0.50–0.99 in</span></div>
-          <div class="legend-row"><span class="swatch" style="background:#2fa62f;"></span><span>1.00–1.99 in</span></div>
-          <div class="legend-row"><span class="swatch" style="background:#3388ff;"></span><span>2.00–2.99 in</span></div>
-          <div class="legend-row"><span class="swatch" style="background:#ff3333;"></span><span>3.00–3.99 in</span></div>
-          <div class="legend-row"><span class="swatch" style="background:#7a00cc;"></span><span>4.00+ in</span></div>
+        <div class="mini-meta">
+          <div class="glass mini-chip" id="fieldsMeta">Fields: <span class="mono">0</span></div>
+          <div class="glass mini-chip" id="pointCountMeta">Points: <span class="mono">0</span></div>
+        </div>
+
+        <div class="glass bottom-dock">
+          <div class="bottom-head" id="rangeTitle">Rain — Past 48 Hours</div>
+          <div class="range-row">
+            <button class="range-btn" type="button" data-range="24h">24h</button>
+            <button class="range-btn active" type="button" data-range="48h">48h</button>
+            <button class="range-btn" type="button" data-range="72h">72h</button>
+            <button class="range-btn" type="button" data-range="7d">7d</button>
+            <button class="range-btn" type="button" data-range="mtd">MTD</button>
+          </div>
         </div>
       </div>
     </div>
   </fv-shell>
 
   <script type="module">
-    import { getAPI } from '/Farm-vista/js/field-readiness/firebase.js';
+    import { initializeApp, getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+    import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+    import { getFirestore, collection, getDocs } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
     import { loadFieldMrmsDoc } from '/Farm-vista/js/field-readiness/data.js';
     import { mrmsRainInRange } from '/Farm-vista/js/field-readiness/rain.js';
 
@@ -360,9 +545,10 @@
     };
 
     let map = null;
+    let heatmap = null;
     let infoWindow = null;
-    let circles = [];
     let clickMarkers = [];
+    let currentRange = '48h';
     let currentRequestId = 0;
 
     function $(id){ return document.getElementById(id); }
@@ -384,42 +570,13 @@
       if (el) el.innerHTML = 'Points: <span class="mono">' + String(Number(n || 0)) + '</span>';
     }
 
-    function rainColor(v){
-      const n = Number(v) || 0;
-      if (n < 0.5) return '#ffd400';
-      if (n < 1.0) return '#6bd46b';
-      if (n < 2.0) return '#2fa62f';
-      if (n < 3.0) return '#3388ff';
-      if (n < 4.0) return '#ff3333';
-      return '#7a00cc';
+    function lower(s){
+      return String(s || '').trim().toLowerCase();
     }
 
-    function clearRainLayers(){
-      circles.forEach(x => { try{ x.setMap(null); }catch(_){} });
-      clickMarkers.forEach(x => { try{ x.setMap(null); }catch(_){} });
-      circles = [];
-      clickMarkers = [];
-      setPointMeta(0);
-    }
-
-    function ensureMap(){
-      if (map) return map;
-      if (!(window.google && window.google.maps)){
-        throw new Error('Google Maps is not loaded.');
-      }
-
-      map = new google.maps.Map($('rainMap'), {
-        center: { lat:39.800, lng:-91.150 },
-        zoom: 9,
-        mapTypeId: google.maps.MapTypeId.HYBRID,
-        streetViewControl: false,
-        fullscreenControl: false,
-        mapTypeControl: true,
-        clickableIcons: false
-      });
-
-      infoWindow = new google.maps.InfoWindow();
-      return map;
+    function toNum(v){
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
     }
 
     function escapeHtml(s){
@@ -431,27 +588,137 @@
         .replaceAll("'", '&#39;');
     }
 
-    function toNum(v){
-      const n = Number(v);
-      return Number.isFinite(n) ? n : null;
+    function wait(ms){
+      return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    function lower(s){
-      return String(s || '').trim().toLowerCase();
+    function waitForGoogleMaps(timeoutMs=20000){
+      const started = Date.now();
+      return new Promise((resolve, reject)=>{
+        const tick = ()=>{
+          if (window.google && window.google.maps && window.google.maps.visualization){
+            resolve(window.google.maps);
+            return;
+          }
+          if (Date.now() - started > timeoutMs){
+            reject(new Error('Google Maps is still loading.'));
+            return;
+          }
+          setTimeout(tick, 80);
+        };
+        tick();
+      });
     }
 
-    function rangeHours(range){
-      if (range === '24h') return 24;
-      if (range === '48h') return 48;
-      if (range === '7d')  return 24 * 7;
-      return 24 * 30;
+    function firebaseConfig(){
+      const cfg = window.FV_FIREBASE_CONFIG || null;
+      if (!cfg || typeof cfg !== 'object') throw new Error('Firebase config is missing.');
+      return cfg;
     }
 
-    function rangeDays(range){
-      if (range === '24h') return 1;
-      if (range === '48h') return 2;
-      if (range === '7d')  return 7;
-      return 30;
+    async function getFirebaseClients(){
+      const cfg = firebaseConfig();
+      const app = getApps().length ? getApp() : initializeApp(cfg);
+      const auth = getAuth(app);
+      const db = getFirestore(app);
+
+      await new Promise(resolve=>{
+        let done = false;
+        const off = onAuthStateChanged(auth, ()=>{
+          if (done) return;
+          done = true;
+          try{ off(); }catch(_){}
+          resolve();
+        }, ()=>{
+          if (done) return;
+          done = true;
+          try{ off(); }catch(_){}
+          resolve();
+        });
+        setTimeout(()=>{
+          if (done) return;
+          done = true;
+          try{ off(); }catch(_){}
+          resolve();
+        }, 2500);
+      });
+
+      return { app, auth, db };
+    }
+
+    async function loadActiveFields(){
+      const { db } = await getFirebaseClients();
+      const snap = await getDocs(collection(db, 'fields'));
+      const out = [];
+
+      snap.forEach(docSnap=>{
+        const d = docSnap.data() || {};
+        const lat = toNum(d && d.location && d.location.lat);
+        const lng = toNum(d && d.location && d.location.lng);
+        if (lat == null || lng == null) return;
+
+        const archived = !!(d.archived === true || d.isArchived === true || d.inactive === true);
+        const status = lower(d.status);
+        if (archived) return;
+        if (status === 'archived' || status === 'inactive') return;
+
+        out.push({
+          id: docSnap.id,
+          name: String(d.name || d.fieldName || 'Field'),
+          farmId: String(d.farmId || ''),
+          location: { lat, lng }
+        });
+      });
+
+      return out;
+    }
+
+    function ensureMap(){
+      if (map) return map;
+      if (!(window.google && window.google.maps)) throw new Error('Google Maps is not loaded.');
+
+      map = new google.maps.Map($('rainMap'), {
+        center: { lat:39.800, lng:-91.150 },
+        zoom: 8,
+        mapTypeId: google.maps.MapTypeId.HYBRID,
+        streetViewControl: false,
+        fullscreenControl: false,
+        mapTypeControl: false,
+        clickableIcons: false,
+        gestureHandling: 'greedy'
+      });
+
+      infoWindow = new google.maps.InfoWindow();
+
+      heatmap = new google.maps.visualization.HeatmapLayer({
+        data: [],
+        map,
+        dissipating: true,
+        opacity: 0.72,
+        radius: Number($('radiusSel')?.value || 52),
+        gradient: [
+          'rgba(52, 119, 255, 0.00)',
+          'rgba(90, 167, 255, 0.28)',
+          'rgba(88, 192, 255, 0.40)',
+          'rgba(98, 217, 129, 0.52)',
+          'rgba(84, 207, 79, 0.62)',
+          'rgba(192, 224, 71, 0.72)',
+          'rgba(243, 217, 72, 0.80)',
+          'rgba(246, 174, 55, 0.88)',
+          'rgba(245, 96, 69, 0.94)',
+          'rgba(159, 55, 232, 1.00)'
+        ]
+      });
+
+      return map;
+    }
+
+    function updateMapStyle(){
+      if (!map) return;
+      const v = String($('viewSel')?.value || 'hybrid').toLowerCase();
+      if (v === 'terrain') map.setMapTypeId(google.maps.MapTypeId.TERRAIN);
+      else if (v === 'roadmap') map.setMapTypeId(google.maps.MapTypeId.ROADMAP);
+      else map.setMapTypeId(google.maps.MapTypeId.HYBRID);
     }
 
     function milesToLat(miles){
@@ -472,33 +739,15 @@
       const dLng = milesToLng(miles, baseLat);
       const norm = lower(label);
 
-      if (!norm || norm === 'center' || norm === 'centre'){
-        return { lat: baseLat, lng: baseLng };
-      }
-      if (norm === 'north' || norm === 'n'){
-        return { lat: baseLat + dLat, lng: baseLng };
-      }
-      if (norm === 'south' || norm === 's'){
-        return { lat: baseLat - dLat, lng: baseLng };
-      }
-      if (norm === 'east' || norm === 'e'){
-        return { lat: baseLat, lng: baseLng + dLng };
-      }
-      if (norm === 'west' || norm === 'w'){
-        return { lat: baseLat, lng: baseLng - dLng };
-      }
-      if (norm === 'northeast' || norm === 'ne'){
-        return { lat: baseLat + (dLat * 0.72), lng: baseLng + (dLng * 0.72) };
-      }
-      if (norm === 'northwest' || norm === 'nw'){
-        return { lat: baseLat + (dLat * 0.72), lng: baseLng - (dLng * 0.72) };
-      }
-      if (norm === 'southeast' || norm === 'se'){
-        return { lat: baseLat - (dLat * 0.72), lng: baseLng + (dLng * 0.72) };
-      }
-      if (norm === 'southwest' || norm === 'sw'){
-        return { lat: baseLat - (dLat * 0.72), lng: baseLng - (dLng * 0.72) };
-      }
+      if (!norm || norm === 'center' || norm === 'centre') return { lat: baseLat, lng: baseLng };
+      if (norm === 'north' || norm === 'n') return { lat: baseLat + dLat, lng: baseLng };
+      if (norm === 'south' || norm === 's') return { lat: baseLat - dLat, lng: baseLng };
+      if (norm === 'east' || norm === 'e') return { lat: baseLat, lng: baseLng + dLng };
+      if (norm === 'west' || norm === 'w') return { lat: baseLat, lng: baseLng - dLng };
+      if (norm === 'northeast' || norm === 'ne') return { lat: baseLat + (dLat * 0.72), lng: baseLng + (dLng * 0.72) };
+      if (norm === 'northwest' || norm === 'nw') return { lat: baseLat + (dLat * 0.72), lng: baseLng - (dLng * 0.72) };
+      if (norm === 'southeast' || norm === 'se') return { lat: baseLat - (dLat * 0.72), lng: baseLng + (dLng * 0.72) };
+      if (norm === 'southwest' || norm === 'sw') return { lat: baseLat - (dLat * 0.72), lng: baseLng - (dLng * 0.72) };
       return { lat: baseLat, lng: baseLng };
     }
 
@@ -506,10 +755,160 @@
       const n = toNum(raw);
       if (n == null) return null;
       const u = lower(unitsHint);
-      if (u === 'mm' || u === 'millimeters' || u === 'millimetres'){
-        return n / 25.4;
-      }
+      if (u === 'mm' || u === 'millimeters' || u === 'millimetres') return n / 25.4;
       return n;
+    }
+
+    function rangeHours(range){
+      if (range === '24h') return 24;
+      if (range === '48h') return 48;
+      if (range === '72h') return 72;
+      if (range === '7d') return 24 * 7;
+      return null;
+    }
+
+    function rangeDays(range){
+      if (range === '7d') return 7;
+      if (range === 'mtd') return null;
+      if (range === '24h') return 1;
+      if (range === '48h') return 2;
+      if (range === '72h') return 3;
+      return 30;
+    }
+
+    function rangeTitle(range){
+      if (range === '24h') return 'Rain — Past 24 Hours';
+      if (range === '48h') return 'Rain — Past 48 Hours';
+      if (range === '72h') return 'Rain — Past 72 Hours';
+      if (range === '7d') return 'Rain — Past 7 Days';
+      return 'Rain — Month To Date';
+    }
+
+    function updateRangeUi(){
+      const title = $('rangeTitle');
+      if (title) title.textContent = rangeTitle(currentRange);
+
+      document.querySelectorAll('.range-btn').forEach(btn=>{
+        btn.classList.toggle('active', String(btn.dataset.range || '') === currentRange);
+      });
+    }
+
+    function clearClickMarkers(){
+      clickMarkers.forEach(m => { try{ m.setMap(null); }catch(_){} });
+      clickMarkers = [];
+    }
+
+    function applyHeatmap(points){
+      ensureMap();
+      clearClickMarkers();
+
+      const bounds = new google.maps.LatLngBounds();
+      const heatData = [];
+      const radius = Number($('radiusSel')?.value || 52);
+
+      points.forEach(p=>{
+        const lat = toNum(p.lat);
+        const lng = toNum(p.lng);
+        const rain = Math.max(0, Number(p.rainInches || 0));
+        if (lat == null || lng == null) return;
+
+        const pos = new google.maps.LatLng(lat, lng);
+        const weight = Math.max(1, Math.min(100, rain * 16));
+
+        heatData.push({ location: pos, weight });
+        bounds.extend(pos);
+
+        const marker = new google.maps.Marker({
+          position: pos,
+          map,
+          opacity: 0.001
+        });
+
+        marker.addListener('click', ()=>{
+          infoWindow.setContent(
+            '<div style="min-width:190px">' +
+              '<b>' + escapeHtml(p.fieldName || 'Field') + '</b><br/>' +
+              'Point: ' + escapeHtml(p.pointLabel || 'Center') + '<br/>' +
+              'Rain: <span class="mono">' + rain.toFixed(2) + ' in</span>' +
+            '</div>'
+          );
+          infoWindow.open(map, marker);
+        });
+
+        clickMarkers.push(marker);
+      });
+
+      heatmap.setData(heatData);
+      heatmap.set('radius', radius);
+
+      if (!bounds.isEmpty()){
+        map.fitBounds(bounds);
+      }
+
+      setPointMeta(heatData.length);
+    }
+
+    function dayStartLocalTs(isoish){
+      const dt = new Date(isoish);
+      if (!Number.isFinite(dt.getTime())) return NaN;
+      return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime();
+    }
+
+    function monthKeyNow(){
+      const now = new Date();
+      return { y: now.getFullYear(), m: now.getMonth() };
+    }
+
+    function sumLatestHourlyRows(rows, range){
+      const hours = rangeHours(range);
+      if (!hours || !Array.isArray(rows) || !rows.length) return null;
+
+      const usable = rows
+        .map(r => ({
+          ts: Date.parse(r && (r.ts || r.time || r.hour || r.iso || r.date || r.datetime || '')),
+          inches: valueToInches(
+            r && (r.rainInches ?? r.inches ?? r.rain_in ?? r.totalIn ?? r.rain ?? r.value ?? r.mm),
+            r && (r.units || r.unit || ((r && r.mm != null) ? 'mm' : 'in'))
+          )
+        }))
+        .filter(x => Number.isFinite(x.ts) && x.inches != null)
+        .sort((a,b) => a.ts - b.ts);
+
+      if (!usable.length) return null;
+      return usable.slice(-hours).reduce((sum, x) => sum + Number(x.inches || 0), 0);
+    }
+
+    function sumDailyRows(rows, range){
+      if (!Array.isArray(rows) || !rows.length) return null;
+
+      const usable = rows
+        .map(r => ({
+          ts: dayStartLocalTs(r && (r.date || r.day || r.ts || r.time || '')),
+          inches: valueToInches(
+            r && (r.rainInches ?? r.inches ?? r.rain_in ?? r.totalIn ?? r.rain ?? r.value ?? r.mm),
+            r && (r.units || r.unit || ((r && r.mm != null) ? 'mm' : 'in'))
+          )
+        }))
+        .filter(x => Number.isFinite(x.ts) && x.inches != null)
+        .sort((a,b) => a.ts - b.ts);
+
+      if (!usable.length) return null;
+
+      if (range === 'mtd'){
+        const now = monthKeyNow();
+        const sum = usable
+          .filter(x => {
+            const d = new Date(x.ts);
+            return d.getFullYear() === now.y && d.getMonth() === now.m;
+          })
+          .reduce((s, x) => s + Number(x.inches || 0), 0);
+
+        return sum > 0 ? sum : null;
+      }
+
+      const days = rangeDays(range);
+      if (!days) return null;
+      return usable.slice(-days).reduce((sum, x) => sum + Number(x.inches || 0), 0);
     }
 
     function pickDirectRangeValue(obj, range){
@@ -518,8 +917,9 @@
       const lookup = {
         '24h': ['24h','last24h','last24','in24h','rain24h','rain24hIn','rain24In','total24h','total24In','last24hIn','last24In'],
         '48h': ['48h','last48h','last48','in48h','rain48h','rain48hIn','rain48In','total48h','total48In','last48hIn','last48In'],
+        '72h': ['72h','last72h','last72','in72h','rain72h','rain72hIn','rain72In','total72h','total72In','last72hIn','last72In'],
         '7d':  ['7d','last7d','last7','in7d','rain7d','rain7dIn','rain7In','total7d','total7In','last7dIn','last7In'],
-        '30d': ['30d','last30d','last30','in30d','rain30d','rain30dIn','rain30In','total30d','total30In','last30dIn','last30In']
+        'mtd': ['mtd','monthToDate','month_to_date','monthtodate','rainMtd','mtdIn','mtd_inches']
       };
 
       const keys = lookup[range] || [];
@@ -536,42 +936,6 @@
       }
 
       return null;
-    }
-
-    function sumLatestHourlyRows(rows, range){
-      const hours = rangeHours(range);
-      if (!Array.isArray(rows) || !rows.length) return null;
-
-      const usable = rows
-        .map(r => ({
-          ts: Date.parse(r && (r.ts || r.time || r.hour || r.iso || r.date || r.datetime || '')),
-          inches:
-            valueToInches(r && (r.rainInches ?? r.inches ?? r.rain_in ?? r.totalIn ?? r.rain ?? r.value ?? r.mm), r && (r.units || r.unit || ((r && r.mm != null) ? 'mm' : 'in')))
-        }))
-        .filter(x => Number.isFinite(x.ts) && x.inches != null)
-        .sort((a,b) => a.ts - b.ts);
-
-      if (!usable.length) return null;
-      const slice = usable.slice(-hours);
-      return slice.reduce((sum, x) => sum + Number(x.inches || 0), 0);
-    }
-
-    function sumLatestDailyRows(rows, range){
-      const days = rangeDays(range);
-      if (!Array.isArray(rows) || !rows.length) return null;
-
-      const usable = rows
-        .map(r => ({
-          ts: Date.parse(r && (r.date || r.day || r.ts || r.time || '')),
-          inches:
-            valueToInches(r && (r.rainInches ?? r.inches ?? r.rain_in ?? r.totalIn ?? r.rain ?? r.value ?? r.mm), r && (r.units || r.unit || ((r && r.mm != null) ? 'mm' : 'in')))
-        }))
-        .filter(x => Number.isFinite(x.ts) && x.inches != null)
-        .sort((a,b) => a.ts - b.ts);
-
-      if (!usable.length) return null;
-      const slice = usable.slice(-days);
-      return slice.reduce((sum, x) => sum + Number(x.inches || 0), 0);
     }
 
     function resolvePointLatLng(field, point){
@@ -601,20 +965,19 @@
       ).trim();
     }
 
-    function pushPoint(out, seen, field, label, lat, lng, rainInches, source){
+    function pushPoint(out, seen, field, label, lat, lng, rainInches){
       if (lat == null || lng == null || rainInches == null) return;
       const key = String(field.id) + '|' + lower(label);
       if (seen.has(key)) return;
-
       seen.add(key);
+
       out.push({
         fieldId: field.id,
         fieldName: field.name || 'Field',
         pointLabel: label || 'Center',
         lat: Number(lat),
         lng: Number(lng),
-        rainInches: Number(rainInches),
-        source: String(source || 'MRMS')
+        rainInches: Number(rainInches)
       });
     }
 
@@ -626,17 +989,18 @@
 
         const label = pointLabel(point, idx === 0 ? 'Center' : ('Point ' + (idx + 1)));
         const pos = resolvePointLatLng(field, point);
+
         let inches =
           pickDirectRangeValue(point, range) ??
           sumLatestHourlyRows(point.hourly || point.hours || point.hourlyRows, range) ??
-          sumLatestDailyRows(point.daily || point.days || point.dailyRows, range);
+          sumDailyRows(point.daily || point.days || point.dailyRows, range);
 
         if (inches == null && point.inches != null) inches = valueToInches(point.inches, point.units || point.unit);
         if (inches == null && point.rainInches != null) inches = valueToInches(point.rainInches, point.units || point.unit);
         if (inches == null && point.mm != null) inches = valueToInches(point.mm, 'mm');
 
         if (pos && inches != null){
-          pushPoint(out, seen, field, label, pos.lat, pos.lng, inches, 'MRMS point');
+          pushPoint(out, seen, field, label, pos.lat, pos.lng, inches);
         }
       });
     }
@@ -646,19 +1010,21 @@
 
       Object.entries(container).forEach(([key, raw])=>{
         if (!raw || typeof raw !== 'object') return;
+
         const label = pointLabel(raw, key);
         const pos = resolvePointLatLng(field, raw);
+
         let inches =
           pickDirectRangeValue(raw, range) ??
           sumLatestHourlyRows(raw.hourly || raw.hours || raw.hourlyRows, range) ??
-          sumLatestDailyRows(raw.daily || raw.days || raw.dailyRows, range);
+          sumDailyRows(raw.daily || raw.days || raw.dailyRows, range);
 
         if (inches == null && raw.inches != null) inches = valueToInches(raw.inches, raw.units || raw.unit);
         if (inches == null && raw.rainInches != null) inches = valueToInches(raw.rainInches, raw.units || raw.unit);
         if (inches == null && raw.mm != null) inches = valueToInches(raw.mm, 'mm');
 
         if (pos && inches != null){
-          pushPoint(out, seen, field, label, pos.lat, pos.lng, inches, 'MRMS point');
+          pushPoint(out, seen, field, label, pos.lat, pos.lng, inches);
         }
       });
     }
@@ -701,10 +1067,13 @@
 
     function fallbackWeightedCenterPoint(doc, field, range){
       try{
-        const res = mrmsRainInRange(doc, range);
+        const supported = (range === '24h' || range === '48h' || range === '7d') ? range : '30d';
+        const res = mrmsRainInRange(doc, supported);
         if (!res || res.ready !== true) return null;
+
         const pos = coordsForLabel(field, 'center', 0);
         if (!pos) return null;
+
         const inches = toNum(res.inches);
         if (inches == null) return null;
 
@@ -714,146 +1083,15 @@
           pointLabel: 'Center',
           lat: pos.lat,
           lng: pos.lng,
-          rainInches: inches,
-          source: 'Weighted center fallback'
+          rainInches: inches
         }];
       }catch(_){
         return null;
       }
     }
 
-    function drawPoints(points){
-      clearRainLayers();
-
-      const gmap = ensureMap();
-      const bounds = new google.maps.LatLngBounds();
-      const radius = Number($('radiusSel')?.value || 550);
-
-      points.forEach((p)=>{
-        const lat = toNum(p.lat);
-        const lng = toNum(p.lng);
-        const rain = toNum(p.rainInches);
-        if (lat == null || lng == null || rain == null) return;
-
-        const pos = { lat, lng };
-        const color = rainColor(rain);
-
-        const circle = new google.maps.Circle({
-          map: gmap,
-          center: pos,
-          radius: radius,
-          strokeColor: color,
-          strokeOpacity: 0.95,
-          strokeWeight: 1,
-          fillColor: color,
-          fillOpacity: 0.42
-        });
-        circles.push(circle);
-
-        const marker = new google.maps.Marker({
-          position: pos,
-          map: gmap,
-          opacity: 0.01
-        });
-
-        marker.addListener('click', ()=>{
-          infoWindow.setContent(
-            '<div style="min-width:190px">' +
-              '<b>' + escapeHtml(p.fieldName || 'Field') + '</b><br/>' +
-              'Point: ' + escapeHtml(p.pointLabel || 'Center') + '<br/>' +
-              'Rain: <span class="mono">' + Number(rain).toFixed(2) + ' in</span><br/>' +
-              'Source: ' + escapeHtml(p.source || 'MRMS') +
-            '</div>'
-          );
-          infoWindow.open(gmap, marker);
-        });
-
-        clickMarkers.push(marker);
-        bounds.extend(pos);
-      });
-
-      if (!bounds.isEmpty()){
-        gmap.fitBounds(bounds);
-      }
-
-      setPointMeta(circles.length);
-    }
-
-    async function waitForFieldApi(timeoutMs=15000){
-      const started = Date.now();
-      while (Date.now() - started < timeoutMs){
-        try{
-          const api = getAPI(state);
-          if (api) return api;
-        }catch(_){}
-        await new Promise(r => setTimeout(r, 120));
-      }
-      throw new Error('Firebase API did not become ready.');
-    }
-
-    async function loadActiveFields(api){
-      const out = [];
-
-      if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
-        const db = window.firebase.firestore();
-        const snap = await db.collection('fields').get();
-
-        snap.forEach(doc=>{
-          const d = doc.data() || {};
-          const lat = toNum(d && d.location && d.location.lat);
-          const lng = toNum(d && d.location && d.location.lng);
-          if (lat == null || lng == null) return;
-
-          const archived = !!(d.archived === true || d.isArchived === true || d.inactive === true);
-          const status = lower(d.status);
-          if (archived) return;
-          if (status && (status === 'archived' || status === 'inactive')) return;
-
-          out.push({
-            id: doc.id,
-            name: String(d.name || d.fieldName || 'Field'),
-            farmId: String(d.farmId || ''),
-            location: { lat, lng }
-          });
-        });
-
-        return out;
-      }
-
-      if (api.kind !== 'compat'){
-        const db = api.getFirestore();
-        const col = api.collection(db, 'fields');
-        const snap = await api.getDocs(col);
-
-        snap.forEach(doc=>{
-          const d = doc.data() || {};
-          const lat = toNum(d && d.location && d.location.lat);
-          const lng = toNum(d && d.location && d.location.lng);
-          if (lat == null || lng == null) return;
-
-          const archived = !!(d.archived === true || d.isArchived === true || d.inactive === true);
-          const status = lower(d.status);
-          if (archived) return;
-          if (status && (status === 'archived' || status === 'inactive')) return;
-
-          out.push({
-            id: doc.id,
-            name: String(d.name || d.fieldName || 'Field'),
-            farmId: String(d.farmId || ''),
-            location: { lat, lng }
-          });
-        });
-
-        return out;
-      }
-
-      return out;
-    }
-
     async function loadLivePoints(range, requestId){
-      const api = await waitForFieldApi();
-      const fields = await loadActiveFields(api);
-
+      const fields = await loadActiveFields();
       if (requestId !== currentRequestId) return { cancelled:true };
 
       state.fields = fields;
@@ -893,67 +1131,78 @@
     }
 
     async function renderRain(){
-      const reqId = ++currentRequestId;
-      const range = String($('rainRangeSel')?.value || '48h');
+      const requestId = ++currentRequestId;
+      updateRangeUi();
 
       try{
         ensureMap();
+        updateMapStyle();
       }catch(e){
         setStatus(e && e.message ? e.message : 'Map failed to load.', true);
         return;
       }
 
-      setStatus('Loading live fields and MRMS points…', false);
+      setStatus('Loading live MRMS map…', false);
 
       try{
-        const res = await loadLivePoints(range, reqId);
-        if (!res || res.cancelled || reqId !== currentRequestId) return;
+        const res = await loadLivePoints(currentRange, requestId);
+        if (!res || res.cancelled || requestId !== currentRequestId) return;
 
-        const pts = Array.isArray(res.points) ? res.points : [];
-        drawPoints(pts);
-
-        if (!pts.length){
-          setStatus('No MRMS points were found for the selected range.', true);
+        const points = Array.isArray(res.points) ? res.points : [];
+        if (!points.length){
+          applyHeatmap([]);
+          setStatus('No MRMS points found for this range.', true);
           return;
         }
 
+        applyHeatmap(points);
+
         if (Number(res.fallbackCount || 0) > 0){
           setStatus(
-            'Loaded ' + pts.length + ' points across ' + res.fieldCount +
-            ' fields. ' + res.fallbackCount + ' field(s) used weighted center fallback.',
+            'Loaded ' + points.length + ' points across ' + res.fieldCount + ' fields. ' +
+            res.fallbackCount + ' field(s) used center fallback.',
             false
           );
         } else {
           setStatus(
-            'Loaded ' + pts.length + ' live MRMS points across ' + res.fieldCount + ' fields.',
+            'Loaded ' + points.length + ' live points across ' + res.fieldCount + ' fields.',
             false
           );
         }
       }catch(e){
         console.warn('[Dev Rain Map] render failed:', e);
-        clearRainLayers();
-        setStatus((e && e.message) ? e.message : 'Failed loading live MRMS points.', true);
+        applyHeatmap([]);
+        setStatus((e && e.message) ? e.message : 'Failed loading live MRMS map.', true);
       }
     }
 
-    function wireControls(){
-      const rangeSel = $('rainRangeSel');
-      const radiusSel = $('radiusSel');
-      const btnRefresh = $('btnRefresh');
+    function wireUi(){
+      $('btnRefresh')?.addEventListener('click', renderRain);
 
-      if (rangeSel) rangeSel.addEventListener('change', renderRain);
-      if (radiusSel) radiusSel.addEventListener('change', ()=>{
-        if (circles.length){
-          renderRain();
-        }
+      $('viewSel')?.addEventListener('change', ()=>{
+        updateMapStyle();
       });
-      if (btnRefresh) btnRefresh.addEventListener('click', renderRain);
+
+      $('radiusSel')?.addEventListener('change', ()=>{
+        if (heatmap) heatmap.set('radius', Number($('radiusSel')?.value || 52));
+      });
+
+      document.querySelectorAll('.range-btn').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const next = String(btn.dataset.range || '');
+          if (!next || next === currentRange) return;
+          currentRange = next;
+          renderRain();
+        });
+      });
     }
 
-    function startRainMap(){
+    async function startRainMap(){
       try{
+        await waitForGoogleMaps();
         ensureMap();
-        wireControls();
+        wireUi();
+        updateRangeUi();
         renderRain();
       }catch(e){
         console.warn('[Dev Rain Map] startup failed:', e);
@@ -973,6 +1222,6 @@
     }, 1200);
   </script>
 
-  <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY&callback=startRainMap"></script>
+  <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY&libraries=visualization&callback=startRainMap"></script>
 </body>
 </html>
