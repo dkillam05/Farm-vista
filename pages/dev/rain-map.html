@@ -14,12 +14,16 @@
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
+  <!-- Use same app boot/config path as the working app -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+  <script src="/Farm-vista/js/firebase-init.js"></script>
+
   <script>
     (function(){
       if(!customElements.get('fv-shell')){
-        const s=document.createElement('script');
-        s.src='/Farm-vista/js/fv-shell.js';
-        s.defer=true;
+        const s = document.createElement('script');
+        s.src = '/Farm-vista/js/fv-shell.js';
+        s.defer = true;
         document.head.appendChild(s);
       }
     })();
@@ -27,133 +31,161 @@
 
   <style>
     :root{
-      --card-max: 1400px;
-      --page-bottom-gap: 96px;
-      --accent: #2F6C3C;
+      --accent:#2F6C3C;
+      --overlay-bg:rgba(255,255,255,.94);
+      --overlay-border:rgba(0,0,0,.08);
+      --overlay-shadow:0 16px 42px rgba(0,0,0,.20);
+      --safe-top:calc(env(safe-area-inset-top, 0px) + 10px);
+      --safe-bottom:calc(env(safe-area-inset-bottom, 0px) + 10px);
     }
 
-    body{ background:var(--app-bg,var(--surface)); }
-
-    .wrap{
-      max-width:var(--card-max);
-      margin:0 auto;
-      padding:clamp(14px,3vw,22px);
-      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+    html.dark{
+      --overlay-bg:rgba(28,32,29,.92);
+      --overlay-border:rgba(255,255,255,.08);
+      --overlay-shadow:0 18px 50px rgba(0,0,0,.42);
     }
 
-    .hero{
-      border:1px solid var(--border);
-      border-radius:14px;
-      background:var(--surface);
-      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      overflow:hidden;
-      margin-bottom:var(--page-bottom-gap);
-      position:relative;
-    }
-
-    .hero-head{
-      display:grid;
-      grid-template-columns:36px 1fr;
-      gap:12px;
-      align-items:center;
-      padding:14px 16px;
-      border-bottom:1px solid var(--border);
-      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
-    }
-
-    .hero-head .icon{
-      width:24px;height:24px;
-      color:var(--accent);
-      display:grid;place-items:center;
-    }
-
-    .hero-head h1{
+    body{
       margin:0;
-      font-size:clamp(20px,3.2vw,26px);
-      line-height:1.2;
+      background:var(--app-bg,var(--surface));
+      overflow:hidden;
     }
 
-    .muted{ color:var(--muted,#67706B); }
-
-    .body{
-      padding:16px;
-      display:grid;
-      gap:14px;
+    fv-shell,
+    fv-shell > .dev-shell{
+      display:block;
+      height:100svh;
+      min-height:100svh;
     }
 
-    .toolbar{
+    .dev-shell{
+      position:relative;
+      width:100%;
+      height:100svh;
+      min-height:100svh;
+      overflow:hidden;
+      background:var(--surface);
+    }
+
+    .map-stage{
+      position:relative;
+      width:100%;
+      height:100%;
+      min-height:100%;
+      background:#e8ede7;
+    }
+
+    #rainMap{
+      position:absolute;
+      inset:0;
+      width:100%;
+      height:100%;
+      background:#e8ede7;
+    }
+
+    .overlay{
+      position:absolute;
+      z-index:10;
+      border:1px solid var(--overlay-border);
+      background:var(--overlay-bg);
+      color:var(--text);
+      box-shadow:var(--overlay-shadow);
+      backdrop-filter:blur(10px);
+      -webkit-backdrop-filter:blur(10px);
+    }
+
+    .controls{
+      top:var(--safe-top);
+      left:50%;
+      transform:translateX(-50%);
+      width:min(940px, calc(100vw - 24px));
+      border-radius:18px;
+      padding:10px;
+    }
+
+    .controls-grid{
       display:grid;
-      grid-template-columns: 180px 180px 1fr;
+      grid-template-columns:minmax(150px, 200px) minmax(150px, 200px) minmax(110px, 130px) 1fr;
       gap:10px;
       align-items:end;
     }
 
-    @media (max-width:900px){
-      .toolbar{ grid-template-columns:1fr; }
+    .field{
+      min-width:0;
     }
 
     .field label{
       display:block;
-      font-weight:800;
       margin:0 0 6px;
+      font-size:12px;
+      font-weight:900;
+      color:var(--text);
     }
 
-    .select, .input{
+    .select,
+    .input,
+    .btn{
       width:100%;
       font:inherit;
       font-size:16px;
-      color:var(--text);
-      background:var(--card-surface,var(--surface));
-      border:1px solid var(--border);
-      border-radius:10px;
-      padding:12px;
-      outline:none;
-    }
-
-    .status{
-      border:1px solid var(--border);
       border-radius:12px;
-      background:color-mix(in srgb, var(--surface) 96%, #ffffff 4%);
-      padding:10px 12px;
-      font-size:13px;
-      color:var(--text);
+      outline:none;
+      box-sizing:border-box;
     }
 
-    .status.error{
-      color:#b00020;
+    .select,
+    .input{
+      color:var(--text);
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      border:1px solid var(--border);
+      padding:12px;
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+      padding:12px 14px;
+      border:1px solid transparent;
+      background:var(--accent);
+      color:#fff !important;
+      font-weight:900;
+      cursor:pointer;
+      user-select:none;
+      -webkit-tap-highlight-color:transparent;
+    }
+
+    .btn:active{ transform:translateY(1px); }
+    .btn:disabled{ opacity:.6; cursor:not-allowed; transform:none; }
+
+    .status-pill{
+      display:flex;
+      align-items:center;
+      justify-content:flex-start;
+      min-height:48px;
+      padding:12px 14px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      color:var(--text);
+      font-size:13px;
+      line-height:1.2;
       font-weight:800;
     }
 
-    .map-card{
-      border:1px solid var(--border);
-      border-radius:14px;
-      overflow:hidden;
-      background:var(--surface);
-      position:relative;
-    }
-
-    #rainMap{
-      width:100%;
-      height:min(74vh, 820px);
-      min-height:420px;
-      background:#eef2ec;
+    .status-pill.error{
+      color:#b00020;
+      border-color:rgba(176,0,32,.20);
+      background:color-mix(in srgb, #b00020 7%, var(--surface) 93%);
     }
 
     .legend{
-      position:absolute;
-      left:16px;
-      bottom:16px;
-      z-index:5;
-      border:1px solid var(--border);
-      border-radius:14px;
-      background:rgba(255,255,255,.96);
-      box-shadow:0 12px 34px rgba(0,0,0,.18);
-      padding:10px 12px;
-      min-width:160px;
-    }
-
-    html.dark .legend{
-      background:rgba(28,32,29,.94);
+      right:12px;
+      bottom:var(--safe-bottom);
+      width:min(220px, calc(100vw - 24px));
+      border-radius:16px;
+      padding:12px 14px;
     }
 
     .legend-title{
@@ -161,6 +193,13 @@
       font-weight:900;
       margin:0 0 8px;
       color:var(--text);
+    }
+
+    .legend-sub{
+      margin:0 0 8px;
+      font-size:11px;
+      color:var(--muted,#67706B);
+      line-height:1.25;
     }
 
     .legend-row{
@@ -180,41 +219,83 @@
       flex:0 0 auto;
     }
 
-    .meta-bar{
+    .mini-meta{
+      position:absolute;
+      left:12px;
+      bottom:var(--safe-bottom);
+      z-index:10;
       display:flex;
-      justify-content:space-between;
-      gap:12px;
       flex-wrap:wrap;
-      padding:10px 12px;
-      border-top:1px solid var(--border);
-      background:color-mix(in srgb, var(--surface) 96%, #ffffff 4%);
+      gap:8px;
+      max-width:calc(100vw - 260px);
+    }
+
+    .mini-chip{
+      border:1px solid var(--overlay-border);
+      background:var(--overlay-bg);
+      color:var(--text);
+      box-shadow:var(--overlay-shadow);
+      backdrop-filter:blur(10px);
+      -webkit-backdrop-filter:blur(10px);
+      border-radius:999px;
+      padding:8px 12px;
       font-size:12px;
-      color:var(--muted,#67706B);
+      font-weight:900;
+      white-space:nowrap;
     }
 
     .mono{
       font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+    }
+
+    @media (max-width:980px){
+      .controls-grid{
+        grid-template-columns:1fr 1fr;
+      }
+    }
+
+    @media (max-width:640px){
+      .controls{
+        top:calc(env(safe-area-inset-top, 0px) + 8px);
+        width:calc(100vw - 16px);
+        padding:8px;
+        border-radius:16px;
+      }
+
+      .controls-grid{
+        grid-template-columns:1fr;
+        gap:8px;
+      }
+
+      .legend{
+        right:8px;
+        bottom:calc(env(safe-area-inset-bottom, 0px) + 8px);
+        width:min(190px, calc(100vw - 16px));
+      }
+
+      .mini-meta{
+        left:8px;
+        bottom:calc(env(safe-area-inset-bottom, 0px) + 8px);
+        max-width:calc(100vw - 214px);
+        gap:6px;
+      }
+
+      .mini-chip{
+        font-size:11px;
+        padding:7px 10px;
+      }
     }
   </style>
 </head>
 
 <body>
   <fv-shell data-boot-hold-ms="3000">
-    <div class="wrap">
-      <section class="hero">
-        <header class="hero-head">
-          <div class="icon" aria-hidden="true">🛰️</div>
-          <div>
-            <h1>Dev Rain Map</h1>
-            <p class="muted">
-              Version 1 test page. This opens the same FarmVista shell and renders a hybrid map first,
-              then paints rainfall circles. If live MRMS data is not wired yet, the map still loads.
-            </p>
-          </div>
-        </header>
+    <div class="dev-shell">
+      <div class="map-stage">
+        <div id="rainMap" aria-label="Rain map"></div>
 
-        <div class="body">
-          <div class="toolbar">
+        <div class="overlay controls" aria-label="Rain map controls">
+          <div class="controls-grid">
             <div class="field">
               <label for="rainRangeSel">Rain range</label>
               <select id="rainRangeSel" class="select">
@@ -235,42 +316,54 @@
             </div>
 
             <div class="field">
+              <label for="btnRefresh">Refresh</label>
+              <button id="btnRefresh" class="btn" type="button">Reload Map</button>
+            </div>
+
+            <div class="field">
               <label>Status</label>
-              <div id="statusBox" class="status">Loading map…</div>
-            </div>
-          </div>
-
-          <div class="map-card">
-            <div id="rainMap" aria-label="Rain map"></div>
-
-            <div class="legend" aria-label="Rainfall legend">
-              <div class="legend-title">Rainfall scale</div>
-              <div class="legend-row"><span class="swatch" style="background:#ffd400;"></span><span>&lt; 0.50 in</span></div>
-              <div class="legend-row"><span class="swatch" style="background:#6bd46b;"></span><span>0.50–0.99 in</span></div>
-              <div class="legend-row"><span class="swatch" style="background:#2fa62f;"></span><span>1.00–1.99 in</span></div>
-              <div class="legend-row"><span class="swatch" style="background:#3388ff;"></span><span>2.00–2.99 in</span></div>
-              <div class="legend-row"><span class="swatch" style="background:#ff3333;"></span><span>3.00–3.99 in</span></div>
-              <div class="legend-row"><span class="swatch" style="background:#7a00cc;"></span><span>4.00+ in</span></div>
-            </div>
-
-            <div class="meta-bar">
-              <div>Basemap: <span class="mono">Google HYBRID</span></div>
-              <div>Mode: <span class="mono">Version 1 colored circles</span></div>
-              <div id="pointCountMeta">Points: <span class="mono">0</span></div>
+              <div id="statusBox" class="status-pill">Loading map…</div>
             </div>
           </div>
         </div>
-      </section>
+
+        <div class="mini-meta">
+          <div class="mini-chip">Basemap: <span class="mono">HYBRID</span></div>
+          <div class="mini-chip" id="fieldsMeta">Fields: <span class="mono">0</span></div>
+          <div class="mini-chip" id="pointCountMeta">Points: <span class="mono">0</span></div>
+        </div>
+
+        <div class="overlay legend" aria-label="Rainfall legend">
+          <div class="legend-title">Rainfall scale</div>
+          <div class="legend-sub">Live MRMS point totals by selected range.</div>
+          <div class="legend-row"><span class="swatch" style="background:#ffd400;"></span><span>&lt; 0.50 in</span></div>
+          <div class="legend-row"><span class="swatch" style="background:#6bd46b;"></span><span>0.50–0.99 in</span></div>
+          <div class="legend-row"><span class="swatch" style="background:#2fa62f;"></span><span>1.00–1.99 in</span></div>
+          <div class="legend-row"><span class="swatch" style="background:#3388ff;"></span><span>2.00–2.99 in</span></div>
+          <div class="legend-row"><span class="swatch" style="background:#ff3333;"></span><span>3.00–3.99 in</span></div>
+          <div class="legend-row"><span class="swatch" style="background:#7a00cc;"></span><span>4.00+ in</span></div>
+        </div>
+      </div>
     </div>
   </fv-shell>
 
-  <script>
+  <script type="module">
+    import { getAPI } from '/Farm-vista/js/field-readiness/firebase.js';
+    import { loadFieldMrmsDoc } from '/Farm-vista/js/field-readiness/data.js';
+    import { mrmsRainInRange } from '/Farm-vista/js/field-readiness/rain.js';
+
     'use strict';
+
+    const state = {
+      fields: [],
+      _mrmsDocByFieldId: Object.create(null)
+    };
 
     let map = null;
     let infoWindow = null;
     let circles = [];
     let clickMarkers = [];
+    let currentRequestId = 0;
 
     function $(id){ return document.getElementById(id); }
 
@@ -279,6 +372,16 @@
       if (!box) return;
       box.textContent = String(msg || '');
       box.classList.toggle('error', !!isError);
+    }
+
+    function setFieldsMeta(n){
+      const el = $('fieldsMeta');
+      if (el) el.innerHTML = 'Fields: <span class="mono">' + String(Number(n || 0)) + '</span>';
+    }
+
+    function setPointMeta(n){
+      const el = $('pointCountMeta');
+      if (el) el.innerHTML = 'Points: <span class="mono">' + String(Number(n || 0)) + '</span>';
     }
 
     function rainColor(v){
@@ -296,8 +399,7 @@
       clickMarkers.forEach(x => { try{ x.setMap(null); }catch(_){} });
       circles = [];
       clickMarkers = [];
-      const pc = $('pointCountMeta');
-      if (pc) pc.innerHTML = 'Points: <span class="mono">0</span>';
+      setPointMeta(0);
     }
 
     function ensureMap(){
@@ -307,7 +409,7 @@
       }
 
       map = new google.maps.Map($('rainMap'), {
-        center: { lat: 39.800, lng: -91.150 },
+        center: { lat:39.800, lng:-91.150 },
         zoom: 9,
         mapTypeId: google.maps.MapTypeId.HYBRID,
         streetViewControl: false,
@@ -320,6 +422,306 @@
       return map;
     }
 
+    function escapeHtml(s){
+      return String(s || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    function toNum(v){
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function lower(s){
+      return String(s || '').trim().toLowerCase();
+    }
+
+    function rangeHours(range){
+      if (range === '24h') return 24;
+      if (range === '48h') return 48;
+      if (range === '7d')  return 24 * 7;
+      return 24 * 30;
+    }
+
+    function rangeDays(range){
+      if (range === '24h') return 1;
+      if (range === '48h') return 2;
+      if (range === '7d')  return 7;
+      return 30;
+    }
+
+    function milesToLat(miles){
+      return miles / 69.0;
+    }
+
+    function milesToLng(miles, lat){
+      const denom = Math.max(0.01, 69.172 * Math.cos((Number(lat || 0) * Math.PI) / 180));
+      return miles / denom;
+    }
+
+    function coordsForLabel(field, label, miles=0.50){
+      const baseLat = toNum(field && field.location && field.location.lat);
+      const baseLng = toNum(field && field.location && field.location.lng);
+      if (baseLat == null || baseLng == null) return null;
+
+      const dLat = milesToLat(miles);
+      const dLng = milesToLng(miles, baseLat);
+      const norm = lower(label);
+
+      if (!norm || norm === 'center' || norm === 'centre'){
+        return { lat: baseLat, lng: baseLng };
+      }
+      if (norm === 'north' || norm === 'n'){
+        return { lat: baseLat + dLat, lng: baseLng };
+      }
+      if (norm === 'south' || norm === 's'){
+        return { lat: baseLat - dLat, lng: baseLng };
+      }
+      if (norm === 'east' || norm === 'e'){
+        return { lat: baseLat, lng: baseLng + dLng };
+      }
+      if (norm === 'west' || norm === 'w'){
+        return { lat: baseLat, lng: baseLng - dLng };
+      }
+      if (norm === 'northeast' || norm === 'ne'){
+        return { lat: baseLat + (dLat * 0.72), lng: baseLng + (dLng * 0.72) };
+      }
+      if (norm === 'northwest' || norm === 'nw'){
+        return { lat: baseLat + (dLat * 0.72), lng: baseLng - (dLng * 0.72) };
+      }
+      if (norm === 'southeast' || norm === 'se'){
+        return { lat: baseLat - (dLat * 0.72), lng: baseLng + (dLng * 0.72) };
+      }
+      if (norm === 'southwest' || norm === 'sw'){
+        return { lat: baseLat - (dLat * 0.72), lng: baseLng - (dLng * 0.72) };
+      }
+      return { lat: baseLat, lng: baseLng };
+    }
+
+    function valueToInches(raw, unitsHint){
+      const n = toNum(raw);
+      if (n == null) return null;
+      const u = lower(unitsHint);
+      if (u === 'mm' || u === 'millimeters' || u === 'millimetres'){
+        return n / 25.4;
+      }
+      return n;
+    }
+
+    function pickDirectRangeValue(obj, range){
+      if (!obj || typeof obj !== 'object') return null;
+
+      const lookup = {
+        '24h': ['24h','last24h','last24','in24h','rain24h','rain24hIn','rain24In','total24h','total24In','last24hIn','last24In'],
+        '48h': ['48h','last48h','last48','in48h','rain48h','rain48hIn','rain48In','total48h','total48In','last48hIn','last48In'],
+        '7d':  ['7d','last7d','last7','in7d','rain7d','rain7dIn','rain7In','total7d','total7In','last7dIn','last7In'],
+        '30d': ['30d','last30d','last30','in30d','rain30d','rain30dIn','rain30In','total30d','total30In','last30dIn','last30In']
+      };
+
+      const keys = lookup[range] || [];
+      for (const k of keys){
+        if (obj[k] != null) return valueToInches(obj[k], obj.units || obj.unit);
+      }
+
+      const pools = [obj.rangeTotals, obj.totals, obj.totalsIn, obj.summary, obj.accumulations];
+      for (const pool of pools){
+        if (!pool || typeof pool !== 'object') continue;
+        for (const k of keys){
+          if (pool[k] != null) return valueToInches(pool[k], pool.units || obj.units || obj.unit);
+        }
+      }
+
+      return null;
+    }
+
+    function sumLatestHourlyRows(rows, range){
+      const hours = rangeHours(range);
+      if (!Array.isArray(rows) || !rows.length) return null;
+
+      const usable = rows
+        .map(r => ({
+          ts: Date.parse(r && (r.ts || r.time || r.hour || r.iso || r.date || r.datetime || '')),
+          inches:
+            valueToInches(r && (r.rainInches ?? r.inches ?? r.rain_in ?? r.totalIn ?? r.rain ?? r.value ?? r.mm), r && (r.units || r.unit || ((r && r.mm != null) ? 'mm' : 'in')))
+        }))
+        .filter(x => Number.isFinite(x.ts) && x.inches != null)
+        .sort((a,b) => a.ts - b.ts);
+
+      if (!usable.length) return null;
+      const slice = usable.slice(-hours);
+      return slice.reduce((sum, x) => sum + Number(x.inches || 0), 0);
+    }
+
+    function sumLatestDailyRows(rows, range){
+      const days = rangeDays(range);
+      if (!Array.isArray(rows) || !rows.length) return null;
+
+      const usable = rows
+        .map(r => ({
+          ts: Date.parse(r && (r.date || r.day || r.ts || r.time || '')),
+          inches:
+            valueToInches(r && (r.rainInches ?? r.inches ?? r.rain_in ?? r.totalIn ?? r.rain ?? r.value ?? r.mm), r && (r.units || r.unit || ((r && r.mm != null) ? 'mm' : 'in')))
+        }))
+        .filter(x => Number.isFinite(x.ts) && x.inches != null)
+        .sort((a,b) => a.ts - b.ts);
+
+      if (!usable.length) return null;
+      const slice = usable.slice(-days);
+      return slice.reduce((sum, x) => sum + Number(x.inches || 0), 0);
+    }
+
+    function resolvePointLatLng(field, point){
+      const lat =
+        toNum(point && point.lat) ??
+        toNum(point && point.latitude) ??
+        toNum(point && point.location && point.location.lat) ??
+        toNum(point && point.location && point.location.latitude);
+
+      const lng =
+        toNum(point && point.lng) ??
+        toNum(point && point.lon) ??
+        toNum(point && point.longitude) ??
+        toNum(point && point.location && (point.location.lng ?? point.location.lon ?? point.location.longitude));
+
+      if (lat != null && lng != null) return { lat, lng };
+
+      const label = point && (point.label || point.name || point.point || point.sample || point.key);
+      return coordsForLabel(field, label, 0.50);
+    }
+
+    function pointLabel(point, fallbackKey=''){
+      return String(
+        (point && (point.label || point.name || point.point || point.sample || point.key)) ||
+        fallbackKey ||
+        'Center'
+      ).trim();
+    }
+
+    function pushPoint(out, seen, field, label, lat, lng, rainInches, source){
+      if (lat == null || lng == null || rainInches == null) return;
+      const key = String(field.id) + '|' + lower(label);
+      if (seen.has(key)) return;
+
+      seen.add(key);
+      out.push({
+        fieldId: field.id,
+        fieldName: field.name || 'Field',
+        pointLabel: label || 'Center',
+        lat: Number(lat),
+        lng: Number(lng),
+        rainInches: Number(rainInches),
+        source: String(source || 'MRMS')
+      });
+    }
+
+    function extractArrayPoints(container, field, range, out, seen){
+      if (!Array.isArray(container)) return;
+
+      container.forEach((point, idx)=>{
+        if (!point || typeof point !== 'object') return;
+
+        const label = pointLabel(point, idx === 0 ? 'Center' : ('Point ' + (idx + 1)));
+        const pos = resolvePointLatLng(field, point);
+        let inches =
+          pickDirectRangeValue(point, range) ??
+          sumLatestHourlyRows(point.hourly || point.hours || point.hourlyRows, range) ??
+          sumLatestDailyRows(point.daily || point.days || point.dailyRows, range);
+
+        if (inches == null && point.inches != null) inches = valueToInches(point.inches, point.units || point.unit);
+        if (inches == null && point.rainInches != null) inches = valueToInches(point.rainInches, point.units || point.unit);
+        if (inches == null && point.mm != null) inches = valueToInches(point.mm, 'mm');
+
+        if (pos && inches != null){
+          pushPoint(out, seen, field, label, pos.lat, pos.lng, inches, 'MRMS point');
+        }
+      });
+    }
+
+    function extractObjectMapPoints(container, field, range, out, seen){
+      if (!container || typeof container !== 'object' || Array.isArray(container)) return;
+
+      Object.entries(container).forEach(([key, raw])=>{
+        if (!raw || typeof raw !== 'object') return;
+        const label = pointLabel(raw, key);
+        const pos = resolvePointLatLng(field, raw);
+        let inches =
+          pickDirectRangeValue(raw, range) ??
+          sumLatestHourlyRows(raw.hourly || raw.hours || raw.hourlyRows, range) ??
+          sumLatestDailyRows(raw.daily || raw.days || raw.dailyRows, range);
+
+        if (inches == null && raw.inches != null) inches = valueToInches(raw.inches, raw.units || raw.unit);
+        if (inches == null && raw.rainInches != null) inches = valueToInches(raw.rainInches, raw.units || raw.unit);
+        if (inches == null && raw.mm != null) inches = valueToInches(raw.mm, 'mm');
+
+        if (pos && inches != null){
+          pushPoint(out, seen, field, label, pos.lat, pos.lng, inches, 'MRMS point');
+        }
+      });
+    }
+
+    function extractRealPointsFromDoc(doc, field, range){
+      const out = [];
+      const seen = new Set();
+
+      const candidateKeys = [
+        'points',
+        'samplePoints',
+        'samples',
+        'sample_points',
+        'gridPoints',
+        'pointTotals',
+        'latestPoints',
+        'rangePoints',
+        'pointData',
+        'sampleData'
+      ];
+
+      for (const key of candidateKeys){
+        const v = doc && doc[key];
+        extractArrayPoints(v, field, range, out, seen);
+        extractObjectMapPoints(v, field, range, out, seen);
+      }
+
+      const nestedKeys = ['mrms', 'rain', 'rainfall', 'sampling', 'samplingPoints', 'detail'];
+      for (const key of nestedKeys){
+        const v = doc && doc[key];
+        if (!v || typeof v !== 'object') continue;
+        for (const inner of candidateKeys){
+          extractArrayPoints(v[inner], field, range, out, seen);
+          extractObjectMapPoints(v[inner], field, range, out, seen);
+        }
+      }
+
+      return out;
+    }
+
+    function fallbackWeightedCenterPoint(doc, field, range){
+      try{
+        const res = mrmsRainInRange(doc, range);
+        if (!res || res.ready !== true) return null;
+        const pos = coordsForLabel(field, 'center', 0);
+        if (!pos) return null;
+        const inches = toNum(res.inches);
+        if (inches == null) return null;
+
+        return [{
+          fieldId: field.id,
+          fieldName: field.name || 'Field',
+          pointLabel: 'Center',
+          lat: pos.lat,
+          lng: pos.lng,
+          rainInches: inches,
+          source: 'Weighted center fallback'
+        }];
+      }catch(_){
+        return null;
+      }
+    }
+
     function drawPoints(points){
       clearRainLayers();
 
@@ -328,11 +730,10 @@
       const radius = Number($('radiusSel')?.value || 550);
 
       points.forEach((p)=>{
-        const lat = Number(p.lat);
-        const lng = Number(p.lng);
-        const rain = Number(p.rainInches || 0);
-
-        if (!isFinite(lat) || !isFinite(lng)) return;
+        const lat = toNum(p.lat);
+        const lng = toNum(p.lng);
+        const rain = toNum(p.rainInches);
+        if (lat == null || lng == null || rain == null) return;
 
         const pos = { lat, lng };
         const color = rainColor(rain);
@@ -357,10 +758,11 @@
 
         marker.addListener('click', ()=>{
           infoWindow.setContent(
-            '<div style="min-width:180px">' +
+            '<div style="min-width:190px">' +
               '<b>' + escapeHtml(p.fieldName || 'Field') + '</b><br/>' +
-              'Point: ' + escapeHtml(p.pointLabel || 'Sample') + '<br/>' +
-              'Rain: <span class="mono">' + rain.toFixed(2) + ' in</span>' +
+              'Point: ' + escapeHtml(p.pointLabel || 'Center') + '<br/>' +
+              'Rain: <span class="mono">' + Number(rain).toFixed(2) + ' in</span><br/>' +
+              'Source: ' + escapeHtml(p.source || 'MRMS') +
             '</div>'
           );
           infoWindow.open(gmap, marker);
@@ -370,81 +772,182 @@
         bounds.extend(pos);
       });
 
-      if (!bounds.isEmpty()) gmap.fitBounds(bounds);
+      if (!bounds.isEmpty()){
+        gmap.fitBounds(bounds);
+      }
 
-      const pc = $('pointCountMeta');
-      if (pc) pc.innerHTML = 'Points: <span class="mono">' + String(circles.length) + '</span>';
+      setPointMeta(circles.length);
     }
 
-    function escapeHtml(s){
-      return String(s || '')
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#39;');
+    async function waitForFieldApi(timeoutMs=15000){
+      const started = Date.now();
+      while (Date.now() - started < timeoutMs){
+        try{
+          const api = getAPI(state);
+          if (api) return api;
+        }catch(_){}
+        await new Promise(r => setTimeout(r, 120));
+      }
+      throw new Error('Firebase API did not become ready.');
     }
 
-    function demoPoints(){
-      return [
-        { fieldName:'North Farm', pointLabel:'Center',    lat:39.8560, lng:-91.3150, rainInches:0.48 },
-        { fieldName:'North Farm', pointLabel:'North',     lat:39.8620, lng:-91.3150, rainInches:0.61 },
-        { fieldName:'North Farm', pointLabel:'South',     lat:39.8500, lng:-91.3150, rainInches:0.57 },
-        { fieldName:'North Farm', pointLabel:'East',      lat:39.8560, lng:-91.3080, rainInches:0.73 },
-        { fieldName:'North Farm', pointLabel:'West',      lat:39.8560, lng:-91.3220, rainInches:0.41 },
-        { fieldName:'North Farm', pointLabel:'Northeast', lat:39.8600, lng:-91.3090, rainInches:0.82 },
+    async function loadActiveFields(api){
+      const out = [];
 
-        { fieldName:'Middle Farm', pointLabel:'Center',    lat:39.7920, lng:-91.2050, rainInches:1.42 },
-        { fieldName:'Middle Farm', pointLabel:'North',     lat:39.7980, lng:-91.2050, rainInches:1.61 },
-        { fieldName:'Middle Farm', pointLabel:'South',     lat:39.7860, lng:-91.2050, rainInches:1.35 },
-        { fieldName:'Middle Farm', pointLabel:'East',      lat:39.7920, lng:-91.1980, rainInches:1.88 },
-        { fieldName:'Middle Farm', pointLabel:'West',      lat:39.7920, lng:-91.2120, rainInches:1.11 },
-        { fieldName:'Middle Farm', pointLabel:'Northeast', lat:39.7960, lng:-91.1990, rainInches:2.04 },
+      if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
+        const db = window.firebase.firestore();
+        const snap = await db.collection('fields').get();
 
-        { fieldName:'South Farm', pointLabel:'Center',    lat:39.7060, lng:-91.0720, rainInches:3.44 },
-        { fieldName:'South Farm', pointLabel:'North',     lat:39.7120, lng:-91.0720, rainInches:3.82 },
-        { fieldName:'South Farm', pointLabel:'South',     lat:39.7000, lng:-91.0720, rainInches:3.19 },
-        { fieldName:'South Farm', pointLabel:'East',      lat:39.7060, lng:-91.0650, rainInches:4.12 },
-        { fieldName:'South Farm', pointLabel:'West',      lat:39.7060, lng:-91.0790, rainInches:2.91 },
-        { fieldName:'South Farm', pointLabel:'Northeast', lat:39.7100, lng:-91.0660, rainInches:4.38 }
-      ];
+        snap.forEach(doc=>{
+          const d = doc.data() || {};
+          const lat = toNum(d && d.location && d.location.lat);
+          const lng = toNum(d && d.location && d.location.lng);
+          if (lat == null || lng == null) return;
+
+          const archived = !!(d.archived === true || d.isArchived === true || d.inactive === true);
+          const status = lower(d.status);
+          if (archived) return;
+          if (status && (status === 'archived' || status === 'inactive')) return;
+
+          out.push({
+            id: doc.id,
+            name: String(d.name || d.fieldName || 'Field'),
+            farmId: String(d.farmId || ''),
+            location: { lat, lng }
+          });
+        });
+
+        return out;
+      }
+
+      if (api.kind !== 'compat'){
+        const db = api.getFirestore();
+        const col = api.collection(db, 'fields');
+        const snap = await api.getDocs(col);
+
+        snap.forEach(doc=>{
+          const d = doc.data() || {};
+          const lat = toNum(d && d.location && d.location.lat);
+          const lng = toNum(d && d.location && d.location.lng);
+          if (lat == null || lng == null) return;
+
+          const archived = !!(d.archived === true || d.isArchived === true || d.inactive === true);
+          const status = lower(d.status);
+          if (archived) return;
+          if (status && (status === 'archived' || status === 'inactive')) return;
+
+          out.push({
+            id: doc.id,
+            name: String(d.name || d.fieldName || 'Field'),
+            farmId: String(d.farmId || ''),
+            location: { lat, lng }
+          });
+        });
+
+        return out;
+      }
+
+      return out;
     }
 
-    async function tryLiveData(){
-      const range = String($('rainRangeSel')?.value || '48h');
+    async function loadLivePoints(range, requestId){
+      const api = await waitForFieldApi();
+      const fields = await loadActiveFields(api);
 
-      /* 
-         Placeholder for live wiring later.
-         For now, we intentionally fail over to demo data instead of killing the map.
-      */
-      throw new Error('Live MRMS source not wired on this dev page yet for range ' + range + '.');
+      if (requestId !== currentRequestId) return { cancelled:true };
+
+      state.fields = fields;
+      setFieldsMeta(fields.length);
+
+      const points = [];
+      let fallbackCount = 0;
+
+      const jobs = fields.map(async (field)=>{
+        try{
+          const doc = await loadFieldMrmsDoc(state, String(field.id), { force:false });
+          if (!doc || typeof doc !== 'object') return;
+
+          const realPoints = extractRealPointsFromDoc(doc, field, range);
+          if (realPoints.length){
+            points.push(...realPoints);
+            return;
+          }
+
+          const fallback = fallbackWeightedCenterPoint(doc, field, range);
+          if (fallback && fallback.length){
+            fallbackCount += 1;
+            points.push(...fallback);
+          }
+        }catch(err){
+          console.warn('[Dev Rain Map] MRMS load failed for field:', field && field.id, err);
+        }
+      });
+
+      await Promise.allSettled(jobs);
+
+      return {
+        points,
+        fieldCount: fields.length,
+        fallbackCount
+      };
     }
 
     async function renderRain(){
+      const reqId = ++currentRequestId;
+      const range = String($('rainRangeSel')?.value || '48h');
+
       try{
         ensureMap();
       }catch(e){
-        setStatus(e.message || 'Map failed to load.', true);
+        setStatus(e && e.message ? e.message : 'Map failed to load.', true);
         return;
       }
 
+      setStatus('Loading live fields and MRMS points…', false);
+
       try{
-        const pts = await tryLiveData();
-        drawPoints(Array.isArray(pts) ? pts : []);
-        setStatus('Loaded live rainfall points.', false);
-      }catch(e){
-        const pts = demoPoints();
+        const res = await loadLivePoints(range, reqId);
+        if (!res || res.cancelled || reqId !== currentRequestId) return;
+
+        const pts = Array.isArray(res.points) ? res.points : [];
         drawPoints(pts);
-        setStatus('Showing demo rainfall points. Live MRMS wiring is next.', false);
-        console.warn('[Dev Rain Map] live load fallback:', e);
+
+        if (!pts.length){
+          setStatus('No MRMS points were found for the selected range.', true);
+          return;
+        }
+
+        if (Number(res.fallbackCount || 0) > 0){
+          setStatus(
+            'Loaded ' + pts.length + ' points across ' + res.fieldCount +
+            ' fields. ' + res.fallbackCount + ' field(s) used weighted center fallback.',
+            false
+          );
+        } else {
+          setStatus(
+            'Loaded ' + pts.length + ' live MRMS points across ' + res.fieldCount + ' fields.',
+            false
+          );
+        }
+      }catch(e){
+        console.warn('[Dev Rain Map] render failed:', e);
+        clearRainLayers();
+        setStatus((e && e.message) ? e.message : 'Failed loading live MRMS points.', true);
       }
     }
 
     function wireControls(){
-      const a = $('rainRangeSel');
-      const b = $('radiusSel');
-      if (a) a.addEventListener('change', renderRain);
-      if (b) b.addEventListener('change', renderRain);
+      const rangeSel = $('rainRangeSel');
+      const radiusSel = $('radiusSel');
+      const btnRefresh = $('btnRefresh');
+
+      if (rangeSel) rangeSel.addEventListener('change', renderRain);
+      if (radiusSel) radiusSel.addEventListener('change', ()=>{
+        if (circles.length){
+          renderRain();
+        }
+      });
+      if (btnRefresh) btnRefresh.addEventListener('click', renderRain);
     }
 
     function startRainMap(){
@@ -453,15 +956,15 @@
         wireControls();
         renderRain();
       }catch(e){
-        setStatus(e.message || 'Failed starting map.', true);
         console.warn('[Dev Rain Map] startup failed:', e);
+        setStatus((e && e.message) ? e.message : 'Failed starting map.', true);
       }
     }
 
     window.startRainMap = startRainMap;
   </script>
 
-  <script type="module">
+  <script>
     setTimeout(()=>{
       const box = document.getElementById('statusBox');
       if (box && box.textContent.trim() === 'Loading map…'){
