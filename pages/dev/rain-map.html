@@ -395,10 +395,11 @@
             <div class="menu-field">
               <label for="radiusSel">Blend radius</label>
               <select id="radiusSel" class="menu-select">
-                <option value="700">Medium</option>
-                <option value="950" selected>Blended</option>
-                <option value="1250">Broad</option>
-                <option value="1600">Extra Broad</option>
+                <option value="4500">Tight</option>
+                <option value="7000">Medium</option>
+                <option value="10000" selected>Blended</option>
+                <option value="14000">Broad</option>
+                <option value="18000">Extra Broad</option>
               </select>
             </div>
 
@@ -469,6 +470,7 @@
     const parentDocCache = new Map();
 
     let rainCircles = [];
+    let clickMarkers = [];
     let lastFieldSummaries = [];
     let lastFieldDocs = [];
     let mapTapMarker = null;
@@ -811,8 +813,8 @@
     }
 
     function blendRadiusMeters(){
-      const n = Number($('radiusSel')?.value || 950);
-      return Number.isFinite(n) ? n : 950;
+      const n = Number($('radiusSel')?.value || 10000);
+      return Number.isFinite(n) ? n : 10000;
     }
 
     function clearMapOverlays(){
@@ -823,8 +825,10 @@
     }
 
     function quantizeValue(v, min, max){
-      const denom = Math.max(0.0001, max - min);
-      return Math.max(0, Math.min(1, (v - min) / denom));
+      if (!Number.isFinite(v)) return 0;
+      if (!Number.isFinite(min) || !Number.isFinite(max)) return 0;
+      if (Math.abs(max - min) < 0.0001) return 0.72;
+      return Math.max(0, Math.min(1, (v - min) / (max - min)));
     }
 
     function lerp(a,b,t){
@@ -908,6 +912,17 @@
       });
     }
 
+    function buildPopupHtml(point){
+      return (
+        '<div class="popup-card">' +
+          '<div class="name">' + escapeHtml(point.fieldName || 'Field') + '</div>' +
+          '<div>Point: ' + escapeHtml(point.pointLabel || 'Center') + '</div>' +
+          '<div>' + escapeHtml(rangeTitle(currentRange)) + '</div>' +
+          '<div>Rain: <span class="mono">' + Number(point.rainInches || 0).toFixed(2) + ' in</span></div>' +
+        '</div>'
+      );
+    }
+
     function drawRadarLikeBlobs(points, fields){
       ensureMap();
       clearMapOverlays();
@@ -930,11 +945,11 @@
         const center = { lat, lng };
 
         const layers = [
-          { scale:2.15, opacity:0.035 + (n * 0.060) },
-          { scale:1.68, opacity:0.055 + (n * 0.085) },
-          { scale:1.26, opacity:0.080 + (n * 0.110) },
-          { scale:0.92, opacity:0.110 + (n * 0.130) },
-          { scale:0.64, opacity:0.130 + (n * 0.140) }
+          { scale:2.8, opacity:0.18 + (n * 0.10) },
+          { scale:2.1, opacity:0.16 + (n * 0.09) },
+          { scale:1.55, opacity:0.14 + (n * 0.08) },
+          { scale:1.10, opacity:0.12 + (n * 0.07) },
+          { scale:0.72, opacity:0.10 + (n * 0.06) }
         ];
 
         layers.forEach(layer=>{
@@ -945,25 +960,34 @@
             strokeOpacity: 0,
             strokeWeight: 0,
             fillColor: color,
-            fillOpacity: Math.min(0.30, layer.opacity)
+            fillOpacity: Math.min(0.40, layer.opacity),
+            zIndex: 10
           });
           rainCircles.push(circle);
         });
 
+        const core = new google.maps.Circle({
+          map,
+          center,
+          radius: Math.max(550, radius * 0.18),
+          strokeColor: color,
+          strokeOpacity: 0.95,
+          strokeWeight: 1.6,
+          fillColor: color,
+          fillOpacity: 0.80,
+          zIndex: 25
+        });
+        rainCircles.push(core);
+
         const marker = new google.maps.Marker({
           position: center,
           map,
-          opacity: 0.001
+          opacity: 0.001,
+          zIndex: 30
         });
 
         marker.addListener('click', ()=>{
-          infoWindow.setContent(
-            '<div class="popup-card">' +
-              '<div class="name">' + escapeHtml(p.fieldName || 'Field') + '</div>' +
-              '<div>Point: ' + escapeHtml(p.pointLabel || 'Center') + '</div>' +
-              '<div>Rain: <span class="mono">' + rain.toFixed(2) + ' in</span></div>' +
-            '</div>'
-          );
+          infoWindow.setContent(buildPopupHtml(p));
           infoWindow.open(map, marker);
         });
 
@@ -972,6 +996,7 @@
 
       setPointMeta(points.length);
       fitToFields(fields);
+      setDebug('rendered ' + points.length + ' visible points');
     }
 
     function nearestFieldSummary(lat, lng){
@@ -1086,7 +1111,8 @@
         'attempted ' + docsAttempted +
         ' • docs ' + docsLoaded +
         ' • sample sets ' + docsWithSamples +
-        ' • fields w/rain ' + docsWithRain
+        ' • fields w/rain ' + docsWithRain +
+        ' • points ' + allPoints.length
       );
 
       return {
@@ -1120,17 +1146,19 @@
         const points = Array.isArray(res.points) ? res.points : [];
         const fields = Array.isArray(res.fields) ? res.fields : [];
         const summaries = Array.isArray(res.summaries) ? res.summaries : [];
+        const loadedFields = Array.isArray(res.loadedFields) ? res.loadedFields : [];
 
         if (points.length){
-          cacheRangeResult(currentRange, { points, fields, summaries });
+          cacheRangeResult(currentRange, { points, fields, summaries, loadedFields });
         }
 
         const finalData = points.length
-          ? { points, fields, summaries }
-          : (getCachedRangeResult(currentRange) || { points, fields, summaries });
+          ? { points, fields, summaries, loadedFields }
+          : (getCachedRangeResult(currentRange) || { points, fields, summaries, loadedFields });
 
         const finalPoints = Array.isArray(finalData.points) ? finalData.points : [];
         const finalFields = Array.isArray(finalData.fields) ? finalData.fields : fields;
+        const finalLoadedFields = Array.isArray(finalData.loadedFields) ? finalData.loadedFields : loadedFields;
         lastFieldSummaries = Array.isArray(finalData.summaries) ? finalData.summaries : summaries;
         lastFieldDocs = finalFields;
 
@@ -1138,13 +1166,13 @@
           clearMapOverlays();
           setPointMeta(0);
           updateLegendDynamic(0.1, 1.0);
-          fitToFields(finalFields);
+          fitToFields(finalLoadedFields.length ? finalLoadedFields : finalFields);
           setStatus('No points');
           setDebug('parent docs loaded but no usable points for this range');
           return;
         }
 
-        drawRadarLikeBlobs(finalPoints, finalFields);
+        drawRadarLikeBlobs(finalPoints, finalLoadedFields.length ? finalLoadedFields : finalFields);
         setStatus(points.length ? 'Live' : 'Cached');
       }catch(e){
         console.warn('[Dev Rain Map] render failed:', e);
@@ -1152,7 +1180,7 @@
         if (cached){
           lastFieldSummaries = Array.isArray(cached.summaries) ? cached.summaries : [];
           lastFieldDocs = Array.isArray(cached.fields) ? cached.fields : [];
-          drawRadarLikeBlobs(cached.points || [], cached.fields || []);
+          drawRadarLikeBlobs(cached.points || [], (cached.loadedFields && cached.loadedFields.length) ? cached.loadedFields : (cached.fields || []));
           setStatus('Cached');
           setDebug('live failed • showing cached');
           return;
