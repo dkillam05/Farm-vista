@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-10a-use-formula-single-source-of-truth-plus-mrms
+Rev: 2026-03-10b-use-mrms-for-rain-range-queue-aware
 
 GOAL (per Dane, Feb 2026):
 ✅ Make tiles + details MATCH the Global Calibration readiness number.
@@ -15,8 +15,11 @@ CHANGES (THIS REV):
 ✅ CAL remains ZERO (via formula.js).
 ✅ Forecast rows still provided (ETA helper keeps working).
 ✅ Option B trace fallback (rewind 14) preserved.
-✅ Added MRMS details rendering from field_mrms_weather/{fieldId}
-✅ Daily MRMS table shows inches converted from stored mm
+✅ Tile "Rain (range)" now uses MRMS daily rainfall
+✅ If MRMS current-day-through-past-30-days is not complete, tile shows:
+   "Rainfall data still in queue"
+✅ Rain-range sort now uses MRMS when ready
+✅ MRMS details panel remains supported
 ===================================================================== */
 'use strict';
 
@@ -28,7 +31,7 @@ import { getCurrentOp, getThresholdForOp } from './thresholds.js';
 import { canEdit } from './perm.js';
 import { openQuickView } from './quickview.js';
 import { initSwipeOnTiles } from './swipe.js';
-import { parseRangeFromInput, rainInRange } from './rain.js';
+import { parseRangeFromInput, rainInRange, mrmsRainInRange } from './rain.js';
 import { fetchAndHydrateFieldParams, loadFieldMrmsDoc } from './data.js';
 import { getAPI } from './firebase.js';
 
@@ -38,11 +41,7 @@ import { ensureFRModules, buildFRDeps, runFieldReadiness } from './formula.js';
 /* =====================================================================
    Persisted soil truth state (per-field)
 ===================================================================== */
-// Collection that stores the user-confirmed truth seed (storageFinal/asOfDateISO).
-// This is separate from field_readiness_latest which is computed output.
 const FR_STATE_COLLECTION = 'field_readiness_state';
-
-// Cache TTL for state loads (ms)
 const STATE_TTL_MS = 30000;
 
 function safeObj(x){
@@ -79,7 +78,6 @@ async function loadPersistedState(state, { force=false } = {}){
       return;
     }
 
-    // compat (firebase v8)
     if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
       const db = window.firebase.firestore();
       const snap = await db.collection(FR_STATE_COLLECTION).get();
@@ -96,9 +94,8 @@ async function loadPersistedState(state, { force=false } = {}){
 
         out[fid] = {
           fieldId: fid,
-          storageFinal: storageFinal,
-          asOfDateISO: asOfDateISO,
-          // optional debug
+          storageFinal,
+          asOfDateISO,
           SmaxAtSave: safeNum(d.SmaxAtSave) ?? safeNum(d.SmaxAtSave || d.smaxAtSave) ?? 0
         };
       });
@@ -108,7 +105,6 @@ async function loadPersistedState(state, { force=false } = {}){
       return;
     }
 
-    // modular wrapper
     if (api.kind !== 'compat'){
       const db = api.getFirestore();
       const col = api.collection(db, FR_STATE_COLLECTION);
@@ -126,9 +122,8 @@ async function loadPersistedState(state, { force=false } = {}){
 
         out[fid] = {
           fieldId: fid,
-          storageFinal: storageFinal,
-          asOfDateISO: asOfDateISO,
-          // optional debug
+          storageFinal,
+          asOfDateISO,
           SmaxAtSave: safeNum(d.SmaxAtSave) ?? safeNum(d.SmaxAtSave || d.smaxAtSave) ?? 0
         };
       });
@@ -156,7 +151,7 @@ function getPersistedStateForDeps(state, fieldId){
 }
 
 /* =====================================================================
-   Render gate (prevents double-load flicker)
+   Render gate
 ===================================================================== */
 function ensureRenderGate(state){
   if (!state) return null;
@@ -177,11 +172,8 @@ async function scheduleRender(state, mode){
 
   if (mode === 'all') g.wantAll = true;
   if (mode === 'details') g.wantDetails = true;
-
-  // already rendering; it'll loop once more if anything was requested
   if (g.inFlight) return;
 
-  // coalesce bursts
   if (g.timer) clearTimeout(g.timer);
   g.timer = setTimeout(async ()=>{
     g.timer = null;
@@ -205,11 +197,8 @@ async function scheduleRender(state, mode){
         }catch(_){}
       }
     }catch(_){
-      // swallow: render should not crash page
     }finally{
       g.inFlight = false;
-
-      // run once more if queued during render
       if (g.wantAll || g.wantDetails){
         scheduleRender(state, g.wantAll ? 'all' : 'details');
       }
@@ -217,16 +206,13 @@ async function scheduleRender(state, mode){
   }, 25);
 }
 
-/* ---------- module loader (model/weather/forecast) ----------
-   Kept for compatibility with any external import that expects it,
-   but now delegates to formula.js.
------------------------------------------------------------ */
+/* ---------- module loader ---------- */
 export async function ensureModelWeatherModules(state){
   await ensureFRModules(state);
 }
 
 /* =====================================================================
-   ETA helper loader + dispatcher
+   ETA helper
 ===================================================================== */
 const ETA_HELPER_URL = '/Farm-vista/js/field-readiness/eta-helper.js';
 const ETA_HELP_EVENT = 'fr:eta-help';
@@ -237,8 +223,6 @@ async function ensureEtaHelperModule(state){
     if (!state) return;
     if (!state._mods) state._mods = {};
     if (state._mods.etaHelperLoaded) return;
-
-    // best-effort dynamic import so its listener exists
     await import(ETA_HELPER_URL);
     state._mods.etaHelperLoaded = true;
   }catch(e){
@@ -251,7 +235,7 @@ function dispatchEtaHelp(state, payload){
   try{ document.dispatchEvent(new CustomEvent(ETA_HELP_EVENT, { detail: payload || {} })); }catch(_){}
 }
 
-/* ---------- colors (ported) ---------- */
+/* ---------- colors ---------- */
 function perceivedFromThreshold(readiness, thr){
   const r = clamp(Math.round(Number(readiness)), 0, 100);
   const t = clamp(Math.round(Number(thr)), 0, 100);
@@ -292,8 +276,31 @@ function gradientForThreshold(thr){
   )`;
 }
 
+/* =====================================================================
+   MRMS tile rainfall helpers
+===================================================================== */
+async function getMrmsRainResultForField(state, fieldId, range, { force=false } = {}){
+  try{
+    const doc = await loadFieldMrmsDoc(state, String(fieldId), { force });
+    return mrmsRainInRange(doc, range);
+  }catch(_){
+    return { ready:false, inches:null, mm:null, reason:'load-failed' };
+  }
+}
+
+function rainTileTextFromMrmsResult(res){
+  if (!res || res.ready !== true) return 'Rainfall data still in queue';
+  return `${Number(res.inches || 0).toFixed(2)} in`;
+}
+
+function rainSortValueFromMrmsResult(res){
+  if (!res || res.ready !== true) return null;
+  const n = Number(res.inches);
+  return Number.isFinite(n) ? n : null;
+}
+
 /* ---------- sorting ---------- */
-function sortFields(fields, runsById){
+function sortFields(fields, runsById, mrmsRangeById){
   const sel = $('sortSel');
   const mode = String(sel ? sel.value : 'name_az');
   const range = parseRangeFromInput();
@@ -310,7 +317,10 @@ function sortFields(fields, runsById){
     const readyA = ra ? ra.readinessR : 0;
     const readyB = rb ? rb.readinessR : 0;
 
-    const rainA = ra ? rainInRange(ra, range) : 0;
+    const mrmsA = mrmsRangeById ? mrmsRangeById.get(a.id) : null;
+    const mrmsB = mrmsRangeById ? mrmsRangeById.get(b.id) : null;
+    const rainA = rainSortValueFromMrmsResult(mrmsA);
+    const rainB = rainSortValueFromMrmsResult(mrmsB);
 
     if (mode === 'name_az') return collator.compare(nameA, nameB);
     if (mode === 'name_za') return collator.compare(nameB, nameA);
@@ -318,17 +328,30 @@ function sortFields(fields, runsById){
     if (mode === 'ready_dry_wet'){ if (readyB !== readyA) return readyB - readyA; return collator.compare(nameA, nameB); }
     if (mode === 'ready_wet_dry'){ if (readyB !== readyA) return readyA - readyB; return collator.compare(nameA, nameB); }
 
-    const rainB2 = rb ? rainInRange(rb, range) : 0;
-    if (mode === 'rain_most'){ if (rainB2 !== rainA) return rainB2 - rainA; return collator.compare(nameA, nameB); }
-    if (mode === 'rain_least'){ if (rainB2 !== rainA) return rainA - rainB2; return collator.compare(nameA, nameB); }
+    if (mode === 'rain_most'){
+      const va = (rainA == null ? -1 : rainA);
+      const vb = (rainB == null ? -1 : rainB);
+      if (vb !== va) return vb - va;
+      return collator.compare(nameA, nameB);
+    }
 
-    return collator.compare(nameA, nameB);
+    if (mode === 'rain_least'){
+      const va = (rainA == null ? Number.POSITIVE_INFINITY : rainA);
+      const vb = (rainB == null ? Number.POSITIVE_INFINITY : rainB);
+      if (va !== vb) return va - vb;
+      return collator.compare(nameA, nameB);
+    }
+
+    // legacy fallback, not used if sort modes above are chosen
+    const legacyA = ra ? rainInRange(ra, range) : 0;
+    const legacyB = rb ? rainInRange(rb, range) : 0;
+    return legacyA - legacyB;
   });
 
   return arr;
 }
 
-/* ---------- FIXED: farm filter ---------- */
+/* ---------- farm filter ---------- */
 function getFilteredFields(state){
   const farmId = String(state.farmFilter || '__all__');
   if (farmId === '__all__') return state.fields.slice();
@@ -336,7 +359,7 @@ function getFilteredFields(state){
 }
 
 /* =====================================================================
-   Selection CSS injected once
+   Selection CSS
 ===================================================================== */
 function ensureSelectionStyleOnce(){
   try{
@@ -451,7 +474,6 @@ function ensureSelectionStyleOnce(){
         margin-top: 4px;
       }
 
-      /* ETA clickable target (tile only) — lower-left, smaller, not bold */
       .tile .etaSlot{
         display:flex;
         justify-content:flex-start;
@@ -473,8 +495,8 @@ function ensureSelectionStyleOnce(){
         padding: 2px 4px;
         margin: 0;
         border-radius: 10px;
-        font-weight: 500; /* not bold */
-        font-size: 12px;  /* smaller */
+        font-weight: 500;
+        font-size: 12px;
         line-height: 1.1;
         color: var(--text, #111);
         cursor: pointer;
@@ -526,7 +548,7 @@ function setSelectedField(state, fieldId){
 }
 
 /* =====================================================================
-   Details header panel (Farm • Field)
+   Details header panel
 ===================================================================== */
 function ensureDetailsHeaderPanel(){
   const details = document.getElementById('detailsPanel');
@@ -567,7 +589,7 @@ function updateDetailsHeaderPanel(state){
 }
 
 /* =====================================================================
-   ETA helper (Option 1 — Model-owned ETA)
+   ETA helper
 ===================================================================== */
 function parseEtaHoursFromText(txt){
   const s = String(txt || '');
@@ -603,7 +625,6 @@ function compactEtaForMobile(txt, horizonHours){
 async function getTileEtaText(state, fieldObj, deps, run0, thr){
   const HORIZON_HOURS = ETA_HORIZON_HOURS;
 
-  // never show ETA if already dry enough
   if (Number(run0 && run0.readinessR) >= Number(thr)) return '';
 
   try{
@@ -613,7 +634,6 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr){
     const res = await model.etaToThreshold(fieldObj, deps, Number(thr), HORIZON_HOURS, 3);
     if (!res || !res.ok) return '';
 
-    // Blank when no forecast cached (by design)
     const txt = String(res.text || '').trim();
     return compactEtaForMobile(txt, HORIZON_HOURS);
   }catch(_){
@@ -622,7 +642,7 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr){
 }
 
 /* =====================================================================
-   View key: if unchanged, we update numbers only (no rebuild)
+   View key
 ===================================================================== */
 function getTilesViewKey(state){
   const opKey = getCurrentOp();
@@ -661,7 +681,7 @@ async function updateVisibleTilesBatched(state, ids){
 }
 
 /* =====================================================================
-   ETA help UI in tile (render + tap wiring)
+   ETA help UI in tile
 ===================================================================== */
 function upsertEtaHelp(state, tile, ctx){
   try{
@@ -718,7 +738,7 @@ function upsertEtaHelp(state, tile, ctx){
 }
 
 /* =====================================================================
-   SWIPE FALLBACK (mobile): prevents swipe from getting "messed up"
+   SWIPE FALLBACK
 ===================================================================== */
 function isCoarsePointer(){
   try{
@@ -738,7 +758,6 @@ function initFallbackSwipeOnTiles(state, wrap, opts){
       if (!tile) continue;
       if (tile.dataset && tile.dataset.fvSwipeWired === '1') continue;
 
-      // Mark wired to avoid duplicates across renders
       if (tile.dataset) tile.dataset.fvSwipeWired = '1';
 
       let startX = 0, startY = 0, lastX = 0, lastY = 0;
@@ -746,9 +765,9 @@ function initFallbackSwipeOnTiles(state, wrap, opts){
       let horizLock = false;
       let pid = null;
 
-      const SWIPE_MIN_PX = 42;     // how far left to count
-      const LOCK_PX = 10;          // decide if horizontal intent
-      const DOMINANCE = 1.15;      // dx must be > dy * this
+      const SWIPE_MIN_PX = 42;
+      const LOCK_PX = 10;
+      const DOMINANCE = 1.15;
 
       function reset(){
         tracking = false;
@@ -758,10 +777,7 @@ function initFallbackSwipeOnTiles(state, wrap, opts){
 
       tile.addEventListener('pointerdown', (e)=>{
         try{
-          if (!e) return;
-          if (e.pointerType !== 'touch') return;
-
-          // ignore presses on controls (ETA button, etc.)
+          if (!e || e.pointerType !== 'touch') return;
           const t = e.target;
           if (t && (t.closest && t.closest('button, a, input, select, textarea'))) return;
 
@@ -774,7 +790,6 @@ function initFallbackSwipeOnTiles(state, wrap, opts){
           lastX = startX;
           lastY = startY;
 
-          // capture if possible (helps ensure pointerup fires)
           try{ tile.setPointerCapture && tile.setPointerCapture(pid); }catch(_){}
         }catch(_){}
       }, { passive:true });
@@ -795,14 +810,11 @@ function initFallbackSwipeOnTiles(state, wrap, opts){
             if (Math.abs(dx) > Math.abs(dy) * DOMINANCE){
               horizLock = true;
             } else {
-              // user is scrolling vertically; stop tracking so we don't break scroll
               reset();
               return;
             }
           }
 
-          // If we're here, user intent is horizontal swipe.
-          // Prevent vertical scroll/jank while swiping.
           if (horizLock){
             try{ e.preventDefault(); }catch(_){}
           }
@@ -817,11 +829,9 @@ function initFallbackSwipeOnTiles(state, wrap, opts){
           const dx = (e.clientX - startX);
           const dy = (e.clientY - startY);
 
-          // Only count clean left-swipes
           const left = (dx <= -SWIPE_MIN_PX) && (Math.abs(dx) > Math.abs(dy) * DOMINANCE);
 
           if (left){
-            // suppress "ghost click" after swipe
             const now = Date.now();
             tile._fvSwipeJustTs = now;
             if (state) state._suppressClickUntil = now + 500;
@@ -844,7 +854,7 @@ function initFallbackSwipeOnTiles(state, wrap, opts){
 }
 
 /* =====================================================================
-   Helper: build deps via formula.js (exact same wiring everywhere)
+   Helper: build deps via formula.js
 ===================================================================== */
 function buildDepsForState(state, opKey){
   const wxCtx = buildWxCtx(state);
@@ -866,10 +876,7 @@ async function updateTileForField(state, fieldId){
 
     await ensureFRModules(state);
     ensureSelectionStyleOnce();
-
-    // ✅ Force truth refresh so this matches Global Calibration (prevents stale mismatch)
     await loadPersistedState(state, { force:true });
-
     ensureEtaHelperModule(state);
 
     const f = (state.fields || []).find(x=>x.id === fid);
@@ -922,9 +929,9 @@ async function updateTileForField(state, fieldId){
     }
 
     const range = parseRangeFromInput();
-    const rainRange = rainInRange(run0, range);
+    const mrmsRes = await getMrmsRainResultForField(state, fid, range, { force:false });
     const rainLine = tile.querySelector('.subline .mono');
-    if (rainLine) rainLine.textContent = rainRange.toFixed(2);
+    if (rainLine) rainLine.textContent = rainTileTextFromMrmsResult(mrmsRes);
 
     const etaTxt = await getTileEtaText(state, f, deps, run0, thr);
 
@@ -954,7 +961,6 @@ function wireTileInteractions(state, tileEl, fieldId){
     const until = Number(state._suppressClickUntil || 0);
     if (Date.now() < until) return;
 
-    // If a swipe just happened on this tile, ignore the click (ghost click)
     const swipeTs = Number(tileEl._fvSwipeJustTs || 0);
     if (swipeTs && (Date.now() - swipeTs) < 650) return;
 
@@ -983,6 +989,7 @@ function wireTileInteractions(state, tileEl, fieldId){
     if (String(state.selectedFieldId) !== String(fieldId)) return;
 
     ensureSelectedParamsToSliders(state);
+    await refreshDetailsOnly(state);
     await updateTileForField(state, fieldId);
 
     openQuickView(state, fieldId);
@@ -993,10 +1000,7 @@ function wireTileInteractions(state, tileEl, fieldId){
 async function _renderTilesInternal(state){
   await ensureFRModules(state);
   ensureSelectionStyleOnce();
-
-  // ✅ Force truth refresh so tiles align with Global Calibration
   await loadPersistedState(state, { force:true });
-
   ensureEtaHelperModule(state);
 
   const wrap = $('fieldsGrid');
@@ -1009,7 +1013,6 @@ async function _renderTilesInternal(state){
 
   state._fvTilesViewKey = viewKey;
 
-  // ✅ SAME VIEW: update numbers only (no clear/rebuild)
   if (sameView){
     const tiles = Array.from(wrap.querySelectorAll('.tile[data-field-id]'));
     const cap = (String(state.pageSize) === '__all__' || state.pageSize === -1)
@@ -1017,7 +1020,6 @@ async function _renderTilesInternal(state){
       : Math.min(tiles.length, Number(state.pageSize || 25));
     const ids = tiles.slice(0, cap).map(t=>String(t.getAttribute('data-field-id')||'')).filter(Boolean);
 
-    // Keep swipe alive even if some other code detached it:
     initFallbackSwipeOnTiles(state, wrap, {
       onDetails: async (fieldId)=>{
         if (!canEdit(state)) return;
@@ -1030,22 +1032,27 @@ async function _renderTilesInternal(state){
   }
 
   const opKey = getCurrentOp();
-
-  // ✅ deps built in ONE place (formula.js)
   const deps = buildDepsForState(state, opKey);
-
   const filtered = getFilteredFields(state);
 
-  // compute runs for sorting + numbers
   state.lastRuns.clear();
   for (const f of state.fields){
-    // Run via model directly (same as runFieldReadiness would do) but deps is now unified:
     state.lastRuns.set(f.id, state._mods.model.runField(f, deps));
   }
 
-  const sorted = sortFields(filtered, state.lastRuns);
-  const thr = getThresholdForOp(state, opKey);
   const range = parseRangeFromInput();
+  const mrmsRangeById = new Map();
+
+  // Preload MRMS range values for the filtered set so sort + display both match
+  await Promise.all(
+    filtered.map(async (f)=>{
+      const res = await getMrmsRainResultForField(state, f.id, range, { force:false });
+      mrmsRangeById.set(f.id, res);
+    })
+  );
+
+  const sorted = sortFields(filtered, state.lastRuns, mrmsRangeById);
+  const thr = getThresholdForOp(state, opKey);
 
   const cap = (String(state.pageSize) === '__all__' || state.pageSize === -1)
     ? sorted.length
@@ -1060,7 +1067,6 @@ async function _renderTilesInternal(state){
     if (!run0) continue;
 
     const readiness = run0.readinessR;
-    const rainRange = rainInRange(run0, range);
 
     const leftPos = state._mods.model.markerLeftCSS(readiness);
     const thrPos  = state._mods.model.markerLeftCSS(thr);
@@ -1068,6 +1074,9 @@ async function _renderTilesInternal(state){
     const perceived = perceivedFromThreshold(readiness, thr);
     const pillBg = colorForPerceived(perceived);
     const grad = gradientForThreshold(thr);
+
+    const mrmsRes = mrmsRangeById.get(f.id);
+    const rainText = rainTileTextFromMrmsResult(mrmsRes);
 
     const tile = document.createElement('div');
     tile.className = 'tile fv-swipe-item';
@@ -1087,7 +1096,7 @@ async function _renderTilesInternal(state){
         <div class="readiness-pill" style="background:${pillBg};color:#fff;">Field Readiness ${readiness}</div>
       </div>
 
-      <p class="subline">Rain (range): <span class="mono">${rainRange.toFixed(2)}</span> in</p>
+      <p class="subline">Rain (range): <span class="mono">${esc(rainText)}</span></p>
 
       <div class="gauge-wrap">
         <div class="chips">
@@ -1115,7 +1124,6 @@ async function _renderTilesInternal(state){
   const empty = $('emptyMsg');
   if (empty) empty.style.display = idsForEta.length ? 'none' : 'block';
 
-  // 1) Run your existing shared swipe system (if it works)
   try{
     await initSwipeOnTiles(state, {
       onDetails: async (fieldId)=>{
@@ -1127,7 +1135,6 @@ async function _renderTilesInternal(state){
     console.warn('[FieldReadiness] initSwipeOnTiles failed; using fallback swipe.', e);
   }
 
-  // 2) Always wire the fallback on mobile (safe + prevents “swipe got messed up”)
   initFallbackSwipeOnTiles(state, wrap, {
     onDetails: async (fieldId)=>{
       if (!canEdit(state)) return;
@@ -1135,7 +1142,6 @@ async function _renderTilesInternal(state){
     }
   });
 
-  // Fill ETA after the tiles exist
   setTimeout(async ()=>{
     try{
       await updateVisibleTilesBatched(state, idsForEta);
@@ -1254,7 +1260,7 @@ function renderBetaInputs(state){
     groupHtml('Pulled (not yet used)', pulledNotUsed, 'tag-pulled', 'Pulled');
 }
 
-/* ---------- MRMS helpers ---------- */
+/* ---------- MRMS panel helpers ---------- */
 function numOrZero(v){
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
@@ -1378,8 +1384,6 @@ function renderMrmsPanelFromDoc(doc){
 async function _renderDetailsInternal(state){
   await ensureFRModules(state);
   ensureEtaHelperModule(state);
-
-  // ✅ Force truth refresh so details align with Global Calibration
   await loadPersistedState(state, { force:true });
 
   const f = state.fields.find(x=>x.id === state.selectedFieldId);
@@ -1388,9 +1392,7 @@ async function _renderDetailsInternal(state){
   updateDetailsHeaderPanel(state);
 
   const opKey = getCurrentOp();
-
   const deps = buildDepsForState(state, opKey);
-
   const run = state._mods.model.runField(f, deps);
   if (!run) return;
 
@@ -1398,19 +1400,10 @@ async function _renderDetailsInternal(state){
 
   renderBetaInputs(state);
 
-  // ============================================================
-  // Option B: Debug trace (rewind) when truth-anchored run has no trace
-  //   - Truth numbers remain from "run"
-  //   - Trace table may use "traceDisplay" from rewind pass
-  // ============================================================
   let traceDisplay = Array.isArray(run.trace) ? run.trace : [];
   if (!traceDisplay.length){
     try{
-      const depsDbg = {
-        ...deps,
-        seedMode: 'rewind',
-        rewindDays: 14
-      };
+      const depsDbg = { ...deps, seedMode:'rewind', rewindDays:14 };
       const dbg = state._mods.model.runField(f, depsDbg);
       const dbgTrace = Array.isArray(dbg && dbg.trace) ? dbg.trace : [];
       if (dbgTrace.length) traceDisplay = dbgTrace;
@@ -1425,24 +1418,15 @@ async function _renderDetailsInternal(state){
       trb.innerHTML = `<tr><td colspan="7" class="muted">No trace rows.</td></tr>`;
     } else {
       for (const t of rows){
-        const dateISO = String(t.dateISO || '');
-        const rain = Number(t.rain ?? 0);
-        const infilMult = Number(t.infilMult ?? 0);
-        const add = Number(t.add ?? 0);
-        const dryPwr = Number(t.dryPwr ?? 0);
-        const loss = Number(t.loss ?? 0);
-        const before = Number(t.before ?? 0);
-        const after = Number(t.after ?? 0);
-
         const tr = document.createElement('tr');
         tr.innerHTML = `
-          <td class="mono">${esc(dateISO)}</td>
-          <td class="right mono">${rain.toFixed(2)}</td>
-          <td class="right mono">${infilMult.toFixed(2)}</td>
-          <td class="right mono">${add.toFixed(2)}</td>
-          <td class="right mono">${dryPwr.toFixed(2)}</td>
-          <td class="right mono">${loss.toFixed(2)}</td>
-          <td class="right mono">${before.toFixed(2)}→${after.toFixed(2)}</td>
+          <td class="mono">${esc(String(t.dateISO || ''))}</td>
+          <td class="right mono">${Number(t.rain ?? 0).toFixed(2)}</td>
+          <td class="right mono">${Number(t.infilMult ?? 0).toFixed(2)}</td>
+          <td class="right mono">${Number(t.add ?? 0).toFixed(2)}</td>
+          <td class="right mono">${Number(t.dryPwr ?? 0).toFixed(2)}</td>
+          <td class="right mono">${Number(t.loss ?? 0).toFixed(2)}</td>
+          <td class="right mono">${Number(t.before ?? 0).toFixed(2)}→${Number(t.after ?? 0).toFixed(2)}</td>
         `;
         trb.appendChild(tr);
       }
@@ -1541,7 +1525,6 @@ async function _renderDetailsInternal(state){
     }
   }
 
-  // ✅ NEW: MRMS panel
   try{
     const mrmsDoc = await loadFieldMrmsDoc(state, String(f.id), { force:false });
     renderMrmsPanelFromDoc(mrmsDoc);
@@ -1565,7 +1548,7 @@ export async function refreshDetailsOnly(state){
 }
 
 /* =====================================================================
-   GLOBAL LISTENERS (wired once)
+   GLOBAL LISTENERS
 ===================================================================== */
 (function wireGlobalLightRefreshOnce(){
   try{
@@ -1597,11 +1580,8 @@ export async function refreshDetailsOnly(state){
         const state = window.__FV_FR;
         if (!state) return;
 
-        // Re-pull persisted truth
         state._persistLoadedAt = 0;
-
         await loadPersistedState(state, { force:true });
-
         await refreshAll(state);
       }catch(_){}
     });
