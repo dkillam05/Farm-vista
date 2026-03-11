@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-03-10b-prefer-mrms-rain-fallback-openmeteo
+Rev: 2026-03-11a-storage-state-drydown
 
 OPTION 1 (per Dane):
 ✅ Model owns ETA and computes it from the SAME truth-seeded run + SAME physics.
@@ -10,13 +10,26 @@ OPTION 1 (per Dane):
    so older callers won't crash while we wire quickview/details to model ETA.
 
 THIS REV:
-✅ Model now PREFERS MRMS rainfall when upstream deps provide merged/model weather rows
-✅ Falls back to Open-Meteo rainfall automatically when MRMS is still processing
-✅ Keeps infiltration DISPLAY fields:
-   - infilMult (effective from raw rain → addRain)
-   - addRain (rain-only storage add)
-   - addSm (sm010 nudge add)
-✅ Keeps dry-bypass cap so 1" rain affects storage more when very dry
+✅ Keeps MRMS rainfall preference with Open-Meteo fallback
+✅ Adds STORAGE-STATE DRYDOWN behavior:
+   - very full / saturated profile dries down slower
+   - mid-range profile dries down faster
+   - very dry tail still slows down as before
+✅ This better matches:
+   - dry sponge = rain causes a short setback, then recovery can resume quicker
+   - full sponge = same rain lingers longer and slows readiness recovery
+
+TUNING NOTES FOR NEXT TIME:
+- WET_HOLD_START:
+    where "wet soils start holding on harder"
+- WET_HOLD_MAX_REDUCTION:
+    max drydown slowdown at saturation
+- MID_ACCEL_START:
+    where drying begins to accelerate once storage has come down enough
+- MID_ACCEL_MAX_BOOST:
+    max extra drydown boost in that middle zone
+- DRY_TAIL_START / DRY_TAIL_MIN_MULT:
+    still control the very-dry end slowdown
 
 IMPORTANT:
 - Truth seed (storageFinal + asOfDateISO) still anchors "now"
@@ -98,8 +111,20 @@ const FV_TUNE = {
   SAT_RUNOFF_CAP: 0.85,
   RAIN_EFF_MIN: 0.05,
 
+  // very-dry tail (existing behavior)
   DRY_TAIL_START: 0.12,
-  DRY_TAIL_MIN_MULT: 0.55
+  DRY_TAIL_MIN_MULT: 0.55,
+
+  // NEW: saturated/full profile holds wetness longer
+  WET_HOLD_START: 0.62,
+  WET_HOLD_MAX_REDUCTION: 0.32,
+  WET_HOLD_EXP: 1.70,
+
+  // NEW: once storage comes down enough, drying can accelerate
+  // This band sits ABOVE the very-dry tail so the two do not fight much.
+  MID_ACCEL_START: 0.50,
+  MID_ACCEL_MAX_BOOST: 0.18,
+  MID_ACCEL_EXP: 1.35
 };
 
 function getTune(deps){
@@ -134,6 +159,14 @@ function getTune(deps){
 
   t.DRY_TAIL_START     = clamp(t.DRY_TAIL_START, 0.03, 0.30);
   t.DRY_TAIL_MIN_MULT  = clamp(t.DRY_TAIL_MIN_MULT, 0.20, 1.00);
+
+  t.WET_HOLD_START        = clamp(t.WET_HOLD_START, 0.40, 0.90);
+  t.WET_HOLD_MAX_REDUCTION= clamp(t.WET_HOLD_MAX_REDUCTION, 0.00, 0.60);
+  t.WET_HOLD_EXP          = clamp(t.WET_HOLD_EXP, 0.6, 4.0);
+
+  t.MID_ACCEL_START    = clamp(t.MID_ACCEL_START, t.DRY_TAIL_START + 0.05, 0.80);
+  t.MID_ACCEL_MAX_BOOST= clamp(t.MID_ACCEL_MAX_BOOST, 0.00, 0.40);
+  t.MID_ACCEL_EXP      = clamp(t.MID_ACCEL_EXP, 0.6, 4.0);
 
   return t;
 }
@@ -327,6 +360,45 @@ function effectiveRainInches(rainIn, storageBefore, Smax, factors, tune){
   const rainEffective = rainAfterRunoff * (1 - bypassFrac);
   const minEff = tune.RAIN_EFF_MIN * rain;
   return Math.max(minEff, rainEffective);
+}
+
+/* =====================================================================
+   NEW: storage-state drydown multiplier
+
+   Goal:
+   - very wet/full profile dries slower
+   - mid-range profile dries a bit faster
+   - very dry tail still slows separately later
+
+   Returns:
+   - mult < 1.0  => wet/full hold-back
+   - mult > 1.0  => middle-zone acceleration
+===================================================================== */
+function storageDrydownMult(storageBefore, Smax, tune){
+  if (!isFinite(storageBefore) || !isFinite(Smax) || Smax <= 0) return 1;
+
+  const sat = clamp(storageBefore / Smax, 0, 1);
+  let mult = 1;
+
+  // 1) WET HOLD:
+  // when the profile is already pretty full, good weather still dries it,
+  // but it does NOT peel off moisture as aggressively.
+  if (sat > tune.WET_HOLD_START){
+    const wetFrac = clamp((sat - tune.WET_HOLD_START) / Math.max(1e-6, (1 - tune.WET_HOLD_START)), 0, 1);
+    const wetReduction = tune.WET_HOLD_MAX_REDUCTION * Math.pow(wetFrac, tune.WET_HOLD_EXP);
+    mult *= (1 - wetReduction);
+  }
+
+  // 2) MID-RANGE ACCELERATION:
+  // once the profile has come down enough, it can start recovering quicker.
+  // This boost fades out before the bone-dry tail, where we still slow things down.
+  if (sat < tune.MID_ACCEL_START && sat > tune.DRY_TAIL_START){
+    const midFrac = clamp((tune.MID_ACCEL_START - sat) / Math.max(1e-6, (tune.MID_ACCEL_START - tune.DRY_TAIL_START)), 0, 1);
+    const boost = tune.MID_ACCEL_MAX_BOOST * Math.pow(midFrac, tune.MID_ACCEL_EXP);
+    mult *= (1 + boost);
+  }
+
+  return clamp(mult, 0.20, 2.50);
 }
 
 /* =====================================================================
@@ -658,9 +730,15 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
       let add = addRain + addSm;
 
       let lossDay = Number(parts.dryPwr||0) * deps.LOSS_SCALE * f.dryMult * (1 + deps.EXTRA.LOSS_ET0_W * et0N);
+
+      // NEW: storage-state drydown behavior
+      const stateDryMult = storageDrydownMult(before, f.Smax, tune);
+      lossDay = lossDay * stateDryMult;
+
       let loss = Math.max(0, lossDay * (stepH / 24));
       loss = Math.max(0, loss * rate.dryLossMult);
 
+      // Existing very-dry tail slowdown remains last
       if (f.Smax > 0 && isFinite(before)){
         const sat = clamp(before / f.Smax, 0, 1);
         if (sat < tune.DRY_TAIL_START){
@@ -750,9 +828,15 @@ export function runField(field, deps){
     let addRain = rainEff * f.infilMult;
     let add = addRain + addSm;
 
-    let loss = Number(d.dryPwr||0) * deps.LOSS_SCALE * f.dryMult * (1 + deps.EXTRA.LOSS_ET0_W * d.et0N);
+    let lossBase = Number(d.dryPwr||0) * deps.LOSS_SCALE * f.dryMult * (1 + deps.EXTRA.LOSS_ET0_W * d.et0N);
+
+    // NEW: storage-state drydown behavior
+    const stateDryMult = storageDrydownMult(before, f.Smax, tune);
+
+    let loss = lossBase * stateDryMult;
     loss = Math.max(0, loss * rate.dryLossMult);
 
+    // Existing very-dry tail slowdown remains last
     if (f.Smax > 0 && isFinite(before)){
       const sat = clamp(before / f.Smax, 0, 1);
       if (sat < tune.DRY_TAIL_START){
@@ -783,6 +867,8 @@ export function runField(field, deps){
       addSm,
       add,
 
+      lossBase,
+      stateDryMult,
       loss,
       dryPwr: d.dryPwr
     });
