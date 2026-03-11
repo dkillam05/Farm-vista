@@ -1,11 +1,18 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/index.js  (FULL FILE)
-Rev: 2025-12-29a
+Rev: 2026-03-10b-mrms-ui-refresh-no-trim
 
 Changes (per Dane):
 ✅ Edit permission controls interactivity:
    - Details panel is ALWAYS shown, but cannot be opened when edit is false
    - Gate is applied on boot and whenever perms update (fv:user-ready)
+
+NEW:
+✅ Lightweight MRMS rainfall-only refresh
+   - does NOT rerun full readiness model
+   - refreshes tile rainfall / MRMS details / quick view rainfall display
+   - runs every 10 minutes while page is open
+   - also refreshes on pageshow and when tab becomes visible
 
 Keeps:
 ✅ Persist + restore (iOS/Safari BFCache safe): Operation, Farm, Sort, Rain range
@@ -30,6 +37,7 @@ import { initLayoutFix } from './layout.js';
 import { initOpThresholds } from './op-thresholds.js';
 
 const LS_RANGE_KEY = 'fv_fr_range_v1';
+const MRMS_UI_REFRESH_MS = 10 * 60 * 1000;
 
 function applySavedRangeToUI(){
   try{
@@ -46,6 +54,63 @@ function applySavedRangeToUI(){
   }catch(_){
     return false;
   }
+}
+
+/* =====================================================================
+   MRMS UI-only refresh helpers
+   - does NOT rerun full readiness model
+   - only nudges rainfall-related UI to refresh
+===================================================================== */
+function getVisibleTileFieldIds(state){
+  try{
+    const nodes = Array.from(document.querySelectorAll('#fieldsGrid .tile[data-field-id]'));
+    const ids = nodes
+      .map(el => String(el.getAttribute('data-field-id') || '').trim())
+      .filter(Boolean);
+
+    if (ids.length) return ids;
+
+    return Array.isArray(state && state.fields)
+      ? state.fields.map(f => String(f && f.id || '')).filter(Boolean).slice(0, 25)
+      : [];
+  }catch(_){
+    return [];
+  }
+}
+
+async function refreshMrmsUiOnly(state){
+  try{
+    if (!state || !Array.isArray(state.fields) || !state.fields.length) return;
+
+    const visibleIds = getVisibleTileFieldIds(state);
+
+    for (const fieldId of visibleIds){
+      try{
+        document.dispatchEvent(new CustomEvent('fr:tile-refresh', {
+          detail: { fieldId }
+        }));
+      }catch(_){}
+    }
+
+    if (state.selectedFieldId){
+      try{
+        document.dispatchEvent(new CustomEvent('fr:details-refresh', {
+          detail: { fieldId: state.selectedFieldId }
+        }));
+      }catch(_){}
+    }
+  }catch(_){}
+}
+
+function startMrmsUiRefreshTimer(state){
+  try{
+    if (!state) return;
+    if (state._mrmsUiRefreshTimer) return;
+
+    state._mrmsUiRefreshTimer = window.setInterval(()=>{
+      refreshMrmsUiOnly(state).catch?.(()=>{});
+    }, MRMS_UI_REFRESH_MS);
+  }catch(_){}
 }
 
 /* =====================================================================
@@ -237,26 +302,36 @@ function applyDetailsEditGateState(state){
     }catch(_){}
   };
 
-  window.addEventListener('pageshow', ()=>{ reapplyPrefs(); });
+  window.addEventListener('pageshow', ()=>{
+    reapplyPrefs();
+    refreshMrmsUiOnly(state).catch?.(()=>{});
+  });
 
   document.addEventListener('visibilitychange', ()=>{
     if (!document.hidden){
       reapplyPrefs();
+      refreshMrmsUiOnly(state).catch?.(()=>{});
     }
   });
 
   // Initial paint
-await renderTiles(state);
-await renderDetails(state);
+  await renderTiles(state);
+  await renderDetails(state);
 
-// ✅ refresh without destroying tiles
-setTimeout(()=>{ refreshAll(state).catch(()=>{}); }, 0);
+  // ✅ refresh without destroying tiles
+  setTimeout(()=>{ refreshAll(state).catch(()=>{}); }, 0);
 
   // global calibration wiring (will show Fields always; only wires when edit allowed)
   wireFieldsHiddenTap(state);
 
   // Re-apply details gate again after all wiring (safe)
   applyDetailsEditGateState(state);
+
+  // Start lightweight MRMS-only refresh timer
+  startMrmsUiRefreshTimer(state);
+
+  // Small delayed MRMS-only refresh after initial paint so hourly rainfall UI can settle
+  setTimeout(()=>{ refreshMrmsUiOnly(state).catch?.(()=>{}); }, 1500);
 
   // re-close details (edge cases)
   try{
