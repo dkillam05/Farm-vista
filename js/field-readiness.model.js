@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-03-04a-display-infil-right-boost-dry-rain-to-storage
+Rev: 2026-03-10b-prefer-mrms-rain-fallback-openmeteo
 
 OPTION 1 (per Dane):
 ✅ Model owns ETA and computes it from the SAME truth-seeded run + SAME physics.
@@ -10,17 +10,21 @@ OPTION 1 (per Dane):
    so older callers won't crash while we wire quickview/details to model ETA.
 
 THIS REV:
-✅ Fix infiltration DISPLAY: trace rows now include:
+✅ Model now PREFERS MRMS rainfall when upstream deps provide merged/model weather rows
+✅ Falls back to Open-Meteo rainfall automatically when MRMS is still processing
+✅ Keeps infiltration DISPLAY fields:
    - infilMult (effective from raw rain → addRain)
    - addRain (rain-only storage add)
    - addSm (sm010 nudge add)
-✅ Make 1" rain affect storage MORE when very dry:
-   - cap dry-bypass fraction when sat is very low (storage/Smax under threshold)
-   - keeps wet/saturated behavior unchanged
+✅ Keeps dry-bypass cap so 1" rain affects storage more when very dry
 
 IMPORTANT:
 - Truth seed (storageFinal + asOfDateISO) still anchors "now"
 - Learning (EXTRA.DRY_LOSS_MULT / EXTRA.RAIN_EFF_MULT) still applies
+- This file now supports merged weather input through deps:
+    1) getModelWeatherSeriesForFieldId(fieldId)
+    2) getMergedWeatherSeriesForFieldId(fieldId)
+    3) fallback getWeatherSeriesForFieldId(fieldId)
 ===================================================================== */
 'use strict';
 
@@ -69,7 +73,7 @@ const REV_POINTS_MAX = 20;
  */
 function signedCreditInchesFromSmax(Smax){
   const s = clamp(Number(Smax), SMAX_MIN, SMAX_MAX);
-  const signed = clamp((SMAX_MID - s) / 1.0, -1, 1); // +1 at 3, 0 at 4, -1 at 5
+  const signed = clamp((SMAX_MID - s) / 1.0, -1, 1);
   return signed * (REV_POINTS_MAX / 100) * s;
 }
 
@@ -86,9 +90,9 @@ const FV_TUNE = {
   DRY_BYPASS_BASE: 0.45,
   BYPASS_GOODDRAIN_W: 0.15,
 
-  // NEW: when VERY DRY, cap bypass so rain affects storage more
-  DRY_BYPASS_CAP_SAT: 0.15,     // if sat < this, treat as "very dry"
-  DRY_BYPASS_CAP_MAX: 0.12,     // max bypass fraction allowed in very dry zone
+  // when VERY DRY, cap bypass so rain affects storage more
+  DRY_BYPASS_CAP_SAT: 0.15,
+  DRY_BYPASS_CAP_MAX: 0.12,
 
   SAT_DRYBYPASS_FLOOR: 0.02,
   SAT_RUNOFF_CAP: 0.85,
@@ -206,7 +210,6 @@ export function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, EXTRA){
   const infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor;
   const dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor;
 
-  // Tank: 3..5 hard endpoints
   const SmaxBase = 3.00 + 1.00*soilHold + 1.00*drainPoor;
   const Smax = clamp(SmaxBase, 3.00, 5.00);
 
@@ -214,7 +217,7 @@ export function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, EXTRA){
 }
 
 /* =====================================================================
-   Calibration hooks (applied to STORAGE)
+   Calibration hooks
 ===================================================================== */
 function getWetBiasFromDeps(deps){
   try{
@@ -317,13 +320,11 @@ function effectiveRainInches(rainIn, storageBefore, Smax, factors, tune){
   let bypassFrac = tune.DRY_BYPASS_BASE * dryBypassCurve * (1 + tune.BYPASS_GOODDRAIN_W * goodDrain);
   bypassFrac = clamp(bypassFrac, 0, 0.90);
 
-  // ✅ NEW: if VERY DRY, don't throw away half the rain — cap bypass
   if (sat < tune.DRY_BYPASS_CAP_SAT){
     bypassFrac = Math.min(bypassFrac, tune.DRY_BYPASS_CAP_MAX);
   }
 
   const rainEffective = rainAfterRunoff * (1 - bypassFrac);
-
   const minEff = tune.RAIN_EFF_MIN * rain;
   return Math.max(minEff, rainEffective);
 }
@@ -397,13 +398,66 @@ function pickSeed(rows, f, deps, fieldId){
 }
 
 /* =====================================================================
-   Readiness from physical storage (truth-consistent)
+   Weather-series selection
+===================================================================== */
+function getBestWeatherSeriesForField(deps, fieldId){
+  try{
+    if (!deps || !fieldId) return [];
+
+    if (typeof deps.getModelWeatherSeriesForFieldId === 'function'){
+      const rows = deps.getModelWeatherSeriesForFieldId(fieldId);
+      if (Array.isArray(rows) && rows.length) return rows;
+    }
+
+    if (typeof deps.getMergedWeatherSeriesForFieldId === 'function'){
+      const rows = deps.getMergedWeatherSeriesForFieldId(fieldId);
+      if (Array.isArray(rows) && rows.length) return rows;
+    }
+
+    if (typeof deps.getWeatherSeriesForFieldId === 'function'){
+      const rows = deps.getWeatherSeriesForFieldId(fieldId);
+      if (Array.isArray(rows) && rows.length) return rows;
+    }
+
+    return [];
+  }catch(_){
+    return [];
+  }
+}
+
+function pickRainForRow(w){
+  if (!w || typeof w !== 'object'){
+    return { rainInAdj: 0, rainSource: 'none' };
+  }
+
+  const mrmsIn = Number(w.rainMrmsIn);
+  if (Number.isFinite(mrmsIn)){
+    return { rainInAdj: Math.max(0, mrmsIn), rainSource: 'mrms' };
+  }
+
+  if (Number.isFinite(Number(w.rainInAdj))){
+    const src = String(w.rainSource || w.precipSource || 'open-meteo').toLowerCase();
+    return { rainInAdj: Math.max(0, Number(w.rainInAdj)), rainSource: src || 'open-meteo' };
+  }
+
+  if (Number.isFinite(Number(w.rainIn))){
+    return { rainInAdj: Math.max(0, Number(w.rainIn)), rainSource: 'open-meteo' };
+  }
+
+  if (Number.isFinite(Number(w.precipIn))){
+    return { rainInAdj: Math.max(0, Number(w.precipIn)), rainSource: 'open-meteo' };
+  }
+
+  return { rainInAdj: 0, rainSource: 'none' };
+}
+
+/* =====================================================================
+   Readiness from physical storage
 ===================================================================== */
 function computeReadinessFromStorage(storagePhys, f, deps){
   const calRes = applyCalToStorage(storagePhys, f.Smax, deps);
   const storageEff = calRes.storageEff;
 
-  // Symmetric extreme slider effect (readiness derivation only)
   const creditIn = signedCreditInchesFromSmax(f.Smax);
   const storageForReadiness = clamp(storageEff - creditIn, 0, f.Smax);
 
@@ -448,9 +502,14 @@ function interpDayRow(d0, d1, frac){
     return lerpNum(k, 0);
   }
 
+  const rainPickA = pickRainForRow(a);
+  const rainPickB = pickRainForRow(b);
+
   return {
     dateISO: String(a.dateISO || b.dateISO || '').slice(0,10),
     rainIn: lerpNum('rainIn', 0),
+    rainInAdj: lerp(rainPickA.rainInAdj, rainPickB.rainInAdj, f),
+    rainSource: String(rainPickA.rainSource || rainPickB.rainSource || 'mixed'),
     tempF:  lerpNum('tempF', 0),
     windMph:lerpNum('windMph', 0),
     rh:     lerpNum('rh', 0),
@@ -463,6 +522,7 @@ function interpDayRow(d0, d1, frac){
 }
 
 function normalizeDailyRowForSim(w, EXTRA){
+  const rainPick = pickRainForRow(w);
   const parts = calcDryParts(w, EXTRA);
 
   const et0 = (w.et0In===null || w.et0In===undefined) ? null : Number(w.et0In);
@@ -474,7 +534,8 @@ function normalizeDailyRowForSim(w, EXTRA){
 
   return {
     ...w,
-    rainInAdj: Number(w.rainIn||0),
+    rainInAdj: rainPick.rainInAdj,
+    rainSource: rainPick.rainSource,
     et0: (isFinite(et0)?et0:0),
     et0N,
     smN_day: smN2,
@@ -517,19 +578,16 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
     const run = runField(field, deps);
     if (!run) return { ok:false, status:'noData', hours:null, text:'' };
 
-    // Already ready
     if (Number(run.readinessR) >= thr){
       return { ok:true, status:'dryNow', hours:0, text:'' };
     }
 
-    // Get forecast
     let fcstDaily = [];
     if (deps && typeof deps.getForecastSeriesForFieldId === 'function'){
       const got = await deps.getForecastSeriesForFieldId(String(field.id));
       fcstDaily = Array.isArray(got) ? got.slice() : [];
     }
 
-    // Optional: if a caller provides combined series, split it
     if (!fcstDaily.length && deps && typeof deps.getWxSeriesWithForecastForFieldId === 'function'){
       const all = await deps.getWxSeriesWithForecastForFieldId(String(field.id));
       const sp = splitHistFcstFromWx(all);
@@ -553,7 +611,6 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
     const tune = getTune(deps);
     const rate = getRateMults(deps);
 
-    // Starting physical storage is the history-sim final storage (truth physics)
     let storagePhys = Number.isFinite(Number(run.storagePhysFinal))
       ? Number(run.storagePhysFinal)
       : Number(run.storageFinal || 0);
@@ -580,7 +637,7 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
       const d1 = fcst[Math.min(i + 1, fcst.length - 1)];
       const row = interpDayRow(d0, d1, frac);
 
-      const stepRain = (toNum(row.rainIn, 0) / 24) * stepH;
+      const stepRain = (toNum(row.rainInAdj, 0) / 24) * stepH;
 
       const parts = calcDryParts(row, deps.EXTRA || {});
 
@@ -604,7 +661,6 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
       let loss = Math.max(0, lossDay * (stepH / 24));
       loss = Math.max(0, loss * rate.dryLossMult);
 
-      // Dry tail
       if (f.Smax > 0 && isFinite(before)){
         const sat = clamp(before / f.Smax, 0, 1);
         if (sat < tune.DRY_TAIL_START){
@@ -642,7 +698,7 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
    runField
 ===================================================================== */
 export function runField(field, deps){
-  const wx = deps.getWeatherSeriesForFieldId(field.id);
+  const wx = getBestWeatherSeriesForField(deps, field.id);
   if (!wx || !wx.length) return null;
 
   const p = deps.getFieldParams(field.id);
@@ -654,6 +710,7 @@ export function runField(field, deps){
   const rate = getRateMults(deps);
 
   const rows = wx.map(w=>{
+    const rainPick = pickRainForRow(w);
     const parts = calcDryParts(w, deps.EXTRA);
 
     const et0 = (w.et0In===null || w.et0In===undefined) ? null : Number(w.et0In);
@@ -665,7 +722,8 @@ export function runField(field, deps){
 
     return {
       ...w,
-      rainInAdj: Number(w.rainIn||0),
+      rainInAdj: rainPick.rainInAdj,
+      rainSource: rainPick.rainSource,
       et0: (isFinite(et0)?et0:0),
       et0N,
       smN_day: smN2,
@@ -707,8 +765,6 @@ export function runField(field, deps){
     const after = clamp(before + add - loss, 0, f.Smax);
     storage = after;
 
-    // ✅ infilMult display: represent the EFFECTIVE multiplier from raw rain → addRain
-    // This includes runoff/bypass via rainEff (so it matches what you expect to see)
     const infilMultEff = (rain > 0)
       ? clamp((addRain / Math.max(1e-6, rain)), 0, 5)
       : 0;
@@ -718,8 +774,8 @@ export function runField(field, deps){
       before,
       after,
       rain,
+      rainSource: String(d.rainSource || 'unknown'),
 
-      // helpful debug
       rainEff,
       infilMult: infilMultEff,
 
@@ -732,10 +788,8 @@ export function runField(field, deps){
     });
   }
 
-  // Physical storage final (truth physics)
   const storagePhysFinal = storage;
 
-  // Derive readiness from cal + symmetric slider credit
   const calRes = applyCalToStorage(storagePhysFinal, f.Smax, deps);
   const storageEff = calRes.storageEff;
 
@@ -757,14 +811,13 @@ export function runField(field, deps){
     rows,
     trace,
 
-    storagePhysFinal,          // ✅ physical storage used by physics + ETA
-    storageFinal: storageEff,  // effective storage after cal (kept name)
+    storagePhysFinal,
+    storageFinal: storageEff,
 
     wetnessR,
     readinessR,
     avgLossDay,
 
-    // debug
     readinessCreditIn: creditIn,
     storageForReadiness
   };
@@ -795,9 +848,7 @@ export function markerLeftCSS(pct){
 }
 
 /**
- * Legacy ETA function (COMPAT STUB ONLY):
- * - returns blank so no legacy ETA ever shows
- * - kept temporarily so older imports don't crash
+ * Legacy ETA function (COMPAT STUB ONLY)
  */
 export function etaFor(_run, _threshold, _ETA_MAX_HOURS){
   return '';
