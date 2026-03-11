@@ -577,6 +577,8 @@
 
     const FIELDS_COLLECTION = 'fields';
     const MRMS_COLLECTION = 'field_mrms_weather';
+    const MRMS_HOURLY_SUBCOLLECTION = 'mrms_hourly';
+    const HOURLY_TTL_MS = 5 * 60 * 1000;
 
     let map = null;
     let heatmap = null;
@@ -586,6 +588,8 @@
     let currentRequestId = 0;
     let dbRef = null;
     let authRef = null;
+
+    const hourlyCache = new Map();
 
     function $(id){ return document.getElementById(id); }
 
@@ -854,12 +858,18 @@
       return n;
     }
 
-    function rangeHours(range){
+    function hoursForRange(range){
       if (range === '24h') return 24;
       if (range === '48h') return 48;
       if (range === '72h') return 72;
       if (range === '7d') return 24 * 7;
       return null;
+    }
+
+    function isCurrentMonth(ts){
+      const d = new Date(ts);
+      const now = new Date();
+      return d.getUTCFullYear() === now.getUTCFullYear() && d.getUTCMonth() === now.getUTCMonth();
     }
 
     function pointLabelFromKey(key){
@@ -877,66 +887,90 @@
       return String(key || 'Point');
     }
 
-    function directSamplesFromResult(docData, field){
-      const samples = getByPath(docData, 'result.samples');
-      if (!Array.isArray(samples) || !samples.length) return [];
+    function parseHourlyDocTimestamp(id, row){
+      const raw = String(
+        (row && (row.fileTimestampUtc || row.timestampUtc || row.timestamp || row.ts || row.time || row.iso || row.dateISO)) ||
+        id ||
+        ''
+      );
 
-      const out = [];
-      samples.forEach(sample=>{
-        if (!sample || sample.ok === false) return;
+      let ts = Date.parse(raw);
+      if (Number.isFinite(ts)) return ts;
 
-        const lat = toNum(sample.lat);
-        const lng = toNum(sample.lon ?? sample.lng);
-        const mm  = toNum(sample.mm);
+      const m = raw.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
+      if (m){
+        ts = Date.UTC(
+          Number(m[1]),
+          Number(m[2]) - 1,
+          Number(m[3]),
+          Number(m[4]),
+          Number(m[5]),
+          Number(m[6])
+        );
+        if (Number.isFinite(ts)) return ts;
+      }
 
-        if (lat == null || lng == null || mm == null) return;
+      return NaN;
+    }
 
-        out.push({
-          fieldName: field.name || 'Field',
-          pointLabel: pointLabelFromKey(sample.key),
-          lat,
-          lng,
-          rainInches: mm / 25.4
+    async function loadHourlyDocsForField(fieldId, { force=false } = {}){
+      const fid = String(fieldId || '');
+      if (!fid) return [];
+
+      const cached = hourlyCache.get(fid);
+      if (!force && cached && (Date.now() - cached.loadedAt) < HOURLY_TTL_MS){
+        return cached.rows;
+      }
+
+      if (!dbRef) await initFirebase();
+
+      const colRef = collection(dbRef, MRMS_COLLECTION, fid, MRMS_HOURLY_SUBCOLLECTION);
+      const snap = await getDocs(colRef);
+      const rows = [];
+
+      snap.forEach(docSnap=>{
+        rows.push({
+          id: docSnap.id,
+          data: docSnap.data() || {}
         });
       });
 
-      return out;
+      rows.sort((a,b)=> parseHourlyDocTimestamp(a.id, a.data) - parseHourlyDocTimestamp(b.id, b.data));
+
+      hourlyCache.set(fid, {
+        loadedAt: Date.now(),
+        rows
+      });
+
+      return rows;
     }
 
-    function hourlySamplesFromDoc(docData, field, range){
-      const hoursNeeded = rangeHours(range);
-      if (!hoursNeeded) return [];
+    function aggregatePointSamples(field, hourlyRows, range){
+      const out = new Map();
+      const needHours = hoursForRange(range);
 
-      const hourly = Array.isArray(docData && docData.hourly) ? docData.hourly : null;
-      if (!hourly || !hourly.length) return [];
+      let rows = hourlyRows.slice();
 
-      const sorted = hourly
-        .filter(row => row && row.result && Array.isArray(row.result.samples))
-        .sort((a,b)=>{
-          const ta = Date.parse(a.fileTimestampUtc || a.ts || a.time || a.iso || '');
-          const tb = Date.parse(b.fileTimestampUtc || b.ts || b.time || b.iso || '');
-          return ta - tb;
-        });
+      if (range === 'mtd'){
+        rows = rows.filter(r => isCurrentMonth(parseHourlyDocTimestamp(r.id, r.data)));
+      } else if (needHours){
+        rows = rows.slice(-needHours);
+      }
 
-      if (!sorted.length) return [];
-
-      const latestRows = sorted.slice(-hoursNeeded);
-      const mapByKey = new Map();
-
-      latestRows.forEach(row=>{
-        const samples = row.result.samples || [];
+      rows.forEach(row=>{
+        const samples = Array.isArray(getByPath(row.data, 'samples')) ? row.data.samples : [];
         samples.forEach(sample=>{
           if (!sample || sample.ok === false) return;
 
           const key = lower(sample.key);
           const lat = toNum(sample.lat);
           const lng = toNum(sample.lon ?? sample.lng);
-          const mm = toNum(sample.mm);
+          const mm  = toNum(sample.mm);
 
           if (!key || lat == null || lng == null || mm == null) return;
 
-          if (!mapByKey.has(key)){
-            mapByKey.set(key, {
+          if (!out.has(key)){
+            out.set(key, {
               fieldName: field.name || 'Field',
               pointLabel: pointLabelFromKey(sample.key),
               lat,
@@ -945,11 +979,14 @@
             });
           }
 
-          mapByKey.get(key).rainMm += mm;
+          const cur = out.get(key);
+          cur.rainMm += mm;
+          cur.lat = lat;
+          cur.lng = lng;
         });
       });
 
-      return Array.from(mapByKey.values()).map(x => ({
+      return Array.from(out.values()).map(x => ({
         fieldName: x.fieldName,
         pointLabel: x.pointLabel,
         lat: x.lat,
@@ -958,42 +995,26 @@
       }));
     }
 
-    async function loadMrmsDoc(fieldId){
-      if (!dbRef) await initFirebase();
-      const ref = doc(dbRef, MRMS_COLLECTION, String(fieldId));
-      const snap = await getDoc(ref);
-      if (!snap.exists()) return null;
-      return snap.data() || null;
-    }
-
-    async function loadLivePoints(range, requestId){
+    async function loadLivePoints(range, requestId, force=false){
       const fields = await loadActiveFields();
       if (requestId !== currentRequestId) return { cancelled:true };
 
       setFieldsMeta(fields.length);
 
       const points = [];
+      let fieldsWithPoints = 0;
 
       const jobs = fields.map(async (field)=>{
         try{
-          const docData = await loadMrmsDoc(field.id);
-          if (!docData || typeof docData !== 'object') return;
-
-          let fieldPoints = [];
-
-          if (range === '24h' || range === '48h' || range === '72h'){
-            fieldPoints = hourlySamplesFromDoc(docData, field, range);
-          }
-
-          if (!fieldPoints.length){
-            fieldPoints = directSamplesFromResult(docData, field);
-          }
+          const hourlyRows = await loadHourlyDocsForField(field.id, { force });
+          const fieldPoints = aggregatePointSamples(field, hourlyRows, range);
 
           if (fieldPoints.length){
+            fieldsWithPoints += 1;
             points.push(...fieldPoints);
           }
         }catch(err){
-          console.warn('[Dev Rain Map] MRMS load failed for field:', field && field.id, err);
+          console.warn('[Dev Rain Map] hourly MRMS load failed for field:', field && field.id, err);
         }
       });
 
@@ -1001,11 +1022,12 @@
 
       return {
         points,
-        fieldCount: fields.length
+        fieldCount: fields.length,
+        fieldsWithPoints
       };
     }
 
-    async function renderRain(){
+    async function renderRain(force=false){
       const requestId = ++currentRequestId;
       updateRangeUi();
 
@@ -1020,7 +1042,7 @@
       setStatus('Loading MRMS…', false);
 
       try{
-        const res = await loadLivePoints(currentRange, requestId);
+        const res = await loadLivePoints(currentRange, requestId, force);
         if (!res || res.cancelled || requestId !== currentRequestId) return;
 
         const points = Array.isArray(res.points) ? res.points : [];
@@ -1058,7 +1080,9 @@
         });
       }
 
-      btnRefresh?.addEventListener('click', renderRain);
+      btnRefresh?.addEventListener('click', ()=>{
+        renderRain(true);
+      });
 
       $('viewSel')?.addEventListener('change', updateMapStyle);
 
@@ -1071,7 +1095,7 @@
           const next = String(btn.dataset.range || '');
           if (!next || next === currentRange) return;
           currentRange = next;
-          renderRain();
+          renderRain(false);
         });
       });
     }
@@ -1083,7 +1107,7 @@
         ensureMap();
         wireUi();
         updateRangeUi();
-        renderRain();
+        renderRain(false);
       }catch(e){
         console.warn('[Dev Rain Map] startup failed:', e);
         setStatus('Startup failed', true);
