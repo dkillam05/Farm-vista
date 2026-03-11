@@ -1,9 +1,10 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-03-04a-use-formula-single-source-of-truth
+Rev: 2026-03-10b-use-mrms-rain-range-queue-aware
 
 GOAL (per Dane, Feb 2026):
 ✅ Make Quick View readiness MATCH Global Calibration readiness.
+✅ Keep Quick View rain-range display aligned with new MRMS tile logic.
 
 CHANGES (THIS REV):
 ✅ Use /Farm-vista/js/field-readiness/formula.js as the single wiring source:
@@ -13,6 +14,9 @@ CHANGES (THIS REV):
 ✅ Keep Rule A:
    - Sliders change params only (soil/drain) and do NOT write truth storage
    - Save writes only fields/{fieldId} params + local cache
+✅ Quick View "Range rain" now uses MRMS daily rainfall
+✅ If MRMS current-day-through-past-30-days is not complete, shows:
+   "Rainfall data still in queue"
 
 Keeps:
 ✅ UI unchanged
@@ -26,7 +30,8 @@ import { getFieldParams, saveParamsToLocal } from './params.js';
 import { getCurrentOp, getThresholdForOp } from './thresholds.js';
 import { esc, clamp } from './utils.js';
 import { canEdit } from './perm.js';
-import { parseRangeFromInput, rainInRange } from './rain.js';
+import { parseRangeFromInput, mrmsRainInRange } from './rain.js';
+import { loadFieldMrmsDoc } from './data.js';
 
 // ✅ SINGLE SOURCE OF TRUTH: readiness wiring lives here
 import { ensureFRModules, buildFRDeps } from './formula.js';
@@ -190,7 +195,7 @@ function getPersistedStateForDeps(state, fieldId){
 }
 
 /* =====================================================================
-   Map modal helpers (uses existing #mapBackdrop modal in field-readiness.html)
+   Quick View ↔ Map stacking fix
 ===================================================================== */
 function mapEls(){
   return {
@@ -294,9 +299,6 @@ async function openMapForField(state, field){
   }
 }
 
-/* =====================================================================
-   Quick View ↔ Map stacking fix
-===================================================================== */
 function hideQuickViewForMap(state){
   try{
     const qv = $('frQvBackdrop');
@@ -313,6 +315,20 @@ function restoreQuickViewAfterMap(state){
     qv.classList.remove('pv-hide');
     state._qvHiddenForMap = false;
   }catch(_){}
+}
+
+/* =====================================================================
+   MRMS rain helpers
+===================================================================== */
+async function getQuickViewMrmsRainText(state, fieldId, range){
+  try{
+    const doc = await loadFieldMrmsDoc(state, String(fieldId), { force:false });
+    const res = mrmsRainInRange(doc, range);
+    if (!res || res.ready !== true) return 'Rainfall data still in queue';
+    return `${Number(res.inches || 0).toFixed(2)} in`;
+  }catch(_){
+    return 'Rainfall data still in queue';
+  }
 }
 
 /* =====================================================================
@@ -549,16 +565,12 @@ function ensureBuiltOnce(state){
     const fid = state._qvFieldId;
     if (!fid) return;
 
-    // Update in-memory params immediately (Rule A)
     const p = getFieldParams(state, fid);
     p.soilWetness = clamp(Number(soil.value), 0, 100);
     p.drainageIndex = clamp(Number(drain.value), 0, 100);
     state.perFieldParams.set(fid, p);
 
-    // Live-save local cache so Quick View stays consistent if closed without Save
     saveParamsToLocal(state);
-
-    // Re-render inside modal (Rule A uses truth run only)
     fillQuickView(state, { live:true });
   }
 
@@ -601,7 +613,6 @@ export function openQuickView(state, fieldId){
 
   state._qvFieldId = fieldId;
   state.selectedFieldId = fieldId;
-
   state._qvDidAdjust = false;
 
   const b = $('frQvBackdrop');
@@ -624,7 +635,7 @@ function setText(id,val){
   if (el) el.textContent = String(val);
 }
 
-function renderTilePreview(state, run, thr, etaTxt){
+async function renderTilePreview(state, run, thr, etaTxt){
   const wrap = $('frQvTilePreview');
   if (!wrap) return;
 
@@ -633,7 +644,7 @@ function renderTilePreview(state, run, thr, etaTxt){
 
   const readiness = run.readinessR;
   const range = parseRangeFromInput();
-  const rainRange = rainInRange(run, range);
+  const rainText = await getQuickViewMrmsRainText(state, f.id, range);
 
   const leftPos = state._mods.model.markerLeftCSS(readiness);
   const thrPos  = state._mods.model.markerLeftCSS(thr);
@@ -653,7 +664,7 @@ function renderTilePreview(state, run, thr, etaTxt){
         <div class="readiness-pill" style="background:${pillBg};color:#fff;">Field Readiness ${readiness}</div>
       </div>
 
-      <p class="subline">Rain (range): <span class="mono">${rainRange.toFixed(2)}</span> in</p>
+      <p class="subline">Rain (range): <span class="mono">${esc(rainText)}</span></p>
 
       <div class="gauge-wrap">
         <div class="chips">
@@ -679,17 +690,12 @@ async function fillQuickView(state, { live=false } = {}){
   const f = state.fields.find(x=>x.id===fid);
   if (!f) return;
 
-  // ✅ Ensure modules exist even if QV opened before render loaded them
   await ensureFRModules(state);
-
-  // ✅ Force truth refresh so QV matches Global Calibration (prevents stale mismatch)
   await loadPersistedState(state, { force:true });
 
   const opKey = getCurrentOp();
   const wxCtx = buildWxCtx(state);
 
-  // ✅ RULE A: Always show TRUTH run (persisted seed + current params).
-  // Sliders update params live (soil/drain), but do not rewrite truth storage.
   const depsTruth = buildFRDeps(state, {
     opKey,
     wxCtx,
@@ -749,8 +755,8 @@ async function fillQuickView(state, { live=false } = {}){
   setText('frQvThr', thr);
 
   const range = parseRangeFromInput();
-  const rr = displayRun ? rainInRange(displayRun, range) : 0;
-  setText('frQvRain', displayRun ? `${rr.toFixed(2)} in` : '—');
+  const rainText = await getQuickViewMrmsRainText(state, fid, range);
+  setText('frQvRain', rainText);
   setText('frQvReadiness', displayRun ? displayRun.readinessR : '—');
   setText('frQvWetness', displayRun ? displayRun.wetnessR : '—');
   setText('frQvStorage', displayRun ? `${displayRun.storageFinal.toFixed(2)} / ${displayRun.factors.Smax.toFixed(2)}` : '—');
@@ -774,7 +780,6 @@ async function fillQuickView(state, { live=false } = {}){
       `drain=<span class="mono">${Math.round(Number(pRaw.drainageIndex||0))}</span>/100`;
   }
 
-  // ✅ Option 1: model-owned ETA (truth-consistent, SAME deps as readiness)
   let etaTxt = '';
   try{
     const horizon = 168;
@@ -786,7 +791,7 @@ async function fillQuickView(state, { live=false } = {}){
     etaTxt = '';
   }
 
-  renderTilePreview(state, displayRun, thr, etaTxt);
+  await renderTilePreview(state, displayRun, thr, etaTxt);
 }
 
 /* ---------- Save & Close ---------- */
@@ -808,18 +813,15 @@ async function saveAndClose(state){
   if (hint) hint.textContent = 'Saving…';
 
   try{
-    // Save RAW params locally
     const p = getFieldParams(state, fid);
     p.soilWetness = soilWetness;
     p.drainageIndex = drainageIndex;
     state.perFieldParams.set(fid, p);
     saveParamsToLocal(state);
 
-    // Mirror on field object
     f.soilWetness = soilWetness;
     f.drainageIndex = drainageIndex;
 
-    // Save RAW params to Firestore fields/{fid}
     const api = getAPI(state);
     if (api && api.kind !== 'compat'){
       const db = api.getFirestore();
@@ -842,8 +844,6 @@ async function saveAndClose(state){
       }, { merge:true });
     }
 
-    // RULE A: DO NOT write truth storage here.
-    // Refresh UI to show new params effects, but truth storage remains.
     try{ document.dispatchEvent(new CustomEvent('fr:tile-refresh', { detail:{ fieldId: fid } })); }catch(_){}
     try{ document.dispatchEvent(new CustomEvent('fr:details-refresh', { detail:{ fieldId: fid } })); }catch(_){}
 
