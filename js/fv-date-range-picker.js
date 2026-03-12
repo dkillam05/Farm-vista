@@ -16,14 +16,138 @@
 //        • clearRangeBtn     (Clear button)
 //        • applyRangeBtn     (Apply button)
 //        • closeCalBtn       (X / close button)
+//        • calDays           (calendar grid container)
 //
-//   If required elements aren’t present, this script quietly no-ops.
+//   3) Optional per-page config (set BEFORE including this script):
 //
-//   It also exposes a tiny global, window.FVDateRangePicker, in case
-//   you ever want to re-init manually: FVDateRangePicker.init();
+//        <script>
+//          window.FV_DATE_RANGE_PICKER_CONFIG = {
+//            disallowFuture: true,
+//            maxLookbackDays: 30
+//          };
+//        </script>
+//
+//      Notes:
+//      - maxLookbackDays is inclusive of today.
+//        Example: 30 means today + prior 29 days are selectable.
+//      - If no config is supplied, picker behaves like normal.
+//
+//   It exposes window.FVDateRangePicker with:
+//      • init()
+//      • getRange()
+//      • setRange(start, end, opts)
+//      • clear(opts)
+//      • open()
+//      • close()
+//
+//   It dispatches:
+//      • document event: 'fv:date-range-applied'
+//      • document event: 'fv:date-range-cleared'
+//
 // ======================================================================
 (function (global) {
   'use strict';
+
+  let api = null;
+
+  function startOfDay(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  }
+
+  function toDate(value) {
+    if (!value) return null;
+
+    if (value instanceof Date) {
+      const d = startOfDay(value);
+      return d && !Number.isNaN(d.getTime()) ? d : null;
+    }
+
+    if (typeof value === 'string') {
+      const s = value.trim();
+      if (!s) return null;
+
+      const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (isoMatch) {
+        const y = Number(isoMatch[1]);
+        const m = Number(isoMatch[2]) - 1;
+        const d = Number(isoMatch[3]);
+        const out = new Date(y, m, d);
+        if (!Number.isNaN(out.getTime())) return startOfDay(out);
+      }
+
+      const parsed = new Date(s);
+      if (!Number.isNaN(parsed.getTime())) return startOfDay(parsed);
+    }
+
+    return null;
+  }
+
+  function toISODate(date) {
+    const d = startOfDay(date);
+    if (!d) return '';
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  function compareDates(a, b) {
+    const da = startOfDay(a);
+    const db = startOfDay(b);
+    if (!da || !db) return 0;
+    return da.getTime() - db.getTime();
+  }
+
+  function isSameDay(a, b) {
+    const da = startOfDay(a);
+    const db = startOfDay(b);
+    return !!(da && db && da.getTime() === db.getTime());
+  }
+
+  function formatDate(date) {
+    const d = startOfDay(date);
+    if (!d) return '';
+    return d.toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  }
+
+  function getConfig() {
+    const cfg = global.FV_DATE_RANGE_PICKER_CONFIG;
+    if (!cfg || typeof cfg !== 'object') return {};
+    return cfg;
+  }
+
+  function resolveMaxDate(cfg) {
+    if (cfg.maxDate) {
+      const d = toDate(cfg.maxDate);
+      if (d) return d;
+    }
+    if (cfg.disallowFuture) {
+      return startOfDay(new Date());
+    }
+    return null;
+  }
+
+  function resolveMinDate(cfg, maxDate) {
+    if (cfg.minDate) {
+      const d = toDate(cfg.minDate);
+      if (d) return d;
+    }
+
+    const lookback = Number(cfg.maxLookbackDays);
+    if (Number.isFinite(lookback) && lookback > 0) {
+      const anchor = maxDate || startOfDay(new Date());
+      const min = new Date(anchor);
+      min.setDate(min.getDate() - Math.max(0, Math.floor(lookback) - 1));
+      return startOfDay(min);
+    }
+
+    return null;
+  }
 
   function init() {
     const monthNames = [
@@ -31,7 +155,6 @@
       'July', 'August', 'September', 'October', 'November', 'December'
     ];
 
-    // Grab required elements
     const jobInput      = document.getElementById('jobRangeInput');
     const popover       = document.getElementById('calendarPopover');
     const monthSelect   = document.getElementById('monthSelect');
@@ -42,40 +165,45 @@
     const applyBtn      = document.getElementById('applyRangeBtn');
     const closeBtn      = document.getElementById('closeCalBtn');
 
-    // Required elements check
     if (!jobInput || !popover || !monthSelect || !yearSelect ||
         !daysContainer || !rangeSummary || !clearBtn ||
         !applyBtn || !closeBtn) {
-      // Markup not present on this page – safe no-op
+      api = {
+        init,
+        getRange: function () {
+          return {
+            startDate: null,
+            endDate: null,
+            startISO: '',
+            endISO: '',
+            displayValue: ''
+          };
+        },
+        setRange: function () {},
+        clear: function () {},
+        open: function () {},
+        close: function () {}
+      };
+      global.FVDateRangePicker = api;
       return;
     }
 
+    const cfg = getConfig();
+
     let viewYear;
-    let viewMonth; // 0-11
-
+    let viewMonth;
     let rangeStart = null;
-    let rangeEnd   = null;
+    let rangeEnd = null;
 
-    function formatDate(date) {
-      if (!date) return '';
-      return date.toLocaleDateString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-      });
-    }
+    const maxDate = resolveMaxDate(cfg);
+    const minDate = resolveMinDate(cfg, maxDate);
 
-    function compareDates(a, b) {
-      const da = new Date(a.getFullYear(), a.getMonth(), a.getDate()).getTime();
-      const db = new Date(b.getFullYear(), b.getMonth(), b.getDate()).getTime();
-      return da - db;
-    }
-
-    function isSameDay(a, b) {
-      return a && b &&
-        a.getFullYear() === b.getFullYear() &&
-        a.getMonth() === b.getMonth() &&
-        a.getDate() === b.getDate();
+    function inAllowedWindow(date) {
+      const d = startOfDay(date);
+      if (!d) return false;
+      if (minDate && compareDates(d, minDate) < 0) return false;
+      if (maxDate && compareDates(d, maxDate) > 0) return false;
+      return true;
     }
 
     function updateSummary() {
@@ -89,9 +217,20 @@
     }
 
     function buildYearOptions() {
-      const currentYear = new Date().getFullYear();
-      const startYear   = currentYear - 5;
-      const endYear     = currentYear + 5;
+      let startYear;
+      let endYear;
+
+      if (minDate || maxDate) {
+        const floorYear = minDate ? minDate.getFullYear() : new Date().getFullYear() - 5;
+        const ceilYear = maxDate ? maxDate.getFullYear() : new Date().getFullYear() + 5;
+        startYear = floorYear;
+        endYear = ceilYear;
+      } else {
+        const currentYear = new Date().getFullYear();
+        startYear = currentYear - 5;
+        endYear = currentYear + 5;
+      }
+
       yearSelect.innerHTML = '';
       for (let y = startYear; y <= endYear; y++) {
         const opt = document.createElement('option');
@@ -103,7 +242,7 @@
 
     function buildMonthOptions() {
       monthSelect.innerHTML = '';
-      monthNames.forEach((name, index) => {
+      monthNames.forEach(function (name, index) {
         const opt = document.createElement('option');
         opt.value = index;
         opt.textContent = name;
@@ -111,21 +250,46 @@
       });
     }
 
+    function moveViewInsideAllowedWindow() {
+      if (!Number.isFinite(viewYear) || !Number.isFinite(viewMonth)) {
+        const anchor = maxDate || startOfDay(new Date());
+        viewYear = anchor.getFullYear();
+        viewMonth = anchor.getMonth();
+      }
+
+      if (maxDate) {
+        const viewFirst = new Date(viewYear, viewMonth, 1);
+        if (compareDates(viewFirst, new Date(maxDate.getFullYear(), maxDate.getMonth(), 1)) > 0) {
+          viewYear = maxDate.getFullYear();
+          viewMonth = maxDate.getMonth();
+        }
+      }
+
+      if (minDate) {
+        const viewFirst = new Date(viewYear, viewMonth, 1);
+        if (compareDates(viewFirst, new Date(minDate.getFullYear(), minDate.getMonth(), 1)) < 0) {
+          viewYear = minDate.getFullYear();
+          viewMonth = minDate.getMonth();
+        }
+      }
+    }
+
     function renderCalendar() {
+      moveViewInsideAllowedWindow();
+
       monthSelect.value = String(viewMonth);
-      yearSelect.value  = String(viewYear);
+      yearSelect.value = String(viewYear);
       daysContainer.innerHTML = '';
 
       const firstOfMonth = new Date(viewYear, viewMonth, 1);
       const startWeekday = firstOfMonth.getDay();
-      const daysInMonth  = new Date(viewYear, viewMonth + 1, 0).getDate();
+      const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
 
-      // previous month padding days
-      const prevMonth        = viewMonth === 0 ? 11 : viewMonth - 1;
-      const prevYear         = viewMonth === 0 ? viewYear - 1 : viewYear;
-      const daysInPrevMonth  = new Date(prevYear, prevMonth + 1, 0).getDate();
+      const prevMonth = viewMonth === 0 ? 11 : viewMonth - 1;
+      const prevYear = viewMonth === 0 ? viewYear - 1 : viewYear;
+      const daysInPrevMonth = new Date(prevYear, prevMonth + 1, 0).getDate();
 
-      const totalCells = 42; // 6 weeks x 7 days
+      const totalCells = 42;
 
       for (let cell = 0; cell < totalCells; cell++) {
         const dayCell = document.createElement('div');
@@ -134,38 +298,34 @@
         let cellDate;
 
         if (cell < startWeekday) {
-          // previous month
           const dayNum = daysInPrevMonth - (startWeekday - 1 - cell);
           dayCell.textContent = dayNum;
           dayCell.classList.add('other-month');
           cellDate = new Date(prevYear, prevMonth, dayNum);
         } else if (cell >= startWeekday + daysInMonth) {
-          // next month
           const nextMonth = viewMonth === 11 ? 0 : viewMonth + 1;
-          const nextYear  = viewMonth === 11 ? viewYear + 1 : viewYear;
-          const dayNum    = cell - (startWeekday + daysInMonth) + 1;
+          const nextYear = viewMonth === 11 ? viewYear + 1 : viewYear;
+          const dayNum = cell - (startWeekday + daysInMonth) + 1;
           dayCell.textContent = dayNum;
           dayCell.classList.add('other-month');
           cellDate = new Date(nextYear, nextMonth, dayNum);
         } else {
-          // current month
           const dayNum = cell - startWeekday + 1;
           dayCell.textContent = dayNum;
           cellDate = new Date(viewYear, viewMonth, dayNum);
         }
 
-        // First-click start highlight (no end yet)
+        const disabled = !inAllowedWindow(cellDate);
+
         if (rangeStart && !rangeEnd && isSameDay(cellDate, rangeStart)) {
           dayCell.classList.add('start-selected');
         }
 
-        // Full range styling once both dates are selected
         if (rangeStart && rangeEnd) {
           const cmpStart = compareDates(cellDate, rangeStart);
-          const cmpEnd   = compareDates(cellDate, rangeEnd);
+          const cmpEnd = compareDates(cellDate, rangeEnd);
 
           if (isSameDay(cellDate, rangeStart) && isSameDay(cellDate, rangeEnd)) {
-            // Start and end are the same day
             dayCell.classList.add('single-day');
           } else if (isSameDay(cellDate, rangeStart)) {
             dayCell.classList.add('range-start');
@@ -176,7 +336,18 @@
           }
         }
 
+        if (disabled) {
+          dayCell.setAttribute('aria-disabled', 'true');
+          dayCell.style.opacity = '0.35';
+          dayCell.style.pointerEvents = 'none';
+        } else {
+          dayCell.removeAttribute('aria-disabled');
+          dayCell.style.opacity = '';
+          dayCell.style.pointerEvents = '';
+        }
+
         dayCell.addEventListener('click', function () {
+          if (!inAllowedWindow(cellDate)) return;
           handleDateClick(cellDate);
         });
 
@@ -185,18 +356,19 @@
     }
 
     function handleDateClick(date) {
+      if (!inAllowedWindow(date)) return;
+
       if (!rangeStart || (rangeStart && rangeEnd)) {
-        // start new range
-        rangeStart = date;
-        rangeEnd   = null;
+        rangeStart = startOfDay(date);
+        rangeEnd = null;
       } else if (rangeStart && !rangeEnd) {
         if (compareDates(date, rangeStart) < 0) {
-          // clicked before start — make new start
-          rangeStart = date;
+          rangeStart = startOfDay(date);
         } else {
-          rangeEnd = date;
+          rangeEnd = startOfDay(date);
         }
       }
+
       updateSummary();
       renderCalendar();
     }
@@ -209,7 +381,79 @@
       popover.style.display = 'none';
     }
 
-    // ----------------- Event wiring -----------------
+    function getRange() {
+      return {
+        startDate: rangeStart ? new Date(rangeStart) : null,
+        endDate: rangeEnd ? new Date(rangeEnd) : null,
+        startISO: rangeStart ? toISODate(rangeStart) : '',
+        endISO: rangeEnd ? toISODate(rangeEnd) : '',
+        displayValue: String(jobInput.value || '').trim()
+      };
+    }
+
+    function emitApplied() {
+      const detail = getRange();
+      document.dispatchEvent(new CustomEvent('fv:date-range-applied', { detail }));
+    }
+
+    function emitCleared() {
+      const detail = getRange();
+      document.dispatchEvent(new CustomEvent('fv:date-range-cleared', { detail }));
+    }
+
+    function setRange(start, end, opts) {
+      const options = opts && typeof opts === 'object' ? opts : {};
+      const s = toDate(start);
+      const e = toDate(end);
+
+      if (!s) {
+        rangeStart = null;
+        rangeEnd = null;
+        jobInput.value = '';
+        updateSummary();
+        renderCalendar();
+        if (!options.silent) emitCleared();
+        return;
+      }
+
+      if (!inAllowedWindow(s)) return;
+
+      rangeStart = s;
+
+      if (e && inAllowedWindow(e)) {
+        if (compareDates(e, s) < 0) {
+          rangeEnd = null;
+        } else {
+          rangeEnd = e;
+        }
+      } else {
+        rangeEnd = null;
+      }
+
+      viewYear = rangeStart.getFullYear();
+      viewMonth = rangeStart.getMonth();
+
+      if (rangeStart && rangeEnd) {
+        jobInput.value = formatDate(rangeStart) + ' – ' + formatDate(rangeEnd);
+      } else {
+        jobInput.value = formatDate(rangeStart);
+      }
+
+      updateSummary();
+      renderCalendar();
+
+      if (!options.silent) emitApplied();
+    }
+
+    function clear(opts) {
+      const options = opts && typeof opts === 'object' ? opts : {};
+      rangeStart = null;
+      rangeEnd = null;
+      jobInput.value = '';
+      updateSummary();
+      renderCalendar();
+      if (!options.silent) emitCleared();
+    }
 
     monthSelect.addEventListener('change', function () {
       viewMonth = parseInt(this.value, 10);
@@ -223,7 +467,7 @@
 
     clearBtn.addEventListener('click', function () {
       rangeStart = null;
-      rangeEnd   = null;
+      rangeEnd = null;
       jobInput.value = '';
       updateSummary();
       renderCalendar();
@@ -238,6 +482,8 @@
         jobInput.value = '';
       }
       closeCalendar();
+      if (rangeStart || rangeEnd) emitApplied();
+      else emitCleared();
     });
 
     closeBtn.addEventListener('click', closeCalendar);
@@ -245,26 +491,60 @@
     jobInput.addEventListener('click', openCalendar);
     jobInput.addEventListener('focus', openCalendar);
 
-    // ----------------- Initial boot -----------------
-    const today = new Date();
-    viewYear  = today.getFullYear();
-    viewMonth = today.getMonth();
+    document.addEventListener('click', function (e) {
+      if (!popover || popover.style.display === 'none') return;
+      if (popover.contains(e.target) || jobInput.contains(e.target)) return;
+      closeCalendar();
+    });
+
+    const today = startOfDay(new Date());
+    const anchor = maxDate || today;
+
+    viewYear = anchor.getFullYear();
+    viewMonth = anchor.getMonth();
+
     buildMonthOptions();
     buildYearOptions();
     updateSummary();
     renderCalendar();
+
+    api = {
+      init: init,
+      getRange: getRange,
+      setRange: setRange,
+      clear: clear,
+      open: openCalendar,
+      close: closeCalendar
+    };
+
+    global.FVDateRangePicker = api;
   }
 
-  // Auto-init on DOM ready
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
     init();
   }
 
-  // Small global hook in case you ever want to re-init
   global.FVDateRangePicker = {
-    init
+    init: init,
+    getRange: function () {
+      return api && typeof api.getRange === 'function'
+        ? api.getRange()
+        : { startDate: null, endDate: null, startISO: '', endISO: '', displayValue: '' };
+    },
+    setRange: function (start, end, opts) {
+      if (api && typeof api.setRange === 'function') api.setRange(start, end, opts);
+    },
+    clear: function (opts) {
+      if (api && typeof api.clear === 'function') api.clear(opts);
+    },
+    open: function () {
+      if (api && typeof api.open === 'function') api.open();
+    },
+    close: function () {
+      if (api && typeof api.close === 'function') api.close();
+    }
   };
 
 })(window);
