@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-12c-fix-sameview-field-signature-no-trim
+Rev: 2026-03-12d-full-render-fix-pagesize-and-openmeteo-fallback-no-trim
 
 GOAL (per Dane, Feb 2026):
 ✅ Make tiles + details MATCH the Global Calibration readiness number.
@@ -37,6 +37,10 @@ CHANGES (THIS REV):
 ✅ FIX: same-view shortcut now includes a filtered field signature, so
    newly added fields / changed filtered sets force a full rebuild instead
    of getting stuck on the first drawn tile list
+✅ FIX: results-per-page now reads directly from the live pageSel dropdown
+   so 25/50/100/250/All always clamps the visible tile count correctly
+✅ FIX: if runFieldReadiness() returns null for a field, render.js now
+   falls back to the model/Open-Meteo path before showing "Field Readiness —"
 
 ===================================================================== */
 'use strict';
@@ -490,6 +494,18 @@ function sortNeedsComputedData(mode){
   );
 }
 
+/* ---------- page size helpers ---------- */
+function getEffectivePageSize(state){
+  try{
+    const sel = document.getElementById('pageSel');
+    const raw = String(sel ? sel.value : (state && state.pageSize === -1 ? '__all__' : String((state && state.pageSize) || 25))).trim();
+    if (raw === '__all__') return -1;
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) return Math.max(1, Math.round(n));
+  }catch(_){}
+  return (state && Number(state.pageSize) === -1) ? -1 : Math.max(1, Math.round(Number((state && state.pageSize) || 25)));
+}
+
 /* ---------- sorting ---------- */
 function sortFields(fields, runsById, mrmsRangeById){
   const mode = getSortMode();
@@ -852,40 +868,261 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr){
 }
 
 /* =====================================================================
-   View key
+   Helper: build deps via formula.js
 ===================================================================== */
-function getTilesViewKey(state){
-  const opKey = getCurrentOp();
-  const farmId = String(state && state.farmFilter ? state.farmFilter : '__all__');
-  const pageSize = String(state && state.pageSize != null ? state.pageSize : '');
-  const sort = getSortMode();
-  const rangeStr = String(($('jobRangeInput') && $('jobRangeInput').value) ? $('jobRangeInput').value : '');
-  return `${opKey}__${farmId}__${pageSize}__${sort}__${rangeStr}`;
+function buildDepsForState(state, opKey){
+  const wxCtx = buildWxCtx(state);
+  return buildFRDeps(state, {
+    opKey: String(opKey),
+    wxCtx,
+    persistedGetter: (id)=> getPersistedStateForDeps(state, id)
+  });
 }
 
-async function updateVisibleTilesBatched(state, ids){
-  const list = Array.isArray(ids) ? ids.slice() : [];
-  if (!list.length) return;
+/* =====================================================================
+   Helper: run readiness with fallback to model/Open-Meteo path
+===================================================================== */
+async function computeRunForField(state, fieldObj, opKey){
+  try{
+    const wxCtx = buildWxCtx(state);
+    const run = await runFieldReadiness(state, fieldObj, {
+      opKey,
+      wxCtx,
+      persistedGetter: (id)=> getPersistedStateForDeps(state, id)
+    });
+    if (run) return run;
+  }catch(_){}
 
-  const BATCH = 6;
+  try{
+    const deps = buildDepsForState(state, opKey);
+    const model = state && state._mods ? state._mods.model : null;
+    if (model && typeof model.runField === 'function'){
+      const legacy = model.runField(fieldObj, deps);
+      if (legacy) return legacy;
+    }
+  }catch(e){
+    console.warn('[FieldReadiness] legacy model fallback failed for field:', fieldObj && fieldObj.id, e);
+  }
 
-  return new Promise((resolve)=>{
-    const step = async ()=>{
+  return null;
+}
+
+/* =====================================================================
+   Helper: precompute runs for filtered fields using authoritative path
+===================================================================== */
+async function buildRunsForFields(state, fields, opKey){
+  const map = new Map();
+  const list = Array.isArray(fields) ? fields : [];
+
+  for (const f of list){
+    try{
+      const run = await computeRunForField(state, f, opKey);
+      if (run) map.set(f.id, run);
+    }catch(e){
       try{
-        const n = Math.min(BATCH, list.length);
-        for (let i=0; i<n; i++){
-          const fid = list.shift();
-          if (fid) await updateTileForField(state, fid);
-        }
+        console.warn('[FieldReadiness] buildRunsForFields failed for field:', f && f.id, e);
       }catch(_){}
+    }
+  }
 
-      if (list.length){
-        setTimeout(step, 0);
-      } else {
-        resolve();
-      }
-    };
-    setTimeout(step, 0);
+  return map;
+}
+
+/* =====================================================================
+   Tile fallback helpers
+===================================================================== */
+function buildWaitingTileHtml(f, isSelected){
+  const selectedClass = isSelected ? ' fv-selected' : '';
+  const title = esc(String((f && f.name) || 'Field'));
+  return {
+    className: `tile fv-swipe-item${selectedClass}`,
+    html: `
+      <div class="tile-top">
+        <div class="titleline">
+          <div class="name" title="${title}">${title}</div>
+        </div>
+        <div class="readiness-pill" style="background:color-mix(in srgb, var(--surface) 86%, #8b949e 14%);color:var(--text);">Field Readiness —</div>
+      </div>
+
+      <p class="subline">Rain (range): <span class="mono">Processing Data</span></p>
+
+      <div class="gauge-wrap">
+        <div class="chips">
+          <div class="chip wet">Wet</div>
+          <div class="chip readiness">Readiness</div>
+        </div>
+
+        <div class="gauge" style="background:linear-gradient(90deg, #c83b3b 0%, #d8b23b 55%, #2f8f4b 100%);opacity:.82;">
+          <div class="thr" style="left:50%;"></div>
+          <div class="marker" style="left:50%;opacity:.45;"></div>
+          <div class="badge" style="left:50%;background:color-mix(in srgb, var(--surface) 88%, #8b949e 12%);color:var(--text);">Loading…</div>
+        </div>
+
+        <div class="etaSlot"></div>
+      </div>
+    `
+  };
+}
+
+/* =====================================================================
+   Lightweight rainfall-only patch helpers
+===================================================================== */
+async function patchTileRainOnly(state, fieldId){
+  try{
+    if (!fieldId) return;
+    const fid = String(fieldId);
+    const tile = document.querySelector('.tile[data-field-id="' + CSS.escape(fid) + '"]');
+    if (!tile) return;
+
+    const range = parseRangeFromInput();
+    const mrmsRes = await getMrmsRainResultForField(state, fid, range, { force:false });
+    const rainLine = tile.querySelector('.subline .mono');
+    if (rainLine) rainLine.textContent = rainTileTextFromMrmsResult(mrmsRes);
+  }catch(_){}
+}
+
+/* ---------- internal: patch a single tile DOM in-place ---------- */
+async function updateTileForField(state, fieldId){
+  try{
+    if (!fieldId) return;
+    const fid = String(fieldId);
+
+    const tile = document.querySelector('.tile[data-field-id="' + CSS.escape(fid) + '"]');
+    if (!tile) return;
+
+    await ensureFRModules(state);
+    ensureSelectionStyleOnce();
+    ensureFieldsCountHelperEl();
+    await loadPersistedState(state, { force:true });
+    ensureEtaHelperModule(state);
+
+    const f = (state.fields || []).find(x=>x.id === fid);
+    if (!f) return;
+
+    const opKey = getCurrentOp();
+    const deps = buildDepsForState(state, opKey);
+
+    const run0 = await computeRunForField(state, f, opKey);
+
+    if (!run0){
+      const range = parseRangeFromInput();
+      const mrmsRes = await getMrmsRainResultForField(state, fid, range, { force:false });
+      const rainLine = tile.querySelector('.subline .mono');
+      if (rainLine) rainLine.textContent = rainTileTextFromMrmsResult(mrmsRes);
+
+      const pill = tile.querySelector('.readiness-pill');
+      if (pill) pill.textContent = 'Field Readiness —';
+
+      const badge = tile.querySelector('.badge');
+      if (badge) badge.textContent = 'Loading…';
+
+      return;
+    }
+
+    try{ state.lastRuns && state.lastRuns.set(fid, run0); }catch(_){}
+
+    const thr = getThresholdForOp(state, opKey);
+    const readiness = run0.readinessR;
+
+    const leftPos = state._mods.model.markerLeftCSS(readiness);
+    const thrPos  = state._mods.model.markerLeftCSS(thr);
+
+    const perceived = perceivedFromThreshold(readiness, thr);
+    const pillBg = colorForPerceived(perceived);
+    const grad = gradientForThreshold(thr);
+
+    const gauge = tile.querySelector('.gauge');
+    if (gauge) gauge.style.background = grad;
+
+    const thrEl = tile.querySelector('.thr');
+    if (thrEl) thrEl.style.left = thrPos;
+
+    const markerEl = tile.querySelector('.marker');
+    if (markerEl){
+      markerEl.style.left = leftPos;
+      markerEl.style.opacity = '';
+    }
+
+    const pill = tile.querySelector('.readiness-pill');
+    if (pill){
+      pill.style.background = pillBg;
+      pill.style.color = '#fff';
+      pill.textContent = `Field Readiness ${readiness}`;
+    }
+
+    const badge = tile.querySelector('.badge');
+    if (badge){
+      badge.style.left = leftPos;
+      badge.style.background = pillBg;
+      badge.style.color = '#fff';
+      badge.textContent = `Field Readiness ${readiness}`;
+    }
+
+    const range = parseRangeFromInput();
+    const mrmsRes = await getMrmsRainResultForField(state, fid, range, { force:false });
+    const rainLine = tile.querySelector('.subline .mono');
+    if (rainLine) rainLine.textContent = rainTileTextFromMrmsResult(mrmsRes);
+
+    const etaTxt = await getTileEtaText(state, f, deps, run0, thr);
+
+    upsertEtaHelp(state, tile, {
+      fieldId: fid,
+      fieldName: String(f.name || ''),
+      opKey,
+      threshold: thr,
+      readinessNow: readiness,
+      etaText: etaTxt,
+      horizonHours: ETA_HORIZON_HOURS
+    });
+
+    if (String(state.selectedFieldId) === fid){
+      tile.classList.add('fv-selected');
+      state._selectedTileId = fid;
+    }
+  }catch(_){}
+}
+
+/* ---------- click vs dblclick separation ---------- */
+function wireTileInteractions(state, tileEl, fieldId){
+  const CLICK_DELAY_MS = 360;
+  tileEl._fvClickTimer = null;
+
+  tileEl.addEventListener('click', ()=>{
+    const until = Number(state._suppressClickUntil || 0);
+    if (Date.now() < until) return;
+
+    const swipeTs = Number(tileEl._fvSwipeJustTs || 0);
+    if (swipeTs && (Date.now() - swipeTs) < 650) return;
+
+    if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
+    tileEl._fvClickTimer = setTimeout(()=>{
+      tileEl._fvClickTimer = null;
+      selectField(state, fieldId);
+    }, CLICK_DELAY_MS);
+  });
+
+  tileEl.addEventListener('dblclick', async (e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
+    tileEl._fvClickTimer = null;
+
+    setSelectedField(state, fieldId);
+    ensureSelectedParamsToSliders(state);
+
+    state._suppressClickUntil = Date.now() + 350;
+
+    if (!canEdit(state)) return;
+
+    try{ await fetchAndHydrateFieldParams(state, fieldId); }catch(_){}
+    if (String(state.selectedFieldId) !== String(fieldId)) return;
+
+    ensureSelectedParamsToSliders(state);
+    await refreshDetailsOnly(state);
+    await updateTileForField(state, fieldId);
+
+    openQuickView(state, fieldId);
   });
 }
 
@@ -1062,246 +1299,6 @@ function initFallbackSwipeOnTiles(state, wrap, opts){
   }catch(_){}
 }
 
-/* =====================================================================
-   Helper: build deps via formula.js
-===================================================================== */
-function buildDepsForState(state, opKey){
-  const wxCtx = buildWxCtx(state);
-  return buildFRDeps(state, {
-    opKey: String(opKey),
-    wxCtx,
-    persistedGetter: (id)=> getPersistedStateForDeps(state, id)
-  });
-}
-
-/* =====================================================================
-   Helper: precompute runs for filtered fields using authoritative path
-===================================================================== */
-async function buildRunsForFields(state, fields, opKey){
-  const map = new Map();
-  const list = Array.isArray(fields) ? fields : [];
-  const wxCtx = buildWxCtx(state);
-
-  for (const f of list){
-    try{
-      const run = await runFieldReadiness(state, f, {
-        opKey,
-        wxCtx,
-        persistedGetter: (id)=> getPersistedStateForDeps(state, id)
-      });
-      if (run) map.set(f.id, run);
-    }catch(e){
-      try{
-        console.warn('[FieldReadiness] buildRunsForFields failed for field:', f && f.id, e);
-      }catch(_){}
-    }
-  }
-
-  return map;
-}
-
-/* =====================================================================
-   Tile fallback helpers
-===================================================================== */
-function buildWaitingTileHtml(f, isSelected){
-  const selectedClass = isSelected ? ' fv-selected' : '';
-  const title = esc(String((f && f.name) || 'Field'));
-  return {
-    className: `tile fv-swipe-item${selectedClass}`,
-    html: `
-      <div class="tile-top">
-        <div class="titleline">
-          <div class="name" title="${title}">${title}</div>
-        </div>
-        <div class="readiness-pill" style="background:color-mix(in srgb, var(--surface) 86%, #8b949e 14%);color:var(--text);">Field Readiness —</div>
-      </div>
-
-      <p class="subline">Rain (range): <span class="mono">Processing Data</span></p>
-
-      <div class="gauge-wrap">
-        <div class="chips">
-          <div class="chip wet">Wet</div>
-          <div class="chip readiness">Readiness</div>
-        </div>
-
-        <div class="gauge" style="background:linear-gradient(90deg, #c83b3b 0%, #d8b23b 55%, #2f8f4b 100%);opacity:.82;">
-          <div class="thr" style="left:50%;"></div>
-          <div class="marker" style="left:50%;opacity:.45;"></div>
-          <div class="badge" style="left:50%;background:color-mix(in srgb, var(--surface) 88%, #8b949e 12%);color:var(--text);">Loading…</div>
-        </div>
-
-        <div class="etaSlot"></div>
-      </div>
-    `
-  };
-}
-
-/* =====================================================================
-   Lightweight rainfall-only patch helpers
-===================================================================== */
-async function patchTileRainOnly(state, fieldId){
-  try{
-    if (!fieldId) return;
-    const fid = String(fieldId);
-    const tile = document.querySelector('.tile[data-field-id="' + CSS.escape(fid) + '"]');
-    if (!tile) return;
-
-    const range = parseRangeFromInput();
-    const mrmsRes = await getMrmsRainResultForField(state, fid, range, { force:false });
-    const rainLine = tile.querySelector('.subline .mono');
-    if (rainLine) rainLine.textContent = rainTileTextFromMrmsResult(mrmsRes);
-  }catch(_){}
-}
-
-/* ---------- internal: patch a single tile DOM in-place ---------- */
-async function updateTileForField(state, fieldId){
-  try{
-    if (!fieldId) return;
-    const fid = String(fieldId);
-
-    const tile = document.querySelector('.tile[data-field-id="' + CSS.escape(fid) + '"]');
-    if (!tile) return;
-
-    await ensureFRModules(state);
-    ensureSelectionStyleOnce();
-    ensureFieldsCountHelperEl();
-    await loadPersistedState(state, { force:true });
-    ensureEtaHelperModule(state);
-
-    const f = (state.fields || []).find(x=>x.id === fid);
-    if (!f) return;
-
-    const opKey = getCurrentOp();
-    const deps = buildDepsForState(state, opKey);
-
-    const run0 = await runFieldReadiness(state, f, {
-      opKey,
-      wxCtx: buildWxCtx(state),
-      persistedGetter: (id)=> getPersistedStateForDeps(state, id)
-    });
-
-    if (!run0){
-      const range = parseRangeFromInput();
-      const mrmsRes = await getMrmsRainResultForField(state, fid, range, { force:false });
-      const rainLine = tile.querySelector('.subline .mono');
-      if (rainLine) rainLine.textContent = rainTileTextFromMrmsResult(mrmsRes);
-
-      const pill = tile.querySelector('.readiness-pill');
-      if (pill) pill.textContent = 'Field Readiness —';
-
-      const badge = tile.querySelector('.badge');
-      if (badge) badge.textContent = 'Loading…';
-
-      return;
-    }
-
-    try{ state.lastRuns && state.lastRuns.set(fid, run0); }catch(_){}
-
-    const thr = getThresholdForOp(state, opKey);
-    const readiness = run0.readinessR;
-
-    const leftPos = state._mods.model.markerLeftCSS(readiness);
-    const thrPos  = state._mods.model.markerLeftCSS(thr);
-
-    const perceived = perceivedFromThreshold(readiness, thr);
-    const pillBg = colorForPerceived(perceived);
-    const grad = gradientForThreshold(thr);
-
-    const gauge = tile.querySelector('.gauge');
-    if (gauge) gauge.style.background = grad;
-
-    const thrEl = tile.querySelector('.thr');
-    if (thrEl) thrEl.style.left = thrPos;
-
-    const markerEl = tile.querySelector('.marker');
-    if (markerEl){
-      markerEl.style.left = leftPos;
-      markerEl.style.opacity = '';
-    }
-
-    const pill = tile.querySelector('.readiness-pill');
-    if (pill){
-      pill.style.background = pillBg;
-      pill.style.color = '#fff';
-      pill.textContent = `Field Readiness ${readiness}`;
-    }
-
-    const badge = tile.querySelector('.badge');
-    if (badge){
-      badge.style.left = leftPos;
-      badge.style.background = pillBg;
-      badge.style.color = '#fff';
-      badge.textContent = `Field Readiness ${readiness}`;
-    }
-
-    const range = parseRangeFromInput();
-    const mrmsRes = await getMrmsRainResultForField(state, fid, range, { force:false });
-    const rainLine = tile.querySelector('.subline .mono');
-    if (rainLine) rainLine.textContent = rainTileTextFromMrmsResult(mrmsRes);
-
-    const etaTxt = await getTileEtaText(state, f, deps, run0, thr);
-
-    upsertEtaHelp(state, tile, {
-      fieldId: fid,
-      fieldName: String(f.name || ''),
-      opKey,
-      threshold: thr,
-      readinessNow: readiness,
-      etaText: etaTxt,
-      horizonHours: ETA_HORIZON_HOURS
-    });
-
-    if (String(state.selectedFieldId) === fid){
-      tile.classList.add('fv-selected');
-      state._selectedTileId = fid;
-    }
-  }catch(_){}
-}
-
-/* ---------- click vs dblclick separation ---------- */
-function wireTileInteractions(state, tileEl, fieldId){
-  const CLICK_DELAY_MS = 360;
-  tileEl._fvClickTimer = null;
-
-  tileEl.addEventListener('click', ()=>{
-    const until = Number(state._suppressClickUntil || 0);
-    if (Date.now() < until) return;
-
-    const swipeTs = Number(tileEl._fvSwipeJustTs || 0);
-    if (swipeTs && (Date.now() - swipeTs) < 650) return;
-
-    if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
-    tileEl._fvClickTimer = setTimeout(()=>{
-      tileEl._fvClickTimer = null;
-      selectField(state, fieldId);
-    }, CLICK_DELAY_MS);
-  });
-
-  tileEl.addEventListener('dblclick', async (e)=>{
-    e.preventDefault();
-    e.stopPropagation();
-
-    if (tileEl._fvClickTimer) clearTimeout(tileEl._fvClickTimer);
-    tileEl._fvClickTimer = null;
-
-    setSelectedField(state, fieldId);
-    ensureSelectedParamsToSliders(state);
-
-    state._suppressClickUntil = Date.now() + 350;
-
-    if (!canEdit(state)) return;
-
-    try{ await fetchAndHydrateFieldParams(state, fieldId); }catch(_){}
-    if (String(state.selectedFieldId) !== String(fieldId)) return;
-
-    ensureSelectedParamsToSliders(state);
-    await refreshDetailsOnly(state);
-    await updateTileForField(state, fieldId);
-
-    openQuickView(state, fieldId);
-  });
-}
-
 /* ---------- tile render (CORE) ---------- */
 async function _renderTilesInternal(state){
   await ensureFRModules(state);
@@ -1315,6 +1312,9 @@ async function _renderTilesInternal(state){
 
   const filteredNow = getFilteredFields(state);
   const filteredSigNow = getFilteredFieldSignature(filteredNow);
+  const effectivePageSize = getEffectivePageSize(state);
+
+  try{ state.pageSize = effectivePageSize; }catch(_){}
 
   const viewKey = getTilesViewKey(state);
   const prevKey = String(state._fvTilesViewKey || '');
@@ -1328,12 +1328,12 @@ async function _renderTilesInternal(state){
   if (sameView){
     const filteredExisting = filteredNow;
     const tiles = Array.from(wrap.querySelectorAll('.tile[data-field-id]'));
-    const cap = (String(state.pageSize) === '__all__' || state.pageSize === -1)
+    const cap = (effectivePageSize === -1)
       ? tiles.length
-      : Math.min(tiles.length, Number(state.pageSize || 25));
+      : Math.min(tiles.length, effectivePageSize);
     const ids = tiles.slice(0, cap).map(t=>String(t.getAttribute('data-field-id')||'')).filter(Boolean);
 
-    updateFieldsCountHelper(tiles.length, filteredExisting.length);
+    updateFieldsCountHelper(Math.min(tiles.length, cap), filteredExisting.length);
 
     initFallbackSwipeOnTiles(state, wrap, {
       onDetails: async (fieldId)=>{
@@ -1353,7 +1353,6 @@ async function _renderTilesInternal(state){
   );
 
   const opKey = getCurrentOp();
-  const deps = buildDepsForState(state, opKey);
   const filtered = filteredNow;
   const sortMode = getSortMode();
 
@@ -1400,9 +1399,9 @@ async function _renderTilesInternal(state){
   const sorted = sortFields(filtered, state.lastRuns, mrmsRangeById);
   const thr = getThresholdForOp(state, opKey);
 
-  const cap = (String(state.pageSize) === '__all__' || state.pageSize === -1)
+  const cap = (effectivePageSize === -1)
     ? sorted.length
-    : Math.min(sorted.length, Number(state.pageSize || 25));
+    : Math.min(sorted.length, effectivePageSize);
   const show = sorted.slice(0, cap);
 
   const frag = document.createDocumentFragment();
