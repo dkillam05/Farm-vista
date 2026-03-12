@@ -17,6 +17,14 @@
   <script src="/Farm-vista/js/firebase-config.js"></script>
 
   <script>
+    window.FV_DATE_RANGE_PICKER_CONFIG = {
+      disallowFuture: true,
+      maxLookbackDays: 30
+    };
+  </script>
+  <script src="/Farm-vista/js/fv-date-range-picker.js"></script>
+
+  <script>
     (function(){
       if(!customElements.get('fv-shell')){
         const s = document.createElement('script');
@@ -150,6 +158,7 @@
 
     .menu-field{
       margin-bottom:12px;
+      position:relative;
     }
 
     .menu-field:last-child{
@@ -190,6 +199,26 @@
       padding:12px 38px 12px 12px;
       outline:none;
       box-sizing:border-box;
+    }
+
+    .menu-input{
+      width:100%;
+      border:1px solid rgba(0,0,0,.08);
+      border-radius:14px;
+      background:color-mix(in srgb, var(--surface) 90%, #ffffff 10%);
+      color:var(--text-dark);
+      font:inherit;
+      font-size:15px;
+      font-weight:800;
+      padding:12px;
+      outline:none;
+      box-sizing:border-box;
+      cursor:pointer;
+    }
+
+    .menu-input::placeholder{
+      color:color-mix(in srgb, var(--text-dark) 72%, transparent 28%);
+      opacity:1;
     }
 
     .menu-btn{
@@ -246,6 +275,138 @@
       line-height:1.25;
       margin-top:2px;
       word-break:break-word;
+    }
+
+    #calendarPopover{
+      position:absolute;
+      top:calc(100% + 8px);
+      right:0;
+      left:auto;
+      width:min(360px, 92vw);
+      background:var(--glass);
+      border:1px solid var(--glass-border);
+      border-radius:16px;
+      box-shadow:0 14px 45px rgba(0,0,0,.25);
+      padding:12px;
+      display:none;
+      z-index:100000;
+      backdrop-filter:var(--blur);
+      -webkit-backdrop-filter:var(--blur);
+    }
+
+    @media (max-width:520px){
+      #calendarPopover{
+        width:min(340px, 92vw);
+        right:0;
+      }
+    }
+
+    .cal-top{
+      display:grid;
+      grid-template-columns:1fr 1fr 36px;
+      gap:10px;
+      align-items:center;
+      margin-bottom:10px;
+    }
+
+    .cal-xbtn{
+      width:34px;
+      height:34px;
+      border-radius:12px;
+      border:1px solid rgba(0,0,0,.08);
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      color:var(--text-dark);
+      display:grid;
+      place-items:center;
+      cursor:pointer;
+      user-select:none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .cal-xbtn svg{
+      width:18px;
+      height:18px;
+      display:block;
+    }
+
+    .cal-xbtn:active{
+      transform:translateY(1px);
+    }
+
+    #calDays{
+      display:grid;
+      grid-template-columns:repeat(7,1fr);
+      gap:6px;
+    }
+
+    .cal-day{
+      border:1px solid rgba(0,0,0,.08);
+      border-radius:10px;
+      padding:10px 0;
+      text-align:center;
+      font-size:12px;
+      cursor:pointer;
+      background:color-mix(in srgb, var(--surface) 94%, #ffffff 6%);
+      user-select:none;
+      color:var(--text-dark);
+      font-weight:800;
+    }
+
+    .cal-day.other-month{
+      opacity:.45;
+    }
+
+    .cal-day.in-range{
+      background:color-mix(in srgb, #2F6C3C 14%, var(--surface) 86%);
+    }
+
+    .cal-day.range-start,
+    .cal-day.range-end,
+    .cal-day.single-day,
+    .cal-day.start-selected{
+      background:#2F6C3C;
+      color:#fff;
+      border-color:transparent;
+    }
+
+    .cal-footer{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin-top:10px;
+    }
+
+    .cal-actions{
+      display:flex;
+      gap:8px;
+    }
+
+    .cal-btn{
+      min-width:auto;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+      min-height:38px;
+      border-radius:12px;
+      font:inherit;
+      font-size:13px;
+      font-weight:900;
+      padding:0 12px;
+      cursor:pointer;
+    }
+
+    .cal-btn-neutral{
+      border:1px solid rgba(0,0,0,.08);
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      color:var(--text-dark);
+    }
+
+    .cal-btn-primary{
+      border:none;
+      background:#2F6C3C;
+      color:#fff;
     }
 
     .left-legend{
@@ -408,14 +569,31 @@
             </div>
 
             <div class="menu-field">
-              <label for="rangeSel">Time frame</label>
-              <select id="rangeSel" class="menu-select">
-                <option value="24h">Past 24 Hours</option>
-                <option value="48h" selected>Past 48 Hours</option>
-                <option value="72h">Past 72 Hours</option>
-                <option value="7d">Past 7 Days</option>
-                <option value="mtd">Month To Date</option>
-              </select>
+              <label for="jobRangeInput">Time frame</label>
+              <input id="jobRangeInput" class="menu-input" type="text" readonly placeholder="Choose date range"/>
+
+              <div id="calendarPopover" aria-label="Date range picker">
+                <div class="cal-top">
+                  <select id="monthSelect" class="menu-select" style="padding:10px"></select>
+                  <select id="yearSelect" class="menu-select" style="padding:10px"></select>
+
+                  <button id="closeCalBtn" class="cal-xbtn" type="button" aria-label="Close">
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+                    </svg>
+                  </button>
+                </div>
+
+                <div id="calDays"></div>
+
+                <div class="cal-footer">
+                  <span id="rangeSummary" style="font-size:12px; opacity:.86;">No dates selected</span>
+                  <div class="cal-actions">
+                    <button id="clearRangeBtn" class="cal-btn cal-btn-neutral" type="button">Clear</button>
+                    <button id="applyRangeBtn" class="cal-btn cal-btn-primary" type="button">Apply</button>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div class="menu-field">
@@ -461,10 +639,13 @@
     const MRMS_COLLECTION = 'field_mrms_weather';
     const CACHE_TTL_MS = 2 * 60 * 1000;
     const RANGE_CACHE = new Map();
+    const LS_RANGE_KEY = 'fv_dev_rain_map_range_v1';
 
     let map = null;
     let infoWindow = null;
-    let currentRange = '48h';
+    let currentRangeKey = 'last30d';
+    let currentRangeStartISO = '';
+    let currentRangeEndISO = '';
     let currentRequestId = 0;
     let dbRef = null;
     let authRef = null;
@@ -647,12 +828,124 @@
       else map.setMapTypeId(google.maps.MapTypeId.HYBRID);
     }
 
-    function rangeTitle(range){
-      if (range === '24h') return 'Rain — Past 24 Hours';
-      if (range === '48h') return 'Rain — Past 48 Hours';
-      if (range === '72h') return 'Rain — Past 72 Hours';
-      if (range === '7d') return 'Rain — Past 7 Days';
-      return 'Rain — Month To Date';
+    function startOfDay(date){
+      if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+      return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    }
+
+    function dateToISO(date){
+      const d = startOfDay(date);
+      if (!d) return '';
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+
+    function parseISODate(value){
+      const s = String(value || '').trim();
+      const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) return null;
+      const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+      return Number.isNaN(d.getTime()) ? null : startOfDay(d);
+    }
+
+    function formatRangeDate(date){
+      const d = startOfDay(date);
+      if (!d) return '';
+      return d.toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    }
+
+    function getPickerApi(){
+      return (window.FVDateRangePicker && typeof window.FVDateRangePicker.getRange === 'function')
+        ? window.FVDateRangePicker
+        : null;
+    }
+
+    function getCurrentRangeDisplay(){
+      if (currentRangeStartISO && currentRangeEndISO){
+        const s = parseISODate(currentRangeStartISO);
+        const e = parseISODate(currentRangeEndISO);
+        if (s && e){
+          return `${formatRangeDate(s)} – ${formatRangeDate(e)}`;
+        }
+      }
+      return 'Last 30 Days';
+    }
+
+    function rangeTitle(){
+      if (currentRangeStartISO && currentRangeEndISO){
+        const s = parseISODate(currentRangeStartISO);
+        const e = parseISODate(currentRangeEndISO);
+        if (s && e){
+          return `Rain — ${formatRangeDate(s)} to ${formatRangeDate(e)}`;
+        }
+      }
+      return 'Rain — Last 30 Days';
+    }
+
+    function getActiveRangeState(){
+      const picker = getPickerApi();
+      if (picker){
+        const r = picker.getRange();
+        const startISO = String(r && r.startISO || '').trim();
+        const endISO = String(r && r.endISO || '').trim();
+
+        if (startISO && endISO){
+          return {
+            key: `custom:${startISO}:${endISO}`,
+            startISO,
+            endISO
+          };
+        }
+      }
+
+      return {
+        key: 'last30d',
+        startISO: '',
+        endISO: ''
+      };
+    }
+
+    function saveCurrentRangeToLocal(){
+      try{
+        localStorage.setItem(LS_RANGE_KEY, JSON.stringify({
+          startISO: currentRangeStartISO || '',
+          endISO: currentRangeEndISO || ''
+        }));
+      }catch(_){}
+    }
+
+    function restoreCurrentRangeFromLocal(){
+      try{
+        const raw = String(localStorage.getItem(LS_RANGE_KEY) || '').trim();
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        const startISO = String(parsed && parsed.startISO || '').trim();
+        const endISO = String(parsed && parsed.endISO || '').trim();
+
+        const picker = getPickerApi();
+        if (!picker) return;
+
+        if (startISO && endISO){
+          picker.setRange(startISO, endISO, { silent:true });
+        } else {
+          picker.clear({ silent:true });
+        }
+      }catch(_){}
+    }
+
+    function syncCurrentRangeFromPicker(persist=true){
+      const next = getActiveRangeState();
+      currentRangeKey = next.key;
+      currentRangeStartISO = next.startISO;
+      currentRangeEndISO = next.endISO;
+
+      if (persist) saveCurrentRangeToLocal();
     }
 
     function normalizeMrmsDoc(docId, d){
@@ -736,47 +1029,25 @@
       return out;
     }
 
-    function sumHourlyLast24(parentDoc){
-      const rows = Array.isArray(parentDoc && parentDoc.mrmsHourlyLast24) ? parentDoc.mrmsHourlyLast24 : null;
-      if (!rows || !rows.length) return null;
-      return rows.reduce((sum, row)=> sum + (toNum(row && row.rainMm) || 0), 0);
-    }
-
-    function sumDailySeries(parentDoc, range){
+    function sumDailySeriesWithinDates(parentDoc, startISO, endISO){
       const rows = Array.isArray(parentDoc && parentDoc.mrmsDailySeries30d) ? parentDoc.mrmsDailySeries30d.slice() : null;
       if (!rows || !rows.length) return null;
 
-      if (range === '48h'){
-        return rows.slice(-2).reduce((sum, row)=> sum + (toNum(row && row.rainMm) || 0), 0);
+      if (!startISO || !endISO){
+        return rows.reduce((sum, row)=> sum + (toNum(row && row.rainMm) || 0), 0);
       }
 
-      if (range === '72h'){
-        return rows.slice(-3).reduce((sum, row)=> sum + (toNum(row && row.rainMm) || 0), 0);
-      }
-
-      if (range === '7d'){
-        return rows.slice(-7).reduce((sum, row)=> sum + (toNum(row && row.rainMm) || 0), 0);
-      }
-
-      if (range === 'mtd'){
-        const rowsInMonth = rows.filter(row=>{
-          const iso = String(row && row.dateISO || '');
-          if (!iso) return false;
-          const dt = new Date(iso + 'T00:00:00');
-          const now = new Date();
-          return dt.getFullYear() === now.getFullYear() && dt.getMonth() === now.getMonth();
-        });
-        if (!rowsInMonth.length) return 0;
-        return rowsInMonth.reduce((sum, row)=> sum + (toNum(row && row.rainMm) || 0), 0);
-      }
-
-      return rows.reduce((sum, row)=> sum + (toNum(row && row.rainMm) || 0), 0);
+      return rows.reduce((sum, row)=>{
+        const iso = String(row && row.dateISO || '').trim();
+        if (!iso) return sum;
+        if (iso < startISO || iso > endISO) return sum;
+        return sum + (toNum(row && row.rainMm) || 0);
+      }, 0);
     }
 
-    function totalRainMmForRange(parentDoc, range){
+    function totalRainMmForActiveRange(parentDoc){
       if (!parentDoc || typeof parentDoc !== 'object') return null;
-      if (range === '24h') return sumHourlyLast24(parentDoc);
-      return sumDailySeries(parentDoc, range);
+      return sumDailySeriesWithinDates(parentDoc, currentRangeStartISO, currentRangeEndISO);
     }
 
     function extractSampleGeometry(parentDoc){
@@ -814,14 +1085,14 @@
       return String(key || 'Point');
     }
 
-    function hasUsableRainData(parentDoc, range){
-      const totalMm = totalRainMmForRange(parentDoc, range);
+    function hasUsableRainData(parentDoc){
+      const totalMm = totalRainMmForActiveRange(parentDoc);
       const geom = extractSampleGeometry(parentDoc);
       return Number.isFinite(totalMm) || geom.length > 0;
     }
 
-    function buildFieldPoints(row, range){
-      const totalMm = totalRainMmForRange(row.raw, range);
+    function buildFieldPoints(row){
+      const totalMm = totalRainMmForActiveRange(row.raw);
       if (!Number.isFinite(totalMm) && !extractSampleGeometry(row.raw).length) return [];
 
       const totalInches = Number.isFinite(totalMm) ? (totalMm / 25.4) : 0;
@@ -846,8 +1117,8 @@
       }));
     }
 
-    function buildFieldSummary(row, range){
-      const totalMm = totalRainMmForRange(row.raw, range);
+    function buildFieldSummary(row){
+      const totalMm = totalRainMmForActiveRange(row.raw);
       if (!Number.isFinite(totalMm) && !extractSampleGeometry(row.raw).length) return null;
 
       return {
@@ -1015,7 +1286,7 @@
       return (
         '<div class="popup-card">' +
           '<div class="name">' + escapeHtml(summary.fieldName || 'Field') + '</div>' +
-          '<div>' + escapeHtml(rangeTitle(currentRange)) + '</div>' +
+          '<div>' + escapeHtml(rangeTitle()) + '</div>' +
           '<div>Rain: <span class="mono">' + Number(summary.rainInches || 0).toFixed(2) + ' in</span></div>' +
           (pointLabel ? '<div>Tap zone: ' + escapeHtml(pointLabel) + '</div>' : '') +
         '</div>'
@@ -1085,7 +1356,7 @@
       const sample = lastTapTargets[0];
       if (sample){
         setDebug(
-          'range=' + currentRange +
+          'range=' + getCurrentRangeDisplay() +
           ' • fields=' + lastRenderedFields.length +
           ' • points=' + lastTapTargets.length +
           ' • zoom=' + zoom +
@@ -1238,7 +1509,7 @@
       const sampleHit = lastTapTargets[0] ? Math.round(lastTapTargets[0].hitRadiusMeters) : 0;
 
       setDebug(
-        'range=' + currentRange +
+        'range=' + getCurrentRangeDisplay() +
         ' • fields=' + fields.length +
         ' • points=' + points.length +
         ' • tap≈' + sampleHit + 'm' +
@@ -1261,21 +1532,21 @@
       openRainPopupByHit(hit);
     }
 
-    function cacheRangeResult(range, data){
-      RANGE_CACHE.set(range, {
+    function cacheRangeResult(cacheKey, data){
+      RANGE_CACHE.set(cacheKey, {
         ts: Date.now(),
         data
       });
     }
 
-    function getCachedRangeResult(range){
-      const hit = RANGE_CACHE.get(range);
+    function getCachedRangeResult(cacheKey){
+      const hit = RANGE_CACHE.get(cacheKey);
       if (!hit) return null;
       if ((Date.now() - hit.ts) > (5 * 60 * 1000)) return null;
       return hit.data;
     }
 
-    async function loadRenderableRows(range, requestId, force=false){
+    async function loadRenderableRows(requestId, force=false){
       const rows = await loadMrmsDocs(force);
       if (requestId !== currentRequestId) return { cancelled:true };
 
@@ -1284,7 +1555,7 @@
         ? rows.filter(row => String(row.farmId || '') === selectedFarmId)
         : rows.slice();
 
-      const usableRows = farmFiltered.filter(row => hasUsableRainData(row.raw, range));
+      const usableRows = farmFiltered.filter(row => hasUsableRainData(row.raw));
 
       usableRows.sort((a, b)=>
         String(a.fieldName).localeCompare(String(b.fieldName), undefined, { numeric:true, sensitivity:'base' })
@@ -1299,8 +1570,8 @@
       const renderedFields = [];
 
       usableRows.forEach(row=>{
-        const fieldPoints = buildFieldPoints(row, range);
-        const summary = buildFieldSummary(row, range);
+        const fieldPoints = buildFieldPoints(row);
+        const summary = buildFieldSummary(row);
         if (!fieldPoints.length || !summary) return;
 
         const geom = extractSampleGeometry(row.raw);
@@ -1353,7 +1624,7 @@
 
     async function renderRain(force=false){
       const requestId = ++currentRequestId;
-      currentRange = String($('rangeSel')?.value || currentRange || '48h');
+      syncCurrentRangeFromPicker(false);
 
       try{
         ensureMap();
@@ -1364,7 +1635,7 @@
         return;
       }
 
-      const cached = !force ? getCachedRangeResult(currentRange) : null;
+      const cached = !force ? getCachedRangeResult(currentRangeKey) : null;
       if (cached && Array.isArray(cached.points) && cached.points.length){
         lastFieldSummaries = Array.isArray(cached.summaries) ? cached.summaries : [];
         lastRenderedFields = Array.isArray(cached.renderedFields) ? cached.renderedFields : [];
@@ -1376,7 +1647,7 @@
       }
 
       try{
-        const res = await loadRenderableRows(currentRange, requestId, force);
+        const res = await loadRenderableRows(requestId, force);
         if (!res || res.cancelled || requestId !== currentRequestId) return;
 
         const points = Array.isArray(res.points) ? res.points : [];
@@ -1384,7 +1655,7 @@
         const renderedFields = Array.isArray(res.renderedFields) ? res.renderedFields : [];
 
         if (points.length){
-          cacheRangeResult(currentRange, { points, summaries, renderedFields });
+          cacheRangeResult(currentRangeKey, { points, summaries, renderedFields });
         }
 
         lastFieldSummaries = summaries;
@@ -1397,7 +1668,7 @@
           updateLegendDynamic(getScaleMode(0.10));
           setStatus('No data');
           setDebug(
-            'no renderable MRMS docs • range=' + currentRange +
+            'no renderable MRMS docs • range=' + getCurrentRangeDisplay() +
             (res.stats && res.stats.selectedFarmId ? ' • farm=' + res.stats.selectedFarmId : '')
           );
           return;
@@ -1409,7 +1680,7 @@
       }catch(e){
         console.warn('[Dev Rain Map] render failed:', e);
 
-        const fallback = getCachedRangeResult(currentRange);
+        const fallback = getCachedRangeResult(currentRangeKey);
         if (fallback){
           lastFieldSummaries = Array.isArray(fallback.summaries) ? fallback.summaries : [];
           lastRenderedFields = Array.isArray(fallback.renderedFields) ? fallback.renderedFields : [];
@@ -1439,10 +1710,28 @@
       const btnMenu = $('btnMenu');
       const menuPanel = $('menuPanel');
       const btnRefresh = $('btnRefresh');
+      const jobRangeInput = $('jobRangeInput');
+      const calendarPopover = $('calendarPopover');
+      const monthSelect = $('monthSelect');
+      const yearSelect = $('yearSelect');
+      const clearRangeBtn = $('clearRangeBtn');
+      const applyRangeBtn = $('applyRangeBtn');
+      const closeCalBtn = $('closeCalBtn');
+      const calDays = $('calDays');
 
-      ['pointerdown','mousedown','touchstart','click'].forEach(evt=>{
+      [
+        'pointerdown','mousedown','touchstart','click'
+      ].forEach(evt=>{
         btnMenu?.addEventListener(evt, stopMenuBubble);
         menuPanel?.addEventListener(evt, stopMenuBubble);
+        calendarPopover?.addEventListener(evt, stopMenuBubble);
+        jobRangeInput?.addEventListener(evt, stopMenuBubble);
+        monthSelect?.addEventListener(evt, stopMenuBubble);
+        yearSelect?.addEventListener(evt, stopMenuBubble);
+        clearRangeBtn?.addEventListener(evt, stopMenuBubble);
+        applyRangeBtn?.addEventListener(evt, stopMenuBubble);
+        closeCalBtn?.addEventListener(evt, stopMenuBubble);
+        calDays?.addEventListener(evt, stopMenuBubble);
       });
 
       if (btnMenu && menuPanel){
@@ -1469,7 +1758,13 @@
         renderRain(false);
       });
 
-      $('rangeSel')?.addEventListener('change', ()=>{
+      document.addEventListener('fv:date-range-applied', ()=>{
+        syncCurrentRangeFromPicker(true);
+        renderRain(false);
+      });
+
+      document.addEventListener('fv:date-range-cleared', ()=>{
+        syncCurrentRangeFromPicker(true);
         renderRain(false);
       });
     }
@@ -1486,6 +1781,8 @@
         await waitForGoogleMaps();
         ensureMap();
         wireUi();
+        restoreCurrentRangeFromLocal();
+        syncCurrentRangeFromPicker(false);
         updateLegendDynamic(getScaleMode(0.10));
         await renderRain(false);
         startFinished = true;
