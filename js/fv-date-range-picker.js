@@ -206,6 +206,63 @@
       return true;
     }
 
+    function getAllowedYears() {
+      if (!minDate && !maxDate) {
+        const currentYear = new Date().getFullYear();
+        const out = [];
+        for (let y = currentYear - 5; y <= currentYear + 5; y++) out.push(y);
+        return out;
+      }
+
+      const startYear = minDate ? minDate.getFullYear() : (maxDate ? maxDate.getFullYear() : new Date().getFullYear());
+      const endYear = maxDate ? maxDate.getFullYear() : startYear;
+      const out = [];
+      for (let y = startYear; y <= endYear; y++) out.push(y);
+      return out;
+    }
+
+    function getAllowedMonthsForYear(year) {
+      const out = [];
+
+      for (let m = 0; m < 12; m++) {
+        const monthStart = new Date(year, m, 1);
+        const monthEnd = new Date(year, m + 1, 0);
+
+        const afterMin = !minDate || compareDates(monthEnd, minDate) >= 0;
+        const beforeMax = !maxDate || compareDates(monthStart, maxDate) <= 0;
+
+        if (afterMin && beforeMax) out.push(m);
+      }
+
+      if (!out.length) {
+        for (let m = 0; m < 12; m++) out.push(m);
+      }
+
+      return out;
+    }
+
+    function ensureViewInsideAllowedWindow() {
+      const anchor = maxDate || startOfDay(new Date());
+
+      if (!Number.isFinite(viewYear)) viewYear = anchor.getFullYear();
+      if (!Number.isFinite(viewMonth)) viewMonth = anchor.getMonth();
+
+      const allowedYears = getAllowedYears();
+      if (!allowedYears.includes(viewYear)) {
+        viewYear = anchor.getFullYear();
+        if (!allowedYears.includes(viewYear)) viewYear = allowedYears[0];
+      }
+
+      const allowedMonths = getAllowedMonthsForYear(viewYear);
+      if (!allowedMonths.includes(viewMonth)) {
+        if (viewYear === anchor.getFullYear() && allowedMonths.includes(anchor.getMonth())) {
+          viewMonth = anchor.getMonth();
+        } else {
+          viewMonth = allowedMonths[allowedMonths.length - 1];
+        }
+      }
+    }
+
     function updateSummary() {
       if (rangeStart && rangeEnd) {
         rangeSummary.textContent = formatDate(rangeStart) + ' – ' + formatDate(rangeEnd);
@@ -216,69 +273,55 @@
       }
     }
 
-    function buildYearOptions() {
-      let startYear;
-      let endYear;
-
-      if (minDate || maxDate) {
-        const floorYear = minDate ? minDate.getFullYear() : new Date().getFullYear() - 5;
-        const ceilYear = maxDate ? maxDate.getFullYear() : new Date().getFullYear() + 5;
-        startYear = floorYear;
-        endYear = ceilYear;
-      } else {
-        const currentYear = new Date().getFullYear();
-        startYear = currentYear - 5;
-        endYear = currentYear + 5;
-      }
+    function rebuildYearOptions() {
+      const selectedYear = Number(viewYear);
+      const allowedYears = getAllowedYears();
 
       yearSelect.innerHTML = '';
-      for (let y = startYear; y <= endYear; y++) {
+      allowedYears.forEach(function (year) {
         const opt = document.createElement('option');
-        opt.value = y;
-        opt.textContent = y;
+        opt.value = String(year);
+        opt.textContent = String(year);
+        if (year === selectedYear) opt.selected = true;
         yearSelect.appendChild(opt);
+      });
+
+      if (!allowedYears.includes(selectedYear)) {
+        viewYear = allowedYears[0];
+        yearSelect.value = String(viewYear);
       }
     }
 
-    function buildMonthOptions() {
+    function rebuildMonthOptions() {
+      const selectedMonth = Number(viewMonth);
+      const allowedMonths = getAllowedMonthsForYear(Number(viewYear));
+
       monthSelect.innerHTML = '';
-      monthNames.forEach(function (name, index) {
+      allowedMonths.forEach(function (monthIndex) {
         const opt = document.createElement('option');
-        opt.value = index;
-        opt.textContent = name;
+        opt.value = String(monthIndex);
+        opt.textContent = monthNames[monthIndex];
+        if (monthIndex === selectedMonth) opt.selected = true;
         monthSelect.appendChild(opt);
       });
+
+      if (!allowedMonths.includes(selectedMonth)) {
+        viewMonth = allowedMonths[allowedMonths.length - 1];
+        monthSelect.value = String(viewMonth);
+      }
     }
 
-    function moveViewInsideAllowedWindow() {
-      if (!Number.isFinite(viewYear) || !Number.isFinite(viewMonth)) {
-        const anchor = maxDate || startOfDay(new Date());
-        viewYear = anchor.getFullYear();
-        viewMonth = anchor.getMonth();
-      }
-
-      if (maxDate) {
-        const viewFirst = new Date(viewYear, viewMonth, 1);
-        if (compareDates(viewFirst, new Date(maxDate.getFullYear(), maxDate.getMonth(), 1)) > 0) {
-          viewYear = maxDate.getFullYear();
-          viewMonth = maxDate.getMonth();
-        }
-      }
-
-      if (minDate) {
-        const viewFirst = new Date(viewYear, viewMonth, 1);
-        if (compareDates(viewFirst, new Date(minDate.getFullYear(), minDate.getMonth(), 1)) < 0) {
-          viewYear = minDate.getFullYear();
-          viewMonth = minDate.getMonth();
-        }
-      }
+    function refreshSelectors() {
+      ensureViewInsideAllowedWindow();
+      rebuildYearOptions();
+      rebuildMonthOptions();
+      yearSelect.value = String(viewYear);
+      monthSelect.value = String(viewMonth);
     }
 
     function renderCalendar() {
-      moveViewInsideAllowedWindow();
-
-      monthSelect.value = String(viewMonth);
-      yearSelect.value = String(viewYear);
+      ensureViewInsideAllowedWindow();
+      refreshSelectors();
       daysContainer.innerHTML = '';
 
       const firstOfMonth = new Date(viewYear, viewMonth, 1);
@@ -358,14 +401,16 @@
     function handleDateClick(date) {
       if (!inAllowedWindow(date)) return;
 
+      const picked = startOfDay(date);
+
       if (!rangeStart || (rangeStart && rangeEnd)) {
-        rangeStart = startOfDay(date);
+        rangeStart = picked;
         rangeEnd = null;
       } else if (rangeStart && !rangeEnd) {
-        if (compareDates(date, rangeStart) < 0) {
-          rangeStart = startOfDay(date);
+        if (compareDates(picked, rangeStart) < 0) {
+          rangeStart = picked;
         } else {
-          rangeEnd = startOfDay(date);
+          rangeEnd = picked;
         }
       }
 
@@ -419,15 +464,10 @@
       if (!inAllowedWindow(s)) return;
 
       rangeStart = s;
+      rangeEnd = null;
 
-      if (e && inAllowedWindow(e)) {
-        if (compareDates(e, s) < 0) {
-          rangeEnd = null;
-        } else {
-          rangeEnd = e;
-        }
-      } else {
-        rangeEnd = null;
+      if (e && inAllowedWindow(e) && compareDates(e, s) >= 0) {
+        rangeEnd = e;
       }
 
       viewYear = rangeStart.getFullYear();
@@ -455,13 +495,15 @@
       if (!options.silent) emitCleared();
     }
 
-    monthSelect.addEventListener('change', function () {
-      viewMonth = parseInt(this.value, 10);
+    yearSelect.addEventListener('change', function () {
+      viewYear = parseInt(this.value, 10);
+      ensureViewInsideAllowedWindow();
+      rebuildMonthOptions();
       renderCalendar();
     });
 
-    yearSelect.addEventListener('change', function () {
-      viewYear = parseInt(this.value, 10);
+    monthSelect.addEventListener('change', function () {
+      viewMonth = parseInt(this.value, 10);
       renderCalendar();
     });
 
@@ -503,8 +545,7 @@
     viewYear = anchor.getFullYear();
     viewMonth = anchor.getMonth();
 
-    buildMonthOptions();
-    buildYearOptions();
+    refreshSelectors();
     updateSummary();
     renderCalendar();
 
