@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-12a-inline-tiles-loading-and-count-helper-no-trim
+Rev: 2026-03-12b-render-all-fields-with-fallback-accurate-count-no-trim
 
 GOAL (per Dane, Feb 2026):
 ✅ Make tiles + details MATCH the Global Calibration readiness number.
@@ -30,6 +30,10 @@ CHANGES (THIS REV):
 ✅ NEW: inline loading card inside the Fields area while tiles are being
    computed/sorted so the page does not look blank after initial loading
 ✅ NEW: helper text shows visible results count, e.g. "Showing 25 of 128 fields"
+✅ FIX: fields that do not yet have a readiness run still render a tile
+   instead of disappearing, so "All" and helper counts match what is on screen
+✅ FIX: helper count is now based on actual rendered tiles, not only the
+   pre-slice candidate list
 
 ===================================================================== */
 'use strict';
@@ -282,6 +286,14 @@ function updateFieldsCountHelper(showingCount, totalCount){
     }
 
     el.textContent = `Showing ${showN} of ${totalN} field${totalN === 1 ? '' : 's'}`;
+  }catch(_){}
+}
+
+function setFieldsCountHelperMessage(msg){
+  try{
+    const el = ensureFieldsCountHelperEl();
+    if (!el) return;
+    el.textContent = String(msg || '');
   }catch(_){}
 }
 
@@ -1077,6 +1089,42 @@ async function buildRunsForFields(state, fields, opKey){
 }
 
 /* =====================================================================
+   Tile fallback helpers
+===================================================================== */
+function buildWaitingTileHtml(f, isSelected){
+  const selectedClass = isSelected ? ' fv-selected' : '';
+  const title = esc(String((f && f.name) || 'Field'));
+  return {
+    className: `tile fv-swipe-item${selectedClass}`,
+    html: `
+      <div class="tile-top">
+        <div class="titleline">
+          <div class="name" title="${title}">${title}</div>
+        </div>
+        <div class="readiness-pill" style="background:color-mix(in srgb, var(--surface) 86%, #8b949e 14%);color:var(--text);">Field Readiness —</div>
+      </div>
+
+      <p class="subline">Rain (range): <span class="mono">Processing Data</span></p>
+
+      <div class="gauge-wrap">
+        <div class="chips">
+          <div class="chip wet">Wet</div>
+          <div class="chip readiness">Readiness</div>
+        </div>
+
+        <div class="gauge" style="background:linear-gradient(90deg, #c83b3b 0%, #d8b23b 55%, #2f8f4b 100%);opacity:.82;">
+          <div class="thr" style="left:50%;"></div>
+          <div class="marker" style="left:50%;opacity:.45;"></div>
+          <div class="badge" style="left:50%;background:color-mix(in srgb, var(--surface) 88%, #8b949e 12%);color:var(--text);">Loading…</div>
+        </div>
+
+        <div class="etaSlot"></div>
+      </div>
+    `
+  };
+}
+
+/* =====================================================================
    Lightweight rainfall-only patch helpers
 ===================================================================== */
 async function patchTileRainOnly(state, fieldId){
@@ -1119,7 +1167,21 @@ async function updateTileForField(state, fieldId){
       wxCtx: buildWxCtx(state),
       persistedGetter: (id)=> getPersistedStateForDeps(state, id)
     });
-    if (!run0) return;
+
+    if (!run0){
+      const range = parseRangeFromInput();
+      const mrmsRes = await getMrmsRainResultForField(state, fid, range, { force:false });
+      const rainLine = tile.querySelector('.subline .mono');
+      if (rainLine) rainLine.textContent = rainTileTextFromMrmsResult(mrmsRes);
+
+      const pill = tile.querySelector('.readiness-pill');
+      if (pill) pill.textContent = 'Field Readiness —';
+
+      const badge = tile.querySelector('.badge');
+      if (badge) badge.textContent = 'Loading…';
+
+      return;
+    }
 
     try{ state.lastRuns && state.lastRuns.set(fid, run0); }catch(_){}
 
@@ -1140,7 +1202,10 @@ async function updateTileForField(state, fieldId){
     if (thrEl) thrEl.style.left = thrPos;
 
     const markerEl = tile.querySelector('.marker');
-    if (markerEl) markerEl.style.left = leftPos;
+    if (markerEl){
+      markerEl.style.left = leftPos;
+      markerEl.style.opacity = '';
+    }
 
     const pill = tile.querySelector('.readiness-pill');
     if (pill){
@@ -1251,7 +1316,7 @@ async function _renderTilesInternal(state){
       : Math.min(tiles.length, Number(state.pageSize || 25));
     const ids = tiles.slice(0, cap).map(t=>String(t.getAttribute('data-field-id')||'')).filter(Boolean);
 
-    updateFieldsCountHelper(ids.length, filteredExisting.length);
+    updateFieldsCountHelper(tiles.length, filteredExisting.length);
 
     initFallbackSwipeOnTiles(state, wrap, {
       onDetails: async (fieldId)=>{
@@ -1264,6 +1329,7 @@ async function _renderTilesInternal(state){
     return;
   }
 
+  setFieldsCountHelperMessage('Preparing fields…');
   renderFieldsInlineLoading(
     'Loading field readiness...',
     'Weather information for fields is being pulled together and sorted now.'
@@ -1322,72 +1388,83 @@ async function _renderTilesInternal(state){
     : Math.min(sorted.length, Number(state.pageSize || 25));
   const show = sorted.slice(0, cap);
 
-  updateFieldsCountHelper(show.length, filtered.length);
-
   const frag = document.createDocumentFragment();
   const idsForEta = [];
+  let renderedCount = 0;
 
   for (const f of show){
     const run0 = state.lastRuns.get(f.id);
-    if (!run0) continue;
-
-    const readiness = run0.readinessR;
-
-    const leftPos = state._mods.model.markerLeftCSS(readiness);
-    const thrPos  = state._mods.model.markerLeftCSS(thr);
-
-    const perceived = perceivedFromThreshold(readiness, thr);
-    const pillBg = colorForPerceived(perceived);
-    const grad = gradientForThreshold(thr);
-
-    const mrmsRes = mrmsRangeById.get(f.id);
-    const rainText = rainTileTextFromMrmsResult(mrmsRes);
 
     const tile = document.createElement('div');
-    tile.className = 'tile fv-swipe-item';
     tile.dataset.fieldId = f.id;
     tile.setAttribute('data-field-id', f.id);
 
-    if (String(state.selectedFieldId) === String(f.id)){
-      tile.classList.add('fv-selected');
-      state._selectedTileId = String(f.id);
+    if (!run0){
+      const waiting = buildWaitingTileHtml(f, String(state.selectedFieldId) === String(f.id));
+      tile.className = waiting.className;
+      tile.innerHTML = waiting.html;
+      try{
+        console.warn('[FieldReadiness] rendering fallback tile; no readiness run yet for field:', f && f.id, f && f.name);
+      }catch(_){}
+    } else {
+      const readiness = run0.readinessR;
+
+      const leftPos = state._mods.model.markerLeftCSS(readiness);
+      const thrPos  = state._mods.model.markerLeftCSS(thr);
+
+      const perceived = perceivedFromThreshold(readiness, thr);
+      const pillBg = colorForPerceived(perceived);
+      const grad = gradientForThreshold(thr);
+
+      const mrmsRes = mrmsRangeById.get(f.id);
+      const rainText = rainTileTextFromMrmsResult(mrmsRes);
+
+      tile.className = 'tile fv-swipe-item';
+
+      if (String(state.selectedFieldId) === String(f.id)){
+        tile.classList.add('fv-selected');
+        state._selectedTileId = String(f.id);
+      }
+
+      tile.innerHTML = `
+        <div class="tile-top">
+          <div class="titleline">
+            <div class="name" title="${esc(f.name)}">${esc(f.name)}</div>
+          </div>
+          <div class="readiness-pill" style="background:${pillBg};color:#fff;">Field Readiness ${readiness}</div>
+        </div>
+
+        <p class="subline">Rain (range): <span class="mono">${esc(rainText)}</span></p>
+
+        <div class="gauge-wrap">
+          <div class="chips">
+            <div class="chip wet">Wet</div>
+            <div class="chip readiness">Readiness</div>
+          </div>
+
+          <div class="gauge" style="background:${grad};">
+            <div class="thr" style="left:${thrPos};"></div>
+            <div class="marker" style="left:${leftPos};"></div>
+            <div class="badge" style="left:${leftPos};background:${pillBg};color:#fff;border:1px solid rgba(255,255,255,.18);">Field Readiness ${readiness}</div>
+          </div>
+
+          <div class="etaSlot"></div>
+        </div>
+      `;
     }
-
-    tile.innerHTML = `
-      <div class="tile-top">
-        <div class="titleline">
-          <div class="name" title="${esc(f.name)}">${esc(f.name)}</div>
-        </div>
-        <div class="readiness-pill" style="background:${pillBg};color:#fff;">Field Readiness ${readiness}</div>
-      </div>
-
-      <p class="subline">Rain (range): <span class="mono">${esc(rainText)}</span></p>
-
-      <div class="gauge-wrap">
-        <div class="chips">
-          <div class="chip wet">Wet</div>
-          <div class="chip readiness">Readiness</div>
-        </div>
-
-        <div class="gauge" style="background:${grad};">
-          <div class="thr" style="left:${thrPos};"></div>
-          <div class="marker" style="left:${leftPos};"></div>
-          <div class="badge" style="left:${leftPos};background:${pillBg};color:#fff;border:1px solid rgba(255,255,255,.18);">Field Readiness ${readiness}</div>
-        </div>
-
-        <div class="etaSlot"></div>
-      </div>
-    `;
 
     wireTileInteractions(state, tile, f.id);
     frag.appendChild(tile);
     idsForEta.push(String(f.id));
+    renderedCount++;
   }
 
   wrap.replaceChildren(frag);
 
+  updateFieldsCountHelper(renderedCount, filtered.length);
+
   const empty = $('emptyMsg');
-  if (empty) empty.style.display = idsForEta.length ? 'none' : 'block';
+  if (empty) empty.style.display = renderedCount ? 'none' : 'block';
 
   try{
     await initSwipeOnTiles(state, {
