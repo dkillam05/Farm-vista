@@ -319,6 +319,22 @@
       monthSelect.value = String(viewMonth);
     }
 
+    function applyDisabledVisuals(dayCell) {
+      dayCell.setAttribute('aria-disabled', 'true');
+      dayCell.style.opacity = '0.24';
+      dayCell.style.pointerEvents = 'none';
+      dayCell.style.filter = 'saturate(.55)';
+      dayCell.style.cursor = 'default';
+    }
+
+    function clearDisabledVisuals(dayCell) {
+      dayCell.removeAttribute('aria-disabled');
+      dayCell.style.opacity = '';
+      dayCell.style.pointerEvents = '';
+      dayCell.style.filter = '';
+      dayCell.style.cursor = '';
+    }
+
     function renderCalendar() {
       ensureViewInsideAllowedWindow();
       refreshSelectors();
@@ -358,21 +374,22 @@
           cellDate = new Date(viewYear, viewMonth, dayNum);
         }
 
-        const disabled = !inAllowedWindow(cellDate);
+        const actualDate = startOfDay(cellDate);
+        const disabled = !inAllowedWindow(actualDate);
 
-        if (rangeStart && !rangeEnd && isSameDay(cellDate, rangeStart)) {
+        if (!disabled && rangeStart && !rangeEnd && isSameDay(actualDate, rangeStart)) {
           dayCell.classList.add('start-selected');
         }
 
-        if (rangeStart && rangeEnd) {
-          const cmpStart = compareDates(cellDate, rangeStart);
-          const cmpEnd = compareDates(cellDate, rangeEnd);
+        if (!disabled && rangeStart && rangeEnd) {
+          const cmpStart = compareDates(actualDate, rangeStart);
+          const cmpEnd = compareDates(actualDate, rangeEnd);
 
-          if (isSameDay(cellDate, rangeStart) && isSameDay(cellDate, rangeEnd)) {
+          if (isSameDay(actualDate, rangeStart) && isSameDay(actualDate, rangeEnd)) {
             dayCell.classList.add('single-day');
-          } else if (isSameDay(cellDate, rangeStart)) {
+          } else if (isSameDay(actualDate, rangeStart)) {
             dayCell.classList.add('range-start');
-          } else if (isSameDay(cellDate, rangeEnd)) {
+          } else if (isSameDay(actualDate, rangeEnd)) {
             dayCell.classList.add('range-end');
           } else if (cmpStart > 0 && cmpEnd < 0) {
             dayCell.classList.add('in-range');
@@ -380,19 +397,25 @@
         }
 
         if (disabled) {
-          dayCell.setAttribute('aria-disabled', 'true');
-          dayCell.style.opacity = '0.35';
-          dayCell.style.pointerEvents = 'none';
+          applyDisabledVisuals(dayCell);
         } else {
-          dayCell.removeAttribute('aria-disabled');
-          dayCell.style.opacity = '';
-          dayCell.style.pointerEvents = '';
+          clearDisabledVisuals(dayCell);
         }
 
-        dayCell.addEventListener('click', function () {
-          if (!inAllowedWindow(cellDate)) return;
-          handleDateClick(cellDate);
+        dayCell.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!inAllowedWindow(actualDate)) return;
+          handleDateClick(actualDate);
         });
+
+        dayCell.addEventListener('mousedown', function (e) {
+          e.stopPropagation();
+        });
+
+        dayCell.addEventListener('touchstart', function (e) {
+          e.stopPropagation();
+        }, { passive: true });
 
         daysContainer.appendChild(dayCell);
       }
@@ -495,19 +518,23 @@
       if (!options.silent) emitCleared();
     }
 
-    yearSelect.addEventListener('change', function () {
+    yearSelect.addEventListener('change', function (e) {
+      e.stopPropagation();
       viewYear = parseInt(this.value, 10);
       ensureViewInsideAllowedWindow();
       rebuildMonthOptions();
       renderCalendar();
     });
 
-    monthSelect.addEventListener('change', function () {
+    monthSelect.addEventListener('change', function (e) {
+      e.stopPropagation();
       viewMonth = parseInt(this.value, 10);
       renderCalendar();
     });
 
-    clearBtn.addEventListener('click', function () {
+    clearBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
       rangeStart = null;
       rangeEnd = null;
       jobInput.value = '';
@@ -515,7 +542,10 @@
       renderCalendar();
     });
 
-    applyBtn.addEventListener('click', function () {
+    applyBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+
       if (rangeStart && rangeEnd) {
         jobInput.value = formatDate(rangeStart) + ' – ' + formatDate(rangeEnd);
       } else if (rangeStart) {
@@ -523,15 +553,40 @@
       } else {
         jobInput.value = '';
       }
+
       closeCalendar();
+
       if (rangeStart || rangeEnd) emitApplied();
       else emitCleared();
     });
 
-    closeBtn.addEventListener('click', closeCalendar);
+    closeBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      closeCalendar();
+    });
 
-    jobInput.addEventListener('click', openCalendar);
-    jobInput.addEventListener('focus', openCalendar);
+    jobInput.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      openCalendar();
+    });
+
+    jobInput.addEventListener('focus', function () {
+      openCalendar();
+    });
+
+    popover.addEventListener('click', function (e) {
+      e.stopPropagation();
+    });
+
+    popover.addEventListener('mousedown', function (e) {
+      e.stopPropagation();
+    });
+
+    popover.addEventListener('touchstart', function (e) {
+      e.stopPropagation();
+    }, { passive: true });
 
     document.addEventListener('click', function (e) {
       if (!popover || popover.style.display === 'none') return;
