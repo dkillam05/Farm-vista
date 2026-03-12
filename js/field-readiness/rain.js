@@ -1,17 +1,18 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/rain.js  (FULL FILE)
-Rev: 2026-03-10a
+Rev: 2026-03-12a-default-72h
 
 Changes (per Dane):
-✅ Rain range can now use MRMS daily rainfall data
-✅ If MRMS backfill is not complete for current day back through past 30 days,
-   range rainfall is treated as NOT READY
-✅ Exposes helpers for render.js to show:
-   "Rainfall data still in queue"
+✅ Default blank rain range is now last 72 hours instead of last 30 days
+✅ MRMS default fallback window now normalizes to 72 hours
+✅ MRMS readiness check now validates the default 72-hour date-bucket window
+✅ Existing flexible date-range parsing preserved
+✅ Existing legacy run-row rain fallback helper preserved
 
-Keeps:
-✅ Existing flexible date-range parsing
-✅ Existing legacy run-row rain fallback helper
+Notes:
+✅ MRMS range totals in this file are still summed from daily MRMS rows
+   when using mrmsDailySeries30d, so the 72-hour default is applied
+   against the daily date buckets covered by that 72-hour window.
 ===================================================================== */
 'use strict';
 
@@ -151,16 +152,15 @@ function addDaysLocal(d, delta){
   return out;
 }
 
-export function getDefaultRainRange30d(){
-  const today = startOfDayLocal(new Date());
-  const start = startOfDayLocal(addDaysLocal(today, -29));
-  const end = endOfDayLocal(today);
+export function getDefaultRainRange72h(){
+  const end = new Date();
+  const start = new Date(end.getTime() - (72 * 60 * 60 * 1000));
   return { start, end };
 }
 
 function normalizeRange(range){
   if (range && range.start && range.end) return range;
-  return getDefaultRainRange30d();
+  return getDefaultRainRange72h();
 }
 
 function getMrmsDailySeries(doc){
@@ -180,7 +180,7 @@ function getMrmsDailyMap(doc){
 
 /**
  * Backfill is considered ready only when we have a full contiguous set of
- * current day back through the prior 29 days.
+ * daily rows covering the default 72-hour fallback window.
  */
 export function mrmsBackfillReady(doc){
   if (!doc || typeof doc !== 'object') return false;
@@ -189,12 +189,22 @@ export function mrmsBackfillReady(doc){
   if (!map.size) return false;
 
   const meta = doc.mrmsHistoryMeta || {};
-  if (meta && meta.fullBackfillComplete === true) return true;
+  const def = getDefaultRainRange72h();
 
-  const def = getDefaultRainRange30d();
-  let cursor = startOfDayLocal(def.start);
+  const start = startOfDayLocal(def.start);
   const end = startOfDayLocal(def.end);
 
+  if (meta && meta.fullBackfillComplete === true){
+    let cursor = new Date(start);
+    while (cursor <= end){
+      const key = toYMDLocal(cursor);
+      if (!map.has(key)) return false;
+      cursor = addDaysLocal(cursor, 1);
+    }
+    return true;
+  }
+
+  let cursor = new Date(start);
   while (cursor <= end){
     const key = toYMDLocal(cursor);
     if (!map.has(key)) return false;
@@ -205,8 +215,8 @@ export function mrmsBackfillReady(doc){
 }
 
 /**
- * Returns MRMS rainfall in the requested range, but only if the full rolling
- * 30-day MRMS daily history is ready.
+ * Returns MRMS rainfall in the requested range, but only if the default
+ * fallback MRMS daily history window is ready.
  */
 export function mrmsRainInRange(doc, range){
   if (!doc || typeof doc !== 'object'){
