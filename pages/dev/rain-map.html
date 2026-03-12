@@ -630,6 +630,12 @@
         handleMapTap(ev);
       });
 
+      map.addListener('zoom_changed', ()=>{
+        if (lastTapTargets.length){
+          updateTapTargetsForCurrentZoom();
+        }
+      });
+
       return map;
     }
 
@@ -1021,6 +1027,69 @@
       return R * c;
     }
 
+    function metersPerPixelAt(lat, zoom){
+      const z = Number.isFinite(Number(zoom)) ? Number(zoom) : 11;
+      const latitude = Number.isFinite(Number(lat)) ? Number(lat) : 39.8;
+      return (156543.03392 * Math.cos(latitude * Math.PI / 180)) / Math.pow(2, z);
+    }
+
+    function tapRadiusPixelsForZoom(zoom){
+      const z = Number.isFinite(Number(zoom)) ? Number(zoom) : 11;
+      if (z >= 16) return 24;
+      if (z >= 15) return 28;
+      if (z >= 14) return 34;
+      if (z >= 13) return 40;
+      if (z >= 12) return 48;
+      if (z >= 11) return 58;
+      return 70;
+    }
+
+    function effectiveHitRadiusMeters(item){
+      if (!map || !item) return Number(item && item.hitRadiusMeters || 0);
+
+      const zoom = Number(map.getZoom() || 11);
+      const lat = Number(item.lat || 39.8);
+      const mpp = metersPerPixelAt(lat, zoom);
+      const pxRadius = tapRadiusPixelsForZoom(zoom);
+      const zoomAwareMeters = pxRadius * mpp;
+
+      const blobOuterRadiusMeters = Number(item.blobOuterRadiusMeters || 0);
+      const floorMeters = Math.min(zoomAwareMeters, Math.max(120, blobOuterRadiusMeters * 0.28));
+      const ceilingMeters = Math.max(blobOuterRadiusMeters * 1.08, zoomAwareMeters);
+
+      return clamp(
+        Math.max(floorMeters, zoomAwareMeters),
+        80,
+        Math.max(ceilingMeters, 80)
+      );
+    }
+
+    function updateTapTargetsForCurrentZoom(){
+      if (!lastTapTargets.length || !map) return;
+
+      const zoom = Number(map.getZoom() || 11);
+
+      lastTapTargets = lastTapTargets.map(item=>{
+        const effective = effectiveHitRadiusMeters(item);
+        return {
+          ...item,
+          hitRadiusMeters: effective,
+          lastZoomUsed: zoom
+        };
+      });
+
+      const sample = lastTapTargets[0];
+      if (sample){
+        setDebug(
+          'range=' + currentRange +
+          ' • fields=' + lastRenderedFields.length +
+          ' • points=' + lastTapTargets.length +
+          ' • zoom=' + zoom +
+          ' • tap≈' + Math.round(sample.hitRadiusMeters) + 'm'
+        );
+      }
+    }
+
     function nearestTapTarget(lat, lng){
       if (!lastTapTargets.length) return null;
 
@@ -1028,10 +1097,11 @@
 
       lastTapTargets.forEach(item=>{
         const dist = metersBetween(lat, lng, Number(item.lat), Number(item.lng));
-        const hitRadius = Number(item.hitRadiusMeters || 0);
+        const hitRadius = effectiveHitRadiusMeters(item);
         if (Number.isFinite(dist) && Number.isFinite(hitRadius) && dist <= hitRadius){
           hits.push({
             ...item,
+            hitRadiusMeters: hitRadius,
             tapDistanceMeters: dist
           });
         }
@@ -1039,7 +1109,13 @@
 
       if (!hits.length) return null;
 
-      hits.sort((a, b)=> a.tapDistanceMeters - b.tapDistanceMeters);
+      hits.sort((a, b)=>{
+        const aScore = a.tapDistanceMeters / Math.max(1, a.hitRadiusMeters);
+        const bScore = b.tapDistanceMeters / Math.max(1, b.hitRadiusMeters);
+        if (aScore !== bScore) return aScore - bScore;
+        return a.tapDistanceMeters - b.tapDistanceMeters;
+      });
+
       return hits[0];
     }
 
@@ -1075,7 +1151,6 @@
       const maxVal = values.length ? Math.max(...values) : 0;
       const scale = getScaleMode(maxVal);
       const radius = blendRadiusMeters();
-      const tapPaddingMeters = 120;
 
       updateLegendDynamic(scale);
 
@@ -1091,6 +1166,7 @@
 
         const layers = buildLayersForScale(scale.name, n);
         const outerScale = layers.reduce((m, layer)=> Math.max(m, Number(layer.scale || 0)), 1);
+        const blobOuterRadiusMeters = radius * outerScale;
 
         layers.forEach(layer=>{
           const circle = new google.maps.Circle({
@@ -1112,20 +1188,25 @@
           pointLabel: p.pointLabel,
           lat: p.lat,
           lng: p.lng,
-          hitRadiusMeters: (radius * outerScale) + tapPaddingMeters
+          blobOuterRadiusMeters,
+          hitRadiusMeters: blobOuterRadiusMeters
         });
       });
+
+      updateTapTargetsForCurrentZoom();
 
       setPointMeta(points.length);
       setFieldsMeta(fields.length);
       fitToFields(fields);
 
       const modeLabel = scale.name === 'trace' ? 'trace scale' : (scale.name === 'light' ? 'light scale' : 'normal scale');
+      const sampleHit = lastTapTargets[0] ? Math.round(lastTapTargets[0].hitRadiusMeters) : 0;
+
       setDebug(
         'range=' + currentRange +
         ' • fields=' + fields.length +
         ' • points=' + points.length +
-        ' • pad=' + Math.round(tapPaddingMeters) + 'm' +
+        ' • tap≈' + sampleHit + 'm' +
         ' • ' + modeLabel
       );
     }
@@ -1148,7 +1229,7 @@
         return;
       }
 
-      infoWindow.setPosition(ev.latLng);
+      infoWindow.setPosition({ lat: Number(hit.lat), lng: Number(hit.lng) });
       infoWindow.setContent(buildPopupHtml(summary, hit.pointLabel));
       infoWindow.open(map);
     }
