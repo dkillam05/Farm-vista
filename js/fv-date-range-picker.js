@@ -321,10 +321,15 @@
 
     function applyDisabledVisuals(dayCell) {
       dayCell.setAttribute('aria-disabled', 'true');
-      dayCell.style.opacity = '0.24';
+      dayCell.classList.remove('in-range', 'range-start', 'range-end', 'single-day', 'start-selected');
+      dayCell.style.opacity = '0.22';
       dayCell.style.pointerEvents = 'none';
-      dayCell.style.filter = 'saturate(.55)';
+      dayCell.style.filter = 'saturate(.45)';
       dayCell.style.cursor = 'default';
+      dayCell.style.background = 'color-mix(in srgb, var(--surface) 96%, #000 4%)';
+      dayCell.style.borderColor = 'rgba(255,255,255,.05)';
+      dayCell.style.color = 'rgba(255,255,255,.32)';
+      dayCell.style.boxShadow = 'none';
     }
 
     function clearDisabledVisuals(dayCell) {
@@ -333,6 +338,10 @@
       dayCell.style.pointerEvents = '';
       dayCell.style.filter = '';
       dayCell.style.cursor = '';
+      dayCell.style.background = '';
+      dayCell.style.borderColor = '';
+      dayCell.style.color = '';
+      dayCell.style.boxShadow = '';
     }
 
     function renderCalendar() {
