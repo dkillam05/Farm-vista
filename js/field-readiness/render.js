@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-12d-full-render-fix-pagesize-and-openmeteo-fallback-no-trim
+Rev: 2026-03-12e-fix-missing-viewkey-no-trim
 
 GOAL (per Dane, Feb 2026):
 ✅ Make tiles + details MATCH the Global Calibration readiness number.
@@ -41,6 +41,7 @@ CHANGES (THIS REV):
    so 25/50/100/250/All always clamps the visible tile count correctly
 ✅ FIX: if runFieldReadiness() returns null for a field, render.js now
    falls back to the model/Open-Meteo path before showing "Field Readiness —"
+✅ FIX: restored missing getTilesViewKey() so page loads again
 
 ===================================================================== */
 'use strict';
@@ -506,6 +507,16 @@ function getEffectivePageSize(state){
   return (state && Number(state.pageSize) === -1) ? -1 : Math.max(1, Math.round(Number((state && state.pageSize) || 25)));
 }
 
+/* ---------- view key ---------- */
+function getTilesViewKey(state){
+  const opKey = getCurrentOp();
+  const farmId = String(state && state.farmFilter ? state.farmFilter : '__all__');
+  const pageSize = String(getEffectivePageSize(state));
+  const sort = getSortMode();
+  const rangeStr = String(($('jobRangeInput') && $('jobRangeInput').value) ? $('jobRangeInput').value : '');
+  return `${opKey}__${farmId}__${pageSize}__${sort}__${rangeStr}`;
+}
+
 /* ---------- sorting ---------- */
 function sortFields(fields, runsById, mrmsRangeById){
   const mode = getSortMode();
@@ -559,7 +570,6 @@ function sortFields(fields, runsById, mrmsRangeById){
       return collator.compare(nameA, nameB);
     }
 
-    // legacy fallback, not used if sort modes above are chosen
     const legacyA = ra ? rainInRange(ra, range) : 0;
     const legacyB = rb ? rainInRange(rb, range) : 0;
     return legacyA - legacyB;
@@ -868,6 +878,179 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr){
 }
 
 /* =====================================================================
+   ETA help UI in tile
+===================================================================== */
+function upsertEtaHelp(state, tile, ctx){
+  try{
+    const etaTxt = String(ctx.etaText || '').trim();
+    let help = tile.querySelector('.help');
+
+    if (!etaTxt){
+      if (help) help.remove();
+      return;
+    }
+
+    if (!help){
+      help = document.createElement('div');
+      help.className = 'help';
+
+      const slot = tile.querySelector('.etaSlot');
+      if (slot) slot.appendChild(help);
+      else {
+        const gw = tile.querySelector('.gauge-wrap');
+        if (gw) gw.appendChild(help);
+        else tile.appendChild(help);
+      }
+    }
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'eta-help-btn';
+    btn.setAttribute('aria-label', 'Open ETA helper');
+    btn.textContent = etaTxt;
+
+    btn.addEventListener('click', (e)=>{
+      try{
+        e.preventDefault();
+        e.stopPropagation();
+      }catch(_){}
+
+      const payload = {
+        fieldId: String(ctx.fieldId || ''),
+        fieldName: String(ctx.fieldName || ''),
+        opKey: String(ctx.opKey || ''),
+        threshold: Number(ctx.threshold),
+        readinessNow: Number(ctx.readinessNow),
+        etaText: etaTxt,
+        horizonHours: Number(ctx.horizonHours || ETA_HORIZON_HOURS),
+        nowTs: Date.now(),
+        note: 'Option 1: ETA is computed by model.etaToThreshold() from truth-seeded state + forecast cache.'
+      };
+
+      dispatchEtaHelp(state, payload);
+    }, { passive:false });
+
+    help.replaceChildren(btn);
+  }catch(_){}
+}
+
+/* =====================================================================
+   SWIPE FALLBACK
+===================================================================== */
+function isCoarsePointer(){
+  try{
+    return window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+  }catch(_){
+    return false;
+  }
+}
+
+function initFallbackSwipeOnTiles(state, wrap, opts){
+  try{
+    if (!wrap) return;
+    if (!isCoarsePointer()) return;
+
+    const tiles = Array.from(wrap.querySelectorAll('.tile[data-field-id]'));
+    for (const tile of tiles){
+      if (!tile) continue;
+      if (tile.dataset && tile.dataset.fvSwipeWired === '1') continue;
+
+      if (tile.dataset) tile.dataset.fvSwipeWired = '1';
+
+      let startX = 0, startY = 0, lastX = 0, lastY = 0;
+      let tracking = false;
+      let horizLock = false;
+      let pid = null;
+
+      const SWIPE_MIN_PX = 42;
+      const LOCK_PX = 10;
+      const DOMINANCE = 1.15;
+
+      function reset(){
+        tracking = false;
+        horizLock = false;
+        pid = null;
+      }
+
+      tile.addEventListener('pointerdown', (e)=>{
+        try{
+          if (!e || e.pointerType !== 'touch') return;
+          const t = e.target;
+          if (t && (t.closest && t.closest('button, a, input, select, textarea'))) return;
+
+          tracking = true;
+          horizLock = false;
+          pid = e.pointerId;
+
+          startX = e.clientX;
+          startY = e.clientY;
+          lastX = startX;
+          lastY = startY;
+
+          try{ tile.setPointerCapture && tile.setPointerCapture(pid); }catch(_){}
+        }catch(_){}
+      }, { passive:true });
+
+      tile.addEventListener('pointermove', (e)=>{
+        try{
+          if (!tracking) return;
+          if (pid != null && e.pointerId !== pid) return;
+
+          lastX = e.clientX;
+          lastY = e.clientY;
+
+          const dx = lastX - startX;
+          const dy = lastY - startY;
+
+          if (!horizLock){
+            if (Math.abs(dx) < LOCK_PX && Math.abs(dy) < LOCK_PX) return;
+            if (Math.abs(dx) > Math.abs(dy) * DOMINANCE){
+              horizLock = true;
+            } else {
+              reset();
+              return;
+            }
+          }
+
+          if (horizLock){
+            try{ e.preventDefault(); }catch(_){}
+          }
+        }catch(_){}
+      }, { passive:false });
+
+      tile.addEventListener('pointerup', async (e)=>{
+        try{
+          if (!tracking) return;
+          if (pid != null && e.pointerId !== pid) return;
+
+          const dx = (e.clientX - startX);
+          const dy = (e.clientY - startY);
+
+          const left = (dx <= -SWIPE_MIN_PX) && (Math.abs(dx) > Math.abs(dy) * DOMINANCE);
+
+          if (left){
+            const now = Date.now();
+            tile._fvSwipeJustTs = now;
+            if (state) state._suppressClickUntil = now + 500;
+
+            const fid = String(tile.getAttribute('data-field-id') || tile.dataset.fieldId || '');
+            if (fid && opts && typeof opts.onDetails === 'function'){
+              try{ await opts.onDetails(fid); }catch(_){}
+            }
+          }
+        }catch(_){
+        }finally{
+          reset();
+        }
+      }, { passive:true });
+
+      tile.addEventListener('pointercancel', ()=>{ reset(); }, { passive:true });
+      tile.addEventListener('lostpointercapture', ()=>{ reset(); }, { passive:true });
+    }
+  }catch(_){}
+}
+
+/* =====================================================================
    Helper: build deps via formula.js
 ===================================================================== */
 function buildDepsForState(state, opKey){
@@ -1126,179 +1309,6 @@ function wireTileInteractions(state, tileEl, fieldId){
   });
 }
 
-/* =====================================================================
-   ETA help UI in tile
-===================================================================== */
-function upsertEtaHelp(state, tile, ctx){
-  try{
-    const etaTxt = String(ctx.etaText || '').trim();
-    let help = tile.querySelector('.help');
-
-    if (!etaTxt){
-      if (help) help.remove();
-      return;
-    }
-
-    if (!help){
-      help = document.createElement('div');
-      help.className = 'help';
-
-      const slot = tile.querySelector('.etaSlot');
-      if (slot) slot.appendChild(help);
-      else {
-        const gw = tile.querySelector('.gauge-wrap');
-        if (gw) gw.appendChild(help);
-        else tile.appendChild(help);
-      }
-    }
-
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'eta-help-btn';
-    btn.setAttribute('aria-label', 'Open ETA helper');
-    btn.textContent = etaTxt;
-
-    btn.addEventListener('click', (e)=>{
-      try{
-        e.preventDefault();
-        e.stopPropagation();
-      }catch(_){}
-
-      const payload = {
-        fieldId: String(ctx.fieldId || ''),
-        fieldName: String(ctx.fieldName || ''),
-        opKey: String(ctx.opKey || ''),
-        threshold: Number(ctx.threshold),
-        readinessNow: Number(ctx.readinessNow),
-        etaText: etaTxt,
-        horizonHours: Number(ctx.horizonHours || ETA_HORIZON_HOURS),
-        nowTs: Date.now(),
-        note: 'Option 1: ETA is computed by model.etaToThreshold() from truth-seeded state + forecast cache.'
-      };
-
-      dispatchEtaHelp(state, payload);
-    }, { passive:false });
-
-    help.replaceChildren(btn);
-  }catch(_){}
-}
-
-/* =====================================================================
-   SWIPE FALLBACK
-===================================================================== */
-function isCoarsePointer(){
-  try{
-    return window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
-  }catch(_){
-    return false;
-  }
-}
-
-function initFallbackSwipeOnTiles(state, wrap, opts){
-  try{
-    if (!wrap) return;
-    if (!isCoarsePointer()) return;
-
-    const tiles = Array.from(wrap.querySelectorAll('.tile[data-field-id]'));
-    for (const tile of tiles){
-      if (!tile) continue;
-      if (tile.dataset && tile.dataset.fvSwipeWired === '1') continue;
-
-      if (tile.dataset) tile.dataset.fvSwipeWired = '1';
-
-      let startX = 0, startY = 0, lastX = 0, lastY = 0;
-      let tracking = false;
-      let horizLock = false;
-      let pid = null;
-
-      const SWIPE_MIN_PX = 42;
-      const LOCK_PX = 10;
-      const DOMINANCE = 1.15;
-
-      function reset(){
-        tracking = false;
-        horizLock = false;
-        pid = null;
-      }
-
-      tile.addEventListener('pointerdown', (e)=>{
-        try{
-          if (!e || e.pointerType !== 'touch') return;
-          const t = e.target;
-          if (t && (t.closest && t.closest('button, a, input, select, textarea'))) return;
-
-          tracking = true;
-          horizLock = false;
-          pid = e.pointerId;
-
-          startX = e.clientX;
-          startY = e.clientY;
-          lastX = startX;
-          lastY = startY;
-
-          try{ tile.setPointerCapture && tile.setPointerCapture(pid); }catch(_){}
-        }catch(_){}
-      }, { passive:true });
-
-      tile.addEventListener('pointermove', (e)=>{
-        try{
-          if (!tracking) return;
-          if (pid != null && e.pointerId !== pid) return;
-
-          lastX = e.clientX;
-          lastY = e.clientY;
-
-          const dx = lastX - startX;
-          const dy = lastY - startY;
-
-          if (!horizLock){
-            if (Math.abs(dx) < LOCK_PX && Math.abs(dy) < LOCK_PX) return;
-            if (Math.abs(dx) > Math.abs(dy) * DOMINANCE){
-              horizLock = true;
-            } else {
-              reset();
-              return;
-            }
-          }
-
-          if (horizLock){
-            try{ e.preventDefault(); }catch(_){}
-          }
-        }catch(_){}
-      }, { passive:false });
-
-      tile.addEventListener('pointerup', async (e)=>{
-        try{
-          if (!tracking) return;
-          if (pid != null && e.pointerId !== pid) return;
-
-          const dx = (e.clientX - startX);
-          const dy = (e.clientY - startY);
-
-          const left = (dx <= -SWIPE_MIN_PX) && (Math.abs(dx) > Math.abs(dy) * DOMINANCE);
-
-          if (left){
-            const now = Date.now();
-            tile._fvSwipeJustTs = now;
-            if (state) state._suppressClickUntil = now + 500;
-
-            const fid = String(tile.getAttribute('data-field-id') || tile.dataset.fieldId || '');
-            if (fid && opts && typeof opts.onDetails === 'function'){
-              try{ await opts.onDetails(fid); }catch(_){}
-            }
-          }
-        }catch(_){
-        }finally{
-          reset();
-        }
-      }, { passive:true });
-
-      tile.addEventListener('pointercancel', ()=>{ reset(); }, { passive:true });
-      tile.addEventListener('lostpointercapture', ()=>{ reset(); }, { passive:true });
-    }
-  }catch(_){}
-}
-
 /* ---------- tile render (CORE) ---------- */
 async function _renderTilesInternal(state){
   await ensureFRModules(state);
@@ -1356,10 +1366,6 @@ async function _renderTilesInternal(state){
   const filtered = filteredNow;
   const sortMode = getSortMode();
 
-  /* ================================================================
-     FIX: stabilize initial computed sorting by warming filtered weather
-     before readiness/rain-driven sort values are built
-     ================================================================ */
   try{
     if (
       sortNeedsComputedData(sortMode) &&
@@ -1375,10 +1381,6 @@ async function _renderTilesInternal(state){
     console.warn('[FieldReadiness] sort warmWeatherForFields failed:', e);
   }
 
-  /* ================================================================
-     FIX: use authoritative runFieldReadiness() for the filtered set so
-     initial tile order and initial tile values match details/quick view
-     ================================================================ */
   state.lastRuns.clear();
   const filteredRuns = await buildRunsForFields(state, filtered, opKey);
   for (const [fid, run] of filteredRuns.entries()){
@@ -1388,7 +1390,6 @@ async function _renderTilesInternal(state){
   const range = parseRangeFromInput();
   const mrmsRangeById = new Map();
 
-  // Preload MRMS range values for the filtered set so sort + display both match
   await Promise.all(
     filtered.map(async (f)=>{
       const res = await getMrmsRainResultForField(state, f.id, range, { force:false });
@@ -1921,10 +1922,7 @@ export async function refreshDetailsOnly(state){
         const fid = e && e.detail ? String(e.detail.fieldId || '') : '';
         if (!fid) return;
 
-        // Lightweight patch first so rainfall can update quickly
         await patchTileRainOnly(state, fid);
-
-        // Full tile refresh still supported
         await updateTileForField(state, fid);
       }catch(_){}
     });
