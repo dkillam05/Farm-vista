@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-10d-use-mrms-for-rain-range-queue-aware-no-trim-sort-fix
+Rev: 2026-03-11a-stable-initial-sort-same-readiness-source-no-trim
 
 GOAL (per Dane, Feb 2026):
 ✅ Make tiles + details MATCH the Global Calibration readiness number.
@@ -25,6 +25,8 @@ CHANGES (THIS REV):
 ✅ FIX: initial tile sorting is stabilized by warming filtered field weather
    before computed sort order is built when the selected sort depends on
    readiness/rain values
+✅ FIX: initial tile order now uses the SAME readiness source as tile/details
+   by precomputing filtered runs with runFieldReadiness() before sorting/render
 
 ===================================================================== */
 'use strict';
@@ -895,6 +897,32 @@ function buildDepsForState(state, opKey){
 }
 
 /* =====================================================================
+   Helper: precompute runs for filtered fields using authoritative path
+===================================================================== */
+async function buildRunsForFields(state, fields, opKey){
+  const map = new Map();
+  const list = Array.isArray(fields) ? fields : [];
+  const wxCtx = buildWxCtx(state);
+
+  for (const f of list){
+    try{
+      const run = await runFieldReadiness(state, f, {
+        opKey,
+        wxCtx,
+        persistedGetter: (id)=> getPersistedStateForDeps(state, id)
+      });
+      if (run) map.set(f.id, run);
+    }catch(e){
+      try{
+        console.warn('[FieldReadiness] buildRunsForFields failed for field:', f && f.id, e);
+      }catch(_){}
+    }
+  }
+
+  return map;
+}
+
+/* =====================================================================
    Lightweight rainfall-only patch helpers
 ===================================================================== */
 async function patchTileRainOnly(state, fieldId){
@@ -1101,9 +1129,14 @@ async function _renderTilesInternal(state){
     console.warn('[FieldReadiness] sort warmWeatherForFields failed:', e);
   }
 
+  /* ================================================================
+     FIX: use authoritative runFieldReadiness() for the filtered set so
+     initial tile order and initial tile values match details/quick view
+     ================================================================ */
   state.lastRuns.clear();
-  for (const f of state.fields){
-    state.lastRuns.set(f.id, state._mods.model.runField(f, deps));
+  const filteredRuns = await buildRunsForFields(state, filtered, opKey);
+  for (const [fid, run] of filteredRuns.entries()){
+    state.lastRuns.set(fid, run);
   }
 
   const range = parseRangeFromInput();
