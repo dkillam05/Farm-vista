@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-11a-stable-initial-sort-same-readiness-source-no-trim
+Rev: 2026-03-12a-inline-tiles-loading-and-count-helper-no-trim
 
 GOAL (per Dane, Feb 2026):
 ✅ Make tiles + details MATCH the Global Calibration readiness number.
@@ -27,6 +27,9 @@ CHANGES (THIS REV):
    readiness/rain values
 ✅ FIX: initial tile order now uses the SAME readiness source as tile/details
    by precomputing filtered runs with runFieldReadiness() before sorting/render
+✅ NEW: inline loading card inside the Fields area while tiles are being
+   computed/sorted so the page does not look blank after initial loading
+✅ NEW: helper text shows visible results count, e.g. "Showing 25 of 128 fields"
 
 ===================================================================== */
 'use strict';
@@ -156,6 +159,157 @@ function getPersistedStateForDeps(state, fieldId){
   }catch(_){
     return null;
   }
+}
+
+/* =====================================================================
+   Inline field loading + count helper
+===================================================================== */
+function ensureFieldsUiStyleOnce(){
+  try{
+    if (window.__FV_FR_FIELDS_UI_STYLE__) return;
+    window.__FV_FR_FIELDS_UI_STYLE__ = true;
+
+    const s = document.createElement('style');
+    s.setAttribute('data-fv-fr-fields-ui', '1');
+    s.textContent = `
+      .fr-fields-helper{
+        margin-top:6px;
+        font-size:12px;
+        line-height:1.2;
+        color:var(--muted,#67706B);
+      }
+      .fr-fields-loading{
+        border:1px solid var(--border);
+        border-radius:14px;
+        background:color-mix(in srgb, var(--surface) 96%, #ffffff 4%);
+        padding:16px 14px;
+        display:grid;
+        gap:10px;
+        box-shadow:0 6px 16px rgba(0,0,0,.04);
+      }
+      .fr-fields-loading-row{
+        display:flex;
+        align-items:center;
+        gap:12px;
+        min-width:0;
+      }
+      .fr-fields-spinner{
+        width:22px;
+        height:22px;
+        border-radius:999px;
+        border:2px solid color-mix(in srgb, var(--border) 75%, transparent 25%);
+        border-top-color: var(--accent, #2F6C3C);
+        animation: fr-fields-spin 0.85s linear infinite;
+        flex:0 0 auto;
+      }
+      .fr-fields-loading-title{
+        font-weight:900;
+        font-size:13px;
+        line-height:1.2;
+        color:var(--text);
+      }
+      .fr-fields-loading-sub{
+        font-size:12px;
+        line-height:1.35;
+        color:var(--muted,#67706B);
+      }
+      .fr-fields-loading-bars{
+        display:grid;
+        gap:8px;
+      }
+      .fr-fields-loading-bar{
+        height:10px;
+        border-radius:999px;
+        background:
+          linear-gradient(90deg,
+            color-mix(in srgb, var(--surface) 92%, #ffffff 8%) 0%,
+            color-mix(in srgb, var(--accent) 12%, var(--surface) 88%) 50%,
+            color-mix(in srgb, var(--surface) 92%, #ffffff 8%) 100%);
+        background-size: 220% 100%;
+        animation: fr-fields-sheen 1.35s ease-in-out infinite;
+      }
+      .fr-fields-loading-bar:nth-child(1){ width:100%; }
+      .fr-fields-loading-bar:nth-child(2){ width:88%; }
+      .fr-fields-loading-bar:nth-child(3){ width:94%; }
+      .fr-fields-loading-bar:nth-child(4){ width:76%; }
+
+      @keyframes fr-fields-spin{
+        from{ transform:rotate(0deg); }
+        to{ transform:rotate(360deg); }
+      }
+      @keyframes fr-fields-sheen{
+        0%{ background-position:200% 0; }
+        100%{ background-position:-20% 0; }
+      }
+    `;
+    document.head.appendChild(s);
+  }catch(_){}
+}
+
+function ensureFieldsCountHelperEl(){
+  try{
+    ensureFieldsUiStyleOnce();
+
+    let el = document.getElementById('frFieldsCountHelper');
+    if (el) return el;
+
+    const grid = document.getElementById('fieldsGrid');
+    if (!grid || !grid.parentElement) return null;
+
+    el = document.createElement('div');
+    el.id = 'frFieldsCountHelper';
+    el.className = 'fr-fields-helper muted';
+    el.textContent = '';
+
+    grid.insertAdjacentElement('beforebegin', el);
+    return el;
+  }catch(_){
+    return null;
+  }
+}
+
+function updateFieldsCountHelper(showingCount, totalCount){
+  try{
+    const el = ensureFieldsCountHelperEl();
+    if (!el) return;
+
+    const showN = Math.max(0, Number(showingCount || 0));
+    const totalN = Math.max(0, Number(totalCount || 0));
+
+    if (!totalN){
+      el.textContent = 'Showing 0 fields';
+      return;
+    }
+
+    el.textContent = `Showing ${showN} of ${totalN} field${totalN === 1 ? '' : 's'}`;
+  }catch(_){}
+}
+
+function renderFieldsInlineLoading(message, subtext){
+  try{
+    ensureFieldsUiStyleOnce();
+
+    const wrap = document.getElementById('fieldsGrid');
+    if (!wrap) return;
+
+    wrap.innerHTML = `
+      <div class="fr-fields-loading" aria-live="polite" aria-busy="true">
+        <div class="fr-fields-loading-row">
+          <div class="fr-fields-spinner" aria-hidden="true"></div>
+          <div style="min-width:0;">
+            <div class="fr-fields-loading-title">${esc(message || 'Loading field readiness...')}</div>
+            <div class="fr-fields-loading-sub">${esc(subtext || 'Weather information for fields is being pulled together and sorted now.')}</div>
+          </div>
+        </div>
+        <div class="fr-fields-loading-bars" aria-hidden="true">
+          <div class="fr-fields-loading-bar"></div>
+          <div class="fr-fields-loading-bar"></div>
+          <div class="fr-fields-loading-bar"></div>
+          <div class="fr-fields-loading-bar"></div>
+        </div>
+      </div>
+    `;
+  }catch(_){}
 }
 
 /* =====================================================================
@@ -950,6 +1104,7 @@ async function updateTileForField(state, fieldId){
 
     await ensureFRModules(state);
     ensureSelectionStyleOnce();
+    ensureFieldsCountHelperEl();
     await loadPersistedState(state, { force:true });
     ensureEtaHelperModule(state);
 
@@ -1074,6 +1229,7 @@ function wireTileInteractions(state, tileEl, fieldId){
 async function _renderTilesInternal(state){
   await ensureFRModules(state);
   ensureSelectionStyleOnce();
+  ensureFieldsCountHelperEl();
   await loadPersistedState(state, { force:true });
   ensureEtaHelperModule(state);
 
@@ -1088,11 +1244,14 @@ async function _renderTilesInternal(state){
   state._fvTilesViewKey = viewKey;
 
   if (sameView){
+    const filteredExisting = getFilteredFields(state);
     const tiles = Array.from(wrap.querySelectorAll('.tile[data-field-id]'));
     const cap = (String(state.pageSize) === '__all__' || state.pageSize === -1)
       ? tiles.length
       : Math.min(tiles.length, Number(state.pageSize || 25));
     const ids = tiles.slice(0, cap).map(t=>String(t.getAttribute('data-field-id')||'')).filter(Boolean);
+
+    updateFieldsCountHelper(ids.length, filteredExisting.length);
 
     initFallbackSwipeOnTiles(state, wrap, {
       onDetails: async (fieldId)=>{
@@ -1104,6 +1263,11 @@ async function _renderTilesInternal(state){
     await updateVisibleTilesBatched(state, ids);
     return;
   }
+
+  renderFieldsInlineLoading(
+    'Loading field readiness...',
+    'Weather information for fields is being pulled together and sorted now.'
+  );
 
   const opKey = getCurrentOp();
   const deps = buildDepsForState(state, opKey);
@@ -1157,6 +1321,8 @@ async function _renderTilesInternal(state){
     ? sorted.length
     : Math.min(sorted.length, Number(state.pageSize || 25));
   const show = sorted.slice(0, cap);
+
+  updateFieldsCountHelper(show.length, filtered.length);
 
   const frag = document.createDocumentFragment();
   const idsForEta = [];
@@ -1483,6 +1649,7 @@ function renderMrmsPanelFromDoc(doc){
 async function _renderDetailsInternal(state){
   await ensureFRModules(state);
   ensureEtaHelperModule(state);
+  ensureFieldsCountHelperEl();
   await loadPersistedState(state, { force:true });
 
   const f = state.fields.find(x=>x.id === state.selectedFieldId);
