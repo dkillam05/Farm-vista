@@ -101,6 +101,18 @@
       -webkit-backdrop-filter:var(--blur);
     }
 
+    .top-left-tools{
+      position:absolute;
+      top:10px;
+      left:10px;
+      z-index:35;
+      pointer-events:none;
+    }
+
+    .top-left-tools > *{
+      pointer-events:auto;
+    }
+
     .top-tools{
       position:absolute;
       top:10px;
@@ -128,6 +140,7 @@
       backdrop-filter:var(--blur);
       -webkit-backdrop-filter:var(--blur);
       padding:0;
+      text-decoration:none;
     }
 
     .icon-btn svg{
@@ -527,6 +540,20 @@
       <div class="map-stage">
         <div id="rainMap" aria-label="Rain map"></div>
 
+        <div class="top-left-tools">
+          <a
+            id="btnBack"
+            class="icon-btn"
+            href="/Farm-vista/pages/field-readiness.html"
+            aria-label="Back to Field Readiness"
+            title="Back to Field Readiness"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M15 5L8 12L15 19" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </a>
+        </div>
+
         <div class="left-legend" aria-label="Rainfall legend">
           <div class="legend-wrap">
             <div class="legend-bar"></div>
@@ -643,7 +670,7 @@
 
     let map = null;
     let infoWindow = null;
-    let currentRangeKey = 'last30d';
+    let currentRangeKey = 'last72h';
     let currentRangeStartISO = '';
     let currentRangeEndISO = '';
     let currentRequestId = 0;
@@ -833,6 +860,11 @@
       return new Date(date.getFullYear(), date.getMonth(), date.getDate());
     }
 
+    function endOfDay(date){
+      if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+      return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+    }
+
     function dateToISO(date){
       const d = startOfDay(date);
       if (!d) return '';
@@ -866,6 +898,30 @@
         : null;
     }
 
+    function getDefault72HourRange(){
+      const end = endOfDay(new Date());
+      const start = startOfDay(new Date(end.getTime() - (72 * 60 * 60 * 1000)));
+      return { start, end };
+    }
+
+    function applyDefault72HourRangeToPicker(opts={}){
+      const options = opts && typeof opts === 'object' ? opts : {};
+      const picker = getPickerApi();
+      if (!picker) return false;
+
+      const r = picker.getRange();
+      const hasRange = !!(
+        r &&
+        String(r.startISO || '').trim() &&
+        String(r.endISO || '').trim()
+      );
+      if (hasRange) return false;
+
+      const def = getDefault72HourRange();
+      picker.setRange(def.start, def.end, { silent: !!options.silent });
+      return true;
+    }
+
     function getCurrentRangeDisplay(){
       if (currentRangeStartISO && currentRangeEndISO){
         const s = parseISODate(currentRangeStartISO);
@@ -874,7 +930,8 @@
           return `${formatRangeDate(s)} – ${formatRangeDate(e)}`;
         }
       }
-      return 'Last 30 Days';
+      const def = getDefault72HourRange();
+      return `${formatRangeDate(def.start)} – ${formatRangeDate(def.end)}`;
     }
 
     function rangeTitle(){
@@ -885,7 +942,8 @@
           return `Rain — ${formatRangeDate(s)} to ${formatRangeDate(e)}`;
         }
       }
-      return 'Rain — Last 30 Days';
+      const def = getDefault72HourRange();
+      return `Rain — ${formatRangeDate(def.start)} to ${formatRangeDate(def.end)}`;
     }
 
     function getActiveRangeState(){
@@ -904,10 +962,14 @@
         }
       }
 
+      const def = getDefault72HourRange();
+      const startISO = dateToISO(def.start);
+      const endISO = dateToISO(def.end);
+
       return {
-        key: 'last30d',
-        startISO: '',
-        endISO: ''
+        key: `default72h:${startISO}:${endISO}`,
+        startISO,
+        endISO
       };
     }
 
@@ -923,20 +985,27 @@
     function restoreCurrentRangeFromLocal(){
       try{
         const raw = String(localStorage.getItem(LS_RANGE_KEY) || '').trim();
-        if (!raw) return;
+        const picker = getPickerApi();
+        if (!picker) return false;
+
+        if (!raw){
+          return applyDefault72HourRangeToPicker({ silent:true });
+        }
+
         const parsed = JSON.parse(raw);
         const startISO = String(parsed && parsed.startISO || '').trim();
         const endISO = String(parsed && parsed.endISO || '').trim();
 
-        const picker = getPickerApi();
-        if (!picker) return;
-
         if (startISO && endISO){
           picker.setRange(startISO, endISO, { silent:true });
-        } else {
-          picker.clear({ silent:true });
+          return true;
         }
-      }catch(_){}
+
+        picker.clear({ silent:true });
+        return applyDefault72HourRangeToPicker({ silent:true });
+      }catch(_){
+        return applyDefault72HourRangeToPicker({ silent:true });
+      }
     }
 
     function syncCurrentRangeFromPicker(persist=true){
@@ -1034,7 +1103,9 @@
       if (!rows || !rows.length) return null;
 
       if (!startISO || !endISO){
-        return rows.reduce((sum, row)=> sum + (toNum(row && row.rainMm) || 0), 0);
+        const def = getDefault72HourRange();
+        startISO = dateToISO(def.start);
+        endISO = dateToISO(def.end);
       }
 
       return rows.reduce((sum, row)=>{
@@ -1764,6 +1835,7 @@
       });
 
       document.addEventListener('fv:date-range-cleared', ()=>{
+        applyDefault72HourRangeToPicker({ silent:true });
         syncCurrentRangeFromPicker(true);
         renderRain(false);
       });
@@ -1782,6 +1854,7 @@
         ensureMap();
         wireUi();
         restoreCurrentRangeFromLocal();
+        applyDefault72HourRangeToPicker({ silent:true });
         syncCurrentRangeFromPicker(false);
         updateLegendDynamic(getScaleMode(0.10));
         await renderRain(false);
