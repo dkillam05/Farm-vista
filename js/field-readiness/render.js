@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-12b-render-all-fields-with-fallback-accurate-count-no-trim
+Rev: 2026-03-12c-fix-sameview-field-signature-no-trim
 
 GOAL (per Dane, Feb 2026):
 ✅ Make tiles + details MATCH the Global Calibration readiness number.
@@ -34,6 +34,9 @@ CHANGES (THIS REV):
    instead of disappearing, so "All" and helper counts match what is on screen
 ✅ FIX: helper count is now based on actual rendered tiles, not only the
    pre-slice candidate list
+✅ FIX: same-view shortcut now includes a filtered field signature, so
+   newly added fields / changed filtered sets force a full rebuild instead
+   of getting stuck on the first drawn tile list
 
 ===================================================================== */
 'use strict';
@@ -554,6 +557,15 @@ function getFilteredFields(state){
   const farmId = String(state.farmFilter || '__all__');
   if (farmId === '__all__') return state.fields.slice();
   return state.fields.filter(f => String(f.farmId || '') === farmId);
+}
+
+function getFilteredFieldSignature(fields){
+  try{
+    const list = Array.isArray(fields) ? fields : [];
+    return list.map(f => String(f && f.id || '')).filter(Boolean).join('|');
+  }catch(_){
+    return '';
+  }
 }
 
 /* =====================================================================
@@ -1301,15 +1313,20 @@ async function _renderTilesInternal(state){
   const wrap = $('fieldsGrid');
   if (!wrap) return;
 
+  const filteredNow = getFilteredFields(state);
+  const filteredSigNow = getFilteredFieldSignature(filteredNow);
+
   const viewKey = getTilesViewKey(state);
   const prevKey = String(state._fvTilesViewKey || '');
+  const prevSig = String(state._fvTilesFieldSig || '');
   const hasTiles = !!wrap.querySelector('.tile[data-field-id]');
-  const sameView = (prevKey === viewKey) && hasTiles;
+  const sameView = (prevKey === viewKey) && (prevSig === filteredSigNow) && hasTiles;
 
   state._fvTilesViewKey = viewKey;
+  state._fvTilesFieldSig = filteredSigNow;
 
   if (sameView){
-    const filteredExisting = getFilteredFields(state);
+    const filteredExisting = filteredNow;
     const tiles = Array.from(wrap.querySelectorAll('.tile[data-field-id]'));
     const cap = (String(state.pageSize) === '__all__' || state.pageSize === -1)
       ? tiles.length
@@ -1337,7 +1354,7 @@ async function _renderTilesInternal(state){
 
   const opKey = getCurrentOp();
   const deps = buildDepsForState(state, opKey);
-  const filtered = getFilteredFields(state);
+  const filtered = filteredNow;
   const sortMode = getSortMode();
 
   /* ================================================================
