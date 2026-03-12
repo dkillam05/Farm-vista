@@ -1035,13 +1035,13 @@
 
     function tapRadiusPixelsForZoom(zoom){
       const z = Number.isFinite(Number(zoom)) ? Number(zoom) : 11;
-      if (z >= 16) return 24;
-      if (z >= 15) return 28;
-      if (z >= 14) return 34;
+      if (z >= 16) return 22;
+      if (z >= 15) return 26;
+      if (z >= 14) return 32;
       if (z >= 13) return 40;
-      if (z >= 12) return 48;
-      if (z >= 11) return 58;
-      return 70;
+      if (z >= 12) return 50;
+      if (z >= 11) return 62;
+      return 76;
     }
 
     function effectiveHitRadiusMeters(item){
@@ -1052,15 +1052,11 @@
       const mpp = metersPerPixelAt(lat, zoom);
       const pxRadius = tapRadiusPixelsForZoom(zoom);
       const zoomAwareMeters = pxRadius * mpp;
-
       const blobOuterRadiusMeters = Number(item.blobOuterRadiusMeters || 0);
-      const floorMeters = Math.min(zoomAwareMeters, Math.max(120, blobOuterRadiusMeters * 0.28));
-      const ceilingMeters = Math.max(blobOuterRadiusMeters * 1.08, zoomAwareMeters);
 
-      return clamp(
-        Math.max(floorMeters, zoomAwareMeters),
-        80,
-        Math.max(ceilingMeters, 80)
+      return Math.max(
+        Math.min(blobOuterRadiusMeters * 0.95, zoomAwareMeters),
+        80
       );
     }
 
@@ -1119,6 +1115,27 @@
       return hits[0];
     }
 
+    function openRainPopup(summary, pointLabel, lat, lng){
+      if (!infoWindow || !map || !summary) return;
+
+      infoWindow.setContent(buildPopupHtml(summary, pointLabel));
+      infoWindow.setPosition({ lat:Number(lat), lng:Number(lng) });
+      infoWindow.open({
+        map,
+        shouldFocus: false
+      });
+    }
+
+    function openRainPopupByHit(hit){
+      if (!hit) return;
+      const summary = lastFieldSummaries.find(x => x.fieldId === hit.fieldId);
+      if (!summary){
+        if (infoWindow) infoWindow.close();
+        return;
+      }
+      openRainPopup(summary, hit.pointLabel, hit.lat, hit.lng);
+    }
+
     function buildLayersForScale(scaleName, n){
       if (scaleName === 'trace'){
         return [
@@ -1168,7 +1185,17 @@
         const outerScale = layers.reduce((m, layer)=> Math.max(m, Number(layer.scale || 0)), 1);
         const blobOuterRadiusMeters = radius * outerScale;
 
-        layers.forEach(layer=>{
+        const tapTarget = {
+          fieldId: p.fieldId,
+          fieldName: p.fieldName,
+          pointLabel: p.pointLabel,
+          lat: p.lat,
+          lng: p.lng,
+          blobOuterRadiusMeters,
+          hitRadiusMeters: blobOuterRadiusMeters
+        };
+
+        layers.forEach((layer, layerIdx)=>{
           const circle = new google.maps.Circle({
             map,
             center,
@@ -1177,20 +1204,20 @@
             strokeWeight: 0,
             fillColor: color,
             fillOpacity: Math.min(scale.name === 'trace' ? 0.09 : 0.13, layer.opacity),
-            zIndex: 10
+            zIndex: 10 + layerIdx,
+            clickable: true
           });
+
+          circle.__tapTarget = tapTarget;
+
+          circle.addListener('click', ()=>{
+            openRainPopupByHit(circle.__tapTarget);
+          });
+
           rainCircles.push(circle);
         });
 
-        lastTapTargets.push({
-          fieldId: p.fieldId,
-          fieldName: p.fieldName,
-          pointLabel: p.pointLabel,
-          lat: p.lat,
-          lng: p.lng,
-          blobOuterRadiusMeters,
-          hitRadiusMeters: blobOuterRadiusMeters
-        });
+        lastTapTargets.push(tapTarget);
       });
 
       updateTapTargetsForCurrentZoom();
@@ -1223,15 +1250,7 @@
         return;
       }
 
-      const summary = lastFieldSummaries.find(x => x.fieldId === hit.fieldId);
-      if (!summary){
-        if (infoWindow) infoWindow.close();
-        return;
-      }
-
-      infoWindow.setPosition({ lat: Number(hit.lat), lng: Number(hit.lng) });
-      infoWindow.setContent(buildPopupHtml(summary, hit.pointLabel));
-      infoWindow.open(map);
+      openRainPopupByHit(hit);
     }
 
     function cacheRangeResult(range, data){
