@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-12e-fix-missing-viewkey-no-trim
+Rev: 2026-03-12f-restore-openmeteo-startup-for-new-fields-no-trim
 
 GOAL (per Dane, Feb 2026):
 ✅ Make tiles + details MATCH the Global Calibration readiness number.
@@ -42,6 +42,10 @@ CHANGES (THIS REV):
 ✅ FIX: if runFieldReadiness() returns null for a field, render.js now
    falls back to the model/Open-Meteo path before showing "Field Readiness —"
 ✅ FIX: restored missing getTilesViewKey() so page loads again
+✅ FIX: restore startup readiness for NEW fields by warming Open-Meteo
+   weather for filtered fields BEFORE building runs, regardless of sort mode
+✅ FIX: updateTileForField() now warms the selected field before retrying
+   readiness so new fields can pick up an initial score before MRMS exists
 
 ===================================================================== */
 'use strict';
@@ -1063,6 +1067,24 @@ function buildDepsForState(state, opKey){
 }
 
 /* =====================================================================
+   Helper: warm field weather so new fields can compute from Open-Meteo
+===================================================================== */
+async function warmWeatherForFieldSet(state, fields){
+  try{
+    const list = Array.isArray(fields) ? fields.filter(Boolean) : [];
+    if (!list.length) return;
+
+    const weather = state && state._mods ? state._mods.weather : null;
+    if (!weather || typeof weather.warmWeatherForFields !== 'function') return;
+
+    const wxCtx = buildWxCtx(state);
+    await weather.warmWeatherForFields(list, wxCtx, { force:false, onEach:()=>{} });
+  }catch(e){
+    console.warn('[FieldReadiness] warmWeatherForFieldSet failed:', e);
+  }
+}
+
+/* =====================================================================
    Helper: run readiness with fallback to model/Open-Meteo path
 ===================================================================== */
 async function computeRunForField(state, fieldObj, opKey){
@@ -1185,7 +1207,17 @@ async function updateTileForField(state, fieldId){
     const opKey = getCurrentOp();
     const deps = buildDepsForState(state, opKey);
 
-    const run0 = await computeRunForField(state, f, opKey);
+    // ✅ Warm this field first so brand-new fields can get an initial
+    // Open-Meteo-based readiness score even before MRMS exists.
+    await warmWeatherForFieldSet(state, [f]);
+
+    let run0 = await computeRunForField(state, f, opKey);
+
+    // one more best-effort retry after warm
+    if (!run0){
+      await warmWeatherForFieldSet(state, [f]);
+      run0 = await computeRunForField(state, f, opKey);
+    }
 
     if (!run0){
       const range = parseRangeFromInput();
@@ -1366,6 +1398,12 @@ async function _renderTilesInternal(state){
   const filtered = filteredNow;
   const sortMode = getSortMode();
 
+  // ✅ Always warm filtered fields first.
+  // This restores the old behavior where new fields could still get
+  // an initial readiness score from Open-Meteo even before MRMS existed.
+  await warmWeatherForFieldSet(state, filtered);
+
+  // Keep the extra warm for computed sorts too (harmless if already warm).
   try{
     if (
       sortNeedsComputedData(sortMode) &&
@@ -1382,7 +1420,14 @@ async function _renderTilesInternal(state){
   }
 
   state.lastRuns.clear();
-  const filteredRuns = await buildRunsForFields(state, filtered, opKey);
+  let filteredRuns = await buildRunsForFields(state, filtered, opKey);
+
+  // one retry pass after warm in case new fields needed the weather cache
+  if (filteredRuns.size < filtered.length){
+    await warmWeatherForFieldSet(state, filtered);
+    filteredRuns = await buildRunsForFields(state, filtered, opKey);
+  }
+
   for (const [fid, run] of filteredRuns.entries()){
     state.lastRuns.set(fid, run);
   }
