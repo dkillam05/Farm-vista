@@ -147,6 +147,7 @@
       width:22px;
       height:22px;
       display:block;
+      flex:0 0 auto;
     }
 
     .icon-btn:active{
@@ -159,12 +160,21 @@
       right:0;
       z-index:36;
       width:var(--menu-w);
+      max-width:calc(100vw - 12px);
       padding:12px;
       border-radius:18px;
       display:none;
       pointer-events:auto;
       max-height:min(76vh, 720px);
-      overflow:auto;
+      overflow-y:auto;
+      overflow-x:hidden;
+      box-sizing:border-box;
+      overscroll-behavior:contain;
+    }
+
+    .panel-menu *{
+      box-sizing:border-box;
+      min-width:0;
     }
 
     .panel-menu.open{
@@ -174,6 +184,8 @@
     .menu-field{
       margin-bottom:12px;
       position:relative;
+      min-width:0;
+      overflow:hidden;
     }
 
     .menu-field:last-child{
@@ -193,6 +205,7 @@
 
     .menu-select{
       width:100%;
+      max-width:100%;
       appearance:none;
       -webkit-appearance:none;
       border:1px solid rgba(0,0,0,.08);
@@ -218,6 +231,7 @@
 
     .menu-input{
       width:100%;
+      max-width:100%;
       border:1px solid rgba(0,0,0,.08);
       border-radius:14px;
       background:color-mix(in srgb, var(--surface) 90%, #ffffff 10%);
@@ -238,6 +252,7 @@
 
     .menu-btn{
       width:100%;
+      max-width:100%;
       display:inline-flex;
       align-items:center;
       justify-content:center;
@@ -252,6 +267,8 @@
       font-weight:900;
       cursor:pointer;
       box-shadow:0 10px 24px rgba(47,108,60,.28);
+      text-align:center;
+      white-space:normal;
     }
 
     .menu-btn:active{
@@ -262,6 +279,8 @@
       display:grid;
       gap:8px;
       margin-top:2px;
+      min-width:0;
+      overflow:hidden;
     }
 
     .menu-pill{
@@ -276,11 +295,18 @@
       font-size:13px;
       font-weight:900;
       color:var(--text-dark);
+      min-width:0;
+      overflow:hidden;
+    }
+
+    .menu-pill > span{
+      min-width:0;
     }
 
     .menu-pill .mutedish{
       opacity:.72;
       font-weight:800;
+      flex:0 0 auto;
     }
 
     .menu-debug{
@@ -290,6 +316,8 @@
       line-height:1.25;
       margin-top:2px;
       word-break:break-word;
+      overflow-wrap:anywhere;
+      min-width:0;
     }
 
     .menu-subtle{
@@ -298,6 +326,8 @@
       color:var(--text-dark);
       opacity:.76;
       margin-top:6px;
+      word-break:break-word;
+      overflow-wrap:anywhere;
     }
 
     .mode-section[hidden]{
@@ -310,6 +340,7 @@
       right:0;
       left:auto;
       width:min(360px, 92vw);
+      max-width:min(360px, calc(100vw - 24px));
       background:var(--glass);
       border:1px solid var(--glass-border);
       border-radius:16px;
@@ -319,6 +350,8 @@
       z-index:100000;
       backdrop-filter:var(--blur);
       -webkit-backdrop-filter:var(--blur);
+      box-sizing:border-box;
+      overflow-x:hidden;
     }
 
     @media (max-width:520px){
@@ -334,6 +367,7 @@
       gap:10px;
       align-items:center;
       margin-bottom:10px;
+      min-width:0;
     }
 
     .cal-xbtn{
@@ -348,6 +382,7 @@
       cursor:pointer;
       user-select:none;
       -webkit-tap-highlight-color: transparent;
+      padding:0;
     }
 
     .cal-xbtn svg{
@@ -364,6 +399,7 @@
       display:grid;
       grid-template-columns:repeat(7,1fr);
       gap:6px;
+      min-width:0;
     }
 
     .cal-day{
@@ -402,11 +438,15 @@
       justify-content:space-between;
       gap:10px;
       margin-top:10px;
+      min-width:0;
     }
 
     .cal-actions{
       display:flex;
       gap:8px;
+      min-width:0;
+      flex-wrap:wrap;
+      justify-content:flex-end;
     }
 
     .cal-btn{
@@ -422,6 +462,7 @@
       font-weight:900;
       padding:0 12px;
       cursor:pointer;
+      white-space:nowrap;
     }
 
     .cal-btn-neutral{
@@ -566,6 +607,7 @@
       .panel-menu{
         top:52px;
         width:min(280px, calc(100vw - 16px));
+        max-width:calc(100vw - 16px);
       }
 
       .left-legend{
@@ -855,6 +897,12 @@
       return Number.isFinite(n) ? n : null;
     }
 
+    function clamp(v, min, max){
+      const n = Number(v);
+      if (!Number.isFinite(n)) return min;
+      return Math.min(max, Math.max(min, n));
+    }
+
     function sleep(ms){
       return new Promise(resolve => setTimeout(resolve, ms));
     }
@@ -881,6 +929,11 @@
         }
         throw lastErr;
       })();
+    }
+
+    function isPermissionError(err){
+      const msg = String(err && (err.message || err.code || err) || '').toLowerCase();
+      return msg.includes('insufficient permissions') || msg.includes('permission-denied');
     }
 
     function detectLayoutMode(){
@@ -942,12 +995,13 @@
           try{ off(); }catch(_){}
           resolve();
         });
+
         setTimeout(()=>{
           if (done) return;
           done = true;
           try{ off(); }catch(_){}
           resolve();
-        }, 2500);
+        }, 3000);
       });
 
       return { app, auth: authRef, db: dbRef };
@@ -990,6 +1044,158 @@
       if (v === 'terrain') map.setMapTypeId(google.maps.MapTypeId.TERRAIN);
       else if (v === 'roadmap') map.setMapTypeId(google.maps.MapTypeId.ROADMAP);
       else map.setMapTypeId(google.maps.MapTypeId.HYBRID);
+    }
+
+    function clearMapOverlays(){
+      mapCircles.forEach(x=>{
+        try{ x.setMap(null); }catch(_){}
+      });
+      fieldMarkers.forEach(x=>{
+        try{ x.setMap(null); }catch(_){}
+      });
+      mapCircles = [];
+      fieldMarkers = [];
+      lastTapTargets = [];
+      if (infoWindow){
+        try{ infoWindow.close(); }catch(_){}
+      }
+    }
+
+    function fitToFields(rows){
+      if (!map || !Array.isArray(rows) || !rows.length || !(window.google && google.maps && google.maps.LatLngBounds)) return;
+
+      if (rows.length === 1){
+        const only = rows[0];
+        const lat = toNum(only.lat ?? (only.location && only.location.lat));
+        const lng = toNum(only.lng ?? (only.location && only.location.lng));
+        if (lat == null || lng == null) return;
+        map.setCenter({ lat, lng });
+        if ((map.getZoom() || 0) < 11) map.setZoom(11);
+        return;
+      }
+
+      const bounds = new google.maps.LatLngBounds();
+      let added = 0;
+
+      rows.forEach(r=>{
+        const lat = toNum(r.lat ?? (r.location && r.location.lat));
+        const lng = toNum(r.lng ?? (r.location && r.location.lng));
+        if (lat == null || lng == null) return;
+        bounds.extend({ lat, lng });
+        added++;
+      });
+
+      if (!added) return;
+
+      map.fitBounds(bounds, {
+        top: 60,
+        right: 60,
+        bottom: 60,
+        left: 60
+      });
+
+      google.maps.event.addListenerOnce(map, 'idle', ()=>{
+        const z = map.getZoom() || 0;
+        if (z > 13) map.setZoom(13);
+      });
+    }
+
+    function pointLabelFromKey(key){
+      const k = lower(key);
+      if (!k || k === 'center' || k === 'c') return 'Center';
+      if (k === 'nw' || k === 'northwest') return 'NW';
+      if (k === 'ne' || k === 'northeast') return 'NE';
+      if (k === 'sw' || k === 'southwest') return 'SW';
+      if (k === 'se' || k === 'southeast') return 'SE';
+      if (k === 'n' || k === 'north') return 'North';
+      if (k === 's' || k === 'south') return 'South';
+      if (k === 'e' || k === 'east') return 'East';
+      if (k === 'w' || k === 'west') return 'West';
+      return String(key || 'Point').toUpperCase();
+    }
+
+    function metersPerPixelAtLat(lat, zoom){
+      const safeLat = clamp(Number(lat || 0), -85, 85);
+      const z = Number.isFinite(Number(zoom)) ? Number(zoom) : 8;
+      return (156543.03392 * Math.cos(safeLat * Math.PI / 180)) / Math.pow(2, z);
+    }
+
+    function approxDistanceMeters(lat1, lng1, lat2, lng2){
+      const midLat = ((Number(lat1) + Number(lat2)) / 2) * Math.PI / 180;
+      const dLat = (Number(lat2) - Number(lat1)) * 111320;
+      const dLng = (Number(lng2) - Number(lng1)) * (111320 * Math.cos(midLat));
+      return Math.sqrt((dLat * dLat) + (dLng * dLng));
+    }
+
+    function updateTapTargetsForCurrentZoom(){
+      if (!Array.isArray(lastTapTargets) || !lastTapTargets.length) return;
+      const zoom = map ? (map.getZoom() || 8) : 8;
+
+      lastTapTargets.forEach(t=>{
+        const lat = Number(t.lat || 0);
+        const base = Number(t.blobOuterRadiusMeters || t.hitRadiusMeters || 320);
+        const minPx = t.kind === 'readiness' ? 26 : 30;
+        const minMeters = metersPerPixelAtLat(lat, zoom) * minPx;
+        t.hitRadiusMeters = Math.max(base, minMeters);
+      });
+    }
+
+    function nearestTapTarget(lat, lng){
+      if (!Array.isArray(lastTapTargets) || !lastTapTargets.length) return null;
+
+      let best = null;
+      let bestDist = Infinity;
+
+      lastTapTargets.forEach(t=>{
+        const d = approxDistanceMeters(lat, lng, t.lat, t.lng);
+        const hr = Number(t.hitRadiusMeters || 0);
+        if (d <= hr && d < bestDist){
+          best = t;
+          bestDist = d;
+        }
+      });
+
+      if (best) return best;
+
+      lastTapTargets.forEach(t=>{
+        const d = approxDistanceMeters(lat, lng, t.lat, t.lng);
+        if (d < bestDist){
+          best = t;
+          bestDist = d;
+        }
+      });
+
+      return bestDist <= 800 ? best : null;
+    }
+
+    function lerp(a, b, t){
+      return a + ((b - a) * t);
+    }
+
+    function colorFromGradientStops(t, stops){
+      const x = clamp(Number(t || 0), 0, 1);
+      const arr = Array.isArray(stops) ? stops.slice() : [];
+      if (!arr.length) return 'rgb(88,168,255)';
+      if (x <= arr[0].t) return `rgb(${arr[0].c[0]}, ${arr[0].c[1]}, ${arr[0].c[2]})`;
+      if (x >= arr[arr.length - 1].t){
+        const c = arr[arr.length - 1].c;
+        return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+      }
+
+      for (let i = 0; i < arr.length - 1; i++){
+        const a = arr[i];
+        const b = arr[i + 1];
+        if (x >= a.t && x <= b.t){
+          const localT = (x - a.t) / Math.max(0.000001, (b.t - a.t));
+          const r = Math.round(lerp(a.c[0], b.c[0], localT));
+          const g = Math.round(lerp(a.c[1], b.c[1], localT));
+          const bb = Math.round(lerp(a.c[2], b.c[2], localT));
+          return `rgb(${r}, ${g}, ${bb})`;
+        }
+      }
+
+      const last = arr[arr.length - 1].c;
+      return `rgb(${last[0]}, ${last[1]}, ${last[2]})`;
     }
 
     function startOfDay(date){
@@ -1346,20 +1552,32 @@
       const fresh = !force && mrmsCache.data.length && (Date.now() - mrmsCache.loadedAt) < CACHE_TTL_MS;
       if (fresh) return mrmsCache.data;
 
-      const snap = await retry(() => getDocs(collection(dbRef, MRMS_COLLECTION)), 3, 250);
-      const out = [];
+      try{
+        const snap = await retry(() => getDocs(collection(dbRef, MRMS_COLLECTION)), 3, 250);
+        const out = [];
 
-      snap.forEach(docSnap=>{
-        const row = normalizeMrmsDoc(docSnap.id, docSnap.data() || {});
-        if (row) out.push(row);
-      });
+        snap.forEach(docSnap=>{
+          const row = normalizeMrmsDoc(docSnap.id, docSnap.data() || {});
+          if (row) out.push(row);
+        });
 
-      mrmsCache = {
-        loadedAt: Date.now(),
-        data: out
-      };
+        mrmsCache = {
+          loadedAt: Date.now(),
+          data: out
+        };
 
-      return out;
+        return out;
+      }catch(e){
+        if (isPermissionError(e)){
+          console.warn('[WeatherMap] MRMS permission denied; continuing without MRMS collection.');
+          mrmsCache = {
+            loadedAt: Date.now(),
+            data: []
+          };
+          return [];
+        }
+        throw e;
+      }
     }
 
     async function loadPersistedStateMap(force=false){
