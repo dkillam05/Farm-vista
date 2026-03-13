@@ -12,8 +12,11 @@ export function applyMapModeUi(){
   const sel = $('mapModeSel');
   if (sel) sel.value = isReadiness ? 'readiness' : 'rainfall';
 
-  $('rainModeSection').hidden = isReadiness;
-  $('readinessModeSection').hidden = !isReadiness;
+  const rainModeSection = $('rainModeSection');
+  const readinessModeSection = $('readinessModeSection');
+
+  if (rainModeSection) rainModeSection.hidden = isReadiness;
+  if (readinessModeSection) readinessModeSection.hidden = !isReadiness;
 
   if (isReadiness){
     updateReadinessLegend();
@@ -34,6 +37,18 @@ export function wireUi(){
   const btnMenu = $('btnMenu');
   const menuPanel = $('menuPanel');
   const calendarPopover = $('calendarPopover');
+  const jobRangeInput = $('jobRangeInput');
+  const monthSelect = $('monthSelect');
+  const yearSelect = $('yearSelect');
+  const clearRangeBtn = $('clearRangeBtn');
+  const applyRangeBtn = $('applyRangeBtn');
+  const closeCalBtn = $('closeCalBtn');
+  const calDays = $('calDays');
+  const mapModeSel = $('mapModeSel');
+  const viewSel = $('viewSel');
+  const radiusSel = $('radiusSel');
+  const btnRefreshRain = $('btnRefreshRain');
+  const btnRefreshReadiness = $('btnRefreshReadiness');
 
   const keepMenuOpen = (e)=>{
     if (!e) return;
@@ -41,21 +56,21 @@ export function wireUi(){
   };
 
   const interactiveControls = [
-    $('btnMenu'),
-    $('menuPanel'),
-    $('calendarPopover'),
-    $('jobRangeInput'),
-    $('monthSelect'),
-    $('yearSelect'),
-    $('clearRangeBtn'),
-    $('applyRangeBtn'),
-    $('closeCalBtn'),
-    $('calDays'),
-    $('mapModeSel'),
-    $('viewSel'),
-    $('radiusSel'),
-    $('btnRefreshRain'),
-    $('btnRefreshReadiness')
+    btnMenu,
+    menuPanel,
+    calendarPopover,
+    jobRangeInput,
+    monthSelect,
+    yearSelect,
+    clearRangeBtn,
+    applyRangeBtn,
+    closeCalBtn,
+    calDays,
+    mapModeSel,
+    viewSel,
+    radiusSel,
+    btnRefreshRain,
+    btnRefreshReadiness
   ].filter(Boolean);
 
   interactiveControls.forEach(el=>{
@@ -66,7 +81,9 @@ export function wireUi(){
   });
 
   if (btnMenu && menuPanel){
-    btnMenu.addEventListener('click', ()=>{
+    btnMenu.addEventListener('click', (e)=>{
+      e.preventDefault();
+      e.stopPropagation();
       menuPanel.classList.toggle('open');
     });
 
@@ -83,40 +100,52 @@ export function wireUi(){
     });
   }
 
-  $('jobRangeInput')?.addEventListener('focus', ()=>{
-    try{ $('jobRangeInput').blur(); }catch(_){}
-  });
+  if (jobRangeInput){
+    jobRangeInput.addEventListener('focus', ()=>{
+      try{ jobRangeInput.blur(); }catch(_){}
+    });
+  }
 
-  $('btnRefreshRain')?.addEventListener('click', ()=>{
-    appState.currentMapMode = 'rainfall';
-    saveCurrentMapModeToLocal();
-    applyMapModeUi();
-    renderActiveMode(true);
-  });
+  if (btnRefreshRain){
+    btnRefreshRain.addEventListener('click', ()=>{
+      appState.currentMapMode = 'rainfall';
+      saveCurrentMapModeToLocal();
+      applyMapModeUi();
+      renderActiveMode(true);
+    });
+  }
 
-  $('btnRefreshReadiness')?.addEventListener('click', ()=>{
-    appState.currentMapMode = 'readiness';
-    saveCurrentMapModeToLocal();
-    applyMapModeUi();
-    renderActiveMode(true);
-  });
+  if (btnRefreshReadiness){
+    btnRefreshReadiness.addEventListener('click', ()=>{
+      appState.currentMapMode = 'readiness';
+      saveCurrentMapModeToLocal();
+      applyMapModeUi();
+      renderActiveMode(true);
+    });
+  }
 
-  $('mapModeSel')?.addEventListener('change', async (e)=>{
-    appState.currentMapMode = String(e && e.target && e.target.value || 'rainfall');
-    saveCurrentMapModeToLocal();
-    applyMapModeUi();
-    await renderActiveMode(false);
-  });
+  if (mapModeSel){
+    mapModeSel.addEventListener('change', async (e)=>{
+      appState.currentMapMode = String(e && e.target && e.target.value || 'rainfall');
+      saveCurrentMapModeToLocal();
+      applyMapModeUi();
+      await renderActiveMode(false);
+    });
+  }
 
-  $('viewSel')?.addEventListener('change', ()=>{
-    updateMapStyle();
-  });
+  if (viewSel){
+    viewSel.addEventListener('change', ()=>{
+      updateMapStyle();
+    });
+  }
 
-  $('radiusSel')?.addEventListener('change', ()=>{
-    if (appState.currentMapMode === 'rainfall'){
-      renderRain(false);
-    }
-  });
+  if (radiusSel){
+    radiusSel.addEventListener('change', ()=>{
+      if (appState.currentMapMode === 'rainfall'){
+        renderRain(false);
+      }
+    });
+  }
 
   document.addEventListener('fv:date-range-applied', ()=>{
     syncCurrentRangeFromPicker(true);
