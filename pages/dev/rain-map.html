@@ -1872,10 +1872,12 @@
       );
     }
 
-    function drawReadinessMarkers(fields){
+        function drawReadinessMarkers(fields){
       ensureMap();
       clearMapOverlays();
       updateReadinessLegend();
+
+      const radius = blendRadiusMeters();
 
       fields.forEach(f=>{
         const lat = toNum(f.lat);
@@ -1885,9 +1887,11 @@
 
         const n = normalizeReadinessValue(readiness);
         const color = readinessColor(n);
+        const center = { lat, lng };
 
-        const outerRadius = 460;
-        const innerRadius = 240;
+        const layers = buildLayersForRain(n);
+        const outerScale = layers.reduce((m, layer)=> Math.max(m, Number(layer.scale || 0)), 1);
+        const blobOuterRadiusMeters = radius * outerScale;
 
         const tapTarget = {
           kind: 'readiness',
@@ -1896,72 +1900,31 @@
           lat,
           lng,
           pointLabel: 'Field',
-          blobOuterRadiusMeters: outerRadius,
-          hitRadiusMeters: outerRadius
+          blobOuterRadiusMeters,
+          hitRadiusMeters: blobOuterRadiusMeters
         };
 
-        const glow = new google.maps.Circle({
-          map,
-          center: { lat, lng },
-          radius: outerRadius,
-          strokeOpacity: 0,
-          strokeWeight: 0,
-          fillColor: color,
-          fillOpacity: 0.14,
-          zIndex: 20,
-          clickable: true
+        layers.forEach((layer, layerIdx)=>{
+          const circle = new google.maps.Circle({
+            map,
+            center,
+            radius: radius * layer.scale,
+            strokeOpacity: 0,
+            strokeWeight: 0,
+            fillColor: color,
+            fillOpacity: Math.min(0.16, Number(layer.opacity || 0) + 0.01),
+            zIndex: 20 + layerIdx,
+            clickable: true
+          });
+
+          circle.__tapTarget = tapTarget;
+          circle.addListener('click', ()=>{
+            openPopupForHit(circle.__tapTarget);
+          });
+
+          mapCircles.push(circle);
         });
 
-        glow.__tapTarget = tapTarget;
-        glow.addListener('click', ()=>{
-          openPopupForHit(glow.__tapTarget);
-        });
-
-        const core = new google.maps.Circle({
-          map,
-          center: { lat, lng },
-          radius: innerRadius,
-          strokeColor: '#ffffff',
-          strokeOpacity: 0.55,
-          strokeWeight: 1,
-          fillColor: color,
-          fillOpacity: 0.78,
-          zIndex: 21,
-          clickable: true
-        });
-
-        core.__tapTarget = tapTarget;
-        core.addListener('click', ()=>{
-          openPopupForHit(core.__tapTarget);
-        });
-
-        mapCircles.push(glow, core);
-
-        const marker = new google.maps.Marker({
-          map,
-          position: { lat, lng },
-          label: {
-            text: String(Math.round(readiness)),
-            color: '#ffffff',
-            fontWeight: '900',
-            fontSize: '12px'
-          },
-          icon: {
-            path: google.maps.SymbolPath.CIRCLE,
-            scale: 0.1,
-            fillOpacity: 0,
-            strokeOpacity: 0
-          },
-          clickable: true,
-          zIndex: 22
-        });
-
-        marker.__tapTarget = tapTarget;
-        marker.addListener('click', ()=>{
-          openPopupForHit(marker.__tapTarget);
-        });
-
-        fieldMarkers.push(marker);
         lastTapTargets.push(tapTarget);
       });
 
@@ -1976,7 +1939,8 @@
         'readiness' +
         ' • fields=' + fields.length +
         ' • points=' + fields.length +
-        ' • tap≈' + sampleHit + 'm'
+        ' • tap≈' + sampleHit + 'm' +
+        ' • radius=' + Math.round(radius) + 'm'
       );
     }
 
