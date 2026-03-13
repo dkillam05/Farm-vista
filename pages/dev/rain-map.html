@@ -1656,19 +1656,39 @@
       try{
         const model = readinessState && readinessState._mods ? readinessState._mods.model : null;
         
-     async function computeReadinessRunForMapField(state, fieldObj){
-  try{
-    const run = await runFieldReadiness(state, fieldObj, {
-      persistedGetter: (id)=> getPersistedStateForDeps(state, id)
-    });
+    async function computeReadinessRunForMapField(state, fieldObj){
 
-    if (run) return run;
+  try{
+
+    await ensureFRModules(state)
+
+    const wxCtx = buildWxCtx(state)
+
+    const deps = buildFRDeps(state,{
+      wxCtx,
+      persistedGetter:(id)=>getPersistedStateForDeps(state,id)
+    })
+
+    const run = state._mods.model.runField(fieldObj,deps)
+
+    if(!run) return null
+
+    const score = Number(run.readinessR)
+
+    if(!Number.isFinite(score)) return null
+
+    return run
+
   }catch(e){
-    console.warn('[WeatherMap] readiness run failed:', fieldObj && fieldObj.id, e);
+
+    console.warn('[WeatherMap] readiness run failed:', fieldObj && fieldObj.id, e)
+
+    return null
   }
 
-  return null;
-}  if (model && typeof model.readinessColor === 'function'){
+}
+        
+        if (model && typeof model.readinessColor === 'function'){
           return model.readinessColor(Number(score || 0));
         }
       }catch(_){}
