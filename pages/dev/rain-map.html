@@ -2505,7 +2505,7 @@
       e.stopPropagation();
     }
 
-    function wireUi(){
+        function wireUi(){
       if (hasWiredUi) return;
       hasWiredUi = true;
 
@@ -2519,25 +2519,63 @@
       const applyRangeBtn = $('applyRangeBtn');
       const closeCalBtn = $('closeCalBtn');
       const calDays = $('calDays');
+      const mapModeSel = $('mapModeSel');
+      const viewSel = $('viewSel');
+      const radiusSel = $('radiusSel');
+      const btnRefreshRain = $('btnRefreshRain');
+      const btnRefreshReadiness = $('btnRefreshReadiness');
 
-      btnMenu?.addEventListener('click', stopMenuBubble);
-      menuPanel?.addEventListener('click', stopMenuBubble);
-      calendarPopover?.addEventListener('click', stopMenuBubble);
-      clearRangeBtn?.addEventListener('click', stopMenuBubble);
-      applyRangeBtn?.addEventListener('click', stopMenuBubble);
-      closeCalBtn?.addEventListener('click', stopMenuBubble);
-      calDays?.addEventListener('click', stopMenuBubble);
+      const keepMenuOpen = (e)=>{
+        if (!e) return;
+        e.stopPropagation();
+      };
+
+      const interactiveControls = [
+        btnMenu,
+        menuPanel,
+        calendarPopover,
+        jobRangeInput,
+        monthSelect,
+        yearSelect,
+        clearRangeBtn,
+        applyRangeBtn,
+        closeCalBtn,
+        calDays,
+        mapModeSel,
+        viewSel,
+        radiusSel,
+        btnRefreshRain,
+        btnRefreshReadiness
+      ].filter(Boolean);
+
+      interactiveControls.forEach(el=>{
+        el.addEventListener('pointerdown', keepMenuOpen);
+        el.addEventListener('mousedown', keepMenuOpen);
+        el.addEventListener('touchstart', keepMenuOpen, { passive:true });
+        el.addEventListener('click', keepMenuOpen);
+      });
+
       if (btnMenu && menuPanel){
         btnMenu.addEventListener('click', ()=>{
           menuPanel.classList.toggle('open');
         });
 
-        document.addEventListener('click', (e)=>{
+        document.addEventListener('pointerdown', (e)=>{
           if (!menuPanel.classList.contains('open')) return;
-          if (menuPanel.contains(e.target) || btnMenu.contains(e.target)) return;
+
+          const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+          const clickedInsideMenu = path.includes(menuPanel);
+          const clickedMenuButton = path.includes(btnMenu);
+          const clickedCalendar = calendarPopover ? path.includes(calendarPopover) : false;
+
+          if (clickedInsideMenu || clickedMenuButton || clickedCalendar) return;
           menuPanel.classList.remove('open');
         });
       }
+
+      jobRangeInput?.addEventListener('focus', ()=>{
+        try{ jobRangeInput.blur(); }catch(_){}
+      });
 
       $('btnRefreshRain')?.addEventListener('click', ()=>{
         currentMapMode = 'rainfall';
