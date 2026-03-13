@@ -360,6 +360,11 @@ export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=nul
 
   ensureForecastCaches(state);
 
+  // ✅ Harden common param caches so params.js does not crash on .get(...)
+  state.paramsByFieldId = (state.paramsByFieldId instanceof Map) ? state.paramsByFieldId : new Map();
+  state.paramMetaByFieldId = (state.paramMetaByFieldId instanceof Map) ? state.paramMetaByFieldId : new Map();
+  state._frModelWxCache = (state._frModelWxCache instanceof Map) ? state._frModelWxCache : new Map();
+
   return {
     // legacy/base weather getter still exposed
     getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, okWxCtx),
@@ -368,7 +373,6 @@ export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=nul
     getModelWeatherSeriesForFieldId: (fieldId)=>{
       const fid = String(fieldId);
       const cacheKey = `modelwx:${fid}`;
-      state._frModelWxCache = state._frModelWxCache || new Map();
 
       const hit = state._frModelWxCache.get(cacheKey);
       if (hit && Array.isArray(hit.rows)) return hit.rows;
@@ -387,7 +391,6 @@ export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=nul
     getMergedWeatherSeriesForFieldId: (fieldId)=>{
       const fid = String(fieldId);
       const cacheKey = `modelwx:${fid}`;
-      state._frModelWxCache = state._frModelWxCache || new Map();
       const hit = state._frModelWxCache.get(cacheKey);
       if (hit && Array.isArray(hit.rows)) return hit.rows;
       return withRainSource(
@@ -396,7 +399,17 @@ export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=nul
       );
     },
 
-    getFieldParams: (fid)=> getFieldParams(state, fid),
+    // ✅ Safe wrapper so readiness map does not hard-crash if params cache is empty
+    getFieldParams: (fid)=>{
+      try{
+        const out = getFieldParams(state, fid);
+        return (out && typeof out === 'object') ? out : {};
+      }catch(e){
+        console.warn('[FieldReadiness] getFieldParams wrapper failed:', fid, e);
+        return {};
+      }
+    },
+
     LOSS_SCALE: CONST.LOSS_SCALE,
     EXTRA: EXTRA,
     opKey: okOpKey,
