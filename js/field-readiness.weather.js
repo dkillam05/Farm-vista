@@ -345,6 +345,12 @@ export async function fetchWeatherForField(field, ctx, force=false){
   // { WX_ENDPOINT, WX_TTL_MS, WX_CACHE_PREFIX, timezone, weatherByFieldId, wxInfoByFieldId, weather30 }
   if (!field || !field.location) return null;
 
+  // ✅ Harden ctx so pages that build a partial ctx do not crash
+  ctx = ctx || {};
+  if (!(ctx.weatherByFieldId instanceof Map)) ctx.weatherByFieldId = new Map();
+  if (!(ctx.wxInfoByFieldId instanceof Map)) ctx.wxInfoByFieldId = new Map();
+  if (!Array.isArray(ctx.weather30)) ctx.weather30 = [];
+
   // 1) LocalStorage cache (existing)
   if (!force){
     const cached = readWxCache(ctx.WX_CACHE_PREFIX, ctx.WX_TTL_MS, field.id);
@@ -355,7 +361,7 @@ export async function fetchWeatherForField(field, ctx, force=false){
     }
   }
 
-  // 2) Firestore cache (NEW) — uses scheduled batch results
+  // 2) Firestore cache (existing)
   if (!force){
     const col = (ctx && ctx.WX_FIRESTORE_COLLECTION) ? String(ctx.WX_FIRESTORE_COLLECTION) : 'field_weather_cache';
     const fsCached = await readFromFirestoreCache(field.id, col);
@@ -363,7 +369,6 @@ export async function fetchWeatherForField(field, ctx, force=false){
       ctx.weatherByFieldId.set(field.id, fsCached.daily || []);
       ctx.wxInfoByFieldId.set(field.id, fsCached.wxInfo || { source:'firestore', fetchedAt: fsCached.fetchedAt });
 
-      // mirror into localStorage so paging/sorting stays fast and offline-friendly
       writeWxCache(ctx.WX_CACHE_PREFIX, field.id, {
         fetchedAt: fsCached.fetchedAt,
         daily: fsCached.daily,
@@ -378,7 +383,7 @@ export async function fetchWeatherForField(field, ctx, force=false){
     }
   }
 
-  // 3) Cloud Run (existing fallback)
+  // 3) Cloud Run fallback
   const lat = field.location.lat;
   const lng = field.location.lng;
 
@@ -410,7 +415,11 @@ export async function fetchWeatherForField(field, ctx, force=false){
   };
   ctx.wxInfoByFieldId.set(field.id, wxInfo);
 
-  writeWxCache(ctx.WX_CACHE_PREFIX, field.id, { fetchedAt: wxInfo.fetchedAt, daily: dailySeries, wxInfo });
+  writeWxCache(ctx.WX_CACHE_PREFIX, field.id, {
+    fetchedAt: wxInfo.fetchedAt,
+    daily: dailySeries,
+    wxInfo
+  });
 
   if (!ctx.weather30.length && dailySeries && dailySeries.length){
     ctx.weather30 = dailySeries.slice();
