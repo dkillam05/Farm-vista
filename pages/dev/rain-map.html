@@ -1652,6 +1652,20 @@ async function computeReadinessRunForMapField(state, fieldObj){
   try{
     await ensureFRModules(state);
 
+    const weather = state && state._mods ? state._mods.weather : null;
+    if (weather && typeof weather.warmWeatherForFields === 'function'){
+      await weather.warmWeatherForFields([fieldObj], {
+        WX_ENDPOINT: 'https://farmvista-field-weather-300398089669.us-central1.run.app/api/open-meteo',
+        WX_TTL_MS: 4 * 60 * 60 * 1000,
+        WX_CACHE_PREFIX: 'fv_fr_wx_daily_cache_v2_',
+        timezone: 'America/Chicago',
+        WX_FIRESTORE_COLLECTION: 'field_weather_cache',
+        weatherByFieldId: state.weatherByFieldId || (state.weatherByFieldId = new Map()),
+        wxInfoByFieldId: state.wxInfoByFieldId || (state.wxInfoByFieldId = new Map()),
+        weather30: state.weather30 || (state.weather30 = [])
+      }, { force:false, onEach:()=>{} });
+    }
+
     const deps = buildFRDeps(state, {
       persistedGetter: (id)=> getPersistedStateForDeps(state, id)
     });
