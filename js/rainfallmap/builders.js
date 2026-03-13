@@ -7,6 +7,48 @@ import { computeReadinessRunForMapField } from './readiness-core.js';
 import { fetchAndHydrateFieldParams } from '/Farm-vista/js/field-readiness/data.js';
 import { ensureFRModules } from '/Farm-vista/js/field-readiness/formula.js';
 
+function safeStr(v){
+  return String(v || '');
+}
+
+function safeNum(v){
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function makeNormalizedMapField(sourceField, farmName='', mrmsRaw=null){
+  const lat = safeNum(
+    sourceField && (
+      (sourceField.location && sourceField.location.lat) ??
+      sourceField.lat
+    )
+  );
+
+  const lng = safeNum(
+    sourceField && (
+      (sourceField.location && sourceField.location.lng) ??
+      (sourceField.location && sourceField.location.lon) ??
+      sourceField.lng ??
+      sourceField.lon
+    )
+  );
+
+  if (lat == null || lng == null) return null;
+
+  return {
+    ...sourceField,
+    id: safeStr(sourceField && sourceField.id),
+    fieldId: safeStr((sourceField && (sourceField.fieldId || sourceField.id)) || ''),
+    name: safeStr((sourceField && (sourceField.name || sourceField.fieldName)) || 'Field'),
+    farmId: safeStr(sourceField && sourceField.farmId),
+    farmName: safeStr(farmName),
+    county: safeStr(sourceField && sourceField.county),
+    state: safeStr(sourceField && sourceField.state),
+    location: { lat, lng },
+    mrmsRaw: mrmsRaw || null
+  };
+}
+
 export async function buildRainRenderableRows(requestId, force=false){
   const rows = await loadMrmsDocs(force);
   if (requestId !== appState.currentRequestId) return { cancelled:true };
@@ -79,29 +121,22 @@ export async function buildReadinessRenderableRows(requestId, force=false){
 
   const candidates = [];
 
-  (Array.isArray(fields) ? fields : []).forEach(f=>{
-    if (!f || !f.id) return;
-    if (selectedFarmId && String(f.farmId || '') !== selectedFarmId) return;
+  (Array.isArray(fields) ? fields : []).forEach(sourceField=>{
+    if (!sourceField || !sourceField.id) return;
+    if (selectedFarmId && String(sourceField.farmId || '') !== selectedFarmId) return;
 
-    const lat = Number(f && ((f.location && f.location.lat) ?? f.lat));
-    const lng = Number(f && ((f.location && f.location.lng) ?? (f.location && f.location.lon) ?? f.lng ?? f.lon));
+    const fid = String(sourceField.id);
+    const mrmsRow = mrmsByFieldId.get(fid) || null;
+    const farmName = String(
+      farmMap.get(String(sourceField.farmId || '')) ||
+      (mrmsRow && mrmsRow.farmName) ||
+      ''
+    );
 
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const fieldObj = makeNormalizedMapField(sourceField, farmName, mrmsRow ? (mrmsRow.raw || null) : null);
+    if (!fieldObj) return;
 
-    const fid = String(f.id);
-    const m = mrmsByFieldId.get(fid) || null;
-
-    candidates.push({
-      id: fid,
-      fieldId: fid,
-      name: String(f.name || 'Field'),
-      farmId: String(f.farmId || ''),
-      farmName: String((farmMap.get(String(f.farmId || ''))) || (m && m.farmName) || ''),
-      county: String(f.county || ''),
-      state: String(f.state || ''),
-      location: { lat, lng },
-      mrmsRaw: m ? (m.raw || null) : null
-    });
+    candidates.push(fieldObj);
   });
 
   candidates.sort((a, b)=>
@@ -128,19 +163,6 @@ export async function buildReadinessRenderableRows(requestId, force=false){
 
     setDebug(`building readiness ${index + 1}/${total} • ${field.name || field.id}`);
 
-    const fieldObj = {
-      id: String(field.id),
-      fieldId: String(field.fieldId),
-      name: String(field.name || 'Field'),
-      farmId: String(field.farmId || ''),
-      county: String(field.county || ''),
-      state: String(field.state || ''),
-      location: {
-        lat: Number(field.location.lat),
-        lng: Number(field.location.lng)
-      }
-    };
-
     try{
       await withTimeout(
         fetchAndHydrateFieldParams(appState.readinessState, String(field.id)),
@@ -154,7 +176,7 @@ export async function buildReadinessRenderableRows(requestId, force=false){
     let run = null;
     try{
       run = await withTimeout(
-        computeReadinessRunForMapField(appState.readinessState, fieldObj),
+        computeReadinessRunForMapField(appState.readinessState, field),
         9000,
         'readiness timeout'
       );
