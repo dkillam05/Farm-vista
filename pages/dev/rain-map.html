@@ -708,19 +708,6 @@
 
             <div id="readinessModeSection" class="mode-section" hidden>
               <div class="menu-field">
-                <label>Readiness source</label>
-                <div class="menu-inline">
-                  <div class="menu-pill">
-                    <span class="mutedish">Operation</span>
-                    <span id="opKeyText" class="mono">—</span>
-                  </div>
-                </div>
-                <div class="menu-subtle">
-                  Readiness uses the same formula wiring as your field readiness tiles/details.
-                </div>
-              </div>
-
-              <div class="menu-field">
                 <label>Refresh</label>
                 <button id="btnRefreshReadiness" class="menu-btn" type="button">Reload Readiness</button>
               </div>
@@ -760,7 +747,7 @@
     } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 
     import {
-      getFirestore, collection, getDocs, doc, getDoc
+      getFirestore, collection, getDocs
     } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
     import {
@@ -771,10 +758,6 @@
     import {
       fetchAndHydrateFieldParams
     } from '/Farm-vista/js/field-readiness/data.js';
-
-    import {
-      getCurrentOp
-    } from '/Farm-vista/js/field-readiness/thresholds.js';
 
     'use strict';
 
@@ -787,7 +770,7 @@
     const RANGE_CACHE = new Map();
 
     const LS_RANGE_KEY = 'fv_dev_rain_map_range_v2';
-    const LS_MODE_KEY = 'fv_dev_weather_map_mode_v1';
+    const LS_MODE_KEY = 'fv_dev_weather_map_mode_v2';
 
     const RAIN_GUARDRAIL_ZERO_MAX = 0.10;
     const RAIN_GUARDRAIL_LIFT_MIN = 0.12;
@@ -1109,7 +1092,7 @@
     }
 
     function readinessTitle(){
-      return `Readiness — ${String(getCurrentOp() || 'operation')}`;
+      return 'Field Readiness';
     }
 
     function getActiveRangeState(){
@@ -1196,334 +1179,6 @@
       if (persist) saveCurrentRangeToLocal();
     }
 
-    function clamp(v, min, max){
-      return Math.max(min, Math.min(max, v));
-    }
-
-    function lerp(a,b,t){
-      return a + ((b - a) * t);
-    }
-
-    function colorFromGradientStops(t, stops){
-      for (let i = 1; i < stops.length; i++){
-        if (t <= stops[i].t){
-          const a = stops[i - 1];
-          const b = stops[i];
-          const u = (t - a.t) / Math.max(0.0001, (b.t - a.t));
-          const r = Math.round(lerp(a.c[0], b.c[0], u));
-          const g = Math.round(lerp(a.c[1], b.c[1], u));
-          const bl = Math.round(lerp(a.c[2], b.c[2], u));
-          return `rgb(${r}, ${g}, ${bl})`;
-        }
-      }
-      const last = stops[stops.length - 1].c;
-      return `rgb(${last[0]}, ${last[1]}, ${last[2]})`;
-    }
-
-    function formatLegendValue(n){
-      const v = Number(n || 0);
-      if (v >= 10) return v.toFixed(0) + '"+';
-      if (v >= 1) return v.toFixed(1) + '"';
-      if (v >= 0.1) return v.toFixed(1).replace(/^0/, '') + '"';
-      return v.toFixed(2).replace(/^0/, '') + '"';
-    }
-
-    function formatReadinessValue(n){
-      const v = Number(n || 0);
-      return `${Math.round(v)}`;
-    }
-
-    function setLegendMode(mode){
-      const bar = $('legendBar');
-      if (!bar) return;
-      bar.classList.toggle('readiness', mode === 'readiness');
-    }
-
-    function updateRainLegend(scale){
-      setLegendMode('rainfall');
-
-      const min = Number(scale.domainMin || 0);
-      const max = Number(scale.domainMax || 1);
-
-      const q5 = min + ((max - min) * 0.83);
-      const q4 = min + ((max - min) * 0.68);
-      const mid = min + ((max - min) * 0.50);
-      const q2 = min + ((max - min) * 0.34);
-      const q1 = min + ((max - min) * 0.18);
-
-      $('legendTop').textContent = formatLegendValue(max);
-      $('legendQ5').textContent = formatLegendValue(q5);
-      $('legendQ4').textContent = formatLegendValue(q4);
-      $('legendMid').textContent = formatLegendValue(mid);
-      $('legendQ2').textContent = formatLegendValue(q2);
-      $('legendQ1').textContent = formatLegendValue(q1);
-      $('legendBottom').textContent = formatLegendValue(min);
-    }
-
-    function updateReadinessLegend(){
-      setLegendMode('readiness');
-      $('legendTop').textContent = '100';
-      $('legendQ5').textContent = '85';
-      $('legendQ4').textContent = '70';
-      $('legendMid').textContent = '50';
-      $('legendQ2').textContent = '30';
-      $('legendQ1').textContent = '15';
-      $('legendBottom').textContent = '0';
-    }
-
-    function normalizeRainValueForScale(v, scale){
-      const min = Number(scale.domainMin || 0);
-      const max = Number(scale.domainMax || 1);
-      if (!Number.isFinite(v)) return 0;
-      if (!Number.isFinite(min) || !Number.isFinite(max) || Math.abs(max - min) < 0.0001) return 0.5;
-      return clamp((v - min) / (max - min), 0, 1);
-    }
-
-    function normalizeReadinessValue(v){
-      const n = Number(v);
-      if (!Number.isFinite(n)) return 0;
-      return clamp(n / 100, 0, 1);
-    }
-
-    function buildRainScale(values){
-      const cleaned = (Array.isArray(values) ? values : [])
-        .map(v => Number(v))
-        .filter(v => Number.isFinite(v) && v >= 0);
-
-      const maxInches = cleaned.length ? Math.max(...cleaned) : 0;
-      const minInches = cleaned.length ? Math.min(...cleaned) : 0;
-
-      const stops = [
-        { t:0.00, c:[88,168,255] },
-        { t:0.16, c:[108,199,255] },
-        { t:0.34, c:[99,223,137] },
-        { t:0.52, c:[73,201,74] },
-        { t:0.70, c:[215,223,73] },
-        { t:0.84, c:[240,184,67] },
-        { t:0.94, c:[239,107,70] },
-        { t:1.00, c:[217,44,198] }
-      ];
-
-      if (!cleaned.length || maxInches <= RAIN_GUARDRAIL_ZERO_MAX){
-        return {
-          name: 'trace',
-          domainMin: 0,
-          domainMax: Math.max(0.10, maxInches || 0.10),
-          actualMin: minInches,
-          actualMax: maxInches,
-          usedDynamicFloor: false,
-          stops
-        };
-      }
-
-      const spread = maxInches - minInches;
-
-      const canLiftFloor = (
-        minInches >= RAIN_GUARDRAIL_LIFT_MIN &&
-        spread >= RAIN_GUARDRAIL_SPREAD_MIN
-      );
-
-      const domainMin = canLiftFloor ? minInches : 0;
-      const domainMax = Math.max(maxInches, domainMin + 0.10);
-
-      return {
-        name: canLiftFloor ? 'dynamic-floor' : 'zero-floor',
-        domainMin,
-        domainMax,
-        actualMin: minInches,
-        actualMax: maxInches,
-        usedDynamicFloor: canLiftFloor,
-        stops
-      };
-    }
-
-    function readinessColor(t){
-      const x = clamp(Number(t || 0), 0, 1);
-      const stops = [
-        { t:0.00, c:[200,59,59] },
-        { t:0.22, c:[225,107,67] },
-        { t:0.45, c:[240,184,67] },
-        { t:0.62, c:[215,223,73] },
-        { t:0.80, c:[83,184,93] },
-        { t:1.00, c:[47,143,75] }
-      ];
-      return colorFromGradientStops(1 - x, stops);
-    }
-
-    function blendRadiusMeters(){
-      const n = Number($('radiusSel')?.value || 1800);
-      return Number.isFinite(n) ? n : 1800;
-    }
-
-    function clearMapOverlays(){
-      mapCircles.forEach(x => { try{ x.setMap(null); }catch(_){} });
-      fieldMarkers.forEach(x => { try{ x.setMap(null); }catch(_){} });
-      mapCircles = [];
-      fieldMarkers = [];
-      lastTapTargets = [];
-    }
-
-    function computeFieldBounds(fields){
-      const bounds = new google.maps.LatLngBounds();
-      fields.forEach(f=>{
-        const lat = toNum(f && f.lat);
-        const lng = toNum(f && f.lng);
-        if (lat == null || lng == null) return;
-        bounds.extend({ lat, lng });
-      });
-      return bounds;
-    }
-
-    function fitToFields(fields){
-      if (!map || !fields || !fields.length) return;
-
-      const selectedFarmId = getSelectedFarmId();
-
-      if (selectedFarmId){
-        const bounds = computeFieldBounds(fields);
-        if (bounds.isEmpty()) return;
-
-        map.fitBounds(bounds, 0);
-
-        google.maps.event.addListenerOnce(map, 'idle', ()=>{
-          const z = map.getZoom();
-          if (Number.isFinite(z) && z < 10) map.setZoom(10);
-          if (Number.isFinite(z) && z > 14) map.setZoom(14);
-        });
-        return;
-      }
-
-      const bounds = computeFieldBounds(fields);
-      if (!bounds.isEmpty()){
-        map.fitBounds(bounds, 28);
-        google.maps.event.addListenerOnce(map, 'idle', ()=>{
-          const z = map.getZoom();
-          if (Number.isFinite(z) && z < 7) map.setZoom(7);
-          if (Number.isFinite(z) && z > 9) map.setZoom(9);
-        });
-        return;
-      }
-
-      map.setCenter({ lat: 39.72, lng: -89.67 });
-      map.setZoom(8);
-    }
-
-    function metersBetween(lat1, lng1, lat2, lng2){
-      const R = 6371000;
-      const toRad = d => d * Math.PI / 180;
-      const dLat = toRad(lat2 - lat1);
-      const dLng = toRad(lng2 - lng1);
-      const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-        Math.sin(dLng / 2) * Math.sin(dLng / 2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      return R * c;
-    }
-
-    function metersPerPixelAt(lat, zoom){
-      const z = Number.isFinite(Number(zoom)) ? Number(zoom) : 11;
-      const latitude = Number.isFinite(Number(lat)) ? Number(lat) : 39.8;
-      return (156543.03392 * Math.cos(latitude * Math.PI / 180)) / Math.pow(2, z);
-    }
-
-    function tapRadiusPixelsForZoom(zoom){
-      const z = Number.isFinite(Number(zoom)) ? Number(zoom) : 11;
-      if (z >= 16) return 22;
-      if (z >= 15) return 26;
-      if (z >= 14) return 32;
-      if (z >= 13) return 40;
-      if (z >= 12) return 50;
-      if (z >= 11) return 62;
-      return 76;
-    }
-
-    function effectiveHitRadiusMeters(item){
-      if (!map || !item) return Number(item && item.hitRadiusMeters || 0);
-
-      const zoom = Number(map.getZoom() || 11);
-      const lat = Number(item.lat || 39.8);
-      const mpp = metersPerPixelAt(lat, zoom);
-      const pxRadius = tapRadiusPixelsForZoom(zoom);
-      const zoomAwareMeters = pxRadius * mpp;
-      const blobOuterRadiusMeters = Number(item.blobOuterRadiusMeters || 0);
-
-      return Math.max(
-        Math.min(blobOuterRadiusMeters * 0.95, zoomAwareMeters),
-        80
-      );
-    }
-
-    function updateTapTargetsForCurrentZoom(){
-      if (!lastTapTargets.length || !map) return;
-
-      const zoom = Number(map.getZoom() || 11);
-
-      lastTapTargets = lastTapTargets.map(item=>{
-        const effective = effectiveHitRadiusMeters(item);
-        return {
-          ...item,
-          hitRadiusMeters: effective,
-          lastZoomUsed: zoom
-        };
-      });
-
-      const sample = lastTapTargets[0];
-      if (sample){
-        setDebug(
-          (currentMapMode === 'rainfall' ? 'rain' : 'readiness') +
-          ' • fields=' + lastRenderedFields.length +
-          ' • points=' + lastTapTargets.length +
-          ' • zoom=' + zoom +
-          ' • tap≈' + Math.round(sample.hitRadiusMeters) + 'm'
-        );
-      }
-    }
-
-    function nearestTapTarget(lat, lng){
-      if (!lastTapTargets.length) return null;
-
-      const hits = [];
-
-      lastTapTargets.forEach(item=>{
-        const dist = metersBetween(lat, lng, Number(item.lat), Number(item.lng));
-        const hitRadius = effectiveHitRadiusMeters(item);
-        if (Number.isFinite(dist) && Number.isFinite(hitRadius) && dist <= hitRadius){
-          hits.push({
-            ...item,
-            hitRadiusMeters: hitRadius,
-            tapDistanceMeters: dist
-          });
-        }
-      });
-
-      if (!hits.length) return null;
-
-      hits.sort((a, b)=>{
-        const aScore = a.tapDistanceMeters / Math.max(1, a.hitRadiusMeters);
-        const bScore = b.tapDistanceMeters / Math.max(1, b.hitRadiusMeters);
-        if (aScore !== bScore) return aScore - bScore;
-        return a.tapDistanceMeters - b.tapDistanceMeters;
-      });
-
-      return hits[0];
-    }
-
-    function pointLabelFromKey(key){
-      const k = lower(key);
-      if (!k) return 'Center';
-      if (k === 'center') return 'Center';
-      if (k === 'north') return 'North';
-      if (k === 'south') return 'South';
-      if (k === 'east') return 'East';
-      if (k === 'west') return 'West';
-      if (k === 'northeast') return 'Northeast';
-      if (k === 'northwest') return 'Northwest';
-      if (k === 'southeast') return 'Southeast';
-      if (k === 'southwest') return 'Southwest';
-      return String(key || 'Point');
-    }
-
     function normalizeFieldDoc(docId, d){
       const lat = toNum(
         d && (
@@ -1548,8 +1203,6 @@
         )
       );
 
-      if (lat == null || lng == null) return null;
-
       const fieldId = String((d && (d.fieldId || d.id || docId)) || docId || '').trim();
       if (!fieldId) return null;
 
@@ -1568,7 +1221,7 @@
         farmId,
         county,
         state: stateName,
-        location: { lat, lng },
+        location: (lat != null && lng != null) ? { lat, lng } : null,
         raw: d || {}
       };
     }
@@ -1892,7 +1545,6 @@
     }
 
     function buildLayersForRain(n){
-      const layers = [];
       if (n <= 0.18){
         return [
           { scale:1.75, opacity:0.028 + (n * 0.015) },
@@ -1954,6 +1606,7 @@
           });
 
           circle.__tapTarget = tapTarget;
+
           circle.addListener('click', ()=>{
             openPopupForHit(circle.__tapTarget);
           });
@@ -2085,7 +1738,7 @@
       const sampleHit = lastTapTargets[0] ? Math.round(lastTapTargets[0].hitRadiusMeters) : 0;
 
       setDebug(
-        'operation=' + String(getCurrentOp() || '—') +
+        'readiness' +
         ' • fields=' + fields.length +
         ' • points=' + fields.length +
         ' • tap≈' + sampleHit + 'm'
@@ -2119,6 +1772,136 @@
       if (!hit) return null;
       if ((Date.now() - hit.ts) > (5 * 60 * 1000)) return null;
       return hit.data;
+    }
+
+    function buildRainScale(values){
+      const cleaned = (Array.isArray(values) ? values : [])
+        .map(v => Number(v))
+        .filter(v => Number.isFinite(v) && v >= 0);
+
+      const maxInches = cleaned.length ? Math.max(...cleaned) : 0;
+      const minInches = cleaned.length ? Math.min(...cleaned) : 0;
+
+      const stops = [
+        { t:0.00, c:[88,168,255] },
+        { t:0.16, c:[108,199,255] },
+        { t:0.34, c:[99,223,137] },
+        { t:0.52, c:[73,201,74] },
+        { t:0.70, c:[215,223,73] },
+        { t:0.84, c:[240,184,67] },
+        { t:0.94, c:[239,107,70] },
+        { t:1.00, c:[217,44,198] }
+      ];
+
+      if (!cleaned.length || maxInches <= RAIN_GUARDRAIL_ZERO_MAX){
+        return {
+          name: 'trace',
+          domainMin: 0,
+          domainMax: Math.max(0.10, maxInches || 0.10),
+          actualMin: minInches,
+          actualMax: maxInches,
+          usedDynamicFloor: false,
+          stops
+        };
+      }
+
+      const spread = maxInches - minInches;
+
+      const canLiftFloor = (
+        minInches >= RAIN_GUARDRAIL_LIFT_MIN &&
+        spread >= RAIN_GUARDRAIL_SPREAD_MIN
+      );
+
+      const domainMin = canLiftFloor ? minInches : 0;
+      const domainMax = Math.max(maxInches, domainMin + 0.10);
+
+      return {
+        name: canLiftFloor ? 'dynamic-floor' : 'zero-floor',
+        domainMin,
+        domainMax,
+        actualMin: minInches,
+        actualMax: maxInches,
+        usedDynamicFloor: canLiftFloor,
+        stops
+      };
+    }
+
+    function readinessColor(t){
+      const x = clamp(Number(t || 0), 0, 1);
+      const stops = [
+        { t:0.00, c:[200,59,59] },
+        { t:0.22, c:[225,107,67] },
+        { t:0.45, c:[240,184,67] },
+        { t:0.62, c:[215,223,73] },
+        { t:0.80, c:[83,184,93] },
+        { t:1.00, c:[47,143,75] }
+      ];
+      return colorFromGradientStops(1 - x, stops);
+    }
+
+    function normalizeRainValueForScale(v, scale){
+      const min = Number(scale.domainMin || 0);
+      const max = Number(scale.domainMax || 1);
+      if (!Number.isFinite(v)) return 0;
+      if (!Number.isFinite(min) || !Number.isFinite(max) || Math.abs(max - min) < 0.0001) return 0.5;
+      return clamp((v - min) / (max - min), 0, 1);
+    }
+
+    function normalizeReadinessValue(v){
+      const n = Number(v);
+      if (!Number.isFinite(n)) return 0;
+      return clamp(n / 100, 0, 1);
+    }
+
+    function formatLegendValue(n){
+      const v = Number(n || 0);
+      if (v >= 10) return v.toFixed(0) + '"+';
+      if (v >= 1) return v.toFixed(1) + '"';
+      if (v >= 0.1) return v.toFixed(1).replace(/^0/, '') + '"';
+      return v.toFixed(2).replace(/^0/, '') + '"';
+    }
+
+    function formatReadinessValue(n){
+      const v = Number(n || 0);
+      return `${Math.round(v)}`;
+    }
+
+    function setLegendMode(mode){
+      const bar = $('legendBar');
+      if (!bar) return;
+      bar.classList.toggle('readiness', mode === 'readiness');
+    }
+
+    function updateRainLegend(scale){
+      setLegendMode('rainfall');
+
+      const min = Number(scale.domainMin || 0);
+      const max = Number(scale.domainMax || 1);
+
+      const q5 = min + ((max - min) * 0.83);
+      const q4 = min + ((max - min) * 0.68);
+      const mid = min + ((max - min) * 0.50);
+      const q2 = min + ((max - min) * 0.34);
+      const q1 = min + ((max - min) * 0.18);
+
+      $('legendTop').textContent = formatLegendValue(max);
+      $('legendQ5').textContent = formatLegendValue(q5);
+      $('legendQ4').textContent = formatLegendValue(q4);
+      $('legendMid').textContent = formatLegendValue(mid);
+      $('legendQ2').textContent = formatLegendValue(q2);
+      $('legendQ1').textContent = formatLegendValue(q1);
+      $('legendBottom').textContent = formatLegendValue(min);
+    }
+
+    function updateReadinessLegend(){
+      setLegendMode('readiness');
+      $('legendTop').textContent = '100';
+      $('legendQ5').textContent = '85';
+      $('legendQ4').textContent = '70';
+      $('legendMid').textContent = '50';
+      $('legendQ2').textContent = '30';
+      $('legendQ1').textContent = '15';
+      $('legendBottom').textContent = '0';
     }
 
     async function buildRainRenderableRows(requestId, force=false){
@@ -2165,7 +1948,7 @@
     }
 
     async function buildReadinessRenderableRows(requestId, force=false){
-      const [fields, farms, mrmsRows] = await Promise.all([
+      const [fields, farms, mrmsRows, persistedMap] = await Promise.all([
         loadFieldDocs(force),
         loadFarmDocs(force),
         loadMrmsDocs(force),
@@ -2184,27 +1967,96 @@
       readinessState.fields = Array.isArray(fields) ? fields.slice() : [];
       readinessState.farmsById = farmMap;
       readinessState.farmFilter = selectedFarmId || '__all__';
+      readinessState.persistedStateByFieldId = persistedMap || {};
+      readinessState._persistLoadedAt = Date.now();
+      readinessState.lastRuns = new Map();
 
       await ensureFRModules(readinessState);
 
       const mrmsByFieldId = new Map();
       mrmsRows.forEach(r=>{
-        if (r && r.fieldId) mrmsByFieldId.set(String(r.fieldId), r.raw || null);
+        if (r && r.fieldId) mrmsByFieldId.set(String(r.fieldId), r);
       });
 
-      const filtered = selectedFarmId
-        ? fields.filter(f => String(f.farmId || '') === selectedFarmId)
-        : fields.slice();
+      const fieldsById = new Map();
+      fields.forEach(f=>{
+        if (f && f.id) fieldsById.set(String(f.id), f);
+      });
 
-      filtered.sort((a, b)=>
+      const candidateIds = new Set();
+      fields.forEach(f => candidateIds.add(String(f.id || '')));
+      mrmsRows.forEach(r => candidateIds.add(String(r.fieldId || '')));
+
+      const candidates = [];
+
+      candidateIds.forEach(fid=>{
+        if (!fid) return;
+
+        const f = fieldsById.get(fid) || null;
+        const m = mrmsByFieldId.get(fid) || null;
+
+        const farmId = String(
+          (f && f.farmId) ||
+          (m && m.farmId) ||
+          ''
+        );
+
+        if (selectedFarmId && farmId !== selectedFarmId) return;
+
+        const lat = toNum(
+          (f && f.location && f.location.lat) ??
+          (m && m.location && m.location.lat)
+        );
+        const lng = toNum(
+          (f && f.location && f.location.lng) ??
+          (m && m.location && m.location.lng)
+        );
+
+        if (lat == null || lng == null) return;
+
+        candidates.push({
+          id: fid,
+          fieldId: fid,
+          name: String(
+            (f && f.name) ||
+            (m && m.fieldName) ||
+            'Field'
+          ),
+          farmId,
+          farmName: String(
+            (farmMap.get(farmId)) ||
+            (m && m.farmName) ||
+            ''
+          ),
+          county: String((f && f.county) || ''),
+          state: String((f && f.state) || ''),
+          location: { lat, lng },
+          mrmsRaw: m ? (m.raw || null) : null
+        });
+      });
+
+      candidates.sort((a, b)=>
         String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric:true, sensitivity:'base' })
       );
 
       const renderedFields = [];
       const summaries = [];
 
-      for (const field of filtered){
+      for (const field of candidates){
         if (requestId !== currentRequestId) return { cancelled:true };
+
+        const fieldObj = {
+          id: String(field.id),
+          fieldId: String(field.fieldId),
+          name: String(field.name || 'Field'),
+          farmId: String(field.farmId || ''),
+          county: String(field.county || ''),
+          state: String(field.state || ''),
+          location: {
+            lat: Number(field.location.lat),
+            lng: Number(field.location.lng)
+          }
+        };
 
         try{
           await fetchAndHydrateFieldParams(readinessState, String(field.id));
@@ -2214,24 +2066,21 @@
 
         let run = null;
         try{
-          run = await runFieldReadiness(readinessState, field, { opKey: getCurrentOp() });
+          run = await runFieldReadiness(readinessState, fieldObj, {});
         }catch(e){
           console.warn('[WeatherMap] readiness run failed:', field && field.id, e);
         }
 
         if (!run || !Number.isFinite(Number(run.readinessR))) continue;
 
-        const mrmsDoc = mrmsByFieldId.get(String(field.id)) || null;
-        const rain72hInches = totalRainInLast72h(mrmsDoc);
-
-        const farmName = field.farmId ? (farmMap.get(String(field.farmId)) || '') : '';
+        const rain72hInches = totalRainInLast72h(field.mrmsRaw);
 
         const rendered = {
           kind: 'readiness',
           fieldId: String(field.id),
           fieldName: String(field.name || 'Field'),
           farmId: String(field.farmId || ''),
-          farmName,
+          farmName: String(field.farmName || ''),
           county: String(field.county || ''),
           state: String(field.state || ''),
           lat: Number(field.location.lat),
@@ -2242,6 +2091,7 @@
 
         renderedFields.push(rendered);
         summaries.push(rendered);
+
         try{
           readinessState.lastRuns.set(String(field.id), run);
         }catch(_){}
@@ -2342,7 +2192,7 @@
         return;
       }
 
-      const cacheKey = `readiness:${getSelectedFarmId() || '__all__'}:${String(getCurrentOp() || '')}`;
+      const cacheKey = `readiness:${getSelectedFarmId() || '__all__'}`;
       const cached = !force ? getCachedRangeResult(cacheKey) : null;
 
       if (cached && Array.isArray(cached.renderedFields) && cached.renderedFields.length){
@@ -2400,8 +2250,6 @@
     }
 
     async function renderActiveMode(force=false){
-      $('opKeyText').textContent = String(getCurrentOp() || '—');
-
       if (currentMapMode === 'readiness'){
         setModeText('Readiness');
         setModeChip('Readiness Map');
@@ -2430,7 +2278,6 @@
         updateRainLegend(buildRainScale([0]));
       }
 
-      $('opKeyText').textContent = String(getCurrentOp() || '—');
       setModeText(isReadiness ? 'Readiness' : 'Rainfall');
       setModeChip(isReadiness ? 'Readiness Map' : 'Rainfall Map');
     }
