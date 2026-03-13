@@ -2482,209 +2482,303 @@
       }
     }
 
-    async function renderActiveMode(force=false){
-      if (currentMapMode === 'readiness'){
-        setModeText('Readiness');
-        setModeChip('Readiness Map');
-        await renderReadiness(force);
-      } else {
-        setModeText('Rainfall');
-        setModeChip('Rainfall Map');
-        await renderRain(force);
+    function ensureMapLoadingOverlay(){
+  let el = document.getElementById('mapLoadingOverlay');
+  if (el) return el;
+
+  const host = document.querySelector('.map-stage') || document.body;
+  if (!host) return null;
+
+  el = document.createElement('div');
+  el.id = 'mapLoadingOverlay';
+  el.style.position = 'absolute';
+  el.style.inset = '0';
+  el.style.zIndex = '34';
+  el.style.display = 'none';
+  el.style.alignItems = 'center';
+  el.style.justifyContent = 'center';
+  el.style.background = 'rgba(12,16,13,0.18)';
+  el.style.backdropFilter = 'blur(2px)';
+  el.style.webkitBackdropFilter = 'blur(2px)';
+  el.style.pointerEvents = 'none';
+
+  const card = document.createElement('div');
+  card.style.display = 'grid';
+  card.style.placeItems = 'center';
+  card.style.gap = '10px';
+  card.style.minWidth = '120px';
+  card.style.padding = '16px 18px';
+  card.style.borderRadius = '18px';
+  card.style.background = 'rgba(255,255,255,0.94)';
+  card.style.boxShadow = '0 14px 36px rgba(0,0,0,.18)';
+  card.style.border = '1px solid rgba(0,0,0,.08)';
+  card.style.color = '#18211b';
+
+  const spinner = document.createElement('div');
+  spinner.style.width = '34px';
+  spinner.style.height = '34px';
+  spinner.style.borderRadius = '999px';
+  spinner.style.border = '3px solid rgba(47,108,60,0.18)';
+  spinner.style.borderTopColor = '#2F6C3C';
+  spinner.style.animation = 'fvMapSpin 0.8s linear infinite';
+
+  const label = document.createElement('div');
+  label.id = 'mapLoadingLabel';
+  label.style.fontSize = '13px';
+  label.style.fontWeight = '900';
+  label.style.letterSpacing = '.02em';
+  label.textContent = 'Loading map…';
+
+  card.appendChild(spinner);
+  card.appendChild(label);
+  el.appendChild(card);
+
+  if (!document.getElementById('fvMapSpinStyle')){
+    const style = document.createElement('style');
+    style.id = 'fvMapSpinStyle';
+    style.textContent = `
+      @keyframes fvMapSpin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
       }
+    `;
+    document.head.appendChild(style);
+  }
+
+  host.appendChild(el);
+  return el;
+}
+
+function showMapLoading(message='Loading map…'){
+  const el = ensureMapLoadingOverlay();
+  if (!el) return;
+  const label = document.getElementById('mapLoadingLabel');
+  if (label) label.textContent = String(message || 'Loading map…');
+  el.style.display = 'flex';
+}
+
+function hideMapLoading(){
+  const el = document.getElementById('mapLoadingOverlay');
+  if (el) el.style.display = 'none';
+}
+
+async function renderActiveMode(force=false){
+  clearMapOverlays();
+  setFieldsMeta(0);
+  setPointMeta(0);
+
+  if (currentMapMode === 'readiness'){
+    setModeText('Readiness');
+    setModeChip('Readiness Map');
+    showMapLoading('Loading readiness…');
+    try{
+      await renderReadiness(force);
+    }finally{
+      hideMapLoading();
     }
-
-    function applyMapModeUi(){
-      const isReadiness = currentMapMode === 'readiness';
-
-      const sel = $('mapModeSel');
-      if (sel) sel.value = isReadiness ? 'readiness' : 'rainfall';
-
-      $('rainModeSection').hidden = isReadiness;
-      $('readinessModeSection').hidden = !isReadiness;
-
-      if (isReadiness){
-        updateReadinessLegend();
-      } else if (lastScaleMeta){
-        updateRainLegend(lastScaleMeta);
-      } else {
-        updateRainLegend(buildRainScale([0]));
-      }
-
-      setModeText(isReadiness ? 'Readiness' : 'Rainfall');
-      setModeChip(isReadiness ? 'Readiness Map' : 'Rainfall Map');
+  } else {
+    setModeText('Rainfall');
+    setModeChip('Rainfall Map');
+    showMapLoading('Loading rainfall…');
+    try{
+      await renderRain(force);
+    }finally{
+      hideMapLoading();
     }
+  }
+}
 
-    function stopMenuBubble(e){
-      if (!e) return;
-      e.stopPropagation();
-    }
+function applyMapModeUi(){
+  const isReadiness = currentMapMode === 'readiness';
 
-        function wireUi(){
-      if (hasWiredUi) return;
-      hasWiredUi = true;
+  const sel = $('mapModeSel');
+  if (sel) sel.value = isReadiness ? 'readiness' : 'rainfall';
 
-      const btnMenu = $('btnMenu');
-      const menuPanel = $('menuPanel');
-      const jobRangeInput = $('jobRangeInput');
-      const calendarPopover = $('calendarPopover');
-      const monthSelect = $('monthSelect');
-      const yearSelect = $('yearSelect');
-      const clearRangeBtn = $('clearRangeBtn');
-      const applyRangeBtn = $('applyRangeBtn');
-      const closeCalBtn = $('closeCalBtn');
-      const calDays = $('calDays');
-      const mapModeSel = $('mapModeSel');
-      const viewSel = $('viewSel');
-      const radiusSel = $('radiusSel');
-      const btnRefreshRain = $('btnRefreshRain');
-      const btnRefreshReadiness = $('btnRefreshReadiness');
+  $('rainModeSection').hidden = isReadiness;
+  $('readinessModeSection').hidden = !isReadiness;
 
-      const keepMenuOpen = (e)=>{
-        if (!e) return;
-        e.stopPropagation();
-      };
+  if (isReadiness){
+    updateReadinessLegend();
+  } else if (lastScaleMeta){
+    updateRainLegend(lastScaleMeta);
+  } else {
+    updateRainLegend(buildRainScale([0]));
+  }
 
-      const interactiveControls = [
-        btnMenu,
-        menuPanel,
-        calendarPopover,
-        jobRangeInput,
-        monthSelect,
-        yearSelect,
-        clearRangeBtn,
-        applyRangeBtn,
-        closeCalBtn,
-        calDays,
-        mapModeSel,
-        viewSel,
-        radiusSel,
-        btnRefreshRain,
-        btnRefreshReadiness
-      ].filter(Boolean);
+  setModeText(isReadiness ? 'Readiness' : 'Rainfall');
+  setModeChip(isReadiness ? 'Readiness Map' : 'Rainfall Map');
+}
 
-      interactiveControls.forEach(el=>{
-        el.addEventListener('pointerdown', keepMenuOpen);
-        el.addEventListener('mousedown', keepMenuOpen);
-        el.addEventListener('touchstart', keepMenuOpen, { passive:true });
-        el.addEventListener('click', keepMenuOpen);
-      });
+function stopMenuBubble(e){
+  if (!e) return;
+  e.stopPropagation();
+}
 
-      if (btnMenu && menuPanel){
-        btnMenu.addEventListener('click', ()=>{
-          menuPanel.classList.toggle('open');
-        });
+function wireUi(){
+  if (hasWiredUi) return;
+  hasWiredUi = true;
 
-        document.addEventListener('pointerdown', (e)=>{
-          if (!menuPanel.classList.contains('open')) return;
+  const btnMenu = $('btnMenu');
+  const menuPanel = $('menuPanel');
+  const jobRangeInput = $('jobRangeInput');
+  const calendarPopover = $('calendarPopover');
+  const monthSelect = $('monthSelect');
+  const yearSelect = $('yearSelect');
+  const clearRangeBtn = $('clearRangeBtn');
+  const applyRangeBtn = $('applyRangeBtn');
+  const closeCalBtn = $('closeCalBtn');
+  const calDays = $('calDays');
+  const mapModeSel = $('mapModeSel');
+  const viewSel = $('viewSel');
+  const radiusSel = $('radiusSel');
+  const btnRefreshRain = $('btnRefreshRain');
+  const btnRefreshReadiness = $('btnRefreshReadiness');
 
-          const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
-          const clickedInsideMenu = path.includes(menuPanel);
-          const clickedMenuButton = path.includes(btnMenu);
-          const clickedCalendar = calendarPopover ? path.includes(calendarPopover) : false;
+  const keepMenuOpen = (e)=>{
+    if (!e) return;
+    e.stopPropagation();
+  };
 
-          if (clickedInsideMenu || clickedMenuButton || clickedCalendar) return;
-          menuPanel.classList.remove('open');
-        });
-      }
+  const interactiveControls = [
+    btnMenu,
+    menuPanel,
+    calendarPopover,
+    jobRangeInput,
+    monthSelect,
+    yearSelect,
+    clearRangeBtn,
+    applyRangeBtn,
+    closeCalBtn,
+    calDays,
+    mapModeSel,
+    viewSel,
+    radiusSel,
+    btnRefreshRain,
+    btnRefreshReadiness
+  ].filter(Boolean);
 
-      jobRangeInput?.addEventListener('focus', ()=>{
-        try{ jobRangeInput.blur(); }catch(_){}
-      });
+  interactiveControls.forEach(el=>{
+    el.addEventListener('pointerdown', keepMenuOpen);
+    el.addEventListener('mousedown', keepMenuOpen);
+    el.addEventListener('touchstart', keepMenuOpen, { passive:true });
+    el.addEventListener('click', keepMenuOpen);
+  });
 
-      $('btnRefreshRain')?.addEventListener('click', ()=>{
-        currentMapMode = 'rainfall';
-        saveCurrentMapModeToLocal();
-        applyMapModeUi();
-        renderActiveMode(true);
-      });
-
-      $('btnRefreshReadiness')?.addEventListener('click', ()=>{
-        currentMapMode = 'readiness';
-        saveCurrentMapModeToLocal();
-        applyMapModeUi();
-        renderActiveMode(true);
-      });
-
-      $('mapModeSel')?.addEventListener('change', async (e)=>{
-        currentMapMode = String(e && e.target && e.target.value || 'rainfall');
-        saveCurrentMapModeToLocal();
-        applyMapModeUi();
-        await renderActiveMode(false);
-      });
-
-      $('viewSel')?.addEventListener('change', ()=>{
-        updateMapStyle();
-      });
-
-      $('radiusSel')?.addEventListener('change', ()=>{
-        if (currentMapMode === 'rainfall'){
-          renderRain(false);
-        }
-      });
-
-      document.addEventListener('fv:date-range-applied', ()=>{
-        syncCurrentRangeFromPicker(true);
-        if (currentMapMode === 'rainfall'){
-          renderRain(false);
-        }
-      });
-
-      document.addEventListener('fv:date-range-cleared', ()=>{
-        applyDefault72HourRangeToPicker({ silent:true });
-        syncCurrentRangeFromPicker(true);
-        if (currentMapMode === 'rainfall'){
-          renderRain(false);
-        }
-      });
-    }
-
-    async function startWeatherMap(){
-      if (startRequested && startFinished) return;
-      if (startRequested && !startFinished) return;
-
-      startRequested = true;
-
-      try{
-        detectLayoutMode();
-        await initFirebase();
-        await waitForGoogleMaps();
-        ensureMap();
-        wireUi();
-
-        restoreCurrentRangeFromLocal();
-        applyDefault72HourRangeToPicker({ silent:true });
-        syncCurrentRangeFromPicker(false);
-
-        currentMapMode = restoreCurrentMapModeFromLocal();
-        applyMapModeUi();
-
-        await renderActiveMode(false);
-        startFinished = true;
-      }catch(e){
-        startRequested = false;
-        startFinished = false;
-        console.warn('[WeatherMap] startup failed:', e);
-        setStatus('Startup failed');
-        setDebug(String(e && e.message ? e.message : e || 'startup error'));
-      }
-    }
-
-    window.startWeatherMap = startWeatherMap;
-
-    window.addEventListener('load', ()=>{
-      setTimeout(()=>{
-        startWeatherMap().catch(err=>{
-          console.warn('[WeatherMap] delayed boot failed:', err);
-        });
-      }, 250);
+  if (btnMenu && menuPanel){
+    btnMenu.addEventListener('click', ()=>{
+      menuPanel.classList.toggle('open');
     });
 
-    document.addEventListener('visibilitychange', ()=>{
-      if (document.visibilityState === 'visible' && !startFinished){
-        startWeatherMap().catch(()=>{});
-      }
+    document.addEventListener('pointerdown', (e)=>{
+      if (!menuPanel.classList.contains('open')) return;
+
+      const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+      const clickedInsideMenu = path.includes(menuPanel);
+      const clickedMenuButton = path.includes(btnMenu);
+      const clickedCalendar = calendarPopover ? path.includes(calendarPopover) : false;
+
+      if (clickedInsideMenu || clickedMenuButton || clickedCalendar) return;
+      menuPanel.classList.remove('open');
     });
+  }
+
+  jobRangeInput?.addEventListener('focus', ()=>{
+    try{ jobRangeInput.blur(); }catch(_){}
+  });
+
+  $('btnRefreshRain')?.addEventListener('click', ()=>{
+    currentMapMode = 'rainfall';
+    saveCurrentMapModeToLocal();
+    applyMapModeUi();
+    renderActiveMode(true);
+  });
+
+  $('btnRefreshReadiness')?.addEventListener('click', ()=>{
+    currentMapMode = 'readiness';
+    saveCurrentMapModeToLocal();
+    applyMapModeUi();
+    renderActiveMode(true);
+  });
+
+  $('mapModeSel')?.addEventListener('change', async (e)=>{
+    currentMapMode = String(e && e.target && e.target.value || 'rainfall');
+    saveCurrentMapModeToLocal();
+    applyMapModeUi();
+    await renderActiveMode(false);
+  });
+
+  $('viewSel')?.addEventListener('change', ()=>{
+    updateMapStyle();
+  });
+
+  $('radiusSel')?.addEventListener('change', ()=>{
+    if (currentMapMode === 'rainfall'){
+      renderRain(false);
+    }
+  });
+
+  document.addEventListener('fv:date-range-applied', ()=>{
+    syncCurrentRangeFromPicker(true);
+    if (currentMapMode === 'rainfall'){
+      renderRain(false);
+    }
+  });
+
+  document.addEventListener('fv:date-range-cleared', ()=>{
+    applyDefault72HourRangeToPicker({ silent:true });
+    syncCurrentRangeFromPicker(true);
+    if (currentMapMode === 'rainfall'){
+      renderRain(false);
+    }
+  });
+}
+
+async function startWeatherMap(){
+  if (startRequested && startFinished) return;
+  if (startRequested && !startFinished) return;
+
+  startRequested = true;
+
+  try{
+    detectLayoutMode();
+    await initFirebase();
+    await waitForGoogleMaps();
+    ensureMap();
+    wireUi();
+
+    restoreCurrentRangeFromLocal();
+    applyDefault72HourRangeToPicker({ silent:true });
+    syncCurrentRangeFromPicker(false);
+
+    currentMapMode = restoreCurrentMapModeFromLocal();
+    applyMapModeUi();
+
+    await renderActiveMode(false);
+    startFinished = true;
+  }catch(e){
+    startRequested = false;
+    startFinished = false;
+    console.warn('[WeatherMap] startup failed:', e);
+    setStatus('Startup failed');
+    setDebug(String(e && e.message ? e.message : e || 'startup error'));
+  }
+}
+
+window.startWeatherMap = startWeatherMap;
+
+window.addEventListener('load', ()=>{
+  setTimeout(()=>{
+    startWeatherMap().catch(err=>{
+      console.warn('[WeatherMap] delayed boot failed:', err);
+    });
+  }, 250);
+});
+
+document.addEventListener('visibilitychange', ()=>{
+  if (document.visibilityState === 'visible' && !startFinished){
+    startWeatherMap().catch(()=>{});
+  }
+});
   </script>
 
   <script async src="https://maps.googleapis.com/maps/api/js?loading=async&key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY"></script>
