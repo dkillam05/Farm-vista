@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/formula.js  (FULL FILE)
-Rev: 2026-03-10b-single-source-of-truth-mrms-model-fallback
+Rev: 2026-03-13a-force-field-weather-warm-safe
 
 PURPOSE:
 ✅ Single source of truth for Field Readiness computation wiring.
@@ -11,6 +11,11 @@ THIS REV:
 ✅ If MRMS is still processing / incomplete, model uses Open-Meteo rainfall
 ✅ Forecast rainfall remains Open-Meteo (MRMS is observed/history only)
 ✅ Exposes model weather rows so UI can later show which rainfall source was used
+✅ FIX: force warm weather for the specific field before building model weather
+   so newly added fields can still get an initial readiness score from
+   Open-Meteo even before MRMS is ready
+✅ FIX: all weather warm calls are guarded so page does not hard-stop if the
+   weather module is unavailable or warmWeatherForFields is missing
 
 This module:
 - Ensures model/weather/forecast modules are loaded
@@ -342,6 +347,23 @@ async function prewarmModelWeatherForField(state, fieldObj, wxCtx){
 
     const fid = String(fieldObj.id);
     const cacheKey = `modelwx:${fid}`;
+
+    // ✅ Force weather warm for this exact field first, so newly added fields
+    // can get Open-Meteo rows even if they were not part of the initial warm set.
+    try{
+      if (
+        state._mods &&
+        state._mods.weather &&
+        typeof state._mods.weather.warmWeatherForFields === 'function'
+      ){
+        await state._mods.weather.warmWeatherForFields([fieldObj], wxCtx, {
+          force: false,
+          onEach: ()=>{}
+        });
+      }
+    }catch(e){
+      console.warn('[FieldReadiness] field weather warm failed:', e);
+    }
 
     const built = await buildModelWeatherSeriesForFieldId(state, fid, wxCtx);
     state._frModelWxCache.set(cacheKey, built);
