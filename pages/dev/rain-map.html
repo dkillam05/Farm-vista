@@ -2182,7 +2182,7 @@
       };
     }
 
-    async function buildReadinessRenderableRows(requestId, force=false){
+        async function buildReadinessRenderableRows(requestId, force=false){
       const [fields, farms, mrmsRows, persistedMap] = await Promise.all([
         loadFieldDocs(force),
         loadFarmDocs(force),
@@ -2277,8 +2277,21 @@
       const renderedFields = [];
       const summaries = [];
 
-      for (const field of candidates){
+      const withTimeout = (promise, ms, label='timeout')=>{
+        return Promise.race([
+          promise,
+          new Promise((_, reject)=>{
+            setTimeout(()=> reject(new Error(label)), ms);
+          })
+        ]);
+      };
+
+      for (let i = 0; i < candidates.length; i++){
+        const field = candidates[i];
+
         if (requestId !== currentRequestId) return { cancelled:true };
+
+        setDebug(`building readiness ${i + 1}/${candidates.length} • ${field.name || field.id}`);
 
         const fieldObj = {
           id: String(field.id),
@@ -2294,19 +2307,29 @@
         };
 
         try{
-          await fetchAndHydrateFieldParams(readinessState, String(field.id));
+          await withTimeout(
+            fetchAndHydrateFieldParams(readinessState, String(field.id)),
+            4000,
+            'param load timeout'
+          );
         }catch(e){
           console.warn('[WeatherMap] field params load failed:', field && field.id, e);
         }
 
         let run = null;
         try{
-          run = await runFieldReadiness(readinessState, fieldObj, {});
+          run = await withTimeout(
+            runFieldReadiness(readinessState, fieldObj, {}),
+            12000,
+            'readiness timeout'
+          );
         }catch(e){
           console.warn('[WeatherMap] readiness run failed:', field && field.id, e);
         }
 
-        if (!run || !Number.isFinite(Number(run.readinessR))) continue;
+        if (!run || !Number.isFinite(Number(run.readinessR))){
+          continue;
+        }
 
         const rain72hInches = totalRainInLast72h(field.mrmsRaw);
 
