@@ -1,21 +1,4 @@
-import { ensureFRModules, buildFRDeps } from '/Farm-vista/js/field-readiness/formula.js';
-import { buildWxCtx } from '/Farm-vista/js/field-readiness/state.js';
-
-function getPersistedStateForDeps(state, fieldId){
-  try{
-    const map = (state && state.persistedStateByFieldId && typeof state.persistedStateByFieldId === 'object')
-      ? state.persistedStateByFieldId
-      : {};
-
-    const fid = String(fieldId || '').trim();
-    if (!fid) return null;
-
-    const hit = map[fid];
-    return (hit && typeof hit === 'object') ? hit : null;
-  }catch(_){
-    return null;
-  }
-}
+import { ensureFRModules, runFieldReadiness } from '/Farm-vista/js/field-readiness/formula.js';
 
 export async function computeReadinessRunForMapField(state, fieldObj){
   try{
@@ -23,17 +6,24 @@ export async function computeReadinessRunForMapField(state, fieldObj){
 
     await ensureFRModules(state);
 
-    const wxCtx = buildWxCtx(state);
+    const run = await runFieldReadiness(state, fieldObj, {
+      persistedGetter: (id)=>{
+        try{
+          const map = (state && state.persistedStateByFieldId && typeof state.persistedStateByFieldId === 'object')
+            ? state.persistedStateByFieldId
+            : {};
 
-    const deps = buildFRDeps(state, {
-      wxCtx,
-      persistedGetter: (id)=> getPersistedStateForDeps(state, id)
+          const fid = String(id || '').trim();
+          if (!fid) return null;
+
+          const hit = map[fid];
+          return (hit && typeof hit === 'object') ? hit : null;
+        }catch(_){
+          return null;
+        }
+      }
     });
 
-    const model = state && state._mods ? state._mods.model : null;
-    if (!model || typeof model.runField !== 'function') return null;
-
-    const run = model.runField(fieldObj, deps);
     if (!run) return null;
 
     const score = Number(run.readinessR);
