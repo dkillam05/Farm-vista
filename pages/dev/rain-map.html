@@ -1648,29 +1648,25 @@
       }
     }
 
-    async function computeReadinessRunForMapField(state, fieldObj){
-      try{
-        const run = await runFieldReadiness(state, fieldObj, {
-          persistedGetter: (id)=> getPersistedStateForDeps(state, id)
-        });
-        if (run) return run;
-      }catch(_){}
+async function computeReadinessRunForMapField(state, fieldObj){
+  try{
+    await ensureFRModules(state);
 
-      try{
-        const deps = buildFRDeps(state, {
-          persistedGetter: (id)=> getPersistedStateForDeps(state, id)
-        });
-        const model = state && state._mods ? state._mods.model : null;
-        if (model && typeof model.runField === 'function'){
-          const legacy = model.runField(fieldObj, deps);
-          if (legacy) return legacy;
-        }
-      }catch(e){
-        console.warn('[WeatherMap] readiness legacy fallback failed:', fieldObj && fieldObj.id, e);
-      }
+    const deps = buildFRDeps(state, {
+      persistedGetter: (id)=> getPersistedStateForDeps(state, id)
+    });
 
-      return null;
+    const model = state && state._mods ? state._mods.model : null;
+    if (model && typeof model.runField === 'function'){
+      const run = model.runField(fieldObj, deps);
+      if (run) return run;
     }
+  }catch(e){
+    console.warn('[WeatherMap] readiness run failed:', fieldObj && fieldObj.id, e);
+  }
+
+  return null;
+}
 
     function getModelReadinessColor(score){
       try{
