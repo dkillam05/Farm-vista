@@ -1,15 +1,19 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/params.js  (FULL FILE)
-Rev: 2026-01-22a-live-slide-refresh
+Rev: 2026-03-13b-harden-perfieldparams-init-no-trim
 
 Per-field sliders cache + LIVE update while sliding.
 
-NEW:
+FIXES:
+✅ Always initialize state.perFieldParams before any .get/.set usage
+✅ Prevent readiness-map crashes when params state was not preloaded
+✅ Keep existing slider/live-refresh behavior unchanged
+
+KEEPS:
 ✅ wireParamSliders(state): on slider input, update in-memory params immediately
    and trigger UI/model refresh via events already handled in render.js:
    - fr:details-refresh (updates the weather=output section live)
    - fr:tile-refresh    (updates the selected tile live)
-
 ✅ Debounced localStorage save while sliding (does NOT require hitting Save)
 ===================================================================== */
 'use strict';
@@ -22,11 +26,20 @@ const LIVE_SAVE_DEBOUNCE_MS = 250;
 function getSoilEl(){ return document.getElementById('soilWet'); }
 function getDrainEl(){ return document.getElementById('drain'); }
 
+function ensureParamsMap(state){
+  if (!state || typeof state !== 'object') return new Map();
+  if (!(state.perFieldParams instanceof Map)){
+    state.perFieldParams = new Map();
+  }
+  return state.perFieldParams;
+}
+
 function dispatchDetailsRefresh(fieldId){
   try{
     document.dispatchEvent(new CustomEvent('fr:details-refresh', { detail:{ fieldId:String(fieldId||'') } }));
   }catch(_){}
 }
+
 function dispatchTileRefresh(fieldId){
   try{
     document.dispatchEvent(new CustomEvent('fr:tile-refresh', { detail:{ fieldId:String(fieldId||'') } }));
@@ -45,15 +58,20 @@ function scheduleSaveLocal(state){
 }
 
 export function loadParamsFromLocal(state){
-  state.perFieldParams = new Map();
+  const map = ensureParamsMap(state);
+  map.clear();
+
   try{
     const raw = localStorage.getItem(CONST.LS_KEY);
     if (!raw) return;
+
     const obj = JSON.parse(raw);
     if (!obj || typeof obj !== 'object') return;
-    for (const [k,v] of Object.entries(obj)){
+
+    for (const [k, v] of Object.entries(obj)){
       if (!v || typeof v !== 'object') continue;
-      state.perFieldParams.set(k, {
+
+      map.set(String(k), {
         soilWetness: clamp(Number(v.soilWetness ?? 60), 0, 100),
         drainageIndex: clamp(Number(v.drainageIndex ?? 45), 0, 100)
       });
@@ -63,45 +81,76 @@ export function loadParamsFromLocal(state){
 
 export function saveParamsToLocal(state){
   try{
+    const map = ensureParamsMap(state);
     const obj = {};
-    for (const [k,v] of state.perFieldParams.entries()){
-      obj[k] = { soilWetness:v.soilWetness, drainageIndex:v.drainageIndex };
+
+    for (const [k, v] of map.entries()){
+      obj[k] = {
+        soilWetness: clamp(Number(v && v.soilWetness), 0, 100),
+        drainageIndex: clamp(Number(v && v.drainageIndex), 0, 100)
+      };
     }
+
     localStorage.setItem(CONST.LS_KEY, JSON.stringify(obj));
   }catch(_){}
 }
 
 export function getFieldParams(state, fieldId){
-  const p = state.perFieldParams.get(fieldId);
-  if (p) return p;
+  const map = ensureParamsMap(state);
+  const fid = String(fieldId || '').trim();
+  if (!fid){
+    return { soilWetness:60, drainageIndex:45 };
+  }
+
+  const existing = map.get(fid);
+  if (existing && typeof existing === 'object'){
+    return existing;
+  }
+
   const def = { soilWetness:60, drainageIndex:45 };
-  state.perFieldParams.set(fieldId, def);
+  map.set(fid, def);
   return def;
 }
 
 export function ensureSelectedParamsToSliders(state){
-  if (!state.selectedFieldId) return;
+  if (!state || !state.selectedFieldId) return;
+
   const p = getFieldParams(state, state.selectedFieldId);
   const a = getSoilEl();
   const b = getDrainEl();
-  if (a) a.value = String(p.soilWetness);
-  if (b) b.value = String(p.drainageIndex);
+
+  if (a) a.value = String(clamp(Number(p.soilWetness), 0, 100));
+  if (b) b.value = String(clamp(Number(p.drainageIndex), 0, 100));
 }
 
 export function hydrateParamsFromFieldDoc(state, field){
   if (!field) return;
-  const cur = getFieldParams(state, field.id);
-  if (isFinite(field.soilWetness)) cur.soilWetness = clamp(Number(field.soilWetness), 0, 100);
-  if (isFinite(field.drainageIndex)) cur.drainageIndex = clamp(Number(field.drainageIndex), 0, 100);
-  state.perFieldParams.set(field.id, cur);
+
+  const map = ensureParamsMap(state);
+  const fid = String(field.id || '').trim();
+  if (!fid) return;
+
+  const cur = getFieldParams(state, fid);
+
+  if (isFinite(field.soilWetness)){
+    cur.soilWetness = clamp(Number(field.soilWetness), 0, 100);
+  }
+  if (isFinite(field.drainageIndex)){
+    cur.drainageIndex = clamp(Number(field.drainageIndex), 0, 100);
+  }
+
+  map.set(fid, cur);
 }
 
 /* =====================================================================
-   NEW: Wire sliders for LIVE updates while dragging
+   Wire sliders for LIVE updates while dragging
 ===================================================================== */
 export function wireParamSliders(state){
   try{
     if (!state) return;
+
+    ensureParamsMap(state);
+
     if (state._paramsWired) return;
     state._paramsWired = true;
 
@@ -109,41 +158,40 @@ export function wireParamSliders(state){
     const drain = getDrainEl();
 
     if (!soil || !drain){
-      // If DOM not ready yet, retry once shortly
-      setTimeout(()=>{ try{ state._paramsWired = false; wireParamSliders(state); }catch(_){ } }, 60);
+      setTimeout(()=>{
+        try{
+          state._paramsWired = false;
+          wireParamSliders(state);
+        }catch(_){}
+      }, 60);
       return;
     }
 
     function applyFromUI(){
       try{
-        const fid = String(state.selectedFieldId || '');
+        const fid = String(state.selectedFieldId || '').trim();
         if (!fid) return;
 
+        const map = ensureParamsMap(state);
         const p = getFieldParams(state, fid);
 
-        // Read live slider values
         const sw = clamp(Number(soil.value), 0, 100);
         const dr = clamp(Number(drain.value), 0, 100);
 
-        // Update in-memory immediately
         p.soilWetness = sw;
         p.drainageIndex = dr;
-        state.perFieldParams.set(fid, p);
 
-        // Debounced save to local so it persists even if they don't hit Save
+        map.set(fid, p);
+
         scheduleSaveLocal(state);
-
-        // Trigger live re-render (render.js already listens)
         dispatchDetailsRefresh(fid);
         dispatchTileRefresh(fid);
       }catch(_){}
     }
 
-    // LIVE while sliding
     soil.addEventListener('input', applyFromUI, { passive:true });
     drain.addEventListener('input', applyFromUI, { passive:true });
 
-    // Also fire on "change" to catch non-drag interactions
     soil.addEventListener('change', applyFromUI, { passive:true });
     drain.addEventListener('change', applyFromUI, { passive:true });
 
