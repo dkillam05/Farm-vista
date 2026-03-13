@@ -1,19 +1,55 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-13b-speed-up-initial-tiles-and-keep-sort-stable
+Rev: 2026-03-13a-restore-visible-batch-eta-refresh-fast
 
 GOAL (per Dane, Feb 2026):
 ✅ Make tiles + details MATCH the Global Calibration readiness number.
 ✅ Treat Global Calibration as the authoritative "truth math" view.
 
-THIS REV:
-✅ Speeds up initial tile load substantially by batching readiness runs in parallel
-✅ Keeps tile sorting correct by still precomputing authoritative readiness before sort
-✅ Avoids repeated module/persisted-state/deps rebuild work during visible tile refresh
-✅ Reuses cached runs/MRMS results for post-render visible tile hydration
-✅ Keeps fallback behavior for new fields and Open-Meteo warm path
-✅ Keeps MRMS rain-range sort behavior
-✅ Keeps all prior UI behavior / no trimmed sections
+CHANGES (THIS REV):
+✅ Use /Farm-vista/js/field-readiness/formula.js as the single wiring source:
+   - ensureFRModules()
+   - buildFRDeps()
+   - runFieldReadiness()
+✅ render.js keeps persisted truth loading (Firestore) + UI logic.
+✅ CAL remains ZERO (via formula.js).
+✅ Forecast rows still provided (ETA helper keeps working).
+✅ Option B trace fallback (rewind 14) preserved.
+✅ Tile "Rain (range)" now uses MRMS daily rainfall
+✅ If MRMS current-day-through-past-30-days is not complete, tile shows:
+   "Processing Data"
+✅ Rain-range sort now uses MRMS when ready
+✅ MRMS details panel remains supported
+✅ fr:tile-refresh / fr:details-refresh now support lightweight rainfall-only UI refresh
+✅ No trimmed sections
+✅ FIX: initial tile sorting is stabilized by warming filtered field weather
+   before computed sort order is built when the selected sort depends on
+   readiness/rain values
+✅ FIX: initial tile order now uses the SAME readiness source as tile/details
+   by precomputing filtered runs with runFieldReadiness() before sorting/render
+✅ NEW: inline loading card inside the Fields area while tiles are being
+   computed/sorted so the page does not look blank after initial loading
+✅ NEW: helper text shows visible results count, e.g. "Showing 25 of 128 fields"
+✅ FIX: fields that do not yet have a readiness run still render a tile
+   instead of disappearing, so "All" and helper counts match what is on screen
+✅ FIX: helper count is now based on actual rendered tiles, not only the
+   pre-slice candidate list
+✅ FIX: same-view shortcut now includes a filtered field signature, so
+   newly added fields / changed filtered sets force a full rebuild instead
+   of getting stuck on the first drawn tile list
+✅ FIX: results-per-page now reads directly from the live pageSel dropdown
+   so 25/50/100/250/All always clamps the visible tile count correctly
+✅ FIX: if runFieldReadiness() returns null for a field, render.js now
+   falls back to the model/Open-Meteo path before showing "Field Readiness —"
+✅ FIX: restored missing getTilesViewKey() so page loads again
+✅ FIX: restore startup readiness for NEW fields by warming Open-Meteo
+   weather for filtered fields BEFORE building runs, regardless of sort mode
+✅ FIX: updateTileForField() now warms the selected field before retrying
+   readiness so new fields can pick up an initial score before MRMS exists
+✅ FIX: restored missing updateVisibleTilesBatched() so ETA/helper/readiness
+   refresh runs for ALL visible tiles instead of only the first refreshed one
+✅ SPEED: visible tile updates now pre-load modules/persisted state once,
+   pre-warm visible fields once, and refresh in small parallel batches
 
 ===================================================================== */
 'use strict';
@@ -1025,35 +1061,19 @@ function initFallbackSwipeOnTiles(state, wrap, opts){
 /* =====================================================================
    Helper: build deps via formula.js
 ===================================================================== */
-function buildDepsForState(state, opKey, cache){
-  if (cache && cache.deps && cache.depsOpKey === String(opKey)) return cache.deps;
-  const wxCtx = (cache && cache.wxCtx) || buildWxCtx(state);
-  if (cache && !cache.wxCtx) cache.wxCtx = wxCtx;
-
-  const deps = buildFRDeps(state, {
+function buildDepsForState(state, opKey){
+  const wxCtx = buildWxCtx(state);
+  return buildFRDeps(state, {
     opKey: String(opKey),
     wxCtx,
     persistedGetter: (id)=> getPersistedStateForDeps(state, id)
   });
-
-  if (cache){
-    cache.deps = deps;
-    cache.depsOpKey = String(opKey);
-  }
-  return deps;
-}
-
-function getWxCtxCached(state, cache){
-  if (cache && cache.wxCtx) return cache.wxCtx;
-  const wxCtx = buildWxCtx(state);
-  if (cache) cache.wxCtx = wxCtx;
-  return wxCtx;
 }
 
 /* =====================================================================
    Helper: warm field weather so new fields can compute from Open-Meteo
 ===================================================================== */
-async function warmWeatherForFieldSet(state, fields, cache){
+async function warmWeatherForFieldSet(state, fields){
   try{
     const list = Array.isArray(fields) ? fields.filter(Boolean) : [];
     if (!list.length) return;
@@ -1061,7 +1081,7 @@ async function warmWeatherForFieldSet(state, fields, cache){
     const weather = state && state._mods ? state._mods.weather : null;
     if (!weather || typeof weather.warmWeatherForFields !== 'function') return;
 
-    const wxCtx = getWxCtxCached(state, cache);
+    const wxCtx = buildWxCtx(state);
     await weather.warmWeatherForFields(list, wxCtx, { force:false, onEach:()=>{} });
   }catch(e){
     console.warn('[FieldReadiness] warmWeatherForFieldSet failed:', e);
@@ -1071,9 +1091,9 @@ async function warmWeatherForFieldSet(state, fields, cache){
 /* =====================================================================
    Helper: run readiness with fallback to model/Open-Meteo path
 ===================================================================== */
-async function computeRunForField(state, fieldObj, opKey, cache){
+async function computeRunForField(state, fieldObj, opKey){
   try{
-    const wxCtx = getWxCtxCached(state, cache);
+    const wxCtx = buildWxCtx(state);
     const run = await runFieldReadiness(state, fieldObj, {
       opKey,
       wxCtx,
@@ -1083,7 +1103,7 @@ async function computeRunForField(state, fieldObj, opKey, cache){
   }catch(_){}
 
   try{
-    const deps = buildDepsForState(state, opKey, cache);
+    const deps = buildDepsForState(state, opKey);
     const model = state && state._mods ? state._mods.model : null;
     if (model && typeof model.runField === 'function'){
       const legacy = model.runField(fieldObj, deps);
@@ -1099,41 +1119,18 @@ async function computeRunForField(state, fieldObj, opKey, cache){
 /* =====================================================================
    Helper: precompute runs for filtered fields using authoritative path
 ===================================================================== */
-async function buildRunsForFields(state, fields, opKey, {
-  batchSize = 12,
-  yieldMs = 0,
-  cache = null
-} = {}){
+async function buildRunsForFields(state, fields, opKey){
   const map = new Map();
-  const list = Array.isArray(fields) ? fields.filter(Boolean) : [];
-  if (!list.length) return map;
+  const list = Array.isArray(fields) ? fields : [];
 
-  const size = Math.max(1, Math.round(Number(batchSize) || 12));
-  const pause = Math.max(0, Math.round(Number(yieldMs) || 0));
-
-  for (let i = 0; i < list.length; i += size){
-    const batch = list.slice(i, i + size);
-
-    const results = await Promise.all(
-      batch.map(async (f)=>{
-        try{
-          const run = await computeRunForField(state, f, opKey, cache);
-          return [f.id, run];
-        }catch(e){
-          try{
-            console.warn('[FieldReadiness] buildRunsForFields failed for field:', f && f.id, e);
-          }catch(_){}
-          return [f.id, null];
-        }
-      })
-    );
-
-    for (const [fid, run] of results){
-      if (run) map.set(fid, run);
-    }
-
-    if ((i + size) < list.length && pause > 0){
-      await new Promise(resolve => setTimeout(resolve, pause));
+  for (const f of list){
+    try{
+      const run = await computeRunForField(state, f, opKey);
+      if (run) map.set(f.id, run);
+    }catch(e){
+      try{
+        console.warn('[FieldReadiness] buildRunsForFields failed for field:', f && f.id, e);
+      }catch(_){}
     }
   }
 
@@ -1193,106 +1190,42 @@ async function patchTileRainOnly(state, fieldId){
   }catch(_){}
 }
 
-/* =====================================================================
-   Shared tile refresh context
-===================================================================== */
-async function createSharedTileRefreshContext(state, ids, {
-  forcePersist = false,
-  prewarm = true,
-  forceMrms = false
-} = {}){
-  const shared = {
-    wxCtx: null,
-    deps: null,
-    depsOpKey: '',
-    runById: new Map(),
-    mrmsById: new Map(),
-    fieldsById: new Map((state.fields || []).map(f => [String(f.id), f])),
-    opKey: getCurrentOp(),
-    threshold: null,
-    range: parseRangeFromInput(),
-    forceMrms: !!forceMrms
-  };
-
-  await ensureFRModules(state);
-  ensureSelectionStyleOnce();
-  ensureFieldsCountHelperEl();
-  await loadPersistedState(state, { force: !!forcePersist });
-  ensureEtaHelperModule(state);
-
-  shared.threshold = getThresholdForOp(state, shared.opKey);
-  shared.wxCtx = buildWxCtx(state);
-  shared.deps = buildDepsForState(state, shared.opKey, shared);
-
-  const list = Array.isArray(ids)
-    ? ids.map(x => String(x || '')).filter(Boolean)
-    : [];
-
-  const visibleFields = list.map(id => shared.fieldsById.get(id)).filter(Boolean);
-  if (prewarm && visibleFields.length){
-    await warmWeatherForFieldSet(state, visibleFields, shared);
-  }
-
-  return shared;
-}
-
 /* ---------- internal: patch a single tile DOM in-place ---------- */
-async function updateTileForFieldInternal(state, fieldId, opts = {}){
+async function updateTileForField(state, fieldId){
   try{
     if (!fieldId) return;
     const fid = String(fieldId);
+
     const tile = document.querySelector('.tile[data-field-id="' + CSS.escape(fid) + '"]');
     if (!tile) return;
 
-    const shared = opts.shared || null;
+    await ensureFRModules(state);
+    ensureSelectionStyleOnce();
+    ensureFieldsCountHelperEl();
+    await loadPersistedState(state, { force:true });
+    ensureEtaHelperModule(state);
 
-    if (!shared){
-      await ensureFRModules(state);
-      ensureSelectionStyleOnce();
-      ensureFieldsCountHelperEl();
-      await loadPersistedState(state, { force:true });
-      ensureEtaHelperModule(state);
-    }
-
-    const fieldsById = (shared && shared.fieldsById) || new Map((state.fields || []).map(f => [String(f.id), f]));
-    const f = fieldsById.get(fid);
+    const f = (state.fields || []).find(x=>x.id === fid);
     if (!f) return;
 
-    const opKey = shared ? shared.opKey : getCurrentOp();
-    const deps = shared ? shared.deps : buildDepsForState(state, opKey, null);
+    const opKey = getCurrentOp();
+    const deps = buildDepsForState(state, opKey);
 
-    let run0 = null;
-    if (shared && shared.runById && shared.runById.has(fid)){
-      run0 = shared.runById.get(fid) || null;
+    // ✅ Warm this field first so brand-new fields can get an initial
+    // Open-Meteo-based readiness score even before MRMS exists.
+    await warmWeatherForFieldSet(state, [f]);
+
+    let run0 = await computeRunForField(state, f, opKey);
+
+    // one more best-effort retry after warm
+    if (!run0){
+      await warmWeatherForFieldSet(state, [f]);
+      run0 = await computeRunForField(state, f, opKey);
     }
 
     if (!run0){
-      if (!(shared && opts.skipWarm)){
-        await warmWeatherForFieldSet(state, [f], shared || null);
-      }
-
-      run0 = await computeRunForField(state, f, opKey, shared || null);
-
-      if (!run0){
-        await warmWeatherForFieldSet(state, [f], shared || null);
-        run0 = await computeRunForField(state, f, opKey, shared || null);
-      }
-
-      if (shared && shared.runById) shared.runById.set(fid, run0 || null);
-    }
-
-    const range = shared ? shared.range : parseRangeFromInput();
-
-    let mrmsRes = null;
-    if (shared && shared.mrmsById && shared.mrmsById.has(fid)){
-      mrmsRes = shared.mrmsById.get(fid);
-    }
-    if (!mrmsRes){
-      mrmsRes = await getMrmsRainResultForField(state, fid, range, { force:false });
-      if (shared && shared.mrmsById) shared.mrmsById.set(fid, mrmsRes);
-    }
-
-    if (!run0){
+      const range = parseRangeFromInput();
+      const mrmsRes = await getMrmsRainResultForField(state, fid, range, { force:false });
       const rainLine = tile.querySelector('.subline .mono');
       if (rainLine) rainLine.textContent = rainTileTextFromMrmsResult(mrmsRes);
 
@@ -1307,7 +1240,7 @@ async function updateTileForFieldInternal(state, fieldId, opts = {}){
 
     try{ state.lastRuns && state.lastRuns.set(fid, run0); }catch(_){}
 
-    const thr = shared ? shared.threshold : getThresholdForOp(state, opKey);
+    const thr = getThresholdForOp(state, opKey);
     const readiness = run0.readinessR;
 
     const leftPos = state._mods.model.markerLeftCSS(readiness);
@@ -1344,6 +1277,8 @@ async function updateTileForFieldInternal(state, fieldId, opts = {}){
       badge.textContent = `Field Readiness ${readiness}`;
     }
 
+    const range = parseRangeFromInput();
+    const mrmsRes = await getMrmsRainResultForField(state, fid, range, { force:false });
     const rainLine = tile.querySelector('.subline .mono');
     if (rainLine) rainLine.textContent = rainTileTextFromMrmsResult(mrmsRes);
 
@@ -1366,28 +1301,31 @@ async function updateTileForFieldInternal(state, fieldId, opts = {}){
   }catch(_){}
 }
 
-async function updateTileForField(state, fieldId){
-  await updateTileForFieldInternal(state, fieldId, {});
-}
-
 /* =====================================================================
-   Batch update visible tiles (optimized)
+   Batch update visible tiles (restored)
 ===================================================================== */
-async function updateVisibleTilesBatched(state, ids, opts = {}){
+async function updateVisibleTilesBatched(state, ids){
   try{
     const list = Array.isArray(ids)
       ? ids.map(x => String(x || '')).filter(Boolean)
       : [];
     if (!list.length) return;
 
-    const shared = opts.shared || await createSharedTileRefreshContext(state, list, {
-      forcePersist: false,
-      prewarm: true,
-      forceMrms: false
-    });
+    await ensureFRModules(state);
+    ensureSelectionStyleOnce();
+    ensureFieldsCountHelperEl();
+    await loadPersistedState(state, { force:false });
+    ensureEtaHelperModule(state);
 
-    const BATCH_SIZE = Math.max(1, Math.round(Number(opts.batchSize) || 8));
-    const YIELD_MS = Math.max(0, Math.round(Number(opts.yieldMs) || 6));
+    const fieldsById = new Map((state.fields || []).map(f => [String(f.id), f]));
+    const visibleFields = list.map(id => fieldsById.get(id)).filter(Boolean);
+
+    if (visibleFields.length){
+      await warmWeatherForFieldSet(state, visibleFields);
+    }
+
+    const BATCH_SIZE = 6;
+    const YIELD_MS = 8;
 
     for (let i = 0; i < list.length; i += BATCH_SIZE){
       const batchIds = list.slice(i, i + BATCH_SIZE);
@@ -1395,10 +1333,7 @@ async function updateVisibleTilesBatched(state, ids, opts = {}){
       await Promise.all(
         batchIds.map(async (fid)=>{
           try{
-            await updateTileForFieldInternal(state, fid, {
-              shared,
-              skipWarm: true
-            });
+            await updateTileForField(state, fid);
           }catch(e){
             try{
               console.warn('[FieldReadiness] visible tile refresh failed for field:', fid, e);
@@ -1407,7 +1342,7 @@ async function updateVisibleTilesBatched(state, ids, opts = {}){
         })
       );
 
-      if ((i + BATCH_SIZE) < list.length && YIELD_MS > 0){
+      if ((i + BATCH_SIZE) < list.length){
         await new Promise(resolve => setTimeout(resolve, YIELD_MS));
       }
     }
@@ -1516,23 +1451,13 @@ async function _renderTilesInternal(state){
   const opKey = getCurrentOp();
   const filtered = filteredNow;
   const sortMode = getSortMode();
-  const shared = {
-    wxCtx: null,
-    deps: null,
-    depsOpKey: '',
-    opKey,
-    threshold: null,
-    range: parseRangeFromInput(),
-    runById: new Map(),
-    mrmsById: new Map(),
-    fieldsById: new Map((state.fields || []).map(f => [String(f.id), f]))
-  };
 
-  // ✅ Always warm filtered fields first so new fields can get initial
-  // Open-Meteo-based readiness even before MRMS exists.
-  await warmWeatherForFieldSet(state, filtered, shared);
+  // ✅ Always warm filtered fields first.
+  // This restores the old behavior where new fields could still get
+  // an initial readiness score from Open-Meteo even before MRMS existed.
+  await warmWeatherForFieldSet(state, filtered);
 
-  // Extra warm for computed sorts too (kept intentionally).
+  // Keep the extra warm for computed sorts too (harmless if already warm).
   try{
     if (
       sortNeedsComputedData(sortMode) &&
@@ -1541,48 +1466,38 @@ async function _renderTilesInternal(state){
       typeof state._mods.weather.warmWeatherForFields === 'function' &&
       filtered.length
     ){
-      await warmWeatherForFieldSet(state, filtered, shared);
+      const wxCtx = buildWxCtx(state);
+      await state._mods.weather.warmWeatherForFields(filtered, wxCtx, { force:false, onEach:()=>{} });
     }
   }catch(e){
     console.warn('[FieldReadiness] sort warmWeatherForFields failed:', e);
   }
 
   state.lastRuns.clear();
+  let filteredRuns = await buildRunsForFields(state, filtered, opKey);
 
-  let filteredRuns = await buildRunsForFields(state, filtered, opKey, {
-    batchSize: 12,
-    yieldMs: 0,
-    cache: shared
-  });
-
-  // one retry pass after warm in case some new fields needed the cache
+  // one retry pass after warm in case new fields needed the weather cache
   if (filteredRuns.size < filtered.length){
-    await warmWeatherForFieldSet(state, filtered, shared);
-    const retryRuns = await buildRunsForFields(state, filtered, opKey, {
-      batchSize: 12,
-      yieldMs: 0,
-      cache: shared
-    });
-    for (const [fid, run] of retryRuns.entries()){
-      if (run) filteredRuns.set(fid, run);
-    }
+    await warmWeatherForFieldSet(state, filtered);
+    filteredRuns = await buildRunsForFields(state, filtered, opKey);
   }
 
   for (const [fid, run] of filteredRuns.entries()){
     state.lastRuns.set(fid, run);
-    shared.runById.set(fid, run);
   }
+
+  const range = parseRangeFromInput();
+  const mrmsRangeById = new Map();
 
   await Promise.all(
     filtered.map(async (f)=>{
-      const res = await getMrmsRainResultForField(state, f.id, shared.range, { force:false });
-      shared.mrmsById.set(f.id, res);
+      const res = await getMrmsRainResultForField(state, f.id, range, { force:false });
+      mrmsRangeById.set(f.id, res);
     })
   );
 
-  const sorted = sortFields(filtered, state.lastRuns, shared.mrmsById);
-  shared.threshold = getThresholdForOp(state, opKey);
-  const thr = shared.threshold;
+  const sorted = sortFields(filtered, state.lastRuns, mrmsRangeById);
+  const thr = getThresholdForOp(state, opKey);
 
   const cap = (effectivePageSize === -1)
     ? sorted.length
@@ -1617,7 +1532,7 @@ async function _renderTilesInternal(state){
       const pillBg = colorForPerceived(perceived);
       const grad = gradientForThreshold(thr);
 
-      const mrmsRes = shared.mrmsById.get(f.id);
+      const mrmsRes = mrmsRangeById.get(f.id);
       const rainText = rainTileTextFromMrmsResult(mrmsRes);
 
       tile.className = 'tile fv-swipe-item';
@@ -1687,11 +1602,7 @@ async function _renderTilesInternal(state){
 
   setTimeout(async ()=>{
     try{
-      await updateVisibleTilesBatched(state, idsForEta, {
-        shared,
-        batchSize: 8,
-        yieldMs: 6
-      });
+      await updateVisibleTilesBatched(state, idsForEta);
     }catch(_){}
   }, 0);
 }
@@ -1940,14 +1851,8 @@ async function _renderDetailsInternal(state){
   updateDetailsHeaderPanel(state);
 
   const opKey = getCurrentOp();
-  const shared = {
-    wxCtx: buildWxCtx(state),
-    deps: null,
-    depsOpKey: '',
-    opKey
-  };
-  const deps = buildDepsForState(state, opKey, shared);
-  const run = await computeRunForField(state, f, opKey, shared);
+  const deps = buildDepsForState(state, opKey);
+  const run = state._mods.model.runField(f, deps);
   if (!run) return;
 
   try{ state.lastRuns && state.lastRuns.set(f.id, run); }catch(_){}
