@@ -120,51 +120,68 @@ function ensureMrmsCaches(state){
 }
 
 async function loadFieldMrmsDocLocal(state, fieldId, { force=false } = {}){
+  const fid = String(fieldId || '').trim();
+  if (!fid) return null;
+
+  state._mrmsDocByFieldId = state._mrmsDocByFieldId || new Map();
+  state._mrmsDocLoadedAtByFieldId = state._mrmsDocLoadedAtByFieldId || new Map();
+
+  const TTL_MS = 5 * 60 * 1000;
+
   try{
-    if (!state || !fieldId) return null;
-    ensureMrmsCaches(state);
-
-    const fid = String(fieldId);
-    const loadedAt = Number(state._mrmsDocLoadedAtByFieldId.get(fid) || 0);
     const cached = state._mrmsDocByFieldId.get(fid) || null;
-    const fresh = loadedAt > 0 && ((Date.now() - loadedAt) < MRMS_DOC_TTL_MS);
+    const loadedAt = Number(state._mrmsDocLoadedAtByFieldId.get(fid) || 0);
 
-    if (!force && fresh) return cached;
-
-    const api = getAPI(state);
-    if (!api){
-      state._mrmsDocByFieldId.set(fid, null);
-      state._mrmsDocLoadedAtByFieldId.set(fid, Date.now());
-      return null;
+    if (!force && cached && loadedAt && (Date.now() - loadedAt) < TTL_MS){
+      return cached;
     }
 
-    let out = null;
+    let data = null;
 
-    if (api.kind !== 'compat'){
-      const db = api.getFirestore();
-      const ref = api.doc(db, MRMS_COLLECTION, fid);
-      const snap = await api.getDoc(ref);
-      if (snap && snap.exists && snap.exists()){
-        out = snap.data() || null;
+    // Prefer modular API first
+    try{
+      const api = (typeof getAPI === 'function') ? getAPI(state) : null;
+      const db = api && typeof api.getFirestore === 'function' ? api.getFirestore() : null;
+
+      if (db && api && typeof api.doc === 'function' && typeof api.getDoc === 'function'){
+        const ref = api.doc(db, 'field_mrms_weather', fid);
+        const snap = await api.getDoc(ref);
+
+        if (snap){
+          const exists =
+            (typeof snap.exists === 'function' && snap.exists()) ||
+            (typeof snap.exists === 'boolean' && snap.exists === true);
+
+          if (exists){
+            data = snap.data() || null;
+          }
+        }
       }
-    } else if (window.firebase && window.firebase.firestore){
-      const db = window.firebase.firestore();
-      const snap = await db.collection(MRMS_COLLECTION).doc(fid).get();
-      if (snap && snap.exists){
-        out = snap.data() || null;
+    }catch(_){}
+
+    // Compat fallback only if modular did not return a doc
+    if (!data){
+      const compatDb =
+        (window.firebase && typeof window.firebase.firestore === 'function')
+          ? window.firebase.firestore()
+          : null;
+
+      if (compatDb && typeof compatDb.collection === 'function'){
+        const snap = await compatDb.collection('field_mrms_weather').doc(fid).get();
+        if (snap && snap.exists){
+          data = snap.data() || null;
+        }
       }
     }
 
-    state._mrmsDocByFieldId.set(fid, out);
+    state._mrmsDocByFieldId.set(fid, data || null);
     state._mrmsDocLoadedAtByFieldId.set(fid, Date.now());
-    return out;
+
+    return data || null;
   }catch(e){
     console.warn('[FieldReadiness] MRMS doc load failed:', e);
-    try{
-      ensureMrmsCaches(state);
-      state._mrmsDocByFieldId.set(String(fieldId), null);
-      state._mrmsDocLoadedAtByFieldId.set(String(fieldId), Date.now());
-    }catch(_){}
+    state._mrmsDocByFieldId.set(fid, null);
+    state._mrmsDocLoadedAtByFieldId.set(fid, Date.now());
     return null;
   }
 }
