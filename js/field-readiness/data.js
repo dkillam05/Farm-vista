@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/data.js  (FULL FILE)
-Rev: 2026-03-10a
+Rev: 2026-03-12b-normalize-new-field-coordinates-no-trim
 
 Changes (per Dane):
 ✅ Keep correct initial tile count (ex: 25) AND speed up:
@@ -8,6 +8,24 @@ Changes (per Dane):
    - Warm the remaining fields in the background (not awaited)
 ✅ Added MRMS doc loader for field_mrms_weather/{fieldId}
 ✅ Caches MRMS docs by fieldId for details rendering
+
+NEW (THIS REV):
+✅ FIX: normalize field GPS from multiple possible field doc shapes so
+   new fields do not lose readiness just because lat/lng were stored
+   somewhere other than location.lat/location.lng
+✅ Supported coordinate paths now include common variants such as:
+   - location.lat / location.lng
+   - location.latitude / location.longitude
+   - lat / lng
+   - latitude / longitude
+   - gps.lat / gps.lng
+   - gps.latitude / gps.longitude
+   - center.lat / center.lng
+   - center.latitude / center.longitude
+   - fieldCenter.lat / fieldCenter.lng
+   - fieldCenter.latitude / fieldCenter.longitude
+✅ Keeps output shape unchanged:
+   - extracted field objects still expose location:{ lat, lng }
 ===================================================================== */
 'use strict';
 
@@ -69,10 +87,83 @@ function pickFirstNumber(d, paths){
   return null;
 }
 
+/* ---------- robust coordinate extraction for newer field shapes ---------- */
+function isValidLatLng(lat, lng){
+  return (
+    lat != null &&
+    lng != null &&
+    isFinite(lat) &&
+    isFinite(lng) &&
+    Math.abs(Number(lat)) <= 90 &&
+    Math.abs(Number(lng)) <= 180
+  );
+}
+
+function extractLocation(d){
+  const lat = pickFirstNumber(d, [
+    'location.lat',
+    'location.latitude',
+    'lat',
+    'latitude',
+    'gps.lat',
+    'gps.latitude',
+    'center.lat',
+    'center.latitude',
+    'fieldCenter.lat',
+    'fieldCenter.latitude',
+    'coordinates.lat',
+    'coordinates.latitude',
+    'centroid.lat',
+    'centroid.latitude',
+    'map.lat',
+    'map.latitude'
+  ]);
+
+  const lng = pickFirstNumber(d, [
+    'location.lng',
+    'location.lon',
+    'location.long',
+    'location.longitude',
+    'lng',
+    'lon',
+    'long',
+    'longitude',
+    'gps.lng',
+    'gps.lon',
+    'gps.long',
+    'gps.longitude',
+    'center.lng',
+    'center.lon',
+    'center.long',
+    'center.longitude',
+    'fieldCenter.lng',
+    'fieldCenter.lon',
+    'fieldCenter.long',
+    'fieldCenter.longitude',
+    'coordinates.lng',
+    'coordinates.lon',
+    'coordinates.long',
+    'coordinates.longitude',
+    'centroid.lng',
+    'centroid.lon',
+    'centroid.long',
+    'centroid.longitude',
+    'map.lng',
+    'map.lon',
+    'map.long',
+    'map.longitude'
+  ]);
+
+  if (!isValidLatLng(lat, lng)) return null;
+
+  return {
+    lat: Number(lat),
+    lng: Number(lng)
+  };
+}
+
 function extractFieldDoc(docId, d){
-  const loc = d.location || {};
-  const lat = Number(loc.lat);
-  const lng = Number(loc.lng);
+  const location = extractLocation(d);
 
   // Support common storage paths (keeps you compatible with Fields Settings variations)
   const soilWetness = pickFirstNumber(d, [
@@ -101,7 +192,7 @@ function extractFieldDoc(docId, d){
     farmId: String(d.farmId||''),
     status: String(d.status||''),
     tillable: Number(d.tillable||0),
-    location: (isFinite(lat) && isFinite(lng)) ? { lat, lng } : null,
+    location,
     soilWetness: (soilWetness == null) ? null : soilWetness,
     drainageIndex: (drainageIndex == null) ? null : drainageIndex
   };
