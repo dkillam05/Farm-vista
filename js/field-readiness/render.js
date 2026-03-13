@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-10d-use-mrms-for-rain-range-queue-aware-no-trim-sort-fix
+Rev: 2026-03-10c-use-mrms-for-rain-range-queue-aware-no-trim
 
 GOAL (per Dane, Feb 2026):
 ✅ Make tiles + details MATCH the Global Calibration readiness number.
@@ -22,9 +22,6 @@ CHANGES (THIS REV):
 ✅ MRMS details panel remains supported
 ✅ fr:tile-refresh / fr:details-refresh now support lightweight rainfall-only UI refresh
 ✅ No trimmed sections
-✅ FIX: initial tile sorting is stabilized by warming filtered field weather
-   before computed sort order is built when the selected sort depends on
-   readiness/rain values
 
 ===================================================================== */
 'use strict';
@@ -305,23 +302,10 @@ function rainSortValueFromMrmsResult(res){
   return Number.isFinite(n) ? n : null;
 }
 
-function getSortMode(){
-  const sel = $('sortSel');
-  return String(sel ? sel.value : 'name_az');
-}
-
-function sortNeedsComputedData(mode){
-  return (
-    mode === 'ready_dry_wet' ||
-    mode === 'ready_wet_dry' ||
-    mode === 'rain_most' ||
-    mode === 'rain_least'
-  );
-}
-
 /* ---------- sorting ---------- */
 function sortFields(fields, runsById, mrmsRangeById){
-  const mode = getSortMode();
+  const sel = $('sortSel');
+  const mode = String(sel ? sel.value : 'name_az');
   const range = parseRangeFromInput();
   const collator = new Intl.Collator(undefined, { numeric:true, sensitivity:'base' });
   const arr = fields.slice();
@@ -333,8 +317,8 @@ function sortFields(fields, runsById, mrmsRangeById){
     const nameA = `${a.name||''}`;
     const nameB = `${b.name||''}`;
 
-    const readyA = ra ? ra.readinessR : null;
-    const readyB = rb ? rb.readinessR : null;
+    const readyA = ra ? ra.readinessR : 0;
+    const readyB = rb ? rb.readinessR : 0;
 
     const mrmsA = mrmsRangeById ? mrmsRangeById.get(a.id) : null;
     const mrmsB = mrmsRangeById ? mrmsRangeById.get(b.id) : null;
@@ -344,19 +328,8 @@ function sortFields(fields, runsById, mrmsRangeById){
     if (mode === 'name_az') return collator.compare(nameA, nameB);
     if (mode === 'name_za') return collator.compare(nameB, nameA);
 
-    if (mode === 'ready_dry_wet'){
-      if (readyA == null && readyB != null) return 1;
-      if (readyA != null && readyB == null) return -1;
-      if (readyB !== readyA) return Number(readyB || 0) - Number(readyA || 0);
-      return collator.compare(nameA, nameB);
-    }
-
-    if (mode === 'ready_wet_dry'){
-      if (readyA == null && readyB != null) return 1;
-      if (readyA != null && readyB == null) return -1;
-      if (readyB !== readyA) return Number(readyA || 0) - Number(readyB || 0);
-      return collator.compare(nameA, nameB);
-    }
+    if (mode === 'ready_dry_wet'){ if (readyB !== readyA) return readyB - readyA; return collator.compare(nameA, nameB); }
+    if (mode === 'ready_wet_dry'){ if (readyB !== readyA) return readyA - readyB; return collator.compare(nameA, nameB); }
 
     if (mode === 'rain_most'){
       const va = (rainA == null ? -1 : rainA);
@@ -678,7 +651,8 @@ function getTilesViewKey(state){
   const opKey = getCurrentOp();
   const farmId = String(state && state.farmFilter ? state.farmFilter : '__all__');
   const pageSize = String(state && state.pageSize != null ? state.pageSize : '');
-  const sort = getSortMode();
+  const sortSel = $('sortSel');
+  const sort = String(sortSel ? sortSel.value : 'name_az');
   const rangeStr = String(($('jobRangeInput') && $('jobRangeInput').value) ? $('jobRangeInput').value : '');
   return `${opKey}__${farmId}__${pageSize}__${sort}__${rangeStr}`;
 }
@@ -1080,26 +1054,6 @@ async function _renderTilesInternal(state){
   const opKey = getCurrentOp();
   const deps = buildDepsForState(state, opKey);
   const filtered = getFilteredFields(state);
-  const sortMode = getSortMode();
-
-  /* ================================================================
-     FIX: stabilize initial computed sorting by warming filtered weather
-     before readiness/rain-driven sort values are built
-     ================================================================ */
-  try{
-    if (
-      sortNeedsComputedData(sortMode) &&
-      state._mods &&
-      state._mods.weather &&
-      typeof state._mods.weather.warmWeatherForFields === 'function' &&
-      filtered.length
-    ){
-      const wxCtx = buildWxCtx(state);
-      await state._mods.weather.warmWeatherForFields(filtered, wxCtx, { force:false, onEach:()=>{} });
-    }
-  }catch(e){
-    console.warn('[FieldReadiness] sort warmWeatherForFields failed:', e);
-  }
 
   state.lastRuns.clear();
   for (const f of state.fields){
