@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-12f-restore-openmeteo-startup-for-new-fields-no-trim
+Rev: 2026-03-13a-restore-visible-batch-eta-refresh-fast
 
 GOAL (per Dane, Feb 2026):
 ✅ Make tiles + details MATCH the Global Calibration readiness number.
@@ -46,6 +46,10 @@ CHANGES (THIS REV):
    weather for filtered fields BEFORE building runs, regardless of sort mode
 ✅ FIX: updateTileForField() now warms the selected field before retrying
    readiness so new fields can pick up an initial score before MRMS exists
+✅ FIX: restored missing updateVisibleTilesBatched() so ETA/helper/readiness
+   refresh runs for ALL visible tiles instead of only the first refreshed one
+✅ SPEED: visible tile updates now pre-load modules/persisted state once,
+   pre-warm visible fields once, and refresh in small parallel batches
 
 ===================================================================== */
 'use strict';
@@ -1295,6 +1299,56 @@ async function updateTileForField(state, fieldId){
       state._selectedTileId = fid;
     }
   }catch(_){}
+}
+
+/* =====================================================================
+   Batch update visible tiles (restored)
+===================================================================== */
+async function updateVisibleTilesBatched(state, ids){
+  try{
+    const list = Array.isArray(ids)
+      ? ids.map(x => String(x || '')).filter(Boolean)
+      : [];
+    if (!list.length) return;
+
+    await ensureFRModules(state);
+    ensureSelectionStyleOnce();
+    ensureFieldsCountHelperEl();
+    await loadPersistedState(state, { force:false });
+    ensureEtaHelperModule(state);
+
+    const fieldsById = new Map((state.fields || []).map(f => [String(f.id), f]));
+    const visibleFields = list.map(id => fieldsById.get(id)).filter(Boolean);
+
+    if (visibleFields.length){
+      await warmWeatherForFieldSet(state, visibleFields);
+    }
+
+    const BATCH_SIZE = 6;
+    const YIELD_MS = 8;
+
+    for (let i = 0; i < list.length; i += BATCH_SIZE){
+      const batchIds = list.slice(i, i + BATCH_SIZE);
+
+      await Promise.all(
+        batchIds.map(async (fid)=>{
+          try{
+            await updateTileForField(state, fid);
+          }catch(e){
+            try{
+              console.warn('[FieldReadiness] visible tile refresh failed for field:', fid, e);
+            }catch(_){}
+          }
+        })
+      );
+
+      if ((i + BATCH_SIZE) < list.length){
+        await new Promise(resolve => setTimeout(resolve, YIELD_MS));
+      }
+    }
+  }catch(e){
+    console.warn('[FieldReadiness] updateVisibleTilesBatched failed:', e);
+  }
 }
 
 /* ---------- click vs dblclick separation ---------- */
