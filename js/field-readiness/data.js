@@ -288,23 +288,47 @@ export async function fetchAndHydrateFieldParams(state, fieldId){
   try{
     let data = null;
 
-    if (api.kind !== 'compat'){
-      const db = api.getFirestore();
-      const ref = api.doc(db, 'fields', fid);
-      const snap = await api.getDoc(ref);
-      if (!snap || !snap.exists || !snap.exists()) return false;
-      data = snap.data() || {};
-    } else {
-      const db = window.firebase.firestore();
-      const snap = await db.collection('fields').doc(fid).get();
-      if (!snap || !snap.exists) return false;
-      data = snap.data() || {};
+    // Try modular Firestore first
+    try{
+      const db = api.getFirestore ? api.getFirestore() : null;
+
+      if (db && typeof api.doc === 'function' && typeof api.getDoc === 'function'){
+        const ref = api.doc(db, 'fields', fid);
+        const snap = await api.getDoc(ref);
+
+        if (snap){
+          const exists =
+            (typeof snap.exists === 'function' && snap.exists()) ||
+            (typeof snap.exists === 'boolean' && snap.exists === true);
+
+          if (exists){
+            data = snap.data() || {};
+          }
+        }
+      }
+    }catch(_){}
+
+    // Compat fallback only if modular did not load the doc
+    if (!data){
+      const db =
+        (window.firebase && typeof window.firebase.firestore === 'function')
+          ? window.firebase.firestore()
+          : null;
+
+      if (db && typeof db.collection === 'function'){
+        const snap = await db.collection('fields').doc(fid).get();
+        if (snap && snap.exists){
+          data = snap.data() || {};
+        }
+      }
     }
+
+    if (!data) return false;
 
     const f = extractFieldDoc(fid, data);
 
     // Update state.fields copy if present
-    const idx = (state.fields || []).findIndex(x=>x.id === fid);
+    const idx = (state.fields || []).findIndex(x => x.id === fid);
     if (idx >= 0){
       state.fields[idx] = { ...state.fields[idx], ...f };
     }
