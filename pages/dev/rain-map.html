@@ -2182,7 +2182,7 @@
       };
     }
 
-        async function buildReadinessRenderableRows(requestId, force=false){
+            async function buildReadinessRenderableRows(requestId, force=false){
       const [fields, farms, mrmsRows, persistedMap] = await Promise.all([
         loadFieldDocs(force),
         loadFarmDocs(force),
@@ -2213,66 +2213,45 @@
         if (r && r.fieldId) mrmsByFieldId.set(String(r.fieldId), r);
       });
 
-      const fieldsById = new Map();
-      fields.forEach(f=>{
-        if (f && f.id) fieldsById.set(String(f.id), f);
-      });
+      // ✅ Only use actual field docs, same idea as the tiles page
+      const candidates = (Array.isArray(fields) ? fields : [])
+        .filter(f=>{
+          if (!f || !f.id) return false;
+          if (selectedFarmId && String(f.farmId || '') !== selectedFarmId) return false;
 
-      const candidateIds = new Set();
-      fields.forEach(f => candidateIds.add(String(f.id || '')));
-      mrmsRows.forEach(r => candidateIds.add(String(r.fieldId || '')));
+          const lat = toNum(f.location && f.location.lat);
+          const lng = toNum(f.location && f.location.lng);
+          return lat != null && lng != null;
+        })
+        .map(f=>{
+          const fid = String(f.id);
+          const m = mrmsByFieldId.get(fid) || null;
 
-      const candidates = [];
-
-      candidateIds.forEach(fid=>{
-        if (!fid) return;
-
-        const f = fieldsById.get(fid) || null;
-        const m = mrmsByFieldId.get(fid) || null;
-
-        const farmId = String(
-          (f && f.farmId) ||
-          (m && m.farmId) ||
-          ''
+          return {
+            id: fid,
+            fieldId: fid,
+            name: String(f.name || 'Field'),
+            farmId: String(f.farmId || ''),
+            farmName: String(
+              (farmMap.get(String(f.farmId || ''))) ||
+              (m && m.farmName) ||
+              ''
+            ),
+            county: String(f.county || ''),
+            state: String(f.state || ''),
+            location: {
+              lat: Number(f.location.lat),
+              lng: Number(f.location.lng)
+            },
+            mrmsRaw: m ? (m.raw || null) : null
+          };
+        })
+        .sort((a, b)=>
+          String(a.name || '').localeCompare(String(b.name || ''), undefined, {
+            numeric:true,
+            sensitivity:'base'
+          })
         );
-
-        if (selectedFarmId && farmId !== selectedFarmId) return;
-
-        const lat = toNum(
-          (f && f.location && f.location.lat) ??
-          (m && m.location && m.location.lat)
-        );
-        const lng = toNum(
-          (f && f.location && f.location.lng) ??
-          (m && m.location && m.location.lng)
-        );
-
-        if (lat == null || lng == null) return;
-
-        candidates.push({
-          id: fid,
-          fieldId: fid,
-          name: String(
-            (f && f.name) ||
-            (m && m.fieldName) ||
-            'Field'
-          ),
-          farmId,
-          farmName: String(
-            (farmMap.get(farmId)) ||
-            (m && m.farmName) ||
-            ''
-          ),
-          county: String((f && f.county) || ''),
-          state: String((f && f.state) || ''),
-          location: { lat, lng },
-          mrmsRaw: m ? (m.raw || null) : null
-        });
-      });
-
-      candidates.sort((a, b)=>
-        String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric:true, sensitivity:'base' })
-      );
 
       const renderedFields = [];
       const summaries = [];
@@ -2286,12 +2265,10 @@
         ]);
       };
 
-      for (let i = 0; i < candidates.length; i++){
-        const field = candidates[i];
+      async function buildOne(field, index, total){
+        if (requestId !== currentRequestId) return null;
 
-        if (requestId !== currentRequestId) return { cancelled:true };
-
-        setDebug(`building readiness ${i + 1}/${candidates.length} • ${field.name || field.id}`);
+        setDebug(`building readiness ${index + 1}/${total} • ${field.name || field.id}`);
 
         const fieldObj = {
           id: String(field.id),
@@ -2309,7 +2286,7 @@
         try{
           await withTimeout(
             fetchAndHydrateFieldParams(readinessState, String(field.id)),
-            4000,
+            2500,
             'param load timeout'
           );
         }catch(e){
@@ -2320,7 +2297,7 @@
         try{
           run = await withTimeout(
             runFieldReadiness(readinessState, fieldObj, {}),
-            12000,
+            8000,
             'readiness timeout'
           );
         }catch(e){
@@ -2328,7 +2305,7 @@
         }
 
         if (!run || !Number.isFinite(Number(run.readinessR))){
-          continue;
+          return null;
         }
 
         const rain72hInches = totalRainInLast72h(field.mrmsRaw);
@@ -2347,12 +2324,33 @@
           rain72hInches
         };
 
-        renderedFields.push(rendered);
-        summaries.push(rendered);
-
         try{
           readinessState.lastRuns.set(String(field.id), run);
         }catch(_){}
+
+        return rendered;
+      }
+
+      // ✅ Fast batched parallel processing
+      const BATCH_SIZE = 8;
+
+      for (let start = 0; start < candidates.length; start += BATCH_SIZE){
+        if (requestId !== currentRequestId) return { cancelled:true };
+
+        const batch = candidates.slice(start, start + BATCH_SIZE);
+        const built = await Promise.all(
+          batch.map((field, idx)=> buildOne(field, start + idx, candidates.length))
+        );
+
+        built.forEach(rendered=>{
+          if (!rendered) return;
+          renderedFields.push(rendered);
+          summaries.push(rendered);
+        });
+
+        if ((start + BATCH_SIZE) < candidates.length){
+          await new Promise(resolve => setTimeout(resolve, 8));
+        }
       }
 
       return {
