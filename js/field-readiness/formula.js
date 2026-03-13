@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/formula.js  (FULL FILE)
-Rev: 2026-03-13a-force-field-weather-warm-safe
+Rev: 2026-03-13b-fix-eta-helper-sync-forecast-cache
 
 PURPOSE:
 ✅ Single source of truth for Field Readiness computation wiring.
@@ -16,6 +16,9 @@ THIS REV:
    Open-Meteo even before MRMS is ready
 ✅ FIX: all weather warm calls are guarded so page does not hard-stop if the
    weather module is unavailable or warmWeatherForFields is missing
+✅ FIX: ETA helper contract restored — forecast getter is synchronous again.
+   Forecast rows are prewarmed/cached, then buildFRDeps exposes them as a
+   normal array getter instead of returning a Promise.
 
 This module:
 - Ensures model/weather/forecast modules are loaded
@@ -202,6 +205,14 @@ function withRainSource(rows, source){
   }));
 }
 
+function normalizeForecastRows(rows){
+  return (Array.isArray(rows) ? rows : []).map(r => ({
+    ...r,
+    rainInAdj: num(r && r.rainInAdj, num(r && r.rainIn, 0)),
+    rainSource: String(r && (r.rainSource || r.precipSource) || 'open-meteo')
+  }));
+}
+
 function overlayMrmsRainOntoWeatherRows(baseRows, mrmsDoc){
   const rows = Array.isArray(baseRows) ? baseRows.slice() : [];
   if (!rows.length) return [];
@@ -259,6 +270,61 @@ async function buildModelWeatherSeriesForFieldId(state, fieldId, wxCtx){
 }
 
 /* =====================================================================
+   Forecast cache helpers
+===================================================================== */
+function ensureForecastCaches(state){
+  if (!state._frForecastCache) state._frForecastCache = new Map();
+  if (!state._frForecastMetaByFieldId) state._frForecastMetaByFieldId = new Map();
+}
+
+async function prewarmForecastForField(state, fieldId){
+  try{
+    if (!state || !fieldId) return [];
+    ensureForecastCaches(state);
+
+    const fid = String(fieldId);
+    const hit = state._frForecastCache.get(fid);
+    if (Array.isArray(hit)) return hit;
+
+    const fc = state && state._mods ? state._mods.forecast : null;
+    if (!fc || typeof fc.readWxSeriesFromCache !== 'function'){
+      state._frForecastCache.set(fid, []);
+      state._frForecastMetaByFieldId.set(fid, {
+        count: 0,
+        updatedAt: Date.now(),
+        source: 'unavailable'
+      });
+      return [];
+    }
+
+    const wx = await fc.readWxSeriesFromCache(fid, {});
+    const rows = normalizeForecastRows((wx && Array.isArray(wx.fcst)) ? wx.fcst : []);
+
+    state._frForecastCache.set(fid, rows);
+    state._frForecastMetaByFieldId.set(fid, {
+      count: rows.length,
+      updatedAt: Date.now(),
+      source: 'open-meteo'
+    });
+
+    return rows;
+  }catch(e){
+    console.warn('[FieldReadiness] forecast prewarm failed:', e);
+    try{
+      ensureForecastCaches(state);
+      const fid = String(fieldId);
+      state._frForecastCache.set(fid, []);
+      state._frForecastMetaByFieldId.set(fid, {
+        count: 0,
+        updatedAt: Date.now(),
+        source: 'error'
+      });
+    }catch(_){}
+    return [];
+  }
+}
+
+/* =====================================================================
    Build deps (the “truth wiring”)
 ===================================================================== */
 export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=null } = {}){
@@ -274,6 +340,8 @@ export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=nul
     (typeof persistedGetter === 'function')
       ? (id)=> persistedGetter(String(id))
       : (id)=> getPersistedTruthFromState(state, String(id));
+
+  ensureForecastCaches(state);
 
   return {
     // legacy/base weather getter still exposed
@@ -318,18 +386,14 @@ export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=nul
     CAL: getCalZero(),
     getPersistedState,
 
-    // Used by ETA helper / any feature that wants forecast rows, but harmless otherwise.
-    getForecastSeriesForFieldId: async (id)=>{
+    // ETA/helper expects a synchronous getter.
+    // Forecast cache is prewarmed before runFieldReadiness/model use.
+    getForecastSeriesForFieldId: (id)=>{
       try{
-        const fc = state._mods.forecast;
-        if (!fc || typeof fc.readWxSeriesFromCache !== 'function') return [];
-        const wx = await fc.readWxSeriesFromCache(String(id), {});
-        const rows = (wx && Array.isArray(wx.fcst)) ? wx.fcst : [];
-        return rows.map(r=>({
-          ...r,
-          rainInAdj: num(r && r.rainInAdj, num(r && r.rainIn, 0)),
-          rainSource: String(r && (r.rainSource || r.precipSource) || 'open-meteo')
-        }));
+        const fid = String(id);
+        ensureForecastCaches(state);
+        const rows = state._frForecastCache.get(fid);
+        return Array.isArray(rows) ? rows : [];
       }catch(_){
         return [];
       }
@@ -363,6 +427,13 @@ async function prewarmModelWeatherForField(state, fieldObj, wxCtx){
       }
     }catch(e){
       console.warn('[FieldReadiness] field weather warm failed:', e);
+    }
+
+    // ✅ Prewarm forecast cache too so ETA helper sees sync rows later.
+    try{
+      await prewarmForecastForField(state, fid);
+    }catch(e){
+      console.warn('[FieldReadiness] field forecast warm failed:', e);
     }
 
     const built = await buildModelWeatherSeriesForFieldId(state, fid, wxCtx);
