@@ -1,4 +1,21 @@
-import { ensureFRModules, runFieldReadiness } from '/Farm-vista/js/field-readiness/formula.js';
+import { ensureFRModules, buildFRDeps } from '/Farm-vista/js/field-readiness/formula.js';
+import { buildWxCtx } from '/Farm-vista/js/field-readiness/state.js';
+
+function getPersistedStateForDeps(state, fieldId){
+  try{
+    const map = (state && state.persistedStateByFieldId && typeof state.persistedStateByFieldId === 'object')
+      ? state.persistedStateByFieldId
+      : {};
+
+    const fid = String(fieldId || '').trim();
+    if (!fid) return null;
+
+    const hit = map[fid];
+    return (hit && typeof hit === 'object') ? hit : null;
+  }catch(_){
+    return null;
+  }
+}
 
 export async function computeReadinessRunForMapField(state, fieldObj){
   try{
@@ -6,30 +23,20 @@ export async function computeReadinessRunForMapField(state, fieldObj){
 
     await ensureFRModules(state);
 
-    const run = await runFieldReadiness(state, fieldObj, {
-      persistedGetter: (id)=>{
-        try{
-          const map = (state && state.persistedStateByFieldId && typeof state.persistedStateByFieldId === 'object')
-            ? state.persistedStateByFieldId
-            : {};
+    const wxCtx = buildWxCtx(state);
 
-          const fid = String(id || '').trim();
-          if (!fid) return null;
-
-          const hit = map[fid];
-          return (hit && typeof hit === 'object') ? hit : null;
-        }catch(_){
-          return null;
-        }
-      }
+    const depsTruth = buildFRDeps(state, {
+      wxCtx,
+      persistedGetter: (id)=> getPersistedStateForDeps(state, id)
     });
 
-    if (!run) return null;
+    const runTruth = state._mods.model.runField(fieldObj, depsTruth);
+    if (!runTruth) return null;
 
-    const score = Number(run.readinessR);
+    const score = Number(runTruth.readinessR);
     if (!Number.isFinite(score)) return null;
 
-    return run;
+    return runTruth;
   }catch(e){
     console.warn('[WeatherMap] readiness run failed:', fieldObj && fieldObj.id, e);
     return null;
