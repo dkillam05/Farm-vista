@@ -4,14 +4,12 @@
    FIX GOAL:
    - readiness mode must prepare state the SAME way the working
      field-readiness page does
-   - for readiness truth prep, use field-readiness/data.js
-     instead of rainfallmap/data-loaders.js
+   - initialize field-readiness firebase wrapper before using
+     field-readiness/data.js loaders
 ====================================================================== */
 
 import { appState } from './store.js';
 import {
-  loadFieldDocs,
-  loadFarmDocs,
   loadMrmsDocs,
   loadPersistedStateMap
 } from './data-loaders.js';
@@ -34,6 +32,8 @@ import {
 } from '/Farm-vista/js/field-readiness/data.js';
 
 import { ensureFRModules } from '/Farm-vista/js/field-readiness/formula.js';
+import { getCurrentOp } from '/Farm-vista/js/field-readiness/thresholds.js';
+import { importFirebaseInit } from '/Farm-vista/js/field-readiness/firebase.js';
 
 /* =====================================================================
    Rain builder
@@ -127,7 +127,6 @@ export async function buildReadinessRenderableRows(requestId, force=false){
   const selectedFarmId = getSelectedFarmId();
   const state = appState.readinessState;
 
-  // keep MRMS + persisted state from rainfall-map loaders
   const [mrmsRows, persistedMap] = await Promise.all([
     loadMrmsDocs(force),
     loadPersistedStateMap(force)
@@ -135,8 +134,6 @@ export async function buildReadinessRenderableRows(requestId, force=false){
 
   if (requestId !== appState.currentRequestId) return { cancelled:true };
 
-  // IMPORTANT:
-  // Prepare readiness state the same way field-readiness page does.
   resetReadinessRunCaches(state);
 
   state.farmFilter = selectedFarmId || '__all__';
@@ -144,29 +141,30 @@ export async function buildReadinessRenderableRows(requestId, force=false){
   state.persistedStateByFieldId = persistedMap || {};
   state._persistLoadedAt = Date.now();
 
+  /* ---------------------------------------------------------
+     CRITICAL FIX:
+     field-readiness/data.js expects state.fb to be initialized
+     through field-readiness/firebase.js
+  --------------------------------------------------------- */
+  await importFirebaseInit(state);
   await ensureFRModules(state);
 
-  // same prep path as working readiness page
+  /* ---------------------------------------------------------
+     Use the SAME prep path as the working readiness page
+  --------------------------------------------------------- */
   await loadFarmsOptional(state);
   await loadFrFields(state);
 
   if (requestId !== appState.currentRequestId) return { cancelled:true };
 
   const fields = getFilteredActiveFieldsFromReadinessState(state, selectedFarmId);
-
   const farmMap = (state.farmsById instanceof Map) ? state.farmsById : new Map();
+  const opKey = getCurrentOp();
 
   const mrmsByFieldId = new Map();
   (Array.isArray(mrmsRows) ? mrmsRows : []).forEach(r=>{
     if (r && r.fieldId) mrmsByFieldId.set(String(r.fieldId), r);
   });
-
-  const opKey = (() => {
-    try{
-      if (typeof window.getCurrentOp === 'function') return String(window.getCurrentOp() || '');
-    }catch(_){}
-    return '';
-  })();
 
   const renderedFields = [];
   const summaries = [];
@@ -178,7 +176,7 @@ export async function buildReadinessRenderableRows(requestId, force=false){
     const lat = Number(f.location.lat);
     const lng = Number(f.location.lng);
 
-    setDebug(`building readiness ${i+1}/${fields.length} • ${f.name}`);
+    setDebug(`building readiness ${i+1}/${fields.length} • ${f.name} • op=${opKey}`);
 
     try{
       await fetchAndHydrateFieldParams(state, f.id);
