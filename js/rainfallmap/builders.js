@@ -2,11 +2,20 @@
    /Farm-vista/js/rainfallmap/builders.js
    FULL FILE REBUILD
    FIX GOAL:
-   - readiness mode must prepare state the SAME way the working
-     field-readiness page does
-   - initialize field-readiness firebase wrapper before using
-     field-readiness/data.js loaders
+   - readiness mode uses the SAME field-readiness pipeline as the rest
+     of the app
+   - bridge rainfall-map Firebase init into the field-readiness API shape
+   - no separate fake readiness world
 ====================================================================== */
+
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+  doc,
+  getDoc
+} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
 import { appState } from './store.js';
 import {
@@ -33,7 +42,6 @@ import {
 
 import { ensureFRModules } from '/Farm-vista/js/field-readiness/formula.js';
 import { getCurrentOp } from '/Farm-vista/js/field-readiness/thresholds.js';
-import { importFirebaseInit } from '/Farm-vista/js/field-readiness/firebase.js';
 
 /* =====================================================================
    Rain builder
@@ -99,8 +107,46 @@ function resetReadinessRunCaches(state){
     if (state.wxInfoByFieldId instanceof Map) state.wxInfoByFieldId.clear();
     else state.wxInfoByFieldId = new Map();
 
+    if (state.mrmsByFieldId instanceof Map) state.mrmsByFieldId.clear();
+    else state.mrmsByFieldId = new Map();
+
+    if (state.mrmsInfoByFieldId instanceof Map) state.mrmsInfoByFieldId.clear();
+    else state.mrmsInfoByFieldId = new Map();
+
+    if (state._mrmsDocByFieldId instanceof Map) state._mrmsDocByFieldId.clear();
+    else state._mrmsDocByFieldId = new Map();
+
+    if (state._mrmsDocLoadedAtByFieldId instanceof Map) state._mrmsDocLoadedAtByFieldId.clear();
+    else state._mrmsDocLoadedAtByFieldId = new Map();
+
     state.weather30 = [];
   }catch(_){}
+}
+
+function installFieldReadinessFirebaseAdapter(state){
+  try{
+    const dbRef = appState.dbRef || null;
+    const authRef = appState.authRef || null;
+
+    if (!dbRef) {
+      throw new Error('rainfall map dbRef missing');
+    }
+
+    state.fb = {
+      ready: Promise.resolve(),
+      getFirestore: ()=> dbRef,
+      getAuth: ()=> authRef,
+      collection,
+      getDocs,
+      query,
+      where,
+      doc,
+      getDoc
+    };
+  }catch(e){
+    console.warn('[WeatherMap] failed to install FR firebase adapter:', e);
+    state.fb = null;
+  }
 }
 
 function getFilteredActiveFieldsFromReadinessState(state, selectedFarmId){
@@ -142,11 +188,12 @@ export async function buildReadinessRenderableRows(requestId, force=false){
   state._persistLoadedAt = Date.now();
 
   /* ---------------------------------------------------------
-     CRITICAL FIX:
-     field-readiness/data.js expects state.fb to be initialized
-     through field-readiness/firebase.js
+     CRITICAL:
+     Bridge rainfall-map Firebase init into the field-readiness
+     loader API shape.
   --------------------------------------------------------- */
-  await importFirebaseInit(state);
+  installFieldReadinessFirebaseAdapter(state);
+
   await ensureFRModules(state);
 
   /* ---------------------------------------------------------
