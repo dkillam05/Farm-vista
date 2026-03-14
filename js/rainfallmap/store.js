@@ -1,11 +1,32 @@
 /* ======================================================================
    /Farm-vista/js/rainfallmap/store.js
    FULL FILE REBUILD
-   Fix:
-   - readinessState now matches the structure expected by
-     field-readiness/state.js
-   - adds missing weather caches required by buildWxCtx()
+   FIX GOAL:
+   - make rainfall-map readiness use a REAL field-readiness state object
+   - stop using a hand-made partial readiness state shape
 ====================================================================== */
+
+import { createState } from '/Farm-vista/js/field-readiness/state.js';
+
+function createRainMapReadinessState(){
+  const state = createState();
+
+  // keep a few caches/fields the map code expects
+  state.selectedFieldId = '';
+  state.persistedStateByFieldId = {};
+  state._persistLoadedAt = 0;
+
+  state.paramMetaByFieldId = new Map();
+
+  state._frModelWxCache = new Map();
+  state._frForecastCache = new Map();
+  state._frForecastMetaByFieldId = new Map();
+
+  state._mrmsDocByFieldId = new Map();
+  state._mrmsDocLoadedAtByFieldId = new Map();
+
+  return state;
+}
 
 export const appState = {
   map: null,
@@ -35,47 +56,6 @@ export const appState = {
 
   rangeCache: new Map(),
 
-  /* ============================================================
-     Field Readiness compatible state
-  ============================================================ */
-  readinessState: {
-
-    fields: [],
-    farmsById: new Map(),
-
-    farmFilter: '__all__',
-    selectedFieldId: '',
-
-    persistedStateByFieldId: {},
-    _persistLoadedAt: 0,
-
-    /* modules loaded by formula.js */
-    _mods: {},
-
-    lastRuns: new Map(),
-
-    /* MRMS */
-    _mrmsDocByFieldId: new Map(),
-    _mrmsDocLoadedAtByFieldId: new Map(),
-
-    /* params */
-    perFieldParams: new Map(),
-    paramMetaByFieldId: new Map(),
-
-    /* weather model caches */
-    _frModelWxCache: new Map(),
-    _frForecastCache: new Map(),
-    _frForecastMetaByFieldId: new Map(),
-
-    /* ---------------------------------------------------------
-       REQUIRED for buildWxCtx() (this was missing before)
-    --------------------------------------------------------- */
-    weather30: [],
-    weatherByFieldId: new Map(),
-    wxInfoByFieldId: new Map(),
-
-    /* MRMS display caches */
-    mrmsByFieldId: new Map(),
-    mrmsInfoByFieldId: new Map()
-  }
+  // IMPORTANT: use the same base state shape as field readiness
+  readinessState: createRainMapReadinessState()
 };
