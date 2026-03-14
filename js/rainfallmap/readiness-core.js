@@ -1,13 +1,17 @@
 /* ======================================================================
    /Farm-vista/js/rainfallmap/readiness-core.js
    FULL FILE REBUILD
-   Matches render.js readiness path:
-   - uses runFieldReadiness(..., { opKey, wxCtx, persistedGetter })
-   - falls back to model.runField(buildFRDeps(...))
-   ====================================================================== */
+   FIX GOAL:
+   - make map readiness use the same truth path as render.js/quickview
+   - keep persisted getter wiring consistent
+====================================================================== */
 
 import { buildWxCtx } from '/Farm-vista/js/field-readiness/state.js';
-import { ensureFRModules, buildFRDeps, runFieldReadiness } from '/Farm-vista/js/field-readiness/formula.js';
+import {
+  ensureFRModules,
+  buildFRDeps,
+  runFieldReadiness
+} from '/Farm-vista/js/field-readiness/formula.js';
 
 function getPersistedStateForDeps(state, fieldId){
   try{
@@ -52,8 +56,8 @@ export async function computeReadinessRunForMapField(state, fieldObj, opKey){
       if (run && Number.isFinite(Number(run.readinessR))){
         return run;
       }
-    }catch(_){
-      // fall through to legacy fallback below
+    }catch(e){
+      console.warn('[WeatherMap] runFieldReadiness failed, trying same-deps fallback:', fieldObj && fieldObj.id, e);
     }
 
     try{
@@ -66,8 +70,8 @@ export async function computeReadinessRunForMapField(state, fieldObj, opKey){
           return legacy;
         }
       }
-    }catch(_){
-      // fall through
+    }catch(e){
+      console.warn('[WeatherMap] buildFRDeps/model fallback failed:', fieldObj && fieldObj.id, e);
     }
 
     return null;
