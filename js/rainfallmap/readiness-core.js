@@ -1,19 +1,13 @@
-/* =====================================================================
-/Farm-vista/js/rainfallmap/readiness-core.js  (FULL FILE)
-Rev: 2026-03-13b-match-quickview-readiness-path
-
-Goal:
-- Make map readiness use the same model wiring pattern as Quick View
-- Keep weather warm/prep so map rows still build
-- Return null only when the run is truly unusable
-===================================================================== */
-
-import {
-  ensureFRModules,
-  buildFRDeps
-} from '/Farm-vista/js/field-readiness/formula.js';
+/* ======================================================================
+   /Farm-vista/js/rainfallmap/readiness-core.js
+   FULL FILE REBUILD
+   Matches render.js readiness path:
+   - uses runFieldReadiness(..., { opKey, wxCtx, persistedGetter })
+   - falls back to model.runField(buildFRDeps(...))
+   ====================================================================== */
 
 import { buildWxCtx } from '/Farm-vista/js/field-readiness/state.js';
+import { ensureFRModules, buildFRDeps, runFieldReadiness } from '/Farm-vista/js/field-readiness/formula.js';
 
 function getPersistedStateForDeps(state, fieldId){
   try{
@@ -31,21 +25,16 @@ function getPersistedStateForDeps(state, fieldId){
   }
 }
 
-async function warmFieldWeatherIfAvailable(state, fieldObj, wxCtx){
-  try{
-    const weather = state && state._mods ? state._mods.weather : null;
-    if (!weather || typeof weather.warmWeatherForFields !== 'function') return;
-
-    await weather.warmWeatherForFields([fieldObj], wxCtx, {
-      force: false,
-      onEach: ()=>{}
-    });
-  }catch(e){
-    console.warn('[WeatherMap] field weather warm failed:', fieldObj && fieldObj.id, e);
-  }
+function buildDepsForState(state, opKey){
+  const wxCtx = buildWxCtx(state);
+  return buildFRDeps(state, {
+    opKey: String(opKey || ''),
+    wxCtx,
+    persistedGetter: (id)=> getPersistedStateForDeps(state, id)
+  });
 }
 
-export async function computeReadinessRunForMapField(state, fieldObj){
+export async function computeReadinessRunForMapField(state, fieldObj, opKey){
   try{
     if (!state || !fieldObj) return null;
 
@@ -53,23 +42,35 @@ export async function computeReadinessRunForMapField(state, fieldObj){
 
     const wxCtx = buildWxCtx(state);
 
-    await warmFieldWeatherIfAvailable(state, fieldObj, wxCtx);
+    try{
+      const run = await runFieldReadiness(state, fieldObj, {
+        opKey: String(opKey || ''),
+        wxCtx,
+        persistedGetter: (id)=> getPersistedStateForDeps(state, id)
+      });
 
-    const depsTruth = buildFRDeps(state, {
-      wxCtx,
-      persistedGetter: (id)=> getPersistedStateForDeps(state, id)
-    });
+      if (run && Number.isFinite(Number(run.readinessR))){
+        return run;
+      }
+    }catch(_){
+      // fall through to legacy fallback below
+    }
 
-    const model = state && state._mods ? state._mods.model : null;
-    if (!model || typeof model.runField !== 'function') return null;
+    try{
+      const deps = buildDepsForState(state, opKey);
+      const model = state && state._mods ? state._mods.model : null;
 
-    const run = model.runField(fieldObj, depsTruth);
-    if (!run) return null;
+      if (model && typeof model.runField === 'function'){
+        const legacy = model.runField(fieldObj, deps);
+        if (legacy && Number.isFinite(Number(legacy.readinessR))){
+          return legacy;
+        }
+      }
+    }catch(_){
+      // fall through
+    }
 
-    const score = Number(run.readinessR);
-    if (!Number.isFinite(score)) return null;
-
-    return run;
+    return null;
   }catch(e){
     console.warn('[WeatherMap] readiness run failed:', fieldObj && fieldObj.id, e);
     return null;
