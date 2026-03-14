@@ -1,9 +1,11 @@
 /* ======================================================================
    /Farm-vista/js/rainfallmap/builders.js
    FULL FILE REBUILD
-   Fix:
-   - rainfall map readiness now uses the SAME weather-warmed state
-     as Quick View
+   FIX GOAL:
+   - readiness mode must prepare state the SAME way the working
+     field-readiness page does
+   - for readiness truth prep, use field-readiness/data.js
+     instead of rainfallmap/data-loaders.js
 ====================================================================== */
 
 import { appState } from './store.js';
@@ -23,21 +25,22 @@ import {
 } from './rain-data.js';
 
 import { setDebug } from './dom.js';
-
 import { computeReadinessRunForMapField } from './readiness-core.js';
 
-import { fetchAndHydrateFieldParams } from '/Farm-vista/js/field-readiness/data.js';
+import {
+  loadFields as loadFrFields,
+  loadFarmsOptional,
+  fetchAndHydrateFieldParams
+} from '/Farm-vista/js/field-readiness/data.js';
+
 import { ensureFRModules } from '/Farm-vista/js/field-readiness/formula.js';
-import { getCurrentOp } from '/Farm-vista/js/field-readiness/thresholds.js';
 
 /* =====================================================================
    Rain builder
 ===================================================================== */
 
 export async function buildRainRenderableRows(requestId, force=false){
-
   const rows = await loadMrmsDocs(force);
-
   if (requestId !== appState.currentRequestId) return { cancelled:true };
 
   const selectedFarmId = getSelectedFarmId();
@@ -53,7 +56,6 @@ export async function buildRainRenderableRows(requestId, force=false){
   const renderedFields = [];
 
   usableRows.forEach(row=>{
-
     const fieldPoints = buildFieldPoints(row);
     const summary = buildRainSummary(row);
 
@@ -69,10 +71,52 @@ export async function buildRainRenderableRows(requestId, force=false){
 
     summaries.push(summary);
     points.push(...fieldPoints);
-
   });
 
   return { points, summaries, renderedFields };
+}
+
+/* =====================================================================
+   Readiness helpers
+===================================================================== */
+
+function resetReadinessRunCaches(state){
+  try{
+    state.lastRuns = new Map();
+
+    if (state._frModelWxCache instanceof Map) state._frModelWxCache.clear();
+    else state._frModelWxCache = new Map();
+
+    if (state._frForecastCache instanceof Map) state._frForecastCache.clear();
+    else state._frForecastCache = new Map();
+
+    if (state._frForecastMetaByFieldId instanceof Map) state._frForecastMetaByFieldId.clear();
+    else state._frForecastMetaByFieldId = new Map();
+
+    if (state.weatherByFieldId instanceof Map) state.weatherByFieldId.clear();
+    else state.weatherByFieldId = new Map();
+
+    if (state.wxInfoByFieldId instanceof Map) state.wxInfoByFieldId.clear();
+    else state.wxInfoByFieldId = new Map();
+
+    state.weather30 = [];
+  }catch(_){}
+}
+
+function getFilteredActiveFieldsFromReadinessState(state, selectedFarmId){
+  const list = Array.isArray(state && state.fields) ? state.fields : [];
+  return list.filter(f=>{
+    if (!f || !f.id) return false;
+    if (!f.location) return false;
+
+    const lat = Number(f.location.lat);
+    const lng = Number(f.location.lng);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+    if (selectedFarmId && String(f.farmId || '') !== String(selectedFarmId)) return false;
+
+    return true;
+  });
 }
 
 /* =====================================================================
@@ -80,75 +124,78 @@ export async function buildRainRenderableRows(requestId, force=false){
 ===================================================================== */
 
 export async function buildReadinessRenderableRows(requestId, force=false){
+  const selectedFarmId = getSelectedFarmId();
+  const state = appState.readinessState;
 
-  const [fields, farms, mrmsRows, persistedMap] = await Promise.all([
-    loadFieldDocs(force),
-    loadFarmDocs(force),
+  // keep MRMS + persisted state from rainfall-map loaders
+  const [mrmsRows, persistedMap] = await Promise.all([
     loadMrmsDocs(force),
     loadPersistedStateMap(force)
   ]);
 
   if (requestId !== appState.currentRequestId) return { cancelled:true };
 
-  const selectedFarmId = getSelectedFarmId();
-  const opKey = getCurrentOp();
+  // IMPORTANT:
+  // Prepare readiness state the same way field-readiness page does.
+  resetReadinessRunCaches(state);
 
-  const farmMap = new Map();
-  farms.forEach(f=>{
-    farmMap.set(String(f.id || ''), String(f.name || ''));
-  });
-
-  const state = appState.readinessState;
-
-  state.fields = Array.isArray(fields) ? fields.slice() : [];
-  state.farmsById = farmMap;
   state.farmFilter = selectedFarmId || '__all__';
+  state.pageSize = -1;
   state.persistedStateByFieldId = persistedMap || {};
   state._persistLoadedAt = Date.now();
-  state.lastRuns = new Map();
 
   await ensureFRModules(state);
 
+  // same prep path as working readiness page
+  await loadFarmsOptional(state);
+  await loadFrFields(state);
+
+  if (requestId !== appState.currentRequestId) return { cancelled:true };
+
+  const fields = getFilteredActiveFieldsFromReadinessState(state, selectedFarmId);
+
+  const farmMap = (state.farmsById instanceof Map) ? state.farmsById : new Map();
+
   const mrmsByFieldId = new Map();
-  mrmsRows.forEach(r=>{
+  (Array.isArray(mrmsRows) ? mrmsRows : []).forEach(r=>{
     if (r && r.fieldId) mrmsByFieldId.set(String(r.fieldId), r);
   });
+
+  const opKey = (() => {
+    try{
+      if (typeof window.getCurrentOp === 'function') return String(window.getCurrentOp() || '');
+    }catch(_){}
+    return '';
+  })();
 
   const renderedFields = [];
   const summaries = [];
 
-  for (let i=0;i<fields.length;i++){
-
+  for (let i = 0; i < fields.length; i++){
     if (requestId !== appState.currentRequestId) return { cancelled:true };
 
     const f = fields[i];
-
-    if (!f || !f.id) continue;
-    if (selectedFarmId && String(f.farmId || '') !== String(selectedFarmId)) continue;
-
-    const lat = Number(f?.location?.lat ?? f.lat);
-    const lng = Number(f?.location?.lng ?? f.lng ?? f.lon);
-
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    const lat = Number(f.location.lat);
+    const lng = Number(f.location.lng);
 
     setDebug(`building readiness ${i+1}/${fields.length} • ${f.name}`);
 
     try{
       await fetchAndHydrateFieldParams(state, f.id);
     }catch(e){
-      console.warn('[WeatherMap] param load failed', f.id, e);
+      console.warn('[WeatherMap] field params load failed', f.id, e);
     }
 
     const run = await computeReadinessRunForMapField(
       state,
       {
-        id:f.id,
-        fieldId:f.id,
-        name:f.name,
-        farmId:f.farmId,
-        county:f.county,
-        state:f.state,
-        location:{lat,lng}
+        id: String(f.id),
+        fieldId: String(f.id),
+        name: String(f.name || 'Field'),
+        farmId: String(f.farmId || ''),
+        county: String(f.county || ''),
+        state: String(f.state || ''),
+        location: { lat, lng }
       },
       opKey
     );
@@ -158,18 +205,17 @@ export async function buildReadinessRenderableRows(requestId, force=false){
     const readiness = Number(run.readinessR);
     if (!Number.isFinite(readiness)) continue;
 
-    const rain72hInches = totalRainInLast72h(
-      (mrmsByFieldId.get(String(f.id)) || {}).raw
-    );
+    const mrmsRow = mrmsByFieldId.get(String(f.id)) || null;
+    const rain72hInches = totalRainInLast72h(mrmsRow ? mrmsRow.raw : null);
 
     const rendered = {
-      kind:'readiness',
-      fieldId:f.id,
-      fieldName:f.name,
-      farmId:f.farmId,
-      farmName:farmMap.get(String(f.farmId)) || '',
-      county:f.county,
-      state:f.state,
+      kind: 'readiness',
+      fieldId: String(f.id),
+      fieldName: String(f.name || 'Field'),
+      farmId: String(f.farmId || ''),
+      farmName: String(farmMap.get(String(f.farmId || '')) || ''),
+      county: String(f.county || ''),
+      state: String(f.state || ''),
       lat,
       lng,
       readiness,
@@ -178,9 +224,7 @@ export async function buildReadinessRenderableRows(requestId, force=false){
 
     renderedFields.push(rendered);
     summaries.push(rendered);
-
-    state.lastRuns.set(f.id, run);
-
+    state.lastRuns.set(String(f.id), run);
   }
 
   return { summaries, renderedFields };
