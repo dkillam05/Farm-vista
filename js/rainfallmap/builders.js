@@ -7,48 +7,6 @@ import { computeReadinessRunForMapField } from './readiness-core.js';
 import { fetchAndHydrateFieldParams } from '/Farm-vista/js/field-readiness/data.js';
 import { ensureFRModules } from '/Farm-vista/js/field-readiness/formula.js';
 
-function safeStr(v){
-  return String(v || '');
-}
-
-function safeNum(v){
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-function makeNormalizedMapField(sourceField, farmName='', mrmsRaw=null){
-  const lat = safeNum(
-    sourceField && (
-      (sourceField.location && sourceField.location.lat) ??
-      sourceField.lat
-    )
-  );
-
-  const lng = safeNum(
-    sourceField && (
-      (sourceField.location && sourceField.location.lng) ??
-      (sourceField.location && sourceField.location.lon) ??
-      sourceField.lng ??
-      sourceField.lon
-    )
-  );
-
-  if (lat == null || lng == null) return null;
-
-  return {
-    ...sourceField,
-    id: safeStr(sourceField && sourceField.id),
-    fieldId: safeStr((sourceField && (sourceField.fieldId || sourceField.id)) || ''),
-    name: safeStr((sourceField && (sourceField.name || sourceField.fieldName)) || 'Field'),
-    farmId: safeStr(sourceField && sourceField.farmId),
-    farmName: safeStr(farmName),
-    county: safeStr(sourceField && sourceField.county),
-    state: safeStr(sourceField && sourceField.state),
-    location: { lat, lng },
-    mrmsRaw: mrmsRaw || null
-  };
-}
-
 export async function buildRainRenderableRows(requestId, force=false){
   const rows = await loadMrmsDocs(force);
   if (requestId !== appState.currentRequestId) return { cancelled:true };
@@ -121,29 +79,32 @@ export async function buildReadinessRenderableRows(requestId, force=false){
 
   const candidates = [];
 
-  (Array.isArray(fields) ? fields : []).forEach(sourceField=>{
-    if (!sourceField || !sourceField.id) return;
-    if (selectedFarmId && String(sourceField.farmId || '') !== selectedFarmId) return;
+  (Array.isArray(fields) ? fields : []).forEach(f=>{
+    if (!f || !f.id) return;
+    if (selectedFarmId && String(f.farmId || '') !== selectedFarmId) return;
 
-    const fid = String(sourceField.id);
-    const mrmsRow = mrmsByFieldId.get(fid) || null;
-    const farmName = String(
-      farmMap.get(String(sourceField.farmId || '')) ||
-      (mrmsRow && mrmsRow.farmName) ||
-      ''
-    );
+    const lat = Number(f && ((f.location && f.location.lat) ?? f.lat));
+    const lng = Number(f && ((f.location && f.location.lng) ?? (f.location && f.location.lon) ?? f.lng ?? f.lon));
 
-    const fieldObj = makeNormalizedMapField(sourceField, farmName, mrmsRow ? (mrmsRow.raw || null) : null);
-    if (!fieldObj) return;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-    candidates.push(fieldObj);
+    const fid = String(f.id);
+    const m = mrmsByFieldId.get(fid) || null;
+
+    candidates.push({
+      id: fid,
+      sourceField: f,
+      farmName: String((farmMap.get(String(f.farmId || ''))) || (m && m.farmName) || ''),
+      mrmsRaw: m ? (m.raw || null) : null
+    });
   });
 
   candidates.sort((a, b)=>
-    String(a.name || '').localeCompare(String(b.name || ''), undefined, {
-      numeric:true,
-      sensitivity:'base'
-    })
+    String((a.sourceField && a.sourceField.name) || '').localeCompare(
+      String((b.sourceField && b.sourceField.name) || ''),
+      undefined,
+      { numeric:true, sensitivity:'base' }
+    )
   );
 
   const renderedFields = [];
@@ -158,8 +119,11 @@ export async function buildReadinessRenderableRows(requestId, force=false){
     ]);
   };
 
-  async function buildOne(field, index, total){
+  async function buildOne(candidate, index, total){
     if (requestId !== appState.currentRequestId) return null;
+
+    const field = candidate && candidate.sourceField ? candidate.sourceField : null;
+    if (!field || !field.id) return null;
 
     setDebug(`building readiness ${index + 1}/${total} • ${field.name || field.id}`);
 
@@ -188,18 +152,18 @@ export async function buildReadinessRenderableRows(requestId, force=false){
       return null;
     }
 
-    const rain72hInches = totalRainInLast72h(field.mrmsRaw);
+    const rain72hInches = totalRainInLast72h(candidate.mrmsRaw);
 
     const rendered = {
       kind: 'readiness',
       fieldId: String(field.id),
       fieldName: String(field.name || 'Field'),
       farmId: String(field.farmId || ''),
-      farmName: String(field.farmName || ''),
+      farmName: String(candidate.farmName || ''),
       county: String(field.county || ''),
       state: String(field.state || ''),
-      lat: Number(field.location.lat),
-      lng: Number(field.location.lng),
+      lat: Number(field.location && field.location.lat),
+      lng: Number(field.location && field.location.lng),
       readiness: Number(run.readinessR),
       rain72hInches
     };
@@ -218,7 +182,7 @@ export async function buildReadinessRenderableRows(requestId, force=false){
 
     const batch = candidates.slice(start, start + BATCH_SIZE);
     const built = await Promise.all(
-      batch.map((field, idx)=> buildOne(field, start + idx, candidates.length))
+      batch.map((candidate, idx)=> buildOne(candidate, start + idx, candidates.length))
     );
 
     built.forEach(rendered=>{
