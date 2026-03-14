@@ -1,4 +1,13 @@
-import { ensureFRModules, buildFRDeps } from '/Farm-vista/js/field-readiness/formula.js';
+/* ======================================================================
+   FILE: /Farm-vista/js/rainfallmap/readiness-core.js
+   FULL FILE REBUILD
+   Goal:
+   - stop returning null for every field
+   - try the exact formula.js path first
+   - if that fails, fall back to the same direct model path quickview uses
+   ====================================================================== */
+
+import { ensureFRModules, runFieldReadiness, buildFRDeps } from '/Farm-vista/js/field-readiness/formula.js';
 import { buildWxCtx } from '/Farm-vista/js/field-readiness/state.js';
 
 function getPersistedStateForDeps(state, fieldId){
@@ -23,20 +32,49 @@ export async function computeReadinessRunForMapField(state, fieldObj){
 
     await ensureFRModules(state);
 
-    const wxCtx = buildWxCtx(state);
+    /* ---------------------------------------------
+       PATH A
+       Use formula.js single entry point first
+       --------------------------------------------- */
+    try{
+      const runA = await runFieldReadiness(state, fieldObj, {
+        persistedGetter: (id)=> getPersistedStateForDeps(state, id)
+      });
 
-    const depsTruth = buildFRDeps(state, {
-      wxCtx,
-      persistedGetter: (id)=> getPersistedStateForDeps(state, id)
-    });
+      if (runA && Number.isFinite(Number(runA.readinessR))){
+        return runA;
+      }
+    }catch(e){
+      console.warn('[WeatherMap] runFieldReadiness path failed:', fieldObj && fieldObj.id, e);
+    }
 
-    const runTruth = state._mods.model.runField(fieldObj, depsTruth);
-    if (!runTruth) return null;
+    /* ---------------------------------------------
+       PATH B
+       Fall back to direct model run like quickview
+       --------------------------------------------- */
+    try{
+      const wxCtx = buildWxCtx(state);
 
-    const score = Number(runTruth.readinessR);
-    if (!Number.isFinite(score)) return null;
+      const deps = buildFRDeps(state, {
+        wxCtx,
+        persistedGetter: (id)=> getPersistedStateForDeps(state, id)
+      });
 
-    return runTruth;
+      const model = state && state._mods ? state._mods.model : null;
+      if (!model || typeof model.runField !== 'function'){
+        return null;
+      }
+
+      const runB = model.runField(fieldObj, deps);
+
+      if (runB && Number.isFinite(Number(runB.readinessR))){
+        return runB;
+      }
+    }catch(e){
+      console.warn('[WeatherMap] direct runField path failed:', fieldObj && fieldObj.id, e);
+    }
+
+    return null;
   }catch(e){
     console.warn('[WeatherMap] readiness run failed:', fieldObj && fieldObj.id, e);
     return null;
