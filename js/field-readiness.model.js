@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-03-15d-eta-start-from-latest-readiness-truth
+Rev: 2026-03-15e-force-eta-nonzero-below-threshold
 
 OPTION 1 (per Dane):
 ✅ Model owns ETA and computes it from the SAME truth-seeded run + SAME physics.
@@ -22,6 +22,8 @@ THIS REV:
    forward from that same below-threshold state instead of collapsing to 0h
 ✅ FIX: authoritative readiness is converted back into a matching starting storage
    so the ETA sim starts from the same truth the tile shows
+✅ HARD GUARD: if authoritative latest readiness is below threshold, ETA may NOT
+   return 0h / dryNow
 
 TUNING NOTES FOR NEXT TIME:
 - WET_HOLD_START:
@@ -794,23 +796,24 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
 
     const derivedNowR = computeReadinessFromStorage(storagePhys, f, deps).readiness;
 
-    // Firestore latest readiness is the authority for the dryNow gate.
-    const dryNowGateR = Number.isFinite(authoritativeNowR)
-      ? authoritativeNowR
-      : derivedNowR;
+    const hasAuthoritativeNow = Number.isFinite(authoritativeNowR);
 
-    if (Number(dryNowGateR) >= thr){
+    // Firestore latest readiness is the authority for the dryNow gate.
+    // If Firestore latest says below threshold, ETA may NOT be 0h.
+    const dryNowGateR = hasAuthoritativeNow ? authoritativeNowR : derivedNowR;
+
+    if (dryNowGateR >= thr && !(hasAuthoritativeNow && authoritativeNowR < thr)){
       return { ok:true, status:'dryNow', hours:0, text:'' };
     }
 
     // Start interpolation from the same latest readiness truth the tile uses.
-    let prevR = Number.isFinite(authoritativeNowR)
-      ? authoritativeNowR
-      : derivedNowR;
-
+    let prevR = hasAuthoritativeNow ? authoritativeNowR : derivedNowR;
     let prevT = 0;
 
-    if (prevR >= thr){
+    // Hard guard against bad seed mismatch.
+    if (hasAuthoritativeNow && authoritativeNowR < thr){
+      prevR = Math.min(prevR, thr - 1);
+    } else if (prevR >= thr){
       prevR = Math.max(0, thr - 1);
     }
 
@@ -872,12 +875,13 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
         const fracCross = denom <= 1e-6 ? 1 : clamp((thr - prevR) / denom, 0, 1);
         let eta = prevT + fracCross * (tHours - prevT);
 
-        if (eta <= 0 && prevT === 0 && Number(dryNowGateR) < thr){
+        // If latest truth started below threshold, never return 0h.
+        if (eta <= 0 && Number(dryNowGateR) < thr){
           eta = 1;
         }
 
         const hrs = Math.max(0, Math.round(eta));
-        const outHrs = Math.max(1, hrs);
+        const outHrs = (Number(dryNowGateR) < thr) ? Math.max(1, hrs) : hrs;
 
         if (outHrs <= H) return { ok:true, status:'within', hours:outHrs, text:`~${outHrs}h` };
         return { ok:true, status:'beyond', hours:null, text:`>${Math.round(H)}h` };
