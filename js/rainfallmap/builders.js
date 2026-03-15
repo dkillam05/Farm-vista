@@ -1,11 +1,13 @@
 /* ======================================================================
    /Farm-vista/js/rainfallmap/builders.js
    FULL FILE REBUILD
-   FIX GOAL:
-   - readiness mode uses the SAME field-readiness pipeline as the rest
-     of the app
-   - bridge rainfall-map Firebase init into the field-readiness API shape
-   - no separate fake readiness world
+   REV: 2026-03-15a-use-field_readiness_latest-first
+
+   GOAL:
+   - readiness mode uses centralized field_readiness_latest first
+   - map readiness matches render.js / quickview.js / global-calibration.js
+   - keep fallback path available for fields missing latest docs
+   - keep rainfall-map Firebase bridge working
 ====================================================================== */
 
 import {
@@ -42,6 +44,110 @@ import {
 
 import { ensureFRModules } from '/Farm-vista/js/field-readiness/formula.js';
 import { getCurrentOp } from '/Farm-vista/js/field-readiness/thresholds.js';
+
+/* =====================================================================
+   Centralized readiness collection
+===================================================================== */
+const FR_LATEST_COLLECTION = 'field_readiness_latest';
+
+function safeObj(x){ return (x && typeof x === 'object') ? x : null; }
+function safeStr(x){
+  const s = String(x || '');
+  return s ? s : '';
+}
+function safeNum(v){
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+function safeInt(v, fallback = null){
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.round(n) : fallback;
+}
+function toIsoFromAny(v){
+  try{
+    if (!v) return '';
+    if (typeof v === 'string'){
+      const d = new Date(v);
+      return Number.isFinite(d.getTime()) ? d.toISOString() : v;
+    }
+    if (v && typeof v.toDate === 'function'){
+      const d = v.toDate();
+      return Number.isFinite(d.getTime()) ? d.toISOString() : '';
+    }
+    if (v && typeof v === 'object' && typeof v.seconds === 'number'){
+      const ms = (Number(v.seconds) * 1000) + Math.round(Number(v.nanoseconds || 0) / 1e6);
+      const d = new Date(ms);
+      return Number.isFinite(d.getTime()) ? d.toISOString() : '';
+    }
+    if (v && typeof v === 'object' && typeof v.__time__ === 'string'){
+      const d = new Date(v.__time__);
+      return Number.isFinite(d.getTime()) ? d.toISOString() : String(v.__time__ || '');
+    }
+  }catch(_){}
+  return '';
+}
+
+function buildLatestReadinessRecord(raw, fallbackId){
+  const d = safeObj(raw) || {};
+  const fieldId = safeStr(d.fieldId || fallbackId);
+  if (!fieldId) return null;
+
+  return {
+    fieldId,
+    farmId: safeStr(d.farmId),
+    farmName: d.farmName == null ? null : safeStr(d.farmName),
+    fieldName: safeStr(d.fieldName),
+    county: safeStr(d.county),
+    state: safeStr(d.state),
+    readiness: safeInt(d.readiness),
+    wetness: safeInt(d.wetness),
+    soilWetness: safeNum(d.soilWetness),
+    drainageIndex: safeNum(d.drainageIndex),
+    readinessCreditIn: safeNum(d.readinessCreditIn) ?? 0,
+    storageFinal: safeNum(d.storageFinal),
+    storageForReadiness: safeNum(d.storageForReadiness),
+    storagePhysFinal: safeNum(d.storagePhysFinal),
+    wetBiasApplied: safeNum(d.wetBiasApplied),
+    runKey: safeStr(d.runKey),
+    seedSource: safeStr(d.seedSource),
+    weatherSource: safeStr(d.weatherSource),
+    timezone: safeStr(d.timezone),
+    computedAtISO: toIsoFromAny(d.computedAt),
+    weatherFetchedAtISO: toIsoFromAny(d.weatherFetchedAt),
+    location: {
+      lat: safeNum(d && d.location && d.location.lat),
+      lng: safeNum(d && d.location && d.location.lng)
+    },
+    _raw: d
+  };
+}
+
+async function loadLatestReadinessMapForState(state){
+  try{
+    const fb = state && state.fb ? state.fb : null;
+    if (!fb || typeof fb.getFirestore !== 'function') return {};
+
+    const db = fb.getFirestore();
+    const colRef = fb.collection(db, FR_LATEST_COLLECTION);
+    const snap = await fb.getDocs(colRef);
+
+    const out = {};
+    snap.forEach(docSnap=>{
+      const rec = buildLatestReadinessRecord(docSnap.data() || {}, docSnap.id);
+      if (!rec || !rec.fieldId) return;
+      out[String(rec.fieldId)] = rec;
+    });
+
+    state.latestReadinessByFieldId = out;
+    state._latestReadinessLoadedAt = Date.now();
+    return out;
+  }catch(e){
+    console.warn('[WeatherMap] latest readiness load failed:', e);
+    state.latestReadinessByFieldId = state.latestReadinessByFieldId || {};
+    state._latestReadinessLoadedAt = Date.now();
+    return state.latestReadinessByFieldId;
+  }
+}
 
 /* =====================================================================
    Rain builder
@@ -187,20 +293,17 @@ export async function buildReadinessRenderableRows(requestId, force=false){
   state.persistedStateByFieldId = persistedMap || {};
   state._persistLoadedAt = Date.now();
 
-  /* ---------------------------------------------------------
-     CRITICAL:
-     Bridge rainfall-map Firebase init into the field-readiness
-     loader API shape.
-  --------------------------------------------------------- */
   installFieldReadinessFirebaseAdapter(state);
 
   await ensureFRModules(state);
 
-  /* ---------------------------------------------------------
-     Use the SAME prep path as the working readiness page
-  --------------------------------------------------------- */
   await loadFarmsOptional(state);
   await loadFrFields(state);
+
+  if (requestId !== appState.currentRequestId) return { cancelled:true };
+
+  // ✅ load centralized readiness once
+  const latestByFieldId = await loadLatestReadinessMapForState(state);
 
   if (requestId !== appState.currentRequestId) return { cancelled:true };
 
@@ -220,6 +323,7 @@ export async function buildReadinessRenderableRows(requestId, force=false){
     if (requestId !== appState.currentRequestId) return { cancelled:true };
 
     const f = fields[i];
+    const fid = String(f.id);
     const lat = Number(f.location.lat);
     const lng = Number(f.location.lng);
 
@@ -231,45 +335,74 @@ export async function buildReadinessRenderableRows(requestId, force=false){
       console.warn('[WeatherMap] field params load failed', f.id, e);
     }
 
-    const run = await computeReadinessRunForMapField(
-      state,
-      {
-        id: String(f.id),
-        fieldId: String(f.id),
-        name: String(f.name || 'Field'),
-        farmId: String(f.farmId || ''),
-        county: String(f.county || ''),
-        state: String(f.state || ''),
-        location: { lat, lng }
-      },
-      opKey
-    );
+    let run = null;
+
+    // ✅ First choice: centralized latest readiness
+    const latest = latestByFieldId ? latestByFieldId[fid] : null;
+    if (latest && Number.isFinite(Number(latest.readiness))){
+      run = {
+        ok: true,
+        source: 'field_readiness_latest',
+        sourceLabel: 'field_readiness_latest',
+        fieldId: fid,
+        readinessR: Number(latest.readiness),
+        readiness: Number(latest.readiness),
+        wetnessR: Number.isFinite(Number(latest.wetness)) ? Number(latest.wetness) : null,
+        wetness: Number.isFinite(Number(latest.wetness)) ? Number(latest.wetness) : null,
+        storageFinal: safeNum(latest.storageFinal),
+        storageForReadiness: safeNum(latest.storageForReadiness),
+        storagePhysFinal: safeNum(latest.storagePhysFinal),
+        runKey: safeStr(latest.runKey),
+        seedSource: safeStr(latest.seedSource),
+        weatherSource: safeStr(latest.weatherSource),
+        computedAtISO: safeStr(latest.computedAtISO),
+        weatherFetchedAtISO: safeStr(latest.weatherFetchedAtISO),
+        _latest: latest
+      };
+    } else {
+      // fallback only if latest doc missing
+      run = await computeReadinessRunForMapField(
+        state,
+        {
+          id: fid,
+          fieldId: fid,
+          name: String(f.name || 'Field'),
+          farmId: String(f.farmId || ''),
+          county: String(f.county || ''),
+          state: String(f.state || ''),
+          location: { lat, lng }
+        },
+        opKey
+      );
+    }
 
     if (!run) continue;
 
     const readiness = Number(run.readinessR);
     if (!Number.isFinite(readiness)) continue;
 
-    const mrmsRow = mrmsByFieldId.get(String(f.id)) || null;
+    const mrmsRow = mrmsByFieldId.get(fid) || null;
     const rain72hInches = totalRainInLast72h(mrmsRow ? mrmsRow.raw : null);
 
     const rendered = {
       kind: 'readiness',
-      fieldId: String(f.id),
+      fieldId: fid,
       fieldName: String(f.name || 'Field'),
       farmId: String(f.farmId || ''),
-      farmName: String(farmMap.get(String(f.farmId || '')) || ''),
-      county: String(f.county || ''),
-      state: String(f.state || ''),
+      farmName: String((latest && latest.farmName) || farmMap.get(String(f.farmId || '')) || ''),
+      county: String((latest && latest.county) || f.county || ''),
+      state: String((latest && latest.state) || f.state || ''),
       lat,
       lng,
       readiness,
-      rain72hInches
+      wetness: Number.isFinite(Number(run.wetnessR)) ? Number(run.wetnessR) : null,
+      rain72hInches,
+      source: String(run.source || run.sourceLabel || (latest ? 'field_readiness_latest' : 'model'))
     };
 
     renderedFields.push(rendered);
     summaries.push(rendered);
-    state.lastRuns.set(String(f.id), run);
+    state.lastRuns.set(fid, run);
   }
 
   return { summaries, renderedFields };
