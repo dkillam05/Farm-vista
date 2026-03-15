@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-03-11a-storage-state-drydown
+Rev: 2026-03-15b-eta-seed-from-centralized-latest
 
 OPTION 1 (per Dane):
 ✅ Model owns ETA and computes it from the SAME truth-seeded run + SAME physics.
@@ -18,6 +18,10 @@ THIS REV:
 ✅ This better matches:
    - dry sponge = rain causes a short setback, then recovery can resume quicker
    - full sponge = same rain lingers longer and slows readiness recovery
+✅ NEW: ETA can now start from centralized field_readiness_latest truth
+   when deps.getEtaSeedForFieldId(fieldId) is available
+✅ If centralized latest storage is present, ETA no longer collapses toward 0h
+   just because runField had to reseed from older history/persisted truth
 
 TUNING NOTES FOR NEXT TIME:
 - WET_HOLD_START:
@@ -68,6 +72,17 @@ function todayISO(){
   }catch(_){
     return '';
   }
+}
+function safeObj(x){
+  return (x && typeof x === 'object') ? x : null;
+}
+function safeStr(x){
+  const s = String(x || '');
+  return s ? s : '';
+}
+function safeNum(v, fallback = null){
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 // Slider extremes
@@ -364,15 +379,6 @@ function effectiveRainInches(rainIn, storageBefore, Smax, factors, tune){
 
 /* =====================================================================
    NEW: storage-state drydown multiplier
-
-   Goal:
-   - very wet/full profile dries slower
-   - mid-range profile dries a bit faster
-   - very dry tail still slows separately later
-
-   Returns:
-   - mult < 1.0  => wet/full hold-back
-   - mult > 1.0  => middle-zone acceleration
 ===================================================================== */
 function storageDrydownMult(storageBefore, Smax, tune){
   if (!isFinite(storageBefore) || !isFinite(Smax) || Smax <= 0) return 1;
@@ -380,18 +386,12 @@ function storageDrydownMult(storageBefore, Smax, tune){
   const sat = clamp(storageBefore / Smax, 0, 1);
   let mult = 1;
 
-  // 1) WET HOLD:
-  // when the profile is already pretty full, good weather still dries it,
-  // but it does NOT peel off moisture as aggressively.
   if (sat > tune.WET_HOLD_START){
     const wetFrac = clamp((sat - tune.WET_HOLD_START) / Math.max(1e-6, (1 - tune.WET_HOLD_START)), 0, 1);
     const wetReduction = tune.WET_HOLD_MAX_REDUCTION * Math.pow(wetFrac, tune.WET_HOLD_EXP);
     mult *= (1 - wetReduction);
   }
 
-  // 2) MID-RANGE ACCELERATION:
-  // once the profile has come down enough, it can start recovering quicker.
-  // This boost fades out before the bone-dry tail, where we still slow things down.
   if (sat < tune.MID_ACCEL_START && sat > tune.DRY_TAIL_START){
     const midFrac = clamp((tune.MID_ACCEL_START - sat) / Math.max(1e-6, (tune.MID_ACCEL_START - tune.DRY_TAIL_START)), 0, 1);
     const boost = tune.MID_ACCEL_MAX_BOOST * Math.pow(midFrac, tune.MID_ACCEL_EXP);
@@ -402,7 +402,7 @@ function storageDrydownMult(storageBefore, Smax, tune){
 }
 
 /* =====================================================================
-   Persisted state helpers
+   Persisted / centralized seed helpers
 ===================================================================== */
 function getPersistedState(deps, fieldId){
   try{
@@ -416,6 +416,27 @@ function getPersistedState(deps, fieldId){
       const s = map[fieldId];
       return (s && typeof s === 'object') ? s : null;
     }
+    return null;
+  }catch(_){
+    return null;
+  }
+}
+
+function getEtaSeed(deps, fieldId){
+  try{
+    if (!deps || !fieldId) return null;
+
+    if (typeof deps.getEtaSeedForFieldId === 'function'){
+      const s = deps.getEtaSeedForFieldId(fieldId);
+      if (s && typeof s === 'object') return s;
+    }
+
+    const map = deps.etaSeedByFieldId;
+    if (map && typeof map === 'object'){
+      const s = map[fieldId];
+      return (s && typeof s === 'object') ? s : null;
+    }
+
     return null;
   }catch(_){
     return null;
@@ -544,6 +565,67 @@ function computeReadinessFromStorage(storagePhys, f, deps){
     storageForReadiness,
     calRes
   };
+}
+
+function buildEtaNowStateFromSeed(run, f, deps, fieldId){
+  try{
+    const seed = getEtaSeed(deps, fieldId);
+    if (!seed) return null;
+
+    let storagePhys = safeNum(seed.storagePhysFinal, null);
+
+    if (!Number.isFinite(storagePhys)){
+      const storageEffMaybe = safeNum(seed.storageFinal, null);
+      const creditMaybe = safeNum(seed.readinessCreditIn, null);
+      const wetBiasMaybe = safeNum(seed.wetBiasApplied, null);
+
+      if (Number.isFinite(storageEffMaybe)){
+        if (Number.isFinite(creditMaybe)){
+          let storageForReadiness = safeNum(seed.storageForReadiness, null);
+          if (!Number.isFinite(storageForReadiness)){
+            storageForReadiness = clamp(storageEffMaybe - creditMaybe, 0, f.Smax);
+          }
+
+          const calRes = applyCalToStorage(0, f.Smax, deps);
+          const storageDeltaApplied = safeNum(calRes && calRes.storageDeltaApplied, 0);
+          storagePhys = clamp(storageEffMaybe - storageDeltaApplied, 0, f.Smax);
+        } else if (Number.isFinite(wetBiasMaybe)) {
+          storagePhys = clamp(storageEffMaybe, 0, f.Smax);
+        } else {
+          storagePhys = clamp(storageEffMaybe, 0, f.Smax);
+        }
+      }
+    }
+
+    if (!Number.isFinite(storagePhys)){
+      const ready = safeNum(seed.readiness, null);
+      if (Number.isFinite(ready)){
+        const wet = clamp(100 - ready, 0, 100);
+        const storageForReadiness = (wet / 100) * f.Smax;
+        const creditIn = signedCreditInchesFromSmax(f.Smax);
+        const storageEff = clamp(storageForReadiness + creditIn, 0, f.Smax);
+
+        const calZero = applyCalToStorage(0, f.Smax, deps);
+        const storageDeltaApplied = safeNum(calZero && calZero.storageDeltaApplied, 0);
+        storagePhys = clamp(storageEff - storageDeltaApplied, 0, f.Smax);
+      }
+    }
+
+    if (!Number.isFinite(storagePhys)) return null;
+
+    storagePhys = clamp(storagePhys, 0, f.Smax);
+    const now = computeReadinessFromStorage(storagePhys, f, deps);
+
+    return {
+      storagePhys,
+      readiness: Number(now.readiness),
+      wetness: Number(now.wetness),
+      source: safeStr(seed.source || 'field_readiness_latest'),
+      seed
+    };
+  }catch(_){
+    return null;
+  }
 }
 
 /* =====================================================================
@@ -683,13 +765,22 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
     const tune = getTune(deps);
     const rate = getRateMults(deps);
 
-    let storagePhys = Number.isFinite(Number(run.storagePhysFinal))
-      ? Number(run.storagePhysFinal)
-      : Number(run.storageFinal || 0);
+    const etaSeedNow = buildEtaNowStateFromSeed(run, f, deps, field.id);
+
+    let storagePhys = Number.isFinite(Number(etaSeedNow && etaSeedNow.storagePhys))
+      ? Number(etaSeedNow.storagePhys)
+      : (
+          Number.isFinite(Number(run.storagePhysFinal))
+            ? Number(run.storagePhysFinal)
+            : Number(run.storageFinal || 0)
+        );
 
     storagePhys = clamp(storagePhys, 0, f.Smax);
 
-    const nowR = computeReadinessFromStorage(storagePhys, f, deps).readiness;
+    const nowR = Number.isFinite(Number(etaSeedNow && etaSeedNow.readiness))
+      ? Number(etaSeedNow.readiness)
+      : computeReadinessFromStorage(storagePhys, f, deps).readiness;
+
     if (Number(nowR) >= thr){
       return { ok:true, status:'dryNow', hours:0, text:'' };
     }
@@ -731,14 +822,12 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
 
       let lossDay = Number(parts.dryPwr||0) * deps.LOSS_SCALE * f.dryMult * (1 + deps.EXTRA.LOSS_ET0_W * et0N);
 
-      // NEW: storage-state drydown behavior
       const stateDryMult = storageDrydownMult(before, f.Smax, tune);
       lossDay = lossDay * stateDryMult;
 
       let loss = Math.max(0, lossDay * (stepH / 24));
       loss = Math.max(0, loss * rate.dryLossMult);
 
-      // Existing very-dry tail slowdown remains last
       if (f.Smax > 0 && isFinite(before)){
         const sat = clamp(before / f.Smax, 0, 1);
         if (sat < tune.DRY_TAIL_START){
@@ -830,13 +919,11 @@ export function runField(field, deps){
 
     let lossBase = Number(d.dryPwr||0) * deps.LOSS_SCALE * f.dryMult * (1 + deps.EXTRA.LOSS_ET0_W * d.et0N);
 
-    // NEW: storage-state drydown behavior
     const stateDryMult = storageDrydownMult(before, f.Smax, tune);
 
     let loss = lossBase * stateDryMult;
     loss = Math.max(0, loss * rate.dryLossMult);
 
-    // Existing very-dry tail slowdown remains last
     if (f.Smax > 0 && isFinite(before)){
       const sat = clamp(before / f.Smax, 0, 1);
       if (sat < tune.DRY_TAIL_START){
