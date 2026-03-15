@@ -1,3 +1,24 @@
+/* =====================================================================
+/Farm-vista/js/rainfallmap/ui.js   (FULL FILE)
+Rev: 2026-03-15b-force-rain-reload-on-date-change
+
+PURPOSE
+✔ Wires hamburger menu UI
+✔ Handles map mode, map style, blend radius, refresh buttons
+✔ Keeps menu open while interacting with controls
+✔ Reacts to date-range picker events
+
+FIX IN THIS REV
+✔ Date-range Apply now forces rainfall reload
+✔ Date-range Clear now forces rainfall reload
+✔ Radius changes also force rainfall redraw
+✔ File clearly labeled at top
+
+DANE NOTE
+When the user changes the rainfall time frame, blob dots and tap popups
+must reflect the new selected dates immediately without requiring manual reload.
+===================================================================== */
+
 import { appState } from './store.js';
 import { $, setModeText, setModeChip } from './dom.js';
 import { renderActiveMode, renderRain } from './render-flow.js';
@@ -142,23 +163,25 @@ export function wireUi(){
   if (radiusSel){
     radiusSel.addEventListener('change', ()=>{
       if (appState.currentMapMode === 'rainfall'){
-        renderRain(false);
+        renderRain(true);
       }
     });
   }
 
   document.addEventListener('fv:date-range-applied', ()=>{
     syncCurrentRangeFromPicker(true);
+
     if (appState.currentMapMode === 'rainfall'){
-      renderRain(false);
+      renderRain(true);
     }
   });
 
   document.addEventListener('fv:date-range-cleared', ()=>{
     applyDefault72HourRangeToPicker({ silent:true });
     syncCurrentRangeFromPicker(true);
+
     if (appState.currentMapMode === 'rainfall'){
-      renderRain(false);
+      renderRain(true);
     }
   });
 }
