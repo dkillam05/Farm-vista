@@ -1,9 +1,13 @@
 /* ======================================================================
    /Farm-vista/js/rainfallmap/store.js
    FULL FILE REBUILD
-   FIX GOAL:
+   REV: 2026-03-15a-add-latest-readiness-cache-to-map-state
+
+   GOAL:
    - make rainfall-map readiness use a REAL field-readiness state object
    - stop using a hand-made partial readiness state shape
+   - add centralized field_readiness_latest cache/state so map readiness
+     matches the rest of the app
 ====================================================================== */
 
 import { createState } from '/Farm-vista/js/field-readiness/state.js';
@@ -15,6 +19,10 @@ function createRainMapReadinessState(){
   state.selectedFieldId = '';
   state.persistedStateByFieldId = {};
   state._persistLoadedAt = 0;
+
+  // centralized readiness cache
+  state.latestReadinessByFieldId = {};
+  state._latestReadinessLoadedAt = 0;
 
   state.paramMetaByFieldId = new Map();
 
