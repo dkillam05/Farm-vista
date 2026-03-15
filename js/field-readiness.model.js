@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-03-15b-live-shared-core-source-of-truth
+Rev: 2026-03-15a-shared-readiness-core-hook
 
 OPTION 1 (per Dane):
 ✅ Model owns ETA and computes it from the SAME truth-seeded run + SAME physics.
@@ -10,11 +10,22 @@ OPTION 1 (per Dane):
    so older callers won't crash while we wire quickview/details to model ETA.
 
 THIS REV:
-✅ runField() now uses readiness-core-shared.js as the LIVE source of truth
-✅ UI/model output now comes from the shared core instead of a side hook
-✅ Keeps same merged weather handling
-✅ Keeps same ETA behavior
-✅ Keeps same trace / factors / storage outputs expected by UI
+✅ Keeps MRMS rainfall preference with Open-Meteo fallback
+✅ Adds STORAGE-STATE DRYDOWN behavior:
+   - very full / saturated profile dries down slower
+   - mid-range profile dries down faster
+   - very dry tail still slows down as before
+✅ Keeps same frontend behavior / trace / ETA behavior
+✅ Rebuilt cleanly so you can paste it back safely
+✅ Adds shared-readiness-core import hook for future parity wiring
+
+IMPORTANT:
+- Truth seed (storageFinal + asOfDateISO) still anchors "now"
+- Learning (EXTRA.DRY_LOSS_MULT / EXTRA.RAIN_EFF_MULT) still applies
+- This file supports merged weather input through deps:
+    1) getModelWeatherSeriesForFieldId(fieldId)
+    2) getMergedWeatherSeriesForFieldId(fieldId)
+    3) fallback getWeatherSeriesForFieldId(fieldId)
 ===================================================================== */
 'use strict';
 
@@ -100,6 +111,7 @@ const FV_TUNE = {
   WET_HOLD_EXP: 1.70,
 
   // NEW: once storage comes down enough, drying can accelerate
+  // This band sits ABOVE the very-dry tail so the two do not fight much.
   MID_ACCEL_START: 0.50,
   MID_ACCEL_MAX_BOOST: 0.18,
   MID_ACCEL_EXP: 1.35
@@ -193,7 +205,7 @@ export function calcDryParts(r, EXTRA){
   const vpdN = (vpd===null || !isFinite(vpd)) ? 0 : clamp(vpd / 2.6, 0, 1);
   const cloudN = (cloud===null || !isFinite(cloud)) ? 0 : clamp(cloud / 100, 0, 1);
 
-  dryPwr = clamp((0.35*tempN + 0.30*solarN + 0.25*windN - 0.25*rhN) + EXTRA.DRYPWR_VPD_W * vpdN - EXTRA.DRYPWR_CLOUD_W * cloudN, 0, 1);
+  dryPwr = clamp(dryPwr + EXTRA.DRYPWR_VPD_W * vpdN - EXTRA.DRYPWR_CLOUD_W * cloudN, 0, 1);
 
   return {
     temp, wind, rh, solar,
@@ -741,41 +753,142 @@ export function runField(field, deps){
   if (!wx || !wx.length) return null;
 
   const p = deps.getFieldParams(field.id);
-  const persisted = getPersistedState(deps, field.id);
 
-  const core = runFieldReadinessCore(
-    wx,
-    p.soilWetness,
-    p.drainageIndex,
-    persisted,
-    {
-      EXTRA: deps.EXTRA || {},
-      LOSS_SCALE: deps.LOSS_SCALE,
-      CAL: deps.CAL || {},
-      opKey: deps.opKey || '',
-      seedMode: deps.seedMode,
-      rewindDays: deps.rewindDays,
-      FV_TUNE: deps.FV_TUNE
+  const last = wx[wx.length-1] || {};
+  const f = mapFactors(p.soilWetness, p.drainageIndex, last.sm010, deps.EXTRA);
+
+  const tune = getTune(deps);
+  const rate = getRateMults(deps);
+
+  const rows = wx.map(w=>{
+    const rainPick = pickRainForRow(w);
+    const parts = calcDryParts(w, deps.EXTRA);
+
+    const et0 = (w.et0In===null || w.et0In===undefined) ? null : Number(w.et0In);
+    const et0N = (et0===null || !isFinite(et0)) ? 0 : clamp(et0 / 0.30, 0, 1);
+
+    const smN2 = (w.sm010===null || w.sm010===undefined || !isFinite(Number(w.sm010)))
+      ? 0
+      : clamp((Number(w.sm010)-0.10)/0.25, 0, 1);
+
+    return {
+      ...w,
+      rainInAdj: rainPick.rainInAdj,
+      rainSource: rainPick.rainSource,
+      et0: (isFinite(et0)?et0:0),
+      et0N,
+      smN_day: smN2,
+      ...parts
+    };
+  });
+
+  const seedPick = pickSeed(rows, f, deps, field.id);
+  let storage = clamp(seedPick.seedStorage, 0, f.Smax);
+
+  const trace = [];
+
+  for (let i = seedPick.startIdx; i < rows.length; i++){
+    const d = rows[i];
+    const rain = Number(d.rainInAdj||0);
+
+    const before = storage;
+
+    let rainEff = effectiveRainInches(rain, before, f.Smax, f, tune);
+    rainEff = clamp(rainEff * rate.rainEffMult, 0, 1000);
+
+    const addSm = (deps.EXTRA.ADD_SM010_W * d.smN_day) * 0.05;
+
+    let addRain = rainEff * f.infilMult;
+    let add = addRain + addSm;
+
+    let lossBase = Number(d.dryPwr||0) * deps.LOSS_SCALE * f.dryMult * (1 + deps.EXTRA.LOSS_ET0_W * d.et0N);
+
+    const stateDryMult = storageDrydownMult(before, f.Smax, tune);
+
+    let loss = lossBase * stateDryMult;
+    loss = Math.max(0, loss * rate.dryLossMult);
+
+    if (f.Smax > 0 && isFinite(before)){
+      const sat = clamp(before / f.Smax, 0, 1);
+      if (sat < tune.DRY_TAIL_START){
+        const frac = clamp(sat / Math.max(1e-6, tune.DRY_TAIL_START), 0, 1);
+        const mult = tune.DRY_TAIL_MIN_MULT + (1 - tune.DRY_TAIL_MIN_MULT) * frac;
+        loss = loss * mult;
+      }
     }
-  );
 
-  if (!core) return null;
+    const after = clamp(before + add - loss, 0, f.Smax);
+    storage = after;
+
+    const infilMultEff = (rain > 0)
+      ? clamp((addRain / Math.max(1e-6, rain)), 0, 5)
+      : 0;
+
+    trace.push({
+      dateISO: d.dateISO,
+      before,
+      after,
+      rain,
+      rainSource: String(d.rainSource || 'unknown'),
+
+      rainEff,
+      infilMult: infilMultEff,
+
+      addRain,
+      addSm,
+      add,
+
+      lossBase,
+      stateDryMult,
+      loss,
+      dryPwr: d.dryPwr
+    });
+  }
+
+  const storagePhysFinal = storage;
+
+  const calRes = applyCalToStorage(storagePhysFinal, f.Smax, deps);
+  const storageEff = calRes.storageEff;
+
+  const creditIn = signedCreditInchesFromSmax(f.Smax);
+  const storageForReadiness = clamp(storageEff - creditIn, 0, f.Smax);
+
+  const wetness = (f.Smax > 0) ? clamp((storageForReadiness / f.Smax) * 100, 0, 100) : 0;
+  const readiness = clamp(100 - wetness, 0, 100);
+
+  const wetnessR = roundInt(wetness);
+  const readinessR = roundInt(readiness);
+
+  // Shared-core hook kept here for future exact-parity swap.
+  // Currently not used to override existing model behavior, so
+  // UI behavior stays unchanged while wiring is being finalized.
+  try{
+    runFieldReadinessCore(
+      rows,
+      p.soilWetness,
+      p.drainageIndex,
+      getPersistedState(deps, field.id)
+    );
+  }catch(_){}
+
+  const last7 = trace.slice(-7);
+  const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
 
   return {
     field,
-    factors: core.factors,
-    rows: core.rows,
-    trace: core.trace,
+    factors: f,
+    rows,
+    trace,
 
-    storagePhysFinal: core.storagePhysFinal,
-    storageFinal: core.storageFinal,
+    storagePhysFinal,
+    storageFinal: storageEff,
 
-    wetnessR: core.wetnessR,
-    readinessR: core.readinessR,
-    avgLossDay: core.avgLossDay,
+    wetnessR,
+    readinessR,
+    avgLossDay,
 
-    readinessCreditIn: core.readinessCreditIn,
-    storageForReadiness: core.storageForReadiness
+    readinessCreditIn: creditIn,
+    storageForReadiness
   };
 }
 
