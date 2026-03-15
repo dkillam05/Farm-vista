@@ -1,3 +1,18 @@
+/* =====================================================================
+/Farm-vista/js/rainfallmap/popups.js   (FULL FILE)
+Rev: 2026-03-15a-labeled-popup-builder
+
+PURPOSE
+✔ Builds rainfall and readiness popup HTML
+✔ Opens Google Maps info window for tapped blob/marker
+✔ Uses current app summaries from appState.lastFieldSummaries
+
+IMPORTANT NOTE
+If popup rainfall values are wrong after changing the selected date range,
+the issue is usually upstream in the rainfall summary builder or render path,
+not in this popup file itself.
+===================================================================== */
+
 import { appState } from './store.js';
 import { escapeHtml } from './utils.js';
 import { rangeTitle, readinessTitle } from './date-range.js';
