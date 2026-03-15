@@ -14,7 +14,7 @@
 //    ./js/field-readiness/shared/readiness-core-shared.cjs
 //
 const express = require("express");
-const { runFieldReadinessCore } = require("./js/field-readiness/shared/readiness-core-shared.cjs");
+const { runFieldReadinessCore } = require("./readiness-core-shared.cjs");
 
 const app = express();
 app.disable("x-powered-by");
