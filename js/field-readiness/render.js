@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-15a-use-field_readiness_latest-fast
+Rev: 2026-03-15c-restore-tile-eta-and-threshold-dynamic-bar
 
 GOAL (per Dane):
 ✅ Read ALL displayed readiness numbers from Firestore collection:
@@ -10,6 +10,10 @@ GOAL (per Dane):
    model weather computation during list rendering
 ✅ Keep MRMS rain range support
 ✅ Keep details / trace / weather panels supported as a secondary view
+✅ Restore ETA helper on tiles using forecast path
+✅ Cap ETA horizon to 1 week / 168 hours
+✅ Show ETA as compact hours or >168h
+✅ Restore dynamic readiness gradient based on operation threshold
 ✅ No trimmed sections
 
 NEW CENTRALIZED READINESS SOURCE:
@@ -25,6 +29,8 @@ IMPORTANT BEHAVIOR:
 - Heavy model math is no longer required just to draw/sort tiles.
 - Details panel still attempts deep model/trace rendering when needed,
   but displayed readiness truth is anchored to field_readiness_latest.
+- ETA is restored as a secondary post-render enhancement so tile loading
+  stays fast.
 
 ===================================================================== */
 'use strict';
@@ -42,7 +48,8 @@ import { fetchAndHydrateFieldParams, loadFieldMrmsDoc } from './data.js';
 import { getAPI } from './firebase.js';
 
 // Keep these imports for details / deeper fallbacks.
-// Tile rendering path no longer depends on them.
+// Tile rendering path no longer depends on them for readiness numbers,
+// but ETA helper can lazily use them after tile render.
 import { ensureFRModules, buildFRDeps, runFieldReadiness } from './formula.js';
 
 /* =====================================================================
@@ -56,6 +63,14 @@ const FR_LATEST_TTL_MS = 30000;
 ===================================================================== */
 const FR_STATE_COLLECTION = 'field_readiness_state';
 const STATE_TTL_MS = 30000;
+
+/* =====================================================================
+   ETA config / cache
+===================================================================== */
+const ETA_HELPER_URL = '/Farm-vista/js/field-readiness/eta-helper.js';
+const ETA_HELP_EVENT = 'fr:eta-help';
+const ETA_HORIZON_HOURS = 168;
+const ETA_CACHE_TTL_MS = 10 * 60 * 1000;
 
 function safeObj(x){
   return (x && typeof x === 'object') ? x : null;
@@ -557,12 +572,8 @@ export async function ensureModelWeatherModules(state){
 }
 
 /* =====================================================================
-   ETA helper
+   ETA helper module
 ===================================================================== */
-const ETA_HELPER_URL = '/Farm-vista/js/field-readiness/eta-helper.js';
-const ETA_HELP_EVENT = 'fr:eta-help';
-const ETA_HORIZON_HOURS = 168;
-
 async function ensureEtaHelperModule(state){
   try{
     if (!state) return;
@@ -611,12 +622,40 @@ function colorForPerceived(p){
   }
   return `hsl(${h.toFixed(0)} 70% 38%)`;
 }
-function gradientForThreshold(thr){
+function buildThresholdGradientStops(thr){
   const t = clamp(Math.round(Number(thr)), 0, 100);
-  const a = `${t}%`;
+
+  if (t <= 0){
+    return {
+      redEnd: 0,
+      yellowAt: 4,
+      greenStart: 8
+    };
+  }
+  if (t >= 100){
+    return {
+      redEnd: 92,
+      yellowAt: 96,
+      greenStart: 100
+    };
+  }
+
+  // Dynamic band:
+  // lower threshold => short red zone, more green
+  // higher threshold => longer red zone, less green
+  const redEnd = clamp(Math.round(t * 0.72), 0, 96);
+  const yellowAt = clamp(t, redEnd + 1, 98);
+  const greenStart = clamp(Math.round(t + ((100 - t) * 0.14)), yellowAt + 1, 100);
+
+  return { redEnd, yellowAt, greenStart };
+}
+function gradientForThreshold(thr){
+  const s = buildThresholdGradientStops(thr);
   return `linear-gradient(90deg,
     hsl(10 70% 38%) 0%,
-    hsl(45 75% 38%) ${a},
+    hsl(10 70% 38%) ${s.redEnd}%,
+    hsl(45 75% 38%) ${s.yellowAt}%,
+    hsl(120 55% 34%) ${s.greenStart}%,
     hsl(120 55% 34%) 100%
   )`;
 }
@@ -1026,33 +1065,100 @@ function compactEtaForMobile(txt, horizonHours){
     return `>${Math.round(horizonHours)}h`;
   }
 
-  if (/greater\s+than/i.test(s) || />\s*\d+/.test(s)){
+  if (/greater\s+than/i.test(s) || />\s*\d+/.test(s) || /beyond/i.test(s) || /over\s+\d+/i.test(s)){
     return `>${Math.round(horizonHours)}h`;
   }
 
   return s;
 }
 
+function getEtaCacheKey(fieldObj, opKey, thr, latestRec){
+  const fid = safeStr(fieldObj && fieldObj.id);
+  const latestStamp =
+    safeStr(latestRec && latestRec.computedAtISO) ||
+    safeStr(latestRec && latestRec.weatherFetchedAtISO) ||
+    safeStr(latestRec && latestRec.runKey) ||
+    safeStr(latestRec && latestRec.fieldId);
+  return `${fid}__${safeStr(opKey)}__${Math.round(Number(thr) || 0)}__${latestStamp}`;
+}
+
+function getEtaCacheValue(state, key){
+  try{
+    const map = safeObj(state && state._etaTileCache) || {};
+    const hit = safeObj(map[key]);
+    if (!hit) return null;
+    const ts = Number(hit.ts || 0);
+    if (!ts || (Date.now() - ts) > ETA_CACHE_TTL_MS) return null;
+    return safeStr(hit.text);
+  }catch(_){
+    return null;
+  }
+}
+
+function setEtaCacheValue(state, key, text){
+  try{
+    if (!state._etaTileCache) state._etaTileCache = {};
+    state._etaTileCache[key] = {
+      ts: Date.now(),
+      text: safeStr(text)
+    };
+  }catch(_){}
+}
+
+function normalizeEtaResult(res, horizonHours){
+  try{
+    const r = safeObj(res) || {};
+
+    if (Number.isFinite(Number(r.hours))){
+      const hrs = Math.round(Number(r.hours));
+      return (hrs <= horizonHours) ? `~${hrs}h` : `>${horizonHours}h`;
+    }
+
+    const txt = safeStr(r.text).trim();
+    if (txt){
+      return compactEtaForMobile(txt, horizonHours);
+    }
+
+    if (r.exceedsHorizon === true || r.withinHorizon === false || r.reached === false){
+      return `>${horizonHours}h`;
+    }
+  }catch(_){}
+  return '';
+}
+
 async function getTileEtaText(state, fieldObj, deps, run0, thr){
-  // Fast path:
-  // tile ETA is intentionally skipped when centralized latest readiness is in use,
-  // to keep tile rendering nearly instant.
-  const latest = getLatestReadinessForField(state, fieldObj && fieldObj.id);
-  if (latest) return '';
-
   const HORIZON_HOURS = ETA_HORIZON_HOURS;
+  const readinessNow = Number(run0 && run0.readinessR);
 
-  if (Number(run0 && run0.readinessR) >= Number(thr)) return '';
+  if (!Number.isFinite(readinessNow)) return '';
+  if (readinessNow >= Number(thr)) return '';
 
   try{
+    const latest = getLatestReadinessForField(state, fieldObj && fieldObj.id);
+    const opKey = getCurrentOp();
+    const cacheKey = getEtaCacheKey(fieldObj, opKey, thr, latest);
+    const cached = getEtaCacheValue(state, cacheKey);
+    if (cached) return cached;
+
+    await ensureFRModules(state);
+    await ensureEtaHelperModule(state);
+    await loadPersistedState(state, { force:false });
+
     const model = state && state._mods ? state._mods.model : null;
     if (!model || typeof model.etaToThreshold !== 'function') return '';
 
     const res = await model.etaToThreshold(fieldObj, deps, Number(thr), HORIZON_HOURS, 3);
-    if (!res || !res.ok) return '';
+    let txt = normalizeEtaResult(res, HORIZON_HOURS);
 
-    const txt = String(res.text || '').trim();
-    return compactEtaForMobile(txt, HORIZON_HOURS);
+    // If model returns nothing but field is still below threshold,
+    // preserve the 1-week cap convention only when result object
+    // explicitly says it is beyond horizon.
+    if (!txt && res && (res.exceedsHorizon === true || res.withinHorizon === false || res.reached === false)){
+      txt = `>${HORIZON_HOURS}h`;
+    }
+
+    setEtaCacheValue(state, cacheKey, txt);
+    return txt;
   }catch(_){
     return '';
   }
@@ -1308,9 +1414,12 @@ async function buildRunsForFields(state, fields, opKey){
 /* =====================================================================
    Tile fallback helpers
 ===================================================================== */
-function buildWaitingTileHtml(f, isSelected){
+function buildWaitingTileHtml(f, isSelected, thr){
   const selectedClass = isSelected ? ' fv-selected' : '';
   const title = esc(String((f && f.name) || 'Field'));
+  const grad = gradientForThreshold(thr);
+  const thrPos = markerLeftCSS(thr);
+
   return {
     className: `tile fv-swipe-item${selectedClass}`,
     html: `
@@ -1329,8 +1438,8 @@ function buildWaitingTileHtml(f, isSelected){
           <div class="chip readiness">Readiness</div>
         </div>
 
-        <div class="gauge" style="background:linear-gradient(90deg, #c83b3b 0%, #d8b23b 55%, #2f8f4b 100%);opacity:.82;">
-          <div class="thr" style="left:50%;"></div>
+        <div class="gauge" style="background:${grad};opacity:.82;">
+          <div class="thr" style="left:${thrPos};"></div>
           <div class="marker" style="left:50%;opacity:.45;"></div>
           <div class="badge" style="left:50%;background:color-mix(in srgb, var(--surface) 88%, #8b949e 12%);color:var(--text);">Loading…</div>
         </div>
@@ -1385,18 +1494,22 @@ async function updateTileForField(state, fieldId){
     const rainLine = tile.querySelector('.subline .mono');
     if (rainLine) rainLine.textContent = rainText;
 
+    const thr = getThresholdForOp(state, opKey);
+    const thrPos  = markerLeftCSS(thr);
+    const grad = gradientForThreshold(thr);
+
+    const gauge = tile.querySelector('.gauge');
+    if (gauge) gauge.style.background = grad;
+
+    const thrEl = tile.querySelector('.thr');
+    if (thrEl) thrEl.style.left = thrPos;
+
     if (!run0){
       const pill = tile.querySelector('.readiness-pill');
       if (pill) pill.textContent = 'Field Readiness —';
 
       const badge = tile.querySelector('.badge');
       if (badge) badge.textContent = 'Loading…';
-
-      const gauge = tile.querySelector('.gauge');
-      if (gauge) gauge.style.background = gradientForThreshold(50);
-
-      const thrEl = tile.querySelector('.thr');
-      if (thrEl) thrEl.style.left = markerLeftCSS(getThresholdForOp(state, opKey));
 
       const markerEl = tile.querySelector('.marker');
       if (markerEl){
@@ -1413,21 +1526,11 @@ async function updateTileForField(state, fieldId){
       state.lastRuns.set(fid, run0);
     }catch(_){}
 
-    const thr = getThresholdForOp(state, opKey);
     const readiness = run0.readinessR;
-
     const leftPos = markerLeftCSS(readiness);
-    const thrPos  = markerLeftCSS(thr);
 
     const perceived = perceivedFromThreshold(readiness, thr);
     const pillBg = colorForPerceived(perceived);
-    const grad = gradientForThreshold(thr);
-
-    const gauge = tile.querySelector('.gauge');
-    if (gauge) gauge.style.background = grad;
-
-    const thrEl = tile.querySelector('.thr');
-    if (thrEl) thrEl.style.left = thrPos;
 
     const markerEl = tile.querySelector('.marker');
     if (markerEl){
@@ -1450,13 +1553,21 @@ async function updateTileForField(state, fieldId){
       badge.textContent = `Field Readiness ${readiness}`;
     }
 
+    let etaText = '';
+    try{
+      const deps = buildDepsForState(state, opKey);
+      etaText = await getTileEtaText(state, f, deps, run0, thr);
+    }catch(_){
+      etaText = '';
+    }
+
     upsertEtaHelp(state, tile, {
       fieldId: fid,
       fieldName: String(f.name || ''),
       opKey,
       threshold: thr,
       readinessNow: readiness,
-      etaText: '',
+      etaText,
       horizonHours: ETA_HORIZON_HOURS
     });
 
@@ -1481,8 +1592,8 @@ async function updateVisibleTilesBatched(state, ids){
     ensureFieldsCountHelperEl();
     await loadLatestReadiness(state, { force:false });
 
-    const BATCH_SIZE = 12;
-    const YIELD_MS = 4;
+    const BATCH_SIZE = 10;
+    const YIELD_MS = 8;
 
     for (let i = 0; i < list.length; i += BATCH_SIZE){
       const batchIds = list.slice(i, i + BATCH_SIZE);
@@ -1645,7 +1756,7 @@ async function _renderTilesInternal(state){
     tile.setAttribute('data-field-id', f.id);
 
     if (!run0){
-      const waiting = buildWaitingTileHtml(f, String(state.selectedFieldId) === String(f.id));
+      const waiting = buildWaitingTileHtml(f, String(state.selectedFieldId) === String(f.id), thr);
       tile.className = waiting.className;
       tile.innerHTML = waiting.html;
     } else {
@@ -2193,6 +2304,7 @@ export async function refreshDetailsOnly(state){
 
         state._persistLoadedAt = 0;
         state._latestReadinessLoadedAt = 0;
+        state._etaTileCache = {};
         await loadPersistedState(state, { force:true });
         await loadLatestReadiness(state, { force:true });
         await refreshAll(state);
