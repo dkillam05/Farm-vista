@@ -1,32 +1,34 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-03-15a-use-field_readiness_latest-for-quickview
+Rev: 2026-03-15b-live-preview-and-save-centralized-latest
 
 GOAL (per Dane, Feb 2026):
 ✅ Make Quick View readiness MATCH centralized app readiness
 ✅ Show centralized readiness from field_readiness_latest
+✅ Support LIVE preview when sliders move
+✅ Save slider values to fields/{fieldId}
+✅ Save updated live readiness to field_readiness_latest/{fieldId}
 ✅ Keep Range rain display aligned with MRMS tile logic
 ✅ Support lightweight MRMS UI refresh while Quick View is open
-✅ Keep save behavior unchanged for field params
 
 CHANGES (THIS REV):
-✅ Uses field_readiness_latest for displayed readiness/wetness/storage when present
-✅ Quick View "Range rain" still uses MRMS daily rainfall range display
-✅ If MRMS range data is not fully ready, shows "Processing Data"
-✅ Weather meta now reflects centralized readiness when available
-✅ Keeps model rainfall source logic for Weather meta
-✅ Keeps Rule A:
-   - Sliders change params only (soil/drain) and do NOT write truth storage
-   - Save writes only fields/{fieldId} params + local cache
-✅ Keeps lightweight listeners so open Quick View refreshes when:
-   - fr:tile-refresh fires for this field
-   - fr:details-refresh fires for this field
+✅ Opening Quick View still prefers centralized field_readiness_latest
+✅ Moving sliders now updates readiness/wetness/storage LIVE from model
+✅ Quick View subtitle shows when user is in live preview mode
+✅ Save & Close writes:
+   - fields/{fieldId}.soilWetness
+   - fields/{fieldId}.drainageIndex
+✅ Save & Close ALSO recomputes and writes the new centralized readiness doc:
+   - field_readiness_latest/{fieldId}
+✅ Refresh events still fire so tiles/details update immediately
+✅ ETA still uses model.etaToThreshold()
+✅ Range rain still uses MRMS daily rainfall range display
 
 NOTES:
-- Displayed readiness now prefers field_readiness_latest
-- ETA still uses model.etaToThreshold() with the model deps path
-- Model run is still loaded for ETA / model-rain-source meta
-- UI unchanged
+- While sliders are moving, Quick View shows LIVE PREVIEW from the model.
+- Before any slider movement, Quick View still shows centralized readiness.
+- After Save & Close, centralized readiness is rewritten so the rest of the app
+  sees the updated number from Firestore.
 
 ===================================================================== */
 'use strict';
@@ -318,6 +320,142 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
     rows: [],
     _latest: rec
   };
+}
+
+/* =====================================================================
+   Centralized latest writeback after Save & Close
+===================================================================== */
+function getModelWeatherSourceValue(run){
+  try{
+    const rows = Array.isArray(run && run.rows) ? run.rows : [];
+    if (!rows.length) return 'open-meteo';
+
+    let mrmsCount = 0;
+    let omCount = 0;
+
+    for (const r of rows){
+      const src = String(r && r.rainSource || '').toLowerCase();
+      if (src === 'mrms') mrmsCount++;
+      else if (src) omCount++;
+    }
+
+    if (mrmsCount > 0 && omCount === 0) return 'mrms';
+    if (mrmsCount > 0 && omCount > 0) return 'mixed';
+    return 'open-meteo';
+  }catch(_){
+    return 'open-meteo';
+  }
+}
+
+function buildLatestPayloadFromRun(state, field, run){
+  const f = field || {};
+  const r = run || {};
+  const latestExisting = getLatestReadinessForField(state, f.id) || null;
+  const info = (state && state.wxInfoByFieldId && state.wxInfoByFieldId.get)
+    ? (state.wxInfoByFieldId.get(f.id) || null)
+    : null;
+
+  const farmName =
+    (state && state.farmsById && state.farmsById.get && f.farmId)
+      ? (state.farmsById.get(f.farmId) || '')
+      : '';
+
+  const nowIso = new Date().toISOString();
+
+  const location = {
+    lat: safeNum(f && f.location && f.location.lat),
+    lng: safeNum(f && f.location && f.location.lng)
+  };
+
+  return {
+    fieldId: safeStr(f.id),
+    farmId: safeStr(f.farmId),
+    farmName: farmName || null,
+    fieldName: safeStr(f.name),
+    county: safeStr(f.county),
+    state: safeStr(f.state),
+
+    readiness: safeInt(r.readinessR),
+    wetness: safeInt(r.wetnessR),
+
+    soilWetness: safeNum(f.soilWetness),
+    drainageIndex: safeNum(f.drainageIndex),
+
+    readinessCreditIn: safeNum(r.readinessCreditIn) ?? 0,
+    storageFinal: safeNum(r.storageFinal),
+    storageForReadiness:
+      safeNum(r.storageForReadiness) ??
+      safeNum(r && r.factors && r.factors.Smax) ??
+      safeNum(latestExisting && latestExisting.storageForReadiness),
+    storagePhysFinal:
+      safeNum(r.storagePhysFinal) ??
+      safeNum(latestExisting && latestExisting.storagePhysFinal),
+    wetBiasApplied:
+      safeNum(r.wetBiasApplied) ??
+      safeNum(latestExisting && latestExisting.wetBiasApplied),
+
+    runKey: safeStr(r.runKey) || 'quickview-save',
+    seedSource: 'quickview-save',
+    weatherSource: getModelWeatherSourceValue(r),
+    timezone:
+      safeStr(r.timezone) ||
+      safeStr(latestExisting && latestExisting.timezone) ||
+      'America/Chicago',
+
+    weatherFetchedAt: (info && info.fetchedAt) ? new Date(info.fetchedAt) : new Date(nowIso),
+    computedAt: new Date(nowIso),
+
+    location
+  };
+}
+
+async function writeLatestReadinessDoc(state, fieldId, payload){
+  const api = getAPI(state);
+  if (!api) return;
+
+  if (api.kind !== 'compat'){
+    const db = api.getFirestore();
+    const ref = api.doc(db, FR_LATEST_COLLECTION, String(fieldId));
+
+    if (typeof api.setDoc === 'function'){
+      await api.setDoc(ref, payload, { merge:true });
+      return;
+    }
+
+    if (typeof api.updateDoc === 'function'){
+      try{
+        await api.updateDoc(ref, payload);
+      }catch(_){
+        if (typeof api.setDoc === 'function'){
+          await api.setDoc(ref, payload, { merge:true });
+        }else{
+          throw _;
+        }
+      }
+      return;
+    }
+  }
+
+  if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
+    const db = window.firebase.firestore();
+    await db.collection(FR_LATEST_COLLECTION).doc(String(fieldId)).set(payload, { merge:true });
+  }
+}
+
+async function persistLatestReadinessForField(state, field, run){
+  try{
+    if (!state || !field || !field.id || !run) return;
+
+    const payload = buildLatestPayloadFromRun(state, field, run);
+    await writeLatestReadinessDoc(state, field.id, payload);
+
+    state.latestReadinessByFieldId = state.latestReadinessByFieldId || {};
+    state.latestReadinessByFieldId[String(field.id)] = buildLatestReadinessRecord(payload, String(field.id));
+    state._qvLatestLoadedAt = Date.now();
+  }catch(e){
+    console.warn('[FieldReadiness] latest readiness write failed:', e);
+    throw e;
+  }
 }
 
 /* ---------- tile preview color helpers (match tiles) ---------- */
@@ -939,13 +1077,15 @@ async function fillQuickView(state, { live=false } = {}){
     persistedGetter: (id)=> getPersistedStateForDeps(state, id)
   });
 
-  // Model run kept for ETA + rainfall source meta
+  // Always compute model run for live preview + ETA/meta.
   const runTruth = state._mods.model.runField(f, depsTruth);
 
-  // Display run now prefers centralized latest doc
+  // Centralized doc remains default when modal first opens.
   const latestRec = getLatestReadinessForField(state, fid);
   const latestRun = buildSyntheticRunFromLatest(state, f, latestRec);
-  const displayRun = latestRun || runTruth;
+
+  const previewMode = !!live || !!state._qvDidAdjust;
+  const displayRun = previewMode ? runTruth : (latestRun || runTruth);
 
   const farmName =
     (latestRec && latestRec.farmName) ||
@@ -959,7 +1099,9 @@ async function fillQuickView(state, { live=false } = {}){
   const sub = $('frQvSub');
   if (title) title.textContent = f.name || 'Field';
   if (sub){
-    const sourceTag = latestRun ? 'Centralized readiness' : 'Truth (Rule A)';
+    let sourceTag = 'Centralized readiness';
+    if (previewMode) sourceTag = 'Live preview';
+    else if (!latestRun) sourceTag = 'Truth (Rule A)';
     sub.textContent = farmName ? `${farmName} • ${sourceTag}` : sourceTag;
   }
 
@@ -985,7 +1127,11 @@ async function fillQuickView(state, { live=false } = {}){
     if (saveBtn) saveBtn.disabled = true;
     if (inputsPanel) inputsPanel.style.opacity = '0.75';
   } else {
-    if (hint) hint.textContent = 'Rule A: sliders change tank + rates only. Save stores sliders (does not change truth storage).';
+    if (previewMode){
+      if (hint) hint.textContent = 'Live preview shown below. Save & Close writes sliders + updates centralized readiness.';
+    } else {
+      if (hint) hint.textContent = 'Move sliders to preview readiness live. Save & Close updates Firestore.';
+    }
     if (saveBtn) saveBtn.disabled = false;
     if (inputsPanel) inputsPanel.style.opacity = '1';
   }
@@ -1011,16 +1157,17 @@ async function fillQuickView(state, { live=false } = {}){
   setText('frQvWetness', displayRun && Number.isFinite(Number(displayRun.wetnessR)) ? displayRun.wetnessR : '—');
 
   let storageText = '—';
-  if (latestRun && latestRec){
-    const sf = safeNum(latestRec.storageFinal);
-    const sfr = safeNum(latestRec.storageForReadiness);
+  if (displayRun){
+    const sf = safeNum(displayRun.storageFinal);
+    const sfr =
+      safeNum(displayRun.storageForReadiness) ??
+      safeNum(displayRun && displayRun.factors && displayRun.factors.Smax);
+
     if (sf != null && sfr != null){
       storageText = `${sf.toFixed(2)} / ${sfr.toFixed(2)}`;
     } else if (sf != null){
       storageText = `${sf.toFixed(2)}`;
     }
-  } else if (displayRun && safeNum(displayRun.storageFinal) != null && displayRun.factors && safeNum(displayRun.factors.Smax) != null){
-    storageText = `${displayRun.storageFinal.toFixed(2)} / ${displayRun.factors.Smax.toFixed(2)}`;
   }
   setText('frQvStorage', storageText);
 
@@ -1032,11 +1179,13 @@ async function fillQuickView(state, { live=false } = {}){
   if (wxMeta){
     const truthR = (runTruth && isFinite(Number(runTruth.readinessR))) ? Number(runTruth.readinessR) : null;
     const centralR = (latestRun && isFinite(Number(latestRun.readinessR))) ? Number(latestRun.readinessR) : null;
+    const shownR = (displayRun && isFinite(Number(displayRun.readinessR))) ? Number(displayRun.readinessR) : null;
     const rainSource = getModelRainSourceLabel(runTruth);
 
     wxMeta.innerHTML =
       `Weather updated: <span class="mono">${esc(whenTxt)}</span>` +
       ` • Model rain: <span class="mono">${esc(rainSource)}</span>` +
+      (shownR != null ? ` • Shown: <span class="mono">${shownR}</span>` : ``) +
       (centralR != null ? ` • Centralized: <span class="mono">${centralR}</span>` : ``) +
       (truthR != null ? ` • Model: <span class="mono">${truthR}</span>` : ``);
   }
@@ -1111,6 +1260,23 @@ async function saveAndClose(state){
         updatedAt: new Date().toISOString()
       }, { merge:true });
     }
+
+    // Recompute centralized readiness using the NEW saved slider values.
+    await ensureFRModules(state);
+    await loadPersistedState(state, { force:true });
+
+    const opKey = getCurrentOp();
+    const wxCtx = buildWxCtx(state);
+    const depsTruth = buildFRDeps(state, {
+      opKey,
+      wxCtx,
+      persistedGetter: (id)=> getPersistedStateForDeps(state, id)
+    });
+
+    const runTruth = state._mods.model.runField(f, depsTruth);
+    await persistLatestReadinessForField(state, f, runTruth);
+
+    state._qvDidAdjust = false;
 
     try{ document.dispatchEvent(new CustomEvent('fr:tile-refresh', { detail:{ fieldId: fid } })); }catch(_){}
     try{ document.dispatchEvent(new CustomEvent('fr:details-refresh', { detail:{ fieldId: fid } })); }catch(_){}
