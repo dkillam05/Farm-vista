@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-15c-restore-tile-eta-and-threshold-dynamic-bar
+Rev: 2026-03-15d-prepare-eta-seed-handshake-no-trim
 
 GOAL (per Dane):
 ✅ Read ALL displayed readiness numbers from Firestore collection:
@@ -14,6 +14,7 @@ GOAL (per Dane):
 ✅ Cap ETA horizon to 1 week / 168 hours
 ✅ Show ETA as compact hours or >168h
 ✅ Restore dynamic readiness gradient based on operation threshold
+✅ PREP: pass centralized latest truth context cleanly into ETA path
 ✅ No trimmed sections
 
 NEW CENTRALIZED READINESS SOURCE:
@@ -31,6 +32,8 @@ IMPORTANT BEHAVIOR:
   but displayed readiness truth is anchored to field_readiness_latest.
 - ETA is restored as a secondary post-render enhancement so tile loading
   stays fast.
+- This file now prepares the ETA call so the next formula/model update
+  can consume centralized latest truth without changing tile wiring again.
 
 ===================================================================== */
 'use strict';
@@ -640,9 +643,6 @@ function buildThresholdGradientStops(thr){
     };
   }
 
-  // Dynamic band:
-  // lower threshold => short red zone, more green
-  // higher threshold => longer red zone, less green
   const redEnd = clamp(Math.round(t * 0.72), 0, 96);
   const yellowAt = clamp(t, redEnd + 1, 98);
   const greenStart = clamp(Math.round(t + ((100 - t) * 0.14)), yellowAt + 1, 100);
@@ -1126,7 +1126,50 @@ function normalizeEtaResult(res, horizonHours){
   return '';
 }
 
-async function getTileEtaText(state, fieldObj, deps, run0, thr){
+function buildEtaDepsForField(state, fieldObj, opKey, latestRec){
+  const deps = buildDepsForState(state, opKey);
+  const rec = latestRec || getLatestReadinessForField(state, fieldObj && fieldObj.id) || null;
+
+  if (!deps || typeof deps !== 'object') return deps;
+
+  return {
+    ...deps,
+    getCentralizedLatestForFieldId: (id)=>{
+      const fid = String(id || '');
+      if (rec && String(rec.fieldId || fieldObj?.id || '') === fid) return rec;
+      try{
+        return getLatestReadinessForField(state, fid);
+      }catch(_){
+        return null;
+      }
+    },
+    getEtaSeedForFieldId: (id)=>{
+      const fid = String(id || '');
+      const useRec = (rec && String(rec.fieldId || fieldObj?.id || '') === fid)
+        ? rec
+        : getLatestReadinessForField(state, fid);
+
+      if (!useRec) return null;
+
+      return {
+        fieldId: String(useRec.fieldId || fid),
+        readiness: safeNum(useRec.readiness),
+        wetness: safeNum(useRec.wetness),
+        storagePhysFinal: safeNum(useRec.storagePhysFinal),
+        storageFinal: safeNum(useRec.storageFinal),
+        storageForReadiness: safeNum(useRec.storageForReadiness),
+        readinessCreditIn: safeNum(useRec.readinessCreditIn),
+        wetBiasApplied: safeNum(useRec.wetBiasApplied),
+        computedAtISO: safeStr(useRec.computedAtISO),
+        weatherFetchedAtISO: safeStr(useRec.weatherFetchedAtISO),
+        runKey: safeStr(useRec.runKey),
+        source: 'field_readiness_latest'
+      };
+    }
+  };
+}
+
+async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
   const HORIZON_HOURS = ETA_HORIZON_HOURS;
   const readinessNow = Number(run0 && run0.readinessR);
 
@@ -1134,7 +1177,7 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr){
   if (readinessNow >= Number(thr)) return '';
 
   try{
-    const latest = getLatestReadinessForField(state, fieldObj && fieldObj.id);
+    const latest = latestRec || getLatestReadinessForField(state, fieldObj && fieldObj.id);
     const opKey = getCurrentOp();
     const cacheKey = getEtaCacheKey(fieldObj, opKey, thr, latest);
     const cached = getEtaCacheValue(state, cacheKey);
@@ -1147,12 +1190,10 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr){
     const model = state && state._mods ? state._mods.model : null;
     if (!model || typeof model.etaToThreshold !== 'function') return '';
 
-    const res = await model.etaToThreshold(fieldObj, deps, Number(thr), HORIZON_HOURS, 3);
+    const etaDeps = buildEtaDepsForField(state, fieldObj, opKey, latest);
+    const res = await model.etaToThreshold(fieldObj, etaDeps || deps, Number(thr), HORIZON_HOURS, 3);
     let txt = normalizeEtaResult(res, HORIZON_HOURS);
 
-    // If model returns nothing but field is still below threshold,
-    // preserve the 1-week cap convention only when result object
-    // explicitly says it is beyond horizon.
     if (!txt && res && (res.exceedsHorizon === true || res.withinHorizon === false || res.reached === false)){
       txt = `>${HORIZON_HOURS}h`;
     }
@@ -1556,7 +1597,7 @@ async function updateTileForField(state, fieldId){
     let etaText = '';
     try{
       const deps = buildDepsForState(state, opKey);
-      etaText = await getTileEtaText(state, f, deps, run0, thr);
+      etaText = await getTileEtaText(state, f, deps, run0, thr, latest);
     }catch(_){
       etaText = '';
     }
@@ -2103,7 +2144,6 @@ async function _renderDetailsInternal(state){
     }catch(_){}
   }
 
-  // Keep deeper model/trace support for the details screen only.
   let run = null;
   try{
     await ensureFRModules(state);
