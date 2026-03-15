@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-03-15a-shared-readiness-core-hook
+Rev: 2026-03-11a-storage-state-drydown
 
 OPTION 1 (per Dane):
 ✅ Model owns ETA and computes it from the SAME truth-seeded run + SAME physics.
@@ -15,21 +15,31 @@ THIS REV:
    - very full / saturated profile dries down slower
    - mid-range profile dries down faster
    - very dry tail still slows down as before
-✅ Keeps same frontend behavior / trace / ETA behavior
-✅ Rebuilt cleanly so you can paste it back safely
-✅ Adds shared-readiness-core import hook for future parity wiring
+✅ This better matches:
+   - dry sponge = rain causes a short setback, then recovery can resume quicker
+   - full sponge = same rain lingers longer and slows readiness recovery
+
+TUNING NOTES FOR NEXT TIME:
+- WET_HOLD_START:
+    where "wet soils start holding on harder"
+- WET_HOLD_MAX_REDUCTION:
+    max drydown slowdown at saturation
+- MID_ACCEL_START:
+    where drying begins to accelerate once storage has come down enough
+- MID_ACCEL_MAX_BOOST:
+    max extra drydown boost in that middle zone
+- DRY_TAIL_START / DRY_TAIL_MIN_MULT:
+    still control the very-dry end slowdown
 
 IMPORTANT:
 - Truth seed (storageFinal + asOfDateISO) still anchors "now"
 - Learning (EXTRA.DRY_LOSS_MULT / EXTRA.RAIN_EFF_MULT) still applies
-- This file supports merged weather input through deps:
+- This file now supports merged weather input through deps:
     1) getModelWeatherSeriesForFieldId(fieldId)
     2) getMergedWeatherSeriesForFieldId(fieldId)
     3) fallback getWeatherSeriesForFieldId(fieldId)
 ===================================================================== */
 'use strict';
-
-import { runFieldReadinessCore } from './readiness-core-shared.js';
 
 function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
 function roundInt(x){
@@ -354,6 +364,15 @@ function effectiveRainInches(rainIn, storageBefore, Smax, factors, tune){
 
 /* =====================================================================
    NEW: storage-state drydown multiplier
+
+   Goal:
+   - very wet/full profile dries slower
+   - mid-range profile dries a bit faster
+   - very dry tail still slows separately later
+
+   Returns:
+   - mult < 1.0  => wet/full hold-back
+   - mult > 1.0  => middle-zone acceleration
 ===================================================================== */
 function storageDrydownMult(storageBefore, Smax, tune){
   if (!isFinite(storageBefore) || !isFinite(Smax) || Smax <= 0) return 1;
@@ -361,12 +380,18 @@ function storageDrydownMult(storageBefore, Smax, tune){
   const sat = clamp(storageBefore / Smax, 0, 1);
   let mult = 1;
 
+  // 1) WET HOLD:
+  // when the profile is already pretty full, good weather still dries it,
+  // but it does NOT peel off moisture as aggressively.
   if (sat > tune.WET_HOLD_START){
     const wetFrac = clamp((sat - tune.WET_HOLD_START) / Math.max(1e-6, (1 - tune.WET_HOLD_START)), 0, 1);
     const wetReduction = tune.WET_HOLD_MAX_REDUCTION * Math.pow(wetFrac, tune.WET_HOLD_EXP);
     mult *= (1 - wetReduction);
   }
 
+  // 2) MID-RANGE ACCELERATION:
+  // once the profile has come down enough, it can start recovering quicker.
+  // This boost fades out before the bone-dry tail, where we still slow things down.
   if (sat < tune.MID_ACCEL_START && sat > tune.DRY_TAIL_START){
     const midFrac = clamp((tune.MID_ACCEL_START - sat) / Math.max(1e-6, (tune.MID_ACCEL_START - tune.DRY_TAIL_START)), 0, 1);
     const boost = tune.MID_ACCEL_MAX_BOOST * Math.pow(midFrac, tune.MID_ACCEL_EXP);
@@ -706,12 +731,14 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
 
       let lossDay = Number(parts.dryPwr||0) * deps.LOSS_SCALE * f.dryMult * (1 + deps.EXTRA.LOSS_ET0_W * et0N);
 
+      // NEW: storage-state drydown behavior
       const stateDryMult = storageDrydownMult(before, f.Smax, tune);
       lossDay = lossDay * stateDryMult;
 
       let loss = Math.max(0, lossDay * (stepH / 24));
       loss = Math.max(0, loss * rate.dryLossMult);
 
+      // Existing very-dry tail slowdown remains last
       if (f.Smax > 0 && isFinite(before)){
         const sat = clamp(before / f.Smax, 0, 1);
         if (sat < tune.DRY_TAIL_START){
@@ -803,11 +830,13 @@ export function runField(field, deps){
 
     let lossBase = Number(d.dryPwr||0) * deps.LOSS_SCALE * f.dryMult * (1 + deps.EXTRA.LOSS_ET0_W * d.et0N);
 
+    // NEW: storage-state drydown behavior
     const stateDryMult = storageDrydownMult(before, f.Smax, tune);
 
     let loss = lossBase * stateDryMult;
     loss = Math.max(0, loss * rate.dryLossMult);
 
+    // Existing very-dry tail slowdown remains last
     if (f.Smax > 0 && isFinite(before)){
       const sat = clamp(before / f.Smax, 0, 1);
       if (sat < tune.DRY_TAIL_START){
@@ -858,18 +887,6 @@ export function runField(field, deps){
 
   const wetnessR = roundInt(wetness);
   const readinessR = roundInt(readiness);
-
-  // Shared-core hook kept here for future exact-parity swap.
-  // Currently not used to override existing model behavior, so
-  // UI behavior stays unchanged while wiring is being finalized.
-  try{
-    runFieldReadinessCore(
-      rows,
-      p.soilWetness,
-      p.drainageIndex,
-      getPersistedState(deps, field.id)
-    );
-  }catch(_){}
 
   const last7 = trace.slice(-7);
   const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
