@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/formula.js  (FULL FILE)
-Rev: 2026-03-13b-fix-eta-helper-sync-forecast-cache
+Rev: 2026-03-15c-expose-centralized-latest-seed-for-eta
 
 PURPOSE:
 ✅ Single source of truth for Field Readiness computation wiring.
@@ -19,6 +19,9 @@ THIS REV:
 ✅ FIX: ETA helper contract restored — forecast getter is synchronous again.
    Forecast rows are prewarmed/cached, then buildFRDeps exposes them as a
    normal array getter instead of returning a Promise.
+✅ NEW: exposes centralized field_readiness_latest truth to ETA/model path
+   so ETA can seed from live latest readiness/storage instead of recomputing
+   "now" from historical series only
 
 This module:
 - Ensures model/weather/forecast modules are loaded
@@ -26,6 +29,7 @@ This module:
   - model weather series (MRMS-ready => MRMS history; else Open-Meteo history)
   - field params
   - persisted truth seed (field_readiness_state)
+  - centralized latest truth seed (field_readiness_latest)
   - CAL legacy adjustments => ALWAYS ZERO
   - EXTRA + CONST
   - optional forecast series (for ETA helper use)
@@ -79,7 +83,7 @@ function getCalZero(){
 }
 
 /* =====================================================================
-   Persisted truth seed helpers
+   Small helpers
 ===================================================================== */
 function safeObj(x){
   return (x && typeof x === 'object') ? x : null;
@@ -100,12 +104,67 @@ function mmToIn(mm){
   return num(mm, 0) / 25.4;
 }
 
+/* =====================================================================
+   Persisted truth seed helpers
+===================================================================== */
 export function getPersistedTruthFromState(state, fieldId){
   try{
     const map = safeObj(state && state.persistedStateByFieldId) || {};
     const fid = safeStr(fieldId);
     const s = map[fid];
     return safeObj(s);
+  }catch(_){
+    return null;
+  }
+}
+
+/* =====================================================================
+   Centralized latest truth helpers
+===================================================================== */
+export function getLatestTruthFromState(state, fieldId){
+  try{
+    const map = safeObj(state && state.latestReadinessByFieldId) || {};
+    const fid = safeStr(fieldId);
+    const rec = map[fid];
+    return safeObj(rec);
+  }catch(_){
+    return null;
+  }
+}
+
+function buildEtaSeedFromLatestRecord(rec, fieldId){
+  try{
+    const r = safeObj(rec);
+    if (!r) return null;
+
+    const fid = safeStr(r.fieldId || fieldId);
+    if (!fid) return null;
+
+    const out = {
+      fieldId: fid,
+      readiness: num(r.readiness, null),
+      wetness: num(r.wetness, null),
+      soilWetness: num(r.soilWetness, null),
+      drainageIndex: num(r.drainageIndex, null),
+      storagePhysFinal: num(r.storagePhysFinal, null),
+      storageFinal: num(r.storageFinal, null),
+      storageForReadiness: num(r.storageForReadiness, null),
+      readinessCreditIn: num(r.readinessCreditIn, null),
+      wetBiasApplied: num(r.wetBiasApplied, null),
+      computedAtISO: safeStr(r.computedAtISO),
+      weatherFetchedAtISO: safeStr(r.weatherFetchedAtISO),
+      runKey: safeStr(r.runKey),
+      weatherSource: safeStr(r.weatherSource),
+      seedSource: safeStr(r.seedSource),
+      source: 'field_readiness_latest'
+    };
+
+    const hasUsefulSeed =
+      Number.isFinite(Number(out.storagePhysFinal)) ||
+      Number.isFinite(Number(out.storageFinal)) ||
+      Number.isFinite(Number(out.readiness));
+
+    return hasUsefulSeed ? out : null;
   }catch(_){
     return null;
   }
@@ -123,28 +182,24 @@ async function loadFieldMrmsDocLocal(state, fieldId, { force=false } = {}){
   const fid = String(fieldId || '').trim();
   if (!fid) return null;
 
-  state._mrmsDocByFieldId = state._mrmsDocByFieldId || new Map();
-  state._mrmsDocLoadedAtByFieldId = state._mrmsDocLoadedAtByFieldId || new Map();
-
-  const TTL_MS = 5 * 60 * 1000;
+  ensureMrmsCaches(state);
 
   try{
     const cached = state._mrmsDocByFieldId.get(fid) || null;
     const loadedAt = Number(state._mrmsDocLoadedAtByFieldId.get(fid) || 0);
 
-    if (!force && cached && loadedAt && (Date.now() - loadedAt) < TTL_MS){
+    if (!force && cached && loadedAt && (Date.now() - loadedAt) < MRMS_DOC_TTL_MS){
       return cached;
     }
 
     let data = null;
 
-    // Prefer modular API first
     try{
       const api = (typeof getAPI === 'function') ? getAPI(state) : null;
       const db = api && typeof api.getFirestore === 'function' ? api.getFirestore() : null;
 
       if (db && api && typeof api.doc === 'function' && typeof api.getDoc === 'function'){
-        const ref = api.doc(db, 'field_mrms_weather', fid);
+        const ref = api.doc(db, MRMS_COLLECTION, fid);
         const snap = await api.getDoc(ref);
 
         if (snap){
@@ -159,7 +214,6 @@ async function loadFieldMrmsDocLocal(state, fieldId, { force=false } = {}){
       }
     }catch(_){}
 
-    // Compat fallback only if modular did not return a doc
     if (!data){
       const compatDb =
         (window.firebase && typeof window.firebase.firestore === 'function')
@@ -167,7 +221,7 @@ async function loadFieldMrmsDocLocal(state, fieldId, { force=false } = {}){
           : null;
 
       if (compatDb && typeof compatDb.collection === 'function'){
-        const snap = await compatDb.collection('field_mrms_weather').doc(fid).get();
+        const snap = await compatDb.collection(MRMS_COLLECTION).doc(fid).get();
         if (snap && snap.exists){
           data = snap.data() || null;
         }
@@ -360,7 +414,6 @@ export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=nul
 
   ensureForecastCaches(state);
 
-  // ✅ Harden common param caches so params.js does not crash on .get(...)
   state.paramsByFieldId = (state.paramsByFieldId instanceof Map) ? state.paramsByFieldId : new Map();
   state.paramMetaByFieldId = (state.paramMetaByFieldId instanceof Map) ? state.paramMetaByFieldId : new Map();
   state._frModelWxCache = (state._frModelWxCache instanceof Map) ? state._frModelWxCache : new Map();
@@ -377,8 +430,6 @@ export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=nul
       const hit = state._frModelWxCache.get(cacheKey);
       if (hit && Array.isArray(hit.rows)) return hit.rows;
 
-      // synchronous fallback if caller forgot to prewarm:
-      // use open-meteo rows immediately
       const rows = withRainSource(
         state._mods.weather.getWeatherSeriesForFieldId(fid, okWxCtx),
         'open-meteo'
@@ -417,7 +468,6 @@ export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=nul
     getPersistedState,
 
     // ETA/helper expects a synchronous getter.
-    // Forecast cache is prewarmed before runFieldReadiness/model use.
     getForecastSeriesForFieldId: (id)=>{
       try{
         const fid = String(id);
@@ -426,6 +476,26 @@ export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=nul
         return Array.isArray(rows) ? rows : [];
       }catch(_){
         return [];
+      }
+    },
+
+    // NEW: expose centralized latest collection directly
+    getCentralizedLatestForFieldId: (id)=>{
+      try{
+        return getLatestTruthFromState(state, String(id));
+      }catch(_){
+        return null;
+      }
+    },
+
+    // NEW: expose a normalized ETA seed object from field_readiness_latest
+    getEtaSeedForFieldId: (id)=>{
+      try{
+        const fid = String(id);
+        const rec = getLatestTruthFromState(state, fid);
+        return buildEtaSeedFromLatestRecord(rec, fid);
+      }catch(_){
+        return null;
       }
     }
   };
@@ -442,8 +512,6 @@ async function prewarmModelWeatherForField(state, fieldObj, wxCtx){
     const fid = String(fieldObj.id);
     const cacheKey = `modelwx:${fid}`;
 
-    // ✅ Force weather warm for this exact field first, so newly added fields
-    // can get Open-Meteo rows even if they were not part of the initial warm set.
     try{
       if (
         state._mods &&
@@ -459,7 +527,6 @@ async function prewarmModelWeatherForField(state, fieldObj, wxCtx){
       console.warn('[FieldReadiness] field weather warm failed:', e);
     }
 
-    // ✅ Prewarm forecast cache too so ETA helper sees sync rows later.
     try{
       await prewarmForecastForField(state, fid);
     }catch(e){
@@ -491,7 +558,6 @@ export async function runFieldReadiness(state, fieldObj, opts = {}){
 
   const wxCtx = opts.wxCtx || buildWxCtx(state);
 
-  // Prewarm merged/model weather so model gets MRMS rows when ready
   await prewarmModelWeatherForField(state, fieldObj, wxCtx);
 
   const deps = buildFRDeps(state, { ...opts, wxCtx });
