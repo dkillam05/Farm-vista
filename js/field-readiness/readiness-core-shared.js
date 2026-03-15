@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/readiness-core-shared.js  (FULL FILE)
-Rev: 2026-03-15a-parity-core-rebuild
+Rev: 2026-03-15b-parity-core-rain-precedence-and-avg-loss-fix
 
 PURPOSE
 ✅ Shared PURE readiness math core for BOTH:
@@ -30,6 +30,14 @@ MATCHES LIVE MODEL FOR:
 ✅ learning multipliers
 ✅ SM010 nudges
 ✅ readiness/wetness/storage outputs
+
+FIXES IN THIS REV
+✅ FIX: rain precedence now matches backend:
+   - rainInAdj first
+   - then rainIn
+   - MRMS-only fallback only if caller did not already provide rainInAdj
+✅ FIX: avgLossDay now computes correctly even when includeTrace=false
+✅ FIX: backend-style row normalization parity tightened
 ===================================================================== */
 
 'use strict';
@@ -139,13 +147,11 @@ function buildExtra(extra){
   };
 }
 
-function buildTune(tune, extraLike){
-  const srcA = (tune && typeof tune === 'object') ? tune : null;
-  const srcB = (extraLike && typeof extraLike === 'object') ? extraLike : null;
+function buildTune(tune){
+  const src = (tune && typeof tune === 'object') ? tune : null;
   const t = { ...DEFAULT_TUNE };
 
-  for (const src of [srcA, srcB]){
-    if (!src) continue;
+  if (src){
     for (const k of Object.keys(t)){
       if (src[k] === null || src[k] === undefined) continue;
       const v = Number(src[k]);
@@ -244,27 +250,41 @@ function mapFactors(soilWetness0_100, drainageIndex0_100, sm010){
   return { soilHold, drainPoor, smN, infilMult, dryMult, Smax, SmaxBase };
 }
 
+/* =====================================================================
+   Rain precedence must match backend
+===================================================================== */
 function pickRainForRow(w){
   if (!w || typeof w !== 'object'){
     return { rainInAdj: 0, rainSource: 'none' };
   }
 
-  const mrmsIn = Number(w.rainMrmsIn);
-  if (Number.isFinite(mrmsIn)){
-    return { rainInAdj: Math.max(0, mrmsIn), rainSource: 'mrms' };
-  }
-
   if (Number.isFinite(Number(w.rainInAdj))){
     const src = String(w.rainSource || w.precipSource || 'open-meteo').toLowerCase();
-    return { rainInAdj: Math.max(0, Number(w.rainInAdj)), rainSource: src || 'open-meteo' };
+    return {
+      rainInAdj: Math.max(0, Number(w.rainInAdj)),
+      rainSource: src || 'open-meteo'
+    };
   }
 
   if (Number.isFinite(Number(w.rainIn))){
-    return { rainInAdj: Math.max(0, Number(w.rainIn)), rainSource: 'open-meteo' };
+    return {
+      rainInAdj: Math.max(0, Number(w.rainIn)),
+      rainSource: 'open-meteo'
+    };
+  }
+
+  if (Number.isFinite(Number(w.rainMrmsIn))){
+    return {
+      rainInAdj: Math.max(0, Number(w.rainMrmsIn)),
+      rainSource: 'mrms'
+    };
   }
 
   if (Number.isFinite(Number(w.precipIn))){
-    return { rainInAdj: Math.max(0, Number(w.precipIn)), rainSource: 'open-meteo' };
+    return {
+      rainInAdj: Math.max(0, Number(w.precipIn)),
+      rainSource: 'open-meteo'
+    };
   }
 
   return { rainInAdj: 0, rainSource: 'none' };
@@ -477,7 +497,7 @@ export function runFieldReadinessCore(
   if (!Array.isArray(rows) || !rows.length) return null;
 
   const extra = buildExtra(opts.extra);
-  const tune = buildTune(opts.tune, extra);
+  const tune = buildTune(opts.tune);
   const lossScale = Number.isFinite(Number(opts.lossScale))
     ? Number(opts.lossScale)
     : DEFAULT_LOSS_SCALE;
@@ -493,6 +513,7 @@ export function runFieldReadinessCore(
 
   const trace = [];
   const wantTrace = !!opts.includeTrace;
+  const lossHistory = [];
 
   for (let i = seedPick.startIdx; i < normalizedRows.length; i++){
     const d = normalizedRows[i];
@@ -523,6 +544,7 @@ export function runFieldReadinessCore(
 
     const after = clamp(before + add - loss, 0, factors.Smax);
     storage = after;
+    lossHistory.push(loss);
 
     if (wantTrace){
       const infilMultEff = (rain > 0)
@@ -554,9 +576,9 @@ export function runFieldReadinessCore(
   const wetnessR = roundInt(out.wetness);
   const readinessR = roundInt(out.readiness);
 
-  const last7 = trace.slice(-7);
-  const avgLossDay = last7.length
-    ? (last7.reduce((s, x) => s + x.loss, 0) / last7.length)
+  const last7Loss = lossHistory.slice(-7);
+  const avgLossDay = last7Loss.length
+    ? (last7Loss.reduce((s, x) => s + x, 0) / last7Loss.length)
     : 0.08;
 
   return {
