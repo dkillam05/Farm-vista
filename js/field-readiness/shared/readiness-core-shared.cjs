@@ -1,13 +1,14 @@
 /* =====================================================================
 /js/field-readiness/shared/readiness-core-shared.cjs  (FULL FILE)
-Rev: 2026-03-15d-backend-shared-core-module-shared-path
+Rev: 2026-03-15e-backend-shared-core-rain-order-fix
 
 PURPOSE
 ✅ Shared PURE readiness math core for backend import
 ✅ CommonJS module for Cloud Run / Node
 ✅ Matches current shared-core parity logic
-✅ Fixes rain precedence parity
-✅ Fixes avgLossDay when includeTrace=false
+✅ FIX: rain precedence now matches live field-readiness.model.js
+✅ FIX: avgLossDay still works when includeTrace=false
+✅ CAL remains zero to match formula.js wiring
 ===================================================================== */
 
 'use strict';
@@ -220,9 +221,22 @@ function mapFactors(soilWetness0_100, drainageIndex0_100, sm010){
   return { soilHold, drainPoor, smN, infilMult, dryMult, Smax, SmaxBase };
 }
 
+/* =====================================================================
+   Rain precedence
+   MUST match live field-readiness.model.js:
+   1) rainMrmsIn
+   2) rainInAdj
+   3) rainIn
+   4) precipIn
+===================================================================== */
 function pickRainForRow(w){
   if (!w || typeof w !== 'object'){
     return { rainInAdj: 0, rainSource: 'none' };
+  }
+
+  const mrmsIn = Number(w.rainMrmsIn);
+  if (Number.isFinite(mrmsIn)){
+    return { rainInAdj: Math.max(0, mrmsIn), rainSource: 'mrms' };
   }
 
   if (Number.isFinite(Number(w.rainInAdj))){
@@ -237,13 +251,6 @@ function pickRainForRow(w){
     return {
       rainInAdj: Math.max(0, Number(w.rainIn)),
       rainSource: 'open-meteo'
-    };
-  }
-
-  if (Number.isFinite(Number(w.rainMrmsIn))){
-    return {
-      rainInAdj: Math.max(0, Number(w.rainMrmsIn)),
-      rainSource: 'mrms'
     };
   }
 
@@ -329,6 +336,7 @@ function applyCalToStorage(storagePhys, Smax){
     };
   }
 
+  // formula.js zeroes CAL everywhere
   const wetBias = 0;
   const readinessShift = 0;
 
